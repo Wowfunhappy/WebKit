@@ -26,6 +26,12 @@
 #include "config.h"
 #include <wtf/RunLoop.h>
 
+#include <dispatch/dispatch.h>
+#include <wtf/Lock.h>
+#include <wtf/Vector.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
 #include <wtf/StdLibExtras.h>
@@ -62,7 +68,36 @@ private:
 void RunLoop::initializeMain()
 {
     RELEASE_ASSERT(!s_mainRunLoop);
-    s_mainRunLoop = &RunLoop::currentSingleton();
+    // 10.9: dispatch_main() calls pthread_exit on the main thread (so dispatch
+    // workers can take over), which triggers pthread TSD cleanup, which destroys
+    // the per-thread RunLoop Holder, freeing the main RunLoop. After that point
+    // s_mainRunLoop dangles. Pin the main RunLoop with multiple ref bumps to
+    // make absolutely sure deref() can never reach zero from any other path.
+    auto& mrl = RunLoop::currentSingleton();
+    // Pre-transition the singleton to control block mode by taking a
+    // ThreadSafeWeakPtr explicitly, then leak that weak. This ensures the
+    // control block exists with a permanent weak ref so the underlying
+    // ThreadSafeWeakPtrControlBlock is never freed (which would otherwise
+    // happen when the last weak ref releases it). After that bump the strong
+    // refcount through the control block by many refs to make destruction
+    // through that path unreachable too.
+    {
+        auto* leaked = new ThreadSafeWeakPtr<RunLoop>(mrl);
+        (void)leaked;
+    }
+    for (int i = 0; i < 100000; ++i)
+        mrl.ref();
+    s_mainRunLoop = &mrl;
+    {
+        FILE *_d = ((FILE*)0);
+        if (_d) {
+            uintptr_t bits = 0;
+            if (s_mainRunLoop) memcpy(&bits, (char*)s_mainRunLoop + 0x8, sizeof(bits));
+            fprintf(_d, "[PID %d] initializeMain s_mainRunLoop=%p m_bits=0x%llx\n",
+                getpid(), s_mainRunLoop, (unsigned long long)bits);
+            fclose(_d);
+        }
+    }
 }
 
 auto RunLoop::runLoopHolder() -> ThreadSpecific<Holder>&
@@ -79,6 +114,16 @@ RunLoop& RunLoop::currentSingleton()
 RunLoop& RunLoop::mainSingleton()
 {
     ASSERT(s_mainRunLoop);
+    {
+        FILE *_d = ((FILE*)0);
+        if (_d) {
+            uintptr_t bits = 0;
+            if (s_mainRunLoop) memcpy(&bits, (char*)s_mainRunLoop + 0x8, sizeof(bits));
+            fprintf(_d, "[PID %d] mainSingleton() s_mainRunLoop=%p m_bits=0x%llx\n",
+                getpid(), s_mainRunLoop, (unsigned long long)bits);
+            fclose(_d);
+        }
+    }
     return *s_mainRunLoop;
 }
 
@@ -118,11 +163,22 @@ Ref<RunLoop> RunLoop::create(ASCIILiteral threadName, ThreadType threadType, Thr
 bool RunLoop::isCurrent() const
 {
     // Avoid constructing the RunLoop for the current thread if it has not been created yet.
-    return runLoopHolder().isSet() && this == &RunLoop::currentSingleton();
+    if (runLoopHolder().isSet() && this == &RunLoop::currentSingleton())
+        return true;
+    // 10.9: dispatch_main() calls pthread_exit on the main thread, so blocks
+    // dispatched to dispatch_get_main_queue() actually execute on dispatch worker
+    // threads (each with its own per-thread RunLoop). When the main RunLoop's
+    // wakeUp dispatches performWork to the main queue, the lambda runs on a
+    // worker — `currentSingleton()` returns that worker's RunLoop, not us.
+    // Treat "running on the main GCD queue" as equivalent to "on main RunLoop".
+    if (this == s_mainRunLoop && dispatch_get_current_queue() == dispatch_get_main_queue())
+        return true;
+    return false;
 }
 
 void RunLoop::performWork()
 {
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[RunLoop::performWork PID %d] this=%p\n", getpid(), this); fclose(_d);}}
     bool didSuspendFunctions = false;
 
     {
@@ -163,6 +219,7 @@ void RunLoop::dispatch(Function<void()>&& function)
         needsWakeup = m_nextIteration.isEmpty();
         m_nextIteration.append(WTF::move(function));
     }
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[RunLoop::dispatch PID %d] this=%p needsWakeup=%d\n", getpid(), this, needsWakeup); fclose(_d);}}
 
     if (needsWakeup)
         wakeUp();

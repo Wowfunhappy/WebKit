@@ -1,15 +1,15 @@
-add_definitions("-ObjC++ -std=c++2b -D__STDC_WANT_LIB_EXT1__")
+# Moved to per-target: add_definitions("-ObjC++ -std=c++2b -D__STDC_WANT_LIB_EXT1__")
 find_library(APPLICATIONSERVICES_LIBRARY ApplicationServices)
 find_library(CARBON_LIBRARY Carbon)
 find_library(CORESERVICES_LIBRARY CoreServices)
-find_library(NETWORK_LIBRARY Network)
+# Removed: Network not on 10.9
 find_library(SECURITY_LIBRARY Security)
 find_library(SECURITYINTERFACE_LIBRARY SecurityInterface)
 find_library(QUARTZ_LIBRARY Quartz)
-find_library(UNIFORMTYPEIDENTIFIERS_LIBRARY UniformTypeIdentifiers)
+# Removed
 find_library(AVFOUNDATION_LIBRARY AVFoundation)
-find_library(AVFAUDIO_LIBRARY AVFAudio HINTS ${AVFOUNDATION_LIBRARY}/Versions/*/Frameworks)
-find_library(DEVICEIDENTITY_LIBRARY DeviceIdentity HINTS ${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks)
+# Removed: AVFAudio not on 10.9
+# Removed: DeviceIdentity not on 10.9
 add_definitions(-iframework ${QUARTZ_LIBRARY}/Frameworks)
 add_definitions(-iframework ${CARBON_LIBRARY}/Frameworks)
 add_definitions(-iframework ${APPLICATIONSERVICES_LIBRARY}/Versions/Current/Frameworks)
@@ -22,19 +22,20 @@ add_definitions(-iframework ${CORESERVICES_LIBRARY}/Versions/Current/Frameworks)
 include(Headers.cmake)
 
 list(APPEND WebKit_PRIVATE_LIBRARIES
-    Accessibility
+
     WebKitLegacy
     ${APPLICATIONSERVICES_LIBRARY}
     ${CORESERVICES_LIBRARY}
-    ${DEVICEIDENTITY_LIBRARY}
-    ${NETWORK_LIBRARY}
     ${SECURITYINTERFACE_LIBRARY}
-    ${UNIFORMTYPEIDENTIFIERS_LIBRARY}
 )
 
 if (NOT AVFAUDIO_LIBRARY-NOTFOUND)
     list(APPEND WebKit_LIBRARIES ${AVFAUDIO_LIBRARY})
 endif ()
+
+# ObjC class stubs removed - assembly-generated OBJC_CLASS symbols have invalid
+# metadata and crash the ObjC runtime's map_images_nolock on 10.9.
+# These classes are resolved via -undefined dynamic_lookup at runtime.
 
 list(APPEND WebKit_UNIFIED_SOURCE_LIST_FILES
     "SourcesCocoa.txt"
@@ -46,16 +47,19 @@ list(APPEND WebKit_SOURCES
     GPUProcess/media/RemoteAudioDestinationManager.cpp
 
     NetworkProcess/cocoa/LaunchServicesDatabaseObserver.mm
-    NetworkProcess/cocoa/WebSocketTaskCocoa.mm
+    # WebSocketTaskCocoa.mm requires NSURLSessionWebSocketMessage (10.15+)
+    # NetworkProcess/cocoa/WebSocketTaskCocoa.mm
 
     NetworkProcess/mac/NetworkConnectionToWebProcessMac.mm
 
-    NetworkProcess/webrtc/NetworkRTCProvider.mm
-    NetworkProcess/webrtc/NetworkRTCTCPSocketCocoa.mm
-    NetworkProcess/webrtc/NetworkRTCUDPSocketCocoa.mm
-    NetworkProcess/webrtc/NetworkRTCUtilitiesCocoa.mm
+    # WebRTC requires frameworks not available on 10.9
+    # NetworkProcess/webrtc/NetworkRTCProvider.mm
+    # NetworkProcess/webrtc/NetworkRTCTCPSocketCocoa.mm
+    # NetworkProcess/webrtc/NetworkRTCUDPSocketCocoa.mm
+    # NetworkProcess/webrtc/NetworkRTCUtilitiesCocoa.mm
 
-    NetworkProcess/Downloads/cocoa/WKDownloadProgress.mm
+    # WKDownloadProgress requires NSProgress/NSKeyValueChangeKey (10.10+)
+    # NetworkProcess/Downloads/cocoa/WKDownloadProgress.mm
 
     Platform/IPC/cocoa/SharedFileHandleCocoa.cpp
 
@@ -87,7 +91,8 @@ list(APPEND WebKit_SOURCES
 
     WebProcess/WebAuthentication/WebAuthenticatorCoordinator.cpp
 
-    WebProcess/cocoa/AudioSessionRoutingArbitrator.cpp
+    # AudioSessionRoutingArbitrator requires ENABLE_ROUTING_ARBITRATION (GPU process)
+    # WebProcess/cocoa/AudioSessionRoutingArbitrator.cpp
     WebProcess/cocoa/HandleXPCEndpointMessages.mm
     WebProcess/cocoa/LaunchServicesDatabaseManager.mm
 )
@@ -221,11 +226,13 @@ list(APPEND WebKit_MESSAGES_IN_FILES
     UIProcess/ViewGestureController
 
     UIProcess/Cocoa/PlaybackSessionManagerProxy
-    UIProcess/Cocoa/VideoFullscreenManagerProxy
+    # VideoFullscreenManagerProxy requires ENABLE_VIDEO_PRESENTATION_MODE
+    # UIProcess/Cocoa/VideoFullscreenManagerProxy
 
     UIProcess/Inspector/WebInspectorUIExtensionControllerProxy
 
-    UIProcess/Media/AudioSessionRoutingArbitratorProxy
+    # AudioSessionRoutingArbitratorProxy requires ENABLE_GPU_PROCESS
+    # UIProcess/Media/AudioSessionRoutingArbitratorProxy
 
     UIProcess/Network/CustomProtocols/LegacyCustomProtocolManagerProxy
 
@@ -253,16 +260,82 @@ list(APPEND WebKit_MESSAGES_IN_FILES
     WebProcess/cocoa/PlaybackSessionManager
     WebProcess/cocoa/RemoteCaptureSampleManager
     WebProcess/cocoa/UserMediaCaptureManager
-    WebProcess/cocoa/VideoFullscreenManager
+    # WebProcess/cocoa/VideoFullscreenManager
 )
 
 list(APPEND WebKit_SERIALIZATION_IN_FILES
     Shared/Cocoa/CacheStoragePolicy.serialization.in
+    Shared/cf/CFTypes.serialization.in
+    Shared/cf/CoreIPCBoolean.serialization.in
+    Shared/cf/CoreIPCCFArray.serialization.in
+    Shared/cf/CoreIPCCFDictionary.serialization.in
+    Shared/cf/CoreIPCCGColorSpace.serialization.in
+    Shared/cf/CoreIPCNumber.serialization.in
+    Shared/cf/CoreIPCSecAccessControl.serialization.in
+    Shared/cf/CoreIPCSecCertificate.serialization.in
+    Shared/cf/CoreIPCSecKeychainItem.serialization.in
+    Shared/cf/CoreIPCSecTrust.serialization.in
+    Shared/Cocoa/CoreIPCArray.serialization.in
+    Shared/Cocoa/CoreIPCAuditToken.serialization.in
+    Shared/Cocoa/CoreIPCCFCharacterSet.serialization.in
+    Shared/Cocoa/CoreIPCCFType.serialization.in
+    Shared/Cocoa/CoreIPCCFURL.serialization.in
+    Shared/Cocoa/CoreIPCColor.serialization.in
+    Shared/Cocoa/CoreIPCContacts.serialization.in
+    Shared/Cocoa/CoreIPCData.serialization.in
+    Shared/Cocoa/CoreIPCDate.serialization.in
+    Shared/Cocoa/CoreIPCDateComponents.serialization.in
+    Shared/Cocoa/CoreIPCDictionary.serialization.in
+    Shared/Cocoa/CoreIPCError.serialization.in
+    Shared/Cocoa/CoreIPCLocale.serialization.in
+    Shared/Cocoa/CoreIPCNSCFObject.serialization.in
+    Shared/Cocoa/CoreIPCNSShadow.serialization.in
+    Shared/Cocoa/CoreIPCNSURLCredential.serialization.in
+    Shared/Cocoa/CoreIPCNSURLProtectionSpace.serialization.in
+    Shared/Cocoa/CoreIPCNSURLRequest.serialization.in
+    Shared/Cocoa/CoreIPCNSValue.serialization.in
+    Shared/Cocoa/CoreIPCNull.serialization.in
+    Shared/Cocoa/CoreIPCPersonNameComponents.serialization.in
+    Shared/Cocoa/CoreIPCPresentationIntent.serialization.in
+    Shared/Cocoa/CoreIPCSecureCoding.serialization.in
+    Shared/Cocoa/CoreIPCString.serialization.in
+    Shared/Cocoa/CoreIPCURL.serialization.in
     Shared/Cocoa/DataDetectionResult.serialization.in
     Shared/Cocoa/InsertTextOptions.serialization.in
     Shared/Cocoa/RemoteObjectInvocation.serialization.in
     Shared/Cocoa/RevealItem.serialization.in
     Shared/Cocoa/WebCoreArgumentCodersCocoa.serialization.in
+    Shared/AppPrivacyReportTestingData.serialization.in
+    Shared/AdditionalFonts.serialization.in
+    Shared/AlternativeTextClient.serialization.in
+    Shared/IPCTester.serialization.in
+    Shared/KeyEventInterpretationContext.serialization.in
+    Shared/PDFDisplayMode.serialization.in
+    Shared/PushMessageForTesting.serialization.in
+    Shared/TextAnimationTypes.serialization.in
+    Shared/UserInterfaceIdiom.serialization.in
+    Shared/ViewWindowCoordinates.serialization.in
+    Shared/Cocoa/CoreIPCAVOutputContext.serialization.in
+    Shared/Cocoa/CoreIPCCVPixelBufferRef.serialization.in
+    Shared/Cocoa/CoreIPCDDScannerResult.serialization.in
+    Shared/Cocoa/CoreIPCPlist.serialization.in
+    Shared/Cocoa/CoreIPCStringSet.serialization.in
+    Shared/Cocoa/CursorContext.serialization.in
+    Shared/Cocoa/GestureTypes.serialization.in
+    Shared/Cocoa/InteractionInformationAtPosition.serialization.in
+    Shared/Cocoa/InteractionInformationRequest.serialization.in
+    Shared/Cocoa/SharedCARingBuffer.serialization.in
+    Shared/RemoteLayerTree/BufferAndBackendInfo.serialization.in
+    Shared/RemoteLayerTree/RemoteLayerTree.serialization.in
+    Shared/RemoteLayerTree/RemoteScrollingCoordinatorTransaction.serialization.in
+    Shared/RemoteLayerTree/RemoteScrollingUIState.serialization.in
+    Shared/mac/CoreIPCDDSecureActionContext.serialization.in
+    Shared/mac/PDFContextMenuItem.serialization.in
+    Shared/mac/SecItemRequestData.serialization.in
+    Shared/mac/SecItemResponseData.serialization.in
+    Shared/mac/WebHitTestResultPlatformData.serialization.in
+    Platform/cocoa/MediaPlaybackTargetContextSerialized.serialization.in
+    WebProcess/WebPage/RemoteLayerTree/PlatformCAAnimationRemoteProperties.serialization.in
 )
 
 list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
@@ -746,8 +819,8 @@ set(ObjCForwardingHeaders
     DOMXPathResult.h
 )
 
-set(CMAKE_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS} "-compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION}")
-target_link_options(WebKit PRIVATE -lsandbox -framework AuthKit)
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION}")
+target_link_options(WebKit PRIVATE -lsandbox)
 
 set(WebKit_OUTPUT_NAME WebKit)
 
@@ -820,10 +893,12 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
     add_dependencies(WebKit WebKitSandboxProfiles)
 
     add_custom_command(OUTPUT ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib COMMAND
-        ibtool --compile ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib ${WEBKIT_DIR}/Resources/WebContentProcess.xib
+        ${CMAKE_COMMAND} -E make_directory ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources
+        COMMAND ${CMAKE_COMMAND} -E touch ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib
         VERBATIM)
     add_custom_target(WebContentProcessNib ALL DEPENDS ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib)
     add_dependencies(WebKit WebContentProcessNib)
 endfunction()
 
 set(WebKit_GENERATED_SERIALIZERS_SUFFIX mm)
+list(APPEND WebKit_LIBRARIES /usr/local/lib/libcg_polyfill.dylib)

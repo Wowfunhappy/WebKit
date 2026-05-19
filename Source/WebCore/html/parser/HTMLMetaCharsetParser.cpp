@@ -131,6 +131,7 @@ PAL::TextEncoding HTMLMetaCharsetParser::encodingFromMetaAttributes(std::span<co
 
 bool HTMLMetaCharsetParser::checkForMetaCharset(std::span<const uint8_t> data)
 {
+    // 10.9 perf: removed debug fopen logging
     if (m_doneChecking)
         return true;
 
@@ -157,7 +158,9 @@ bool HTMLMetaCharsetParser::checkForMetaCharset(std::span<const uint8_t> data)
     constexpr int bytesToCheckUnconditionally = 1024;
 
     bool ignoredSawErrorFlag;
-    m_input.append(m_codec->decode(data, false, false, ignoredSawErrorFlag));
+    String decodedLatin1 = m_codec->decode(data, false, false, ignoredSawErrorFlag);
+    // 10.9 perf: removed debug fopen logging
+    m_input.append(decodedLatin1);
 
     while (auto token = m_tokenizer.nextToken(m_input)) {
         bool isEnd = token->type() == HTMLToken::Type::EndTag;
@@ -187,6 +190,7 @@ bool HTMLMetaCharsetParser::checkForMetaCharset(std::span<const uint8_t> data)
         }
     }
 
+    // 10.9 perf: removed debug fopen logging
     return false;
 }
 

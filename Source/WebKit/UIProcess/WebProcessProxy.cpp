@@ -1137,9 +1137,23 @@ void WebProcessProxy::getNetworkProcessConnection(CompletionHandler<void(Network
 {
     RefPtr dataStore = websiteDataStore();
     if (!dataStore) {
-        ASSERT_NOT_REACHED();
-        RELEASE_LOG_FAULT(Process, "WebProcessProxy should always have a WebsiteDataStore when used by a web process requesting a network process connection");
-        return reply({ });
+        // 10.9 backport: Safari's URL-bar Enter dispatches WebPage::create to a
+        // freshly prewarmed WebProcessProxy before WebKit-internal code paths
+        // bind a WebsiteDataStore to it. Empty replies smash WebContent's stack
+        // canary downstream. Use the data store from any existing page in this
+        // process (Safari's actual data store), or fall back to default — but
+        // do NOT call setWebsiteDataStore (which sends SetWebsiteDataStoreParameters
+        // out of order with WebPage::create and breaks layer hosting).
+        for (auto& page : m_pageMap.values()) {
+            if (RefPtr pageDataStore = &page->websiteDataStore()) {
+                dataStore = pageDataStore;
+                break;
+            }
+        }
+        if (!dataStore)
+            dataStore = &WebsiteDataStore::defaultDataStore();
+        m_websiteDataStore = *dataStore; // bind the field directly without IPC
+        RELEASE_LOG(Process, "WebProcessProxy: silently bound WebsiteDataStore for network connection request");
     }
     dataStore->getNetworkProcessConnection(*this, WTF::move(reply));
 }
@@ -1232,8 +1246,10 @@ void WebProcessProxy::createMemoryAttributionIDIfNeeded(CompletionHandler<void(c
 
     GPUProcessProxy::getOrCreate()->createMemoryAttributionIDForTask(m_processIdentity, [this, weakThis = WeakPtr { *this }, completionHandler = WTF::move(completionHandler)]
     (const std::optional<String>& attributionTaskID) mutable {
-        if (!weakThis)
+        if (!weakThis) {
+            completionHandler(std::nullopt);
             return;
+        }
 
         if (attributionTaskID.has_value()) {
             WEBPROCESSPROXY_RELEASE_LOG(Process, "createMemoryAttributionIDIfNeeded: created memory attribution ID");

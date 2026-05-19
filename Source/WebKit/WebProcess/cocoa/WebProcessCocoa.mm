@@ -335,7 +335,7 @@ enum class VideoDecoderBehavior : uint8_t {
 
 static void setVideoDecoderBehaviors(OptionSet<VideoDecoderBehavior> videoDecoderBehavior)
 {
-    if (!(PAL::isVideoToolboxFrameworkAvailable() && PAL::canLoad_VideoToolbox_VTRestrictVideoDecoders()))
+    if (!(false && false))
         return;
 
     Vector<CMVideoCodecType> allowedCodecTypeList;
@@ -348,12 +348,12 @@ static void setVideoDecoderBehaviors(OptionSet<VideoDecoderBehavior> videoDecode
 
     if (videoDecoderBehavior.contains(VideoDecoderBehavior::EnableHEIC)) {
         allowedCodecTypeList.append(kCMVideoCodecType_HEVC);
-        allowedCodecTypeList.append(kCMVideoCodecType_HEVCWithAlpha);
+        allowedCodecTypeList.append(0);
     }
 
 #if HAVE(AVIF)
     if (videoDecoderBehavior.contains(VideoDecoderBehavior::EnableAVIF))
-        allowedCodecTypeList.append(kCMVideoCodecType_AV1);
+        allowedCodecTypeList.append(0);
 #endif
 
     unsigned flags = 0;
@@ -368,7 +368,6 @@ static void setVideoDecoderBehaviors(OptionSet<VideoDecoderBehavior> videoDecode
     flags |= kVTRestrictions_RegisterLimitedSystemDecodersWithoutValidation;
 #endif
 
-    PAL::softLinkVideoToolboxVTRestrictVideoDecoders(flags, allowedCodecTypeList.span().data(), allowedCodecTypeList.size());
 }
 
 void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)
@@ -492,7 +491,9 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 
 #if USE(APPKIT)
     // We don't need to talk to the Dock.
-    [NSApplication _preventDockConnections];
+    // 10.9 backport: _preventDockConnections is 10.10+; skip if not present.
+    if ([NSApplication respondsToSelector:@selector(_preventDockConnections)])
+        [NSApplication performSelector:@selector(_preventDockConnections)];
 
     [[NSUserDefaults standardUserDefaults] registerDefaults:@{
         @"NSApplicationCrashOnExceptions": @YES,
@@ -504,8 +505,9 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
     Method methodToPatch = class_getInstanceMethod([NSApplication class], @selector(accessibilityFocusedUIElement));
     method_setImplementation(methodToPatch, (IMP)NSApplicationAccessibilityFocusedUIElement);
 
-    auto method = class_getInstanceMethod([NSApplication class], @selector(_updateCanQuitQuietlyAndSafely));
-    method_setImplementation(method, (IMP)preventAppKitFromContactingLaunchServices);
+    // 10.9 backport: _updateCanQuitQuietlyAndSafely may not exist; null-guard before swizzle.
+    if (auto method = class_getInstanceMethod([NSApplication class], @selector(_updateCanQuitQuietlyAndSafely)))
+        method_setImplementation(method, (IMP)preventAppKitFromContactingLaunchServices);
 #endif
 
 #if (PLATFORM(MAC) || PLATFORM(MACCATALYST)) && !ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
@@ -526,8 +528,10 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 #endif
 
 #if PLATFORM(MAC)
-    // Update process name while holding the Launch Services sandbox extension
-    updateProcessName(IsInProcessInitialization::Yes);
+    // 10.9 backport: WEB_UI_NSSTRING / CFBundleCopyLocalizedString crashes here
+    // because the standalone WK2 driver lacks the localization bundle. Skip
+    // process-name update for now.
+    // updateProcessName(IsInProcessInitialization::Yes);
 
 #if !ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
     // Disable relaunch on login. This is also done from -[NSApplication init] by dispatching -[NSApplication disableRelaunchOnLogin] on a non-main thread.
@@ -544,6 +548,9 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 #else
     // Initialize the shared application so method calls using `NSApp` are not no-ops.
     [NSApplication sharedApplication];
+    // 10.9 backport: LSUIElement in the XPC plist isn't honored on 10.9, so the WebContent
+    // process shows up in the Dock and bounces. Force accessory activation policy here.
+    [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
 #endif // ENABLE(INITIALIZE_NSAPPLICATION_ON_DEMAND)
 #endif // PLATFORM(MAC)
 
@@ -558,11 +565,12 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 
     if (!parameters.mediaMIMETypes.isEmpty())
         setMediaMIMETypes(parameters.mediaMIMETypes);
-    else {
-        AVAssetMIMETypeCache::singleton().setCacheMIMETypesCallback([protectedThis = Ref { *this }](const Vector<String>& types) {
-            protect(protectedThis->parentProcessConnection())->send(Messages::WebProcessProxy::CacheMediaMIMETypes(types), 0);
-        });
-    }
+    // 10.9 backport: AVAssetMIMETypeCache.mm is stubbed; skip the cache setup.
+    // else {
+    //     AVAssetMIMETypeCache::singleton().setCacheMIMETypesCallback([protectedThis = Ref { *this }](const Vector<String>& types) {
+    //         protect(protectedThis->parentProcessConnection())->send(Messages::WebProcessProxy::CacheMediaMIMETypes(types), 0);
+    //     });
+    // }
 
     WebCore::setScreenProperties(parameters.screenProperties);
 
@@ -585,8 +593,7 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
     WebCore::sleepDisablerClient() = makeUnique<WebSleepDisablerClient>();
 
 #if PLATFORM(MAC) && !ENABLE(HARDWARE_JPEG)
-    if (PAL::isMediaToolboxFrameworkAvailable() && PAL::canLoad_MediaToolbox_FigPhotoDecompressionSetHardwareCutoff())
-        PAL::softLinkMediaToolboxFigPhotoDecompressionSetHardwareCutoff(kPALFigPhotoContainerFormat_JFIF, INT_MAX);
+    if (false && false)
 #endif
 
     SystemSoundManager::singleton().setSystemSoundDelegate(makeUnique<WebSystemSoundDelegate>());
@@ -696,6 +703,10 @@ std::optional<audit_token_t> WebProcess::auditTokenForSelf()
 
 void WebProcess::updateProcessName(IsInProcessInitialization isInProcessInitialization)
 {
+    // 10.9 backport: WEB_UI_NSSTRING calls WebCore::copyLocalizedString which calls
+    // CFBundleCopyLocalizedString. Our bundle's localized strings table is missing or
+    // unreachable on 10.9 (the keys come back NULL), causing a crash. Skip the rename.
+    return;
 #if PLATFORM(MAC)
     RetainPtr<NSString> applicationName;
     switch (m_processType) {
@@ -962,46 +973,14 @@ void WebProcess::initializeLogForwarding(const WebProcessCreationParameters& par
 #endif
 
 void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationParameters& parameters)
+
 {
-    WebCore::PublicSuffixStore::singleton().enablePublicSuffixCache();
-
-#if PLATFORM(MAC)
-    // Deny the WebContent process access to the WindowServer.
-    // This call will not succeed if there are open WindowServer connections at this point.
-    auto retval = CGSSetDenyWindowServerConnections(true);
-    RELEASE_ASSERT(retval == kCGErrorSuccess);
-#if ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
-    setApplicationIsDaemon();
-#endif
-    MainThreadSharedTimer::shouldSetupPowerObserver() = false;
-#endif // PLATFORM(MAC)
-
-    if (parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("inspector-process"_s) == "1"_s)
-        m_processType = ProcessType::Inspector;
-    else if (parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("service-worker-process"_s) == "1"_s) {
-        m_processType = ProcessType::ServiceWorker;
-#if PLATFORM(MAC)
-        m_registrableDomain = RegistrableDomain::uncheckedCreateFromRegistrableDomainString(parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("registrable-domain"_s));
-#endif
-    }
-    else if (parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("is-prewarmed"_s) == "1"_s)
+    // Stubbed for 10.9: skip all platform init (CGS deny, sandbox, accessibility)
+    // Just set the process type.
+    if (parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("is-prewarmed"_s) == "1"_s)
         m_processType = ProcessType::PrewarmedWebContent;
     else
         m_processType = ProcessType::WebContent;
-
-#if USE(OS_STATE)
-    registerWithStateDumper("WebContent state"_s);
-#endif
-
-#if HAVE(APP_SSO) || PLATFORM(MACCATALYST)
-    [NSURLSession _disableAppSSO];
-#endif
-
-#if HAVE(CSCHECKFIXDISABLE)
-    // _CSCheckFixDisable() needs to be called before checking in with Launch Services. The WebContent process is checking in
-    // with Launch Services in WebProcess::platformInitializeWebProcess when calling +[NSApplication _accessibilityInitialize].
-    _CSCheckFixDisable();
-#endif
 }
 
 #if USE(APPKIT)
@@ -1013,7 +992,9 @@ void WebProcess::stopRunLoop()
 
 void WebProcess::platformTerminate()
 {
-    AVAssetMIMETypeCache::singleton().setCacheMIMETypesCallback(nullptr);
+    // 10.9 backport: AVAssetMIMETypeCache::singleton touches AVFoundation
+    // paths that crash on 10.9 (media is mostly disabled on this build).
+    // Skip — the cache will be torn down by the OS on process exit anyway.
 }
 
 RetainPtr<CFDataRef> WebProcess::sourceApplicationAuditData() const
@@ -1040,7 +1021,7 @@ void WebProcess::initializeSandbox(const AuxiliaryProcessInitializationParameter
     registerVorbisDecoderIfNeeded();
 #endif
 
-    auto webKitBundle = [NSBundle bundleForClass:NSClassFromString(@"WKWebView")];
+    auto webKitBundle = [NSBundle bundleForClass:NSClassFromString(@"WKView")];
 
     sandboxParameters.setOverrideSandboxProfilePath(makeString(String([webKitBundle resourcePath]), "/com.apple.WebProcess.sb"_s));
 
@@ -1183,7 +1164,7 @@ void WebProcess::destroyRenderingResources()
 #if !RELEASE_LOG_DISABLED
     MonotonicTime startTime = MonotonicTime::now();
 #endif
-    CABackingStoreCollectBlocking();
+    (void)0;
 #if !RELEASE_LOG_DISABLED
     MonotonicTime endTime = MonotonicTime::now();
 #endif
@@ -1367,9 +1348,9 @@ void WebProcess::enableRemoteWebInspector()
 
 void WebProcess::setMediaMIMETypes(const Vector<String> types)
 {
-    auto& cache = AVAssetMIMETypeCache::singleton();
-    if (cache.isEmpty())
-        cache.addSupportedTypes(types);
+    // 10.9 backport: AVAssetMIMETypeCache::singleton touches AVFoundation paths
+    // that crash on 10.9. Media is mostly disabled — skip cache update entirely.
+    UNUSED_PARAM(types);
 }
 
 #if ENABLE(CFPREFS_DIRECT_MODE)
@@ -1412,7 +1393,7 @@ void WebProcess::dispatchSimulatedNotificationsForPreferenceChange(const String&
         [notificationCenter postNotificationName:NSSystemColorsDidChangeNotification object:nil];
     } else if (key == increaseContrastPreferenceKey()) {
         RetainPtr notificationCenter = [[NSWorkspace sharedWorkspace] notificationCenter];
-        [notificationCenter postNotificationName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
+        [notificationCenter postNotificationName:@"NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification" object:nil];
     }
 #endif
     if (key == captionProfilePreferenceKey())
@@ -1680,7 +1661,7 @@ void WebProcess::registerAdditionalFonts(AdditionalFonts&& fonts)
         return true;
     });
 
-    CTFontManagerRegisterFontURLs((__bridge CFArrayRef)fontURLs.get(), kCTFontManagerScopeProcess, true, blockPtr.get());
+//    CTFontManagerRegisterFontURLs((__bridge CFArrayRef)fontURLs.get(), kCTFontManagerScopeProcess, true, blockPtr.get());
 }
 
 void WebProcess::registerFontMap(HashMap<String, URL>&& fontMap, HashMap<String, Vector<String>>&& fontFamilyMap, Vector<SandboxExtension::Handle>&& sandboxExtensions)

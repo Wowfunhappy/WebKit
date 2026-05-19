@@ -1,3 +1,6 @@
+#ifndef _WKTextPreview_h
+#define _WKTextPreview_h
+
 /*
  * Copyright (C) 2024 Apple Inc. All rights reserved.
  *
@@ -38,3 +41,5 @@ WK_CLASS_AVAILABLE(macos(15.2), ios(18.2), visionos(2.2))
 - (instancetype)initWithSnapshotImage:(CGImageRef)snapshotImage presentationFrame:(CGRect)presentationFrame;
 
 @end
+
+#endif /* _WKTextPreview_h */

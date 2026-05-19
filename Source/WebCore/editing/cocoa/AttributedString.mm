@@ -367,7 +367,13 @@ static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, I
     }, [] (const TextAttachmentMissingImage& value) -> RetainPtr<id> {
         UNUSED_PARAM(value);
         RetainPtr<NSTextAttachment> attachment = adoptNS([[PlatformNSTextAttachment alloc] initWithData:nil ofType:nil]);
-        attachment.get().image = RetainPtr { webCoreTextAttachmentMissingPlatformImage() }.get();
+        // .image property is 10.11+; use setAttachmentCell: with an NSCell on older macOS
+        if ([attachment.get() respondsToSelector:@selector(setImage:)])
+            [(id)attachment.get() setImage:RetainPtr { webCoreTextAttachmentMissingPlatformImage() }.get()];
+        else {
+            auto cell = adoptNS([[NSTextAttachmentCell alloc] initImageCell:RetainPtr { webCoreTextAttachmentMissingPlatformImage() }.get()]);
+            [attachment.get() setAttachmentCell:cell.get()];
+        }
         return attachment;
     }, [] (const TextAttachmentFileWrapper& value) -> RetainPtr<id> {
         RetainPtr<NSData> data = value.data ? bridge_cast((value.data).get()) : nil;

@@ -45,6 +45,10 @@
 #include <wtf/text/CString.h>
 #include <wtf/text/MakeString.h>
 
+#ifndef SQLITE_CHECKPOINT_TRUNCATE
+#define SQLITE_CHECKPOINT_TRUNCATE 3
+#endif
+
 #define ENABLE_SQLITE_FAST_MALLOC (BENABLE(MALLOC_SIZE) && BENABLE(MALLOC_GOOD_SIZE))
 
 namespace WebCore {

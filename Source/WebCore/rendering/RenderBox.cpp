@@ -3953,6 +3953,28 @@ void RenderBox::computeBlockDirectionMargins(const RenderBlock& containingBlock,
 
     marginBefore = constrainBlockMarginInAvailableSpaceOrTrim(Style::MarginTrimSide::BlockStart);
     marginAfter = constrainBlockMarginInAvailableSpaceOrTrim(Style::MarginTrimSide::BlockEnd);
+
+#if PLATFORM(MAC)
+    // 10.9 backport: large headings (h1-h6 with font-size >= 32) paint glyphs below their CSS
+    // line-box bottom on this build, causing the next adjacent block to visually overlap
+    // (apple.com hero h2 + p subhead reproducer). Author CSS often resets margin/padding on h1-h6
+    // (e.g. apple.com sets `padding:0` on all heading elements), so a UA stylesheet rule wouldn't
+    // survive. Floor the computed marginAfter at pointSize * 0.45 for large headings instead.
+    auto* element = this->element();
+    if (element && (element->hasTagName(HTMLNames::h1Tag)
+        || element->hasTagName(HTMLNames::h2Tag)
+        || element->hasTagName(HTMLNames::h3Tag)
+        || element->hasTagName(HTMLNames::h4Tag)
+        || element->hasTagName(HTMLNames::h5Tag)
+        || element->hasTagName(HTMLNames::h6Tag))) {
+        float fs = style().computedFontSize();
+        if (fs >= 32.f) {
+            LayoutUnit minMargin = LayoutUnit(fs * 0.45f);
+            if (marginAfter < minMargin)
+                marginAfter = minMargin;
+        }
+    }
+#endif
 }
 
 void RenderBox::computeAndSetBlockDirectionMargins(const RenderBlock& containingBlock)

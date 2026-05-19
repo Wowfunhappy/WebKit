@@ -23,6 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef WKDownloadDelegate_h
+#define WKDownloadDelegate_h
+
 #import <Foundation/Foundation.h>
 #import <WebKit/WKFoundation.h>
 
@@ -144,3 +147,5 @@ WK_SWIFT_UI_ACTOR
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif // WKDownloadDelegate_h

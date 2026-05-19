@@ -33,20 +33,13 @@
 
 namespace WebCore {
 
+// 10.9 backport: pal::EdKey uses Swift CryptoKit (10.15+) and X25519 has no
+// native pre-10.15 API on macOS. Return nullopt instead of crashing.
 static std::optional<Vector<uint8_t>> deriveBitsCryptoKit(const Vector<uint8_t>& baseKey, const Vector<uint8_t>& publicKey)
 {
-#if !defined(CLANG_WEBKIT_BRANCH)
-    if (baseKey.size() != ed25519KeySize || publicKey.size() != ed25519KeySize)
-        return std::nullopt;
-    auto rv = pal::EdKey::deriveBits(pal::EdKeyAgreementAlgorithm::x25519(), baseKey.span(), publicKey.span());
-    if (rv.errorCode != Cpp::ErrorCodes::Success)
-        return std::nullopt;
-    return WTF::move(rv.result);
-#else
     UNUSED_PARAM(baseKey);
     UNUSED_PARAM(publicKey);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
+    return std::nullopt;
 }
 
 std::optional<Vector<uint8_t>> CryptoAlgorithmX25519::platformDeriveBits(const CryptoKeyOKP& baseKey, const CryptoKeyOKP& publicKey)

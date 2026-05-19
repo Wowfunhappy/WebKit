@@ -191,6 +191,7 @@ void WebResourceLoader::updateNetworkLoadMetrics(NetworkLoadMetrics& metrics)
 void WebResourceLoader::didReceiveResponse(ResourceResponse&& response, PrivateRelayed privateRelayed, bool needsContinueDidReceiveResponseMessage, std::optional<NetworkLoadMetrics>&& metrics)
 {
     RefPtr coreLoader = m_coreLoader;
+    // 10.9 perf: removed debug fopen logging
     LOG(Network, "(WebProcess) WebResourceLoader::didReceiveResponse for '%s'. Status %d.", coreLoader->url().string().latin1().data(), response.httpStatusCode());
     WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDRECEIVERESPONSE, response.httpStatusCode());
 
@@ -264,6 +265,7 @@ void WebResourceLoader::didReceiveResponse(ResourceResponse&& response, PrivateR
 void WebResourceLoader::didReceiveData(IPC::SharedBufferReference&& data, uint64_t bytesTransferredOverNetwork)
 {
     RefPtr coreLoader = m_coreLoader;
+    // 10.9 perf: removed debug fopen logging
     LOG(Network, "(WebProcess) WebResourceLoader::didReceiveData of size %zu for '%s'", data.size(), coreLoader->url().string().latin1().data());
     ASSERT_WITH_MESSAGE(!m_isProcessingNetworkResponse, "Network process should not send data until we've validated the response");
 
@@ -296,7 +298,9 @@ void WebResourceLoader::didReceiveData(IPC::SharedBufferReference&& data, uint64
     } else
         sharedBuffer = data.unsafeBuffer();
 
+    // 10.9 perf: removed debug fopen logging
     coreLoader->didReceiveData(sharedBuffer.releaseNonNull(), delta, DataPayloadBytes);
+    // 10.9 perf: removed debug fopen logging
 
 #if ENABLE(CONTENT_EXTENSIONS)
     if (delta) {
@@ -309,6 +313,7 @@ void WebResourceLoader::didReceiveData(IPC::SharedBufferReference&& data, uint64
 void WebResourceLoader::didFinishResourceLoad(NetworkLoadMetrics&& networkLoadMetrics)
 {
     RefPtr coreLoader = m_coreLoader;
+    // 10.9 perf: removed debug fopen logging
     LOG(Network, "(WebProcess) WebResourceLoader::didFinishResourceLoad for '%s'", coreLoader->url().string().latin1().data());
     WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDFINISHRESOURCELOAD, static_cast<uint64_t>(m_numBytesReceived));
 

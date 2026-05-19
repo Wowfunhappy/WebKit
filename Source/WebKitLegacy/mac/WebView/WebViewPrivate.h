@@ -150,7 +150,7 @@ typedef enum {
 @property (nonatomic, retain) UIImage *dataInteractionImage;
 @property (nonatomic, assign) CGRect selectionRectInRootViewCoordinates;
 @property (nonatomic, assign) CGRect textBoundingRectInRootViewCoordinates;
-@property (nonatomic, retain) NSArray<NSValue *> *textRectsInBoundingRectCoordinates; // CGRect values
+@property (nonatomic, retain) NSArray *textRectsInBoundingRectCoordinates; // CGRect values
 @property (nonatomic, assign) CGFloat contentImageScaleFactor;
 @property (nonatomic, retain) UIImage *contentImageWithHighlight;
 @property (nonatomic, retain) UIImage *contentImage;
@@ -1015,7 +1015,7 @@ typedef struct WebEdgeInsets {
 @end
 
 @interface WebView (WebViewIOSAdditions)
-- (NSArray<DOMElement *> *)_editableElementsInRect:(CGRect)rect;
+- (NSArray *)_editableElementsInRect:(CGRect)rect;
 - (void)revealCurrentSelection;
 
 // View must be a UIView.

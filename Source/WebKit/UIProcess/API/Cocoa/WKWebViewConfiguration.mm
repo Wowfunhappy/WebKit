@@ -843,9 +843,9 @@ SUPPRESS_NODELETE static NSString *NODELETE defaultApplicationNameForUserAgent()
 
 - (void)_setPortsForUpgradingInsecureSchemeForTesting:(NSArray<NSNumber *> *)ports
 {
-    if (ports.count != 2 || ports[0].unsignedIntegerValue > std::numeric_limits<uint16_t>::max() || ports[1].unsignedIntegerValue > std::numeric_limits<uint16_t>::max())
+    if (ports.count != 2 || ((NSNumber *)ports[0]).unsignedIntegerValue > std::numeric_limits<uint16_t>::max() || ((NSNumber *)ports[1]).unsignedIntegerValue > std::numeric_limits<uint16_t>::max())
         return;
-    _pageConfiguration->setPortsForUpgradingInsecureSchemeForTesting((uint16_t)ports[0].unsignedIntegerValue, (uint16_t)ports[1].unsignedIntegerValue);
+    _pageConfiguration->setPortsForUpgradingInsecureSchemeForTesting((uint16_t)((NSNumber *)ports[0]).unsignedIntegerValue, (uint16_t)((NSNumber *)ports[1]).unsignedIntegerValue);
 }
 
 #if PLATFORM(IOS_FAMILY)

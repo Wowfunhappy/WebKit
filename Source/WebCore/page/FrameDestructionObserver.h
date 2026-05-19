@@ -41,7 +41,7 @@ public:
 
     bool hasFrame() const { return !!m_frame; }
 
-    inline LocalFrame* frame() const; // Defined in FrameDestructionObserverInlines.h.
+    LocalFrame* frame() const; // Defined in FrameDestructionObserverInlines.h. (inline removed for backport -Wundefined-inline)
 
 protected:
     WEBCORE_EXPORT virtual ~FrameDestructionObserver();

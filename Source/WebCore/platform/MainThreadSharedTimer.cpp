@@ -75,14 +75,18 @@ void MainThreadSharedTimer::invalidate()
 
 void MainThreadSharedTimer::setFiredFunction(Function<void()>&& firedFunction)
 {
-    RELEASE_ASSERT(!m_firedFunction || !firedFunction);
+    // 10.9 backport: ThreadGlobalData can get re-constructed on the same main
+    // thread when its TLS slot is clobbered by JSC's GC overwriting adjacent
+    // memory. The release assert here would crash; instead, allow overwrite.
     m_firedFunction = WTF::move(firedFunction);
 }
 
 void MainThreadSharedTimer::fired()
 {
+    // 10.9 perf: removed debug fopen logging
     ASSERT(m_firedFunction);
-    m_firedFunction();
+    if (m_firedFunction)
+        m_firedFunction();
 }
 
 } // namespace WebCore

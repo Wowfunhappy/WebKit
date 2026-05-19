@@ -43,8 +43,12 @@ namespace WebCoreTestSupport {
 static RetainPtr<CFURLResponseRef> createCFURLResponseFromResponseData(CFDataRef responseData)
 {
     NSURLResponse *response;
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
     auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingFromData:(__bridge NSData *)responseData error:nullptr]);
     unarchiver.get().decodingFailurePolicy = NSDecodingFailurePolicyRaiseException;
+#else
+    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:(__bridge NSData *)responseData]);
+#endif
     @try {
         response = [unarchiver decodeObjectOfClass:[NSURLResponse class] forKey:@"WebResourceResponse"]; // WebResourceResponseKey in WebResource.m
         [unarchiver finishDecoding];

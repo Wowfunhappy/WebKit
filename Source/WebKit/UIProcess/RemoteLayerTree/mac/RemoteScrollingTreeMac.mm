@@ -34,7 +34,7 @@
 #import "RemoteScrollingTreeCocoa.h"
 #import "ScrollingTreeFrameScrollingNodeRemoteMac.h"
 #import "ScrollingTreeOverflowScrollingNodeRemoteMac.h"
-#import "ScrollingTreePluginScrollingNodeRemoteMac.h"
+// ScrollingTreePluginScrollingNodeRemoteMac.h disabled for macOS 10.9 backport
 #import <WebCore/EventRegion.h>
 #import <WebCore/FrameView.h>
 #import <WebCore/LocalFrameView.h>
@@ -132,7 +132,8 @@ Ref<ScrollingTreeNode> RemoteScrollingTreeMac::createScrollingTreeNode(Scrolling
         return ScrollingTreeOverflowScrollingNodeRemoteMac::create(*this, nodeID);
 
     case ScrollingNodeType::PluginScrolling:
-        return ScrollingTreePluginScrollingNodeRemoteMac::create(*this, nodeID);
+        ASSERT_NOT_REACHED();
+        return RemoteScrollingTree::createScrollingTreeNode(nodeType, nodeID);
 
     case ScrollingNodeType::FrameHosting:
     case ScrollingNodeType::PluginHosting:

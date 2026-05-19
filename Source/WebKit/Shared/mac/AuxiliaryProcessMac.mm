@@ -762,9 +762,10 @@ void AuxiliaryProcess::applySandboxProfileForDaemon(const String& profilePath, c
 void AuxiliaryProcess::stopNSRunLoop()
 {
     ASSERT([NSRunLoop mainRunLoop]);
-    [[NSRunLoop mainRunLoop] performBlock:^{
+    // 10.9 doesn't have -[NSRunLoop performBlock:] (10.13+); use main queue dispatch.
+    dispatch_async(dispatch_get_main_queue(), ^{
         exitProcess(0);
-    }];
+    });
 }
 #endif // PLATFORM(MAC)
 

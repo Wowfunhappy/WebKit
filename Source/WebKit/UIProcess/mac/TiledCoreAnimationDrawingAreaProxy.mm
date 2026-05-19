@@ -35,10 +35,14 @@
 #import "WebPageProxy.h"
 #import "WebPageProxyMessages.h"
 #import "WebProcessProxy.h"
+#import <QuartzCore/QuartzCore.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/MachSendRight.h>
 #import <wtf/TZoneMallocInlines.h>
+
+// Forward declaration in case QuartzCoreSPI.h fails to provide it on older SDKs.
+@class CAContext;
 
 namespace WebKit {
 using namespace IPC;
@@ -177,7 +181,7 @@ MachSendRight TiledCoreAnimationDrawingAreaProxy::createFence()
     if (!page)
         return MachSendRight();
 
-    RetainPtr<CAContext> rootLayerContext = [protect(page->acceleratedCompositingRootLayer()) context];
+    RetainPtr<CAContext> rootLayerContext = (CAContext *)[protect(page->acceleratedCompositingRootLayer()) context];
     if (!rootLayerContext)
         return MachSendRight();
 
@@ -195,7 +199,10 @@ MachSendRight TiledCoreAnimationDrawingAreaProxy::createFence()
     if (connection->hasIncomingSyncMessage())
         return MachSendRight();
 
-    MachSendRight fencePort = MachSendRight::adopt([rootLayerContext createFencePort]);
+    // 10.9 backport: -[CAContext createFencePort] is 10.10+.
+    if (![rootLayerContext respondsToSelector:@selector(createFencePort)])
+        return MachSendRight();
+    MachSendRight fencePort = MachSendRight::adopt((mach_port_t)(uintptr_t)[rootLayerContext createFencePort]);
 
     // Invalidate the fence if a synchronous message arrives while it's installed,
     // because we won't be able to reply during the fence-wait.

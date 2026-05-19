@@ -31,6 +31,26 @@
 #import <WebCore/WebCoreCALayerExtras.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
+
+// Ensure CAContext is declared (QuartzCoreSPI.h may be skipped when modules are enabled).
+#if !defined(CACONTEXT_DECLARED)
+#define CACONTEXT_DECLARED 1
+@interface CAContext : NSObject
+@end
+#endif
+
+// Ensure CAContext SPI methods are declared for older SDKs.
+@interface CAContext (LayerHostingContextSPI)
+@property (readonly) uint32_t contextId;
+@property (strong) CALayer *layer;
+@property CGColorSpaceRef colorSpace;
+- (void)invalidate;
+- (void)setFencePort:(mach_port_t)port;
+- (void)setFencePort:(mach_port_t)port commitHandler:(void(^)(void))block;
+- (mach_port_t)createFencePort;
+- (void)invalidateFences;
+@end
+
 #import <wtf/FixedVector.h>
 #import <wtf/MachSendRight.h>
 #import <wtf/TZoneMallocInlines.h>
@@ -69,9 +89,10 @@ std::unique_ptr<LayerHostingContext> LayerHostingContext::create(const LayerHost
 #endif
     layerHostingContext->m_context = [CAContext remoteContextWithOptions:contextOptions];
 #elif !PLATFORM(MACCATALYST)
-    [CAContext setAllowsCGSConnections:NO];
-    layerHostingContext->m_context = [CAContext remoteContextWithOptions:@{
-        kCAContextCIFilterBehavior :  @"ignore",
+    // 10.9 backport: prefer the explicit CGSConnection variant (more reliable
+    // on older systems than +remoteContextWithOptions:).
+    layerHostingContext->m_context = [CAContext contextWithCGSConnection:CGSMainConnectionID() options:@{
+        kCAContextCIFilterBehavior : @"ignore",
     }];
 #else
     layerHostingContext->m_context = [CAContext contextWithCGSConnection:CGSMainConnectionID() options:@{
@@ -161,7 +182,9 @@ void LayerHostingContext::setFencePort(mach_port_t fencePort)
 #if USE(EXTENSIONKIT)
     ASSERT(!m_hostable);
 #endif
-    [m_context setFencePort:fencePort];
+    // 10.9 backport: -[CAContext setFencePort:] is 10.10+.
+    if ([m_context respondsToSelector:@selector(setFencePort:)])
+        [m_context setFencePort:fencePort];
 }
 
 MachSendRight LayerHostingContext::createFencePort()

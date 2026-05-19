@@ -27,19 +27,28 @@
 #import "WKContentWorldInternal.h"
 
 #import "WKContentWorldConfigurationInternal.h"
+#import "_WKContentWorldConfiguration.h"
 #import "_WKUserContentWorldInternal.h"
 #import <WebCore/WebCoreObjCExtras.h>
 
 static void checkContentWorldOptions(API::ContentWorld& world, _WKContentWorldConfiguration *configuration)
 {
-    if (world.allowAccessToClosedShadowRoots() != (configuration && configuration.allowAccessToClosedShadowRoots))
-        [NSException raise:NSInternalInconsistencyException format:@"The value of allowAccessToClosedShadowRoots does not match the existing world"];
-    if (world.allowAutofill() != (configuration && configuration.allowAutofill))
-        [NSException raise:NSInternalInconsistencyException format:@"The value of allowAutofill does not match the existing world"];
-    if (world.allowElementUserInfo() != (configuration && configuration.allowElementUserInfo))
-        [NSException raise:NSInternalInconsistencyException format:@"The value of allowElementUserInfo does not match the existing world"];
-    if (world.disableLegacyBuiltinOverrides() != (configuration && configuration.disableLegacyBuiltinOverrides))
-        [NSException raise:NSInternalInconsistencyException format:@"The value of disableLegacyBuiltinOverrides does not match the existing world"];
+    if (configuration && [configuration respondsToSelector:@selector(allowAccessToClosedShadowRoots)]) {
+        if (world.allowAccessToClosedShadowRoots() != configuration.allowAccessToClosedShadowRoots)
+            [NSException raise:NSInternalInconsistencyException format:@"The value of allowAccessToClosedShadowRoots does not match the existing world"];
+    }
+    if (configuration && [configuration respondsToSelector:@selector(allowAutofill)]) {
+        if (world.allowAutofill() != configuration.allowAutofill)
+            [NSException raise:NSInternalInconsistencyException format:@"The value of allowAutofill does not match the existing world"];
+    }
+    if (configuration && [configuration respondsToSelector:@selector(allowElementUserInfo)]) {
+        if (world.allowElementUserInfo() != configuration.allowElementUserInfo)
+            [NSException raise:NSInternalInconsistencyException format:@"The value of allowElementUserInfo does not match the existing world"];
+    }
+    if (configuration && [configuration respondsToSelector:@selector(disableLegacyBuiltinOverrides)]) {
+        if (world.disableLegacyBuiltinOverrides() != configuration.disableLegacyBuiltinOverrides)
+            [NSException raise:NSInternalInconsistencyException format:@"The value of disableLegacyBuiltinOverrides does not match the existing world"];
+    }
 }
 
 @implementation WKContentWorld

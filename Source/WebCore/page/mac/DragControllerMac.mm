@@ -28,6 +28,8 @@
 
 #if ENABLE(DRAG_SUPPORT)
 
+#import "../platform/mac/UTTypeIdentifiers.h"
+
 #import "DataTransfer.h"
 #import "DeprecatedGlobalSettings.h"
 #import "Document.h"
@@ -123,17 +125,17 @@ void DragController::updateSupportedTypeIdentifiersForDragHandlingMethod(DragHan
     Vector<String> supportedTypes;
     switch (dragHandlingMethod) {
     case DragHandlingMethod::PageLoad:
-        supportedTypes.append(UTTypeURL.identifier);
+        supportedTypes.append(utTypeURLId());
         break;
     case DragHandlingMethod::EditPlainText:
-        supportedTypes.append(UTTypeURL.identifier);
-        supportedTypes.append(UTTypePlainText.identifier);
+        supportedTypes.append(utTypeURLId());
+        supportedTypes.append(utTypePlainTextId());
         break;
     case DragHandlingMethod::EditRichText:
         if (DeprecatedGlobalSettings::attachmentElementEnabled()) {
             supportedTypes.append(WebArchivePboardType);
-            supportedTypes.append(UTTypeContent.identifier);
-            supportedTypes.append(UTTypeItem.identifier);
+            supportedTypes.append(utTypeContentId());
+            supportedTypes.append(utTypeItemId());
         } else {
             for (NSString *type in Pasteboard::supportedWebContentPasteboardTypes())
                 supportedTypes.append(type);

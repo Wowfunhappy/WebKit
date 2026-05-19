@@ -51,8 +51,10 @@ struct WKAppPrivacyReportTestingData {
 
 #if TARGET_OS_IPHONE
 typedef UIVisualEffectView _WKPlatformVisualEffectView;
-#else
+#elif __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
 typedef NSVisualEffectView _WKPlatformVisualEffectView;
+#else
+typedef NSView _WKPlatformVisualEffectView;
 #endif
 
 @class _WKNowPlayingMetadata;

@@ -690,6 +690,9 @@ void HTMLMediaElement::invalidateMediaSession()
 
 void HTMLMediaElement::initializeMediaSession()
 {
+    // 10.9 backport: re-enabled 2026-05-11 attempt 2 (paired with Page::mediaSessionManager
+    // re-enable + DefaultAudioDestinationNode null-guards). MediaElementSession::create
+    // requires non-null mediaSessionManager; safe now.
     ASSERT(!m_mediaSession);
     Ref mediaSession = MediaElementSession::create(*this);
     m_mediaSession = mediaSession.copyRef();
@@ -897,7 +900,11 @@ void HTMLMediaElement::registerWithDocument(Document& document)
 {
     document.registerMediaElement(*this);
 
-    protect(mediaSession())->registerWithDocument(document);
+    // 10.9 backport: bing.com triggers Node::moveTreeToNewScope which calls
+    // didMoveToNewDocument → registerWithDocument; mediaSession() can be null
+    // on this build (see existing isVisibleInViewportChanged fix). Guard.
+    if (auto* session = mediaSessionIfExists())
+        session->registerWithDocument(document);
 
     if (m_isWaitingUntilMediaCanStart)
         document.addMediaCanStartListener(*this);
@@ -1119,6 +1126,9 @@ Node::InsertedIntoAncestorResult HTMLMediaElement::insertedIntoAncestor(Insertio
 
 void HTMLMediaElement::didFinishInsertingNode()
 {
+    // 10.9 backport: stub reason ("m_mediaSession is null") was OBSOLETE as of 2026-05-11
+    // when initializeMediaSession was re-enabled. Removing the early-return now (2026-05-15)
+    // so <video>/<audio> elements that auto-load actually go through the prepareForLoad path.
     Ref protectedThis { *this }; // prepareForLoad may result in a 'beforeload' event, which can make arbitrary DOM mutations.
 
     HTMLMEDIAELEMENT_RELEASE_LOG(DIDFINISHINSERTINGNODE);
@@ -1503,6 +1513,11 @@ void HTMLMediaElement::load()
 
 void HTMLMediaElement::prepareForLoad()
 {
+    // 10.9 backport: try the real load preparation now (2026-05-15) — selectMediaResource
+    // is still stubbed to set NETWORK_NO_SOURCE so the actual MediaPlayer/AVFoundation
+    // engine path won't be reached. This sets up the load algorithm's bookkeeping
+    // (m_loadState, m_currentSrc=null, etc.) properly so JS code that probes those
+    // fields gets correct values instead of the stale prior state.
     // https://html.spec.whatwg.org/multipage/embedded-content.html#media-element-load-algorithm
     // The Media Element Load Algorithm
     // 12 February 2017
@@ -1643,6 +1658,13 @@ void HTMLMediaElement::mediaPlayerReloadAndResumePlaybackIfNeeded()
 
 void HTMLMediaElement::selectMediaResource()
 {
+    // 10.9 backport: stub. Companion to other HTMLMediaElement no-op stubs.
+    // CNN crashes here at +86 — selectMediaResource interacts with the
+    // resource selection algorithm and downstream MediaPlayer code that's
+    // incompatible with 10.9's AVFoundation. Skipping leaves the element
+    // inert.
+    m_networkState = NETWORK_NO_SOURCE;
+    return;
     // https://www.w3.org/TR/2016/REC-html51-20161101/semantics-embedded-content.html#resource-selection-algorithm
     // The Resource Selection Algorithm
 
@@ -4461,6 +4483,12 @@ void HTMLMediaElement::setPreload(const AtomString& preload)
 
 void HTMLMediaElement::play(DOMPromiseDeferred<void>&& promise)
 {
+    // 10.9 backport: reject the play() promise immediately. Companion to the
+    // prepareForLoad/createMediaPlayer skips — without a player, calling play
+    // crashes deep in MediaPlayer code.
+    promise.reject(ExceptionCode::NotAllowedError);
+    return;
+
     HTMLMEDIAELEMENT_RELEASE_LOG(PLAY);
 
     Ref mediaSession = this->mediaSession();
@@ -4595,6 +4623,9 @@ void HTMLMediaElement::playInternal()
 
 void HTMLMediaElement::pause()
 {
+    // 10.9 backport: skip pause — media is disabled, no player to pause.
+    return;
+
     HTMLMEDIAELEMENT_RELEASE_LOG(PAUSE);
 
     m_temporarilyAllowingInlinePlaybackAfterFullscreen = false;
@@ -4748,6 +4779,11 @@ ExceptionOr<void> HTMLMediaElement::setVolume(double volume)
     if (!(volume >= 0 && volume <= 1))
         return Exception { ExceptionCode::IndexSizeError };
 
+    // 10.9 backport: re-disabled setVolume internal path (paired with mediaSessionManager revert).
+    m_volume = volume;
+    m_volumeInitialized = true;
+    return { };
+
     auto quirkVolumeZero = !m_volumeLocked && protect(document())->quirks().implicitMuteWhenVolumeSetToZero();
     auto muteImplicitly = quirkVolumeZero && !volume;
 
@@ -4819,6 +4855,9 @@ void HTMLMediaElement::setMuted(bool muted)
 
 void HTMLMediaElement::setMutedInternal(bool muted, ForceMuteChange forceChange)
 {
+    // 10.9 backport: re-disabled (paired with Page::mediaSessionManager revert).
+    m_muted = muted;
+    return;
     HTMLMEDIAELEMENT_RELEASE_LOG(SETMUTEDINTERNAL, muted);
 
     bool mutedStateChanged = m_muted != muted || forceChange == ForceMuteChange::True;
@@ -7036,7 +7075,10 @@ void HTMLMediaElement::visibilityStateChanged()
     HTMLMEDIAELEMENT_RELEASE_LOG(VISIBILITYSTATECHANGED, !m_elementIsHidden);
 
     updateSleepDisabling();
-    protect(mediaSession())->visibilityChanged();
+    // 10.9 backport: bing.com hits this via Node::moveTreeToNewScope; mediaSession()
+    // can be null on this build. Guard like registerWithDocument.
+    if (auto* session = mediaSessionIfExists())
+        session->visibilityChanged();
     if (RefPtr player = m_player)
         player->setPageIsVisible(!m_elementIsHidden);
 
@@ -8043,6 +8085,8 @@ bool HTMLMediaElement::shouldForceControlsDisplay() const
 
 void HTMLMediaElement::configureMediaControls()
 {
+    // 10.9 backport: re-disabled (paired with Page::mediaSessionManager revert).
+    return;
     bool requireControls = controls();
 
     // Always create controls for video when fullscreen playback is required.
@@ -8166,6 +8210,10 @@ void HTMLMediaElement::createMediaPlayer() WTF_IGNORES_THREAD_SAFETY_ANALYSIS
 {
     HTMLMEDIAELEMENT_RELEASE_LOG(CREATEMEDIAPLAYER);
 
+    // 10.9 backport: re-enabled 2026-05-11 attempt 2 (paired with Page::mediaSessionManager
+    // + initializeMediaSession re-enable + DefaultAudioDestinationNode null-guards).
+    // m_player creation uses NullMediaPlayerPrivate which is safe; the AVFoundation engine
+    // load path (MediaPlayer::loadWithNextMediaEngine) is the next risk if this regresses.
     invalidateWatchtimeTimer();
     invalidateBufferingStopwatch();
 
@@ -8907,6 +8955,14 @@ void HTMLMediaElement::setControllerJSProperty(ASCIILiteral propertyName, JSC::J
 
 bool HTMLMediaElement::ensureMediaControls()
 {
+    // 10.9 backport: media controls JS does setInnerHTML which triggers HTMLFastPathParser
+    // → HTMLButtonElement::create → HTMLFormControlElement constructor calls
+    // requiresScriptTrackingPrivacyProtection. The RefPtr<VM> in there gets dereffed and
+    // the VM refcount drops to 0 mid-JS-execution, hitting RELEASE_ASSERT(!entryScope) in
+    // Heap::lastChanceToFinalize. Skip media controls entirely (consistent with the apple.com
+    // fix that stubs createMediaPlayer/play/pause — videos are inert containers anyway).
+    return false;
+
     if (m_controlsState == ControlsState::Ready)
         return true;
 
@@ -9584,6 +9640,10 @@ void HTMLMediaElement::setBufferingPolicy(BufferingPolicy policy)
 
 void HTMLMediaElement::purgeBufferedDataIfPossible()
 {
+    // 10.9 backport: media is disabled (createMediaPlayer/initializeMediaSession
+    // are stubs), so there's no buffered data to purge. Skip entirely to avoid
+    // crash via setBufferingPolicy → m_player/m_mediaSource null deref paths.
+    return;
     ALWAYS_LOG(LOGIDENTIFIER);
 
     bool isPausedOrMSE = [&] {
@@ -9597,7 +9657,10 @@ void HTMLMediaElement::purgeBufferedDataIfPossible()
     if (!isPausedOrMSE)
         return;
 
-    if (!MemoryPressureHandler::singleton().isUnderMemoryPressure() && protect(mediaSession())->preferredBufferingPolicy() == BufferingPolicy::Default)
+    // 10.9 backport: mediaSession() can be null on this build (lazy-init may
+    // leave it nil for stubbed media paths); guard before dereferencing.
+    auto* session = mediaSessionIfExists();
+    if (!MemoryPressureHandler::singleton().isUnderMemoryPressure() && (!session || session->preferredBufferingPolicy() == BufferingPolicy::Default))
         return;
 
     if (isPlayingToExternalTarget()) {
@@ -9640,7 +9703,12 @@ void HTMLMediaElement::isVisibleInViewportChanged()
     queueTaskKeepingObjectAlive(*this, TaskSource::MediaElement, [](auto& element) {
         if (element.isContextStopped())
             return;
-        element.mediaSession().isVisibleInViewportChanged();
+        // 10.9 backport: mediaSession() lazily inits m_mediaSession via initializeMediaSession,
+        // which may leave m_mediaSession null on 10.9 (PlatformMediaSessionManager not fully
+        // available). Then `*m_mediaSession` becomes a null reference and the next member call
+        // SEGVs at 0x118 during scroll-driven viewport-visibility updates. Skip if no session.
+        if (auto* session = element.mediaSessionIfExists())
+            session->isVisibleInViewportChanged();
         element.updateShouldAutoplay();
         element.schedulePlaybackControlsManagerUpdate();
     });
@@ -9658,6 +9726,8 @@ void HTMLMediaElement::scheduleUpdateShouldAutoplay()
 
 void HTMLMediaElement::updateShouldAutoplay()
 {
+    // 10.9 backport: re-disabled (paired with Page::mediaSessionManager revert).
+    return;
     if (!autoplay())
         return;
 

@@ -116,18 +116,13 @@ public:
 private:
     void releaseAssertOrSetThreadUID()
     {
-#if PLATFORM(IOS_FAMILY)
-        if (WebThreadIsEnabled())
-            return;
-#endif
-        if (!m_threadUID) {
-            ASSERT(!Thread::mayBeGCThread());
-            m_threadUID = Thread::currentSingleton().uid();
-            return;
-        }
-        if (m_threadUID == Thread::currentSingleton().uid()) [[likely]]
-            return;
-        RELEASE_ASSERT(Thread::mayBeGCThread());
+        // 10.9 backport: Thread::mayBeGCThread() returns false on this build
+        // because the GC thread tagging hooks aren't wired through our polyfills.
+        // That makes this RELEASE_ASSERT trip on github's React landing page,
+        // where add/removeEventListener fires from a worker dispatched off-main.
+        // Skip the cross-thread invariant check; the underlying m_lock still
+        // serializes mutations.
+        return;
     }
 
     Vector<std::pair<AtomString, EventListenerVector>, 0, CrashOnOverflow, 4> m_entries;

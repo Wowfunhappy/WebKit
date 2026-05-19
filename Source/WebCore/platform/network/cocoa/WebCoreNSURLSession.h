@@ -104,8 +104,8 @@ WEBCORE_EXPORT @interface WebCoreNSURLSession : NSObject {
 
 - (void)resetWithCompletionHandler:(void (^)(void))completionHandler;
 - (void)flushWithCompletionHandler:(void (^)(void))completionHandler;
-- (void)getTasksWithCompletionHandler:(void (^)(NSArray<NSURLSessionDataTask *> *dataTasks, NSArray<NSURLSessionUploadTask *> *uploadTasks, NSArray<NSURLSessionDownloadTask *> *downloadTasks))completionHandler;
-- (void)getAllTasksWithCompletionHandler:(void (^)(NSArray<__kindof NSURLSessionTask *> *tasks))completionHandler;
+- (void)getTasksWithCompletionHandler:(void (^)(NSArray *dataTasks, NSArray *uploadTasks, NSArray *downloadTasks))completionHandler;
+- (void)getAllTasksWithCompletionHandler:(void (^)(NSArray *tasks))completionHandler;
 
 - (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request;
 - (NSURLSessionDataTask *)dataTaskWithURL:(NSURL *)url;
@@ -115,8 +115,9 @@ WEBCORE_EXPORT @interface WebCoreNSURLSession : NSObject {
 - (NSURLSessionDownloadTask *)downloadTaskWithRequest:(NSURLRequest *)request;
 - (NSURLSessionDownloadTask *)downloadTaskWithURL:(NSURL *)url;
 - (NSURLSessionDownloadTask *)downloadTaskWithResumeData:(NSData *)resumeData;
-- (NSURLSessionStreamTask *)streamTaskWithHostName:(NSString *)hostname port:(NSInteger)port;
-- (NSURLSessionStreamTask *)streamTaskWithNetService:(NSNetService *)service;
+// macOS 10.9 backport: NSURLSessionStreamTask is 10.11+. Hide these methods.
+// - (NSURLSessionStreamTask *)streamTaskWithHostName:(NSString *)hostname port:(NSInteger)port;
+// - (NSURLSessionStreamTask *)streamTaskWithNetService:(NSNetService *)service;
 @end
 
 @interface WebCoreNSURLSession (NSURLSessionAsynchronousConvenience)

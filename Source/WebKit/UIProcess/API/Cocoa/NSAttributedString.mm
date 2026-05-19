@@ -28,6 +28,7 @@
 #import "NSAttributedStringPrivate.h"
 
 #import "ProcessThrottler.h"
+#import "WebPageProxy.h"
 #import "WKErrorInternal.h"
 #import "WKWebViewInternal.h"
 #import "WebProcessProxy.h"
@@ -499,8 +500,12 @@ static NSMutableArray<NSURL *> *readOnlyAccessPathsSingleton()
         });
 
         contentNavigation = loadWebContent(webView.get());
-        if (!finished)
-            attributedStringActivity = protect(protect(protect(*[webView _page])->legacyMainFrameProcess())->throttler())->foregroundActivity("NSAttributedString serialization"_s);
+        if (!finished) {
+            Ref page = *[webView _page];
+            Ref process = page->legacyMainFrameProcess();
+            Ref throttler = process->throttler();
+            attributedStringActivity = throttler->foregroundActivity("NSAttributedString serialization"_s);
+        }
 
         ASSERT(contentNavigation);
         ASSERT(webView.get().loading);

@@ -6,15 +6,15 @@ find_library(AUDIOUNIT_LIBRARY AudioUnit)
 find_library(CARBON_LIBRARY Carbon)
 find_library(CFNETWORK_LIBRARY CFNetwork)
 find_library(COCOA_LIBRARY Cocoa)
-find_library(COMPRESSION_LIBRARY Compression)
+# Removed: Compression not on 10.9
 find_library(COREAUDIO_LIBRARY CoreAudio)
 find_library(COREMEDIA_LIBRARY CoreMedia)
 find_library(CORESERVICES_LIBRARY CoreServices)
 find_library(DISKARBITRATION_LIBRARY DiskArbitration)
 find_library(IOKIT_LIBRARY IOKit)
 find_library(IOSURFACE_LIBRARY IOSurface)
-find_library(METAL_LIBRARY Metal)
-find_library(NETWORKEXTENSION_LIBRARY NetworkExtension)
+# Removed: Metal not on 10.9
+# Removed: NetworkExtension not on 10.9
 find_library(OPENGL_LIBRARY OpenGL)
 find_library(QUARTZ_LIBRARY Quartz)
 find_library(QUARTZCORE_LIBRARY QuartzCore)
@@ -39,15 +39,12 @@ list(APPEND WebCore_LIBRARIES
     ${CARBON_LIBRARY}
     ${CFNETWORK_LIBRARY}
     ${COCOA_LIBRARY}
-    ${COMPRESSION_LIBRARY}
     ${COREAUDIO_LIBRARY}
     ${COREMEDIA_LIBRARY}
     ${CORESERVICES_LIBRARY}
     ${DISKARBITRATION_LIBRARY}
     ${IOKIT_LIBRARY}
     ${IOSURFACE_LIBRARY}
-    ${METAL_LIBRARY}
-    ${NETWORKEXTENSION_LIBRARY}
     ${OPENGL_LIBRARY}
     ${QUARTZ_LIBRARY}
     ${QUARTZCORE_LIBRARY}
@@ -57,10 +54,6 @@ list(APPEND WebCore_LIBRARIES
     ${SYSTEMCONFIGURATION_LIBRARY}
     ${VIDEOTOOLBOX_LIBRARY}
     ${XML2_LIBRARY}
-    opus
-    vpx
-    webm
-    yuv
 )
 
 add_definitions(-iframework ${APPLICATIONSERVICES_LIBRARY}/Versions/Current/Frameworks)
@@ -79,10 +72,12 @@ if (NOT DATADETECTORSCORE_FRAMEWORK-NOTFOUND)
     list(APPEND WebCore_LIBRARIES ${DATADETECTORSCORE_FRAMEWORK})
 endif ()
 
-find_library(LOOKUP_FRAMEWORK Lookup HINTS ${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks)
-if (NOT LOOKUP_FRAMEWORK-NOTFOUND)
-    list(APPEND WebCore_LIBRARIES ${LOOKUP_FRAMEWORK})
-endif ()
+# Lookup.framework depends on WebKit.framework, creating a circular dep chain:
+# WebCore -> Lookup -> WebKit -> WebKitLegacy -> WebCore
+# This causes all frameworks to load simultaneously and crashes the ObjC runtime.
+# Disable direct linking; Lookup symbols resolved via -undefined dynamic_lookup.
+# find_library(LOOKUP_FRAMEWORK Lookup HINTS ${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks)
+# list(APPEND WebCore_LIBRARIES ${LOOKUP_FRAMEWORK})
 
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_BINARY_DIR}/libwebrtc/PrivateHeaders"
@@ -162,7 +157,6 @@ list(APPEND WebCore_SOURCES
     accessibility/isolatedtree/mac/AXIsolatedObjectMac.mm
     accessibility/mac/AXObjectCacheMac.mm
     accessibility/mac/AccessibilityObjectMac.mm
-    accessibility/mac/WebAccessibilityObjectWrapperMac.mm
 
     dom/DataTransferMac.mm
     dom/SlotAssignment.cpp
@@ -237,7 +231,6 @@ list(APPEND WebCore_SOURCES
     platform/graphics/DisplayRefreshMonitorManager.cpp
     platform/graphics/FourCC.cpp
 
-    platform/graphics/avfoundation/AVTrackPrivateAVFObjCImpl.mm
     platform/graphics/avfoundation/AudioSourceProviderAVFObjC.mm
     platform/graphics/avfoundation/CDMFairPlayStreaming.cpp
     platform/graphics/avfoundation/InbandMetadataTextTrackPrivateAVF.cpp
@@ -497,6 +490,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     accessibility/mac/CocoaAccessibilityConstants.h
     accessibility/mac/WebAccessibilityObjectWrapperBase.h
     accessibility/mac/WebAccessibilityObjectWrapperMac.h
+accessibility/mac/WebAccessibilityObjectWrapperMac_stub.mm
 
     bridge/objc/WebScriptObject.h
     bridge/objc/WebScriptObjectPrivate.h
@@ -519,6 +513,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     crypto/keys/CryptoKeyEC.h
 
     dom/EventLoop.h
+    dom/TouchEvent.h
     dom/WindowEventLoop.h
 
     editing/cocoa/AlternativeTextContextController.h
@@ -527,7 +522,10 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     editing/cocoa/AutofillElements.h
     editing/cocoa/DataDetection.h
     editing/cocoa/DataDetectorType.h
+    editing/cocoa/EditingHTMLConverter.h
     editing/cocoa/HTMLConverter.h
+    editing/cocoa/NodeHTMLConverter.h
+    editing/cocoa/TextAttachmentForSerialization.h
 
     editing/mac/DictionaryLookup.h
     editing/mac/TextAlternativeWithRange.h
@@ -549,10 +547,14 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     page/CaptionUserPreferencesMediaAF.h
 
+    page/cocoa/ContentChangeObserver.h
+    page/cocoa/DOMTimerHoldingTank.h
     page/cocoa/DataDetectionResultsStorage.h
     page/cocoa/DataDetectorElementInfo.h
     page/cocoa/ImageOverlayDataDetectionResultIdentifier.h
+    page/cocoa/WebTextIndicatorLayer.h
 
+    page/mac/CorrectionIndicator.h
     page/mac/TextIndicatorWindow.h
     page/mac/WebCoreFrameView.h
 
@@ -563,11 +565,15 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     page/scrolling/cocoa/ScrollingTreePositionedNodeCocoa.h
     page/scrolling/cocoa/ScrollingTreeStickyNodeCocoa.h
 
+    page/scrolling/mac/ScrollerMac.h
+    page/scrolling/mac/ScrollerPairMac.h
     page/scrolling/mac/ScrollingCoordinatorMac.h
     page/scrolling/mac/ScrollingTreeFrameScrollingNodeMac.h
     page/scrolling/mac/ScrollingTreeOverflowScrollingNodeMac.h
+    page/scrolling/mac/ScrollingTreePluginScrollingNodeMac.h
     page/scrolling/mac/ScrollingTreeScrollingNodeDelegateMac.h
 
+    platform/WebCoreMainThread.h
     platform/CaptionPreferencesDelegate.h
     platform/FrameRateMonitor.h
     platform/MainThreadSharedTimer.h
@@ -593,13 +599,24 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/audio/cocoa/MediaSessionManagerCocoa.h
     platform/audio/cocoa/WebAudioBufferList.h
 
+    platform/audio/cocoa/AudioUtilitiesCocoa.h
+    platform/audio/cocoa/SpatialAudioExperienceHelper.h
     platform/audio/mac/SharedRoutingArbitrator.h
 
     platform/cf/MediaAccessibilitySoftLink.h
 
+    platform/cocoa/AppleVisualEffect.h
+    platform/cocoa/CocoaView.h
+    platform/cocoa/CocoaWritingToolsTypes.h
+    platform/cocoa/CoreLocationGeolocationProvider.h
+    platform/cocoa/CoreVideoExtras.h
     platform/cocoa/CoreVideoSoftLink.h
     platform/cocoa/LocalCurrentGraphicsContext.h
     platform/cocoa/NetworkExtensionContentFilter.h
+    platform/cocoa/ParentalControlsContentFilter.h
+    platform/cocoa/ParentalControlsURLFilter.h
+    platform/cocoa/ParentalControlsURLFilterParameters.h
+    platform/cocoa/PlatformTextAlternatives.h
     platform/cocoa/PlatformView.h
     platform/cocoa/PlatformViewController.h
     platform/cocoa/PlaybackSessionModel.h
@@ -610,6 +627,13 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/cocoa/SharedVideoFrameInfo.h
     platform/cocoa/SystemBattery.h
     platform/cocoa/SystemVersion.h
+    platform/cocoa/VideoFullscreenCaptions.h
+    platform/cocoa/VideoPresentationLayerProvider.h
+    platform/cocoa/VideoPresentationModel.h
+    platform/cocoa/VideoPresentationModelVideoElement.h
+    platform/cocoa/WebAVPlayerLayer.h
+    platform/cocoa/WebAVPlayerLayerView.h
+    platform/cocoa/WebKitAvailability.h
 
     platform/gamepad/cocoa/GameControllerGamepadProvider.h
 
@@ -626,7 +650,9 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     platform/graphics/angle/ANGLEUtilities.h
 
+    platform/graphics/MediaPlaybackTargetWirelessPlayback.h
     platform/graphics/avfoundation/AudioSourceProviderAVFObjC.h
+    platform/graphics/avfoundation/MediaPlayerPrivateAVFoundation.h
     platform/graphics/avfoundation/AudioVideoRendererAVFObjC.h
     platform/graphics/avfoundation/MediaPlaybackTargetCocoa.h
     platform/graphics/avfoundation/SampleBufferDisplayLayer.h
@@ -651,20 +677,30 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/ca/cocoa/PlatformCALayerCocoa.h
     platform/graphics/ca/cocoa/WebVideoContainerLayer.h
 
+    platform/graphics/ca/PlatformCALayerDelegatedContents.h
+    platform/graphics/ca/cocoa/ContentsFormatCocoa.h
+
     platform/graphics/cg/CGContextStateSaver.h
     platform/graphics/cg/CGUtilities.h
+    platform/graphics/cg/CGWindowUtilities.h
     platform/graphics/cg/ColorSpaceCG.h
     platform/graphics/cg/GradientRendererCG.h
     platform/graphics/cg/GraphicsContextCG.h
     platform/graphics/cg/IOSurfacePool.h
+    platform/graphics/cg/IOSurfacePoolIdentifier.h
     platform/graphics/cg/ImageBufferCGBackend.h
     platform/graphics/cg/ImageBufferCGBitmapBackend.h
+    platform/graphics/cg/ImageBufferCGPDFDocumentBackend.h
     platform/graphics/cg/ImageBufferIOSurfaceBackend.h
+    platform/graphics/cg/ImageDecoderCG.h
     platform/graphics/cg/PDFDocumentImage.h
+    platform/graphics/cg/PathCG.h
     platform/graphics/cg/UTIRegistry.h
 
+    platform/graphics/cocoa/AV1UtilitiesCocoa.h
     platform/graphics/cocoa/CMUtilities.h
     platform/graphics/cocoa/ColorCocoa.h
+    platform/graphics/cocoa/DynamicContentScalingDisplayList.h
     platform/graphics/cocoa/FontCacheCoreText.h
     platform/graphics/cocoa/FontCocoa.h
     platform/graphics/cocoa/FontDatabase.h
@@ -676,7 +712,16 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/cocoa/MediaPlayerPrivateWebM.h
     platform/graphics/cocoa/SourceBufferParser.h
     platform/graphics/cocoa/SourceBufferParserWebM.h
+    platform/graphics/cocoa/FontCascadeCocoaInlines.h
+    platform/graphics/cocoa/HEVCUtilitiesCocoa.h
+    platform/graphics/cocoa/IOSurfaceDrawingBuffer.h
+    platform/graphics/cocoa/MediaPlayerEnumsCocoa.h
+    platform/graphics/cocoa/NullPlaybackSessionInterface.h
+    platform/graphics/cocoa/NullVideoPresentationInterface.h
+    platform/graphics/cocoa/SystemFontDatabaseCoreText.h
+    platform/graphics/cocoa/TextTrackRepresentationCocoa.h
     platform/graphics/cocoa/VP9UtilitiesCocoa.h
+    platform/graphics/cocoa/VideoTargetFactory.h
     platform/graphics/cocoa/WebActionDisablingCALayerDelegate.h
     platform/graphics/cocoa/WebCoreCALayerExtras.h
     platform/graphics/cocoa/WebLayer.h
@@ -688,15 +733,56 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/cv/PixelBufferConformerCV.h
     platform/graphics/cv/VideoFrameCV.h
 
+    platform/graphics/mac/AppKitControlSystemImage.h
     platform/graphics/mac/ColorMac.h
     platform/graphics/mac/GraphicsChecksMac.h
+    platform/graphics/mac/ScrollbarTrackCornerSystemImageMac.h
     platform/graphics/mac/SwitchingGPUClient.h
 
+    platform/ios/AbstractPasteboard.h
+    platform/ios/DeviceOrientationUpdateProvider.h
+    platform/ios/KeyEventCodesIOS.h
+    platform/ios/LegacyTileCache.h
+    platform/ios/LocalCurrentTraitCollection.h
+    platform/ios/LocalizedDeviceModel.h
+    platform/ios/PlatformEventFactoryIOS.h
     platform/ios/PlaybackSessionInterfaceAVKit.h
+    platform/ios/PlaybackSessionInterfaceAVKitLegacy.h
+    platform/ios/PlaybackSessionInterfaceIOS.h
+    platform/ios/PlaybackSessionInterfaceTVOS.h
+    platform/ios/QuickLook.h
+    platform/ios/TileControllerMemoryHandlerIOS.h
+    platform/ios/UIViewControllerUtilities.h
+    platform/ios/VideoPresentationInterfaceAVKitLegacy.h
+    platform/ios/VideoPresentationInterfaceIOS.h
+    platform/ios/VideoPresentationInterfaceTVOS.h
     platform/ios/WebAVPlayerController.h
+    platform/ios/WebBackgroundTaskController.h
+    platform/ios/WebCoreMotionManager.h
+    platform/ios/WebEvent.h
+    platform/ios/WebEventPrivate.h
+    platform/ios/WebItemProviderPasteboard.h
+    platform/ios/WebSQLiteDatabaseTrackerClient.h
+    platform/ios/WebVideoFullscreenControllerAVKit.h
 
     platform/ios/wak/FloatingPointEnvironment.h
+    platform/ios/wak/WAKAppKitStubs.h
+    platform/ios/wak/WAKClipView.h
+    platform/ios/wak/WAKResponder.h
+    platform/ios/wak/WAKScrollView.h
+    platform/ios/wak/WAKView.h
+    platform/ios/wak/WAKWindow.h
+    platform/ios/wak/WKContentObservation.h
+    platform/ios/wak/WKGraphics.h
+    platform/ios/wak/WKTypes.h
+    platform/ios/wak/WKUtilities.h
+    platform/ios/wak/WKView.h
+    platform/ios/wak/WKViewPrivate.h
+    platform/ios/wak/WebCoreThread.h
+    platform/ios/wak/WebCoreThreadInternal.h
+    platform/ios/wak/WebCoreThreadMessage.h
     platform/ios/wak/WebCoreThreadRun.h
+    platform/ios/wak/WebCoreThreadSystemInterface.h
 
     platform/mac/HIDDevice.h
     platform/mac/HIDElement.h
@@ -711,6 +797,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/mac/SerializedPlatformDataCueMac.h
     platform/mac/ScrollbarThemeMac.h
     platform/mac/StringUtilities.h
+    platform/mac/VideoPresentationInterfaceMac.h
     platform/mac/VideoFullscreenInterfaceMac.h
     platform/mac/WebCoreFullScreenPlaceholderView.h
     platform/mac/WebCoreFullScreenWindow.h
@@ -718,7 +805,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/mac/WebCoreNSURLExtras.h
     platform/mac/WebCoreObjCExtras.h
     platform/mac/WebCoreView.h
-    platform/mac/WebNSAttributedStringExtras.h
+    platform/cocoa/WebNSAttributedStringExtras.h
     platform/mac/WebPlaybackControlsManager.h
 
     platform/mediarecorder/MediaRecorderPrivateEncoder.h
@@ -733,9 +820,17 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     platform/mediastream/cocoa/AudioMediaStreamTrackRendererInternalUnit.h
     platform/mediastream/cocoa/AudioMediaStreamTrackRendererUnit.h
+    platform/mediastream/cocoa/BaseAudioMediaStreamTrackRendererUnit.h
 
+    platform/mediastream/mac/AVVideoCaptureSource.h
+    platform/mediastream/mac/BaseAudioCaptureUnit.h
+    platform/mediastream/mac/CoreAudioCaptureDeviceManager.h
+    platform/mediastream/mac/CoreAudioCaptureSource.h
+    platform/mediastream/mac/CoreAudioCaptureUnit.h
     platform/mediastream/mac/RealtimeIncomingVideoSourceCocoa.h
     platform/mediastream/mac/RealtimeVideoUtilities.h
+    platform/mediastream/mac/ScreenCaptureKitCaptureSource.h
+    platform/mediastream/mac/ScreenCaptureKitSharingSessionManager.h
     platform/mediastream/mac/WebAudioSourceProviderCocoa.h
 
     platform/mediastream/libwebrtc/LibWebRTCProviderCocoa.h
@@ -752,6 +847,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/network/cocoa/CredentialCocoa.h
     platform/network/cocoa/HTTPCookieAcceptPolicyCocoa.h
     platform/network/cocoa/ProtectionSpaceCocoa.h
+    platform/network/cocoa/RangeResponseGenerator.h
     platform/network/cocoa/WebCoreNSURLSession.h
 
     platform/network/mac/AuthenticationMac.h
@@ -759,7 +855,10 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/network/mac/UTIUtilities.h
     platform/network/mac/WebCoreURLResponse.h
 
+    platform/video-codecs/cocoa/WebRTCVideoDecoder.h
+
     rendering/cocoa/RenderThemeCocoa.h
+    rendering/mac/RenderThemeMac.h
 
     rendering/ios/RenderThemeIOS.h
 
@@ -778,6 +877,7 @@ list(APPEND WebCore_IDL_FILES
     Modules/applepay/ApplePayDateComponents.idl
     Modules/applepay/ApplePayDateComponentsRange.idl
     Modules/applepay/ApplePayDeferredPaymentRequest.idl
+Modules/applepay/ApplePayDisbursementRequest.idl
     Modules/applepay/ApplePayDetailsUpdateBase.idl
     Modules/applepay/ApplePayError.idl
     Modules/applepay/ApplePayErrorCode.idl
@@ -834,7 +934,7 @@ set(ADDITIONAL_BINDINGS_DEPENDENCIES
     ${WORKERGLOBALSCOPE_CONSTRUCTORS_FILE}
     ${DEDICATEDWORKERGLOBALSCOPE_CONSTRUCTORS_FILE}
 )
-set(CSS_VALUE_PLATFORM_DEFINES "WTF_PLATFORM_MAC=1 WTF_PLATFORM_COCOA=1 ENABLE_APPLE_PAY_NEW_BUTTON_TYPES=1")
+set(CSS_VALUE_PLATFORM_DEFINES "WTF_PLATFORM_MAC WTF_PLATFORM_COCOA ENABLE_APPLE_PAY_NEW_BUTTON_TYPES")
 
 set(WebCore_USER_AGENT_SCRIPTS ${WebCore_DERIVED_SOURCES_DIR}/ModernMediaControls.js)
 
@@ -857,9 +957,24 @@ list(APPEND WebCoreTestSupport_IDL_FILES
     testing/MockPaymentContactFields.idl
     testing/MockPaymentCoordinator.idl
     testing/MockPaymentError.idl
-    testing/MockWebAuthenticationConfiguration.idl
 )
 
 if (NOT EXISTS ${CMAKE_BINARY_DIR}/WebCore/WebKitAvailability.h)
     file(COPY platform/cocoa/WebKitAvailability.h DESTINATION ${CMAKE_BINARY_DIR}/WebCore)
 endif ()
+list(APPEND WebCore_LIBRARIES /usr/local/lib/libcg_polyfill.dylib)
+
+# 10.9 backport: vendored libwebp for the WEBPImageDecoder fallback (ImageIO on
+# this build can't decode WebP). Static libs at Source/ThirdParty/libwebp/lib.
+# IMPORTANT: changing this section invalidates WebCore IPC structs — must rebuild
+# WebKit too (`ninja WebKit`) or Safari crashes in IPC::ArgumentCoder decode.
+list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
+    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebp/include"
+    "${WEBCORE_DIR}/platform/image-decoders"
+    "${WEBCORE_DIR}/platform/image-decoders/webp"
+)
+list(APPEND WebCore_LIBRARIES
+    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebp/lib/libwebpdemux.a"
+    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebp/lib/libwebp.a"
+    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebp/lib/libsharpyuv.a"
+)

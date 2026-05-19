@@ -1065,17 +1065,25 @@ def generate_one_impl(type, template_argument, serialized_types):
         result.append(f'#if {type.condition}')
 
     if type.members_are_subclasses:
+        # Check if any member has a condition; if so, use a dummy first entry
+        # to avoid leading comma issues when conditional members are disabled.
+        any_conditional = any(m.condition is not None for m in type.members)
         result.append(f'enum class {type.subclass_enum_name()} : IPC::EncodedVariantIndex {{')
-        for idx in range(0, len(type.members)):
-            member = type.members[idx]
-            if member.condition is not None:
-                result.append(f'#if {member.condition}')
-            if idx == 0:
-                result.append(f'    {member.name}')
-            else:
+        if any_conditional:
+            result.append(f'    _dummy_first_entry = 0')
+            for member in type.members:
+                if member.condition is not None:
+                    result.append(f'#if {member.condition}')
                 result.append(f'    , {member.name}')
-            if member.condition is not None:
-                result.append('#endif')
+                if member.condition is not None:
+                    result.append('#endif')
+        else:
+            for idx in range(0, len(type.members)):
+                member = type.members[idx]
+                if idx == 0:
+                    result.append(f'    {member.name}')
+                else:
+                    result.append(f'    , {member.name}')
         result.append('};')
         result.append('')
     for encoder in type.encoders:

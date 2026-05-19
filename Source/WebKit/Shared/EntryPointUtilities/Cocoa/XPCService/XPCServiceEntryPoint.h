@@ -32,6 +32,7 @@
 #import <JavaScriptCore/ExecutableAllocator.h>
 #import <wtf/CompletionHandler.h>
 #import <wtf/OSObjectPtr.h>
+#import <wtf/RunLoop.h>
 #import <wtf/WTFProcess.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 
@@ -80,7 +81,9 @@ protected:
 template<typename XPCServiceType>
 void initializeAuxiliaryProcess(AuxiliaryProcessInitializationParameters&& parameters)
 {
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] initializeAuxiliaryProcess about to call singleton().initialize\n", getpid()); fclose(_d);}}
     XPCServiceType::singleton().initialize(WTF::move(parameters));
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] initializeAuxiliaryProcess returned from initialize\n", getpid()); fclose(_d);}}
 }
 
 #if !USE(RUNNINGBOARD)
@@ -98,14 +101,9 @@ void XPCServiceInitializer(OSObjectPtr<xpc_connection_t> connection, xpc_object_
 {
     XPCServiceInitializerDelegateType delegate(WTF::move(connection), initializerMessage);
 
-    // We don't want XPC to be in charge of whether the process should be terminated or not,
-    // so ensure that we have an outstanding transaction here. This is not needed when using
-    // RunningBoard because the UIProcess takes process assertions on behalf of its child processes.
-#if !USE(RUNNINGBOARD)
-    // Supress this warning for when this header file is included in WKWebProcess.cpp
-    // since os_transaction_create's annotation is only effective in Objective-C files.
-    SUPPRESS_RETAINPTR_CTOR_ADOPT setOSTransaction(adoptOSObject(os_transaction_create("WebKit XPC Service")));
-#endif
+    // Keep the XPC service alive by starting a transaction.
+    // os_transaction_create is 10.10+, use xpc_transaction_begin on 10.9.
+    xpc_transaction_begin();
 
     AuxiliaryProcessInitializationParameters parameters;
 
@@ -134,35 +132,48 @@ void XPCServiceInitializer(OSObjectPtr<xpc_connection_t> connection, xpc_object_
     setAuxiliaryProcessType(parameters.processType);
 
     InitializeWebKit2();
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] post-InitializeWebKit2 — checking entitlements\n", getpid()); fclose(_d);}}
 
-    if (!delegate.checkEntitlements())
+    if (!delegate.checkEntitlements()) {
+        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] FAIL: checkEntitlements\n", getpid()); fclose(_d);}}
         exitProcess(EXIT_FAILURE);
+    }
 
-    if (!delegate.getConnectionIdentifier(parameters.connectionIdentifier))
+    if (!delegate.getConnectionIdentifier(parameters.connectionIdentifier)) {
+        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] FAIL: getConnectionIdentifier\n", getpid()); fclose(_d);}}
         exitProcess(EXIT_FAILURE);
+    }
 
-    if (!delegate.getClientIdentifier(parameters.clientIdentifier))
+    if (!delegate.getClientIdentifier(parameters.clientIdentifier)) {
+        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] FAIL: getClientIdentifier\n", getpid()); fclose(_d);}}
         exitProcess(EXIT_FAILURE);
+    }
 
     // The host process may not have a bundle identifier (e.g. a command line app), so don't require one.
     delegate.getClientBundleIdentifier(parameters.clientBundleIdentifier);
 
     std::optional<WebCore::ProcessIdentifier> processIdentifier;
-    if (!delegate.getProcessIdentifier(processIdentifier))
+    if (!delegate.getProcessIdentifier(processIdentifier)) {
+        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] FAIL: getProcessIdentifier\n", getpid()); fclose(_d);}}
         exitProcess(EXIT_FAILURE);
+    }
     parameters.processIdentifier = *processIdentifier;
 
-    if (!delegate.getClientProcessName(parameters.uiProcessName))
+    if (!delegate.getClientProcessName(parameters.uiProcessName)) {
+        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] FAIL: getClientProcessName\n", getpid()); fclose(_d);}}
         exitProcess(EXIT_FAILURE);
+    }
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] all delegate checks passed\n", getpid()); fclose(_d);}}
 
     // Set the task default voucher to the current value (as propagated by XPC).
-    voucher_replace_default_voucher();
+    // voucher_replace_default_voucher is 10.10+.
 
 #if HAVE(QOS_CLASSES)
     if (parameters.extraInitializationData.contains("always-runs-at-background-priority"_s))
         Thread::setGlobalMaxQOSClass(QOS_CLASS_UTILITY);
 #endif
 
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] about to call initializeAuxiliaryProcess<XPCServiceType>\n", getpid()); fclose(_d);}}
     initializeAuxiliaryProcess<XPCServiceType>(WTF::move(parameters));
 }
 

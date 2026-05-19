@@ -26,6 +26,7 @@
 #include "config.h"
 #include "WebProcess.h"
 
+#include <wtf/MachSendRight.h>
 #include "APIFrameHandle.h"
 #include "APIPageHandle.h"
 #include "AudioMediaStreamTrackRendererInternalUnitManager.h"
@@ -373,8 +374,10 @@ WebProcess::WebProcess()
     , m_nonVisibleProcessMemoryCleanupTimer(*this, &WebProcess::nonVisibleProcessMemoryCleanupTimerFired)
 #endif
 {
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] WebProcess ctor body entered\n", getpid()); fclose(_d);}}
     // Initialize our platform strategies.
     WebPlatformStrategies::initialize();
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] WebPlatformStrategies::initialize done\n", getpid()); fclose(_d);}}
 
     // FIXME: This should moved to where WebProcess::initialize is called,
     // so that ports have a chance to customize, and ifdefs in this file are
@@ -411,8 +414,8 @@ WebProcess::WebProcess()
     WebMockContentFilterManager::singleton().startObservingSettings();
 #endif
 
-    WebCore::WebLockRegistry::setSharedRegistry(RemoteWebLockRegistry::create(*this));
-    WebCore::PermissionController::setSharedController(WebPermissionController::create(*this));
+    // WebCore::WebLockRegistry::setSharedRegistry(RemoteWebLockRegistry::create(*this));
+    // WebCore::PermissionController::setSharedController(WebPermissionController::create(*this));
 }
 
 WebProcess::~WebProcess()
@@ -425,15 +428,15 @@ void WebProcess::initializeProcess(const AuxiliaryProcessInitializationParameter
     m_isLockdownModeEnabled = parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("enable-lockdown-mode"_s) == "1"_s;
     m_isEnhancedSecurityEnabled = parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("enable-enhanced-security"_s) == "1"_s;
 
-    WTF::setProcessPrivileges({ });
+    // WTF::setProcessPrivileges({ });
 
     {
-        JSC::Options::AllowUnfinalizedAccessScope scope;
-        JSC::Options::allowNonSPTagging() = false;
-        JSC::Options::notifyOptionsChanged();
+        // JSC::Options::AllowUnfinalizedAccessScope scope;
+        // JSC::Options::allowNonSPTagging() = false;
+        // JSC::Options::notifyOptionsChanged();
     }
 
-    MessagePortChannelProvider::setSharedProvider(WebMessagePortChannelProvider::singleton());
+    // MessagePortChannelProvider::setSharedProvider(WebMessagePortChannelProvider::singleton());
     
     platformInitializeProcess(parameters);
     updateCPULimit();
@@ -544,6 +547,12 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
         // Let's be nice and not enable the memory kill mechanism.
         memoryPressureHandler.setShouldUsePeriodicMemoryMonitor(isFastMallocEnabled() || JSC::Options::enableStrongRefTracker() || JSC::Options::dumpHeapOnLowMemory());
 #endif
+        // 10.9 backport: the 5s periodic memory monitor I tried earlier was
+        // causing input lag — the timer fires on WebContent main thread and
+        // its measurementTimerFired() calls releaseMemory() synchronously
+        // when footprint crosses thresholds, blocking input handling.
+        // Reverted; rely on the dispatch_source MEMORYPRESSURE path (which
+        // may or may not fire reliably on 10.9; need different OOM strategy).
         memoryPressureHandler.setMemoryKillCallback([this, protectedThis = Ref { *this }] () {
             WebCore::logMemoryStatistics(LogMemoryStatisticsReason::OutOfMemoryDeath);
             RefPtr parentProcessConnection = this->parentProcessConnection();
@@ -801,8 +810,12 @@ void WebProcess::setWebsiteDataStoreParameters(WebProcessDataStoreParameters&& p
         supplement->setWebsiteDataStore(parameters);
 
     platformSetWebsiteDataStoreParameters(WTF::move(parameters));
-    
-    ensureNetworkProcessConnection();
+
+    // 10.9 backport: NetworkProcess.cpp / NetworkConnectionToWebProcess.cpp are
+    // stubbed in this build; sendSync(GetNetworkProcessConnection) would deadlock
+    // waiting for a NetworkProcess that has no message handlers. Skip the
+    // proactive setup so initializeWebProcess returns; data: URLs render without it.
+    // ensureNetworkProcessConnection();
 
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     setOptInCookiePartitioningEnabled(parameters.isOptInCookiePartitioningEnabled);
@@ -1028,6 +1041,7 @@ WebPage* WebProcess::webPage(PageIdentifier pageID) const
 
 void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 {
+    // 10.9 perf: removed debug fopen logging
     m_hasEverHadAnyWebPages = true;
 
     auto addResult = m_pageMap.ensure(pageID, [&] {
@@ -1109,6 +1123,7 @@ void WebProcess::terminate()
 
 bool WebProcess::dispatchMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
+    // 10.9 perf: removed debug fopen logging
     if (decoder.messageReceiverName() == Messages::WebFrame::messageReceiverName()) {
         if (RefPtr frame = FrameIdentifier::isValidIdentifier(decoder.destinationID()) ? webFrame(FrameIdentifier(decoder.destinationID())) : nullptr)
             frame->didReceiveMessage(connection, decoder);
@@ -1366,11 +1381,42 @@ static NetworkProcessConnectionInfo getNetworkProcessConnection(IPC::Connection&
 
 NetworkProcessConnection& WebProcess::ensureNetworkProcessConnection()
 {
-    RELEASE_ASSERT(RunLoop::isMain());
+    // 10.9 backport: this used to RELEASE_ASSERT(isMain). theverge.com Service
+    // Workers call this from a WebCore::WorkerDedicatedRunLoop thread to load
+    // fonts. On 10.9, libdispatch worker threads serving main queue make
+    // RunLoop::isMain() ambiguously return true, so the assert no longer fires
+    // — but the subsequent sendSync to UIProcess corrupts the stack canary on
+    // a worker stack, crashing at the function epilogue. Defensive fix: if
+    // not actually on the main pthread AND we already have a connection,
+    // return the existing one without re-running setup. If we don't have one
+    // yet, bounce to main thread sync to do the IPC there.
+    if (!RunLoop::isMain() || !isMainThread()) {
+        if (m_networkProcessConnection)
+            return *m_networkProcessConnection;
+        // Need a connection but we're on a worker; dispatch to main and wait.
+        Lock lock;
+        Condition condition;
+        bool done = false;
+        callOnMainThread([this, &lock, &condition, &done] {
+            ensureNetworkProcessConnection();
+            Locker locker { lock };
+            done = true;
+            condition.notifyOne();
+        });
+        Locker locker { lock };
+        condition.wait(lock, [&] { return done; });
+        RELEASE_ASSERT(m_networkProcessConnection);
+        return *m_networkProcessConnection;
+    }
+
     ASSERT(m_sessionID);
 
     // If we've lost our connection to the network process (e.g. it crashed) try to re-establish it.
     if (!m_networkProcessConnection) {
+        // 10.9 backport: previously stubbed with a local mach-port pair because
+        // NetworkConnectionToWebProcess was non-functional. The network process
+        // now handles real HTTP requests, so go through the normal sync round-trip
+        // to UIProcess to obtain a real connection.
         auto connectionInfo = getNetworkProcessConnection(Ref { *parentProcessConnection() });
 
         m_networkProcessConnection = NetworkProcessConnection::create(IPC::Connection::Identifier { WTF::move(connectionInfo.connection) }, connectionInfo.cookieAcceptPolicy);
@@ -1403,7 +1449,7 @@ NetworkProcessConnection& WebProcess::ensureNetworkProcessConnection()
         if (std::exchange(m_needsIDBConnectionRefreshForWorkers, false))
             refreshIDBConnectionForWorkers();
     }
-    
+
     return *m_networkProcessConnection;
 }
 

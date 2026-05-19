@@ -404,11 +404,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (readonly) NSArray *seekableTimeRanges;
 
-@property (readonly) NSArray<AVTouchBarMediaSelectionOption *> *audioTouchBarMediaSelectionOptions;
+@property (readonly) NSArray *audioTouchBarMediaSelectionOptions;
 
 @property (strong) AVTouchBarMediaSelectionOption *currentAudioTouchBarMediaSelectionOption;
 
-@property (readonly) NSArray<AVTouchBarMediaSelectionOption *> *legibleTouchBarMediaSelectionOptions;
+@property (readonly) NSArray *legibleTouchBarMediaSelectionOptions;
 
 @property (strong) AVTouchBarMediaSelectionOption *currentLegibleTouchBarMediaSelectionOption;
 
@@ -418,7 +418,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)endTouchBarScrubbing;
 
-- (void)generateTouchBarThumbnailsForTimes:(NSArray<NSNumber *> *)thumbnailTimes tolerance:(NSTimeInterval)tolerance size:(NSSize)size thumbnailHandler:(void (^)(NSArray<AVThumbnail *> *thumbnails, BOOL thumbnailGenerationFailed))thumbnailHandler;
+- (void)generateTouchBarThumbnailsForTimes:(NSArray *)thumbnailTimes tolerance:(NSTimeInterval)tolerance size:(NSSize)size thumbnailHandler:(void (^)(NSArray *thumbnails, BOOL thumbnailGenerationFailed))thumbnailHandler;
 
 - (void)cancelThumbnailGeneration;
 
@@ -601,7 +601,7 @@ typedef NS_ENUM(NSInteger, AVPlayerControllerTimeControlStatus) {
 @interface __AVPlayerLayerView (IPI)
 @property (nonatomic, strong, nullable) AVPlayerController *playerController;
 @property (nonatomic, readonly) AVPlayerLayer *playerLayer;
-@property (nonatomic, copy, nullable) NSDictionary<NSString *, id> *pixelBufferAttributes;
+@property (nonatomic, copy, nullable) NSDictionary *pixelBufferAttributes;
 @end
 
 @interface AVPlayerViewController (IPI)

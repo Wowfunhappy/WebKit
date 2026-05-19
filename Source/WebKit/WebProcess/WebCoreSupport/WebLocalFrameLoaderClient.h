@@ -330,6 +330,11 @@ private:
     RefPtr<WebCore::HistoryItem> createHistoryItemTree(bool clipAtTarget, WebCore::BackForwardItemIdentifier) const final;
 
     RefPtr<WebCore::Frame> provisionalParentFrame() const final;
+
+    // 10.9 backport: tracks the most recent main-frame HTML response URL we
+    // short-circuited via PolicyAction::Use, so that duplicate responses for
+    // the same URL get Ignore'd to avoid creating a second document on top.
+    String m_shortCircuitedResponseURL;
 };
 
 } // namespace WebKit

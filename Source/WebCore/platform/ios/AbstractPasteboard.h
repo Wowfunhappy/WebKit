@@ -35,26 +35,26 @@ NS_ASSUME_NONNULL_BEGIN
 @required
 
 @property (readonly, nonatomic) NSInteger numberOfItems;
-@property (nonatomic, copy, nullable) NSArray<__kindof NSItemProvider *> *itemProviders;
+@property (nonatomic, copy, nullable) NSArray *itemProviders;
 
-- (NSArray<NSString *> *)pasteboardTypes;
+- (NSArray *)pasteboardTypes;
 - (NSData *)dataForPasteboardType:(NSString *)pasteboardType;
 - (NSArray *)dataForPasteboardType:(NSString *)pasteboardType inItemSet:(NSIndexSet *)itemSet;
 - (NSArray *)valuesForPasteboardType:(NSString *)pasteboardType inItemSet:(NSIndexSet *)itemSet;
 - (NSInteger)changeCount;
 
 @optional
-- (void)stageRegistrationLists:(NSArray<WebItemProviderRegistrationInfoList *> *)infoLists;
+- (void)stageRegistrationLists:(NSArray *)infoLists;
 - (void)clearRegistrationLists;
-- (NSArray<WebItemProviderRegistrationInfoList *> *)takeRegistrationLists;
-- (void)setItems:(NSArray<NSDictionary *> *)items;
+- (NSArray *)takeRegistrationLists;
+- (void)setItems:(NSArray *)items;
 @property (readonly, nonatomic) NSInteger numberOfFiles;
-@property (readonly, nonatomic) NSArray<NSURL *> *allDroppedFileURLs;
+@property (readonly, nonatomic) NSArray *allDroppedFileURLs;
 
 // Computes lists of file URLs and types. Each file URL and type corresponds to a representation of the item provider at the given index.
 // In order from highest fidelity to lowest fidelity.
-- (NSArray<NSURL *> *)fileUploadURLsAtIndex:(NSUInteger)index fileTypes:(NSArray<NSString *> *_Nullable *_Nonnull)outFileTypes;
-- (void)updateSupportedTypeIdentifiers:(NSArray<NSString *> *)types;
+- (NSArray *)fileUploadURLsAtIndex:(NSUInteger)index fileTypes:(NSArray *_Nullable *_Nonnull)outFileTypes;
+- (void)updateSupportedTypeIdentifiers:(NSArray *)types;
 
 @end
 

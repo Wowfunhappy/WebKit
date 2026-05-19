@@ -173,7 +173,7 @@ static RetainPtr<NSAttributedString> attributedStringApplyingBodyTextColorIfNece
     RetainPtr attributedString = adoptNS([[NSMutableAttributedString alloc] initWithAttributedString:originalAttributedString]);
 
     __block BOOL attributedStringHasSpecifiedTextColor = NO;
-    [originalAttributedString enumerateAttributesInRange:NSMakeRange(0, originalAttributedString.length) options:0 usingBlock:^(NSDictionary<NSAttributedStringKey, id> *attributes, NSRange, BOOL *stop) {
+    [originalAttributedString enumerateAttributesInRange:NSMakeRange(0, originalAttributedString.length) options:0 usingBlock:^(NSDictionary *attributes, NSRange, BOOL *stop) {
         // FIXME: This is a static analysis false positive.
         SUPPRESS_UNRETAINED_ARG if (attributes[NSForegroundColorAttributeName]) {
             attributedStringHasSpecifiedTextColor = YES;

@@ -48,11 +48,8 @@ void WebPluginInfoProvider::refreshPlugins()
 
 static Vector<WebCore::PluginInfo> pluginInfoVector(WebCore::Page& page)
 {
-#if ENABLE(PDF_PLUGIN)
-    auto& settings = page.settings();
-    if (settings.unifiedPDFEnabled() || settings.pdfPluginEnabled())
-        return { PDFPluginBase::pluginInfo() };
-#endif
+    // 10.9 backport: PDFPluginBase::pluginInfo() not available; skip.
+    UNUSED_PARAM(page);
     return { };
 }
 

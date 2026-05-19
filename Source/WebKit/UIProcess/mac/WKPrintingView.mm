@@ -476,41 +476,41 @@ static RetainPtr<NSString> linkDestinationName(PDFDocument *document, PDFDestina
         return;
     }
 
-    RetainPtr context = [[NSGraphicsContext currentContext] CGContext];
+    CGContextRef context = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];
 
-    CGContextSaveGState(context.get());
-    CGContextTranslateCTM(context.get(), point.x, point.y);
-    CGContextScaleCTM(context.get(), _totalScaleFactorForPrinting, -_totalScaleFactorForPrinting);
-    CGContextTranslateCTM(context.get(), 0, -[pdfPage boundsForBox:kPDFDisplayBoxMediaBox].size.height);
+    CGContextSaveGState(context);
+    CGContextTranslateCTM(context, point.x, point.y);
+    CGContextScaleCTM(context, _totalScaleFactorForPrinting, -_totalScaleFactorForPrinting);
+    CGContextTranslateCTM(context, 0, -[pdfPage boundsForBox:kPDFDisplayBoxMediaBox].size.height);
 
-    [pdfPage drawWithBox:kPDFDisplayBoxMediaBox toContext:context.get()];
+    [pdfPage drawWithBox:kPDFDisplayBoxMediaBox toContext:context];
 
-    CGAffineTransform transform = CGContextGetCTM(context.get());
+    CGAffineTransform transform = CGContextGetCTM(context);
 
     for (const auto& destination : _linkDestinationsPerPage[page]) {
         CGPoint destinationPoint = CGPointApplyAffineTransform(NSPointToCGPoint([destination point]), transform);
-        CGPDFContextAddDestinationAtPoint(context.get(), bridge_cast(linkDestinationName(pdfDocument, destination.get())).get(), destinationPoint);
+        CGPDFContextAddDestinationAtPoint(context, bridge_cast(linkDestinationName(pdfDocument, destination.get())).get(), destinationPoint);
     }
 
     for (PDFAnnotation *annotation in [pdfPage annotations]) {
         if (![[annotation valueForAnnotationKey:WebKit::get_PDFKit_PDFAnnotationKeySubtypeSingleton()] isEqualToString:WebKit::get_PDFKit_PDFAnnotationSubtypeLinkSingleton()])
             continue;
 
-        RetainPtr<NSURL> url = annotation.URL;
+        RetainPtr<NSURL> url = [annotation respondsToSelector:@selector(URL)] ? (NSURL *)[annotation valueForKey:@"URL"] : nil;
         CGRect transformedRect = CGRectApplyAffineTransform(NSRectToCGRect(annotation.bounds), transform);
 
         if (!url) {
-            RetainPtr<PDFDestination> destination = annotation.destination;
+            RetainPtr<PDFDestination> destination = [annotation respondsToSelector:@selector(destination)] ? (PDFDestination *)[annotation valueForKey:@"destination"] : nil;
             if (!destination)
                 continue;
-            CGPDFContextSetDestinationForRect(context.get(), bridge_cast(linkDestinationName(pdfDocument, destination.get())).get(), transformedRect);
+            CGPDFContextSetDestinationForRect(context, bridge_cast(linkDestinationName(pdfDocument, destination.get())).get(), transformedRect);
             continue;
         }
 
-        CGPDFContextSetURLForRect(context.get(), bridge_cast(url.get()), transformedRect);
+        CGPDFContextSetURLForRect(context, bridge_cast(url.get()), transformedRect);
     }
 
-    CGContextRestoreGState(context.get());
+    CGContextRestoreGState(context);
 }
 
 - (void)_drawPreview:(NSRect)nsRect
@@ -563,7 +563,7 @@ static RetainPtr<NSString> linkDestinationName(PDFDocument *document, PDFDestina
         return;
     }
 
-    WebCore::GraphicsContextCG context([[NSGraphicsContext currentContext] CGContext]);
+    WebCore::GraphicsContextCG context((CGContextRef)[[NSGraphicsContext currentContext] graphicsPort]);
     WebCore::GraphicsContextStateSaver stateSaver(context);
 
     bitmap->paint(context, _webFrame->page()->deviceScaleFactor(), WebCore::IntPoint(nsRect.origin), bitmap->bounds());
@@ -602,10 +602,10 @@ static RetainPtr<NSString> linkDestinationName(PDFDocument *document, PDFDestina
                 if (![[annotation valueForAnnotationKey:WebKit::get_PDFKit_PDFAnnotationKeySubtypeSingleton()] isEqualToString:WebKit::get_PDFKit_PDFAnnotationSubtypeLinkSingleton()])
                     continue;
 
-                if (annotation.URL)
+                if ([annotation respondsToSelector:@selector(URL)] && [annotation valueForKey:@"URL"])
                     continue;
 
-                RetainPtr<PDFDestination> destination = annotation.destination;
+                RetainPtr<PDFDestination> destination = [annotation respondsToSelector:@selector(destination)] ? (PDFDestination *)[annotation valueForKey:@"destination"] : nil;
                 if (!destination)
                     continue;
 

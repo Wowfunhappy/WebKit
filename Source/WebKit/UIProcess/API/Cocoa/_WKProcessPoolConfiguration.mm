@@ -42,7 +42,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     if (!(self = [super init]))
         return nil;
 
-    API::Object::constructInWrapper<API::ProcessPoolConfiguration>(self);
+    // DISABLED:     API::Object::constructInWrapper<API::ProcessPoolConfiguration>(self);
 
     return self;
 }

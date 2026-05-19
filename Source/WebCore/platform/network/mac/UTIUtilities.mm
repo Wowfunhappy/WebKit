@@ -68,24 +68,14 @@ HashSet<String> RequiredMIMETypesFromUTI(const String& uti)
 
 RetainPtr<NSString> mimeTypeFromUTITree(UTType *utType)
 {
-    if (utType.declared || utType.dynamic)
-        return utType.preferredMIMEType;
-
-    // If not, walk the ancestory of this UTI to find a valid MIME type:
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    // Note: We have to silence deprecated declarations because some types this
-    // method returns are deprecated.
-    RetainPtr<NSOrderedSet<UTType *>> parentTypes = utType._parentTypes;
-ALLOW_DEPRECATED_DECLARATIONS_END
-    if (!parentTypes)
+    // UTType is macOS 11+; use CoreServices UTType functions on older macOS
+    if (!utType)
         return nullptr;
-
-    for (UTType *parentType : parentTypes.get()) {
-        if (auto&& type = mimeTypeFromUTITree(parentType))
-            return WTF::move(type);
-    }
-
-    return nullptr;
+    NSString *identifier = [(id)utType respondsToSelector:@selector(identifier)] ? [(id)utType identifier] : nil;
+    if (!identifier)
+        return nullptr;
+    RetainPtr<CFStringRef> mimeType = adoptCF(UTTypeCopyPreferredTagWithClass((__bridge CFStringRef)identifier, kUTTagClassMIMEType));
+    return (__bridge NSString *)mimeType.get();
 }
 
 RetainPtr<CFStringRef> mimeTypeFromUTITree(CFStringRef uti)
@@ -119,8 +109,19 @@ public:
         if (RetainPtr type = UTIFromPotentiallyUnknownMIMEType(mimeType))
             return type;
 
-        if (RetainPtr type = [UTType typeWithMIMEType:mimeType.createNSString().get()])
-            return type.get().identifier;
+        // 10.9 backport: [UTType typeWithMIMEType:] is 10.13+. html5test.com hits
+        // this from canvas.toDataURL → encodeData → MIMETypeRegistry::isJPEGMIMEType.
+        // Use the old UTTypeCreatePreferredIdentifierForTag API (10.6+) as fallback.
+        static BOOL hasTypeWithMIMEType = [UTType respondsToSelector:@selector(typeWithMIMEType:)];
+        if (hasTypeWithMIMEType) {
+            if (RetainPtr type = [UTType typeWithMIMEType:mimeType.createNSString().get()])
+                return type.get().identifier;
+        } else {
+            RetainPtr nsMimeType = mimeType.createNSString();
+            RetainPtr identifier = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, (__bridge CFStringRef)nsMimeType.get(), nullptr));
+            if (identifier)
+                return (__bridge NSString *)identifier.get();
+        }
 
         return @"";
     }
@@ -143,8 +144,9 @@ String UTIFromMIMEType(const String& mimeType)
 
 bool isDeclaredUTI(const String& uti)
 {
-    RetainPtr type = [UTType typeWithIdentifier:uti.createNSString().get()];
-    return type.get().isDeclared;
+    // UTType.isDeclared is macOS 11+; use UTTypeDeclaration on older macOS
+    RetainPtr<CFDictionaryRef> decl = adoptCF(UTTypeCopyDeclaration(uti.createCFString().get()));
+    return decl != nullptr;
 }
 
 void setImageSourceAllowableTypes(const Vector<String>& supportedImageTypes)

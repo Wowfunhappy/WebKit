@@ -48,6 +48,11 @@ static MonotonicTime mediaTimeToCurrentTime(CFTimeInterval t)
 
 static NSString * const WKExplicitBeginTimeFlag = @"WKPlatformCAAnimationExplicitBeginTimeFlag";
 
+#if __MAC_OS_X_VERSION_MAX_ALLOWED < 101200
+@protocol CAAnimationDelegate <NSObject>
+@end
+#endif
+
 @interface WKAnimationDelegate () <CAAnimationDelegate>
 @end
 
@@ -554,6 +559,7 @@ static RetainPtr<CAAnimation> createAnimation(CALayer *layer, RemoteLayerTreeHos
         break;
     }
     case PlatformCAAnimation::AnimationType::Spring: {
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101100
         RetainPtr springAnimation = [CASpringAnimation animationWithKeyPath:properties.keyPath.createNSString().get()];
 
         if (properties.keyValues.size() > 1) {
@@ -572,6 +578,14 @@ static RetainPtr<CAAnimation> createAnimation(CALayer *layer, RemoteLayerTreeHos
             }
         }
         caAnimation = WTF::move(springAnimation);
+#else
+        // CASpringAnimation is not available before macOS 10.11; fall back to basic animation.
+        caAnimation = [CABasicAnimation animationWithKeyPath:properties.keyPath.createNSString().get()];
+        if (properties.keyValues.size() > 1) {
+            [caAnimation setFromValue:animationValueFromKeyframeValue(properties.keyValues[0]).get()];
+            [caAnimation setToValue:animationValueFromKeyframeValue(properties.keyValues[1]).get()];
+        }
+#endif
         break;
     }
     }

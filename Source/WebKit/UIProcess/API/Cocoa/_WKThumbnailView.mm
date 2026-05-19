@@ -121,8 +121,14 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 {
     [super updateLayer];
 
-    RetainPtr backgroundColor = self.overrideBackgroundColor ?: [NSColor quaternaryLabelColor];
-    self.layer.backgroundColor = RetainPtr { backgroundColor.get().CGColor }.get();
+    NSColor *backgroundColor = self.overrideBackgroundColor ?: [NSColor lightGrayColor];
+    // NSColor.CGColor is 10.14+; use colorUsingColorSpace conversion instead
+    NSColor *rgbColor = [backgroundColor colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+    if (rgbColor) {
+        CGFloat r, g, b, a;
+        [rgbColor getRed:&r green:&g blue:&b alpha:&a];
+        self.layer.backgroundColor = CGColorCreateGenericRGB(r, g, b, a);
+    }
 }
 
 - (void)requestSnapshot

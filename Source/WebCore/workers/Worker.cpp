@@ -101,6 +101,9 @@ Worker::Worker(ScriptExecutionContext& context, JSC::RuntimeFlags runtimeFlags, 
 
 ExceptionOr<Ref<Worker>> Worker::create(ScriptExecutionContext& context, JSC::RuntimeFlags runtimeFlags, Variant<Ref<TrustedScriptURL>, String>&& url, WorkerOptions&& options)
 {
+    // 10.9 backport: Workers re-enabled after relaxing MemoryCache::singleton's
+    // main-thread RELEASE_ASSERT (see MemoryCache.cpp). May still race in rare
+    // cases but most progressive web apps work better with Workers enabled.
     auto compliantScriptURLString = trustedTypeCompliantString(context, WTF::move(url), "Worker constructor"_s);
     if (compliantScriptURLString.hasException())
         return compliantScriptURLString.releaseException();

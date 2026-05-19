@@ -44,12 +44,16 @@ TransformationMatrix::TransformationMatrix(const simd_float4x4& t)
 
 TransformationMatrix::operator simd_float4x4() const
 {
-    return simd_float4x4 {
-        simd_float4 { (float)m11(), (float)m12(), (float)m13(), (float)m14() },
-        simd_float4 { (float)m21(), (float)m22(), (float)m23(), (float)m24() },
-        simd_float4 { (float)m31(), (float)m32(), (float)m33(), (float)m34() },
-        simd_float4 { (float)m41(), (float)m42(), (float)m43(), (float)m44() }
-    };
+    simd_float4x4 result;
+    float col0[] = {(float)m11(), (float)m12(), (float)m13(), (float)m14()};
+    float col1[] = {(float)m21(), (float)m22(), (float)m23(), (float)m24()};
+    float col2[] = {(float)m31(), (float)m32(), (float)m33(), (float)m34()};
+    float col3[] = {(float)m41(), (float)m42(), (float)m43(), (float)m44()};
+    memcpy(&result.columns[0], col0, sizeof(col0));
+    memcpy(&result.columns[1], col1, sizeof(col1));
+    memcpy(&result.columns[2], col2, sizeof(col2));
+    memcpy(&result.columns[3], col3, sizeof(col3));
+    return result;
 }
 
 }

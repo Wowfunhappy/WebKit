@@ -101,7 +101,7 @@ RefPtr<ImageDecoder> ImageDecoder::create(FragmentedSharedBuffer& data, const St
         }
 #else
         if (ImageDecoderAVFObjC::canDecodeType(mimeType))
-            return ImageDecoderAVFObjC::create(data, mimeType, alphaOption, gammaAndColorProfileOption);
+            return ImageDecoderAVFObjC::create(data, mimeType, alphaOption, gammaAndColorProfileOption, ProcessIdentity { ProcessIdentity::CurrentProcess });
 #endif
     }
 #endif

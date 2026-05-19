@@ -295,7 +295,7 @@ enum class FeatureToAnimate {
 
 - (void)invalidate
 {
-    _scroller = nil;
+    _scroller = nullptr;
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [_knobAlphaAnimation invalidate];
     [_trackAlphaAnimation invalidate];

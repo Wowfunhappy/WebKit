@@ -733,6 +733,12 @@ void NetworkConnectionToWebProcess::sendH2Ping(NetworkResourceLoadParameters&& p
 
 void NetworkConnectionToWebProcess::preconnectTo(std::optional<WebCore::ResourceLoaderIdentifier> preconnectionIdentifier, NetworkResourceLoadParameters&& loadParameters)
 {
+    // 10.9 backport: preconnect's failure path crashes inside CoreIPCError encoding
+    // (NSError userInfo serialization hits memmove on bad memory) when the upstream
+    // host can't be reached early. Preconnects are a perf hint — disable entirely.
+    if (preconnectionIdentifier)
+        didFinishPreconnection(*preconnectionIdentifier, { });
+    return;
     CONNECTION_RELEASE_LOG(Loading, "preconnectTo: (parentPID=%d, pageProxyID=%" PRIu64 ", webPageID=%" PRIu64 ", frameID=%" PRIu64 ", resourceID=%" PRIu64 ")", loadParameters.parentPID, loadParameters.webPageProxyID.toUInt64(), loadParameters.webPageID.toUInt64(), loadParameters.webFrameID.toUInt64(), loadParameters.identifier ? loadParameters.identifier->toUInt64() : 0);
 
     ASSERT(!loadParameters.request.httpBody());

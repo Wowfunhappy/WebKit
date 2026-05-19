@@ -51,7 +51,7 @@ private:
 
     WebPageProxyIdentifier m_webPageProxyID;
     Lock m_networkProcessConnectionLock;
-    Ref<IPC::Connection> m_networkProcessConnection WTF_GUARDED_BY_LOCK(m_networkProcessConnectionLock);
+    RefPtr<IPC::Connection> m_networkProcessConnection WTF_GUARDED_BY_LOCK(m_networkProcessConnectionLock);
 };
 
 }

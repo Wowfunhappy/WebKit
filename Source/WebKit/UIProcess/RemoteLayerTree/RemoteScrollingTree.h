@@ -133,12 +133,13 @@ protected:
     bool m_hasBannerViewOverlay { false };
 #endif
 
+private:
+    void didAddPendingScrollUpdate() override;
 #if ENABLE(THREADED_ANIMATIONS)
+public:
     void updateProgressBasedTimelinesForNode(const WebCore::ScrollingTreeScrollingNode&);
 
 private:
-    void didAddPendingScrollUpdate() override;
-
     std::unique_ptr<RemoteProgressBasedTimelineRegistry> m_progressBasedTimelineRegistry;
 #endif
 };

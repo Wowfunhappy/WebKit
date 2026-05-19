@@ -1002,11 +1002,15 @@ void RenderBlock::paintContents(PaintInfo& paintInfo, const LayoutPoint& paintOf
 void RenderBlock::paintChildren(PaintInfo& paintInfo, const LayoutPoint& paintOffset, PaintInfo& paintInfoForChild, bool usePrintRect)
 {
     ASSERT(!isSkippedContentRoot(*this));
-
+    int n = 0;
     for (auto& child : childrenOfType<RenderBox>(*this)) {
-        if (!paintChild(child, paintInfo, paintOffset, paintInfoForChild, usePrintRect))
+        ++n;
+        if (!paintChild(child, paintInfo, paintOffset, paintInfoForChild, usePrintRect)) {
+            // 10.9 perf: removed debug fopen logging
             return;
+        }
     }
+    // 10.9 perf: removed debug fopen logging
 }
 
 bool RenderBlock::paintChild(RenderBox& child, PaintInfo& paintInfo, const LayoutPoint& paintOffset, PaintInfo& paintInfoForChild, bool usePrintRect, PaintBlockType paintType)
@@ -1123,6 +1127,13 @@ void RenderBlock::paintObject(PaintInfo& paintInfo, const LayoutPoint& paintOffs
 {
     PaintPhase paintPhase = paintInfo.phase;
     auto shouldPaintContent = !isSkippedContentRoot(*this);
+    {FILE *_f=((FILE*)0); if(_f){
+        auto bg = style().visitedDependentBackgroundColorApplyingColorFilter();
+        fprintf(_f,"[PID %d] RenderBlock::paintObject %s phase=%d shouldContent=%d hasDecor=%d visible=%d bgColor.isVisible=%d size=(%d,%d)\n",
+            getpid(), renderName().characters(), (int)paintPhase, (int)shouldPaintContent, (int)hasVisibleBoxDecorations(), (int)(style().usedVisibility() == Visibility::Visible),
+            (int)bg.isVisible(), (int)size().width().toInt(), (int)size().height().toInt());
+        fclose(_f);
+    }}
 
     // 1. paint background, borders etc
     if ((paintPhase == PaintPhase::BlockBackground || paintPhase == PaintPhase::ChildBlockBackground) && style().usedVisibility() == Visibility::Visible) {

@@ -77,13 +77,15 @@ void PublicSuffixStore::enablePublicSuffixCache()
 
 void PublicSuffixStore::addPublicSuffix(const PublicSuffix& publicSuffix)
 {
-    RELEASE_ASSERT(isMainThread());
-
+    // 10.9 backport: RELEASE_ASSERT(isMainThread()) trips when our isMainThread thread-local
+    // initialization hasn't fully completed in WebContent. Drop the assert; the locker below
+    // makes the operation thread-safe anyway.
     if (!publicSuffix.isValid())
         return;
 
     Locker locker { m_publicSuffixCacheLock };
-    ASSERT(m_publicSuffixCache);
+    if (!m_publicSuffixCache)
+        m_publicSuffixCache = HashSet<PublicSuffix> { };
     m_publicSuffixCache->add(crossThreadCopy(publicSuffix));
 }
 

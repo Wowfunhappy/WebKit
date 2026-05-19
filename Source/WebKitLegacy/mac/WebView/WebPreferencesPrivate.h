@@ -226,7 +226,7 @@ extern NSString *WebPreferencesCacheModelChangedInternalNotification WEBKIT_DEPR
 @property (nonatomic) BOOL sourceBufferChangeTypeEnabled;
 @property (nonatomic) BOOL siteSpecificQuirksModeEnabled;
 @property (nonatomic) NSString *mediaContentTypesRequiringHardwareSupport;
-@property (nonatomic, retain) NSArray<NSString *> *additionalSupportedImageTypes; // additionalSupportedImageTypes is an array of image UTIs.
+@property (nonatomic, retain) NSArray *additionalSupportedImageTypes; // additionalSupportedImageTypes is an array of image UTIs.
 
 #if !TARGET_OS_IPHONE
 
@@ -262,11 +262,11 @@ extern NSString *WebPreferencesCacheModelChangedInternalNotification WEBKIT_DEPR
 // For use by MiniBrowser and testing infrastructure only
 
 @interface WebPreferences (WebPrivateExperimentalFeatures)
-+ (NSArray<WebFeature *> *)_experimentalFeatures;
++ (NSArray *)_experimentalFeatures;
 @end
 
 @interface WebPreferences (WebPrivateInternalFeatures)
-+ (NSArray<WebFeature *> *)_internalFeatures;
++ (NSArray *)_internalFeatures;
 @end
 
 @interface WebPreferences (WebPrivateFeatures)

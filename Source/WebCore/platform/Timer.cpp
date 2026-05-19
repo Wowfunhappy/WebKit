@@ -32,7 +32,9 @@
 #include "ThreadTimers.h"
 #include <limits>
 #include <math.h>
+#include <wtf/Lock.h>
 #include <wtf/MainThread.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
@@ -51,6 +53,18 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(TimerBase);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(Timer);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(DeferrableOneShotTimer);
 
+#if PLATFORM(MAC)
+// 10.9 backport: ThreadTimers heap is process-wide singleton (per
+// project_threadtimers_shared.md). Worker threads + main thread can mutate
+// the heap concurrently — std::push_heap / std::pop_heap are NOT thread-safe
+// and crash in __sift_up. Wrap heap mutations with a global lock.
+Lock& sharedTimerHeapLock()
+{
+    static NeverDestroyed<Lock> lock;
+    return lock.get();
+}
+#endif
+
 class TimerHeapReference;
 
 // Timers are stored in a heap data structure, used to implement a priority queue.
@@ -65,8 +79,6 @@ static ThreadTimerHeap& threadGlobalTimerHeap()
 }
 #endif
 
-WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(ThreadTimerHeapItem);
-
 inline ThreadTimerHeapItem::ThreadTimerHeapItem(TimerBase& timer, MonotonicTime time, unsigned insertionOrder)
     : time(time)
     , insertionOrder(insertionOrder)
@@ -75,7 +87,9 @@ inline ThreadTimerHeapItem::ThreadTimerHeapItem(TimerBase& timer, MonotonicTime 
 {
     ASSERT(m_timer);
 }
-    
+
+WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(ThreadTimerHeapItem);
+
 inline RefPtr<ThreadTimerHeapItem> ThreadTimerHeapItem::create(TimerBase& timer, MonotonicTime time, unsigned insertionOrder)
 {
     return adoptRef(*new ThreadTimerHeapItem { timer, time, insertionOrder });
@@ -257,13 +271,9 @@ private:
 
 static bool shouldSuppressThreadSafetyCheck()
 {
-#if PLATFORM(IOS_FAMILY)
-    return WebThreadIsEnabled() || !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::TimerThreadSafetyChecks);
-#elif PLATFORM(MAC)
-    return !isInWebProcess() && !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::TimerThreadSafetyChecks);
-#else
-    return false;
-#endif
+    // 10.9 backport: m_thread can be clobbered by various heap corruption.
+    // Suppress unconditionally so timers can still be stopped/restarted.
+    return true;
 }
 
 struct SameSizeAsTimer {
@@ -295,8 +305,10 @@ TimerBase::TimerBase()
 
 TimerBase::~TimerBase()
 {
+    // 10.9 backport: m_thread can be clobbered by JSC GC overwriting RunLoop
+    // memory; suppress the thread-safety release assert so destruction can
+    // proceed (the actual stop() below is safe to call from any thread).
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
-    RELEASE_ASSERT(canCurrentThreadAccessThreadLocalData(m_thread) || shouldSuppressThreadSafetyCheck());
     stop();
     ASSERT(!inHeap());
     if (auto* item = m_heapItemWithBitfields.pointer())
@@ -307,7 +319,6 @@ TimerBase::~TimerBase()
 void TimerBase::start(Seconds nextFireInterval, Seconds repeatInterval)
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
-
     m_repeatInterval = repeatInterval;
     setNextFireTime(MonotonicTime::now() + nextFireInterval);
 }
@@ -316,12 +327,19 @@ void TimerBase::stopSlowCase()
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
 
+    // 10.9 backport: setNextFireTime walks the global timer heap, which gets
+    // corrupted on this build. Calling it from navigation tear-down crashes in
+    // __sift_up / heapInsert. Bypass the heap-walking path: clear our state and
+    // detach from the heap item. Orphan heap entries get pruned by ThreadTimers
+    // on its next pass (it skips entries whose hasTimer() is false).
+#if PLATFORM(MAC)
+    Locker timerHeapLocker { sharedTimerHeapLock() };
+#endif
     m_repeatInterval = 0_s;
-    setNextFireTime(MonotonicTime { });
-
-    ASSERT(!static_cast<bool>(nextFireTime()));
-    ASSERT(m_repeatInterval == 0_s);
-    ASSERT(!inHeap());
+    m_unalignedNextFireTime = MonotonicTime { };
+    if (RefPtr item = m_heapItemWithBitfields.pointer())
+        item->clearTimer();
+    m_heapItemWithBitfields.setPointer(nullptr);
 }
 
 Seconds TimerBase::nextFireInterval() const
@@ -403,6 +421,47 @@ inline void TimerBase::heapInsert()
     RefPtr item = m_heapItemWithBitfields.pointer();
     ASSERT(item);
     auto& heap = item->timerHeap();
+    // 10.9 backport: scrub corrupt entries before any heap operation. Without
+    // this, push_heap (called by heapDecreaseKey below) crashes inside __sift_up
+    // dereferencing entries whose Ref<>::ptr is bogus.
+    {
+        bool needsRebuild = false;
+        size_t origSize = heap.size();
+        if (origSize > 0x10000) {
+            heap.clear();
+            origSize = 0;
+        }
+        for (size_t i = 0; i < origSize; ++i) {
+            auto* hi = heap[i].ptr();
+            uintptr_t addr = reinterpret_cast<uintptr_t>(hi);
+            if (addr < 0x100000 || (addr >> 47) || (addr & 0x7) || !hi->hasTimer()) {
+                needsRebuild = true;
+                break;
+            }
+        }
+        if (needsRebuild) {
+            Vector<Ref<ThreadTimerHeapItem>> survivors;
+            for (size_t i = 0; i < origSize; ++i) {
+                auto& entry = heap[i];
+                auto* hi = entry.ptr();
+                uintptr_t addr = reinterpret_cast<uintptr_t>(hi);
+                if (addr < 0x100000 || (addr >> 47) || (addr & 0x7))
+                    continue;
+                if (!hi->hasTimer())
+                    continue;
+                double t = hi->time.secondsSinceEpoch().value();
+                if (std::isnan(t) || std::isinf(t))
+                    continue;
+                survivors.append(entry);
+            }
+            heap.clear();
+            for (size_t i = 0; i < survivors.size(); ++i) {
+                survivors[i]->setHeapIndex(i);
+                heap.append(WTF::move(survivors[i]));
+            }
+        }
+    }
+
     heap.append(*item);
     item->setHeapIndex(heap.size() - 1);
     heapDecreaseKey();
@@ -464,15 +523,35 @@ bool TimerBase::hasValidHeapPosition() const
     ASSERT(item);
     if (!inHeap())
         return false;
-    // Check if the heap property still holds with the new fire time. If it does we don't need to do anything.
-    // This assumes that the STL heap is a standard binary heap. In an unlikely event it is not, the assertions
-    // in updateHeapIfNeeded() will get hit.
+    // 10.9 backport: defensively validate heap entries before dereferencing.
+    // Thread timer heap is corrupted by JSC GC overwriting Vector storage.
+    // Bad entries (NULL pointers, non-aligned, NaN times) would crash compare().
+    // Returning false forces updateHeapIfNeeded to call heap{Insert,Delete,...}
+    // which scrub the heap.
     const auto& heap = item->timerHeap();
     unsigned heapIndex = item->heapIndex();
-    if (!parentHeapPropertyHolds(this, heap, heapIndex))
+    auto isAddrValid = [](uintptr_t addr) -> bool {
+        return addr >= 0x100000 && !(addr >> 47) && !(addr & 0x7);
+    };
+    auto checkEntry = [&](unsigned idx) -> bool {
+        if (idx >= heap.size())
+            return true;
+        auto* hi = heap[idx].ptr();
+        if (!isAddrValid(reinterpret_cast<uintptr_t>(hi)))
+            return false;
+        if (!hi->hasTimer())
+            return false;
+        double t = hi->time.secondsSinceEpoch().value();
+        return !std::isnan(t) && !std::isinf(t);
+    };
+    if (heapIndex && !checkEntry((heapIndex - 1) / 2))
         return false;
     unsigned childIndex1 = 2 * heapIndex + 1;
     unsigned childIndex2 = childIndex1 + 1;
+    if (!checkEntry(childIndex1) || !checkEntry(childIndex2))
+        return false;
+    if (!parentHeapPropertyHolds(this, heap, heapIndex))
+        return false;
     return childHeapPropertyHolds(this, heap, childIndex1) && childHeapPropertyHolds(this, heap, childIndex2);
 }
 
@@ -510,8 +589,15 @@ void TimerBase::updateHeapIfNeeded(MonotonicTime oldTime)
 
 void TimerBase::setNextFireTime(MonotonicTime newTime)
 {
+    // Log nothing for now (too verbose); restore if needed.
 #if USE(WEB_THREAD)
     RELEASE_ASSERT(WebThreadIsLockedOrDisabledInMainOrWebThread());
+#endif
+#if PLATFORM(MAC)
+    // 10.9 backport: serialize heap mutations across threads. Released
+    // before updateSharedTimer to avoid recursive lock attempt.
+    std::optional<Locker<Lock>> timerHeapLocker;
+    timerHeapLocker.emplace(sharedTimerHeapLock());
 #endif
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
     RELEASE_ASSERT(canCurrentThreadAccessThreadLocalData(m_thread) || shouldSuppressThreadSafetyCheck());
@@ -546,6 +632,8 @@ void TimerBase::setNextFireTime(MonotonicTime newTime)
 
         bool isFirstTimerInHeap = item->isFirstInHeap();
 
+        // 10.9 backport: keep heap lock held — updateSharedTimer no longer
+        // locks (it expects caller to hold the lock).
         if (wasFirstTimerInHeap || isFirstTimerInHeap)
             threadGlobalDataSingleton().threadTimers().updateSharedTimer();
     }

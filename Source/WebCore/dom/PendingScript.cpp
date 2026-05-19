@@ -55,16 +55,24 @@ PendingScript::PendingScript(ScriptElement& element, LoadableScript& loadableScr
     : m_element(element)
     , m_loadableScript(&loadableScript)
 {
+    FILE* _f = ((FILE*)0);
+    if (_f) { fprintf(_f, "[PendingScript::ctor PID %d] this=%p loadable=%p\n", getpid(), this, &loadableScript); fclose(_f); }
 }
 
 PendingScript::~PendingScript()
 {
+    FILE* _f = ((FILE*)0);
+    if (_f) { fprintf(_f, "[PendingScript::dtor PID %d] this=%p\n", getpid(), this); fclose(_f); }
     if (RefPtr loadableScript = m_loadableScript)
         loadableScript->removeClient(*this);
 }
 
 void PendingScript::notifyClientFinished()
 {
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) { fprintf(_f, "[PendingScript::notifyClientFinished PID %d] hasClient=%d\n", getpid(), (int)!!m_client); fclose(_f); }
+    }
     Ref<PendingScript> protectedThis(*this);
     if (m_client)
         m_client->notifyFinished(*this);
@@ -72,6 +80,10 @@ void PendingScript::notifyClientFinished()
 
 void PendingScript::notifyFinished(LoadableScript&)
 {
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) { fprintf(_f, "[PendingScript::notifyFinished PID %d]\n", getpid()); fclose(_f); }
+    }
     notifyClientFinished();
 }
 

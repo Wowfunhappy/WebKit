@@ -252,7 +252,7 @@ public:
 
     InjectedBundle* injectedBundle() const { return m_injectedBundle.get(); }
     
-    PAL::SessionID sessionID() const { ASSERT(m_sessionID); return *m_sessionID; }
+    PAL::SessionID sessionID() const { return m_sessionID.value_or(PAL::SessionID::defaultSessionID()); }
 
     WebCore::ThirdPartyCookieBlockingMode thirdPartyCookieBlockingMode() const { return m_thirdPartyCookieBlockingMode; }
 

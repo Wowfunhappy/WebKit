@@ -105,8 +105,15 @@ WTF_EXTERN_C_END
 
 #endif // USE(APPLE_INTERNAL_SDK)
 
-typedef struct CF_BRIDGED_TYPE(id) __SecTask *SecTaskRef;
-typedef struct CF_BRIDGED_TYPE(id) __SecTrust *SecTrustRef;
+/* SecTaskRef and SecTrustRef already defined in system Security headers on 10.9 */
+#include <Security/SecTrust.h>
+#include <Security/SecTask.h>
+
+/* SecAccessControlRef was added in macOS 10.10 - use the polyfill struct decl */
+#ifndef __SEC_ACCESS_CONTROL__
+#define __SEC_ACCESS_CONTROL__
+typedef struct __SecAccessControl *SecAccessControlRef;
+#endif
 
 WTF_EXTERN_C_BEGIN
 

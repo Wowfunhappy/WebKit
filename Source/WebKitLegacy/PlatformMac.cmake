@@ -33,7 +33,7 @@ list(APPEND WebKitLegacy_SOURCES
     cf/WebCoreSupport/WebInspectorClientCF.cpp
 
     mac/DefaultDelegates/WebDefaultEditingDelegate.m
-    mac/DefaultDelegates/WebDefaultPolicyDelegate.m
+    mac/DefaultDelegates/WebDefaultPolicyDelegate.mm
     mac/DefaultDelegates/WebDefaultUIDelegate.mm
 
     mac/History/BackForwardList.mm
@@ -591,10 +591,13 @@ set(CPP_FILES
 foreach (_file ${WebKitLegacy_SOURCES})
     list(FIND C99_FILES ${_file} _c99_index)
     list(FIND CPP_FILES ${_file} _cpp_index)
+    get_filename_component(_ext ${_file} EXT)
     if (NOT ${_c99_index} EQUAL -1)
         set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS -std=c99)
     elseif (NOT ${_cpp_index} EQUAL -1)
         set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS -std=c++2b)
+    elseif (_ext STREQUAL ".m")
+        set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS -std=gnu17)
     else ()
         set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS "-ObjC++ -std=c++2b")
     endif ()
@@ -611,7 +614,7 @@ endforeach ()
 add_custom_command(
     OUTPUT ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebViewPreferencesChangedGenerated.mm ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebPreferencesInternalFeatures.mm ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebPreferencesExperimentalFeatures.mm ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebPreferencesDefinitions.h
     DEPENDS ${WebKit_WEB_PREFERENCES_TEMPLATES} ${WebKit_WEB_PREFERENCES} WTF_CopyPreferences
-    COMMAND ${Ruby_EXECUTABLE} ${WTF_SCRIPTS_DIR}/GeneratePreferences.rb --frontend WebKitLegacy --outputDir "${WebKitLegacy_DERIVED_SOURCES_DIR}" --template "$<JOIN:${WebKit_WEB_PREFERENCES_TEMPLATES},;--template;>" ${WebKit_WEB_PREFERENCES}
+    COMMAND ${Ruby_EXECUTABLE} ${WTF_SCRIPTS_DIR}/GeneratePreferences.rb --frontend WebKitLegacy --outputDir "${WebKitLegacy_DERIVED_SOURCES_DIR}" --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebViewPreferencesChangedGenerated.mm.erb --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesDefinitions.h.erb --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesExperimentalFeatures.mm.erb --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesInternalFeatures.mm.erb ${WTF_SCRIPTS_DIR}/Preferences/UnifiedWebPreferences.yaml
     COMMAND_EXPAND_LISTS
     VERBATIM
 )
@@ -624,4 +627,4 @@ list(APPEND WebKitLegacy_SOURCES
 
 set(WebKitLegacy_OUTPUT_NAME WebKitLegacy)
 
-set(CMAKE_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS} "-compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION} -framework SecurityInterface")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION} -framework SecurityInterface")

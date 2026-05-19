@@ -204,9 +204,8 @@ uintptr_t StreamClientConnection::generateSignpostIdentifier()
 
 void StreamClientConnection::emitSendSignpost(MessageName messageName)
 {
-    // Signposts can turn in to log message IPCs when emitted from WebContent. Don't emit a signpost
-    // for log messages to avoid an infinite number of signposts.
-    if (signpostsEnabled() && receiverName(messageName) != IPC::ReceiverName::LogStream) [[unlikely]]
+    // macOS 10.9 backport: ReceiverName::LogStream doesn't exist; drop the check.
+    if (signpostsEnabled()) [[unlikely]]
         WTFEmitSignpost(generateSignpostIdentifier(), StreamClientConnection, "send: %" PUBLIC_LOG_STRING, description(messageName).characters());
 }
 

@@ -54,7 +54,9 @@ ResourceRequest::ResourceRequest(NSURLRequest *nsRequest)
 #if ENABLE(APP_PRIVACY_REPORT)
     setIsAppInitiated(nsRequest.attribution == NSURLRequestAttributionDeveloper);
 #endif
-    setPrivacyProxyFailClosedForUnreachableNonMainHosts(nsRequest._privacyProxyFailClosedForUnreachableNonMainHosts);
+    // 10.9 backport: _privacyProxyFailClosedForUnreachableNonMainHosts is 10.10+ private API.
+    if ([nsRequest respondsToSelector:@selector(_privacyProxyFailClosedForUnreachableNonMainHosts)])
+        setPrivacyProxyFailClosedForUnreachableNonMainHosts(nsRequest._privacyProxyFailClosedForUnreachableNonMainHosts);
 #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
     setUseAdvancedPrivacyProtections(nsRequest._useEnhancedPrivacyMode);
 #endif
@@ -81,6 +83,9 @@ ResourceRequest::ResourceRequest(ResourceRequestPlatformData&& platformData, con
 
 ResourceRequestData ResourceRequest::getRequestDataToSerialize() const
 {
+    // 10.9 backport: NSURLRequest's encodeWithCoder crashes on 10.9. Force the
+    // RequestData path which sends fields as plain C++ data (URL, method, etc.).
+    return m_requestData;
     if (encodingRequiresPlatformData())
         return getResourceRequestPlatformData();
     return m_requestData;
@@ -102,7 +107,11 @@ NSURLRequest *ResourceRequest::nsURLRequest(HTTPBodyUpdatePolicy bodyPolicy) con
 ResourceRequestPlatformData ResourceRequest::getResourceRequestPlatformData() const
 {
     RELEASE_ASSERT(m_httpBody || m_nsRequest);
-    
+
+    // 10.9 backport: NSURLRequest's encodeWithCoder calls private methods that
+    // crash on 10.9 regardless of how the request was constructed. Send empty.
+    return ResourceRequestPlatformData { NULL, std::nullopt, std::nullopt };
+
     RetainPtr requestToSerialize = nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
 
     if (Class requestClass = [requestToSerialize class]; requestClass != [NSURLRequest class] && requestClass != [NSMutableURLRequest class]) [[unlikely]] {
@@ -253,7 +262,9 @@ static void configureRequestWithData(NSMutableURLRequest *request, const Resourc
     UNUSED_PARAM(data);
 #endif
 
-    request._privacyProxyFailClosedForUnreachableNonMainHosts = data.m_privacyProxyFailClosedForUnreachableNonMainHosts;
+    // 10.9 backport: _privacyProxyFailClosedForUnreachableNonMainHosts is 10.16+
+    if ([request respondsToSelector:@selector(_setPrivacyProxyFailClosedForUnreachableNonMainHosts:)])
+        request._privacyProxyFailClosedForUnreachableNonMainHosts = data.m_privacyProxyFailClosedForUnreachableNonMainHosts;
 
 #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
     request._useEnhancedPrivacyMode = data.m_useAdvancedPrivacyProtections;
@@ -274,21 +285,12 @@ void ResourceRequest::doUpdatePlatformRequest()
     else
         nsRequest = adoptNS([[NSMutableURLRequest alloc] initWithURL:url().createNSURL().get()]);
 
+    // 10.9 backport: skip the private CF API calls that crash on 10.9, but
+    // KEEP the safe NSMutableURLRequest setters for HTTP method, headers,
+    // cookies — without these, POST requests have no method/body/headers.
     configureRequestWithData(nsRequest.get(), m_requestData);
 
-    if (ResourceRequest::httpPipeliningEnabled())
-        CFURLRequestSetShouldPipelineHTTP([nsRequest _CFURLRequest], true, true);
-
-    if (ResourceRequest::resourcePrioritiesEnabled()) {
-        CFURLRequestSetRequestPriority([nsRequest _CFURLRequest], toPlatformRequestPriority(priority()));
-
-        // Used by PLT to ignore very low priority beacon and ping loads.
-        if (priority() == ResourceLoadPriority::VeryLow)
-            _CFURLRequestSetProtocolProperty([nsRequest _CFURLRequest], CFSTR("WKVeryLowLoadPriority"), kCFBooleanTrue);
-    }
-
     [nsRequest setCachePolicy:toPlatformRequestCachePolicy(cachePolicy())];
-    _CFURLRequestSetProtocolProperty([nsRequest _CFURLRequest], kCFURLRequestAllowAllPOSTCaching, kCFBooleanTrue);
 
     if (double newTimeoutInterval = timeoutInterval())
         [nsRequest setTimeoutInterval:newTimeoutInterval];
@@ -299,10 +301,6 @@ void ResourceRequest::doUpdatePlatformRequest()
     if (!httpMethod().isEmpty())
         [nsRequest setHTTPMethod:httpMethod().createNSString().get()];
     [nsRequest setHTTPShouldHandleCookies:allowCookies()];
-
-    [nsRequest _setProperty:RetainPtr { siteForCookies(m_requestData.m_sameSiteDisposition, retainPtr([nsRequest URL]).get()) }.get() forKey:@"_kCFHTTPCookiePolicyPropertySiteForCookies"];
-    // FIXME: This is a safer cpp false positive (rdar://160851489).
-    SUPPRESS_UNRETAINED_ARG [nsRequest _setProperty:m_requestData.m_isTopSite ? @YES : @NO forKey:@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"];
 
     // Cannot just use setAllHTTPHeaderFields here, because it does not remove headers.
     for (NSString *oldHeaderName in [nsRequest allHTTPHeaderFields])

@@ -62,7 +62,7 @@
 using namespace WebCore;
 
 @interface AVCaptureDeviceFormat (AVCaptureDeviceFormat_New_API)
-@property (nonatomic, readonly) NSArray<NSValue *> *supportedMaxPhotoDimensions;
+@property (nonatomic, readonly) NSArray *supportedMaxPhotoDimensions;
 @end
 
 @interface AVCapturePhotoSettings (AVCapturePhotoSettings_New_API)
@@ -664,7 +664,7 @@ IntSize AVVideoCaptureSource::maxPhotoSizeForActiveFormat(AVCaptureDeviceFormat 
 {
     ASSERT([format respondsToSelector:@selector(supportedMaxPhotoDimensions)]);
 
-    NSArray<NSValue*> *maxPhotoDimensions = format.supportedMaxPhotoDimensions;
+    NSArray *maxPhotoDimensions = format.supportedMaxPhotoDimensions;
     if (!maxPhotoDimensions.count)
         return { };
 

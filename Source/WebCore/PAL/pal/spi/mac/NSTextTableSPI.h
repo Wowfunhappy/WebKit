@@ -40,7 +40,7 @@ DECLARE_SYSTEM_HEADER
 @end
 
 @interface NSTextTab ()
-- (instancetype)initWithTextAlignment:(NSTextAlignment)alignment location:(CGFloat)loc options:(NSDictionary<NSTextTabOptionKey, id> *)options;
+- (instancetype)initWithTextAlignment:(NSTextAlignment)alignment location:(CGFloat)loc options:(NSDictionary *)options;
 @end
 
 #endif // PLATFORM(MAC)

@@ -1667,24 +1667,29 @@ EditorState WebPage::editorState(ShouldPerformLayout shouldPerformLayout) const
         return result;
 #endif
 
-    const VisibleSelection& selection = frame->selection().selection();
     Ref editor = frame->editor();
 
-    result.selectionType = selection.type();
-    result.isContentEditable = selection.hasEditableStyle();
-    result.isContentRichlyEditable = selection.isContentRichlyEditable();
-    result.isInPasswordField = selection.isInPasswordField();
+    // 10.9 backport: avoid touching frame->selection().selection() because
+    // VisibleSelection's m_anchorNode can be stale (freed Node) and crash
+    // hasEditableStyle/etc. Compute isContentEditable safely from the focused
+    // element via Node::isContentEditable (uses computed style, not selection).
+    result.selectionType = WebCore::SelectionType::None;
+    result.isContentEditable = false;
+    result.isContentRichlyEditable = false;
+    result.isInPasswordField = false;
+    if (RefPtr document = frame->document()) {
+        if (RefPtr focused = document->focusedElement()) {
+            result.isContentEditable = focused->isContentEditable();
+            result.isContentRichlyEditable = focused->isContentEditable() && !is<HTMLInputElement>(*focused) && !is<HTMLTextAreaElement>(*focused);
+            if (auto* input = dynamicDowncast<HTMLInputElement>(focused.get()))
+                result.isInPasswordField = input->isPasswordField();
+        }
+    }
     result.hasComposition = editor->hasComposition();
     result.shouldIgnoreSelectionChanges = editor->ignoreSelectionChanges() || (editor->client() && !protect(editor->client())->shouldRevealCurrentSelectionAfterInsertion());
     result.triggeredByAccessibilitySelectionChange = m_pendingEditorStateUpdateStatus == PendingEditorStateUpdateStatus::ScheduledDuringAccessibilitySelectionChange || m_isChangingSelectionForAccessibility;
 
     Ref<Document> document = *frame->document();
-
-    if (result.selectionType == WebCore::SelectionType::Range) {
-        auto selectionRange = selection.range();
-        result.selectionIsRangeInsideImageOverlay = selectionRange && ImageOverlay::isInsideOverlay(*selectionRange);
-        result.selectionIsRangeInAutoFilledAndViewableField = selection.isInAutoFilledAndViewableField();
-    }
 
     m_lastEditorStateWasContentEditable = result.isContentEditable ? EditorStateIsContentEditable::Yes : EditorStateIsContentEditable::No;
 
@@ -1826,7 +1831,15 @@ void WebPage::updateEditorStateAfterLayoutIfEditabilityChanged()
     if (!frame)
         return;
 
-    auto isEditable = frame->selection().selection().hasEditableStyle() ? EditorStateIsContentEditable::Yes : EditorStateIsContentEditable::No;
+    // 10.9 backport: avoid frame->selection().selection() (stale m_anchorNode
+    // can SEGV). Use Document::focusedElement-based isContentEditable instead.
+    EditorStateIsContentEditable isEditable = EditorStateIsContentEditable::No;
+    if (RefPtr document = frame->document()) {
+        if (RefPtr focused = document->focusedElement()) {
+            if (focused->isContentEditable())
+                isEditable = EditorStateIsContentEditable::Yes;
+        }
+    }
     if (m_lastEditorStateWasContentEditable != isEditable)
         scheduleFullEditorStateUpdate();
 }
@@ -2217,17 +2230,21 @@ void WebPage::loadDidCommitInAnotherProcess(WebCore::FrameIdentifier frameID, st
 void WebPage::loadRequest(LoadParameters&& loadParameters)
 {
     WEBPAGE_RELEASE_LOG_FORWARDABLE(Loading, WEBPAGE_LOADREQUEST, loadParameters.navigationID ? loadParameters.navigationID->toUInt64() : 0, static_cast<unsigned>(loadParameters.shouldTreatAsContinuingLoad), loadParameters.request.isAppInitiated(), loadParameters.existingNetworkResourceLoadIdentifierToResume ? loadParameters.existingNetworkResourceLoadIdentifierToResume->toUInt64() : 0);
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadRequest PID %d] entered, url=%s\n", getpid(), loadParameters.request.url().string().utf8().data()); fclose(_d);}}
 
     RefPtr frame = loadParameters.frameIdentifier ? WebProcess::singleton().webFrame(*loadParameters.frameIdentifier) : m_mainFrame.ptr();
     if (!frame) {
+        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadRequest PID %d] no frame!\n", getpid()); fclose(_d);}}
         ASSERT_NOT_REACHED();
         return;
     }
     RefPtr localFrame = frame->coreLocalFrame() ? frame->coreLocalFrame() : frame->provisionalFrame();
     if (!localFrame) {
+        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadRequest PID %d] no localFrame!\n", getpid()); fclose(_d);}}
         ASSERT_NOT_REACHED();
         return;
     }
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadRequest PID %d] frame=%p localFrame=%p, calling load\n", getpid(), frame.get(), localFrame.get()); fclose(_d);}}
 
     setLastNavigationWasAppInitiated(loadParameters.request.isAppInitiated());
 
@@ -2280,7 +2297,9 @@ void WebPage::loadRequest(LoadParameters&& loadParameters)
 
     localFrame->loader().setNavigationUpgradeToHTTPSBehavior(loadParameters.navigationUpgradeToHTTPSBehavior);
     localFrame->loader().setRequiredCookiesVersion(loadParameters.requiredCookiesVersion);
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadRequest PID %d] about to call FrameLoader::load\n", getpid()); fclose(_d);}}
     localFrame->loader().load(WTF::move(frameLoadRequest), WTF::move(loadParameters.requester));
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadRequest PID %d] FrameLoader::load returned\n", getpid()); fclose(_d);}}
 
     ASSERT(!m_pendingNavigationID);
     ASSERT(!m_internals->pendingWebsitePolicies);
@@ -4102,7 +4121,7 @@ void WebPage::touchEvent(const WebTouchEvent& touchEvent, CompletionHandler<void
 {
     RefPtr localMainFrame = this->localMainFrame();
     if (!localMainFrame)
-        return;
+        return completionHandler(std::nullopt, false);
 
     CurrentEvent currentEvent(touchEvent);
 
@@ -4377,6 +4396,17 @@ void WebPage::setActivityState(OptionSet<ActivityState> activityState, ActivityS
 {
     LOG_WITH_STREAM(ActivityState, stream << "WebPage " << identifier().toUInt64() << " setActivityState to " << activityState);
 
+    // 10.9 backport: Safari's URL-bar typed navigation incorrectly sends
+    // setActivityState with IsVisible=0/IsInWindow=0 forever, leaving the
+    // WebPage in prerender mode. The TileController never builds content
+    // layers and the page renders blank. Force visibility on so the
+    // compositor allocates content tiles. (osascript "set URL" path correctly
+    // sends IsVisible=1, so it's unaffected.)
+    if (!activityState.contains(WebCore::ActivityState::IsVisible))
+        activityState.add({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsVisibleOrOccluded });
+    if (!activityState.contains(WebCore::ActivityState::IsInWindow))
+        activityState.add(WebCore::ActivityState::IsInWindow);
+
     auto changed = m_activityState ^ activityState;
     m_activityState = activityState;
 
@@ -4404,7 +4434,11 @@ void WebPage::setActivityState(OptionSet<ActivityState> activityState, ActivityS
 
 void WebPage::didStartPageTransition()
 {
-    freezeLayerTree(LayerTreeFreezeReason::PageTransition);
+    // 10.9 backport: skip the page-transition freeze. The page transition is supposed to be
+    // unfrozen via dispatchDidReachVisuallyNonEmptyState (or frameLoadCompleted), but on 10.9
+    // the visually-non-empty milestone doesn't fire reliably, leaving the layer tree frozen
+    // forever and the rendered page never paints. Just skip the freeze entirely.
+    // freezeLayerTree(LayerTreeFreezeReason::PageTransition);
 
 #if HAVE(TOUCH_BAR)
     bool hasPreviouslyFocusedDueToUserInteraction = m_userInteractionsSincePageTransition.contains(UserInteractionFlag::FocusedElement);
@@ -5534,7 +5568,7 @@ void WebPage::performDragControllerAction(DragControllerAction action, const Int
 
     RefPtr localMainFrame = this->localMainFrame();
     if (!localMainFrame)
-        return;
+        return completionHandler(std::nullopt, DragHandlingMethod::None, false, 0, { }, { }, std::nullopt);
 
     DragData dragData(&selectionData, clientPosition, globalPosition, draggingSourceOperationMask, flags, anyDragDestinationAction(), m_identifier);
     switch (action) {
@@ -5566,13 +5600,13 @@ void WebPage::performDragControllerAction(std::optional<FrameIdentifier> frameID
     RefPtr frame = frameID ? WebProcess::singleton().webFrame(*frameID) : &mainWebFrame();
     if (!frame) {
         ASSERT_NOT_REACHED();
-        return;
+        return completionHandler(std::nullopt, DragHandlingMethod::None, false, 0, { }, { }, std::nullopt);
     }
 
     RefPtr localFrame = frame->coreLocalFrame();
     if (!localFrame) {
         ASSERT_NOT_REACHED();
-        return;
+        return completionHandler(std::nullopt, DragHandlingMethod::None, false, 0, { }, { }, std::nullopt);
     }
 
     switch (action) {
@@ -5591,6 +5625,7 @@ void WebPage::performDragControllerAction(std::optional<FrameIdentifier> frameID
         break;
     }
     ASSERT_NOT_REACHED();
+    completionHandler(std::nullopt, DragHandlingMethod::None, false, 0, { }, { }, std::nullopt);
 }
 
 void WebPage::performDragOperation(std::optional<WebCore::FrameIdentifier> frameID, WebCore::DragData&& dragData, SandboxExtension::Handle&& sandboxExtensionHandle, Vector<SandboxExtension::Handle>&& sandboxExtensionsForUpload, CompletionHandler<void(DragOperationResult dragOperationResult)>&& completionHandler)
@@ -7910,6 +7945,14 @@ void WebPage::didFinishLoad(WebFrame& frame)
 #if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
     spatialBackdropSourceChanged();
 #endif
+
+    // 10.9 backport: force a repaint after page load completes. Without this, ~50% of runs
+    // never produce a second commit (the initial empty paint stays as the layer.contents)
+    // because the m_isScheduled / m_waitingForBackingStoreSwap state machine races with
+    // the data: URL load completing.
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[wc-finish PID %d] didFinishLoad mainFrame, drawingArea=%p\n",getpid(),m_drawingArea.get());fclose(_d);}}
+    if (RefPtr drawingArea = m_drawingArea)
+        drawingArea->updateRenderingWithForcedRepaint();
 }
 
 void WebPage::didSameDocumentNavigationForFrame(WebFrame& frame)

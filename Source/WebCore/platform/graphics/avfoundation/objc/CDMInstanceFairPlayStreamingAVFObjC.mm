@@ -119,7 +119,7 @@ static const size_t kMaximumDeviceIdentifierSeedSize = 20;
 }
 #endif
 
-- (void)contentKeySession:(AVContentKeySession *)session didProvideContentKeyRequests:(NSArray<AVContentKeyRequest *> *)keyRequests forInitializationData:(nullable NSData *)initializationData
+- (void)contentKeySession:(AVContentKeySession *)session didProvideContentKeyRequests:(NSArray *)keyRequests forInitializationData:(nullable NSData *)initializationData
 {
     UNUSED_PARAM(session);
     UNUSED_PARAM(initializationData);

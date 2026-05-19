@@ -93,12 +93,16 @@ void DefaultAudioDestinationNode::initialize()
 
 void DefaultAudioDestinationNode::uninitialize()
 {
-    ASSERT(isMainThread()); 
+    if (!isMainThread())
+        return; // 10.9 backport: was crashing from worker teardown.
     if (!isInitialized())
         return;
 
-    ALWAYS_LOG(LOGIDENTIFIER);
-    clearDestination();
+    // 10.9 backport: skip ALWAYS_LOG — logger()/m_logger may not be valid during
+    // partial teardown. The previous +222 crash signature in WebContent crash logs
+    // mapped to this region. m_destination guard remains.
+    if (m_destination)
+        clearDestination();
     m_numberOfInputChannels = 0;
 
     AudioNode::uninitialize();
@@ -106,7 +110,8 @@ void DefaultAudioDestinationNode::uninitialize()
 
 void DefaultAudioDestinationNode::clearDestination()
 {
-    ASSERT(m_destination);
+    if (!m_destination)
+        return;
     if (m_wasDestinationStarted) {
         m_destination->stop();
         m_wasDestinationStarted = false;
@@ -117,6 +122,13 @@ void DefaultAudioDestinationNode::clearDestination()
 
 void DefaultAudioDestinationNode::createDestination()
 {
+    // 10.9 backport: previously stubbed because AudioDestination::create crashed
+    // with "null function pointer call" — root cause was that PAL soft-linked
+    // AudioComponentFindNext / AudioUnitInitialize / etc. from AudioToolbox.framework,
+    // but on 10.9 those symbols actually live in AudioUnit.framework (they migrated to
+    // AudioToolbox in 10.10). dlsym returned NULL, calling NULL crashed. Fix landed in
+    // PAL/pal/cf/AudioToolboxSoftLink.{cpp,h} — soft-link from AudioUnit on PLATFORM(MAC).
+    // With the soft-link fixed, the real createAudioDestination should now work.
     ALWAYS_LOG(LOGIDENTIFIER, "contextSampleRate = ", sampleRate(), ", hardwareSampleRate = ", AudioDestination::hardwareSampleRate());
     ASSERT(!m_destination);
     m_destination = platformStrategies()->mediaStrategy()->createAudioDestination({ *this, m_inputDeviceId, m_numberOfInputChannels, channelCount(), sampleRate()
@@ -131,7 +143,7 @@ void DefaultAudioDestinationNode::recreateDestination()
     bool wasDestinationStarted = m_wasDestinationStarted;
     clearDestination();
     createDestination();
-    if (wasDestinationStarted) {
+    if (wasDestinationStarted && m_destination) {
         m_wasDestinationStarted = true;
         m_destination->start(dispatchToRenderThreadFunction());
     }
@@ -174,6 +186,8 @@ void DefaultAudioDestinationNode::startRendering(CompletionHandler<void(std::opt
     };
 
     m_wasDestinationStarted = true;
+    if (!m_destination)
+        return innerCompletionHandler(false);
     m_destination->start(dispatchToRenderThreadFunction(), WTF::move(innerCompletionHandler));
 }
 
@@ -187,6 +201,10 @@ void DefaultAudioDestinationNode::resume(CompletionHandler<void(std::optional<Ex
         return;
     }
     m_wasDestinationStarted = true;
+    if (!m_destination) {
+        completionHandler(Exception { ExceptionCode::InvalidStateError, "AudioDestination unavailable"_s });
+        return;
+    }
     m_destination->start(dispatchToRenderThreadFunction(), [completionHandler = WTF::move(completionHandler)](bool success) mutable {
         completionHandler(success ? std::nullopt : std::make_optional(Exception { ExceptionCode::InvalidStateError, "Failed to start the audio device"_s }));
     });
@@ -203,6 +221,10 @@ void DefaultAudioDestinationNode::suspend(CompletionHandler<void(std::optional<E
     }
 
     m_wasDestinationStarted = false;
+    if (!m_destination) {
+        completionHandler(std::nullopt);
+        return;
+    }
     m_destination->stop([completionHandler = WTF::move(completionHandler)](bool success) mutable {
         completionHandler(success ? std::nullopt : std::make_optional(Exception { ExceptionCode::InvalidStateError, "Failed to stop the audio device"_s }));
     });
@@ -213,6 +235,8 @@ void DefaultAudioDestinationNode::restartRendering()
     if (!m_wasDestinationStarted)
         return;
 
+    if (!m_destination)
+        return;
     m_destination->stop();
     m_destination->start(dispatchToRenderThreadFunction());
 }

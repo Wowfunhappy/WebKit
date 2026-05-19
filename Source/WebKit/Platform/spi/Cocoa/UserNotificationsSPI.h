@@ -27,6 +27,7 @@
 
 DECLARE_SYSTEM_HEADER
 
+#if __has_include(<UserNotifications/UserNotifications.h>) && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MAX_ALLOWED >= 101400)
 #import <UserNotifications/UserNotifications.h>
 
 #if USE(APPLE_INTERNAL_SDK)
@@ -75,3 +76,4 @@ DECLARE_SYSTEM_HEADER
 
 #endif // USE(APPLE_INTERNAL_SDK)
 
+#endif // __has_include(<UserNotifications/UserNotifications.h>) && version check

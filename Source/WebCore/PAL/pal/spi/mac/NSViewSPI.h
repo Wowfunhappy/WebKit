@@ -53,11 +53,11 @@ typedef NS_ENUM(NSInteger, NSViewSemanticContext) {
 
 #endif // USE(APPLE_INTERNAL_SDK)
 
-@interface NSView () <CALayerDelegate>
+@interface NSView () 
 @end
 
 @interface NSView (SubviewsIvar)
-@property (assign, setter=_setSubviewsIvar:) NSMutableArray<__kindof NSView *> *_subviewsIvar;
+@property (assign, setter=_setSubviewsIvar:) NSMutableArray * *_subviewsIvar;
 @end
 
 #endif // PLATFORM(MAC)

@@ -831,6 +831,7 @@ FloatRect RenderLayerCompositor::visibleRectForLayerFlushing() const
 
 void RenderLayerCompositor::flushPendingLayerChanges(bool isFlushRoot)
 {
+    // 10.9 perf: removed debug fopen logging
     // LocalFrameView::flushCompositingStateIncludingSubframes() flushes each subframe,
     // but GraphicsLayer::flushCompositingState() will cross frame boundaries
     // if the GraphicsLayers are connected (the RootLayerAttachedViaEnclosingFrame case).
@@ -839,9 +840,11 @@ void RenderLayerCompositor::flushPendingLayerChanges(bool isFlushRoot)
         return;
 
     if (rootLayerAttachment() == RootLayerUnattached) {
+        // 10.9 perf: removed debug fopen logging
         m_shouldFlushOnReattach = true;
         return;
     }
+    // 10.9 perf: removed debug fopen logging
 
     ASSERT(!m_flushingLayers);
     {
@@ -2901,14 +2904,14 @@ void RenderLayerCompositor::frameViewDidScroll()
     if (!m_scrolledContentsLayer)
         return;
 
-    // If there's a scrolling coordinator that manages scrolling for this frame view,
-    // it will also manage updating the scroll layer position.
-    if (hasCoordinatedScrolling()) {
-        // We have to schedule a flush in order for the main TiledBacking to update its tile coverage.
+    // 10.9 backport: ALSO call updateScrollLayerPosition when coordinated
+    // scrolling is in play. The async scrolling-coordinator path on this
+    // build doesn't reliably propagate scroll position to the scrolled-
+    // contents GraphicsLayer, so the visual viewport stays at top after
+    // wheel events even though scrollPosition() updates correctly.
+    // Calling updateScrollLayerPosition directly translates m_scrolledContentsLayer.
+    if (hasCoordinatedScrolling())
         scheduleRenderingUpdate();
-        return;
-    }
-
     updateScrollLayerPosition();
 }
 
@@ -4094,7 +4097,7 @@ bool RenderLayerCompositor::requiresCompositingForPosition(RenderLayerModelObjec
     bool isFixed = renderer.isFixedPositioned();
     if (isFixed && !layer.isStackingContext())
         return false;
-    
+
     bool isSticky = renderer.isInFlowPositioned() && position == PositionType::Sticky;
     if (!isFixed && !isSticky)
         return false;

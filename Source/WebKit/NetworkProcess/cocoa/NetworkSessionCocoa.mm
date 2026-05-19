@@ -26,6 +26,9 @@
 #import "config.h"
 #import "NetworkSessionCocoa.h"
 
+#import <objc/runtime.h>
+#import <objc/message.h>
+
 #import "AppStoreDaemonSPI.h"
 #import "AuthenticationChallengeDisposition.h"
 #import "AuthenticationManager.h"
@@ -202,6 +205,14 @@ static NSString* privacyStanceToString(WebCore::PrivacyStance stance)
     return @"Unknown";
 }
 
+// Compat defines for DTLS protocol versions not available on older SDKs
+#ifndef tls_protocol_version_DTLSv10
+#define tls_protocol_version_DTLSv10 0xFEFF
+#endif
+#ifndef tls_protocol_version_DTLSv12
+#define tls_protocol_version_DTLSv12 0xFEFD
+#endif
+
 static String stringForTLSProtocolVersion(tls_protocol_version_t protocol)
 {
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -223,8 +234,14 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return { };
 }
 
+// tls_ciphersuite_t is not available before macOS 10.15
+#ifndef tls_ciphersuite_t
+typedef uint16_t tls_ciphersuite_t;
+#endif
+
 static String stringForTLSCipherSuite(tls_ciphersuite_t suite)
 {
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
 #define STRINGIFY_CIPHER(cipher) \
     case tls_ciphersuite_##cipher: \
         return "" #cipher ""_s
@@ -261,12 +278,59 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     }
 ALLOW_DEPRECATED_DECLARATIONS_END
 
-    return { };
-
 #undef STRINGIFY_CIPHER
+#else
+    UNUSED_PARAM(suite);
+#endif // __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
+
+    return { };
 }
 
-@interface WKNetworkSessionDelegate : NSObject <NSURLSessionDataDelegate, NSURLSessionWebSocketDelegate> {
+// 10.9 backport: NSURLSession's internal NSOperation crashes inside
+// `_changeValueForKey:key:key:usingBlock:` when firing isFinished/isExecuting
+// KVO on its NSOperationQueue. The cause is that the queue's KVO observance
+// info pointer (returned via objc_getAssociatedObject) is sometimes a stale
+// pointer to freed memory. Install a one-time swizzle on `NSOperationQueue`
+// (and a few related classes) that runs the inner mutation block but skips
+// the buggy will/did-change KVO firing so the operation can complete cleanly.
+static void install109NSOperationKVOWorkaround()
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        SEL sel = NSSelectorFromString(@"_changeValueForKey:key:key:usingBlock:");
+        // Replacement: fire KVO via the simpler willChange/didChange path
+        // (which doesn't crash on 10.9 even when observance info is corrupt),
+        // around running the inner mutation block.
+        IMP imp = imp_implementationWithBlock(^(id self, NSString *k1, NSString *k2, NSString *k3, void (^block)(void)) {
+            if (k1) [self willChangeValueForKey:k1];
+            if (k2) [self willChangeValueForKey:k2];
+            if (k3) [self willChangeValueForKey:k3];
+            if (block)
+                block();
+            if (k3) [self didChangeValueForKey:k3];
+            if (k2) [self didChangeValueForKey:k2];
+            if (k1) [self didChangeValueForKey:k1];
+        });
+        const char* types = "v@:@@@@?";
+        auto installOn = ^(Class cls, const char* tag) {
+            UNUSED_PARAM(tag);
+            if (!cls)
+                return;
+            if (!class_addMethod(cls, sel, imp, types))
+                class_replaceMethod(cls, sel, imp, types);
+        };
+        installOn([NSOperationQueue class], "NSOperationQueue");
+        installOn([[NSOperationQueue mainQueue] class], "mainQueue");
+        installOn(NSClassFromString(@"NSOperation"), "NSOperation");
+        installOn(NSClassFromString(@"__NSOperationInternal"), "__NSOperationInternal");
+    });
+}
+
+@interface WKNetworkSessionDelegate : NSObject <NSURLSessionDataDelegate
+#if defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
+    , NSURLSessionWebSocketDelegate
+#endif
+> {
     WeakPtr<WebKit::NetworkSessionCocoa> _session;
     WeakPtr<WebKit::SessionWrapper> _sessionWrapper;
 @public
@@ -282,6 +346,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (id)initWithNetworkSession:(std::reference_wrapper<WebKit::NetworkSessionCocoa>)session wrapper:(WebKit::SessionWrapper&)sessionWrapper withCredentials:(bool)withCredentials
 {
+    install109NSOperationKVOWorkaround();
     self = [super init];
     if (!self)
         return nil;
@@ -292,6 +357,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     return self;
 }
+
 
 - (void)sessionInvalidated
 {
@@ -306,7 +372,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!task)
         return nullptr;
 
-    return _sessionWrapper->dataTaskMap.get(task.taskIdentifier).get();
+    // 10.9 backport: see taskIdentifierKey in NetworkDataTaskCocoa.mm.
+    return _sessionWrapper->dataTaskMap.get(static_cast<uint64_t>(task.taskIdentifier) + 1).get();
 }
 
 - (void)URLSession:(NSURLSession *)session didBecomeInvalidWithError:(NSError *)error
@@ -342,8 +409,8 @@ static RetainPtr<NSURLRequest> downgradeRequest(NSURLRequest *request)
     auto nsMutableRequest = adoptNS([request mutableCopy]);
     if ([[nsMutableRequest URL].scheme isEqualToString:@"https"]) {
         RetainPtr components = [NSURLComponents componentsWithURL:retainPtr([nsMutableRequest URL]).get() resolvingAgainstBaseURL:NO];
-        components.get().scheme = @"http";
-        [nsMutableRequest setURL:components.get().URL];
+        [(NSURLComponents *)components.get() setScheme:@"http"];
+        [nsMutableRequest setURL:[(NSURLComponents *)components.get() URL]];
         ASSERT([[nsMutableRequest URL].scheme isEqualToString:@"http"]);
         return nsMutableRequest;
     }
@@ -580,12 +647,36 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     NegotiatedLegacyTLS negotiatedLegacyTLS = NegotiatedLegacyTLS::No;
 
     if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]) {
+        {
+            FILE* _f = ((FILE*)0);
+            if (_f) {
+                const char* host = challenge.protectionSpace.host.UTF8String ?: "";
+                const char* urlStr = task.originalRequest.URL.absoluteString.UTF8String ?: "";
+                fprintf(_f, "[NetSess::trustChallenge PID %d] task=%llu host=%s url=%.150s\n",
+                    getpid(), (unsigned long long)task.taskIdentifier, host, urlStr);
+                fclose(_f);
+            }
+        }
         sessionCocoa->setClientAuditToken(challenge);
 
-        negotiatedLegacyTLS = checkForLegacyTLS(task._incompleteTaskMetrics.transactionMetrics.lastObject);
+        if ([task respondsToSelector:@selector(_incompleteTaskMetrics)])
+            negotiatedLegacyTLS = checkForLegacyTLS(task._incompleteTaskMetrics.transactionMetrics.lastObject);
         if (negotiatedLegacyTLS == NegotiatedLegacyTLS::Yes && task._preconnect)
             return completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
 
+        // 10.9 backport: NSURLSession's +_strictTrustEvaluate:queue:completionHandler:
+        // is a 10.10+ SPI. On 10.9 it's a no-op weak stub whose completion handler
+        // is never called, so every HTTPS request silently hangs. When the SPI is
+        // missing, just defer to CFNetwork's default trust evaluation (PerformDefaultHandling
+        // — same disposition the fast path returns when its evaluation succeeds).
+        if (![NSURLSession respondsToSelector:@selector(_strictTrustEvaluate:queue:completionHandler:)]) {
+            {
+                FILE* _f = ((FILE*)0);
+                if (_f) { fprintf(_f, "[NetSess::trustChallenge PID %d] task=%llu => PerformDefaultHandling (10.9 fallback)\n", getpid(), (unsigned long long)task.taskIdentifier); fclose(_f); }
+            }
+            completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+            return;
+        }
         // Handle server trust evaluation at platform-level if requested, for performance reasons and to use ATS defaults.
         if (sessionCocoa->fastServerTrustEvaluationEnabled() && negotiatedLegacyTLS == NegotiatedLegacyTLS::No) {
             auto networkDataTask = [self existingTask:task];
@@ -605,7 +696,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
                 }
                 processServerTrustEvaluation(*session, CheckedRef { *strongSelf->_sessionWrapper }, challenge, negotiatedLegacyTLS, taskIdentifier, task.get(), WTF::move(completionHandler));
             });
-            [NSURLSession _strictTrustEvaluate:challenge queue:retainPtr([NSOperationQueue mainQueue].underlyingQueue).get() completionHandler:decisionHandler.get()];
+            [NSURLSession _strictTrustEvaluate:challenge queue:retainPtr((dispatch_queue_t)[[NSOperationQueue mainQueue] valueForKey:@"underlyingQueue"]).get() completionHandler:decisionHandler.get()];
             return;
         }
     }
@@ -686,6 +777,17 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error
 {
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) {
+            const char* urlStr = task.originalRequest.URL.absoluteString.UTF8String ?: "";
+            const char* errDom = error.domain.UTF8String ?: "";
+            const char* errDesc = error.localizedDescription.UTF8String ?: "";
+            fprintf(_f, "[NetSess::didCompleteWithError PID %d] task=%llu code=%ld dom=%s desc=%s url=%.150s\n",
+                getpid(), (unsigned long long)task.taskIdentifier, (long)error.code, errDom, errDesc, urlStr);
+            fclose(_f);
+        }
+    }
     LOG(NetworkSession, "%zu didCompleteWithError %@", task.taskIdentifier, error);
 
     RetainPtr updatedError = error;
@@ -759,7 +861,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         };
 
         auto& networkLoadMetrics = networkDataTask->networkLoadMetrics();
-        networkLoadMetrics.redirectStart = dateToMonotonicTime(retainPtr(transactionMetrics.get().firstObject.fetchStartDate).get());
+        networkLoadMetrics.redirectStart = dateToMonotonicTime(retainPtr(((NSURLSessionTaskTransactionMetrics *)transactionMetrics.get().firstObject).fetchStartDate).get());
         networkLoadMetrics.fetchStart = dateToMonotonicTime(retainPtr(m.get().fetchStartDate).get());
         networkLoadMetrics.domainLookupStart = dateToMonotonicTime(retainPtr(m.get().domainLookupStartDate).get());
         networkLoadMetrics.domainLookupEnd = dateToMonotonicTime(retainPtr(m.get().domainLookupEndDate).get());
@@ -785,7 +887,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 
         if (networkDataTask->shouldCaptureExtraNetworkLoadMetrics()) {
             auto additionalMetrics = WebCore::AdditionalNetworkLoadMetricsForWebInspector::create();
-            additionalMetrics->priority = toNetworkLoadPriority(task.priority);
+            additionalMetrics->priority = toNetworkLoadPriority([[task valueForKey:@"priority"] floatValue]);
 
             if (auto port = [m.get().remotePort unsignedIntValue])
                 additionalMetrics->remoteAddress = makeString(String(m.get().remoteAddress), ':', port);
@@ -814,12 +916,12 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
             additionalMetrics->requestBodyBytesSent = task.countOfBytesSent;
             additionalMetrics->responseHeaderBytesReceived = responseHeaderBytesReceived;
 
-            additionalMetrics->isProxyConnection = m.get().proxyConnection;
+            additionalMetrics->isProxyConnection = [m respondsToSelector:@selector(isProxyConnection)] ? (BOOL)(uintptr_t)[(id)m.get() proxyConnection] : NO;
 
             networkLoadMetrics.additionalNetworkLoadMetricsForWebInspector = WTF::move(additionalMetrics);
         }
-        networkLoadMetrics.responseBodyBytesReceived = m.get().countOfResponseBodyBytesReceived;
-        networkLoadMetrics.responseBodyDecodedSize = m.get().countOfResponseBodyBytesAfterDecoding;
+        networkLoadMetrics.responseBodyBytesReceived = [[m.get() valueForKey:@"countOfResponseBodyBytesReceived"] longLongValue];
+        networkLoadMetrics.responseBodyDecodedSize = [[m.get() valueForKey:@"countOfResponseBodyBytesAfterDecoding"] longLongValue];
 
         // Sometimes the encoded body bytes received contains a few (3 or so) bytes from the header when there is no body.
         // When this happens, trim our metrics to make more sense.
@@ -854,31 +956,49 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition disposition))completionHandler
 {
     auto taskIdentifier = dataTask.taskIdentifier;
+    auto _existing = [self existingTask:dataTask];
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) {
+            const char* urlStr = dataTask.originalRequest.URL.absoluteString.UTF8String ?: "";
+            int statusCode = 0;
+            if ([response isKindOfClass:[NSHTTPURLResponse class]])
+                statusCode = (int)[(NSHTTPURLResponse*)response statusCode];
+            fprintf(_f, "[NetSess::didReceiveResponse PID %d] task=%llu http=%d hasExisting=%d url=%.150s\n",
+                getpid(), (unsigned long long)taskIdentifier, statusCode, (int)!!_existing, urlStr);
+            fclose(_f);
+        }
+    }
     LOG(NetworkSession, "%zu didReceiveResponse", taskIdentifier);
-    if (auto networkDataTask = [self existingTask:dataTask]) {
+    if (auto networkDataTask = _existing) {
         ASSERT(RunLoop::isMain());
 
         NegotiatedLegacyTLS negotiatedLegacyTLS = NegotiatedLegacyTLS::No;
-        RetainPtr<NSURLSessionTaskMetrics> taskMetrics = dataTask._incompleteTaskMetrics;
+        RetainPtr<NSURLSessionTaskMetrics> taskMetrics;
+        if ([dataTask respondsToSelector:@selector(_incompleteTaskMetrics)])
+            taskMetrics = dataTask._incompleteTaskMetrics;
 
-        RetainPtr<NSURLSessionTaskTransactionMetrics> metrics = taskMetrics.get().transactionMetrics.lastObject;
+        RetainPtr<NSURLSessionTaskTransactionMetrics> metrics = taskMetrics ? taskMetrics.get().transactionMetrics.lastObject : nil;
         auto privateRelayed = metrics.get()._privacyStance == nw_connection_privacy_stance_direct
             || metrics.get()._privacyStance == nw_connection_privacy_stance_not_eligible
             ? PrivateRelayed::No : PrivateRelayed::Yes;
         String proxyName;
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
         if (metrics.get()._establishmentReport) {
             if (RetainPtr endpoint = adoptNS(nw_establishment_report_copy_proxy_endpoint(retainPtr(metrics.get()._establishmentReport).get()))) {
                 if (const char *hostname = nw_endpoint_get_hostname(endpoint.get()))
                     proxyName = String::fromUTF8(unsafeSpan(hostname));
             }
         }
+#endif
 
         negotiatedLegacyTLS = checkForLegacyTLS(metrics.get());
 
         // Avoid MIME type sniffing if the response comes back as 304 Not Modified.
         RetainPtr httpResponse = dynamic_objc_cast<NSHTTPURLResponse>(response);
         int statusCode = httpResponse ? [httpResponse statusCode] : 0;
-        RetainPtr xContentTypeOptions = httpResponse ? [httpResponse valueForHTTPHeaderField:@"X-Content-Type-Options"] : nil;
+        // 10.9 backport: NSHTTPURLResponse -valueForHTTPHeaderField: is 10.13+. Use allHeaderFields.
+        RetainPtr xContentTypeOptions = httpResponse ? [[httpResponse allHeaderFields] objectForKey:@"X-Content-Type-Options"] : nil;
         bool isNoSniff = xContentTypeOptions && [xContentTypeOptions caseInsensitiveCompare:@"nosniff"] == NSOrderedSame;
         if (statusCode != httpStatus304NotModified) {
             bool isMainResourceLoad = networkDataTask->firstRequest().requester() == WebCore::ResourceRequestRequester::Main;
@@ -895,6 +1015,10 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         resourceResponse.setDeprecatedNetworkLoadMetrics(WebCore::copyTimingData(taskMetrics.get(), networkDataTask->networkLoadMetrics()));
         resourceResponse.setProxyName(WTF::move(proxyName));
         networkDataTask->didReceiveResponse(WTF::move(resourceResponse), negotiatedLegacyTLS, privateRelayed, [completionHandler = makeBlockPtr(completionHandler), taskIdentifier](WebCore::PolicyAction policyAction) {
+            {
+                FILE* _f = ((FILE*)0);
+                if (_f) { fprintf(_f, "[NetSess::respPolicyCompletion PID %d] task=%llu policy=%d\n", getpid(), (unsigned long long)taskIdentifier, (int)policyAction); fclose(_f); }
+            }
 #if !LOG_DISABLED
             LOG(NetworkSession, "%zu didReceiveResponse completionHandler (%s)", taskIdentifier, toString(policyAction).characters());
 #else
@@ -910,8 +1034,21 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data
 {
-    if (auto networkDataTask = [self existingTask:dataTask])
-        networkDataTask->didReceiveData(WebCore::SharedBuffer::create(data));
+    auto _ndt = [self existingTask:dataTask];
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) {
+            const char* urlStr = dataTask.originalRequest.URL.absoluteString.UTF8String ?: "";
+            fprintf(_f, "[NetSess::didReceiveData PID %d] task=%llu bytes=%lu hasExisting=%d url=%.150s\n",
+                getpid(), (unsigned long long)dataTask.taskIdentifier, (unsigned long)[data length], (int)!!_ndt, urlStr);
+            fclose(_f);
+        }
+    }
+    if (auto networkDataTask = _ndt) {
+        // 10.9 backport: bypass SharedBuffer::create(NSData*), which dyld binds
+        // to a return-zero weak fallback stub instead of WebCore's real impl.
+        networkDataTask->didReceiveData(WebCore::SharedBuffer::create((__bridge CFDataRef)data));
+    }
 }
 
 - (void)URLSession:(NSURLSession *)nsSession downloadTask:(NSURLSessionDownloadTask *)downloadTask didFinishDownloadingToURL:(NSURL *)location
@@ -1017,7 +1154,9 @@ static RetainPtr<NSURLSessionConfiguration> configurationForSessionID(PAL::Sessi
 #else
     bool preventCFNetworkClientCertificateLookup = true;
 #endif
-    configuration.get()._shouldSkipPreferredClientCertificateLookup = preventCFNetworkClientCertificateLookup;
+    // 10.9 backport: -_shouldSkipPreferredClientCertificateLookup is 10.11+.
+    if ([configuration respondsToSelector:@selector(set_shouldSkipPreferredClientCertificateLookup:)])
+        configuration.get()._shouldSkipPreferredClientCertificateLookup = preventCFNetworkClientCertificateLookup;
 
     auto setLoggingPrivacyLevel = NSSelectorFromString(@"set_loggingPrivacyLevel:");
     if ([configuration respondsToSelector:setLoggingPrivacyLevel]) {
@@ -1025,7 +1164,8 @@ static RetainPtr<NSURLSessionConfiguration> configurationForSessionID(PAL::Sessi
         RELEASE_LOG(NetworkSession, "Setting logging level for %{public}s session %" PRIu64 " to %{public}s", session.isEphemeral() ? "Ephemeral" : "Regular", session.toUInt64(), loggingPrivacyLevel == nw_context_privacy_level_silent ? "silent" : "sensitive");
     }
 
-    if (WebCore::ResourceRequest::resourcePrioritiesEnabled()) {
+    // 10.9 backport: _connectionCache* properties are 10.10+ NSURLSessionConfiguration SPI.
+    if (WebCore::ResourceRequest::resourcePrioritiesEnabled() && [configuration respondsToSelector:@selector(set_connectionCacheNumPriorityLevels:)]) {
         configuration.get()._connectionCacheNumPriorityLevels = WebCore::resourceLoadPriorityCount;
         configuration.get()._connectionCacheMinimumFastLanePriority = toPlatformRequestPriority(WebCore::ResourceLoadPriority::Medium);
         configuration.get()._connectionCacheNumFastLanes = 1;
@@ -1114,7 +1254,9 @@ void SessionWrapper::initialize(NSURLSessionConfiguration *configuration, Networ
 #if PLATFORM(MAC)
     isFullBrowser = WTF::MacApplication::isSafari();
 #endif
-    if (!configuration._sourceApplicationSecondaryIdentifier && isFullBrowser)
+    // 10.9 backport: _sourceApplicationSecondaryIdentifier is 10.11+.
+    if ([configuration respondsToSelector:@selector(_sourceApplicationSecondaryIdentifier)]
+        && !configuration._sourceApplicationSecondaryIdentifier && isFullBrowser)
         configuration._sourceApplicationSecondaryIdentifier = @"com.apple.WebKit.InAppBrowser";
 
 #if HAVE(NW_PROXY_CONFIG)
@@ -1149,13 +1291,18 @@ NetworkSessionCocoa::NetworkSessionCocoa(NetworkProcess& networkProcess, const N
     if (!m_sessionID.isEphemeral())
         m_blobRegistry.setFileDirectory(FileSystem::createTemporaryDirectory(@"BlobRegistryFiles"));
 
-    if (!!parameters.hstsStorageDirectory && !m_sessionID.isEphemeral()) {
+    // 10.9 backport: _NSHSTSStorage's initPersistentStoreWithURL: is 10.11+. Skip — HSTS
+    // is not supported in this build; HTTP loads still work.
+    if (!!parameters.hstsStorageDirectory && !m_sessionID.isEphemeral()
+        && [_NSHSTSStorage instancesRespondToSelector:@selector(initPersistentStoreWithURL:)]) {
         SandboxExtension::consumePermanently(parameters.hstsStorageDirectoryExtensionHandle);
         configuration.get()._hstsStorage = adoptNS([[_NSHSTSStorage alloc] initPersistentStoreWithURL:adoptNS([[NSURL alloc] initFileURLWithPath:parameters.hstsStorageDirectory.createNSString().get() isDirectory:YES]).get()]).get();
     }
 
 #if HAVE(CFNETWORK_SEPARATE_CREDENTIAL_STORAGE)
-    if (parameters.dataStoreIdentifier && !m_sessionID.isEphemeral())
+    // 10.9 backport: -[NSURLCredentialStorage _initWithIdentifier:private:] is 10.13+ SPI.
+    if (parameters.dataStoreIdentifier && !m_sessionID.isEphemeral()
+        && [NSURLCredentialStorage instancesRespondToSelector:@selector(_initWithIdentifier:private:)])
         configuration.get().URLCredentialStorage = adoptNS([[NSURLCredentialStorage alloc] _initWithIdentifier:parameters.dataStoreIdentifier->toString().createNSString().get() private:NO]).get();
 #endif
 
@@ -1173,11 +1320,14 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         configuration.get()._allowsHSTSWithUntrustedRootCertificate = YES;
     
 #if HAVE(APP_SSO) || PLATFORM(MACCATALYST)
-    configuration.get()._preventsAppSSO = true;
+    if ([configuration respondsToSelector:@selector(set_preventsAppSSO:)])
+        configuration.get()._preventsAppSSO = true;
 #endif
 
     // Without this, CFNetwork would sometimes add a Content-Type header to our requests (rdar://problem/34748470).
-    configuration.get()._suppressedAutoAddedHTTPHeaders = [NSSet setWithObject:@"Content-Type"];
+    // 10.9 backport: -_suppressedAutoAddedHTTPHeaders is 10.11+.
+    if ([configuration respondsToSelector:@selector(set_suppressedAutoAddedHTTPHeaders:)])
+        configuration.get()._suppressedAutoAddedHTTPHeaders = [NSSet setWithObject:@"Content-Type"];
 
     if (parameters.allowsCellularAccess == AllowsCellularAccess::No)
         configuration.get().allowsCellularAccess = NO;
@@ -1185,19 +1335,24 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // The WebKit network cache was already queried.
     configuration.get().URLCache = nil;
 
-    if (auto data = networkProcess.sourceApplicationAuditData())
+    // 10.9 backport: _sourceApplicationAuditTokenData is 10.10+; the bundle/secondary identifier
+    // setters are 10.11+. Guard each setter individually.
+    if (auto data = networkProcess.sourceApplicationAuditData(); data && [configuration respondsToSelector:@selector(set_sourceApplicationAuditTokenData:)])
         configuration.get()._sourceApplicationAuditTokenData = (__bridge NSData *)data.get();
 
-    if (!m_sourceApplicationBundleIdentifier.isEmpty()) {
+    if (!m_sourceApplicationBundleIdentifier.isEmpty() && [configuration respondsToSelector:@selector(set_sourceApplicationBundleIdentifier:)]) {
         configuration.get()._sourceApplicationBundleIdentifier = m_sourceApplicationBundleIdentifier.createNSString().get();
-        configuration.get()._sourceApplicationAuditTokenData = nil;
+        if ([configuration respondsToSelector:@selector(set_sourceApplicationAuditTokenData:)])
+            configuration.get()._sourceApplicationAuditTokenData = nil;
     }
 
-    if (!m_sourceApplicationSecondaryIdentifier.isEmpty())
+    if (!m_sourceApplicationSecondaryIdentifier.isEmpty() && [configuration respondsToSelector:@selector(set_sourceApplicationSecondaryIdentifier:)])
         configuration.get()._sourceApplicationSecondaryIdentifier = m_sourceApplicationSecondaryIdentifier.createNSString().get();
 
 #if HAVE(ALTERNATIVE_SERVICE)
-    if (!parameters.alternativeServiceDirectory.isEmpty()) {
+    // 10.9 backport: _NSHTTPAlternativeServicesStorage initPersistentStoreWithURL: is 10.13+.
+    if (!parameters.alternativeServiceDirectory.isEmpty()
+        && [_NSHTTPAlternativeServicesStorage instancesRespondToSelector:@selector(initPersistentStoreWithURL:)]) {
         SandboxExtension::consumePermanently(parameters.alternativeServiceDirectoryExtensionHandle);
         RetainPtr alternativeServicePath = adoptNS([[NSURL alloc] initFileURLWithPath:parameters.alternativeServiceDirectory.createNSString().get() isDirectory:YES]);
         RetainPtr sqlitePath = [alternativeServicePath URLByAppendingPathComponent:@"AlternativeService.sqlite" isDirectory:NO];
@@ -1208,8 +1363,17 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     }
 #endif
 
-    configuration.get()._preventsSystemHTTPProxyAuthentication = parameters.preventsSystemHTTPProxyAuthentication;
-    configuration.get()._requiresSecureHTTPSProxyConnection = parameters.requiresSecureHTTPSProxyConnection;
+    // 10.9 backport: _preventsSystemHTTPProxyAuthentication is 10.11+.
+    if ([configuration respondsToSelector:@selector(set_preventsSystemHTTPProxyAuthentication:)])
+        configuration.get()._preventsSystemHTTPProxyAuthentication = parameters.preventsSystemHTTPProxyAuthentication;
+    // 10.9 backport: _requiresSecureHTTPSProxyConnection is 10.11+.
+    if ([configuration respondsToSelector:@selector(set_requiresSecureHTTPSProxyConnection:)])
+        configuration.get()._requiresSecureHTTPSProxyConnection = parameters.requiresSecureHTTPSProxyConnection;
+    // 10.9 backport: only override the session's proxy dictionary when an explicit
+    // proxy was passed in. The upstream code always sets it (clobbering with nil),
+    // which silently disables the system proxy that `defaultSessionConfiguration`
+    // would otherwise honor — making it impossible to reach HTTPS endpoints whose
+    // TLS chains 10.9 can't validate without a MITM proxy.
     configuration.get().connectionProxyDictionary = parameters.proxyConfiguration ? RetainPtr { (NSDictionary *)parameters.proxyConfiguration.get() }.get() : proxyDictionary(parameters.httpProxy, parameters.httpsProxy).get();
 
 #if PLATFORM(IOS_FAMILY)
@@ -1221,10 +1385,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     protect(networkProcess.supplement<LegacyCustomProtocolManager>())->registerProtocolClass(configuration.get());
 #endif
 
-    configuration.get()._timingDataOptions = _TimingDataOptionsEnableW3CNavigationTiming;
+    // 10.9 backport: _timingDataOptions is 10.11+.
+    if ([configuration respondsToSelector:@selector(set_timingDataOptions:)])
+        configuration.get()._timingDataOptions = _TimingDataOptionsEnableW3CNavigationTiming;
 
     // FIXME: Replace @"kCFStreamPropertyAutoErrorOnSystemChange" with a constant from the SDK once rdar://problem/40650244 is in a build.
-    if (parameters.suppressesConnectionTerminationOnSystemChange)
+    if (parameters.suppressesConnectionTerminationOnSystemChange && [configuration respondsToSelector:@selector(set_socketStreamProperties:)])
         configuration.get()._socketStreamProperties = @{ @"kCFStreamPropertyAutoErrorOnSystemChange" : @NO };
 
 #if PLATFORM(WATCHOS)
@@ -1235,13 +1401,29 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     RELEASE_ASSERT(storageSession);
 
     RetainPtr<NSHTTPCookieStorage> cookieStorage;
-    if (RetainPtr storage = storageSession->cookieStorage()) {
+    if (RetainPtr storage = storageSession->cookieStorage();
+        storage && [NSHTTPCookieStorage instancesRespondToSelector:@selector(_initWithCFHTTPCookieStorage:)]) {
+        // 10.9 backport: -_initWithCFHTTPCookieStorage: is 10.10+ SPI. When available,
+        // use it to bridge the CFHTTPCookieStorage we already have.
         cookieStorage = adoptNS([[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:storage.get()]);
         configuration.get().HTTPCookieStorage = cookieStorage.get();
-    } else
-        cookieStorage = storageSession->nsCookieStorage();
+    } else {
+        // 10.9 backport: bypass NetworkStorageSession::nsCookieStorage() which
+        // is resolved via a weak fallback stub that returns uninitialized sret.
+        cookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
+        // 10.9 backport: also set the configuration's HTTPCookieStorage so NSURLSession
+        // actually uses this storage for outgoing requests. Previously this line was
+        // missing in the else branch, causing all outgoing github requests to lack
+        // Cookie headers, which made tree-commit-info, latest-commit, refs, etc fail
+        // with HTTP 400.
+        configuration.get().HTTPCookieStorage = cookieStorage.get();
+        configuration.get().HTTPShouldSetCookies = YES;
+        configuration.get().HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
+    }
 
-    cookieStorage.get()._overrideSessionCookieAcceptPolicy = YES;
+    // 10.9 backport: -_overrideSessionCookieAcceptPolicy is 10.10+.
+    if (cookieStorage && [cookieStorage respondsToSelector:@selector(set_overrideSessionCookieAcceptPolicy:)])
+        cookieStorage.get()._overrideSessionCookieAcceptPolicy = YES;
 
 #if ENABLE(TLS_1_2_DEFAULT_MINIMUM)
     if (m_isLegacyTLSAllowed) {
@@ -1343,9 +1525,13 @@ SessionWrapper& SessionSet::initializeEphemeralStatelessSessionIfNeeded(Navigati
         configuration.get().TLSMinimumSupportedProtocolVersion = tls_protocol_version_TLSv12;
 #endif
 
-    configuration.get()._shouldSkipPreferredClientCertificateLookup = YES;
-    configuration.get()._sourceApplicationAuditTokenData = existingConfiguration.get()._sourceApplicationAuditTokenData;
-    configuration.get()._sourceApplicationSecondaryIdentifier = existingConfiguration.get()._sourceApplicationSecondaryIdentifier;
+    // 10.9 backport: -_shouldSkipPreferredClientCertificateLookup is 10.11+.
+    if ([configuration respondsToSelector:@selector(set_shouldSkipPreferredClientCertificateLookup:)])
+        configuration.get()._shouldSkipPreferredClientCertificateLookup = YES;
+    if ([configuration respondsToSelector:@selector(set_sourceApplicationAuditTokenData:)])
+        configuration.get()._sourceApplicationAuditTokenData = existingConfiguration.get()._sourceApplicationAuditTokenData;
+    if ([configuration respondsToSelector:@selector(set_sourceApplicationSecondaryIdentifier:)])
+        configuration.get()._sourceApplicationSecondaryIdentifier = existingConfiguration.get()._sourceApplicationSecondaryIdentifier;
 #if PLATFORM(IOS_FAMILY)
     configuration.get()._CTDataConnectionServiceType = existingConfiguration.get()._CTDataConnectionServiceType;
 #endif
@@ -1679,10 +1865,12 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
     appPrivacyReportTestingData().didLoadAppInitiatedRequest(nsRequest.get().attribution == NSURLRequestAttributionDeveloper);
 #endif
 
-    if (!allowPrivacyProxy)
+    // 10.9 backport: _prohibitPrivacyProxy / _privacyProxyFailClosedForUnreachableNonMainHosts are 10.15+ SPI.
+    if (!allowPrivacyProxy && [ensureMutableRequest() respondsToSelector:@selector(_setProhibitPrivacyProxy:)])
         ensureMutableRequest().get()._prohibitPrivacyProxy = YES;
 
-    if (hadMainFrameMainResourcePrivateRelayed || request.url().host() == clientOrigin.topOrigin.host())
+    if ((hadMainFrameMainResourcePrivateRelayed || request.url().host() == clientOrigin.topOrigin.host())
+        && [ensureMutableRequest() respondsToSelector:@selector(_setPrivacyProxyFailClosedForUnreachableNonMainHosts:)])
         ensureMutableRequest().get()._privacyProxyFailClosedForUnreachableNonMainHosts = YES;
 
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES) && defined(CFN_COOKIE_ACCEPTS_POLICY_PARTITION) && CFN_COOKIE_ACCEPTS_POLICY_PARTITION
@@ -1697,11 +1885,19 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
     enableAdvancedPrivacyProtections(ensureMutableRequest().get(), advancedPrivacyProtections);
 
     Ref sessionSet = sessionSetForPage(webPageProxyID);
-    RetainPtr task = [sessionSet->sessionWithCredentialStorage->session webSocketTaskWithRequest:nsRequest.get()];
-    
+    // 10.9 backport: NSURLSession does not respond to webSocketTaskWithRequest:
+    // until 10.15. Sending it on 10.9 crashes NetworkProcess via
+    // doesNotRecognizeSelector. Return nullptr so sites that try WebSockets
+    // see a clean failure (handshake fails) instead of a process crash.
+    NSURLSession *session = sessionSet->sessionWithCredentialStorage->session.get();
+    if (![session respondsToSelector:@selector(webSocketTaskWithRequest:)])
+        return nullptr;
+    RetainPtr task = [session webSocketTaskWithRequest:nsRequest.get()];
+
     // Although the WebSocket protocol allows full 64-bit lengths, Chrome and Firefox limit the length to 2^63 - 1.
     // Use NSIntegerMax instead of 2^63 - 1 for 32-bit systems.
-    task.get().maximumMessageSize = NSIntegerMax;
+    if ([task respondsToSelector:@selector(setMaximumMessageSize:)])
+        [(NSURLSessionWebSocketTask *)task.get() setMaximumMessageSize:NSIntegerMax];
 
     return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSet, request, clientOrigin, WTF::move(task), storedCredentialsPolicy);
 }

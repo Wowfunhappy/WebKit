@@ -1285,11 +1285,8 @@ void NetworkResourceLoader::willSendRedirectedRequestInternal(ResourceRequest&& 
     } else if (!result.error().isEmpty())
         addConsoleMessage(MessageSource::PrivateClickMeasurement, MessageLevel::Error, result.error());
 
-    if (isFromServiceWorker == IsFromServiceWorker::No) {
-        auto maxAgeCap = validateCacheEntryForMaxAgeCapValidation(request, redirectRequest, redirectResponse);
-        if (redirectResponse.source() == ResourceResponse::Source::Network && canUseCachedRedirect(request))
-            protect(m_cache)->storeRedirect(request, redirectResponse, redirectRequest, maxAgeCap);
-    }
+    // 10.9 backport: skip cache storage of redirects (same workaround as tryStoreAsCacheEntry).
+    (void)isFromServiceWorker;
 
     if (isMainResource() && shouldInterruptNavigationForCrossOriginEmbedderPolicy(redirectResponse)) {
         this->didFailLoading(ResourceError { errorDomainWebKitInternal, 0, redirectRequest.url(), "Redirection was blocked by Cross-Origin-Embedder-Policy"_s, ResourceError::Type::AccessControl });
@@ -1615,6 +1612,14 @@ void NetworkResourceLoader::sendBuffer(const FragmentedSharedBuffer& buffer)
 
 void NetworkResourceLoader::tryStoreAsCacheEntry()
 {
+    // 10.9 backport: NetworkCache::Cache::makeEntry crashes in free() on a stack address
+    // (CheckedPtr destructor calling fastFree on what looks like a temporary). Skip cache
+    // storage entirely on 10.9 — pages still work, just not cached. The cache code path
+    // also hits a separate libcorecrypto crash in CC_SHA1_Update which we already work
+    // around in WTF::SHA1, but the makeEntry crash is upstream of that path.
+    LOADER_RELEASE_LOG("tryStoreAsCacheEntry: skipping cache storage (10.9 backport workaround)");
+    return;
+
     if (!canUseCache(m_networkLoad->currentRequest())) {
         LOADER_RELEASE_LOG("tryStoreAsCacheEntry: Not storing cache entry because request is not eligible");
         return;

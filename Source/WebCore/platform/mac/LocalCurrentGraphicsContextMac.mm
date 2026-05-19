@@ -34,11 +34,11 @@ LocalCurrentContextSaver::LocalCurrentContextSaver(CGContextRef cgContext, bool 
         return;
     }
 
-    if (cgContext == [[NSGraphicsContext currentContext] CGContext])
+    if (cgContext == (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort])
         return;
 
     lazyInitialize(m_savedNSGraphicsContext, RetainPtr { [NSGraphicsContext currentContext] });
-    NSGraphicsContext* newContext = [NSGraphicsContext graphicsContextWithCGContext:cgContext flipped:isFlipped];
+    NSGraphicsContext* newContext = [NSGraphicsContext graphicsContextWithGraphicsPort:cgContext flipped:isFlipped];
     [NSGraphicsContext setCurrentContext:newContext];
     m_didSetGraphicsContext = true;
 }

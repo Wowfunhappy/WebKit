@@ -1371,9 +1371,26 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
     }
 
     Ref userContentController = pageConfiguration->userContentController();
-    
+
+    // 10.9 backport: if we already have a real (non-dummy) WebContent process running, reuse it.
+    // Spawning additional WebContent processes is unreliable on this OS — the second process never
+    // wires up its NetworkProcess connection to receive responses, so navigation silently no-ops.
+    // NOTE: do NOT remove the dummy from m_processes / m_dummyProcessProxies — the dummy may
+    // own the mach send right shared by the existing connection; releasing it makes subsequent
+    // sends to the existing process return MACH_SEND_INVALID_DEST.
+    if (process && process->isDummyProcessProxy()) {
+        for (Ref<WebProcessProxy> existing : m_processes) {
+            if (!existing->isDummyProcessProxy() && existing->state() == WebProcessProxy::State::Running) {
+                FILE *_f=((FILE*)0);
+                if(_f){fprintf(_f,"[PID %d] WebProcessPool::createWebPage 10.9 backport: reusing existing process pid=%d\n", getpid(), existing->processID()); fclose(_f);}
+                process = existing.ptr();
+                break;
+            }
+        }
+    }
+
     ASSERT(process);
-    
+
     process->setAllowTestOnlyIPC(pageConfiguration->allowTestOnlyIPC());
 
     auto page = process->createWebPage(pageClient, WTF::move(pageConfiguration));
@@ -1488,6 +1505,12 @@ static void loadRestrictedOpenerTypeDataIfNeeded()
 void WebProcessPool::didReachGoodTimeToPrewarm()
 {
     loadRestrictedOpenerTypeDataIfNeeded();
+
+    // 10.9 backport: skip prewarming entirely. On this build, a prewarmed
+    // WebContent process can race with the user's existing page, replacing it
+    // and stealing focus when keyboard activity (e.g. Cmd+A→Cmd+C) triggers
+    // implicit process selection. Without prewarming, page state stays stable.
+    return;
 
     if (!configuration().isAutomaticProcessWarmingEnabled() || !configuration().processSwapsOnNavigation() || usesSingleWebProcess())
         return;

@@ -40,20 +40,39 @@ DECLARE_SYSTEM_HEADER
 
 #if USE(APPLE_INTERNAL_SDK)
 
+#if __has_include(<QuartzCore/CABackingStore.h>)
 #import <QuartzCore/CABackingStore.h>
+#endif
+#if __has_include(<QuartzCore/CAColorMatrix.h>)
 #import <QuartzCore/CAColorMatrix.h>
+#endif
+#if __has_include(<QuartzCore/CARenderServer.h>)
 #import <QuartzCore/CARenderServer.h>
+#endif
 
 #ifdef __OBJC__
 
+#if __has_include(<QuartzCore/CAAnimationPrivate.h>)
 #import <QuartzCore/CAAnimationPrivate.h>
+#endif
+#if __has_include(<QuartzCore/CAContext.h>)
 #import <QuartzCore/CAContext.h>
+#define CACONTEXT_DECLARED 1
+#endif
+#if __has_include(<QuartzCore/CALayerHost.h>)
 #import <QuartzCore/CALayerHost.h>
+#endif
+#if __has_include(<QuartzCore/CALayerPrivate.h>)
 #import <QuartzCore/CALayerPrivate.h>
+#endif
+#if __has_include(<QuartzCore/CAMediaTimingFunctionPrivate.h>)
 #import <QuartzCore/CAMediaTimingFunctionPrivate.h>
+#endif
+#if __has_include(<QuartzCore/QuartzCorePrivate.h>)
 #import <QuartzCore/QuartzCorePrivate.h>
+#endif
 
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) && __has_include(<QuartzCore/CARenderCG.h>)
 #import <QuartzCore/CARenderCG.h>
 #endif
 
@@ -97,6 +116,7 @@ typedef struct _CARenderContext CARenderContext;
 @end
 #endif
 
+#define CACONTEXT_DECLARED 1
 @interface CAContext : NSObject
 @end
 
@@ -249,7 +269,7 @@ typedef enum {
 #endif
 
 @interface CARemoteEffectGroup : CARemoteEffect
-+ (instancetype)groupWithEffects:(NSArray<CARemoteEffect *> *)effects;
++ (instancetype)groupWithEffects:(NSArray *)effects;
 @property (copy) NSString *groupName;
 @property (getter=isMatched) BOOL matched;
 @property (getter=isSource) BOOL source;
@@ -257,7 +277,7 @@ typedef enum {
 @end
 
 @interface CALayer (RemoteEffects)
-@property (copy) NSArray<CARemoteEffect *> *remoteEffects;
+@property (copy) NSArray *remoteEffects;
 @end
 
 #if HAVE(CORE_ANIMATION_FRAME_RATE_RANGE)
@@ -277,6 +297,36 @@ typedef uint32_t CAHighFrameRateReason;
 
 #endif // __OBJC__
 
+#endif
+
+// If CAContext was not declared (e.g., USE(APPLE_INTERNAL_SDK) is true
+// but the private CAContext.h header is missing on older SDKs, or modules
+// are enabled but the module doesn't export the private CAContext class), declare it.
+#ifdef __OBJC__
+#if !defined(CACONTEXT_DECLARED)
+#define CACONTEXT_DECLARED 1
+@interface CAContext : NSObject
+@end
+
+@interface CAContext ()
++ (NSArray *)allContexts;
++ (CAContext *)currentContext;
++ (CAContext *)localContext;
++ (CAContext *)remoteContextWithOptions:(NSDictionary *)dict;
+#if PLATFORM(MAC)
++ (CAContext *)contextWithCGSConnection:(CGSConnectionID)cid options:(NSDictionary *)dict;
++ (void)setAllowsCGSConnections:(BOOL)flag;
+#endif
+- (void)invalidate;
+- (void)invalidateFences;
+- (mach_port_t)createFencePort;
+- (void)setFencePort:(mach_port_t)port;
+- (void)setFencePort:(mach_port_t)port commitHandler:(void(^)(void))block;
+@property (readonly) uint32_t contextId;
+@property (strong) CALayer *layer;
+@property CGColorSpaceRef colorSpace;
+@end
+#endif
 #endif
 
 @interface CALayer ()

@@ -69,7 +69,7 @@ IGNORE_WARNINGS_END
 #if PLATFORM(IOS_FAMILY)
 NS_ASSUME_NONNULL_BEGIN
 @interface AVAudioSession (AVAudioSessionWebKitPrivate)
-- (BOOL)setAuditTokensForProcessAssertion:(NSArray<NSData *>*)inAuditTokens error:(NSError **)outError;
+- (BOOL)setAuditTokensForProcessAssertion:(NSArray **)inAuditTokens error:(NSError **)outError;
 @end
 NS_ASSUME_NONNULL_END
 #endif
@@ -96,7 +96,7 @@ NS_ASSUME_NONNULL_END
 typedef NSString * AVVideoRange NS_TYPED_ENUM;
 @interface AVPlayer (AVPlayerVideoRangeOverride)
 @property (nonatomic, copy, nullable) AVVideoRange videoRangeOverride;
-+ (nullable AVVideoRange)preferredVideoRangeForDisplays:(nonnull NSArray <NSNumber *>*)displays;
++ (nullable AVVideoRange)preferredVideoRangeForDisplays:(nonnull NSArray **)displays;
 @end
 #endif
 
@@ -124,7 +124,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (nullable AVOutputContext *)sharedSystemAudioContext;
 + (nullable AVOutputContext *)outputContextForID:(NSString *)ID;
 @property (readonly) BOOL supportsMultipleOutputDevices;
-@property (readonly) NSArray<AVOutputDevice *> *outputDevices;
+@property (readonly) NSArray *outputDevices;
 @property (nonatomic, readonly, nullable) AVOutputDevice *outputDevice;
 @end
 
@@ -232,7 +232,7 @@ NS_ASSUME_NONNULL_END
 @interface AVContentKeyReportGroup : NSObject
 @property (readonly, nullable) NSData *contentProtectionSessionIdentifier;
 - (void)expire;
-- (void)processContentKeyRequestWithIdentifier:(nullable id)identifier initializationData:(nullable NSData *)initializationData options:(nullable NSDictionary<NSString *, id> *)options;
+- (void)processContentKeyRequestWithIdentifier:(nullable id)identifier initializationData:(nullable NSData *)initializationData options:(nullable NSDictionary *)options;
 - (void)associateContentKeyRequest:(nonnull AVContentKeyRequest *)contentKeyRequest;
 @end
 
@@ -245,7 +245,7 @@ NS_ASSUME_NONNULL_END
 #if HAVE(AVCONTENTKEYSESSIONWILLOUTPUTBEOBSCURED)
 @interface AVContentKeyRequest (OutputObscured)
 NS_ASSUME_NONNULL_BEGIN
-- (BOOL)willOutputBeObscuredDueToInsufficientExternalProtectionForDisplays:(NSArray<NSNumber *> *)displays;
+- (BOOL)willOutputBeObscuredDueToInsufficientExternalProtectionForDisplays:(NSArray *)displays;
 NS_ASSUME_NONNULL_END
 @end
 #endif
@@ -420,8 +420,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readonly) BOOL eligibleForBTSmartRoutingConsideration;
 @property (readonly) NSString* spatialTrackingLabel;
 - (BOOL)setEligibleForBTSmartRoutingConsideration:(BOOL)inValue error:(NSError **)outError;
-- (BOOL)setHostProcessAttribution:(NSArray<NSString *>*)inHostProcessInfo error:(NSError **)outError SPI_AVAILABLE(ios(15.0), watchos(8.0), tvos(15.0)) API_UNAVAILABLE(macCatalyst, macos);
-- (BOOL)setAuditTokensForProcessAssertion:(NSArray<NSData *>*)inAuditTokens error:(NSError **)outError;
+- (BOOL)setHostProcessAttribution:(NSArray **)inHostProcessInfo error:(NSError **)outError SPI_AVAILABLE(ios(15.0), watchos(8.0), tvos(15.0)) API_UNAVAILABLE(macCatalyst, macos);
+- (BOOL)setAuditTokensForProcessAssertion:(NSArray **)inAuditTokens error:(NSError **)outError;
 @end
 
 NS_ASSUME_NONNULL_END
@@ -469,7 +469,7 @@ NS_ASSUME_NONNULL_END
 #if !USE(APPLE_INTERNAL_SDK)
 NS_ASSUME_NONNULL_BEGIN
 @interface AVURLAsset (IsPlayableExtendedMIMETypeWithOptions)
-+ (BOOL)isPlayableExtendedMIMEType:(NSString *)extendedMIMEType options:(nullable NSDictionary<NSString *, id> *)options;
++ (BOOL)isPlayableExtendedMIMEType:(NSString *)extendedMIMEType options:(nullable NSDictionary *)options;
 @end
 NS_ASSUME_NONNULL_END
 #endif

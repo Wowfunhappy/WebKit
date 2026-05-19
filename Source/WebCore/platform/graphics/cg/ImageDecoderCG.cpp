@@ -75,23 +75,17 @@ constexpr float panoramicImageAspectRatioThreshold = 2.0;
 
 static RetainPtr<CFMutableDictionaryRef> createImageSourceOptions()
 {
+    // 10.9 backport: kCGImageSourceShouldCache / kCGImageSourceSkipMetadata /
+    // kCGImageSourceUseHardwareAcceleration / etc. are stubbed in libpolyfill.a
+    // with `xorl %eax,%eax; ret`, which leaves the returned CFStringRef key
+    // with a corrupted class pointer. Passing those into CFDictionarySetValue
+    // triggers __forwarding__ → getAtomTarget SIGTRAP. Use literal CFSTR()
+    // keys whose contents match the real ImageIO constants (CG looks up
+    // options by string value, not pointer identity).
     RetainPtr<CFMutableDictionaryRef> options = adoptCF(CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
-    CFDictionarySetValue(options.get(), kCGImageSourceShouldCache, kCFBooleanTrue);
-    CFDictionarySetValue(options.get(), kCGImageSourceShouldPreferRGB32, kCFBooleanTrue);
-    CFDictionarySetValue(options.get(), kCGImageSourceSkipMetadata, kCFBooleanTrue);
-
-    if (ProcessCapabilities::isHardwareAcceleratedDecodingDisabled())
-        CFDictionarySetValue(options.get(), kCGImageSourceUseHardwareAcceleration, kCFBooleanFalse);
-
-#if HAVE(IMAGE_RESTRICTED_DECODING) && USE(APPLE_INTERNAL_SDK)
-    if (ProcessCapabilities::isHEICDecodingEnabled() || ProcessCapabilities::isAVIFDecodingEnabled())
-        CFDictionarySetValue(options.get(), kCGImageSourceEnableRestrictedDecoding, kCFBooleanTrue);
-#endif
-
-#if HAVE(IMAGEIO_CREATE_UNPREMULTIPLIED_PNG)
-    CFDictionarySetValue(options.get(), kCGImageSourceCreateUnpremultipliedPNG, kCFBooleanTrue);
-#endif
-
+    CFDictionarySetValue(options.get(), CFSTR("kCGImageSourceShouldCache"), kCFBooleanTrue);
+    CFDictionarySetValue(options.get(), CFSTR("kCGImageSourceShouldPreferRGB32"), kCFBooleanTrue);
+    CFDictionarySetValue(options.get(), CFSTR("kCGImageSourceSkipMetadata"), kCFBooleanTrue);
     return options;
 }
 
@@ -193,8 +187,10 @@ static CFDictionaryRef animationPropertiesFromProperties(CFDictionaryRef propert
 
     if (auto animationProperties = (CFDictionaryRef)CFDictionaryGetValue(properties, kCGImagePropertyGIFDictionary))
         return animationProperties;
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300
     if (auto animationProperties = (CFDictionaryRef)CFDictionaryGetValue(properties, kCGImagePropertyWebPDictionary))
         return animationProperties;
+#endif
     if (auto animationProperties = (CFDictionaryRef)CFDictionaryGetValue(properties, kCGImagePropertyPNGDictionary))
         return animationProperties;
 
@@ -446,7 +442,11 @@ size_t ImageDecoderCG::frameCount() const
 
 size_t ImageDecoderCG::primaryFrameIndex() const
 {
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
     return CGImageSourceGetPrimaryImageIndex(m_nativeDecoder.get());
+#else
+    return 0;
+#endif
 }
 
 RepetitionCount ImageDecoderCG::repetitionCount() const

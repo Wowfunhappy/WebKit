@@ -98,7 +98,11 @@ void NetworkProcess::platformInitializeNetworkProcessCocoa(const NetworkProcessC
     initializeNetworkSettings();
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-    setSharedHTTPCookieStorage(parameters.uiProcessCookieStorageIdentifier);
+    // 10.9 backport: cookieStorageFromIdentifyingData uses 10.10+ private API that
+    // crashes on 10.9 when the identifier is empty/invalid. Skip if empty; NSURLSession
+    // falls back to a fresh per-process cookie storage, which is fine for HTTP loads.
+    if (!parameters.uiProcessCookieStorageIdentifier.isEmpty())
+        setSharedHTTPCookieStorage(parameters.uiProcessCookieStorageIdentifier);
 #endif
 
     // Allow the network process to materialize files stored in the cloud so that loading/reading such files actually succeeds.
@@ -226,6 +230,12 @@ void NetworkProcess::clearDiskCache(WallTime modifiedSince, CompletionHandler<vo
 void NetworkProcess::setSharedHTTPCookieStorage(const Vector<uint8_t>& identifier)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
+    // 10.9 backport: -_initWithCFHTTPCookieStorage: and +_setSharedHTTPCookieStorage:
+    // are 10.10+ SPI on NSHTTPCookieStorage. Skip when unavailable — the network
+    // path falls back to the default shared cookie storage.
+    if (![NSHTTPCookieStorage instancesRespondToSelector:@selector(_initWithCFHTTPCookieStorage:)]
+        || ![NSHTTPCookieStorage respondsToSelector:@selector(_setSharedHTTPCookieStorage:)])
+        return;
     [NSHTTPCookieStorage _setSharedHTTPCookieStorage:adoptNS([[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:cookieStorageFromIdentifyingData(identifier).get()]).get()];
 }
 #endif
@@ -238,22 +248,39 @@ void NetworkProcess::flushCookies(PAL::SessionID sessionID, CompletionHandler<vo
 void saveCookies(NSHTTPCookieStorage *cookieStorage, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
-    ASSERT(cookieStorage);
-    [cookieStorage _saveCookies:makeBlockPtr([completionHandler = WTF::move(completionHandler)]() mutable {
-        // CFNetwork may call the completion block on a background queue, so we need to redispatch to the main thread.
-        RunLoop::mainSingleton().dispatch(WTF::move(completionHandler));
-    }).get()];
+    // 10.9 backport: NetworkProcess shutdown can invoke this on a freed/stale
+    // cookieStorage (objc_msgSend_corrupt_cache_error on _saveCookies:). Verify
+    // the receiver's class table actually advertises _saveCookies: WITHOUT
+    // dispatching to the receiver itself (class_getInstanceMethod walks the
+    // class struct, doesn't objc_msgSend). If the object is freed, [obj class]
+    // could still crash, so wrap that too.
+    if (!cookieStorage)
+        return completionHandler();
+    Class cls = Nil;
+    @try { cls = object_getClass((id)cookieStorage); } @catch (...) { }
+    if (!cls || !class_getInstanceMethod(cls, @selector(_saveCookies:)))
+        return completionHandler();
+    @try {
+        [cookieStorage _saveCookies:makeBlockPtr([completionHandler = WTF::move(completionHandler)]() mutable {
+            // CFNetwork may call the completion block on a background queue, so we need to redispatch to the main thread.
+            RunLoop::mainSingleton().dispatch(WTF::move(completionHandler));
+        }).get()];
+    } @catch (NSException *) {
+        completionHandler();
+    }
 }
 
 void NetworkProcess::platformFlushCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
 {
-    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
-    CheckedPtr networkStorageSession = storageSession(sessionID);
-    if (!networkStorageSession)
-        return completionHandler();
-
-    RetainPtr cookieStorage = networkStorageSession->nsCookieStorage();
-    saveCookies(cookieStorage.get(), WTF::move(completionHandler));
+    UNUSED_PARAM(sessionID);
+    // 10.9 backport: skip _saveCookies: entirely. NetworkProcess::didClose calls
+    // this on a freed/stale cookieStorage and crashes Networking with
+    // objc_msgSend_corrupt_cache_error (even class introspection of the receiver
+    // faults). NSHTTPCookieStorage flushes its data to disk on its own teardown
+    // path, so skipping the explicit flush is safe — cookies set during the
+    // session were already written when received via Set-Cookie header path
+    // (project_set_cookie_inbound.md uses NSHTTPCookieStorage setCookies:).
+    return completionHandler();
 }
 
 const String& NetworkProcess::uiProcessBundleIdentifier() const

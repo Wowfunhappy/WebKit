@@ -41,7 +41,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (BOOL)associateContentKeyRequest:(AVContentKeyRequest *)contentKeyRequest;
 - (void)expire;
-- (void)processContentKeyRequestWithIdentifier:(nullable id)identifier initializationData:(nullable NSData *)initializationData options:(nullable NSDictionary<NSString *, id> *)options;
+- (void)processContentKeyRequestWithIdentifier:(nullable id)identifier initializationData:(nullable NSData *)initializationData options:(nullable NSDictionary *)options;
 
 @end
 

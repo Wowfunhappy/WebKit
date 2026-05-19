@@ -486,7 +486,7 @@ public:
     [self _postPreferencesChangedNotification];
 }
 
-- (NSArray<NSString *> *)_stringArrayValueForKey:(NSString *)key
+- (NSArray *)_stringArrayValueForKey:(NSString *)key
 {
     id value = [self _valueForKey:key];
     if (![value isKindOfClass:[NSArray class]])
@@ -498,10 +498,10 @@ public:
             return nil;
     }
 
-    return (NSArray<NSString *> *)array.autorelease();
+    return (NSArray *)array.autorelease();
 }
 
-- (void)_setStringArrayValueForKey:(NSArray<NSString *> *)value forKey:(NSString *)key
+- (void)_setStringArrayValueForKey:(NSArray *)value forKey:(NSString *)key
 {
     NSString *_key = KEY(key);
 #if PLATFORM(IOS_FAMILY)
@@ -916,12 +916,12 @@ public:
     return [self _boolValueForKey: WebKitDisplayImagesKey];
 }
 
-- (void)setAdditionalSupportedImageTypes:(NSArray<NSString*> *)imageTypes
+- (void)setAdditionalSupportedImageTypes:(NSArray *)imageTypes
 {
     [self _setStringArrayValueForKey:imageTypes forKey:WebKitAdditionalSupportedImageTypesKey];
 }
 
-- (NSArray<NSString *> *)additionalSupportedImageTypes
+- (NSArray *)additionalSupportedImageTypes
 {
     return [self _stringArrayValueForKey:WebKitAdditionalSupportedImageTypesKey];
 }

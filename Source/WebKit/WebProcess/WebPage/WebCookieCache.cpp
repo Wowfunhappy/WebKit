@@ -68,30 +68,13 @@ static String cookiesToString(const Vector<WebCore::Cookie>& cookies)
 
 String WebCookieCache::cookiesForDOM(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, FrameIdentifier frameID, PageIdentifier pageID, WebPageProxyIdentifier webPageProxyID, IncludeSecureCookies includeSecureCookies)
 {
-    bool hasCacheForHost = m_hostsWithInMemoryStorage.contains<StringViewHashTranslator>(url.host());
-    if (!hasCacheForHost || cacheMayBeOutOfSync()) {
-        auto host = url.host().toString();
-#if HAVE(COOKIE_CHANGE_LISTENER_API)
-        if (!hasCacheForHost)
-            protect(WebProcess::singleton().cookieJar())->addChangeListenerWithAccess(url, firstParty, frameID, pageID, webPageProxyID, *this);
-#endif
-        auto sendResult = WebProcess::singleton().ensureNetworkProcessConnection().connection().sendSync(Messages::NetworkConnectionToWebProcess::DomCookiesForHost(url), 0);
-        if (!sendResult.succeeded())
-            return { };
-
-        auto& [cookies] = sendResult.reply();
-
-        if (hasCacheForHost)
-            return cookiesToString(cookies);
-
-        pruneCacheIfNecessary();
-        m_hostsWithInMemoryStorage.add(WTF::move(host));
-
-        CheckedRef inMemoryStorageSession = this->inMemoryStorageSession();
-        for (auto& cookie : cookies)
-            inMemoryStorageSession->setCookie(cookie);
-    }
-    return protect(inMemoryStorageSession())->cookiesForDOM(firstParty, sameSiteInfo, url, frameID, pageID, includeSecureCookies, ApplyTrackingPrevention::No, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
+    UNUSED_PARAM(firstParty); UNUSED_PARAM(sameSiteInfo); UNUSED_PARAM(frameID); UNUSED_PARAM(pageID);
+    UNUSED_PARAM(webPageProxyID); UNUSED_PARAM(includeSecureCookies);
+    auto sendResult = WebProcess::singleton().ensureNetworkProcessConnection().connection().sendSync(Messages::NetworkConnectionToWebProcess::DomCookiesForHost(url), 0);
+    if (!sendResult.succeeded())
+        return { };
+    auto& [cookies] = sendResult.reply();
+    return cookiesToString(cookies);
 }
 
 void WebCookieCache::setCookiesFromDOM(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, FrameIdentifier frameID, PageIdentifier pageID, const String& cookieString, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking)

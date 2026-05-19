@@ -188,7 +188,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
     if (!(self = [super init]))
         return nil;
 
-    API::Object::constructInWrapper<API::WebsitePolicies>(self);
+    // DISABLED:     API::Object::constructInWrapper<API::WebsitePolicies>(self);
 
     return self;
 }

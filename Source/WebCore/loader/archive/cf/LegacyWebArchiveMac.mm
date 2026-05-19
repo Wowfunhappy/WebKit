@@ -42,10 +42,11 @@ ResourceResponse LegacyWebArchive::createResourceResponseFromMacArchivedData(CFD
         return ResourceResponse();
     
     RetainPtr<NSURLResponse> response;
-    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingFromData:(__bridge NSData *)responseData error:nullptr]);
-    unarchiver.get().decodingFailurePolicy = NSDecodingFailurePolicyRaiseException;
+    // initForReadingFromData:error: and decodingFailurePolicy are 10.13+;
+    // fall back to initForReadingWithData: on older macOS.
+    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:(__bridge NSData *)responseData]);
     @try {
-        response = [unarchiver decodeObjectOfClass:NSURLResponse.class forKey:LegacyWebArchiveResourceResponseKey];
+        response = [unarchiver decodeObjectForKey:LegacyWebArchiveResourceResponseKey];
         [unarchiver finishDecoding];
     } @catch (NSException *exception) {
         LOG_ERROR("Failed to decode NS(HTTP)URLResponse: %@", exception);
@@ -62,9 +63,13 @@ RetainPtr<CFDataRef> LegacyWebArchive::createPropertyListRepresentation(const Re
     if (!nsResponse)
         return nullptr;
 
-    auto archiver = adoptNS([[NSKeyedArchiver alloc] initRequiringSecureCoding:YES]);
+    // initRequiringSecureCoding: and encodedData are 10.13+;
+    // fall back to initForWritingWithMutableData: on older macOS.
+    RetainPtr data = adoptNS([[NSMutableData alloc] init]);
+    auto archiver = adoptNS([[NSKeyedArchiver alloc] initForWritingWithMutableData:data.get()]);
     [archiver encodeObject:nsResponse.get() forKey:LegacyWebArchiveResourceResponseKey];
-    return (__bridge CFDataRef)archiver.get().encodedData;
+    [archiver finishEncoding];
+    return (__bridge CFDataRef)data.get();
 }
 
 }

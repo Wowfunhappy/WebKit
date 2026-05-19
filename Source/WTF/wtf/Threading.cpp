@@ -221,6 +221,20 @@ void Thread::initializeInThread()
     }
 #endif
 
+#if PLATFORM(MAC)
+    // 10.9 backport: WebKit's runInitializationCode runs from the XPC event-handler
+    // thread (not the runloop's main thread), interning HTMLNames::srcAttr etc. into
+    // that thread's atomStringTable. Later the parser interns "src" again on the
+    // main thread → different impl pointer → findAttributeByName(srcAttr) fails.
+    // Share a single process-wide AtomStringTable across all threads so static QName
+    // impls and parser-created QName impls match. (Acceptable because access is
+    // protected by AtomStringTableLocker and the cost is a single shared lock.)
+    {
+        static NeverDestroyed<AtomStringTable> processSharedAtomStringTable;
+        m_currentAtomStringTable = &processSharedAtomStringTable.get();
+    }
+#endif
+
 #if OS(LINUX)
     m_id = currentID();
 #endif

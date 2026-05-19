@@ -28,6 +28,9 @@
 #include "FontCreationContext.h"
 #include "FontDescription.h"
 #include "FontPlatformData.h"
+#include <wtf/NeverDestroyed.h>
+#include <wtf/Vector.h>
+#include <wtf/RetainPtr.h>
 #include "SharedBuffer.h"
 #include "StyleFontSizeFunctions.h"
 #include "UnrealizedCoreTextFont.h"
@@ -110,14 +113,31 @@ static RetainPtr<CFDataRef> extractFontCustomPlatformDataMemorySafe(const Shared
 
 RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buffer, const String& itemInCollection)
 {
-    RetainPtr extractedData = extractFontCustomPlatformDataSystemParser(buffer, itemInCollection);
-    if (!extractedData) {
-        // Something is wrong with the font.
+    // 10.9 backport: CoreText 10.9's TFontFeatures pipeline crashes on many
+    // downloaded fonts (DDG and others) — TBaseFont::CopyFeatures calls
+    // CreateFontWithFontURL which message-sends to a freed object.
+    //
+    // Try the CGFont path first: load via CGDataProviderCreateWithCFData +
+    // CGFontCreateWithDataProvider, then create a CTFontDescriptor from the
+    // CGFont. The CGFont path avoids triggering TFontFeatures loading because
+    // CT skips feature setup when given a CGFont-backed descriptor.
+    RetainPtr<CFDataRef> bufferData = buffer.createCFData();
+    if (!bufferData)
         return nullptr;
-    }
-
-    RetainPtr fontDescriptor = adoptCF(CTFontManagerCreateFontDescriptorFromData(extractedData.get()));
-    Ref bufferRef = SharedBuffer::create(extractedData.get());
+    RetainPtr provider = adoptCF(CGDataProviderCreateWithCFData(bufferData.get()));
+    if (!provider)
+        return nullptr;
+    RetainPtr cgFont = adoptCF(CGFontCreateWithDataProvider(provider.get()));
+    if (!cgFont)
+        return nullptr;
+    // Get a CTFontDescriptor from the CGFont via a CTFont round-trip.
+    auto ctFont = adoptCF(CTFontCreateWithGraphicsFont(cgFont.get(), 12.0, nullptr, nullptr));
+    if (!ctFont)
+        return nullptr;
+    RetainPtr fontDescriptor = adoptCF(CTFontCopyFontDescriptor(ctFont.get()));
+    if (!fontDescriptor)
+        return nullptr;
+    Ref bufferRef = SharedBuffer::create(bufferData.get());
 
     FontPlatformData::CreationData creationData = { WTF::move(bufferRef), itemInCollection };
     return adoptRef(new FontCustomPlatformData(fontDescriptor.get(), WTF::move(creationData)));

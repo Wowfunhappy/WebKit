@@ -35,7 +35,7 @@
 - (instancetype)init
 {
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    static NSUInteger styleMask = NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable | NSWindowStyleMaskTitled | NSSmallWindowMask | NSSideUtilityWindowMask | NSWindowStyleMaskUtilityWindow;
+    static NSUInteger styleMask = NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable | NSWindowStyleMaskTitled | NSSmallWindowMask | NSSideUtilityWindowMask | NSUtilityWindowMask;
 ALLOW_DEPRECATED_DECLARATIONS_END
 
     self = [super initWithContentRect:NSZeroRect styleMask:styleMask backing:NSBackingStoreBuffered defer:YES];

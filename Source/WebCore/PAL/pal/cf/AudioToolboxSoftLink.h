@@ -104,6 +104,18 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioConverterConvertComplexBuf
 #define AudioConverterConvertComplexBuffer softLink_AudioToolbox_AudioConverterConvertComplexBuffer
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioConverterFillComplexBuffer, OSStatus, (AudioConverterRef inAudioConverter, AudioConverterComplexInputDataProc inInputDataProc, void* inInputDataProcUserData, UInt32* ioOutputDataPacketSize, AudioBufferList* outOutputData, AudioStreamPacketDescription* outPacketDescription), (inAudioConverter, inInputDataProc, inInputDataProcUserData, ioOutputDataPacketSize, outOutputData, outPacketDescription))
 #define AudioConverterFillComplexBuffer softLink_AudioToolbox_AudioConverterFillComplexBuffer
+// 10.9 backport: AudioComponent* / AudioUnit* / AudioOutputUnit* live in
+// AudioUnit.framework on Mavericks (moved to AudioToolbox in 10.10). See .cpp for details.
+#if PLATFORM(MAC)
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioUnit, AudioOutputUnitStart, OSStatus, (AudioUnit ci), (ci))
+#define AudioOutputUnitStart softLink_AudioUnit_AudioOutputUnitStart
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioUnit, AudioOutputUnitStop, OSStatus, (AudioUnit ci), (ci))
+#define AudioOutputUnitStop softLink_AudioUnit_AudioOutputUnitStop
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioUnit, AudioComponentInstanceDispose, OSStatus, (AudioComponentInstance inInstance), (inInstance))
+#define AudioComponentInstanceDispose softLink_AudioUnit_AudioComponentInstanceDispose
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioUnit, AudioComponentCopyName, OSStatus, (AudioComponent inComponent, CFStringRef* outName), (inComponent, outName))
+#define AudioComponentCopyName softLink_AudioUnit_AudioComponentCopyName
+#else
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioOutputUnitStart, OSStatus, (AudioUnit ci), (ci))
 #define AudioOutputUnitStart softLink_AudioToolbox_AudioOutputUnitStart
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioOutputUnitStop, OSStatus, (AudioUnit ci), (ci))
@@ -112,6 +124,7 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioComponentInstanceDispose, 
 #define AudioComponentInstanceDispose softLink_AudioToolbox_AudioComponentInstanceDispose
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioComponentCopyName, OSStatus, (AudioComponent inComponent, CFStringRef* outName), (inComponent, outName))
 #define AudioComponentCopyName softLink_AudioToolbox_AudioComponentCopyName
+#endif
 
 SOFT_LINK_FUNCTION_MAY_FAIL_FOR_HEADER(PAL, AudioToolboxCore, AudioComponentFetchServerRegistrations, OSStatus, (CFDataRef* outBundleRegistrations), (outBundleRegistrations))
 #define AudioComponentFetchServerRegistrations softLinkAudioToolboxCoreAudioComponentFetchServerRegistrations
@@ -142,6 +155,22 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, ExtAudioFileWrapAudioFileID, OS
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, ExtAudioFileOpenURL, OSStatus, (CFURLRef inURL, ExtAudioFileRef* outExtAudioFile), (inURL, outExtAudioFile))
 #define ExtAudioFileOpenURL softLink_AudioToolbox_ExtAudioFileOpenURL
 
+#if PLATFORM(MAC)
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioUnit, AudioComponentFindNext, AudioComponent, (AudioComponent inComponent, const AudioComponentDescription* inDesc), (inComponent, inDesc))
+#define AudioComponentFindNext softLink_AudioUnit_AudioComponentFindNext
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioUnit, AudioComponentInstanceNew, OSStatus, (AudioComponent inComponent, AudioComponentInstance* outInstance), (inComponent, outInstance))
+#define AudioComponentInstanceNew softLink_AudioUnit_AudioComponentInstanceNew
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioUnit, AudioUnitGetProperty, OSStatus, (AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, void* outData, UInt32* ioDataSize), (inUnit, inID, inScope, inElement, outData, ioDataSize))
+#define AudioUnitGetProperty softLink_AudioUnit_AudioUnitGetProperty
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioUnit, AudioUnitInitialize, OSStatus, (AudioUnit inUnit), (inUnit))
+#define AudioUnitInitialize softLink_AudioUnit_AudioUnitInitialize
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioUnit, AudioUnitSetProperty, OSStatus, (AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, const void* inData, UInt32 inDataSize), (inUnit, inID, inScope, inElement, inData, inDataSize))
+#define AudioUnitSetProperty softLink_AudioUnit_AudioUnitSetProperty
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioUnit, AudioUnitRender, OSStatus, (AudioUnit inUnit, AudioUnitRenderActionFlags* ioActionFlags, const AudioTimeStamp* inTimeStamp, UInt32 inOutputBusNumber, UInt32 inNumberFrames, AudioBufferList* ioData), (inUnit, ioActionFlags, inTimeStamp, inOutputBusNumber, inNumberFrames, ioData))
+#define AudioUnitRender softLink_AudioUnit_AudioUnitRender
+SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioUnit, AudioUnitUninitialize, OSStatus, (AudioUnit inUnit), (inUnit))
+#define AudioUnitUninitialize softLink_AudioUnit_AudioUnitUninitialize
+#else
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioComponentFindNext, AudioComponent, (AudioComponent inComponent, const AudioComponentDescription* inDesc), (inComponent, inDesc))
 #define AudioComponentFindNext softLink_AudioToolbox_AudioComponentFindNext
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioComponentInstanceNew, OSStatus, (AudioComponent inComponent, AudioComponentInstance* outInstance), (inComponent, outInstance))
@@ -156,5 +185,6 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioUnitRender, OSStatus, (Aud
 #define AudioUnitRender softLink_AudioToolbox_AudioUnitRender
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioUnitUninitialize, OSStatus, (AudioUnit inUnit), (inUnit))
 #define AudioUnitUninitialize softLink_AudioToolbox_AudioUnitUninitialize
+#endif
 
 #endif // USE(AVFOUNDATION)

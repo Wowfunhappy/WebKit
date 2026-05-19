@@ -447,9 +447,16 @@ void ArgumentCoder<WebKit::RemoteLayerBackingStoreOrProperties>::encode(Encoder&
     // in the UI process as a std::unique_ptr<RemoteLayerBackingStoreProperties>.
     ASSERT(isInWebProcess());
     CheckedPtr store = instance.store.get();
-    bool hasFrontBuffer = store && store->hasFrontBuffer();
-    encoder << hasFrontBuffer;
-    if (hasFrontBuffer)
+    // 10.9 backport: github tile backing stores intermittently have hasFrontBuffer=false
+    // at IPC encode time (their swap returned NeedsNoDisplay so ensureFrontBuffer was
+    // skipped). The original gate sent only `false` for them, causing UIProcess to
+    // call _web_clearContents instead of applyBackingStore. Send the store data
+    // whenever the store exists; UIProcess will use bufferSetIdentifier to look up
+    // the buffer in its cache (populated by async flushers from prior commits).
+    bool hasStore = !!store;
+    // 10.9 perf: removed debug fopen logging
+    encoder << hasStore;
+    if (hasStore)
         encoder << *store;
 }
 

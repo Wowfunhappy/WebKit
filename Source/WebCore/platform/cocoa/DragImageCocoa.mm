@@ -297,7 +297,7 @@ DragImageData createDragImageForLink(Element& element, URL& url, const String& t
     RetainPtr<NSImage> dragImage = adoptNS([[NSImage alloc] initWithSize:imageSize]);
     [dragImage _web_lockFocusWithDeviceScaleFactor:deviceScaleFactor];
 
-    GraphicsContextCG context([NSGraphicsContext currentContext].CGContext);
+    GraphicsContextCG context((CGContextRef)[[NSGraphicsContext currentContext] graphicsPort]);
 
     context.fillRoundedRect(FloatRoundedRect(layout.boundingRect, CornerRadii(linkImageCornerRadius)), colorFromCocoaColor([NSColor controlBackgroundColor]));
 

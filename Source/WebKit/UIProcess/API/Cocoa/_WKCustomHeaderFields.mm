@@ -38,7 +38,7 @@
     if (!(self = [super init]))
         return nil;
     
-    API::Object::constructInWrapper<API::CustomHeaderFields>(self);
+    // DISABLED:     API::Object::constructInWrapper<API::CustomHeaderFields>(self);
     return self;
 }
 

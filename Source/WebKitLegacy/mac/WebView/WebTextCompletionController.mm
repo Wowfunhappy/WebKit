@@ -126,7 +126,11 @@ using namespace WebCore;
 
     NSRect windowFrame;
     NSPoint wordStart = topLeft;
-    windowFrame.origin = [[_view window] convertPointToScreen:[_htmlView convertPoint:wordStart toView:nil]];
+    {
+        NSPoint pt = [_htmlView convertPoint:wordStart toView:nil];
+        NSRect r = [[_view window] convertRectToScreen:NSMakeRect(pt.x, pt.y, 0, 0)];
+        windowFrame.origin = r.origin;
+    }
     windowFrame.size.height = numberToShow * [_tableView rowHeight] + (numberToShow + 1) * [_tableView intercellSpacing].height;
     windowFrame.origin.y -= windowFrame.size.height;
     NSDictionary *attributes = @{ NSFontAttributeName: [NSFont systemFontOfSize:12.0f] };

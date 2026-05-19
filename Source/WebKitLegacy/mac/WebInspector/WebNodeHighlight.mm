@@ -268,7 +268,8 @@ using namespace WebCore;
     ASSERT([_targetView window]);
 
     NSRect highlightWindowFrame = [_targetView convertRect:[_targetView visibleRect] toView:nil];
-    highlightWindowFrame.origin = [[_targetView window] convertPointToScreen:highlightWindowFrame.origin];
+    NSRect screenRect = [[_targetView window] convertRectToScreen:NSMakeRect(highlightWindowFrame.origin.x, highlightWindowFrame.origin.y, 0, 0)];
+    highlightWindowFrame.origin = screenRect.origin;
 
     return highlightWindowFrame;
 }

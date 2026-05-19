@@ -205,11 +205,14 @@ void Resolver::initialize()
 
     if (RefPtr documentElement = document().documentElement()) {
         m_rootDefaultStyle = styleForElement(*documentElement, { document().initialContainingBlockStyle() }, RuleMatchingBehavior::MatchOnlyUserAgentRules).style;
-        // Turn off assertion against font lookups during style resolver initialization. We may need root style font for media queries.
-        document().fontSelector().incrementIsComputingRootStyleFont();
-        m_rootDefaultStyle->fontCascade().update(&document().fontSelector());
-        m_rootDefaultStyle->fontCascade().primaryFont();
-        document().fontSelector().decrementIsComputingRootStyleFont();
+        // PATCH: Skip font cascade initialization on macOS 10.9 backport.
+        // The font subsystem (FontCacheCoreText etc) is heavily stubbed and
+        // calling primaryFont() at init time crashes. Media queries that
+        // depend on font metrics will get fallback values instead.
+        // document().fontSelector().incrementIsComputingRootStyleFont();
+        // m_rootDefaultStyle->fontCascade().update(&document().fontSelector());
+        // m_rootDefaultStyle->fontCascade().primaryFont();
+        // document().fontSelector().decrementIsComputingRootStyleFont();
     }
 
     if (m_rootDefaultStyle && view)

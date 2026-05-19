@@ -205,9 +205,9 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
     # the only thing we need is the interpreter. Unlike Python, cmake does not provide a macro
     # for finding only the Ruby interpreter.
     message(CHECK_START "Ruby interpreter executable")
-    find_package(Ruby 2.5 QUIET)
+    find_package(Ruby 1.9 QUIET)
     if (Ruby_EXECUTABLE AND Ruby_VERSION)
-        if (Ruby_VERSION VERSION_LESS 2.5)
+        if (Ruby_VERSION VERSION_LESS 1.9)
             message(CHECK_FAIL "${Ruby_EXECUTABLE} (version: ${Ruby_VERSION}, minimum required 2.5)")
             set(Ruby_EXECUTABLE NOTFOUND)
         else ()
@@ -217,7 +217,7 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
         message(CHECK_FAIL "not found")
     endif ()
     if (NOT Ruby_EXECUTABLE)
-        message(FATAL_ERROR "Ruby 2.5 or higher is required.")
+        message(WARNING "Ruby 2.5 or higher recommended.")
     endif ()
 
     # -----------------------------------------------------------------------------

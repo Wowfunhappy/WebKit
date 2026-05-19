@@ -144,8 +144,14 @@ RetainPtr<CTFontRef> SystemFontDatabaseCoreText::createFontByApplyingWeightWidth
     const float systemFontItalicSlope = 0.07;
     float italicsRawNumber = italic ? systemFontItalicSlope : 0;
     auto italicsNumber = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &italicsRawNumber));
-    CFTypeRef traitsKeys[] = { kCTFontWeightTrait, kCTFontWidthTrait, kCTFontSlantTrait, kCTFontUIFontDesignTrait };
-    CFTypeRef traitsValues[] = { weightNumber.get(), widthNumber.get(), italicsNumber.get(), design ? static_cast<CFTypeRef>(design) : static_cast<CFTypeRef>(kCTFontUIFontDesignDefault) };
+    // 10.9 backport: kCTFontUIFontDesignTrait/kCTFontUIFontDesignDefault are 10.13+ APIs.
+    // On 10.9 our polyfill defines them as stub function symbols, not real CFStringRef
+    // constants, so they hold garbage when read as data. Including them as keys/values
+    // in a CFTypeRef dictionary triggers a crash in CFHash via __forwarding__. Drop
+    // the design pair entirely on this build.
+    (void)design;
+    CFTypeRef traitsKeys[] = { kCTFontWeightTrait, kCTFontWidthTrait, kCTFontSlantTrait };
+    CFTypeRef traitsValues[] = { weightNumber.get(), widthNumber.get(), italicsNumber.get() };
     auto traitsDictionary = adoptCF(CFDictionaryCreate(kCFAllocatorDefault, traitsKeys, traitsValues, std::size(traitsKeys), &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
     auto attributes = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
     CFDictionaryAddValue(attributes.get(), kCTFontTraitsAttribute, traitsDictionary.get());
@@ -286,6 +292,11 @@ std::optional<SystemFontKind> SystemFontDatabaseCoreText::matchSystemFontUse(con
         return lhs.impl() < rhs.impl();
     };
 
+    // 10.9 backport: kCTUIFontTextStyle* constants are stub functions in our
+    // polyfill, not real CFStringRefs. Trying to add them as AtomStrings calls
+    // CFStringGetCStringPtr on the function address and crashes. Skip the
+    // text-style lookup on 10.9 — none of the registered styles are valid.
+#if 0
     if (m_textStyles.isEmpty()) {
         m_textStyles = {
             kCTUIFontTextStyleHeadline,
@@ -308,6 +319,8 @@ std::optional<SystemFontKind> SystemFontDatabaseCoreText::matchSystemFontUse(con
         };
         std::ranges::sort(m_textStyles, compareAsPointer);
     }
+#endif
+    UNUSED_PARAM(compareAsPointer);
 
     if (std::ranges::binary_search(m_textStyles, string, compareAsPointer))
         return SystemFontKind::TextStyle;
@@ -391,18 +404,20 @@ static CTFontTextStylePlatform NODELETE fontPlatform()
 auto SystemFontDatabase::platformSystemFontShorthandInfo(FontShorthand fontShorthand) -> SystemFontShorthandInfo
 {
     auto interrogateFontDescriptorShorthandItem = [] (CTFontDescriptorRef fontDescriptor, const String& family) {
-        auto sizeNumber = adoptCF(static_cast<CFNumberRef>(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontSizeAttribute)));
-        float size = 0;
-        CFNumberGetValue(sizeNumber.get(), kCFNumberFloatType, &size);
-        auto weight = cssWeightOfSystemFontDescriptor(fontDescriptor);
-        return SystemFontShorthandInfo { AtomString(family), size, FontSelectionValue(weight) };
+        // 10.9 backport: CTFontDescriptorCopyAttribute on a UI-font descriptor crashes
+        // inside CFDictionaryGetValue (key/equal callbacks dispatch to a missing selector
+        // on this build). Skip the CT-introspection fast path entirely and return a
+        // sensible default. Pages using system-ui font-family keywords will get a
+        // 13pt regular font, which is fine for rendering.
+        if (!fontDescriptor)
+            return SystemFontShorthandInfo { AtomString(family), 13.0f, FontSelectionValue(400) };
+        return SystemFontShorthandInfo { AtomString(family), 13.0f, FontSelectionValue(400) };
     };
 
     auto interrogateTextStyleShorthandItem = [] (CFStringRef textStyle) {
-        CGFloat weight = 0;
-        float size = CTFontDescriptorGetTextStyleSize(textStyle, protect(contentSizeCategory()).get(), fontPlatform(), &weight, nullptr);
-        auto cssWeight = normalizeCTWeight(weight);
-        return SystemFontShorthandInfo { textStyle, size, FontSelectionValue(cssWeight) };
+        // 10.9 backport: CTFontDescriptorGetTextStyleSize is a 10.10+ function. Use a
+        // safe default; -apple-system text-style keywords are rare on the public web.
+        return SystemFontShorthandInfo { textStyle ? AtomString(textStyle) : AtomString("system-ui"_s), 13.0f, FontSelectionValue(400) };
     };
 
     switch (fontShorthand) {

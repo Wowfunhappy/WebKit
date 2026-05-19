@@ -1992,15 +1992,15 @@ void NetworkProcessProxy::addAllowedFirstPartyForCookies(WebProcessProxy& webPro
         return std::make_pair(LoadedWebArchive::No, HashSet<RegistrableDomain> { });
     }).iterator->value;
 
-    bool madeChange = pair.second.add(firstPartyForCookies).isNewEntry;
-    if (loadedWebArchive == LoadedWebArchive::Yes && pair.first != LoadedWebArchive::Yes) {
-        madeChange = true;
+    pair.second.add(firstPartyForCookies);
+    if (loadedWebArchive == LoadedWebArchive::Yes && pair.first != LoadedWebArchive::Yes)
         pair.first = LoadedWebArchive::Yes;
-    }
-    if (madeChange)
-        sendWithAsyncReply(Messages::NetworkProcess::AddAllowedFirstPartyForCookies(webProcessProxy.coreProcessIdentifier(), firstPartyForCookies, loadedWebArchive), WTF::move(completionHandler));
-    else
-        completionHandler();
+
+    // Forward to NetworkProcess so it accepts ScheduleResourceLoad for this
+    // WebProcess+domain pair. Without this, NetworkConnectionToWebProcess
+    // returns AllowCookieAccess::Terminate at MESSAGE_CHECK and the load is
+    // silently dropped.
+    sendWithAsyncReply(Messages::NetworkProcess::AddAllowedFirstPartyForCookies { webProcessProxy.coreProcessIdentifier(), firstPartyForCookies, loadedWebArchive }, WTF::move(completionHandler));
 }
 
 void NetworkProcessProxy::addAllowedFilePaths(WebProcessProxy& webProcessProxy, const Vector<String>& paths)

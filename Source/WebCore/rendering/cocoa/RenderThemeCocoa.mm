@@ -311,7 +311,11 @@ void RenderThemeCocoa::paintFileUploadIconDecorations(const RenderElement&, cons
 
 Seconds RenderThemeCocoa::animationRepeatIntervalForProgressBar(const RenderProgress& renderer) const
 {
-    return protect(renderer.page())->preferredRenderingUpdateInterval();
+    // 10.9 backport: renderer.page() can return null OR
+    // page->preferredRenderingUpdateInterval crashes on this build (kernel.org,
+    // cloudflare). Just return a safe ~60fps fallback unconditionally.
+    UNUSED_PARAM(renderer);
+    return 16_ms;
 }
 
 #if ENABLE(APPLE_PAY)
@@ -719,6 +723,8 @@ String RenderThemeCocoa::mediaControlsFormattedStringForDuration(const double du
         return WEB_UI_STRING("indefinite time", "accessibility help text for an indefinite media controller time value");
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
+    // NSDateComponentsFormatter is 10.10+. Provide a simple fallback.
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
     if (!m_durationFormatter) {
         m_durationFormatter = adoptNS([NSDateComponentsFormatter new]);
         m_durationFormatter.get().unitsStyle = NSDateComponentsFormatterUnitsStyleFull;
@@ -727,6 +733,14 @@ String RenderThemeCocoa::mediaControlsFormattedStringForDuration(const double du
         m_durationFormatter.get().maximumUnitCount = 2;
     }
     return [m_durationFormatter stringFromTimeInterval:durationInSeconds];
+#else
+    int hours = (int)(durationInSeconds / 3600);
+    int minutes = (int)((durationInSeconds - hours * 3600) / 60);
+    int seconds = (int)(durationInSeconds - hours * 3600 - minutes * 60);
+    if (hours > 0)
+        return [NSString stringWithFormat:@"%d:%02d:%02d", hours, minutes, seconds];
+    return [NSString stringWithFormat:@"%d:%02d", minutes, seconds];
+#endif
     END_BLOCK_OBJC_EXCEPTIONS
 }
 

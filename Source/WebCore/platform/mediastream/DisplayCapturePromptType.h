@@ -25,8 +25,7 @@
 
 #pragma once
 
-#if ENABLE(MEDIA_STREAM)
-
+// macOS 10.9 backport: always define so generated serializers can reference it.
 namespace WebCore {
 
 enum class DisplayCapturePromptType : uint8_t {
@@ -36,5 +35,3 @@ enum class DisplayCapturePromptType : uint8_t {
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(MEDIA_STREAM)

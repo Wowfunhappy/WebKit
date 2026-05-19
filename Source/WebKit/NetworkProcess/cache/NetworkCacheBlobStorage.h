@@ -29,6 +29,7 @@
 #include "NetworkCacheData.h"
 #include "NetworkCacheKey.h"
 #include <memory>
+#include <wtf/Lock.h>
 #include <wtf/SHA1.h>
 
 namespace WebKit {

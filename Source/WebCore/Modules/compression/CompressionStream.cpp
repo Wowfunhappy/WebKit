@@ -51,9 +51,13 @@ bool CompressionStream::initializeIfNecessary(Algorithm algorithm, Operation ope
 #if PLATFORM(COCOA)
     switch (algorithm) {
     case Algorithm::Brotli:
+#ifdef COMPRESSION_BROTLI
         auto result = compression_stream_init(&m_stream, operation == Operation::Compression ? COMPRESSION_STREAM_ENCODE : COMPRESSION_STREAM_DECODE, COMPRESSION_BROTLI);
         if (result != COMPRESSION_STATUS_OK)
             return false;
+#else
+        return false;
+#endif
         break;
     }
 #else

@@ -126,8 +126,39 @@ std::unique_ptr<CryptoDigest> CryptoDigest::create(CryptoDigest::Algorithm algor
     digest->m_context->ccContext = createCryptoDigest(algorithm);
     return digest;
 #else
-    UNUSED_PARAM(algorithm);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: PALSwift is unavailable, but CommonCrypto's CC_SHAxxx_*
+    // functions provide all the algorithms we need.
+    std::unique_ptr<CryptoDigest> digest = WTF::makeUnique<CryptoDigest>();
+    ASSERT(digest->m_context);
+    digest->m_context->algorithm = algorithm;
+    switch (algorithm) {
+    case CryptoDigest::Algorithm::SHA_1: {
+        auto ctx = WTF::makeUniqueWithoutFastMallocCheck<CC_SHA1_CTX>();
+        CC_SHA1_Init(ctx.get());
+        digest->m_context->ccContext = WTF::move(ctx);
+        break;
+    }
+    case CryptoDigest::Algorithm::SHA_256:
+    case CryptoDigest::Algorithm::DEPRECATED_SHA_224: {
+        auto ctx = WTF::makeUniqueWithoutFastMallocCheck<CC_SHA256_CTX>();
+        CC_SHA256_Init(ctx.get());
+        digest->m_context->ccContext = WTF::move(ctx);
+        break;
+    }
+    case CryptoDigest::Algorithm::SHA_384: {
+        auto ctx = WTF::makeUniqueWithoutFastMallocCheck<CC_SHA512_CTX>();
+        CC_SHA384_Init(ctx.get());
+        digest->m_context->ccContext = WTF::move(ctx);
+        break;
+    }
+    case CryptoDigest::Algorithm::SHA_512: {
+        auto ctx = WTF::makeUniqueWithoutFastMallocCheck<CC_SHA512_CTX>();
+        CC_SHA512_Init(ctx.get());
+        digest->m_context->ccContext = WTF::move(ctx);
+        break;
+    }
+    }
+    return digest;
 #endif
 }
 
@@ -149,8 +180,22 @@ void CryptoDigest::addBytes(std::span<const uint8_t> input)
         return;
     }
 #else
-    UNUSED_PARAM(input);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: route through CommonCrypto.
+    switch (m_context->algorithm) {
+    case CryptoDigest::Algorithm::SHA_1:
+        CC_SHA1_Update(toSHA1Context(m_context.get()), static_cast<const void*>(input.data()), input.size());
+        return;
+    case CryptoDigest::Algorithm::SHA_256:
+    case CryptoDigest::Algorithm::DEPRECATED_SHA_224:
+        CC_SHA256_Update(toSHA256Context(m_context.get()), static_cast<const void*>(input.data()), input.size());
+        return;
+    case CryptoDigest::Algorithm::SHA_384:
+        CC_SHA384_Update(toSHA384Context(m_context.get()), static_cast<const void*>(input.data()), input.size());
+        return;
+    case CryptoDigest::Algorithm::SHA_512:
+        CC_SHA512_Update(toSHA512Context(m_context.get()), static_cast<const void*>(input.data()), input.size());
+        return;
+    }
 #endif
 }
 
@@ -172,7 +217,28 @@ Vector<uint8_t> CryptoDigest::computeHash()
     }
     return result;
 #else
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: route through CommonCrypto.
+    Vector<uint8_t> result;
+    switch (m_context->algorithm) {
+    case CryptoDigest::Algorithm::SHA_1:
+        result.resize(CC_SHA1_DIGEST_LENGTH);
+        CC_SHA1_Final(result.mutableSpan().data(), toSHA1Context(m_context.get()));
+        return result;
+    case CryptoDigest::Algorithm::SHA_256:
+    case CryptoDigest::Algorithm::DEPRECATED_SHA_224:
+        result.resize(CC_SHA256_DIGEST_LENGTH);
+        CC_SHA256_Final(result.mutableSpan().data(), toSHA256Context(m_context.get()));
+        return result;
+    case CryptoDigest::Algorithm::SHA_384:
+        result.resize(CC_SHA384_DIGEST_LENGTH);
+        CC_SHA384_Final(result.mutableSpan().data(), toSHA384Context(m_context.get()));
+        return result;
+    case CryptoDigest::Algorithm::SHA_512:
+        result.resize(CC_SHA512_DIGEST_LENGTH);
+        CC_SHA512_Final(result.mutableSpan().data(), toSHA512Context(m_context.get()));
+        return result;
+    }
+    return result;
 #endif
 }
 

@@ -109,6 +109,81 @@ ExceptionOr<Vector<uint8_t>> transformAESCTR(CCOperation operation, const Vector
     return WTF::move(head);
 }
 
+#if PLATFORM(MAC)
+// 10.9 backport: CCKDFParametersCreateHkdf + CCDeriveKey are 10.10+. Polyfill
+// stubs return 0 = kCCSuccess but leave the output buffer untouched, silently
+// breaking WebCrypto HKDF (the derived key is whatever was already in the
+// buffer). Implement RFC 5869 HKDF directly using CCHmac which exists on 10.9.
+static unsigned hmacOutputSize(CCDigestAlgorithm digest)
+{
+    switch (digest) {
+    case kCCDigestSHA1:   return CC_SHA1_DIGEST_LENGTH;
+    case kCCDigestSHA256: return CC_SHA256_DIGEST_LENGTH;
+    case kCCDigestSHA384: return CC_SHA384_DIGEST_LENGTH;
+    case kCCDigestSHA512: return CC_SHA512_DIGEST_LENGTH;
+    case DeprecatedCCDigestSHA224: return CC_SHA224_DIGEST_LENGTH;
+    default: return 0;
+    }
+}
+
+static CCHmacAlgorithm ccHmacAlgFromDigest(CCDigestAlgorithm digest)
+{
+    switch (digest) {
+    case kCCDigestSHA1:   return kCCHmacAlgSHA1;
+    case kCCDigestSHA256: return kCCHmacAlgSHA256;
+    case kCCDigestSHA384: return kCCHmacAlgSHA384;
+    case kCCDigestSHA512: return kCCHmacAlgSHA512;
+    case DeprecatedCCDigestSHA224: return kCCHmacAlgSHA224;
+    default: return kCCHmacAlgSHA256;
+    }
+}
+
+CCStatus keyDerivationHMAC(CCDigestAlgorithm digest, std::span<const uint8_t> keyDerivationKey, std::span<const uint8_t> context, std::span<const uint8_t> salt, Vector<uint8_t>& derivedKey)
+{
+    unsigned hashLen = hmacOutputSize(digest);
+    if (!hashLen)
+        return -1;
+
+    CCHmacAlgorithm hmacAlg = ccHmacAlgFromDigest(digest);
+
+    // HKDF-Extract: PRK = HMAC(salt, IKM). If salt is empty, RFC 5869 says use
+    // a string of HashLen zeros.
+    Vector<uint8_t> prk(hashLen);
+    if (salt.empty()) {
+        Vector<uint8_t> zeroSalt(hashLen, 0);
+        CCHmac(hmacAlg, zeroSalt.span().data(), zeroSalt.size(), keyDerivationKey.data(), keyDerivationKey.size(), prk.mutableSpan().data());
+    } else
+        CCHmac(hmacAlg, salt.data(), salt.size(), keyDerivationKey.data(), keyDerivationKey.size(), prk.mutableSpan().data());
+
+    // HKDF-Expand: T(1) = HMAC(PRK, info || 0x01)
+    //              T(i) = HMAC(PRK, T(i-1) || info || i)
+    // OKM = T(1) || T(2) || ... truncated to L bytes.
+    size_t L = derivedKey.size();
+    size_t N = (L + hashLen - 1) / hashLen;
+    if (N > 255)
+        return -1; // RFC 5869 limits N to 255
+
+    Vector<uint8_t> T;
+    T.reserveCapacity(hashLen);
+    size_t outOffset = 0;
+    for (size_t i = 1; i <= N; ++i) {
+        Vector<uint8_t> input;
+        input.reserveCapacity(T.size() + context.size() + 1);
+        input.append(T.span());
+        input.append(context);
+        input.append(static_cast<uint8_t>(i));
+
+        T.resize(hashLen);
+        CCHmac(hmacAlg, prk.span().data(), prk.size(), input.span().data(), input.size(), T.mutableSpan().data());
+
+        size_t copyLen = std::min<size_t>(hashLen, L - outOffset);
+        memcpy(derivedKey.mutableSpan().data() + outOffset, T.span().data(), copyLen);
+        outOffset += copyLen;
+    }
+
+    return kCCSuccess;
+}
+#else
 CCStatus keyDerivationHMAC(CCDigestAlgorithm digest, std::span<const uint8_t> keyDerivationKey, std::span<const uint8_t> context, std::span<const uint8_t> salt, Vector<uint8_t>& derivedKey)
 {
     CCKDFParametersRef params;
@@ -121,6 +196,7 @@ CCStatus keyDerivationHMAC(CCDigestAlgorithm digest, std::span<const uint8_t> ke
 
     return rv;
 }
+#endif
 
 ExceptionOr<Vector<uint8_t>> deriveHDKFBits(CCDigestAlgorithm digestAlgorithm, std::span<const uint8_t> key, std::span<const uint8_t> salt, std::span<const uint8_t> info, size_t length)
 {

@@ -56,12 +56,9 @@ void WorkQueueBase::dispatch(Function<void()>&& function)
 
 void WorkQueueBase::dispatchWithQOS(Function<void()>&& function, QOS qos)
 {
-    // FIXME: This is a false positive. rdar://160931336
-    SUPPRESS_RETAINPTR_CTOR_ADOPT auto blockWithQOS = adoptOSObject(dispatch_block_create_with_qos_class(DISPATCH_BLOCK_ENFORCE_QOS_CLASS, Thread::dispatchQOSClass(qos), 0, makeBlockPtr([function = WTF::move(function)] () mutable {
-        function();
-        function = { };
-    }).get()));
-    dispatch_async(m_dispatchQueue.get(), blockWithQOS.get());
+    /* dispatch_block_create_with_qos_class not available on macOS 10.9 */
+    UNUSED_PARAM(qos);
+    dispatch_async_f(m_dispatchQueue.get(), new DispatchWorkItem { WTF::move(function) }, dispatchWorkItem<DispatchWorkItem>);
 }
 
 void WorkQueueBase::dispatchAfter(Seconds duration, Function<void()>&& function)

@@ -25,18 +25,24 @@
 
 #import "config.h"
 #import "RemoteLayerBackingStoreCollection.h"
+#import <syslog.h>
 
+#import <wtf/CompletionHandler.h>
 #import "ImageBufferShareableBitmapBackend.h"
 #import "ImageBufferShareableMappedIOSurfaceBackend.h"
 #import "Logging.h"
 #import "PlatformCALayerRemote.h"
 #import "PrepareBackingStoreBuffersData.h"
+#if ENABLE(GPU_PROCESS)
 #import "RemoteImageBufferSetProxy.h"
+#endif
 #import "RemoteLayerBackingStore.h"
 #import "RemoteLayerTreeContext.h"
 #import "RemoteLayerWithInProcessRenderingBackingStore.h"
+#if ENABLE(GPU_PROCESS)
 #import "RemoteLayerWithRemoteRenderingBackingStore.h"
 #import "RemoteRenderingBackendProxy.h"
+#endif
 #import <WebCore/IOSurfacePool.h>
 #import <WebCore/ImageBuffer.h>
 #import <wtf/TZoneMallocInlines.h>
@@ -68,8 +74,10 @@ void RemoteLayerBackingStoreCollection::deref() const
 
 void RemoteLayerBackingStoreCollection::prepareBackingStoresForDisplay(RemoteLayerTreeTransaction& transaction)
 {
+#if ENABLE(GPU_PROCESS)
     Ref remoteRenderingBackend = protect(layerTreeContext())->ensureRemoteRenderingBackendProxy();
     remoteRenderingBackend->startPreparingImageBufferSetsForDisplay();
+#endif
 
     for (CheckedRef backingStore : m_backingStoresNeedingDisplay) {
         Ref layer = backingStore->layer();
@@ -78,7 +86,9 @@ void RemoteLayerBackingStoreCollection::prepareBackingStoresForDisplay(RemoteLay
         backingStore->prepareToDisplay();
     }
 
+#if ENABLE(GPU_PROCESS)
     remoteRenderingBackend->endPreparingImageBufferSetsForDisplay();
+#endif
 }
 
 bool RemoteLayerBackingStoreCollection::paintReachableBackingStoreContents()
@@ -127,8 +137,13 @@ Vector<std::unique_ptr<ThreadSafeImageBufferSetFlusher>> RemoteLayerBackingStore
     for (auto& layer : transaction.changedLayers()) {
         if (layer->properties().changedProperties & LayerChange::BackingStoreChanged) {
             needToScheduleVolatilityTimer = true;
-            if (CheckedPtr store = layer->properties().backingStoreOrProperties.store.get())
+            if (CheckedPtr store = layer->properties().backingStoreOrProperties.store.get()) {
                 flushers.appendVector(store->takePendingFlushers());
+                // 10.9 backport: count this commit. Forced-display in
+                // backingStoreWillBeDisplayed gates on m_committedCount <
+                // kForceFirstNCommits.
+                ++store->m_committedCount;
+            }
         }
 
         layer->didCommit();
@@ -178,8 +193,17 @@ bool RemoteLayerBackingStoreCollection::backingStoreWillBeDisplayed(RemoteLayerB
     auto backingStoreIter = m_unparentedBackingStore.find(backingStore);
     bool wasUnparented = backingStoreIter != m_unparentedBackingStore.end();
 
-    if (backingStore.needsDisplay() || wasUnparented)
+    // 10.9 backport: force display for the first 30 commits of every backing
+    // store. needsDisplay() is racy on 10.9 — tile body content arrives in
+    // commits 5-20 but doesn't mark the tile dirty, so subsequent paints are
+    // skipped and the tile shows the empty initial paint. After 30, normal
+    // dirty tracking takes over. Removing this window caused white tiles.
+    bool inForcedWindow = backingStore.m_committedCount < RemoteLayerBackingStore::kForceFirstNCommits;
+    if (backingStore.needsDisplay() || wasUnparented || inForcedWindow)
         m_backingStoresNeedingDisplay.add(backingStore);
+
+    if (inForcedWindow && !wasUnparented)
+        return true;
 
     if (!wasUnparented)
         return false;
@@ -203,6 +227,7 @@ bool RemoteLayerBackingStoreCollection::backingStoreWillBeDisplayedWithRendering
 
 void RemoteLayerBackingStoreCollection::purgeFrontBufferForTesting(RemoteLayerBackingStore& backingStore)
 {
+#if ENABLE(GPU_PROCESS)
     if (CheckedPtr remoteBackingStore = dynamicDowncast<RemoteLayerWithRemoteRenderingBackingStore>(&backingStore)) {
         if (RefPtr bufferSet = remoteBackingStore->bufferSet()) {
             Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>> identifiers;
@@ -210,7 +235,9 @@ void RemoteLayerBackingStoreCollection::purgeFrontBufferForTesting(RemoteLayerBa
             identifiers.append(std::make_pair(Ref { *bufferSet }, bufferTypes));
             sendMarkBuffersVolatile(WTF::move(identifiers), [](bool) { }, true);
         }
-    } else {
+    } else
+#endif
+    {
         CheckedRef inProcessBackingStore = downcast<RemoteLayerWithInProcessRenderingBackingStore>(backingStore);
         inProcessBackingStore->setBufferVolatile(RemoteLayerBackingStore::BufferType::Front, true);
     }
@@ -218,6 +245,7 @@ void RemoteLayerBackingStoreCollection::purgeFrontBufferForTesting(RemoteLayerBa
 
 void RemoteLayerBackingStoreCollection::purgeBackBufferForTesting(RemoteLayerBackingStore& backingStore)
 {
+#if ENABLE(GPU_PROCESS)
     if (CheckedPtr remoteBackingStore = dynamicDowncast<RemoteLayerWithRemoteRenderingBackingStore>(&backingStore)) {
         if (RefPtr bufferSet = remoteBackingStore->bufferSet()) {
             Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>> identifiers;
@@ -225,7 +253,9 @@ void RemoteLayerBackingStoreCollection::purgeBackBufferForTesting(RemoteLayerBac
             identifiers.append(std::make_pair(Ref { *bufferSet }, bufferTypes));
             sendMarkBuffersVolatile(WTF::move(identifiers), [](bool) { }, true);
         }
-    } else {
+    } else
+#endif
+    {
         CheckedRef inProcessBackingStore = downcast<RemoteLayerWithInProcessRenderingBackingStore>(backingStore);
         inProcessBackingStore->setBufferVolatile(RemoteLayerBackingStore::BufferType::Back, true);
         inProcessBackingStore->setBufferVolatile(RemoteLayerBackingStore::BufferType::SecondaryBack, true);
@@ -234,6 +264,7 @@ void RemoteLayerBackingStoreCollection::purgeBackBufferForTesting(RemoteLayerBac
 
 void RemoteLayerBackingStoreCollection::markFrontBufferVolatileForTesting(RemoteLayerBackingStore& backingStore)
 {
+#if ENABLE(GPU_PROCESS)
     if (CheckedPtr remoteBackingStore = dynamicDowncast<RemoteLayerWithRemoteRenderingBackingStore>(&backingStore)) {
         if (RefPtr bufferSet = remoteBackingStore->bufferSet()) {
             Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>> identifiers;
@@ -241,7 +272,9 @@ void RemoteLayerBackingStoreCollection::markFrontBufferVolatileForTesting(Remote
             identifiers.append(std::make_pair(Ref { *bufferSet }, bufferTypes));
             sendMarkBuffersVolatile(WTF::move(identifiers), [](bool) { });
         }
-    } else {
+    } else
+#endif
+    {
         CheckedRef inProcessBackingStore = downcast<RemoteLayerWithInProcessRenderingBackingStore>(backingStore);
         inProcessBackingStore->setBufferVolatile(RemoteLayerBackingStore::BufferType::Front, false);
     }
@@ -293,6 +326,7 @@ void RemoteLayerBackingStoreCollection::backingStoreBecameUnreachable(RemoteLaye
 
 void RemoteLayerBackingStoreCollection::markBackingStoreVolatileAfterReachabilityChange(RemoteLayerBackingStore& backingStore)
 {
+#if ENABLE(GPU_PROCESS)
     if (CheckedPtr remoteBackingStore = dynamicDowncast<RemoteLayerWithRemoteRenderingBackingStore>(&backingStore)) {
         Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>> identifiers;
         collectRemoteRenderingBackingStoreBufferIdentifiersToMarkVolatile(*remoteBackingStore, { }, { }, identifiers);
@@ -305,7 +339,9 @@ void RemoteLayerBackingStoreCollection::markBackingStoreVolatileAfterReachabilit
             if (!succeeded && weakThis)
                 weakThis->scheduleVolatilityTimer();
         });
-    } else {
+    } else
+#endif
+    {
         CheckedRef inProcessBackingStore = downcast<RemoteLayerWithInProcessRenderingBackingStore>(backingStore);
         markInProcessBackingStoreVolatile(inProcessBackingStore);
     }
@@ -333,6 +369,7 @@ void RemoteLayerBackingStoreCollection::tryMarkAllBackingStoreVolatile(Completio
 {
     bool successfullyMadeBackingStoreVolatile = markAllBackingStoreVolatile(VolatilityMarkingBehavior::IgnoreReachability, VolatilityMarkingBehavior::IgnoreReachability);
 
+#if ENABLE(GPU_PROCESS)
     Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>> identifiers;
     bool collectedAllRemoteRenderingBuffers = collectAllRemoteRenderingBufferIdentifiersToMarkVolatile(VolatilityMarkingBehavior::IgnoreReachability, VolatilityMarkingBehavior::IgnoreReachability, identifiers);
 
@@ -347,6 +384,9 @@ void RemoteLayerBackingStoreCollection::tryMarkAllBackingStoreVolatile(Completio
         LOG_WITH_STREAM(RemoteLayerBuffers, stream << "RemoteLayerBackingStoreCollection::tryMarkAllBackingStoreVolatile - collectedall " << collectedAllRemoteRenderingBuffers << ", succeeded " << succeeded);
         completionHandler(successfullyMadeBackingStoreVolatile && collectedAllRemoteRenderingBuffers && succeeded);
     });
+#else
+    completionHandler(successfullyMadeBackingStoreVolatile);
+#endif
 }
 
 void RemoteLayerBackingStoreCollection::markAllBackingStoreVolatileFromTimer()
@@ -354,6 +394,7 @@ void RemoteLayerBackingStoreCollection::markAllBackingStoreVolatileFromTimer()
     bool successfullyMadeBackingStoreVolatile = markAllBackingStoreVolatile(VolatilityMarkingBehavior::ConsiderTimeSinceLastDisplay, { });
     LOG_WITH_STREAM(RemoteLayerBuffers, stream << "RemoteLayerBackingStoreCollection::markAllBackingStoreVolatileFromTimer() - live " << m_liveBackingStore.computeSize() << ", unparented " << m_unparentedBackingStore.computeSize() << "; successfullyMadeBackingStoreVolatile " << successfullyMadeBackingStoreVolatile);
 
+#if ENABLE(GPU_PROCESS)
     Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>> identifiers;
     bool collectedAllRemoteRenderingBuffers = collectAllRemoteRenderingBufferIdentifiersToMarkVolatile(VolatilityMarkingBehavior::ConsiderTimeSinceLastDisplay, { }, identifiers);
 
@@ -373,6 +414,10 @@ void RemoteLayerBackingStoreCollection::markAllBackingStoreVolatileFromTimer()
         if (successfullyMadeBackingStoreVolatile && collectedAllRemoteRenderingBuffers && succeeded)
             weakThis->m_volatilityTimer.stop();
     });
+#else
+    if (successfullyMadeBackingStoreVolatile)
+        m_volatilityTimer.stop();
+#endif
 }
 
 void RemoteLayerBackingStoreCollection::volatilityTimerFired()
@@ -390,6 +435,7 @@ void RemoteLayerBackingStoreCollection::scheduleVolatilityTimer()
 
 void RemoteLayerBackingStoreCollection::gpuProcessConnectionWasDestroyed()
 {
+#if ENABLE(GPU_PROCESS)
     for (CheckedRef backingStore : m_liveBackingStore) {
         if (is<RemoteLayerWithRemoteRenderingBackingStore>(backingStore))
             backingStore->setNeedsDisplay();
@@ -399,8 +445,10 @@ void RemoteLayerBackingStoreCollection::gpuProcessConnectionWasDestroyed()
         if (is<RemoteLayerWithRemoteRenderingBackingStore>(backingStore))
             backingStore->setNeedsDisplay();
     }
+#endif
 }
 
+#if ENABLE(GPU_PROCESS)
 bool RemoteLayerBackingStoreCollection::collectRemoteRenderingBackingStoreBufferIdentifiersToMarkVolatile(RemoteLayerWithRemoteRenderingBackingStore& backingStore, OptionSet<VolatilityMarkingBehavior> markingBehavior, MonotonicTime now, Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>>& identifiers)
 {
     ASSERT(!m_inLayerFlush);
@@ -445,8 +493,10 @@ bool RemoteLayerBackingStoreCollection::collectAllRemoteRenderingBufferIdentifie
 
     return completed;
 }
+#endif
 
 
+#if ENABLE(GPU_PROCESS)
 void RemoteLayerBackingStoreCollection::sendMarkBuffersVolatile(Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>>&& identifiers, CompletionHandler<void(bool)>&& completionHandler, bool forcePurge)
 {
     Ref remoteRenderingBackend = protect(layerTreeContext())->ensureRemoteRenderingBackendProxy();
@@ -456,6 +506,7 @@ void RemoteLayerBackingStoreCollection::sendMarkBuffersVolatile(Vector<std::pair
         completionHandler(markedAllVolatile);
     }, forcePurge);
 }
+#endif
 
 RemoteLayerTreeContext& RemoteLayerBackingStoreCollection::layerTreeContext() const
 {

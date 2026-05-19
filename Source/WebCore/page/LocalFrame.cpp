@@ -321,6 +321,8 @@ void LocalFrame::setDocument(RefPtr<Document>&& newDocument)
 {
     ASSERT(!newDocument || newDocument->frame() == this);
 
+    // 10.9 perf: removed debug fopen logging
+
     if (m_documentIsBeingReplaced)
         return;
 

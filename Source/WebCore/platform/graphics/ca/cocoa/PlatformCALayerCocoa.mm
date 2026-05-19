@@ -208,7 +208,7 @@ static NSString *NODELETE toCAFilterType(PlatformCALayer::FilterType type)
 
 PlatformCALayer::LayerType PlatformCALayerCocoa::layerTypeForPlatformLayer(PlatformLayer* layer)
 {
-    if (PAL::isAVFoundationFrameworkAvailable() && [layer isKindOfClass:PAL::getAVPlayerLayerClassSingleton()])
+    if (NSClassFromString(@"AVPlayerLayer") && [layer isKindOfClass:NSClassFromString(@"AVPlayerLayer")])
         return LayerType::LayerTypeAVPlayerLayer;
 
     if ([layer isKindOfClass:WebVideoContainerLayer.class]
@@ -239,10 +239,20 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
         layerClass = [WebSimpleLayer class];
         break;
     case LayerType::LayerTypeTransformLayer:
+#if PLATFORM(MAC)
+        // 10.9 backport: CATransformLayer on 10.9 is over-released by QC
+        // internals — even compensating CFRetain only shifts the crash from
+        // mark_visible (read freed back-ptr) to actionForKey on removal.
+        // Multiple slots in CA::Layer are populated incorrectly for
+        // CATransformLayer on this QC build. Fall back to plain CALayer.
+        // Loses 3D compositing of preserve-3d subtrees.
+        layerClass = [CALayer class];
+#else
         layerClass = [CATransformLayer class];
+#endif
         break;
     case LayerType::LayerTypeBackdropLayer:
-        layerClass = [CABackdropLayer class];
+        layerClass = NSClassFromString(@"CABackdropLayer") ?: [CALayer class];
         break;
 #if HAVE(CORE_MATERIAL)
     case LayerType::LayerTypeMaterialLayer:
@@ -259,8 +269,8 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
         layerClass = [WebTiledBackingLayer class];
         break;
     case LayerType::LayerTypeAVPlayerLayer:
-        if (PAL::isAVFoundationFrameworkAvailable())
-            layerClass = PAL::getAVPlayerLayerClassSingleton();
+        // 10.9 backport: AVPlayer support deferred
+        layerClass = [CALayer class];
         break;
 #if ENABLE(MODEL_ELEMENT)
     case LayerType::LayerTypeModelLayer:
@@ -292,7 +302,8 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
     isBackdropLayer |= layerType == LayerType::LayerTypeMaterialLayer;
 #endif
     if (isBackdropLayer)
-        [(CABackdropLayer *)m_layer.get() setWindowServerAware:NO];
+        if ([m_layer.get() respondsToSelector:@selector(setWindowServerAware:)])
+            [(id)m_layer.get() setWindowServerAware:NO];
 #endif
 
     commonInit();
@@ -315,10 +326,26 @@ void PlatformCALayerCocoa::commonInit()
     }
 
     // Clear all the implicit animations on the CALayer
-    if (m_layerType == PlatformCALayer::LayerType::LayerTypeAVPlayerLayer || m_layerType == PlatformCALayer::LayerType::LayerTypeScrollContainerLayer || m_layerType == PlatformCALayer::LayerType::LayerTypeCustom)
-        [m_layer web_disableAllActions];
-    else
-        [m_layer setDelegate:[WebActionDisablingCALayerDelegate shared]];
+    // 10.9 backport: setting WebActionDisablingCALayerDelegate causes CA crashes
+    // on second navigation (the delegate's actionForLayer:forKey: gets called on
+    // some path where the delegate pointer is stale). Use the actions dictionary
+    // directly to disable all known implicit animations — no delegate needed.
+    NSDictionary *noActions = @{
+        @"anchorPoint": [NSNull null], @"anchorPointZ": [NSNull null],
+        @"backgroundColor": [NSNull null], @"borderColor": [NSNull null],
+        @"borderWidth": [NSNull null], @"bounds": [NSNull null],
+        @"contents": [NSNull null], @"contentsRect": [NSNull null],
+        @"contentsScale": [NSNull null], @"cornerRadius": [NSNull null],
+        @"doubleSided": [NSNull null], @"hidden": [NSNull null],
+        @"masksToBounds": [NSNull null], @"opacity": [NSNull null],
+        @"position": [NSNull null], @"shadowColor": [NSNull null],
+        @"shadowOffset": [NSNull null], @"shadowOpacity": [NSNull null],
+        @"shadowRadius": [NSNull null], @"sublayers": [NSNull null],
+        @"sublayerTransform": [NSNull null], @"transform": [NSNull null],
+        @"zPosition": [NSNull null], @"onOrderIn": [NSNull null],
+        @"onOrderOut": [NSNull null],
+    };
+    [m_layer setActions:noActions];
 
     // So that the scrolling thread's performance logging code can find all the tiles, mark this as being a tile.
     if (m_layerType == PlatformCALayer::LayerType::LayerTypeTiledBackingTileLayer)
@@ -824,6 +851,13 @@ bool PlatformCALayerCocoa::hasContents() const
 
 CFTypeRef PlatformCALayerCocoa::contents() const
 {
+    // 10.9 backport: CATransformLayer doesn't implement -contents (only
+    // children have content). doesNotRecognizeSelector here crashes WebContent
+    // via uncaught NSException — observed on Wikipedia/Apple_silicon.
+    if (m_layerType == PlatformCALayer::LayerType::LayerTypeTransformLayer)
+        return nullptr;
+    if (![m_layer respondsToSelector:@selector(contents)])
+        return nullptr;
     return (__bridge CFTypeRef)[m_layer contents];
 }
 
@@ -838,6 +872,11 @@ void PlatformCALayerCocoa::clearContents()
 
 void PlatformCALayerCocoa::setContents(CFTypeRef value)
 {
+    // 10.9 backport: same TransformLayer guard as contents() getter.
+    if (m_layerType == PlatformCALayer::LayerType::LayerTypeTransformLayer)
+        return;
+    if (![m_layer respondsToSelector:@selector(setContents:)])
+        return;
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_layer setContents:(__bridge id)value];
     END_BLOCK_OBJC_EXCEPTIONS
@@ -976,6 +1015,13 @@ void PlatformCALayerCocoa::setTimeOffset(CFTimeInterval value)
 
 float PlatformCALayerCocoa::contentsScale() const
 {
+    // 10.9 backport: CATransformLayer doesn't implement -contentsScale on this
+    // OS version. The setter (below) already guards against TransformLayer for
+    // setContentsScale: — mirror that guard here. Default to 1.0 (1x scale).
+    if (m_layerType == PlatformCALayer::LayerType::LayerTypeTransformLayer)
+        return 1.0f;
+    if (![m_layer respondsToSelector:@selector(contentsScale)])
+        return 1.0f;
     return [m_layer contentsScale];
 }
 
@@ -999,8 +1045,7 @@ void PlatformCALayerCocoa::setCornerRadius(float value)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_layer setCornerRadius:value];
-    if (value)
-        [m_layer setCornerCurve:kCACornerCurveCircular];
+    // 10.9 backport: kCACornerCurveCircular is 10.13+; skip
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
@@ -1193,9 +1238,9 @@ void PlatformCALayerCocoa::updateContentsFormat()
     if (m_layerType == PlatformCALayer::LayerType::LayerTypeWebLayer || m_layerType == PlatformCALayer::LayerType::LayerTypeTiledBackingTileLayer) {
         BEGIN_BLOCK_OBJC_EXCEPTIONS
         auto contentsFormat = this->contentsFormat();
-
-        if (RetainPtr formatString = contentsFormatString(contentsFormat))
-            [m_layer setContentsFormat:formatString.get()];
+        (void)contentsFormat;
+        // 10.9 backport: WebTiledBackingLayer's setContentsFormat takes ContentsFormat,
+        // but CALayer's takes NSString. The branches got tangled; skip this set on 10.9.
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
         if (contentsFormat == ContentsFormat::RGBA16F) {
             ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -1375,19 +1420,7 @@ unsigned PlatformCALayerCocoa::backingStoreBytesPerPixel() const
 
 AVPlayerLayer *PlatformCALayerCocoa::avPlayerLayer() const
 {
-    if (!PAL::isAVFoundationFrameworkAvailable())
-        return nil;
-
-    if (layerType() != PlatformCALayer::LayerType::LayerTypeAVPlayerLayer)
-        return nil;
-
-    if ([platformLayer() isKindOfClass:PAL::getAVPlayerLayerClassSingleton()])
-        return static_cast<AVPlayerLayer *>(platformLayer());
-
-    if (RetainPtr layer = dynamic_objc_cast<WebVideoContainerLayer>(platformLayer()))
-        return layer.get().playerLayer;
-
-    ASSERT_NOT_REACHED();
+    // 10.9 backport: stubbed out
     return nil;
 }
 

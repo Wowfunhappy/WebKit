@@ -46,7 +46,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
     if (!(self = [super init]))
         return nil;
 
-    API::Object::constructInWrapper<WebKit::WebPreferences>(self, String(), "WebKit"_s, "WebKitDebug"_s);
+    // DISABLED:     API::Object::constructInWrapper<WebKit::WebPreferences>(self, String(), "WebKit"_s, "WebKitDebug"_s);
     return self;
 }
 

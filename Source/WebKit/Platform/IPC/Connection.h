@@ -406,7 +406,11 @@ public:
     void addMessageReceiver(FunctionDispatcher&, MessageReceiver&, ReceiverName, uint64_t destinationID = 0);
     void removeMessageReceiver(ReceiverName, uint64_t destinationID = 0);
 
-    bool open(Client&, SerialFunctionDispatcher& = RunLoop::currentSingleton());
+    // 10.9 backport: default to mainSingleton instead of currentSingleton.
+    // Open is often called on a dispatch worker thread (e.g., XPC bootstrap
+    // handler), and binding to a worker-thread RunLoop creates a dangling
+    // pointer once the worker exits.
+    bool open(Client&, SerialFunctionDispatcher& = RunLoop::mainSingleton());
     // Ensures that messages sent prior to the call are not affected by invalidate() or crash done after the call returns.
     Error flushSentMessages(Timeout);
     void invalidate();
@@ -811,6 +815,9 @@ private:
 
     mach_port_t m_receivePort { MACH_PORT_NULL };
     OSObjectPtr<dispatch_source_t> m_receiveSource;
+    // 10.9 backport: fallback timer that polls the receive port in case
+    // DISPATCH_SOURCE_TYPE_MACH_RECV fails to re-fire after handling a batch.
+    OSObjectPtr<dispatch_source_t> m_receivePollTimer;
 
     std::unique_ptr<MachMessage> m_pendingOutgoingMachMessage;
 

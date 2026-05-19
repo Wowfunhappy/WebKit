@@ -39,6 +39,10 @@
 #import <MobileCoreServices/MobileCoreServices.h>
 #endif
 
+#if PLATFORM(MAC)
+#import "../mac/UTTypeIdentifiers.h"
+#endif
+
 namespace WebCore {
 
 #if PLATFORM(MAC)
@@ -61,19 +65,27 @@ static ImageType cocoaTypeToImageType(const String& cocoaType)
 #if PLATFORM(MAC)
     if (cocoaType == String(legacyTIFFPasteboardTypeSingleton()))
         return ImageType::TIFF;
-#endif
-    if (cocoaType == String(UTTypeTIFF.identifier))
+    if (cocoaType == String(utTypeTIFFId()))
         return ImageType::TIFF;
-#if PLATFORM(MAC)
     if (cocoaType == String(legacyPNGPasteboardTypeSingleton())) // NSPNGPboardType
         return ImageType::PNG;
-#endif
+    if (cocoaType == String(utTypePNGId()))
+        return ImageType::PNG;
+    if (cocoaType == String(utTypeJPEGId()))
+        return ImageType::JPEG;
+    // 10.9 backport: +[UTType GIF] is 11.0+; use kUTTypeGIF.
+    if (cocoaType == String([UTType respondsToSelector:@selector(GIF)] ? UTTypeGIF.identifier : (__bridge NSString *)kUTTypeGIF))
+        return ImageType::GIF;
+#else
+    if (cocoaType == String(UTTypeTIFF.identifier))
+        return ImageType::TIFF;
     if (cocoaType == String(UTTypePNG.identifier))
         return ImageType::PNG;
     if (cocoaType == String(UTTypeJPEG.identifier))
         return ImageType::JPEG;
     if (cocoaType == String(UTTypeGIF.identifier))
         return ImageType::GIF;
+#endif
 
     return ImageType::Invalid;
 }
@@ -161,8 +173,10 @@ Pasteboard::FileContentState Pasteboard::fileContentState()
 #if PLATFORM(MAC)
             if (cocoaType == String(legacyURLPasteboardTypeSingleton()))
                 return true;
-#endif
+            return cocoaType == String(utTypeURLId());
+#else
             return cocoaType == String(UTTypeURL.identifier);
+#endif
         });
         mayContainFilePaths = indexOfURL != notFound && !platformStrategies()->pasteboardStrategy()->containsStringSafeForDOMToReadForType(cocoaTypes[indexOfURL], m_pasteboardName, context());
     }

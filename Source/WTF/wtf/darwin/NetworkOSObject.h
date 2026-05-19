@@ -25,65 +25,7 @@
 
 #pragma once
 
-#include <Network/Network.h>
-#include <wtf/OSObjectPtr.h>
-#include <wtf/darwin/TypeCastsOSObject.h>
-
-#define WTF_OS_OBJECT_NETWORK_TYPES(M) \
-    M(nw_endpoint) \
-    M(nw_path) \
-    M(nw_resolution_report) \
-    M(nw_resolver_config)
-
-// Forward declarations for network base struct types.
-WTF_EXTERN_C_BEGIN
-#define WTF_DECLARE_OS_OBJECT_NETWORK_BASE_STRUCT(TypeName) \
-struct TypeName;
-WTF_OS_OBJECT_NETWORK_TYPES(WTF_DECLARE_OS_OBJECT_NETWORK_BASE_STRUCT)
-#undef WTF_DECLARE_OS_OBJECT_NETWORK_BASE_STRUCT
-WTF_EXTERN_C_END
-
-namespace WTF {
-
-// Network OSObject type cast traits.
-#define WTF_DECLARE_OS_OBJECT_NETWORK_TYPE_CAST_TRAITS(TypeName) \
-WTF_DECLARE_OS_OBJECT_TYPE_CAST_TRAITS_INTERNAL(TypeName, )
-WTF_OS_OBJECT_NETWORK_TYPES(WTF_DECLARE_OS_OBJECT_NETWORK_TYPE_CAST_TRAITS)
-#undef WTF_DECLARE_OS_OBJECT_NETWORK_TYPE_CAST_TRAITS
-
-// Network isOSObject functions.
-#define WTF_IMPLEMENT_IS_OS_OBJECT_FUNCTIONS_NETWORK(TypeName) WTF_IMPLEMENT_IS_OS_OBJECT_FUNCTIONS_INTERNAL(TypeName##_t, STRINGIZE_VALUE_OF(OS_OBJECT_CLASS(TypeName)))
-WTF_OS_OBJECT_NETWORK_TYPES(WTF_IMPLEMENT_IS_OS_OBJECT_FUNCTIONS_NETWORK)
-#undef WTF_IMPLEMENT_IS_OS_OBJECT_FUNCTIONS_NETWORK
-
-// Network protect() functions.
-#define WTF_DECLARE_NETWORK_PROTECT(TypeName) \
-ALWAYS_INLINE CLANG_POINTER_CONVERSION OSObjectPtr<TypeName##_t> protect(TypeName##_t ptr) \
-{ \
-    return ptr; \
-}
-WTF_OS_OBJECT_NETWORK_TYPES(WTF_DECLARE_NETWORK_PROTECT)
-#undef WTF_DECLARE_NETWORK_PROTECT
-
-#if !__has_feature(objc_arc)
-// Template specializations for network retain/release traits (non-ARC only).
-#define WTF_DECLARE_NETWORK_OSOBJECT_RETAIN_TRAITS(TypeName) \
-template<> \
-struct DefaultOSObjectRetainTraits<TypeName##_t, std::false_type> { \
-    static ALWAYS_INLINE void retain(TypeName##_t ptr) \
-    { \
-        nw_retain(ptr); \
-    } \
-    static ALWAYS_INLINE void release(TypeName##_t ptr) \
-    { \
-        nw_release(ptr); \
-    } \
-}; \
-
-WTF_OS_OBJECT_NETWORK_TYPES(WTF_DECLARE_NETWORK_OSOBJECT_RETAIN_TRAITS)
-#undef WTF_DECLARE_NETWORK_OSOBJECT_RETAIN_TRAITS
-#endif // !__has_feature(objc_arc)
-
-} // namespace WTF
-
-using WTF::protect;
+// macOS 10.9 backport: Network.framework (10.10+) is not available. This
+// header is reduced to a no-op so files that include it still compile.
+// Code paths that use nw_* types will only be exercised by WK2 networking
+// which we route through CFNetwork instead on this backport.

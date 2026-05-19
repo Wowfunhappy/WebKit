@@ -213,8 +213,9 @@ NetworkProcess/cache/PrefetchCache.cpp
 NetworkProcess/webrtc/NetworkMDNSRegister.cpp
 NetworkProcess/webrtc/RTCDataChannelRemoteManagerProxy.cpp
 
-NetworkProcess/webtransport/NetworkTransportSession.cpp
-NetworkProcess/webtransport/NetworkTransportStream.cpp
+// WebTransport requires Network.framework (10.14+)
+// NetworkProcess/webtransport/NetworkTransportSession.cpp
+// NetworkProcess/webtransport/NetworkTransportStream.cpp
 
 Platform/IPC/DaemonCoders.cpp
 
@@ -641,7 +642,7 @@ UIProcess/Inspector/WebPageInspectorController.cpp
 
 UIProcess/Inspector/Agents/InspectorBrowserAgent.cpp
 
-UIProcess/Media/AudioSessionRoutingArbitratorProxy.cpp
+// UIProcess/Media/AudioSessionRoutingArbitratorProxy.cpp
 UIProcess/Media/MediaUsageManager.cpp
 UIProcess/Media/RemoteMediaSessionClientProxy.cpp
 UIProcess/Media/RemoteMediaSessionCoordinatorProxy.cpp
@@ -854,7 +855,7 @@ WebProcess/Network/WebResourceLoader.cpp
 WebProcess/Network/WebSocketChannel.cpp @no-unify
 WebProcess/Network/WebSocketChannelManager.cpp
 WebProcess/Network/WebSocketProvider.cpp
-WebProcess/Network/WebTransportSession.cpp
+// WebProcess/Network/WebTransportSession.cpp
 
 WebProcess/Network/webrtc/LibWebRTCDnsResolverFactory.cpp
 WebProcess/Network/webrtc/LibWebRTCNetwork.cpp
@@ -972,7 +973,7 @@ IPCTesterReceiverMessageReceiver.cpp
 ModelProcessModelPlayerManagerProxyMessageReceiver.cpp
 ModelProcessModelPlayerMessageReceiver.cpp
 NetworkBroadcastChannelRegistryMessageReceiver.cpp
-NetworkTransportSessionMessageReceiver.cpp
+// NetworkTransportSessionMessageReceiver.cpp
 RTCDataChannelRemoteManagerMessageReceiver.cpp
 RTCDataChannelRemoteManagerProxyMessageReceiver.cpp
 RemoteAudioMediaStreamTrackRendererInternalUnitManagerMessageReceiver.cpp
@@ -1033,4 +1034,4 @@ WebSharedWorkerContextManagerConnectionMessageReceiver.cpp
 WebSharedWorkerObjectConnectionMessageReceiver.cpp
 WebSharedWorkerServerConnectionMessageReceiver.cpp
 WebSharedWorkerServerToContextConnectionMessageReceiver.cpp
-WebTransportSessionMessageReceiver.cpp
+// WebTransportSessionMessageReceiver.cpp

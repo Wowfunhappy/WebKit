@@ -62,9 +62,8 @@ public:
     void handleContextMenuWritingTools(WebCore::WritingTools::RequestedTool);
 #endif
 
-    void handleShareMenuItem();
-
 #if ENABLE(SERVICE_CONTROLS)
+    void handleShareMenuItem();
     void clearServicesMenu();
     void removeBackgroundFromControlledImage();
 #endif

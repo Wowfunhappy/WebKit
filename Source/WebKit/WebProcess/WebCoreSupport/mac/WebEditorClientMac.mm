@@ -150,7 +150,7 @@ void WebEditorClient::convertToTraditionalChinese()
     RefPtr page = m_page.get();
     if (!page)
         return;
-    applyTextTransformation(*page, [] (NSString *string) {
+    applyTextTransformation(*page, [] (NSString *string) -> NSString * {
         return [string stringByApplyingTransform:@"Hans-Hant" reverse:NO];
     });
 }
@@ -160,7 +160,7 @@ void WebEditorClient::convertToSimplifiedChinese()
     RefPtr page = m_page.get();
     if (!page)
         return;
-    applyTextTransformation(*page, [] (NSString *string) {
+    applyTextTransformation(*page, [] (NSString *string) -> NSString * {
         return [string stringByApplyingTransform:@"Hant-Hans" reverse:NO];
     });
 }

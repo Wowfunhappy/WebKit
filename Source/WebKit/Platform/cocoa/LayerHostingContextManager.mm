@@ -26,6 +26,7 @@
 #include "config.h"
 #include "LayerHostingContextManager.h"
 
+#include <WebCore/FloatRect.h>
 #include <wtf/MachSendRightAnnotated.h>
 
 namespace WebKit {

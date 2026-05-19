@@ -58,10 +58,11 @@ LocaleComponents parseLocale(const String& localeIdentifier)
 {
     auto locale = retainPtr([NSLocale localeWithLocaleIdentifier:localeIdentifier.createNSString().get()]);
 
+    /* languageCode/scriptCode/countryCode properties added in macOS 10.12 */
     return {
-        locale.get().languageCode,
-        locale.get().scriptCode,
-        locale.get().countryCode
+        [locale.get() objectForKey:NSLocaleLanguageCode],
+        [locale.get() objectForKey:NSLocaleScriptCode],
+        [locale.get() objectForKey:NSLocaleCountryCode]
     };
 }
 
@@ -81,7 +82,7 @@ RetainPtr<CFArrayRef> minimizedLanguagesFromLanguages(CFArrayRef languages)
     }
 
 ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
-    return (__bridge CFArrayRef)[NSLocale minimizedLanguagesFromLanguages:(__bridge NSArray<NSString *> *)languages];
+    return (__bridge CFArrayRef)[NSLocale minimizedLanguagesFromLanguages:(__bridge NSArray *)languages];
 ALLOW_NEW_API_WITHOUT_GUARDS_END
 }
 

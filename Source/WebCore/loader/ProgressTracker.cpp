@@ -115,7 +115,10 @@ void ProgressTracker::progressStarted(LocalFrame& frame)
         m_progressValue = initialProgressValue;
         m_originatingProgressFrame = frame;
 
-        m_progressHeartbeatTimer.startRepeating(progressHeartbeatInterval);
+        // 10.9 backport WORKAROUND: startRepeating triggers TimerBase::heapInsert
+        // which crashes on the corrupted timer heap (see Timer.cpp). Progress
+        // reporting is best-effort UI state — skip.
+        // m_progressHeartbeatTimer.startRepeating(progressHeartbeatInterval);
         RefPtr originatingProgressFrame = m_originatingProgressFrame;
         originatingProgressFrame->loader().loadProgressingStatusChanged();
 

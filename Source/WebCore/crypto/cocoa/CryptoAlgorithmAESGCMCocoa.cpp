@@ -96,8 +96,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmAESGCM::platformEncrypt(const CryptoAlgorithmAesGcmParams& parameters, const CryptoKeyAES& key, const Vector<uint8_t>& plainText)
 {
-    if (parameters.ivVector().size() >= 12)
-        return encryptCryptoKitAESGCM(parameters.ivVector(), key.key(), plainText, parameters.additionalDataVector(), parameters.tagLength.value_or(0) / 8);
+    // 10.9 backport: always use CommonCrypto's CCCryptorGCM (10.8+). The
+    // CryptoKit path uses Swift APIs (10.15+) that crash on this build.
     return encryptAESGCM(parameters.ivVector(), key.key(), plainText, parameters.additionalDataVector(), parameters.tagLength.value_or(0) / 8);
 }
 

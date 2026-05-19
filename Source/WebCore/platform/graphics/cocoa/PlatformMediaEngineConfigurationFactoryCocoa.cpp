@@ -53,7 +53,7 @@ static CMVideoCodecType videoCodecTypeFromRFC4281Type(StringView type)
         return kCMVideoCodecType_H264;
     if (type.startsWith("hvc1"_s) || type.startsWith("hev1"_s))
         return kCMVideoCodecType_HEVC;
-#if ENABLE(VP9)
+#if ENABLE(VP9) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300
     if (type.startsWith("vp09"_s))
         return kCMVideoCodecType_VP9;
 #endif
@@ -107,7 +107,7 @@ static std::optional<PlatformMediaCapabilitiesInfo> computeMediaCapabilitiesInfo
             if (!parsedInfo)
                 return std::nullopt;
             info = *parsedInfo;
-#if ENABLE(VP9)
+#if ENABLE(VP9) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300
         } else if (videoCodecType == kCMVideoCodecType_VP9) {
             if (!configuration.canExposeVP9)
                 return std::nullopt;

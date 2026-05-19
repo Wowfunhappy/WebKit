@@ -26,6 +26,12 @@
 #pragma once
 
 #include <os/object.h>
+
+/* os_retain/os_release not available on macOS 10.9 */
+#ifndef os_retain
+#define os_retain(obj) ({ __typeof__(obj) _o = (obj); dispatch_retain((dispatch_object_t)_o); _o; })
+#define os_release(obj) dispatch_release((dispatch_object_t)(obj))
+#endif
 #include <wtf/Forward.h>
 #include <wtf/HashFunctions.h>
 #include <wtf/HashTraits.h>

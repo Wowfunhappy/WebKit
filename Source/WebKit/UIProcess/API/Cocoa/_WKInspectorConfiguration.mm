@@ -38,7 +38,7 @@
     if (!(self = [super init]))
         return nil;
 
-    API::Object::constructInWrapper<API::InspectorConfiguration>(self);
+    // DISABLED:     API::Object::constructInWrapper<API::InspectorConfiguration>(self);
     
     return self;
 }

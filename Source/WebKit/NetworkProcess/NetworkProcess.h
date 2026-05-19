@@ -669,7 +669,7 @@ private:
     bool m_isSuspended { false };
     bool m_didSyncCookiesForClose { false };
 #if PLATFORM(COCOA)
-    int m_mediaStreamingActivitityToken { NOTIFY_TOKEN_INVALID };
+    int m_mediaStreamingActivitityToken { -1 }; // NOTIFY_TOKEN_INVALID not in 10.9 notify.h
     bool m_isParentProcessFullWebBrowserOrRunningTest { false };
 #endif
     bool m_enableModernDownloadProgress { false };
@@ -685,9 +685,10 @@ private:
     };
     HashMap<TaskIdentifier, DeleteWebsiteDataTask> m_deleteWebsiteDataTasks;
 
-#if ENABLE(DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS)
-    OSObjectPtr<nw_resolver_config_t> m_resolverConfig;
-#endif
+// macOS 10.9 backport: nw_resolver_config_t not available (Network.framework 10.10+).
+// #if ENABLE(DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS)
+//     OSObjectPtr<nw_resolver_config_t> m_resolverConfig;
+// #endif
 };
 
 #if !PLATFORM(COCOA)

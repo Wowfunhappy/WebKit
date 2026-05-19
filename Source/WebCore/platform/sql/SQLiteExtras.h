@@ -36,12 +36,9 @@ namespace WebCore {
 
 inline int sqliteBindBlob(sqlite3_stmt* statement, int index, std::span<const uint8_t> data, void(*destructor)(void*) = SQLITE_TRANSIENT)
 {
-    // sqlite3_bind_blob64() symbol is undefined on the PlayStation port.
-#if PLATFORM(PLAYSTATION)
-    return sqlite3_bind_blob(statement, index, data.data(), data.size(), destructor); // NOLINT
-#else
-    return sqlite3_bind_blob64(statement, index, data.data(), data.size(), destructor); // NOLINT
-#endif
+    // macOS 10.9 backport: sqlite3_bind_blob64 requires SQLite 3.8.7+ (10.10+).
+    // Fall back to sqlite3_bind_blob which takes an int size.
+    return sqlite3_bind_blob(statement, index, data.data(), static_cast<int>(data.size()), destructor); // NOLINT
 }
 
 inline int sqliteBindText(sqlite3_stmt* statement, int index, std::span<const char> text, void(*destructor)(void*) = SQLITE_TRANSIENT)

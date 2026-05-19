@@ -51,7 +51,7 @@
 #include "AcceleratedEffectStack.h"
 #endif
 
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && defined(__OBJC__)
 #include <QuartzCore/CALayer.h>
 #endif
 

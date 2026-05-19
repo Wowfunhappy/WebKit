@@ -47,7 +47,8 @@
 #import "WKDownloadInternal.h"
 #import "WKFrameInfoInternal.h"
 #import "WKHistoryDelegatePrivate.h"
-#import "WKMarketplaceKit.h"
+// WKMarketplaceKit requires Swift runtime, not available on 10.9
+// #import "WKMarketplaceKit.h"
 #import "WKNSDictionary.h"
 #import "WKNSURLAuthenticationChallenge.h"
 #import "WKNSURLExtras.h"

@@ -47,7 +47,7 @@ DECLARE_SYSTEM_HEADER
 @end
 
 @interface NSTextPlaceholder : NSObject
-@property (nonatomic, readonly) NSArray<NSTextSelectionRect *> *rects;
+@property (nonatomic, readonly) NSArray *rects;
 @end
 
 @interface NSTextInputContext ()

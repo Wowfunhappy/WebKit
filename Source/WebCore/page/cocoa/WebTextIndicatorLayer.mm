@@ -32,6 +32,7 @@
 #import "PathUtilities.h"
 #import "TextIndicator.h"
 #import "WebActionDisablingCALayerDelegate.h"
+#import <QuartzCore/QuartzCore.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 

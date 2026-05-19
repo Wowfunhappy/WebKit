@@ -40,12 +40,13 @@
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WorkQueue.h>
 
-typedef struct opaqueCMSampleBuffer *CMSampleBufferRef;
-typedef struct CF_BRIDGED_TYPE(id) __CVBuffer *CVPixelBufferRef;
-typedef struct __CVBuffer *CVImageBufferRef;
-typedef struct OpaqueCMTaggedBufferGroup *CMTaggedBufferGroupRef;
-typedef UInt32 VTDecodeInfoFlags;
-typedef struct OpaqueVTDecompressionSession*  VTDecompressionSessionRef;
+// macOS 10.9 backport: include real CM/CV headers to avoid conflicting forward-typedefs.
+#include <CoreMedia/CoreMedia.h>
+#include <CoreVideo/CoreVideo.h>
+#include <VideoToolbox/VideoToolbox.h>
+#ifndef CMTaggedBufferGroupRef
+typedef void *CMTaggedBufferGroupRef; // not in 10.9 SDK
+#endif
 
 namespace WebCore {
 

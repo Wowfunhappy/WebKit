@@ -92,7 +92,7 @@ IGNORE_NULL_CHECK_WARNINGS_END
     connectionConfiguration.hostAppAuditTokenData = WTF::move(hostAppAuditTokenData);
 #endif
 
-    API::Object::constructInWrapper<API::WebPushDaemonConnection>(self, configuration.machServiceName, WTF::move(connectionConfiguration));
+    // DISABLED:     API::Object::constructInWrapper<API::WebPushDaemonConnection>(self, configuration.machServiceName, WTF::move(connectionConfiguration));
 
     return self;
 }

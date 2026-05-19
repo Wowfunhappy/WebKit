@@ -43,17 +43,31 @@ Theme& Theme::singleton()
 
 bool ThemeMac::userPrefersContrast() const
 {
-    return [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldIncreaseContrast];
+    // 10.9 backport: -[NSWorkspace accessibilityDisplayShouldIncreaseContrast]
+    // is 10.10+. Without the guard, the unrecognized-selector exception kills
+    // WebContent the moment any page evaluates `prefers-contrast` media query
+    // (bing.com does on first paint).
+    NSWorkspace* ws = [NSWorkspace sharedWorkspace];
+    if ([ws respondsToSelector:@selector(accessibilityDisplayShouldIncreaseContrast)])
+        return [ws accessibilityDisplayShouldIncreaseContrast];
+    return false;
 }
 
 bool ThemeMac::userPrefersDifferentiationWithoutColor() const
 {
-    return [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldDifferentiateWithoutColor];
+    NSWorkspace* ws = [NSWorkspace sharedWorkspace];
+    if ([ws respondsToSelector:@selector(accessibilityDisplayShouldDifferentiateWithoutColor)])
+        return [ws accessibilityDisplayShouldDifferentiateWithoutColor];
+    return false;
 }
 
 bool ThemeMac::userPrefersReducedMotion() const
 {
-    return [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldReduceMotion];
+    // 10.9 backport: -accessibilityDisplayShouldReduceMotion is 10.12+. Default to false.
+    NSWorkspace *ws = [NSWorkspace sharedWorkspace];
+    if ([ws respondsToSelector:@selector(accessibilityDisplayShouldReduceMotion)])
+        return [ws accessibilityDisplayShouldReduceMotion];
+    return false;
 }
 
 }

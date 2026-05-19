@@ -61,20 +61,8 @@ public:
             initializeCachedResourceRequestInitiatorTypes();
         return *m_cachedResourceRequestInitiatorTypes;
     }
-    EventNames& eventNames()
-    {
-        ASSERT(!m_destroyed);
-        if (!m_eventNames) [[unlikely]]
-            initializeEventNames();
-        return *m_eventNames;
-    }
-    QualifiedNameCache& qualifiedNameCache()
-    {
-        ASSERT(!m_destroyed);
-        if (!m_qualifiedNameCache) [[unlikely]]
-            initializeQualifiedNameCache();
-        return *m_qualifiedNameCache;
-    }
+    WEBCORE_EXPORT EventNames& eventNames();
+    WEBCORE_EXPORT QualifiedNameCache& qualifiedNameCache();
     const MIMETypeRegistryThreadGlobalData& mimeTypeRegistryThreadGlobalData()
     {
         ASSERT(!m_destroyed);
@@ -83,7 +71,7 @@ public:
         return *m_MIMETypeRegistryThreadGlobalData;
     }
 
-    ThreadTimers& threadTimers() LIFETIME_BOUND { return m_threadTimers; }
+    WEBCORE_EXPORT ThreadTimers& threadTimers() LIFETIME_BOUND;
 
     JSC::JSGlobalObject* currentState() const { return m_currentState; }
     void setCurrentState(JSC::JSGlobalObject* state) { m_currentState = state; }

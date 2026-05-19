@@ -25,7 +25,8 @@
 
 #pragma once
 
-#if PLATFORM(MAC)
+#if 0 // Disabled for macOS 10.9 backport — PDF scrolling nodes not needed.
+#if PLATFORM(MAC) && ENABLE(PDF_PLUGIN) && __has_include(<WebCore/ScrollingTreePluginScrollingNodeMac.h>)
 
 #include <WebCore/ScrollingTreePluginScrollingNodeMac.h>
 
@@ -48,4 +49,5 @@ private:
 
 }
 
-#endif // PLATFORM(MAC)
+#endif // PLATFORM(MAC) && ENABLE(PDF_PLUGIN)
+#endif // #if 0

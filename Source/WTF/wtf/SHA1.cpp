@@ -46,25 +46,123 @@ namespace WTF {
 
 #if PLATFORM(COCOA)
 
+// On macOS 10.9, CC_SHA1_Update crashes inside ccdigest_update at memmove(0x40,...)
+// because libcorecrypto's internal context layout differs from the public CC_SHA1_CTX
+// shape. Use a built-in reference implementation that stores its state directly inside
+// the existing CC_SHA1_CTX bytes (sizeof = 96 bytes, exactly enough for: 64-byte block
+// buffer + 8-byte total counter + 20 bytes for the 5 hash words + 4 bytes for cursor).
+// This avoids changing sizeof(SHA1) so the header layout stays compatible.
+//
+// Note: we don't touch CC_SHA1_Init/Update/Final at all — the bytes of m_context are
+// reinterpreted via the layout below.
+
+namespace {
+
+struct SHA1State {
+    std::array<uint8_t, 64> buffer;            // bytes  0-63
+    uint64_t totalBytes;                       // bytes 64-71
+    std::array<uint32_t, 5> hash;              // bytes 72-91
+    uint32_t cursor;                           // bytes 92-95
+};
+static_assert(sizeof(SHA1State) <= sizeof(CC_SHA1_CTX),
+    "SHA1State must fit inside CC_SHA1_CTX bytes");
+
+inline uint32_t refF(int t, uint32_t b, uint32_t c, uint32_t d)
+{
+    if (t < 20) return (b & c) | ((~b) & d);
+    if (t < 40) return b ^ c ^ d;
+    if (t < 60) return (b & c) | (b & d) | (c & d);
+    return b ^ c ^ d;
+}
+
+inline uint32_t refK(int t)
+{
+    if (t < 20) return 0x5a827999;
+    if (t < 40) return 0x6ed9eba1;
+    if (t < 60) return 0x8f1bbcdc;
+    return 0xca62c1d6;
+}
+
+inline uint32_t refRotateLeft(int n, uint32_t x) { return (x << n) | (x >> (32 - n)); }
+
+void refProcessBlock(SHA1State& s)
+{
+    uint32_t w[80];
+    for (int t = 0; t < 16; ++t) {
+        w[t] = uint32_t(s.buffer[t * 4 + 0]) << 24
+             | uint32_t(s.buffer[t * 4 + 1]) << 16
+             | uint32_t(s.buffer[t * 4 + 2]) << 8
+             | uint32_t(s.buffer[t * 4 + 3]);
+    }
+    for (int t = 16; t < 80; ++t)
+        w[t] = refRotateLeft(1, w[t - 3] ^ w[t - 8] ^ w[t - 14] ^ w[t - 16]);
+
+    uint32_t a = s.hash[0], b = s.hash[1], c = s.hash[2], d = s.hash[3], e = s.hash[4];
+    for (int t = 0; t < 80; ++t) {
+        uint32_t temp = refRotateLeft(5, a) + refF(t, b, c, d) + e + w[t] + refK(t);
+        e = d; d = c; c = refRotateLeft(30, b); b = a; a = temp;
+    }
+    s.hash[0] += a; s.hash[1] += b; s.hash[2] += c; s.hash[3] += d; s.hash[4] += e;
+    s.cursor = 0;
+}
+
+void refReset(SHA1State& s)
+{
+    s.cursor = 0;
+    s.totalBytes = 0;
+    s.hash = { 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0 };
+}
+
+inline SHA1State& stateOf(CC_SHA1_CTX& ctx)
+{
+    return *std::bit_cast<SHA1State*>(&ctx);
+}
+
+}
+
 SHA1::SHA1()
 {
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    CC_SHA1_Init(&m_context);
-ALLOW_DEPRECATED_DECLARATIONS_END
+    refReset(stateOf(m_context));
 }
 
 void SHA1::addBytes(std::span<const std::byte> input)
 {
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    CC_SHA1_Update(&m_context, input.data(), input.size());
-ALLOW_DEPRECATED_DECLARATIONS_END
+    auto& s = stateOf(m_context);
+    for (auto byte : input) {
+        s.buffer[s.cursor++] = std::to_integer<uint8_t>(byte);
+        ++s.totalBytes;
+        if (s.cursor == 64)
+            refProcessBlock(s);
+    }
 }
 
-void SHA1::computeHash(Digest& hash)
+void SHA1::computeHash(Digest& digest)
 {
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    CC_SHA1_Final(hash.data(), &m_context);
-ALLOW_DEPRECATED_DECLARATIONS_END
+    auto& s = stateOf(m_context);
+    s.buffer[s.cursor++] = 0x80;
+    if (s.cursor > 56) {
+        while (s.cursor < 64)
+            s.buffer[s.cursor++] = 0x00;
+        refProcessBlock(s);
+    }
+    for (size_t i = s.cursor; i < 56; ++i)
+        s.buffer[i] = 0x00;
+    uint64_t bits = s.totalBytes * 8;
+    for (int i = 0; i < 8; ++i) {
+        s.buffer[56 + (7 - i)] = bits & 0xFF;
+        bits >>= 8;
+    }
+    s.cursor = 64;
+    refProcessBlock(s);
+
+    for (size_t i = 0; i < 5; ++i) {
+        uint32_t hashValue = s.hash[i];
+        for (int j = 0; j < 4; ++j) {
+            digest[4 * i + (3 - j)] = hashValue & 0xFF;
+            hashValue >>= 8;
+        }
+    }
+    refReset(s);
 }
 
 #else

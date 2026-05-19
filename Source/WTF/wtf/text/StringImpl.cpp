@@ -1652,6 +1652,26 @@ CString StringImpl::utf8(ConversionMode mode) const
 
 NEVER_INLINE unsigned StringImpl::hashSlowCase() const
 {
+    // 10.9 backport diagnostic: log every StringImpl whose data pointer or
+    // length looks suspicious before computing hash. The earlier crash
+    // pattern is HashTable::rehash → hashSlowCase on a corrupt existing
+    // entry (someone added a StringImpl with a bogus data ptr to the table).
+    {
+        const void* data = is8Bit() ? static_cast<const void*>(m_data8) : static_cast<const void*>(m_data16);
+        uintptr_t addr = reinterpret_cast<uintptr_t>(data);
+        bool bogus = !data || addr < 0x100000 || (addr >> 47) || m_length > 0x10000000u;
+        if (bogus) {
+            FILE* _f = ((FILE*)0);
+            if (_f) {
+                fprintf(_f, "[hashSlow PID %d] BOGUS this=%p data=%p len=%u flags8=%d\n",
+                    getpid(), static_cast<const void*>(this), data,
+                    (unsigned)m_length, (int)is8Bit());
+                fclose(_f);
+            }
+            // Don't crash — return a fixed hash so HashTable can move on
+            return 0xDEADBEEF & 0x00ffffffu;
+        }
+    }
     if (is8Bit())
         setHash(StringHasher::computeHashAndMaskTop8Bits(span8()));
     else

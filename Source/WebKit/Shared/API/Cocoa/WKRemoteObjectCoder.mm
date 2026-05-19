@@ -500,7 +500,7 @@ static void encodeObject(WKRemoteObjectEncoder *encoder, id object)
 static RefPtr<API::Dictionary> createEncodedObject(WKRemoteObjectEncoder *encoder, id object)
 {
     if (!object)
-        return nil;
+        return nullptr;
 
     Ref<API::Dictionary> dictionary = API::Dictionary::create();
     SetForScope dictionaryChange(encoder->_currentDictionary, dictionary.ptr());

@@ -33,7 +33,9 @@
 #import "InteractionInformationAtPosition.h"
 #import "LoadParameters.h"
 #import "MessageSenderInlines.h"
+#if ENABLE(PDF_PLUGIN)
 #import "PDFPlugin.h"
+#endif
 #import "PluginView.h"
 #import "PositionInformationForWebPage.h"
 #import "PrintInfo.h"
@@ -150,6 +152,7 @@
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/cf/VectorCF.h>
 #import <wtf/cocoa/SpanCocoa.h>
+#import <wtf/cocoa/VectorCocoa.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
 #import <wtf/text/StringToIntegerConversion.h>
 
@@ -233,7 +236,7 @@ void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
     LibWebRTCCodecs::setWebRTCMediaPipelineAdditionalLoggingEnabled(m_page->settings().webRTCMediaPipelineAdditionalLoggingEnabled());
 #endif
 
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
     // In order to be able to block launchd on macOS, we need to eagerly open up a connection to CARenderServer here.
     // This is because PDF rendering on macOS requires access to CARenderServer, unless unified PDF is enabled.
     // In Lockdown mode we always block access to CARenderServer.
@@ -459,8 +462,10 @@ void WebPage::insertDictatedTextAsync(const String& text, const EditingRange& re
 void WebPage::addDictationAlternative(const String& text, DictationContext context, CompletionHandler<void(bool)>&& completion)
 {
     RefPtr frame = corePage()->focusController().focusedOrMainFrame();
-    if (!frame)
+    if (!frame) {
+        completion(false);
         return;
+    }
 
     RefPtr document = frame->document();
     if (!document) {
@@ -498,8 +503,10 @@ void WebPage::addDictationAlternative(const String& text, DictationContext conte
 void WebPage::dictationAlternativesAtSelection(CompletionHandler<void(Vector<DictationContext>&&)>&& completion)
 {
     RefPtr frame = corePage()->focusController().focusedOrMainFrame();
-    if (!frame)
+    if (!frame) {
+        completion({ });
         return;
+    }
 
     RefPtr document = frame->document();
     if (!document) {
@@ -995,6 +1002,12 @@ void WebPage::getPlatformEditorStateCommon(LocalFrame& frame, EditorState& resul
         endNodeIsInsideFixedPosition = startNodeIsInsideFixedPosition;
         visualData.caretRectAtEnd = visualData.caretRectAtStart;
     } else if (selection.isRange()) {
+        // 10.9 backport: defensively skip selection geometry extraction if the
+        // selection's anchor nodes are detached/orphaned. DDG load triggered
+        // a SIGSEGV in toNormalizedRange when a stale Position pointed at a
+        // freed Node from a previous page.
+        if (selection.isNoneOrOrphaned())
+            return;
         visualData.caretRectAtStart = view->contentsToRootView(VisiblePosition(selection.start()).absoluteCaretBounds(&startNodeIsInsideFixedPosition));
         visualData.caretRectAtEnd = view->contentsToRootView(VisiblePosition(selection.end()).absoluteCaretBounds(&endNodeIsInsideFixedPosition));
 
@@ -1441,28 +1454,28 @@ void WebPage::createTextIndicatorForElementWithID(const String& elementID, Compl
     RefPtr frame = corePage()->focusController().focusedOrMainFrame();
     if (!frame) {
         ASSERT_NOT_REACHED();
-        completionHandler(nil);
+        completionHandler(nullptr);
         return;
     }
 
     RefPtr document = frame->document();
     if (!document) {
         ASSERT_NOT_REACHED();
-        completionHandler(nil);
+        completionHandler(nullptr);
         return;
     }
 
     RefPtr element = document->getElementById(elementID);
     if (!element) {
         ASSERT_NOT_REACHED();
-        completionHandler(nil);
+        completionHandler(nullptr);
         return;
     }
 
     RefPtr styledElement = dynamicDowncast<StyledElement>(element.get());
     if (!styledElement) {
         ASSERT_NOT_REACHED();
-        completionHandler(nil);
+        completionHandler(nullptr);
         return;
     }
 
@@ -1487,7 +1500,7 @@ void WebPage::createTextIndicatorForElementWithID(const String& elementID, Compl
 
     RefPtr textIndicator = WebCore::TextIndicator::createWithRange(elementRange, textIndicatorOptions, WebCore::TextIndicatorPresentationTransition::None, { });
     if (!textIndicator) {
-        completionHandler(nil);
+        completionHandler(nullptr);
         return;
     }
 
@@ -1578,7 +1591,7 @@ static void drawPDFPage(PDFDocument *pdfDocument, CFIndex pageIndex, CGContextRe
         if (![[annotation valueForAnnotationKey:get_PDFKit_PDFAnnotationKeySubtypeSingleton()] isEqualToString:get_PDFKit_PDFAnnotationSubtypeLinkSingleton()])
             continue;
 
-        RetainPtr<NSURL> url = annotation.URL;
+        RetainPtr<NSURL> url = (NSURL *)[annotation valueForKey:@"URL"];
         if (!url)
             continue;
 
@@ -1761,14 +1774,14 @@ void WebPage::drawToPDF(const std::optional<FloatRect>& rect, bool allowTranspar
 {
     RefPtr localMainFrame = this->localMainFrame();
     if (!localMainFrame)
-        return;
+        return completionHandler(nullptr);
 
     Ref frameView = *localMainFrame->view();
     auto snapshotRect = IntRect { rect.value_or(FloatRect { { }, frameView->contentsSize() }) };
 
     RefPtr buffer = ImageBuffer::create(snapshotRect.size(), RenderingMode::PDFDocument, RenderingPurpose::Snapshot, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
     if (!buffer)
-        return;
+        return completionHandler(nullptr);
 
     drawMainFrameToPDF(*localMainFrame, buffer->context(), snapshotRect, allowTransparentBackground);
     completionHandler(buffer->sinkIntoPDFDocument());
@@ -1867,6 +1880,7 @@ void WebPage::drawPrintContextPagesToGraphicsContext(GraphicsContext& context, c
     }
 }
 
+#if ENABLE(GPU_PROCESS)
 void WebPage::drawPrintingRectToSnapshot(RemoteSnapshotIdentifier snapshotIdentifier, WebCore::FrameIdentifier frameID, const PrintInfo& printInfo, const WebCore::IntRect& rect, const WebCore::IntSize& imageSize, CompletionHandler<void(bool)>&& completionHandler)
 {
     RefPtr frame = WebProcess::singleton().webFrame(frameID);
@@ -1954,6 +1968,7 @@ void WebPage::drawPrintingPagesToSnapshot(RemoteSnapshotIdentifier snapshotIdent
     remoteRenderingBackend->sinkSnapshotRecorderIntoSnapshotFrame(WTF::move(m_remoteSnapshotState->recorder), frameID, Ref { m_remoteSnapshotState->callback }->chain());
     m_remoteSnapshotState = std::nullopt;
 }
+#endif // ENABLE(GPU_PROCESS)
 
 void WebPage::handleAlternativeTextUIResult(const String& result)
 {
@@ -2093,7 +2108,7 @@ void WebPage::characterIndexForPointAsync(const WebCore::IntPoint& point, Comple
 {
     RefPtr localMainFrame = this->localMainFrame();
     if (!localMainFrame)
-        return;
+        return completionHandler({ });
     constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent,  HitTestRequest::Type::AllowChildFrameContent };
     auto result = localMainFrame->eventHandler().hitTestResultAtPoint(point, hitType);
     RefPtr frame = result.innerNonSharedNode() ? result.innerNodeFrame() : corePage()->focusController().focusedOrMainFrame();

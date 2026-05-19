@@ -79,6 +79,10 @@ static inline SharedWorkerObjectConnection* mainThreadConnection()
 
 ExceptionOr<Ref<SharedWorker>> SharedWorker::create(Document& document, Variant<Ref<TrustedScriptURL>, String>&& scriptURLString, std::optional<Variant<String, WorkerOptions>>&& maybeOptions)
 {
+    // 10.9 backport: SharedWorker run loop crashes on this build (null deref
+    // in WorkerDedicatedRunLoop::runInMode + 668). Reject construction so
+    // sites fall back to non-SharedWorker code paths.
+    return Exception { ExceptionCode::NotSupportedError, "Shared workers disabled on this build"_s };
     auto compliantScriptURLString = trustedTypeCompliantString(protect(document.contextDocument()), WTF::move(scriptURLString), "SharedWorker constructor"_s);
     if (compliantScriptURLString.hasException())
         return compliantScriptURLString.releaseException();

@@ -2907,14 +2907,24 @@ void CanvasRenderingContext2DBase::drawTextUnchecked(const TextRun& textRun, dou
     auto& fontProxy = *this->fontProxy();
 
     auto drawText = [&](GraphicsContext& context, const FloatPoint& point) {
+        FloatPoint adjustedPoint = point;
+#if PLATFORM(MAC)
+        // 10.9 backport: canvas fillText draws glyphs ~capHeight BELOW the alphabetic baseline
+        // because 10.9 CT's CTFontDrawGlyphs interprets the input position as cap-top instead of
+        // baseline (the text matrix Y-flip composes differently than 10.10+ CT). Without this
+        // compensation, ctx.fillText('text', x, 100) draws cap-top at y=100 instead of baseline.
+        // Shift point.y UP by capHeight so the painted baseline matches the canvas API contract.
+        // HTML text rendering goes through a different pipeline that doesn't have this issue.
+        adjustedPoint.setY(point.y() - fontProxy.metricsOfPrimaryFont().capHeight().value_or(0));
+#endif
         if (cachedShapedText) {
             const auto& glyphBuffer = cachedShapedText->glyphBuffer;
             if (!glyphBuffer.isEmpty()) {
-                FloatPoint startPoint = point + WebCore::size(glyphBuffer.initialAdvance());
+                FloatPoint startPoint = adjustedPoint + WebCore::size(glyphBuffer.initialAdvance());
                 fontCascade.drawGlyphBuffer(context, glyphBuffer, startPoint, FontCascade::CustomFontNotReadyAction::UseFallbackIfFontNotReady);
             }
         } else
-            fontProxy.drawBidiText(context, textRun, point, FontCascade::CustomFontNotReadyAction::UseFallbackIfFontNotReady);
+            fontProxy.drawBidiText(context, textRun, adjustedPoint, FontCascade::CustomFontNotReadyAction::UseFallbackIfFontNotReady);
     };
 
 #if USE(CG)

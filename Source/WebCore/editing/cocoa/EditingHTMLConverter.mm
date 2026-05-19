@@ -90,10 +90,12 @@ using ElementCache = WeakHashMap<Element, Data, WeakPtrImplWithEventTargetData>;
 
 static String preferredFilenameForElement(const HTMLImageElement& element)
 {
+#if ENABLE(ATTACHMENT_ELEMENT)
     if (RefPtr attachment = element.attachmentElement()) {
         if (auto title = attachment->attachmentTitle(); !title.isEmpty())
             return title;
     }
+#endif
 
     auto altText = element.altText();
 
@@ -153,6 +155,7 @@ static RetainPtr<NSFileWrapper> fileWrapperForElement(const HTMLImageElement& el
     return nil;
 }
 
+#if ENABLE(ATTACHMENT_ELEMENT)
 static RetainPtr<NSFileWrapper> fileWrapperForElement(const HTMLAttachmentElement& element)
 {
     auto identifier = element.uniqueIdentifier();
@@ -168,6 +171,7 @@ static RetainPtr<NSFileWrapper> fileWrapperForElement(const HTMLAttachmentElemen
     [wrapper setPreferredFilename:makeString(WebContentReader::placeholderAttachmentFilenamePrefix, identifier).createNSString().get()];
     return wrapper;
 }
+#endif
 
 static RetainPtr<NSAttributedString> attributedStringWithAttachmentForFileWrapper(NSFileWrapper *fileWrapper)
 {
@@ -197,11 +201,13 @@ static RetainPtr<NSAttributedString> attributedStringWithAttachmentForElement(co
     return attributedStringWithAttachmentForFileWrapper(fileWrapper.get());
 }
 
+#if ENABLE(ATTACHMENT_ELEMENT)
 static RetainPtr<NSAttributedString> attributedStringWithAttachmentForElement(const HTMLAttachmentElement& element)
 {
     RetainPtr fileWrapper = fileWrapperForElement(element);
     return attributedStringWithAttachmentForFileWrapper(fileWrapper.get());
 }
+#endif
 
 #if ENABLE(WRITING_TOOLS)
 static bool elementQualifiesForWritingToolsPreservation(Element* element)
@@ -467,11 +473,13 @@ static AttributedString editingAttributedStringInternal(const SimpleRange& range
             stringLength += [attachmentAttributedString length];
         }
 
+#if ENABLE(ATTACHMENT_ELEMENT)
         if (RefPtr attachmentElement = dynamicDowncast<HTMLAttachmentElement>(node.get()); attachmentElement && includedElements.contains(IncludedElement::Attachments)) {
             RetainPtr attachmentAttributedString = attributedStringWithAttachmentForElement(*attachmentElement);
             [string appendAttributedString:attachmentAttributedString.get()];
             stringLength += [attachmentAttributedString length];
         }
+#endif // ENABLE(ATTACHMENT_ELEMENT)
 
         auto currentTextLength = it.text().length();
         if (!currentTextLength)

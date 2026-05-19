@@ -79,18 +79,18 @@ const uint8_t kLSOpenRunningInstanceBehaviorUseRunningProcess = 1;
 @interface _LSOpenConfiguration : NSObject <NSCopying, NSSecureCoding>
 @property (readwrite) BOOL sensitive;
 @property (readwrite) BOOL allowURLOverrides;
-@property (readwrite, copy) NSDictionary<NSString *, id> *frontBoardOptions;
+@property (readwrite, copy) NSDictionary *frontBoardOptions;
 @property (readwrite, copy, nonatomic) NSURL *referrerURL;
 @end
 
 @interface LSAppLink ()
 #if HAVE(APP_LINKS_WITH_ISENABLED)
-+ (NSArray<LSAppLink *> *)appLinksWithURL:(NSURL *)aURL limit:(NSUInteger)limit error:(NSError **)outError;
++ (NSArray *)appLinksWithURL:(NSURL *)aURL limit:(NSUInteger)limit error:(NSError **)outError;
 - (void)openWithCompletionHandler:(LSAppLinkOpenCompletionHandler)completionHandler;
 @property (nonatomic, getter=isEnabled) BOOL enabled;
 #else
 + (void)getAppLinkWithURL:(NSURL *)aURL completionHandler:(LSAppLinkCompletionHandler)completionHandler;
-- (void)openInWebBrowser:(BOOL)inWebBrowser setAppropriateOpenStrategyAndWebBrowserState:(NSDictionary<NSString *, id> *)state completionHandler:(LSAppLinkOpenCompletionHandler)completionHandler;
+- (void)openInWebBrowser:(BOOL)inWebBrowser setAppropriateOpenStrategyAndWebBrowserState:(NSDictionary *)state completionHandler:(LSAppLinkOpenCompletionHandler)completionHandler;
 #endif // HAVE(APP_LINKS_WITH_ISENABLED)
 + (void)openWithURL:(NSURL *)aURL completionHandler:(LSAppLinkOpenCompletionHandler)completionHandler;
 + (void)openWithURL:(NSURL *)aURL configuration:(_LSOpenConfiguration *)configuration completionHandler:(LSAppLinkOpenCompletionHandler)completionHandler;

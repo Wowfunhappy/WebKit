@@ -205,9 +205,9 @@ typedef NS_ENUM(NSInteger, WTTextSuggestionState) {
 
 @protocol WTWritingToolsDelegate_Proposed_v3
 
-- (void)willBeginWritingToolsSession:(nullable WTSession *)session requestContexts:(void (^)(NSArray<WTContext *> *contexts))completion;
+- (void)willBeginWritingToolsSession:(nullable WTSession *)session requestContexts:(void (^)(NSArray *contexts))completion;
 
-- (void)didBeginWritingToolsSession:(WTSession *)session contexts:(NSArray<WTContext *> *)contexts;
+- (void)didBeginWritingToolsSession:(WTSession *)session contexts:(NSArray *)contexts;
 
 typedef NS_ENUM(NSInteger, WTAction) {
     WTActionShowOriginal = 1,
@@ -222,7 +222,7 @@ typedef NS_ENUM(NSInteger, WTAction) {
 
 - (void)didEndWritingToolsSession:(WTSession *)session accepted:(BOOL)accepted;
 
-- (void)proofreadingSession:(WTSession *)session didReceiveSuggestions:(NSArray<WTTextSuggestion *> *)suggestions processedRange:(NSRange)range inContext:(WTContext *)context finished:(BOOL)finished;
+- (void)proofreadingSession:(WTSession *)session didReceiveSuggestions:(NSArray *)suggestions processedRange:(NSRange)range inContext:(WTContext *)context finished:(BOOL)finished;
 
 - (void)proofreadingSession:(WTSession *)session didUpdateState:(WTTextSuggestionState)state forSuggestionWithUUID:(NSUUID *)uuid inContext:(WTContext *)context;
 

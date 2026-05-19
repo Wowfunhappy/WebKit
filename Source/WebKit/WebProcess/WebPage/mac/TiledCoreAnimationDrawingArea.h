@@ -33,6 +33,7 @@
 #include <WebCore/FloatRect.h>
 #include <WebCore/TransformationMatrix.h>
 #include <wtf/HashMap.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>
@@ -88,7 +89,14 @@ private:
     WebCore::FloatRect exposedContentRect() const override;
     void setExposedContentRect(const WebCore::FloatRect&) override;
 
-    bool supportsAsyncScrolling() const override { return true; }
+    // 10.9 backport: async scrolling needs the UIProcess scrolling thread,
+    // which we don't have. Use synchronous main-thread scrolling instead.
+    bool supportsAsyncScrolling() const override { return false; }
+
+    // 10.9 backport: explicit override to ensure Page::scheduleRenderingUpdateInternal
+    // gets a true return, avoiding the fallback to RenderingUpdateScheduler
+    // (CVDisplayLink, broken on 10.9).
+    bool scheduleRenderingUpdate() override { triggerRenderingUpdate(); return true; }
 
     void registerScrollingTree() override;
     void unregisterScrollingTree() override;
@@ -177,6 +185,8 @@ private:
 
     std::unique_ptr<WebCore::RunLoopObserver> m_renderingUpdateRunLoopObserver;
     std::unique_ptr<WebCore::RunLoopObserver> m_postRenderingUpdateRunLoopObserver;
+    MonotonicTime m_lastRenderingTriggerTime;
+    bool m_renderingUpdatePending { false };
 
     bool m_isPaintingSuspended { false };
     bool m_inUpdateGeometry { false };

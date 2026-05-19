@@ -2114,3 +2114,13 @@ bool WKPreferencesGetMediaStreamEnabled(WKPreferencesRef preferencesRef)
 {
     return true;
 }
+
+// Legacy stub: removed from modern WebKit but still referenced by Safari 9.1.3.
+void WKPreferencesSetInspectorUsesWebKitUserInterface(WKPreferencesRef, bool)
+{
+}
+
+bool WKPreferencesGetInspectorUsesWebKitUserInterface(WKPreferencesRef)
+{
+    return false;
+}

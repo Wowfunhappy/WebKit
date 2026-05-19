@@ -757,10 +757,17 @@ void WebLocalFrameLoaderClient::dispatchDidFinishDocumentLoad()
         UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get()), WallTime::now()));
 
     webPage->didFinishDocumentLoad(m_frame);
+
+    // 10.9 backport: complete page transition early so the layer tree unfreezes and the
+    // page actually paints. The normal trigger (dispatchDidReachVisuallyNonEmptyState)
+    // depends on rendering happening, which won't happen while frozen.
+    if (m_frame->isMainFrame())
+        completePageTransitionIfNeeded();
 }
 
 void WebLocalFrameLoaderClient::dispatchDidFinishLoad()
 {
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[wc-finish PID %d] dispatchDidFinishLoad called, mainFrame=%d\n",getpid(),(int)m_frame->isMainFrame());fclose(_d);}}
     RefPtr webPage = m_frame->page();
     if (!webPage)
         return;
@@ -782,6 +789,14 @@ void WebLocalFrameLoaderClient::dispatchDidFinishLoad()
     webPage->send(Messages::WebPageProxy::DidFinishLoadForFrame(m_frame->frameID(), m_frame->info(), documentLoader->request(), documentLoader->navigationID(), UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get()), WallTime::now()));
 
     webPage->didFinishLoad(m_frame);
+
+    // 10.9 backport: page transition freeze unfreezes via dispatchDidReachVisuallyNonEmptyState
+    // (which depends on rendering happening) or via FrameState::Complete transition. On 10.9
+    // the visually-non-empty milestone never fires reliably (display link broken), so the layer
+    // tree stays frozen forever and the rendered page is never painted. Force-complete the page
+    // transition here once the load is done.
+    if (m_frame->isMainFrame())
+        completePageTransitionIfNeeded();
 }
 
 void WebLocalFrameLoaderClient::completePageTransitionIfNeeded()
@@ -942,6 +957,17 @@ void WebLocalFrameLoaderClient::dispatchShow()
 
 void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceResponse& response, const ResourceRequest& request, const String& downloadAttribute, FramePolicyFunction&& function)
 {
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) {
+            auto u = response.url().string().utf8();
+            auto m = response.mimeType().utf8();
+            auto da = downloadAttribute.utf8();
+            fprintf(_f, "[WebLFLC::dispatchDecidePolicyForResponse PID %d entry] mainFrame=%d mime=%.40s download=%.40s url=%.150s\n",
+                getpid(), (int)m_frame->isMainFrame(), m.data(), da.data(), u.data());
+            fclose(_f);
+        }
+    }
     RefPtr webPage = m_frame->page();
     if (!webPage) {
         WebLocalFrameLoaderClient_RELEASE_LOG(Network, "dispatchDecidePolicyForResponse: ignoring because there's no web page");
@@ -953,6 +979,30 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
         WebLocalFrameLoaderClient_RELEASE_LOG(Network, "dispatchDecidePolicyForResponse: continuing because the url string is null");
         function(PolicyAction::Use);
         return;
+    }
+
+    // 10.9 backport: Safari's UIProcess policy delegate returns PolicyAction::Ignore
+    // for our main-frame HTML loads (likely due to incomplete URL-bar→WKPageLoadRequest
+    // wiring). That cancels the load and triggers FrameLoader::stopParsing, killing the
+    // parser-blocking script chain. For the FIRST main-frame HTML response, short-circuit
+    // and return Use directly so the load can commit. Subsequent (duplicate) responses
+    // for the same URL must be Ignore'd to avoid creating a second document on top.
+    if (m_frame->isMainFrame() && downloadAttribute.isEmpty()) {
+        auto& mimeType = response.mimeType();
+        if (mimeType.startsWithIgnoringASCIICase("text/html"_s) || mimeType.startsWithIgnoringASCIICase("application/xhtml"_s)) {
+            String urlKey = response.url().string();
+            if (m_shortCircuitedResponseURL != urlKey) {
+                m_shortCircuitedResponseURL = urlKey;
+                FILE* _f = ((FILE*)0);
+                if (_f) { auto u = urlKey.utf8(); fprintf(_f, "[WebLFLC::dispatchDecidePolicyForResponse PID %d] short-circuit Use first url=%.150s\n", getpid(), u.data()); fclose(_f); }
+                function(PolicyAction::Use);
+                return;
+            }
+            FILE* _f = ((FILE*)0);
+            if (_f) { auto u = urlKey.utf8(); fprintf(_f, "[WebLFLC::dispatchDecidePolicyForResponse PID %d] duplicate Ignore url=%.150s\n", getpid(), u.data()); fclose(_f); }
+            function(PolicyAction::Ignore);
+            return;
+        }
     }
 
     if ((!m_frame->isMainFrame() || m_frame->isSafeBrowsingCheckOngoing() == SafeBrowsingCheckOngoing::No) && webPage->shouldSkipDecidePolicyForResponse(response)) {
@@ -1630,6 +1680,7 @@ void WebLocalFrameLoaderClient::transitionToCommittedFromCachedFrame(CachedFrame
 
 void WebLocalFrameLoaderClient::transitionToCommittedForNewPage(InitializingIframe initializingIframe)
 {
+    // 10.9 perf: removed debug fopen logging
     RefPtr webPage = m_frame->page();
     if (!webPage)
         return;

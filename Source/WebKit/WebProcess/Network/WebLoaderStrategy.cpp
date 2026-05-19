@@ -26,6 +26,9 @@
 #include "config.h"
 #include "WebLoaderStrategy.h"
 
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 #include "HangDetectionDisabler.h"
 #include "Logging.h"
 #include "NetworkConnectionToWebProcessMessages.h"
@@ -122,7 +125,16 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(WebLoaderStrategy);
 
 WebLoaderStrategy::WebLoaderStrategy(WebProcess& webProcess)
     : m_webProcess(webProcess)
-    , m_internallyFailedLoadTimer(RunLoop::mainSingleton(), "WebLoaderStrategy::InternallyFailedLoadTimer"_s, this, &WebLoaderStrategy::internallyFailedLoadTimerFired)
+    , m_internallyFailedLoadTimer((
+        []() -> RunLoop& {
+            auto& mrl = RunLoop::mainSingleton();
+            uintptr_t bits;
+            memcpy(&bits, (char*)&mrl + 0x8, sizeof(bits));
+            FILE *_d = ((FILE*)0);
+            if (_d) { fprintf(_d, "[PID %d] WebLoaderStrategy ctor: mrl=%p m_bits=0x%llx\n",
+                getpid(), &mrl, (unsigned long long)bits); fclose(_d); }
+            return mrl;
+        }()), "WebLoaderStrategy::InternallyFailedLoadTimer"_s, this, &WebLoaderStrategy::internallyFailedLoadTimerFired)
 {
 }
 

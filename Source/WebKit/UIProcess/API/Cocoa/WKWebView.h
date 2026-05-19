@@ -23,6 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef WKWebView_h
+#define WKWebView_h
+
 #import <WebKit/WKFoundation.h>
 
 #if TARGET_OS_IPHONE
@@ -780,3 +783,5 @@ WK_API_AVAILABLE(macos(10.15.4))
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* WKWebView_h */

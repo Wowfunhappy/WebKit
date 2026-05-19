@@ -508,7 +508,9 @@ private:
 
 } // namespace WebCore
 
-#if PLATFORM(MAC)
+// Guard against circular include: only include platform theme if NOT already
+// being included from RenderThemeCocoa.h → RenderTheme.h chain
+#if PLATFORM(MAC) && !defined(RENDERTHEMECOCOA_BEING_INCLUDED)
 #include <WebCore/RenderThemeMac.h>
 #elif PLATFORM(IOS_FAMILY)
 #include <WebCore/RenderThemeIOS.h>

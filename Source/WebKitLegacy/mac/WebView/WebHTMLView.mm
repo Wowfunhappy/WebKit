@@ -1219,7 +1219,7 @@ static NSControlStateValue NODELETE kit(TriState state)
     if ([types containsObject:WebCore::legacyPDFPasteboardTypeSingleton()] && (fragment = [self _documentFragmentFromPasteboard:pasteboard forType:WebCore::legacyPDFPasteboardTypeSingleton() inContext:context subresources:0]))
         return fragment;
 
-    if ([types containsObject:UTTypePNG.identifier] && (fragment = [self _documentFragmentFromPasteboard:pasteboard forType:UTTypePNG.identifier inContext:context subresources:0]))
+    if ([types containsObject:(NSString *)kUTTypePNG] && (fragment = [self _documentFragmentFromPasteboard:pasteboard forType:(NSString *)kUTTypePNG inContext:context subresources:0]))
         return fragment;
 
     if ([types containsObject:WebCore::legacyURLPasteboardTypeSingleton()] && (fragment = [self _documentFragmentFromPasteboard:pasteboard forType:WebCore::legacyURLPasteboardTypeSingleton() inContext:context subresources:0]))
@@ -1522,7 +1522,7 @@ static NSControlStateValue NODELETE kit(TriState state)
 {
     NSEvent *fakeEvent = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
         location:[[self window]
-        convertPointFromScreen:[NSEvent mouseLocation]]
+        convertScreenToBase:[NSEvent mouseLocation]]
         modifierFlags:[[NSApp currentEvent] modifierFlags]
         timestamp:[NSDate timeIntervalSinceReferenceDate]
         windowNumber:[[self window] windowNumber]
@@ -1563,13 +1563,13 @@ static NSControlStateValue NODELETE kit(TriState state)
 #if PLATFORM(MAC)
     ASSERT(!_private->subviewsSetAside);
     ASSERT(_private->savedSubviews == nil);
-    _private->savedSubviews = self._subviewsIvar;
+// stubbed for 10.9
     // We need to keep the layer-hosting view in the subviews, otherwise the layers flash.
     if (_private->layerHostingView) {
         NSMutableArray* newSubviews = [[NSMutableArray alloc] initWithObjects:_private->layerHostingView, nil];
-        self._subviewsIvar = newSubviews;
+// stubbed for 10.9
     } else
-        self._subviewsIvar = nil;
+// stubbed for 10.9
     _private->subviewsSetAside = YES;
 #endif
  }
@@ -1579,11 +1579,11 @@ static NSControlStateValue NODELETE kit(TriState state)
 #if PLATFORM(MAC)
     ASSERT(_private->subviewsSetAside);
     if (_private->layerHostingView) {
-        [self._subviewsIvar release];
-        self._subviewsIvar = _private->savedSubviews;
+
+
     } else {
-        ASSERT(self._subviewsIvar == nil);
-        self._subviewsIvar = _private->savedSubviews;
+
+
     }
     _private->savedSubviews = nil;
     _private->subviewsSetAside = NO;
@@ -1979,7 +1979,7 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     static NeverDestroyed<RetainPtr<NSArray>> types = @[
         WebArchivePboardType, WebCore::legacyHTMLPasteboardTypeSingleton(), WebCore::legacyFilenamesPasteboardTypeSingleton(), WebCore::legacyTIFFPasteboardTypeSingleton(),
         WebCore::legacyPDFPasteboardTypeSingleton(), WebCore::legacyURLPasteboardTypeSingleton(), WebCore::legacyRTFDPasteboardTypeSingleton(), WebCore::legacyRTFPasteboardTypeSingleton(),
-        WebCore::legacyStringPasteboardTypeSingleton(), WebCore::legacyColorPasteboardTypeSingleton(), UTTypePNG.identifier,
+        WebCore::legacyStringPasteboardTypeSingleton(), WebCore::legacyColorPasteboardTypeSingleton(), (NSString *)kUTTypePNG,
     ];
 ALLOW_DEPRECATED_DECLARATIONS_END
     return types.get().get();
@@ -2097,7 +2097,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
     NSEvent *fakeEvent = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDragged
         location:[[self window]
-        convertPointFromScreen:[NSEvent mouseLocation]]
+        convertScreenToBase:[NSEvent mouseLocation]]
         modifierFlags:[[NSApp currentEvent] modifierFlags]
         timestamp:[NSDate timeIntervalSinceReferenceDate]
         windowNumber:[[self window] windowNumber]
@@ -2364,8 +2364,8 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:WebCore::legacyTIFFPasteboardTypeSingleton() imageMIMEType:@"image/tiff"];
     if ([pboardType isEqualToString:WebCore::legacyPDFPasteboardTypeSingleton()])
         return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:WebCore::legacyPDFPasteboardTypeSingleton() imageMIMEType:@"application/pdf"];
-    if ([pboardType isEqualToString:UTTypePNG.identifier])
-        return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:UTTypePNG.identifier imageMIMEType:@"image/png"];
+    if ([pboardType isEqualToString:(NSString *)kUTTypePNG])
+        return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:(NSString *)kUTTypePNG imageMIMEType:@"image/png"];
 
     if ([pboardType isEqualToString:WebCore::legacyURLPasteboardTypeSingleton()]) {
         NSURL *URL = [NSURL URLFromPasteboard:pasteboard];
@@ -5018,7 +5018,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 #if PLATFORM(IOS_FAMILY)
         return [accTree accessibilityHitTest:point];
 #else
-        NSPoint windowCoord = [[self window] convertPointFromScreen:point];
+        NSPoint windowCoord = [[self window] convertScreenToBase:point];
         return [accTree accessibilityHitTest:[self convertPoint:windowCoord fromView:nil]];
 #endif
     }
@@ -6674,7 +6674,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     if (event && shouldSaveCommand && !isFromInputMethod) {
         auto isFunctionKeyCommandWithMatchingMenuItem = ([&] {
 #if PLATFORM(MAC)
-            auto menu = NSApp.mainMenu;
+            auto menu = [(NSApplication *)NSApp mainMenu];
             auto* platformKeyEvent = event->underlyingPlatformEvent();
             if (!platformKeyEvent)
                 return NO;

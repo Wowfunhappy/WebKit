@@ -205,7 +205,9 @@ private:
     const RefPtr<IPC::Connection> m_connection;
     IPC::MessageReceiverMap m_messageReceiverMap;
 
-    UserActivity m_processSuppressionDisabled;
+    // 10.9: UserActivity → HysteresisActivity → RunLoop::Timer crashes during ctor
+    // (HashTable::add memory corruption). Make this optional so WebProcess can construct.
+    std::optional<UserActivity> m_processSuppressionDisabled;
 };
 
 struct AuxiliaryProcessInitializationParameters {

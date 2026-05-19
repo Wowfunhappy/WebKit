@@ -180,6 +180,7 @@ if (ATOMICS_REQUIRE_LIBATOMIC)
     list(APPEND JavaScriptCore_LIBRARIES atomic)
 endif ()
 
+
 set(JavaScriptCore_SCRIPTS_SOURCES_DIR "${JAVASCRIPTCORE_DIR}/Scripts")
 
 # Globbing relies on the fact that generator-specific file names are prefixed with their directory.
@@ -1748,6 +1749,16 @@ endif ()
 
 WEBKIT_COMPUTE_SOURCES(JavaScriptCore)
 WEBKIT_FRAMEWORK(JavaScriptCore)
+
+# Force-load WTF API compat shims for Safari 9.1.3 on 10.9
+if (APPLE)
+    target_link_options(JavaScriptCore PRIVATE "-Wl,-force_load,/Users/jonathan/Desktop/clang/libwtf_compat.a")
+    # 10.9 backport: polyfill ObjC classes (NSTouchBar, UTType, etc.) live ONLY
+    # in JavaScriptCore so WebCore + WebKit don't duplicate-register them and
+    # blow past libobjc's _read_images limit. Using PRIVATE/target_link_options
+    # so it doesn't leak into downstream targets.
+    target_link_options(JavaScriptCore PRIVATE "-Wl,-force_load,/Users/jonathan/Desktop/clang/libpolyfill_classes.a")
+endif ()
 
 target_precompile_headers(JavaScriptCore PRIVATE JavaScriptCorePrefix.h)
 

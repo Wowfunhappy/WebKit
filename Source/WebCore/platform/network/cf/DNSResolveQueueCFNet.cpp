@@ -117,6 +117,7 @@ static std::optional<IPAddress> extractIPAddress(const struct sockaddr* address)
 
 static constexpr auto timeoutForDNSResolution = 60_s;
 
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
 void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<CompletionHandlerWrapper>&& completionHandler)
 {
     RetainPtr hostEndpoint = adoptCF(nw_endpoint_create_host(hostname.utf8().data(), "0"));
@@ -179,6 +180,12 @@ void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<Completi
             callCompletionHandler(WTF::move(result));
     }).get());
 }
+#else
+void DNSResolveQueueCFNet::performDNSLookup(const String&, Ref<CompletionHandlerWrapper>&& completionHandler)
+{
+    completionHandler->complete(makeUnexpected(DNSError::CannotResolve));
+}
+#endif
 
 void DNSResolveQueueCFNet::platformResolve(const String& hostname)
 {

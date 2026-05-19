@@ -37,8 +37,18 @@ SOFT_LINK_CLASS_FOR_SOURCE(WebKit, PDFKit, PDFActionNamed)
 SOFT_LINK_CLASS_FOR_SOURCE(WebKit, PDFKit, PDFDocument)
 SOFT_LINK_CLASS_FOR_SOURCE(WebKit, PDFKit, PDFLayerController)
 SOFT_LINK_CLASS_FOR_SOURCE(WebKit, PDFKit, PDFSelection)
+// kPDFDestinationUnspecifiedValue may be defined as a macro expanding to CGFLOAT_MAX,
+// which creates an invalid preprocessing token when pasted into get_PDFKit_##variableName.
+// Undefine the macro so the soft-link machinery can use the symbol name as a token.
+#ifdef kPDFDestinationUnspecifiedValue
+#undef kPDFDestinationUnspecifiedValue
+#endif
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, PDFKit, kPDFDestinationUnspecifiedValue, CGFloat)
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, PDFKit, PDFViewCopyPermissionNotification, NSNotificationName)
+// PDFDocumentAttribute is NSString * on older SDKs
+#ifndef PDFDocumentAttribute
+typedef NSString * PDFDocumentAttribute;
+#endif
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, PDFKit, PDFDocumentCreationDateAttribute, PDFDocumentAttribute)
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, PDFKit, PDFAnnotationKeySubtype, NSString *)
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, PDFKit, PDFAnnotationKeyWidgetFieldType, NSString *)

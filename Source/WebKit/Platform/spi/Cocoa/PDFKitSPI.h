@@ -48,6 +48,14 @@ DECLARE_SYSTEM_HEADER
 
 #if HAVE(PDFKIT)
 
+// PDFPoint/PDFRect are NSPoint/NSRect on older SDKs
+#ifndef PDFPoint
+typedef NSPoint PDFPoint;
+#endif
+#ifndef PDFRect
+typedef NSRect PDFRect;
+#endif
+
 @interface PDFSelection (SPI)
 - (PDFPoint)firstCharCenter;
 - (/*nullable*/ NSString *)html;

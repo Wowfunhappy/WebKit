@@ -32,6 +32,11 @@
 #import "WebPageProxy.h"
 #import <WebCore/LocalizedStrings.h>
 
+// NSDatePickerElementFlagYearMonthDay was renamed from NSYearMonthDayDatePickerElementFlag in 10.15.4
+#ifndef NSDatePickerElementFlagYearMonthDay
+#define NSDatePickerElementFlagYearMonthDay (0x00e0)
+#endif
+
 constexpr CGFloat kCalendarWidth = 139;
 constexpr CGFloat kCalendarHeight = 148;
 constexpr CGFloat kCalendarCornerRadius = 10;
@@ -119,8 +124,12 @@ void WebDateTimePickerMac::didChooseDate(StringView date)
 
     self.hasShadow = YES;
     self.releasedWhenClosed = NO;
-    self.titleVisibility = NSWindowTitleHidden;
-    self.titlebarAppearsTransparent = YES;
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
+    if ([self respondsToSelector:@selector(setTitleVisibility:)])
+        self.titleVisibility = NSWindowTitleHidden;
+    if ([self respondsToSelector:@selector(setTitlebarAppearsTransparent:)])
+        self.titlebarAppearsTransparent = YES;
+#endif
     self.movable = NO;
     self.backgroundColor = [NSColor clearColor];
     self.opaque = NO;
@@ -223,13 +232,16 @@ void WebDateTimePickerMac::didChooseDate(StringView date)
     // AppKit that we explicitly do want to share first responders across windows.
     RetainPtr presentingWindow = [presentingView window];
     BOOL presentingWindowCanBeKey = [presentingWindow isKeyWindow] || [presentingWindow canBecomeKeyWindow];
-    [_enclosingWindow _setSharesParentFirstResponder:presentingWindowCanBeKey];
+    // 10.9 backport: _setSharesParentFirstResponder: is 10.10+ private SPI.
+    if ([_enclosingWindow respondsToSelector:@selector(_setSharesParentFirstResponder:)])
+        [(id)_enclosingWindow.get() _setSharesParentFirstResponder:presentingWindowCanBeKey];
 
-    _datePicker = adoptNS([[WKEscapeHandlingDatePicker alloc] initWithFrame:[_enclosingWindow contentView].bounds]);
+    _datePicker = adoptNS([[WKEscapeHandlingDatePicker alloc] initWithFrame:((NSView *)[_enclosingWindow contentView]).bounds]);
     [_datePicker setDateTimePicker:self];
     [_datePicker setBezeled:NO];
     [_datePicker setDrawsBackground:NO];
-    [_datePicker setDatePickerStyle:NSDatePickerStyleClockAndCalendar];
+    // NSDatePickerStyleClockAndCalendar = 1, available since 10.15.4
+    [_datePicker setDatePickerStyle:(NSDatePickerStyle)1];
     [_datePicker setDatePickerElements:NSDatePickerElementFlagYearMonthDay];
     [_datePicker setTimeZone:timeZone.get()];
     [_datePicker setTarget:self];

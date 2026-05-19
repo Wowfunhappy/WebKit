@@ -65,6 +65,14 @@
 #import <WebKitAdditions/WKAppKitGestureControllerAdditionsBefore.mm>
 #endif
 
+// NSControlStateValueOn/Off were added in 10.13; previously named NSOnState/NSOffState.
+#ifndef NSControlStateValueOn
+#define NSControlStateValueOn NSOnState
+#endif
+#ifndef NSControlStateValueOff
+#define NSControlStateValueOff NSOffState
+#endif
+
 @interface WKUserDataWrapper : NSObject {
     RefPtr<API::Object> _webUserData;
 }
@@ -186,11 +194,13 @@
 }
 #endif
 
+#if ENABLE(SERVICE_CONTROLS)
 - (void)performShare:(id)sender
 {
     if (RefPtr menuProxy = _menuProxy.get())
         menuProxy->handleShareMenuItem();
 }
+#endif
 
 @end
 
@@ -273,12 +283,14 @@ void WebContextMenuProxyMac::handleContextMenuWritingTools(WebCore::WritingTools
 }
 #endif
 
+#if ENABLE(SERVICE_CONTROLS)
 void WebContextMenuProxyMac::handleShareMenuItem()
 {
     RetainPtr shareMenuItem = createShareMenuItem(ShareMenuItemType::Popover);
     [shareMenuItem setMenu:m_menu.get()];
     [[NSApplication sharedApplication] sendAction:[shareMenuItem action] to:retainPtr([shareMenuItem target]).get() from:shareMenuItem.get()];
 }
+#endif
 
 #if ENABLE(SERVICE_CONTROLS)
 void WebContextMenuProxyMac::setupServicesMenu()
@@ -287,8 +299,9 @@ void WebContextMenuProxyMac::setupServicesMenu()
     bool hasControlledImage = m_context.controlledImage();
     bool isPDFAttachment = false;
     auto attachment = protect(page())->attachmentForIdentifier(m_context.controlledImageAttachmentID());
+    // 10.9 backport: UTType class is 11.0+. Compare to literal "com.adobe.pdf" instead.
     if (attachment)
-        isPDFAttachment = attachment->utiType() == String(UTTypePDF.identifier);
+        isPDFAttachment = attachment->utiType() == "com.adobe.pdf"_s;
     NSArray *items = nil;
     RetainPtr<NSItemProvider> itemProvider;
     if (hasControlledImage) {
@@ -442,6 +455,7 @@ void WebContextMenuProxyMac::removeBackgroundFromControlledImage()
     page->replaceImageForRemoveBackground(*elementContext, { String(type.get()) }, span(data.get()));
 #endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
 }
+#endif // ENABLE(SERVICE_CONTROLS)
 
 #if ENABLE(CONTEXT_MENU_IMAGES_ON_MAC)
 static void updateMenuItemImage(NSMenuItem *menuItem, const WebCore::ContextMenuAction& action, const String& title)
@@ -479,6 +493,7 @@ static void updateMenuItemImage(NSMenuItem *menuItem, const WebCore::ContextMenu
 }
 #endif
 
+#if ENABLE(SERVICE_CONTROLS)
 RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemType type)
 {
     ASSERT(m_context.webHitTestResultData());
@@ -780,7 +795,14 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
     auto filteredItems = items;
     auto webView = m_webView.get();
 
-    bool isPopover = retainPtr(webView.get().window).get()._childWindowOrderingPriority == NSWindowChildOrderingPriorityPopover;
+    // 10.9 backport: _childWindowOrderingPriority is 10.12+ private NSWindow SPI.
+    // Sending it to NSWindow on 10.9 fires doesNotRecognizeSelector and crashes
+    // UIProcess on every right-click. Guard before sending.
+    bool isPopover = false;
+    if (RetainPtr<NSWindow> w = retainPtr(webView.get().window).get()) {
+        if ([w respondsToSelector:@selector(_childWindowOrderingPriority)])
+            isPopover = [(id)w.get() _childWindowOrderingPriority] == NSWindowChildOrderingPriorityPopover;
+    }
     bool isLookupDisabled = [NSUserDefaults.standardUserDefaults boolForKey:@"LULookupDisabled"];
 
     if (isLookupDisabled || isPopover) {
@@ -1083,7 +1105,7 @@ static RetainPtr<NSDictionary> contentsOfContextMenuItem(NSMenuItem *item)
 
     if (item.isSeparatorItem)
         result.get()[@"separator"] = @YES;
-    else if (!item.enabled)
+    else if (![item isEnabled])
         result.get()[@"enabled"] = @NO;
 
     if (NSInteger indentationLevel = item.indentationLevel)
@@ -1152,14 +1174,18 @@ void WebContextMenuProxyMac::captionStyleMenuSetPreviewProfileID(const String& p
 
 void WebContextMenuProxyMac::captionStyleMenuWillOpen()
 {
+#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
     if (auto identifier = m_context.mediaElementIdentifier())
         protect(page())->showCaptionDisplaySettingsPreview(m_frameInfo, *identifier);
+#endif
 }
 
 void WebContextMenuProxyMac::captionStyleMenuDidClose()
 {
+#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
     if (auto identifier = m_context.mediaElementIdentifier())
         protect(page())->hideCaptionDisplaySettingsPreview(m_frameInfo, *identifier);
+#endif
 }
 
 } // namespace WebKit

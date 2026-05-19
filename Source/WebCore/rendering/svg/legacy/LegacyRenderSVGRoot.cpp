@@ -26,6 +26,7 @@
 #include "LegacyRenderSVGRoot.h"
 
 #include "GraphicsContext.h"
+#include "ImageBuffer.h"
 #include "HitTestResult.h"
 #include "LayoutRepainter.h"
 #include "LegacyRenderSVGResource.h"
@@ -251,6 +252,39 @@ void LegacyRenderSVGRoot::paintReplaced(PaintInfo& paintInfo, const LayoutPoint&
     // Don't paint, if the context explicitly disabled it.
     if (paintInfo.phase != PaintPhase::EventRegion && paintInfo.context().paintingDisabled() && !paintInfo.context().detectingContentfulPaint())
         return;
+
+    // 10.9 backport: rasterize-to-bitmap then blit. Inline SVG (github octicons,
+    // HN Y logo + upvote arrows) reaches LegacyRenderSVGRoot::paintReplaced.
+    // CGContextFillPath silently fails on 10.9 IOSurface CALayer contexts, so
+    // SVG paths painted directly into the tile produce zero pixels. Rasterize
+    // into a bitmap ImageBuffer (where path-fill works), then drawImageBuffer
+    // back to the IOSurface destination. Gates on PaintPhase::Foreground only.
+    static thread_local int s_legacySvgRasterizeDepth = 0;
+    if (s_legacySvgRasterizeDepth == 0 && paintInfo.phase == PaintPhase::Foreground) {
+        CGContextRef destCG = paintInfo.context().platformContext();
+        if (destCG && !CGBitmapContextGetData(destCG)) {
+            LayoutRect overflowBox = visualOverflowRect();
+            flipForWritingMode(overflowBox);
+            overflowBox.moveBy(paintOffset);
+            IntRect bufferRect = enclosingIntRect(overflowBox);
+            if (!bufferRect.isEmpty() && bufferRect.width() <= 4096 && bufferRect.height() <= 4096) {
+                auto colorSpace = DestinationColorSpace::SRGB();
+                if (auto buffer = ImageBuffer::create(bufferRect.size(), RenderingMode::Unaccelerated, RenderingPurpose::DOM, 1, colorSpace, PixelFormat::BGRA8)) {
+                    s_legacySvgRasterizeDepth++;
+                    GraphicsContext& bufferContext = buffer->context();
+                    GraphicsContextStateSaver bufferSaver(bufferContext);
+                    bufferContext.translate(-bufferRect.x(), -bufferRect.y());
+                    PaintInfo bufferPaintInfo(paintInfo);
+                    bufferPaintInfo.setContext(bufferContext);
+                    paintReplaced(bufferPaintInfo, paintOffset);
+                    s_legacySvgRasterizeDepth--;
+                    GraphicsContextStateSaver outerSaver(paintInfo.context());
+                    paintInfo.context().drawImageBuffer(*buffer, bufferRect);
+                    return;
+                }
+            }
+        }
+    }
 
     // SVG outlines are painted during PaintPhase::Foreground.
     if (paintInfo.phase == PaintPhase::Outline || paintInfo.phase == PaintPhase::SelfOutline)

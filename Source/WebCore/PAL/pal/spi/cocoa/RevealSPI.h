@@ -62,18 +62,18 @@ DECLARE_SYSTEM_HEADER
 @end
 
 @interface RVSelection : NSObject
-+ (NSRange)revealRangeAtIndex:(NSUInteger)clickIndex selectedRanges:(NSArray <NSValue *> *)selectedRanges shouldUpdateSelection:(BOOL *)shouldUpdateSelection;
++ (NSRange)revealRangeAtIndex:(NSUInteger)clickIndex selectedRanges:(NSArray * *)selectedRanges shouldUpdateSelection:(BOOL *)shouldUpdateSelection;
 @end
 
 #if PLATFORM(MAC)
 @interface RVPresentingContext : NSObject
 - (instancetype)initWithPointerLocationInView:(NSPoint)pointerLocationInView inView:(NSView *)view highlightDelegate:(id<RVPresenterHighlightDelegate>)highlightDelegate;
-@property (readonly) NSArray <NSValue *> * itemRectsInView;
+@property (readonly) NSArray * * itemRectsInView;
 @end
 
 @protocol RVPresenterHighlightDelegate <NSObject>
 @required
-- (NSArray <NSValue *> *)revealContext:(RVPresentingContext *)context rectsForItem:(RVItem *)item;
+- (NSArray * *)revealContext:(RVPresentingContext *)context rectsForItem:(RVItem *)item;
 @optional
 - (void)revealContext:(RVPresentingContext *)context stopHighlightingItem:(RVItem *)item;
 - (void)revealContext:(RVPresentingContext *)context drawRectsForItem:(RVItem *)item;
@@ -87,7 +87,7 @@ DECLARE_SYSTEM_HEADER
 #if PLATFORM(MAC)
 - (id<NSImmediateActionAnimationController>)animationControllerForItem:(RVItem *)item documentContext:(RVDocumentContext *)documentContext presentingContext:(RVPresentingContext *)presentingContext options:(NSDictionary *)options;
 - (BOOL)revealItem:(RVItem *)item documentContext:(RVDocumentContext *)documentContext presentingContext:(RVPresentingContext *)presentingContext options:(NSDictionary *)options;
-- (NSArray<NSMenuItem *> *)menuItemsForItem:(RVItem *)item documentContext:(RVDocumentContext *)documentContext presentingContext:(RVPresentingContext *)presentingContext options:(NSDictionary *)options;
+- (NSArray *)menuItemsForItem:(RVItem *)item documentContext:(RVDocumentContext *)documentContext presentingContext:(RVPresentingContext *)presentingContext options:(NSDictionary *)options;
 #endif // PLATFORM(MAC)
 @end
 

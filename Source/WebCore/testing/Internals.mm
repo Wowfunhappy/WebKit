@@ -230,9 +230,9 @@ bool Internals::privatePlayerMuted(const HTMLMediaElement& element)
 
 String Internals::encodedPreferenceValue(const String& domain, const String& key)
 {
-    RetainPtr userDefaults = adoptNS([[NSUserDefaults alloc] initWithSuiteName:domain.createNSString().get()]);
-    RetainPtr value = [userDefaults objectForKey:key.createNSString().get()];
-    RetainPtr data = retainPtr([NSKeyedArchiver archivedDataWithRootObject:value.get() requiringSecureCoding:YES error:nullptr]);
+    RetainPtr<NSUserDefaults> userDefaults = adoptNS([[NSUserDefaults alloc] initWithSuiteName:domain.createNSString().get()]);
+    id value = [userDefaults objectForKey:key.createNSString().get()];
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:value];
     return [data base64EncodedStringWithOptions:0];
 }
 

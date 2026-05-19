@@ -61,7 +61,11 @@ using RectType = CGRect;
 @end
 
 #if PLATFORM(MAC)
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
 @interface _WKWarningView : _WKWarningViewBox<NSTextViewDelegate, NSAccessibilityGroup>
+#else
+@interface _WKWarningView : _WKWarningViewBox<NSTextViewDelegate>
+#endif
 #else
 @interface _WKWarningView : UIScrollView<UITextViewDelegate>
 #endif

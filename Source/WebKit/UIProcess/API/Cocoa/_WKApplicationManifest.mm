@@ -254,7 +254,7 @@ static std::optional<WebCore::ApplicationManifest::Shortcut> makeVectorElement(c
     if (!manifest)
         return nil;
 
-    API::Object::constructInWrapper<API::ApplicationManifest>(self, *manifest);
+    // DISABLED:     API::Object::constructInWrapper<API::ApplicationManifest>(self, *manifest);
 
     return self;
 }
@@ -311,7 +311,7 @@ static std::optional<WebCore::ApplicationManifest::Shortcut> makeVectorElement(c
         makeVector<WebCore::ApplicationManifest::Shortcut>(shortcuts.get()),
     };
 
-    API::Object::constructInWrapper<API::ApplicationManifest>(self, WTF::move(coreApplicationManifest));
+    // DISABLED:     API::Object::constructInWrapper<API::ApplicationManifest>(self, WTF::move(coreApplicationManifest));
 
     return self;
 }

@@ -111,6 +111,12 @@ void NavigatorBeacon::logError(const ResourceError& error)
 
 ExceptionOr<bool> NavigatorBeacon::sendBeacon(Document& document, const String& url, std::optional<FetchBody::Init>&& body)
 {
+    // 10.9 backport: theverge.com calls sendBeacon from a ServiceWorker microtask.
+    // The downstream MemoryCache::singleton() RELEASE_ASSERTs main-thread. Bail
+    // silently from non-main-thread callers to avoid crashing WebContent.
+    if (!isMainThread())
+        return false;
+
     URL parsedUrl = document.completeURL(url);
 
     // Set parsedUrl to the result of the URL parser steps with url and base. If the algorithm returns an error, or if

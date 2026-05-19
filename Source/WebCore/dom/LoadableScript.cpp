@@ -58,6 +58,10 @@ void LoadableScript::removeClient(LoadableScriptClient& client)
 
 void LoadableScript::notifyClientFinished()
 {
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) { fprintf(_f, "[LoadableScript::notifyClientFinished PID %d] clientCount=%u\n", getpid(), m_clients.computeSize()); fclose(_f); }
+    }
     Ref protectedThis { *this };
     auto clients = WTF::map(m_clients, [](auto& entry) -> WeakPtr<LoadableScriptClient> {
         return entry.key;

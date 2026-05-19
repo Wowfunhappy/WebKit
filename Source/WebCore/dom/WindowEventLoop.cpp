@@ -37,6 +37,7 @@
 #include "SecurityOrigin.h"
 #include "ThreadGlobalData.h"
 #include "ThreadTimers.h"
+#include <wtf/Lock.h>
 #include <wtf/RobinHoodHashMap.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -46,9 +47,16 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WindowEventLoop);
 
+// 10.9 backport: shared ThreadTimers means worker threads can fire Document
+// timers, which call into this map. Use a Lock instead of asserting main thread.
+static Lock& windowEventLoopMapLock()
+{
+    static NeverDestroyed<Lock> lock;
+    return lock.get();
+}
+
 static MemoryCompactRobinHoodHashMap<String, CheckedPtr<WindowEventLoop>>& NODELETE windowEventLoopMap()
 {
-    RELEASE_ASSERT(isMainThread());
     static NeverDestroyed<MemoryCompactRobinHoodHashMap<String, CheckedPtr<WindowEventLoop>>> map;
     return map.get();
 }
@@ -76,6 +84,7 @@ Ref<WindowEventLoop> WindowEventLoop::eventLoopForSecurityOrigin(const SecurityO
     if (key.isNull())
         return create({ });
 
+    Locker locker { windowEventLoopMapLock() };
     auto addResult = windowEventLoopMap().add(key, nullptr);
     if (addResult.isNewEntry) [[unlikely]] {
         auto newEventLoop = create(key);
@@ -102,6 +111,7 @@ WindowEventLoop::~WindowEventLoop()
 {
     if (m_agentClusterKey.isNull())
         return;
+    Locker locker { windowEventLoopMapLock() };
     auto didRemove = windowEventLoopMap().remove(m_agentClusterKey);
     RELEASE_ASSERT(didRemove);
 }

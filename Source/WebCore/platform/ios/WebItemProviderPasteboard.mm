@@ -103,7 +103,7 @@ static BOOL typeConformsToTypes(NSString *type, NSArray *conformsToTypes)
     return NO;
 }
 
-- (NSArray<NSString *> *)web_fileUploadContentTypes
+- (NSArray *)web_fileUploadContentTypes
 {
     auto types = adoptNS([NSMutableArray new]);
     for (NSString *identifier in self.registeredTypeIdentifiers) {
@@ -380,29 +380,29 @@ static UIPreferredPresentationStyle uiPreferredPresentationStyle(WebPreferredPre
 
 @interface WebItemProviderLoadResult : NSObject
 
-- (instancetype)initWithItemProvider:(NSItemProvider *)itemProvider typesToLoad:(NSArray<NSString *> *)typesToLoad;
+- (instancetype)initWithItemProvider:(NSItemProvider *)itemProvider typesToLoad:(NSArray *)typesToLoad;
 - (NSURL *)fileURLForType:(NSString *)type;
 - (void)setFileURL:(NSURL *)url forType:(NSString *)type;
-@property (nonatomic, readonly) NSArray<NSURL *> *loadedFileURLs;
-@property (nonatomic, readonly) NSArray<NSString *> *loadedTypeIdentifiers;
+@property (nonatomic, readonly) NSArray *loadedFileURLs;
+@property (nonatomic, readonly) NSArray *loadedTypeIdentifiers;
 @property (nonatomic, readonly) BOOL canBeRepresentedAsFileUpload;
 @property (nonatomic, readonly) NSItemProvider *itemProvider;
-@property (nonatomic, readonly) NSArray<NSString *> *typesToLoad;
+@property (nonatomic, readonly) NSArray *typesToLoad;
 
 @end
 
 @implementation WebItemProviderLoadResult {
     RetainPtr<TypeToFileURLMap> _fileURLs;
     RetainPtr<NSItemProvider> _itemProvider;
-    RetainPtr<NSArray<NSString *>> _typesToLoad;
+    RetainPtr<NSArray *> _typesToLoad;
 }
 
-+ (instancetype)loadResultWithItemProvider:(NSItemProvider *)itemProvider typesToLoad:(NSArray<NSString *> *)typesToLoad
++ (instancetype)loadResultWithItemProvider:(NSItemProvider *)itemProvider typesToLoad:(NSArray *)typesToLoad
 {
     return adoptNS([[self alloc] initWithItemProvider:itemProvider typesToLoad:typesToLoad]).autorelease();
 }
 
-- (instancetype)initWithItemProvider:(NSItemProvider *)itemProvider typesToLoad:(NSArray<NSString *> *)typesToLoad
+- (instancetype)initWithItemProvider:(NSItemProvider *)itemProvider typesToLoad:(NSArray *)typesToLoad
 {
     if (!(self = [super init]))
         return nil;
@@ -434,7 +434,7 @@ static UIPreferredPresentationStyle uiPreferredPresentationStyle(WebPreferredPre
 #endif
 }
 
-- (NSArray<NSString *> *)typesToLoad
+- (NSArray *)typesToLoad
 {
     return _typesToLoad.get();
 }
@@ -449,12 +449,12 @@ static UIPreferredPresentationStyle uiPreferredPresentationStyle(WebPreferredPre
     [_fileURLs setObject:url forKey:type];
 }
 
-- (NSArray<NSURL *> *)loadedFileURLs
+- (NSArray *)loadedFileURLs
 {
     return [_fileURLs allValues];
 }
 
-- (NSArray<NSString *> *)loadedTypeIdentifiers
+- (NSArray *)loadedTypeIdentifiers
 {
     return [_fileURLs allKeys];
 }
@@ -498,7 +498,7 @@ static UIPreferredPresentationStyle uiPreferredPresentationStyle(WebPreferredPre
     // FIXME: These ivars should be refactored to be Vector<RetainPtr<Type>> instead of generic NSArrays.
     RetainPtr<NSArray> _itemProviders;
     RetainPtr<NSArray> _supportedTypeIdentifiers;
-    RetainPtr<NSArray<WebItemProviderRegistrationInfoList *>> _stagedRegistrationInfoLists;
+    RetainPtr<NSArray *> _stagedRegistrationInfoLists;
 
     Vector<RetainPtr<WebItemProviderLoadResult>> _loadResults;
     __weak id<UIDropSession> _dropSession;
@@ -523,12 +523,12 @@ static UIPreferredPresentationStyle uiPreferredPresentationStyle(WebPreferredPre
     return self;
 }
 
-- (void)updateSupportedTypeIdentifiers:(NSArray<NSString *> *)types
+- (void)updateSupportedTypeIdentifiers:(NSArray *)types
 {
     _supportedTypeIdentifiers = types;
 }
 
-- (NSArray<NSString *> *)pasteboardTypes
+- (NSArray *)pasteboardTypes
 {
     NSMutableSet<NSString *> *allTypes = [NSMutableSet set];
     NSMutableArray<NSString *> *allTypesInOrder = [NSMutableArray array];
@@ -544,12 +544,12 @@ static UIPreferredPresentationStyle uiPreferredPresentationStyle(WebPreferredPre
     return allTypesInOrder;
 }
 
-- (NSArray<__kindof NSItemProvider *> *)itemProviders
+- (NSArray *)itemProviders
 {
     return _itemProviders.get();
 }
 
-- (void)setItemProviders:(NSArray<__kindof NSItemProvider *> *)itemProviders dropSession:(id<UIDropSession>)dropSession
+- (void)setItemProviders:(NSArray *)itemProviders dropSession:(id<UIDropSession>)dropSession
 {
     itemProviders = itemProviders ?: @[ ];
     if (_itemProviders == itemProviders || [_itemProviders isEqualToArray:itemProviders])
@@ -565,7 +565,7 @@ static UIPreferredPresentationStyle uiPreferredPresentationStyle(WebPreferredPre
         _loadResults = { };
 }
 
-- (void)setItemProviders:(NSArray<__kindof NSItemProvider *> *)itemProviders
+- (void)setItemProviders:(NSArray *)itemProviders
 {
     [self setItemProviders:itemProviders dropSession:nil];
 }
@@ -617,7 +617,7 @@ static UIPreferredPresentationStyle uiPreferredPresentationStyle(WebPreferredPre
     return values.autorelease();
 }
 
-static NSArray<Class<NSItemProviderReading>> *allLoadableClasses()
+static NSArray *> *allLoadableClasses()
 {
     return @[ [PAL::getUIColorClassSingleton() class], [PAL::getUIImageClassSingleton() class], [NSURL class], [NSString class], [NSAttributedString class] ];
 }
@@ -676,7 +676,7 @@ static Class classForTypeIdentifier(NSString *typeIdentifier, NSString *&outType
     return _changeCount;
 }
 
-- (NSArray<NSURL *> *)fileUploadURLsAtIndex:(NSUInteger)index fileTypes:(NSArray<NSString *> **)outFileTypes
+- (NSArray *)fileUploadURLsAtIndex:(NSUInteger)index fileTypes:(NSArray **)outFileTypes
 {
     auto fileTypes = adoptNS([NSMutableArray new]);
     auto fileURLs = adoptNS([NSMutableArray new]);
@@ -699,7 +699,7 @@ static Class classForTypeIdentifier(NSString *typeIdentifier, NSString *&outType
     return fileURLs.autorelease();
 }
 
-- (NSArray<NSURL *> *)allDroppedFileURLs
+- (NSArray *)allDroppedFileURLs
 {
     NSMutableArray<NSURL *> *fileURLs = [NSMutableArray array];
     for (const auto& loadResult : _loadResults) {
@@ -772,13 +772,13 @@ static NSURL *linkTemporaryItemProviderFilesToDropStagingDirectory(NSURL *url, N
     return [fileManager linkItemAtURL:url toURL:destination error:nil] ? destination : nil;
 }
 
-- (NSArray<NSString *> *)typeIdentifiersToLoad:(NSItemProvider *)itemProvider
+- (NSArray *)typeIdentifiersToLoad:(NSItemProvider *)itemProvider
 {
     auto typesToLoad = adoptNS([[NSMutableOrderedSet alloc] init]);
     NSString *highestFidelitySupportedType = nil;
     NSString *highestFidelityContentType = nil;
 
-    NSArray<NSString *> *registeredTypeIdentifiers = itemProvider.registeredTypeIdentifiers;
+    NSArray *registeredTypeIdentifiers = itemProvider.registeredTypeIdentifiers;
     BOOL containsFile = itemProvider.web_containsFileURLAndFileUploadContent;
     BOOL containsFlatRTFD = [registeredTypeIdentifiers containsObject:UTTypeFlatRTFD.identifier];
     // First, search for the highest fidelity supported type or the highest fidelity generic content type.
@@ -837,7 +837,7 @@ static NSURL *linkTemporaryItemProviderFilesToDropStagingDirectory(NSURL *url, N
     BOOL foundAnyDataToLoad = NO;
     RetainPtr<WebItemProviderPasteboard> protectedSelf = self;
     for (NSItemProvider *itemProvider in _itemProviders.get()) {
-        NSArray<NSString *> *typeIdentifiersToLoad = [protectedSelf typeIdentifiersToLoad:itemProvider];
+        NSArray *typeIdentifiersToLoad = [protectedSelf typeIdentifiersToLoad:itemProvider];
         foundAnyDataToLoad |= typeIdentifiersToLoad.count;
         [loadResults addObject:[WebItemProviderLoadResult loadResultWithItemProvider:itemProvider typesToLoad:typeIdentifiersToLoad]];
     }
@@ -912,7 +912,7 @@ static NSURL *linkTemporaryItemProviderFilesToDropStagingDirectory(NSURL *url, N
     [_itemProviders enumerateObjectsUsingBlock:block];
 }
 
-- (void)stageRegistrationLists:(NSArray<WebItemProviderRegistrationInfoList *> *)lists
+- (void)stageRegistrationLists:(NSArray *)lists
 {
     ASSERT(lists.count);
     _stagedRegistrationInfoLists = lists;
@@ -923,7 +923,7 @@ static NSURL *linkTemporaryItemProviderFilesToDropStagingDirectory(NSURL *url, N
     _stagedRegistrationInfoLists = nil;
 }
 
-- (NSArray<WebItemProviderRegistrationInfoList *> *)takeRegistrationLists
+- (NSArray *)takeRegistrationLists
 {
     return _stagedRegistrationInfoLists.autorelease();
 }

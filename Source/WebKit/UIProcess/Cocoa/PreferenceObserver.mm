@@ -67,9 +67,9 @@
         RetainPtr<NSString> encodedString;
 
         if (newValue) {
-            NSError *e = nil;
-            auto data = retainPtr([NSKeyedArchiver archivedDataWithRootObject:newValue.get() requiringSecureCoding:YES error:&e]);
-            ASSERT(!e);
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+            auto data = retainPtr([NSKeyedArchiver archivedDataWithRootObject:newValue.get()]);
+ALLOW_DEPRECATED_DECLARATIONS_END
             encodedString = [data base64EncodedStringWithOptions:0];
         }
 

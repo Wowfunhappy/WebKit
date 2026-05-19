@@ -94,8 +94,26 @@ size_t CryptoKeyEC::keySizeInBits() const
 
 bool CryptoKeyEC::platformSupportedCurve(NamedCurve curve)
 {
-    return curve == NamedCurve::P256 || curve == NamedCurve::P384 || curve == NamedCurve::P521;
+    // 10.9 backport: enable NIST EC curves via our pal::ECKey109 wrapper around
+    // CCECCryptor* (10.9+). All three NIST curves (P-256, P-384, P-521) are
+    // supported by libcommonCrypto on 10.9. Other primitives like JWK import/
+    // export still go through the Swift CryptoKit path (asserts) — only basic
+    // generateKey + ECDH deriveBits work for now.
+    UNUSED_PARAM(curve);
+    return true;
 }
+
+#if defined(CLANG_WEBKIT_BRANCH)
+static pal::ECCurve namedCurveTo109Curve(CryptoKeyEC::NamedCurve curve)
+{
+    switch (curve) {
+    case CryptoKeyEC::NamedCurve::P256: return pal::ECCurve::p256();
+    case CryptoKeyEC::NamedCurve::P384: return pal::ECCurve::p384();
+    case CryptoKeyEC::NamedCurve::P521: return pal::ECCurve::p521();
+    }
+    return pal::ECCurve::p256();
+}
+#endif
 
 #if !defined(CLANG_WEBKIT_BRANCH)
 
@@ -127,11 +145,16 @@ std::optional<CryptoKeyPair> CryptoKeyEC::platformGeneratePair(CryptoAlgorithmId
     auto publicKey = CryptoKeyEC::create(identifier, curve, CryptoKeyType::Public, toPlatformKey(privateKey->platformKey()->toPub()), true, usages);
     return CryptoKeyPair { WTF::move(publicKey), WTF::move(privateKey) };
 #else
-    UNUSED_PARAM(identifier);
-    UNUSED_PARAM(curve);
-    UNUSED_PARAM(extractable);
-    UNUSED_PARAM(usages);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: generate via CCECCryptorGeneratePair through pal::ECKey109 wrapper.
+    auto privKey = pal::ECKey109::generate(namedCurveTo109Curve(curve));
+    if (!privKey)
+        return std::nullopt;
+    auto pubKey = privKey->toPub();
+    if (!pubKey)
+        return std::nullopt;
+    auto privateKey = CryptoKeyEC::create(identifier, curve, CryptoKeyType::Private, WTF::move(privKey), extractable, usages);
+    auto publicKey = CryptoKeyEC::create(identifier, curve, CryptoKeyType::Public, WTF::move(pubKey), true, usages);
+    return CryptoKeyPair { WTF::move(publicKey), WTF::move(privateKey) };
 #endif
 }
 

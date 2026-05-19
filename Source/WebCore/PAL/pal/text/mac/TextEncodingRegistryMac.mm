@@ -35,23 +35,12 @@ namespace PAL {
 
 CFStringEncoding webDefaultCFStringEncoding()
 {
-    UInt32 script = 0;
-    UInt32 region = 0;
-    ::TextEncoding encoding;
-    OSErr err;
-    ItemCount dontcare;
-
-    // FIXME: Switch away from using Script Manager, as it does not support some languages newly added in macOS.
-    // <rdar://problem/4433165> Need API that can get preferred web (and mail) encoding(s) w/o region code.
-    // Alternatively, we could have our own table of preferred encodings in WebKit.
-    //
-    // Also, language changes do not apply to _CFStringGetUserDefaultEncoding() until re-login, which could be very confusing.
-
-    _CFStringGetUserDefaultEncoding(&script, &region);
-    err = TECGetWebTextEncodings(region, &encoding, 1, &dontcare);
-    if (err != noErr)
-        encoding = kCFStringEncodingISOLatin1;
-    return encoding;
+    // 10.9 backport: on Mavericks, _CFStringGetUserDefaultEncoding() + TECGetWebTextEncodings()
+    // typically returns kCFStringEncodingMacRoman, which causes UTF-8 HTTP responses to be
+    // misinterpreted (every multi-byte UTF-8 sequence becomes garbage; ASCII is fine but
+    // anything else, including HTML <meta> charset hints, gets mangled). The modern web is
+    // UTF-8; default to it.
+    return kCFStringEncodingUTF8;
 }
 
 } // namespace WebCore

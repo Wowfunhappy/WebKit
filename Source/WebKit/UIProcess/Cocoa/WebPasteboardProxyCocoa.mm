@@ -963,7 +963,9 @@ void WebPasteboardProxy::writeWebArchiveToPasteBoard(IPC::Connection& connection
 
         RefPtr buffer = SharedBuffer::create(data.get());
         WebPasteboardProxy::singleton().setPasteboardBufferForType(connection.get(), pasteboardName, String { WebCore::WebArchivePboardType }, RefPtr { buffer }, pageIdentifier, [connection, pasteboardName, pageIdentifier, buffer, completionHandler = WTF::move(completionHandler)](auto) mutable {
-            WebPasteboardProxy::singleton().setPasteboardBufferForType(connection.get(), pasteboardName, UTTypeWebArchive.identifier, WTF::move(buffer), pageIdentifier, WTF::move(completionHandler));
+            // 10.9 backport: +[UTType webArchive] is 11.0+; use literal.
+            NSString *webArchiveId = [UTType respondsToSelector:@selector(webArchive)] ? UTTypeWebArchive.identifier : @"com.apple.webarchive";
+            WebPasteboardProxy::singleton().setPasteboardBufferForType(connection.get(), pasteboardName, webArchiveId, WTF::move(buffer), pageIdentifier, WTF::move(completionHandler));
         });
     });
 }

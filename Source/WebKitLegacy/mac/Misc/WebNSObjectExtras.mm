@@ -63,7 +63,7 @@ static bool returnTypeIsObject(NSInvocation *invocation)
     [invocation setTarget:target];
     [invocation performSelectorOnMainThread:@selector(_webkit_invokeAndHandleException:) withObject:self waitUntilDone:YES];
     if (exception) {
-        auto exceptionToThrow = std::exchange(exception, nil);
+        auto exceptionToThrow = std::exchange(exception, RetainPtr<id> { });
         @throw exceptionToThrow.autorelease();
     } else if (returnTypeIsObject(invocation)) {
         // _webkit_invokeAndHandleException retained the return value on the main thread.

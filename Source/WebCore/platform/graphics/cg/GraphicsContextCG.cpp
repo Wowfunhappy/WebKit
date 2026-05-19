@@ -182,7 +182,12 @@ static void setCGContextPath(CGContextRef context, const Path& path)
 
 static void drawPathWithCGContext(CGContextRef context, CGPathDrawingMode drawingMode, const Path& path)
 {
-    CGContextDrawPathDirect(context, drawingMode, path.platformPath(), nullptr);
+    // 10.9 backport: CGContextDrawPathDirect is a 10.13+ private API, polyfilled
+    // as a no-op stub on Mavericks. SVG <path> elements (octicons, github file
+    // icons, etc.) silently failed to render. Use the standard public CG path
+    // API instead.
+    CGContextAddPath(context, path.platformPath());
+    CGContextDrawPath(context, drawingMode);
 }
 
 static RenderingMode renderingModeForCGContext(CGContextRef cgContext, GraphicsContextCG::CGContextSource source)

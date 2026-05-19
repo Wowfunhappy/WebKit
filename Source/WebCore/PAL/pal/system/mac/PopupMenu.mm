@@ -52,7 +52,8 @@ void popUpMenu(NSMenu *menu, NSPoint location, float width, NSView *view, int se
 
     // These numbers were extracted from visual inspection as the menu animates shut.
     NSSize labelOffset = NSMakeSize(11, 1);
-    if (menu.userInterfaceLayoutDirection == NSUserInterfaceLayoutDirectionRightToLeft)
+    /* userInterfaceLayoutDirection added in macOS 10.11 */
+    if (NO)
         labelOffset = NSMakeSize(24, 1);
 
     auto options = adoptNS([@{

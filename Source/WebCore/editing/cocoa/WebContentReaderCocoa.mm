@@ -26,6 +26,9 @@
 #import "config.h"
 #import "WebContentReader.h"
 
+#if PLATFORM(MAC)
+#import "../platform/mac/UTTypeIdentifiers.h"
+#endif
 #import "ArchiveResource.h"
 #import "Blob.h"
 #import "BlobURL.h"
@@ -235,7 +238,11 @@ static bool shouldReplaceRichContentWithAttachments()
 
 static String mimeTypeFromContentType(const String& contentType)
 {
+#if PLATFORM(MAC)
+    if (contentType == String(utTypeVCardId())) {
+#else
     if (contentType == String(UTTypeVCard.identifier)) {
+#endif
         // CoreServices erroneously reports that "public.vcard" maps to "text/directory", rather
         // than either "text/vcard" or "text/x-vcard". Work around this by special casing the
         // "public.vcard" UTI type. See <rdar://problem/49478229> for more detail.
@@ -289,7 +296,10 @@ static Ref<DocumentFragment> createFragmentForImageAttachment(LocalFrame& frame,
     }
     return fragment;
 #else
-    UNUSED_PARAM(blob);
+    UNUSED_PARAM(frame);
+    UNUSED_PARAM(buffer);
+    UNUSED_PARAM(contentType);
+    UNUSED_PARAM(preferredSize);
     return document.createDocumentFragment();
 #endif
 }
@@ -832,11 +842,19 @@ static Ref<HTMLElement> attachmentForFilePath(LocalFrame& frame, const String& p
     String contentType = typeForAttachmentElement(explicitContentType);
     if (contentType.isEmpty()) {
         if (isDirectory)
+#if PLATFORM(MAC)
+            contentType = utTypeDirectoryId();
+#else
             contentType = UTTypeDirectory.identifier;
+#endif
         else {
             contentType = File::contentTypeForFile(path);
             if (contentType.isEmpty())
+#if PLATFORM(MAC)
+                contentType = utTypeDataId();
+#else
                 contentType = UTTypeData.identifier;
+#endif
         }
     }
 

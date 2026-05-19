@@ -27,7 +27,9 @@
 #pragma once
 
 #include <WebCore/Icon.h>
+#define RENDERTHEMECOCOA_BEING_INCLUDED
 #include <WebCore/RenderTheme.h>
+#undef RENDERTHEMECOCOA_BEING_INCLUDED
 #include <wtf/Platform.h>
 #include <wtf/RetainPtr.h>
 

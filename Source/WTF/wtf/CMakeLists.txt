@@ -177,6 +177,7 @@ set(WTF_PUBLIC_HEADERS
     LoggingHashSet.h
     LoggingHashTraits.h
     MachSendRight.h
+    MachSendRightAnnotated.h
     MainThread.h
     MainThreadData.h
     MainThreadDispatcher.h
@@ -301,6 +302,7 @@ set(WTF_PUBLIC_HEADERS
     SequesteredAllocator.h
     SequesteredAutomaticThread.h
     SequesteredImmortalHeap.h
+    SequenceLocked.h
     SequesteredMalloc.h
     SetForScope.h
     SharedTask.h
@@ -344,6 +346,7 @@ set(WTF_PUBLIC_HEADERS
     StructDump.h
     SuspendableWorkQueue.h
     SwiftBridging.h
+    SwiftCXXThunk.h
     SynchronizedFixedQueue.h
     SystemFree.h
     SystemMalloc.h
@@ -704,44 +707,60 @@ elseif (APPLE)
     )
 
     list(APPEND WTF_PUBLIC_HEADERS
+        cf/CFTypeTraits.h
         cf/CFURLExtras.h
         cf/NotificationCenterCF.h
         cf/TypeCastsCF.h
         cf/VectorCF.h
 
+        cocoa/AuditToken.h
         cocoa/CrashReporter.h
         cocoa/Entitlements.h
+        cocoa/NSStringExtras.h
         cocoa/NSURLExtras.h
         cocoa/RuntimeApplicationChecksCocoa.h
         cocoa/SoftLinking.h
+        cocoa/SpanCocoa.h
         cocoa/TollFreeBridging.h
         cocoa/TypeCastsCocoa.h
         cocoa/VectorCocoa.h
 
         darwin/DispatchExtras.h
         darwin/DispatchOSObject.h
+        darwin/LibraryPathDiagnostics.h
         darwin/NetworkOSObject.h
         darwin/OSLogPrintStream.h
+        darwin/TypeCastsOSObject.h
         darwin/WeakLinking.h
         darwin/XPCExtras.h
+        darwin/XPCObjectPtr.h
 
         spi/cf/CFBundleSPI.h
+        spi/cf/CFPrivSPI.h
+        spi/cf/CFRunLoopSPI.h
         spi/cf/CFStringSPI.h
 
+        spi/cocoa/BOMSPI.h
         spi/cocoa/CFXPCBridgeSPI.h
         spi/cocoa/CrashReporterClientSPI.h
+        spi/cocoa/IOReturnSPI.h
         spi/cocoa/IOSurfaceSPI.h
+        spi/cocoa/IOTypesSPI.h
         spi/cocoa/MachVMSPI.h
         spi/cocoa/NSLocaleSPI.h
         spi/cocoa/NSObjCRuntimeSPI.h
+        spi/cocoa/OSLogSPI.h
         spi/cocoa/SecuritySPI.h
+        spi/cocoa/XTSPI.h
         spi/cocoa/objcSPI.h
 
-        spi/darwin/ReasonSPI.h
         spi/darwin/CodeSignSPI.h
         spi/darwin/DataVaultSPI.h
+        spi/darwin/DispatchSPI.h
+        spi/darwin/MemoryStatusSPI.h
         spi/darwin/OSVariantSPI.h
         spi/darwin/ProcessMemoryFootprint.h
+        spi/darwin/ReasonSPI.h
         spi/darwin/SandboxSPI.h
         spi/darwin/XPCSPI.h
         spi/darwin/dyldSPI.h
@@ -750,6 +769,15 @@ elseif (APPLE)
 
         text/cf/StringConcatenateCF.h
         text/cf/TextBreakIteratorCF.h
+        text/cf/TextBreakIteratorCFCharacterCluster.h
+        text/cf/TextBreakIteratorCFStringTokenizer.h
+
+        text/cocoa/ContextualizedCFString.h
+        text/cocoa/ContextualizedNSString.h
+
+        posix/SocketPOSIX.h
+
+        unix/UnixFileDescriptor.h
     )
 elseif (CMAKE_SYSTEM_NAME MATCHES "Linux")
     list(APPEND WTF_PUBLIC_HEADERS

@@ -39,18 +39,15 @@
 
 namespace WebCore {
 
+// 10.9 backport: route ECDH derive through pal::ECKey109::sharedSecret which
+// uses CCECCryptorComputeSharedSecret (10.9+).
 static std::optional<Vector<uint8_t>> platformDeriveBitsCryptoKit(const CryptoKeyEC& baseKey, const CryptoKeyEC& publicKey)
 {
-#if !defined(CLANG_WEBKIT_BRANCH)
-    auto rv = baseKey.platformKey()->deriveBits(publicKey.platformKey());
-    if (rv.errorCode != Cpp::ErrorCodes::Success)
+    const auto& privKey = baseKey.platformKey();   // unique_ptr<pal::ECKey109>
+    const auto& pubKey = publicKey.platformKey();
+    if (!privKey || !pubKey)
         return std::nullopt;
-    return std::make_optional(WTF::move(rv.result));
-#else
-    UNUSED_PARAM(baseKey);
-    UNUSED_PARAM(publicKey);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
+    return privKey->sharedSecret(*pubKey);
 }
 
 std::optional<Vector<uint8_t>> CryptoAlgorithmECDH::platformDeriveBits(const CryptoKeyEC& baseKey, const CryptoKeyEC& publicKey)

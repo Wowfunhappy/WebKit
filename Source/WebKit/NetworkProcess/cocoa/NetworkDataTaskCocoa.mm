@@ -62,6 +62,16 @@
 
 namespace WebKit {
 
+// 10.9 backport: NSURLSessionTask.taskIdentifier on 10.9 starts from 0, but the
+// WTF::HashMap<uint64_t, ...> used as dataTaskMap treats key 0 as the empty-slot
+// sentinel and key UINT64_MAX as the deleted sentinel. Shift by 1 so keys start
+// at 1 (and UINT64_MAX - 1 -> UINT64_MAX never happens since NSURLSession does not
+// produce that many tasks per session).
+static inline uint64_t taskIdentifierKey(NSURLSessionTask *task)
+{
+    return static_cast<uint64_t>([task taskIdentifier]) + 1;
+}
+
 #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
 
 inline static bool shouldBlockTrackersForThirdPartyCloaking(NSURLRequest *request)
@@ -85,10 +95,14 @@ inline static bool shouldBlockTrackersForThirdPartyCloaking(NSURLRequest *reques
 void enableAdvancedPrivacyProtections(NSMutableURLRequest *request, OptionSet<WebCore::AdvancedPrivacyProtections> policy)
 {
 #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
-    if (policy.contains(WebCore::AdvancedPrivacyProtections::EnhancedNetworkPrivacy))
+    // 10.9 backport: _setUseEnhancedPrivacyMode: / _setBlockTrackers: are 10.15+ SPI.
+    if (policy.contains(WebCore::AdvancedPrivacyProtections::EnhancedNetworkPrivacy)
+        && [request respondsToSelector:@selector(_setUseEnhancedPrivacyMode:)])
         request._useEnhancedPrivacyMode = YES;
 
-    if (policy.contains(WebCore::AdvancedPrivacyProtections::BaselineProtections) && shouldBlockTrackersForThirdPartyCloaking(request))
+    if (policy.contains(WebCore::AdvancedPrivacyProtections::BaselineProtections)
+        && [request respondsToSelector:@selector(_setBlockTrackers:)]
+        && shouldBlockTrackersForThirdPartyCloaking(request))
         request._blockTrackers = YES;
 #else
     UNUSED_PARAM(request);
@@ -99,6 +113,12 @@ void enableAdvancedPrivacyProtections(NSMutableURLRequest *request, OptionSet<We
 void setPCMDataCarriedOnRequest(WebCore::PrivateClickMeasurement::PcmDataCarried pcmDataCarried, NSMutableURLRequest *request)
 {
 #if ENABLE(TRACKER_DISPOSITION)
+    // 10.9 backport: _needsNetworkTrackingPrevention is 10.15+ SPI.
+    if (![request respondsToSelector:@selector(_needsNetworkTrackingPrevention)]
+        || ![request respondsToSelector:@selector(_setNeedsNetworkTrackingPrevention:)]) {
+        UNUSED_PARAM(pcmDataCarried);
+        return;
+    }
     if (request._needsNetworkTrackingPrevention || pcmDataCarried == WebCore::PrivateClickMeasurement::PcmDataCarried::PersonallyIdentifiable)
         return;
 
@@ -174,7 +194,10 @@ void NetworkDataTaskCocoa::updateFirstPartyInfoForSession(const URL& requestURL)
         return;
 
     CheckedPtr session = networkSession();
+    // 10.9 backport: -_resolvedCNAMEChain is 10.13+ SPI.
     auto cnameDomain = [this]() {
+        if (![m_task respondsToSelector:@selector(_resolvedCNAMEChain)])
+            return WebCore::RegistrableDomain { };
         if (RetainPtr lastResolvedCNAMEInChain = [[m_task _resolvedCNAMEChain] lastObject])
             return lastCNAMEDomain(lastResolvedCNAMEInChain.get());
         return WebCore::RegistrableDomain { };
@@ -230,13 +253,42 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
     ASSERT(nsRequest);
     RetainPtr<NSMutableURLRequest> mutableRequest = adoptNS([nsRequest.get() mutableCopy]);
 
-    if (parameters.isMainFrameNavigation
-        || parameters.hadMainFrameMainResourcePrivateRelayed
-        || request.url().host() == request.firstPartyForCookies().host()) {
+#if PLATFORM(MAC)
+    // 10.9 backport: this build has no WebP decoder, so any image URL that resolves to a
+    // .webp body never paints. The BBC's CDN is the most visible offender — its image paths
+    // all end in `.jpg.webp` or `.png.webp`. Empirically, just stripping `.webp` returns the
+    // underlying JPEG/PNG for `/ace/...` and `/images/...` paths, but `/news/{size}/...` only
+    // has a working JPEG variant under `/news/raw/...`. Rewrite both patterns before the
+    // request goes out.
+    if (NSURL *originalURL = [mutableRequest URL]) {
+        NSString *host = [originalURL host];
+        NSString *path = [originalURL path];
+        if (host && path && [host isEqualToString:@"ichef.bbci.co.uk"]
+            && ([path hasSuffix:@".jpg.webp"] || [path hasSuffix:@".png.webp"])) {
+            NSString *rewritten = [path substringToIndex:[path length] - 5];
+            if ([rewritten hasPrefix:@"/news/"]) {
+                NSUInteger sizeStart = [@"/news/" length];
+                NSRange afterSize = [rewritten rangeOfString:@"/" options:0 range:NSMakeRange(sizeStart, [rewritten length] - sizeStart)];
+                if (afterSize.location != NSNotFound)
+                    rewritten = [NSString stringWithFormat:@"/news/raw%@", [rewritten substringFromIndex:afterSize.location]];
+            }
+            NSURLComponents *components = [NSURLComponents componentsWithURL:originalURL resolvingAgainstBaseURL:NO];
+            components.path = rewritten;
+            if (NSURL *newURL = components.URL)
+                [mutableRequest setURL:newURL];
+        }
+    }
+#endif
+
+    // 10.9 backport: _setPrivacyProxy* are 10.15+ SPI on NSMutableURLRequest.
+    if ((parameters.isMainFrameNavigation
+            || parameters.hadMainFrameMainResourcePrivateRelayed
+            || request.url().host() == request.firstPartyForCookies().host())
+        && [mutableRequest respondsToSelector:@selector(_setPrivacyProxyFailClosedForUnreachableNonMainHosts:)]) {
         [mutableRequest _setPrivacyProxyFailClosedForUnreachableNonMainHosts:YES];
     }
 
-    if (!parameters.allowPrivacyProxy)
+    if (!parameters.allowPrivacyProxy && [mutableRequest respondsToSelector:@selector(_setProhibitPrivacyProxy:)])
         [mutableRequest _setProhibitPrivacyProxy:YES];
 
     auto advancedPrivacyProtections = parameters.advancedPrivacyProtections;
@@ -248,20 +300,28 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
 #endif
 
 #if HAVE(STRICT_FAIL_CLOSED)
-    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::StrictFailClosed))
+    // 10.9 backport: _setPrivacyProxyStrictFailClosed: is 10.15+ SPI.
+    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::StrictFailClosed)
+        && [mutableRequest respondsToSelector:@selector(_setPrivacyProxyStrictFailClosed:)])
         [mutableRequest _setPrivacyProxyStrictFailClosed:YES];
 #endif
 
-    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::FailClosedForUnreachableHosts))
+    // 10.9 backport: the _setPrivacyProxy* / _setWebSearchContent / _setAllowPrivateAccessTokensForThirdParty
+    // SPIs are all 10.15+. Guard each call.
+    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::FailClosedForUnreachableHosts)
+        && [mutableRequest respondsToSelector:@selector(_setPrivacyProxyFailClosedForUnreachableHosts:)])
         [mutableRequest _setPrivacyProxyFailClosedForUnreachableHosts:YES];
 
-    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::FailClosedForAllHosts))
+    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::FailClosedForAllHosts)
+        && [mutableRequest respondsToSelector:@selector(_setPrivacyProxyFailClosed:)])
         [mutableRequest _setPrivacyProxyFailClosed:YES];
 
-    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::WebSearchContent))
+    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::WebSearchContent)
+        && [mutableRequest respondsToSelector:@selector(_setWebSearchContent:)])
         [mutableRequest _setWebSearchContent:YES];
 
-    if (parameters.request.isPrivateTokenUsageByThirdPartyAllowed())
+    if (parameters.request.isPrivateTokenUsageByThirdPartyAllowed()
+        && [mutableRequest respondsToSelector:@selector(_setAllowPrivateAccessTokensForThirdParty:)])
         [mutableRequest _setAllowPrivateAccessTokensForThirdParty:YES];
 
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES) && defined(CFN_COOKIE_ACCEPTS_POLICY_PARTITION) && CFN_COOKIE_ACCEPTS_POLICY_PARTITION
@@ -292,6 +352,28 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         return;
     }
 
+    // 10.9 backport: NSURLSession on Mavericks doesn't auto-inject Cookie headers
+    // from configuration.HTTPCookieStorage even when cookies are stored. Without
+    // Cookie headers, github's tree-commit-info / latest-commit / refs / etc
+    // endpoints reject with HTTP 400. Manually inject cookies whenever the
+    // request doesn't already carry a Cookie header — covers fetch() requests
+    // whose storedCredentialsPolicy may not be Use even for same-origin endpoints.
+    if (parameters.storedCredentialsPolicy != WebCore::StoredCredentialsPolicy::DoNotUse) {
+        NSString *existingCookie = [nsRequest valueForHTTPHeaderField:@"Cookie"];
+        if (existingCookie.length == 0) {
+            NSHTTPCookieStorage *cookieStorage = m_sessionWrapper->session.get().configuration.HTTPCookieStorage;
+            NSArray *cookies = [cookieStorage cookiesForURL:[nsRequest URL]];
+            if (cookies.count > 0) {
+                NSDictionary *cookieHeaders = [NSHTTPCookie requestHeaderFieldsWithCookies:cookies];
+                NSString *cookieHeader = [cookieHeaders objectForKey:@"Cookie"];
+                if (cookieHeader.length > 0) {
+                    NSMutableURLRequest *mutableReq = [nsRequest mutableCopy];
+                    [mutableReq setValue:cookieHeader forHTTPHeaderField:@"Cookie"];
+                    nsRequest = adoptNS(mutableReq);
+                }
+            }
+        }
+    }
     m_task = [m_sessionWrapper->session dataTaskWithRequest:nsRequest.get()];
 
 #if HAVE(CFNETWORK_HOSTOVERRIDE)
@@ -315,19 +397,30 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         ASSERT(!m_sessionWrapper->session.get().configuration.URLCredentialStorage);
         break;
     case WebCore::StoredCredentialsPolicy::DoNotUse:
-        RetainPtr<NSURLSessionConfiguration> effectiveConfiguration = m_sessionWrapper->session.get().configuration;
-        effectiveConfiguration.get().URLCredentialStorage = nil;
-        [m_task _adoptEffectiveConfiguration:effectiveConfiguration.get()];
+        // 10.9 backport: -[NSURLSessionDataTask _adoptEffectiveConfiguration:] is a 10.10+
+        // SPI. On 10.9 it raises NSInvalidArgumentException and tears down NetworkProcess
+        // (taking out subresource loads — every CDN asset request fails, which is what
+        // makes pages like github render blank). Skip the per-task config override; we
+        // lose per-request URLCredentialStorage=nil isolation, which is acceptable.
+        if ([m_task respondsToSelector:@selector(_adoptEffectiveConfiguration:)]) {
+            RetainPtr<NSURLSessionConfiguration> effectiveConfiguration = m_sessionWrapper->session.get().configuration;
+            effectiveConfiguration.get().URLCredentialStorage = nil;
+            [m_task _adoptEffectiveConfiguration:effectiveConfiguration.get()];
+        }
         break;
     };
 
-    RELEASE_ASSERT(!m_sessionWrapper->dataTaskMap.contains([m_task taskIdentifier]));
-    m_sessionWrapper->dataTaskMap.add([m_task taskIdentifier], this);
+    RELEASE_ASSERT(!m_sessionWrapper->dataTaskMap.contains(taskIdentifierKey(m_task.get())));
+    m_sessionWrapper->dataTaskMap.add(taskIdentifierKey(m_task.get()), this);
     LOG(NetworkSession, "%lu Creating NetworkDataTask with URL %s", (unsigned long)[m_task taskIdentifier], [nsRequest URL].absoluteString.UTF8String);
 
     if (parameters.shouldPreconnectOnly == PreconnectOnly::Yes) {
 #if ENABLE(SERVER_PRECONNECT)
-        m_task.get()._preconnect = true;
+        // 10.9 backport: -_preconnect is 10.11+. Without it, the task simply
+        // executes as a regular request — acceptable since preconnect is just
+        // an optimization.
+        if ([m_task respondsToSelector:@selector(set_preconnect:)])
+            m_task.get()._preconnect = true;
 #else
         ASSERT_NOT_REACHED();
 #endif
@@ -345,7 +438,8 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
     }
 
     if (WebCore::ResourceRequest::resourcePrioritiesEnabled())
-        m_task.get().priority = toNSURLSessionTaskPriority(request.priority());
+        if ([m_task.get() respondsToSelector:@selector(setPriority:)])
+            [m_task.get() setValue:@(toNSURLSessionTaskPriority(request.priority())) forKey:@"priority"];
 
     updateTaskWithFirstPartyForSameSiteCookies(m_task.get(), request);
 
@@ -362,7 +456,7 @@ NetworkDataTaskCocoa::~NetworkDataTaskCocoa()
 
     if (m_task && m_sessionWrapper) {
         auto& map = m_sessionWrapper->dataTaskMap;
-        auto iterator = map.find([m_task taskIdentifier]);
+        auto iterator = map.find(taskIdentifierKey(m_task.get()));
         RELEASE_ASSERT(iterator != map.end());
         ASSERT(!iterator->value.get());
         map.remove(iterator);
@@ -410,7 +504,11 @@ void NetworkDataTaskCocoa::didReceiveData(const WebCore::SharedBuffer& data)
 {
     WTFEmitSignpost(m_task.get(), DataTask, "received %zd bytes", data.size());
 
-    setBytesTransferredOverNetwork([m_task _countOfBytesReceivedEncoded]);
+    // 10.9 backport: -_countOfBytesReceivedEncoded is 10.13+.
+    if ([m_task respondsToSelector:@selector(_countOfBytesReceivedEncoded)])
+        setBytesTransferredOverNetwork([m_task _countOfBytesReceivedEncoded]);
+    else
+        setBytesTransferredOverNetwork(data.size());
 
     if (RefPtr client = m_client.get())
         client->didReceiveData(data);
@@ -422,11 +520,30 @@ void NetworkDataTaskCocoa::didReceiveResponse(WebCore::ResourceResponse&& respon
     if (isTopLevelNavigation())
         updateFirstPartyInfoForSession(response.url());
 #if ENABLE(NETWORK_ISSUE_REPORTING)
-    else if (NetworkIssueReporter::shouldReport(retainPtr([m_task _incompleteTaskMetrics]).get())) {
+    // 10.9 backport: -_incompleteTaskMetrics is 10.12+.
+    else if ([m_task respondsToSelector:@selector(_incompleteTaskMetrics)]
+        && NetworkIssueReporter::shouldReport(retainPtr([m_task _incompleteTaskMetrics]).get())) {
         if (CheckedPtr session = networkSession())
             session->reportNetworkIssue(*m_webPageProxyID, firstRequest().url());
     }
 #endif
+
+    // 10.9 backport: NSURLSession on Mavericks doesn't auto-store Set-Cookie
+    // from responses into configuration.HTTPCookieStorage, mirroring its
+    // failure to inject Cookie headers on requests. Manually extract Set-Cookie
+    // here so subsequent requests pick them up via the cookie injection path.
+    {
+        NSURLResponse *nsResponse = [m_task response];
+        if ([nsResponse isKindOfClass:[NSHTTPURLResponse class]]) {
+            NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)nsResponse;
+            NSHTTPCookieStorage *cookieStorage = m_sessionWrapper->session.get().configuration.HTTPCookieStorage;
+            if (cookieStorage) {
+                NSArray<NSHTTPCookie *> *cookies = [NSHTTPCookie cookiesWithResponseHeaderFields:[httpResponse allHeaderFields] forURL:[httpResponse URL]];
+                if (cookies.count > 0)
+                    [cookieStorage setCookies:cookies forURL:[httpResponse URL] mainDocumentURL:nil];
+            }
+        }
+    }
     NetworkDataTask::didReceiveResponse(WTF::move(response), negotiatedLegacyTLS, privateRelayed, WebCore::IPAddress::fromString(lastRemoteIPAddress(m_task.get())), WTF::move(completionHandler));
 }
 
@@ -592,6 +709,15 @@ String NetworkDataTaskCocoa::suggestedFilename() const
 
 void NetworkDataTaskCocoa::cancel()
 {
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) {
+            auto u = m_task.get().originalRequest.URL.absoluteString.UTF8String ?: "";
+            fprintf(_f, "[NetworkDataTaskCocoa::cancel PID %d] task=%llu url=%.150s\n",
+                getpid(), (unsigned long long)m_task.get().taskIdentifier, u);
+            fclose(_f);
+        }
+    }
     WTFEmitSignpost(m_task.get(), DataTask, "cancel");
     [m_task cancel];
 }
@@ -703,7 +829,8 @@ void NetworkDataTaskCocoa::setPriority(WebCore::ResourceLoadPriority priority)
 {
     if (!WebCore::ResourceRequest::resourcePrioritiesEnabled())
         return;
-    m_task.get().priority = toNSURLSessionTaskPriority(priority);
+    if ([m_task.get() respondsToSelector:@selector(setPriority:)])
+        [m_task.get() setValue:@(toNSURLSessionTaskPriority(priority)) forKey:@"priority"];
 }
 
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)

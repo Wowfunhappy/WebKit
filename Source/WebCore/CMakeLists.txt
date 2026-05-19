@@ -2167,7 +2167,7 @@ if (USE_ANGLE_EGL)
     )
 elseif (USE_LIBEPOXY)
     list(APPEND WebCore_LIBRARIES Epoxy::Epoxy)
-else ()
+elseif (ENABLE_WEBGL OR ENABLE_WEBGPU)
     list(APPEND WebCore_LIBRARIES OpenGL::GLES)
 
     list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
@@ -3102,9 +3102,10 @@ list(APPEND WebCore_INTERFACE_DEPENDENCIES WebCore_CopyPrivateHeaders)
 list(APPEND WebCoreTestSupport_INTERFACE_DEPENDENCIES WebCore_CopyPrivateHeaders)
 
 WEBKIT_FRAMEWORK(WebCore)
+set_target_properties(WebCore PROPERTIES LINKER_LANGUAGE CXX)
 
 if (APPLE)
-    set_target_properties(WebCore PROPERTIES LINK_FLAGS "-weak-lxslt -sub_library libobjc -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy")
+    set_target_properties(WebCore PROPERTIES LINK_FLAGS "-weak-lxslt -sub_library libobjc -undefined dynamic_lookup -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy")
 endif ()
 
 # The -ftree-sra optimization (implicit with -O2) causes crashes when
@@ -3129,8 +3130,9 @@ list(APPEND WebCoreTestSupport_PRIVATE_INCLUDE_DIRECTORIES ${WebCore_PRIVATE_INC
 list(APPEND WebCoreTestSupport_SYSTEM_INCLUDE_DIRECTORIES ${WebCore_SYSTEM_INCLUDE_DIRECTORIES})
 
 WEBKIT_LIBRARY(WebCoreTestSupport)
+set_target_properties(WebCoreTestSupport PROPERTIES LINKER_LANGUAGE CXX)
 
 if (${WebCore_LIBRARY_TYPE} MATCHES "SHARED")
-    set_target_properties(WebCore PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
+    set_target_properties(WebCore PROPERTIES SOVERSION "A")
     install(TARGETS WebCore DESTINATION "${LIB_INSTALL_DIR}")
 endif ()

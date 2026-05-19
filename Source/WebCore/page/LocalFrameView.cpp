@@ -6483,18 +6483,24 @@ bool LocalFrameView::handleWheelEventForScrolling(const PlatformWheelEvent& whee
     if (platformWidget())
         return false;
 
-#if ENABLE(ASYNC_SCROLLING)
-    if (RefPtr scrollingCoordinator = this->scrollingCoordinator()) {
-        auto scrollingNodeID = this->scrollingNodeID();
-        if (scrollingNodeID && scrollingCoordinator->coordinatesScrollingForFrameView(*this)) {
-            auto result = scrollingCoordinator->handleWheelEventForScrolling(wheelEvent, *scrollingNodeID, gestureState);
-            if (!result.needsMainThreadProcessing())
-                return result.wasHandled;
+    // 10.9 backport: skip the async scrolling-coordinator path. WebContent's
+    // RemoteScrollingCoordinator claims to handle the wheel async (returning
+    // needsMainThreadProcessing=false) by sending scrolling-tree updates to
+    // UIProcess, but on 10.9 the UIProcess RemoteScrollingTree doesn't actually
+    // commit the scroll (display-link mechanism isn't fully wired up), so the
+    // page never scrolls. ScrollableArea::handleWheelEventForScrolling delegates
+    // to the same broken pipeline. So just synchronously update scroll position
+    // here using the same logic as the delegatesScrollingToNativeView branch.
+    {
+        ScrollPosition oldPosition = scrollPosition();
+        ScrollPosition newPosition = oldPosition - IntSize(wheelEvent.deltaX(), wheelEvent.deltaY());
+        if (oldPosition != newPosition) {
+            ScrollView::scrollTo(newPosition);
+            scrollPositionChanged(oldPosition, scrollPosition());
+            didChangeScrollOffset();
         }
+        return true;
     }
-#endif
-
-    return ScrollableArea::handleWheelEventForScrolling(wheelEvent, gestureState);
 }
 
 bool LocalFrameView::isVerticalDocument() const

@@ -23,6 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// _WKUserContentFilter class is excluded from build for this backport.
+// Guard the class extension to avoid "undefined class" errors.
+#if 0
+
 #import <WebKit/_WKUserContentFilter.h>
 
 #import "APIContentRuleList.h"
@@ -35,3 +39,5 @@
     RetainPtr<WKContentRuleList> _contentRuleList;
 }
 @end
+
+#endif

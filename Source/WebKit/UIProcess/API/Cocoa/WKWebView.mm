@@ -89,9 +89,10 @@
 #import "WKFormInfoInternal.h"
 #import "WKFrameInfoInternal.h"
 #import "WKHistoryDelegatePrivate.h"
-#import "WKIntelligenceReplacementTextEffectCoordinator.h"
-#import "WKIntelligenceSmartReplyTextEffectCoordinator.h"
-#import "WKIntelligenceTextEffectCoordinator.h"
+// Apple Intelligence text effects not available on 10.9
+// #import "WKIntelligenceReplacementTextEffectCoordinator.h"
+// #import "WKIntelligenceSmartReplyTextEffectCoordinator.h"
+// #import "WKIntelligenceTextEffectCoordinator.h"
 #import "WKJSHandleInternal.h"
 #import "WKLayoutMode.h"
 #import "WKNSData.h"
@@ -110,7 +111,9 @@
 #import "WKTextExtractionUtilities.h"
 #import "WKUIDelegate.h"
 #import "WKUIDelegateInternal.h"
+#if PLATFORM(IOS_FAMILY)
 #import "WKUIScrollEdgeEffect.h"
+#endif
 #import "WKUserContentControllerInternal.h"
 #import "WKWebViewConfigurationInternal.h"
 #import "WKWebViewContentProvider.h"
@@ -274,6 +277,13 @@
 #import "WKViewInternal.h"
 #import <WebCore/ColorMac.h>
 #import <pal/spi/mac/NSViewSPI.h>
+#endif
+
+// NSEdgeInsetsEqual was added in 10.10; provide a fallback for 10.9.
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101000
+static inline BOOL NSEdgeInsetsEqual(NSEdgeInsets a, NSEdgeInsets b) {
+    return a.top == b.top && a.left == b.left && a.bottom == b.bottom && a.right == b.right;
+}
 #endif
 
 #import "WebKitSwiftSoftLink.h"
@@ -1137,8 +1147,8 @@ static void addBrowsingContextControllerMethodStubsIfNeeded()
 - (void)resumeDownloadFromResumeData:(NSData *)resumeData completionHandler:(void(^)(WKDownload *))completionHandler
 {
     THROW_IF_SUSPENDED;
-    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingFromData:resumeData error:nil]);
-    [unarchiver setDecodingFailurePolicy:NSDecodingFailurePolicyRaiseException];
+    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:resumeData]);
+    [unarchiver setRequiresSecureCoding:YES];
     RetainPtr dictionary = [unarchiver decodeObjectOfClasses:[NSSet setWithObjects:[NSDictionary class], [NSArray class], [NSString class], [NSNumber class], [NSData class], [NSURL class], [NSURLRequest class], nil] forKey:@"NSKeyedArchiveRootObjectKey"];
     [unarchiver finishDecoding];
     RetainPtr path = [dictionary objectForKey:@"NSURLSessionResumeInfoLocalPath"];
@@ -1329,11 +1339,13 @@ static bool validateArgument(id argument)
     });
 
 #if ENABLE(FULLSCREEN_API)
+#if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr videoPresentationManager = _page->videoPresentationManager()) {
         videoPresentationManager->forEachSession([callbackAggregator] (auto& model, auto& interface) mutable {
             model.requestCloseAllMediaPresentations(false, [callbackAggregator] { });
         });
     }
+#endif
 
     if (RefPtr fullScreenManager = _page->fullScreenManager(); fullScreenManager && fullScreenManager->isFullScreen())
         fullScreenManager->closeWithCallback([callbackAggregator] { });
@@ -2328,6 +2340,10 @@ static RetainPtr<NSDictionary> dictionaryRepresentationForEditorState(const WebK
         @"text-color": serializationForCSS(postLayoutData.textColor).createNSString().get()
     };
 }
+
+#ifndef NSTextAlignmentNatural
+#define NSTextAlignmentNatural 4
+#endif
 
 static NSTextAlignment NODELETE nsTextAlignment(WebKit::TextAlignment alignment)
 {
@@ -3732,7 +3748,7 @@ struct WKWebViewData {
         return;
     }
 
-    auto error = Box<RetainPtr<NSError>>::create(nil);
+    auto error = Box<RetainPtr<NSError>>::create(RetainPtr<NSError> { });
 
     Ref callbackAggregator = CallbackAggregator::create([completionHandler = makeBlockPtr(completionHandler), error] {
         if (*error)
@@ -4423,7 +4439,11 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 
 - (BOOL)_canEnterFullscreen
 {
+#if ENABLE(VIDEO_PRESENTATION_MODE)
     return _page->canEnterFullscreen();
+#else
+    return NO;
+#endif
 }
 
 - (BOOL)_isPictureInPictureActive
@@ -4556,8 +4576,10 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 
 - (void)_enterFullscreen
 {
+#if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr page = _page)
         page->enterFullscreen();
+#endif
 }
 
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
@@ -4796,7 +4818,7 @@ static void convertAndAddHighlight(Vector<Ref<WebCore::SharedMemory>>& buffers, 
 - (void)_loadAlternateHTMLString:(NSString *)string baseURL:(NSURL *)baseURL forUnreachableURL:(NSURL *)unreachableURL withWebpagePreferences:(WKWebpagePreferences *)preferences
 {
     THROW_IF_SUSPENDED;
-    RetainPtr data = bridge_cast([string dataUsingEncoding:NSUTF8StringEncoding] ?: NSData.data);
+    RetainPtr data = bridge_cast((NSData *)([string dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data]));
     _page->loadAlternateHTML(WebCore::DataSegment::create(WTF::move(data)), "UTF-8"_s, baseURL, unreachableURL, preferences ? preferences->_websitePolicies.get() : nullptr);
 }
 
@@ -5393,10 +5415,12 @@ static void convertAndAddHighlight(Vector<Ref<WebCore::SharedMemory>>& buffers, 
 {
 #if ENABLE(FULLSCREEN_API)
     bool hasOpenMediaPresentations = false;
+#if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr videoPresentationManager = _page->videoPresentationManager()) {
         hasOpenMediaPresentations = videoPresentationManager->hasMode(WebCore::HTMLMediaElementEnums::VideoFullscreenModePictureInPicture)
             || videoPresentationManager->hasMode(WebCore::HTMLMediaElementEnums::VideoFullscreenModeStandard);
     }
+#endif
 
     if (!hasOpenMediaPresentations) {
         RefPtr fullScreenManager = _page->fullScreenManager();
@@ -6532,9 +6556,8 @@ static Vector<Ref<API::TargetedElementInfo>> elementsFromWKElements(NSArray<_WKT
     if (!self._isValid)
         return completionHandler(NO);
 
-    _page->playPredominantOrNowPlayingMediaSession([completionHandler = makeBlockPtr(completionHandler)](bool success) {
-        completionHandler(static_cast<BOOL>(success));
-    });
+    // playPredominantOrNowPlayingMediaSession not available without media session support
+    completionHandler(NO);
 }
 
 - (void)_pauseNowPlayingMediaSession:(void(^)(BOOL))completionHandler
@@ -6542,9 +6565,8 @@ static Vector<Ref<API::TargetedElementInfo>> elementsFromWKElements(NSArray<_WKT
     if (!self._isValid)
         return completionHandler(NO);
 
-    _page->pauseNowPlayingMediaSession([completionHandler = makeBlockPtr(completionHandler)](bool success) {
-        completionHandler(static_cast<BOOL>(success));
-    });
+    // pauseNowPlayingMediaSession not available without media session support
+    completionHandler(NO);
 }
 
 - (void)_simulateClickOverFirstMatchingTextInViewportWithUserInteraction:(NSString *)targetText completionHandler:(void(^)(BOOL))completionHandler
@@ -6781,7 +6803,7 @@ static Vector<Ref<API::TargetedElementInfo>> elementsFromWKElements(NSArray<_WKT
     Vector<String> itemTitles;
     itemTitles.reserveInitialCapacity([allItems count]);
     for (NSMenuItem *item in allItems.get()) {
-        if (!item.enabled)
+        if (![item isEnabled])
             continue;
 
         if (RetainPtr title = [item title]; [title length])
@@ -6878,14 +6900,8 @@ static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
             if (hasRules)
                 return [strongSelf _extractDebugTextWithConfigurationWithoutUpdatingFilterRules:configuration.get() assertionScope:WTF::move(assertionScope) completionHandler:completionHandler.get()];
 
-            WebKit::requestTextExtractionFilterRuleData([assertionScope = WTF::move(assertionScope), configuration = WTF::move(configuration), completionHandler = WTF::move(completionHandler), weakSelf](auto&& data) mutable {
-                RetainPtr strongSelf = weakSelf.get();
-                if (!strongSelf)
-                    return completionHandler(createEmptyTextExtractionResult().get());
-
-                strongSelf->_page->updateTextExtractionFilterRules(WTF::move(data));
-                [strongSelf _extractDebugTextWithConfigurationWithoutUpdatingFilterRules:configuration.get() assertionScope:WTF::move(assertionScope) completionHandler:completionHandler.get()];
-            });
+            // Text extraction filter rules require Apple Intelligence APIs not available on 10.9
+            [strongSelf _extractDebugTextWithConfigurationWithoutUpdatingFilterRules:configuration.get() assertionScope:WTF::move(assertionScope) completionHandler:completionHandler.get()];
         });
         return;
     }
@@ -7495,14 +7511,8 @@ static OptionSet<WebCore::DataDetectorType> NODELETE coreDataDetectorTypes(_WKTe
         if (!result)
             return completionHandler(nil);
 
-        RetainPtr rootItem = WebKit::createItem(WTF::move(result->rootItem), [strongSelf](auto& rectInRootView) -> WebCore::FloatRect {
-#if PLATFORM(IOS_FAMILY)
-            if (RetainPtr contentView = strongSelf ? strongSelf->_contentView : nil)
-                return { [strongSelf convertRect:rectInRootView fromView:contentView.get()] };
-#endif
-            return rectInRootView;
-        });
-        completionHandler(rootItem.get());
+        // Text extraction item creation - simplified for 10.9
+        completionHandler(nil);
     }];
 #endif // USE(APPLE_INTERNAL_SDK) || (!PLATFORM(WATCHOS) && !PLATFORM(APPLETV))
 }

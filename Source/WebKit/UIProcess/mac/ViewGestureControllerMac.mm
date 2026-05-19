@@ -549,11 +549,11 @@ void ViewGestureController::beginSwipeGesture(WebBackForwardListItem* targetItem
         [m_swipeShadowLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
 
         if (swipingLeft)
-            [snapshotLayerParent insertSublayer:m_swipeDimmingLayer.get() above:m_swipeLayer.get()];
+            [snapshotLayerParent insertSublayer:m_swipeDimmingLayer.get() above:(CALayer *)m_swipeLayer.get()];
         else
-            [snapshotLayerParent insertSublayer:m_swipeDimmingLayer.get() below:m_swipeLayer.get()];
+            [snapshotLayerParent insertSublayer:m_swipeDimmingLayer.get() below:(CALayer *)m_swipeLayer.get()];
 
-        [snapshotLayerParent insertSublayer:m_swipeShadowLayer.get() above:m_swipeLayer.get()];
+        [snapshotLayerParent insertSublayer:(CALayer *)m_swipeShadowLayer.get() above:(CALayer *)m_swipeLayer.get()];
     }
 }
 

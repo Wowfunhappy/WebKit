@@ -54,7 +54,7 @@ public:
     int trackIndex() const final { return m_index; }
     void setTextTrackIndex(int index) { m_index = index; }
 
-    void processChapters(RetainPtr<NSArray<AVTimedMetadataGroup *>>);
+    void processChapters(RetainPtr<NSArray *>);
 
 private:
     InbandChapterTrackPrivateAVFObjC(RetainPtr<NSLocale>, TrackID);

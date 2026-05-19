@@ -82,8 +82,26 @@ void MemoryPressureHandler::install()
     if (m_installed || timerEventSource())
         return;
 
+    // 10.9 backport: dispatch queue is initialized by the constructor via
+    // setDispatchQueue(mainDispatchQueueSingleton()), so it should be valid.
+    // Null-guard anyway to avoid the dispatch_async crash that motivated the
+    // original stub.
+    if (!m_dispatchQueue.get()) {
+        m_installed = true;
+        return;
+    }
+
     dispatch_async(m_dispatchQueue.get(), ^{
+        // 10.9 backport: DISPATCH_MEMORYPRESSURE_PROC_LIMIT_{WARN,CRITICAL}
+        // are 10.10+. The base NORMAL/WARN/CRITICAL flags exist on 10.9 — those
+        // give us system VM pressure events, which is what triggers cache purges
+        // when the user's RAM is full (the source of the OOM the user reported
+        // on 2026-05-16). Skip the proc-limit flags on Mac.
+#if PLATFORM(MAC)
+        auto memoryStatusFlags = DISPATCH_MEMORYPRESSURE_NORMAL | DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL;
+#else
         auto memoryStatusFlags = DISPATCH_MEMORYPRESSURE_NORMAL | DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL | DISPATCH_MEMORYPRESSURE_PROC_LIMIT_WARN | DISPATCH_MEMORYPRESSURE_PROC_LIMIT_CRITICAL;
+#endif
         // FIXME: This is a false positive. rdar://160931336
         SUPPRESS_RETAINPTR_CTOR_ADOPT memoryPressureEventSource() = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_MEMORYPRESSURE, 0, memoryStatusFlags, m_dispatchQueue.get()));
 
@@ -234,13 +252,14 @@ void MemoryPressureHandler::respondToMemoryPressure(Critical critical, Synchrono
 
 std::optional<MemoryPressureHandler::ReliefLogger::MemoryUsage> MemoryPressureHandler::ReliefLogger::platformMemoryUsage()
 {
-    task_vm_info_data_t vmInfo;
-    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
-    kern_return_t err = task_info(mach_task_self(), TASK_VM_INFO, (task_info_t) &vmInfo, &count);
+    /* phys_footprint not available on macOS 10.9 - use resident_size instead */
+    task_basic_info_data_t basicInfo;
+    mach_msg_type_number_t count = TASK_BASIC_INFO_COUNT;
+    kern_return_t err = task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t) &basicInfo, &count);
     if (err != KERN_SUCCESS)
         return std::nullopt;
 
-    return MemoryUsage {static_cast<size_t>(vmInfo.internal), static_cast<size_t>(vmInfo.phys_footprint)};
+    return MemoryUsage {static_cast<size_t>(basicInfo.resident_size), static_cast<size_t>(basicInfo.resident_size)};
 }
 
 } // namespace WTF

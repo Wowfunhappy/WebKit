@@ -25,7 +25,17 @@
 
 #pragma once
 
-#if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+// Forward declarations for types not available on macOS 10.9
+#if __MAC_OS_X_VERSION_MAX_ALLOWED < 101200
+@class NSFilePromiseProvider;
+#endif
+#if !ENABLE(IMAGE_ANALYSIS)
+typedef void* CocoaImageAnalyzer;
+typedef void* CocoaImageAnalyzerRequest;
+typedef void* CocoaImageAnalysis;
+#endif
+
+#if 1 // backport: #if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 #include <wtf/Platform.h>
 
@@ -582,6 +592,8 @@ public:
 #if ENABLE(DRAG_SUPPORT)
     void draggedImage(NSImage *, CGPoint endPoint, NSDragOperation);
     NSDragOperation draggingEntered(id <NSDraggingInfo>);
+    void clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation);
+
     NSDragOperation draggingUpdated(id <NSDraggingInfo>);
     void draggingExited(id <NSDraggingInfo>);
     bool prepareForDragOperation(id <NSDraggingInfo>);
@@ -592,8 +604,10 @@ public:
     NSDragOperation dragSourceOperationMask(NSDraggingSession *, NSDraggingContext);
     void draggingSessionEnded(NSDraggingSession *, NSPoint, NSDragOperation);
 
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
     NSString *fileNameForFilePromiseProvider(NSFilePromiseProvider *, NSString *fileType);
     void writeToURLForFilePromiseProvider(NSFilePromiseProvider *, NSURL *, void(^)(NSError *));
+#endif
 
     void didPerformDragOperation(bool handled);
 #endif

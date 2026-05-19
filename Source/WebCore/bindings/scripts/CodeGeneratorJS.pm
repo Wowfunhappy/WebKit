@@ -37,7 +37,7 @@ use constant FileNamePrefix => "JS";
 use Carp qw<longmess>;
 use Data::Dumper;
 use Hasher;
-use List::Util qw(uniq);
+sub uniq { my %seen; grep { !$seen{$_}++ } @_ }
 
 my $codeGenerator;
 my $writeDependencies;

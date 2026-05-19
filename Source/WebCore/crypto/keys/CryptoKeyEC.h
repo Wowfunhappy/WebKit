@@ -40,8 +40,12 @@ namespace WebCore {
 using PlatformECKeyContainer = UniqueRef<pal::ECKey>;
 }
 #else
+// 10.9 backport: pal::ECKey is Swift CryptoKit (10.15+). We provide a real
+// C++ wrapper around CCECCryptor* (10.9+) via pal/cocoa/PALECKey109.h.
+#include <pal/cocoa/PALECKey109.h>
+
 namespace WebCore {
-using PlatformECKeyContainer = std::unique_ptr<std::monostate>;
+using PlatformECKeyContainer = std::unique_ptr<pal::ECKey109>;
 }
 #endif
 #endif

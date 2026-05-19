@@ -30,7 +30,7 @@
 @class WKWebView;
 @protocol WKShareSheetDelegate;
 
-#if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+#if 1 // backport: #if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 #include <optional>
 #include <wtf/CompletionHandler.h>
@@ -50,7 +50,7 @@ enum class PickerDismissalReason : uint8_t;
 
 - (instancetype)initWithView:(WKWebView *)view;
 
-#if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+#if 1 // backport: #if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 - (void)presentWithParameters:(const WebCore::ShareDataWithParsedURL&)data inRect:(std::optional<WebCore::FloatRect>)rect completionHandler:(WTF::CompletionHandler<void(bool)>&&)completionHandler;
 

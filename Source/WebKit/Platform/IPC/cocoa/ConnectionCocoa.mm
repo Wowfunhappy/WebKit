@@ -144,6 +144,10 @@ void Connection::cancelReceiveSource()
 {
     dispatch_source_cancel(m_receiveSource.get());
     m_receiveSource = nullptr;
+    if (m_receivePollTimer) {
+        dispatch_source_cancel(m_receivePollTimer.get());
+        m_receivePollTimer = nullptr;
+    }
     m_receivePort = MACH_PORT_NULL;
 }
 
@@ -183,7 +187,7 @@ void Connection::platformOpen()
 #endif
 
 #if PLATFORM(MAC)
-        mach_port_set_attributes(mach_task_self(), m_receivePort, MACH_PORT_DENAP_RECEIVER, (mach_port_info_t)0, 0);
+    // MACH_PORT_DENAP_RECEIVER not on 10.9
 #endif
 
         m_isConnected = true;
@@ -208,9 +212,15 @@ void Connection::platformOpen()
     // Change the message queue length for the receive port.
     setMachPortQueueLength(m_receivePort, largeOutgoingMessageQueueCountThreshold);
 
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IPC PID %d isServer=%d] platformOpen creating mach_recv source on port=%u\n", getpid(), m_isServer, m_receivePort); fclose(_d);}}
     m_receiveSource = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_RECV, m_receivePort, 0, protect(m_connectionQueue->dispatchQueue()).get()));
     dispatch_source_set_event_handler(m_receiveSource.get(), [this, protectedThis = Ref { *this }] {
-        receiveSourceEventHandler();
+        // 10.9 backport: NSExceptions raised inside receiveSourceEventHandler
+        // (e.g. unrecognized-selector from 10.10+ SPI calls in handlers) bubble
+        // up to libdispatch and call std::terminate. @catch keeps the process alive.
+        @try {
+            receiveSourceEventHandler();
+        } @catch (NSException *) { }
     });
     dispatch_source_set_cancel_handler(m_receiveSource.get(), [protectedThis = Ref { *this }, receivePort = m_receivePort] {
 #if !PLATFORM(WATCHOS)
@@ -220,8 +230,27 @@ void Connection::platformOpen()
         mach_port_mod_refs(mach_task_self(), receivePort, MACH_PORT_RIGHT_RECEIVE, -1);
     });
 
+    // 10.9 backport: DISPATCH_SOURCE_TYPE_MACH_RECV does not reliably re-fire after handling
+    // a batch of messages on this OS. Add a periodic timer that polls the receive port as a
+    // fallback. Both fire on the same serial connection queue, so handlers don't race.
+    // 2026-05-19: Reduced from 50ms to 2ms. The 50ms poll meant every IPC roundtrip
+    // could wait up to 50ms when MACH_RECV was missing edges, and a single page-load
+    // fires dozens of state-change IPCs (DidStart/Commit/Finish/LayoutMilestone/etc.),
+    // accumulating multi-second user-visible delay in first paint + URL bar updates.
+    m_receivePollTimer = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, protect(m_connectionQueue->dispatchQueue()).get()));
+    dispatch_source_set_timer(m_receivePollTimer.get(), dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_MSEC), 2 * NSEC_PER_MSEC, 1 * NSEC_PER_MSEC);
+    dispatch_source_set_event_handler(m_receivePollTimer.get(), [this, protectedThis = Ref { *this }] {
+        if (!MACH_PORT_VALID(m_receivePort))
+            return;
+        @try {
+            receiveSourceEventHandler();
+        } @catch (NSException *) { }
+    });
+
     m_connectionQueue->dispatch([strongRef = Ref { *this }, this] {
+        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IPC PID %d isServer=%d] resuming receive source + poll\n", getpid(), m_isServer); fclose(_d);}}
         dispatch_resume(m_receiveSource.get());
+        dispatch_resume(m_receivePollTimer.get());
     });
 
     // Cache the audit token in case the XPC connection will be closed.
@@ -233,7 +262,26 @@ Connection::SendMessageResult Connection::sendMessage(std::unique_ptr<MachMessag
     ASSERT(message);
     ASSERT(!m_pendingOutgoingMachMessage);
     // Send the message.
-    kern_return_t kr = mach_msg(message->header(), MACH_SEND_MSG | MACH_SEND_TIMEOUT | MACH_SEND_NOTIFY, message->size(), 0, MACH_PORT_NULL, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
+    // 10.9 backport: the destination port's message queue can fill up during init bursts
+    // (default queue limit on 10.9 may be as low as 16 despite our setMachPortQueueLength call).
+    // When MACH_SEND_TIMEOUT with timeout=0 returns MACH_SEND_TIMED_OUT, the stash-and-retry
+    // path depends on DISPATCH_MACH_SEND_POSSIBLE firing, which is unreliable on 10.9.
+    // Retry inline with a short sleep so the receiver has a chance to drain. Total budget
+    // ~500ms before we fall through to the stash path.
+    kern_return_t kr;
+    int retryCount = 0;
+    const int maxRetries = 100; // 100 * 5ms = 500ms
+    do {
+        kr = mach_msg(message->header(), MACH_SEND_MSG | MACH_SEND_TIMEOUT | MACH_SEND_NOTIFY, message->size(), 0, MACH_PORT_NULL, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
+        if (kr != MACH_SEND_TIMED_OUT)
+            break;
+        usleep(5000); // 5ms wait for receiver to drain
+        ++retryCount;
+    } while (retryCount < maxRetries);
+    if (retryCount > 0) {
+        FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[Connection::sendMessage PID %d isServer=%d] mach_msg retried %d times, final kr=0x%x msg=%s\n", getpid(), m_isServer, retryCount, kr, description(message->messageName()).characters()); fclose(_d);}
+    }
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[Connection::sendMessage PID %d isServer=%d] mach_msg kr=0x%x msg=%s\n", getpid(), m_isServer, kr, description(message->messageName()).characters()); fclose(_d);}}
     switch (kr) {
     case MACH_MSG_SUCCESS:
         // The kernel has already adopted the descriptors.
@@ -323,6 +371,7 @@ bool Connection::sendOutgoingMessage(UniqueRef<Encoder>&& encoder)
 {
     ASSERT(canSendOutgoingMessages());
 
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[Connection::sendOutgoingMessage PID %d isServer=%d] this=%p sendPort=%d msg=%s destID=%llu pending=%d\n", getpid(), m_isServer, this, (int)m_sendPort, description(encoder->messageName()).characters(), (unsigned long long)encoder->destinationID(), m_pendingOutgoingMachMessage ? 1 : 0); fclose(_d);}}
     auto attachments = encoder->releaseAttachments();
     auto numberOfPortDescriptors = attachments.size();
 
@@ -607,7 +656,7 @@ static mach_msg_header_t* readFromMachPort(mach_port_t machPort, ReceiveBuffer& 
     buffer.resize(receiveBufferSize);
 
     auto* header = &reinterpretCastSpanStartTo<mach_msg_header_t>(buffer.mutableSpan());
-    kern_return_t kr = mach_msg(header, MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT | MACH_RCV_VOUCHER, 0, buffer.size(), machPort, 0, MACH_PORT_NULL);
+    kern_return_t kr = mach_msg(header, MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT , 0, buffer.size(), machPort, 0, MACH_PORT_NULL);
     if (kr == MACH_RCV_TIMED_OUT)
         return nullptr;
 
@@ -619,7 +668,7 @@ static mach_msg_header_t* readFromMachPort(mach_port_t machPort, ReceiveBuffer& 
         buffer.resize(newBufferSize);
         header = &reinterpretCastSpanStartTo<mach_msg_header_t>(buffer.mutableSpan());
 
-        kr = mach_msg(header, MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT | MACH_RCV_VOUCHER, 0, buffer.size(), machPort, 0, MACH_PORT_NULL);
+        kr = mach_msg(header, MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT , 0, buffer.size(), machPort, 0, MACH_PORT_NULL);
         ASSERT(kr != MACH_RCV_TOO_LARGE);
     }
 
@@ -643,12 +692,36 @@ static bool shouldLogIncomingMessageHandling()
 
 void Connection::receiveSourceEventHandler()
 {
-    ReceiveBuffer buffer;
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IPC PID %d isServer=%d] receiveSourceEventHandler entered\n", getpid(), m_isServer); fclose(_d);}}
 
-    ASSERT(MACH_PORT_VALID(m_receivePort));
-    mach_msg_header_t* header = readFromMachPort(m_receivePort, buffer);
-    if (!header)
-        return;
+    // 10.9 backport: drain ALL queued mach messages on each fire, with retries. dispatch_source_t
+    // MACH_RECV sometimes fails to re-fire on 10.9 after handling one message, AND the kernel
+    // may not immediately have the next message ready when we poll. Use repeated MACH_RCV_TIMEOUT
+    // reads with small timeouts so messages that arrive slightly after the handler fires still
+    // get picked up before we return.
+    int drainCount = 0;
+    int emptyRetries = 0;
+    while (true) {
+        ReceiveBuffer buffer;
+        ASSERT(MACH_PORT_VALID(m_receivePort));
+        mach_msg_header_t* header = readFromMachPort(m_receivePort, buffer);
+        if (!header) {
+            // Kernel may have another message in-flight. Give it a chance.
+            if (emptyRetries < 3) {
+                ++emptyRetries;
+                usleep(1000); // 1ms wait for kernel
+                continue;
+            }
+            if (drainCount == 0) {
+                {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IPC PID %d isServer=%d] no header (after %d retries)\n", getpid(), m_isServer, emptyRetries); fclose(_d);}}
+            } else {
+                {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IPC PID %d isServer=%d] drained %d msgs this fire (retries=%d)\n", getpid(), m_isServer, drainCount, emptyRetries); fclose(_d);}}
+            }
+            return;
+        }
+        emptyRetries = 0; // got a message, reset retry counter
+        ++drainCount;
+        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IPC PID %d isServer=%d] got msg id=%u (#%d)\n", getpid(), m_isServer, header->msgh_id, drainCount); fclose(_d);}}
 
     switch (header->msgh_id) {
     case MACH_NOTIFY_NO_SENDERS:
@@ -662,12 +735,12 @@ void Connection::receiveSourceEventHandler()
 
     case MACH_NOTIFY_SEND_ONCE:
     default:
-        return;
+        continue;
     }
 
     std::unique_ptr<Decoder> decoder = createMessageDecoder(header, buffer.mutableSpan());
     if (!decoder)
-        return;
+        continue;
 
 #if PLATFORM(MAC)
     decoder->setImportanceAssertion(ImportanceAssertion { header });
@@ -698,17 +771,19 @@ void Connection::receiveSourceEventHandler()
             // Do not initialize the send source, as there is nobody to send to.
             // Keep the receive source, so that we receive the sent messages and then
             // the NO_SENDERS notification.
-            return;
+            continue;
         }
         m_sendPort = sendRight->leakSendRight();
         initializeSendSource();
-        return;
+        continue;
     }
 
     if (shouldLogIncomingMessageHandling()) [[unlikely]]
         RELEASE_LOG(IPCMessages, "Connection::processIncomingMessage(%p) received %" PUBLIC_LOG_STRING " from port 0x%08x", this, description(decoder->messageName()).characters(), m_receivePort);
 
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IPC PID %d isServer=%d] processIncomingMessage name=%s\n", getpid(), m_isServer, description(decoder->messageName()).characters()); fclose(_d);}}
     processIncomingMessage(makeUniqueRefFromNonNullUniquePtr(WTF::move(decoder)));
+    } // end while(true) loop — 10.9 backport drain
 }
 
 IPC::Connection::Identifier Connection::identifier() const

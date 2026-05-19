@@ -64,6 +64,11 @@ public:
 
     RemoteLayerTreeNode* nodeForID(std::optional<WebCore::PlatformLayerIdentifier>) const;
     RemoteLayerTreeNode* rootNode() const { return m_rootNode.get(); }
+    // 10.9 backport: expose all known nodes so the mirror-walk hack can find
+    // tile-bearing layers that aren't reachable from rootNode->layer() (e.g.,
+    // when the wrapper's children property update never propagates from
+    // WebContent for github navigations).
+    const HashMap<WebCore::PlatformLayerIdentifier, Ref<RemoteLayerTreeNode>>& allNodesFor10_9() const { return m_nodes; }
 
     CALayer *layerForID(std::optional<WebCore::PlatformLayerIdentifier>) const;
     CALayer *NODELETE rootLayer() const;
@@ -121,6 +126,12 @@ private:
     HashMap<WebCore::LayerHostingContextIdentifier, WebCore::PlatformLayerIdentifier> m_hostedLayers;
     HashMap<WebCore::ProcessIdentifier, HashSet<WebCore::PlatformLayerIdentifier>> m_hostedLayersInProcess;
     HashMap<WebCore::PlatformLayerIdentifier, RetainPtr<WKAnimationDelegate>> m_animationDelegates;
+    // 10.9 backport: hold destroyed CALayers alive for one commit cycle. CA's
+    // insert_sublayer reads child._superlayer to detach from old parent. If the
+    // old parent CALayer was just freed, dereferencing its CA::Layer struct
+    // crashes (EXC_BAD_ACCESS at offsets 0x21/0x5f/0x6c). Keeping the old parent
+    // alive through the next commit lets CA safely call old_parent->remove_sublayer.
+    Vector<RetainPtr<CALayer>> m_destroyedLayerGraveyard;
 #if HAVE(AVKIT)
     HashMap<WebCore::PlatformLayerIdentifier, PlaybackSessionContextIdentifier> m_videoLayers;
 #endif

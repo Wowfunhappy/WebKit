@@ -39,7 +39,9 @@
 #import "PlaybackSessionInterfaceAVKit.h"
 #import "PlaybackSessionInterfaceLMK.h"
 #import "PlaybackSessionManagerProxy.h"
+#if ENABLE(VIDEO_PRESENTATION_MODE) && PLATFORM(IOS_FAMILY)
 #import "VideoPresentationInterfaceAVKit.h"
+#endif
 #import "VideoPresentationInterfaceLMK.h"
 #import "VideoPresentationManagerMessages.h"
 #import "VideoPresentationManagerProxyMessages.h"

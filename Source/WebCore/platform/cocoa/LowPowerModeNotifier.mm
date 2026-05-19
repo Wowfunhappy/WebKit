@@ -47,8 +47,8 @@
         return nil;
 
     _notifier = &notifier;
-    _isLowPowerModeEnabled = [NSProcessInfo processInfo].lowPowerModeEnabled;
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_didReceiveLowPowerModeChange) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
+    // lowPowerModeEnabled and NSProcessInfoPowerStateDidChangeNotification are 10.12+
+    _isLowPowerModeEnabled = [[NSProcessInfo processInfo] respondsToSelector:@selector(isLowPowerModeEnabled)] ? [(id)[NSProcessInfo processInfo] isLowPowerModeEnabled] : NO;
     return self;
 }
 
@@ -62,14 +62,16 @@
 - (void)detach
 {
     ASSERT(isMainThread());
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
+    // NSProcessInfoPowerStateDidChangeNotification is 10.12+
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     _notifier = nullptr;
 }
 
 - (void)_didReceiveLowPowerModeChange
 {
     // We need to make sure we notify the client on the main thread.
-    ensureOnMainRunLoop([self, protectedSelf = RetainPtr<WebLowPowerModeObserver>(self), lowPowerModeEnabled = [NSProcessInfo processInfo].lowPowerModeEnabled] {
+    BOOL currentLPM = [[NSProcessInfo processInfo] respondsToSelector:@selector(isLowPowerModeEnabled)] ? [(id)[NSProcessInfo processInfo] isLowPowerModeEnabled] : NO;
+    ensureOnMainRunLoop([self, protectedSelf = RetainPtr<WebLowPowerModeObserver>(self), lowPowerModeEnabled = currentLPM] {
         if (!_notifier)
             return;
         _isLowPowerModeEnabled = lowPowerModeEnabled;

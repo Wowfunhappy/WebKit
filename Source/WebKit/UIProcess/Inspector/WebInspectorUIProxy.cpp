@@ -853,11 +853,11 @@ void WebInspectorUIProxy::save(Vector<InspectorFrontendClient::SaveData>&& saveD
 void WebInspectorUIProxy::load(const String& path, CompletionHandler<void(const String&)>&& completionHandler)
 {
     if (!protect(protect(inspectedPage())->preferences())->developerExtrasEnabled())
-        return;
+        return completionHandler({ });
 
     ASSERT(!path.isEmpty());
     if (path.isEmpty())
-        return;
+        return completionHandler({ });
 
     platformLoad(path, WTF::move(completionHandler));
 }

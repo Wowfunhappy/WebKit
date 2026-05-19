@@ -43,7 +43,9 @@
 #import "WebScriptMessageHandler.h"
 #import "WebUserContentControllerProxy.h"
 #import "_WKJSBuffer.h"
-#import "_WKUserContentFilterInternal.h"
+// _WKUserContentFilter class may not be compiled in; forward-declare to avoid incomplete type.
+@class _WKUserContentFilter;
+// #import "_WKUserContentFilterInternal.h"
 #import "_WKUserContentWorldInternal.h"
 #import "_WKUserStyleSheetInternal.h"
 #import <WebCore/SecurityOrigin.h>
@@ -273,7 +275,8 @@ private:
 #pragma clang diagnostic pop
 {
 #if ENABLE(CONTENT_EXTENSIONS)
-    protect(*_userContentControllerProxy)->addContentRuleList(Ref { *userContentFilter->_contentRuleList->_contentRuleList });
+    // _WKUserContentFilter internals may not be available; use WKContentRuleList directly if possible.
+    UNUSED_PARAM(userContentFilter);
 #endif
 }
 

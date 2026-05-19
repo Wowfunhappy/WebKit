@@ -38,6 +38,11 @@
 #import <pal/system/mac/PopupMenu.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/ProcessPrivilege.h>
+
+// NSLanguageIdentifierAttributeName is only available on macOS 10.11+.
+#if !defined(NSLanguageIdentifierAttributeName)
+static NSString * const NSLanguageIdentifierAttributeName = @"NSLanguage";
+#endif
 #import <wtf/SetForScope.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
@@ -126,10 +131,13 @@ void WebPopupMenuProxyMac::showPopupMenu(const IntRect& rect, TextDirection text
 
     [m_popup attachPopUpWithFrame:rect inView:m_webView.get().get()];
     [m_popup selectItemAtIndex:selectedIndex];
-    [m_popup setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
+    // 10.9 backport: setUserInterfaceLayoutDirection: on NSMenu is 10.11+. NSPopUpButtonCell + NSView are 10.8+.
+    if ([m_popup respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
+        [m_popup setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
 
     RetainPtr menu = [m_popup menu];
-    [menu setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
+    if ([menu respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
+        [menu setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
 
     // These values were borrowed from AppKit to match their placement of the menu.
     const int popOverHorizontalAdjust = -13;
@@ -209,7 +217,7 @@ void WebPopupMenuProxyMac::showPopupMenu(const IntRect& rect, TextDirection text
 
     [NSApp postEvent:fakeEvent.get() atStart:YES];
     fakeEvent = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
-                                   location:[retainPtr([m_webView.get() window]) convertPointFromScreen:[NSEvent mouseLocation]]
+                                   location:[(NSWindow *)[m_webView.get() window] convertRectFromScreen:NSMakeRect([NSEvent mouseLocation].x, [NSEvent mouseLocation].y, 0, 0)].origin
                               modifierFlags:[initiatingNSEvent modifierFlags]
                                   timestamp:[initiatingNSEvent timestamp]
                                windowNumber:[initiatingNSEvent windowNumber]

@@ -137,7 +137,10 @@ Page* ServiceWorkerGlobalScope::serviceWorkerPage()
     if (!m_contextData.serviceWorkerPageIdentifier)
         return nullptr;
 
-    RELEASE_ASSERT(isMainThread());
+    // 10.9 backport: don't crash if called from non-main thread; return nullptr
+    // (caller treats nullptr as "no page available") rather than killing the process.
+    if (!isMainThread())
+        return nullptr;
     return Page::serviceWorkerPage(*m_contextData.serviceWorkerPageIdentifier);
 }
 

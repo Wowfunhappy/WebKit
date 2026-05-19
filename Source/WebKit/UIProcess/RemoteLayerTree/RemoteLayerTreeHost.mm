@@ -33,7 +33,7 @@
 #import "RemoteLayerTreeDrawingAreaProxy.h"
 #import "RemoteLayerTreePropertyApplier.h"
 #import "RemoteLayerTreeTransaction.h"
-#import "VideoPresentationManagerProxy.h"
+// [10.9] #import "VideoPresentationManagerProxy.h"
 #import "WKAnimationDelegate.h"
 #import "WebPageProxy.h"
 #import "WebProcessProxy.h"
@@ -77,10 +77,30 @@ RemoteLayerTreeHost::RemoteLayerTreeHost(RemoteLayerTreeDrawingAreaProxy& drawin
 
 RemoteLayerTreeHost::~RemoteLayerTreeHost()
 {
-    for (auto& delegate : m_animationDelegates.values())
-        [delegate.get() invalidate];
+    // 10.9 backport: Safari quit crashes via std::terminate from this dtor.
+    // The previous @try only wrapped the explicit body; the IMPLICIT member
+    // destructors (m_nodes Ref<>, m_destroyedLayerGraveyard CALayer release,
+    // m_animationDelegates WKAnimationDelegate release) ran AFTER the @try
+    // returned and could throw NSException from CALayer dealloc → std::terminate.
+    // Explicitly clear every container that releases ObjC/Ref objects inside
+    // the @try so any thrown NSException is caught.
+    try {
+        @try {
+            for (auto& delegate : m_animationDelegates.values())
+                [delegate.get() invalidate];
 
-    clearLayers();
+            clearLayers();
+            m_animationDelegates.clear();
+            m_destroyedLayerGraveyard.clear();
+            m_hostingLayers.clear();
+            m_hostedLayers.clear();
+            m_hostedLayersInProcess.clear();
+            m_nodes.clear();
+#if HAVE(AVKIT)
+            m_videoLayers.clear();
+#endif
+        } @catch (NSException *) { }
+    } catch (...) { }
 }
 
 RemoteLayerTreeDrawingAreaProxy& RemoteLayerTreeHost::drawingArea() const
@@ -146,8 +166,13 @@ bool RemoteLayerTreeHost::updateBannerLayers(const std::optional<MainFrameData>&
 
 bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, const RemoteLayerTreeTransaction& transaction, const std::optional<MainFrameData>& mainFrameData, float indicatorScaleFactor)
 {
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-host PID %d] updateLayerTree: drawingArea=%p createdLayers=%lu changedLayers=%lu rootLayerID=%llu mainFrameData=%d graveyard=%lu\n",getpid(),m_drawingArea.get(),(unsigned long)transaction.createdLayers().size(),(unsigned long)transaction.changedLayerProperties().size(),(unsigned long long)(transaction.rootLayerID() ? transaction.rootLayerID()->object().toUInt64() : 0),(int)!!mainFrameData,(unsigned long)m_destroyedLayerGraveyard.size());fclose(_d);}}
     if (!m_drawingArea)
         return false;
+    // 10.9 backport: keep prior commit's destroyed CALayers alive through this
+    // commit so CA's insert_sublayer can safely dereference stale superlayer
+    // pointers. Drained at function end via local.
+    auto previousGraveyard = std::exchange(m_destroyedLayerGraveyard, { });
 
     RefPtr sender = AuxiliaryProcessProxy::fromConnection(connection);
     if (!sender) {
@@ -156,8 +181,13 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
     }
     auto processIdentifier = sender->coreProcessIdentifier();
 
-    for (const auto& createdLayer : transaction.createdLayers())
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-host-preCreateLoop PID %d] createdLayers.size=%lu\n", getpid(), (unsigned long)transaction.createdLayers().size()); fclose(_d);}}
+    int createdCount = 0;
+    for (const auto& createdLayer : transaction.createdLayers()) {
+        ++createdCount;
         createLayer(createdLayer);
+    }
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-host-postCreateLoop PID %d] createdCount=%d\n", getpid(), createdCount); fclose(_d);}}
 
     bool rootLayerChanged = false;
     RefPtr rootNode = nodeForID(transaction.rootLayerID());
@@ -166,6 +196,7 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
         REMOTE_LAYER_TREE_HOST_RELEASE_LOG("%p RemoteLayerTreeHost::updateLayerTree - failed to find root layer with ID %llu", this, transaction.rootLayerID() ? transaction.rootLayerID()->object().toUInt64() : 0);
 
     if (m_rootNode.get() != rootNode.get() && mainFrameData) {
+        fprintf(stderr, "[RemoteLayerTreeHost] rootNode changed from %p to %p\n", m_rootNode.get(), rootNode.get()); fflush(stderr);
         m_rootNode = rootNode;
         rootLayerChanged = true;
     }
@@ -176,7 +207,18 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
     };
     Vector<LayerAndClone> clonesToUpdate;
 
+    {
+        const auto& clp = transaction.changedLayerProperties();
+        FILE *_d=((FILE*)0);
+        if (_d) {
+            fprintf(_d,"[ui-host-preHierLoop PID %d] clp.size=%lu createdLayers.size=%lu\n",
+                getpid(), (unsigned long)clp.size(), (unsigned long)transaction.createdLayers().size());
+            fclose(_d);
+        }
+    }
+    int hierIter = 0;
     for (auto& [layerID, properties] : transaction.changedLayerProperties()) {
+        ++hierIter;
         RefPtr node = nodeForID(layerID);
         ASSERT(node);
 
@@ -188,6 +230,7 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
 
         RemoteLayerTreePropertyApplier::applyHierarchyUpdates(*node, properties.get(), m_nodes);
     }
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-host-postHierLoop PID %d] hierIter=%d clp.size=%lu\n", getpid(), hierIter, (unsigned long)transaction.changedLayerProperties().size()); fclose(_d);}}
 
     if (auto contextHostedID = transaction.remoteContextHostedIdentifier()) {
         m_hostedLayers.set(*contextHostedID, rootNode->layerID());
@@ -206,6 +249,9 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
         protect(*m_drawingArea)->updateTimelinesRegistration(processIdentifier, transaction.timelinesUpdate(), MonotonicTime::now());
 #endif
 
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-host-prePropLoop PID %d] entering second loop, size=%lu\n", getpid(), (unsigned long)transaction.changedLayerProperties().size()); fclose(_d);}}
+    int found = 0, missing = 0, withBackingStore = 0;
+    bool isLargeTxn = transaction.changedLayerProperties().size() > 5;
     for (auto& changedLayer : transaction.changedLayerProperties()) {
         auto layerID = changedLayer.key;
         const auto& properties = changedLayer.value.get();
@@ -214,9 +260,26 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
         ASSERT(node);
 
         if (!node) {
+            ++missing;
             // We have evidence that this can still happen, but don't know how (see r241899 for one already-fixed cause).
             REMOTE_LAYER_TREE_HOST_RELEASE_LOG("%p RemoteLayerTreeHost::updateLayerTree - failed to find layer with ID %llu", this, layerID.object().toUInt64());
             continue;
+        }
+        ++found;
+        bool hasBSC = properties.changedProperties.contains(LayerChange::BackingStoreChanged);
+        bool hasBSAC = properties.changedProperties.contains(LayerChange::BackingStoreAttachmentChanged);
+        if (hasBSC)
+            ++withBackingStore;
+        if (isLargeTxn) {
+            FILE *_d=((FILE*)0);
+            if(_d){
+                fprintf(_d,"[ui-host-layer PID %d] layerID=%llu mask=0x%llx bsc=%d bsac=%d hasProps=%d\n",
+                    getpid(), (unsigned long long)layerID.object().toUInt64(),
+                    (unsigned long long)properties.changedProperties.toRaw(),
+                    (int)hasBSC, (int)hasBSAC,
+                    (int)!!properties.backingStoreOrProperties.properties.get());
+                fclose(_d);
+            }
         }
 
         if (properties.changedProperties.contains(LayerChange::ClonedContentsChanged) && properties.clonedLayerID)
@@ -232,8 +295,21 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
         }
     }
     
-    for (const auto& layerAndClone : clonesToUpdate)
-        protect(layerForID(layerAndClone.layerID)).get().contents = protect(layerForID(layerAndClone.cloneLayerID)).get().contents;
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-host-iter PID %d] iterated changedLayers: found=%d missing=%d withBackingStore=%d\n", getpid(), found, missing, withBackingStore); fclose(_d);}}
+
+    // 10.9 backport: CATransformLayer on Mavericks doesn't implement
+    // -[CALayer contents] / -setContents:. Sending either raises
+    // NSInvalidArgumentException and crashes UIProcess. Skip the contents
+    // copy/clear when either layer is a CATransformLayer (they don't have
+    // contents to begin with — they only composite sublayers' transforms).
+    for (const auto& layerAndClone : clonesToUpdate) {
+        RetainPtr destL = protect(layerForID(layerAndClone.layerID));
+        RetainPtr srcL = protect(layerForID(layerAndClone.cloneLayerID));
+        if ([destL respondsToSelector:@selector(setContents:)]
+            && [srcL respondsToSelector:@selector(contents)]) {
+            destL.get().contents = srcL.get().contents;
+        }
+    }
 
     for (auto& destroyedLayer : transaction.destroyedLayers())
         layerWillBeRemoved(processIdentifier, destroyedLayer);
@@ -244,7 +320,9 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
         RefPtr node = nodeForID(newlyUnreachableLayerID);
         ASSERT(node);
         if (node) {
-            protect(node->layer()).get().contents = nullptr;
+            RetainPtr l = protect(node->layer());
+            if ([l respondsToSelector:@selector(setContents:)])
+                l.get().contents = nullptr;
             node->setAsyncContentsIdentifier(std::nullopt);
         }
     }
@@ -283,6 +361,11 @@ void RemoteLayerTreeHost::layerWillBeRemoved(WebCore::ProcessIdentifier processI
     }
 
     if (auto node = m_nodes.take(layerID)) {
+        // 10.9 backport: keep this layer alive until the next commit so any
+        // surviving children with a stale _superlayer pointer to it can be
+        // safely re-parented by CA's insert_sublayer (which dereferences the
+        // old parent to call remove_sublayer).
+        m_destroyedLayerGraveyard.append(node->layer());
 #if ENABLE(THREADED_ANIMATIONS)
         animationsWereRemovedFromNode(*node);
 #endif
@@ -304,8 +387,8 @@ void RemoteLayerTreeHost::layerWillBeRemoved(WebCore::ProcessIdentifier processI
     auto videoLayerIter = m_videoLayers.find(layerID);
     if (videoLayerIter != m_videoLayers.end()) {
         RefPtr page = drawingArea().page();
-        if (RefPtr videoManager = page ? page->videoPresentationManager() : nullptr)
-            videoManager->willRemoveLayerForID(videoLayerIter->value);
+// [10.9]         if (RefPtr videoManager = page ? (WebKit::VideoPresentationManagerProxy*)nullptr : nullptr)
+// [10.9]             videoManager->willRemoveLayerForID(videoLayerIter->value);
         m_videoLayers.remove(videoLayerIter);
     }
 #endif
@@ -455,7 +538,7 @@ RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeT
         return makeWithLayer(adoptNS([[CATransformLayer alloc] init]));
 
     case PlatformCALayer::LayerType::LayerTypeBackdropLayer:
-        return makeWithLayer(adoptNS([[CABackdropLayer alloc] init]));
+        return makeWithLayer(adoptNS([(NSClassFromString(@"CABackdropLayer") ?: [CALayer class]) new]));
 
 #if HAVE(CORE_MATERIAL)
     case PlatformCALayer::LayerType::LayerTypeMaterialLayer:
@@ -479,10 +562,10 @@ RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeT
 #if HAVE(AVKIT)
         if (properties.videoElementData) {
             RefPtr page = drawingArea().page();
-            if (RefPtr videoManager = page ? page->videoPresentationManager() : nullptr) {
-                m_videoLayers.add(*properties.layerID, properties.videoElementData->playerIdentifier);
-                return makeWithLayer(videoManager->createLayerWithID(properties.videoElementData->playerIdentifier, { properties.hostingContextID() }, properties.videoElementData->initialSize, properties.videoElementData->naturalSize, properties.hostingDeviceScaleFactor()));
-            }
+// [10.9]             if (RefPtr videoManager = page ? (WebKit::VideoPresentationManagerProxy*)nullptr : nullptr) {
+// [10.9]                 m_videoLayers.add(*properties.layerID, properties.videoElementData->playerIdentifier);
+// [10.9]                 return makeWithLayer(videoManager->createLayerWithID(properties.videoElementData->playerIdentifier, { properties.hostingContextID() }, properties.videoElementData->initialSize, properties.videoElementData->naturalSize, properties.hostingDeviceScaleFactor()));
+// [10.9]             }
         }
 #endif
 

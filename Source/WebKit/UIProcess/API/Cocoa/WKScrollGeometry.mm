@@ -33,7 +33,11 @@
 #define CocoaEdgeInsetsEqual UIEdgeInsetsEqualToEdgeInsets
 #else
 #define CocoaEdgeInsets NSEdgeInsets
-#define CocoaEdgeInsetsEqual NSEdgeInsetsEqual
+// NSEdgeInsetsEqual is 10.10+; inline polyfill
+static inline bool _NSEdgeInsetsEqual(NSEdgeInsets a, NSEdgeInsets b) {
+    return a.top == b.top && a.left == b.left && a.bottom == b.bottom && a.right == b.right;
+}
+#define CocoaEdgeInsetsEqual _NSEdgeInsetsEqual
 #endif
 
 @implementation WKScrollGeometry

@@ -87,6 +87,23 @@ bool LoadableNonModuleScriptBase::wasCanceled() const
 
 void LoadableNonModuleScriptBase::notifyFinished(CachedResource& resource, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess)
 {
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) {
+            auto u = resource.url().string().utf8();
+            auto errDom = resource.resourceError().domain().utf8();
+            auto errDesc = resource.resourceError().localizedDescription().utf8();
+            auto mime = resource.response().mimeType().utf8();
+            fprintf(_f, "[notifyFinished PID %d] url=%.200s err=%d httpCode=%d errDom=%.40s errCode=%d desc=%.120s mime=%.40s nosniff=%d access=%d\n",
+                getpid(), u.data(), (int)resource.errorOccurred(),
+                resource.response().httpStatusCode(),
+                errDom.data(), resource.resourceError().errorCode(),
+                errDesc.data(), mime.data(),
+                (int)!isScriptAllowedByNosniff(resource.response()),
+                (int)resource.resourceError().isAccessControl());
+            fclose(_f);
+        }
+    }
     ASSERT(m_cachedScript);
     if (resource.resourceError().isAccessControl()) {
         static NeverDestroyed<String> consoleMessage(MAKE_STATIC_STRING_IMPL("Cross-origin script load denied by Cross-Origin Resource Sharing policy."));

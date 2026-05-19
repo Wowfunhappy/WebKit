@@ -54,6 +54,28 @@ ThreadGlobalData::ThreadGlobalData()
 
 ThreadGlobalData::~ThreadGlobalData() = default;
 
+ThreadTimers& ThreadGlobalData::threadTimers()
+{
+#if PLATFORM(MAC)
+    // 10.9 backport: WK2 XPC services run dispatch_main(), which serves the
+    // libdispatch worker pool. dispatch_get_main_queue() callbacks land on
+    // whichever worker is available. The "main thread" is fragmented across
+    // libdispatch workers — share ThreadTimers across them so setTimeout works.
+    //
+    // BUT do NOT share with Web Worker threads (WorkerOrWorkletThread). They
+    // run their own WorkerDedicatedRunLoop and would fire Document-targeting
+    // shared timers, hitting main-thread-only asserts deep in style/layout.
+    // Web Workers get their own per-thread ThreadTimers (m_threadTimers).
+    if (isMainThread()) {
+        static NeverDestroyed<UniqueRef<ThreadTimers>> sharedThreadTimers { makeUniqueRef<ThreadTimers>() };
+        return sharedThreadTimers.get();
+    }
+    return m_threadTimers;
+#else
+    return m_threadTimers;
+#endif
+}
+
 void ThreadGlobalData::destroy()
 {
     if (CheckedPtr fontCache = m_fontCache.get())
@@ -127,10 +149,46 @@ void ThreadGlobalData::initializeEventNames()
     m_eventNames = EventNames::create();
 }
 
+EventNames& ThreadGlobalData::eventNames()
+{
+    ASSERT(!m_destroyed);
+#if PLATFORM(MAC)
+    // 10.9 backport: IDBDatabase (and a few other classes) cache `const EventNames&`
+    // members captured at construction. If the originating ThreadGlobalData is destroyed
+    // before the cache holder, accessing the cached reference reads freed memory and
+    // crashes inside Event::create at the first AtomString deref. Same root cause as
+    // QualifiedNameCache / AtomStringTable: per-thread caches don't survive the
+    // libdispatch-worker lifecycle on Mac. Share a single process-wide EventNames so
+    // the cached references stay valid forever.
+    static NeverDestroyed<std::unique_ptr<EventNames>> sharedEventNames { EventNames::create() };
+    return *sharedEventNames.get();
+#else
+    if (!m_eventNames) [[unlikely]]
+        initializeEventNames();
+    return *m_eventNames;
+#endif
+}
+
 void ThreadGlobalData::initializeQualifiedNameCache()
 {
     ASSERT(!m_qualifiedNameCache);
     m_qualifiedNameCache = makeUnique<QualifiedNameCache>();
+}
+
+QualifiedNameCache& ThreadGlobalData::qualifiedNameCache()
+{
+    ASSERT(!m_destroyed);
+#if PLATFORM(MAC)
+    // 10.9 backport: dispatch_get_main_queue() callbacks land on whichever
+    // libdispatch worker is available — per-thread caches fragment and race.
+    // Use a process-wide singleton like ThreadTimers / AtomStringTable.
+    static NeverDestroyed<std::unique_ptr<QualifiedNameCache>> sharedCache { makeUnique<QualifiedNameCache>() };
+    return *sharedCache.get();
+#else
+    if (!m_qualifiedNameCache) [[unlikely]]
+        initializeQualifiedNameCache();
+    return *m_qualifiedNameCache;
+#endif
 }
 
 void ThreadGlobalData::initializeMimeTypeRegistryThreadGlobalData()

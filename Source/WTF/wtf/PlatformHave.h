@@ -313,7 +313,7 @@
 #define HAVE_PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER 1
 #endif
 
-#if PLATFORM(COCOA) && !PLATFORM(WATCHOS)
+#if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
 #define HAVE_CORE_ANIMATION_FRAME_RATE_RANGE 1
 #endif
 
@@ -396,7 +396,10 @@
 #define HAVE_IOSURFACE_SET_OWNERSHIP_IDENTITY 1
 #endif
 
-#if PLATFORM(COCOA) && !PLATFORM(IOS_FAMILY_SIMULATOR)
+// task_create_identity_token is unavailable on macOS 10.9.
+// __MAC_10_9 == 1090, __MAC_10_10 == 101000 (newer SDKs use 6-digit form),
+// so use a guard that excludes 1090 specifically.
+#if PLATFORM(COCOA) && !PLATFORM(IOS_FAMILY_SIMULATOR) && (!defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101000)
 #define HAVE_TASK_IDENTITY_TOKEN 1
 #endif
 
@@ -545,7 +548,7 @@
 #define HAVE_AVPLAYER_RESOURCE_CONSERVATION_LEVEL 1
 #endif
 
-#if PLATFORM(IOS) || PLATFORM(MAC) || PLATFORM(VISION)
+#if PLATFORM(IOS) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500) || PLATFORM(VISION)
 #define HAVE_APP_SSO 1
 #endif
 
@@ -669,7 +672,8 @@
 #endif
 
 #if PLATFORM(COCOA)
-#define HAVE_LSDATABASECONTEXT 1
+// 10.9 backport: LSDatabaseContext.sharedDatabaseContext is 10.10+ only.
+#define HAVE_LSDATABASECONTEXT 0
 #define HAVE_CGS_FIX_FOR_RADAR_97530095 0
 #endif
 
@@ -836,7 +840,9 @@
 #if PLATFORM(MAC) \
     || PLATFORM(IOS_FAMILY)
 #define HAVE_CFNETWORK_NSURLSESSION_HSTS_WITH_UNTRUSTED_ROOT 1
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500 || PLATFORM(IOS_FAMILY)
 #define HAVE_NSURLSESSION_TASK_DELEGATE 1
+#endif
 #define HAVE_IMAGE_RESTRICTED_DECODING 1
 #define HAVE_XPC_CONNECTION_COPY_INVALIDATION_REASON 1
 #endif
@@ -856,7 +862,12 @@
 #endif
 
 #if PLATFORM(COCOA)
+// 10.9 backport: CTFontGetSbixImageSizeForGlyphAndContentsScale is 10.13+. Polyfill stub
+// returns garbage CGFloat. Disable on Mac so emoji-glyph color-format detection skips
+// the broken sbix path (only the OT-SVG path is used).
+#if !PLATFORM(MAC)
 #define HAVE_CORE_TEXT_SBIX_IMAGE_SIZE_FUNCTIONS 1
+#endif
 #define HAVE_WOFF_SUPPORT 1
 #endif
 
@@ -965,16 +976,18 @@
 #endif
 
 #if PLATFORM(COCOA)
-#define HAVE_WEBGPU_IMPLEMENTATION 1
+// macOS 10.9 backport: WebGPU native bindings (wgpu) not available.
+// #define HAVE_WEBGPU_IMPLEMENTATION 1
 // FIXME: PlatformHave.h should not depend or defined ENABLE macros.
 #if !defined(ENABLE_WEBGPU_SWIFT)
 #define ENABLE_WEBGPU_SWIFT 0
 #endif
 #endif
 
-#if PLATFORM(COCOA) && !PLATFORM(WATCHOS)
-#define HAVE_SHAPE_DETECTION_API_IMPLEMENTATION 1
-#endif
+// macOS 10.9 backport: Vision.framework (10.13+) is not available.
+// #if PLATFORM(COCOA) && !PLATFORM(WATCHOS)
+// #define HAVE_SHAPE_DETECTION_API_IMPLEMENTATION 1
+// #endif
 
 #if HAVE(WEBGPU_IMPLEMENTATION) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION))
 #define HAVE_COREVIDEO_METAL_SUPPORT COREVIDEO_SUPPORTS_METAL
@@ -1026,7 +1039,8 @@
 #endif
 
 #if (PLATFORM(MAC)  || PLATFORM(IOS) || PLATFORM(VISION))
-#define HAVE_SYSTEM_CONTENT_LS_DATABASE 1
+// 10.9 backport: getSystemContentDatabaseObject4WebKit uses LSDatabaseContext (10.10+).
+#define HAVE_SYSTEM_CONTENT_LS_DATABASE 0
 #endif
 
 #if PLATFORM(IOS) || PLATFORM(VISION)
@@ -1172,7 +1186,7 @@
 #endif
 #endif
 
-#if (PLATFORM(COCOA) && !PLATFORM(WATCHOS))
+#if (PLATFORM(COCOA) && !PLATFORM(WATCHOS)) && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MAX_ALLOWED >= 101400)
 #define HAVE_CFNETWORK_HOSTOVERRIDE 1
 #endif
 
@@ -1212,7 +1226,10 @@
     || (PLATFORM(VISION) && __VISION_OS_VERSION_MIN_REQUIRED >= 20000)) \
     || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 110000) \
     || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 180000)
-#define HAVE_WK_SECURE_CODING_NSURLREQUEST 1
+// 10.9 backport: CoreIPCNSURLRequest depends on _webKitPropertyListData
+// (10.10+) and _initWithWebKitPropertyListData (10.10+). Disable on 10.9 so
+// the legacy NSKeyedArchiver/NSKeyedUnarchiver path is used.
+// #define HAVE_WK_SECURE_CODING_NSURLREQUEST 1
 #endif
 
 #if ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 260000) \

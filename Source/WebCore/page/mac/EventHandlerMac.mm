@@ -635,7 +635,7 @@ void EventHandler::sendFakeEventsAfterWidgetTracking(NSEvent *initiatingEvent)
         // them in Cocoa, and because the event stream was stolen by the Carbon menu code we have
         // no up-to-date cache of them anywhere.
         fakeEvent = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
-                                       location:[[view->platformWidget() window] convertPointFromScreen:[NSEvent mouseLocation]]
+                                       location:[[view->platformWidget() window] convertRectFromScreen:NSMakeRect([NSEvent mouseLocation].x, [NSEvent mouseLocation].y, 0, 0)].origin
                                   modifierFlags:[initiatingEvent modifierFlags]
                                       timestamp:[initiatingEvent timestamp]
                                    windowNumber:[initiatingEvent windowNumber]

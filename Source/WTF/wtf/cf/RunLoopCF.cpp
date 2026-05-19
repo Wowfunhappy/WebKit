@@ -28,6 +28,9 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <dispatch/dispatch.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 #include <wtf/AutodrainedPool.h>
 #include <wtf/SchedulePair.h>
 
@@ -49,6 +52,16 @@ void RunLoop::performWork(void* context)
 RunLoop::RunLoop()
     : m_runLoop(CFRunLoopGetCurrent())
 {
+    {
+        FILE *_d = ((FILE*)0);
+        if (_d) {
+            uintptr_t bits;
+            memcpy(&bits, (char*)this + 0x8, sizeof(bits));
+            fprintf(_d, "[PID %d] RunLoop::RunLoop() this=%p m_bits@+8=0x%llx (should be 0x3)\n",
+                getpid(), this, (unsigned long long)bits);
+            fclose(_d);
+        }
+    }
     CFRunLoopSourceContext context = { 0, this, 0, 0, 0, 0, 0, 0, 0, performWork };
     lazyInitialize(m_runLoopSource, adoptCF(CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context)));
     CFRunLoopAddSource(m_runLoop.get(), m_runLoopSource.get(), kCFRunLoopCommonModes);
@@ -61,6 +74,18 @@ RunLoop::~RunLoop()
 
 void RunLoop::wakeUp()
 {
+    {FILE *_d = ((FILE*)0); if (_d) {fprintf(_d, "[RunLoop::wakeUp PID %d] this=%p mainSingleton=%p source=%p loop=%p\n", getpid(), this, &RunLoop::mainSingleton(), m_runLoopSource.get(), m_runLoop.get()); fclose(_d);}}
+    // 10.9: WK2 XPC services run dispatch_main(), not CFRunLoopRun(). Their
+    // mainSingleton RunLoop instance also has its memory periodically clobbered
+    // by JSC's GC (m_runLoopSource is overwritten with NaN-boxed tag bits),
+    // making CFRunLoopSourceSignal crash. Bypass it entirely on the main
+    // RunLoop and use the dispatch_main GCD queue instead.
+    if (this == &RunLoop::mainSingleton()) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            performWork(this);
+        });
+        return;
+    }
     CFRunLoopSourceSignal(m_runLoopSource.get());
     CFRunLoopWakeUp(m_runLoop.get());
 }
@@ -86,17 +111,13 @@ void RunLoop::stop()
 
 void RunLoop::dispatch(const SchedulePairHashSet& schedulePairs, Function<void()>&& function)
 {
-    auto timer = createTimer(0_s, false, [] (CFRunLoopTimerRef timer, void* context) {
-        AutodrainedPool pool;
-
-        CFRunLoopTimerInvalidate(timer);
-
-        auto function = adopt(static_cast<Function<void()>::Impl*>(context));
-        function();
-    }, function.leak());
-
-    for (auto& schedulePair : schedulePairs)
-        CFRunLoopAddTimer(protect(schedulePair->runLoop()).get(), timer.get(), protect(schedulePair->mode()).get());
+    // 10.9 backport: WK2 XPC services run dispatch_main(), which pumps GCD but
+    // not CFRunLoop. CFRunLoopAddTimer() on the main loop would silently drop
+    // the timer because nothing pumps it. Route everything through
+    // RunLoop::mainSingleton().dispatch(), which honors our dispatch_main
+    // wakeUp path (see wakeUp() above).
+    UNUSED_PARAM(schedulePairs);
+    RunLoop::mainSingleton().dispatch(WTF::move(function));
 }
 
 // RunLoop::Timer
@@ -135,6 +156,32 @@ void RunLoop::TimerBase::start(Seconds interval, bool repeat)
 
         timer->fired();
     }, this);
+
+    // 10.9 backport: WK2 XPC services run dispatch_main() which doesn't pump
+    // CFRunLoop timers on the main thread. Use dispatch_after for the main
+    // RunLoop and check m_timer validity at fire time for cancellation.
+    if (this->m_runLoop.ptr() == &RunLoop::mainSingleton()) {
+        CFRunLoopTimerRef timerRef = (CFRunLoopTimerRef)CFRetain(m_timer.get());
+        TimerBase* timerSelf = this;
+        bool isRepeat = repeat;
+        Seconds nextInterval = interval;
+        dispatch_time_t when = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(interval.seconds() * NSEC_PER_SEC));
+        dispatch_after(when, dispatch_get_main_queue(), ^{
+            if (!CFRunLoopTimerIsValid(timerRef)) {
+                CFRelease(timerRef);
+                return;
+            }
+            AutodrainedPool pool;
+            if (!isRepeat)
+                CFRunLoopTimerInvalidate(timerRef);
+            timerSelf->fired();
+            bool shouldRepeat = isRepeat && CFRunLoopTimerIsValid(timerRef);
+            CFRelease(timerRef);
+            if (shouldRepeat)
+                timerSelf->start(nextInterval, true);
+        });
+        return;
+    }
 
     CFRunLoopAddTimer(m_runLoop->m_runLoop.get(), m_timer.get(), kCFRunLoopCommonModes);
 }

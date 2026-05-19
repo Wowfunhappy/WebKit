@@ -1,0 +1,6 @@
+[
+    DispatchedFrom=WebContent,
+    DispatchedTo=UI
+]
+messages -> VideoFullscreenManagerProxy {
+}

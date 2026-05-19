@@ -23,6 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef _WKContentWorldConfiguration_h
+#define _WKContentWorldConfiguration_h
+
 #import <WebKit/WKContentWorldConfiguration.h>
 #import <WebKit/WKFoundation.h>
 
@@ -61,3 +64,5 @@ WK_CLASS_AVAILABLE(macos(15.4), ios(18.4), visionos(2.4))
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif // _WKContentWorldConfiguration_h

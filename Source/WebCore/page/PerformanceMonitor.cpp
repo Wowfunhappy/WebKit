@@ -97,22 +97,20 @@ void PerformanceMonitor::deref() const
 
 void PerformanceMonitor::didStartProvisionalLoad()
 {
+    // 10.9 backport WORKAROUND (not a root-cause fix): the global timer heap
+    // gets corrupted on this build (memory corruption from an unidentified
+    // source — see Timer.cpp). Calling .stop() here walks the heap and crashes.
+    // Skipping the resets means timers will fire later as no-ops since
+    // hasTimer() is checked.
     m_postLoadCPUTime = std::nullopt;
-    m_postPageLoadCPUUsageTimer.stop();
-    m_postPageLoadMemoryUsageTimer.stop();
 }
 
 void PerformanceMonitor::didFinishLoad()
 {
-    // Only do post-load CPU usage measurement if there is a single Page in the process in order to reduce noise.
-    if (m_page->settings().isPostLoadCPUUsageMeasurementEnabled() && m_page->isOnlyNonUtilityPage()) {
-        m_postLoadCPUTime = std::nullopt;
-        m_postPageLoadCPUUsageTimer.startOneShot(cpuUsageMeasurementDelay);
-    }
-
-    // Likewise for post-load memory usage measurement.
-    if (m_page->settings().isPostLoadMemoryUsageMeasurementEnabled() && m_page->isOnlyNonUtilityPage())
-        m_postPageLoadMemoryUsageTimer.startOneShot(memoryUsageMeasurementDelay);
+    // 10.9 backport WORKAROUND: startOneShot triggers TimerBase::heapInsert which
+    // crashes on the corrupted timer heap (see Timer.cpp). Skip the post-load
+    // measurements entirely; they're optional telemetry.
+    return;
 }
 
 void PerformanceMonitor::activityStateChanged(OptionSet<ActivityState> oldState, OptionSet<ActivityState> newState)

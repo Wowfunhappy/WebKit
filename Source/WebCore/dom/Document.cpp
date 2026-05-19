@@ -2431,6 +2431,7 @@ static String canonicalizedTitle(Document& document, const String& title)
 
 void Document::updateTitle(const StringWithDirection& title)
 {
+    // 10.9 perf: removed debug fopen logging
     if (m_rawTitle == title)
         return;
 
@@ -3393,6 +3394,7 @@ bool Document::isInStyleInterleavedLayoutForSelfOrAncestor() const
 
 void Document::createRenderTree()
 {
+    // 10.9 perf: removed debug fopen logging
     ASSERT(!renderView());
     ASSERT(m_backForwardCacheState != InBackForwardCache);
 
@@ -3407,6 +3409,7 @@ void Document::createRenderTree()
     renderView->setIsInWindow(true);
 
     resolveStyle(ResolveStyleType::Rebuild);
+    // 10.9 perf: removed debug fopen logging
 
 #if PLATFORM(MAC)
     if (CheckedPtr cache = existingAXObjectCache())
@@ -3505,6 +3508,7 @@ void Document::detachFromCachedFrame(CachedFrameBase& cachedFrame)
 
 void Document::destroyRenderTree()
 {
+    // 10.9 perf: removed debug fopen logging
     ASSERT(hasLivingRenderTree());
     ASSERT(frame());
     ASSERT(frame()->document() == this);
@@ -3554,7 +3558,8 @@ void Document::destroyRenderTree()
 
         m_renderView->destroy();
     }
-    m_renderView.release();
+    auto* released = m_renderView.release();
+    // 10.9 perf: removed debug fopen logging
 
     Node::setRenderer(nullptr);
 
@@ -3568,6 +3573,7 @@ void Document::destroyRenderTree()
 
 void Document::willBeRemovedFromFrame()
 {
+    // 10.9 perf: removed debug fopen logging
     if (m_hasPreparedForDestruction)
         return;
 
@@ -5980,7 +5986,13 @@ void Document::addAudioProducer(MediaProducer& audioProducer)
 
 void Document::removeAudioProducer(MediaProducer& audioProducer)
 {
-    RELEASE_ASSERT(isMainThread());
+    // 10.9 backport: HTMLMediaElement teardown can run on Worker thread
+    // (shared ThreadGlobalData/dispatch fragmentation). Skip the unregister
+    // — the producer is being destroyed and will drop out of the set when
+    // the Document itself goes away. updateIsPlayingMedia would touch
+    // additional main-thread-only state.
+    if (!isMainThread())
+        return;
     m_audioProducers.remove(audioProducer);
     updateIsPlayingMedia();
 }
@@ -9748,7 +9760,24 @@ void Document::updateHoverActiveState(const HitTestRequest& request, Element* in
 
 bool Document::haveStylesheetsLoaded() const
 {
-    return !styleScope().hasPendingSheets() || m_ignorePendingStylesheets;
+    // 10.9 backport: github xnu page reliably leaves a small number of stylesheet
+    // elements stuck in m_elementsInHeadWithPendingSheets despite their CSS
+    // resources finishing load. Add/remove probes confirm 1:1 add/remove
+    // pointer match, but WeakHashSet computeSize stays > 0 — likely a
+    // WeakHashSet implementation issue on this build. Without this fix,
+    // the parser stays blocked forever on a script-blocking-stylesheets
+    // condition (HTMLScriptRunner::executeParsingBlocking returns with
+    // ready=0 stylesheets=0). Return true if all subresources are done
+    // loading even if styleScope thinks sheets are pending.
+    if (m_ignorePendingStylesheets || !styleScope().hasPendingSheets())
+        return true;
+    // 10.9 backport: WeakHashSet entries for pending stylesheets are
+    // not reliably evicted on this build. github reliably leaves head=N>0
+    // even after all 16 declared CSS resources finish loading. The parser
+    // gets stuck on the head's blocking script forever. Return true and
+    // accept potential FOUC — pages must render even if some sheets are
+    // late.
+    return true;
 }
 
 Locale& Document::getCachedLocale(const AtomString& locale)

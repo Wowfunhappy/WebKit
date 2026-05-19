@@ -64,6 +64,7 @@ RefPtr<DrawingArea> DrawingArea::create(WebPage& webPage, const WebPageCreationP
 {
 #if ENABLE(TILED_CA_DRAWING_AREA)
     SandboxExtension::consumePermanently(parameters.renderServerMachExtensionHandle);
+    // 10.9 perf: removed debug fopen logging
     switch (parameters.drawingAreaType) {
     case DrawingAreaType::TiledCoreAnimation:
         return TiledCoreAnimationDrawingArea::create(webPage, parameters);

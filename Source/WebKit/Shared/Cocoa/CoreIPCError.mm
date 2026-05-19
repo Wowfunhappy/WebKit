@@ -46,6 +46,10 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(CoreIPCError);
 
 RetainPtr<id> CoreIPCError::toID() const
 {
+    // 10.9 backport: build a minimal NSError from domain + code only.
+    // Original implementation references 10.10+ NSError userInfo keys.
+    return adoptNS([[NSError alloc] initWithDomain:m_domain.createNSString().get() code:m_code userInfo:nil]);
+#if 0
     RetainPtr<NSMutableDictionary> mutableUserInfo = adoptNS([[NSMutableDictionary alloc] init]);
 
     if (m_clientCertificateChain) {
@@ -102,6 +106,7 @@ RetainPtr<id> CoreIPCError::toID() const
     }
 
     return adoptNS([[NSError alloc] initWithDomain:m_domain.createNSString().get() code:m_code userInfo:(__bridge NSDictionary *)mutableUserInfo.get()]);
+#endif
 }
 
 
@@ -118,9 +123,20 @@ RetainPtr<id> CoreIPCError::toID() const
 }
 
 CoreIPCError::CoreIPCError(NSError *nsError)
-    : m_domain([nsError domain])
-    , m_code([nsError code])
+    : m_domain("WebKitErrorDomain"_s)
+    , m_code(nsError ? [nsError code] : 0)
 {
+    // 10.9 backport: NSError on this build (built from CFNetwork errors,
+    // SecError, etc.) often has bridge-corrupted NSString fields that cause
+    // IPC::ArgumentCoder<WTF::String>::encode to SIGILL when the receiver
+    // process tries to read span8/span16. Skip the userInfo extraction
+    // entirely — store only the error code with a safe constant domain so
+    // UIProcess at least gets a meaningful failure instead of a WebContent
+    // crash on every provisional-load failure (e.g. TLS errors on sites that
+    // don't support 10.9's SecureTransport).
+    UNUSED_PARAM(nsError);
+    return;
+#if 0  // 10.9 backport: original userInfo extraction disabled (uses 10.10+ keys + SPIs)
     RetainPtr<NSDictionary> userInfo = [nsError userInfo];
 
     if (RetainPtr<NSArray> clientIdentityAndCertificates = [userInfo objectForKey:@"NSErrorClientCertificateChainKey"]) {
@@ -210,6 +226,7 @@ CoreIPCError::CoreIPCError(NSError *nsError)
     EXTRACT_STRING_VALUE(@"networkTaskMetricsPrivacyStance", m_networkTaskMetricsPrivacyStance)
 
     EXTRACT_STRING_VALUE(@"NSDescription", m_description)
+#endif
 }
 
 } // namespace WebKit

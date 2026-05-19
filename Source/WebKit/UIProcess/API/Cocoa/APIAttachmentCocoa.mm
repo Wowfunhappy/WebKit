@@ -111,13 +111,16 @@ void Attachment::setFileWrapperAndUpdateContentType(NSFileWrapper *fileWrapper, 
 {
     RetainPtr updatedContentType = contentType;
     if (!updatedContentType.get().length) {
+        // 10.9 backport: +[UTType directory]/+data are 11.0+; use kUTType*.
+        NSString *dirType = [UTType respondsToSelector:@selector(directory)] ? UTTypeDirectory.identifier : (__bridge NSString *)kUTTypeDirectory;
+        NSString *dataType = [UTType respondsToSelector:@selector(data)] ? UTTypeData.identifier : (__bridge NSString *)kUTTypeData;
         if (fileWrapper.directory)
-            updatedContentType = UTTypeDirectory.identifier;
+            updatedContentType = dirType;
         else if (fileWrapper.regularFile) {
             if (RetainPtr<NSString> pathExtension = (fileWrapper.filename.length ? fileWrapper.filename : fileWrapper.preferredFilename).pathExtension)
                 updatedContentType = WebCore::MIMETypeRegistry::mimeTypeForExtension(WTF::String(pathExtension.get())).createNSString();
             if (!updatedContentType.get().length)
-                updatedContentType = UTTypeData.identifier;
+                updatedContentType = dataType;
         }
     }
 

@@ -64,10 +64,22 @@ void ThreadTimers::setSharedTimer(SharedTimer* sharedTimer)
     }
     
     m_sharedTimer = sharedTimer;
-    
+
     if (sharedTimer) {
         sharedTimer->setFiredFunction([] { threadGlobalDataSingleton().threadTimers().sharedTimerFiredInternal(); });
-        updateSharedTimer();
+        // 10.9 backport: do NOT call updateSharedTimer here unconditionally.
+        // setSharedTimer is invoked from ThreadTimers ctor *during* the lazy
+        // init triggered inside TimerBase::setNextFireTime — which already
+        // holds sharedTimerHeapLock. Calling updateSharedTimer would attempt
+        // to re-acquire the lock and deadlock.
+        // The heap is empty at ctor time, so updateSharedTimer would be a
+        // no-op anyway. Skip it.
+        if (!m_timerHeap.isEmpty()) {
+#if PLATFORM(MAC)
+            Locker locker { sharedTimerHeapLock() };
+#endif
+            updateSharedTimer();
+        }
     }
 }
 
@@ -76,6 +88,9 @@ void ThreadTimers::updateSharedTimer()
     if (!m_sharedTimer)
         return;
 
+    // 10.9 backport: caller (setNextFireTime / sharedTimerFiredInternal) is
+    // expected to hold sharedTimerHeapLock(). Do NOT acquire it here — that
+    // would deadlock since the lock is non-recursive.
     while (!m_timerHeap.isEmpty() && !m_timerHeap.first()->hasTimer()) {
         ASSERT_NOT_REACHED();
         TimerBase::heapDeleteNullMin(m_timerHeap);
@@ -88,11 +103,15 @@ void ThreadTimers::updateSharedTimer()
     } else {
         MonotonicTime nextFireTime = m_timerHeap.first()->time;
         MonotonicTime currentMonotonicTime = MonotonicTime::now();
-        if (m_pendingSharedTimerFireTime) {
-            // No need to restart the timer if both the pending fire time and the new fire time are in the past.
-            if (m_pendingSharedTimerFireTime <= currentMonotonicTime && nextFireTime <= currentMonotonicTime)
-                return;
-        }
+        // 10.9 backport: the upstream short-circuit "if both pending fire time
+        // and next fire time are in the past, the timer is already firing"
+        // assumes the runloop reliably pumps the shared timer. On 10.9 the
+        // shared timer's runloop sometimes isn't pumped (pre-CFRunLoopRun in
+        // XPCServiceMain) and the prior fire never happens — subsequent new
+        // 0_s timers piled up behind it stay unfired forever. Always
+        // reschedule via setFireInterval so the dispatch_after fallback in
+        // MainThreadSharedTimerCF::setFireInterval gets re-armed for each
+        // newly-added timer.
         m_pendingSharedTimerFireTime = nextFireTime;
         protect(m_sharedTimer)->setFireInterval(std::max(nextFireTime - currentMonotonicTime, 0_s));
     }
@@ -112,25 +131,37 @@ void ThreadTimers::sharedTimerFiredInternal()
     auto fireTime = MonotonicTime::now();
     auto timeToQuit = ApproximateTime::now() + maxDurationOfFiringTimers;
 
-    while (!m_timerHeap.isEmpty()) {
-        Ref item = m_timerHeap.first();
-        ASSERT(item->hasTimer());
-        if (!item->hasTimer()) {
-            TimerBase::heapDeleteNullMin(m_timerHeap);
-            continue;
+    while (true) {
+        // 10.9 backport: lock around heap inspection; release before firing the
+        // timer (the callback may re-enter setNextFireTime which also locks).
+        RefPtr<ThreadTimerHeapItem> item;
+        TimerBase* timer = nullptr;
+        Seconds interval;
+        {
+#if PLATFORM(MAC)
+            Locker locker { sharedTimerHeapLock() };
+#endif
+            if (m_timerHeap.isEmpty())
+                break;
+            item = m_timerHeap.first().ptr();
+            if (!item->hasTimer()) {
+                TimerBase::heapDeleteNullMin(m_timerHeap);
+                continue;
+            }
+            if (item->time > fireTime)
+                break;
+            timer = &item->timer();
+            interval = timer->repeatInterval();
         }
 
-        if (item->time > fireTime)
-            break;
-
-        auto& timer = item->timer();
-        Seconds interval = timer.repeatInterval();
-        timer.setNextFireTime(interval ? fireTime + interval : MonotonicTime { });
+        timer->setNextFireTime(interval ? fireTime + interval : MonotonicTime { });
 
         // Once the timer has been fired, it may be deleted, so do nothing else with it after this point.
         {
             TraceScope timerFiredScope { TimerFiredStart, TimerFiredEnd };
-            item->timer().fired();
+            // Re-check item still has timer (could have been cleared/deleted across setNextFireTime).
+            if (item->hasTimer())
+                item->timer().fired();
         }
 
         // Catch the case where the timer asked timers to fire in a nested event loop, or we are over time limit.
@@ -144,6 +175,9 @@ void ThreadTimers::sharedTimerFiredInternal()
     m_firingTimers = false;
     m_shouldBreakFireLoopForRenderingUpdate = false;
 
+#if PLATFORM(MAC)
+    Locker locker { sharedTimerHeapLock() };
+#endif
     updateSharedTimer();
 }
 
@@ -157,6 +191,9 @@ void ThreadTimers::fireTimersInNestedEventLoop()
         m_pendingSharedTimerFireTime = MonotonicTime { };
     }
 
+#if PLATFORM(MAC)
+    Locker locker { sharedTimerHeapLock() };
+#endif
     updateSharedTimer();
 }
 

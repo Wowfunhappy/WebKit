@@ -49,6 +49,14 @@ public:
     static Ref<RemoteLayerTreeDrawingAreaProxyMac> create(WebPageProxy&, WebProcessProxy&);
     ~RemoteLayerTreeDrawingAreaProxyMac();
 
+    // 10.9 backport: bypass the UIProcess ScrollingTree path. The 10.9 minimal
+    // PageClient never wires up windowScreenDidChange/scrolling-tree state, so the
+    // RemoteLayerTreeEventDispatcher async path doesn't actually deliver scroll to
+    // WebContent. Forcing the synchronous "send wheel events to event dispatcher"
+    // path makes WebPageProxy::handleWheelEvent IPC the wheel directly to WebContent,
+    // which dispatches the DOM scroll/wheel events and updates scroll position.
+    bool shouldSendWheelEventsToEventDispatcher() const override { return true; }
+
     void didRefreshDisplay() override;
 
     DisplayLink& displayLink();

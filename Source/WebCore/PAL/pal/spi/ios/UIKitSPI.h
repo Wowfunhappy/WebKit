@@ -107,7 +107,7 @@ typedef enum {
 @end
 
 @interface NSTextAlternatives : NSObject
-@property (readonly) NSArray<NSString *> *alternativeStrings;
+@property (readonly) NSArray *alternativeStrings;
 @end
 
 @interface UIApplication ()
@@ -281,11 +281,11 @@ typedef NS_ENUM(NSUInteger, NSTextBlockVerticalAlignment) {
 @end
 
 @interface NSParagraphStyle (TextBlocks)
-- (NSArray<NSTextBlock *> *)textBlocks;
+- (NSArray *)textBlocks;
 @end
 
 @interface NSMutableParagraphStyle (TextBlocks)
-- (void)setTextBlocks:(NSArray<NSTextBlock *> *)array;
+- (void)setTextBlocks:(NSArray *)array;
 @end
 
 #endif // !__has_include(<UIFoundation/NSTextTable.h>)
@@ -311,7 +311,7 @@ typedef NS_ENUM(NSUInteger, NSTextTabType) {
 
 @interface NSTextTab ()
 - (id)initWithType:(NSTextTabType)type location:(CGFloat)loc;
-- (instancetype)initWithTextAlignment:(NSTextAlignment)alignment location:(CGFloat)loc options:(NSDictionary<NSTextTabOptionKey, id> *)options;
+- (instancetype)initWithTextAlignment:(NSTextAlignment)alignment location:(CGFloat)loc options:(NSDictionary *)options;
 @end
 
 @interface NSTextBlock (Internal)

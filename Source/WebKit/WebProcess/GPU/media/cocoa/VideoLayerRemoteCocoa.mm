@@ -198,7 +198,7 @@ static const Seconds PostAnimationDelay { 100_ms };
     if (!CGRectEqualToRect(self.videoLayerFrame, self.bounds)) {
         self.videoLayerFrame = self.bounds;
         if (RefPtr<WebKit::VideoLayerRemoteParent> parent = self.parent) {
-            MachSendRight fenceSendRight = MachSendRight::adopt([_context createFencePort]);
+            MachSendRight fenceSendRight = MachSendRight::adopt((mach_port_t)[_context createFencePort]);
             parent->setVideoLayerSizeFenced(WebCore::FloatSize(self.videoLayerFrame.size), { WTF::move(fenceSendRight), { } });
         }
     }

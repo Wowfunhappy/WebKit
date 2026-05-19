@@ -133,6 +133,15 @@ void reportException(JSGlobalObject* lexicalGlobalObject, JSC::Exception* except
     }
 
     auto errorMessage = retrieveErrorMessage(*lexicalGlobalObject, vm, exception->value(), scope);
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) {
+            auto utf8 = errorMessage.utf8();
+            auto urlUtf8 = exceptionSourceURL.utf8();
+            fprintf(_f, "[exc PID %d] %s @ %s:%d:%d\n", getpid(), utf8.data(), urlUtf8.data(), lineNumber, columnNumber);
+            fclose(_f);
+        }
+    }
     protect(globalObject->scriptExecutionContext())->reportException(errorMessage, lineNumber, columnNumber, exceptionSourceURL, exception, callStack->size() ? callStack.ptr() : nullptr, cachedScript, fromModule);
 
     if (exceptionDetails) {

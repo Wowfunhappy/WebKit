@@ -37,36 +37,23 @@
 
 namespace WebCore {
 
+// 10.9 backport: pal::ECKey uses Swift CryptoKit (10.15+); CryptoKeyEC is
+// already marked unsupported, but harden ECDSA paths too.
 static ExceptionOr<Vector<uint8_t>> signECDSACryptoKit(CryptoAlgorithmIdentifier hash, const PlatformECKeyContainer& key, const Vector<uint8_t>& data)
 {
-#if !defined(CLANG_WEBKIT_BRANCH)
-    if (!isValidHashParameter(hash))
-        return Exception { ExceptionCode::OperationError };
-    auto rv = key->sign(data.span(), std::to_underlying(toCKHashFunction(hash)));
-    if (rv.errorCode != Cpp::ErrorCodes::Success)
-        return Exception { ExceptionCode::OperationError };
-    return WTF::move(rv.result);
-#else
     UNUSED_PARAM(hash);
     UNUSED_PARAM(key);
     UNUSED_PARAM(data);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
+    return Exception { ExceptionCode::OperationError };
 }
 
 static ExceptionOr<bool> verifyECDSACryptoKit(CryptoAlgorithmIdentifier hash, const PlatformECKeyContainer& key, const Vector<uint8_t>& signature, const Vector<uint8_t> data)
 {
-#if !defined(CLANG_WEBKIT_BRANCH)
-    if (!isValidHashParameter(hash))
-        return Exception { ExceptionCode::OperationError };
-    return key->verify(data.span(), signature.span(), std::to_underlying(toCKHashFunction(hash))).errorCode == Cpp::ErrorCodes::Success;
-#else
     UNUSED_PARAM(hash);
     UNUSED_PARAM(key);
     UNUSED_PARAM(signature);
     UNUSED_PARAM(data);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
-#endif
+    return false;
 }
 
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmECDSA::platformSign(const CryptoAlgorithmEcdsaParams& parameters, const CryptoKeyEC& key, const Vector<uint8_t>& data)

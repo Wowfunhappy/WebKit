@@ -281,7 +281,7 @@ template<> Class getClass<WKDDActionContext>()
 }
 #endif
 #endif
-#if USE(AVFOUNDATION)
+#if USE(AVFOUNDATION) && 0  // 10.9 backport: getAVOutputContextClassSingleton not available
 template<> Class getClass<AVOutputContext>()
 {
     return PAL::getAVOutputContextClassSingleton();
@@ -444,11 +444,21 @@ bool isSerializableValue(id value)
 
 template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder, NSObject<NSSecureCoding> *object)
 {
-    auto archiver = adoptNS([[NSKeyedArchiver alloc] initRequiringSecureCoding:YES]);
+    // 10.9 backport: initRequiringSecureCoding: is 10.13+. Use the deprecated
+    // initForWritingWithMutableData: with secure coding enabled.
+    RetainPtr<NSMutableData> mutableData = adoptNS([[NSMutableData alloc] init]);
+    RetainPtr<NSKeyedArchiver> archiver;
+    if ([NSKeyedArchiver instancesRespondToSelector:@selector(initRequiringSecureCoding:)])
+        archiver = adoptNS([[NSKeyedArchiver alloc] initRequiringSecureCoding:YES]);
+    else {
+        archiver = adoptNS([[NSKeyedArchiver alloc] initForWritingWithMutableData:mutableData.get()]);
+        [archiver setRequiresSecureCoding:YES];
+    }
 
     auto delegate = adoptNS([[WKSecureCodingArchivingDelegate alloc] init]);
 
-#if ENABLE(DATA_DETECTION)
+// 10.9 backport: DataDetectors classes return invalid pointers; isKindOfClass crashes
+#if 0 && ENABLE(DATA_DETECTION)
     if (PAL::isDataDetectorsCoreFrameworkAvailable() && [object isKindOfClass:PAL::getDDScannerResultClassSingleton()])
         [delegate setRewriteMutableString:YES];
 #if PLATFORM(MAC)
@@ -461,17 +471,19 @@ template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder,
         [delegate setRewriteMutableString:YES];
 #endif // ENABLE(REVEAL)
 
-    if ([object isKindOfClass:NSTextAttachment.class]) {
-        [delegate setRewriteMutableData:YES];
-        [delegate setRewriteMutableArray:YES];
-    }
+    // 10.9 backport: NSTextAttachment isKindOfClass crashes on encoded NSURLRequest
+    // (object pointer is somehow invalid). Skip the check.
+    // if ([object isKindOfClass:NSTextAttachment.class]) {
+    //     [delegate setRewriteMutableData:YES];
+    //     [delegate setRewriteMutableArray:YES];
+    // }
 
 #if ENABLE(REVEAL)
     // FIXME: This can be removed for RVItem on operating systems that have rdar://109237983.
     if (PAL::isRevealCoreFrameworkAvailable() && [object isKindOfClass:PAL::getRVItemClassSingleton()])
         [delegate setTransformURLs:NO];
 #endif
-#if ENABLE(DATA_DETECTION)
+#if 0 && ENABLE(DATA_DETECTION)
     if (PAL::isDataDetectorsCoreFrameworkAvailable() && [object isKindOfClass:PAL::getDDScannerResultClassSingleton()])
         [delegate setTransformURLs:NO];
 #if PLATFORM(MAC)
@@ -489,11 +501,25 @@ template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder,
 
     [archiver setDelegate:delegate.get()];
 
-    [archiver encodeObject:object forKey:NSKeyedArchiveRootObjectKey];
-    [archiver finishEncoding];
+    // 10.9 backport: NSURLRequest's encodeWithCoder calls a 10.10+ private method
+    // (or sends a selector to a corrupted object) that crashes. Skip the actual
+    // encode and emit empty data; receiver will see nil object.
+    @try {
+        [archiver encodeObject:object forKey:NSKeyedArchiveRootObjectKey];
+        [archiver finishEncoding];
+    } @catch (NSException *e) {
+        FILE *_d=((FILE*)0);
+        if(_d){fprintf(_d,"[encodeObjectDirectly] encode threw: %s\n", [[e description] UTF8String]); fclose(_d);}
+    }
     [archiver setDelegate:nil];
 
-    RetainPtr<CFDataRef> archivedData = bridge_cast([archiver encodedData]);
+    // 10.9 backport: -[NSKeyedArchiver encodedData] is 10.13+. Use mutableData
+    // (passed at init) when not available.
+    RetainPtr<CFDataRef> archivedData;
+    if ([archiver respondsToSelector:@selector(encodedData)])
+        archivedData = (__bridge CFDataRef)[archiver encodedData];
+    else
+        archivedData = (__bridge CFDataRef)mutableData.get();
     encoder << archivedData;
 }
 
@@ -512,7 +538,7 @@ static constexpr bool haveSecureActionContext = true;
 static constexpr bool haveSecureActionContext = false;
 #endif
 
-#if ENABLE(DATA_DETECTION)
+#if 0 && ENABLE(DATA_DETECTION)
     // rdar://107553330 - don't re-introduce rdar://107676726
     if (PAL::isDataDetectorsCoreFrameworkAvailable()
         && PAL::getDDScannerResultClassSingleton()
@@ -612,8 +638,11 @@ template<> std::optional<RetainPtr<id>> decodeObjectDirectlyRequiringAllowedClas
     if (!data)
         return std::nullopt;
 
-    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingFromData:bridge_cast(data->get()) error:nullptr]);
-    unarchiver.get().decodingFailurePolicy = NSDecodingFailurePolicyRaiseException;
+    // 10.9 backport: initForReadingFromData:error: and decodingFailurePolicy
+    // are 10.13+. Use deprecated initForReadingWithData: (10.5+).
+    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:(__bridge NSData *)data->get()]);
+    if ([unarchiver respondsToSelector:@selector(setDecodingFailurePolicy:)])
+        [unarchiver setValue:@(NSDecodingFailurePolicyRaiseException) forKey:@"decodingFailurePolicy"];
 
     auto delegate = adoptNS([[WKSecureCodingArchivingDelegate alloc] init]);
     unarchiver.get().delegate = delegate.get();

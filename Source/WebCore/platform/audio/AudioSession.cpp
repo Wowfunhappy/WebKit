@@ -65,9 +65,21 @@ static RefPtr<AudioSession>& NODELETE sharedAudioSession()
     return session.get();
 }
 
+// 10.9 backport: dummy AudioSession concrete subclass; mirrors AudioSessionCocoa's
+// approach for diamond inheritance with TZone allocator and ref-counted weak ptr.
+namespace {
+class AudioSessionDummy : public AudioSession, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<AudioSessionDummy> {
+    WTF_MAKE_TZONE_ALLOCATED(AudioSessionDummy);
+public:
+    AudioSessionDummy() : AudioSession() { }
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+};
+}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AudioSessionDummy);
+
 static Ref<AudioSession>& dummyAudioSession()
 {
-    static NeverDestroyed<Ref<AudioSession>> dummySession = AudioSession::create();
+    static NeverDestroyed<Ref<AudioSession>> dummySession = adoptRef<AudioSession>(*new AudioSessionDummy);
     return dummySession.get();
 }
 
@@ -88,13 +100,11 @@ bool AudioSession::enableMediaPlayback()
 
 Ref<AudioSession> AudioSession::create()
 {
-#if PLATFORM(MAC)
-    return AudioSessionMac::create();
-#elif PLATFORM(IOS_FAMILY)
-    return AudioSessionIOS::create();
-#else
-    return AudioSession::create();
-#endif
+    // 10.9 backport: AudioSessionMac.mm is stubbed empty on this build, so
+    // AudioSessionMac::create() resolves to a polyfill stub that returns
+    // garbage. Use the dummy session unconditionally; we don't need media
+    // playback to be controllable on this OS.
+    return dummyAudioSession();
 }
 
 AudioSession::AudioSession() = default;
@@ -235,26 +245,46 @@ AudioSession::Mode AudioSession::mode() const
 
 float AudioSession::sampleRate() const
 {
+#if PLATFORM(MAC)
+    // 10.9 backport: AudioSessionDummy uses this base impl. Returning 0 makes Web Audio
+    // sampleRate=0 which breaks everything that does sample-rate math. Return the
+    // standard hardware default (44100 Hz) so apps get sensible numbers. Real audio
+    // pipeline uses the actual device sample rate via AudioOutputUnitAdaptor.
+    return 44100;
+#else
     notImplemented();
     return 0;
+#endif
 }
 
 size_t AudioSession::bufferSize() const
 {
+#if PLATFORM(MAC)
+    return 512;
+#else
     notImplemented();
     return 0;
+#endif
 }
 
 size_t AudioSession::numberOfOutputChannels() const
 {
+#if PLATFORM(MAC)
+    return 2;
+#else
     notImplemented();
     return 0;
+#endif
 }
 
 size_t AudioSession::maximumNumberOfOutputChannels() const
 {
+#if PLATFORM(MAC)
+    return 2;
+#else
     notImplemented();
     return 0;
+#endif
 }
 
 bool AudioSession::tryToSetActiveInternal(bool)

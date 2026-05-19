@@ -120,9 +120,30 @@ std::optional<Vector<uint8_t>> decryptAES128GCM(std::span<const uint8_t> key, st
 
     Vector<uint8_t> plainText(cipherTextWithTag.size() - aes128GCMTagLength);
     auto nonTagCipherTextLength = cipherTextWithTag.size() - aes128GCMTagLength;
+#if PLATFORM(MAC)
+    // 10.9 backport: CCCryptorGCMOneshotDecrypt is 10.10+. Use the older one-shot
+    // CCCryptorGCM (10.9+, deprecated but functional) which encrypts/decrypts AND
+    // computes the tag; verify the computed tag matches the expected tag with
+    // constant-time compare.
+    Vector<uint8_t> computedTag(aes128GCMTagLength);
+    size_t tagLen = aes128GCMTagLength;
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    auto result = CCCryptorGCM(kCCDecrypt, kCCAlgorithmAES, key.data(), key.size(), iv.data(), iv.size(), nullptr, 0, cipherTextWithTag.data(), nonTagCipherTextLength, plainText.mutableSpan().data(), computedTag.mutableSpan().data(), &tagLen);
+ALLOW_DEPRECATED_DECLARATIONS_END
+    if (result != kCCSuccess)
+        return std::nullopt;
+    // Constant-time tag compare to avoid timing attacks.
+    auto expectedTag = cipherTextWithTag.subspan(nonTagCipherTextLength);
+    uint8_t diff = 0;
+    for (size_t i = 0; i < aes128GCMTagLength; ++i)
+        diff |= computedTag[i] ^ expectedTag[i];
+    if (diff)
+        return std::nullopt;
+#else
     auto result = CCCryptorGCMOneshotDecrypt(kCCAlgorithmAES, key.data(), key.size(), iv.data(), iv.size(), nullptr /* additionalData */, 0 /* additionalDataLength */, cipherTextWithTag.data(), nonTagCipherTextLength, plainText.mutableSpan().data(), cipherTextWithTag.subspan(nonTagCipherTextLength).data(), aes128GCMTagLength);
     if (result != kCCSuccess)
         return std::nullopt;
+#endif
 
     return plainText;
 }

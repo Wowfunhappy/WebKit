@@ -45,7 +45,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
     if (!(self = [super init]))
         return nil;
 
-    API::Object::constructInWrapper<API::UserScript>(self, WebCore::UserScript { source, { }, { }, { }, API::toWebCoreUserScriptInjectionTime(injectionTime), forMainFrameOnly ? WebCore::UserContentInjectedFrames::InjectInTopFrameOnly : WebCore::UserContentInjectedFrames::InjectInAllFrames }, Ref { *contentWorld->_contentWorld });
+    // DISABLED:     API::Object::constructInWrapper<API::UserScript>(self, WebCore::UserScript { source, { }, { }, { }, API::toWebCoreUserScriptInjectionTime(injectionTime), forMainFrameOnly ? WebCore::UserContentInjectedFrames::InjectInTopFrameOnly : WebCore::UserContentInjectedFrames::InjectInAllFrames }, Ref { *contentWorld->_contentWorld });
 
     return self;
 }
@@ -111,7 +111,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!(self = [super init]))
         return nil;
 
-    API::Object::constructInWrapper<API::UserScript>(self, WebCore::UserScript { source, associatedURL, makeVector<String>(includeMatchPatternStrings), makeVector<String>(excludeMatchPatternStrings), API::toWebCoreUserScriptInjectionTime(injectionTime), forMainFrameOnly ? WebCore::UserContentInjectedFrames::InjectInTopFrameOnly : WebCore::UserContentInjectedFrames::InjectInAllFrames }, Ref { contentWorld ? *contentWorld->_contentWorld : API::ContentWorld::pageContentWorldSingleton() });
+    // DISABLED:     API::Object::constructInWrapper<API::UserScript>(self, WebCore::UserScript { source, associatedURL, makeVector<String>(includeMatchPatternStrings), makeVector<String>(excludeMatchPatternStrings), API::toWebCoreUserScriptInjectionTime(injectionTime), forMainFrameOnly ? WebCore::UserContentInjectedFrames::InjectInTopFrameOnly : WebCore::UserContentInjectedFrames::InjectInAllFrames }, Ref { contentWorld ? *contentWorld->_contentWorld : API::ContentWorld::pageContentWorldSingleton() });
 
     return self;
 }

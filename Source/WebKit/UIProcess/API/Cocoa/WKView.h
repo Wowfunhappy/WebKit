@@ -23,6 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef WKView_h
+#define WKView_h
+
 #import <WebKit/WKFoundation.h>
 
 #if !TARGET_OS_IPHONE
@@ -58,4 +61,6 @@ WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKWebView", macos(10.10, 10.14.4), ios(8.0
 
 @end
 
-#endif
+#endif // !TARGET_OS_IPHONE
+
+#endif // WKView_h

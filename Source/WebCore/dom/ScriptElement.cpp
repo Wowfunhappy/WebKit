@@ -101,6 +101,15 @@ ScriptElement::ScriptElement(Element& element, bool parserInserted, bool already
 
 void ScriptElement::didFinishInsertingNode()
 {
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) {
+            auto src = sourceAttributeValue().utf8();
+            fprintf(_f, "[script didFinishInserting PID %d] parserInserted=%d src=%.200s\n",
+                getpid(), (int)m_parserInserted, src.data());
+            fclose(_f);
+        }
+    }
     if (m_parserInserted == ParserInserted::No)
         prepareScript(); // FIXME: Provide a real starting line number here.
 }
@@ -211,8 +220,22 @@ std::optional<ScriptType> ScriptElement::determineScriptType() const
 // https://html.spec.whatwg.org/multipage/scripting.html#prepare-the-script-element
 bool ScriptElement::prepareScript(const TextPosition& scriptStartPosition)
 {
-    if (m_alreadyStarted)
-        return false;
+#define JSCE_LOG_EXIT(tag) do { \
+    FILE* _f = ((FILE*)0); \
+    if (_f) { auto _s = sourceAttributeValue().utf8(); \
+        unsigned _attrCount = this->element().attributeCount(); \
+        fprintf(_f, "[prepareScript exit PID %d] at=%s src=%.80s attrs=%u text-len=%zu\n", getpid(), tag, _s.data(), _attrCount, scriptContent().length()); \
+        for (unsigned _i = 0; _i < _attrCount; ++_i) { \
+            const auto& _a = this->element().attributeAt(_i); \
+            auto _n = _a.localName().string().utf8(); \
+            auto _ns = _a.namespaceURI().string().utf8(); \
+            auto _v = _a.value().string().utf8(); \
+            fprintf(_f, "  attr[%u] ns=%.40s name=%.40s val=%.80s\n", _i, _ns.data(), _n.data(), _v.data()); \
+        } \
+        fclose(_f); } \
+} while(0)
+
+    if (m_alreadyStarted) { JSCE_LOG_EXIT("alreadyStarted"); return false; }
 
     bool wasParserInserted;
     if (m_parserInserted == ParserInserted::Yes) {
@@ -229,22 +252,18 @@ bool ScriptElement::prepareScript(const TextPosition& scriptStartPosition)
     Ref context = *element->scriptExecutionContext();
     if (context->settingsValues().trustedTypesEnabled && sourceText != m_trustedScriptText) {
         auto trustedText = trustedTypeCompliantString(TrustedType::TrustedScript, context, sourceText, is<HTMLScriptElement>(element) ? "HTMLScriptElement text"_s : "SVGScriptElement text"_s);
-        if (trustedText.hasException())
-            return false;
+        if (trustedText.hasException()) { JSCE_LOG_EXIT("trustedTextException"); return false; }
         sourceText = trustedText.releaseReturnValue();
     }
 
-    if (!hasSourceAttribute() && sourceText.isEmpty())
-        return false;
+    if (!hasSourceAttribute() && sourceText.isEmpty()) { JSCE_LOG_EXIT("noSrcEmptyText"); return false; }
 
-    if (!element->isConnected())
-        return false;
+    if (!element->isConnected()) { JSCE_LOG_EXIT("notConnected"); return false; }
 
     ScriptType scriptType = ScriptType::Classic;
     if (std::optional<ScriptType> result = determineScriptType())
         scriptType = result.value();
-    else
-        return false;
+    else { JSCE_LOG_EXIT("noScriptType"); return false; }
     m_scriptType = scriptType;
 
     if (wasParserInserted) {
@@ -260,19 +279,15 @@ bool ScriptElement::prepareScript(const TextPosition& scriptStartPosition)
     // FIXME: Eventually we'd like to evaluate scripts which are inserted into a
     // viewless document but this'll do for now.
     // See http://bugs.webkit.org/show_bug.cgi?id=5727
-    if (!document->frame())
-        return false;
+    if (!document->frame()) { JSCE_LOG_EXIT("noFrame"); return false; }
 
-    if (scriptType == ScriptType::Classic && hasNoModuleAttribute())
-        return false;
+    if (scriptType == ScriptType::Classic && hasNoModuleAttribute()) { JSCE_LOG_EXIT("noModuleAttr"); return false; }
 
     m_preparationTimeDocumentIdentifier = document->identifier();
 
-    if (!document->frame()->script().canExecuteScripts(ReasonForCallingCanExecuteScripts::AboutToExecuteScript))
-        return false;
+    if (!document->frame()->script().canExecuteScripts(ReasonForCallingCanExecuteScripts::AboutToExecuteScript)) { JSCE_LOG_EXIT("cantExecScripts"); return false; }
 
-    if (scriptType == ScriptType::Classic && isScriptPreventedByAttributes())
-        return false;
+    if (scriptType == ScriptType::Classic && isScriptPreventedByAttributes()) { JSCE_LOG_EXIT("preventedByAttrs"); return false; }
 
     // According to the spec, the module tag ignores the "charset" attribute as the same to the worker's
     // importScript. But WebKit supports the "charset" for importScript intentionally. So to be consistent,
@@ -285,15 +300,13 @@ bool ScriptElement::prepareScript(const TextPosition& scriptStartPosition)
     switch (scriptType) {
     case ScriptType::Classic: {
         if (hasSourceAttribute()) {
-            if (!requestClassicScript(sourceAttributeValue()))
-                return false;
+            if (!requestClassicScript(sourceAttributeValue())) { JSCE_LOG_EXIT("reqClassicFail"); return false; }
             potentiallyBlockRendering();
         }
         break;
     }
     case ScriptType::Module: {
-        if (!requestModuleScript(sourceText, scriptStartPosition))
-            return false;
+        if (!requestModuleScript(sourceText, scriptStartPosition)) { JSCE_LOG_EXIT("reqModuleFail"); return false; }
         potentiallyBlockRendering();
         break;
     }
@@ -304,10 +317,19 @@ bool ScriptElement::prepareScript(const TextPosition& scriptStartPosition)
             queueTaskKeepingObjectAlive(*this, TaskSource::DOMManipulation, [](auto& element) {
                 element.dispatchErrorEvent();
             });
+            JSCE_LOG_EXIT("importMapWithSrc");
             return false;
         }
         break;
     }
+    }
+
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) { auto _s = sourceAttributeValue().utf8();
+            fprintf(_f, "[prepareScript classify PID %d] type=%d hasSrc=%d parserIns=%d async=%d defer=%d forceAsync=%d noModule=%d src=%.200s\n",
+                getpid(), (int)scriptType, (int)hasSourceAttribute(), (int)m_parserInserted, (int)hasAsyncAttribute(), (int)hasDeferAttribute(), (int)m_forceAsync, (int)hasNoModuleAttribute(), _s.data());
+            fclose(_f); }
     }
 
     updateTaintedOriginFromSourceURL();
@@ -372,17 +394,25 @@ bool ScriptElement::requestClassicScript(const String& sourceURL)
     ASSERT(element->isConnected());
     ASSERT(!m_loadableScript);
     Ref document = element->document();
+    int phase = 0;
     if (!StringView(sourceURL).containsOnly<isASCIIWhitespace<char16_t>>()) {
+        phase = 1;
         auto script = LoadableClassicScript::create(element->nonce(), element->attributeWithoutSynchronization(HTMLNames::integrityAttr), referrerPolicy(), fetchPriority(),
             element->attributeWithoutSynchronization(HTMLNames::crossoriginAttr), scriptCharset(), element->localName(), element->isInUserAgentShadowTree(), hasAsyncAttribute());
 
         auto scriptURL = document->completeURL(sourceURL);
         document->willLoadScriptElement(scriptURL);
 
-        if (!protect(document->contentSecurityPolicy())->allowNonParserInsertedScripts(scriptURL, URL(), m_startLineNumber, element->nonce(), script->integrity(), String(), m_parserInserted))
+        phase = 2;
+        if (!protect(document->contentSecurityPolicy())->allowNonParserInsertedScripts(scriptURL, URL(), m_startLineNumber, element->nonce(), script->integrity(), String(), m_parserInserted)) {
+            FILE* _f = ((FILE*)0); if (_f) { fprintf(_f, "[reqClassic PID %d] CSP blocked src=%.200s\n", getpid(), sourceURL.utf8().data()); fclose(_f); }
             return false;
+        }
 
-        if (script->load(document, scriptURL)) {
+        phase = 3;
+        bool loadResult = script->load(document, scriptURL);
+        FILE* _f = ((FILE*)0); if (_f) { fprintf(_f, "[reqClassic PID %d] script->load=%d src=%.200s url=%.200s\n", getpid(), (int)loadResult, sourceURL.utf8().data(), scriptURL.string().utf8().data()); fclose(_f); }
+        if (loadResult) {
             m_loadableScript = WTF::move(script);
             m_isExternalScript = true;
         }
@@ -391,6 +421,9 @@ bool ScriptElement::requestClassicScript(const String& sourceURL)
     if (m_loadableScript)
         return true;
 
+    {
+        FILE* _f = ((FILE*)0); if (_f) { fprintf(_f, "[reqClassic PID %d] FAILED phase=%d src=%.200s — dispatching error\n", getpid(), phase, sourceURL.utf8().data()); fclose(_f); }
+    }
     queueTaskKeepingObjectAlive(*this, TaskSource::DOMManipulation, [](auto& element) {
         element.dispatchErrorEvent();
     });

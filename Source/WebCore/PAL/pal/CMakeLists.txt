@@ -3,6 +3,7 @@ set(PAL_PUBLIC_HEADERS
     FileSizeFormatter.h
     HysteresisActivity.h
     Logging.h
+    PALSwift.h
     SessionID.h
     ThreadGlobalData.h
 

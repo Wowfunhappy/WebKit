@@ -34,9 +34,11 @@ namespace WebCore {
 
 String standardUserAgentWithApplicationName(const String& applicationName, const String&, UserAgentType)
 {
-    String appNameSuffix = applicationName.isEmpty() ? emptyString() : makeString(' ', applicationName);
-
-    return makeString("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"_s, appNameSuffix);
+    // 10.9 backport: ignore the host application name (Safari 9.1.3 passes
+    // "Safari/9537.86.7.8", which is inconsistent with Version/17.0). Always
+    // emit a clean modern Safari UA so UA-sniffing sites see a coherent pair.
+    UNUSED_PARAM(applicationName);
+    return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"_s;
 }
 
 } // namespace WebCore

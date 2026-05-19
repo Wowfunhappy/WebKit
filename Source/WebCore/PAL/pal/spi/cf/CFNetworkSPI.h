@@ -82,6 +82,7 @@ DECLARE_SYSTEM_HEADER
 
 #endif // defined(__OBJC__)
 
+#if !defined(NW_POLYFILL_TYPES_DECLARED)
 typedef enum {
     nw_context_privacy_level_public = 1,
     nw_context_privacy_level_private = 2,
@@ -122,6 +123,7 @@ typedef struct nw_establishment_report *nw_establishment_report_t;
 struct nw_path_evaluator;
 typedef struct nw_path_evaluator *nw_path_evaluator_t;
 #endif // OS_OBJECT_USE_OBJC
+#endif // !NW_POLYFILL_TYPES_DECLARED
 
 #if HAVE(NW_PROXY_CONFIG) || HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
 typedef void (^nw_context_tracker_lookup_callback_t)(nw_endpoint_t endpoint, const char **tracker_name, const char **tracker_owner, bool *can_block);
@@ -190,7 +192,7 @@ typedef struct OpaqueCFHTTPCookieStorage* CFHTTPCookieStorageRef;
 typedef CFIndex CFURLRequestPriority;
 typedef int CFHTTPCookieStorageAcceptPolicy;
 
-CF_ENUM(CFHTTPCookieStorageAcceptPolicy)
+enum
 {
     CFHTTPCookieStorageAcceptPolicyAlways = 0,
     CFHTTPCookieStorageAcceptPolicyNever = 1,
@@ -207,6 +209,41 @@ typedef enum {
 } nw_connection_privacy_stance_t;
 
 #if defined(__OBJC__)
+
+// NSURLSessionTaskMetrics and NSURLSessionTaskTransactionMetrics were added in macOS 10.12.
+// Declare base classes for older SDKs so category extensions below compile.
+#if __MAC_OS_X_VERSION_MAX_ALLOWED < 101200 && !defined(NSURLSESSION_TASK_METRICS_DECLARED)
+#define NSURLSESSION_TASK_METRICS_DECLARED 1
+@interface NSURLSessionTaskTransactionMetrics : NSObject
+@property (copy, readonly, nullable) NSDate *fetchStartDate;
+@property (copy, readonly, nullable) NSDate *domainLookupStartDate;
+@property (copy, readonly, nullable) NSDate *domainLookupEndDate;
+@property (copy, readonly, nullable) NSDate *connectStartDate;
+@property (copy, readonly, nullable) NSDate *secureConnectionStartDate;
+@property (copy, readonly, nullable) NSDate *connectEndDate;
+@property (copy, readonly, nullable) NSDate *requestStartDate;
+@property (copy, readonly, nullable) NSDate *responseStartDate;
+@property (copy, readonly, nullable) NSDate *responseEndDate;
+@property (copy, readonly, nullable) NSURLRequest *request;
+@property (copy, readonly, nullable) NSURLResponse *response;
+@property (copy, readonly, nullable) NSString *networkProtocolName;
+@property (assign, readonly, getter=isReusedConnection) BOOL reusedConnection;
+@property (assign, readonly, getter=isCellular) BOOL cellular;
+@property (assign, readonly, getter=isExpensive) BOOL expensive;
+@property (assign, readonly, getter=isConstrained) BOOL constrained;
+@property (assign, readonly, getter=isMultipath) BOOL multipath;
+@property (copy, readonly, nullable) NSString *remoteAddress;
+@property (copy, readonly, nullable) NSNumber *remotePort;
+@property (copy, readonly, nullable) NSNumber *negotiatedTLSProtocolVersion;
+@property (copy, readonly, nullable) NSNumber *negotiatedTLSCipherSuite;
+@property (assign, readonly) int64_t countOfRequestHeaderBytesSent;
+@property (assign, readonly) int64_t countOfResponseHeaderBytesReceived;
+@end
+@interface NSURLSessionTaskMetrics : NSObject
+@property (copy, readonly) NSArray<NSURLSessionTaskTransactionMetrics *> *transactionMetrics;
+@property (assign, readonly) NSUInteger redirectCount;
+@end
+#endif
 
 @interface NSURLSessionTask ()
 @property (readonly, retain) NSURLSessionTaskMetrics* _incompleteTaskMetrics;
@@ -326,7 +363,7 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 @interface _NSHSTSStorage : NSObject
 - (instancetype)initPersistentStoreWithURL:(nullable NSURL*)path;
 - (BOOL)shouldPromoteHostToHTTPS:(NSString *)host;
-- (NSArray<NSString *> *)nonPreloadedHosts;
+- (NSArray *)nonPreloadedHosts;
 - (void)resetHSTSForHost:(NSString *)host;
 - (void)resetHSTSHostsSinceDate:(NSDate *)date;
 @end
@@ -423,7 +460,7 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 @property (readonly, nonatomic) NSURL *path;
 + (instancetype)sharedPersistentStore;
 - (instancetype)initPersistentStoreWithURL:(nullable NSURL *)path;
-- (NSArray<_NSHTTPAlternativeServiceEntry *> *)HTTPServiceEntriesWithFilter:(_NSHTTPAlternativeServicesFilter *)filter;
+- (NSArray *)HTTPServiceEntriesWithFilter:(_NSHTTPAlternativeServicesFilter *)filter;
 - (void)removeHTTPAlternativeServiceEntriesWithRegistrableDomain:(NSString *)domain;
 - (void)removeHTTPAlternativeServiceEntriesCreatedAfterDate:(NSDate *)date;
 @end
@@ -437,8 +474,8 @@ enum : NSUInteger {
 };
 
 @interface NSURLSessionTask ()
-@property (nonatomic, copy, nullable) NSArray<NSHTTPCookie*>* (^_cookieTransformCallback)(NSArray<NSHTTPCookie*>* cookies);
-@property (nonatomic, readonly, nullable) NSArray<NSString*>* _resolvedCNAMEChain;
+@property (nonatomic, copy, nullable) NSArray * (^_cookieTransformCallback)(NSArray * cookies);
+@property (nonatomic, readonly, nullable) NSArray * _resolvedCNAMEChain;
 @property (nonatomic, readonly) int64_t _countOfBytesReceivedEncoded;
 @end
 
@@ -560,10 +597,10 @@ WTF_EXTERN_C_END
 
 @interface NSHTTPCookieStorage ()
 + (void)_setSharedHTTPCookieStorage:(NSHTTPCookieStorage *)storage;
-- (void)_setSubscribedDomainsForCookieChanges:(NSSet<NSString*>* __nullable)domainList;
+- (void)_setSubscribedDomainsForCookieChanges:(NSSet ** __nullable)domainList;
 - (NSArray* __nullable)_getCookiesForDomain:(NSString*)domain;
-- (void)_setCookiesChangedHandler:(void(^__nullable)(NSArray<NSHTTPCookie*>* addedCookies, NSString* domainForChangedCookie))cookiesChangedHandler onQueue:(dispatch_queue_t __nullable)queue;
-- (void)_setCookiesRemovedHandler:(void(^__nullable)(NSArray<NSHTTPCookie*>* __nullable removedCookies, NSString* __nullable domainForRemovedCookies, bool removeAllCookies))cookiesRemovedHandler onQueue:(dispatch_queue_t __nullable)queue;
+- (void)_setCookiesChangedHandler:(void(^__nullable)(NSArray * addedCookies, NSString* domainForChangedCookie))cookiesChangedHandler onQueue:(dispatch_queue_t __nullable)queue;
+- (void)_setCookiesRemovedHandler:(void(^__nullable)(NSArray * __nullable removedCookies, NSString* __nullable domainForRemovedCookies, bool removeAllCookies))cookiesRemovedHandler onQueue:(dispatch_queue_t __nullable)queue;
 @end
 
 @interface NSURLResponse ()

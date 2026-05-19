@@ -26,6 +26,7 @@
 #if HAVE(SAFE_BROWSING)
 
 #import "config.h"
+#import <wtf/RunLoop.h>
 #import "SafeBrowsingUtilities.h"
 
 #import "SafeBrowsingSPI.h"

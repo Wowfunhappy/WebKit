@@ -165,6 +165,9 @@ ServiceWorker* ServiceWorkerContainer::controller() const
 
 void ServiceWorkerContainer::addRegistration(Variant<Ref<TrustedScriptURL>, String>&& relativeScriptURL, const RegistrationOptions& options, Ref<DeferredPromise>&& promise)
 {
+    // 10.9 backport: ServiceWorker re-enabled after relaxing MemoryCache::singleton
+    // assertion. Most SW use is for offline caching / push notifications which
+    // gracefully degrade if registration fails partway.
     auto stringValueHolder = trustedTypeCompliantString(*protect(scriptExecutionContext()), WTF::move(relativeScriptURL), "ServiceWorkerContainer register"_s);
 
     if (stringValueHolder.hasException()) {

@@ -180,6 +180,18 @@ void WebPage::platformDetach()
 
 void WebPage::getPlatformEditorState(LocalFrame& frame, EditorState& result) const
 {
+    // 10.9 backport: skip the full VisibleSelection-based path because DDG
+    // (and likely other sites) trigger SIGSEGV deep inside it via a stale
+    // m_anchorNode pointer. BUT compute isContentEditable safely from
+    // Document::focusedElement (which uses computed style, not selection)
+    // so the UIProcess can route Cmd-C/V/X actions correctly when focus is
+    // on a real editable element.
+    if (RefPtr document = frame.document()) {
+        if (RefPtr focused = document->focusedElement())
+            result.isContentEditable = focused->isContentEditable();
+    }
+    return;
+
     getPlatformEditorStateCommon(frame, result);
 
     result.canEnableAutomaticSpellingCorrection = result.isContentEditable && protect(frame.editor())->canEnableAutomaticSpellingCorrection();
@@ -189,7 +201,17 @@ void WebPage::getPlatformEditorState(LocalFrame& frame, EditorState& result) con
     if (!result.hasPostLayoutAndVisualData())
         return;
 
+    // 10.9 backport: VisibleSelection::toNormalizedRange crashes on a non-content-editable
+    // initial document. The selection-related editor state isn't required for non-editable
+    // pages — skip it.
+    if (!result.isContentEditable)
+        return;
+
     auto& selection = frame.selection().selection();
+    // 10.9 backport: defensive guard before toNormalizedRange — crash on DDG
+    // when selection's anchor nodes are stale/orphaned across page navigation.
+    if (selection.isNoneOrOrphaned())
+        return;
     auto selectedRange = selection.toNormalizedRange();
     if (!selectedRange)
         return;
@@ -464,7 +486,7 @@ void WebPage::registerUIProcessAccessibilityTokens(WebCore::AccessibilityRemoteT
     [remoteElement setWindowUIElement:remoteWindow.get()];
     [remoteElement setTopLevelUIElement:remoteWindow.get()];
     RetainPtr accessibilityRemoteObject = this->accessibilityRemoteObject();
-    [accessibilityRemoteObject setWindow:remoteWindow.get()];
+    [accessibilityRemoteObject setWindow:(NSWindow *)remoteWindow.get()];
     [accessibilityRemoteObject setRemoteParent:remoteElement.get() token:elementTokenData.get()];
 }
 

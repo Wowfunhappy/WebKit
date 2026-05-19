@@ -39,6 +39,23 @@
 #import <wtf/ASCIICType.h>
 #import <wtf/UUID.h>
 
+// Compat defines for pre-10.12 modifier flag names
+#ifndef NSEventModifierFlagCapsLock
+#define NSEventModifierFlagCapsLock NSAlphaShiftKeyMask
+#endif
+#ifndef NSEventModifierFlagShift
+#define NSEventModifierFlagShift NSShiftKeyMask
+#endif
+#ifndef NSEventModifierFlagControl
+#define NSEventModifierFlagControl NSControlKeyMask
+#endif
+#ifndef NSEventModifierFlagOption
+#define NSEventModifierFlagOption NSAlternateKeyMask
+#endif
+#ifndef NSEventModifierFlagCommand
+#define NSEventModifierFlagCommand NSCommandKeyMask
+#endif
+
 namespace WebKit {
 
 static WebWheelEvent::Phase phaseForEvent(NSEvent *event)
@@ -83,7 +100,18 @@ static WebWheelEvent::Phase momentumPhaseForEvent(NSEvent *event)
 
 static int typeForEvent(NSEvent *event)
 {
-    return static_cast<int>([NSMenu menuTypeForEvent:event]);
+    // 10.9 backport: +[NSMenu menuTypeForEvent:] was added in 10.10. On 10.9 it throws
+    // unrecognized selector. Guard with respondsToSelector and fall back to checking the
+    // event type directly (right-click → context menu, otherwise none).
+    static BOOL menuRespondsToTypeForEvent = [NSMenu respondsToSelector:@selector(menuTypeForEvent:)];
+    if (menuRespondsToTypeForEvent)
+        return static_cast<int>([NSMenu menuTypeForEvent:event]);
+    if ([event type] == NSEventTypeRightMouseDown || [event type] == NSEventTypeRightMouseUp)
+        return 1; // NSMenuTypeContextMenu
+    if (([event type] == NSEventTypeLeftMouseDown || [event type] == NSEventTypeLeftMouseUp)
+        && ([event modifierFlags] & NSEventModifierFlagControl))
+        return 1; // Control-click also opens context menu
+    return 0; // NSMenuTypeNone
 }
 
 bool WebEventFactory::shouldBeHandledAsContextClick(const WebCore::PlatformMouseEvent& event)
@@ -100,11 +128,16 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(NSEvent *event, NSEvent *last
     if ([event type] == NSEventTypePressure) {
         // Since AppKit doesn't send mouse events for force down or force up, we have to use the current pressure
         // event and lastPressureEvent to detect if this is MouseForceDown, MouseForceUp, or just MouseForceChanged.
-        if (lastPressureEvent.stage == 1 && event.stage == 2)
-            type = WebEventType::MouseForceDown;
-        else if (lastPressureEvent.stage == 2 && event.stage == 1)
-            type = WebEventType::MouseForceUp;
-        else
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101003
+        if ([event respondsToSelector:@selector(stage)]) {
+            if (lastPressureEvent.stage == 1 && event.stage == 2)
+                type = WebEventType::MouseForceDown;
+            else if (lastPressureEvent.stage == 2 && event.stage == 1)
+                type = WebEventType::MouseForceUp;
+            else
+                type = WebEventType::MouseForceChanged;
+        } else
+#endif
             type = WebEventType::MouseForceChanged;
     }
 
@@ -119,7 +152,11 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(NSEvent *event, NSEvent *last
     int eventNumber = [event eventNumber];
     int menuTypeForEvent = typeForEvent(event);
 
-    int stage = [event type] == NSEventTypePressure ? event.stage : lastPressureEvent.stage;
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101003
+    int stage = ([event respondsToSelector:@selector(stage)]) ? ([event type] == NSEventTypePressure ? event.stage : lastPressureEvent.stage) : 0;
+#else
+    int stage = 0;
+#endif
     double pressure = [event type] == NSEventTypePressure ? event.pressure : lastPressureEvent.pressure;
     double force = pressure + stage;
 
@@ -179,6 +216,14 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(NSEvent *event, NSView *windo
     std::optional<WebCore::FloatSize> rawPlatformDelta;
     auto momentumEndType = WebWheelEvent::MomentumEndType::Unknown;
     
+#if PLATFORM(MAC)
+    // 10.9 backport: IOHIDEvent* APIs are stubbed in our polyfill as `xorl %eax,%eax;retq`.
+    // That's correct for void/int/pointer returns but BROKEN for floats: IOHIDEventGetFloatValue
+    // returns IOHIDFloat (double via XMM0) — the stub leaves XMM0 with garbage from prior calls,
+    // so rawPlatformDelta would carry random values that downstream wheel-event logic uses to
+    // decide acceleration/momentum. Skip the IOHIDEvent path entirely on Mac; downstream uses
+    // unacceleratedScrollingDelta computed above (real values from NSEvent).
+#else
     ([&] {
         RetainPtr<CGEventRef> cgEvent = event.CGEvent;
         if (!cgEvent)
@@ -190,7 +235,7 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(NSEvent *event, NSView *windo
 
         auto ioHIDEventTimestampMachAbsoluteTime = IOHIDEventGetTimeStamp(ioHIDEvent.get());
         ioHIDEventTimestamp = MonotonicTime::fromMachAbsoluteTime(ioHIDEventTimestampMachAbsoluteTime);
-        
+
         rawPlatformDelta = { WebCore::FloatSize(-IOHIDEventGetFloatValue(ioHIDEvent.get(), kIOHIDEventFieldScrollX), -IOHIDEventGetFloatValue(ioHIDEvent.get(), kIOHIDEventFieldScrollY)) };
 
         if (IOHIDEventGetScrollMomentum(ioHIDEvent.get()) & kIOHIDEventScrollMomentumWillBegin) {
@@ -201,6 +246,7 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(NSEvent *event, NSView *windo
         bool momentumWasInterrupted = IOHIDEventGetScrollMomentum(ioHIDEvent.get()) & kIOHIDEventScrollMomentumInterrupted;
         momentumEndType = momentumWasInterrupted ? WebWheelEvent::MomentumEndType::Interrupted : WebWheelEvent::MomentumEndType::Natural;
     })();
+#endif
 
     if (phase == WebWheelEvent::Phase::Cancelled) {
         deltaX = 0;

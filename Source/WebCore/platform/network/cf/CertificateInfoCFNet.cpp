@@ -32,13 +32,26 @@
 
 namespace WebCore {
 
+// SecTrustCopyCertificateChain is macOS 12.0+; use SecTrustGetCertificateAtIndex for older SDKs
+static RetainPtr<CFArrayRef> copyCertificateChainCompat(SecTrustRef trust)
+{
+    CFIndex count = SecTrustGetCertificateCount(trust);
+    auto array = adoptCF(CFArrayCreateMutable(kCFAllocatorDefault, count, &kCFTypeArrayCallBacks));
+    for (CFIndex i = 0; i < count; ++i) {
+        SecCertificateRef cert = SecTrustGetCertificateAtIndex(trust, i);
+        if (cert)
+            CFArrayAppendValue(array.get(), cert);
+    }
+    return array;
+}
+
 bool certificatesMatch(SecTrustRef trust1, SecTrustRef trust2)
 {
     if (!trust1 || !trust2)
         return false;
 
-    RetainPtr chain1 = adoptCF(SecTrustCopyCertificateChain(trust1));
-    RetainPtr chain2 = adoptCF(SecTrustCopyCertificateChain(trust2));
+    RetainPtr chain1 = copyCertificateChainCompat(trust1);
+    RetainPtr chain2 = copyCertificateChainCompat(trust2);
     CFIndex count1 = chain1 ? CFArrayGetCount(chain1.get()) : 0;
     CFIndex count2 = chain2 ? CFArrayGetCount(chain2.get()) : 0;
 
@@ -67,13 +80,13 @@ RetainPtr<SecTrustRef> CertificateInfo::secTrustFromCertificateChain(CFArrayRef 
 
 RetainPtr<CFArrayRef> CertificateInfo::certificateChainFromSecTrust(SecTrustRef trust)
 {
-    return adoptCF(SecTrustCopyCertificateChain(trust));
+    return copyCertificateChainCompat(trust);
 }
 
 bool CertificateInfo::containsNonRootSHA1SignedCertificate() const
 {
     if (m_trust) {
-        auto chain = adoptCF(SecTrustCopyCertificateChain(trust().get()));
+        auto chain = copyCertificateChainCompat(trust().get());
         // Allow only the root certificate (the last in the chain) to be SHA1.
         for (CFIndex i = 0, size = SecTrustGetCertificateCount(trust().get()) - 1; i < size; ++i) {
             RetainPtr certificate = checked_cf_cast<SecCertificateRef>(CFArrayGetValueAtIndex(chain.get(), i));

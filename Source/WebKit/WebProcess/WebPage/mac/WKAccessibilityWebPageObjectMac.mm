@@ -72,7 +72,10 @@ namespace ax = WebCore::Accessibility;
 
 - (void)dealloc
 {
-    NSAccessibilityUnregisterUniqueIdForUIElement(self);
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
+    if (&NSAccessibilityUnregisterUniqueIdForUIElement != NULL)
+        NSAccessibilityUnregisterUniqueIdForUIElement(self);
+#endif
     [super dealloc];
 }
 

@@ -97,12 +97,13 @@ public:
 
     void adoptLayersFromContext(RemoteLayerTreeContext&);
 
+#if ENABLE(GPU_PROCESS)
     RemoteRenderingBackendProxy& ensureRemoteRenderingBackendProxy();
+    void gpuProcessConnectionWasDestroyed();
+#endif
 
     bool useDynamicContentScalingDisplayListsForDOMRendering() const { return m_useDynamicContentScalingDisplayListsForDOMRendering; }
     void setUseDynamicContentScalingDisplayListsForDOMRendering(bool useDynamicContentScalingDisplayLists) { m_useDynamicContentScalingDisplayListsForDOMRendering = useDynamicContentScalingDisplayLists; }
-
-    void gpuProcessConnectionWasDestroyed();
 
 #if PLATFORM(IOS_FAMILY)
     bool canShowWhileLocked() const;

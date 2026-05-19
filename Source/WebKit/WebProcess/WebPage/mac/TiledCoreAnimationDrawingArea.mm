@@ -120,15 +120,20 @@ void TiledCoreAnimationDrawingArea::sendDidFirstLayerFlushIfNeeded()
         return;
     m_needsSendDidFirstLayerFlush = false;
 
-    // Let the first commit complete before sending.
-    [CATransaction addCommitHandler:[weakThis = WeakPtr { *this }] {
-        RefPtr protectedThis = weakThis.get();
-        if (!protectedThis || !protectedThis->m_layerHostingContext)
-            return;
-        LayerTreeContext layerTreeContext;
-        layerTreeContext.contextID = protectedThis->m_layerHostingContext->cachedContextID();
-        protectedThis->send(Messages::DrawingAreaProxy::DidFirstLayerFlush(0, layerTreeContext));
-    } forPhase:kCATransactionPhasePostCommit];
+    if (!m_layerHostingContext)
+        return;
+
+    // 10.9 backport: send the IPC SYNCHRONOUSLY here rather than going through
+    // dispatch_async(main_queue). The original code used CATransaction commit
+    // handlers (10.10+) to defer until commit; without them we used main_queue
+    // dispatch as a stand-in. But main_queue is often jammed by the same
+    // updateRendering pass that produced this flush, so the message could wait
+    // a full second or more — that's the user-visible "5 sec white screen"
+    // before any pixels appear, because UIProcess attaches CALayerHost only
+    // upon receiving this message.
+    LayerTreeContext layerTreeContext;
+    layerTreeContext.contextID = m_layerHostingContext->cachedContextID();
+    send(Messages::DrawingAreaProxy::DidFirstLayerFlush(0, layerTreeContext));
 }
 
 void TiledCoreAnimationDrawingArea::sendEnterAcceleratedCompositingModeIfNeeded()
@@ -229,6 +234,18 @@ void TiledCoreAnimationDrawingArea::triggerRenderingUpdate()
     if (m_layerTreeStateIsFrozen)
         return;
 
+    // 10.9 backport: always schedule the observer immediately. Previously a
+    // dispatch_after-based 60Hz throttle here meant that during link
+    // navigation — when the OLD page was firing rAFs up to the moment of
+    // click — the FIRST render of the new page was deferred via
+    // dispatch_after on main_queue. main_queue is then jammed by the new
+    // page's script execution, so the deferred render waits seconds behind
+    // it, producing the user-visible "click link → white screen for ages"
+    // pattern. CFRunLoopObserver's isScheduled() naturally dedups within a
+    // single runloop tick, which is a tighter throttle than the dispatch_after
+    // anyway, and the observer-driven path doesn't depend on main_queue
+    // draining. Keep the rate-limit only as a recency record for diagnostics.
+    m_lastRenderingTriggerTime = MonotonicTime::now();
     scheduleRenderingUpdateRunLoopObserver();
 }
 
@@ -336,16 +353,10 @@ void TiledCoreAnimationDrawingArea::addCommitHandlers()
     if (m_haveRegisteredHandlersForNextCommit)
         return;
 
-    [CATransaction addCommitHandler:[retainedPage = Ref { m_webPage.get() }] {
-        if (RefPtr drawingArea = dynamicDowncast<TiledCoreAnimationDrawingArea>(retainedPage->drawingArea()))
-            drawingArea->willStartRenderingUpdateDisplay();
-    } forPhase:kCATransactionPhasePreLayout];
-
-    [CATransaction addCommitHandler:[retainedPage = Ref { m_webPage.get() }] {
-        if (RefPtr drawingArea = dynamicDowncast<TiledCoreAnimationDrawingArea>(retainedPage->drawingArea()))
-            drawingArea->didCompleteRenderingUpdateDisplay();
-    } forPhase:kCATransactionPhasePostCommit];
-    
+    // 10.9 backport: +[CATransaction addCommitHandler:forPhase:] is 10.10+.
+    // Skip registration entirely; the runloop observers in updateRendering
+    // still drive the rendering cycle. willStart/didComplete callbacks won't
+    // fire from CA's perspective.
     m_haveRegisteredHandlersForNextCommit = true;
 }
 
@@ -405,6 +416,12 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
         webPage->didUpdateRendering();
         handleActivityStateChangeCallbacksIfNeeded();
         invalidateRenderingUpdateRunLoopObserver();
+
+        // 10.9 backport: explicitly flush CATransaction so layer changes
+        // (especially scroll position deltas) propagate to the CAContext.
+        // Normally CA auto-commits when CFRunLoop drains, but on Mavericks
+        // the WebContent "main thread" doesn't run a true CFRunLoop.
+        [CATransaction flush];
     }
 }
 
@@ -428,25 +445,9 @@ void TiledCoreAnimationDrawingArea::handleActivityStateChangeCallbacksIfNeeded()
     if (!m_shouldHandleActivityStateChangeCallbacks)
         return;
 
-    // If there is no active transaction, likely there is no layer change or change is committed,
-    // perform the callbacks immediately, which may unblock UI process.
-    if (![CATransaction currentState]) {
-        handleActivityStateChangeCallbacks();
-        return;
-    }
-
-    [CATransaction addCommitHandler:[weakThis = WeakPtr { *this }] {
-        if (!weakThis)
-            return;
-
-        Ref protectedPage = weakThis->m_webPage.get();
-        RefPtr drawingArea = downcast<TiledCoreAnimationDrawingArea>(protectedPage->drawingArea());
-        ASSERT(weakThis.get() == drawingArea.get());
-        if (drawingArea != weakThis.get())
-            return;
-
-        drawingArea->handleActivityStateChangeCallbacks();
-    } forPhase:kCATransactionPhasePostCommit];
+    // 10.9 backport: +currentState and +addCommitHandler:forPhase: are 10.10+.
+    // Fall back to immediate execution (slightly less precise but works).
+    handleActivityStateChangeCallbacks();
 }
 
 void TiledCoreAnimationDrawingArea::activityStateDidChange(OptionSet<ActivityState> changed, ActivityStateChangeID activityStateChangeID, CompletionHandler<void()>&& nextActivityStateChangeCallback)
@@ -835,12 +836,28 @@ void TiledCoreAnimationDrawingArea::addFence(const MachSendRight& fencePort)
 
 void TiledCoreAnimationDrawingArea::scheduleRenderingUpdateRunLoopObserver()
 {
+    // 10.9 backport: always wake the main runloop so the observer (which only
+    // fires on BeforeWaiting ticks) actually runs. On Mavericks the main thread
+    // is dispatch-driven and the CFRunLoop doesn't tick on its own, so without
+    // this every kick after the first one is silent.
+    CFRunLoopWakeUp(CFRunLoopGetMain());
+
     if (m_renderingUpdateRunLoopObserver->isScheduled())
         return;
 
     tracePoint(RenderingUpdateRunLoopObserverStart);
-    
+
     m_renderingUpdateRunLoopObserver->schedule();
+
+    // 10.9 backport: CFRunLoopObserver BeforeWaiting events don't reliably fire
+    // on Mavericks because the WebContent "main thread" is served by libdispatch
+    // workers that don't run a true CFRunLoop. Fallback: dispatch_async to main
+    // queue so updateRendering runs from a place that does work.
+    WeakPtr<TiledCoreAnimationDrawingArea> weakThis { *this };
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (RefPtr strong = weakThis.get())
+            strong->updateRendering();
+    });
 
     // Avoid running any more tasks before the runloop observer fires.
     WebCore::WindowEventLoop::breakToAllowRenderingUpdate();

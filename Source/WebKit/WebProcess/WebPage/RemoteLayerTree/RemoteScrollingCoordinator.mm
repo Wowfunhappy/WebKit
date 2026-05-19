@@ -24,6 +24,7 @@
  */
 
 #import "config.h"
+#import <wtf/Scope.h>
 #import "RemoteScrollingCoordinator.h"
 
 #if ENABLE(ASYNC_SCROLLING)
@@ -72,8 +73,23 @@ RemoteScrollingCoordinator::~RemoteScrollingCoordinator()
 
 void RemoteScrollingCoordinator::scheduleTreeStateCommit()
 {
-    if (RefPtr webPage = m_webPage.get())
-        protect(webPage->drawingArea())->triggerRenderingUpdate();
+    // 10.9 backport: when invoked synchronously from RenderLayer destruction
+    // during page-navigation render-tree teardown, the thread-local timer heap
+    // can be in a corrupt state, causing triggerRenderingUpdate to crash inside
+    // TimerBase::heapInsert. Defer via RunLoop::main().dispatch so the trigger
+    // runs on the next runloop turn outside of the destructor chain.
+    callOnMainThread([weakThis = ThreadSafeWeakPtr { *this }] {
+        RefPtr strongThis = weakThis.get();
+        if (!strongThis)
+            return;
+        RefPtr webPage = static_cast<RemoteScrollingCoordinator*>(strongThis.get())->m_webPage.get();
+        if (!webPage)
+            return;
+        auto drawingArea = webPage->drawingArea();
+        if (!drawingArea)
+            return;
+        protect(drawingArea)->triggerRenderingUpdate();
+    });
 }
 
 bool RemoteScrollingCoordinator::coordinatesScrollingForFrameView(const LocalFrameView& frameView) const

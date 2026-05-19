@@ -2613,7 +2613,9 @@ private:
 #if PLATFORM(COCOA)
         RetainPtr colorSpace = destinationColorSpace.platformColorSpace();
 
-        if (RetainPtr name = CGColorSpaceGetName(colorSpace.get())) {
+        // CGColorSpaceGetName is unavailable on macOS 10.9; fall back to sRGB.
+        if (false) {
+            RetainPtr<CFStringRef> name;
             auto data = adoptCF(CFStringCreateExternalRepresentation(nullptr, name.get(), kCFStringEncodingUTF8, 0));
             if (!data) {
                 write(DestinationColorSpaceSRGBTag);
@@ -4147,16 +4149,8 @@ private:
             if (!read(data))
                 return false;
 
-            auto propertyList = adoptCF(CFPropertyListCreateWithData(nullptr, data.get(), kCFPropertyListImmutable, nullptr, nullptr));
-            if (!propertyList)
-                return false;
-
-            auto colorSpace = adoptCF(CGColorSpaceCreateWithPropertyList(propertyList.get()));
-            if (!colorSpace)
-                return false;
-
-            destinationColorSpace = DestinationColorSpace(colorSpace.get());
-            return true;
+            // CGColorSpaceCreateWithPropertyList is unavailable on macOS 10.9.
+            return false;
         }
 #endif
         }

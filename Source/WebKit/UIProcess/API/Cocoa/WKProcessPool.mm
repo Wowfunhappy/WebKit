@@ -30,7 +30,9 @@
 #import "CacheModel.h"
 #import "Connection.h"
 #import "DownloadManager.h"
+#if ENABLE(GPU_PROCESS)
 #import "GPUProcessProxy.h"
+#endif
 #import "LegacyDownloadClient.h"
 #import "Logging.h"
 #import "NetworkProcessProxy.h"
@@ -68,6 +70,11 @@
 #import <WebCore/WebCoreThreadSystemInterface.h>
 #import "WKGeolocationProviderIOS.h"
 #endif
+
+// encodedData property was added as public API in 10.12 but the method exists earlier.
+@interface NSKeyedArchiver (WKEncodedData)
+@property (readonly, copy) NSData *encodedData;
+@end
 
 @interface _WKProcessInfo()
 - (instancetype)initWithTaskInfo:(const WebKit::AuxiliaryProcessProxy::TaskInfo&)info;
@@ -270,7 +277,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     else
         [protect(processPool->ensureBundleParameters()) removeObjectForKey:parameter];
 
-    RetainPtr<NSData> data = keyedArchiver.get().encodedData;
+    RetainPtr<NSData> data = [keyedArchiver.get() encodedData];
     processPool->sendToAllProcesses(Messages::WebProcess::SetInjectedBundleParameter(parameter, span(data.get())));
 }
 
@@ -289,7 +296,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     Ref processPool = *_processPool;
     [protect(processPool->ensureBundleParameters()) setValuesForKeysWithDictionary:copy.get()];
 
-    RetainPtr<NSData> data = keyedArchiver.get().encodedData;
+    RetainPtr<NSData> data = [keyedArchiver.get() encodedData];
     processPool->sendToAllProcesses(Messages::WebProcess::SetInjectedBundleParameters(span(data.get())));
 }
 
@@ -582,6 +589,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     WebKit::setLockdownModeEnabledGloballyForTesting(std::nullopt);
 }
 
+#if ENABLE(GPU_PROCESS)
 + (void)_setEnableMetalDebugDeviceInNewGPUProcessesForTesting:(BOOL)enable
 {
     WebKit::GPUProcessProxy::setEnableMetalDebugDeviceInNewGPUProcessesForTesting(enable);
@@ -605,6 +613,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         return gpuProcess->isMetalShaderValidationEnabledForTesting();
     return WebKit::GPUProcessProxy::isMetalShaderValidationEnabledInNewGPUProcessesForTesting();
 }
+#endif
 
 - (BOOL)_isCookieStoragePartitioningEnabled
 {
@@ -690,6 +699,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     return WebKit::toAPI(protect(protect(*_processPool)->supplement<WebKit::WebNotificationManagerProxy>()).get());
 }
 
+#if ENABLE(GPU_PROCESS)
 + (_WKProcessInfo *)_gpuProcessInfo
 {
     RetainPtr<_WKProcessInfo> result;
@@ -701,6 +711,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
     return result.autorelease();
 }
+#endif
 
 + (NSArray<_WKProcessInfo *> *)_networkingProcessInfo
 {

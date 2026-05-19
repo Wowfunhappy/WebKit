@@ -683,7 +683,7 @@ struct WKWebsiteData {
         return;
     }
 
-    auto error = Box<RetainPtr<NSError>>::create(nil);
+    auto error = Box<RetainPtr<NSError>>::create(RetainPtr<NSError> { });
 
     Ref callbackAggregator = CallbackAggregator::create([completionHandler = makeBlockPtr(completionHandler), error] {
         if (*error)

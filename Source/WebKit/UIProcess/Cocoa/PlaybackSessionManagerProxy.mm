@@ -40,10 +40,12 @@
 #import "WebProcessPool.h"
 #import "WebProcessProxy.h"
 #import <Foundation/Foundation.h>
+#if ENABLE(VIDEO_PRESENTATION_MODE) || PLATFORM(IOS_FAMILY)
 #import <WebCore/NullPlaybackSessionInterface.h>
 #import <WebCore/PlaybackSessionInterfaceAVKitLegacy.h>
 #import <WebCore/PlaybackSessionInterfaceMac.h>
 #import <WebCore/PlaybackSessionInterfaceTVOS.h>
+#endif
 #if HAVE(PIP_SKIP_PREROLL)
 #import <WebCore/VideoPresentationInterfaceMac.h>
 #endif

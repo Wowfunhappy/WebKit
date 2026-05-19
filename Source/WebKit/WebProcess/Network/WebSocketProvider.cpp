@@ -55,8 +55,7 @@ RefPtr<ThreadableWebSocketChannel> WebSocketProvider::createWebSocketChannel(Doc
 WebSocketProvider::~WebSocketProvider() = default;
 
 WebSocketProvider::WebSocketProvider(WebPageProxyIdentifier webPageProxyID)
-    : m_webPageProxyID(webPageProxyID)
-    , m_networkProcessConnection(WebProcess::singleton().ensureNetworkProcessConnection().connection()) { }
+    : m_webPageProxyID(webPageProxyID) { }
 
 std::pair<RefPtr<WebCore::WebTransportSession>, Ref<WebTransportSessionPromise>> WebSocketProvider::initializeWebTransportSession(ScriptExecutionContext& context, WebTransportSessionClient& client, const URL& url, const WebCore::WebTransportOptions& options)
 {
@@ -64,21 +63,21 @@ std::pair<RefPtr<WebCore::WebTransportSession>, Ref<WebTransportSessionPromise>>
         ASSERT(!RunLoop::isMain());
         Ref workerSession = WorkerWebTransportSession::create(context.identifier(), client);
 
-        auto getConnection = [protectedThis = Ref { *this }] {
+        auto getConnection = [protectedThis = Ref { *this }]() -> RefPtr<IPC::Connection> {
             Locker locker { protectedThis->m_networkProcessConnectionLock };
-            return protectedThis->m_networkProcessConnection.copyRef();
+            return protectedThis->m_networkProcessConnection;
         };
-        Ref connection = getConnection();
-        if (!connection->isValid()) {
+        RefPtr connection = getConnection();
+        if (!connection || !connection->isValid()) {
             WorkQueue::mainSingleton().dispatchSync([protectedThis = Ref { *this }] {
                 ASSERT(RunLoop::isMain());
                 Locker locker { protectedThis->m_networkProcessConnectionLock };
-                protectedThis->m_networkProcessConnection = WebProcess::singleton().ensureNetworkProcessConnection().connection();
+                protectedThis->m_networkProcessConnection = &WebProcess::singleton().ensureNetworkProcessConnection().connection();
             });
             connection = getConnection();
         }
 
-        auto [session, promise] = WebKit::WebTransportSession::initialize(WTF::move(connection), workerSession, url, options, m_webPageProxyID, scope->clientOrigin());
+        auto [session, promise] = WebKit::WebTransportSession::initialize(connection.releaseNonNull(), workerSession, url, options, m_webPageProxyID, scope->clientOrigin());
         workerSession->attachSession(session);
         return { WTF::move(workerSession), WTF::move(promise) };
     }

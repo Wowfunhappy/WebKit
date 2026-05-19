@@ -30,11 +30,59 @@
 
 DECLARE_SYSTEM_HEADER
 
-#import <Network/Network.h>
+// Include Network/Network.h if available; on 10.9 this is just our empty polyfill.
+#include <Network/Network.h>
+// Check if the real Network.framework was included (defines __NW_CONNECTION_H__).
+// On 10.9, only our empty polyfill was included; provide all required stubs.
+#ifndef __NW_CONNECTION_H__
+#include <os/object.h>
+// Use the same type-definition style as CFNetworkSPI.h to avoid redefinition conflicts.
+#if OS_OBJECT_USE_OBJC
+OS_OBJECT_DECL(nw_connection);
+OS_OBJECT_DECL(nw_endpoint);
+OS_OBJECT_DECL(nw_parameters);
+OS_OBJECT_DECL(nw_protocol_definition);
+OS_OBJECT_DECL(nw_protocol_options);
+OS_OBJECT_DECL(nw_protocol_metadata);
+OS_OBJECT_DECL(nw_connection_group);
+OS_OBJECT_DECL(nw_resolver_config);
+OS_OBJECT_DECL(nw_privacy_context);
+OS_OBJECT_DECL(nw_interface);
+OS_OBJECT_DECL(nw_listener);
+OS_OBJECT_DECL(nw_path);
+#else
+struct nw_connection; typedef struct nw_connection *nw_connection_t;
+struct nw_endpoint; typedef struct nw_endpoint *nw_endpoint_t;
+struct nw_parameters; typedef struct nw_parameters *nw_parameters_t;
+struct nw_protocol_definition; typedef struct nw_protocol_definition *nw_protocol_definition_t;
+struct nw_protocol_options; typedef struct nw_protocol_options *nw_protocol_options_t;
+struct nw_protocol_metadata; typedef struct nw_protocol_metadata *nw_protocol_metadata_t;
+struct nw_connection_group; typedef struct nw_connection_group *nw_connection_group_t;
+struct nw_resolver_config; typedef struct nw_resolver_config *nw_resolver_config_t;
+struct nw_privacy_context; typedef struct nw_privacy_context *nw_privacy_context_t;
+struct nw_interface; typedef struct nw_interface *nw_interface_t;
+struct nw_listener; typedef struct nw_listener *nw_listener_t;
+struct nw_path; typedef struct nw_path *nw_path_t;
+#endif
+typedef void (^nw_parameters_configure_protocol_block_t)(void *);
+#ifndef NW_OBJECT_DECL
+#if OS_OBJECT_USE_OBJC
+#define NW_OBJECT_DECL(name) OS_OBJECT_DECL(name)
+#define NW_OBJECT_DECL_SUBCLASS(name, super) OS_OBJECT_DECL(name)
+#else
+#define NW_OBJECT_DECL(name) struct name; typedef struct name *name##_t
+#define NW_OBJECT_DECL_SUBCLASS(name, super) struct name; typedef struct name *name##_t
+#endif
+#endif
+#ifndef OS_OBJECT_RETURNS_RETAINED
+#define OS_OBJECT_RETURNS_RETAINED
+#endif
+#endif
 
 typedef void (^nw_webtransport_drain_handler_t)(void);
 typedef void (^nw_webtransport_receive_error_handler_t)(uint64_t receive_error_code);
 typedef void (^nw_webtransport_send_error_handler_t)(uint64_t send_error_code);
+#ifndef NW_POLYFILL_TYPES_DECLARED
 typedef void (^nw_http_optional_string_accessor_t)(const char * _Nullable string);
 
 #if OS_OBJECT_USE_OBJC
@@ -45,6 +93,7 @@ struct nw_http_fields;
 typedef struct nw_http_fields *nw_http_fields_t;
 typedef nw_http_fields_t nw_http_response_t;
 #endif // OS_OBJECT_USE_OBJC
+#endif // NW_POLYFILL_TYPES_DECLARED
 
 #if USE(APPLE_INTERNAL_SDK)
 

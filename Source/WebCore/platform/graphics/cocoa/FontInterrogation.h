@@ -30,6 +30,30 @@
 
 #include <CoreText/CoreText.h>
 
+// macOS 10.9 backport: these table tags were added in later SDK versions.
+// Define them locally so the switch case compiles.
+#ifndef kCTFontTableSTAT
+#define kCTFontTableSTAT 'STAT'
+#endif
+#ifndef kCTFontTableMorx
+#define kCTFontTableMorx 'morx'
+#endif
+#ifndef kCTFontTableMort
+#define kCTFontTableMort 'mort'
+#endif
+#ifndef kCTFontTableGPOS
+#define kCTFontTableGPOS 'GPOS'
+#endif
+#ifndef kCTFontTableGSUB
+#define kCTFontTableGSUB 'GSUB'
+#endif
+#ifndef kCTFontTableTrak
+#define kCTFontTableTrak 'trak'
+#endif
+#ifndef kCTFontTableFvar
+#define kCTFontTableFvar 'fvar'
+#endif
+
 namespace WebCore {
 
 struct FontInterrogation {

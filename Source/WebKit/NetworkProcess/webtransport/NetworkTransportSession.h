@@ -35,7 +35,7 @@
 #include <wtf/TZoneMalloc.h>
 
 #if PLATFORM(COCOA)
-#include <Network/Network.h>
+#include <pal/spi/cocoa/NetworkSPI.h>
 #include <wtf/RetainPtr.h>
 #endif
 

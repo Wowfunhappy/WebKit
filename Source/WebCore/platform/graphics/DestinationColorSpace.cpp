@@ -191,8 +191,10 @@ std::optional<DestinationColorSpace> DestinationColorSpace::asExtended() const
         return *this;
 #if USE(CG)
     // Avoid refing color space here as this is performance-sensitive.
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
     SUPPRESS_UNRETAINED_ARG if (RetainPtr colorSpace = adoptCF(CGColorSpaceCreateExtended(platformColorSpace())))
         return DestinationColorSpace(WTF::move(colorSpace));
+#endif
 #endif
     return std::nullopt;
 }

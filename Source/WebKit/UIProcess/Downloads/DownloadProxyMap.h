@@ -27,6 +27,7 @@
 
 #include "DownloadID.h"
 #include <wtf/HashMap.h>
+#include "NetworkProcessProxy.h"
 #include <wtf/Noncopyable.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TZoneMalloc.h>

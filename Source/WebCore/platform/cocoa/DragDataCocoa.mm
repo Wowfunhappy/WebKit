@@ -44,6 +44,10 @@
 #import <MobileCoreServices/MobileCoreServices.h>
 #endif
 
+#if PLATFORM(MAC)
+#import "UTTypeIdentifiers.h"
+#endif
+
 namespace WebCore {
 
 static inline String rtfPasteboardType()
@@ -269,29 +273,42 @@ bool DragData::containsCompatibleContent(DraggingPurpose purpose) const
     if (purpose == DraggingPurpose::ForColorControl)
         return containsColor();
 
+#if ENABLE(ATTACHMENT_ELEMENT)
     if (purpose == DraggingPurpose::ForEditing && DeprecatedGlobalSettings::attachmentElementEnabled() && containsFiles())
         return true;
+#endif
 
     auto context = createPasteboardContext();
     Vector<String> types;
     platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName, context.get());
     return types.contains(String(WebArchivePboardType))
         || types.contains(htmlPasteboardType())
-        || types.contains(String(UTTypeWebArchive.identifier))
 #if PLATFORM(MAC)
+        || types.contains(String(utTypeWebArchiveId()))
         || (!m_disallowFileAccess && types.contains(String(legacyFilenamesPasteboardTypeSingleton())))
         || (!m_disallowFileAccess && types.contains(String(legacyFilesPromisePasteboardTypeSingleton())))
+#else
+        || types.contains(String(UTTypeWebArchive.identifier))
 #endif
         || types.contains(tiffPasteboardType())
         || types.contains(pdfPasteboardType())
         || types.contains(urlPasteboardType())
         || types.contains(rtfdPasteboardType())
         || types.contains(rtfPasteboardType())
+#if PLATFORM(MAC)
+        || types.contains(String(utTypeUTF8PlainTextId()))
+#else
         || types.contains(String(UTTypeUTF8PlainText.identifier))
+#endif
         || types.contains(stringPasteboardType())
         || types.contains(colorPasteboardType())
+#if PLATFORM(MAC)
+        || types.contains(String(utTypeJPEGId()))
+        || types.contains(String(utTypePNGId()));
+#else
         || types.contains(String(UTTypeJPEG.identifier))
         || types.contains(String(UTTypePNG.identifier));
+#endif
 }
 
 bool DragData::containsPromise() const

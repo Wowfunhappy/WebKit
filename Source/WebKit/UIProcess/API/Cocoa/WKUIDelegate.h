@@ -1,3 +1,6 @@
+#ifndef WKUIDelegate_h
+#define WKUIDelegate_h
+
 /*
  * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
@@ -314,3 +317,5 @@ WK_SWIFT_UI_ACTOR
 @end
 
 NS_ASSUME_NONNULL_END
+
+#endif /* WKUIDelegate_h */

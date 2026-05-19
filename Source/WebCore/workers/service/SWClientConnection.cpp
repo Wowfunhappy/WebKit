@@ -53,7 +53,14 @@ namespace WebCore {
 
 static bool dispatchToContextThreadIfNecessary(const ServiceWorkerOrClientIdentifier& contextIdentifier, Function<void(ScriptExecutionContext&)>&& task)
 {
-    RELEASE_ASSERT(isMainThread());
+    // 10.9 backport: shared ThreadTimers means worker threads can call into
+    // this on the 10.9 build. Bounce to main thread instead of asserting.
+    if (!isMainThread()) {
+        callOnMainThread([contextIdentifier, task = WTF::move(task)]() mutable {
+            dispatchToContextThreadIfNecessary(contextIdentifier, WTF::move(task));
+        });
+        return true;
+    }
 
     return switchOn(contextIdentifier, [&] (ScriptExecutionContextIdentifier identifier) {
         return ScriptExecutionContext::postTaskTo(identifier, WTF::move(task));

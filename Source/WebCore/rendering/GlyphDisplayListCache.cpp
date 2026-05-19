@@ -97,6 +97,10 @@ unsigned GlyphDisplayListCache::size() const
 template<typename LayoutRun>
 RefPtr<const DisplayList::DisplayList> GlyphDisplayListCache::getDisplayList(const LayoutRun& run, const FontCascade& font, GraphicsContext& context, const TextRun& textRun, const PaintInfo& paintInfo)
 {
+    // 10.9 backport: DrawGlyphsRecorder uses CGContextDelegateSetCallback (10.10+).
+    // Disable display-list caching of glyphs entirely. Falls back to direct CG glyph drawing.
+    return nullptr;
+
     if (MemoryPressureHandler::singleton().isUnderMemoryPressure()) {
         if (!m_entries.isEmpty()) {
             LOG(MemoryPressure, "GlyphDisplayListCache::%s - Under memory pressure - size: %d", __FUNCTION__, size());

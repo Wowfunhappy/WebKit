@@ -171,6 +171,11 @@ protected:
 
     std::unique_ptr<RemoteLayerTreeHost> m_remoteLayerTreeHost;
     bool m_needsDisplayRefreshCallbacksForDrawing { false };
+
+    // 10.9 backport: re-emit mirrors of all painted layers. Called from
+    // didCommitLayerTree and from a delayed dispatch_after to catch tiles
+    // that were painted after the initial commit.
+    void remirrorFor10_9();
 private:
 #if ENABLE(TILED_CA_DRAWING_AREA)
     DrawingAreaType type() const final { return DrawingAreaType::RemoteLayerTree; }

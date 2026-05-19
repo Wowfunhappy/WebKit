@@ -109,6 +109,10 @@ void ScriptRunner::documentFinishedParsing()
 
 void ScriptRunner::notifyFinished(PendingScript& pendingScript)
 {
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) { fprintf(_f, "[ScriptRunner::notifyFinished PID %d] inOrder=%d scriptsSoon=%zu yieldToken=%d\n", getpid(), (int)pendingScript.element().willExecuteInOrder(), m_scriptsToExecuteSoon.size(), (int)m_document->hasActiveParserYieldToken()); fclose(_f); }
+    }
     if (pendingScript.element().willExecuteInOrder())
         ASSERT(!m_scriptsToExecuteInOrder.isEmpty());
     else
@@ -121,6 +125,10 @@ void ScriptRunner::notifyFinished(PendingScript& pendingScript)
 
 void ScriptRunner::timerFired()
 {
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) { fprintf(_f, "[ScriptRunner::timerFired PID %d] scriptsSoon=%zu inOrder=%zu\n", getpid(), m_scriptsToExecuteSoon.size(), m_scriptsToExecuteInOrder.size()); fclose(_f); }
+    }
     Ref document = m_document.get();
 
     Vector<Ref<PendingScript>> scripts;

@@ -37,6 +37,10 @@
 #include <wtf/SafeStrerror.h>
 #include <wtf/text/CString.h>
 
+#if OS(DARWIN)
+#include <mach/mach.h>
+#endif
+
 #if ENABLE(JIT_CAGE)
 #include <WebKitAdditions/JITCageAdditions.h>
 #else // ENABLE(JIT_CAGE)

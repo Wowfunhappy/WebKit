@@ -44,7 +44,7 @@ typedef void (^GCPhysicalInputProfileThumbstickUserIntentHandler)(__kindof GCPhy
 @interface GCController ()
 + (void)__openXPC_and_CBApplicationDidBecomeActive__;
 #if !HAVE(GCCONTROLLER_HID_DEVICE_CHECK)
-@property (nonatomic, retain, readonly) NSArray<_GCCControllerHIDServiceInfo *> *hidServices;
+@property (nonatomic, retain, readonly) NSArray *hidServices;
 #endif
 @end
 

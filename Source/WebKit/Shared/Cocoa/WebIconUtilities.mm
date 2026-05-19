@@ -36,19 +36,27 @@
 #endif
 
 #import "CocoaImage.h"
+#if HAVE(AVFOUNDATION)
 #import <AVFoundation/AVFoundation.h>
+#endif
 #import <CoreGraphics/CoreGraphics.h>
+#if HAVE(AVFOUNDATION)
 #import <CoreMedia/CoreMedia.h>
+#endif
 #import <ImageIO/ImageIO.h>
+#if __has_include(<UniformTypeIdentifiers/UniformTypeIdentifiers.h>)
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#endif
 #import <WebCore/PlatformImage.h>
 #import <wtf/MathExtras.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
 #import <wtf/text/WTFString.h>
 
+#if HAVE(AVFOUNDATION)
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
+#endif
 
 namespace WebKit {
 
@@ -148,6 +156,7 @@ RetainPtr<CocoaImage> iconForImageFile(NSURL *file)
     return thumbnailSizedImageForImage(thumbnail.get());
 }
 
+#if HAVE(AVFOUNDATION)
 RetainPtr<CocoaImage> iconForVideoFile(NSURL *file)
 {
     ASSERT_ARG(file, [file isFileURL]);
@@ -167,6 +176,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     return thumbnailSizedImageForImage(imageRef.get());
 }
+#else
+RetainPtr<CocoaImage> iconForVideoFile(NSURL *file)
+{
+    return fallbackIconForFile(file);
+}
+#endif
 
 RetainPtr<CocoaImage> iconForFiles(const Vector<String>& filenames)
 {

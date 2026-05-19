@@ -86,8 +86,8 @@ typedef NS_ENUM(NSUInteger, PKPaymentRequestType) {
 @property (nonatomic, assign, getter=isInStorePurchase) BOOL inStorePurchase;
 @property (nonatomic, copy) NSString *installmentMerchantIdentifier;
 @property (nonatomic, copy) NSString *referrerIdentifier;
-@property (nonatomic, copy) NSArray<PKPaymentInstallmentItem *> *installmentItems;
-@property (nonatomic, copy) NSDictionary<NSString *, id> *applicationMetadata;
+@property (nonatomic, copy) NSArray *installmentItems;
+@property (nonatomic, copy) NSDictionary *applicationMetadata;
 @property (nonatomic, assign) PKInstallmentRetailChannel retailChannel;
 @end
 

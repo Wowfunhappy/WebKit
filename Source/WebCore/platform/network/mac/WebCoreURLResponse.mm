@@ -187,7 +187,12 @@ void adjustMIMETypeIfNecessary(CFURLResponseRef response, IsMainResourceLoad, Is
 
 RetainPtr<NSString> preferredMIMETypeForFileExtensionFromUTType(NSString *extension)
 {
-    return mimeTypeFromUTITree([UTType typeWithTag:extension tagClass:UTTagClassFilenameExtension conformingToType:nil]);
+    // UTType and UTTagClassFilenameExtension are macOS 11+; use CoreServices API
+    RetainPtr<CFStringRef> uti = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)extension, nullptr));
+    if (!uti)
+        return nil;
+    RetainPtr<CFStringRef> mimeType = adoptCF(UTTypeCopyPreferredTagWithClass(uti.get(), kUTTagClassMIMEType));
+    return (__bridge NSString *)mimeType.get();
 }
 
 NSURLResponse *synthesizeRedirectResponseIfNecessary(NSURLRequest *currentRequest, NSURLRequest *newRequest, NSURLResponse *redirectResponse)

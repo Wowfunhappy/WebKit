@@ -270,6 +270,7 @@ static void showGlyphsWithAdvances(const FloatPoint& point, const Font& font, CG
     if (glyphs.empty())
         return;
 
+
     const FontPlatformData& platformData = font.platformData();
     Vector<CGPoint, 256> positions(glyphs.size());
     if (platformData.orientation() == FontOrientation::Vertical) {
@@ -284,7 +285,7 @@ static void showGlyphsWithAdvances(const FloatPoint& point, const Font& font, CG
         CTFontDrawGlyphs(ctFont.get(), glyphs.data(), positions.span().data(), glyphs.size(), context);
     } else {
         fillVectorWithHorizontalGlyphPositions(positions, context, advances, point);
-        CTFontDrawGlyphs(RetainPtr { platformData.ctFont() }.get(), glyphs.data(), positions.span().data(), glyphs.size(), context);
+        CTFontDrawGlyphs(platformData.ctFont(), glyphs.data(), positions.span().data(), glyphs.size(), context);
     }
 }
 

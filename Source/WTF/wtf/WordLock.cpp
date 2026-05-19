@@ -65,10 +65,19 @@ NEVER_INLINE void WordLock::lockSlow()
 
     // This magic number turns out to be optimal based on past JikesRVM experiments.
     const unsigned spinLimit = 40;
-    
+
     for (;;) {
         uintptr_t currentWordValue = m_word.load();
-        
+
+        // Recovery for memory corruption observed on macOS 10.9 (see unlockSlow). If the
+        // queue head portion encodes a value in the low 4GB, it can't be a real ThreadData*
+        // and the state is corrupted. Force-reset and retry to acquire normally.
+        uintptr_t maybeQueueHead = currentWordValue & ~queueHeadMask;
+        if (maybeQueueHead && maybeQueueHead < 0x100000000ULL) {
+            m_word.store(0);
+            continue;
+        }
+
         if (!(currentWordValue & isLockedBit)) {
             // It's not possible for someone to hold the queue lock while the lock itself is no longer
             // held, since we will only attempt to acquire the queue lock when the lock is held and
@@ -168,8 +177,26 @@ NEVER_INLINE void WordLock::unlockSlow()
     for (;;) {
         uintptr_t currentWordValue = m_word.load();
 
+        // Recovery for an as-yet-unidentified memory corruption observed on macOS 10.9
+        // NetworkProcess: the m_word of certain ThreadSafeWeakPtrControlBlock locks gets
+        // corrupted to 0x00000000ffffffff during a strongDeref hold, presumably from a
+        // neighboring libdispatch object's writes overwriting offset 0 of the ControlBlock
+        // allocation. The corrupted value treats both isLockedBit and isQueueLockedBit as
+        // set, so the unlockSlow loop spins forever waiting for the (non-existent) queue
+        // lock holder to release. The corrupted "queue head pointer" portion is in the low
+        // 4GB which is invalid for any heap pointer. Detect and recover by force-releasing
+        // the lock; any threads parked on this lock (which can't actually exist if the
+        // queue head is bogus) would never have been wakeable anyway.
+        uintptr_t maybeQueueHead = currentWordValue & ~queueHeadMask;
+        if (maybeQueueHead && maybeQueueHead < 0x100000000ULL) {
+            // The "queue head" portion is non-null but in the low 4GB — impossible for a
+            // real ThreadData* on macOS x86_64. The state is corrupted; force-release.
+            m_word.store(0);
+            return;
+        }
+
         ASSERT(currentWordValue & isLockedBit);
-        
+
         if (currentWordValue == isLockedBit) {
             if (m_word.compareExchangeWeak(isLockedBit, 0)) {
                 // The fast path's weak CAS had spuriously failed, and now we succeeded. The lock is
@@ -180,7 +207,7 @@ NEVER_INLINE void WordLock::unlockSlow()
             Thread::yield();
             continue;
         }
-        
+
         if (currentWordValue & isQueueLockedBit) {
             Thread::yield();
             continue;

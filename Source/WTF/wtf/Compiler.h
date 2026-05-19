@@ -570,11 +570,19 @@
     IGNORE_CLANG_STATIC_ANALYZER_WARNINGS_ATTRIBUTE("alpha.webkit.NoUnretainedMemberChecker")
 #define SUPPRESS_RETAINPTR_CTOR_ADOPT \
     IGNORE_CLANG_STATIC_ANALYZER_WARNINGS_ATTRIBUTE("alpha.webkit.RetainPtrCtorAdoptChecker")
+#if COMPILER(APPLE_CLANG)
 #define CLANG_POINTER_CONVERSION [[clang::annotate_type("webkit.pointerconversion")]]
+#else
+#define CLANG_POINTER_CONVERSION
+#endif
 
 // Add this annotation to right after the return type of a function when the function does not run any destructor or free memory.
 // Static analyzer does not require the use of smart pointers in the code which calls a function with this annotation.
+#if COMPILER(APPLE_CLANG)
 #define NODELETE [[clang::annotate_type("webkit.nodelete")]]
+#else
+#define NODELETE
+#endif
 
 #else
 

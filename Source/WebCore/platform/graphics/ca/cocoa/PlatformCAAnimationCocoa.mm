@@ -174,7 +174,11 @@ PlatformCAAnimationCocoa::PlatformCAAnimationCocoa(AnimationType type, const Str
         m_animation = [CAKeyframeAnimation animationWithKeyPath:keyPath.createNSString().get()];
         break;
     case AnimationType::Spring:
-        m_animation = [CASpringAnimation animationWithKeyPath:keyPath.createNSString().get()];
+        // CASpringAnimation is 10.11+; fall back to CABasicAnimation
+        if (NSClassFromString(@"CASpringAnimation"))
+            m_animation = [NSClassFromString(@"CASpringAnimation") animationWithKeyPath:keyPath.createNSString().get()];
+        else
+            m_animation = [CABasicAnimation animationWithKeyPath:keyPath.createNSString().get()];
         break;
     }
 }
@@ -183,7 +187,7 @@ PlatformCAAnimationCocoa::PlatformCAAnimationCocoa(PlatformAnimationRef animatio
 {
     auto caAnimation = static_cast<CAAnimation *>(animation);
     if ([caAnimation isKindOfClass:[CABasicAnimation class]]) {
-        if ([caAnimation isKindOfClass:[CASpringAnimation class]])
+        if (NSClassFromString(@"CASpringAnimation") && [caAnimation isKindOfClass:NSClassFromString(@"CASpringAnimation")])
             setType(AnimationType::Spring);
         else
             setType(AnimationType::Basic);
@@ -335,12 +339,14 @@ void PlatformCAAnimationCocoa::setTimingFunction(const TimingFunction* timingFun
         break;
     case AnimationType::Spring:
         if (auto* function = dynamicDowncast<SpringTimingFunction>(timingFunction)) {
-            // FIXME: Handle reverse.
-            RetainPtr springAnimation = (CASpringAnimation *)m_animation.get();
-            springAnimation.get().mass = function->mass();
-            springAnimation.get().stiffness = function->stiffness();
-            springAnimation.get().damping = function->damping();
-            springAnimation.get().initialVelocity = function->initialVelocity();
+            // CASpringAnimation is 10.11+; set properties via KVC for compatibility
+            id springAnimation = (id)m_animation.get();
+            if ([springAnimation respondsToSelector:@selector(setMass:)]) {
+                [springAnimation setValue:@(function->mass()) forKey:@"mass"];
+                [springAnimation setValue:@(function->stiffness()) forKey:@"stiffness"];
+                [springAnimation setValue:@(function->damping()) forKey:@"damping"];
+                [springAnimation setValue:@(function->initialVelocity()) forKey:@"initialVelocity"];
+            }
         }
         break;
     case AnimationType::Group:

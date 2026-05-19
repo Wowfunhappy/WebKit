@@ -40,6 +40,11 @@
 #import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/WeakObjCPtr.h>
 
+// Ensure WKDownload's progress property is visible to the DownloadClient code above @implementation.
+@interface WKDownload (ProgressAccessor)
+@property (nonatomic, readonly) NSProgress *progress;
+@end
+
 class DownloadClient final : public API::DownloadClient {
 public:
     explicit DownloadClient(id<WKDownloadDelegatePrivate> delegate)
@@ -139,7 +144,8 @@ private:
             if ([fileManager fileExistsAtPath:retainPtr(destination.path).get()])
                 return completionHandler(WebKit::AllowOverwrite::No, { });
 
-            protect(wrapper(download.get())).get().progress.fileURL = destination;
+            if ([protect(wrapper(download.get())).get().progress respondsToSelector:@selector(setFileURL:)])
+                [protect(wrapper(download.get())).get().progress setValue:destination forKey:@"fileURL"];
 
             completionHandler(WebKit::AllowOverwrite::No, destination.path);
         }).get()];
@@ -336,7 +342,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
         downloadProgress = [NSProgress progressWithTotalUnitCount:indeterminateUnitCount];
 
         downloadProgress.get().kind = NSProgressKindFile;
-        downloadProgress.get().fileOperationKind = NSProgressFileOperationKindDownloading;
+        [downloadProgress.get() setValue:NSProgressFileOperationKindDownloading forKey:@"fileOperationKind"];
 
         downloadProgress.get().cancellable = YES;
         downloadProgress.get().cancellationHandler = makeBlockPtr([weakSelf = WeakObjCPtr<WKDownload> { self }] () mutable {

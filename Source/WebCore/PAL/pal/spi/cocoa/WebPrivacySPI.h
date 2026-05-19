@@ -73,7 +73,7 @@ typedef NS_ENUM(NSInteger, WPNetworkAddressVersion) {
 @end
 
 @interface WPLinkFilteringData : NSObject
-@property (nonatomic, readonly) NSArray<WPLinkFilteringRule *> *rules;
+@property (nonatomic, readonly) NSArray *rules;
 @end
 
 @interface WPTrackingDomain : NSObject
@@ -82,9 +82,9 @@ typedef NS_ENUM(NSInteger, WPNetworkAddressVersion) {
 @property (nonatomic, readonly) BOOL canBlock;
 @end
 
-typedef void (^WPNetworkAddressesCompletionHandler)(NSArray<WPNetworkAddressRange *> *, NSError *);
+typedef void (^WPNetworkAddressesCompletionHandler)(NSArray *, NSError *);
 typedef void (^WPLinkFilteringDataCompletionHandler)(WPLinkFilteringData *, NSError *);
-typedef void (^WPTrackingDomainsCompletionHandler)(NSArray<WPTrackingDomain *> *, NSError *);
+typedef void (^WPTrackingDomainsCompletionHandler)(NSArray *, NSError *);
 
 @interface WPResources : NSObject
 
@@ -104,13 +104,13 @@ constexpr NSInteger WPResourceTypeStorageAccessPromptQuirksData = 7;
 
 @interface WPStorageAccessPromptQuirk : NSObject
 @property (nonatomic, readonly) NSString *name;
-@property (nonatomic, readonly) NSDictionary<NSString *, NSArray<NSString *> *> *domainPairings;
-@property (nonatomic, readonly) NSDictionary<NSString *, NSArray<NSString *> *> *quirkDomains;
-@property (nonatomic, readonly) NSArray<NSString *> *triggerPages;
+@property (nonatomic, readonly) NSDictionary *domainPairings;
+@property (nonatomic, readonly) NSDictionary *quirkDomains;
+@property (nonatomic, readonly) NSArray *triggerPages;
 @end
 
 @interface WPStorageAccessPromptQuirksData : NSObject
-@property (nonatomic, readonly) NSArray<WPStorageAccessPromptQuirk *> *quirks;
+@property (nonatomic, readonly) NSArray *quirks;
 @end
 
 typedef void (^WPStorageAccessPromptQuirksDataCompletionHandler)(WPStorageAccessPromptQuirksData *, NSError *);
@@ -128,7 +128,7 @@ constexpr NSInteger WPResourceTypeStorageAccessUserAgentStringQuirksData = 6;
 @end
 
 @interface WPStorageAccessUserAgentStringQuirksData : NSObject
-@property (nonatomic, readonly) NSArray<WPStorageAccessUserAgentStringQuirk *> *quirks;
+@property (nonatomic, readonly) NSArray *quirks;
 @end
 
 typedef void (^WPStorageAccessUserAgentStringQuirksDataCompletionHandler)(WPStorageAccessUserAgentStringQuirksData *, NSError *);
@@ -157,7 +157,7 @@ typedef NS_ENUM(NSInteger, WPRestrictedOpenerType) {
 @property (nonatomic, readonly) WPRestrictedOpenerType openerType;
 @end
 
-typedef void (^WPRestrictedOpenerDomainsCompletionHandler)(NSArray<WPRestrictedOpenerDomain *> *, NSError *);
+typedef void (^WPRestrictedOpenerDomainsCompletionHandler)(NSArray *, NSError *);
 
 @interface WPResources (Staging_118208263)
 - (void)requestRestrictedOpenerDomains:(WPResourceRequestOptions *)options completionHandler:(WPRestrictedOpenerDomainsCompletionHandler)completion;
@@ -166,8 +166,8 @@ typedef void (^WPRestrictedOpenerDomainsCompletionHandler)(NSArray<WPRestrictedO
 
 #if !defined(HAS_WEB_PRIVACY_STORAGE_ACCESS_PROMPT_TRIGGER) && HAVE(WEB_PRIVACY_FRAMEWORK)
 @interface WPStorageAccessPromptQuirk (Staging_124689085)
-@property (nonatomic, readonly) NSDictionary<NSString *, NSArray<NSString *> *> *quirkDomains;
-@property (nonatomic, readonly) NSArray<NSString *> *triggerPages;
+@property (nonatomic, readonly) NSDictionary *quirkDomains;
+@property (nonatomic, readonly) NSArray *triggerPages;
 @end
 #endif
 
@@ -197,7 +197,7 @@ typedef void (^WKWPResourcesGetSourceCompletionHandler)(NSString *, NSError *);
 @property (nonatomic, readonly, getter=isTopDomain) BOOL topDomain;
 @end
 
-using WPFingerprintingScriptCompletionHandler = void (^)(NSArray<WPFingerprintingScript *> *, NSError *);
+using WPFingerprintingScriptCompletionHandler = void (^)(NSArray *, NSError *);
 
 @interface WPResources (Staging_135619791)
 - (void)requestFingerprintingScripts:(WPResourceRequestOptions *)options completionHandler:(WPFingerprintingScriptCompletionHandler)completion;

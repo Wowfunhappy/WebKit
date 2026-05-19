@@ -11,6 +11,7 @@ list(APPEND WTF_LIBRARIES
 
 list(APPEND WTF_SOURCES
     BlockObjCExceptions.mm
+ObjCRuntimeExtras.mm
     ProcessPrivilege.cpp
     TranslatedProcess.cpp
 
@@ -33,7 +34,7 @@ list(APPEND WTF_SOURCES
     cocoa/MemoryPressureHandlerCocoa.mm
     cocoa/NSURLExtras.mm
     cocoa/ResourceUsageCocoa.cpp
-    cocoa/RuntimeApplicationChecksCocoa.cpp
+    cocoa/RuntimeApplicationChecksCocoa.mm
     cocoa/SchedulePairCocoa.mm
     cocoa/SystemTracingCocoa.cpp
     cocoa/URLCocoa.mm

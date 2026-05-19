@@ -28,6 +28,7 @@
 #define ThreadTimers_h
 
 #include <wtf/CheckedPtr.h>
+#include <wtf/Lock.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefCounted.h>
@@ -36,6 +37,11 @@
 #include <wtf/Vector.h>
 
 namespace WebCore {
+
+#if PLATFORM(MAC)
+// Defined in Timer.cpp. Serializes shared timer heap mutations across threads.
+WEBCORE_EXPORT Lock& sharedTimerHeapLock();
+#endif
 
 class SharedTimer;
 class ThreadTimers;

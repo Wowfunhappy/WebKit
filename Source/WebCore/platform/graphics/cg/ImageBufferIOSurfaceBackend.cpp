@@ -72,6 +72,14 @@ size_t ImageBufferIOSurfaceBackend::calculateMemoryCost(const Parameters& parame
 
 std::unique_ptr<ImageBufferIOSurfaceBackend> ImageBufferIOSurfaceBackend::create(const Parameters& parameters, const ImageBufferCreationContext& creationContext)
 {
+    // 10.9 backport: skip IOSurface backend for canvas — IOSurface drawing/readback is
+    // unreliable on this build (canvas pixels read back as zeros even after fillRect,
+    // canvas.toDataURL returns empty "data:,"). Falling back to ImageBufferPlatformBitmapBackend
+    // gives a working CG bitmap context. Other purposes (compositing, layer scratch buffers)
+    // still use IOSurface — those paths have other 10.9 workarounds in place.
+    if (parameters.purpose == RenderingPurpose::Canvas)
+        return nullptr;
+
     IntSize backendSize = calculateSafeBackendSize(parameters);
     if (backendSize.isEmpty())
         return nullptr;
@@ -138,15 +146,21 @@ bool ImageBufferIOSurfaceBackend::flushContextDraws()
     if (!contextNeedsFlush && !m_needsFirstFlush)
         return false;
     m_needsFirstFlush = false;
-    CGContextFlush(ensurePlatformContext());
+    if (auto* ctx = ensurePlatformContext())
+        CGContextFlush(ctx);
     return true;
 }
 
 CGContextRef ImageBufferIOSurfaceBackend::ensurePlatformContext()
 {
     if (!m_platformContext) {
+        // 10.9 backport: m_surface may be null/freed by the time the renderer
+        // calls back to flush. CNN crashes here. Skip if no surface.
+        if (!m_surface)
+            return nullptr;
         m_platformContext = m_surface->createPlatformContext(m_displayID);
-        RELEASE_ASSERT(m_platformContext);
+        if (!m_platformContext)
+            return nullptr;
     }
     return m_platformContext.get();
 }
@@ -181,7 +195,13 @@ bool ImageBufferIOSurfaceBackend::invalidateCachedNativeImage()
 
 RefPtr<NativeImage> ImageBufferIOSurfaceBackend::copyNativeImage()
 {
-    return NativeImage::create(createImage());
+    // 10.9 backport: m_surface->createImage is broken on this build
+    // (CFRelease crash on null CGImageRef). createImageReference uses
+    // CGIOSurfaceContextCreateImageReference which works. Same fix already
+    // applied to sinkIntoNativeImage.
+    if (!m_surface)
+        return nullptr;
+    return NativeImage::create(createImageReference());
 }
 
 RefPtr<NativeImage> ImageBufferIOSurfaceBackend::createNativeImageReference()
@@ -194,12 +214,20 @@ RefPtr<NativeImage> ImageBufferIOSurfaceBackend::createNativeImageReference()
 
 RefPtr<NativeImage> ImageBufferIOSurfaceBackend::sinkIntoNativeImage()
 {
-    ensurePlatformContext();
-    return NativeImage::create(IOSurface::sinkIntoImage(WTF::move(m_surface), WTF::move(m_platformContext)));
+    // 10.9 backport: IOSurface::sinkIntoImage AND m_surface->createImage are
+    // both broken on this build (vimeo canvas.toDataURL crashes CFRelease in
+    // both). createImageReference uses a different CG path and works.
+    if (!m_surface)
+        return nullptr;
+    return NativeImage::create(createImageReference());
 }
 
 void ImageBufferIOSurfaceBackend::getPixelBuffer(const IntRect& srcRect, PixelBuffer& destination)
 {
+    // 10.9 backport: twitter.com calls canvas getImageData; m_surface can be
+    // null on this build, crashing in m_surface->lock(). Bail silently.
+    if (!m_surface)
+        return;
     const_cast<ImageBufferIOSurfaceBackend*>(this)->prepareForExternalRead();
     if (auto lock = m_surface->lock<IOSurface::AccessMode::ReadOnly>())
         ImageBufferBackend::getPixelBuffer(srcRect, lock->surfaceSpan(), destination);
@@ -207,6 +235,8 @@ void ImageBufferIOSurfaceBackend::getPixelBuffer(const IntRect& srcRect, PixelBu
 
 void ImageBufferIOSurfaceBackend::putPixelBuffer(const PixelBufferSourceView& pixelBuffer, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat)
 {
+    if (!m_surface)
+        return;
     prepareForExternalWrite();
     if (auto lock = m_surface->lock<IOSurface::AccessMode::ReadWrite>())
         ImageBufferBackend::putPixelBuffer(pixelBuffer, srcRect, destPoint, destFormat, lock->surfaceSpan());

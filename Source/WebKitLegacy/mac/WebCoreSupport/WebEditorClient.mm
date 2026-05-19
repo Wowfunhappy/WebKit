@@ -1154,18 +1154,11 @@ void WebEditorClient::requestCandidatesForSelection(const VisibleSelection& sele
     m_rangeForCandidates = NSMakeRange(selectionStartOffsetInParagraph, selectionLength);
     m_paragraphContextForCandidateRequest = contextForCandidateRequest.createNSString();
 
-    NSTextCheckingTypes checkingTypes = NSTextCheckingTypeSpelling | NSTextCheckingTypeReplacement | NSTextCheckingTypeCorrection;
-    WeakPtr weakEditor { *this };
-    m_lastCandidateRequestSequenceNumber = [[NSSpellChecker sharedSpellChecker] requestCandidatesForSelectedRange:m_rangeForCandidates inString:m_paragraphContextForCandidateRequest.get() types:checkingTypes options:nil inSpellDocumentWithTag:spellCheckerDocumentTag() completionHandler:[weakEditor](NSInteger sequenceNumber, NSArray<NSTextCheckingResult *> *candidates) {
-        RunLoop::mainSingleton().dispatch([weakEditor, sequenceNumber, candidates = retainPtr(candidates)] {
-            if (!weakEditor)
-                return;
-            weakEditor->handleRequestedCandidates(sequenceNumber, candidates.get());
-        });
-    }];
+    // macOS 10.9: NSSpellChecker has no requestCandidatesForSelectedRange. Skip candidates.
+    m_lastCandidateRequestSequenceNumber = 0;
 }
 
-void WebEditorClient::handleRequestedCandidates(NSInteger sequenceNumber, NSArray<NSTextCheckingResult *> *candidates)
+void WebEditorClient::handleRequestedCandidates(NSInteger sequenceNumber, NSArray *candidates)
 {
     if (![m_webView shouldRequestCandidates])
         return;

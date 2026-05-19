@@ -26,6 +26,7 @@
 #include "config.h"
 #include "AuxiliaryProcess.h"
 
+#include <pthread.h>
 #include "AuxiliaryProcessCreationParameters.h"
 #include "Connection.h"
 #include "ContentWorldShared.h"
@@ -60,7 +61,8 @@ using namespace WebCore;
 
 AuxiliaryProcess::AuxiliaryProcess()
     : m_terminationCounter(0)
-    , m_processSuppressionDisabled("Process Suppression Disabled by UIProcess"_s)
+    // 10.9: m_processSuppressionDisabled (UserActivity) crashes during construction
+    // in HashTable<TimerBase*>::add. Leave nullopt; we don't need it for the basic test.
 {
 }
 
@@ -81,53 +83,78 @@ void AuxiliaryProcess::didClose(IPC::Connection&)
 #endif
 }
 
+
 void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& parameters)
 {
-    TraceScope traceScope(ProcessInitializeStart, ProcessInitializeEnd);
+    // Minimal init for 10.9: skip everything except essential IPC setup
+    FILE *f = ((FILE*)0);
+    if (f) { fprintf(f, "[PID %d] AuxProcess::initialize MINIMAL\n", getpid()); fclose(f); }
 
-    WTF::RefCountDebuggerBase::enableThreadingChecksGlobally();
+    // 10.9 backport: Safari sends a second XPC bootstrap message after the first
+    // initialize completes. Calling initialize twice would re-lazyInitialize the
+    // already-set m_connection (RELEASE_ASSERT — SIGTRAP). Skip via m_connection check
+    // (function-local static was firing too early in Safari's case).
+    if (m_connection) {
+        if (f = ((FILE*)0)) {
+            fprintf(f, "[PID %d] AuxProcess::initialize already-initialized (m_connection set), skipping\n", getpid());
+            fclose(f);
+        }
+        return;
+    }
 
 #if PLATFORM(COCOA)
-    // On Cocoa platforms, setAuxiliaryProcessType() is called in XPCServiceInitializer().
     ASSERT(processType() == parameters.processType);
-#else
-    setAuxiliaryProcessType(parameters.processType);
 #endif
 
-    RELEASE_ASSERT_WITH_MESSAGE(parameters.processIdentifier, "Unable to initialize child process without a WebCore process identifier");
-    Process::setIdentifier(*parameters.processIdentifier);
+    if (parameters.processIdentifier)
+        Process::setIdentifier(*parameters.processIdentifier);
 
-    platformInitialize(parameters);
-
-    SandboxInitializationParameters sandboxParameters;
-    initializeSandbox(parameters, sandboxParameters);
-
+    // Skip platformInitialize, sandbox, and most of initializeProcess.
+    // Just set the process type:
     initializeProcess(parameters);
 
-#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
-    WTF::logChannels().initializeLogChannelsIfNecessary();
-    WebCore::logChannels().initializeLogChannelsIfNecessary();
-    WebKit::logChannels().initializeLogChannelsIfNecessary();
-#endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
-
-    initializeProcessName(parameters);
-
-    // In WebKit2, only the UI process should ever be generating certain identifiers.
-    PAL::SessionID::enableGenerationProtection();
-    WebPageProxyIdentifier::enableGenerationProtection();
-
+    // The critical part: establish the IPC connection back to the UI process.
+    if (f = ((FILE*)0)) { fprintf(f, "[PID %d] creating IPC connection\n", getpid()); fclose(f); }
     Ref connection = IPC::Connection::createClientConnection(WTF::move(parameters.connectionIdentifier));
+    if (f = ((FILE*)0)) { fprintf(f, "[PID %d] IPC connection created\n", getpid()); fclose(f); }
     lazyInitialize(m_connection, connection.copyRef());
+    if (f = ((FILE*)0)) { fprintf(f, "[PID %d] calling initializeConnection\n", getpid()); fclose(f); }
     initializeConnection(connection.ptr());
-    connection->open(*this);
+    if (f = ((FILE*)0)) { fprintf(f, "[PID %d] opening connection (thread=%p, isMain=%d)\n", getpid(), (void*)pthread_self(), pthread_main_np()); fclose(f); }
+    // 10.9: AuxiliaryProcess::initialize runs on a dispatch worker thread, so the
+    // default Connection::open(Client&) — which uses RunLoop::currentSingleton() as
+    // dispatcher — would bind dispatch to a worker-thread RunLoop nobody pumps.
+    // Force the main RunLoop so message dispatch reaches WebPage etc.
+    connection->open(*this, RunLoop::mainSingleton());
+    if (f = ((FILE*)0)) { fprintf(f, "[PID %d] AuxProcess::initialize COMPLETE!\n", getpid()); fclose(f); }
+
+    // 10.9 backport: Safari closes the XPC bootstrap connection after init completes.
+    // Without an active source on the main dispatch queue, dispatch_main() returns and the
+    // main thread exits — leaving WebContent unable to process IPC messages even though
+    // the libdispatch-manager thread keeps the process alive.
+    // Schedule a perpetual no-op dispatch_after to keep the main queue alive.
+    static dispatch_source_t s_heartbeat = nullptr;
+    if (!s_heartbeat) {
+        s_heartbeat = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+        dispatch_source_set_timer(s_heartbeat, dispatch_time(DISPATCH_TIME_NOW, 60ull * NSEC_PER_SEC),
+                                  60ull * NSEC_PER_SEC, 1ull * NSEC_PER_SEC);
+        dispatch_source_set_event_handler(s_heartbeat, ^{ /* no-op */ });
+        dispatch_resume(s_heartbeat);
+        if (f = ((FILE*)0)) {
+            fprintf(f, "[PID %d] AuxProcess::initialize installed heartbeat source\n", getpid());
+            fclose(f);
+        }
+    }
 }
 
 void AuxiliaryProcess::setProcessSuppressionEnabled(bool enabled)
 {
+    if (!m_processSuppressionDisabled)
+        return;
     if (enabled)
-        m_processSuppressionDisabled.stop();
+        m_processSuppressionDisabled->stop();
     else
-        m_processSuppressionDisabled.start();
+        m_processSuppressionDisabled->start();
 }
 
 void AuxiliaryProcess::initializeProcess(const AuxiliaryProcessInitializationParameters&)

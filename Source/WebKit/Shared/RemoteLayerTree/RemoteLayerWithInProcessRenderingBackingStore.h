@@ -25,12 +25,46 @@
 
 #pragma once
 
-#include "RemoteImageBufferSet.h"
+#if ENABLE(GPU_PROCESS)
+#include "ImageBufferSet.h"
+#endif
+#include "ImageBufferSetIdentifier.h"
+#include "PrepareBackingStoreBuffersData.h"
 #include "RemoteLayerBackingStore.h"
 #include <WebCore/DynamicContentScalingResourceCache.h>
+#include <WebCore/ImageBuffer.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
+
+#if !ENABLE(GPU_PROCESS)
+// SwapBuffersDisplayRequirement is normally defined in PrepareBackingStoreBuffersData.h
+// which is entirely guarded by ENABLE(GPU_PROCESS).
+enum class SwapBuffersDisplayRequirement : uint8_t {
+    NeedsFullDisplay,
+    NeedsNormalDisplay,
+    NeedsNoDisplay
+};
+
+// Minimal stub for ImageBufferSet when GPU_PROCESS is disabled.
+// The real ImageBufferSet is guarded by ENABLE(GPU_PROCESS).
+struct ImageBufferSet {
+    ImageBufferSetIdentifier m_identifier { ImageBufferSetIdentifier::generate() };
+    RefPtr<WebCore::ImageBuffer> m_frontBuffer;
+    RefPtr<WebCore::ImageBuffer> m_backBuffer;
+    RefPtr<WebCore::ImageBuffer> m_secondaryBackBuffer;
+    std::optional<WebCore::IntRect> m_previouslyPaintedRect;
+    bool m_frontBufferIsCleared { false };
+    ImageBufferSetIdentifier identifier() const { return m_identifier; }
+    void clearBuffers() { m_frontBuffer = m_backBuffer = m_secondaryBackBuffer = nullptr; }
+    void prepareBufferForDisplay(const WebCore::FloatRect&, const WebCore::Region&, Vector<WebCore::FloatRect, 5>&, bool) { }
+    SwapBuffersDisplayRequirement swapBuffersForDisplay(bool hasEmptyDirtyRegion, bool) {
+        if (hasEmptyDirtyRegion)
+            return SwapBuffersDisplayRequirement::NeedsNoDisplay;
+        return m_frontBuffer ? SwapBuffersDisplayRequirement::NeedsNormalDisplay : SwapBuffersDisplayRequirement::NeedsFullDisplay;
+    }
+};
+#endif
 
 class RemoteLayerWithInProcessRenderingBackingStore final : public RemoteLayerBackingStore {
     WTF_MAKE_TZONE_ALLOCATED(RemoteLayerWithInProcessRenderingBackingStore);

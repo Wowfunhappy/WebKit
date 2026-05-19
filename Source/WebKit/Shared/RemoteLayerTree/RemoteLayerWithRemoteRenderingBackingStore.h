@@ -28,6 +28,8 @@
 #include "RemoteLayerBackingStore.h"
 #include <wtf/TZoneMalloc.h>
 
+#if ENABLE(GPU_PROCESS)
+
 namespace WebKit {
 
 class RemoteGraphicsContextProxy;
@@ -80,3 +82,5 @@ private:
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::RemoteLayerWithRemoteRenderingBackingStore)
     static bool isType(const WebKit::RemoteLayerBackingStore& backingStore) { return backingStore.isRemoteLayerWithRemoteRenderingBackingStore(); }
 SPECIALIZE_TYPE_TRAITS_END()
+
+#endif // ENABLE(GPU_PROCESS)

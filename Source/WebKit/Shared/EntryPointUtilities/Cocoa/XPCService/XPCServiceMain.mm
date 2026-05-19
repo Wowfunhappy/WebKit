@@ -33,6 +33,9 @@
 #import "XPCServiceEntryPoint.h"
 #import "XPCUtilities.h"
 #import <CoreFoundation/CoreFoundation.h>
+#import <dlfcn.h>
+#import <fcntl.h>
+#import <unistd.h>
 #import <mach/mach.h>
 #import <pal/spi/cf/CFUtilitiesSPI.h>
 #import <pal/spi/cocoa/CoreServicesSPI.h>
@@ -40,6 +43,7 @@
 #import <sys/sysctl.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/Language.h>
+#import <wtf/WorkQueue.h>
 #import <wtf/OSObjectPtr.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/StdLibExtras.h>
@@ -57,6 +61,7 @@
 #endif
 
 namespace WebKit {
+static void xpc_trace(const char *msg) { FILE *f = ((FILE*)0); if (f) { fprintf(f, "[PID %d] %s\n", getpid(), msg); fclose(f); } }
 
 static Vector<String>& NODELETE overrideLanguagesFromBootstrap()
 {
@@ -117,7 +122,7 @@ NEVER_INLINE NO_RETURN_DUE_TO_CRASH static void crashDueWebKitFrameworkVersionMi
 static void checkFrameworkVersion(xpc_object_t message)
 {
     auto uiProcessWebKitBundleVersion = xpcDictionaryGetString(message, "WebKitBundleVersion"_s);
-    auto webkitBundleVersion = ASCIILiteral::fromLiteralUnsafe(WEBKIT_BUNDLE_VERSION);
+    auto webkitBundleVersion = ASCIILiteral::fromLiteralUnsafe("615.1.1");
     if (!uiProcessWebKitBundleVersion.isNull() && uiProcessWebKitBundleVersion != webkitBundleVersion) {
         auto errorMessage = makeString("WebKit framework version mismatch: "_s, uiProcessWebKitBundleVersion, " != "_s, webkitBundleVersion);
         logAndSetCrashLogMessage(errorMessage.utf8().data());
@@ -143,25 +148,33 @@ static void setUserDirSuffix(ASCIILiteral suffix)
 }
 
 void XPCServiceEventHandler(xpc_connection_t peer)
-{
+{ xpc_trace("XPCServiceEventHandler called");
     OSObjectPtr<xpc_connection_t> retainedPeerConnection(peer);
 
-    xpc_connection_set_target_queue(peer, globalDispatchQueueSingleton(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0));
+    // 10.9: dispatch the bootstrap handler to the MAIN queue rather than a global
+    // worker queue. WebProcess::WebProcess() constructs members like UserActivity →
+    // PAL::HysteresisActivity which assume RunLoop::mainSingleton() is the current
+    // thread's runloop. Running the bootstrap on a worker queue means
+    // RunLoop::mainSingleton() returns a runloop that doesn't match the current
+    // thread → crash inside HysteresisActivity::HysteresisActivity.
+    xpc_connection_set_target_queue(peer, dispatch_get_main_queue());
     xpc_connection_set_event_handler(peer, ^(xpc_object_t event) {
         xpc_type_t type = xpc_get_type(event);
         if (type != XPC_TYPE_DICTIONARY) {
             RELEASE_LOG_ERROR(IPC, "XPCServiceEventHandler: Received unexpected XPC event type: %{public}s", xpc_type_get_name(type));
             if (type == XPC_TYPE_ERROR) {
                 if (event == XPC_ERROR_CONNECTION_INVALID || event == XPC_ERROR_TERMINATION_IMMINENT) {
+                    xpc_trace(event == XPC_ERROR_CONNECTION_INVALID ? "XPC_ERROR_CONNECTION_INVALID" : "XPC_ERROR_TERMINATION_IMMINENT");
                     RELEASE_LOG_FAULT(IPC, "Exiting: Received XPC event type: %{public}s", event == XPC_ERROR_CONNECTION_INVALID ? "XPC_ERROR_CONNECTION_INVALID" : "XPC_ERROR_TERMINATION_IMMINENT");
-#if ENABLE(CLOSE_WEBCONTENT_XPC_CONNECTION_POST_LAUNCH)
+                    // On 10.9, Safari closes the XPC connection after bootstrap completes.
+                    // The WebContent process must continue running using the IPC mach port.
                     if (s_isWebProcess)
                         return;
-#endif
                     // FIXME: Handle this case more gracefully.
-                    [[NSRunLoop mainRunLoop] performBlock:^{
+                    // 10.9 doesn't have -[NSRunLoop performBlock:] (10.13+); use main queue dispatch.
+                    dispatch_async(dispatch_get_main_queue(), ^{
                         exitProcess(EXIT_FAILURE);
-                    }];
+                    });
                 }
             }
             return;
@@ -236,11 +249,21 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             RetainPtr webKitBundle = CFBundleGetBundleWithIdentifier(CFSTR("com.apple.WebKit"));
             typedef void (*InitializerFunction)(xpc_connection_t, xpc_object_t);
             InitializerFunction initializerFunctionPtr = reinterpret_cast<InitializerFunction>(CFBundleGetFunctionPointerForName(webKitBundle.get(), entryPointFunctionName));
+            // 10.9: CFBundleGetFunctionPointerForName can return null when the bundle's
+            // Versions/Current symlink points to a different version than the actually
+            // loaded binary (e.g. Versions/A vs Versions/615.1.1). Fall back to dlsym
+            // so we resolve against the in-process loaded WebKit.
+            if (!initializerFunctionPtr) {
+                char buf[256];
+                if (CFStringGetCString(entryPointFunctionName, buf, sizeof(buf), kCFStringEncodingUTF8))
+                    initializerFunctionPtr = reinterpret_cast<InitializerFunction>(dlsym(RTLD_DEFAULT, buf));
+            }
             if (!initializerFunctionPtr) {
                 RELEASE_LOG_FAULT(IPC, "Exiting: Unable to find entry point in WebKit.framework with name: %s", [bridge_cast(entryPointFunctionName) UTF8String]);
-                [[NSRunLoop mainRunLoop] performBlock:^{
+                // 10.9 doesn't have -[NSRunLoop performBlock:] (10.13+); use main queue dispatch.
+                dispatch_async(dispatch_get_main_queue(), ^{
                     exitProcess(EXIT_FAILURE);
-                }];
+                });
                 return;
             }
 
@@ -257,17 +280,17 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             if (fd != -1)
                 dup2(fd, STDERR_FILENO);
 
-            WorkQueue::mainSingleton().dispatchSync([initializerFunctionPtr, event = OSObjectPtr<xpc_object_t>(event), retainedPeerConnection] {
+            // Run inline on the XPC handler thread. The isMainThread assert
+            // in InitializeWebKit2 has been removed for 10.9 compatibility.
+            {
                 WTF::initializeMainThread();
-
                 initializeCFPrefs();
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-                checkFrameworkVersion(event.get());
+                checkFrameworkVersion(event);
 #endif
-                initializerFunctionPtr(retainedPeerConnection.get(), event.get());
-
+                initializerFunctionPtr(retainedPeerConnection.get(), event);
                 setAppleLanguagesPreference();
-            });
+            }
 
             return;
         }
@@ -280,8 +303,26 @@ void XPCServiceEventHandler(xpc_connection_t peer)
 
 int XPCServiceMain(int, const char**)
 {
-    // FIXME: This is a false positive. <rdar://164843889>
-    SUPPRESS_RETAINPTR_CTOR_ADOPT auto bootstrap = adoptOSObject(xpc_copy_bootstrap());
+    // 10.9 backport: redirect stderr to per-pid file so WebContent fprintfs are visible.
+    {
+        char path[128];
+        snprintf(path, sizeof(path), "/tmp/wc-stderr-%d.log", getpid());
+        int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0666);
+        if (fd >= 0) { dup2(fd, 2); close(fd); }
+        fprintf(stderr, "[XPCServiceMain] stderr redirect active pid=%d\n", getpid()); fflush(stderr);
+    }
+    xpc_trace("XPCServiceMain entered");
+
+    // Initialize WTF and main thread on the ACTUAL main thread (before xpc_main).
+    // This is critical because xpc_main's event handlers run on background threads,
+    // but RunLoop::mainSingleton() must reference the main thread's run loop
+    // so that IPC message dispatch reaches xpc_main's CFRunLoop.
+    WTF::initialize();
+    WTF::initializeMainThread();
+    xpc_trace("main thread initialized");
+
+    // xpc_copy_bootstrap is 10.12+. On 10.9, skip it.
+    OSObjectPtr<xpc_object_t> bootstrap;
 
     if (bootstrap) {
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
@@ -301,7 +342,24 @@ int XPCServiceMain(int, const char**)
 #endif
     }
 
+    xpc_trace("calling xpc_main");
+    // 10.9 perf: removed debug fopen logging
     xpc_main(XPCServiceEventHandler);
+    // 10.9 perf: removed debug fopen logging
+    xpc_trace("xpc_main returned");
+
+    // 10.9 backport: xpc_main calls dispatch_main, which returns when the main queue
+    // has no more sources. Safari's XPC connection close after bootstrap can cause this.
+    // Keep the main thread alive forever by running CFRunLoop. WebContent's IPC mach
+    // port source is registered on the main RunLoop, so this keeps message dispatch
+    // running.
+    if (s_isWebProcess) {
+        // 10.9 perf: removed debug fopen logging
+        for (;;) {
+            CFRunLoopRun();
+            // 10.9 perf: removed debug fopen logging
+        }
+    }
     return 0;
 }
 

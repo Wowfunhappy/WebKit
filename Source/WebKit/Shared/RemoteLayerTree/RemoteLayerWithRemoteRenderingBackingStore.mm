@@ -26,6 +26,8 @@
 #import "config.h"
 #import "RemoteLayerWithRemoteRenderingBackingStore.h"
 
+#if ENABLE(GPU_PROCESS)
+
 #import "PlatformCALayerRemote.h"
 #import "PrepareBackingStoreBuffersData.h"
 #import "RemoteImageBufferSetProxy.h"
@@ -187,4 +189,6 @@ void RemoteLayerWithRemoteRenderingBackingStore::dump(WTF::TextStream& ts) const
 }
 
 } // namespace WebKit
+
+#endif // ENABLE(GPU_PROCESS)
 

@@ -290,6 +290,16 @@ void DocumentLoader::setMainDocumentError(const ResourceError& error)
 
 void DocumentLoader::mainReceivedError(const ResourceError& error, LoadWillContinueInAnotherProcess loadWillContinueInAnotherProcess)
 {
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) {
+            auto u = error.failingURL().string().utf8();
+            auto d = error.localizedDescription().utf8();
+            fprintf(_f, "[DocumentLoader::mainReceivedError PID %d] code=%d type=%d url=%.150s desc=%.100s\n",
+                getpid(), error.errorCode(), (int)error.type(), u.data(), d.data());
+            fclose(_f);
+        }
+    }
     ASSERT(!error.isNull());
 
     if (auto createdCallback = std::exchange(m_whenDocumentIsCreatedCallback, { }))
@@ -1260,9 +1270,11 @@ static inline bool NODELETE shouldEnableResourceMonitor(const Frame& frame)
 
 void DocumentLoader::commitData(const SharedBuffer& data)
 {
+    // 10.9 perf: removed debug fopen logging
     if (!m_gotFirstByte) {
         m_gotFirstByte = true;
         bool hasBegun = m_writer.begin(documentURL(), false, nullptr, m_resultingClientId, &triggeringAction());
+        // 10.9 perf: removed debug fopen logging
         if (!hasBegun)
             return;
 
@@ -1298,6 +1310,7 @@ void DocumentLoader::commitData(const SharedBuffer& data)
             document->securityOrigin().grantLoadLocalResources();
         }
 
+        // 10.9 perf: removed debug fopen logging
         if (frameLoader()->stateMachine().creatingInitialEmptyDocument())
             return;
 
@@ -1387,6 +1400,7 @@ void DocumentLoader::commitData(const SharedBuffer& data)
     }
 #endif
 
+    // 10.9 perf: removed debug fopen logging
     ASSERT(m_frame->document()->parsing());
     m_writer.addData(data);
 }

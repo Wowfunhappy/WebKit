@@ -55,6 +55,22 @@
 
 namespace WebCore {
 
+// 10.9 backport: UTType class accessors (+[UTType PNG], +[UTType webArchive], etc)
+// are 11.0+ and crash with unrecognized-selector. Use legacy kUTType* constants.
+static NSString *legacyOrModernUTType(SEL classMethod, NSString *modernIdentifier, CFStringRef legacyKey)
+{
+    if ([UTType respondsToSelector:classMethod])
+        return modernIdentifier;
+    return (__bridge NSString *)legacyKey;
+}
+
+static NSString *UT_PNG_ID() { return [UTType respondsToSelector:@selector(PNG)] ? UTTypePNG.identifier : (__bridge NSString *)kUTTypePNG; }
+static NSString *UT_JPEG_ID() { return [UTType respondsToSelector:@selector(JPEG)] ? UTTypeJPEG.identifier : (__bridge NSString *)kUTTypeJPEG; }
+static NSString *UT_TIFF_ID() { return [UTType respondsToSelector:@selector(TIFF)] ? UTTypeTIFF.identifier : (__bridge NSString *)kUTTypeTIFF; }
+static NSString *UT_UTF8_PLAIN_ID() { return [UTType respondsToSelector:@selector(UTF8PlainText)] ? UTTypeUTF8PlainText.identifier : (__bridge NSString *)kUTTypeUTF8PlainText; }
+// Web Archive UTType is private; just use the literal.
+static NSString *const UT_WEB_ARCHIVE_ID = @"com.apple.webarchive";
+
 const ASCIILiteral WebArchivePboardType = "Apple Web Archive pasteboard type"_s;
 const ASCIILiteral WebURLNamePboardType = "public.url-name"_s;
 const ASCIILiteral WebURLsWithTitlesPboardType = "WebURLsWithTitlesPboardType"_s;
@@ -145,7 +161,7 @@ void Pasteboard::write(const PasteboardWebContent& content)
         types.append(WebSmartPastePboardType);
     if (content.dataInWebArchiveFormat) {
         types.append(WebArchivePboardType);
-        types.append(UTTypeWebArchive.identifier);
+        types.append(UT_WEB_ARCHIVE_ID);
     }
     if (content.dataInRTFDFormat)
         types.append(String(legacyRTFDPasteboardTypeSingleton()));
@@ -177,7 +193,7 @@ void Pasteboard::write(const PasteboardWebContent& content)
     if (!didWriteWebArchive && content.dataInWebArchiveFormat) {
         m_changeCount = platformStrategies()->pasteboardStrategy()->setBufferForType(content.dataInWebArchiveFormat.get(), WebArchivePboardType, m_pasteboardName, context());
 
-        m_changeCount = platformStrategies()->pasteboardStrategy()->setBufferForType(content.dataInWebArchiveFormat.get(), UTTypeWebArchive.identifier, m_pasteboardName, context());
+        m_changeCount = platformStrategies()->pasteboardStrategy()->setBufferForType(content.dataInWebArchiveFormat.get(), UT_WEB_ARCHIVE_ID, m_pasteboardName, context());
     }
 
     if (content.dataInRTFDFormat)
@@ -289,14 +305,14 @@ void Pasteboard::write(const PasteboardImage& pasteboardImage)
     auto types = writableTypesForImage();
     if (pasteboardImage.dataInWebArchiveFormat) {
         types.append(WebArchivePboardType);
-        types.append(UTTypeWebArchive.identifier);
+        types.append(UT_WEB_ARCHIVE_ID);
     }
 
     m_changeCount = writeURLForTypes(types, m_pasteboardName, pasteboardImage.url, context());
     m_changeCount = platformStrategies()->pasteboardStrategy()->setBufferForType(SharedBuffer::create(imageData.get()).ptr(), legacyTIFFPasteboardTypeSingleton(), m_pasteboardName, context());
     if (auto archiveData = pasteboardImage.dataInWebArchiveFormat) {
         m_changeCount = platformStrategies()->pasteboardStrategy()->setBufferForType(archiveData.get(), WebArchivePboardType, m_pasteboardName, context());
-        m_changeCount = platformStrategies()->pasteboardStrategy()->setBufferForType(archiveData.get(), UTTypeWebArchive.identifier, m_pasteboardName, context());
+        m_changeCount = platformStrategies()->pasteboardStrategy()->setBufferForType(archiveData.get(), UT_WEB_ARCHIVE_ID, m_pasteboardName, context());
     }
     if (!pasteboardImage.dataInHTMLFormat.isEmpty())
         m_changeCount = platformStrategies()->pasteboardStrategy()->setStringForType(pasteboardImage.dataInHTMLFormat, legacyHTMLPasteboardTypeSingleton(), m_pasteboardName, context());
@@ -474,8 +490,8 @@ void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolic
         }
     }
 
-    if (types.contains(String(UTTypeWebArchive.identifier))) {
-        if (auto buffer = readBufferAtPreferredItemIndex(UTTypeWebArchive.identifier, itemIndex, strategy.get(), m_pasteboardName, context())) {
+    if (types.contains(String(UT_WEB_ARCHIVE_ID))) {
+        if (auto buffer = readBufferAtPreferredItemIndex(UT_WEB_ARCHIVE_ID, itemIndex, strategy.get(), m_pasteboardName, context())) {
             if (m_changeCount != changeCount() || reader.readWebArchive(*buffer))
                 return;
         }
@@ -542,8 +558,8 @@ void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolic
         { String(NSPasteboardTypeTIFF), "image/tiff"_s },
         { String(legacyPDFPasteboardTypeSingleton()), "application/pdf"_s },
         { String(NSPasteboardTypePDF), "application/pdf"_s },
-        { String(UTTypePNG.identifier), "image/png"_s },
-        { String(UTTypeJPEG.identifier), "image/jpeg"_s }
+        { String(UT_PNG_ID()), "image/png"_s },
+        { String(UT_JPEG_ID()), "image/jpeg"_s }
     } };
 
     auto tryToReadImage = [&] (const String& pasteboardType, ASCIILiteral mimeType) {
@@ -588,8 +604,8 @@ void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolic
             return;
     }
 
-    if (types.contains(String(UTTypeUTF8PlainText.identifier))) {
-        String string = strategy->stringForType(UTTypeUTF8PlainText.identifier, m_pasteboardName, context());
+    if (types.contains(String(UT_UTF8_PLAIN_ID()))) {
+        String string = strategy->stringForType(UT_UTF8_PLAIN_ID(), m_pasteboardName, context());
         if (m_changeCount != changeCount() || (!string.isNull() && reader.readPlainText(string)))
             return;
     }
@@ -696,7 +712,9 @@ void Pasteboard::writeString(const String& type, const String& data)
     const String& cocoaType = cocoaTypeFromHTMLClipboardType(type);
     String cocoaData = data;
 
-    if (cocoaType == String(legacyURLPasteboardTypeSingleton()) || cocoaType == String(UTTypeFileURL.identifier)) {
+    // 10.9 backport: +[UTType fileURL] is 11.0+. Use legacy kUTTypeFileURL.
+    NSString *fileURLId = [UTType respondsToSelector:@selector(fileURL)] ? UTTypeFileURL.identifier : (__bridge NSString *)kUTTypeFileURL;
+    if (cocoaType == String(legacyURLPasteboardTypeSingleton()) || cocoaType == String(fileURLId)) {
         RetainPtr url = adoptNS([[NSURL alloc] initWithString:cocoaData.createNSString().get()]);
         if ([url isFileURL])
             return;
@@ -847,7 +865,7 @@ RefPtr<WebCore::SharedBuffer> Pasteboard::bufferConvertedToPasteboardType(const 
     if (pasteboardType != String(legacyTIFFPasteboardTypeSingleton()))
         return pasteboardBuffer.data;
 
-    if (pasteboardBuffer.type == String(UTTypeTIFF.identifier))
+    if (pasteboardBuffer.type == String(UT_TIFF_ID()))
         return pasteboardBuffer.data;
 
     auto sourceData = Ref { *pasteboardBuffer.data }->createCFData();
@@ -862,7 +880,7 @@ RefPtr<WebCore::SharedBuffer> Pasteboard::bufferConvertedToPasteboardType(const 
         return nullptr;
 
     auto data = adoptCF(CFDataCreateMutable(0, 0));
-    auto destination = adoptCF(CGImageDestinationCreateWithData(data.get(), bridge_cast(UTTypeTIFF.identifier), 1, NULL));
+    auto destination = adoptCF(CGImageDestinationCreateWithData(data.get(), bridge_cast(UT_TIFF_ID()), 1, NULL));
     if (!destination)
         return nullptr;
 

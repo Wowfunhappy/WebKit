@@ -1265,55 +1265,41 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
         explicit LoaderClient(const WKPageLoaderClientBase* client)
         {
             initialize(client);
-            
-            // WKPageSetPageLoaderClient is deprecated. Use WKPageSetPageNavigationClient instead.
-            RELEASE_ASSERT(!m_client.didFinishDocumentLoadForFrame);
-            RELEASE_ASSERT(!m_client.didSameDocumentNavigationForFrame);
-            RELEASE_ASSERT(!m_client.didReceiveTitleForFrame);
-            RELEASE_ASSERT(!m_client.didFirstLayoutForFrame);
-            RELEASE_ASSERT(!m_client.didRemoveFrameFromHierarchy);
-            RELEASE_ASSERT(!m_client.didDisplayInsecureContentForFrame);
-            RELEASE_ASSERT(!m_client.didRunInsecureContentForFrame);
-            RELEASE_ASSERT(!m_client.canAuthenticateAgainstProtectionSpaceInFrame);
-            RELEASE_ASSERT(!m_client.didReceiveAuthenticationChallengeInFrame);
-            RELEASE_ASSERT(!m_client.didStartProgress);
-            RELEASE_ASSERT(!m_client.didChangeProgress);
-            RELEASE_ASSERT(!m_client.didFinishProgress);
-            RELEASE_ASSERT(!m_client.processDidBecomeUnresponsive);
-            RELEASE_ASSERT(!m_client.processDidBecomeResponsive);
-            RELEASE_ASSERT(!m_client.shouldGoToBackForwardListItem);
-            RELEASE_ASSERT(!m_client.didFailToInitializePlugin_deprecatedForUseWithV0);
-            RELEASE_ASSERT(!m_client.didDetectXSSForFrame);
-            RELEASE_ASSERT(!m_client.didNewFirstVisuallyNonEmptyLayout_unavailable);
-            RELEASE_ASSERT(!m_client.willGoToBackForwardListItem);
-            RELEASE_ASSERT(!m_client.interactionOccurredWhileProcessUnresponsive);
-            RELEASE_ASSERT(!m_client.pluginDidFail_deprecatedForUseWithV1);
-            RELEASE_ASSERT(!m_client.didReceiveIntentForFrame_unavailable);
-            RELEASE_ASSERT(!m_client.registerIntentServiceForFrame_unavailable);
-            RELEASE_ASSERT(!m_client.pluginLoadPolicy_deprecatedForUseWithV2);
-            RELEASE_ASSERT(!m_client.pluginDidFail);
-            RELEASE_ASSERT(!m_client.pluginLoadPolicy);
-            RELEASE_ASSERT(!m_client.navigationGestureDidBegin);
-            RELEASE_ASSERT(!m_client.navigationGestureWillEnd);
-            RELEASE_ASSERT(!m_client.navigationGestureDidEnd);
+            // 10.9 backport: Safari 9.1.3 still calls the deprecated WKPageSetPageLoaderClient
+            // with the old callbacks set. The asserts here intentionally forbid that to
+            // force migration to WKPageNavigationClient. To let Safari launch, we instead
+            // ignore those callbacks silently — Safari will not get those events but it
+            // will at least be runnable for compositor testing.
         }
 
     private:
-        
+        // Safari 9's BrowserPageLoaderClient bails immediately if userData is null
+        // (early return before isMainFrame check). Without a userData dict on link-click
+        // navigations, BCVC::provisionalURLHasChanged() is never invoked and the address
+        // bar stays stuck on the previously typed URL. Substitute an empty Dictionary
+        // when WebProcess produced none (Safari's injected bundle isn't always loaded).
+        static API::Object* ensureUserData(API::Object* userData)
+        {
+            if (userData)
+                return userData;
+            static NeverDestroyed<Ref<API::Dictionary>> emptyDict(API::Dictionary::create());
+            return emptyDict.get().ptr();
+        }
+
         void didCommitLoadForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, API::Object* userData) override
         {
             if (!m_client.didCommitLoadForFrame)
                 return;
 
-            m_client.didCommitLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
+            m_client.didCommitLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
-        
+
         void didStartProvisionalLoadForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, API::Object* userData) override
         {
             if (!m_client.didStartProvisionalLoadForFrame)
                 return;
 
-            m_client.didStartProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
+            m_client.didStartProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
         void didReceiveServerRedirectForProvisionalLoadForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, API::Object* userData) override
@@ -1321,7 +1307,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didReceiveServerRedirectForProvisionalLoadForFrame)
                 return;
 
-            m_client.didReceiveServerRedirectForProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
+            m_client.didReceiveServerRedirectForProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
         void didFailProvisionalLoadWithErrorForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, const WebCore::ResourceError& error, API::Object* userData) override
@@ -1329,7 +1315,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didFailProvisionalLoadWithErrorForFrame)
                 return;
 
-            m_client.didFailProvisionalLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(userData), m_client.base.clientInfo);
+            m_client.didFailProvisionalLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
         void didFinishLoadForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, API::Object* userData) override
@@ -1337,7 +1323,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didFinishLoadForFrame)
                 return;
 
-            m_client.didFinishLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
+            m_client.didFinishLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
         void didFailLoadWithErrorForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, const WebCore::ResourceError& error, API::Object* userData) override
@@ -1345,7 +1331,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didFailLoadWithErrorForFrame)
                 return;
 
-            m_client.didFailLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(userData), m_client.base.clientInfo);
+            m_client.didFailLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
         void didFirstVisuallyNonEmptyLayoutForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Object* userData) override
@@ -1353,7 +1339,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didFirstVisuallyNonEmptyLayoutForFrame)
                 return;
 
-            m_client.didFirstVisuallyNonEmptyLayoutForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
+            m_client.didFirstVisuallyNonEmptyLayoutForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
         void didReachLayoutMilestone(WebPageProxy& page, OptionSet<WebCore::LayoutMilestone> milestones) override
@@ -1396,6 +1382,37 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
 
             return m_client.shouldKeepCurrentBackForwardListItemInList(toAPI(&page), toAPI(&item), m_client.base.clientInfo);
         }
+
+        // 10.9 backport: forward legacy callbacks Safari uses.
+        void didFinishDocumentLoadForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, API::Object* userData) override
+        {
+            if (m_client.didFinishDocumentLoadForFrame)
+                m_client.didFinishDocumentLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+        }
+
+        void didReceiveTitleForFrame(WebPageProxy& page, const String& title, WebFrameProxy& frame, API::Object* userData) override
+        {
+            if (m_client.didReceiveTitleForFrame)
+                m_client.didReceiveTitleForFrame(toAPI(&page), toAPI(title.impl()), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+        }
+
+        void didStartProgress(WebPageProxy& page) override
+        {
+            if (m_client.didStartProgress)
+                m_client.didStartProgress(toAPI(&page), m_client.base.clientInfo);
+        }
+
+        void didChangeProgress(WebPageProxy& page) override
+        {
+            if (m_client.didChangeProgress)
+                m_client.didChangeProgress(toAPI(&page), m_client.base.clientInfo);
+        }
+
+        void didFinishProgress(WebPageProxy& page) override
+        {
+            if (m_client.didFinishProgress)
+                m_client.didFinishProgress(toAPI(&page), m_client.base.clientInfo);
+        }
     };
 
     RefPtr webPageProxy = toImpl(pageRef);
@@ -1430,9 +1447,8 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
         explicit PolicyClient(const WKPagePolicyClientBase* client)
         {
             initialize(client);
-
-            // This callback is unused and deprecated.
-            RELEASE_ASSERT(!m_client.unableToImplementPolicy);
+            // 10.9 backport: Safari 9.1.3 sets m_client.unableToImplementPolicy.
+            // Modern WebKit forbids it; we silently ignore so Safari can launch.
         }
 
     private:
@@ -2699,6 +2715,15 @@ void WKPageEvaluateJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRe
     WKPageEvaluateJavaScriptInFrame(pageRef, nullptr, scriptRef, context, callback);
 }
 
+// 10.9 backport: Safari 9.1.3 calls the older WKPageRunJavaScriptInMainFrame
+// symbol (the API was renamed to *Evaluate*). Without this alias, Safari
+// crashes with dyld_fatal_error on osascript "do JavaScript" commands.
+extern "C" WK_EXPORT void WKPageRunJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback);
+extern "C" void WKPageRunJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback)
+{
+    WKPageEvaluateJavaScriptInMainFrame(pageRef, scriptRef, context, callback);
+}
+
 void WKPageEvaluateJavaScriptInFrame(WKPageRef pageRef, WKFrameInfoRef frame, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback)
 {
     CRASH_IF_SUSPENDED;
@@ -3544,3 +3569,97 @@ void WKPageDoAfterProcessingAllPendingKeyEvents(WKPageRef page, void* context, W
     });
 }
 #endif
+
+// 10.9 backport: Safari 9.1.3 lazy-binds 40+ removed/renamed legacy WK_* C-API
+// symbols. dyld_fatal_error fires on first call. Provide no-op shims so Safari
+// proceeds. None of these features (Java, plugins, app-cache, WebSQL,
+// region-based columns, screen-font substitution) work on modern WebKit
+// regardless — silent no-ops are correct behavior, not a regression.
+extern "C" {
+WK_EXPORT void WKPreferencesSetJavaEnabledForLocalFiles(WKPreferencesRef, bool);
+WK_EXPORT void WKPreferencesSetOfflineWebApplicationCacheEnabled(WKPreferencesRef, bool);
+WK_EXPORT void WKPreferencesSetRegionBasedColumnsEnabled(WKPreferencesRef, bool);
+WK_EXPORT bool WKPreferencesGetRegionBasedColumnsEnabled(WKPreferencesRef);
+WK_EXPORT void WKPreferencesSetScreenFontSubstitutionEnabled(WKPreferencesRef, bool);
+WK_EXPORT bool WKPreferencesGetScreenFontSubstitutionEnabled(WKPreferencesRef);
+WK_EXPORT void WKPreferencesSetApplicationChromeModeEnabled(WKPreferencesRef, bool);
+WK_EXPORT void WKPageSetVisibilityState(WKPageRef, int, bool);
+WK_EXPORT void WKPageLoadWebArchiveData(WKPageRef, WKDataRef);
+WK_EXPORT bool WKInspectorIsProfilingJavaScript(WKInspectorRef);
+WK_EXPORT void WKInspectorToggleJavaScriptProfiling(WKInspectorRef);
+WK_EXPORT void WKDictionaryAddItem(WKMutableDictionaryRef, WKStringRef, WKTypeRef);
+WK_EXPORT WKDataRef WKDownloadGetResumeData(WKDownloadRef);
+WK_EXPORT void* WKGraphicsContextGetCGContext(void*);
+WK_EXPORT void* WKContextGetApplicationCacheManager(WKContextRef);
+WK_EXPORT void* WKContextGetDatabaseManager(WKContextRef);
+WK_EXPORT void* WKContextGetMediaCacheManager(WKContextRef);
+WK_EXPORT void* WKContextGetPluginSiteDataManager(WKContextRef);
+WK_EXPORT void WKApplicationCacheManagerDeleteAllEntries(void*);
+WK_EXPORT void WKApplicationCacheManagerDeleteEntriesForOrigin(void*, void*);
+WK_EXPORT void WKApplicationCacheManagerGetApplicationCacheOrigins(void*, void*, void*);
+WK_EXPORT void WKDatabaseManagerDeleteAllDatabases(void*);
+WK_EXPORT void WKDatabaseManagerDeleteDatabasesForOrigin(void*, void*);
+WK_EXPORT void WKDatabaseManagerGetDatabaseOrigins(void*, void*, void*);
+WK_EXPORT void WKMediaCacheManagerClearCacheForAllHostnames(void*);
+WK_EXPORT void WKMediaCacheManagerClearCacheForHostname(void*, WKStringRef);
+WK_EXPORT void WKMediaCacheManagerGetHostnamesWithMediaCache(void*, void*, void*);
+WK_EXPORT void WKPluginSiteDataManagerClearAllSiteData(void*, uint64_t, double);
+WK_EXPORT void WKPluginSiteDataManagerClearSiteData(void*, void*, uint64_t, double);
+WK_EXPORT void WKPluginSiteDataManagerGetSitesWithData(void*, void*, void*);
+WK_EXPORT void WKBundleAddOriginAccessWhitelistEntry(void*, WKStringRef, WKStringRef, WKStringRef, bool);
+WK_EXPORT void WKBundleRemoveOriginAccessWhitelistEntry(void*, WKStringRef, WKStringRef, WKStringRef, bool);
+WK_EXPORT void WKBundleAddUserScript(void*, WKBundlePageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, int, int);
+WK_EXPORT void WKBundleAddUserStyleSheet(void*, WKBundlePageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, int);
+WK_EXPORT void WKBundleRemoveUserScript(void*, WKBundlePageGroupRef, WKURLRef);
+WK_EXPORT void WKBundleRemoveUserScripts(void*, WKBundlePageGroupRef);
+WK_EXPORT void WKBundleRemoveUserStyleSheet(void*, WKBundlePageGroupRef, WKURLRef);
+WK_EXPORT void WKBundleRemoveUserStyleSheets(void*, WKBundlePageGroupRef);
+WK_EXPORT bool WKBundleBackForwardListItemIsInPageCache(void*);
+WK_EXPORT void* WKBundlePageGetPageGroup(void*);
+WK_EXPORT WKTypeID WKBundlePageGroupGetTypeID(void);
+WK_EXPORT void WKBundlePageSetDiagnosticLoggingClient(void*, void*);
+}
+extern "C" {
+void WKPreferencesSetJavaEnabledForLocalFiles(WKPreferencesRef, bool) {}
+void WKPreferencesSetOfflineWebApplicationCacheEnabled(WKPreferencesRef, bool) {}
+void WKPreferencesSetRegionBasedColumnsEnabled(WKPreferencesRef, bool) {}
+bool WKPreferencesGetRegionBasedColumnsEnabled(WKPreferencesRef) { return false; }
+void WKPreferencesSetScreenFontSubstitutionEnabled(WKPreferencesRef, bool) {}
+bool WKPreferencesGetScreenFontSubstitutionEnabled(WKPreferencesRef) { return false; }
+void WKPreferencesSetApplicationChromeModeEnabled(WKPreferencesRef, bool) {}
+void WKPageSetVisibilityState(WKPageRef, int, bool) {}
+void WKPageLoadWebArchiveData(WKPageRef, WKDataRef) {}
+bool WKInspectorIsProfilingJavaScript(WKInspectorRef) { return false; }
+void WKInspectorToggleJavaScriptProfiling(WKInspectorRef) {}
+void WKDictionaryAddItem(WKMutableDictionaryRef, WKStringRef, WKTypeRef) {}
+WKDataRef WKDownloadGetResumeData(WKDownloadRef) { return nullptr; }
+void* WKGraphicsContextGetCGContext(void*) { return nullptr; }
+void* WKContextGetApplicationCacheManager(WKContextRef) { return nullptr; }
+void* WKContextGetDatabaseManager(WKContextRef) { return nullptr; }
+void* WKContextGetMediaCacheManager(WKContextRef) { return nullptr; }
+void* WKContextGetPluginSiteDataManager(WKContextRef) { return nullptr; }
+void WKApplicationCacheManagerDeleteAllEntries(void*) {}
+void WKApplicationCacheManagerDeleteEntriesForOrigin(void*, void*) {}
+void WKApplicationCacheManagerGetApplicationCacheOrigins(void*, void*, void*) {}
+void WKDatabaseManagerDeleteAllDatabases(void*) {}
+void WKDatabaseManagerDeleteDatabasesForOrigin(void*, void*) {}
+void WKDatabaseManagerGetDatabaseOrigins(void*, void*, void*) {}
+void WKMediaCacheManagerClearCacheForAllHostnames(void*) {}
+void WKMediaCacheManagerClearCacheForHostname(void*, WKStringRef) {}
+void WKMediaCacheManagerGetHostnamesWithMediaCache(void*, void*, void*) {}
+void WKPluginSiteDataManagerClearAllSiteData(void*, uint64_t, double) {}
+void WKPluginSiteDataManagerClearSiteData(void*, void*, uint64_t, double) {}
+void WKPluginSiteDataManagerGetSitesWithData(void*, void*, void*) {}
+void WKBundleAddOriginAccessWhitelistEntry(void*, WKStringRef, WKStringRef, WKStringRef, bool) {}
+void WKBundleRemoveOriginAccessWhitelistEntry(void*, WKStringRef, WKStringRef, WKStringRef, bool) {}
+void WKBundleAddUserScript(void*, WKBundlePageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, int, int) {}
+void WKBundleAddUserStyleSheet(void*, WKBundlePageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, int) {}
+void WKBundleRemoveUserScript(void*, WKBundlePageGroupRef, WKURLRef) {}
+void WKBundleRemoveUserScripts(void*, WKBundlePageGroupRef) {}
+void WKBundleRemoveUserStyleSheet(void*, WKBundlePageGroupRef, WKURLRef) {}
+void WKBundleRemoveUserStyleSheets(void*, WKBundlePageGroupRef) {}
+bool WKBundleBackForwardListItemIsInPageCache(void*) { return false; }
+void* WKBundlePageGetPageGroup(void*) { return nullptr; }
+WKTypeID WKBundlePageGroupGetTypeID(void) { return 0; }
+void WKBundlePageSetDiagnosticLoggingClient(void*, void*) {}
+}

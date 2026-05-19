@@ -237,7 +237,7 @@ String WebInspectorFrontendClient::localizedStringsURL() const
     if (!path.length)
         return String();
     
-    return [NSURL fileURLWithPath:path isDirectory:NO].absoluteString;
+    return [(NSURL *)[NSURL fileURLWithPath:path isDirectory:NO] absoluteString];
 }
 
 void WebInspectorFrontendClient::bringToFront()
@@ -566,8 +566,9 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
     CGFloat approximatelyHalfScreenSize = ([window screen].frame.size.width / 2) - 4;
     CGFloat minimumFullScreenWidth = std::max<CGFloat>(636, approximatelyHalfScreenSize);
-    [window setMinFullScreenContentSize:NSMakeSize(minimumFullScreenWidth, minimumWindowHeight)];
-    [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenAllowsTiling | NSWindowCollectionBehaviorAuxiliary)];
+    // macOS 10.9: setMinFullScreenContentSize / fullscreen tiling not available.
+    // [window setMinFullScreenContentSize:NSMakeSize(minimumFullScreenWidth, minimumWindowHeight)];
+    (void)minimumFullScreenWidth;
 
     [window setTitlebarAppearsTransparent:YES];
 

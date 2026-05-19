@@ -46,8 +46,9 @@
 #define ENABLE_ACCESSIBILITY_ANIMATION_CONTROL 1
 #endif
 
-#if !defined(ENABLE_ACCESSIBILITY_ISOLATED_TREE) && PLATFORM(MAC)
-#define ENABLE_ACCESSIBILITY_ISOLATED_TREE 1
+// macOS 10.9 backport: requires newer accessibility APIs
+#if !defined(ENABLE_ACCESSIBILITY_ISOLATED_TREE)
+#define ENABLE_ACCESSIBILITY_ISOLATED_TREE 0
 #endif
 
 #if !defined(ENABLE_ADDITIONAL_PRECONNECT_ON_HTTP_1X) && PLATFORM(MAC)
@@ -66,7 +67,7 @@
 #define ENABLE_AIRPLAY_PICKER 1
 #endif
 
-#if !defined(ENABLE_COCOA_WEBM_PLAYER) && !PLATFORM(MACCATALYST) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
+#if !defined(ENABLE_COCOA_WEBM_PLAYER) && !PLATFORM(MACCATALYST) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV) && ENABLE(MEDIA_SOURCE)
 #define ENABLE_COCOA_WEBM_PLAYER 1
 #endif
 
@@ -840,8 +841,11 @@
 #define ENABLE_REVEAL 1
 #endif
 
+// 10.9: AudioSessionRoutingArbitratorProxy is stubbed in libpolyfill (constructor
+// returns 0, leaving the unique_ptr-stored object with NULL vtable → crash on
+// destruction). Disable until we have a real implementation.
 #if !defined(ENABLE_ROUTING_ARBITRATION) && PLATFORM(MAC)
-#define ENABLE_ROUTING_ARBITRATION 1
+#define ENABLE_ROUTING_ARBITRATION 0
 #endif
 
 #if !defined(ENABLE_SANDBOX_EXTENSIONS)
@@ -958,8 +962,8 @@
 #endif
 
 #if !defined(ENABLE_VIDEO_PRESENTATION_MODE) \
-    && (PLATFORM(IOS_FAMILY) && HAVE(AVKIT)) \
-    || PLATFORM(MAC)
+    && ((PLATFORM(IOS_FAMILY) && HAVE(AVKIT)) \
+    || PLATFORM(MAC))
 #define ENABLE_VIDEO_PRESENTATION_MODE 1
 #endif
 

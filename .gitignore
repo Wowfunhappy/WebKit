@@ -94,3 +94,48 @@ CLAUDE.md
 # Ignore tracing files
 *.atrc
 
+# In-source CMake/Ninja build artifacts (Mavericks 10.9 backport builds in-tree)
+/CMakeCache.txt
+/CPackConfig.cmake
+/CPackSourceConfig.cmake
+/cmakeconfig.h
+/inspector-resources.stamp
+/build.ninja
+/build.ninja.bak
+/build.ninja.bak2
+/build*_errors.log
+/.ninja_deps
+/.ninja_log
+# Build output trees at repo root
+/bin/
+/lib/
+/ICU/
+/JavaScriptCore/
+/PAL/
+/WTF/
+/WebCore/
+/WebInspectorUI/
+/WebKit/
+/WebKitLegacy/
+/bmalloc/
+# Per-target CMake artifacts anywhere
+CMakeFiles/
+cmake_install.cmake
+# CMake-generated Makefiles in build-only subdirs (companions of cmake_install.cmake)
+Source/JavaScriptCore/shell/Makefile
+Source/ThirdParty/unifdef/Makefile
+Source/WTF/wtf/Makefile
+Source/WebCore/PAL/pal/Makefile
+# IDL preprocessor scratch
+Source/WebCore/idl_files_*.tmp
+Source/WebCore/included_idl_files_*.tmp
+Source/WebCore/pp_idl_files_*.tmp
+# Generated headers
+Source/WebCore/PAL/pal/PALSwift-Generated.h
+# Local backup/scratch (kept locally, never committed)
+*.bak
+*.stub
+*.stub_backup
+*.10_9_stub
+*.minimal
+

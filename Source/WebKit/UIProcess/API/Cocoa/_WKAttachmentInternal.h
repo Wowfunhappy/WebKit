@@ -23,6 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#if ENABLE(ATTACHMENT_ELEMENT)
 #import "APIAttachment.h"
 #import <WebKit/_WKAttachment.h>
 #import <wtf/AlignedStorage.h>
@@ -42,3 +43,4 @@ template<> struct WrapperTraits<API::Attachment> {
 
 - (void)setData:(NSData *)data newContentType:(NSString *)newContentType;
 @end
+#endif // ENABLE(ATTACHMENT_ELEMENT)

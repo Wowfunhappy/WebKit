@@ -85,11 +85,13 @@
 #import <WebCore/NetworkExtensionContentFilter.h>
 #import <WebCore/NotImplemented.h>
 #import <WebCore/NowPlayingInfo.h>
+#if ENABLE(VIDEO_PRESENTATION_MODE) || PLATFORM(IOS_FAMILY)
 #import <WebCore/NullPlaybackSessionInterface.h>
 #import <WebCore/PlatformPlaybackSessionInterface.h>
 #import <WebCore/PlaybackSessionInterfaceAVKitLegacy.h>
 #import <WebCore/PlaybackSessionInterfaceMac.h>
 #import <WebCore/PlaybackSessionInterfaceTVOS.h>
+#endif
 #import <WebCore/RenderTheme.h>
 #import <WebCore/RunLoopObserver.h>
 #import <WebCore/SearchPopupMenuCocoa.h>
@@ -100,6 +102,7 @@
 #import <WebCore/VideoPresentationInterfaceIOS.h>
 #import <WebCore/WebTextIndicatorLayer.h>
 #import <pal/spi/cocoa/LaunchServicesSPI.h>
+#import <QuartzCore/QuartzCore.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <pal/spi/ios/BrowserEngineKitSPI.h>
 #import <pal/spi/mac/QuarantineSPI.h>
@@ -816,39 +819,11 @@ bool WebPageProxy::updateIconForDirectory(NSFileWrapper *fileWrapper, const Stri
 
 void WebPageProxy::scheduleActivityStateUpdate()
 {
-    bool hasScheduledObserver = m_activityStateChangeDispatcher->isScheduled();
-    bool hasActiveCATransaction = [CATransaction currentState];
-
-    if (hasScheduledObserver && hasActiveCATransaction) {
-        ASSERT(m_hasScheduledActivityStateUpdate);
-        m_hasScheduledActivityStateUpdate = false;
-        m_activityStateChangeDispatcher->invalidate();
-    }
-
+    // 10.9 backport: -[CATransaction addCommitHandler:forPhase:] is 10.10+.
+    // Skip the CA transaction integration and dispatch via runloop observer.
     if (m_hasScheduledActivityStateUpdate)
         return;
     m_hasScheduledActivityStateUpdate = true;
-
-    // If there is an active transaction, we need to dispatch the update after the transaction is committed,
-    // to avoid flash caused by web process setting root layer too early.
-    // If there is no active transaction, likely there is no root layer change or change is committed,
-    // then schedule dispatch on runloop observer to collect changes in the same runloop cycle before dispatching.
-    if (hasActiveCATransaction) {
-        [CATransaction addCommitHandler:[weakThis = WeakPtr { *this }] {
-            // We can't call dispatchActivityStateChange directly underneath this commit handler, because it has side-effects
-            // that may result in other frameworks trying to install commit handlers for the same phase, which is not allowed.
-            // So, dispatch_async here; we only care that the activity state change doesn't apply until after the active commit is complete.
-            WorkQueue::mainSingleton().dispatch([weakThis] {
-                RefPtr protectedThis { weakThis.get() };
-                if (!protectedThis)
-                    return;
-
-                protectedThis->dispatchActivityStateChange();
-            });
-        } forPhase:kCATransactionPhasePostCommit];
-        return;
-    }
-
     m_activityStateChangeDispatcher->schedule();
 }
 
@@ -864,8 +839,10 @@ void WebPageProxy::addActivityStateUpdateCompletionHandler(CompletionHandler<voi
 
 void WebPageProxy::createTextFragmentDirectiveFromSelection(CompletionHandler<void(URL&&)>&& completionHandler)
 {
-    if (!hasRunningProcess())
+    if (!hasRunningProcess()) {
+        completionHandler({ });
         return;
+    }
 
     protect(legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::CreateTextFragmentDirectiveFromSelection(), WTF::move(completionHandler), webPageIDInMainFrameProcess());
 }
@@ -1620,7 +1597,7 @@ void WebPageProxy::proofreadingSessionUpdateStateForSuggestionWithID(IPC::Connec
 void WebPageProxy::createTextIndicatorForElementWithID(const String& elementID, CompletionHandler<void(RefPtr<WebCore::TextIndicator>&&)>&& completionHandler)
 {
     if (!hasRunningProcess()) {
-        completionHandler(nil);
+        completionHandler(nullptr);
         return;
     }
 

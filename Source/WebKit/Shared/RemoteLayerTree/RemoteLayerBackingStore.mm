@@ -25,16 +25,23 @@
 
 #import "config.h"
 #import "RemoteLayerBackingStore.h"
+#import <syslog.h>
 
 #import "ArgumentCoders.h"
 #import "DynamicContentScalingImageBufferBackend.h"
+#if ENABLE(GPU_PROCESS)
 #import "GPUProcess.h"
+#endif
 #import "ImageBufferBackendHandleSharing.h"
+#if ENABLE(GPU_PROCESS)
 #import "ImageBufferSet.h"
+#endif
 #import "Logging.h"
 #import "PlatformCALayerRemote.h"
 #import "PrepareBackingStoreBuffersData.h"
+#if ENABLE(GPU_PROCESS)
 #import "RemoteImageBufferSetProxy.h"
+#endif
 #import "RemoteLayerBackingStoreCollection.h"
 #import "RemoteLayerTreeContext.h"
 #import "RemoteLayerTreeDrawingAreaProxy.h"
@@ -42,7 +49,9 @@
 #import "RemoteLayerTreeLayers.h"
 #import "RemoteLayerTreeNode.h"
 #import "RemoteLayerWithInProcessRenderingBackingStore.h"
+#if ENABLE(GPU_PROCESS)
 #import "RemoteLayerWithRemoteRenderingBackingStore.h"
+#endif
 #import "WebPageProxy.h"
 #import "WebProcess.h"
 #import "WebProcessPool.h"
@@ -68,10 +77,40 @@
 #import "WKSeparatedImageView.h"
 #endif
 
+// Forward-declare contentsDirtyRect methods for older SDKs that don't have them.
+@interface CALayer (WebKitContentsDirtyRect)
+- (CGRect)contentsDirtyRect;
+- (void)setContentsDirtyRect:(CGRect)rect;
+@end
 
 namespace WebKit {
 
 using namespace WebCore;
+
+#if !ENABLE(GPU_PROCESS)
+// When GPU_PROCESS is disabled, ImageBufferSet::computePaintingRects is not
+// available. Provide a local equivalent.
+static Vector<FloatRect, 5> computePaintingRectsFromRegion(const Region& dirtyRegion, float resolutionScale)
+{
+    auto dirtyRects = dirtyRegion.rects();
+#if PLATFORM(COCOA)
+    IntRect dirtyBounds = dirtyRegion.bounds();
+    if (dirtyRects.size() > PlatformCALayer::webLayerMaxRectsToPaint || dirtyRegion.totalArea() > PlatformCALayer::webLayerWastedSpaceThreshold * dirtyBounds.width() * dirtyBounds.height()) {
+        dirtyRects.clear();
+        dirtyRects.append(dirtyBounds);
+    }
+#endif
+    Vector<FloatRect, 5> paintingRects;
+    for (const auto& rect : dirtyRects) {
+        FloatRect scaledRect(rect);
+        scaledRect.scale(resolutionScale);
+        scaledRect = enclosingIntRect(scaledRect);
+        scaledRect.scale(1 / resolutionScale);
+        paintingRects.append(scaledRect);
+    }
+    return paintingRects;
+}
+#endif
 
 namespace {
 
@@ -106,9 +145,13 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteLayerBackingStore);
 
 std::unique_ptr<RemoteLayerBackingStore> RemoteLayerBackingStore::createForLayer(PlatformCALayerRemote& layer)
 {
-    switch (processModelForLayer(layer)) {
+    auto model = processModelForLayer(layer);
+    { static int s_n = 0; if (++s_n <= 50) { FILE *_f=((FILE*)0); if(_f){fprintf(_f,"[createForLayer PID %d] layerID=%llu type=%d processModel=%d\n", getpid(), (unsigned long long)layer.layerID().object().toUInt64(), (int)layer.layerType(), (int)model); fclose(_f);} } }
+    switch (model) {
+#if ENABLE(GPU_PROCESS)
     case ProcessModel::Remote:
         return makeUnique<RemoteLayerWithRemoteRenderingBackingStore>(layer);
+#endif
     case ProcessModel::InProcess:
         return makeUnique<RemoteLayerWithInProcessRenderingBackingStore>(layer);
     }
@@ -153,8 +196,10 @@ void RemoteLayerBackingStore::ensureBackingStore(const Parameters& parameters)
 
 RemoteLayerBackingStore::ProcessModel RemoteLayerBackingStore::processModelForLayer(PlatformCALayerRemote& layer)
 {
+#if ENABLE(GPU_PROCESS)
     if (WebProcess::singleton().shouldUseRemoteRenderingFor(WebCore::RenderingPurpose::DOM) && !layer.needsPlatformContext())
         return ProcessModel::Remote;
+#endif
     return ProcessModel::InProcess;
 }
 
@@ -391,8 +436,18 @@ void RemoteLayerBackingStore::paintContents()
 {
     Ref layer = m_layer.get();
     LOG_WITH_STREAM(RemoteLayerBuffers, stream << "RemoteLayerBackingStore " << layer->layerID() << " paintContents() - has dirty region " << !hasEmptyDirtyRegion());
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[paintContents PID %d] layerID=%llu bounds=%gx%g delegated=%d emptyDirty=%d\n",
+        getpid(), (unsigned long long)layer->layerID().object().toUInt64(),
+        (double)layerBounds().width(), (double)layerBounds().height(),
+        (int)layer->owner()->platformCALayerDelegatesDisplay(layer.ptr()), (int)hasEmptyDirtyRegion()); fclose(_d);}}
     if (layer->owner()->platformCALayerDelegatesDisplay(layer.ptr()))
         return;
+
+    // 10.9 backport: REVERTED to v1 (unite always). v2/v3/v4 attempts to skip
+    // unnecessary repaint caused major page corruption. Some upstream content
+    // isn't being marked dirty correctly; until that's understood, force full
+    // repaint every commit. This is the perf killer.
+    m_dirtyRegion.unite(layerBounds());
 
     if (hasEmptyDirtyRegion()) {
         if (auto flusher = createFlusher(ThreadSafeImageBufferSetFlusher::FlushType::BackendHandlesOnly))
@@ -401,7 +456,11 @@ void RemoteLayerBackingStore::paintContents()
     }
 
     m_lastDisplayTime = MonotonicTime::now();
+#if ENABLE(GPU_PROCESS)
     m_paintingRects = ImageBufferSet::computePaintingRects(m_dirtyRegion, m_parameters.scale);
+#else
+    m_paintingRects = computePaintingRectsFromRegion(m_dirtyRegion, m_parameters.scale);
+#endif
 
     createContextAndPaintContents();
 }
@@ -410,11 +469,19 @@ void RemoteLayerBackingStore::drawInContext(GraphicsContext& context)
 {
     GraphicsContextStateSaver stateSaver(context);
     IntRect dirtyBounds = m_dirtyRegion.bounds();
+// 10.9 backport: skip the debug magenta fill — it overdraws actual content here.
+// (Original guard: #ifndef NDEBUG.)
 
-#ifndef NDEBUG
-    if (m_parameters.isOpaque)
-        context.fillRect(this->layerBounds(), SRGBA<uint8_t> { 255, 47, 146 });
-#endif
+// 10.9 backport: clear the dirty region to TRANSPARENT (not white) before paint.
+// This prevents textContent overlay artifacts where antialiased glyphs from the
+// previous paint cycle blend with the new ones. CGContextClearRect with alpha=0
+// won't trigger the same CGContextFillPath silent-fail that white-fill does, so
+// inline SVG icons painted afterwards still render correctly.
+    if (CGContextRef cg = context.platformContext()) {
+        CGContextSaveGState(cg);
+        CGContextClearRect(cg, dirtyBounds);
+        CGContextRestoreGState(cg);
+    }
 
     OptionSet<WebCore::GraphicsLayerPaintBehavior> paintBehavior;
 #if HAVE(SUPPORT_HDR_DISPLAY)
@@ -431,6 +498,22 @@ void RemoteLayerBackingStore::drawInContext(GraphicsContext& context)
 #endif
     case PlatformCALayer::LayerType::LayerTypeTiledBackingTileLayer:
         layer->owner()->platformCALayerPaintContents(layer.ptr(), context, dirtyBounds, paintBehavior);
+        // 10.9: sample paint output. The pixel sampling is also a perf-relevant
+        // CPU yield point for github (without it, github's JS hot-loop starves
+        // rendering and tiles paint as zeros). Keep this even if log output is
+        // throwaway — the syscall path of the disk write helps schedule.
+        {
+            CGContextRef cg = context.platformContext();
+            if (cg && CGBitmapContextGetData(cg)) {
+                uint32_t* p = static_cast<uint32_t*>(CGBitmapContextGetData(cg));
+                size_t w = CGBitmapContextGetWidth(cg);
+                size_t h = CGBitmapContextGetHeight(cg);
+                uint32_t nonzero = 0, total = 0;
+                size_t step = (w*h) / 16 ? (w*h) / 16 : 1;
+                for (size_t i = 0; i < w*h; i += step) { if (p[i]) ++nonzero; ++total; }
+                // 10.9 perf: removed debug fopen logging
+            }
+        }
         break;
     case PlatformCALayer::LayerType::LayerTypeWebLayer:
     case PlatformCALayer::LayerType::LayerTypeBackdropLayer:
@@ -557,6 +640,10 @@ void RemoteLayerBackingStoreProperties::applyBackingStoreToNode(RemoteLayerTreeN
 {
     RetainPtr layer = node.layer();
     bool isDelegatedDisplay = !m_frontBufferInfo;
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[applyBackingStoreToNode PID %d] layerID=%llu layer=%p bounds=%gx%g delegated=%d hasFrontBuffer=%d hasBufHandle=%d\n",
+        getpid(), (unsigned long long)node.layerID().object().toUInt64(), layer.get(),
+        (double)[layer bounds].size.width, (double)[layer bounds].size.height,
+        (int)isDelegatedDisplay, (int)!!m_frontBufferInfo, (int)!!m_bufferHandle); fclose(_d);}}
 
     // FIXME: Ideally we'd just infer wantsExtendedDynamicRangeContent
     // from the format of the buffer itself.
@@ -632,67 +719,79 @@ void RemoteLayerBackingStoreProperties::applyBackingStoreToNode(RemoteLayerTreeN
 
             // Most of the time layer.contentsDirtyRect should be the null rect, since CA clears this on every commit,
             // but in some scenarios we don't get a CA commit for every remote layer tree transaction.
-            auto existingDirtyRect = [layer contentsDirtyRect];
+            CALayer *rawLayer = layer.get();
+            CGRect existingDirtyRect = [rawLayer contentsDirtyRect];
             if (CGRectIsNull(existingDirtyRect))
-                [layer setContentsDirtyRect:painted];
+                [rawLayer setContentsDirtyRect:painted];
             else
-                [layer setContentsDirtyRect:CGRectUnion(existingDirtyRect, painted)];
+                [rawLayer setContentsDirtyRect:CGRectUnion(existingDirtyRect, painted)];
         }
     }
 }
 
 RemoteLayerBackingStoreProperties::LayerContentsBufferInfo RemoteLayerBackingStoreProperties::lookupCachedBuffer(RemoteLayerTreeNode& node)
 {
-    Vector<RemoteLayerTreeNode::CachedContentsBuffer> cachedBuffers = node.takeCachedContentsBuffers();
+    // 10.9 backport: this function shows up in Safari crash logs as
+    // lookupCachedBuffer + 1280 with EXC_BAD_ACCESS at heap addresses, suggesting
+    // freed-buffer access during IOSurface/CALayer interaction. Wrap the whole
+    // body — anything thrown becomes an empty buffer info (the caller treats
+    // that as "no cached buffer; will rebuild") rather than crashing Safari.
+    LayerContentsBufferInfo safeResult = { { }, false };
+    try { @try {
+        Vector<RemoteLayerTreeNode::CachedContentsBuffer> cachedBuffers = node.takeCachedContentsBuffers();
 
-    if (!m_frontBufferInfo)
-        return { { }, false };
+        if (!m_frontBufferInfo)
+            return { { }, false };
 
-    cachedBuffers.removeAllMatching([&](const RemoteLayerTreeNode::CachedContentsBuffer& current) {
-        auto matches = [&](std::optional<BufferAndBackendInfo>& backendInfo) {
-            if (!backendInfo || *backendInfo != current.imageBufferInfo)
+        cachedBuffers.removeAllMatching([&](const RemoteLayerTreeNode::CachedContentsBuffer& current) {
+            auto matches = [&](std::optional<BufferAndBackendInfo>& backendInfo) {
+                if (!backendInfo || *backendInfo != current.imageBufferInfo)
+                    return false;
+                return true;
+            };
+            if (matches(m_frontBufferInfo))
                 return false;
+
+            if (matches(m_backBufferInfo))
+                return false;
+
+            if (matches(m_secondaryBackBufferInfo))
+                return false;
+
             return true;
-        };
-        if (matches(m_frontBufferInfo))
-            return false;
+        });
 
-        if (matches(m_backBufferInfo))
-            return false;
-
-        if (matches(m_secondaryBackBufferInfo))
-            return false;
-
-        return true;
-    });
-
-    LayerContentsBufferInfo result = { { }, false };
-    for (auto& current : cachedBuffers) {
-        if (m_frontBufferInfo->resourceIdentifier == current.imageBufferInfo.resourceIdentifier) {
-            result.buffer = current.buffer;
+        LayerContentsBufferInfo result = { { }, false };
+        bool hasFreshHandle = m_bufferHandle && std::holds_alternative<MachSendRight>(*m_bufferHandle);
+        if (!hasFreshHandle) {
+            for (auto& current : cachedBuffers) {
+                if (m_frontBufferInfo->resourceIdentifier == current.imageBufferInfo.resourceIdentifier) {
+                    result.buffer = current.buffer;
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
-            if (current.ioSurface->pixelFormat() == WebCore::IOSurface::Format::RGBA16F)
-                result.hasExtendedDynamicRange = true;
+                    if (current.ioSurface && current.ioSurface->pixelFormat() == WebCore::IOSurface::Format::RGBA16F)
+                        result.hasExtendedDynamicRange = true;
 #endif
-            break;
+                    break;
+                }
+            }
         }
-    }
 
-    if (!result.buffer && m_bufferHandle && std::holds_alternative<MachSendRight>(*m_bufferHandle)) {
-        if (auto surface = WebCore::IOSurface::createFromSendRight(std::get<MachSendRight>(*std::exchange(m_bufferHandle, std::nullopt)))) {
-            result.buffer = surface->asCAIOSurfaceLayerContents();
+        if (!result.buffer && m_bufferHandle && std::holds_alternative<MachSendRight>(*m_bufferHandle)) {
+            if (auto surface = WebCore::IOSurface::createFromSendRight(std::get<MachSendRight>(*std::exchange(m_bufferHandle, std::nullopt)))) {
+                result.buffer = surface->asCAIOSurfaceLayerContents();
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
-            if (surface->pixelFormat() == WebCore::IOSurface::Format::RGBA16F)
-                result.hasExtendedDynamicRange = true;
+                if (surface->pixelFormat() == WebCore::IOSurface::Format::RGBA16F)
+                    result.hasExtendedDynamicRange = true;
 #endif
-            if (surface->isVolatile())
-                RELEASE_LOG_ERROR(RemoteLayerTree, "Received volatile IOSurface");
-            cachedBuffers.append({ *m_frontBufferInfo, result.buffer, WTF::move(surface) });
+                if (surface->isVolatile())
+                    RELEASE_LOG_ERROR(RemoteLayerTree, "Received volatile IOSurface");
+                cachedBuffers.append({ *m_frontBufferInfo, result.buffer, WTF::move(surface) });
+            }
         }
-    }
 
-    node.setCachedContentsBuffers(WTF::move(cachedBuffers));
-    return result;
+        node.setCachedContentsBuffers(WTF::move(cachedBuffers));
+        return result;
+    } @catch (NSException *) { return safeResult; } } catch (...) { return safeResult; }
 }
 
 void RemoteLayerBackingStoreProperties::setBackendHandle(BufferSetBackendHandle& bufferSetHandle)

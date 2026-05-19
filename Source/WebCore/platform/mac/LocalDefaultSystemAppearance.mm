@@ -36,8 +36,13 @@ namespace WebCore {
 
 LocalDefaultSystemAppearance::LocalDefaultSystemAppearance(bool useDarkAppearance, const Color& tintColor)
 {
-    m_savedSystemAppearance = [NSAppearance currentDrawingAppearance];
+    // 10.9 backport: NSAppearance API is 10.10+ and DarkAqua/currentDrawingAppearance are 10.14+.
+    // Bypass entirely on 10.9 — there is no appearance system to swap in or restore.
+    UNUSED_PARAM(tintColor);
     m_usingDarkAppearance = useDarkAppearance;
+    if (![NSAppearance respondsToSelector:@selector(currentDrawingAppearance)])
+        return;
+    m_savedSystemAppearance = [NSAppearance currentDrawingAppearance];
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     RetainPtr appearance = [NSAppearance appearanceNamed:m_usingDarkAppearance ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
@@ -51,6 +56,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 LocalDefaultSystemAppearance::~LocalDefaultSystemAppearance()
 {
+    if (!m_savedSystemAppearance)
+        return;
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [NSAppearance setCurrentAppearance:m_savedSystemAppearance.get()];
 ALLOW_DEPRECATED_DECLARATIONS_END

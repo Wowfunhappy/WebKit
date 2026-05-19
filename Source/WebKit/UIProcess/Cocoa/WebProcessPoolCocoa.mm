@@ -157,6 +157,11 @@
 #import <WebKitAdditions/WebProcessPoolAdditions.h>
 #endif
 
+// encodedData property was added as public API in 10.12 but the method exists earlier.
+@interface NSKeyedArchiver (WKEncodedData)
+@property (readonly, copy) NSData *encodedData;
+@end
+
 static NSString * const WebServiceWorkerRegistrationDirectoryDefaultsKey = @"WebServiceWorkerRegistrationDirectory";
 static NSString * const WebKitLocalCacheDefaultsKey = @"WebKitLocalCache";
 static NSString * const WebKitJSCJITEnabledDefaultsKey = @"WebKitJSCJITEnabledDefaultsKey";
@@ -437,7 +442,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
             LOG_ERROR("Failed to encode bundle parameters: %@", exception);
         }
 
-        RetainPtr<NSData> data = keyedArchiver.get().encodedData;
+        RetainPtr<NSData> data = [keyedArchiver.get() encodedData];
 
         parameters.bundleParameterData = API::Data::createWithoutCopying(data.get());
     }
@@ -856,9 +861,11 @@ void WebProcessPool::registerNotificationObservers()
         textCheckerStateChanged();
     }];
 
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
     m_accessibilityDisplayOptionsNotificationObserver = [retainPtr([NSWorkspace.sharedWorkspace notificationCenter]) addObserverForName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         screenPropertiesChanged();
     }];
+#endif
 
     m_scrollerStyleNotificationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSPreferredScrollerStyleDidChangeNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         auto scrollbarStyle = [NSScroller preferredScrollerStyle];
@@ -954,6 +961,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         RetainPtr fontFamily = dynamic_objc_cast<NSString>(notification.userInfo[@"FontActivateNotificationFontFamilyKey"]);
         if (fontFamily) {
             RetainPtr ctFont = adoptCF(CTFontCreateWithName(bridge_cast(fontFamily.get()), 0.0, nullptr));
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
             RetainPtr downloaded = adoptCF(static_cast<CFBooleanRef>(CTFontCopyAttribute(ctFont.get(), kCTFontDownloadedAttribute)));
             if (downloaded == kCFBooleanFalse)
                 return;
@@ -963,6 +971,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
                     continue;
                 process->send(Messages::WebProcess::RegisterAdditionalFonts(AdditionalFonts::additionalFonts({ URL(url.get()) }, process->auditToken())), 0);
             }
+#endif
         }
     }];
 
@@ -1330,6 +1339,10 @@ void WebProcessPool::registerDisplayConfigurationCallback()
         });
 }
 
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
+#if __MAC_OS_X_VERSION_MAX_ALLOWED < 101300
+typedef CFStringRef CFNotificationName;
+#endif
 static void webProcessPoolHighDynamicRangeDidChangeCallback(CFNotificationCenterRef, void*, CFNotificationName, const void*, CFDictionaryRef)
 {
     RunLoop::mainSingleton().dispatch([] {
@@ -1338,9 +1351,11 @@ static void webProcessPoolHighDynamicRangeDidChangeCallback(CFNotificationCenter
             pool->sendToAllProcesses(Messages::WebProcess::SetScreenProperties(properties));
     });
 }
+#endif
 
 void WebProcessPool::registerHighDynamicRangeChangeCallback()
 {
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
     static std::once_flag onceFlag;
     std::call_once(
         onceFlag,
@@ -1353,6 +1368,7 @@ void WebProcessPool::registerHighDynamicRangeChangeCallback()
 
         CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenterSingleton(), nullptr, webProcessPoolHighDynamicRangeDidChangeCallback, kMTSupportNotification_ShouldPlayHDRVideoChanged, MT_GetShouldPlayHDRVideoNotificationSingleton(), static_cast<CFNotificationSuspensionBehavior>(0));
     });
+#endif
 }
 
 void WebProcessPool::systemWillSleep()
@@ -1574,9 +1590,11 @@ void WebProcessPool::registerAdditionalFonts(NSArray *fontNames)
 
     for (NSString *nsFontName : fontNames) {
         RetainPtr ctFont = adoptCF(CTFontCreateWithName(bridge_cast(nsFontName), 0.0, nullptr));
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
         RetainPtr downloaded = adoptCF(static_cast<CFBooleanRef>(CTFontCopyAttribute(ctFont.get(), kCTFontDownloadedAttribute)));
         if (downloaded == kCFBooleanFalse)
             return;
+#endif
         RetainPtr url = adoptCF(static_cast<CFURLRef>(CTFontCopyAttribute(ctFont.get(), kCTFontURLAttribute)));
         URL fontURL(url.get());
         String fontName(nsFontName);

@@ -51,8 +51,12 @@ DECLARE_SYSTEM_HEADER
 #import <AppKit/NSScrollPocket_Private.h>
 #endif
 
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
 #import <AppKit/NSGestureRecognizer_Private.h>
+#endif
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
 #import <AppKit/NSPanGestureRecognizer_Private.h>
+#endif
 #import <AppKit/NSPressGestureRecognizer_Private.h>
 
 #if HAVE(NSVIEW_CORNER_CONFIGURATION)
@@ -111,9 +115,11 @@ static const NSWindowStyleMask NSWindowStyleMaskAlertWindow = (NSWindowStyleMask
 
 @class LPLinkMetadata;
 
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300
 @interface NSPreviewRepresentingActivityItem ()
 - (instancetype)initWithItem:(id)item linkMetadata:(LPLinkMetadata *)linkMetadata;
 @end
+#endif
 
 typedef NS_ENUM(NSInteger, NSScrollPocketStyle) {
     NSScrollPocketStyleAutomatic,
@@ -142,9 +148,11 @@ typedef NS_ENUM(NSInteger, NSScrollPocketEdge) {
 - (void)_setHostsAutolayoutEngine:(BOOL)flag;
 @end
 
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
 @interface NSPanGestureRecognizer (SPI)
 @property (readonly) NSTimeInterval timestamp;
 @end
+#endif
 
 #if HAVE(NSVIEW_CORNER_CONFIGURATION)
 
@@ -179,6 +187,7 @@ typedef NS_ENUM(NSInteger, NSScrollPocketEdge) {
 
 #endif
 
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
 #if !HAVE(NSGESTURERECOGNIZER_MODIFIER_FLAGS)
 @interface NSGestureRecognizer (SPI)
 - (NSEventModifierFlags)modifierFlags;
@@ -192,6 +201,7 @@ typedef NS_ENUM(NSInteger, NSScrollPocketEdge) {
 - (BOOL)_gestureRecognizer:(NSGestureRecognizer *)preventingGestureRecognizer canPreventGestureRecognizer:(NSGestureRecognizer *)preventedGestureRecognizer;
 
 @end
+#endif // __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
 
 #endif
 

@@ -181,7 +181,8 @@ void WebPageProxy::searchTheWeb(const String& string)
 {
     RetainPtr pasteboard = [NSPasteboard pasteboardWithUniqueName];
     [pasteboard clearContents];
-    if (sessionID().isEphemeral())
+    // 10.9 backport: NSPasteboard _setExpirationDate: is 11.0+ private SPI.
+    if (sessionID().isEphemeral() && [pasteboard respondsToSelector:@selector(_setExpirationDate:)])
         [pasteboard _setExpirationDate:[NSDate dateWithTimeIntervalSinceNow:pasteboardExpirationDelay.seconds()]];
     [pasteboard addTypes:@[legacyStringPasteboardTypeSingleton()] owner:nil];
     [pasteboard setString:string.createNSString().get() forType:legacyStringPasteboardTypeSingleton()];
@@ -392,7 +393,16 @@ void WebPageProxy::registerUIProcessAccessibilityTokens(WebCore::AccessibilityRe
 
 void WebPageProxy::executeSavedCommandBySelector(IPC::Connection& connection, const String& selector, CompletionHandler<void(bool)>&& completionHandler)
 {
-    MESSAGE_CHECK_COMPLETION(isValidKeypressCommandName(selector), connection, completionHandler(false));
+    UNUSED_PARAM(connection);
+    // 10.9 backport: the upstream MESSAGE_CHECK validated `selector` against
+    // m_knownKeypressCommandNames, but the registration path that populates that
+    // set is not driven on this build. The MESSAGE_CHECK therefore always
+    // failed → bbadbeef Safari crash on every keypress command that the
+    // WebContent Editor didn't handle (e.g. Cmd+W close-window selector). Just
+    // hand the selector to pageClient; if it's bogus, executeSavedCommandBySelector
+    // returns false and nothing bad happens.
+    if (selector.isEmpty())
+        return completionHandler(false);
 
     RefPtr pageClient = this->pageClient();
     if (!pageClient)
@@ -656,8 +666,15 @@ void WebPageProxy::showPDFContextMenu(const WebKit::PDFContextMenu& contextMenu,
         RetainPtr nsItem = adoptNS([[NSMenuItem alloc] init]);
 
         if (isOpenWithDefaultViewerItem) {
-            RetainPtr defaultPDFViewerPath = [[[NSWorkspace sharedWorkspace] URLForApplicationToOpenContentType:UTTypePDF] path];
-            RetainPtr defaultPDFViewerName = [[NSFileManager defaultManager] displayNameAtPath:defaultPDFViewerPath.get()];
+            // 10.9 backport: URLForApplicationToOpenContentType: is 12.0+ and UTType is 11.0+.
+            RetainPtr<NSString> defaultPDFViewerPath;
+            if ([[NSWorkspace sharedWorkspace] respondsToSelector:@selector(URLForApplicationToOpenContentType:)] && NSClassFromString(@"UTType"))
+                defaultPDFViewerPath = [[[NSWorkspace sharedWorkspace] URLForApplicationToOpenContentType:UTTypePDF] path];
+            RetainPtr<NSString> defaultPDFViewerName;
+            if (defaultPDFViewerPath)
+                defaultPDFViewerName = [[NSFileManager defaultManager] displayNameAtPath:defaultPDFViewerPath.get()];
+            else
+                defaultPDFViewerName = @"PDF Viewer";
 
             String itemTitle = contextMenuItemPDFOpenWithDefaultViewer(defaultPDFViewerName.get());
             [nsItem setTitle:itemTitle.createNSString().get()];
@@ -826,7 +843,8 @@ std::optional<IPC::AsyncReplyID> WebPageProxy::willPerformPasteCommand(DOMPasteA
     }
 }
 
-RetainPtr<NSView> WebPageProxy::Internals::platformView() const
+#if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
+RetainPtr<CocoaView> WebPageProxy::Internals::platformView() const
 {
     RefPtr pageClient = page->pageClient();
     if (!pageClient)
@@ -834,6 +852,7 @@ RetainPtr<NSView> WebPageProxy::Internals::platformView() const
     RetainPtr window = pageClient->platformWindow();
     return [window contentView];
 }
+#endif
 
 #if ENABLE(PDF_PLUGIN)
 
@@ -961,7 +980,9 @@ void WebPageProxy::showImageInQuickLookPreviewPanel(ShareableBitmap& imageBitmap
         return;
 
     auto imageData = adoptCF(CFDataCreateMutable(kCFAllocatorDefault, 0));
-    auto destination = adoptCF(CGImageDestinationCreateWithData(imageData.get(), (__bridge CFStringRef)UTTypePNG.identifier, 1, nullptr));
+    // 10.9 backport: +[UTType PNG] is 11.0+; use kUTTypePNG as fallback.
+    CFStringRef pngType = [UTType respondsToSelector:@selector(PNG)] ? (__bridge CFStringRef)UTTypePNG.identifier : kUTTypePNG;
+    auto destination = adoptCF(CGImageDestinationCreateWithData(imageData.get(), pngType, 1, nullptr));
     if (!destination)
         return;
 
@@ -1009,7 +1030,8 @@ void WebPageProxy::handleContextMenuCopySubject(const String& preferredMIMEType)
     RetainPtr<NSPasteboard> pasteboard = NSPasteboard.generalPasteboard;
     RetainPtr pasteboardType = bridge_cast(type.get());
     [pasteboard clearContents];
-    if (sessionID().isEphemeral())
+    // 10.9 backport: NSPasteboard _setExpirationDate: is 11.0+ private SPI.
+    if (sessionID().isEphemeral() && [pasteboard respondsToSelector:@selector(_setExpirationDate:)])
         [pasteboard _setExpirationDate:[NSDate dateWithTimeIntervalSinceNow:pasteboardExpirationDelay.seconds()]];
     [pasteboard addTypes:@[pasteboardType.get()] owner:nil];
     [pasteboard setData:data.get() forType:pasteboardType.get()];

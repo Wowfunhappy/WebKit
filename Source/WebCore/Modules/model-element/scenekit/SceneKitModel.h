@@ -44,7 +44,7 @@ public:
     virtual const Model& modelSource() const = 0;
 
     virtual SCNScene *defaultScene() const = 0;
-    virtual NSArray<SCNScene *> *scenes() const = 0;
+    virtual NSArray *scenes() const = 0;
 };
 
 }

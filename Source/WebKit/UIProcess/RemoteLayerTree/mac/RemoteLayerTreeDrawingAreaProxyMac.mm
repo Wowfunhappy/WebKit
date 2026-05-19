@@ -50,6 +50,9 @@
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/TZoneMallocInlines.h>
 
+// Forward declaration in case QuartzCoreSPI.h fails to provide it on older SDKs.
+@class CAContext;
+
 namespace WebKit {
 using namespace WebCore;
 
@@ -138,7 +141,13 @@ DisplayLink* RemoteLayerTreeDrawingAreaProxyMac::existingDisplayLink()
 
 DisplayLink& RemoteLayerTreeDrawingAreaProxyMac::displayLink()
 {
-    ASSERT(m_displayID);
+    // 10.9 backport: m_displayID is normally populated by windowScreenDidChange when the
+    // view's NSWindow gets a screen. In our minimal PageClient that hookup never fires,
+    // so m_displayID stays nullopt and *m_displayID would crash (SIGILL on libc++).
+    // Lazily fall back to the main display ID so display-link callbacks (which drive
+    // scroll repaint, momentum, rubber-band, etc.) still work.
+    if (!m_displayID)
+        m_displayID = static_cast<WebCore::PlatformDisplayID>(CGMainDisplayID());
 
     auto& displayLinks = page()->configuration().processPool().displayLinks();
     return displayLinks.displayLinkForDisplay(*m_displayID);
@@ -619,7 +628,7 @@ MachSendRight RemoteLayerTreeDrawingAreaProxyMac::createFence()
     if (!page)
         return MachSendRight();
 
-    RetainPtr<CAContext> rootLayerContext = [protect(page->acceleratedCompositingRootLayer()) context];
+    RetainPtr<CAContext> rootLayerContext = (CAContext *)[protect(page->acceleratedCompositingRootLayer()) context];
     if (!rootLayerContext)
         return MachSendRight();
 
@@ -637,7 +646,7 @@ MachSendRight RemoteLayerTreeDrawingAreaProxyMac::createFence()
     if (connection->hasIncomingSyncMessage())
         return MachSendRight();
 
-    MachSendRight fencePort = MachSendRight::adopt([rootLayerContext createFencePort]);
+    MachSendRight fencePort = MachSendRight::adopt((mach_port_t)(uintptr_t)[rootLayerContext createFencePort]);
 
     // Invalidate the fence if a synchronous message arrives while it's installed,
     // because we won't be able to reply during the fence-wait.

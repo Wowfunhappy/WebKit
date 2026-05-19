@@ -182,7 +182,7 @@ private:
 
 #if PLATFORM(MAC)
     void requestCandidatesForSelection(const WebCore::VisibleSelection&) final;
-    void handleRequestedCandidates(NSInteger, NSArray<NSTextCheckingResult *> *);
+    void handleRequestedCandidates(NSInteger, NSArray *);
     void handleAcceptedCandidateWithSoftSpaces(WebCore::TextCheckingResult) final;
 #endif
 

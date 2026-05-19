@@ -76,6 +76,8 @@ HTMLDocumentParser::HTMLDocumentParser(HTMLDocument& document, OptionSet<ParserC
     , m_preloader(HTMLResourcePreloader::create(document))
     , m_shouldEmitTracePoints(isMainDocumentLoadingFromHTTP(document))
 {
+    FILE* _f = ((FILE*)0);
+    if (_f) { auto u = document.url().string().utf8(); fprintf(_f, "[HTMLDocumentParser::ctor PID %d] this=%p url=%.150s\n", getpid(), this, u.data()); fclose(_f); }
 }
 
 Ref<HTMLDocumentParser> HTMLDocumentParser::create(HTMLDocument& document, OptionSet<ParserContentPolicy> policy)
@@ -102,6 +104,10 @@ inline Ref<HTMLDocumentParser> HTMLDocumentParser::create(DocumentFragment& frag
 
 HTMLDocumentParser::~HTMLDocumentParser()
 {
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) { fprintf(_f, "[HTMLDocumentParser::dtor PID %d] this=%p stopped=%d\n", getpid(), this, (int)isStopped()); fclose(_f); }
+    }
     ASSERT(!m_parserScheduler);
     ASSERT(!m_pumpSessionNestingLevel);
     ASSERT(!m_preloadScanner);
@@ -274,6 +280,7 @@ Document* HTMLDocumentParser::contextForParsingSession()
 
 bool HTMLDocumentParser::pumpTokenizerLoop(SynchronousMode mode, bool parsingFragment, PumpSession& session)
 {
+    // 10.9 perf: removed debug fopen logging
     RefPtr parserScheduler = m_parserScheduler;
     do {
         if (isWaitingForScripts()) [[unlikely]] {
@@ -296,7 +303,14 @@ bool HTMLDocumentParser::pumpTokenizerLoop(SynchronousMode mode, bool parsingFra
         if (mode == SynchronousMode::AllowYield && parserScheduler->shouldYieldBeforeToken(session)) [[unlikely]]
             return true;
 
+        { FILE *_f=((FILE*)0); if(_f){
+            auto& seg = m_input.current();
+            char16_t c = seg.currentCharacter();
+            fprintf(_f,"[PID %d] pumpTokenizerLoop iter BEFORE nextToken: input.empty=%d length=%u currCh=0x%04x\n", getpid(), (int)seg.isEmpty(), seg.length(), (unsigned)c);
+            fclose(_f);
+        } }
         auto token = m_tokenizer.nextToken(m_input.current());
+        // 10.9 perf: removed debug fopen logging
         if (!token)
             return false;
 
@@ -354,6 +368,7 @@ void HTMLDocumentParser::pumpTokenizer(SynchronousMode mode)
 
 void HTMLDocumentParser::constructTreeFromHTMLToken(HTMLTokenizer::TokenPtr& rawToken)
 {
+    // 10.9 perf: removed debug fopen logging
     AtomHTMLToken token(*rawToken);
 
     // We clear the rawToken in case constructTree
@@ -443,7 +458,23 @@ void HTMLDocumentParser::append(RefPtr<StringImpl>&& inputSource, SynchronousMod
         }
     }
 
+    { FILE *_f=((FILE*)0); if(_f){
+        auto u = source.utf8();
+        fprintf(_f,"[PID %d] HDP::append source.length=%u is8Bit=%d firstBytes=%02x %02x %02x %02x %02x %02x %02x %02x utf8.size=%zu utf8='%s'\n",
+            getpid(), source.length(), (int)source.is8Bit(),
+            source.length()>0 && source.is8Bit() ? (unsigned)source.span8()[0] : 0,
+            source.length()>1 && source.is8Bit() ? (unsigned)source.span8()[1] : 0,
+            source.length()>2 && source.is8Bit() ? (unsigned)source.span8()[2] : 0,
+            source.length()>3 && source.is8Bit() ? (unsigned)source.span8()[3] : 0,
+            source.length()>4 && source.is8Bit() ? (unsigned)source.span8()[4] : 0,
+            source.length()>5 && source.is8Bit() ? (unsigned)source.span8()[5] : 0,
+            source.length()>6 && source.is8Bit() ? (unsigned)source.span8()[6] : 0,
+            source.length()>7 && source.is8Bit() ? (unsigned)source.span8()[7] : 0,
+            u.length(), u.data());
+        fclose(_f);
+    } }
     m_input.appendToEnd(source);
+    // 10.9 perf: removed debug fopen logging
 
     if (inPumpSession()) {
         // We've gotten data off the network in a nested write.
@@ -600,6 +631,10 @@ static ALWAYS_INLINE bool canChangeModuleScriptsExecutionTiming()
 
 void HTMLDocumentParser::notifyFinished(PendingScript& pendingScript)
 {
+    {
+        FILE* _f = ((FILE*)0);
+        if (_f) { fprintf(_f, "[HTMLDocParser::notifyFinished PID %d] stopped=%d stopping=%d\n", getpid(), (int)isStopped(), (int)isStopping()); fclose(_f); }
+    }
     // pumpTokenizer can cause this parser to be detached from the Document,
     // but we need to ensure it isn't deleted yet.
     Ref<HTMLDocumentParser> protectedThis(*this);

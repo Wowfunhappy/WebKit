@@ -42,11 +42,20 @@
 #import <wtf/ASCIICType.h>
 #import <wtf/WallTime.h>
 
+// 10.12+ renamed modifier flags
+#ifndef NSEventModifierFlagCapsLock
+#define NSEventModifierFlagCapsLock NSAlphaShiftKeyMask
+#define NSEventModifierFlagShift NSShiftKeyMask
+#define NSEventModifierFlagControl NSControlKeyMask
+#define NSEventModifierFlagOption NSAlternateKeyMask
+#define NSEventModifierFlagCommand NSCommandKeyMask
+#endif
+
 namespace WebCore {
 
 NSPoint globalPoint(const NSPoint& windowPoint, NSWindow *window)
 {
-    return flipScreenPoint([window convertPointToScreen:windowPoint], protect(screen(window)).get());
+    return flipScreenPoint([window convertBaseToScreen:windowPoint], (NSScreen *)screen(window));
 }
 
 NSPoint globalPointForEvent(NSEvent *event)
@@ -728,9 +737,12 @@ public:
         if (eventIsPressureEvent) {
             // Since AppKit doesn't send mouse events for force down or force up, we have to use the current pressure
             // event and correspondingPressureEvent to detect if this is MouseForceDown, MouseForceUp, or just MouseForceChanged.
-            if (correspondingPressureEvent.stage == 1 && event.stage == 2)
+            // stage property is 10.10.3+
+            int eventStage = [event respondsToSelector:@selector(stage)] ? (int)(NSInteger)[(id)event stage] : 0;
+            int pressureStage = [correspondingPressureEvent respondsToSelector:@selector(stage)] ? (int)(NSInteger)[(id)correspondingPressureEvent stage] : 0;
+            if (pressureStage == 1 && eventStage == 2)
                 m_type = PlatformEvent::Type::MouseForceDown;
-            else if (correspondingPressureEvent.stage == 2 && event.stage == 1)
+            else if (pressureStage == 2 && eventStage == 1)
                 m_type = PlatformEvent::Type::MouseForceUp;
             else
                 m_type = PlatformEvent::Type::MouseForceChanged;
@@ -752,9 +764,13 @@ public:
             m_coalescedEvents = { PlatformMouseEventBuilder { event, correspondingPressureEvent, windowView, true } };
 
         m_force = 0;
-        int stage = eventIsPressureEvent ? event.stage : correspondingPressureEvent.stage;
-        double pressure = eventIsPressureEvent ? event.pressure : correspondingPressureEvent.pressure;
-        m_force = pressure + stage;
+        // stage/pressure properties are 10.10.3+
+        {
+            NSEvent *relevantEvent = eventIsPressureEvent ? event : correspondingPressureEvent;
+            int stage = [relevantEvent respondsToSelector:@selector(stage)] ? (int)(NSInteger)[(id)relevantEvent stage] : 0;
+            double pressure = [relevantEvent respondsToSelector:@selector(pressure)] ? (double)[[relevantEvent valueForKey:@"pressure"] floatValue] : 0;
+            m_force = pressure + stage;
+        }
 
         // Mac specific
         m_modifierFlags = [event modifierFlags];

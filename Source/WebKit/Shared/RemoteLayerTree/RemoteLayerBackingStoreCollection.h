@@ -100,9 +100,11 @@ protected:
     virtual void markBackingStoreVolatileAfterReachabilityChange(RemoteLayerBackingStore&);
     virtual void markAllBackingStoreVolatileFromTimer();
 
+#if ENABLE(GPU_PROCESS)
     bool collectRemoteRenderingBackingStoreBufferIdentifiersToMarkVolatile(RemoteLayerWithRemoteRenderingBackingStore&, OptionSet<VolatilityMarkingBehavior>, MonotonicTime now, Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>>&);
 
     bool collectAllRemoteRenderingBufferIdentifiersToMarkVolatile(OptionSet<VolatilityMarkingBehavior> liveBackingStoreMarkingBehavior, OptionSet<VolatilityMarkingBehavior> unparentedBackingStoreMarkingBehavior, Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>>&);
+#endif
 
 
 private:
@@ -113,7 +115,9 @@ private:
     void volatilityTimerFired();
 
 protected:
+#if ENABLE(GPU_PROCESS)
     void sendMarkBuffersVolatile(Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>>&&, CompletionHandler<void(bool)>&&, bool forcePurge = false);
+#endif
 
     static constexpr auto volatileBackingStoreAgeThreshold = 1_s;
     static constexpr auto volatileSecondaryBackingStoreAgeThreshold = 200_ms;

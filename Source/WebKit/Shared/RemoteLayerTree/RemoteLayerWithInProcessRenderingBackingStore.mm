@@ -28,11 +28,20 @@
 
 #import "DynamicContentScalingBifurcatedImageBuffer.h"
 #import "ImageBufferShareableBitmapBackend.h"
+#if ENABLE(GPU_PROCESS) && HAVE(IOSURFACE)
 #import "ImageBufferShareableMappedIOSurfaceBackend.h"
+#else
+#import <WebCore/ImageBufferIOSurfaceBackend.h>
+namespace WebKit {
+using ImageBufferShareableMappedIOSurfaceBackend = WebCore::ImageBufferIOSurfaceBackend;
+}
+#endif
 #import "Logging.h"
 #import "PlatformCALayerRemote.h"
 #import "PrepareBackingStoreBuffersData.h"
+#if ENABLE(GPU_PROCESS)
 #import "RemoteImageBufferSetProxy.h"
+#endif
 #import "RemoteLayerBackingStoreCollection.h"
 #import "RemoteLayerTreeContext.h"
 #import <WebCore/GraphicsContext.h>
@@ -73,8 +82,16 @@ void RemoteLayerWithInProcessRenderingBackingStore::clearBackingStore()
 
 static std::optional<ImageBufferBackendHandle> handleFromBuffer(ImageBuffer& buffer)
 {
-    auto* sharing = dynamicDowncast<ImageBufferBackendHandleSharing>(buffer.toBackendSharing());
-    return sharing ? sharing->takeBackendHandle(SharedMemory::Protection::ReadOnly) : std::nullopt;
+    if (auto* sharing = dynamicDowncast<ImageBufferBackendHandleSharing>(buffer.toBackendSharing()))
+        return sharing->takeBackendHandle(SharedMemory::Protection::ReadOnly);
+#if HAVE(IOSURFACE)
+    // 10.9 backport: with GPU_PROCESS=OFF the alias gives us the bare WebCore::ImageBufferIOSurfaceBackend
+    // which doesn't implement ImageBufferBackendHandleSharing. Pull the IOSurface mach send-right via
+    // the public ImageBuffer::surface() accessor instead.
+    if (auto* surface = buffer.surface())
+        return ImageBufferBackendHandle(surface->createSendRight());
+#endif
+    return std::nullopt;
 }
 
 std::optional<ImageBufferBackendHandle> RemoteLayerWithInProcessRenderingBackingStore::frontBufferHandle() const
@@ -262,9 +279,20 @@ void RemoteLayerWithInProcessRenderingBackingStore::prepareToDisplay()
     LOG_WITH_STREAM(RemoteLayerBuffers, stream << "RemoteLayerBackingStore " << m_layer->layerID() << " prepareToDisplay()");
 
     m_contentsBufferHandle = std::nullopt;
-    auto displayRequirement = m_bufferSet.swapBuffersForDisplay(hasEmptyDirtyRegion(), supportsPartialRepaint());
-    if (displayRequirement == SwapBuffersDisplayRequirement::NeedsNoDisplay)
+    bool emptyDirty = hasEmptyDirtyRegion();
+    auto displayRequirement = m_bufferSet.swapBuffersForDisplay(emptyDirty, supportsPartialRepaint());
+    if (displayRequirement == SwapBuffersDisplayRequirement::NeedsNoDisplay) {
+        // 10.9 backport: even when swap says NeedsNoDisplay, we still need a
+        // front buffer so the IPC encoder (RemoteLayerTreeTransaction.mm:444)
+        // can serialize the store. Otherwise hasFrontBuffer=false at encode
+        // time → encoder sends empty payload → UIProcess clears layer contents.
+        // For github tiles' first commit cycle, swapBuffersForDisplay returns
+        // NeedsNoDisplay (uninitialized state), so without this they never
+        // ship their content via IPC.
+        if (!m_bufferSet.m_frontBuffer)
+            ensureFrontBuffer();
         return;
+    }
 
     if (displayRequirement == SwapBuffersDisplayRequirement::NeedsFullDisplay)
         setNeedsDisplay();

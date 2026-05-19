@@ -28,6 +28,7 @@
 
 #if PLATFORM(MAC)
 
+#import "../platform/mac/UTTypeIdentifiers.h"
 #import "Blob.h"
 #import "CSSPrimitiveValueMappings.h"
 #import "CSSValuePool.h"
@@ -181,7 +182,7 @@ RefPtr<SharedBuffer> Editor::dataSelectionForPasteboard(const String& pasteboard
     if (!canCopy())
         return nullptr;
 
-    if (pasteboardType == WebArchivePboardType || pasteboardType == String(UTTypeWebArchive.identifier))
+    if (pasteboardType == WebArchivePboardType || pasteboardType == String(utTypeWebArchiveId()))
         return selectionInWebArchiveFormat();
 
     if (pasteboardType == String(legacyRTFDPasteboardTypeSingleton()))

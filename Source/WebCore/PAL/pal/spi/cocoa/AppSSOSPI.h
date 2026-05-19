@@ -75,7 +75,7 @@ typedef NSString * SOAuthorizationOperation;
 - (void)authorizationDidNotHandle:(SOAuthorization *)authorization;
 - (void)authorizationDidCancel:(SOAuthorization *)authorization;
 - (void)authorizationDidComplete:(SOAuthorization *)authorization;
-- (void)authorization:(SOAuthorization *)authorization didCompleteWithHTTPAuthorizationHeaders:(NSDictionary<NSString *, NSString *> *)httpAuthorizationHeaders;
+- (void)authorization:(SOAuthorization *)authorization didCompleteWithHTTPAuthorizationHeaders:(NSDictionary *)httpAuthorizationHeaders;
 - (void)authorization:(SOAuthorization *)authorization didCompleteWithHTTPResponse:(NSHTTPURLResponse *)httpResponse httpBody:(NSData *)httpBody;
 - (void)authorization:(SOAuthorization *)authorization didCompleteWithError:(NSError *)error;
 - (void)authorization:(SOAuthorization *)authorization presentViewController:(SOAuthorizationViewController)viewController withCompletion:(void (^)(BOOL success, NSError * _Nullable error))completion;
@@ -118,8 +118,8 @@ typedef NS_ENUM(NSInteger, SOAuthorizationInitiatingAction) {
 + (BOOL)canPerformAuthorizationWithURL:(NSURL *)url responseCode:(NSInteger)responseCode;
 + (BOOL)canPerformAuthorizationWithURL:(NSURL *)url responseCode:(NSInteger)responseCode useInternalExtensions:(BOOL)useInternalExtensions;
 + (void)canPerformAuthorizationWithURL:(NSURL *)url responseCode:(NSInteger)responseCode callerBundleIdentifier:(NSString * _Nullable)callerBundleIdentifier useInternalExtensions:(BOOL)useInternalExtensions completion:(void (^)(BOOL))completion;
-- (void)beginAuthorizationWithURL:(NSURL *)url httpHeaders:(NSDictionary <NSString *, NSString *> *)httpHeaders httpBody:(NSData *)httpBody;
-- (void)beginAuthorizationWithOperation:(nullable SOAuthorizationOperation)operation url:(NSURL *)url httpHeaders:(NSDictionary <NSString *, NSString *> *)httpHeaders httpBody:(NSData *)httpBody;
+- (void)beginAuthorizationWithURL:(NSURL *)url httpHeaders:(NSDictionary * *)httpHeaders httpBody:(NSData *)httpBody;
+- (void)beginAuthorizationWithOperation:(nullable SOAuthorizationOperation)operation url:(NSURL *)url httpHeaders:(NSDictionary * *)httpHeaders httpBody:(NSData *)httpBody;
 - (void)beginAuthorizationWithParameters:(SOAuthorizationParameters *)parameters;
 - (void)cancelAuthorization;
 @end

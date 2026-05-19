@@ -31,7 +31,6 @@ JSApplePayCouponCodeUpdate.cpp
 JSApplePayDateComponents.cpp
 JSApplePayDateComponentsRange.cpp
 JSApplePayDeferredPaymentRequest.cpp
-JSApplePayDisbursementRequest.cpp
 JSApplePayDetailsUpdateBase.cpp
 JSApplePayError.cpp
 JSApplePayErrorCode.cpp
@@ -213,7 +212,6 @@ editing/mac/TextUndoInsertionMarkupMac.mm @nonARC
 fileapi/FileCocoa.mm @nonARC
 history/mac/HistoryItemMac.mm @nonARC
 html/canvas/GPUCanvasContextCocoa.mm @nonARC
-html/canvas/UsdModelLoader.swift
 html/shadow/YouTubeEmbedShadowElement.cpp
 inspector/LegacyWebSocketInspectorInstrumentation.cpp
 inspector/mac/PageDebuggerMac.mm @nonARC
@@ -560,6 +558,7 @@ platform/image-decoders/avif/AVIFImageReader.cpp
 platform/image-decoders/jpegxl/JPEGXLImageDecoder.cpp
 platform/image-decoders/ScalableImageDecoder.cpp
 platform/image-decoders/ScalableImageDecoderFrame.cpp
+platform/image-decoders/webp/WEBPImageDecoder.cpp
 platform/ios/ColorIOS.mm @nonARC
 platform/ios/DeviceMotionClientIOS.mm @nonARC
 platform/ios/DeviceOrientationClientIOS.mm @nonARC
@@ -734,9 +733,9 @@ platform/text/mac/CoreTextChineseCompositionEngine.cpp
 platform/text/mac/CoreTextCompositionEngine.cpp
 rendering/AttachmentLayout.mm @nonARC
 rendering/TextAutoSizing.cpp
-rendering/cocoa/RenderThemeCocoa.mm @nonARC
-rendering/ios/RenderThemeIOS.mm @nonARC
-rendering/mac/RenderThemeMac.mm @nonARC
+rendering/cocoa/RenderThemeCocoa.mm @nonARC @no-unify
+rendering/ios/RenderThemeIOS.mm @nonARC @no-unify
+rendering/mac/RenderThemeMac.mm @nonARC @no-unify
 testing/cocoa/WebViewVisualIdentificationOverlay.mm @nonARC
 
 // The following files aren't unified with others to prevent them from being merged

@@ -175,7 +175,7 @@ NSString * const _WKLocalAuthenticatorCredentialLastUsedDateKey = @"_WKLocalAuth
         return nil;
 
 #if ENABLE(WEB_AUTHN)
-    API::Object::constructInWrapper<API::WebAuthenticationPanel>(self);
+    // DISABLED:     API::Object::constructInWrapper<API::WebAuthenticationPanel>(self);
 #endif
     return self;
 }

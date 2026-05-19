@@ -350,7 +350,7 @@ static inline WebHistoryDateKey dateKey(NSTimeInterval date)
     auto entryArrays = copyToVector(_entriesByDate->values());
     _entriesByDate->clear();
     
-    auto entriesByURL = std::exchange(_entriesByURL, nil);
+    auto entriesByURL = _entriesByURL; _entriesByURL = nil;
     
     _orderedLastVisitedDays = nil;
     

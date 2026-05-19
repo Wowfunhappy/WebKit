@@ -84,10 +84,20 @@ void WheelEventDeltaFilterMac::updateCurrentVelocityFromEvent(const PlatformWhee
     // The absolute value of timestamp doesn't matter; the filter looks at deltas from the previous event.
     auto timestamp = event.timestamp() - m_initialMonotonicTime;
 
-    NSPoint filteredDeltaResult;
-    NSPoint filteredVelocityResult;
+    NSPoint filteredDeltaResult { };
+    NSPoint filteredVelocityResult { };
 
-    [m_predominantAxisFilter filterInputDelta:toFloatPoint(event.delta()) timestamp:timestamp.seconds() outputDelta:&filteredDeltaResult velocity:&filteredVelocityResult];
+    // 10.9 backport: _NSScrollingPredominantAxisFilter exists on 10.9 but does
+    // not respond to the 4-argument filterInputDelta:timestamp:outputDelta:velocity:
+    // selector — sending it crashes WebContent on every scroll wheel event.
+    // Fall back to identity (no axis filtering, raw delta as velocity).
+    static const SEL filterSel = @selector(filterInputDelta:timestamp:outputDelta:velocity:);
+    if (m_predominantAxisFilter && [m_predominantAxisFilter respondsToSelector:filterSel])
+        [m_predominantAxisFilter filterInputDelta:toFloatPoint(event.delta()) timestamp:timestamp.seconds() outputDelta:&filteredDeltaResult velocity:&filteredVelocityResult];
+    else {
+        filteredDeltaResult = toFloatPoint(event.delta());
+        filteredVelocityResult = toFloatPoint(event.delta());
+    }
     auto axisFilteredVelocity = toFloatSize(filteredVelocityResult);
     m_currentFilteredDelta = toFloatSize(filteredDeltaResult);
 
@@ -107,7 +117,9 @@ void WheelEventDeltaFilterMac::updateCurrentVelocityFromEvent(const PlatformWhee
 
 void WheelEventDeltaFilterMac::reset()
 {
-    [m_predominantAxisFilter reset];
+    // 10.9 backport: also guard reset — companion to the updateCurrentVelocityFromEvent guard above.
+    if (m_predominantAxisFilter && [m_predominantAxisFilter respondsToSelector:@selector(reset)])
+        [m_predominantAxisFilter reset];
     m_currentFilteredVelocity = { };
     m_currentFilteredDelta = { };
     m_lastIOHIDEventTimestamp = { };

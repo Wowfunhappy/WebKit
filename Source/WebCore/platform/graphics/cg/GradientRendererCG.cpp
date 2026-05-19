@@ -75,7 +75,12 @@ GradientRendererCG::Strategy GradientRendererCG::makeGradient(ColorInterpolation
     ASSERT_UNUSED(colorInterpolationMethod, std::holds_alternative<ColorInterpolationMethod::SRGB>(colorInterpolationMethod.colorSpace));
 
     auto gradientInterpolatesPremultipliedOptionsDictionary = [] () -> CFDictionaryRef {
-        static CFTypeRef keys[] = { kCGGradientInterpolatesPremultiplied };
+        // 10.9 backport: kCGGradientInterpolatesPremultiplied is a libpolyfill
+        // stub returning a CFTypeRef with corrupted class pointer; passing it
+        // as a CFDictionary key crashes inside CFBasicHashAddValue when CG
+        // tries to forward methods to it. Use the literal CFSTR("...") whose
+        // string content matches what CG actually checks against.
+        static CFTypeRef keys[] = { CFSTR("kCGGradientInterpolatesPremultiplied") };
         static CFTypeRef values[] = { kCFBooleanTrue };
         static CFDictionaryRef options = CFDictionaryCreate(kCFAllocatorDefault, keys, values, std::size(keys), &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 

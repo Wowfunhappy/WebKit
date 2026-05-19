@@ -45,7 +45,7 @@ SpeechRecognizer::SpeechRecognizer(DelegateCallback&& delegateCallback, Ref<Spee
     : m_delegateCallback(WTF::move(delegateCallback))
     , m_request(WTF::move(request))
 #if HAVE(SPEECHRECOGNIZER)
-    , m_currentAudioSampleTime(PAL::kCMTimeZero)
+    , m_currentAudioSampleTime(kCMTimeZero)
 #endif
 {
 }

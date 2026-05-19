@@ -39,22 +39,12 @@
 #include <wtf/Lock.h>
 #include <wtf/TZoneMallocInlines.h>
 
-#if ENABLE(GPU_PROCESS)
-
-namespace IPC {
-class Connection;
-class Decoder;
-class StreamClientConnection;
-}
-
+// ThreadSafeImageBufferSetFlusher is needed by RemoteLayerBackingStore regardless
+// of GPU_PROCESS being enabled.
 namespace WebKit {
 
-class RemoteImageBufferSetProxyFlushFence;
 struct BufferSetBackendHandle;
 
-// FIXME: We should have a generic 'ImageBufferSet' class that contains
-// the code that isn't specific to being remote, and this helper belongs
-// there.
 class ThreadSafeImageBufferSetFlusher {
     WTF_MAKE_TZONE_ALLOCATED_INLINE(ThreadSafeImageBufferSetFlusher);
     WTF_MAKE_NONCOPYABLE(ThreadSafeImageBufferSetFlusher);
@@ -66,9 +56,22 @@ public:
 
     ThreadSafeImageBufferSetFlusher() = default;
     virtual ~ThreadSafeImageBufferSetFlusher() = default;
-    // Returns true if flush succeeded, false if it failed.
     virtual bool flushAndCollectHandles(HashMap<ImageBufferSetIdentifier, std::unique_ptr<BufferSetBackendHandle>>&) = 0;
 };
+
+} // namespace WebKit
+
+#if ENABLE(GPU_PROCESS)
+
+namespace IPC {
+class Connection;
+class Decoder;
+class StreamClientConnection;
+}
+
+namespace WebKit {
+
+class RemoteImageBufferSetProxyFlushFence;
 
 class ImageBufferSetClient : public AbstractCanMakeCheckedPtr {
 public:

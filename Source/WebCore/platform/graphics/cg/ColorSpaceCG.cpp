@@ -33,6 +33,46 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
 
+// Provide fallback declarations for color space constants not in 10.9 SDK
+#ifndef kCGColorSpaceDisplayP3
+CG_EXTERN const CFStringRef kCGColorSpaceDisplayP3 __attribute__((weak_import));
+#endif
+#ifndef kCGColorSpaceExtendedDisplayP3
+CG_EXTERN const CFStringRef kCGColorSpaceExtendedDisplayP3 __attribute__((weak_import));
+#endif
+#ifndef kCGColorSpaceExtendedSRGB
+CG_EXTERN const CFStringRef kCGColorSpaceExtendedSRGB __attribute__((weak_import));
+#endif
+#ifndef kCGColorSpaceExtendedLinearSRGB
+CG_EXTERN const CFStringRef kCGColorSpaceExtendedLinearSRGB __attribute__((weak_import));
+#endif
+#ifndef kCGColorSpaceExtendedLinearDisplayP3
+CG_EXTERN const CFStringRef kCGColorSpaceExtendedLinearDisplayP3 __attribute__((weak_import));
+#endif
+#ifndef kCGColorSpaceLinearDisplayP3
+CG_EXTERN const CFStringRef kCGColorSpaceLinearDisplayP3 __attribute__((weak_import));
+#endif
+#ifndef kCGColorSpaceLinearSRGB
+CG_EXTERN const CFStringRef kCGColorSpaceLinearSRGB __attribute__((weak_import));
+#endif
+#ifndef kCGColorSpaceExtendedITUR_2020
+CG_EXTERN const CFStringRef kCGColorSpaceExtendedITUR_2020 __attribute__((weak_import));
+#endif
+#ifndef kCGColorSpaceITUR_2020
+CG_EXTERN const CFStringRef kCGColorSpaceITUR_2020 __attribute__((weak_import));
+#endif
+#ifndef kCGColorSpaceROMMRGB
+CG_EXTERN const CFStringRef kCGColorSpaceROMMRGB __attribute__((weak_import));
+#endif
+#ifndef kCGColorSpaceGenericXYZ
+CG_EXTERN const CFStringRef kCGColorSpaceGenericXYZ __attribute__((weak_import));
+#endif
+
+// CGColorSpaceCreateExtended is 10.12+
+#if __MAC_OS_X_VERSION_MAX_ALLOWED < 101200
+CG_EXTERN CGColorSpaceRef CGColorSpaceCreateExtended(CGColorSpaceRef) __attribute__((weak_import));
+#endif
+
 namespace WebCore {
 
 template<const CFStringRef& colorSpaceNameGlobalConstant> static CGColorSpaceRef namedColorSpace()
@@ -51,7 +91,11 @@ template<const CFStringRef& colorSpaceNameGlobalConstant> static CGColorSpaceRef
     static LazyNeverDestroyed<RetainPtr<CGColorSpaceRef>> colorSpace;
     static std::once_flag onceFlag;
     std::call_once(onceFlag, [] {
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
         colorSpace.construct(adoptCF(CGColorSpaceCreateExtended(RetainPtr { namedColorSpace<colorSpaceNameGlobalConstant>() }.get())));
+#else
+        colorSpace.construct(RetainPtr<CGColorSpaceRef>(namedColorSpace<colorSpaceNameGlobalConstant>()));
+#endif
         ASSERT(colorSpace.get());
     });
     return colorSpace.get().get();

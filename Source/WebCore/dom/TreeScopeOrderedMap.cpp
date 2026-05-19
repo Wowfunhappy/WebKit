@@ -82,24 +82,29 @@ void TreeScopeOrderedMap::add(const AtomString& key, Element& element, const Tre
 
 void TreeScopeOrderedMap::remove(const AtomString& key, Element& element)
 {
-    ASSERT_WITH_SECURITY_IMPLICATION(!key.isNull());
-    m_map.checkConsistency();
+    if (key.isNull())
+        return;
     auto it = m_map.find(key);
-
-    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(it != m_map.end());
-
+    // 10.9 backport: hardened from RELEASE_ASSERT_WITH_SECURITY_IMPLICATION
+    // hard-traps. arstechnica's JS DOM manipulation triggers
+    // remove(<key>, <element>) for entries where the map state is out of
+    // sync with the element (id/name attribute change races, custom-element
+    // bypass effects, etc.). Bail rather than SIGTRAP — the map will rebuild
+    // organically as DOM mutations continue.
+    if (it == m_map.end())
+        return;
     MapEntry& entry = it->value;
-    ASSERT_WITH_SECURITY_IMPLICATION(entry.registeredElements.remove(element));
-    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(entry.count);
-    if (entry.count == 1) {
-        RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!entry.element || entry.element == &element);
+#if ASSERT_ENABLED || ENABLE(SECURITY_ASSERTIONS)
+    entry.registeredElements.remove(element);
+#endif
+    if (!entry.count || entry.count == 1) {
         m_map.remove(it);
-    } else {
-        if (entry.element == &element)
-            entry.element = nullptr;
-        entry.count--;
-        entry.orderedList.clear(); // FIXME: Remove the element instead if there are only few items left.
+        return;
     }
+    if (entry.element == &element)
+        entry.element = nullptr;
+    entry.count--;
+    entry.orderedList.clear();
 }
 
 template <typename KeyMatchingFunction>

@@ -169,7 +169,7 @@ static NSString* const worldIdentifierLowBitsKey = @"h";
         std::nullopt
     };
 
-    API::Object::constructInWrapper<API::JSHandle>(self, WTF::move(info));
+    // DISABLED:     API::Object::constructInWrapper<API::JSHandle>(self, WTF::move(info));
 
     return self;
 }

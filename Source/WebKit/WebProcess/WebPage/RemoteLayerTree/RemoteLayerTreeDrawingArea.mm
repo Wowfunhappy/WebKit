@@ -25,17 +25,23 @@
 
 #import "config.h"
 #import "RemoteLayerTreeDrawingArea.h"
+#include <sched.h>
+#include <WebCore/DisplayRefreshMonitor.h>
+#include <WebCore/DisplayUpdate.h>
 
 #import "DrawingAreaProxyMessages.h"
 #import "GraphicsLayerCARemote.h"
 #import "MessageSenderInlines.h"
 #import "PlatformCALayerRemote.h"
+#if ENABLE(GPU_PROCESS)
 #import "RemoteImageBufferSetProxy.h"
+#endif
 #import "RemoteLayerBackingStoreCollection.h"
 #import "RemoteLayerTreeCommitBundle.h"
 #import "RemoteLayerTreeContext.h"
 #import "RemoteLayerTreeDrawingAreaProxyMessages.h"
 #import "RemoteScrollingCoordinator.h"
+#import "WebDisplayRefreshMonitor.h"
 #import "RemoteScrollingCoordinatorTransaction.h"
 #import "WebFrame.h"
 #import "WebPage.h"
@@ -94,6 +100,11 @@ void RemoteLayerTreeDrawingArea::setNeedsDisplayInRect(const IntRect&)
 
 void RemoteLayerTreeDrawingArea::scroll(const IntRect& scrollRect, const IntSize& scrollDelta)
 {
+    // 10.9 backport: scroll position changed but the layer tree commit needs
+    // to be scheduled so the new viewport translation reaches UIProcess.
+    UNUSED_PARAM(scrollRect);
+    UNUSED_PARAM(scrollDelta);
+    scheduleRenderingUpdate();
 }
 
 GraphicsLayerFactory* RemoteLayerTreeDrawingArea::graphicsLayerFactory()
@@ -103,7 +114,12 @@ GraphicsLayerFactory* RemoteLayerTreeDrawingArea::graphicsLayerFactory()
 
 RefPtr<DisplayRefreshMonitor> RemoteLayerTreeDrawingArea::createDisplayRefreshMonitor(PlatformDisplayID displayID)
 {
-    ASSERT_NOT_REACHED();
+    // 10.9 backport: returning nullptr here causes RenderingUpdateScheduler
+    // to fall back to LegacyDisplayRefreshMonitorMac (CVDisplayLink-based)
+    // which actually works on 10.9. Tried WebDisplayRefreshMonitor (the
+    // WebKit2 IPC-driven one) but that regresses: it relies on UIProcess
+    // sending IPC display updates which adds latency on 10.9. Letting the
+    // fallback Mac CVDisplayLink fire directly keeps render loop snappy.
     return nullptr;
 }
 
@@ -112,10 +128,12 @@ void RemoteLayerTreeDrawingArea::setPreferredFramesPerSecond(FramesPerSecond pre
     send(Messages::RemoteLayerTreeDrawingAreaProxy::SetPreferredFramesPerSecond(preferredFramesPerSecond));
 }
 
+#if ENABLE(GPU_PROCESS)
 void RemoteLayerTreeDrawingArea::gpuProcessConnectionWasDestroyed()
 {
     m_remoteLayerTreeContext->gpuProcessConnectionWasDestroyed();
 }
+#endif
 
 void RemoteLayerTreeDrawingArea::updateRootLayers()
 {
@@ -126,7 +144,23 @@ void RemoteLayerTreeDrawingArea::updateRootLayers()
             if (rootLayer.viewOverlayRootLayer)
                 children.append(Ref { *rootLayer.viewOverlayRootLayer });
         }
+        // 10.9 backport: GraphicsLayer::setChildren → noteSublayersChanged →
+        // commitLayerChangesAfterSublayers → updateSublayerList → setSublayers
+        // chain doesn't reliably propagate the new children to the wrapper's
+        // PlatformCALayerRemote.m_children for github navigations on this build.
+        // Result: recursiveBuildTransaction never reaches github's content layer
+        // tree, so github's tile BackingStore never gets committed via IPC, and
+        // the page renders blank. Bypass: directly setSublayers on the wrapper's
+        // PlatformCALayer after setChildren.
+        Vector<RefPtr<PlatformCALayer>> platformChildren;
+        for (auto& child : children) {
+            if (RefPtr platformChild = downcast<GraphicsLayerCARemote>(child.get()).platformCALayer())
+                platformChildren.append(WTF::move(platformChild));
+        }
         rootLayer.layer->setChildren(WTF::move(children));
+        if (RefPtr wrapperPlatformLayer = downcast<GraphicsLayerCARemote>(*rootLayer.layer.ptr()).platformCALayer())
+            wrapperPlatformLayer->setSublayers(platformChildren);
+        // 10.9 perf: removed debug fopen logging
     }
 }
 
@@ -161,6 +195,7 @@ void RemoteLayerTreeDrawingArea::removeRootFrame(WebCore::FrameIdentifier frameI
 
 void RemoteLayerTreeDrawingArea::setRootCompositingLayer(WebCore::Frame& frame, GraphicsLayer* rootGraphicsLayer)
 {
+    // 10.9 perf: removed debug fopen logging
     for (auto& rootLayer : m_rootLayers) {
         if (rootLayer.frameID == frame.frameID())
             rootLayer.contentLayer = rootGraphicsLayer;
@@ -230,6 +265,16 @@ DelegatedScrollingMode RemoteLayerTreeDrawingArea::delegatedScrollingMode() cons
 
 void RemoteLayerTreeDrawingArea::setLayerTreeStateIsFrozen(bool isFrozen)
 {
+    // 10.9 perf: removed debug fopen logging
+    // 10.9 backport: WebKit relies on Document::m_visualUpdatesSuppressionTimer
+    // (a 5-second WebCore Timer) to unfreeze the layer tree if a page never
+    // reaches readyState=Complete. On 10.9 our SharedTimer chain is intermittent
+    // for repeated fires (CFRunLoopTimer + dispatch_after fallback have race
+    // conditions), so the unfreeze timer often never fires. Pages like github
+    // keep loading async chunks and stay in Loading state forever, so the freeze
+    // is permanent. Skip the freeze entirely; pages render incrementally.
+    if (isFrozen)
+        return;
     if (m_isRenderingSuspended == isFrozen)
         return;
 
@@ -299,6 +344,25 @@ void RemoteLayerTreeDrawingArea::setExposedContentRect(const FloatRect& exposedC
 
 void RemoteLayerTreeDrawingArea::startRenderingUpdateTimer()
 {
+    // 10.9 perf: removed debug fopen logging
+    // 10.9 backport: m_updateRenderingTimer (a WebCore Timer) is unreliable for
+    // repeated fires on this build — startOneShot(0_s) schedules into the
+    // ThreadTimers heap but the second/Nth cycle's heap entry never makes it
+    // through sharedTimerFiredInternal. Even though MainThreadSharedTimer fires
+    // ~14 times during a github load, m_updateRenderingTimer's heap entry only
+    // delivers updateRendering once. As a parallel path, also dispatch the
+    // updateRendering call via dispatch_async on the main queue. dispatch_async
+    // is reliable on 10.9 (used by the MainThreadSharedTimerCF dispatch_after
+    // fallback). updateRendering is reentrancy-guarded so a double-fire is safe.
+    {
+        WeakPtr<RemoteLayerTreeDrawingArea> weak { *this };
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (RefPtr strong = weak.get()) {
+                if (!strong->m_isRenderingSuspended)
+                    strong->updateRendering();
+            }
+        });
+    }
     if (m_updateRenderingTimer.isActive())
         return;
     if (!m_updateStartTime)
@@ -308,6 +372,7 @@ void RemoteLayerTreeDrawingArea::startRenderingUpdateTimer()
 
 void RemoteLayerTreeDrawingArea::triggerRenderingUpdate()
 {
+    // 10.9 perf: removed debug fopen logging
     if (m_isRenderingSuspended) {
         m_hasDeferredRenderingUpdate = true;
         return;
@@ -450,9 +515,13 @@ void RemoteLayerTreeDrawingArea::displayDidRefresh(MonotonicTime start)
     // FIXME: This should use a counted replacement for setLayerTreeStateIsFrozen, but
     // the callers of that function are not strictly paired.
 
+    // 10.9 perf: removed debug fopen logging
     auto wasWaitingForBackingStoreSwap = std::exchange(m_waitingForBackingStoreSwap, false);
 
-    if (!WebProcess::singleton().shouldUseRemoteRenderingFor(WebCore::RenderingPurpose::DOM)) {
+#if ENABLE(GPU_PROCESS)
+    if (!WebProcess::singleton().shouldUseRemoteRenderingFor(WebCore::RenderingPurpose::DOM))
+#endif
+    {
         // This empty transaction serves to trigger CA's garbage collection of IOSurfaces. See <rdar://problem/16110687>
         [CATransaction begin];
         [CATransaction commit];
@@ -519,7 +588,9 @@ bool RemoteLayerTreeDrawingArea::BackingStoreFlusher::flush(UniqueRef<IPC::Encod
 
     m_pendingFlushes--;
 
-    m_connection->sendMessage(WTF::move(commitEncoder), { });
+    // 10.9 perf: removed debug fopen logging
+    auto sendError = m_connection->sendMessage(WTF::move(commitEncoder), { });
+    // 10.9 perf: removed debug fopen logging
     return flushSucceeded;
 }
 

@@ -101,7 +101,19 @@ RetainPtr<CFStringRef> copyLocalizedString(CFStringRef key)
 {
     static CFStringRef notFound = CFSTR("localized string not found");
 
-    auto result = adoptCF(CFBundleCopyLocalizedString(webCoreBundleSingleton(), key, notFound, nullptr));
+    // 10.9 backport: webCoreBundleSingleton() can return NULL when the WebCore
+    // framework isn't registered as a loaded bundle (no com.apple.WebCore Info.plist
+    // identifier in this build). CFBundleCopyLocalizedString crashes on NULL bundle
+    // in 10.9's CoreFoundation. Fall back to the English key itself, which is what
+    // the upstream macro source already passed in.
+    CFBundleRef bundle = webCoreBundleSingleton();
+    if (!bundle) {
+        if (key)
+            return RetainPtr<CFStringRef> { key };
+        return RetainPtr<CFStringRef> { notFound };
+    }
+
+    auto result = adoptCF(CFBundleCopyLocalizedString(bundle, key, notFound, nullptr));
 
 #if ASSERT_ENABLED
     if (result.get() == notFound) {

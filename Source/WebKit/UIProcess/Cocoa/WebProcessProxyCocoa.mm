@@ -37,7 +37,9 @@
 #import "WKAPICast.h"
 #import "WKBrowsingContextHandleInternal.h"
 #import "WKMouseDeviceObserver.h"
+#if PLATFORM(IOS_FAMILY)
 #import "WKStylusDeviceObserver.h"
+#endif
 #import "WebPageProxy.h"
 #import "WebProcessMessages.h"
 #import "WebProcessPool.h"
@@ -98,10 +100,19 @@ void WebProcessProxy::registerNotifyObservers()
 
 const MemoryCompactLookupOnlyRobinHoodHashSet<String>& WebProcessProxy::platformPathsWithAssumedReadAccess()
 {
-    static NeverDestroyed<MemoryCompactLookupOnlyRobinHoodHashSet<String>> platformPathsWithAssumedReadAccess(std::initializer_list<String> {
-        [NSBundle bundleWithIdentifier:@"com.apple.WebCore"].resourcePath.stringByStandardizingPath,
-        [NSBundle bundleForClass:NSClassFromString(@"WKWebView")].resourcePath.stringByStandardizingPath
-    });
+    // 10.9 backport: bundleWithIdentifier may return nil for our locally-built frameworks,
+    // and bundleForClass may return nil if WKWebView isn't loaded yet. Build the set safely
+    // by skipping nil paths instead of feeding them into the initializer_list.
+    static NeverDestroyed<MemoryCompactLookupOnlyRobinHoodHashSet<String>> platformPathsWithAssumedReadAccess([] {
+        MemoryCompactLookupOnlyRobinHoodHashSet<String> set;
+        if (NSString *p = [NSBundle bundleWithIdentifier:@"com.apple.WebCore"].resourcePath.stringByStandardizingPath)
+            set.add(p);
+        if (Class wk = NSClassFromString(@"WKWebView")) {
+            if (NSString *p = [NSBundle bundleForClass:wk].resourcePath.stringByStandardizingPath)
+                set.add(p);
+        }
+        return set;
+    }());
 
     return platformPathsWithAssumedReadAccess;
 }
@@ -269,7 +280,13 @@ std::optional<Vector<SandboxExtension::Handle>> WebProcessProxy::fontdMachExtens
 {
     if (std::exchange(m_sentFontdMachExtensionHandles, true))
         return std::nullopt;
+#if ENABLE(SANDBOX_EXTENSIONS)
     return SandboxExtension::createHandlesForMachLookup({ "com.apple.fonts"_s }, auditToken(), SandboxExtension::MachBootstrapOptions::EnableMachBootstrap);
+#else
+    // 10.9: SANDBOX_EXTENSIONS is OFF; calling the stubbed createHandlesForMachLookup
+    // (in libpolyfill final_stubs.o) returns garbage that crashes the Vector destructor.
+    return std::nullopt;
+#endif
 }
 
 #if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/WebProcessProxyCocoaAdditions.mm>)

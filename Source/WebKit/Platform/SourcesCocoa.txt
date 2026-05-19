@@ -2,17 +2,20 @@ Platform/cf/ModuleCF.cpp
 
 Platform/cocoa/CocoaHelpers.mm
 Platform/cocoa/CocoaImage.mm @nonARC
-Platform/cocoa/ImageAnalysisUtilities.mm @nonARC
+// ImageAnalysisUtilities requires VisionKit (10.15+)
+// Platform/cocoa/ImageAnalysisUtilities.mm @nonARC
 Platform/cocoa/LayerHostingContext.mm @nonARC
 Platform/cocoa/LayerHostingContextManager.mm @nonARC
-Platform/cocoa/NetworkIssueReporter.mm @nonARC
+// NetworkIssueReporter requires NSURLSessionTaskTransactionMetrics (10.12+)
+// Platform/cocoa/NetworkIssueReporter.mm @nonARC
 Platform/cocoa/WKCrashReporter.mm @nonARC
 Platform/cocoa/XPCUtilities.mm @nonARC
 
 Platform/foundation/LoggingFoundation.mm @nonARC
 
 Platform/IPC/cocoa/ConnectionCocoa.mm @nonARC
-Platform/IPC/cocoa/DaemonConnectionCocoa.mm @nonARC
+// DaemonConnectionCocoa requires xpc_connection_activate (10.14+)
+// Platform/IPC/cocoa/DaemonConnectionCocoa.mm @nonARC
 Platform/IPC/cocoa/MachMessage.cpp
 Platform/IPC/cocoa/TransferStringCocoa.mm @nonARC
 

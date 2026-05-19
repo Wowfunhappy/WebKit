@@ -165,7 +165,8 @@ static ASCIILiteral webContentServiceName(const ProcessLauncher::LaunchOptions& 
     if (useEnhancedSecurity)
         return "com.apple.WebKit.WebContent.EnhancedSecurity"_s;
 
-    return launchOptions.nonValidInjectedCodeAllowed ? "com.apple.WebKit.WebContent.Development"_s : "com.apple.WebKit.WebContent"_s;
+    // On 10.9, the staged XPC service has no ".Development" variant.
+    return "com.apple.WebKit.WebContent"_s;
 }
 
 static ASCIILiteral serviceName(const ProcessLauncher::LaunchOptions& launchOptions, ProcessLauncher::Client* client)
@@ -278,8 +279,10 @@ void ProcessLauncher::launchProcess()
     launchWithExtensionKit(*this, m_launchOptions.processType, m_client.get(), WTF::move(handler));
 #else
     auto name = serviceName(m_launchOptions, m_client.get());
+    // 10.9 perf: removed debug fopen logging
     // FIXME: This is a false positive. <rdar://164843889>
     SUPPRESS_RETAINPTR_CTOR_ADOPT m_xpcConnection = adoptOSObject(xpc_connection_create(name, nullptr));
+    // 10.9 perf: removed debug fopen logging
     finishLaunchingProcess(name);
 #endif
 }
@@ -289,7 +292,8 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
     uuid_t uuid;
     uuid_generate(uuid);
 
-    xpc_connection_set_oneshot_instance(m_xpcConnection.get(), uuid);
+    // xpc_connection_set_oneshot_instance is 10.10+; skip on 10.9.
+    // xpc_connection_set_oneshot_instance(m_xpcConnection.get(), uuid);
 
     // Inherit UI process localization. It can be different from child process default localization:
     // 1. When the application and system frameworks simply have different localized resources available, we should match the application.
@@ -298,8 +302,11 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
 #if !USE(EXTENSIONKIT)
     // FIXME: This is a false positive. <rdar://164843889>
     SUPPRESS_RETAINPTR_CTOR_ADOPT auto initializationMessage = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
-    _CFBundleSetupXPCBootstrap(initializationMessage.get());
-    xpc_connection_set_bootstrap(m_xpcConnection.get(), initializationMessage.get());
+    // _CFBundleSetupXPCBootstrap is 10.10+; skip on 10.9.
+    // _CFBundleSetupXPCBootstrap(initializationMessage.get());
+    // xpc_connection_set_bootstrap is 10.10+; skip on 10.9.
+    // The bootstrap message is sent separately via xpc_connection_send_message below.
+    // xpc_connection_set_bootstrap(m_xpcConnection.get(), initializationMessage.get());
 #endif
 
     // Create the listening port.
@@ -334,7 +341,7 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
     SUPPRESS_RETAINPTR_CTOR_ADOPT auto bootstrapMessage = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-    xpc_dictionary_set_string(bootstrapMessage.get(), "WebKitBundleVersion", WEBKIT_BUNDLE_VERSION);
+    xpc_dictionary_set_string(bootstrapMessage.get(), "WebKitBundleVersion", "615.1.1");
 #endif
 
     auto languagesIterator = m_launchOptions.extraInitializationData.find<HashTranslatorASCIILiteral>("OverrideLanguages"_s);

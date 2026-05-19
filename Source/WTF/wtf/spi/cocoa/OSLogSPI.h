@@ -40,14 +40,14 @@ DECLARE_SYSTEM_HEADER
 
 typedef uint32_t os_trace_mode_t;
 
-OS_ENUM(_os_trace_commonmodes, os_trace_mode_t,
+enum {
     OS_TRACE_MODE_INFO                          = 0x01,
     OS_TRACE_MODE_DEBUG                         = 0x02,
     OS_TRACE_MODE_BACKTRACE                     = 0x04,
     OS_TRACE_MODE_STREAM_LIVE                   = 0x08,
     OS_TRACE_MODE_DISABLE                       = 0x0100,
     OS_TRACE_MODE_OFF                           = 0x0400,
-);
+};
 
 typedef struct os_log_message_s {
     uint64_t trace_id;
@@ -65,21 +65,17 @@ typedef struct os_log_message_s {
 
 WTF_EXTERN_C_BEGIN
 
-OS_EXPORT OS_NOTHROW OS_NOT_TAIL_CALLED OS_NONNULL5
-void os_log_with_args(os_log_t oslog, os_log_type_t type, const char *format, va_list args, void *ret_addr);
+/* These functions are stubs on macOS 10.9 where os_log doesn't exist */
+static inline void os_log_with_args(os_log_t oslog, os_log_type_t type, const char *format, va_list args, void *ret_addr) {
+    (void)oslog; (void)type; (void)format; (void)args; (void)ret_addr;
+}
 
-OS_EXPORT OS_NOTHROW
-void os_trace_set_mode(os_trace_mode_t mode);
-
-OS_EXPORT OS_NOTHROW
-os_trace_mode_t os_trace_get_mode();
+static inline void os_trace_set_mode(os_trace_mode_t mode) { (void)mode; }
+static inline os_trace_mode_t os_trace_get_mode(void) { return 0; }
 
 typedef void (^os_log_hook_t)(os_log_type_t type, os_log_message_t msg);
 
-OS_EXPORT OS_NOTHROW
-os_log_hook_t os_log_set_hook(os_log_type_t level, os_log_hook_t);
-
-OS_EXPORT OS_NOTHROW
-char* os_log_copy_message_string(os_log_message_t msg);
+static inline os_log_hook_t os_log_set_hook(os_log_type_t level, os_log_hook_t hook) { (void)level; return hook; }
+static inline char* os_log_copy_message_string(os_log_message_t msg) { (void)msg; return 0; }
 
 WTF_EXTERN_C_END

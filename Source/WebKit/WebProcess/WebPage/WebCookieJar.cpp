@@ -49,6 +49,7 @@
 #include <optional>
 #include <wtf/HashSet.h>
 #include <wtf/Vector.h>
+#include <wtf/text/StringBuilder.h>
 
 namespace WebKit {
 
@@ -58,6 +59,70 @@ class WebStorageSessionProvider : public WebCore::StorageSessionProvider {
     // NetworkStorageSessions are accessed only in the NetworkProcess.
     WebCore::NetworkStorageSession* storageSession() const final { return nullptr; }
 };
+
+// 10.9 backport helpers: parse/format the JS document.cookie name=value list.
+static void parseCookieStringIntoMap(const String& cookieString, HashMap<String, String>& map)
+{
+    // The JS-side cookieString is a single Set-Cookie value: "name=value[; attr=...]".
+    // We only care about the first name=value pair; attributes (path, expires, etc.)
+    // are not modeled in the local fallback.
+    auto semi = cookieString.find(';');
+    String pair = (semi == notFound) ? cookieString : cookieString.left(semi);
+    auto eq = pair.find('=');
+    if (eq == notFound)
+        return;
+    String name = pair.left(eq).trim(deprecatedIsSpaceOrNewline);
+    String value = pair.substring(eq + 1).trim(deprecatedIsSpaceOrNewline);
+    if (name.isEmpty())
+        return;
+    map.set(name, value);
+}
+
+static String formatCookieMap(const HashMap<String, String>& map)
+{
+    StringBuilder out;
+    for (auto& it : map) {
+        if (!out.isEmpty())
+            out.append("; "_s);
+        out.append(it.key);
+        out.append('=');
+        out.append(it.value);
+    }
+    return out.toString();
+}
+
+static String mergeCookieStrings(const String& fromNetwork, const String& localFallback)
+{
+    if (localFallback.isEmpty())
+        return fromNetwork;
+    if (fromNetwork.isEmpty())
+        return localFallback;
+    // Build a set of names already in fromNetwork so we don't duplicate.
+    HashSet<String> existingNames;
+    Vector<String> pairs = fromNetwork.split(';');
+    for (auto& p : pairs) {
+        String trimmed = p.trim(deprecatedIsSpaceOrNewline);
+        auto eq = trimmed.find('=');
+        if (eq == notFound)
+            continue;
+        existingNames.add(trimmed.left(eq));
+    }
+    StringBuilder out;
+    out.append(fromNetwork);
+    Vector<String> localPairs = localFallback.split(';');
+    for (auto& p : localPairs) {
+        String trimmed = p.trim(deprecatedIsSpaceOrNewline);
+        auto eq = trimmed.find('=');
+        if (eq == notFound)
+            continue;
+        if (existingNames.contains(trimmed.left(eq)))
+            continue;
+        if (!out.isEmpty())
+            out.append("; "_s);
+        out.append(trimmed);
+    }
+    return out.toString();
+}
 
 WebCookieJar::WebCookieJar()
     : WebCore::CookieJar(adoptRef(*new WebStorageSessionProvider))
@@ -151,11 +216,20 @@ String WebCookieJar::cookies(WebCore::Document& document, const URL& url) const
     auto pageID = page->identifier();
     auto webPageProxyID = page->webPageProxyIdentifier();
 
+    String cookieString;
     if (isEligibleForCache(*webFrame, document.firstPartyForCookies(), url))
-        return m_cache->cookiesForDOM(document.firstPartyForCookies(), sameSiteInfo, url, frameID, pageID, webPageProxyID, includeSecureCookies);
+        cookieString = m_cache->cookiesForDOM(document.firstPartyForCookies(), sameSiteInfo, url, frameID, pageID, webPageProxyID, includeSecureCookies);
+    else {
+        auto sendResult = WebProcess::singleton().ensureNetworkProcessConnection().connection().sendSync(Messages::NetworkConnectionToWebProcess::CookiesForDOM(document.firstPartyForCookies(), sameSiteInfo, url, frameID, pageID, includeSecureCookies, webPageProxyID), 0);
+        auto [str, secureCookiesAccessed] = sendResult.takeReplyOr(String { }, false);
+        cookieString = WTF::move(str);
+    }
 
-    auto sendResult = WebProcess::singleton().ensureNetworkProcessConnection().connection().sendSync(Messages::NetworkConnectionToWebProcess::CookiesForDOM(document.firstPartyForCookies(), sameSiteInfo, url, frameID, pageID, includeSecureCookies, webPageProxyID), 0);
-    auto [cookieString, secureCookiesAccessed] = sendResult.takeReplyOr(String { }, false);
+    // 10.9 backport: merge in any locally-set cookies for this host.
+    auto host = url.host().toString();
+    auto localIt = m_localDOMCookies.find(host);
+    if (localIt != m_localDOMCookies.end() && !localIt->value.isEmpty())
+        cookieString = mergeCookieStrings(cookieString, formatCookieMap(localIt->value));
 
     return cookieString;
 }
@@ -182,6 +256,15 @@ void WebCookieJar::setCookies(WebCore::Document& document, const URL& url, const
 
     if (isEligibleForCache(*webFrame, document.firstPartyForCookies(), url))
         m_cache->setCookiesFromDOM(document.firstPartyForCookies(), sameSiteInfo, url, frameID, pageID, cookieString, shouldRelaxThirdPartyCookieBlocking(webFrame.get()));
+
+    // 10.9 backport: stash a per-host name/value entry in WebContent so
+    // subsequent JS reads on the same page see this write immediately, even
+    // if the NetworkProcess store races or rejects it (iCloud cookie probe).
+    if (!cookieString.isEmpty()) {
+        auto host = url.host().toString();
+        auto& bucket = m_localDOMCookies.add(host, HashMap<String, String> { }).iterator->value;
+        parseCookieStringIntoMap(cookieString, bucket);
+    }
 
     WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::SetCookiesFromDOM(document.firstPartyForCookies(), sameSiteInfo, url, frameID, pageID, cookieString, requiresPrivacyProtections, page->webPageProxyIdentifier()), 0);
 }

@@ -754,6 +754,14 @@ set(WebKit_FRAMEWORKS
     bmalloc
 )
 
+# Re-export WebKitLegacy so that DOM ObjC classes (DOMHTMLAnchorElement etc.)
+# are visible through WebKit.framework. DataDetectors.framework expects these.
+# Note: WebKitLegacy is linked ONLY via -reexport_framework (not also as a regular
+# framework dependency) to avoid duplicate symbol errors.
+if (APPLE)
+    list(APPEND WebKit_PRIVATE_LIBRARIES "-Wl,-reexport_framework,WebKitLegacy")
+endif ()
+
 set(WebProcess_LIBRARIES WebKit)
 set(NetworkProcess_LIBRARIES WebKit)
 set(GPUProcess_LIBRARIES WebKit)
@@ -1106,10 +1114,30 @@ if (ENABLE_SWIFT_DEMO_URI_SCHEME)
     )
 endif ()
 
+# 10.9 backport: stub @implementations Safari 9.1.3 expects from WebKit.framework.
+if (APPLE)
+    list(APPEND WebKit_SOURCES
+        ${WEBKIT_DIR}/PolyfillClasses_109.mm
+    )
+endif ()
+
 list(APPEND WebKit_SOURCES ${WebKit_DERIVED_SOURCES})
 
 WEBKIT_COMPUTE_SOURCES(WebKit)
+
+# Add polyfill class stubs as a non-unified source (avoids header conflicts)
+list(APPEND WebKit_SOURCES
+)
+
 WEBKIT_FRAMEWORK(WebKit)
+set_target_properties(WebKit PROPERTIES
+    LINKER_LANGUAGE CXX
+    # Set proper macOS framework install name and version
+    INSTALL_NAME_DIR "/System/Library/Frameworks/WebKit.framework/Versions/A"
+    VERSION "615.1.1"
+    SOVERSION "A"
+    MACOSX_FRAMEWORK_IDENTIFIER "com.apple.WebKit"
+)
 ADD_WEBKIT_PREFIX_HEADER(WebKit)
 
 list(APPEND WebProcess_PRIVATE_INCLUDE_DIRECTORIES $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>)

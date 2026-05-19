@@ -27,7 +27,9 @@
 
 #include <wtf/Platform.h>
 
-#if !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+// macOS 10.9 backport: force the full class definition to be compiled.
+// Safari 9.1.3 / clang on this build doesn't have the Swift/ObjC interop module path.
+#if 1 // !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 #include <wtf/HashTable.h>
 #include <wtf/Noncopyable.h>

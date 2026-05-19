@@ -87,7 +87,17 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(CoreIPCNSURLRequest);
 
 CoreIPCNSURLRequest::CoreIPCNSURLRequest(NSURLRequest *request)
 {
-    RetainPtr dict = [request _webKitPropertyListData];
+    // 10.9 backport: _webKitPropertyListData is 10.10+. Build a minimal dict
+    // with just the URL when missing — enough for navigation policy decisions.
+    RetainPtr<NSDictionary> dict;
+    if ([request respondsToSelector:@selector(_webKitPropertyListData)])
+        dict = [request _webKitPropertyListData];
+    else if (request.URL) {
+        auto fallback = adoptNS([[NSMutableDictionary alloc] init]);
+        [fallback setObject:(id)request.URL forKey:@"URL"];
+        dict = fallback;
+    } else
+        dict = adoptNS([[NSDictionary alloc] init]);
 
     if (RetainPtr protocolPropertiesDict = dynamic_objc_cast<NSDictionary>(dict.get()[@"protocolProperties"])) {
         ProtocolProperties props;
@@ -373,7 +383,14 @@ RetainPtr<id> CoreIPCNSURLRequest::toID() const
         [dict setObject:array.get() forKey:@"contentDispositionEncodingFallbackArray"];
     }
 
-    return adoptNS([[NSURLRequest alloc] _initWithWebKitPropertyListData:dict.get()]);
+    // 10.9 backport: _initWithWebKitPropertyListData: is a 10.10+ private
+    // selector. Fall back to a plain NSURLRequest with the URL only, which is
+    // enough for navigation policy decisions on basic loads (data: URLs etc.).
+    if ([NSURLRequest instancesRespondToSelector:@selector(_initWithWebKitPropertyListData:)])
+        return adoptNS([[NSURLRequest alloc] _initWithWebKitPropertyListData:dict.get()]);
+    if (auto nsURL = m_data.url.toID())
+        return adoptNS([[NSURLRequest alloc] initWithURL:(NSURL*)nsURL.get()]);
+    return adoptNS([[NSURLRequest alloc] init]);
 }
 
 } // namespace WebKit

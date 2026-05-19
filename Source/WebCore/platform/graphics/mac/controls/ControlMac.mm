@@ -96,9 +96,13 @@ void ControlMac::updateCheckedState(NSCell *cell, const ControlStyle& style)
 
     auto newState = indeterminate ? NSControlStateValueMixed : (checked ? NSControlStateValueOn : NSControlStateValueOff);
 
-    if (auto *buttonCell = dynamic_objc_cast<NSButtonCell>(cell))
-        [buttonCell _setState:newState animated:false];
-    else
+    if (auto *buttonCell = dynamic_objc_cast<NSButtonCell>(cell)) {
+        // 10.9 backport: -_setState:animated: is 10.10+ NSButtonCell SPI.
+        if ([buttonCell respondsToSelector:@selector(_setState:animated:)])
+            [buttonCell _setState:newState animated:false];
+        else
+            [buttonCell setState:newState];
+    } else
         [cell setState:newState];
 }
 
@@ -127,9 +131,13 @@ void ControlMac::updatePressedState(NSCell *cell, const ControlStyle& style)
     if (pressed == oldPressed)
         return;
 
-    if (auto *buttonCell = dynamic_objc_cast<NSButtonCell>(cell))
-        [buttonCell _setHighlighted:pressed animated:false];
-    else
+    if (auto *buttonCell = dynamic_objc_cast<NSButtonCell>(cell)) {
+        // 10.9 backport: -_setHighlighted:animated: is 10.10+ NSButtonCell SPI.
+        if ([buttonCell respondsToSelector:@selector(_setHighlighted:animated:)])
+            [buttonCell _setHighlighted:pressed animated:false];
+        else
+            [buttonCell setHighlighted:pressed];
+    } else
         [cell setHighlighted:pressed];
 }
 

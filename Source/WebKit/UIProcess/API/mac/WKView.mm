@@ -1,1415 +1,413 @@
-/*
- * Copyright (C) 2010, 2011 Apple Inc. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
- * THE POSSIBILITY OF SUCH DAMAGE.
- */
+// WKView implementation for macOS 10.9 backport
+// Creates a WebPageProxy when Safari's BrowserWKView initializes
 
 #import "config.h"
-#import "WKViewInternal.h"
+#import "WKView.h"
 
-#if PLATFORM(MAC)
-
-#import "APIHitTestResult.h"
-#import "APIIconLoadingClient.h"
 #import "APIPageConfiguration.h"
-#import "AppKitSPI.h"
-#import "WKBrowsingContextGroupPrivate.h"
-#import "WKNSData.h"
-#import "WKWebViewMac.h"
-#import "WebBackForwardListItem.h"
-#import "WebKit2Initialize.h"
+#import "NativeWebKeyboardEvent.h"
+#import "NativeWebMouseEvent.h"
+#import "NativeWebWheelEvent.h"
+#import "PageClient.h"
+#import "WKAPICast.h"
 #import "WebPageGroup.h"
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "WebProcessPool.h"
-#import "WebViewImpl.h"
-#import "_WKLinkIconParametersInternal.h"
-#import <WebCore/WebCoreObjCExtras.h>
-#import <WebCore/WebViewVisualIdentificationOverlay.h>
-#import <WebKit/WKDragDestinationAction.h>
-#import <pal/spi/cocoa/AVKitSPI.h>
-#import <pal/spi/mac/NSViewSPI.h>
-#import <wtf/BlockPtr.h>
+#import "WebKit2Initialize.h"
+#import "DrawingAreaProxy.h"
+#import <WebCore/ActivityState.h>
+#import <WebCore/IntSize.h>
+#import <WebCore/KeypressCommand.h>
+#import <QuartzCore/QuartzCore.h>
+#import <wtf/RetainPtr.h>
+#import <wtf/Vector.h>
 
-@interface WKViewData : NSObject
+using namespace WebKit;
+
+// Declared in PageClientImplMac.mm
+namespace WebKit {
+std::unique_ptr<PageClient> createMinimalPageClient(NSView *view);
+void setMinimalPageClientPage(PageClient&, WebPageProxy *);
+}
+
+// Per-WKView state. RefPtr<WebPageProxy> keeps the page alive for the
+// lifetime of the view; std::unique_ptr<PageClient> owns the page client.
+struct WKViewState {
+    RefPtr<WebKit::WebPageProxy> page;
+    std::unique_ptr<WebKit::PageClient> pageClient;
+};
+
+@interface WKView () {
+    WKViewState *_wkState;
+}
 @end
 
-@implementation WKViewData
-@end
-
-@interface WKView () <WebViewImplDelegate>
-@end
-
-#if HAVE(TOUCH_BAR)
-@interface WKView () <NSTouchBarProvider>
-@end
-#endif
-
-@interface WKView () <NSScrollViewSeparatorTrackingAdapter>
-@end
-
-#if ENABLE(DRAG_SUPPORT)
-
-@interface WKView () <NSFilePromiseProviderDelegate, NSDraggingSource>
-@end
-
-#endif
-
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 @implementation WKView
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-
-- (void)dealloc
-{
-    [super dealloc];
-}
-
-- (WKBrowsingContextController *)browsingContextController
-{
-    return nil;
-}
-
-- (void)setDrawsBackground:(BOOL)drawsBackground
-{
-}
-
-- (BOOL)drawsBackground
-{
-    return NO;
-}
-
-- (NSColor *)_backgroundColor
-{
-    return nil;
-}
-
-- (void)_setBackgroundColor:(NSColor *)backgroundColor
-{
-}
-
-- (void)setDrawsTransparentBackground:(BOOL)drawsTransparentBackground
-{
-}
-
-- (BOOL)drawsTransparentBackground
-{
-    return NO;
-}
-
-- (BOOL)acceptsFirstResponder
-{
-    return NO;
-}
-
-- (BOOL)becomeFirstResponder
-{
-    return NO;
-}
-
-- (BOOL)resignFirstResponder
-{
-    return NO;
-}
-
-- (void)viewWillStartLiveResize
-{
-}
-
-- (void)viewDidEndLiveResize
-{
-}
-
-- (BOOL)isFlipped
-{
-    return YES;
-}
-
-- (NSSize)intrinsicContentSize
-{
-    return { };
-}
-
-- (void)prepareContentInRect:(NSRect)rect
-{
-}
-
-- (void)setFrameSize:(NSSize)size
-{
-}
-
-- (void)_setSemanticContext:(NSViewSemanticContext)semanticContext
-{
-}
-
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-- (void)renewGState
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-{
-}
-
-#define WEBCORE_COMMAND(command) - (void)command:(id)sender { }
-
-WEBCORE_COMMAND(alignCenter)
-WEBCORE_COMMAND(alignJustified)
-WEBCORE_COMMAND(alignLeft)
-WEBCORE_COMMAND(alignRight)
-WEBCORE_COMMAND(copy)
-WEBCORE_COMMAND(copyFont)
-WEBCORE_COMMAND(cut)
-WEBCORE_COMMAND(delete)
-WEBCORE_COMMAND(deleteBackward)
-WEBCORE_COMMAND(deleteBackwardByDecomposingPreviousCharacter)
-WEBCORE_COMMAND(deleteForward)
-WEBCORE_COMMAND(deleteToBeginningOfLine)
-WEBCORE_COMMAND(deleteToBeginningOfParagraph)
-WEBCORE_COMMAND(deleteToEndOfLine)
-WEBCORE_COMMAND(deleteToEndOfParagraph)
-WEBCORE_COMMAND(deleteToMark)
-WEBCORE_COMMAND(deleteWordBackward)
-WEBCORE_COMMAND(deleteWordForward)
-WEBCORE_COMMAND(ignoreSpelling)
-WEBCORE_COMMAND(indent)
-WEBCORE_COMMAND(insertBacktab)
-WEBCORE_COMMAND(insertLineBreak)
-WEBCORE_COMMAND(insertNewline)
-WEBCORE_COMMAND(insertNewlineIgnoringFieldEditor)
-WEBCORE_COMMAND(insertParagraphSeparator)
-WEBCORE_COMMAND(insertTab)
-WEBCORE_COMMAND(insertTabIgnoringFieldEditor)
-WEBCORE_COMMAND(makeTextWritingDirectionLeftToRight)
-WEBCORE_COMMAND(makeTextWritingDirectionNatural)
-WEBCORE_COMMAND(makeTextWritingDirectionRightToLeft)
-WEBCORE_COMMAND(moveBackward)
-WEBCORE_COMMAND(moveBackwardAndModifySelection)
-WEBCORE_COMMAND(moveDown)
-WEBCORE_COMMAND(moveDownAndModifySelection)
-WEBCORE_COMMAND(moveForward)
-WEBCORE_COMMAND(moveForwardAndModifySelection)
-WEBCORE_COMMAND(moveLeft)
-WEBCORE_COMMAND(moveLeftAndModifySelection)
-WEBCORE_COMMAND(moveParagraphBackwardAndModifySelection)
-WEBCORE_COMMAND(moveParagraphForwardAndModifySelection)
-WEBCORE_COMMAND(moveRight)
-WEBCORE_COMMAND(moveRightAndModifySelection)
-WEBCORE_COMMAND(moveToBeginningOfDocument)
-WEBCORE_COMMAND(moveToBeginningOfDocumentAndModifySelection)
-WEBCORE_COMMAND(moveToBeginningOfLine)
-WEBCORE_COMMAND(moveToBeginningOfLineAndModifySelection)
-WEBCORE_COMMAND(moveToBeginningOfParagraph)
-WEBCORE_COMMAND(moveToBeginningOfParagraphAndModifySelection)
-WEBCORE_COMMAND(moveToBeginningOfSentence)
-WEBCORE_COMMAND(moveToBeginningOfSentenceAndModifySelection)
-WEBCORE_COMMAND(moveToEndOfDocument)
-WEBCORE_COMMAND(moveToEndOfDocumentAndModifySelection)
-WEBCORE_COMMAND(moveToEndOfLine)
-WEBCORE_COMMAND(moveToEndOfLineAndModifySelection)
-WEBCORE_COMMAND(moveToEndOfParagraph)
-WEBCORE_COMMAND(moveToEndOfParagraphAndModifySelection)
-WEBCORE_COMMAND(moveToEndOfSentence)
-WEBCORE_COMMAND(moveToEndOfSentenceAndModifySelection)
-WEBCORE_COMMAND(moveToLeftEndOfLine)
-WEBCORE_COMMAND(moveToLeftEndOfLineAndModifySelection)
-WEBCORE_COMMAND(moveToRightEndOfLine)
-WEBCORE_COMMAND(moveToRightEndOfLineAndModifySelection)
-WEBCORE_COMMAND(moveUp)
-WEBCORE_COMMAND(moveUpAndModifySelection)
-WEBCORE_COMMAND(moveWordBackward)
-WEBCORE_COMMAND(moveWordBackwardAndModifySelection)
-WEBCORE_COMMAND(moveWordForward)
-WEBCORE_COMMAND(moveWordForwardAndModifySelection)
-WEBCORE_COMMAND(moveWordLeft)
-WEBCORE_COMMAND(moveWordLeftAndModifySelection)
-WEBCORE_COMMAND(moveWordRight)
-WEBCORE_COMMAND(moveWordRightAndModifySelection)
-WEBCORE_COMMAND(outdent)
-WEBCORE_COMMAND(pageDown)
-WEBCORE_COMMAND(pageDownAndModifySelection)
-WEBCORE_COMMAND(pageUp)
-WEBCORE_COMMAND(pageUpAndModifySelection)
-WEBCORE_COMMAND(paste)
-WEBCORE_COMMAND(pasteAsPlainText)
-WEBCORE_COMMAND(pasteFont)
-WEBCORE_COMMAND(scrollPageDown)
-WEBCORE_COMMAND(scrollPageUp)
-WEBCORE_COMMAND(scrollLineDown)
-WEBCORE_COMMAND(scrollLineUp)
-WEBCORE_COMMAND(scrollToBeginningOfDocument)
-WEBCORE_COMMAND(scrollToEndOfDocument)
-WEBCORE_COMMAND(selectAll)
-WEBCORE_COMMAND(selectLine)
-WEBCORE_COMMAND(selectParagraph)
-WEBCORE_COMMAND(selectSentence)
-WEBCORE_COMMAND(selectToMark)
-WEBCORE_COMMAND(selectWord)
-WEBCORE_COMMAND(setMark)
-WEBCORE_COMMAND(subscript)
-WEBCORE_COMMAND(superscript)
-WEBCORE_COMMAND(swapWithMark)
-WEBCORE_COMMAND(takeFindStringFromSelection)
-WEBCORE_COMMAND(transpose)
-WEBCORE_COMMAND(underline)
-WEBCORE_COMMAND(unscript)
-WEBCORE_COMMAND(yank)
-WEBCORE_COMMAND(yankAndSelect)
-
-#undef WEBCORE_COMMAND
-
-- (BOOL)writeSelectionToPasteboard:(NSPasteboard *)pasteboard types:(NSArray *)types
-{
-    return NO;
-}
-
-- (void)centerSelectionInVisibleArea:(id)sender 
-{ 
-}
-
-- (id)validRequestorForSendType:(NSString *)sendType returnType:(NSString *)returnType
-{
-    return nil;
-}
-
-- (BOOL)readSelectionFromPasteboard:(NSPasteboard *)pasteboard 
-{
-    return NO;
-}
-
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-- (void)changeFont:(id)sender
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-{
-}
-
-/*
-
-When possible, editing-related methods should be implemented in WebCore with the
-EditorCommand mechanism and invoked via WEBCORE_COMMAND, rather than implementing
-individual methods here with Mac-specific code.
-
-Editing-related methods still unimplemented that are implemented in WebKit1:
-
-- (void)complete:(id)sender;
-- (void)makeBaseWritingDirectionLeftToRight:(id)sender;
-- (void)makeBaseWritingDirectionNatural:(id)sender;
-- (void)makeBaseWritingDirectionRightToLeft:(id)sender;
-- (void)scrollLineDown:(id)sender;
-- (void)scrollLineUp:(id)sender;
-- (void)showGuessPanel:(id)sender;
-
-Some other editing-related methods still unimplemented:
-
-- (void)changeCaseOfLetter:(id)sender;
-- (void)copyRuler:(id)sender;
-- (void)insertContainerBreak:(id)sender;
-- (void)insertDoubleQuoteIgnoringSubstitution:(id)sender;
-- (void)insertSingleQuoteIgnoringSubstitution:(id)sender;
-- (void)pasteRuler:(id)sender;
-- (void)toggleRuler:(id)sender;
-- (void)transposeWords:(id)sender;
-
-*/
-
-- (BOOL)validateUserInterfaceItem:(id <NSValidatedUserInterfaceItem>)item
-{
-    return NO;
-}
-
-- (IBAction)startSpeaking:(id)sender
-{
-}
-
-- (IBAction)stopSpeaking:(id)sender
-{
-}
-
-- (IBAction)showGuessPanel:(id)sender
-{
-}
-
-- (IBAction)checkSpelling:(id)sender
-{
-}
-
-- (void)changeSpelling:(id)sender
-{
-}
-
-- (IBAction)toggleContinuousSpellChecking:(id)sender
-{
-}
-
-- (BOOL)isGrammarCheckingEnabled
-{
-    return NO;
-}
-
-- (void)setGrammarCheckingEnabled:(BOOL)flag
-{
-}
-
-- (IBAction)toggleGrammarChecking:(id)sender
-{
-}
-
-- (IBAction)toggleAutomaticSpellingCorrection:(id)sender
-{
-}
-
-- (void)orderFrontSubstitutionsPanel:(id)sender
-{
-}
-
-- (IBAction)toggleSmartInsertDelete:(id)sender
-{
-}
-
-- (BOOL)isAutomaticQuoteSubstitutionEnabled
-{
-    return NO;
-}
-
-- (void)setAutomaticQuoteSubstitutionEnabled:(BOOL)flag
-{
-}
-
-- (void)toggleAutomaticQuoteSubstitution:(id)sender
-{
-}
-
-- (BOOL)isAutomaticDashSubstitutionEnabled
-{
-    return NO;
-}
-
-- (void)setAutomaticDashSubstitutionEnabled:(BOOL)flag
-{
-}
-
-- (void)toggleAutomaticDashSubstitution:(id)sender
-{
-}
-
-- (BOOL)isAutomaticLinkDetectionEnabled
-{
-    return NO;
-}
-
-- (void)setAutomaticLinkDetectionEnabled:(BOOL)flag
-{
-}
-
-- (void)toggleAutomaticLinkDetection:(id)sender
-{
-}
-
-- (BOOL)isAutomaticTextReplacementEnabled
-{
-    return NO;
-}
-
-- (void)setAutomaticTextReplacementEnabled:(BOOL)flag
-{
-}
-
-- (void)toggleAutomaticTextReplacement:(id)sender
-{
-}
-
-- (void)uppercaseWord:(id)sender
-{
-}
-
-- (void)lowercaseWord:(id)sender
-{
-}
-
-- (void)capitalizeWord:(id)sender
-{
-}
-
-- (BOOL)_wantsKeyDownForEvent:(NSEvent *)event
-{
-    return NO;
-}
-
-- (void)scrollWheel:(NSEvent *)event
-{
-}
-
-- (void)swipeWithEvent:(NSEvent *)event
-{
-}
-
-- (void)mouseDown:(NSEvent *)event
-{
-}
-
-- (void)mouseUp:(NSEvent *)event
-{
-}
-
-- (void)mouseDragged:(NSEvent *)event
-{
-}
-
-- (void)otherMouseDown:(NSEvent *)event
-{
-}
-
-- (void)otherMouseDragged:(NSEvent *)event
-{
-}
-
-- (void)otherMouseUp:(NSEvent *)event
-{
-}
-
-- (void)rightMouseDown:(NSEvent *)event
-{
-}
-
-- (void)rightMouseDragged:(NSEvent *)event
-{
-}
-
-- (void)rightMouseUp:(NSEvent *)event
-{
-}
-
-- (void)pressureChangeWithEvent:(NSEvent *)event
-{
-}
-
-- (BOOL)acceptsFirstMouse:(NSEvent *)event
-{
-    return NO;
-}
-
-- (BOOL)shouldDelayWindowOrderingForEvent:(NSEvent *)event
-{
-    return NO;
-}
-
-- (void)doCommandBySelector:(SEL)selector
-{
-}
-
-- (void)insertText:(id)string
-{
-}
-
-- (void)insertText:(id)string replacementRange:(NSRange)replacementRange
-{
-}
-
-- (NSTextInputContext *)inputContext
-{
-    return nil;
-}
-
-- (BOOL)performKeyEquivalent:(NSEvent *)event
-{
-    return NO;
-}
-
-- (void)keyUp:(NSEvent *)theEvent
-{
-}
-
-- (void)keyDown:(NSEvent *)theEvent
-{
-}
-
-- (void)flagsChanged:(NSEvent *)theEvent
-{
-}
-
-- (void)setMarkedText:(id)string selectedRange:(NSRange)newSelectedRange replacementRange:(NSRange)replacementRange
-{
-}
-
-- (void)unmarkText
-{
-}
-
-- (NSRange)selectedRange
-{
-    return { };
-}
-
-- (BOOL)hasMarkedText
-{
-    return NO;
-}
-
-- (NSRange)markedRange
-{
-    return { };
-}
-
-- (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)nsRange actualRange:(NSRangePointer)actualRange
-{
-    return nil;
-}
-
-- (NSUInteger)characterIndexForPoint:(NSPoint)thePoint
-{
-    return 0;
-}
-
-- (NSRect)firstRectForCharacterRange:(NSRange)theRange actualRange:(NSRangePointer)actualRange
-{
-    return { };
-}
-
-- (void)selectedRangeWithCompletionHandler:(void(^)(NSRange selectedRange))completionHandlerPtr
-{
-}
-
-- (void)markedRangeWithCompletionHandler:(void(^)(NSRange markedRange))completionHandlerPtr
-{
-}
-
-- (void)hasMarkedTextWithCompletionHandler:(void(^)(BOOL hasMarkedText))completionHandlerPtr
-{
-}
-
-- (void)attributedSubstringForProposedRange:(NSRange)nsRange completionHandler:(void(^)(NSAttributedString *attrString, NSRange actualRange))completionHandlerPtr
-{
-}
-
-- (void)firstRectForCharacterRange:(NSRange)theRange completionHandler:(void(^)(NSRect firstRect, NSRange actualRange))completionHandlerPtr
-{
-}
-
-- (void)characterIndexForPoint:(NSPoint)thePoint completionHandler:(void(^)(NSUInteger))completionHandlerPtr
-{
-}
-
-- (NSArray *)validAttributesForMarkedText
-{
-    return nil;
-}
-
-#if ENABLE(DRAG_SUPPORT)
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-- (void)draggedImage:(NSImage *)image endedAt:(NSPoint)endPoint operation:(NSDragOperation)operation
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-{
-}
-
-- (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)draggingInfo
-{
-    return 0;
-}
-
-- (NSDragOperation)draggingUpdated:(id <NSDraggingInfo>)draggingInfo
-{
-    return 0;
-}
-
-- (void)draggingExited:(id <NSDraggingInfo>)draggingInfo
-{
-}
-
-- (BOOL)prepareForDragOperation:(id <NSDraggingInfo>)draggingInfo
-{
-    return NO;
-}
-
-- (BOOL)performDragOperation:(id <NSDraggingInfo>)draggingInfo
-{
-    return NO;
-}
-
-- (NSView *)_hitTest:(NSPoint *)point dragTypes:(NSSet *)types
-{
-    return nil;
-}
-#endif // ENABLE(DRAG_SUPPORT)
-
-- (BOOL)_windowResizeMouseLocationIsInVisibleScrollerThumb:(NSPoint)point
-{
-    return NO;
-}
-
-- (void)viewWillMoveToWindow:(NSWindow *)window
-{
-}
-
-- (void)viewDidMoveToWindow
-{
-}
-
-- (void)drawRect:(NSRect)rect
-{
-}
-
-- (BOOL)isOpaque
-{
-    return NO;
-}
-
-- (BOOL)mouseDownCanMoveWindow
-{
-    return NO;
-}
-
-- (void)viewDidHide
-{
-}
-
-- (void)viewDidUnhide
-{
-}
-
-- (void)viewDidChangeBackingProperties
-{
-}
-
-- (void)_activeSpaceDidChange:(NSNotification *)notification
-{
-}
-
-- (id)accessibilityFocusedUIElement
-{
-    return nil;
-}
-
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-- (BOOL)accessibilityIsIgnored
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-{
-    return NO;
-}
-
-- (id)accessibilityHitTest:(NSPoint)point
-{
-    return nil;
-}
-
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-- (id)accessibilityAttributeValue:(NSString *)attribute
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-{
-    return nil;
-}
-
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-- (id)accessibilityAttributeValue:(NSString *)attribute forParameter:(id)parameter
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-{
-    return nil;
-}
-
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-- (NSArray<NSString *> *)accessibilityParameterizedAttributeNames
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-{
-    return nil;
-}
-
-- (NSView *)hitTest:(NSPoint)point
-{
-    return nil;
-}
-
-- (NSInteger)conversationIdentifier
-{
-    return 0;
-}
-
-- (void)quickLookWithEvent:(NSEvent *)event
-{
-}
-
-- (NSTrackingRectTag)addTrackingRect:(NSRect)rect owner:(id)owner userData:(void *)data assumeInside:(BOOL)assumeInside
-{
-    return { };
-}
-
-- (NSTrackingRectTag)_addTrackingRect:(NSRect)rect owner:(id)owner userData:(void *)data assumeInside:(BOOL)assumeInside useTrackingNum:(int)tag
-{
-    return { };
-}
-
-- (void)_addTrackingRects:(NSRect *)rects owner:(id)owner userDataList:(void **)userDataList assumeInsideList:(BOOL *)assumeInsideList trackingNums:(NSTrackingRectTag *)trackingNums count:(int)count
-{
-}
-
-- (void)removeTrackingRect:(NSTrackingRectTag)tag
-{
-}
-
-- (void)_removeTrackingRects:(NSTrackingRectTag *)tags count:(int)count
-{
-}
-
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-- (NSString *)view:(NSView *)view stringForToolTip:(NSToolTipTag)tag point:(NSPoint)point userData:(void *)data
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-{
-    return nil;
-}
-
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-- (void)pasteboardChangedOwner:(NSPasteboard *)pasteboard
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-{
-}
-
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-- (void)pasteboard:(NSPasteboard *)pasteboard provideDataForType:(NSString *)type
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-{
-}
-
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-- (NSArray *)namesOfPromisedFilesDroppedAtDestination:(NSURL *)dropDestination
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-{
-    return nil;
-}
-
-- (void)maybeInstallIconLoadingClient
-{
-}
 
 - (instancetype)initWithFrame:(NSRect)frame processPool:(std::reference_wrapper<WebKit::WebProcessPool>)processPool configuration:(Ref<API::PageConfiguration>&&)configuration
 {
-    return nil;
+    FILE *earlyLog = ((FILE*)0);
+    if (earlyLog) { fprintf(earlyLog, "[PID %d] >>> WKView initWithFrame:processPool: ENTERED! frame=%gx%g\n",
+                            getpid(), frame.size.width, frame.size.height); fclose(earlyLog); }
+
+    self = [super initWithFrame:frame];
+    if (!self)
+        return nil;
+
+    [self setWantsLayer:YES];
+    self.layer.backgroundColor = CGColorGetConstantColor(kCGColorWhite);
+
+    [WKView installEventMonitorOnce];
+
+    WebKit::InitializeWebKit2();
+
+    FILE *f = ((FILE*)0);
+    if (f) { fprintf(f, "[PID %d] WKView initWithFrame:processPool:configuration: frame=%gx%g\n",
+                     getpid(), frame.size.width, frame.size.height); fclose(f); }
+
+    _wkState = new WKViewState;
+    _wkState->pageClient = createMinimalPageClient(self);
+    _wkState->page = processPool.get().createWebPage(*_wkState->pageClient, WTF::move(configuration));
+    setMinimalPageClientPage(*_wkState->pageClient, _wkState->page.get());
+
+    f = ((FILE*)0);
+    if (f) { fprintf(f, "[PID %d] WebPageProxy created! pageID=%" PRIu64 "\n",
+                     getpid(), _wkState->page->identifier().toUInt64()); fclose(f); }
+
+    _wkState->page->initializeWebPage(WebCore::Site(WTF::HashTableEmptyValue), WebCore::SandboxFlags {}, WebCore::ReferrerPolicy::Default);
+
+    f = ((FILE*)0);
+    if (f) { fprintf(f, "[PID %d] initializeWebPage called!\n", getpid()); fclose(f); }
+
+    return self;
 }
 
-- (void)_setThumbnailView:(_WKThumbnailView *)thumbnailView
+- (void)dealloc
 {
-}
-
-- (_WKThumbnailView *)_thumbnailView
-{
-    return nil;
-}
-
-- (NSTextInputContext *)_web_superInputContext
-{
-    return nil;
-}
-
-- (void)_web_superQuickLookWithEvent:(NSEvent *)event
-{
-}
-
-- (void)_web_superSwipeWithEvent:(NSEvent *)event
-{
-}
-
-- (void)_web_superMagnifyWithEvent:(NSEvent *)event
-{
-}
-
-- (void)_web_superSmartMagnifyWithEvent:(NSEvent *)event
-{
-}
-
-- (void)_web_superRemoveTrackingRect:(NSTrackingRectTag)tag
-{
-}
-
-- (id)_web_superAccessibilityAttributeValue:(NSString *)attribute
-{
-    return nil;
-}
-
-- (void)_web_superDoCommandBySelector:(SEL)selector
-{
-}
-
-- (BOOL)_web_superPerformKeyEquivalent:(NSEvent *)event
-{
-    return NO;
-}
-
-- (void)_web_superKeyDown:(NSEvent *)event
-{
-}
-
-- (NSView *)_web_superHitTest:(NSPoint)point
-{
-    return nil;
-}
-
-- (id)_web_immediateActionAnimationControllerForHitTestResultInternal:(API::HitTestResult*)hitTestResult withType:(uint32_t)type userData:(API::Object*)userData
-{
-    return nil;
-}
-
-- (void)_web_prepareForImmediateActionAnimation
-{
-}
-
-- (void)_web_cancelImmediateActionAnimation
-{
-}
-
-- (void)_web_completeImmediateActionAnimation
-{
-}
-
-- (void)_web_didChangeContentSize:(NSSize)newSize
-{
-}
-
-#if ENABLE(DRAG_SUPPORT)
-
-- (void)_web_didPerformDragOperation:(BOOL)handled
-{
-}
-
-- (WKDragDestinationAction)_web_dragDestinationActionForDraggingInfo:(id <NSDraggingInfo>)draggingInfo
-{
-    return 0;
-}
-
-#endif
-
-- (void)_web_dismissContentRelativeChildWindows
-{
-}
-
-- (void)_web_dismissContentRelativeChildWindowsWithAnimation:(BOOL)withAnimation
-{
-}
-
-- (void)_web_editorStateDidChange
-{
-}
-
-- (void)_web_gestureEventWasNotHandledByWebCore:(NSEvent *)event
-{
-}
-
-- (void)_didHandleAcceptedCandidate
-{
-}
-
-- (void)_didUpdateCandidateListVisibility:(BOOL)visible
-{
-}
-
-#if HAVE(TOUCH_BAR)
-
-@dynamic touchBar;
-
-- (NSTouchBar *)makeTouchBar
-{
-    return nil;
-}
-
-- (NSCandidateListTouchBarItem *)candidateListTouchBarItem
-{
-    return nil;
-}
-
-- (void)_web_didAddMediaControlsManager:(id)controlsManager
-{
-}
-
-- (void)_web_didRemoveMediaControlsManager
-{
-}
-
-#endif // HAVE(TOUCH_BAR)
-
-- (NSRect)scrollViewFrame
-{
-    return { };
-}
-
-- (BOOL)hasScrolledContentsUnderTitlebar
-{
-    return NO;
-}
-
-#if ENABLE(DRAG_SUPPORT)
-
-- (NSString *)filePromiseProvider:(NSFilePromiseProvider *)filePromiseProvider fileNameForType:(NSString *)fileType
-{
-    return nil;
-}
-
-- (void)filePromiseProvider:(NSFilePromiseProvider *)filePromiseProvider writePromiseToURL:(NSURL *)url completionHandler:(void (^)(NSError *error))completionHandler
-{
-}
-
-- (NSDragOperation)draggingSession:(NSDraggingSession *)session sourceOperationMaskForDraggingContext:(NSDraggingContext)context
-{
-    return 0;
-}
-
-- (void)draggingSession:(NSDraggingSession *)session endedAtPoint:(NSPoint)screenPoint operation:(NSDragOperation)operation
-{
-}
-
-#endif // ENABLE(DRAG_SUPPORT)
-
-@end
-
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
-@implementation WKView (Private)
-ALLOW_DEPRECATED_IMPLEMENTATIONS_END
-
-- (void)saveBackForwardSnapshotForCurrentItem
-{
-}
-
-- (void)saveBackForwardSnapshotForItem:(WKBackForwardListItemRef)item
-{
+    delete _wkState;
+    _wkState = nullptr;
+    [super dealloc];
 }
 
 - (id)initWithFrame:(NSRect)frame contextRef:(WKContextRef)contextRef pageGroupRef:(WKPageGroupRef)pageGroupRef
 {
-    return nil;
+    return [self initWithFrame:frame contextRef:contextRef pageGroupRef:pageGroupRef relatedToPage:nil];
 }
 
 - (id)initWithFrame:(NSRect)frame contextRef:(WKContextRef)contextRef pageGroupRef:(WKPageGroupRef)pageGroupRef relatedToPage:(WKPageRef)relatedPage
 {
-    return nil;
-}
-
-- (id)initWithFrame:(NSRect)frame configurationRef:(WKPageConfigurationRef)configurationRef
-{
-    return nil;
-}
-
-- (BOOL)wantsUpdateLayer
-{
-    return NO;
-}
-
-- (void)updateLayer
-{
-}
-
-- (WKPageRef)pageRef
-{
-    return nullptr;
-}
-
-- (BOOL)canChangeFrameLayout:(WKFrameRef)frameRef
-{
-    return NO;
-}
-
-- (NSPrintOperation *)printOperationWithPrintInfo:(NSPrintInfo *)printInfo forFrame:(WKFrameRef)frameRef
-{
-    return nil;
-}
-
-- (void)setFrame:(NSRect)rect andScrollBy:(NSSize)offset
-{
-}
-
-- (void)disableFrameSizeUpdates
-{
-}
-
-- (void)enableFrameSizeUpdates
-{
-}
-
-- (BOOL)frameSizeUpdatesDisabled
-{
-    return NO;
-}
-
-+ (void)hideWordDefinitionWindow
-{
-}
-
-- (NSSize)minimumSizeForAutoLayout
-{
-    return { };
-}
-
-- (void)setMinimumSizeForAutoLayout:(NSSize)minimumSizeForAutoLayout
-{
-}
-
-- (NSSize)sizeToContentAutoSizeMaximumSize
-{
-    return { };
-}
-
-- (void)setSizeToContentAutoSizeMaximumSize:(NSSize)sizeToContentAutoSizeMaximumSize
-{
-}
-
-- (BOOL)shouldExpandToViewHeightForAutoLayout
-{
-    return NO;
-}
-
-- (void)setShouldExpandToViewHeightForAutoLayout:(BOOL)shouldExpand
-{
-}
-
-- (BOOL)shouldClipToVisibleRect
-{
-    return NO;
-}
-
-- (void)setShouldClipToVisibleRect:(BOOL)clipsToVisibleRect
-{
-}
-
-- (NSColor *)underlayColor
-{
-    return nil;
-}
-
-- (void)setUnderlayColor:(NSColor *)underlayColor
-{
-}
-
-- (NSView *)_inspectorAttachmentView
-{
-    return nil;
-}
-
-- (void)_setInspectorAttachmentView:(NSView *)newView
-{
-}
-
-- (NSView *)fullScreenPlaceholderView
-{
-    return nil;
-}
-
-// FIXME: This returns an autoreleased object. Should it really be prefixed 'create'?
-- (NSWindow *)createFullScreenWindow
-{
-    return nil;
-}
-
-- (void)beginDeferringViewInWindowChanges
-{
-}
-
-- (void)endDeferringViewInWindowChanges
-{
-}
-
-- (void)endDeferringViewInWindowChangesSync
-{
-}
-
-- (void)_prepareForMoveToWindow:(NSWindow *)targetWindow withCompletionHandler:(void(^)(void))completionHandler
-{
-}
-
-- (BOOL)isDeferringViewInWindowChanges
-{
-    return NO;
-}
-
-- (BOOL)windowOcclusionDetectionEnabled
-{
-    return NO;
-}
-
-- (void)setWindowOcclusionDetectionEnabled:(BOOL)enabled
-{
-}
-
-- (void)setAllowsBackForwardNavigationGestures:(BOOL)allowsBackForwardNavigationGestures
-{
-}
-
-- (BOOL)allowsBackForwardNavigationGestures
-{
-    return NO;
-}
-
-- (BOOL)allowsLinkPreview
-{
-    return NO;
-}
-
-- (void)setAllowsLinkPreview:(BOOL)allowsLinkPreview
-{
-}
-
-- (void)_setIgnoresAllEvents:(BOOL)ignoresAllEvents
-{
-}
-
-// Forward _setIgnoresNonWheelMouseEvents to _setIgnoresNonWheelEvents to avoid breaking existing clients.
-- (void)_setIgnoresNonWheelMouseEvents:(BOOL)ignoresNonWheelMouseEvents
-{
-}
-
-- (void)_setIgnoresNonWheelEvents:(BOOL)ignoresNonWheelEvents
-{
-}
-
-- (BOOL)_ignoresNonWheelEvents
-{
-    return NO;
-}
-
-- (BOOL)_ignoresAllEvents
-{
-    return NO;
-}
-
-- (void)_setOverrideDeviceScaleFactor:(CGFloat)deviceScaleFactor
-{
-}
-
-- (CGFloat)_overrideDeviceScaleFactor
-{
-    return { };
-}
-
-- (WKLayoutMode)_layoutMode
-{
-    return 0;
-}
-
-- (void)_setLayoutMode:(WKLayoutMode)layoutMode
-{
-}
-
-- (CGSize)_fixedLayoutSize
-{
-    return { };
-}
-
-- (void)_setFixedLayoutSize:(CGSize)fixedLayoutSize
-{
-}
-
-- (CGFloat)_viewScale
-{
-    return 0;
-}
-
-- (void)_setViewScale:(CGFloat)viewScale
-{
-}
-
-- (void)_setTopContentInset:(CGFloat)contentInset
-{
-}
-
-- (CGFloat)_topContentInset
-{
-    return 0;
-}
-
-- (void)_setTotalHeightOfBanners:(CGFloat)totalHeightOfBanners
-{
-}
-
-- (CGFloat)_totalHeightOfBanners
-{
-    return 0;
-}
-
-- (void)_setOverlayScrollbarStyle:(_WKOverlayScrollbarStyle)scrollbarStyle
-{
-}
-
-- (_WKOverlayScrollbarStyle)_overlayScrollbarStyle
-{
-    return _WKOverlayScrollbarStyleDefault;
-}
-
-- (BOOL)isUsingUISideCompositing
-{
-    return NO;
-}
-
-- (void)setAllowsMagnification:(BOOL)allowsMagnification
-{
-}
-
-- (BOOL)allowsMagnification
-{
-    return NO;
-}
-
-- (void)magnifyWithEvent:(NSEvent *)event
-{
-}
-
-#if ENABLE(MAC_GESTURE_EVENTS)
-- (void)rotateWithEvent:(NSEvent *)event
-{
-}
-#endif
-
-- (void)_gestureEventWasNotHandledByWebCore:(NSEvent *)event
-{
-}
-
-- (void)_simulateMouseMove:(NSEvent *)event
-{
-}
-
-- (void)smartMagnifyWithEvent:(NSEvent *)event
-{
-}
-
-- (void)setMagnification:(double)magnification centeredAtPoint:(NSPoint)point
-{
-}
-
-- (void)setMagnification:(double)magnification
-{
-}
-
-- (double)magnification
-{
-    return 0;
-}
-
-- (void)_setCustomSwipeViews:(NSArray *)customSwipeViews
-{
-}
-
-- (void)_setCustomSwipeViewsTopContentInset:(float)topContentInset
-{
-}
-
-- (BOOL)_tryToSwipeWithEvent:(NSEvent *)event ignoringPinnedState:(BOOL)ignoringPinnedState
-{
-    return NO;
-}
-
-- (void)_setDidMoveSwipeSnapshotCallback:(void(^)(CGRect))callback
-{
-}
-
-- (id)_immediateActionAnimationControllerForHitTestResult:(WKHitTestResultRef)hitTestResult withType:(uint32_t)type userData:(WKTypeRef)userData
-{
-    return nil;
-}
-
-- (void)_prepareForImmediateActionAnimation
-{
-}
-
-- (void)_cancelImmediateActionAnimation
-{
-}
-
-- (void)_completeImmediateActionAnimation
-{
-}
-
-- (void)_didChangeContentSize:(NSSize)newSize
-{
-}
-
-- (void)_dismissContentRelativeChildWindows
-{
-}
-
-- (void)_dismissContentRelativeChildWindowsWithAnimation:(BOOL)withAnimation
-{
-}
-
-- (void)_setAutomaticallyAdjustsContentInsets:(BOOL)automaticallyAdjustsContentInsets
-{
-}
-
-- (BOOL)_automaticallyAdjustsContentInsets
-{
-    return NO;
-}
-
-- (void)setUserInterfaceLayoutDirection:(NSUserInterfaceLayoutDirection)userInterfaceLayoutDirection
-{
-}
-
-- (BOOL)_wantsMediaPlaybackControlsView
-{
-    return NO;
-}
-
-- (void)_setWantsMediaPlaybackControlsView:(BOOL)wantsMediaPlaybackControlsView
-{
-}
-
-- (id)_mediaPlaybackControlsView
-{
-    return nil;
-}
-
-// This method is for subclasses to override.
-- (void)_addMediaPlaybackControlsView:(id)mediaPlaybackControlsView
-{
-}
-
-// This method is for subclasses to override.
-- (void)_removeMediaPlaybackControlsView
-{
-}
-
-- (void)_doAfterNextPresentationUpdate:(void (^)(void))updateBlock
-{
-}
-
-- (void)_setShouldSuppressFirstResponderChanges:(BOOL)shouldSuppress
-{
-}
-
-- (void)viewDidChangeEffectiveAppearance
-{
-}
-
-- (void)_setUseSystemAppearance:(BOOL)useSystemAppearance
-{
-}
-
-- (BOOL)_useSystemAppearance
-{
-    return NO;
-}
-
-- (BOOL)acceptsPreviewPanelControl:(QLPreviewPanel *)panel
-{
-    return NO;
-}
-
-- (void)beginPreviewPanelControl:(QLPreviewPanel *)panel
-{
-}
-
-- (void)endPreviewPanelControl:(QLPreviewPanel *)panel
-{
-}
+    FILE *f2 = ((FILE*)0);
+    if (f2) { fprintf(f2, "[PID %d] >>> WKView initWithFrame:contextRef: ctx=%p pg=%p\n", getpid(), contextRef, pageGroupRef); fclose(f2); }
+
+    auto configuration = API::PageConfiguration::create();
+    configuration->setProcessPool(WebKit::toImpl(contextRef));
+    // FIXME: page group setup disabled — setPageGroup not yet wired up.
+    // if (pageGroupRef)
+    //     configuration->setPageGroup(WebKit::toImpl(pageGroupRef));
+
+    return [self initWithFrame:frame processPool:*WebKit::toImpl(contextRef) configuration:WTF::move(configuration)];
+}
+
+- (id)initWithFrame:(NSRect)frame configurationRef:(WKPageConfigurationRef)configurationRef { return nil; }
+- (WKPageRef)pageRef { return _wkState ? WebKit::toAPI(_wkState->page.get()) : nullptr; }
+
+// 10.9 backport: WKView's normal setFrameSize: propagates the new viewport size to
+// WebContent via WebPageProxy::setSize. Without this override, WebContent renders at
+// 0x0 — Safari creates WKViews with zero frame and resizes them later.
+- (void)setFrameSize:(NSSize)newSize
+{
+    FILE *f=((FILE*)0); if(f){fprintf(f,"[WKView setFrameSize PID %d] %gx%g _wkState=%p hasProcess=%d\n",getpid(),newSize.width,newSize.height,_wkState,_wkState && _wkState->page ? _wkState->page->hasRunningProcess() : -1);fclose(f);}
+    [super setFrameSize:newSize];
+    if (_wkState && _wkState->page) {
+        // 10.9 backport: if drawingArea is null, the WKView was created before WebContent
+        // was running. Re-attempt initializeWebPage now that the process should be alive.
+        if (!_wkState->page->drawingArea()) {
+            f=((FILE*)0); if(f){fprintf(f,"[WKView setFrameSize PID %d] no drawingArea, calling initializeWebPage. hasProcess=%d\n",getpid(),_wkState->page->hasRunningProcess());fclose(f);}
+            _wkState->page->initializeWebPage(WebCore::Site(WTF::HashTableEmptyValue), WebCore::SandboxFlags {}, WebCore::ReferrerPolicy::Default);
+        }
+        if (RefPtr drawingArea = _wkState->page->drawingArea()) {
+            f=((FILE*)0); if(f){fprintf(f,"[WKView setFrameSize PID %d] calling drawingArea->setSize\n",getpid());fclose(f);}
+            drawingArea->setSize(WebCore::IntSize(newSize.width, newSize.height));
+        } else {
+            f=((FILE*)0); if(f){fprintf(f,"[WKView setFrameSize PID %d] no drawingArea after retry! hasProcess=%d\n",getpid(),_wkState->page->hasRunningProcess());fclose(f);}
+        }
+    }
+}
+
+- (void)setFrame:(NSRect)frame
+{
+    FILE *f=((FILE*)0); if(f){fprintf(f,"[WKView setFrame PID %d] %gx%g+%g+%g _wkState=%p\n",getpid(),frame.size.width,frame.size.height,frame.origin.x,frame.origin.y,_wkState);fclose(f);}
+    [super setFrame:frame];
+    if (_wkState && _wkState->page) {
+        if (RefPtr drawingArea = _wkState->page->drawingArea())
+            drawingArea->setSize(WebCore::IntSize(frame.size.width, frame.size.height));
+    }
+}
+// NSTextInputClient minimal stubs — Safari crashes with validAttributesForMarkedText
+// unrecognized selector when BrowserWKView is added to a window without these.
+// insertText: + doCommandBySelector: capture commands during interpretKeyEvents:
+// so the keyDown handler can forward them to WebPage as KeypressCommands.
+static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = nullptr;
+- (NSArray *)validAttributesForMarkedText { return @[]; }
+- (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)range actualRange:(NSRangePointer)actualRange { return nil; }
+- (NSUInteger)characterIndexForPoint:(NSPoint)point { return NSNotFound; }
+- (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange { return NSZeroRect; }
+- (BOOL)hasMarkedText { return NO; }
+- (void)insertText:(id)string replacementRange:(NSRange)replacementRange
+{
+    NSString *s = [string isKindOfClass:[NSAttributedString class]] ? [(NSAttributedString *)string string] : (NSString *)string;
+    if (!s)
+        return;
+    if (tlsCollectingCommands)
+        tlsCollectingCommands->append(WebCore::KeypressCommand("insertText:"_s, String(s)));
+}
+- (NSRange)markedRange { return NSMakeRange(NSNotFound, 0); }
+- (NSRange)selectedRange { return NSMakeRange(NSNotFound, 0); }
+- (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {}
+- (void)unmarkText {}
+- (void)doCommandBySelector:(SEL)selector
+{
+    if (!tlsCollectingCommands)
+        return;
+    tlsCollectingCommands->append(WebCore::KeypressCommand(String::fromLatin1(sel_getName(selector))));
+}
+- (BOOL)conformsToProtocol:(Protocol *)protocol
+{
+    if (protocol == @protocol(NSTextInputClient)) return YES;
+    return [super conformsToProtocol:protocol];
+}
+- (BOOL)wantsUpdateLayer { return NO; }
+- (NSView *)fullScreenPlaceholderView { return nil; }
+- (void)updateLayer {}
+// Basic init methods for non-page WKView instances (e.g. title bar button)
+- (id)init { return [super init]; }
+- (id)initWithFrame:(NSRect)frame { return [super initWithFrame:frame]; }
+- (BOOL)isFlipped { return YES; }
+- (BOOL)canChangeFrameLayout:(WKFrameRef)f { return NO; }
+- (NSPrintOperation *)printOperationWithPrintInfo:(NSPrintInfo *)pi forFrame:(WKFrameRef)f { return nil; }
+- (void)setFrame:(NSRect)r andScrollBy:(NSSize)o {}
+- (void)disableFrameSizeUpdates {}
+- (void)enableFrameSizeUpdates {}
+- (BOOL)frameSizeUpdatesDisabled { return NO; }
++ (void)hideWordDefinitionWindow {}
+
+// 10.9 backport: forward NSEvents to WebPageProxy. The full WebViewImpl.mm input
+// pipeline is stubbed out in this build, so add a minimal mouseDown/Up/Moved/Dragged,
+// scrollWheel, and keyDown/Up forwarding here so links/forms/scrolling become interactive.
+- (BOOL)acceptsFirstResponder { return YES; }
+- (BOOL)becomeFirstResponder { return [super becomeFirstResponder]; }
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+
+// 10.9 backport: tell WebPageProxy when this view's window membership changes.
+// Without this, Safari's tab swap (which removes the inactive tab's WKView from
+// the window and re-adds it on switch-back) leaves the WebPage with a stale
+// activity-state and the visible content blank. Calling activityStateDidChange
+// triggers a WebPage::SetActivityState IPC which kicks WebContent to send a
+// fresh layer-tree commit, restoring the visible content.
+- (void)viewDidMoveToWindow {
+    [super viewDidMoveToWindow];
+    if (!_wkState || !_wkState->page) return;
+    OptionSet<WebCore::ActivityState> flags;
+    flags.add(WebCore::ActivityState::IsInWindow);
+    flags.add(WebCore::ActivityState::IsVisible);
+    flags.add(WebCore::ActivityState::IsVisibleOrOccluded);
+    flags.add(WebCore::ActivityState::WindowIsActive);
+    flags.add(WebCore::ActivityState::IsFocused);
+    @try {
+        _wkState->page->activityStateDidChange(flags);
+    } @catch (NSException *) { }
+}
+
+// 10.9 backport: layer-tree mirror subviews intercept mouseDown without forwarding.
+// Force hit-testing to land on WKView so our mouseDown/Up/etc. always fire.
+- (NSView *)hitTest:(NSPoint)point
+{
+    NSView *result = [super hitTest:point];
+    if (!result)
+        return nil;
+    if (result == self || [result isDescendantOf:self])
+        return self;
+    return result;
+}
+
+// 10.9 backport: Safari's BrowserWindowContentView/NSTabView hierarchy may absorb
+// mouseDown via hitTest before it ever reaches WKView. Install a global NSEvent
+// monitor that catches mouseDown/Up/scrollWheel within WKView bounds and dispatches
+// directly to the appropriate WKView instance. This bypasses hitTest entirely.
++ (void)installEventMonitorOnce
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSEventMask mask =
+            NSLeftMouseDownMask | NSLeftMouseUpMask |
+            NSRightMouseDownMask | NSRightMouseUpMask |
+            NSOtherMouseDownMask | NSOtherMouseUpMask |
+            NSLeftMouseDraggedMask | NSRightMouseDraggedMask | NSOtherMouseDraggedMask |
+            NSMouseMovedMask | NSScrollWheelMask;
+        [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
+            NSWindow *win = [event window];
+            if (!win)
+                win = [NSApp keyWindow];
+            if (!win)
+                win = [[NSApp orderedWindows] firstObject];
+            if (!win)
+                return event;
+            NSView *cv = [win contentView];
+            if (!cv)
+                return event;
+            // 10.9 backport: Safari multi-tab can mount several WKViews in the
+            // same window (one per tab); only the active tab's WKView is
+            // visible. Walk depth-first but skip hidden views (and their
+            // subtrees) so events go to the currently-displayed tab, not a
+            // background tab's WKView found earlier in subview order.
+            __block WKView *wkView = nil;
+            void (^walk)(NSView *) = ^(NSView *v) {};
+            __block __weak void (^weakWalk)(NSView *) = nil;
+            walk = ^(NSView *v) {
+                if (wkView) return;
+                if ([v isHidden]) return;
+                if ([v isKindOfClass:[WKView class]]) { wkView = (WKView *)v; return; }
+                for (NSView *sub in [v subviews]) { if (wkView) return; weakWalk(sub); }
+            };
+            weakWalk = walk;
+            walk(cv);
+            if (!wkView)
+                return event;
+            // Convert event location to wkView coords; ignore if outside.
+            NSPoint pInWin = [event locationInWindow];
+            if (![event window]) {
+                // Event has no associated window — locationInWindow is screen coords.
+                NSRect r = NSMakeRect(pInWin.x, pInWin.y, 0, 0);
+                pInWin = [win convertRectFromScreen:r].origin;
+            }
+            NSPoint pInWK = [wkView convertPoint:pInWin fromView:nil];
+            if (![wkView mouse:pInWK inRect:[wkView bounds]])
+                return event;
+            NSEventType t = [event type];
+            switch (t) {
+            case NSLeftMouseDown:    [wkView mouseDown:event];    return (NSEvent *)nil;
+            case NSLeftMouseUp:      [wkView mouseUp:event];      return (NSEvent *)nil;
+            case NSRightMouseDown:   [wkView rightMouseDown:event]; return (NSEvent *)nil;
+            case NSRightMouseUp:     [wkView rightMouseUp:event]; return (NSEvent *)nil;
+            case NSOtherMouseDown:   [wkView otherMouseDown:event]; return (NSEvent *)nil;
+            case NSOtherMouseUp:     [wkView otherMouseUp:event]; return (NSEvent *)nil;
+            case NSLeftMouseDragged: [wkView mouseDragged:event]; return (NSEvent *)nil;
+            case NSRightMouseDragged:[wkView rightMouseDragged:event]; return (NSEvent *)nil;
+            case NSOtherMouseDragged:[wkView otherMouseDragged:event]; return (NSEvent *)nil;
+            case NSMouseMoved:       [wkView mouseMoved:event];   return (NSEvent *)nil;
+            case NSScrollWheel:      [wkView scrollWheel:event];  return (NSEvent *)nil;
+            default: return event;
+            }
+        }];
+    });
+}
+
+#define WKV_FORWARD_MOUSE(SEL_NAME) \
+- (void)SEL_NAME:(NSEvent *)event \
+{ \
+    if (!_wkState || !_wkState->page) { [super SEL_NAME:event]; return; } \
+    @try { \
+        WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebMouseEventInputSource::UserDriven); \
+        _wkState->page->handleMouseEvent(webEvent); \
+    } @catch (NSException *) { } \
+}
+
+WKV_FORWARD_MOUSE(mouseDown)
+WKV_FORWARD_MOUSE(mouseUp)
+WKV_FORWARD_MOUSE(mouseMoved)
+WKV_FORWARD_MOUSE(mouseDragged)
+WKV_FORWARD_MOUSE(rightMouseDown)
+WKV_FORWARD_MOUSE(rightMouseUp)
+WKV_FORWARD_MOUSE(rightMouseDragged)
+WKV_FORWARD_MOUSE(otherMouseDown)
+WKV_FORWARD_MOUSE(otherMouseUp)
+WKV_FORWARD_MOUSE(otherMouseDragged)
+WKV_FORWARD_MOUSE(mouseEntered)
+WKV_FORWARD_MOUSE(mouseExited)
+
+#undef WKV_FORWARD_MOUSE
+
+- (void)scrollWheel:(NSEvent *)event
+{
+    if (!_wkState || !_wkState->page) { [super scrollWheel:event]; return; }
+    @try {
+        WebKit::NativeWebWheelEvent webEvent(event, self);
+        _wkState->page->handleNativeWheelEvent(webEvent);
+    } @catch (NSException *) { }
+}
+
+- (void)keyDown:(NSEvent *)event
+{
+    if (!_wkState || !_wkState->page) { [super keyDown:event]; return; }
+    @try {
+        WTF::Vector<WebCore::KeypressCommand> commands;
+        // Run AppKit's interpretKeyEvents to translate the NSEvent into NSTextInputClient
+        // calls (insertText:/doCommandBySelector:); collect them in a thread-local that
+        // our NSTextInputClient stubs append to.
+        // 10.9 backport: skip interpretKeyEvents for Cmd-modified keys. Those are
+        // menu shortcuts dispatched via sendAction: (already handled by my copy:/
+        // paste:/etc. action methods). Running interpretKeyEvents would double-
+        // dispatch the action via doCommandBySelector → KeypressCommand path.
+        BOOL hasCmd = ([event modifierFlags] & NSCommandKeyMask) != 0;
+        if (!hasCmd) {
+            tlsCollectingCommands = &commands;
+            @try { [self interpretKeyEvents:@[event]]; } @catch (NSException *) { }
+            tlsCollectingCommands = nullptr;
+        }
+        WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
+        _wkState->page->handleKeyboardEvent(webEvent);
+    } @catch (NSException *) { }
+}
+
+- (void)keyUp:(NSEvent *)event
+{
+    if (!_wkState || !_wkState->page) { [super keyUp:event]; return; }
+    @try {
+        WTF::Vector<WebCore::KeypressCommand> commands;
+        WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
+        _wkState->page->handleKeyboardEvent(webEvent);
+    } @catch (NSException *) { }
+}
+
+- (void)flagsChanged:(NSEvent *)event
+{
+    if (!_wkState || !_wkState->page) { [super flagsChanged:event]; return; }
+    @try {
+        WTF::Vector<WebCore::KeypressCommand> commands;
+        WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
+        _wkState->page->handleKeyboardEvent(webEvent);
+    } @catch (NSException *) { }
+}
+
+// 10.9 backport: Edit menu items dispatch action selectors to first responder.
+// We forward to WebPageProxy. For Copy/Cut/Paste/Undo/Redo, only forward when
+// an editable element is focused (per WebPage::getPlatformEditorState now-safe
+// computation via Document::focusedElement). When focus isn't on editable
+// content, we don't override — Safari's URL-bar fallback handles it.
+- (void)selectAll:(id)sender
+{
+    if (!_wkState || !_wkState->page) return;
+    _wkState->page->selectAll();
+}
+
+#define WKV_EDIT_ACTION(SEL_NAME, COMMAND) \
+- (void)SEL_NAME:(id)sender \
+{ \
+    if (!_wkState || !_wkState->page) return; \
+    _wkState->page->executeEditCommand(WTF::String(COMMAND ## _s), WTF::String()); \
+}
+// 10.9 backport: implementing copy:/cut: PROTECTS against Safari's default
+// fallback navigation. Without our handlers, even bare Cmd+C (no selection)
+// navigates to "Untitled" (URL goes empty). With our handlers, Cmd+C alone
+// is safe; only Cmd+A→Cmd+C combo still triggers navigation (selection
+// state in WebContent's Editor::copy → pasteboard write → some side effect).
+WKV_EDIT_ACTION(copy,            "Copy")
+WKV_EDIT_ACTION(cut,             "Cut")
+WKV_EDIT_ACTION(paste,           "Paste")
+WKV_EDIT_ACTION(pasteAsPlainText,"PasteAsPlainText")
+WKV_EDIT_ACTION(undo,            "Undo")
+WKV_EDIT_ACTION(redo,            "Redo")
+#undef WKV_EDIT_ACTION
 
 @end
-ALLOW_DEPRECATED_DECLARATIONS_END
-
-#endif // PLATFORM(MAC)

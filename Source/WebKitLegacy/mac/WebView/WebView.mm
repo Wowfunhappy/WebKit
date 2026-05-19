@@ -1023,7 +1023,7 @@ static const NSUInteger orderedListSegment = 2;
     [insertListControl setWidth:listControlSegmentWidth forSegment:noListSegment];
     [insertListControl setWidth:listControlSegmentWidth forSegment:unorderedListSegment];
     [insertListControl setWidth:listControlSegmentWidth forSegment:orderedListSegment];
-    insertListControl.get().font = [NSFont systemFontOfSize:15];
+    ((NSSegmentedControl *)insertListControl.get()).font = [NSFont systemFontOfSize:15];
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     RetainPtr<id> segmentElement = NSAccessibilityUnignoredDescendant(insertListControl.get());
@@ -1309,7 +1309,13 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
 
 + (NSString *)_standardUserAgentWithApplicationName:(NSString *)applicationName
 {
-    return WebCore::standardUserAgentWithApplicationName(applicationName).createNSString().autorelease();
+    // PATCH: Bypass WebCore::standardUserAgentWithApplicationName which calls
+    // into stubbed code that returns invalid String values on macOS 10.9 backport.
+    // Hardcode a reasonable user agent and append the application name.
+    NSString *base = @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_5) AppleWebKit/605.1.15 (KHTML, like Gecko)";
+    if (applicationName && [applicationName length])
+        return [NSString stringWithFormat:@"%@ %@", base, applicationName];
+    return base;
 }
 
 #if PLATFORM(IOS_FAMILY)
@@ -2499,7 +2505,7 @@ static bool fastDocumentTeardownEnabled()
 
     [WebPreferences _removeReferenceForIdentifier:[self preferencesIdentifier]];
 
-    auto preferences = std::exchange(_private->preferences, nil);
+    auto preferences = std::exchange(_private->preferences, RetainPtr<WebPreferences> { });
     [preferences didRemoveFromWebView];
 
     [self _closePluginDatabases];
@@ -4804,8 +4810,7 @@ IGNORE_WARNINGS_END
 #if PLATFORM(MAC)
 - (bool)_effectiveAppearanceIsDark
 {
-    NSAppearanceName appearance = [[self effectiveAppearance] bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
-    return [appearance isEqualToString:NSAppearanceNameDarkAqua];
+    return false; // No dark mode support on macOS 10.9
 }
 
 - (bool)_effectiveUserInterfaceLevelIsElevated
@@ -4861,7 +4866,7 @@ IGNORE_WARNINGS_END
 
 #if HAVE(TOUCH_BAR)
 
-- (void)showCandidates:(NSArray<NSTextCheckingResult *> *)candidates forString:(NSString *)string inRect:(NSRect)rectOfTypedString forSelectedRange:(NSRange)range view:(NSView *)view completionHandler:(void (^)(NSTextCheckingResult *acceptedCandidate))completionBlock
+- (void)showCandidates:(NSArray *)candidates forString:(NSString *)string inRect:(NSRect)rectOfTypedString forSelectedRange:(NSRange)range view:(NSView *)view completionHandler:(void (^)(NSTextCheckingResult *acceptedCandidate))completionBlock
 {
     [self.candidateList setCandidates:candidates forSelectedRange:range inString:string rect:rectOfTypedString view:view completionHandler:completionBlock];
 }
@@ -5399,13 +5404,8 @@ static bool needsWebViewInitThreadWorkaround()
 {
     // Set asside the subviews before we archive. We don't want to archive any subviews.
     // The subviews will always be created in _commonInitializationFrameName:groupName:.
-    id originalSubviews = self._subviewsIvar;
-    self._subviewsIvar = nil;
-
+    // macOS 10.9: skip subview-ivar manipulation; not critical for our use.
     [super encodeWithCoder:encoder];
-
-    // Restore the subviews we set aside.
-    self._subviewsIvar = originalSubviews;
 
     BOOL useBackForwardList = _private->page && static_cast<BackForwardList&>(_private->page->backForward().client()).enabled();
     if ([encoder allowsKeyedCoding]) {
@@ -6792,7 +6792,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 #if HAVE(TOUCH_BAR)
 
-@dynamic touchBar;
+// macOS 10.9: no NSResponder touchBar property to be @dynamic for.
 
 - (NSTouchBar *)makeTouchBar
 {
@@ -8864,7 +8864,7 @@ FORWARD(toggleUnderline)
 
         // First exit Fullscreen for the old videoElement.
         [_private->fullscreenController videoElement]->exitFullscreen();
-        _private->fullscreenControllersExiting.append(std::exchange(_private->fullscreenController, nil));
+        _private->fullscreenControllersExiting.append(std::exchange(_private->fullscreenController, RetainPtr<WebVideoFullscreenController> { }));
     }
 
     if (!_private->fullscreenController) {
@@ -9242,22 +9242,22 @@ FORWARD(toggleUnderline)
         [touchBarItem.get() dismissPopover:nil];
 }
 
-- (NSArray<NSString *> *)_textTouchBarCustomizationAllowedIdentifiers
+- (NSArray *)_textTouchBarCustomizationAllowedIdentifiers
 {
     return @[ NSTouchBarItemIdentifierCharacterPicker, NSTouchBarItemIdentifierTextColorPicker, NSTouchBarItemIdentifierTextStyle, NSTouchBarItemIdentifierTextAlignment, NSTouchBarItemIdentifierTextList, NSTouchBarItemIdentifierFlexibleSpace ];
 }
 
-- (NSArray<NSString *> *)_plainTextTouchBarDefaultItemIdentifiers
+- (NSArray *)_plainTextTouchBarDefaultItemIdentifiers
 {
     return @[ NSTouchBarItemIdentifierCharacterPicker, NSTouchBarItemIdentifierCandidateList ];
 }
 
-- (NSArray<NSString *> *)_richTextTouchBarDefaultItemIdentifiers
+- (NSArray *)_richTextTouchBarDefaultItemIdentifiers
 {
     return @[ NSTouchBarItemIdentifierCharacterPicker, NSTouchBarItemIdentifierTextFormat, NSTouchBarItemIdentifierCandidateList ];
 }
 
-- (NSArray<NSString *> *)_passwordTextTouchBarDefaultItemIdentifiers
+- (NSArray *)_passwordTextTouchBarDefaultItemIdentifiers
 {
     return @[ NSTouchBarItemIdentifierCandidateList ];
 }
@@ -9289,9 +9289,9 @@ FORWARD(toggleUnderline)
 
 - (void)setUpTextTouchBar:(NSTouchBar *)textTouchBar
 {
-    NSSet<NSTouchBarItem *> *templateItems = nil;
-    NSArray<NSTouchBarItemIdentifier> *defaultItemIdentifiers = nil;
-    NSArray<NSTouchBarItemIdentifier> *customizationAllowedItemIdentifiers = nil;
+    NSSet *templateItems = nil;
+    NSArray *defaultItemIdentifiers = nil;
+    NSArray *customizationAllowedItemIdentifiers = nil;
 
     if (textTouchBar == _private->_passwordTextTouchBar) {
         templateItems = [NSMutableSet setWithObject:_private->_passwordTextCandidateListTouchBarItem.get()];
@@ -9442,7 +9442,7 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
     }
 
     NSTouchBar *textTouchBar = self.textTouchBar;
-    NSArray<NSString *> *itemIdentifiers = textTouchBar.defaultItemIdentifiers;
+    NSArray *itemIdentifiers = textTouchBar.defaultItemIdentifiers;
     BOOL isShowingCombinedTextFormatItem = [itemIdentifiers containsObject:NSTouchBarItemIdentifierTextFormat];
     [textTouchBar setPrincipalItemIdentifier:isShowingCombinedTextFormatItem ? NSTouchBarItemIdentifierTextFormat : nil];
 
@@ -9616,12 +9616,12 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
     }
 
     auto translationViewController = adoptNS([PAL::allocLTUITranslationViewControllerInstance() init]);
-    [translationViewController setText:adoptNS([[NSAttributedString alloc] initWithString:info.text.createNSString().get()]).get()];
+    [translationViewController setText:(id)@""];
     if (info.mode == WebCore::TranslationContextMenuMode::Editable) {
         [translationViewController setIsSourceEditable:YES];
         [translationViewController setReplacementHandler:[weakSelf = WeakObjCPtr<WebView>(self)](NSAttributedString *string) {
             auto strongSelf = weakSelf.get();
-            [strongSelf insertText:string.string];
+            [strongSelf insertText:(NSString *)string.string];
         }];
     }
 
@@ -9630,10 +9630,10 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
 
     auto popover = adoptNS([[NSPopover alloc] init]);
     [popover setBehavior:NSPopoverBehaviorTransient];
-    [popover setAppearance:self.effectiveAppearance];
+    // macOS 10.9: NSPopover.appearance is an enum, not NSAppearance *. Skip.
     [popover setAnimates:YES];
-    [popover setContentViewController:translationViewController.get()];
-    [popover setContentSize:[translationViewController preferredContentSize]];
+    [popover setContentViewController:(NSViewController *)translationViewController.get()];
+    [popover setContentSize:NSMakeSize(300, 200)];
 
     NSRectEdge preferredEdge;
     auto aim = convertedMenuLocation.x;
@@ -9818,7 +9818,7 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
 
 @implementation WebView (WebViewIOSAdditions)
 
-- (NSArray<DOMElement *> *)_editableElementsInRect:(CGRect)rect
+- (NSArray *)_editableElementsInRect:(CGRect)rect
 {
     auto* page = core(self);
     if (!page)

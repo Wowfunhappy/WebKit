@@ -28,6 +28,9 @@
 #ifdef __OBJC__
 #import <CoreFoundation/CoreFoundation.h>
 #import <CoreText/CTFont.h>
+#if USE(APPKIT)
+#import <AppKit/NSFont.h>
+#endif
 #import <Foundation/Foundation.h>
 #import <wtf/spi/cocoa/IOSurfaceSPI.h>
 #endif

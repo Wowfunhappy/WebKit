@@ -35,6 +35,10 @@
 #import <WebCore/LocalizedStrings.h>
 #import <pal/spi/mac/NSColorSPI.h>
 
+#ifndef NSWindowTitleHidden
+#define NSWindowTitleHidden 1
+#endif
+
 constexpr CGFloat dropdownTopMargin = 3;
 constexpr CGFloat dropdownVerticalPadding = 4;
 constexpr CGFloat dropdownRowHeightWithoutLabel = 20;
@@ -150,11 +154,18 @@ void WebDataListSuggestionsDropdownMac::close()
 #endif
 
     if (!_backdropView) {
-        RetainPtr visualEffectView = adoptNS([[NSVisualEffectView alloc] initWithFrame:contentRect]);
-        [visualEffectView setMaterial:NSVisualEffectMaterialMenu];
-        [visualEffectView setState:NSVisualEffectStateActive];
-        [visualEffectView setBlendingMode:NSVisualEffectBlendingModeBehindWindow];
-        _backdropView = visualEffectView;
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
+        if (NSClassFromString(@"NSVisualEffectView")) {
+            RetainPtr visualEffectView = adoptNS([[NSVisualEffectView alloc] initWithFrame:contentRect]);
+            [visualEffectView setMaterial:NSVisualEffectMaterialMenu];
+            [visualEffectView setState:NSVisualEffectStateActive];
+            [visualEffectView setBlendingMode:NSVisualEffectBlendingModeBehindWindow];
+            _backdropView = visualEffectView;
+        } else
+#endif
+        {
+            _backdropView = adoptNS([[NSView alloc] initWithFrame:contentRect]);
+        }
     }
 
     [_backdropView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
@@ -196,7 +207,10 @@ void WebDataListSuggestionsDropdownMac::close()
     _bottomDivider = adoptNS([[NSView alloc] init]);
     [_bottomDivider setWantsLayer:YES];
     [_bottomDivider setHidden:YES];
-    [_bottomDivider layer].backgroundColor = RetainPtr { NSColor.separatorColor.CGColor }.get();
+    if ([NSColor respondsToSelector:@selector(separatorColor)])
+        [_bottomDivider layer].backgroundColor = RetainPtr { ((NSColor *)[NSColor performSelector:@selector(separatorColor)]).CGColor }.get();
+    else
+        [_bottomDivider layer].backgroundColor = RetainPtr { [NSColor grayColor].CGColor }.get();
     [self addSubview:_bottomDivider.get()];
 
     auto setUpTextField = [strongSelf = retainPtr(self)](NSTextField *textField) {
@@ -261,7 +275,7 @@ void WebDataListSuggestionsDropdownMac::close()
     [super setBackgroundStyle:backgroundStyle];
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [_valueField setTextColor:backgroundStyle == NSBackgroundStyleLight ? NSColor.textColor : NSColor.alternateSelectedControlTextColor];
-    [_labelField setTextColor:NSColor.secondaryLabelColor];
+    [_labelField setTextColor:[NSColor respondsToSelector:@selector(secondaryLabelColor)] ? [NSColor performSelector:@selector(secondaryLabelColor)] : [NSColor grayColor]];
 ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
@@ -292,7 +306,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [self setHeaderView:nil];
     [self setBackgroundColor:[NSColor clearColor]];
     [self setIntercellSpacing:NSMakeSize(0, self.intercellSpacing.height)];
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101100
     [self setStyle:NSTableViewStyleFullWidth];
+#endif
 
     auto column = adoptNS([[NSTableColumn alloc] init]);
     [column setWidth:rect.width()];
@@ -358,7 +374,7 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
     }
 #endif
 
-    _scrollView = adoptNS([[NSScrollView alloc] initWithFrame:[_enclosingWindow contentView].bounds]);
+    _scrollView = adoptNS([[NSScrollView alloc] initWithFrame:[(NSView *)[_enclosingWindow contentView] bounds]]);
     [_scrollView setHasVerticalScroller:YES];
     [_scrollView setVerticalScrollElasticity:NSScrollElasticityAllowed];
     [_scrollView setHorizontalScrollElasticity:NSScrollElasticityNone];
@@ -394,7 +410,7 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
     [_table reload];
 
     [_enclosingWindow setFrame:[self dropdownRectForElementRect:information.elementRect] display:YES];
-    [_scrollView setFrame:[_enclosingWindow contentView].bounds];
+    [_scrollView setFrame:[(NSView *)[_enclosingWindow contentView] bounds]];
 }
 
 - (void)notifyAccessibilityClients:(NSString *)info
