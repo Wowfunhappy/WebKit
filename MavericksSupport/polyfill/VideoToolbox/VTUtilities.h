@@ -1,0 +1,4 @@
+/* Stub for macOS 10.9 */
+#ifndef _VIDEOTOOLBOX_VTUTILITIES_H_
+#define _VIDEOTOOLBOX_VTUTILITIES_H_
+#endif
