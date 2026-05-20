@@ -73,7 +73,9 @@ MediaPlayerPrivateAVFoundation::MediaPlayerPrivateAVFoundation(MediaPlayer& play
     // isn't reliably wired through MediaPlayer::setPageIsVisible on this build.
     , m_visible(true)
     , m_loadingMetadata(false)
-    , m_isAllowedToRender(false)
+    // Backport: default to true on 10.9 to make isReadyForVideoSetup work without
+    // RenderVideo's prepareForRendering ping.
+    , m_isAllowedToRender(true)
     , m_cachedHasAudio(false)
     , m_cachedHasVideo(false)
     , m_cachedHasCaptions(false)
@@ -520,7 +522,11 @@ void MediaPlayerPrivateAVFoundation::updateStates()
         AssetStatus assetStatus = this->assetStatus();
         ItemStatus itemStatus = playerItemStatus();
 
-        m_assetIsPlayable = (assetStatus == MediaPlayerAVAssetStatusPlayable);
+        // Backport: 10.9 — trackIsPlayable can fail because formatDescription
+        // checks go through soft-linked CoreMedia functions that may return 0
+        // for the media type. Treat "loaded" as "playable" too on 10.9, since
+        // AVFoundation itself will refuse to play unplayable content.
+        m_assetIsPlayable = (assetStatus == MediaPlayerAVAssetStatusPlayable || assetStatus == MediaPlayerAVAssetStatusLoaded);
         if (m_readyState < MediaPlayer::ReadyState::HaveMetadata && assetStatus > MediaPlayerAVAssetStatusLoading) {
             if (m_assetIsPlayable) {
                 if (assetStatus >= MediaPlayerAVAssetStatusLoaded)

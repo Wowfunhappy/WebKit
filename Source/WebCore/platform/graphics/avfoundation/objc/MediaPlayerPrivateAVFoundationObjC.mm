@@ -1150,6 +1150,7 @@ static NSString* convertDynamicRangeModeEnumToAVVideoRange(DynamicRangeMode mode
 void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
 {
     assertIsMainThread();
+    NSLog(@"[10.9 backport] createAVPlayer entry, m_avPlayer=%@, m_avPlayerItem=%@", m_avPlayer.get(), m_avPlayerItem.get());
 
     if (m_avPlayer)
         return;
@@ -1161,6 +1162,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
     ALWAYS_LOG(LOGIDENTIFIER);
 
     m_avPlayer = adoptNS([PAL::allocAVPlayerInstance() init]);
+    NSLog(@"[10.9 backport] m_avPlayer created=%@", m_avPlayer.get());
     for (NSString *keyName in playerKVOProperties())
         [m_avPlayer addObserver:m_objcObserver.get() forKeyPath:keyName options:NSKeyValueObservingOptionNew context:(void *)MediaPlayerAVFoundationObservationContextPlayer];
     // Backport: automaticallyWaitsToMinimizeStalling is 10.12+
@@ -1217,8 +1219,10 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
 #endif
 
     if (m_avPlayerItem) {
+        NSLog(@"[10.9 backport] createAVPlayer: attaching playerItem, respondsToReplace=%d", (int)[m_avPlayer respondsToSelector:@selector(replaceCurrentItemWithPlayerItem:)]);
         if ([m_avPlayer respondsToSelector:@selector(replaceCurrentItemWithPlayerItem:)])
             setAVPlayerItem(m_avPlayerItem.get());
+        NSLog(@"[10.9 backport] createAVPlayer: after attach, item.status=%ld", (long)[m_avPlayerItem status]);
     }
 
 #if HAVE(AUDIO_OUTPUT_DEVICE_UNIQUE_ID)
@@ -1230,6 +1234,32 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
             m_avPlayer.get().audioOutputDeviceUniqueID = audioOutputDeviceId.createNSString().get();
     }
 #endif
+
+    // Backport: poll AVPlayerItem.status periodically since KVO observation
+    // doesn't fire on 10.9 — main thread runloop may not be processing the
+    // dispatch_async that AVFoundation uses to notify observers. Manually
+    // synthesize a status transition once the asset is known playable and
+    // the AVPlayer has reached ReadyToPlay.
+    {
+        ThreadSafeWeakPtr weakThis { *this };
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 2), mainDispatchQueueSingleton(), ^{
+            RefPtr p = weakThis.get();
+            if (!p || !p->m_avPlayerItem || !p->m_avPlayer)
+                return;
+            long itemS = (long)[p->m_avPlayerItem status];
+            long playerS = (long)[p->m_avPlayer status];
+            BOOL playable = [[p->m_avAsset valueForKey:@"playable"] boolValue];
+            // If AVPlayer is ReadyToPlay (1) and asset is playable, treat item
+            // as ReadyToPlay regardless of what its own status getter returns
+            // (it gets stuck at 0 in WebContent on 10.9).
+            if (playerS == 1 && playable && p->m_cachedItemStatus == 0) {
+                NSLog(@"[10.9 backport] forcing item status -> ReadyToPlay (was %ld, player=%ld, playable=%d)", itemS, playerS, playable);
+                p->playerItemStatusDidChange(1 /* AVPlayerItemStatusReadyToPlay */);
+                p->m_cachedLikelyToKeepUp = true;
+                p->loadedTimeRangesDidChange([p->m_avPlayerItem loadedTimeRanges]);
+            }
+        });
+    }
 
     ASSERT(!m_currentTimeObserver);
     m_currentTimeObserver = [m_avPlayer addPeriodicTimeObserverForInterval:CMTimeMake(1, 10) queue:mainDispatchQueueSingleton() usingBlock:[weakThis = ThreadSafeWeakPtr { *this }, identifier = LOGIDENTIFIER](CMTime cmTime) {
@@ -1266,6 +1296,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
 
 void MediaPlayerPrivateAVFoundationObjC::createAVPlayerItem()
 {
+    NSLog(@"[10.9 backport] createAVPlayerItem entry, m_avPlayerItem=%@, m_avAsset=%@", m_avPlayerItem.get(), m_avAsset.get());
     if (m_avPlayerItem)
         return;
 
@@ -1277,6 +1308,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerItem()
 
     // Create the player item so we can load media data.
     m_avPlayerItem = adoptNS([PAL::allocAVPlayerItemInstance() initWithAsset:m_avAsset]);
+    NSLog(@"[10.9 backport] m_avPlayerItem created=%@", m_avPlayerItem.get());
 
     [[NSNotificationCenter defaultCenter] addObserver:m_objcObserver selector:@selector(didEnd:) name:AVPlayerItemDidPlayToEndTimeNotification object:m_avPlayerItem.get()];
 
@@ -1802,7 +1834,9 @@ void MediaPlayerPrivateAVFoundationObjC::setPlayerRate(double rate, std::optiona
     // and enable otherwise.
     bool shouldAutomaticallyWait = !hostTime;
     if (m_automaticallyWaitsToMinimizeStalling != shouldAutomaticallyWait) {
-        [m_avPlayer setAutomaticallyWaitsToMinimizeStalling:shouldAutomaticallyWait];
+        // Backport: setAutomaticallyWaitsToMinimizeStalling: is 10.12+
+        if ([m_avPlayer respondsToSelector:@selector(setAutomaticallyWaitsToMinimizeStalling:)])
+            [m_avPlayer setAutomaticallyWaitsToMinimizeStalling:shouldAutomaticallyWait];
         m_automaticallyWaitsToMinimizeStalling = shouldAutomaticallyWait;
     }
 
@@ -3659,6 +3693,7 @@ void MediaPlayerPrivateAVFoundationObjC::updateDisableExternalPlayback()
 
 void MediaPlayerPrivateAVFoundationObjC::playerItemStatusDidChange(int status)
 {
+    NSLog(@"[10.9 backport] playerItemStatusDidChange: %d", status);
     m_cachedItemStatus = status;
 
     updateStates();
