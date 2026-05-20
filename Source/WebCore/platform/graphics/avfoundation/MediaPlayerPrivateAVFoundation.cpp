@@ -735,7 +735,9 @@ void MediaPlayerPrivateAVFoundation::setPreload(MediaPlayer::Preload preload)
 
     // Don't force creation of the player and player item unless we already know that the asset is playable. If we aren't
     // there yet, or if we already know it is not playable, creating them now won't help.
-    if (m_preload == MediaPlayer::Preload::Auto && m_assetIsPlayable) {
+    // Backport: assetIsPlayable detection unreliable on 10.9 — also create eagerly
+    // once asset loaded so user can actually play.
+    if (m_preload == MediaPlayer::Preload::Auto && (m_assetIsPlayable || assetStatus() >= MediaPlayerAVAssetStatusLoaded)) {
         createAVPlayerItem();
         createAVPlayer();
     }
