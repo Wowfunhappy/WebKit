@@ -1298,6 +1298,9 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
 
     ASSERT(!m_currentTimeObserver);
     m_currentTimeObserver = [m_avPlayer addPeriodicTimeObserverForInterval:CMTimeMake(1, 10) queue:mainDispatchQueueSingleton() usingBlock:[weakThis = ThreadSafeWeakPtr { *this }, identifier = LOGIDENTIFIER](CMTime cmTime) {
+        static int counter = 0;
+        if (counter++ < 5)
+            NSLog(@"[10.9 backport] PeriodicTimeObserver fired #%d cmTime=%g", counter, CMTimeGetSeconds(cmTime));
         ensureOnMainThread([weakThis, cmTime, identifier] {
             RefPtr protectedThis = weakThis.get();
             if (!protectedThis)
