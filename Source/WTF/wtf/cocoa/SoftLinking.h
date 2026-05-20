@@ -173,7 +173,10 @@ static void* lib##Library() \
     { \
         _STORE_IN_DLSYM_SECTION static char const auditedName[] = #functionName; \
         softLink##functionName = (resultType (*) parameterDeclarations) dlsym(framework##Library(), auditedName); \
-        RELEASE_ASSERT_WITH_MESSAGE(softLink##functionName, "%s", dlerror()); \
+        /* Backport: macOS 10.9 lacks many newer symbols; return default-constructed \
+           value instead of aborting. Callers must handle nil/zero. */ \
+        if (!softLink##functionName) \
+            return resultType(); \
         return softLink##functionName parameterNames; \
     } \
     \
@@ -307,7 +310,11 @@ static void* lib##Library() \
     { \
         _STORE_IN_DLSYM_SECTION static char const auditedName[] = #name; \
         void** pointer = static_cast<void**>(dlsym(framework##Library(), auditedName)); \
-        RELEASE_ASSERT_WITH_MESSAGE(pointer, "%s", dlerror()); \
+        /* Backport: missing symbols on 10.9 → return default-constructed pointer. */ \
+        if (!pointer) { \
+            get##name = name##Function; \
+            return pointer##name; \
+        } \
         pointer##name = static_cast<type>(*pointer); \
         get##name = name##Function; \
         SUPPRESS_UNRETAINED_ARG return pointer##name; \
@@ -348,8 +355,9 @@ static void* lib##Library() \
     { \
         _STORE_IN_DLSYM_SECTION static char const auditedName[] = #name; \
         void* constant = dlsym(framework##Library(), auditedName); \
-        RELEASE_ASSERT_WITH_MESSAGE(constant, "%s", dlerror()); \
-        constant##name.constant = *static_cast<type const *>(constant); \
+        /* Backport: missing constants on 10.9 → leave default-constructed. */ \
+        if (constant) \
+            constant##name.constant = *static_cast<type const *>(constant); \
         get##name##Singleton = name##Function; \
         return constant##name.constant; \
     }
@@ -500,11 +508,11 @@ static void* lib##Library() \
     { \
         static dispatch_once_t once; \
         dispatch_once(&once, ^{ \
-            framework##Library(isOptional); \
+            framework##Library(true /* backport: always treat as optional on 10.9 */); \
             _STORE_IN_GETCLASS_SECTION static char const auditedClassName[] = #className; \
             class##className = objc_getClass(auditedClassName); \
-            if (!isOptional) \
-                RELEASE_ASSERT(class##className); \
+            /* Backport: never assert on missing class so 10.9 build doesn't abort \
+               when alloc'ing 10.10+ classes; callers get nil and should handle it. */ \
             get##className##ClassSingleton = className##Function; \
         }); \
         return class##className; \
@@ -555,7 +563,10 @@ static void* lib##Library() \
         dispatch_once(&once, ^{ \
             _STORE_IN_DLSYM_SECTION static char const auditedName[] = #variableName; \
             void* constant = dlsym(framework##Library(), auditedName); \
-            RELEASE_ASSERT_WITH_MESSAGE(constant, "%s", dlerror()); \
+            /* Backport: macOS 10.9 lacks many newer constants; return default-constructed \
+               value instead of aborting. Callers must handle nil/zero. */ \
+            if (!constant) \
+                return; \
             constant##framework##variableName = *static_cast<variableType const *>(constant); \
         }); \
         return constant##framework##variableName; \

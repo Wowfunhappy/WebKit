@@ -26,7 +26,7 @@
 #pragma once
 
 // FIXME: Remove the `__has_feature(modules)` condition when possible.
-#if !__has_feature(modules)
+#if 1 /* WAS: !__has_feature(modules), broken on backport */
 
 #include <pal/spi/cocoa/QuartzCoreSPI.h>
 #include <wtf/SoftLinking.h>

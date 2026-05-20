@@ -85,19 +85,19 @@ struct RTCFrameDecodeParams {
 static RetainPtr<CMSampleBufferRef> av1BufferToCMSampleBuffer(std::span<const uint8_t> buffer, CMVideoFormatDescriptionRef videoFormat)
 {
     CMBlockBufferRef newVlockBuffer;
-    if (auto error = PAL::CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, NULL, buffer.size(), kCFAllocatorDefault, NULL, 0, buffer.size(), kCMBlockBufferAssureMemoryNowFlag, &newVlockBuffer)) {
+    if (auto error = CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, NULL, buffer.size(), kCFAllocatorDefault, NULL, 0, buffer.size(), kCMBlockBufferAssureMemoryNowFlag, &newVlockBuffer)) {
         RELEASE_LOG_ERROR(WebRTC, "AV1BufferToCMSampleBuffer CMBlockBufferCreateWithMemoryBlock failed with: %d", error);
         return nullptr;
     }
     auto blockBuffer = adoptCF(newVlockBuffer);
 
-    if (auto error = PAL::CMBlockBufferReplaceDataBytes(buffer.data(), blockBuffer.get(), 0, buffer.size())) {
+    if (auto error = CMBlockBufferReplaceDataBytes(buffer.data(), blockBuffer.get(), 0, buffer.size())) {
         RELEASE_LOG_ERROR(WebRTC, "AV1BufferToCMSampleBuffer CMBlockBufferReplaceDataBytes failed with: %d", error);
         return nullptr;
     }
 
     CMSampleBufferRef sampleBuffer = nullptr;
-    if (auto error = PAL::CMSampleBufferCreate(kCFAllocatorDefault, blockBuffer.get(), true, nullptr, nullptr, videoFormat, 1, 0, nullptr, 0, nullptr, &sampleBuffer)) {
+    if (auto error = CMSampleBufferCreate(kCFAllocatorDefault, blockBuffer.get(), true, nullptr, nullptr, videoFormat, 1, 0, nullptr, 0, nullptr, &sampleBuffer)) {
         RELEASE_LOG_ERROR(WebRTC, "AV1BufferToCMSampleBuffer CMSampleBufferCreate failed with: %d", error);
         return nullptr;
     }
@@ -117,7 +117,7 @@ static void av1DecompressionOutputCallback(void* decoderRef, void* params, OSSta
     }
 
     static const int64_t kNumNanosecsPerSec = 1000000000;
-    decodeParams->callback.get()(imageBuffer, decodeParams->timestamp, PAL::CMTimeGetSeconds(timestamp) * kNumNanosecsPerSec, false);
+    decodeParams->callback.get()(imageBuffer, decodeParams->timestamp, CMTimeGetSeconds(timestamp) * kNumNanosecsPerSec, false);
 }
 
 @implementation RTCVideoDecoderVTBAV1 {
@@ -154,7 +154,7 @@ static void av1DecompressionOutputCallback(void* decoderRef, void* params, OSSta
     auto data = unsafeMakeSpan(rawData, size);
 
     if (auto inputFormat = computeAV1InputFormat(data, _width, _height)) {
-        if (!PAL::CMFormatDescriptionEqual(inputFormat.get(), _videoFormat.get())) {
+        if (!CMFormatDescriptionEqual(inputFormat.get(), _videoFormat.get())) {
             _videoFormat = WTF::move(inputFormat);
             if (int error = [self resetDecompressionSession]; error != WEBRTC_VIDEO_CODEC_OK) {
                 _videoFormat = nullptr;

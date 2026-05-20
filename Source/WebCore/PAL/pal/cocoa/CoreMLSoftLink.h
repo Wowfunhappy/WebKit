@@ -26,7 +26,7 @@
 #pragma once
 
 // FIXME: Remove the `__has_feature(modules)` condition when possible.
-#if !__has_feature(modules)
+#if 1 /* WAS: !__has_feature(modules), broken on backport */
 
 #import <CoreML/CoreML.h>
 #import <wtf/SoftLinking.h>

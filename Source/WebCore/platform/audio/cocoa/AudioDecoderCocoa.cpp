@@ -354,14 +354,14 @@ Ref<AudioDecoder::DecodePromise> InternalAudioDecoderCocoa::decode(Ref<SharedBuf
         return DecodePromise::createAndReject("Couldn't create CMBlockBuffer"_s);
 
     CMSampleTimingInfo packetTiming = {
-        .duration = PAL::CMTimeMake(duration.value_or(0), 1000000), // CoreMedia does not deal with a CMSampleBuffer with a duration set to either invalid or indefinite. So use 0 instead if no duration has been provided.
-        .presentationTimeStamp = PAL::CMTimeMake(timestamp, 1000000),
-        .decodeTimeStamp = PAL::CMTimeMake(timestamp, 1000000)
+        .duration = CMTimeMake(duration.value_or(0), 1000000), // CoreMedia does not deal with a CMSampleBuffer with a duration set to either invalid or indefinite. So use 0 instead if no duration has been provided.
+        .presentationTimeStamp = CMTimeMake(timestamp, 1000000),
+        .decodeTimeStamp = CMTimeMake(timestamp, 1000000)
     };
     size_t packetSize = frameData->size();
 
     CMSampleBufferRef rawSampleBuffer = nullptr;
-    if (auto error = PAL::CMSampleBufferCreateReady(kCFAllocatorDefault, blockBuffer.get(), m_inputFormatDescription.get(), 1, 1, &packetTiming, 1, &packetSize, &rawSampleBuffer))
+    if (auto error = CMSampleBufferCreateReady(kCFAllocatorDefault, blockBuffer.get(), m_inputFormatDescription.get(), 1, 1, &packetTiming, 1, &packetSize, &rawSampleBuffer))
         return DecodePromise::createAndReject(makeString("CMSampleBufferCreateReady failed: OOM with error "_s, error));
 
     DecodePromise::Producer producer;

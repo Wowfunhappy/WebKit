@@ -69,7 +69,9 @@ MediaPlayerPrivateAVFoundation::MediaPlayerPrivateAVFoundation(MediaPlayer& play
     , m_delayCharacteristicsChangedNotification(0)
     , m_mainThreadCallPending(false)
     , m_assetIsPlayable(false)
-    , m_visible(false)
+    // Backport: default to true on 10.9 since RenderVideo's prepareForRendering hook
+    // isn't reliably wired through MediaPlayer::setPageIsVisible on this build.
+    , m_visible(true)
     , m_loadingMetadata(false)
     , m_isAllowedToRender(false)
     , m_cachedHasAudio(false)

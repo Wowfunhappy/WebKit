@@ -26,13 +26,14 @@
 #pragma once
 
 // FIXME: Remove the `__has_feature(modules)` condition when possible.
-#if !__has_feature(modules)
+#if 1 /* WAS: !__has_feature(modules), broken on backport */
 
 #include <wtf/Platform.h>
 
 #if USE(MEDIATOOLBOX)
 
 #include <pal/spi/cocoa/MediaToolboxSPI.h>
+#include <MediaToolbox/MTAudioProcessingTap.h> // backport: explicit include for MTAudioProcessingTapCallbacks
 #include <wtf/SoftLinking.h>
 
 SOFT_LINK_FRAMEWORK_FOR_HEADER(PAL, MediaToolbox)
@@ -51,13 +52,13 @@ SOFT_LINK_CONSTANT_MAY_FAIL_FOR_HEADER(PAL, MediaToolbox, kMTSupportNotification
 #define kMTSupportNotification_ShouldPlayHDRVideoChanged PAL::get_MediaToolbox_kMTSupportNotification_ShouldPlayHDRVideoChangedSingleton()
 
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, MediaToolbox, MTAudioProcessingTapGetStorage, void*, (MTAudioProcessingTapRef tap), (tap))
-#define MTAudioProcessingTapGetStorage softLink_MediaToolbox_MTAudioProcessingTapGetStorage
+#define MTAudioProcessingTapGetStorage PAL::softLink_MediaToolbox_MTAudioProcessingTapGetStorage
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, MediaToolbox, MTAudioProcessingTapGetSourceAudio, OSStatus, (MTAudioProcessingTapRef tap, CMItemCount numberFrames, AudioBufferList *bufferListInOut, MTAudioProcessingTapFlags *flagsOut, CMTimeRange *timeRangeOut, CMItemCount *numberFramesOut), (tap, numberFrames, bufferListInOut, flagsOut, timeRangeOut, numberFramesOut))
-#define MTAudioProcessingTapGetSourceAudio softLink_MediaToolbox_MTAudioProcessingTapGetSourceAudio
+#define MTAudioProcessingTapGetSourceAudio PAL::softLink_MediaToolbox_MTAudioProcessingTapGetSourceAudio
 
 // FIXME: CoreMedia doesn't specify CF_RETURNS_RETAINED. See rdar://148149858.
 SOFT_LINK_FUNCTION_MAY_FAIL_FOR_HEADER(PAL, MediaToolbox, MTAudioProcessingTapCreate, OSStatus, (CFAllocatorRef allocator, const MTAudioProcessingTapCallbacks* callbacks, MTAudioProcessingTapCreationFlags flags, CF_RETURNS_RETAINED MTAudioProcessingTapRef* tapOut), (allocator, callbacks, flags, tapOut))
-#define MTAudioProcessingTapCreate softLink_MediaToolbox_MTAudioProcessingTapCreate
+#define MTAudioProcessingTapCreate PAL::softLink_MediaToolbox_MTAudioProcessingTapCreate
 
 #endif // USE(MEDIATOOLBOX)
 

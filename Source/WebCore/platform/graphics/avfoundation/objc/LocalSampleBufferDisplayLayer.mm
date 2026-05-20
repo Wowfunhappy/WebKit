@@ -356,12 +356,12 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 static void setSampleBufferAsDisplayImmediately(CMSampleBufferRef sampleBuffer)
 {
-    RetainPtr<CFArrayRef> attachmentsArray = PAL::CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, true);
+    RetainPtr<CFArrayRef> attachmentsArray = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, true);
     if (!attachmentsArray)
         return;
     for (CFIndex i = 0; i < CFArrayGetCount(attachmentsArray.get()); ++i) {
         RetainPtr attachments = checked_cf_cast<CFMutableDictionaryRef>(CFArrayGetValueAtIndex(attachmentsArray.get(), i));
-        CFDictionarySetValue(attachments.get(), PAL::kCMSampleAttachmentKey_DisplayImmediately, kCFBooleanTrue);
+        CFDictionarySetValue(attachments.get(), kCMSampleAttachmentKey_DisplayImmediately, kCFBooleanTrue);
     }
 }
 

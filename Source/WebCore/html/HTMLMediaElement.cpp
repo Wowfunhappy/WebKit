@@ -1658,13 +1658,8 @@ void HTMLMediaElement::mediaPlayerReloadAndResumePlaybackIfNeeded()
 
 void HTMLMediaElement::selectMediaResource()
 {
-    // 10.9 backport: stub. Companion to other HTMLMediaElement no-op stubs.
-    // CNN crashes here at +86 — selectMediaResource interacts with the
-    // resource selection algorithm and downstream MediaPlayer code that's
-    // incompatible with 10.9's AVFoundation. Skipping leaves the element
-    // inert.
-    m_networkState = NETWORK_NO_SOURCE;
-    return;
+    // 10.9 backport: 2026-05-19 — un-stubbed now that MediaPlayerPrivateAVFoundationObjC
+    // registers a real engine. Was stubbed when the engine returned a polyfill stub.
     // https://www.w3.org/TR/2016/REC-html51-20161101/semantics-embedded-content.html#resource-selection-algorithm
     // The Resource Selection Algorithm
 

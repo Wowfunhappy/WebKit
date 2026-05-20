@@ -132,7 +132,7 @@ void RealtimeIncomingAudioSourceCocoa::OnData(const void* audioData, int bitsPer
             m_numberOfFrames = 0;
     }
 
-    CMTime startTime = PAL::CMTimeMake(audioModule() ? audioModule()->currentAudioSampleCount() : m_numberOfFrames, LibWebRTCAudioFormat::sampleRate);
+    CMTime startTime = CMTimeMake(audioModule() ? audioModule()->currentAudioSampleCount() : m_numberOfFrames, LibWebRTCAudioFormat::sampleRate);
     auto mediaTime = PAL::toMediaTime(startTime);
     m_numberOfFrames += numberOfFrames;
 

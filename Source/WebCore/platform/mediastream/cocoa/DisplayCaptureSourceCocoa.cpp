@@ -281,11 +281,11 @@ void DisplayCaptureSourceCocoa::emitFrame()
             if (!sample)
                 return { };
 
-            RetainPtr formatDescription = PAL::CMSampleBufferGetFormatDescription(sample.get());
-            if (PAL::CMFormatDescriptionGetMediaType(formatDescription.get()) != kCMMediaType_Video)
+            RetainPtr formatDescription = CMSampleBufferGetFormatDescription(sample.get());
+            if (CMFormatDescriptionGetMediaType(formatDescription.get()) != kCMMediaType_Video)
                 return IntSize();
 
-            return IntSize(PAL::CMVideoFormatDescriptionGetPresentationDimensions(formatDescription.get(), true, true));
+            return IntSize(CMVideoFormatDescriptionGetPresentationDimensions(formatDescription.get(), true, true));
         }
     );
 

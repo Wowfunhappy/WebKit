@@ -26,7 +26,7 @@
 #pragma once
 
 // FIXME: Remove the `__has_feature(modules)` condition when possible.
-#if !__has_feature(modules)
+#if 1 /* WAS: !__has_feature(modules), broken on backport */
 
 #include <wtf/Compiler.h>
 #include <wtf/Platform.h>
@@ -383,17 +383,17 @@ SOFT_LINK_CONSTANT_MAY_FAIL_FOR_HEADER(PAL, AVFoundation, AVCaptureDeviceTypeExt
 
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(WATCHOS)
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AVFoundation, AVCaptureSessionSetAuthorizedToUseCameraInMultipleForegroundAppLayout, void, (AVCaptureSession *session), (session))
-#define AVCaptureSessionSetAuthorizedToUseCameraInMultipleForegroundAppLayout softLink_AVFoundation_AVCaptureSessionSetAuthorizedToUseCameraInMultipleForegroundAppLayout
+#define AVCaptureSessionSetAuthorizedToUseCameraInMultipleForegroundAppLayout PAL::softLink_AVFoundation_AVCaptureSessionSetAuthorizedToUseCameraInMultipleForegroundAppLayout
 #endif // PLATFORM(IOS_FAMILY) && !PLATFORM(WATCHOS)
 
 #if !PLATFORM(WATCHOS)
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, AVFoundation, AVRouteDetectorMultipleRoutesDetectedDidChangeNotification, NSString *)
-#define AVRouteDetectorMultipleRoutesDetectedDidChangeNotification get_AVFoundation_AVRouteDetectorMultipleRoutesDetectedDidChangeNotificationSingleton()
+#define AVRouteDetectorMultipleRoutesDetectedDidChangeNotification PAL::get_AVFoundation_AVRouteDetectorMultipleRoutesDetectedDidChangeNotificationSingleton()
 #endif // HAVE(WATCHOS)
 
 #if HAVE(AVROUTEPICKERVIEW)
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, AVFoundation, AVOutputContextOutputDevicesDidChangeNotification, NSNotificationName)
-#define AVOutputContextOutputDevicesDidChangeNotification get_AVFoundation_AVOutputContextOutputDevicesDidChangeNotificationSingleton()
+#define AVOutputContextOutputDevicesDidChangeNotification PAL::get_AVFoundation_AVOutputContextOutputDevicesDidChangeNotificationSingleton()
 #endif // HAVE(AVROUTEPICKERVIEW)
 
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVAudioConverter)

@@ -95,7 +95,7 @@ void MediaStreamAudioSource::setNumberOfChannels(unsigned numberOfChannels)
 
 void MediaStreamAudioSource::consumeAudio(AudioBus& bus, size_t numberOfFrames)
 {
-    CMTime startTime = PAL::CMTimeMake(m_numberOfFrames, m_currentSettings.sampleRate());
+    CMTime startTime = CMTimeMake(m_numberOfFrames, m_currentSettings.sampleRate());
     auto mediaTime = PAL::toMediaTime(startTime);
     m_numberOfFrames += numberOfFrames;
 

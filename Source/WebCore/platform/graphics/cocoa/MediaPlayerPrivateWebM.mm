@@ -980,13 +980,13 @@ void MediaPlayerPrivateWebM::enqueueSample(Ref<MediaSample>&& sample, TrackID tr
 
     PlatformSample platformSample = sample->platformSample();
 
-    CMFormatDescriptionRef formatDescription = PAL::CMSampleBufferGetFormatDescription(platformSample.cmSampleBuffer());
+    CMFormatDescriptionRef formatDescription = CMSampleBufferGetFormatDescription(platformSample.cmSampleBuffer());
     ASSERT(formatDescription);
     if (!formatDescription) {
         ERROR_LOG(logSiteIdentifier, "Received sample with a null formatDescription. Bailing.");
         return;
     }
-    auto mediaType = PAL::CMFormatDescriptionGetMediaType(formatDescription);
+    auto mediaType = CMFormatDescriptionGetMediaType(formatDescription);
 
     if (isEnabledVideoTrackID(trackId)) {
         // AVSampleBufferDisplayLayer will throw an un-documented exception if passed a sample

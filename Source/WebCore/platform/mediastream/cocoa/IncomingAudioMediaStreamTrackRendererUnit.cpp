@@ -224,7 +224,7 @@ void IncomingAudioMediaStreamTrackRendererUnit::renderAudioChunk(uint64_t curren
                 hasCopiedData = true;
         }
 
-        CMTime startTime = PAL::CMTimeMake(renderMixer.writeCount, m_outputStreamDescription->sampleRate());
+        CMTime startTime = CMTimeMake(renderMixer.writeCount, m_outputStreamDescription->sampleRate());
         if (hasCopiedData)
             renderMixer.mixedSource->pushSamples(PAL::toMediaTime(startTime), *m_audioBufferList, m_sampleCount);
         renderMixer.writeCount += m_sampleCount;

@@ -91,7 +91,7 @@ AVOutputContext * AVRoutePickerViewTargetPicker::outputContextInternal()
         m_outputContext = [PAL::getAVOutputContextClassSingleton() iTunesAudioContext];
         ASSERT(m_outputContext);
         if (m_outputContext)
-            [[NSNotificationCenter defaultCenter] addObserver:m_routePickerViewDelegate.get() selector:@selector(notificationHandler:) name:PAL::AVOutputContextOutputDevicesDidChangeNotification object:m_outputContext.get()];
+            [[NSNotificationCenter defaultCenter] addObserver:m_routePickerViewDelegate.get() selector:@selector(notificationHandler:) name:AVOutputContextOutputDevicesDidChangeNotification object:m_outputContext.get()];
     }
 
     return m_outputContext.get();
@@ -111,7 +111,7 @@ AVRouteDetector *AVRoutePickerViewTargetPicker::routeDetector()
 {
     if (!m_routeDetector) {
         m_routeDetector = adoptNS([PAL::allocAVRouteDetectorInstance() init]);
-        [[NSNotificationCenter defaultCenter] addObserver:m_routePickerViewDelegate.get() selector:@selector(notificationHandler:) name:PAL::AVRouteDetectorMultipleRoutesDetectedDidChangeNotification object:m_routeDetector.get()];
+        [[NSNotificationCenter defaultCenter] addObserver:m_routePickerViewDelegate.get() selector:@selector(notificationHandler:) name:AVRouteDetectorMultipleRoutesDetectedDidChangeNotification object:m_routeDetector.get()];
         if ([m_routeDetector multipleRoutesDetected])
             availableDevicesDidChange();
     }
@@ -170,13 +170,13 @@ AVOutputContext * AVRoutePickerViewTargetPicker::outputContext()
 void AVRoutePickerViewTargetPicker::invalidatePlaybackTargets()
 {
     if (m_routeDetector) {
-        [[NSNotificationCenter defaultCenter] removeObserver:m_routePickerViewDelegate.get() name:PAL::AVRouteDetectorMultipleRoutesDetectedDidChangeNotification object:m_routeDetector.get()];
+        [[NSNotificationCenter defaultCenter] removeObserver:m_routePickerViewDelegate.get() name:AVRouteDetectorMultipleRoutesDetectedDidChangeNotification object:m_routeDetector.get()];
         [m_routeDetector setRouteDetectionEnabled:NO];
         m_routePickerView = nullptr;
     }
 
     if (m_outputContext) {
-        [[NSNotificationCenter defaultCenter] removeObserver:m_routePickerViewDelegate.get() name:PAL::AVOutputContextOutputDevicesDidChangeNotification object:m_outputContext.get()];
+        [[NSNotificationCenter defaultCenter] removeObserver:m_routePickerViewDelegate.get() name:AVOutputContextOutputDevicesDidChangeNotification object:m_outputContext.get()];
         m_outputContext = nullptr;
     }
 
@@ -283,9 +283,9 @@ void AVRoutePickerViewTargetPicker::devicePickerWasDismissed()
         if (!callback)
             return;
 
-        if ([[notification name] isEqualToString:PAL::AVOutputContextOutputDevicesDidChangeNotification])
+        if ([[notification name] isEqualToString:AVOutputContextOutputDevicesDidChangeNotification])
             callback->currentDeviceDidChange();
-        else if ([[notification name] isEqualToString:PAL::AVRouteDetectorMultipleRoutesDetectedDidChangeNotification])
+        else if ([[notification name] isEqualToString:AVRouteDetectorMultipleRoutesDetectedDidChangeNotification])
             callback->availableDevicesDidChange();
     });
 }

@@ -333,7 +333,7 @@ void MediaRecorderPrivateEncoder::audioSamplesDescriptionChanged(const AudioStre
     }
 
     CMFormatDescriptionRef newFormat = nullptr;
-    if (auto error = PAL::CMAudioFormatDescriptionCreate(kCFAllocatorDefault, &description, 0, nullptr, 0, nullptr, nullptr, &newFormat)) {
+    if (auto error = CMAudioFormatDescriptionCreate(kCFAllocatorDefault, &description, 0, nullptr, 0, nullptr, nullptr, &newFormat)) {
         RELEASE_LOG_ERROR(MediaStream, "MediaRecorderPrivateEncoder::audioSamplesAvailable: CMAudioFormatDescriptionCreate failed with %u", error);
         m_hadError = true;
         return;
@@ -402,7 +402,7 @@ void MediaRecorderPrivateEncoder::audioSamplesAvailable(const MediaTime& time, s
     if (m_hadError)
         return;
 
-    auto* asbd = PAL::CMAudioFormatDescriptionGetStreamBasicDescription(m_audioFormatDescription.get());
+    auto* asbd = CMAudioFormatDescriptionGetStreamBasicDescription(m_audioFormatDescription.get());
     ASSERT(asbd);
     if (!asbd) {
         RELEASE_LOG_ERROR(MediaStream, "MediaRecorderPrivateEncoder::audioSamplesAvailable: inconsistent running state");
@@ -422,7 +422,7 @@ void MediaRecorderPrivateEncoder::audioSamplesAvailable(const MediaTime& time, s
     m_currentRingBuffer->fetch(list->list(), sampleCount, totalSampleCount);
 
     CMSampleBufferRef sampleBuffer = nullptr;
-    if (auto error = PAL::CMAudioSampleBufferCreateWithPacketDescriptions(kCFAllocatorDefault, block.get(), true, nullptr, nullptr, m_audioFormatDescription.get(), sampleCount, PAL::toCMTime(time), nullptr, &sampleBuffer)) {
+    if (auto error = CMAudioSampleBufferCreateWithPacketDescriptions(kCFAllocatorDefault, block.get(), true, nullptr, nullptr, m_audioFormatDescription.get(), sampleCount, PAL::toCMTime(time), nullptr, &sampleBuffer)) {
         RELEASE_LOG_ERROR(MediaStream, "MediaRecorderPrivateEncoder::audioSamplesAvailable: CMAudioSampleBufferCreateWithPacketDescriptions failed with error %d", error);
         m_hadError = true;
         return;
@@ -567,7 +567,7 @@ void MediaRecorderPrivateEncoder::enqueueCompressedAudioSampleBuffers()
         return;
 
     if (!m_audioCompressedAudioInfo) {
-        RetainPtr audioFormatDescription = PAL::CMSampleBufferGetFormatDescription(audioConverter()->getOutputSampleBuffer());
+        RetainPtr audioFormatDescription = CMSampleBufferGetFormatDescription(audioConverter()->getOutputSampleBuffer());
         m_audioCompressedAudioInfo = createAudioInfoFromFormatDescription(audioFormatDescription.get());
         ASSERT(m_audioCompressedAudioInfo);
         if (!m_audioCompressedAudioInfo) {
@@ -605,8 +605,8 @@ void MediaRecorderPrivateEncoder::enqueueCompressedAudioSampleBuffers()
     while (RetainPtr sampleBlock = audioConverter()->takeOutputSampleBuffer()) {
         if (m_formatChangedOccurred) {
             // Writing audio samples requiring an edit list is forbidden by the AVAssetWriterInput when used with fMP4, remove the keys.
-            PAL::CMRemoveAttachment(sampleBlock.get(), PAL::kCMSampleBufferAttachmentKey_TrimDurationAtStart);
-            PAL::CMRemoveAttachment(sampleBlock.get(), PAL::kCMSampleBufferAttachmentKey_TrimDurationAtEnd);
+            CMRemoveAttachment(sampleBlock.get(), kCMSampleBufferAttachmentKey_TrimDurationAtStart);
+            CMRemoveAttachment(sampleBlock.get(), kCMSampleBufferAttachmentKey_TrimDurationAtEnd);
         }
 
         if (m_audioCodec == kAudioFormatLinearPCM) {

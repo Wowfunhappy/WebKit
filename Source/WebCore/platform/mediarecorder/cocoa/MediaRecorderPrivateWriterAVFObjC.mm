@@ -101,7 +101,7 @@ MediaRecorderPrivateWriterAVFObjC::MediaRecorderPrivateWriterAVFObjC(RetainPtr<A
     , m_writer(WTF::move(writer))
     , m_waitingQueue(WorkQueue::create("MediaRecorderPrivateWriterAVFObjC"_s))
 {
-    [m_writer setPreferredOutputSegmentInterval:PAL::kCMTimeIndefinite];
+    [m_writer setPreferredOutputSegmentInterval:kCMTimeIndefinite];
     [m_writer setDelegate:m_delegate.get()];
 }
 
@@ -157,7 +157,7 @@ bool MediaRecorderPrivateWriterAVFObjC::allTracksAdded()
     }
     END_BLOCK_OBJC_EXCEPTIONS
 
-    [m_writer startSessionAtSourceTime:PAL::kCMTimeZero];
+    [m_writer startSessionAtSourceTime:kCMTimeZero];
     m_writerStarted = true;
     return true;
 }
@@ -200,17 +200,17 @@ MediaRecorderPrivateWriterAVFObjC::Result MediaRecorderPrivateWriterAVFObjC::wri
 
 static inline void appendEndsPreviousSampleDurationMarker(AVAssetWriterInput *assetWriterInput, CMTime presentationTimeStamp)
 {
-    CMSampleTimingInfo timingInfo = { PAL::kCMTimeInvalid, presentationTimeStamp, presentationTimeStamp };
+    CMSampleTimingInfo timingInfo = { kCMTimeInvalid, presentationTimeStamp, presentationTimeStamp };
 
     CMSampleBufferRef buffer = NULL;
-    auto error = PAL::CMSampleBufferCreate(kCFAllocatorDefault, NULL, true, NULL, NULL, NULL, 0, 1, &timingInfo, 0, NULL, &buffer);
+    auto error = CMSampleBufferCreate(kCFAllocatorDefault, NULL, true, NULL, NULL, NULL, 0, 1, &timingInfo, 0, NULL, &buffer);
     if (error) {
         RELEASE_LOG_ERROR(MediaStream, "MediaRecorderPrivateWriter appendEndsPreviousSampleDurationMarker failed CMSampleBufferCreate with %d", error);
         return;
     }
     RetainPtr sampleBuffer = adoptCF(buffer);
 
-    PAL::CMSetAttachment(sampleBuffer.get(), PAL::kCMSampleBufferAttachmentKey_EndsPreviousSampleDuration, kCFBooleanTrue, kCMAttachmentMode_ShouldPropagate);
+    CMSetAttachment(sampleBuffer.get(), kCMSampleBufferAttachmentKey_EndsPreviousSampleDuration, kCFBooleanTrue, kCMAttachmentMode_ShouldPropagate);
     if (![assetWriterInput appendSampleBuffer:sampleBuffer.get()])
         RELEASE_LOG_ERROR(MediaStream, "MediaRecorderPrivateWriter appendSampleBuffer to writer input failed");
 }

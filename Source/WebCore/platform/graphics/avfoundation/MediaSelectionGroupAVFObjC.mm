@@ -1,2 +1,2 @@
-// Stubbed for 10.9 - media/AV
+// Stubbed for 10.9 - non-critical feature
 #include "config.h"
