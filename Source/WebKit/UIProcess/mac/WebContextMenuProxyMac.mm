@@ -1008,6 +1008,7 @@ void WebContextMenuProxyMac::getContextMenuItem(const WebContextMenuItemData& it
 
 void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuItem>>&& items)
 {
+    NSLog(@"[10.9 backport] WebContextMenuProxyMac::showContextMenuWithItems items=%zu m_menu=%p", items.size(), m_menu.get());
 #if ENABLE(SERVICE_CONTROLS)
     if (m_context.isServicesMenu()) {
         ASSERT(items.isEmpty());
@@ -1018,13 +1019,31 @@ void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuI
 
     RefPtr page = this->page();
     if (page->contextMenuClient().canShowContextMenu()) {
+        NSLog(@"[10.9 backport] showContextMenuWithItems: client canShow=YES, delegating");
         page->contextMenuClient().showContextMenu(*page, m_context.menuLocation(), items);
         return;
     }
 
-    ASSERT(items.isEmpty());
-    if (!m_menu)
+    // Backport: WebContent on 10.9 returns empty menu items because the context
+    // menu controller's populate() may not run (depends on hit test that we may
+    // not have wired through). Build a minimal Back/Forward/Reload menu so the
+    // user always sees SOMETHING when right-clicking on the page.
+    if (!m_menu && items.isEmpty()) {
+        NSLog(@"[10.9 backport] showContextMenuWithItems: synthesizing fallback menu");
+        m_menu = adoptNS([[NSMenu alloc] init]);
+        NSMenuItem *back = [[NSMenuItem alloc] initWithTitle:@"Back" action:@selector(goBack:) keyEquivalent:@""];
+        NSMenuItem *fwd = [[NSMenuItem alloc] initWithTitle:@"Forward" action:@selector(goForward:) keyEquivalent:@""];
+        NSMenuItem *reload = [[NSMenuItem alloc] initWithTitle:@"Reload Page" action:@selector(reloadPage:) keyEquivalent:@""];
+        NSMenuItem *viewSource = [[NSMenuItem alloc] initWithTitle:@"View Source" action:@selector(viewSource:) keyEquivalent:@""];
+        for (NSMenuItem *mi in @[back, fwd, reload, viewSource]) {
+            [mi setTarget:nil]; // first responder
+            [m_menu addItem:mi];
+        }
+    }
+    if (!m_menu) {
+        NSLog(@"[10.9 backport] showContextMenuWithItems: m_menu nil; cannot show");
         return;
+    }
 
     auto webView = m_webView.get();
     NSPoint locationInWindowCoordinates = [webView convertPoint:m_context.menuLocation() toView:nil];
