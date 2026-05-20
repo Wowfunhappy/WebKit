@@ -762,16 +762,21 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerLayer()
     m_videoLayerManager->setVideoLayer(m_videoLayer.get(), sz);
     NSLog(@"[10.9 backport] videoInlineLayer after setVideoLayer=%@", m_videoLayerManager->videoInlineLayer());
     NSLog(@"[10.9 backport] videoLayer frame=%@ bounds=%@ readyForDisplay=%d superlayer=%@", NSStringFromRect(NSRectFromCGRect(m_videoLayer.get().frame)), NSStringFromRect(NSRectFromCGRect(m_videoLayer.get().bounds)), m_videoLayer.get().readyForDisplay, m_videoLayer.get().superlayer);
-    // Periodic check
+    // Periodic check: also poll currentTime and rate to see if playback is real
     {
         ThreadSafeWeakPtr weakThis { *this };
-        for (int i = 1; i <= 4; ++i) {
+        for (int i = 1; i <= 6; ++i) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, i * NSEC_PER_SEC), mainDispatchQueueSingleton(), ^{
                 RefPtr p = weakThis.get();
-                if (!p || !p->m_videoLayer)
+                if (!p || !p->m_videoLayer || !p->m_avPlayer || !p->m_avPlayerItem)
                     return;
                 AVPlayerLayer *vl = p->m_videoLayer.get();
-                NSLog(@"[10.9 backport] +%ds layer: readyForDisplay=%d superlayer=%@ inTree=%d frame=%@", i, vl.readyForDisplay, vl.superlayer, vl.superlayer != nil, NSStringFromRect(NSRectFromCGRect(vl.frame)));
+                AVPlayer *pl = p->m_avPlayer.get();
+                AVPlayerItem *it = p->m_avPlayerItem.get();
+                double rate = pl.rate;
+                CMTime ct = it.currentTime;
+                double seconds = CMTIME_IS_VALID(ct) ? CMTimeGetSeconds(ct) : -1;
+                NSLog(@"[10.9 backport] +%ds: rate=%g currentTime=%g layer.readyForDisplay=%d layer.superlayer=%@", i, rate, seconds, vl.readyForDisplay, vl.superlayer);
             });
         }
     }
