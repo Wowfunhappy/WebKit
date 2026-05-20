@@ -696,6 +696,7 @@ void MediaPlayerPrivateAVFoundationObjC::destroyImageGenerator()
 
 void MediaPlayerPrivateAVFoundationObjC::createVideoLayer()
 {
+    NSLog(@"[10.9 backport] createVideoLayer entry: m_avPlayer=%p haveBeenAsked=%d", m_avPlayer.get(), m_haveBeenAskedToCreateLayer);
     if (!m_avPlayer || m_haveBeenAskedToCreateLayer)
         return;
 
@@ -730,8 +731,10 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerLayer()
         return;
 
     ALWAYS_LOG(LOGIDENTIFIER);
+    NSLog(@"[10.9 backport] createAVPlayerLayer creating");
 
     m_videoLayer = adoptNS([PAL::allocAVPlayerLayerInstance() init]);
+    NSLog(@"[10.9 backport] m_videoLayer=%@", m_videoLayer.get());
     [m_videoLayer setPlayer:m_avPlayer];
 
     [m_videoLayer setName:@"MediaPlayerPrivate AVPlayerLayer"];
@@ -739,7 +742,25 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerLayer()
     updateVideoLayerGravity();
     [m_videoLayer setContentsScale:player->playerContentsScale()];
     setPlatformDynamicRangeLimit(player->platformDynamicRangeLimit());
-    m_videoLayerManager->setVideoLayer(m_videoLayer.get(), player->presentationSize());
+    // Backport: presentationSize is uninitialized on 10.9 because RenderVideo layout hooks
+    // don't reliably propagate m_size to MediaPlayer. Fall back to AVAssetTrack.naturalSize.
+    FloatSize sz = player->presentationSize();
+    if (!std::isfinite(sz.width()) || !std::isfinite(sz.height()) || sz.width() < 1 || sz.height() < 1 || sz.width() > 32000 || sz.height() > 32000) {
+        sz = FloatSize();
+        NSArray *videoTracks = [m_avAsset tracksWithMediaType:AVMediaTypeVideo];
+        if (videoTracks.count) {
+            CGSize natural = [videoTracks[0] naturalSize];
+            sz = FloatSize(natural.width, natural.height);
+            NSLog(@"[10.9 backport] presentationSize garbage; using AVAssetTrack naturalSize %g x %g", sz.width(), sz.height());
+        } else {
+            sz = FloatSize(400, 300); // last-resort fallback
+            NSLog(@"[10.9 backport] no video tracks; using 400x300 fallback");
+        }
+    } else {
+        NSLog(@"[10.9 backport] presentationSize from player = %g x %g", sz.width(), sz.height());
+    }
+    m_videoLayerManager->setVideoLayer(m_videoLayer.get(), sz);
+    NSLog(@"[10.9 backport] videoInlineLayer after setVideoLayer=%@", m_videoLayerManager->videoInlineLayer());
 
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
     [m_videoLayer setPIPModeEnabled:(player->fullscreenMode() & MediaPlayer::VideoFullscreenModePictureInPicture)];
