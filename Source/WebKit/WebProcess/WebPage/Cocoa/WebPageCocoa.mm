@@ -223,6 +223,7 @@ void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
     platformInitializeAccessibility(shouldInitializeAccessibility ? ShouldInitializeNSAccessibility::Yes : ShouldInitializeNSAccessibility::No);
 
 #if ENABLE(MEDIA_STREAM)
+#if ENABLE(GPU_PROCESS)
     protect(WebProcess::singleton().userMediaCaptureManager())->setupCaptureProcesses(parameters.shouldCaptureAudioInUIProcess, parameters.shouldCaptureAudioInGPUProcess, parameters.shouldCaptureVideoInUIProcess, parameters.shouldCaptureVideoInGPUProcess, parameters.shouldCaptureDisplayInUIProcess, parameters.shouldCaptureDisplayInGPUProcess,
 #if ENABLE(WEB_RTC)
         m_page->settings().webRTCRemoteVideoFrameEnabled()
@@ -230,8 +231,21 @@ void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
         false
 #endif // ENABLE(WEB_RTC)
     );
+#else
+    // 10.9 backport: there is no GPU process and no UIProcess capture-manager proxy
+    // (UserMediaCaptureManagerProxy is instantiated only in the GPU process), so the only working
+    // capture path is in the WebProcess itself. Pass all capture-process flags false so
+    // UserMediaCaptureManager::setupCaptureProcesses does NOT register the Remote capture factory —
+    // RealtimeMediaSourceCenter then keeps its default in-process factories (AVVideoCaptureSource /
+    // CoreAudioCaptureSource, which compile on 10.9). The WebProcess still receives a camera sandbox
+    // extension because captureVideoInGPUProcessEnabled() is false (see UserMediaProcessManager).
+    protect(WebProcess::singleton().userMediaCaptureManager())->setupCaptureProcesses(false, false, false, false, false, false, false);
+#endif // ENABLE(GPU_PROCESS)
 #endif // ENABLE(MEDIA_STREAM)
-#if USE(LIBWEBRTC)
+#if USE(LIBWEBRTC) && ENABLE(GPU_PROCESS)
+    // 10.9 backport: LibWebRTCCodecs is the GPU-process codec proxy (only defined with GPU_PROCESS).
+    // With GPU_PROCESS off, WebRTC video uses in-process VideoToolbox (libwebrtc webkit_sdk fallback),
+    // so there are no GPU-process codec callbacks to configure.
     LibWebRTCCodecs::setCallbacks(m_page->settings().webRTCPlatformCodecsInGPUProcessEnabled(), m_page->settings().webRTCRemoteVideoFrameEnabled());
     LibWebRTCCodecs::setWebRTCMediaPipelineAdditionalLoggingEnabled(m_page->settings().webRTCMediaPipelineAdditionalLoggingEnabled());
 #endif
@@ -2250,6 +2264,13 @@ void WebPage::willCommitLayerTree(RemoteLayerTreeTransaction& layerTransaction, 
         layerTransaction.setTimelinesUpdate(acceleratedTimelinesUpdater->takeTimelinesUpdate());
 #endif
 
+    {FILE *_d=((FILE*)0); if(_d){
+        WebCore::IntSize cs = frameView->contentsSize();
+        WebCore::IntSize sz = frameView->size();
+        WebCore::IntSize vs = frameView->visibleSize();
+        fprintf(_d,"[wc-prep-txn PID %d] frameView contentsSize=(%d,%d) size=(%d,%d) visibleSize=(%d,%d)\n", getpid(), cs.width(), cs.height(), sz.width(), sz.height(), vs.width(), vs.height());
+        fclose(_d);
+    }}
     layerTransaction.setContentsSize(frameView->contentsSize());
     layerTransaction.setScrollGeometryContentSize(frameView->scrollGeometryContentSize());
     layerTransaction.setScrollOrigin(frameView->scrollOrigin());

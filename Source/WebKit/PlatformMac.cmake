@@ -100,6 +100,8 @@ list(APPEND WebKit_SOURCES
 list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_BINARY_DIR}/libwebrtc/PrivateHeaders"
     "${ICU_INCLUDE_DIRS}"
+    # 10.9 backport: WebKit Cocoa init now calls PAL::GCrypt::initialize().
+    "/Users/jonathan/Desktop/gcrypt/install/include"
     "${WEBKIT_DIR}/GPUProcess/mac"
     "${WEBKIT_DIR}/NetworkProcess/cocoa"
     "${WEBKIT_DIR}/NetworkProcess/mac"

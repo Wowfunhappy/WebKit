@@ -160,7 +160,33 @@ static FragmentAndResources createFragmentInternal(LocalFrame& frame, NSAttribut
 #endif
 
     NSArray *subresources = nil;
-    RetainPtr<NSString> fragmentString = [string _htmlDocumentFragmentString:NSMakeRange(0, [string length]) documentAttributes:attributesForAttributedStringConversion(!fragmentCreationOptions.contains(FragmentCreationOptions::NoInterchangeNewlines)) subresources:&subresources];
+    RetainPtr<NSString> fragmentString;
+
+    // 10.9 backport: -[NSAttributedString _htmlDocumentFragmentString:documentAttributes:subresources:]
+    // throws -doesNotRecognizeSelector somewhere inside (probably NSHTMLWriter's
+    // own internals using a 10.10+ NSExcludedElementsDocumentAttribute or
+    // similar). Wrap and fall back to the plain-text contents of the
+    // NSAttributedString — strips formatting on paste, but doesn't crash.
+    @try {
+        fragmentString = [string _htmlDocumentFragmentString:NSMakeRange(0, [string length]) documentAttributes:attributesForAttributedStringConversion(!fragmentCreationOptions.contains(FragmentCreationOptions::NoInterchangeNewlines)) subresources:&subresources];
+    } @catch (NSException *exception) {
+        // Plain-text fallback: HTML-escape and wrap in a single text node.
+        NSString *plainText = [string string] ?: @"";
+        NSMutableString *escaped = [NSMutableString stringWithCapacity:[plainText length]];
+        NSUInteger length = [plainText length];
+        for (NSUInteger i = 0; i < length; ++i) {
+            unichar c = [plainText characterAtIndex:i];
+            switch (c) {
+            case '&': [escaped appendString:@"&amp;"]; break;
+            case '<': [escaped appendString:@"&lt;"]; break;
+            case '>': [escaped appendString:@"&gt;"]; break;
+            case '\n': [escaped appendString:@"<br>"]; break;
+            default: [escaped appendFormat:@"%C", c]; break;
+            }
+        }
+        fragmentString = escaped;
+        subresources = nil;
+    }
 
     Ref fragment = DocumentFragment::create(document.get());
     Ref dummyBodyToForceInBodyInsertionMode = HTMLBodyElement::create(document.get());

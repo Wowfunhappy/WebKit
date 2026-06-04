@@ -27,6 +27,23 @@
 
 #include <dispatch/dispatch.h>
 
+#if !HAVE(DISPATCH_QUEUE_MAIN_T)
+// macOS < 10.12 has no typed dispatch_queue_main_t; dispatch_get_main_queue() returns dispatch_queue_t.
+using dispatch_queue_main_t = dispatch_queue_t;
+#endif
+
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101000
+// dispatch_queue_create_with_target() is macOS 10.10+. On 10.9 create the queue and set its target
+// separately — equivalent for our use (a serial queue targeting a global priority queue).
+static inline dispatch_queue_t dispatch_queue_create_with_target(const char* label, dispatch_queue_attr_t attr, dispatch_queue_t target)
+{
+    dispatch_queue_t queue = dispatch_queue_create(label, attr);
+    if (queue && target)
+        dispatch_set_target_queue(queue, target);
+    return queue;
+}
+#endif
+
 namespace WTF {
 
 inline dispatch_queue_t globalDispatchQueueSingleton(intptr_t identifier, uintptr_t flags)

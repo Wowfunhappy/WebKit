@@ -668,7 +668,7 @@ IntSize AVVideoCaptureSource::maxPhotoSizeForActiveFormat(AVCaptureDeviceFormat 
     if (!maxPhotoDimensions.count)
         return { };
 
-    auto bestMaxPhotoSize = maxPhotoDimensions.firstObject.CMVideoDimensionsValue;
+    auto bestMaxPhotoSize = ((NSValue *)maxPhotoDimensions.firstObject).CMVideoDimensionsValue;
     for (NSValue *value in maxPhotoDimensions) {
         CMVideoDimensions dimensions = value.CMVideoDimensionsValue;
         if (dimensions.width >= requestedSize.width() && dimensions.height >= requestedSize.height()) {
@@ -1071,11 +1071,15 @@ void AVVideoCaptureSource::updateTorch()
     auto* device = this->device();
     @try {
         if (torch()) {
+#if PLATFORM(IOS_FAMILY)
+            // -[AVCaptureDevice setTorchModeOnWithLevel:error:] is API_UNAVAILABLE(macos); torch() is
+            // always false on macOS, so the torch-on path is iOS-only.
             NSError *error = nil;
             if (![device setTorchModeOnWithLevel:AVCaptureMaxAvailableTorchLevel error:&error]) {
                 ERROR_LOG_IF(loggerPtr() && error, LOGIDENTIFIER, "error turning on torch ", error);
                 ERROR_LOG_IF(loggerPtr() && !error, LOGIDENTIFIER, "unknown error on torch");
             }
+#endif
         } else
             [device setTorchMode:(AVCaptureTorchMode)m_defaultTorchMode];
 

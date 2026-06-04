@@ -120,7 +120,14 @@ static bool NODELETE indicatorWantsFadeIn(const WebCore::TextIndicator& indicato
     auto dropShadowColor = adoptCF(CGColorCreateGenericGray(0, 0.2));
     auto borderColor = adoptCF(CGColorCreateSRGB(0.96, 0.9, 0, 1));
 #if PLATFORM(MAC)
-    highlightColor = [NSColor findHighlightColor].CGColor;
+    // 10.9 backport: +[NSColor findHighlightColor] is 10.10+. Without a guard,
+    // Cmd+F → first match → setTextIndicatorFromFrame IPC → this init →
+    // doesNotRecognizeSelector → Safari abort. Fall back to the same yellow
+    // tint used on non-Mac platforms.
+    if ([NSColor respondsToSelector:@selector(findHighlightColor)])
+        highlightColor = [NSColor findHighlightColor].CGColor;
+    else
+        highlightColor = adoptCF(CGColorCreateSRGB(.99, .89, 0.22, 1.0));
 #else
     highlightColor = adoptCF(CGColorCreateSRGB(.99, .89, 0.22, 1.0));
 #endif

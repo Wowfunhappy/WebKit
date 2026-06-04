@@ -28,7 +28,8 @@
 #include "CryptoKey.h"
 #include <wtf/Function.h>
 
-#if OS(DARWIN) && !PLATFORM(GTK)
+// 10.9 backport: skip the cocoa CCRSACryptor path when USE(GCRYPT) is set.
+#if OS(DARWIN) && !PLATFORM(GTK) && !USE(GCRYPT)
 #include "CommonCryptoUtilities.h"
 
 typedef CCRSACryptorRef PlatformRSAKey;

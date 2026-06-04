@@ -25,7 +25,9 @@
 
 #pragma once
 
-#if !PLATFORM(COCOA)
+#include "RTCNetwork.h" // Defines WK_RTC_USE_NW (must precede the gate below).
+
+#if !WK_RTC_USE_NW
 
 #if USE(LIBWEBRTC)
 
@@ -78,4 +80,4 @@ private:
 
 #endif // USE(LIBWEBRTC)
 
-#endif // !PLATFORM(COCOA)
+#endif // !WK_RTC_USE_NW

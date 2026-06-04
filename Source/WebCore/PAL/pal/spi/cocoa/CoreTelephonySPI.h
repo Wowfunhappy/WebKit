@@ -29,6 +29,10 @@ DECLARE_SYSTEM_HEADER
 
 #if HAVE(CORE_TELEPHONY)
 
+// 10.9 backport: this SPI header declares ObjC interfaces (e.g. CoreTelephonyClient : NSObject) in
+// the non-internal-SDK path. CoreTelephonyDefines.h does not pull in Foundation on 10.9, so NSObject
+// would be undeclared. Import Foundation explicitly.
+#import <Foundation/Foundation.h>
 #import <CoreTelephony/CoreTelephonyDefines.h>
 
 #if USE(APPLE_INTERNAL_SDK)

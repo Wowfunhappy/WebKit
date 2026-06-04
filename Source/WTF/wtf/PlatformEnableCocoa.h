@@ -188,7 +188,10 @@
 #define ENABLE_APPLE_PAY_UPDATE_SHIPPING_METHODS_WHEN_CHANGING_LINE_ITEMS 1
 #endif
 
-#if !defined(ENABLE_APPLE_PAY_AMS_UI) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION))
+// APPLE_PAY_AMS_UI requires PAYMENT_REQUEST: ApplePayAMSUIPaymentHandler is a PaymentHandler and its
+// class definition is gated on ENABLE(APPLE_PAY_AMS_UI) && ENABLE(PAYMENT_REQUEST). Without this
+// dependency, Page.cpp compiles the AMS-UI block while the handler stays an incomplete type.
+#if !defined(ENABLE_APPLE_PAY_AMS_UI) && ENABLE(PAYMENT_REQUEST) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION))
 #define ENABLE_APPLE_PAY_AMS_UI 1
 #endif
 
@@ -442,7 +445,8 @@
 #define ENABLE_IMAGE_ANALYSIS 1
 #endif
 
-#if !defined(ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST))
+// Image-analysis enhancements build on VisionKit (VKCImageAnalysis); require it (off on 10.9).
+#if !defined(ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS) && HAVE(VK_IMAGE_ANALYSIS) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST))
 #define ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS 1
 #endif
 
@@ -562,8 +566,21 @@
 #define ENABLE_VIDEO 1
 #endif
 
+// 10.9 backport: keep ENABLE_MEDIA_SOURCE driven by the cmake flag (ENABLE_MEDIA_SOURCE=OFF in
+// OptionsMac.cmake → FEATURE_DEFINES_WITH_SPACE_SEPARATOR doesn't include it → IDL preprocessor
+// generates JSHTMLMediaElement.cpp's MediaProvider as Variant<Blob> only). If we also default
+// ENABLE_MEDIA_SOURCE=1 here, the C++ side (HTMLMediaElement.h MediaProvider) becomes
+// Variant<Ref<MediaSource>, Ref<Blob>> and the bindings/impl types diverge → compile error in
+// JSHTMLMediaElement.cpp setJSHTMLMediaElement_srcObjectSetter. Force OFF on 10.9 to match the
+// cmake intent (browser stability — MSE re-enable is task #286 and must flip BOTH sides).
+#if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101000
+#if !defined(ENABLE_MEDIA_SOURCE)
+#define ENABLE_MEDIA_SOURCE 0
+#endif
+#else
 #if !defined(ENABLE_MEDIA_SOURCE) && !PLATFORM(MACCATALYST) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
 #define ENABLE_MEDIA_SOURCE 1
+#endif
 #endif
 
 #if !defined(ENABLE_MEDIA_SOURCE_IN_WORKERS) && ENABLE(MEDIA_SOURCE) && ENABLE(GPU_PROCESS)
@@ -1181,7 +1198,7 @@
 #define ENABLE_OPT_IN_PARTITIONED_COOKIES 1
 #endif
 
-#if !defined(ENABLE_DNS_SERVER_FOR_TESTING) && (PLATFORM(MAC) || PLATFORM(IOS_FAMILY_SIMULATOR))
+#if !defined(ENABLE_DNS_SERVER_FOR_TESTING) && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || PLATFORM(IOS_FAMILY_SIMULATOR))
 #define ENABLE_DNS_SERVER_FOR_TESTING 1
 #endif
 

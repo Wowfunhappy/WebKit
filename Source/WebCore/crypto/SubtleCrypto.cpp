@@ -234,7 +234,8 @@ static ExceptionOr<std::unique_ptr<CryptoAlgorithmParameters>> normalizeCryptoAl
         case CryptoAlgorithmIdentifier::SHA_512:
             return makeParameters<CryptoAlgorithmParameters>(*identifier, params.releaseReturnValue());
         case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-            RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
+            // 10.9 backport: fail JS operation instead of crashing the tab.
+            return Exception { ExceptionCode::NotSupportedError };
         default:
             return Exception { ExceptionCode::NotSupportedError };
         }

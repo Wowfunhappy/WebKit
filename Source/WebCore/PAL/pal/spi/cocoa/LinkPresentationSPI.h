@@ -31,7 +31,10 @@
 DECLARE_SYSTEM_HEADER
 
 // FIXME: Remove the `__has_feature(modules)` condition when possible.
-#if (!PLATFORM(WATCHOS) || USE(APPLE_INTERNAL_SDK)) && !__has_feature(modules)
+// 10.9 backport: the LinkPresentation framework is macOS 10.15+. With implicit modules disabled this
+// branch would textually import a framework header that does not exist on 10.9, so also require the
+// header to be present; otherwise fall through to the stub interfaces below.
+#if (!PLATFORM(WATCHOS) || USE(APPLE_INTERNAL_SDK)) && !__has_feature(modules) && __has_include(<LinkPresentation/LinkPresentation.h>)
 #import <LinkPresentation/LinkPresentation.h>
 #else
 #import <Foundation/Foundation.h>

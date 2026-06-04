@@ -72,11 +72,15 @@ void JSRunLoopTimer::Manager::timerDidFire()
     {
         Locker locker { m_lock };
         if (!m_mapping.isEmpty()) {
-            RunLoop* currentRunLoop = &RunLoop::currentSingleton();
             MonotonicTime now = MonotonicTime::now();
             for (auto& entry : m_mapping) {
                 PerVMData& data = *entry.value;
-                if (data.runLoop.ptr() != currentRunLoop)
+                // 10.9 backport: don't raw-compare to RunLoop::currentSingleton(). dispatch_main()
+                // pthread_exits the real main thread, so the main RunLoop's timer fires on a transient
+                // dispatch worker whose currentSingleton() differs from the VM's (main) RunLoop. Use
+                // isCurrent(), which treats "running on the main GCD queue" as the main RunLoop —
+                // otherwise deferred-work timers (e.g. async WebAssembly.instantiate) never fire.
+                if (!data.runLoop->isCurrent())
                     continue;
 
                 Seconds interval = s_decade;

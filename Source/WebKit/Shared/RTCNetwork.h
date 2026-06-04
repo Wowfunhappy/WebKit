@@ -42,6 +42,19 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 IGNORE_CLANG_WARNINGS_END
 
+// macOS 10.9 backport: the Cocoa NetworkRTC socket and path-monitor code uses
+// Network.framework nw_* APIs that require 10.14+. On older deployment targets we
+// route WebRTC through libwebrtc's portable BSD-socket BasicPacketSocketFactory and a
+// getifaddrs()/timer network monitor (the same code paths the GTK/WPE ports use, all
+// present in libwebrtc.a). WK_RTC_USE_NW gates the Cocoa nw_* path: 1 = use nw_*,
+// 0 = use the portable libwebrtc path. Defined here because RTCNetwork.h is included
+// (transitively) by every NetworkRTC translation unit.
+#if PLATFORM(COCOA) && (!defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400)
+#define WK_RTC_USE_NW 1
+#else
+#define WK_RTC_USE_NW 0
+#endif
+
 namespace WebKit {
 
 namespace WebRTCNetwork {

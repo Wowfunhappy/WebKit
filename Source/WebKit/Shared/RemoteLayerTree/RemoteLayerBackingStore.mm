@@ -187,6 +187,7 @@ void RemoteLayerBackingStore::clearBackingStore()
 
 void RemoteLayerBackingStore::ensureBackingStore(const Parameters& parameters)
 {
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[BS::ensure] size=%gx%g type=%d opaque=%d\n", (double)parameters.size.width(), (double)parameters.size.height(), (int)parameters.type, (int)parameters.isOpaque); fclose(_d);}}
     if (m_parameters == parameters)
         return;
 
@@ -213,6 +214,7 @@ void RemoteLayerBackingStore::encode(IPC::Encoder& encoder) const
         ASSERT(m_parameters.type == Type::IOSurface);
         handle = ImageBufferBackendHandle { *m_contentsBufferHandle };
     }
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[BS::encode] hasContentsBufferHandle=%d hasHandle=%d type=%d size=%gx%g\n", (int)!!m_contentsBufferHandle, (int)!!handle, (int)m_parameters.type, (double)m_parameters.size.width(), (double)m_parameters.size.height()); fclose(_d);}}
 
     encoder << WTF::move(handle);
 
@@ -640,8 +642,8 @@ void RemoteLayerBackingStoreProperties::applyBackingStoreToNode(RemoteLayerTreeN
 {
     RetainPtr layer = node.layer();
     bool isDelegatedDisplay = !m_frontBufferInfo;
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[applyBackingStoreToNode PID %d] layerID=%llu layer=%p bounds=%gx%g delegated=%d hasFrontBuffer=%d hasBufHandle=%d\n",
-        getpid(), (unsigned long long)node.layerID().object().toUInt64(), layer.get(),
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[applyBSToNode] layerID=%llu layer=%p bounds=%gx%g delegated=%d hasFrontBuffer=%d hasBufHandle=%d\n",
+        (unsigned long long)node.layerID().object().toUInt64(), layer.get(),
         (double)[layer bounds].size.width, (double)[layer bounds].size.height,
         (int)isDelegatedDisplay, (int)!!m_frontBufferInfo, (int)!!m_bufferHandle); fclose(_d);}}
 

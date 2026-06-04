@@ -132,6 +132,10 @@
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
+
+#if USE(GCRYPT)
+#include <pal/crypto/gcrypt/Initialization.h>
+#endif
 #import <wtf/darwin/DispatchExtras.h>
 #import <wtf/spi/cocoa/OSLogSPI.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
@@ -1016,6 +1020,12 @@ void WebProcess::initializeSandbox(const AuxiliaryProcessInitializationParameter
 {
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
 
+#if USE(GCRYPT)
+    // 10.9 backport: WebCrypto is backed by libgcrypt. Call gcry_check_version
+    // and finish secmem setup before any thread can touch the library.
+    PAL::GCrypt::initialize();
+#endif
+
 #if ENABLE(AUDIO_DECODER_REGISTRATION)
     registerOpusDecoderIfNeeded();
     registerVorbisDecoderIfNeeded();
@@ -1485,7 +1495,9 @@ void WebProcess::setScreenProperties(const WebCore::ScreenProperties& properties
 #if PLATFORM(MAC)
 void WebProcess::updatePageScreenProperties()
 {
-#if !HAVE(AVPLAYER_VIDEORANGEOVERRIDE)
+// WebCore::setShouldOverrideScreenSupportsHighDynamicRange is undefined on 10.9 (no HDR-display
+// support), so this MediaToolbox HDR-override fallback is gated to the platforms that provide it.
+#if !HAVE(AVPLAYER_VIDEORANGEOVERRIDE) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
     // Only override HDR support at the MediaToolbox level if AVPlayer.videoRangeOverride support is
     // not present, as the MediaToolbox override functionality is both duplicative and process global.
     if (hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer)) {
@@ -1494,7 +1506,8 @@ void WebProcess::updatePageScreenProperties()
     }
 
     bool allPagesAreOnHDRScreens = std::ranges::all_of(m_pageMap.values(), [](auto& page) {
-        return page && screenSupportsHighDynamicRange(page->localMainFrameView());
+        // m_pageMap holds Ref<WebPage> (never null); no bool-check on the Ref.
+        return screenSupportsHighDynamicRange(page->localMainFrameView());
     });
     setShouldOverrideScreenSupportsHighDynamicRange(true, allPagesAreOnHDRScreens);
 #endif

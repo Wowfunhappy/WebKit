@@ -43,17 +43,17 @@
 #include <wtf/MainThread.h>
 #include <wtf/text/WTFString.h>
 
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
 #include "NetworkRTCTCPSocketCocoa.h"
 #include "NetworkRTCUDPSocketCocoa.h"
 #include "NetworkSessionCocoa.h"
-#else // PLATFORM(COCOA)
+#else // !WK_RTC_USE_NW
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <webrtc/api/environment/environment_factory.h>
 #include <webrtc/rtc_base/async_packet_socket.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
-#endif // !PLATFORM(COCOA)
+#endif // !WK_RTC_USE_NW
 
 namespace WebKit {
 using namespace WebCore;
@@ -66,14 +66,14 @@ NetworkRTCProvider::NetworkRTCProvider(NetworkConnectionToWebProcess& connection
     , m_ipcConnection(connection.connection())
     , m_rtcMonitor(*this)
     , m_sharedPreferences(connection.sharedPreferencesForWebProcessValue())
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
     , m_sourceApplicationAuditToken(connection.networkProcess().sourceApplicationAuditToken())
     , m_rtcNetworkThreadQueue(WorkQueue::create("NetworkRTCProvider Queue"_s, WorkQueue::QOS::UserInitiated))
 #else
     , m_packetSocketFactory(makeUniqueRefWithoutFastMallocCheck<webrtc::BasicPacketSocketFactory>(rtcNetworkThread().socketserver()))
 #endif
 {
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
     if (CheckedPtr session = downcast<NetworkSessionCocoa>(connection.networkSession()))
         m_applicationBundleIdentifier = session->sourceApplicationBundleIdentifier().utf8();
 #endif
@@ -107,7 +107,7 @@ void NetworkRTCProvider::close()
         for (auto& socket : sockets)
             socket.second->close();
         ASSERT(m_sockets.empty());
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
         m_attributedBundleIdentifiers.clear();
 #endif
     });
@@ -237,7 +237,7 @@ void NetworkRTCProvider::stopResolver(LibWebRTCResolverIdentifier identifier)
     WebCore::stopResolveDNS(identifier.toUInt64());
 }
 
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
 bool NetworkRTCProvider::webRTCInterfaceMonitoringViaNWEnabled() const
 {
     auto* connection = m_connection.get();
@@ -308,7 +308,7 @@ void NetworkRTCProvider::assertIsRTCNetworkThread()
     assertIsCurrent(m_rtcNetworkThreadQueue);
 }
 
-#else // PLATFORM(COCOA)
+#else // !WK_RTC_USE_NW
 webrtc::Thread& NetworkRTCProvider::rtcNetworkThread()
 {
     static NeverDestroyed<std::unique_ptr<webrtc::Thread>> networkThread = [] {
@@ -382,7 +382,16 @@ void NetworkRTCProvider::assertIsRTCNetworkThread()
 {
     ASSERT(rtcNetworkThread().IsCurrent());
 }
-#endif // !PLATFORM(COCOA)
+
+// The Cocoa getInterfaceName uses Network.framework nw_* (10.14+) to bind candidates to a
+// specific interface. On the portable path (10.9) we don't have it; return an empty name so
+// the caller (LibWebRTCNetworkManager) simply skips the interface-binding optimization. The
+// GetInterfaceName IPC message is still PLATFORM(COCOA)-gated, so this keeps the contract intact.
+void NetworkRTCProvider::getInterfaceName(URL&&, WebPageProxyIdentifier, RTCSocketCreationFlags, WebCore::RegistrableDomain&&, CompletionHandler<void(String&&)>&& completionHandler)
+{
+    completionHandler({ });
+}
+#endif // !WK_RTC_USE_NW
 
 void NetworkRTCProvider::signalSocketIsClosed(LibWebRTCSocketIdentifier identifier)
 {

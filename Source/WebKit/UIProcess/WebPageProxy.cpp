@@ -1791,6 +1791,7 @@ void WebPageProxy::setDrawingArea(RefPtr<DrawingAreaProxy>&& newDrawingArea)
 
 void WebPageProxy::initializeWebPage(const Site& site, WebCore::SandboxFlags effectiveSandboxFlags, WebCore::ReferrerPolicy effectiveReferrerPolicy)
 {
+    WTFLogAlways("[INSPECTOR-IWP] initializeWebPage webPageID=%" PRIu64 " hasRunningProcess=%d", m_webPageID.toUInt64(), (int)hasRunningProcess());
     // 10.9 backport: hasRunningProcess() returns false when WebPageProxy thinks the WebContent
     // process is Terminated. Safari closes the XPC bootstrap connection after init completes,
     // which makes WebPageProxy think the process died — but the mach port IPC remains alive.
@@ -1837,7 +1838,9 @@ void WebPageProxy::initializeWebPage(const Site& site, WebCore::SandboxFlags eff
     if (preferences->siteIsolationEnabled())
         browsingContextGroup->addPage(*this);
     // 10.9 perf: removed debug fopen logging
+    WTFLogAlways("[INSPECTOR-CWP] about to send CreateWebPage webPageID=%" PRIu64 " processState=%d", m_webPageID.toUInt64(), (int)process->state());
     process->send(Messages::WebProcess::CreateWebPage(m_webPageID, creationParameters(process, *protect(drawingArea()), m_mainFrame->frameID(), std::nullopt)), 0);
+    WTFLogAlways("[INSPECTOR-CWP] sent CreateWebPage webPageID=%" PRIu64, m_webPageID.toUInt64());
 
 #if ENABLE(WINDOW_PROXY_PROPERTY_ACCESS_NOTIFICATION)
     internals().frameLoadStateObserver = WebPageProxyFrameLoadStateObserver::create();
@@ -2161,6 +2164,7 @@ WebProcessProxy& WebPageProxy::ensureRunningProcess()
 
 RefPtr<API::Navigation> WebPageProxy::loadRequest(WebCore::ResourceRequest&& request, ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy, NavigationUpgradeToHTTPSBehavior navigationUpgradeToHTTPSBehavior, std::unique_ptr<NavigationActionData>&& lastNavigationAction, API::Object* userData, bool isRequestFromClientOrUserInput)
 {
+    WTFLogAlways("[INSPECTOR-LR] WebPageProxy::loadRequest url=%s isClosed=%d hasRunningProcess=%d webPageID=%" PRIu64, request.url().string().utf8().data(), (int)m_isClosed, (int)hasRunningProcess(), m_webPageID.toUInt64());
     if (m_isClosed)
         return nullptr;
 
@@ -15816,7 +15820,9 @@ void WebPageProxy::setURLSchemeHandlerForScheme(Ref<WebURLSchemeHandler>&& handl
     ASSERT_UNUSED(handlerIdentifierResult, handlerIdentifierResult.isNewEntry);
 
     WebCore::LegacySchemeRegistry::registerURLSchemeAsHandledBySchemeHandler(scheme);
-    if (hasRunningProcess())
+    bool running = hasRunningProcess();
+    WTFLogAlways("[INSPECTOR-PROXY] setURLSchemeHandlerForScheme scheme=%s hasRunningProcess=%d", scheme.utf8().data(), (int)running);
+    if (running)
         send(Messages::WebPage::RegisterURLSchemeHandler(handlerIdentifier, canonicalizedScheme.value()));
 }
 
@@ -15827,6 +15833,7 @@ WebURLSchemeHandler* WebPageProxy::urlSchemeHandlerForScheme(const String& schem
 
 void WebPageProxy::startURLSchemeTask(IPC::Connection& connection, URLSchemeTaskParameters&& parameters)
 {
+    WTFLogAlways("[INSPECTOR-PROXY] WebPageProxy::startURLSchemeTask called");
     Ref process = WebProcessProxy::fromConnection(connection);
     auto webPageID = webPageIDInProcess(process);
     startURLSchemeTaskShared(connection, WTF::move(process), webPageID, WTF::move(parameters));
@@ -16713,7 +16720,9 @@ void WebPageProxy::setOrientationForMediaCapture(WebCore::IntDegrees orientation
         return;
 
 #if ENABLE(MEDIA_STREAM)
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS)
+    // 10.9 backport: WebProcessPool::gpuProcess() only exists with GPU_PROCESS. With it off, capture
+    // runs in-process and there is no GPU process to forward capture orientation to.
     RefPtr gpuProcess = m_configuration->processPool().gpuProcess();
     if (gpuProcess && protect(preferences())->captureVideoInGPUProcessEnabled())
         gpuProcess->setOrientationForMediaCapture(orientation);

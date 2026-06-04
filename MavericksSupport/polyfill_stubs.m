@@ -234,8 +234,9 @@ bool pthread_self_is_exiting_np(void) { return false; }
 @interface WebFullScreenController : NSObject @end
 @implementation WebFullScreenController @end
 
-@interface WebViewVisualIdentificationOverlay : NSObject @end
-@implementation WebViewVisualIdentificationOverlay @end
+// WebViewVisualIdentificationOverlay now has a real (no-op) impl in
+// Source/WebCore/testing/cocoa/WebViewVisualIdentificationOverlay.mm so
+// the installForWebViewIfNeeded:kind:deprecated: class method exists.
 
 // WKWebInspectorProxyObjCAdapter and WebKeyGenerator are defined in
 // Source/WebKit/PolyfillClasses_109.mm so Safari finds them in WebKit.framework

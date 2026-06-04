@@ -666,9 +666,15 @@ IntSize TileController::computeTileSize()
 #if HAVE(IOSURFACE)
     IntSize surfaceSizeLimit = IOSurface::maximumSize();
     surfaceSizeLimit.scale(1 / m_deviceScaleFactor);
-    maxTileSize = maxTileSize.shrunkTo(surfaceSizeLimit);
+    // 10.9 backport: WebProcess receives maximumIOSurfaceSize from the UI process
+    // via WebProcessCreationParameters. If that wasn't initialised (e.g. when the
+    // legacy WebKit2 UI process never set it) we get IntSize(0,0) here, which
+    // shrinks maxTileSize to zero and triggers a divide-by-zero downstream.
+    // Only let the surface limit shrink maxTileSize when both dimensions are positive.
+    if (surfaceSizeLimit.width() > 0 && surfaceSizeLimit.height() > 0)
+        maxTileSize = maxTileSize.shrunkTo(surfaceSizeLimit);
 #endif
-    
+
     if (owningGraphicsLayer()->platformCALayerUseGiantTiles())
         return maxTileSize;
 

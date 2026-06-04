@@ -1343,6 +1343,9 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
 
     RefPtr relatedPage = pageConfiguration->relatedPage();
     bool siteIsolationEnabled = protect(pageConfiguration->preferences())->siteIsolationEnabled();
+    WTFLogAlways("[INSPECTOR-WPP] createWebPage relatedPage=%p siteIsolation=%d", (void *)relatedPage.get(), (int)siteIsolationEnabled);
+    if (relatedPage)
+        WTFLogAlways("[INSPECTOR-WPP] relatedPage isClosed=%d sameGPUAndNetwork=%d", (int)relatedPage->isClosed(), (int)relatedPage->hasSameGPUAndNetworkProcessPreferencesAs(pageConfiguration));
     RefPtr preferredBrowsingContextGroup = pageConfiguration->preferredBrowsingContextGroup();
     RefPtr preferredFrameProcess = preferredBrowsingContextGroup ? preferredBrowsingContextGroup->processForSite(pageConfiguration->openedSite()) : nullptr;
     if (auto& openerInfo = pageConfiguration->openerInfo(); openerInfo && siteIsolationEnabled)
@@ -1378,11 +1381,19 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
     // NOTE: do NOT remove the dummy from m_processes / m_dummyProcessProxies — the dummy may
     // own the mach send right shared by the existing connection; releasing it makes subsequent
     // sends to the existing process return MACH_SEND_INVALID_DEST.
-    if (process && process->isDummyProcessProxy()) {
+    // Extended: also reuse when the freshly-picked process is still Launching (e.g. inspector
+    // page got routed to a brand-new XPC service via processForSite, but that 2nd XPC never
+    // finishes launching on 10.9 → CreateWebPage IPC is dropped). Reusing the existing Running
+    // process lets the inspector WebPage share WebContent with the inspected page.
+    bool shouldReuse = process && (process->isDummyProcessProxy() || process->state() != WebProcessProxy::State::Running);
+    WTFLogAlways("[INSPECTOR-WPP-CHECK] process=%p isDummy=%d state=%d shouldReuse=%d m_processes.size=%zu", (void *)process.get(), process ? (int)process->isDummyProcessProxy() : -1, process ? (int)process->state() : -1, (int)shouldReuse, m_processes.size());
+    if (shouldReuse) {
         for (Ref<WebProcessProxy> existing : m_processes) {
+            WTFLogAlways("[INSPECTOR-WPP-SCAN] existing=%p isDummy=%d state=%d", existing.ptr(), (int)existing->isDummyProcessProxy(), (int)existing->state());
+            if (existing.ptr() == process.get())
+                continue;
             if (!existing->isDummyProcessProxy() && existing->state() == WebProcessProxy::State::Running) {
-                FILE *_f=((FILE*)0);
-                if(_f){fprintf(_f,"[PID %d] WebProcessPool::createWebPage 10.9 backport: reusing existing process pid=%d\n", getpid(), existing->processID()); fclose(_f);}
+                WTFLogAlways("[INSPECTOR-WPP-REUSE] reusing existing process pid=%d (replacing process state=%d)", existing->processID(), (int)process->state());
                 process = existing.ptr();
                 break;
             }

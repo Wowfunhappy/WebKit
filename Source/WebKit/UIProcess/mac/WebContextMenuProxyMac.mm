@@ -41,6 +41,7 @@
 #import "WKSharingServicePickerDelegate.h"
 #import "WebContextMenuItem.h"
 #import "WebContextMenuItemData.h"
+#import "WebMouseEvent.h" // 10.9 backport: complete WebMouseEventInputSource type (relied on bundle-transitive include before SourcesCocoa reshuffle).
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "_WKCaptionStyleMenuController.h"
@@ -410,7 +411,9 @@ void WebContextMenuProxyMac::appendRemoveBackgroundItemToControlledImageMenuIfNe
                 return;
 
             auto removeBackgroundItem = adoptNS([[NSMenuItem alloc] initWithTitle:contextMenuItemTitleRemoveBackground().createNSString().get() action:@selector(removeBackground) keyEquivalent:@""]);
-            [removeBackgroundItem setImage:[NSImage imageWithSystemSymbolName:@"person.fill.viewfinder" accessibilityDescription:contextMenuItemTitleRemoveBackground().createNSString().get()]];
+            // 10.9 backport: +[NSImage imageWithSystemSymbolName:accessibilityDescription:] is 11.0+ (SF Symbols). Skip silently — menu item just won't have an icon.
+            if ([NSImage respondsToSelector:@selector(imageWithSystemSymbolName:accessibilityDescription:)])
+                [removeBackgroundItem setImage:[NSImage imageWithSystemSymbolName:@"person.fill.viewfinder" accessibilityDescription:contextMenuItemTitleRemoveBackground().createNSString().get()]];
             [removeBackgroundItem setTarget:WKSharingServicePickerDelegate.sharedSharingServicePickerDelegate];
             [removeBackgroundItem setAction:@selector(removeBackground)];
             [removeBackgroundItem setIndentationLevel:[strongMenu itemArray].lastObject.indentationLevel];
@@ -553,7 +556,8 @@ RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemT
     } else
         [shareMenuItem setRepresentedObject:sharingServicePicker.get()];
 
-    [shareMenuItem setIdentifier:_WKMenuItemIdentifierShareMenu];
+    if ([shareMenuItem respondsToSelector:@selector(setIdentifier:)])
+        [shareMenuItem setIdentifier:_WKMenuItemIdentifierShareMenu];
     return shareMenuItem;
 }
 #endif
@@ -774,7 +778,8 @@ static RetainPtr<NSMenuItem> createMenuActionItem(const WebContextMenuItemData& 
     [menuItem setState:item.checked() ? NSControlStateValueOn : NSControlStateValueOff];
     [menuItem setIndentationLevel:item.indentationLevel()];
     [menuItem setTarget:[WKMenuTarget sharedMenuTarget]];
-    [menuItem setIdentifier:menuItemIdentifier(item.action()).get()];
+    if ([menuItem respondsToSelector:@selector(setIdentifier:)])
+        [menuItem setIdentifier:menuItemIdentifier(item.action()).get()];
 
     if (item.userData())
         [menuItem setRepresentedObject:adoptNS([[WKUserDataWrapper alloc] initWithUserData:protect(item.userData()).get()]).get()];
@@ -868,7 +873,14 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
         if (--itemsRemaining)
             return;
 
-        [menu setItemArray:[sparseMenuItems allObjects]];
+        // 10.9 backport: -[NSMenu setItemArray:] is 10.10+. Add each item individually.
+        if ([menu respondsToSelector:@selector(setItemArray:)])
+            [menu setItemArray:[sparseMenuItems allObjects]];
+        else {
+            [menu removeAllItems];
+            for (NSMenuItem *item in [sparseMenuItems allObjects])
+                [menu addItem:item];
+        }
 
         RefPtr page = weakPage.get();
         if (page && imageBitmap) {
@@ -975,7 +987,8 @@ void WebContextMenuProxyMac::getContextMenuItem(const WebContextMenuItemData& it
         RetainPtr menuItem = adoptNS([[NSMenuItem alloc] initWithTitle:item.title().createNSString().get() action:nullptr keyEquivalent:@""]);
         [menuItem setEnabled:item.enabled()];
         [menuItem setIndentationLevel:item.indentationLevel()];
-        [menuItem setIdentifier:menuItemIdentifier(item.action()).get()];
+        if ([menuItem respondsToSelector:@selector(setIdentifier:)])
+            [menuItem setIdentifier:menuItemIdentifier(item.action()).get()];
 #if ENABLE(CONTEXT_MENU_IMAGES_ON_MAC)
         updateMenuItemImage(menuItem.get(), item.action(), item.title());
 #endif
@@ -1008,7 +1021,6 @@ void WebContextMenuProxyMac::getContextMenuItem(const WebContextMenuItemData& it
 
 void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuItem>>&& items)
 {
-    NSLog(@"[10.9 backport] WebContextMenuProxyMac::showContextMenuWithItems items=%zu m_menu=%p", items.size(), m_menu.get());
 #if ENABLE(SERVICE_CONTROLS)
     if (m_context.isServicesMenu()) {
         ASSERT(items.isEmpty());
@@ -1019,31 +1031,12 @@ void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuI
 
     RefPtr page = this->page();
     if (page->contextMenuClient().canShowContextMenu()) {
-        NSLog(@"[10.9 backport] showContextMenuWithItems: client canShow=YES, delegating");
         page->contextMenuClient().showContextMenu(*page, m_context.menuLocation(), items);
         return;
     }
 
-    // Backport: WebContent on 10.9 returns empty menu items because the context
-    // menu controller's populate() may not run (depends on hit test that we may
-    // not have wired through). Build a minimal Back/Forward/Reload menu so the
-    // user always sees SOMETHING when right-clicking on the page.
-    if (!m_menu && items.isEmpty()) {
-        NSLog(@"[10.9 backport] showContextMenuWithItems: synthesizing fallback menu");
-        m_menu = adoptNS([[NSMenu alloc] init]);
-        NSMenuItem *back = [[NSMenuItem alloc] initWithTitle:@"Back" action:@selector(goBack:) keyEquivalent:@""];
-        NSMenuItem *fwd = [[NSMenuItem alloc] initWithTitle:@"Forward" action:@selector(goForward:) keyEquivalent:@""];
-        NSMenuItem *reload = [[NSMenuItem alloc] initWithTitle:@"Reload Page" action:@selector(reloadPage:) keyEquivalent:@""];
-        NSMenuItem *viewSource = [[NSMenuItem alloc] initWithTitle:@"View Source" action:@selector(viewSource:) keyEquivalent:@""];
-        for (NSMenuItem *mi in @[back, fwd, reload, viewSource]) {
-            [mi setTarget:nil]; // first responder
-            [m_menu addItem:mi];
-        }
-    }
-    if (!m_menu) {
-        NSLog(@"[10.9 backport] showContextMenuWithItems: m_menu nil; cannot show");
+    if (!m_menu)
         return;
-    }
 
     auto webView = m_webView.get();
     NSPoint locationInWindowCoordinates = [webView convertPoint:m_context.menuLocation() toView:nil];
@@ -1057,13 +1050,25 @@ void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuI
         RELEASE_ASSERT_NOT_REACHED();
 #endif
     } else {
-        RetainPtr event = page->createSyntheticEventForContextMenu(locationInWindowCoordinates);
-        [NSMenu popUpContextMenu:m_menu.get() withEvent:event.get() forView:webView.get()];
+        // 10.9 backport: Safari 9.1.3 passes a wrapper view with degenerate
+        // bounds, so [webView convertPoint:toView:nil] returns (0,0), placing
+        // the menu in the wrong location. Use the cursor's current screen
+        // position via popUpMenuPositioningItem:atLocation:inView:nil instead.
+        [m_menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
     }
 }
 
 void WebContextMenuProxyMac::useContextMenuItems(Vector<Ref<WebContextMenuItem>>&& items)
 {
+    // 10.9 backport: Safari 9.1.3's WKPageContextMenuClient calls back with an
+    // empty custom menu — its menu-building uses APIs we don't have wired up.
+    // Fall back to the proposed items WebContent already populated.
+    if (items.isEmpty() && !m_context.menuItems().isEmpty()) {
+        items = WTF::map(m_context.menuItems(), [](auto& item) {
+            return WebContextMenuItem::create(item);
+        });
+    }
+
     if (items.isEmpty() || !page() || page()->contextMenuClient().canShowContextMenu()) {
         WebContextMenuProxy::useContextMenuItems(WTF::move(items));
         return;

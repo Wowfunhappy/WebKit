@@ -33,6 +33,11 @@
 extern "C" {
 #endif
 
+// 10.9 backport: this fallback redeclaration of the private CoreMedia CMBaseObject API omits
+// the CMBaseClassVersion typedef (used by CMBaseProtocol/CMBaseClass below). It's uint32_t in
+// CoreMedia; defining it here also gives the 4-byte struct alignment the static_asserts expect.
+typedef uint32_t CMBaseClassVersion;
+
 enum {
     kCMBaseObject_ClassVersion_1 = 1,
     kCMBaseObject_ClassVersion_2 = 2,

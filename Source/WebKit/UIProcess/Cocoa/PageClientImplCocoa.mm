@@ -148,6 +148,9 @@ void PageClientImplCocoa::isPlayingAudioDidChange()
 
 bool PageClientImplCocoa::scrollingUpdatesDisabledForTesting()
 {
+    // 10.9 backport: WKInspectorWKWebView doesn't implement _scrollingUpdatesDisabledForTesting.
+    if (![webView() respondsToSelector:@selector(_scrollingUpdatesDisabledForTesting)])
+        return false;
     return [webView() _scrollingUpdatesDisabledForTesting];
 }
 

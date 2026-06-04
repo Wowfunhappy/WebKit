@@ -3105,7 +3105,12 @@ WEBKIT_FRAMEWORK(WebCore)
 set_target_properties(WebCore PROPERTIES LINKER_LANGUAGE CXX)
 
 if (APPLE)
-    set_target_properties(WebCore PROPERTIES LINK_FLAGS "-weak-lxslt -sub_library libobjc -undefined dynamic_lookup -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy")
+    # [10.9 backport] The macOS 10.9 system ld64 (ld64-241.9) crashes encoding WebCore's export trie
+    # (Assertion bindingDirectlyBound in ExportInfoAtom::encode -> SIGSEGV) for certain symbol sets — it
+    # broke once the global -fno-rtti removed the weak C++ typeinfo/vtable exports the .mm files used to
+    # emit. lld (shipped with the clang-22 toolchain) has no such bug and emits a 10.9-loadable Mach-O for
+    # a 10.9 deployment target, so link WebCore with it. Other frameworks still link fine with system ld.
+    set_target_properties(WebCore PROPERTIES LINK_FLAGS "-fuse-ld=lld -weak-lxslt -sub_library libobjc -undefined dynamic_lookup -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy")
 endif ()
 
 # The -ftree-sra optimization (implicit with -O2) causes crashes when

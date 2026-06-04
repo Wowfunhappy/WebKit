@@ -439,6 +439,7 @@ typedef NS_ENUM(NSInteger, AVTouchBarMediaSelectionOptionType) {
 @class AVPlaybackSpeedCollection;
 
 @protocol NSTouchBarProvider;
+@class NSTouchBar; // 10.12.2+; forward-declare so the AVTouchBar* SPI parses on 10.9 (pointer only).
 
 @interface AVTouchBarPlaybackControlsProvider : NSResponder <NSTouchBarProvider>
 

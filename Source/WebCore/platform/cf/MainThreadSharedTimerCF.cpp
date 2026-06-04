@@ -136,11 +136,27 @@ void MainThreadSharedTimer::setFireInterval(Seconds interval)
     // timers). DON'T push CFRunLoopTimer to DistantFuture: that races with
     // a subsequent setFireInterval call's CFRunLoopTimerSetNextFireDate,
     // causing the runloop timer to stop firing for repeated cycles.
+    //
+    // 10.9 backport (2026-05-20): coalesce the dispatch_after queue. WebKit
+    // calls setFireInterval thousands of times per second (every rAF, every
+    // setTimeout, every requestIdleCallback). Each call used to enqueue a new
+    // dispatch_after — over a long session that's millions of pending blocks
+    // hogging the main GCD queue, eventually starving real IPC messages like
+    // LoadRequest (root cause of [[project_safari_nav_stuck_diagnosed_may20]]).
+    //
+    // Each schedule bumps a global generation counter; blocks check the counter
+    // at fire time and bail if a newer schedule has come in. The bailed blocks
+    // still go through the GCD dispatch dance, but the actual work (timerFired
+    // → heap walk → JS execution) only runs once per genuine new schedule.
+    static std::atomic<uint64_t> s_generation { 0 };
+    uint64_t myGen = ++s_generation;
+
     CFRunLoopTimerRef timerRef = (CFRunLoopTimerRef)CFRetain(sharedTimer().get());
     dispatch_time_t when = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(interval.value() * NSEC_PER_SEC));
     dispatch_after(when, dispatch_get_main_queue(), ^{
-        // Only fire if this is still the active shared timer.
-        if (sharedTimer().get() == timerRef && CFRunLoopTimerIsValid(timerRef))
+        if (s_generation.load() == myGen
+            && sharedTimer().get() == timerRef
+            && CFRunLoopTimerIsValid(timerRef))
             timerFired(timerRef, nullptr);
         CFRelease(timerRef);
     });

@@ -186,6 +186,7 @@ private:
     std::unique_ptr<WebCore::RunLoopObserver> m_renderingUpdateRunLoopObserver;
     std::unique_ptr<WebCore::RunLoopObserver> m_postRenderingUpdateRunLoopObserver;
     MonotonicTime m_lastRenderingTriggerTime;
+    MonotonicTime m_lastRenderingUpdateRunTime; // 10.9: throttle the dispatch_async render fallback to ~60Hz (stop runaway-CPU kills).
     bool m_renderingUpdatePending { false };
 
     bool m_isPaintingSuspended { false };

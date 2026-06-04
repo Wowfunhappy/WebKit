@@ -246,6 +246,14 @@ typedef enum {
 @property BOOL preservesFlip;
 @end
 
+// 10.9 backport: CASpringAnimation is a 10.11+ CoreAnimation class, absent from the 10.9 SDK. With
+// implicit modules disabled this SPI category is parsed textually and needs a base @interface. Provide
+// a stub when the real class header is unavailable; usage is behind runtime guards.
+#if !__has_include(<QuartzCore/CASpringAnimation.h>)
+@interface CASpringAnimation : CABasicAnimation
+@end
+#endif
+
 @interface CASpringAnimation (Private)
 @property CGFloat velocity;
 @end

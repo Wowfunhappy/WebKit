@@ -238,7 +238,15 @@ void Connection::platformOpen()
     // fires dozens of state-change IPCs (DidStart/Commit/Finish/LayoutMilestone/etc.),
     // accumulating multi-second user-visible delay in first paint + URL bar updates.
     m_receivePollTimer = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, protect(m_connectionQueue->dispatchQueue()).get()));
-    dispatch_source_set_timer(m_receivePollTimer.get(), dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_MSEC), 2 * NSEC_PER_MSEC, 1 * NSEC_PER_MSEC);
+    // 10.9: the MACH_RECV dispatch source above is the primary, immediate receive path. This timer
+    // is only a SAFETY-NET poll for the occasional missed re-fire edge. It was previously 2ms, which
+    // generated ~500 wakeups/sec PER PROCESS — that drove the WebContent service over the kernel
+    // wakeups EXC_RESOURCE limit (150/sec) and got it killed ("a problem occurred ... reloaded")
+    // during heavy/rapid browsing. The 2ms rate was a workaround for the IPC queue being stalled by
+    // the (now-removed) per-send /tmp debug logging; with that gone the source re-fires reliably, so
+    // a slow safety-net poll suffices and keeps wakeups far under the limit. Coarse leeway lets the
+    // kernel coalesce these wakeups to near-zero when idle.
+    dispatch_source_set_timer(m_receivePollTimer.get(), dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC), 200 * NSEC_PER_MSEC, 100 * NSEC_PER_MSEC);
     dispatch_source_set_event_handler(m_receivePollTimer.get(), [this, protectedThis = Ref { *this }] {
         if (!MACH_PORT_VALID(m_receivePort))
             return;
@@ -272,7 +280,14 @@ Connection::SendMessageResult Connection::sendMessage(std::unique_ptr<MachMessag
     int retryCount = 0;
     const int maxRetries = 100; // 100 * 5ms = 500ms
     do {
-        kr = mach_msg(message->header(), MACH_SEND_MSG | MACH_SEND_TIMEOUT | MACH_SEND_NOTIFY, message->size(), 0, MACH_PORT_NULL, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
+        // 10.9 backport: MACH_SEND_NOTIFY with MACH_PORT_NULL notify port returns
+        // MACH_SEND_INVALID_NOTIFY (0x1000000A) on this OS for messages with port descriptors
+        // (e.g. layer-tree IPC carrying IOSurface mach send rights). Drop the NOTIFY flag.
+        kr = mach_msg(message->header(), MACH_SEND_MSG | MACH_SEND_TIMEOUT, message->size(), 0, MACH_PORT_NULL, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
+        // 10.9: disabled leftover per-send debug log (fopen/fprintf/fclose to /tmp/wc.log ran on EVERY
+        // IPC send in every process — synchronous disk I/O contending on one 600MB+ file stalled the
+        // serial connection queue, which also dispatches receives, hanging sync IPC -> nav/freeze).
+        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[mach_msg] kr=0x%x size=%u\n", (unsigned)kr, (unsigned)message->size()); fclose(_d);}}
         if (kr != MACH_SEND_TIMED_OUT)
             break;
         usleep(5000); // 5ms wait for receiver to drain
@@ -320,10 +335,27 @@ Connection::SendMessageResult Connection::sendMessage(std::unique_ptr<MachMessag
 #endif
 
     default:
-        auto messageName = message->messageName();
-        auto errorMessage = makeString("Unhandled error code 0x"_s, hex(kr), ", message '"_s, description(messageName), "' ("_s, messageName, ')');
-        WebKit::logAndSetCrashLogMessage(errorMessage.utf8().data());
-        CRASH_WITH_INFO(kr, std::to_underlying(messageName));
+        // 10.9 backport: don't crash on unhandled mach_msg errors. Some msg-send errors
+        // (e.g. INVALID_RIGHT = 0x1000000A — IOSurface mach send right is invalid)
+        // would otherwise abort WebContent. Treat as dropped and continue.
+        {FILE *_d=((FILE*)0); if(_d){
+            auto messageName = message->messageName();
+            mach_msg_header_t *hdr = message->header();
+            fprintf(_d,"[mach_msg dropped] kr=0x%x msg=%s msgh_bits=0x%x rport=0x%x lport=0x%x\n", (unsigned)kr, description(messageName).characters(), (unsigned)hdr->msgh_bits, (unsigned)hdr->msgh_remote_port, (unsigned)hdr->msgh_local_port);
+            // Dump port descriptors
+            if (hdr->msgh_bits & MACH_MSGH_BITS_COMPLEX) {
+                auto *body = (mach_msg_body_t *)(hdr + 1);
+                fprintf(_d,"[mach_msg dropped] complex, descCount=%u\n", body->msgh_descriptor_count);
+                auto *desc = (mach_msg_port_descriptor_t *)(body + 1);
+                for (unsigned i = 0; i < body->msgh_descriptor_count && i < 8; ++i) {
+                    fprintf(_d,"[mach_msg dropped] desc[%u] type=%u name=0x%x disposition=%u\n", i, (unsigned)desc[i].type, (unsigned)desc[i].name, (unsigned)desc[i].disposition);
+                }
+            }
+            fclose(_d);
+        }}
+        message->leakDescriptors();
+        message.reset();
+        return SendMessageResult::Failure;
     }
 }
 
@@ -694,32 +726,23 @@ void Connection::receiveSourceEventHandler()
 {
     {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IPC PID %d isServer=%d] receiveSourceEventHandler entered\n", getpid(), m_isServer); fclose(_d);}}
 
-    // 10.9 backport: drain ALL queued mach messages on each fire, with retries. dispatch_source_t
-    // MACH_RECV sometimes fails to re-fire on 10.9 after handling one message, AND the kernel
-    // may not immediately have the next message ready when we poll. Use repeated MACH_RCV_TIMEOUT
-    // reads with small timeouts so messages that arrive slightly after the handler fires still
-    // get picked up before we return.
+    // 10.9 backport: drain ALL queued mach messages on each fire. dispatch_source_t
+    // MACH_RECV sometimes fails to re-fire on 10.9 after handling one message, so
+    // we keep reading until the port is empty. Earlier this function would also
+    // retry-with-1ms-usleep after the port reported empty (to catch messages
+    // arriving slightly after the fire). That cost up to 3 ms of usleep per fire
+    // — multiplied by hundreds of fires/sec on a busy connection that's a huge
+    // wall-time penalty that backs up the IPC queue and the main GCD queue.
+    // If we miss a message because of a tiny scheduling race, the kernel re-fires
+    // the dispatch source as soon as the next mach msg arrives, so no message is
+    // lost — only marginally delayed.
     int drainCount = 0;
-    int emptyRetries = 0;
     while (true) {
         ReceiveBuffer buffer;
         ASSERT(MACH_PORT_VALID(m_receivePort));
         mach_msg_header_t* header = readFromMachPort(m_receivePort, buffer);
-        if (!header) {
-            // Kernel may have another message in-flight. Give it a chance.
-            if (emptyRetries < 3) {
-                ++emptyRetries;
-                usleep(1000); // 1ms wait for kernel
-                continue;
-            }
-            if (drainCount == 0) {
-                {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IPC PID %d isServer=%d] no header (after %d retries)\n", getpid(), m_isServer, emptyRetries); fclose(_d);}}
-            } else {
-                {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IPC PID %d isServer=%d] drained %d msgs this fire (retries=%d)\n", getpid(), m_isServer, drainCount, emptyRetries); fclose(_d);}}
-            }
+        if (!header)
             return;
-        }
-        emptyRetries = 0; // got a message, reset retry counter
         ++drainCount;
         {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IPC PID %d isServer=%d] got msg id=%u (#%d)\n", getpid(), m_isServer, header->msgh_id, drainCount); fclose(_d);}}
 

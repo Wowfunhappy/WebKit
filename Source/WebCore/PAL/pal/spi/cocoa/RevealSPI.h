@@ -62,13 +62,13 @@ DECLARE_SYSTEM_HEADER
 @end
 
 @interface RVSelection : NSObject
-+ (NSRange)revealRangeAtIndex:(NSUInteger)clickIndex selectedRanges:(NSArray * *)selectedRanges shouldUpdateSelection:(BOOL *)shouldUpdateSelection;
++ (NSRange)revealRangeAtIndex:(NSUInteger)clickIndex selectedRanges:(NSArray<NSValue *> *)selectedRanges shouldUpdateSelection:(BOOL *)shouldUpdateSelection;
 @end
 
 #if PLATFORM(MAC)
 @interface RVPresentingContext : NSObject
 - (instancetype)initWithPointerLocationInView:(NSPoint)pointerLocationInView inView:(NSView *)view highlightDelegate:(id<RVPresenterHighlightDelegate>)highlightDelegate;
-@property (readonly) NSArray * * itemRectsInView;
+@property (readonly) NSArray<NSValue *> *itemRectsInView;
 @end
 
 @protocol RVPresenterHighlightDelegate <NSObject>

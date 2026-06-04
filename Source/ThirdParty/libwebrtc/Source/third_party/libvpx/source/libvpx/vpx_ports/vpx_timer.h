@@ -32,6 +32,11 @@
  * POSIX specific includes
  */
 #include <time.h>
+#if defined(__APPLE__)
+/* 10.9 backport: clock_gettime/CLOCK_MONOTONIC are macOS 10.12+; use mach_absolute_time(). */
+#include <mach/mach_time.h>
+#include <stdint.h>
+#endif
 
 /* timersub is not provided by msys at this time. */
 #ifndef timersub_ns
@@ -50,6 +55,8 @@
 struct vpx_usec_timer {
 #if defined(_WIN32)
   LARGE_INTEGER begin, end;
+#elif defined(__APPLE__)
+  uint64_t begin, end;
 #else
   struct timespec begin, end;
 #endif
@@ -58,6 +65,8 @@ struct vpx_usec_timer {
 static INLINE void vpx_usec_timer_start(struct vpx_usec_timer *t) {
 #if defined(_WIN32)
   QueryPerformanceCounter(&t->begin);
+#elif defined(__APPLE__)
+  t->begin = mach_absolute_time();
 #elif defined(CLOCK_MONOTONIC_RAW)
   clock_gettime(CLOCK_MONOTONIC_RAW, &t->begin);
 #else
@@ -68,6 +77,8 @@ static INLINE void vpx_usec_timer_start(struct vpx_usec_timer *t) {
 static INLINE void vpx_usec_timer_mark(struct vpx_usec_timer *t) {
 #if defined(_WIN32)
   QueryPerformanceCounter(&t->end);
+#elif defined(__APPLE__)
+  t->end = mach_absolute_time();
 #elif defined(CLOCK_MONOTONIC_RAW)
   clock_gettime(CLOCK_MONOTONIC_RAW, &t->end);
 #else
@@ -83,6 +94,11 @@ static INLINE int64_t vpx_usec_timer_elapsed(struct vpx_usec_timer *t) {
 
   QueryPerformanceFrequency(&freq);
   return diff.QuadPart * 1000000 / freq.QuadPart;
+#elif defined(__APPLE__)
+  static mach_timebase_info_data_t tb = { 0, 0 };
+  if (tb.denom == 0) mach_timebase_info(&tb);
+  uint64_t elapsed_ns = (t->end - t->begin) * tb.numer / tb.denom;
+  return (int64_t)(elapsed_ns / 1000);
 #else
   struct timespec diff;
 

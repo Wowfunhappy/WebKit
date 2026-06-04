@@ -62,7 +62,7 @@ void NetworkRTCSharedMonitor::addListener(NetworkRTCMonitor& monitor)
     if (!shouldStart)
         return;
 
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
     if (protect(monitor.rtcProvider())->webRTCInterfaceMonitoringViaNWEnabled()) {
         setupNWPathMonitor();
         return;
@@ -84,7 +84,7 @@ void NetworkRTCSharedMonitor::removeListener(NetworkRTCMonitor& monitor)
     if (!shouldStop)
         return;
 
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
     if (auto nwMonitor = std::exchange(m_nwMonitor, { }))
         nw_path_monitor_cancel(nwMonitor.get());
 #endif
@@ -94,7 +94,7 @@ void NetworkRTCSharedMonitor::removeListener(NetworkRTCMonitor& monitor)
 
 webrtc::AdapterType NetworkRTCSharedMonitor::adapterTypeFromInterfaceName(const char* interfaceName) const
 {
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
     auto iterator = m_adapterTypes.find(String::fromUTF8(interfaceName));
     if (iterator != m_adapterTypes.end())
         return iterator->value;

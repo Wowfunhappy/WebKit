@@ -82,14 +82,21 @@ void RemoteLayerWithInProcessRenderingBackingStore::clearBackingStore()
 
 static std::optional<ImageBufferBackendHandle> handleFromBuffer(ImageBuffer& buffer)
 {
-    if (auto* sharing = dynamicDowncast<ImageBufferBackendHandleSharing>(buffer.toBackendSharing()))
-        return sharing->takeBackendHandle(SharedMemory::Protection::ReadOnly);
+    auto* backendSharing = buffer.toBackendSharing();
+    auto* sharing = dynamicDowncast<ImageBufferBackendHandleSharing>(backendSharing);
+    auto* surface = buffer.surface();
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[handleFromBuffer] backendSharing=%p sharing=%p surface=%p\n", backendSharing, sharing, surface); fclose(_d);}}
+    if (sharing) {
+        auto h = sharing->takeBackendHandle(SharedMemory::Protection::ReadOnly);
+        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[handleFromBuffer] takeBackendHandle returned hasValue=%d\n", (int)!!h); fclose(_d);}}
+        return h;
+    }
 #if HAVE(IOSURFACE)
-    // 10.9 backport: with GPU_PROCESS=OFF the alias gives us the bare WebCore::ImageBufferIOSurfaceBackend
-    // which doesn't implement ImageBufferBackendHandleSharing. Pull the IOSurface mach send-right via
-    // the public ImageBuffer::surface() accessor instead.
-    if (auto* surface = buffer.surface())
-        return ImageBufferBackendHandle(surface->createSendRight());
+    if (surface) {
+        auto sendRight = surface->createSendRight();
+        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[handleFromBuffer] surface->createSendRight() = port=0x%08x\n", (unsigned)sendRight.sendRight()); fclose(_d);}}
+        return ImageBufferBackendHandle(WTF::move(sendRight));
+    }
 #endif
     return std::nullopt;
 }
@@ -263,6 +270,7 @@ void RemoteLayerWithInProcessRenderingBackingStore::ensureFrontBuffer()
         return;
 
     m_bufferSet.m_frontBuffer = allocateBuffer();
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[BS::ensureFront] allocated frontBuffer=%p size=%gx%g type=%d\n", m_bufferSet.m_frontBuffer.get(), (double)size().width(), (double)size().height(), (int)type()); fclose(_d);}}
     m_bufferSet.m_frontBufferIsCleared = true;
 }
 

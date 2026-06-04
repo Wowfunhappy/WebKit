@@ -87,6 +87,13 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/accessibility/mac"
     "${WEBCORE_DIR}/bridge/objc"
     "${WEBCORE_DIR}/crypto/mac"
+    "${WEBCORE_DIR}/crypto/gcrypt"
+    # 10.9 backport: crypto/cocoa header dir for CryptoUtilitiesCocoa.h — still needed by the WebRTC
+    # SFrame transformer (CommonCrypto AES-CTR helper), distinct from the libgcrypt WebCrypto impl.
+    "${WEBCORE_DIR}/crypto/cocoa"
+    # 10.9 backport: libgcrypt built locally; see [[project_webcrypto_cc_stubs_stripped]]
+    # for the prior CommonCrypto approach that's now retired.
+    "/Users/jonathan/Desktop/gcrypt/install/include"
     "${WEBCORE_DIR}/dom/mac"
     "${WEBCORE_DIR}/editing/cocoa"
     "${WEBCORE_DIR}/editing/mac"
@@ -978,3 +985,30 @@ list(APPEND WebCore_LIBRARIES
     "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebp/lib/libwebp.a"
     "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebp/lib/libsharpyuv.a"
 )
+
+# 10.9 backport: libgcrypt powers WebCrypto (replaces the cocoa CommonCrypto path).
+# libtasn1 handles SPKI/PKCS8 ASN.1 parsing for the gcrypt EC/RSA importers.
+# All built from source at /Users/jonathan/Desktop/gcrypt; static link.
+list(APPEND WebCore_LIBRARIES
+    "/Users/jonathan/Desktop/gcrypt/install/lib/libgcrypt.a"
+    "/Users/jonathan/Desktop/gcrypt/install/lib/libtasn1.a"
+    "/Users/jonathan/Desktop/gcrypt/install/lib/libgpg-error.a"
+)
+
+# 10.9 backport: WOFF2 web-font decoder (USE_WOFF2=ON). Our modern UA makes Google Fonts/Material
+# Icons serve WOFF2; WOFFFileFormat.cpp::convertWOFFToSfntIfNecessary then calls woff2::ConvertWOFF2ToTTF
+# (Brotli-decompress + table reconstruction). Built locally from google/woff2 + google/brotli (static).
+# WebCore/CMakeLists.txt does `list(APPEND WebCore_LIBRARIES WOFF2::dec)` when USE_WOFF2 is ON, so we
+# define that imported target here (instead of via find_package) and carry brotli as interface deps.
+if (NOT TARGET WOFF2::dec)
+    add_library(WOFF2::dec UNKNOWN IMPORTED GLOBAL)
+    set_target_properties(WOFF2::dec PROPERTIES
+        IMPORTED_LOCATION "/Users/jonathan/Desktop/clang/deps/woff2/out/libwoff2dec.a"
+        INTERFACE_INCLUDE_DIRECTORIES "/Users/jonathan/Desktop/clang/deps/woff2/include"
+        INTERFACE_LINK_LIBRARIES "/Users/jonathan/Desktop/clang/deps/brotli/out/libbrotlidec.a;/Users/jonathan/Desktop/clang/deps/brotli/out/libbrotlicommon.a"
+    )
+endif ()
+list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
+    "/Users/jonathan/Desktop/clang/deps/woff2/include"
+)
+

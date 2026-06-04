@@ -12,7 +12,11 @@ WEBKIT_OPTION_BEGIN()
 
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_LCMS PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_WOFF2 PRIVATE OFF)
+# 10.9 backport: ENABLE WOFF2 web fonts. Our modern UA makes servers (Google Fonts, Material
+# Icons, etc.) send WOFF2; without a decoder CGFontCreateWithDataProvider fails on the raw bytes
+# and icon/web fonts render as empty boxes. Decoder = locally-built libwoff2dec + libbrotli (see
+# PlatformMac.cmake). [[project_woff2_enabled]]
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_WOFF2 PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLICATION_MANIFEST PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_SYSTEM_MALLOC PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ASYNC_SCROLLING PRIVATE ON)
@@ -34,8 +38,8 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_EXTENSIONS PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_TELEMETRY PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_CUSTOM_PROTOCOL_MANAGER PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_ENCRYPTED_MEDIA PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SOURCE PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_STREAM PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SOURCE PRIVATE ON)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_STREAM PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEMORY_SAMPLER PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MOUSE_CURSOR_SCALE PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_OFFSCREEN_CANVAS PRIVATE ON)
@@ -60,14 +64,21 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_WHEEL_INTERACTIONS PRIVATE OFF
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBXR PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_API_STATISTICS PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_AUTHN PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_RTC PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_RTC PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WIRELESS_PLAYBACK_TARGET PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_AVIF PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_JPEGXL PRIVATE OFF)
 
 WEBKIT_OPTION_END()
 
-SET_AND_EXPOSE_TO_BUILD(USE_LIBWEBRTC FALSE)
+# USE_LIBWEBRTC follows ENABLE_WEB_RTC: libwebrtc is the WebRTC implementation, so it must be off when
+# WebRTC is off (otherwise USE(LIBWEBRTC) code compiles but pulls in WK_RTCVideoDecoder* ObjC classes
+# that crash WebContent at load on 10.9). Re-enabling WEB_RTC re-enables libwebrtc for #278.
+SET_AND_EXPOSE_TO_BUILD(USE_LIBWEBRTC ${ENABLE_WEB_RTC})
+# 10.9 backport: WebCrypto via libgcrypt instead of CommonCrypto/CryptoKit.
+# See PlatformMac.cmake for libgcrypt include + link, and SourcesCocoa.txt
+# for the crypto/gcrypt/ source replacements.
+SET_AND_EXPOSE_TO_BUILD(USE_GCRYPT TRUE)
 
 set(ENABLE_WEBKIT_LEGACY ON)
 # WebKit2 RE-ENABLED for Safari drop-in. The user's developer correctly noted
@@ -81,15 +92,22 @@ set(JavaScriptCore_LIBRARY_TYPE SHARED)
 set(PAL_LIBRARY_TYPE OBJECT)
 set(WebCore_LIBRARY_TYPE SHARED)
 
-set(USE_ANGLE_EGL OFF)
+# 10.9 backport: enable ANGLE-backed WebGL. ANGLE uses its CGL OpenGL backend (see
+# ThirdParty/ANGLE/PlatformMac.cmake) since Metal is unavailable on 10.9.
+set(USE_ANGLE_EGL ON)
 
 find_package(ICU 70.1 REQUIRED COMPONENTS data i18n uc)
 find_package(LibXml2 2.8.0 REQUIRED)
 find_package(LibXslt 1.1.13 REQUIRED)
 
 # Polyfill libraries for macOS 10.9
-link_libraries(/Users/jonathan/Desktop/clang/libcxx-22/lib/libc++.a)
-link_libraries(/Users/jonathan/Desktop/clang/libcxx-22/lib/libc++abi.a)
+# 10.9 backport: link libc++ DYNAMICALLY (one shared copy) rather than statically into every
+# dylib. Static libc++ per-dylib gives WebCore and JavaScriptCore each their own copy of libc++'s
+# locale/iostream global state; destroying a std::stringstream then corrupts across copies and
+# crashes WebContent (see task #280). The shared dylibs have an absolute install_name
+# (/System/Library/StagedFrameworks/Safari/libc++.1.dylib) and are deployed there by postbuild.
+link_libraries(/Users/jonathan/Desktop/clang/libcxx-22/lib-shared/libc++.1.dylib)
+link_libraries(/Users/jonathan/Desktop/clang/libcxx-22/lib-shared/libc++abi.1.dylib)
 link_libraries(/usr/local/lib/libMacportsLegacySupport.a)
 # libpolyfill.a now contains const_polyfill.o (real CFSTR definitions for
 # 101 Apple CFString constants previously broken by xorl stubs).
@@ -101,8 +119,28 @@ add_link_options(-nostdlib++)
 # Ensure dylibs have proper version info for Safari compatibility
 add_link_options("LINKER:-compatibility_version,1.0.0" "LINKER:-current_version,615.1.1")
 # Set deployment target so dyld shared cache accepts our frameworks
-add_compile_options(-mmacosx-version-min=10.9)
+# 10.9 backport: exclude ASM_NASM (libvpx/libwebrtc .asm via nasm) — nasm rejects -m*/-W*/-iframework.
+add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-mmacosx-version-min=10.9>)
 add_link_options(-mmacosx-version-min=10.9)
 
 # Overlay framework dir for patched headers (lightweight generics on collection types)
-add_compile_options(-iframework /Users/jonathan/Desktop/clang/sdk-overlay)
+add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-iframework> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:/Users/jonathan/Desktop/clang/sdk-overlay>)
+
+# 10.9 backport: clang-22 enables C++/ObjC modules by default, so __has_feature(modules) is true.
+# Many WebKit SPI headers guard their forward declarations with `#if !__has_feature(modules)`,
+# expecting the types to come from framework modules instead. But the 10.9 system frameworks lack the
+# newer types those declarations cover (CMTag, FigThreadAbortAction, ...), leaving them undeclared.
+# Disable implicit modules so the SPI headers fall back to providing the declarations textually.
+add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-fno-modules> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-fno-cxx-modules>)
+
+# 10.9 backport: libwebrtc's final static archive aggregates ~2000 objects; `ar qc <all .o>`
+# exceeds ARG_MAX ("Argument list too long"). With CMAKE_NINJA_FORCE_RESPONSE_FILE=1 (passed on
+# the cmake command line) ninja writes objects to a response file and invokes the archiver as
+# `<ar> qc <target> @objects.rsp`. Apple's ar/libtool reject @response-files, but llvm-ar accepts
+# them -> use llvm-ar. FORCE also wraps yasm's ASM flags in @file (which yasm can't read), so the
+# ASM_NASM compiler is a thin wrapper that expands @file before exec'ing yasm. These two `set()`s
+# run after project()/enable_language so they override the rule values at generation WITHOUT
+# re-triggering compiler detection (which would reset CMAKE_C_COMPILER etc.).
+foreach(_lang C CXX OBJC OBJCXX)
+    set(CMAKE_${_lang}_CREATE_STATIC_LIBRARY "/Users/jonathan/Desktop/clang/clang-22/bin/llvm-ar qc <TARGET> <OBJECTS>")
+endforeach()

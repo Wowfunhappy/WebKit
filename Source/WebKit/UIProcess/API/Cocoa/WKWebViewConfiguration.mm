@@ -1280,12 +1280,20 @@ static WebKit::AttributionOverrideTesting toAttributionOverrideTesting(_WKAttrib
 
 - (BOOL)_requiresUserActionForEditingControlsManager
 {
+#if HAVE(TOUCH_BAR)
     return _pageConfiguration->requiresUserActionForEditingControlsManager();
+#else
+    return NO;
+#endif
 }
 
 - (void)_setRequiresUserActionForEditingControlsManager:(BOOL)requiresUserAction
 {
+#if HAVE(TOUCH_BAR)
     _pageConfiguration->setRequiresUserActionForEditingControlsManager(requiresUserAction);
+#else
+    UNUSED_PARAM(requiresUserAction);
+#endif
 }
 
 - (WKPageGroupRef)_pageGroup

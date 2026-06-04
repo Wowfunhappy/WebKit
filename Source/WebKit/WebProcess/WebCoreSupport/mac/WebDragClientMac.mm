@@ -71,7 +71,13 @@ using DragImage = CGImageRef;
 
 static RefPtr<ShareableBitmap> convertDragImageToBitmap(DragImage image, const IntSize& size, Frame& frame)
 {
-    auto bitmap = ShareableBitmap::create({ size, screenColorSpace(protect(protect(frame.mainFrame())->virtualView()).get()) });
+    // 10.9 backport: WebCore::screenColorSpace(Widget*) is a polyfill stub
+    // (`xorl %eax; ret` — see [[feedback_polyfill_stub_returns]]) that returns
+    // a garbage-bytes DestinationColorSpace by value. Caller's CFRetain on the
+    // inner CGColorSpaceRef then SIGSEGVs. Same root cause as
+    // [[project_image_rightclick_crash_fixed_may20]] — use SRGB() directly.
+    (void)frame;
+    auto bitmap = ShareableBitmap::create({ size, WebCore::DestinationColorSpace::SRGB() });
     if (!bitmap)
         return nullptr;
 

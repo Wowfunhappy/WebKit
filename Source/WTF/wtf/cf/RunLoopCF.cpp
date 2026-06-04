@@ -137,9 +137,20 @@ RunLoop::TimerBase::~TimerBase()
 
 void RunLoop::TimerBase::start(Seconds interval, bool repeat)
 {
+    // 10.9 backport: on the main RunLoop we use dispatch_after (see below), which
+    // schedules a block at an absolute NSEC time at block-creation time and does
+    // NOT honor CFRunLoopTimerSetNextFireDate. The "canReschedule" shortcut only
+    // updates the CFRunLoopTimer's fire date, leaving the in-flight dispatch_after
+    // block waiting for its original (potentially far-future) interval. That breaks
+    // JSC's DeferredWorkTimer: it pre-arms its timer with a huge sentinel interval
+    // (~10 days, s_decade), then later calls setTimeUntilFire(0) to wake immediately
+    // — but the dispatch_after fires in 10 days, so async WebAssembly.compile /
+    // .instantiate Promises never resolve. Force a stop+restart so the new
+    // dispatch_after picks up the new interval.
+    bool isMain = (this->m_runLoop.ptr() == &RunLoop::mainSingleton());
     if (m_timer) {
         bool canReschedule = !repeat && !CFRunLoopTimerDoesRepeat(m_timer.get()) && CFRunLoopTimerIsValid(m_timer.get());
-        if (canReschedule) {
+        if (canReschedule && !isMain) {
             CFRunLoopTimerSetNextFireDate(m_timer.get(), CFAbsoluteTimeGetCurrent() + interval.seconds());
             return;
         }
@@ -160,7 +171,7 @@ void RunLoop::TimerBase::start(Seconds interval, bool repeat)
     // 10.9 backport: WK2 XPC services run dispatch_main() which doesn't pump
     // CFRunLoop timers on the main thread. Use dispatch_after for the main
     // RunLoop and check m_timer validity at fire time for cancellation.
-    if (this->m_runLoop.ptr() == &RunLoop::mainSingleton()) {
+    if (isMain) {
         CFRunLoopTimerRef timerRef = (CFRunLoopTimerRef)CFRetain(m_timer.get());
         TimerBase* timerSelf = this;
         bool isRepeat = repeat;

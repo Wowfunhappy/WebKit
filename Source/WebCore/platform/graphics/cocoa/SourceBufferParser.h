@@ -57,6 +57,7 @@ public:
     enum class Type : uint8_t {
         AVFObjC,
         WebM,
+        ISOBMFF, // 10.9 software fragmented-MP4 parser (no AVStreamDataParser)
     };
     virtual Type type() const = 0;
     enum class AppendFlags : uint8_t {

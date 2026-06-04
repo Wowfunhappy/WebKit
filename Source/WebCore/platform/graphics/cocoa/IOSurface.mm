@@ -161,7 +161,21 @@ WTF::MachSendRight IOSurface::createSendRight() const
 {
     if (!m_surface)
         return { };
-    return WTF::MachSendRight::adopt(IOSurfaceCreateMachPort(m_surface.get()));
+    mach_port_t p = IOSurfaceCreateMachPort(m_surface.get());
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IOSurface::createSendRight] surface=%p port=0x%x\n", m_surface.get(), (unsigned)p); fclose(_d);}}
+    return WTF::MachSendRight::adopt(p);
+}
+
+// 10.9 backport: override the libpolyfill.a stub for IOSurface::createImage. The polyfill stub
+// calls CGIOSurfaceContextCreateImage, which fails ("invalid context ... serious error") on the
+// CGBitmapContext returned by createPlatformContext below — every page paint logged the spam, and
+// the returned CGImageRef was null so consumers got blank images. Use CGBitmapContextCreateImage
+// which works on bitmap contexts (createPlatformContext is the only producer of these contexts).
+RetainPtr<CGImageRef> IOSurface::createImage(CGContextRef ctx)
+{
+    if (ctx)
+        return adoptCF(CGBitmapContextCreateImage(ctx));
+    return { };
 }
 
 RetainPtr<CGContextRef> IOSurface::createPlatformContext(PlatformDisplayID, std::optional<CGImageAlphaInfo>)

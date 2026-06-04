@@ -360,8 +360,14 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
     _enclosingWindow = adoptNS([[WKDataListSuggestionWindow alloc] initWithContentRect:NSZeroRect styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskFullSizeContentView) backing:NSBackingStoreBuffered defer:NO]);
     [_enclosingWindow setReleasedWhenClosed:NO];
     [_enclosingWindow setFrame:[self dropdownRectForElementRect:information.elementRect] display:YES];
-    [_enclosingWindow setTitleVisibility:NSWindowTitleHidden];
-    [_enclosingWindow setTitlebarAppearsTransparent:YES];
+    // 10.9 backport: -[NSWindow setTitleVisibility:] / setTitlebarAppearsTransparent:
+    // are 10.10+. Datalist popup uses NSWindowStyleMaskFullSizeContentView (also
+    // 10.10+) so the popup looks weird without these, but skipping them avoids
+    // doesNotRecognizeSelector aborts.
+    if ([_enclosingWindow respondsToSelector:@selector(setTitleVisibility:)])
+        [_enclosingWindow setTitleVisibility:NSWindowTitleHidden];
+    if ([_enclosingWindow respondsToSelector:@selector(setTitlebarAppearsTransparent:)])
+        [_enclosingWindow setTitlebarAppearsTransparent:YES];
     [_enclosingWindow setMovable:NO];
     [_enclosingWindow setBackgroundColor:[NSColor clearColor]];
     [_enclosingWindow setOpaque:NO];
@@ -382,8 +388,13 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
     [_scrollView setDrawsBackground:NO];
 
     auto insetView = _scrollView;
-    [insetView setAutomaticallyAdjustsContentInsets:NO];
-    [insetView setContentInsets:NSEdgeInsetsMake(dropdownVerticalPadding, 0, dropdownVerticalPadding, 0)];
+    // 10.9 backport: -[NSScrollView setAutomaticallyAdjustsContentInsets:] and
+    // setContentInsets: are 10.10+. Without the guard, datalist autocomplete
+    // popup throws unrecognized-selector and crashes Safari.
+    if ([insetView respondsToSelector:@selector(setAutomaticallyAdjustsContentInsets:)]) {
+        [insetView setAutomaticallyAdjustsContentInsets:NO];
+        [insetView setContentInsets:NSEdgeInsetsMake(dropdownVerticalPadding, 0, dropdownVerticalPadding, 0)];
+    }
 
     [_table setDelegate:self];
     [_table setDataSource:self];

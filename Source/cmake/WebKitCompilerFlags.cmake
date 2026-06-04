@@ -143,7 +143,10 @@ if (DEVELOPER_MODE OR ARM)
 endif ()
 
 if (COMPILER_IS_GCC_OR_CLANG)
-    if (COMPILER_IS_CLANG OR (DEVELOPER_MODE AND NOT ARM))
+    # 10.9 backport: -fdebug-types-section is a DWARF/ELF feature; clang rejects it for the Mach-O
+    # target ("unsupported option '-fdebug-types-section' for target x86_64-apple-darwin..."). It's
+    # only needed for ELF/aarch64 anyway, so skip it on Apple.
+    if ((COMPILER_IS_CLANG OR (DEVELOPER_MODE AND NOT ARM)) AND NOT APPLE)
         # Split debug information in ".debug_types" / ".debug_info" sections - this leads
         # to a smaller overall size of the debug information, and avoids linker relocation
         # errors on e.g. aarch64 (relocation R_AARCH64_ABS32 out of range: 4312197985 is not in [-2147483648, 4294967295])
@@ -160,6 +163,16 @@ if (COMPILER_IS_GCC_OR_CLANG)
     if (NOT COMPILER_IS_CLANG_CL)
         WEBKIT_APPEND_GLOBAL_COMPILER_FLAGS(-fno-exceptions)
         WEBKIT_APPEND_GLOBAL_CXX_FLAGS(-fno-rtti)
+        # [10.9 backport] WebKit intends RTTI disabled everywhere (Xcode's GCC_ENABLE_CPP_RTTI=NO covers
+        # ObjC++ too), but this CMake port applied -fno-rtti only to CXX, leaving OBJCXX (.mm) with RTTI on.
+        # That mismatch made .mm files emit/reference C++ typeinfos for classes whose .cc/.cpp definitions
+        # (compiled -fno-rtti) emit none -> strong-undefined "typeinfo for ..." symbols that abort every
+        # WebKit process at dyld load. It only surfaced once MEDIA_STREAM/WEB_RTC pulled the codec+capture
+        # ObjC++ bridges into the link. No .mm in the tree uses dynamic_cast/typeid, so disabling RTTI for
+        # OBJCXX is safe and matches the CXX policy and upstream.
+        if (CMAKE_OBJCXX_COMPILER_LOADED)
+            set(CMAKE_OBJCXX_FLAGS "${CMAKE_OBJCXX_FLAGS} -fno-rtti")
+        endif ()
         WEBKIT_APPEND_GLOBAL_CXX_FLAGS(-fcoroutines)
         WEBKIT_PREPEND_GLOBAL_CXX_FLAGS(-fasynchronous-unwind-tables)
 

@@ -42,8 +42,8 @@ static int getGCryptDigestAlgorithm(CryptoAlgorithmIdentifier hashFunction)
     case CryptoAlgorithmIdentifier::SHA_1:
         return GCRY_MAC_HMAC_SHA1;
     case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
-        return GCRY_MAC_HMAC_SHA256;
+        // 10.9 backport: fail JS operation instead of crashing the tab.
+        return GCRY_MAC_NONE;
     case CryptoAlgorithmIdentifier::SHA_256:
         return GCRY_MAC_HMAC_SHA256;
     case CryptoAlgorithmIdentifier::SHA_384:

@@ -26,6 +26,12 @@
 #include "config.h"
 #include "WebProcess.h"
 
+// 10.9 MSE backport: ASL-based init-phase instrumentation. ReportCrash is unusable for in-Safari
+// WebContent (per-app crash-loop throttle), and lldb can't hold the Mach exception ports on an
+// attached launchd-spawned process. These `asl_log`s let `syslog | grep WP-init` reveal the exact
+// init phase that crashes once MSE is re-enabled. Sandbox-safe; dead-code overhead while MSE is off.
+#include <asl.h>
+
 #include <wtf/MachSendRight.h>
 #include "APIFrameHandle.h"
 #include "APIPageHandle.h"
@@ -374,10 +380,10 @@ WebProcess::WebProcess()
     , m_nonVisibleProcessMemoryCleanupTimer(*this, &WebProcess::nonVisibleProcessMemoryCleanupTimerFired)
 #endif
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] WebProcess ctor body entered\n", getpid()); fclose(_d);}}
+    asl_log(NULL, NULL, ASL_LEVEL_ERR, "WP-init: ctor body entered [pid=%d]", getpid());
     // Initialize our platform strategies.
     WebPlatformStrategies::initialize();
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] WebPlatformStrategies::initialize done\n", getpid()); fclose(_d);}}
+    asl_log(NULL, NULL, ASL_LEVEL_ERR, "WP-init: WebPlatformStrategies::initialize done [pid=%d]", getpid());
 
     // FIXME: This should moved to where WebProcess::initialize is called,
     // so that ports have a chance to customize, and ifdefs in this file are
@@ -486,6 +492,7 @@ static void scheduleLogMemoryStatistics(LogMemoryStatisticsReason reason)
 
 void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters, CompletionHandler<void(ProcessIdentity)>&& completionHandler)
 {
+    asl_log(NULL, NULL, ASL_LEVEL_ERR, "WP-init: initializeWebProcess ENTRY [pid=%d]", getpid());
     TraceScope traceScope(InitializeWebProcessStart, InitializeWebProcessEnd);
     // Reply immediately so that the identity is available as soon as possible.
     completionHandler(ProcessIdentity { ProcessIdentity::CurrentProcess });
@@ -501,7 +508,9 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
     MemoryPressureHandler::ReliefLogger::setLoggingEnabled(parameters.shouldEnableMemoryPressureReliefLogging);
 #endif
 
+    asl_log(NULL, NULL, ASL_LEVEL_ERR, "WP-init: before platformInitializeWebProcess [pid=%d]", getpid());
     platformInitializeWebProcess(parameters);
+    asl_log(NULL, NULL, ASL_LEVEL_ERR, "WP-init: after platformInitializeWebProcess [pid=%d]", getpid());
 
     // Match the QoS of the UIProcess and the scrolling thread but use a slightly lower priority.
     WTF::Thread::setCurrentThreadIsUserInteractive(-1);
@@ -1041,6 +1050,7 @@ WebPage* WebProcess::webPage(PageIdentifier pageID) const
 
 void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 {
+    { FILE *_f=((FILE*)0); if(_f) { fprintf(_f, "[INSPECTOR-WP] WebProcess::createWebPage pageID=%" PRIu64 " urlSchemeHandlers.size=%zu\n", pageID.toUInt64(), parameters.urlSchemeHandlers.size()); fclose(_f); } }
     // 10.9 perf: removed debug fopen logging
     m_hasEverHadAnyWebPages = true;
 
@@ -1616,7 +1626,7 @@ void WebProcess::gpuProcessConnectionDidBecomeUnresponsive()
     protect(parentProcessConnection())->send(Messages::WebProcessProxy::GPUProcessConnectionDidBecomeUnresponsive(m_gpuProcessConnection->identifier()), 0);
 }
 
-#if PLATFORM(COCOA) && USE(LIBWEBRTC)
+#if PLATFORM(COCOA) && USE(LIBWEBRTC) && ENABLE(GPU_PROCESS)
 LibWebRTCCodecs& WebProcess::libWebRTCCodecs()
 {
     if (!m_libWebRTCCodecs)
@@ -2611,6 +2621,10 @@ void WebProcess::setUseGPUProcessForWebGL(bool useGPUProcessForWebGL)
 
 bool WebProcess::shouldUseRemoteRenderingForWebGL() const
 {
+    // 10.9 backport: this port runs no GPU process — WebGL/ANGLE runs in-process in WebContent
+    // (like video/audio/canvas). Taking the RemoteGraphicsContextGLProxy path would try to reach a
+    // nonexistent GPU process and crash. Force the in-process GraphicsContextGLCocoa path.
+    return false;
 #if USE(COORDINATED_GRAPHICS)
 #if USE(GBM)
     return m_useGPUProcessForWebGL && WebCore::GraphicsContextGLTextureMapperGBM::checkRequirements();

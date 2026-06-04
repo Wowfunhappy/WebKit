@@ -261,8 +261,9 @@ void LegacyRenderSVGRoot::paintReplaced(PaintInfo& paintInfo, const LayoutPoint&
     // back to the IOSurface destination. Gates on PaintPhase::Foreground only.
     static thread_local int s_legacySvgRasterizeDepth = 0;
     if (s_legacySvgRasterizeDepth == 0 && paintInfo.phase == PaintPhase::Foreground) {
-        CGContextRef destCG = paintInfo.context().platformContext();
-        if (destCG && !CGBitmapContextGetData(destCG)) {
+        // 10.9 backport: use renderingMode() instead of CGBitmapContextGetData
+        // to avoid the per-frame "serious error" syslog spam from CG.
+        if (paintInfo.context().renderingMode() == RenderingMode::Accelerated) {
             LayoutRect overflowBox = visualOverflowRect();
             flipForWritingMode(overflowBox);
             overflowBox.moveBy(paintOffset);

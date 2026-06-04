@@ -93,6 +93,10 @@ public:
     void setSandboxExtension(RefPtr<SandboxExtension>&& sandboxExtension) { m_sandboxExtension = WTF::move(sandboxExtension); }
     void didReceiveChallenge(const WebCore::AuthenticationChallenge&, ChallengeCompletionHandler&&);
     void didCreateDestination(const String& path);
+    // 10.9 backport: the final destination path, captured at didCreateDestination, so the download
+    // task's didFinishDownloadingToURL handler can move the temp file here (NSURLSession on 10.9 has
+    // no _pathToDownloadTaskFile to write the destination directly).
+    const String& destinationPath() const { return m_destinationPath; }
     void didReceiveData(uint64_t bytesWritten, uint64_t totalBytesWritten, uint64_t totalBytesExpectedToWrite);
     void didFinish();
     void didFail(const WebCore::ResourceError&, std::span<const uint8_t> resumeData);
@@ -145,6 +149,7 @@ private:
 #endif
 #endif
     PAL::SessionID m_sessionID;
+    String m_destinationPath; // 10.9 backport: see destinationPath()
     bool m_hasReceivedData { false };
     IgnoreDidFailCallback m_ignoreDidFailCallback { IgnoreDidFailCallback::No };
     DownloadMonitor m_monitor { *this };

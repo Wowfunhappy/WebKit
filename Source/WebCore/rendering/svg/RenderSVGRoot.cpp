@@ -293,10 +293,11 @@ void RenderSVGRoot::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
     // phase; only redirect that one (background and outline are flat fills).
     static thread_local int s_svgRootRasterizeDepth = 0;
     if (s_svgRootRasterizeDepth == 0 && paintInfo.phase == PaintPhase::Foreground) {
-        CGContextRef destCG = paintInfo.context().platformContext();
-        bool isBitmap = destCG && CGBitmapContextGetData(destCG);
-        // 10.9 perf: removed debug fopen logging
-        if (destCG && !isBitmap) {
+        // 10.9 backport: prefer renderingMode() over CGBitmapContextGetData (the
+        // latter prints a "serious error" warning to syslog for every non-bitmap
+        // context, called per inline-SVG per frame).
+        bool isBitmap = paintInfo.context().renderingMode() == RenderingMode::Unaccelerated;
+        if (!isBitmap) {
             auto adjustedOffset = paintOffset + location();
             LayoutRect overflowBox = visualOverflowRect();
             flipForWritingMode(overflowBox);

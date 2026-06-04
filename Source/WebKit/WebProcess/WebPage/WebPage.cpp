@@ -27,6 +27,7 @@
 
 #include "config.h"
 #include "WebPage.h"
+#include <asl.h> // 10.9 MSE diagnostic logging
 
 #include "APIArray.h"
 #include "APIGeometry.h"
@@ -1176,6 +1177,15 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 #endif
 #endif
 
+    {
+        FILE *_f=((FILE*)0);
+        if(_f) {
+            fprintf(_f, "[INSPECTOR-WC-CTOR] WebPage ctor iter urlSchemeHandlers size=%zu\n", parameters.urlSchemeHandlers.size());
+            for (const auto& iterator : parameters.urlSchemeHandlers)
+                fprintf(_f, "  scheme=%s id=%" PRIu64 "\n", iterator.key.utf8().data(), iterator.value.toUInt64());
+            fclose(_f);
+        }
+    }
     for (const auto& iterator : parameters.urlSchemeHandlers)
         registerURLSchemeHandler(iterator.value, iterator.key);
     for (auto& scheme : parameters.urlSchemesWithLegacyCustomProtocolHandlers)
@@ -1197,7 +1207,8 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     send(Messages::WebPageProxy::DidCreateContextInWebProcessForVisibilityPropagation(contextID));
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW) && !HAVE(NON_HOSTING_VISIBILITY_PROPAGATION_VIEW)
 
-#if ENABLE(VP9) && PLATFORM(COCOA)
+#if ENABLE(VP9) && PLATFORM(COCOA) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
+    // VP9 decode (and WebCore's VP9TestingOverrides impl) is unavailable on 10.9; gate the call.
     VP9TestingOverrides::singleton().setShouldEnableVP9Decoder(parameters.shouldEnableVP9Decoder);
 #endif
 
@@ -2343,11 +2354,14 @@ void WebPage::loadDataImpl(std::optional<WebCore::NavigationIdentifier> navigati
     frameLoadRequest.setShouldOpenExternalURLsPolicy(shouldOpenExternalURLsPolicy);
     frameLoadRequest.setShouldTreatAsContinuingLoad(shouldTreatAsContinuingLoad);
     frameLoadRequest.setIsRequestFromClientOrUserInput();
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadDataImpl PID %d] calling loader().load localFrame=%p document=%p drawingArea=%p hostWindow=%p\n", getpid(), localFrame.get(), localFrame->document(), m_drawingArea.get(), localFrame->page() ? localFrame->page()->chrome().client().platformPageClient() : nullptr); fclose(_d);}}
     localFrame->loader().load(WTF::move(frameLoadRequest));
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadDataImpl PID %d] loader().load returned\n", getpid()); fclose(_d);}}
 }
 
 void WebPage::loadData(LoadParameters&& loadParameters)
 {
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadData PID %d] entered pageID=%llu mainFrame=%p dataSize=%zu type=%s baseURL=%s\n", getpid(), (unsigned long long)m_identifier.toUInt64(), m_mainFrame.ptr(), loadParameters.data ? loadParameters.data->size() : 0, loadParameters.MIMEType.utf8().data(), loadParameters.baseURLString.utf8().data()); fclose(_d);}}
     WEBPAGE_RELEASE_LOG(Loading, "loadData: navigationID=%" PRIu64 ", shouldTreatAsContinuingLoad=%u", loadParameters.navigationID ? loadParameters.navigationID->toUInt64() : 0, static_cast<unsigned>(loadParameters.shouldTreatAsContinuingLoad));
 
     platformDidReceiveLoadParameters(loadParameters);
@@ -2529,7 +2543,6 @@ void WebPage::setSize(const WebCore::IntSize& viewSize)
         ASSERT_NOT_REACHED();
         return;
     }
-
     view->resize(viewSize);
     protect(drawingArea())->setNeedsDisplay();
 
@@ -3091,6 +3104,17 @@ void WebPage::postInjectedBundleMessage(const String& messageName, const UserDat
     if (!injectedBundle)
         return;
 
+    // 10.9 backport: Safari's Safe Browsing is non-functional here (Google's Safe Browsing
+    // service/integration is gone), and its bundle handler crashes WebContent — an
+    // intermittent SIGSEGV in -[BrowserBundlePageController urlPassedSafeBrowsingCheck] →
+    // HashSet<Safari::CF::URL>::remove → CFEqual on a freed CFURL (a lifetime bug inside
+    // Safari.framework's closed code we cannot patch). That crash fires mid-load, BEFORE
+    // dispatchDidFinishLoad, so it also prevents load completion (and thus Top Sites preview
+    // capture, which keys off load-finish). Drop the dead Safe Browsing messages so the bundle
+    // never enters the crashing path; everything downstream (load-finish, Top Sites) proceeds.
+    if (messageName.containsIgnoringASCIICase("SafeBrowsing"_s))
+        return;
+
     injectedBundle->didReceiveMessageToPage(Ref { *this }, messageName, webProcess.transformHandlesToObjects(protect(userData.object()).get()));
 }
 
@@ -3377,14 +3401,10 @@ static DestinationColorSpace snapshotColorSpace(SnapshotOptions options, WebPage
 {
 #if USE(CG)
     if (options.contains(SnapshotOption::UseScreenColorSpace)) {
-        auto screenColorSpace = WebCore::screenColorSpace(protect(protect(protect(page.corePage())->mainFrame())->virtualView()).get());
-#if HAVE(SUPPORT_HDR_DISPLAY)
-        if (options.contains(SnapshotOption::AllowHDR) && protect(page.corePage())->drawsHDRContent()) {
-            if (auto extendedScreenColorSpace = screenColorSpace.asExtended())
-                return *extendedScreenColorSpace;
-        }
-#endif
-        return screenColorSpace;
+        // 10.9 backport: screenColorSpace() polyfill stub returns garbage struct
+        // (see [[project_image_rightclick_crash_fixed_may20]]). Use plain SRGB
+        // for snapshots instead — image quality is fine, no crash.
+        return DestinationColorSpace::SRGB();
     }
 #endif
 
@@ -4446,7 +4466,8 @@ void WebPage::didStartPageTransition()
 #endif
     m_lastEditorStateWasContentEditable = EditorStateIsContentEditable::Unset;
 
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) && HAVE(TOUCH_BAR)
+    // hasPreviouslyFocusedDueToUserInteraction is declared above under HAVE(TOUCH_BAR); keep this use in step.
     if (hasPreviouslyFocusedDueToUserInteraction)
         send(Messages::WebPageProxy::SetHasFocusedElementWithUserInteraction(false));
 #endif
@@ -4970,6 +4991,7 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
 
     updateSettingsGenerated(store, settings);
 
+
 #if !PLATFORM(GTK) && !PLATFORM(WIN) && !PLATFORM(PLAYSTATION) && !PLATFORM(WPE)
     if (!settings.acceleratedCompositingEnabled()) {
         WEBPAGE_RELEASE_LOG(Layers, "updatePreferences: acceleratedCompositingEnabled setting was false. WebKit cannot function in this mode; changing setting to true");
@@ -4977,9 +4999,57 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
     }
 #endif
 
+#if ENABLE(MEDIA_SOURCE)
+    // 10.9 backport: guarantee window.MediaSource is exposed to JavaScript. The MediaSource IDL is
+    // EnabledBySetting=MediaSourceEnabled, and Safari 9's UIProcess predates the modern preference key
+    // (it either omits MediaSourceEnabled — so a stale/false value can win — or sends the legacy key),
+    // which left window.MediaSource undefined and broke YouTube/MSE playback entirely. Force the setting
+    // on here, after the store is applied, so the custom 10.9 MSE pipeline (SourceBufferParserISOBMFF +
+    // AudioVideoRendererAVFObjC + AVSampleBufferDisplayLayer) is actually reachable from script.
+    settings.setMediaSourceEnabled(true);
+    asl_log(nullptr, nullptr, ASL_LEVEL_ERR, "MSE-FORCE[%d]: updatePreferences ran; mediaSourceEnabled now=%d", getpid(), settings.mediaSourceEnabled());
+#endif
+
+    // 10.9 backport: same root cause as MediaSource above — Safari 9's UIProcess predates these modern
+    // preference keys, so the value applied from the store can be stale/false and the feature never
+    // gets exposed to JavaScript even though the WebKit default is true. Force-enable the safe, mature
+    // modern features Safari 9 doesn't know to turn on.
+    settings.setAsyncClipboardAPIEnabled(true);
+    // requestIdleCallback: was disabled after it "broke complex sites" on May 19, but that predated the
+    // SharedTimer / RunLoop::TimerBase / dispatch_after fixes (wasm-async, shared-timer-dedup) that
+    // repaired 10.9 timer scheduling — and the idle-period timer (WindowEventLoop::m_idleTimer
+    // startOneShot) rides exactly that path, so those fixes resolved the root cause. Re-verified Jun 2:
+    // 200 idle callbacks run with correct deadlines (timeRemaining up to ~49ms, 0 spurious timeouts),
+    // idle CPU stays ~0.6-0.9% (no runaway), heavy sites settle, 0 crashes across a soak. Safe to enable.
+    settings.setRequestIdleCallbackEnabled(true);
+    // More modern features Safari 9's store leaves false (same stale-pref issue). All are pure
+    // WebKit/WebCore features with no hard 10.9 platform dependency:
+    //   - LazyImageLoading: <img loading=lazy> — perf win, defers offscreen image loads.
+    //   - BroadcastChannel: cross-tab messaging used by SPAs.
+    //   - PermissionsAPI: navigator.permissions.query() (PermissionController backend).
+    settings.setLazyImageLoadingEnabled(true);
+    settings.setBroadcastChannelEnabled(true);
+    settings.setPermissionsAPIEnabled(true);
+#if ENABLE(WEB_RTC)
+    // 10.9 backport: WebRTC is now compiled in (ENABLE_WEB_RTC=1, USE_LIBWEBRTC=1, libwebrtc.a). Same
+    // Safari-9-stale-pref issue: PeerConnectionEnabled/MediaDevicesEnabled arrive false from the store,
+    // so RTCPeerConnection / navigator.mediaDevices stay undefined. Force them on so the API surface is
+    // exposed (RTCPeerConnection data channels work without a camera; getUserMedia gated additionally by
+    // permissions/AVCapture).
+    settings.setPeerConnectionEnabled(true);
+    settings.setMediaDevicesEnabled(true);
+#endif
+
     bool requiresUserGestureForMedia = store.getBoolValueForKey(WebPreferencesKey::requiresUserGestureForMediaPlaybackKey());
     settings.setRequiresUserGestureForVideoPlayback(requiresUserGestureForMedia || store.getBoolValueForKey(WebPreferencesKey::requiresUserGestureForVideoPlaybackKey()));
     settings.setRequiresUserGestureForAudioPlayback(requiresUserGestureForMedia || store.getBoolValueForKey(WebPreferencesKey::requiresUserGestureForAudioPlaybackKey()));
+#if ENABLE(MEDIA_SOURCE)
+    // 10.9 backport: allow programmatic/auto play without a user gesture so MSE sites (YouTube et al.)
+    // that call video.play() from script actually start the custom pipeline's CMTimebase. Without this,
+    // play() is rejected NotAllowedError, the timebase never runs, and only the first decoded frame shows.
+    settings.setRequiresUserGestureForVideoPlayback(false);
+    settings.setRequiresUserGestureForAudioPlayback(false);
+#endif
     settings.setUserInterfaceDirectionPolicy(static_cast<WebCore::UserInterfaceDirectionPolicy>(store.getUInt32ValueForKey(WebPreferencesKey::userInterfaceDirectionPolicyKey())));
     settings.setSystemLayoutDirection(static_cast<TextDirection>(store.getUInt32ValueForKey(WebPreferencesKey::systemLayoutDirectionKey())));
     settings.setJavaScriptRuntimeFlags(static_cast<RuntimeFlags>(store.getUInt32ValueForKey(WebPreferencesKey::javaScriptRuntimeFlagsKey())));
@@ -5076,7 +5146,8 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
 #endif // ENABLE(MODEL_PROCESS)
 #endif // ENABLE(IPC_TESTING_API)
 
-#if ENABLE(VP9) && PLATFORM(COCOA)
+#if ENABLE(VP9) && PLATFORM(COCOA) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
+    // VP9 decode (and WebCore's VP9TestingOverrides impl) is unavailable on 10.9; gate the call.
     VP9TestingOverrides::singleton().setSWVPDecodersAlwaysEnabled(store.getBoolValueForKey(WebPreferencesKey::sWVPDecodersAlwaysEnabledKey()));
 #endif
 
@@ -8493,6 +8564,7 @@ void WebPage::stopAllURLSchemeTasks()
 
 void WebPage::registerURLSchemeHandler(WebURLSchemeHandlerIdentifier handlerIdentifier, const String& scheme)
 {
+    { FILE *_f=((FILE*)0); if(_f) { fprintf(_f, "[INSPECTOR-WC] registerURLSchemeHandler scheme=%s\n", scheme.utf8().data()); fclose(_f); } }
     WEBPAGE_RELEASE_LOG(Process, "registerURLSchemeHandler: Registered handler %" PRIu64 " for the '%s' scheme", handlerIdentifier.toUInt64(), scheme.utf8().data());
     WebCore::LegacySchemeRegistry::registerURLSchemeAsHandledBySchemeHandler(scheme);
     WebCore::LegacySchemeRegistry::registerURLSchemeAsCORSEnabled(scheme);

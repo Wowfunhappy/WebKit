@@ -100,6 +100,7 @@ private:
     const Ref<ScrollerPairMac> m_scrollerPair;
 
     bool m_inMomentumPhase { false };
+    bool m_inActiveScrollGesture { false }; // 10.9: trackpad fingers-down phase (Began..Ended) so the thumb uses the smooth presentation-value path during the active gesture, not just momentum.
 
 #if HAVE(RUBBER_BANDING)
     std::optional<RubberbandingState> m_pendingRubberbandingState;

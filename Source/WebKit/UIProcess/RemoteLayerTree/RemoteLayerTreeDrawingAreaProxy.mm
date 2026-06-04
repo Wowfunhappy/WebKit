@@ -153,6 +153,7 @@ std::unique_ptr<RemoteLayerTreeHost> RemoteLayerTreeDrawingAreaProxy::detachRemo
 
 void RemoteLayerTreeDrawingAreaProxy::sizeDidChange()
 {
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[RLT-Proxy::sizeDidChange] pageID=%llu size=(%d,%d) hasProcess=%d isWaiting=%d\n", this->page() ? (unsigned long long)this->page()->identifier().toUInt64() : 0, size().width(), size().height(), this->page() ? (int)this->page()->hasRunningProcess() : -1, (int)m_isWaitingForDidUpdateGeometry); fclose(_d);}}
     RefPtr page = this->page();
     if (!page || !page->hasRunningProcess())
         return;
@@ -488,14 +489,19 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
 
     LOG_WITH_STREAM(RemoteLayerTree, stream << "RemoteLayerTreeDrawingAreaProxy::commitLayerTree transaction:" << layerTreeTransaction.description());
     LOG_WITH_STREAM(RemoteLayerTree, stream << "RemoteLayerTreeDrawingAreaProxy::commitLayerTree scrolling tree:" << scrollingTreeTransaction.description());
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-commit PID %d] commitLayerTreeTransaction entered, txn id=%llu\n",getpid(),(unsigned long long)transactionID.object().toUInt64());fclose(_d);}}
+    {FILE *_d=((FILE*)0); if(_d){
+        CALayer *root = m_remoteLayerTreeHost ? m_remoteLayerTreeHost->rootLayer() : nil;
+        fprintf(_d,"[ui-commit] txn id=%llu pageID=%llu root=%p frame=(%f,%f,%f,%f) txnContentsSize=(%f,%f)\n",
+            (unsigned long long)transactionID.object().toUInt64(),
+            this->page() ? (unsigned long long)this->page()->identifier().toUInt64() : 0,
+            root, root.frame.origin.x, root.frame.origin.y, root.frame.size.width, root.frame.size.height,
+            layerTreeTransaction.contentsSize().width(), layerTreeTransaction.contentsSize().height());
+        fclose(_d);
+    }}
 
     RefPtr page = this->page();
-    if (!page) {
-        FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-commit PID %d] !page, returning\n",getpid());fclose(_d);}
+    if (!page)
         return;
-    }
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-commit PID %d] page=%p, processing transaction\n",getpid(),page.get());fclose(_d);}}
 
     {
         ScrollRequestData requestedScroll;
@@ -506,13 +512,19 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
                 ++m_countOfTransactionsWithNonEmptyLayerChanges;
 
             bool rootChanged = m_remoteLayerTreeHost->updateLayerTree(connection, layerTreeTransaction, mainFrameData);
-            {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-commit PID %d] updateLayerTree returned %d replyForUnhiding=%d detached=%d\n",getpid(),(int)rootChanged,(int)!!m_replyForUnhidingContent,(int)m_hasDetachedRootLayer);fclose(_d);}}
+            {FILE *_d=((FILE*)0); if(_d){
+                CALayer *root = m_remoteLayerTreeHost ? m_remoteLayerTreeHost->rootLayer() : nil;
+                fprintf(_d,"[ui-postUpdate] rootChanged=%d rootLayer=%p frame=(%f,%f,%f,%f) sublayers=%lu replyForUnhiding=%d detached=%d\n",
+                    (int)rootChanged, root, root.frame.origin.x, root.frame.origin.y, root.frame.size.width, root.frame.size.height,
+                    (unsigned long)root.sublayers.count, (int)!!m_replyForUnhidingContent, (int)m_hasDetachedRootLayer);
+                fclose(_d);
+            }}
             if (rootChanged) {
                 if (!m_replyForUnhidingContent) {
                     if (m_hasDetachedRootLayer)
                         RELEASE_LOG(RemoteLayerTree, "RemoteLayerTreeDrawingAreaProxy(%" PRIu64 ") Unhiding layer tree", identifier().toUInt64());
                     auto rootNode = protect(m_remoteLayerTreeHost->rootNode());
-                    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-commit PID %d] setting rootNode=%p\n",getpid(),rootNode.get());fclose(_d);}}
+                    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-setRootNode] rootNode=%p\n",rootNode.get());fclose(_d);}}
                     page->setRemoteLayerTreeRootNode(rootNode.get());
                     m_hasDetachedRootLayer = false;
                 } else
@@ -607,7 +619,7 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
             CALayer *rl = root->layer();
             CALayer *container = [rl superlayer];
             static unsigned s_diagCount = 0;
-            FILE *_d = (s_diagCount++ < 5) ? fopen("/tmp/load_dbg.log", "a") : ((FILE*)0);
+            FILE *_d = (s_diagCount++ < 5) ? ((FILE*)0) : ((FILE*)0);
             if (_d && rl) {
                 fprintf(_d, "[diag PID %d] rl=%p class=%s frame=(%g,%g,%gx%g) bounds=(%g,%g,%gx%g) hidden=%d masksToBounds=%d opacity=%g sublayers=%lu container=%p\n",
                     getpid(), rl, object_getClassName(rl),

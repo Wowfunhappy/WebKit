@@ -37,7 +37,7 @@
     if (!(self = [super init]))
         return nil;
 
-    // DISABLED:     API::Object::constructInWrapper<WebKit::VisitedLinkStore>(self);
+    API::Object::constructInWrapper<WebKit::VisitedLinkStore>(self);
 
     return self;
 }

@@ -70,7 +70,8 @@ static ExceptionOr<Vector<uint8_t>> encryptCryptoKitAESGCM(const Vector<uint8_t>
     UNUSED_PARAM(plainText);
     UNUSED_PARAM(additionalData);
     UNUSED_PARAM(desiredTagLengthInBytes);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: fail the JS operation instead of crashing the tab.
+    return Exception { ExceptionCode::OperationError };
 #endif
 }
 

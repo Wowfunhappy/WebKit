@@ -219,8 +219,15 @@ String PlatformPasteboard::stringForType(const String& pasteboardType) const
 {
     if (pasteboardType == String { legacyURLPasteboardTypeSingleton() }) {
         RetainPtr url = [NSURL URLFromPasteboard:m_pasteboard.get()];
-        if (!url)
-            url = adoptNS([[NSURL alloc] initWithString:retainPtr([m_pasteboard stringForType:legacyURLPasteboardTypeSingleton()]).get()]);
+        if (!url) {
+            // 10.9 backport: -[NSURL initWithString:nil] throws NSInvalidArgumentException
+            // and crashes Safari. Pasteboard may not have a URL-type string at all
+            // (e.g. plain-text-only clipboard), in which case [NSPasteboard stringForType:]
+            // returns nil. Skip the URL constructor when there's nothing to parse.
+            RetainPtr urlString = [m_pasteboard stringForType:legacyURLPasteboardTypeSingleton()];
+            if (urlString)
+                url = adoptNS([[NSURL alloc] initWithString:urlString.get()]);
+        }
         String urlString = [url absoluteString];
         if (pasteboardMayContainFilePaths(m_pasteboard.get()) && !Pasteboard::canExposeURLToDOMWhenPasteboardContainsFiles(urlString))
             return { };
@@ -486,7 +493,9 @@ int64_t PlatformPasteboard::setStringForType(const String& string, const String&
 
     if (pasteboardType == String(legacyURLPasteboardTypeSingleton())) {
         // We cannot just use -NSPasteboard writeObjects:], because -declareTypes has been already called, implicitly creating an item.
-        RetainPtr url = adoptNS([[NSURL alloc] initWithString:string.createNSString().get()]);
+        // 10.9 backport: -[NSURL initWithString:nil] throws; guard for empty/null string.
+        RetainPtr nsString = string.createNSString();
+        RetainPtr<NSURL> url = nsString ? adoptNS([[NSURL alloc] initWithString:nsString.get()]) : RetainPtr<NSURL> { };
         if ([retainPtr([m_pasteboard types]) containsObject:legacyURLPasteboardTypeSingleton()]) {
             RetainPtr<NSURL> base = [url baseURL];
             if (base)

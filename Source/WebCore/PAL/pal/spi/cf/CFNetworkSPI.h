@@ -125,6 +125,26 @@ typedef struct nw_path_evaluator *nw_path_evaluator_t;
 #endif // OS_OBJECT_USE_OBJC
 #endif // !NW_POLYFILL_TYPES_DECLARED
 
+// macOS 10.9 backport: tls_protocol_version_t is from <Security/SecProtocolTypes.h> (10.13+).
+#if !HAVE(TLS_PROTOCOL_VERSION_T)
+typedef enum {
+    tls_protocol_version_TLSv10 = 0x0301,
+    tls_protocol_version_TLSv11 = 0x0302,
+    tls_protocol_version_TLSv12 = 0x0303,
+    tls_protocol_version_TLSv13 = 0x0304,
+    tls_protocol_version_DTLSv10 = 0xfeff,
+    tls_protocol_version_DTLSv12 = 0xfefd,
+} tls_protocol_version_t;
+#endif
+
+// macOS 10.9 backport: NSURLSessionTaskPriority* float constants are 10.10+. Used as plain
+// float values (set via KVC), so the documented defaults are runtime-equivalent.
+#if !HAVE(NSURLSESSION_TASK_PRIORITY)
+#define NSURLSessionTaskPriorityDefault 0.5f
+#define NSURLSessionTaskPriorityLow 0.0f
+#define NSURLSessionTaskPriorityHigh 1.0f
+#endif
+
 #if HAVE(NW_PROXY_CONFIG) || HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
 typedef void (^nw_context_tracker_lookup_callback_t)(nw_endpoint_t endpoint, const char **tracker_name, const char **tracker_owner, bool *can_block);
 
@@ -617,6 +637,14 @@ WTF_EXTERN_C_END
 @interface NSURLSessionTask ()
 - (void)_setExplicitCookieStorage:(CFHTTPCookieStorageRef)storage;
 @end
+
+// 10.9 backport: NSURLSessionWebSocketTask and NSURLSessionWebSocketCloseCode are macOS 10.15+.
+// On older SDKs provide minimal stubs so this SPI category compiles (used only behind runtime guards).
+#if !defined(__MAC_OS_X_VERSION_MAX_ALLOWED) || __MAC_OS_X_VERSION_MAX_ALLOWED < 101500
+typedef NSInteger NSURLSessionWebSocketCloseCode;
+@interface NSURLSessionWebSocketTask : NSURLSessionTask
+@end
+#endif
 
 @interface NSURLSessionWebSocketTask (SPI)
 - (void)_sendCloseCode:(NSURLSessionWebSocketCloseCode)closeCode reason:(NSData *)reason;

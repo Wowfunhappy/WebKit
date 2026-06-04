@@ -77,7 +77,10 @@ Box<NetworkLoadMetrics> copyTimingData(NSURLSessionTaskMetrics *incompleteMetric
 
 Box<NetworkLoadMetrics> copyTimingData(NSURLConnection *connection, const ResourceHandle& handle)
 {
-    RetainPtr<NSDictionary> timingData = [connection _timingData];
+    // 10.9 backport: -[NSURLConnection _timingData] is a newer CFNetwork SPI absent on 10.9 —
+    // calling it unguarded throws unrecognized-selector → std::terminate. Guard it; nil timing
+    // data yields empty best-effort metrics (all timing keys resolve to nil).
+    RetainPtr<NSDictionary> timingData = [connection respondsToSelector:@selector(_timingData)] ? [connection _timingData] : nil;
 
     auto timingValue = [&](NSString *key) -> RetainPtr<NSDate> {
         if (RetainPtr<NSNumber> number = [timingData objectForKey:key]) {

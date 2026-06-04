@@ -715,7 +715,9 @@ void Pasteboard::writeString(const String& type, const String& data)
     // 10.9 backport: +[UTType fileURL] is 11.0+. Use legacy kUTTypeFileURL.
     NSString *fileURLId = [UTType respondsToSelector:@selector(fileURL)] ? UTTypeFileURL.identifier : (__bridge NSString *)kUTTypeFileURL;
     if (cocoaType == String(legacyURLPasteboardTypeSingleton()) || cocoaType == String(fileURLId)) {
-        RetainPtr url = adoptNS([[NSURL alloc] initWithString:cocoaData.createNSString().get()]);
+        // 10.9 backport: -[NSURL initWithString:nil] throws; nil-check before constructing.
+        RetainPtr cocoaNSString = cocoaData.createNSString();
+        RetainPtr<NSURL> url = cocoaNSString ? adoptNS([[NSURL alloc] initWithString:cocoaNSString.get()]) : RetainPtr<NSURL> { };
         if ([url isFileURL])
             return;
         platformStrategies()->pasteboardStrategy()->setTypes({ cocoaType }, m_pasteboardName, context());

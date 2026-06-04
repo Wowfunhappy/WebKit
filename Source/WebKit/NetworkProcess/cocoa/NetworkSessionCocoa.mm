@@ -1059,8 +1059,21 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
     if (!downloadID)
         return;
     if (CheckedPtr session = _session.get()) {
-        if (RefPtr download = protect(session->networkProcess().downloadManager())->download(*downloadID))
+        if (RefPtr download = protect(session->networkProcess().downloadManager())->download(*downloadID)) {
+            // 10.9 backport: NSURLSession here lacks the _pathToDownloadTaskFile mechanism that writes
+            // the download straight to its destination, so it downloads to a temporary file and hands
+            // it to us as `location` — which it deletes as soon as this delegate returns. Move it to the
+            // real destination synchronously, otherwise the download "completes" as a 0-byte/absent file.
+            String destination = download->destinationPath();
+            String tempPath { [location path] };
+            if (!destination.isEmpty() && !tempPath.isEmpty()) {
+                if (FileSystem::fileExists(destination))
+                    FileSystem::deleteFile(destination);
+                if (!FileSystem::moveFile(tempPath, destination))
+                    RELEASE_LOG_ERROR(NetworkSession, "didFinishDownloadingToURL: failed to move temp download into place for id %" PRIu64, downloadID->toUInt64());
+            }
             download->didFinish();
+        }
     }
 }
 

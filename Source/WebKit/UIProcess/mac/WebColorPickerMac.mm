@@ -134,7 +134,10 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color)
     static NeverDestroyed<RetainPtr<NSPopover>> colorPopover;
     if (forceCreation) {
         auto popover = adoptNS([[NSPopover alloc] init]);
-        [popover _setRequiresCorrectContentAppearance:YES];
+        // 10.9 backport: -[NSPopover _setRequiresCorrectContentAppearance:] is a
+        // 10.10+ private SPI. Send only if responding.
+        if ([popover respondsToSelector:@selector(_setRequiresCorrectContentAppearance:)])
+            [popover _setRequiresCorrectContentAppearance:YES];
         [popover setBehavior:NSPopoverBehaviorTransient];
 
         auto controller = adoptNS([[NSClassFromString(@"NSColorPopoverController") alloc] init]);

@@ -3575,6 +3575,11 @@ HiddenPageDOMTimerThrottlingAutoIncreases:
     WebKitLegacy:
       default: false
     WebKit:
+      # 10.9 backport: enable on Cocoa so background tabs with setInterval/rAF that
+      # mutate DOM don't permanently starve the main-thread layout pipeline. See
+      # [[project_nav_stuck_real_cause_may29]]. Throttle alignment grows over time
+      # from 1s to N seconds — hidden tab work doesn't starve foreground IPC.
+      "PLATFORM(COCOA)": true
       default: false
     WebCore:
       default: false
@@ -9400,7 +9405,9 @@ WebCodecsVideoEnabled:
   category: media
   humanReadableName: "WebCodecs Video API"
   humanReadableDescription: "Enable WebCodecs Video API"
-  condition: ENABLE(WEB_CODECS)
+  # 10.9 backport: Page.cpp / RTCPeerConnection.cpp read this setting under USE(LIBWEBRTC) (for WebRTC
+  # logging level), independent of ENABLE(WEB_CODECS). Make the Settings member exist in that case too.
+  condition: ENABLE(WEB_CODECS) || USE(LIBWEBRTC)
   defaultValue:
     WebKitLegacy:
       default: false

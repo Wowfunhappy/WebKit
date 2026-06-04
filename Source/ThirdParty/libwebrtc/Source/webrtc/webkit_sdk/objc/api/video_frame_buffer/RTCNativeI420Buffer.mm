@@ -8,6 +8,9 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+// 10.9 backport: on iOS the header chain pulls in Foundation via UIKit (iOS-guarded above);
+// on macOS nothing imports it here, so NSString is undeclared. Import Foundation explicitly.
+#import <Foundation/Foundation.h>
 #import "RTCNativeI420Buffer+Private.h"
 
 #include "api/video/i420_buffer.h"

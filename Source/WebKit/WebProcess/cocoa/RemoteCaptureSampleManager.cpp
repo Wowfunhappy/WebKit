@@ -150,11 +150,13 @@ void RemoteCaptureSampleManager::didUpdateSourceConnection(IPC::Connection& conn
     setConnection(&connection);
 }
 
+#if ENABLE(GPU_PROCESS)
 void RemoteCaptureSampleManager::setVideoFrameObjectHeapProxy(RefPtr<RemoteVideoFrameObjectHeapProxy>&& proxy)
 {
     Locker lock(m_videoFrameObjectHeapProxyLock);
     m_videoFrameObjectHeapProxy = WTF::move(proxy);
 }
+#endif
 
 void RemoteCaptureSampleManager::audioStorageChanged(WebCore::RealtimeMediaSourceIdentifier identifier, ConsumerSharedCARingBuffer::Handle&& handle, const WebCore::CAAudioStreamDescription& description, IPC::Semaphore&& semaphore, const MediaTime& mediaTime, uint64_t frameChunkSize)
 {
@@ -168,6 +170,7 @@ void RemoteCaptureSampleManager::audioStorageChanged(WebCore::RealtimeMediaSourc
     iterator->value->setStorage(WTF::move(handle), description, WTF::move(semaphore), mediaTime, frameChunkSize);
 }
 
+#if ENABLE(GPU_PROCESS)
 void RemoteCaptureSampleManager::videoFrameAvailable(RealtimeMediaSourceIdentifier identifier, RemoteVideoFrameProxy::Properties&& properties, VideoFrameTimeMetadata metadata)
 {
     ASSERT(!WTF::isMainRunLoop());
@@ -184,6 +187,7 @@ void RemoteCaptureSampleManager::videoFrameAvailable(RealtimeMediaSourceIdentifi
     }
     Ref { iterator->value }->remoteVideoFrameAvailable(WTF::move(videoFrame), metadata);
 }
+#endif // ENABLE(GPU_PROCESS)
 
 void RemoteCaptureSampleManager::videoFrameAvailableCV(RealtimeMediaSourceIdentifier identifier, RetainPtr<CVPixelBufferRef>&& pixelBuffer, WebCore::VideoFrame::Rotation rotation, bool mirrored, MediaTime presentationTime, WebCore::VideoFrameTimeMetadata metadata)
 {

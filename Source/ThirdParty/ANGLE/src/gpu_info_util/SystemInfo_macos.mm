@@ -14,12 +14,24 @@
 
 #import <Cocoa/Cocoa.h>
 #import <IOKit/IOKitLib.h>
+#if ANGLE_ENABLE_METAL
 #import <Metal/Metal.h>
+#endif
 
 #include "common/apple_platform_utils.h"
 
 #if ANGLE_ENABLE_CGL
 #    include "common/gl/cgl/FunctionsCGL.h"
+#endif
+
+// 10.9 backport SDK shims: these identifiers were introduced in newer SDKs.
+#if !defined(MAC_OS_VERSION_12_0) || (defined(MAC_OS_X_VERSION_MAX_ALLOWED) && MAC_OS_X_VERSION_MAX_ALLOWED < 120000)
+#    define kIOMainPortDefault kIOMasterPortDefault
+#endif
+// CGL renderer registry-ID properties are 10.13+ (CGLRenderers.h). Values are stable.
+#if !defined(MAC_OS_X_VERSION_10_13) || (defined(MAC_OS_X_VERSION_MAX_ALLOWED) && MAC_OS_X_VERSION_MAX_ALLOWED < 101300)
+#    define kCGLRPRegistryIDLow static_cast<CGLRendererProperty>(140)
+#    define kCGLRPRegistryIDHigh static_cast<CGLRendererProperty>(141)
 #endif
 
 namespace angle
@@ -196,6 +208,7 @@ void ForceGPUSwitchIndex(SystemInfo *info)
 // Used with permission.
 uint64_t GetGpuIDFromDisplayID(uint32_t displayID)
 {
+#if ANGLE_ENABLE_METAL
     // First attempt to use query the registryID from a Metal device before falling back to CGL.
     // This avoids loading the OpenGL framework when possible.
     id<MTLDevice> device = CGDirectDisplayCopyCurrentMetalDevice(displayID);
@@ -205,6 +218,7 @@ uint64_t GetGpuIDFromDisplayID(uint32_t displayID)
         [device release];
         return registryId;
     }
+#endif
 #if ANGLE_ENABLE_CGL
     return GetGpuIDFromOpenGLDisplayMask(CGDisplayIDToOpenGLDisplayMask(displayID));
 #else
@@ -256,6 +270,7 @@ uint64_t GetGpuIDFromOpenGLDisplayMask(uint32_t displayMask)
 }
 #endif
 
+#if ANGLE_ENABLE_METAL
 // Get VendorID from metal device's registry ID
 VendorID GetVendorIDFromMetalDeviceRegistryID(uint64_t registryID)
 {
@@ -297,6 +312,7 @@ VendorID GetVendorIDFromMetalDeviceRegistryID(uint64_t registryID)
 
     return vendorId;
 }
+#endif  // ANGLE_ENABLE_METAL
 
 bool GetSystemInfo_mac(SystemInfo *info)
 {

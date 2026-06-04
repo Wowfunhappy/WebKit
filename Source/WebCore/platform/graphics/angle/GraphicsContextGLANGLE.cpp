@@ -287,9 +287,17 @@ bool GraphicsContextGLANGLE::initialize()
     GL_DebugMessageControlKHR(DONT_CARE, DONT_CARE, DONT_CARE, 0, nullptr, 0);
     GL_DebugMessageControlKHR(DEBUG_SOURCE_API, DONT_CARE, DONT_CARE, 0, nullptr, 1);
     auto debugMessageCallback = [](GCGLenum, GCGLenum type, GCGLenum id, GCGLenum severity, GCGLsizei length, const GCGLchar* message, const void* context) {
+        // 10.9 hardening: ANGLE invokes this synchronously (DEBUG_OUTPUT_SYNCHRONOUS) on every GL
+        // validation error. The KHR_debug contract allows a negative length (message is then a
+        // null-terminated string); passing that straight into unsafeMakeSpan() yields a SIZE_MAX
+        // span and crashes constructing the CString. Heavy WebGL sites (Google Maps, Twitch) hit a
+        // bindTexture validation error and crashed here (GraphicsContextGLANGLE.cpp:292). Guard
+        // null context/message and compute the length safely.
+        if (!context || !message || length < 0)
+            return;
         auto* gl = reinterpret_cast<const GraphicsContextGLANGLE*>(context);
         if (gl->m_client)
-            gl->m_client->addDebugMessage(type, id, severity, CString { unsafeMakeSpan(message, length) });
+            gl->m_client->addDebugMessage(type, id, severity, CString { unsafeMakeSpan(message, static_cast<size_t>(length)) });
     };
     GL_DebugMessageCallbackKHR(debugMessageCallback, this);
 
@@ -394,7 +402,11 @@ RefPtr<PixelBuffer> GraphicsContextGLANGLE::readPixelsForPaintResults()
         return nullptr;
     ScopedBufferBinding scopedPixelPackBufferReset(GL_PIXEL_PACK_BUFFER, 0, m_isForWebGL2);
     setPackParameters(1, 0, false);
-    GL_ReadnPixelsRobustANGLE(0, 0, pixelBuffer->size().width(), pixelBuffer->size().height(), GL_RGBA, GL_UNSIGNED_BYTE, pixelBuffer->bytes().size(), nullptr, nullptr, nullptr, pixelBuffer->bytes().data());
+    // 10.9 backport: use the non-"n" robust read. GL_ReadnPixelsRobustANGLE additionally
+    // requires GL_EXT/KHR_robustness (or ES 3.2), which the CGL desktop-GL backend can't expose
+    // because 10.9's OpenGL lacks GL_ARB_robustness. GL_ReadPixelsRobustANGLE has the identical
+    // signature and gives the same bufSize-bounded read via GL_ANGLE_robust_client_memory.
+    GL_ReadPixelsRobustANGLE(0, 0, pixelBuffer->size().width(), pixelBuffer->size().height(), GL_RGBA, GL_UNSIGNED_BYTE, pixelBuffer->bytes().size(), nullptr, nullptr, nullptr, pixelBuffer->bytes().data());
     // FIXME: Rendering to GL_RGB textures with a IOSurface bound to the texture image leaves
     // the alpha in the IOSurface in incorrect state. Also ANGLE GL_ReadPixels will in some
     // cases expose the non-255 values.
@@ -453,7 +465,7 @@ bool GraphicsContextGLANGLE::reshapeFBOs(const IntSize& size)
 
     // Resize multisample FBO.
     if (attrs.antialias) {
-        GLint maxSampleCount;
+        GLint maxSampleCount = 0;
         GL_GetIntegerv(GL_MAX_SAMPLES_ANGLE, &maxSampleCount);
         // Using more than 4 samples is slow on some hardware and is unlikely to
         // produce a significantly better result.
@@ -747,7 +759,9 @@ std::optional<IntSize> GraphicsContextGLANGLE::readPixelsImpl(IntRect rect, GCGL
     updateErrors();
     GLsizei rows = 0;
     GLsizei columns = 0;
-    GL_ReadnPixelsRobustANGLE(rect.x(), rect.y(), rect.width(), rect.height(), format, type, data.size(), nullptr, &rows, &columns, data.data());
+    // 10.9 backport: non-"n" robust read (see readPixelsForPaintResults) — avoids the
+    // EXT/KHR_robustness requirement the CGL backend can't satisfy on 10.9's OpenGL.
+    GL_ReadPixelsRobustANGLE(rect.x(), rect.y(), rect.width(), rect.height(), format, type, data.size(), nullptr, &rows, &columns, data.data());
     if (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO)
         GL_BindFramebuffer(framebufferTarget, m_multisampleFBO);
 

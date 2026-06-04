@@ -90,7 +90,7 @@ void LibWebRTCProvider::disableNonLocalhostConnections()
     WebProcess::singleton().libWebRTCNetwork().disableNonLocalhostConnections();
 }
 
-#if PLATFORM(COCOA) && USE(LIBWEBRTC)
+#if PLATFORM(COCOA) && USE(LIBWEBRTC) && ENABLE(GPU_PROCESS)
 bool LibWebRTCProvider::isSupportingVP9HardwareDecoder() const
 {
     return WebProcess::singleton().libWebRTCCodecs().isSupportingVP9HardwareDecoder();
@@ -200,7 +200,7 @@ RefPtr<RTCDataChannelRemoteHandlerConnection> LibWebRTCProvider::createRTCDataCh
 void LibWebRTCProvider::setLoggingLevel(WTFLogLevel level)
 {
     WebCore::LibWebRTCProvider::setLoggingLevel(level);
-#if PLATFORM(COCOA)
+#if PLATFORM(COCOA) && ENABLE(GPU_PROCESS)
     protect(WebProcess::singleton().libWebRTCCodecs())->setLoggingLevel(level);
 #endif
 }

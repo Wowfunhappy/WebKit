@@ -317,7 +317,10 @@ public:
     void gpuProcessConnectionClosed();
     void gpuProcessConnectionDidBecomeUnresponsive();
 
-#if PLATFORM(COCOA) && USE(LIBWEBRTC)
+#if PLATFORM(COCOA) && USE(LIBWEBRTC) && ENABLE(GPU_PROCESS)
+    // 10.9 backport: LibWebRTCCodecs is the GPU-process codec proxy and only exists when
+    // ENABLE(GPU_PROCESS) (the m_libWebRTCCodecs member is already so-gated below). Match the
+    // accessor's gate, else it references a non-existent member (GPU_PROCESS is off on 10.9).
     LibWebRTCCodecs& libWebRTCCodecs();
 #endif
 #if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)

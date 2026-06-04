@@ -604,10 +604,8 @@ public:
     NSDragOperation dragSourceOperationMask(NSDraggingSession *, NSDraggingContext);
     void draggingSessionEnded(NSDraggingSession *, NSPoint, NSDragOperation);
 
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
-    NSString *fileNameForFilePromiseProvider(NSFilePromiseProvider *, NSString *fileType);
-    void writeToURLForFilePromiseProvider(NSFilePromiseProvider *, NSURL *, void(^)(NSError *));
-#endif
+    NSString *fileNameForFilePromiseProvider(id /*NSFilePromiseProvider* */, NSString *fileType);
+    void writeToURLForFilePromiseProvider(id /*NSFilePromiseProvider* */, NSURL *, void(^)(NSError *));
 
     void didPerformDragOperation(bool handled);
 #endif
@@ -633,6 +631,7 @@ public:
 
     ViewGestureController* gestureController() const { return m_gestureController.get(); }
     ViewGestureController& ensureGestureController();
+    Ref<ViewGestureController> ensureProtectedGestureController();
 #if HAVE(APPKIT_GESTURES_SUPPORT)
     WKAppKitGestureController *appKitGestureController() const LIFETIME_BOUND { return m_appKitGestureController.get(); }
 #endif
@@ -676,6 +675,7 @@ public:
     void insertText(id string, NSRange replacementRange);
     NSTextInputContext *inputContext();
     NSTextInputContext *inputContextForSelectionUpdates();
+    NSTextInputContext *inputContextIncludingNonEditable();
     void unmarkText();
     void setMarkedText(id string, NSRange selectedRange, NSRange replacementRange);
     NSRange NODELETE selectedRange();
@@ -897,7 +897,10 @@ private:
     void performOrDeferImageAnalysisOverlayViewHierarchyTask(std::function<void()>&&);
     void fulfillDeferredImageAnalysisOverlayViewHierarchyTask();
 #endif
+#endif // HAVE(TOUCH_BAR)
 
+    // Not Touch Bar functionality — scroll/titlebar state + content-relative child views; these are
+    // used unconditionally (e.g. WebViewImpl.mm scroll handling), so they must not be TOUCH_BAR-gated.
     bool pageIsScrolledToTop() const { return m_lastPageScrollPosition.y() <= 0; }
     void pageScrollingHysteresisFired(PAL::HysteresisState);
 
@@ -906,6 +909,7 @@ private:
     void suppressContentRelativeChildViews();
     void restoreContentRelativeChildViews();
 
+#if HAVE(TOUCH_BAR)
     bool m_clientWantsMediaPlaybackControlsView { false };
     bool m_canCreateTouchBars { false };
     bool m_startedListeningToCustomizationEvents { false };

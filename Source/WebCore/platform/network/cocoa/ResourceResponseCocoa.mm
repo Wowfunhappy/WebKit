@@ -105,8 +105,17 @@ CertificateInfo ResourceResponse::platformCertificateInfo(std::span<const std::b
         return { };
 
     if (trustResultType == kSecTrustResultInvalid) {
+#if defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 101400
+        // 10.9 backport: SecTrustEvaluateWithError() is macOS 10.14+. Fall back to the older
+        // SecTrustEvaluate() and accept only Proceed/Unspecified results.
+        SecTrustResultType reEvaluatedResult = kSecTrustResultInvalid;
+        if (SecTrustEvaluate(trust.get(), &reEvaluatedResult) != errSecSuccess
+            || (reEvaluatedResult != kSecTrustResultProceed && reEvaluatedResult != kSecTrustResultUnspecified))
+            return { };
+#else
         if (!SecTrustEvaluateWithError(trust.get(), nullptr))
             return { };
+#endif
     }
 
     return CertificateInfo(trust.get());
@@ -198,5 +207,52 @@ bool ResourceResponse::platformCompare(const ResourceResponse& a, const Resource
 }
 
 } // namespace WebCore
+
+// 10.9 backport: stop the Networking process from SIGABRTing on EVERY file download.
+// Modern WebKit's NetworkDataTaskCocoa::setPendingDownloadLocation does `task._pathToDownloadTaskFile = path`,
+// but NSURLSessionTask on 10.9 has no such private property → -[__NSCFLocalDataTask set_pathToDownloadTaskFile:]
+// is an unrecognized selector → uncaught NSInvalidArgumentException → std::terminate → the whole
+// com.apple.WebKit.Networking process dies (taking down ALL of Safari's networking until it relaunches).
+// WebCore.framework is loaded in the NetworkProcess (confirmed via crash binary images), so inject the
+// missing accessors here at +load (no WebKit rebuild needed): store the path on an associated object so
+// the assignment is a safe no-op. (Real download-to-file on 10.9's NSURLSession is a separate, larger task;
+// this only stops the catastrophic crash so a download fails gracefully instead of nuking networking.)
+#import <objc/runtime.h>
+
+@interface NSObject (WK109DownloadTaskFileShim)
+@end
+
+@implementation NSObject (WK109DownloadTaskFileShim)
+
++ (void)load
+{
+    @autoreleasepool {
+        // Target NSObject, not NSURLSessionTask: at WebCore +load time in the NetworkProcess the
+        // Foundation NSURLSession classes are often not registered yet, so NSClassFromString(@"NSURLSessionTask")
+        // returns nil and the shim silently no-ops → the crash comes back on the first download. NSObject is
+        // always available at +load and every task (incl. the private __NSCFLocalDataTask) inherits from it.
+        // The two selectors are private/unique enough that adding them process-wide is safe.
+        Class cls = [NSObject class];
+        if (!cls)
+            return;
+        static char pathKey;
+        SEL setSel = NSSelectorFromString(@"set_pathToDownloadTaskFile:");
+        SEL getSel = NSSelectorFromString(@"_pathToDownloadTaskFile");
+        if (![cls instancesRespondToSelector:setSel]) {
+            IMP setImp = imp_implementationWithBlock(^(id taskSelf, id value) {
+                objc_setAssociatedObject(taskSelf, &pathKey, value, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            });
+            class_addMethod(cls, setSel, setImp, "v@:@");
+        }
+        if (![cls instancesRespondToSelector:getSel]) {
+            IMP getImp = imp_implementationWithBlock(^id(id taskSelf) {
+                return objc_getAssociatedObject(taskSelf, &pathKey);
+            });
+            class_addMethod(cls, getSel, getImp, "@@:");
+        }
+    }
+}
+
+@end
 
 #endif // PLATFORM(COCOA)

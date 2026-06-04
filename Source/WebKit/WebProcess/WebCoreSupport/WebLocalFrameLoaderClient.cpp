@@ -561,6 +561,7 @@ void WebLocalFrameLoaderClient::dispatchDidExplicitOpen(const URL& url, const St
 
 void WebLocalFrameLoaderClient::dispatchDidStartProvisionalLoad()
 {
+    {FILE *_d=((FILE*)0); if(_d){RefPtr p=m_frame->page(); fprintf(_d,"[wc-start-prov PID %d] mainFrame=%d page=%p pageID=%llu\n", getpid(), (int)m_frame->isMainFrame(), p.get(), p ? (unsigned long long)p->identifier().toUInt64() : 0); fclose(_d);}}
     RefPtr webPage = m_frame->page();
     if (!webPage)
         return;
@@ -625,6 +626,7 @@ void WebLocalFrameLoaderClient::dispatchDidReceiveTitle(const StringWithDirectio
 
 void WebLocalFrameLoaderClient::dispatchDidCommitLoad(std::optional<HasInsecureContent> hasInsecureContent, std::optional<UsedLegacyTLS> usedLegacyTLSFromPageCache, std::optional<WasPrivateRelayed> wasPrivateRelayedFromPageCache)
 {
+    {FILE *_d=((FILE*)0); if(_d){RefPtr p=m_frame->page(); fprintf(_d,"[wc-commit PID %d] mainFrame=%d pageID=%llu\n", getpid(), (int)m_frame->isMainFrame(), p ? (unsigned long long)p->identifier().toUInt64() : 0); fclose(_d);}}
     Ref frame = m_frame.get();
     RefPtr webPage = frame->page();
     if (!webPage)
@@ -667,6 +669,7 @@ void WebLocalFrameLoaderClient::dispatchDidCommitLoad(std::optional<HasInsecureC
 
 void WebLocalFrameLoaderClient::dispatchDidFailProvisionalLoad(const ResourceError& error, WillContinueLoading willContinueLoading, WillInternallyHandleFailure willInternallyHandleFailure)
 {
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[wc-fail-prov PID %d] err domain=%s code=%d url=%s desc=%s mainFrame=%d\n", getpid(), error.domain().utf8().data(), error.errorCode(), error.failingURL().string().utf8().data(), error.localizedDescription().utf8().data(), (int)m_frame->isMainFrame()); fclose(_d);}}
     RefPtr webPage = m_frame->page();
     if (!webPage)
         return;
@@ -767,7 +770,6 @@ void WebLocalFrameLoaderClient::dispatchDidFinishDocumentLoad()
 
 void WebLocalFrameLoaderClient::dispatchDidFinishLoad()
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[wc-finish PID %d] dispatchDidFinishLoad called, mainFrame=%d\n",getpid(),(int)m_frame->isMainFrame());fclose(_d);}}
     RefPtr webPage = m_frame->page();
     if (!webPage)
         return;
@@ -1107,6 +1109,7 @@ WebCore::AllowsContentJavaScript WebLocalFrameLoaderClient::allowsContentJavaScr
 void WebLocalFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const NavigationAction& navigationAction, const ResourceRequest& request, const ResourceResponse& redirectResponse,
     FormState* formState, const String& clientRedirectSourceForHistory, std::optional<WebCore::NavigationIdentifier> navigationID, std::optional<WebCore::HitTestResult>&& hitTestResult, bool hasOpener, NavigationUpgradeToHTTPSBehavior navigationUpgradeToHTTPSBehavior, WebCore::SandboxFlags sandboxFlags, PolicyDecisionMode policyDecisionMode, FramePolicyFunction&& function)
 {
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[wc-policy PID %d] url=%s policyDecisionMode=%d\n", getpid(), request.url().string().utf8().data(), (int)policyDecisionMode); fclose(_d);}}
     if (auto requestor = navigationAction.requester()) {
         if (requestor->frameID && *requestor->frameID != m_frame->frameID() && Site(requestor->url) != Site(m_frame->url()))
             removeStorageAccess();

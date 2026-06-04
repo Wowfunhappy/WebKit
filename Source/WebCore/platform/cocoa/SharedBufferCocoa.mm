@@ -11,6 +11,7 @@
 #import "SharedBuffer.h"
 
 #import <CoreFoundation/CoreFoundation.h>
+#import <pal/cf/CoreMediaSoftLink.h>
 
 namespace WebCore {
 
@@ -42,6 +43,31 @@ RetainPtr<CFDataRef> SharedBuffer::createCFData() const
 RetainPtr<NSData> SharedBuffer::createNSData() const
 {
     return (__bridge_transfer NSData *)createCFData().leakRef();
+}
+
+RetainPtr<NSArray> FragmentedSharedBuffer::createNSDataArray() const
+{
+    // 10.9: one contiguous NSData segment is sufficient for callers here.
+    return @[ makeContiguous()->createNSData().get() ];
+}
+
+// Wrap the buffer's bytes in a CMBlockBuffer (used by toCMSampleBuffer to build CMSampleBuffers for
+// the MSE pipeline). The block buffer owns a copy of the data, so its lifetime is independent of this
+// SharedBuffer. CMBlockBuffer* are CoreMedia (10.7+), available on 10.9.
+RetainPtr<CMBlockBufferRef> FragmentedSharedBuffer::createCMBlockBuffer() const
+{
+    auto contiguousBuffer = makeContiguous();
+    auto contiguous = contiguousBuffer->span();
+    if (contiguous.empty())
+        return nullptr;
+    CMBlockBufferRef blockBuffer = nullptr;
+    if (CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, nullptr, contiguous.size(), kCFAllocatorDefault, nullptr, 0, contiguous.size(), kCMBlockBufferAssureMemoryNowFlag, &blockBuffer) != noErr || !blockBuffer)
+        return nullptr;
+    if (CMBlockBufferReplaceDataBytes(contiguous.data(), blockBuffer, 0, contiguous.size()) != noErr) {
+        CFRelease(blockBuffer);
+        return nullptr;
+    }
+    return adoptCF(blockBuffer);
 }
 
 }

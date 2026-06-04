@@ -27,7 +27,20 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#if defined(OPENSSL_MACOS) || defined(OPENSSL_FUCHSIA)
+// 10.9 backport: getentropy() and <sys/random.h> are macOS 10.12+. Provide getentropy() via
+// arc4random_buf (macOS 10.7+, a CSPRNG). Version-guarded so newer SDKs keep their own.
+#if defined(__APPLE__)
+#include <Availability.h>
+#if !defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED < 101200
+static int getentropy(void *buf, size_t buflen) {
+  arc4random_buf(buf, buflen);
+  return 0;
+}
+#define WEBKIT_109_GETENTROPY 1
+#endif
+#endif
+
+#if (defined(OPENSSL_MACOS) || defined(OPENSSL_FUCHSIA)) && !defined(WEBKIT_109_GETENTROPY)
 #include <sys/random.h>
 #endif
 

@@ -400,6 +400,15 @@ SOFT_LINK_CLASS(AVKit, AVTouchBarScrubber)
 
 #if !PLATFORM(IOS_FAMILY)
 
+// NSFilePromiseReceiver is macOS 10.12+; absent from the 10.9 AppKit headers. performDragOperation:
+// uses it for promised-file drops. On 10.9 +[NSFilePromiseReceiver class] is nil so the drag
+// enumeration finds none — this stub only needs to satisfy the compile-time references.
+#if !__has_include(<AppKit/NSFilePromiseReceiver.h>)
+@interface NSFilePromiseReceiver : NSObject
+- (void)receivePromisedFilesAtDestination:(NSURL *)destinationDir options:(NSDictionary<NSString *, id> *)options operationQueue:(NSOperationQueue *)operationQueue reader:(void (^)(NSURL *fileURL, NSError *errorOrNil))reader;
+@end
+#endif
+
 @interface NSView (WebNSViewDetails)
 - (NSView *)_hitTest:(NSPoint *)aPoint dragTypes:(NSSet *)types;
 - (void)_autoscrollForDraggingInfo:(id)dragInfo timeDelta:(NSTimeInterval)repeatDelta;
@@ -1305,7 +1314,47 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
 
 @end
 
+// 10.9 backport: LegacyHistoryItemClient::singleton() returns NULL in the Safari/WebKitLegacy process
+// (WebCore::HistoryItemClient's TZone operator new yields null there), so constructing the page's
+// Ref<HistoryItemClient> ref()'d null → Safari SIGSEGV whenever a legacy WebView is created (e.g. the
+// Preferences NIB). Use this fastMalloc/placement-new-allocated fallback client instead at the WebView
+// page-config call sites (defined here in WebView.mm, which compiles reliably, rather than the singleton).
+namespace {
+class WK109FallbackHistoryItemClient final : public WebCore::HistoryItemClient {
+public:
+    static WebCore::HistoryItemClient& shared()
+    {
+        static WebCore::HistoryItemClient* instance = new (WTF::fastMalloc(sizeof(WK109FallbackHistoryItemClient))) WK109FallbackHistoryItemClient();
+        return *instance;
+    }
+private:
+    void historyItemChanged(const WebCore::HistoryItem&) final { }
+    void clearChildren(const WebCore::HistoryItem&) const final { }
+};
+}
+
 @implementation WebView (WebPrivate)
+
+// 10.9 backport: Safari's Top Sites view uses BrowserContentViewController which
+// renders caption labels via CaptionLayer::display(). CaptionLayer calls
+// `+[WebView _shouldUseFontSmoothing]` to pick a smoothing flag. Upstream
+// WebKit (modern) dropped this class method since the global is configured
+// differently. Safari 9.1.3 still calls it — without an implementation the
+// uncaught ObjC exception aborts the CALayer commit, leaving the Top Sites
+// grid blank. Return YES (the upstream default) so smoothing matches modern
+// behavior; the actual smoothing rendering happens further downstream.
++ (BOOL)_shouldUseFontSmoothing
+{
+    return YES;
+}
+
+// 10.9 backport: Safari's BrowserContentViewController may also set the
+// smoothing pref before drawing. Provide the setter as a no-op so the call
+// doesn't raise an unrecognized-selector exception.
++ (void)_setShouldUseFontSmoothing:(BOOL)smoothing
+{
+    UNUSED_PARAM(smoothing);
+}
 
 + (NSString *)_standardUserAgentWithApplicationName:(NSString *)applicationName
 {
@@ -1507,7 +1556,7 @@ static void WebKitInitializeGamepadProviderIfNecessary()
         makeUniqueRef<WebCore::DummyStorageProvider>(),
         WebCore::DummyModelPlayerProvider::create(),
         WebCore::EmptyBadgeClient::create(),
-        LegacyHistoryItemClient::singleton(),
+        WK109FallbackHistoryItemClient::shared(), // 10.9 backport: was LegacyHistoryItemClient::singleton() (null → SIGSEGV)
 #if ENABLE(CONTEXT_MENUS)
         makeUniqueRef<WebContextMenuClient>(self),
 #endif
@@ -1556,9 +1605,17 @@ static void WebKitInitializeGamepadProviderIfNecessary()
 
     _private->inspectorController = LegacyWebPageInspectorController::create(*_private->page);
 #if ENABLE(REMOTE_INSPECTOR)
-    _private->inspectorDebuggable = LegacyWebPageDebuggable::create(*_private->inspectorController, *_private->page);
-    _private->inspectorDebuggable->init();
-    _private->inspectorDebuggable->setInspectable(true);
+    // 10.9 backport: do NOT wire the in-process legacy WebView into the system RemoteInspector.
+    // Safari browses with WKWebView (multi-process); a WebKitLegacy WebView is only instantiated
+    // for auxiliary chrome (e.g. the Preferences window NIB unarchives one via initWithCoder:).
+    // Remote inspection of such a WebView goes through the webinspectord XPC service, which is
+    // absent/protocol-incompatible on 10.9, and registerTarget()/setInspectable() cross into the
+    // deployed JavaScriptCore where the call faults (SIGSEGV in RemoteInspector::registerTarget,
+    // null target). The Web Inspector that works on this port uses the WKWebView/WebContent path,
+    // not this legacy debuggable, so skipping registration here is correct and unblocks Preferences.
+    //   _private->inspectorDebuggable = LegacyWebPageDebuggable::create(*_private->inspectorController, *_private->page);
+    //   _private->inspectorDebuggable->init();
+    //   _private->inspectorDebuggable->setInspectable(true);
 #endif
 
     _private->page->setCanStartMedia([self window]);
@@ -1772,7 +1829,7 @@ static void WebKitInitializeGamepadProviderIfNecessary()
         makeUniqueRef<WebCore::DummyStorageProvider>(),
         WebCore::DummyModelPlayerProvider::create(),
         WebCore::EmptyBadgeClient::create(),
-        LegacyHistoryItemClient::singleton(),
+        WK109FallbackHistoryItemClient::shared(),
 #if ENABLE(APPLE_PAY)
         WebPaymentCoordinatorClient::create(),
 #endif
@@ -9890,3 +9947,61 @@ void WebInstallMemoryPressureHandler(void)
 }
 @end
 #endif
+
+// ============================================================================
+// Safari 9 / 10.9 compat: WebKit2 C SPI WKContextGetOriginDataManager + the
+// WKOriginDataManager* family were removed from modern WebKit. Safari 9.1.3's
+// Privacy preference pane (-[PrivacyPreferences moduleWasInstalled] ->
+// Safari::TrackingDataController::populateWebsiteTrackingData) still calls them;
+// without these symbols dyld fatal-errors (SIGTRAP) when the pane loads, so the
+// Privacy pane crashed Safari on selection. These functions live in WebKitLegacy,
+// which the deployed WebKit.framework re-exports (LC_REEXPORT_DYLIB), so Safari's
+// two-level "from WebKit" binding resolves to them here. They are safe no-ops that
+// report an empty website-data list (origin enumeration/removal is unwired on this
+// port; the modern equivalent is WKWebsiteDataStore).
+#import <dlfcn.h>
+extern "C" {
+
+typedef const void* WK109_WKContextRef;
+typedef const void* WK109_WKOriginDataManagerRef;
+typedef const void* WK109_WKArrayRef;
+typedef const void* WK109_WKErrorRef;
+typedef const void* WK109_WKSecurityOriginRef;
+typedef uint32_t WK109_WKOriginDataTypes;
+typedef void (*WK109_WKOriginDataManagerGetOriginsFunction)(WK109_WKArrayRef origins, WK109_WKErrorRef error, void* functionContext);
+
+__attribute__((visibility("default")))
+WK109_WKOriginDataManagerRef WKContextGetOriginDataManager(WK109_WKContextRef context)
+{
+    // Return the context itself as the opaque "origin data manager" token. Safari wraps the
+    // result in Safari::WK::Context::originDataManager() and immediately calls WKRetain on it,
+    // so it MUST be a real retainable WK object (a fake/sentinel pointer crashes objc_msgSend in
+    // WKRetain). The context is a valid WK object; our WKOriginDataManager* stubs ignore the
+    // manager argument, so reusing the context here is safe.
+    return context;
+}
+
+__attribute__((visibility("default")))
+void WKOriginDataManagerGetOrigins(WK109_WKOriginDataManagerRef, WK109_WKOriginDataTypes, void* functionContext, WK109_WKOriginDataManagerGetOriginsFunction function)
+{
+    if (!function)
+        return;
+    // Report an empty origin list. Build an empty WKArray via the WebKit C API resolved
+    // at runtime (WebKitLegacy does not link WebKit.framework; dlsym avoids a circular dep).
+    using ArrayCreateFn = WK109_WKArrayRef (*)(const void**, size_t);
+    using ReleaseFn = void (*)(const void*);
+    ArrayCreateFn arrayCreate = reinterpret_cast<ArrayCreateFn>(dlsym(RTLD_DEFAULT, "WKArrayCreate"));
+    ReleaseFn release = reinterpret_cast<ReleaseFn>(dlsym(RTLD_DEFAULT, "WKRelease"));
+    WK109_WKArrayRef empty = arrayCreate ? arrayCreate(nullptr, 0) : nullptr;
+    function(empty, nullptr, functionContext);
+    if (empty && release)
+        release(empty);
+}
+
+__attribute__((visibility("default")))
+void WKOriginDataManagerDeleteEntriesForOrigin(WK109_WKOriginDataManagerRef, WK109_WKOriginDataTypes, WK109_WKSecurityOriginRef) { }
+
+__attribute__((visibility("default")))
+void WKOriginDataManagerDeleteAllEntries(WK109_WKOriginDataManagerRef, WK109_WKOriginDataTypes) { }
+
+}

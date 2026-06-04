@@ -97,9 +97,7 @@
 #include "MediaPlayerPrivateMediaStreamAVFObjC.h"
 #endif
 
-#if ENABLE(COCOA_WEBM_PLAYER)
-#include "MediaPlayerPrivateWebM.h"
-#endif
+// 10.9: MediaPlayerPrivateWebM excluded (libwebm absent); header not included.
 
 #endif // PLATFORM(COCOA)
 
@@ -335,10 +333,9 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
 #if ENABLE(COCOA_WEBM_PLAYER)
         bool useRemoteRenderer = hasPlatformStrategies() && platformStrategies()->mediaStrategy()->hasRemoteRendererFor(MediaPlayerMediaEngineIdentifier::CocoaWebM);
         if (!hasPlatformStrategies() || platformStrategies()->mediaStrategy()->enableWebMMediaPlayer()) {
+            // 10.9: MediaPlayerPrivateWebM is excluded (libwebm absent); only the remote-engine path remains.
             if (registerRemoteEngine && !useRemoteRenderer)
                 registerRemoteEngine(addMediaEngine, MediaPlayerEnums::MediaEngineIdentifier::CocoaWebM);
-            else
-                MediaPlayerPrivateWebM::registerMediaEngine(addMediaEngine);
         }
 #endif
 

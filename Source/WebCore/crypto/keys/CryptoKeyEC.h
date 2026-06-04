@@ -29,9 +29,11 @@
 #include <WebCore/CryptoKeyPair.h>
 
 #include <wtf/Platform.h>
-#if OS(DARWIN) && !PLATFORM(GTK)
+// 10.9 backport: when USE(GCRYPT) is set, the Darwin cocoa-CryptoKit path is
+// skipped — gcrypt provides the EC key container instead. See
+// SourcesCocoa.txt and OptionsMac.cmake.
+#if OS(DARWIN) && !PLATFORM(GTK) && !USE(GCRYPT)
 #include <WebCore/CommonCryptoUtilities.h>
-#if !defined(CLANG_WEBKIT_BRANCH)
 namespace pal {
 class ECKey;
 }
@@ -39,15 +41,6 @@ class ECKey;
 namespace WebCore {
 using PlatformECKeyContainer = UniqueRef<pal::ECKey>;
 }
-#else
-// 10.9 backport: pal::ECKey is Swift CryptoKit (10.15+). We provide a real
-// C++ wrapper around CCECCryptor* (10.9+) via pal/cocoa/PALECKey109.h.
-#include <pal/cocoa/PALECKey109.h>
-
-namespace WebCore {
-using PlatformECKeyContainer = std::unique_ptr<pal::ECKey109>;
-}
-#endif
 #endif
 
 #if USE(GCRYPT)

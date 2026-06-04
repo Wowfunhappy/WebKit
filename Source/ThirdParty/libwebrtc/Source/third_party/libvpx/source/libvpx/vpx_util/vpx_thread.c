@@ -120,7 +120,9 @@ static void init(VPxWorker *const worker) {
   worker->status_ = VPX_WORKER_STATUS_NOT_OK;
 }
 
-static int sync(VPxWorker *const worker) {
+// 10.9 backport: renamed from `sync` to avoid collision with POSIX `void sync(void)`
+// declared in <unistd.h> on the 10.9 SDK (clang errors: static-after-non-static + arg count).
+static int sync_worker(VPxWorker *const worker) {
 #if CONFIG_MULTITHREAD
   change_state(worker, VPX_WORKER_STATUS_OK);
 #endif
@@ -160,7 +162,7 @@ static int reset(VPxWorker *const worker) {
     worker->status_ = VPX_WORKER_STATUS_OK;
 #endif
   } else if (worker->status_ > VPX_WORKER_STATUS_OK) {
-    ok = sync(worker);
+    ok = sync_worker(worker);
   }
   assert(!ok || (worker->status_ == VPX_WORKER_STATUS_OK));
   return ok;
@@ -199,7 +201,7 @@ static void end(VPxWorker *const worker) {
 
 //------------------------------------------------------------------------------
 
-static VPxWorkerInterface g_worker_interface = { init,   reset,   sync,
+static VPxWorkerInterface g_worker_interface = { init,   reset,   sync_worker,
                                                  launch, execute, end };
 
 int vpx_set_worker_interface(const VPxWorkerInterface *const winterface) {

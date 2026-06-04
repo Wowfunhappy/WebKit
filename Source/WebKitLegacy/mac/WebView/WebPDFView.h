@@ -33,6 +33,13 @@
 
 @class WebDataSource;
 
+// PDFViewDelegate is a PDFKit protocol absent from the 10.9 Quartz headers. Provide an empty stub so
+// WebPDFView can declare conformance; the delegate callbacks it implements are inert on 10.9.
+#if !__has_include(<PDFKit/PDFView.h>) || __MAC_OS_X_VERSION_MIN_REQUIRED < 101100
+@protocol PDFViewDelegate <NSObject>
+@end
+#endif
+
 @interface WebPDFView : NSView <PDFViewDelegate, WebDocumentView, WebDocumentSearching, WebDocumentIncrementalSearching, WebMultipleTextMatches, WebDocumentSelection, WebDocumentElement, WebDocumentPDF, _WebDocumentViewState, _WebDocumentZooming>
 {
     PDFView *PDFSubview;

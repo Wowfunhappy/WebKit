@@ -26,7 +26,7 @@
 #include "config.h"
 #include "LibWebRTCSocketClient.h"
 
-#if !PLATFORM(COCOA)
+#if !WK_RTC_USE_NW
 
 #if USE(LIBWEBRTC)
 
@@ -145,4 +145,4 @@ void LibWebRTCSocketClient::signalClose(webrtc::AsyncPacketSocket* socket, int e
 
 #endif // USE(LIBWEBRTC)
 
-#endif // !PLATFORM(COCOA)
+#endif // !WK_RTC_USE_NW

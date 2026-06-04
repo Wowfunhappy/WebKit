@@ -140,7 +140,9 @@ static MachSendRight makeMemoryEntry(size_t size, vm_offset_t offset, SharedMemo
     memory_object_size_t memoryObjectSize = size;
     mach_port_t port = MACH_PORT_NULL;
 
-    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_SHARE | MAP_MEM_USE_DATA_ADDR, &port, parentEntry);
+    // 10.9 backport: drop MAP_MEM_USE_DATA_ADDR (10.12+).
+    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_SHARE, &port, parentEntry);
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[SHM::makeMemoryEntry] kr=0x%x port=0x%08x\n", (unsigned)kr, (unsigned)port); fclose(_d);}}
     if (kr != KERN_SUCCESS) {
         RELEASE_LOG_ERROR(VirtualMemory, "SharedMemory::makeMemoryEntry: Failed to create a mach port for shared memory. Error: %" PUBLIC_LOG_STRING " (%x)", mach_error_string(kr), kr);
         return { };
@@ -193,7 +195,10 @@ std::optional<SharedMemoryHandle> SharedMemoryHandle::createVMShare(std::span<co
     memory_object_size_t memoryObjectSize = data.size();
     mach_port_t port = MACH_PORT_NULL;
     const memory_object_offset_t offset = reinterpret_cast<uintptr_t>(data.data());
-    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_SHARE | MAP_MEM_USE_DATA_ADDR, &port, MACH_PORT_NULL);
+    // 10.9 backport: MAP_MEM_USE_DATA_ADDR is a 10.12+ flag — 10.9 kernel rejects it, returning
+    // KERN_INVALID_ARGUMENT and leaving `port` set to garbage. Drop the flag.
+    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_SHARE, &port, MACH_PORT_NULL);
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[SHM::createVMShare] kr=0x%x port=0x%08x\n", (unsigned)kr, (unsigned)port); fclose(_d);}}
     if (kr != KERN_SUCCESS) {
         RELEASE_LOG_ERROR(VirtualMemory, "Failed to create memory entry for shared memory. Error: %" PUBLIC_LOG_STRING " (%x)", mach_error_string(kr), kr);
         return std::nullopt;
@@ -212,7 +217,8 @@ std::optional<SharedMemoryHandle> SharedMemoryHandle::createVMCopy(std::span<con
     memory_object_size_t memoryObjectSize = data.size();
     mach_port_t port = MACH_PORT_NULL;
     const memory_object_offset_t offset = reinterpret_cast<uintptr_t>(data.data());
-    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_COPY | MAP_MEM_USE_DATA_ADDR, &port, MACH_PORT_NULL);
+    // 10.9 backport: drop MAP_MEM_USE_DATA_ADDR (10.12+).
+    kern_return_t kr = mach_make_memory_entry_64(mach_task_self(), &memoryObjectSize, offset, machProtection(protection) | VM_PROT_IS_MASK | MAP_MEM_VM_COPY, &port, MACH_PORT_NULL);
     if (kr != KERN_SUCCESS)
         return std::nullopt; // No redundant logging -- failing VM copy is expected for some WebKit use-cases.
 

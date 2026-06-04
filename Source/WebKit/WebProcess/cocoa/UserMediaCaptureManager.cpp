@@ -94,8 +94,13 @@ void UserMediaCaptureManager::setupCaptureProcesses(bool shouldCaptureAudioInUIP
     m_videoFactory.setShouldCaptureInGPUProcess(shouldCaptureVideoInGPUProcess);
     m_displayFactory.setShouldCaptureInGPUProcess(shouldCaptureDisplayInGPUProcess);
 
+#if ENABLE(GPU_PROCESS)
+    // 10.9 backport: createRemoteAudioMediaStreamTrackRendererInternalUnitProxy routes audio rendering
+    // to the GPU process (GPU-process-only symbol). With GPU_PROCESS off, audio renders in-process, and
+    // capture flags are forced false (see WebPageCocoa.mm), so this branch never runs anyway.
     if (shouldCaptureAudioInUIProcess || shouldCaptureAudioInGPUProcess)
         WebCore::AudioMediaStreamTrackRendererInternalUnit::setCreateFunction(createRemoteAudioMediaStreamTrackRendererInternalUnitProxy);
+#endif
 
     if (shouldCaptureAudioInUIProcess || shouldCaptureAudioInGPUProcess)
         RealtimeMediaSourceCenter::singleton().setAudioCaptureFactory(m_audioFactory);
@@ -207,7 +212,7 @@ CaptureSourceOrError UserMediaCaptureManager::AudioFactory::createAudioCaptureSo
 {
 #if !ENABLE(GPU_PROCESS)
     if (m_shouldCaptureInGPUProcess)
-        return CaptureSourceOrError { "Audio capture in GPUProcess is not implemented"_s };
+        return CaptureSourceOrError({ "Audio capture in GPUProcess is not implemented"_s, WebCore::MediaAccessDenialReason::PermissionDenied });
 #endif
 
 #if PLATFORM(IOS_FAMILY) || ENABLE(ROUTING_ARBITRATION)
@@ -233,10 +238,14 @@ CaptureSourceOrError UserMediaCaptureManager::VideoFactory::createVideoCaptureSo
 {
 #if !ENABLE(GPU_PROCESS)
     if (m_shouldCaptureInGPUProcess)
-        return CaptureSourceOrError { "Video capture in GPUProcess is not implemented"_s };
-#endif
+        return CaptureSourceOrError({ "Video capture in GPUProcess is not implemented"_s, WebCore::MediaAccessDenialReason::PermissionDenied });
+#else
+    // 10.9 backport: ensureGPUProcessConnection()/videoFrameObjectHeapProxy() only exist with
+    // ENABLE(GPU_PROCESS); the block above already early-returns when GPU capture is requested
+    // on a no-GPU build, so this path is GPU-process-only.
     if (m_shouldCaptureInGPUProcess)
         protect(m_manager->remoteCaptureSampleManager())->setVideoFrameObjectHeapProxy(&protect(WebProcess::singleton().ensureGPUProcessConnection())->videoFrameObjectHeapProxy());
+#endif
 
     return RemoteRealtimeVideoSource::create(device, constraints, WTF::move(hashSalts), m_manager, m_shouldCaptureInGPUProcess, pageIdentifier);
 }
@@ -245,12 +254,13 @@ CaptureSourceOrError UserMediaCaptureManager::DisplayFactory::createDisplayCaptu
 {
 #if !ENABLE(GPU_PROCESS)
     if (m_shouldCaptureInGPUProcess)
-        return CaptureSourceOrError { "Display capture in GPUProcess is not implemented"_s };
-#endif
+        return CaptureSourceOrError({ "Display capture in GPUProcess is not implemented"_s, WebCore::MediaAccessDenialReason::PermissionDenied });
+#else
     if (m_shouldCaptureInGPUProcess) {
         Ref videoFrameObjectHeapProxy = protect(WebProcess::singleton().ensureGPUProcessConnection())->videoFrameObjectHeapProxy();
         protect(m_manager->remoteCaptureSampleManager())->setVideoFrameObjectHeapProxy(WTF::move(videoFrameObjectHeapProxy));
     }
+#endif
 
     return RemoteRealtimeVideoSource::create(device, constraints, WTF::move(hashSalts), m_manager, m_shouldCaptureInGPUProcess, pageIdentifier);
 }

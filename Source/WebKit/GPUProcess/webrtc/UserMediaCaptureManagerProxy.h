@@ -29,7 +29,8 @@
 
 #include "Connection.h"
 #include "MessageReceiver.h"
-#include "RemoteVideoFrameObjectHeap.h"
+#include "RemoteVideoFrameObjectHeap.h" // 10.9: empty when !GPU_PROCESS (RemoteVideoFrameObjectHeap forward-declared below).
+#include "SharedPreferencesForWebProcess.h" // 10.9: was transitively included via RemoteVideoFrameObjectHeap.h.
 #include "UserMediaCaptureManager.h"
 #include <WebCore/CaptureDevice.h>
 #include <WebCore/IntDegrees.h>
@@ -55,6 +56,9 @@ namespace WebKit {
 
 class WebProcessProxy;
 class UserMediaCaptureManagerProxySourceProxy;
+// 10.9 backport: GPU-process-only type; the include above is empty when !GPU_PROCESS. Only used here
+// as a pointer return (ConnectionProxy::remoteVideoFrameObjectHeap, default nullptr), so forward-decl suffices.
+class RemoteVideoFrameObjectHeap;
 
 class UserMediaCaptureManagerProxy : public IPC::MessageReceiver, public RefCounted<UserMediaCaptureManagerProxy> {
     WTF_MAKE_TZONE_ALLOCATED(UserMediaCaptureManagerProxy);

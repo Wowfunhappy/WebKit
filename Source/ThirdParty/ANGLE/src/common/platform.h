@@ -123,9 +123,8 @@
 #    include <AvailabilityMacros.h>
 #    include <TargetConditionals.h>
 #    if TARGET_OS_OSX
-#        if __MAC_OS_X_VERSION_MAX_ALLOWED < 120000
-#            error macOS 12 SDK or newer is required.
-#        endif
+// 10.9 backport: the macOS 12 SDK requirement is for the Metal backend; we build ANGLE's CGL
+// OpenGL backend, which works against the older SDK. Guard relaxed.
 #        define ANGLE_PLATFORM_MACOS 1
 #    elif TARGET_OS_IPHONE
 #        define ANGLE_PLATFORM_IOS_FAMILY 1

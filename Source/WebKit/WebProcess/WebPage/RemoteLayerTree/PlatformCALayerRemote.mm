@@ -339,8 +339,12 @@ void PlatformCALayerRemote::updateBackingStore()
     ASSERT(m_properties.backingStoreAttached);
 
     RemoteLayerBackingStore::Parameters parameters;
-    parameters.type = m_acceleratesDrawing ? RemoteLayerBackingStore::Type::IOSurface : RemoteLayerBackingStore::Type::Bitmap;
-    parameters.size = m_properties.bounds.size();
+    // 10.9 backport: IOSurfaceCreateMachPort returns garbage (looks like a high stack address
+    // truncated to 32 bits) so the resulting mach send right in the layer commit IPC fails
+    // with MACH_SEND_INVALID_RIGHT. Force Bitmap backend (ShareableBitmap via shared memory)
+    // which doesn't transfer mach ports per layer.
+    parameters.type = RemoteLayerBackingStore::Type::Bitmap;
+    parameters.size = WebCore::IntSize(m_properties.bounds.size());
 
     parameters.colorSpace = displayColorSpace();
     parameters.contentsFormat = contentsFormat();
@@ -351,6 +355,7 @@ void PlatformCALayerRemote::updateBackingStore()
     parameters.includeDisplayList = shouldIncludeDisplayListInBackingStore();
 #endif
 
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PCL-Remote::ubs] bounds=%gx%g acceleratesDrawing=%d → params: type=%d size=%gx%g opaque=%d\n", (double)m_properties.bounds.size().width(), (double)m_properties.bounds.size().height(), (int)m_acceleratesDrawing, (int)parameters.type, (double)parameters.size.width(), (double)parameters.size.height(), (int)parameters.isOpaque); fclose(_d);}}
     store->ensureBackingStore(parameters);
 }
 

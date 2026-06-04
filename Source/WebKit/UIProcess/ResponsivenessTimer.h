@@ -49,7 +49,13 @@ public:
         virtual bool mayBecomeUnresponsive() = 0;
     };
 
-    static constexpr Seconds defaultResponsivenessTimeout = 3_s;
+    // 10.9 backport: raised from 3s. On this slow, software-rendered VM, heavy modern sites
+    // (nytimes/theverge/bbc — lots of JS/ads/trackers) legitimately block the WebContent main
+    // thread for several seconds while loading. At 3s the UIProcess declared the still-loading
+    // process "unresponsive", and Safari then SIGKILLed+reloaded it on the next navigation
+    // ("A problem occurred with this webpage so it was reloaded"). A genuinely hung process is
+    // still detected, just with more grace appropriate to this hardware.
+    static constexpr Seconds defaultResponsivenessTimeout = 30_s;
     static Ref<ResponsivenessTimer> create(ResponsivenessTimer::Client&, Seconds responsivenessTimeout);
     ~ResponsivenessTimer();
 

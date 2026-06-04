@@ -32,7 +32,7 @@
 #include <wtf/Forward.h>
 #include <wtf/RetainPtr.h>
 
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
 #include <pal/spi/cocoa/NetworkSPI.h>
 #endif
 
@@ -52,7 +52,7 @@ public:
 
     webrtc::AdapterType adapterTypeFromInterfaceName(const char*) const;
 
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
     void updateNetworksFromPath(nw_path_t);
 #endif
 
@@ -61,7 +61,7 @@ private:
 
     NetworkRTCSharedMonitor();
 
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
     void setupNWPathMonitor();
 #endif
 
@@ -84,7 +84,7 @@ private:
     RTCNetwork::IPAddress m_ipv6;
     int m_networkLastIndex { 0 };
     HashMap<String, RTCNetwork> m_networkMap;
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
     RetainPtr<nw_path_monitor_t> m_nwMonitor;
     HashMap<String, webrtc::AdapterType> m_adapterTypes;
 #endif

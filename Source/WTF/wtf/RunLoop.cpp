@@ -108,6 +108,18 @@ auto RunLoop::runLoopHolder() -> ThreadSpecific<Holder>&
 
 RunLoop& RunLoop::currentSingleton()
 {
+    // 10.9 backport: dispatch_main() pthread_exits the real main thread, so
+    // blocks on dispatch_get_main_queue() run on transient dispatch workers
+    // (each with its own per-thread RunLoop holder). When code constructs an
+    // object on the "main" thread (e.g. JSC's VM caches RunLoop::currentSingleton()
+    // in m_runLoop), it gets the worker's per-thread RunLoop instead of the
+    // real main RunLoop. That breaks RunLoop::TimerBase::start's mainSingleton()
+    // guard in RunLoopCF.cpp, falling into the non-pumped CFRunLoopAddTimer
+    // path — JSC's DeferredWorkTimer (async WebAssembly.compile / instantiate)
+    // never fires. Treat "running on the main GCD queue" as equivalent to the
+    // main RunLoop, symmetric to isCurrent()'s existing 10.9 logic.
+    if (s_mainRunLoop && dispatch_get_current_queue() == dispatch_get_main_queue())
+        return *s_mainRunLoop;
     return runLoopHolder()->runLoop();
 }
 

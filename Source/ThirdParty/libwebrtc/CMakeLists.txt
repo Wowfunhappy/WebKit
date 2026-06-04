@@ -8,6 +8,14 @@ enable_language(ASM)
 add_definitions(-DLIBYUV_DISABLE_SME)
 add_definitions(-DLIBYUV_DISABLE_SVE)
 
+# 10.9 backport: force-include a compat shim providing the POSIX clock API (clockid_t/CLOCK_*/
+# clock_gettime) that macOS lacked before 10.12. Scoped to compiled-source languages (NOT ASM/
+# ASM_NASM, which can't process a C header). See webkit_mac109_compat.h.
+add_compile_options(
+  $<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-include>
+  $<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:${CMAKE_CURRENT_SOURCE_DIR}/webkit_mac109_compat.h>
+)
+
 if (NOT APPLE)
     find_package(LibEvent)
     if (NOT LIBEVENT_FOUND)
@@ -603,10 +611,13 @@ list(APPEND webrtc_SOURCES
     Source/webrtc/modules/audio_device/dummy/file_audio_device.cc
     Source/webrtc/modules/audio_device/dummy/file_audio_device_factory.cc
     Source/webrtc/modules/audio_device/fine_audio_buffer.cc
-    Source/webrtc/modules/audio_device/linux/alsasymboltable_linux.cc
-    Source/webrtc/modules/audio_device/linux/audio_device_alsa_linux.cc
-    Source/webrtc/modules/audio_device/linux/audio_mixer_manager_alsa_linux.cc
-    Source/webrtc/modules/audio_device/linux/latebindingsymboltable_linux.cc
+    # 10.9 backport: Linux ALSA audio_device files were in the unconditional base source list;
+    # they #error "Not implemented" on non-Linux. macOS uses WebKit's own audio module
+    # (WebCore LibWebRTCAudioModule), so exclude these Linux-only sources.
+    # Source/webrtc/modules/audio_device/linux/alsasymboltable_linux.cc
+    # Source/webrtc/modules/audio_device/linux/audio_device_alsa_linux.cc
+    # Source/webrtc/modules/audio_device/linux/audio_mixer_manager_alsa_linux.cc
+    # Source/webrtc/modules/audio_device/linux/latebindingsymboltable_linux.cc
     Source/webrtc/modules/audio_mixer/audio_frame_manipulator.cc
     Source/webrtc/modules/audio_mixer/audio_mixer_impl.cc
     Source/webrtc/modules/audio_mixer/default_output_rate_calculator.cc
@@ -2058,16 +2069,16 @@ if (APPLE)
     list(APPEND webrtc_SOURCES
         Source/third_party/libyuv/source/scale.cc
 
-        Source/webrtc/sdk/objc/components/video_codec/RTCVideoDecoderH265.mm
-        Source/webrtc/sdk/objc/components/video_codec/RTCVideoDecoderVTBVP9.mm
-        Source/webrtc/sdk/objc/components/video_codec/RTCCodecSpecificInfoH265.mm
-        Source/webrtc/sdk/objc/api/video_codec/RTCVideoEncoderVP9.mm
+        # [10.9 backport: HEVC unsupported pre-10.13] Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoDecoderH265.mm
+        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoDecoderVTBVP9.mm
+        # [10.9 backport: HEVC unsupported pre-10.13] Source/webrtc/webkit_sdk/objc/components/video_codec/RTCCodecSpecificInfoH265.mm
+        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCVideoEncoderVP9.mm
         Source/webrtc/common_video/h265/h265_pps_parser.cc
         Source/webrtc/common_video/h265/h265_vps_parser.cc
         Source/webrtc/common_video/h265/h265_sps_parser.cc
-        Source/webrtc/sdk/objc/components/video_codec/RTCVideoEncoderH265.mm
-        Source/webrtc/sdk/objc/components/video_codec/RTCVideoEncoderH264.mm
-        Source/webrtc/modules/video_coding/h265_vps_sps_pps_tracker.cc
+        # [10.9 backport: HEVC unsupported pre-10.13] Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoEncoderH265.mm
+        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoEncoderH264.mm
+# [10.9 backport: absent from checkout, optional]         Source/webrtc/modules/video_coding/h265_vps_sps_pps_tracker.cc
         Source/webrtc/modules/video_coding/codecs/vp9/vp9.cc
         Source/webrtc/common_video/h265/h265_common.cc
         Source/webrtc/modules/audio_device/mac/audio_device_mac.cc
@@ -2081,46 +2092,50 @@ if (APPLE)
 
         Source/webrtc/rtc_base/system/cocoa_threading.mm
 
-        Source/webrtc/sdk/WebKit/WebKitUtilities.mm
-        Source/webrtc/sdk/WebKit/WebKitVP9Decoder.cpp
-        Source/webrtc/sdk/WebKit/WebKitDecoder.mm
-        Source/webrtc/sdk/WebKit/WebKitEncoder.mm
-        Source/webrtc/sdk/WebKit/WebKitDecoderReceiver.cpp
+        Source/webrtc/webkit_sdk/WebKit/WebKitUtilities.mm
+        Source/webrtc/webkit_sdk/WebKit/WebKitVP9Decoder.cpp
+        Source/webrtc/webkit_sdk/WebKit/WebKitDecoder.mm
+        Source/webrtc/webkit_sdk/WebKit/WebKitEncoder.mm
+        Source/webrtc/webkit_sdk/WebKit/WebKitDecoderReceiver.cpp
 
-        Source/webrtc/sdk/objc/api/peerconnection/RTCVideoEncoderSettings+Private.mm
-        Source/webrtc/sdk/objc/api/video_codec/RTCVideoCodecConstants.mm
-        Source/webrtc/sdk/objc/api/video_codec/RTCVideoDecoderVP8.mm
-        Source/webrtc/sdk/objc/api/video_codec/RTCVideoDecoderVP9.mm
-        Source/webrtc/sdk/objc/api/video_codec/RTCVideoEncoderVP8.mm
-        Source/webrtc/sdk/objc/api/video_codec/RTCWrappedNativeVideoDecoder.mm
-        Source/webrtc/sdk/objc/api/video_codec/RTCWrappedNativeVideoEncoder.mm
-        Source/webrtc/sdk/objc/api/video_frame_buffer/RTCNativeI420Buffer.mm
-        Source/webrtc/sdk/objc/api/video_frame_buffer/RTCNativeMutableI420Buffer.mm
-        Source/webrtc/sdk/objc/base/RTCEncodedImage.m
-        Source/webrtc/sdk/objc/base/RTCRtpFragmentationHeader.m
-        Source/webrtc/sdk/objc/base/RTCVideoCodecInfo.m
-        Source/webrtc/sdk/objc/base/RTCVideoEncoderQpThresholds.m
-        Source/webrtc/sdk/objc/base/RTCVideoEncoderSettings.m
-        Source/webrtc/sdk/objc/base/RTCVideoFrame.mm
-        Source/webrtc/sdk/objc/components/video_codec/RTCH265ProfileLevelId.mm
-        Source/webrtc/sdk/objc/components/video_codec/helpers.cc
-        Source/webrtc/sdk/objc/components/video_codec/nalu_rewriter.cc
-        Source/webrtc/sdk/objc/components/video_codec/RTCCodecSpecificInfoH264.mm
-        Source/webrtc/sdk/objc/components/video_codec/RTCDefaultVideoDecoderFactory.m
-        Source/webrtc/sdk/objc/components/video_codec/RTCDefaultVideoEncoderFactory.m
-        Source/webrtc/sdk/objc/components/video_codec/RTCH264ProfileLevelId.mm
-        Source/webrtc/sdk/objc/components/video_codec/RTCVideoDecoderFactoryH264.m
-        Source/webrtc/sdk/objc/components/video_codec/RTCVideoDecoderH264.mm
-        Source/webrtc/sdk/objc/components/video_codec/RTCVideoEncoderFactoryH264.m
-        Source/webrtc/sdk/objc/components/video_codec/RTCVideoEncoderH264.mm
-        Source/webrtc/sdk/objc/components/video_frame_buffer/RTCCVPixelBuffer.mm
-        Source/webrtc/sdk/objc/native/api/video_decoder_factory.mm
-        Source/webrtc/sdk/objc/native/api/video_encoder_factory.mm
-        Source/webrtc/sdk/objc/native/api/video_frame.mm
-        Source/webrtc/sdk/objc/native/src/objc_frame_buffer.mm
-        Source/webrtc/sdk/objc/native/src/objc_video_decoder_factory.mm
-        Source/webrtc/sdk/objc/native/src/objc_video_encoder_factory.mm
-        Source/webrtc/sdk/objc/native/src/objc_video_frame.mm
+        Source/webrtc/webkit_sdk/objc/api/peerconnection/RTCVideoEncoderSettings+Private.mm
+        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCVideoCodecConstants.mm
+        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCVideoDecoderVP8.mm
+        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCVideoDecoderVP9.mm
+        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCVideoEncoderVP8.mm
+        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCWrappedNativeVideoDecoder.mm
+        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCWrappedNativeVideoEncoder.mm
+        Source/webrtc/webkit_sdk/objc/api/video_frame_buffer/RTCNativeI420Buffer.mm
+        Source/webrtc/webkit_sdk/objc/api/video_frame_buffer/RTCNativeMutableI420Buffer.mm
+        Source/webrtc/webkit_sdk/objc/base/RTCEncodedImage.m
+        Source/webrtc/webkit_sdk/objc/base/RTCRtpFragmentationHeader.m
+        Source/webrtc/webkit_sdk/objc/base/RTCVideoCodecInfo.m
+        Source/webrtc/webkit_sdk/objc/base/RTCVideoEncoderQpThresholds.m
+        Source/webrtc/webkit_sdk/objc/base/RTCVideoEncoderSettings.m
+        Source/webrtc/webkit_sdk/objc/base/RTCVideoFrame.mm
+        # [10.9 backport: HEVC unsupported pre-10.13] Source/webrtc/webkit_sdk/objc/components/video_codec/RTCH265ProfileLevelId.mm
+        Source/webrtc/webkit_sdk/objc/components/video_codec/helpers.cc
+        Source/webrtc/webkit_sdk/objc/components/video_codec/nalu_rewriter.cc
+        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCCodecSpecificInfoH264.mm
+        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCDefaultVideoDecoderFactory.m
+        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCDefaultVideoEncoderFactory.m
+        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCH264ProfileLevelId.mm
+        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoDecoderFactoryH264.m
+        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoDecoderH264.mm
+        # [10.9 backport] RTCVideoFrameReorderQueue is used by RTCVideoDecoderH264.mm (H.264 decode works
+        # via VideoToolbox on 10.9) but was missing from this source list, leaving its 6 methods undefined
+        # in libwebrtc.a -> dyld load failure in every WebKit process. Compile it here where it belongs.
+        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoFrameReorderQueue.mm
+        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoEncoderFactoryH264.m
+        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoEncoderH264.mm
+        Source/webrtc/webkit_sdk/objc/components/video_frame_buffer/RTCCVPixelBuffer.mm
+        Source/webrtc/webkit_sdk/objc/native/api/video_decoder_factory.mm
+        Source/webrtc/webkit_sdk/objc/native/api/video_encoder_factory.mm
+        Source/webrtc/webkit_sdk/objc/native/api/video_frame.mm
+        Source/webrtc/webkit_sdk/objc/native/src/objc_frame_buffer.mm
+        Source/webrtc/webkit_sdk/objc/native/src/objc_video_decoder_factory.mm
+        Source/webrtc/webkit_sdk/objc/native/src/objc_video_encoder_factory.mm
+        Source/webrtc/webkit_sdk/objc/native/src/objc_video_frame.mm
     )
     if (NOT WTF_CPU_X86_64)
         list(APPEND webrtc_SOURCES
@@ -2257,6 +2272,10 @@ else ()
     endif ()
 endif ()
 
+# [10.9 backport] NOTE: the RTTI inconsistency that left webrtc codec/frame typeinfos undefined is fixed
+# globally in Source/cmake/WebKitCompilerFlags.cmake (OBJCXX now gets -fno-rtti like CXX), so no per-file
+# override is needed here.
+
 add_library(webrtc STATIC ${webrtc_SOURCES})
 
 target_compile_options(webrtc PRIVATE
@@ -2367,10 +2386,10 @@ set(webrtc_INCLUDE_DIRECTORIES PRIVATE
 if (APPLE)
     list(APPEND webrtc_INCLUDE_DIRECTORIES PRIVATE
         Source/third_party/libvpx/source/libvpx
-        Source/webrtc/sdk/objc
-        Source/webrtc/sdk/objc/base
-        Source/webrtc/sdk/objc/Framework/Classes
-        Source/webrtc/sdk/objc/Framework/Headers
+        Source/webrtc/webkit_sdk/objc
+        Source/webrtc/webkit_sdk/objc/base
+        Source/webrtc/webkit_sdk/objc/Framework/Classes
+        Source/webrtc/webkit_sdk/objc/Framework/Headers
     )
 else ()
     target_link_libraries(webrtc ${LIBEVENT_LIBRARY})
@@ -2615,7 +2634,7 @@ if (APPLE)
           Source/third_party/opus/src/celt/x86/x86cpu.c
           Source/third_party/opus/src/celt/x86/x86_celt_map.c
           Source/third_party/opus/src/celt/x86/pitch_sse.c
-          Source/third_party/opus/src/silk/fixed/x86/prefilter_FIX_sse.c
+# [10.9 backport: absent from checkout, optional]           Source/third_party/opus/src/silk/fixed/x86/prefilter_FIX_sse.c
           Source/third_party/opus/src/silk/x86/x86_silk_map.c
       )
     endif ()
@@ -3231,5 +3250,6 @@ elseif (WTF_CPU_ARM64)
 endif ()
 
 target_include_directories(vpx PRIVATE ${vpx_INCLUDE_DIRECTORIES})
-target_compile_options(vpx PRIVATE -Wno-cast-align -Wno-incompatible-pointer-types)
+# 10.9 backport: scope C warning flags away from ASM_NASM (.asm via nasm rejects -W*).
+target_compile_options(vpx PRIVATE $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-Wno-cast-align> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-Wno-incompatible-pointer-types>)
 target_compile_definitions(vpx PRIVATE WEBRTC_WEBKIT_BUILD=1)

@@ -41,7 +41,9 @@
 #include <wtf/UniqueRef.h>
 #include <wtf/text/WTFString.h>
 
-#if !PLATFORM(COCOA)
+#include "RTCNetwork.h" // For WK_RTC_USE_NW.
+
+#if !WK_RTC_USE_NW
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <webrtc/p2p/base/basic_packet_socket_factory.h>
@@ -119,7 +121,7 @@ public:
 
     void closeSocket(WebCore::LibWebRTCSocketIdentifier);
 
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
     bool webRTCInterfaceMonitoringViaNWEnabled() const;
     const std::optional<audit_token_t>& sourceApplicationAuditToken() const LIFETIME_BOUND { return m_sourceApplicationAuditToken; }
     const char* applicationBundleIdentifier() const LIFETIME_BOUND { return m_applicationBundleIdentifier.data(); }
@@ -143,7 +145,7 @@ private:
 
     void addSocket(WebCore::LibWebRTCSocketIdentifier, std::unique_ptr<Socket>&&);
 
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
     const String& attributedBundleIdentifierFromPageIdentifier(WebPageProxyIdentifier);
 #else
     static webrtc::Thread& rtcNetworkThread();
@@ -171,14 +173,14 @@ private:
     mutable Lock m_sharedPreferencesLock;
     SharedPreferencesForWebProcess m_sharedPreferences WTF_GUARDED_BY_LOCK(m_sharedPreferencesLock);
 
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
     HashMap<WebPageProxyIdentifier, String> m_attributedBundleIdentifiers;
     std::optional<audit_token_t> m_sourceApplicationAuditToken;
     CString m_applicationBundleIdentifier;
     const Ref<WorkQueue> m_rtcNetworkThreadQueue;
 #endif
 
-#if !PLATFORM(COCOA)
+#if !WK_RTC_USE_NW
     UniqueRef<webrtc::BasicPacketSocketFactory> m_packetSocketFactory;
 #endif
 };

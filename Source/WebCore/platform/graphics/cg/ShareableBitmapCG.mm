@@ -60,6 +60,15 @@ std::optional<DestinationColorSpace> ShareableBitmapConfiguration::validateColor
     if (auto colorSpaceAsRGB = colorSpace->asRGB())
         return colorSpaceAsRGB;
 
+    // 10.9 backport: kCGColorSpaceExtendedSRGB is weak-imported and is NULL on
+    // 10.9. ExtendedSRGB() would wrap a NULL CGColorSpaceRef → crash on copy.
+    // (Root cause of the crash here was upstream in ShareableBitmapUtilities
+    // passing a garbage DestinationColorSpace from the screenColorSpace polyfill
+    // stub — see ShareableBitmapUtilities.cpp:49. Keep this guard for safety in
+    // case other callers pass a non-RGB colorspace.)
+    if (!&kCGColorSpaceExtendedSRGB || !kCGColorSpaceExtendedSRGB)
+        return DestinationColorSpace::SRGB();
+
     return DestinationColorSpace::ExtendedSRGB();
 }
 

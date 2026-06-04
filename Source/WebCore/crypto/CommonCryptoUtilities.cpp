@@ -37,9 +37,9 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 ALLOW_DEPRECATED_DECLARATIONS_END
         return true;
     case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
-        algorithm = kCCDigestSHA256;
-        return true;
+        // 10.9 backport: fail the JS operation instead of crashing WebContent
+        // when a site requests SHA-224 (deprecated by WebKit but still valid input).
+        return false;
     case CryptoAlgorithmIdentifier::SHA_256:
         algorithm = kCCDigestSHA256;
         return true;

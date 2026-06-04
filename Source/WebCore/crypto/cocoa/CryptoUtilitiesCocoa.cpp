@@ -222,9 +222,9 @@ Vector<uint8_t> calculateHMACSignature(CCHmacAlgorithm algorithm, const Vector<u
         digestLength = CC_SHA1_DIGEST_LENGTH;
         break;
     case kCCHmacAlgSHA224:
-        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
-        digestLength = CC_SHA256_DIGEST_LENGTH;
-        break;
+        // 10.9 backport: fail gracefully on SHA-224 HMAC (return empty) instead
+        // of crashing WebContent.
+        return Vector<uint8_t>();
     case kCCHmacAlgSHA256:
         digestLength = CC_SHA256_DIGEST_LENGTH;
         break;

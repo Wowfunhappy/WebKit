@@ -43,6 +43,7 @@
 #import <wtf/NeverDestroyed.h>
 
 #import <pal/cocoa/AVFoundationSoftLink.h>
+#import <pal/spi/cocoa/AVFoundationSPI.h>
 
 using namespace WebCore;
 

@@ -253,12 +253,11 @@ static void applyRotationForPainting(GraphicsContext& context, FloatSize size, i
 
 void PDFDocumentImage::drawPDFPage(GraphicsContext& context)
 {
-    applyRotationForPainting(context, size(), m_rotationDegrees);
-
-    context.translate(-m_cropBox.location());
-
-    // CGPDF pages are indexed from 1.
-    CGContextDrawPDFPageWithAnnotations(context.platformContext(), CGPDFDocumentGetPage(m_document.get(), 1), nullptr);
+    // 10.9 backport: PDF drawing path triggers an unrecognized-selector throw inside
+    // CoreGraphics. Skip drawing PDF icons entirely until the underlying issue is found —
+    // inspector icons will be blank but the inspector frontend itself runs.
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PDFDI::drawPDFPage] SKIPPED (10.9 backport) doc=%p\n", m_document.get()); fclose(_d);}}
+    (void)context;
 }
 
 #endif // !USE(PDFKIT_FOR_PDFDOCUMENTIMAGE)

@@ -71,6 +71,7 @@
 #import <WebCore/UniversalAccessZoom.h>
 #import <WebCore/UserAgent.h>
 #import <WebCore/ValidationBubble.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <mach-o/dyld.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/WritingToolsSPI.h>

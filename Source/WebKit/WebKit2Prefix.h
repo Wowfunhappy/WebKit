@@ -67,6 +67,22 @@
 #include <wtf/Variant.h>
 #endif
 
+// macOS 10.9 backport: modern Foundation annotation macros absent on the 10.9 SDK. Without
+// them WebKit's own ObjC API headers fail to parse — e.g. NS_SWIFT_UI_ACTOR and
+// NS_HEADER_AUDIT_BEGIN(nullability, sendability) leak their tokens as unknown type names.
+#ifndef NS_SWIFT_UI_ACTOR
+#define NS_SWIFT_UI_ACTOR
+#endif
+#ifndef NS_HEADER_AUDIT_BEGIN
+#define NS_HEADER_AUDIT_BEGIN(...)
+#endif
+#ifndef NS_HEADER_AUDIT_END
+#define NS_HEADER_AUDIT_END(...)
+#endif
+#ifndef OS_NOTHROW
+#define OS_NOTHROW
+#endif
+
 #ifdef __OBJC__
 #undef try
 #undef catch

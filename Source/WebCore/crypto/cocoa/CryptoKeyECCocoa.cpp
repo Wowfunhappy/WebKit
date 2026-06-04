@@ -169,12 +169,13 @@ RefPtr<CryptoKeyEC> CryptoKeyEC::platformImportRaw(CryptoAlgorithmIdentifier ide
         return nullptr;
     return create(identifier, curve, CryptoKeyType::Public, toPlatformKey(rv.getKey().get()), extractable, usages);
 #else
-    UNUSED_PARAM(identifier);
-    UNUSED_PARAM(curve);
-    UNUSED_PARAM(keyData);
-    UNUSED_PARAM(extractable);
-    UNUSED_PARAM(usages);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: import X9.63 uncompressed EC public key via pal::ECKey109.
+    if (!doesUncompressedPointMatchNamedCurve(curve, keyData.size()))
+        return nullptr;
+    auto key = pal::ECKey109::importX963Pub(keyData.span(), namedCurveTo109Curve(curve));
+    if (!key)
+        return nullptr;
+    return create(identifier, curve, CryptoKeyType::Public, WTF::move(key), extractable, usages);
 #endif
 }
 
@@ -189,7 +190,17 @@ Vector<uint8_t> CryptoKeyEC::platformExportRaw() const
         return { };
     return WTF::move(rv.result);
 #else
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: pal::ECKey109 has exportX963Pub via CCECCryptorExportKey,
+    // so EC public-key export works. For a private key, derive the public first.
+    auto exportPub = platformKey()->isPrivate() ? platformKey()->toPub() : nullptr;
+    pal::ECKey109* keyToExport = exportPub ? exportPub.get() : platformKey().get();
+    auto rv = keyToExport->exportX963Pub();
+    if (!rv)
+        return { };
+    size_t expectedSize = 2 * keySizeInBytes() + 1;
+    if (rv->size() != expectedSize)
+        return { };
+    return WTF::move(*rv);
 #endif
 }
 
@@ -222,14 +233,18 @@ RefPtr<CryptoKeyEC> CryptoKeyEC::platformImportJWKPrivate(CryptoAlgorithmIdentif
         return nullptr;
     return create(identifier, curve, CryptoKeyType::Private, toPlatformKey(rv.getKey().get()), extractable, usages);
 #else
-    UNUSED_PARAM(identifier);
-    UNUSED_PARAM(curve);
-    UNUSED_PARAM(x);
-    UNUSED_PARAM(y);
-    UNUSED_PARAM(d);
-    UNUSED_PARAM(extractable);
-    UNUSED_PARAM(usages);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: pal::ECKey109::importX963Private accepts the same encoding.
+    if (!doesFieldElementMatchNamedCurve(curve, x.size()) || !doesFieldElementMatchNamedCurve(curve, y.size()) || !doesFieldElementMatchNamedCurve(curve, d.size()))
+        return nullptr;
+    Vector<uint8_t> binaryInput;
+    binaryInput.append(InitialOctetEC);
+    binaryInput.appendVector(x);
+    binaryInput.appendVector(y);
+    binaryInput.appendVector(d);
+    auto key = pal::ECKey109::importX963Private(binaryInput.span(), namedCurveTo109Curve(curve));
+    if (!key)
+        return nullptr;
+    return create(identifier, curve, CryptoKeyType::Private, WTF::move(key), extractable, usages);
 #endif
 }
 
@@ -268,12 +283,46 @@ bool CryptoKeyEC::platformAddFieldElements(JsonWebKey& jwk) const
         jwk.d = base64URLEncodeToString(result.subspan(publicKeySize, keySizeInBytes));
     return true;
 #else
-    UNUSED_PARAM(jwk);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: implement JWK export via pal::ECKey109. Both public-key
+    // (exportX963Pub) and private-key (exportX963Private) paths are available
+    // through the CCECCryptor wrapper.
+    size_t keySizeInBytes = this->keySizeInBytes();
+    size_t publicKeySize = keySizeInBytes * 2 + 1;
+    size_t privateKeySize = keySizeInBytes * 3 + 1;
+    Vector<uint8_t> result;
+    switch (type()) {
+    case CryptoKeyType::Public: {
+        auto exportPub = platformKey()->isPrivate() ? platformKey()->toPub() : nullptr;
+        pal::ECKey109* keyToExport = exportPub ? exportPub.get() : platformKey().get();
+        auto rv = keyToExport->exportX963Pub();
+        if (!rv)
+            return false;
+        result = WTF::move(*rv);
+        break;
+    }
+    case CryptoKeyType::Private: {
+        auto rv = platformKey()->exportX963Private();
+        if (!rv)
+            return false;
+        result = WTF::move(*rv);
+        break;
+    }
+    case CryptoKeyType::Secret:
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+    if (result.size() != publicKeySize && result.size() != privateKeySize) [[unlikely]]
+        return false;
+    jwk.x = base64URLEncodeToString(result.subspan(1, keySizeInBytes));
+    jwk.y = base64URLEncodeToString(result.subspan(keySizeInBytes + 1, keySizeInBytes));
+    if (result.size() > publicKeySize)
+        jwk.d = base64URLEncodeToString(result.subspan(publicKeySize, keySizeInBytes));
+    return true;
 #endif
 }
 
-#if !defined(CLANG_WEBKIT_BRANCH)
+// 10.9 backport: hoist out of the !CLANG_WEBKIT_BRANCH guard so the backport
+// SPKI parser can call getOID too.
 static std::span<const uint8_t> getOID(CryptoKeyEC::NamedCurve curve)
 {
     switch (curve) {
@@ -285,7 +334,6 @@ static std::span<const uint8_t> getOID(CryptoKeyEC::NamedCurve curve)
         return Secp521r1;
     }
 }
-#endif
 
 // Per https://www.ietf.org/rfc/rfc5280.txt
 // SubjectPublicKeyInfo ::= SEQUENCE { algorithm AlgorithmIdentifier, subjectPublicKey BIT STRING }
@@ -331,12 +379,35 @@ RefPtr<CryptoKeyEC> CryptoKeyEC::platformImportSpki(CryptoAlgorithmIdentifier id
         return nullptr;
     return create(identifier, curve, CryptoKeyType::Public, toPlatformKey(rv.getKey().get()), extractable, usages);
 #else
-    UNUSED_PARAM(identifier);
-    UNUSED_PARAM(curve);
-    UNUSED_PARAM(keyData);
-    UNUSED_PARAM(extractable);
-    UNUSED_PARAM(usages);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: port the same loose ASN.1 SPKI parser as the upstream
+    // !CLANG_WEBKIT_BRANCH path, but use pal::ECKey109 for the final import.
+    size_t index = 1; // Read SEQUENCE
+    if (keyData.size() < index + 1)
+        return nullptr;
+    index += bytesUsedToEncodedLength(keyData[index]) + 1;
+    if (keyData.size() < index + 1)
+        return nullptr;
+    index += bytesUsedToEncodedLength(keyData[index]);
+    if (keyData.size() < index + sizeof(IdEcPublicKey))
+        return nullptr;
+    if (!spanHasPrefix(keyData.subspan(index), std::span { IdEcPublicKey }))
+        return nullptr;
+    index += std::size(IdEcPublicKey);
+    auto oid = getOID(curve);
+    if (keyData.size() < index + oid.size())
+        return nullptr;
+    if (!spanHasPrefix(keyData.subspan(index), oid))
+        return nullptr;
+    index += oid.size() + 1; // Read named curve OID, BIT STRING
+    if (keyData.size() < index + 1)
+        return nullptr;
+    index += bytesUsedToEncodedLength(keyData[index]) + 1; // Read length
+    if (doesUncompressedPointMatchNamedCurve(curve, keyData.size() - index))
+        return platformImportRaw(identifier, curve, Vector<uint8_t>(keyData.subspan(index, keyData.size() - index)), extractable, usages);
+    auto key = pal::ECKey109::importCompressedPub(keyData.subspan(index, keyData.size() - index), namedCurveTo109Curve(curve));
+    if (!key)
+        return nullptr;
+    return create(identifier, curve, CryptoKeyType::Public, WTF::move(key), extractable, usages);
 #endif
 }
 
@@ -378,7 +449,35 @@ Vector<uint8_t> CryptoKeyEC::platformExportSpki() const
 
     return result;
 #else
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: build SPKI by hand the same way upstream does, but pull
+    // the raw public key from pal::ECKey109. For private keys, derive the
+    // public first via toPub() (CCECCryptorRef-backed).
+    size_t expectedKeySize = 2 * keySizeInBytes() + 1;
+    auto exportPub = platformKey()->isPrivate() ? platformKey()->toPub() : nullptr;
+    pal::ECKey109* keyToExport = exportPub ? exportPub.get() : platformKey().get();
+    auto rv = keyToExport->exportX963Pub();
+    if (!rv)
+        return { };
+    if (rv->size() != expectedKeySize)
+        return { };
+    Vector<uint8_t> keyBytes = WTF::move(*rv);
+    size_t keySize = expectedKeySize;
+
+    auto oid = getOID(namedCurve());
+    size_t totalSize = sizeof(IdEcPublicKey) + oid.size() + bytesNeededForEncodedLength(keySize + 1) + keySize + 4;
+    Vector<uint8_t> result;
+    result.reserveInitialCapacity(totalSize + bytesNeededForEncodedLength(totalSize) + 1);
+    result.append(SequenceMark);
+    addEncodedASN1Length(result, totalSize);
+    result.append(SequenceMark);
+    addEncodedASN1Length(result, sizeof(IdEcPublicKey) + oid.size());
+    result.append(std::span { IdEcPublicKey });
+    result.append(oid);
+    result.append(BitStringMark);
+    addEncodedASN1Length(result, keySize + 1);
+    result.append(InitialOctet);
+    result.appendVector(keyBytes);
+    return result;
 #endif
 }
 
@@ -449,7 +548,12 @@ RefPtr<CryptoKeyEC> CryptoKeyEC::platformImportPkcs8(CryptoAlgorithmIdentifier i
     UNUSED_PARAM(keyData);
     UNUSED_PARAM(extractable);
     UNUSED_PARAM(usages);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: returning the natural "failed" value here instead of
+    // RELEASE_ASSERT_NOT_REACHED so a website using a Web Crypto API we don't
+    // back fails the JS operation rather than crashing WebContent. See
+    // [[project_ecdh_enabled_may17]] — only generateKey + ECDH deriveBits
+    // are wired up via pal::ECKey109.
+    return { };
 #endif
 }
 
@@ -509,7 +613,12 @@ Vector<uint8_t> CryptoKeyEC::platformExportPkcs8() const
 
     return result;
 #else
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: returning the natural "failed" value here instead of
+    // RELEASE_ASSERT_NOT_REACHED so a website using a Web Crypto API we don't
+    // back fails the JS operation rather than crashing WebContent. See
+    // [[project_ecdh_enabled_may17]] — only generateKey + ECDH deriveBits
+    // are wired up via pal::ECKey109.
+    return { };
 #endif
 }
 

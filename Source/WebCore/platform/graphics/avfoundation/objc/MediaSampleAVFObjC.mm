@@ -259,10 +259,16 @@ Vector<Ref<MediaSampleAVFObjC>> MediaSampleAVFObjC::divide()
 
     Vector<Ref<MediaSampleAVFObjC>> samples;
     samples.reserveInitialCapacity(numSamples);
-    CMSampleBufferCallBlockForEachSample(m_sample.get(), [&samples, id = m_id] (CMSampleBufferRef sampleBuffer, CMItemCount) -> OSStatus {
-        samples.append(MediaSampleAVFObjC::create(sampleBuffer, id));
-        return noErr;
-    });
+    // 10.9 backport: CMSampleBufferCallBlockForEachSample (block variant) is 10.10+ / not exported here
+    // (soft-link dlsym RELEASE_ASSERTs → EXC_BREAKPOINT). Split per-sample via the C-API
+    // CMSampleBufferCopySampleBufferForRange instead.
+    for (CMItemCount i = 0; i < numSamples; ++i) {
+        CMSampleBufferRef rawOne = nullptr;
+        if (CMSampleBufferCopySampleBufferForRange(kCFAllocatorDefault, m_sample.get(), CFRangeMake(i, 1), &rawOne) != noErr || !rawOne)
+            continue;
+        RetainPtr<CMSampleBufferRef> one = adoptCF(rawOne);
+        samples.append(MediaSampleAVFObjC::create(one.get(), m_id));
+    }
     return samples;
 }
 
@@ -273,23 +279,30 @@ std::pair<RefPtr<MediaSample>, RefPtr<MediaSample>> MediaSampleAVFObjC::divide(c
 
     CFIndex samplesBeforePresentationTime = 0;
 
-    CMSampleBufferCallBlockForEachSample(m_sample.get(), [&] (CMSampleBufferRef sampleBuffer, CMItemCount) -> OSStatus {
-        auto timeStamp = CMSampleBufferGetOutputPresentationTimeStamp(sampleBuffer);
-        if (CMTIME_IS_INVALID(timeStamp))
-            timeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
+    // 10.9 backport: replace block-based CMSampleBufferCallBlockForEachSample (10.10+, soft-link
+    // dlsym RELEASE_ASSERTs → EXC_BREAKPOINT on YouTube's eviction path) with a per-sample loop using
+    // CMSampleBufferGetSampleTimingInfo, which exists on 10.9. Per-sample PTS comes from the timing info.
+    {
+        CMItemCount total = CMSampleBufferGetNumSamples(m_sample.get());
+        for (CMItemCount i = 0; i < total; ++i) {
+            CMSampleTimingInfo timing;
+            if (CMSampleBufferGetSampleTimingInfo(m_sample.get(), i, &timing) != noErr)
+                break;
+            CMTime timeStamp = timing.presentationTimeStamp;
+            if (CMTIME_IS_INVALID(timeStamp))
+                timeStamp = CMSampleBufferGetPresentationTimeStamp(m_sample.get());
 
-        if (useEndTime == UseEndTime::Use) {
-            auto duration = CMSampleBufferGetOutputDuration(sampleBuffer);
-            if (CMTIME_IS_INVALID(duration))
-                duration = CMSampleBufferGetDuration(sampleBuffer);
-
-            if (PAL::toMediaTime(CMTimeAdd(timeStamp, duration)) > presentationTime)
-                return 1;
-        } else if (PAL::toMediaTime(timeStamp) >= presentationTime)
-            return 1;
-        ++samplesBeforePresentationTime;
-        return noErr;
-    });
+            if (useEndTime == UseEndTime::Use) {
+                CMTime duration = timing.duration;
+                if (CMTIME_IS_INVALID(duration))
+                    duration = CMSampleBufferGetDuration(m_sample.get());
+                if (PAL::toMediaTime(CMTimeAdd(timeStamp, duration)) > presentationTime)
+                    break;
+            } else if (PAL::toMediaTime(timeStamp) >= presentationTime)
+                break;
+            ++samplesBeforePresentationTime;
+        }
+    }
 
     if (!samplesBeforePresentationTime)
         return { nullptr, this };

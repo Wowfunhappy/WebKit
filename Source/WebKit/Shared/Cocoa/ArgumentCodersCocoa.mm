@@ -641,6 +641,10 @@ template<> std::optional<RetainPtr<id>> decodeObjectDirectlyRequiringAllowedClas
     // 10.9 backport: initForReadingFromData:error: and decodingFailurePolicy
     // are 10.13+. Use deprecated initForReadingWithData: (10.5+).
     auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:(__bridge NSData *)data->get()]);
+#if __MAC_OS_X_VERSION_MAX_ALLOWED < 101300
+    // NSDecodingFailurePolicyRaiseException (the default, value 0) is 10.13+; declare it for the KVC set above.
+    static const NSInteger NSDecodingFailurePolicyRaiseException = 0;
+#endif
     if ([unarchiver respondsToSelector:@selector(setDecodingFailurePolicy:)])
         [unarchiver setValue:@(NSDecodingFailurePolicyRaiseException) forKey:@"decodingFailurePolicy"];
 

@@ -230,7 +230,8 @@ LinkImageLayout::LinkImageLayout(URL& url, const String& titleString)
             (id)kCTFrameMaximumNumberOfLinesAttributeName: @(maximumLines)
         };
 
-        RetainPtr<NSAttributedString> attributedText = adoptNS([[NSAttributedString alloc] initWithString:text attributes:textAttributes]);
+        // 10.9 backport: -[NSAttributedString initWithString:nil] throws.
+        RetainPtr<NSAttributedString> attributedText = adoptNS([[NSAttributedString alloc] initWithString:(text ?: @"") attributes:textAttributes]);
         RetainPtr<CTFramesetterRef> textFramesetter = adoptCF(CTFramesetterCreateWithAttributedString((CFAttributedStringRef)attributedText.get()));
 
         CFRange fitRange;

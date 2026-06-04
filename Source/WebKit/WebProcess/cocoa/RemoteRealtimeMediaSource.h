@@ -59,9 +59,11 @@ public:
     using RealtimeMediaSource::configurationChanged;
     void configurationChanged(String&& persistentID, WebCore::RealtimeMediaSourceSettings&&, WebCore::RealtimeMediaSourceCapabilities&&);
 
-#if ENABLE(GPU_PROCESS)
+    // 10.9 backport: this IMPL (which satisfies RealtimeMediaSource's abstract ThreadSafeRefCounted+WeakPtr
+    // ref/deref/controlBlock/weakRefCount and disambiguates the multiple ref-counted bases) is needed
+    // regardless of GPU_PROCESS. It was incorrectly gated on ENABLE(GPU_PROCESS), leaving the derived
+    // RemoteRealtimeVideo/AudioSource abstract when GPU_PROCESS is off. Always include it.
     WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
-#endif
 
 protected:
     RemoteRealtimeMediaSource(WebCore::RealtimeMediaSourceIdentifier, const WebCore::CaptureDevice&, const WebCore::MediaConstraints*, WebCore::MediaDeviceHashSalts&&, UserMediaCaptureManager&, bool shouldCaptureInGPUProcess, std::optional<WebCore::PageIdentifier>);

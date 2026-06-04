@@ -70,11 +70,19 @@
 #include "VideoTrackList.h"
 #include "VideoTrackPrivate.h"
 #include <JavaScriptCore/ConsoleTypes.h>
+#include <asl.h>
+#include <unistd.h>
 #include <wtf/NativePromise.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Scope.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/MakeString.h>
+
+// 10.9 MSE bisect (see MediaPlayerPrivateMediaSourceAVFObjC.mm).
+// 10.9: disabled leftover MSE debug logging. MediaSource::isTypeSupported() is called dozens of
+// times per page load by sites probing codecs; asl_log on each floods syslogd and blocks the main
+// thread under backpressure during heavy loads (contributing to WebContent being killed).
+#define MS_BISECT(fmt, ...) ((void)0)
 
 namespace WebCore {
 
@@ -1151,6 +1159,7 @@ bool MediaSource::isTypeSupported(ScriptExecutionContext& context, const String&
 
 bool MediaSource::isTypeSupported(ScriptExecutionContext& context, const String& type, Vector<ContentType>&& contentTypesRequiringHardwareSupport)
 {
+    MS_BISECT("isTypeSupported ENTRY type=%s", type.utf8().data());
     // Section 2.2 isTypeSupported() method steps.
     // https://dvcs.w3.org/hg/html-media/raw-file/tip/media-source/media-source.html#widl-MediaSource-isTypeSupported-boolean-DOMString-type
     // 1. If type is an empty string, then return false.
@@ -1188,10 +1197,12 @@ bool MediaSource::isTypeSupported(ScriptExecutionContext& context, const String&
         parameters.allowedMediaCaptionFormatTypes = document->settings().allowedMediaCaptionFormatTypes();
     }
 
+    MS_BISECT("isTypeSupported: calling MediaPlayer::supportsType");
     MediaPlayer::SupportsType supported;
     callOnMainThreadAndWait([&] {
         supported = MediaPlayer::supportsType(parameters);
     });
+    MS_BISECT("isTypeSupported: supportsType returned %d", (int)supported);
 
     if (codecs.isEmpty())
         return supported != MediaPlayer::SupportsType::IsNotSupported;

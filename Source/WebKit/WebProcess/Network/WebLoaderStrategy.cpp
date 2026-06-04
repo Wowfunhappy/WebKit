@@ -345,7 +345,9 @@ bool WebLoaderStrategy::tryLoadingUsingURLSchemeHandler(ResourceLoader& resource
     if (resourceLoader.request().url().protocolIsAbout() && !resourceLoader.documentLoader()->isLoadingMainResource())
         return false;
 
+    auto urlForLog = resourceLoader.request().url().string();
     RefPtr handler = webPage->urlSchemeHandlerForScheme(resourceLoader.request().url().protocol());
+    { FILE *_f=((FILE*)0); if(_f) { fprintf(_f, "[INSPECTOR-WL] tryLoadingUsingURLSchemeHandler url=%s handler=%p\n", urlForLog.utf8().data(), handler.get()); fclose(_f); } }
     if (!handler)
         return false;
 

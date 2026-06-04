@@ -39,6 +39,10 @@
 #include <WebCore/CAAudioStreamDescription.h>
 #include <WebCore/CARingBuffer.h>
 #include <WebCore/WebAudioBufferList.h>
+// 10.9 backport: videoFrameAvailableCV() takes a RetainPtr<CVPixelBufferRef>. That type used to come
+// transitively from RemoteVideoFrameProxy.h, which is now empty when !ENABLE(GPU_PROCESS); include
+// CoreVideo directly so the header is self-sufficient.
+#include <CoreVideo/CVPixelBuffer.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
@@ -72,7 +76,11 @@ public:
     void audioSourceWillBeStopped(WebCore::RealtimeMediaSourceIdentifier);
 
     void didUpdateSourceConnection(IPC::Connection&);
+#if ENABLE(GPU_PROCESS)
+    // 10.9 backport: RemoteVideoFrameObjectHeapProxy/RemoteVideoFrameProxy are GPU-process-only.
+    // Without a GPU process, captured frames arrive as CVPixelBuffers via videoFrameAvailableCV().
     void setVideoFrameObjectHeapProxy(RefPtr<RemoteVideoFrameObjectHeapProxy>&&);
+#endif
 
     // IPC::WorkQueueMessageReceiver overrides.
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
@@ -81,7 +89,9 @@ private:
     // Messages
     void audioStorageChanged(WebCore::RealtimeMediaSourceIdentifier, ConsumerSharedCARingBuffer::Handle&&, const WebCore::CAAudioStreamDescription&, IPC::Semaphore&&, const MediaTime&, uint64_t frameSampleSize);
     void audioSamplesAvailable(WebCore::RealtimeMediaSourceIdentifier, MediaTime, uint64_t numberOfFrames);
+#if ENABLE(GPU_PROCESS)
     void videoFrameAvailable(WebCore::RealtimeMediaSourceIdentifier, RemoteVideoFrameProxy::Properties&&, WebCore::VideoFrameTimeMetadata);
+#endif
     // FIXME: Will be removed once RemoteVideoFrameProxy providers are the only ones sending data.
     void videoFrameAvailableCV(WebCore::RealtimeMediaSourceIdentifier, RetainPtr<CVPixelBufferRef>&&, WebCore::VideoFrameRotation, bool mirrored, MediaTime, WebCore::VideoFrameTimeMetadata);
 
@@ -121,8 +131,10 @@ private:
     HashMap<WebCore::RealtimeMediaSourceIdentifier, std::unique_ptr<RemoteAudio>> m_audioSources;
     HashMap<WebCore::RealtimeMediaSourceIdentifier, Ref<RemoteRealtimeVideoSource>> m_videoSources;
 
+#if ENABLE(GPU_PROCESS)
     Lock m_videoFrameObjectHeapProxyLock;
     RefPtr<RemoteVideoFrameObjectHeapProxy> m_videoFrameObjectHeapProxy WTF_GUARDED_BY_LOCK(m_videoFrameObjectHeapProxyLock);
+#endif
 };
 
 } // namespace WebKit

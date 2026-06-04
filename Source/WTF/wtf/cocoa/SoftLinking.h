@@ -24,6 +24,7 @@
 
 #pragma once
 
+#import <dispatch/dispatch.h>
 #import <dlfcn.h>
 #import <objc/runtime.h>
 #import <wtf/Assertions.h>

@@ -155,9 +155,12 @@ static PixelRange NODELETE pixelRangeFromPixelFormat(OSType pixelFormat)
     case kCVPixelFormatType_4444AYpCbCr16:
     case kCVPixelFormatType_422YpCbCr_4A_8BiPlanar:
     case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:
+// 10.9 backport: 10-bit HDR YpCbCr pixel formats are 10.13+.
+#if defined(MAC_OS_X_VERSION_10_13) && MAC_OS_X_VERSION_MAX_ALLOWED >= 101300
     case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange:
     case kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange:
     case kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange:
+#endif
 #if HAVE(COREVIDEO_COMPRESSED_PIXEL_FORMAT_TYPES)
     case kCVPixelFormatType_AGX_420YpCbCr8BiPlanarVideoRange:
 #endif
@@ -165,10 +168,13 @@ static PixelRange NODELETE pixelRangeFromPixelFormat(OSType pixelFormat)
     case kCVPixelFormatType_420YpCbCr8PlanarFullRange:
     case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:
     case kCVPixelFormatType_422YpCbCr8FullRange:
+// 10.9 backport: 10-bit / 2101010 HDR pixel formats are 10.13+.
+#if defined(MAC_OS_X_VERSION_10_13) && MAC_OS_X_VERSION_MAX_ALLOWED >= 101300
     case kCVPixelFormatType_ARGB2101010LEPacked:
     case kCVPixelFormatType_420YpCbCr10BiPlanarFullRange:
     case kCVPixelFormatType_422YpCbCr10BiPlanarFullRange:
     case kCVPixelFormatType_444YpCbCr10BiPlanarFullRange:
+#endif
 #if HAVE(COREVIDEO_COMPRESSED_PIXEL_FORMAT_TYPES)
     case kCVPixelFormatType_AGX_420YpCbCr8BiPlanarFullRange:
 #endif

@@ -38,4 +38,25 @@ ScreenProperties collectScreenProperties()
     return screenProperties;
 }
 
+// 10.9 backport: WebGL's resolveGraphicsContextGLAttributes calls gpuIDForDisplay to pin the EGL
+// display to a specific GPU's IOKit registry ID. The upstream impl queries CGL renderer registry
+// IDs (kCGLRPRegistryIDLow/High, 10.13+), which don't exist here, and this cut-down PlatformScreenMac
+// omitted the function entirely — so it was an undefined symbol that crashed WebContent (lazy-bind
+// failure) the moment getContext('webgl') was called. This VM has a single (software) GL renderer,
+// so report 0 = "no specific GPU"; ANGLE then skips device-ID pinning for the EGL display.
+PlatformGPUID gpuIDForDisplay(PlatformDisplayID)
+{
+    return 0;
+}
+
+PlatformGPUID gpuIDForDisplayMask(uint32_t)
+{
+    return 0;
+}
+
+PlatformGPUID primaryGPUID()
+{
+    return 0;
+}
+
 } // namespace WebCore

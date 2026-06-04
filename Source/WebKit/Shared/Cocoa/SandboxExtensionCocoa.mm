@@ -29,6 +29,7 @@
 #if ENABLE(SANDBOX_EXTENSIONS)
 
 #import "Logging.h"
+#import <dlfcn.h>
 #import <string.h>
 #import <wtf/FileSystem.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
@@ -111,7 +112,16 @@ CString SandboxExtensionImpl::sandboxExtensionForType(const char* path, SandboxE
 #if PLATFORM(MAC)
             extensionFlags |= SANDBOX_EXTENSION_USER_INTENT;
 #endif
-            return std::unique_ptr<char, decltype(free)*>(sandbox_extension_issue_file_to_process(APP_SANDBOX_READ, path, extensionFlags, *auditToken), free);
+            // 10.9 backport: sandbox_extension_issue_file_to_process() is 10.10+. On 10.9 the
+            // symbol is absent (calling it crashes). Resolve at runtime and, when unavailable,
+            // fall back to the process-agnostic sandbox_extension_issue_file() — which exists on
+            // 10.9 and yields a read extension the target process can consume just the same.
+            {
+                static auto issueToProcess = reinterpret_cast<char*(*)(const char*, const char*, uint32_t, audit_token_t)>(dlsym(RTLD_DEFAULT, "sandbox_extension_issue_file_to_process"));
+                if (issueToProcess)
+                    return std::unique_ptr<char, decltype(free)*>(issueToProcess(APP_SANDBOX_READ, path, extensionFlags, *auditToken), free);
+                return std::unique_ptr<char, decltype(free)*>(sandbox_extension_issue_file(APP_SANDBOX_READ, path, extensionFlags), free);
+            }
         }
     }();
 

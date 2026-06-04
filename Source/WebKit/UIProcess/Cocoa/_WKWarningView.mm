@@ -218,9 +218,13 @@ static RetainPtr<ViewType> viewForIconImage(_WKWarningView *warningView)
         shouldSetTint = YES;
     });
 #if PLATFORM(MAC)
+    // 10.9 backport: +[NSImage imageWithSystemSymbolName:...] and NSImageSymbolConfiguration are 11.0+. Return early — caller falls through to a text-only warning.
+    if (![NSImage respondsToSelector:@selector(imageWithSystemSymbolName:accessibilityDescription:)])
+        return nil;
     RetainPtr view = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:symbolName accessibilityDescription:nil]];
-    [view setSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:imagePointSize weight:NSFontWeightRegular scale:NSImageSymbolScaleLarge]];
-    if (shouldSetTint)
+    if ([view respondsToSelector:@selector(setSymbolConfiguration:)])
+        [view setSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:imagePointSize weight:NSFontWeightRegular scale:NSImageSymbolScaleLarge]];
+    if (shouldSetTint && [view respondsToSelector:@selector(setContentTintColor:)])
         [view setContentTintColor:color.get()];
 #else
     RetainPtr view = adoptNS([[UIImageView alloc] initWithImage:[UIImage systemImageNamed:symbolName]]);

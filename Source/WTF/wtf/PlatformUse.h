@@ -62,7 +62,10 @@
 #define USE_CA 1
 #endif
 
-#if PLATFORM(COCOA) && !defined(USE_CORE_IMAGE)
+// 10.9 backport: WebCore's CoreImage filter appliers use the typed CIFilterBuiltins API (macOS 10.15+).
+// Gate USE(CORE_IMAGE) on the deployment target so a 10.9 build falls back to the software filter
+// appliers (CoreImage itself exists on 10.9, but only as the old QuartzCore-based API).
+#if PLATFORM(COCOA) && !defined(USE_CORE_IMAGE) && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101500)
 #define USE_CORE_IMAGE 1
 #endif
 

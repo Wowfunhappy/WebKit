@@ -1015,10 +1015,12 @@ bool WebPage::shouldAvoidComputingPostLayoutDataForEditorState() const
         return false;
     }
 
+#if HAVE(TOUCH_BAR)
     if (!m_requiresUserActionForEditingControlsManager || !m_userInteractionsSincePageTransition.isEmpty()) {
         // Text editing controls on the touch bar depend on having post-layout editor state data.
         return false;
     }
+#endif
 
     if (m_hasEverDisplayedContextMenu) {
         // Some context menu items (like Writing Tools) depend on having post-layout editor state data.

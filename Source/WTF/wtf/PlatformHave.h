@@ -351,7 +351,39 @@
 #endif
 
 #if !defined(HAVE_QOS_CLASSES) && PLATFORM(COCOA)
+/* QoS classes (qos_class_t / dispatch_qos_class_t) were introduced in macOS 10.10; they do not
+   exist on 10.9. Gate on the deployment target so a 10.9 build falls back to default scheduling. */
+#if !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101000
 #define HAVE_QOS_CLASSES 1
+#endif
+#endif
+
+#if !defined(HAVE_MACH_CONTINUOUS_TIME) && OS(DARWIN)
+/* mach_continuous_time() / mach_continuous_approximate_time() were introduced in macOS 10.12 / iOS 10. */
+#if !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200
+#define HAVE_MACH_CONTINUOUS_TIME 1
+#endif
+#endif
+
+#if !defined(HAVE_MACH_APPROXIMATE_TIME) && OS(DARWIN)
+/* mach_approximate_time() was introduced in macOS 10.12 / iOS 9.3. */
+#if !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200
+#define HAVE_MACH_APPROXIMATE_TIME 1
+#endif
+#endif
+
+#if !defined(HAVE_DISPATCH_QUEUE_MAIN_T) && OS(DARWIN)
+/* The typed dispatch_queue_main_t alias was introduced in the macOS 10.12 / iOS 10 SDK. */
+#if !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200
+#define HAVE_DISPATCH_QUEUE_MAIN_T 1
+#endif
+#endif
+
+#if !defined(HAVE_CLOCK_GETTIME)
+/* clock_gettime() and the CLOCK_* ids were added to macOS in 10.12. Other POSIX platforms have them. */
+#if !OS(DARWIN) || !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200
+#define HAVE_CLOCK_GETTIME 1
+#endif
 #endif
 
 #if !defined(HAVE_SCHEDULING_POLICIES) && PLATFORM(COCOA)
@@ -403,7 +435,9 @@
 #define HAVE_TASK_IDENTITY_TOKEN 1
 #endif
 
-#if PLATFORM(MAC) || (PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR))
+// CGContextSetOwnerIdentity takes a task_id_token_t, which (like HAVE_TASK_IDENTITY_TOKEN above)
+// does not exist before macOS 10.10; gate it the same way so a 10.9 build doesn't reference the type.
+#if (PLATFORM(MAC) || (PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR))) && (!defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101000)
 #define HAVE_CG_CONTEXT_SET_OWNER_IDENTITY 1
 #endif
 
@@ -411,7 +445,7 @@
 #define HAVE_NS_ACTIVITY 1
 #endif
 
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101202
 #define HAVE_TOUCH_BAR 1
 #endif
 
@@ -431,17 +465,22 @@
 #define HAVE_MEMMEM 1
 #endif
 
-#if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION) || PLATFORM(APPLETV)
+// AVContentKeySession (and its report-group / will-output-be-obscured relatives) is macOS 10.12.4+;
+// gate on the deployment target so a 10.9 build does not import the absent AVContentKeySession header.
+#if (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION) || PLATFORM(APPLETV)) \
+    && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200)
 #define HAVE_AVCONTENTKEYSESSION 1
 #endif
 
-#if !PLATFORM(IOS_FAMILY_SIMULATOR)
+#if !PLATFORM(IOS_FAMILY_SIMULATOR) \
+    && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200)
 #define HAVE_AVCONTENTKEYREPORTGROUP 1
 #endif
 
-#if PLATFORM(MAC) \
+#if (PLATFORM(MAC) \
     || ((PLATFORM(IOS) || PLATFORM(VISION)) && !PLATFORM(IOS_FAMILY_SIMULATOR)) \
-    || PLATFORM(MACCATALYST)
+    || PLATFORM(MACCATALYST)) \
+    && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200)
 #define HAVE_AVCONTENTKEYSESSIONWILLOUTPUTBEOBSCURED 1
 #endif
 
@@ -544,7 +583,7 @@
 #define HAVE_DEVICE_MANAGEMENT 1
 #endif
 
-#if PLATFORM(COCOA) && !PLATFORM(MACCATALYST)
+#if PLATFORM(COCOA) && !PLATFORM(MACCATALYST) && !(PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 120000)
 #define HAVE_AVPLAYER_RESOURCE_CONSERVATION_LEVEL 1
 #endif
 
@@ -564,7 +603,7 @@
 #define HAVE_OS_SIGNPOST 1
 #endif
 
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
 #define HAVE_AVPLAYER_VIDEORANGEOVERRIDE 1
 #endif
 
@@ -620,7 +659,10 @@
 #define HAVE_MEDIA_USAGE_FRAMEWORK 1
 #endif
 
-#if PLATFORM(IOS) || PLATFORM(MAC) || PLATFORM(VISION)
+// PassKit.framework (and thus Apple Pay) did not exist on macOS before 10.12. Gate on the deployment
+// target so a 10.9 build doesn't enable the PassKit-dependent Apple Pay sub-features (which would
+// otherwise compile Apple Pay bindings that reference the disabled base Apple Pay types).
+#if (PLATFORM(IOS) || PLATFORM(VISION) || (PLATFORM(MAC) && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200)))
 #define HAVE_PASSKIT_FRAMEWORK 1
 #endif
 
@@ -667,7 +709,7 @@
 #define HAVE_AVROUTEPICKERVIEW 1
 #endif
 
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
 #define HAVE_AUDIO_OUTPUT_DEVICE_UNIQUE_ID 1
 #endif
 
@@ -843,6 +885,12 @@
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500 || PLATFORM(IOS_FAMILY)
 #define HAVE_NSURLSESSION_TASK_DELEGATE 1
 #endif
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300 || PLATFORM(IOS_FAMILY)
+#define HAVE_TLS_PROTOCOL_VERSION_T 1
+#endif
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000 || PLATFORM(IOS_FAMILY)
+#define HAVE_NSURLSESSION_TASK_PRIORITY 1
+#endif
 #define HAVE_IMAGE_RESTRICTED_DECODING 1
 #define HAVE_XPC_CONNECTION_COPY_INVALIDATION_REASON 1
 #endif
@@ -871,7 +919,8 @@
 #define HAVE_WOFF_SUPPORT 1
 #endif
 
-#if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
+// VisionKit image analysis (VKCImageAnalysis) on Mac is macOS 13+; absent on 10.9.
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 130000) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
 #if !defined(HAVE_VK_IMAGE_ANALYSIS)
 #define HAVE_VK_IMAGE_ANALYSIS 1
 #endif
@@ -931,7 +980,10 @@
 #define HAVE_SYSTEM_STATUS 1
 #endif
 
-#if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION) || PLATFORM(APPLETV)
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) \
+    || ((PLATFORM(IOS) || PLATFORM(MACCATALYST)) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 170000) \
+    || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 170000) \
+    || PLATFORM(VISION)
 #define HAVE_AVSAMPLEBUFFERVIDEOOUTPUT 1
 #endif
 
@@ -997,7 +1049,8 @@
 #define HAVE_UNIFIED_SPEECHSYNTHESIS_FIX_FOR_81465164 1
 #endif
 
-#if PLATFORM(MAC)
+// ScreenCaptureKit is macOS 12.3+; gate it off on older deployment targets (10.9 has no SCKit).
+#if PLATFORM(MAC) && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 120300)
 #define HAVE_SCREEN_CAPTURE_KIT 1
 #endif
 
@@ -1120,7 +1173,7 @@
 #define HAVE_UI_WINDOW_SCENE_LIVE_RESIZE_API_143004359 1
 #endif
 
-#if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
 #define HAVE_CONTINUITY_CAMERA 1
 #endif
 
@@ -1142,7 +1195,7 @@
 #define HAVE_APFS_CACHEDELETE_PURGEABLE 1
 #endif
 
-#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) || PLATFORM(IOS_FAMILY)
 #define HAVE_AVCAPTUREDEVICE_MINFOCUSLENGTH 1
 #endif
 

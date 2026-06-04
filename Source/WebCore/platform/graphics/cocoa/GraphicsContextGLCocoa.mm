@@ -38,9 +38,21 @@
 #import "PixelBuffer.h"
 #import "ProcessIdentity.h"
 #import <CoreGraphics/CGBitmapContext.h>
+// 10.9 backport: Metal (and ANGLE's Metal backend) require 10.11+. When building against an older
+// SDK we use ANGLE's OpenGL (CGL) backend instead and compile out every Metal code path.
+#if defined(MAC_OS_X_VERSION_10_11) && (!defined(MAC_OS_X_VERSION_MAX_ALLOWED) || MAC_OS_X_VERSION_MAX_ALLOWED >= 101100)
+#define WK_WEBGL_METAL_BACKEND 1
+#else
+#define WK_WEBGL_METAL_BACKEND 0
+#endif
+#if WK_WEBGL_METAL_BACKEND
 #import <Metal/Metal.h>
+#endif
 #import <pal/spi/cg/CoreGraphicsSPI.h>
+#if WK_WEBGL_METAL_BACKEND
 #import <pal/spi/cocoa/MetalSPI.h>
+#endif
+#import <pthread.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/RuntimeApplicationChecks.h>
 #import <wtf/StdLibExtras.h>
@@ -73,7 +85,17 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(GraphicsContextGLCocoa);
 // This variable is accessed in single-threaded manner.
 // For WK1, this variable is accessed from multiple threads but always sequentially.
 static GraphicsContextGLANGLE* currentContext;
+// 10.9 backport: WebKit's "main thread" here is serviced by a rotating pool of libdispatch
+// worker threads (see MainThreadSharedTimerCF / ThreadTimers). ANGLE's CGL backend binds the
+// EGL/CGL context to the *calling* OS thread's TLS, so the process-wide `currentContext` cache
+// above is not sufficient: if a GL call (e.g. WebGL context teardown on navigation) lands on a
+// different worker thread than the one that last made the context current, the cache short-circuit
+// would skip EGL_MakeCurrent, leaving ANGLE's per-thread egl::Thread unbound -> GL_GetError()
+// dereferences a null thread context and crashes. Track the OS thread alongside currentContext so
+// the shortcut only fires when we are genuinely still current on this thread.
+static pthread_t currentContextThread;
 
+#if WK_WEBGL_METAL_BACKEND
 static const char* const enabledANGLEMetalFeatures[] = {
     "ensureLoopForwardProgress",
     nullptr
@@ -99,6 +121,13 @@ static bool platformSupportsMetal()
 #endif
     return true;
 }
+#else
+// 10.9 backport: ANGLE uses its OpenGL (CGL) backend; there is no Metal device gate.
+static bool platformSupportsMetal()
+{
+    return true;
+}
+#endif
 
 static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
 {
@@ -119,9 +148,24 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
 
     Vector<EGLAttrib> displayAttributes;
     displayAttributes.append(EGL_PLATFORM_ANGLE_TYPE_ANGLE);
+#if WK_WEBGL_METAL_BACKEND
     displayAttributes.append(EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE);
+#else
+    // 10.9 backport: ANGLE's OpenGL (CGL) backend.
+    displayAttributes.append(EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE);
+#endif
     // These properties are defined for EGL_ANGLE_power_preference as EGLContext attributes,
     // but Metal backend uses EGLDisplay attributes.
+    //
+    // 10.9 backport: EGL_POWER_PREFERENCE_ANGLE and EGL_PLATFORM_ANGLE_DEVICE_ID_*_ANGLE are
+    // Metal-backend EGLDisplay attributes (power preference / IOKit GPU registry id for multi-GPU
+    // selection). ANGLE's OpenGL/CGL backend does NOT advertise EGL_ANGLE_power_preference /
+    // EGL_ANGLE_platform_angle_device_id, so passing them made eglGetPlatformDisplay's validation
+    // reject the whole attribute list and return EGL_NO_DISPLAY -> every WebGL context failed to
+    // create (canvas.getContext('webgl') === null; observed power=LowPower being appended). The CGL
+    // backend selects GPUs via CGL virtual screens (DisplayCGL::mSupportsGPUSwitching) instead, so
+    // these display attributes are unnecessary here. Only pass them on the Metal backend.
+#if WK_WEBGL_METAL_BACKEND
     auto powerPreference = attrs.powerPreference;
     if (powerPreference == GraphicsContextGLPowerPreference::HighPerformance) {
         displayAttributes.append(EGL_POWER_PREFERENCE_ANGLE);
@@ -133,22 +177,20 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
 #if PLATFORM(MAC)
     else if (attrs.windowGPUID) {
         ASSERT(WTF::contains(clientExtensions, "EGL_ANGLE_platform_angle_device_id"_span));
-        // If the power preference is default, use the GPU the context window is on.
-        // If the power preference is low power, and we know which GPU the context window is on,
-        // most likely the lowest power is the GPU that drives the context window, as that GPU
-        // is anyway already powered on.
-        // EGL_PLATFORM_ANGLE_DEVICE_ID_*_ANGLE is the IOKit registry id on EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE.
         displayAttributes.append(EGL_PLATFORM_ANGLE_DEVICE_ID_HIGH_ANGLE);
         displayAttributes.append(static_cast<EGLAttrib>(attrs.windowGPUID >> 32));
         displayAttributes.append(EGL_PLATFORM_ANGLE_DEVICE_ID_LOW_ANGLE);
         displayAttributes.append(static_cast<EGLAttrib>(attrs.windowGPUID));
     }
 #endif
+#endif // WK_WEBGL_METAL_BACKEND
+#if WK_WEBGL_METAL_BACKEND
     ASSERT(WTF::contains(clientExtensions, "EGL_ANGLE_feature_control"_span));
     displayAttributes.append(EGL_FEATURE_OVERRIDES_DISABLED_ANGLE);
     displayAttributes.append(reinterpret_cast<EGLAttrib>(disabledANGLEMetalFeatures));
     displayAttributes.append(EGL_FEATURE_OVERRIDES_ENABLED_ANGLE);
     displayAttributes.append(reinterpret_cast<EGLAttrib>(enabledANGLEMetalFeatures));
+#endif
     displayAttributes.append(EGL_NONE);
 
     EGLDisplay display = EGL_GetPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE, reinterpret_cast<void*>(EGL_DEFAULT_DISPLAY), displayAttributes.span().data());
@@ -160,7 +202,7 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
     }
     LOG(WebGL, "ANGLE initialised Major: %d Minor: %d", majorVersion, minorVersion);
 
-#if ASSERT_ENABLED
+#if ASSERT_ENABLED && WK_WEBGL_METAL_BACKEND
     auto displayExtensions = unsafeSpan(EGL_QueryString(display, EGL_EXTENSIONS));
     ASSERT(WTF::contains(displayExtensions, "EGL_ANGLE_metal_shared_event_sync"_span));
 #endif
@@ -269,7 +311,7 @@ bool GraphicsContextGLCocoa::platformInitializeContext()
     eglContextAttributes.append(EGL_CONTEXT_BIND_GENERATES_RESOURCE_CHROMIUM);
     eglContextAttributes.append(EGL_FALSE);
 
-#if HAVE(TASK_IDENTITY_TOKEN)
+#if HAVE(TASK_IDENTITY_TOKEN) && WK_WEBGL_METAL_BACKEND
     auto displayExtensions = unsafeSpan(EGL_QueryString(m_displayObj, EGL_EXTENSIONS));
     bool supportsOwnershipIdentity = WTF::contains(displayExtensions, "EGL_ANGLE_metal_create_context_ownership_identity"_span);
     if (m_resourceOwner && supportsOwnershipIdentity) {
@@ -285,6 +327,7 @@ bool GraphicsContextGLCocoa::platformInitializeContext()
         LOG(WebGL, "EGLContext Initialization failed.");
         return false;
     }
+#if WK_WEBGL_METAL_BACKEND
     m_finishedMetalSharedEventListener = adoptNS([[MTLSharedEventListener alloc] init]);
     if (!m_finishedMetalSharedEventListener) {
         ASSERT_NOT_REACHED();
@@ -295,6 +338,7 @@ bool GraphicsContextGLCocoa::platformInitializeContext()
         ASSERT_NOT_REACHED();
         return false;
     }
+#endif
     return true;
 }
 
@@ -304,6 +348,18 @@ bool GraphicsContextGLCocoa::platformInitializeExtensions()
     // For creating the EGL surface from an IOSurface.
     if (!enableExtensionsImpl({ "GL_EXT_texture_format_BGRA8888"_s }))
         return false;
+    // 10.9 backport: the CGL/desktop-GL backend backs the WebGL drawing buffer with an
+    // IOSurface bound as a GL_TEXTURE_RECTANGLE_ANGLE texture (EGL_TEXTURE_RECTANGLE_ANGLE).
+    // ANGLE's GLES validation rejects GL_TEXTURE_RECTANGLE_ANGLE as a glFramebufferTexture2D
+    // target with GL_INVALID_ENUM unless GL_ANGLE_texture_rectangle is enabled in the context,
+    // which would forceContextLost() the freshly-created context. The Metal backend uses 2D
+    // textures so upstream never needs this; the GL backend does.
+    if (m_drawingBufferTextureTarget == -1)
+        EGL_GetConfigAttrib(platformDisplay(), platformConfig(), EGL_BIND_TO_TEXTURE_TARGET_ANGLE, &m_drawingBufferTextureTarget);
+    if (m_drawingBufferTextureTarget == EGL_TEXTURE_RECTANGLE_ANGLE) {
+        if (!enableExtensionsImpl({ "GL_ANGLE_texture_rectangle"_s }))
+            return false;
+    }
 #endif
 #if ENABLE(WEBXR)
     auto attributes = contextAttributes();
@@ -361,11 +417,15 @@ bool GraphicsContextGLANGLE::makeContextCurrent()
 {
     if (!m_contextObj)
         return false;
-    if (currentContext == this)
+    // Only trust the cache if we are still on the same OS thread that actually bound the
+    // context (see currentContextThread note above). On the 10.9 rotating-worker main thread
+    // the same logical "main thread" can be a different pthread, so re-bind when it differs.
+    if (currentContext == this && pthread_equal(currentContextThread, pthread_self()))
         return true;
     if (!EGL_MakeCurrent(m_displayObj, EGL_NO_SURFACE, EGL_NO_SURFACE, m_contextObj))
         return false;
     currentContext = this;
+    currentContextThread = pthread_self();
     return true;
 }
 
@@ -653,11 +713,18 @@ void GraphicsContextGLCocoa::framebufferResolveRenderbuffer(GCGLenum target, GCG
 
 RetainPtr<id> GraphicsContextGLCocoa::newSharedEventWithMachPort(mach_port_t sharedEventSendRight)
 {
+#if WK_WEBGL_METAL_BACKEND
     return WebCore::newSharedEventWithMachPort(m_displayObj, sharedEventSendRight);
+#else
+    // 10.9 backport: Metal shared events are unavailable with the OpenGL (CGL) backend.
+    UNUSED_PARAM(sharedEventSendRight);
+    return nullptr;
+#endif
 }
 
 GCGLExternalSync GraphicsContextGLCocoa::createExternalSync(ExternalSyncSource&& syncEvent)
 {
+#if WK_WEBGL_METAL_BACKEND
     auto [syncEventHandle, signalValue] = WTF::move(syncEvent);
     auto sharedEvent = newSharedEventWithMachPort(syncEventHandle.sendRight());
     if (!sharedEvent) {
@@ -673,7 +740,11 @@ GCGLExternalSync GraphicsContextGLCocoa::createExternalSync(ExternalSyncSource&&
     auto newName = ++m_nextExternalSyncName;
     m_eglSyncs.add(newName, eglSync);
     return newName;
-
+#else
+    // 10.9 backport: cross-process Metal shared-event sync is unused with the in-process OpenGL backend.
+    UNUSED_PARAM(syncEvent);
+    return { };
+#endif
 }
 
 bool GraphicsContextGLCocoa::enableRequiredWebXRExtensions()
@@ -707,6 +778,7 @@ bool GraphicsContextGLCocoa::enableRequiredWebXRExtensionsImpl()
 
 void* GraphicsContextGLCocoa::createMetalSharedEventEGLSync(id sharedEvent, uint64_t signalValue)
 {
+#if WK_WEBGL_METAL_BACKEND
     static_assert(sizeof(EGLAttrib) == sizeof(void*), "EGLAttrib not pointer-sized!");
     auto signalValueLo = static_cast<EGLAttrib>(signalValue);
     auto signalValueHi = static_cast<EGLAttrib>(signalValue >> 32);
@@ -720,6 +792,12 @@ void* GraphicsContextGLCocoa::createMetalSharedEventEGLSync(id sharedEvent, uint
         EGL_NONE
     };
     return EGL_CreateSync(display, EGL_SYNC_METAL_SHARED_EVENT_ANGLE, syncAttributes);
+#else
+    // 10.9 backport: no Metal shared-event EGL sync with the OpenGL (CGL) backend.
+    UNUSED_PARAM(sharedEvent);
+    UNUSED_PARAM(signalValue);
+    return nullptr;
+#endif
 }
 
 void GraphicsContextGLCocoa::waitUntilWorkScheduled()
@@ -879,6 +957,7 @@ RefPtr<NativeImage> GraphicsContextGLCocoa::copyNativeImageYFlipped(SurfaceBuffe
 
 void GraphicsContextGLCocoa::insertFinishedSignalOrInvoke(Function<void()> signal)
 {
+#if WK_WEBGL_METAL_BACKEND
     static std::atomic<uint64_t> nextSignalValue;
     uint64_t signalValue = ++nextSignalValue;
     RetainPtr<id<MTLSharedEvent>> event = m_finishedMetalSharedEvent.get();
@@ -895,6 +974,12 @@ void GraphicsContextGLCocoa::insertFinishedSignalOrInvoke(Function<void()> signa
     }
     bool result = EGL_DestroySync(platformDisplay(), eglSync);
     ASSERT_UNUSED(result, result);
+#else
+    // 10.9 backport: with the in-process OpenGL (CGL) backend there is no cross-process GPU
+    // completion event; flush+finish to ensure rendering is done, then signal synchronously.
+    GL_Finish();
+    signal();
+#endif
 }
 
 #if ENABLE(VIDEO)

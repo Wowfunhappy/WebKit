@@ -46,6 +46,7 @@
 #import "WebProcess.h"
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <QuartzCore/QuartzCore.h>
+#import <CoreGraphics/CoreGraphics.h> // 10.9: CGMainDisplayID / CGDisplayCopyDisplayMode / CGDisplayModeGetRefreshRate for adaptive refresh-rate pacing
 #import <WebCore/AsyncScrollingCoordinator.h>
 #import <WebCore/ColorSpaceCG.h>
 #import <WebCore/DebugPageOverlays.h>
@@ -362,6 +363,8 @@ void TiledCoreAnimationDrawingArea::addCommitHandlers()
 
 void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushType)
 {
+    m_lastRenderingUpdateRunTime = MonotonicTime::now(); // 10.9: record for the ~60Hz dispatch_async throttle in scheduleRenderingUpdateRunLoopObserver().
+
     if (layerTreeStateIsFrozen())
         return;
 
@@ -422,6 +425,20 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
         // Normally CA auto-commits when CFRunLoop drains, but on Mavericks
         // the WebContent "main thread" doesn't run a true CFRunLoop.
         [CATransaction flush];
+
+        // 10.9 backport: normally +[CATransaction addCommitHandler:forPhase:]
+        // hooks the kCATransactionPhasePostCommit phase to drive
+        // didCompleteRenderingUpdateDisplay() once CA has flushed. On 10.9
+        // that API doesn't exist (addCommitHandlers is a no-op in this build),
+        // so the completion never fires — schedulePostRenderingUpdateRunLoopObserver()
+        // never runs, the WebPage never learns the frame committed, and pages
+        // that depend on the post-commit callback chain (notably GitHub and
+        // other JS-heavy SPAs that scheduleRenderingUpdate from within React's
+        // commit phase) just sit there with a white viewport. Since the
+        // [CATransaction flush] above is synchronous on this code path, the
+        // commit IS already done by the time we get here, so it's safe to
+        // drive the completion directly.
+        didCompleteRenderingUpdateDisplay();
     }
 }
 
@@ -851,13 +868,61 @@ void TiledCoreAnimationDrawingArea::scheduleRenderingUpdateRunLoopObserver()
 
     // 10.9 backport: CFRunLoopObserver BeforeWaiting events don't reliably fire
     // on Mavericks because the WebContent "main thread" is served by libdispatch
-    // workers that don't run a true CFRunLoop. Fallback: dispatch_async to main
-    // queue so updateRendering runs from a place that does work.
+    // workers that don't run a true CFRunLoop. Fallback: dispatch updateRendering
+    // to the main queue so it runs from a place that does work.
+    //
+    // THROTTLE (10.9): this fallback was previously an unconditional dispatch_async.
+    // Pages with requestAnimationFrame / CSS animations / IntersectionObservers
+    // re-schedule a rendering update every iteration, so the unthrottled fallback
+    // ran updateRendering as fast as the main queue could drain — pinning a
+    // WebContent thread at ~100% CPU (see cpu_resource EXC_RESOURCE: >50% CPU over
+    // 180s). That sustained CPU made the WebContent service unresponsive and it
+    // got SIGKILLed mid-browsing ("A problem occurred with this webpage so it was
+    // reloaded"), especially across many complex sites in succession.
+    //
+    // We rate-limit to ~60Hz, but ONLY when updates are arriving faster than one
+    // frame. The first/idle/post-navigation update (>= one frame since the last
+    // run) still dispatches IMMEDIATELY, so first paint is never deferred — that
+    // was the reason the old blanket dispatch_after throttle was removed (it put
+    // the new page's first render behind a script-jammed main queue -> white
+    // screen). Here, a runaway is the only thing that gets deferred, and only to
+    // the next frame boundary.
     WeakPtr<TiledCoreAnimationDrawingArea> weakThis { *this };
-    dispatch_async(dispatch_get_main_queue(), ^{
+    auto runRenderingUpdate = ^{
         if (RefPtr strong = weakThis.get())
             strong->updateRendering();
-    });
+    };
+    // 10.9: pace this fallback at the DISPLAY'S ACTUAL refresh rate, not a hardcoded 60Hz, so a
+    // 120Hz/144Hz panel animates at full rate (was capped to 60 = choppy) and unusual rates aren't
+    // mismatched. Prefer the page's plumbed per-window nominal FPS (multi-monitor aware); fall back to
+    // the main display's CoreGraphics-reported rate (cached ~2s to avoid per-frame CG allocation);
+    // finally 60Hz if nothing reports a usable value (e.g. VMs report 0).
+    double displayHz = 0;
+    if (RefPtr corePage = Ref { m_webPage.get() }->corePage()) {
+        if (auto fps = corePage->displayNominalFramesPerSecond())
+            displayHz = *fps;
+    }
+    if (displayHz < 1.0) {
+        static double cachedCGHz = 0;
+        static MonotonicTime lastCGQuery;
+        if (MonotonicTime::now() - lastCGQuery >= 2_s) {
+            lastCGQuery = MonotonicTime::now();
+            cachedCGHz = 0;
+            if (RetainPtr<CGDisplayModeRef> mode = adoptCF(CGDisplayCopyDisplayMode(CGMainDisplayID())))
+                cachedCGHz = CGDisplayModeGetRefreshRate(mode.get());
+        }
+        displayHz = cachedCGHz;
+    }
+    if (displayHz < 1.0 || displayHz > 360.0)
+        displayHz = 60.0;
+    Seconds frameInterval = 1_s / displayHz;
+    Seconds sinceLastRun = MonotonicTime::now() - m_lastRenderingUpdateRunTime;
+    if (sinceLastRun >= frameInterval)
+        dispatch_async(dispatch_get_main_queue(), runRenderingUpdate);
+    else {
+        int64_t delayNs = static_cast<int64_t>((frameInterval - sinceLastRun).nanoseconds());
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayNs), dispatch_get_main_queue(), runRenderingUpdate);
+    }
 
     // Avoid running any more tasks before the runloop observer fires.
     WebCore::WindowEventLoop::breakToAllowRenderingUpdate();

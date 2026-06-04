@@ -1,3 +1,14 @@
+# 10.9 backport: the clang-22 toolchain reports as "AppleClang 6.0.0", a version for which CMake
+# 3.24 has no C++20/23 standard-flag mapping. With CMAKE_CXX_STANDARD 23 below, any try_compile
+# (e.g. check_cxx_source_compiles for libc++ detection) or cxx_std_23 target then errors with
+# "compiler AppleClang does not support CXX23". Provide the flags explicitly (it's really clang).
+if (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+    set(CMAKE_CXX20_STANDARD_COMPILE_OPTION "-std=c++2a")
+    set(CMAKE_CXX20_EXTENSION_COMPILE_OPTION "-std=gnu++2a")
+    set(CMAKE_CXX23_STANDARD_COMPILE_OPTION "-std=c++2b")
+    set(CMAKE_CXX23_EXTENSION_COMPILE_OPTION "-std=gnu++2b")
+endif ()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

@@ -304,8 +304,11 @@ ImageDrawResult SVGImage::draw(GraphicsContext& context, const FloatRect& dstRec
     // wraps another non-bitmap context.
     static thread_local int s_recursionDepth = 0;
     if (s_recursionDepth == 0) {
-        CGContextRef destCG = context.platformContext();
-        if (destCG && !CGBitmapContextGetData(destCG)) {
+        // 10.9 backport: detect non-bitmap (IOSurface-backed) context via
+        // renderingMode(). Don't call CGBitmapContextGetData — on a non-bitmap
+        // context that prints a "serious error" warning to syslog every time,
+        // and we call this once per <img src=".svg"> per frame.
+        if (context.renderingMode() == RenderingMode::Accelerated) {
             FloatSize bufferSize = enclosingIntRect(dstRect).size();
             if (bufferSize.width() > 0 && bufferSize.height() > 0
                 && bufferSize.width() <= 4096 && bufferSize.height() <= 4096) {

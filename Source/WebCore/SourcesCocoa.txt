@@ -155,30 +155,44 @@ bridge/objc/objc_class.mm @nonARC @no-unify
 bridge/objc/objc_instance.mm @nonARC @no-unify
 bridge/objc/objc_runtime.mm @nonARC @no-unify
 bridge/objc/objc_utility.mm @nonARC @no-unify
-crypto/cocoa/CommonCryptoDERUtilities.cpp
-crypto/cocoa/CryptoAlgorithmAESCBCCocoa.cpp
-crypto/cocoa/CryptoAlgorithmAESCFBCocoa.cpp
-crypto/cocoa/CryptoAlgorithmAESCTRCocoa.cpp
-crypto/cocoa/CryptoAlgorithmAESGCMCocoa.cpp
-crypto/cocoa/CryptoAlgorithmAESKWCocoa.cpp
-crypto/cocoa/CryptoAlgorithmECDHCocoa.cpp
-crypto/cocoa/CryptoAlgorithmECDSACocoa.cpp
-crypto/cocoa/CryptoAlgorithmEd25519Cocoa.cpp
-crypto/cocoa/CryptoAlgorithmHKDFCocoa.cpp
-crypto/cocoa/CryptoAlgorithmHMACCocoa.cpp
-crypto/cocoa/CryptoAlgorithmPBKDF2Cocoa.cpp
-crypto/cocoa/CryptoAlgorithmRSASSA_PKCS1_v1_5Cocoa.cpp
-crypto/cocoa/CryptoAlgorithmRSA_OAEPCocoa.cpp
-crypto/cocoa/CryptoAlgorithmRSA_PSSCocoa.cpp
-crypto/cocoa/CryptoAlgorithmRegistryCocoa.cpp
-crypto/cocoa/CryptoAlgorithmX25519Cocoa.cpp
+// 10.9 backport: emit stub typeinfo for InbandTextTrackPrivateAVF (vtable
+// references it but -fno-rtti suppresses real emission; dyld on 10.9 refuses to
+// load WebCore.framework otherwise — see file header for details).
+platform/graphics/avfoundation/InbandTextTrackPrivateAVFTypeInfo.cpp @no-unify
+
+// 10.9 backport: WebCrypto uses libgcrypt (built from source under
+// /Users/jonathan/Desktop/gcrypt/install). The cocoa/CommonCrypto-backed
+// implementations relied on Apple Swift CryptoKit symbols and CCECCryptor
+// SPI that 10.9 doesn't ship; replacing them with libgcrypt avoids the
+// missing-symbol crashes documented in [[project_ecdh_enabled_may17]]
+// and the WebCrypto SHA-224 / SPKI asserts.
 crypto/cocoa/CryptoKeyCocoa.cpp
-crypto/cocoa/CryptoKeyECCocoa.cpp
-crypto/cocoa/CryptoKeyOKPCocoa.cpp
-crypto/cocoa/CryptoKeyRSACocoa.cpp
+// 10.9 backport: WebCrypto uses libgcrypt, but the CommonCrypto-based CryptoUtilitiesCocoa (AES-CTR
+// transform helpers) is still required by the WebRTC SFrame transformer (RTCRtpSFrameTransformerCocoa).
 crypto/cocoa/CryptoUtilitiesCocoa.cpp
-crypto/cocoa/SerializedCryptoKeyWrapCocoa.mm @nonARC
-crypto/CommonCryptoUtilities.cpp
+crypto/gcrypt/CryptoAlgorithmAESCBCGCrypt.cpp
+crypto/gcrypt/CryptoAlgorithmAESCFBGCrypt.cpp
+crypto/gcrypt/CryptoAlgorithmAESCTRGCrypt.cpp
+crypto/gcrypt/CryptoAlgorithmAESGCMGCrypt.cpp
+crypto/gcrypt/CryptoAlgorithmAESKWGCrypt.cpp
+crypto/gcrypt/CryptoAlgorithmECDHGCrypt.cpp
+crypto/gcrypt/CryptoAlgorithmECDSAGCrypt.cpp
+crypto/gcrypt/CryptoAlgorithmEd25519GCrypt.cpp
+crypto/gcrypt/CryptoAlgorithmHKDFGCrypt.cpp
+crypto/gcrypt/CryptoAlgorithmHMACGCrypt.cpp
+crypto/gcrypt/CryptoAlgorithmPBKDF2GCrypt.cpp
+crypto/gcrypt/CryptoAlgorithmRSASSA_PKCS1_v1_5GCrypt.cpp @no-unify
+crypto/gcrypt/CryptoAlgorithmRSA_OAEPGCrypt.cpp @no-unify
+crypto/gcrypt/CryptoAlgorithmRSA_PSSGCrypt.cpp @no-unify
+crypto/gcrypt/CryptoAlgorithmRegistryGCrypt.cpp
+crypto/gcrypt/CryptoAlgorithmX25519GCrypt.cpp
+crypto/gcrypt/CryptoKeyECGCrypt.cpp
+crypto/gcrypt/CryptoKeyOKPGCrypt.cpp
+crypto/gcrypt/CryptoKeyRSAGCrypt.cpp
+crypto/gcrypt/GCryptRFC7748.cpp
+crypto/gcrypt/GCryptRFC8032.cpp
+crypto/gcrypt/GCryptUtilities.cpp
+crypto/gcrypt/SerializedCryptoKeyWrapGCrypt.cpp
 dom/DataTransferMac.mm @nonARC
 dom/ios/MouseEventIOS.cpp
 dom/ios/PointerEventIOS.cpp
@@ -388,13 +402,14 @@ platform/graphics/avfoundation/objc/MediaPlayerPrivateMediaStreamAVFObjC.mm @non
 platform/graphics/avfoundation/objc/MediaSampleAVFObjC.mm @nonARC
 platform/graphics/avfoundation/objc/MediaSourcePrivateAVFObjC.mm @nonARC
 platform/graphics/avfoundation/objc/SourceBufferPrivateAVFObjC.mm @nonARC @no-unify
-platform/graphics/avfoundation/objc/SourceBufferParserAVFObjC.mm @nonARC @no-unify
+// platform/graphics/avfoundation/objc/SourceBufferParserAVFObjC.mm @nonARC @no-unify -- 10.9: AVStreamDataParser absent; replaced by SourceBufferParserISOBMFF
 platform/graphics/avfoundation/objc/TextTrackPrivateMediaSourceAVFObjC.cpp
 platform/graphics/avfoundation/objc/VideoLayerManagerObjC.mm @nonARC @no-unify
 platform/graphics/avfoundation/objc/VideoTrackPrivateAVFObjC.cpp
 platform/graphics/avfoundation/objc/VideoTrackPrivateMediaSourceAVFObjC.mm @nonARC
 platform/graphics/avfoundation/objc/WebAVContentKeyGroup.mm @nonARC @no-unify
 platform/graphics/avfoundation/objc/WebCoreAVFResourceLoader.mm @nonARC
+platform/graphics/avfoundation/objc/QueuedVideoOutput.mm
 platform/graphics/ca/GraphicsLayerCA.cpp
 platform/graphics/ca/LayerPool.cpp
 platform/graphics/ca/PlatformCAAnimation.cpp
@@ -444,6 +459,7 @@ platform/graphics/cg/UTIRegistry.mm @nonARC
 platform/graphics/cocoa/AV1UtilitiesCocoa.mm @nonARC @no-unify
 platform/graphics/cocoa/AudioTrackPrivateWebM.cpp
 platform/graphics/cocoa/CMUtilities.mm @nonARC @no-unify
+platform/graphics/cocoa/MediaPlayerEnumsCocoa.mm
 platform/graphics/cocoa/ColorCocoa.mm @nonARC
 platform/graphics/cocoa/FloatRectCocoa.mm @nonARC
 platform/graphics/cocoa/FontCacheCocoa.mm @nonARC
@@ -464,11 +480,12 @@ platform/graphics/cocoa/IconCocoa.mm @nonARC
 platform/graphics/cocoa/IntRectCocoa.mm @nonARC
 platform/graphics/cocoa/ImageAdapterCocoa.mm @nonARC
 platform/graphics/cocoa/MediaPlayerCocoa.mm @nonARC
-platform/graphics/cocoa/MediaPlayerPrivateWebM.mm @nonARC @no-unify
+// platform/graphics/cocoa/MediaPlayerPrivateWebM.mm @nonARC @no-unify -- 10.9: libwebm absent
 platform/graphics/cocoa/PlatformMediaEngineConfigurationFactoryCocoa.cpp
 platform/graphics/cocoa/PlatformTimeRangesCocoa.mm @nonARC @no-unify
 platform/graphics/cocoa/SourceBufferParser.cpp
-platform/graphics/cocoa/SourceBufferParserWebM.cpp
+platform/graphics/cocoa/SourceBufferParserISOBMFF.cpp
+// platform/graphics/cocoa/SourceBufferParserWebM.cpp -- 10.9: libwebm absent; replaced by SourceBufferParserISOBMFF
 platform/graphics/cocoa/SystemFontDatabaseCocoa.mm @nonARC
 platform/graphics/cocoa/SystemFontDatabaseCoreText.cpp
 platform/graphics/cocoa/TextTrackRepresentationCocoa.mm @nonARC
@@ -481,7 +498,7 @@ platform/graphics/cocoa/WebCoreCALayerExtras.mm @nonARC
 platform/graphics/cocoa/WebCoreDecompressionSession.mm @nonARC
 platform/graphics/cocoa/WebProcessGraphicsContextGLCocoa.mm @nonARC
 platform/graphics/cocoa/VideoMediaSampleRenderer.mm @nonARC
-platform/graphics/cocoa/VideoTrackPrivateWebM.cpp
+// platform/graphics/cocoa/VideoTrackPrivateWebM.cpp -- 10.9: WebM/libwebm absent
 platform/graphics/cocoa/WebLayer.mm @nonARC
 platform/graphics/cocoa/controls/ApplePayButtonCocoa.mm @nonARC
 platform/graphics/cocoa/controls/ControlFactoryCocoa.mm @nonARC
@@ -669,6 +686,8 @@ platform/mediastream/ios/AVAudioSessionCaptureDevice.mm @nonARC
 platform/mediastream/ios/AVAudioSessionCaptureDeviceManager.mm @nonARC @no-unify
 platform/mediastream/ios/CoreAudioCaptureSourceIOS.mm @nonARC
 platform/mediastream/libwebrtc/LibWebRTCProviderCocoa.cpp
+platform/mediastream/libwebrtc/WebRTCCodecStubs109.mm @nonARC @no-unify
+platform/mediastream/libwebrtc/WebRTCMediaStubs109.mm @nonARC @no-unify
 platform/mediastream/mac/AVCaptureDeviceManager.mm @nonARC
 platform/mediastream/mac/AVVideoCaptureSource.mm @nonARC @no-unify
 platform/mediastream/mac/BaseAudioCaptureUnit.cpp
@@ -742,5 +761,6 @@ testing/cocoa/WebViewVisualIdentificationOverlay.mm @nonARC
 // with files that include system headers that include system OpenGL headers.
 
 platform/graphics/angle/GraphicsContextGLANGLE.cpp @no-unify
+platform/graphics/cocoa/ANGLEUtilitiesCocoa.mm @nonARC @no-unify
 platform/graphics/cocoa/GraphicsContextGLCocoa.mm @nonARC @no-unify
 platform/graphics/cv/GraphicsContextGLCVCocoa.mm @nonARC @no-unify

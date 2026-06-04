@@ -669,6 +669,13 @@ HTMLMediaElement::HTMLMediaElement(const QualifiedName& tagName, Document& docum
     RefPtr page = document.page();
     m_shouldAudioPlaybackRequireUserGesture = page && page->requiresUserGestureForAudioPlayback() && !processingUserGestureForMedia();
     m_shouldVideoPlaybackRequireUserGesture = page && page->requiresUserGestureForVideoPlayback() && !processingUserGestureForMedia();
+#if ENABLE(MEDIA_SOURCE)
+    // 10.9 backport: never require a user gesture to start playback so script/auto play works for the
+    // custom MSE pipeline (otherwise HTMLMediaElement::play() rejects NotAllowedError via
+    // RequireUserGestureForVideoRateChange and the CMTimebase never starts → frozen first frame).
+    m_shouldAudioPlaybackRequireUserGesture = false;
+    m_shouldVideoPlaybackRequireUserGesture = false;
+#endif
 
     allMediaElements().add(*this);
 
@@ -4478,12 +4485,10 @@ void HTMLMediaElement::setPreload(const AtomString& preload)
 
 void HTMLMediaElement::play(DOMPromiseDeferred<void>&& promise)
 {
-    // 10.9 backport: reject the play() promise immediately. Companion to the
-    // prepareForLoad/createMediaPlayer skips — without a player, calling play
-    // crashes deep in MediaPlayer code.
-    promise.reject(ExceptionCode::NotAllowedError);
-    return;
-
+    // 10.9 backport: the early `promise.reject(NotAllowedError); return;` stub here was added in an
+    // earlier session when there was no working media player (calling play crashed deep in MediaPlayer).
+    // The custom MSE pipeline now has a real player, so let the normal play() path run — this is what
+    // was rejecting every YouTube/MSE video.play() with NotAllowedError and freezing the timebase.
     HTMLMEDIAELEMENT_RELEASE_LOG(PLAY);
 
     Ref mediaSession = this->mediaSession();

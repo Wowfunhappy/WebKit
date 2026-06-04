@@ -160,7 +160,14 @@ NS_ASSUME_NONNULL_END
 
 #endif // ENABLE(WIRELESS_PLAYBACK_TARGET)
 
+// 10.9 backport: AVAssetCache is a macOS 10.13+ AVFoundation class; its header is absent on 10.9.
+// Import it when present, otherwise provide a stub base class so the SPI category below compiles.
+#if __has_include(<AVFoundation/AVAssetCache.h>)
 #import <AVFoundation/AVAssetCache.h>
+#else
+@interface AVAssetCache : NSObject
+@end
+#endif
 NS_ASSUME_NONNULL_BEGIN
 @interface AVAssetCache ()
 + (AVAssetCache *)assetCacheWithURL:(NSURL *)URL;
@@ -343,6 +350,21 @@ NS_ASSUME_NONNULL_BEGIN
 NS_ASSUME_NONNULL_END
 #endif // __has_include(<AVFoundation/AVSampleBufferDisplayLayer.h>)
 
+// 10.9 backport: AVQueuedSampleBufferRendering (status/error + the AVQueuedSampleBufferRenderingStatus
+// enum) is macOS 10.10+. AVSampleBufferDisplayLayer exists on 10.9 but lacks it. Provide the enum and a
+// status/error category when the protocol header is absent, so LocalSampleBufferDisplayLayer can read .status.
+#if !__has_include(<AVFoundation/AVQueuedSampleBufferRendering.h>)
+typedef NS_ENUM(NSInteger, AVQueuedSampleBufferRenderingStatus) {
+    AVQueuedSampleBufferRenderingStatusUnknown = 0,
+    AVQueuedSampleBufferRenderingStatusRendering = 1,
+    AVQueuedSampleBufferRenderingStatusFailed = 2,
+};
+@interface AVSampleBufferDisplayLayer (WebKitAVQueuedSampleBufferRenderingBackport)
+@property (nonatomic, readonly) AVQueuedSampleBufferRenderingStatus status;
+@property (nonatomic, readonly, nullable) NSError *error;
+@end
+#endif
+
 #if HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
 @interface AVSampleBufferDisplayLayer (Staging_94324932)
 - (nullable CVPixelBufferRef)copyDisplayedPixelBuffer;
@@ -409,7 +431,9 @@ NS_ASSUME_NONNULL_END
 @end
 #endif // HAVE(BROWSER_ENGINE_SUPPORTING_API)
 
-#if !USE(APPLE_INTERNAL_SDK) && !PLATFORM(MACCATALYST)
+// 10.9 backport: AVAudioSession is iOS-centric and absent from the 10.9 macOS SDK. Only enter this
+// SPI block when the framework header is actually present.
+#if !USE(APPLE_INTERNAL_SDK) && !PLATFORM(MACCATALYST) && __has_include(<AVFoundation/AVAudioSession.h>)
 #import <AVFoundation/AVAudioSession.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -488,11 +512,43 @@ NS_ASSUME_NONNULL_END
 @end
 #endif
 
+// The WKSecureCoding category extends AVOutputContext, which only exists under
+// ENABLE(WIRELESS_PLAYBACK_TARGET), and its sole consumer (CoreIPCAVOutputContext.mm) is gated on
+// HAVE(WK_SECURE_CODING_AVOUTPUTCONTEXT). Guard it with the same macro so it isn't declared on
+// builds (e.g. 10.9, WIRELESS_PLAYBACK_TARGET off) where AVOutputContext is undefined.
+#if HAVE(WK_SECURE_CODING_AVOUTPUTCONTEXT)
 NS_ASSUME_NONNULL_BEGIN
 @interface AVOutputContext(WKSecureCoding)
 - (NSDictionary *)_webKitPropertyListData;
 - (instancetype)_initWithWebKitPropertyListData:(NSDictionary *)plist;
 @end
 NS_ASSUME_NONNULL_END
+#endif
+
+// 10.9 capture backport: the modern AVCapture device-discovery and camera-effect APIs (macOS
+// 10.15–14) are absent from the 10.9 SDK. Provide the types/properties so the MediaStream capture
+// layer (AVVideoCaptureSource, AVCaptureDeviceManager) compiles; the soft-linked classes are nil at
+// runtime on 10.9, so these paths return nil/NO (live camera capture is a later WebRTC step).
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101500
+#import <AVFoundation/AVCaptureDevice.h>
+#import <CoreMedia/CMFormatDescription.h>
+
+typedef NSString *AVCaptureDeviceType;
+
+NS_ASSUME_NONNULL_BEGIN
+@interface AVCaptureDeviceDiscoverySession : NSObject
++ (instancetype)discoverySessionWithDeviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes mediaType:(nullable NSString *)mediaType position:(AVCaptureDevicePosition)position;
+@property (nonatomic, readonly) NSArray<AVCaptureDevice *> *devices;
+@end
+
+@interface AVCaptureDevice (WebKit109CaptureBackport)
+@property (nonatomic, readonly) BOOL portraitEffectActive;
+@end
+
+@interface NSValue (WebKit109CMVideoDimensions)
+@property (nonatomic, readonly) CMVideoDimensions CMVideoDimensionsValue;
+@end
+NS_ASSUME_NONNULL_END
+#endif
 
 #endif // !__has_feature(modules)

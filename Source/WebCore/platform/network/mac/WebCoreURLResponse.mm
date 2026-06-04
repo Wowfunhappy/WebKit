@@ -200,7 +200,12 @@ NSURLResponse *synthesizeRedirectResponseIfNecessary(NSURLRequest *currentReques
     if (redirectResponse)
         return redirectResponse;
 
-    if ([[[newRequest URL] scheme] isEqualToString:[[currentRequest URL] scheme]] && ![newRequest _schemeWasUpgradedDueToDynamicHSTS])
+    // 10.9 backport: -[NSURLRequest _schemeWasUpgradedDueToDynamicHSTS] is a CFNetwork SPI that
+    // does not exist on 10.9 — calling it unguarded throws an unrecognized-selector NSException
+    // (→ std::terminate). Guard it like the other call sites in NetworkSessionCocoa.mm; when the
+    // selector is absent the scheme was not HSTS-upgraded, so treat it as NO.
+    BOOL schemeWasUpgradedDueToHSTS = [newRequest respondsToSelector:@selector(_schemeWasUpgradedDueToDynamicHSTS)] && [newRequest _schemeWasUpgradedDueToDynamicHSTS];
+    if ([[[newRequest URL] scheme] isEqualToString:[[currentRequest URL] scheme]] && !schemeWasUpgradedDueToHSTS)
         return nil;
 
     return retainPtr(ResourceResponse::syntheticRedirectResponse(URL([currentRequest URL]), URL([newRequest URL])).nsURLResponse()).autorelease();

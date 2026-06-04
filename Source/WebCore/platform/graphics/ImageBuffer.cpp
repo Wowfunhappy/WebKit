@@ -131,9 +131,14 @@ ImageBuffer::~ImageBuffer() = default;
 IntSize ImageBuffer::calculateBackendSize(FloatSize logicalSize, float resolutionScale)
 {
     FloatSize scaledSize = { ceilf(resolutionScale * logicalSize.width()), ceilf(resolutionScale * logicalSize.height()) };
-    if (scaledSize.isEmpty() || !scaledSize.isExpressibleAsIntSize())
+    bool empty = scaledSize.isEmpty();
+    bool expressible = scaledSize.isExpressibleAsIntSize();
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[calcBackendSize] logical=%gx%g scale=%g scaled=%gx%g empty=%d expressible=%d\n", (double)logicalSize.width(), (double)logicalSize.height(), (double)resolutionScale, (double)scaledSize.width(), (double)scaledSize.height(), (int)empty, (int)expressible); fclose(_d);}}
+    if (empty || !expressible)
         return { };
-    return IntSize { scaledSize };
+    auto result = IntSize { scaledSize };
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[calcBackendSize] result=%dx%d\n", result.width(), result.height()); fclose(_d);}}
+    return result;
 }
 
 ImageBufferBackendParameters ImageBuffer::backendParameters(const ImageBufferParameters& parameters)

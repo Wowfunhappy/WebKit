@@ -53,13 +53,13 @@ additional_forward_declaration: typedef struct CF_BRIDGED_TYPE(id) __SecAccessCo
 [WebKitPlatform, CustomHeader, AdditionalEncoder=StreamConnectionEncoder, ToCFMethod=result->createSecAccessControl()] SecAccessControlRef wrapped by WebKit::CoreIPCSecAccessControl {
 }
 
-additional_forward_declaration: typedef struct CF_BRIDGED_TYPE(id) __SecCertificate *SecCertificateRef
+additional_forward_declaration: typedef struct CF_BRIDGED_TYPE(id) OpaqueSecCertificateRef *SecCertificateRef
 [WebKitPlatform, CustomHeader, AdditionalEncoder=StreamConnectionEncoder, ToCFMethod=result->createSecCertificate()] SecCertificateRef wrapped by WebKit::CoreIPCSecCertificate {
 }
 
 #if HAVE(SEC_KEYCHAIN)
 
-additional_forward_declaration: typedef struct CF_BRIDGED_TYPE(id) __SecKeychainItem *SecKeychainItemRef
+additional_forward_declaration: typedef struct CF_BRIDGED_TYPE(id) OpaqueSecKeychainItemRef *SecKeychainItemRef
 [WebKitPlatform, CustomHeader, AdditionalEncoder=StreamConnectionEncoder, ToCFMethod=result->createSecKeychainItem()] SecKeychainItemRef wrapped by WebKit::CoreIPCSecKeychainItem {
 }
 

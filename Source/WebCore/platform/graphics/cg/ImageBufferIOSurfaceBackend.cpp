@@ -52,6 +52,12 @@ IntSize ImageBufferIOSurfaceBackend::calculateSafeBackendSize(const Parameters& 
         return { };
 
     IntSize maxSize = IOSurface::maximumSize();
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IOSurfBE::calcSafe] backendSize=%dx%d maxSize=%dx%d\n", backendSize.width(), backendSize.height(), maxSize.width(), maxSize.height()); fclose(_d);}}
+    // 10.9 backport: IOSurface::maximumSize() returns 0x0 due to polyfill stub returning
+    // junk via struct-return register. Substitute a sane cap (16K x 16K) so the size
+    // check doesn't reject every valid backing-store request.
+    if (maxSize.width() <= 0 || maxSize.height() <= 0)
+        maxSize = IntSize(16384, 16384);
     if (backendSize.width() > maxSize.width() || backendSize.height() > maxSize.height())
         return { };
 
@@ -72,6 +78,7 @@ size_t ImageBufferIOSurfaceBackend::calculateMemoryCost(const Parameters& parame
 
 std::unique_ptr<ImageBufferIOSurfaceBackend> ImageBufferIOSurfaceBackend::create(const Parameters& parameters, const ImageBufferCreationContext& creationContext)
 {
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WCore::IOSurfBE::create] purpose=%d paramsBackendSize=%dx%d scale=%g\n", (int)parameters.purpose, parameters.backendSize.width(), parameters.backendSize.height(), (double)parameters.resolutionScale); fclose(_d);}}
     // 10.9 backport: skip IOSurface backend for canvas — IOSurface drawing/readback is
     // unreliable on this build (canvas pixels read back as zeros even after fillRect,
     // canvas.toDataURL returns empty "data:,"). Falling back to ImageBufferPlatformBitmapBackend
@@ -81,14 +88,17 @@ std::unique_ptr<ImageBufferIOSurfaceBackend> ImageBufferIOSurfaceBackend::create
         return nullptr;
 
     IntSize backendSize = calculateSafeBackendSize(parameters);
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WCore::IOSurfBE] backendSize=%dx%d empty=%d\n", backendSize.width(), backendSize.height(), (int)backendSize.isEmpty()); fclose(_d);}}
     if (backendSize.isEmpty())
         return nullptr;
 
     auto surface = IOSurface::create(RefPtr { creationContext.surfacePool }.get(), backendSize, parameters.colorSpace, IOSurface::Name::ImageBuffer, convertToIOSurfaceFormat(parameters.bufferFormat.pixelFormat), parameters.bufferFormat.useLosslessCompression);
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WCore::IOSurfBE] IOSurface::create returned=%p\n", surface.get()); fclose(_d);}}
     if (!surface)
         return nullptr;
 
     RetainPtr<CGContextRef> cgContext = surface->createPlatformContext(creationContext.displayID);
+    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WCore::IOSurfBE] createPlatformContext returned=%p\n", cgContext.get()); fclose(_d);}}
     if (!cgContext)
         return nullptr;
 
@@ -348,6 +358,17 @@ RetainPtr<CGImageRef> ImageBufferIOSurfaceBackend::createImage()
 {
     // Consumers may hold on to the image, so mark external writes needing the invalidation marker.
     m_mayHaveOutstandingBackingStoreReferences = true;
+    // 10.9 backport: IOSurface::createPlatformContext returns a CGBitmapContext (not a real
+    // CGIOSurfaceContext — CGIOSurfaceContextCreate is private/unavailable on 10.9). The upstream
+    // IOSurface::createImage path calls CGIOSurfaceContextCreateImage on that context which spams
+    // "CGIOSurfaceContextCreateImage: invalid context ... serious error" on every paint and returns
+    // null. Use CGBitmapContextCreateImage instead — it copies the pixel data into a standalone
+    // CGImage (matching the "may have outstanding references" contract above). The companion
+    // createImageReference() already uses a different CG path for synchronized reads.
+    if (auto ctx = ensurePlatformContext()) {
+        if (auto image = adoptCF(CGBitmapContextCreateImage(ctx)))
+            return image;
+    }
     return m_surface->createImage(ensurePlatformContext());
 }
 
@@ -355,12 +376,24 @@ RetainPtr<CGImageRef> ImageBufferIOSurfaceBackend::createImageReference()
 {
     // The reference is used only in synchronized manner, so after the use ends, we can update
     // externally without invalidation marker. Thus we do not set m_mayHaveOutstandingBackingStoreReferences.
-    auto image = adoptCF(CGIOSurfaceContextCreateImageReference(ensurePlatformContext()));
-    // CG has internal caches for some operations related to software bitmap draw.
-    // One of these caches are per-image color matching cache. Since these will not get any hits
-    // from an image that is recreated every time, mark the image transient to skip these caches.
-    // This also skips WebKit GraphicsContext subimage cache.
-    CGImageSetCachingFlags(image.get(), kCGImageCachingTransient);
+    // 10.9 backport: libpolyfill's CGIOSurfaceContextCreateImageReference is just a wrapper that calls
+    // CGIOSurfaceContextCreateImage, which fails on our CGBitmapContext-backed "IOSurface" with
+    // "invalid context ... serious error" spam on every paint and returns null. CGBitmapContextCreateImage
+    // works correctly — it copies the bitmap pixels into a standalone CGImage. (We give up the
+    // "synchronized reference" semantics, but they were already broken: the previous code returned null
+    // images, so anywhere we relied on them seeing live IOSurface mutations was already getting blanks.)
+    RetainPtr<CGImageRef> image;
+    if (auto ctx = ensurePlatformContext())
+        image = adoptCF(CGBitmapContextCreateImage(ctx));
+    else
+        image = adoptCF(CGIOSurfaceContextCreateImageReference(ensurePlatformContext()));
+    if (image) {
+        // CG has internal caches for some operations related to software bitmap draw.
+        // One of these caches are per-image color matching cache. Since these will not get any hits
+        // from an image that is recreated every time, mark the image transient to skip these caches.
+        // This also skips WebKit GraphicsContext subimage cache.
+        CGImageSetCachingFlags(image.get(), kCGImageCachingTransient);
+    }
     return image;
 }
 

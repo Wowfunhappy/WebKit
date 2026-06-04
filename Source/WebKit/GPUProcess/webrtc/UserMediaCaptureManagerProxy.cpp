@@ -66,7 +66,12 @@ class UserMediaCaptureManagerProxySourceProxy final
     WTF_MAKE_TZONE_ALLOCATED_INLINE(UserMediaCaptureManagerProxySourceProxy);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(UserMediaCaptureManagerProxySourceProxy);
 public:
+#if ENABLE(GPU_PROCESS)
     static Ref<UserMediaCaptureManagerProxySourceProxy> create(RealtimeMediaSourceIdentifier id, Ref<IPC::Connection>&& connection, ProcessIdentity&& resourceOwner, Ref<RealtimeMediaSource>&& source, RefPtr<RemoteVideoFrameObjectHeap>&& videoFrameObjectHeap) { return adoptRef(*new UserMediaCaptureManagerProxySourceProxy(id, WTF::move(connection), WTF::move(resourceOwner), WTF::move(source), WTF::move(videoFrameObjectHeap))); }
+#else
+    // 10.9 backport: no RemoteVideoFrameObjectHeap without GPU_PROCESS; frames go out as CVPixelBuffers.
+    static Ref<UserMediaCaptureManagerProxySourceProxy> create(RealtimeMediaSourceIdentifier id, Ref<IPC::Connection>&& connection, ProcessIdentity&& resourceOwner, Ref<RealtimeMediaSource>&& source) { return adoptRef(*new UserMediaCaptureManagerProxySourceProxy(id, WTF::move(connection), WTF::move(resourceOwner), WTF::move(source))); }
+#endif
     ~UserMediaCaptureManagerProxySourceProxy()
     {
         unobserveMedia();
@@ -329,12 +334,18 @@ public:
 #endif
 
 private:
-    UserMediaCaptureManagerProxySourceProxy(RealtimeMediaSourceIdentifier id, Ref<IPC::Connection>&& connection, ProcessIdentity&& resourceOwner, Ref<RealtimeMediaSource>&& source, RefPtr<RemoteVideoFrameObjectHeap>&& videoFrameObjectHeap)
+    UserMediaCaptureManagerProxySourceProxy(RealtimeMediaSourceIdentifier id, Ref<IPC::Connection>&& connection, ProcessIdentity&& resourceOwner, Ref<RealtimeMediaSource>&& source
+#if ENABLE(GPU_PROCESS)
+        , RefPtr<RemoteVideoFrameObjectHeap>&& videoFrameObjectHeap
+#endif
+        )
         : m_id(id)
         , m_connection(WTF::move(connection))
         , m_resourceOwner(WTF::move(resourceOwner))
         , m_source(WTF::move(source))
+#if ENABLE(GPU_PROCESS)
         , m_videoFrameObjectHeap(WTF::move(videoFrameObjectHeap))
+#endif
     {
         m_source->addObserver(*this);
         m_source->setCanUseIOSurface();
@@ -427,14 +438,16 @@ private:
         if (m_resourceOwner)
             frame.setOwnershipIdentity(m_resourceOwner);
 
-        RefPtr videoFrameObjectHeap = m_videoFrameObjectHeap;
-        if (!videoFrameObjectHeap) {
-            m_connection->send(Messages::RemoteCaptureSampleManager::VideoFrameAvailableCV(m_id, frame.pixelBuffer(), frame.rotation(), frame.isMirrored(), frame.presentationTime(), metadata), 0);
+#if ENABLE(GPU_PROCESS)
+        // 10.9 backport: the GPU-frame-heap path requires ENABLE(GPU_PROCESS). With it off, frames always
+        // travel as CVPixelBuffers (the m_videoFrameObjectHeap member is gated out and always null anyway).
+        if (RefPtr videoFrameObjectHeap = m_videoFrameObjectHeap) {
+            auto properties = videoFrameObjectHeap->add(frame);
+            m_connection->send(Messages::RemoteCaptureSampleManager::VideoFrameAvailable(m_id, properties, metadata), 0);
             return;
         }
-
-        auto properties = videoFrameObjectHeap->add(frame);
-        m_connection->send(Messages::RemoteCaptureSampleManager::VideoFrameAvailable(m_id, properties, metadata), 0);
+#endif
+        m_connection->send(Messages::RemoteCaptureSampleManager::VideoFrameAvailableCV(m_id, frame.pixelBuffer(), frame.rotation(), frame.isMirrored(), frame.presentationTime(), metadata), 0);
     }
 
     bool preventSourceFromEnding()
@@ -461,7 +474,9 @@ private:
     int64_t m_remainingFrameCount { 0 };
     size_t m_frameChunkSize { 0 };
     MediaTime m_startTime;
+#if ENABLE(GPU_PROCESS)
     RefPtr<RemoteVideoFrameObjectHeap> m_videoFrameObjectHeap;
+#endif
 #if PLATFORM(IOS_FAMILY)
     Function<void()> m_providePresentingApplicationPIDFunction;
 #endif
@@ -604,8 +619,13 @@ void UserMediaCaptureManagerProxy::createMediaSourceForCaptureDeviceWithConstrai
 
     ASSERT(!m_proxies.contains(id));
     Ref connection = m_connectionProxy->connection();
+#if ENABLE(GPU_PROCESS)
     RefPtr remoteVideoFrameObjectHeap = shouldUseGPUProcessRemoteFrames ? m_connectionProxy->remoteVideoFrameObjectHeap() : nullptr;
     auto proxy = UserMediaCaptureManagerProxySourceProxy::create(id, WTF::move(connection), m_connectionProxy->resourceOwner(), WTF::move(source), WTF::move(remoteVideoFrameObjectHeap));
+#else
+    UNUSED_PARAM(shouldUseGPUProcessRemoteFrames);
+    auto proxy = UserMediaCaptureManagerProxySourceProxy::create(id, WTF::move(connection), m_connectionProxy->resourceOwner(), WTF::move(source));
+#endif
 
 #if PLATFORM(IOS_FAMILY)
     proxy->setProvidePresentingApplicationPIDFunction([weakThis = WeakPtr { *this }, pageIdentifier] {
@@ -756,8 +776,12 @@ void UserMediaCaptureManagerProxy::clone(RealtimeMediaSourceIdentifier clonedID,
         }
 
         Ref connection = m_connectionProxy->connection();
+#if ENABLE(GPU_PROCESS)
         RefPtr remoteVideoFrameObjectHeap = m_connectionProxy->remoteVideoFrameObjectHeap();
         auto cloneProxy = UserMediaCaptureManagerProxySourceProxy::create(newSourceID, WTF::move(connection), m_connectionProxy->resourceOwner(), WTF::move(sourceClone), WTF::move(remoteVideoFrameObjectHeap));
+#else
+        auto cloneProxy = UserMediaCaptureManagerProxySourceProxy::create(newSourceID, WTF::move(connection), m_connectionProxy->resourceOwner(), WTF::move(sourceClone));
+#endif
         cloneProxy->copySettings(*proxy);
 #if PLATFORM(IOS_FAMILY)
         cloneProxy->setProvidePresentingApplicationPIDFunction([weakThis = WeakPtr { *this }, pageIdentifier] {

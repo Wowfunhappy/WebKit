@@ -63,6 +63,8 @@ typedef double NSTimeInterval;
 
 namespace WebCore {
 
+class AVAssetReaderVideoPump;
+class AVAssetReaderAudioPump;
 class AudioSourceProviderAVFObjC;
 class AudioTrackPrivateAVFObjC;
 class CDMInstanceFairPlayStreamingAVFObjC;
@@ -201,6 +203,12 @@ private:
     void createAVPlayer() final;
     void createAVPlayerItem() final;
     void createAVPlayerLayer();
+#if PLATFORM(MAC)
+    // 10.9 backport: AVPlayer playback pipeline is non-functional in WebContent; drive video
+    // frames manually via AVAssetReader. See project_video_decode_works_assetreader_may23.
+    void startAssetReaderVideoPump(FloatSize presentationSize);
+    void stopAssetReaderVideoPump();
+#endif
     void createAVAssetForURL(const URL&) final;
     void createAVAssetForURL(const URL&, RetainPtr<NSMutableDictionary>);
     MediaPlayerPrivateAVFoundation::ItemStatus playerItemStatus() const final;
@@ -409,6 +417,10 @@ private:
     RetainPtr<AVPlayer> m_avPlayer;
     RetainPtr<AVPlayerItem> m_avPlayerItem;
     RetainPtr<AVPlayerLayer> m_videoLayer WTF_GUARDED_BY_CAPABILITY(mainThread);
+#if PLATFORM(MAC)
+    RefPtr<AVAssetReaderVideoPump> m_assetReaderPump;
+    RefPtr<AVAssetReaderAudioPump> m_assetReaderAudioPump;
+#endif
     const UniqueRef<VideoLayerManagerObjC> m_videoLayerManager;
     MediaPlayer::VideoGravity m_videoFullscreenGravity { MediaPlayer::VideoGravity::ResizeAspect };
     const RetainPtr<WebCoreAVFMovieObserver> m_objcObserver;

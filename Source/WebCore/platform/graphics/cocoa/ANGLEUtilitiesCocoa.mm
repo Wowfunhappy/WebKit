@@ -30,8 +30,17 @@
 #include "ANGLEHeaders.h"
 #include "ANGLEUtilities.h"
 #include "Logging.h"
+// 10.9 backport: Metal (10.11+) is unavailable; this build uses ANGLE's OpenGL/CGL backend. Guard
+// the Metal include and the Metal-only helpers (their callers are compiled out, see GraphicsContextGLCocoa.mm).
+#if defined(MAC_OS_X_VERSION_10_11) && (!defined(MAC_OS_X_VERSION_MAX_ALLOWED) || MAC_OS_X_VERSION_MAX_ALLOWED >= 101100)
+#define WK_ANGLE_METAL 1
+#else
+#define WK_ANGLE_METAL 0
+#endif
+#if WK_ANGLE_METAL
 #include <Metal/Metal.h>
 #include <pal/spi/cocoa/MetalSPI.h>
+#endif
 #include <wtf/SoftLinking.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/darwin/WeakLinking.h>
@@ -82,9 +91,11 @@ namespace WebCore {
 
 bool platformIsANGLEAvailable()
 {
-    // The ANGLE is weak linked in full, and the EGL_Initialize is explicitly weak linked above
-    // so that we can detect the case where ANGLE is not present.
-    return EGL_Initialize != NULL; // NOLINT
+    // 10.9 backport: ANGLE is STATICALLY linked into WebCore (not a separately-loaded dylib), so
+    // the weak-link "is the ANGLE dylib present" check (EGL_Initialize != NULL) is both unnecessary
+    // and unsafe here (reading the weak-imported symbol's address crashes under static linking).
+    // ANGLE is always present in this build.
+    return true;
 }
 
 void* createPbufferAndAttachIOSurface(GCGLDisplay display, GCGLConfig config, GCGLenum target, GCGLint usageHint, GCGLenum internalFormat, GCGLsizei width, GCGLsizei height, GCGLenum type, IOSurfaceRef surface, GCGLuint plane)
@@ -122,6 +133,23 @@ void destroyPbufferAndDetachIOSurface(EGLDisplay display, void* handle)
     EGL_DestroySurface(display, handle);
 }
 
+#if !WK_ANGLE_METAL
+// 10.9 backport: Metal-only helpers are stubbed (callers compiled out with the OpenGL/CGL backend).
+RetainPtr<id<MTLRasterizationRateMap>> newRasterizationRateMap(GCGLDisplay, IntSize, IntSize, IntSize, std::span<const float>, std::span<const float>, std::span<const float>)
+{
+    return nullptr;
+}
+
+RetainPtr<id<MTLSharedEvent>> newSharedEventWithMachPort(GCGLDisplay, mach_port_t)
+{
+    return nullptr;
+}
+
+RetainPtr<id<MTLSharedEvent>> newSharedEvent(GCGLDisplay)
+{
+    return nullptr;
+}
+#else
 RetainPtr<id<MTLRasterizationRateMap>> newRasterizationRateMap(GCGLDisplay display, IntSize physicalSizeLeft, IntSize physicalSizeRight, IntSize screenSize, std::span<const float> horizontalSamplesLeft, std::span<const float> verticalSamples, std::span<const float> horizontalSamplesRight)
 {
     EGLDeviceEXT device = EGL_NO_DEVICE_EXT;
@@ -204,6 +232,7 @@ RetainPtr<id<MTLSharedEvent>> newSharedEvent(GCGLDisplay display)
 
     return adoptNS([mtlDevice newSharedEvent]);
 }
+#endif // WK_ANGLE_METAL
 
 }
 

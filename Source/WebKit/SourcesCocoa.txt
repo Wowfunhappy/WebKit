@@ -62,11 +62,14 @@ NetworkProcess/mac/SecItemShim.mm @nonARC
 
 NetworkProcess/webrtc/LibWebRTCSocketClient.cpp
 NetworkProcess/webrtc/NetworkRTCMonitor.cpp
-NetworkProcess/webrtc/NetworkRTCSharedMonitorCocoa.mm @nonARC
 NetworkProcess/webrtc/NetworkRTCProvider.cpp
 NetworkProcess/webrtc/NetworkRTCSharedMonitor.cpp
-NetworkProcess/webrtc/NetworkRTCTCPSocketCocoa.mm @nonARC
-NetworkProcess/webrtc/NetworkRTCUDPSocketCocoa.mm @nonARC
+// macOS 10.9 backport (WK_RTC_USE_NW=0): the nw_*/Network.framework socket + path-monitor
+// implementations require 10.14+. We route WebRTC through libwebrtc's portable BSD-socket
+// path (LibWebRTCSocketClient + BasicPacketSocketFactory) instead, so these are excluded:
+// NetworkProcess/webrtc/NetworkRTCSharedMonitorCocoa.mm @nonARC
+// NetworkProcess/webrtc/NetworkRTCTCPSocketCocoa.mm @nonARC
+// NetworkProcess/webrtc/NetworkRTCUDPSocketCocoa.mm @nonARC
 
 GPUProcess/EntryPoint/Cocoa/XPCService/GPUServiceEntryPoint.mm @nonARC
 GPUProcess/cocoa/GPUConnectionToWebProcessCocoa.mm @nonARC
@@ -359,6 +362,8 @@ UIProcess/API/Cocoa/NSAttributedString.mm @nonARC
 UIProcess/API/Cocoa/WKBackForwardList.mm @nonARC
 UIProcess/API/Cocoa/WKBackForwardListItem.mm @nonARC
 UIProcess/API/Cocoa/WKBrowsingContextController.mm @nonARC
+UIProcess/API/Cocoa/WKBrowsingContextGroup.mm @nonARC
+UIProcess/API/Cocoa/WKProcessGroup.mm @nonARC
 UIProcess/API/Cocoa/WKContentRuleList.mm @nonARC
 UIProcess/API/Cocoa/WKContentRuleListStore.mm @nonARC
 UIProcess/API/Cocoa/WKContentWorld.mm @nonARC
@@ -640,6 +645,7 @@ UIProcess/mac/DisplayCaptureSessionManager.mm @nonARC
 UIProcess/mac/DisplayLinkMac.cpp
 UIProcess/mac/LegacySessionStateCoding.cpp
 UIProcess/mac/PageClientImplMac.mm @nonARC
+UIProcess/mac/MinimalPageClient.mm @nonARC
 UIProcess/mac/SecItemShimProxy.cpp
 UIProcess/mac/ServicesController.mm @nonARC
 UIProcess/mac/TextCheckerMac.mm @nonARC

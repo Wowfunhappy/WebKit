@@ -93,7 +93,8 @@ std::optional<CryptoKeyPair> CryptoKeyOKP::platformGeneratePair(CryptoAlgorithmI
     UNUSED_PARAM(namedCurve);
     UNUSED_PARAM(extractable);
     UNUSED_PARAM(usages);
-    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+    // 10.9 backport: fail the JS operation instead of crashing the tab.
+    return std::nullopt;
 #endif
 }
 

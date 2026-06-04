@@ -1692,6 +1692,40 @@ static WKMediaPlaybackState NODELETE toWKMediaPlaybackState(WebKit::MediaPlaybac
 #endif
 }
 
+#if PLATFORM(MAC)
+// 10.9 Top Sites backport: Safari 9 captures Top Sites / "Webpage Previews" via the
+// legacy -[WKWebView _snapshotRect:intoImageOfWidth:completionHandler:] SPI. Upstream
+// retained this entry point only on iOS (see WKWebViewIOS.mm), so on macOS the selector
+// is unrecognized — Safari guards with respondsToSelector: and silently skips capture,
+// leaving the previews directory empty (#299). Re-provide the macOS implementation,
+// modeled on the macOS branch of -takeSnapshotWithConfiguration:completionHandler: above.
+// imageWidth is the desired output width in device pixels; the result is exactly that wide.
+- (void)_snapshotRect:(CGRect)rectInViewCoordinates intoImageOfWidth:(CGFloat)imageWidth completionHandler:(void(^)(CGImageRef))completionHandler
+{
+    THROW_IF_SUSPENDED;
+    tracePoint(TakeSnapshotStart);
+
+    auto handler = makeBlockPtr(completionHandler);
+
+    if (CGRectIsEmpty(rectInViewCoordinates) || imageWidth <= 0) {
+        RunLoop::mainSingleton().dispatch([handler = WTF::move(handler)] {
+            handler(nullptr);
+        });
+        return;
+    }
+
+    CGFloat imageScale = imageWidth / rectInViewCoordinates.size.width;
+    CGFloat imageHeight = imageScale * rectInViewCoordinates.size.height;
+    WebCore::IntSize bitmapSize(imageWidth, imageHeight);
+
+    WebKit::SnapshotOptions snapshotOptions = WebKit::SnapshotOption::InViewCoordinates;
+    _page->takeSnapshot(WebCore::enclosingIntRect(rectInViewCoordinates), bitmapSize, snapshotOptions, [handler](CGImageRef cgImage) {
+        tracePoint(TakeSnapshotEnd, !!cgImage);
+        handler(cgImage);
+    });
+}
+#endif // PLATFORM(MAC)
+
 - (void)setAllowsBackForwardNavigationGestures:(BOOL)allowsBackForwardNavigationGestures
 {
     THROW_IF_SUSPENDED;

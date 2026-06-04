@@ -186,7 +186,17 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 - (BOOL)isFlipped { return YES; }
 - (BOOL)canChangeFrameLayout:(WKFrameRef)f { return NO; }
 - (NSPrintOperation *)printOperationWithPrintInfo:(NSPrintInfo *)pi forFrame:(WKFrameRef)f { return nil; }
-- (void)setFrame:(NSRect)r andScrollBy:(NSSize)o {}
+// 10.9 backport: actually apply the frame. Safari calls this on its WKView
+// (treated as "viewBelowBanner") during Banner._moveBannerIntoPlace: to shrink
+// the web view by banner.height so that the banner can occupy that vacated
+// area. The empty stub left WKView at full container height, and Safari then
+// positioned the banner ABOVE the unchanged WKView — outside the container's
+// clipping bounds, making the banner invisible.
+- (void)setFrame:(NSRect)r andScrollBy:(NSSize)o
+{
+    [super setFrame:r];
+    (void)o;
+}
 - (void)disableFrameSizeUpdates {}
 - (void)enableFrameSizeUpdates {}
 - (BOOL)frameSizeUpdatesDisabled { return NO; }
@@ -263,7 +273,9 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
             // background tab's WKView found earlier in subview order.
             __block WKView *wkView = nil;
             void (^walk)(NSView *) = ^(NSView *v) {};
-            __block __weak void (^weakWalk)(NSView *) = nil;
+            // MRC: __block block vars are not retained by the capturing block, so __block alone
+            // breaks the recursive-block retain cycle (__weak is unavailable under manual ref counting).
+            __block void (^weakWalk)(NSView *) = nil;
             walk = ^(NSView *v) {
                 if (wkView) return;
                 if ([v isHidden]) return;

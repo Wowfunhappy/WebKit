@@ -46,7 +46,7 @@
 #include <wtf/WorkQueue.h>
 #include <wtf/posix/SocketPOSIX.h>
 
-#if PLATFORM(COCOA)
+#if WK_RTC_USE_NW
 #include <pal/spi/cocoa/NetworkSPI.h>
 #include <wtf/BlockPtr.h>
 #include <wtf/darwin/DispatchExtras.h>

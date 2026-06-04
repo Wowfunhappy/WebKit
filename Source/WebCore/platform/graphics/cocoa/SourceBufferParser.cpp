@@ -31,8 +31,7 @@
 #include "ContentType.h"
 #include "MediaSourceConfiguration.h"
 #include "SharedBuffer.h"
-#include "SourceBufferParserAVFObjC.h"
-#include "SourceBufferParserWebM.h"
+#include "SourceBufferParserISOBMFF.h"
 #include <pal/spi/cocoa/MediaToolboxSPI.h>
 #include <wtf/text/WTFString.h>
 
@@ -42,19 +41,15 @@ namespace WebCore {
 
 MediaPlayerEnums::SupportsType SourceBufferParser::isContentTypeSupported(const ContentType& type)
 {
-    MediaPlayerEnums::SupportsType supports = MediaPlayerEnums::SupportsType::IsNotSupported;
-    supports = std::max(supports, SourceBufferParserWebM::isContentTypeSupported(type));
-    supports = std::max(supports, SourceBufferParserAVFObjC::isContentTypeSupported(type));
-    return supports;
+    // 10.9: software fragmented-MP4 parser only (WebM/AVStreamDataParser unavailable).
+    return SourceBufferParserISOBMFF::isContentTypeSupported(type);
 }
 
 RefPtr<SourceBufferParser> SourceBufferParser::create(const ContentType& type, const MediaSourceConfiguration& configuration)
 {
-    if (SourceBufferParserWebM::isContentTypeSupported(type) != MediaPlayerEnums::SupportsType::IsNotSupported)
-        return SourceBufferParserWebM::create();
-
-    if (SourceBufferParserAVFObjC::isContentTypeSupported(type) != MediaPlayerEnums::SupportsType::IsNotSupported)
-        return adoptRef(new SourceBufferParserAVFObjC(configuration));
+    UNUSED_PARAM(configuration);
+    if (SourceBufferParserISOBMFF::isContentTypeSupported(type) != MediaPlayerEnums::SupportsType::IsNotSupported)
+        return SourceBufferParserISOBMFF::create();
 
     return nullptr;
 }
