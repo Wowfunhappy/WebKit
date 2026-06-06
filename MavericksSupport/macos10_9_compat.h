@@ -140,6 +140,15 @@ static __inline__ int mkostemps(char *__t, int __suffixlen, int __flags) {
 #ifndef CF_RELATED_TYPE
 #define CF_RELATED_TYPE(T, C, I)
 #endif
+/* CF_NOESCAPE (10.12+): noescape annotation on block/function-pointer params.
+ * Absent on 10.9; its absence breaks function-pointer param decls like
+ * `OSStatus (* CF_NOESCAPE callback)(...)` in PAL CoreMediaSoftLink. No-op. */
+#ifndef CF_NOESCAPE
+#define CF_NOESCAPE
+#endif
+#ifndef CF_SWIFT_NAME
+#define CF_SWIFT_NAME(_name)
+#endif
 
 /* ===== nullability region macros (Foundation; macOS 10.10+) =====
  * NS_ASSUME_NONNULL_BEGIN/END normally emit `#pragma clang assume_nonnull`.

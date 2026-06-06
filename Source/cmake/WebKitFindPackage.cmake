@@ -25,10 +25,20 @@ macro(find_package package)
 
         set(ICU_INCLUDE_DIRS ${CMAKE_BINARY_DIR}/ICU/Headers)
 
-        # Apple just has a single tbd/dylib for ICU.
-        find_library(ICU_I18N_LIBRARY icucore)
-        find_library(ICU_UC_LIBRARY icucore)
-        find_library(ICU_DATA_LIBRARY icucore)
+        # 10.9 backport: the system ICU (libicucore) is ICU 51 and lacks the
+        # modern Intl symbols JSC needs (ucfpos_*, udtitvfmt_*, ureldatefmt_*,
+        # ulistfmt_*, ...). Link our in-tree ICU 74.2 static libs instead. The
+        # bundled ICU headers above are 74.2, matching these libs.
+        if (EXISTS ${CMAKE_SOURCE_DIR}/MavericksSupport/deps/lib/libicuuc.a)
+            set(ICU_I18N_LIBRARY ${CMAKE_SOURCE_DIR}/MavericksSupport/deps/lib/libicui18n.a)
+            set(ICU_UC_LIBRARY   ${CMAKE_SOURCE_DIR}/MavericksSupport/deps/lib/libicuuc.a)
+            set(ICU_DATA_LIBRARY ${CMAKE_SOURCE_DIR}/MavericksSupport/deps/lib/libicudata.a)
+        else ()
+            # Apple just has a single tbd/dylib for ICU.
+            find_library(ICU_I18N_LIBRARY icucore)
+            find_library(ICU_UC_LIBRARY icucore)
+            find_library(ICU_DATA_LIBRARY icucore)
+        endif ()
 
         set(ICU_LIBRARIES ${ICU_UC_LIBRARY})
         set(ICU_FOUND ON)
