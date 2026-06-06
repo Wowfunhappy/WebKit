@@ -126,5 +126,41 @@ static __inline__ int mkostemps(char *__t, int __suffixlen, int __flags) {
     return __fd;
 }
 
+/* ===== CF_BRIDGED_TYPE family (CoreFoundation; macOS 10.10+) =====
+ * Toll-free-bridging annotation macros. Absent on 10.9, so WebKit SPI headers
+ * that wrap opaque-pointer typedefs in them (e.g. DataDetectorsCoreSPI's
+ * DDResultRef/DDScannerRef) fail to parse. Define as no-ops (the annotation is
+ * only an ARC diagnostic hint; the types work without it). */
+#ifndef CF_BRIDGED_TYPE
+#define CF_BRIDGED_TYPE(T)
+#endif
+#ifndef CF_BRIDGED_MUTABLE_TYPE
+#define CF_BRIDGED_MUTABLE_TYPE(T)
+#endif
+#ifndef CF_RELATED_TYPE
+#define CF_RELATED_TYPE(T, C, I)
+#endif
+
+/* ===== AppKit enum renames (macOS 10.12+) =====
+ * 10.12 renamed NS*WindowMask -> NSWindowStyleMask* and NS*ControlSize ->
+ * NSControlSize*. The 10.9 SDK only has the old names; alias the new spellings
+ * WebKit uses (PopupMenu.mm, WebPanel.mm, ...) to them. */
+#ifndef NSWindowStyleMaskBorderless
+#define NSWindowStyleMaskBorderless        NSBorderlessWindowMask
+#define NSWindowStyleMaskTitled            NSTitledWindowMask
+#define NSWindowStyleMaskClosable          NSClosableWindowMask
+#define NSWindowStyleMaskMiniaturizable    NSMiniaturizableWindowMask
+#define NSWindowStyleMaskResizable         NSResizableWindowMask
+#define NSWindowStyleMaskUtilityWindow     NSUtilityWindowMask
+#define NSWindowStyleMaskFullScreen        NSFullScreenWindowMask
+#define NSWindowStyleMaskNonactivatingPanel NSNonactivatingPanelMask
+#define NSWindowStyleMaskHUDWindow         NSHUDWindowMask
+#endif
+#ifndef NSControlSizeRegular
+#define NSControlSizeRegular  NSRegularControlSize
+#define NSControlSizeSmall    NSSmallControlSize
+#define NSControlSizeMini     NSMiniControlSize
+#endif
+
 #endif /* !__ASSEMBLER__ */
 #endif /* _COMPAT_H */

@@ -51,6 +51,15 @@ typedef void (*FigThreadAbortAction)(void* refcon);
 typedef struct OpaqueFigThreadAbortActionToken* FigThreadAbortActionToken;
 #endif
 
+// 10.9 backport: CMTaggedBufferGroup is macOS 14+. Forward-declare the opaque
+// types so PAL/cf/CoreMediaSoftLink.h's soft-link declarations parse on the 10.9
+// SDK. The functions are soft-linked and never resolve at runtime on 10.9
+// (callers nil-check), so the concrete layout is irrelevant.
+#ifndef CMTAGGEDBUFFERGROUP_H // header guard of the real CoreMedia type, if present
+typedef struct opaqueCMTaggedBufferGroup* CMTaggedBufferGroupRef;
+typedef struct opaqueCMTaggedBufferGroupFormatDescription* CMTaggedBufferGroupFormatDescriptionRef;
+#endif
+
 WTF_EXTERN_C_BEGIN
 OSStatus FigThreadRegisterAbortAction(FigThreadAbortAction, void* refcon, FigThreadAbortActionToken*);
 void FigThreadUnregisterAbortAction(FigThreadAbortActionToken);
