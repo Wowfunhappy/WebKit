@@ -37,7 +37,10 @@ export MACOSX_DEPLOYMENT_TARGET=10.9
 export CFLAGS="-O2 -mmacosx-version-min=10.9"
 export CXXFLAGS="-O2 -mmacosx-version-min=10.9 -std=c++17"
 
-./configure --prefix="$STAGE" --enable-static --disable-shared \
+# --disable-renaming: emit UNVERSIONED symbols (ucfpos_open, not ucfpos_open_74)
+# to match WebKit, which sets U_DISABLE_RENAMING=1 (it normally links Apple's
+# unversioned libicucore). Without this the JSC Intl symbols stay unresolved.
+./configure --prefix="$STAGE" --enable-static --disable-shared --disable-renaming \
   --disable-samples --disable-tests --disable-extras --disable-icuio --disable-layoutex
 make -j4
 make install
