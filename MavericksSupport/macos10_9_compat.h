@@ -141,6 +141,25 @@ static __inline__ int mkostemps(char *__t, int __suffixlen, int __flags) {
 #define CF_RELATED_TYPE(T, C, I)
 #endif
 
+/* ===== nullability region macros (Foundation; macOS 10.10+) =====
+ * NS_ASSUME_NONNULL_BEGIN/END normally emit `#pragma clang assume_nonnull`.
+ * Absent on 10.9 (e.g. JSC API JSScript.h uses them). Define as no-ops:
+ * unannotated pointers just get unspecified nullability, which is harmless. */
+#ifndef NS_ASSUME_NONNULL_BEGIN
+#define NS_ASSUME_NONNULL_BEGIN
+#define NS_ASSUME_NONNULL_END
+#endif
+
+/* ===== CoreMedia "returns retained" parameter annotation (10.10+) =====
+ * Ownership annotation on out-parameters; no-op shim for the 10.9 SDK so PAL
+ * CoreMediaSoftLink declarations parse. */
+#ifndef CM_RETURNS_RETAINED_PARAMETER
+#define CM_RETURNS_RETAINED_PARAMETER
+#endif
+#ifndef CM_RETURNS_RETAINED
+#define CM_RETURNS_RETAINED
+#endif
+
 /* ===== AppKit enum renames (macOS 10.12+) =====
  * 10.12 renamed NS*WindowMask -> NSWindowStyleMask* and NS*ControlSize ->
  * NSControlSize*. The 10.9 SDK only has the old names; alias the new spellings

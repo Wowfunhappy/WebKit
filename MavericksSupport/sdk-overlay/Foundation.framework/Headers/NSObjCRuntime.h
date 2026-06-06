@@ -256,11 +256,11 @@
 #define NS_ERROR_ENUM(_domain, _name) NS_ENUM(NSInteger, _name)
 #endif
 
-#ifndef NSErrorDomain
+#if !defined(NSErrorDomain) && defined(__OBJC__)
 typedef NSString *NSErrorDomain;
 #endif
 
-#ifndef NSNotificationName
+#if !defined(NSNotificationName) && defined(__OBJC__)
 typedef NSString *NSNotificationName;
 #endif
 
@@ -301,17 +301,17 @@ typedef NSString *NSNotificationName;
 #endif
 
 /* NSAttributedString document reading option key (10.11+) */
-#ifndef NSAttributedStringDocumentReadingOptionKey
+#if !defined(NSAttributedStringDocumentReadingOptionKey) && defined(__OBJC__)
 typedef NSString * NSAttributedStringDocumentReadingOptionKey;
 #endif
 
 /* NSKeyValueChangeKey (10.11+) */
-#ifndef NSKeyValueChangeKey
+#if !defined(NSKeyValueChangeKey) && defined(__OBJC__)
 typedef NSString * NSKeyValueChangeKey;
 #endif
 
 /* NSErrorUserInfoKey (10.11+) */
-#ifndef NSErrorUserInfoKey
+#if !defined(NSErrorUserInfoKey) && defined(__OBJC__)
 typedef NSString * NSErrorUserInfoKey;
 #endif
 
