@@ -96,5 +96,35 @@ static __inline__ void *aligned_alloc(size_t __alignment, size_t __size) {
 #define VM_FLAGS_PERMANENT 0
 #endif
 
+/* ===== newer VM_MEMORY_* allocation tags (not on 10.9) =====
+ * Advisory user tags ORed into vm_allocate flags purely for attribution in
+ * Instruments / WTF ResourceUsageCocoa. 10.9 tops out around 76; these later
+ * tags carry their real upstream values (harmless if a profiler differs). */
+#ifndef VM_MEMORY_MALLOC_MEDIUM
+#define VM_MEMORY_MALLOC_MEDIUM 18
+#endif
+#ifndef VM_MEMORY_IOSURFACE
+#define VM_MEMORY_IOSURFACE 88
+#endif
+#ifndef VM_MEMORY_IOACCELERATOR
+#define VM_MEMORY_IOACCELERATOR 91
+#endif
+
+/* ===== mkostemp / mkostemps (glibc extension; not on 10.9) =====
+ * WTF FileSystemCocoa.mm calls mkostemp(t, O_CLOEXEC)/mkostemps(t, n, O_CLOEXEC).
+ * 10.9 has mkstemp/mkstemps; wrap them and apply O_CLOEXEC via fcntl. */
+#include <unistd.h>
+#include <fcntl.h>
+static __inline__ int mkostemp(char *__t, int __flags) {
+    int __fd = mkstemp(__t);
+    if (__fd >= 0 && (__flags & O_CLOEXEC)) fcntl(__fd, F_SETFD, FD_CLOEXEC);
+    return __fd;
+}
+static __inline__ int mkostemps(char *__t, int __suffixlen, int __flags) {
+    int __fd = mkstemps(__t, __suffixlen);
+    if (__fd >= 0 && (__flags & O_CLOEXEC)) fcntl(__fd, F_SETFD, FD_CLOEXEC);
+    return __fd;
+}
+
 #endif /* !__ASSEMBLER__ */
 #endif /* _COMPAT_H */
