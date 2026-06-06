@@ -91,9 +91,10 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     # 10.9 backport: crypto/cocoa header dir for CryptoUtilitiesCocoa.h — still needed by the WebRTC
     # SFrame transformer (CommonCrypto AES-CTR helper), distinct from the libgcrypt WebCrypto impl.
     "${WEBCORE_DIR}/crypto/cocoa"
-    # 10.9 backport: libgcrypt built locally; see [[project_webcrypto_cc_stubs_stripped]]
+    # 10.9 backport: libgcrypt/libtasn1/libgpg-error built in-tree by
+    # MavericksSupport/deps/build_deps.sh; see [[project_webcrypto_cc_stubs_stripped]]
     # for the prior CommonCrypto approach that's now retired.
-    "/Users/jonathan/Desktop/gcrypt/install/include"
+    "${MAVERICKS_DEPS}/include"
     "${WEBCORE_DIR}/dom/mac"
     "${WEBCORE_DIR}/editing/cocoa"
     "${WEBCORE_DIR}/editing/mac"
@@ -988,11 +989,11 @@ list(APPEND WebCore_LIBRARIES
 
 # 10.9 backport: libgcrypt powers WebCrypto (replaces the cocoa CommonCrypto path).
 # libtasn1 handles SPKI/PKCS8 ASN.1 parsing for the gcrypt EC/RSA importers.
-# All built from source at /Users/jonathan/Desktop/gcrypt; static link.
+# All built in-tree by MavericksSupport/deps/build_deps.sh; static link.
 list(APPEND WebCore_LIBRARIES
-    "/Users/jonathan/Desktop/gcrypt/install/lib/libgcrypt.a"
-    "/Users/jonathan/Desktop/gcrypt/install/lib/libtasn1.a"
-    "/Users/jonathan/Desktop/gcrypt/install/lib/libgpg-error.a"
+    "${MAVERICKS_DEPS}/lib/libgcrypt.a"
+    "${MAVERICKS_DEPS}/lib/libtasn1.a"
+    "${MAVERICKS_DEPS}/lib/libgpg-error.a"
 )
 
 # 10.9 backport: WOFF2 web-font decoder (USE_WOFF2=ON). Our modern UA makes Google Fonts/Material
@@ -1003,12 +1004,12 @@ list(APPEND WebCore_LIBRARIES
 if (NOT TARGET WOFF2::dec)
     add_library(WOFF2::dec UNKNOWN IMPORTED GLOBAL)
     set_target_properties(WOFF2::dec PROPERTIES
-        IMPORTED_LOCATION "/Users/jonathan/Desktop/clang/deps/woff2/out/libwoff2dec.a"
-        INTERFACE_INCLUDE_DIRECTORIES "/Users/jonathan/Desktop/clang/deps/woff2/include"
-        INTERFACE_LINK_LIBRARIES "/Users/jonathan/Desktop/clang/deps/brotli/out/libbrotlidec.a;/Users/jonathan/Desktop/clang/deps/brotli/out/libbrotlicommon.a"
+        IMPORTED_LOCATION "${MAVERICKS_DEPS}/lib/libwoff2dec.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${MAVERICKS_DEPS}/include"
+        INTERFACE_LINK_LIBRARIES "${MAVERICKS_DEPS}/lib/libbrotlidec.a;${MAVERICKS_DEPS}/lib/libbrotlicommon.a"
     )
 endif ()
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-    "/Users/jonathan/Desktop/clang/deps/woff2/include"
+    "${MAVERICKS_DEPS}/include"
 )
 

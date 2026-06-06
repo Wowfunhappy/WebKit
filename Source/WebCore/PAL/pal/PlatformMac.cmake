@@ -293,5 +293,5 @@ list(APPEND PAL_PRIVATE_INCLUDE_DIRECTORIES
     "${PAL_DIR}/pal/spi/cocoa"
     "${PAL_DIR}/pal/spi/mac"
     # 10.9 backport: gcrypt-based CryptoDigest needs libgcrypt headers.
-    "/Users/jonathan/Desktop/gcrypt/install/include"
+    "${MAVERICKS_DEPS}/include"
 )

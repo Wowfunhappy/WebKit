@@ -101,17 +101,29 @@ find_package(LibXml2 2.8.0 REQUIRED)
 find_package(LibXslt 1.1.13 REQUIRED)
 
 # Polyfill libraries for macOS 10.9
+#
+# Build-environment locations. Rather than hardcode an absolute toolchain path
+# (which broke when the VM was reorganized), derive the clang-22 toolchain root
+# from the compiler in use, and reference the in-tree MavericksSupport artifacts
+# relative to the source tree so a fresh checkout + toolchain just works.
+get_filename_component(MAVERICKS_TC "${CMAKE_CXX_COMPILER}" DIRECTORY)   # .../clang-22/bin
+get_filename_component(MAVERICKS_TC "${MAVERICKS_TC}" DIRECTORY)         # .../clang-22
+set(MAVERICKS_TC "${MAVERICKS_TC}" CACHE INTERNAL "clang-22 toolchain root")
+set(MAVERICKS_SUPPORT "${CMAKE_SOURCE_DIR}/MavericksSupport" CACHE INTERNAL "MavericksSupport dir")
+set(MAVERICKS_DEPS "${MAVERICKS_SUPPORT}/deps" CACHE INTERNAL "in-tree third-party deps")
+
 # 10.9 backport: link libc++ DYNAMICALLY (one shared copy) rather than statically into every
 # dylib. Static libc++ per-dylib gives WebCore and JavaScriptCore each their own copy of libc++'s
 # locale/iostream global state; destroying a std::stringstream then corrupts across copies and
-# crashes WebContent (see task #280). The shared dylibs have an absolute install_name
-# (/System/Library/StagedFrameworks/Safari/libc++.1.dylib) and are deployed there by postbuild.
-link_libraries(/Users/jonathan/Desktop/clang/libcxx-22/lib-shared/libc++.1.dylib)
-link_libraries(/Users/jonathan/Desktop/clang/libcxx-22/lib-shared/libc++abi.1.dylib)
-link_libraries(/usr/local/lib/libMacportsLegacySupport.a)
-# libpolyfill.a now contains const_polyfill.o (real CFSTR definitions for
+# crashes WebContent (see task #280). These are the clang-22 toolchain's libc++/libc++abi
+# (install_name @rpath/libc++.1.dylib); the postbuild deploys a private copy next to the
+# frameworks and points an LC_RPATH at it so the system's old 10.9 libc++ is NOT used.
+link_libraries(${MAVERICKS_TC}/lib/libc++.1.dylib)
+link_libraries(${MAVERICKS_TC}/lib/libc++abi.1.dylib)
+link_libraries(${MAVERICKS_TC}/lib/libMacportsLegacySupport.a)
+# libpolyfill.a contains const_polyfill.o (real CFSTR definitions for
 # 101 Apple CFString constants previously broken by xorl stubs).
-link_libraries(/Users/jonathan/Desktop/clang/libpolyfill.a)
+link_libraries(${MAVERICKS_SUPPORT}/prebuilt/libpolyfill.a)
 # -nostdlib++ is needed because we use a custom libc++ (clang-22).
 # Upstream WebKit applies -undefined dynamic_lookup only to WebCore via its
 # target LINK_FLAGS (with -umbrella WebKit), not globally. We follow that pattern.
@@ -124,7 +136,7 @@ add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-mmacosx-version-min=1
 add_link_options(-mmacosx-version-min=10.9)
 
 # Overlay framework dir for patched headers (lightweight generics on collection types)
-add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-iframework> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:/Users/jonathan/Desktop/clang/sdk-overlay>)
+add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-iframework> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:${MAVERICKS_SUPPORT}/sdk-overlay>)
 
 # 10.9 backport: clang-22 enables C++/ObjC modules by default, so __has_feature(modules) is true.
 # Many WebKit SPI headers guard their forward declarations with `#if !__has_feature(modules)`,
@@ -142,5 +154,5 @@ add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-fno-modules> $<$<NOT:
 # run after project()/enable_language so they override the rule values at generation WITHOUT
 # re-triggering compiler detection (which would reset CMAKE_C_COMPILER etc.).
 foreach(_lang C CXX OBJC OBJCXX)
-    set(CMAKE_${_lang}_CREATE_STATIC_LIBRARY "/Users/jonathan/Desktop/clang/clang-22/bin/llvm-ar qc <TARGET> <OBJECTS>")
+    set(CMAKE_${_lang}_CREATE_STATIC_LIBRARY "${MAVERICKS_TC}/bin/llvm-ar qc <TARGET> <OBJECTS>")
 endforeach()

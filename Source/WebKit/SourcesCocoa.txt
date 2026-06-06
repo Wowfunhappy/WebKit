@@ -362,8 +362,8 @@ UIProcess/API/Cocoa/NSAttributedString.mm @nonARC
 UIProcess/API/Cocoa/WKBackForwardList.mm @nonARC
 UIProcess/API/Cocoa/WKBackForwardListItem.mm @nonARC
 UIProcess/API/Cocoa/WKBrowsingContextController.mm @nonARC
-UIProcess/API/Cocoa/WKBrowsingContextGroup.mm @nonARC
-UIProcess/API/Cocoa/WKProcessGroup.mm @nonARC
+// UIProcess/API/Cocoa/WKBrowsingContextGroup.mm @nonARC -- removed upstream (5065b21); .mm absent. Safari 7 imports WKBrowsingContextController (kept) but not the Group class. See task "Restore WKBrowsingContext* WK2 ObjC SPI for Safari 7".
+// UIProcess/API/Cocoa/WKProcessGroup.mm @nonARC -- removed upstream; .mm absent; not imported by Safari 7.
 UIProcess/API/Cocoa/WKContentRuleList.mm @nonARC
 UIProcess/API/Cocoa/WKContentRuleListStore.mm @nonARC
 UIProcess/API/Cocoa/WKContentWorld.mm @nonARC
