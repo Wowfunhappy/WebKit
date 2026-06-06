@@ -158,7 +158,7 @@ bridge/objc/objc_utility.mm @nonARC @no-unify
 // 10.9 backport: emit stub typeinfo for InbandTextTrackPrivateAVF (vtable
 // references it but -fno-rtti suppresses real emission; dyld on 10.9 refuses to
 // load WebCore.framework otherwise — see file header for details).
-platform/graphics/avfoundation/InbandTextTrackPrivateAVFTypeInfo.cpp @no-unify
+// platform/graphics/avfoundation/InbandTextTrackPrivateAVFTypeInfo.cpp @no-unify  -- lost backport RTTI helper; never committed. See task: build InbandTextTrack typeinfo (handle link-time if needed).
 
 // 10.9 backport: WebCrypto uses libgcrypt (built from source under
 // /Users/jonathan/Desktop/gcrypt/install). The cocoa/CommonCrypto-backed
@@ -686,8 +686,8 @@ platform/mediastream/ios/AVAudioSessionCaptureDevice.mm @nonARC
 platform/mediastream/ios/AVAudioSessionCaptureDeviceManager.mm @nonARC @no-unify
 platform/mediastream/ios/CoreAudioCaptureSourceIOS.mm @nonARC
 platform/mediastream/libwebrtc/LibWebRTCProviderCocoa.cpp
-platform/mediastream/libwebrtc/WebRTCCodecStubs109.mm @nonARC @no-unify
-platform/mediastream/libwebrtc/WebRTCMediaStubs109.mm @nonARC @no-unify
+// platform/mediastream/libwebrtc/WebRTCCodecStubs109.mm @nonARC @no-unify  -- lost backport libwebrtc stub; WebRTC disabled for initial bringup. See task "Re-enable WebRTC/MediaStream".
+// platform/mediastream/libwebrtc/WebRTCMediaStubs109.mm @nonARC @no-unify  -- lost backport libwebrtc stub; WebRTC disabled for initial bringup. See task "Re-enable WebRTC/MediaStream".
 platform/mediastream/mac/AVCaptureDeviceManager.mm @nonARC
 platform/mediastream/mac/AVVideoCaptureSource.mm @nonARC @no-unify
 platform/mediastream/mac/BaseAudioCaptureUnit.cpp

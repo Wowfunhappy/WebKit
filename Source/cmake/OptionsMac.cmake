@@ -138,6 +138,13 @@ add_link_options(-mmacosx-version-min=10.9)
 # Overlay framework dir for patched headers (lightweight generics on collection types)
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-iframework> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:${MAVERICKS_SUPPORT}/sdk-overlay>)
 
+# 10.9 backport: gap-fill polyfill headers (os/log.h, compression.h, simd/, sys/ & mach/
+# additions, etc.) for post-10.9 system headers that don't exist on Mavericks. Added with
+# -idirafter so it is searched AFTER the real SDK: where the 10.9 SDK has the header, the SDK
+# wins; only genuinely-missing headers fall through to the polyfill. (The clang wrapper used to
+# carry this via clang.cfg pointing at the old toolchain layout; that was lost in the VM reset.)
+add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-idirafter> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:${MAVERICKS_SUPPORT}/polyfill>)
+
 # 10.9 backport: clang-22 enables C++/ObjC modules by default, so __has_feature(modules) is true.
 # Many WebKit SPI headers guard their forward declarations with `#if !__has_feature(modules)`,
 # expecting the types to come from framework modules instead. But the 10.9 system frameworks lack the

@@ -30,3 +30,15 @@ set(CMAKE_NM      ${_TC}/bin/llvm-nm      CACHE FILEPATH "")
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.9" CACHE STRING "")
 set(CMAKE_OSX_SYSROOT ""  CACHE STRING "")
 set(CMAKE_OSX_ARCHITECTURES "" CACHE STRING "")
+
+# WebKit's build-time code generators need python3 (the 10.9 system only has
+# 2.7). Built by MavericksSupport/build_python3.sh into the toolchain tools dir.
+# Pin both the new (Python_EXECUTABLE) and legacy (PYTHON_EXECUTABLE) variables.
+if (DEFINED ENV{MAVERICKS_PYTHON3})
+    set(_PY3 "$ENV{MAVERICKS_PYTHON3}")
+else ()
+    set(_PY3 /Users/jonathan/Desktop/Compilers/toolchains/tools/python3/bin/python3)
+endif ()
+set(Python_EXECUTABLE  "${_PY3}" CACHE FILEPATH "")
+set(Python3_EXECUTABLE "${_PY3}" CACHE FILEPATH "")
+set(PYTHON_EXECUTABLE  "${_PY3}" CACHE FILEPATH "")

@@ -1,0 +1,1239 @@
+// MinimalPageClient — PageClient backing WKView on the macOS 10.9 backport.
+//
+// Safari 7 drives WebKit2 through WKView (an NSView), not WKWebView. WKView
+// creates its WebPageProxy with this lightweight PageClient instead of the
+// upstream WKWebView + WebViewImpl + PageClientImpl stack (PageClientImpl is
+// `final` and tightly coupled to WebViewImpl). It inherits the Cocoa-common
+// behavior from PageClientImplCocoa and implements the view-geometry, layer
+// hosting (TiledCoreAnimation), and coordinate-transform pieces directly
+// against the backing NSView; the remaining PageClient surface is stubbed.
+//
+// WKView.mm forward-declares createMinimalPageClient()/setMinimalPageClientPage();
+// they are defined at the bottom of this file.
+//
+// (The original MinimalPageClient.mm was written during the Safari-9 effort but
+// was never committed and was lost in the VM reset; this is a clean rewrite.)
+
+#import "config.h"
+
+#if PLATFORM(MAC)
+
+#import "DrawingAreaProxy.h"
+#import "LayerTreeContext.h"
+#import "PageClientImplCocoa.h"
+#import "RemoteLayerTreeNode.h"
+#import "TiledCoreAnimationDrawingAreaProxy.h"
+#import "WebPageProxy.h"
+#import "WebProcessProxy.h"
+#import <WebCore/DestinationColorSpace.h>
+#import <WebCore/FloatRect.h>
+#import <WebCore/IntPoint.h>
+#import <WebCore/IntRect.h>
+#import <WebCore/IntSize.h>
+#import <WebCore/Region.h>
+#import <WebCore/WebCoreCALayerExtras.h>
+#import <QuartzCore/QuartzCore.h>
+#import <wtf/RetainPtr.h>
+
+namespace WebKit {
+
+class MinimalPageClient final : public PageClientImplCocoa {
+    WTF_MAKE_FAST_ALLOCATED;
+public:
+    explicit MinimalPageClient(NSView *view)
+        : PageClientImplCocoa(nil)
+        , m_view(view)
+    {
+    }
+
+    void setPage(WebPageProxy* page) { m_page = page; }
+
+private:
+    Ref<DrawingAreaProxy> createDrawingAreaProxy(WebProcessProxy&) final;
+    void setViewNeedsDisplay(const WebCore::Region&) final;
+    void requestScroll(const WebCore::FloatPoint& scrollPosition, const WebCore::IntPoint& scrollOrigin, WebCore::ScrollIsAnimated, WebCore::InterruptScrollAnimation) final;
+    WebCore::FloatPoint viewScrollPosition() final;
+    WebCore::IntSize viewSize() final;
+    bool isViewWindowActive() final;
+    bool isViewFocused() final;
+    bool isActiveViewVisible() final;
+#if PLATFORM(COCOA)
+    bool canTakeForegroundAssertions() final;
+#endif
+    bool isViewInWindow() final;
+    void processDidExit() final;
+    void didRelaunchProcess() final;
+    void preferencesDidChange() final;
+    void toolTipChanged(const String&, const String&) final;
+#if PLATFORM(IOS_FAMILY)
+    void decidePolicyForGeolocationPermissionRequest(WebFrameProxy&, const FrameInfoData&, Function<void(bool)>&) final;
+#endif
+    void didCommitLoadForMainFrame(const String& mimeType, bool useCustomContentProvider) final;
+#if ENABLE(PDF_HUD)
+    void createPDFHUD(PDFPluginIdentifier, WebCore::FrameIdentifier, const WebCore::IntRect&) final;
+#endif
+#if ENABLE(PDF_HUD)
+    void updatePDFHUDLocation(PDFPluginIdentifier, const WebCore::IntRect&) final;
+#endif
+#if ENABLE(PDF_HUD)
+    void removePDFHUD(PDFPluginIdentifier) final;
+#endif
+#if ENABLE(PDF_HUD)
+    void removeAllPDFHUDs() final;
+#endif
+#if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
+    void createPDFPageNumberIndicator(PDFPluginIdentifier, const WebCore::IntRect&, size_t pageCount) final;
+#endif
+#if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
+    void updatePDFPageNumberIndicatorLocation(PDFPluginIdentifier, const WebCore::IntRect&) final;
+#endif
+#if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
+    void updatePDFPageNumberIndicatorCurrentPage(PDFPluginIdentifier, size_t pageIndex) final;
+#endif
+#if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
+    void removePDFPageNumberIndicator(PDFPluginIdentifier) final;
+#endif
+#if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
+    void removeAnyPDFPageNumberIndicator() final;
+#endif
+    void didChangeContentSize(const WebCore::IntSize&) final;
+#if ENABLE(DRAG_SUPPORT)
+#if PLATFORM(GTK)
+    void startDrag(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<WebCore::ShareableBitmap>&& dragImage, WebCore::IntPoint&& dragImageHotspot) final;
+#endif
+#endif
+    void setCursor(const WebCore::Cursor&) final;
+    void setCursorHiddenUntilMouseMoves(bool) final;
+    void registerEditCommand(Ref<WebEditCommandProxy>&&, UndoOrRedo) final;
+    void clearAllEditCommands() final;
+    bool canUndoRedo(UndoOrRedo) final;
+    void executeUndoRedo(UndoOrRedo) final;
+    void wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&) final;
+#if PLATFORM(COCOA)
+    void accessibilityWebProcessTokenReceived(std::span<const uint8_t>, pid_t) final;
+#endif
+#if PLATFORM(COCOA)
+    bool executeSavedCommandBySelector(const String& selector) final;
+#endif
+#if PLATFORM(COCOA)
+    void updateSecureInputState() final;
+#endif
+#if PLATFORM(COCOA)
+    void resetSecureInputState() final;
+#endif
+#if PLATFORM(COCOA)
+    void notifyInputContextAboutDiscardedComposition() final;
+#endif
+#if PLATFORM(COCOA)
+    void makeFirstResponder() final;
+#endif
+#if PLATFORM(COCOA)
+    void assistiveTechnologyMakeFirstResponder() final;
+#endif
+#if PLATFORM(COCOA)
+    void setRemoteLayerTreeRootNode(RemoteLayerTreeNode*) final;
+#endif
+#if PLATFORM(COCOA)
+    CALayer *acceleratedCompositingRootLayer() const final;
+#endif
+#if PLATFORM(COCOA)
+#if ENABLE(MAC_GESTURE_EVENTS)
+    void gestureEventWasNotHandledByWebCore(const NativeWebGestureEvent&) final;
+#endif
+#endif
+#if PLATFORM(MAC)
+    CALayer *headerBannerLayer() const final;
+#endif
+#if PLATFORM(MAC)
+    CALayer *footerBannerLayer() const final;
+#endif
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+    void selectionDidChange() final;
+#endif
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+    RefPtr<ViewSnapshot> takeViewSnapshot(std::optional<WebCore::IntRect>&&) final;
+#endif
+#if PLATFORM(MAC)
+    RefPtr<ViewSnapshot> takeViewSnapshot(std::optional<WebCore::IntRect>&&, ForceSoftwareCapturingViewportSnapshot) final;
+#endif
+#if USE(APPKIT)
+    void setPromisedDataForImage(const String& pasteboardName, Ref<WebCore::FragmentedSharedBuffer>&& imageBuffer, const String& filename, const String& extension, const String& title, const String& url, const String& visibleURL, RefPtr<WebCore::FragmentedSharedBuffer>&& archiveBuffer, const String& originIdentifier) final;
+#endif
+    WebCore::FloatRect convertToDeviceSpace(const WebCore::FloatRect&) final;
+    WebCore::FloatRect convertToUserSpace(const WebCore::FloatRect&) final;
+    WebCore::IntPoint screenToRootView(const WebCore::IntPoint&) final;
+    WebCore::IntPoint rootViewToScreen(const WebCore::IntPoint&) final;
+    WebCore::IntRect rootViewToScreen(const WebCore::IntRect&) final;
+    WebCore::IntPoint accessibilityScreenToRootView(const WebCore::IntPoint&) final;
+    WebCore::IntRect rootViewToAccessibilityScreen(const WebCore::IntRect&) final;
+#if PLATFORM(IOS_FAMILY)
+    void relayAccessibilityNotification(String&&, RetainPtr<NSData>&&) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void relayAriaNotifyNotification(const WebCore::AriaNotifyData&) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void relayLiveRegionNotification(const WebCore::LiveRegionAnnouncementData&) final;
+#endif
+#if PLATFORM(MAC)
+    WebCore::IntRect rootViewToWindow(const WebCore::IntRect&) final;
+#endif
+#if ENABLE(TWO_PHASE_CLICKS)
+    void didNotHandleTapAsClick(const WebCore::IntPoint&) final;
+#endif
+    void doneWithKeyEvent(const NativeWebKeyboardEvent&, bool wasEventHandled) final;
+#if ENABLE(TOUCH_EVENTS)
+    void doneWithTouchEvent(const WebTouchEvent&, bool wasEventHandled) final;
+#endif
+#if ENABLE(IOS_TOUCH_EVENTS)
+    void doneDeferringTouchStart(bool preventNativeGestures) final;
+#endif
+#if ENABLE(IOS_TOUCH_EVENTS)
+    void doneDeferringTouchMove(bool preventNativeGestures) final;
+#endif
+#if ENABLE(IOS_TOUCH_EVENTS)
+    void doneDeferringTouchEnd(bool preventNativeGestures) final;
+#endif
+    RefPtr<WebPopupMenuProxy> createPopupMenuProxy(WebPageProxy&) final;
+#if ENABLE(CONTEXT_MENUS)
+    Ref<WebContextMenuProxy> createContextMenuProxy(WebPageProxy&, FrameInfoData&&, ContextMenuContextData&&, const UserData&) final;
+#endif
+    RefPtr<WebColorPicker> createColorPicker(WebPageProxy&, const WebCore::Color& initialColor, const WebCore::IntRect&, ColorControlSupportsAlpha, Vector<WebCore::Color>&&, std::optional<WebCore::FrameIdentifier>) final;
+    RefPtr<WebDataListSuggestionsDropdown> createDataListSuggestionsDropdown(WebPageProxy&) final;
+    RefPtr<WebDateTimePicker> createDateTimePicker(WebPageProxy&) final;
+#if PLATFORM(COCOA) || PLATFORM(GTK)
+    Ref<WebCore::ValidationBubble> createValidationBubble(String&& message, const WebCore::ValidationBubble::Settings&) final;
+#endif
+#if PLATFORM(COCOA)
+    CALayer *textIndicatorInstallationLayer() final;
+#endif
+#if PLATFORM(COCOA)
+    void didPerformDictionaryLookup(const WebCore::DictionaryPopupInfo&) final;
+#endif
+#if HAVE(APP_ACCENT_COLORS)
+    WebCore::Color accentColor() final;
+#endif
+#if HAVE(APP_ACCENT_COLORS)
+#if PLATFORM(MAC)
+    bool appUsesCustomAccentColor() final;
+#endif
+#endif
+    void enterAcceleratedCompositingMode(const LayerTreeContext&) final;
+    void exitAcceleratedCompositingMode() final;
+    void updateAcceleratedCompositingMode(const LayerTreeContext&) final;
+#if USE(DICTATION_ALTERNATIVES)
+    void showDictationAlternativeUI(const WebCore::FloatRect& boundingBoxOfDictatedText, WebCore::DictationContext) final;
+#endif
+#if PLATFORM(MAC)
+    void showCorrectionPanel(WebCore::AlternativeTextType, const WebCore::FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings) final;
+#endif
+#if PLATFORM(MAC)
+    void dismissCorrectionPanel(WebCore::ReasonForDismissingAlternativeText) final;
+#endif
+#if PLATFORM(MAC)
+    String dismissCorrectionPanelSoon(WebCore::ReasonForDismissingAlternativeText) final;
+#endif
+#if PLATFORM(MAC)
+    void recordAutocorrectionResponse(WebCore::AutocorrectionResponse, const String& replacedString, const String& replacementString) final;
+#endif
+#if PLATFORM(MAC)
+    void recommendedScrollbarStyleDidChange(WebCore::ScrollbarStyle) final;
+#endif
+#if PLATFORM(MAC)
+    void handleControlledElementIDResponse(const String&) final;
+#endif
+#if PLATFORM(MAC)
+    CGRect boundsOfLayerInLayerBackedWindowCoordinates(CALayer *) const final;
+#endif
+#if PLATFORM(MAC)
+    bool useFormSemanticContext() const final;
+#endif
+#if PLATFORM(MAC)
+    NSView *viewForPresentingRevealPopover() const final;
+#endif
+#if PLATFORM(MAC)
+    void showPlatformContextMenu(NSMenu *, WebCore::IntPoint) final;
+#endif
+#if PLATFORM(MAC)
+    void startWindowDrag() final;
+#endif
+#if PLATFORM(MAC)
+    void setShouldSuppressFirstResponderChanges(bool) final;
+#endif
+#if PLATFORM(MAC)
+    RetainPtr<NSView> inspectorAttachmentView() final;
+#endif
+#if PLATFORM(MAC)
+    _WKRemoteObjectRegistry *remoteObjectRegistry() final;
+#endif
+#if PLATFORM(MAC)
+    void intrinsicContentSizeDidChange(const WebCore::IntSize& intrinsicContentSize) final;
+#endif
+#if PLATFORM(MAC)
+    void registerInsertionUndoGrouping() final;
+#endif
+#if PLATFORM(MAC)
+    void setEditableElementIsFocused(bool) final;
+#endif
+#if PLATFORM(COCOA)
+    void scrollingNodeScrollViewDidScroll(WebCore::ScrollingNodeID) final;
+#endif
+#if PLATFORM(COCOA)
+    WebCore::DestinationColorSpace colorSpace() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void couldNotRestorePageState() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void restorePageState(std::optional<WebCore::FloatPoint> scrollPosition, const WebCore::FloatPoint& scrollOrigin, const WebCore::FloatBoxExtent& obscuredInsetsOnSave, double scale) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void restorePageCenterAndScale(std::optional<WebCore::FloatPoint> center, double scale) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void elementDidFocus(const FocusedElementInformation&, bool userIsInteracting, bool blurPreviousNode, OptionSet<WebCore::ActivityState> activityStateChanges, API::Object* userData) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void updateInputContextAfterBlurringAndRefocusingElement() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void didProgrammaticallyClearFocusedElement(WebCore::ElementContext&&) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void updateFocusedElementInformation(const FocusedElementInformation&) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void elementDidBlur() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void focusedElementDidChangeInputMode(WebCore::InputMode) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void didUpdateEditorState() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    bool isFocusingElement() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    bool interpretKeyEvent(const NativeWebKeyboardEvent&, KeyEventInterpretationContext&&) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void saveImageToLibrary(Ref<WebCore::SharedBuffer>&&) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void showPlaybackTargetPicker(bool hasVideo, const WebCore::IntRect& elementRect, WebCore::RouteSharingPolicy, const String&) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void showDataDetectorsUIForPositionInformation(const InteractionInformationAtPosition&) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    double minimumZoomScale() const final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    WebCore::FloatRect documentRect() const final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void scrollingNodeScrollViewWillStartPanGesture(WebCore::ScrollingNodeID) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void scrollingNodeScrollWillStartScroll(std::optional<WebCore::ScrollingNodeID>) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void scrollingNodeScrollDidEndScroll(std::optional<WebCore::ScrollingNodeID>) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    Vector<String> mimeTypesWithCustomContentProviders() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void hardwareKeyboardAvailabilityChanged() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void showInspectorHighlight(const WebCore::InspectorOverlay::Highlight&) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void hideInspectorHighlight() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void showInspectorIndication() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void hideInspectorIndication() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void enableInspectorNodeSearch() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void disableInspectorNodeSearch() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void handleAutocorrectionContext(const WebAutocorrectionContext&) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+#if HAVE(UISCROLLVIEW_ASYNCHRONOUS_SCROLL_EVENT_HANDLING)
+    void handleAsynchronousCancelableScrollEvent(WKBaseScrollView *, WKBEScrollViewScrollUpdate *, void (^completion)(BOOL handled)) final;
+#endif
+#endif
+#if PLATFORM(IOS_FAMILY)
+    bool isSimulatingCompatibilityPointerTouches() const final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    WebCore::FloatBoxExtent computedObscuredInset() const final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    WebCore::Color contentViewBackgroundColor() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    WebCore::Color insertionPointColor() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    bool isScreenBeingCaptured() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    String sceneID() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    UIScreen *screen() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void beginTextRecognitionForFullscreenVideo(WebCore::ShareableBitmap::Handle&&, AVPlayerViewController *) final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    void cancelTextRecognitionForFullscreenVideo(AVPlayerViewController *) final;
+#endif
+#if PLATFORM(COCOA)
+    void positionInformationDidChange(const InteractionInformationAtPosition&) final;
+#endif
+#if ENABLE(FULLSCREEN_API)
+    WebFullScreenManagerProxyClient& fullScreenManagerProxyClient() final;
+#endif
+#if ENABLE(FULLSCREEN_API)
+    void setFullScreenClientForTesting(std::unique_ptr<WebFullScreenManagerProxyClient>&&) final;
+#endif
+    void didFinishLoadingDataForCustomContentProvider(const String& suggestedFilename, std::span<const uint8_t>) final;
+    void navigationGestureDidBegin() final;
+    void navigationGestureWillEnd(bool willNavigate, WebBackForwardListItem&) final;
+    void navigationGestureDidEnd(bool willNavigate, WebBackForwardListItem&) final;
+    void navigationGestureDidEnd() final;
+    void willRecordNavigationSnapshot(WebBackForwardListItem&) final;
+    void didRemoveNavigationGestureSnapshot() final;
+    void didFirstVisuallyNonEmptyLayoutForMainFrame() final;
+    void didFinishNavigation(API::Navigation*) final;
+    void didFailNavigation(API::Navigation*) final;
+    void didSameDocumentNavigationForMainFrame(SameDocumentNavigationType) final;
+    void didChangeBackgroundColor() final;
+#if PLATFORM(MAC)
+    void didPerformImmediateActionHitTest(const WebHitTestResultData&, bool contentPreventsDefault, API::Object*) final;
+#endif
+#if PLATFORM(MAC)
+    NSObject *immediateActionAnimationControllerForHitTestResult(RefPtr<API::HitTestResult>, uint64_t, RefPtr<API::Object>) final;
+#endif
+#if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
+    WebCore::WebMediaSessionManager& mediaSessionManager() final;
+#endif
+    void refView() final;
+    void derefView() final;
+    void didRestoreScrollPosition() final;
+    WebCore::UserInterfaceLayoutDirection userInterfaceLayoutDirection() final;
+#if USE(QUICK_LOOK)
+    void requestPasswordForQuickLookDocument(const String& fileName, WTF::Function<void(const String&)>&&) final;
+#endif
+#if PLATFORM(IOS_FAMILY) && ENABLE(DRAG_SUPPORT)
+    void willReceiveEditDragSnapshot() final;
+#endif
+#if PLATFORM(IOS_FAMILY) && ENABLE(DRAG_SUPPORT)
+    void didReceiveEditDragSnapshot(RefPtr<WebCore::TextIndicator>&&) final;
+#endif
+#if ENABLE(MODEL_PROCESS)
+    void didReceiveInteractiveModelElement(std::optional<WebCore::NodeIdentifier>) final;
+#endif
+    void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
+#if ENABLE(APP_HIGHLIGHTS)
+    void storeAppHighlight(const WebCore::AppHighlight&) final;
+#endif
+#if USE(WPE_RENDERER)
+    UnixFileDescriptor hostFileDescriptor() final;
+#endif
+#if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
+    bool canHandleContextMenuTranslation() const final;
+#endif
+#if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
+    void handleContextMenuTranslation(const WebCore::TranslationContextMenuInfo&) final;
+#endif
+#if ENABLE(WRITING_TOOLS) && ENABLE(CONTEXT_MENUS)
+    bool canHandleContextMenuWritingTools() const final;
+#endif
+#if ENABLE(WRITING_TOOLS)
+    void proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WebCore::WritingTools::TextSuggestionID&, WebCore::IntRect selectionBoundsInRootView) final;
+#endif
+#if USE(GRAPHICS_LAYER_WC)
+    bool usesOffscreenRendering() const final;
+#endif
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+    void didEnterFullscreen() final;
+#endif
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+    void didExitFullscreen() final;
+#endif
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+    void didCleanupFullscreen() final;
+#endif
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    WebKitWebResourceLoadManager* webResourceLoadManager() final;
+#endif
+#if PLATFORM(IOS_FAMILY)
+    UIViewController *presentingViewController() const final;
+#endif
+#if HAVE(SPATIAL_TRACKING_LABEL)
+    String spatialTrackingLabel() const final;
+#endif
+
+    NSView *m_view { nullptr };
+    WebPageProxy *m_page { nullptr };
+    RetainPtr<CALayer> m_rootLayer;
+};
+
+// ===== Hand-written implementations =====
+
+Ref<DrawingAreaProxy> MinimalPageClient::createDrawingAreaProxy(WebProcessProxy& process)
+{
+    return TiledCoreAnimationDrawingAreaProxy::create(*m_page, process);
+}
+
+WebCore::IntSize MinimalPageClient::viewSize()
+{
+    return WebCore::IntSize([m_view bounds].size);
+}
+
+bool MinimalPageClient::isViewWindowActive()
+{
+    NSWindow *window = [m_view window];
+    return window && ([window isKeyWindow] || [window isMainWindow]);
+}
+
+bool MinimalPageClient::isViewFocused()
+{
+    NSWindow *window = [m_view window];
+    return window && [window firstResponder] == m_view;
+}
+
+bool MinimalPageClient::isActiveViewVisible()
+{
+    return m_view && ![m_view isHiddenOrHasHiddenAncestor] && [m_view window];
+}
+
+bool MinimalPageClient::isMainViewVisible()
+{
+    return isActiveViewVisible();
+}
+
+bool MinimalPageClient::isViewVisibleOrOccluded()
+{
+    return isActiveViewVisible();
+}
+
+bool MinimalPageClient::isViewInWindow()
+{
+    return m_view && [m_view window];
+}
+
+bool MinimalPageClient::isVisuallyIdle()
+{
+    return !isActiveViewVisible();
+}
+
+bool MinimalPageClient::canTakeForegroundAssertions()
+{
+    return true;
+}
+
+WebCore::DestinationColorSpace MinimalPageClient::colorSpace()
+{
+    return WebCore::DestinationColorSpace::SRGB();
+}
+
+WebCore::FloatRect MinimalPageClient::convertToDeviceSpace(const WebCore::FloatRect& rect)
+{
+    return rect;
+}
+
+WebCore::FloatRect MinimalPageClient::convertToUserSpace(const WebCore::FloatRect& rect)
+{
+    return rect;
+}
+
+WebCore::IntPoint MinimalPageClient::screenToRootView(const WebCore::IntPoint& point)
+{
+    NSWindow *window = [m_view window];
+    if (!window)
+        return point;
+    NSPoint windowPoint = [window convertRectFromScreen:NSMakeRect(point.x(), point.y(), 0, 0)].origin;
+    NSPoint viewPoint = [m_view convertPoint:windowPoint fromView:nil];
+    return WebCore::IntPoint(static_cast<int>(viewPoint.x), static_cast<int>(viewPoint.y));
+}
+
+WebCore::IntPoint MinimalPageClient::rootViewToScreen(const WebCore::IntPoint& point)
+{
+    NSWindow *window = [m_view window];
+    if (!window)
+        return point;
+    NSPoint windowPoint = [m_view convertPoint:NSMakePoint(point.x(), point.y()) toView:nil];
+    NSRect screenRect = [window convertRectToScreen:NSMakeRect(windowPoint.x, windowPoint.y, 0, 0)];
+    return WebCore::IntPoint(static_cast<int>(screenRect.origin.x), static_cast<int>(screenRect.origin.y));
+}
+
+WebCore::IntRect MinimalPageClient::rootViewToScreen(const WebCore::IntRect& rect)
+{
+    NSWindow *window = [m_view window];
+    NSRect viewRect = [m_view convertRect:NSMakeRect(rect.x(), rect.y(), rect.width(), rect.height()) toView:nil];
+    if (!window)
+        return rect;
+    NSRect screenRect = [window convertRectToScreen:viewRect];
+    return WebCore::IntRect(static_cast<int>(screenRect.origin.x), static_cast<int>(screenRect.origin.y), static_cast<int>(screenRect.size.width), static_cast<int>(screenRect.size.height));
+}
+
+WebCore::IntRect MinimalPageClient::rootViewToWindow(const WebCore::IntRect& rect)
+{
+    NSRect windowRect = [m_view convertRect:NSMakeRect(rect.x(), rect.y(), rect.width(), rect.height()) toView:nil];
+    return WebCore::IntRect(static_cast<int>(windowRect.origin.x), static_cast<int>(windowRect.origin.y), static_cast<int>(windowRect.size.width), static_cast<int>(windowRect.size.height));
+}
+
+void MinimalPageClient::makeFirstResponder()
+{
+    [[m_view window] makeFirstResponder:m_view];
+}
+
+void MinimalPageClient::refView()
+{
+    [m_view retain];
+}
+
+void MinimalPageClient::derefView()
+{
+    [m_view release];
+}
+
+void MinimalPageClient::enterAcceleratedCompositingMode(const LayerTreeContext& context)
+{
+    RetainPtr<CALayer> renderLayer = [CALayer _web_renderLayerWithContextID:context.contextID shouldPreserveFlip:NO];
+    if (m_rootLayer)
+        [m_rootLayer removeFromSuperlayer];
+    m_rootLayer = renderLayer;
+    if (m_view && renderLayer) {
+        [renderLayer setFrame:[m_view bounds]];
+        [[m_view layer] addSublayer:renderLayer.get()];
+    }
+}
+
+void MinimalPageClient::updateAcceleratedCompositingMode(const LayerTreeContext& context)
+{
+    enterAcceleratedCompositingMode(context);
+}
+
+void MinimalPageClient::exitAcceleratedCompositingMode()
+{
+    if (m_rootLayer)
+        [m_rootLayer removeFromSuperlayer];
+    m_rootLayer = nullptr;
+}
+
+void MinimalPageClient::didFirstLayerFlush(const LayerTreeContext& context)
+{
+    if (!context.isEmpty())
+        enterAcceleratedCompositingMode(context);
+}
+
+void MinimalPageClient::setRemoteLayerTreeRootNode(RemoteLayerTreeNode* rootNode)
+{
+    RetainPtr<CALayer> layer = rootNode ? rootNode->layer() : nil;
+    if (m_rootLayer)
+        [m_rootLayer removeFromSuperlayer];
+    m_rootLayer = layer;
+    if (m_view && layer) {
+        [layer setFrame:[m_view bounds]];
+        [[m_view layer] addSublayer:layer.get()];
+    }
+}
+
+CALayer *MinimalPageClient::acceleratedCompositingRootLayer() const
+{
+    return m_rootLayer.get();
+}
+
+// ===== Generated minimal stubs for the remaining PageClient surface =====
+
+void MinimalPageClient::setViewNeedsDisplay(const WebCore::Region&)
+{ }
+void MinimalPageClient::requestScroll(const WebCore::FloatPoint& scrollPosition, const WebCore::IntPoint& scrollOrigin, WebCore::ScrollIsAnimated, WebCore::InterruptScrollAnimation)
+{ }
+WebCore::FloatPoint MinimalPageClient::viewScrollPosition()
+{ return { }; }
+void MinimalPageClient::processDidExit()
+{ }
+void MinimalPageClient::didRelaunchProcess()
+{ }
+void MinimalPageClient::preferencesDidChange()
+{ }
+void MinimalPageClient::toolTipChanged(const String&, const String&)
+{ }
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::decidePolicyForGeolocationPermissionRequest(WebFrameProxy&, const FrameInfoData&, Function<void(bool)>&)
+{ }
+#endif
+void MinimalPageClient::didCommitLoadForMainFrame(const String& mimeType, bool useCustomContentProvider)
+{ }
+#if ENABLE(PDF_HUD)
+void MinimalPageClient::createPDFHUD(PDFPluginIdentifier, WebCore::FrameIdentifier, const WebCore::IntRect&)
+{ }
+#endif
+#if ENABLE(PDF_HUD)
+void MinimalPageClient::updatePDFHUDLocation(PDFPluginIdentifier, const WebCore::IntRect&)
+{ }
+#endif
+#if ENABLE(PDF_HUD)
+void MinimalPageClient::removePDFHUD(PDFPluginIdentifier)
+{ }
+#endif
+#if ENABLE(PDF_HUD)
+void MinimalPageClient::removeAllPDFHUDs()
+{ }
+#endif
+#if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
+void MinimalPageClient::createPDFPageNumberIndicator(PDFPluginIdentifier, const WebCore::IntRect&, size_t pageCount)
+{ }
+#endif
+#if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
+void MinimalPageClient::updatePDFPageNumberIndicatorLocation(PDFPluginIdentifier, const WebCore::IntRect&)
+{ }
+#endif
+#if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
+void MinimalPageClient::updatePDFPageNumberIndicatorCurrentPage(PDFPluginIdentifier, size_t pageIndex)
+{ }
+#endif
+#if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
+void MinimalPageClient::removePDFPageNumberIndicator(PDFPluginIdentifier)
+{ }
+#endif
+#if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
+void MinimalPageClient::removeAnyPDFPageNumberIndicator()
+{ }
+#endif
+void MinimalPageClient::didChangeContentSize(const WebCore::IntSize&)
+{ }
+#if ENABLE(DRAG_SUPPORT)
+#if PLATFORM(GTK)
+void MinimalPageClient::startDrag(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<WebCore::ShareableBitmap>&& dragImage, WebCore::IntPoint&& dragImageHotspot)
+{ }
+#endif
+#endif
+void MinimalPageClient::setCursor(const WebCore::Cursor&)
+{ }
+void MinimalPageClient::setCursorHiddenUntilMouseMoves(bool)
+{ }
+void MinimalPageClient::registerEditCommand(Ref<WebEditCommandProxy>&&, UndoOrRedo)
+{ }
+void MinimalPageClient::clearAllEditCommands()
+{ }
+bool MinimalPageClient::canUndoRedo(UndoOrRedo)
+{ return { }; }
+void MinimalPageClient::executeUndoRedo(UndoOrRedo)
+{ }
+void MinimalPageClient::wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&)
+{ }
+#if PLATFORM(COCOA)
+void MinimalPageClient::accessibilityWebProcessTokenReceived(std::span<const uint8_t>, pid_t)
+{ }
+#endif
+#if PLATFORM(COCOA)
+bool MinimalPageClient::executeSavedCommandBySelector(const String& selector)
+{ return { }; }
+#endif
+#if PLATFORM(COCOA)
+void MinimalPageClient::updateSecureInputState()
+{ }
+#endif
+#if PLATFORM(COCOA)
+void MinimalPageClient::resetSecureInputState()
+{ }
+#endif
+#if PLATFORM(COCOA)
+void MinimalPageClient::notifyInputContextAboutDiscardedComposition()
+{ }
+#endif
+#if PLATFORM(COCOA)
+void MinimalPageClient::assistiveTechnologyMakeFirstResponder()
+{ }
+#endif
+#if PLATFORM(COCOA)
+#if ENABLE(MAC_GESTURE_EVENTS)
+void MinimalPageClient::gestureEventWasNotHandledByWebCore(const NativeWebGestureEvent&)
+{ }
+#endif
+#endif
+#if PLATFORM(MAC)
+CALayer *MinimalPageClient::headerBannerLayer() const
+{ return { }; }
+#endif
+#if PLATFORM(MAC)
+CALayer *MinimalPageClient::footerBannerLayer() const
+{ return { }; }
+#endif
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+void MinimalPageClient::selectionDidChange()
+{ }
+#endif
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+RefPtr<ViewSnapshot> MinimalPageClient::takeViewSnapshot(std::optional<WebCore::IntRect>&&)
+{ return { }; }
+#endif
+#if PLATFORM(MAC)
+RefPtr<ViewSnapshot> MinimalPageClient::takeViewSnapshot(std::optional<WebCore::IntRect>&&, ForceSoftwareCapturingViewportSnapshot)
+{ return { }; }
+#endif
+#if USE(APPKIT)
+void MinimalPageClient::setPromisedDataForImage(const String& pasteboardName, Ref<WebCore::FragmentedSharedBuffer>&& imageBuffer, const String& filename, const String& extension, const String& title, const String& url, const String& visibleURL, RefPtr<WebCore::FragmentedSharedBuffer>&& archiveBuffer, const String& originIdentifier)
+{ }
+#endif
+WebCore::IntPoint MinimalPageClient::accessibilityScreenToRootView(const WebCore::IntPoint&)
+{ return { }; }
+WebCore::IntRect MinimalPageClient::rootViewToAccessibilityScreen(const WebCore::IntRect&)
+{ return { }; }
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::relayAccessibilityNotification(String&&, RetainPtr<NSData>&&)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::relayAriaNotifyNotification(const WebCore::AriaNotifyData&)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::relayLiveRegionNotification(const WebCore::LiveRegionAnnouncementData&)
+{ }
+#endif
+#if ENABLE(TWO_PHASE_CLICKS)
+void MinimalPageClient::didNotHandleTapAsClick(const WebCore::IntPoint&)
+{ }
+#endif
+void MinimalPageClient::doneWithKeyEvent(const NativeWebKeyboardEvent&, bool wasEventHandled)
+{ }
+#if ENABLE(TOUCH_EVENTS)
+void MinimalPageClient::doneWithTouchEvent(const WebTouchEvent&, bool wasEventHandled)
+{ }
+#endif
+#if ENABLE(IOS_TOUCH_EVENTS)
+void MinimalPageClient::doneDeferringTouchStart(bool preventNativeGestures)
+{ }
+#endif
+#if ENABLE(IOS_TOUCH_EVENTS)
+void MinimalPageClient::doneDeferringTouchMove(bool preventNativeGestures)
+{ }
+#endif
+#if ENABLE(IOS_TOUCH_EVENTS)
+void MinimalPageClient::doneDeferringTouchEnd(bool preventNativeGestures)
+{ }
+#endif
+RefPtr<WebPopupMenuProxy> MinimalPageClient::createPopupMenuProxy(WebPageProxy&)
+{ return { }; }
+#if ENABLE(CONTEXT_MENUS)
+Ref<WebContextMenuProxy> MinimalPageClient::createContextMenuProxy(WebPageProxy&, FrameInfoData&&, ContextMenuContextData&&, const UserData&)
+{ RELEASE_ASSERT_NOT_REACHED(); }
+#endif
+RefPtr<WebColorPicker> MinimalPageClient::createColorPicker(WebPageProxy&, const WebCore::Color& initialColor, const WebCore::IntRect&, ColorControlSupportsAlpha, Vector<WebCore::Color>&&, std::optional<WebCore::FrameIdentifier>)
+{ return { }; }
+RefPtr<WebDataListSuggestionsDropdown> MinimalPageClient::createDataListSuggestionsDropdown(WebPageProxy&)
+{ return { }; }
+RefPtr<WebDateTimePicker> MinimalPageClient::createDateTimePicker(WebPageProxy&)
+{ return { }; }
+#if PLATFORM(COCOA) || PLATFORM(GTK)
+Ref<WebCore::ValidationBubble> MinimalPageClient::createValidationBubble(String&& message, const WebCore::ValidationBubble::Settings&)
+{ RELEASE_ASSERT_NOT_REACHED(); }
+#endif
+#if PLATFORM(COCOA)
+CALayer *MinimalPageClient::textIndicatorInstallationLayer()
+{ return { }; }
+#endif
+#if PLATFORM(COCOA)
+void MinimalPageClient::didPerformDictionaryLookup(const WebCore::DictionaryPopupInfo&)
+{ }
+#endif
+#if HAVE(APP_ACCENT_COLORS)
+WebCore::Color MinimalPageClient::accentColor()
+{ return { }; }
+#endif
+#if HAVE(APP_ACCENT_COLORS)
+#if PLATFORM(MAC)
+bool MinimalPageClient::appUsesCustomAccentColor()
+{ return { }; }
+#endif
+#endif
+#if USE(DICTATION_ALTERNATIVES)
+void MinimalPageClient::showDictationAlternativeUI(const WebCore::FloatRect& boundingBoxOfDictatedText, WebCore::DictationContext)
+{ }
+#endif
+#if PLATFORM(MAC)
+void MinimalPageClient::showCorrectionPanel(WebCore::AlternativeTextType, const WebCore::FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings)
+{ }
+#endif
+#if PLATFORM(MAC)
+void MinimalPageClient::dismissCorrectionPanel(WebCore::ReasonForDismissingAlternativeText)
+{ }
+#endif
+#if PLATFORM(MAC)
+String MinimalPageClient::dismissCorrectionPanelSoon(WebCore::ReasonForDismissingAlternativeText)
+{ return { }; }
+#endif
+#if PLATFORM(MAC)
+void MinimalPageClient::recordAutocorrectionResponse(WebCore::AutocorrectionResponse, const String& replacedString, const String& replacementString)
+{ }
+#endif
+#if PLATFORM(MAC)
+void MinimalPageClient::recommendedScrollbarStyleDidChange(WebCore::ScrollbarStyle)
+{ }
+#endif
+#if PLATFORM(MAC)
+void MinimalPageClient::handleControlledElementIDResponse(const String&)
+{ }
+#endif
+#if PLATFORM(MAC)
+CGRect MinimalPageClient::boundsOfLayerInLayerBackedWindowCoordinates(CALayer *) const
+{ return { }; }
+#endif
+#if PLATFORM(MAC)
+bool MinimalPageClient::useFormSemanticContext() const
+{ return { }; }
+#endif
+#if PLATFORM(MAC)
+NSView *MinimalPageClient::viewForPresentingRevealPopover() const
+{ return { }; }
+#endif
+#if PLATFORM(MAC)
+void MinimalPageClient::showPlatformContextMenu(NSMenu *, WebCore::IntPoint)
+{ }
+#endif
+#if PLATFORM(MAC)
+void MinimalPageClient::startWindowDrag()
+{ }
+#endif
+#if PLATFORM(MAC)
+void MinimalPageClient::setShouldSuppressFirstResponderChanges(bool)
+{ }
+#endif
+#if PLATFORM(MAC)
+RetainPtr<NSView> MinimalPageClient::inspectorAttachmentView()
+{ return { }; }
+#endif
+#if PLATFORM(MAC)
+_WKRemoteObjectRegistry *MinimalPageClient::remoteObjectRegistry()
+{ return { }; }
+#endif
+#if PLATFORM(MAC)
+void MinimalPageClient::intrinsicContentSizeDidChange(const WebCore::IntSize& intrinsicContentSize)
+{ }
+#endif
+#if PLATFORM(MAC)
+void MinimalPageClient::registerInsertionUndoGrouping()
+{ }
+#endif
+#if PLATFORM(MAC)
+void MinimalPageClient::setEditableElementIsFocused(bool)
+{ }
+#endif
+#if PLATFORM(COCOA)
+void MinimalPageClient::scrollingNodeScrollViewDidScroll(WebCore::ScrollingNodeID)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::couldNotRestorePageState()
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::restorePageState(std::optional<WebCore::FloatPoint> scrollPosition, const WebCore::FloatPoint& scrollOrigin, const WebCore::FloatBoxExtent& obscuredInsetsOnSave, double scale)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::restorePageCenterAndScale(std::optional<WebCore::FloatPoint> center, double scale)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::elementDidFocus(const FocusedElementInformation&, bool userIsInteracting, bool blurPreviousNode, OptionSet<WebCore::ActivityState> activityStateChanges, API::Object* userData)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::updateInputContextAfterBlurringAndRefocusingElement()
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::didProgrammaticallyClearFocusedElement(WebCore::ElementContext&&)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::updateFocusedElementInformation(const FocusedElementInformation&)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::elementDidBlur()
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::focusedElementDidChangeInputMode(WebCore::InputMode)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::didUpdateEditorState()
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+bool MinimalPageClient::isFocusingElement()
+{ return { }; }
+#endif
+#if PLATFORM(IOS_FAMILY)
+bool MinimalPageClient::interpretKeyEvent(const NativeWebKeyboardEvent&, KeyEventInterpretationContext&&)
+{ return { }; }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::saveImageToLibrary(Ref<WebCore::SharedBuffer>&&)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::showPlaybackTargetPicker(bool hasVideo, const WebCore::IntRect& elementRect, WebCore::RouteSharingPolicy, const String&)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::showDataDetectorsUIForPositionInformation(const InteractionInformationAtPosition&)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+double MinimalPageClient::minimumZoomScale() const
+{ return { }; }
+#endif
+#if PLATFORM(IOS_FAMILY)
+WebCore::FloatRect MinimalPageClient::documentRect() const
+{ return { }; }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::scrollingNodeScrollViewWillStartPanGesture(WebCore::ScrollingNodeID)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::scrollingNodeScrollWillStartScroll(std::optional<WebCore::ScrollingNodeID>)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::scrollingNodeScrollDidEndScroll(std::optional<WebCore::ScrollingNodeID>)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+Vector<String> MinimalPageClient::mimeTypesWithCustomContentProviders()
+{ return { }; }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::hardwareKeyboardAvailabilityChanged()
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::showInspectorHighlight(const WebCore::InspectorOverlay::Highlight&)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::hideInspectorHighlight()
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::showInspectorIndication()
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::hideInspectorIndication()
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::enableInspectorNodeSearch()
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::disableInspectorNodeSearch()
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::handleAutocorrectionContext(const WebAutocorrectionContext&)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+#if HAVE(UISCROLLVIEW_ASYNCHRONOUS_SCROLL_EVENT_HANDLING)
+void MinimalPageClient::handleAsynchronousCancelableScrollEvent(WKBaseScrollView *, WKBEScrollViewScrollUpdate *, void (^completion)(BOOL handled))
+{ }
+#endif
+#endif
+#if PLATFORM(IOS_FAMILY)
+bool MinimalPageClient::isSimulatingCompatibilityPointerTouches() const
+{ return { }; }
+#endif
+#if PLATFORM(IOS_FAMILY)
+WebCore::FloatBoxExtent MinimalPageClient::computedObscuredInset() const
+{ return { }; }
+#endif
+#if PLATFORM(IOS_FAMILY)
+WebCore::Color MinimalPageClient::contentViewBackgroundColor()
+{ return { }; }
+#endif
+#if PLATFORM(IOS_FAMILY)
+WebCore::Color MinimalPageClient::insertionPointColor()
+{ return { }; }
+#endif
+#if PLATFORM(IOS_FAMILY)
+bool MinimalPageClient::isScreenBeingCaptured()
+{ return { }; }
+#endif
+#if PLATFORM(IOS_FAMILY)
+String MinimalPageClient::sceneID()
+{ return { }; }
+#endif
+#if PLATFORM(IOS_FAMILY)
+UIScreen *MinimalPageClient::screen()
+{ return { }; }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::beginTextRecognitionForFullscreenVideo(WebCore::ShareableBitmap::Handle&&, AVPlayerViewController *)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY)
+void MinimalPageClient::cancelTextRecognitionForFullscreenVideo(AVPlayerViewController *)
+{ }
+#endif
+#if PLATFORM(COCOA)
+void MinimalPageClient::positionInformationDidChange(const InteractionInformationAtPosition&)
+{ }
+#endif
+#if ENABLE(FULLSCREEN_API)
+WebFullScreenManagerProxyClient& MinimalPageClient::fullScreenManagerProxyClient()
+{ RELEASE_ASSERT_NOT_REACHED(); }
+#endif
+#if ENABLE(FULLSCREEN_API)
+void MinimalPageClient::setFullScreenClientForTesting(std::unique_ptr<WebFullScreenManagerProxyClient>&&)
+{ }
+#endif
+void MinimalPageClient::didFinishLoadingDataForCustomContentProvider(const String& suggestedFilename, std::span<const uint8_t>)
+{ }
+void MinimalPageClient::navigationGestureDidBegin()
+{ }
+void MinimalPageClient::navigationGestureWillEnd(bool willNavigate, WebBackForwardListItem&)
+{ }
+void MinimalPageClient::navigationGestureDidEnd(bool willNavigate, WebBackForwardListItem&)
+{ }
+void MinimalPageClient::navigationGestureDidEnd()
+{ }
+void MinimalPageClient::willRecordNavigationSnapshot(WebBackForwardListItem&)
+{ }
+void MinimalPageClient::didRemoveNavigationGestureSnapshot()
+{ }
+void MinimalPageClient::didFirstVisuallyNonEmptyLayoutForMainFrame()
+{ }
+void MinimalPageClient::didFinishNavigation(API::Navigation*)
+{ }
+void MinimalPageClient::didFailNavigation(API::Navigation*)
+{ }
+void MinimalPageClient::didSameDocumentNavigationForMainFrame(SameDocumentNavigationType)
+{ }
+void MinimalPageClient::didChangeBackgroundColor()
+{ }
+#if PLATFORM(MAC)
+void MinimalPageClient::didPerformImmediateActionHitTest(const WebHitTestResultData&, bool contentPreventsDefault, API::Object*)
+{ }
+#endif
+#if PLATFORM(MAC)
+NSObject *MinimalPageClient::immediateActionAnimationControllerForHitTestResult(RefPtr<API::HitTestResult>, uint64_t, RefPtr<API::Object>)
+{ return { }; }
+#endif
+#if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
+WebCore::WebMediaSessionManager& MinimalPageClient::mediaSessionManager()
+{ RELEASE_ASSERT_NOT_REACHED(); }
+#endif
+void MinimalPageClient::didRestoreScrollPosition()
+{ }
+WebCore::UserInterfaceLayoutDirection MinimalPageClient::userInterfaceLayoutDirection()
+{ return { }; }
+#if USE(QUICK_LOOK)
+void MinimalPageClient::requestPasswordForQuickLookDocument(const String& fileName, WTF::Function<void(const String&)>&&)
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY) && ENABLE(DRAG_SUPPORT)
+void MinimalPageClient::willReceiveEditDragSnapshot()
+{ }
+#endif
+#if PLATFORM(IOS_FAMILY) && ENABLE(DRAG_SUPPORT)
+void MinimalPageClient::didReceiveEditDragSnapshot(RefPtr<WebCore::TextIndicator>&&)
+{ }
+#endif
+#if ENABLE(MODEL_PROCESS)
+void MinimalPageClient::didReceiveInteractiveModelElement(std::optional<WebCore::NodeIdentifier>)
+{ }
+#endif
+void MinimalPageClient::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&)
+{ }
+#if ENABLE(APP_HIGHLIGHTS)
+void MinimalPageClient::storeAppHighlight(const WebCore::AppHighlight&)
+{ }
+#endif
+#if USE(WPE_RENDERER)
+UnixFileDescriptor MinimalPageClient::hostFileDescriptor()
+{ return { }; }
+#endif
+#if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
+bool MinimalPageClient::canHandleContextMenuTranslation() const
+{ return { }; }
+#endif
+#if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
+void MinimalPageClient::handleContextMenuTranslation(const WebCore::TranslationContextMenuInfo&)
+{ }
+#endif
+#if ENABLE(WRITING_TOOLS) && ENABLE(CONTEXT_MENUS)
+bool MinimalPageClient::canHandleContextMenuWritingTools() const
+{ return { }; }
+#endif
+#if ENABLE(WRITING_TOOLS)
+void MinimalPageClient::proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WebCore::WritingTools::TextSuggestionID&, WebCore::IntRect selectionBoundsInRootView)
+{ }
+#endif
+#if USE(GRAPHICS_LAYER_WC)
+bool MinimalPageClient::usesOffscreenRendering() const
+{ return { }; }
+#endif
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+void MinimalPageClient::didEnterFullscreen()
+{ }
+#endif
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+void MinimalPageClient::didExitFullscreen()
+{ }
+#endif
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+void MinimalPageClient::didCleanupFullscreen()
+{ }
+#endif
+#if PLATFORM(GTK) || PLATFORM(WPE)
+WebKitWebResourceLoadManager* MinimalPageClient::webResourceLoadManager()
+{ return { }; }
+#endif
+#if PLATFORM(IOS_FAMILY)
+UIViewController *MinimalPageClient::presentingViewController() const
+{ return { }; }
+#endif
+#if HAVE(SPATIAL_TRACKING_LABEL)
+String MinimalPageClient::spatialTrackingLabel() const
+{ return { }; }
+#endif
+
+// ===== Free functions used by WKView =====
+
+std::unique_ptr<PageClient> createMinimalPageClient(NSView *view)
+{
+    return std::unique_ptr<PageClient>(new MinimalPageClient(view));
+}
+
+void setMinimalPageClientPage(PageClient& client, WebPageProxy* page)
+{
+    static_cast<MinimalPageClient&>(client).setPage(page);
+}
+
+} // namespace WebKit
+
+#endif // PLATFORM(MAC)
