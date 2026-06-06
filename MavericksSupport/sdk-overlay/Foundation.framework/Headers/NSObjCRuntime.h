@@ -256,6 +256,13 @@
 #define NS_ERROR_ENUM(_domain, _name) NS_ENUM(NSInteger, _name)
 #endif
 
+/* 10.9 backport: this overlay is pulled in low in Foundation's include chain
+ * (before <Foundation/NSString.h>), so forward-declare NSString for the
+ * NS*Domain/NS*Key typedefs below. ObjC only; pure-C++ TUs skip the typedefs. */
+#if defined(__OBJC__)
+@class NSString;
+#endif
+
 #if !defined(NSErrorDomain) && defined(__OBJC__)
 typedef NSString *NSErrorDomain;
 #endif
