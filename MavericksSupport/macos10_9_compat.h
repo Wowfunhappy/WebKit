@@ -150,6 +150,30 @@ static __inline__ int mkostemps(char *__t, int __suffixlen, int __flags) {
 #define CF_SWIFT_NAME(_name)
 #endif
 
+/* ===== Foundation/ObjC annotation macros (macOS 10.10+) =====
+ * Method/property annotation macros absent on the 10.9 SDK. Their absence leaves
+ * a bare token mid-declaration ("expected ':'"), e.g. NS_DESIGNATED_INITIALIZER
+ * in PAL RevealSPI.h and ~74 WebKit API/SPI headers. No-op shims (purely
+ * advisory; no codegen impact). #ifndef-guarded so any that DO exist win. */
+#ifndef NS_DESIGNATED_INITIALIZER
+#define NS_DESIGNATED_INITIALIZER
+#endif
+#ifndef NS_UNAVAILABLE
+#define NS_UNAVAILABLE
+#endif
+#ifndef NS_REQUIRES_SUPER
+#define NS_REQUIRES_SUPER
+#endif
+#ifndef NS_NOESCAPE
+#define NS_NOESCAPE
+#endif
+#ifndef NS_EXTENSIBLE_STRING_ENUM
+#define NS_EXTENSIBLE_STRING_ENUM
+#endif
+#ifndef NS_REFINED_FOR_SWIFT
+#define NS_REFINED_FOR_SWIFT
+#endif
+
 /* ===== nullability region macros (Foundation; macOS 10.10+) =====
  * NS_ASSUME_NONNULL_BEGIN/END normally emit `#pragma clang assume_nonnull`.
  * Absent on 10.9 (e.g. JSC API JSScript.h uses them). Define as no-ops:
