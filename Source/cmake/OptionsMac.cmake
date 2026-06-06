@@ -129,7 +129,12 @@ link_libraries(${MAVERICKS_SUPPORT}/prebuilt/libpolyfill.a)
 # target LINK_FLAGS (with -umbrella WebKit), not globally. We follow that pattern.
 add_link_options(-nostdlib++)
 # Ensure dylibs have proper version info for Safari compatibility
-add_link_options("LINKER:-compatibility_version,1.0.0" "LINKER:-current_version,615.1.1")
+# Apply the dylib version stamps only to non-executables: -compatibility_version
+# and -current_version are "only valid with -dylib", so passing them to build-tool
+# executables (LLIntSettingsExtractor, etc.) fails the link.
+add_link_options(
+  "$<$<NOT:$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>>:LINKER:-compatibility_version,1.0.0>"
+  "$<$<NOT:$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>>:LINKER:-current_version,615.1.1>")
 # Set deployment target so dyld shared cache accepts our frameworks
 # 10.9 backport: exclude ASM_NASM (libvpx/libwebrtc .asm via nasm) — nasm rejects -m*/-W*/-iframework.
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-mmacosx-version-min=10.9>)
