@@ -9,6 +9,10 @@
 #include <sys/cdefs.h>
 #ifdef __APPLE__
 #include <CoreAudio/CoreAudioTypes.h>
+/* mach_vm_offset_t / MACH_VM_MAX_ADDRESS: not pulled in transitively by
+ * <mach/vm_param.h> where WTF expands OS_CONSTANT(EFFECTIVE_ADDRESS_WIDTH)
+ * (Packed.h, CompactPointerTuple.h, Signals.cpp, WTFConfig.cpp). */
+#include <mach/vm_types.h>
 #endif
 
 /* KERN_NOT_FOUND added in macOS 10.13 */
@@ -749,6 +753,21 @@ namespace PAL {}
 /* kCMVideoCodecType_HEVC (10.13+) */
 #ifndef kCMVideoCodecType_HEVC
 #define kCMVideoCodecType_HEVC 'hvc1'
+#endif
+/* kCMVideoCodecType_VP9 (10.13+), _AV1 (11.0+), kAudioFormatOpus (10.13+) */
+#ifndef kCMVideoCodecType_VP9
+#define kCMVideoCodecType_VP9 'vp09'
+#endif
+#ifndef kCMVideoCodecType_AV1
+#define kCMVideoCodecType_AV1 'av01'
+#endif
+#ifndef kAudioFormatOpus
+#define kAudioFormatOpus 'opus'
+#endif
+/* UTTypePackage (UniformTypeIdentifiers, 11.0) — dead at runtime on 10.9
+ * (the NSURLContentTypeKey lookup feeding it fails); nil sentinel for compile. */
+#ifndef UTTypePackage
+#define UTTypePackage ((UTType *)nil)
 #endif
 
 /* AudioFormatFlags */
