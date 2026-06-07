@@ -464,6 +464,17 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/WKWebViewPrivate.h
     UIProcess/API/Cocoa/WKWebViewPrivateForTesting.h
     UIProcess/API/Cocoa/WKWebpagePreferences.h
+    # 10.9 backport: headers referenced via <WebKit/X.h> by generated serializers
+    # and cross-including API headers, but missing from the forwarding list.
+    UIProcess/API/Cocoa/WKJSHandle.h
+    UIProcess/API/Cocoa/WebFeature.h
+    UIProcess/API/Cocoa/_WKContentWorldConfiguration.h
+    UIProcess/API/Cocoa/_WKTextExtraction.h
+    UIProcess/API/Cocoa/_WKRectEdge.h
+    Shared/mac/SecItemRequestData.h
+    GPUProcess/graphics/Model/Float3.h
+    GPUProcess/graphics/Model/Float4x4.h
+    GPUProcess/graphics/Model/ModelTypes.h
     UIProcess/API/Cocoa/WKWebpagePreferencesPrivate.h
     UIProcess/API/Cocoa/WKWebsiteDataRecord.h
     UIProcess/API/Cocoa/WKWebsiteDataRecordPrivate.h

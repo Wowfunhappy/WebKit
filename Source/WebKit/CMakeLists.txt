@@ -299,6 +299,9 @@ set(WebKit_MESSAGES_IN_FILES
 
     UIProcess/Media/RemoteMediaSessionCoordinatorProxy
     UIProcess/Media/RemoteMediaSessionManagerProxy
+    # 10.9 backport: WebPageProxy.cpp includes VideoPresentationManagerProxyMessages.h
+    # unconditionally; generate it so the WK2 framework compiles.
+    UIProcess/Cocoa/VideoPresentationManagerProxy
 
     UIProcess/SpeechRecognitionRemoteRealtimeMediaSourceManager
     UIProcess/SpeechRecognitionServer

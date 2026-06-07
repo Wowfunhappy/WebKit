@@ -36,10 +36,19 @@ DECLARE_SYSTEM_HEADER
 #include <CoreMedia/CoreMedia.h>
 
 #if PLATFORM(MAC)
+// 10.9 backport: the libwebrtc include path is only on WebRTC-enabled targets;
+// WK2 framework TUs that include this header don't have it. Use the real header
+// when available, else forward-declare the CMBase types it provides.
+#if __has_include(<webrtc/webkit_sdk/WebKit/CMBaseObjectSPI.h>)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnon-modular-include-in-module"
 #include <webrtc/webkit_sdk/WebKit/CMBaseObjectSPI.h>
 #pragma clang diagnostic pop
+#else
+typedef struct OpaqueCMBaseObject *CMBaseObjectRef;
+typedef struct OpaqueCMBaseClass *CMBaseClassID;
+typedef struct OpaqueCMBaseProtocol *CMBaseProtocolID;
+#endif
 #endif
 
 #if PLATFORM(COCOA)
