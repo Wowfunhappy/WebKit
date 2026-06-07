@@ -30,6 +30,14 @@
 
 typedef struct OpaqueVTVideoDecoder VTVideoDecoderRef;
 typedef struct OpaqueVTImageRotationSession* VTImageRotationSessionRef;
+
+// 10.9 backport: block-handler typedefs from a later SDK (this .cpp re-declares
+// the soft-links rather than including VideoToolboxSoftLink.h). See the header
+// for details; soft-linked, never resolve on 10.9.
+typedef struct opaqueCMTaggedBufferGroup* CMTaggedBufferGroupRef;
+typedef void (^VTDecompressionOutputHandler)(OSStatus, VTDecodeInfoFlags, CVImageBufferRef, CMTime, CMTime);
+typedef void (^VTDecompressionMultiImageCapableOutputHandler)(OSStatus, VTDecodeInfoFlags, CMTaggedBufferGroupRef, CMTime, CMTime);
+
 typedef struct OpaqueVTPixelBufferConformer* VTPixelBufferConformerRef;
 typedef struct OpaqueVTPixelTransferSession* VTPixelTransferSessionRef;
 

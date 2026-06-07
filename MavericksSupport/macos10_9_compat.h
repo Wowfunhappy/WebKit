@@ -302,5 +302,151 @@ typedef unsigned int AudioFormatFlags;
 #define kCGColorSpaceExtendedSRGB kCGColorSpaceSRGB
 #endif
 
+/* ===== More AppKit enum renames (10.12-10.15) ===== */
+#ifndef NSBezelStyleRounded
+#define NSBezelStyleRounded          NSRoundedBezelStyle
+#define NSBezelStyleShadowlessSquare NSShadowlessSquareBezelStyle
+#define NSBezelStyleTexturedSquare   NSTexturedSquareBezelStyle
+#endif
+#ifndef NSBitmapImageFileTypePNG
+#define NSBitmapImageFileTypePNG  NSPNGFileType
+#define NSBitmapImageFileTypeTIFF NSTIFFFileType
+#define NSBitmapImageFileTypeJPEG NSJPEGFileType
+#define NSBitmapImageFileTypeGIF  NSGIFFileType
+#define NSBitmapImageFileTypeBMP  NSBMPFileType
+#endif
+#ifndef NSButtonTypeMomentaryPushIn
+#define NSButtonTypeMomentaryPushIn NSMomentaryPushInButton
+#define NSButtonTypeRadio           NSRadioButton
+#define NSButtonTypeSwitch          NSSwitchButton
+#endif
+#ifndef NSCompositingOperationSourceOver
+#define NSCompositingOperationCopy       NSCompositeCopy
+#define NSCompositingOperationSourceOver NSCompositeSourceOver
+#endif
+#ifndef NSControlSizeLarge
+#define NSControlSizeLarge NSRegularControlSize
+#endif
+#ifndef NSControlStateValueOn
+#define NSControlStateValueOn    NSOnState
+#define NSControlStateValueOff   NSOffState
+#define NSControlStateValueMixed NSMixedState
+#endif
+#ifndef NSEventMaskAny
+#define NSEventMaskAny NSAnyEventMask
+#endif
+#ifndef NSEventModifierFlagCommand
+#define NSEventModifierFlagCapsLock   NSAlphaShiftKeyMask
+#define NSEventModifierFlagShift      NSShiftKeyMask
+#define NSEventModifierFlagControl    NSControlKeyMask
+#define NSEventModifierFlagOption     NSAlternateKeyMask
+#define NSEventModifierFlagCommand    NSCommandKeyMask
+#define NSEventModifierFlagNumericPad NSNumericPadKeyMask
+#define NSEventModifierFlagHelp       NSHelpKeyMask
+#define NSEventModifierFlagFunction   NSFunctionKeyMask
+#define NSEventModifierFlagDeviceIndependentFlagsMask NSDeviceIndependentModifierFlagsMask
+#endif
+/* NSEventTypePressure (10.10.3) — no pre-10.9 equivalent; real enum value 34. */
+#ifndef NSEventTypePressure
+#define NSEventTypePressure 34
+#endif
+#ifndef NSLevelIndicatorStyleContinuousCapacity
+#define NSLevelIndicatorStyleContinuousCapacity NSContinuousCapacityLevelIndicatorStyle
+#endif
+#ifndef NSSliderTypeLinear
+#define NSSliderTypeLinear NSLinearSlider
+#endif
+/* NSWritingDirection format values (renamed from NSTextWritingDirection*) */
+#ifndef NSWritingDirectionEmbedding
+#define NSWritingDirectionEmbedding (0 << 1)
+#define NSWritingDirectionOverride  (1 << 1)
+#endif
+/* NSTextList marker constants (10.13) — the underlying {…} format strings that
+ * NSTextList already accepted on 10.9. */
+#ifndef NSTextListMarkerDisc
+#define NSTextListMarkerBox                  @"{box}"
+#define NSTextListMarkerCheck                @"{check}"
+#define NSTextListMarkerCircle               @"{circle}"
+#define NSTextListMarkerDiamond              @"{diamond}"
+#define NSTextListMarkerDisc                 @"{disc}"
+#define NSTextListMarkerHyphen               @"{hyphen}"
+#define NSTextListMarkerSquare               @"{square}"
+#define NSTextListMarkerLowercaseHexadecimal @"{lower-hexadecimal}"
+#define NSTextListMarkerUppercaseHexadecimal @"{upper-hexadecimal}"
+#define NSTextListMarkerOctal                @"{octal}"
+#define NSTextListMarkerLowercaseAlpha       @"{lower-alpha}"
+#define NSTextListMarkerUppercaseAlpha       @"{upper-alpha}"
+#define NSTextListMarkerLowercaseLatin       @"{lower-latin}"
+#define NSTextListMarkerUppercaseLatin       @"{upper-latin}"
+#define NSTextListMarkerLowercaseRoman       @"{lower-roman}"
+#define NSTextListMarkerUppercaseRoman       @"{upper-roman}"
+#define NSTextListMarkerDecimal              @"{decimal}"
+#endif
+/* NSURL/NSAttributedString string keys (sentinels; 10.9 doesn't honor them) */
+#ifndef NSURLContentTypeKey
+#define NSURLContentTypeKey @"NSURLContentTypeKey"
+#endif
+#ifndef NSPresentationIntentAttributeName
+#define NSPresentationIntentAttributeName @"NSPresentationIntentAttributeName"
+#endif
+
+/* ObjC-only type aliases (10.12/10.13) */
+#if defined(__OBJC__)
+#ifndef NS_EVENT_MODIFIER_FLAGS_DEFINED
+#define NS_EVENT_MODIFIER_FLAGS_DEFINED
+typedef NSUInteger NSEventModifierFlags;
+#endif
+#ifndef NS_ATTRIBUTED_STRING_KEY_DEFINED
+#define NS_ATTRIBUTED_STRING_KEY_DEFINED
+typedef NSString *NSAttributedStringKey;
+#endif
+#endif
+
+/* ===== CoreGraphics functions/fields (10.11-10.15) ===== */
+/* CGColorCreateSRGB (10.15) — generic RGB is a close enough fallback on 10.9. */
+#ifndef CGColorCreateSRGB
+#define CGColorCreateSRGB(r, g, b, a) CGColorCreateGenericRGB((r), (g), (b), (a))
+#endif
+/* Wide-gamut / HDR colorspace queries (10.11-10.14): none on 10.9 -> false. */
+#ifndef CGColorSpaceIsWideGamutRGB
+#define CGColorSpaceIsWideGamutRGB(cs)   (0)
+#endif
+#ifndef CGColorSpaceSupportsOutput
+#define CGColorSpaceSupportsOutput(cs, rt) (0)
+#endif
+#ifndef CGColorSpaceUsesITUR_2100TF
+#define CGColorSpaceUsesITUR_2100TF(cs)  (0)
+#endif
+/* Raw (unaccelerated) pointer-movement CGEventFields (10.15) — absent on 10.9;
+ * CGEventGetDoubleValueField returns 0 for unknown fields, i.e. no raw delta. */
+#ifndef kCGEventUnacceleratedPointerMovementX
+#define kCGEventUnacceleratedPointerMovementX 170
+#define kCGEventUnacceleratedPointerMovementY 171
+#endif
+
+/* ===== CoreMedia / CoreAudio codec FourCCs (10.13-11.0) ===== */
+#ifndef kCMVideoCodecType_VP9
+#define kCMVideoCodecType_VP9 'vp09'
+#endif
+#ifndef kCMVideoCodecType_AV1
+#define kCMVideoCodecType_AV1 'av01'
+#endif
+#ifndef kAudioFormatOpus
+#define kAudioFormatOpus 'opus'
+#endif
+
+/* ===== Accessibility custom-content importance (12.0) ===== */
+#ifndef AXCustomContentImportanceHigh
+#define AXCustomContentImportanceHigh 1
+#endif
+
+/* ===== UTTypePackage (UniformTypeIdentifiers, 11.0) ===== */
+/* One use (FileCocoa.mm package detection); the NSURLContentTypeKey lookup that
+ * feeds it fails on 10.9 so this is dead at runtime. nil sentinel: conformsToType:
+ * nil returns NO (no file detected as a package). ObjC-only expansion. */
+#ifndef UTTypePackage
+#define UTTypePackage ((UTType *)nil)
+#endif
+
 #endif /* !__ASSEMBLER__ */
 #endif /* _COMPAT_H */
