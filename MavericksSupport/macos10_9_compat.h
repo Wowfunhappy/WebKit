@@ -390,17 +390,9 @@ typedef unsigned int AudioFormatFlags;
 #define NSPresentationIntentAttributeName @"NSPresentationIntentAttributeName"
 #endif
 
-/* ObjC-only type aliases (10.12/10.13) */
-#if defined(__OBJC__)
-#ifndef NS_EVENT_MODIFIER_FLAGS_DEFINED
-#define NS_EVENT_MODIFIER_FLAGS_DEFINED
-typedef NSUInteger NSEventModifierFlags;
-#endif
-#ifndef NS_ATTRIBUTED_STRING_KEY_DEFINED
-#define NS_ATTRIBUTED_STRING_KEY_DEFINED
-typedef NSString *NSAttributedStringKey;
-#endif
-#endif
+/* NSEventModifierFlags / NSAttributedStringKey typedefs are defined in the
+ * Foundation overlay (sdk-overlay NSObjCRuntime.h), NOT here: this compat header
+ * is force-included before Foundation, so NSUInteger/NSString aren't defined yet. */
 
 /* ===== CoreGraphics functions/fields (10.11-10.15) ===== */
 /* CGColorCreateSRGB (10.15) — generic RGB is a close enough fallback on 10.9. */

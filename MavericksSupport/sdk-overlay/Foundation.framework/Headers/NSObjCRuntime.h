@@ -530,6 +530,20 @@ enum {NSNotFound = NSIntegerMax};
 
 #else
 
+/* 10.9 backport: 10.12/10.13 type aliases. Defined here (not in the force-
+ * included compat header) because they need NSUInteger (above) / NSString,
+ * which aren't available at force-include time before Foundation. */
+#ifndef NSEVENTMODIFIERFLAGS_DEFINED
+#define NSEVENTMODIFIERFLAGS_DEFINED
+typedef NSUInteger NSEventModifierFlags;
+#endif
+#if defined(__OBJC__)
+#ifndef NSATTRIBUTEDSTRINGKEY_DEFINED
+#define NSATTRIBUTEDSTRINGKEY_DEFINED
+typedef NSString *NSAttributedStringKey;
+#endif
+#endif
+
 #if !defined(MIN)
     #define MIN(A,B)	((A) < (B) ? (A) : (B))
 #endif
