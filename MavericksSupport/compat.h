@@ -459,6 +459,12 @@ static inline int _compat_mkostemps(char *tmpl, int suffixlen, int flags) {
 #ifndef API_DEPRECATED_WITH_REPLACEMENT
 #define API_DEPRECATED_WITH_REPLACEMENT(...)
 #endif
+#ifndef SPI_AVAILABLE
+#define SPI_AVAILABLE(...)
+#endif
+#ifndef SPI_AVAILABLE_BUT_DEPRECATED
+#define SPI_AVAILABLE_BUT_DEPRECATED(...)
+#endif
 /* NSPersonNameComponents (10.11+) */
 @class NSPersonNameComponents;
 /* NSNotificationName (10.12+) */
@@ -807,8 +813,8 @@ typedef uint32_t nw_path_status_t;
 @end
 #endif
 
-@interface NSURLSessionWebSocketTask : NSURLSessionTask
-@end
+/* NSURLSessionWebSocketTask is declared by pal/spi/cf/CFNetworkSPI.h; only
+ * NSURLSessionWebSocketMessage is unique to compat.h. */
 @interface NSURLSessionWebSocketMessage : NSObject
 @end
 #ifndef NSURLSessionWebSocketCloseCode
