@@ -1075,9 +1075,9 @@ typedef NSInteger NSControlStateValue;
 #ifndef NSTouchBarItemIdentifierCharacterPicker
 #define NSTouchBarItemIdentifierCharacterPicker @"NSTouchBarItemIdentifierCharacterPicker"
 #endif
-/* NSFilePromiseReceiver (10.12+) */
-@interface NSFilePromiseReceiver : NSObject
-@end
+/* NSFilePromiseReceiver (10.12+) is declared locally (with the method it uses)
+ * by WebView.mm and WebViewImpl.mm under #if !__has_include(<AppKit/NSFilePromiseReceiver.h>);
+ * do NOT stub it here or it is a duplicate interface definition. */
 #endif
 
 /* NSEventModifierFlagFunction */
