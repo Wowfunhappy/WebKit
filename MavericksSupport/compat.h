@@ -505,10 +505,12 @@ typedef NSString *NSAttributedStringDocumentType;
 #endif
 /* NSEventModifierFlags (renamed in 10.12) */
 #ifndef NSEventModifierFlagShift
+#define NSEventModifierFlagCapsLock NSAlphaShiftKeyMask
 #define NSEventModifierFlagShift NSShiftKeyMask
 #define NSEventModifierFlagControl NSControlKeyMask
 #define NSEventModifierFlagOption NSAlternateKeyMask
 #define NSEventModifierFlagCommand NSCommandKeyMask
+#define NSEventModifierFlagHelp NSHelpKeyMask
 #endif
 /* NSEventTypePressure (10.10.3+) */
 #ifndef NSEventTypePressure
