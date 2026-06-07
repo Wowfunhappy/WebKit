@@ -31,16 +31,8 @@
 // FIXME: CoreMedia doesn't specify CF_BRIDGED_TYPE to VTVideoDecoderRef. See rdar://148155269.
 typedef struct CF_BRIDGED_TYPE(id) OpaqueVTVideoDecoder* VTVideoDecoderRef;
 typedef struct OpaqueVTImageRotationSession* VTImageRotationSessionRef;
-
-// 10.9 backport: VTDecompressionSessionDecodeFrameWithOutputHandler and its
-// multi-image variant are soft-linked (never resolve on 10.9), but their
-// block-handler parameter typedefs are from a later SDK. Declare them so the
-// soft-link declarations parse. CMTaggedBufferGroupRef matches the forward-decl
-// in pal/spi/cf/CoreMediaSPI.h (identical typedef => no conflict).
-typedef struct opaqueCMTaggedBufferGroup* CMTaggedBufferGroupRef;
-typedef void (^VTDecompressionOutputHandler)(OSStatus, VTDecodeInfoFlags, CVImageBufferRef, CMTime, CMTime);
-typedef void (^VTDecompressionMultiImageCapableOutputHandler)(OSStatus, VTDecodeInfoFlags, CMTaggedBufferGroupRef, CMTime, CMTime);
-
+// VTDecompressionOutputHandler[MultiImageCapable] + CMTaggedBufferGroupRef come
+// from the force-included MavericksSupport/compat.h (later-SDK types).
 typedef struct OpaqueVTPixelBufferConformer* VTPixelBufferConformerRef;
 typedef struct OpaqueVTPixelTransferSession* VTPixelTransferSessionRef;
 

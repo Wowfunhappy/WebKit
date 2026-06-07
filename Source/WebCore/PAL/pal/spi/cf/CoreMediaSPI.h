@@ -51,18 +51,8 @@ typedef void (*FigThreadAbortAction)(void* refcon);
 typedef struct OpaqueFigThreadAbortActionToken* FigThreadAbortActionToken;
 #endif
 
-// 10.9 backport: the CMTag / CMTagCollection / CMTaggedBufferGroup family is
-// macOS 14+. Forward-declare them so PAL/cf/CoreMediaSoftLink.h's soft-link
-// declarations parse on the 10.9 SDK. The functions/constants are soft-linked
-// and never resolve at runtime on 10.9 (callers nil-check), so the concrete
-// layout is irrelevant — these just need to be well-formed types.
-#ifndef CMTAG_H // real CoreMedia CMTag header guard, if ever present
-typedef int64_t CMTagCategory;
-typedef struct CMTag { CMTagCategory category; int64_t value; } CMTag;
-typedef struct opaqueCMTagCollection* CMTagCollectionRef;
-typedef struct opaqueCMTaggedBufferGroup* CMTaggedBufferGroupRef;
-typedef struct opaqueCMTaggedBufferGroupFormatDescription* CMTaggedBufferGroupFormatDescriptionRef;
-#endif
+// CMTag/CMTagCollection/CMTaggedBufferGroup are defined by the force-included
+// MavericksSupport/compat.h (macOS-14 types absent on 10.9).
 
 WTF_EXTERN_C_BEGIN
 OSStatus FigThreadRegisterAbortAction(FigThreadAbortAction, void* refcon, FigThreadAbortActionToken*);

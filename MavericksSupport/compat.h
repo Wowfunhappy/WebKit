@@ -625,12 +625,10 @@ typedef NSString *NSHTTPCookiePropertyKey;
 
 #endif /* __OBJC__ */
 
-/* CAIOSurfaceRef (newer QuartzCore) */
 /* IOSurfaceRef from IOSurface framework */
 #include <IOSurface/IOSurface.h>
-#ifndef CAIOSurfaceRef
-typedef void *CAIOSurfaceRef;
-#endif
+/* NOTE: CAIOSurfaceRef is defined by pal/spi/cocoa/QuartzCoreSPI.h (as
+ * struct _CAIOSurface*); do NOT stub it here or it conflicts. */
 /* CMTaggedBufferGroupRef (newer CoreMedia) */
 typedef void *CMTaggedBufferGroupRef;
 typedef void *CMTaggedBufferGroupFormatDescriptionRef;
@@ -641,11 +639,9 @@ typedef void *CMTaggedBufferGroupFormatDescriptionRef;
 #endif
 
 /* CM_RETURNS_RETAINED_PARAMETER (newer CoreMedia) */
-/* FigThreadAbortAction (newer CoreMedia) */
-#ifndef FigThreadAbortAction
-typedef int FigThreadAbortAction;
-typedef int FigThreadAbortActionToken;
-#endif
+/* NOTE: FigThreadAbortAction/Token are defined by pal/spi/cf/CoreMediaSPI.h
+ * (as void(*)(void*) / struct OpaqueFigThreadAbortActionToken*); do NOT stub
+ * them here or they conflict. */
 /* CoreMedia macros for old SDKs */
 #ifndef CF_NOESCAPE
 #define CF_NOESCAPE
@@ -653,12 +649,11 @@ typedef int FigThreadAbortActionToken;
 #ifndef CMSAMPLEBUFFERCALL_NOESCAPE
 #define CMSAMPLEBUFFERCALL_NOESCAPE
 #endif
-/* CMTag (macOS 14+) */
+/* CMTag (macOS 14+) — only here (no SPI header defines these).
+ * CMBaseObjectRef/CMBaseVTable/CMBaseClassID are defined by libwebrtc's
+ * CMBaseObjectSPI.h (pulled in by CoreMediaSPI.h); do NOT stub them here. */
 #ifndef CMTag
 typedef struct { uint64_t value; uint32_t category; } CMTag;
-typedef void *CMBaseObjectRef;
-typedef void *CMBaseVTable;
-typedef uint32_t CMBaseClassID;
 typedef uint32_t CMTagCategory;
 typedef void *CMTagCollectionRef;
 #endif
@@ -701,13 +696,8 @@ typedef uint32_t WGPUCompositeAlphaMode;
 typedef void (^VTDecompressionOutputHandler)(int status, int flags, void *imageBuffer, long long pts, long long duration);
 typedef void (^VTDecompressionMultiImageCapableOutputHandler)(int status, int flags, void *imageBuffer, long long pts, long long duration, void *taggedBufferGroup);
 
-/* CAFilter - private QuartzCore class */
-#ifdef __OBJC__
-@interface CAFilter : NSObject
-+ (id)filterWithType:(NSString *)type;
-@property (copy) NSString *name;
-@end
-#endif
+/* CAFilter is declared by pal/spi/cocoa/QuartzCoreSPI.h (@interface); do NOT
+ * redeclare it here or it is a duplicate interface definition. */
 
 #endif /* !__ASSEMBLER__ */
 #endif /* _COMPAT_H */
