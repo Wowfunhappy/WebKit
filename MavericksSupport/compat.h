@@ -56,14 +56,9 @@
 #define HAVE_LSDATABASECONTEXT 0
 #define HAVE_SYSTEM_CONTENT_LS_DATABASE 0
 
-/* tls_protocol_version_t (Security.framework 10.15+) */
-#ifndef tls_protocol_version_t
-typedef uint16_t tls_protocol_version_t;
-#define tls_protocol_version_TLSv10 0x0301
-#define tls_protocol_version_TLSv11 0x0302
-#define tls_protocol_version_TLSv12 0x0303
-#define tls_protocol_version_TLSv13 0x0304
-#endif
+/* tls_protocol_version_t + tls_protocol_version_TLSv1x are the enum and
+ * enumerators defined by pal/spi/cf/CFNetworkSPI.h (#if !HAVE(TLS_PROTOCOL_VERSION_T));
+ * do NOT stub them here or the typedef/enum conflict and the #defines break the enum. */
 
 /* CGColorSpaceSupportsOutput (10.12+) */
 #ifndef CGColorSpaceSupportsOutput
