@@ -865,11 +865,8 @@ typedef NSString *NSTouchBarItemIdentifier;
 #endif
 #endif
 
-/* kCATransactionPhase (private CA) */
-#ifndef kCATransactionPhasePreLayout
-#define kCATransactionPhasePreLayout 0
-#define kCATransactionPhasePostCommit 3
-#endif
+/* kCATransactionPhase* are enumerators of QuartzCoreSPI.h's CATransactionPhase
+ * enum; do NOT #define them here or they break that enum ("expected identifier"). */
 
 /* PDFViewDelegate (10.12+ - renamed from PDFView informal delegate) */
 #ifdef __OBJC__
