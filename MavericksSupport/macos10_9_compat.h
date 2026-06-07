@@ -214,5 +214,93 @@ static __inline__ int mkostemps(char *__t, int __suffixlen, int __flags) {
 #define NSControlSizeMini     NSMiniControlSize
 #endif
 
+/* NSRectEdge (10.12) */
+#ifndef NSRectEdgeMinX
+#define NSRectEdgeMinX NSMinXEdge
+#define NSRectEdgeMinY NSMinYEdge
+#define NSRectEdgeMaxX NSMaxXEdge
+#define NSRectEdgeMaxY NSMaxYEdge
+#endif
+
+/* NSTextAlignment (10.12) */
+#ifndef NSTextAlignmentLeft
+#define NSTextAlignmentLeft      NSLeftTextAlignment
+#define NSTextAlignmentRight     NSRightTextAlignment
+#define NSTextAlignmentCenter    NSCenterTextAlignment
+#define NSTextAlignmentJustified NSJustifiedTextAlignment
+#define NSTextAlignmentNatural   NSNaturalTextAlignment
+#endif
+
+/* NSEventType (10.12 rename of the bare NS* event types) */
+#ifndef NSEventTypeLeftMouseDown
+#define NSEventTypeLeftMouseDown     NSLeftMouseDown
+#define NSEventTypeLeftMouseUp       NSLeftMouseUp
+#define NSEventTypeRightMouseDown    NSRightMouseDown
+#define NSEventTypeRightMouseUp      NSRightMouseUp
+#define NSEventTypeOtherMouseDown    NSOtherMouseDown
+#define NSEventTypeOtherMouseUp      NSOtherMouseUp
+#define NSEventTypeLeftMouseDragged  NSLeftMouseDragged
+#define NSEventTypeRightMouseDragged NSRightMouseDragged
+#define NSEventTypeOtherMouseDragged NSOtherMouseDragged
+#define NSEventTypeMouseMoved        NSMouseMoved
+#define NSEventTypeMouseEntered      NSMouseEntered
+#define NSEventTypeMouseExited       NSMouseExited
+#define NSEventTypeKeyDown           NSKeyDown
+#define NSEventTypeKeyUp             NSKeyUp
+#define NSEventTypeFlagsChanged      NSFlagsChanged
+#define NSEventTypeScrollWheel       NSScrollWheel
+#define NSEventTypeCursorUpdate      NSCursorUpdate
+#define NSEventTypeAppKitDefined     NSAppKitDefined
+#define NSEventTypeSystemDefined     NSSystemDefined
+#define NSEventTypeApplicationDefined NSApplicationDefined
+#define NSEventTypePeriodic          NSPeriodic
+#define NSEventTypeTabletPoint       NSTabletPoint
+#define NSEventTypeTabletProximity   NSTabletProximity
+#endif
+
+/* NSPasteboardName (10.13) */
+#ifndef NSPasteboardNameGeneral
+#define NSPasteboardNameGeneral NSGeneralPboard
+#define NSPasteboardNameFont    NSFontPboard
+#define NSPasteboardNameRuler   NSRulerPboard
+#define NSPasteboardNameFind    NSFindPboard
+#define NSPasteboardNameDrag    NSDragPboard
+#endif
+
+/* NSAppearanceNameDarkAqua (10.14) — no 10.9 equivalent; a sentinel string that
+ * never matches a real 10.9 appearance (10.9 is always light/Aqua). */
+#ifndef NSAppearanceNameDarkAqua
+#define NSAppearanceNameDarkAqua @"NSAppearanceNameDarkAqua"
+#endif
+
+/* ===== CoreText OpenType feature keys (10.10) ===== */
+#ifndef kCTFontOpenTypeFeatureTag
+#define kCTFontOpenTypeFeatureTag   CFSTR("CTFontOpenTypeFeatureTag")
+#define kCTFontOpenTypeFeatureValue CFSTR("CTFontOpenTypeFeatureValue")
+#endif
+
+/* ===== CoreMedia codec type (10.13) ===== */
+#ifndef kCMVideoCodecType_HEVC
+#define kCMVideoCodecType_HEVC 'hvc1'
+#endif
+
+/* ===== CoreAudio element-main rename (10.12) ===== */
+#ifndef kAudioObjectPropertyElementMain
+#define kAudioObjectPropertyElementMain kAudioObjectPropertyElementMaster
+#endif
+
+/* AudioFormatFlags typedef (later SDK) — 10.9 CoreAudioTypes.h declares
+ * AudioStreamBasicDescription.mFormatFlags as a bare UInt32 and has no
+ * AudioFormatFlags typedef. unsigned int == UInt32 on this target. */
+#ifndef AUDIO_FORMAT_FLAGS_DEFINED
+#define AUDIO_FORMAT_FLAGS_DEFINED
+typedef unsigned int AudioFormatFlags;
+#endif
+
+/* ===== CoreGraphics extended-sRGB color space (10.12) — fall back to sRGB ===== */
+#ifndef kCGColorSpaceExtendedSRGB
+#define kCGColorSpaceExtendedSRGB kCGColorSpaceSRGB
+#endif
+
 #endif /* !__ASSEMBLER__ */
 #endif /* _COMPAT_H */
