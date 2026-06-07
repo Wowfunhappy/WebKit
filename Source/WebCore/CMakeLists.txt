@@ -3110,7 +3110,9 @@ if (APPLE)
     # broke once the global -fno-rtti removed the weak C++ typeinfo/vtable exports the .mm files used to
     # emit. lld (shipped with the clang-22 toolchain) has no such bug and emits a 10.9-loadable Mach-O for
     # a 10.9 deployment target, so link WebCore with it. Other frameworks still link fine with system ld.
-    set_target_properties(WebCore PROPERTIES LINK_FLAGS "-fuse-ld=lld -weak-lxslt -sub_library libobjc -undefined dynamic_lookup -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy")
+    # 10.9 backport: drop `-sub_library libobjc` — lld rejects it ("does not match a
+    # supplied dylib") and clients link libobjc directly anyway.
+    set_target_properties(WebCore PROPERTIES LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy")
 endif ()
 
 # The -ftree-sra optimization (implicit with -O2) causes crashes when

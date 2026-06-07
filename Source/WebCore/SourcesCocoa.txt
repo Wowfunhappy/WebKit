@@ -755,7 +755,7 @@ rendering/TextAutoSizing.cpp
 rendering/cocoa/RenderThemeCocoa.mm @nonARC @no-unify
 rendering/ios/RenderThemeIOS.mm @nonARC @no-unify
 rendering/mac/RenderThemeMac.mm @nonARC @no-unify
-testing/cocoa/WebViewVisualIdentificationOverlay.mm @nonARC
+// testing/cocoa/WebViewVisualIdentificationOverlay.mm @nonARC -- 10.9: the class is provided as a stub by libpolyfill.a (polyfill_stubs.o); compiling the real .mm too caused a duplicate-symbol link error. (testing/inspector visual overlay; stub suffices.)
 
 // The following files aren't unified with others to prevent them from being merged
 // with files that include system headers that include system OpenGL headers.
