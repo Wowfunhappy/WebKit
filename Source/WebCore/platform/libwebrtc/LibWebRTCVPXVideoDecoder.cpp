@@ -56,6 +56,22 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 #include "CoreVideoSoftLink.h"
 
+// 10.9 backport: 10-bit bi-planar CVPixelBuffer formats are macOS 10.13+ and
+// absent from the 10.9 SDK; provide their documented FourCC values so the
+// libwebrtc I010/I210 video paths compile.
+#ifndef kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+#define kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange 0x78343230 // 'x420'
+#endif
+#ifndef kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
+#define kCVPixelFormatType_420YpCbCr10BiPlanarFullRange  0x78663230 // 'xf20'
+#endif
+#ifndef kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange
+#define kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange 0x78343232 // 'x422'
+#endif
+#ifndef kCVPixelFormatType_422YpCbCr10BiPlanarFullRange
+#define kCVPixelFormatType_422YpCbCr10BiPlanarFullRange  0x78663232 // 'xf22'
+#endif
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(LibWebRTCVPXVideoDecoder);

@@ -140,6 +140,16 @@ add_link_options(
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-mmacosx-version-min=10.9>)
 add_link_options(-mmacosx-version-min=10.9)
 
+# 10.9 backport: the clang-22 wrapper's clang.cfg force-includes the C compat
+# header (macos10_9_compat.h) into EVERY clang invocation. For GAS-syntax .S
+# assembly (boringssl gen/crypto/*-x86_64-apple.S, assembled by clang as the ASM
+# language) that prepends C typedefs into the assembly stream, and the integrated
+# assembler rejects them ("unexpected token in argument list" / "expected
+# register here") — millions of errors. Skip clang.cfg for ASM-language sources;
+# they need only the assembler + -isysroot (which come from the CMake flags, not
+# clang.cfg). C/C++/ObjC sources still get the force-include.
+add_compile_options($<$<COMPILE_LANGUAGE:ASM>:--no-default-config>)
+
 # Overlay framework dir for patched headers (lightweight generics on collection types)
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-iframework> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:${MAVERICKS_SUPPORT}/sdk-overlay>)
 

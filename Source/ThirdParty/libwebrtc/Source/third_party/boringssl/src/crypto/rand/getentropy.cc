@@ -32,10 +32,10 @@
 #if defined(__APPLE__)
 #include <Availability.h>
 #if !defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED < 101200
-static int getentropy(void *buf, size_t buflen) {
-  arc4random_buf(buf, buflen);
-  return 0;
-}
+// getentropy() is declared by the WebKit 10.9 compat header (force-included via
+// clang.cfg) and implemented by the toolchain's macports-legacy-support; defining
+// a second (static) copy here conflicts with that non-static declaration. Just
+// skip <sys/random.h> (10.12+) and use the provided getentropy().
 #define WEBKIT_109_GETENTROPY 1
 #endif
 #endif
