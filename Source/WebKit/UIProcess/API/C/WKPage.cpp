@@ -48,6 +48,7 @@
 #include "APIOpenPanelParameters.h"
 #include "APIPageConfiguration.h"
 #include "APIPolicyClient.h"
+#include "APISerializedScriptValue.h"
 #include "APISessionState.h"
 #include "APIUIClient.h"
 #include "APIWebAuthenticationPanel.h"
@@ -2743,13 +2744,41 @@ void WKPageEvaluateJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRe
     WKPageEvaluateJavaScriptInFrame(pageRef, nullptr, scriptRef, context, callback);
 }
 
-// 10.9 backport: Safari 9.1.3 calls the older WKPageRunJavaScriptInMainFrame
+// 10.9 backport: Safari 7/9 call the older WKPageRunJavaScriptInMainFrame
 // symbol (the API was renamed to *Evaluate*). Without this alias, Safari
 // crashes with dyld_fatal_error on osascript "do JavaScript" commands.
+// Unlike the modern Evaluate API, the legacy contract hands the callback a
+// WKSerializedScriptValueRef the caller deserializes with
+// WKSerializedScriptValueDeserialize, so deliver an API::SerializedScriptValue
+// (see APISerializedScriptValue.h) rather than toAPI()'s plain WKType objects.
 extern "C" WK_EXPORT void WKPageRunJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback);
 extern "C" void WKPageRunJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback)
 {
-    WKPageEvaluateJavaScriptInMainFrame(pageRef, scriptRef, context, callback);
+    CRASH_IF_SUSPENDED;
+    auto scriptString = IPC::TransferString::create(toImpl(scriptRef)->stringView());
+    if (!scriptString) {
+        if (callback)
+            callback(nullptr, nullptr, context);
+        return;
+    };
+
+    protect(toImpl(pageRef))->runJavaScriptInFrameInScriptWorld(WebKit::RunJavaScriptParameters {
+        WTF::move(*scriptString),
+        JSC::SourceTaintedOrigin::Untainted,
+        URL { },
+        WebCore::RunAsAsyncFunction::No,
+        std::nullopt,
+        WebCore::ForceUserGesture::Yes,
+        RemoveTransientActivation::Yes
+    }, std::nullopt, API::ContentWorld::pageContentWorldSingleton(), !!callback, [context, callback] (auto&& result) {
+        if (!callback)
+            return;
+        if (result) {
+            Ref serializedValue = API::SerializedScriptValue::create(WTF::move(*result));
+            callback(toAPI(static_cast<API::Object*>(serializedValue.ptr())), nullptr, context);
+        } else
+            callback(nullptr, nullptr, context);
+    });
 }
 
 void WKPageEvaluateJavaScriptInFrame(WKPageRef pageRef, WKFrameInfoRef frame, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback)
@@ -3615,7 +3644,6 @@ WK_EXPORT void WKPageSetVisibilityState(WKPageRef, int, bool);
 WK_EXPORT void WKPageLoadWebArchiveData(WKPageRef, WKDataRef);
 WK_EXPORT bool WKInspectorIsProfilingJavaScript(WKInspectorRef);
 WK_EXPORT void WKInspectorToggleJavaScriptProfiling(WKInspectorRef);
-WK_EXPORT void WKDictionaryAddItem(WKMutableDictionaryRef, WKStringRef, WKTypeRef);
 WK_EXPORT WKDataRef WKDownloadGetResumeData(WKDownloadRef);
 WK_EXPORT void* WKGraphicsContextGetCGContext(void*);
 WK_EXPORT void* WKContextGetApplicationCacheManager(WKContextRef);
@@ -3634,17 +3662,7 @@ WK_EXPORT void WKMediaCacheManagerGetHostnamesWithMediaCache(void*, void*, void*
 WK_EXPORT void WKPluginSiteDataManagerClearAllSiteData(void*, uint64_t, double);
 WK_EXPORT void WKPluginSiteDataManagerClearSiteData(void*, void*, uint64_t, double);
 WK_EXPORT void WKPluginSiteDataManagerGetSitesWithData(void*, void*, void*);
-WK_EXPORT void WKBundleAddOriginAccessWhitelistEntry(void*, WKStringRef, WKStringRef, WKStringRef, bool);
-WK_EXPORT void WKBundleRemoveOriginAccessWhitelistEntry(void*, WKStringRef, WKStringRef, WKStringRef, bool);
-WK_EXPORT void WKBundleAddUserScript(void*, WKBundlePageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, int, int);
-WK_EXPORT void WKBundleAddUserStyleSheet(void*, WKBundlePageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, int);
-WK_EXPORT void WKBundleRemoveUserScript(void*, WKBundlePageGroupRef, WKURLRef);
-WK_EXPORT void WKBundleRemoveUserScripts(void*, WKBundlePageGroupRef);
-WK_EXPORT void WKBundleRemoveUserStyleSheet(void*, WKBundlePageGroupRef, WKURLRef);
-WK_EXPORT void WKBundleRemoveUserStyleSheets(void*, WKBundlePageGroupRef);
 WK_EXPORT bool WKBundleBackForwardListItemIsInPageCache(void*);
-WK_EXPORT void* WKBundlePageGetPageGroup(void*);
-WK_EXPORT WKTypeID WKBundlePageGroupGetTypeID(void);
 WK_EXPORT void WKBundlePageSetDiagnosticLoggingClient(void*, void*);
 }
 extern "C" {
@@ -3656,10 +3674,16 @@ void WKPreferencesSetScreenFontSubstitutionEnabled(WKPreferencesRef, bool) {}
 bool WKPreferencesGetScreenFontSubstitutionEnabled(WKPreferencesRef) { return false; }
 void WKPreferencesSetApplicationChromeModeEnabled(WKPreferencesRef, bool) {}
 void WKPageSetVisibilityState(WKPageRef, int, bool) {}
-void WKPageLoadWebArchiveData(WKPageRef, WKDataRef) {}
+// 10.9 backport: Safari 7 uses this to open .webarchive files; load the bytes
+// with the webarchive MIME type, which WebCore's LegacyWebArchive handles.
+void WKPageLoadWebArchiveData(WKPageRef pageRef, WKDataRef dataRef)
+{
+    if (!pageRef || !dataRef)
+        return;
+    protect(toImpl(pageRef))->loadData(WebCore::SharedBuffer::create(protect(toImpl(dataRef))->span()), "application/x-webarchive"_s, "utf-16"_s, "about:blank"_s);
+}
 bool WKInspectorIsProfilingJavaScript(WKInspectorRef) { return false; }
 void WKInspectorToggleJavaScriptProfiling(WKInspectorRef) {}
-void WKDictionaryAddItem(WKMutableDictionaryRef, WKStringRef, WKTypeRef) {}
 WKDataRef WKDownloadGetResumeData(WKDownloadRef) { return nullptr; }
 void* WKGraphicsContextGetCGContext(void*) { return nullptr; }
 void* WKContextGetApplicationCacheManager(WKContextRef) { return nullptr; }
@@ -3678,16 +3702,6 @@ void WKMediaCacheManagerGetHostnamesWithMediaCache(void*, void*, void*) {}
 void WKPluginSiteDataManagerClearAllSiteData(void*, uint64_t, double) {}
 void WKPluginSiteDataManagerClearSiteData(void*, void*, uint64_t, double) {}
 void WKPluginSiteDataManagerGetSitesWithData(void*, void*, void*) {}
-void WKBundleAddOriginAccessWhitelistEntry(void*, WKStringRef, WKStringRef, WKStringRef, bool) {}
-void WKBundleRemoveOriginAccessWhitelistEntry(void*, WKStringRef, WKStringRef, WKStringRef, bool) {}
-void WKBundleAddUserScript(void*, WKBundlePageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, int, int) {}
-void WKBundleAddUserStyleSheet(void*, WKBundlePageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, int) {}
-void WKBundleRemoveUserScript(void*, WKBundlePageGroupRef, WKURLRef) {}
-void WKBundleRemoveUserScripts(void*, WKBundlePageGroupRef) {}
-void WKBundleRemoveUserStyleSheet(void*, WKBundlePageGroupRef, WKURLRef) {}
-void WKBundleRemoveUserStyleSheets(void*, WKBundlePageGroupRef) {}
 bool WKBundleBackForwardListItemIsInPageCache(void*) { return false; }
-void* WKBundlePageGetPageGroup(void*) { return nullptr; }
-WKTypeID WKBundlePageGroupGetTypeID(void) { return 0; }
 void WKBundlePageSetDiagnosticLoggingClient(void*, void*) {}
 }

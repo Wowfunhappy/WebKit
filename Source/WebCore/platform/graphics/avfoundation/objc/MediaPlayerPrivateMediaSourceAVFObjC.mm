@@ -88,7 +88,7 @@
 // 10.9 MSE bisect: granular ASL logs at every entry point so when MEDIA_SOURCE=ON
 // is enabled and WebContent crashes, the LAST "MSE-bisect" line in syslog names
 // the failing step. Grep with: syslog | grep MSE-bisect | tail
-#define MSE_BISECT(fmt, ...) ((void)0) // 10.9: disabled leftover MSE debug logging (asl_log flood).
+#define MSE_BISECT(fmt, ...) asl_log(nullptr, nullptr, ASL_LEVEL_NOTICE, "MSE_BISECT [%d] " fmt, (int)getpid(), ##__VA_ARGS__) // 10.9: re-enabled for MSE bring-up
 
 @interface AVSampleBufferDisplayLayer (Staging_100128644)
 @property (assign, nonatomic) BOOL preventsAutomaticBackgroundingDuringVideoPlayback;

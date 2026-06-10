@@ -102,9 +102,14 @@ struct WKViewState {
 
     auto configuration = API::PageConfiguration::create();
     configuration->setProcessPool(WebKit::toImpl(contextRef));
-    // FIXME: page group setup disabled — setPageGroup not yet wired up.
-    // if (pageGroupRef)
-    //     configuration->setPageGroup(WebKit::toImpl(pageGroupRef));
+    // 10.9 backport: honor the page group Safari passes — its identifier is
+    // how the injected bundle scopes extension content scripts
+    // (WKBundleAddUserScript), and its preferences carry Safari's settings.
+    if (pageGroupRef) {
+        RefPtr<WebKit::WebPageGroup> pageGroup = WebKit::toImpl(pageGroupRef);
+        configuration->setPreferences(&pageGroup->preferences());
+        configuration->setPageGroup(WTF::move(pageGroup));
+    }
 
     return [self initWithFrame:frame processPool:*WebKit::toImpl(contextRef) configuration:WTF::move(configuration)];
 }

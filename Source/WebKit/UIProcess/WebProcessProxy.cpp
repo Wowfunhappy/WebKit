@@ -28,6 +28,7 @@
 
 #include "APIFrameHandle.h"
 #include "APIPageConfiguration.h"
+#include "APIPageGroupHandle.h"
 #include "APIPageHandle.h"
 #include "APIUIClient.h"
 #include "AuthenticatorManager.h"
@@ -1834,6 +1835,10 @@ RefPtr<API::Object> WebProcessProxy::transformHandlesToObjects(API::Object* obje
             case API::Object::Type::PageHandle:
                 return downcast<const API::PageHandle>(object).isAutoconverting();
 
+            // 10.9 backport: page groups travel as handles (Safari 7).
+            case API::Object::Type::PageGroupHandle:
+                return true;
+
             default:
                 return false;
             }
@@ -1850,6 +1855,9 @@ RefPtr<API::Object> WebProcessProxy::transformHandlesToObjects(API::Object* obje
             case API::Object::Type::PageHandle:
                 ASSERT(downcast<API::PageHandle>(object).isAutoconverting());
                 return protect(process())->webPage(downcast<API::PageHandle>(object).pageProxyID());
+
+            case API::Object::Type::PageGroupHandle:
+                return WebPageGroup::get(downcast<API::PageGroupHandle>(object).pageGroupData().pageGroupID);
 
             default:
                 return &object;
@@ -1888,6 +1896,13 @@ RefPtr<API::Object> WebProcessProxy::transformObjectsToHandles(API::Object* obje
 
             case API::Object::Type::Page:
                 return API::PageHandle::createAutoconverting(downcast<WebPageProxy>(object).identifier(), downcast<WebPageProxy>(object).webPageIDInMainFrameProcess());
+
+            // 10.9 backport: Safari 7 puts its WKPageGroup in the bundle
+            // initialization user data; carry it as a PageGroupHandle (the
+            // API::Object encoder has no case for the raw UI-type object and
+            // would corrupt the stream).
+            case API::Object::Type::PageGroup:
+                return API::PageGroupHandle::create(WebKit::WebPageGroupData { downcast<WebPageGroup>(object).data() });
 
             default:
                 return &object;

@@ -28,6 +28,7 @@
 
 #include <wtf/MachSendRight.h>
 #include "APIFrameHandle.h"
+#include "APIPageGroupHandle.h"
 #include "APIPageHandle.h"
 #include "AudioMediaStreamTrackRendererInternalUnitManager.h"
 #include "AuxiliaryProcessMessages.h"
@@ -67,6 +68,7 @@
 #include "WebIDBConnectionToServer.h"
 #include "WebLoaderStrategy.h"
 #include "WebMediaKeyStorageManager.h"
+#include "WK109PageGroupUserContent.h"
 #include "WebMemorySampler.h"
 #include "WebMessagePortChannelProvider.h"
 #include "WebNotificationManager.h"
@@ -1037,6 +1039,12 @@ WebPage* WebProcess::webPage(PageIdentifier pageID) const
     return m_pageMap.get(pageID);
 }
 
+void WebProcess::forEachWebPage(NOESCAPE const Function<void(WebPage&)>& apply) const
+{
+    for (auto& page : copyToVector(m_pageMap.values()))
+        apply(page);
+}
+
 void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 {
     { FILE *_f=((FILE*)0); if(_f) { fprintf(_f, "[INSPECTOR-WP] WebProcess::createWebPage pageID=%" PRIu64 " urlSchemeHandlers.size=%zu\n", pageID.toUInt64(), parameters.urlSchemeHandlers.size()); fclose(_f); } }
@@ -1055,6 +1063,11 @@ void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&
         if (RefPtr gpuProcessConnection = m_gpuProcessConnection)
             page->gpuProcessConnectionDidBecomeAvailable(*gpuProcessConnection);
 #endif
+
+        // 10.9 backport: apply legacy page-group user content (Safari 7
+        // extension content scripts) added via WKBundleAddUserScript before
+        // this page existed.
+        wk109ApplyPageGroupUserContent(page);
 
         // Balanced by an enableTermination in removeWebPage.
         disableTermination();
@@ -2126,6 +2139,11 @@ RefPtr<API::Object> WebProcess::transformHandlesToObjects(API::Object* object)
             case API::Object::Type::PageHandle:
                 return downcast<const API::PageHandle>(object).isAutoconverting();
 
+            // 10.9 backport: resolve page-group handles (Safari 7 bundle
+            // initialization user data) to this process's WebPageGroupProxy.
+            case API::Object::Type::PageGroupHandle:
+                return true;
+
             default:
                 return false;
             }
@@ -2140,6 +2158,9 @@ RefPtr<API::Object> WebProcess::transformHandlesToObjects(API::Object* object)
             }
             case API::Object::Type::PageHandle:
                 return WebProcess::singleton().webPage(downcast<const API::PageHandle>(object).webPageID());
+
+            case API::Object::Type::PageGroupHandle:
+                return &WebProcess::singleton().webPageGroup(WebPageGroupData { downcast<const API::PageGroupHandle>(object).pageGroupData() });
 
             default:
                 return &object;
@@ -2158,6 +2179,8 @@ RefPtr<API::Object> WebProcess::transformObjectsToHandles(API::Object* object)
             switch (object.type()) {
             case API::Object::Type::BundleFrame:
             case API::Object::Type::BundlePage:
+            // 10.9 backport: page groups travel as handles (Safari 7).
+            case API::Object::Type::BundlePageGroup:
                 return true;
 
             default:
@@ -2173,6 +2196,9 @@ RefPtr<API::Object> WebProcess::transformObjectsToHandles(API::Object* object)
 
             case API::Object::Type::BundlePage:
                 return API::PageHandle::createAutoconverting(downcast<const WebPage>(object).webPageProxyIdentifier(), downcast<const WebPage>(object).identifier());
+
+            case API::Object::Type::BundlePageGroup:
+                return API::PageGroupHandle::create(WebPageGroupData { downcast<const WebPageGroupProxy>(object).data() });
 
             default:
                 return &object;

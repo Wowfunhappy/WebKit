@@ -82,6 +82,24 @@ WKTypeID WKBundlePageGetTypeID()
     return WebKit::toAPI(WebKit::WebPage::APIType);
 }
 
+// 10.9 backport: removed upstream; Safari 7's injected bundle uses the page
+// group to scope extension content scripts (see WKBundleAddUserScript).
+extern "C" WK_EXPORT WKBundlePageGroupRef WKBundlePageGetPageGroup(WKBundlePageRef);
+extern "C" WK_EXPORT WKTypeID WKBundlePageGroupGetTypeID(void);
+
+WKBundlePageGroupRef WKBundlePageGetPageGroup(WKBundlePageRef pageRef)
+{
+    auto* page = WebKit::toImpl(pageRef);
+    if (!page)
+        return nullptr;
+    return WebKit::toAPI(&page->pageGroup());
+}
+
+WKTypeID WKBundlePageGroupGetTypeID()
+{
+    return WebKit::toAPI(WebKit::WebPageGroupProxy::APIType);
+}
+
 void WKBundlePageSetContextMenuClient(WKBundlePageRef pageRef, WKBundlePageContextMenuClientBase* wkClient)
 {
 #if ENABLE(CONTEXT_MENUS)

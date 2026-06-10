@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head><title>MSE smoke test</title></head>
+<body>
+<h1>MSE smoke test</h1>
+<pre id="log"></pre>
+<video id="v" width="480" height="270" controls></video>
+<script>
+function log(s) { document.getElementById('log').textContent += s + '\n'; document.title = s; }
+log('MediaSource: ' + !!window.MediaSource);
+if (window.MediaSource) {
+    var mime = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+    log('isTypeSupported(' + mime + '): ' + MediaSource.isTypeSupported(mime));
+    log('isTypeSupported(video-only avc1): ' + MediaSource.isTypeSupported('video/mp4; codecs="avc1.4D401F"'));
+    log('isTypeSupported(webm vp9): ' + MediaSource.isTypeSupported('video/webm; codecs="vp9"'));
+
+    // Fetch a known fragmented MP4 and play the first segments.
+    var v = document.getElementById('v');
+    var ms = new MediaSource();
+    v.src = URL.createObjectURL(ms);
+    ms.addEventListener('sourceopen', function () {
+        log('sourceopen; readyState=' + ms.readyState);
+        try {
+            var sb = ms.addSourceBuffer('video/mp4; codecs="avc1.42E01E"');
+            log('addSourceBuffer OK');
+            fetch('frag.mp4').then(function (r) { return r.arrayBuffer(); }).then(function (buf) {
+                log('fetched ' + buf.byteLength + ' bytes');
+                sb.addEventListener('updateend', function onEnd() {
+                    sb.removeEventListener('updateend', onEnd);
+                    log('updateend; buffered=' + (sb.buffered.length ? sb.buffered.end(0) : 'none'));
+                    ms.endOfStream();
+                    v.play().then(function () { log('playing'); }, function (e) { log('play failed: ' + e); });
+                });
+                sb.appendBuffer(buf);
+            }, function (e) { log('fetch failed: ' + e); });
+        } catch (e) {
+            log('addSourceBuffer threw: ' + e);
+        }
+    });
+    setInterval(function () {
+        if (!v.paused) document.title = 'MSE t=' + v.currentTime.toFixed(2);
+    }, 500);
+}
+</script>
+</body>
+</html>

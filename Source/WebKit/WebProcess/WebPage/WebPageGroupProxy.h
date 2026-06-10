@@ -38,13 +38,17 @@ namespace WebKit {
 
 class WebUserContentController;
 
-class WebPageGroupProxy : public RefCounted<WebPageGroupProxy> {
+// 10.9 backport: API::ObjectImpl base restored (was RefCounted) so the page
+// group can travel through the legacy C API again (WKBundlePageGetPageGroup /
+// WKBundleAddUserScript — Safari 7 extension content-script injection).
+class WebPageGroupProxy : public API::ObjectImpl<API::Object::Type::BundlePageGroup> {
 public:
     static Ref<WebPageGroupProxy> create(WebPageGroupData&&);
     virtual ~WebPageGroupProxy();
 
     const String& identifier() const LIFETIME_BOUND { return m_data.identifier; }
     PageGroupIdentifier pageGroupID() const { return m_data.pageGroupID; }
+    const WebPageGroupData& data() const LIFETIME_BOUND { return m_data; }
     // Namespace IDs for local storage namespaces are currently equivalent to web page group IDs.
     WebCore::PageGroup* NODELETE corePageGroup() const;
 
@@ -56,3 +60,7 @@ private:
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebPageGroupProxy)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::BundlePageGroup; }
+SPECIALIZE_TYPE_TRAITS_END()

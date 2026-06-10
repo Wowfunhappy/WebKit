@@ -20,28 +20,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-header: "APIObject.h"
+# 10.9 backport: legacy WKSerializedScriptValue carrier (see APISerializedScriptValue.h).
 
-[RefCounted, CustomHeader] class API::Object subclasses {
-    API::Array
-    API::Boolean
-    API::Data
-    API::Dictionary
-    API::Double
-    API::Error
-    API::FrameHandle
-    WebKit::WebImage
-    API::PageHandle
-    API::PageGroupHandle
-    API::Point
-    API::Rect
-    API::SerializedScriptValue
-    API::Size
-    API::String
-    API::URL
-    API::URLRequest
-    API::URLResponse
-    API::UInt64
-    API::Int64
-    API::UserContentURLPattern
-}
+header: "APISerializedScriptValue.h"
+
+[RefCounted, CustomHeader] class API::SerializedScriptValue {
+    WebKit::JavaScriptEvaluationResult result()
+};

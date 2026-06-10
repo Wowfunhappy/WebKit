@@ -583,7 +583,9 @@ set(WebKit_SERIALIZATION_IN_FILES
     Shared/API/APIGeometry.serialization.in
     Shared/API/APINumber.serialization.in
     Shared/API/APIObject.serialization.in
+    Shared/API/APIPageGroupHandle.serialization.in
     Shared/API/APIPageHandle.serialization.in
+    Shared/API/APISerializedScriptValue.serialization.in
     Shared/API/APIString.serialization.in
     Shared/API/APIURL.serialization.in
     Shared/API/APIURLRequest.serialization.in

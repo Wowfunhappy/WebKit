@@ -26,23 +26,40 @@
 #include "config.h"
 #include "WKPageGroup.h"
 
+#include "WKAPICast.h"
+#include "WebPageGroup.h"
+#include "WebPreferences.h"
+
+// 10.9 backport: these were gutted to null upstream, but Safari 7 creates its
+// browsing page group with WKPageGroupCreateWithIdentifier, attaches its
+// WKPreferences to it, and passes the group to WKView — and the injected
+// bundle later scopes extension content scripts by this group's identifier.
+
 WKTypeID WKPageGroupGetTypeID()
 {
-    return 0;
+    return WebKit::toAPI(WebKit::WebPageGroup::APIType);
 }
 
-WKPageGroupRef WKPageGroupCreateWithIdentifier(WKStringRef)
+WKPageGroupRef WKPageGroupCreateWithIdentifier(WKStringRef identifierRef)
 {
-    return nullptr;
+    return WebKit::toAPILeakingRef(WebKit::WebPageGroup::create(WebKit::toWTFString(identifierRef)));
 }
 
-void WKPageGroupSetPreferences(WKPageGroupRef, WKPreferencesRef)
+void WKPageGroupSetPreferences(WKPageGroupRef pageGroupRef, WKPreferencesRef preferencesRef)
 {
+    auto* pageGroup = WebKit::toImpl(pageGroupRef);
+    auto* preferences = WebKit::toImpl(preferencesRef);
+    if (!pageGroup || !preferences)
+        return;
+    pageGroup->setPreferences(*preferences);
 }
 
-WKPreferencesRef WKPageGroupGetPreferences(WKPageGroupRef)
+WKPreferencesRef WKPageGroupGetPreferences(WKPageGroupRef pageGroupRef)
 {
-    return nullptr;
+    auto* pageGroup = WebKit::toImpl(pageGroupRef);
+    if (!pageGroup)
+        return nullptr;
+    return WebKit::toAPI(&pageGroup->preferences());
 }
 
 WKUserContentControllerRef WKPageGroupGetUserContentController(WKPageGroupRef pageGroupRef)

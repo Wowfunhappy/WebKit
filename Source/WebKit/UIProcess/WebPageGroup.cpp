@@ -53,6 +53,13 @@ Ref<WebPageGroup> WebPageGroup::create(const String& identifier)
     return adoptRef(*new WebPageGroup(identifier));
 }
 
+// 10.9 backport: resolve a page group received as an API::PageGroupHandle
+// from the WebContent process (WebProcessProxy::transformHandlesToObjects).
+RefPtr<WebPageGroup> WebPageGroup::get(PageGroupIdentifier pageGroupID)
+{
+    return webPageGroupMap().get(pageGroupID);
+}
+
 static WebPageGroupData pageGroupData(const String& identifier)
 {
     static NeverDestroyed<HashMap<String, PageGroupIdentifier>> map;

@@ -31,6 +31,7 @@
 #include "InjectedBundle.h"
 #include "InjectedBundleClient.h"
 #include "InjectedBundleScriptWorld.h"
+#include "WK109PageGroupUserContent.h"
 #include "WKAPICast.h"
 #include "WKBundleAPICast.h"
 #include "WKBundlePrivate.h"
@@ -44,6 +45,8 @@
 #include "WebPage.h"
 #include "WebPageGroupProxy.h"
 #include <WebCore/DatabaseTracker.h>
+#include <WebCore/UserScript.h>
+#include <WebCore/UserStyleSheet.h>
 #include <WebCore/MemoryRelease.h>
 #include <WebCore/ResourceLoadObserver.h>
 #include <WebCore/ServiceWorkerThreadProxy.h>
@@ -104,6 +107,134 @@ void WKBundleRemoveOriginAccessAllowListEntry(WKBundleRef bundleRef, WKStringRef
 void WKBundleResetOriginAccessAllowLists(WKBundleRef bundleRef)
 {
     protect(WebKit::toImpl(bundleRef))->resetOriginAccessAllowLists();
+}
+
+// 10.9 backport: legacy page-group user content C API, used by Safari 7's
+// injected bundle to install extension content scripts and style sheets.
+// Upstream removed these (user content is per-WKUserContentController now);
+// they are reimplemented on top of WK109PageGroupUserContent, which records
+// scripts per page group and applies them to current and future pages.
+// Also restored: the OriginAccessWhitelist spellings (renamed AllowList
+// upstream) Safari calls for extension cross-origin access.
+
+static Vector<String> wk109ToStringVector(WKArrayRef arrayRef)
+{
+    Vector<String> strings;
+    auto* array = WebKit::toImpl(arrayRef);
+    if (!array)
+        return strings;
+    size_t size = array->size();
+    strings.reserveInitialCapacity(size);
+    for (size_t i = 0; i < size; ++i) {
+        if (auto* string = array->at<API::String>(i))
+            strings.append(string->string());
+    }
+    return strings;
+}
+
+// Signatures match Safari 7's WebKit (confirmed from Safari's call site:
+// Safari::WK::Bundle::addUserScript(BundlePageGroup, BundleScriptWorld,
+// String, URL, Array, Array, injectionTime, injectedFrames)) — note the
+// script world parameter, which Safari creates with
+// WKBundleScriptWorldCreateWorld for extension content scripts.
+extern "C" {
+WK_EXPORT void WKBundleAddUserScript(WKBundleRef, WKBundlePageGroupRef, WKBundleScriptWorldRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, _WKUserScriptInjectionTime, WKUserContentInjectedFrames);
+WK_EXPORT void WKBundleAddUserStyleSheet(WKBundleRef, WKBundlePageGroupRef, WKBundleScriptWorldRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, WKUserContentInjectedFrames);
+WK_EXPORT void WKBundleRemoveUserScript(WKBundleRef, WKBundlePageGroupRef, WKBundleScriptWorldRef, WKURLRef);
+WK_EXPORT void WKBundleRemoveUserScripts(WKBundleRef, WKBundlePageGroupRef, WKBundleScriptWorldRef);
+WK_EXPORT void WKBundleRemoveUserStyleSheet(WKBundleRef, WKBundlePageGroupRef, WKBundleScriptWorldRef, WKURLRef);
+WK_EXPORT void WKBundleRemoveUserStyleSheets(WKBundleRef, WKBundlePageGroupRef, WKBundleScriptWorldRef);
+WK_EXPORT void WKBundleRemoveAllUserContent(WKBundleRef, WKBundlePageGroupRef);
+WK_EXPORT void WKBundleAddOriginAccessWhitelistEntry(WKBundleRef, WKStringRef, WKStringRef, WKStringRef, bool);
+WK_EXPORT void WKBundleRemoveOriginAccessWhitelistEntry(WKBundleRef, WKStringRef, WKStringRef, WKStringRef, bool);
+}
+
+static WebKit::InjectedBundleScriptWorld* wk109ToWorld(WKBundleScriptWorldRef scriptWorldRef)
+{
+    if (auto* world = WebKit::toImpl(scriptWorldRef))
+        return world;
+    return &WebKit::InjectedBundleScriptWorld::normalWorldSingleton();
+}
+
+void WKBundleAddUserScript(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef, WKStringRef sourceRef, WKURLRef urlRef, WKArrayRef allowListRef, WKArrayRef blockListRef, _WKUserScriptInjectionTime injectionTime, WKUserContentInjectedFrames injectedFrames)
+{
+    auto* pageGroup = WebKit::toImpl(pageGroupRef);
+    if (!pageGroup)
+        return;
+    WebCore::UserScript userScript {
+        WebKit::toWTFString(sourceRef),
+        URL { WebKit::toWTFString(urlRef) },
+        wk109ToStringVector(allowListRef),
+        wk109ToStringVector(blockListRef),
+        WebKit::toUserScriptInjectionTime(injectionTime),
+        WebKit::toUserContentInjectedFrames(injectedFrames)
+    };
+    WebKit::wk109AddUserScript(pageGroup->identifier(), *wk109ToWorld(scriptWorldRef), WTF::move(userScript));
+}
+
+void WKBundleAddUserStyleSheet(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef, WKStringRef sourceRef, WKURLRef urlRef, WKArrayRef allowListRef, WKArrayRef blockListRef, WKUserContentInjectedFrames injectedFrames)
+{
+    auto* pageGroup = WebKit::toImpl(pageGroupRef);
+    if (!pageGroup)
+        return;
+    WebCore::UserStyleSheet userStyleSheet {
+        WebKit::toWTFString(sourceRef),
+        URL { WebKit::toWTFString(urlRef) },
+        wk109ToStringVector(allowListRef),
+        wk109ToStringVector(blockListRef),
+        WebKit::toUserContentInjectedFrames(injectedFrames)
+    };
+    WebKit::wk109AddUserStyleSheet(pageGroup->identifier(), *wk109ToWorld(scriptWorldRef), WTF::move(userStyleSheet));
+}
+
+void WKBundleRemoveUserScript(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef, WKURLRef urlRef)
+{
+    auto* pageGroup = WebKit::toImpl(pageGroupRef);
+    if (!pageGroup)
+        return;
+    WebKit::wk109RemoveUserScript(pageGroup->identifier(), *wk109ToWorld(scriptWorldRef), URL { WebKit::toWTFString(urlRef) });
+}
+
+void WKBundleRemoveUserScripts(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef)
+{
+    auto* pageGroup = WebKit::toImpl(pageGroupRef);
+    if (!pageGroup)
+        return;
+    WebKit::wk109RemoveUserScripts(pageGroup->identifier(), *wk109ToWorld(scriptWorldRef));
+}
+
+void WKBundleRemoveUserStyleSheet(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef, WKURLRef urlRef)
+{
+    auto* pageGroup = WebKit::toImpl(pageGroupRef);
+    if (!pageGroup)
+        return;
+    WebKit::wk109RemoveUserStyleSheet(pageGroup->identifier(), *wk109ToWorld(scriptWorldRef), URL { WebKit::toWTFString(urlRef) });
+}
+
+void WKBundleRemoveUserStyleSheets(WKBundleRef, WKBundlePageGroupRef pageGroupRef, WKBundleScriptWorldRef scriptWorldRef)
+{
+    auto* pageGroup = WebKit::toImpl(pageGroupRef);
+    if (!pageGroup)
+        return;
+    WebKit::wk109RemoveUserStyleSheets(pageGroup->identifier(), *wk109ToWorld(scriptWorldRef));
+}
+
+void WKBundleRemoveAllUserContent(WKBundleRef, WKBundlePageGroupRef pageGroupRef)
+{
+    auto* pageGroup = WebKit::toImpl(pageGroupRef);
+    if (!pageGroup)
+        return;
+    WebKit::wk109RemoveAllUserContent(pageGroup->identifier());
+}
+
+void WKBundleAddOriginAccessWhitelistEntry(WKBundleRef bundleRef, WKStringRef sourceOrigin, WKStringRef destinationProtocol, WKStringRef destinationHost, bool allowDestinationSubdomains)
+{
+    WKBundleAddOriginAccessAllowListEntry(bundleRef, sourceOrigin, destinationProtocol, destinationHost, allowDestinationSubdomains);
+}
+
+void WKBundleRemoveOriginAccessWhitelistEntry(WKBundleRef bundleRef, WKStringRef sourceOrigin, WKStringRef destinationProtocol, WKStringRef destinationHost, bool allowDestinationSubdomains)
+{
+    WKBundleRemoveOriginAccessAllowListEntry(bundleRef, sourceOrigin, destinationProtocol, destinationHost, allowDestinationSubdomains);
 }
 
 void WKBundleSetAsynchronousSpellCheckingEnabledForTesting(WKBundleRef bundleRef, bool enabled)

@@ -74,7 +74,7 @@
 
 #import <asl.h>
 #import <unistd.h>
-#define SBP_BISECT(fmt, ...) ((void)0) // 10.9: disabled leftover MSE debug logging (asl_log flood).
+#define SBP_BISECT(fmt, ...) asl_log(nullptr, nullptr, ASL_LEVEL_NOTICE, "SBP_BISECT [%d] " fmt, (int)getpid(), ##__VA_ARGS__) // 10.9: re-enabled for MSE bring-up
 
 namespace WebCore {
 

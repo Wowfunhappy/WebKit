@@ -43,6 +43,8 @@ class WebPageGroup : public API::ObjectImpl<API::Object::Type::PageGroup>, publi
 public:
     explicit WebPageGroup(const String& identifier = { });
     static Ref<WebPageGroup> create(const String& identifier = { });
+    // 10.9 backport: lookup for PageGroupHandle resolution.
+    static RefPtr<WebPageGroup> get(PageGroupIdentifier);
 
     virtual ~WebPageGroup();
 
@@ -51,10 +53,21 @@ public:
     const WebPageGroupData& data() const LIFETIME_BOUND { return m_data; }
 
     WebPreferences& preferences() const { return m_preferences; }
+    // 10.9 backport: Safari 7 attaches its own WKPreferences to the page
+    // group via WKPageGroupSetPreferences.
+    void setPreferences(WebPreferences& preferences) { m_preferences = preferences; }
+
+    // 10.9 backport: the page group's identifier, needed by WKView to scope
+    // bundle-injected user content (data().identifier).
+    const String& identifier() const LIFETIME_BOUND { return m_data.identifier; }
 
 private:
     WebPageGroupData m_data;
-    const Ref<WebPreferences> m_preferences;
+    Ref<WebPreferences> m_preferences;
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebPageGroup)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::PageGroup; }
+SPECIALIZE_TYPE_TRAITS_END()

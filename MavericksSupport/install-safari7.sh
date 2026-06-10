@@ -93,6 +93,37 @@ rewrite_rpath_deps() {
     done < <("$OTOOL" -L "$bin" | awk 'NR>1{print $1}')
 }
 
+# Remove every LC_RPATH from one Mach-O binary. After rewrite_rpath_deps no
+# @rpath dependency remains, so the rpaths (which point back into the build
+# tree / toolchain) are not just stale but actively dangerous: a leftover
+# @rpath dep would silently resolve into WebKitBuild and load a SECOND copy
+# of a framework into the process (this happened with WebCore -> build-dir
+# JavaScriptCore: two JSC images, two VMs, SIGTRAP on the WK1 JS bridge).
+strip_rpaths() {
+    local bin="$1"
+    local rp
+    while read -r rp; do
+        [ -z "$rp" ] && continue
+        "$INT" -delete_rpath "$rp" "$bin" 2>/dev/null || true
+    done < <("$OTOOL" -l "$bin" | awk '/cmd LC_RPATH/{f=1} f && /path /{print $2; f=0}')
+}
+
+# Hard verification: no @rpath dependency and no LC_RPATH may survive in an
+# installed binary. A miss here means a process will mix installed + build-tree
+# images; fail the install loudly instead.
+verify_no_rpath() {
+    local bin="$1"
+    if "$OTOOL" -L "$bin" | awk 'NR>1{print $1}' | grep -q '^@rpath/'; then
+        echo "ERROR: $bin still has @rpath dependencies after rewrite:" >&2
+        "$OTOOL" -L "$bin" | awk 'NR>1{print $1}' | grep '^@rpath/' >&2
+        return 1
+    fi
+    if "$OTOOL" -l "$bin" | grep -q 'cmd LC_RPATH'; then
+        echo "ERROR: $bin still has LC_RPATH entries after strip" >&2
+        return 1
+    fi
+}
+
 # Install one framework: copy bundle, rename binary if needed, set LC_ID, rewrite @rpath deps
 # in the main binary AND every nested Mach-O (XPCServices, helpers).
 install_framework() {
@@ -143,9 +174,12 @@ install_framework() {
     fi
 
     local bin="$va/$destBinName"
-    # Set this framework's own id, then rewrite its @rpath deps.
+    # Set this framework's own id, then rewrite its @rpath deps, then drop the
+    # now-useless (and dangerous) build-tree rpaths and verify nothing remains.
     "$INT" -id "$(id_path "$destBinName")" "$bin"
     rewrite_rpath_deps "$bin"
+    strip_rpaths "$bin"
+    verify_no_rpath "$bin"
 
     # Rewrite @rpath deps in every nested Mach-O (XPC services, helper tools). These
     # reference @rpath/WebKit.framework etc. and must be remapped just like the main
@@ -156,6 +190,8 @@ install_framework() {
         [ "$f" = "$bin" ] && continue
         if file "$f" 2>/dev/null | grep -q "Mach-O"; then
             rewrite_rpath_deps "$f"
+            strip_rpaths "$f"
+            verify_no_rpath "$f"
         fi
     done < <(find "$destBundle" -type f -perm +111)
     echo "  installed."
@@ -167,8 +203,11 @@ for lib in libc++.1.dylib libc++abi.1.dylib; do
     cp -f "$TC/lib/$lib" "$PRIVLIBCXX/$lib"
     "$INT" -id "$PRIVLIBCXX/$lib" "$PRIVLIBCXX/$lib"
 done
-# libc++ depends on libc++abi via @rpath; pin it absolute too.
+# libc++ depends on libc++abi via @rpath; pin it absolute too. The toolchain's
+# libc++abi also carries a self-referential @rpath/libc++abi LC_LOAD_DYLIB —
+# pin that as well, or dyld fails to load it in processes with no rpath set.
 "$INT" -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$PRIVLIBCXX/libc++.1.dylib" 2>/dev/null || true
+"$INT" -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$PRIVLIBCXX/libc++abi.1.dylib" 2>/dev/null || true
 echo "### Deploying CG polyfill to $PRIVLIB"
 mkdir -p "$PRIVLIB"
 if [ -f "$HERE/prebuilt/libcg_polyfill.dylib" ]; then

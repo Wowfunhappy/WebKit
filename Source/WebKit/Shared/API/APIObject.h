@@ -74,11 +74,13 @@ public:
         FrameHandle,
         Image,
         PageHandle,
+        PageGroupHandle, // 10.9 backport: page-group carrier in UserData for Safari 7 (removed upstream).
         ProtectionSpace,
         RenderLayer,
         RenderObject,
         ResourceLoadInfo,
         SecurityOrigin,
+        SerializedScriptValue, // 10.9 backport: legacy WKSerializedScriptValue support for Safari 7.
         SessionState,
         String,
         TargetedElementInfo,
@@ -235,6 +237,7 @@ public:
         BundleNodeHandle,
         BundlePage,
         BundlePageBanner,
+        BundlePageGroup, // 10.9 backport: legacy WKBundlePageGroupRef support for Safari 7.
         BundlePageOverlay,
         BundleRangeHandle,
         BundleScriptWorld,

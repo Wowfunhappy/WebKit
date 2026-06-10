@@ -104,9 +104,11 @@
 #include "RenderView.h"
 #include "RenderWidgetInlines.h"
 #include "ResourceMonitor.h"
+#include <asl.h>
 #include "SVGDocument.h"
 #include "SVGDocumentExtensions.h"
 #include "SVGElementTypeHelpers.h"
+#include "ExceptionDetails.h"
 #include "ScriptController.h"
 #include "ScriptSourceCode.h"
 #include "ScrollingCoordinator.h"
@@ -846,7 +848,16 @@ void LocalFrame::injectUserScriptImmediately(DOMWrapperWorld& world, const UserS
     loader->client().willInjectUserScript(world);
 
     WTFBeginSignpost(this, UserScript, "injectUserScript: %" PRIVATE_LOG_STRING " (%u bytes, top frame only %d, doc start %d)", script.debugDescription().ascii().data(), script.source().length(), script.injectedFrames() == UserContentInjectedFrames::InjectInTopFrameOnly, script.injectionTime() == UserScriptInjectionTime::DocumentStart);
-    protect(this->script())->evaluateInWorldIgnoringException(ScriptSourceCode(script.source(), JSC::SourceTaintedOrigin::Untainted, URL(script.url())), world);
+    // 10.9 temp bring-up logging: surface user-script exceptions (Safari 7
+    // extension content scripts run here; failures are otherwise swallowed).
+    // Remove once extension content scripts are verified end-to-end.
+    {
+        auto result = protect(this->script())->evaluateInWorld(ScriptSourceCode(script.source(), JSC::SourceTaintedOrigin::Untainted, URL(script.url())), world);
+        if (!result)
+            asl_log(nullptr, nullptr, ASL_LEVEL_NOTICE, "WK109_USERSCRIPT FAILED url=%s line=%d message=%s", script.url().string().utf8().data(), result.error().lineNumber, result.error().message.utf8().data());
+        else
+            asl_log(nullptr, nullptr, ASL_LEVEL_NOTICE, "WK109_USERSCRIPT OK url=%s", script.url().string().utf8().data());
+    }
     WTFEndSignpost(this, UserScript);
 }
 

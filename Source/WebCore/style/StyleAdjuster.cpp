@@ -447,17 +447,6 @@ void Adjuster::adjust(RenderStyle& style) const
         style.setFloating(Float::None);
     }
 
-#if PLATFORM(MAC)
-    // 10.9 backport: position:fixed subtrees never paint on this build (CNN goes blank because
-    // its <body> is set to position:fixed for scroll-locking; a plain <div style="position:fixed">
-    // also vanishes in a minimal repro). Until the painter/compositor path can be fixed, demote
-    // every fixed-positioned element to absolute. This keeps overlays/cookie banners at their
-    // intended initial coordinates (relative to the initial containing block) but they no longer
-    // stay pinned during scroll. Worse UX than true "fixed", much better than invisible.
-    if (style.position() == PositionType::Fixed)
-        style.setPosition(PositionType::Absolute);
-#endif
-
     if (style.display() != DisplayType::None && style.display() != DisplayType::Contents) {
         if (RefPtr element = m_element) {
             // Tables never support the -webkit-* values for text-align and will reset back to the default.

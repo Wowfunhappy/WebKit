@@ -25,13 +25,65 @@
 
 #pragma once
 
+#include "APIObject.h"
+#include "JavaScriptEvaluationResult.h"
+#include <JavaScriptCore/JSContextRef.h>
 #include <JavaScriptCore/JSRetainPtr.h>
 
 namespace API {
 
-struct SerializedScriptValue {
+// 10.9 backport: legacy WKSerializedScriptValue support.
+//
+// Upstream removed the WKSerializedScriptValue implementation (the C API
+// functions were gutted to return null), but Safari 7 still round-trips
+// JavaScript values through it: results of WKPageRunJavaScriptInMainFrame
+// are handed to WKSerializedScriptValueDeserialize, and values are
+// serialized with WKSerializedScriptValueCreate (e.g. for extension
+// messaging). This class wraps the modern value-transfer representation,
+// WebKit::JavaScriptEvaluationResult, in an API::Object so the legacy C
+// functions can carry it across the API boundary (and over IPC) and convert
+// it to/from a JSValueRef in the caller's JSContext.
+class SerializedScriptValue final : public ObjectImpl<Object::Type::SerializedScriptValue> {
 public:
+    // Used by the GLib ports only (APISerializedScriptValue.cpp is not built on Mac).
     static JSRetainPtr<JSGlobalContextRef> deserializationContext();
+
+    static Ref<SerializedScriptValue> create(WebKit::JavaScriptEvaluationResult&& result)
+    {
+        return adoptRef(*new SerializedScriptValue(WTF::move(result)));
+    }
+
+    static RefPtr<SerializedScriptValue> createFromJS(JSContextRef context, JSValueRef value)
+    {
+        if (!context || !value)
+            return nullptr;
+        auto result = WebKit::JavaScriptEvaluationResult::extract(JSContextGetGlobalContext(context), value);
+        if (!result)
+            return nullptr;
+        return create(WTF::move(*result));
+    }
+
+    // Converts the held value into the given context. This consumes the held
+    // value (JavaScriptEvaluationResult::toJS is one-shot); a second call
+    // returns undefined. Callers (Safari) deserialize exactly once.
+    JSValueRef deserialize(JSContextRef context)
+    {
+        if (!context)
+            return nullptr;
+        return m_result.toJS(JSContextGetGlobalContext(context)).get();
+    }
+
+    const WebKit::JavaScriptEvaluationResult& result() const LIFETIME_BOUND { return m_result; }
+
+private:
+    explicit SerializedScriptValue(WebKit::JavaScriptEvaluationResult&& result)
+        : m_result(WTF::move(result))
+    {
+    }
+
+    WebKit::JavaScriptEvaluationResult m_result;
 };
-    
+
 }
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(SerializedScriptValue);
