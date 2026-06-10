@@ -1449,7 +1449,9 @@ list(APPEND webrtc_SOURCES
     Source/third_party/libyuv/source/scale_uv.cc
     Source/third_party/libyuv/source/scale_win.cc
     Source/third_party/libyuv/source/video_common.cc
-    Source/third_party/libyuv/util/color.cc
+    # 10.9 backport: util/color.cc is a standalone libyuv tool (its own main(),
+    # computes yuvconstants) whose local `int round(float)` conflicts with libc++'s
+    # std::round under clang-22. It's not runtime library code, so drop it.
     Source/third_party/libyuv/util/compare.cc
     Source/third_party/libyuv/util/i444tonv12_eg.cc
     Source/third_party/libyuv/util/psnr.cc
@@ -1987,6 +1989,15 @@ perlasm(CRYPTO_SOURCES x86_64 cipher/chacha20_poly1305_x86_64 ${CRYPTO_PATH}/cip
 perlasm(CRYPTO_SOURCES x86_64 test/trampoline-x86_64 ${CRYPTO_PATH}/test/asm/trampoline-x86_64.pl)
 
 # TODO: _NASM support for platforms that require it.
+# 10.9 backport: perlasm() and the explicit CRYPTO_SOURCES_ASM list both pull in
+# EVERY arch/OS boringssl assembly variant (aarch64/arm/x86/x86_64 × apple/linux/
+# win) plus the hand-written ARM .S (x25519-asm-arm.S, poly_rq_mul.S,
+# poly1305_arm_asm.S). On x86_64 macOS only the *-x86_64-apple.S files assemble;
+# feeding the ARM/x86/Linux/Windows variants to the x86_64 assembler produces
+# ~1.8M errors. Keep only the x86_64-apple .S files (boringssl provides C fallbacks
+# for everything else, and the other variants would be duplicate symbols anyway).
+list(FILTER BCM_SOURCES_ASM INCLUDE REGEX "x86_64-apple\\.S$")
+list(FILTER CRYPTO_SOURCES_ASM INCLUDE REGEX "x86_64-apple\\.S$")
 list(APPEND webrtc_SOURCES ${BCM_SOURCES_ASM})
 list(APPEND webrtc_SOURCES ${CRYPTO_SOURCES_ASM})
 
@@ -2468,7 +2479,10 @@ if (APPLE)
         Source/third_party/opus/src/celt/cwrs.c
         Source/third_party/opus/src/celt/modes.c
         Source/third_party/opus/src/celt/celt_decoder.c
-        Source/third_party/opus/src/celt/dump_modes/dump_modes.c
+        # 10.9 backport: dump_modes.c is opus's build-time mode-table GENERATOR (has
+        # its own main() and a non-inline opus_select_arch that clang-22 rejects as a
+        # redefinition of cpu_support.h's inline). The lib uses pre-generated
+        # static_modes tables, so it must not be compiled into libopus.
         Source/third_party/opus/src/celt/quant_bands.c
         Source/third_party/opus/src/celt/vq.c
         Source/third_party/opus/src/celt/mathops.c
@@ -2655,6 +2669,10 @@ if (APPLE)
         "-DOPUS_BUILD"
         "-DOPUS_EXPORT="
         "-DHAVE_LRINT HAVE_LRINTF"
+        # 10.9 backport: clang-22 promotes opus's benign fixed/float pitch-pointer
+        # mismatches (celt_pitch_xcorr in silk/fixed/*) to errors; suppress (upstream
+        # opus builds these as warnings).
+        "-Wno-incompatible-pointer-types"
     )
 
     add_library(yuv STATIC
