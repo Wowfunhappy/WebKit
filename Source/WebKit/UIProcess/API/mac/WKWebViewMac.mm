@@ -182,8 +182,8 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
 // _resetSecureInputState. The WebCore edit command writes the find pasteboard.
 - (void)_takeFindStringFromSelectionInternal:(id)sender
 {
-    if (RefPtr page = self._protectedPage)
-        page->executeEditCommand("TakeFindStringFromSelection"_s);
+    if (WebKit::WebViewImpl *impl = self._impl)
+        impl->page().executeEditCommand("TakeFindStringFromSelection"_s);
 }
 
 // Declared in WKWebViewMac.h, called from WebViewImpl's drag handling.

@@ -7,10 +7,34 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <CoreServices/CoreServices.h>
+#import <CoreText/CoreText.h>
 #import <Security/Security.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+// 10.9 backport: CTRunGetBaseAdvancesAndOrigins is 10.11+. The prebuilt
+// all_stubs.o provides a return-0 no-op for it, which zeroes every glyph's
+// advance and origin — so any complex-text run that reports
+// kCTRunStatusHasOrigins (e.g. ligature-substituted icon fonts like Material
+// Icons) collapses all its glyphs onto x=0 and renders blank.
+// Provide a correct implementation: base advances come from the real (10.9)
+// CTRunGetAdvances, and origins are zero (10.9 CoreText has no per-glyph
+// origin offsets for the scripts WebKit shapes here). The return-0 copy in
+// all_stubs.o is localized out (rebuild_polyfill_stubs.sh) so this wins.
+void CTRunGetBaseAdvancesAndOrigins(CTRunRef run, CFRange range, CGSize* advances, CGPoint* origins)
+{
+    if (!run)
+        return;
+    CFIndex glyphCount = CTRunGetGlyphCount(run);
+    CFIndex count = range.length ? range.length : glyphCount;
+    if (advances)
+        CTRunGetAdvances(run, range, advances);
+    if (origins) {
+        for (CFIndex i = 0; i < count; ++i)
+            origins[i] = CGPointZero;
+    }
+}
 
 #pragma mark - C function stubs
 

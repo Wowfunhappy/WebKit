@@ -1198,7 +1198,7 @@ dom/ActiveDOMObject.cpp
 dom/AddEventListenerOptions.cpp
 dom/AllDescendantsCollection.cpp
 dom/Attr.cpp
-dom/BeforeLoadEvent.cpp
+dom/BeforeLoadEvent.cpp @no-unify
 dom/BeforeTextInsertedEvent.cpp
 dom/BeforeUnloadEvent.cpp
 dom/BoundaryPoint.cpp
