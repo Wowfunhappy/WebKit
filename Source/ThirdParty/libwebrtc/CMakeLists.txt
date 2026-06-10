@@ -1996,8 +1996,18 @@ perlasm(CRYPTO_SOURCES x86_64 test/trampoline-x86_64 ${CRYPTO_PATH}/test/asm/tra
 # feeding the ARM/x86/Linux/Windows variants to the x86_64 assembler produces
 # ~1.8M errors. Keep only the x86_64-apple .S files (boringssl provides C fallbacks
 # for everything else, and the other variants would be duplicate symbols anyway).
-list(FILTER BCM_SOURCES_ASM INCLUDE REGEX "x86_64-apple\\.S$")
-list(FILTER CRYPTO_SOURCES_ASM INCLUDE REGEX "x86_64-apple\\.S$")
+# Keep the macOS (apple) variants, then drop ARM (armv8/armv4/aarch64, plus the
+# hand-written *-arm*.S) and 32-bit x86. perlasm names x86_64 files as
+# <dest>-apple.S (e.g. x86_64-mont5-apple.S, rsaz-avx2-apple.S,
+# curve25519_64_adx-x86_64-apple.S), so an "x86_64-apple.S$" filter would wrongly
+# drop them (→ undefined bn_*/rsaz_*/fiat_curve25519_adx_* at link). The
+# hand-written ARM .S (x25519-asm-arm.S, poly1305_arm_asm.S) have no -apple
+# suffix and are removed by the INCLUDE filter; x86_64 HRSS poly_rq_mul.S (no
+# -apple suffix) is likewise dropped — boringssl has a C fallback for it.
+list(FILTER BCM_SOURCES_ASM INCLUDE REGEX "-apple\\.S$")
+list(FILTER BCM_SOURCES_ASM EXCLUDE REGEX "armv[0-9]|aarch64|x86-apple\\.S$")
+list(FILTER CRYPTO_SOURCES_ASM INCLUDE REGEX "-apple\\.S$")
+list(FILTER CRYPTO_SOURCES_ASM EXCLUDE REGEX "armv[0-9]|aarch64|x86-apple\\.S$")
 list(APPEND webrtc_SOURCES ${BCM_SOURCES_ASM})
 list(APPEND webrtc_SOURCES ${CRYPTO_SOURCES_ASM})
 
