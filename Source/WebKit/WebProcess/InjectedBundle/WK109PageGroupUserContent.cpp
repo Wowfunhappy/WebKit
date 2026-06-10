@@ -17,13 +17,9 @@
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Vector.h>
-#include <asl.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
-// Temporary bring-up logging (mirrors the MSE_BISECT pattern); remove once
-// extension content-script injection is verified end-to-end.
-#define WK109_LOG(fmt, ...) asl_log(nullptr, nullptr, ASL_LEVEL_NOTICE, "WK109_USERCONTENT " fmt, ##__VA_ARGS__)
 
 namespace WebKit {
 
@@ -48,7 +44,6 @@ static void wk109ForEachPageInGroup(const String& pageGroupIdentifier, NOESCAPE 
 
 void wk109AddUserScript(const String& pageGroupIdentifier, InjectedBundleScriptWorld& world, WebCore::UserScript&& userScript)
 {
-    WK109_LOG("addUserScript group='%s' url='%s' sourceLen=%u", pageGroupIdentifier.utf8().data(), userScript.url().string().utf8().data(), (unsigned)userScript.source().length());
     wk109ForEachPageInGroup(pageGroupIdentifier, [&](WebPage& page) {
         page.userContentController().addUserScript(world, WebCore::UserScript { userScript });
     });
@@ -128,7 +123,6 @@ void wk109RemoveAllUserContent(const String& pageGroupIdentifier)
 void wk109ApplyPageGroupUserContent(WebPage& page)
 {
     auto it = wk109UserContentRegistry().find(page.pageGroup().identifier());
-    WK109_LOG("applyToPage group='%s' found=%d scripts=%u", page.pageGroup().identifier().utf8().data(), it != wk109UserContentRegistry().end(), it != wk109UserContentRegistry().end() ? (unsigned)it->value.scripts.size() : 0);
     if (it == wk109UserContentRegistry().end())
         return;
     Ref userContentController = page.userContentController();

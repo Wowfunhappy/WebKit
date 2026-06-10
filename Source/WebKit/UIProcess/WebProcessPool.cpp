@@ -1382,7 +1382,28 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
     // page got routed to a brand-new XPC service via processForSite, but that 2nd XPC never
     // finishes launching on 10.9 → CreateWebPage IPC is dropped). Reusing the existing Running
     // process lets the inspector WebPage share WebContent with the inspected page.
+    //
+    // Extended further (extension support): CONSOLIDATE every WebPage into the first existing
+    // Running WebContent, even when processForSite handed us another Running process. A Safari
+    // extension's global/background page (e.g. uBlock Origin) is otherwise placed in its own
+    // 2nd WebContent, which — per the note above — can't load over the network, so its filter
+    // engine never initializes and content-script canLoad() decisions all come back
+    // "don't block". Sharing one process also makes the content-script ↔ global-page
+    // safari.* messaging intra-process and reliable. Only the first real process (which owns the
+    // working NetworkProcess connection) is ever used for page content on this OS anyway.
     bool shouldReuse = process && (process->isDummyProcessProxy() || process->state() != WebProcessProxy::State::Running);
+    if (!shouldReuse && process) {
+        // Picked a Running process; if an EARLIER Running process exists, prefer it so all pages
+        // (incl. the extension global page) land in the single network-capable WebContent.
+        for (Ref<WebProcessProxy> existing : m_processes) {
+            if (existing.ptr() == process.get())
+                break; // the picked process is the first Running one — keep it
+            if (!existing->isDummyProcessProxy() && existing->state() == WebProcessProxy::State::Running) {
+                shouldReuse = true;
+                break;
+            }
+        }
+    }
     if (shouldReuse) {
         for (Ref<WebProcessProxy> existing : m_processes) {
             if (existing.ptr() == process.get())

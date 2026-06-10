@@ -23,7 +23,7 @@
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
 
-#define AVR_BISECT(fmt, ...) asl_log(nullptr, nullptr, ASL_LEVEL_NOTICE, "AVR_BISECT [%d] " fmt, (int)getpid(), ##__VA_ARGS__) // 10.9: re-enabled for MSE bring-up
+#define AVR_BISECT(fmt, ...) ((void)0) // 10.9: MSE bring-up logging disabled (verified working)
 
 namespace WebCore {
 
