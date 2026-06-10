@@ -257,15 +257,33 @@ static double cameraZoomScaleFactor(AVCaptureDeviceType deviceType)
 #endif
 }
 
+// 10.9 backport: -[AVCaptureDevice deviceType] is macOS 10.15+ and -[AVCaptureDevice portraitEffectActive]
+// is macOS 12+. Neither exists on 10.9 — the VM's AVCaptureDALDevice throws unrecognized-selector and
+// crashes the whole capture path (this was the getUserMedia crash). Guard both behind respondsToSelector.
+// nil is a safe AVCaptureDeviceType sentinel: it equals no AVCaptureDeviceType constant, indexOfObject:
+// returns NSNotFound, and cameraZoomScaleFactor() falls through to 1.0.
+static AVCaptureDeviceType deviceTypeOrNil(AVCaptureDevice *device)
+{
+    return [device respondsToSelector:@selector(deviceType)] ? [device deviceType] : nil;
+}
+
+static BOOL devicePortraitEffectActive(AVCaptureDevice *device)
+{
+    return [device respondsToSelector:@selector(portraitEffectActive)] ? device.portraitEffectActive : NO;
+}
+
 AVVideoCaptureSource::AVVideoCaptureSource(AVCaptureDevice* avDevice, const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, std::optional<PageIdentifier> pageIdentifier)
     : RealtimeVideoCaptureSource(device, WTF::move(hashSalts), pageIdentifier)
     , m_objcObserver(adoptNS([[WebCoreAVVideoCaptureSourceObserver alloc] initWithCaptureSource:this]))
     , m_device(avDevice)
-    , m_zoomScaleFactor(cameraZoomScaleFactor([avDevice deviceType]))
+    , m_zoomScaleFactor(cameraZoomScaleFactor(deviceTypeOrNil(avDevice)))
     , m_defaultTorchMode((int64_t)[m_device torchMode])
 {
     [m_device addObserver:m_objcObserver.get() forKeyPath:@"suspended" options:NSKeyValueObservingOptionNew context:(void *)nil];
-    [m_device addObserver:m_objcObserver.get() forKeyPath:@"portraitEffectActive" options:NSKeyValueObservingOptionNew context:(void *)nil];
+    // 10.9 backport: only observe portraitEffectActive where it exists (macOS 12+); KVO on a key the
+    // device doesn't implement is unsafe on 10.9.
+    if ([m_device respondsToSelector:@selector(portraitEffectActive)])
+        [m_device addObserver:m_objcObserver.get() forKeyPath:@"portraitEffectActive" options:NSKeyValueObservingOptionNew context:(void *)nil];
 }
 
 AVVideoCaptureSource::~AVVideoCaptureSource()
@@ -274,7 +292,8 @@ AVVideoCaptureSource::~AVVideoCaptureSource()
 
     [m_objcObserver disconnect];
     [m_device removeObserver:m_objcObserver.get() forKeyPath:@"suspended"];
-    [m_device removeObserver:m_objcObserver.get() forKeyPath:@"portraitEffectActive"];
+    if ([m_device respondsToSelector:@selector(portraitEffectActive)])
+        [m_device removeObserver:m_objcObserver.get() forKeyPath:@"portraitEffectActive"];
 
     if (!m_session)
         return;
@@ -506,7 +525,7 @@ const RealtimeMediaSourceSettings& AVVideoCaptureSource::settings()
     settings.setHeight(size.height());
     settings.setDeviceId(hashedId());
     settings.setGroupId(hashedGroupId());
-    settings.setBackgroundBlur(!!device().portraitEffectActive);
+    settings.setBackgroundBlur(!!devicePortraitEffectActive(device()));
 
     RealtimeMediaSourceSupportedConstraints supportedConstraints;
     supportedConstraints.setSupportsDeviceId(true);
@@ -584,7 +603,7 @@ const RealtimeMediaSourceCapabilities& AVVideoCaptureSource::capabilities()
         capabilities.setTorch(true);
     }
 
-    capabilities.setBackgroundBlur(device().portraitEffectActive ? RealtimeMediaSourceCapabilities::BackgroundBlur::On : RealtimeMediaSourceCapabilities::BackgroundBlur::Off);
+    capabilities.setBackgroundBlur(devicePortraitEffectActive(device()) ? RealtimeMediaSourceCapabilities::BackgroundBlur::On : RealtimeMediaSourceCapabilities::BackgroundBlur::Off);
 
 #if PLATFORM(IOS_FAMILY)
     supportedConstraints.setSupportsPowerEfficient(true);
@@ -830,7 +849,7 @@ double AVVideoCaptureSource::facingModeFitnessScoreAdjustment() const
     if ([device() position] != AVCaptureDevicePositionBack)
         return 0;
 
-    auto relativePriority = [cameraCaptureDeviceTypes() indexOfObject:[device() deviceType]];
+    auto relativePriority = [cameraCaptureDeviceTypes() indexOfObject:deviceTypeOrNil(device())];
     if (relativePriority == NSNotFound)
         relativePriority = cameraCaptureDeviceTypes().count;
 
@@ -1093,7 +1112,7 @@ void AVVideoCaptureSource::updateTorch()
 
 IntDegrees AVVideoCaptureSource::sensorOrientationFromVideoOutput()
 {
-    if (PAL::canLoad_AVFoundation_AVCaptureDeviceTypeExternalUnknown() && [device() deviceType] == AVCaptureDeviceTypeExternalUnknown)
+    if (PAL::canLoad_AVFoundation_AVCaptureDeviceTypeExternalUnknown() && deviceTypeOrNil(device()) == AVCaptureDeviceTypeExternalUnknown)
         return 0;
 
     AVCaptureConnection* connection = [m_videoOutput connectionWithMediaType:AVMediaTypeVideo];
@@ -1235,7 +1254,7 @@ void AVVideoCaptureSource::shutdownCaptureSession()
 void AVVideoCaptureSource::monitorOrientation(OrientationNotifier& notifier)
 {
 #if PLATFORM(IOS_FAMILY)
-    if (PAL::canLoad_AVFoundation_AVCaptureDeviceTypeExternalUnknown() && [device() deviceType] == AVCaptureDeviceTypeExternalUnknown)
+    if (PAL::canLoad_AVFoundation_AVCaptureDeviceTypeExternalUnknown() && deviceTypeOrNil(device()) == AVCaptureDeviceTypeExternalUnknown)
         m_useSensorAndDeviceOrientation = false;
 #endif
 

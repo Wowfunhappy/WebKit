@@ -26,7 +26,6 @@
 #include "config.h"
 #include "WebPlatformStrategies.h"
 
-#include <asl.h> // 10.9 MSE backport: init-phase instrumentation (see WebProcess.cpp).
 #include "BlobRegistryProxy.h"
 #include "BlockingResponseMap.h"
 #include "HangDetectionDisabler.h"
@@ -79,10 +78,8 @@ class RemoteAudioDestination;
 
 void WebPlatformStrategies::initialize()
 {
-    asl_log(NULL, NULL, ASL_LEVEL_ERR, "WP-init: WebPlatformStrategies::initialize ENTRY [pid=%d]", getpid());
     static NeverDestroyed<WebPlatformStrategies> platformStrategies;
     setPlatformStrategies(&platformStrategies.get());
-    asl_log(NULL, NULL, ASL_LEVEL_ERR, "WP-init: WebPlatformStrategies::initialize EXIT [pid=%d]", getpid());
 }
 
 WebPlatformStrategies::WebPlatformStrategies() = default;
@@ -99,7 +96,6 @@ PasteboardStrategy* WebPlatformStrategies::createPasteboardStrategy()
 
 MediaStrategy* WebPlatformStrategies::createMediaStrategy()
 {
-    asl_log(NULL, NULL, ASL_LEVEL_ERR, "WP-init: createMediaStrategy (new WebMediaStrategy) [pid=%d]", getpid());
     return new WebMediaStrategy;
 }
 

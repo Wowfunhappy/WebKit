@@ -34,7 +34,9 @@
 #import "XPCUtilities.h"
 #import <CoreFoundation/CoreFoundation.h>
 #import <dlfcn.h>
+#import <execinfo.h>
 #import <fcntl.h>
+#import <signal.h>
 #import <unistd.h>
 #import <mach/mach.h>
 #import <pal/spi/cf/CFUtilitiesSPI.h>
@@ -301,6 +303,25 @@ void XPCServiceEventHandler(xpc_connection_t peer)
     xpc_connection_resume(peer);
 }
 
+// 10.9 backport DIAGNOSTIC: ReportCrash/sample/spindump all crash on this VM, so fatal signals never
+// produce a usable backtrace. Install an in-process handler that dumps backtrace_symbols to stderr (which
+// XPCServiceMain redirects to /tmp/wc-stderr-<pid>.log) before re-raising the default action. This is how
+// we capture the NetworkProcess SIGSEGV stack. Safe-enough for a debugging build: backtrace()/write() are
+// the standard crash-dump primitives.
+static void webkitMavericksCrashBacktrace(int sig)
+{
+    void* frames[256];
+    int n = backtrace(frames, 256);
+    char hdr[96];
+    int len = snprintf(hdr, sizeof(hdr), "\n[CRASH-BT] fatal signal %d pid=%d frames=%d\n", sig, getpid(), n);
+    if (len > 0)
+        write(2, hdr, len);
+    backtrace_symbols_fd(frames, n, 2);
+    fsync(2);
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
 int XPCServiceMain(int, const char**)
 {
     // 10.9 backport: redirect stderr to per-pid file so WebContent fprintfs are visible.
@@ -311,6 +332,8 @@ int XPCServiceMain(int, const char**)
         if (fd >= 0) { dup2(fd, 2); close(fd); }
         fprintf(stderr, "[XPCServiceMain] stderr redirect active pid=%d\n", getpid()); fflush(stderr);
     }
+    for (int sig : { SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGFPE, SIGTRAP })
+        signal(sig, webkitMavericksCrashBacktrace);
     xpc_trace("XPCServiceMain entered");
 
     // Initialize WTF and main thread on the ACTUAL main thread (before xpc_main).

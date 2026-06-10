@@ -668,6 +668,7 @@ platform/mac/VideoPresentationInterfaceMac.mm @nonARC
 platform/mac/WebCoreFullScreenPlaceholderView.mm @nonARC
 platform/mac/WebCoreFullScreenWarningView.mm @nonARC
 platform/mac/WebCoreFullScreenWindow.mm @nonARC
+platform/mac/WebCoreView.mm @nonARC
 platform/mac/WebCoreNSFontManagerExtras.mm @nonARC
 platform/mac/WebCoreNSURLExtras.mm @nonARC
 platform/mac/WebCoreObjCExtras.mm @nonARC

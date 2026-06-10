@@ -438,6 +438,15 @@ private:
         // AVAssetReader only accepts local (file://) assets. For a local asset, read directly.
         // For a remote asset, download to a temp file first, then decode the local copy.
         NSURL *url = [asset URL];
+        // 10.9 backport: createAVAssetForURL rewrites http/https media URLs to a
+        // "webkitstreaming-" scheme so AVFoundation routes loading through WebKit.
+        // NSURLSession (used for the temp-file download below) can't resolve that
+        // scheme, so restore the real URL here.
+        if ([[url scheme] hasPrefix:@"webkitstreaming-"]) {
+            NSString *realURLString = [[url absoluteString] substringFromIndex:[@"webkitstreaming-" length]];
+            if (RetainPtr<NSURL> realURL = [NSURL URLWithString:realURLString])
+                url = realURL.autorelease();
+        }
         if ([url isFileURL])
             m_videoTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
         else {
@@ -1793,13 +1802,28 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
         [options setObject:nsTypes.get() forKey:AVURLAssetAllowableCaptionFormatsKey];
     }
 
-    RetainPtr nsURL = canonicalURL(url);
+    // 10.9 backport: AVFoundation's own HTTP loader on this OS fails against
+    // modern servers (TLS, redirects, byte-range requests — surfaces as
+    // AVErrorServerIncorrectlyConfigured / OSStatus -12939), leaving the asset's
+    // metadata keys "Failed" so readyState never leaves HaveNothing and the
+    // <video> stays black. Force AVFoundation to delegate ALL data loading to our
+    // WebCoreAVFResourceLoader (which loads through WebKit's NetworkProcess, same
+    // path that already works for every other resource) by presenting an
+    // unrecognized scheme. WebCoreAVFResourceLoader::startLoading strips the
+    // "webkitstreaming-" prefix back off before issuing the real load. (The
+    // special<->non-special scheme switch means URL::setProtocol would no-op, so
+    // build the rewritten URL by prefixing the serialized string.)
+    URL assetURL = url;
+    if (url.protocolIs("http"_s) || url.protocolIs("https"_s))
+        assetURL = URL { makeString("webkitstreaming-"_s, url.string()) };
+
+    RetainPtr nsURL = canonicalURL(assetURL);
 
     @try {
         m_avAsset = adoptNS([PAL::allocAVURLAssetInstance() initWithURL:nsURL.get() options:options.get()]);
     } @catch(NSException *exception) {
         ERROR_LOG(LOGIDENTIFIER, "-[AVURLAssetInstance initWithURL:nsURL.get() options:] threw an exception: ", exception.name, ", reason : ", exception.reason);
-        nsURL = canonicalURL(conformFragmentIdentifierForURL(url));
+        nsURL = canonicalURL(conformFragmentIdentifierForURL(assetURL));
 
         @try {
             m_avAsset = adoptNS([PAL::allocAVURLAssetInstance() initWithURL:nsURL.get() options:options.get()]);
@@ -1814,8 +1838,9 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
     AVAssetResourceLoader *resourceLoader = [m_avAsset resourceLoader];
     [resourceLoader setDelegate:m_loaderDelegate.get() queue:globalLoaderDelegateQueue()];
 
-    // Backport: WebCoreNSURLSession is stubbed on 10.9; AVFoundation will use its own default
-    // URLSession for resource loading. Media still loads through AVAssetResourceLoader callbacks.
+    // Backport: WebCoreNSURLSession is stubbed on 10.9, so http/https media URLs are rewritten
+    // to a "webkitstreaming-" scheme (see above) to force AVFoundation to load all data through
+    // this resource-loader delegate, which feeds bytes from WebKit's NetworkProcess.
 
     // Backport: AVAssetChapterMetadataGroupsDidChangeNotification is 10.10+; nil-check.
     if (NSString *chapterNotifName = AVAssetChapterMetadataGroupsDidChangeNotification)
@@ -1952,33 +1977,50 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
     // synthesize a status transition once the asset is known playable and
     // the AVPlayer has reached ReadyToPlay.
     {
+        // 10.9 backport: KVO for AVPlayerItem/AVPlayer status does not fire here
+        // (the main runloop doesn't process the dispatch_async AVFoundation uses to
+        // notify observers), so readyState would stay HaveNothing and the video
+        // never plays. POLL the status repeatedly until the AVPlayer reaches
+        // ReadyToPlay, then synthesize the item-status transition. A single delayed
+        // check (the previous approach) fired before network assets were ready and
+        // never retried, leaving the video stuck black. Re-schedule every 250ms for
+        // up to ~30s, stopping once ready or failed.
+        //
+        // Every ObjC call is @try-guarded: this runs from a dispatch callback (a
+        // noexcept C++ context), and an NSException escaping an AVFoundation call
+        // (e.g. a 10.10+ selector absent on 10.9) would unwind into objc_terminate
+        // and SIGILL-crash the whole WebContent (this is how Twitch/HLS crashed).
         ThreadSafeWeakPtr weakThis { *this };
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 2), mainDispatchQueueSingleton(), ^{
+        __block NSInteger pollAttempts = 0;
+        __block void (^statusPoll)(void) = nil;
+        statusPoll = ^{
             RefPtr p = weakThis.get();
-            if (!p || !p->m_avPlayerItem || !p->m_avPlayer)
+            if (!p || !p->m_avPlayerItem || !p->m_avPlayer) {
+                statusPoll = nil;
                 return;
-            // 10.9 backport: this block runs from a dispatch_after callback, i.e. a
-            // noexcept C++ context. Any NSException escaping an AVFoundation call here
-            // (e.g. a 10.10+ selector missing on 10.9) unwinds into objc_terminate and
-            // SIGILL-crashes the whole WebContent (this is how Twitch/HLS was crashing).
-            // Guard every ObjC call; log+swallow so playback degrades instead of crashing.
+            }
+            BOOL finished = NO;
             @try {
-                long itemS = (long)[p->m_avPlayerItem status];
                 long playerS = (long)[p->m_avPlayer status];
                 BOOL playable = [[p->m_avAsset valueForKey:@"playable"] boolValue];
-                // If AVPlayer is ReadyToPlay (1) and asset is playable, treat item
-                // as ReadyToPlay regardless of what its own status getter returns
-                // (it gets stuck at 0 in WebContent on 10.9).
-                if (playerS == 1 && playable && p->m_cachedItemStatus == 0) {
-                    (void)itemS;
+                if (playerS == 1 /* ReadyToPlay */ && playable && p->m_cachedItemStatus == 0) {
                     p->playerItemStatusDidChange(1 /* AVPlayerItemStatusReadyToPlay */);
                     p->m_cachedLikelyToKeepUp = true;
                     p->loadedTimeRangesDidChange([p->m_avPlayerItem loadedTimeRanges]);
-                }
+                    finished = YES;
+                } else if (playerS == 2 /* Failed */)
+                    finished = YES;
             } @catch (NSException *exception) {
                 NSLog(@"WK-AVF-EXC: status-poll block caught %@ reason=%@", [exception name], [exception reason]);
+                finished = YES;
             }
-        });
+            if (finished || ++pollAttempts > 120) {
+                statusPoll = nil;
+                return;
+            }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), mainDispatchQueueSingleton(), statusPoll);
+        };
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), mainDispatchQueueSingleton(), statusPoll);
     }
 
     ASSERT(!m_currentTimeObserver);
@@ -3136,6 +3178,15 @@ bool MediaPlayerPrivateAVFoundationObjC::shouldWaitForLoadingOfResource(AVAssetR
     }
 #endif
 #endif
+
+    // 10.9 backport: route ordinary media data — our rewritten http/https scheme
+    // (see createAVAssetForURL), plus blob: and data: — through WebKit's network
+    // stack via WebCoreAVFResourceLoader instead of AVFoundation's own (broken on
+    // this OS) HTTP loader.
+    if (scheme.startsWith("webkitstreaming-"_s) || scheme == "blob"_s || scheme == "data"_s) {
+        ensureAVFResourceLoader(avRequest);
+        return true;
+    }
 
     return false;
 }
@@ -5467,15 +5518,13 @@ NSArray* playerKVOProperties()
         return NO;
 
     String scheme = loadingRequest.request.URL.scheme;
-    if (scheme != "skd"_s && scheme != "clearkey"_s) {
-        // 10.9 backport: WebCoreAVFResourceLoader.cpp is stubbed in this build,
-        // so player->ensureAVFResourceLoader (which calls
-        // WebCoreAVFResourceLoader::create) would dyld-fail with a flat-namespace
-        // symbol-not-found at runtime. Return NO so AVFoundation falls back to
-        // its own URL loading for the request — fine for plain http(s) media,
-        // we just can't intercept it for blob:, MSE, or custom schemes.
+    // 10.9 backport: WebCoreAVFResourceLoader is fully compiled into this build
+    // (the previous "it's stubbed, ensureAVFResourceLoader would dyld-fail" claim
+    // was wrong). Intercept the encrypted-media key schemes, our rewritten media
+    // scheme (see createAVAssetForURL), and blob:/data: media; everything else is
+    // dispatched into shouldWaitForLoadingOfResource below.
+    if (!scheme.startsWith("webkitstreaming-"_s) && scheme != "skd"_s && scheme != "clearkey"_s && scheme != "blob"_s && scheme != "data"_s)
         return NO;
-    }
 
     ensureOnMainThread([self, strongSelf = retainPtr(self), loadingRequest = retainPtr(loadingRequest)] mutable {
         if (RefPtr player = m_player.get()) {

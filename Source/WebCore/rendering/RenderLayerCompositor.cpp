@@ -2913,6 +2913,19 @@ void RenderLayerCompositor::frameViewDidScroll()
     if (hasCoordinatedScrolling())
         scheduleRenderingUpdate();
     updateScrollLayerPosition();
+
+    // 10.9 backport: the same broken coordinated-scrolling path that makes the contents layer stay put
+    // (worked around just above) ALSO never moves the scrollbar thumbs during the scroll —
+    // Scrollbar::offsetDidChange() is not reached, so the thumb only snaps to the correct place on a
+    // later main-thread pass (the user-visible "scrollbar lags behind / only updates afterwards" bug,
+    // very visible because the scrollbar is always shown when a mouse is attached). Push the current
+    // scroll offset into the frame's scrollbars here, frame-for-frame, mirroring the contents-layer
+    // translation above so the thumb tracks the content in real time.
+    Ref frameViewForScrollbars = m_renderView.frameView();
+    if (RefPtr horizontalScrollbar = frameViewForScrollbars->horizontalScrollbar())
+        horizontalScrollbar->offsetDidChange();
+    if (RefPtr verticalScrollbar = frameViewForScrollbars->verticalScrollbar())
+        verticalScrollbar->offsetDidChange();
 }
 
 void RenderLayerCompositor::frameViewDidAddOrRemoveScrollbars()

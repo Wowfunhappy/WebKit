@@ -47,6 +47,14 @@ void InjectedBundlePageResourceLoadClient::didInitiateLoadForResource(WebPage& p
     if (!m_client.didInitiateLoadForResource)
         return;
 
+    // 10.9 backport (github SIGTRAP fix): Safari's didInitiateLoadForResource handler WKRetains the
+    // page/frame it is handed (-> WebPage::ref()/WebFrame::ref()). During github's heavy Turbo/SPA
+    // resource churn the frame can be a transient/provisional one whose refcount has already dropped
+    // to 0 when this fires; Safari (asserts-on) then traps in ref() (EXC_BREAKPOINT). Pin both across
+    // the callback so they are guaranteed refcount >= 1 when Safari retains them. No-op in the common
+    // case (object already live); only matters for the racing transient frame.
+    Ref protectedPage { page };
+    Ref protectedFrame { frame };
     m_client.didInitiateLoadForResource(toAPI(&page), toAPI(&frame), identifier.toUInt64(), toAPI(request), pageIsProvisionallyLoading, m_client.base.clientInfo);
 }
 
@@ -55,6 +63,9 @@ void InjectedBundlePageResourceLoadClient::willSendRequestForFrame(WebPage& page
     if (!m_client.willSendRequestForFrame)
         return;
 
+    // Pin page/frame across the callback: Safari's handler WKRetains them (same transient-frame trap as didInitiateLoadForResource).
+    Ref protectedPage { page };
+    Ref protectedFrame { frame };
     RefPtr<API::URLRequest> returnedRequest = adoptRef(toImpl(m_client.willSendRequestForFrame(toAPI(&page), toAPI(&frame), identifier.toUInt64(), toAPI(request), toAPI(redirectResponse), m_client.base.clientInfo)));
     if (returnedRequest) {
         // If the client returned an HTTP body, we want to use that http body. This is needed to fix <rdar://problem/23763584>
@@ -72,6 +83,8 @@ void InjectedBundlePageResourceLoadClient::didReceiveResponseForResource(WebPage
     if (!m_client.didReceiveResponseForResource)
         return;
 
+    Ref protectedPage { page };
+    Ref protectedFrame { frame };
     m_client.didReceiveResponseForResource(toAPI(&page), toAPI(&frame), identifier.toUInt64(), toAPI(response), m_client.base.clientInfo);
 }
 
@@ -80,6 +93,8 @@ void InjectedBundlePageResourceLoadClient::didReceiveContentLengthForResource(We
     if (!m_client.didReceiveContentLengthForResource)
         return;
 
+    Ref protectedPage { page };
+    Ref protectedFrame { frame };
     m_client.didReceiveContentLengthForResource(toAPI(&page), toAPI(&frame), identifier.toUInt64(), contentLength, m_client.base.clientInfo);
 }
 
@@ -88,6 +103,8 @@ void InjectedBundlePageResourceLoadClient::didFinishLoadForResource(WebPage& pag
     if (!m_client.didFinishLoadForResource)
         return;
 
+    Ref protectedPage { page };
+    Ref protectedFrame { frame };
     m_client.didFinishLoadForResource(toAPI(&page), toAPI(&frame), identifier.toUInt64(), m_client.base.clientInfo);
 }
 
@@ -96,6 +113,8 @@ void InjectedBundlePageResourceLoadClient::didFailLoadForResource(WebPage& page,
     if (!m_client.didFailLoadForResource)
         return;
 
+    Ref protectedPage { page };
+    Ref protectedFrame { frame };
     m_client.didFailLoadForResource(toAPI(&page), toAPI(&frame), identifier.toUInt64(), toAPI(error), m_client.base.clientInfo);
 }
 
@@ -104,6 +123,8 @@ bool InjectedBundlePageResourceLoadClient::shouldCacheResponse(WebPage& page, We
     if (!m_client.shouldCacheResponse)
         return true;
 
+    Ref protectedPage { page };
+    Ref protectedFrame { frame };
     return m_client.shouldCacheResponse(toAPI(&page), toAPI(&frame), identifier.toUInt64(), m_client.base.clientInfo);
 }
 
@@ -112,6 +133,8 @@ bool InjectedBundlePageResourceLoadClient::shouldUseCredentialStorage(WebPage& p
     if (!m_client.shouldUseCredentialStorage)
         return true;
 
+    Ref protectedPage { page };
+    Ref protectedFrame { frame };
     return m_client.shouldUseCredentialStorage(toAPI(&page), toAPI(&frame), identifier.toUInt64(), m_client.base.clientInfo);
 }
 

@@ -4,13 +4,22 @@
 
 #import <QuartzCore/QuartzCore.h>
 
+// CALayerHost (private CoreAnimation class, declared in the force-included compat
+// header / CA SPI) displays a layer tree rendered in another process: the
+// WebContent process renders into a CAContext and sends its 32-bit contextId
+// across; a CALayerHost with that contextId shows it here in the UI process.
+
 @implementation CALayer (WebCoreCALayerExtras)
 
 + (CALayer *)_web_renderLayerWithContextID:(uint32_t)contextID shouldPreserveFlip:(BOOL)preservesFlip
 {
-    UNUSED_PARAM(contextID);
+    // 10.9 backport: the previous stub returned an empty [CALayer layer], ignoring
+    // the contextID — so the WebContent process's rendered content was never shown
+    // and the WKView painted blank. Host the remote CAContext for real.
+    CALayerHost *layer = [CALayerHost layer];
+    layer.contextId = contextID;
     UNUSED_PARAM(preservesFlip);
-    return [CALayer layer];
+    return layer;
 }
 
 - (void)web_disableAllActions

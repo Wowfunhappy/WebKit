@@ -39,6 +39,7 @@
 
 #import <pal/cocoa/AVFoundationSoftLink.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
+#import <asl.h> // 10.9 backport GUM-DIAG
 
 #if ENABLE(MEDIA_STREAM) && HAVE(AVCAPTUREDEVICEROTATIONCOORDINATOR)
 
@@ -157,41 +158,16 @@ bool UserMediaPermissionRequestManagerProxy::permittedToCaptureVideo()
 #if ENABLE(MEDIA_STREAM)
 void UserMediaPermissionRequestManagerProxy::requestSystemValidation(const WebPageProxy& page, UserMediaPermissionRequestProxy& request, CompletionHandler<void(bool)>&& callback)
 {
-    if (protect(page.preferences())->mockCaptureDevicesEnabled()) {
-        callback(true);
-        return;
-    }
-
-    // FIXME: Add TCC entitlement check for screensharing.
-    auto audioStatus = request.requiresAudioCapture() ? checkAVCaptureAccessForType(MediaPermissionType::Audio) : MediaPermissionResult::Granted;
-    if (audioStatus == MediaPermissionResult::Denied) {
-        callback(false);
-        return;
-    }
-
-    auto videoStatus = request.requiresVideoCapture() ? checkAVCaptureAccessForType(MediaPermissionType::Video) : MediaPermissionResult::Granted;
-    if (videoStatus == MediaPermissionResult::Denied) {
-        callback(false);
-        return;
-    }
-
-    if (audioStatus == MediaPermissionResult::Unknown) {
-        requestAVCaptureAccessForType(MediaPermissionType::Audio, [videoStatus, completionHandler = WTF::move(callback)](bool authorized) mutable {
-            if (videoStatus == MediaPermissionResult::Granted) {
-                completionHandler(authorized);
-                return;
-            }
-                
-            requestAVCaptureAccessForType(MediaPermissionType::Video, WTF::move(completionHandler));
-        });
-        return;
-    }
-
-    if (videoStatus == MediaPermissionResult::Unknown) {
-        requestAVCaptureAccessForType(MediaPermissionType::Video, WTF::move(callback));
-        return;
-    }
-
+    // 10.9 backport: macOS 10.9 predates TCC camera/microphone privacy authorization (that arrived in
+    // 10.14), so this OS-level capture-authorization gate is not meaningful here. Worse, the helpers it
+    // relies on — checkAVCaptureAccessForType()/requestAVCaptureAccessForType() in MediaPermissionUtilities.mm
+    // — are excluded from the 10.9 build (that file uses 10.14+ AVCaptureDevice TCC APIs), so they resolve to
+    // a libpolyfill stub that always returns MediaPermissionResult::Denied. That made the upstream body deny
+    // EVERY getUserMedia() request here with NotAllowedError (reason=PermissionDenied). On 10.9 capture access
+    // is unrestricted at the OS level, so skip the system check and report success; per-origin consent is
+    // still applied afterwards by the WKPageUIClient auto-grant in decidePolicyForUserMediaPermissionRequest().
+    UNUSED_PARAM(page);
+    UNUSED_PARAM(request);
     callback(true);
 }
 

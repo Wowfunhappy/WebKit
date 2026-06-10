@@ -48,6 +48,7 @@ list(APPEND WebKitLegacy_SOURCES
     mac/Misc/WebDownload.mm
     mac/Misc/WebElementDictionary.mm
     mac/Misc/WebIconDatabase.mm
+    mac/Misc/WebKeyGenerator.mm
     mac/Misc/WebKitErrors.m
     mac/Misc/WebKitLogInitialization.mm
     mac/Misc/WebKitLogging.m

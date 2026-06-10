@@ -8,6 +8,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <vector>
 
 namespace WTF {
 
@@ -56,16 +57,68 @@ void waitForThreadCompletion(unsigned int threadID) {
     pthread_join((pthread_t)(uintptr_t)threadID, nullptr);
 }
 
-// WTF::callOnMainThread(void(*)(void*), void*)
+// WTF::callOnMainThread(void(*)(void*), void*) and cancelCallOnMainThread().
+//
+// The old (Safari-7-era) WTF API lets a caller SCHEDULE a function+context to run
+// on the main thread and later CANCEL it if it is no longer wanted. Safari relies
+// on this: e.g. CoalescedAsynchronousWriter schedules
+// callOnMainThread(postWriteMainThreadCleanup, this) and, when it is destroyed,
+// calls cancelCallOnMainThread(postWriteMainThreadCleanup, this). If cancellation
+// is a no-op, the already-scheduled callback fires on the freed object → "pointer
+// being freed was not allocated" / heap corruption that crashes the UI process
+// during navigation. So cancellation must really work.
+//
+// dispatch blocks can't be unscheduled, so we keep a registry of pending calls;
+// the dispatched block runs the function only if its record is still live and not
+// cancelled, and cancelCallOnMainThread marks matching records cancelled.
+namespace {
+struct MainThreadCall {
+    void (*func)(void*);
+    void* ctx;
+    bool cancelled;
+};
+pthread_mutex_t s_mainThreadCallsMutex = PTHREAD_MUTEX_INITIALIZER;
+std::vector<MainThreadCall*>* s_mainThreadCalls = nullptr;
+}
+
 void callOnMainThread(void (*func)(void*), void* ctx) {
+    MainThreadCall* call = new MainThreadCall { func, ctx, false };
+    pthread_mutex_lock(&s_mainThreadCallsMutex);
+    if (!s_mainThreadCalls)
+        s_mainThreadCalls = new std::vector<MainThreadCall*>();
+    s_mainThreadCalls->push_back(call);
+    pthread_mutex_unlock(&s_mainThreadCallsMutex);
+
     dispatch_async(dispatch_get_main_queue(), ^{
-        func(ctx);
+        bool shouldRun = false;
+        pthread_mutex_lock(&s_mainThreadCallsMutex);
+        if (s_mainThreadCalls) {
+            for (auto it = s_mainThreadCalls->begin(); it != s_mainThreadCalls->end(); ++it) {
+                if (*it == call) {
+                    shouldRun = !call->cancelled;
+                    s_mainThreadCalls->erase(it);
+                    break;
+                }
+            }
+        }
+        pthread_mutex_unlock(&s_mainThreadCallsMutex);
+        if (shouldRun)
+            call->func(call->ctx);
+        delete call;
     });
 }
 
-// WTF::cancelCallOnMainThread() - no modern equivalent, stub
-void cancelCallOnMainThread(void (*)(void*), void*) {
-    // No-op - cancellation not supported in modern WTF
+// Cancels any still-pending call scheduled with the same (func, ctx). The record
+// is only removed/freed by the dispatched block itself, so we just flag it here.
+void cancelCallOnMainThread(void (*func)(void*), void* ctx) {
+    pthread_mutex_lock(&s_mainThreadCallsMutex);
+    if (s_mainThreadCalls) {
+        for (MainThreadCall* call : *s_mainThreadCalls) {
+            if (call->func == func && call->ctx == ctx)
+                call->cancelled = true;
+        }
+    }
+    pthread_mutex_unlock(&s_mainThreadCallsMutex);
 }
 
 // WTF::Mutex - replaced by Lock

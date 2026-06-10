@@ -242,34 +242,23 @@ void requestAVCaptureAccessForType(MediaPermissionType type, CompletionHandler<v
 {
     ASSERT(isMainRunLoop());
 
-#if HAVE(AVCAPTUREDEVICE)
-    RetainPtr mediaType = type == MediaPermissionType::Audio ? AVMediaTypeAudio : AVMediaTypeVideo;
-    auto decisionHandler = makeBlockPtr([completionHandler = WTF::move(completionHandler)](BOOL authorized) mutable {
-        callOnMainRunLoop([completionHandler = WTF::move(completionHandler), authorized]() mutable {
-            completionHandler(authorized);
-        });
-    });
-    [PAL::getAVCaptureDeviceClassSingleton() requestAccessForMediaType:mediaType.get() completionHandler:decisionHandler.get()];
-#else
+    // 10.9 backport: 10.9 has no TCC privacy layer, so OS-level camera/mic access is unrestricted. The
+    // 10.14+ -[AVCaptureDevice requestAccessForMediaType:completionHandler:] gate is not meaningful here
+    // (and on this VM resolves to a denying status), so report access as granted; app-level consent is
+    // handled by the WKPageUIClient auto-grant.
     UNUSED_PARAM(type);
-    completionHandler(false);
-#endif
+    completionHandler(true);
 }
 
 MediaPermissionResult checkAVCaptureAccessForType(MediaPermissionType type)
 {
-#if HAVE(AVCAPTUREDEVICE)
-    RetainPtr mediaType = type == MediaPermissionType::Audio ? AVMediaTypeAudio : AVMediaTypeVideo;
-    auto authorizationStatus = [PAL::getAVCaptureDeviceClassSingleton() authorizationStatusForMediaType:mediaType.get()];
-    if (authorizationStatus == AVAuthorizationStatusDenied || authorizationStatus == AVAuthorizationStatusRestricted)
-        return MediaPermissionResult::Denied;
-    if (authorizationStatus == AVAuthorizationStatusNotDetermined)
-        return MediaPermissionResult::Unknown;
-    return MediaPermissionResult::Granted;
-#else
+    // 10.9 backport: 10.9 has no TCC privacy layer, so OS-level camera/mic access is unrestricted (app-level
+    // consent is handled by the WKPageUIClient auto-grant). The 10.14+ authorizationStatusForMediaType: gate
+    // resolves at runtime on this VM and returns a non-Authorized status, which denied getUserMedia with
+    // NotAllowedError (reason=PermissionDenied at requestSystemValidation). Report Granted unconditionally so
+    // capture is reachable and the request proceeds to the auto-grant.
     UNUSED_PARAM(type);
-    return MediaPermissionResult::Denied;
-#endif
+    return MediaPermissionResult::Granted;
 }
 
 #if HAVE(SPEECHRECOGNIZER)

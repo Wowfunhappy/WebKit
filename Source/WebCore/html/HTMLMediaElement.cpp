@@ -4779,11 +4779,8 @@ ExceptionOr<void> HTMLMediaElement::setVolume(double volume)
     if (!(volume >= 0 && volume <= 1))
         return Exception { ExceptionCode::IndexSizeError };
 
-    // 10.9 backport: re-disabled setVolume internal path (paired with mediaSessionManager revert).
-    m_volume = volume;
-    m_volumeInitialized = true;
-    return { };
-
+    // 10.9 backport: setVolume internal path re-enabled 2026-06-08 with media controls
+    // (the mediaSession path it uses is exercised by the now-working play/pause controls).
     auto quirkVolumeZero = !m_volumeLocked && protect(document())->quirks().implicitMuteWhenVolumeSetToZero();
     auto muteImplicitly = quirkVolumeZero && !volume;
 
@@ -4855,9 +4852,7 @@ void HTMLMediaElement::setMuted(bool muted)
 
 void HTMLMediaElement::setMutedInternal(bool muted, ForceMuteChange forceChange)
 {
-    // 10.9 backport: re-disabled (paired with Page::mediaSessionManager revert).
-    m_muted = muted;
-    return;
+    // 10.9 backport: mute internal path re-enabled 2026-06-08 with media controls.
     HTMLMEDIAELEMENT_RELEASE_LOG(SETMUTEDINTERNAL, muted);
 
     bool mutedStateChanged = m_muted != muted || forceChange == ForceMuteChange::True;
@@ -8085,8 +8080,9 @@ bool HTMLMediaElement::shouldForceControlsDisplay() const
 
 void HTMLMediaElement::configureMediaControls()
 {
-    // 10.9 backport: re-disabled (paired with Page::mediaSessionManager revert).
-    return;
+    // 10.9 backport: media controls re-enabled 2026-06-08 (now that <video> actually
+    // renders frames). The earlier blanket disable was paired with a VM-deref crash in
+    // requiresScriptTrackingPrivacyProtection, now hardened to a raw VM pointer.
     bool requireControls = controls();
 
     // Always create controls for video when fullscreen playback is required.
@@ -8955,14 +8951,12 @@ void HTMLMediaElement::setControllerJSProperty(ASCIILiteral propertyName, JSC::J
 
 bool HTMLMediaElement::ensureMediaControls()
 {
-    // 10.9 backport: media controls JS does setInnerHTML which triggers HTMLFastPathParser
-    // → HTMLButtonElement::create → HTMLFormControlElement constructor calls
-    // requiresScriptTrackingPrivacyProtection. The RefPtr<VM> in there gets dereffed and
-    // the VM refcount drops to 0 mid-JS-execution, hitting RELEASE_ASSERT(!entryScope) in
-    // Heap::lastChanceToFinalize. Skip media controls entirely (consistent with the apple.com
-    // fix that stubs createMediaPlayer/play/pause — videos are inert containers anyway).
-    return false;
-
+    // 10.9 backport: media controls re-enabled 2026-06-08. The historic crash here
+    // (media-controls setInnerHTML → HTMLButtonElement::create → HTMLFormControlElement
+    // ctor → requiresScriptTrackingPrivacyProtection dereffing a RefPtr<VM> to 0
+    // mid-JS-execution → RELEASE_ASSERT(!entryScope)) is addressed by hardening that
+    // function to a raw VM pointer (ScriptExecutionContext.cpp). The common VM is
+    // leakRef()'d so it never reaches refcount 0.
     if (m_controlsState == ControlsState::Ready)
         return true;
 

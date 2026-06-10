@@ -234,7 +234,9 @@ void LocalSampleBufferDisplayLayer::layerStatusDidChange()
     ASSERT(isMainThread());
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     RefPtr client = m_client.get();
-    if (client && m_sampleBufferDisplayLayer.get().status == AVQueuedSampleBufferRenderingStatusFailed) {
+    // 10.9 backport: -[AVSampleBufferDisplayLayer status] is macOS 10.10+ and an unrecognized selector on
+    // 10.9 (crashes). Guard the access; when absent the layer can't report a failed status.
+    if (client && [m_sampleBufferDisplayLayer respondsToSelector:@selector(status)] && m_sampleBufferDisplayLayer.get().status == AVQueuedSampleBufferRenderingStatusFailed) {
 ALLOW_DEPRECATED_DECLARATIONS_END
     RELEASE_LOG_ERROR(WebRTC, "LocalSampleBufferDisplayLayer::layerStatusDidChange going to failed status (%llu) ", m_logIdentifier);
         if (!m_didFail) {
@@ -268,7 +270,9 @@ PlatformLayer* LocalSampleBufferDisplayLayer::rootLayer()
 bool LocalSampleBufferDisplayLayer::didFail() const
 {
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    return m_didFail || [m_sampleBufferDisplayLayer status] == AVQueuedSampleBufferRenderingStatusFailed;
+    // 10.9 backport: -[AVSampleBufferDisplayLayer status] is macOS 10.10+; on 10.9 it is an unrecognized
+    // selector (crashes). When absent, the layer can't report a failed render status, so treat as not-failed.
+    return m_didFail || ([m_sampleBufferDisplayLayer respondsToSelector:@selector(status)] && [m_sampleBufferDisplayLayer status] == AVQueuedSampleBufferRenderingStatusFailed);
 ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
@@ -422,7 +426,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #if !RELEASE_LOG_DISABLED
     constexpr size_t frameCountPerLog = 1800; // log every minute at 30 fps
     if (!(m_frameRateMonitor.frameCount() % frameCountPerLog)) {
-        if (RetainPtr metrics = [m_sampleBufferDisplayLayer videoPerformanceMetrics])
+        // 10.9 backport: -[AVSampleBufferDisplayLayer videoPerformanceMetrics] is macOS 10.10+ and an
+        // unrecognized selector on 10.9 (this metrics logging crashed the WebContent capture path). Guard it.
+        RetainPtr metrics = [m_sampleBufferDisplayLayer respondsToSelector:@selector(videoPerformanceMetrics)] ? [m_sampleBufferDisplayLayer videoPerformanceMetrics] : nil;
+        if (metrics)
             RELEASE_LOG(WebRTC, "LocalSampleBufferDisplayLayer (%llu) metrics, total=%lu, dropped=%lu, corrupted=%lu, display-composited=%lu, non-display-composited=%lu (pending=%lu)", m_logIdentifier, metrics.get().totalNumberOfVideoFrames, metrics.get().numberOfDroppedVideoFrames, metrics.get().numberOfCorruptedVideoFrames, metrics.get().numberOfDisplayCompositedVideoFrames, metrics.get().numberOfNonDisplayCompositedVideoFrames, m_pendingVideoFrameQueue.size());
     }
     m_frameRateMonitor.update();

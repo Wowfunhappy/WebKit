@@ -4299,6 +4299,26 @@ IGNORE_WARNINGS_END
     WebCore::SecurityPolicy::resetOriginAccessAllowlists();
 }
 
+// Safari 7-era compatibility: these SPI were renamed "Whitelist" -> "AllowList" in modern
+// WebKit. Safari's Extension::configureCrossOriginWhiteList still calls the old "Whitelist"
+// selectors when enabling an extension; without them the call raises NSInvalidArgumentException
+// ("unrecognized selector"), which aborts Extension::enable so installed extensions never
+// register (no global page, toolbar item, or content scripts). Forward to the modern methods.
++ (void)_addOriginAccessWhitelistEntryWithSourceOrigin:(NSString *)sourceOrigin destinationProtocol:(NSString *)destinationProtocol destinationHost:(NSString *)destinationHost allowDestinationSubdomains:(BOOL)allowDestinationSubdomains
+{
+    [self _addOriginAccessAllowListEntryWithSourceOrigin:sourceOrigin destinationProtocol:destinationProtocol destinationHost:destinationHost allowDestinationSubdomains:allowDestinationSubdomains];
+}
+
++ (void)_removeOriginAccessWhitelistEntryWithSourceOrigin:(NSString *)sourceOrigin destinationProtocol:(NSString *)destinationProtocol destinationHost:(NSString *)destinationHost allowDestinationSubdomains:(BOOL)allowDestinationSubdomains
+{
+    [self _removeOriginAccessAllowListEntryWithSourceOrigin:sourceOrigin destinationProtocol:destinationProtocol destinationHost:destinationHost allowDestinationSubdomains:allowDestinationSubdomains];
+}
+
++ (void)_resetOriginAccessWhitelists
+{
+    [self _resetOriginAccessAllowLists];
+}
+
 - (BOOL)_isViewVisible
 {
     NSWindow *window = [self window];
@@ -4619,8 +4639,31 @@ IGNORE_WARNINGS_END
 
 - (void)_setIsVisible:(BOOL)isVisible
 {
-    if (_private->page)
+    if (_private->page) {
+        bool wasVisible = _private->page->isVisible();
         _private->page->setIsVisible(isVisible);
+
+        // When a Legacy WebKit page transitions to visible, force a fresh rendering update.
+        // Unlike WebKit2 (whose drawing area re-displays the page when it becomes visible),
+        // WK1 has no implicit repaint here: WebCore's Page::setIsVisibleInternal(true) only
+        // resumes animations and calls FrameView::show(), it does not trigger a rendering
+        // update. Content that was laid out/composited while the WebView was still offscreen
+        // (windowless and therefore page-hidden) never reaches the screen, and nothing
+        // schedules a new render once it is shown. This makes WebViews that are loaded before
+        // being displayed render blank — notably Safari's Extensions preference pane, the
+        // Extension Builder, and Top Sites previews. Forcing an update here rebuilds and
+        // flushes the compositing layers into the now-hosted view.
+        if (isVisible && !wasVisible && !_private->closed) {
+            // Propagate the (now-real) available size into WebCore and schedule a rendering
+            // update so a WebView created at its final size while hidden re-lays-out. This made
+            // Top Sites thumbnails render. (A forceLayout here to also fix the embedded-WebView
+            // 0x0-document-view case — Extensions pane / Extension Builder / popovers — crashes
+            // Safari whether sync or deferred; see webkit-mavericks-extensions memory.)
+            [[[self mainFrame] frameView] _frameSizeChanged];
+            [self _setNeedsOneShotDrawingSynchronization:YES];
+            [self _scheduleUpdateRendering];
+        }
+    }
 }
 
 - (void)_setVisibilityState:(WebPageVisibilityState)visibilityState isInitialState:(BOOL)isInitialState

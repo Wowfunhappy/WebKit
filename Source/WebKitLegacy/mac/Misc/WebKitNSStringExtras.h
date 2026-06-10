@@ -51,6 +51,9 @@ extern NSString *WebKitResourceLoadStatisticsDirectoryDefaultsKey;
 
 - (NSString *)_webkit_stringByTrimmingWhitespace;
 
+// Safari 7-era compatibility (removed from modern WebKit; still called by Safari).
+- (NSString *)_webkit_fixedCarbonPOSIXPath;
+
 + (NSString *)_webkit_localCacheDirectoryWithBundleIdentifier:(NSString*)bundleIdentifier;
 
 @end

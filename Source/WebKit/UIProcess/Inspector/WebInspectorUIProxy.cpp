@@ -137,12 +137,9 @@ bool WebInspectorUIProxy::isFront()
 
 void WebInspectorUIProxy::connect()
 {
-    WTFLogAlways("[INSPECTOR-CON] enter connect()");
     RefPtr inspectedPage = m_inspectedPage.get();
-    if (!inspectedPage) {
-        WTFLogAlways("[INSPECTOR-CON] bail: no inspectedPage");
+    if (!inspectedPage)
         return;
-    }
 
     // 10.9 backport: bypass developerExtras + m_showMessageSent checks to allow
     // Cmd+Alt+I to reach createFrontendPage().
@@ -154,47 +151,36 @@ void WebInspectorUIProxy::connect()
     m_showMessageSent = true;
     m_ignoreFirstBringToFront = true;
 
-    WTFLogAlways("[INSPECTOR-CON] calling createFrontendPage");
     createFrontendPage();
-    WTFLogAlways("[INSPECTOR-CON] createFrontendPage returned, m_inspectorPage=%p", (void *)m_inspectorPage.get());
 
     Ref legacyMainFrameProcess = inspectedPage->legacyMainFrameProcess();
     legacyMainFrameProcess->send(Messages::WebInspectorInterruptDispatcher::NotifyNeedDebuggerBreak(), 0);
     legacyMainFrameProcess->sendWithAsyncReply(
         Messages::WebInspectorBackend::Show(),
         [this, protectedThis = Ref { *this }] (bool success) {
-            WTFLogAlways("[INSPECTOR-CON] Show reply success=%d", (int)success);
             if (success)
                 openLocalInspectorFrontend();
         },
         m_inspectedPage->webPageIDInMainFrameProcess());
-    WTFLogAlways("[INSPECTOR-CON] about to call sync openLocalInspectorFrontend");
     // 10.9 backport: also call openLocalInspectorFrontend synchronously in case the
     // async IPC reply doesn't make it back (WebContent backend exists but reply path broken).
     openLocalInspectorFrontend();
-    WTFLogAlways("[INSPECTOR-CON] connect() done");
 }
 
 void WebInspectorUIProxy::show()
 {
-    WTFLogAlways("[INSPECTOR-SHOW] enter show() isConnected=%d", (int)isConnected());
-    if (!m_inspectedPage) {
-        WTFLogAlways("[INSPECTOR-SHOW] bail: no inspectedPage");
+    if (!m_inspectedPage)
         return;
-    }
 
     if (isConnected()) {
-        WTFLogAlways("[INSPECTOR-SHOW] isConnected=true → bringToFront");
         bringToFront();
         return;
     }
 
-    WTFLogAlways("[INSPECTOR-SHOW] calling connect()");
     connect();
 
     // Don't ignore the first bringToFront so it opens the Inspector.
     m_ignoreFirstBringToFront = false;
-    WTFLogAlways("[INSPECTOR-SHOW] show() done");
 }
 
 void WebInspectorUIProxy::hide()
@@ -494,35 +480,30 @@ void WebInspectorUIProxy::requestOpenLocalInspectorFrontend()
 
 void WebInspectorUIProxy::openLocalInspectorFrontend()
 {
-    WTFLogAlways("[INSPECTOR-OLIF] enter openLocalInspectorFrontend m_inspectedPage=%p m_inspectorPage=%p", (void *)m_inspectedPage.get(), (void *)m_inspectorPage.get());
     RefPtr inspectedPage = m_inspectedPage.get();
-    if (!inspectedPage) {
-        WTFLogAlways("[INSPECTOR-OLIF] bail: no inspectedPage");
+    if (!inspectedPage)
         return;
-    }
 
     if (false /* 10.9 backport: skip check */)
         return;
 
     if (inspectedPage->inspectorController().hasLocalFrontend()) {
-        WTFLogAlways("[INSPECTOR-OLIF] hasLocalFrontend=true → calling show() and returning");
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[INSPECTOR-OLIF] hasLocalFrontend=true → show()\n"); fclose(_d);}}
         show();
         return;
     }
-    WTFLogAlways("[INSPECTOR-OLIF] proceeding to createFrontendPage");
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[INSPECTOR-OLIF] proceeding to createFrontendPage\n"); fclose(_d);}}
 
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[INSPECTOR-OLIF] calling createFrontendPage\n"); fclose(_d);}}
-    createFrontendPage();
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[INSPECTOR-OLIF] createFrontendPage returned m_inspectorPage=%p\n", m_inspectorPage.get()); fclose(_d);}}
+    // 10.9 backport: connect() already calls createFrontendPage() before invoking this (both
+    // directly and via the async Show() reply path). Guard against creating a SECOND inspector
+    // frontend page that orphans the first — a duplicate inspector WebContent racing the original
+    // is the suspected cause of the intermittent inspector-open Safari UI crash. Reuse the page
+    // connect() already made.
+    if (!m_inspectorPage)
+        createFrontendPage();
 
     RefPtr inspectorPage = m_inspectorPage.get();
     ASSERT(inspectorPage);
-    if (!inspectorPage) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[INSPECTOR-OLIF] bail: inspectorPage null\n"); fclose(_d);}}
+    if (!inspectorPage)
         return;
-    }
 
     protect(inspectorPage->legacyMainFrameProcess())->send(Messages::WebInspectorUI::EstablishConnection(m_inspectedPageIdentifier, infoForLocalDebuggable(), m_underTest, inspectionLevel()), m_inspectorPage->webPageIDInMainFrameProcess());
 
@@ -574,16 +555,11 @@ void WebInspectorUIProxy::openLocalInspectorFrontend()
 
     // Bail out if the client closed the inspector from the delegate method.
 
-    if (!inspectorPage) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[INSPECTOR-OLIF] bail at 573: inspectorPage null\n"); fclose(_d);}}
+    if (!inspectorPage)
         return;
-    }
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[INSPECTOR-OLIF] reached load block\n"); fclose(_d);}}
 
     {
         auto url = m_underTest ? WebInspectorUIProxy::inspectorTestPageURL() : WebInspectorUIProxy::inspectorPageURL();
-        WTFLogAlways("[INSPECTOR-LOAD] loadRequest URL=%s page=%p", url.utf8().data(), inspectorPage.get());
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[INSPECTOR-LOAD] URL=%s\n", url.utf8().data()); fclose(_d);}}
         // 10.9 backport: platformInspectorPageLoadOverride reads the file in UI process and
         // calls loadData on the inspector page (bypassing the hung decidePolicy round-trip).
         if (platformInspectorPageLoadOverride(*inspectorPage, url))
@@ -710,7 +686,6 @@ void WebInspectorUIProxy::frontendLoaded()
 
 void WebInspectorUIProxy::bringToFront()
 {
-    WTFLogAlways("[INSPECTOR-BTF] bringToFront m_ignoreFirstBringToFront=%d m_isVisible=%d", (int)m_ignoreFirstBringToFront, (int)m_isVisible);
     // WebCore::InspectorFrontendClientLocal tells us to do this on load. We want to
     // ignore it once if we only wanted to connect. This allows the Inspector to later
     // request to be brought to the front when a breakpoint is hit or some other action.
@@ -721,10 +696,8 @@ void WebInspectorUIProxy::bringToFront()
 
     if (m_isVisible)
         platformBringToFront();
-    else {
-        WTFLogAlways("[INSPECTOR-BTF] calling open()");
+    else
         open();
-    }
 }
 
 void WebInspectorUIProxy::attachAvailabilityChanged(bool available)

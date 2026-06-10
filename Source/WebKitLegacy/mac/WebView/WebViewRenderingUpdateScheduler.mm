@@ -102,6 +102,37 @@ void WebViewRenderingUpdateScheduler::registerCACommitHandlers()
         return;
 
     RetainPtr webView = m_webView;
+
+    // 10.9 backport: +[CATransaction addCommitHandler:forPhase:] is 10.10+. Calling it
+    // unconditionally throws "unrecognized selector sent to class", which aborts this
+    // callback before m_haveRegisteredCommitHandlers is set and — crucially — before the
+    // postCommit handler that drives -_didCompleteRenderingUpdateDisplay is registered. That
+    // wedges the WK1 rendering-update cycle and leaves layer-backed WebViews (e.g. Safari's
+    // Extensions preference pane) blank. CoreAnimation flushes its implicit transaction at
+    // kCFRunLoopBeforeWaiting/kCFRunLoopExit with observer order 2000000, so we reproduce the
+    // two commit phases with one-shot main-runloop observers ordered just below and just above
+    // that: the lower-ordered observer runs immediately before the commit (preLayout), the
+    // higher-ordered one immediately after (postCommit).
+    if (![CATransaction respondsToSelector:@selector(addCommitHandler:forPhase:)]) {
+        static const CFIndex caCommitOrder = 2000000;
+        CFRunLoopRef runLoop = CFRunLoopGetMain();
+
+        RetainPtr<CFRunLoopObserverRef> preObserver = adoptCF(CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting | kCFRunLoopExit, false, caCommitOrder - 1, ^(CFRunLoopObserverRef observer, CFRunLoopActivity) {
+            CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
+            [webView.get() _willStartRenderingUpdateDisplay];
+        }));
+        CFRunLoopAddObserver(runLoop, preObserver.get(), kCFRunLoopCommonModes);
+
+        RetainPtr<CFRunLoopObserverRef> postObserver = adoptCF(CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting | kCFRunLoopExit, false, caCommitOrder + 1, ^(CFRunLoopObserverRef observer, CFRunLoopActivity) {
+            CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
+            [webView.get() _didCompleteRenderingUpdateDisplay];
+        }));
+        CFRunLoopAddObserver(runLoop, postObserver.get(), kCFRunLoopCommonModes);
+
+        m_haveRegisteredCommitHandlers = true;
+        return;
+    }
+
     [CATransaction addCommitHandler:^{
         [webView.get() _willStartRenderingUpdateDisplay];
     } forPhase:kCATransactionPhasePreLayout];
@@ -109,7 +140,7 @@ void WebViewRenderingUpdateScheduler::registerCACommitHandlers()
     [CATransaction addCommitHandler:^{
         [webView.get() _didCompleteRenderingUpdateDisplay];
     } forPhase:kCATransactionPhasePostCommit];
-    
+
     m_haveRegisteredCommitHandlers = true;
 }
 

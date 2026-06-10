@@ -851,8 +851,13 @@ if (PORT STREQUAL GTK OR PORT STREQUAL WPE)
     )
 endif ()
 
+# 10.9 backport: SYMLINK (not copy) the forwarded framework headers. WebKit's
+# own code includes some headers both via <WebKit/X.h> (forwarded) and "X.h"
+# (source) in the same TU (e.g. _WKJSHandle.h vs WKJSHandleInternal.h); a copy
+# has a different realpath than the source so #pragma once fails to dedup and the
+# class is defined twice. Symlinks share the source realpath, so #pragma once works.
 if (WebKit_PUBLIC_FRAMEWORK_HEADERS)
-    WEBKIT_COPY_FILES(WebKit_CopyHeaders
+    WEBKIT_SYMLINK_FILES(WebKit_CopyHeaders
         DESTINATION ${WebKit_FRAMEWORK_HEADERS_DIR}/WebKit
         FILES ${WebKit_PUBLIC_FRAMEWORK_HEADERS}
         FLATTENED
@@ -861,7 +866,7 @@ if (WebKit_PUBLIC_FRAMEWORK_HEADERS)
 endif ()
 
 if (WebKit_PRIVATE_FRAMEWORK_HEADERS)
-    WEBKIT_COPY_FILES(WebKit_CopyPrivateHeaders
+    WEBKIT_SYMLINK_FILES(WebKit_CopyPrivateHeaders
         DESTINATION ${WebKit_PRIVATE_FRAMEWORK_HEADERS_DIR}/WebKit
         FILES ${WebKit_PRIVATE_FRAMEWORK_HEADERS}
         FLATTENED
@@ -1135,9 +1140,14 @@ list(APPEND WebKit_SOURCES
 WEBKIT_FRAMEWORK(WebKit)
 set_target_properties(WebKit PROPERTIES
     LINKER_LANGUAGE CXX
-    # Set proper macOS framework install name and version
-    INSTALL_NAME_DIR "/System/Library/Frameworks/WebKit.framework/Versions/A"
-    VERSION "615.1.1"
+    # 10.9 / Safari-7 backport: use the standard Versions/A framework layout
+    # (SOVERSION "A"), matching WebCore/JavaScriptCore/WebKitLegacy, the nested
+    # XPCServices (which build into Versions/A/XPCServices), and Safari 7's
+    # absolute LC_LOAD_DYLIB of .../WebKit2.framework/Versions/A/WebKit2. A
+    # VERSION of "615.1.1" here previously forced the binary into Versions/615.1.1,
+    # splitting it from the XPC services and breaking the bundle. current_version
+    # (615.1.1, which satisfies Safari's >= 537.78.x check) is applied separately
+    # via the -current_version link option in OptionsMac.cmake.
     SOVERSION "A"
     MACOSX_FRAMEWORK_IDENTIFIER "com.apple.WebKit"
 )

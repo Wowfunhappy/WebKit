@@ -234,9 +234,17 @@ bool pthread_self_is_exiting_np(void) { return false; }
 @interface WebFullScreenController : NSObject @end
 @implementation WebFullScreenController @end
 
-// WebViewVisualIdentificationOverlay now has a real (no-op) impl in
-// Source/WebCore/testing/cocoa/WebViewVisualIdentificationOverlay.mm so
-// the installForWebViewIfNeeded:kind:deprecated: class method exists.
+// WebViewVisualIdentificationOverlay: the real Source/WebCore/testing/cocoa/
+// WebViewVisualIdentificationOverlay.mm is excluded from the build (it would
+// duplicate this stub, since libpolyfill links into every framework). Both
+// WKWebView and (legacy) WebView call +installForWebViewIfNeeded:kind:deprecated:
+// at creation time, so the stub MUST implement that class method (as a no-op)
+// or every web-view creation throws unrecognized-selector. The overlay is a
+// debug/visual-identification affordance, so a no-op is functionally complete.
+@interface WebViewVisualIdentificationOverlay : NSObject @end
+@implementation WebViewVisualIdentificationOverlay
++ (void)installForWebViewIfNeeded:(id)view kind:(NSString *)kind deprecated:(BOOL)isDeprecated { }
+@end
 
 // WKWebInspectorProxyObjCAdapter and WebKeyGenerator are defined in
 // Source/WebKit/PolyfillClasses_109.mm so Safari finds them in WebKit.framework
@@ -245,20 +253,21 @@ bool pthread_self_is_exiting_np(void) { return false; }
 // Additional stub classes that the polyfill previously provided as 3-byte
 // function stubs (libobjc would crash on those). Defining them here as proper
 // @interface/@implementation gives them real ObjC class metadata.
-@interface CATransformLayer : NSObject @end
-@implementation CATransformLayer @end
+// NOTE: CATransformLayer (QuartzCore), NSColorPopoverController (AppKit) and
+// SFCertificatePanel (SecurityInterface) are REAL classes that DO exist on macOS
+// 10.9 — they must NOT be stubbed here, or the empty stub can shadow the genuine
+// system class (e.g. CATransformLayer backs 3D CSS transforms). They resolve from
+// their system frameworks, which WebCore/WebKit already link.
 @interface LSBundleProxy : NSObject @end
 @implementation LSBundleProxy @end
-@interface NSColorPopoverController : NSObject @end
-@implementation NSColorPopoverController @end
-@interface SFCertificatePanel : NSObject @end
-@implementation SFCertificatePanel @end
 @interface WKCaptionStyleMenuController : NSObject @end
 @implementation WKCaptionStyleMenuController @end
 @interface WKDownloadProgress : NSObject @end
 @implementation WKDownloadProgress @end
-@interface WKInspectorViewController : NSObject @end
-@implementation WKInspectorViewController @end
+// WKInspectorViewController is compiled from real source
+// (Source/WebKit/UIProcess/Inspector/mac/WKInspectorViewController.mm) into
+// WebKit.framework, so it must NOT be stubbed here — doing so duplicated the
+// symbol in the WebKit framework link.
 @interface WKTextExtractionContainerItem : NSObject @end
 @implementation WKTextExtractionContainerItem @end
 @interface WKTextExtractionContentEditableItem : NSObject @end

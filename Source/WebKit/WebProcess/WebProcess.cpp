@@ -26,12 +26,6 @@
 #include "config.h"
 #include "WebProcess.h"
 
-// 10.9 MSE backport: ASL-based init-phase instrumentation. ReportCrash is unusable for in-Safari
-// WebContent (per-app crash-loop throttle), and lldb can't hold the Mach exception ports on an
-// attached launchd-spawned process. These `asl_log`s let `syslog | grep WP-init` reveal the exact
-// init phase that crashes once MSE is re-enabled. Sandbox-safe; dead-code overhead while MSE is off.
-#include <asl.h>
-
 #include <wtf/MachSendRight.h>
 #include "APIFrameHandle.h"
 #include "APIPageHandle.h"
@@ -380,10 +374,8 @@ WebProcess::WebProcess()
     , m_nonVisibleProcessMemoryCleanupTimer(*this, &WebProcess::nonVisibleProcessMemoryCleanupTimerFired)
 #endif
 {
-    asl_log(NULL, NULL, ASL_LEVEL_ERR, "WP-init: ctor body entered [pid=%d]", getpid());
     // Initialize our platform strategies.
     WebPlatformStrategies::initialize();
-    asl_log(NULL, NULL, ASL_LEVEL_ERR, "WP-init: WebPlatformStrategies::initialize done [pid=%d]", getpid());
 
     // FIXME: This should moved to where WebProcess::initialize is called,
     // so that ports have a chance to customize, and ifdefs in this file are
@@ -492,7 +484,6 @@ static void scheduleLogMemoryStatistics(LogMemoryStatisticsReason reason)
 
 void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters, CompletionHandler<void(ProcessIdentity)>&& completionHandler)
 {
-    asl_log(NULL, NULL, ASL_LEVEL_ERR, "WP-init: initializeWebProcess ENTRY [pid=%d]", getpid());
     TraceScope traceScope(InitializeWebProcessStart, InitializeWebProcessEnd);
     // Reply immediately so that the identity is available as soon as possible.
     completionHandler(ProcessIdentity { ProcessIdentity::CurrentProcess });
@@ -508,9 +499,7 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
     MemoryPressureHandler::ReliefLogger::setLoggingEnabled(parameters.shouldEnableMemoryPressureReliefLogging);
 #endif
 
-    asl_log(NULL, NULL, ASL_LEVEL_ERR, "WP-init: before platformInitializeWebProcess [pid=%d]", getpid());
     platformInitializeWebProcess(parameters);
-    asl_log(NULL, NULL, ASL_LEVEL_ERR, "WP-init: after platformInitializeWebProcess [pid=%d]", getpid());
 
     // Match the QoS of the UIProcess and the scrolling thread but use a slightly lower priority.
     WTF::Thread::setCurrentThreadIsUserInteractive(-1);

@@ -103,6 +103,14 @@ inline static bool deviceIsAvailable(AVCaptureDevice *device)
 RetainPtr<NSArray> AVCaptureDeviceManager::currentCameras()
 {
 #if HAVE(AVCAPTUREDEVICE)
+    // 10.9 backport: AVCaptureDeviceDiscoverySession is 10.10+. On 10.9 its class singleton is nil,
+    // so enumerate video devices with the pre-10.10 (deprecated) +[AVCaptureDevice devicesWithMediaType:].
+    if (!PAL::getAVCaptureDeviceDiscoverySessionClassSingleton()) {
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        return [PAL::getAVCaptureDeviceClassSingleton() devicesWithMediaType:AVMediaTypeVideo];
+ALLOW_DEPRECATED_DECLARATIONS_END
+    }
+
     AVCaptureDeviceDiscoverySession *discoverySession = [PAL::getAVCaptureDeviceDiscoverySessionClassSingleton()
         discoverySessionWithDeviceTypes:m_avCaptureDeviceTypes.get()
         mediaType:AVMediaTypeVideo
@@ -286,8 +294,12 @@ AVCaptureDeviceManager::~AVCaptureDeviceManager()
     for (AVCaptureDevice *device in m_avCaptureDevices.get())
         [device removeObserver:m_objcObserver.get() forKeyPath:@"suspended"];
 #if HAVE(AVCAPTUREDEVICE)
-    [PAL::getAVCaptureDeviceClassSingleton() removeObserver:m_objcObserver.get() forKeyPath:@"systemPreferredCamera"];
-    [PAL::getAVCaptureDeviceDiscoverySessionClassSingleton() removeObserver:m_objcObserver.get() forKeyPath:@"devices"];
+    // 10.9 backport: only remove observers that could have been registered (systemPreferredCamera is 12.0+,
+    // AVCaptureDeviceDiscoverySession is 10.10+ — neither exists on 10.9). Matches registerForDeviceNotifications.
+    if ([PAL::getAVCaptureDeviceClassSingleton() respondsToSelector:@selector(systemPreferredCamera)])
+        [PAL::getAVCaptureDeviceClassSingleton() removeObserver:m_objcObserver.get() forKeyPath:@"systemPreferredCamera"];
+    if (PAL::getAVCaptureDeviceDiscoverySessionClassSingleton())
+        [PAL::getAVCaptureDeviceDiscoverySessionClassSingleton() removeObserver:m_objcObserver.get() forKeyPath:@"devices"];
 #endif
 }
 
@@ -317,8 +329,11 @@ void AVCaptureDeviceManager::registerForDeviceNotifications()
     [[NSNotificationCenter defaultCenter] addObserver:m_objcObserver.get() selector:@selector(deviceConnectedDidChange:) name:AVCaptureDeviceWasConnectedNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:m_objcObserver.get() selector:@selector(deviceConnectedDidChange:) name:AVCaptureDeviceWasDisconnectedNotification object:nil];
     IGNORE_WARNINGS_BEGIN("objc-method-access")
-    [PAL::getAVCaptureDeviceClassSingleton() addObserver:m_objcObserver.get() forKeyPath:@"systemPreferredCamera" options:(NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew) context:nil];
-    [PAL::getAVCaptureDeviceDiscoverySessionClassSingleton() addObserver:m_objcObserver.get() forKeyPath:@"devices" options:(NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew) context:nil];
+    // 10.9 backport: guard KVO keypaths that don't exist pre-10.10/12 (would throw NSUnknownKeyException).
+    if ([PAL::getAVCaptureDeviceClassSingleton() respondsToSelector:@selector(systemPreferredCamera)])
+        [PAL::getAVCaptureDeviceClassSingleton() addObserver:m_objcObserver.get() forKeyPath:@"systemPreferredCamera" options:(NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew) context:nil];
+    if (PAL::getAVCaptureDeviceDiscoverySessionClassSingleton())
+        [PAL::getAVCaptureDeviceDiscoverySessionClassSingleton() addObserver:m_objcObserver.get() forKeyPath:@"devices" options:(NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew) context:nil];
     IGNORE_WARNINGS_END
 #endif
 }

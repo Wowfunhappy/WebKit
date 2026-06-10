@@ -168,14 +168,28 @@ void WebPreferences::platformInitializeStore()
         // produced exactly "WebKit" + key for this configuration. Restores the global-defaults behavior Safari 9
         // expects so the whole Preferences UI takes effect.
         @autoreleasepool {
-            NSUserDefaults *wk109Defaults = [NSUserDefaults standardUserDefaults];
-            // Apply every persistent pref's "WebKit"-prefixed default (bool/uint32/double/string) so the whole
-            // Preferences UI is honored, not just checkboxes. The std::is_same guards select the right setter per
-            // pref Type; all branches compile for any Type (only the matching one runs at runtime).
+            // Apply each persistent pref's "WebKit"-prefixed value that the USER actually set (e.g. the
+            // Preferences-pane Security toggles persist WebKitJavaScriptEnabled etc.). Read ONLY from the
+            // user-persisted domains (-persistentDomainForName:), NOT -[NSUserDefaults objectForKey:] /
+            // CFPreferencesCopyAppValue: those fall through to the NSUserDefaults *registration domain*, and
+            // WebKitLegacy's +[WebPreferences initialize] registerDefaults: a "WebKit"-prefixed default for
+            // EVERY generated preference (including modern ones like WebKitBroadcastChannelEnabled). Reading
+            // those registered defaults here clobbered WK2's own modern defaults with WebKit1's stale values —
+            // e.g. it forced BroadcastChannelEnabled=false in the store, which made the NetworkProcess reject
+            // (and SIGKILL the WebContent over) every BroadcastChannel registration that YouTube/apple.com/github
+            // perform. persistentDomainForName: returns only values the user actually wrote, so prefs the user
+            // never touched correctly fall through to the WK2 default.
+            RetainPtr<NSUserDefaults> wk109Defaults = [NSUserDefaults standardUserDefaults];
+            RetainPtr<NSDictionary> wk109GlobalPersisted = [wk109Defaults persistentDomainForName:NSGlobalDomain];
+            RetainPtr<NSString> wk109BundleID = [[NSBundle mainBundle] bundleIdentifier];
+            RetainPtr<NSDictionary> wk109AppPersisted = wk109BundleID ? [wk109Defaults persistentDomainForName:wk109BundleID.get()] : nil;
 #define WK109_APPLY_WEBKIT_DEFAULT(KeyUpper, KeyLower, TypeName, Type, DefaultValue, HumanReadableName, HumanReadableDescription) \
             { \
                 RetainPtr<NSString> wk109Key = makeString("WebKit"_s, WebPreferencesKey::KeyLower##Key()).createNSString(); \
-                if (id wk109Val = [wk109Defaults objectForKey:wk109Key.get()]) { \
+                id wk109Val = [wk109AppPersisted objectForKey:wk109Key.get()]; \
+                if (!wk109Val) \
+                    wk109Val = [wk109GlobalPersisted objectForKey:wk109Key.get()]; \
+                if (wk109Val) { \
                     if (std::is_same<Type, bool>::value && [wk109Val respondsToSelector:@selector(boolValue)]) \
                         m_store.setBoolValueForKey(WebPreferencesKey::KeyLower##Key(), [wk109Val boolValue]); \
                     else if (std::is_same<Type, uint32_t>::value && [wk109Val isKindOfClass:[NSNumber class]]) \

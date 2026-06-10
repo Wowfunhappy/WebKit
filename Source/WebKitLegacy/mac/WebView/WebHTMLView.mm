@@ -3892,7 +3892,7 @@ static BOOL currentScrollIsBlit(NSView *clipView)
 - (void)drawRect:(NSRect)rect
 {
     LOG(View, "%@ drawing", self);
-    
+
     TraceScope scope(WebHTMLViewPaintStart, WebHTMLViewPaintEnd);
 
 #if PLATFORM(MAC)

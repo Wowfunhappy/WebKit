@@ -153,6 +153,34 @@ std::unique_ptr<IOSurface> IOSurface::createFromSurface(IOSurfaceRef surface, st
     return std::unique_ptr<IOSurface>(new IOSurface(surface, WTF::move(colorSpace)));
 }
 
+// 10.9 backport: createFromImage was dropped from this tree but is still called by
+// WebViewImpl (swipe-navigation snapshots) and RemoteMediaPlayerProxy. Recreate the
+// upstream behavior: allocate an sRGB IOSurface the size of the image and paint the
+// CGImage into it through the surface's CG context.
+std::unique_ptr<IOSurface> IOSurface::createFromImage(IOSurfacePool* pool, CGImageRef image)
+{
+    if (!image)
+        return nullptr;
+
+    size_t width = CGImageGetWidth(image);
+    size_t height = CGImageGetHeight(image);
+    if (!width || !height)
+        return nullptr;
+
+    auto surface = IOSurface::create(pool, IntSize(static_cast<int>(width), static_cast<int>(height)), DestinationColorSpace::SRGB());
+    if (!surface)
+        return nullptr;
+
+    auto surfaceContext = surface->createPlatformContext();
+    if (!surfaceContext)
+        return nullptr;
+
+    CGContextDrawImage(surfaceContext.get(), CGRectMake(0, 0, width, height), image);
+    CGContextFlush(surfaceContext.get());
+
+    return surface;
+}
+
 void IOSurface::moveToPool(std::unique_ptr<IOSurface>&&, IOSurfacePool*)
 {
 }

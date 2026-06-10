@@ -213,6 +213,36 @@ OSStatus CoreAudioCaptureInternalUnit::defaultOutputDevice(uint32_t* deviceID)
     return -1;
 }
 
+bool CoreAudioCaptureInternalUnit::setVoiceActivityDetection(bool)
+{
+    // 10.9 backport: CoreAudio voice-activity-detection (kAudioDevicePropertyVoiceActivityDetectionState /
+    // kVoiceActivityDetectionEnable, and the AUVoiceIO muted-speech-activity listener) is macOS 14+. None of
+    // that API exists on 10.9, so VAD cannot be enabled. The full implementation lives in the companion
+    // CoreAudioCaptureUnit.mm, which is intentionally excluded from the 10.9 build; here we report VAD as
+    // unavailable. getUserMedia audio/video capture does not depend on it.
+    return false;
+}
+
+void CoreAudioCaptureUnit::setMuteStatusChangedCallback(Function<void(bool)>&& callback)
+{
+    // 10.9 backport: this lives in the companion CoreAudioCaptureUnit.mm (excluded from the 10.9 build), so
+    // its symbol was missing and audio capture dyld-crashed on first reference. The AVAudioApplication
+    // input-mute listener it installs (HAVE(AVAUDIOAPPLICATION)) is macOS 14+, so on 10.9 we only need to
+    // store the callback; there is no system input-mute notification to observe.
+    if (!m_muteStatusChangedCallback && !callback)
+        return;
+
+    ASSERT(!!m_muteStatusChangedCallback != !!callback);
+    m_muteStatusChangedCallback = WTF::move(callback);
+}
+
+void CoreAudioCaptureUnit::setMutedState(bool isMuted)
+{
+    // 10.9 backport: input muting goes through AVAudioApplication.setInputMuted (macOS 14+), absent on 10.9.
+    // No-op here; capture is unaffected. (Companion definition is in the excluded CoreAudioCaptureUnit.mm.)
+    UNUSED_PARAM(isMuted);
+}
+
 CoreAudioCaptureUnit& CoreAudioCaptureUnit::defaultSingleton()
 {
     static NeverDestroyed<Ref<CoreAudioCaptureUnit>> singleton(adoptRef(*new CoreAudioCaptureUnit(CanEnableEchoCancellation::Yes)));

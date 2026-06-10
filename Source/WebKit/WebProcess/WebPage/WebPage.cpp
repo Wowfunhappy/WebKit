@@ -27,7 +27,6 @@
 
 #include "config.h"
 #include "WebPage.h"
-#include <asl.h> // 10.9 MSE diagnostic logging
 
 #include "APIArray.h"
 #include "APIGeometry.h"
@@ -5007,7 +5006,6 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
     // on here, after the store is applied, so the custom 10.9 MSE pipeline (SourceBufferParserISOBMFF +
     // AudioVideoRendererAVFObjC + AVSampleBufferDisplayLayer) is actually reachable from script.
     settings.setMediaSourceEnabled(true);
-    asl_log(nullptr, nullptr, ASL_LEVEL_ERR, "MSE-FORCE[%d]: updatePreferences ran; mediaSourceEnabled now=%d", getpid(), settings.mediaSourceEnabled());
 #endif
 
     // 10.9 backport: same root cause as MediaSource above — Safari 9's UIProcess predates these modern
@@ -5030,14 +5028,20 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
     settings.setLazyImageLoadingEnabled(true);
     settings.setBroadcastChannelEnabled(true);
     settings.setPermissionsAPIEnabled(true);
-#if ENABLE(WEB_RTC)
-    // 10.9 backport: WebRTC is now compiled in (ENABLE_WEB_RTC=1, USE_LIBWEBRTC=1, libwebrtc.a). Same
-    // Safari-9-stale-pref issue: PeerConnectionEnabled/MediaDevicesEnabled arrive false from the store,
-    // so RTCPeerConnection / navigator.mediaDevices stay undefined. Force them on so the API surface is
-    // exposed (RTCPeerConnection data channels work without a camera; getUserMedia gated additionally by
-    // permissions/AVCapture).
-    settings.setPeerConnectionEnabled(true);
+#if ENABLE(MEDIA_STREAM)
+    // 10.9 backport: MEDIA_STREAM is compiled in (ENABLE_MEDIA_STREAM=1) but WEB_RTC is NOT. The
+    // MediaDevices interface (navigator.mediaDevices + getUserMedia/enumerateDevices) is gated by
+    // EnabledBySetting=MediaDevicesEnabled, which arrives false from Safari's store (it predates the API),
+    // so navigator.mediaDevices stayed undefined even with capture compiled in. Force it on so camera/mic
+    // capture is reachable from script. getUserMedia is additionally gated by the auto-grant permission
+    // path (WKPage.cpp) and the AVCapture device backend. NOTE: this must live under ENABLE(MEDIA_STREAM),
+    // not ENABLE(WEB_RTC) — the previous gating left it compiled out on the MediaStream-without-WebRTC build.
     settings.setMediaDevicesEnabled(true);
+#endif
+#if ENABLE(WEB_RTC)
+    // 10.9 backport: when WebRTC is compiled in (ENABLE_WEB_RTC=1, USE_LIBWEBRTC=1, libwebrtc.a), also
+    // expose RTCPeerConnection (data channels work without a camera). Same Safari-store-stale-pref issue.
+    settings.setPeerConnectionEnabled(true);
 #endif
 
     bool requiresUserGestureForMedia = store.getBoolValueForKey(WebPreferencesKey::requiresUserGestureForMediaPlaybackKey());

@@ -48,6 +48,7 @@ DECLARE_SYSTEM_HEADER
 typedef struct OpaqueCMBaseObject *CMBaseObjectRef;
 typedef struct OpaqueCMBaseClass *CMBaseClassID;
 typedef struct OpaqueCMBaseProtocol *CMBaseProtocolID;
+typedef struct CMBaseVTable CMBaseVTable; // used only as const CMBaseVTable* in soft-link decls
 #endif
 #endif
 

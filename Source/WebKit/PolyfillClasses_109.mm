@@ -11,5 +11,7 @@
 @interface WKWebInspectorProxyObjCAdapter : NSObject @end
 @implementation WKWebInspectorProxyObjCAdapter @end
 
-@interface WebKeyGenerator : NSObject @end
-@implementation WebKeyGenerator @end
+// NOTE: WebKeyGenerator is intentionally NOT defined here. Safari binds it from
+// the legacy WebKit.framework (our WebKitLegacy), where it is implemented for
+// real (mac/Misc/WebKeyGenerator.mm). Defining it here too would register a
+// duplicate ObjC class in any process that loads both frameworks.

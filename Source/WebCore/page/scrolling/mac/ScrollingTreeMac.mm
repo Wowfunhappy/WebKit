@@ -249,6 +249,14 @@ void ScrollingTreeMac::applyLayerPositionsInternal()
 
 void ScrollingTreeMac::registerForPlatformRenderingUpdateCallback()
 {
+    // 10.9 backport: +[CATransaction addCommitHandler:forPhase:] is 10.10+. When it
+    // is unavailable, skip the delayed-releaser bracketing (the pre-feature default of
+    // releasing layer contents immediately is correct on 10.9). Calling the selector
+    // unconditionally throws "unrecognized selector sent to class", which aborts the
+    // in-progress layer-position application on the scrolling thread.
+    if (![CATransaction respondsToSelector:@selector(addCommitHandler:forPhase:)])
+        return;
+
     [CATransaction addCommitHandler:[] {
         PlatformCALayerContentsDelayedReleaser::singleton().scrollingThreadCommitWillStart();
     } forPhase:kCATransactionPhasePreLayout];

@@ -192,10 +192,15 @@ set(GPUProcess_SOURCES
     ${XPCService_SOURCES}
 )
 
-# FIXME: These should not have Development in production builds.
-set(WebProcess_OUTPUT_NAME com.apple.WebKit.WebContent.Development)
-set(NetworkProcess_OUTPUT_NAME com.apple.WebKit.Networking.Development)
-set(GPUProcess_OUTPUT_NAME com.apple.WebKit.GPU.Development)
+# 10.9 / Safari-7 backport: the XPC-service executables must be named WITHOUT the
+# ".Development" suffix. The WK2 process launcher (and launchd, resolving the
+# .xpc bundle) execs Contents/MacOS/com.apple.WebKit.WebContent — a ".Development"
+# binary name yields ENOENT ("XPC Service could not exec(3)") so the WebContent /
+# Networking processes never start. The bundle directories are already named
+# without the suffix; this aligns the inner executable + CFBundleExecutable.
+set(WebProcess_OUTPUT_NAME com.apple.WebKit.WebContent)
+set(NetworkProcess_OUTPUT_NAME com.apple.WebKit.Networking)
+set(GPUProcess_OUTPUT_NAME com.apple.WebKit.GPU)
 
 set(WebProcess_INCLUDE_DIRECTORIES ${CMAKE_BINARY_DIR})
 set(NetworkProcess_INCLUDE_DIRECTORIES ${CMAKE_BINARY_DIR})
@@ -417,6 +422,8 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/WKHTTPCookieStore.h
     UIProcess/API/Cocoa/WKHTTPCookieStorePrivate.h
     UIProcess/API/Cocoa/WKHistoryDelegatePrivate.h
+    UIProcess/API/Cocoa/WKJSScriptingBuffer.h
+    UIProcess/API/Cocoa/WKJSSerializedNode.h
     UIProcess/API/Cocoa/WKMenuItemIdentifiersPrivate.h
     UIProcess/API/Cocoa/WKNSURLAuthenticationChallenge.h
     UIProcess/API/Cocoa/WKNavigation.h
@@ -508,6 +515,7 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/_WKElementAction.h
     UIProcess/API/Cocoa/_WKErrorRecoveryAttempting.h
     UIProcess/API/Cocoa/_WKExperimentalFeature.h
+    UIProcess/API/Cocoa/_WKFeature.h
     UIProcess/API/Cocoa/_WKFindDelegate.h
     UIProcess/API/Cocoa/_WKFindOptions.h
     UIProcess/API/Cocoa/_WKFocusedElementInfo.h
@@ -543,6 +551,7 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/_WKPublicKeyCredentialUserEntity.h
     UIProcess/API/Cocoa/_WKRemoteWebInspectorViewController.h
     UIProcess/API/Cocoa/_WKRemoteWebInspectorViewControllerPrivate.h
+    UIProcess/API/Cocoa/_WKResidentKeyRequirement.h
     UIProcess/API/Cocoa/_WKResourceLoadDelegate.h
     UIProcess/API/Cocoa/_WKResourceLoadInfo.h
     UIProcess/API/Cocoa/_WKResourceLoadStatisticsFirstParty.h
@@ -556,6 +565,7 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/_WKTextManipulationExclusionRule.h
     UIProcess/API/Cocoa/_WKTextManipulationItem.h
     UIProcess/API/Cocoa/_WKTextManipulationToken.h
+    UIProcess/API/Cocoa/_WKTextPreview.h
     UIProcess/API/Cocoa/_WKThumbnailView.h
     UIProcess/API/Cocoa/_WKUserContentWorld.h
     UIProcess/API/Cocoa/_WKUserInitiatedAction.h

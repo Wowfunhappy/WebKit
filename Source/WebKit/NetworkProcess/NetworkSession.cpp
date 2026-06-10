@@ -274,30 +274,19 @@ void NetworkSession::destroyPrivateClickMeasurementStore(CompletionHandler<void(
 void NetworkSession::setTrackingPreventionEnabled(bool enabled)
 {
     ASSERT(!m_isInvalidated);
-    bool isCurrentlyEnabled = !!m_resourceLoadStatistics;
-    if (isCurrentlyEnabled == enabled)
-        return;
 
-    RELEASE_LOG(Storage, "%p - NetworkSession::setTrackingPreventionEnabled: sessionID=%" PRIu64 ", enabled=%d", this, m_sessionID.toUInt64(), enabled);
-
+    // 10.9 backport: ResourceLoadStatistics (Intelligent Tracking Prevention) creates a
+    // WebResourceLoadStatisticsStore that opens an SQLite database on a background SuspendableWorkQueue.
+    // The first SQLite open runs initializeSQLiteIfNecessary() via callOnMainThreadAndWait(), and on 10.9
+    // that crashes the NetworkProcess (SIGSEGV in RunLoop::dispatch / pthread_mutex_lock — the main-thread
+    // RunLoop isn't reliably reachable from the worker queue this early). That intermittent NetworkProcess
+    // crash broke page loads across the whole browser. ITP is a privacy/anti-tracking heuristic, not
+    // required for correctness, so disable it entirely on 10.9: never create the store.
+    UNUSED_PARAM(enabled);
     if (CheckedPtr storageSession = networkStorageSession())
-        storageSession->setTrackingPreventionEnabled(enabled);
-    if (!enabled) {
+        storageSession->setTrackingPreventionEnabled(false);
+    if (m_resourceLoadStatistics)
         destroyResourceLoadStatistics([] { });
-        return;
-    }
-
-    Ref resourceLoadStatistics = WebResourceLoadStatisticsStore::create(*this, m_resourceLoadStatisticsDirectory, m_shouldIncludeLocalhostInResourceLoadStatistics, (m_sessionID.isEphemeral() ? ResourceLoadStatistics::IsEphemeral::Yes : ResourceLoadStatistics::IsEphemeral::No));
-    m_resourceLoadStatistics = resourceLoadStatistics.copyRef();
-    if (!m_sessionID.isEphemeral())
-        resourceLoadStatistics->populateMemoryStoreFromDisk([] { });
-
-    if (m_enableResourceLoadStatisticsDebugMode == EnableResourceLoadStatisticsDebugMode::Yes)
-        resourceLoadStatistics->setResourceLoadStatisticsDebugMode(true, [] { });
-    // This should always be forwarded since debug mode may be enabled at runtime.
-    if (!m_resourceLoadStatisticsManualPrevalentResource.isEmpty())
-        resourceLoadStatistics->setPrevalentResourceForDebugMode(RegistrableDomain { m_resourceLoadStatisticsManualPrevalentResource }, [] { });
-    forwardResourceLoadStatisticsSettings();
 }
 
 void NetworkSession::forwardResourceLoadStatisticsSettings()

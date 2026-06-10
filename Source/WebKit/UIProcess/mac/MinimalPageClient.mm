@@ -25,8 +25,12 @@
 #import "TiledCoreAnimationDrawingAreaProxy.h"
 #import "WebPageProxy.h"
 #import "WebProcessProxy.h"
+#if ENABLE(FULLSCREEN_API)
+#import "WebFullScreenManagerProxy.h"
+#endif
 #import <WebCore/DestinationColorSpace.h>
 #import <WebCore/FloatRect.h>
+#import <WebCore/FloatSize.h>
 #import <WebCore/IntPoint.h>
 #import <WebCore/IntRect.h>
 #import <WebCore/IntSize.h>
@@ -37,8 +41,27 @@
 
 namespace WebKit {
 
+#if ENABLE(FULLSCREEN_API)
+// Standalone fullscreen client (held as a member rather than via multiple
+// inheritance, which collides with PageClientImplCocoa's allocator/destructor).
+// Element fullscreen isn't wired up in this minimal WKView client, so each request
+// completes immediately (enter -> denied, exit/began -> done) so page promises
+// don't hang.
+class MinimalFullScreenManagerProxyClient final : public WebFullScreenManagerProxyClient {
+public:
+    void closeFullScreenManager() final { }
+    bool isFullScreen() final { return false; }
+    void enterFullScreen(WebCore::FloatSize, CompletionHandler<void(bool)>&& completionHandler) final { completionHandler(false); }
+#if ENABLE(QUICKLOOK_FULLSCREEN)
+    void updateImageSource() final { }
+#endif
+    void exitFullScreen(CompletionHandler<void()>&& completionHandler) final { completionHandler(); }
+    void beganEnterFullScreen(const WebCore::IntRect&, const WebCore::IntRect&, CompletionHandler<void(bool)>&& completionHandler) final { completionHandler(false); }
+    void beganExitFullScreen(const WebCore::IntRect&, const WebCore::IntRect&, CompletionHandler<void()>&& completionHandler) final { completionHandler(); }
+};
+#endif
+
 class MinimalPageClient final : public PageClientImplCocoa {
-    WTF_MAKE_FAST_ALLOCATED;
 public:
     explicit MinimalPageClient(NSView *view)
         : PageClientImplCocoa(nil)
@@ -61,6 +84,10 @@ private:
     bool canTakeForegroundAssertions() final;
 #endif
     bool isViewInWindow() final;
+    bool isMainViewVisible() final;
+    bool isViewVisibleOrOccluded() final;
+    bool isVisuallyIdle() final;
+    void didFirstLayerFlush(const LayerTreeContext&) final;
     void processDidExit() final;
     void didRelaunchProcess() final;
     void preferencesDidChange() final;
@@ -406,9 +433,7 @@ private:
 #if ENABLE(FULLSCREEN_API)
     WebFullScreenManagerProxyClient& fullScreenManagerProxyClient() final;
 #endif
-#if ENABLE(FULLSCREEN_API)
-    void setFullScreenClientForTesting(std::unique_ptr<WebFullScreenManagerProxyClient>&&) final;
-#endif
+// setFullScreenClientForTesting is final in a base class; inherited, not overridden.
     void didFinishLoadingDataForCustomContentProvider(const String& suggestedFilename, std::span<const uint8_t>) final;
     void navigationGestureDidBegin() final;
     void navigationGestureWillEnd(bool willNavigate, WebBackForwardListItem&) final;
@@ -447,9 +472,7 @@ private:
     void didReceiveInteractiveModelElement(std::optional<WebCore::NodeIdentifier>) final;
 #endif
     void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
-#if ENABLE(APP_HIGHLIGHTS)
-    void storeAppHighlight(const WebCore::AppHighlight&) final;
-#endif
+// storeAppHighlight is final in a base class; inherited, not overridden.
 #if USE(WPE_RENDERER)
     UnixFileDescriptor hostFileDescriptor() final;
 #endif
@@ -490,6 +513,9 @@ private:
     NSView *m_view { nullptr };
     WebPageProxy *m_page { nullptr };
     RetainPtr<CALayer> m_rootLayer;
+#if ENABLE(FULLSCREEN_API)
+    MinimalFullScreenManagerProxyClient m_fullScreenClient;
+#endif
 };
 
 // ===== Hand-written implementations =====
@@ -1105,11 +1131,9 @@ void MinimalPageClient::positionInformationDidChange(const InteractionInformatio
 #endif
 #if ENABLE(FULLSCREEN_API)
 WebFullScreenManagerProxyClient& MinimalPageClient::fullScreenManagerProxyClient()
-{ RELEASE_ASSERT_NOT_REACHED(); }
-#endif
-#if ENABLE(FULLSCREEN_API)
-void MinimalPageClient::setFullScreenClientForTesting(std::unique_ptr<WebFullScreenManagerProxyClient>&&)
-{ }
+{
+    return m_fullScreenClient;
+}
 #endif
 void MinimalPageClient::didFinishLoadingDataForCustomContentProvider(const String& suggestedFilename, std::span<const uint8_t>)
 { }
@@ -1169,10 +1193,6 @@ void MinimalPageClient::didReceiveInteractiveModelElement(std::optional<WebCore:
 #endif
 void MinimalPageClient::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&)
 { }
-#if ENABLE(APP_HIGHLIGHTS)
-void MinimalPageClient::storeAppHighlight(const WebCore::AppHighlight&)
-{ }
-#endif
 #if USE(WPE_RENDERER)
 UnixFileDescriptor MinimalPageClient::hostFileDescriptor()
 { return { }; }

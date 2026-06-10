@@ -26,6 +26,7 @@
 #include "config.h"
 #include "WKPage.h"
 #include "WKPagePrivate.h"
+#include <asl.h> // 10.9 backport GUM-DIAG: UIProcess stderr is discarded; asl_log reaches syslog.
 
 #include "APIArray.h"
 #include "APICompletionListener.h"
@@ -1489,6 +1490,21 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
                 return;
             }
 
+            // 10.9 / Safari-7 backport: the V0 (deprecated) decidePolicyForResponse
+            // callback does not receive canShowMIMEType. Safari 7's handler predates
+            // that parameter and, against modern WebKit, mis-decides — it downloads
+            // or ignores perfectly displayable subframe responses (ad/tracker/login
+            // iframes, etc.) instead of rendering them. That cluttered ~/Downloads
+            // and crashed the UI process's download writer. WebKit already knows the
+            // response is displayable, so render it; only fall through to the legacy
+            // callback for genuinely non-displayable responses (real downloads like
+            // .zip/.pdf, where Safari's download handling is still wanted). The
+            // non-deprecated callback DOES get canShowMIMEType, so leave it alone.
+            if (canShowMIMEType && m_client.decidePolicyForResponse_deprecatedForUseWithV0 && !m_client.decidePolicyForResponse) {
+                listener->use();
+                return;
+            }
+
             Ref<API::URLResponse> response = API::URLResponse::create(resourceResponse);
             Ref<API::URLRequest> request = API::URLRequest::create(resourceRequest);
 
@@ -2057,8 +2073,20 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
 
         void decidePolicyForUserMediaPermissionRequest(WebPageProxy& page, WebFrameProxy& frame, API::SecurityOrigin& userMediaDocumentOrigin, API::SecurityOrigin& topLevelDocumentOrigin, UserMediaPermissionRequestProxy& permissionRequest) final
         {
+            asl_log(nullptr, nullptr, ASL_LEVEL_ERR, "[GUM-DIAG] WKPageUIClient decidePolicy hasClient=%d hasAudioDev=%d hasVideoDev=%d", !!m_client.decidePolicyForUserMediaPermissionRequest, permissionRequest.hasAudioDevice(), permissionRequest.hasVideoDevice());
             if (!m_client.decidePolicyForUserMediaPermissionRequest) {
-                permissionRequest.deny();
+                // 10.9 backport: Safari 7 predates getUserMedia and never installs this WKPageUIClient
+                // callback, so the upstream default deny() makes camera/microphone capture impossible.
+                // macOS 10.9 also has no TCC camera/mic consent prompt (that arrived in 10.14), and this
+                // is a single-user setup, so auto-GRANT the request with the default eligible devices to
+                // let getUserMedia()/MediaStream actually function. (Privacy tradeoff: any page that asks
+                // gets access without a prompt, because the host app can't present one.)
+                if (permissionRequest.hasAudioDevice() || permissionRequest.hasVideoDevice()) {
+                    String audioUID = permissionRequest.hasAudioDevice() ? permissionRequest.audioDevice().persistentId() : String();
+                    String videoUID = permissionRequest.hasVideoDevice() ? permissionRequest.videoDevice().persistentId() : String();
+                    permissionRequest.allow(audioUID, videoUID);
+                } else
+                    permissionRequest.deny();
                 return;
             }
 

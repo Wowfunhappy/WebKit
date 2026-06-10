@@ -1343,9 +1343,6 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
 
     RefPtr relatedPage = pageConfiguration->relatedPage();
     bool siteIsolationEnabled = protect(pageConfiguration->preferences())->siteIsolationEnabled();
-    WTFLogAlways("[INSPECTOR-WPP] createWebPage relatedPage=%p siteIsolation=%d", (void *)relatedPage.get(), (int)siteIsolationEnabled);
-    if (relatedPage)
-        WTFLogAlways("[INSPECTOR-WPP] relatedPage isClosed=%d sameGPUAndNetwork=%d", (int)relatedPage->isClosed(), (int)relatedPage->hasSameGPUAndNetworkProcessPreferencesAs(pageConfiguration));
     RefPtr preferredBrowsingContextGroup = pageConfiguration->preferredBrowsingContextGroup();
     RefPtr preferredFrameProcess = preferredBrowsingContextGroup ? preferredBrowsingContextGroup->processForSite(pageConfiguration->openedSite()) : nullptr;
     if (auto& openerInfo = pageConfiguration->openerInfo(); openerInfo && siteIsolationEnabled)
@@ -1386,14 +1383,11 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
     // finishes launching on 10.9 → CreateWebPage IPC is dropped). Reusing the existing Running
     // process lets the inspector WebPage share WebContent with the inspected page.
     bool shouldReuse = process && (process->isDummyProcessProxy() || process->state() != WebProcessProxy::State::Running);
-    WTFLogAlways("[INSPECTOR-WPP-CHECK] process=%p isDummy=%d state=%d shouldReuse=%d m_processes.size=%zu", (void *)process.get(), process ? (int)process->isDummyProcessProxy() : -1, process ? (int)process->state() : -1, (int)shouldReuse, m_processes.size());
     if (shouldReuse) {
         for (Ref<WebProcessProxy> existing : m_processes) {
-            WTFLogAlways("[INSPECTOR-WPP-SCAN] existing=%p isDummy=%d state=%d", existing.ptr(), (int)existing->isDummyProcessProxy(), (int)existing->state());
             if (existing.ptr() == process.get())
                 continue;
             if (!existing->isDummyProcessProxy() && existing->state() == WebProcessProxy::State::Running) {
-                WTFLogAlways("[INSPECTOR-WPP-REUSE] reusing existing process pid=%d (replacing process state=%d)", existing->processID(), (int)process->state());
                 process = existing.ptr();
                 break;
             }
