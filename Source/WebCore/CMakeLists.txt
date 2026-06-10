@@ -1145,6 +1145,7 @@ set(WebCore_NON_SVG_IDL_FILES
     dom/AddEventListenerOptions.idl
     dom/AriaNotifyOptions.idl
     dom/Attr.idl
+    dom/BeforeLoadEvent.idl
     dom/BeforeUnloadEvent.idl
     dom/BroadcastChannel.idl
     dom/CDATASection.idl

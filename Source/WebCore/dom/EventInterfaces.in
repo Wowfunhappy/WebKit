@@ -8,7 +8,7 @@ HTMLEvents interfaceName=Event
 AnimationPlaybackEvent
 BackgroundFetchEvent
 BackgroundFetchUpdateUIEvent
-BeforeLoadEvent interfaceName=Event
+BeforeLoadEvent
 BeforeUnloadEvent
 BufferedChangeEvent conditional=MEDIA_SOURCE
 ClipboardEvent

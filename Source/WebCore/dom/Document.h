@@ -1110,6 +1110,8 @@ public:
         FocusIn = 1 << 11,
         FocusOut = 1 << 12,
         CSSAnimation = 1 << 13,
+        // 10.9 backport: cancelable beforeload (Safari 7 extension blocking).
+        BeforeLoad = 1 << 14,
     };
 
     bool hasListenerType(ListenerType listenerType) const { return m_listenerTypes.contains(listenerType); }

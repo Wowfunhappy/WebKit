@@ -373,9 +373,14 @@ void ImageLoader::didUpdateCachedImage(RelevantMutation relevantMutation, RefPtr
         m_imageComplete = !newImage;
 
         if (newImage) {
-            if (!document->isImageDocument())
-                dispatchPendingBeforeLoadEvent();
-            else
+            if (!document->isImageDocument()) {
+                // 10.9 backport: with a beforeload listener present, defer the
+                // (cancelable) event — it runs script, which is unsafe here.
+                if (!document->hasListenerType(Document::ListenerType::BeforeLoad))
+                    dispatchPendingBeforeLoadEvent();
+                else
+                    loadEventSender().dispatchEventSoon(*this, eventNames().beforeloadEvent);
+            } else
                 updateRenderer();
 
             if (m_lazyImageLoadState == LazyImageLoadState::Deferred)
@@ -661,6 +666,8 @@ bool ImageLoader::hasPendingActivity() const
 void ImageLoader::dispatchPendingEvent(ImageEventSender* eventSender, const AtomString& eventType)
 {
     ASSERT_UNUSED(eventSender, eventSender == &loadEventSender());
+    if (eventType == eventNames().beforeloadEvent)
+        dispatchPendingBeforeLoadEvent();
     if (eventType == eventNames().loadEvent)
         dispatchPendingLoadEvent();
     if (eventType == eventNames().errorEvent)
@@ -676,9 +683,30 @@ void ImageLoader::dispatchPendingBeforeLoadEvent()
     if (!element().document().hasLivingRenderTree())
         return;
     m_hasPendingBeforeLoadEvent = false;
-    if (!element().isConnected())
+    // 10.9 backport: dispatch the cancelable beforeload event (Safari 7
+    // extension blocking); a canceled event drops the image load entirely.
+    Ref<Document> originalDocument = element().document();
+    if (protect(element())->dispatchBeforeLoadEvent(m_image->url().string())) {
+        bool didEventListenerDisconnectThisElement = !element().isConnected() || &element().document() != originalDocument.ptr();
+        if (didEventListenerDisconnectThisElement)
+            return;
+        updateRenderer();
         return;
-    updateRenderer();
+    }
+    if (m_image) {
+        m_image->removeClient(*this);
+        m_image = nullptr;
+    }
+
+    loadEventSender().cancelEvent(*this, eventNames().loadEvent);
+    m_hasPendingLoadEvent = false;
+
+    if (RefPtr objectElement = dynamicDowncast<HTMLObjectElement>(element()))
+        objectElement->renderFallbackContent();
+
+    // Only consider updating the protection ref-count of the Element immediately before returning
+    // from this function as doing so might result in the destruction of this ImageLoader.
+    updatedHasPendingEvent();
 }
 
 void ImageLoader::dispatchPendingLoadEvent()

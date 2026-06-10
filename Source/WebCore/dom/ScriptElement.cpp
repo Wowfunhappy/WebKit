@@ -393,6 +393,17 @@ bool ScriptElement::requestClassicScript(const String& sourceURL)
     Ref element = this->element();
     ASSERT(element->isConnected());
     ASSERT(!m_loadableScript);
+
+    // 10.9 backport: cancelable beforeload (Safari 7 extension blocking).
+    {
+        Ref<Document> originalDocument = element->document();
+        if (!element->dispatchBeforeLoadEvent(sourceURL))
+            return false;
+        bool didEventListenerDisconnectThisElement = !element->isConnected() || &element->document() != originalDocument.ptr();
+        if (didEventListenerDisconnectThisElement)
+            return false;
+    }
+
     Ref document = element->document();
     int phase = 0;
     if (!StringView(sourceURL).containsOnly<isASCIIWhitespace<char16_t>>()) {
@@ -448,6 +459,16 @@ bool ScriptElement::requestModuleScript(const String& sourceText, const TextPosi
         if (StringView(sourceURL).containsOnly<isASCIIWhitespace<char16_t>>()) {
             dispatchErrorEvent();
             return false;
+        }
+
+        // 10.9 backport: cancelable beforeload (Safari 7 extension blocking).
+        {
+            Ref<Document> originalDocument = element->document();
+            if (!element->dispatchBeforeLoadEvent(sourceURL))
+                return false;
+            bool didEventListenerDisconnectThisElement = !element->isConnected() || &element->document() != originalDocument.ptr();
+            if (didEventListenerDisconnectThisElement)
+                return false;
         }
 
         auto moduleScriptRootURL = document->completeURL(sourceURL);

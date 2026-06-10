@@ -553,6 +553,8 @@ public:
     void dispatchScopedEvent(Event&);
 
     void dispatchSubtreeModifiedEvent();
+    // 10.9 backport: cancelable beforeload; returns false if the load was canceled.
+    WEBCORE_EXPORT bool dispatchBeforeLoadEvent(const String& sourceURL);
     void dispatchDOMActivateEvent(Event& underlyingClickEvent);
 
     void dispatchWebKitSubmitEvent(Event& underlyingSubmitEvent);

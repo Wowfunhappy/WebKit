@@ -27,6 +27,7 @@
 
 #include "AXObjectCache.h"
 #include "Attr.h"
+#include "BeforeLoadEvent.h"
 #include "ChildListMutationScope.h"
 #include "CommonAtomStrings.h"
 #include "CommonVM.h"
@@ -2667,6 +2668,19 @@ void Node::dispatchSubtreeModifiedEvent()
         return;
 
     dispatchScopedEvent(MutationEvent::create(subtreeModifiedEventName, Event::CanBubble::Yes));
+}
+
+// 10.9 backport: restored cancelable beforeload dispatch (deleted upstream,
+// bug 234804) — Safari 7 extension content blocking depends on it.
+bool Node::dispatchBeforeLoadEvent(const String& sourceURL)
+{
+    if (!document().hasListenerType(Document::ListenerType::BeforeLoad))
+        return true;
+
+    Ref protectedThis { *this };
+    Ref event = BeforeLoadEvent::create(sourceURL);
+    dispatchEvent(event);
+    return !event->defaultPrevented();
 }
 
 void Node::dispatchDOMActivateEvent(Event& underlyingClickEvent)

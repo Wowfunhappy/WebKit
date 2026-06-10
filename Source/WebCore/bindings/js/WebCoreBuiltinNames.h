@@ -95,6 +95,7 @@ namespace WebCore {
     macro(AuthenticatorAttestationResponse) \
     macro(AuthenticatorResponse) \
     macro(BackgroundFetchEvent) \
+    macro(BeforeLoadEvent) \
     macro(BackgroundFetchManager) \
     macro(BackgroundFetchRecord) \
     macro(BackgroundFetchRegistration) \

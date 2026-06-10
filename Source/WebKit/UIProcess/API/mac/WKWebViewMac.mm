@@ -166,6 +166,32 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
     } @catch (NSException *) { }
 }
 
+// Declared in WKWebViewMac.h and called from -[WKWebView dealloc]; upstream's
+// Mac WKWebView category (not built here) implemented it. Without it, EVERY
+// Mac WKWebView teardown raised unrecognized-selector and terminated Safari —
+// the Web Inspector frontend (WKInspectorWKWebView) crashed Safari on
+// open/close because of this.
+- (void)_resetSecureInputState
+{
+    if (WebKit::WebViewImpl *impl = self._impl)
+        impl->resetSecureInputState();
+}
+
+// Declared in WKWebViewMac.h, called from -[WKWebView _takeFindStringFromSelection:]
+// (Edit ▸ Find ▸ Use Selection for Find). Same unrecognized-selector hazard as
+// _resetSecureInputState. The WebCore edit command writes the find pasteboard.
+- (void)_takeFindStringFromSelectionInternal:(id)sender
+{
+    if (RefPtr page = self._protectedPage)
+        page->executeEditCommand("TakeFindStringFromSelection"_s);
+}
+
+// Declared in WKWebViewMac.h, called from WebViewImpl's drag handling.
+- (Vector<String>)_promisedFileMIMETypes:(id<NSDraggingInfo>)info
+{
+    return { };
+}
+
 @end
 
 #endif // PLATFORM(MAC)

@@ -7185,6 +7185,10 @@ void Document::addListenerTypeIfNeeded(const AtomString& eventType)
     case EventType::focusout:
         addListenerType(ListenerType::FocusOut);
         break;
+    // 10.9 backport: cancelable beforeload (Safari 7 extension blocking).
+    case EventType::beforeload:
+        addListenerType(ListenerType::BeforeLoad);
+        break;
     default:
         if (typeInfo.isInCategory(EventCategory::CSSAnimation))
             addListenerType(ListenerType::CSSAnimation);
