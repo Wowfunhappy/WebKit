@@ -27,6 +27,15 @@ set(CMAKE_RANLIB  ${_TC}/bin/llvm-ranlib  CACHE FILEPATH "")
 set(CMAKE_LINKER  ${_TC}/bin/ld.lld       CACHE FILEPATH "")
 set(CMAKE_NM      ${_TC}/bin/llvm-nm      CACHE FILEPATH "")
 
+# 10.9 backport: libwebrtc/libvpx assemble x86 .asm via nasm (macho64). The
+# system CommandLineTools nasm is ancient (no macho64, no -MD); use the modern
+# nasm 2.16 built in-tree (MavericksSupport/build_nasm.sh). It supports macho64,
+# GNU-style -MD/-MT depfiles, and @response-files (needed with
+# CMAKE_NINJA_FORCE_RESPONSE_FILE), so no wrapper is required.
+if (EXISTS /Users/jonathan/Desktop/Compilers/toolchains/tools/nasm/bin/nasm)
+    set(CMAKE_ASM_NASM_COMPILER /Users/jonathan/Desktop/Compilers/toolchains/tools/nasm/bin/nasm CACHE FILEPATH "")
+endif ()
+
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.9" CACHE STRING "")
 set(CMAKE_OSX_SYSROOT ""  CACHE STRING "")
 set(CMAKE_OSX_ARCHITECTURES "" CACHE STRING "")
