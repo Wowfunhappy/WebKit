@@ -1996,18 +1996,17 @@ perlasm(CRYPTO_SOURCES x86_64 test/trampoline-x86_64 ${CRYPTO_PATH}/test/asm/tra
 # feeding the ARM/x86/Linux/Windows variants to the x86_64 assembler produces
 # ~1.8M errors. Keep only the x86_64-apple .S files (boringssl provides C fallbacks
 # for everything else, and the other variants would be duplicate symbols anyway).
-# Keep the macOS (apple) variants, then drop ARM (armv8/armv4/aarch64, plus the
-# hand-written *-arm*.S) and 32-bit x86. perlasm names x86_64 files as
-# <dest>-apple.S (e.g. x86_64-mont5-apple.S, rsaz-avx2-apple.S,
-# curve25519_64_adx-x86_64-apple.S), so an "x86_64-apple.S$" filter would wrongly
-# drop them (→ undefined bn_*/rsaz_*/fiat_curve25519_adx_* at link). The
-# hand-written ARM .S (x25519-asm-arm.S, poly1305_arm_asm.S) have no -apple
-# suffix and are removed by the INCLUDE filter; x86_64 HRSS poly_rq_mul.S (no
-# -apple suffix) is likewise dropped — boringssl has a C fallback for it.
-list(FILTER BCM_SOURCES_ASM INCLUDE REGEX "-apple\\.S$")
-list(FILTER BCM_SOURCES_ASM EXCLUDE REGEX "armv[0-9]|aarch64|x86-apple\\.S$")
-list(FILTER CRYPTO_SOURCES_ASM INCLUDE REGEX "-apple\\.S$")
-list(FILTER CRYPTO_SOURCES_ASM EXCLUDE REGEX "armv[0-9]|aarch64|x86-apple\\.S$")
+# EXCLUDE the definitively-wrong-platform variants and KEEP everything else.
+# An "-apple.S$" INCLUDE filter is wrong because several x86_64 GAS files have no
+# -apple suffix (the hand-written fiat ADX — fiat_curve25519_adx_*.S /
+# fiat_p256_adx_*.S — and HRSS poly_rq_mul.S) and would be dropped, leaving
+# undefined fiat_*_adx_* at link. So instead drop: Linux/Windows OS variants,
+# ARM (armv8/armv4 + the hand-written x25519-asm-arm.S / poly1305_arm_asm.S), and
+# 32-bit x86 (*-x86-apple.S). What remains is the x86_64 macOS set
+# (gen/crypto/*-x86_64-apple.S, perlasm <dest>-apple.S, and the fiat/HRSS .S).
+set(_WRONG_ASM_RE "-linux\\.(S|asm)$|-win\\.(S|asm)$|armv[0-9]|x25519-asm-arm|poly1305_arm_asm|-x86-apple\\.S$")
+list(FILTER BCM_SOURCES_ASM EXCLUDE REGEX "${_WRONG_ASM_RE}")
+list(FILTER CRYPTO_SOURCES_ASM EXCLUDE REGEX "${_WRONG_ASM_RE}")
 list(APPEND webrtc_SOURCES ${BCM_SOURCES_ASM})
 list(APPEND webrtc_SOURCES ${CRYPTO_SOURCES_ASM})
 
