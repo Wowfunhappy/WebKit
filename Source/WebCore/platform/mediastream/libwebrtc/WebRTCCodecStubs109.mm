@@ -23,9 +23,26 @@
 #if ENABLE(WEB_RTC) && USE(LIBWEBRTC)
 
 #import <Foundation/Foundation.h>
+#import <dispatch/dispatch.h>
 
-// From RTCH265ProfileLevelId.mm (excluded on 10.9).
+// From RTCH265ProfileLevelId.mm (excluded on 10.9). NOTE: a file-scope `const`
+// in ObjC++ has INTERNAL linkage by default, so it must be declared extern to
+// export the symbol that libwebrtc.a references.
+extern NSString *const kRTCVideoCodecH265Name;
 NSString *const kRTCVideoCodecH265Name = @"H265";
+
+// From rtc_base/system/gcd_helpers.m (excluded on 10.9 — its @available branch
+// references dispatch_queue_create_with_target, a 10.12+ API the 10.9 SDK does
+// not declare and 10.9 libdispatch lacks). Implement it with the 10.9-available
+// primitives: create the queue, then point it at the target queue.
+extern "C" dispatch_queue_t RTCDispatchQueueCreateWithTarget(const char* label, dispatch_queue_attr_t attr, dispatch_queue_t target);
+extern "C" dispatch_queue_t RTCDispatchQueueCreateWithTarget(const char* label, dispatch_queue_attr_t attr, dispatch_queue_t target)
+{
+    dispatch_queue_t queue = dispatch_queue_create(label, attr);
+    if (target)
+        dispatch_set_target_queue(queue, target);
+    return queue;
+}
 
 __attribute__((objc_runtime_name("WK_RTCVideoEncoderH265")))
 @interface RTCVideoEncoderH265 : NSObject

@@ -2093,9 +2093,10 @@ if (APPLE)
         Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoDecoderVTBVP9.mm
         # [10.9 backport: HEVC unsupported pre-10.13] Source/webrtc/webkit_sdk/objc/components/video_codec/RTCCodecSpecificInfoH265.mm
         Source/webrtc/webkit_sdk/objc/api/video_codec/RTCVideoEncoderVP9.mm
-        # 10.9 backport: gcd_helpers.m defines RTCDispatchQueueCreateWithTarget (used by the
-        # objc components); it was not in the source list, leaving the symbol undefined.
-        Source/webrtc/rtc_base/system/gcd_helpers.m
+        # 10.9 backport: gcd_helpers.m (RTCDispatchQueueCreateWithTarget) can't compile here —
+        # its @available branch references dispatch_queue_create_with_target, which the 10.9 SDK
+        # does not even declare (and 10.9 libdispatch lacks). RTCDispatchQueueCreateWithTarget is
+        # instead provided, 10.9-only, in WebCore's WebRTCCodecStubs109.mm.
         Source/webrtc/common_video/h265/h265_pps_parser.cc
         Source/webrtc/common_video/h265/h265_vps_parser.cc
         Source/webrtc/common_video/h265/h265_sps_parser.cc
@@ -2133,6 +2134,11 @@ if (APPLE)
         Source/webrtc/webkit_sdk/objc/base/RTCEncodedImage.m
         Source/webrtc/webkit_sdk/objc/base/RTCRtpFragmentationHeader.m
         Source/webrtc/webkit_sdk/objc/base/RTCVideoCodecInfo.m
+        # 10.9 backport: the (Private) category adding -nativeSdpVideoFormat was missing from
+        # the source list, so PeerConnectionFactory creation crashed at runtime with
+        # "-[WK_RTCVideoCodecInfo nativeSdpVideoFormat]: unrecognized selector" the moment
+        # ObjCVideoEncoderFactory::GetSupportedFormats() ran (i.e. on `new RTCPeerConnection`).
+        Source/webrtc/webkit_sdk/objc/api/peerconnection/RTCVideoCodecInfo+Private.mm
         Source/webrtc/webkit_sdk/objc/base/RTCVideoEncoderQpThresholds.m
         Source/webrtc/webkit_sdk/objc/base/RTCVideoEncoderSettings.m
         Source/webrtc/webkit_sdk/objc/base/RTCVideoFrame.mm
