@@ -457,3 +457,12 @@ NSString * const NSPopUpMenuPopupButtonWidget = @"NSPopUpMenuPopupButtonWidget";
 - (void)endDeferringViewInWindowChanges { /* 10.9 no-op */ }
 - (void)endDeferringViewInWindowChangesSync { /* 10.9 no-op */ }
 @end
+
+// 10.9 backport: kVTVideoEncoderSpecification_RequiredLowLatency is a 10.13+
+// VideoToolbox encoder-spec key. libwebrtc's VTB H.264/VP9 encoder (built with
+// ENABLE_WEB_RTC) references it; WebCore resolves it via flat-namespace dynamic
+// lookup, so without a definition dyld aborts Safari at launch ("Symbol not
+// found: _kVTVideoEncoderSpecification_RequiredLowLatency"). Provide the real
+// CFString value; on 10.9 the encoder simply ignores this unknown spec key.
+#import <CoreFoundation/CoreFoundation.h>
+const CFStringRef kVTVideoEncoderSpecification_RequiredLowLatency = CFSTR("RequiredLowLatency");

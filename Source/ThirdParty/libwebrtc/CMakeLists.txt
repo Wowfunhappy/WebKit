@@ -2093,6 +2093,9 @@ if (APPLE)
         Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoDecoderVTBVP9.mm
         # [10.9 backport: HEVC unsupported pre-10.13] Source/webrtc/webkit_sdk/objc/components/video_codec/RTCCodecSpecificInfoH265.mm
         Source/webrtc/webkit_sdk/objc/api/video_codec/RTCVideoEncoderVP9.mm
+        # 10.9 backport: gcd_helpers.m defines RTCDispatchQueueCreateWithTarget (used by the
+        # objc components); it was not in the source list, leaving the symbol undefined.
+        Source/webrtc/rtc_base/system/gcd_helpers.m
         Source/webrtc/common_video/h265/h265_pps_parser.cc
         Source/webrtc/common_video/h265/h265_vps_parser.cc
         Source/webrtc/common_video/h265/h265_sps_parser.cc

@@ -687,8 +687,8 @@ platform/mediastream/ios/AVAudioSessionCaptureDevice.mm @nonARC
 platform/mediastream/ios/AVAudioSessionCaptureDeviceManager.mm @nonARC @no-unify
 platform/mediastream/ios/CoreAudioCaptureSourceIOS.mm @nonARC
 platform/mediastream/libwebrtc/LibWebRTCProviderCocoa.cpp
-// platform/mediastream/libwebrtc/WebRTCCodecStubs109.mm @nonARC @no-unify  -- lost backport libwebrtc stub; WebRTC disabled for initial bringup. See task "Re-enable WebRTC/MediaStream".
-// platform/mediastream/libwebrtc/WebRTCMediaStubs109.mm @nonARC @no-unify  -- lost backport libwebrtc stub; WebRTC disabled for initial bringup. See task "Re-enable WebRTC/MediaStream".
+platform/mediastream/libwebrtc/WebRTCCodecStubs109.mm @nonARC @no-unify
+// platform/mediastream/libwebrtc/WebRTCMediaStubs109.mm @nonARC @no-unify  -- lost backport libwebrtc stub; not currently needed (no remaining undefined media symbols).
 platform/mediastream/mac/AVCaptureDeviceManager.mm @nonARC
 platform/mediastream/mac/AVVideoCaptureSource.mm @nonARC @no-unify
 platform/mediastream/mac/BaseAudioCaptureUnit.cpp
