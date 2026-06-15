@@ -25,6 +25,12 @@
 #import <Foundation/Foundation.h>
 #import <dispatch/dispatch.h>
 
+// 10.9 backport: reference the marker exported by RTCVideoCodecInfo+Private.mm so
+// the linker keeps that category-only object file (otherwise -nativeSdpVideoFormat
+// is missing at runtime — the codec factory crashes on `new RTCPeerConnection`).
+extern "C" void webkit109_keep_RTCVideoCodecInfo_Private(void);
+void (*webkit109_keep_refs[])(void) = { webkit109_keep_RTCVideoCodecInfo_Private };
+
 // From RTCH265ProfileLevelId.mm (excluded on 10.9). NOTE: a file-scope `const`
 // in ObjC++ has INTERNAL linkage by default, so it must be declared extern to
 // export the symbol that libwebrtc.a references.
