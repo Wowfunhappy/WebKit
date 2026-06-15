@@ -74,27 +74,14 @@ GradientRendererCG::Strategy GradientRendererCG::makeGradient(ColorInterpolation
 {
     ASSERT_UNUSED(colorInterpolationMethod, std::holds_alternative<ColorInterpolationMethod::SRGB>(colorInterpolationMethod.colorSpace));
 
-    auto gradientInterpolatesPremultipliedOptionsDictionary = [] () -> CFDictionaryRef {
-        // 10.9 backport: kCGGradientInterpolatesPremultiplied is a libpolyfill
-        // stub returning a CFTypeRef with corrupted class pointer; passing it
-        // as a CFDictionary key crashes inside CFBasicHashAddValue when CG
-        // tries to forward methods to it. Use the literal CFSTR("...") whose
-        // string content matches what CG actually checks against.
-        static CFTypeRef keys[] = { CFSTR("kCGGradientInterpolatesPremultiplied") };
-        static CFTypeRef values[] = { kCFBooleanTrue };
-        static CFDictionaryRef options = CFDictionaryCreate(kCFAllocatorDefault, keys, values, std::size(keys), &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-
-        return options;
-    };
-
-   auto gradientOptionsDictionary = [&] (auto colorInterpolationMethod) -> CFDictionaryRef {
-        switch (colorInterpolationMethod.alphaPremultiplication) {
-        case AlphaPremultiplication::Unpremultiplied:
-            return nullptr;
-        case AlphaPremultiplication::Premultiplied:
-            return gradientInterpolatesPremultipliedOptionsDictionary();
-        }
-   };
+    // 10.9 backport: CGGradientCreateWithColorComponentsAndOptions does not exist in
+    // macOS 10.9's CoreGraphics (CGGradient-1129 era) — it falls back to a libpolyfill
+    // stub that returns null, so every sRGB gradient ends up null and CGContextDrawLinearGradient
+    // paints nothing (all CSS gradients become invisible). Use the classic
+    // CGGradientCreateWithColorComponents, which 10.9 CoreGraphics does export. Its only
+    // difference is the premultiplied-alpha interpolation option (kCGGradientInterpolatesPremultiplied),
+    // which is a subtle accuracy nicety for gradients fading to/from transparency and is
+    // identical for the common case of opaque color stops.
 
     auto hasOnlyBoundedSRGBColorStops = [] (const auto& stops) {
         for (const auto& stop : stops) {
@@ -161,7 +148,7 @@ GradientRendererCG::Strategy GradientRendererCG::makeGradient(ColorInterpolation
 
     apply139572277Workaround();
 
-    return Gradient { adoptCF(CGGradientCreateWithColorComponentsAndOptions(cgColorSpace.get(), colorComponents.span().data(), locations.span().data(), numberOfStops, gradientOptionsDictionary(colorInterpolationMethod))) };
+    return Gradient { adoptCF(CGGradientCreateWithColorComponents(cgColorSpace.get(), colorComponents.span().data(), locations.span().data(), numberOfStops)) };
 }
 
 // MARK: - Shading strategy.
