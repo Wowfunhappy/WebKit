@@ -99,10 +99,30 @@ ImageDrawResult GraphicsContext::drawMultiRepresentationHEIC(Image& image, const
 
 #endif
 
-void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& color)
+void GraphicsContextCG::drawFocusRing(const Path& path, float width, const Color& color)
 {
     if (path.isEmpty())
         return;
+
+#if USE(APPKIT)
+    // 10.9 backport: NSInitializeCGFocusRingStyleForTime is absent from 10.9 AppKit and is supplied
+    // by libpolyfill, whose CGFocusRingStyle layout doesn't match 10.9 CoreGraphics. The resulting
+    // CGStyle from CGStyleCreateFocusRingWithColor does NOT constrain the fill to a ring, so the
+    // CGContextFillPath below floods the element's whole shape SOLID — turning any focused control,
+    // link, or text field into an opaque black box. (Same mechanism guarded in ControlMac for the
+    // theme focus ring; this is WebCore's own focus-ring path, used when the theme reports it doesn't
+    // draw the ring — e.g. text fields.) On < 10.10 draw a plain stroked ring in the focus color.
+    if (NSAppKitVersionNumber < 1343 /* NSAppKitVersionNumber10_10 */) {
+        CGContextRef ctx = platformContext();
+        CGContextStateSaver legacySaver(ctx);
+        CGContextSetStrokeColorWithColor(ctx, cachedCGColor(color).get());
+        CGContextSetLineWidth(ctx, width > 0 ? width : 2);
+        CGContextBeginPath(ctx);
+        CGContextAddPath(ctx, path.platformPath());
+        CGContextStrokePath(ctx);
+        return;
+    }
+#endif
 
     CGFocusRingStyle focusRingStyle;
 #if USE(APPKIT)
