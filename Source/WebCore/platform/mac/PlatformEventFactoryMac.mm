@@ -682,7 +682,22 @@ OptionSet<PlatformEvent::Modifier> modifiersForModifierFlags(NSEventModifierFlag
 
 static int typeForEvent(NSEvent *event)
 {
-    return static_cast<int>([NSMenu menuTypeForEvent:event]);
+    // 10.9 backport: +[NSMenu menuTypeForEvent:] was added in 10.10. On 10.9 it throws
+    // unrecognized selector. This WebCore path is used by WebKit1 (WebHTMLView), which runs
+    // in-process in Safari — the unguarded call threw NSInvalidArgumentException mid-click,
+    // aborting event dispatch and leaving legacy-extension popovers (uBlock) and the
+    // Preferences > Extensions pane completely unclickable. Guard exactly as the WK2 path in
+    // WebEventFactory.mm does: fall back to inspecting the event (right-click / control-click →
+    // context menu, otherwise none).
+    static BOOL menuRespondsToTypeForEvent = [NSMenu respondsToSelector:@selector(menuTypeForEvent:)];
+    if (menuRespondsToTypeForEvent)
+        return static_cast<int>([NSMenu menuTypeForEvent:event]);
+    if ([event type] == NSEventTypeRightMouseDown || [event type] == NSEventTypeRightMouseUp)
+        return 1; // NSMenuTypeContextMenu
+    if (([event type] == NSEventTypeLeftMouseDown || [event type] == NSEventTypeLeftMouseUp)
+        && ([event modifierFlags] & NSEventModifierFlagControl))
+        return 1; // Control-click also opens context menu
+    return 0; // NSMenuTypeNone
 }
 
 void getWheelEventDeltas(NSEvent *event, float& deltaX, float& deltaY, BOOL& continuous)
