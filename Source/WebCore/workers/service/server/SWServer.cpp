@@ -1036,10 +1036,22 @@ void SWServer::installContextData(const ServiceWorkerContextData& data)
     }
 
     RefPtr registration = m_scopeToRegistrationMap.get(data.registration.key);
+    // 10.9: the context data here was deferred in m_pendingContextDatas until a context connection
+    // existed (see contextConnectionCreated()). During fast navigation across Service-Worker sites the
+    // registration can be unregistered/removed from m_scopeToRegistrationMap before this deferred install
+    // runs, leaving the lookup null. Dereferencing it (*registration) was an unguarded null deref that
+    // SIGSEGV'd the NetworkProcess (the debug-only ASSERTs below don't fire in release). Nothing to install
+    // for a registration that's already gone, so bail.
+    if (!registration)
+        return;
     Ref worker = SWServerWorker::create(*this, *registration, data.scriptURL, data.script, data.certificateInfo, data.contentSecurityPolicy, data.crossOriginEmbedderPolicy, String { data.referrerPolicy }, data.workerType, data.serviceWorkerIdentifier, MemoryCompactRobinHoodHashMap<URL, ServiceWorkerContextData::ImportedScript> { data.scriptResourceMap });
 
     RefPtr connection = worker->contextConnection();
-    ASSERT(connection);
+    // 10.9: likewise guard the context connection (was a debug-only ASSERT). If the context process for
+    // this worker's domain was torn down in the same race, bail before mutating any worker state rather
+    // than calling installServiceWorkerContext() through a null connection.
+    if (!connection)
+        return;
 
     registration->setPreInstallationWorker(worker.ptr());
     worker->setState(SWServerWorker::State::Running);
@@ -1929,8 +1941,22 @@ void SWServer::setInspectable(ServiceWorkerIsInspectable inspectable)
 
     m_isInspectable = inspectable;
 
-    for (auto& connection : m_contextConnections.values())
-        Ref { connection.get() }->setInspectable(inspectable);
+    // 10.9: m_contextConnections stores WeakRefs. A context connection destroyed via an abnormal
+    // teardown (without stop()) leaves a DANGLING WeakRef in the map — ~WebSWServerToContextConnection
+    // doesn't remove it (removal lives in stop()), and removeContextConnection() has side effects
+    // (re-creating connections / terminating workers) that make dtor-time removal unsafe. Iterating
+    // .values() and calling WeakRef::get()->setInspectable() on a dead ref SIGTRAP'd the NetworkProcess
+    // when the Web Inspector enabled service-worker inspection. Collect the LIVE connections via the
+    // null-safe HashMap::get(domain) accessor (the same one contextConnectionForRegistrableDomain()
+    // relies on — it returns null for a dead weak ref) so dead entries are skipped.
+    Vector<Ref<SWServerToContextConnection>> liveConnections;
+    liveConnections.reserveInitialCapacity(m_contextConnections.size());
+    for (auto& domain : m_contextConnections.keys()) {
+        if (RefPtr connection = m_contextConnections.get(domain))
+            liveConnections.append(connection.releaseNonNull());
+    }
+    for (auto& connection : liveConnections)
+        connection->setInspectable(inspectable);
 }
 
 SWServerRegistration* SWServer::getRegistration(ServiceWorkerRegistrationIdentifier identifier)

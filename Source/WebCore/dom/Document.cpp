@@ -9775,13 +9775,12 @@ bool Document::haveStylesheetsLoaded() const
     // loading even if styleScope thinks sheets are pending.
     if (m_ignorePendingStylesheets || !styleScope().hasPendingSheets())
         return true;
-    // 10.9 backport: WeakHashSet entries for pending stylesheets are
-    // not reliably evicted on this build. github reliably leaves head=N>0
-    // even after all 16 declared CSS resources finish loading. The parser
-    // gets stuck on the head's blocking script forever. Return true and
-    // accept potential FOUC — pages must render even if some sheets are
-    // late.
-    return true;
+    // Sheets are genuinely still pending — block as upstream does. (The earlier
+    // 10.9 backport returned true here to dodge "pending sheets never drain on
+    // github", but that was a symptom of the NetworkProcess NSURLSession KVO
+    // swizzle orphaning stylesheet loads so they never completed/were removed
+    // from the pending set. That swizzle is removed; sheets now drain correctly.)
+    return false;
 }
 
 Locale& Document::getCachedLocale(const AtomString& locale)
