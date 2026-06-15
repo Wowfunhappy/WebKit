@@ -1461,6 +1461,33 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
                 return;
             }
 
+            // 10.9 backport: Safari 7's deprecated V0/V1 decidePolicyForNavigationAction callback
+            // mis-fires Ignore for app-registered custom-protocol schemes it does not recognize as
+            // normal browser navigations — notably safari-reader:// (Reader mode loads its content
+            // from this scheme), plus safari-resource:// and safari-extension://. These schemes are
+            // always served by the app through LegacyCustomProtocolManager and must load, so bypass
+            // the mis-firing legacy callback and use() directly. (Mirrors the canShowMIMEType bypass
+            // in decidePolicyForResponse below.)
+            if ((m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0 || m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1)
+                && !m_client.decidePolicyForNavigationAction
+                && WebProcessPool::urlSchemesWithCustomProtocolHandlers().contains(resourceRequest.url().protocol().toString())) {
+                listener->use();
+                return;
+            }
+
+            // 10.9 backport: Safari 7's legacy V0 nav-action policy client for the Top Sites snapshot
+            // fetcher's offscreen pages blanket-ignore()s every navigation — in the original WebKit the
+            // app's own programmatic WKPageLoadURL did NOT pass through the client's nav-action policy;
+            // the ignore() was only meant to lock the page against content-initiated navigations after
+            // it loaded. Modern WebKit routes the initial API load through the client too, so ignore()
+            // blocks the snapshot page from ever loading and Top Sites thumbnails stay blank. For these
+            // offscreen render pages (identified by the page client), bypass the legacy client and use()
+            // so the page loads, renders, and can be snapshotted.
+            if (RefPtr pageClient = page.pageClient(); pageClient && pageClient->isOffscreenRenderClient()) {
+                listener->use();
+                return;
+            }
+
             Ref<API::URLRequest> originalRequest = API::URLRequest::create(originalResourceRequest);
             Ref<API::URLRequest> request = API::URLRequest::create(resourceRequest);
 

@@ -29,3 +29,29 @@
 #import <WebKit/WKUserScriptInjectionTime.h>
 
 // FIXME: Remove this header once rdar://112426343 is resolved.
+
+// 10.9 backport: the WKBrowsingContextGroup class interface was gutted upstream
+// (only the header shell remains). Restore the minimal surface that Apple's
+// QuickLook Web2.qldisplay uses so the HTML preview display bundle can link and
+// instantiate it. Without the class, dlopen of Web2 fails on the missing
+// _OBJC_CLASS_$_WKBrowsingContextGroup symbol.
+
+#if !TARGET_OS_IPHONE
+
+// visibility("default") so _OBJC_CLASS_$_WKBrowsingContextGroup is exported from
+// WebKit2 (the build defaults to hidden visibility).
+__attribute__((visibility("default")))
+@interface WKBrowsingContextGroup : NSObject
+
+- (instancetype)initWithIdentifier:(NSString *)identifier;
+
+// Web2.qldisplay toggles JavaScript on the preview's page group. The getter it
+// sends is -allowsJavascript and the setter -setAllowsJavaScript:; we expose
+// both spellings to match whichever the bundle was compiled against.
+@property (nonatomic) BOOL allowsJavaScript;
+- (BOOL)allowsJavascript;
+- (void)setAllowsJavascript:(BOOL)allowsJavascript;
+
+@end
+
+#endif // !TARGET_OS_IPHONE
