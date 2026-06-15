@@ -11,9 +11,14 @@ set(WebKitLegacy_SOURCES
     Storage/WebDatabaseProvider.cpp
     Storage/WebStorageNamespaceProvider.cpp
 
+    WebCoreSupport/LegacySocketProvider.cpp
     WebCoreSupport/NetworkStorageSessionMap.cpp
+    WebCoreSupport/SocketStreamHandle.cpp
+    WebCoreSupport/SocketStreamHandleImpl.cpp
+    WebCoreSupport/SocketStreamHandleImplCFNet.cpp
     WebCoreSupport/WebBroadcastChannelRegistry.cpp
     WebCoreSupport/WebResourceLoadScheduler.cpp
+    WebCoreSupport/WebSocketChannel.cpp
     WebCoreSupport/WebViewGroup.cpp
 )
 

@@ -2466,7 +2466,28 @@ if (USE_LIBWEBRTC)
         "${WEBCORE_DIR}/platform/libwebrtc"
         "${WEBCORE_DIR}/platform/mediastream/libwebrtc"
     )
-    list(APPEND WebCore_LIBRARIES webrtc)
+    # 10.9 backport: the libwebrtc WebKit ObjC SDK is full of category-only
+    # translation units (RTCVideoCodecInfo+Private, NSString+StdString, etc.) whose
+    # methods are invoked dynamically by the C++ codec factories. A plain archive link
+    # drops those .o files (no external symbol references them), so the selectors are
+    # missing at runtime and `new RTCPeerConnection` crashes with doesNotRecognizeSelector.
+    #
+    # -force_load pulls every member of libwebrtc.a, including the category-only ObjC
+    # TUs. (-ObjC would do the same for just the ObjC members, but it is a GLOBAL flag
+    # and would also force-load ObjC++ members of the other archives on WebCore's link
+    # line — e.g. libANGLE.a's WindowSurfaceCGL.mm.o — producing hundreds of duplicate
+    # symbols. -force_load is per-archive, so it is the correct tool here.)
+    #
+    # libwebrtc.a's vendored source list includes test/fake C++ TUs and an incomplete
+    # abseil; those have been cleaned up above so force_load resolves cleanly. PRIVATE so
+    # the flag stays on WebCore's own link (WebKitLegacy/WebKit link WebCore, not the .a).
+    #
+    # opus is built as a separate static archive (libopus.a) — unlike vpx/libsrtp it is not
+    # merged into libwebrtc.a via $<TARGET_OBJECTS>. The force-loaded webrtc audio code
+    # references opus_* , so libopus.a must also be on WebCore's link line (listed after
+    # libwebrtc.a so its members resolve those references). No force_load needed — opus has
+    # no ObjC categories, so a normal archive link pulls exactly the referenced members.
+    list(APPEND WebCore_PRIVATE_LIBRARIES "-Wl,-force_load,$<TARGET_FILE:webrtc>" opus)
     list(APPEND WebCore_UNIFIED_SOURCE_LIST_FILES
         "platform/SourcesLibWebRTC.txt"
     )

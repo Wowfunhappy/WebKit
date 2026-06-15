@@ -175,6 +175,14 @@ add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-fno-modules> $<$<NOT:
 # ASM_NASM compiler is a thin wrapper that expands @file before exec'ing yasm. These two `set()`s
 # run after project()/enable_language so they override the rule values at generation WITHOUT
 # re-triggering compiler detection (which would reset CMAKE_C_COMPILER etc.).
+# CRITICAL: `ar qc` is *quick-append* (q) — it APPENDS objects to an existing archive rather than
+# recreating it, so each rebuild re-adds every member (observed 4176 members vs 2053 unique). A
+# force_load consumer (WebCore) then hits "duplicate symbol" link errors. Ninja never caught this for
+# WebCore because the force_load is a raw -Wl flag it doesn't track as a dependency edge. Fix: delete
+# <TARGET> before archiving so `qc` always writes a fresh archive. (CREATE_STATIC_LIBRARY runs as a
+# list of command lines; the <OBJECTS>/@response-file substitution only applies to the llvm-ar line.)
 foreach(_lang C CXX OBJC OBJCXX)
-    set(CMAKE_${_lang}_CREATE_STATIC_LIBRARY "${MAVERICKS_TC}/bin/llvm-ar qc <TARGET> <OBJECTS>")
+    set(CMAKE_${_lang}_CREATE_STATIC_LIBRARY
+        "${CMAKE_COMMAND} -E rm -f <TARGET>"
+        "${MAVERICKS_TC}/bin/llvm-ar qc <TARGET> <OBJECTS>")
 endforeach()

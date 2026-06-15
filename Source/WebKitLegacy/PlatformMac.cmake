@@ -92,6 +92,7 @@ list(APPEND WebKitLegacy_SOURCES
     mac/WebCoreSupport/WebAlternativeTextClient.mm
     mac/WebCoreSupport/WebChromeClient.mm
     mac/WebCoreSupport/WebContextMenuClient.mm
+    WebCoreSupport/WebCryptoClient.mm
     mac/WebCoreSupport/WebDragClient.mm
     mac/WebCoreSupport/WebEditorClient.mm
     mac/WebCoreSupport/WebFrameNetworkingContext.mm
@@ -629,3 +630,14 @@ list(APPEND WebKitLegacy_SOURCES
 set(WebKitLegacy_OUTPUT_NAME WebKitLegacy)
 
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION} -framework SecurityInterface")
+
+# 10.9 backport: macOS's bundled WebKit-ObjC plug-ins — notably Safari Web Clips'
+# WebClip.plugin — were linked against a 10.9 WebKit.framework that was an umbrella
+# re-exporting WebCore, so they import e.g. _OBJC_CLASS_$_WebUndefined two-level-bound
+# "from WebKit". WebUndefined (the JS `undefined` in the WebKit-ObjC bridge) lives in
+# WebCore here and was the only such symbol our WebKit.framework didn't already vend, so
+# the plug-in failed to load ("Symbol not found: _OBJC_CLASS_$_WebUndefined"). Re-export
+# WebCore through WebKit.framework (as 10.9 did) so those plug-ins resolve their imports.
+# (ld64.lld doesn't implement -reexported_symbols_list, but does implement whole-library
+# -reexport_library.)
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-reexport_library,${CMAKE_BINARY_DIR}/lib/WebCore.framework/Versions/A/WebCore")

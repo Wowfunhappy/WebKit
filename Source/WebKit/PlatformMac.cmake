@@ -850,7 +850,13 @@ set(WebKit_OUTPUT_NAME WebKit)
 # XPC Services
 
 function(WEBKIT_DEFINE_XPC_SERVICES)
-    set(RUNLOOP_TYPE _WebKit)
+    # 10.9 backport: the modern "_WebKit" RunLoopType is unknown to 10.9's libxpc, which then falls
+    # back to dispatch_main() — that parks the main thread, so the main GCD queue is drained by a
+    # worker whose idle->active wakeup latency is ~166ms (~6Hz), throttling timers/rAF/page loads.
+    # "NSRunLoop" makes xpc_main run a real run loop on the main thread, which drains the main queue
+    # with immediate (dispatch-port) wakeups — fixing the throttle at its source instead of papering
+    # over it with a display-link heartbeat.
+    set(RUNLOOP_TYPE NSRunLoop)
     set(WebKit_XPC_SERVICE_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/Versions/A/XPCServices)
     WEBKIT_CREATE_SYMLINK(WebProcess ${WebKit_XPC_SERVICE_DIR} ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/XPCServices)
 

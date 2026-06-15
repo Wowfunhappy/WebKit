@@ -362,8 +362,11 @@ UIProcess/API/Cocoa/NSAttributedString.mm @nonARC
 UIProcess/API/Cocoa/WKBackForwardList.mm @nonARC
 UIProcess/API/Cocoa/WKBackForwardListItem.mm @nonARC
 UIProcess/API/Cocoa/WKBrowsingContextController.mm @nonARC
-// UIProcess/API/Cocoa/WKBrowsingContextGroup.mm @nonARC -- removed upstream (5065b21); .mm absent. Safari 7 imports WKBrowsingContextController (kept) but not the Group class. See task "Restore WKBrowsingContext* WK2 ObjC SPI for Safari 7".
-// UIProcess/API/Cocoa/WKProcessGroup.mm @nonARC -- removed upstream; .mm absent; not imported by Safari 7.
+// 10.9 backport: WKBrowsingContextGroup.mm and WKProcessGroup.mm were removed upstream (5065b21) but the
+// legacy ObjC classes are needed by Apple's QuickLook HTML preview bundle (Web2.qldisplay). Reinstated
+// here as minimal wrappers over the still-present C SPI. See webkit-mavericks-quicklook memory.
+UIProcess/API/Cocoa/WKBrowsingContextGroup.mm @nonARC
+UIProcess/API/Cocoa/WKProcessGroup.mm @nonARC
 UIProcess/API/Cocoa/WKContentRuleList.mm @nonARC
 UIProcess/API/Cocoa/WKContentRuleListStore.mm @nonARC
 UIProcess/API/Cocoa/WKContentWorld.mm @nonARC
