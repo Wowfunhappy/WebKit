@@ -1397,7 +1397,6 @@ void Connection::enqueueIncomingMessage(UniqueRef<Decoder> incomingMessage)
     // depending on where we are in a process's lifecycle. Both call dispatchOne,
     // which drains the whole queue in a loop, so a duplicate fire is harmless.
     dispatch_async(dispatch_get_main_queue(), ^{
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[main_queue block PID %d] running, throttle=%d\n", getpid(), throttle); fclose(_d);}}
         if (throttle)
             protectedThis->dispatchIncomingMessages();
         else
@@ -1405,7 +1404,6 @@ void Connection::enqueueIncomingMessage(UniqueRef<Decoder> incomingMessage)
     });
     if (CFRunLoopRef mainRL = CFRunLoopGetMain()) {
         void (^cfBlock)(void) = ^{
-            {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[CFMainBlock PID %d] running, throttle=%d\n", getpid(), throttle); fclose(_d);}}
             if (throttle)
                 protectedThis->dispatchIncomingMessages();
             else
@@ -1569,7 +1567,6 @@ Ref<SerialFunctionDispatcher> Connection::dispatcher()
 
 void Connection::dispatchOneIncomingMessage()
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[dispatchOneIncomingMessage PID %d] entered queueSize=%zu\n", getpid(), m_incomingMessages.size()); fclose(_d);}}
     // 10.9 backport: dispatch_async to main_queue's CFRunLoop integration coalesces
     // wake-ups, so the main thread is often called back fewer times than we dispatch.
     // Drain the whole queue here instead of one message per fire so messages don't

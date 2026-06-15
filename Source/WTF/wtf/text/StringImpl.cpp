@@ -1661,9 +1661,11 @@ NEVER_INLINE unsigned StringImpl::hashSlowCase() const
         uintptr_t addr = reinterpret_cast<uintptr_t>(data);
         bool bogus = !data || addr < 0x100000 || (addr >> 47) || m_length > 0x10000000u;
         if (bogus) {
-            FILE* _f = ((FILE*)0);
+            // 10.9 backport instrumentation (#44): record bogus-StringImpl trips to
+            // the shared log so we can tell whether this guard is still needed.
+            FILE* _f = ::fopen("/tmp/wk_wordlock_trips.log", "a");
             if (_f) {
-                fprintf(_f, "[hashSlow PID %d] BOGUS this=%p data=%p len=%u flags8=%d\n",
+                fprintf(_f, "STRINGIMPL-BOGUS pid=%d this=%p data=%p len=%u flags8=%d\n",
                     getpid(), static_cast<const void*>(this), data,
                     (unsigned)m_length, (int)is8Bit());
                 fclose(_f);
