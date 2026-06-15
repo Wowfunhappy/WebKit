@@ -2190,6 +2190,28 @@ void WebViewImpl::windowDidBecomeKey(NSWindow *keyWindow)
 #endif
         updateSecureInputState();
         m_page->activityStateDidChange(WebCore::ActivityState::WindowIsActive);
+
+        // 10.9 backport: re-establish the hover state and cursor under the pointer when the window
+        // regains key focus. The cursor shape and CSS :hover only update when WebContent receives a
+        // mouseMoved to hit-test under the pointer, and on this port those are delivered by an
+        // app-wide NSEvent monitor (see WKView installEventMonitorOnce) that fires only on real
+        // pointer motion. So after the window is de-focused and re-focused — which happens constantly
+        // here because crash-looping background daemons keep stealing focus — the cursor and :hover
+        // stay stale until the user next moves the mouse. Stock WKWebView avoids this via an
+        // NSTrackingArea whose cursorUpdate re-fires on key changes; emulate it by synthesizing a
+        // mouseMoved at the current pointer location when it is over the view.
+        if (NSView *view = m_view.getAutoreleased()) {
+            if (NSWindow *win = window()) {
+                NSPoint screenLocation = [NSEvent mouseLocation];
+                NSPoint windowLocation = [win convertRectFromScreen:NSMakeRect(screenLocation.x, screenLocation.y, 0, 0)].origin;
+                NSPoint viewLocation = [view convertPoint:windowLocation fromView:nil];
+                if ([view mouse:viewLocation inRect:[view bounds]]) {
+                    NSEvent *synthetic = [NSEvent mouseEventWithType:NSEventTypeMouseMoved location:windowLocation modifierFlags:[NSEvent modifierFlags] timestamp:[[NSProcessInfo processInfo] systemUptime] windowNumber:[win windowNumber] context:nil eventNumber:0 clickCount:0 pressure:0];
+                    if (synthetic)
+                        mouseMoved(synthetic);
+                }
+            }
+        }
     }
 }
 

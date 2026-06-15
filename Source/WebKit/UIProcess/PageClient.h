@@ -628,6 +628,12 @@ public:
 #endif
     virtual bool isTextRecognitionInFullscreenVideoEnabled() const { return false; }
 
+    // 10.9 backport: true for an offscreen render view (Safari's Top Sites snapshot fetcher
+    // allocs a windowless WKView purely to load+snapshot a site). Used to bypass Safari 7's
+    // legacy V0 nav-action policy client, which blanket-ignore()s every navigation to lock the
+    // page on its URL — a contract modern WebKit otherwise breaks for the initial API load.
+    virtual bool isOffscreenRenderClient() const { return false; }
+
 #if PLATFORM(COCOA)
     virtual void positionInformationDidChange(const InteractionInformationAtPosition&) = 0;
 #endif

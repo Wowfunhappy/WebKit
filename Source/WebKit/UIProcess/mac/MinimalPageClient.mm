@@ -23,8 +23,14 @@
 #import "PageClientImplCocoa.h"
 #import "RemoteLayerTreeNode.h"
 #import "TiledCoreAnimationDrawingAreaProxy.h"
+#import "ViewSnapshotStore.h"
+#import "WebContextMenuProxyMac.h"
 #import "WebPageProxy.h"
+#import "WebPopupMenuProxyMac.h"
 #import "WebProcessProxy.h"
+#import <WebCore/CGWindowUtilities.h>
+#import <WebCore/Cursor.h>
+#import <WebCore/IOSurface.h>
 #if ENABLE(FULLSCREEN_API)
 #import "WebFullScreenManagerProxy.h"
 #endif
@@ -35,6 +41,7 @@
 #import <WebCore/IntRect.h>
 #import <WebCore/IntSize.h>
 #import <WebCore/Region.h>
+#import <WebCore/ValidationBubble.h>
 #import <WebCore/WebCoreCALayerExtras.h>
 #import <QuartzCore/QuartzCore.h>
 #import <wtf/RetainPtr.h>
@@ -70,6 +77,13 @@ public:
     }
 
     void setPage(WebPageProxy* page) { m_page = page; }
+    // 10.9 backport: when true, a view with no NSWindow still reports itself
+    // visible/in-window/active. Set for offscreen render views (Safari's Top Sites
+    // snapshot fetcher allocs a WKView at the snapshot size and never adds it to a
+    // window) so their WebContent takes a foreground assertion and actually loads,
+    // lays out, and paints — otherwise the page is treated as a hidden background
+    // tab and never renders, so no snapshot is ever produced. See WKView.mm.
+    void setForceVisibleWhenWindowless(bool f) { m_forceVisibleWhenWindowless = f; }
 
 private:
     Ref<DrawingAreaProxy> createDrawingAreaProxy(WebProcessProxy&) final;
@@ -84,6 +98,7 @@ private:
     bool canTakeForegroundAssertions() final;
 #endif
     bool isViewInWindow() final;
+    bool isOffscreenRenderClient() const final { return m_forceVisibleWhenWindowless; }
     bool isMainViewVisible() final;
     bool isViewVisibleOrOccluded() final;
     bool isVisuallyIdle() final;
@@ -512,6 +527,7 @@ private:
 
     NSView *m_view { nullptr };
     WebPageProxy *m_page { nullptr };
+    bool m_forceVisibleWhenWindowless { false };
     RetainPtr<CALayer> m_rootLayer;
 #if ENABLE(FULLSCREEN_API)
     MinimalFullScreenManagerProxyClient m_fullScreenClient;
@@ -533,18 +549,24 @@ WebCore::IntSize MinimalPageClient::viewSize()
 bool MinimalPageClient::isViewWindowActive()
 {
     NSWindow *window = [m_view window];
-    return window && ([window isKeyWindow] || [window isMainWindow]);
+    if (window)
+        return [window isKeyWindow] || [window isMainWindow];
+    return m_forceVisibleWhenWindowless;
 }
 
 bool MinimalPageClient::isViewFocused()
 {
     NSWindow *window = [m_view window];
-    return window && [window firstResponder] == m_view;
+    if (window)
+        return [window firstResponder] == m_view;
+    return m_forceVisibleWhenWindowless;
 }
 
 bool MinimalPageClient::isActiveViewVisible()
 {
-    return m_view && ![m_view isHiddenOrHasHiddenAncestor] && [m_view window];
+    if (!m_view || [m_view isHiddenOrHasHiddenAncestor])
+        return false;
+    return [m_view window] || m_forceVisibleWhenWindowless;
 }
 
 bool MinimalPageClient::isMainViewVisible()
@@ -559,7 +581,7 @@ bool MinimalPageClient::isViewVisibleOrOccluded()
 
 bool MinimalPageClient::isViewInWindow()
 {
-    return m_view && [m_view window];
+    return m_view && ([m_view window] || m_forceVisibleWhenWindowless);
 }
 
 bool MinimalPageClient::isVisuallyIdle()
@@ -696,11 +718,36 @@ WebCore::FloatPoint MinimalPageClient::viewScrollPosition()
 void MinimalPageClient::processDidExit()
 { }
 void MinimalPageClient::didRelaunchProcess()
-{ }
+{
+    // 10.9 backport: hasRunningProcess() returns false after Safari closes the XPC
+    // bootstrap, so WebPageProxy::loadRequest() relaunches the process on essentially
+    // every load. launchProcess() -> finishAttachingToWebProcess() -> initializeWebPage()
+    // installs a FRESH drawing area sized 0x0. Visible WKViews recover because Safari
+    // later sends -setFrameSize: (which sizes the drawing area), but a windowless
+    // offscreen render view (Top Sites snapshot fetcher) never gets that call, so its
+    // page would stay 0x0 and never lay out or paint. Re-apply the view's own size to
+    // the new drawing area here so the page renders across relaunches regardless of the
+    // external resize lifecycle.
+    if (!m_page || !m_view)
+        return;
+    if (RefPtr drawingArea = m_page->drawingArea()) {
+        WebCore::IntSize size([m_view bounds].size);
+        if (!size.isEmpty())
+            drawingArea->setSize(size);
+    }
+}
 void MinimalPageClient::preferencesDidChange()
 { }
 void MinimalPageClient::toolTipChanged(const String&, const String&)
-{ }
+{
+    // 10.9 backport: tooltips (the `title` attribute) are NOT wired up. The obvious
+    // [m_view setToolTip:] approach does not display: WKView routes mouse events
+    // through a global NSEvent monitor that consumes mouseMoved (kept that way so
+    // AppKit can't reset the WebKit-set cursor — see the #17 cursor fix), so AppKit's
+    // NSToolTipManager never tracks the pointer. Wiring tooltips would need a
+    // WebKit-owned tooltip window (NSToolTipManager won't engage here). Left as a
+    // no-op deliberately; it's a marginal feature and not worth risking the cursor.
+}
 #if PLATFORM(IOS_FAMILY)
 void MinimalPageClient::decidePolicyForGeolocationPermissionRequest(WebFrameProxy&, const FrameInfoData&, Function<void(bool)>&)
 { }
@@ -751,10 +798,39 @@ void MinimalPageClient::startDrag(WebCore::SelectionData&&, OptionSet<WebCore::D
 { }
 #endif
 #endif
-void MinimalPageClient::setCursor(const WebCore::Cursor&)
-{ }
-void MinimalPageClient::setCursorHiddenUntilMouseMoves(bool)
-{ }
+void MinimalPageClient::setCursor(const WebCore::Cursor& cursor)
+{
+    // 10.9 backport: WebCore asks the page client to change the cursor (hand over links, I-beam over
+    // text, etc.). The previous empty stub meant the cursor never updated under WKView. Mirror
+    // PageClientImpl (minus the WebViewImpl-only image-analysis overlay check).
+    if (!isViewWindowActive())
+        return;
+    if (!m_view)
+        return;
+    NSWindow *window = [m_view window];
+    if (!window)
+        return;
+
+    // Don't fight AppKit if the pointer is actually over a different window.
+    NSPoint mouseLocationInScreen = [NSEvent mouseLocation];
+    if (window.windowNumber != [NSWindow windowNumberAtPoint:mouseLocationInScreen belowWindowWithWindowNumber:0])
+        return;
+
+    RetainPtr<NSCursor> platformCursor = cursor.platformCursor();
+    if ([NSCursor currentCursor] == platformCursor.get())
+        return;
+
+    [platformCursor.get() set];
+
+    if (cursor.type() == WebCore::Cursor::Type::None) {
+        if ([NSCursor respondsToSelector:@selector(hideUntilChanged)])
+            [NSCursor hideUntilChanged];
+    }
+}
+void MinimalPageClient::setCursorHiddenUntilMouseMoves(bool hiddenUntilMouseMoves)
+{
+    [NSCursor setHiddenUntilMouseMoves:hiddenUntilMouseMoves];
+}
 void MinimalPageClient::registerEditCommand(Ref<WebEditCommandProxy>&&, UndoOrRedo)
 { }
 void MinimalPageClient::clearAllEditCommands()
@@ -808,12 +884,56 @@ void MinimalPageClient::selectionDidChange()
 { }
 #endif
 #if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+// Capture the on-screen window content cropped to the WKView and wrap it in a ViewSnapshot.
+// ViewSnapshotStore feeds both back/forward swipe snapshots and Safari's Top Sites thumbnails,
+// so the previous {} stub left every Top Sites tile blank. Ported from WebViewImpl::takeViewSnapshot
+// (MinimalPageClient has no WebViewImpl); uses CGWindowListCreateImage + AppKit coordinates instead
+// of the private CGS hardware-capture path.
+static RefPtr<ViewSnapshot> captureMinimalViewSnapshot(NSView *view)
+{
+    if (!view)
+        return nullptr;
+    NSWindow *window = [view window];
+    CGWindowID windowID = (CGWindowID)window.windowNumber;
+    if (!windowID || !window.isVisible)
+        return nullptr;
+
+    CGWindowImageOption imageOptions = kCGWindowImageBoundsIgnoreFraming | kCGWindowImageShouldBeOpaque;
+    RetainPtr<CGImageRef> windowSnapshotImage = WebCore::cgWindowListCreateImage(CGRectNull, kCGWindowListOptionIncludingWindow, windowID, imageOptions);
+    if (!windowSnapshotImage)
+        return nullptr;
+
+    CGFloat scale = window.backingScaleFactor ?: 1;
+    NSRect viewRectInScreen = [window convertRectToScreen:[view convertRect:[view bounds] toView:nil]];
+    NSRect windowFrame = [window frame];
+
+    // The captured image is top-left origin in backing pixels; map the (bottom-left origin,
+    // points) view rect into it relative to the window frame.
+    CGRect cropRectPx;
+    cropRectPx.origin.x = (NSMinX(viewRectInScreen) - NSMinX(windowFrame)) * scale;
+    cropRectPx.origin.y = (NSMaxY(windowFrame) - NSMaxY(viewRectInScreen)) * scale;
+    cropRectPx.size.width = NSWidth(viewRectInScreen) * scale;
+    cropRectPx.size.height = NSHeight(viewRectInScreen) * scale;
+    if (cropRectPx.size.width < 1 || cropRectPx.size.height < 1)
+        return nullptr;
+
+    RetainPtr<CGImageRef> croppedSnapshotImage = adoptCF(CGImageCreateWithImageInRect(windowSnapshotImage.get(), cropRectPx));
+    if (!croppedSnapshotImage)
+        return nullptr;
+
+    auto surface = WebCore::IOSurface::createFromImage(nullptr, croppedSnapshotImage.get());
+    if (!surface)
+        return nullptr;
+
+    return ViewSnapshot::create(WTF::move(surface));
+}
+
 RefPtr<ViewSnapshot> MinimalPageClient::takeViewSnapshot(std::optional<WebCore::IntRect>&&)
-{ return { }; }
+{ return captureMinimalViewSnapshot(m_view); }
 #endif
 #if PLATFORM(MAC)
 RefPtr<ViewSnapshot> MinimalPageClient::takeViewSnapshot(std::optional<WebCore::IntRect>&&, ForceSoftwareCapturingViewportSnapshot)
-{ return { }; }
+{ return captureMinimalViewSnapshot(m_view); }
 #endif
 #if USE(APPKIT)
 void MinimalPageClient::setPromisedDataForImage(const String& pasteboardName, Ref<WebCore::FragmentedSharedBuffer>&& imageBuffer, const String& filename, const String& extension, const String& title, const String& url, const String& visibleURL, RefPtr<WebCore::FragmentedSharedBuffer>&& archiveBuffer, const String& originIdentifier)
@@ -857,11 +977,20 @@ void MinimalPageClient::doneDeferringTouchMove(bool preventNativeGestures)
 void MinimalPageClient::doneDeferringTouchEnd(bool preventNativeGestures)
 { }
 #endif
-RefPtr<WebPopupMenuProxy> MinimalPageClient::createPopupMenuProxy(WebPageProxy&)
-{ return { }; }
+RefPtr<WebPopupMenuProxy> MinimalPageClient::createPopupMenuProxy(WebPageProxy& page)
+{
+    // Back the WKView path's <select> dropdowns with the standard AppKit popup proxy
+    // (PageClientImpl does the same); the previous {} stub left native popups blank.
+    return WebPopupMenuProxyMac::create(m_view, protect(page.popupMenuClient()));
+}
 #if ENABLE(CONTEXT_MENUS)
-Ref<WebContextMenuProxy> MinimalPageClient::createContextMenuProxy(WebPageProxy&, FrameInfoData&&, ContextMenuContextData&&, const UserData&)
-{ RELEASE_ASSERT_NOT_REACHED(); }
+Ref<WebContextMenuProxy> MinimalPageClient::createContextMenuProxy(WebPageProxy& page, FrameInfoData&& frameInfo, ContextMenuContextData&& context, const UserData& userData)
+{
+    // Back right-click / control-click menus with the standard AppKit context-menu proxy.
+    // The previous RELEASE_ASSERT_NOT_REACHED() stub trapped (SIGILL) the UIProcess on
+    // every context-menu request, since WKView's page client is MinimalPageClient.
+    return WebContextMenuProxyMac::create(m_view, page, WTF::move(frameInfo), WTF::move(context), userData);
+}
 #endif
 RefPtr<WebColorPicker> MinimalPageClient::createColorPicker(WebPageProxy&, const WebCore::Color& initialColor, const WebCore::IntRect&, ColorControlSupportsAlpha, Vector<WebCore::Color>&&, std::optional<WebCore::FrameIdentifier>)
 { return { }; }
@@ -870,8 +999,12 @@ RefPtr<WebDataListSuggestionsDropdown> MinimalPageClient::createDataListSuggesti
 RefPtr<WebDateTimePicker> MinimalPageClient::createDateTimePicker(WebPageProxy&)
 { return { }; }
 #if PLATFORM(COCOA) || PLATFORM(GTK)
-Ref<WebCore::ValidationBubble> MinimalPageClient::createValidationBubble(String&& message, const WebCore::ValidationBubble::Settings&)
-{ RELEASE_ASSERT_NOT_REACHED(); }
+Ref<WebCore::ValidationBubble> MinimalPageClient::createValidationBubble(String&& message, const WebCore::ValidationBubble::Settings& settings)
+{
+    // HTML form-validation bubbles (e.g. a required field left empty on submit) reach here.
+    // The previous RELEASE_ASSERT_NOT_REACHED() stub would have trapped the UIProcess.
+    return WebCore::ValidationBubble::create(m_view, WTF::move(message), settings);
+}
 #endif
 #if PLATFORM(COCOA)
 CALayer *MinimalPageClient::textIndicatorInstallationLayer()
@@ -1252,6 +1385,11 @@ std::unique_ptr<PageClient> createMinimalPageClient(NSView *view)
 void setMinimalPageClientPage(PageClient& client, WebPageProxy* page)
 {
     static_cast<MinimalPageClient&>(client).setPage(page);
+}
+
+void setMinimalPageClientForceVisibleWhenWindowless(PageClient& client, bool force)
+{
+    static_cast<MinimalPageClient&>(client).setForceVisibleWhenWindowless(force);
 }
 
 } // namespace WebKit

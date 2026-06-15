@@ -1,4 +1,5 @@
 // WKView implementation for macOS 10.9 backport
+#import <objc/runtime.h>
 // Creates a WebPageProxy when Safari's BrowserWKView initializes
 
 #import "config.h"
@@ -16,6 +17,11 @@
 #import "WebProcessPool.h"
 #import "WebKit2Initialize.h"
 #import "DrawingAreaProxy.h"
+// 10.9 backport: legacy ObjC group/controller classes that QuickLook's
+// Web2.qldisplay drives through WKView.
+#import "WKBrowsingContextControllerInternal.h"
+#import "WKProcessGroupInternal.h"
+#import "WKBrowsingContextGroupInternal.h"
 #import <WebCore/ActivityState.h>
 #import <WebCore/IntSize.h>
 #import <WebCore/KeypressCommand.h>
@@ -29,6 +35,7 @@ using namespace WebKit;
 namespace WebKit {
 std::unique_ptr<PageClient> createMinimalPageClient(NSView *view);
 void setMinimalPageClientPage(PageClient&, WebPageProxy *);
+void setMinimalPageClientForceVisibleWhenWindowless(PageClient&, bool);
 }
 
 // Per-WKView state. RefPtr<WebPageProxy> keeps the page alive for the
@@ -40,6 +47,7 @@ struct WKViewState {
 
 @interface WKView () {
     WKViewState *_wkState;
+    WKBrowsingContextController *_browsingContextController;
 }
 @end
 
@@ -47,10 +55,6 @@ struct WKViewState {
 
 - (instancetype)initWithFrame:(NSRect)frame processPool:(std::reference_wrapper<WebKit::WebProcessPool>)processPool configuration:(Ref<API::PageConfiguration>&&)configuration
 {
-    FILE *earlyLog = ((FILE*)0);
-    if (earlyLog) { fprintf(earlyLog, "[PID %d] >>> WKView initWithFrame:processPool: ENTERED! frame=%gx%g\n",
-                            getpid(), frame.size.width, frame.size.height); fclose(earlyLog); }
-
     self = [super initWithFrame:frame];
     if (!self)
         return nil;
@@ -62,29 +66,30 @@ struct WKViewState {
 
     WebKit::InitializeWebKit2();
 
-    FILE *f = ((FILE*)0);
-    if (f) { fprintf(f, "[PID %d] WKView initWithFrame:processPool:configuration: frame=%gx%g\n",
-                     getpid(), frame.size.width, frame.size.height); fclose(f); }
-
     _wkState = new WKViewState;
     _wkState->pageClient = createMinimalPageClient(self);
     _wkState->page = processPool.get().createWebPage(*_wkState->pageClient, WTF::move(configuration));
     setMinimalPageClientPage(*_wkState->pageClient, _wkState->page.get());
-
-    f = ((FILE*)0);
-    if (f) { fprintf(f, "[PID %d] WebPageProxy created! pageID=%" PRIu64 "\n",
-                     getpid(), _wkState->page->identifier().toUInt64()); fclose(f); }
+    // 10.9 backport: a WKView born with a real (non-zero) frame is an offscreen render
+    // view — Safari's Top Sites snapshot fetcher allocs a WKView at the snapshot size,
+    // loads a URL into it, and snapshots it WITHOUT ever adding it to a window or
+    // resizing it. Normal browser tab WKViews are created at 0x0 and later attached to
+    // a window + resized, which is what drives visibility and drawing-area sizing. Mark
+    // this windowless view as force-visible so its WebContent takes a foreground
+    // assertion and actually loads/lays-out/paints; without this the page is treated as
+    // an offscreen hidden tab and never renders, so the snapshot stays a dark placeholder.
+    if (frame.size.width > 0 && frame.size.height > 0)
+        setMinimalPageClientForceVisibleWhenWindowless(*_wkState->pageClient, true);
 
     _wkState->page->initializeWebPage(WebCore::Site(WTF::HashTableEmptyValue), WebCore::SandboxFlags {}, WebCore::ReferrerPolicy::Default);
-
-    f = ((FILE*)0);
-    if (f) { fprintf(f, "[PID %d] initializeWebPage called!\n", getpid()); fclose(f); }
 
     return self;
 }
 
 - (void)dealloc
 {
+    [_browsingContextController release];
+    _browsingContextController = nil;
     delete _wkState;
     _wkState = nullptr;
     [super dealloc];
@@ -97,9 +102,6 @@ struct WKViewState {
 
 - (id)initWithFrame:(NSRect)frame contextRef:(WKContextRef)contextRef pageGroupRef:(WKPageGroupRef)pageGroupRef relatedToPage:(WKPageRef)relatedPage
 {
-    FILE *f2 = ((FILE*)0);
-    if (f2) { fprintf(f2, "[PID %d] >>> WKView initWithFrame:contextRef: ctx=%p pg=%p\n", getpid(), contextRef, pageGroupRef); fclose(f2); }
-
     auto configuration = API::PageConfiguration::create();
     configuration->setProcessPool(WebKit::toImpl(contextRef));
     // 10.9 backport: honor the page group Safari passes — its identifier is
@@ -117,32 +119,47 @@ struct WKViewState {
 - (id)initWithFrame:(NSRect)frame configurationRef:(WKPageConfigurationRef)configurationRef { return nil; }
 - (WKPageRef)pageRef { return _wkState ? WebKit::toAPI(_wkState->page.get()) : nullptr; }
 
+// 10.9 backport: legacy initializer used by QuickLook's Web2.qldisplay. It hands
+// us a WKProcessGroup + WKBrowsingContextGroup; unwrap them to the underlying
+// WKContextRef/WKPageGroupRef and route through the existing C-ref init path.
+- (id)initWithFrame:(NSRect)frame processGroup:(WKProcessGroup *)processGroup browsingContextGroup:(WKBrowsingContextGroup *)browsingContextGroup
+{
+    WKContextRef contextRef = processGroup ? [processGroup _contextRef] : nullptr;
+    if (!contextRef) {
+        [self release];
+        return nil;
+    }
+    WKPageGroupRef pageGroupRef = browsingContextGroup ? [browsingContextGroup _pageGroupRef] : nullptr;
+    return [self initWithFrame:frame contextRef:contextRef pageGroupRef:pageGroupRef];
+}
+
+// 10.9 backport: vend a controller bound to this view's page so Web2.qldisplay
+// can load/observe via the controller (or pull its pageRef for the C SPI).
+- (WKBrowsingContextController *)browsingContextController
+{
+    if (!_browsingContextController && _wkState && _wkState->page)
+        _browsingContextController = [[WKBrowsingContextController alloc] _initWithPageRef:WebKit::toAPI(_wkState->page.get())];
+    return _browsingContextController;
+}
+
 // 10.9 backport: WKView's normal setFrameSize: propagates the new viewport size to
 // WebContent via WebPageProxy::setSize. Without this override, WebContent renders at
 // 0x0 — Safari creates WKViews with zero frame and resizes them later.
 - (void)setFrameSize:(NSSize)newSize
 {
-    FILE *f=((FILE*)0); if(f){fprintf(f,"[WKView setFrameSize PID %d] %gx%g _wkState=%p hasProcess=%d\n",getpid(),newSize.width,newSize.height,_wkState,_wkState && _wkState->page ? _wkState->page->hasRunningProcess() : -1);fclose(f);}
     [super setFrameSize:newSize];
     if (_wkState && _wkState->page) {
         // 10.9 backport: if drawingArea is null, the WKView was created before WebContent
         // was running. Re-attempt initializeWebPage now that the process should be alive.
-        if (!_wkState->page->drawingArea()) {
-            f=((FILE*)0); if(f){fprintf(f,"[WKView setFrameSize PID %d] no drawingArea, calling initializeWebPage. hasProcess=%d\n",getpid(),_wkState->page->hasRunningProcess());fclose(f);}
+        if (!_wkState->page->drawingArea())
             _wkState->page->initializeWebPage(WebCore::Site(WTF::HashTableEmptyValue), WebCore::SandboxFlags {}, WebCore::ReferrerPolicy::Default);
-        }
-        if (RefPtr drawingArea = _wkState->page->drawingArea()) {
-            f=((FILE*)0); if(f){fprintf(f,"[WKView setFrameSize PID %d] calling drawingArea->setSize\n",getpid());fclose(f);}
+        if (RefPtr drawingArea = _wkState->page->drawingArea())
             drawingArea->setSize(WebCore::IntSize(newSize.width, newSize.height));
-        } else {
-            f=((FILE*)0); if(f){fprintf(f,"[WKView setFrameSize PID %d] no drawingArea after retry! hasProcess=%d\n",getpid(),_wkState->page->hasRunningProcess());fclose(f);}
-        }
     }
 }
 
 - (void)setFrame:(NSRect)frame
 {
-    FILE *f=((FILE*)0); if(f){fprintf(f,"[WKView setFrame PID %d] %gx%g+%g+%g _wkState=%p\n",getpid(),frame.size.width,frame.size.height,frame.origin.x,frame.origin.y,_wkState);fclose(f);}
     [super setFrame:frame];
     if (_wkState && _wkState->page) {
         if (RefPtr drawingArea = _wkState->page->drawingArea())
@@ -222,6 +239,15 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // fresh layer-tree commit, restoring the visible content.
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
+    // 10.9 backport: the cursor only changes on hover (and CSS :hover fires) when
+    // WebContent receives mouseMoved events to hit-test under the pointer. The
+    // WindowServer suppresses mouseMoved unless the hosting window opts in. Stock
+    // WKWebView gets them via an NSTrackingArea; this backport forwards them through
+    // a global NSEvent monitor instead (see +installEventMonitorOnce), which only
+    // sees mouseMoved if the window actually emits them. Without this, setCursor IPC
+    // never fires and the pointer stays a plain arrow over links/text (bug #17).
+    if (NSWindow *window = [self window])
+        [window setAcceptsMouseMovedEvents:YES];
     if (!_wkState || !_wkState->page) return;
     OptionSet<WebCore::ActivityState> flags;
     flags.add(WebCore::ActivityState::IsInWindow);
@@ -302,6 +328,19 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
             if (![wkView mouse:pInWK inRect:[wkView bounds]])
                 return event;
             NSEventType t = [event type];
+            // 10.9 backport: this app-wide monitor CONSUMES the mouse event (returns nil), so it
+            // never reaches AppKit's -[NSWindow sendEvent:] — which is exactly where click-to-activate
+            // normally happens. Result: clicking the web content did NOT make Safari's window
+            // key/main (the traffic-light buttons stayed grey), which in turn froze hover/cursor
+            // updates because AppKit only delivers mouseMoved/cursorUpdate to a key window. Perform
+            // the activation ourselves on any press, exactly as sendEvent: would have, before
+            // forwarding the event into WebKit.
+            if (t == NSLeftMouseDown || t == NSRightMouseDown || t == NSOtherMouseDown) {
+                if (![NSApp isActive])
+                    [NSApp activateIgnoringOtherApps:YES];
+                if (win && ![win isKeyWindow] && [win canBecomeKeyWindow])
+                    [win makeKeyAndOrderFront:nil];
+            }
             switch (t) {
             case NSLeftMouseDown:    [wkView mouseDown:event];    return (NSEvent *)nil;
             case NSLeftMouseUp:      [wkView mouseUp:event];      return (NSEvent *)nil;
