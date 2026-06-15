@@ -94,7 +94,7 @@ void InnerSpinButtonMac::draw(GraphicsContext& context, const FloatRoundedRect& 
         context.scale(style.zoomFactor);
     }
 
-    [[NSAppearance currentDrawingAppearance] _drawInRect:logicalRect context:context.platformContext() options:@{
+    [([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil) _drawInRect:logicalRect context:context.platformContext() options:@{
         (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)kCUIWidgetButtonLittleArrows,
         (__bridge NSString *)kCUISizeKey: coreUISize,
         (__bridge NSString *)kCUIStateKey: coreUIState,

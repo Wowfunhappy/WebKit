@@ -130,7 +130,7 @@ RefPtr<ImageBuffer> trackMaskImage(GraphicsContext& context, FloatSize trackRect
 
     CGContextStateSaver stateSaver(cgContext);
 
-    [[NSAppearance currentDrawingAppearance] _drawInRect:drawingTrackRect context:cgContext options:@{
+    [([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil) _drawInRect:drawingTrackRect context:cgContext options:@{
         (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)kCUIWidgetSwitchFillMask,
         (__bridge NSString *)kCUISizeKey: coreUISize,
         (__bridge NSString *)kCUIUserInterfaceLayoutDirectionKey: coreUIDirection,

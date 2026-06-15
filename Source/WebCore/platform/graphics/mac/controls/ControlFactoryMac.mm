@@ -190,7 +190,9 @@ NSSearchFieldCell *ControlFactoryMac::searchFieldCell() const
         [m_searchFieldCell setBezeled:YES];
         [m_searchFieldCell setEditable:YES];
         [m_searchFieldCell setFocusRingType:NSFocusRingTypeExterior];
-        [m_searchFieldCell setCenteredLook:NO];
+        // 10.9 backport: -[NSSearchFieldCell setCenteredLook:] is 10.10+ SPI; absent on 10.9.
+        if ([m_searchFieldCell respondsToSelector:@selector(setCenteredLook:)])
+            [m_searchFieldCell setCenteredLook:NO];
     }
     return m_searchFieldCell.get();
 }

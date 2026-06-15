@@ -135,17 +135,39 @@ void ProgressBarMac::draw(GraphicsContext& context, const FloatRoundedRect& bord
         return nullptr;
     };
 
-    [[NSAppearance currentDrawingAppearance] _drawInRect:NSMakeRect(0, 0, inflatedRect.width(), inflatedRect.height()) context:cgContext options:@{
-        (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)(isIndeterminate ? kCUIWidgetProgressIndeterminateBar : kCUIWidgetProgressBar),
-        (__bridge NSString *)kCUIValueKey: @(isIndeterminate ? 1 : std::min(nextafter(1.0, -1), progressBarPart->position())),
-        (__bridge NSString *)kCUISizeKey: (__bridge NSString *)coreUISizeForProgressBarSize(controlSize),
-        (__bridge NSString *)kCUIUserInterfaceLayoutDirectionKey: (__bridge NSString *)kCUIUserInterfaceLayoutDirectionLeftToRight,
-        (__bridge NSString *)kCUIScaleKey: @(deviceScaleFactor),
-        (__bridge NSString *)kCUIPresentationStateKey: (__bridge NSString *)(isActive ? kCUIPresentationStateActiveKey : kCUIPresentationStateInactive),
-        (__bridge NSString *)kCUIOrientationKey: (__bridge NSString *)kCUIOrientHorizontal,
-        (__bridge NSString *)kCUIAnimationStartTimeKey: @(progressBarPart->animationStartTime().seconds()),
-        (__bridge NSString *)kCUIAnimationTimeKey: @(MonotonicTime::now().secondsSinceEpoch().seconds())
-    }];
+    NSAppearance *progressDrawingAppearance = [NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : nil;
+    if (progressDrawingAppearance) {
+        [progressDrawingAppearance _drawInRect:NSMakeRect(0, 0, inflatedRect.width(), inflatedRect.height()) context:cgContext options:@{
+            (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)(isIndeterminate ? kCUIWidgetProgressIndeterminateBar : kCUIWidgetProgressBar),
+            (__bridge NSString *)kCUIValueKey: @(isIndeterminate ? 1 : std::min(nextafter(1.0, -1), progressBarPart->position())),
+            (__bridge NSString *)kCUISizeKey: (__bridge NSString *)coreUISizeForProgressBarSize(controlSize),
+            (__bridge NSString *)kCUIUserInterfaceLayoutDirectionKey: (__bridge NSString *)kCUIUserInterfaceLayoutDirectionLeftToRight,
+            (__bridge NSString *)kCUIScaleKey: @(deviceScaleFactor),
+            (__bridge NSString *)kCUIPresentationStateKey: (__bridge NSString *)(isActive ? kCUIPresentationStateActiveKey : kCUIPresentationStateInactive),
+            (__bridge NSString *)kCUIOrientationKey: (__bridge NSString *)kCUIOrientHorizontal,
+            (__bridge NSString *)kCUIAnimationStartTimeKey: @(progressBarPart->animationStartTime().seconds()),
+            (__bridge NSString *)kCUIAnimationTimeKey: @(MonotonicTime::now().secondsSinceEpoch().seconds())
+        }];
+    } else {
+        // 10.9 backport: CoreUI progress drawing via -[NSAppearance _drawInRect:context:options:] is
+        // 10.14+. Draw a simple native-style progress bar (rounded gray track + blue accent fill) with CG.
+        CGRect barRect = CGRectMake(0, 0, inflatedRect.width(), inflatedRect.height());
+        CGFloat radius = std::min<CGFloat>(barRect.size.height / 2, 4);
+        CGContextSaveGState(cgContext);
+        RetainPtr<CGPathRef> trackPath = adoptCF(CGPathCreateWithRoundedRect(barRect, radius, radius, nullptr));
+        CGContextAddPath(cgContext, trackPath.get());
+        CGContextSetRGBFillColor(cgContext, 0.86, 0.86, 0.86, 1);
+        CGContextFillPath(cgContext);
+        double position = isIndeterminate ? 0.3 : std::max<double>(0, std::min<double>(1, progressBarPart->position()));
+        if (position > 0) {
+            CGRect fillRect = CGRectMake(0, 0, barRect.size.width * position, barRect.size.height);
+            RetainPtr<CGPathRef> fillPath = adoptCF(CGPathCreateWithRoundedRect(fillRect, radius, radius, nullptr));
+            CGContextAddPath(cgContext, fillPath.get());
+            CGContextSetRGBFillColor(cgContext, 0.13, 0.46, 0.92, 1);
+            CGContextFillPath(cgContext);
+        }
+        CGContextRestoreGState(cgContext);
+    }
 
     GraphicsContextStateSaver stateSaver(context);
 

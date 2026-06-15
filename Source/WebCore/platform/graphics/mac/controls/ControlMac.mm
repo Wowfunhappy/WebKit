@@ -47,6 +47,11 @@
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
+@interface NSWorkspace (WebKitMavericks109)
+- (BOOL)accessibilityDisplayShouldIncreaseContrast;
+- (BOOL)accessibilityDisplayShouldDifferentiateWithoutColor;
+@end
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ControlMac);
@@ -61,12 +66,12 @@ ControlMac::~ControlMac() = default;
 
 bool ControlMac::userPrefersContrast()
 {
-    return [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldIncreaseContrast];
+    return ([[NSWorkspace sharedWorkspace] respondsToSelector:@selector(accessibilityDisplayShouldIncreaseContrast)] ? [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldIncreaseContrast] : NO);
 }
 
 bool ControlMac::userPrefersWithoutColorDifferentiation()
 {
-    return [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldDifferentiateWithoutColor];
+    return ([[NSWorkspace sharedWorkspace] respondsToSelector:@selector(accessibilityDisplayShouldDifferentiateWithoutColor)] ? [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldDifferentiateWithoutColor] : NO);
 }
 
 FloatRect ControlMac::inflatedRect(const FloatRect& bounds, const FloatSize& size, const IntOutsets& outsets, const ControlStyle& style)
@@ -117,11 +122,14 @@ void ControlMac::updateEnabledState(NSCell *cell, const ControlStyle& style)
 
 void ControlMac::updateFocusedState(NSCell *cell, const ControlStyle& style)
 {
-    bool oldFocused = [cell showsFirstResponder];
-    bool focused = style.states.contains(ControlStyle::State::Focused);
-    if (focused == oldFocused)
-        return;
-    [cell setShowsFirstResponder:focused];
+    // 10.9 backport: when showsFirstResponder is YES the NSCell draws its own first-responder focus
+    // ring, but in WebKit's viewless/fake-view drawing on 10.9 that renders as a SOLID BLACK fill
+    // over the whole control (e.g. a focused text field becomes an unreadable black box). Never set
+    // it; the keyboard-focus indicator is a cosmetic nicety and a black control is far worse. (WebKit's
+    // separate CGStyle focus ring is likewise skipped on < 10.10 in drawCellOrFocusRing.)
+    UNUSED_PARAM(style);
+    if ([cell showsFirstResponder])
+        [cell setShowsFirstResponder:NO];
 }
 
 void ControlMac::updatePressedState(NSCell *cell, const ControlStyle& style)
@@ -354,8 +362,16 @@ void ControlMac::drawCellOrFocusRing(GraphicsContext& context, const FloatRect& 
     if (drawCell)
         drawCellInternal(context, rect, deviceScaleFactor, style, cell);
 
-    if (style.states.contains(ControlStyle::State::Focused))
-        drawCellFocusRing(context, rect, deviceScaleFactor, style, cell);
+    if (style.states.contains(ControlStyle::State::Focused)) {
+        // 10.9 backport: the CGStyle-based focus-ring path (CGStyleCreateFocusRingWithColor +
+        // -[NSCell drawFocusRingMaskWithFrame:inView:], with NSInitializeCGFocusRingStyleForTime
+        // coming from a libpolyfill whose CGFocusRingStyle struct layout doesn't match 10.9's
+        // CoreGraphics) does not apply the focus-ring style, so the mask fills the control's whole
+        // shape SOLID BLACK — making any focused text field / control unreadable. Skip the focus
+        // ring on < 10.10; losing the blue keyboard-focus glow is far preferable to a black control.
+        if (NSAppKitVersionNumber >= 1343 /* NSAppKitVersionNumber10_10 */)
+            drawCellFocusRing(context, rect, deviceScaleFactor, style, cell);
+    }
 
     END_BLOCK_OBJC_EXCEPTIONS
 }
@@ -411,7 +427,7 @@ void ControlMac::drawListButton(GraphicsContext& context, const FloatRect& rect,
         coreUIState = (__bridge NSString *)kCUIStatePressed;
     else
         coreUIState = (__bridge NSString *)kCUIStateActive;
-    [[NSAppearance currentDrawingAppearance] _drawInRect:NSMakeRect(0, 0, comboBoxSize.width(), comboBoxSize.height()) context:cgContext.get() options:@{
+    [([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil) _drawInRect:NSMakeRect(0, 0, comboBoxSize.width(), comboBoxSize.height()) context:cgContext.get() options:@{
         (__bridge NSString *)kCUIWidgetKey : (__bridge NSString *)kCUIWidgetButtonComboBox,
         (__bridge NSString *)kCUISizeKey : (__bridge NSString *)kCUISizeRegular,
         (__bridge NSString *)kCUIStateKey : coreUIState,
