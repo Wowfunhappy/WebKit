@@ -481,7 +481,18 @@ void RemoteLayerBackingStore::drawInContext(GraphicsContext& context)
 // inline SVG icons painted afterwards still render correctly.
     if (CGContextRef cg = context.platformContext()) {
         CGContextSaveGState(cg);
-        CGContextClearRect(cg, dirtyBounds);
+        // 10.9 backport (#56): opaque layers use a no-alpha (BGRX8) backing, so clearing to
+        // TRANSPARENT zeros the RGB -> BLACK wherever the layer's content doesn't fully cover it
+        // (the DuckDuckGo logo black-box, and any opaque composited layer with an unpainted gap).
+        // Fill opaque backings WHITE instead; keep the transparent-clear for non-opaque (BGRA8)
+        // layers (needed to avoid glyph-overlay artifacts). The earlier white-fill broke later
+        // CGContextFillPath (inline SVG icons) by LEAKING the fill color — the save/restore around
+        // this block contains it, so SVG icons painted afterwards keep their own colors.
+        if (m_parameters.isOpaque) {
+            CGContextSetRGBFillColor(cg, 1, 1, 1, 1);
+            CGContextFillRect(cg, dirtyBounds);
+        } else
+            CGContextClearRect(cg, dirtyBounds);
         CGContextRestoreGState(cg);
     }
 
