@@ -371,7 +371,7 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
     // 10.9 backport: also allow file:// URLs into WebInspectorUI bundle (we load Main.html
     // via loadData with file:// baseURL to bypass the broken IPC scheme handler path).
     if ([navigationAction.request.URL.scheme isEqualToString:@"file"]
-        && [navigationAction.request.URL.path containsString:@"/WebInspectorUI.framework/"]) {
+        && [navigationAction.request.URL.path rangeOfString:@"/WebInspectorUI.framework/"].location != NSNotFound) { // 10.9: containsString: is 10.10+
         decisionHandler(WKNavigationActionPolicyAllow);
         return;
     }

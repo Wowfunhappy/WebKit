@@ -472,8 +472,29 @@ void WebInspectorUIProxy::platformCreateFrontendWindow()
 
     RetainPtr<WKWebView> inspectorView = [m_inspectorViewController webView];
     RetainPtr<NSView> contentView = [m_inspectorWindow contentView];
-    inspectorView.get().frame = [contentView bounds];
-    [contentView addSubview:inspectorView.get()];
+
+    // 10.9 backport (#66/#69, unified inspector toolbar): NSWindowStyleMaskFullSizeContentView and
+    // -setTitlebarAppearsTransparent: are 10.10+ and silently ignored on 10.9, and overriding the
+    // window's public contentRectForFrameRect: doesn't move the content view either (10.9's
+    // NSThemeFrame lays it out below the titlebar regardless). So host the inspector webView
+    // directly in the window's FRAME VIEW (the content view's superview / NSThemeFrame), sized to
+    // the FULL window, so the HTML #toolbar fills the titlebar region and merges with it — the real
+    // unified-titlebar appearance. The webView is added above the content view but the standard
+    // window buttons are then raised above it, so the traffic lights float over the toolbar.
+    // (The toolbar gradient is supplied by the WK66-UNIFIED CSS; making the webView non-opaque to
+    // show the native titlebar through it instead — #69 — needs the configuration's _drawsBackground
+    // set before the inspector webView is built, since WKWebView has no _setDrawsBackground: setter.)
+    NSView *frameView = [contentView superview] ?: contentView.get();
+    inspectorView.get().frame = [frameView bounds];
+    [inspectorView.get() setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [frameView addSubview:inspectorView.get() positioned:NSWindowAbove relativeTo:contentView.get()];
+
+    // Keep the standard window buttons above the full-size content so close/minimize/zoom float
+    // over the toolbar like the real unified titlebar.
+    for (NSInteger buttonType = NSWindowCloseButton; buttonType <= NSWindowZoomButton; ++buttonType) {
+        if (NSButton *windowButton = [m_inspectorWindow standardWindowButton:(NSWindowButton)buttonType])
+            [[windowButton superview] addSubview:windowButton positioned:NSWindowAbove relativeTo:nil];
+    }
 
     updateInspectorWindowTitle();
     applyForcedAppearance();
