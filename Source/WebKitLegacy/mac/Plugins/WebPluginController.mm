@@ -108,7 +108,37 @@ static RetainPtr<NSMutableSet>& NODELETE pluginViews()
 
 - (NSView *)plugInViewWithArguments:(NSDictionary *)arguments fromPluginPackage:(WebPluginPackage *)pluginPackage
 {
-    return nil;
+    // 10.9 backport: this was stubbed to `return nil`, so WebKit-ObjC plug-ins never produced a
+    // view (the package loaded but no instance existed). Restore the real view creation by asking
+    // the package's view factory; the view is then added to the document by WebHTMLView, which
+    // runs -webPlugInInitialize (where e.g. WebClip.plugin publishes its `webClip` scripting object).
+    [pluginPackage load];
+
+
+    NSView *view = nil;
+    Class viewFactory = [pluginPackage viewFactory];
+    if ([viewFactory respondsToSelector:@selector(plugInViewWithArguments:)]) {
+        JSC::JSLock::DropAllLocks dropAllLocks(WebCore::commonVM());
+        view = [viewFactory plugInViewWithArguments:arguments];
+    } else {
+IGNORE_WARNINGS_BEGIN("undeclared-selector")
+        SEL oldSelector = @selector(pluginViewWithArguments:);
+IGNORE_WARNINGS_END
+        if ([viewFactory respondsToSelector:oldSelector]) {
+            JSC::JSLock::DropAllLocks dropAllLocks(WebCore::commonVM());
+            view = [viewFactory performSelector:oldSelector withObject:arguments];
+        }
+    }
+
+    if (!view)
+        return nil;
+
+    auto& views = pluginViews();
+    if (!views)
+        views = adoptNS([[NSMutableSet alloc] init]);
+    [views addObject:view];
+
+    return view;
 }
 
 #if PLATFORM(IOS_FAMILY)

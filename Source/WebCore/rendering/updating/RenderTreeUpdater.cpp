@@ -446,6 +446,7 @@ void RenderTreeUpdater::updateElementRenderer(Element& element, const Style::Ele
         return elementUpdate.changes.contains(Style::Change::Renderer) && (element.renderer() || element.hasDisplayContents());
     }();
 
+
     if (shouldTearDownRenderers) {
         if (!element.renderer()) {
             // We may be tearing down a descendant renderer cached in renderTreePosition.

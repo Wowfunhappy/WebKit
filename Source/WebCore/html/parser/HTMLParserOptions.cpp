@@ -51,6 +51,20 @@ HTMLParserOptions::HTMLParserOptions(Document& document)
         scriptingFlag = frame && protect(frame->script())->canExecuteScripts(ReasonForCallingCanExecuteScripts::NotAboutToExecuteScript) && document.allowsContentJavaScript();
 
     usePreHTML5ParserQuirks = document.settings().usePreHTML5ParserQuirks();
+
+    // 10.9 backport: Dashboard widgets (e.g. the stock Safari Web Clip widget) are authored in
+    // XHTML style -- self-closing <script/>, <div/>, <label/> -- but shipped as text/html.
+    // Under the modern HTML5 parser the first <script src=.../> never closes and swallows the
+    // rest of the document (including the <embed> that hosts the plug-in), so the widget is
+    // inert. The legacy Dashboard parser used the pre-HTML5 quirks (a self-closing start tag
+    // actually closes, and '<' terminates raw-text/script content). Re-enable those quirks for
+    // any document loaded from a .wdgt bundle so the unmodified widget markup parses correctly.
+    // Scoped to the widget files themselves, so clipped pages (real websites) are unaffected.
+    if (!usePreHTML5ParserQuirks) {
+        auto& url = document.url();
+        if (url.protocolIsFile() && url.string().contains(".wdgt/"_s))
+            usePreHTML5ParserQuirks = true;
+    }
     enhancedSelect = document.settings().htmlEnhancedSelectParsingEnabled();
     enhancedSelectQuirk = document.settings().htmlEnhancedSelectParsingQuirkEnabled();
     maximumDOMTreeDepth = document.settings().maximumHTMLParserDOMTreeDepth();
