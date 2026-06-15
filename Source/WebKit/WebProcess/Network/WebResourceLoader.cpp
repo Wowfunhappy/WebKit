@@ -1,4 +1,5 @@
 /*
+#include <CoreFoundation/CoreFoundation.h>
  * Copyright (C) 2012-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -191,7 +192,6 @@ void WebResourceLoader::updateNetworkLoadMetrics(NetworkLoadMetrics& metrics)
 void WebResourceLoader::didReceiveResponse(ResourceResponse&& response, PrivateRelayed privateRelayed, bool needsContinueDidReceiveResponseMessage, std::optional<NetworkLoadMetrics>&& metrics)
 {
     RefPtr coreLoader = m_coreLoader;
-    // 10.9 perf: removed debug fopen logging
     LOG(Network, "(WebProcess) WebResourceLoader::didReceiveResponse for '%s'. Status %d.", coreLoader->url().string().latin1().data(), response.httpStatusCode());
     WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDRECEIVERESPONSE, response.httpStatusCode());
 

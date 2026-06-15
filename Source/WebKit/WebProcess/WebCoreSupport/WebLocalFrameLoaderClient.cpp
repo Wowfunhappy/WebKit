@@ -1,4 +1,5 @@
 /*
+#include <CoreFoundation/CoreFoundation.h>
  * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -561,7 +562,6 @@ void WebLocalFrameLoaderClient::dispatchDidExplicitOpen(const URL& url, const St
 
 void WebLocalFrameLoaderClient::dispatchDidStartProvisionalLoad()
 {
-    {FILE *_d=((FILE*)0); if(_d){RefPtr p=m_frame->page(); fprintf(_d,"[wc-start-prov PID %d] mainFrame=%d page=%p pageID=%llu\n", getpid(), (int)m_frame->isMainFrame(), p.get(), p ? (unsigned long long)p->identifier().toUInt64() : 0); fclose(_d);}}
     RefPtr webPage = m_frame->page();
     if (!webPage)
         return;
@@ -626,7 +626,6 @@ void WebLocalFrameLoaderClient::dispatchDidReceiveTitle(const StringWithDirectio
 
 void WebLocalFrameLoaderClient::dispatchDidCommitLoad(std::optional<HasInsecureContent> hasInsecureContent, std::optional<UsedLegacyTLS> usedLegacyTLSFromPageCache, std::optional<WasPrivateRelayed> wasPrivateRelayedFromPageCache)
 {
-    {FILE *_d=((FILE*)0); if(_d){RefPtr p=m_frame->page(); fprintf(_d,"[wc-commit PID %d] mainFrame=%d pageID=%llu\n", getpid(), (int)m_frame->isMainFrame(), p ? (unsigned long long)p->identifier().toUInt64() : 0); fclose(_d);}}
     Ref frame = m_frame.get();
     RefPtr webPage = frame->page();
     if (!webPage)
@@ -995,8 +994,6 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
             String urlKey = response.url().string();
             if (m_shortCircuitedResponseURL != urlKey) {
                 m_shortCircuitedResponseURL = urlKey;
-                FILE* _f = ((FILE*)0);
-                if (_f) { auto u = urlKey.utf8(); fprintf(_f, "[WebLFLC::dispatchDecidePolicyForResponse PID %d] short-circuit Use first url=%.150s\n", getpid(), u.data()); fclose(_f); }
                 function(PolicyAction::Use);
                 return;
             }

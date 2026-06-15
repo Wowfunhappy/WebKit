@@ -286,45 +286,14 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return { };
 }
 
-// 10.9 backport: NSURLSession's internal NSOperation crashes inside
-// `_changeValueForKey:key:key:usingBlock:` when firing isFinished/isExecuting
-// KVO on its NSOperationQueue. The cause is that the queue's KVO observance
-// info pointer (returned via objc_getAssociatedObject) is sometimes a stale
-// pointer to freed memory. Install a one-time swizzle on `NSOperationQueue`
-// (and a few related classes) that runs the inner mutation block but skips
-// the buggy will/did-change KVO firing so the operation can complete cleanly.
-static void install109NSOperationKVOWorkaround()
-{
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        SEL sel = NSSelectorFromString(@"_changeValueForKey:key:key:usingBlock:");
-        // Replacement: fire KVO via the simpler willChange/didChange path
-        // (which doesn't crash on 10.9 even when observance info is corrupt),
-        // around running the inner mutation block.
-        IMP imp = imp_implementationWithBlock(^(id self, NSString *k1, NSString *k2, NSString *k3, void (^block)(void)) {
-            if (k1) [self willChangeValueForKey:k1];
-            if (k2) [self willChangeValueForKey:k2];
-            if (k3) [self willChangeValueForKey:k3];
-            if (block)
-                block();
-            if (k3) [self didChangeValueForKey:k3];
-            if (k2) [self didChangeValueForKey:k2];
-            if (k1) [self didChangeValueForKey:k1];
-        });
-        const char* types = "v@:@@@@?";
-        auto installOn = ^(Class cls, const char* tag) {
-            UNUSED_PARAM(tag);
-            if (!cls)
-                return;
-            if (!class_addMethod(cls, sel, imp, types))
-                class_replaceMethod(cls, sel, imp, types);
-        };
-        installOn([NSOperationQueue class], "NSOperationQueue");
-        installOn([[NSOperationQueue mainQueue] class], "mainQueue");
-        installOn(NSClassFromString(@"NSOperation"), "NSOperation");
-        installOn(NSClassFromString(@"__NSOperationInternal"), "__NSOperationInternal");
-    });
-}
+// NOTE (2026-06-14): a swizzle of NSObject's `_changeValueForKey:key:key:usingBlock:`
+// used to live here to keep the NetworkProcess alive through a crash in NSURLSession's
+// NSOperation KVO. It was a MASK (it converted the crash into a silent delegate-queue
+// stall -> blank pages) and has been REMOVED. The crash is a symptom of the systemic
+// heap corruption documented in webkit-mavericks-hack-audit / WordLock.cpp
+// (ThreadSafeWeakPtrControlBlock m_word overwritten with 0xffffffff by a neighboring
+// allocation in the NetworkProcess). The process must crash loudly on that bug until
+// the real root cause is fixed -- do NOT reintroduce a mask here.
 
 @interface WKNetworkSessionDelegate : NSObject <NSURLSessionDataDelegate
 #if defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
@@ -346,7 +315,6 @@ static void install109NSOperationKVOWorkaround()
 
 - (id)initWithNetworkSession:(std::reference_wrapper<WebKit::NetworkSessionCocoa>)session wrapper:(WebKit::SessionWrapper&)sessionWrapper withCredentials:(bool)withCredentials
 {
-    install109NSOperationKVOWorkaround();
     self = [super init];
     if (!self)
         return nil;
@@ -634,7 +602,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     auto taskIdentifier = task.taskIdentifier;
     LOG(NetworkSession, "%zu didReceiveChallenge", taskIdentifier);
-    
+
     // Proxy authentication is handled by CFNetwork internally. We can get here if the user cancels
     // CFNetwork authentication dialog, and we shouldn't ask the client to display another one in that case.
     if (challenge.protectionSpace.isProxy

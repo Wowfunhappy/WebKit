@@ -68,15 +68,21 @@
 #include <WebCore/NetscapePlugInStreamLoader.h>
 #include <WebCore/NetworkLoadInformation.h>
 #include <WebCore/NodeDocument.h>
+#include <WebCore/MIMETypeRegistry.h>
 #include <WebCore/PlatformStrategies.h>
 #include <WebCore/ReferrerPolicy.h>
 #include <WebCore/ResourceLoader.h>
+#include <WebCore/ResourceResponse.h>
 #include <WebCore/SecurityOrigin.h>
+#include <WebCore/SharedBuffer.h>
+#include <wtf/FileSystem.h>
 #include <WebCore/Settings.h>
 #include <WebCore/SubresourceLoader.h>
 #include <WebCore/UserContentProvider.h>
 #include <pal/SessionID.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/RetainPtr.h>
+#include <wtf/RunLoop.h>
 #include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
@@ -222,6 +228,71 @@ static Seconds NODELETE maximumBufferingTime(CachedResource* resource)
     return 0_s;
 }
 
+// 10.9 backport: Safari serves its internal custom-protocol resources (the Reader template and the
+// reader UI chrome) by translating the scheme to a file in Safari.framework/Resources and serving that
+// file — its TranslatedFileURLProtocol uses CFURLProtocolRegisterImplementation (a CFNetwork private
+// API), which modern WebKit's NSURLConnection-based loading does NOT consult, and forwarding the load
+// to the NetworkProcess finds no handler. So translate the two file-backed schemes here and deliver the
+// file directly: safari-reader:// -> Reader.html (the static reader template; the injected bundle then
+// fills in the extracted article, preserving the safari-reader:// document URL), and safari-resource:/X
+// -> Resources/X (the reader chrome images/CSS). safari-extension:// is not file-backed, so it falls
+// through to the NetworkProcess path.
+static bool tryServingSafariCustomProtocolResource(WebCore::ResourceLoader& resourceLoader)
+{
+    auto url = resourceLoader.request().url();
+    auto protocol = url.protocol();
+
+    String resourceName;
+    if (protocol == "safari-reader"_s)
+        resourceName = "Reader.html"_s;
+    else if (protocol == "safari-resource"_s) {
+        resourceName = url.path().toString();
+        while (resourceName.startsWith('/'))
+            resourceName = resourceName.substring(1);
+        if (resourceName.isEmpty() || resourceName.contains(".."_s))
+            return false;
+    } else
+        return false;
+
+    // Resolve through Safari.framework's bundle so localized resources (e.g. English.lproj/localizedStrings.js)
+    // are found — this mirrors Safari's own TranslatedFileURLProtocol, which does a locale-aware bundle lookup.
+    static CFBundleRef safariBundle = [] () -> CFBundleRef {
+        auto bundleURL = adoptCF(CFURLCreateWithFileSystemPath(kCFAllocatorDefault, CFSTR("/System/Library/PrivateFrameworks/Safari.framework"), kCFURLPOSIXPathStyle, true));
+        return bundleURL ? CFBundleCreate(kCFAllocatorDefault, bundleURL.get()) : nullptr;
+    }();
+    if (!safariBundle)
+        return false;
+
+    auto resourceURL = adoptCF(CFBundleCopyResourceURL(safariBundle, resourceName.createCFString().get(), nullptr, nullptr));
+    if (!resourceURL)
+        return false;
+
+    std::array<char, PATH_MAX> pathBuffer;
+    if (!CFURLGetFileSystemRepresentation(resourceURL.get(), true, reinterpret_cast<UInt8*>(pathBuffer.data()), pathBuffer.size()))
+        return false;
+    String resourcePath = String::fromUTF8(pathBuffer.data());
+
+    auto fileContents = FileSystem::readEntireFile(resourcePath);
+    if (!fileContents)
+        return false;
+
+    RefPtr<WebCore::FragmentedSharedBuffer> buffer = WebCore::SharedBuffer::create(WTF::move(*fileContents));
+    auto mimeType = WebCore::MIMETypeRegistry::mimeTypeForPath(resourcePath);
+    if (mimeType.isEmpty())
+        mimeType = "application/octet-stream"_s;
+
+    WebCore::ResourceResponse response { URL { url }, WTF::move(mimeType), static_cast<long long>(buffer->size()), "UTF-8"_s };
+
+    // Deliver asynchronously: deliverResponseAndData drives the loader to completion (commit, parse,
+    // didFinishLoading), which must not run re-entrantly inside scheduleLoad().
+    RunLoop::mainSingleton().dispatch([protectedLoader = Ref { resourceLoader }, response = WTF::move(response), buffer = WTF::move(buffer)]() mutable {
+        if (protectedLoader->reachedTerminalState())
+            return;
+        protectedLoader->deliverResponseAndData(WTF::move(response), WTF::move(buffer));
+    });
+    return true;
+}
+
 void WebLoaderStrategy::scheduleLoad(ResourceLoader& resourceLoader, CachedResource* resource, bool shouldClearReferrerOnHTTPSToHTTPRedirect)
 {
     auto identifier = *resourceLoader.identifier();
@@ -292,6 +363,15 @@ void WebLoaderStrategy::scheduleLoad(ResourceLoader& resourceLoader, CachedResou
 
     if (tryLoadingUsingURLSchemeHandler(resourceLoader, trackingParameters))
         return;
+
+    // 10.9 backport: serve Safari's file-backed custom-protocol resources (safari-reader:// reader
+    // template, safari-resource:// reader chrome) directly from Safari.framework/Resources, since
+    // its CFURLProtocol-based serving is not reachable through modern WebKit's NSURLConnection path.
+    if (WebProcess::singleton().isURLSchemeRegisteredForCustomProtocol(resourceLoader.request().url().protocol().toString())
+        && tryServingSafariCustomProtocolResource(resourceLoader)) {
+        WEBLOADERSTRATEGY_RELEASE_LOG("scheduleLoad: served app custom-protocol resource from Safari.framework Resources");
+        return;
+    }
 
 #if ENABLE(SWIFT_DEMO_URI_SCHEME)
     if (resourceLoader.request().url().protocolIs("x-swift-demo"_s)) {

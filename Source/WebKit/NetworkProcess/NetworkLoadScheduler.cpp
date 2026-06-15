@@ -64,7 +64,7 @@ void NetworkLoadScheduler::HostContext::schedule(NetworkLoad& load)
         auto& request = load.currentRequest();
         if (request.priority() > WebCore::ResourceLoadPriority::Low)
             return true;
-        
+
         if (request.isConditional())
             return true;
 
