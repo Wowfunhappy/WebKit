@@ -11,9 +11,10 @@
 #   WebCore        -> /System/Library/PrivateFrameworks/WebCore.framework
 #
 # Private C++ runtime (libc++/libc++abi from the clang-22 toolchain) and the
-# CoreGraphics polyfill dylib are installed to /usr/local/lib and our frameworks
-# are pointed at them, so the system's old 10.9 libc++ is never used by us and
-# never overwritten (it is not a strict superset — see INSTALL-PLAN.md).
+# CoreGraphics polyfill dylib are embedded INSIDE the framework bundles (#68:
+# self-contained, nothing in /usr/local), referenced by absolute in-bundle path so
+# the system's old 10.9 libc++ is never used by us and never overwritten (it is not
+# a strict superset — see INSTALL-PLAN.md).
 #
 # SAFETY: every target path is backed up (once) to $BACKUP_ROOT before being
 # overwritten. Re-running is idempotent for the backup (won't clobber an existing
@@ -30,14 +31,17 @@ BACKUP_ROOT="${BACKUP_ROOT:-/Users/jonathan/Desktop/stock-webkit-backup/replaced
 
 FRAMEWORKS_DIR=/System/Library/Frameworks
 PRIVATE_DIR=/System/Library/PrivateFrameworks
-PRIVLIB=/usr/local/lib
-# libc++/libc++abi must NOT go directly in /usr/local/lib: that directory is in the
-# default DYLD_FALLBACK_LIBRARY_PATH, so our modern libc++ would shadow the copy
-# other tools (cmake, ninja, …) resolve by leaf name and crash them. Put the C++
-# runtime in a dedicated subdir that nothing searches implicitly; our frameworks
-# reference it by absolute path. (libcg_polyfill.dylib can stay in /usr/local/lib —
-# nothing but our frameworks ever requests it.)
-PRIVLIBCXX=/usr/local/lib/webkit-private
+# #68: the private C++ runtime (libc++/libc++abi) AND libcg_polyfill.dylib live INSIDE the
+# framework bundles, so the install is fully self-contained — nothing in /usr/local and no
+# separate top-level runtime dir. Both homes are under /System/Library/[Private]Frameworks,
+# which the sandbox grants read to (the #18 reason these can't live in /usr/local: sandboxd
+# "deny file-read-data /usr/local/lib/webkit-private/..."); we reference them by ABSOLUTE
+# in-bundle path (never @rpath) so they can't shadow the system libc++ via DYLD_FALLBACK.
+# libc++/libc++abi go in the base framework (JavaScriptCore — every WebKit framework links
+# the C++ runtime); libcg_polyfill in WebCore (its only consumers are WebCore/WebKit/WebKit2).
+PRIVLIBCXX=/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks
+PRIVLIB=/System/Library/PrivateFrameworks/WebCore.framework/Versions/A/Frameworks
+OLD_PRIVRT=/System/Library/WebKitPrivateRuntime   # pre-#68 standalone location; removed at the end
 
 # Absolute install_name each framework binary must advertise (matches Safari's
 # LC_LOAD_DYLIB). macOS 10.9 ships bash 3.2 (no associative arrays), so this is a
@@ -91,6 +95,14 @@ rewrite_rpath_deps() {
             echo "  WARNING: unmapped @rpath dependency in $(basename "$bin"): $dep" >&2
         fi
     done < <("$OTOOL" -L "$bin" | awk 'NR>1{print $1}')
+}
+
+# libcg_polyfill.dylib is linked with a BAKED absolute install_name (/usr/local/lib/...) at
+# build time, so rewrite_rpath_deps (which only touches @rpath deps) never sees it. Repoint it
+# to the in-bundle $PRIVLIB location (inside WebCore.framework) in every binary.
+rewrite_abs_deps() {
+    local bin="$1"
+    "$INT" -change /usr/local/lib/libcg_polyfill.dylib "$PRIVLIB/libcg_polyfill.dylib" "$bin" 2>/dev/null || true
 }
 
 # Remove every LC_RPATH from one Mach-O binary. After rewrite_rpath_deps no
@@ -178,6 +190,7 @@ install_framework() {
     # now-useless (and dangerous) build-tree rpaths and verify nothing remains.
     "$INT" -id "$(id_path "$destBinName")" "$bin"
     rewrite_rpath_deps "$bin"
+    rewrite_abs_deps "$bin"
     strip_rpaths "$bin"
     verify_no_rpath "$bin"
 
@@ -190,6 +203,7 @@ install_framework() {
         [ "$f" = "$bin" ] && continue
         if file "$f" 2>/dev/null | grep -q "Mach-O"; then
             rewrite_rpath_deps "$f"
+            rewrite_abs_deps "$f"
             strip_rpaths "$f"
             verify_no_rpath "$f"
         fi
@@ -197,30 +211,147 @@ install_framework() {
     echo "  installed."
 }
 
-echo "### Deploying private C++ runtime to $PRIVLIBCXX (out of the fallback path)"
-mkdir -p "$PRIVLIBCXX"
-for lib in libc++.1.dylib libc++abi.1.dylib; do
-    cp -f "$TC/lib/$lib" "$PRIVLIBCXX/$lib"
-    "$INT" -id "$PRIVLIBCXX/$lib" "$PRIVLIBCXX/$lib"
-done
-# libc++ depends on libc++abi via @rpath; pin it absolute too. The toolchain's
-# libc++abi also carries a self-referential @rpath/libc++abi LC_LOAD_DYLIB —
-# pin that as well, or dyld fails to load it in processes with no rpath set.
-"$INT" -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$PRIVLIBCXX/libc++.1.dylib" 2>/dev/null || true
-"$INT" -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$PRIVLIBCXX/libc++abi.1.dylib" 2>/dev/null || true
-echo "### Deploying CG polyfill to $PRIVLIB"
-mkdir -p "$PRIVLIB"
-if [ -f "$HERE/prebuilt/libcg_polyfill.dylib" ]; then
-    backup "$PRIVLIB/libcg_polyfill.dylib"
-    cp -f "$HERE/prebuilt/libcg_polyfill.dylib" "$PRIVLIB/libcg_polyfill.dylib"
-    "$INT" -id "$PRIVLIB/libcg_polyfill.dylib" "$PRIVLIB/libcg_polyfill.dylib"
-fi
-
+# #68: the private runtime libs are deployed INTO the framework bundles AFTER the frameworks
+# are installed (install_framework rm -rf's each bundle first, which would wipe a pre-placed
+# lib). The frameworks' load commands are already rewritten to these absolute in-bundle paths
+# during install_framework, so recording them before the files exist is fine (paths resolve at
+# runtime). See the deploy block after the 32-bit graft below.
 echo "### Installing frameworks (name shift)"
 install_framework JavaScriptCore "$FRAMEWORKS_DIR/JavaScriptCore.framework" JavaScriptCore
 install_framework WebCore        "$PRIVATE_DIR/WebCore.framework"           WebCore
 install_framework WebKitLegacy   "$FRAMEWORKS_DIR/WebKit.framework"         WebKit
 install_framework WebKit         "$PRIVATE_DIR/WebKit2.framework"           WebKit2
+
+# ---------------------------------------------------------------------------
+# 32-bit (i386) compatibility — graft the STOCK 10.9 i386 slices back in.
+#
+# Our backport builds x86_64 only, but macOS 10.9 still runs 32-bit apps and the
+# stock WebKit shipped fat (x86_64 + i386). A 32-bit app that loads WebKit against
+# our x86_64-only binaries hits "dyld: no compatible architecture" and CRASHES.
+# Keep our modern x86_64 slice for 64-bit clients (Safari) and fatten each
+# installed binary with the ORIGINAL stock i386 slice, so 32-bit WebView apps load
+# the stock legacy WebKit1. dyld selects the slice by process arch and each slice
+# keeps its OWN load commands, so the two dependency graphs stay fully independent:
+#   x86_64 (us):    WebKit -> PrivateFrameworks/WebCore           + JavaScriptCore
+#   i386  (stock):  WebKit -> WebKit.framework/.../Frameworks/WebCore + JavaScriptCore
+# The i386 graph uses WebCore NESTED inside the WebKit umbrella (the stock 10.9
+# layout) — a different path than our x86_64 WebCore — so the two never collide.
+# The stock i386 slices reference only 10.9 system libs by absolute path (no
+# @rpath, no private runtime), so no install-name rewriting is needed for them.
+STOCK_BACKUP="${STOCK_BACKUP:-/Users/jonathan/Desktop/stock-webkit-backup}"
+
+# Replace a binary's bytes in place (preserves inode/owner/mode of the dest).
+replace_inplace() { cat "$1" > "$2"; }
+
+# Fatten an installed x86_64 binary with the i386 slice of a stock fat binary.
+graft_i386() {
+    local dest="$1" stock="$2"
+    [ -f "$dest" ]  || { echo "  graft: missing installed $dest" >&2; return 1; }
+    [ -f "$stock" ] || { echo "  graft: missing stock $stock" >&2; return 1; }
+    case "$(lipo -info "$stock" 2>/dev/null)" in
+        *i386*) ;;
+        *) echo "  graft: stock $stock has no i386 slice — skip" >&2; return 1;;
+    esac
+    case "$(lipo -info "$dest" 2>/dev/null)" in
+        *i386*) echo "  graft: $dest already fat with i386 — skip"; return 0;;
+    esac
+    local ti tf
+    ti="$(mktemp -t graft_i386)"; tf="$(mktemp -t graft_fat)"
+    lipo -thin i386 "$stock" -output "$ti"
+    lipo -create "$dest" "$ti" -output "$tf"
+    replace_inplace "$tf" "$dest"
+    rm -f "$ti" "$tf"
+    echo "  grafted i386 into $(basename "$dest") -> $(lipo -info "$dest" 2>/dev/null | sed 's/.*are: //')"
+}
+
+# The i386 WebKit/WebKit2 slices load WebCore NESTED in the umbrella. Our modern
+# build has no nested WebCore (it lives at PrivateFrameworks/WebCore for x86_64),
+# so recreate the stock nested WebCore as an i386-ONLY framework for the 32-bit
+# path (thinned so no 64-bit process can ever pick up the stock x86_64 WebCore).
+install_nested_i386_webcore() {
+    local stockNested="$STOCK_BACKUP/WebKit.framework/Versions/A/Frameworks/WebCore.framework"
+    local destNested="$FRAMEWORKS_DIR/WebKit.framework/Versions/A/Frameworks/WebCore.framework"
+    [ -d "$stockNested" ] || { echo "  nested WebCore: stock missing ($stockNested) — skip" >&2; return 1; }
+    rm -rf "$destNested"
+    mkdir -p "$(dirname "$destNested")"
+    cp -RP "$stockNested" "$destNested"
+    local nb="$destNested/Versions/A/WebCore" t
+    if [ -f "$nb" ]; then
+        t="$(mktemp -t nestedwc)"
+        lipo -thin i386 "$nb" -output "$t"
+        replace_inplace "$t" "$nb"; rm -f "$t"
+        echo "  installed nested i386 WebCore -> $(lipo -info "$nb" 2>/dev/null | sed 's/.*: //')"
+    fi
+}
+
+echo "### Grafting stock i386 slices for 32-bit app compatibility"
+graft_i386 "$FRAMEWORKS_DIR/JavaScriptCore.framework/Versions/A/JavaScriptCore" \
+           "$STOCK_BACKUP/JavaScriptCore.framework/Versions/A/JavaScriptCore"
+graft_i386 "$FRAMEWORKS_DIR/WebKit.framework/Versions/A/WebKit" \
+           "$STOCK_BACKUP/WebKit.framework/Versions/A/WebKit"
+graft_i386 "$PRIVATE_DIR/WebKit2.framework/Versions/A/WebKit2" \
+           "$STOCK_BACKUP/WebKit2.framework/Versions/A/WebKit2"
+install_nested_i386_webcore
+
+# ---------------------------------------------------------------------------
+# #68: deploy the private runtime libs INSIDE the framework bundles. Done here, AFTER every
+# install_framework (each rm -rf's its bundle) and after the 32-bit graft (which only lipo's
+# binaries and recreates the nested i386 WebCore subdir — neither touches these lib dirs).
+# The frameworks/XPC binaries already record these absolute in-bundle paths (set during
+# install_framework via id_path/rewrite_*); we just place the files + fix their own ids.
+echo "### Deploying private C++ runtime into JavaScriptCore.framework ($PRIVLIBCXX)"
+mkdir -p "$PRIVLIBCXX"
+for lib in libc++.1.dylib libc++abi.1.dylib; do
+    cp -f "$TC/lib/$lib" "$PRIVLIBCXX/$lib"
+    "$INT" -id "$PRIVLIBCXX/$lib" "$PRIVLIBCXX/$lib"
+done
+# libc++ loads libc++abi via @rpath (and libc++abi has a self-referential @rpath load too);
+# pin both absolute so dyld resolves them in processes with no rpath set.
+"$INT" -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$PRIVLIBCXX/libc++.1.dylib" 2>/dev/null || true
+"$INT" -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$PRIVLIBCXX/libc++abi.1.dylib" 2>/dev/null || true
+echo "### Deploying CG polyfill into WebCore.framework ($PRIVLIB)"
+mkdir -p "$PRIVLIB"
+if [ -f "$HERE/prebuilt/libcg_polyfill.dylib" ]; then
+    cp -f "$HERE/prebuilt/libcg_polyfill.dylib" "$PRIVLIB/libcg_polyfill.dylib"
+    "$INT" -id "$PRIVLIB/libcg_polyfill.dylib" "$PRIVLIB/libcg_polyfill.dylib"
+fi
+# Sandbox grants read only to world-readable files under /System with traversable parents.
+# Make the in-bundle lib dirs traversable and the dylibs world-readable.
+chmod 755 "$PRIVLIBCXX" "$PRIVLIB" 2>/dev/null || true
+chmod 644 "$PRIVLIBCXX"/*.dylib "$PRIVLIB"/*.dylib 2>/dev/null || true
+# Remove the pre-#68 standalone runtime dir now that nothing references it (self-contained).
+if [ -d "$OLD_PRIVRT" ]; then
+    rm -rf "$OLD_PRIVRT"
+    echo "  removed legacy $OLD_PRIVRT"
+fi
+
+# ---------------------------------------------------------------------------
+# #66: undocked Web Inspector toolbar appeared as a separate white bar instead of a
+# UNIFIED titlebar+toolbar. The real fix is native: _WKInspectorWindow now emulates
+# NSWindowStyleMaskFullSizeContentView (10.10+, ignored on 10.9) via a contentRect ==
+# frameRect override, so the inspector's HTML #toolbar fills the top of the window and
+# merges with the titlebar (traffic-light buttons float over it). Stock WebInspectorUI
+# CSS intentionally leaves the UNDOCKED toolbar transparent (only `body.docked .toolbar`
+# paints a gradient) because stock relied on a native textured titlebar showing through.
+# Our window has no textured titlebar, so we (1) paint the same docked gradient on the
+# now-top undocked toolbar and (2) reserve left space for the floating window buttons.
+# Idempotent (strips any prior copy first, marked with /*WK66-UNIFIED*/).
+echo "### Patching Web Inspector unified undocked toolbar (#66)"
+INSPECTOR_CSS=/System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/Resources/Main.css
+if [ -f "$INSPECTOR_CSS" ]; then
+    # Idempotent: strip any prior WebKit-66 rules (each on its own /*WK66-UNIFIED*/ line).
+    # Marker-only match — never line-matches the giant minified stylesheet (line 1).
+    if grep -q 'WK66-UNIFIED' "$INSPECTOR_CSS"; then
+        grep -v 'WK66-UNIFIED' "$INSPECTOR_CSS" > "$INSPECTOR_CSS.tmp66" && mv "$INSPECTOR_CSS.tmp66" "$INSPECTOR_CSS"
+    fi
+    # Ensure the stylesheet ends with a newline so our rules land on their own lines.
+    [ -n "$(tail -c1 "$INSPECTOR_CSS")" ] && printf '\n' >> "$INSPECTOR_CSS"
+    printf '%s\n' '/*WK66-UNIFIED*/body:not(.docked) #toolbar, body:not(.docked) .toolbar{background-image:-webkit-linear-gradient(top,rgb(216,216,216),rgb(190,190,190)) !important;box-shadow:inset rgba(255,255,255,0.1) 0 1px 0,inset rgba(0,0,0,0.02) 0 -1px 0 !important;}' >> "$INSPECTOR_CSS"
+    printf '%s\n' '/*WK66-UNIFIED*/body:not(.docked) #toolbar{padding-left:78px !important;}' >> "$INSPECTOR_CSS"
+    echo "  applied unified-toolbar CSS to $INSPECTOR_CSS"
+else
+    echo "  WARN: $INSPECTOR_CSS not found"
+fi
 
 echo "### Done. Verify with: MavericksSupport/safari7-abi/check-abi-gap.sh and 'otool -L' on each installed binary."
 echo "### (Nested XPCServices binaries' @rpath deps are rewritten automatically by install_framework.)"
