@@ -241,16 +241,14 @@ void MemoryPressureHandler::measurementTimerFired()
 
     setMemoryUsagePolicyBasedOnFootprint(footprint);
 
-    switch (m_memoryUsagePolicy) {
-    case MemoryUsagePolicy::Unrestricted:
-        break;
-    case MemoryUsagePolicy::Conservative:
-        releaseMemory(Critical::No, Synchronous::No);
-        break;
-    case MemoryUsagePolicy::Strict:
-        releaseMemory(Critical::Yes, Synchronous::No);
-        break;
-    }
+    // This poll only maintains the MemoryUsagePolicy above (which the rest of the engine reads via
+    // currentMemoryUsagePolicy()/isUnderMemoryPressure()); it deliberately does NOT reclaim here.
+    // Reclamation that runs synchronously on the main thread (cache eviction + scavenge) freezes
+    // interaction — a scroll-coincident poll froze the main thread for seconds. Routine bounding of
+    // the resident footprint is instead handled OFF the main thread by a background scavenger
+    // thread that periodically returns free pages to the OS (mirroring bmalloc's Scavenger thread,
+    // which this system-malloc port lacks); the heavy WebCore reclamation (decoded-image purge,
+    // deleteAllCode, GC) stays on the genuine OS-memory-pressure path (respondToMemoryPressure).
 }
 
 void MemoryPressureHandler::setProcessState(WebsamProcessState state)
