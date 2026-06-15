@@ -9636,10 +9636,9 @@ void HTMLMediaElement::setBufferingPolicy(BufferingPolicy policy)
 
 void HTMLMediaElement::purgeBufferedDataIfPossible()
 {
-    // 10.9 backport: media is disabled (createMediaPlayer/initializeMediaSession
-    // are stubs), so there's no buffered data to purge. Skip entirely to avoid
-    // crash via setBufferingPolicy → m_player/m_mediaSource null deref paths.
-    return;
+    // (Was disabled on the 10.9 backport back when media was stubbed; media now
+    // works, and setBufferingPolicy / mediaSessionIfExists below are null-safe, so
+    // run the real purge to bound memory growth from already-buffered media.)
     ALWAYS_LOG(LOGIDENTIFIER);
 
     bool isPausedOrMSE = [&] {

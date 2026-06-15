@@ -57,10 +57,15 @@ Vector<String> MIMETypeRegistry::extensionsForMIMEType(const String& type)
     return extensions;
 }
 
-bool MIMETypeRegistry::isApplicationPluginMIMEType(const String&)
+bool MIMETypeRegistry::isApplicationPluginMIMEType(const String& mimeType)
 {
-    // No application plug-ins on this 10.9 backport.
-    return false;
+    // 10.9 backport: "application plug-ins" are user-agent-provided plug-ins (the legacy
+    // WebKit-ObjC WebPlugin protocol), as opposed to third-party NPAPI — only these are
+    // permitted by SubframeLoader. Safari Web Clips render the clipped page through one such
+    // plug-in: application/x-apple-webclip-plug-in (the WebClip.plugin bundled in the
+    // Dashboard widget, loaded via WebKitLegacy's WebPluginDatabase). Allow it so the widget's
+    // <embed> is treated as a loadable plug-in. (No NPAPI/third-party plug-ins are enabled.)
+    return equalLettersIgnoringASCIICase(mimeType, "application/x-apple-webclip-plug-in"_s);
 }
 
 }

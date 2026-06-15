@@ -47,8 +47,29 @@ RetainPtr<NSData> SharedBuffer::createNSData() const
 
 RetainPtr<NSArray> FragmentedSharedBuffer::createNSDataArray() const
 {
-    // 10.9: one contiguous NSData segment is sufficient for callers here.
-    return @[ makeContiguous()->createNSData().get() ];
+    // Wrap each existing segment's bytes BY REFERENCE (no copy), keeping the segment alive for the
+    // NSData's lifetime via the deallocator block.
+    //
+    // The previous implementation returned `makeContiguous()->createNSData()`, i.e. a fresh contiguous
+    // *copy of the entire buffer* on every call. The AVFoundation media loader calls this on each
+    // received network chunk of a continuously-growing buffer (see
+    // WebCoreAVFResourceLoader::newDataStoredInSharedBuffer), so that copied O(n^2) bytes and -- because
+    // AVFoundation's -[AVAssetResourceLoadingDataRequest respondWithData:] retains what it is handed --
+    // accumulated gigabytes of ~1MB CFData copies for a streamed/looping <video> (e.g. the many
+    // auto-playing previews on a news front page rendered full-height inside a Web Clip). Wrapping the
+    // segments by reference both removes the per-call copy and lets the data be released normally.
+    RetainPtr<NSMutableArray> array = adoptNS([[NSMutableArray alloc] initWithCapacity:m_segments.size()]);
+    for (auto& entry : m_segments) {
+        RefPtr<const DataSegment> protectedSegment = entry.segment.ptr();
+        auto bytes = protectedSegment->span();
+        if (bytes.empty())
+            continue;
+        RetainPtr<NSData> data = adoptNS([[NSData alloc] initWithBytesNoCopy:const_cast<uint8_t*>(bytes.data())
+            length:bytes.size()
+            deallocator:^(void*, NSUInteger) { (void)protectedSegment; /* keeps the segment alive */ }]);
+        [array addObject:data.get()];
+    }
+    return array;
 }
 
 // Wrap the buffer's bytes in a CMBlockBuffer (used by toCMSampleBuffer to build CMSampleBuffers for

@@ -1,35 +1,215 @@
-// Stubbed for macOS 10.9 backport - uses CoreMedia PAL soft-link APIs not available
+/*
+ * Copyright (C) 2017 Apple Inc. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+// 10.9 backport: this file was previously stubbed down to setSampleCount()+buffers(), so
+// WebAudioBufferList never allocated its backing storage. That left the mic capture buffer
+// (m_microphoneSampleBuffer in CoreAudioCaptureUnit) zero-capacity, so AudioUnitRender wrote
+// past it and crashed WebContent on getUserMedia({audio}). The stub claimed the CoreMedia PAL
+// soft-link APIs were unavailable on 10.9, but they are present (CMBlockBufferCreateWithMemoryBlock,
+// CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer, CMBlockBufferGetDataSpan) and
+// CoreAudioExtras.h provides createAudioBufferList/span/allocationSize — so the full upstream
+// implementation compiles unchanged and is restored here.
 #include "config.h"
 #include "WebAudioBufferList.h"
 
-#include <CoreAudio/CoreAudioTypes.h>
+#include "CAAudioStreamDescription.h"
+#include "Logging.h"
+#include <pal/cf/CoreAudioExtras.h>
+#include <wtf/CheckedArithmetic.h>
+#include <wtf/IndexedRange.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
+
+#include <pal/cf/CoreMediaSoftLink.h>
 
 namespace WebCore {
 
-// 10.9 backport: the rest of WebAudioBufferList is stubbed (its construction path uses CoreMedia
-// soft-link APIs unavailable on 10.9), but setSampleCount is referenced by
-// SpeechRecognitionRemoteRealtimeMediaSource and must resolve for the WebKit framework to link.
-// Provide a minimal, self-contained version (no computeBufferSizes/initializeList/m_flatBuffer deps,
-// which are stubbed) that simply clamps each buffer's byte size to the requested sample count.
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebAudioBufferList);
+
+WebAudioBufferList::WebAudioBufferList(const CAAudioStreamDescription& format)
+    : m_bytesPerFrame(format.bytesPerFrame())
+    , m_channelCount(format.numberOfInterleavedChannels())
+{
+    uint32_t bufferCount = format.numberOfChannelStreams();
+    lazyInitialize(m_canonicalList, PAL::createAudioBufferList(bufferCount, PAL::ShouldZeroMemory::Yes));
+    auto canonicalListBuffers = span(*m_canonicalList);
+    for (uint32_t buffer = 0; buffer < bufferCount; ++buffer)
+        canonicalListBuffers[buffer].mNumberChannels = m_channelCount;
+
+    reset();
+}
+
+WebAudioBufferList::WebAudioBufferList(const CAAudioStreamDescription& format, size_t sampleCount)
+    : WebAudioBufferList(format)
+{
+    setSampleCount(sampleCount);
+}
+
+WebAudioBufferList::~WebAudioBufferList() = default;
+
+static inline std::optional<std::pair<size_t, size_t>> NODELETE computeBufferSizes(uint32_t numberOfInterleavedChannels, uint32_t bytesPerFrame, uint32_t numberOfChannelStreams, size_t sampleCount)
+{
+    size_t totalSampleCount;
+    bool result = WTF::safeMultiply(sampleCount, numberOfInterleavedChannels, totalSampleCount);
+    if (!result)
+        return { };
+
+    size_t bytesPerBuffer;
+    result = WTF::safeMultiply(bytesPerFrame, totalSampleCount, bytesPerBuffer);
+    if (!result)
+        return { };
+
+    size_t flatBufferSize;
+    result = WTF::safeMultiply(numberOfChannelStreams, bytesPerBuffer, flatBufferSize);
+    if (!result)
+        return { };
+
+    return std::make_pair(bytesPerBuffer, flatBufferSize);
+}
+
+bool WebAudioBufferList::isSupportedDescription(const CAAudioStreamDescription& format, size_t sampleCount)
+{
+    return !!computeBufferSizes(format.numberOfInterleavedChannels(), format.bytesPerFrame(), format.numberOfChannelStreams(), sampleCount);
+}
+
 void WebAudioBufferList::setSampleCount(size_t sampleCount)
 {
     if (!sampleCount || m_sampleCount == sampleCount)
         return;
+
+    auto bufferSizes = computeBufferSizes(m_channelCount, m_bytesPerFrame, m_canonicalList->mNumberBuffers, sampleCount);
+    ASSERT(bufferSizes);
+    if (!bufferSizes)
+        return;
+
     m_sampleCount = sampleCount;
-    if (AudioBufferList* bufferList = list()) {
-        for (uint32_t i = 0; i < bufferList->mNumberBuffers; ++i)
-            bufferList->mBuffers[i].mDataByteSize = static_cast<UInt32>(sampleCount * m_bytesPerFrame);
-    }
+
+    m_flatBuffer.resize(bufferSizes->second);
+    initializeList(m_flatBuffer.mutableSpan().first(bufferSizes->second), bufferSizes->first);
 }
 
-// 10.9 backport: also referenced (besides setSampleCount) and otherwise undefined because the rest of
-// this file is stubbed. Returns a range over the live AudioBufferList's buffers (empty if unset).
-IteratorRange<AudioBuffer*> WebAudioBufferList::buffers() const
+std::optional<std::pair<UniqueRef<WebAudioBufferList>, RetainPtr<CMBlockBufferRef>>> WebAudioBufferList::createWebAudioBufferListWithBlockBuffer(const CAAudioStreamDescription& description, size_t sampleCount)
 {
-    AudioBufferList* bufferList = list();
-    if (!bufferList || !bufferList->mNumberBuffers)
-        return { nullptr, nullptr };
-    return { &bufferList->mBuffers[0], &bufferList->mBuffers[0] + bufferList->mNumberBuffers };
+    ASSERT(sampleCount);
+
+    if (!sampleCount)
+        return { };
+
+    auto instance = makeUniqueRef<WebAudioBufferList>(description);
+    if (RetainPtr block = instance->setSampleCountWithBlockBuffer(sampleCount))
+        return std::make_pair(WTF::move(instance), WTF::move(block));
+
+    return { };
 }
 
-} // namespace WebCore
+RetainPtr<CMBlockBufferRef> WebAudioBufferList::setSampleCountWithBlockBuffer(size_t sampleCount)
+{
+    auto bufferSizes = computeBufferSizes(m_channelCount, m_bytesPerFrame, m_canonicalList->mNumberBuffers, sampleCount);
+    ASSERT(bufferSizes);
+    if (!bufferSizes) {
+        RELEASE_LOG_ERROR(Media, "WebAudioBufferList::setSampleCountWithBlockBuffer overflow");
+        return { };
+    }
+
+    CMBlockBufferRef blockBuffer = nullptr;
+    // 10.9 backport: in this tree CMBlockBufferCreateWithMemoryBlock is a soft-link macro
+    // that already expands to PAL::…, so it must be called unqualified (unlike the inline
+    // PAL helpers CMBlockBufferGetDataSpan / createAudioBufferList which keep their PAL:: prefix).
+    if (auto error = CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, nullptr, bufferSizes->second, kCFAllocatorDefault, nullptr, 0, bufferSizes->second, kCMBlockBufferAssureMemoryNowFlag, &blockBuffer)) {
+        RELEASE_LOG_ERROR(Media, "WebAudioBufferList::setSampleCountWithBlockBuffer CMBlockBufferCreateWithMemoryBlock failed with: %d", static_cast<int>(error));
+        return { };
+    }
+    RetainPtr block = adoptCF(blockBuffer);
+
+    auto data = PAL::CMBlockBufferGetDataSpan(blockBuffer);
+    if (!data.data()) {
+        RELEASE_LOG_ERROR(Media, "WebAudioBufferList::setSampleCountWithBlockBuffer CMBlockBufferGetDataSpan failed.");
+        return { };
+    }
+    m_blockBuffer = WTF::move(block);
+
+    initializeList(data.first(bufferSizes->second), bufferSizes->first);
+
+    return m_blockBuffer;
+}
+
+void WebAudioBufferList::initializeList(std::span<uint8_t> buffer, size_t channelLength)
+{
+    zeroSpan(buffer);
+
+    for (auto [index, canonicalListBuffer] : indexedRange(span(*m_canonicalList))) {
+        canonicalListBuffer.mData = buffer.subspan(channelLength * index).data();
+        canonicalListBuffer.mDataByteSize = channelLength;
+    }
+
+    reset();
+}
+
+WebAudioBufferList::WebAudioBufferList(const CAAudioStreamDescription& format, CMSampleBufferRef sampleBuffer)
+    : WebAudioBufferList(format)
+{
+    if (!sampleBuffer)
+        return;
+
+    CMBlockBufferRef buffer = nullptr;
+    if (noErr == CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer, nullptr, m_canonicalList.get(), PAL::allocationSize(*m_canonicalList), kCFAllocatorSystemDefault, kCFAllocatorSystemDefault, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &buffer))
+        m_blockBuffer = adoptCF(buffer);
+
+    reset();
+}
+
+void WebAudioBufferList::reset()
+{
+    if (!m_list)
+        lazyInitialize(m_list, createAudioBufferList(m_canonicalList->mNumberBuffers, PAL::ShouldZeroMemory::No));
+    memcpySpan(span(*m_list), span(*m_canonicalList));
+}
+
+IteratorRange<::AudioBuffer*> WebAudioBufferList::buffers() const
+{
+    auto buffers = span(*m_list);
+    return WTF::makeIteratorRange(std::to_address(buffers.begin()), std::to_address(buffers.end()));
+}
+
+uint32_t WebAudioBufferList::bufferCount() const
+{
+    return m_list->mNumberBuffers;
+}
+
+::AudioBuffer* WebAudioBufferList::buffer(uint32_t index) const
+{
+    auto buffers = span(*m_list);
+    ASSERT(index < buffers.size());
+    if (index < buffers.size())
+        return &buffers[index];
+    return nullptr;
+}
+
+void WebAudioBufferList::zeroFlatBuffer()
+{
+    m_flatBuffer.fill(0);
+}
+
+}
