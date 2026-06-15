@@ -327,19 +327,15 @@ void TimerBase::stopSlowCase()
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
 
-    // 10.9 backport: setNextFireTime walks the global timer heap, which gets
-    // corrupted on this build. Calling it from navigation tear-down crashes in
-    // __sift_up / heapInsert. Bypass the heap-walking path: clear our state and
-    // detach from the heap item. Orphan heap entries get pruned by ThreadTimers
-    // on its next pass (it skips entries whose hasTimer() is false).
-#if PLATFORM(MAC)
-    Locker timerHeapLocker { sharedTimerHeapLock() };
-#endif
+    // Properly remove this timer's item from the shared heap, as upstream does:
+    // setNextFireTime({}) drives updateHeapIfNeeded → heapDelete (which locks the
+    // heap internally). The earlier 10.9 backport instead detached and left an ORPHAN
+    // !hasTimer() entry in the heap (to dodge a __sift_up crash on the then-corrupted
+    // heap), which made stale entries accumulate, jam heap min-extraction, and require
+    // the heapInsert scrub. The heap corruption is fixed (RunLoop-lifetime keystone
+    // #42), so the real removal is safe and orphans are no longer created.
     m_repeatInterval = 0_s;
-    m_unalignedNextFireTime = MonotonicTime { };
-    if (RefPtr item = m_heapItemWithBitfields.pointer())
-        item->clearTimer();
-    m_heapItemWithBitfields.setPointer(nullptr);
+    setNextFireTime(MonotonicTime { });
 }
 
 Seconds TimerBase::nextFireInterval() const
@@ -421,47 +417,6 @@ inline void TimerBase::heapInsert()
     RefPtr item = m_heapItemWithBitfields.pointer();
     ASSERT(item);
     auto& heap = item->timerHeap();
-    // 10.9 backport: scrub corrupt entries before any heap operation. Without
-    // this, push_heap (called by heapDecreaseKey below) crashes inside __sift_up
-    // dereferencing entries whose Ref<>::ptr is bogus.
-    {
-        bool needsRebuild = false;
-        size_t origSize = heap.size();
-        if (origSize > 0x10000) {
-            heap.clear();
-            origSize = 0;
-        }
-        for (size_t i = 0; i < origSize; ++i) {
-            auto* hi = heap[i].ptr();
-            uintptr_t addr = reinterpret_cast<uintptr_t>(hi);
-            if (addr < 0x100000 || (addr >> 47) || (addr & 0x7) || !hi->hasTimer()) {
-                needsRebuild = true;
-                break;
-            }
-        }
-        if (needsRebuild) {
-            Vector<Ref<ThreadTimerHeapItem>> survivors;
-            for (size_t i = 0; i < origSize; ++i) {
-                auto& entry = heap[i];
-                auto* hi = entry.ptr();
-                uintptr_t addr = reinterpret_cast<uintptr_t>(hi);
-                if (addr < 0x100000 || (addr >> 47) || (addr & 0x7))
-                    continue;
-                if (!hi->hasTimer())
-                    continue;
-                double t = hi->time.secondsSinceEpoch().value();
-                if (std::isnan(t) || std::isinf(t))
-                    continue;
-                survivors.append(entry);
-            }
-            heap.clear();
-            for (size_t i = 0; i < survivors.size(); ++i) {
-                survivors[i]->setHeapIndex(i);
-                heap.append(WTF::move(survivors[i]));
-            }
-        }
-    }
-
     heap.append(*item);
     item->setHeapIndex(heap.size() - 1);
     heapDecreaseKey();

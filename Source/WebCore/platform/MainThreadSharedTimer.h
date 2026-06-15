@@ -64,6 +64,13 @@ public:
     WEBCORE_EXPORT static bool& NODELETE shouldSetupPowerObserver();
     WEBCORE_EXPORT static void restartSharedTimer();
 
+    // 10.9 backport: let the embedder (WebProcess) keep a UIProcess display-link heartbeat alive
+    // during bursts of short-interval timer work, to un-throttle the ~6Hz WebContent main thread
+    // (xpc_main/dispatch_main) so SPA asset loading etc. doesn't crawl. Called from setFireInterval
+    // only for short intervals; the heartbeat does NOT fire DOM timers, so it cannot self-sustain.
+    WEBCORE_EXPORT static void setShortTimerActivityCallback(void (*)());
+    static void notifyShortTimerActivityIfNeeded(Seconds interval);
+
 private:
     MainThreadSharedTimer();
 
