@@ -420,6 +420,9 @@ private:
 #if PLATFORM(MAC)
     RefPtr<AVAssetReaderVideoPump> m_assetReaderPump;
     RefPtr<AVAssetReaderAudioPump> m_assetReaderAudioPump;
+    // 10.9 backport (#67): path to the concatenated local .ts built from an HLS (.m3u8) source, so it
+    // can be removed on teardown. nil for non-HLS sources.
+    RetainPtr<NSString> m_hlsLocalFilePath;
 #endif
     const UniqueRef<VideoLayerManagerObjC> m_videoLayerManager;
     MediaPlayer::VideoGravity m_videoFullscreenGravity { MediaPlayer::VideoGravity::ResizeAspect };

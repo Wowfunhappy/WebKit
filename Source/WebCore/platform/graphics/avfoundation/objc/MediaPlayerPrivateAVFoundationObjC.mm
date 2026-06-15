@@ -79,8 +79,11 @@
 #import "WebCoreCALayerExtras.h"
 #import "WebCoreNSURLExtras.h"
 #import "WebCoreNSURLSession.h"
+#import <AVFoundation/AVAssetExportSession.h>
 #import <AVFoundation/AVAssetImageGenerator.h>
 #import <AVFoundation/AVAssetTrack.h>
+#import <AVFoundation/AVComposition.h>
+#import <AVFoundation/AVCompositionTrack.h>
 #import <AVFoundation/AVMediaSelectionGroup.h>
 #import <AVFoundation/AVMetadataItem.h>
 #import <AVFoundation/AVPlayer.h>
@@ -327,6 +330,239 @@ namespace WebCore {
 // composites via the software path that already works). Playback timing is driven by the media
 // element's own clock (MediaPlayerPrivateAVFoundationObjC::currentTime(), which is wall-clock
 // extrapolated), so audio/UI stay in sync. See project_video_decode_works_assetreader_may23.
+
+// 10.9 backport (#67): AVAssetReader decodes a concatenated MPEG-TS / fragmented-MP4 stream but
+// CANNOT consume an HLS (.m3u8) playlist (and the AVPlayer HLS path is dead, per above). So for an
+// HLS source we fetch the playlist, resolve a variant, download its media segments in order, and
+// concatenate them into a single local file the AVAssetReader pump CAN read. TS segments concatenate
+// directly; fMP4 segments are prefixed with the EXT-X-MAP init segment. VOD-oriented; encrypted
+// (EXT-X-KEY) streams are skipped (returns nil). Runs on a background queue (synchronous fetches).
+static void hlsLog(NSString *msg)
+{
+    // WebContent's sandbox denies /tmp writes, so log via NSLog (readable from the system log via
+    // `syslog -k Sender com.apple.WebKit.WebContent` or Console). Diagnostic for #67.
+    NSLog(@"WKHLS %@", msg);
+}
+
+// Sandbox-safe synchronous fetch: the WebContent sandbox permits NSURLSession (used for the MP4
+// temp download) but synchronous CFNetwork (NSData dataWithContentsOfURL:) is unreliable here. The
+// NSURLSession data-task completion is ALWAYS invoked (success or error), so the wait is bounded by
+// the session's own timeout. MUST NOT be called on the shared session's completion queue (deadlock);
+// the HLS build runs on a global queue.
+static RetainPtr<NSData> hlsSyncFetch(NSURL *url)
+{
+    if (!url)
+        return nil;
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    __block NSData *result = nil;
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *, NSError *error) {
+        result = [data retain];
+        dispatch_semaphore_signal(sem);
+    }];
+    [task resume];
+    dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+    return adoptNS(result);
+}
+
+static RetainPtr<NSURL> hlsPickVariantURL(NSString *master, NSURL *masterURL)
+{
+    NSArray<NSString *> *lines = [master componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+    NSString *bestURI = nil;
+    long long bestBandwidth = -1;
+    for (NSUInteger i = 0; i + 1 < lines.count; ++i) {
+        NSString *l = [lines[i] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (![l hasPrefix:@"#EXT-X-STREAM-INF"])
+            continue;
+        NSString *uri = nil;
+        for (NSUInteger j = i + 1; j < lines.count; ++j) {
+            NSString *cand = [lines[j] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            if (!cand.length || [cand hasPrefix:@"#"])
+                continue;
+            uri = cand;
+            break;
+        }
+        if (!uri)
+            continue;
+        long long bw = 0;
+        NSRange br = [l rangeOfString:@"BANDWIDTH="];
+        if (br.location != NSNotFound)
+            bw = [[[[l substringFromIndex:NSMaxRange(br)] componentsSeparatedByString:@","] firstObject] longLongValue];
+        // Pick the LOWEST-bandwidth variant: smallest download + lightest decode for the 10.9 path.
+        if (bestBandwidth < 0 || (bw > 0 && bw < bestBandwidth)) {
+            bestBandwidth = bw > 0 ? bw : 0;
+            bestURI = uri;
+        }
+    }
+    if (!bestURI)
+        return nil;
+    return [[NSURL URLWithString:bestURI relativeToURL:masterURL] absoluteURL];
+}
+
+static RetainPtr<NSString> buildConcatenatedHLSFile(NSURL *playlistURL)
+{
+    hlsLog([NSString stringWithFormat:@"build start url=%@", playlistURL]);
+    RetainPtr<NSData> playlistData = hlsSyncFetch(playlistURL);
+    RetainPtr<NSString> playlist = playlistData ? adoptNS([[NSString alloc] initWithData:playlistData.get() encoding:NSUTF8StringEncoding]) : RetainPtr<NSString> { };
+    if (!playlist) {
+        hlsLog(@"playlist fetch failed");
+        return nil;
+    }
+
+    RetainPtr<NSURL> mediaURL = playlistURL;
+    RetainPtr<NSString> media = playlist;
+
+    // Resolve a master playlist down to a single variant media playlist. (NSString containsString:
+    // is 10.10+; use rangeOfString: so this works on 10.9.)
+    if ([playlist.get() rangeOfString:@"#EXT-X-STREAM-INF"].location != NSNotFound) {
+        RetainPtr<NSURL> variant = hlsPickVariantURL(playlist.get(), playlistURL);
+        if (variant) {
+            RetainPtr<NSData> vd = hlsSyncFetch(variant.get());
+            if (vd) {
+                RetainPtr<NSString> vs = adoptNS([[NSString alloc] initWithData:vd.get() encoding:NSUTF8StringEncoding]);
+                if (vs) {
+                    media = vs;
+                    mediaURL = variant;
+                }
+            }
+        }
+    }
+
+    // Collect media segment URIs (+ an optional fMP4 init segment); bail on encryption.
+    RetainPtr<NSMutableArray> segments = adoptNS([[NSMutableArray alloc] init]);
+    NSString *initURI = nil;
+    bool encrypted = false;
+    for (NSString *raw in [media.get() componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
+        NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (!line.length)
+            continue;
+        if ([line hasPrefix:@"#EXT-X-KEY"] && [line rangeOfString:@"METHOD=NONE"].location == NSNotFound) {
+            encrypted = true;
+            break;
+        }
+        if ([line hasPrefix:@"#EXT-X-MAP"]) {
+            NSRange r = [line rangeOfString:@"URI=\""];
+            if (r.location != NSNotFound) {
+                NSString *rest = [line substringFromIndex:NSMaxRange(r)];
+                NSRange q = [rest rangeOfString:@"\""];
+                if (q.location != NSNotFound)
+                    initURI = [rest substringToIndex:q.location];
+            }
+            continue;
+        }
+        if ([line hasPrefix:@"#"])
+            continue;
+        [segments.get() addObject:line];
+    }
+    hlsLog([NSString stringWithFormat:@"parsed: encrypted=%d segments=%lu initURI=%@", encrypted, (unsigned long)segments.get().count, initURI ? initURI : @"(none)"]);
+    if (encrypted || !segments.get().count)
+        return nil;
+
+    bool fragmentedMP4 = initURI.length > 0;
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    // Download the (optional) fMP4 init segment once; each fMP4 media segment must be prefixed with it
+    // to parse as a standalone asset. (TS segments are self-describing.)
+    RetainPtr<NSData> initData;
+    if (fragmentedMP4 && initURI.length) {
+        RetainPtr<NSURL> iu = [[NSURL URLWithString:initURI relativeToURL:mediaURL.get()] absoluteURL];
+        if (iu)
+            initData = hlsSyncFetch(iu.get());
+    }
+
+    // Download each media segment to its OWN local file and stitch them, in order, into an
+    // AVMutableComposition. AVFoundation rebases every segment onto a single continuous timeline, so
+    // the result has monotonic timestamps end-to-end — unlike raw byte concatenation, where the
+    // per-segment PTS restart at each boundary and AVAssetReader stops after the first segment (the
+    // <video> would freeze ~6 s in). The stitched composition is then exported, passthrough (no
+    // re-encode), to one QuickTime file the normal local-file load path consumes.
+    RetainPtr<NSString> segDir = [NSString stringWithFormat:@"%@wk_hlsseg_%08x", NSTemporaryDirectory(), arc4random()];
+    [fm createDirectoryAtPath:segDir.get() withIntermediateDirectories:YES attributes:nil error:nil];
+
+    AVMutableComposition *composition = (AVMutableComposition *)[NSClassFromString(@"AVMutableComposition") composition];
+    AVMutableCompositionTrack *videoCompTrack = nil;
+    AVMutableCompositionTrack *audioCompTrack = nil;
+    CMTime cursor = kCMTimeZero;
+    NSUInteger cap = 4000; // safety bound against runaway/live playlists
+    NSUInteger n = 0;
+    NSUInteger segIndex = 0;
+    @try {
+        for (NSString *seg in segments.get()) {
+            if (n++ >= cap)
+                break;
+            RetainPtr<NSURL> su = [[NSURL URLWithString:seg relativeToURL:mediaURL.get()] absoluteURL];
+            if (!su)
+                continue;
+            RetainPtr<NSData> sd = hlsSyncFetch(su.get());
+            if (!sd)
+                continue;
+            RetainPtr<NSString> segPath = [segDir.get() stringByAppendingPathComponent:[NSString stringWithFormat:@"s%05lu.%@", (unsigned long)segIndex++, fragmentedMP4 ? @"mp4" : @"ts"]];
+            if (fragmentedMP4 && initData) {
+                RetainPtr<NSMutableData> combined = [NSMutableData dataWithData:initData.get()];
+                [combined.get() appendData:sd.get()];
+                [combined.get() writeToFile:segPath.get() atomically:NO];
+            } else
+                [sd.get() writeToFile:segPath.get() atomically:NO];
+
+            RetainPtr<AVURLAsset> segAsset = adoptNS([PAL::allocAVURLAssetInstance() initWithURL:[NSURL fileURLWithPath:segPath.get()] options:nil]);
+            CMTime segDur = [segAsset.get() duration];
+            if (!CMTIME_IS_VALID(segDur) || CMTIME_IS_INDEFINITE(segDur) || CMTimeCompare(segDur, kCMTimeZero) <= 0)
+                continue;
+            AVAssetTrack *segVideo = [[segAsset.get() tracksWithMediaType:AVMediaTypeVideo] firstObject];
+            AVAssetTrack *segAudio = [[segAsset.get() tracksWithMediaType:AVMediaTypeAudio] firstObject];
+            CMTimeRange range = CMTimeRangeMake(kCMTimeZero, segDur);
+            if (segVideo) {
+                if (!videoCompTrack)
+                    videoCompTrack = [composition addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:0];
+                [videoCompTrack insertTimeRange:range ofTrack:segVideo atTime:cursor error:nil];
+            }
+            if (segAudio) {
+                if (!audioCompTrack)
+                    audioCompTrack = [composition addMutableTrackWithMediaType:AVMediaTypeAudio preferredTrackID:0];
+                [audioCompTrack insertTimeRange:range ofTrack:segAudio atTime:cursor error:nil];
+            }
+            cursor = CMTimeAdd(cursor, segDur);
+        }
+    } @catch (NSException *exception) {
+        hlsLog([NSString stringWithFormat:@"EXCEPTION building composition: %@", exception]);
+        [fm removeItemAtPath:segDir.get() error:nil];
+        return nil;
+    }
+
+    if (!videoCompTrack || CMTimeCompare(cursor, kCMTimeZero) <= 0) {
+        hlsLog(@"no usable segments");
+        [fm removeItemAtPath:segDir.get() error:nil];
+        return nil;
+    }
+
+    // Export the stitched composition, passthrough, to a single QuickTime file the local-file path loads.
+    RetainPtr<NSString> outPath = [NSString stringWithFormat:@"%@wk_hls_%08x.mov", NSTemporaryDirectory(), arc4random()];
+    [fm removeItemAtPath:outPath.get() error:nil];
+    RetainPtr<AVAssetExportSession> exporter = adoptNS([PAL::allocAVAssetExportSessionInstance() initWithAsset:composition presetName:@"AVAssetExportPresetPassthrough"]);
+    if (!exporter) {
+        hlsLog(@"export session alloc failed");
+        [fm removeItemAtPath:segDir.get() error:nil];
+        return nil;
+    }
+    [exporter.get() setOutputURL:[NSURL fileURLWithPath:outPath.get()]];
+    [exporter.get() setOutputFileType:@"com.apple.quicktime-movie"]; // AVFileTypeQuickTimeMovie
+    [exporter.get() setShouldOptimizeForNetworkUse:YES];
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+    [exporter.get() exportAsynchronouslyWithCompletionHandler:^{
+        dispatch_semaphore_signal(sem);
+    }];
+    dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+    long status = [exporter.get() status];
+    // The composition referenced the per-segment files; the export has baked them into outPath.
+    [fm removeItemAtPath:segDir.get() error:nil];
+    if (status != 3 /* AVAssetExportSessionStatusCompleted */) {
+        hlsLog([NSString stringWithFormat:@"export failed status=%ld error=%@", status, [exporter.get() error]]);
+        [fm removeItemAtPath:outPath.get() error:nil];
+        return nil;
+    }
+    hlsLog([NSString stringWithFormat:@"export done -> %@ (%.1fs)", outPath.get(), CMTimeGetSeconds(cursor)]);
+    return outPath;
+}
+
 class AVAssetReaderVideoPump : public ThreadSafeRefCounted<AVAssetReaderVideoPump> {
 public:
     static Ref<AVAssetReaderVideoPump> create(AVURLAsset *asset, CALayer *hostLayer, FloatSize presentationSize, Function<MediaTime()>&& currentTimeProvider)
@@ -1259,6 +1495,13 @@ void MediaPlayerPrivateAVFoundationObjC::cancelLoad()
 
     // Reset cached properties
     m_createAssetPending = false;
+#if PLATFORM(MAC)
+    // 10.9 backport (#67): remove the concatenated HLS .ts we built for this element (if any).
+    if (m_hlsLocalFilePath) {
+        [[NSFileManager defaultManager] removeItemAtPath:m_hlsLocalFilePath.get() error:nil];
+        m_hlsLocalFilePath = nil;
+    }
+#endif
     m_haveCheckedPlayability = false;
     m_pendingStatusChanges = 0;
     m_cachedItemStatus = MediaPlayerAVPlayerItemStatusDoesNotExist;
@@ -1593,6 +1836,37 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url)
 
     m_createAssetPending = true;
     RetainPtr<NSMutableDictionary> options = adoptNS([[NSMutableDictionary alloc] init]);
+
+#if PLATFORM(MAC)
+    // 10.9 backport (#67): AVFoundation's HLS (.m3u8) playback pipeline is dead on this OS — the asset
+    // never yields video tracks or a running clock, so the <video> stays black (item status Failed).
+    // Instead, fetch the playlist + its media segments and concatenate them into one local .ts that the
+    // normal local-file path already handles correctly: the AVAssetReader video/audio pumps decode the
+    // frames and AVPlayer (on a local file) drives the clock. Defer asset creation — build the .ts on a
+    // background queue, then create the asset from the local file so the ENTIRE standard load flow
+    // (checkPlayability → tracks → hasVideo → dimensions → duration → pump) runs unchanged. URL-gated on
+    // ".m3u8" so every non-HLS source stays byte-for-byte the original path.
+    if ([[url.createNSURL().get() absoluteString] rangeOfString:@".m3u8" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+        RetainPtr<NSURL> sourceURL = url.createNSURL();
+        ThreadSafeWeakPtr weakThis { *this };
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), makeBlockPtr([weakThis, sourceURL, options]() mutable {
+            RetainPtr<NSString> tsPath = buildConcatenatedHLSFile(sourceURL.get());
+            dispatch_async(dispatch_get_main_queue(), makeBlockPtr([weakThis, tsPath, options]() mutable {
+                RefPtr protectedThis = weakThis.get();
+                if (!protectedThis)
+                    return;
+                protectedThis->m_createAssetPending = false;
+                if (!tsPath) {
+                    protectedThis->setNetworkState(MediaPlayer::NetworkState::NetworkError);
+                    return;
+                }
+                protectedThis->m_hlsLocalFilePath = tsPath;
+                protectedThis->createAVAssetForURL(URL::fileURLWithFileSystemPath(String { tsPath.get() }), WTF::move(options));
+            }).get());
+        }).get());
+        return;
+    }
+#endif
 
 #if PLATFORM(IOS_FAMILY)
     if (!PAL::canLoad_AVFoundation_AVURLAssetHTTPCookiesKey()) {
@@ -1990,37 +2264,47 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
         // noexcept C++ context), and an NSException escaping an AVFoundation call
         // (e.g. a 10.10+ selector absent on 10.9) would unwind into objc_terminate
         // and SIGILL-crash the whole WebContent (this is how Twitch/HLS crashed).
+        // 10.9 backport: use a recurring dispatch_source timer instead of a self-rescheduling
+        // __block dispatch_after block. The recursive-block pattern corrupted/freed the block and
+        // crashed WebContent in _dispatch_Block_copy when the page navigated away from a playing
+        // video mid-poll. The timer is held alive by a __block OSObjectPtr captured in its handler
+        // and cancels itself once the player is ready/failed/gone or after ~30s; weakThis guards
+        // every access so a fire after the player is destroyed is a no-op (no use-after-free).
         ThreadSafeWeakPtr weakThis { *this };
         __block NSInteger pollAttempts = 0;
-        __block void (^statusPoll)(void) = nil;
-        statusPoll = ^{
+        OSObjectPtr<dispatch_source_t> pollTimer = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, mainDispatchQueueSingleton()));
+        dispatch_source_t pollTimerRef = pollTimer.get();
+        __block OSObjectPtr<dispatch_source_t> pollTimerKeepAlive = pollTimer;
+        dispatch_source_set_timer(pollTimerRef, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), NSEC_PER_SEC / 4, NSEC_PER_SEC / 20);
+        dispatch_source_set_event_handler(pollTimerRef, ^{
             RefPtr p = weakThis.get();
-            if (!p || !p->m_avPlayerItem || !p->m_avPlayer) {
-                statusPoll = nil;
-                return;
+            BOOL done = NO;
+            if (!p || !p->m_avPlayerItem || !p->m_avPlayer)
+                done = YES;
+            else {
+                @try {
+                    long playerS = (long)[p->m_avPlayer status];
+                    BOOL playable = [[p->m_avAsset valueForKey:@"playable"] boolValue];
+                    if (playerS == 1 /* ReadyToPlay */ && playable && p->m_cachedItemStatus == 0) {
+                        p->playerItemStatusDidChange(1 /* AVPlayerItemStatusReadyToPlay */);
+                        p->m_cachedLikelyToKeepUp = true;
+                        p->loadedTimeRangesDidChange([p->m_avPlayerItem loadedTimeRanges]);
+                        done = YES;
+                    } else if (playerS == 2 /* Failed */)
+                        done = YES;
+                } @catch (NSException *exception) {
+                    NSLog(@"WK-AVF-EXC: status-poll block caught %@ reason=%@", [exception name], [exception reason]);
+                    done = YES;
+                }
+                if (++pollAttempts > 120)
+                    done = YES;
             }
-            BOOL finished = NO;
-            @try {
-                long playerS = (long)[p->m_avPlayer status];
-                BOOL playable = [[p->m_avAsset valueForKey:@"playable"] boolValue];
-                if (playerS == 1 /* ReadyToPlay */ && playable && p->m_cachedItemStatus == 0) {
-                    p->playerItemStatusDidChange(1 /* AVPlayerItemStatusReadyToPlay */);
-                    p->m_cachedLikelyToKeepUp = true;
-                    p->loadedTimeRangesDidChange([p->m_avPlayerItem loadedTimeRanges]);
-                    finished = YES;
-                } else if (playerS == 2 /* Failed */)
-                    finished = YES;
-            } @catch (NSException *exception) {
-                NSLog(@"WK-AVF-EXC: status-poll block caught %@ reason=%@", [exception name], [exception reason]);
-                finished = YES;
+            if (done && pollTimerKeepAlive) {
+                dispatch_source_cancel(pollTimerKeepAlive.get());
+                pollTimerKeepAlive = nullptr;
             }
-            if (finished || ++pollAttempts > 120) {
-                statusPoll = nil;
-                return;
-            }
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), mainDispatchQueueSingleton(), statusPoll);
-        };
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), mainDispatchQueueSingleton(), statusPoll);
+        });
+        dispatch_resume(pollTimerRef);
     }
 
     ASSERT(!m_currentTimeObserver);
@@ -2669,8 +2953,14 @@ double MediaPlayerPrivateAVFoundationObjC::effectiveRate() const
 double MediaPlayerPrivateAVFoundationObjC::seekableTimeRangesLastModifiedTime() const
 {
 #if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
-    if (!m_cachedSeekableTimeRangesLastModifiedTime)
-        m_cachedSeekableTimeRangesLastModifiedTime = [m_avPlayerItem seekableTimeRangesLastModifiedTime];
+    if (!m_cachedSeekableTimeRangesLastModifiedTime) {
+        // 10.9 backport: -[AVPlayerItem seekableTimeRangesLastModifiedTime] is 10.13+ SPI; sending it on
+        // Mavericks throws unrecognized-selector and kills WebContent (e.g. on The Verge video).
+        if ([m_avPlayerItem respondsToSelector:@selector(seekableTimeRangesLastModifiedTime)])
+            m_cachedSeekableTimeRangesLastModifiedTime = [m_avPlayerItem seekableTimeRangesLastModifiedTime];
+        else
+            m_cachedSeekableTimeRangesLastModifiedTime = 0;
+    }
     return *m_cachedSeekableTimeRangesLastModifiedTime;
 #else
     return 0;
@@ -2680,8 +2970,13 @@ double MediaPlayerPrivateAVFoundationObjC::seekableTimeRangesLastModifiedTime() 
 double MediaPlayerPrivateAVFoundationObjC::liveUpdateInterval() const
 {
 #if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
-    if (!m_cachedLiveUpdateInterval)
-        m_cachedLiveUpdateInterval = [m_avPlayerItem liveUpdateInterval];
+    if (!m_cachedLiveUpdateInterval) {
+        // 10.9 backport: -[AVPlayerItem liveUpdateInterval] is 10.13+ SPI (same crash class as above).
+        if ([m_avPlayerItem respondsToSelector:@selector(liveUpdateInterval)])
+            m_cachedLiveUpdateInterval = [m_avPlayerItem liveUpdateInterval];
+        else
+            m_cachedLiveUpdateInterval = 0;
+    }
     return *m_cachedLiveUpdateInterval;
 #else
     return 0;
@@ -5337,8 +5632,10 @@ NSArray* playerKVOProperties()
         auto seekableTimeRanges = RetainPtr<NSArray> { newValue };
 
         RefPtr { m_backgroundQueue }->dispatch([seekableTimeRanges = WTF::move(seekableTimeRanges), playerItem = RetainPtr<AVPlayerItem> { object }, queueTaskOnEventLoopWithPlayer] mutable {
-            auto seekableTimeRangesLastModifiedTime = [playerItem seekableTimeRangesLastModifiedTime];
-            auto liveUpdateInterval = [playerItem liveUpdateInterval];
+            // 10.9 backport: both selectors are 10.13+ AVPlayerItem SPI; sending them on Mavericks
+            // throws unrecognized-selector and crashes WebContent on sites with live/seekable video.
+            NSTimeInterval seekableTimeRangesLastModifiedTime = [playerItem respondsToSelector:@selector(seekableTimeRangesLastModifiedTime)] ? [playerItem seekableTimeRangesLastModifiedTime] : 0;
+            NSTimeInterval liveUpdateInterval = [playerItem respondsToSelector:@selector(liveUpdateInterval)] ? [playerItem liveUpdateInterval] : 0;
             queueTaskOnEventLoopWithPlayer([seekableTimeRanges = WTF::move(seekableTimeRanges), seekableTimeRangesLastModifiedTime, liveUpdateInterval](auto& player) mutable {
                 player.seekableTimeRangesDidChange(WTF::move(seekableTimeRanges), seekableTimeRangesLastModifiedTime, liveUpdateInterval);
             });
