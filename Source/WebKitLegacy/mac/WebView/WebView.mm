@@ -202,6 +202,8 @@
 #import <WebCore/MemoryCache.h>
 #import <WebCore/MemoryRelease.h>
 #import <WebCore/MutableStyleProperties.h>
+#import <wtf/Seconds.h>
+#import <wtf/Threading.h>
 #import <WebCore/NativeImage.h>
 #import <WebCore/NetworkStorageSession.h>
 #import <WebCore/NodeDocument.h>
@@ -1334,6 +1336,36 @@ private:
 }
 
 @implementation WebView (WebPrivate)
+
+// 10.9 backport: restore the legacy WebDashboard SPI removed upstream in
+// "Remove Legacy Dashboard Support" (255204). macOS 10.9's DashboardClient
+// (which renders Dashboard widgets, including Safari Web Clips via the
+// WebClip.plugin WebKit-ObjC plug-in) calls -[WebView _setDashboardBehavior:to:]
+// during WebView setup; without it, the unrecognized-selector exception aborts
+// the widget's WebView setup and the widget renders blank. The methods were
+// already no-ops by the time they were removed (the behaviors had been gutted),
+// so restoring them as no-ops matches the last shipping behavior.
+typedef enum {
+    WebDashboardBehaviorAlwaysSendMouseEventsToAllWindows,
+    WebDashboardBehaviorAlwaysSendActiveNullEventsToPlugIns,
+    WebDashboardBehaviorAlwaysAcceptsFirstMouse,
+    WebDashboardBehaviorAllowWheelScrolling,
+    WebDashboardBehaviorUseBackwardCompatibilityMode
+} WebDashboardBehavior;
+
+- (void)_setDashboardBehavior:(WebDashboardBehavior)behavior to:(BOOL)flag
+{
+}
+
+- (BOOL)_dashboardBehavior:(WebDashboardBehavior)behavior
+{
+    return NO;
+}
+
+- (NSDictionary *)_dashboardRegions
+{
+    return nil;
+}
 
 // 10.9 backport: Safari's Top Sites view uses BrowserContentViewController which
 // renders caption labels via CaptionLayer::display(). CaptionLayer calls
@@ -2960,7 +2992,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     if (isLockdownModeEnabled())
         settings.disableFeaturesForLockdownMode();
-    
+
     // FIXME: These should switch to using WebPreferences for storage and adopt autogeneration.
     settings.setInteractiveFormValidationEnabled([self interactiveFormValidationEnabled]);
     settings.setValidationMessageTimerMagnification([self validationMessageTimerMagnification]);
@@ -5267,13 +5299,89 @@ IGNORE_WARNINGS_END
     return [[self class] _canShowMIMEType:MIMEType allowingPlugins:NO];
 }
 
+// 10.9 backport: these were stubbed to nil upstream (the WebView-level WebKit-ObjC
+// plug-in lookup fell out of use). Safari Web Clips need them: WebClip.html's <embed
+// type="application/x-apple-webclip-plug-in"> reaches objectContentType() ->
+// _pluginForMIMEType:; with the stub returning nil the embed never became a plug-in
+// (createPlugin was never called) and the clip rendered blank. Consult the per-view
+// database (and any existing shared one).
+//
+// Normally DashboardClient registers the widget-bundled WebClip.plugin via
+// -[WebView _setAdditionalWebPlugInPaths:] (filling _private->pluginDatabase) -- but it
+// only does so when the widget's Info.plist has AllowInternetPlugins=1, which on this
+// 64-bit-only backport ALSO forces the widget into a 32-bit DashboardClient that can't
+// load our x86_64 WebKit (so it crashes on launch). We therefore ship the widget with
+// AllowInternetPlugins=0 (forcing a 64-bit host) and recover the plug-in path ourselves:
+// when the registered databases miss, derive the enclosing .wdgt bundle from the main
+// frame's document URL and scan it for the bundled plug-in. This decouples "run 64-bit"
+// from "find the application plug-in", which AllowInternetPlugins otherwise conflates.
+- (WebPluginDatabase *)_ensureWidgetBundlePluginDatabase
+{
+    NSURL *docURL = [[[[self mainFrame] dataSource] response] URL];
+    if (!docURL) {
+        if (NSString *s = [self mainFrameURL])
+            docURL = [NSURL URLWithString:s];
+    }
+    if (![docURL isFileURL])
+        return nil;
+
+    // Walk up from the document to the enclosing *.wdgt bundle directory.
+    NSString *wdgt = nil;
+    for (NSString *p = [[docURL path] stringByDeletingLastPathComponent]; [p length] > 1; p = [p stringByDeletingLastPathComponent]) {
+        if ([[p pathExtension] isEqualToString:@"wdgt"]) {
+            wdgt = p;
+            break;
+        }
+    }
+    if (!wdgt)
+        return nil;
+
+    WebPluginDatabase *db = _private->pluginDatabase.get();
+    NSArray *existing = nil;
+    @try { existing = [db valueForKey:@"plugInPaths"]; } @catch (...) { }
+    if (existing && [existing containsObject:wdgt])
+        return db; // already scanned this bundle; don't rescan on every miss
+
+    if (!db) {
+        _private->pluginDatabase = adoptNS([[WebPluginDatabase alloc] init]);
+        db = _private->pluginDatabase.get();
+    }
+    NSMutableArray *paths = [NSMutableArray array];
+    if (existing)
+        [paths addObjectsFromArray:existing];
+    [paths addObject:wdgt];
+    [db setPlugInPaths:paths];
+    [db refresh];
+    return db;
+}
+
 - (WebBasePluginPackage *)_pluginForMIMEType:(NSString *)MIMEType
 {
+    if (_private->pluginDatabase) {
+        if (WebBasePluginPackage *pluginPackage = [_private->pluginDatabase pluginForMIMEType:MIMEType])
+            return pluginPackage;
+    }
+    if (WebPluginDatabase *shared = [WebPluginDatabase sharedDatabaseIfExists]) {
+        if (WebBasePluginPackage *pluginPackage = [shared pluginForMIMEType:MIMEType])
+            return pluginPackage;
+    }
+    if (WebPluginDatabase *bundleDB = [self _ensureWidgetBundlePluginDatabase])
+        return [bundleDB pluginForMIMEType:MIMEType];
     return nil;
 }
 
 - (WebBasePluginPackage *)_pluginForExtension:(NSString *)extension
 {
+    if (_private->pluginDatabase) {
+        if (WebBasePluginPackage *pluginPackage = [_private->pluginDatabase pluginForExtension:extension])
+            return pluginPackage;
+    }
+    if (WebPluginDatabase *shared = [WebPluginDatabase sharedDatabaseIfExists]) {
+        if (WebBasePluginPackage *pluginPackage = [shared pluginForExtension:extension])
+            return pluginPackage;
+    }
+    if (WebPluginDatabase *bundleDB = [self _ensureWidgetBundlePluginDatabase])
+        return [bundleDB pluginForExtension:extension];
     return nil;
 }
 
@@ -9974,6 +10082,44 @@ void WebInstallMemoryPressureHandler(void)
 #endif
             });
             memoryPressureHandler.install();
+
+            // 10.9 backport: WebKit1 processes (DashboardClient for Safari Web Clips, the QuickLook
+            // host, etc.) run full live web pages but, unlike WebContent (fixed in #20), have no
+            // mechanism that hands the allocator's freed pages back to the OS. Modern WebKit relies
+            // on bmalloc's dedicated background Scavenger thread for this; bmalloc's libpas cannot
+            // run on 10.9 (os_unfair_lock is 10.12+), so these processes run on system malloc with
+            // no scavenger. WebCore's reclamation (releaseMemory: cache eviction, GC, decoded-image
+            // purge) frees memory *logically*, but on system malloc those pages stay in the malloc
+            // zone's free lists and are never returned to the OS, and the OS memory-pressure source
+            // that would otherwise drive a return is silent on a RAM-rich VM. The result: a long-
+            // lived page's normal alloc/free churn (parse, layout, GC, media) accumulates as
+            // resident pages without bound until RAM + swap are exhausted and the machine wedges.
+            // Restore the missing mechanism with a background scavenger of our own -- the exact WK1
+            // analog of the WebContent scavenger -- that periodically returns free pages to the OS
+            // off the main thread at low QoS, so it never competes with rendering and adds no main-
+            // thread stall. This bounds memory the way stock WebKit did, without throttling or
+            // disabling the live page the clip exists to display.
+            Thread::create("WebKit1 Memory Scavenger"_s, [] {
+                while (true) {
+                    WTF::sleep(3_s);
+                    WTF::releaseFastMallocFreeMemory();
+                }
+            }, ThreadType::Unknown, Thread::QOS::Utility)->detach();
+
+            // The scavenger above only returns *already-freed* pages. The other half of the #20
+            // WebContent fix is just as necessary in WK1: drive WebCore's memory-usage policy from
+            // the process footprint. The OS DISPATCH_SOURCE_TYPE_MEMORYPRESSURE source is silent on
+            // a RAM-rich VM, so without this the engine never learns it is under pressure and never
+            // caps its memory cache / decoded-image cache -- a heavy live page (e.g. an ad-laden
+            // news site in a Web Clip) then grows the resident footprint without bound. This poll
+            // only maintains the policy (Conservative at 0.70, Strict at 0.85 of the 1000 MB base),
+            // which the engine reads to size those caches down; it deliberately does not reclaim on
+            // the main thread (see measurementTimerFired), so it adds no scroll/interaction stall.
+            // killThresholdFraction is an unreachable x100 and no kill callback is installed: we
+            // never terminate the process on footprint (that reintroduces process-churn crashes on
+            // 10.9), we only bound it. Mirrors WebProcess.cpp.
+            memoryPressureHandler.setConfiguration(MemoryPressureHandler::Configuration { static_cast<uint64_t>(1000) * 1024 * 1024, 0.70, 0.85, std::optional<double>(100.0), 20_s });
+            memoryPressureHandler.setShouldUsePeriodicMemoryMonitor(true);
         });
     }
 }

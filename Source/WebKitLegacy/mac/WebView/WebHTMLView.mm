@@ -3848,7 +3848,7 @@ static BOOL currentScrollIsBlit(NSView *clipView)
 #if PLATFORM(MAC)
     [NSGraphicsContext saveGraphicsState];
     NSRectClip(rect);
-        
+
     ASSERT([[self superview] isKindOfClass:[WebClipView class]]);
 
     [(WebClipView *)[self superview] setAdditionalClip:rect];
@@ -4098,6 +4098,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // the current event prevents that from causing a problem inside WebKit or AppKit code.
     retainPtr(event).autorelease();
 
+    // 10.9 backport: when this WebView is hosted in a window that can never become the key
+    // window — a Safari legacy-extension popover is an _NSPopoverWindow, which is borderless and
+    // returns canBecomeKeyWindow == NO on this port — AppKit treats the first click only as a
+    // window-activation gesture and, since the window cannot key, swallows it. With the default
+    // (NO unless the click is a selection/drag/scrollbar event) the popover's content is therefore
+    // permanently uninteractive (uBlock's popup buttons do nothing). There is no "activate then
+    // click" path for such a window, so the first mouse must be accepted to make the content usable.
+    // Normal browser content is a WK2 WKView (not a WebHTMLView) and key-capable browser windows
+    // still return NO here, so ordinary click-through behavior is preserved.
     NSView *hitView = [self _hitViewForEvent:event];
     RetainPtr<WebHTMLView> hitHTMLView = dynamic_objc_cast<WebHTMLView>(hitView);
 
@@ -5640,7 +5649,13 @@ static BOOL writingDirectionKeyBindingsEnabled()
 
 - (void)otherMouseDown:(NSEvent *)event
 {
-    if (event.buttonNumber != 2 || [NSMenu menuTypeForEvent:event] == NSMenuTypeContextMenu) {
+    // 10.9 backport: +[NSMenu menuTypeForEvent:] is a 10.10+ API that raises unrecognized-selector
+    // on 10.9. A middle-click (buttonNumber 2) is never a context-menu gesture there, so guard the
+    // call instead of letting it throw and abort the event.
+    BOOL isContextMenuEvent = NO;
+    if ([NSMenu respondsToSelector:@selector(menuTypeForEvent:)])
+        isContextMenuEvent = ([NSMenu menuTypeForEvent:event] == NSMenuTypeContextMenu);
+    if (event.buttonNumber != 2 || isContextMenuEvent) {
         [super otherMouseDown:event];
         return;
     }

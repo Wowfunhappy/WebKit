@@ -1655,7 +1655,8 @@ static NSView *pluginView(WebFrame *frame, WebPluginPackage *pluginPackage,
 
     [pluginPackage load];
     Class viewFactory = [pluginPackage viewFactory];
-    
+
+    NSView *view = nil;
     NSDictionary *arguments = nil;
 
 IGNORE_WARNINGS_BEGIN("undeclared-selector")
@@ -1681,9 +1682,16 @@ IGNORE_WARNINGS_END
         };
         LOG(Plugins, "arguments:\n%@", arguments);
     }
-    (void)arguments;
 
-    return nil;
+    // 10.9 backport: this was stubbed to `return nil` (so WebKit-ObjC plug-ins never
+    // instantiated). Restore the real view creation: WebPluginController creates the plug-in
+    // view from the package + arguments and (via -addPlugin:) runs -webPlugInInitialize, which
+    // is where e.g. WebClip.plugin's WebClipper publishes its scripting object to JS as the
+    // `webClip` global. Without it the plug-in bundle loaded but no instance existed, so
+    // WebClip.js failed with "Can't find variable: webClip".
+    view = [pluginController plugInViewWithArguments:arguments fromPluginPackage:pluginPackage];
+
+    return view;
 }
 
 class PluginWidget : public WebCore::PluginViewBase {
@@ -1700,9 +1708,14 @@ private:
     }
 };
 
-static bool shouldBlockPlugin(WebBasePluginPackage *)
+static bool shouldBlockPlugin(WebBasePluginPackage *pluginPackage)
 {
-    return true;
+    // 10.9 backport: this was stubbed to block ALL plug-ins (no third-party / NPAPI plug-ins
+    // are enabled on this build). But WebKit-ObjC "application" plug-ins (WebPluginPackage)
+    // are user-agent-provided and trusted — in particular WebClip.plugin, which renders
+    // Safari Web Clips. Blocking it made the widget show "Blocked Plug-In (Insecure plug-in)".
+    // Allow WebPluginPackage plug-ins; there are no NPAPI plug-ins to block here anyway.
+    return ![pluginPackage isKindOfClass:[WebPluginPackage class]];
 }
 
 RefPtr<WebCore::Widget> WebFrameLoaderClient::createPlugin(WebCore::HTMLPlugInElement& element, const URL& url,
@@ -2135,7 +2148,15 @@ void WebFrameLoaderClient::finishedLoadingIcon(WebCore::FragmentedSharedBuffer* 
 - (void)use
 {
 #if HAVE(APP_LINKS)
-    if (_appLinkURL && _frame) {
+    // 10.9 backport: App Links (LSAppLink + _LSOpenConfiguration.referrerURL) are 10.10+ APIs.
+    // On 10.9 _LSOpenConfiguration exists but does NOT respond to -setReferrerURL:, so assigning
+    // .referrerURL threw NSInvalidArgumentException right inside the navigation policy delegate —
+    // WebKit caught and DISCARDED it, silently dropping the navigation (clicked links did nothing).
+    // There are no app-link-registered native apps on 10.9, so feature-detect and otherwise fall
+    // through to a normal web navigation (PolicyAction::Use).
+    if (_appLinkURL && _frame
+        && [LSAppLink respondsToSelector:@selector(openWithURL:configuration:completionHandler:)]
+        && [_LSOpenConfiguration instancesRespondToSelector:@selector(setReferrerURL:)]) {
         RetainPtr<_LSOpenConfiguration> configuration = adoptNS([[_LSOpenConfiguration alloc] init]);
         configuration.get().referrerURL = _referrerURL.get();
         [LSAppLink openWithURL:_appLinkURL.get() configuration:configuration.get() completionHandler:^(BOOL success, NSError *) {
