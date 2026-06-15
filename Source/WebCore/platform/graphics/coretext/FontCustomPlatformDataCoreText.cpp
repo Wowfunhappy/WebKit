@@ -28,6 +28,8 @@
 #include "FontCreationContext.h"
 #include "FontDescription.h"
 #include "FontPlatformData.h"
+#include <algorithm>
+#include <cstring>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Vector.h>
 #include <wtf/RetainPtr.h>
@@ -111,6 +113,149 @@ static RetainPtr<CFDataRef> extractFontCustomPlatformDataMemorySafe(const Shared
 }
 #endif
 
+static inline uint32_t readBE32(const uint8_t* p) { return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3]; }
+static inline uint16_t readBE16(const uint8_t* p) { return (uint16_t(p[0]) << 8) | p[1]; }
+static inline void writeBE32(uint8_t* p, uint32_t v) { p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = v; }
+static inline void writeBE16(uint8_t* p, uint16_t v) { p[0] = v >> 8; p[1] = v; }
+
+static uint32_t sfntTableChecksum(const uint8_t* data, uint32_t length)
+{
+    uint32_t sum = 0;
+    uint32_t nLongs = (length + 3) / 4;
+    for (uint32_t i = 0; i < nLongs; ++i) {
+        uint32_t word = 0;
+        for (unsigned b = 0; b < 4; ++b) {
+            uint32_t idx = i * 4 + b;
+            word = (word << 8) | (idx < length ? data[idx] : 0);
+        }
+        sum += word;
+    }
+    return sum;
+}
+
+// 10.9 backport: macOS 10.9's CoreText predates OpenType 1.8 variable fonts and instances them via its
+// legacy TrueType-GX path. A single-axis font (lone 'wght' — Inter, Open Sans) instances correctly, but
+// the moment a font carries a SECOND axis ('wdth'/'opsz'/… — Mona Sans / GitHub's UI font, Roboto Flex)
+// the CGFont we build from it (CGFontCreateWithDataProvider, below) produces collapsed/empty glyph
+// outlines, so the text renders as a handful of stray glyphs or nothing at all. Pinning fewer axes or
+// dropping the kCTFontVariationAttribute at realize() time does NOT help — the CGFont itself is broken.
+// The static (non-variable) build of the very same typeface renders perfectly through this same code
+// path, so for multi-axis fonts we rewrite the sfnt to drop the variation tables (fvar/gvar/avar/…),
+// turning it into its default (Regular) master. Glyphs then render correctly; width/optical-size/weight
+// axis selection is lost and WebKit synthesizes bold/oblique as needed. Single-axis fonts are left
+// untouched so they keep real weight interpolation.
+static RetainPtr<CFDataRef> stripVariationTablesForLegacyCoreText(CFDataRef input)
+{
+    if (!input)
+        return input;
+    const uint8_t* data = CFDataGetBytePtr(input);
+    CFIndex size = CFDataGetLength(input);
+    if (size < 12)
+        return input;
+
+    uint32_t sfntVersion = readBE32(data);
+    // Only single TrueType-outline sfnts (0x00010000 / 'true'). Skip collections ('ttcf') and CFF ('OTTO').
+    if (sfntVersion != 0x00010000 && sfntVersion != 0x74727565)
+        return input;
+
+    uint16_t numTables = readBE16(data + 4);
+    if (size < 12 + CFIndex(numTables) * 16)
+        return input;
+
+    struct Record { uint32_t tag, checksum, offset, length; };
+    Vector<Record> records;
+    records.reserveInitialCapacity(numTables);
+    int fvarIndex = -1;
+    for (uint16_t i = 0; i < numTables; ++i) {
+        const uint8_t* r = data + 12 + i * 16;
+        Record rec { readBE32(r), readBE32(r + 4), readBE32(r + 8), readBE32(r + 12) };
+        if (rec.tag == 0x66766172 /* 'fvar' */)
+            fvarIndex = records.size();
+        records.append(rec);
+    }
+
+    if (fvarIndex < 0)
+        return input; // Not a variable font.
+
+    // Read the axis count from the fvar header (axisCount is a uint16 at byte 8 of the table).
+    const Record& fvar = records[fvarIndex];
+    if (fvar.offset + 10 > uint32_t(size))
+        return input;
+    uint16_t axisCount = readBE16(data + fvar.offset + 8);
+    if (axisCount <= 1)
+        return input; // Single-axis variable fonts instance correctly on 10.9 — leave them alone.
+
+    auto isVariationTable = [](uint32_t tag) {
+        switch (tag) {
+        case 0x66766172: /* fvar */
+        case 0x67766172: /* gvar */
+        case 0x61766172: /* avar */
+        case 0x63766172: /* cvar */
+        case 0x48564152: /* HVAR */
+        case 0x56564152: /* VVAR */
+        case 0x4D564152: /* MVAR */
+        case 0x53544154: /* STAT */
+            return true;
+        default:
+            return false;
+        }
+    };
+
+    Vector<Record> kept;
+    for (const auto& rec : records) {
+        if (!isVariationTable(rec.tag) && rec.offset && rec.length && rec.offset + rec.length <= uint32_t(size))
+            kept.append(rec);
+    }
+    if (kept.size() == records.size() || kept.isEmpty())
+        return input; // Nothing to strip, or the font is too corrupt to safely rewrite — leave it alone.
+    // sfnt requires table records sorted ascending by tag.
+    std::sort(kept.begin(), kept.end(), [](const Record& a, const Record& b) { return a.tag < b.tag; });
+
+    uint16_t newNumTables = kept.size();
+    uint32_t headerSize = 12 + uint32_t(newNumTables) * 16;
+    uint32_t total = headerSize;
+    for (const auto& rec : kept)
+        total += (rec.length + 3) & ~3u;
+
+    Vector<uint8_t> out(total, 0);
+    uint8_t* o = out.mutableSpan().data();
+    // Offset table.
+    writeBE32(o, sfntVersion);
+    writeBE16(o + 4, newNumTables);
+    uint16_t entrySelector = 0;
+    while ((1u << (entrySelector + 1)) <= newNumTables)
+        ++entrySelector;
+    uint16_t searchRange = (1u << entrySelector) * 16;
+    writeBE16(o + 6, searchRange);
+    writeBE16(o + 8, entrySelector);
+    writeBE16(o + 10, uint16_t(newNumTables * 16 - searchRange));
+
+    uint32_t dataOffset = headerSize;
+    int headOutputOffset = -1;
+    for (uint16_t i = 0; i < newNumTables; ++i) {
+        const Record& rec = kept[i];
+        memcpy(o + dataOffset, data + rec.offset, rec.length);
+        if (rec.tag == 0x68656164 /* 'head' */ && rec.length >= 12) {
+            headOutputOffset = dataOffset;
+            // checkSumAdjustment (bytes 8..12) must be zero while checksums are computed.
+            writeBE32(o + dataOffset + 8, 0);
+        }
+        uint32_t checksum = sfntTableChecksum(o + dataOffset, rec.length);
+        uint8_t* recOut = o + 12 + i * 16;
+        writeBE32(recOut, rec.tag);
+        writeBE32(recOut + 4, checksum);
+        writeBE32(recOut + 8, dataOffset);
+        writeBE32(recOut + 12, rec.length);
+        dataOffset += (rec.length + 3) & ~3u;
+    }
+
+    // head.checkSumAdjustment = 0xB1B0AFBA - checksum(whole file with the field still zero).
+    if (headOutputOffset >= 0)
+        writeBE32(o + headOutputOffset + 8, 0xB1B0AFBAu - sfntTableChecksum(o, total));
+
+    return adoptCF(CFDataCreate(kCFAllocatorDefault, o, total));
+}
+
 RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buffer, const String& itemInCollection)
 {
     // 10.9 backport: CoreText 10.9's TFontFeatures pipeline crashes on many
@@ -124,6 +269,8 @@ RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buff
     RetainPtr<CFDataRef> bufferData = buffer.createCFData();
     if (!bufferData)
         return nullptr;
+    // 10.9 backport: neutralize multi-axis variable fonts (see stripVariationTablesForLegacyCoreText).
+    bufferData = stripVariationTablesForLegacyCoreText(bufferData.get());
     RetainPtr provider = adoptCF(CGDataProviderCreateWithCFData(bufferData.get()));
     if (!provider)
         return nullptr;
