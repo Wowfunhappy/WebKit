@@ -715,7 +715,15 @@ void WebProcessPool::establishRemoteWorkerContextConnectionToNetworkProcess(Remo
 
     // Prioritize the requesting WebProcess for running the service worker.
     if (!remoteWorkerProcessProxy && !s_useSeparateServiceWorkerProcess && requestingProcess && requestingProcess->state() != WebProcessProxy::State::Terminated) {
-        if (requestingProcess->websiteDataStore() == websiteDataStore && requestingProcess->site() == site && !requestingProcess->isInProcessCache())
+        // 10.9 backport: WebProcesses launched by Safari are never committed to a Site
+        // (site() stays an uninitialized Expected), so the strict site-equality check below
+        // never matches; we then fall through to creating a standalone service-worker context
+        // process, which never finishes launching on this OS. The result is that EVERY
+        // service-worker-controlled navigation hangs for the full 70s serviceWorkerFetchTimeout
+        // before falling back to the network. Reuse the requesting page process (already
+        // launched, same data store, same registrable-domain family that triggered the worker)
+        // whenever it has no committed site of its own.
+        if (requestingProcess->websiteDataStore() == websiteDataStore && (requestingProcess->site() == site || !requestingProcess->site().has_value()) && !requestingProcess->isInProcessCache())
             useProcessForRemoteWorkers(*requestingProcess);
     }
 
@@ -1015,6 +1023,9 @@ void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDa
     parameters.urlSchemesRegisteredAsAlwaysRevalidated = copyToVector(m_schemesToRegisterAsAlwaysRevalidated);
     parameters.urlSchemesRegisteredAsCachePartitioned = copyToVector(m_schemesToRegisterAsCachePartitioned);
     parameters.urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest = copyToVector(m_schemesToRegisterAsCanDisplayOnlyIfCanRequest);
+    // 10.9 backport: tell new WebProcesses about app-registered custom-protocol schemes (e.g. safari-reader://)
+    // so WebPage::canHandleRequest accepts them; see WebProcess::registerURLSchemeForCustomProtocol.
+    parameters.urlSchemesRegisteredForCustomProtocols = WebProcessPool::urlSchemesWithCustomProtocolHandlers();
 
 #if ENABLE(WK_WEB_EXTENSIONS)
     parameters.urlSchemesRegisteredAsWebExtensions = copyToVector(WebExtensionMatchPattern::extensionSchemes());
@@ -1706,6 +1717,10 @@ void WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers(const
     globalURLSchemesWithCustomProtocolHandlers().add(urlScheme);
     for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
         networkProcess->registerSchemeForLegacyCustomProtocol(urlScheme);
+    // 10.9 backport: also tell already-running WebProcesses, so WebPage::canHandleRequest accepts
+    // the scheme and WebCore's PolicyChecker lets the navigation through to the NetworkProcess.
+    for (Ref processPool : allProcessPools())
+        processPool->sendToAllProcesses(Messages::WebProcess::RegisterURLSchemeForCustomProtocol(urlScheme));
 }
 
 void WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(const String& urlScheme)
@@ -1717,6 +1732,8 @@ void WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(con
     globalURLSchemesWithCustomProtocolHandlers().remove(urlScheme);
     for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
         networkProcess->unregisterSchemeForLegacyCustomProtocol(urlScheme);
+    for (Ref processPool : allProcessPools())
+        processPool->sendToAllProcesses(Messages::WebProcess::UnregisterURLSchemeForCustomProtocol(urlScheme));
 }
 
 void WebProcessPool::registerURLSchemeAsCachePartitioned(const String& urlScheme)

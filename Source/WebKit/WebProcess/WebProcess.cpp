@@ -85,6 +85,11 @@
 #include "WebProcessDataStoreParameters.h"
 #include "WebProcessMessages.h"
 #include "WebProcessProxyMessages.h"
+#if HAVE(DISPLAY_LINK)
+#include <WebCore/AnimationFrameRate.h> // 10.9 backport: FullSpeedFramesPerSecond
+#include <WebCore/MainThreadSharedTimer.h> // 10.9 backport: short-timer heartbeat hook
+#include <CoreGraphics/CGDirectDisplay.h> // 10.9 backport: CGMainDisplayID
+#endif
 #include "WebResourceLoadObserver.h"
 #include "WebSWClientConnection.h"
 #include "WebSWContextManagerConnection.h"
@@ -156,8 +161,10 @@
 #include <wtf/CallbackAggregator.h>
 #include <wtf/CoroutineUtilities.h>
 #include <wtf/DateMath.h>
+#include <wtf/FastMalloc.h>
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
+#include <wtf/Threading.h>
 #include <wtf/RunLoop.h>
 #include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/SystemTracing.h>
@@ -490,6 +497,13 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
     // Reply immediately so that the identity is available as soon as possible.
     completionHandler(ProcessIdentity { ProcessIdentity::CurrentProcess });
 
+#if HAVE(DISPLAY_LINK)
+    // 10.9 backport: route short-interval DOM-timer activity to the display-link heartbeat.
+    WebCore::MainThreadSharedTimer::setShortTimerActivityCallback([] {
+        WebProcess::singleton().mainThreadDidScheduleShortTimer();
+    });
+#endif
+
     ASSERT(m_pageMap.isEmpty());
 
     if (parameters.websiteDataStoreParameters)
@@ -579,6 +593,59 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
             }
         });
         memoryPressureHandler.install();
+
+        // 10.9 backport: drive WebKit's footprint-based memory reclamation ourselves.
+        //
+        // Upstream Mac relies almost entirely on the OS DISPATCH_SOURCE_TYPE_MEMORYPRESSURE source to
+        // trigger releaseMemory() (eviction of the back/forward cache, memory-cache pruning, decoded-image
+        // purge, JS/DOM garbage collection, and returning free pages to the OS). On a RAM-rich Mavericks VM
+        // that source effectively never fires, and the mechanism designed for exactly this case — the
+        // periodic memory monitor, which polls the process footprint and invokes releaseMemory() when the
+        // OS does not signal pressure — is unavailable here: ENABLE(PERIODIC_MEMORY_MONITOR) is off for the
+        // Mac port and its upstream enable site is additionally gated behind !USE(SYSTEM_MALLOC) (an
+        // assumption that "no FastMalloc means we're under a test harness", which is false for this
+        // production port that legitimately ships on system malloc). With neither trigger, releaseMemory()
+        // is never called, so a long browsing session accumulates navigated-away documents, their isolated
+        // SVG image Pages, back/forward-cache entries and the memory cache without bound — the WebContent
+        // RSS climbs into the gigabytes and never drops.
+        //
+        // The actual gap is the allocator's background Scavenger. Modern WebKit returns free pages to the OS
+        // from bmalloc's dedicated Scavenger THREAD (off the main thread, continuously); but bmalloc's libpas
+        // cannot run on 10.9 (os_unfair_lock is 10.12+), so this process runs on system malloc with no
+        // scavenger and freed pages are never handed back — RSS only climbs. We restore that mechanism with a
+        // background scavenger thread of our own below: it periodically calls releaseFastMallocFreeMemory()
+        // (-> SystemHeap::scavenge() -> malloc_zone_pressure_relief()) entirely off the main thread, which a
+        // standalone test confirmed adds zero main-thread stall even under continuous allocation. Routine
+        // reclamation is deliberately NOT done on the main thread: evicting caches + scavenging synchronously
+        // on a 20 s poll froze scrolling for seconds and discarded the decoded-image / JIT / layout caches
+        // that scrolling needs to rebuild. The periodic monitor is still enabled, but only to maintain the
+        // MemoryUsagePolicy for the rest of the engine (see measurementTimerFired). The heavy WebCore
+        // reclamation (decoded-image purge, deleteAllCode, GC) stays on the genuine OS-memory-pressure path
+        // (respondToMemoryPressure) and on backgrounding (escalated in the low-memory handler). Deliberately
+        // NO memory-kill callback is installed: terminating WebContent on footprint is wrong on 10.9 (it
+        // reintroduces the process-churn crashes this port avoids); we only reclaim, never kill.
+        if (!m_suppressMemoryPressureHandler) {
+            // Background scavenger thread: hand free pages back to the OS off the main thread, ~every 3 s, at
+            // a low QoS so it never competes with rendering. This is the bmalloc::Scavenger equivalent that
+            // system malloc lacks here. Detached: it runs for the lifetime of the process.
+            Thread::create("WebKit Memory Scavenger"_s, [] {
+                while (true) {
+                    WTF::sleep(3_s);
+                    WTF::releaseFastMallocFreeMemory();
+                }
+            }, ThreadType::Unknown, Thread::QOS::Utility)->detach();
+
+            // The monitor's bands (Conservative 0.70 = 700 MB, Strict 0.85 = 850 MB of a 1000 MB base) now
+            // only signal pressure level to the engine via currentMemoryUsagePolicy(); the monitor itself no
+            // longer reclaims. Poll every 20 s (a cheap task_info() footprint read). killThresholdFraction is
+            // an unreachable ×100 (100 GB) rather than std::nullopt on purpose: a null fraction makes
+            // thresholdForMemoryKill() fall through to the upstream 7 GB / 2-3 GB process-kill defaults, and
+            // measurementTimerFired() would then call shrinkOrDie() -> RELEASE_ASSERT(m_memoryKillCallback) on
+            // a footprint spike — but we install no kill callback (never terminate WebContent on 10.9). An
+            // unreachable kill threshold makes that path deterministically dead.
+            memoryPressureHandler.setConfiguration(MemoryPressureHandler::Configuration { static_cast<uint64_t>(1000) * 1024 * 1024, 0.70, 0.85, std::optional<double>(100.0), 20_s });
+            memoryPressureHandler.setShouldUsePeriodicMemoryMonitor(true);
+        }
 
         PAL::registerNotifyCallback("com.apple.WebKit.logMemStats"_s, [] {
             WebCore::logMemoryStatistics(LogMemoryStatisticsReason::DebugNotification);
@@ -679,6 +746,9 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
 
     for (auto& scheme : parameters.urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest)
         registerURLSchemeAsCanDisplayOnlyIfCanRequest(scheme);
+
+    for (auto& scheme : parameters.urlSchemesRegisteredForCustomProtocols)
+        registerURLSchemeForCustomProtocol(scheme);
 
 #if ENABLE(WK_WEB_EXTENSIONS)
     for (auto& scheme : parameters.urlSchemesRegisteredAsWebExtensions)
@@ -962,6 +1032,26 @@ void WebProcess::registerURLSchemeAsCachePartitioned(const String& urlScheme) co
 void WebProcess::registerURLSchemeAsCanDisplayOnlyIfCanRequest(const String& urlScheme) const
 {
     LegacySchemeRegistry::registerAsCanDisplayOnlyIfCanRequest(urlScheme);
+}
+
+// 10.9 backport: app-registered custom-protocol schemes (e.g. safari-reader://) are served by the
+// NetworkProcess via LegacyCustomProtocolManager, but the WebProcess's WebPage::canHandleRequest only
+// consults NSURLConnection — which doesn't know about them — so WebCore's PolicyChecker would ignore
+// the navigation as "cannot show URL" before it ever reached the network. Track the schemes here so
+// canHandleRequest returns true for them.
+void WebProcess::registerURLSchemeForCustomProtocol(const String& urlScheme)
+{
+    m_urlSchemesRegisteredForCustomProtocols.add(urlScheme);
+}
+
+void WebProcess::unregisterURLSchemeForCustomProtocol(const String& urlScheme)
+{
+    m_urlSchemesRegisteredForCustomProtocols.remove(urlScheme);
+}
+
+bool WebProcess::isURLSchemeRegisteredForCustomProtocol(const String& urlScheme) const
+{
+    return !urlScheme.isEmpty() && m_urlSchemesRegisteredForCustomProtocols.contains(urlScheme);
 }
 
 #if ENABLE(WK_WEB_EXTENSIONS)
@@ -2451,9 +2541,35 @@ void WebProcess::setAppBadge(WebCore::Frame* frame, const WebCore::SecurityOrigi
 }
 
 #if HAVE(DISPLAY_LINK)
+// 10.9 backport: keep a process-wide display-link heartbeat alive while short-interval DOM timers
+// are firing. The UIProcess DisplayLink then sends DisplayDidRefresh at ~60Hz, each of which wakes
+// the otherwise ~6Hz-throttled WebContent main thread — so timer-driven work (SPA asset loading,
+// rapid setTimeout chains) runs at full speed instead of crawling. Called from
+// MainThreadSharedTimer (see notifyShortTimerActivityIfNeeded). Does not self-sustain: the heartbeat
+// itself never fires DOM timers, so the deadline below decays once the page stops scheduling them.
+void WebProcess::mainThreadDidScheduleShortTimer()
+{
+    m_mainThreadTimerHeartbeatDeadline = MonotonicTime::now() + 150_ms;
+    if (m_mainThreadTimerHeartbeatActive)
+        return;
+    RefPtr connection = parentProcessConnection();
+    if (!connection)
+        return;
+    m_mainThreadTimerHeartbeatActive = true;
+    connection->send(Messages::WebProcessProxy::StartDisplayLink(m_mainThreadTimerHeartbeatObserverID, CGMainDisplayID(), WebCore::FullSpeedFramesPerSecond), 0);
+}
+
 void WebProcess::displayDidRefresh(uint32_t displayID, const DisplayUpdate& displayUpdate)
 {
     ASSERT(RunLoop::isMain());
+
+    // 10.9 backport: stop the short-timer heartbeat once the page stops scheduling short timers.
+    if (m_mainThreadTimerHeartbeatActive && MonotonicTime::now() > m_mainThreadTimerHeartbeatDeadline) {
+        m_mainThreadTimerHeartbeatActive = false;
+        if (RefPtr connection = parentProcessConnection())
+            connection->send(Messages::WebProcessProxy::StopDisplayLink(m_mainThreadTimerHeartbeatObserverID, CGMainDisplayID()), 0);
+    }
+
     protect(eventDispatcher())->notifyScrollingTreesDisplayDidRefresh(displayID);
     DisplayRefreshMonitorManager::sharedManager().displayDidRefresh(displayID, displayUpdate);
 }

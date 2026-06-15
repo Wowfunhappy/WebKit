@@ -45,6 +45,7 @@
     Vector<String> urlSchemesRegisteredAsAlwaysRevalidated;
     Vector<String> urlSchemesRegisteredAsCachePartitioned;
     Vector<String> urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest;
+    Vector<String> urlSchemesRegisteredForCustomProtocols;
 
 #if ENABLE(WK_WEB_EXTENSIONS)
     Vector<String> urlSchemesRegisteredAsWebExtensions;

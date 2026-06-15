@@ -1679,11 +1679,13 @@ EditorState WebPage::editorState(ShouldPerformLayout shouldPerformLayout) const
 
     Ref editor = frame->editor();
 
-    // 10.9 backport: avoid touching frame->selection().selection() because
-    // VisibleSelection's m_anchorNode can be stale (freed Node) and crash
-    // hasEditableStyle/etc. Compute isContentEditable safely from the focused
-    // element via Node::isContentEditable (uses computed style, not selection).
-    result.selectionType = WebCore::SelectionType::None;
+    // 10.9 backport: the NODE-dereferencing parts of selection access (hasEditableStyle
+    // etc.) can crash on a stale VisibleSelection::m_anchorNode, so isContentEditable is
+    // computed safely from the focused element below. BUT selectionType() only reads an
+    // enum member (no node deref), so report the REAL selection type — without it the
+    // UIProcess thinks there is never a caret/range selection (broken caret/selection UI,
+    // IME positioning). (Restored + verified stable.)
+    result.selectionType = frame->selection().selection().type();
     result.isContentEditable = false;
     result.isContentRichlyEditable = false;
     result.isInPasswordField = false;
@@ -7108,6 +7110,12 @@ bool WebPage::canHandleRequest(const WebCore::ResourceRequest& request)
         return true;
 
     if (request.url().protocolIsBlob())
+        return true;
+
+    // 10.9 backport: accept app-registered custom-protocol schemes (e.g. Safari's safari-reader://).
+    // These are served by the app via LegacyCustomProtocolManager; without this, WebCore's
+    // PolicyChecker treats the navigation as "cannot show URL" and never starts the load.
+    if (WebProcess::singleton().isURLSchemeRegisteredForCustomProtocol(request.url().protocol().toString()))
         return true;
 
     return platformCanHandleRequest(request);

@@ -29,6 +29,7 @@
 #include "CacheModel.h"
 #include "EventDispatcher.h"
 #include "IdentifierTypes.h"
+#include "DisplayLinkObserverID.h" // 10.9 backport
 #include "NetworkProcessConnection.h"
 #include "ScriptTrackingPrivacyFilter.h"
 #include "SharedPreferencesForWebProcess.h"
@@ -208,6 +209,10 @@ public:
 
     static WebProcess& singleton();
     static constexpr WTF::AuxiliaryProcessType processType = WTF::AuxiliaryProcessType::WebContent;
+
+    // 10.9 backport: true for app-registered custom-protocol schemes (e.g. safari-reader://), so the
+    // static WebPage::canHandleRequest accepts them (see WebProcess::registerURLSchemeForCustomProtocol).
+    bool isURLSchemeRegisteredForCustomProtocol(const String&) const;
 
     template <typename T>
     T* supplement()
@@ -601,6 +606,12 @@ private:
     void registerURLSchemeAsCachePartitioned(const String&) const;
     void registerURLSchemeAsCanDisplayOnlyIfCanRequest(const String&) const;
 
+    // 10.9 backport: schemes registered by the app for NetworkProcess custom-protocol handling
+    // (e.g. safari-reader://). Tracked so WebPage::canHandleRequest accepts them (the public query
+    // isURLSchemeRegisteredForCustomProtocol is declared in the public section above).
+    void registerURLSchemeForCustomProtocol(const String&);
+    void unregisterURLSchemeForCustomProtocol(const String&);
+
 #if ENABLE(WK_WEB_EXTENSIONS)
     void registerURLSchemeAsWebExtension(const String&) const;
 #endif
@@ -708,6 +719,7 @@ private:
 
 #if HAVE(DISPLAY_LINK)
     void displayDidRefresh(uint32_t displayID, const WebCore::DisplayUpdate&);
+    void mainThreadDidScheduleShortTimer(); // 10.9 backport: keep a display-link heartbeat alive during timer bursts to un-throttle the main thread
 #endif
 
 #if PLATFORM(MAC)
@@ -859,6 +871,9 @@ private:
     HashSet<String> m_dnsPrefetchedHosts;
     PAL::HysteresisActivity m_dnsPrefetchHystereris;
 
+    // 10.9 backport: app-registered custom-protocol schemes (case-insensitive, like URL schemes).
+    HashSet<String, ASCIICaseInsensitiveHash> m_urlSchemesRegisteredForCustomProtocols;
+
     RefPtr<WebAutomationSessionProxy> m_automationSessionProxy;
 
 #if ENABLE(SERVICE_CONTROLS)
@@ -990,6 +1005,14 @@ private:
 #endif
 #if ENABLE(INITIALIZE_ACCESSIBILITY_ON_DEMAND)
     bool m_shouldInitializeAccessibility { false };
+#endif
+#if HAVE(DISPLAY_LINK)
+    // 10.9 backport: a process-wide display-link heartbeat kept alive while short-interval DOM
+    // timers are firing, so the throttled WebContent main thread (xpc_main/dispatch_main, ~6Hz)
+    // runs near 60Hz during timer-driven work like SPA asset loading.
+    DisplayLinkObserverID m_mainThreadTimerHeartbeatObserverID { DisplayLinkObserverID::generate() };
+    bool m_mainThreadTimerHeartbeatActive { false };
+    MonotonicTime m_mainThreadTimerHeartbeatDeadline;
 #endif
 };
 

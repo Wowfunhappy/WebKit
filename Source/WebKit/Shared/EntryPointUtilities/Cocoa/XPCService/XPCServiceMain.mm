@@ -366,22 +366,16 @@ int XPCServiceMain(int, const char**)
     }
 
     xpc_trace("calling xpc_main");
-    // 10.9 perf: removed debug fopen logging
     xpc_main(XPCServiceEventHandler);
-    // 10.9 perf: removed debug fopen logging
     xpc_trace("xpc_main returned");
 
-    // 10.9 backport: xpc_main calls dispatch_main, which returns when the main queue
-    // has no more sources. Safari's XPC connection close after bootstrap can cause this.
-    // Keep the main thread alive forever by running CFRunLoop. WebContent's IPC mach
-    // port source is registered on the main RunLoop, so this keeps message dispatch
-    // running.
+    // 10.9 backport: with RunLoopType=NSRunLoop (set in the .xpc Info.plist), xpc_main runs a real
+    // run loop on the main thread and does not return. This fallback only runs if it ever does
+    // (e.g. a future RunLoopType=dispatch_main); WebContent's IPC mach port source is on the main
+    // RunLoop, so CFRunLoop keeps message dispatch alive.
     if (s_isWebProcess) {
-        // 10.9 perf: removed debug fopen logging
-        for (;;) {
+        for (;;)
             CFRunLoopRun();
-            // 10.9 perf: removed debug fopen logging
-        }
     }
     return 0;
 }

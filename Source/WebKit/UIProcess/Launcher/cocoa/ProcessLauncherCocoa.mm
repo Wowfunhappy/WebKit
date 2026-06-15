@@ -68,6 +68,18 @@
 #import <BrowserEngineKit/BEWebContentProcess.h>
 #endif // USE(EXTENSIONKIT)
 
+// 10.9 backport: xpc_connection_set_oneshot_instance() (used by modern WebKit to give
+// every WebContent connection its OWN service instance, i.e. a distinct process) is a
+// 10.10+ API and is absent here. Without it, every xpc_connection_create() for
+// "com.apple.WebKit.WebContent" attaches to the SAME singleton service instance: only
+// the first connection's bootstrap handshake completes, so a second WebContent process
+// can never launch. That single-process limitation is why navigation was force-pinned
+// to one process and why Safari's Top Sites snapshot fetcher (which renders each site in
+// an offscreen page in its OWN process pool) produced only dark placeholders. 10.9's
+// libxpc DOES export the predecessor, xpc_connection_set_instance() (declared in
+// wtf/spi/darwin/XPCSPI.h); given a fresh random UUID per connection it yields the same
+// per-connection unique instance, restoring real multi-process launching.
+
 namespace WebKit {
 
 #if USE(EXTENSIONKIT)
@@ -292,8 +304,13 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
     uuid_t uuid;
     uuid_generate(uuid);
 
-    // xpc_connection_set_oneshot_instance is 10.10+; skip on 10.9.
-    // xpc_connection_set_oneshot_instance(m_xpcConnection.get(), uuid);
+    // 10.9 backport: xpc_connection_set_oneshot_instance is 10.10+; use the 10.9-exported
+    // predecessor xpc_connection_set_instance() with this fresh per-connection UUID so each
+    // WebContent/Network/GPU connection targets its OWN service instance (a distinct
+    // process) instead of all collapsing onto one singleton. This restores multi-process
+    // launching (see the declaration above for why it was broken).
+    if (m_xpcConnection)
+        xpc_connection_set_instance(m_xpcConnection.get(), uuid);
 
     // Inherit UI process localization. It can be different from child process default localization:
     // 1. When the application and system frameworks simply have different localized resources available, we should match the application.

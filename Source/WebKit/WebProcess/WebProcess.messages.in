@@ -49,6 +49,9 @@ messages -> WebProcess : AuxiliaryProcess WantsAsyncDispatchMessage {
     RegisterURLSchemeAsCachePartitioned(String scheme)
     RegisterURLSchemeAsCanDisplayOnlyIfCanRequest(String scheme)
 
+    RegisterURLSchemeForCustomProtocol(String scheme)
+    UnregisterURLSchemeForCustomProtocol(String scheme)
+
 #if ENABLE(WK_WEB_EXTENSIONS)
     RegisterURLSchemeAsWebExtension(String scheme)
 #endif
