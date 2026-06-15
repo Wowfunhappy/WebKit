@@ -36,50 +36,62 @@ namespace WebKit {
 
 using namespace WebCore;
 
-static RefPtr<__CVDisplayLink> createDisplayLinkWithDisplay(CGDirectDisplayID displayID)
+// 10.9 backport: the dispatch timer's event handler (runs on a global high-priority queue,
+// i.e. off the main thread, which notifyObserversDisplayDidRefresh() asserts).
+void DisplayLink::displayLinkTimerFired(void* context)
 {
-    CVDisplayLinkRef displayLink = nullptr;
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    CVReturn error = CVDisplayLinkCreateWithCGDisplay(displayID, &displayLink);
-ALLOW_DEPRECATED_DECLARATIONS_END
-    if (error) {
-        RELEASE_LOG_FAULT(DisplayLink, "Could not create a display link for display %u: error %d", displayID, error);
-        return nullptr;
-    }
-    return adoptRef(displayLink);
+    static_cast<DisplayLink*>(context)->notifyObserversDisplayDidRefresh();
 }
 
 void DisplayLink::platformInitialize()
 {
-    // FIXME: We can get here with displayID == 0 (webkit.org/b/212120), in which case CVDisplayLinkCreateWithCGDisplay()
-    // probably defaults to the main screen.
-    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
-    m_displayLink = createDisplayLinkWithDisplay(m_displayID);
-    if (!m_displayLink)
-        return;
+    // 10.9 backport: CVDisplayLink is unusable in this VM. CoreVideo logs
+    // "CVCGDisplayLink::setCurrentDisplay didn't find a valid display - falling back to 60Hz"
+    // (the VM has no real display to vsync against) and the output callback then fires at well
+    // under 1 Hz. Because the WebProcess gates EVERY rendering update on DisplayDidRefresh
+    // (m_waitingForBackingStoreSwap), that throttles the entire pipeline — requestAnimationFrame,
+    // IntersectionObserver-driven lazy loading, <iframe>/image reveal, and compositing all crawl.
+    // Drive notifyObserversDisplayDidRefresh() from a real dispatch timer at the nominal rate
+    // instead of the dead hardware vsync. We don't even create a CVDisplayLink (avoids the
+    // WindowServer round-trip and the error spam); the VM display is 60Hz.
+    m_displayNominalFramesPerSecond = WebCore::FullSpeedFramesPerSecond;
 
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    auto error = CVDisplayLinkSetOutputCallback(m_displayLink.get(), displayLinkCallback, this);
-ALLOW_DEPRECATED_DECLARATIONS_END
-    if (error) {
-        RELEASE_LOG_FAULT(DisplayLink, "DisplayLink: Could not set the display link output callback for display %u: error %d", m_displayID, error);
+    auto queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0);
+    m_timer = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue));
+    if (!m_timer) {
+        RELEASE_LOG_FAULT(DisplayLink, "DisplayLink: Could not create the refresh timer for display %u", m_displayID);
         return;
     }
 
-    m_displayNominalFramesPerSecond = nominalFramesPerSecondFromDisplayLink(m_displayLink.get());
+    uint64_t intervalNanos = NSEC_PER_SEC / m_displayNominalFramesPerSecond;
+    dispatch_source_set_timer(m_timer.get(), DISPATCH_TIME_NOW, intervalNanos, intervalNanos / 10);
+    // The DisplayLink owns m_timer and cancels it in platformFinalize before destruction, so the
+    // raw `this` context is safe (the handler runs off the main thread, as the assert in
+    // notifyObserversDisplayDidRefresh() requires). Use the function-pointer form rather than a
+    // block since this is a plain .cpp.
+    dispatch_set_context(m_timer.get(), this);
+    dispatch_source_set_event_handler_f(m_timer.get(), displayLinkTimerFired);
+    // dispatch sources are created suspended; platformStart() resumes.
 }
 
 void DisplayLink::platformFinalize()
 {
-    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
-    ASSERT(m_displayLink);
-    if (!m_displayLink)
-        return;
+    if (m_timer) {
+        // A suspended dispatch source must be resumed before release or libdispatch aborts.
+        if (!m_timerRunning) {
+            dispatch_resume(m_timer.get());
+            m_timerRunning = true;
+        }
+        dispatch_source_cancel(m_timer.get());
+        m_timer = nullptr;
+    }
 
+    if (m_displayLink) {
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    CVDisplayLinkStop(m_displayLink.get());
-    m_displayLink = nullptr;
+        CVDisplayLinkStop(m_displayLink.get());
 ALLOW_DEPRECATED_DECLARATIONS_END
+        m_displayLink = nullptr;
+    }
 }
 
 FramesPerSecond DisplayLink::nominalFramesPerSecondFromDisplayLink(CVDisplayLinkRef displayLink)
@@ -96,25 +108,25 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 bool DisplayLink::platformIsRunning() const
 {
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    return CVDisplayLinkIsRunning(m_displayLink.get());
-ALLOW_DEPRECATED_DECLARATIONS_END
+    return m_timerRunning;
 }
 
 void DisplayLink::platformStart()
 {
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    CVReturn error = CVDisplayLinkStart(m_displayLink.get());
-ALLOW_DEPRECATED_DECLARATIONS_END
-    if (error)
-        RELEASE_LOG_FAULT(DisplayLink, "DisplayLink: Could not start the display link: %d", error);
+    if (!m_timer || m_timerRunning)
+        return;
+    dispatch_resume(m_timer.get());
+    m_timerRunning = true;
 }
 
 void DisplayLink::platformStop()
 {
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    CVDisplayLinkStop(m_displayLink.get());
-ALLOW_DEPRECATED_DECLARATIONS_END
+    if (!m_timer || !m_timerRunning)
+        return;
+    // Safe to call from within the timer's own event handler (the no-observers auto-stop path):
+    // dispatch_suspend takes effect after the current handler block returns.
+    dispatch_suspend(m_timer.get());
+    m_timerRunning = false;
 }
 
 CVReturn DisplayLink::displayLinkCallback(CVDisplayLinkRef displayLinkRef, const CVTimeStamp*, const CVTimeStamp*, CVOptionFlags, CVOptionFlags*, void* data)

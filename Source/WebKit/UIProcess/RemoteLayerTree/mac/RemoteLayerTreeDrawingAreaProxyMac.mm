@@ -475,10 +475,15 @@ void RemoteLayerTreeDrawingAreaProxyMac::scheduleDisplayRefreshCallbacks()
     if (m_displayRefreshObserverID)
         return;
 
-    if (!m_displayID) {
-        RELEASE_LOG(DisplayLink, "RemoteLayerTreeDrawingAreaProxyMac::scheduleDisplayLink(): page has no displayID");
-        return;
-    }
+    // 10.9 backport: in this VM the view's NSWindow never gets a screen, so windowScreenDidChange
+    // never populates m_displayID — and bailing here means NO display-link observer is ever added,
+    // so the display link never runs and WebContent stays stuck waiting for DisplayDidRefresh after
+    // its first commit (rAF, IntersectionObserver/lazy-loading and compositing all stall). Fall back
+    // to the main display (same as displayLink()) so the observer is registered and refresh callbacks
+    // flow. This is the proper fix for the stall the old "150ms dispatchAfter after each commit"
+    // band-aid tried to paper over.
+    if (!m_displayID)
+        m_displayID = static_cast<WebCore::PlatformDisplayID>(CGMainDisplayID());
 
     auto& displayLink = this->displayLink();
     m_displayRefreshObserverID = DisplayLinkObserverID::generate();

@@ -517,7 +517,6 @@ void RemoteLayerTreeDrawingArea::displayDidRefresh(MonotonicTime start)
     // FIXME: This should use a counted replacement for setLayerTreeStateIsFrozen, but
     // the callers of that function are not strictly paired.
 
-    // 10.9 perf: removed debug fopen logging
     auto wasWaitingForBackingStoreSwap = std::exchange(m_waitingForBackingStoreSwap, false);
 
 #if ENABLE(GPU_PROCESS)

@@ -44,6 +44,8 @@
 #import "WebPreferencesKeys.h"
 #import "WebPreferencesStore.h"
 #import "WebProcess.h"
+#import "WebProcessProxyMessages.h" // 10.9 backport: StartDisplayLink/StopDisplayLink
+#import <WebCore/AnimationFrameRate.h> // 10.9 backport: FullSpeedFramesPerSecond
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <QuartzCore/QuartzCore.h>
 #import <CoreGraphics/CoreGraphics.h> // 10.9: CGMainDisplayID / CGDisplayCopyDisplayMode / CGDisplayModeGetRefreshRate for adaptive refresh-rate pacing
@@ -363,7 +365,46 @@ void TiledCoreAnimationDrawingArea::addCommitHandlers()
 
 void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushType)
 {
+    // 10.9 CPU throttle (THE single choke point): clamp the rendering loop to the display refresh
+    // rate. updateRendering() is reached from several drivers — the kCFRunLoopBeforeWaiting
+    // RunLoopObserver (renderingUpdateRunLoopCallback), the UIProcess display-link heartbeat, and the
+    // dispatch_after fallback in scheduleRenderingUpdateRunLoopObserver(). The observer + CFRunLoopWakeUp()
+    // pair re-enters this every runloop cycle (~1000Hz), so the dispatch_after's self-throttle was
+    // bypassed and ANY page with a continuous requestAnimationFrame / CSS animation pinned ~2 cores
+    // (a trivial moving-box rAF measured ~200% CPU). Throttling here caps EVERY path: if we ran less
+    // than one frame ago, defer to the frame boundary via a single outstanding timer and bail; the
+    // BeforeWaiting observer is invalidated so it stops spinning the runloop until that timer fires.
+    // The first update after an idle gap (sinceLastRun >= one frame, incl. the initial run where
+    // m_lastRenderingUpdateRunTime is the epoch) runs immediately, so first paint and resumed
+    // animation are never deferred. Forced/transient updates (non-Normal) always run now.
+    if (flushType == UpdateRenderingType::Normal) {
+        Seconds frameInterval = displayUpdateInterval();
+        Seconds sinceLastRun = MonotonicTime::now() - m_lastRenderingUpdateRunTime;
+        if (m_renderingThrottleScheduled || sinceLastRun < frameInterval) {
+            m_renderingUpdatePending = true;
+            invalidateRenderingUpdateRunLoopObserver();
+            if (!m_renderingThrottleScheduled) {
+                m_renderingThrottleScheduled = true;
+                int64_t delayNs = std::max<int64_t>(0, static_cast<int64_t>((frameInterval - sinceLastRun).nanoseconds()));
+                WeakPtr<TiledCoreAnimationDrawingArea> weakThis { *this };
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayNs), dispatch_get_main_queue(), ^{
+                    if (RefPtr strong = weakThis.get()) {
+                        strong->m_renderingThrottleScheduled = false;
+                        strong->updateRendering();
+                    }
+                });
+            }
+            return;
+        }
+    }
+    m_renderingThrottleScheduled = false;
+
     m_lastRenderingUpdateRunTime = MonotonicTime::now(); // 10.9: record for the ~60Hz dispatch_async throttle in scheduleRenderingUpdateRunLoopObserver().
+
+    // 10.9 backport: clear the "update wanted" flag now; a callback during this update
+    // (rAF/CSS animation/IntersectionObserver) will set it again via scheduleRenderingUpdateRunLoopObserver(),
+    // and we re-queue the loop at the end if so. See the comment there.
+    m_renderingUpdatePending = false;
 
     if (layerTreeStateIsFrozen())
         return;
@@ -440,6 +481,16 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
         // drive the completion directly.
         didCompleteRenderingUpdateDisplay();
     }
+
+    // 10.9 backport: if a callback re-scheduled a rendering update during this one (continuous
+    // rAF, CSS animations, IntersectionObserver, lazy-loading reveal), re-queue the loop. This
+    // is the fix for animation freezing after one frame. scheduleRenderingUpdateRunLoopObserver()
+    // also (re)starts the display-link heartbeat so the loop actually runs near 60Hz rather than
+    // at the ~6Hz the throttled main-GCD-queue drain otherwise allows.
+    if (m_renderingUpdatePending)
+        scheduleRenderingUpdateRunLoopObserver();
+    else
+        stopRenderingDisplayLink();
 }
 
 void TiledCoreAnimationDrawingArea::handleActivityStateChangeCallbacks()
@@ -851,8 +902,52 @@ void TiledCoreAnimationDrawingArea::addFence(const MachSendRight& fencePort)
     m_layerHostingContext->setFencePort(fencePort.sendRight());
 }
 
+// 10.9: one frame at the DISPLAY'S ACTUAL refresh rate, not a hardcoded 60Hz, so a 120Hz/144Hz panel
+// animates at full rate (was capped to 60 = choppy) and unusual rates aren't mismatched. Prefer the
+// page's plumbed per-window nominal FPS (multi-monitor aware); fall back to the main display's
+// CoreGraphics-reported rate (cached ~2s to avoid per-frame CG allocation); finally 60Hz if nothing
+// reports a usable value (e.g. VMs report 0).
+Seconds TiledCoreAnimationDrawingArea::displayUpdateInterval()
+{
+    double displayHz = 0;
+    if (RefPtr corePage = Ref { m_webPage.get() }->corePage()) {
+        if (auto fps = corePage->displayNominalFramesPerSecond())
+            displayHz = *fps;
+    }
+    if (displayHz < 1.0) {
+        static double cachedCGHz = 0;
+        static MonotonicTime lastCGQuery;
+        if (MonotonicTime::now() - lastCGQuery >= 2_s) {
+            lastCGQuery = MonotonicTime::now();
+            cachedCGHz = 0;
+            if (RetainPtr<CGDisplayModeRef> mode = adoptCF(CGDisplayCopyDisplayMode(CGMainDisplayID())))
+                cachedCGHz = CGDisplayModeGetRefreshRate(mode.get());
+        }
+        displayHz = cachedCGHz;
+    }
+    if (displayHz < 1.0 || displayHz > 360.0)
+        displayHz = 60.0;
+    return 1_s / displayHz;
+}
+
 void TiledCoreAnimationDrawingArea::scheduleRenderingUpdateRunLoopObserver()
 {
+    // 10.9 backport: mark that a rendering update is wanted. updateRendering() clears this at
+    // its start and re-checks it at the end: if a rAF/CSS-animation/IntersectionObserver callback
+    // re-scheduled an update DURING the update, this stays true and the loop is re-queued. Without
+    // this, continuous animation froze after a single frame — a reschedule that arrived while the
+    // run-loop observer was still scheduled hit the early-return below, then the observer was
+    // invalidated at the end of updateRendering(), so the next frame was silently dropped.
+    m_renderingUpdatePending = true;
+
+    // 10.9 backport: request a 60Hz display-link heartbeat from the UIProcess. On this port the
+    // WebContent main thread (xpc_main→dispatch_main) drains its GCD queue only ~6Hz on its own,
+    // so the dispatch_async render fallback below crawls. But inbound IPC wakes the main thread
+    // promptly, and the UIProcess (a normal app with a working run loop) drives the DisplayLink at
+    // the real rate, sending DisplayDidRefresh at ~60Hz — each one wakes us to drain the pending
+    // render. stopRenderingDisplayLink() is called from updateRendering() once animation settles.
+    startRenderingDisplayLink();
+
     // 10.9 backport: always wake the main runloop so the observer (which only
     // fires on BeforeWaiting ticks) actually runs. On Mavericks the main thread
     // is dispatch-driven and the CFRunLoop doesn't tick on its own, so without
@@ -892,30 +987,7 @@ void TiledCoreAnimationDrawingArea::scheduleRenderingUpdateRunLoopObserver()
         if (RefPtr strong = weakThis.get())
             strong->updateRendering();
     };
-    // 10.9: pace this fallback at the DISPLAY'S ACTUAL refresh rate, not a hardcoded 60Hz, so a
-    // 120Hz/144Hz panel animates at full rate (was capped to 60 = choppy) and unusual rates aren't
-    // mismatched. Prefer the page's plumbed per-window nominal FPS (multi-monitor aware); fall back to
-    // the main display's CoreGraphics-reported rate (cached ~2s to avoid per-frame CG allocation);
-    // finally 60Hz if nothing reports a usable value (e.g. VMs report 0).
-    double displayHz = 0;
-    if (RefPtr corePage = Ref { m_webPage.get() }->corePage()) {
-        if (auto fps = corePage->displayNominalFramesPerSecond())
-            displayHz = *fps;
-    }
-    if (displayHz < 1.0) {
-        static double cachedCGHz = 0;
-        static MonotonicTime lastCGQuery;
-        if (MonotonicTime::now() - lastCGQuery >= 2_s) {
-            lastCGQuery = MonotonicTime::now();
-            cachedCGHz = 0;
-            if (RetainPtr<CGDisplayModeRef> mode = adoptCF(CGDisplayCopyDisplayMode(CGMainDisplayID())))
-                cachedCGHz = CGDisplayModeGetRefreshRate(mode.get());
-        }
-        displayHz = cachedCGHz;
-    }
-    if (displayHz < 1.0 || displayHz > 360.0)
-        displayHz = 60.0;
-    Seconds frameInterval = 1_s / displayHz;
+    Seconds frameInterval = displayUpdateInterval();
     Seconds sinceLastRun = MonotonicTime::now() - m_lastRenderingUpdateRunTime;
     if (sinceLastRun >= frameInterval)
         dispatch_async(dispatch_get_main_queue(), runRenderingUpdate);
@@ -936,6 +1008,30 @@ void TiledCoreAnimationDrawingArea::invalidateRenderingUpdateRunLoopObserver()
     tracePoint(RenderingUpdateRunLoopObserverEnd, 1);
 
     m_renderingUpdateRunLoopObserver->invalidate();
+}
+
+// 10.9 backport: drive the rendering loop from a UIProcess display-link heartbeat (see
+// scheduleRenderingUpdateRunLoopObserver). Reuses the existing StartDisplayLink/StopDisplayLink IPC;
+// the UIProcess DisplayLink sends DisplayDidRefresh back at the display rate, each waking the
+// throttled WebContent main thread to drain the next render.
+void TiledCoreAnimationDrawingArea::startRenderingDisplayLink()
+{
+    if (m_renderingDisplayLinkActive)
+        return;
+    RefPtr connection = WebProcess::singleton().parentProcessConnection();
+    if (!connection)
+        return;
+    m_renderingDisplayLinkActive = true;
+    connection->send(Messages::WebProcessProxy::StartDisplayLink(m_renderingDisplayLinkObserverID, CGMainDisplayID(), WebCore::FullSpeedFramesPerSecond), 0);
+}
+
+void TiledCoreAnimationDrawingArea::stopRenderingDisplayLink()
+{
+    if (!m_renderingDisplayLinkActive)
+        return;
+    m_renderingDisplayLinkActive = false;
+    if (RefPtr connection = WebProcess::singleton().parentProcessConnection())
+        connection->send(Messages::WebProcessProxy::StopDisplayLink(m_renderingDisplayLinkObserverID, CGMainDisplayID()), 0);
 }
 
 void TiledCoreAnimationDrawingArea::renderingUpdateRunLoopCallback()

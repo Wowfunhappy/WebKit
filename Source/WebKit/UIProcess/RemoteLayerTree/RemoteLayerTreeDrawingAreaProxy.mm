@@ -461,16 +461,10 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(IPC::Connection& connectio
     updateSlowFrameIndicator();
     scheduleDisplayRefreshCallbacks();
 
-    // 10.9 backport: if the display link isn't running (no displayID assigned because the
-    // window isn't backed by a real screen), WebContent never receives DisplayDidRefresh and
-    // is stuck waiting after the first commit. Send it after a 150ms delay so WebContent's
-    // pending render state has time to settle (immediate dispatch races with the next paint
-    // and tends to produce an empty back-buffer commit that overwrites the painted one).
-    // Empirical: ~50% success rate at 150ms vs ~20% at 0ms; multi-ping made it worse.
-    RunLoop::mainSingleton().dispatchAfter(150_ms, [weakThis = WeakPtr { *this }] {
-        if (RefPtr strongThis = weakThis.get())
-            strongThis->didRefreshDisplay();
-    });
+    // 10.9 backport: the old "send didRefreshDisplay 150ms after each commit" band-aid is removed.
+    // The display link now actually runs (m_displayID is populated in scheduleDisplayRefreshCallbacks,
+    // and DisplayLinkMac drives it from a real timer instead of the VM's dead CVDisplayLink), so
+    // DisplayDidRefresh flows continuously at the display rate rather than once per commit.
 }
 
 #if ENABLE(TOUCH_EVENT_REGIONS)
