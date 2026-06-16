@@ -65,6 +65,15 @@
 
 #import <pal/spi/cocoa/NetworkSPI.h>
 
+// 10.9: NSHTTPCookieStorage exposes only the argument-less -_saveCookies (selector "_saveCookies",
+// type encoding v16@0:8); modern macOS replaced it with the completion-block -_saveCookies:. Declare
+// the legacy selector at global scope (ObjC categories may not appear inside a C++ namespace) so we
+// can message it without a -Wundeclared-selector / performSelector-leak warning. saveCookies() still
+// guards the call with class_getInstanceMethod before messaging.
+@interface NSHTTPCookieStorage (WebKitMavericksLegacyCookieFlush)
+- (void)_saveCookies;
+@end
+
 namespace WebKit {
 
 static void initializeNetworkSettings()
@@ -249,8 +258,8 @@ void saveCookies(NSHTTPCookieStorage *cookieStorage, CompletionHandler<void()>&&
 {
     ASSERT(RunLoop::isMain());
     // 10.9 backport: NetworkProcess shutdown can invoke this on a freed/stale
-    // cookieStorage (objc_msgSend_corrupt_cache_error on _saveCookies:). Verify
-    // the receiver's class table actually advertises _saveCookies: WITHOUT
+    // cookieStorage (objc_msgSend_corrupt_cache_error on the save selector). Verify
+    // the receiver's class table actually advertises a save selector WITHOUT
     // dispatching to the receiver itself (class_getInstanceMethod walks the
     // class struct, doesn't objc_msgSend). If the object is freed, [obj class]
     // could still crash, so wrap that too.
@@ -258,29 +267,50 @@ void saveCookies(NSHTTPCookieStorage *cookieStorage, CompletionHandler<void()>&&
         return completionHandler();
     Class cls = Nil;
     @try { cls = object_getClass((id)cookieStorage); } @catch (...) { }
-    if (!cls || !class_getInstanceMethod(cls, @selector(_saveCookies:)))
+    if (!cls)
         return completionHandler();
-    @try {
-        [cookieStorage _saveCookies:makeBlockPtr([completionHandler = WTF::move(completionHandler)]() mutable {
-            // CFNetwork may call the completion block on a background queue, so we need to redispatch to the main thread.
-            RunLoop::mainSingleton().dispatch(WTF::move(completionHandler));
-        }).get()];
-    } @catch (NSException *) {
-        completionHandler();
+
+    // Modern macOS: -_saveCookies: takes a completion block and may invoke it on a background queue.
+    if (class_getInstanceMethod(cls, @selector(_saveCookies:))) {
+        @try {
+            [cookieStorage _saveCookies:makeBlockPtr([completionHandler = WTF::move(completionHandler)]() mutable {
+                // CFNetwork may call the completion block on a background queue, so we need to redispatch to the main thread.
+                RunLoop::mainSingleton().dispatch(WTF::move(completionHandler));
+            }).get()];
+        } @catch (NSException *) {
+            completionHandler();
+        }
+        return;
     }
+
+    // macOS 10.9: only the argument-less -_saveCookies exists. It hands the cookies to the storage
+    // daemon (nsurlstoraged), which completes the on-disk write even after this process exits, so it
+    // is safe to invoke synchronously and complete immediately. Without this, cookies set during the
+    // session are never persisted (the old code only knew -_saveCookies: and silently skipped here).
+    if (class_getInstanceMethod(cls, @selector(_saveCookies))) {
+        @try {
+            [cookieStorage _saveCookies];
+        } @catch (NSException *) { }
+    }
+    completionHandler();
 }
 
 void NetworkProcess::platformFlushCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
 {
     UNUSED_PARAM(sessionID);
-    // 10.9 backport: skip _saveCookies: entirely. NetworkProcess::didClose calls
-    // this on a freed/stale cookieStorage and crashes Networking with
-    // objc_msgSend_corrupt_cache_error (even class introspection of the receiver
-    // faults). NSHTTPCookieStorage flushes its data to disk on its own teardown
-    // path, so skipping the explicit flush is safe — cookies set during the
-    // session were already written when received via Set-Cookie header path
-    // (project_set_cookie_inbound.md uses NSHTTPCookieStorage setCookies:).
-    return completionHandler();
+    // 10.9 backport: persist cookies to disk at shutdown via the process-wide cookie jar.
+    //
+    // Upstream derives the cookie storage from the session's NSURLStorageSession; on 10.9 that
+    // wrapper object can be freed/stale during didClose (faults even on class introspection), which
+    // is why the explicit flush was previously skipped. But on 10.9 every network session's cookie
+    // jar IS +[NSHTTPCookieStorage sharedHTTPCookieStorage] (see the session setup in
+    // NetworkSessionCocoa), and that singleton is never freed — so flush THAT instead. saveCookies()
+    // walks the class table before messaging and uses 10.9's argument-less -_saveCookies.
+    //
+    // The earlier "skipping is safe, NSHTTPCookieStorage persists on its own" assumption was FALSE:
+    // verified that a JS-set persistent cookie was absent from Cookies.binarycookies after a graceful
+    // quit, i.e. session-set cookies (logins/preferences) were silently lost across restarts.
+    saveCookies([NSHTTPCookieStorage sharedHTTPCookieStorage], WTF::move(completionHandler));
 }
 
 const String& NetworkProcess::uiProcessBundleIdentifier() const
