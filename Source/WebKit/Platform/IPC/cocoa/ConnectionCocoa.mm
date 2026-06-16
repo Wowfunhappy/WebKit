@@ -215,12 +215,7 @@ void Connection::platformOpen()
     {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IPC PID %d isServer=%d] platformOpen creating mach_recv source on port=%u\n", getpid(), m_isServer, m_receivePort); fclose(_d);}}
     m_receiveSource = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_RECV, m_receivePort, 0, protect(m_connectionQueue->dispatchQueue()).get()));
     dispatch_source_set_event_handler(m_receiveSource.get(), [this, protectedThis = Ref { *this }] {
-        // 10.9 backport: NSExceptions raised inside receiveSourceEventHandler
-        // (e.g. unrecognized-selector from 10.10+ SPI calls in handlers) bubble
-        // up to libdispatch and call std::terminate. @catch keeps the process alive.
-        @try {
-            receiveSourceEventHandler();
-        } @catch (NSException *) { }
+        receiveSourceEventHandler();
     });
     dispatch_source_set_cancel_handler(m_receiveSource.get(), [protectedThis = Ref { *this }, receivePort = m_receivePort] {
 #if !PLATFORM(WATCHOS)
@@ -250,9 +245,7 @@ void Connection::platformOpen()
     dispatch_source_set_event_handler(m_receivePollTimer.get(), [this, protectedThis = Ref { *this }] {
         if (!MACH_PORT_VALID(m_receivePort))
             return;
-        @try {
-            receiveSourceEventHandler();
-        } @catch (NSException *) { }
+        receiveSourceEventHandler();
     });
 
     m_connectionQueue->dispatch([strongRef = Ref { *this }, this] {
