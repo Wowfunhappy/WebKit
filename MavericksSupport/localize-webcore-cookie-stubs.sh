@@ -1,59 +1,66 @@
 #!/bin/bash
-# Localize the NetworkStorageSession cookie-method STUBS in libpolyfill.a's
-# webcore_stubs.o so they stop SHADOWING the real WebCore.framework implementations.
+# Localize the WebCore::NetworkStorageSession cookie-method STUBS in libpolyfill.a so they stop
+# SHADOWING the real WebCore.framework implementations when WebKit2 links the archive.
 #
-# webcore_stubs.o (a prebuilt object in libpolyfill.a, no source recipe) provides
-# return-0/no-op stubs for ~152 WebCore functions. When WebKit2 links libpolyfill.a
-# the object is pulled in and its *global* (T) stub definitions win over the dynamic
-# WebCore.framework definitions for any caller inside WebKit2 (two-level namespace).
-# For NetworkStorageSession's cookie methods this made the NetworkProcess's
-# document.cookie set/get + request-cookie-header paths NO-OPS: DOM-set cookies were
-# silently dropped (never reached NSHTTPCookieStorage, never persisted). Verified via
-# nm -arch x86_64 (WebKit2 defines T setCookiesFromDOM) + instrumentation (gate reached
-# the call, real WebCore impl never ran).
+# libpolyfill.a's prebuilt stub objects (webcore_stubs.o, final_stubs.o; no source recipe) provide
+# global (T) return-0/no-op stubs for many WebCore functions. When WebKit2 links libpolyfill.a those
+# objects are pulled in and their stub definitions win over the dynamic WebCore.framework definitions
+# for callers inside WebKit2 (two-level namespace). For NetworkStorageSession's cookie methods this
+# made the NetworkProcess's cookie paths NO-OPS:
+#   - webcore_stubs.o: the DOM path (setCookiesFromDOM/cookiesForDOM/cookieRequestHeaderFieldValue/...)
+#     -> document.cookie set/get + request cookie headers were dropped (no persistence).
+#   - final_stubs.o:   the cookie-MANAGER path (getAllCookies/deleteAllCookies/getHostnamesWithCookies/
+#     hasCookies/setCookies/getCookies/nsCookieStorage/cookieAcceptPolicy/...) -> "clear cookies",
+#     cookie-management UI, extension cookies.getAll/remove, and ITP cookie ops were no-ops.
 #
-# Fix (the project's localize-to-fix technique, cf. colorFromCocoaColor / SharedBuffer):
-# make each shadowing stub LOCAL (T->t) so it no longer satisfies WebKit2's external
-# reference, which then resolves to WebCore.framework's real implementation. Only the
-# cookie methods are touched (all confirmed to have real WebCore.framework counterparts),
-# NOT the other 144 stubs — bulk-localizing breaks browsing.
-#
-# Idempotent; keeps a .pre-cookiefix backup. Re-run after restoring libpolyfill.a.
+# Fix (localize-to-fix): make each shadowing stub LOCAL (T->t) so it no longer satisfies WebKit2's
+# external reference, which then resolves to WebCore.framework's real implementation. ONLY symbols
+# that WebCore.framework actually exports (T) are localized (a stub-only symbol has no real provider,
+# so localizing it would break the link); everything else is left untouched (bulk-localize breaks
+# browsing). Idempotent; keeps a .pre-cookiefix backup. Re-run after restoring libpolyfill.a.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TC="${MAVERICKS_CLANG:-/Users/jonathan/Desktop/Compilers/toolchains/clang-22}"
 AR="$TC/bin/llvm-ar"
 OBJCOPY="$TC/bin/llvm-objcopy"
-NM="$TC/bin/llvm-nm"
 LIB="$HERE/prebuilt/libpolyfill.a"
-WEBCORE="/System/Library/PrivateFrameworks/WebCore.framework/Versions/A/WebCore"
+# Check exports against the WebCore that WebKit LINKS against (the build framework) when present —
+# only symbols WebCore really IMPLEMENTS may be localized. Many cookie-manager methods (getAllCookies,
+# deleteAllCookies, hasCookies, ...) are unimplemented on the backport (provided ONLY by the stub),
+# so they must stay shadowed or the link fails with "undefined symbol".
+WEBCORE="$HERE/../WebKitBuild/Release/lib/WebCore.framework/Versions/A/WebCore"
+[ -f "$WEBCORE" ] || WEBCORE="/System/Library/PrivateFrameworks/WebCore.framework/Versions/A/WebCore"
+OBJS="webcore_stubs.o final_stubs.o"
 
 [ -x "$OBJCOPY" ] || OBJCOPY="$(command -v llvm-objcopy)"
-[ -x "$NM" ] || NM="$(command -v nm)"
 
 [ -f "$LIB.pre-cookiefix" ] || { echo "Backing up -> $LIB.pre-cookiefix"; cp "$LIB" "$LIB.pre-cookiefix"; }
 
+# Real (T) WebCore exports, captured once (large binary; use system nm).
 WORK="$(mktemp -d -t cookiestubs)"
 trap 'rm -rf "$WORK"' EXIT
+nm -arch x86_64 "$WEBCORE" 2>/dev/null | awk '$2=="T"{print $3}' | sort -u > "$WORK/webcore_T.txt"
+
 cd "$WORK"
-"$AR" x "$LIB" webcore_stubs.o
-
-# NetworkStorageSession cookie-method stubs (global T) in this object.
-"$NM" webcore_stubs.o | awk '$2=="T"{print $3}' | grep 'NetworkStorageSession' | grep -iE 'ookie' | sort -u > syms.txt
-echo "Cookie stubs to localize ($(wc -l < syms.txt | tr -d ' ')):"
-while read -r s; do echo "  $s"; done < syms.txt
-
-# Safety: each must have a real exported (T) counterpart in WebCore.framework.
-if [ -f "$WEBCORE" ]; then
+for OBJ in $OBJS; do
+    "$AR" x "$LIB" "$OBJ" 2>/dev/null || { echo "  (no $OBJ in archive, skip)"; continue; }
+    # NetworkStorageSession cookie-method stubs (global T) in this object. Anchor to the MEMBER prefix
+    # (^__ZNK?7WebCore21NetworkStorageSession) so free functions that merely take a NetworkStorageSession
+    # or HTTPCookieAcceptPolicy *parameter* (e.g. createPrivateStorageSession) are NOT matched.
+    nm "$OBJ" | awk '$2=="T" && $3 ~ /^__ZNK?7WebCore21NetworkStorageSession/ {print $3}' | grep -iE 'ookie' | sort -u > "all_$OBJ.txt"
+    : > "loc_$OBJ.txt"
     while read -r s; do
-        "$NM" "$WEBCORE" 2>/dev/null | grep -q " T ${s}\$" || echo "  WARN: no real WebCore export for $s (skipping localize would be unsafe)"
-    done < syms.txt
-fi
-
-"$OBJCOPY" --localize-symbols=syms.txt webcore_stubs.o
-"$AR" r "$LIB" webcore_stubs.o
+        if grep -qxF "$s" "$WORK/webcore_T.txt"; then echo "$s" >> "loc_$OBJ.txt"; else echo "  SKIP (no real WebCore export): $s"; fi
+    done < "all_$OBJ.txt"
+    n=$(wc -l < "loc_$OBJ.txt" | tr -d ' ')
+    echo "$OBJ: localizing $n cookie stub(s)"
+    if [ "$n" -gt 0 ]; then
+        "$OBJCOPY" --localize-symbols="loc_$OBJ.txt" "$OBJ"
+        "$AR" r "$LIB" "$OBJ"
+    fi
+done
 "$AR" s "$LIB" 2>/dev/null || true
 
-echo "Done. Verify the stubs are now local (t):"
-"$NM" "$LIB" 2>/dev/null | grep -iE 'NetworkStorageSession.*(setCookiesFromDOM|cookiesForDOM)' | grep ' t ' | head -2 || echo "  (re-run nm to confirm)"
+echo "Done. Remaining cookie symbols still GLOBAL T in the archive (should be only stub-only / WebKit-owned):"
+nm -A "$LIB" 2>/dev/null | grep ' T ' | grep -E 'NetworkStorageSession.*ookie' | sed -E 's|.*/([a-z_]+\.o):.*T (.*)|  \1: \2|' | head
