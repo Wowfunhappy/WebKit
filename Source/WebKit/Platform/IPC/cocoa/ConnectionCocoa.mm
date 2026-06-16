@@ -328,24 +328,11 @@ Connection::SendMessageResult Connection::sendMessage(std::unique_ptr<MachMessag
 #endif
 
     default:
-        // 10.9 backport: don't crash on unhandled mach_msg errors. Some msg-send errors
-        // (e.g. INVALID_RIGHT = 0x1000000A — IOSurface mach send right is invalid)
-        // would otherwise abort WebContent. Treat as dropped and continue.
-        {FILE *_d=((FILE*)0); if(_d){
-            auto messageName = message->messageName();
-            mach_msg_header_t *hdr = message->header();
-            fprintf(_d,"[mach_msg dropped] kr=0x%x msg=%s msgh_bits=0x%x rport=0x%x lport=0x%x\n", (unsigned)kr, description(messageName).characters(), (unsigned)hdr->msgh_bits, (unsigned)hdr->msgh_remote_port, (unsigned)hdr->msgh_local_port);
-            // Dump port descriptors
-            if (hdr->msgh_bits & MACH_MSGH_BITS_COMPLEX) {
-                auto *body = (mach_msg_body_t *)(hdr + 1);
-                fprintf(_d,"[mach_msg dropped] complex, descCount=%u\n", body->msgh_descriptor_count);
-                auto *desc = (mach_msg_port_descriptor_t *)(body + 1);
-                for (unsigned i = 0; i < body->msgh_descriptor_count && i < 8; ++i) {
-                    fprintf(_d,"[mach_msg dropped] desc[%u] type=%u name=0x%x disposition=%u\n", i, (unsigned)desc[i].type, (unsigned)desc[i].name, (unsigned)desc[i].disposition);
-                }
-            }
-            fclose(_d);
-        }}
+        // 10.9 backport: an unexpected mach_msg send error (historically INVALID_RIGHT 0x1000000A from an
+        // invalid IOSurface send right, tied to compositing #56) would otherwise abort WebContent. Fail the
+        // individual send gracefully instead of killing the whole process — but SURFACE it (WTFLogAlways),
+        // do NOT hide it. Verified 0 occurrences across heavy browsing (8+ sites, video, scroll) 2026-06-16.
+        WTFLogAlways("Connection::sendOutgoingMessage: dropping message %s on unexpected mach_msg kr=0x%x", description(message->messageName()).characters(), (unsigned)kr);
         message->leakDescriptors();
         message.reset();
         return SendMessageResult::Failure;
