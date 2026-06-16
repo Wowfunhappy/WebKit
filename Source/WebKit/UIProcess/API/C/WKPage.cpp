@@ -113,6 +113,8 @@
 #include <WebCore/SerializedCryptoKeyWrap.h>
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/WindowFeatures.h>
+#include <wtf/MainThread.h>
+#include <wtf/RunLoop.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 
@@ -213,37 +215,62 @@ WKPageConfigurationRef WKPageCopyPageConfiguration(WKPageRef pageRef)
     return toAPILeakingRef(toImpl(pageRef)->configuration().copy());
 }
 
+// 10.9 backport: the legacy App Store drives WebKit2 page loads (WKPageLoadURL /
+// WKPageLoadURLRequest) from a background GCD queue ("WebView Initial Load Queue").
+// Modern WebKit's load path (WebPageProxy::loadRequest -> launchProcess ->
+// WebProcessProxy::removeWebPage -> WebProcessPool::pageEndUsingWebsiteDataStore)
+// is main-thread-affine and correctly asserts RunLoop::isMain(). Original 10.9
+// WebKit2 tolerated these off-main calls; modern WebKit does not. Marshal the load
+// onto the main run loop so the work actually runs on main. On-main callers (Safari,
+// QuickLook, internal) keep the synchronous fast path unchanged.
+static void runLoadOnMainRunLoop(Function<void()>&& load)
+{
+    if (RunLoop::isMain()) {
+        load();
+        return;
+    }
+    callOnMainRunLoop(WTF::move(load));
+}
+
 void WKPageLoadURL(WKPageRef pageRef, WKURLRef URLRef)
 {
     CRASH_IF_SUSPENDED;
-    protect(toImpl(pageRef))->loadRequest(URL { toWTFString(URLRef) });
+    runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), url = URL { toWTFString(URLRef) }]() mutable {
+        page->loadRequest(WTF::move(url));
+    });
 }
 
 void WKPageLoadURLWithShouldOpenExternalURLsPolicy(WKPageRef pageRef, WKURLRef URLRef, bool shouldOpenExternalURLs)
 {
     CRASH_IF_SUSPENDED;
     WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy = shouldOpenExternalURLs ? WebCore::ShouldOpenExternalURLsPolicy::ShouldAllow : WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow;
-    protect(toImpl(pageRef))->loadRequest(URL { toWTFString(URLRef) }, shouldOpenExternalURLsPolicy);
+    runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), url = URL { toWTFString(URLRef) }, shouldOpenExternalURLsPolicy]() mutable {
+        page->loadRequest(WTF::move(url), shouldOpenExternalURLsPolicy);
+    });
 }
 
 void WKPageLoadURLWithUserData(WKPageRef pageRef, WKURLRef URLRef, WKTypeRef userDataRef)
 {
     CRASH_IF_SUSPENDED;
-    protect(toImpl(pageRef))->loadRequest(URL { toWTFString(URLRef) }, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow, WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy, nullptr, protect(toImpl(userDataRef)).get());
+    runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), url = URL { toWTFString(URLRef) }, userData = protect(toImpl(userDataRef))]() mutable {
+        page->loadRequest(WTF::move(url), WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow, WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy, nullptr, userData.get());
+    });
 }
 
 void WKPageLoadURLRequest(WKPageRef pageRef, WKURLRequestRef urlRequestRef)
 {
     CRASH_IF_SUSPENDED;
-    auto resourceRequest = toImpl(urlRequestRef)->resourceRequest();
-    protect(toImpl(pageRef))->loadRequest(WTF::move(resourceRequest));
+    runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), resourceRequest = toImpl(urlRequestRef)->resourceRequest()]() mutable {
+        page->loadRequest(WTF::move(resourceRequest));
+    });
 }
 
 void WKPageLoadURLRequestWithUserData(WKPageRef pageRef, WKURLRequestRef urlRequestRef, WKTypeRef userDataRef)
 {
     CRASH_IF_SUSPENDED;
-    auto resourceRequest = toImpl(urlRequestRef)->resourceRequest();
-    protect(toImpl(pageRef))->loadRequest(WTF::move(resourceRequest), WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow, WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy, nullptr, protect(toImpl(userDataRef)).get());
+    runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), resourceRequest = toImpl(urlRequestRef)->resourceRequest(), userData = protect(toImpl(userDataRef))]() mutable {
+        page->loadRequest(WTF::move(resourceRequest), WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow, WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy, nullptr, userData.get());
+    });
 }
 
 void WKPageLoadFile(WKPageRef pageRef, WKURLRef fileURL, WKURLRef resourceDirectoryURL)
@@ -1521,14 +1548,24 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
             // 10.9 / Safari-7 backport: the V0 (deprecated) decidePolicyForResponse
             // callback does not receive canShowMIMEType. Safari 7's handler predates
             // that parameter and, against modern WebKit, mis-decides — it downloads
-            // or ignores perfectly displayable subframe responses (ad/tracker/login
+            // or ignores perfectly displayable SUBFRAME responses (ad/tracker/login
             // iframes, etc.) instead of rendering them. That cluttered ~/Downloads
             // and crashed the UI process's download writer. WebKit already knows the
             // response is displayable, so render it; only fall through to the legacy
             // callback for genuinely non-displayable responses (real downloads like
             // .zip/.pdf, where Safari's download handling is still wanted). The
             // non-deprecated callback DOES get canShowMIMEType, so leave it alone.
-            if (canShowMIMEType && m_client.decidePolicyForResponse_deprecatedForUseWithV0 && !m_client.decidePolicyForResponse) {
+            //
+            // IMPORTANT: this bypass must be limited to SUBFRAMES. A V0 client's
+            // MAIN-FRAME response decision is load-bearing and original WebKit always
+            // delivered it — e.g. the legacy Mac App Store registers a V0
+            // decidePolicyForResponse to intercept the MZStore "jingle" navigation
+            // plist (a displayable text/xml directive) on the main frame and follow
+            // its Goto URL natively, instead of letting WebKit render the raw XML.
+            // Suppressing the main-frame callback made the App Store show raw <plist>
+            // XML. So only bypass for non-main frames; always consult the client for
+            // the main frame (restoring original behavior).
+            if (canShowMIMEType && !frame.isMainFrame() && m_client.decidePolicyForResponse_deprecatedForUseWithV0 && !m_client.decidePolicyForResponse) {
                 listener->use();
                 return;
             }
