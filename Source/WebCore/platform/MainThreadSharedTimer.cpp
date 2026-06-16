@@ -89,21 +89,4 @@ void MainThreadSharedTimer::fired()
         m_firedFunction();
 }
 
-// 10.9 backport: see header. Plain function pointer (not Function) to keep this dependency-free
-// and cheap on the hot setFireInterval path.
-static void (*s_shortTimerActivityCallback)() = nullptr;
-
-void MainThreadSharedTimer::setShortTimerActivityCallback(void (*callback)())
-{
-    s_shortTimerActivityCallback = callback;
-}
-
-void MainThreadSharedTimer::notifyShortTimerActivityIfNeeded(Seconds interval)
-{
-    // Only bursts of frequent work (>= ~15Hz) need the 60Hz heartbeat; a 1Hz background timer
-    // firing ~166ms late under the throttle is imperceptible and must NOT pin the heartbeat on.
-    if (s_shortTimerActivityCallback && interval < 64_ms)
-        s_shortTimerActivityCallback();
-}
-
 } // namespace WebCore

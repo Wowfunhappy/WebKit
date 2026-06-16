@@ -586,7 +586,27 @@ bool MinimalPageClient::isViewInWindow()
 
 bool MinimalPageClient::isVisuallyIdle()
 {
-    return !isActiveViewVisible();
+    // The page is "visually idle" (eligible for DOM-timer throttling) only when the user genuinely
+    // can't see it. Determine that from window-level state, NOT from the WKView's own isHidden flag:
+    // on this backport the BrowserWKView's isHidden toggles spuriously while content composites through
+    // its layer-hosting sublayer (and WKView never forwards -viewDidHide, so the activity state would go
+    // stale), so keying visual-idle off it pinned EVERY page's DOM timers to the 1s hidden-page alignment.
+    // A genuinely-not-on-screen window (miniaturized/ordered-out) or a hidden ANCESTOR (an unselected
+    // tab's container) are reliable signals; the per-view isHidden flag is not.
+    if (!m_view)
+        return true;
+    NSWindow *window = [m_view window];
+    if (!window)
+        return !m_forceVisibleWhenWindowless;
+    // Deliberately NOT consulting window.occlusionState: on 10.9 its Visible bit lags (0x2000 -> 0x2002)
+    // and the change does not reliably post NSWindowDidChangeOcclusionStateNotification, so an early
+    // "occluded" reading gets latched and never recomputed — re-pinning timers to the 1s alignment
+    // forever. window.isVisible is stable and is YES at every activity-state recompute for a shown window.
+    if (![window isVisible])
+        return true;
+    if ([[m_view superview] isHiddenOrHasHiddenAncestor])
+        return true;
+    return false;
 }
 
 bool MinimalPageClient::canTakeForegroundAssertions()

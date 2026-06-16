@@ -86,9 +86,6 @@
 #include "WebProcessMessages.h"
 #include "WebProcessProxyMessages.h"
 #if HAVE(DISPLAY_LINK)
-#include <WebCore/AnimationFrameRate.h> // 10.9 backport: FullSpeedFramesPerSecond
-#include <WebCore/MainThreadSharedTimer.h> // 10.9 backport: short-timer heartbeat hook
-#include <CoreGraphics/CGDirectDisplay.h> // 10.9 backport: CGMainDisplayID
 #endif
 #include "WebResourceLoadObserver.h"
 #include "WebSWClientConnection.h"
@@ -496,13 +493,6 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
     TraceScope traceScope(InitializeWebProcessStart, InitializeWebProcessEnd);
     // Reply immediately so that the identity is available as soon as possible.
     completionHandler(ProcessIdentity { ProcessIdentity::CurrentProcess });
-
-#if HAVE(DISPLAY_LINK)
-    // 10.9 backport: route short-interval DOM-timer activity to the display-link heartbeat.
-    WebCore::MainThreadSharedTimer::setShortTimerActivityCallback([] {
-        WebProcess::singleton().mainThreadDidScheduleShortTimer();
-    });
-#endif
 
     ASSERT(m_pageMap.isEmpty());
 
@@ -2541,34 +2531,9 @@ void WebProcess::setAppBadge(WebCore::Frame* frame, const WebCore::SecurityOrigi
 }
 
 #if HAVE(DISPLAY_LINK)
-// 10.9 backport: keep a process-wide display-link heartbeat alive while short-interval DOM timers
-// are firing. The UIProcess DisplayLink then sends DisplayDidRefresh at ~60Hz, each of which wakes
-// the otherwise ~6Hz-throttled WebContent main thread — so timer-driven work (SPA asset loading,
-// rapid setTimeout chains) runs at full speed instead of crawling. Called from
-// MainThreadSharedTimer (see notifyShortTimerActivityIfNeeded). Does not self-sustain: the heartbeat
-// itself never fires DOM timers, so the deadline below decays once the page stops scheduling them.
-void WebProcess::mainThreadDidScheduleShortTimer()
-{
-    m_mainThreadTimerHeartbeatDeadline = MonotonicTime::now() + 150_ms;
-    if (m_mainThreadTimerHeartbeatActive)
-        return;
-    RefPtr connection = parentProcessConnection();
-    if (!connection)
-        return;
-    m_mainThreadTimerHeartbeatActive = true;
-    connection->send(Messages::WebProcessProxy::StartDisplayLink(m_mainThreadTimerHeartbeatObserverID, CGMainDisplayID(), WebCore::FullSpeedFramesPerSecond), 0);
-}
-
 void WebProcess::displayDidRefresh(uint32_t displayID, const DisplayUpdate& displayUpdate)
 {
     ASSERT(RunLoop::isMain());
-
-    // 10.9 backport: stop the short-timer heartbeat once the page stops scheduling short timers.
-    if (m_mainThreadTimerHeartbeatActive && MonotonicTime::now() > m_mainThreadTimerHeartbeatDeadline) {
-        m_mainThreadTimerHeartbeatActive = false;
-        if (RefPtr connection = parentProcessConnection())
-            connection->send(Messages::WebProcessProxy::StopDisplayLink(m_mainThreadTimerHeartbeatObserverID, CGMainDisplayID()), 0);
-    }
 
     protect(eventDispatcher())->notifyScrollingTreesDisplayDidRefresh(displayID);
     DisplayRefreshMonitorManager::sharedManager().displayDidRefresh(displayID, displayUpdate);

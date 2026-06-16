@@ -719,7 +719,6 @@ private:
 
 #if HAVE(DISPLAY_LINK)
     void displayDidRefresh(uint32_t displayID, const WebCore::DisplayUpdate&);
-    void mainThreadDidScheduleShortTimer(); // 10.9 backport: keep a display-link heartbeat alive during timer bursts to un-throttle the main thread
 #endif
 
 #if PLATFORM(MAC)
@@ -1005,14 +1004,6 @@ private:
 #endif
 #if ENABLE(INITIALIZE_ACCESSIBILITY_ON_DEMAND)
     bool m_shouldInitializeAccessibility { false };
-#endif
-#if HAVE(DISPLAY_LINK)
-    // 10.9 backport: a process-wide display-link heartbeat kept alive while short-interval DOM
-    // timers are firing, so the throttled WebContent main thread (xpc_main/dispatch_main, ~6Hz)
-    // runs near 60Hz during timer-driven work like SPA asset loading.
-    DisplayLinkObserverID m_mainThreadTimerHeartbeatObserverID { DisplayLinkObserverID::generate() };
-    bool m_mainThreadTimerHeartbeatActive { false };
-    MonotonicTime m_mainThreadTimerHeartbeatDeadline;
 #endif
 };
 
