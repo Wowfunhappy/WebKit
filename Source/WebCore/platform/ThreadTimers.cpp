@@ -103,15 +103,11 @@ void ThreadTimers::updateSharedTimer()
     } else {
         MonotonicTime nextFireTime = m_timerHeap.first()->time;
         MonotonicTime currentMonotonicTime = MonotonicTime::now();
-        // 10.9 backport: the upstream short-circuit "if both pending fire time
-        // and next fire time are in the past, the timer is already firing"
-        // assumes the runloop reliably pumps the shared timer. On 10.9 the
-        // shared timer's runloop sometimes isn't pumped (pre-CFRunLoopRun in
-        // XPCServiceMain) and the prior fire never happens — subsequent new
-        // 0_s timers piled up behind it stay unfired forever. Always
-        // reschedule via setFireInterval so the dispatch_after fallback in
-        // MainThreadSharedTimerCF::setFireInterval gets re-armed for each
-        // newly-added timer.
+        if (m_pendingSharedTimerFireTime) {
+            // No need to restart the timer if both the pending fire time and the new fire time are in the past.
+            if (m_pendingSharedTimerFireTime <= currentMonotonicTime && nextFireTime <= currentMonotonicTime)
+                return;
+        }
         m_pendingSharedTimerFireTime = nextFireTime;
         protect(m_sharedTimer)->setFireInterval(std::max(nextFireTime - currentMonotonicTime, 0_s));
     }
