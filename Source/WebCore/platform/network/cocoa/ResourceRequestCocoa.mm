@@ -83,15 +83,6 @@ ResourceRequest::ResourceRequest(ResourceRequestPlatformData&& platformData, con
 
 ResourceRequestData ResourceRequest::getRequestDataToSerialize() const
 {
-    // 10.9 backport: serializing the platform NSURLRequest CRASHES the NetworkProcess
-    // (SIGSEGV, every load — empirically verified by removing this) on the DECODE side.
-    // NOT the secure-coding encode itself (that works standalone on 10.9) and NOT a
-    // catchable throw (the @try in ArgumentCodersCocoa never fires). The crash is in
-    // WebKit's platform-request decode/struct path; root cause needs a NetworkProcess
-    // crash backtrace, which this VM blocks (ReportCrash crash-loops; see task #51/#48).
-    // Until then, send fields as plain C++ RequestData (URL/method/headers/cache-policy);
-    // platform-only fields are lost but the common path is intact.
-    return m_requestData;
     if (encodingRequiresPlatformData())
         return getResourceRequestPlatformData();
     return m_requestData;
@@ -113,10 +104,6 @@ NSURLRequest *ResourceRequest::nsURLRequest(HTTPBodyUpdatePolicy bodyPolicy) con
 ResourceRequestPlatformData ResourceRequest::getResourceRequestPlatformData() const
 {
     RELEASE_ASSERT(m_httpBody || m_nsRequest);
-
-    // 10.9 backport: unreachable (getRequestDataToSerialize short-circuits) because this
-    // path crashes the NetworkProcess on decode. See note there + task #51.
-    return ResourceRequestPlatformData { NULL, std::nullopt, std::nullopt };
 
     RetainPtr requestToSerialize = nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
 
