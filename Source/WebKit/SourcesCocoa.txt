@@ -189,6 +189,7 @@ Shared/Cocoa/AuxiliaryProcessCocoa.mm @nonARC
 Shared/Cocoa/CodeSigning.mm @nonARC
 Shared/Cocoa/CompletionHandlerCallChecker.mm @nonARC
 Shared/Cocoa/CoreIPCError.mm @nonARC
+Shared/Cocoa/CoreIPCSecureCoding.mm
 Shared/Cocoa/DefaultWebBrowserChecks.mm @nonARC
 Shared/Cocoa/EnhancedSecurityLinkUtilities.mm @nonARC
 Shared/Cocoa/InteractionInformationAtPosition.mm @nonARC
