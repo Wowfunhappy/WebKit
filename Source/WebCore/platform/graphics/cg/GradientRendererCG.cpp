@@ -340,6 +340,55 @@ void GradientRendererCG::drawRadialGradient(CGContextRef platformContext, CGPoin
 
 void GradientRendererCG::drawConicGradient(CGContextRef platformContext, CGPoint center, CGFloat angle)
 {
+#if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200
+    // 10.9 backport: CGContextDrawConicGradient and CGShadingCreateConic are both macOS 10.12+ and absent
+    // on 10.9 (neither CGShadingCreateConic nor a conic CGGradient draw exists), so conic gradients render
+    // completely blank. Render them manually: sample the EXACT colour ramp into a 1xN strip by reusing the
+    // existing linear-gradient draw (so colours/interpolation/alpha match the native paths), then paint the
+    // conic as a fan of flat-colour angular wedges from the center, clipped to the current fill region.
+    static const CGFloat kTwoPi = 6.283185307179586;
+    const int rampN = 360;
+    Vector<uint8_t> ramp(rampN * 4, 0);
+    RetainPtr<CGColorSpaceRef> deviceRGB = adoptCF(CGColorSpaceCreateDeviceRGB());
+    RetainPtr<CGContextRef> strip = adoptCF(CGBitmapContextCreate(&ramp[0], rampN, 1, 8, rampN * 4, deviceRGB.get(), kCGImageAlphaPremultipliedLast));
+    if (!strip)
+        return;
+    // Fill x in [0,rampN] with the gradient colour at t = x/rampN (extend both ends past the stops).
+    drawLinearGradient(strip.get(), CGPointMake(0, 0), CGPointMake(rampN, 0), kCGGradientDrawsBeforeStartLocation | kCGGradientDrawsAfterEndLocation);
+
+    CGRect clip = CGContextGetClipBoundingBox(platformContext);
+    if (CGRectIsNull(clip) || CGRectIsInfinite(clip) || CGRectIsEmpty(clip))
+        return;
+    CGFloat dx = std::max(std::abs(CGRectGetMinX(clip) - center.x), std::abs(CGRectGetMaxX(clip) - center.x));
+    CGFloat dy = std::max(std::abs(CGRectGetMinY(clip) - center.y), std::abs(CGRectGetMaxY(clip) - center.y));
+    CGFloat radius = hypot(dx, dy) + 2;
+
+    const int wedges = 720;
+    CGContextSaveGState(platformContext);
+    CGContextSetShouldAntialias(platformContext, false); // crisp shared wedge edges => no seams (outer AA is preserved by the fill clip)
+    for (int i = 0; i < wedges; ++i) {
+        CGFloat t = (i + 0.5) / wedges;
+        int idx = static_cast<int>(t * rampN);
+        if (idx < 0)
+            idx = 0;
+        else if (idx >= rampN)
+            idx = rampN - 1;
+        CGFloat a = ramp[idx * 4 + 3] / 255.0;
+        CGFloat r = a > 0 ? std::min<CGFloat>(1.0, (ramp[idx * 4 + 0] / 255.0) / a) : 0;
+        CGFloat g = a > 0 ? std::min<CGFloat>(1.0, (ramp[idx * 4 + 1] / 255.0) / a) : 0;
+        CGFloat b = a > 0 ? std::min<CGFloat>(1.0, (ramp[idx * 4 + 2] / 255.0) / a) : 0;
+        CGContextSetRGBFillColor(platformContext, r, g, b, a);
+        CGFloat a0 = angle + kTwoPi * i / wedges;
+        CGFloat a1 = angle + kTwoPi * (i + 1) / wedges;
+        CGContextBeginPath(platformContext);
+        CGContextMoveToPoint(platformContext, center.x, center.y);
+        CGContextAddLineToPoint(platformContext, center.x + radius * cos(a0), center.y + radius * sin(a0));
+        CGContextAddLineToPoint(platformContext, center.x + radius * cos(a1), center.y + radius * sin(a1));
+        CGContextClosePath(platformContext);
+        CGContextFillPath(platformContext);
+    }
+    CGContextRestoreGState(platformContext);
+#else
     WTF::switchOn(m_strategy,
         [&] (Gradient& gradient) {
             CGContextDrawConicGradient(platformContext, gradient.gradient.get(), center, angle);
@@ -348,6 +397,7 @@ void GradientRendererCG::drawConicGradient(CGContextRef platformContext, CGPoint
             CGContextDrawShading(platformContext, adoptCF(CGShadingCreateConic(shading.colorSpace.get(), center, angle, shading.function.get())).get());
         }
     );
+#endif
 }
 
 }
