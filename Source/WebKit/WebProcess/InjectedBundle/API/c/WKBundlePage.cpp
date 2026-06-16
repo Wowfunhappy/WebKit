@@ -84,8 +84,13 @@ WKTypeID WKBundlePageGetTypeID()
 
 // 10.9 backport: removed upstream; Safari 7's injected bundle uses the page
 // group to scope extension content scripts (see WKBundleAddUserScript).
+// WKBundlePageGroupCopyIdentifier is also required by the system Mac App Store
+// injected bundle (StoreJavaScript.framework/StoreWebBundle): store-page JS calls
+// into it, the bundle lazily binds this symbol from WebKit2, and a missing export
+// fails the dyld bind -> the App Store's WebProcess crashes on every store page.
 extern "C" WK_EXPORT WKBundlePageGroupRef WKBundlePageGetPageGroup(WKBundlePageRef);
 extern "C" WK_EXPORT WKTypeID WKBundlePageGroupGetTypeID(void);
+extern "C" WK_EXPORT WKStringRef WKBundlePageGroupCopyIdentifier(WKBundlePageGroupRef);
 
 WKBundlePageGroupRef WKBundlePageGetPageGroup(WKBundlePageRef pageRef)
 {
@@ -98,6 +103,14 @@ WKBundlePageGroupRef WKBundlePageGetPageGroup(WKBundlePageRef pageRef)
 WKTypeID WKBundlePageGroupGetTypeID()
 {
     return WebKit::toAPI(WebKit::WebPageGroupProxy::APIType);
+}
+
+WKStringRef WKBundlePageGroupCopyIdentifier(WKBundlePageGroupRef pageGroupRef)
+{
+    auto* pageGroup = WebKit::toImpl(pageGroupRef);
+    if (!pageGroup)
+        return nullptr;
+    return WebKit::toCopiedAPI(pageGroup->identifier());
 }
 
 void WKBundlePageSetContextMenuClient(WKBundlePageRef pageRef, WKBundlePageContextMenuClientBase* wkClient)
