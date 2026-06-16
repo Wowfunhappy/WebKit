@@ -1060,15 +1060,6 @@ void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuI
 
 void WebContextMenuProxyMac::useContextMenuItems(Vector<Ref<WebContextMenuItem>>&& items)
 {
-    // 10.9 backport: Safari 9.1.3's WKPageContextMenuClient calls back with an
-    // empty custom menu — its menu-building uses APIs we don't have wired up.
-    // Fall back to the proposed items WebContent already populated.
-    if (items.isEmpty() && !m_context.menuItems().isEmpty()) {
-        items = WTF::map(m_context.menuItems(), [](auto& item) {
-            return WebContextMenuItem::create(item);
-        });
-    }
-
     if (items.isEmpty() || !page() || page()->contextMenuClient().canShowContextMenu()) {
         WebContextMenuProxy::useContextMenuItems(WTF::move(items));
         return;

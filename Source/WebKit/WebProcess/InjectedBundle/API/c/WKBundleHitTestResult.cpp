@@ -51,14 +51,14 @@ WKBundleNodeHandleRef WKBundleHitTestResultCopyURLElementHandle(WKBundleHitTestR
     return toAPILeakingRef(WTF::move(urlElementNodeHandle));
 }
 
-WKBundleFrameRef WKBundleHitTestResultGetFrame(WKBundleHitTestResultRef)
+WKBundleFrameRef WKBundleHitTestResultGetFrame(WKBundleHitTestResultRef hitTestResultRef)
 {
-    return nullptr;
+    return toAPI(protect(WebKit::toImpl(hitTestResultRef))->frame().get());
 }
 
-WKBundleFrameRef WKBundleHitTestResultGetTargetFrame(WKBundleHitTestResultRef)
+WKBundleFrameRef WKBundleHitTestResultGetTargetFrame(WKBundleHitTestResultRef hitTestResultRef)
 {
-    return nullptr;
+    return toAPI(protect(WebKit::toImpl(hitTestResultRef))->targetFrame().get());
 }
 
 WKURLRef WKBundleHitTestResultCopyAbsoluteImageURL(WKBundleHitTestResultRef hitTestResultRef)
