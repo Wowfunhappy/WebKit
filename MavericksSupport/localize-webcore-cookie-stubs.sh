@@ -48,7 +48,14 @@ for OBJ in $OBJS; do
     # NetworkStorageSession cookie-method stubs (global T) in this object. Anchor to the MEMBER prefix
     # (^__ZNK?7WebCore21NetworkStorageSession) so free functions that merely take a NetworkStorageSession
     # or HTTPCookieAcceptPolicy *parameter* (e.g. createPrivateStorageSession) are NOT matched.
-    nm "$OBJ" | awk '$2=="T" && $3 ~ /^__ZNK?7WebCore21NetworkStorageSession/ {print $3}' | grep -iE 'ookie' | sort -u > "all_$OBJ.txt"
+    # Exclude the cookie methods that are NOT implemented in the Mac source (NetworkStorageSessionCocoa.mm):
+    # getCookies, capExpiryOfPersistentCookie, setAllCookiesToSameSiteStrict, setCookieFromDOM(Cookie),
+    # cookieAcceptPolicy. The build-WebCore check below can be fooled by their libpolyfill stub being
+    # *embedded* into WebCore.framework, so exclude them by name to avoid a fragile cross-framework
+    # dependency on a stub. (setCookiesFromDOM = 17, kept; setCookieFromDOM = 16, excluded.)
+    nm "$OBJ" | awk '$2=="T" && $3 ~ /^__ZNK?7WebCore21NetworkStorageSession/ {print $3}' | grep -iE 'ookie' \
+        | grep -vE '21NetworkStorageSession(10getCookies|27capExpiryOfPersistentCookie|29setAllCookiesToSameSiteStrict|16setCookieFromDOM|18cookieAcceptPolicy)' \
+        | sort -u > "all_$OBJ.txt"
     : > "loc_$OBJ.txt"
     while read -r s; do
         if grep -qxF "$s" "$WORK/webcore_T.txt"; then echo "$s" >> "loc_$OBJ.txt"; else echo "  SKIP (no real WebCore export): $s"; fi

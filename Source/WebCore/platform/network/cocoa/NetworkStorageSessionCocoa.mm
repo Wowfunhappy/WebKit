@@ -123,6 +123,80 @@ void NetworkStorageSession::deleteCookiesForHostnames(const Vector<String>& host
     completionHandler();
 }
 
+// 10.9 backport: these cookie-management methods were unimplemented in this minimal Cocoa file
+// (only the Curl/Soup backends had them), so they fell back to libpolyfill no-op stubs — leaving
+// Safari's "Clear History" unable to clear cookies and cookie-management/getAll APIs empty. Implement
+// them directly against the shared NSHTTPCookieStorage (nsCookieStorage()), mirroring the existing
+// methods above.
+Vector<Cookie> NetworkStorageSession::getAllCookies()
+{
+    Vector<Cookie> result;
+    RetainPtr storage = nsCookieStorage();
+    if (!storage)
+        return result;
+    for (NSHTTPCookie *c in [storage cookies]) {
+        Cookie cookie;
+        cookie.name = String([c name]);
+        cookie.value = String([c value]);
+        cookie.domain = String([c domain]);
+        cookie.path = String([c path]);
+        cookie.secure = [c isSecure];
+        cookie.httpOnly = [c isHTTPOnly];
+        cookie.session = [c isSessionOnly];
+        result.append(std::move(cookie));
+    }
+    return result;
+}
+
+void NetworkStorageSession::getHostnamesWithCookies(HashSet<String>& hostnames)
+{
+    RetainPtr storage = nsCookieStorage();
+    if (!storage)
+        return;
+    for (NSHTTPCookie *c in [storage cookies]) {
+        String domain([c domain]);
+        if (!domain.isEmpty())
+            hostnames.add(domain);
+    }
+}
+
+void NetworkStorageSession::deleteAllCookies(CompletionHandler<void()>&& completionHandler)
+{
+    if (RetainPtr storage = nsCookieStorage()) {
+        // Copy first: -deleteCookie: mutates the live -cookies array we would be enumerating.
+        RetainPtr<NSArray> all = adoptNS([[storage cookies] copy]);
+        for (NSHTTPCookie *c in all.get())
+            [storage deleteCookie:c];
+    }
+    completionHandler();
+}
+
+void NetworkStorageSession::deleteAllCookiesModifiedSince(WallTime, CompletionHandler<void()>&& completionHandler)
+{
+    // 10.9 backport: NSHTTPCookie exposes no per-cookie modification date and -removeCookiesSinceDate:
+    // is 10.10+. Approximate by clearing all cookies — a privacy-safe over-delete for time-ranged
+    // "Clear History"; the common case ("all history") wants exactly this.
+    deleteAllCookies(std::move(completionHandler));
+}
+
+void NetworkStorageSession::hasCookies(const RegistrableDomain& domain, CompletionHandler<void(bool)>&& completionHandler) const
+{
+    bool found = false;
+    if (RetainPtr storage = nsCookieStorage()) {
+        auto target = domain.string();
+        for (NSHTTPCookie *c in [storage cookies]) {
+            String host([c domain]);
+            if (host.startsWith('.'))
+                host = host.substring(1);
+            if (host == target || (host.length() > target.length() && host.endsWith(target) && host[host.length() - target.length() - 1] == '.')) {
+                found = true;
+                break;
+            }
+        }
+    }
+    completionHandler(found);
+}
+
 bool NetworkStorageSession::getRawCookies(const URL&, const SameSiteInfo&, const URL& url, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, ApplyTrackingPrevention, ShouldRelaxThirdPartyCookieBlocking, Vector<Cookie>& outCookies) const
 {
     RetainPtr storage = nsCookieStorage();
