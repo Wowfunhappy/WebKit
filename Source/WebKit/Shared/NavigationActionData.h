@@ -26,6 +26,7 @@
 #pragma once
 
 #include "FrameInfoData.h"
+#include "UserData.h"
 #include "WebHitTestResultData.h"
 #include "WebMouseEvent.h"
 #include "WebPageProxyIdentifier.h"
@@ -92,6 +93,13 @@ struct NavigationActionData {
     WebCore::ResourceRequest request;
     String invalidURLString;
     std::optional<WebCore::NavigationRequester> requester;
+
+    // 10.9 backport (#60): userData dictionary that Safari 7's now-removed injected-bundle
+    // policy client (BrowserBundlePagePolicyClient::userDataForAction) would have produced and
+    // that its UI-process WKPagePolicyClient callback (BrowserPagePolicyClient::decidePolicyForAction)
+    // requires to be a non-null WKDictionary before it will drive the policy listener. Holds the
+    // "CanHandleRequest" Boolean and "OriginatingFrame" Frame keys.
+    UserData bundlePolicyUserData;
 };
 
 }
