@@ -297,24 +297,40 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
             NSView *cv = [win contentView];
             if (!cv)
                 return event;
-            // 10.9 backport: Safari multi-tab can mount several WKViews in the
-            // same window (one per tab); only the active tab's WKView is
-            // visible. Walk depth-first but skip hidden views (and their
-            // subtrees) so events go to the currently-displayed tab, not a
-            // background tab's WKView found earlier in subview order.
+            // 10.9 backport: Safari can mount several WKViews in the same window:
+            // one per tab, and — when Reader is active — a ReaderWKView layered
+            // ON TOP of the page's BrowserWKView (both visible, same frame; see
+            // -[TabContentView installReaderView:]). Walk depth-first, skipping
+            // hidden views (and their subtrees) so events go to the displayed tab.
+            // But the topmost overlay (the Reader) is added LATER, so it appears
+            // AFTER the BrowserWKView in subview order — a naive "first match" picks
+            // the wrong (underlying) view and the Reader never scrolls (#39). Safari
+            // makes the active/overlay WKView the window's firstResponder (Reader does
+            // this in installReaderView:), so prefer the firstResponder WKView when one
+            // of the candidates is it; fall back to the first non-hidden WKView otherwise.
+            // (In the normal single-view case the page's WKView is firstResponder, so
+            // this is strictly more correct.)
             __block WKView *wkView = nil;
+            __block WKView *firstResponderWKView = nil;
+            NSResponder *firstResponder = [win firstResponder];
             void (^walk)(NSView *) = ^(NSView *v) {};
             // MRC: __block block vars are not retained by the capturing block, so __block alone
             // breaks the recursive-block retain cycle (__weak is unavailable under manual ref counting).
             __block void (^weakWalk)(NSView *) = nil;
             walk = ^(NSView *v) {
-                if (wkView) return;
+                if (firstResponderWKView) return;
                 if ([v isHidden]) return;
-                if ([v isKindOfClass:[WKView class]]) { wkView = (WKView *)v; return; }
-                for (NSView *sub in [v subviews]) { if (wkView) return; weakWalk(sub); }
+                if ([v isKindOfClass:[WKView class]]) {
+                    if (!wkView) wkView = (WKView *)v;
+                    if ((NSResponder *)v == firstResponder) firstResponderWKView = (WKView *)v;
+                    return;
+                }
+                for (NSView *sub in [v subviews]) { if (firstResponderWKView) return; weakWalk(sub); }
             };
             weakWalk = walk;
             walk(cv);
+            if (firstResponderWKView)
+                wkView = firstResponderWKView;
             if (!wkView)
                 return event;
             // Convert event location to wkView coords; ignore if outside.
