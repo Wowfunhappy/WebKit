@@ -2818,7 +2818,13 @@ EventHandlerDrivenSmoothKeyboardScrollingEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      "PLATFORM(MAC)": WebKit::defaultScrollAnimatorEnabled()
+      # 10.9 backport: smooth keyboard scrolling routes the arrow/Page/Home/End scroll
+      # through the async ThreadedScrollingTree (AsyncScrollingCoordinator::requestStart
+      # KeyboardScrollAnimation -> scrolling-thread keyboard gesture). That scrolling-thread
+      # keyboard-animation commit is never driven in this backport, so the animation is
+      # requested but never serviced and the page does not move. Default this OFF so the
+      # synchronous WebCore path (EventHandler::logicalScrollRecursively) is used instead --
+      # the same instant main-thread scroll that PageDown/Space already use successfully.
       default: false
     WebCore:
       default: false

@@ -45,6 +45,7 @@
 #import <WebCore/WebCoreCALayerExtras.h>
 #import <QuartzCore/QuartzCore.h>
 #import <wtf/RetainPtr.h>
+#import <wtf/SortedArrayMap.h>
 
 namespace WebKit {
 
@@ -866,8 +867,49 @@ void MinimalPageClient::accessibilityWebProcessTokenReceived(std::span<const uin
 { }
 #endif
 #if PLATFORM(COCOA)
+// 10.9 backport: map an AppKit responder scroll selector to its WebCore Editor command.
+// These are the always-enabled (non-editable) scrolling commands that the WebContent-side
+// keypress path (WebPage::executeKeypressCommandsInternal) deliberately does NOT handle and
+// instead forwards to the UIProcess responder fallback. Upstream WKWebView implements these
+// as NSResponder action methods that route through WebViewImpl::commandNameForSelector; the
+// scrollPageDown:/scrollPageUp: pair needs the same name-exception WebViewImpl uses, while the
+// rest equal the command name minus the trailing colon (Editor command names are case-insensitive).
+static String scrollCommandNameForSavedSelector(const String& selector)
+{
+    static constexpr SortedArrayMap map { std::to_array<std::pair<ComparableASCIILiteral, ASCIILiteral>>({
+        { "scrollLineDown:"_s, "ScrollLineDown"_s },
+        { "scrollLineUp:"_s, "ScrollLineUp"_s },
+        { "scrollPageDown:"_s, "ScrollPageForward"_s },
+        { "scrollPageUp:"_s, "ScrollPageBackward"_s },
+        { "scrollToBeginningOfDocument:"_s, "ScrollToBeginningOfDocument"_s },
+        { "scrollToEndOfDocument:"_s, "ScrollToEndOfDocument"_s },
+    }) };
+    if (auto commandName = map.tryGet(selector))
+        return *commandName;
+    return String();
+}
+
 bool MinimalPageClient::executeSavedCommandBySelector(const String& selector)
-{ return { }; }
+{
+    // 10.9 backport: upstream WKWebView implements scrollPageDown:/scrollPageUp:/etc. as
+    // NSResponder action methods, so when the WebContent Editor doesn't handle a keypress
+    // command (e.g. PageDown over non-editable content), the IPC fallback
+    // (WebPageProxy::executeSavedCommandBySelector -> _web_superDoCommandBySelector:) lands on
+    // those methods, which call WebViewImpl::executeEditCommandForSelector ->
+    // WebPageProxy::executeEditCommand. Safari's WKView has no such action methods and this
+    // page client previously stubbed this hop out, so PageDown/PageUp (and the other document
+    // scroll selectors) silently did nothing. Restore the upstream behavior by resolving the
+    // scroll selector to its Editor command and executing it on the page, exactly as the
+    // WKWebView action methods would have. Selectors we don't recognize are returned as
+    // unhandled (false) so they still bubble to Safari's own responder handling.
+    if (!m_page)
+        return false;
+    String commandName = scrollCommandNameForSavedSelector(selector);
+    if (commandName.isEmpty())
+        return false;
+    m_page->executeEditCommand(commandName, String());
+    return true;
+}
 #endif
 #if PLATFORM(COCOA)
 void MinimalPageClient::updateSecureInputState()
