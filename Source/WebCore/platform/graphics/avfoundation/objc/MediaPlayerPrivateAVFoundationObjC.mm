@@ -2245,68 +2245,6 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
     }
 #endif
 
-    // Backport: poll AVPlayerItem.status periodically since KVO observation
-    // doesn't fire on 10.9 — main thread runloop may not be processing the
-    // dispatch_async that AVFoundation uses to notify observers. Manually
-    // synthesize a status transition once the asset is known playable and
-    // the AVPlayer has reached ReadyToPlay.
-    {
-        // 10.9 backport: KVO for AVPlayerItem/AVPlayer status does not fire here
-        // (the main runloop doesn't process the dispatch_async AVFoundation uses to
-        // notify observers), so readyState would stay HaveNothing and the video
-        // never plays. POLL the status repeatedly until the AVPlayer reaches
-        // ReadyToPlay, then synthesize the item-status transition. A single delayed
-        // check (the previous approach) fired before network assets were ready and
-        // never retried, leaving the video stuck black. Re-schedule every 250ms for
-        // up to ~30s, stopping once ready or failed.
-        //
-        // Every ObjC call is @try-guarded: this runs from a dispatch callback (a
-        // noexcept C++ context), and an NSException escaping an AVFoundation call
-        // (e.g. a 10.10+ selector absent on 10.9) would unwind into objc_terminate
-        // and SIGILL-crash the whole WebContent (this is how Twitch/HLS crashed).
-        // 10.9 backport: use a recurring dispatch_source timer instead of a self-rescheduling
-        // __block dispatch_after block. The recursive-block pattern corrupted/freed the block and
-        // crashed WebContent in _dispatch_Block_copy when the page navigated away from a playing
-        // video mid-poll. The timer is held alive by a __block OSObjectPtr captured in its handler
-        // and cancels itself once the player is ready/failed/gone or after ~30s; weakThis guards
-        // every access so a fire after the player is destroyed is a no-op (no use-after-free).
-        ThreadSafeWeakPtr weakThis { *this };
-        __block NSInteger pollAttempts = 0;
-        OSObjectPtr<dispatch_source_t> pollTimer = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, mainDispatchQueueSingleton()));
-        dispatch_source_t pollTimerRef = pollTimer.get();
-        __block OSObjectPtr<dispatch_source_t> pollTimerKeepAlive = pollTimer;
-        dispatch_source_set_timer(pollTimerRef, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), NSEC_PER_SEC / 4, NSEC_PER_SEC / 20);
-        dispatch_source_set_event_handler(pollTimerRef, ^{
-            RefPtr p = weakThis.get();
-            BOOL done = NO;
-            if (!p || !p->m_avPlayerItem || !p->m_avPlayer)
-                done = YES;
-            else {
-                @try {
-                    long playerS = (long)[p->m_avPlayer status];
-                    BOOL playable = [[p->m_avAsset valueForKey:@"playable"] boolValue];
-                    if (playerS == 1 /* ReadyToPlay */ && playable && p->m_cachedItemStatus == 0) {
-                        p->playerItemStatusDidChange(1 /* AVPlayerItemStatusReadyToPlay */);
-                        p->m_cachedLikelyToKeepUp = true;
-                        p->loadedTimeRangesDidChange([p->m_avPlayerItem loadedTimeRanges]);
-                        done = YES;
-                    } else if (playerS == 2 /* Failed */)
-                        done = YES;
-                } @catch (NSException *exception) {
-                    NSLog(@"WK-AVF-EXC: status-poll block caught %@ reason=%@", [exception name], [exception reason]);
-                    done = YES;
-                }
-                if (++pollAttempts > 120)
-                    done = YES;
-            }
-            if (done && pollTimerKeepAlive) {
-                dispatch_source_cancel(pollTimerKeepAlive.get());
-                pollTimerKeepAlive = nullptr;
-            }
-        });
-        dispatch_resume(pollTimerRef);
-    }
-
     ASSERT(!m_currentTimeObserver);
     m_currentTimeObserver = [m_avPlayer addPeriodicTimeObserverForInterval:CMTimeMake(1, 10) queue:mainDispatchQueueSingleton() usingBlock:[weakThis = ThreadSafeWeakPtr { *this }, identifier = LOGIDENTIFIER](CMTime cmTime) {
         ensureOnMainThread([weakThis, cmTime, identifier] {

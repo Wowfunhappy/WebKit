@@ -4624,9 +4624,6 @@ void HTMLMediaElement::playInternal()
 
 void HTMLMediaElement::pause()
 {
-    // 10.9 backport: skip pause — media is disabled, no player to pause.
-    return;
-
     HTMLMEDIAELEMENT_RELEASE_LOG(PAUSE);
 
     m_temporarilyAllowingInlinePlaybackAfterFullscreen = false;
