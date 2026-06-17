@@ -191,12 +191,12 @@ enum class FeatureToAnimate {
     UNUSED_PARAM(scrollerImp);
 
     if (!_scroller)
-        return [NSAppearance currentDrawingAppearance];
+        return [NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil;
     // The base system does not support dark Aqua, so we might get a null result.
     // FIXME: This is a static analysis false positive.
     SUPPRESS_UNRETAINED_ARG if (auto *appearance = [NSAppearance appearanceNamed:_scroller->pair()->useDarkAppearance() ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua])
         return appearance;
-    return [NSAppearance currentDrawingAppearance];
+    return [NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil;
 }
 
 - (void)setUpAlphaAnimation:(RetainPtr<WebScrollbarPartAnimationMac>&)scrollbarPartAnimation featureToAnimate:(FeatureToAnimate)featureToAnimate animateAlphaTo:(CGFloat)newAlpha duration:(NSTimeInterval)duration
