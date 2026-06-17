@@ -761,13 +761,10 @@ void MinimalPageClient::preferencesDidChange()
 { }
 void MinimalPageClient::toolTipChanged(const String&, const String&)
 {
-    // 10.9 backport: tooltips (the `title` attribute) are NOT wired up. The obvious
-    // [m_view setToolTip:] approach does not display: WKView routes mouse events
-    // through a global NSEvent monitor that consumes mouseMoved (kept that way so
-    // AppKit can't reset the WebKit-set cursor — see the #17 cursor fix), so AppKit's
-    // NSToolTipManager never tracks the pointer. Wiring tooltips would need a
-    // WebKit-owned tooltip window (NSToolTipManager won't engage here). Left as a
-    // no-op deliberately; it's a marginal feature and not worth risking the cursor.
+    // 10.9 backport: tooltips (the `title` attribute) are NOT wired up. Wiring them via
+    // NSToolTipManager would need a tracking area / owner; left as a no-op deliberately —
+    // a marginal feature, out of scope. (Mouse events now reach WKView through AppKit's
+    // normal responder chain, so this is no longer entangled with the cursor path.)
 }
 #if PLATFORM(IOS_FAMILY)
 void MinimalPageClient::decidePolicyForGeolocationPermissionRequest(WebFrameProxy&, const FrameInfoData&, Function<void(bool)>&)
