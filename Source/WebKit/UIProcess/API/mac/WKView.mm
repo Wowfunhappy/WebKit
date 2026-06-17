@@ -62,8 +62,6 @@ struct WKViewState {
     [self setWantsLayer:YES];
     self.layer.backgroundColor = CGColorGetConstantColor(kCGColorWhite);
 
-    [WKView installEventMonitorOnce];
-
     WebKit::InitializeWebKit2();
 
     _wkState = new WKViewState;
@@ -242,10 +240,10 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     // 10.9 backport: the cursor only changes on hover (and CSS :hover fires) when
     // WebContent receives mouseMoved events to hit-test under the pointer. The
     // WindowServer suppresses mouseMoved unless the hosting window opts in. Stock
-    // WKWebView gets them via an NSTrackingArea; this backport forwards them through
-    // a global NSEvent monitor instead (see +installEventMonitorOnce), which only
-    // sees mouseMoved if the window actually emits them. Without this, setCursor IPC
-    // never fires and the pointer stays a plain arrow over links/text (bug #17).
+    // WKWebView gets them via an NSTrackingArea; here -mouseMoved: is delivered by
+    // AppKit's normal responder chain (the WKView is the hit-test target), but only
+    // if the window emits mouseMoved at all — so opt the window in. Without this,
+    // setCursor IPC never fires and the pointer stays a plain arrow over links/text (#17).
     if (NSWindow *window = [self window])
         [window setAcceptsMouseMovedEvents:YES];
     if (!_wkState || !_wkState->page) return;
@@ -260,8 +258,17 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     } @catch (NSException *) { }
 }
 
-// 10.9 backport: layer-tree mirror subviews intercept mouseDown without forwarding.
-// Force hit-testing to land on WKView so our mouseDown/Up/etc. always fire.
+// 10.9 backport: the WebContent layer tree is hosted as a plain CALayer SUBLAYER of
+// WKView's own backing layer (see MinimalPageClient::enterAcceleratedCompositingMode /
+// setRemoteLayerTreeRootNode — [[m_view layer] addSublayer:]). CALayers do NOT participate
+// in NSView -hitTest:, and WKView mounts no NSView subviews of its own, so AppKit's normal
+// hit-testing already lands directly on the WKView and the mouse/scroll/key NSResponder
+// overrides below fire naturally via -[NSWindow sendEvent:]. This is the same arrangement
+// upstream uses on macOS, except upstream hosts the remote layer on a dedicated WKFlippedView
+// subview and so must redirect a hit on that subview back to the main view
+// (WebViewImpl::hitTest). We have no such subview, but keep that redirect as cheap, upstream-
+// equivalent insurance in case any descendant view is ever inserted: a hit on self or a
+// descendant resolves to self so the responder-chain forwarding stays correct.
 - (NSView *)hitTest:(NSPoint)point
 {
     NSView *result = [super hitTest:point];
@@ -270,109 +277,6 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     if (result == self || [result isDescendantOf:self])
         return self;
     return result;
-}
-
-// 10.9 backport: Safari's BrowserWindowContentView/NSTabView hierarchy may absorb
-// mouseDown via hitTest before it ever reaches WKView. Install a global NSEvent
-// monitor that catches mouseDown/Up/scrollWheel within WKView bounds and dispatches
-// directly to the appropriate WKView instance. This bypasses hitTest entirely.
-+ (void)installEventMonitorOnce
-{
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        NSEventMask mask =
-            NSLeftMouseDownMask | NSLeftMouseUpMask |
-            NSRightMouseDownMask | NSRightMouseUpMask |
-            NSOtherMouseDownMask | NSOtherMouseUpMask |
-            NSLeftMouseDraggedMask | NSRightMouseDraggedMask | NSOtherMouseDraggedMask |
-            NSMouseMovedMask | NSScrollWheelMask;
-        [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
-            NSWindow *win = [event window];
-            if (!win)
-                win = [NSApp keyWindow];
-            if (!win)
-                win = [[NSApp orderedWindows] firstObject];
-            if (!win)
-                return event;
-            NSView *cv = [win contentView];
-            if (!cv)
-                return event;
-            // 10.9 backport: Safari can mount several WKViews in the same window:
-            // one per tab, and — when Reader is active — a ReaderWKView layered
-            // ON TOP of the page's BrowserWKView (both visible, same frame; see
-            // -[TabContentView installReaderView:]). Walk depth-first, skipping
-            // hidden views (and their subtrees) so events go to the displayed tab.
-            // But the topmost overlay (the Reader) is added LATER, so it appears
-            // AFTER the BrowserWKView in subview order — a naive "first match" picks
-            // the wrong (underlying) view and the Reader never scrolls (#39). Safari
-            // makes the active/overlay WKView the window's firstResponder (Reader does
-            // this in installReaderView:), so prefer the firstResponder WKView when one
-            // of the candidates is it; fall back to the first non-hidden WKView otherwise.
-            // (In the normal single-view case the page's WKView is firstResponder, so
-            // this is strictly more correct.)
-            __block WKView *wkView = nil;
-            __block WKView *firstResponderWKView = nil;
-            NSResponder *firstResponder = [win firstResponder];
-            void (^walk)(NSView *) = ^(NSView *v) {};
-            // MRC: __block block vars are not retained by the capturing block, so __block alone
-            // breaks the recursive-block retain cycle (__weak is unavailable under manual ref counting).
-            __block void (^weakWalk)(NSView *) = nil;
-            walk = ^(NSView *v) {
-                if (firstResponderWKView) return;
-                if ([v isHidden]) return;
-                if ([v isKindOfClass:[WKView class]]) {
-                    if (!wkView) wkView = (WKView *)v;
-                    if ((NSResponder *)v == firstResponder) firstResponderWKView = (WKView *)v;
-                    return;
-                }
-                for (NSView *sub in [v subviews]) { if (firstResponderWKView) return; weakWalk(sub); }
-            };
-            weakWalk = walk;
-            walk(cv);
-            if (firstResponderWKView)
-                wkView = firstResponderWKView;
-            if (!wkView)
-                return event;
-            // Convert event location to wkView coords; ignore if outside.
-            NSPoint pInWin = [event locationInWindow];
-            if (![event window]) {
-                // Event has no associated window — locationInWindow is screen coords.
-                NSRect r = NSMakeRect(pInWin.x, pInWin.y, 0, 0);
-                pInWin = [win convertRectFromScreen:r].origin;
-            }
-            NSPoint pInWK = [wkView convertPoint:pInWin fromView:nil];
-            if (![wkView mouse:pInWK inRect:[wkView bounds]])
-                return event;
-            NSEventType t = [event type];
-            // 10.9 backport: this app-wide monitor CONSUMES the mouse event (returns nil), so it
-            // never reaches AppKit's -[NSWindow sendEvent:] — which is exactly where click-to-activate
-            // normally happens. Result: clicking the web content did NOT make Safari's window
-            // key/main (the traffic-light buttons stayed grey), which in turn froze hover/cursor
-            // updates because AppKit only delivers mouseMoved/cursorUpdate to a key window. Perform
-            // the activation ourselves on any press, exactly as sendEvent: would have, before
-            // forwarding the event into WebKit.
-            if (t == NSLeftMouseDown || t == NSRightMouseDown || t == NSOtherMouseDown) {
-                if (![NSApp isActive])
-                    [NSApp activateIgnoringOtherApps:YES];
-                if (win && ![win isKeyWindow] && [win canBecomeKeyWindow])
-                    [win makeKeyAndOrderFront:nil];
-            }
-            switch (t) {
-            case NSLeftMouseDown:    [wkView mouseDown:event];    return (NSEvent *)nil;
-            case NSLeftMouseUp:      [wkView mouseUp:event];      return (NSEvent *)nil;
-            case NSRightMouseDown:   [wkView rightMouseDown:event]; return (NSEvent *)nil;
-            case NSRightMouseUp:     [wkView rightMouseUp:event]; return (NSEvent *)nil;
-            case NSOtherMouseDown:   [wkView otherMouseDown:event]; return (NSEvent *)nil;
-            case NSOtherMouseUp:     [wkView otherMouseUp:event]; return (NSEvent *)nil;
-            case NSLeftMouseDragged: [wkView mouseDragged:event]; return (NSEvent *)nil;
-            case NSRightMouseDragged:[wkView rightMouseDragged:event]; return (NSEvent *)nil;
-            case NSOtherMouseDragged:[wkView otherMouseDragged:event]; return (NSEvent *)nil;
-            case NSMouseMoved:       [wkView mouseMoved:event];   return (NSEvent *)nil;
-            case NSScrollWheel:      [wkView scrollWheel:event];  return (NSEvent *)nil;
-            default: return event;
-            }
-        }];
-    });
 }
 
 #define WKV_FORWARD_MOUSE(SEL_NAME) \
