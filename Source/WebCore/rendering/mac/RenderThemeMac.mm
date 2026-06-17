@@ -475,8 +475,11 @@ Color RenderThemeMac::systemColor(CSSValueID cssValueID, OptionSet<StyleColorOpt
         auto systemAppearanceColor = [useDarkAppearance] (Color& color, SEL selector) -> Color {
             if (!color.isValid()) {
                 LocalDefaultSystemAppearance localAppearance(useDarkAppearance);
-                RetainPtr systemColor = wtfObjCMsgSend<NSColor *>([NSColor class], selector);
-                color = semanticColorFromNSColor(systemColor.get());
+                // 10.9 backport: several NSColor system selectors used here (systemPurpleColor/systemRedColor/controlAccentColor) are 10.10+/10.14+ and absent on 10.9; invoking an absent selector throws unrecognized-selector. Guard it; if absent the color stays invalid and the caller's normal fallback applies.
+                if ([NSColor respondsToSelector:selector]) {
+                    RetainPtr systemColor = wtfObjCMsgSend<NSColor *>([NSColor class], selector);
+                    color = semanticColorFromNSColor(systemColor.get());
+                }
             }
 
             return color;
@@ -667,8 +670,11 @@ Color RenderThemeMac::systemColor(CSSValueID cssValueID, OptionSet<StyleColorOpt
         };
 
         if (auto selector = selectCocoaColor()) {
-            if (RetainPtr color = wtfObjCMsgSend<NSColor *>([NSColor class], selector))
-                return semanticColorFromNSColor(color.get());
+            // 10.9 backport: many mapped NSColor selectors (systemBlueColor/systemRedColor/secondaryLabelColor/placeholderTextColor/...) are 10.10+ and absent on 10.9; invoking an absent one throws unrecognized-selector (e.g. <video controls> uses CSS -apple-system-blue -> systemBlueColor). Guard it; if absent, fall through to the hardcoded/base fallbacks below.
+            if ([NSColor respondsToSelector:selector]) {
+                if (RetainPtr color = wtfObjCMsgSend<NSColor *>([NSColor class], selector))
+                    return semanticColorFromNSColor(color.get());
+            }
         }
 
         auto textColorForActiveButton = [&] {
@@ -706,6 +712,43 @@ Color RenderThemeMac::systemColor(CSSValueID cssValueID, OptionSet<StyleColorOpt
             // Hardcoded to avoid exposing a user appearance preference to the web for fingerprinting.
             // Same color in light and dark appearances.
             return { SRGBA<uint8_t> { 0, 122, 255 }, Color::Flags::Semantic };
+
+        // 10.9 backport: the named NSColor system*/label selectors mapped in selectCocoaColor are 10.10+ and
+        // absent here, so the respondsToSelector guard above skips them and they'd otherwise fall through to an
+        // invalid (transparent) color (the cross-platform base RenderTheme::systemColor has no AppleSystem* cases).
+        // Return the stable Apple system-palette constants (fixed values; no user-preference exposure) so e.g.
+        // <video controls> (-apple-system-blue) and -apple-system-label text render correctly instead of vanishing.
+        case CSSValueAppleWirelessPlaybackTargetActive:
+        case CSSValueAppleSystemBlue:
+            return { SRGBA<uint8_t> { 0, 122, 255 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemBrown:
+            return { SRGBA<uint8_t> { 162, 132, 94 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemGray:
+            return { SRGBA<uint8_t> { 142, 142, 147 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemGreen:
+            return { SRGBA<uint8_t> { 52, 199, 89 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemOrange:
+            return { SRGBA<uint8_t> { 255, 149, 0 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemPink:
+            return { SRGBA<uint8_t> { 255, 45, 85 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemPurple:
+            return { SRGBA<uint8_t> { 175, 82, 222 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemRed:
+            return { SRGBA<uint8_t> { 255, 59, 48 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemYellow:
+            return { SRGBA<uint8_t> { 255, 204, 0 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemLabel:
+            return { SRGBA<uint8_t> { 0, 0, 0, 216 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemSecondaryLabel:
+            return { SRGBA<uint8_t> { 60, 60, 67, 153 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemTertiaryLabel:
+            return { SRGBA<uint8_t> { 60, 60, 67, 76 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemQuaternaryLabel:
+            return { SRGBA<uint8_t> { 60, 60, 67, 45 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemQuinaryLabel:
+            return { SRGBA<uint8_t> { 60, 60, 67, 28 }, Color::Flags::Semantic };
+        case CSSValueAppleSystemPlaceholderText:
+            return { SRGBA<uint8_t> { 60, 60, 67, 76 }, Color::Flags::Semantic };
 
         case CSSValueAppleSystemSelectedContentBackground:
             // Hardcoded to avoid exposing a user appearance preference to the web for fingerprinting.
