@@ -6474,7 +6474,11 @@ void WebViewImpl::effectiveAppearanceDidChange()
 
 bool WebViewImpl::effectiveAppearanceIsDark()
 {
-    RetainPtr appearance = [retainPtr([m_view.get() effectiveAppearance]) bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+    // 10.9 backport: -[NSAppearance bestMatchFromAppearancesWithNames:] is 10.14+ (absent, not polyfilled) → unrecognized-selector crash on appearance change. 10.9 has no dark mode, so guard and report not-dark. (Mirrors WebControlView.mm's nil-guard of this same selector.)
+    RetainPtr effectiveAppearance = retainPtr([m_view.get() effectiveAppearance]);
+    if (![effectiveAppearance.get() respondsToSelector:@selector(bestMatchFromAppearancesWithNames:)])
+        return false;
+    RetainPtr appearance = [effectiveAppearance.get() bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
     return [appearance isEqualToString:NSAppearanceNameDarkAqua];
 }
 
