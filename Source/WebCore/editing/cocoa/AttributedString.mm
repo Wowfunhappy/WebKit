@@ -366,7 +366,14 @@ static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, I
         });
     }, [] (const TextAttachmentMissingImage& value) -> RetainPtr<id> {
         UNUSED_PARAM(value);
-        RetainPtr<NSTextAttachment> attachment = adoptNS([[PlatformNSTextAttachment alloc] initWithData:nil ofType:nil]);
+        // 10.9 backport: -[NSTextAttachment initWithData:ofType:] and the .image property are both 10.11+
+        // (absent, not polyfilled). On 10.9 use the always-present designated initializer
+        // (initWithFileWrapper:nil) and display the missing-image via an NSTextAttachmentCell.
+        RetainPtr<NSTextAttachment> attachment;
+        if ([PlatformNSTextAttachment instancesRespondToSelector:@selector(initWithData:ofType:)])
+            attachment = adoptNS([[PlatformNSTextAttachment alloc] initWithData:nil ofType:nil]);
+        else
+            attachment = adoptNS([[PlatformNSTextAttachment alloc] initWithFileWrapper:nil]);
         // .image property is 10.11+; use setAttachmentCell: with an NSCell on older macOS
         if ([attachment.get() respondsToSelector:@selector(setImage:)])
             [(id)attachment.get() setImage:RetainPtr { webCoreTextAttachmentMissingPlatformImage() }.get()];
@@ -383,7 +390,9 @@ static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, I
             [fileWrapper setPreferredFilename:RetainPtr { filenameByFixingIllegalCharacters(value.preferredFilename.createNSString().get()) }.get()];
 
         auto textAttachment = adoptNS([[PlatformNSTextAttachment alloc] initWithFileWrapper:fileWrapper.get()]);
-        if (!value.accessibilityLabel.isNull())
+        // 10.9 backport: -[NSTextAttachment setAccessibilityLabel:] is 10.10+; guard the setter (the read
+        // path leaves accessibilityLabel null on 10.9, but stay robust if a label arrives over IPC).
+        if (!value.accessibilityLabel.isNull() && [textAttachment.get() respondsToSelector:@selector(setAccessibilityLabel:)])
             ((NSTextAttachment*)textAttachment.get()).accessibilityLabel = value.accessibilityLabel.createNSString().get();
 
         return textAttachment;
@@ -734,11 +743,24 @@ static std::optional<AttributedString::AttributeValue> extractValue(id value, Ta
     }
 #endif
     if (auto* attachment = dynamic_objc_cast<NSTextAttachment>(value)) {
-        if (isWebCoreTextAttachmentMissingPlatformImage(static_cast<CocoaImage*>(retainPtr([attachment image]).get())))
+        // 10.9 backport: -[NSTextAttachment image] is 10.11+; on 10.9 the image is held by the
+        // attachment's NSTextAttachmentCell instead (that is how the write path stores it here, see
+        // NodeHTMLConverter._addAttachmentForElement). Read it via the cell so the missing-image
+        // sentinel check still works. No behavior change on 10.11+.
+        RetainPtr<CocoaImage> attachmentImage;
+        if ([attachment respondsToSelector:@selector(image)])
+            attachmentImage = [attachment image];
+        else if (auto *cell = dynamic_objc_cast<NSTextAttachmentCell>([attachment attachmentCell]))
+            attachmentImage = [cell image];
+        if (isWebCoreTextAttachmentMissingPlatformImage(attachmentImage.get()))
             return { { TextAttachmentMissingImage() } };
         TextAttachmentFileWrapper textAttachment;
-        if (auto accessibilityLabel = retainPtr([value accessibilityLabel]))
-            textAttachment.accessibilityLabel = accessibilityLabel.get();
+        // 10.9 backport: -[NSTextAttachment accessibilityLabel] is 10.10+ (NSAccessibility property);
+        // absent on 10.9, so skip (a11y labeling only; no effect on the formatting).
+        if ([value respondsToSelector:@selector(accessibilityLabel)]) {
+            if (auto accessibilityLabel = retainPtr([value accessibilityLabel]))
+                textAttachment.accessibilityLabel = accessibilityLabel.get();
+        }
 #if !PLATFORM(IOS_FAMILY)
         textAttachment.ignoresOrientation = [value ignoresOrientation];
 #endif

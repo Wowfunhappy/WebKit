@@ -1309,10 +1309,18 @@ BOOL HTMLConverter::_addAttachmentForElement(Element& element, NSURL *url, BOOL 
         if (!attachment) {
             RetainPtr textAttachment = adoptNS([[PlatformNSTextAttachment alloc] initWithFileWrapper:fileWrapper.get()]);
 
-            if (auto& ariaLabel = element.getAttribute("aria-label"_s); !ariaLabel.isEmpty())
-                [textAttachment setAccessibilityLabel:ariaLabel.createNSString().get()];
-            if (auto& altText = element.getAttribute("alt"_s); !altText.isEmpty())
-                [textAttachment setAccessibilityLabel:altText.createNSString().get()];
+            // 10.9 backport: -[NSTextAttachment setAccessibilityLabel:] is 10.10+ (NSTextAttachment
+            // adopts the NSAccessibility protocol only on 10.10+; absent and not polyfilled here) →
+            // selecting + copying/dragging any <img> with an alt/aria-label attribute raised an
+            // unrecognized-selector exception and killed WebContent. Guard it; on 10.9 there is no
+            // attachment-level accessibility-label API, so skip (a11y labeling only; no effect on the
+            // RTF/HTML/attributed-string formatting itself). No behavior change on 10.10+.
+            if ([textAttachment respondsToSelector:@selector(setAccessibilityLabel:)]) {
+                if (auto& ariaLabel = element.getAttribute("aria-label"_s); !ariaLabel.isEmpty())
+                    [textAttachment setAccessibilityLabel:ariaLabel.createNSString().get()];
+                if (auto& altText = element.getAttribute("alt"_s); !altText.isEmpty())
+                    [textAttachment setAccessibilityLabel:altText.createNSString().get()];
+            }
 
 #if PLATFORM(IOS_FAMILY)
             float verticalAlign = 0.0;
@@ -1327,8 +1335,20 @@ BOOL HTMLConverter::_addAttachmentForElement(Element& element, NSURL *url, BOOL 
                     [textAttachment setIgnoresOrientation:YES];
 #endif
             } else {
-                textAttachment = adoptNS([[PlatformNSTextAttachment alloc] initWithData:nil ofType:nil]);
-                [textAttachment setImage:webCoreTextAttachmentMissingPlatformImage()];
+                // 10.9 backport: -[NSTextAttachment initWithData:ofType:] and -setImage: are both 10.11+
+                // (absent, not polyfilled) → the missing-image placeholder path crashed WebContent when
+                // copying/dragging an <img> whose resource failed to load. On 10.9 build the placeholder
+                // with the always-present designated initializer (initWithFileWrapper:nil) and display the
+                // missing-image via an NSTextAttachmentCell (the pre-10.11 way to attach an image). No
+                // behavior change on 10.11+ (still uses initWithData:ofType:/setImage: there).
+                if ([PlatformNSTextAttachment instancesRespondToSelector:@selector(initWithData:ofType:)]) {
+                    textAttachment = adoptNS([[PlatformNSTextAttachment alloc] initWithData:nil ofType:nil]);
+                    [textAttachment setImage:webCoreTextAttachmentMissingPlatformImage()];
+                } else {
+                    textAttachment = adoptNS([[PlatformNSTextAttachment alloc] initWithFileWrapper:nil]);
+                    auto cell = adoptNS([[NSTextAttachmentCell alloc] initImageCell:webCoreTextAttachmentMissingPlatformImage()]);
+                    [textAttachment setAttachmentCell:cell.get()];
+                }
             }
 
             attachment = textAttachment;
@@ -1605,7 +1625,17 @@ void HTMLConverter::_processHeadElement(Element& element)
 
 void HTMLConverter::_enterBlockquote()
 {
-    _topPresentationIntent = [NSPresentationIntent blockQuoteIntentWithIdentity:++_topPresentationIntentIdentity nestedInsideIntent:_topPresentationIntent.get()];
+    // 10.9 backport: +[NSPresentationIntent blockQuoteIntentWithIdentity:nestedInsideIntent:] is 12.0+
+    // (NSPresentationIntent is the macOS 12 Markdown/AttributedString presentation-intent API; the class
+    // is present on 10.9 but does NOT implement this selector) → converting a selection containing a
+    // <blockquote> to an attributed string (rich copy/drag of, e.g., a GitHub page) raised an
+    // unrecognized-selector exception and killed WebContent. Guard it; on 10.9 leave _topPresentationIntent
+    // nil — the attribute-set in _addMarkupAttributes and the pop in _exitBlockquote are already nil-guarded,
+    // so the attributed string just omits the (10.9-unusable) semantic presentation-intent metadata. Visual
+    // formatting (font/color/bold/list bullets/etc.) comes from other attributes and is unaffected. No
+    // change on 12.0+.
+    if ([NSPresentationIntent respondsToSelector:@selector(blockQuoteIntentWithIdentity:nestedInsideIntent:)])
+        _topPresentationIntent = [NSPresentationIntent blockQuoteIntentWithIdentity:++_topPresentationIntentIdentity nestedInsideIntent:_topPresentationIntent.get()];
 }
 
 void HTMLConverter::_exitBlockquote()
