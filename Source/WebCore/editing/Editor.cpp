@@ -1609,23 +1609,6 @@ void Editor::performCutOrCopy(EditorActionSpecifier action)
     }
 
     Ref document = this->document();
-#if PLATFORM(MAC)
-    // 10.9 backport: writeSelectionToPasteboard's WebArchive + RTF + HTML
-    // serialization paths crash WebContent when copying large selections
-    // (Cmd+A → Cmd+C). Take the plain-text path always — loses rich formatting
-    // on copy, but keeps WebContent alive.
-    Pasteboard::createForCopyAndPaste(PagePasteboardContext::create(document->pageID()))->writePlainText(selectedTextForDataTransfer(), canSmartCopyOrDelete() ? Pasteboard::CanSmartReplace : Pasteboard::CannotSmartReplace);
-    didWriteSelectionToPasteboard();
-    if (action == CutAction) {
-        String text;
-        if (AXObjectCache::accessibilityEnabled())
-            text = AccessibilityObject::stringForVisiblePositionRange(document->selection().selection());
-        deleteSelectionWithSmartDelete(canSmartCopyOrDelete(), EditAction::Cut);
-        if (AXObjectCache::accessibilityEnabled())
-            postTextStateChangeNotificationForCut(text, document->selection().selection());
-    }
-    return;
-#endif
     if (enclosingTextFormControl(document->selection().selection().start()))
         Pasteboard::createForCopyAndPaste(PagePasteboardContext::create(document->pageID()))->writePlainText(selectedTextForDataTransfer(), canSmartCopyOrDelete() ? Pasteboard::CanSmartReplace : Pasteboard::CannotSmartReplace);
     else {

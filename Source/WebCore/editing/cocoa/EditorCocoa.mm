@@ -174,12 +174,25 @@ void Editor::writeSelectionToPasteboard(Pasteboard& pasteboard)
     PasteboardWebContent content;
     content.contentOrigin = document->originIdentifierForPasteboard();
     content.canSmartCopyOrDelete = canSmartCopyOrDelete();
-    // 10.9 backport: skip the WebArchive + rich-text-attributed-string path
-    // entirely. Both paths crash WebContent on real-user drags + copies via
-    // HTMLConverter::_colorForElement → NSCalibratedWhiteColor isEqual: SIGSEGV
-    // and similar. Plain-text-only pasteboard write is the same trade-off as
-    // performCutOrCopy: lose rich format, keep WebContent alive.
+    if (!pasteboard.isStatic()) {
+        if (!document->isTextDocument()) {
+            content.dataInWebArchiveFormat = selectionInWebArchiveFormat();
+            LegacyWebArchive::ArchiveOptions options {
+                LegacyWebArchive::ShouldSaveScriptsFromMemoryCache::Yes,
+                LegacyWebArchive::ShouldArchiveSubframes::No
+            };
+            if (document->settings().siteIsolationEnabled())
+                content.webArchive = LegacyWebArchive::createFromSelection(document->frame(), WTF::move(options));
+            populateRichTextDataIfNeeded(content, document);
+        }
+        client()->getClientPasteboardData(selectedRange(), content.clientTypesAndData);
+    }
+
+    if (!document->isTextDocument())
+        content.dataInHTMLFormat = selectionInHTMLFormat();
+
     content.dataInStringFormat = stringSelectionForPasteboardWithImageAltText();
+
     pasteboard.write(content);
 }
 
@@ -190,8 +203,12 @@ void Editor::writeSelection(PasteboardWriterData& pasteboardWriterData)
     PasteboardWriterData::WebContent webContent;
     webContent.contentOrigin = document->originIdentifierForPasteboard();
     webContent.canSmartCopyOrDelete = canSmartCopyOrDelete();
-    // 10.9 backport: skip rich-text + WebArchive paths — same trade-off as
-    // writeSelectionToPasteboard above.
+    if (!document->isTextDocument()) {
+        webContent.dataInWebArchiveFormat = selectionInWebArchiveFormat();
+        populateRichTextDataIfNeeded(webContent, document);
+        webContent.dataInHTMLFormat = selectionInHTMLFormat();
+    }
+    client()->getClientPasteboardData(selectedRange(), webContent.clientTypesAndData);
     webContent.dataInStringFormat = stringSelectionForPasteboardWithImageAltText();
 
     pasteboardWriterData.setWebContent(WTF::move(webContent));
