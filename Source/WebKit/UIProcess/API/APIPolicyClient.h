@@ -51,7 +51,10 @@ class PolicyClient {
 public:
     virtual ~PolicyClient() { }
 
-    virtual void decidePolicyForNavigationAction(WebKit::WebPageProxy&, WebKit::WebFrameProxy*, Ref<API::NavigationAction>&&, WebKit::WebFrameProxy*, const WebCore::ResourceRequest&, const WebCore::ResourceRequest&, Ref<WebKit::WebFramePolicyListenerProxy>&& listener)
+    // 10.9 backport (#60): the trailing userData carries the reconstructed injected-bundle policy
+    // userData dictionary ("CanHandleRequest"/"OriginatingFrame") that Safari's legacy V0/V1
+    // WKPagePolicyClient callback requires to be a non-null WKDictionary before it drives the listener.
+    virtual void decidePolicyForNavigationAction(WebKit::WebPageProxy&, WebKit::WebFrameProxy*, Ref<API::NavigationAction>&&, WebKit::WebFrameProxy*, const WebCore::ResourceRequest&, const WebCore::ResourceRequest&, Ref<WebKit::WebFramePolicyListenerProxy>&& listener, API::Object* /* userData */ = nullptr)
     {
         listener->use();
     }

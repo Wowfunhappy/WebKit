@@ -26,11 +26,16 @@
 #include "config.h"
 #include "WebFrameLoaderClient.h"
 
+#include "APIArray.h"
+#include "APIDictionary.h"
+#include "APIFrameHandle.h"
+#include "APINumber.h"
 #include "FormDataReference.h"
 #include "FrameInfoData.h"
 #include "Logging.h"
 #include "MessageSenderInlines.h"
 #include "NavigationActionData.h"
+#include "UserData.h"
 #include "WebFrame.h"
 #include "WebLocalFrameLoaderClient.h"
 #include "WebMouseEvent.h"
@@ -188,6 +193,22 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
     auto navigationActionData = this->navigationActionData(navigationAction, request, redirectResponse, clientRedirectSourceForHistory, navigationID, WTF::move(hitTestResult), hasOpener, navigationUpgradeToHTTPSBehavior, sandboxFlags);
     if (!navigationActionData)
         return function(PolicyAction::Ignore);
+
+    // 10.9 backport (#60): Reconstruct the userData dictionary that Safari 7's injected-bundle
+    // policy client (BrowserBundlePagePolicyClient::userDataForAction) produced before that whole
+    // bundle-client mechanism was removed upstream. Safari's UI-process WKPagePolicyClient callback
+    // (BrowserPagePolicyClient::decidePolicyForAction) casts this userData to a WKDictionary and, if
+    // the cast fails (null userData), returns WITHOUT ever driving the policy listener (no
+    // use/ignore/download) -> the navigation hangs. We rebuild the same two keys it reads on the
+    // navigation path: "CanHandleRequest" (Boolean) and "OriginatingFrame" (Frame), serialized via
+    // UserData so the frame handle is rehydrated into a WKFrameRef in the UI process.
+    {
+        API::Dictionary::MapType map;
+        map.add("CanHandleRequest"_s, API::Boolean::create(navigationActionData->canHandleRequest));
+        map.add("OriginatingFrame"_s, API::FrameHandle::createAutoconverting(navigationActionData->originatingFrameInfoData.frameID));
+        Ref<API::Object> userData = API::Dictionary::create(WTF::move(map));
+        navigationActionData->bundlePolicyUserData = UserData(WebProcess::singleton().transformObjectsToHandles(userData.ptr()));
+    }
 
     RefPtr webPage = m_frame->page();
 

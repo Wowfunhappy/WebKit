@@ -8706,6 +8706,9 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
     auto originatingFrameInfoData = navigationActionData.originatingFrameInfoData;
     auto originalRequest = navigationActionData.originalRequest;
     auto request = navigationActionData.request;
+    // 10.9 backport (#60): capture the injected-bundle policy userData (serialized handles) before
+    // navigationActionData is consumed; rehydrated and handed to the legacy policy client below.
+    RefPtr<API::Object> bundlePolicyUserDataObject = navigationActionData.bundlePolicyUserData.objectForSerialization();
 
     WEBPAGEPROXY_RELEASE_LOG(Loading, "decidePolicyForNavigationAction: frameID=%" PRIu64 ", isMainFrame=%d, navigationID=%" PRIu64, frame.frameID().toUInt64(), frame.isMainFrame(), navigationID ? navigationID->toUInt64() : 0);
 
@@ -9038,27 +9041,21 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
         logFrameNavigation(frame, URL { internals().pageLoadState.url() }, request, navigationAction->data().redirectResponse.url(), wasPotentiallyInitiatedByUser);
 
     if (m_policyClient) {
-        // 10.9 backport: also schedule auto-USE for legacy policy client path.
-        Ref<WebFramePolicyListenerProxy> listenerCopy = listener.copyRef();
-        m_policyClient->decidePolicyForNavigationAction(*this, &frame, WTF::move(navigationAction), originatingFrame.get(), originalRequest, WTF::move(request), WTF::move(listener));
-        // Use small delay so legacy listener (Safari) gets a chance to USE first; otherwise auto-USE.
-        RunLoop::mainSingleton().dispatchAfter(50_ms, [listenerCopy = WTF::move(listenerCopy)]() mutable {
-            listenerCopy->use({ }, ProcessSwapRequestedByClient::No);
-        });
+        // 10.9 backport (#60): rehydrate the injected-bundle policy userData dictionary
+        // ("CanHandleRequest"/"OriginatingFrame") that the WebProcess attached. Safari's legacy
+        // V0/V1 WKPagePolicyClient callback (BrowserPagePolicyClient::decidePolicyForAction) casts
+        // this to a WKDictionary and bails WITHOUT driving the listener if it is null. Passing the
+        // real dictionary lets Safari's callback actually call use()/ignore()/download(), so the
+        // former auto-USE fallback timer is no longer needed.
+        RefPtr<API::Object> bundlePolicyUserData = process->transformHandlesToObjects(bundlePolicyUserDataObject.get());
+        m_policyClient->decidePolicyForNavigationAction(*this, &frame, WTF::move(navigationAction), originatingFrame.get(), originalRequest, WTF::move(request), WTF::move(listener), bundlePolicyUserData.get());
     } else {
 #if HAVE(APP_SSO)
         if (m_shouldSuppressSOAuthorizationInNextNavigationPolicyDecision || !protect(preferences())->isExtensibleSSOEnabled())
             navigationAction->unsetShouldPerformSOAuthorization();
 #endif
 
-        // 10.9 backport: Safari's BrowserController.decidePolicyForNavigationAction may not
-        // call USE on the listener. Schedule a fallback that auto-USEs after 200ms if not
-        // decided yet.
-        Ref<WebFramePolicyListenerProxy> listenerCopy = listener.copyRef();
         m_navigationClient->decidePolicyForNavigationAction(*this, WTF::move(navigationAction), WTF::move(listener));
-        RunLoop::mainSingleton().dispatchAfter(1500_ms, [listenerCopy = WTF::move(listenerCopy)]() mutable {
-            listenerCopy->use({ }, ProcessSwapRequestedByClient::No);
-        });
     }
 
     m_shouldSuppressAppLinksInNextNavigationPolicyDecision = false;
