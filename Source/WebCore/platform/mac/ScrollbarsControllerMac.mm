@@ -424,14 +424,14 @@ using WebCore::LogOverlayScrollbars;
     UNUSED_PARAM(scrollerImp);
 
     if (!_scrollbar)
-        return [NSAppearance currentDrawingAppearance];
+        return [NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil;
 
     // Keep this in sync with LocalFrameView::paintScrollCorner.
     // The base system does not support dark Aqua, so we might get a null result.
     bool useDarkAppearance = protect(_scrollbar->scrollableArea())->useDarkAppearanceForScrollbars();
     if (auto *appearance = [NSAppearance appearanceNamed:useDarkAppearance ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua])
         return appearance;
-    return [NSAppearance currentDrawingAppearance];
+    return [NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil;
 }
 
 - (void)setUpAlphaAnimation:(RetainPtr<WebScrollbarPartAnimation>&)scrollbarPartAnimation scrollerPainter:(NSScrollerImp *)scrollerPainter part:(WebCore::ScrollbarPart)part animateAlphaTo:(CGFloat)newAlpha duration:(NSTimeInterval)duration
