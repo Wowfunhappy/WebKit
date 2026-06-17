@@ -206,8 +206,9 @@ LinkImageLayout::LinkImageLayout(URL& url, const String& titleString)
     NSFont *titleFont = [NSFont boldSystemFontOfSize:linkImageFontSize];
     NSFont *domainFont = [NSFont systemFontOfSize:linkImageFontSize];
 
-    NSColor *titleColor = [NSColor labelColor];
-    NSColor *domainColor = [NSColor secondaryLabelColor];
+    // 10.9 backport: +[NSColor labelColor]/+secondaryLabelColor are 10.10+ (absent, not polyfilled) → unrecognized-selector crash when dragging a link. Guard and fall back to pre-10.10 equivalents.
+    NSColor *titleColor = [NSColor respondsToSelector:@selector(labelColor)] ? [NSColor labelColor] : [NSColor textColor];
+    NSColor *domainColor = [NSColor respondsToSelector:@selector(secondaryLabelColor)] ? [NSColor secondaryLabelColor] : [NSColor grayColor];
 
     CGFloat maximumAvailableWidth = linkImageMaximumWidth - linkImagePadding * 2;
 
@@ -325,7 +326,8 @@ DragImageRef createDragImageForColor(const Color& color, const FloatRect&, float
     [cocoaColor(color) setFill];
     [path fill];
 
-    [[NSColor quaternaryLabelColor] setStroke];
+    // 10.9 backport: +[NSColor quaternaryLabelColor] is 10.10+ (absent, not polyfilled) → unrecognized-selector crash when dragging a color swatch. Guard and fall back to a pre-10.10 gray.
+    [([NSColor respondsToSelector:@selector(quaternaryLabelColor)] ? [NSColor quaternaryLabelColor] : [NSColor gridColor]) setStroke];
     [path stroke];
 
     [dragImage unlockFocus];
