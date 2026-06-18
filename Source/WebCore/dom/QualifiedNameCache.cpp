@@ -29,7 +29,7 @@
 
 #include "Namespace.h"
 #include "NodeName.h"
-#include <wtf/Lock.h>
+#include <wtf/Lock.h> // MAVERICKS_BACKPORT: Lock for the shared-cache guard below (behavior fix)
 #include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
@@ -37,11 +37,12 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(QualifiedNameCache);
 
 #if PLATFORM(MAC)
-// 10.9 backport: ThreadGlobalData::qualifiedNameCache() returns a process-wide
-// shared cache on PLATFORM(MAC) (same reason as the shared AtomStringTable).
-// Without this lock, concurrent getOrCreate/remove from JSC parser threads vs
-// the main DOM thread can rehash the underlying HashSet simultaneously and
-// double-free the buffer. Mirror the AtomStringTableLocker pattern.
+// MAVERICKS_BACKPORT: behavior fix (concurrent-rehash double-free).
+// ThreadGlobalData::qualifiedNameCache() returns a process-wide shared cache on
+// PLATFORM(MAC) (same reason as the shared AtomStringTable). Without this lock,
+// concurrent getOrCreate/remove from JSC parser threads vs the main DOM thread can
+// rehash the underlying HashSet simultaneously and double-free the buffer.
+// Mirror the AtomStringTableLocker pattern.
 static Lock& qualifiedNameCacheLock()
 {
     static NeverDestroyed<Lock> lock;
@@ -77,7 +78,7 @@ static void updateImplWithNamespaceAndElementName(QualifiedName::QualifiedNameIm
 Ref<QualifiedName::QualifiedNameImpl> QualifiedNameCache::getOrCreate(const QualifiedNameComponents& components)
 {
 #if PLATFORM(MAC)
-    Locker locker { qualifiedNameCacheLock() };
+    Locker locker { qualifiedNameCacheLock() }; // MAVERICKS_BACKPORT: guard shared-cache rehash (see qualifiedNameCacheLock())
 #endif
     auto addResult = m_cache.add<QNameComponentsTranslator>(components);
     Ref impl = **addResult.iterator;
@@ -95,7 +96,7 @@ Ref<QualifiedName::QualifiedNameImpl> QualifiedNameCache::getOrCreate(const Qual
 Ref<QualifiedName::QualifiedNameImpl> QualifiedNameCache::getOrCreate(const QualifiedNameComponents& components, Namespace nodeNamespace, NodeName nodeName)
 {
 #if PLATFORM(MAC)
-    Locker locker { qualifiedNameCacheLock() };
+    Locker locker { qualifiedNameCacheLock() }; // MAVERICKS_BACKPORT: guard shared-cache rehash (see qualifiedNameCacheLock())
 #endif
     auto addResult = m_cache.add<QNameComponentsTranslator>(components);
     Ref impl = **addResult.iterator;
@@ -111,7 +112,7 @@ Ref<QualifiedName::QualifiedNameImpl> QualifiedNameCache::getOrCreate(const Qual
 void QualifiedNameCache::remove(QualifiedName::QualifiedNameImpl& impl)
 {
 #if PLATFORM(MAC)
-    Locker locker { qualifiedNameCacheLock() };
+    Locker locker { qualifiedNameCacheLock() }; // MAVERICKS_BACKPORT: guard shared-cache rehash (see qualifiedNameCacheLock())
 #endif
     m_cache.remove(&impl);
 }

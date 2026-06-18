@@ -295,19 +295,17 @@ ImageDrawResult SVGImage::draw(GraphicsContext& context, const FloatRect& dstRec
     RefPtr view = frameView();
     ASSERT(view);
 
-    // 10.9 backport: when destination context is NOT a bitmap (i.e., it's an
-    // IOSurface-backed CALayer context), CGContextFillPath silently fails to
-    // produce visible pixels. Rasterize the SVG to a bitmap ImageBuffer first
-    // (where path-fill works), then drawImageBuffer the result. Restores
-    // <img src=".svg"> and CSS background-image:url(data:svg|file.svg).
-    // Use a static guard to prevent infinite recursion when a non-bitmap context
-    // wraps another non-bitmap context.
+    // MAVERICKS_BACKPORT: keystone band-aid #56 (CALayer/IOSurface compositing broken). When the
+    // destination context is NOT a bitmap (i.e. an IOSurface-backed CALayer context), CGContextFillPath
+    // silently produces no visible pixels on 10.9. Rasterize the SVG to a bitmap ImageBuffer first
+    // (where path-fill works), then drawImageBuffer the result. Restores <img src=".svg"> and CSS
+    // background-image:url(data:svg|file.svg). The thread_local depth guard prevents infinite recursion
+    // when a non-bitmap context wraps another non-bitmap context.
     static thread_local int s_recursionDepth = 0;
     if (s_recursionDepth == 0) {
-        // 10.9 backport: detect non-bitmap (IOSurface-backed) context via
-        // renderingMode(). Don't call CGBitmapContextGetData — on a non-bitmap
-        // context that prints a "serious error" warning to syslog every time,
-        // and we call this once per <img src=".svg"> per frame.
+        // MAVERICKS_BACKPORT: keystone #56 — detect the non-bitmap (IOSurface-backed) context via
+        // renderingMode() instead of CGBitmapContextGetData (the latter prints a "serious error" to
+        // syslog for every non-bitmap context, called once per <img src=".svg"> per frame).
         if (context.renderingMode() == RenderingMode::Accelerated) {
             FloatSize bufferSize = enclosingIntRect(dstRect).size();
             if (bufferSize.width() > 0 && bufferSize.height() > 0
@@ -372,9 +370,7 @@ ImageDrawResult SVGImage::draw(GraphicsContext& context, const FloatRect& dstRec
     LocalDefaultSystemAppearance localAppearance(view->useDarkAppearance());
 #endif
 
-    auto clipBB = context.clipBounds();
-    auto paintRect = intersection(clipBB, enclosingIntRect(srcRect));
-    view->paint(context, paintRect);
+    view->paint(context, intersection(context.clipBounds(), enclosingIntRect(srcRect)));
 
     if (compositingRequiresTransparencyLayer)
         context.endTransparencyLayer();
@@ -555,16 +551,16 @@ EncodedDataStatus SVGImage::dataChanged(bool allDataReceived)
         RefPtr activeDocumentLoader = loader->activeDocumentLoader();
         ASSERT(activeDocumentLoader); // DocumentLoader should have been created by frame->init().
         activeDocumentLoader->writer().setMIMEType("image/svg+xml"_s);
+        // MAVERICKS_BACKPORT: keystone #56 / behavior fix — force the encoding (avoids the 10.9 libxml2
+        // encoding-detection failure described below).
         activeDocumentLoader->writer().setEncoding("UTF-8"_s, DocumentWriter::IsEncodingUserChosen::Yes);
         activeDocumentLoader->writer().begin(URL()); // create the empty document
-        // 10.9 backport: feed the SVG content as a single concatenated buffer,
-        // optionally prefixed with an explicit `<?xml encoding="UTF-8"?>` decl
-        // if the source doesn't already have one. libxml2's incremental
-        // chunked parsing on 10.9 falls into a crashing path (xmlCurrentChar
-        // → xmlErrEncodingInt → __xmlRaiseError +1294). Single-buffer feed
-        // avoids the chunked path, and the explicit decl avoids the encoding
-        // detection failure. A duplicate decl would crash xmlParsePI, so we
-        // skip the prefix when one is already present.
+        // MAVERICKS_BACKPORT: keystone #56 / behavior fix — feed the SVG content as a single concatenated
+        // buffer, optionally prefixed with an explicit `<?xml encoding="UTF-8"?>` decl if the source lacks
+        // one. libxml2's incremental chunked parsing on 10.9 falls into a crashing path (xmlCurrentChar →
+        // xmlErrEncodingInt → __xmlRaiseError +1294). The single-buffer feed avoids the chunked path and
+        // the explicit decl avoids the encoding-detection failure; a duplicate decl would crash xmlParsePI,
+        // so the prefix is skipped when one is already present.
         Vector<uint8_t> combined;
         bool hasXmlDecl = false;
         if (data() && data()->size() >= 5) {

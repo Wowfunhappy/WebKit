@@ -635,9 +635,8 @@ void HTMLPlugInElement::willRecalcStyle(OptionSet<Style::Change> change)
 
     // FIXME: There shoudn't be need to force render tree reconstruction here.
     // It is only done because loading and load event dispatching is tied to render tree construction.
-    if (!useFallbackContent() && needsWidgetUpdate() && renderer() && !isImageType()) {
+    if (!useFallbackContent() && needsWidgetUpdate() && renderer() && !isImageType())
         invalidateStyleAndRenderersForSubtree();
-    }
 }
 
 void HTMLPlugInElement::didRecalcStyle(OptionSet<Style::Change> styleChange)

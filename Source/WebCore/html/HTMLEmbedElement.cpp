@@ -125,7 +125,8 @@ void HTMLEmbedElement::attributeChanged(const QualifiedName& name, const AtomStr
         break;
     }
 
-    // Reconstruct renderers (which reloads the plug-in widget) only when an attribute that
+    // MAVERICKS_BACKPORT: behavior fix (#38 Web Clips). Reconstruct renderers (which reloads
+    // the plug-in widget) only when an attribute that
     // determines *which* plug-in to load actually changes value. Doing this unconditionally
     // -- for presentation attributes like style/width/height -- is catastrophic for Safari
     // Web Clips: Dashboard re-stamps the widget's <embed> with an unchanged
@@ -211,8 +212,7 @@ bool HTMLEmbedElement::rendererIsNeeded(const RenderStyle& style)
         }
     }
 
-    bool needed = HTMLPlugInElement::rendererIsNeeded(style);
-    return needed;
+    return HTMLPlugInElement::rendererIsNeeded(style);
 }
 
 bool HTMLEmbedElement::isURLAttribute(const Attribute& attribute) const

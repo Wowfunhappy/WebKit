@@ -37,8 +37,9 @@ PRIVATE_DIR=/System/Library/PrivateFrameworks
 # which the sandbox grants read to (the #18 reason these can't live in /usr/local: sandboxd
 # "deny file-read-data /usr/local/lib/webkit-private/..."); we reference them by ABSOLUTE
 # in-bundle path (never @rpath) so they can't shadow the system libc++ via DYLD_FALLBACK.
-# libc++/libc++abi go in the base framework (JavaScriptCore — every WebKit framework links
-# the C++ runtime); libcg_polyfill in WebCore (its only consumers are WebCore/WebKit/WebKit2).
+# libc++/libc++abi/libunwind go in the base framework (JavaScriptCore — every WebKit framework
+# links the C++ runtime, and clang's libc++abi unwinds via clang's own libunwind); libcg_polyfill
+# in WebCore (its only consumers are WebCore/WebKit/WebKit2).
 PRIVLIBCXX=/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks
 PRIVLIB=/System/Library/PrivateFrameworks/WebCore.framework/Versions/A/Frameworks
 OLD_PRIVRT=/System/Library/WebKitPrivateRuntime   # pre-#68 standalone location; removed at the end
@@ -77,6 +78,7 @@ absolute_for_rpath_dep() {
         @rpath/WebKit.framework/*)         id_path WebKit2;;
         @rpath/libc++.1.dylib)             echo "$PRIVLIBCXX/libc++.1.dylib";;
         @rpath/libc++abi.1.dylib)          echo "$PRIVLIBCXX/libc++abi.1.dylib";;
+        @rpath/libunwind.1.dylib)          echo "$PRIVLIBCXX/libunwind.1.dylib";;
         *) echo "";;
     esac
 }
@@ -301,14 +303,18 @@ install_nested_i386_webcore
 # install_framework via id_path/rewrite_*); we just place the files + fix their own ids.
 echo "### Deploying private C++ runtime into JavaScriptCore.framework ($PRIVLIBCXX)"
 mkdir -p "$PRIVLIBCXX"
-for lib in libc++.1.dylib libc++abi.1.dylib; do
+# The clang-22 libc++/libc++abi unwind via clang's own libunwind.1.dylib (referenced @rpath), so it
+# is deployed here too — without it the frameworks fail to load (unmapped @rpath/libunwind.1.dylib).
+for lib in libc++.1.dylib libc++abi.1.dylib libunwind.1.dylib; do
     cp -f "$TC/lib/$lib" "$PRIVLIBCXX/$lib"
     "$INT" -id "$PRIVLIBCXX/$lib" "$PRIVLIBCXX/$lib"
 done
-# libc++ loads libc++abi via @rpath (and libc++abi has a self-referential @rpath load too);
-# pin both absolute so dyld resolves them in processes with no rpath set.
+# libc++ loads libc++abi via @rpath (and libc++abi has a self-referential @rpath load too); both also
+# load @rpath/libunwind.1.dylib. Pin all absolute so dyld resolves them in processes with no rpath set.
 "$INT" -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$PRIVLIBCXX/libc++.1.dylib" 2>/dev/null || true
 "$INT" -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$PRIVLIBCXX/libc++abi.1.dylib" 2>/dev/null || true
+"$INT" -change @rpath/libunwind.1.dylib "$PRIVLIBCXX/libunwind.1.dylib" "$PRIVLIBCXX/libc++.1.dylib" 2>/dev/null || true
+"$INT" -change @rpath/libunwind.1.dylib "$PRIVLIBCXX/libunwind.1.dylib" "$PRIVLIBCXX/libc++abi.1.dylib" 2>/dev/null || true
 echo "### Deploying CG polyfill into WebCore.framework ($PRIVLIB)"
 mkdir -p "$PRIVLIB"
 if [ -f "$HERE/prebuilt/libcg_polyfill.dylib" ]; then

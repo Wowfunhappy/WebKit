@@ -97,19 +97,18 @@ void PerformanceMonitor::deref() const
 
 void PerformanceMonitor::didStartProvisionalLoad()
 {
-    // 10.9 backport WORKAROUND (not a root-cause fix): the global timer heap
-    // gets corrupted on this build (memory corruption from an unidentified
-    // source — see Timer.cpp). Calling .stop() here walks the heap and crashes.
-    // Skipping the resets means timers will fire later as no-ops since
-    // hasTimer() is checked.
+    // MAVERICKS_BACKPORT: keystone band-aid #53 (timer-heap corruption) — not a root-cause fix.
+    // The global timer heap gets corrupted on this build (memory corruption from an
+    // unidentified source — see Timer.cpp). Calling .stop() here walks the heap and crashes.
+    // Skipping the resets means timers will fire later as no-ops since hasTimer() is checked.
     m_postLoadCPUTime = std::nullopt;
 }
 
 void PerformanceMonitor::didFinishLoad()
 {
-    // 10.9 backport WORKAROUND: startOneShot triggers TimerBase::heapInsert which
-    // crashes on the corrupted timer heap (see Timer.cpp). Skip the post-load
-    // measurements entirely; they're optional telemetry.
+    // MAVERICKS_BACKPORT: keystone band-aid #53 (timer-heap corruption) — startOneShot triggers
+    // TimerBase::heapInsert which crashes on the corrupted timer heap (see Timer.cpp). Skip the
+    // post-load measurements entirely; they're optional telemetry.
     return;
 }
 

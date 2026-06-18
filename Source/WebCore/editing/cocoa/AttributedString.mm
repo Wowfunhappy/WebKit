@@ -366,7 +366,7 @@ static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, I
         });
     }, [] (const TextAttachmentMissingImage& value) -> RetainPtr<id> {
         UNUSED_PARAM(value);
-        // 10.9 backport: -[NSTextAttachment initWithData:ofType:] and the .image property are both 10.11+
+        // MAVERICKS_BACKPORT: runtime-absent selector #76 — -[NSTextAttachment initWithData:ofType:] and the .image property are both 10.11+
         // (absent, not polyfilled). On 10.9 use the always-present designated initializer
         // (initWithFileWrapper:nil) and display the missing-image via an NSTextAttachmentCell.
         RetainPtr<NSTextAttachment> attachment;
@@ -390,7 +390,7 @@ static RetainPtr<id> toNSObject(const AttributedString::AttributeValue& value, I
             [fileWrapper setPreferredFilename:RetainPtr { filenameByFixingIllegalCharacters(value.preferredFilename.createNSString().get()) }.get()];
 
         auto textAttachment = adoptNS([[PlatformNSTextAttachment alloc] initWithFileWrapper:fileWrapper.get()]);
-        // 10.9 backport: -[NSTextAttachment setAccessibilityLabel:] is 10.10+; guard the setter (the read
+        // MAVERICKS_BACKPORT: runtime-absent selector #76 — -[NSTextAttachment setAccessibilityLabel:] is 10.10+; guard the setter (the read
         // path leaves accessibilityLabel null on 10.9, but stay robust if a label arrives over IPC).
         if (!value.accessibilityLabel.isNull() && [textAttachment.get() respondsToSelector:@selector(setAccessibilityLabel:)])
             ((NSTextAttachment*)textAttachment.get()).accessibilityLabel = value.accessibilityLabel.createNSString().get();
@@ -743,7 +743,7 @@ static std::optional<AttributedString::AttributeValue> extractValue(id value, Ta
     }
 #endif
     if (auto* attachment = dynamic_objc_cast<NSTextAttachment>(value)) {
-        // 10.9 backport: -[NSTextAttachment image] is 10.11+; on 10.9 the image is held by the
+        // MAVERICKS_BACKPORT: runtime-absent selector #76 — -[NSTextAttachment image] is 10.11+; on 10.9 the image is held by the
         // attachment's NSTextAttachmentCell instead (that is how the write path stores it here, see
         // NodeHTMLConverter._addAttachmentForElement). Read it via the cell so the missing-image
         // sentinel check still works. No behavior change on 10.11+.
@@ -755,7 +755,7 @@ static std::optional<AttributedString::AttributeValue> extractValue(id value, Ta
         if (isWebCoreTextAttachmentMissingPlatformImage(attachmentImage.get()))
             return { { TextAttachmentMissingImage() } };
         TextAttachmentFileWrapper textAttachment;
-        // 10.9 backport: -[NSTextAttachment accessibilityLabel] is 10.10+ (NSAccessibility property);
+        // MAVERICKS_BACKPORT: runtime-absent selector #76 — -[NSTextAttachment accessibilityLabel] is 10.10+ (NSAccessibility property);
         // absent on 10.9, so skip (a11y labeling only; no effect on the formatting).
         if ([value respondsToSelector:@selector(accessibilityLabel)]) {
             if (auto accessibilityLabel = retainPtr([value accessibilityLabel]))

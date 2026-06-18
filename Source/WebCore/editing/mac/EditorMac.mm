@@ -28,6 +28,8 @@
 
 #if PLATFORM(MAC)
 
+// MAVERICKS_BACKPORT: runtime-absent API #76 — UTTypeWebArchive.identifier is 11.0+; this header
+// provides utTypeWebArchiveId() routed to the legacy kUTType helper used below.
 #import "../platform/mac/UTTypeIdentifiers.h"
 #import "Blob.h"
 #import "CSSPrimitiveValueMappings.h"

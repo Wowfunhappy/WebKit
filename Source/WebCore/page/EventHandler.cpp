@@ -3152,13 +3152,12 @@ bool EventHandler::isElementAnAncestorOfLastElementUnderMouse(Element* element) 
 
 void EventHandler::scheduleMouseEventTargetUpdateAfterLayout()
 {
-    // 10.9 backport: skip these timers entirely. They fire repeatedly during
-    // layout updates on heavy pages (e.g. github xnu). Each startOneShot calls
-    // TimerBase::heapInsert which crashes EXC_BREAKPOINT at offset +1396 when
-    // the thread-global timer heap is corrupted by JSC GC overwriting Vector
-    // storage during heavy navigations. These timers only refine CSS hover-event
-    // precision around layout changes — skipping costs hover accuracy but does
-    // not affect rendering correctness.
+    // MAVERICKS_BACKPORT: keystone band-aid #53 (timer-heap corruption) — skip these timers entirely.
+    // They fire repeatedly during layout updates on heavy pages (e.g. github xnu). Each startOneShot
+    // calls TimerBase::heapInsert which crashes EXC_BREAKPOINT at offset +1396 when the thread-global
+    // timer heap is corrupted by JSC GC overwriting Vector storage during heavy navigations. These
+    // timers only refine CSS hover-event precision around layout changes — skipping costs hover
+    // accuracy but does not affect rendering correctness.
     return;
     // If the element underneath the mouse is changing more frequently than every 200ms for
     // a period of time, we want to fire boundary events both during the period of updates,

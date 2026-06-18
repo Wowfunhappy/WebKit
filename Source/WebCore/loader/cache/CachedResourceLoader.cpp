@@ -1704,34 +1704,24 @@ void CachedResourceLoader::clearDocumentLoader()
 
 void CachedResourceLoader::loadDone(LoadCompletionType type, bool shouldPerformPostLoadActions)
 {
-    // 10.9 perf: removed debug fopen logging
     RefPtr protectedDocumentLoader { m_documentLoader.get() };
     RefPtr protectedDocument { m_document.get() };
 
-    // 10.9 perf: removed debug fopen logging
-
     ASSERT(shouldPerformPostLoadActions || type == LoadCompletionType::Cancel);
 
-    if (RefPtr frame = this->frame()) {
-        // 10.9 perf: removed debug fopen logging
+    if (RefPtr frame = this->frame())
         frame->loader().loadDone(type);
-    }
 
-    if (shouldPerformPostLoadActions) {
-        // 10.9 perf: removed debug fopen logging
+    if (shouldPerformPostLoadActions)
         performPostLoadActions();
-    }
 
-    // 10.9 perf: removed debug fopen logging
-    // 10.9 backport: skip the GC timer entirely. The thread timer heap is
-    // corrupted by JSC GC overwriting Vector storage during heavy navigations,
-    // and TimerBase::heapInsert crashes in __sift_up dereferencing entries
-    // with addresses in the JIT region (e.g. 0x1600000006). The GC pass is
-    // just an optimization to evict idle CachedResources; skipping it leaks
-    // memory but does not affect correctness.
+    // MAVERICKS_BACKPORT: keystone #53 (timer-heap corruption avoidance). Skip the GC timer
+    // entirely. The thread timer heap is corrupted by JSC GC overwriting Vector storage during
+    // heavy navigations, and TimerBase::heapInsert crashes in __sift_up dereferencing entries
+    // with addresses in the JIT region (e.g. 0x1600000006). The GC pass is just an optimization
+    // to evict idle CachedResources; skipping it leaks memory but does not affect correctness.
     // if (!m_garbageCollectDocumentResourcesTimer.isActive())
     //     m_garbageCollectDocumentResourcesTimer.startOneShot(0_s);
-    // 10.9 perf: removed debug fopen logging
 }
 
 // Garbage collecting m_documentResources is a workaround for the

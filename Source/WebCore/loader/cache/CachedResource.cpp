@@ -552,7 +552,8 @@ bool CachedResource::addClientToSet(CachedResourceClient& client)
         else
             m_preloadResult = PreloadResult::PreloadReferenced;
     }
-    // 10.9 backport: skip MemoryCache touch from worker thread (see removeClient).
+    // MAVERICKS_BACKPORT: keystone band-aid (#54 broken main-thread identity). Skip MemoryCache touch from
+    // worker thread (see removeClient) — the worker's CachedResource was never in the main MemoryCache.
     if (allowsCaching() && !hasClients() && inCache() && isMainThread())
         MemoryCache::singleton().addToLiveResourcesSize(*this);
 
@@ -593,12 +594,11 @@ void CachedResource::removeClient(CachedResourceClient& client)
     if (hasClients())
         return;
 
-    // 10.9 backport: when a worker thread's ThreadGlobalData->FontCache tears
-    // down, ~CSSFontFace → CachedResource::removeClient runs on the worker
-    // thread. Touching MemoryCache::singleton from a worker races with main
-    // thread access (HashMap not thread-safe). Skip the MemoryCache updates
-    // entirely on non-main threads — the worker's CachedResource was never
-    // in the main MemoryCache anyway, so the updates are no-ops.
+    // MAVERICKS_BACKPORT: keystone band-aid (#54 broken main-thread identity). When a worker thread's
+    // ThreadGlobalData->FontCache tears down, ~CSSFontFace → CachedResource::removeClient runs on the
+    // worker thread. Touching MemoryCache::singleton from a worker races with main thread access
+    // (HashMap not thread-safe). Skip the MemoryCache updates entirely on non-main threads — the
+    // worker's CachedResource was never in the main MemoryCache anyway, so the updates are no-ops.
     if (!isMainThread())
         return;
 

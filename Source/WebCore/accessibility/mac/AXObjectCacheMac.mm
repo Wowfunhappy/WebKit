@@ -1,9 +1,7 @@
-/*
- * macOS 10.9 backport: AXObjectCacheMac.mm reduced to no-op stubs.
- * The original file uses many 10.10+/10.13+ accessibility APIs and the
- * isolated tree feature, none of which are available or needed for our
- * "browse the modern web" goal.
- */
+// MAVERICKS_BACKPORT: keystone band-aid — ENABLE_ACCESSIBILITY_ISOLATED_TREE flipped to 0 (in
+// PlatformEnableCocoa.h). The real 1111-line AXObjectCacheMac uses the isolated-tree / live-region /
+// _AXSIsolatedTreeMode soft-link path (post-10.9 AX threading/SPI), compiled out by that flag; reduced
+// here to no-op platform stubs. Feature-disable, not an SDK gap.
 
 #include "config.h"
 

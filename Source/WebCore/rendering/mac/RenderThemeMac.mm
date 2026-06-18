@@ -76,7 +76,9 @@
 #import <Carbon/Carbon.h>
 #import <Cocoa/Cocoa.h>
 #import <CoreServices/CoreServices.h>
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTTypeFolder) is macOS 11+ and absent on 10.9;
+// utTypeFolderId() returns the legacy CoreServices kUTTypeFolder identifier used on 10.9.
+#import "../../platform/mac/UTTypeIdentifiers.h"
 #import <math.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/mac/CoreUISPI.h>
@@ -111,8 +113,8 @@
 
     [[NSNotificationCenter defaultCenter] addObserver:self
         selector:@selector(systemColorsDidChange:) name:systemColorsChangedNotification.get() object:nil];
-    // 10.9 backport: NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification is 10.10+; skip the
-    // accessibility-display-options observer (those derived colors aren't available on 10.9 anyway).
+    // MAVERICKS_BACKPORT: runtime-absent symbol — NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+    // is 10.10+; skip the accessibility-display-options observer (those derived colors aren't available on 10.9).
 
     return self;
 }
@@ -290,6 +292,8 @@ int RenderThemeMac::baselinePosition(const RenderBox& renderer) const
 
 static bool supportsLargeFormControls()
 {
+    // MAVERICKS_BACKPORT: runtime-absent selector — +[NSAppearance currentDrawingAppearance] is 10.14+
+    // (throws on 10.9); respondsToSelector-guard it (#77).
     static bool hasSupport = ([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] && [[NSAppearance currentDrawingAppearance] _usesMetricsAppearance]);
     return hasSupport;
 }
@@ -299,8 +303,8 @@ bool RenderThemeMac::supportsLargeFormControls() const
     return WebCore::supportsLargeFormControls();
 }
 
-// 10.9 backport: the NSColor selection/highlight semantic colors route through AppKit paths that
-// return BLACK on 10.9 (selecting text in a field, or in a list box, painted the whole control black).
+// MAVERICKS_BACKPORT: behavior fix — the NSColor selection/highlight semantic colors route through AppKit
+// paths that return BLACK on 10.9 (selecting text in a field or list box painted the whole control black).
 // 10.9 is always light, non-system-appearance — hard-code the standard OS X 10.9 selection colors.
 Color RenderThemeMac::platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
 {
@@ -342,11 +346,14 @@ Color RenderThemeMac::platformInactiveSelectionForegroundColor(OptionSet<StyleCo
 {
     LocalDefaultSystemAppearance localAppearance(options.contains(StyleColorOptions::UseDarkAppearance));
     if (localAppearance.usingDarkAppearance())
+        // MAVERICKS_BACKPORT: runtime-absent selector — +[NSColor unemphasizedSelectedTextColor] is 10.14+;
+        // respondsToSelector-guard with a textColor fallback.
         return colorFromCocoaColor(([NSColor respondsToSelector:@selector(unemphasizedSelectedTextColor)] ? [NSColor unemphasizedSelectedTextColor] : [NSColor textColor]));
     return { };
 }
 
-// 10.9 backport: hard-code the list-box selection colors (the NSColor paths return black on 10.9).
+// MAVERICKS_BACKPORT: behavior fix — hard-code the list-box selection colors (the NSColor paths return
+// black on 10.9, same as the text-selection colors above).
 Color RenderThemeMac::platformActiveListBoxSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
 {
     return SRGBA<uint8_t> { 56, 117, 215, 255 };
@@ -389,7 +396,8 @@ Color RenderThemeMac::platformFocusRingColor(OptionSet<StyleColorOptions> option
 
 Color RenderThemeMac::platformTextSearchHighlightColor(OptionSet<StyleColorOptions>) const
 {
-    // 10.9 backport: -[NSColor findHighlightColor] returns black on 10.9; use the standard yellow.
+    // MAVERICKS_BACKPORT: behavior fix — -[NSColor findHighlightColor] returns black on 10.9; use the
+    // standard yellow.
     return SRGBA<uint8_t> { 255, 237, 102, 255 };
 }
 
@@ -429,6 +437,8 @@ static Color activeButtonTextColor()
     [cell setHighlighted:YES];
 
     NSColor *activeButtonTextColor;
+    // MAVERICKS_BACKPORT: runtime-absent enum — NSBackgroundStyleEmphasized is 10.14+; use the classic
+    // 10.9 equivalent NSBackgroundStyleDark.
     if ([cell interiorBackgroundStyle] == NSBackgroundStyleDark)
         activeButtonTextColor = [NSColor alternateSelectedControlTextColor];
     else
@@ -445,6 +455,8 @@ static SRGBA<uint8_t> menuBackgroundColor()
         bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:4 bitsPerPixel:32]);
 
     {
+        // MAVERICKS_BACKPORT: runtime-absent property — NSGraphicsContext.CGContext is 10.10+; use the
+        // classic -graphicsPort (cast to CGContextRef) on 10.9.
         LocalCurrentCGContext localContext { static_cast<CGContextRef>([NSGraphicsContext graphicsContextWithBitmapImageRep:offscreenRep.get()].graphicsPort) };
 
         [[NSColor clearColor] set];
@@ -475,7 +487,7 @@ Color RenderThemeMac::systemColor(CSSValueID cssValueID, OptionSet<StyleColorOpt
         auto systemAppearanceColor = [useDarkAppearance] (Color& color, SEL selector) -> Color {
             if (!color.isValid()) {
                 LocalDefaultSystemAppearance localAppearance(useDarkAppearance);
-                // 10.9 backport: several NSColor system selectors used here (systemPurpleColor/systemRedColor/controlAccentColor) are 10.10+/10.14+ and absent on 10.9; invoking an absent selector throws unrecognized-selector. Guard it; if absent the color stays invalid and the caller's normal fallback applies.
+                // MAVERICKS_BACKPORT: runtime-absent selectors (#75/#77) — several NSColor system selectors used here (systemPurpleColor/systemRedColor/controlAccentColor) are 10.10+/10.14+ and absent on 10.9; invoking an absent selector throws unrecognized-selector. respondsToSelector-guard it; if absent the color stays invalid and the caller's normal fallback applies.
                 if ([NSColor respondsToSelector:selector]) {
                     RetainPtr systemColor = wtfObjCMsgSend<NSColor *>([NSColor class], selector);
                     color = semanticColorFromNSColor(systemColor.get());
@@ -670,7 +682,7 @@ Color RenderThemeMac::systemColor(CSSValueID cssValueID, OptionSet<StyleColorOpt
         };
 
         if (auto selector = selectCocoaColor()) {
-            // 10.9 backport: many mapped NSColor selectors (systemBlueColor/systemRedColor/secondaryLabelColor/placeholderTextColor/...) are 10.10+ and absent on 10.9; invoking an absent one throws unrecognized-selector (e.g. <video controls> uses CSS -apple-system-blue -> systemBlueColor). Guard it; if absent, fall through to the hardcoded/base fallbacks below.
+            // MAVERICKS_BACKPORT: runtime-absent selectors (#75/#77) — many mapped NSColor selectors (systemBlueColor/systemRedColor/secondaryLabelColor/placeholderTextColor/...) are 10.10+ and absent on 10.9; invoking an absent one throws unrecognized-selector (e.g. <video controls> uses CSS -apple-system-blue -> systemBlueColor). respondsToSelector-guard it; if absent, fall through to the hardcoded/base fallbacks below.
             if ([NSColor respondsToSelector:selector]) {
                 if (RetainPtr color = wtfObjCMsgSend<NSColor *>([NSColor class], selector))
                     return semanticColorFromNSColor(color.get());
@@ -713,11 +725,12 @@ Color RenderThemeMac::systemColor(CSSValueID cssValueID, OptionSet<StyleColorOpt
             // Same color in light and dark appearances.
             return { SRGBA<uint8_t> { 0, 122, 255 }, Color::Flags::Semantic };
 
-        // 10.9 backport: the named NSColor system*/label selectors mapped in selectCocoaColor are 10.10+ and
-        // absent here, so the respondsToSelector guard above skips them and they'd otherwise fall through to an
-        // invalid (transparent) color (the cross-platform base RenderTheme::systemColor has no AppleSystem* cases).
-        // Return the stable Apple system-palette constants (fixed values; no user-preference exposure) so e.g.
-        // <video controls> (-apple-system-blue) and -apple-system-label text render correctly instead of vanishing.
+        // MAVERICKS_BACKPORT: runtime-absent selectors (#75/#77) — the named NSColor system*/label selectors
+        // mapped in selectCocoaColor are 10.10+ and absent here, so the respondsToSelector guard above skips
+        // them and they'd otherwise fall through to an invalid (transparent) color (the cross-platform base
+        // RenderTheme::systemColor has no AppleSystem* cases). Return the stable Apple system-palette
+        // constants (fixed values; no user-preference exposure) so e.g. <video controls> (-apple-system-blue)
+        // and -apple-system-label text render correctly instead of vanishing.
         case CSSValueAppleWirelessPlaybackTargetActive:
         case CSSValueAppleSystemBlue:
             return { SRGBA<uint8_t> { 0, 122, 255 }, Color::Flags::Semantic };
@@ -764,12 +777,16 @@ Color RenderThemeMac::systemColor(CSSValueID cssValueID, OptionSet<StyleColorOpt
             return { SRGBA<uint8_t> { 128, 188, 254, 153 }, Color::Flags::Semantic };
 
         case CSSValueAppleSystemEvenAlternatingContentBackground: {
+            // MAVERICKS_BACKPORT: runtime-absent selector — +[NSColor alternatingContentBackgroundColors] is
+            // 10.14+; fall back to the classic +controlAlternatingRowBackgroundColors on 10.9.
             NSArray<NSColor *> *alternateColors = ([NSColor respondsToSelector:@selector(alternatingContentBackgroundColors)] ? [NSColor alternatingContentBackgroundColors] : [NSColor controlAlternatingRowBackgroundColors]);
             ASSERT(alternateColors.count >= 2);
             return semanticColorFromNSColor(retainPtr(alternateColors[0]).get());
         }
 
         case CSSValueAppleSystemOddAlternatingContentBackground: {
+            // MAVERICKS_BACKPORT: runtime-absent selector — +[NSColor alternatingContentBackgroundColors] is
+            // 10.14+; fall back to the classic +controlAlternatingRowBackgroundColors on 10.9.
             NSArray<NSColor *> *alternateColors = ([NSColor respondsToSelector:@selector(alternatingContentBackgroundColors)] ? [NSColor alternatingContentBackgroundColors] : [NSColor controlAlternatingRowBackgroundColors]);
             ASSERT(alternateColors.count >= 2);
             return semanticColorFromNSColor(retainPtr(alternateColors[1]).get());
@@ -1460,6 +1477,9 @@ void RenderThemeMac::adjustMenuListButtonStyle(RenderStyle& style, const Element
 #else
     UNUSED_PARAM(element);
 #endif
+    // MAVERICKS_BACKPORT: behavior — compute menulist-button fontScale without the usedZoomForLength()
+    // divisor (kept-uncertain; usedZoomForLength() exists in-tree so this is not an API gap. .mm is
+    // comment-only here, so logic is left as-is per audit rule 5).
     float fontScale = style.computedFontSize() / baseFontSize;
 
     style.resetPadding();
@@ -1822,11 +1842,11 @@ static RefPtr<Icon> iconForAttachment(const String& fileName, const String& atta
 
     if (!attachmentType.isEmpty() && !equalLettersIgnoringASCIICase(attachmentType, "public.data"_s)) {
         if (equalLettersIgnoringASCIICase(attachmentType, "public.directory"_s) || equalLettersIgnoringASCIICase(attachmentType, "multipart/x-folder"_s) || equalLettersIgnoringASCIICase(attachmentType, "application/vnd.apple.folder"_s)) {
-            if (auto icon = Icon::createIconForUTI(UTTypeFolder.identifier)) {
-                LOG_ATTACHMENT("-> Got icon for UTTypeFolder");
+            if (auto icon = Icon::createIconForUTI(utTypeFolderId())) {
+                LOG_ATTACHMENT("-> Got icon for folder UTI");
                 return icon;
             }
-            LOG_ATTACHMENT("-> No icon for UTTypeFolder! Will fallback to filename or title...");
+            LOG_ATTACHMENT("-> No icon for folder UTI! Will fallback to filename or title...");
         } else {
             String type;
             if (isDeclaredUTI(attachmentType))
@@ -1960,6 +1980,9 @@ static void paintAttachmentTitleBackground(const RenderAttachment& attachment, G
         return line.backgroundRect;
     });
 
+    // MAVERICKS_BACKPORT: runtime-absent selectors — +[NSColor selectedContentBackgroundColor] /
+    // unemphasizedSelectedContentBackgroundColor are 10.14+; respondsToSelector-guard with the classic
+    // alternateSelectedControlColor / secondarySelectedControlColor on 10.9.
     auto backgroundColor = colorFromCocoaColor(protect(attachment.frame().selection())->isFocusedAndActive() ? ([NSColor respondsToSelector:@selector(selectedContentBackgroundColor)] ? [NSColor selectedContentBackgroundColor] : [NSColor alternateSelectedControlColor]) : ([NSColor respondsToSelector:@selector(unemphasizedSelectedContentBackgroundColor)] ? [NSColor unemphasizedSelectedContentBackgroundColor] : [NSColor secondarySelectedControlColor]));
 
     Style::ColorResolver colorResolver { attachment.style() };

@@ -80,43 +80,12 @@ void CustomElementRegistry::didAssociateWithDocument(Document& document)
 // https://dom.spec.whatwg.org/#concept-shadow-including-tree-order
 static void enqueueUpgradeInShadowIncludingTreeOrder(ContainerNode& node, JSCustomElementInterface& elementInterface, CustomElementRegistry& registry)
 {
-    int matched = 0, candidateNotMe = 0, nonCandidateMatches = 0, total = 0;
-    bool isReactPartial = elementInterface.name().localName() == "react-partial"_s;
     for (RefPtr element = ElementTraversal::firstWithin(node); element; element = ElementTraversal::next(*element)) {
-        ++total;
-        bool nameMatch = element->tagQName().matches(elementInterface.name());
-        bool isCandidate = element->isCustomElementUpgradeCandidate();
-        bool registryMatch = CustomElementRegistry::registryForElement(*element) == &registry;
-        if (isReactPartial) {
-            FILE* _f = ((FILE*)0);
-            if (_f) {
-                auto eltName = element->tagQName().localName().string().utf8();
-                auto interfaceName = elementInterface.name().localName().string().utf8();
-                fprintf(_f, "[walk-react-partial PID %d] element name=<%s> interface=<%s> nameMatch=%d isCandidate=%d registryMatch=%d\n",
-                    getpid(), eltName.data(), interfaceName.data(), nameMatch, isCandidate, registryMatch);
-                fclose(_f);
-            }
-        }
-        if (nameMatch && isCandidate && registryMatch) {
+        if (element->isCustomElementUpgradeCandidate() && CustomElementRegistry::registryForElement(*element) == &registry && element->tagQName().matches(elementInterface.name()))
             element->enqueueToUpgrade(elementInterface);
-            ++matched;
-        } else if (nameMatch) {
-            if (isCandidate)
-                ++candidateNotMe;
-            else
-                ++nonCandidateMatches;
-        }
         if (RefPtr shadowRoot = element->shadowRoot()) {
             if (shadowRoot->mode() != ShadowRootMode::UserAgent)
                 enqueueUpgradeInShadowIncludingTreeOrder(*shadowRoot, elementInterface, registry);
-        }
-    }
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) {
-            auto n = elementInterface.name().localName().string().utf8();
-            fprintf(_f, "[CE walk PID %d] for=%s total=%d matched=%d candidateButRegistryMismatch=%d nonCandidateNameMatches=%d\n", getpid(), n.data(), total, matched, candidateNotMe, nonCandidateMatches);
-            fclose(_f);
         }
     }
 }
@@ -126,14 +95,6 @@ RefPtr<DeferredPromise> CustomElementRegistry::addElementDefinition(Ref<JSCustom
     static MainThreadNeverDestroyed<const AtomString> extendsLi("extends-li"_s);
 
     AtomString localName = elementInterface->name().localName();
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) {
-            auto n = localName.string().utf8();
-            fprintf(_f, "[CE define PID %d] name=%s\n", getpid(), n.data());
-            fclose(_f);
-        }
-    }
     ASSERT(!m_nameMap.contains(localName));
     m_nameMap.add(localName, elementInterface.copyRef());
     {

@@ -254,8 +254,6 @@ void HTMLConstructionSite::executeQueuedTasks()
     // re-enters the parser.
     TaskQueue queue = WTF::move(m_taskQueue);
 
-    { static int s_total = 0; s_total += queue.size(); FILE *_f=((FILE*)0); if(_f){fprintf(_f,"[PID %d] HTMLConstructionSite::executeQueuedTasks queue.size=%zu cumulative=%d\n", getpid(), queue.size(), s_total); fclose(_f);} }
-
     for (auto& task : queue)
         executeTask(task);
 
@@ -525,7 +523,6 @@ void HTMLConstructionSite::insertHTMLBodyElement(AtomHTMLToken&& token)
 {
     ASSERT(!shouldFosterParent());
     auto body = createHTMLElement(token);
-    // 10.9 perf: removed debug fopen logging
     attachLater(protect(currentNode()), body.copyRef());
     m_openElements.pushHTMLBodyElement(HTMLStackItem(WTF::move(body), WTF::move(token)));
 }
@@ -853,26 +850,7 @@ std::tuple<RefPtr<HTMLElement>, RefPtr<JSCustomElementInterface>, RefPtr<CustomE
         }
         if (!element) {
             auto qualifiedName = qualifiedNameForHTMLTag(token);
-            auto valStatus = Document::validateCustomElementName(token.name());
-            {
-                FILE* _f = ((FILE*)0);
-                if (_f) {
-                    auto n = token.name().string().utf8();
-                    auto* docRegistry = ownerDocument->customElementRegistry();
-                    auto* tsRegistry = treeScope->customElementRegistry();
-                    fprintf(_f, "[parser createElt PID %d] tok=<%s> validate=%d hasInterface=%d hasRegistry=%d stackDepth=%u currentNode=<%s> nodeUsesNullReg=%d docHasReg=%d treeScopeHasReg=%d\n",
-                        getpid(), n.data(), (int)valStatus,
-                        registry && registry->findInterface(token.name()) ? 1 : 0,
-                        registry ? 1 : 0,
-                        (unsigned)m_openElements.stackDepth(),
-                        currentNode().nodeName().utf8().data(),
-                        currentNode().usesNullCustomElementRegistry() ? 1 : 0,
-                        docRegistry ? 1 : 0,
-                        tsRegistry ? 1 : 0);
-                    fclose(_f);
-                }
-            }
-            if (valStatus == CustomElementNameValidationStatus::Valid) {
+            if (Document::validateCustomElementName(token.name()) == CustomElementNameValidationStatus::Valid) {
                 element = HTMLMaybeFormAssociatedCustomElement::create(qualifiedName, ownerDocument);
                 element->setIsCustomElementUpgradeCandidate();
             } else

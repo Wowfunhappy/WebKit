@@ -87,8 +87,8 @@ void WheelEventDeltaFilterMac::updateCurrentVelocityFromEvent(const PlatformWhee
     NSPoint filteredDeltaResult { };
     NSPoint filteredVelocityResult { };
 
-    // 10.9 backport: _NSScrollingPredominantAxisFilter exists on 10.9 but does
-    // not respond to the 4-argument filterInputDelta:timestamp:outputDelta:velocity:
+    // MAVERICKS_BACKPORT: runtime-absent selector — _NSScrollingPredominantAxisFilter exists on 10.9
+    // but does not respond to the 4-argument filterInputDelta:timestamp:outputDelta:velocity:
     // selector — sending it crashes WebContent on every scroll wheel event.
     // Fall back to identity (no axis filtering, raw delta as velocity).
     static const SEL filterSel = @selector(filterInputDelta:timestamp:outputDelta:velocity:);
@@ -117,7 +117,7 @@ void WheelEventDeltaFilterMac::updateCurrentVelocityFromEvent(const PlatformWhee
 
 void WheelEventDeltaFilterMac::reset()
 {
-    // 10.9 backport: also guard reset — companion to the updateCurrentVelocityFromEvent guard above.
+    // MAVERICKS_BACKPORT: runtime-absent selector — also guard reset (companion to the updateCurrentVelocityFromEvent guard above).
     if (m_predominantAxisFilter && [m_predominantAxisFilter respondsToSelector:@selector(reset)])
         [m_predominantAxisFilter reset];
     m_currentFilteredVelocity = { };

@@ -37,15 +37,17 @@
 #import "PlatformPasteboard.h"
 #import "PlatformStrategies.h"
 #import "WebCoreNSURLExtras.h"
+#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTType* constants) is macOS 11+ and absent on
+// 10.9; on Mac the utType*Id() helpers return the legacy CoreServices kUTType* identifiers instead.
+#import "../mac/UTTypeIdentifiers.h"
+#else
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#endif
 #import <wtf/cocoa/NSURLExtras.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import <MobileCoreServices/MobileCoreServices.h>
-#endif
-
-#if PLATFORM(MAC)
-#import "UTTypeIdentifiers.h"
 #endif
 
 namespace WebCore {
@@ -274,6 +276,8 @@ bool DragData::containsCompatibleContent(DraggingPurpose purpose) const
         return containsColor();
 
 #if ENABLE(ATTACHMENT_ELEMENT)
+    // MAVERICKS_BACKPORT: DeprecatedGlobalSettings::attachmentElementEnabled() is declared only under
+    // ENABLE(ATTACHMENT_ELEMENT), which is off in this build; upstream calls it unguarded.
     if (purpose == DraggingPurpose::ForEditing && DeprecatedGlobalSettings::attachmentElementEnabled() && containsFiles())
         return true;
 #endif
@@ -283,32 +287,21 @@ bool DragData::containsCompatibleContent(DraggingPurpose purpose) const
     platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName, context.get());
     return types.contains(String(WebArchivePboardType))
         || types.contains(htmlPasteboardType())
-#if PLATFORM(MAC)
         || types.contains(String(utTypeWebArchiveId()))
+#if PLATFORM(MAC)
         || (!m_disallowFileAccess && types.contains(String(legacyFilenamesPasteboardTypeSingleton())))
         || (!m_disallowFileAccess && types.contains(String(legacyFilesPromisePasteboardTypeSingleton())))
-#else
-        || types.contains(String(UTTypeWebArchive.identifier))
 #endif
         || types.contains(tiffPasteboardType())
         || types.contains(pdfPasteboardType())
         || types.contains(urlPasteboardType())
         || types.contains(rtfdPasteboardType())
         || types.contains(rtfPasteboardType())
-#if PLATFORM(MAC)
         || types.contains(String(utTypeUTF8PlainTextId()))
-#else
-        || types.contains(String(UTTypeUTF8PlainText.identifier))
-#endif
         || types.contains(stringPasteboardType())
         || types.contains(colorPasteboardType())
-#if PLATFORM(MAC)
         || types.contains(String(utTypeJPEGId()))
         || types.contains(String(utTypePNGId()));
-#else
-        || types.contains(String(UTTypeJPEG.identifier))
-        || types.contains(String(UTTypePNG.identifier));
-#endif
 }
 
 bool DragData::containsPromise() const

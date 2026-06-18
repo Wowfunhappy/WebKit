@@ -253,16 +253,16 @@ void LegacyRenderSVGRoot::paintReplaced(PaintInfo& paintInfo, const LayoutPoint&
     if (paintInfo.phase != PaintPhase::EventRegion && paintInfo.context().paintingDisabled() && !paintInfo.context().detectingContentfulPaint())
         return;
 
-    // 10.9 backport: rasterize-to-bitmap then blit. Inline SVG (github octicons,
-    // HN Y logo + upvote arrows) reaches LegacyRenderSVGRoot::paintReplaced.
-    // CGContextFillPath silently fails on 10.9 IOSurface CALayer contexts, so
-    // SVG paths painted directly into the tile produce zero pixels. Rasterize
-    // into a bitmap ImageBuffer (where path-fill works), then drawImageBuffer
-    // back to the IOSurface destination. Gates on PaintPhase::Foreground only.
+    // MAVERICKS_BACKPORT: keystone band-aid #56 (CALayer/IOSurface compositing broken) — rasterize-to-
+    // bitmap then blit. Inline SVG (github octicons, HN Y logo + upvote arrows) reaches
+    // LegacyRenderSVGRoot::paintReplaced. CGContextFillPath silently fails on 10.9 IOSurface CALayer
+    // contexts, so SVG paths painted directly into the tile produce zero pixels. Rasterize into a bitmap
+    // ImageBuffer (where path-fill works), then drawImageBuffer back to the IOSurface destination. Gates
+    // on PaintPhase::Foreground only.
     static thread_local int s_legacySvgRasterizeDepth = 0;
     if (s_legacySvgRasterizeDepth == 0 && paintInfo.phase == PaintPhase::Foreground) {
-        // 10.9 backport: use renderingMode() instead of CGBitmapContextGetData
-        // to avoid the per-frame "serious error" syslog spam from CG.
+        // MAVERICKS_BACKPORT: keystone #56 — use renderingMode() instead of CGBitmapContextGetData to
+        // avoid the per-frame "serious error" syslog spam from CG.
         if (paintInfo.context().renderingMode() == RenderingMode::Accelerated) {
             LayoutRect overflowBox = visualOverflowRect();
             flipForWritingMode(overflowBox);

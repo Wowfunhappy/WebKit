@@ -178,17 +178,9 @@ ValueOrException ScriptController::evaluateInWorld(const ScriptSourceCode& sourc
     }
 
     InspectorInstrumentation::willEvaluateScript(protect(m_frame), sourceURL.string(), sourceCode.startLine(), sourceCode.startColumn());
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) { fprintf(_f, "[PID %d] eval url=%.200s len=%u\n", getpid(), sourceURL.string().utf8().data(), jsSourceCode.length()); fclose(_f); }
-    }
 
     NakedPtr<JSC::Exception> evaluationException;
     JSValue returnValue = JSExecState::profiledEvaluate(&globalObject, JSC::ProfilingReason::Other, jsSourceCode, &proxy, evaluationException);
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) { fprintf(_f, "[PID %d] eval done url=%.80s exc=%d\n", getpid(), sourceURL.string().utf8().data(), !!evaluationException); fclose(_f); }
-    }
 
     InspectorInstrumentation::didEvaluateScript(protect(m_frame));
 
@@ -834,14 +826,15 @@ void ScriptController::executeAsynchronousUserAgentScriptInWorld(DOMWrapperWorld
 
 bool ScriptController::canExecuteScripts(ReasonForCallingCanExecuteScripts reason, DOMWrapperWorld* world)
 {
-    // 10.9 backport: bail if our LocalFrame's WeakRef has been cleared (frame destroyed).
+    // MAVERICKS_BACKPORT: keystone #54-adjacent (broken main-thread identity under dispatch_main).
+    // Bail if our LocalFrame's WeakRef has been cleared (frame destroyed).
     // archlinux's Web Worker calls Node.appendChild on a script element after the parent
     // frame has torn down; m_frame->X then asserts in WeakRef<LocalFrame>::ptr().
     if (!m_frame.ptrAllowingHashTableEmptyValue())
         return false;
 
     if (reason == ReasonForCallingCanExecuteScripts::AboutToExecuteScript) {
-        // 10.9 backport: silently reject instead of RELEASE_ASSERT. theverge.com
+        // MAVERICKS_BACKPORT: keystone #54-adjacent. Silently reject instead of RELEASE_ASSERT. theverge.com
         // hits this during DocumentLoader::finishedLoading → parser flush → paused
         // tree builder runs synchronous scripts while a ScriptDisallowedScope is
         // active. Crashing the WebContent process is worse than skipping the script.

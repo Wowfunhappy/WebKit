@@ -1,48 +1,49 @@
-// 10.9 backport: UTType class accessors are 11.0+; provide helpers that fall
-// back to legacy kUTType* CFString constants when the modern accessor isn't
-// available. Without these guards, sending +PNG/+fileURL/etc to the polyfill
-// UTType class throws unrecognized-selector and crashes the process.
+// MAVERICKS_BACKPORT: UniformTypeIdentifiers (the UTType class and the UTType* constants) is macOS
+// 11.0+ and absent at runtime on 10.9. These helpers return the legacy CoreServices kUTType* CFString
+// constants (present on 10.9 and still declared, deprecated, by the build SDK). The value is returned
+// UNCONDITIONALLY: referencing a modern UTType* object — even behind a respondsToSelector guard —
+// emits an undefined UTType* data symbol, which cannot be satisfied when linking a 10.9 target
+// against the modern SDK (the modern symbol lives only in the absent UniformTypeIdentifiers).
 
 #pragma once
 
 #if PLATFORM(MAC)
 
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <CoreServices/CoreServices.h>
 
 namespace WebCore {
 
-#define DEFINE_UT_HELPER(NAME, MODERN_SEL, MODERN_OBJ, LEGACY_KEY) \
+#define DEFINE_UT_HELPER(NAME, LEGACY_KEY) \
     static inline NSString *NAME() \
     { \
-        if ([UTType respondsToSelector:@selector(MODERN_SEL)]) \
-            return MODERN_OBJ.identifier; \
         return (__bridge NSString *)LEGACY_KEY; \
     }
 
-DEFINE_UT_HELPER(utTypePNGId,            PNG,            UTTypePNG,            kUTTypePNG)
-DEFINE_UT_HELPER(utTypeJPEGId,           JPEG,           UTTypeJPEG,           kUTTypeJPEG)
-DEFINE_UT_HELPER(utTypeTIFFId,           TIFF,           UTTypeTIFF,           kUTTypeTIFF)
-DEFINE_UT_HELPER(utTypeURLId,            URL,            UTTypeURL,            kUTTypeURL)
-DEFINE_UT_HELPER(utTypeFileURLId,        fileURL,        UTTypeFileURL,        kUTTypeFileURL)
-DEFINE_UT_HELPER(utTypeHTMLId,           HTML,           UTTypeHTML,           kUTTypeHTML)
-DEFINE_UT_HELPER(utTypePDFId,            PDF,            UTTypePDF,            kUTTypePDF)
-DEFINE_UT_HELPER(utTypeRTFId,            RTF,            UTTypeRTF,            kUTTypeRTF)
-DEFINE_UT_HELPER(utTypeFlatRTFDId,       flatRTFD,       UTTypeFlatRTFD,       kUTTypeFlatRTFD)
-DEFINE_UT_HELPER(utTypeTextId,           text,           UTTypeText,           kUTTypeText)
-DEFINE_UT_HELPER(utTypePlainTextId,      plainText,      UTTypePlainText,      kUTTypePlainText)
-DEFINE_UT_HELPER(utTypeUTF8PlainTextId,  UTF8PlainText,  UTTypeUTF8PlainText,  kUTTypeUTF8PlainText)
-DEFINE_UT_HELPER(utTypeContentId,        content,        UTTypeContent,        kUTTypeContent)
-DEFINE_UT_HELPER(utTypeItemId,           item,           UTTypeItem,           kUTTypeItem)
-DEFINE_UT_HELPER(utTypeDirectoryId,      directory,      UTTypeDirectory,      kUTTypeDirectory)
-DEFINE_UT_HELPER(utTypeDataId,           data,           UTTypeData,           kUTTypeData)
-// utTypeVCard helper removed: UTTypeVCard not declared in this SDK; use literal "public.vcard" instead.
-static inline NSString *utTypeVCardId() { return @"public.vcard"; }
+DEFINE_UT_HELPER(utTypePNGId,            kUTTypePNG)
+DEFINE_UT_HELPER(utTypeJPEGId,           kUTTypeJPEG)
+DEFINE_UT_HELPER(utTypeTIFFId,           kUTTypeTIFF)
+DEFINE_UT_HELPER(utTypeURLId,            kUTTypeURL)
+DEFINE_UT_HELPER(utTypeFileURLId,        kUTTypeFileURL)
+DEFINE_UT_HELPER(utTypeHTMLId,           kUTTypeHTML)
+DEFINE_UT_HELPER(utTypePDFId,            kUTTypePDF)
+DEFINE_UT_HELPER(utTypeRTFId,            kUTTypeRTF)
+DEFINE_UT_HELPER(utTypeFlatRTFDId,       kUTTypeFlatRTFD)
+DEFINE_UT_HELPER(utTypeTextId,           kUTTypeText)
+DEFINE_UT_HELPER(utTypePlainTextId,      kUTTypePlainText)
+DEFINE_UT_HELPER(utTypeUTF8PlainTextId,  kUTTypeUTF8PlainText)
+DEFINE_UT_HELPER(utTypeContentId,        kUTTypeContent)
+DEFINE_UT_HELPER(utTypeItemId,           kUTTypeItem)
+DEFINE_UT_HELPER(utTypeDirectoryId,      kUTTypeDirectory)
+DEFINE_UT_HELPER(utTypeDataId,           kUTTypeData)
+DEFINE_UT_HELPER(utTypeGIFId,            kUTTypeGIF)
+DEFINE_UT_HELPER(utTypePackageId,        kUTTypePackage)
+DEFINE_UT_HELPER(utTypeFolderId,         kUTTypeFolder)
+
+// kUTTypeVCard / kUTTypeWebArchive exist in CoreServices (deprecated; macos(10.4, 12.0)).
+static inline NSString *utTypeVCardId() { return (__bridge NSString *)kUTTypeVCard; }
+static inline NSString *utTypeWebArchiveId() { return (__bridge NSString *)kUTTypeWebArchive; }
 
 #undef DEFINE_UT_HELPER
-
-// Web archive UTType has no documented kUTType constant; use the literal.
-static inline NSString *utTypeWebArchiveId() { return @"com.apple.webarchive"; }
 
 }
 

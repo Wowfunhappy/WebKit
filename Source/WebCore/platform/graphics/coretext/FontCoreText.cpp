@@ -57,10 +57,6 @@
 
 #include <pal/cf/CoreTextSoftLink.h>
 
-#ifndef kCTFontTableSVG
-#define kCTFontTableSVG 0x53564720 /* 'SVG ' */
-#endif
-
 namespace WebCore {
 
 static inline bool caseInsensitiveCompare(CFStringRef a, CFStringRef b)
@@ -136,9 +132,6 @@ void Font::platformInit()
     // The Open Font Format describes the OS/2 USE_TYPO_METRICS flag as follows:
     // "If set, it is strongly recommended to use OS/2.sTypoAscender - OS/2.sTypoDescender+ OS/2.sTypoLineGap as a value for default line spacing for this font."
     // On macOS, we only apply this rule in the important case of fonts with a MATH table.
-#ifndef kCTFontTableMATH
-#define kCTFontTableMATH 0x4D415448
-#endif
     if (CTFontHasTable(ctFont.get(), kCTFontTableMATH)) {
         short typoAscent, typoDescent, typoLineGap;
         if (OpenType::tryGetTypoMetrics(ctFont.get(), typoAscent, typoDescent, typoLineGap)) {
@@ -147,9 +140,6 @@ void Font::platformInit()
             lineGap = scaleEmToUnits(typoLineGap, unitsPerEm) * pointSize;
         }
     }
-
-
-
 
     auto familyName = adoptCF(CTFontCopyFamilyName(ctFont.get()));
 
@@ -238,7 +228,7 @@ void Font::platformInit()
     m_fontMetrics.setLineSpacing(lineSpacing);
 
 #if PLATFORM(MAC)
-    // 10.9 backport: actually DRAW a glyph to a throwaway CGContext during font init. Without this,
+    // MAVERICKS_BACKPORT: actually DRAW a glyph to a throwaway CGContext during font init. Without this,
     // the FIRST em-dash (or similar fallback) glyph drawn into a real layer causes the entire
     // surrounding line to render with bottom half clipped. We absorb that bad first-draw into the
     // throwaway context. Subsequent uses of this font draw cleanly.
@@ -328,7 +318,7 @@ static RetainPtr<CFDictionaryRef> smallCapsTrueTypeDictionary(int rawKey, int ra
 
 static void unionBitVectors(BitVector& result, CFBitVectorRef source)
 {
-    // 10.9 backport: CTFontCopyGlyphCoverageForFeature can return null or a
+    // MAVERICKS_BACKPORT: CTFontCopyGlyphCoverageForFeature can return null or a
     // non-CFBitVector on 10.9, which crashes CFBitVectorGetCount. Economist
     // load triggered this. Defensive null check.
     if (!source)
@@ -724,7 +714,7 @@ GlyphBufferAdvance Font::applyTransforms(GlyphBuffer& glyphBuffer, unsigned begi
     );
 
 #if PLATFORM(MAC)
-    // 10.9 backport: CTFontShapeGlyphs is a 10.13+ API. Our polyfill stub for it is
+    // MAVERICKS_BACKPORT: CTFontShapeGlyphs is a 10.13+ API. Our polyfill stub for it is
     // `xorl %eax,%eax; retq` which zeros only the low 32 bits of EAX — but the function
     // returns a CGSize (two 64-bit doubles in XMM0/XMM1). The high register state from
     // whatever was last computed leaks back as initialAdvance, randomly shifting glyph
@@ -824,6 +814,9 @@ void Font::determinePitch()
     auto familyName = adoptCF(CTFontCopyFamilyName(ctFont.get()));
 
     int fixedPitch = extractNumber(adoptCF(static_cast<CFNumberRef>(CTFontCopyAttribute(ctFont.get(), kCTFontFixedAdvanceAttribute))).get());
+    // MAVERICKS_BACKPORT: kCTFontUserInstalledAttribute (CTFontCopyAttribute) is stubbed in
+    // libpolyfill.a and returns garbage on 10.9; treat every font as not user-installed (the only
+    // use below restricts a fixed-pitch fast path, which is safe to leave on for system fonts).
     bool userInstalled = false;
     m_treatAsFixedPitch = (CTFontGetSymbolicTraits(ctFont.get()) & kCTFontMonoSpaceTrait) || fixedPitch || (caseInsensitiveCompare(fullName.get(), CFSTR("Osaka-Mono")) || caseInsensitiveCompare(fullName.get(), CFSTR("MS-PGothic")) || caseInsensitiveCompare(fullName.get(), CFSTR("MonotypeCorsiva")));
     if (familyName && caseInsensitiveCompare(familyName.get(), CFSTR("Courier New"))) {

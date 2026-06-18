@@ -69,14 +69,7 @@ std::unique_ptr<webrtc::VideoDecoderFactory> LibWebRTCProviderCocoa::createDecod
         return nullptr;
 
     auto vp9Support = isSupportingVP9Profile2() ? webrtc::WebKitVP9::Profile0And2 : isSupportingVP9Profile0() ? webrtc::WebKitVP9::Profile0 : webrtc::WebKitVP9::Off;
-    // 10.9 backport: VP9 hardware (VTB) decode is unavailable here, and
-    // vp9HardwareDecoderAvailableInProcess() lives behind ENABLE(VP9); report VTB off.
-#if ENABLE(VP9)
-    auto vp9VTB = vp9HardwareDecoderAvailableInProcess() ? webrtc::WebKitVP9VTB::On : webrtc::WebKitVP9VTB::Off;
-#else
-    auto vp9VTB = webrtc::WebKitVP9VTB::Off;
-#endif
-    return webrtc::createWebKitDecoderFactory(isSupportingH265() ? webrtc::WebKitH265::On : webrtc::WebKitH265::Off, vp9Support, vp9VTB, isSupportingAV1() ? webrtc::WebKitAv1::On : webrtc::WebKitAv1::Off);
+    return webrtc::createWebKitDecoderFactory(isSupportingH265() ? webrtc::WebKitH265::On : webrtc::WebKitH265::Off, vp9Support, vp9HardwareDecoderAvailableInProcess() ? webrtc::WebKitVP9VTB::On : webrtc::WebKitVP9VTB::Off, isSupportingAV1() ? webrtc::WebKitAv1::On : webrtc::WebKitAv1::Off);
 }
 
 std::unique_ptr<webrtc::VideoEncoderFactory> LibWebRTCProviderCocoa::createEncoderFactory()
@@ -90,9 +83,6 @@ std::unique_ptr<webrtc::VideoEncoderFactory> LibWebRTCProviderCocoa::createEncod
     return webrtc::createWebKitEncoderFactory(isSupportingH265() ? webrtc::WebKitH265::On : webrtc::WebKitH265::Off, vp9Support, isSupportingAV1() ? webrtc::WebKitAv1::On : webrtc::WebKitAv1::Off);
 }
 
-// 10.9 backport: VP9 disabled (ENABLE_VP9 0) — these overrides are declared only
-// under ENABLE(VP9); when off, the base WebRTCProvider defaults apply.
-#if ENABLE(VP9)
 std::optional<PlatformMediaCapabilitiesInfo> LibWebRTCProviderCocoa::computeVPParameters(const PlatformMediaCapabilitiesVideoConfiguration& configuration)
 {
     return WebCore::computeVPParameters(configuration, isSupportingVP9HardwareDecoder());
@@ -102,7 +92,6 @@ bool LibWebRTCProviderCocoa::isVPSoftwareDecoderSmooth(const PlatformMediaCapabi
 {
     return WebCore::isVPSoftwareDecoderSmooth(configuration);
 }
-#endif
 
 bool WebRTCProvider::webRTCAvailable()
 {

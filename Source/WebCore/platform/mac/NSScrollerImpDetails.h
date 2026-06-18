@@ -25,13 +25,11 @@
 
 #pragma once
 
-#if USE(APPKIT) && defined(__OBJC__)
+#if USE(APPKIT)
 
 #include <optional>
-#import <AppKit/AppKit.h>
 
-
-
+enum NSScrollerStyle : long;
 
 namespace WebCore {
 
@@ -47,4 +45,4 @@ private:
 
 }
 
-#endif // USE(APPKIT) && __OBJC__
+#endif // USE(APPKIT)

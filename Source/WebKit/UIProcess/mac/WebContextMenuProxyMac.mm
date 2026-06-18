@@ -45,7 +45,9 @@
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "_WKCaptionStyleMenuController.h"
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTTypeTIFF) is macOS 11+ and absent on 10.9;
+// the legacy CoreServices kUTTypeTIFF identifier is used for the pasteboard type instead.
+#import <CoreServices/CoreServices.h>
 #import <WebCore/GraphicsContext.h>
 #import <WebCore/IntRect.h>
 #import <WebCore/LocalizedStrings.h>
@@ -315,7 +317,7 @@ void WebContextMenuProxyMac::setupServicesMenu()
             RetainPtr cgImage = image->createPlatformImage(DontCopyBackingStore);
             auto nsImage = adoptNS([[NSImage alloc] initWithCGImage:cgImage.get() size:image->size()]);
 
-            itemProvider = adoptNS([[NSItemProvider alloc] initWithItem:retainPtr([nsImage TIFFRepresentation]).get() typeIdentifier:UTTypeTIFF.identifier]);
+            itemProvider = adoptNS([[NSItemProvider alloc] initWithItem:retainPtr([nsImage TIFFRepresentation]).get() typeIdentifier:(__bridge NSString *)kUTTypeTIFF]);
         }
         items = @[ itemProvider.get() ];
         

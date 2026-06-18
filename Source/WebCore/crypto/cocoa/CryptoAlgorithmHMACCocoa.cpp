@@ -28,56 +28,37 @@
 
 #include "CryptoKeyHMAC.h"
 #include "CryptoUtilitiesCocoa.h"
-#include "CryptoAlgorithmIdentifier.h"
-#include <CommonCrypto/CommonDigest.h>
 #include <CommonCrypto/CommonHMAC.h>
 #include <pal/PALSwift.h>
 #include <wtf/CryptographicUtilities.h>
 
 namespace WebCore {
 
-// 10.9 backport: pal::HMAC::sign/verify use Swift CryptoKit (10.15+) which
-// crashes on 10.9. Use CommonCrypto's CCHmac (10.6+) directly.
-static std::optional<CCHmacAlgorithm> ccHmacAlgorithmForHashIdentifier(CryptoAlgorithmIdentifier id, size_t& outLen)
-{
-    switch (id) {
-    case CryptoAlgorithmIdentifier::SHA_1:    outLen = CC_SHA1_DIGEST_LENGTH;   return kCCHmacAlgSHA1;
-    case CryptoAlgorithmIdentifier::SHA_256:  outLen = CC_SHA256_DIGEST_LENGTH; return kCCHmacAlgSHA256;
-    case CryptoAlgorithmIdentifier::SHA_384:  outLen = CC_SHA384_DIGEST_LENGTH; return kCCHmacAlgSHA384;
-    case CryptoAlgorithmIdentifier::SHA_512:  outLen = CC_SHA512_DIGEST_LENGTH; return kCCHmacAlgSHA512;
-    default: return std::nullopt;
-    }
-}
-
 static ExceptionOr<Vector<uint8_t>> platformSignCryptoKit(const CryptoKeyHMAC& key, const Vector<uint8_t>& data)
 {
+#if !defined(CLANG_WEBKIT_BRANCH)
     if (!isValidHashParameter(key.hashAlgorithmIdentifier()))
         return Exception { ExceptionCode::OperationError };
-    size_t outLen = 0;
-    auto alg = ccHmacAlgorithmForHashIdentifier(key.hashAlgorithmIdentifier(), outLen);
-    if (!alg)
-        return Exception { ExceptionCode::OperationError };
-    Vector<uint8_t> result(outLen);
-    auto keySpan = key.key().span();
-    auto dataSpan = data.span();
-    auto resultSpan = result.mutableSpan();
-    CCHmac(*alg, keySpan.data(), keySpan.size(), dataSpan.data(), dataSpan.size(), resultSpan.data());
-    return result;
+    return pal::HMAC::sign(key.key().span(), data.span(), std::to_underlying(toCKHashFunction(key.hashAlgorithmIdentifier())));
+#else
+    UNUSED_PARAM(key);
+    UNUSED_PARAM(data);
+    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+#endif
 }
 
 static ExceptionOr<bool> platformVerifyCryptoKit(const CryptoKeyHMAC& key, const Vector<uint8_t>& signature, const Vector<uint8_t>& data)
 {
-    auto signResult = platformSignCryptoKit(key, data);
-    if (signResult.hasException())
-        return signResult.releaseException();
-    auto computed = signResult.releaseReturnValue();
-    if (computed.size() != signature.size())
-        return false;
-    // constant-time compare
-    uint8_t diff = 0;
-    for (size_t i = 0; i < computed.size(); ++i)
-        diff |= computed[i] ^ signature[i];
-    return diff == 0;
+#if !defined(CLANG_WEBKIT_BRANCH)
+    if (!isValidHashParameter(key.hashAlgorithmIdentifier()))
+        return Exception { ExceptionCode::OperationError };
+    return pal::HMAC::verify(signature.span(), key.key().span(), data.span(), std::to_underlying(toCKHashFunction(key.hashAlgorithmIdentifier())));
+#else
+    UNUSED_PARAM(key);
+    UNUSED_PARAM(signature);
+    UNUSED_PARAM(data);
+    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+#endif
 }
 
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmHMAC::platformSign(const CryptoKeyHMAC& key, const Vector<uint8_t>& data)

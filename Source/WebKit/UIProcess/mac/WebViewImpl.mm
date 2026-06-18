@@ -96,7 +96,9 @@
 #import "_WKWarningView.h"
 #import "_WKWebViewTextInputNotifications.h"
 #import <Carbon/Carbon.h>
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTTypeWebArchive) is macOS 11+ and absent on
+// 10.9; the legacy CoreServices kUTTypeWebArchive identifier is used for the pasteboard type instead.
+#import <CoreServices/CoreServices.h>
 #import <WebCore/AXObjectCache.h>
 #import <WebCore/ActivityState.h>
 #import <WebCore/AttributedString.h>
@@ -127,9 +129,11 @@
 #ifndef NSViewNoIntrinsicMetric
 #define NSViewNoIntrinsicMetric NSViewNoInstrinsicMetric
 #endif
-#ifndef NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
-static NSString * const NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification = @"NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification";
-#endif
+// MAVERICKS_BACKPORT: NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification is macOS 10.10+;
+// it is weak-imported and null at runtime on 10.9. The 26.1 SDK declares it as an extern, so the
+// fallback value lives under a WebKit-local name — passing the SDK symbol (nil on 10.9) as the
+// notification name to -addObserver:…name:… would instead match EVERY notification.
+static NSString * const webkitNSWorkspaceAccessibilityDisplayOptionsDidChangeNotification = @"NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification";
 #import <WebCore/PlatformEventFactoryMac.h>
 #import <WebCore/PlatformPlaybackSessionInterface.h>
 #import <WebCore/PlatformScreen.h>
@@ -289,7 +293,7 @@ static NSString * const WKMediaExitFullScreenItem = @"WKMediaExitFullScreenItem"
     _impl = &impl;
 
     RetainPtr workspaceNotificationCenter = [[NSWorkspace sharedWorkspace] notificationCenter];
-    [workspaceNotificationCenter addObserver:self selector:@selector(_settingsDidChange:) name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
+    [workspaceNotificationCenter addObserver:self selector:@selector(_settingsDidChange:) name:webkitNSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
 
     return self;
 }
@@ -297,7 +301,7 @@ static NSString * const WKMediaExitFullScreenItem = @"WKMediaExitFullScreenItem"
 - (void)dealloc
 {
     RetainPtr workspaceNotificationCenter = [[NSWorkspace sharedWorkspace] notificationCenter];
-    [workspaceNotificationCenter removeObserver:self name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
+    [workspaceNotificationCenter removeObserver:self name:webkitNSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
 
     [super dealloc];
 }
@@ -4761,7 +4765,7 @@ void WebViewImpl::setPromisedDataForImage(WebCore::Image& image, NSString *filen
 
     if (archiveBuffer) {
         auto nsData = archiveBuffer->makeContiguous()->createNSData();
-        [pasteboard setData:nsData.get() forType:UTTypeWebArchive.identifier];
+        [pasteboard setData:nsData.get() forType:(__bridge NSString *)kUTTypeWebArchive];
         [pasteboard setData:nsData.get() forType:PasteboardTypes::WebArchivePboardType];
     }
 

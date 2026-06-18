@@ -28,6 +28,9 @@
 
 #if ENABLE(DRAG_SUPPORT)
 
+// MAVERICKS_BACKPORT: runtime-absent API — UTType class accessors (UTTypeURL/UTTypePlainText/…) are
+// 11.0+; this header provides utType*Id() helpers routed to the legacy kUTType* constants so the
+// drag-type-identifier list below builds and works on 10.9.
 #import "../platform/mac/UTTypeIdentifiers.h"
 
 #import "DataTransfer.h"

@@ -71,7 +71,10 @@
 #import <WebCore/UniversalAccessZoom.h>
 #import <WebCore/UserAgent.h>
 #import <WebCore/ValidationBubble.h>
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTType* constants) and
+// -[NSWorkspace URLForApplicationToOpenContentType:] are macOS 11+/12+ and absent on 10.9; the legacy
+// CoreServices kUTType* constants and LaunchServices default-handler lookup are used instead.
+#import <CoreServices/CoreServices.h>
 #import <mach-o/dyld.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/WritingToolsSPI.h>
@@ -667,10 +670,14 @@ void WebPageProxy::showPDFContextMenu(const WebKit::PDFContextMenu& contextMenu,
         RetainPtr nsItem = adoptNS([[NSMenuItem alloc] init]);
 
         if (isOpenWithDefaultViewerItem) {
-            // 10.9 backport: URLForApplicationToOpenContentType: is 12.0+ and UTType is 11.0+.
+            // MAVERICKS_BACKPORT: -[NSWorkspace URLForApplicationToOpenContentType:] is macOS 12+ and
+            // takes a UTType* (11.0+); resolve the default PDF viewer via the legacy LaunchServices
+            // default-role-handler lookup keyed on the legacy kUTTypePDF CFString constant.
             RetainPtr<NSString> defaultPDFViewerPath;
-            if ([[NSWorkspace sharedWorkspace] respondsToSelector:@selector(URLForApplicationToOpenContentType:)] && NSClassFromString(@"UTType"))
-                defaultPDFViewerPath = [[[NSWorkspace sharedWorkspace] URLForApplicationToOpenContentType:UTTypePDF] path];
+            if (RetainPtr<CFStringRef> pdfViewerBundleID = adoptCF(LSCopyDefaultRoleHandlerForContentType(kUTTypePDF, kLSRolesViewer))) {
+                RetainPtr pdfViewerURL = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:(__bridge NSString *)pdfViewerBundleID.get()];
+                defaultPDFViewerPath = [pdfViewerURL path];
+            }
             RetainPtr<NSString> defaultPDFViewerName;
             if (defaultPDFViewerPath)
                 defaultPDFViewerName = [[NSFileManager defaultManager] displayNameAtPath:defaultPDFViewerPath.get()];
@@ -981,8 +988,8 @@ void WebPageProxy::showImageInQuickLookPreviewPanel(ShareableBitmap& imageBitmap
         return;
 
     auto imageData = adoptCF(CFDataCreateMutable(kCFAllocatorDefault, 0));
-    // 10.9 backport: +[UTType PNG] is 11.0+; use kUTTypePNG as fallback.
-    CFStringRef pngType = [UTType respondsToSelector:@selector(PNG)] ? (__bridge CFStringRef)UTTypePNG.identifier : kUTTypePNG;
+    // MAVERICKS_BACKPORT: UTTypePNG is macOS 11+; use the legacy kUTTypePNG CFString constant.
+    CFStringRef pngType = kUTTypePNG;
     auto destination = adoptCF(CGImageDestinationCreateWithData(imageData.get(), pngType, 1, nullptr));
     if (!destination)
         return;

@@ -110,10 +110,10 @@ ExceptionOr<Vector<uint8_t>> transformAESCTR(CCOperation operation, const Vector
 }
 
 #if PLATFORM(MAC)
-// 10.9 backport: CCKDFParametersCreateHkdf + CCDeriveKey are 10.10+. Polyfill
-// stubs return 0 = kCCSuccess but leave the output buffer untouched, silently
-// breaking WebCrypto HKDF (the derived key is whatever was already in the
-// buffer). Implement RFC 5869 HKDF directly using CCHmac which exists on 10.9.
+// MAVERICKS_BACKPORT: CCKDFParametersCreateHkdf + CCDeriveKey are runtime-absent
+// on 10.9 (10.10+). The polyfill stub returns 0 = kCCSuccess but leaves the output
+// buffer untouched, silently breaking WebCrypto HKDF (derived key = stale buffer
+// contents). Implement RFC 5869 HKDF directly via CCHmac, which exists on 10.9.
 static unsigned hmacOutputSize(CCDigestAlgorithm digest)
 {
     switch (digest) {
@@ -222,8 +222,8 @@ Vector<uint8_t> calculateHMACSignature(CCHmacAlgorithm algorithm, const Vector<u
         digestLength = CC_SHA1_DIGEST_LENGTH;
         break;
     case kCCHmacAlgSHA224:
-        // 10.9 backport: fail gracefully on SHA-224 HMAC (return empty) instead
-        // of crashing WebContent.
+        // MAVERICKS_BACKPORT: SHA-224 graceful-fail (policy choice). Upstream traps;
+        // return empty instead of crashing WebContent.
         return Vector<uint8_t>();
     case kCCHmacAlgSHA256:
         digestLength = CC_SHA256_DIGEST_LENGTH;

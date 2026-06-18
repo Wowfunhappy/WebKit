@@ -36,6 +36,10 @@
 #import <ImageIO/CGImageDestination.h>
 #import <MobileCoreServices/UTCoreTypes.h>
 #import <WebCore/KeyEventCodesIOS.h>
+#else
+// MAVERICKS_BACKPORT: UTType/UniformTypeIdentifiers is macOS 11+ and absent on 10.9; the legacy
+// CoreServices UTType constant kUTTypePNG lives here and exists at runtime on 10.9.
+#import <CoreServices/CoreServices.h>
 #endif
 
 namespace WebKit {
@@ -44,8 +48,9 @@ using namespace WebCore;
 static std::optional<String> getBase64EncodedPNGData(const RetainPtr<CGImageRef>&& cgImage)
 {
     RetainPtr<NSMutableData> imageData = adoptNS([[NSMutableData alloc] init]);
-    // 10.9 backport: +[UTType PNG] is 11.0+; use kUTTypePNG.
-    CFStringRef pngId = [UTType respondsToSelector:@selector(PNG)] ? (__bridge CFStringRef)UTTypePNG.identifier : kUTTypePNG;
+    // MAVERICKS_BACKPORT: UTType/UniformTypeIdentifiers (UTTypePNG) is macOS 11+ and absent on 10.9, so the
+    // legacy CoreServices UTType constant kUTTypePNG (CFStringRef, present at runtime on 10.9) is used.
+    CFStringRef pngId = kUTTypePNG;
     RetainPtr<CGImageDestinationRef> destination = adoptCF(CGImageDestinationCreateWithData((CFMutableDataRef)imageData.get(), pngId, 1, 0));
     if (!destination)
         return std::nullopt;

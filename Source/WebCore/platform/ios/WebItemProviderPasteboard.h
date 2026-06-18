@@ -43,7 +43,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface NSItemProvider (WebCoreExtras)
 @property (nonatomic, readonly) BOOL web_containsFileURLAndFileUploadContent;
-@property (nonatomic, readonly) NSArray *web_fileUploadContentTypes;
+@property (nonatomic, readonly) NSArray<NSString *> *web_fileUploadContentTypes;
 @end
 
 /*! A WebItemProviderRegistrar encapsulates a single call to register something to an item provider.
@@ -89,24 +89,24 @@ WEBCORE_EXPORT @interface WebItemProviderRegistrationInfoList : NSObject
 
 @end
 
-typedef void (^WebItemProviderFileLoadBlock)(NSArray *);
+typedef void (^WebItemProviderFileLoadBlock)(NSArray<NSURL *> *);
 
 WEBCORE_EXPORT @interface WebItemProviderPasteboard : NSObject<AbstractPasteboard>
 
 + (instancetype)sharedInstance;
 
-@property (copy, nonatomic, nullable) NSArray *itemProviders;
+@property (copy, nonatomic, nullable) NSArray<__kindof NSItemProvider *> *itemProviders;
 @property (readonly, nonatomic) NSInteger numberOfItems;
 @property (readonly, nonatomic) NSInteger changeCount;
 
 // This will only be non-empty when an operation is being performed.
-@property (readonly, nonatomic) NSArray *allDroppedFileURLs;
+@property (readonly, nonatomic) NSArray<NSURL *> *allDroppedFileURLs;
 
 @property (readonly, nonatomic) BOOL hasPendingOperation;
 - (void)incrementPendingOperationCount;
 - (void)decrementPendingOperationCount;
 
-- (void)setItemProviders:(NSArray *)itemProviders dropSession:(nullable id<UIDropSession>)dropSession;
+- (void)setItemProviders:(NSArray<__kindof NSItemProvider *> *)itemProviders dropSession:(nullable id<UIDropSession>)dropSession;
 
 - (void)enumerateItemProvidersWithBlock:(void (^)(__kindof NSItemProvider *itemProvider, NSUInteger index, BOOL *stop))block;
 

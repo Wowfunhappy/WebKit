@@ -30,9 +30,6 @@ MavericksSupport/
 │   ├── postbuild_webkit.sh    Postbuild that installs WebKit into both
 │   │                          /System/Library/Frameworks and
 │   │                          /System/Library/StagedFrameworks/Safari
-│   ├── strip_stubs.py        Strips polyfill stubs so real system
-│   │                         symbols win at runtime
-│   ├── patch_classlist.py    Adjusts __objc_classlist truncation
 │   └── verify_fixes.sh       Source-level sanity check that all
 │                             backport fixes are present
 └── prebuilt/              Prebuilt static and dynamic libraries

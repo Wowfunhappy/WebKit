@@ -26,6 +26,8 @@
 #import "config.h"
 #import "WebContentReader.h"
 
+// MAVERICKS_BACKPORT: runtime-absent API #76 — UTType class accessors (UTTypeVCard/UTTypeDirectory/
+// UTTypeData) are 11.0+; this header provides utType*Id() helpers routed to legacy kUTType* constants.
 #if PLATFORM(MAC)
 #import "../platform/mac/UTTypeIdentifiers.h"
 #endif
@@ -162,7 +164,7 @@ static FragmentAndResources createFragmentInternal(LocalFrame& frame, NSAttribut
     NSArray *subresources = nil;
     RetainPtr<NSString> fragmentString;
 
-    // 10.9 backport: -[NSAttributedString _htmlDocumentFragmentString:documentAttributes:subresources:]
+    // MAVERICKS_BACKPORT: behavior #76 — -[NSAttributedString _htmlDocumentFragmentString:documentAttributes:subresources:]
     // throws -doesNotRecognizeSelector somewhere inside (probably NSHTMLWriter's
     // own internals using a 10.10+ NSExcludedElementsDocumentAttribute or
     // similar). Wrap and fall back to the plain-text contents of the
@@ -264,11 +266,7 @@ static bool shouldReplaceRichContentWithAttachments()
 
 static String mimeTypeFromContentType(const String& contentType)
 {
-#if PLATFORM(MAC)
     if (contentType == String(utTypeVCardId())) {
-#else
-    if (contentType == String(UTTypeVCard.identifier)) {
-#endif
         // CoreServices erroneously reports that "public.vcard" maps to "text/directory", rather
         // than either "text/vcard" or "text/x-vcard". Work around this by special casing the
         // "public.vcard" UTI type. See <rdar://problem/49478229> for more detail.
@@ -868,19 +866,11 @@ static Ref<HTMLElement> attachmentForFilePath(LocalFrame& frame, const String& p
     String contentType = typeForAttachmentElement(explicitContentType);
     if (contentType.isEmpty()) {
         if (isDirectory)
-#if PLATFORM(MAC)
             contentType = utTypeDirectoryId();
-#else
-            contentType = UTTypeDirectory.identifier;
-#endif
         else {
             contentType = File::contentTypeForFile(path);
             if (contentType.isEmpty())
-#if PLATFORM(MAC)
                 contentType = utTypeDataId();
-#else
-                contentType = UTTypeData.identifier;
-#endif
         }
     }
 

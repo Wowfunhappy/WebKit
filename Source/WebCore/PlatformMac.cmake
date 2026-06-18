@@ -394,7 +394,6 @@ list(APPEND WebCore_SOURCES
 
     platform/mediastream/mac/MockRealtimeVideoSourceMac.mm
     platform/mediastream/mac/RealtimeOutgoingVideoSourceCocoa.cpp
-    platform/mediastream/mac/RealtimeOutgoingVideoSourceCocoa.mm
 
     platform/network/cf/CertificateInfoCFNet.cpp
     platform/network/cf/DNSResolveQueueCFNet.cpp
@@ -498,7 +497,6 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     accessibility/mac/CocoaAccessibilityConstants.h
     accessibility/mac/WebAccessibilityObjectWrapperBase.h
     accessibility/mac/WebAccessibilityObjectWrapperMac.h
-accessibility/mac/WebAccessibilityObjectWrapperMac_stub.mm
 
     bridge/objc/WebScriptObject.h
     bridge/objc/WebScriptObjectPrivate.h

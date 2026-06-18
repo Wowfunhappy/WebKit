@@ -282,11 +282,6 @@ void Scope::addPendingSheet(const Element& element)
         m_elementsInHeadWithPendingSheets.add(element);
     else
         m_elementsInBodyWithPendingSheets.add(element);
-
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) { fprintf(_f, "[StyleScope::addPendingSheet PID %d] scope=%p elt=%p head=%u body=%u\n", getpid(), this, &element, m_elementsInHeadWithPendingSheets.computeSize(), m_elementsInBodyWithPendingSheets.computeSize()); fclose(_f); }
-    }
 }
 
 // This method is called whenever a top-level stylesheet has finished loading.
@@ -297,10 +292,6 @@ void Scope::removePendingSheet(const Element& element)
     if (!m_elementsInHeadWithPendingSheets.remove(element))
         m_elementsInBodyWithPendingSheets.remove(element);
 
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) { fprintf(_f, "[StyleScope::removePendingSheet PID %d] scope=%p elt=%p headSize=%u headIsEmpty=%d bodySize=%u\n", getpid(), this, &element, m_elementsInHeadWithPendingSheets.computeSize(), (int)m_elementsInHeadWithPendingSheets.isEmptyIgnoringNullReferences(), m_elementsInBodyWithPendingSheets.computeSize()); fclose(_f); }
-    }
     didRemovePendingStylesheet();
 }
 
@@ -322,9 +313,7 @@ void Scope::removePendingSheet(const ProcessingInstruction& processingInstructio
 
 bool Scope::hasPendingSheets() const
 {
-    bool result = hasPendingSheetsBeforeBody() || !m_elementsInBodyWithPendingSheets.isEmptyIgnoringNullReferences();
-    { static int s_n = 0; if (++s_n <= 30) { FILE *_f=((FILE*)0); if(_f){fprintf(_f,"[Scope::hasPendingSheets PID %d] scope=%p result=%d head=%d body=%d procIns=%d headSize=%u\n", getpid(), this, (int)result, (int)!m_elementsInHeadWithPendingSheets.isEmptyIgnoringNullReferences(), (int)!m_elementsInBodyWithPendingSheets.isEmptyIgnoringNullReferences(), (int)!m_processingInstructionsWithPendingSheets.isEmptyIgnoringNullReferences(), m_elementsInHeadWithPendingSheets.computeSize()); fclose(_f);} } }
-    return result;
+    return hasPendingSheetsBeforeBody() || !m_elementsInBodyWithPendingSheets.isEmptyIgnoringNullReferences();
 }
 
 bool Scope::hasPendingSheetsBeforeBody() const

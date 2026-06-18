@@ -68,36 +68,14 @@ private:
 void RunLoop::initializeMain()
 {
     RELEASE_ASSERT(!s_mainRunLoop);
-    // 10.9: dispatch_main() calls pthread_exit on the main thread (so dispatch
-    // workers can take over), which triggers pthread TSD cleanup, which destroys
-    // the per-thread RunLoop Holder, freeing the main RunLoop. After that point
-    // s_mainRunLoop dangles. Pin the main RunLoop with multiple ref bumps to
-    // make absolutely sure deref() can never reach zero from any other path.
-    auto& mrl = RunLoop::currentSingleton();
-    // Pre-transition the singleton to control block mode by taking a
-    // ThreadSafeWeakPtr explicitly, then leak that weak. This ensures the
-    // control block exists with a permanent weak ref so the underlying
-    // ThreadSafeWeakPtrControlBlock is never freed (which would otherwise
-    // happen when the last weak ref releases it). After that bump the strong
-    // refcount through the control block by many refs to make destruction
-    // through that path unreachable too.
-    {
-        auto* leaked = new ThreadSafeWeakPtr<RunLoop>(mrl);
-        (void)leaked;
-    }
-    for (int i = 0; i < 100000; ++i)
-        mrl.ref();
-    s_mainRunLoop = &mrl;
-    {
-        FILE *_d = ((FILE*)0);
-        if (_d) {
-            uintptr_t bits = 0;
-            if (s_mainRunLoop) memcpy(&bits, (char*)s_mainRunLoop + 0x8, sizeof(bits));
-            fprintf(_d, "[PID %d] initializeMain s_mainRunLoop=%p m_bits=0x%llx\n",
-                getpid(), s_mainRunLoop, (unsigned long long)bits);
-            fclose(_d);
-        }
-    }
+    // The main thread runs a real CFRunLoop for the whole process lifetime
+    // (XPCServiceMain → xpc_main → -[NSRunLoop run], via RunLoopType=NSRunLoop;
+    // verified the main thread is parked in __CFRunLoopRun), so its per-thread
+    // RunLoop holder keeps the main RunLoop alive — no pinning needed. (The old
+    // 100000x ref + leaked weak was a workaround for an earlier dispatch_main()
+    // configuration where dispatch_main pthread_exited the main thread and TSD
+    // teardown freed the RunLoop; that configuration is gone.)
+    s_mainRunLoop = &RunLoop::currentSingleton();
 }
 
 auto RunLoop::runLoopHolder() -> ThreadSpecific<Holder>&
@@ -280,6 +258,12 @@ void RunLoop::unregisterTimer(TimerBase& timer)
 {
     Locker locker { m_registeredTimerLock };
     m_registeredTimers.remove(&timer);
+}
+
+bool RunLoop::isTimerRegistered(const TimerBase* timer) const
+{
+    Locker locker { m_registeredTimerLock };
+    return m_registeredTimers.contains(const_cast<TimerBase*>(timer));
 }
 
 String RunLoop::listActiveTimersForLogging() const

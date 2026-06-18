@@ -39,10 +39,10 @@
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/ProcessPrivilege.h>
 
-// NSLanguageIdentifierAttributeName is only available on macOS 10.11+.
-#if !defined(NSLanguageIdentifierAttributeName)
-static NSString * const NSLanguageIdentifierAttributeName = @"NSLanguage";
-#endif
+// MAVERICKS_BACKPORT: NSLanguageIdentifierAttributeName is macOS 10.11+; it is weak-imported and
+// null at runtime on 10.9, and the 26.1 SDK declares it as an extern. Keep the value under a
+// WebKit-local name — it is used below as an NSDictionary key, where a nil key would throw.
+static NSString * const webkitNSLanguageIdentifierAttributeName = @"NSLanguage";
 #import <wtf/SetForScope.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
@@ -95,7 +95,7 @@ void WebPopupMenuProxyMac::populate(const Vector<WebPopupItem>& items, NSFont *f
                 [attributes setObject:writingDirectionArray.get() forKey:NSWritingDirectionAttributeName];
             }
             if (!items[i].m_language.isEmpty())
-                [attributes setObject:items[i].m_language.createNSString().get() forKey:NSLanguageIdentifierAttributeName];
+                [attributes setObject:items[i].m_language.createNSString().get() forKey:webkitNSLanguageIdentifierAttributeName];
             // 10.9 backport: -[NSAttributedString initWithString:nil] throws.
             // <select><option></option></select> has empty text. createNSString
             // returns nil for null/empty WTF::String, so substitute @"".

@@ -116,7 +116,8 @@ void CryptoAlgorithmHMAC::importKey(CryptoKeyFormat format, KeyData&& data, cons
             case CryptoAlgorithmIdentifier::SHA_1:
                 return alg.isNull() || alg == ALG1;
             case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-                // 10.9 backport: fail JS operation instead of crashing the tab.
+                // MAVERICKS_BACKPORT: SHA-224 graceful-fail (policy choice). Upstream traps;
+                // return false so importKey fails instead of crashing the tab.
                 return false;
             case CryptoAlgorithmIdentifier::SHA_256:
                 return alg.isNull() || alg == ALG256;
@@ -166,7 +167,8 @@ void CryptoAlgorithmHMAC::exportKey(CryptoKeyFormat format, Ref<CryptoKey>&& key
             jwk.alg = String(ALG1);
             break;
         case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-            // 10.9 backport: don't crash; leave jwk.alg unset.
+            // MAVERICKS_BACKPORT: SHA-224 graceful-fail (policy choice). Upstream traps;
+            // leave jwk.alg unset instead of crashing the tab.
             break;
         case CryptoAlgorithmIdentifier::SHA_256:
             jwk.alg = String(ALG256);

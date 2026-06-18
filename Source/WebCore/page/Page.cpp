@@ -5897,9 +5897,9 @@ void NODELETE Page::setPresentingApplicationAuditToken(std::optional<audit_token
 bool Page::requiresUserGestureForAudioPlayback() const
 {
 #if ENABLE(MEDIA_SOURCE)
-    // 10.9 backport: never require a user gesture for media playback. Sites like YouTube start playback
-    // from script; without this the custom MSE pipeline's CMTimebase never starts and only the first
-    // decoded frame shows (HTMLMediaElement reads this into m_shouldVideoPlaybackRequireUserGesture).
+    // MAVERICKS_BACKPORT: behavior — never require a user gesture for media playback. Sites like YouTube
+    // start playback from script; without this the custom MSE pipeline's CMTimebase never starts and only
+    // the first decoded frame shows (HTMLMediaElement reads this into m_shouldVideoPlaybackRequireUserGesture).
     return false;
 #else
     auto autoplayPolicy = protect(mainFrame())->autoplayPolicy();
@@ -5912,6 +5912,7 @@ bool Page::requiresUserGestureForAudioPlayback() const
 bool Page::requiresUserGestureForVideoPlayback() const
 {
 #if ENABLE(MEDIA_SOURCE)
+    // MAVERICKS_BACKPORT: behavior — see requiresUserGestureForAudioPlayback; script-started MSE playback.
     return false;
 #else
     auto autoplayPolicy = protect(mainFrame())->autoplayPolicy();
@@ -5929,7 +5930,7 @@ static RefPtr<PlatformMediaSessionManager>& NODELETE mediaSessionManagerSingleto
 
 RefPtr<MediaSessionManagerInterface> Page::mediaSessionManager()
 {
-    // 10.9 backport: re-enabled 2026-05-11 (attempt 2) after adding null-guards on
+    // MAVERICKS_BACKPORT: behavior — re-enabled after adding null-guards on
     // DefaultAudioDestinationNode::{startRendering,resume,suspend,restartRendering,recreateDestination}.
     // The previous failure (HN SIGSEGV) was at startRendering+184 because m_destination
     // is null on this build (createDestination is stubbed). The guards short-circuit

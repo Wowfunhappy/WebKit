@@ -182,10 +182,10 @@ static void setCGContextPath(CGContextRef context, const Path& path)
 
 static void drawPathWithCGContext(CGContextRef context, CGPathDrawingMode drawingMode, const Path& path)
 {
-    // 10.9 backport: CGContextDrawPathDirect is a 10.13+ private API, polyfilled
-    // as a no-op stub on Mavericks. SVG <path> elements (octicons, github file
-    // icons, etc.) silently failed to render. Use the standard public CG path
-    // API instead.
+    // MAVERICKS_BACKPORT: CGContextDrawPathDirect is a 10.13+ private API, absent from the 26.1 SDK
+    // and a no-op polyfill stub on Mavericks at RUNTIME. Reverting to upstream's one-liner would fail
+    // to compile (undeclared) and render nothing on 10.9. SVG <path> elements (octicons, github file
+    // icons, etc.) silently failed to render with the stub. Use the standard public CG path API instead.
     CGContextAddPath(context, path.platformPath());
     CGContextDrawPath(context, drawingMode);
 }

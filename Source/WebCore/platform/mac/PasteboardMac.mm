@@ -40,8 +40,8 @@
 #import "PlatformStrategies.h"
 #import "SharedBuffer.h"
 #import "UTIUtilities.h"
+#import "UTTypeIdentifiers.h"
 #import "WebNSAttributedStringExtras.h"
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/mac/HIServicesSPI.h>
 #import <wtf/MallocSpan.h>
@@ -55,19 +55,12 @@
 
 namespace WebCore {
 
-// 10.9 backport: UTType class accessors (+[UTType PNG], +[UTType webArchive], etc)
-// are 11.0+ and crash with unrecognized-selector. Use legacy kUTType* constants.
-static NSString *legacyOrModernUTType(SEL classMethod, NSString *modernIdentifier, CFStringRef legacyKey)
-{
-    if ([UTType respondsToSelector:classMethod])
-        return modernIdentifier;
-    return (__bridge NSString *)legacyKey;
-}
-
-static NSString *UT_PNG_ID() { return [UTType respondsToSelector:@selector(PNG)] ? UTTypePNG.identifier : (__bridge NSString *)kUTTypePNG; }
-static NSString *UT_JPEG_ID() { return [UTType respondsToSelector:@selector(JPEG)] ? UTTypeJPEG.identifier : (__bridge NSString *)kUTTypeJPEG; }
-static NSString *UT_TIFF_ID() { return [UTType respondsToSelector:@selector(TIFF)] ? UTTypeTIFF.identifier : (__bridge NSString *)kUTTypeTIFF; }
-static NSString *UT_UTF8_PLAIN_ID() { return [UTType respondsToSelector:@selector(UTF8PlainText)] ? UTTypeUTF8PlainText.identifier : (__bridge NSString *)kUTTypeUTF8PlainText; }
+// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTType* constants) is macOS 11+ and absent on
+// 10.9; these identifiers come from the legacy CoreServices kUTType* constants via UTTypeIdentifiers.h.
+static NSString *UT_PNG_ID() { return utTypePNGId(); }
+static NSString *UT_JPEG_ID() { return utTypeJPEGId(); }
+static NSString *UT_TIFF_ID() { return utTypeTIFFId(); }
+static NSString *UT_UTF8_PLAIN_ID() { return utTypeUTF8PlainTextId(); }
 // Web Archive UTType is private; just use the literal.
 static NSString *const UT_WEB_ARCHIVE_ID = @"com.apple.webarchive";
 
@@ -712,8 +705,8 @@ void Pasteboard::writeString(const String& type, const String& data)
     const String& cocoaType = cocoaTypeFromHTMLClipboardType(type);
     String cocoaData = data;
 
-    // 10.9 backport: +[UTType fileURL] is 11.0+. Use legacy kUTTypeFileURL.
-    NSString *fileURLId = [UTType respondsToSelector:@selector(fileURL)] ? UTTypeFileURL.identifier : (__bridge NSString *)kUTTypeFileURL;
+    // MAVERICKS_BACKPORT: UTTypeFileURL is macOS 11+; use the legacy kUTTypeFileURL identifier.
+    NSString *fileURLId = utTypeFileURLId();
     if (cocoaType == String(legacyURLPasteboardTypeSingleton()) || cocoaType == String(fileURLId)) {
         // 10.9 backport: -[NSURL initWithString:nil] throws; nil-check before constructing.
         RetainPtr cocoaNSString = cocoaData.createNSString();

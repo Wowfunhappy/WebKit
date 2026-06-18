@@ -127,7 +127,8 @@ void CryptoAlgorithmRSA_PSS::importKey(CryptoKeyFormat format, KeyData&& data, c
             isMatched = key.alg.isNull() || key.alg == ALG1;
             break;
         case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-            // 10.9 backport: don't crash; leave isMatched/jwk.alg unset.
+            // MAVERICKS_BACKPORT: SHA-224 graceful-fail (policy choice). Upstream traps;
+            // leave isMatched unset so importKey fails instead of crashing the tab.
             break;
         case CryptoAlgorithmIdentifier::SHA_256:
             isMatched = key.alg.isNull() || key.alg == ALG256;
@@ -198,7 +199,8 @@ void CryptoAlgorithmRSA_PSS::exportKey(CryptoKeyFormat format, Ref<CryptoKey>&& 
             jwk.alg = String(ALG1);
             break;
         case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-            // 10.9 backport: don't crash; leave isMatched/jwk.alg unset.
+            // MAVERICKS_BACKPORT: SHA-224 graceful-fail (policy choice). Upstream traps;
+            // leave jwk.alg unset instead of crashing the tab.
             break;
         case CryptoAlgorithmIdentifier::SHA_256:
             jwk.alg = String(ALG256);

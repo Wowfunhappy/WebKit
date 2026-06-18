@@ -39,8 +39,8 @@ static CCPseudoRandomAlgorithm NODELETE commonCryptoHMACAlgorithm(CryptoAlgorith
     case CryptoAlgorithmIdentifier::SHA_1:
         return kCCPRFHmacAlgSHA1;
     case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-        // 10.9 backport: 0 (invalid) signals PBKDF2 to fail; don't crash WebContent.
-        return 0;
+        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
+        return kCCPRFHmacAlgSHA256;
     case CryptoAlgorithmIdentifier::SHA_256:
         return kCCPRFHmacAlgSHA256;
     case CryptoAlgorithmIdentifier::SHA_384:

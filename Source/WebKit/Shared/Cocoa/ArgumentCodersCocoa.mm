@@ -642,8 +642,9 @@ template<> std::optional<RetainPtr<id>> decodeObjectDirectlyRequiringAllowedClas
     // through the non-secure -[NSURLRequest initWithCoder:] path
     // (_CFURLRequestCreateFromArchiveList → URLRequest::initialize SIGSEGV).
     [unarchiver setRequiresSecureCoding:YES];
-    // NSDecodingFailurePolicyRaiseException (the default, value 0) is 10.13+; the
-    // force-included MavericksSupport/compat.h defines it for the KVC set below.
+    // MAVERICKS_BACKPORT: -setDecodingFailurePolicy: is 10.13+ and absent on 10.9, so
+    // set it by KVC behind a respondsToSelector: guard (on 10.9 the policy already
+    // defaults to RaiseException). Diverges from upstream's direct property set.
     if ([unarchiver respondsToSelector:@selector(setDecodingFailurePolicy:)])
         [unarchiver setValue:@(NSDecodingFailurePolicyRaiseException) forKey:@"decodingFailurePolicy"];
 

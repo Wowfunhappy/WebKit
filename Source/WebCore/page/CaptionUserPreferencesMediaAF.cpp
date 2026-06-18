@@ -266,7 +266,7 @@ bool CaptionUserPreferencesMediaAF::userPrefersSubtitles() const
 
 bool CaptionUserPreferencesMediaAF::userPrefersTextDescriptions() const
 {
-    // 10.9 backport: 10.9's MediaAccessibility framework lacks
+    // MAVERICKS_BACKPORT: runtime-absent symbol — 10.9's MediaAccessibility framework lacks
     // MAAudibleMediaPrefCopyPreferDescriptiveVideo. The soft-link check
     // succeeds because the library exists, but the symbol is missing and the
     // dispatch_once init block crashes. gnu.org has <track> elements that

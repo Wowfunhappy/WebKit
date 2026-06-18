@@ -158,14 +158,6 @@ void TreeScope::setParentTreeScope(TreeScope& newParentScope)
 
 void TreeScope::setCustomElementRegistry(RefPtr<CustomElementRegistry>&& registry)
 {
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) {
-            fprintf(_f, "[TreeScope::setRegistry PID %d] this=%p registry=%p (was=%p)\n",
-                getpid(), static_cast<void*>(this), registry.get(), m_customElementRegistry.get());
-            fclose(_f);
-        }
-    }
     m_customElementRegistry = WTF::move(registry);
 }
 

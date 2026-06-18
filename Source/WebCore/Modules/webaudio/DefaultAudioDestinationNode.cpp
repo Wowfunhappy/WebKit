@@ -93,14 +93,15 @@ void DefaultAudioDestinationNode::initialize()
 
 void DefaultAudioDestinationNode::uninitialize()
 {
+    // MAVERICKS_BACKPORT: keystone band-aid #54 (broken main-thread identity under dispatch_main).
+    // The upstream ASSERT(isMainThread()) tripped during worker teardown; bail instead of crashing.
     if (!isMainThread())
-        return; // 10.9 backport: was crashing from worker teardown.
+        return;
     if (!isInitialized())
         return;
 
-    // 10.9 backport: skip ALWAYS_LOG — logger()/m_logger may not be valid during
-    // partial teardown. The previous +222 crash signature in WebContent crash logs
-    // mapped to this region. m_destination guard remains.
+    // MAVERICKS_BACKPORT: keystone #54 — skip ALWAYS_LOG (logger()/m_logger may not be valid during
+    // partial teardown; the +222 WebContent crash signature mapped here) and null-guard m_destination.
     if (m_destination)
         clearDestination();
     m_numberOfInputChannels = 0;
@@ -110,6 +111,8 @@ void DefaultAudioDestinationNode::uninitialize()
 
 void DefaultAudioDestinationNode::clearDestination()
 {
+    // MAVERICKS_BACKPORT: keystone #54 — upstream ASSERT(m_destination); null-guard instead (createDestination
+    // can leave m_destination null on this port; see createDestination below).
     if (!m_destination)
         return;
     if (m_wasDestinationStarted) {
@@ -122,13 +125,13 @@ void DefaultAudioDestinationNode::clearDestination()
 
 void DefaultAudioDestinationNode::createDestination()
 {
-    // 10.9 backport: previously stubbed because AudioDestination::create crashed
-    // with "null function pointer call" — root cause was that PAL soft-linked
-    // AudioComponentFindNext / AudioUnitInitialize / etc. from AudioToolbox.framework,
-    // but on 10.9 those symbols actually live in AudioUnit.framework (they migrated to
-    // AudioToolbox in 10.10). dlsym returned NULL, calling NULL crashed. Fix landed in
-    // PAL/pal/cf/AudioToolboxSoftLink.{cpp,h} — soft-link from AudioUnit on PLATFORM(MAC).
-    // With the soft-link fixed, the real createAudioDestination should now work.
+    // MAVERICKS_BACKPORT: runtime-absent symbols (context for the #54-cluster null guards). This was
+    // previously stubbed because AudioDestination::create crashed with "null function pointer call" — PAL
+    // soft-linked AudioComponentFindNext / AudioUnitInitialize / etc. from AudioToolbox.framework, but on
+    // 10.9 those symbols live in AudioUnit.framework (they migrated to AudioToolbox in 10.10). dlsym
+    // returned NULL, calling NULL crashed. Fixed in PAL/pal/cf/AudioToolboxSoftLink.{cpp,h} (soft-link
+    // from AudioUnit on PLATFORM(MAC)); the m_destination null guards in this file remain as belt-and-
+    // suspenders against a failed create.
     ALWAYS_LOG(LOGIDENTIFIER, "contextSampleRate = ", sampleRate(), ", hardwareSampleRate = ", AudioDestination::hardwareSampleRate());
     ASSERT(!m_destination);
     m_destination = platformStrategies()->mediaStrategy()->createAudioDestination({ *this, m_inputDeviceId, m_numberOfInputChannels, channelCount(), sampleRate()
@@ -143,6 +146,7 @@ void DefaultAudioDestinationNode::recreateDestination()
     bool wasDestinationStarted = m_wasDestinationStarted;
     clearDestination();
     createDestination();
+    // MAVERICKS_BACKPORT: keystone #54 — m_destination null guard (createDestination may leave it null).
     if (wasDestinationStarted && m_destination) {
         m_wasDestinationStarted = true;
         m_destination->start(dispatchToRenderThreadFunction());

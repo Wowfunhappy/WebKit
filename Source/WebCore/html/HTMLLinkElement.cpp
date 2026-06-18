@@ -277,7 +277,8 @@ bool HTMLLinkElement::shouldLoadLink()
 {
     if (!isConnected())
         return false;
-    // 10.9 backport: cancelable beforeload (Safari 7 extension blocking).
+    // MAVERICKS_BACKPORT: restored-lost-upstream behavior (#62). Cancelable beforeload
+    // event lets Safari 7 extensions block link subresources (uBlock network blocking).
     Ref<Document> originalDocument = document();
     if (!dispatchBeforeLoadEvent(getNonEmptyURLAttribute(hrefAttr).string()))
         return false;
@@ -597,10 +598,6 @@ void HTMLLinkElement::initializeStyleSheet(Ref<StyleSheetContents>&& styleSheet,
 
 void HTMLLinkElement::setCSSStyleSheet(const String& href, const URL& baseURL, ASCIILiteral charset, const CachedCSSStyleSheet* cachedStyleSheet)
 {
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) { auto h = href.utf8(); fprintf(_f, "[HTMLLinkElement::setCSSStyleSheet PID %d] this=%p href=%.150s connected=%d err=%d\n", getpid(), this, h.data(), (int)isConnected(), cachedStyleSheet ? (int)cachedStyleSheet->errorOccurred() : -1); fclose(_f); }
-    }
     unblockRendering();
     if (!isConnected()) {
         ASSERT(!m_sheet);

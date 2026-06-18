@@ -90,6 +90,8 @@ using ElementCache = WeakHashMap<Element, Data, WeakPtrImplWithEventTargetData>;
 
 static String preferredFilenameForElement(const HTMLImageElement& element)
 {
+    // MAVERICKS_BACKPORT: build glue — gate HTMLAttachmentElement use under ENABLE(ATTACHMENT_ELEMENT) (=0
+    // on this port); upstream references it unguarded here, which would not compile with the feature off.
 #if ENABLE(ATTACHMENT_ELEMENT)
     if (RefPtr attachment = element.attachmentElement()) {
         if (auto title = attachment->attachmentTitle(); !title.isEmpty())
@@ -155,6 +157,7 @@ static RetainPtr<NSFileWrapper> fileWrapperForElement(const HTMLImageElement& el
     return nil;
 }
 
+// MAVERICKS_BACKPORT: build glue — HTMLAttachmentElement overload only when ENABLE(ATTACHMENT_ELEMENT) (=0 here).
 #if ENABLE(ATTACHMENT_ELEMENT)
 static RetainPtr<NSFileWrapper> fileWrapperForElement(const HTMLAttachmentElement& element)
 {
@@ -201,6 +204,7 @@ static RetainPtr<NSAttributedString> attributedStringWithAttachmentForElement(co
     return attributedStringWithAttachmentForFileWrapper(fileWrapper.get());
 }
 
+// MAVERICKS_BACKPORT: build glue — HTMLAttachmentElement overload only when ENABLE(ATTACHMENT_ELEMENT) (=0 here).
 #if ENABLE(ATTACHMENT_ELEMENT)
 static RetainPtr<NSAttributedString> attributedStringWithAttachmentForElement(const HTMLAttachmentElement& element)
 {
@@ -473,6 +477,7 @@ static AttributedString editingAttributedStringInternal(const SimpleRange& range
             stringLength += [attachmentAttributedString length];
         }
 
+        // MAVERICKS_BACKPORT: build glue — HTMLAttachmentElement branch only when ENABLE(ATTACHMENT_ELEMENT) (=0 here).
 #if ENABLE(ATTACHMENT_ELEMENT)
         if (RefPtr attachmentElement = dynamicDowncast<HTMLAttachmentElement>(node.get()); attachmentElement && includedElements.contains(IncludedElement::Attachments)) {
             RetainPtr attachmentAttributedString = attributedStringWithAttachmentForElement(*attachmentElement);

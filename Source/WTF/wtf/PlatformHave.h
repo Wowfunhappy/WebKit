@@ -587,7 +587,10 @@
 #define HAVE_AVPLAYER_RESOURCE_CONSERVATION_LEVEL 1
 #endif
 
-#if PLATFORM(IOS) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500) || PLATFORM(VISION)
+// MAVERICKS_BACKPORT: App SSO needs the SOAuthorization runtime (macOS 10.15+), absent on 10.9.
+// Upstream gates this on __MAC_OS_X_VERSION_MAX_ALLOWED (the SDK), which is satisfied by the 26.1
+// SDK; gate on __MAC_OS_X_VERSION_MIN_REQUIRED (the deployment target) so the feature is off on 10.9.
+#if PLATFORM(IOS) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || PLATFORM(VISION)
 #define HAVE_APP_SSO 1
 #endif
 
@@ -1239,7 +1242,10 @@
 #endif
 #endif
 
-#if (PLATFORM(COCOA) && !PLATFORM(WATCHOS)) && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MAX_ALLOWED >= 101400)
+// MAVERICKS_BACKPORT: the _hostOverride path uses nw_endpoint_create_host_with_numeric_port
+// (Network.framework, macOS 10.14+), absent at runtime on 10.9. Gate on __MAC_OS_X_VERSION_MIN_REQUIRED
+// (the deployment target) rather than the SDK so this is off on 10.9.
+#if (PLATFORM(COCOA) && !PLATFORM(WATCHOS)) && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400)
 #define HAVE_CFNETWORK_HOSTOVERRIDE 1
 #endif
 
@@ -1544,8 +1550,13 @@
 #define HAVE_XPC_API 1
 #endif
 
+// MAVERICKS_BACKPORT: this gates whether the SDK declares the browser-engine-supporting
+// API (used only to decide whether WebKit's SPI headers re-declare now-public types like
+// IOSurfaceMemoryLedgerTags). That depends on the SDK version, not the deployment target,
+// so gate the Mac case on __MAC_OS_X_VERSION_MAX_ALLOWED — otherwise on a modern SDK with a
+// 10.9 deployment target we would re-declare types the SDK already provides and collide.
 #if !defined(HAVE_BROWSER_ENGINE_SUPPORTING_API) \
-    && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140400) \
+    && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 140400) \
     || ((PLATFORM(IOS) || PLATFORM(MACCATALYST)) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 170400) \
     || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 100400) \
     || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 170400) \

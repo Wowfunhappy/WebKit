@@ -116,12 +116,14 @@ public:
 private:
     void releaseAssertOrSetThreadUID()
     {
-        // 10.9 backport: Thread::mayBeGCThread() returns false on this build
-        // because the GC thread tagging hooks aren't wired through our polyfills.
-        // That makes this RELEASE_ASSERT trip on github's React landing page,
-        // where add/removeEventListener fires from a worker dispatched off-main.
-        // Skip the cross-thread invariant check; the underlying m_lock still
-        // serializes mutations.
+        // MAVERICKS_BACKPORT: KEYSTONE BAND-AID #54 (broken main-thread identity under
+        // dispatch_main) — releaseAssertOrSetThreadUID gutted to an early return.
+        // Thread::mayBeGCThread() returns false on this build because the GC thread tagging
+        // hooks aren't wired through our polyfills. That makes the upstream RELEASE_ASSERT
+        // trip on github's React landing page, where add/removeEventListener fires from a
+        // worker dispatched off-main. Skip the cross-thread invariant check; the underlying
+        // m_lock still serializes mutations.
+        // FLAG: fix the #54 thread-identity keystone, then restore the upstream UID check.
         return;
     }
 

@@ -200,11 +200,14 @@ RetainPtr<CocoaImage> iconForFiles(const Vector<String>& filenames)
     if (!fileExtension.get().length)
         return nil;
 
-    RetainPtr fileUTI = [UTType typeWithFilenameExtension:fileExtension.get()];
-    if ([fileUTI conformsToType:UTTypeImage])
+    // MAVERICKS_BACKPORT: UTType/UniformTypeIdentifiers is macOS 11+ and absent on 10.9, so the legacy
+    // CoreServices UTType C API (present at runtime on 10.9) maps the filename extension to a UTI
+    // CFStringRef and tests conformance to kUTTypeImage / kUTTypeMovie via UTTypeConformsTo.
+    RetainPtr fileUTI = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)fileExtension.get(), nullptr));
+    if (fileUTI && UTTypeConformsTo(fileUTI.get(), kUTTypeImage))
         return iconForImageFile(file.get());
 
-    if ([fileUTI conformsToType:UTTypeMovie])
+    if (fileUTI && UTTypeConformsTo(fileUTI.get(), kUTTypeMovie))
         return iconForVideoFile(file.get());
 
     return fallbackIconForFile(file.get());

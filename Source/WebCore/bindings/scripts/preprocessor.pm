@@ -59,6 +59,9 @@ sub applyPreprocessor
     }
 
     if ($Config::Config{"osname"} eq "darwin") {
+        # MAVERICKS_BACKPORT: build glue — robustify $ENV{ARCHS}/-target handling for
+        # this Xcode env (single arch, possibly-unset triple vars); only pass -target
+        # when arch/vendor/os are all present rather than splitting a multi-arch ARCHS.
         my $arch = $ENV{ARCHS};
         my $vendor = $ENV{LLVM_TARGET_TRIPLE_VENDOR};
         my $os = $ENV{LLVM_TARGET_TRIPLE_OS_VERSION};

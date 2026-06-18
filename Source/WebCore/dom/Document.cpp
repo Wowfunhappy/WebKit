@@ -2431,7 +2431,6 @@ static String canonicalizedTitle(Document& document, const String& title)
 
 void Document::updateTitle(const StringWithDirection& title)
 {
-    // 10.9 perf: removed debug fopen logging
     if (m_rawTitle == title)
         return;
 
@@ -3394,7 +3393,6 @@ bool Document::isInStyleInterleavedLayoutForSelfOrAncestor() const
 
 void Document::createRenderTree()
 {
-    // 10.9 perf: removed debug fopen logging
     ASSERT(!renderView());
     ASSERT(m_backForwardCacheState != InBackForwardCache);
 
@@ -3409,7 +3407,6 @@ void Document::createRenderTree()
     renderView->setIsInWindow(true);
 
     resolveStyle(ResolveStyleType::Rebuild);
-    // 10.9 perf: removed debug fopen logging
 
 #if PLATFORM(MAC)
     if (CheckedPtr cache = existingAXObjectCache())
@@ -3508,7 +3505,6 @@ void Document::detachFromCachedFrame(CachedFrameBase& cachedFrame)
 
 void Document::destroyRenderTree()
 {
-    // 10.9 perf: removed debug fopen logging
     ASSERT(hasLivingRenderTree());
     ASSERT(frame());
     ASSERT(frame()->document() == this);
@@ -3558,8 +3554,7 @@ void Document::destroyRenderTree()
 
         m_renderView->destroy();
     }
-    auto* released = m_renderView.release();
-    // 10.9 perf: removed debug fopen logging
+    m_renderView.release();
 
     Node::setRenderer(nullptr);
 
@@ -3573,7 +3568,6 @@ void Document::destroyRenderTree()
 
 void Document::willBeRemovedFromFrame()
 {
-    // 10.9 perf: removed debug fopen logging
     if (m_hasPreparedForDestruction)
         return;
 
@@ -5986,7 +5980,8 @@ void Document::addAudioProducer(MediaProducer& audioProducer)
 
 void Document::removeAudioProducer(MediaProducer& audioProducer)
 {
-    // 10.9 backport: HTMLMediaElement teardown can run on Worker thread
+    // MAVERICKS_BACKPORT: keystone #54 (broken main-thread identity under dispatch_main).
+    // HTMLMediaElement teardown can run on Worker thread
     // (shared ThreadGlobalData/dispatch fragmentation). Skip the unregister
     // — the producer is being destroyed and will drop out of the set when
     // the Document itself goes away. updateIsPlayingMedia would touch
@@ -7185,7 +7180,8 @@ void Document::addListenerTypeIfNeeded(const AtomString& eventType)
     case EventType::focusout:
         addListenerType(ListenerType::FocusOut);
         break;
-    // 10.9 backport: cancelable beforeload (Safari 7 extension blocking).
+    // MAVERICKS_BACKPORT: restored-lost-upstream behavior (#62). Cancelable beforeload
+    // event drives Safari 7 extension content-blocking (uBlock network blocking).
     case EventType::beforeload:
         addListenerType(ListenerType::BeforeLoad);
         break;
@@ -9764,22 +9760,14 @@ void Document::updateHoverActiveState(const HitTestRequest& request, Element* in
 
 bool Document::haveStylesheetsLoaded() const
 {
-    // 10.9 backport: github xnu page reliably leaves a small number of stylesheet
-    // elements stuck in m_elementsInHeadWithPendingSheets despite their CSS
-    // resources finishing load. Add/remove probes confirm 1:1 add/remove
-    // pointer match, but WeakHashSet computeSize stays > 0 — likely a
-    // WeakHashSet implementation issue on this build. Without this fix,
-    // the parser stays blocked forever on a script-blocking-stylesheets
-    // condition (HTMLScriptRunner::executeParsingBlocking returns with
-    // ready=0 stylesheets=0). Return true if all subresources are done
-    // loading even if styleScope thinks sheets are pending.
+    // MAVERICKS_BACKPORT: keystone #50, now DE-HACKED — this is behaviorally identical
+    // to upstream (return true iff pending sheets ignored OR none pending). The old hack
+    // unconditionally returned true to dodge "pending sheets never drain on github", which
+    // was really the NetworkProcess NSURLSession-KVO swizzle orphaning stylesheet loads;
+    // that swizzle is gone and sheets now drain correctly. Kept in expanded form to preserve
+    // the keystone annotation. (Human review: safe to collapse to the upstream one-liner.)
     if (m_ignorePendingStylesheets || !styleScope().hasPendingSheets())
         return true;
-    // Sheets are genuinely still pending — block as upstream does. (The earlier
-    // 10.9 backport returned true here to dodge "pending sheets never drain on
-    // github", but that was a symptom of the NetworkProcess NSURLSession KVO
-    // swizzle orphaning stylesheet loads so they never completed/were removed
-    // from the pending set. That swizzle is removed; sheets now drain correctly.)
     return false;
 }
 

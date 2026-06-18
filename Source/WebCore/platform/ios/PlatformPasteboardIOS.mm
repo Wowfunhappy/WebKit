@@ -131,7 +131,7 @@ int PlatformPasteboard::numberOfFiles() const
     return [m_pasteboard respondsToSelector:@selector(numberOfFiles)] ? [m_pasteboard numberOfFiles] : 0;
 }
 
-static bool shouldTreatAtLeastOneTypeAsFile(NSArray *platformTypes)
+static bool shouldTreatAtLeastOneTypeAsFile(NSArray<NSString *> *platformTypes)
 {
     for (NSString *type in platformTypes) {
         if (Pasteboard::shouldTreatCocoaTypeAsFile(type))
@@ -179,7 +179,7 @@ static const char *safeTypeForDOMToReadAndWriteForPlatformType(NSString *platfor
     return nullptr;
 }
 
-static Vector<String> webSafeTypes(NSArray *platformTypes, PlatformPasteboard::IncludeImageTypes includeImageTypes, Function<bool()>&& shouldAvoidExposingURLType)
+static Vector<String> webSafeTypes(NSArray<NSString *> *platformTypes, PlatformPasteboard::IncludeImageTypes includeImageTypes, Function<bool()>&& shouldAvoidExposingURLType)
 {
     ListHashSet<String> domPasteboardTypes;
     for (NSString *type in platformTypes) {
@@ -232,7 +232,7 @@ std::optional<PasteboardItemInfo> PlatformPasteboard::informationForItemAtIndex(
     PasteboardItemInfo info;
     NSItemProvider *itemProvider = [[m_pasteboard itemProviders] objectAtIndex:index];
     if ([m_pasteboard respondsToSelector:@selector(fileUploadURLsAtIndex:fileTypes:)]) {
-        NSArray *fileTypes = nil;
+        NSArray<NSString *> *fileTypes = nil;
         NSArray *urls = [m_pasteboard fileUploadURLsAtIndex:index fileTypes:&fileTypes];
         ASSERT(fileTypes.count == urls.count);
 
@@ -267,7 +267,7 @@ std::optional<PasteboardItemInfo> PlatformPasteboard::informationForItemAtIndex(
     }
     info.containsFileURLAndFileUploadContent = itemProvider.web_containsFileURLAndFileUploadContent;
     info.suggestedFileName = itemProvider.suggestedName;
-    NSArray *registeredTypeIdentifiers = itemProvider.registeredTypeIdentifiers;
+    NSArray<NSString *> *registeredTypeIdentifiers = itemProvider.registeredTypeIdentifiers;
     info.platformTypesByFidelity.reserveInitialCapacity(registeredTypeIdentifiers.count);
     for (NSString *typeIdentifier in registeredTypeIdentifiers) {
         info.platformTypesByFidelity.append(typeIdentifier);
@@ -395,7 +395,7 @@ String PlatformPasteboard::platformPasteboardTypeForSafeTypeForDOMToReadAndWrite
 
 static NSString *webIOSPastePboardType = @"iOS rich content paste pasteboard type";
 
-static void registerItemsToPasteboard(NSArray *itemLists, id <AbstractPasteboard> pasteboard)
+static void registerItemsToPasteboard(NSArray<WebItemProviderRegistrationInfoList *> *itemLists, id <AbstractPasteboard> pasteboard)
 {
 #if PLATFORM(MACCATALYST)
     // In macCatalyst, -[UIPasteboard setItemProviders:] is not yet supported, so we fall back to setting an item dictionary when

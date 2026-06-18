@@ -335,7 +335,6 @@ RefPtr<ScriptElement> HTMLTreeBuilder::takeScriptToProcess(TextPosition& scriptS
 
 void HTMLTreeBuilder::constructTree(AtomHTMLToken&& token)
 {
-    // 10.9 perf: removed debug fopen logging
 #if ASSERT_ENABLED
     ASSERT(!m_destroyed);
     ASSERT(!m_destructionProhibited);
@@ -352,7 +351,8 @@ void HTMLTreeBuilder::constructTree(AtomHTMLToken&& token)
         && !HTMLElementStack::isHTMLIntegrationPoint(m_tree.currentStackItem())
         && !HTMLElementStack::isMathMLTextIntegrationPoint(m_tree.currentStackItem());
 
-    // 10.9 backport: processToken(EOF) can finalize the document and destroy our owning
+    // MAVERICKS_BACKPORT: keystone band-aid (#54-adjacent main-thread/lifetime). processToken(EOF) can
+    // finalize the document and destroy our owning
     // HTMLDocumentParser, leaving m_parser (a WeakRef) dangling. RELEASE_ASSERT on ptr()
     // would crash. Guard against that.
     if (auto* parser = m_parser.ptrAllowingHashTableEmptyValue()) {

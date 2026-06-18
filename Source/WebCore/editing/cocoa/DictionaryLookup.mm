@@ -542,8 +542,8 @@ std::optional<SimpleRange> DictionaryLookup::rangeAtHitTestResult(const HitTestR
 
 #elif PLATFORM(MAC) // PLATFORM(MAC) && !ENABLE(REVEAL)
 
-// 10.9 backport: the Reveal framework (the Look Up popover) does not exist, so the
-// REVEAL block above is compiled out. WebViewImpl still calls hidePopup()
+// MAVERICKS_BACKPORT: build glue — the Reveal framework (the Look Up popover) does not exist (ENABLE(REVEAL)=0),
+// so the REVEAL block above is compiled out. WebViewImpl still links against hidePopup()
 // unconditionally; with no Reveal popup ever shown, hiding it is a no-op.
 void DictionaryLookup::hidePopup()
 {

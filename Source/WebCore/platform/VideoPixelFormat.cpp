@@ -43,11 +43,7 @@ namespace WebCore {
 std::optional<VideoPixelFormat> convertVideoFramePixelFormat(uint32_t format, bool shouldDiscardAlpha)
 {
 #if PLATFORM(COCOA)
-    if (format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange || format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300
-        || format == kCVPixelFormatType_Lossless_420YpCbCr8BiPlanarVideoRange
-#endif
-    )
+    if (format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange || format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange || format == kCVPixelFormatType_Lossless_420YpCbCr8BiPlanarVideoRange)
         return VideoPixelFormat::NV12;
     if (format == kCVPixelFormatType_32BGRA)
         return shouldDiscardAlpha ? VideoPixelFormat::BGRX : VideoPixelFormat::BGRA;

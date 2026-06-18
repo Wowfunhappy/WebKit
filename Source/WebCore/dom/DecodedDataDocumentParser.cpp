@@ -40,12 +40,10 @@ DecodedDataDocumentParser::DecodedDataDocumentParser(Document& document)
 
 void DecodedDataDocumentParser::appendBytes(DocumentWriter& writer, std::span<const uint8_t> data)
 {
-    // 10.9 perf: removed debug fopen logging
     if (data.empty())
         return;
 
     String decoded = protect(writer.decoder())->decode(data);
-    // 10.9 perf: removed debug fopen logging
     if (decoded.isEmpty())
         return;
 
@@ -55,15 +53,12 @@ void DecodedDataDocumentParser::appendBytes(DocumentWriter& writer, std::span<co
 
 void DecodedDataDocumentParser::flush(DocumentWriter& writer)
 {
-    // 10.9 perf: removed debug fopen logging
     String remainingData = protect(writer.decoder())->flush();
-    // 10.9 perf: removed debug fopen logging
     if (remainingData.isEmpty())
         return;
 
     writer.reportDataReceived();
     append(remainingData.releaseImpl());
-    // 10.9 perf: removed debug fopen logging
 }
 
 };

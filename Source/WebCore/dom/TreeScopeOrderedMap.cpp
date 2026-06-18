@@ -82,15 +82,16 @@ void TreeScopeOrderedMap::add(const AtomString& key, Element& element, const Tre
 
 void TreeScopeOrderedMap::remove(const AtomString& key, Element& element)
 {
+    // MAVERICKS_BACKPORT: KEYSTONE BAND-AID #54/#40 — RELEASE_ASSERT_WITH_SECURITY_IMPLICATION
+    // hard-traps softened to silent bails (key.isNull() and it==end()).
     if (key.isNull())
         return;
     auto it = m_map.find(key);
-    // 10.9 backport: hardened from RELEASE_ASSERT_WITH_SECURITY_IMPLICATION
-    // hard-traps. arstechnica's JS DOM manipulation triggers
-    // remove(<key>, <element>) for entries where the map state is out of
-    // sync with the element (id/name attribute change races, custom-element
-    // bypass effects, etc.). Bail rather than SIGTRAP — the map will rebuild
+    // arstechnica's JS DOM manipulation triggers remove(<key>, <element>) for entries where
+    // the map state is out of sync with the element (id/name attribute change races,
+    // custom-element bypass effects, etc.). Bail rather than SIGTRAP — the map rebuilds
     // organically as DOM mutations continue.
+    // FLAG: root-cause the #54/#40 map-desync, then restore the upstream security asserts.
     if (it == m_map.end())
         return;
     MapEntry& entry = it->value;

@@ -150,7 +150,7 @@ bool ScrollingTreeScrollingNodeDelegateMac::handleWheelEvent(const PlatformWheel
     else if (wheelEvent.momentumPhase() == PlatformWheelEventPhase::Ended || wheelEvent.momentumPhase() == PlatformWheelEventPhase::Cancelled)
         m_inMomentumPhase = false;
 
-    // 10.9: also track the active (fingers-down) gesture, not only momentum. Upstream relies on the
+    // MAVERICKS_BACKPORT: behavior #55/#39 — also track the active (fingers-down) gesture, not only momentum. Upstream relies on the
     // main thread to move the thumb during the active drag; on this port that notification is coalesced
     // so the thumb stalls/jumps. By using the smooth presentation-value path for the WHOLE gesture
     // (active drag + momentum) the thumb tracks the content frame-for-frame on the scrolling thread.
@@ -402,7 +402,7 @@ void ScrollingTreeScrollingNodeDelegateMac::updateScrollbarPainters()
 {
     if (!m_scrollerPair->hasScrollerImp())
         return;
-    // 10.9 backport: called from repositionRelatedLayers() on every scroll-thread reposition. Use the
+    // MAVERICKS_BACKPORT: behavior #55/#39 — called from repositionRelatedLayers() on every scroll-thread reposition. Use the
     // SMOOTH presentation-value path whenever presentation values are active — now the whole gesture
     // (active drag + momentum), see handleWheelEvent — so the thumb tracks the content frame-for-frame.
     // Otherwise (discrete wheel-mouse ticks / idle, no presentation values) push the normal scroller

@@ -32,10 +32,6 @@
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSGenericTypedArrayViewInlines.h>
 
-#ifndef z_const
-#define z_const
-#endif
-
 namespace WebCore {
 
 ExceptionOr<RefPtr<Uint8Array>> CompressionStreamEncoder::encode(const BufferSource&& input)

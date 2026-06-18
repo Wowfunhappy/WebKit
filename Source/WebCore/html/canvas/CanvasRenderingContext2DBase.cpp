@@ -2909,7 +2909,7 @@ void CanvasRenderingContext2DBase::drawTextUnchecked(const TextRun& textRun, dou
     auto drawText = [&](GraphicsContext& context, const FloatPoint& point) {
         FloatPoint adjustedPoint = point;
 #if PLATFORM(MAC)
-        // 10.9 backport: canvas fillText draws glyphs ~capHeight BELOW the alphabetic baseline
+        // MAVERICKS_BACKPORT: behavior fix (10.9 CTFontDrawGlyphs position-origin divergence). canvas fillText draws glyphs ~capHeight BELOW the alphabetic baseline
         // because 10.9 CT's CTFontDrawGlyphs interprets the input position as cap-top instead of
         // baseline (the text matrix Y-flip composes differently than 10.10+ CT). Without this
         // compensation, ctx.fillText('text', x, 100) draws cap-top at y=100 instead of baseline.

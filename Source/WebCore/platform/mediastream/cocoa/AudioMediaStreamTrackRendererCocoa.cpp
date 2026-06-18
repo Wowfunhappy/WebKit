@@ -31,9 +31,7 @@
 #include "AudioMediaStreamTrackRendererUnit.h"
 #include "AudioSampleDataSource.h"
 #include "CAAudioStreamDescription.h"
-#if USE(LIBWEBRTC)
 #include "LibWebRTCAudioModule.h"
-#endif
 #include <wtf/CompletionHandler.h>
 #include <wtf/TZoneMallocInlines.h>
 

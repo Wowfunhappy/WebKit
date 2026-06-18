@@ -284,18 +284,16 @@ void RenderSVGRoot::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
     if (borderBoxRect().isEmpty())
         return;
 
-    // 10.9 backport: when destination context is NOT a bitmap (i.e. it's an
-    // IOSurface-backed CALayer context), CGContextFillPath silently fails — the
-    // SVG icons (octicons inline, HN Y logo + upvote arrows, github folder
-    // icons + sidebar icons) draw zero pixels. Mirror the SVGImage::draw fix:
-    // rasterize this SVG into a bitmap ImageBuffer, then drawImageBuffer back
-    // into the IOSurface context. PaintPhase::Foreground is the icon-drawing
-    // phase; only redirect that one (background and outline are flat fills).
+    // MAVERICKS_BACKPORT: keystone band-aid #56 (CALayer/IOSurface compositing broken). When the
+    // destination context is NOT a bitmap (i.e. an IOSurface-backed CALayer context), CGContextFillPath
+    // silently fails on 10.9 — inline SVG icons (octicons, HN Y logo + upvote arrows, github folder +
+    // sidebar icons) draw zero pixels. Mirror the SVGImage::draw fix: rasterize this SVG into a bitmap
+    // ImageBuffer, then drawImageBuffer back into the IOSurface context. PaintPhase::Foreground is the
+    // icon-drawing phase; only redirect that one (background and outline are flat fills).
     static thread_local int s_svgRootRasterizeDepth = 0;
     if (s_svgRootRasterizeDepth == 0 && paintInfo.phase == PaintPhase::Foreground) {
-        // 10.9 backport: prefer renderingMode() over CGBitmapContextGetData (the
-        // latter prints a "serious error" warning to syslog for every non-bitmap
-        // context, called per inline-SVG per frame).
+        // MAVERICKS_BACKPORT: keystone #56 — prefer renderingMode() over CGBitmapContextGetData (the latter
+        // prints a "serious error" to syslog for every non-bitmap context, called per inline-SVG per frame).
         bool isBitmap = paintInfo.context().renderingMode() == RenderingMode::Unaccelerated;
         if (!isBitmap) {
             auto adjustedOffset = paintOffset + location();

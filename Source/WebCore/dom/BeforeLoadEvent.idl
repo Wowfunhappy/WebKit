@@ -24,8 +24,8 @@
  *
  */
 
-// 10.9 backport: restored for Safari 7 extension content blocking
-// (exposed unconditionally; the legacy gating setting was removed upstream).
+// MAVERICKS_BACKPORT: restored-lost-upstream file (bug 234804) for Safari 7 extension
+// content blocking (#62); exposed unconditionally (legacy gating setting removed upstream).
 [
     Exposed=Window
 ] interface BeforeLoadEvent : Event {

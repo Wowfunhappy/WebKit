@@ -1110,7 +1110,8 @@ public:
         FocusIn = 1 << 11,
         FocusOut = 1 << 12,
         CSSAnimation = 1 << 13,
-        // 10.9 backport: cancelable beforeload (Safari 7 extension blocking).
+        // MAVERICKS_BACKPORT: ListenerType for the restored cancelable beforeload event
+        // (Safari 7 extension content blocking, #62; deleted upstream in bug 234804).
         BeforeLoad = 1 << 14,
     };
 
@@ -1582,16 +1583,17 @@ public:
 
     LayoutRect absoluteEventHandlerBounds(bool&) final;
 
-    // 10.9 backport: Document::m_visualUpdatesPreventedReasons gets set to ReadyState
-    // during the Loading phase and is supposed to be cleared by m_visualUpdatesSuppressionTimer
-    // (5-second timer) if readyState never reaches Complete. On 10.9 our WebCore Timer
-    // second-fire is unreliable, so the suppression timer often never fires for
-    // long-loading pages like github.com (which stays in Loading state forever as
-    // its async chunks keep arriving). Without visualUpdatesAllowed=true, the entire
-    // compositor pipeline (RenderLayerCompositor::updateCompositingLayers, etc.) is
-    // skipped, so the new doc's CALayer tree is never built and no paint requests
-    // reach the WebPage drawing area. Always allow visual updates on 10.9 — pages
-    // render incrementally and the user sees content as it loads.
+    // MAVERICKS_BACKPORT: KEYSTONE BAND-AID #50/#53/#55 — hardcodes visualUpdatesAllowed=true.
+    // Document::m_visualUpdatesPreventedReasons gets set to ReadyState during the Loading
+    // phase and is supposed to be cleared by m_visualUpdatesSuppressionTimer (5-second timer)
+    // if readyState never reaches Complete. On 10.9 our WebCore Timer second-fire is unreliable
+    // (timer-heap/render-cadence keystone), so the suppression timer often never fires for
+    // long-loading pages like github.com (which stays in Loading state forever as its async
+    // chunks keep arriving). Without visualUpdatesAllowed=true, the entire compositor pipeline
+    // (RenderLayerCompositor::updateCompositingLayers, etc.) is skipped, so the new doc's
+    // CALayer tree is never built and no paint requests reach the WebPage drawing area.
+    // Always allow visual updates on 10.9 — pages render incrementally as content loads.
+    // FLAG: fix the suppression-timer keystone (#53/#55), then restore the upstream check.
     bool visualUpdatesAllowed() const { return true; }
 
     bool isInDocumentWrite() { return m_writeRecursionDepth > 0; }

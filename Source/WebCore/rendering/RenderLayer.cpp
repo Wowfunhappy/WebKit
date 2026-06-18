@@ -3925,7 +3925,6 @@ void RenderLayer::paintLayerContents(GraphicsContext& context, const LayerPainti
         
         if (isPaintingCompositedBackground) {
             // Paint only the backgrounds for all of the fragments of the layer.
-            // 10.9 perf: removed debug fopen logging
             if (shouldPaintContent && !selectionOnly) {
                 paintBackgroundForFragments(layerFragments, currentContext, context, paintingInfo.paintDirtyRect, haveTransparency,
                     localPaintingInfo, paintBehavior, subtreePaintRootForRenderer);
@@ -3936,7 +3935,6 @@ void RenderLayer::paintLayerContents(GraphicsContext& context, const LayerPainti
         if (shouldPaintNegativeZIndexChildren)
             paintList(negativeZOrderLayers(), currentContext, paintingInfo, localPaintFlags);
         
-        // 10.9 perf: removed debug fopen logging
         if (isPaintingCompositedForeground && shouldPaintContent)
             paintForegroundForFragments(layerFragments, currentContext, context, paintingInfo.paintDirtyRect, haveTransparency, localPaintingInfo, paintBehavior, subtreePaintRootForRenderer);
 
@@ -4280,16 +4278,14 @@ void RenderLayer::paintBackgroundForFragments(const LayerFragments& layerFragmen
     const LayoutRect& transparencyPaintDirtyRect, bool haveTransparency, const LayerPaintingInfo& localPaintingInfo, OptionSet<PaintBehavior> paintBehavior,
     RenderObject* subtreePaintRootForRenderer)
 {
-    // 10.9 perf: removed debug fopen logging
     for (const auto& fragment : layerFragments) {
-        // 10.9 perf: removed debug fopen logging
         if (!fragment.shouldPaintContent)
             continue;
 
         // Begin transparency layers lazily now that we know we have to paint something.
         if (haveTransparency)
             beginTransparencyLayers(contextForTransparencyLayer, localPaintingInfo, transparencyPaintDirtyRect);
-
+    
         GraphicsContextStateSaver stateSaver(context, false);
         RegionContextStateSaver regionContextStateSaver(localPaintingInfo.regionContext);
 
@@ -4300,12 +4296,6 @@ void RenderLayer::paintBackgroundForFragments(const LayerFragments& layerFragmen
         // Paint the background.
         // FIXME: Eventually we will collect the region from the fragment itself instead of just from the paint info.
         PaintInfo paintInfo(context, fragment.dirtyBackgroundRect().rect(), PaintPhase::BlockBackground, paintBehavior, subtreePaintRootForRenderer, nullptr, nullptr, &localPaintingInfo.rootLayer->renderer(), this);
-        { FILE *_f=((FILE*)0); if(_f){
-            auto& r = renderer();
-            auto cm = context.compositeMode();
-            fprintf(_f,"[PID %d] paintBgForFragments cls=[%s] compositeOp=%d blendMode=%d\n", getpid(), r.renderName().characters(), (int)cm.operation, (int)cm.blendMode);
-            fclose(_f);
-        } }
         renderer().paint(paintInfo, paintOffsetForRenderer(fragment, localPaintingInfo));
     }
 }

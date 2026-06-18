@@ -27,7 +27,7 @@
 
 #include "AXObjectCache.h"
 #include "Attr.h"
-#include "BeforeLoadEvent.h"
+#include "BeforeLoadEvent.h" // MAVERICKS_BACKPORT: restored-lost-upstream header for dispatchBeforeLoadEvent (#62)
 #include "ChildListMutationScope.h"
 #include "CommonAtomStrings.h"
 #include "CommonVM.h"
@@ -2670,8 +2670,8 @@ void Node::dispatchSubtreeModifiedEvent()
     dispatchScopedEvent(MutationEvent::create(subtreeModifiedEventName, Event::CanBubble::Yes));
 }
 
-// 10.9 backport: restored cancelable beforeload dispatch (deleted upstream,
-// bug 234804) — Safari 7 extension content blocking depends on it.
+// MAVERICKS_BACKPORT: restored-lost-upstream behavior — cancelable beforeload dispatch
+// (deleted upstream, bug 234804). Safari 7 extension content blocking depends on it (#62).
 bool Node::dispatchBeforeLoadEvent(const String& sourceURL)
 {
     if (!document().hasListenerType(Document::ListenerType::BeforeLoad))

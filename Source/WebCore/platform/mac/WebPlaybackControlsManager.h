@@ -47,9 +47,9 @@ WEBCORE_EXPORT
     RetainPtr<AVValueTiming> _timing;
     NSTimeInterval _seekToTime;
     RetainPtr<NSArray> _seekableTimeRanges;
-    RetainPtr<NSArray *> _audioTouchBarMediaSelectionOptions;
+    RetainPtr<NSArray<AVTouchBarMediaSelectionOption *>> _audioTouchBarMediaSelectionOptions;
     RetainPtr<AVTouchBarMediaSelectionOption> _currentAudioTouchBarMediaSelectionOption;
-    RetainPtr<NSArray *> _legibleTouchBarMediaSelectionOptions;
+    RetainPtr<NSArray<AVTouchBarMediaSelectionOption *>> _legibleTouchBarMediaSelectionOptions;
     RetainPtr<AVTouchBarMediaSelectionOption> _currentLegibleTouchBarMediaSelectionOption;
     RefPtr<WebCore::PlaybackSessionInterfaceMac> _playbackSessionInterfaceMac;
     double _defaultPlaybackRate;

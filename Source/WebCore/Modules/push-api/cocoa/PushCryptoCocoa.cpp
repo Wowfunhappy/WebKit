@@ -121,10 +121,9 @@ std::optional<Vector<uint8_t>> decryptAES128GCM(std::span<const uint8_t> key, st
     Vector<uint8_t> plainText(cipherTextWithTag.size() - aes128GCMTagLength);
     auto nonTagCipherTextLength = cipherTextWithTag.size() - aes128GCMTagLength;
 #if PLATFORM(MAC)
-    // 10.9 backport: CCCryptorGCMOneshotDecrypt is 10.10+. Use the older one-shot
-    // CCCryptorGCM (10.9+, deprecated but functional) which encrypts/decrypts AND
-    // computes the tag; verify the computed tag matches the expected tag with
-    // constant-time compare.
+    // MAVERICKS_BACKPORT: runtime-absent symbol — CCCryptorGCMOneshotDecrypt is 10.10+. Use the older
+    // one-shot CCCryptorGCM (10.9+, deprecated but functional) which encrypts/decrypts AND computes the
+    // tag; verify the computed tag matches the expected tag with a constant-time compare.
     Vector<uint8_t> computedTag(aes128GCMTagLength);
     size_t tagLen = aes128GCMTagLength;
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN

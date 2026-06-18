@@ -190,6 +190,8 @@ enum class FeatureToAnimate {
 {
     UNUSED_PARAM(scrollerImp);
 
+    // MAVERICKS_BACKPORT: runtime-absent selector #77 — +[NSAppearance currentDrawingAppearance] is
+    // 10.14+; guard both call sites here with respondsToSelector and fall back to nil on 10.9.
     if (!_scroller)
         return [NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil;
     // The base system does not support dark Aqua, so we might get a null result.

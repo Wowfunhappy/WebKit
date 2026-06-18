@@ -63,7 +63,11 @@ bool fontNameIsSystemFont(CFStringRef fontName)
 
 static RetainPtr<CFArrayRef> variationAxesWithNonLocalizedAxesNames(CTFontDescriptorRef fontDescriptor)
 {
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300
+    // MAVERICKS_BACKPORT: kCTFontVariationAxesAttribute is a 10.13+ CFStringRef constant that
+    // weak-links to NULL at RUNTIME on 10.9 (CTFontDescriptorCopyAttribute with a NULL key crashes).
+    // Gate on the deployment target (MIN_REQUIRED=1090), NOT MAX_ALLOWED (always-true on the 26.1 SDK);
+    // on 10.9 fall back to the localized axes via CTFontCopyVariationAxes in the caller.
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300
     // Reading kCTFontVariationAxesAttribute returns non localized axes names
     return adoptCF(static_cast<CFArrayRef>(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontVariationAxesAttribute)));
 #else

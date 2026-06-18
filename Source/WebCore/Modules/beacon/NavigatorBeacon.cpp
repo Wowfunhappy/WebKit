@@ -111,9 +111,10 @@ void NavigatorBeacon::logError(const ResourceError& error)
 
 ExceptionOr<bool> NavigatorBeacon::sendBeacon(Document& document, const String& url, std::optional<FetchBody::Init>&& body)
 {
-    // 10.9 backport: theverge.com calls sendBeacon from a ServiceWorker microtask.
-    // The downstream MemoryCache::singleton() RELEASE_ASSERTs main-thread. Bail
-    // silently from non-main-thread callers to avoid crashing WebContent.
+    // MAVERICKS_BACKPORT: keystone band-aid #54 (broken main-thread identity under dispatch_main).
+    // theverge.com calls sendBeacon from a ServiceWorker microtask; the downstream
+    // MemoryCache::singleton() RELEASE_ASSERTs main-thread. Bail silently from non-main-thread callers to
+    // avoid crashing WebContent (masks the MemoryCache assert).
     if (!isMainThread())
         return false;
 
