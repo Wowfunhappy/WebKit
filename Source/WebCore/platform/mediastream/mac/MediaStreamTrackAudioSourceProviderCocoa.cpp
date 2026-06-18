@@ -28,9 +28,7 @@
 
 #if ENABLE(WEB_AUDIO) && ENABLE(MEDIA_STREAM)
 
-#if USE(LIBWEBRTC)
 #import "LibWebRTCAudioModule.h"
-#endif
 #import <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {

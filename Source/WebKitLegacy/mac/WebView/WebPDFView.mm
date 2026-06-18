@@ -30,6 +30,14 @@
 
 #if PLATFORM(MAC)
 
+#import <CoreGraphics/CGContext.h>
+
+// MAVERICKS_BACKPORT: CGContextGetAllowsFontSmoothing / CGContextGetAllowsFontSubpixelQuantization are
+// CoreGraphics SPI present at runtime but no longer declared by the public SDK (they pair with the
+// public CGContextSetAllows… setters used below). Forward-declare so this WK1 PDF view compiles.
+extern "C" bool CGContextGetAllowsFontSmoothing(CGContextRef);
+extern "C" bool CGContextGetAllowsFontSubpixelQuantization(CGContextRef);
+
 #import "DOMNodeInternal.h"
 #import "DOMRangeInternal.h"
 #import "PDFViewSPI.h"

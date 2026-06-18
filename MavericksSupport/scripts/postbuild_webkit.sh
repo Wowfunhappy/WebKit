@@ -4,19 +4,11 @@
 # are patched with the ObjC classlist limit.
 set -e
 LIB=/Users/jonathan/Desktop/WebKit/lib/lib/WebKit.framework
-PY=/Users/jonathan/Desktop/clang/tools/python3/bin/python3
-PATCHER=/Users/jonathan/Desktop/clang/patch_classlist.py
 
 cp -p "$LIB/Versions/615.1.1/WebKit" "$LIB/Versions/A/WebKit"
-# 2026-05-19: Truncation RE-DISABLED again. With truncation, classes past
-# index 72 exist in __DATA but never get registered by libobjc, so
-# +[NSBundle bundleForClass:] for one of them aborts with
-# "no class for metaclass" — crashes Safari when About Safari is clicked.
-# Without truncation (238 classes ship): About Safari works. The earlier
-# slow-display/dead-clicks symptoms were caused by RequestIdleCallback,
-# which is now also reverted.
-# "$PY" "$PATCHER" "$LIB/Versions/A/WebKit" "$LIB/Versions/615.1.1/WebKit"
-echo "Post-build done. (all 238 classes ship — truncation breaks About Safari)"
+# WARNING: do NOT truncate __objc_classlist — it breaks About Safari on 10.9's
+# libobjc (v228). All 238 ObjC classes must ship.
+echo "Post-build done."
 
 # Install to /System/Library so Safari (UIProcess) actually uses our build.
 # WebContent picks up our build from @rpath, but Safari links the system

@@ -38,25 +38,6 @@
 #include <wtf/MainThread.h>
 #include <wtf/darwin/DispatchExtras.h>
 
-#if PLATFORM(MAC)
-// 10.9 backport: CCBigNum* SPI declarations. They live in libcommonCrypto.dylib
-// on 10.9+ but not in public headers. We declare what we need to compute RSA CRT
-// components ourselves, since CCRSAGetCRTComponents is 10.10+.
-// NOTE: 10.9 names the constructor `CCCreateBigNum`, NOT `CCCreateBigNum`.
-extern "C" {
-typedef struct _CCBigNumRef* CCBigNumRef;
-CCBigNumRef CCCreateBigNum(CCStatus* status);
-void CCBigNumFree(CCBigNumRef bn);
-CCBigNumRef CCBigNumFromData(CCStatus* status, const void* data, size_t length);
-CCBigNumRef CCBigNumCopy(CCStatus* status, const CCBigNumRef bn);
-size_t CCBigNumByteCount(const CCBigNumRef bn);
-CCStatus CCBigNumToData(CCStatus* status, const CCBigNumRef bn, void* to);
-CCStatus CCBigNumSubI(CCBigNumRef result, const CCBigNumRef a, uint32_t b);
-CCStatus CCBigNumMod(CCBigNumRef result, CCBigNumRef dividend, CCBigNumRef modulus);
-CCStatus CCBigNumInverseMod(CCBigNumRef result, const CCBigNumRef a, const CCBigNumRef modulus);
-}
-#endif
-
 namespace WebCore {
 
 // OID rsaEncryption: 1.2.840.113549.1.1.1. Per https://tools.ietf.org/html/rfc3279#section-2.3.1
@@ -106,15 +87,6 @@ static CCCryptorStatus getPrivateKeyComponents(const PlatformRSAKeyContainer& rs
     firstPrimeInfo.primeFactor.shrink(pLength);
     secondPrimeInfo.primeFactor.shrink(qLength);
 
-#if PLATFORM(MAC)
-    // 10.9 backport: CCRSAGetCRTComponents is 10.10+. Skip CRT (dp, dq, qinv)
-    // entirely — leave as empty Vectors. JWK export will base64-encode empty
-    // bytes to "" strings; JWK re-import will treat "" as present-but-empty
-    // and call CCRSACryptorCreateFromData(n, e, p, q) which only needs n,e,p,q
-    // (CRT components are ignored). Re-import works; the only loss is that
-    // RSA private-key decrypt operations don't use CRT fast-path optimization.
-    Vector<uint8_t> dp, dq, qinv;
-#else
     size_t dpSize;
     size_t dqSize;
     size_t qinvSize;
@@ -126,7 +98,6 @@ static CCCryptorStatus getPrivateKeyComponents(const PlatformRSAKeyContainer& rs
     Vector<uint8_t> qinv(qinvSize);
     if (auto status = CCRSAGetCRTComponents(rsaKey.get(), dp.mutableSpan().data(), dpSize, dq.mutableSpan().data(), dqSize, qinv.mutableSpan().data(), qinvSize))
         return status;
-#endif
 
     firstPrimeInfo.factorCRTExponent = WTF::move(dp);
     secondPrimeInfo.factorCRTExponent = WTF::move(dq);

@@ -40,22 +40,35 @@
 
 namespace WebCore {
 
-// 10.9 backport: pal::EdKey uses Swift CryptoKit (10.15+) and Ed25519 has no
-// native pre-10.15 API on macOS. Return OperationError instead of crashing —
-// sites that need Ed25519 will fail gracefully (auth/handshake error).
-static ExceptionOr<Vector<uint8_t>> signEd25519CryptoKit(const Vector<uint8_t>& sk, const Vector<uint8_t>& data)
+static ExceptionOr<Vector<uint8_t>> signEd25519CryptoKit(const Vector<uint8_t>&sk, const Vector<uint8_t>& data)
 {
+#if !defined(CLANG_WEBKIT_BRANCH)
+    if (sk.size() != ed25519KeySize)
+        return Exception { ExceptionCode::OperationError };
+    auto rv = pal::EdKey::sign(pal::EdSigningAlgorithm::ed25519(), sk.span(), data.span());
+    if (rv.errorCode != Cpp::ErrorCodes::Success)
+        return Exception { ExceptionCode::OperationError };
+    return WTF::move(rv.result);
+#else
     UNUSED_PARAM(sk);
     UNUSED_PARAM(data);
-    return Exception { ExceptionCode::OperationError };
+    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+#endif
 }
 
 static ExceptionOr<bool> verifyEd25519CryptoKit(const Vector<uint8_t>& pubKey, const Vector<uint8_t>& signature, const Vector<uint8_t>& data)
 {
+#if !defined(CLANG_WEBKIT_BRANCH)
+    if (pubKey.size() != ed25519KeySize || signature.size() != ed25519SignatureSize)
+        return false;
+    auto rv = pal::EdKey::verify(pal::EdSigningAlgorithm::ed25519(), pubKey.span(), signature.span(), data.span());
+    return rv.errorCode == Cpp::ErrorCodes::Success;
+#else
     UNUSED_PARAM(pubKey);
     UNUSED_PARAM(signature);
     UNUSED_PARAM(data);
-    return false;
+    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+#endif
 }
 
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmEd25519::platformSign(const CryptoKeyOKP& key, const Vector<uint8_t>& data)

@@ -29,9 +29,9 @@
 #include <WebCore/CryptoKeyPair.h>
 
 #include <wtf/Platform.h>
-// 10.9 backport: when USE(GCRYPT) is set, the Darwin cocoa-CryptoKit path is
-// skipped — gcrypt provides the EC key container instead. See
-// SourcesCocoa.txt and OptionsMac.cmake.
+// MAVERICKS_BACKPORT: build glue for the gcrypt WebCrypto backend (USE_GCRYPT=TRUE,
+// OptionsMac.cmake). When USE(GCRYPT) is set, skip the Darwin cocoa CryptoKit path —
+// gcrypt provides the PlatformECKeyContainer instead. See SourcesCocoa.txt.
 #if OS(DARWIN) && !PLATFORM(GTK) && !USE(GCRYPT)
 #include <WebCore/CommonCryptoUtilities.h>
 namespace pal {

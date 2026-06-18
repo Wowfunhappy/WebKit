@@ -1,0 +1,2 @@
+_OBJC_CLASS_$_LSAppLink
+_OBJC_CLASS_$__LSOpenConfiguration

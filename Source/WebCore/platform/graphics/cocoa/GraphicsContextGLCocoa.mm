@@ -38,9 +38,12 @@
 #import "PixelBuffer.h"
 #import "ProcessIdentity.h"
 #import <CoreGraphics/CGBitmapContext.h>
-// 10.9 backport: Metal (and ANGLE's Metal backend) require 10.11+. When building against an older
-// SDK we use ANGLE's OpenGL (CGL) backend instead and compile out every Metal code path.
-#if defined(MAC_OS_X_VERSION_10_11) && (!defined(MAC_OS_X_VERSION_MAX_ALLOWED) || MAC_OS_X_VERSION_MAX_ALLOWED >= 101100)
+// MAVERICKS_BACKPORT: Metal (and ANGLE's Metal backend) require 10.11+. The 10.9 deployment target
+// — not the SDK — decides whether Metal exists at RUNTIME, so this MUST key on MIN_REQUIRED (=1090
+// here), NOT MAX_ALLOWED. Under the 26.1 SDK MAX_ALLOWED is huge and always-true, which would wrongly
+// select the Metal WebGL backend (absent on 10.9 -> weak-links to NULL -> WebGL dead). With MIN this
+// evaluates FALSE and we keep ANGLE's OpenGL (CGL) backend, compiling out every Metal code path.
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101100
 #define WK_WEBGL_METAL_BACKEND 1
 #else
 #define WK_WEBGL_METAL_BACKEND 0

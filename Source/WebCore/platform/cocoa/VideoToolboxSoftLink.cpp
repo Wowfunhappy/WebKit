@@ -30,8 +30,6 @@
 
 typedef struct OpaqueVTVideoDecoder VTVideoDecoderRef;
 typedef struct OpaqueVTImageRotationSession* VTImageRotationSessionRef;
-// VTDecompressionOutputHandler[MultiImageCapable] + CMTaggedBufferGroupRef come
-// from the force-included MavericksSupport/compat.h (later-SDK types).
 typedef struct OpaqueVTPixelBufferConformer* VTPixelBufferConformerRef;
 typedef struct OpaqueVTPixelTransferSession* VTPixelTransferSessionRef;
 

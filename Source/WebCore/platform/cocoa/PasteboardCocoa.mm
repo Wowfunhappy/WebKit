@@ -31,16 +31,18 @@
 #import "PlatformStrategies.h"
 #import "SharedBuffer.h"
 #import <ImageIO/ImageIO.h>
+#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTType* constants) is macOS 11+ and absent on
+// 10.9; on Mac the utType*Id() helpers return the legacy CoreServices kUTType* identifiers instead.
+#import "../mac/UTTypeIdentifiers.h"
+#else
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#endif
 #import <wtf/ListHashSet.h>
 #import <wtf/text/StringHash.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import <MobileCoreServices/MobileCoreServices.h>
-#endif
-
-#if PLATFORM(MAC)
-#import "../mac/UTTypeIdentifiers.h"
 #endif
 
 namespace WebCore {
@@ -65,27 +67,19 @@ static ImageType cocoaTypeToImageType(const String& cocoaType)
 #if PLATFORM(MAC)
     if (cocoaType == String(legacyTIFFPasteboardTypeSingleton()))
         return ImageType::TIFF;
+#endif
     if (cocoaType == String(utTypeTIFFId()))
         return ImageType::TIFF;
+#if PLATFORM(MAC)
     if (cocoaType == String(legacyPNGPasteboardTypeSingleton())) // NSPNGPboardType
         return ImageType::PNG;
+#endif
     if (cocoaType == String(utTypePNGId()))
         return ImageType::PNG;
     if (cocoaType == String(utTypeJPEGId()))
         return ImageType::JPEG;
-    // 10.9 backport: +[UTType GIF] is 11.0+; use kUTTypeGIF.
-    if (cocoaType == String([UTType respondsToSelector:@selector(GIF)] ? UTTypeGIF.identifier : (__bridge NSString *)kUTTypeGIF))
+    if (cocoaType == String(utTypeGIFId()))
         return ImageType::GIF;
-#else
-    if (cocoaType == String(UTTypeTIFF.identifier))
-        return ImageType::TIFF;
-    if (cocoaType == String(UTTypePNG.identifier))
-        return ImageType::PNG;
-    if (cocoaType == String(UTTypeJPEG.identifier))
-        return ImageType::JPEG;
-    if (cocoaType == String(UTTypeGIF.identifier))
-        return ImageType::GIF;
-#endif
 
     return ImageType::Invalid;
 }
@@ -173,10 +167,8 @@ Pasteboard::FileContentState Pasteboard::fileContentState()
 #if PLATFORM(MAC)
             if (cocoaType == String(legacyURLPasteboardTypeSingleton()))
                 return true;
-            return cocoaType == String(utTypeURLId());
-#else
-            return cocoaType == String(UTTypeURL.identifier);
 #endif
+            return cocoaType == String(utTypeURLId());
         });
         mayContainFilePaths = indexOfURL != notFound && !platformStrategies()->pasteboardStrategy()->containsStringSafeForDOMToReadForType(cocoaTypes[indexOfURL], m_pasteboardName, context());
     }

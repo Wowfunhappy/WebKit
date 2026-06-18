@@ -139,7 +139,6 @@ private:
 
     void fired() final
     {
-        // 10.9 perf: removed debug fopen logging
         Ref protectedThis { *this };
         if (!m_task)
             return;
@@ -208,9 +207,7 @@ EventLoopTimerHandle EventLoop::scheduleTask(Seconds timeout, TimerAlignment* al
         timer->setTimerAlignment(*alignment);
     timer->setHasReachedMaxNestingLevel(hasReachedMaxNestingLevel == HasReachedMaxNestingLevel::Yes);
     timer->startOneShot(timeout);
-    bool wasSuspended = timer->group()->isSuspended();
-    // 10.9 perf: removed debug fopen logging
-    if (wasSuspended)
+    if (timer->group()->isSuspended())
         timer->suspend();
 
     ASSERT(timer->group());

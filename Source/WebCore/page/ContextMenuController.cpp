@@ -140,6 +140,7 @@ void ContextMenuController::handleContextMenuEvent(Event& event)
         return;
 
     populate();
+
     showContextMenu(event);
 }
 
@@ -1056,7 +1057,7 @@ void ContextMenuController::populate()
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WIN) || PLATFORM(WPE) || !ENABLE(SERVICE_CONTROLS)
-    // 10.9 backport: the Share menu item is created with an empty title as a placeholder that the
+    // MAVERICKS_BACKPORT: behavior fix — the Share menu item is created with an empty title as a placeholder that the
     // platform is expected to replace with a real Share submenu — but WebContextMenuProxyMac only
     // does that #if ENABLE(SERVICE_CONTROLS). With SERVICE_CONTROLS disabled on this port the
     // placeholder is never replaced and renders as a blank, selectable context-menu row. Leave it
@@ -1245,6 +1246,8 @@ void ContextMenuController::populate()
                 }
 #endif
 
+                // MAVERICKS_BACKPORT: behavior fix — with SERVICE_CONTROLS disabled the Share item stays
+                // a null placeholder; skip appending it (and its separator) so no blank Share row appears.
                 if (!ShareMenuItem.isNull()) {
                     appendItem(ShareMenuItem, m_contextMenu.get());
                     appendItem(*separatorItem(), m_contextMenu.get());

@@ -203,13 +203,13 @@ void TextDecorationPainter::paintBackgroundDecorations(const RenderStyle& style,
             strokeWavyTextDecoration(m_context, paintRect, m_isPrinting, decorationGeometry.wavyStrokeParameters, strokeStyle);
         else if (decoration == Style::TextDecorationLine::Flag::Underline || decoration == Style::TextDecorationLine::Flag::Overline) {
 #if PLATFORM(MAC)
-            // 10.9 backport: skip the SkipInk underline path entirely. lineSegmentsForIntersectionsWithRect
-            // calls Font::pathForGlyph for every glyph in the run via CTFontCreatePathForGlyph. On this
-            // CT build, that call for fallback-font glyphs (em-dash, en-dash, etc.) leaves residual state
-            // in CT that causes the very next CTFontDrawGlyphs call to render glyphs with their bottom
-            // half clipped. Symptom: HN headlines containing em/en-dash show only the top half of every
-            // letter. Falling back to the simple drawLineForText path (no per-glyph path computation)
-            // sidesteps the bug. Cosmetic loss: underlines no longer skip-ink around descenders.
+            // MAVERICKS_BACKPORT: behavior fix — skip the SkipInk underline path entirely.
+            // lineSegmentsForIntersectionsWithRect calls Font::pathForGlyph for every glyph in the run via
+            // CTFontCreatePathForGlyph; on the 10.9 CoreText build that call for fallback-font glyphs
+            // (em-dash, en-dash, etc.) leaves residual state in CT that makes the very next CTFontDrawGlyphs
+            // render glyphs with their bottom half clipped (HN headlines containing em/en-dash showed only
+            // the top half of every letter). The simple drawLineForText path (no per-glyph path
+            // computation) sidesteps it. Cosmetic loss: underlines no longer skip-ink around descenders.
             m_context.drawLineForText(paintRect, m_isPrinting, underlineStyle == TextDecorationStyle::Double, strokeStyle);
 #else
             if ((style.textDecorationSkipInk() == TextDecorationSkipInk::Auto

@@ -553,7 +553,8 @@ public:
     void dispatchScopedEvent(Event&);
 
     void dispatchSubtreeModifiedEvent();
-    // 10.9 backport: cancelable beforeload; returns false if the load was canceled.
+    // MAVERICKS_BACKPORT: restored-lost-upstream declaration (bug 234804) — cancelable
+    // beforeload for Safari 7 extension content blocking (#62); returns false if canceled.
     WEBCORE_EXPORT bool dispatchBeforeLoadEvent(const String& sourceURL);
     void dispatchDOMActivateEvent(Event& underlyingClickEvent);
 

@@ -32,7 +32,7 @@
 #import "PathUtilities.h"
 #import "TextIndicator.h"
 #import "WebActionDisablingCALayerDelegate.h"
-#import <QuartzCore/QuartzCore.h>
+#import <QuartzCore/QuartzCore.h> // MAVERICKS_BACKPORT: build glue — explicit CA include for the older SDK QuartzCore umbrella.
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 
@@ -120,7 +120,7 @@ static bool NODELETE indicatorWantsFadeIn(const WebCore::TextIndicator& indicato
     auto dropShadowColor = adoptCF(CGColorCreateGenericGray(0, 0.2));
     auto borderColor = adoptCF(CGColorCreateSRGB(0.96, 0.9, 0, 1));
 #if PLATFORM(MAC)
-    // 10.9 backport: +[NSColor findHighlightColor] is 10.10+. Without a guard,
+    // MAVERICKS_BACKPORT: runtime-absent selector — +[NSColor findHighlightColor] is 10.10+. Without a guard,
     // Cmd+F → first match → setTextIndicatorFromFrame IPC → this init →
     // doesNotRecognizeSelector → Safari abort. Fall back to the same yellow
     // tint used on non-Mac platforms.

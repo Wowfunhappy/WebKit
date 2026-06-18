@@ -234,10 +234,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return { };
 }
 
-// tls_ciphersuite_t is not available before macOS 10.15
-#ifndef tls_ciphersuite_t
-typedef uint16_t tls_ciphersuite_t;
-#endif
 
 static String stringForTLSCipherSuite(tls_ciphersuite_t suite)
 {
@@ -951,7 +947,11 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
             || metrics.get()._privacyStance == nw_connection_privacy_stance_not_eligible
             ? PrivateRelayed::No : PrivateRelayed::Yes;
         String proxyName;
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101400
+        // MAVERICKS_BACKPORT: nw_establishment_report_copy_proxy_endpoint / nw_endpoint_get_hostname
+        // are Network.framework (macOS 10.14+), absent at runtime on 10.9. Gate on the deployment
+        // target (__MAC_OS_X_VERSION_MIN_REQUIRED) rather than the SDK so the proxy-name telemetry
+        // is compiled out on 10.9.
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
         if (metrics.get()._establishmentReport) {
             if (RetainPtr endpoint = adoptNS(nw_establishment_report_copy_proxy_endpoint(retainPtr(metrics.get()._establishmentReport).get()))) {
                 if (const char *hostname = nw_endpoint_get_hostname(endpoint.get()))

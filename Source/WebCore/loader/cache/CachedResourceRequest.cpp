@@ -154,8 +154,8 @@ static String acceptHeaderValueForImageResource(bool usingSecureProtocol)
     static MainThreadNeverDestroyed<String> staticPrefix = [] {
         StringBuilder builder;
 #if !PLATFORM(MAC)
-        // 10.9 backport: this build has no WebP decoder. Sites that respect Accept content
-        // negotiation (most major CDNs do) will fall back to JPEG/PNG when WebP isn't advertised,
+        // MAVERICKS_BACKPORT: behavior fix (no WebP decoder in this build). Sites that respect Accept
+        // content negotiation (most major CDNs do) fall back to JPEG/PNG when WebP isn't advertised,
         // so omit it from the header. The BBC-style URL-rewrite hook in NetworkDataTaskCocoa
         // covers the remaining cases where the CDN encodes the format in the URL path.
         builder.append("image/webp,"_s);
@@ -182,6 +182,7 @@ static String acceptHeaderValueForImageResource(bool usingSecureProtocol)
     StringBuilder builder;
     if (limitToLockdownModeSet) {
 #if !PLATFORM(MAC)
+        // MAVERICKS_BACKPORT: behavior fix (no WebP decoder in this build) — see acceptHeaderValueForImageResource above.
         builder.append("image/webp,"_s);
 #endif
     } else {

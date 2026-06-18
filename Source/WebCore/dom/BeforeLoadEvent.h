@@ -24,9 +24,9 @@
  *
  */
 
-// 10.9 backport: restored (deleted upstream in "Delete most code for
-// beforeload event", bug 234804). Safari 7 extension content blocking
-// (safari.self.tab.canLoad) is driven by the cancelable beforeload event.
+// MAVERICKS_BACKPORT: restored-lost-upstream file (deleted upstream in "Delete most
+// code for beforeload event", bug 234804). Safari 7 extension content blocking
+// (safari.self.tab.canLoad) is driven by the cancelable beforeload event (#62).
 
 #pragma once
 

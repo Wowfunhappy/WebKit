@@ -8,6 +8,7 @@ HTMLEvents interfaceName=Event
 AnimationPlaybackEvent
 BackgroundFetchEvent
 BackgroundFetchUpdateUIEvent
+# MAVERICKS_BACKPORT: registers restored BeforeLoadEvent interface (build glue for #62; upstream dropped the trailing interfaceName=Event override along with the type).
 BeforeLoadEvent
 BeforeUnloadEvent
 BufferedChangeEvent conditional=MEDIA_SOURCE

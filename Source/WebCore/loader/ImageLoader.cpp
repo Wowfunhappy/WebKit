@@ -374,8 +374,8 @@ void ImageLoader::didUpdateCachedImage(RelevantMutation relevantMutation, RefPtr
 
         if (newImage) {
             if (!document->isImageDocument()) {
-                // 10.9 backport: with a beforeload listener present, defer the
-                // (cancelable) event — it runs script, which is unsafe here.
+                // MAVERICKS_BACKPORT: behavior fix (#62 restored image beforeload for Safari-7 extension blocking).
+                // With a beforeload listener present, defer the (cancelable) event — it runs script, which is unsafe here.
                 if (!document->hasListenerType(Document::ListenerType::BeforeLoad))
                     dispatchPendingBeforeLoadEvent();
                 else
@@ -666,6 +666,7 @@ bool ImageLoader::hasPendingActivity() const
 void ImageLoader::dispatchPendingEvent(ImageEventSender* eventSender, const AtomString& eventType)
 {
     ASSERT_UNUSED(eventSender, eventSender == &loadEventSender());
+    // MAVERICKS_BACKPORT: behavior fix (#62 restored image beforeload for Safari-7 extension blocking).
     if (eventType == eventNames().beforeloadEvent)
         dispatchPendingBeforeLoadEvent();
     if (eventType == eventNames().loadEvent)
@@ -683,8 +684,8 @@ void ImageLoader::dispatchPendingBeforeLoadEvent()
     if (!element().document().hasLivingRenderTree())
         return;
     m_hasPendingBeforeLoadEvent = false;
-    // 10.9 backport: dispatch the cancelable beforeload event (Safari 7
-    // extension blocking); a canceled event drops the image load entirely.
+    // MAVERICKS_BACKPORT: behavior fix (#62 restored image beforeload for Safari-7 extension blocking).
+    // Dispatch the cancelable beforeload event; a canceled event drops the image load entirely.
     Ref<Document> originalDocument = element().document();
     if (protect(element())->dispatchBeforeLoadEvent(m_image->url().string())) {
         bool didEventListenerDisconnectThisElement = !element().isConnected() || &element().document() != originalDocument.ptr();

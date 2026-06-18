@@ -137,8 +137,10 @@ Page* ServiceWorkerGlobalScope::serviceWorkerPage()
     if (!m_contextData.serviceWorkerPageIdentifier)
         return nullptr;
 
-    // 10.9 backport: don't crash if called from non-main thread; return nullptr
+    // MAVERICKS_BACKPORT: KEYSTONE BAND-AID #54 (broken main-thread identity under dispatch_main)
+    // — replaces upstream RELEASE_ASSERT(isMainThread()) with a nullptr return when called off-main
     // (caller treats nullptr as "no page available") rather than killing the process.
+    // FLAG: fix the #54 thread-identity keystone, then restore the upstream assert.
     if (!isMainThread())
         return nullptr;
     return Page::serviceWorkerPage(*m_contextData.serviceWorkerPageIdentifier);

@@ -30,9 +30,11 @@
 #include "ANGLEHeaders.h"
 #include "ANGLEUtilities.h"
 #include "Logging.h"
-// 10.9 backport: Metal (10.11+) is unavailable; this build uses ANGLE's OpenGL/CGL backend. Guard
-// the Metal include and the Metal-only helpers (their callers are compiled out, see GraphicsContextGLCocoa.mm).
-#if defined(MAC_OS_X_VERSION_10_11) && (!defined(MAC_OS_X_VERSION_MAX_ALLOWED) || MAC_OS_X_VERSION_MAX_ALLOWED >= 101100)
+// MAVERICKS_BACKPORT: Metal (10.11+) is unavailable on 10.9; this build uses ANGLE's OpenGL/CGL
+// backend. The deployment target, not the SDK, decides whether Metal exists at RUNTIME, so this
+// MUST key on MIN_REQUIRED (=1090 here), NOT MAX_ALLOWED. Under the 26.1 SDK MAX_ALLOWED is huge
+// and always-true, which would wrongly select the Metal backend and weak-link to NULL on 10.9.
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101100
 #define WK_ANGLE_METAL 1
 #else
 #define WK_ANGLE_METAL 0

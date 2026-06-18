@@ -593,15 +593,6 @@ void FrameLoader::submitForm(Ref<FormSubmission>&& submission)
 
 void FrameLoader::stopLoading(UnloadEventPolicy unloadEventPolicy)
 {
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) {
-            Ref frame = m_frame.get();
-            auto u = frame->document() ? frame->document()->url().string().utf8() : CString();
-            fprintf(_f, "[FrameLoader::stopLoading PID %d] unload=%d url=%.150s\n", getpid(), (int)unloadEventPolicy, u.data());
-            fclose(_f);
-        }
-    }
     Ref frame = m_frame.get();
 
     if (RefPtr parser = frame->document() ? frame->document()->parser() : nullptr)
@@ -972,8 +963,9 @@ bool FrameLoader::allAncestorsAreComplete() const
 
 void FrameLoader::checkCompleted()
 {
-    // 10.9 backport: shared ThreadTimers means worker threads can fire timers
-    // that reach FrameLoader::checkCompleted via DocumentLoader::finishedLoading.
+    // MAVERICKS_BACKPORT: keystone #54 (broken main-thread identity under dispatch_main).
+    // Shared ThreadTimers means worker threads can fire timers that reach
+    // FrameLoader::checkCompleted via DocumentLoader::finishedLoading.
     // Bounce to main thread instead of asserting.
     if (!isMainThread()) {
         callOnMainThread([weakFrame = WeakPtr<LocalFrame> { m_frame.get() }] {
@@ -1921,9 +1913,9 @@ void FrameLoader::loadWithDocumentLoader(DocumentLoader* loader, FrameLoadType t
     if (!isNavigationAllowed())
         return;
 
-    // 10.9 backport: cancelable beforeload for subframes (Safari 7 extension
-    // blocking). We skip dispatching the beforeload event if we've already
-    // committed a real document load because the event would leak subsequent
+    // MAVERICKS_BACKPORT: restored-lost-upstream behavior (#62). Cancelable beforeload for
+    // subframes (Safari 7 extension blocking). We skip dispatching the beforeload event if
+    // we've already committed a real document load because the event would leak subsequent
     // activity by the frame which the parent frame isn't supposed to learn.
     if (RefPtr ownerElement = frame->ownerElement()) {
         if (!m_stateMachine.committedFirstRealDocumentLoad()
@@ -2399,7 +2391,6 @@ void FrameLoader::commitProvisionalLoad()
 {
     RefPtr pdl = m_provisionalDocumentLoader;
     Ref frame = m_frame.get();
-    // 10.9 perf: removed debug fopen logging
 
     // Clear prefetch resources for URLs other than the one being navigated to.
     // This ensures that prefetches are only used for the immediate next navigation,
@@ -2596,14 +2587,11 @@ IGNORE_GCC_WARNINGS_END
 
 void FrameLoader::transitionToCommitted(CachedPage* cachedPage)
 {
-    // 10.9 perf: removed debug fopen logging
     ASSERT(m_client->hasWebView());
     ASSERT(m_state == FrameState::Provisional);
 
-    if (m_state != FrameState::Provisional) {
-        // 10.9 perf: removed debug fopen logging
+    if (m_state != FrameState::Provisional)
         return;
-    }
 
     if (RefPtr view = m_frame->view()) {
         if (auto* scrollAnimator = view->existingScrollAnimator())
@@ -2631,11 +2619,8 @@ void FrameLoader::transitionToCommitted(CachedPage* cachedPage)
     // Script can do anything. If the script initiates a new load, we need to abandon the
     // current load or the two will stomp each other.
     setDocumentLoader(m_provisionalDocumentLoader.copyRef());
-    if (originalProvisionalDocumentLoader != m_provisionalDocumentLoader) {
-        // 10.9 perf: removed debug fopen logging
+    if (originalProvisionalDocumentLoader != m_provisionalDocumentLoader)
         return;
-    }
-    // 10.9 perf: removed debug fopen logging
     FRAMELOADER_RELEASE_LOG_FORWARDABLE(FRAMELOADER_TRANSITIONTOCOMMITTED, (uint64_t)m_provisionalDocumentLoader.get());
     setProvisionalDocumentLoader(nullptr);
 

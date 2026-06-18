@@ -34,7 +34,7 @@
 #import "LegacyNSPasteboardTypes.h"
 #import "Pasteboard.h"
 #import "SharedBuffer.h"
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import "UTTypeIdentifiers.h"
 #import <pal/spi/cocoa/FoundationSPI.h>
 #import <pal/spi/mac/NSPasteboardSPI.h>
 #import <wtf/HashCountedSet.h>
@@ -46,46 +46,36 @@
 
 namespace WebCore {
 
-// 10.9 backport: +[UTType fileURL] / +[UTType URL] / +[UTType HTML] / +[UTType PDF]
-// are 11.0+ and crash Safari with unrecognized-selector. Use legacy kUTType* constants.
+// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTType* constants) is macOS 11+ and absent on
+// 10.9; these identifiers come from the legacy CoreServices kUTType* constants via UTTypeIdentifiers.h.
 static NSString *fileURLTypeIdentifier()
 {
-    if ([UTType respondsToSelector:@selector(fileURL)])
-        return UTTypeFileURL.identifier;
-    return (__bridge NSString *)kUTTypeFileURL;
+    return utTypeFileURLId();
 }
 
 static NSString *urlTypeIdentifier()
 {
-    if ([UTType respondsToSelector:@selector(URL)])
-        return UTTypeURL.identifier;
-    return (__bridge NSString *)kUTTypeURL;
+    return utTypeURLId();
 }
 
 static NSString *htmlTypeIdentifier()
 {
-    if ([UTType respondsToSelector:@selector(HTML)])
-        return UTTypeHTML.identifier;
-    return (__bridge NSString *)kUTTypeHTML;
+    return utTypeHTMLId();
 }
 
 static NSString *pdfTypeIdentifier()
 {
-    if ([UTType respondsToSelector:@selector(PDF)])
-        return UTTypePDF.identifier;
-    return (__bridge NSString *)kUTTypePDF;
+    return utTypePDFId();
 }
 
 static NSString *utf8PlainTextTypeIdentifier()
 {
-    if ([UTType respondsToSelector:@selector(UTF8PlainText)])
-        return UTTypeUTF8PlainText.identifier;
-    return (__bridge NSString *)kUTTypeUTF8PlainText;
+    return utTypeUTF8PlainTextId();
 }
 
 static NSString *webArchiveTypeIdentifier()
 {
-    return @"com.apple.webarchive";
+    return utTypeWebArchiveId();
 }
 
 static bool isFilePasteboardType(const String& type)
@@ -102,7 +92,7 @@ static bool canWritePasteboardType(const String& type)
         return false;
 
     RetainPtr nsString = type.createNSString();
-    // 10.9 backport: +[UTType typeWithIdentifier:] is 11.0+. Fall back to
+    // MAVERICKS_BACKPORT: +[UTType typeWithIdentifier:] is 11.0+. Fall back to
     // accepting the type without UTType validation.
     if (![UTType respondsToSelector:@selector(typeWithIdentifier:)])
         return [nsString lengthOfBytesUsingEncoding:NSString.defaultCStringEncoding];
@@ -220,7 +210,7 @@ String PlatformPasteboard::stringForType(const String& pasteboardType) const
     if (pasteboardType == String { legacyURLPasteboardTypeSingleton() }) {
         RetainPtr url = [NSURL URLFromPasteboard:m_pasteboard.get()];
         if (!url) {
-            // 10.9 backport: -[NSURL initWithString:nil] throws NSInvalidArgumentException
+            // MAVERICKS_BACKPORT: -[NSURL initWithString:nil] throws NSInvalidArgumentException
             // and crashes Safari. Pasteboard may not have a URL-type string at all
             // (e.g. plain-text-only clipboard), in which case [NSPasteboard stringForType:]
             // returns nil. Skip the URL constructor when there's nothing to parse.
@@ -361,7 +351,7 @@ int64_t PlatformPasteboard::write(const PasteboardCustomData& data, PasteboardDa
         [types addObject:RetainPtr { @(PasteboardCustomData::cocoaType().characters()) }.get()];
 
     [m_pasteboard declareTypes:types owner:nil];
-    // 10.9 backport: NSPasteboard _setExpirationDate: is 11.0+ private SPI.
+    // MAVERICKS_BACKPORT: NSPasteboard _setExpirationDate: is 11.0+ private SPI.
     if (pasteboardDataLifetime == PasteboardDataLifetime::Ephemeral && [m_pasteboard respondsToSelector:@selector(_setExpirationDate:)])
         [m_pasteboard _setExpirationDate:[NSDate dateWithTimeIntervalSinceNow:pasteboardExpirationDelay.seconds()]];
     data.forEachPlatformStringOrBuffer([&] (auto& type, auto& stringOrBuffer) {
@@ -444,7 +434,7 @@ int64_t PlatformPasteboard::setTypes(const Vector<String>& pasteboardTypes, Past
 {
     auto didClearContents = [m_pasteboard clearContents];
 
-    // 10.9 backport: NSPasteboard _setExpirationDate: is 11.0+ private SPI.
+    // MAVERICKS_BACKPORT: NSPasteboard _setExpirationDate: is 11.0+ private SPI.
     if (pasteboardDataLifetime == PasteboardDataLifetime::Ephemeral && [m_pasteboard respondsToSelector:@selector(_setExpirationDate:)])
         [m_pasteboard _setExpirationDate:[NSDate dateWithTimeIntervalSinceNow:pasteboardExpirationDelay.seconds()]];
     if (!canWriteAllPasteboardTypes(pasteboardTypes))
@@ -493,7 +483,7 @@ int64_t PlatformPasteboard::setStringForType(const String& string, const String&
 
     if (pasteboardType == String(legacyURLPasteboardTypeSingleton())) {
         // We cannot just use -NSPasteboard writeObjects:], because -declareTypes has been already called, implicitly creating an item.
-        // 10.9 backport: -[NSURL initWithString:nil] throws; guard for empty/null string.
+        // MAVERICKS_BACKPORT: -[NSURL initWithString:nil] throws; guard for empty/null string.
         RetainPtr nsString = string.createNSString();
         RetainPtr<NSURL> url = nsString ? adoptNS([[NSURL alloc] initWithString:nsString.get()]) : RetainPtr<NSURL> { };
         if ([retainPtr([m_pasteboard types]) containsObject:legacyURLPasteboardTypeSingleton()]) {
@@ -529,15 +519,6 @@ int64_t PlatformPasteboard::setStringForType(const String& string, const String&
 
     return changeCount();
 }
-
-#ifndef NSPasteboardType
-typedef NSString * NSPasteboardType;
-#endif
-#ifndef NSPasteboardTypeURL
-#define NSPasteboardTypeURL @"public.url"
-#define NSPasteboardTypePNG @"public.png"
-#define NSPasteboardTypeFileURL @"public.file-url"
-#endif
 
 static NSPasteboardType modernPasteboardTypeForWebSafeMIMEType(const String& webSafeType)
 {
@@ -646,7 +627,7 @@ int64_t PlatformPasteboard::write(const Vector<PasteboardCustomData>& itemData, 
         return write(itemData.first(), pasteboardDataLifetime);
 
     [m_pasteboard clearContents];
-    // 10.9 backport: NSPasteboard _setExpirationDate: is 11.0+ private SPI.
+    // MAVERICKS_BACKPORT: NSPasteboard _setExpirationDate: is 11.0+ private SPI.
     if (pasteboardDataLifetime == PasteboardDataLifetime::Ephemeral && [m_pasteboard respondsToSelector:@selector(_setExpirationDate:)])
         [m_pasteboard _setExpirationDate:[NSDate dateWithTimeIntervalSinceNow:pasteboardExpirationDelay.seconds()]];
     [m_pasteboard writeObjects:createNSArray(itemData, [] (auto& data) {

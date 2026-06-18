@@ -24,6 +24,9 @@
  *
  */
 
+// MAVERICKS_BACKPORT: restored-lost-upstream file (deleted upstream in bug 234804);
+// drives the Safari-7 cancelable beforeload event used for extension content blocking (#62).
+
 #include "config.h"
 #include "BeforeLoadEvent.h"
 

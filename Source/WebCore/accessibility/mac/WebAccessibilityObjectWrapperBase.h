@@ -103,11 +103,11 @@ RetainPtr<NSAttributedString> attributedStringCreate(Node&, StringView, const Si
 // This can be either an AccessibilityObject or an AXIsolatedObject
 - (WebCore::AXCoreObject*)axBackingObject;
 
-- (NSArray *)lineRectsAndText;
+- (NSArray<NSDictionary *> *)lineRectsAndText;
 
 // These are pre-fixed with base so that AppKit does not end up calling into these directly (bypassing safety checks).
 - (NSString *)baseAccessibilityHelpText;
-- (NSArray *)baseAccessibilitySpeechHint;
+- (NSArray<NSString *> *)baseAccessibilitySpeechHint;
 
 - (NSString *)ariaLandmarkRoleDescription;
 
@@ -126,7 +126,7 @@ RetainPtr<NSAttributedString> attributedStringCreate(Node&, StringView, const Si
 
 - (NSRange)accessibilityVisibleCharacterRange;
 
-- (NSDictionary *)baseAccessibilityResolvedEditingStyles;
+- (NSDictionary<NSString *, id> *)baseAccessibilityResolvedEditingStyles;
 
 // Returns action data for creating platform-specific custom actions.
 - (Vector<WebCore::CustomActionData>)baseAccessibilityCustomActionsData;

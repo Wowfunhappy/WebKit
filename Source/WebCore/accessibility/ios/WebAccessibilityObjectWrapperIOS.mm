@@ -2011,7 +2011,7 @@ static void appendStringToResult(NSMutableString *result, NSString *string)
     return [[self _accessibilityWebDocumentView] _accessibilityPreviousElementsWithCount:count];
 }
 
-- (NSDictionary *)_accessibilityResolvedEditingStyles
+- (NSDictionary<NSString *, id> *)_accessibilityResolvedEditingStyles
 {
     if (![self _prepareAccessibilityCall])
         return nil;
@@ -2280,7 +2280,7 @@ static RenderObject* rendererForView(WAKView* view)
     return nil;
 }
 
-- (NSArray *)accessibilityFindMatchingObjects:(NSDictionary *)parameters
+- (NSArray<WebAccessibilityObjectWrapper *> *)accessibilityFindMatchingObjects:(NSDictionary *)parameters
 {
     RefPtr<AXCoreObject> backingObject = self.axBackingObject;
     if (!backingObject)
@@ -2691,7 +2691,7 @@ static RenderObject* rendererForView(WAKView* view)
 }
 
 // Returns start/end markers for the line based on position
-- (NSArray *)lineMarkersForMarker:(WebAccessibilityTextMarker *)marker
+- (NSArray<WebAccessibilityTextMarker *> *)lineMarkersForMarker:(WebAccessibilityTextMarker *)marker
 {
     if (![self _prepareAccessibilityCall])
         return nil;
@@ -3047,7 +3047,7 @@ static RenderObject* rendererForView(WAKView* view)
     return self.axBackingObject->isSwitch();
 }
 
-- (NSArray *)accessibilitySpeechHint
+- (NSArray<NSString *> *)accessibilitySpeechHint
 {
     if (![self _prepareAccessibilityCall])
         return nil;
@@ -3399,7 +3399,7 @@ static RenderObject* rendererForView(WAKView* view)
     return makeNSArray(self.axBackingObject->associatedActionElements());
 }
 
-- (NSArray *)accessibilityCustomActions
+- (NSArray<UIAccessibilityCustomAction *> *)accessibilityCustomActions
 {
     if (![self _prepareAccessibilityCall])
         return nil;

@@ -120,9 +120,10 @@ set(MAVERICKS_DEPS "${MAVERICKS_SUPPORT}/deps" CACHE INTERNAL "in-tree third-par
 # frameworks and points an LC_RPATH at it so the system's old 10.9 libc++ is NOT used.
 link_libraries(${MAVERICKS_TC}/lib/libc++.1.dylib)
 link_libraries(${MAVERICKS_TC}/lib/libc++abi.1.dylib)
-link_libraries(${MAVERICKS_TC}/lib/libMacportsLegacySupport.a)
-# libpolyfill.a contains const_polyfill.o (real CFSTR definitions for
-# 101 Apple CFString constants previously broken by xorl stubs).
+# The clang-22 wrapper auto-links libMavericksLegacySupport.a (POSIX/libc base
+# polyfills) into every binary via its clang.cfg, so no explicit link is needed
+# for those. WebKit-specific polyfills (genuinely-missing-on-10.9 symbols WebKit
+# calls) are provided by the source-built archive added below.
 link_libraries(${MAVERICKS_SUPPORT}/prebuilt/libpolyfill.a)
 # -nostdlib++ is needed because we use a custom libc++ (clang-22).
 # Upstream WebKit applies -undefined dynamic_lookup only to WebCore via its
@@ -140,24 +141,25 @@ add_link_options(
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-mmacosx-version-min=10.9>)
 add_link_options(-mmacosx-version-min=10.9)
 
-# 10.9 backport: the clang-22 wrapper's clang.cfg force-includes the C compat
-# header (macos10_9_compat.h) into EVERY clang invocation. For GAS-syntax .S
-# assembly (boringssl gen/crypto/*-x86_64-apple.S, assembled by clang as the ASM
-# language) that prepends C typedefs into the assembly stream, and the integrated
-# assembler rejects them ("unexpected token in argument list" / "expected
-# register here") — millions of errors. Skip clang.cfg for ASM-language sources;
-# they need only the assembler + -isysroot (which come from the CMake flags, not
-# clang.cfg). C/C++/ObjC sources still get the force-include.
+# 10.9 backport: skip clang.cfg for ASM-language (.S) sources so its link flags
+# (-lobjc/-framework) are not parsed as assembler input. ASM_NASM uses nasm, not
+# clang, so it is excluded.
 add_compile_options($<$<COMPILE_LANGUAGE:ASM>:--no-default-config>)
 
-# Overlay framework dir for patched headers (lightweight generics on collection types)
-add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-iframework> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:${MAVERICKS_SUPPORT}/sdk-overlay>)
+# 10.9 backport: the modern SDK's availability annotations flag every post-10.9 API
+# WebKit calls against the 10.9 deployment target. WebKit handles 10.9 via weak
+# linking plus targeted runtime guards rather than @available everywhere, so silence
+# the availability/deprecation diagnostics (nasm rejects -W*).
+add_compile_options(
+  $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-Wno-unguarded-availability-new>
+  $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-Wno-unguarded-availability>
+  $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-Wno-deprecated-declarations>
+  $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-Wno-availability>)
 
-# 10.9 backport: gap-fill polyfill headers (os/log.h, compression.h, simd/, sys/ & mach/
-# additions, etc.) for post-10.9 system headers that don't exist on Mavericks. Added with
-# -idirafter so it is searched AFTER the real SDK: where the 10.9 SDK has the header, the SDK
-# wins; only genuinely-missing headers fall through to the polyfill. (The clang wrapper used to
-# carry this via clang.cfg pointing at the old toolchain layout; that was lost in the VM reset.)
+# 10.9 backport: gap-fill header overlay, searched AFTER the real SDK (-idirafter) so
+# the SDK's header always wins where present and only genuinely-missing headers fall
+# through. With a modern SDK the Apple headers come from the SDK; the overlay mainly
+# covers third-party gaps (e.g. libwebrtc's opus_defines.h).
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-idirafter> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:${MAVERICKS_SUPPORT}/polyfill>)
 
 # 10.9 backport: clang-22 enables C++/ObjC modules by default, so __has_feature(modules) is true.
@@ -166,6 +168,13 @@ add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-idirafter> $<$<NOT:$<
 # newer types those declarations cover (CMTag, FigThreadAbortAction, ...), leaving them undeclared.
 # Disable implicit modules so the SPI headers fall back to providing the declarations textually.
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-fno-modules> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-fno-cxx-modules>)
+
+# 10.9 backport: WebCrypto runs on libgcrypt (USE_GCRYPT), not the Swift CryptoKit path.
+# CryptoKey*/CryptoAlgorithm* gate the Swift bridge (PALSwift-Generated.h, generated only by
+# Apple's internal Swift build) on `#if !defined(CLANG_WEBKIT_BRANCH)`. Define it so the Swift
+# path is skipped and the gcrypt/CommonCrypto fallbacks compile. Value is unused (only its
+# definedness is tested). nasm has no preprocessor C macros, so exclude ASM_NASM.
+add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-DCLANG_WEBKIT_BRANCH=0>)
 
 # 10.9 backport: libwebrtc's final static archive aggregates ~2000 objects; `ar qc <all .o>`
 # exceeds ARG_MAX ("Argument list too long"). With CMAKE_NINJA_FORCE_RESPONSE_FILE=1 (passed on

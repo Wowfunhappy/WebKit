@@ -31,8 +31,6 @@
 // FIXME: CoreMedia doesn't specify CF_BRIDGED_TYPE to VTVideoDecoderRef. See rdar://148155269.
 typedef struct CF_BRIDGED_TYPE(id) OpaqueVTVideoDecoder* VTVideoDecoderRef;
 typedef struct OpaqueVTImageRotationSession* VTImageRotationSessionRef;
-// VTDecompressionOutputHandler[MultiImageCapable] + CMTaggedBufferGroupRef come
-// from the force-included MavericksSupport/compat.h (later-SDK types).
 typedef struct OpaqueVTPixelBufferConformer* VTPixelBufferConformerRef;
 typedef struct OpaqueVTPixelTransferSession* VTPixelTransferSessionRef;
 

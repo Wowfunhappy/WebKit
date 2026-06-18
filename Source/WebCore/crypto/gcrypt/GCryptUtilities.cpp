@@ -37,7 +37,8 @@ ASCIILiteral hashAlgorithmName(CryptoAlgorithmIdentifier identifier)
     case CryptoAlgorithmIdentifier::SHA_1:
         return "sha1"_s;
     case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-        // 10.9 backport: fail JS operation instead of crashing the tab.
+        // MAVERICKS_BACKPORT: SHA-224 graceful-fail (policy choice, gcrypt path).
+        // Upstream traps; return empty so the JS operation fails instead of crashing.
         return { };
     case CryptoAlgorithmIdentifier::SHA_256:
         return "sha256"_s;
@@ -56,7 +57,8 @@ std::optional<int> hmacAlgorithm(CryptoAlgorithmIdentifier identifier)
     case CryptoAlgorithmIdentifier::SHA_1:
         return GCRY_MAC_HMAC_SHA1;
     case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-        // 10.9 backport: fail JS operation instead of crashing the tab.
+        // MAVERICKS_BACKPORT: SHA-224 graceful-fail (policy choice, gcrypt path).
+        // Upstream traps; return nullopt so the JS operation fails instead of crashing.
         return std::nullopt;
     case CryptoAlgorithmIdentifier::SHA_256:
         return GCRY_MAC_HMAC_SHA256;
@@ -75,7 +77,8 @@ std::optional<int> digestAlgorithm(CryptoAlgorithmIdentifier identifier)
     case CryptoAlgorithmIdentifier::SHA_1:
         return GCRY_MD_SHA1;
     case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-        // 10.9 backport: fail JS operation instead of crashing the tab.
+        // MAVERICKS_BACKPORT: SHA-224 graceful-fail (policy choice, gcrypt path).
+        // Upstream traps; return nullopt so the JS operation fails instead of crashing.
         return std::nullopt;
     case CryptoAlgorithmIdentifier::SHA_256:
         return GCRY_MD_SHA256;
@@ -94,7 +97,8 @@ std::optional<PAL::CryptoDigest::Algorithm> hashCryptoDigestAlgorithm(CryptoAlgo
     case CryptoAlgorithmIdentifier::SHA_1:
         return PAL::CryptoDigest::Algorithm::SHA_1;
     case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-        // 10.9 backport: fail JS operation instead of crashing the tab.
+        // MAVERICKS_BACKPORT: SHA-224 graceful-fail (policy choice, gcrypt path).
+        // Upstream traps; return nullopt so the JS operation fails instead of crashing.
         return std::nullopt;
     case CryptoAlgorithmIdentifier::SHA_256:
         return PAL::CryptoDigest::Algorithm::SHA_256;

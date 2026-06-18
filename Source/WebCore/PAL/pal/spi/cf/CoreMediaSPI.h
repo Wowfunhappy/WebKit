@@ -61,8 +61,6 @@ typedef void (*FigThreadAbortAction)(void* refcon);
 typedef struct OpaqueFigThreadAbortActionToken* FigThreadAbortActionToken;
 #endif
 
-// CMTag/CMTagCollection/CMTaggedBufferGroup are defined by the force-included
-// MavericksSupport/compat.h (macOS-14 types absent on 10.9).
 
 WTF_EXTERN_C_BEGIN
 OSStatus FigThreadRegisterAbortAction(FigThreadAbortAction, void* refcon, FigThreadAbortActionToken*);

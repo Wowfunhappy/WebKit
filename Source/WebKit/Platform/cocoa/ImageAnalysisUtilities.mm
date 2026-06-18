@@ -31,7 +31,9 @@
 #import "CocoaImage.h"
 #import "Logging.h"
 #import "TransactionID.h"
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTTypeTIFF) is macOS 11+ and absent on 10.9;
+// the legacy CoreServices kUTTypeTIFF CFString constant is used instead.
+#import <CoreServices/CoreServices.h>
 #import <WebCore/AttributedString.h>
 #import <WebCore/TextRecognitionResult.h>
 #import <pal/cocoa/VisionKitCoreSoftLink.h>
@@ -290,7 +292,7 @@ void requestBackgroundRemoval(CGImageRef image, CompletionHandler<void(CGImageRe
     }
 
     // FIXME (rdar://88834023): We should find a way to avoid this extra transcoding.
-    auto tiffData = transcode(image, (__bridge CFStringRef)UTTypeTIFF.identifier);
+    auto tiffData = transcode(image, kUTTypeTIFF);
     if (![tiffData length]) {
         completion(nullptr);
         return;

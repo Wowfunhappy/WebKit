@@ -69,7 +69,7 @@ IGNORE_WARNINGS_END
 #if PLATFORM(IOS_FAMILY)
 NS_ASSUME_NONNULL_BEGIN
 @interface AVAudioSession (AVAudioSessionWebKitPrivate)
-- (BOOL)setAuditTokensForProcessAssertion:(NSArray **)inAuditTokens error:(NSError **)outError;
+- (BOOL)setAuditTokensForProcessAssertion:(NSArray<NSData *>*)inAuditTokens error:(NSError **)outError;
 @end
 NS_ASSUME_NONNULL_END
 #endif
@@ -96,7 +96,7 @@ NS_ASSUME_NONNULL_END
 typedef NSString * AVVideoRange NS_TYPED_ENUM;
 @interface AVPlayer (AVPlayerVideoRangeOverride)
 @property (nonatomic, copy, nullable) AVVideoRange videoRangeOverride;
-+ (nullable AVVideoRange)preferredVideoRangeForDisplays:(nonnull NSArray **)displays;
++ (nullable AVVideoRange)preferredVideoRangeForDisplays:(nonnull NSArray <NSNumber *>*)displays;
 @end
 #endif
 
@@ -124,7 +124,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (nullable AVOutputContext *)sharedSystemAudioContext;
 + (nullable AVOutputContext *)outputContextForID:(NSString *)ID;
 @property (readonly) BOOL supportsMultipleOutputDevices;
-@property (readonly) NSArray *outputDevices;
+@property (readonly) NSArray<AVOutputDevice *> *outputDevices;
 @property (nonatomic, readonly, nullable) AVOutputDevice *outputDevice;
 @end
 
@@ -160,14 +160,7 @@ NS_ASSUME_NONNULL_END
 
 #endif // ENABLE(WIRELESS_PLAYBACK_TARGET)
 
-// 10.9 backport: AVAssetCache is a macOS 10.13+ AVFoundation class; its header is absent on 10.9.
-// Import it when present, otherwise provide a stub base class so the SPI category below compiles.
-#if __has_include(<AVFoundation/AVAssetCache.h>)
 #import <AVFoundation/AVAssetCache.h>
-#else
-@interface AVAssetCache : NSObject
-@end
-#endif
 NS_ASSUME_NONNULL_BEGIN
 @interface AVAssetCache ()
 + (AVAssetCache *)assetCacheWithURL:(NSURL *)URL;
@@ -239,7 +232,7 @@ NS_ASSUME_NONNULL_END
 @interface AVContentKeyReportGroup : NSObject
 @property (readonly, nullable) NSData *contentProtectionSessionIdentifier;
 - (void)expire;
-- (void)processContentKeyRequestWithIdentifier:(nullable id)identifier initializationData:(nullable NSData *)initializationData options:(nullable NSDictionary *)options;
+- (void)processContentKeyRequestWithIdentifier:(nullable id)identifier initializationData:(nullable NSData *)initializationData options:(nullable NSDictionary<NSString *, id> *)options;
 - (void)associateContentKeyRequest:(nonnull AVContentKeyRequest *)contentKeyRequest;
 @end
 
@@ -252,7 +245,7 @@ NS_ASSUME_NONNULL_END
 #if HAVE(AVCONTENTKEYSESSIONWILLOUTPUTBEOBSCURED)
 @interface AVContentKeyRequest (OutputObscured)
 NS_ASSUME_NONNULL_BEGIN
-- (BOOL)willOutputBeObscuredDueToInsufficientExternalProtectionForDisplays:(NSArray *)displays;
+- (BOOL)willOutputBeObscuredDueToInsufficientExternalProtectionForDisplays:(NSArray<NSNumber *> *)displays;
 NS_ASSUME_NONNULL_END
 @end
 #endif
@@ -350,21 +343,6 @@ NS_ASSUME_NONNULL_BEGIN
 NS_ASSUME_NONNULL_END
 #endif // __has_include(<AVFoundation/AVSampleBufferDisplayLayer.h>)
 
-// 10.9 backport: AVQueuedSampleBufferRendering (status/error + the AVQueuedSampleBufferRenderingStatus
-// enum) is macOS 10.10+. AVSampleBufferDisplayLayer exists on 10.9 but lacks it. Provide the enum and a
-// status/error category when the protocol header is absent, so LocalSampleBufferDisplayLayer can read .status.
-#if !__has_include(<AVFoundation/AVQueuedSampleBufferRendering.h>)
-typedef NS_ENUM(NSInteger, AVQueuedSampleBufferRenderingStatus) {
-    AVQueuedSampleBufferRenderingStatusUnknown = 0,
-    AVQueuedSampleBufferRenderingStatusRendering = 1,
-    AVQueuedSampleBufferRenderingStatusFailed = 2,
-};
-@interface AVSampleBufferDisplayLayer (WebKitAVQueuedSampleBufferRenderingBackport)
-@property (nonatomic, readonly) AVQueuedSampleBufferRenderingStatus status;
-@property (nonatomic, readonly, nullable) NSError *error;
-@end
-#endif
-
 #if HAVE(AVSAMPLEBUFFERDISPLAYLAYER_COPYDISPLAYEDPIXELBUFFER)
 @interface AVSampleBufferDisplayLayer (Staging_94324932)
 - (nullable CVPixelBufferRef)copyDisplayedPixelBuffer;
@@ -431,9 +409,27 @@ NS_ASSUME_NONNULL_END
 @end
 #endif // HAVE(BROWSER_ENGINE_SUPPORTING_API)
 
-// 10.9 backport: AVAudioSession is iOS-centric and absent from the 10.9 macOS SDK. Only enter this
-// SPI block when the framework header is actually present.
-#if !USE(APPLE_INTERNAL_SDK) && !PLATFORM(MACCATALYST) && __has_include(<AVFoundation/AVAudioSession.h>)
+// MAVERICKS_BACKPORT: the public macOS 26.1 SDK declares these AVVideoPerformanceMetrics frame-count
+// SPI getters API_UNAVAILABLE(macos), but they exist at runtime and WebCore's metrics paths call
+// them on macOS (Apple's internal SDK declares them available, which is why upstream calls them
+// without a guard). Provide a WebKit accessor protocol so call sites can message the getters through
+// an available declaration -- (id<WebAVVideoPerformanceMetrics>)metrics -- instead of resolving to
+// the SDK's macos-unavailable property. A re-declaration on AVVideoPerformanceMetrics itself cannot
+// lift the SDK's per-property unavailability.
+@protocol WebAVVideoPerformanceMetrics <NSObject>
+@property (nonatomic, readonly) unsigned long totalNumberOfVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfDroppedVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfCorruptedVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfDisplayCompositedVideoFrames;
+@property (nonatomic, readonly) unsigned long numberOfNonDisplayCompositedVideoFrames;
+@property (nonatomic, readonly) double totalFrameDelay;
+@end
+
+// MAVERICKS_BACKPORT: AVAudioSession is API_UNAVAILABLE(macos) in the macOS 26.1 SDK, so this SPI
+// category cannot be declared on a macOS build. The class is iOS-only; gate the block on
+// PLATFORM(IOS_FAMILY) (upstream reaches the equivalent declarations through the internal-SDK
+// header on macOS, which is not available here).
+#if !USE(APPLE_INTERNAL_SDK) && !PLATFORM(MACCATALYST) && PLATFORM(IOS_FAMILY)
 #import <AVFoundation/AVAudioSession.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -444,8 +440,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (readonly) BOOL eligibleForBTSmartRoutingConsideration;
 @property (readonly) NSString* spatialTrackingLabel;
 - (BOOL)setEligibleForBTSmartRoutingConsideration:(BOOL)inValue error:(NSError **)outError;
-- (BOOL)setHostProcessAttribution:(NSArray **)inHostProcessInfo error:(NSError **)outError SPI_AVAILABLE(ios(15.0), watchos(8.0), tvos(15.0)) API_UNAVAILABLE(macCatalyst, macos);
-- (BOOL)setAuditTokensForProcessAssertion:(NSArray **)inAuditTokens error:(NSError **)outError;
+- (BOOL)setHostProcessAttribution:(NSArray<NSString *>*)inHostProcessInfo error:(NSError **)outError SPI_AVAILABLE(ios(15.0), watchos(8.0), tvos(15.0)) API_UNAVAILABLE(macCatalyst, macos);
+- (BOOL)setAuditTokensForProcessAssertion:(NSArray<NSData *>*)inAuditTokens error:(NSError **)outError;
 @end
 
 NS_ASSUME_NONNULL_END
@@ -493,7 +489,7 @@ NS_ASSUME_NONNULL_END
 #if !USE(APPLE_INTERNAL_SDK)
 NS_ASSUME_NONNULL_BEGIN
 @interface AVURLAsset (IsPlayableExtendedMIMETypeWithOptions)
-+ (BOOL)isPlayableExtendedMIMEType:(NSString *)extendedMIMEType options:(nullable NSDictionary *)options;
++ (BOOL)isPlayableExtendedMIMEType:(NSString *)extendedMIMEType options:(nullable NSDictionary<NSString *, id> *)options;
 @end
 NS_ASSUME_NONNULL_END
 #endif
@@ -521,32 +517,6 @@ NS_ASSUME_NONNULL_BEGIN
 @interface AVOutputContext(WKSecureCoding)
 - (NSDictionary *)_webKitPropertyListData;
 - (instancetype)_initWithWebKitPropertyListData:(NSDictionary *)plist;
-@end
-NS_ASSUME_NONNULL_END
-#endif
-
-// 10.9 capture backport: the modern AVCapture device-discovery and camera-effect APIs (macOS
-// 10.15–14) are absent from the 10.9 SDK. Provide the types/properties so the MediaStream capture
-// layer (AVVideoCaptureSource, AVCaptureDeviceManager) compiles; the soft-linked classes are nil at
-// runtime on 10.9, so these paths return nil/NO (live camera capture is a later WebRTC step).
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101500
-#import <AVFoundation/AVCaptureDevice.h>
-#import <CoreMedia/CMFormatDescription.h>
-
-typedef NSString *AVCaptureDeviceType;
-
-NS_ASSUME_NONNULL_BEGIN
-@interface AVCaptureDeviceDiscoverySession : NSObject
-+ (instancetype)discoverySessionWithDeviceTypes:(NSArray<AVCaptureDeviceType> *)deviceTypes mediaType:(nullable NSString *)mediaType position:(AVCaptureDevicePosition)position;
-@property (nonatomic, readonly) NSArray<AVCaptureDevice *> *devices;
-@end
-
-@interface AVCaptureDevice (WebKit109CaptureBackport)
-@property (nonatomic, readonly) BOOL portraitEffectActive;
-@end
-
-@interface NSValue (WebKit109CMVideoDimensions)
-@property (nonatomic, readonly) CMVideoDimensions CMVideoDimensionsValue;
 @end
 NS_ASSUME_NONNULL_END
 #endif

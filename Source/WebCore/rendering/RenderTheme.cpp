@@ -285,7 +285,6 @@ void RenderTheme::adjustStyle(RenderStyle& style, const RenderStyle& parentStyle
     if (!widgetMayDevolve || shouldCheckLegacyStylesForNativeAppearance(element))
         widgetHasNativeAppearanceDisabled |= hasAppearanceFromUAStyle && isControlStyled(style);
 
-
     if (widgetHasNativeAppearanceDisabled) {
         switch (appearance) {
         case StyleAppearance::Menulist:
@@ -902,7 +901,7 @@ bool RenderTheme::paint(const RenderBox& box, const PaintInfo& paintInfo, const 
     }
     if (paintInfo.context().paintingDisabled())
         return false;
-
+    
     auto appearance = box.style().usedAppearance();
 
     if (!canPaint(paintInfo, box.settings(), appearance)) [[unlikely]]

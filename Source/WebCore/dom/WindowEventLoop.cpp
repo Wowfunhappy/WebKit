@@ -37,7 +37,7 @@
 #include "SecurityOrigin.h"
 #include "ThreadGlobalData.h"
 #include "ThreadTimers.h"
-#include <wtf/Lock.h>
+#include <wtf/Lock.h> // MAVERICKS_BACKPORT: Lock for the shared windowEventLoopMap guard (#54-adjacent)
 #include <wtf/RobinHoodHashMap.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -47,8 +47,9 @@ namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WindowEventLoop);
 
-// 10.9 backport: shared ThreadTimers means worker threads can fire Document
-// timers, which call into this map. Use a Lock instead of asserting main thread.
+// MAVERICKS_BACKPORT: #54-adjacent (proper fix, not a band-aid) — shared ThreadTimers
+// means worker threads can fire Document timers, which call into windowEventLoopMap().
+// Use a real Lock around the shared map instead of upstream's RELEASE_ASSERT(isMainThread).
 static Lock& windowEventLoopMapLock()
 {
     static NeverDestroyed<Lock> lock;
@@ -57,6 +58,8 @@ static Lock& windowEventLoopMapLock()
 
 static MemoryCompactRobinHoodHashMap<String, CheckedPtr<WindowEventLoop>>& NODELETE windowEventLoopMap()
 {
+    // MAVERICKS_BACKPORT: #54-adjacent — dropped upstream's RELEASE_ASSERT(isMainThread());
+    // the windowEventLoopMapLock() above serializes off-main access instead.
     static NeverDestroyed<MemoryCompactRobinHoodHashMap<String, CheckedPtr<WindowEventLoop>>> map;
     return map.get();
 }
@@ -84,7 +87,7 @@ Ref<WindowEventLoop> WindowEventLoop::eventLoopForSecurityOrigin(const SecurityO
     if (key.isNull())
         return create({ });
 
-    Locker locker { windowEventLoopMapLock() };
+    Locker locker { windowEventLoopMapLock() }; // MAVERICKS_BACKPORT: #54-adjacent — serialize shared-map access
     auto addResult = windowEventLoopMap().add(key, nullptr);
     if (addResult.isNewEntry) [[unlikely]] {
         auto newEventLoop = create(key);
@@ -111,7 +114,7 @@ WindowEventLoop::~WindowEventLoop()
 {
     if (m_agentClusterKey.isNull())
         return;
-    Locker locker { windowEventLoopMapLock() };
+    Locker locker { windowEventLoopMapLock() }; // MAVERICKS_BACKPORT: #54-adjacent — serialize shared-map access
     auto didRemove = windowEventLoopMap().remove(m_agentClusterKey);
     RELEASE_ASSERT(didRemove);
 }

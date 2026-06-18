@@ -831,7 +831,6 @@ FloatRect RenderLayerCompositor::visibleRectForLayerFlushing() const
 
 void RenderLayerCompositor::flushPendingLayerChanges(bool isFlushRoot)
 {
-    // 10.9 perf: removed debug fopen logging
     // LocalFrameView::flushCompositingStateIncludingSubframes() flushes each subframe,
     // but GraphicsLayer::flushCompositingState() will cross frame boundaries
     // if the GraphicsLayers are connected (the RootLayerAttachedViaEnclosingFrame case).
@@ -840,11 +839,9 @@ void RenderLayerCompositor::flushPendingLayerChanges(bool isFlushRoot)
         return;
 
     if (rootLayerAttachment() == RootLayerUnattached) {
-        // 10.9 perf: removed debug fopen logging
         m_shouldFlushOnReattach = true;
         return;
     }
-    // 10.9 perf: removed debug fopen logging
 
     ASSERT(!m_flushingLayers);
     {
@@ -2904,18 +2901,19 @@ void RenderLayerCompositor::frameViewDidScroll()
     if (!m_scrolledContentsLayer)
         return;
 
-    // 10.9 backport: ALSO call updateScrollLayerPosition when coordinated
-    // scrolling is in play. The async scrolling-coordinator path on this
-    // build doesn't reliably propagate scroll position to the scrolled-
-    // contents GraphicsLayer, so the visual viewport stays at top after
-    // wheel events even though scrollPosition() updates correctly.
-    // Calling updateScrollLayerPosition directly translates m_scrolledContentsLayer.
+    // MAVERICKS_BACKPORT: keystone #55/#56 (IPC/render cadence + IOSurface compositing).
+    // ALSO call updateScrollLayerPosition when coordinated scrolling is in play. The async
+    // scrolling-coordinator path on this build doesn't reliably propagate scroll position to
+    // the scrolled-contents GraphicsLayer, so the visual viewport stays at top after wheel
+    // events even though scrollPosition() updates correctly. Calling updateScrollLayerPosition
+    // directly translates m_scrolledContentsLayer.
     if (hasCoordinatedScrolling())
         scheduleRenderingUpdate();
     updateScrollLayerPosition();
 
-    // 10.9 backport: the same broken coordinated-scrolling path that makes the contents layer stay put
-    // (worked around just above) ALSO never moves the scrollbar thumbs during the scroll —
+    // MAVERICKS_BACKPORT: keystone #55/#56. The same broken coordinated-scrolling path that makes
+    // the contents layer stay put (worked around just above) ALSO never moves the scrollbar thumbs
+    // during the scroll —
     // Scrollbar::offsetDidChange() is not reached, so the thumb only snaps to the correct place on a
     // later main-thread pass (the user-visible "scrollbar lags behind / only updates afterwards" bug,
     // very visible because the scrollbar is always shown when a mouse is attached). Push the current

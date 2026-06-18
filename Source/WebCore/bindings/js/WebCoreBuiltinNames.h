@@ -95,7 +95,7 @@ namespace WebCore {
     macro(AuthenticatorAttestationResponse) \
     macro(AuthenticatorResponse) \
     macro(BackgroundFetchEvent) \
-    macro(BeforeLoadEvent) \
+    macro(BeforeLoadEvent) /* MAVERICKS_BACKPORT: restored-lost-upstream build glue — registers the BeforeLoadEvent interface name for the resurrected beforeload event (#62 uBlock network blocking). */ \
     macro(BackgroundFetchManager) \
     macro(BackgroundFetchRecord) \
     macro(BackgroundFetchRegistration) \

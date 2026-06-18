@@ -429,8 +429,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         // 10.9 backport: -[AVSampleBufferDisplayLayer videoPerformanceMetrics] is macOS 10.10+ and an
         // unrecognized selector on 10.9 (this metrics logging crashed the WebContent capture path). Guard it.
         RetainPtr metrics = [m_sampleBufferDisplayLayer respondsToSelector:@selector(videoPerformanceMetrics)] ? [m_sampleBufferDisplayLayer videoPerformanceMetrics] : nil;
-        if (metrics)
-            RELEASE_LOG(WebRTC, "LocalSampleBufferDisplayLayer (%llu) metrics, total=%lu, dropped=%lu, corrupted=%lu, display-composited=%lu, non-display-composited=%lu (pending=%lu)", m_logIdentifier, metrics.get().totalNumberOfVideoFrames, metrics.get().numberOfDroppedVideoFrames, metrics.get().numberOfCorruptedVideoFrames, metrics.get().numberOfDisplayCompositedVideoFrames, metrics.get().numberOfNonDisplayCompositedVideoFrames, m_pendingVideoFrameQueue.size());
+        // MAVERICKS_BACKPORT: message the frame-count SPI getters through WebAVVideoPerformanceMetrics
+        // (PAL/AVFoundationSPI.h) so they resolve against an available declaration instead of the
+        // public macOS 26.1 SDK's macos-unavailable AVVideoPerformanceMetrics properties.
+        if (id<WebAVVideoPerformanceMetrics> metricsSPI = (id<WebAVVideoPerformanceMetrics>)metrics.get())
+            RELEASE_LOG(WebRTC, "LocalSampleBufferDisplayLayer (%llu) metrics, total=%lu, dropped=%lu, corrupted=%lu, display-composited=%lu, non-display-composited=%lu (pending=%lu)", m_logIdentifier, metricsSPI.totalNumberOfVideoFrames, metricsSPI.numberOfDroppedVideoFrames, metricsSPI.numberOfCorruptedVideoFrames, metricsSPI.numberOfDisplayCompositedVideoFrames, metricsSPI.numberOfNonDisplayCompositedVideoFrames, m_pendingVideoFrameQueue.size());
     }
     m_frameRateMonitor.update();
 #endif

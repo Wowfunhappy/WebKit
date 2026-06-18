@@ -2375,10 +2375,6 @@ static RetainPtr<NSDictionary> dictionaryRepresentationForEditorState(const WebK
     };
 }
 
-#ifndef NSTextAlignmentNatural
-#define NSTextAlignmentNatural 4
-#endif
-
 static NSTextAlignment NODELETE nsTextAlignment(WebKit::TextAlignment alignment)
 {
     switch (alignment) {

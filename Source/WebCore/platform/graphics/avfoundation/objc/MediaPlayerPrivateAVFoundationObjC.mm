@@ -192,70 +192,19 @@ SOFT_LINK_CONSTANT(MediaExperience, AVController_RouteDescriptionKey_AVAudioRout
 
 #endif // PLATFORM(IOS_FAMILY)
 
-#if PLATFORM(MAC)
-// Backport: 10.10+ AVFoundation declarations missing from the 10.9 SDK.
-// These are forward-declared so the file compiles; runtime is safe because
-// PAL::allocXxxInstance() returns nil when the underlying class is absent on 10.9.
-// AVPlayerItemOutput is defined in <AVFoundation/AVPlayerItemOutput.h> (10.8+);
-// AVPlayerItemMetadataOutput is 10.10+ — declare as subclass for compile-time only.
-#import <AVFoundation/AVPlayerItemOutput.h>
-@class AVTimedMetadataGroup;
-@class AVPlayerItemTrack;
-@interface AVDateRangeMetadataGroup : NSObject
-@property (nonatomic, readonly) NSDate *startDate;
-@property (nonatomic, readonly) NSDate *endDate;
-@property (nonatomic, readonly) NSArray *items;
-@end
-@interface AVPlayerItemMetadataOutput : AVPlayerItemOutput
-- (instancetype)initWithIdentifiers:(NSArray *)identifiers;
-@property (nonatomic, weak) id delegate;
-- (void)setDelegate:(id)delegate queue:(dispatch_queue_t)delegateQueue;
-@end
-@interface AVPlayerItemMetadataCollector : NSObject
-- (instancetype)initWithIdentifiers:(NSArray *)identifiers classifyingLabels:(NSArray *)classifyingLabels;
-- (void)setDelegate:(id)delegate queue:(dispatch_queue_t)delegateQueue;
-@end
-@protocol AVPlayerItemMetadataOutputPushDelegate <NSObject>
-@optional
-- (void)metadataOutput:(AVPlayerItemMetadataOutput *)output didOutputTimedMetadataGroups:(NSArray<AVTimedMetadataGroup *> *)groups fromPlayerItemTrack:(AVPlayerItemTrack *)track;
-@end
-@protocol AVPlayerItemMetadataCollectorPushDelegate <NSObject>
-@optional
-- (void)metadataCollector:(AVPlayerItemMetadataCollector *)metadataCollector didCollectDateRangeMetadataGroups:(NSArray<AVDateRangeMetadataGroup *> *)metadataGroups indexesOfNewGroups:(NSIndexSet *)indexesOfNewGroups indexesOfModifiedGroups:(NSIndexSet *)indexesOfModifiedGroups;
-@end
-#ifndef AVPlayerTimeControlStatusPaused
-typedef NS_ENUM(NSInteger, AVPlayerTimeControlStatus) {
-    AVPlayerTimeControlStatusPaused = 0,
-    AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate = 1,
-    AVPlayerTimeControlStatusPlaying = 2,
-};
-#endif
-@interface AVAssetResourceLoader (BackportURLSession)
-@property (nonatomic, retain) NSURLSession *URLSession;
-@property (nonatomic, retain) id<NSURLSessionDataDelegate> URLSessionDataDelegate;
-@property (nonatomic, retain) NSOperationQueue *URLSessionDataDelegateQueue;
-@end
-typedef NSString *AVVideoRangeBackport;
-@interface AVPlayer (BackportVideoRange)
-@property (nonatomic, copy) AVVideoRangeBackport videoRangeOverride;
-@end
-@class AudioMediaStreamTrackRenderer; // 10.10+ stub; not referenced at runtime on 10.9.
-@interface NSObject (AudioMediaStreamTrackRendererStub)
-+ (NSString *)defaultDeviceID;
-@end
-@interface AVPlayerItem (Backport10_10_Times)
-- (NSTimeInterval)seekableTimeRangesLastModifiedTime;
-- (NSTimeInterval)liveUpdateInterval;
-@end
-@interface AVPlayer (Backport10_10_SetOutputContext)
+// MAVERICKS_BACKPORT: -[AVPlayer setOutputContext:] is the setter for the SPI
+// `outputContext` property, which AVFoundationSPI.h only declares under
+// ENABLE(WIRELESS_PLAYBACK_TARGET). That feature is OFF in this build, so the
+// selector is otherwise undeclared here; the call site below is runtime-guarded
+// with -respondsToSelector: (10.13+ AirPlay routing, absent at runtime on 10.9).
+// (The metadata-collector/output classes, the AVPlayerTimeControlStatus enum,
+//  videoRangeOverride, seekable/liveUpdate times and the AVAssetResourceLoader
+//  URLSession SPI are all provided by the macOS 26.1 SDK / AVFoundationSPI.h.)
+#if PLATFORM(MAC) && !ENABLE(WIRELESS_PLAYBACK_TARGET)
+@interface AVPlayer (WebKitOutputContextSetter)
 - (void)setOutputContext:(id)context;
-@property (nonatomic, readonly) AVPlayerTimeControlStatus timeControlStatus;
 @end
-// AVVideoPerformanceMetrics is provided by AVFoundationSPI.h (#else stub for non-internal SDK).
-@interface AVPlayerLayer (Backport10_10_PerformanceMetrics)
-- (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
-@end
-#endif // PLATFORM(MAC)
+#endif // PLATFORM(MAC) && !ENABLE(WIRELESS_PLAYBACK_TARGET)
 
 using namespace WebCore;
 
@@ -5150,12 +5099,19 @@ ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
     if (!metrics)
         return std::nullopt;
 
+    // MAVERICKS_BACKPORT: in the public macOS 26.1 SDK these AVVideoPerformanceMetrics frame-count
+    // getters are declared API_UNAVAILABLE(macos), but they exist at runtime and upstream calls them
+    // on macOS (Apple's internal SDK declares them available). Message them through the
+    // WebAVVideoPerformanceMetrics protocol (PAL/AVFoundationSPI.h) so they resolve against an
+    // available declaration rather than the SDK's macos-unavailable property.
+    id<WebAVVideoPerformanceMetrics> metricsSPI = (id<WebAVVideoPerformanceMetrics>)metrics;
+
     return VideoPlaybackQualityMetrics {
-        static_cast<uint32_t>([metrics totalNumberOfVideoFrames]),
-        static_cast<uint32_t>([metrics numberOfDroppedVideoFrames]),
-        static_cast<uint32_t>([metrics numberOfCorruptedVideoFrames]),
-        [metrics totalFrameDelay],
-        static_cast<uint32_t>([metrics numberOfDisplayCompositedVideoFrames]),
+        static_cast<uint32_t>([metricsSPI totalNumberOfVideoFrames]),
+        static_cast<uint32_t>([metricsSPI numberOfDroppedVideoFrames]),
+        static_cast<uint32_t>([metricsSPI numberOfCorruptedVideoFrames]),
+        [metricsSPI totalFrameDelay],
+        static_cast<uint32_t>([metricsSPI numberOfDisplayCompositedVideoFrames]),
     };
 
 ALLOW_NEW_API_WITHOUT_GUARDS_END

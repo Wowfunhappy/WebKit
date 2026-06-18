@@ -2613,20 +2613,9 @@ private:
 #if PLATFORM(COCOA)
         RetainPtr colorSpace = destinationColorSpace.platformColorSpace();
 
-        // CGColorSpaceGetName is unavailable on macOS 10.9; fall back to sRGB.
-        if (false) {
-            RetainPtr<CFStringRef> name;
-            auto data = adoptCF(CFStringCreateExternalRepresentation(nullptr, name.get(), kCFStringEncodingUTF8, 0));
-            if (!data) {
-                write(DestinationColorSpaceSRGBTag);
-                return;
-            }
-
-            write(DestinationColorSpaceCGColorSpaceNameTag);
-            write(data);
-            return;
-        }
-
+        // MAVERICKS_BACKPORT: CGColorSpaceGetName is runtime-absent on 10.9 (10.10+),
+        // so the upstream named-colorspace serialization branch is skipped entirely;
+        // serialize via the property-list path below (or fall back to sRGB).
         if (auto propertyList = adoptCF(CGColorSpaceCopyPropertyList(colorSpace.get()))) {
             auto data = adoptCF(CFPropertyListCreateData(nullptr, propertyList.get(), kCFPropertyListBinaryFormat_v1_0, 0, nullptr));
             if (!data) {
@@ -4149,7 +4138,9 @@ private:
             if (!read(data))
                 return false;
 
-            // CGColorSpaceCreateWithPropertyList is unavailable on macOS 10.9.
+            // MAVERICKS_BACKPORT: CGColorSpaceCreateWithPropertyList is runtime-absent
+            // on 10.9 (10.12+), so a serialized property-list colorspace cannot be
+            // reconstructed; fail the read (the value degrades to sRGB upstream).
             return false;
         }
 #endif

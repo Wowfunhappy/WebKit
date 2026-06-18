@@ -42,19 +42,12 @@
 #import <wtf/ASCIICType.h>
 #import <wtf/WallTime.h>
 
-// 10.12+ renamed modifier flags
-#ifndef NSEventModifierFlagCapsLock
-#define NSEventModifierFlagCapsLock NSAlphaShiftKeyMask
-#define NSEventModifierFlagShift NSShiftKeyMask
-#define NSEventModifierFlagControl NSControlKeyMask
-#define NSEventModifierFlagOption NSAlternateKeyMask
-#define NSEventModifierFlagCommand NSCommandKeyMask
-#endif
-
 namespace WebCore {
 
 NSPoint globalPoint(const NSPoint& windowPoint, NSWindow *window)
 {
+    // MAVERICKS_BACKPORT: -[NSWindow convertPointToScreen:] is 10.12+ (absent at runtime on 10.9);
+    // use the classic -convertBaseToScreen: which is present on 10.9.
     return flipScreenPoint([window convertBaseToScreen:windowPoint], (NSScreen *)screen(window));
 }
 
@@ -682,7 +675,7 @@ OptionSet<PlatformEvent::Modifier> modifiersForModifierFlags(NSEventModifierFlag
 
 static int typeForEvent(NSEvent *event)
 {
-    // 10.9 backport: +[NSMenu menuTypeForEvent:] was added in 10.10. On 10.9 it throws
+    // MAVERICKS_BACKPORT: +[NSMenu menuTypeForEvent:] was added in 10.10. On 10.9 it throws
     // unrecognized selector. This WebCore path is used by WebKit1 (WebHTMLView), which runs
     // in-process in Safari — the unguarded call threw NSInvalidArgumentException mid-click,
     // aborting event dispatch and leaving legacy-extension popovers (uBlock) and the
@@ -752,7 +745,7 @@ public:
         if (eventIsPressureEvent) {
             // Since AppKit doesn't send mouse events for force down or force up, we have to use the current pressure
             // event and correspondingPressureEvent to detect if this is MouseForceDown, MouseForceUp, or just MouseForceChanged.
-            // stage property is 10.10.3+
+            // MAVERICKS_BACKPORT: NSEvent.stage property is 10.10.3+; respondsToSelector-guard it (absent at runtime on 10.9).
             int eventStage = [event respondsToSelector:@selector(stage)] ? (int)(NSInteger)[(id)event stage] : 0;
             int pressureStage = [correspondingPressureEvent respondsToSelector:@selector(stage)] ? (int)(NSInteger)[(id)correspondingPressureEvent stage] : 0;
             if (pressureStage == 1 && eventStage == 2)
@@ -779,7 +772,7 @@ public:
             m_coalescedEvents = { PlatformMouseEventBuilder { event, correspondingPressureEvent, windowView, true } };
 
         m_force = 0;
-        // stage/pressure properties are 10.10.3+
+        // MAVERICKS_BACKPORT: NSEvent.stage/.pressure properties are 10.10.3+; respondsToSelector-guard them (absent at runtime on 10.9).
         {
             NSEvent *relevantEvent = eventIsPressureEvent ? event : correspondingPressureEvent;
             int stage = [relevantEvent respondsToSelector:@selector(stage)] ? (int)(NSInteger)[(id)relevantEvent stage] : 0;

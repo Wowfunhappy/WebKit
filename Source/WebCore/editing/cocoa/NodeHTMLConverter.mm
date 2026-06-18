@@ -1309,7 +1309,7 @@ BOOL HTMLConverter::_addAttachmentForElement(Element& element, NSURL *url, BOOL 
         if (!attachment) {
             RetainPtr textAttachment = adoptNS([[PlatformNSTextAttachment alloc] initWithFileWrapper:fileWrapper.get()]);
 
-            // 10.9 backport: -[NSTextAttachment setAccessibilityLabel:] is 10.10+ (NSTextAttachment
+            // MAVERICKS_BACKPORT: runtime-absent selector #76 — -[NSTextAttachment setAccessibilityLabel:] is 10.10+ (NSTextAttachment
             // adopts the NSAccessibility protocol only on 10.10+; absent and not polyfilled here) →
             // selecting + copying/dragging any <img> with an alt/aria-label attribute raised an
             // unrecognized-selector exception and killed WebContent. Guard it; on 10.9 there is no
@@ -1335,7 +1335,7 @@ BOOL HTMLConverter::_addAttachmentForElement(Element& element, NSURL *url, BOOL 
                     [textAttachment setIgnoresOrientation:YES];
 #endif
             } else {
-                // 10.9 backport: -[NSTextAttachment initWithData:ofType:] and -setImage: are both 10.11+
+                // MAVERICKS_BACKPORT: runtime-absent selector #76 — -[NSTextAttachment initWithData:ofType:] and -setImage: are both 10.11+
                 // (absent, not polyfilled) → the missing-image placeholder path crashed WebContent when
                 // copying/dragging an <img> whose resource failed to load. On 10.9 build the placeholder
                 // with the always-present designated initializer (initWithFileWrapper:nil) and display the
@@ -1625,7 +1625,7 @@ void HTMLConverter::_processHeadElement(Element& element)
 
 void HTMLConverter::_enterBlockquote()
 {
-    // 10.9 backport: +[NSPresentationIntent blockQuoteIntentWithIdentity:nestedInsideIntent:] is 12.0+
+    // MAVERICKS_BACKPORT: runtime-absent selector #76 — +[NSPresentationIntent blockQuoteIntentWithIdentity:nestedInsideIntent:] is 12.0+
     // (NSPresentationIntent is the macOS 12 Markdown/AttributedString presentation-intent API; the class
     // is present on 10.9 but does NOT implement this selector) → converting a selection containing a
     // <blockquote> to an attributed string (rich copy/drag of, e.g., a GitHub page) raised an

@@ -70,8 +70,7 @@ static ExceptionOr<Vector<uint8_t>> encryptCryptoKitAESGCM(const Vector<uint8_t>
     UNUSED_PARAM(plainText);
     UNUSED_PARAM(additionalData);
     UNUSED_PARAM(desiredTagLengthInBytes);
-    // 10.9 backport: fail the JS operation instead of crashing the tab.
-    return Exception { ExceptionCode::OperationError };
+    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
 #endif
 }
 
@@ -97,8 +96,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmAESGCM::platformEncrypt(const CryptoAlgorithmAesGcmParams& parameters, const CryptoKeyAES& key, const Vector<uint8_t>& plainText)
 {
-    // 10.9 backport: always use CommonCrypto's CCCryptorGCM (10.8+). The
-    // CryptoKit path uses Swift APIs (10.15+) that crash on this build.
+    if (parameters.ivVector().size() >= 12)
+        return encryptCryptoKitAESGCM(parameters.ivVector(), key.key(), plainText, parameters.additionalDataVector(), parameters.tagLength.value_or(0) / 8);
     return encryptAESGCM(parameters.ivVector(), key.key(), plainText, parameters.additionalDataVector(), parameters.tagLength.value_or(0) / 8);
 }
 

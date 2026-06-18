@@ -35,9 +35,6 @@
 #import <WebCore/LocalizedStrings.h>
 #import <pal/spi/mac/NSColorSPI.h>
 
-#ifndef NSWindowTitleHidden
-#define NSWindowTitleHidden 1
-#endif
 
 constexpr CGFloat dropdownTopMargin = 3;
 constexpr CGFloat dropdownVerticalPadding = 4;

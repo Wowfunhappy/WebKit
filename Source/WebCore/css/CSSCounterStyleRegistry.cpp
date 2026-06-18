@@ -118,12 +118,13 @@ Ref<CSSCounterStyle> CSSCounterStyleRegistry::decimalCounter()
     auto& userAgentCounters = userAgentCounterStyles();
     auto iterator = userAgentCounters.find("decimal"_s);
 
-    // 10.9 backport: on this build the UA counter-styles stylesheet sometimes
-    // hasn't been loaded by the time CSSCounterStyleRegistry::decimalCounter()
-    // is called (e.g. before UserAgentStyle::initDefaultStyle). Without a
-    // fallback, dereferencing an end-iterator crashes during list-marker layout.
-    // Synthesize a real numeric decimal counter (system: numeric; symbols: 0..9)
-    // and cache it so layout can proceed.
+    // MAVERICKS_BACKPORT: KEEP+FLAG keystone #50. On this build the UA counter-styles
+    // stylesheet sometimes hasn't been loaded by the time decimalCounter() is called
+    // (e.g. before UserAgentStyle::initDefaultStyle, an init-ordering symptom of the
+    // #50 stylesheet-loading keystone). Without a fallback, dereferencing the
+    // end-iterator crashes during list-marker layout. Synthesize a real numeric
+    // decimal counter (system: numeric; symbols: 0..9) and cache it so layout can
+    // proceed. Band-aid: revisit once keystone #50 stylesheet ordering is fixed.
     if (iterator == userAgentCounters.end()) [[unlikely]] {
         CSSCounterStyleDescriptors d;
         d.m_name = "decimal"_s;

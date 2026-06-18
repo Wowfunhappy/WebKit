@@ -166,7 +166,7 @@ ScrollerPairMac::~ScrollerPairMac()
     m_verticalScroller->detach();
     m_horizontalScroller->detach();
 
-    ensureOnMainThread([scrollerImpPair = std::exchange(m_scrollerImpPair, nullptr), verticalScrollerImp = m_verticalScroller->takeScrollerImp(), horizontalScrollerImp = m_horizontalScroller->takeScrollerImp()] {
+    ensureOnMainThread([scrollerImpPair = std::exchange(m_scrollerImpPair, nil), verticalScrollerImp = m_verticalScroller->takeScrollerImp(), horizontalScrollerImp = m_horizontalScroller->takeScrollerImp()] {
     });
 }
 

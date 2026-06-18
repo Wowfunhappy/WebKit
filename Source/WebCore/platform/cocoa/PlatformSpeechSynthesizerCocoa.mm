@@ -313,7 +313,7 @@ void PlatformSpeechSynthesizer::initializeVoiceList()
     }
 
     WeakPtr weakThis { *this };
-    [avSpeechSynthesisVoiceClass speechVoicesIncludingSuperCompactWithCompletionHandler:^(NSArray *voices) {
+    [avSpeechSynthesisVoiceClass speechVoicesIncludingSuperCompactWithCompletionHandler:^(NSArray<AVSpeechSynthesisVoice *> *voices) {
         callOnMainThread([weakThis, voices = RetainPtr { voices }]() {
             BEGIN_BLOCK_OBJC_EXCEPTIONS
             RefPtr protectedThis = weakThis.get();

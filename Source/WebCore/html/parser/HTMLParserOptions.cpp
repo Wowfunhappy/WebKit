@@ -52,7 +52,7 @@ HTMLParserOptions::HTMLParserOptions(Document& document)
 
     usePreHTML5ParserQuirks = document.settings().usePreHTML5ParserQuirks();
 
-    // 10.9 backport: Dashboard widgets (e.g. the stock Safari Web Clip widget) are authored in
+    // MAVERICKS_BACKPORT: behavior fix (#38 Web Clips). Dashboard widgets (e.g. the stock Safari Web Clip widget) are authored in
     // XHTML style -- self-closing <script/>, <div/>, <label/> -- but shipped as text/html.
     // Under the modern HTML5 parser the first <script src=.../> never closes and swallows the
     // rest of the document (including the <embed> that hosts the plug-in), so the widget is

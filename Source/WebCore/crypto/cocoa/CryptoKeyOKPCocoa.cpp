@@ -44,15 +44,6 @@ bool CryptoKeyOKP::supportsNamedCurve()
 
 std::optional<CryptoKeyPair> CryptoKeyOKP::platformGeneratePair(CryptoAlgorithmIdentifier identifier, NamedCurve namedCurve, bool extractable, CryptoKeyUsageBitmap usages)
 {
-    // 10.9 backport: Ed25519/X25519 key generation uses pal::EdKey (Swift
-    // CryptoKit, 10.15+). Return nullopt — sites needing OKP keys will get a
-    // clean OperationError.
-    UNUSED_PARAM(identifier);
-    UNUSED_PARAM(namedCurve);
-    UNUSED_PARAM(extractable);
-    UNUSED_PARAM(usages);
-    return std::nullopt;
-
 #if !defined(CLANG_WEBKIT_BRANCH)
     if (!supportsNamedCurve())
         return { };
@@ -93,19 +84,34 @@ std::optional<CryptoKeyPair> CryptoKeyOKP::platformGeneratePair(CryptoAlgorithmI
     UNUSED_PARAM(namedCurve);
     UNUSED_PARAM(extractable);
     UNUSED_PARAM(usages);
-    // 10.9 backport: fail the JS operation instead of crashing the tab.
-    return std::nullopt;
+    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
 #endif
 }
 
 bool CryptoKeyOKP::platformCheckPairedKeys(CryptoAlgorithmIdentifier identifier, NamedCurve, const Vector<uint8_t>& privateKey, const Vector<uint8_t>& publicKey)
 {
-    // 10.9 backport: pal::EdKey uses Swift CryptoKit (10.15+). Return false —
-    // can't validate; sites get OperationError.
+#if !defined(CLANG_WEBKIT_BRANCH)
+    if (!supportsNamedCurve())
+        return false;
+
+    if (privateKey.size() != 32 || publicKey.size() != 32)
+        return false;
+
+    switch (identifier) {
+    case CryptoAlgorithmIdentifier::Ed25519:
+        return pal::EdKey::validateKeyPair(pal::EdSigningAlgorithm::ed25519(), privateKey.span(), publicKey.span());
+    case CryptoAlgorithmIdentifier::X25519:
+        return pal::EdKey::validateKeyPairKeyAgreement(pal::EdKeyAgreementAlgorithm::x25519(), privateKey.span(), publicKey.span());
+    default:
+        RELEASE_ASSERT_NOT_REACHED();
+        return false;
+    }
+#else
     UNUSED_PARAM(identifier);
     UNUSED_PARAM(privateKey);
     UNUSED_PARAM(publicKey);
-    return false;
+    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+#endif
 }
 
 // Per https://www.ietf.org/rfc/rfc5280.txt
@@ -359,13 +365,29 @@ String CryptoKeyOKP::generateJwkD() const
 
 String CryptoKeyOKP::generateJwkX() const
 {
+#if !defined(CLANG_WEBKIT_BRANCH)
     if (type() == CryptoKeyType::Public)
         return base64URLEncodeToString(m_data);
 
-    // 10.9 backport: pal::EdKey uses Swift CryptoKit (10.15+); private→public
-    // derivation isn't available. Return empty string (sites get a malformed
-    // JWK rather than crashing).
-    return String(""_s);
+    ASSERT(type() == CryptoKeyType::Private);
+    switch (namedCurve()) {
+    case NamedCurve::Ed25519: {
+        auto publicKeyPlatformRv = pal::EdKey::privateToPublic(pal::EdSigningAlgorithm::ed25519(), platformKey().span());
+        RELEASE_ASSERT(publicKeyPlatformRv.errorCode == Cpp::ErrorCodes::Success);
+        return base64URLEncodeToString(publicKeyPlatformRv.result.span());
+    }
+    case NamedCurve::X25519: {
+        auto publicKeyPlatformRv = pal::EdKey::privateToPublicKeyAgreement(pal::EdKeyAgreementAlgorithm::x25519(), platformKey().span());
+        RELEASE_ASSERT(publicKeyPlatformRv.errorCode == Cpp::ErrorCodes::Success);
+        return base64URLEncodeToString(publicKeyPlatformRv.result.span());
+    }
+    default:
+        RELEASE_ASSERT_NOT_REACHED();
+        return String(""_s);
+    }
+#else
+    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+#endif
 }
 
 Vector<uint8_t> CryptoKeyOKP::platformExportRaw() const

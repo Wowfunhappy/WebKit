@@ -634,6 +634,8 @@ void EventHandler::sendFakeEventsAfterWidgetTracking(NSEvent *initiatingEvent)
         // FIXME: We should really get the current modifierFlags here, but there's no way to poll
         // them in Cocoa, and because the event stream was stolen by the Carbon menu code we have
         // no up-to-date cache of them anywhere.
+        // MAVERICKS_BACKPORT: runtime-absent selector — -[NSWindow convertPointFromScreen:] is 10.12+;
+        // rewritten to the 10.7+ -convertRectFromScreen: form (zero-size rect, take .origin).
         fakeEvent = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
                                        location:[[view->platformWidget() window] convertRectFromScreen:NSMakeRect([NSEvent mouseLocation].x, [NSEvent mouseLocation].y, 0, 0)].origin
                                   modifierFlags:[initiatingEvent modifierFlags]

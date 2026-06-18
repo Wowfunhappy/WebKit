@@ -26,6 +26,9 @@
 #import "config.h"
 #import "CocoaImage.h"
 
+// MAVERICKS_BACKPORT: UTType/UniformTypeIdentifiers is macOS 11+ and absent on 10.9; the legacy
+// CoreServices UTType C API (kUTTypeImage, UTTypeCreatePreferredIdentifierForTag) lives here.
+#import <CoreServices/CoreServices.h>
 #import <ImageIO/ImageIO.h>
 #if __has_include(<UniformTypeIdentifiers/UniformTypeIdentifiers.h>)
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
@@ -51,16 +54,14 @@ RetainPtr<NSData> transcode(CGImageRef image, CFStringRef typeIdentifier)
 std::pair<RetainPtr<NSData>, RetainPtr<CFStringRef>> transcodeWithPreferredMIMEType(CGImageRef image, CFStringRef preferredMIMEType)
 {
     ASSERT(CFStringGetLength(preferredMIMEType));
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
-    auto preferredTypeIdentifier = RetainPtr { (__bridge CFStringRef)[UTType typeWithMIMEType:bridge_cast(preferredMIMEType) conformingToType:UTTypeImage].identifier };
-    if (WebCore::isSupportedImageType(preferredTypeIdentifier.get())) {
+    // MAVERICKS_BACKPORT: UTType/UniformTypeIdentifiers is macOS 11+ and absent on 10.9, so the
+    // legacy CoreServices UTType C API (UTTypeCreatePreferredIdentifierForTag, present at runtime
+    // on 10.9) maps the MIME type to a UTI conforming to kUTTypeImage; it returns a +1 CFStringRef.
+    auto preferredTypeIdentifier = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, preferredMIMEType, kUTTypeImage));
+    if (preferredTypeIdentifier && WebCore::isSupportedImageType(preferredTypeIdentifier.get())) {
         if (auto data = transcode(image, preferredTypeIdentifier.get()); [data length])
             return { WTF::move(data), WTF::move(preferredTypeIdentifier) };
     }
-#else
-    UNUSED_PARAM(image);
-    UNUSED_PARAM(preferredMIMEType);
-#endif
 
     return { nil, nil };
 }

@@ -26,10 +26,6 @@
 #include "config.h"
 #include "ImageBackingStore.h"
 
-#ifndef kCGImageByteOrder32Little
-#define kCGImageByteOrder32Little (2 << 12)
-#endif
-
 namespace WebCore {
 
 static void NODELETE dataProviderReleaseCallback(void* info, const void*, size_t)

@@ -9,9 +9,14 @@
 #import <CoreServices/CoreServices.h>
 #import <CoreText/CoreText.h>
 #import <Security/Security.h>
+#import <objc/runtime.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <sys/select.h>
+#include <dispatch/dispatch.h>
+#include <mach/port.h>
 
 // 10.9 backport: CTRunGetBaseAdvancesAndOrigins is 10.11+. The prebuilt
 // all_stubs.o provides a return-0 no-op for it, which zeroes every glyph's
@@ -61,6 +66,174 @@ bool os_variant_has_internal_diagnostics(const char *s) { return false; }
 
 // pthread
 bool pthread_self_is_exiting_np(void) { return false; }
+
+// os_unfair_lock_assert_owner / _assert_not_owner (10.12+) are the lock-ownership debug assertions WTF::Lock
+// emits under the modern SDK. The lock primitive itself is already polyfilled (os_unfair_lock_lock/unlock in
+// libpolyfill's os_unfair_lock.o); only these assert helpers are absent on 10.9. No-op them (the lazy bind of
+// the weak reference otherwise aborts fatally on first use, during IPC message handling on page load).
+void os_unfair_lock_assert_owner(void *lock) { (void)lock; }
+void os_unfair_lock_assert_not_owner(void *lock) { (void)lock; }
+
+// os_log unified logging is 10.12+; _os_log_internal is the macro-emitted backing for every os_log()
+// call site and is absent from 10.9's libSystem (it links as the Mach-O symbol __os_log_internal).
+// WebKit imports it weakly, but the LAZY bind of a weak FUNCTION still aborts fatally on the first
+// os_log() call ("lazy symbol binding failed"). Defining a no-op here (libpolyfill.a links into each
+// framework) satisfies it in-image; logging just no-ops. (_os_log_default stays weak/NULL — the no-op
+// ignores its log argument, and weak DATA resolves to NULL without a fatal bind.)
+// Signature uses plain types (os_log_t/os_log_type_t aren't visible under --no-default-config);
+// ABI-equivalent: os_log_t==pointer, os_log_type_t==uint8_t, buf==uint8_t*, size==uint32_t.
+void _os_log_internal(void *dso, void *log, uint8_t type, const char *format, uint8_t *buf, uint32_t size) {
+    (void)dso; (void)log; (void)type; (void)format; (void)buf; (void)size;
+}
+
+// os_log_create(subsystem, category) -> os_log_t (10.12+, absent on 10.9). os_log_t is an os_object /
+// ObjC type, and WebKit wraps the result in a RetainPtr<os_log_t> — so it sends -retain/-release to it.
+// Therefore the returned handle MUST be a real, retainable Objective-C object (a bare pointer crashes in
+// objc_msgSend on [obj retain]). Return a fresh +1 NSObject (matching os_log_create's create semantics);
+// _os_log_internal ignores the log, so the object's only role is to be a valid refcounted handle.
+void *_os_log_create(const char *subsystem, const char *category) {
+    (void)subsystem; (void)category;
+    return (void *)[[NSObject alloc] init];
+}
+
+// os_signpost performance tracing is 10.14+; absent on 10.9. No-op so signpost call sites link and the
+// "is signposting enabled" guard always reports disabled (no emit happens).
+bool os_signpost_enabled(void *log) { (void)log; return false; }
+uint64_t os_signpost_id_make_with_pointer(void *log, const void *ptr) { (void)log; return (uint64_t)(uintptr_t)ptr; }
+void _os_signpost_emit_with_name_impl(void *dso, void *log, uint8_t type, uint64_t spid,
+        const char *name, const char *format, uint8_t *buf, uint32_t size) {
+    (void)dso; (void)log; (void)type; (void)spid; (void)name; (void)format; (void)buf; (void)size;
+}
+
+// aligned_alloc (C11) was added to macOS libc only in 10.15; on 10.9 use posix_memalign, which yields
+// free()-compatible memory just like aligned_alloc.
+void *aligned_alloc(size_t alignment, size_t size) {
+    void *p = NULL;
+    return posix_memalign(&p, alignment, size) ? NULL : p;
+}
+
+// mkostemp/mkostemps (the flags-taking mkstemp variants) are absent on 10.9; emulate via mkstemp/mkstemps
+// plus fcntl to apply the documented O_CLOEXEC/O_APPEND/O_NONBLOCK flags.
+static void applyOpenFlags(int fd, int flags) {
+    if (fd < 0) return;
+    if (flags & O_CLOEXEC) fcntl(fd, F_SETFD, FD_CLOEXEC);
+    int sfl = (flags & (O_APPEND | O_NONBLOCK));
+    if (sfl) fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | sfl);
+}
+int mkostemp(char *tmpl, int flags) { int fd = mkstemp(tmpl); applyOpenFlags(fd, flags); return fd; }
+int mkostemps(char *tmpl, int suffixlen, int flags) { int fd = mkstemps(tmpl, suffixlen); applyOpenFlags(fd, flags); return fd; }
+
+// timingsafe_bcmp (constant-time compare, used by crypto) is absent on 10.9. Provide a constant-time
+// implementation (no early-out) so timing characteristics match the real function.
+int timingsafe_bcmp(const void *a, const void *b, size_t n) {
+    const unsigned char *x = (const unsigned char *)a, *y = (const unsigned char *)b;
+    unsigned char r = 0;
+    for (size_t i = 0; i < n; i++) r |= x[i] ^ y[i];
+    return r != 0;
+}
+
+// voucher_mach_msg_set (libdispatch QoS voucher propagation) is 10.10+. Vouchers don't exist on 10.9;
+// report "no voucher set" (FALSE). Vouchers are only a QoS-propagation optimization, so this is benign.
+int voucher_mach_msg_set(void *msg) { (void)msg; return 0; }
+
+// mach_memory_entry_ownership (footprint-ledger attribution of shared memory) is ~10.13+. 10.9 has no
+// phys_footprint ledger, so there is genuinely nothing to attribute; report success (the sole caller,
+// SharedMemoryHandle, only RELEASE_LOG_ERRORs on failure and is otherwise a no-op).
+int mach_memory_entry_ownership(unsigned int mem_entry, unsigned int owner, int ledger_tag, int ledger_flags) {
+    (void)mem_entry; (void)owner; (void)ledger_tag; (void)ledger_flags;
+    return 0; // KERN_SUCCESS
+}
+
+// __darwin_check_fd_set_overflow (the fortified FD_SET bounds check) is newer; on 10.9 reproduce its
+// semantics: a descriptor is valid if non-negative and (when not unlimited) within FD_SETSIZE.
+int __darwin_check_fd_set_overflow(int n, const void *fdset, int unlimited) {
+    (void)fdset;
+    return (n >= 0 && (unlimited || n < FD_SETSIZE)) ? 1 : 0;
+}
+
+// dispatch_queue_create_with_target() (10.10 SDK) has no 10.9 runtime symbol — the modern SDK emits the
+// ABI-tagged "$V2" variant. Recreate it from dispatch_queue_create + dispatch_set_target_queue (both 10.6).
+dispatch_queue_t polyfill_dispatch_queue_create_with_target(const char *label, dispatch_queue_attr_t attr, dispatch_queue_t target)
+    __asm__("_dispatch_queue_create_with_target$V2");
+dispatch_queue_t polyfill_dispatch_queue_create_with_target(const char *label, dispatch_queue_attr_t attr, dispatch_queue_t target) {
+    dispatch_queue_t queue = dispatch_queue_create(label, attr);
+    if (queue && target) dispatch_set_target_queue(queue, target);
+    return queue;
+}
+
+// CGColorCreateSRGB (10.15+) — build the color through the named sRGB color space (available since 10.5).
+CGColorRef CGColorCreateSRGB(CGFloat r, CGFloat g, CGFloat b, CGFloat a) {
+    CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGFloat comps[4] = { r, g, b, a };
+    CGColorRef color = CGColorCreate(cs, comps);
+    CGColorSpaceRelease(cs);
+    return color;
+}
+
+// sqlite3_errstr (SQLite 3.7.15) — 10.9 ships an older SQLite. Map the primary result codes to the same
+// strings SQLite uses, so WebCore's diagnostic logging stays meaningful. Used only for error messages.
+const char *sqlite3_errstr(int rc) {
+    switch (rc & 0xff) {
+        case 0:  return "not an error";
+        case 1:  return "SQL logic error";
+        case 2:  return "internal error";
+        case 3:  return "access permission denied";
+        case 4:  return "query aborted";
+        case 5:  return "database is locked";
+        case 6:  return "database table is locked";
+        case 7:  return "out of memory";
+        case 8:  return "attempt to write a readonly database";
+        case 9:  return "interrupted";
+        case 10: return "disk I/O error";
+        case 11: return "database disk image is malformed";
+        case 12: return "unknown operation";
+        case 13: return "database or disk is full";
+        case 14: return "unable to open database file";
+        case 15: return "locking protocol";
+        case 17: return "database schema has changed";
+        case 18: return "string or blob too big";
+        case 19: return "constraint failed";
+        case 20: return "datatype mismatch";
+        case 21: return "library routine called out of sequence";
+        case 23: return "authorization denied";
+        case 25: return "column index out of range";
+        case 26: return "file is not a database";
+        case 100: return "another row available";
+        case 101: return "no more rows available";
+        default: return "unknown error";
+    }
+}
+
+// kIOMainPortDefault (the 12.0 rename of kIOMasterPortDefault) has no 10.9 symbol; its value is the same
+// MACH_PORT_NULL sentinel meaning "use the default IOKit master port".
+const mach_port_t kIOMainPortDefault = 0;
+
+// kCTFontOpenTypeFeatureTag / ...Value (10.10 SDK) are the CFDictionary keys for OpenType font features.
+// They have no 10.9 symbol; building a feature dictionary with a NULL key would crash CFDictionary, so
+// define them with CoreText's documented key strings. (10.9 CoreText may not honor the new-style feature
+// dictionary, but the code links and runs without crashing.)
+const CFStringRef kCTFontOpenTypeFeatureTag = CFSTR("CTFeatureOpenTypeTag");
+const CFStringRef kCTFontOpenTypeFeatureValue = CFSTR("CTFeatureOpenTypeValue");
+
+// CAFrameRateRangeMake (12.0+) — CADisplayLink frame-rate range constructor. Build the
+// {minimum,maximum,preferred} struct directly. asm label so the C identifier doesn't collide with the
+// SDK's CAFrameRateRange return type (which AppKit→QuartzCore may declare); the struct layout is ABI-
+// identical (three floats), so the returned value is passed back exactly as callers expect.
+typedef struct { float minimum; float maximum; float preferred; } PolyCAFrameRateRange;
+PolyCAFrameRateRange polyfill_CAFrameRateRangeMake(float minimum, float maximum, float preferred) __asm__("_CAFrameRateRangeMake");
+PolyCAFrameRateRange polyfill_CAFrameRateRangeMake(float minimum, float maximum, float preferred) {
+    PolyCAFrameRateRange r = { minimum, maximum, preferred };
+    return r;
+}
+
+// xpc_type_get_name (newer XPC introspection) — used only for diagnostic strings; return a generic label.
+const char *xpc_type_get_name(void *type) { (void)type; return "xpc-object"; }
+
+// QuartzCore/CoreText string constants with no 10.9 symbol. Define them non-NULL (documented values) so
+// the corner-curve / downloaded-font features degrade gracefully and never feed a NULL key to a
+// CFDictionary/CTFontDescriptor (which would crash). 10.9 won't honor the values, which is fine.
+const CFStringRef kCACornerCurveCircular = CFSTR("circular");
+const CFStringRef kCTFontDownloadedAttribute = CFSTR("kCTFontDownloadedAttribute");
 
 #pragma mark - ObjC class stubs (proper metadata for 10.9 ObjC runtime)
 // Defined ONLY in JavaScriptCore.framework (JSC loads first). WebCore and WebKit
@@ -421,19 +594,26 @@ NSString * const NSPopUpMenuPopupButtonWidget = @"NSPopUpMenuPopupButtonWidget";
 // private API. On 10.9 this throws "doesNotRecognizeSelector". Provide a category that
 // implements it by falling back to the public +[NSURLProtocol classForRequest:] equivalent
 // (which doesn't exist publicly either, but the underlying lookup table does).
-@interface NSURLProtocol (Polyfill_10_10)
-+ (Class)_protocolClassForRequest:(NSURLRequest *)request skipAppSSO:(BOOL)skip;
-@end
-
-@implementation NSURLProtocol (Polyfill_10_10)
-+ (Class)_protocolClassForRequest:(NSURLRequest *)request skipAppSSO:(BOOL)skip {
-    // Safari uses this to find a URL protocol handler for AppSSO (Single Sign-On).
-    // On 10.9 we don't have AppSSO, so just return nil — Safari will fall back to its
-    // standard URL loading.
-    (void)request; (void)skip;
+// Inject +_protocolClassForRequest:skipAppSSO: at runtime (class_addMethod on the metaclass) rather
+// than via an ObjC category, so this object carries NO static reference to _OBJC_CLASS_$_NSURLProtocol.
+// The 26.1 build SDK homes that class symbol in CFNetwork, but on the 10.9 runtime NSURLProtocol lives
+// in Foundation; a static category reference mis-binds to CFNetwork and fails to load (dyld: Symbol not
+// found _OBJC_CLASS_$_NSURLProtocol Expected in CFNetwork). App SSO does not exist on 10.9, so the
+// method returns Nil and the caller (WebCoreNSURLExtras) falls back to the standard URL-loading path.
+static Class polyfill_NSURLProtocol_protocolClassForRequest_skipAppSSO(id self, SEL _cmd, id request, BOOL skip) {
+    (void)self; (void)_cmd; (void)request; (void)skip;
     return Nil;
 }
-@end
+__attribute__((constructor)) static void installNSURLProtocolSkipAppSSOPolyfill(void) {
+    Class cls = objc_getClass("NSURLProtocol");
+    if (!cls)
+        return;
+    SEL sel = sel_registerName("_protocolClassForRequest:skipAppSSO:");
+    if (class_getClassMethod(cls, sel))
+        return; // already provided by the OS (10.10+)
+    Class meta = object_getClass((id)cls); // class methods live on the metaclass
+    class_addMethod(meta, sel, (IMP)polyfill_NSURLProtocol_protocolClassForRequest_skipAppSSO, "#@:@c");
+}
 
 #pragma mark - NSView beginDeferringViewInWindowChanges (10.11+)
 
@@ -466,3 +646,71 @@ NSString * const NSPopUpMenuPopupButtonWidget = @"NSPopUpMenuPopupButtonWidget";
 // CFString value; on 10.9 the encoder simply ignores this unknown spec key.
 #import <CoreFoundation/CoreFoundation.h>
 const CFStringRef kVTVideoEncoderSpecification_RequiredLowLatency = CFSTR("RequiredLowLatency");
+
+#pragma mark - macOS 26.1 SDK symbols absent on the 10.9 runtime
+// The 26.1 build SDK declares these as extern / @interface, so WebKit emits
+// undefined references that dyld cannot resolve against the 10.9 system
+// frameworks. Define them here (force-loaded polyfill archive) so the
+// references bind in-image. The features are unused/inert on 10.9, so only the
+// SYMBOL needs to exist with the right type; values are low-stakes.
+
+// --- NSTextList marker format constants (10.13+) -------------------------
+// Documented "{...}" CSS-list-style marker strings.
+NSString * const NSTextListMarkerCircle = @"{circle}";
+NSString * const NSTextListMarkerDecimal = @"{decimal}";
+NSString * const NSTextListMarkerDisc = @"{disc}";
+NSString * const NSTextListMarkerLowercaseAlpha = @"{lower-alpha}";
+NSString * const NSTextListMarkerLowercaseHexadecimal = @"{lower-hexadecimal}";
+NSString * const NSTextListMarkerLowercaseLatin = @"{lower-latin}";
+NSString * const NSTextListMarkerLowercaseRoman = @"{lower-roman}";
+NSString * const NSTextListMarkerOctal = @"{octal}";
+NSString * const NSTextListMarkerSquare = @"{square}";
+NSString * const NSTextListMarkerUppercaseAlpha = @"{upper-alpha}";
+NSString * const NSTextListMarkerUppercaseHexadecimal = @"{upper-hexadecimal}";
+NSString * const NSTextListMarkerUppercaseLatin = @"{upper-latin}";
+NSString * const NSTextListMarkerUppercaseRoman = @"{upper-roman}";
+
+// --- NSPasteboard name / type constants (10.13+) -------------------------
+NSString * const NSPasteboardNameGeneral = @"Apple CFPasteboard general";
+NSString * const NSPasteboardNameFind = @"Apple CFPasteboard find";
+NSString * const NSPasteboardNameFont = @"Apple CFPasteboard font";
+NSString * const NSPasteboardNameDrag = @"Apple CFPasteboard drag";
+NSString * const NSPasteboardTypeURL = @"public.url";
+NSString * const NSPasteboardTypeFileURL = @"public.file-url";
+
+// --- Other AppKit / Foundation string constants --------------------------
+NSString * const NSAppearanceNameDarkAqua = @"NSAppearanceNameDarkAqua";
+NSString * const NSPresentationIntentAttributeName = @"NSPresentationIntent";
+NSString * const NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification = @"NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification";
+
+// --- NSHTTPCookie SameSite policy constants (10.15+) ----------------------
+NSString * const NSHTTPCookieSameSiteLax = @"lax";
+NSString * const NSHTTPCookieSameSiteStrict = @"strict";
+
+// --- NSURLSessionTask priority constants (float) -------------------------
+const float NSURLSessionTaskPriorityDefault = 0.5f;
+const float NSURLSessionTaskPriorityLow = 0.0f;
+const float NSURLSessionTaskPriorityHigh = 1.0f;
+
+// --- NSEdgeInsetsEqual (10.10+) ------------------------------------------
+// WebKit has an undefined ref, so the SDK exposes it as an extern function
+// (not static inline) — define the real symbol with the SDK signature.
+BOOL NSEdgeInsetsEqual(NSEdgeInsets a, NSEdgeInsets b)
+{
+    return a.top == b.top && a.left == b.left
+        && a.bottom == b.bottom && a.right == b.right;
+}
+
+// --- Class stubs (only the class symbol matters; inert on 10.9) ----------
+// The 26.1 SDK's @interface declarations for these are NOT in scope in this
+// --no-default-config compile (clang reports "cannot find interface
+// declaration"), so a bare @implementation would create a base-class-less root
+// class. Per the established fallback, declare a minimal @interface with the
+// correct superclass so the class gets real ObjC metadata.
+#ifndef POLYFILL_NO_OBJC_CLASSES
+@interface NSVisualEffectView : NSView @end
+@implementation NSVisualEffectView @end
+
+@interface NSDateComponentsFormatter : NSFormatter @end
+@implementation NSDateComponentsFormatter @end
+#endif  // POLYFILL_NO_OBJC_CLASSES

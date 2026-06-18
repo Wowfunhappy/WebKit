@@ -872,7 +872,11 @@ void AVVideoCaptureSource::applyFrameRateAndZoomWithPreset(double requestedFrame
             return;
 
         @try {
+            // MAVERICKS_BACKPORT: -[AVCaptureDevice setVideoZoomFactor:] is iOS-only (Macs have no
+            // camera zoom; the modern SDK marks it API_UNAVAILABLE(macos)). Skip it off iOS.
+#if PLATFORM(IOS_FAMILY)
             [device() setVideoZoomFactor:requestedZoom];
+#endif
             m_currentZoom = requestedZoom;
         } @catch(NSException *exception) {
             ERROR_LOG_IF_POSSIBLE(LOGIDENTIFIER, "error applying zoom ", exception.name, ", reason : ", exception.reason);

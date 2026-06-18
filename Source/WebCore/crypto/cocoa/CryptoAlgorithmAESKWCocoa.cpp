@@ -39,36 +39,32 @@
 
 namespace WebCore {
 
-// 10.9 backport: pal::AesKw uses Swift CryptoKit (10.15+); use CommonCrypto's
-// CCSymmetricKeyWrap/Unwrap (10.7+) which implements the same RFC 3394 standard.
 static ExceptionOr<Vector<uint8_t>> wrapKeyAESKWCryptoKit(const Vector<uint8_t>& key, const Vector<uint8_t>& data)
 {
-    size_t wrappedSize = CCSymmetricWrappedSize(kCCWRAPAES, data.size());
-    Vector<uint8_t> result(wrappedSize);
-    size_t outSize = wrappedSize;
-    auto keySpan = key.span();
-    auto dataSpan = data.span();
-    auto resultSpan = result.mutableSpan();
-    int status = CCSymmetricKeyWrap(kCCWRAPAES, CCrfc3394_iv, CCrfc3394_ivLen, keySpan.data(), keySpan.size(), dataSpan.data(), dataSpan.size(), resultSpan.data(), &outSize);
-    if (status != kCCSuccess)
+#if !defined(CLANG_WEBKIT_BRANCH)
+    auto rv = pal::AesKw::wrap(data.span(), key.span());
+    if (rv.errorCode != Cpp::ErrorCodes::Success)
         return Exception { ExceptionCode::OperationError };
-    result.shrink(outSize);
-    return result;
+    return WTF::move(rv.result);
+#else
+    UNUSED_PARAM(key);
+    UNUSED_PARAM(data);
+    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+#endif
 }
 
 static ExceptionOr<Vector<uint8_t>> unwrapKeyAESKWCryptoKit(const Vector<uint8_t>& key, const Vector<uint8_t>& data)
 {
-    size_t unwrappedSize = CCSymmetricUnwrappedSize(kCCWRAPAES, data.size());
-    Vector<uint8_t> result(unwrappedSize);
-    size_t outSize = unwrappedSize;
-    auto keySpan = key.span();
-    auto dataSpan = data.span();
-    auto resultSpan = result.mutableSpan();
-    int status = CCSymmetricKeyUnwrap(kCCWRAPAES, CCrfc3394_iv, CCrfc3394_ivLen, keySpan.data(), keySpan.size(), dataSpan.data(), dataSpan.size(), resultSpan.data(), &outSize);
-    if (status != kCCSuccess)
+#if !defined(CLANG_WEBKIT_BRANCH)
+    auto rv = pal::AesKw::unwrap(data.span(), key.span());
+    if (rv.errorCode != Cpp::ErrorCodes::Success)
         return Exception { ExceptionCode::OperationError };
-    result.shrink(outSize);
-    return result;
+    return WTF::move(rv.result);
+#else
+    UNUSED_PARAM(key);
+    UNUSED_PARAM(data);
+    RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("CLANG_WEBKIT_BRANCH");
+#endif
 }
 
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmAESKW::platformWrapKey(const CryptoKeyAES& key, const Vector<uint8_t>& data)

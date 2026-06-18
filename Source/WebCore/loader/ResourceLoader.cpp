@@ -298,7 +298,6 @@ FrameLoader* ResourceLoader::frameLoader() const
 void ResourceLoader::loadDataURL()
 {
     auto url = m_request.url();
-    {FILE*_d=((FILE*)0);if(_d){fprintf(_d,"[ResourceLoader::loadDataURL PID %d] url=%s\n",getpid(),url.string().utf8().data());fclose(_d);}}
     ASSERT(url.protocolIsData());
 
     auto shouldValidatePadding = DataURLDecoder::ShouldValidatePadding::Yes;
@@ -313,9 +312,7 @@ void ResourceLoader::loadDataURL()
     if (RefPtr page = frame ? frame->page() : nullptr)
         scheduleContext.scheduledPairs = *page->scheduledRunLoopPairs();
 #endif
-    {FILE*_d=((FILE*)0);if(_d){fprintf(_d,"[loadDataURL PID %d] scheduledPairs.size=%zu\n",getpid(),scheduleContext.scheduledPairs.size());fclose(_d);}}
     DataURLDecoder::decode(url, scheduleContext, shouldValidatePadding, [this, protectedThis = Ref { *this }, url](auto decodeResult) mutable {
-        {FILE*_d=((FILE*)0);if(_d){fprintf(_d,"[loadDataURL decode CB PID %d] reachedTerminal=%d hasResult=%d\n",getpid(),this->reachedTerminalState(),!!decodeResult);fclose(_d);}}
         if (this->reachedTerminalState())
             return;
         if (!decodeResult) {
@@ -330,24 +327,16 @@ void ResourceLoader::loadDataURL()
 
         auto dataSize = decodeResult->data.size();
         ResourceResponse dataResponse = ResourceResponse::dataURLResponse(url, decodeResult.value());
-        {FILE*_d=((FILE*)0);if(_d){fprintf(_d,"[loadDataURL] calling didReceiveResponse, dataSize=%zu\n",dataSize);fclose(_d);}}
         this->didReceiveResponse(WTF::move(dataResponse), [this, protectedThis = WTF::move(protectedThis), dataSize, data = SharedBuffer::create(WTF::move(decodeResult->data))]() {
-            {FILE*_d=((FILE*)0);if(_d){fprintf(_d,"[loadDataURL didReceiveResponse CB PID %d] reachedTerm=%d dataSize=%zu\n",getpid(),this->reachedTerminalState(),dataSize);fclose(_d);}}
-            if (!this->reachedTerminalState() && dataSize && m_request.httpMethod() != "HEAD"_s) {
-                {FILE*_d=((FILE*)0);if(_d){fprintf(_d,"[loadDataURL] calling didReceiveBuffer\n");fclose(_d);}}
+            if (!this->reachedTerminalState() && dataSize && m_request.httpMethod() != "HEAD"_s)
                 this->didReceiveBuffer(data, dataSize, DataPayloadWholeResource);
-                {FILE*_d=((FILE*)0);if(_d){fprintf(_d,"[loadDataURL] back from didReceiveBuffer\n");fclose(_d);}}
-            }
 
             if (!this->reachedTerminalState()) {
-                {FILE*_d=((FILE*)0);if(_d){fprintf(_d,"[loadDataURL] calling didFinishLoading\n");fclose(_d);}}
                 NetworkLoadMetrics emptyMetrics;
                 this->didFinishLoading(emptyMetrics);
-                {FILE*_d=((FILE*)0);if(_d){fprintf(_d,"[loadDataURL] back from didFinishLoading\n");fclose(_d);}}
             }
         });
     });
-    {FILE*_d=((FILE*)0);if(_d){fprintf(_d,"[loadDataURL PID %d] returned from decode call\n",getpid());fclose(_d);}}
 }
 
 void ResourceLoader::setDataBufferingPolicy(DataBufferingPolicy dataBufferingPolicy)
@@ -633,7 +622,6 @@ void ResourceLoader::didReceiveBuffer(const FragmentedSharedBuffer& buffer, long
     Ref protectedThis { *this };
 
     addBuffer(buffer, dataPayloadType);
-
 
     // FIXME: If we get a resource with more than 2B bytes, this code won't do the right thing.
     // However, with today's computers and networking speeds, this won't happen in practice.

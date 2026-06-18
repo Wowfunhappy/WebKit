@@ -42,8 +42,9 @@ ResourceResponse LegacyWebArchive::createResourceResponseFromMacArchivedData(CFD
         return ResourceResponse();
     
     RetainPtr<NSURLResponse> response;
-    // initForReadingFromData:error: and decodingFailurePolicy are 10.13+;
-    // fall back to initForReadingWithData: on older macOS.
+    // MAVERICKS_BACKPORT: runtime-absent-on-10.9 (#76). -[NSKeyedUnarchiver initForReadingFromData:error:],
+    // -decodingFailurePolicy and -decodeObjectOfClass:forKey: are 10.13+; fall back to the legacy
+    // initForReadingWithData:/decodeObjectForKey: pair available on 10.9.
     auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:(__bridge NSData *)responseData]);
     @try {
         response = [unarchiver decodeObjectForKey:LegacyWebArchiveResourceResponseKey];
@@ -63,8 +64,8 @@ RetainPtr<CFDataRef> LegacyWebArchive::createPropertyListRepresentation(const Re
     if (!nsResponse)
         return nullptr;
 
-    // initRequiringSecureCoding: and encodedData are 10.13+;
-    // fall back to initForWritingWithMutableData: on older macOS.
+    // MAVERICKS_BACKPORT: runtime-absent-on-10.9 (#76). -[NSKeyedArchiver initRequiringSecureCoding:] and
+    // -encodedData are 10.13+; fall back to initForWritingWithMutableData:/finishEncoding on 10.9.
     RetainPtr data = adoptNS([[NSMutableData alloc] init]);
     auto archiver = adoptNS([[NSKeyedArchiver alloc] initForWritingWithMutableData:data.get()]);
     [archiver encodeObject:nsResponse.get() forKey:LegacyWebArchiveResourceResponseKey];

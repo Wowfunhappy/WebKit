@@ -48,13 +48,8 @@ public:
     std::unique_ptr<webrtc::VideoEncoderFactory> createEncoderFactory() override;
 
 private:
-    // 10.9 backport: VP9 is disabled (ENABLE_VP9 0 — no VTB VP9 on this OS), so
-    // these VP9-capabilities overrides are omitted and the base WebRTCProvider
-    // defaults apply. WebRTC still runs with VP8 + H.264.
-#if ENABLE(VP9)
     std::optional<PlatformMediaCapabilitiesInfo> computeVPParameters(const PlatformMediaCapabilitiesVideoConfiguration&) final;
     bool isVPSoftwareDecoderSmooth(const PlatformMediaCapabilitiesVideoConfiguration&) final;
-#endif
 };
 
 } // namespace WebCore

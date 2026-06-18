@@ -237,15 +237,6 @@ void JSCustomElementInterface::upgradeElement(Element& element)
         return;
     }
 
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) {
-            auto name = element.tagQName().toString().utf8();
-            fprintf(_f, "[CE upgrade PID %d] elt=<%s>\n", getpid(), name.data());
-            fclose(_f);
-        }
-    }
-
     CustomElementReactionQueue::enqueuePostUpgradeReactions(element);
 
     // Unlike spec, set element's custom element state to "failed" / "precustomized" after enqueueing post-upgrade reactions
@@ -326,29 +317,13 @@ void JSCustomElementInterface::invokeCallback(Element& element, JSObject* callba
 
     JSExecState::instrumentFunction(context.get(), callData);
 
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) {
-            auto name = element.tagQName().toString().utf8();
-            fprintf(_f, "[CE callback PID %d] elt=<%s>\n", getpid(), name.data());
-            fclose(_f);
-        }
-    }
-
     NakedPtr<JSC::Exception> exception;
     JSExecState::call(lexicalGlobalObject, callback, callData, jsElement, args, exception);
 
     InspectorInstrumentation::didCallFunction(context.get());
 
-    if (exception) {
-        FILE* _f = ((FILE*)0);
-        if (_f) {
-            auto name = element.tagQName().toString().utf8();
-            fprintf(_f, "[CE callback EXCEPTION PID %d] elt=<%s>\n", getpid(), name.data());
-            fclose(_f);
-        }
+    if (exception)
         reportException(callback->globalObject(), exception);
-    }
 }
 
 void JSCustomElementInterface::setConnectedCallback(JSC::JSObject* callback)

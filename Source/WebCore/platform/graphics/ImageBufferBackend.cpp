@@ -41,17 +41,14 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(ThreadSafeImageBufferFlusher);
 IntSize ImageBufferBackend::calculateSafeBackendSize(const Parameters& parameters)
 {
     IntSize backendSize = parameters.backendSize;
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[calcSafeBE] backendSize=%dx%d empty=%d\n", backendSize.width(), backendSize.height(), (int)backendSize.isEmpty()); fclose(_d);}}
     if (backendSize.isEmpty())
         return backendSize;
 
     auto bytesPerRow = 4 * CheckedUint32(backendSize.width());
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[calcSafeBE] bytesPerRow.overflow=%d val=%u\n", (int)bytesPerRow.hasOverflowed(), bytesPerRow.hasOverflowed() ? 0 : (unsigned)bytesPerRow.value()); fclose(_d);}}
     if (bytesPerRow.hasOverflowed())
         return { };
 
     CheckedSize numBytes = CheckedUint32(backendSize.height()) * bytesPerRow;
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[calcSafeBE] numBytes.overflow=%d\n", (int)numBytes.hasOverflowed()); fclose(_d);}}
     if (numBytes.hasOverflowed())
         return { };
 

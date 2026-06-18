@@ -18,21 +18,38 @@ CLANG="$TC/bin/clang"
 AR="$TC/bin/llvm-ar"
 SRC="$HERE/polyfill_stubs.m"
 LIB="$HERE/prebuilt/libpolyfill.a"
-OBJ="$(mktemp -d -t polyfillstubs)/polyfill_stubs.o"
+# libpolyfill_classes.a is the SAME compiled object, force-loaded into JavaScriptCore (member name
+# polyfill_classes_rebuild.o). Because JSC force-loads it, every symbol polyfill_stubs.m defines must
+# be present here too — otherwise JSC pulls polyfill_stubs.o out of libpolyfill.a to satisfy a missing
+# one (e.g. _os_log_internal) and its C-function defs collide with the force-loaded copy (duplicate
+# symbol). Keep the two archives byte-for-byte in sync by deriving both from this one compile.
+LIBC="$HERE/prebuilt/libpolyfill_classes.a"
+OBJDIR="$(mktemp -d -t polyfillstubs)"
+OBJ="$OBJDIR/polyfill_stubs.o"
+OBJC="$OBJDIR/polyfill_classes_rebuild.o"
 
 echo "Compiling $SRC ..."
 "$CLANG" -c --no-default-config -mmacosx-version-min=10.9 \
     -Wno-unused-command-line-argument \
     -o "$OBJ" "$SRC"
+cp "$OBJ" "$OBJC"
 
 if [ ! -f "$LIB.orig-backup" ]; then
     echo "Backing up original archive -> $LIB.orig-backup"
     cp "$LIB" "$LIB.orig-backup"
 fi
+if [ ! -f "$LIBC.orig-backup" ]; then
+    echo "Backing up original archive -> $LIBC.orig-backup"
+    cp "$LIBC" "$LIBC.orig-backup"
+fi
 
 echo "Replacing polyfill_stubs.o in $(basename "$LIB") ..."
 "$AR" r "$LIB" "$OBJ"
 "$AR" s "$LIB" 2>/dev/null || true   # refresh archive symbol index
+
+echo "Replacing polyfill_classes_rebuild.o in $(basename "$LIBC") ..."
+"$AR" r "$LIBC" "$OBJC"
+"$AR" s "$LIBC" 2>/dev/null || true
 
 echo "Done. Classes now in polyfill_stubs.o:"
 nm "$OBJ" | grep -c 'S _OBJC_CLASS_\$_' | sed 's/^/  defined ObjC classes: /'

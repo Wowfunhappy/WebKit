@@ -1,5 +1,5 @@
-// 10.9 backport: the real Cocoa SpeechRecognizer uses SFSpeechRecognizer (Speech.framework,
-// 10.15+), unavailable on Mavericks, so this file was originally stubbed empty. But HAVE(SPEECHRECOGNIZER)
+// MAVERICKS_BACKPORT: runtime-absent framework — the real Cocoa SpeechRecognizer uses SFSpeechRecognizer
+// (Speech.framework, 10.15+), unavailable on Mavericks, so this file was originally stubbed empty. But HAVE(SPEECHRECOGNIZER)
 // is 1 on Cocoa, which excludes the generic no-op fallbacks in SpeechRecognizer.cpp — leaving
 // SpeechRecognizer::{startRecognition,dataCaptured,abortRecognition,stopRecognition} UNDEFINED in
 // WebCore.framework. Safari survived via lazy binding (Web Speech recognition rarely invoked), but ANY

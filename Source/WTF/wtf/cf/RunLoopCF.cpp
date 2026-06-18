@@ -32,7 +32,23 @@
 #include <string.h>
 #include <unistd.h>
 #include <wtf/AutodrainedPool.h>
+#include <wtf/NeverDestroyed.h>
+#include <wtf/OSObjectPtr.h>
 #include <wtf/SchedulePair.h>
+
+namespace {
+// 10.9 backport: cancellable GCD timers for the main RunLoop, stored out-of-line so
+// RunLoop::TimerBase::stop()/dtor can cancel them WITHOUT enlarging the heavily-included
+// RunLoop.h. Only main-RunLoop (main-thread) timers live here and are only touched on the
+// main thread; the lock is belt-and-suspenders. A cancellable dispatch_source (vs the old
+// uncancellable dispatch_after) is what makes the rapid-navigation teardown crash impossible.
+static WTF::Lock s_mainDispatchTimerLock;
+static WTF::HashMap<void*, WTF::OSObjectPtr<dispatch_source_t>>& mainDispatchTimers()
+{
+    static WTF::NeverDestroyed<WTF::HashMap<void*, WTF::OSObjectPtr<dispatch_source_t>>> timers;
+    return timers;
+}
+}
 
 namespace WTF {
 
@@ -74,12 +90,15 @@ RunLoop::~RunLoop()
 
 void RunLoop::wakeUp()
 {
-    {FILE *_d = ((FILE*)0); if (_d) {fprintf(_d, "[RunLoop::wakeUp PID %d] this=%p mainSingleton=%p source=%p loop=%p\n", getpid(), this, &RunLoop::mainSingleton(), m_runLoopSource.get(), m_runLoop.get()); fclose(_d);}}
-    // 10.9: WK2 XPC services run dispatch_main(), not CFRunLoopRun(). Their
-    // mainSingleton RunLoop instance also has its memory periodically clobbered
-    // by JSC's GC (m_runLoopSource is overwritten with NaN-boxed tag bits),
-    // making CFRunLoopSourceSignal crash. Bypass it entirely on the main
-    // RunLoop and use the dispatch_main GCD queue instead.
+    // 10.9: for the main RunLoop, wake via the main GCD queue rather than
+    // CFRunLoopSourceSignal+CFRunLoopWakeUp. NOTE (2026-06-14): this is NOT the
+    // old "GC clobbers the source" reason (that corruption is gone now that the main
+    // thread runs a real CFRunLoop). The real reason is that this WTF RunLoop's custom
+    // source is not reliably serviced by xpc_main's NSRunLoop on 10.9 — signalling it
+    // delivers the first wake but does NOT reliably re-wake the loop once rendering goes
+    // idle, freezing requestAnimationFrame to ~0.5fps (verified by reverting this). The
+    // main dispatch queue IS serviced in all run-loop modes, so it wakes reliably.
+    // TODO: the cleaner fix is to add m_runLoopSource to the exact mode xpc_main runs.
     if (this == &RunLoop::mainSingleton()) {
         dispatch_async(dispatch_get_main_queue(), ^{
             performWork(this);
@@ -137,16 +156,17 @@ RunLoop::TimerBase::~TimerBase()
 
 void RunLoop::TimerBase::start(Seconds interval, bool repeat)
 {
-    // 10.9 backport: on the main RunLoop we use dispatch_after (see below), which
-    // schedules a block at an absolute NSEC time at block-creation time and does
-    // NOT honor CFRunLoopTimerSetNextFireDate. The "canReschedule" shortcut only
-    // updates the CFRunLoopTimer's fire date, leaving the in-flight dispatch_after
-    // block waiting for its original (potentially far-future) interval. That breaks
-    // JSC's DeferredWorkTimer: it pre-arms its timer with a huge sentinel interval
-    // (~10 days, s_decade), then later calls setTimeUntilFire(0) to wake immediately
-    // — but the dispatch_after fires in 10 days, so async WebAssembly.compile /
-    // .instantiate Promises never resolve. Force a stop+restart so the new
-    // dispatch_after picks up the new interval.
+    // 10.9 backport — ROOT-CAUSE FIX (2026-06-11) for the rapid-navigation crash.
+    // WK2 XPC services have dispatch_main() semantics, so the main RunLoop needs a
+    // GCD-driven timer (a plain CFRunLoopAddTimer firing rate differs and busy-loops
+    // here — the rendering/heartbeat scheduling on this backport is tuned to the GCD
+    // cadence). The OLD approach used dispatch_after(), which CANNOT be cancelled, so
+    // during a fast-navigation teardown an orphaned block could fire after its block
+    // heap was freed/corrupted → SIGBUS at a garbage code address inside
+    // _dispatch_client_callout, BEFORE any in-block guard could run. The fix: use a
+    // CANCELLABLE dispatch_source timer instead. Same GCD cadence (no busy-loop, no
+    // rendering regression), but stop()/dtor calls dispatch_source_cancel() so a
+    // torn-down timer's handler never fires → the orphaned-block crash is impossible.
     bool isMain = (this->m_runLoop.ptr() == &RunLoop::mainSingleton());
     if (m_timer) {
         bool canReschedule = !repeat && !CFRunLoopTimerDoesRepeat(m_timer.get()) && CFRunLoopTimerIsValid(m_timer.get());
@@ -168,29 +188,43 @@ void RunLoop::TimerBase::start(Seconds interval, bool repeat)
         timer->fired();
     }, this);
 
-    // 10.9 backport: WK2 XPC services run dispatch_main() which doesn't pump
-    // CFRunLoop timers on the main thread. Use dispatch_after for the main
-    // RunLoop and check m_timer validity at fire time for cancellation.
     if (isMain) {
-        CFRunLoopTimerRef timerRef = (CFRunLoopTimerRef)CFRetain(m_timer.get());
+        // Cancellable GCD timer for the main RunLoop. A NATIVE repeating dispatch_source re-fires
+        // itself — the handler NEVER touches the timer after fired(). An earlier variant made every
+        // timer one-shot and re-armed by calling start() AFTER fired() returned; that is a
+        // use-after-free when a repeating timer's callback destroys its owner (TimerBase is not
+        // ref-counted), an access pattern upstream's CF-internal rescheduling never has. The source
+        // is tracked in mainDispatchTimers() so stop()/dtor cancels it; cancel + the handler both run
+        // on the main thread (serialized), so a cancelled timer's handler never runs afterward — no
+        // uncancellable orphaned block to fire after teardown (the rapid-navigation crash root cause).
+        // (The old worry that a native repeating source pegs CPU when the handler outlasts the interval
+        // was a mis-attribution — the active-page CPU peg was the TiledCoreAnimationDrawingArea render
+        // loop, fixed separately; main-RunLoop timers here are infrequent with quick handlers.)
+        OSObjectPtr<dispatch_source_t> source = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue()));
+        int64_t intervalNsec = static_cast<int64_t>(interval.seconds() * NSEC_PER_SEC);
+        uint64_t repeatNsec = repeat ? static_cast<uint64_t>(std::max<int64_t>(intervalNsec, 1)) : DISPATCH_TIME_FOREVER;
+        dispatch_source_set_timer(source.get(), dispatch_time(DISPATCH_TIME_NOW, intervalNsec), repeatNsec, 0);
         TimerBase* timerSelf = this;
         bool isRepeat = repeat;
-        Seconds nextInterval = interval;
-        dispatch_time_t when = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(interval.seconds() * NSEC_PER_SEC));
-        dispatch_after(when, dispatch_get_main_queue(), ^{
-            if (!CFRunLoopTimerIsValid(timerRef)) {
-                CFRelease(timerRef);
-                return;
-            }
+        dispatch_source_set_event_handler(source.get(), ^{
             AutodrainedPool pool;
-            if (!isRepeat)
-                CFRunLoopTimerInvalidate(timerRef);
+            if (!isRepeat) {
+                // One-shot: invalidate the CF validity token and cancel+drop our source BEFORE
+                // fired(), so the handler makes no access to the timer after fired() (which may
+                // re-arm via start() — registering a fresh source — or destroy the timer).
+                if (timerSelf->m_timer)
+                    CFRunLoopTimerInvalidate(timerSelf->m_timer.get());
+                Locker locker { s_mainDispatchTimerLock };
+                if (auto cancelled = mainDispatchTimers().take(timerSelf))
+                    dispatch_source_cancel(cancelled.get());
+            }
             timerSelf->fired();
-            bool shouldRepeat = isRepeat && CFRunLoopTimerIsValid(timerRef);
-            CFRelease(timerRef);
-            if (shouldRepeat)
-                timerSelf->start(nextInterval, true);
         });
+        {
+            Locker locker { s_mainDispatchTimerLock };
+            mainDispatchTimers().set(this, source);
+        }
+        dispatch_resume(source.get());
         return;
     }
 
@@ -199,9 +233,19 @@ void RunLoop::TimerBase::start(Seconds interval, bool repeat)
 
 void RunLoop::TimerBase::stop()
 {
+    // 10.9 backport: cancel the main-thread GCD timer (if any). Because this runs on the
+    // main thread, serialized with the dispatch_source's event handler, a cancelled
+    // source's handler will never run afterwards — so an in-flight/torn-down timer can
+    // no longer fire an orphaned block (the rapid-navigation teardown crash).
+    {
+        Locker locker { s_mainDispatchTimerLock };
+        if (auto source = mainDispatchTimers().take(this))
+            dispatch_source_cancel(source.get());
+    }
+
     if (!m_timer)
         return;
-    
+
     CFRunLoopTimerInvalidate(m_timer.get());
     m_timer = nullptr;
 }

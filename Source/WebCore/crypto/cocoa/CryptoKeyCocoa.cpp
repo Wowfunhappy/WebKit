@@ -1,7 +1,7 @@
-// 10.9 backport: WebCrypto switched from CommonCrypto to libgcrypt.
-// CCRandomGenerateBytes (and the rest of CC*) is unavailable in our build.
-// Use gcry_randomize so the rest of the WebCrypto stack — which is the
-// gcrypt impl now — uses the same RNG.
+// MAVERICKS_BACKPORT: WebCrypto runs on libgcrypt (USE_GCRYPT=TRUE), not the
+// cocoa CommonCrypto path. CCRandomGenerateBytes (and the rest of CC*) is not the
+// active backend here. Use gcry_randomize so CryptoKey::randomData shares the same
+// RNG as the rest of the gcrypt WebCrypto stack.
 
 #include "config.h"
 #include "CryptoKey.h"

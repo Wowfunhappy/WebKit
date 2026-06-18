@@ -82,7 +82,14 @@ SOFT_LINK_CLASS_FOR_HEADER(PAL, AVSpeechUtterance)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVStreamDataParser)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVURLAsset)
 
+// MAVERICKS_BACKPORT: AVAudioSession is API_UNAVAILABLE(macos) in the macOS 26.1 SDK, so
+// SOFT_LINK_CLASS_FOR_HEADER's inline -allocAVAudioSessionInstance (which returns AVAudioSession*)
+// fails to compile on a non-internal macOS build. The class is iOS-only; its sole macOS consumer
+// (AudioSessionCocoa.mm) is not built for this target. Gate the class soft-link to iOS, where the
+// type is available. (Apple-internal macOS SDKs declare it available-on-macOS; public SDKs do not.)
+#if PLATFORM(IOS_FAMILY)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVAudioSession)
+#endif
 
 #if PLATFORM(IOS_FAMILY)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVPersistableContentKeyRequest)

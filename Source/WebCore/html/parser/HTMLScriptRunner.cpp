@@ -58,16 +58,10 @@ HTMLScriptRunner::HTMLScriptRunner(Document& document, HTMLScriptRunnerHost& hos
     , m_scriptNestingLevel(0)
     , m_hasScriptsWaitingForStylesheets(false)
 {
-    FILE* _f = ((FILE*)0);
-    if (_f) { fprintf(_f, "[HTMLScriptRunner::ctor PID %d] this=%p\n", getpid(), this); fclose(_f); }
 }
 
 HTMLScriptRunner::~HTMLScriptRunner()
 {
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) { fprintf(_f, "[HTMLScriptRunner::dtor PID %d] this=%p hasBlocking=%d\n", getpid(), this, (int)!!m_parserBlockingScript); fclose(_f); }
-    }
     // FIXME: Should we be passed a "done loading/parsing" callback sooner than destruction?
     if (m_parserBlockingScript) {
         if (m_parserBlockingScript->watchingForLoad())
@@ -146,20 +140,10 @@ void HTMLScriptRunner::execute(Ref<ScriptElement>&& element, const TextPosition&
 {
     // FIXME: If scripting is disabled, always just return.
 
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) { fprintf(_f, "[HTMLScriptRunner::execute PID %d] tag enter\n", getpid()); fclose(_f); }
-    }
-
     bool hadPreloadScanner = m_host.hasPreloadScanner();
 
     // Try to execute the script given to us.
     runScript(element.get(), scriptStartPosition);
-
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) { fprintf(_f, "[HTMLScriptRunner::execute PID %d] post-run hasBlocking=%d defer=%zu\n", getpid(), (int)hasParserBlockingScript(), m_scriptsToExecuteAfterParsing.size()); fclose(_f); }
-    }
 
     if (hasParserBlockingScript()) {
         if (isExecutingScript())
@@ -178,10 +162,6 @@ bool HTMLScriptRunner::hasParserBlockingScript() const
 
 void HTMLScriptRunner::executeParsingBlockingScripts()
 {
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) { fprintf(_f, "[HTMLScriptRunner::executeParsingBlocking PID %d] hasBlocking=%d ready=%d stylesheets=%d\n", getpid(), (int)hasParserBlockingScript(), hasParserBlockingScript() ? (int)isPendingScriptReady(*m_parserBlockingScript) : -1, m_document ? (int)m_document->haveStylesheetsLoaded() : -1); fclose(_f); }
-    }
     while (hasParserBlockingScript() && isPendingScriptReady(*m_parserBlockingScript)) {
         ASSERT(m_document);
         ASSERT(!isExecutingScript());
@@ -213,10 +193,6 @@ void HTMLScriptRunner::executeScriptsWaitingForStylesheets()
 
 bool HTMLScriptRunner::executeScriptsWaitingForParsing()
 {
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) { fprintf(_f, "[HTMLScriptRunner::executeWaitingForParsing PID %d] count=%zu\n", getpid(), m_scriptsToExecuteAfterParsing.size()); fclose(_f); }
-    }
     while (!m_scriptsToExecuteAfterParsing.isEmpty()) {
         ASSERT(!isExecutingScript());
         ASSERT(!hasParserBlockingScript());
@@ -278,11 +254,6 @@ void HTMLScriptRunner::runScript(ScriptElement& scriptElement, const TextPositio
     NestingLevelIncrementer nestingLevelIncrementer(m_scriptNestingLevel);
 
     scriptElement.prepareScript(scriptStartPosition);
-
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) { fprintf(_f, "[HTMLScriptRunner::runScript PID %d] willParser=%d willDefer=%d ready=%d nesting=%u\n", getpid(), (int)scriptElement.willBeParserExecuted(), (int)scriptElement.willExecuteWhenDocumentFinishedParsing(), (int)scriptElement.readyToBeParserExecuted(), m_scriptNestingLevel); fclose(_f); }
-    }
 
     if (!scriptElement.willBeParserExecuted())
         return;

@@ -615,7 +615,6 @@ String TextResourceDecoder::decode(std::span<const uint8_t> data)
 
 String TextResourceDecoder::flush()
 {
-    // 10.9 perf: removed debug fopen logging
     // If we can not identify the encoding even after a document is completely
     // loaded, we need to detect the encoding if other conditions for
     // autodetection is satisfied.
@@ -629,9 +628,7 @@ String TextResourceDecoder::flush()
     if (!m_codec)
         m_codec = newTextCodec(m_encoding);
 
-    // 10.9 perf: removed debug fopen logging
     String result = m_codec->decode(m_buffer.span(), true, m_contentType == XML && !m_useLenientXMLDecoding, m_sawError);
-    // 10.9 perf: removed debug fopen logging
     m_buffer.clear();
     m_codec = nullptr;
     m_checkedForBOM = false; // Skip BOM again when re-decoding.

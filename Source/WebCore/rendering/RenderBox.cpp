@@ -3955,7 +3955,9 @@ void RenderBox::computeBlockDirectionMargins(const RenderBlock& containingBlock,
     marginAfter = constrainBlockMarginInAvailableSpaceOrTrim(Style::MarginTrimSide::BlockEnd);
 
 #if PLATFORM(MAC)
-    // 10.9 backport: large headings (h1-h6 with font-size >= 32) paint glyphs below their CSS
+    // MAVERICKS_BACKPORT: behavior fix (#50/#56-adjacent) — SUSPECT BAND-AID, flagged for human
+    // review (audit UNSURE: root-cause the glyph-paints-below-line-box defect, then revert this).
+    // Large headings (h1-h6 with font-size >= 32) paint glyphs below their CSS
     // line-box bottom on this build, causing the next adjacent block to visually overlap
     // (apple.com hero h2 + p subhead reproducer). Author CSS often resets margin/padding on h1-h6
     // (e.g. apple.com sets `padding:0` on all heading elements), so a UA stylesheet rule wouldn't

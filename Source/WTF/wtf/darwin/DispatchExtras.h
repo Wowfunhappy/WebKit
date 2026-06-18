@@ -27,14 +27,17 @@
 
 #include <dispatch/dispatch.h>
 
-#if !HAVE(DISPATCH_QUEUE_MAIN_T)
-// macOS < 10.12 has no typed dispatch_queue_main_t; dispatch_get_main_queue() returns dispatch_queue_t.
+// MAVERICKS_BACKPORT: these shims supply the typed dispatch_queue_main_t (10.12 SDK)
+// and dispatch_queue_create_with_target() (10.10 SDK) only when the SDK we build
+// against does not declare them. Gate on the SDK version (__MAC_OS_X_VERSION_MAX_ALLOWED),
+// NOT the deployment target — with the modern SDK both are declared, so redefining
+// them would collide. The runtime implementation of dispatch_queue_create_with_target,
+// absent on 10.9, is provided by the vendored MavericksSupport polyfill archive.
+#if __MAC_OS_X_VERSION_MAX_ALLOWED < 101200
 using dispatch_queue_main_t = dispatch_queue_t;
 #endif
 
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101000
-// dispatch_queue_create_with_target() is macOS 10.10+. On 10.9 create the queue and set its target
-// separately — equivalent for our use (a serial queue targeting a global priority queue).
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101000
 static inline dispatch_queue_t dispatch_queue_create_with_target(const char* label, dispatch_queue_attr_t attr, dispatch_queue_t target)
 {
     dispatch_queue_t queue = dispatch_queue_create(label, attr);

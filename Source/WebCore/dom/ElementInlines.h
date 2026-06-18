@@ -128,9 +128,10 @@ inline const AtomString& Element::idForStyleResolution() const
 
 inline const AtomString& Element::getIdAttribute() const
 {
-    // 10.9 backport: hasID() can be true transiently while findAttributeByName()
-    // returns nullptr during HTMLScriptElement insertion on heavy pages (github).
-    // Skipping the bit check and relying on the name lookup avoids a NULL->value() deref.
+    // MAVERICKS_BACKPORT: behavior fix — null-guard the findAttributeByName() result before
+    // ->value(). hasID() can be true transiently while findAttributeByName() returns nullptr
+    // during HTMLScriptElement insertion on heavy pages (github); the upstream unconditional
+    // deref crashes. Guarding avoids the NULL->value() deref.
     if (hasID()) {
         if (auto* attr = elementData()->findAttributeByName(HTMLNames::idAttr))
             return attr->value();
@@ -140,6 +141,8 @@ inline const AtomString& Element::getIdAttribute() const
 
 inline const AtomString& Element::getNameAttribute() const
 {
+    // MAVERICKS_BACKPORT: behavior fix — same null-guard as getIdAttribute() above
+    // (findAttributeByName() can return nullptr while hasName() is set).
     if (hasName()) {
         if (auto* attr = elementData()->findAttributeByName(HTMLNames::nameAttr))
             return attr->value();

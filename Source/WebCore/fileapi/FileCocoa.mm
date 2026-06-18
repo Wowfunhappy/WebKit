@@ -28,7 +28,10 @@
 
 #if ENABLE(FILE_REPLACEMENT)
 
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTTypePackage) is macOS 11+ and absent on 10.9.
+// Resolve the file's UTI via the legacy NSURLTypeIdentifierKey (an NSString) and test conformance with
+// the legacy CoreServices UTTypeConformsTo + kUTTypePackage, both present and declared on 10.9.
+#import <CoreServices/CoreServices.h>
 #import <wtf/FileSystem.h>
 #include <wtf/text/MakeString.h>
 
@@ -50,13 +53,13 @@ bool File::shouldReplaceFile(const String& path)
         return false;
     }
 
-    UTType *uti;
-    if (![pathURL getResourceValue:&uti forKey:NSURLContentTypeKey error:&error]) {
+    NSString *uti;
+    if (![pathURL getResourceValue:&uti forKey:NSURLTypeIdentifierKey error:&error]) {
         LOG_ERROR("Failed to get type identifier of resource at URL %@ with error %@.\n", pathURL.get(), error);
         return false;
     }
 
-    return [uti conformsToType:UTTypePackage];
+    return UTTypeConformsTo((__bridge CFStringRef)uti, kUTTypePackage);
 }
 
 void File::computeNameAndContentTypeForReplacedFile(const String& path, const String& nameOverride, String& effectiveName, String& effectiveContentType)
