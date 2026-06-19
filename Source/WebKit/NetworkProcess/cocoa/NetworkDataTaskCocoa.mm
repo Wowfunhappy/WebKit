@@ -253,33 +253,6 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
     ASSERT(nsRequest);
     RetainPtr<NSMutableURLRequest> mutableRequest = adoptNS([nsRequest.get() mutableCopy]);
 
-#if PLATFORM(MAC)
-    // 10.9 backport: this build has no WebP decoder, so any image URL that resolves to a
-    // .webp body never paints. The BBC's CDN is the most visible offender — its image paths
-    // all end in `.jpg.webp` or `.png.webp`. Empirically, just stripping `.webp` returns the
-    // underlying JPEG/PNG for `/ace/...` and `/images/...` paths, but `/news/{size}/...` only
-    // has a working JPEG variant under `/news/raw/...`. Rewrite both patterns before the
-    // request goes out.
-    if (NSURL *originalURL = [mutableRequest URL]) {
-        NSString *host = [originalURL host];
-        NSString *path = [originalURL path];
-        if (host && path && [host isEqualToString:@"ichef.bbci.co.uk"]
-            && ([path hasSuffix:@".jpg.webp"] || [path hasSuffix:@".png.webp"])) {
-            NSString *rewritten = [path substringToIndex:[path length] - 5];
-            if ([rewritten hasPrefix:@"/news/"]) {
-                NSUInteger sizeStart = [@"/news/" length];
-                NSRange afterSize = [rewritten rangeOfString:@"/" options:0 range:NSMakeRange(sizeStart, [rewritten length] - sizeStart)];
-                if (afterSize.location != NSNotFound)
-                    rewritten = [NSString stringWithFormat:@"/news/raw%@", [rewritten substringFromIndex:afterSize.location]];
-            }
-            NSURLComponents *components = [NSURLComponents componentsWithURL:originalURL resolvingAgainstBaseURL:NO];
-            components.path = rewritten;
-            if (NSURL *newURL = components.URL)
-                [mutableRequest setURL:newURL];
-        }
-    }
-#endif
-
     // 10.9 backport: _setPrivacyProxy* are 10.15+ SPI on NSMutableURLRequest.
     if ((parameters.isMainFrameNavigation
             || parameters.hadMainFrameMainResourcePrivateRelayed
