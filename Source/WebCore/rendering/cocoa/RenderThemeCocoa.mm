@@ -723,8 +723,11 @@ String RenderThemeCocoa::mediaControlsFormattedStringForDuration(const double du
         return WEB_UI_STRING("indefinite time", "accessibility help text for an indefinite media controller time value");
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    // NSDateComponentsFormatter is 10.10+. Provide a simple fallback.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
+    // MAVERICKS_BACKPORT: NSDateComponentsFormatter is 10.10+. This is a RUNTIME code path, so the gate
+    // must key on the DEPLOYMENT TARGET (__MAC_OS_X_VERSION_MIN_REQUIRED), NOT the SDK
+    // (__MAC_OS_X_VERSION_MAX_ALLOWED) — with the modern SDK the latter is always true and the 10.10+
+    // path would be compiled in and crash on 10.9 (every <video>'s controls format a duration string).
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101000
     if (!m_durationFormatter) {
         m_durationFormatter = adoptNS([NSDateComponentsFormatter new]);
         m_durationFormatter.get().unitsStyle = NSDateComponentsFormatterUnitsStyleFull;
