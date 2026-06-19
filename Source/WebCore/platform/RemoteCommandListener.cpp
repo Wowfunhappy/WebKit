@@ -30,7 +30,9 @@
 #include "RemoteCommandListenerCocoa.h"
 #endif
 
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is globally on for GStreamer; remote commands use RemoteCommandListenerCocoa
+// (the creation function below prefers PLATFORM(COCOA) anyway), so don't pull the GLib header on Cocoa.
+#if USE(GLIB) && !PLATFORM(COCOA)
 #include "RemoteCommandListenerGLib.h"
 #endif
 

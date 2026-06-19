@@ -229,15 +229,20 @@
 #endif
 
 #if WTF_DEFAULT_EVENT_LOOP
-#if USE(GLIB)
+/* MAVERICKS_BACKPORT: PLATFORM(COCOA) must take precedence over USE(GLIB). This Mac port enables
+ * USE(GLIB) only for the upstream GStreamer media backend's glib smart-pointer/type helpers — it must
+ * NOT replace the platform run loop with GLib's. Upstream checks USE(GLIB) first (for the GTK port,
+ * where the two never coexist); here they do, so Cocoa is checked first to keep the CF/GCD event loop
+ * (RunLoopCF.cpp). */
+#if PLATFORM(COCOA)
+/* OS X and IOS. Use CoreFoundation & GCD abstraction. */
+#define USE_COCOA_EVENT_LOOP 1
+#elif USE(GLIB)
 /* Use GLib's event loop abstraction. Primarily GTK port uses it. */
 #define USE_GLIB_EVENT_LOOP 1
 #elif OS(WINDOWS)
 /* Use Windows message pump abstraction. */
 #define USE_WINDOWS_EVENT_LOOP 1
-#elif PLATFORM(COCOA)
-/* OS X and IOS. Use CoreFoundation & GCD abstraction. */
-#define USE_COCOA_EVENT_LOOP 1
 #else
 #define USE_GENERIC_EVENT_LOOP 1
 #endif

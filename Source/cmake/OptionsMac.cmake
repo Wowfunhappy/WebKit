@@ -80,6 +80,23 @@ SET_AND_EXPOSE_TO_BUILD(USE_LIBWEBRTC ${ENABLE_WEB_RTC})
 # for the crypto/gcrypt/ source replacements.
 SET_AND_EXPOSE_TO_BUILD(USE_GCRYPT TRUE)
 
+# MAVERICKS_BACKPORT: HTML5 <video>/<audio> via the upstream GStreamer media player instead of the
+# custom AVAssetReader pump (AVPlayer is dead on 10.9). GStreamer is vendored at
+# MavericksSupport/deps/gstreamer (prebuilt 1.20.7, runs on 10.9 with a small symbol polyfill). Use the
+# software/appsink path: GL + TextureMapper + CoordinatedGraphics OFF; decoded frames reach CG via
+# ImageGStreamerCG.cpp. OptionsMacGStreamer.cmake defines the GLib::* targets + GSTREAMER_* vars from
+# the vendored tree (no pkg-config on this toolchain).
+SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER TRUE)
+# GStreamer integration needs WTF's GLib helper layer (GRefPtr/GUniquePtr/GSpanExtras/WTFGType, all
+# #if USE(GLIB)). Only the helper headers/sources are added on Mac (see WTF/wtf/PlatformMac.cmake) —
+# NOT the GLib platform replacements (RunLoopGLib/FileSystemGlib/URLGLib), which would collide with the
+# Cocoa run loop / file system. USE(GLIB) is referenced by exactly one Cocoa-built WTF file otherwise.
+SET_AND_EXPOSE_TO_BUILD(USE_GLIB TRUE)
+SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_GL FALSE)
+SET_AND_EXPOSE_TO_BUILD(USE_TEXTURE_MAPPER FALSE)
+SET_AND_EXPOSE_TO_BUILD(USE_COORDINATED_GRAPHICS FALSE)
+include(OptionsMacGStreamer)
+
 set(ENABLE_WEBKIT_LEGACY ON)
 # WebKit2 RE-ENABLED for Safari drop-in. The user's developer correctly noted
 # that WK2 is where Safari's actual rendering/JS/networking lives. Many 10.10+
@@ -110,7 +127,7 @@ get_filename_component(MAVERICKS_TC "${CMAKE_CXX_COMPILER}" DIRECTORY)   # .../c
 get_filename_component(MAVERICKS_TC "${MAVERICKS_TC}" DIRECTORY)         # .../clang-22
 set(MAVERICKS_TC "${MAVERICKS_TC}" CACHE INTERNAL "clang-22 toolchain root")
 set(MAVERICKS_SUPPORT "${CMAKE_SOURCE_DIR}/MavericksSupport" CACHE INTERNAL "MavericksSupport dir")
-set(MAVERICKS_DEPS "${MAVERICKS_SUPPORT}/deps" CACHE INTERNAL "in-tree third-party deps")
+set(MAVERICKS_DEPS "${MAVERICKS_SUPPORT}/deps/build" CACHE INTERNAL "third-party libraries built by deps/build_deps.sh")
 
 # 10.9 backport: link libc++ DYNAMICALLY (one shared copy) rather than statically into every
 # dylib. Static libc++ per-dylib gives WebCore and JavaScriptCore each their own copy of libc++'s
@@ -120,11 +137,10 @@ set(MAVERICKS_DEPS "${MAVERICKS_SUPPORT}/deps" CACHE INTERNAL "in-tree third-par
 # frameworks and points an LC_RPATH at it so the system's old 10.9 libc++ is NOT used.
 link_libraries(${MAVERICKS_TC}/lib/libc++.1.dylib)
 link_libraries(${MAVERICKS_TC}/lib/libc++abi.1.dylib)
-# The clang-22 wrapper auto-links libMavericksLegacySupport.a (POSIX/libc base
-# polyfills) into every binary via its clang.cfg, so no explicit link is needed
-# for those. WebKit-specific polyfills (genuinely-missing-on-10.9 symbols WebKit
-# calls) are provided by the source-built archive added below.
-link_libraries(${MAVERICKS_SUPPORT}/prebuilt/libpolyfill.a)
+# libpolyfill.a supplies every symbol WebKit references that the 10.9 runtime lacks:
+# the POSIX/libc base plus the WebKit-specific framework-SPI stubs. Linked into every
+# binary.
+link_libraries(${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a)
 # -nostdlib++ is needed because we use a custom libc++ (clang-22).
 # Upstream WebKit applies -undefined dynamic_lookup only to WebCore via its
 # target LINK_FLAGS (with -umbrella WebKit), not globally. We follow that pattern.
@@ -156,11 +172,20 @@ add_compile_options(
   $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-Wno-deprecated-declarations>
   $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-Wno-availability>)
 
+# 10.9 backport: libc++ marks parts of the standard library (std::filesystem from
+# 10.15, the std::any/optional/variant bad-access throwers and aligned operator new
+# from 10.14, ...) unavailable below those versions, because those symbols entered the
+# SYSTEM libc++ dylib then. This build ships the clang-22 libc++ privately (install_name
+# @rpath/libc++.1.dylib, deployed beside the frameworks) and forces its use, so those
+# symbols are always present regardless of the OS libc++. Disable the vendor
+# availability markup so the standard library is usable against the 10.9 target.
+add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-D_LIBCPP_DISABLE_AVAILABILITY>)
+
 # 10.9 backport: gap-fill header overlay, searched AFTER the real SDK (-idirafter) so
 # the SDK's header always wins where present and only genuinely-missing headers fall
 # through. With a modern SDK the Apple headers come from the SDK; the overlay mainly
 # covers third-party gaps (e.g. libwebrtc's opus_defines.h).
-add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-idirafter> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:${MAVERICKS_SUPPORT}/polyfill>)
+add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-idirafter> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:${MAVERICKS_SUPPORT}/polyfill/headers>)
 
 # 10.9 backport: clang-22 enables C++/ObjC modules by default, so __has_feature(modules) is true.
 # Many WebKit SPI headers guard their forward declarations with `#if !__has_feature(modules)`,

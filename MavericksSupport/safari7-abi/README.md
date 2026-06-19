@@ -25,7 +25,7 @@ is unused by Safari 7 and empty.
 ## The symbol contract (Safari.framework imports, by providing framework)
 
 Computed as `comm -12 safari-imports.txt exports-<fw>.txt` from the stock
-binaries (backed up at /Users/jonathan/Desktop/stock-webkit-backup):
+binaries (backed up in a `stock-webkit-backup` directory beside the checkout):
 
 | Provider | # symbols Safari needs | file |
 |---|---|---|

@@ -1,0 +1,3 @@
+# Built archives regenerated from src/ + legacy-support/ by scripts/build-polyfill.sh
+# (run via MavericksSupport/bootstrap.sh). Artifacts, never committed.
+/build/

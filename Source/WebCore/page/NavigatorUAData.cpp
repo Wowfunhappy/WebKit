@@ -39,7 +39,8 @@
 #include <wtf/WeakRandomNumber.h>
 #include <wtf/text/WTFString.h>
 
-#if USE(GLIB)
+// MAVERICKS_BACKPORT: USE(GLIB) is globally on for GStreamer; chassis detection stays Cocoa (desktop).
+#if USE(GLIB) && !PLATFORM(COCOA)
 #include <wtf/glib/ChassisType.h>
 #endif
 
@@ -120,7 +121,7 @@ SUPPRESS_NODELETE bool NavigatorUAData::mobile() const
 
 #if PLATFORM(IOS_FAMILY)
     return !(PAL::currentUserInterfaceIdiomIsDesktop() || PAL::currentUserInterfaceIdiomIsVision());
-#elif USE(GLIB)
+#elif USE(GLIB) && !PLATFORM(COCOA)
     return chassisType() == WTF::ChassisType::Mobile;
 #else
     return false;

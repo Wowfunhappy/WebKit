@@ -31,7 +31,11 @@
 
 #include "AudioTrackPrivateGStreamer.h"
 #include "GStreamerAudioMixer.h"
+// MAVERICKS_BACKPORT: GStreamerCaptureDeviceManager lives under platform/mediastream/gstreamer and is only
+// compiled (and only used, below) when ENABLE(MEDIA_STREAM); gate the include to match its use sites.
+#if ENABLE(MEDIA_STREAM)
 #include "GStreamerCaptureDeviceManager.h"
+#endif
 #include "GStreamerCommon.h"
 #include "GStreamerQuirks.h"
 #include "GStreamerRegistryScanner.h"

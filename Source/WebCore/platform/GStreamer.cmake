@@ -12,6 +12,11 @@ if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO)
         "${WEBCORE_DIR}/platform/graphics/gstreamer/eme"
         "${WEBCORE_DIR}/platform/graphics/gstreamer/telemetry"
         "${WEBCORE_DIR}/platform/gstreamer"
+        # MAVERICKS_BACKPORT: the GStreamer stack pulls a few platform/glib helpers (e.g. ApplicationGLib.h
+        # used by GStreamerCommon). That directory is normally only on the include path for the GTK/WPE
+        # ports; add it here (GStreamer-only) for the Cocoa+GStreamer hybrid. Verified no header-basename
+        # collisions with the Cocoa platform headers.
+        "${WEBCORE_DIR}/platform/glib"
         "${WEBCORE_DIR}/platform/mediarecorder/gstreamer"
     )
 
