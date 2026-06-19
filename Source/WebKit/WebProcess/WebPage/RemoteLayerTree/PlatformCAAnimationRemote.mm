@@ -559,7 +559,10 @@ static RetainPtr<CAAnimation> createAnimation(CALayer *layer, RemoteLayerTreeHos
         break;
     }
     case PlatformCAAnimation::AnimationType::Spring: {
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101100
+// MAVERICKS_BACKPORT: CASpringAnimation is 10.11+. Gate on the DEPLOYMENT TARGET, not the SDK — with the
+// modern SDK __MAC_OS_X_VERSION_MAX_ALLOWED is always true, so on 10.9 the CASpringAnimation class is nil
+// and the animation is silently dropped; the CABasicAnimation #else keeps the animation working.
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101100
         RetainPtr springAnimation = [CASpringAnimation animationWithKeyPath:properties.keyPath.createNSString().get()];
 
         if (properties.keyValues.size() > 1) {
