@@ -54,7 +54,11 @@ public:
     using VariantType = Variant<const MockSampleBox*
 #if PLATFORM(COCOA)
         , RetainPtr<CMSampleBufferRef>
-#elif USE(GSTREAMER)
+#endif
+// MAVERICKS_BACKPORT: PLATFORM(COCOA) and USE(GSTREAMER) are both on (GStreamer media backend on a Cocoa
+// host). Upstream's #elif made these mutually exclusive; split so the Variant carries BOTH the CM and Gst
+// alternatives and the MSE/GStreamer code can reach gstSample().
+#if USE(GSTREAMER)
         , GstSample*
 #endif
     >;
@@ -66,7 +70,8 @@ public:
 
 #if PLATFORM(COCOA)
     CMSampleBufferRef cmSampleBuffer() const { return std::get<RetainPtr<CMSampleBufferRef>>(m_sample).get(); }
-#elif USE(GSTREAMER)
+#endif
+#if USE(GSTREAMER)
     GstSample* gstSample() const { return std::get<GstSample*>(m_sample); }
 #endif
 

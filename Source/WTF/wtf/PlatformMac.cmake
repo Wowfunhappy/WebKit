@@ -129,3 +129,33 @@ list(APPEND WTF_SOURCES
     ${WTF_DERIVED_SOURCES_DIR}/mach_excServer.c
     ${WTF_DERIVED_SOURCES_DIR}/mach_excUser.c
 )
+
+# MAVERICKS_BACKPORT: WTF GLib HELPER layer needed by the upstream GStreamer media player. Only the
+# smart-pointer / type helpers (GRefPtr/GMallocString/GSpanExtras + header-only GUniquePtr/WTFGType/…),
+# NOT the GLib platform replacements (RunLoopGLib/FileSystemGlib/URLGLib), which would collide with the
+# Cocoa run loop and file system. glib headers come from the vendored MavericksSupport/deps/gstreamer.
+if (USE_GLIB)
+    list(APPEND WTF_SOURCES
+        glib/GMallocString.cpp
+        glib/GRefPtr.cpp
+        glib/GSpanExtras.cpp
+    )
+    list(APPEND WTF_PUBLIC_HEADERS
+        glib/GMallocString.h
+        glib/GMutexLocker.h
+        glib/GRefPtr.h
+        glib/GSpanExtras.h
+        glib/GThreadSafeWeakPtr.h
+        glib/GTypedefs.h
+        glib/GUniquePtr.h
+        glib/GWeakPtr.h
+        glib/RunLoopSourcePriority.h
+        glib/WTFGType.h
+    )
+    list(APPEND WTF_SYSTEM_INCLUDE_DIRECTORIES
+        "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/gstreamer/include/glib-2.0"
+        "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/gstreamer/lib/glib-2.0/include"
+        "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/gstreamer/include/gio-unix-2.0"
+    )
+    list(APPEND WTF_LIBRARIES GLib::GLib GLib::Object GLib::Gio)
+endif ()

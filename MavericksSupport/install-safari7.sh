@@ -24,10 +24,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 LIBDIR="$REPO/WebKitBuild/Release/lib"
-TC="${MAVERICKS_CLANG:-/Users/jonathan/Desktop/Compilers/toolchains/clang-22}"
+TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
 INT="${INSTALL_NAME_TOOL:-install_name_tool}"
 OTOOL="${OTOOL:-otool}"
-BACKUP_ROOT="${BACKUP_ROOT:-/Users/jonathan/Desktop/stock-webkit-backup/replaced-$(date +%Y%m%d-%H%M%S 2>/dev/null || echo manual)}"
+BACKUP_ROOT="${BACKUP_ROOT:-$(dirname "$REPO")/stock-webkit-backup/replaced-$(date +%Y%m%d-%H%M%S 2>/dev/null || echo manual)}"
 
 FRAMEWORKS_DIR=/System/Library/Frameworks
 PRIVATE_DIR=/System/Library/PrivateFrameworks
@@ -240,7 +240,7 @@ install_framework WebKit         "$PRIVATE_DIR/WebKit2.framework"           WebK
 # layout) — a different path than our x86_64 WebCore — so the two never collide.
 # The stock i386 slices reference only 10.9 system libs by absolute path (no
 # @rpath, no private runtime), so no install-name rewriting is needed for them.
-STOCK_BACKUP="${STOCK_BACKUP:-/Users/jonathan/Desktop/stock-webkit-backup}"
+STOCK_BACKUP="${STOCK_BACKUP:-$(dirname "$REPO")/stock-webkit-backup}"
 
 # Replace a binary's bytes in place (preserves inode/owner/mode of the dest).
 replace_inplace() { cat "$1" > "$2"; }
@@ -296,6 +296,27 @@ graft_i386 "$PRIVATE_DIR/WebKit2.framework/Versions/A/WebKit2" \
 install_nested_i386_webcore
 
 # ---------------------------------------------------------------------------
+# #38: Dashboard "Web Clip" widgets must launch the 64-bit DashboardClient to load our x86_64-only
+# WebKit. The Dock reads this widget's AllowInternetPlugins flag BEFORE any WebKit code runs: if it is
+# true, the Dock writes "32bit" into com.apple.dashboard.plist and spawns an i386 DashboardClient that
+# cannot load our framework (EBADARCH crash). Opt the widget out of the (now-defunct) internet-plugin
+# path so the Dock spawns 64-bit. Lossless (NPAPI is gone), and there is NO in-framework lever for this
+# — the Dock decides the architecture before any of our code runs, so it must be a system-plist edit.
+echo "### Forcing 64-bit launch for the Dashboard Web Clip widget"
+WEBCLIP_PLIST="/Library/Widgets/Web Clip.wdgt/Contents/Info.plist"
+[ -f "$WEBCLIP_PLIST" ] || WEBCLIP_PLIST="/Library/Widgets/Web Clip.wdgt/Info.plist"
+if [ -f "$WEBCLIP_PLIST" ]; then
+    if /usr/libexec/PlistBuddy -c 'Set :AllowInternetPlugins false' "$WEBCLIP_PLIST" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c 'Add :AllowInternetPlugins bool false' "$WEBCLIP_PLIST" 2>/dev/null; then
+        echo "  Web Clip.wdgt AllowInternetPlugins -> false (64-bit DashboardClient)"
+    else
+        echo "  warning: could not set AllowInternetPlugins on Web Clip.wdgt"
+    fi
+else
+    echo "  Web Clip.wdgt not found — skipping (set its AllowInternetPlugins=false manually if you use Dashboard Web Clips)"
+fi
+
+# ---------------------------------------------------------------------------
 # #68: deploy the private runtime libs INSIDE the framework bundles. Done here, AFTER every
 # install_framework (each rm -rf's its bundle) and after the 32-bit graft (which only lipo's
 # binaries and recreates the nested i386 WebCore subdir — neither touches these lib dirs).
@@ -317,8 +338,8 @@ done
 "$INT" -change @rpath/libunwind.1.dylib "$PRIVLIBCXX/libunwind.1.dylib" "$PRIVLIBCXX/libc++abi.1.dylib" 2>/dev/null || true
 echo "### Deploying CG polyfill into WebCore.framework ($PRIVLIB)"
 mkdir -p "$PRIVLIB"
-if [ -f "$HERE/prebuilt/libcg_polyfill.dylib" ]; then
-    cp -f "$HERE/prebuilt/libcg_polyfill.dylib" "$PRIVLIB/libcg_polyfill.dylib"
+if [ -f "$HERE/polyfill/build/libcg_polyfill.dylib" ]; then
+    cp -f "$HERE/polyfill/build/libcg_polyfill.dylib" "$PRIVLIB/libcg_polyfill.dylib"
     "$INT" -id "$PRIVLIB/libcg_polyfill.dylib" "$PRIVLIB/libcg_polyfill.dylib"
 fi
 # Sandbox grants read only to world-readable files under /System with traversable parents.

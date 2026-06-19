@@ -78,6 +78,7 @@ LC_RPATH — those are developer paths absent on a clean target.
 
 ## Backups
 
-Stock frameworks backed up at `/Users/jonathan/Desktop/stock-webkit-backup`
-(verified byte-identical). The install script must back up any existing target at
-the install path before overwriting (including /usr/lib/libc++ if ever touched).
+Stock frameworks backed up in a `stock-webkit-backup` directory beside the
+checkout (verified byte-identical). The install script must back up any existing
+target at the install path before overwriting (including /usr/lib/libc++ if ever
+touched).

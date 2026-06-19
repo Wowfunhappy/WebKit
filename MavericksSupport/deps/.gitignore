@@ -1,0 +1,4 @@
+# Built libraries + headers regenerated from source by build_deps.sh (run via
+# MavericksSupport/bootstrap.sh). Artifact, never committed. The vendored GStreamer
+# binary lives in gstreamer/ and IS committed.
+/build/

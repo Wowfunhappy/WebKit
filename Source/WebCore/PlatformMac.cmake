@@ -1,3 +1,9 @@
+# MAVERICKS_BACKPORT: compile the upstream GStreamer media player (software/appsink path) for the
+# Mac/CG port. GStreamer.cmake consumes the GSTREAMER_*/GLib targets set by OptionsMacGStreamer.cmake.
+if (USE_GSTREAMER)
+    include(platform/GStreamer.cmake)
+endif ()
+
 find_library(ACCELERATE_LIBRARY Accelerate)
 find_library(APPLICATIONSERVICES_LIBRARY ApplicationServices)
 find_library(AVFOUNDATION_LIBRARY AVFoundation)

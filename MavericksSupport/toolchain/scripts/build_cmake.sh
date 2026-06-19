@@ -1,0 +1,35 @@
+#!/bin/bash
+# Build CMake from source into the toolchain build tree (toolchain/build/cmake,
+# gitignored). Built with the in-tree clang. All paths relative to this script.
+# The first build is slow (~15 min); CMake bootstraps itself with a plain make.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOOLCHAIN="$(cd "$HERE/.." && pwd)"
+CLANG="$TOOLCHAIN/build/clang"
+PREFIX="${CMAKE_INSTALL_PREFIX:-$TOOLCHAIN/build/cmake}"
+VERSION=3.28.6
+# Host tools are C++: clang must find libc++ headers, which live in the SDK. Point
+# clang at the SDK via SDKROOT and pin the 10.9 deploy target so cmake runs on host.
+REPO="$(cd "$TOOLCHAIN/../.." && pwd)"
+SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
+export SDKROOT="$SDK"
+export MACOSX_DEPLOYMENT_TARGET=10.9
+WORK="$(mktemp -d -t cmake-build)"
+trap 'rm -rf "$WORK"' EXIT
+
+echo "### Downloading CMake $VERSION"
+curl -fsSL -o "$WORK/cmake.tar.gz" "https://github.com/Kitware/CMake/releases/download/v${VERSION}/cmake-${VERSION}.tar.gz"
+tar xzf "$WORK/cmake.tar.gz" -C "$WORK"
+cd "$WORK/cmake-${VERSION}"
+# cmake's bundled zlib has a Classic-Mac OS leftover that #defines fdopen to NULL
+# when TARGET_OS_MAC is set -- but TargetConditionals.h sets that on modern macOS
+# too, which breaks the SDK's real fdopen declaration (_stdio.h: "expected identifier").
+# Drop the offending line so fdopen resolves to the SDK's prototype.
+sed -i '' '/define fdopen(fd,mode) NULL/d' Utilities/cmzlib/zutil.h 2>/dev/null || true
+echo "### Bootstrapping CMake with the in-tree clang (slow)"
+CC="$CLANG/bin/clang" CXX="$CLANG/bin/clang++" \
+    ./bootstrap --prefix="$PREFIX" --parallel="$(sysctl -n hw.ncpu)" -- -DCMAKE_USE_OPENSSL=OFF
+make -j"$(sysctl -n hw.ncpu)"
+make install
+"$PREFIX/bin/cmake" --version | head -1
+echo "### cmake OK -> $PREFIX/bin/cmake"

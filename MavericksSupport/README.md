@@ -1,106 +1,82 @@
 # MavericksSupport
 
-Build-time and link-time support layer that makes this WebKit fork buildable
-and runnable on macOS 10.9.5 Mavericks with the system-installed Safari 9.1.3.
+Everything that makes this WebKit fork build and run on **macOS 10.9.5 Mavericks**
+with the system-installed **Safari 7.0.6**, kept self-contained so a fresh clone
+*is* the build environment.
 
-Modern WebKit (~Safari 17) targets macOS 13+ and assumes APIs that don't
-exist on 10.9. This directory provides the polyfills, framework header
-overlays, and build scripts that bridge the gap.
+The build runs on a 10.9 host with a modern compiler (clang-22) against a modern
+macOS SDK, with the deployment target pinned to 10.9 so the binaries bind to 10.9's
+real frameworks at runtime. This directory vendors the toolchain, the from-source
+polyfills for genuinely-missing-on-10.9 symbols, and the build/install scripts.
+
+## The one rule: source vs. artifact
+
+> **If a script can regenerate it, it's an artifact → gitignored, never committed.
+> Otherwise it's committed** (source, or a binary we genuinely can't rebuild).
+
+You never have to consult `.gitignore` to know which is which — it's visible from
+the directory a file lives in (`vendor/` = committed binary, `scripts/`/`src/` =
+source, `build/` = regenerable artifact).
 
 ## Layout
 
 ```
 MavericksSupport/
-├── README.md
-├── compat.h               10.9 compatibility header (availability shims,
-│                          missing-symbol forward declarations)
-├── polyfill_stubs.m       WebKit-specific C/ObjC polyfill stubs
-├── vector_stubs.c         Sandbox vector stubs
-├── wtf_compat.cpp         WTF compatibility shims
-├── wtf_compat_asm.s       WTF compatibility assembly
-├── polyfill/              Framework header overlays (Accessibility,
-│                          AppKit, AudioToolbox, CommonCrypto, CoreML,
-│                          CoreTelephony, IOSurface, NaturalLanguage,
-│                          Network, QuartzCore, Speech,
-│                          UniformTypeIdentifiers, VideoToolbox, WebGPU,
-│                          libwebrtc, mach, os, simd, sys, webm,
-│                          compression.h)
-├── sdk-overlay/           SDK overlay (Foundation.framework)
-├── scripts/               Build / install / verification scripts
-│   ├── postbuild_webkit.sh    Postbuild that installs WebKit into both
-│   │                          /System/Library/Frameworks and
-│   │                          /System/Library/StagedFrameworks/Safari
-│   └── verify_fixes.sh       Source-level sanity check that all
-│                             backport fixes are present
-└── prebuilt/              Prebuilt static and dynamic libraries
-    ├── libpolyfill.a            Combined polyfill (macports-legacy-support
-    │                            members + WebKit-specific stubs)
-    ├── libpolyfill_noobjc.a     Same minus ObjC class stubs
-    ├── libpolyfill_classes.a    ObjC class stubs only
-    ├── libwtf_compat.a
-    ├── libwtf_compat.dylib
-    └── libcg_polyfill.dylib     CoreGraphics runtime polyfill
+├── README.md                  this file
+├── mac10.9-toolchain.cmake     CMake toolchain entry (all paths relative)
+├── install-safari7.sh          installer: name-shift + deploy into the 10.9 system
+│
+├── toolchain/                  the in-tree compiler + helper build tools
+│   ├── vendor/                   COMMITTED binaries we can't rebuild:
+│   │                             clang-22 + lld (bzip2-compressed), llvm-ar/nm/objcopy,
+│   │                             clang.cfg/clang++.cfg, resource headers, libc++/abi/unwind
+│   ├── scripts/                  COMMITTED source: build_{python3,nasm,ninja,cmake}.sh
+│   ├── bootstrap.sh              reconstructs build/ from vendor/ + scripts/
+│   └── build/                    ARTIFACTS (gitignored): unpacked clang + built tools
+│
+├── polyfill/                   genuinely-missing-on-10.9 symbols, from source
+│   ├── src/                      polyfill_stubs.m, vector_stubs.c, wtf_compat.{cpp,s}
+│   ├── legacy-support/           vendored macports-legacy-support (libc/POSIX gap-fills)
+│   ├── headers/                  framework header overlays (declarations modern WebKit calls)
+│   ├── scripts/                  build-legacy-polyfills.sh, rebuild_wtf_compat.sh
+│   └── prebuilt/                 static/dynamic archives the link consumes (see below)
+│
+├── sdk/                        SDK rehoming: patch-sdk-rehome.sh + the *-rehome-symbols.txt
+├── deps/                       third-party libraries WebKit links (see deps/README.md)
+│   ├── build_deps.sh             builds ICU/gcrypt/tasn1/gpg-error/brotli/woff2 -> build/ (gitignored)
+│   ├── build/                    ARTIFACTS (gitignored): the built libs + headers
+│   └── gstreamer/                vendored GStreamer (committed binary) + glib/ (re-vendor scripts)
+├── safari7-abi/                the captured Safari-7 private ABI contract + check-abi-gap.sh
+├── docs/                       prose docs: upstream-merge guide + Safari-7 ABI reference
+└── tests/                      manual test pages + media
 ```
 
-## External dependencies (not vendored here)
+## Building (a fresh clone)
 
-These live outside the fork. Get or build them once:
+1. **Supply the SDK.** The macOS SDK is Apple-proprietary and not redistributed
+   here. Place a `MacOSX26.1.sdk` as a **sibling of this checkout** (or set
+   `MAVERICKS_SDK`). The toolchain file errors clearly if it's missing.
 
-1. **Custom Clang toolchain (Clang 22 recommended)**
+2. **Bootstrap the toolchain** (once): `bash MavericksSupport/toolchain/bootstrap.sh`
+   — unpacks the in-tree clang and builds python3/nasm/ninja/cmake from source into
+   `toolchain/build/` (gitignored).
 
-   Modern WebKit needs a C++23-capable compiler. The system clang on 10.9
-   is far too old. Use a stock LLVM release built against the polyfill;
-   see https://github.com/Wowfunhappy/macports-legacy-support for the
-   approach (the same `libMacportsLegacySupport.a` is linked into the
-   compiler so it runs on 10.9).
+3. **Configure + build** with the bootstrapped cmake/ninja and the toolchain file
+   (`bootstrap.sh` prints the exact command).
 
-2. **macports-legacy-support** —
-   https://github.com/Wowfunhappy/macports-legacy-support
+4. **Install** onto the 10.9 target: `sudo bash MavericksSupport/install-safari7.sh`.
 
-   Provides POSIX/libc functions missing from the 10.9 SDK (arc4random,
-   atcalls, dprintf, fdopendir, fmemopen, getentropy, sincos, statxx,
-   utimensat, ...). `libpolyfill.a` in `prebuilt/` includes these object
-   files alongside the WebKit-specific stubs in this directory.
+## `polyfill/prebuilt/` contents
 
-3. **CMake and Ninja**
+- `libpolyfill.a` — the 10.9-missing symbols WebKit links: the macports-legacy libc
+  base, a CFString-constant table, two small CG/vImage forwarding shims, and
+  `return 0` stubs for framework SPI that 10.9 lacks. Linked globally by
+  `OptionsMac.cmake`.
+- `libpolyfill_classes.a` / `libwtf_compat.a` — force-loaded into JavaScriptCore
+  (`Source/JavaScriptCore/CMakeLists.txt`).
+- `libcg_polyfill.dylib` — CoreGraphics shims, embedded into WebCore.framework by
+  `install-safari7.sh`.
 
-   Any reasonably recent release works. Standard upstream binaries.
-
-4. **Python 3 and ICU**
-
-   For Python and ICU on 10.9, build stock upstream sources with the
-   custom clang and link against `libMacPortsLegacySupport.a`. Python
-   3.9.21 with `--without-ensurepip --disable-test-modules` works.
-   ICU 74.2 static build works.
-
-## How `libpolyfill.a` is built
-
-It is `libMacportsLegacySupport.a` (from the macports-legacy-support
-repo above) merged with the WebKit-specific object files compiled from:
-
-- `polyfill_stubs.m`        → polyfill_stubs.o
-- `vector_stubs.c`          → vector_stubs.o
-- WebCore stubs             → webcore_stubs.o
-- Sandbox vector stubs      → sandbox_vector_stubs.o
-- Sundry runtime helpers    → polyfill_pal.o, polyfill_rtti.o,
-                              polyfill_tzone_{data,funcs}.o,
-                              polyfill_classes.o, polyfill_heaprefs.o,
-                              const_polyfill.o, missing34.o,
-                              final_stubs.o
-
-The `.a` is included prebuilt for convenience. To rebuild from source,
-combine the macports-legacy-support build artifacts with object files
-compiled from the `.c` / `.m` / `.cpp` / `.s` sources in this directory
-using `libtool -static -o libpolyfill.a *.o`.
-
-## Verification
-
-After building WebKit, run:
-
-```
-MavericksSupport/scripts/verify_fixes.sh
-```
-
-It greps for sentinel comments in the source tree and checks that the
-expected polyfill stubs are stripped from the binary. Adjust the paths
-at the top of the script for your checkout location.
+The reproducible source for these lives in `src/` (WebKit-specific stubs) and
+`legacy-support/` (the libc base); `scripts/rebuild_wtf_compat.sh` and
+`scripts/build-legacy-polyfills.sh` build their objects.

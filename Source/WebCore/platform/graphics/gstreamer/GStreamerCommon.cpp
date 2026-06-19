@@ -64,6 +64,13 @@
 #include <wtf/text/StringHash.h>
 #include <wtf/text/StringToIntegerConversion.h>
 
+// MAVERICKS_BACKPORT: on Cocoa the GStreamer bus is drained from a CFRunLoopSource on the bus poll fd
+// (see connectSimpleBusMessageCallback), because there is no GLib GMainContext on the main thread.
+#if PLATFORM(COCOA)
+#include <CoreFoundation/CFFileDescriptor.h>
+#include <wtf/RetainPtr.h>
+#endif
+
 #if USE(GSTREAMER_MPEGTS)
 #define GST_USE_UNSTABLE_API
 #include <gst/mpegts/mpegts.h>
@@ -1036,6 +1043,13 @@ static GQuark customMessageHandlerQuark()
 
 void disconnectSimpleBusMessageCallback(GstElement* pipeline)
 {
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: the qdata holds the MessageBusData with a GDestroyNotify that invalidates the
+    // CFRunLoopSource + CFFileDescriptor and frees the data. Clearing it runs that notify.
+    if (!g_object_get_qdata(G_OBJECT(pipeline), customMessageHandlerQuark()))
+        return;
+    g_object_set_qdata(G_OBJECT(pipeline), customMessageHandlerQuark(), nullptr);
+#else
     auto handler = GPOINTER_TO_UINT(g_object_get_qdata(G_OBJECT(pipeline), customMessageHandlerQuark()));
     if (!handler)
         return;
@@ -1044,12 +1058,22 @@ void disconnectSimpleBusMessageCallback(GstElement* pipeline)
     g_signal_handler_disconnect(bus.get(), handler);
     gst_bus_remove_signal_watch(bus.get());
     g_object_set_qdata(G_OBJECT(pipeline), customMessageHandlerQuark(), nullptr);
+#endif
 }
 
 struct MessageBusData {
     GThreadSafeWeakPtr<GstElement> pipeline;
     Function<void(GstMessage*)> handler;
     AsynchronousPipelineDumping asynchronousPipelineDumping;
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: the bus, the "message" signal handler id, and the CFRunLoopSource/
+    // CFFileDescriptor that drain the bus on the Cocoa main run loop (no GMainContext). Kept here so
+    // disconnect / pipeline teardown can disconnect the handler and invalidate the CF objects.
+    GRefPtr<GstBus> bus;
+    gulong busSignalHandler { 0 };
+    RetainPtr<CFFileDescriptorRef> busFileDescriptor;
+    RetainPtr<CFRunLoopSourceRef> busRunLoopSource;
+#endif
 };
 WEBKIT_DEFINE_ASYNC_DATA_STRUCT(MessageBusData)
 
@@ -1073,68 +1097,123 @@ static void dumpPipeline(const GRefPtr<GstElement>& pipeline, String&& dotFileNa
     }), data, reinterpret_cast<GDestroyNotify>(destroyAsyncPipelineDumpData));
 }
 
+// MAVERICKS_BACKPORT: shared per-message handling, invoked from the GLib bus signal watch (GTK) and
+// from the Cocoa CFRunLoopSource bus drain (busMessagePollFDCallback). Both run on the main thread.
+static void dispatchSimpleBusMessage(MessageBusData* data, GstMessage* message)
+{
+    auto pipeline = data->pipeline.get();
+    if (!pipeline)
+        return;
+
+    switch (GST_MESSAGE_TYPE(message)) {
+    case GST_MESSAGE_ERROR: {
+        GST_ERROR_OBJECT(pipeline.get(), "Got message: %" GST_PTR_FORMAT, message);
+        if (!s_isGstDebugDotFilesSupportEnabled)
+            break;
+
+        auto dotFileName = makeString(unsafeSpan(GST_OBJECT_NAME(pipeline.get())), "_error"_s);
+        dumpPipeline(pipeline, WTF::move(dotFileName), data->asynchronousPipelineDumping);
+        break;
+    }
+    case GST_MESSAGE_STATE_CHANGED: {
+        if (GST_MESSAGE_SRC(message) != GST_OBJECT_CAST(pipeline.get()))
+            break;
+
+        GstState oldState;
+        GstState newState;
+        GstState pending;
+        gst_message_parse_state_changed(message, &oldState, &newState, &pending);
+
+        GST_INFO_OBJECT(pipeline.get(), "State changed (old: %s, new: %s, pending: %s)", gst_state_get_name(oldState),
+            gst_state_get_name(newState), gst_state_get_name(pending));
+        if (!s_isGstDebugDotFilesSupportEnabled)
+            break;
+
+        auto dotFileName = makeString(unsafeSpan(GST_OBJECT_NAME(pipeline.get())), '_', unsafeSpan(gst_state_get_name(oldState)), '_', unsafeSpan(gst_state_get_name(newState)));
+        dumpPipeline(pipeline, WTF::move(dotFileName), data->asynchronousPipelineDumping);
+        break;
+    }
+    case GST_MESSAGE_LATENCY:
+        // Recalculate the latency, we don't need any special handling
+        // here other than the GStreamer default.
+        // This can happen if the latency of live elements changes, or
+        // for one reason or another a new live element is added or
+        // removed from the pipeline.
+        gst_element_call_async(pipeline.get(), reinterpret_cast<GstElementCallAsyncFunc>(+[](GstElement* pipeline, gpointer) {
+            gst_bin_recalculate_latency(GST_BIN_CAST(pipeline));
+        }), nullptr, nullptr);
+        break;
+    default:
+        break;
+    }
+
+    data->handler(message);
+}
+
+#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: the bus poll fd became readable — on the main thread, drain every queued message
+// and emit the bus "message" signal for each (via the public gst_bus_async_signal_func, exactly as the
+// GLib bus GSource would), so our handler AND any other "message::detail" listeners on the bus fire.
+// Then re-arm the (one-shot) CFFileDescriptor read callback.
+static void busMessagePollFDCallback(CFFileDescriptorRef fileDescriptor, CFOptionFlags, void* info)
+{
+    auto* data = static_cast<MessageBusData*>(info);
+    while (GRefPtr<GstMessage> message = adoptGRef(gst_bus_pop(data->bus.get())))
+        gst_bus_async_signal_func(data->bus.get(), message.get(), nullptr);
+    CFFileDescriptorEnableCallBacks(fileDescriptor, kCFFileDescriptorReadCallBack);
+}
+#endif
+
 void connectSimpleBusMessageCallback(GstElement* pipeline, Function<void(GstMessage*)>&& customHandler, AsynchronousPipelineDumping asynchronousPipelineDumping)
 {
     auto bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(pipeline)));
-    gst_bus_add_signal_watch_full(bus.get(), RunLoopSourcePriority::RunLoopDispatcher);
 
     auto data = createMessageBusData();
     data->pipeline.reset(pipeline);
     data->handler = WTF::move(customHandler);
     data->asynchronousPipelineDumping = asynchronousPipelineDumping;
+
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: on Cocoa there is no GLib GMainContext pumped on the main thread, so the
+    // upstream gst_bus_add_signal_watch() path (a GSource attached to a GMainContext) would never
+    // deliver async bus messages. Instead connect the handler to the bus "message" signal (as on GTK),
+    // and pump the bus from a CFRunLoopSource on the bus poll fd (busMessagePollFDCallback), which emits
+    // that signal for each queued message. The MessageBusData is owned by the pipeline qdata; its
+    // GDestroyNotify (run on disconnect or pipeline destruction) tears the CF objects + signal handler
+    // down before freeing the data.
+    data->bus = bus;
+    data->busSignalHandler = g_signal_connect_data(bus.get(), "message", G_CALLBACK(+[](GstBus*, GstMessage* message, gpointer userData) {
+        dispatchSimpleBusMessage(reinterpret_cast<MessageBusData*>(userData), message);
+    }), data, nullptr, static_cast<GConnectFlags>(0));
+
+    GPollFD pollFD { };
+    gst_bus_get_pollfd(bus.get(), &pollFD);
+    if (pollFD.fd >= 0) {
+        CFFileDescriptorContext context = { 0, data, nullptr, nullptr, nullptr };
+        data->busFileDescriptor = adoptCF(CFFileDescriptorCreate(kCFAllocatorDefault, pollFD.fd, false, busMessagePollFDCallback, &context));
+        data->busRunLoopSource = adoptCF(CFFileDescriptorCreateRunLoopSource(kCFAllocatorDefault, data->busFileDescriptor.get(), 0));
+        CFRunLoopAddSource(CFRunLoopGetMain(), data->busRunLoopSource.get(), kCFRunLoopCommonModes);
+        CFFileDescriptorEnableCallBacks(data->busFileDescriptor.get(), kCFFileDescriptorReadCallBack);
+    }
+    g_object_set_qdata_full(G_OBJECT(pipeline), customMessageHandlerQuark(), data, reinterpret_cast<GDestroyNotify>(+[](gpointer ptr) {
+        auto* data = static_cast<MessageBusData*>(ptr);
+        if (data->busRunLoopSource)
+            CFRunLoopSourceInvalidate(data->busRunLoopSource.get());
+        if (data->busFileDescriptor)
+            CFFileDescriptorInvalidate(data->busFileDescriptor.get());
+        if (data->busSignalHandler && data->bus)
+            g_signal_handler_disconnect(data->bus.get(), data->busSignalHandler);
+        destroyMessageBusData(data);
+    }));
+#else
+    gst_bus_add_signal_watch_full(bus.get(), RunLoopSourcePriority::RunLoopDispatcher);
     auto handler = g_signal_connect_data(bus.get(), "message", G_CALLBACK(+[](GstBus*, GstMessage* message, gpointer userData) {
-        auto data = reinterpret_cast<MessageBusData*>(userData);
-        auto pipeline = data->pipeline.get();
-        if (!pipeline)
-            return;
-
-        switch (GST_MESSAGE_TYPE(message)) {
-        case GST_MESSAGE_ERROR: {
-            GST_ERROR_OBJECT(pipeline.get(), "Got message: %" GST_PTR_FORMAT, message);
-            if (!s_isGstDebugDotFilesSupportEnabled)
-                break;
-
-            auto dotFileName = makeString(unsafeSpan(GST_OBJECT_NAME(pipeline.get())), "_error"_s);
-            dumpPipeline(pipeline, WTF::move(dotFileName), data->asynchronousPipelineDumping);
-            break;
-        }
-        case GST_MESSAGE_STATE_CHANGED: {
-            if (GST_MESSAGE_SRC(message) != GST_OBJECT_CAST(pipeline.get()))
-                break;
-
-            GstState oldState;
-            GstState newState;
-            GstState pending;
-            gst_message_parse_state_changed(message, &oldState, &newState, &pending);
-
-            GST_INFO_OBJECT(pipeline.get(), "State changed (old: %s, new: %s, pending: %s)", gst_state_get_name(oldState),
-                gst_state_get_name(newState), gst_state_get_name(pending));
-            if (!s_isGstDebugDotFilesSupportEnabled)
-                break;
-
-            auto dotFileName = makeString(unsafeSpan(GST_OBJECT_NAME(pipeline.get())), '_', unsafeSpan(gst_state_get_name(oldState)), '_', unsafeSpan(gst_state_get_name(newState)));
-            dumpPipeline(pipeline, WTF::move(dotFileName), data->asynchronousPipelineDumping);
-            break;
-        }
-        case GST_MESSAGE_LATENCY:
-            // Recalculate the latency, we don't need any special handling
-            // here other than the GStreamer default.
-            // This can happen if the latency of live elements changes, or
-            // for one reason or another a new live element is added or
-            // removed from the pipeline.
-            gst_element_call_async(pipeline.get(), reinterpret_cast<GstElementCallAsyncFunc>(+[](GstElement* pipeline, gpointer) {
-                gst_bin_recalculate_latency(GST_BIN_CAST(pipeline));
-            }), nullptr, nullptr);
-            break;
-        default:
-            break;
-        }
-
-        data->handler(message);
+        dispatchSimpleBusMessage(reinterpret_cast<MessageBusData*>(userData), message);
     }), data, reinterpret_cast<GClosureNotify>(+[](gpointer data, GClosure*) {
         destroyMessageBusData(reinterpret_cast<MessageBusData*>(data));
     }), static_cast<GConnectFlags>(0));
     g_object_set_qdata(G_OBJECT(pipeline), customMessageHandlerQuark(), GUINT_TO_POINTER(handler));
+#endif
 }
 
 template<>

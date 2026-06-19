@@ -53,6 +53,11 @@ platform/audio/gstreamer/FFTFrameGStreamer.cpp
 platform/audio/gstreamer/PlatformRawAudioDataGStreamer.cpp
 platform/audio/gstreamer/WebKitWebAudioSourceGStreamer.cpp
 
+// MAVERICKS_BACKPORT: ApplicationGLib provides getApplicationName(), used by GStreamerCommon for the audio
+// sink client-name. It normally ships in SourcesGLib.txt (the GTK/WPE unified list, not built on Mac), so
+// pull this single file in here.
+platform/glib/ApplicationGLib.cpp
+
 platform/graphics/gstreamer/AudioTrackPrivateGStreamer.cpp
 platform/graphics/gstreamer/GLVideoSinkGStreamer.cpp
 platform/graphics/gstreamer/GRefPtrGStreamer.cpp
@@ -64,6 +69,7 @@ platform/graphics/gstreamer/GStreamerVideoFrameConverter.cpp
 platform/graphics/gstreamer/GStreamerVideoSinkCommon.cpp
 platform/graphics/gstreamer/GstAllocatorFastMalloc.cpp
 platform/graphics/gstreamer/ImageDecoderGStreamer.cpp
+platform/graphics/gstreamer/ImageGStreamerCG.cpp
 platform/graphics/gstreamer/ImageGStreamerSkia.cpp
 platform/graphics/gstreamer/InbandTextTrackPrivateGStreamer.cpp
 platform/graphics/gstreamer/MediaPlayerPrivateGStreamer.cpp

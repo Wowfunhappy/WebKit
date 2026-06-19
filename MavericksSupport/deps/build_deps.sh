@@ -1,31 +1,37 @@
 #!/bin/bash
-# Build the WebKit-on-Mavericks third-party dependencies that are NOT vendored
-# elsewhere and NOT available on the 10.9 system:
+# Build the third-party libraries WebKit links that are NOT available on the 10.9
+# system and NOT vendored as a binary:
 #
+#   ICU 74.2 (static)                   -> JSC Intl (ucfpos_*/udtitvfmt_*/... that
+#                                          10.9's ICU 51 libicucore lacks)
 #   libgpg-error, libgcrypt, libtasn1   -> WebCore USE(GCRYPT) WebCrypto
 #   brotli (common/dec/enc)             -> WOFF2 + Brotli Content-Encoding
 #   woff2 (decoder)                     -> WOFF2 web font decompression
 #
-# Everything is built with the clang-22 / macOS 10.9 toolchain (which force-
-# includes the 10.9 compat header and links the polyfill + MacPorts legacy
-# support archives, so the results both build and run on 10.9.5).
+# Built with the in-tree clang-22 / 10.9 toolchain. Output (headers + static libs)
+# lands in MavericksSupport/deps/build/{include,lib} -- a gitignored artifact this
+# script regenerates. Source tarballs download to a scratch dir outside the tree.
 #
-# Headers + static libs are installed in-tree under MavericksSupport/deps/
-# {include,lib} and committed. Source tarballs are downloaded to a scratch
-# dir outside the tree. Re-running rebuilds from scratch.
-#
-# Usage: MavericksSupport/deps/build_deps.sh
+# Usage: MavericksSupport/deps/build_deps.sh   (or via MavericksSupport/bootstrap.sh)
 set -euo pipefail
 
-TC=/Users/jonathan/Desktop/Compilers/toolchains/clang-22
-CMAKE=/Users/jonathan/Desktop/Compilers/toolchains/tools/cmake/bin/cmake
-NINJA=/Users/jonathan/Desktop/Compilers/toolchains/tools/ninja/bin/ninja
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$HERE/../.." && pwd)"                   # repo root
+TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
+CMAKE="${MAVERICKS_CMAKE:-$REPO/MavericksSupport/toolchain/build/cmake/bin/cmake}"
+NINJA="${MAVERICKS_NINJA:-$REPO/MavericksSupport/toolchain/build/ninja/bin/ninja}"
+SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
 
-DEPS_DIR="$(cd "$(dirname "$0")" && pwd)"          # .../MavericksSupport/deps
-SCRATCH=/Users/jonathan/Desktop/Compilers/depbuild
+# The in-tree clang ships the libc++ dylibs but not its headers; those live in the SDK.
+# clang on Darwin reads SDKROOT as the default -isysroot, so this puts <memory>/<string>
+# (and the system frameworks/headers) on the search path for every sub-build below.
+export SDKROOT="$SDK"
+
+DEST="$HERE/build"                                 # gitignored artifact: include/ + lib/
+SCRATCH="$(mktemp -d -t depbuild)"
+trap 'rm -rf "$SCRATCH"' EXIT
 SRC="$SCRATCH/src"
 STAGE="$SCRATCH/install"                            # full autotools install prefix
-DEST="$DEPS_DIR"                                    # in-tree: include/ + lib/
 
 export CC="$TC/bin/clang"
 export CXX="$TC/bin/clang++"
@@ -36,78 +42,73 @@ export MACOSX_DEPLOYMENT_TARGET=10.9
 export CFLAGS="-O2 -mmacosx-version-min=10.9"
 export CXXFLAGS="-O2 -mmacosx-version-min=10.9"
 
-# The clang-22 toolchain ships clang.cfg / clang++.cfg that force-include the
-# 10.9 compat header and link libpolyfill.a + libMacportsLegacySupport.a into
-# every invocation. That is correct for building WebKit, but it breaks
-# autotools/gnulib feature probes: the force-included header and the
-# auto-linked archives make AC_CHECK_FUNC/header-generation misbehave (e.g.
-# libgcrypt decides getpid/clock are "missing" and tries to compile #error
-# replacement stubs; gnulib's header generator leaks raw typedefs into the
-# Makefile -> /bin/sh "syntax error near unexpected token }").
+# The clang-22 toolchain's clang.cfg/clang++.cfg add a default link set (libc++/
+# objc/frameworks). That is correct for building WebKit but breaks autotools/gnulib
+# feature probes: the auto-linked archives make AC_CHECK_FUNC/header-generation
+# misbehave (libgcrypt decides getpid/clock are "missing" and compiles #error stubs;
+# gnulib leaks raw typedefs into the Makefile -> /bin/sh syntax error).
 #
-# So the autotools deps (libgpg-error/libgcrypt/libtasn1) are compiled with a
-# VANILLA clang (--no-default-config): a plain 10.9-targeting compiler whose
-# probes see exactly the real 10.9 SDK feature set. The resulting .a is pure
-# object code; any post-10.9 libc symbols it might reference (it won't, since
-# the 10.9 SDK doesn't declare them) would resolve later at WebKit link time
-# where the polyfill IS linked.
+# So the autotools deps (libgpg-error/libgcrypt/libtasn1) compile with a VANILLA
+# clang (--no-default-config): a plain 10.9-targeting compiler whose probes see the
+# real 10.9 SDK feature set. The resulting .a is pure object code; the polyfill that
+# resolves any post-10.9 symbol is linked later at WebKit link time.
 VBIN="$SCRATCH/vanilla-bin"
 mkdir -p "$VBIN"
-# -Wno-implicit-function-declaration / -Wno-implicit-int: these pre-C99 C
-# constructs are hard errors in clang >= 16 but were warnings when this code
-# was written (e.g. libgcrypt's bench-slope.c calls gettimeofday implicitly).
-# Relaxing them is the standard way to build old autotools C with new clang.
+# -Wno-implicit-function-declaration / -Wno-implicit-int: pre-C99 constructs that are
+# hard errors in clang >= 16 (e.g. libgcrypt's bench-slope.c calls gettimeofday
+# implicitly); relaxing them is the standard way to build old autotools C with new clang.
 LENIENT='-Wno-implicit-function-declaration -Wno-implicit-int'
 printf '#!/bin/sh\nexec "%s/bin/clang" --no-default-config %s "$@"\n'   "$TC" "$LENIENT" > "$VBIN/cc";  chmod +x "$VBIN/cc"
 printf '#!/bin/sh\nexec "%s/bin/clang++" --no-default-config %s "$@"\n' "$TC" "$LENIENT" > "$VBIN/cxx"; chmod +x "$VBIN/cxx"
 CC_VANILLA="$VBIN/cc"
 CXX_VANILLA="$VBIN/cxx"
 
-GPG_ERROR=libgpg-error-1.51
-GCRYPT=libgcrypt-1.11.0
-TASN1=libtasn1-4.20.0
-BROTLI=brotli-1.1.0
-WOFF2=woff2-1.0.2
-
 mkdir -p "$SRC" "$STAGE" "$DEST/include" "$DEST/lib"
 
-fetch() { # url
-  local f; f="$(basename "$1")"
-  [ -f "$SRC/$f" ] || ( cd "$SRC" && echo "download $f" && curl -fsSL -m 300 -O "$1" )
-}
-fresh() { # tarball-basename dirname
-  rm -rf "${SCRATCH:?}/build-$2"; mkdir -p "$SCRATCH/build-$2"
-  tar xf "$SRC/$1" -C "$SCRATCH/build-$2" --strip-components=1
-  echo "$SCRATCH/build-$2"
+# get <url> <label>: download the tarball (once) and extract it, echoing the build
+# dir. To update a library, change its version in the URL on its line below.
+get() {
+  local url="$1" label="$2" f; f="$SRC/$(basename "$url")"
+  # NB: this function's stdout is captured by the caller ($(get ...)) as the build dir,
+  # so the progress line must go to stderr or it corrupts the returned path.
+  [ -f "$f" ] || ( cd "$SRC" && echo "download $(basename "$url")" >&2 && curl -fsSL -m 300 -O "$url" )
+  rm -rf "${SCRATCH:?}/build-$label"; mkdir -p "$SCRATCH/build-$label"
+  tar xf "$f" -C "$SCRATCH/build-$label" --strip-components=1
+  echo "$SCRATCH/build-$label"
 }
 
-echo "==== sources ===="
-fetch https://gnupg.org/ftp/gcrypt/libgpg-error/$GPG_ERROR.tar.bz2
-fetch https://gnupg.org/ftp/gcrypt/libgcrypt/$GCRYPT.tar.bz2
-fetch https://ftp.gnu.org/gnu/libtasn1/$TASN1.tar.gz
-fetch https://github.com/google/brotli/archive/refs/tags/v1.1.0.tar.gz
-fetch https://github.com/google/woff2/archive/refs/tags/v1.0.2.tar.gz
+echo "==== ICU 74.2 ===="
+# ICU is C++ and its build tools (makeconv/genrb) link C++ iostreams, so it uses the
+# FULL clang wrapper (clang-22's libc++), not the vanilla one. --disable-renaming
+# emits UNVERSIONED symbols (ucfpos_open, not ucfpos_open_74) to match WebKit's
+# U_DISABLE_RENAMING=1; without it JSC's Intl symbols stay unresolved.
+icud=$(get https://github.com/unicode-org/icu/releases/download/release-74-2/icu4c-74_2-src.tgz icu)
+( cd "$icud/source" \
+  && CXXFLAGS="$CXXFLAGS -std=c++17" ./configure --prefix="$STAGE" \
+       --enable-static --disable-shared --disable-renaming \
+       --disable-samples --disable-tests --disable-extras --disable-icuio --disable-layoutex \
+  && make -j4 && make install )
 
 echo "==== libgpg-error ===="
-d=$(fresh $GPG_ERROR.tar.bz2 gpgerror)
+d=$(get https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.51.tar.bz2 gpgerror)
 ( cd "$d" && ./configure CC="$CC_VANILLA" --prefix="$STAGE" --disable-shared \
     --enable-static --disable-doc --disable-tests --disable-languages \
   && make -j4 && make install )
 
 echo "==== libgcrypt ===="
-d=$(fresh $GCRYPT.tar.bz2 gcrypt)
+d=$(get https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-1.11.0.tar.bz2 gcrypt)
 ( cd "$d" && ./configure CC="$CC_VANILLA" --prefix="$STAGE" --disable-shared \
     --enable-static --disable-doc --disable-asm --with-libgpg-error-prefix="$STAGE" \
   && make -j4 && make install )
 
 echo "==== libtasn1 ===="
-d=$(fresh $TASN1.tar.gz tasn1)
+d=$(get https://ftp.gnu.org/gnu/libtasn1/libtasn1-4.20.0.tar.gz tasn1)
 ( cd "$d" && ./configure CC="$CC_VANILLA" --prefix="$STAGE" --disable-shared \
     --enable-static --disable-doc \
   && make -j4 && make install )
 
 echo "==== brotli ===="
-d=$(fresh v1.1.0.tar.gz brotli)
+d=$(get https://github.com/google/brotli/archive/refs/tags/v1.1.0.tar.gz brotli)
 ( cd "$d" && mkdir -p out && cd out \
   && "$CMAKE" -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
        -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
@@ -117,7 +118,7 @@ d=$(fresh v1.1.0.tar.gz brotli)
   && "$NINJA" && "$NINJA" install )
 
 echo "==== woff2 (decoder) ===="
-d=$(fresh v1.0.2.tar.gz woff2)
+d=$(get https://github.com/google/woff2/archive/refs/tags/v1.0.2.tar.gz woff2)
 ( cd "$d" && \
   $CXX -std=c++11 -O2 -mmacosx-version-min=10.9 -fno-exceptions \
     -Iinclude -Isrc -I"$STAGE/include" -c \
@@ -129,19 +130,21 @@ d=$(fresh v1.0.2.tar.gz woff2)
   && cp include/woff2/*.h "$STAGE/include/woff2/" \
   && cp libwoff2dec.a "$STAGE/lib/" )
 
-echo "==== collect in-tree artifacts ===="
+echo "==== collect into deps/build ===="
 rm -rf "$DEST/include" "$DEST/lib"; mkdir -p "$DEST/include" "$DEST/lib"
 # headers
+cp -R "$STAGE/include/unicode"    "$DEST/include/"
 cp "$STAGE/include/gpg-error.h"   "$DEST/include/"
 cp "$STAGE/include/gcrypt.h"      "$DEST/include/"
 cp "$STAGE/include/libtasn1.h"    "$DEST/include/"
 cp -R "$STAGE/include/brotli"     "$DEST/include/"
 cp -R "$STAGE/include/woff2"      "$DEST/include/"
 # static libs
-for l in libgpg-error.a libgcrypt.a libtasn1.a \
+for l in libicuuc.a libicui18n.a libicudata.a \
+         libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a; do
   cp "$STAGE/lib/$l" "$DEST/lib/"
 done
 
-echo "==== done. in-tree deps: ===="
+echo "==== done. deps/build: ===="
 ls -la "$DEST/lib" "$DEST/include"

@@ -37,8 +37,16 @@
 #include "VideoPixelFormat.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/TypedArrayInlines.h>
+// MAVERICKS_BACKPORT: VideoFrame::fromNativeImage has both a Skia and a CG path; only pull Skia on USE(SKIA).
+#if USE(SKIA)
 #include <skia/core/SkData.h>
 #include <skia/core/SkImage.h>
+#endif
+#if USE(CG)
+#include <CoreGraphics/CoreGraphics.h>
+#include <wtf/FastMalloc.h>
+#include <wtf/RetainPtr.h>
+#endif
 
 #if USE(GBM)
 #include <drm_fourcc.h>
@@ -52,9 +60,11 @@
 #include <gst/gl/gl.h>
 #endif
 
+#if USE(SKIA)
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/core/SkPixmap.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#endif
 
 GST_DEBUG_CATEGORY(webkit_video_frame_debug);
 GST_DEBUG_CATEGORY_STATIC(GST_CAT_PERFORMANCE);
@@ -167,6 +177,7 @@ RefPtr<VideoFrame> VideoFrame::fromNativeImage(NativeImage& image)
     size_t offsets[GST_VIDEO_MAX_PLANES] = { 0, };
     int strides[GST_VIDEO_MAX_PLANES] = { 0, };
 
+#if USE(SKIA)
     auto platformImage = image.platformImage();
     const auto& imageInfo = platformImage->imageInfo();
     strides[0] = imageInfo.minRowBytes();
@@ -219,6 +230,48 @@ RefPtr<VideoFrame> VideoFrame::fromNativeImage(NativeImage& image)
     auto info = VideoFrameGStreamer::infoFromCaps(caps);
     auto sample = adoptGRef(gst_sample_new(buffer.get(), caps.get(), nullptr, nullptr));
     return VideoFrameGStreamer::create(WTF::move(sample), { { width, height }, WTF::move(info) });
+#elif USE(CG)
+    // MAVERICKS_BACKPORT: CoreGraphics path. Read the NativeImage's CGImage into a packed BGRA buffer
+    // (GST_VIDEO_FORMAT_BGRA — what the CG ImageGStreamer seam and the rest of the pipeline expect) and
+    // wrap it in a GstSample. CG bitmap contexts only emit premultiplied alpha; for the opaque frames this
+    // path handles (canvas / decoded video) that matches straight-alpha BGRA.
+    auto platformImage = image.platformImage();
+    if (!platformImage)
+        return nullptr;
+    CGImageRef cgImage = platformImage.get();
+    size_t width = CGImageGetWidth(cgImage);
+    size_t height = CGImageGetHeight(cgImage);
+    if (!width || !height)
+        return nullptr;
+    size_t bytesPerRow = width * 4;
+    size_t dataSize = bytesPerRow * height;
+    auto* pixels = static_cast<uint8_t*>(fastMalloc(dataSize));
+    auto colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
+    auto context = adoptCF(CGBitmapContextCreate(pixels, width, height, 8, bytesPerRow, colorSpace.get(),
+        static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Little)));
+    if (!context) {
+        fastFree(pixels);
+        return nullptr;
+    }
+    CGContextDrawImage(context.get(), CGRectMake(0, 0, width, height), cgImage);
+
+    strides[0] = bytesPerRow;
+    GstVideoFormat format = GST_VIDEO_FORMAT_BGRA;
+    auto buffer = adoptGRef(gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, pixels, dataSize, 0, dataSize, pixels, [](gpointer userData) {
+        fastFree(userData);
+    }));
+    gst_buffer_add_video_meta_full(buffer.get(), GST_VIDEO_FRAME_FLAG_NONE, format, width, height, 1, offsets, strides);
+
+    auto caps = adoptGRef(gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, gst_video_format_to_string(format), "width", G_TYPE_INT, static_cast<int>(width), "height", G_TYPE_INT, static_cast<int>(height), nullptr));
+    auto info = VideoFrameGStreamer::infoFromCaps(caps);
+    auto sample = adoptGRef(gst_sample_new(buffer.get(), caps.get(), nullptr, nullptr));
+    return VideoFrameGStreamer::create(WTF::move(sample), { { static_cast<int>(width), static_cast<int>(height) }, WTF::move(info) });
+#else
+    UNUSED_PARAM(image);
+    UNUSED_PARAM(offsets);
+    UNUSED_PARAM(strides);
+    return nullptr;
+#endif
 }
 
 static void copyToGstBufferPlane(std::span<uint8_t> destination, const GstVideoInfo& info, size_t planeIndex, std::span<const uint8_t> source, size_t height, uint32_t bytesPerRowSource)

@@ -638,6 +638,7 @@ private:
             m_downloading = true;
             startRemoteDownload(url);
         }
+        fprintf(stderr, "[VIDPUMP] ctor: url=%s isFileURL=%d videoTrack=%p hostLayer=%p contentLayer=%p\n", [[url absoluteString] UTF8String], [url isFileURL], m_videoTrack.get(), hostLayer, m_contentLayer.get());
     }
 
     // Main thread.
@@ -690,12 +691,19 @@ private:
             }
         }
 
+        static int s_tick = 0;
+        if ((s_tick++ % 60) == 0)
+            fprintf(stderr, "[VIDPUMP] tick #%d target=%.2f frames=%zu frameToShow=%d contentLayer=%p host=%p superlayer=%p hidden=%d opacity=%.2f\n", s_tick, target.toDouble(), m_frames.size(), frameToShow ? 1 : 0, m_contentLayer.get(), m_hostLayer.get(), [m_contentLayer superlayer], (int)[m_contentLayer isHidden], (double)[m_contentLayer opacity]);
+
         if (frameToShow) {
             if (IOSurfaceRef surface = CVPixelBufferGetIOSurface(frameToShow.get())) {
                 [m_contentLayer setContents:(__bridge id)surface];
                 m_displayedPixelBuffer = frameToShow;
                 m_displayedPTS = frameToShowPTS;
-            }
+                static bool s_loggedFirst = false;
+                if (!s_loggedFirst) { s_loggedFirst = true; fprintf(stderr, "[VIDPUMP] FIRST setContents surface=%p contentLayerFrame=%.0fx%.0f\n", surface, [m_contentLayer frame].size.width, [m_contentLayer frame].size.height); }
+            } else
+                fprintf(stderr, "[VIDPUMP] frameToShow has NO IOSurface (pixbuf=%p)\n", frameToShow.get());
         }
 
         if (needRebuild)
@@ -792,6 +800,9 @@ private:
 
         Locker locker { m_lock };
         m_decodeInFlight = false;
+        static int s_dp = 0;
+        if ((s_dp++ % 20) == 0 || m_atEnd)
+            fprintf(stderr, "[VIDPUMP] decodePass #%d: frames=%zu atEnd=%d reader=%p output=%p readerStatus=%ld\n", s_dp, m_frames.size(), m_atEnd, m_reader.get(), m_output.get(), m_reader ? (long)[m_reader status] : -99);
     }
 
     // Decode queue only. AVFoundation can throw ObjC exceptions here (e.g. when the HTTP-backed
@@ -1612,6 +1623,7 @@ void MediaPlayerPrivateAVFoundationObjC::startAssetReaderVideoPump(FloatSize pre
         return;
     if (![[m_avAsset tracksWithMediaType:AVMediaTypeVideo] count])
         return;
+    fprintf(stderr, "[VIDPUMP] startAssetReaderVideoPump: videoLayer=%p avAsset=%p tracks=%lu\n", m_videoLayer.get(), m_avAsset.get(), (unsigned long)[[m_avAsset tracksWithMediaType:AVMediaTypeVideo] count]);
 
     ThreadSafeWeakPtr weakThis { *this };
     m_assetReaderPump = AVAssetReaderVideoPump::create(m_avAsset.get(), m_videoLayer.get(), presentationSize, [weakThis] () -> MediaTime {
