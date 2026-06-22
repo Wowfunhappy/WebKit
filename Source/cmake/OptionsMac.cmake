@@ -71,10 +71,14 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_JPEGXL PRIVATE OFF)
 
 WEBKIT_OPTION_END()
 
-# USE_LIBWEBRTC follows ENABLE_WEB_RTC: libwebrtc is the WebRTC implementation, so it must be off when
-# WebRTC is off (otherwise USE(LIBWEBRTC) code compiles but pulls in WK_RTCVideoDecoder* ObjC classes
-# that crash WebContent at load on 10.9). Re-enabling WEB_RTC re-enables libwebrtc for #278.
-SET_AND_EXPOSE_TO_BUILD(USE_LIBWEBRTC ${ENABLE_WEB_RTC})
+# MAVERICKS_BACKPORT: WebRTC runs on the GStreamer webrtcbin backend, NOT libwebrtc. USE_GSTREAMER_WEBRTC
+# is set TRUE in OptionsMacGStreamer.cmake (included below) and PeerConnectionBackend selects the
+# GStreamer backend. The two backends are mutually exclusive — each defines the same
+# PeerConnectionBackend::create factory and a WebRTCProvider, so building both is a duplicate-symbol
+# link error. libwebrtc is therefore OFF: this also skips the entire ThirdParty/libwebrtc build
+# (Source/CMakeLists.txt gates it on USE_LIBWEBRTC) and the WK_RTCVideoDecoder* ObjC classes (10.10+
+# VideoToolbox SPI that crash WebContent at load on 10.9). ENABLE_WEB_RTC stays ON.
+SET_AND_EXPOSE_TO_BUILD(USE_LIBWEBRTC OFF)
 # 10.9 backport: WebCrypto via libgcrypt instead of CommonCrypto/CryptoKit.
 # See PlatformMac.cmake for libgcrypt include + link, and SourcesCocoa.txt
 # for the crypto/gcrypt/ source replacements.
@@ -141,6 +145,10 @@ link_libraries(${MAVERICKS_TC}/lib/libc++abi.1.dylib)
 # the POSIX/libc base plus the WebKit-specific framework-SPI stubs. Linked into every
 # binary.
 link_libraries(${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a)
+# libpolyfill's polyfill_stubs.o defines a CABackdropLayer : CALayer stub, so every binary that pulls
+# in that object (including JSC build tools like LLIntSettingsExtractor) needs QuartzCore's CALayer.
+# QuartzCore is a 10.9 system framework, so linking it everywhere is harmless.
+link_libraries("-framework QuartzCore")
 # -nostdlib++ is needed because we use a custom libc++ (clang-22).
 # Upstream WebKit applies -undefined dynamic_lookup only to WebCore via its
 # target LINK_FLAGS (with -umbrella WebKit), not globally. We follow that pattern.
