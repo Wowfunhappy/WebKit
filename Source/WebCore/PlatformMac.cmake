@@ -977,18 +977,18 @@ endif ()
 list(APPEND WebCore_LIBRARIES /usr/local/lib/libcg_polyfill.dylib)
 
 # 10.9 backport: vendored libwebp for the WEBPImageDecoder fallback (ImageIO on
-# this build can't decode WebP). Static libs at Source/ThirdParty/libwebp/lib.
+# this build can't decode WebP). Static libs at MavericksSupport/deps/libwebp/lib.
 # IMPORTANT: changing this section invalidates WebCore IPC structs — must rebuild
 # WebKit too (`ninja WebKit`) or Safari crashes in IPC::ArgumentCoder decode.
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebp/include"
+    "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/include"
     "${WEBCORE_DIR}/platform/image-decoders"
     "${WEBCORE_DIR}/platform/image-decoders/webp"
 )
 list(APPEND WebCore_LIBRARIES
-    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebp/lib/libwebpdemux.a"
-    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebp/lib/libwebp.a"
-    "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebp/lib/libsharpyuv.a"
+    "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/lib/libwebpdemux.a"
+    "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/lib/libwebp.a"
+    "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/lib/libsharpyuv.a"
 )
 
 # 10.9 backport: libgcrypt powers WebCrypto (replaces the cocoa CommonCrypto path).

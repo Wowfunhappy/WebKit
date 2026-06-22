@@ -57,6 +57,16 @@ void FrameDestructionObserver::frameDestroyed()
     m_frame = nullptr;
 }
 
+// MAVERICKS_BACKPORT: out-of-line definition. frame() is declared non-inline in the header (the inline
+// keyword was removed to avoid -Wundefined-inline under the new SDK). Its only definition used to be the
+// `inline` one in FrameDestructionObserverInlines.h, which emits NO out-of-line symbol — so callers that
+// include only FrameDestructionObserver.h (e.g. JSWindowProxy.cpp's cross-tab window-proxy check) crashed
+// at runtime with a dyld lazy-bind failure (Symbol not found: WebCore::FrameDestructionObserver::frame()).
+LocalFrame* FrameDestructionObserver::frame() const
+{
+    return m_frame.get();
+}
+
 void FrameDestructionObserver::willDetachPage()
 {
     // Subclasses should override this function to handle this notification.
