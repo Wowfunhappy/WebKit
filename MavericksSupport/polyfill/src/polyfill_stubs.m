@@ -429,20 +429,13 @@ const CFStringRef kCVImageBufferYCbCrMatrix_ITU_R_2020            = CFSTR("ITU_R
 }
 @end
 
-@interface NSTouchBar : NSObject @end
-@implementation NSTouchBar @end
-
-@interface NSCandidateListTouchBarItem : NSObject @end
-@implementation NSCandidateListTouchBarItem @end
-
-@interface NSColorPickerTouchBarItem : NSObject @end
-@implementation NSColorPickerTouchBarItem @end
-
-@interface NSPopoverTouchBarItem : NSObject @end
-@implementation NSPopoverTouchBarItem @end
-
-@interface NSTextTouchBarItemController : NSObject @end
-@implementation NSTextTouchBarItemController @end
+// NSTouchBar and its item classes are deliberately NOT stubbed. Touch Bar is a 10.12.2+ feature and
+// HAVE(TOUCH_BAR) is gated off for the 10.9 deployment target, so WebKit references none of these
+// classes (every reference lives under #if HAVE(TOUCH_BAR) and compiles out). Defining empty stubs
+// here would register the classes in the GLOBAL ObjC runtime, so any 10.9 app that loads our WebKit
+// and feature-detects Touch Bar via NSClassFromString(@"NSTouchBar") would believe it exists and then
+// crash invoking the absent -[NSResponder setTouchBar:] (observed: Dash.app aborts on launch when its
+// nib-load path enables a Touch Bar). Leaving the names undefined keeps the runtime honest about 10.9.
 
 @interface NSFilePromiseReceiver : NSObject @end
 @implementation NSFilePromiseReceiver @end
