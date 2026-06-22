@@ -27,7 +27,7 @@
 #import "config.h"
 #import "MockAudioCaptureUnit.h"
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && !USE(GSTREAMER_MEDIA_STREAM) // MAVERICKS_BACKPORT: GStreamer mediastream/webrtcbin is the only capture+WebRTC backend (libwebrtc removed); Cocoa capture path excluded here to avoid duplicate symbols.
 #import "AudioSampleBufferList.h"
 #import "AudioSession.h"
 #import "BaseAudioCaptureUnit.h"
@@ -311,7 +311,7 @@ void MockAudioCaptureInternalUnit::reconfigure()
     m_audioBufferList = makeUnique<WebAudioBufferList>(m_streamFormat, m_maximiumFrameCount);
 
     CMFormatDescriptionRef formatDescription;
-    CMAudioFormatDescriptionCreate(NULL, &m_streamFormat, 0, NULL, 0, NULL, NULL, &formatDescription);
+    PAL::CMAudioFormatDescriptionCreate(NULL, &m_streamFormat, 0, NULL, 0, NULL, NULL, &formatDescription);
     m_formatDescription = adoptCF(formatDescription);
 
     size_t sampleCount = 2 * rate;
@@ -332,8 +332,8 @@ void MockAudioCaptureInternalUnit::emitSampleBuffers(uint32_t frameCount)
     ASSERT(!isMainThread());
     ASSERT(m_formatDescription);
 
-    CMTime startTime = CMTimeMake(m_samplesEmitted, sampleRate());
-    auto sampleTime = CMTimeGetSeconds(startTime);
+    CMTime startTime = PAL::CMTimeMake(m_samplesEmitted, sampleRate());
+    auto sampleTime = PAL::CMTimeGetSeconds(startTime);
     m_samplesEmitted += frameCount;
 
     auto* bufferList = m_audioBufferList->list();

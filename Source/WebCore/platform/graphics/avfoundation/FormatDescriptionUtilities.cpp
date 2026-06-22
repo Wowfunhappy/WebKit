@@ -75,7 +75,7 @@ namespace WebCore {
 
 TrackInfoTrackType typeFromFormatDescription(CMFormatDescriptionRef formatDescription)
 {
-    auto mediaType = CMFormatDescriptionGetMediaType(formatDescription);
+    auto mediaType = PAL::CMFormatDescriptionGetMediaType(formatDescription);
     switch (mediaType) {
     case kCMMediaType_Video:
         return TrackInfoTrackType::Video;
@@ -95,7 +95,7 @@ FloatSize presentationSizeFromFormatDescription(CMFormatDescriptionRef formatDes
     if (!formatDescription)
         return { };
 
-    return FloatSize(CMVideoFormatDescriptionGetPresentationDimensions(formatDescription, true, true));
+    return FloatSize(PAL::CMVideoFormatDescriptionGetPresentationDimensions(formatDescription, true, true));
 }
 
 std::optional<PlatformVideoColorSpace> colorSpaceFromFormatDescription(CMFormatDescriptionRef formatDescription)
@@ -104,19 +104,19 @@ std::optional<PlatformVideoColorSpace> colorSpaceFromFormatDescription(CMFormatD
         return std::nullopt;
 
     PlatformVideoColorSpace colorSpace;
-    RetainPtr primaries = dynamic_cf_cast<CFStringRef>(CMFormatDescriptionGetExtension(formatDescription, PAL::get_CoreMedia_kCMFormatDescriptionExtension_ColorPrimariesSingleton()));
-    RetainPtr transfer = dynamic_cf_cast<CFStringRef>(CMFormatDescriptionGetExtension(formatDescription, PAL::get_CoreMedia_kCMFormatDescriptionExtension_TransferFunctionSingleton()));
-    RetainPtr matrix = dynamic_cf_cast<CFStringRef>(CMFormatDescriptionGetExtension(formatDescription, PAL::get_CoreMedia_kCMFormatDescriptionExtension_YCbCrMatrixSingleton()));
+    RetainPtr primaries = dynamic_cf_cast<CFStringRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::get_CoreMedia_kCMFormatDescriptionExtension_ColorPrimariesSingleton()));
+    RetainPtr transfer = dynamic_cf_cast<CFStringRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::get_CoreMedia_kCMFormatDescriptionExtension_TransferFunctionSingleton()));
+    RetainPtr matrix = dynamic_cf_cast<CFStringRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::get_CoreMedia_kCMFormatDescriptionExtension_YCbCrMatrixSingleton()));
 
     if (!primaries || !transfer || !matrix) {
         auto size = presentationSizeFromFormatDescription(formatDescription);
-        auto codecType = CMFormatDescriptionGetMediaSubType(formatDescription);
+        auto codecType = PAL::CMFormatDescriptionGetMediaSubType(formatDescription);
 
         CFStringRef defaultPrimaries = nullptr;
         CFStringRef defaultTransfer = nullptr;
         CFStringRef defaultMatrix = nullptr;
 
-        VTGetDefaultColorAttributesWithHints(codecType, nullptr, size.width(), size.height(), &defaultPrimaries, &defaultTransfer, &defaultMatrix);
+        PAL::VTGetDefaultColorAttributesWithHints(codecType, nullptr, size.width(), size.height(), &defaultPrimaries, &defaultTransfer, &defaultMatrix);
         if (!primaries && defaultPrimaries)
             primaries = defaultPrimaries;
         if (!transfer && defaultTransfer)
@@ -137,7 +137,7 @@ std::optional<PlatformVideoColorSpace> colorSpaceFromFormatDescription(CMFormatD
     if (transfer) {
         if (safeCFEqual(transfer.get(), PAL::get_CoreMedia_kCMFormatDescriptionTransferFunction_ITU_R_709_2Singleton()))
             colorSpace.transfer = PlatformVideoTransferCharacteristics::Bt709;
-        else if (safeCFEqual(transfer.get(), kCMFormatDescriptionTransferFunction_sRGB))
+        else if (safeCFEqual(transfer.get(), PAL::kCMFormatDescriptionTransferFunction_sRGB))
             colorSpace.transfer = PlatformVideoTransferCharacteristics::Iec6196621;
     }
 
@@ -150,7 +150,7 @@ std::optional<PlatformVideoColorSpace> colorSpaceFromFormatDescription(CMFormatD
             colorSpace.matrix = PlatformVideoMatrixCoefficients::Smpte170m;
     }
 
-    if (RetainPtr fullRange = static_cast<CFBooleanRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_FullRangeVideo)))
+    if (RetainPtr fullRange = static_cast<CFBooleanRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_FullRangeVideo)))
         colorSpace.fullRange = CFBooleanGetValue(fullRange.get());
 
     return colorSpace;
@@ -162,14 +162,14 @@ String codecFromFormatDescription(CMFormatDescriptionRef formatDescription)
         return emptyString();
 
     auto subType = PAL::softLink_CoreMedia_CMFormatDescriptionGetMediaSubType(formatDescription);
-    CFStringRef originalFormatKey = PAL::canLoad_CoreMedia_kCMFormatDescriptionExtension_ProtectedContentOriginalFormat() ? kCMFormatDescriptionExtension_ProtectedContentOriginalFormat : CFSTR("CommonEncryptionOriginalFormat");
-    if (RetainPtr originalFormat = dynamic_cf_cast<CFNumberRef>(CMFormatDescriptionGetExtension(formatDescription, originalFormatKey)))
+    CFStringRef originalFormatKey = PAL::canLoad_CoreMedia_kCMFormatDescriptionExtension_ProtectedContentOriginalFormat() ? PAL::kCMFormatDescriptionExtension_ProtectedContentOriginalFormat : CFSTR("CommonEncryptionOriginalFormat");
+    if (RetainPtr originalFormat = dynamic_cf_cast<CFNumberRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, originalFormatKey)))
         CFNumberGetValue(originalFormat.get(), kCFNumberSInt32Type, &subType);
 
     switch (subType) {
     case kCMVideoCodecType_H264:
     case 'cavc': {
-        RetainPtr sampleExtensionsDict = dynamic_cf_cast<CFDictionaryRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
+        RetainPtr sampleExtensionsDict = dynamic_cf_cast<CFDictionaryRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
         if (!sampleExtensionsDict)
             return "avc1"_s;
         RetainPtr sampleExtensions = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(sampleExtensionsDict.get(), CFSTR("avcC")));
@@ -184,7 +184,7 @@ String codecFromFormatDescription(CMFormatDescriptionRef formatDescription)
     case kCMVideoCodecType_HEVC:
     case kCMVideoCodecType_HEVCWithAlpha:
     case 'chvc': {
-        RetainPtr sampleExtensionsDict = dynamic_cf_cast<CFDictionaryRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
+        RetainPtr sampleExtensionsDict = dynamic_cf_cast<CFDictionaryRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
         if (!sampleExtensionsDict)
             return "hvc1"_s;
         RetainPtr sampleExtensions = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(sampleExtensionsDict.get(), CFSTR("hvcC")));
@@ -198,7 +198,7 @@ String codecFromFormatDescription(CMFormatDescriptionRef formatDescription)
     }
     case kCMVideoCodecType_DolbyVisionHEVC:
     case 'cdh1': {
-        RetainPtr sampleExtensionsDict = dynamic_cf_cast<CFDictionaryRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
+        RetainPtr sampleExtensionsDict = dynamic_cf_cast<CFDictionaryRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
         if (!sampleExtensionsDict)
             return "dvh1"_s;
         RetainPtr sampleExtensions = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(sampleExtensionsDict.get(), CFSTR("dvcC")));
@@ -261,10 +261,10 @@ bool formatDescriptionIsProtected(CMFormatDescriptionRef formatDescription)
     if (!formatDescription)
         return false;
 
-    CFStringRef originalFormatKey = PAL::canLoad_CoreMedia_kCMFormatDescriptionExtension_ProtectedContentOriginalFormat() ? kCMFormatDescriptionExtension_ProtectedContentOriginalFormat : CFSTR("CommonEncryptionOriginalFormat");
+    CFStringRef originalFormatKey = PAL::canLoad_CoreMedia_kCMFormatDescriptionExtension_ProtectedContentOriginalFormat() ? PAL::kCMFormatDescriptionExtension_ProtectedContentOriginalFormat : CFSTR("CommonEncryptionOriginalFormat");
 
     // Note: this assumes only-and-all content which is protected will have the ProtectedContentOriginalFormat key.
-    if (auto originalFormat = dynamic_cf_cast<CFNumberRef>(CMFormatDescriptionGetExtension(formatDescription, originalFormatKey))) {
+    if (auto originalFormat = dynamic_cf_cast<CFNumberRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, originalFormatKey))) {
         UNUSED_PARAM(originalFormat);
         return true;
     }

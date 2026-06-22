@@ -147,11 +147,7 @@ VideoFrameGStreamer::Info VideoFrameGStreamer::infoFromCaps(const GRefPtr<GstCap
     return { videoInfo, dmabufFormat };
 }
 
-RefPtr<VideoFrame> VideoFrame::createFromPixelBuffer(Ref<PixelBuffer>&& pixelBuffer, PlatformVideoColorSpace&& colorSpace)
-{
-    return VideoFrameGStreamer::createFromPixelBuffer(WTF::move(pixelBuffer), { }, 1, { }, WTF::move(colorSpace));
-}
-
+// MAVERICKS_BACKPORT: file-local helpers used by VideoFrameGStreamer::* (outside the COCOA guard); kept compiled.
 static RefPtr<ImageGStreamer> convertSampleToImage(const GRefPtr<GstSample>& sample, const GstVideoInfo& videoInfo)
 {
     // These caps must match the internal format of a cairo surface with CAIRO_FORMAT_ARGB32,
@@ -168,6 +164,30 @@ static RefPtr<ImageGStreamer> convertSampleToImage(const GRefPtr<GstSample>& sam
 
     return ImageGStreamer::create(WTF::move(convertedSample));
 }
+static inline void setBufferFields(GstBuffer* buffer, const MediaTime& presentationTime, double frameRate)
+{
+    GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_LIVE);
+    GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer) = toGstClockTime(presentationTime);
+    GST_BUFFER_DURATION(buffer) = toGstClockTime(1_s / frameRate);
+}
+static MediaTime presentationTimeFromSample(const GRefPtr<GstSample>& sample)
+{
+    auto buffer = gst_sample_get_buffer(sample.get());
+    if (!GST_IS_BUFFER(buffer))
+        return MediaTime::invalidTime();
+
+    if (GST_BUFFER_PTS_IS_VALID(buffer))
+        return fromGstClockTime(GST_BUFFER_PTS(buffer));
+
+    return MediaTime::invalidTime();
+}
+
+#if !PLATFORM(COCOA) // MAVERICKS_BACKPORT: Cocoa VideoFrameCV provides the shared VideoFrame:: factories; VideoFrameGStreamer::* (GStreamer media player) stays compiled.
+RefPtr<VideoFrame> VideoFrame::createFromPixelBuffer(Ref<PixelBuffer>&& pixelBuffer, PlatformVideoColorSpace&& colorSpace)
+{
+    return VideoFrameGStreamer::createFromPixelBuffer(WTF::move(pixelBuffer), { }, 1, { }, WTF::move(colorSpace));
+}
+
 
 RefPtr<VideoFrame> VideoFrame::fromNativeImage(NativeImage& image)
 {
@@ -397,25 +417,9 @@ RefPtr<VideoFrame> VideoFrame::createI420A(std::span<const uint8_t> span, size_t
     return VideoFrameGStreamer::create(WTF::move(sample), { { static_cast<int>(width), static_cast<int>(height) }, { { info } } }, WTF::move(colorSpace));
 }
 
-static inline void setBufferFields(GstBuffer* buffer, const MediaTime& presentationTime, double frameRate)
-{
-    GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_LIVE);
-    GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer) = toGstClockTime(presentationTime);
-    GST_BUFFER_DURATION(buffer) = toGstClockTime(1_s / frameRate);
-}
 
-static MediaTime presentationTimeFromSample(const GRefPtr<GstSample>& sample)
-{
-    auto buffer = gst_sample_get_buffer(sample.get());
-    if (!GST_IS_BUFFER(buffer))
-        return MediaTime::invalidTime();
 
-    if (GST_BUFFER_PTS_IS_VALID(buffer))
-        return fromGstClockTime(GST_BUFFER_PTS(buffer));
-
-    return MediaTime::invalidTime();
-}
-
+#endif // !PLATFORM(COCOA) MAVERICKS_BACKPORT
 Ref<VideoFrameGStreamer> VideoFrameGStreamer::create(GRefPtr<GstSample>&& sample, const CreateOptions& options, PlatformVideoColorSpace&& colorSpace)
 {
     CreateOptions newOptions = options;
@@ -626,6 +630,7 @@ static void copyPlane(std::span<uint8_t>& destination, const std::span<uint8_t>&
     }
 }
 
+#if !PLATFORM(COCOA) // MAVERICKS_BACKPORT: Cocoa VideoFrameCV provides the shared VideoFrame:: factories; VideoFrameGStreamer::* (GStreamer media player) stays compiled.
 void VideoFrame::copyTo(std::span<uint8_t> destination, VideoPixelFormat pixelFormat, Vector<ComputedPlaneLayout>&& computedPlaneLayout, CompletionHandler<void(std::optional<Vector<PlaneLayout>>&&)>&& callback)
 {
     ensureVideoFrameDebugCategoryInitialized();
@@ -740,6 +745,23 @@ RefPtr<NativeImage> VideoFrame::copyNativeImage() const
     return NativeImage::create(image->image());
 }
 
+#endif // !PLATFORM(COCOA) MAVERICKS_BACKPORT
+
+#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: On the Cocoa+GStreamer hybrid build the shared VideoFrame::copyNativeImage()
+// linked from VideoFrameCV assumes a CVPixelBuffer backing and returns null for a GStreamer-backed
+// frame (the <video> picture stays blank). Convert the decoded GstSample to a CGImage via
+// ImageGStreamerCG instead, mirroring the non-Cocoa implementation above.
+RefPtr<NativeImage> VideoFrameGStreamer::copyNativeImage() const
+{
+    ensureVideoFrameDebugCategoryInitialized();
+    GST_CAT_DEBUG(GST_CAT_PERFORMANCE, "Copying native image (Cocoa/CG)");
+    auto image = convertSampleToImage(sample(), info());
+    if (!image)
+        return nullptr;
+    return NativeImage::create(image->image());
+}
+#endif // PLATFORM(COCOA)
 GRefPtr<GstSample> VideoFrameGStreamer::resizedSample(const IntSize& destinationSize)
 {
     return convert(static_cast<GstVideoFormat>(pixelFormat()), destinationSize);

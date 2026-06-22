@@ -23,13 +23,13 @@ RetainPtr<CMSampleBufferRef> createVideoSampleBuffer(CVPixelBufferRef pixelBuffe
         return nullptr;
 
     CMVideoFormatDescriptionRef rawFormatDescription = nullptr;
-    if (CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, &rawFormatDescription) != noErr || !rawFormatDescription)
+    if (PAL::CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, &rawFormatDescription) != noErr || !rawFormatDescription)
         return nullptr;
     auto formatDescription = adoptCF(rawFormatDescription);
 
-    CMSampleTimingInfo timing = { kCMTimeInvalid, sampleTime, kCMTimeInvalid };
+    CMSampleTimingInfo timing = { PAL::kCMTimeInvalid, sampleTime, PAL::kCMTimeInvalid };
     CMSampleBufferRef rawSampleBuffer = nullptr;
-    if (CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, true, nullptr, nullptr, formatDescription.get(), &timing, &rawSampleBuffer) != noErr || !rawSampleBuffer)
+    if (PAL::CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, true, nullptr, nullptr, formatDescription.get(), &timing, &rawSampleBuffer) != noErr || !rawSampleBuffer)
         return nullptr;
 
     return adoptCF(rawSampleBuffer);

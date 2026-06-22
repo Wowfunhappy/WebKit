@@ -745,12 +745,9 @@ public:
         if (eventIsPressureEvent) {
             // Since AppKit doesn't send mouse events for force down or force up, we have to use the current pressure
             // event and correspondingPressureEvent to detect if this is MouseForceDown, MouseForceUp, or just MouseForceChanged.
-            // MAVERICKS_BACKPORT: NSEvent.stage property is 10.10.3+; respondsToSelector-guard it (absent at runtime on 10.9).
-            int eventStage = [event respondsToSelector:@selector(stage)] ? (int)(NSInteger)[(id)event stage] : 0;
-            int pressureStage = [correspondingPressureEvent respondsToSelector:@selector(stage)] ? (int)(NSInteger)[(id)correspondingPressureEvent stage] : 0;
-            if (pressureStage == 1 && eventStage == 2)
+            if (correspondingPressureEvent.stage == 1 && event.stage == 2)
                 m_type = PlatformEvent::Type::MouseForceDown;
-            else if (pressureStage == 2 && eventStage == 1)
+            else if (correspondingPressureEvent.stage == 2 && event.stage == 1)
                 m_type = PlatformEvent::Type::MouseForceUp;
             else
                 m_type = PlatformEvent::Type::MouseForceChanged;
@@ -772,13 +769,9 @@ public:
             m_coalescedEvents = { PlatformMouseEventBuilder { event, correspondingPressureEvent, windowView, true } };
 
         m_force = 0;
-        // MAVERICKS_BACKPORT: NSEvent.stage/.pressure properties are 10.10.3+; respondsToSelector-guard them (absent at runtime on 10.9).
-        {
-            NSEvent *relevantEvent = eventIsPressureEvent ? event : correspondingPressureEvent;
-            int stage = [relevantEvent respondsToSelector:@selector(stage)] ? (int)(NSInteger)[(id)relevantEvent stage] : 0;
-            double pressure = [relevantEvent respondsToSelector:@selector(pressure)] ? (double)[[relevantEvent valueForKey:@"pressure"] floatValue] : 0;
-            m_force = pressure + stage;
-        }
+        int stage = eventIsPressureEvent ? event.stage : correspondingPressureEvent.stage;
+        double pressure = eventIsPressureEvent ? event.pressure : correspondingPressureEvent.pressure;
+        m_force = pressure + stage;
 
         // Mac specific
         m_modifierFlags = [event modifierFlags];

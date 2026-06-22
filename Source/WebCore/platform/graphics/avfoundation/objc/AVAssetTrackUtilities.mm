@@ -91,8 +91,8 @@ bool assetTrackMeetsHardwareDecodeRequirements(AVAssetTrack *track, const Vector
         RetainPtr description = (__bridge CMFormatDescriptionRef)track.formatDescriptions[i];
         // 10.9 backport: CMFormatDescription* aren't soft-linked through PAL
         // on this build; call CoreMedia directly (functions exist since 10.7).
-        if (CMFormatDescriptionGetMediaType(description.get()) == kCMMediaType_Video)
-            codecs.append(FourCC(CMFormatDescriptionGetMediaSubType(description.get())));
+        if (PAL::CMFormatDescriptionGetMediaType(description.get()) == kCMMediaType_Video)
+            codecs.append(FourCC(PAL::CMFormatDescriptionGetMediaSubType(description.get())));
     }
     return codecsMeetHardwareDecodeRequirements(codecs, contentTypesRequiringHardwareDecode);
 }

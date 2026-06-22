@@ -206,6 +206,21 @@ RetainPtr<CGImageRef> IOSurface::createImage(CGContextRef ctx)
     return { };
 }
 
+// MAVERICKS_BACKPORT: restored (the upstream definition was dropped during the backport). The upstream
+// body uses CGIOSurfaceContext* SPI on a real IOSurface-backed context, but createPlatformContext on
+// this build returns a CGBitmapContext over the surface's memory, so produce the image with
+// CGBitmapContextCreateImage (same path as createImage above). Referenced by WK2 WebPageProxy::takeSnapshot.
+RetainPtr<CGImageRef> IOSurface::sinkIntoImage(std::unique_ptr<IOSurface> surface, RetainPtr<CGContextRef> context)
+{
+    if (!surface)
+        return { };
+    if (!context)
+        context = surface->createPlatformContext();
+    if (!context)
+        return { };
+    return adoptCF(CGBitmapContextCreateImage(context.get()));
+}
+
 RetainPtr<CGContextRef> IOSurface::createPlatformContext(PlatformDisplayID, std::optional<CGImageAlphaInfo>)
 {
     if (!m_surface)

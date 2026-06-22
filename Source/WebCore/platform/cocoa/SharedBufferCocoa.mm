@@ -82,9 +82,9 @@ RetainPtr<CMBlockBufferRef> FragmentedSharedBuffer::createCMBlockBuffer() const
     if (contiguous.empty())
         return nullptr;
     CMBlockBufferRef blockBuffer = nullptr;
-    if (CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, nullptr, contiguous.size(), kCFAllocatorDefault, nullptr, 0, contiguous.size(), kCMBlockBufferAssureMemoryNowFlag, &blockBuffer) != noErr || !blockBuffer)
+    if (PAL::CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, nullptr, contiguous.size(), kCFAllocatorDefault, nullptr, 0, contiguous.size(), kCMBlockBufferAssureMemoryNowFlag, &blockBuffer) != noErr || !blockBuffer)
         return nullptr;
-    if (CMBlockBufferReplaceDataBytes(contiguous.data(), blockBuffer, 0, contiguous.size()) != noErr) {
+    if (PAL::CMBlockBufferReplaceDataBytes(contiguous.data(), blockBuffer, 0, contiguous.size()) != noErr) {
         CFRelease(blockBuffer);
         return nullptr;
     }

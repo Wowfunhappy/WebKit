@@ -229,7 +229,7 @@ void AudioSourceProviderAVFObjC::createMixIfNeeded()
     };
 
     MTAudioProcessingTapRef tap = nullptr;
-    OSStatus status = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, 1, &tap);
+    OSStatus status = PAL::MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, 1, &tap);
     if (status != noErr) {
         if (tap)
             CFRelease(tap);
@@ -262,14 +262,14 @@ void AudioSourceProviderAVFObjC::initCallback(MTAudioProcessingTapRef tap, void*
 void AudioSourceProviderAVFObjC::finalizeCallback(MTAudioProcessingTapRef tap)
 {
     ASSERT(tap);
-    RefPtr tapStorage = static_cast<TapStorage*>(MTAudioProcessingTapGetStorage(tap));
+    RefPtr tapStorage = static_cast<TapStorage*>(PAL::MTAudioProcessingTapGetStorage(tap));
     tapStorage->deref();
 }
 
 void AudioSourceProviderAVFObjC::prepareCallback(MTAudioProcessingTapRef tap, CMItemCount maxFrames, const AudioStreamBasicDescription *processingFormat)
 {
     ASSERT(tap);
-    RefPtr tapStorage = static_cast<TapStorage*>(MTAudioProcessingTapGetStorage(tap));
+    RefPtr tapStorage = static_cast<TapStorage*>(PAL::MTAudioProcessingTapGetStorage(tap));
 
     Locker locker { tapStorage->lock };
 
@@ -280,7 +280,7 @@ void AudioSourceProviderAVFObjC::prepareCallback(MTAudioProcessingTapRef tap, CM
 void AudioSourceProviderAVFObjC::unprepareCallback(MTAudioProcessingTapRef tap)
 {
     ASSERT(tap);
-    RefPtr tapStorage = static_cast<TapStorage*>(MTAudioProcessingTapGetStorage(tap));
+    RefPtr tapStorage = static_cast<TapStorage*>(PAL::MTAudioProcessingTapGetStorage(tap));
 
     Locker locker { tapStorage->lock };
 
@@ -291,7 +291,7 @@ void AudioSourceProviderAVFObjC::unprepareCallback(MTAudioProcessingTapRef tap)
 void AudioSourceProviderAVFObjC::processCallback(MTAudioProcessingTapRef tap, CMItemCount numberFrames, MTAudioProcessingTapFlags flags, AudioBufferList *bufferListInOut, CMItemCount *numberFramesOut, MTAudioProcessingTapFlags *flagsOut)
 {
     ASSERT(tap);
-    RefPtr tapStorage = static_cast<TapStorage*>(MTAudioProcessingTapGetStorage(tap));
+    RefPtr tapStorage = static_cast<TapStorage*>(PAL::MTAudioProcessingTapGetStorage(tap));
 
     Locker locker { tapStorage->lock };
 
@@ -356,7 +356,7 @@ void AudioSourceProviderAVFObjC::process(MTAudioProcessingTapRef tap, CMItemCoun
 
     CMItemCount itemCount = 0;
     CMTimeRange rangeOut;
-    OSStatus status = MTAudioProcessingTapGetSourceAudio(tap, numberOfFrames, bufferListInOut, flagsOut, &rangeOut, &itemCount);
+    OSStatus status = PAL::MTAudioProcessingTapGetSourceAudio(tap, numberOfFrames, bufferListInOut, flagsOut, &rangeOut, &itemCount);
     if (status != noErr || !itemCount)
         return;
 
@@ -366,7 +366,7 @@ void AudioSourceProviderAVFObjC::process(MTAudioProcessingTapRef tap, CMItemCoun
     if (rangeStart.isInvalid())
         return;
 
-    MediaTime currentTime = PAL::toMediaTime(CMTimebaseGetTime([m_avPlayerItem timebase]));
+    MediaTime currentTime = PAL::toMediaTime(PAL::CMTimebaseGetTime([m_avPlayerItem timebase]));
     if (currentTime.isInvalid())
         return;
 

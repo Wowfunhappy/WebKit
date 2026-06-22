@@ -56,6 +56,7 @@ private:
 #if USE(COCOA_EVENT_LOOP)
     OSObjectPtr<dispatch_source_t> m_platformMonitor;
 #endif
+// MAVERICKS_BACKPORT: USE(GLIB) is on for GStreamer; this glib path stays GTK/WPE-only.
 #if USE(GLIB) && !PLATFORM(COCOA)
     static void fileChangedCallback(GFileMonitor*, GFile*, GFile*, GFileMonitorEvent, FileMonitor*);
     void didChange(FileChangeType);

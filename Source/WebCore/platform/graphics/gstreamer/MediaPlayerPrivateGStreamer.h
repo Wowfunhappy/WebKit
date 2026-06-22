@@ -662,7 +662,7 @@ private:
 
 private:
     std::optional<VideoFrameMetadata> videoFrameMetadata() final;
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     std::pair<String, GRefPtr<GstDevice>> resolveAudioOutputDevice(const String& deviceId);
 #endif
     bool applyAudioSinkDevice(GstElement* audioSink, const GRefPtr<GstDevice>&, const String& deviceId);

@@ -33,7 +33,7 @@
 #include "GStreamerAudioMixer.h"
 // MAVERICKS_BACKPORT: GStreamerCaptureDeviceManager lives under platform/mediastream/gstreamer and is only
 // compiled (and only used, below) when ENABLE(MEDIA_STREAM); gate the include to match its use sites.
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 #include "GStreamerCaptureDeviceManager.h"
 #endif
 #include "GStreamerCommon.h"
@@ -62,8 +62,10 @@
 #include "WebKitWebSourceGStreamer.h"
 
 #if ENABLE(MEDIA_STREAM)
-#include "GStreamerMediaStreamSource.h"
 #include "MediaStreamPrivate.h"
+#endif
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#include "GStreamerMediaStreamSource.h"
 #endif
 
 #if ENABLE(MEDIA_SOURCE)
@@ -1100,7 +1102,7 @@ void MediaPlayerPrivateGStreamer::sourceSetup(GstElement* sourceElement)
         webKitWebSrcSetReferrer(source, m_referrer);
         webKitWebSrcSetResourceLoader(source, m_loader);
         webKitWebSrcSetPlayer(source, ThreadSafeWeakPtr { *this });
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     } else if (WEBKIT_IS_MEDIA_STREAM_SRC(sourceElement)) {
         RefPtr player = m_player.get();
         auto stream = m_streamPrivate.get();
@@ -1568,7 +1570,7 @@ GstElement* MediaPlayerPrivateGStreamer::createAudioSink()
     auto role = player->isVideoPlayer() ? "video"_s : "music"_s;
     GstElement* audioSink = nullptr;
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     auto deviceId = player->audioOutputDeviceId();
     if (!deviceId.isEmpty()) {
         auto [resolvedId, device] = resolveAudioOutputDevice(deviceId);
@@ -1595,7 +1597,7 @@ GstElement* MediaPlayerPrivateGStreamer::createAudioSink()
 
 bool MediaPlayerPrivateGStreamer::isMediaStreamPlayer() const
 {
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     if (m_source)
         return WEBKIT_IS_MEDIA_STREAM_SRC(m_source.get());
 #endif
@@ -1967,7 +1969,7 @@ FloatSize MediaPlayerPrivateGStreamer::naturalSize() const
 
 void MediaPlayerPrivateGStreamer::configureMediaStreamAudioTracks()
 {
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     if (WEBKIT_IS_MEDIA_STREAM_SRC(m_source.get()))
         webkitMediaStreamSrcConfigureAudioTracks(WEBKIT_MEDIA_STREAM_SRC(m_source.get()), volume(), isMuted(), !paused());
 #endif
@@ -3723,7 +3725,19 @@ void MediaPlayerPrivateGStreamer::pausedTimerFired()
 void MediaPlayerPrivateGStreamer::acceleratedRenderingStateChanged()
 {
     RefPtr player = m_player.get();
+#if USE(COORDINATED_GRAPHICS)
     m_canRenderingBeAccelerated = player && player->acceleratedCompositingEnabled();
+#else
+    // MAVERICKS_BACKPORT: this Cocoa/CoreGraphics port builds the GStreamer media player without
+    // COORDINATED_GRAPHICS, so there is no accelerated texture path for video frames
+    // (platformLayer()/pushTextureToCompositor() are USE(COORDINATED_GRAPHICS)-only, and
+    // supportsAcceleratedRendering() is false). Decoded frames must reach the screen through the
+    // software repaint() -> MediaPlayer::paint() -> drawVideoFrame() path, which triggerRepaint()
+    // only drives when rendering is NOT considered accelerated. Forcing this false also restores the
+    // m_drawCondition back-pressure that paces the appsink to the compositor's repaint cadence.
+    UNUSED_VARIABLE(player);
+    m_canRenderingBeAccelerated = false;
+#endif
 }
 
 bool MediaPlayerPrivateGStreamer::performTaskAtTime(Function<void(const MediaTime&)>&& task, const MediaTime& time)
@@ -4742,7 +4756,7 @@ void MediaPlayerPrivateGStreamer::checkPlayingConsistency()
     }
 }
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 std::pair<String, GRefPtr<GstDevice>> MediaPlayerPrivateGStreamer::resolveAudioOutputDevice(const String& deviceId)
 {
     auto resolvedId = deviceId;

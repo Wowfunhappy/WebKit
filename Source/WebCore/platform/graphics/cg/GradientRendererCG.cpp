@@ -74,14 +74,22 @@ GradientRendererCG::Strategy GradientRendererCG::makeGradient(ColorInterpolation
 {
     ASSERT_UNUSED(colorInterpolationMethod, std::holds_alternative<ColorInterpolationMethod::SRGB>(colorInterpolationMethod.colorSpace));
 
-    // 10.9 backport: CGGradientCreateWithColorComponentsAndOptions does not exist in
-    // macOS 10.9's CoreGraphics (CGGradient-1129 era) — it falls back to a libpolyfill
-    // stub that returns null, so every sRGB gradient ends up null and CGContextDrawLinearGradient
-    // paints nothing (all CSS gradients become invisible). Use the classic
-    // CGGradientCreateWithColorComponents, which 10.9 CoreGraphics does export. Its only
-    // difference is the premultiplied-alpha interpolation option (kCGGradientInterpolatesPremultiplied),
-    // which is a subtle accuracy nicety for gradients fading to/from transparency and is
-    // identical for the common case of opaque color stops.
+    auto gradientInterpolatesPremultipliedOptionsDictionary = [] () -> CFDictionaryRef {
+        static CFTypeRef keys[] = { kCGGradientInterpolatesPremultiplied };
+        static CFTypeRef values[] = { kCFBooleanTrue };
+        static CFDictionaryRef options = CFDictionaryCreate(kCFAllocatorDefault, keys, values, std::size(keys), &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+
+        return options;
+    };
+
+   auto gradientOptionsDictionary = [&] (auto colorInterpolationMethod) -> CFDictionaryRef {
+        switch (colorInterpolationMethod.alphaPremultiplication) {
+        case AlphaPremultiplication::Unpremultiplied:
+            return nullptr;
+        case AlphaPremultiplication::Premultiplied:
+            return gradientInterpolatesPremultipliedOptionsDictionary();
+        }
+   };
 
     auto hasOnlyBoundedSRGBColorStops = [] (const auto& stops) {
         for (const auto& stop : stops) {
@@ -148,7 +156,7 @@ GradientRendererCG::Strategy GradientRendererCG::makeGradient(ColorInterpolation
 
     apply139572277Workaround();
 
-    return Gradient { adoptCF(CGGradientCreateWithColorComponents(cgColorSpace.get(), colorComponents.span().data(), locations.span().data(), numberOfStops)) };
+    return Gradient { adoptCF(CGGradientCreateWithColorComponentsAndOptions(cgColorSpace.get(), colorComponents.span().data(), locations.span().data(), numberOfStops, gradientOptionsDictionary(colorInterpolationMethod))) };
 }
 
 // MARK: - Shading strategy.

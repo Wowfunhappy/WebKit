@@ -53,7 +53,7 @@
 #include "CoreAudioCaptureSourceIOS.h"
 #endif
 
-#if USE(GSTREAMER)
+#if USE(GSTREAMER) && USE(GSTREAMER_MEDIA_STREAM)
 #include "GStreamerMockDeviceProvider.h"
 #include "MockDisplayCaptureSourceGStreamer.h"
 #include "MockRealtimeVideoSourceGStreamer.h"
@@ -275,7 +275,7 @@ public:
                 m_capturer = capturer.get();
                 return capturer;
             }, device, WTF::move(hashSalts), constraints, pageIdentifier);
-#elif USE(GSTREAMER)
+#elif USE(GSTREAMER) && USE(GSTREAMER_MEDIA_STREAM)
             return MockDisplayCaptureSourceGStreamer::create(device, WTF::move(hashSalts), constraints, pageIdentifier);
 #else
             return MockRealtimeVideoSource::create(String { device.persistentId() }, AtomString { device.label() }, WTF::move(hashSalts), constraints, pageIdentifier);

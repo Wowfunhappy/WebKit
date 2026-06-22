@@ -8,6 +8,7 @@ if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO)
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
         "${WEBCORE_DIR}/Modules/mediastream/gstreamer"
         "${WEBCORE_DIR}/platform/graphics/gstreamer"
+        "${WEBCORE_DIR}/platform/mediastream/gstreamer"
         "${WEBCORE_DIR}/platform/graphics/gstreamer/mse"
         "${WEBCORE_DIR}/platform/graphics/gstreamer/eme"
         "${WEBCORE_DIR}/platform/graphics/gstreamer/telemetry"
@@ -24,6 +25,13 @@ if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO)
         "platform/SourcesGStreamer.txt"
     )
 
+    # MAVERICKS_BACKPORT: SharedBuffer::create(GBytes*)/createGBytes() (platform/glib/SharedBufferGlib.cpp)
+    # are referenced by the GStreamer integration (GstBuffer<->SharedBuffer) but the file is only on the
+    # GTK/WPE source lists upstream; compile it here for the Cocoa+GStreamer hybrid.
+    list(APPEND WebCore_SOURCES
+        platform/glib/SharedBufferGlib.cpp
+    )
+
     list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
         platform/audio/gstreamer/AudioDestinationGStreamer.h
 
@@ -34,10 +42,10 @@ if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO)
         platform/graphics/gstreamer/GUniquePtrGStreamer.h
 
         platform/mediastream/gstreamer/GStreamerWebRTCProvider.h
-        platform/mediastream/libwebrtc/gstreamer/GStreamerVideoDecoderFactory.h
-        platform/mediastream/libwebrtc/gstreamer/GStreamerVideoEncoderFactory.h
-        platform/mediastream/libwebrtc/gstreamer/LibWebRTCProviderGStreamer.h
     )
+    # MAVERICKS_BACKPORT: the GStreamer mediastream + webrtcbin backend (platform/mediastream/gstreamer,
+    # Modules/mediastream/gstreamer) IS built — getUserMedia capture and WebRTC go through GStreamer like
+    # the GTK/WPE ports. The libwebrtc/gstreamer bridge stays excluded (USE_LIBWEBRTC is FALSE).
 
     if (ENABLE_MEDIA_TELEMETRY)
       list(APPEND WebCore_SOURCES
@@ -137,6 +145,9 @@ if (ENABLE_VIDEO)
                 ${GSTREAMER_WEBRTC_LIBRARIES}
             )
         endif ()
+
+        list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES "${WEBCORE_DIR}/crypto/openssl")
+
 
         list(APPEND WebCore_LIBRARIES OpenSSL::Crypto)
 

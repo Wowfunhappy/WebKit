@@ -46,7 +46,7 @@
 #include "MockAudioCaptureUnit.h"
 #endif
 
-#if USE(GSTREAMER)
+#if USE(GSTREAMER) && USE(GSTREAMER_MEDIA_STREAM)
 #include "MockRealtimeAudioSourceGStreamer.h"
 #endif
 

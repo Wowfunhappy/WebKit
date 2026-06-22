@@ -676,13 +676,13 @@ void SourceBufferPrivateAVFObjC::enqueueSample(Ref<MediaSampleAVFObjC>&& sample,
 
     PlatformSample platformSample = sample->platformSample();
 
-    CMFormatDescriptionRef formatDescription = CMSampleBufferGetFormatDescription(platformSample.cmSampleBuffer());
+    CMFormatDescriptionRef formatDescription = PAL::CMSampleBufferGetFormatDescription(platformSample.cmSampleBuffer());
     ASSERT(formatDescription);
     if (!formatDescription) {
         ERROR_LOG(logSiteIdentifier, "Received sample with a null formatDescription. Bailing.");
         return;
     }
-    auto mediaType = CMFormatDescriptionGetMediaType(formatDescription);
+    auto mediaType = PAL::CMFormatDescriptionGetMediaType(formatDescription);
 
     SBP_BISECT("enqueueSample: track=%d mediaType=%c%c%c%c", (int)trackId, (char)(mediaType>>24), (char)(mediaType>>16), (char)(mediaType>>8), (char)mediaType);
     // 10.9 backport: do NOT pass minimumUpcomingPresentationTimeForTrackID here — on this port it

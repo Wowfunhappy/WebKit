@@ -82,7 +82,7 @@
 #include "WebKitMediaSourceGStreamer.h"
 #endif
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 #include "GStreamerCaptureDeviceManager.h"
 #include "GStreamerMediaStreamSource.h"
 #endif
@@ -549,7 +549,7 @@ void registerWebKitGStreamerElements()
         }
 #endif
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
         gst_element_register(nullptr, "mediastreamsrc", GST_RANK_PRIMARY, WEBKIT_TYPE_MEDIA_STREAM_SRC);
 #endif
         registerInternalVideoEncoder();
@@ -727,7 +727,7 @@ void deinitializeGStreamer()
     if (auto* sharedDisplay = PlatformDisplay::sharedDisplayIfExists())
         sharedDisplay->clearGStreamerGLState();
 #endif
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     teardownGStreamerCaptureDeviceManagers();
 #endif
 #if ENABLE(MEDIA_SOURCE)

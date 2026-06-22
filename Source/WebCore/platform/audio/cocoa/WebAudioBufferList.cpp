@@ -137,7 +137,7 @@ RetainPtr<CMBlockBufferRef> WebAudioBufferList::setSampleCountWithBlockBuffer(si
     // 10.9 backport: in this tree CMBlockBufferCreateWithMemoryBlock is a soft-link macro
     // that already expands to PAL::…, so it must be called unqualified (unlike the inline
     // PAL helpers CMBlockBufferGetDataSpan / createAudioBufferList which keep their PAL:: prefix).
-    if (auto error = CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, nullptr, bufferSizes->second, kCFAllocatorDefault, nullptr, 0, bufferSizes->second, kCMBlockBufferAssureMemoryNowFlag, &blockBuffer)) {
+    if (auto error = PAL::CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, nullptr, bufferSizes->second, kCFAllocatorDefault, nullptr, 0, bufferSizes->second, kCMBlockBufferAssureMemoryNowFlag, &blockBuffer)) {
         RELEASE_LOG_ERROR(Media, "WebAudioBufferList::setSampleCountWithBlockBuffer CMBlockBufferCreateWithMemoryBlock failed with: %d", static_cast<int>(error));
         return { };
     }
@@ -174,7 +174,7 @@ WebAudioBufferList::WebAudioBufferList(const CAAudioStreamDescription& format, C
         return;
 
     CMBlockBufferRef buffer = nullptr;
-    if (noErr == CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer, nullptr, m_canonicalList.get(), PAL::allocationSize(*m_canonicalList), kCFAllocatorSystemDefault, kCFAllocatorSystemDefault, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &buffer))
+    if (noErr == PAL::CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer, nullptr, m_canonicalList.get(), PAL::allocationSize(*m_canonicalList), kCFAllocatorSystemDefault, kCFAllocatorSystemDefault, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &buffer))
         m_blockBuffer = adoptCF(buffer);
 
     reset();

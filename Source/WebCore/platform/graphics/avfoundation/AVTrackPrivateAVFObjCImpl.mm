@@ -453,7 +453,7 @@ uint32_t AVTrackPrivateAVFObjCImpl::sampleRate() const
     if (!formatDescription)
         return 0;
 
-    const AudioStreamBasicDescription* const asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription.get());
+    const AudioStreamBasicDescription* const asbd = PAL::CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription.get());
     if (!asbd)
         return 0;
 
@@ -466,7 +466,7 @@ uint32_t AVTrackPrivateAVFObjCImpl::numberOfChannels() const
     if (!formatDescription)
         return 0;
 
-    const AudioStreamBasicDescription* const asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription.get());
+    const AudioStreamBasicDescription* const asbd = PAL::CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription.get());
     if (!asbd)
         return 0;
 
