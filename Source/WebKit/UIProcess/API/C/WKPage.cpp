@@ -2860,6 +2860,29 @@ extern "C" void WKPageRunJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef sc
     });
 }
 
+// 10.9 backport: MailUI.framework links against the block-based WKPageRunJavaScriptInMainFrame_b
+// variant (the Safari-7-era spelling). Without this exported symbol Mail.app fails to launch with
+// dyld: Symbol not found: _WKPageRunJavaScriptInMainFrame_b (expected in WebKit2). The block carries
+// its own context, so copy it into the function-pointer implementation's context slot and release it
+// once the single callback fires. Delivering the result with the (result, error) shape is compatible
+// with the legacy single-argument block too (extra arguments are ignored by the block's invoke).
+static void callRunJavaScriptInMainFrameBlock(WKTypeRef result, WKErrorRef error, void* context)
+{
+    auto block = reinterpret_cast<void (^)(WKSerializedScriptValueRef, WKErrorRef)>(context);
+    block(static_cast<WKSerializedScriptValueRef>(result), error);
+    Block_release(block);
+}
+
+extern "C" WK_EXPORT void WKPageRunJavaScriptInMainFrame_b(WKPageRef pageRef, WKStringRef scriptRef, void (^block)(WKSerializedScriptValueRef, WKErrorRef));
+extern "C" void WKPageRunJavaScriptInMainFrame_b(WKPageRef pageRef, WKStringRef scriptRef, void (^block)(WKSerializedScriptValueRef, WKErrorRef))
+{
+    if (!block) {
+        WKPageRunJavaScriptInMainFrame(pageRef, scriptRef, nullptr, nullptr);
+        return;
+    }
+    WKPageRunJavaScriptInMainFrame(pageRef, scriptRef, reinterpret_cast<void*>(Block_copy(block)), callRunJavaScriptInMainFrameBlock);
+}
+
 void WKPageEvaluateJavaScriptInFrame(WKPageRef pageRef, WKFrameInfoRef frame, WKStringRef scriptRef, void* context, WKPageEvaluateJavaScriptFunction callback)
 {
     CRASH_IF_SUSPENDED;
