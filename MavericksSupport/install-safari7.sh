@@ -8,7 +8,7 @@
 #   JavaScriptCore -> /System/Library/Frameworks/JavaScriptCore.framework
 #   WebKitLegacy   -> /System/Library/Frameworks/WebKit.framework        (bin: WebKit)
 #   WebKit (WK2)   -> /System/Library/PrivateFrameworks/WebKit2.framework (bin: WebKit2)
-#   WebCore        -> /System/Library/PrivateFrameworks/WebCore.framework
+#   WebCore        -> /System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework  (nested, matches stock 10.9)
 #
 # Private C++ runtime (libc++/libc++abi from the clang-22 toolchain) and the
 # CoreGraphics polyfill dylib are embedded INSIDE the framework bundles (#68:
@@ -41,7 +41,11 @@ PRIVATE_DIR=/System/Library/PrivateFrameworks
 # links the C++ runtime, and clang's libc++abi unwinds via clang's own libunwind); libcg_polyfill
 # in WebCore (its only consumers are WebCore/WebKit/WebKit2).
 PRIVLIBCXX=/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks
-PRIVLIB=/System/Library/PrivateFrameworks/WebCore.framework/Versions/A/Frameworks
+# WebCore is nested INSIDE the public WebKit umbrella, matching the stock 10.9 layout: stock has NO
+# top-level /System/Library/PrivateFrameworks/WebCore.framework — its WebKit2/WebKit binaries link
+# WebCore at this nested path. The CG polyfill + GStreamer tree live in WebCore's own Frameworks dir.
+WEBCORE_BUNDLE=$FRAMEWORKS_DIR/WebKit.framework/Versions/A/Frameworks/WebCore.framework
+PRIVLIB=$WEBCORE_BUNDLE/Versions/A/Frameworks
 OLD_PRIVRT=/System/Library/WebKitPrivateRuntime   # pre-#68 standalone location; removed at the end
 
 # GStreamer (#90): the vendored lib tree is deployed inside WebCore.framework (self-contained, beside
@@ -58,7 +62,7 @@ id_path() {
         JavaScriptCore) echo "$FRAMEWORKS_DIR/JavaScriptCore.framework/Versions/A/JavaScriptCore";;
         WebKit)         echo "$FRAMEWORKS_DIR/WebKit.framework/Versions/A/WebKit";;        # our WebKitLegacy
         WebKit2)        echo "$PRIVATE_DIR/WebKit2.framework/Versions/A/WebKit2";;          # our WebKit (WK2)
-        WebCore)        echo "$PRIVATE_DIR/WebCore.framework/Versions/A/WebCore";;
+        WebCore)        echo "$WEBCORE_BUNDLE/Versions/A/WebCore";;                          # nested in WebKit.framework (stock layout)
         *) echo "";;
     esac
 }
@@ -231,10 +235,17 @@ install_framework() {
 # during install_framework, so recording them before the files exist is fine (paths resolve at
 # runtime). See the deploy block after the 32-bit graft below.
 echo "### Installing frameworks (name shift)"
+# Order matters: install_framework rm -rf's its destination bundle. WebCore now nests inside
+# WebKit.framework, so WebKitLegacy (-> WebKit.framework) MUST run first, then WebCore is laid into it.
 install_framework JavaScriptCore "$FRAMEWORKS_DIR/JavaScriptCore.framework" JavaScriptCore
-install_framework WebCore        "$PRIVATE_DIR/WebCore.framework"           WebCore
 install_framework WebKitLegacy   "$FRAMEWORKS_DIR/WebKit.framework"         WebKit
+install_framework WebCore        "$WEBCORE_BUNDLE"                          WebCore
 install_framework WebKit         "$PRIVATE_DIR/WebKit2.framework"           WebKit2
+# Match stock: the public WebKit umbrella exposes its nested frameworks via a top-level symlink
+# (WebKit.framework/Frameworks -> Versions/Current/Frameworks). Loads use the full Versions/A path,
+# but recreate the symlink so the on-disk layout is identical to stock 10.9.
+ln -sfh Versions/Current/Frameworks "$FRAMEWORKS_DIR/WebKit.framework/Frameworks" 2>/dev/null || \
+    ln -sf Versions/Current/Frameworks "$FRAMEWORKS_DIR/WebKit.framework/Frameworks" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # 32-bit (i386) compatibility — graft the STOCK 10.9 i386 slices back in.
@@ -246,10 +257,11 @@ install_framework WebKit         "$PRIVATE_DIR/WebKit2.framework"           WebK
 # installed binary with the ORIGINAL stock i386 slice, so 32-bit WebView apps load
 # the stock legacy WebKit1. dyld selects the slice by process arch and each slice
 # keeps its OWN load commands, so the two dependency graphs stay fully independent:
-#   x86_64 (us):    WebKit -> PrivateFrameworks/WebCore           + JavaScriptCore
+#   x86_64 (us):    WebKit -> WebKit.framework/.../Frameworks/WebCore + JavaScriptCore
 #   i386  (stock):  WebKit -> WebKit.framework/.../Frameworks/WebCore + JavaScriptCore
-# The i386 graph uses WebCore NESTED inside the WebKit umbrella (the stock 10.9
-# layout) — a different path than our x86_64 WebCore — so the two never collide.
+# Both arches resolve WebCore at the SAME nested path (the stock 10.9 layout); the nested
+# WebCore binary is itself fattened with the stock i386 slice (graft_i386 below), so dyld
+# picks our modern x86_64 WebCore for 64-bit Safari and the stock i386 WebCore for 32-bit apps.
 # The stock i386 slices reference only 10.9 system libs by absolute path (no
 # @rpath, no private runtime), so no install-name rewriting is needed for them.
 STOCK_BACKUP="${STOCK_BACKUP:-$(dirname "$REPO")/stock-webkit-backup}"
@@ -278,26 +290,6 @@ graft_i386() {
     echo "  grafted i386 into $(basename "$dest") -> $(lipo -info "$dest" 2>/dev/null | sed 's/.*are: //')"
 }
 
-# The i386 WebKit/WebKit2 slices load WebCore NESTED in the umbrella. Our modern
-# build has no nested WebCore (it lives at PrivateFrameworks/WebCore for x86_64),
-# so recreate the stock nested WebCore as an i386-ONLY framework for the 32-bit
-# path (thinned so no 64-bit process can ever pick up the stock x86_64 WebCore).
-install_nested_i386_webcore() {
-    local stockNested="$STOCK_BACKUP/WebKit.framework/Versions/A/Frameworks/WebCore.framework"
-    local destNested="$FRAMEWORKS_DIR/WebKit.framework/Versions/A/Frameworks/WebCore.framework"
-    [ -d "$stockNested" ] || { echo "  nested WebCore: stock missing ($stockNested) — skip" >&2; return 1; }
-    rm -rf "$destNested"
-    mkdir -p "$(dirname "$destNested")"
-    cp -RP "$stockNested" "$destNested"
-    local nb="$destNested/Versions/A/WebCore" t
-    if [ -f "$nb" ]; then
-        t="$(mktemp -t nestedwc)"
-        lipo -thin i386 "$nb" -output "$t"
-        replace_inplace "$t" "$nb"; rm -f "$t"
-        echo "  installed nested i386 WebCore -> $(lipo -info "$nb" 2>/dev/null | sed 's/.*: //')"
-    fi
-}
-
 echo "### Grafting stock i386 slices for 32-bit app compatibility"
 graft_i386 "$FRAMEWORKS_DIR/JavaScriptCore.framework/Versions/A/JavaScriptCore" \
            "$STOCK_BACKUP/JavaScriptCore.framework/Versions/A/JavaScriptCore"
@@ -305,7 +297,8 @@ graft_i386 "$FRAMEWORKS_DIR/WebKit.framework/Versions/A/WebKit" \
            "$STOCK_BACKUP/WebKit.framework/Versions/A/WebKit"
 graft_i386 "$PRIVATE_DIR/WebKit2.framework/Versions/A/WebKit2" \
            "$STOCK_BACKUP/WebKit2.framework/Versions/A/WebKit2"
-install_nested_i386_webcore
+graft_i386 "$WEBCORE_BUNDLE/Versions/A/WebCore" \
+           "$STOCK_BACKUP/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/WebCore"
 
 # ---------------------------------------------------------------------------
 # #38: Dashboard "Web Clip" widgets must launch the 64-bit DashboardClient to load our x86_64-only

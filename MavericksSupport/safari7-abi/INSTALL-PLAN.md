@@ -14,7 +14,7 @@ Safari 7 hard-codes in its `LC_LOAD_DYLIB`s, with two renames:
 | JavaScriptCore   | `/System/Library/Frameworks/JavaScriptCore.framework`  | (none)              |
 | WebKitLegacy     | `/System/Library/Frameworks/WebKit.framework`          | WebKitLegacy→WebKit |
 | WebKit (WK2)     | `/System/Library/PrivateFrameworks/WebKit2.framework`  | WebKit→WebKit2      |
-| WebCore          | `/System/Library/PrivateFrameworks/WebCore.framework`  | (none)              |
+| WebCore          | `…/WebKit.framework/Versions/A/Frameworks/WebCore.framework` (nested, stock layout) | (none) |
 
 Safari needs 0 symbols from WebCore directly, but WebKit/WebKitLegacy load it, so
 it must sit at a fixed absolute path.
