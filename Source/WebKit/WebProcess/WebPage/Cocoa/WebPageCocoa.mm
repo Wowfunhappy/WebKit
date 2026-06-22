@@ -1597,7 +1597,19 @@ static void drawPDFPage(PDFDocument *pdfDocument, CFIndex pageIndex, CGContextRe
         CGContextTranslateCTM(context, 0, -cropBox.size.width);
     }
 
-    [pdfPage drawWithBox:kPDFDisplayBoxCropBox toContext:context];
+    // MAVERICKS_BACKPORT: -[PDFPage drawWithBox:toContext:] is a 10.12+ PDFKit API and an unrecognized
+    // selector on 10.9 (it throws and aborts the print/PDF operation). The pre-10.12 -[PDFPage drawWithBox:]
+    // renders into the current NSGraphicsContext, so wrap this raw CGContext (set up with the page CTM above)
+    // as the current context for the duration of the draw. graphicsContextWithGraphicsPort:flipped: is the
+    // 10.9 constructor (graphicsContextWithCGContext: is 10.10+).
+    if ([pdfPage respondsToSelector:@selector(drawWithBox:toContext:)])
+        [pdfPage drawWithBox:kPDFDisplayBoxCropBox toContext:context];
+    else {
+        NSGraphicsContext *priorContext = [NSGraphicsContext currentContext];
+        [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithGraphicsPort:context flipped:NO]];
+        [pdfPage drawWithBox:kPDFDisplayBoxCropBox];
+        [NSGraphicsContext setCurrentContext:priorContext];
+    }
 
     CGAffineTransform transform = CGContextGetCTM(context);
 
@@ -1812,7 +1824,14 @@ void WebPage::drawRectToImage(FrameIdentifier frameID, const PrintInfo& printInf
 #if USE(CG)
     if (coreFrame) {
         ASSERT(coreFrame->document()->printing() || pdfDocumentForPrintingFrame(coreFrame.get()));
-        image = WebImage::create(imageSize, ImageOption::Local, DestinationColorSpace::SRGB(), &m_page->chrome().client());
+        // MAVERICKS_BACKPORT: upstream uses ImageOption::Local + the chrome client, relying on the client's
+        // ShareableLocalSnapshot buffer being shareable so createHandle() can ship the rendered page to the
+        // UIProcess WKPrintingView. On 10.9 that purpose yields a non-ShareableBitmap backend, so
+        // createHandle() returns nullopt and the print preview comes back blank (the page IS painted — the
+        // bitmap just never crosses IPC). Force an explicit ShareableBitmap backend (client=nullptr ->
+        // ImageBufferShareableBitmapBackend) so the handle transfers; print rendering is a software paint
+        // that works fine on a CPU ShareableBitmap.
+        image = WebImage::create(imageSize, ImageOption::Shareable, DestinationColorSpace::SRGB(), nullptr);
         if (!image || !image->context()) {
             ASSERT_NOT_REACHED();
             return completionHandler({ });

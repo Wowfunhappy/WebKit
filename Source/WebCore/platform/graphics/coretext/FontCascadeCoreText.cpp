@@ -265,7 +265,26 @@ static void fillVectorWithVerticalGlyphPositions(Vector<CGPoint, 256>& positions
     }
 }
 
-static void showGlyphsWithAdvances(const FloatPoint& point, const Font& font, CGContextRef context, std::span<const CGGlyph> glyphs, std::span<const CGSize> advances, const AffineTransform& textMatrix)
+// MAVERICKS_BACKPORT: On macOS 10.9, CTFontDrawGlyphs() emits NOTHING when the destination is a
+// CGPDFContext that is currently inside a transparency layer (CGContextBeginTransparencyLayer). Fills
+// and strokes in the same layer are recorded, but glyph runs are silently dropped, so printed / saved
+// PDFs lose every bit of text that falls under any opacity / border-radius-clip / blend / mask layer
+// (verified: drawing into the same PDF context OUTSIDE a transparency layer works, and drawing into a
+// bitmap context works — only the PDF+layer combination is broken). Fill the glyph outlines as a path
+// instead: paths are recorded inside the layer correctly, and CTFontCreatePathForGlyph positions them
+// identically to CTFontDrawGlyphs (device = CTM * textMatrix * (position + outline)).
+static void fillGlyphsAsPaths(CGContextRef context, CTFontRef ctFont, std::span<const CGGlyph> glyphs, std::span<const CGPoint> positions)
+{
+    CGAffineTransform textMatrix = CGContextGetTextMatrix(context);
+    for (size_t i = 0; i < glyphs.size(); ++i) {
+        CGAffineTransform glyphMatrix = CGAffineTransformConcat(CGAffineTransformMakeTranslation(positions[i].x, positions[i].y), textMatrix);
+        if (RetainPtr<CGPathRef> glyphPath = adoptCF(CTFontCreatePathForGlyph(ctFont, glyphs[i], &glyphMatrix)))
+            CGContextAddPath(context, glyphPath.get());
+    }
+    CGContextFillPath(context);
+}
+
+static void showGlyphsWithAdvances(const FloatPoint& point, const Font& font, CGContextRef context, std::span<const CGGlyph> glyphs, std::span<const CGSize> advances, const AffineTransform& textMatrix, bool emitGlyphsAsPaths)
 {
     if (glyphs.empty())
         return;
@@ -281,10 +300,17 @@ static void showGlyphsWithAdvances(const FloatPoint& point, const Font& font, CG
 
         auto ascentDelta = font.fontMetrics().ascent(FontBaseline::Ideographic) - font.fontMetrics().ascent();
         fillVectorWithVerticalGlyphPositions(positions, translations, advances, point, ascentDelta, CGContextGetTextMatrix(context));
-        CTFontDrawGlyphs(ctFont.get(), glyphs.data(), positions.span().data(), glyphs.size(), context);
+        if (emitGlyphsAsPaths)
+            fillGlyphsAsPaths(context, ctFont.get(), glyphs, positions.span());
+        else
+            CTFontDrawGlyphs(ctFont.get(), glyphs.data(), positions.span().data(), glyphs.size(), context);
     } else {
         fillVectorWithHorizontalGlyphPositions(positions, context, advances, point);
-        CTFontDrawGlyphs(RetainPtr { platformData.ctFont() }.get(), glyphs.data(), positions.span().data(), glyphs.size(), context);
+        RetainPtr ctFont = platformData.ctFont();
+        if (emitGlyphsAsPaths)
+            fillGlyphsAsPaths(context, ctFont.get(), glyphs, positions.span());
+        else
+            CTFontDrawGlyphs(ctFont.get(), glyphs.data(), positions.span().data(), glyphs.size(), context);
     }
 }
 
@@ -314,6 +340,14 @@ void FontCascade::drawGlyphs(GraphicsContext& context, const Font& font, std::sp
     }
 
     RetainPtr<CGContextRef> cgContext = context.platformContext();
+
+    // MAVERICKS_BACKPORT: work around the 10.9 bug where CTFontDrawGlyphs() drops glyphs drawn into a
+    // CGPDFContext while inside a transparency layer (see fillGlyphsAsPaths). Only the PDF + transparency
+    // layer + Fill combination is affected, so normal on-screen text and ordinary (non-layered) PDF text
+    // keep using CTFontDrawGlyphs and stay selectable.
+    bool emitGlyphsAsPaths = context.isInTransparencyLayer()
+        && context.textDrawingMode().contains(TextDrawingMode::Fill)
+        && CGContextGetType(cgContext.get()) == kCGContextTypePDF;
 
     if (!font.allowsAntialiasing())
         smoothingMode = FontSmoothingMode::None;
@@ -375,18 +409,18 @@ void FontCascade::drawGlyphs(GraphicsContext& context, const Font& font, std::sp
         Color shadowFillColor = shadow->color.colorWithAlphaMultipliedBy(fillColor.alphaAsFloat());
         context.setFillColor(shadowFillColor);
         auto shadowTextOffset = point + context.platformShadowOffset(shadow->offset);
-        showGlyphsWithAdvances(shadowTextOffset, font, cgContext.get(), glyphs, advances, textMatrix);
+        showGlyphsWithAdvances(shadowTextOffset, font, cgContext.get(), glyphs, advances, textMatrix, emitGlyphsAsPaths);
         if (syntheticBoldOffset) {
             shadowTextOffset.move(syntheticBoldOffset, 0);
-            showGlyphsWithAdvances(shadowTextOffset, font, cgContext.get(), glyphs, advances, textMatrix);
+            showGlyphsWithAdvances(shadowTextOffset, font, cgContext.get(), glyphs, advances, textMatrix, emitGlyphsAsPaths);
         }
         context.setFillColor(fillColor);
     }
 
-    showGlyphsWithAdvances(point, font, cgContext.get(), glyphs, advances, textMatrix);
+    showGlyphsWithAdvances(point, font, cgContext.get(), glyphs, advances, textMatrix, emitGlyphsAsPaths);
 
     if (syntheticBoldOffset)
-        showGlyphsWithAdvances(FloatPoint(point.x() + syntheticBoldOffset, point.y()), font, cgContext.get(), glyphs, advances, textMatrix);
+        showGlyphsWithAdvances(FloatPoint(point.x() + syntheticBoldOffset, point.y()), font, cgContext.get(), glyphs, advances, textMatrix, emitGlyphsAsPaths);
 
     if (hasSimpleShadow)
         context.setDropShadow(*shadow);
