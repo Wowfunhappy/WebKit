@@ -46,8 +46,15 @@ bool File::shouldReplaceFile(const String& path)
     if (path.isEmpty())
         return false;
 
-    NSError *error;
-    RetainPtr pathURL = [NSURL URLByResolvingAliasFileAtURL:[NSURL fileURLWithPath:path.createNSString().get() isDirectory:NO] options:NSURLBookmarkResolutionWithoutUI error:&error];
+    NSError *error = nil;
+    RetainPtr fileURL = [NSURL fileURLWithPath:path.createNSString().get() isDirectory:NO];
+    // MAVERICKS_BACKPORT: +[NSURL URLByResolvingAliasFileAtURL:options:error:] is 10.10+ (absent on 10.9 ->
+    // unrecognized-selector crash in the NetworkProcess). On 10.9 skip alias resolution and use the file URL
+    // directly — an alias-file pointing at a package is a rare edge case; the common direct-package path
+    // (getResourceValue: NSURLTypeIdentifierKey below) is unaffected.
+    RetainPtr<NSURL> pathURL = fileURL;
+    if ([NSURL respondsToSelector:@selector(URLByResolvingAliasFileAtURL:options:error:)])
+        pathURL = [NSURL URLByResolvingAliasFileAtURL:fileURL.get() options:NSURLBookmarkResolutionWithoutUI error:&error];
     if (!pathURL) {
         LOG_ERROR("Failed to resolve alias at path %s with error %@.\n", path.utf8().data(), error);
         return false;
