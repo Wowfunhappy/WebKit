@@ -44,6 +44,12 @@ PRIVLIBCXX=/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Framew
 PRIVLIB=/System/Library/PrivateFrameworks/WebCore.framework/Versions/A/Frameworks
 OLD_PRIVRT=/System/Library/WebKitPrivateRuntime   # pre-#68 standalone location; removed at the end
 
+# GStreamer (#90): the vendored lib tree is deployed inside WebCore.framework (self-contained, beside
+# libcg_polyfill). The libs are self-contained via their own LC_RPATH @loader_path/../lib, so they ship
+# as-is; only the WebKit frameworks' @rpath/libg*/libgst*/etc. deps are rewritten to these absolute paths.
+GST_SRC="$REPO/MavericksSupport/deps/gstreamer/lib"
+GST_DEPLOY="$PRIVLIB/gstreamer/lib"
+
 # Absolute install_name each framework binary must advertise (matches Safari's
 # LC_LOAD_DYLIB). macOS 10.9 ships bash 3.2 (no associative arrays), so this is a
 # function keyed by the installed binary name rather than a `declare -A` map.
@@ -79,6 +85,12 @@ absolute_for_rpath_dep() {
         @rpath/libc++.1.dylib)             echo "$PRIVLIBCXX/libc++.1.dylib";;
         @rpath/libc++abi.1.dylib)          echo "$PRIVLIBCXX/libc++abi.1.dylib";;
         @rpath/libunwind.1.dylib)          echo "$PRIVLIBCXX/libunwind.1.dylib";;
+        # GStreamer (#90): any remaining @rpath/libX.dylib present in the vendored GStreamer tree maps
+        # to its deployed copy inside WebCore.framework. The -e guard avoids mis-mapping a stray dep.
+        @rpath/*.dylib)
+            local base="${dep#@rpath/}"
+            if [ -e "$GST_SRC/$base" ]; then echo "$GST_DEPLOY/$base"; else echo ""; fi
+            ;;
         *) echo "";;
     esac
 }
@@ -99,9 +111,9 @@ rewrite_rpath_deps() {
     done < <("$OTOOL" -L "$bin" | awk 'NR>1{print $1}')
 }
 
-# libcg_polyfill.dylib is linked with a BAKED absolute install_name (/usr/local/lib/...) at
-# build time, so rewrite_rpath_deps (which only touches @rpath deps) never sees it. Repoint it
-# to the in-bundle $PRIVLIB location (inside WebCore.framework) in every binary.
+# libcg_polyfill.dylib is linked with a BAKED absolute install_name (/usr/local/lib/...) at build
+# time, so rewrite_rpath_deps (which only touches @rpath deps) never sees it. Repoint it to its
+# in-bundle location in every binary: the CG polyfill inside WebCore.framework ($PRIVLIB).
 rewrite_abs_deps() {
     local bin="$1"
     "$INT" -change /usr/local/lib/libcg_polyfill.dylib "$PRIVLIB/libcg_polyfill.dylib" "$bin" 2>/dev/null || true
@@ -328,7 +340,7 @@ mkdir -p "$PRIVLIBCXX"
 # is deployed here too — without it the frameworks fail to load (unmapped @rpath/libunwind.1.dylib).
 for lib in libc++.1.dylib libc++abi.1.dylib libunwind.1.dylib; do
     cp -f "$TC/lib/$lib" "$PRIVLIBCXX/$lib"
-    "$INT" -id "$PRIVLIBCXX/$lib" "$PRIVLIBCXX/$lib"
+    "$INT" -id "$PRIVLIBCXX/$lib" "$PRIVLIBCXX/$lib" 2>/dev/null || true
 done
 # libc++ loads libc++abi via @rpath (and libc++abi has a self-referential @rpath load too); both also
 # load @rpath/libunwind.1.dylib. Pin all absolute so dyld resolves them in processes with no rpath set.
@@ -340,12 +352,47 @@ echo "### Deploying CG polyfill into WebCore.framework ($PRIVLIB)"
 mkdir -p "$PRIVLIB"
 if [ -f "$HERE/polyfill/build/libcg_polyfill.dylib" ]; then
     cp -f "$HERE/polyfill/build/libcg_polyfill.dylib" "$PRIVLIB/libcg_polyfill.dylib"
-    "$INT" -id "$PRIVLIB/libcg_polyfill.dylib" "$PRIVLIB/libcg_polyfill.dylib"
+    # -id cosmetic (loaded by absolute path); polyfill dylibs lack headerpad, so tolerate a too-long id.
+    "$INT" -id "$PRIVLIB/libcg_polyfill.dylib" "$PRIVLIB/libcg_polyfill.dylib" 2>/dev/null || true
+fi
+# TCC polyfill: WebKit::TCCLibrary() dlopens this in place of the system TCC framework on 10.9 (which
+# lacks the camera/microphone privacy services). It sits beside the WebKit2 binary under Frameworks/
+# so the dlopen "@loader_path/Frameworks/libtcc_polyfill.dylib" resolves to it.
+WK2_FRAMEWORKS="$PRIVATE_DIR/WebKit2.framework/Versions/A/Frameworks"
+if [ -f "$HERE/polyfill/build/libtcc_polyfill.dylib" ]; then
+    mkdir -p "$WK2_FRAMEWORKS"
+    cp -f "$HERE/polyfill/build/libtcc_polyfill.dylib" "$WK2_FRAMEWORKS/libtcc_polyfill.dylib"
+fi
+# GStreamer (#90): deploy the vendored lib tree (libs + plugins) into WebCore.framework. The libs are
+# self-contained via their own LC_RPATH @loader_path/../lib; the frameworks' @rpath/libg* deps were
+# rewritten to $GST_DEPLOY during install_framework, so they resolve to these copies at runtime.
+echo "### Deploying GStreamer libs into WebCore.framework ($GST_DEPLOY)"
+if [ -d "$GST_SRC" ]; then
+    # Rebuild the 10.9 libSystem compat shim from the current polyfill sources so the deployed
+    # copy always matches legacy-support/src (clock_gettime, the *at family, mkostemp, ...). The
+    # GStreamer dylibs' libSystem dependency is already repointed to @rpath/libsystem_compat.dylib.
+    bash "$REPO/MavericksSupport/deps/gstreamer/build-libsystem-compat.sh" >/dev/null \
+        && echo "  rebuilt libsystem_compat.dylib" \
+        || echo "  warning: libsystem_compat.dylib rebuild failed — deploying the checked-in copy"
+    # Same for the CoreServices compat shim: libgio imports two 10.10+ LaunchServices functions
+    # (LSCopyApplicationURLsForBundleIdentifier / LSCopyDefaultApplicationURLForContentType) that
+    # crash gst_init_check on 10.9. libgio/libglib's CoreServices dependency is already repointed to
+    # @rpath/libcoreservices_compat.dylib (reexports CoreServices + supplies those two as NULL).
+    bash "$REPO/MavericksSupport/deps/gstreamer/build-coreservices-compat.sh" >/dev/null \
+        && echo "  rebuilt libcoreservices_compat.dylib" \
+        || echo "  warning: libcoreservices_compat.dylib rebuild failed — deploying the checked-in copy"
+    mkdir -p "$GST_DEPLOY"
+    cp -Rp "$GST_SRC/." "$GST_DEPLOY/"
+else
+    echo "  warning: GStreamer source tree $GST_SRC missing — media will not load"
 fi
 # Sandbox grants read only to world-readable files under /System with traversable parents.
 # Make the in-bundle lib dirs traversable and the dylibs world-readable.
 chmod 755 "$PRIVLIBCXX" "$PRIVLIB" 2>/dev/null || true
 chmod 644 "$PRIVLIBCXX"/*.dylib "$PRIVLIB"/*.dylib 2>/dev/null || true
+# GStreamer tree: every dir traversable, every dylib world-readable (sandboxed WebContent loads them).
+find "$GST_DEPLOY" -type d -exec chmod 755 {} + 2>/dev/null || true
+find "$GST_DEPLOY" -type f -name '*.dylib' -exec chmod 644 {} + 2>/dev/null || true
 # Remove the pre-#68 standalone runtime dir now that nothing references it (self-contained).
 if [ -d "$OLD_PRIVRT" ]; then
     rm -rf "$OLD_PRIVRT"

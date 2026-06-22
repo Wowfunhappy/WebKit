@@ -13,4 +13,3 @@ Related, but not prose (kept with the data/tooling they belong to):
 - `../README.md` — overview of `MavericksSupport/` itself.
 - `../safari7-abi/` — the captured ABI contract data (`safari-needs-from-*.txt`, `exports-*.txt`) and
   `check-abi-gap.sh`; its own `README.md` documents how the contract was captured.
-- `../glib/` — the from-source glib 2.74 build recipe (`build-glib.sh`).

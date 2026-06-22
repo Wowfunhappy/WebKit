@@ -19,8 +19,8 @@ WebKit those are `WebKitLegacy.framework` and `WebKit.framework` respectively.
 compatibility_version is 1.0.0 for all; our build's current_version 615.1.1
 satisfies dyld's `>= 537.78.x` check.
 
-StagedFrameworks/Safari (the Safari-9 mechanism the previous effort targeted)
-is unused by Safari 7 and empty.
+StagedFrameworks/Safari (a Safari-9 staged-frameworks mechanism) is empty and
+unused by Safari 7, so it plays no part in this contract.
 
 ## The symbol contract (Safari.framework imports, by providing framework)
 
@@ -39,9 +39,9 @@ Safari imports 2110 symbols total. Our three frameworks must export the
 606 + 95 + 24 = 725 listed there (plus whatever the WebKit XPC services and
 other system clients need — those services are part of our WebKit2 build so
 their needs are internal). Many of the 606 WK2 C-API symbols (WKPage*,
-WKContext*, WKArray*, …) still exist in modern WebKit and need no shim; the
-gaps (e.g. `WKView`, `WKBrowsingContextController` ObjC classes removed
-upstream) get polyfilled.
+WKContext*, WKArray*, …) exist in modern WebKit and need no shim; the gaps
+(e.g. the `WKView`, `WKBrowsingContextController` ObjC classes that modern
+WebKit does not provide) get polyfilled.
 
 ## Files here
 - `exports-<fw>.txt` — defined external symbols of each stock 537 framework
@@ -49,5 +49,5 @@ upstream) get polyfilled.
 - `safari-needs-from-<fw>.txt` — the per-framework contract (the must-export set)
 - `all-webkit-exports.txt`, `safari-imports-from-elsewhere.txt` — derivations
 
-Regenerate with the commands in the project history; inputs are the stock
-framework backups.
+Regenerate with the `comm -12` derivation shown above; the inputs are the stock
+framework backups in `stock-webkit-backup`.

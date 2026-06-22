@@ -41,7 +41,7 @@ MavericksSupport/
 │   ├── scripts/                  build-legacy-polyfills.sh, rebuild_wtf_compat.sh
 │   └── prebuilt/                 static/dynamic archives the link consumes (see below)
 │
-├── sdk/                        SDK rehoming: patch-sdk-rehome.sh + the *-rehome-symbols.txt
+├── sdk/                        SDK patches: patch-sdk-rehome.sh (symbol re-home) + patch-sdk-availability.sh (make iOS-only soft-linked classes macOS-declarable)
 ├── deps/                       third-party libraries WebKit links (see deps/README.md)
 │   ├── build_deps.sh             builds ICU/gcrypt/tasn1/gpg-error/brotli/woff2 -> build/ (gitignored)
 │   ├── build/                    ARTIFACTS (gitignored): the built libs + headers
