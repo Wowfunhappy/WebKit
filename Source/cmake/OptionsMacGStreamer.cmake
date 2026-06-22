@@ -5,6 +5,13 @@
 # LIBRARIES} variables that Source/WebCore/platform/GStreamer.cmake consumes, so the upstream
 # MediaPlayerPrivateGStreamer compiles unchanged. Software/appsink path only (GL + TextureMapper
 # + CoordinatedGraphics OFF); decoded frames reach CG via ImageGStreamerCG.cpp.
+#
+# Full GStreamer media stack (like the GTK/WPE ports): the GStreamer player handles <video>/<audio>,
+# GStreamer mediastream handles getUserMedia capture, and GStreamer webrtcbin handles WebRTC, so
+# libwebrtc and the AVFoundation media engines are not used for playback/capture/WebRTC. The WebRTC
+# plugins (libgstwebrtc/nice/srtp/sctp/dtls + OpenSSL) are all in the vendored GStreamer package.
+SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_MEDIA_STREAM TRUE)
+SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_WEBRTC TRUE)
 
 set(GST_ROOT "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/gstreamer")
 set(GST_LIB "${GST_ROOT}/lib")
@@ -17,6 +24,12 @@ set(_GST_INCLUDE_DIRS
     "${GST_ROOT}/include/orc-0.4"
     "${GST_ROOT}/include"
 )
+
+# MAVERICKS_BACKPORT: WebCore's SharedBuffer.h (a core, widely-included public header) pulls in
+# GStreamerCommon.h (#90 GstBuffer conversion), so EVERY framework that consumes WebCore headers
+# (WebKit, WebKitLegacy, test harnesses) transitively includes <gst/gst.h>. On the GTK/WPE ports the
+# GStreamer include dirs are global; add them globally here too so all frameworks compile, not just WebCore.
+include_directories(SYSTEM ${_GST_INCLUDE_DIRS})
 
 # --- GLib imported targets (FindGLIB.cmake equivalents) ---
 set(GLIB_INCLUDE_DIRS "${GST_ROOT}/include/glib-2.0" "${GST_LIB}/glib-2.0/include")
@@ -47,7 +60,7 @@ set(GLIB_GOBJECT_LIBRARIES GLib::Object)
 set(GLIB_GTHREAD_LIBRARIES GLib::Thread)
 
 # --- GStreamer component variables (FindGStreamer.cmake equivalents) ---
-set(GSTREAMER_VERSION "1.20.7")
+set(GSTREAMER_VERSION "1.26.6")
 set(GSTREAMER_FOUND TRUE)
 macro(_GST_DEFINE_COMPONENT _prefix _lib)
     set(${_prefix}_INCLUDE_DIRS ${_GST_INCLUDE_DIRS})
@@ -63,6 +76,14 @@ _GST_DEFINE_COMPONENT(GSTREAMER_PBUTILS  libgstpbutils-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_TAG      libgsttag-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_FFT      libgstfft-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_ALLOCATORS libgstallocators-1.0.dylib)
+_GST_DEFINE_COMPONENT(GSTREAMER_RTP    libgstrtp-1.0.dylib)
+_GST_DEFINE_COMPONENT(GSTREAMER_SDP    libgstsdp-1.0.dylib)
+_GST_DEFINE_COMPONENT(GSTREAMER_WEBRTC libgstwebrtc-1.0.dylib)
+# OpenSSL (vendored in the GStreamer package) — WebCore GStreamer WebRTC links OpenSSL::Crypto.
+if (NOT TARGET OpenSSL::Crypto)
+    add_library(OpenSSL::Crypto UNKNOWN IMPORTED GLOBAL)
+    set_target_properties(OpenSSL::Crypto PROPERTIES IMPORTED_LOCATION "${GST_LIB}/libcrypto.3.dylib" INTERFACE_INCLUDE_DIRECTORIES "${GST_ROOT}/include")
+endif ()
 # Components the Mac/software build does not use are left empty (GL, mpegts, codecparsers, etc.).
 set(GSTREAMER_GL_INCLUDE_DIRS "")
 set(GSTREAMER_GL_LIBRARIES "")
