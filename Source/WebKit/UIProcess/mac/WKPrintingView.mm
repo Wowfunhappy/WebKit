@@ -483,7 +483,16 @@ static RetainPtr<NSString> linkDestinationName(PDFDocument *document, PDFDestina
     CGContextScaleCTM(context, _totalScaleFactorForPrinting, -_totalScaleFactorForPrinting);
     CGContextTranslateCTM(context, 0, -[pdfPage boundsForBox:kPDFDisplayBoxMediaBox].size.height);
 
-    [pdfPage drawWithBox:kPDFDisplayBoxMediaBox toContext:context];
+    // MAVERICKS_BACKPORT: -[PDFPage drawWithBox:toContext:] is a 10.12+ PDFKit API; on 10.9 it is an
+    // unrecognized selector, which throws mid-print and aborts the operation (PMSessionEndDocumentNoDialog
+    // returns -30871) — the symptom for "Open PDF in Preview" / Save-as-PDF / printing. The pre-10.12 API
+    // -[PDFPage drawWithBox:] renders into the *current* NSGraphicsContext; `context` above IS that
+    // context's graphicsPort and our CTM is applied directly to it, so -drawWithBox: honors the same
+    // transform and produces identical output.
+    if ([pdfPage respondsToSelector:@selector(drawWithBox:toContext:)])
+        [pdfPage drawWithBox:kPDFDisplayBoxMediaBox toContext:context];
+    else
+        [pdfPage drawWithBox:kPDFDisplayBoxMediaBox];
 
     CGAffineTransform transform = CGContextGetCTM(context);
 
