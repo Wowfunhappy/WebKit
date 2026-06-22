@@ -30,7 +30,7 @@
 #include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 #include "GStreamerAudioStreamDescription.h"
 #include "MediaStreamTrackPrivate.h"
 #endif
@@ -47,7 +47,7 @@ public:
         return adoptRef(*new AudioSourceProviderGStreamer());
     }
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     static Ref<AudioSourceProviderGStreamer> create(MediaStreamTrackPrivate& source)
     {
         return adoptRef(*new AudioSourceProviderGStreamer(source));
@@ -76,7 +76,7 @@ private:
 
     void determineSampleRate(const GstCaps*);
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     WeakPtr<MediaStreamTrackPrivate> m_captureSource;
     RefPtr<MediaStreamPrivate> m_streamPrivate;
     GRefPtr<GstElement> m_pipeline;

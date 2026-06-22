@@ -271,869 +271,6 @@ struct LogArgument<AVPlayerTimeControlStatus> {
 
 namespace WebCore {
 
-#if PLATFORM(MAC)
-// 10.9 backport: the AVPlayer/FigPlayer playback pipeline never buffers in the WebContent process
-// (AVPlayerItem is stuck at status Unknown), so an AVPlayerLayer never displays frames. However,
-// AVAssetReader decode works perfectly. This pump decodes the video track via AVAssetReader on a
-// background queue and pushes each frame's IOSurface to a CALayer's contents (which the WindowServer
-// composites via the software path that already works). Playback timing is driven by the media
-// element's own clock (MediaPlayerPrivateAVFoundationObjC::currentTime(), which is wall-clock
-// extrapolated), so audio/UI stay in sync. See project_video_decode_works_assetreader_may23.
-
-// 10.9 backport (#67): AVAssetReader decodes a concatenated MPEG-TS / fragmented-MP4 stream but
-// CANNOT consume an HLS (.m3u8) playlist (and the AVPlayer HLS path is dead, per above). So for an
-// HLS source we fetch the playlist, resolve a variant, download its media segments in order, and
-// concatenate them into a single local file the AVAssetReader pump CAN read. TS segments concatenate
-// directly; fMP4 segments are prefixed with the EXT-X-MAP init segment. VOD-oriented; encrypted
-// (EXT-X-KEY) streams are skipped (returns nil). Runs on a background queue (synchronous fetches).
-static void hlsLog(NSString *msg)
-{
-    // WebContent's sandbox denies /tmp writes, so log via NSLog (readable from the system log via
-    // `syslog -k Sender com.apple.WebKit.WebContent` or Console). Diagnostic for #67.
-    NSLog(@"WKHLS %@", msg);
-}
-
-// Sandbox-safe synchronous fetch: the WebContent sandbox permits NSURLSession (used for the MP4
-// temp download) but synchronous CFNetwork (NSData dataWithContentsOfURL:) is unreliable here. The
-// NSURLSession data-task completion is ALWAYS invoked (success or error), so the wait is bounded by
-// the session's own timeout. MUST NOT be called on the shared session's completion queue (deadlock);
-// the HLS build runs on a global queue.
-static RetainPtr<NSData> hlsSyncFetch(NSURL *url)
-{
-    if (!url)
-        return nil;
-    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-    __block NSData *result = nil;
-    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *, NSError *error) {
-        result = [data retain];
-        dispatch_semaphore_signal(sem);
-    }];
-    [task resume];
-    dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-    return adoptNS(result);
-}
-
-static RetainPtr<NSURL> hlsPickVariantURL(NSString *master, NSURL *masterURL)
-{
-    NSArray<NSString *> *lines = [master componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
-    NSString *bestURI = nil;
-    long long bestBandwidth = -1;
-    for (NSUInteger i = 0; i + 1 < lines.count; ++i) {
-        NSString *l = [lines[i] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-        if (![l hasPrefix:@"#EXT-X-STREAM-INF"])
-            continue;
-        NSString *uri = nil;
-        for (NSUInteger j = i + 1; j < lines.count; ++j) {
-            NSString *cand = [lines[j] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-            if (!cand.length || [cand hasPrefix:@"#"])
-                continue;
-            uri = cand;
-            break;
-        }
-        if (!uri)
-            continue;
-        long long bw = 0;
-        NSRange br = [l rangeOfString:@"BANDWIDTH="];
-        if (br.location != NSNotFound)
-            bw = [[[[l substringFromIndex:NSMaxRange(br)] componentsSeparatedByString:@","] firstObject] longLongValue];
-        // Pick the LOWEST-bandwidth variant: smallest download + lightest decode for the 10.9 path.
-        if (bestBandwidth < 0 || (bw > 0 && bw < bestBandwidth)) {
-            bestBandwidth = bw > 0 ? bw : 0;
-            bestURI = uri;
-        }
-    }
-    if (!bestURI)
-        return nil;
-    return [[NSURL URLWithString:bestURI relativeToURL:masterURL] absoluteURL];
-}
-
-static RetainPtr<NSString> buildConcatenatedHLSFile(NSURL *playlistURL)
-{
-    hlsLog([NSString stringWithFormat:@"build start url=%@", playlistURL]);
-    RetainPtr<NSData> playlistData = hlsSyncFetch(playlistURL);
-    RetainPtr<NSString> playlist = playlistData ? adoptNS([[NSString alloc] initWithData:playlistData.get() encoding:NSUTF8StringEncoding]) : RetainPtr<NSString> { };
-    if (!playlist) {
-        hlsLog(@"playlist fetch failed");
-        return nil;
-    }
-
-    RetainPtr<NSURL> mediaURL = playlistURL;
-    RetainPtr<NSString> media = playlist;
-
-    // Resolve a master playlist down to a single variant media playlist. (NSString containsString:
-    // is 10.10+; use rangeOfString: so this works on 10.9.)
-    if ([playlist.get() rangeOfString:@"#EXT-X-STREAM-INF"].location != NSNotFound) {
-        RetainPtr<NSURL> variant = hlsPickVariantURL(playlist.get(), playlistURL);
-        if (variant) {
-            RetainPtr<NSData> vd = hlsSyncFetch(variant.get());
-            if (vd) {
-                RetainPtr<NSString> vs = adoptNS([[NSString alloc] initWithData:vd.get() encoding:NSUTF8StringEncoding]);
-                if (vs) {
-                    media = vs;
-                    mediaURL = variant;
-                }
-            }
-        }
-    }
-
-    // Collect media segment URIs (+ an optional fMP4 init segment); bail on encryption.
-    RetainPtr<NSMutableArray> segments = adoptNS([[NSMutableArray alloc] init]);
-    NSString *initURI = nil;
-    bool encrypted = false;
-    for (NSString *raw in [media.get() componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
-        NSString *line = [raw stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-        if (!line.length)
-            continue;
-        if ([line hasPrefix:@"#EXT-X-KEY"] && [line rangeOfString:@"METHOD=NONE"].location == NSNotFound) {
-            encrypted = true;
-            break;
-        }
-        if ([line hasPrefix:@"#EXT-X-MAP"]) {
-            NSRange r = [line rangeOfString:@"URI=\""];
-            if (r.location != NSNotFound) {
-                NSString *rest = [line substringFromIndex:NSMaxRange(r)];
-                NSRange q = [rest rangeOfString:@"\""];
-                if (q.location != NSNotFound)
-                    initURI = [rest substringToIndex:q.location];
-            }
-            continue;
-        }
-        if ([line hasPrefix:@"#"])
-            continue;
-        [segments.get() addObject:line];
-    }
-    hlsLog([NSString stringWithFormat:@"parsed: encrypted=%d segments=%lu initURI=%@", encrypted, (unsigned long)segments.get().count, initURI ? initURI : @"(none)"]);
-    if (encrypted || !segments.get().count)
-        return nil;
-
-    bool fragmentedMP4 = initURI.length > 0;
-    NSFileManager *fm = [NSFileManager defaultManager];
-
-    // Download the (optional) fMP4 init segment once; each fMP4 media segment must be prefixed with it
-    // to parse as a standalone asset. (TS segments are self-describing.)
-    RetainPtr<NSData> initData;
-    if (fragmentedMP4 && initURI.length) {
-        RetainPtr<NSURL> iu = [[NSURL URLWithString:initURI relativeToURL:mediaURL.get()] absoluteURL];
-        if (iu)
-            initData = hlsSyncFetch(iu.get());
-    }
-
-    // Download each media segment to its OWN local file and stitch them, in order, into an
-    // AVMutableComposition. AVFoundation rebases every segment onto a single continuous timeline, so
-    // the result has monotonic timestamps end-to-end — unlike raw byte concatenation, where the
-    // per-segment PTS restart at each boundary and AVAssetReader stops after the first segment (the
-    // <video> would freeze ~6 s in). The stitched composition is then exported, passthrough (no
-    // re-encode), to one QuickTime file the normal local-file load path consumes.
-    RetainPtr<NSString> segDir = [NSString stringWithFormat:@"%@wk_hlsseg_%08x", NSTemporaryDirectory(), arc4random()];
-    [fm createDirectoryAtPath:segDir.get() withIntermediateDirectories:YES attributes:nil error:nil];
-
-    AVMutableComposition *composition = (AVMutableComposition *)[NSClassFromString(@"AVMutableComposition") composition];
-    AVMutableCompositionTrack *videoCompTrack = nil;
-    AVMutableCompositionTrack *audioCompTrack = nil;
-    CMTime cursor = kCMTimeZero;
-    NSUInteger cap = 4000; // safety bound against runaway/live playlists
-    NSUInteger n = 0;
-    NSUInteger segIndex = 0;
-    @try {
-        for (NSString *seg in segments.get()) {
-            if (n++ >= cap)
-                break;
-            RetainPtr<NSURL> su = [[NSURL URLWithString:seg relativeToURL:mediaURL.get()] absoluteURL];
-            if (!su)
-                continue;
-            RetainPtr<NSData> sd = hlsSyncFetch(su.get());
-            if (!sd)
-                continue;
-            RetainPtr<NSString> segPath = [segDir.get() stringByAppendingPathComponent:[NSString stringWithFormat:@"s%05lu.%@", (unsigned long)segIndex++, fragmentedMP4 ? @"mp4" : @"ts"]];
-            if (fragmentedMP4 && initData) {
-                RetainPtr<NSMutableData> combined = [NSMutableData dataWithData:initData.get()];
-                [combined.get() appendData:sd.get()];
-                [combined.get() writeToFile:segPath.get() atomically:NO];
-            } else
-                [sd.get() writeToFile:segPath.get() atomically:NO];
-
-            RetainPtr<AVURLAsset> segAsset = adoptNS([PAL::allocAVURLAssetInstance() initWithURL:[NSURL fileURLWithPath:segPath.get()] options:nil]);
-            CMTime segDur = [segAsset.get() duration];
-            if (!CMTIME_IS_VALID(segDur) || CMTIME_IS_INDEFINITE(segDur) || CMTimeCompare(segDur, kCMTimeZero) <= 0)
-                continue;
-            AVAssetTrack *segVideo = [[segAsset.get() tracksWithMediaType:AVMediaTypeVideo] firstObject];
-            AVAssetTrack *segAudio = [[segAsset.get() tracksWithMediaType:AVMediaTypeAudio] firstObject];
-            CMTimeRange range = CMTimeRangeMake(kCMTimeZero, segDur);
-            if (segVideo) {
-                if (!videoCompTrack)
-                    videoCompTrack = [composition addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:0];
-                [videoCompTrack insertTimeRange:range ofTrack:segVideo atTime:cursor error:nil];
-            }
-            if (segAudio) {
-                if (!audioCompTrack)
-                    audioCompTrack = [composition addMutableTrackWithMediaType:AVMediaTypeAudio preferredTrackID:0];
-                [audioCompTrack insertTimeRange:range ofTrack:segAudio atTime:cursor error:nil];
-            }
-            cursor = CMTimeAdd(cursor, segDur);
-        }
-    } @catch (NSException *exception) {
-        hlsLog([NSString stringWithFormat:@"EXCEPTION building composition: %@", exception]);
-        [fm removeItemAtPath:segDir.get() error:nil];
-        return nil;
-    }
-
-    if (!videoCompTrack || CMTimeCompare(cursor, kCMTimeZero) <= 0) {
-        hlsLog(@"no usable segments");
-        [fm removeItemAtPath:segDir.get() error:nil];
-        return nil;
-    }
-
-    // Export the stitched composition, passthrough, to a single QuickTime file the local-file path loads.
-    RetainPtr<NSString> outPath = [NSString stringWithFormat:@"%@wk_hls_%08x.mov", NSTemporaryDirectory(), arc4random()];
-    [fm removeItemAtPath:outPath.get() error:nil];
-    RetainPtr<AVAssetExportSession> exporter = adoptNS([PAL::allocAVAssetExportSessionInstance() initWithAsset:composition presetName:@"AVAssetExportPresetPassthrough"]);
-    if (!exporter) {
-        hlsLog(@"export session alloc failed");
-        [fm removeItemAtPath:segDir.get() error:nil];
-        return nil;
-    }
-    [exporter.get() setOutputURL:[NSURL fileURLWithPath:outPath.get()]];
-    [exporter.get() setOutputFileType:@"com.apple.quicktime-movie"]; // AVFileTypeQuickTimeMovie
-    [exporter.get() setShouldOptimizeForNetworkUse:YES];
-    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-    [exporter.get() exportAsynchronouslyWithCompletionHandler:^{
-        dispatch_semaphore_signal(sem);
-    }];
-    dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-    long status = [exporter.get() status];
-    // The composition referenced the per-segment files; the export has baked them into outPath.
-    [fm removeItemAtPath:segDir.get() error:nil];
-    if (status != 3 /* AVAssetExportSessionStatusCompleted */) {
-        hlsLog([NSString stringWithFormat:@"export failed status=%ld error=%@", status, [exporter.get() error]]);
-        [fm removeItemAtPath:outPath.get() error:nil];
-        return nil;
-    }
-    hlsLog([NSString stringWithFormat:@"export done -> %@ (%.1fs)", outPath.get(), CMTimeGetSeconds(cursor)]);
-    return outPath;
-}
-
-class AVAssetReaderVideoPump : public ThreadSafeRefCounted<AVAssetReaderVideoPump> {
-public:
-    static Ref<AVAssetReaderVideoPump> create(AVURLAsset *asset, CALayer *hostLayer, FloatSize presentationSize, Function<MediaTime()>&& currentTimeProvider)
-    {
-        return adoptRef(*new AVAssetReaderVideoPump(asset, hostLayer, presentationSize, WTF::move(currentTimeProvider)));
-    }
-
-    ~AVAssetReaderVideoPump() = default;
-
-    // Invoked (main thread) with the LOCAL file asset usable by AVAssetReader: the original asset
-    // for file:// sources, or the downloaded temp copy for remote sources. Lets a companion audio
-    // pump share this pump's single download instead of fetching the media twice.
-    void setLocalAssetReadyHandler(Function<void(AVURLAsset *)>&& handler) { m_localAssetReadyHandler = WTF::move(handler); }
-
-    void start()
-    {
-        RefPtr<AVAssetReaderVideoPump> protectedThis = this;
-        m_displayTimer = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue()));
-        dispatch_source_set_timer(m_displayTimer.get(), DISPATCH_TIME_NOW, NSEC_PER_SEC / 60, NSEC_PER_SEC / 120);
-        dispatch_source_set_event_handler(m_displayTimer.get(), [protectedThis] {
-            protectedThis->displayTick();
-        });
-        dispatch_resume(m_displayTimer.get());
-        requestDecodeIfNeeded(MediaTime::zeroTime());
-        // For a local source the asset is already usable; signal immediately.
-        if (!m_downloading && m_localAssetReadyHandler)
-            m_localAssetReadyHandler(m_asset.get());
-    }
-
-    void stop()
-    {
-        if (m_stopped)
-            return;
-        m_stopped = true;
-        if (m_displayTimer) {
-            dispatch_source_cancel(m_displayTimer.get());
-            m_displayTimer = nullptr;
-        }
-        if (m_downloadTask) {
-            [m_downloadTask cancel];
-            m_downloadTask = nullptr;
-        }
-        if (m_tempFilePath) {
-            [[NSFileManager defaultManager] removeItemAtPath:m_tempFilePath.get() error:nil];
-            m_tempFilePath = nullptr;
-        }
-    }
-
-private:
-    // Main thread. AVAssetReader rejects non-local URLs, so fetch the remote media to a temp
-    // file, then decode the local copy. (Playback begins once the download completes.)
-    void startRemoteDownload(NSURL *url)
-    {
-        RefPtr<AVAssetReaderVideoPump> protectedThis = this;
-        RetainPtr<NSURL> sourceURL = url;
-        NSURLSessionDownloadTask *task = [[NSURLSession sharedSession] downloadTaskWithURL:url completionHandler:^(NSURL *location, NSURLResponse *, NSError *downloadError) {
-            if (!location || downloadError) {
-                dispatch_async(dispatch_get_main_queue(), makeBlockPtr([protectedThis] {
-                    protectedThis->m_downloading = false;
-                }).get());
-                return;
-            }
-            NSString *ext = [[sourceURL pathExtension] length] ? [sourceURL pathExtension] : @"mov";
-            NSString *dest = [NSString stringWithFormat:@"%@wk_media_%08x.%@", NSTemporaryDirectory(), arc4random(), ext];
-            NSFileManager *fm = [NSFileManager defaultManager];
-            [fm removeItemAtPath:dest error:nil];
-            BOOL moved = [fm moveItemAtURL:location toURL:[NSURL fileURLWithPath:dest] error:nil];
-            dispatch_async(dispatch_get_main_queue(), makeBlockPtr([protectedThis, dest = RetainPtr<NSString> { moved ? dest : nil }] {
-                protectedThis->onRemoteDownloadComplete(dest.get());
-            }).get());
-        }];
-        m_downloadTask = task;
-        [task resume];
-    }
-
-    // Main thread.
-    void onRemoteDownloadComplete(NSString *localPath)
-    {
-        m_downloadTask = nullptr;
-        if (m_stopped || !localPath) {
-            m_downloading = false;
-            return;
-        }
-        m_tempFilePath = localPath;
-        RetainPtr<AVURLAsset> localAsset = adoptNS([PAL::allocAVURLAssetInstance() initWithURL:[NSURL fileURLWithPath:localPath] options:nil]);
-        m_asset = localAsset;
-        m_videoTrack = [[localAsset tracksWithMediaType:AVMediaTypeVideo] firstObject];
-        m_downloading = false;
-        if (m_videoTrack)
-            requestDecode();
-        // The downloaded local copy is now usable by a companion audio pump.
-        if (m_localAssetReadyHandler)
-            m_localAssetReadyHandler(localAsset.get());
-    }
-
-    AVAssetReaderVideoPump(AVURLAsset *asset, CALayer *hostLayer, FloatSize presentationSize, Function<MediaTime()>&& currentTimeProvider)
-        : m_asset(asset)
-        , m_currentTimeProvider(WTF::move(currentTimeProvider))
-        , m_presentationSize(presentationSize)
-    {
-        m_contentLayer = adoptNS([[CALayer alloc] init]);
-        [m_contentLayer setContentsGravity:kCAGravityResizeAspect];
-        [m_contentLayer setFrame:[hostLayer bounds]];
-        [m_contentLayer setName:@"WK 10.9 AVAssetReader video frames"];
-        [hostLayer addSublayer:m_contentLayer.get()];
-        m_hostLayer = hostLayer;
-        m_decodeQueue = adoptOSObject(dispatch_queue_create("WebCore AVAssetReaderVideoPump decode", DISPATCH_QUEUE_SERIAL));
-
-        // AVAssetReader only accepts local (file://) assets. For a local asset, read directly.
-        // For a remote asset, download to a temp file first, then decode the local copy.
-        NSURL *url = [asset URL];
-        // 10.9 backport: createAVAssetForURL rewrites http/https media URLs to a
-        // "webkitstreaming-" scheme so AVFoundation routes loading through WebKit.
-        // NSURLSession (used for the temp-file download below) can't resolve that
-        // scheme, so restore the real URL here.
-        if ([[url scheme] hasPrefix:@"webkitstreaming-"]) {
-            NSString *realURLString = [[url absoluteString] substringFromIndex:[@"webkitstreaming-" length]];
-            if (RetainPtr<NSURL> realURL = [NSURL URLWithString:realURLString])
-                url = realURL.autorelease();
-        }
-        if ([url isFileURL])
-            m_videoTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
-        else {
-            m_downloading = true;
-            startRemoteDownload(url);
-        }
-        fprintf(stderr, "[VIDPUMP] ctor: url=%s isFileURL=%d videoTrack=%p hostLayer=%p contentLayer=%p\n", [[url absoluteString] UTF8String], [url isFileURL], m_videoTrack.get(), hostLayer, m_contentLayer.get());
-    }
-
-    // Main thread.
-    void displayTick()
-    {
-        if (m_stopped || !m_videoTrack)
-            return;
-
-        MediaTime target = m_currentTimeProvider();
-        if (!target.isValid())
-            target = MediaTime::zeroTime();
-
-        // Keep the content layer aligned with the (possibly resized) host layer.
-        CGRect hostBounds = [m_hostLayer bounds];
-        if (!CGRectEqualToRect(hostBounds, [m_contentLayer frame]))
-            [m_contentLayer setFrame:hostBounds];
-
-        bool needRebuild = false;
-        RetainPtr<CVPixelBufferRef> frameToShow;
-        MediaTime frameToShowPTS = MediaTime::invalidTime();
-        {
-            Locker locker { m_lock };
-
-            // Detect a seek: target jumped backward, or forward well past what we have buffered.
-            bool backward = m_displayedPTS.isValid() && target < m_displayedPTS - MediaTime::createWithDouble(0.3);
-            bool forwardGap = !m_frames.isEmpty() && !m_atEnd && target > m_frames.last().first + MediaTime::createWithDouble(1.5);
-            bool emptyGap = m_frames.isEmpty() && !m_atEnd && m_readerStart.isValid() && target > m_readerStart + MediaTime::createWithDouble(1.5);
-            if (backward || forwardGap || emptyGap) {
-                m_rebuildFrom = target;
-                m_frames.clear();
-                m_bufferedBytes = 0;
-                m_atEnd = false;
-                m_displayedPTS = MediaTime::invalidTime();
-                needRebuild = true;
-            } else {
-                // Drop frames we've already passed, but keep the one currently due.
-                while (m_frames.size() >= 2) {
-                    auto next = m_frames.begin();
-                    ++next;
-                    if (next->first <= target) {
-                        m_bufferedBytes -= std::min(m_bufferedBytes, frameByteSize(m_frames.first().second.get()));
-                        m_frames.removeFirst();
-                    } else
-                        break;
-                }
-                if (!m_frames.isEmpty() && m_frames.first().first <= target && m_frames.first().first != m_displayedPTS) {
-                    frameToShow = m_frames.first().second;
-                    frameToShowPTS = m_frames.first().first;
-                }
-            }
-        }
-
-        static int s_tick = 0;
-        if ((s_tick++ % 60) == 0)
-            fprintf(stderr, "[VIDPUMP] tick #%d target=%.2f frames=%zu frameToShow=%d contentLayer=%p host=%p superlayer=%p hidden=%d opacity=%.2f\n", s_tick, target.toDouble(), m_frames.size(), frameToShow ? 1 : 0, m_contentLayer.get(), m_hostLayer.get(), [m_contentLayer superlayer], (int)[m_contentLayer isHidden], (double)[m_contentLayer opacity]);
-
-        if (frameToShow) {
-            if (IOSurfaceRef surface = CVPixelBufferGetIOSurface(frameToShow.get())) {
-                [m_contentLayer setContents:(__bridge id)surface];
-                m_displayedPixelBuffer = frameToShow;
-                m_displayedPTS = frameToShowPTS;
-                static bool s_loggedFirst = false;
-                if (!s_loggedFirst) { s_loggedFirst = true; fprintf(stderr, "[VIDPUMP] FIRST setContents surface=%p contentLayerFrame=%.0fx%.0f\n", surface, [m_contentLayer frame].size.width, [m_contentLayer frame].size.height); }
-            } else
-                fprintf(stderr, "[VIDPUMP] frameToShow has NO IOSurface (pixbuf=%p)\n", frameToShow.get());
-        }
-
-        if (needRebuild)
-            requestDecode();
-        else
-            requestDecodeIfNeeded(target);
-    }
-
-    // Main thread: dispatch a decode pass if the buffer is running low.
-    void requestDecodeIfNeeded(const MediaTime& target)
-    {
-        if (m_downloading)
-            return;
-        Locker locker { m_lock };
-        if (m_atEnd || m_decodeInFlight)
-            return;
-        bool low = m_frames.size() < kMaxBufferedFrames && m_bufferedBytes < kMaxBufferedBytes
-            && (m_frames.isEmpty() || m_frames.last().first < target + MediaTime::createWithDouble(0.5));
-        if (low) {
-            m_decodeInFlight = true;
-            dispatchDecode();
-        }
-    }
-
-    void requestDecode()
-    {
-        Locker locker { m_lock };
-        if (m_decodeInFlight)
-            return;
-        m_decodeInFlight = true;
-        dispatchDecode();
-    }
-
-    // Must hold m_lock; dispatches the background decode job.
-    void dispatchDecode()
-    {
-        RefPtr<AVAssetReaderVideoPump> protectedThis = this;
-        dispatch_async(m_decodeQueue.get(), [protectedThis] {
-            protectedThis->decodePass();
-        });
-    }
-
-    // Background (decode) queue only touches m_reader/m_output; shared state under m_lock.
-    void decodePass()
-    {
-        MediaTime rebuildFrom = MediaTime::invalidTime();
-        {
-            Locker locker { m_lock };
-            rebuildFrom = m_rebuildFrom;
-            m_rebuildFrom = MediaTime::invalidTime();
-        }
-
-        if (rebuildFrom.isValid() || !m_reader)
-            rebuildReader(rebuildFrom.isValid() ? rebuildFrom : MediaTime::zeroTime());
-
-        if (!m_output) {
-            Locker locker { m_lock };
-            m_decodeInFlight = false;
-            m_atEnd = true;
-            return;
-        }
-
-        for (;;) {
-            {
-                Locker locker { m_lock };
-                if (m_stopped || m_rebuildFrom.isValid())
-                    break;
-                // Always allow at least one frame; otherwise cap by frame count and total bytes.
-                if (!m_frames.isEmpty() && (m_frames.size() >= kMaxBufferedFrames || m_bufferedBytes >= kMaxBufferedBytes))
-                    break;
-            }
-            RetainPtr<CMSampleBufferRef> sample;
-            @try {
-                sample = adoptCF([m_output copyNextSampleBuffer]);
-            } @catch (NSException *exception) {
-                Locker locker { m_lock };
-                m_atEnd = true;
-                break;
-            }
-            if (!sample) {
-                Locker locker { m_lock };
-                if ([m_reader status] == AVAssetReaderStatusCompleted || [m_reader status] == AVAssetReaderStatusFailed)
-                    m_atEnd = true;
-                break;
-            }
-            CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sample.get());
-            if (!imageBuffer)
-                continue;
-            MediaTime pts = PAL::toMediaTime(CMSampleBufferGetPresentationTimeStamp(sample.get()));
-            Locker locker { m_lock };
-            m_bufferedBytes += frameByteSize(imageBuffer);
-            m_frames.append({ pts, RetainPtr<CVPixelBufferRef> { imageBuffer } });
-        }
-
-        Locker locker { m_lock };
-        m_decodeInFlight = false;
-        static int s_dp = 0;
-        if ((s_dp++ % 20) == 0 || m_atEnd)
-            fprintf(stderr, "[VIDPUMP] decodePass #%d: frames=%zu atEnd=%d reader=%p output=%p readerStatus=%ld\n", s_dp, m_frames.size(), m_atEnd, m_reader.get(), m_output.get(), m_reader ? (long)[m_reader status] : -99);
-    }
-
-    // Decode queue only. AVFoundation can throw ObjC exceptions here (e.g. when the HTTP-backed
-    // asset isn't yet readable); a C++ dispatch block is noexcept, so an escaping exception would
-    // std::terminate WebContent. Catch locally and degrade gracefully.
-    void rebuildReader(const MediaTime& from)
-    {
-        m_reader = nullptr;
-        m_output = nullptr;
-        if (!m_videoTrack)
-            return;
-        @try {
-            NSError *error = nil;
-            m_reader = adoptNS([PAL::allocAVAssetReaderInstance() initWithAsset:m_asset.get() error:&error]);
-            if (!m_reader)
-                return;
-            if (from > MediaTime::zeroTime())
-                [m_reader setTimeRange:CMTimeRangeMake(PAL::toCMTime(from), kCMTimePositiveInfinity)];
-            NSDictionary *settings = @{
-                (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
-                (__bridge NSString *)kCVPixelBufferIOSurfacePropertiesKey: @{ }
-            };
-            m_output = adoptNS([PAL::allocAVAssetReaderTrackOutputInstance() initWithTrack:m_videoTrack.get() outputSettings:settings]);
-            if (m_output && [m_reader canAddOutput:m_output.get()]) {
-                [m_output setAlwaysCopiesSampleData:NO];
-                [m_reader addOutput:m_output.get()];
-                if (![m_reader startReading])
-                    m_output = nullptr;
-            } else
-                m_output = nullptr;
-        } @catch (NSException *exception) {
-            m_reader = nullptr;
-            m_output = nullptr;
-        }
-        m_readerStart = from;
-    }
-
-    static constexpr size_t kMaxBufferedFrames = 16;
-    // Cap decoded-frame memory: at HD the 0.5s lookahead would otherwise buffer ~15 frames
-    // (~8MB each = ~120MB) per <video>, and a page with several videos could exhaust memory.
-    static constexpr size_t kMaxBufferedBytes = 24 * 1024 * 1024;
-
-    static size_t frameByteSize(CVPixelBufferRef buffer)
-    {
-        return buffer ? CVPixelBufferGetDataSize(buffer) : 0;
-    }
-
-    RetainPtr<AVURLAsset> m_asset;
-    RetainPtr<AVAssetTrack> m_videoTrack;
-    RetainPtr<CALayer> m_hostLayer;
-    RetainPtr<CALayer> m_contentLayer;
-    Function<MediaTime()> m_currentTimeProvider;
-    FloatSize m_presentationSize;
-
-    OSObjectPtr<dispatch_queue_t> m_decodeQueue;
-    OSObjectPtr<dispatch_source_t> m_displayTimer;
-
-    // Remote-download bridge (main thread; m_downloading also read on decode queue):
-    RetainPtr<NSURLSessionDownloadTask> m_downloadTask;
-    RetainPtr<NSString> m_tempFilePath;
-    std::atomic<bool> m_downloading { false };
-    Function<void(AVURLAsset *)> m_localAssetReadyHandler;
-
-    // Decode queue only:
-    RetainPtr<AVAssetReader> m_reader;
-    RetainPtr<AVAssetReaderTrackOutput> m_output;
-    MediaTime m_readerStart;
-
-    // Main thread only:
-    RetainPtr<CVPixelBufferRef> m_displayedPixelBuffer;
-    MediaTime m_displayedPTS { MediaTime::invalidTime() };
-    bool m_stopped { false };
-
-    // Shared, guarded by m_lock:
-    Lock m_lock;
-    Deque<std::pair<MediaTime, RetainPtr<CVPixelBufferRef>>> m_frames WTF_GUARDED_BY_LOCK(m_lock);
-    size_t m_bufferedBytes WTF_GUARDED_BY_LOCK(m_lock) { 0 };
-    MediaTime m_rebuildFrom WTF_GUARDED_BY_LOCK(m_lock) { MediaTime::invalidTime() };
-    bool m_atEnd WTF_GUARDED_BY_LOCK(m_lock) { false };
-    bool m_decodeInFlight WTF_GUARDED_BY_LOCK(m_lock) { false };
-};
-
-// 10.9 backport companion to AVAssetReaderVideoPump: the dead AVPlayer pipeline produces no audio,
-// and AVSampleBufferAudioRenderer is 10.10+. AVAssetReader decodes the audio track to LPCM (verified
-// in WebContent), which we feed to a low-level AudioQueue (AudioToolbox, 10.6+). The element's
-// wall-clock currentTime() remains the master clock for the video pump; the audio queue plays at the
-// sample rate (1x real time), so the two stay in sync from a shared start. See task #276.
-class AVAssetReaderAudioPump : public ThreadSafeRefCounted<AVAssetReaderAudioPump> {
-public:
-    static Ref<AVAssetReaderAudioPump> create(AVURLAsset *asset, Function<bool()>&& isPlayingProvider)
-    {
-        return adoptRef(*new AVAssetReaderAudioPump(asset, WTF::move(isPlayingProvider)));
-    }
-
-    ~AVAssetReaderAudioPump() = default;
-
-    // Main thread.
-    void start()
-    {
-        Locker locker { m_lock };
-        if (m_started || !m_audioTrack)
-            return;
-        m_started = true;
-        rebuildReader(MediaTime::zeroTime());
-        if (!m_output)
-            return;
-        AudioStreamBasicDescription asbd = { };
-        asbd.mSampleRate = kSampleRate;
-        asbd.mFormatID = kAudioFormatLinearPCM;
-        asbd.mFormatFlags = kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked;
-        asbd.mChannelsPerFrame = kChannels;
-        asbd.mBitsPerChannel = 16;
-        asbd.mBytesPerFrame = (16 / 8) * kChannels;
-        asbd.mFramesPerPacket = 1;
-        asbd.mBytesPerPacket = asbd.mBytesPerFrame;
-        if (AudioQueueNewOutput(&asbd, renderCallback, this, nullptr, nullptr, 0, &m_queue) || !m_queue) {
-            m_queue = nullptr;
-            return;
-        }
-        for (size_t i = 0; i < kNumBuffers; ++i) {
-            AudioQueueBufferRef buf = nullptr;
-            if (!AudioQueueAllocateBuffer(m_queue, kBufferBytes, &buf) && buf) {
-                m_buffers.append(buf);
-                fillBufferLocked(buf);
-            }
-        }
-        applyVolumeLocked();
-        if (m_isPlayingProvider())
-            AudioQueueStart(m_queue, nullptr);
-    }
-
-    // Main thread.
-    void setPlaying(bool playing)
-    {
-        Locker locker { m_lock };
-        if (!m_queue)
-            return;
-        if (playing)
-            AudioQueueStart(m_queue, nullptr);
-        else
-            AudioQueuePause(m_queue);
-    }
-
-    // Main thread.
-    void setVolume(float volume)
-    {
-        Locker locker { m_lock };
-        m_volume = volume;
-        applyVolumeLocked();
-    }
-
-    // Main thread.
-    void setMuted(bool muted)
-    {
-        Locker locker { m_lock };
-        m_muted = muted;
-        applyVolumeLocked();
-    }
-
-    // Main thread.
-    void seek(const MediaTime& time)
-    {
-        Locker locker { m_lock };
-        if (!m_queue)
-            return;
-        bool playing = m_isPlayingProvider();
-        AudioQueueStop(m_queue, true); // synchronous; flushes enqueued buffers
-        rebuildReader(time);
-        m_pending.clear();
-        m_pendingOffset = 0;
-        m_exhausted = false;
-        for (auto* buf : m_buffers)
-            fillBufferLocked(buf);
-        if (playing)
-            AudioQueueStart(m_queue, nullptr);
-    }
-
-    // Main thread.
-    void stop()
-    {
-        Locker locker { m_lock };
-        if (m_queue) {
-            AudioQueueStop(m_queue, true);
-            AudioQueueDispose(m_queue, true); // synchronous; waits for in-flight callbacks
-            m_queue = nullptr;
-        }
-        m_buffers.clear();
-        m_reader = nullptr;
-        m_output = nullptr;
-    }
-
-private:
-    static constexpr Float64 kSampleRate = 44100;
-    static constexpr UInt32 kChannels = 2;
-    static constexpr UInt32 kBufferBytes = 32 * 1024;
-    static constexpr size_t kNumBuffers = 3;
-
-    AVAssetReaderAudioPump(AVURLAsset *asset, Function<bool()>&& isPlayingProvider)
-        : m_asset(asset)
-        , m_isPlayingProvider(WTF::move(isPlayingProvider))
-    {
-        m_audioTrack = [[asset tracksWithMediaType:AVMediaTypeAudio] firstObject];
-    }
-
-    static void renderCallback(void *userData, AudioQueueRef, AudioQueueBufferRef buffer)
-    {
-        auto *pump = static_cast<AVAssetReaderAudioPump *>(userData);
-        Locker locker { pump->m_lock };
-        pump->fillBufferLocked(buffer);
-    }
-
-    // Holds m_lock.
-    void applyVolumeLocked()
-    {
-        if (m_queue)
-            AudioQueueSetParameter(m_queue, kAudioQueueParam_Volume, m_muted ? 0.0f : m_volume);
-    }
-
-    // Holds m_lock. Fills one AudioQueue buffer with decoded PCM and (re)enqueues it.
-    void fillBufferLocked(AudioQueueBufferRef buffer)
-    {
-        if (!m_queue)
-            return;
-        UInt32 capacity = buffer->mAudioDataBytesCapacity;
-        UInt32 filled = 0;
-        auto *dst = static_cast<uint8_t *>(buffer->mAudioData);
-        while (filled < capacity) {
-            if (m_pendingOffset >= m_pending.size() && !pullMorePCMLocked())
-                break;
-            size_t available = m_pending.size() - m_pendingOffset;
-            size_t n = std::min<size_t>(capacity - filled, available);
-            memcpy(dst + filled, m_pending.span().data() + m_pendingOffset, n);
-            filled += n;
-            m_pendingOffset += n;
-        }
-        buffer->mAudioDataByteSize = filled;
-        // Enqueue even partial buffers; a zero-size buffer is dropped (stream ended).
-        if (filled)
-            AudioQueueEnqueueBuffer(m_queue, buffer, 0, nullptr);
-    }
-
-    // Holds m_lock. Decodes the next audio sample buffer into m_pending. Returns false at EOS.
-    bool pullMorePCMLocked()
-    {
-        if (m_exhausted || !m_output)
-            return false;
-        CMSampleBufferRef sample = nullptr;
-        @try {
-            sample = [m_output copyNextSampleBuffer];
-        } @catch (NSException *exception) {
-            m_exhausted = true;
-            return false;
-        }
-        if (!sample) {
-            m_exhausted = true;
-            return false;
-        }
-        bool gotData = false;
-        if (CMBlockBufferRef block = CMSampleBufferGetDataBuffer(sample)) {
-            size_t length = CMBlockBufferGetDataLength(block);
-            if (length) {
-                m_pending.resize(length);
-                m_pendingOffset = 0;
-                if (CMBlockBufferCopyDataBytes(block, 0, length, m_pending.mutableSpan().data()) == kCMBlockBufferNoErr)
-                    gotData = true;
-                else
-                    m_pending.clear();
-            }
-        }
-        CFRelease(sample);
-        return gotData;
-    }
-
-    // Holds m_lock. (Re)creates the audio reader, optionally from a seek time.
-    void rebuildReader(const MediaTime& from)
-    {
-        m_reader = nullptr;
-        m_output = nullptr;
-        m_pending.clear();
-        m_pendingOffset = 0;
-        m_exhausted = false;
-        if (!m_audioTrack)
-            return;
-        @try {
-            NSError *error = nil;
-            m_reader = adoptNS([PAL::allocAVAssetReaderInstance() initWithAsset:m_asset.get() error:&error]);
-            if (!m_reader)
-                return;
-            if (from > MediaTime::zeroTime())
-                [m_reader setTimeRange:CMTimeRangeMake(PAL::toCMTime(from), kCMTimePositiveInfinity)];
-            // These AVAudioSettings key constants are nil on the 10.9 backport; their string values
-            // equal their names by AVFoundation convention, so substitute literals when missing.
-            NSString *kFmt = AVFormatIDKey ?: @"AVFormatIDKey";
-            NSString *kRate = AVSampleRateKey ?: @"AVSampleRateKey";
-            NSString *kCh = AVNumberOfChannelsKey ?: @"AVNumberOfChannelsKey";
-            NSString *kDepth = AVLinearPCMBitDepthKey ?: @"AVLinearPCMBitDepthKey";
-            NSString *kFloat = AVLinearPCMIsFloatKey ?: @"AVLinearPCMIsFloatKey";
-            NSString *kBig = AVLinearPCMIsBigEndianKey ?: @"AVLinearPCMIsBigEndianKey";
-            NSDictionary *settings = @{ kFmt: @(kAudioFormatLinearPCM), kRate: @(kSampleRate),
-                kCh: @(kChannels), kDepth: @16, kFloat: @NO, kBig: @NO };
-            m_output = adoptNS([PAL::allocAVAssetReaderTrackOutputInstance() initWithTrack:m_audioTrack.get() outputSettings:settings]);
-            if (m_output && [m_reader canAddOutput:m_output.get()]) {
-                [m_output setAlwaysCopiesSampleData:NO];
-                [m_reader addOutput:m_output.get()];
-                if (![m_reader startReading])
-                    m_output = nullptr;
-            } else
-                m_output = nullptr;
-        } @catch (NSException *exception) {
-            m_reader = nullptr;
-            m_output = nullptr;
-        }
-    }
-
-    RetainPtr<AVURLAsset> m_asset;
-    RetainPtr<AVAssetTrack> m_audioTrack;
-    Function<bool()> m_isPlayingProvider;
-
-    Lock m_lock;
-    AudioQueueRef m_queue WTF_GUARDED_BY_LOCK(m_lock) { nullptr };
-    Vector<AudioQueueBufferRef> m_buffers WTF_GUARDED_BY_LOCK(m_lock);
-    RetainPtr<AVAssetReader> m_reader WTF_GUARDED_BY_LOCK(m_lock);
-    RetainPtr<AVAssetReaderTrackOutput> m_output WTF_GUARDED_BY_LOCK(m_lock);
-    Vector<uint8_t> m_pending WTF_GUARDED_BY_LOCK(m_lock);
-    size_t m_pendingOffset WTF_GUARDED_BY_LOCK(m_lock) { 0 };
-    bool m_exhausted WTF_GUARDED_BY_LOCK(m_lock) { false };
-    bool m_started WTF_GUARDED_BY_LOCK(m_lock) { false };
-    float m_volume WTF_GUARDED_BY_LOCK(m_lock) { 1.0f };
-    bool m_muted WTF_GUARDED_BY_LOCK(m_lock) { false };
-};
-#endif // PLATFORM(MAC)
 
 static NSArray *assetMetadataKeyNames();
 static NSArray *itemKVOProperties();
@@ -1350,9 +487,6 @@ MediaPlayerPrivateAVFoundationObjC::~MediaPlayerPrivateAVFoundationObjC()
         if (RefPtr videoOutput = m_videoOutput)
             videoOutput->invalidate();
 
-#if PLATFORM(MAC)
-        stopAssetReaderVideoPump();
-#endif
 
         if (m_videoLayer)
             destroyVideoLayer();
@@ -1455,13 +589,6 @@ void MediaPlayerPrivateAVFoundationObjC::cancelLoad()
 
     // Reset cached properties
     m_createAssetPending = false;
-#if PLATFORM(MAC)
-    // 10.9 backport (#67): remove the concatenated HLS .ts we built for this element (if any).
-    if (m_hlsLocalFilePath) {
-        [[NSFileManager defaultManager] removeItemAtPath:m_hlsLocalFilePath.get() error:nil];
-        m_hlsLocalFilePath = nil;
-    }
-#endif
     m_haveCheckedPlayability = false;
     m_pendingStatusChanges = 0;
     m_cachedItemStatus = MediaPlayerAVPlayerItemStatusDoesNotExist;
@@ -1513,8 +640,8 @@ void MediaPlayerPrivateAVFoundationObjC::createImageGenerator()
 
     [m_imageGenerator setApertureMode:AVAssetImageGeneratorApertureModeCleanAperture];
     [m_imageGenerator setAppliesPreferredTrackTransform:YES];
-    [m_imageGenerator setRequestedTimeToleranceBefore:kCMTimeZero];
-    [m_imageGenerator setRequestedTimeToleranceAfter:kCMTimeZero];
+    [m_imageGenerator setRequestedTimeToleranceBefore:PAL::kCMTimeZero];
+    [m_imageGenerator setRequestedTimeToleranceAfter:PAL::kCMTimeZero];
 }
 
 void MediaPlayerPrivateAVFoundationObjC::destroyContextVideoRenderer()
@@ -1591,13 +718,6 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerLayer()
             sz = FloatSize(400, 300); // last-resort fallback
     }
     m_videoLayerManager->setVideoLayer(m_videoLayer.get(), sz);
-#if PLATFORM(MAC)
-    // 10.9 backport: AVPlayer/FigPlayer playback pipeline never buffers in WebContent (item stuck
-    // at status Unknown), so AVPlayerLayer never shows frames. AVAssetReader decode works fine.
-    // Drive frames manually: decode via AVAssetReader, push IOSurface to the layer contents.
-    // See project_video_decode_works_assetreader_may23.
-    startAssetReaderVideoPump(sz);
-#endif
     // 10.9 backport: per-second NSLog poll for 6s used to debug video readyForDisplay.
     // Removed — Discord (and any page with many <video> tags) creates dozens of
     // layers, blasting syslog with hundreds of lines per page load. The video
@@ -1614,53 +734,6 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerLayer()
     setNeedsRenderingModeChanged();
 }
 
-#if PLATFORM(MAC)
-void MediaPlayerPrivateAVFoundationObjC::startAssetReaderVideoPump(FloatSize presentationSize)
-{
-    assertIsMainThread();
-
-    if (m_assetReaderPump || !m_videoLayer || !m_avAsset)
-        return;
-    if (![[m_avAsset tracksWithMediaType:AVMediaTypeVideo] count])
-        return;
-    fprintf(stderr, "[VIDPUMP] startAssetReaderVideoPump: videoLayer=%p avAsset=%p tracks=%lu\n", m_videoLayer.get(), m_avAsset.get(), (unsigned long)[[m_avAsset tracksWithMediaType:AVMediaTypeVideo] count]);
-
-    ThreadSafeWeakPtr weakThis { *this };
-    m_assetReaderPump = AVAssetReaderVideoPump::create(m_avAsset.get(), m_videoLayer.get(), presentationSize, [weakThis] () -> MediaTime {
-        RefPtr protectedThis = weakThis.get();
-        if (!protectedThis)
-            return MediaTime::zeroTime();
-        return protectedThis->currentTime();
-    });
-
-    // Companion audio pump (the dead AVPlayer pipeline produces no sound). The video pump signals
-    // when a LOCAL file usable by AVAssetReader is ready — the original asset for file:// sources, or
-    // the downloaded temp copy for remote sources — so audio shares the single download.
-    m_assetReaderPump->setLocalAssetReadyHandler([weakThis] (AVURLAsset *localAsset) {
-        RefPtr protectedThis = weakThis.get();
-        if (!protectedThis || protectedThis->m_assetReaderAudioPump || !localAsset)
-            return;
-        if (![[localAsset tracksWithMediaType:AVMediaTypeAudio] count])
-            return;
-        protectedThis->m_assetReaderAudioPump = AVAssetReaderAudioPump::create(localAsset, [weakThis] () -> bool {
-            RefPtr inner = weakThis.get();
-            return inner && !inner->platformPaused();
-        });
-        protectedThis->m_assetReaderAudioPump->setVolume(protectedThis->m_volume);
-        protectedThis->m_assetReaderAudioPump->setMuted(protectedThis->m_muted);
-        protectedThis->m_assetReaderAudioPump->start();
-    });
-    m_assetReaderPump->start();
-}
-
-void MediaPlayerPrivateAVFoundationObjC::stopAssetReaderVideoPump()
-{
-    if (RefPtr pump = std::exchange(m_assetReaderPump, nullptr))
-        pump->stop();
-    if (RefPtr audioPump = std::exchange(m_assetReaderAudioPump, nullptr))
-        audioPump->stop();
-}
-#endif
 
 void MediaPlayerPrivateAVFoundationObjC::destroyVideoLayer()
 {
@@ -1671,9 +744,6 @@ void MediaPlayerPrivateAVFoundationObjC::destroyVideoLayer()
 
     ALWAYS_LOG(LOGIDENTIFIER);
 
-#if PLATFORM(MAC)
-    stopAssetReaderVideoPump();
-#endif
 
     [m_videoLayer removeObserver:m_objcObserver.get() forKeyPath:@"readyForDisplay"];
     [m_videoLayer setPlayer:nil];
@@ -1697,7 +767,7 @@ MediaTime MediaPlayerPrivateAVFoundationObjC::getStartDate() const
     if (!date)
         return MediaTime::invalidTime();
 
-    double currentTime = CMTimeGetSeconds([m_avPlayerItem currentTime]);
+    double currentTime = PAL::CMTimeGetSeconds([m_avPlayerItem currentTime]);
 
     // Rounding due to second offset error when subtracting.
     return MediaTime::createWithDouble(round(date - currentTime));
@@ -1798,36 +868,6 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url)
     m_createAssetPending = true;
     RetainPtr<NSMutableDictionary> options = adoptNS([[NSMutableDictionary alloc] init]);
 
-#if PLATFORM(MAC)
-    // 10.9 backport (#67): AVFoundation's HLS (.m3u8) playback pipeline is dead on this OS — the asset
-    // never yields video tracks or a running clock, so the <video> stays black (item status Failed).
-    // Instead, fetch the playlist + its media segments and concatenate them into one local .ts that the
-    // normal local-file path already handles correctly: the AVAssetReader video/audio pumps decode the
-    // frames and AVPlayer (on a local file) drives the clock. Defer asset creation — build the .ts on a
-    // background queue, then create the asset from the local file so the ENTIRE standard load flow
-    // (checkPlayability → tracks → hasVideo → dimensions → duration → pump) runs unchanged. URL-gated on
-    // ".m3u8" so every non-HLS source stays byte-for-byte the original path.
-    if ([[url.createNSURL().get() absoluteString] rangeOfString:@".m3u8" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-        RetainPtr<NSURL> sourceURL = url.createNSURL();
-        ThreadSafeWeakPtr weakThis { *this };
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), makeBlockPtr([weakThis, sourceURL, options]() mutable {
-            RetainPtr<NSString> tsPath = buildConcatenatedHLSFile(sourceURL.get());
-            dispatch_async(dispatch_get_main_queue(), makeBlockPtr([weakThis, tsPath, options]() mutable {
-                RefPtr protectedThis = weakThis.get();
-                if (!protectedThis)
-                    return;
-                protectedThis->m_createAssetPending = false;
-                if (!tsPath) {
-                    protectedThis->setNetworkState(MediaPlayer::NetworkState::NetworkError);
-                    return;
-                }
-                protectedThis->m_hlsLocalFilePath = tsPath;
-                protectedThis->createAVAssetForURL(URL::fileURLWithFileSystemPath(String { tsPath.get() }), WTF::move(options));
-            }).get());
-        }).get());
-        return;
-    }
-#endif
 
 #if PLATFORM(IOS_FAMILY)
     if (!PAL::canLoad_AVFoundation_AVURLAssetHTTPCookiesKey()) {
@@ -2037,20 +1077,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
         [options setObject:nsTypes.get() forKey:AVURLAssetAllowableCaptionFormatsKey];
     }
 
-    // 10.9 backport: AVFoundation's own HTTP loader on this OS fails against
-    // modern servers (TLS, redirects, byte-range requests — surfaces as
-    // AVErrorServerIncorrectlyConfigured / OSStatus -12939), leaving the asset's
-    // metadata keys "Failed" so readyState never leaves HaveNothing and the
-    // <video> stays black. Force AVFoundation to delegate ALL data loading to our
-    // WebCoreAVFResourceLoader (which loads through WebKit's NetworkProcess, same
-    // path that already works for every other resource) by presenting an
-    // unrecognized scheme. WebCoreAVFResourceLoader::startLoading strips the
-    // "webkitstreaming-" prefix back off before issuing the real load. (The
-    // special<->non-special scheme switch means URL::setProtocol would no-op, so
-    // build the rewritten URL by prefixing the serialized string.)
     URL assetURL = url;
-    if (url.protocolIs("http"_s) || url.protocolIs("https"_s))
-        assetURL = URL { makeString("webkitstreaming-"_s, url.string()) };
 
     RetainPtr nsURL = canonicalURL(assetURL);
 
@@ -2072,10 +1099,6 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
 
     AVAssetResourceLoader *resourceLoader = [m_avAsset resourceLoader];
     [resourceLoader setDelegate:m_loaderDelegate.get() queue:globalLoaderDelegateQueue()];
-
-    // Backport: WebCoreNSURLSession is stubbed on 10.9, so http/https media URLs are rewritten
-    // to a "webkitstreaming-" scheme (see above) to force AVFoundation to load all data through
-    // this resource-loader delegate, which feeds bytes from WebKit's NetworkProcess.
 
     // Backport: AVAssetChapterMetadataGroupsDidChangeNotification is 10.10+; nil-check.
     if (NSString *chapterNotifName = AVAssetChapterMetadataGroupsDidChangeNotification)
@@ -2207,7 +1230,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
 #endif
 
     ASSERT(!m_currentTimeObserver);
-    m_currentTimeObserver = [m_avPlayer addPeriodicTimeObserverForInterval:CMTimeMake(1, 10) queue:mainDispatchQueueSingleton() usingBlock:[weakThis = ThreadSafeWeakPtr { *this }, identifier = LOGIDENTIFIER](CMTime cmTime) {
+    m_currentTimeObserver = [m_avPlayer addPeriodicTimeObserverForInterval:PAL::CMTimeMake(1, 10) queue:mainDispatchQueueSingleton() usingBlock:[weakThis = ThreadSafeWeakPtr { *this }, identifier = LOGIDENTIFIER](CMTime cmTime) {
         ensureOnMainThread([weakThis, cmTime, identifier] {
             RefPtr protectedThis = weakThis.get();
             if (!protectedThis)
@@ -2528,10 +1551,6 @@ void MediaPlayerPrivateAVFoundationObjC::platformPlay()
 
     m_requestedPlaying = true;
     setPlayerRate(m_requestedRate);
-#if PLATFORM(MAC)
-    if (m_assetReaderAudioPump)
-        m_assetReaderAudioPump->setPlaying(true);
-#endif
 }
 
 void MediaPlayerPrivateAVFoundationObjC::platformPause()
@@ -2543,10 +1562,6 @@ void MediaPlayerPrivateAVFoundationObjC::platformPause()
 
     m_requestedPlaying = false;
     setPlayerRate(0);
-#if PLATFORM(MAC)
-    if (m_assetReaderAudioPump)
-        m_assetReaderAudioPump->setPlaying(false);
-#endif
 }
 
 bool MediaPlayerPrivateAVFoundationObjC::playAtHostTime(const MonotonicTime& hostTime)
@@ -2695,22 +1710,16 @@ void MediaPlayerPrivateAVFoundationObjC::seekToTargetInternal(const SeekTarget& 
         metadataTrack->flushPartialCues();
 #endif
 
-#if PLATFORM(MAC)
-    // Keep the AVAssetReader audio pump aligned with the seek (the video pump self-corrects from the
-    // currentTime jump in its display tick; audio needs an explicit reader rebuild).
-    if (m_assetReaderAudioPump)
-        m_assetReaderAudioPump->seek(target.time);
-#endif
 
     CMTime cmTime = PAL::toCMTime(target.time);
     CMTime cmBefore = PAL::toCMTime(target.negativeThreshold);
     CMTime cmAfter = PAL::toCMTime(target.positiveThreshold);
 
     // [AVPlayerItem seekToTime] will throw an exception if a tolerance is invalid or negative.
-    if (!CMTIME_IS_VALID(cmBefore) || CMTimeCompare(cmBefore, kCMTimeZero) < 0)
-        cmBefore = kCMTimePositiveInfinity;
-    if (!CMTIME_IS_VALID(cmAfter) || CMTimeCompare(cmAfter, kCMTimeZero) < 0)
-        cmAfter = kCMTimePositiveInfinity;
+    if (!CMTIME_IS_VALID(cmBefore) || PAL::CMTimeCompare(cmBefore, PAL::kCMTimeZero) < 0)
+        cmBefore = PAL::kCMTimePositiveInfinity;
+    if (!CMTIME_IS_VALID(cmAfter) || PAL::CMTimeCompare(cmAfter, PAL::kCMTimeZero) < 0)
+        cmAfter = PAL::kCMTimePositiveInfinity;
 
     ThreadSafeWeakPtr weakThis { *this };
 
@@ -2748,10 +1757,6 @@ void MediaPlayerPrivateAVFoundationObjC::setVolume(float volume)
 
     updateIsAudible();
 
-#if PLATFORM(MAC)
-    if (m_assetReaderAudioPump)
-        m_assetReaderAudioPump->setVolume(volume);
-#endif
 
     if (!m_avPlayer)
         return;
@@ -2771,10 +1776,6 @@ void MediaPlayerPrivateAVFoundationObjC::setMuted(bool muted)
     m_muted = muted;
     updateIsAudible();
 
-#if PLATFORM(MAC)
-    if (m_assetReaderAudioPump)
-        m_assetReaderAudioPump->setMuted(muted);
-#endif
 
     if (!m_avPlayer)
         return;
@@ -2809,9 +1810,9 @@ void MediaPlayerPrivateAVFoundationObjC::setPlayerRate(double rate, std::optiona
     }
 
     if (hostTime) {
-        auto cmHostTime = CMClockMakeHostTimeFromSystemUnits(hostTime->toMachAbsoluteTime());
-        INFO_LOG(LOGIDENTIFIER, "setting rate to ", rate, " at host time ", CMTimeGetSeconds(cmHostTime));
-        [m_avPlayer setRate:rate time:kCMTimeInvalid atHostTime:cmHostTime];
+        auto cmHostTime = PAL::CMClockMakeHostTimeFromSystemUnits(hostTime->toMachAbsoluteTime());
+        INFO_LOG(LOGIDENTIFIER, "setting rate to ", rate, " at host time ", PAL::CMTimeGetSeconds(cmHostTime));
+        [m_avPlayer setRate:rate time:PAL::kCMTimeInvalid atHostTime:cmHostTime];
     } else
         [m_avPlayer setRate:rate];
 
@@ -3028,9 +2029,9 @@ bool MediaPlayerPrivateAVFoundationObjC::trackIsPlayable(AVAssetTrack* track) co
     if (!description)
         return false;
 
-    auto mediaType = CMFormatDescriptionGetMediaType(description.get());
-    auto codecType = FourCC { CMFormatDescriptionGetMediaSubType(description.get()) };
-    switch (CMFormatDescriptionGetMediaType(description.get())) {
+    auto mediaType = PAL::CMFormatDescriptionGetMediaType(description.get());
+    auto codecType = FourCC { PAL::CMFormatDescriptionGetMediaSubType(description.get()) };
+    switch (PAL::CMFormatDescriptionGetMediaType(description.get())) {
     case kCMMediaType_Video: {
         auto& allowedMediaVideoCodecIDs = player->allowedMediaVideoCodecIDs();
         if (allowedMediaVideoCodecIDs && !allowedMediaVideoCodecIDs->contains(codecType)) {
@@ -3185,7 +2186,7 @@ RetainPtr<CGImageRef> MediaPlayerPrivateAVFoundationObjC::createImageForTimeInRe
 
     [m_imageGenerator setMaximumSize:CGSize(rect.size())];
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    RetainPtr rawImage = adoptCF([m_imageGenerator copyCGImageAtTime:CMTimeMakeWithSeconds(time, 600) actualTime:nil error:nil]);
+    RetainPtr rawImage = adoptCF([m_imageGenerator copyCGImageAtTime:PAL::CMTimeMakeWithSeconds(time, 600) actualTime:nil error:nil]);
     RetainPtr image = adoptCF(CGImageCreateCopyWithColorSpace(rawImage.get(), sRGBColorSpaceSingleton()));
 ALLOW_DEPRECATED_DECLARATIONS_END
 
@@ -3373,11 +2374,9 @@ bool MediaPlayerPrivateAVFoundationObjC::shouldWaitForLoadingOfResource(AVAssetR
 #endif
 #endif
 
-    // 10.9 backport: route ordinary media data — our rewritten http/https scheme
-    // (see createAVAssetForURL), plus blob: and data: — through WebKit's network
-    // stack via WebCoreAVFResourceLoader instead of AVFoundation's own (broken on
-    // this OS) HTTP loader.
-    if (scheme.startsWith("webkitstreaming-"_s) || scheme == "blob"_s || scheme == "data"_s) {
+    // 10.9 backport: route blob: and data: media data through WebKit's network
+    // stack via WebCoreAVFResourceLoader.
+    if (scheme == "blob"_s || scheme == "data"_s) {
         ensureAVFResourceLoader(avRequest);
         return true;
     }
@@ -4875,7 +3874,7 @@ void MediaPlayerPrivateAVFoundationObjC::metadataGroupDidArrive(const RetainPtr<
         for (AVMetadataItem *item in group.items) {
             RetainPtr<AVMutableMetadataItem> itemCopy = adoptNS([item mutableCopy]);
             if (!CMTIME_IS_VALID(itemCopy.get().time))
-                itemCopy.get().time = CMTimeMakeWithSeconds(groupStartTime, MediaTime::DefaultTimeScale);
+                itemCopy.get().time = PAL::CMTimeMakeWithSeconds(groupStartTime, MediaTime::DefaultTimeScale);
             if (!CMTIME_IS_VALID(itemCopy.get().duration))
                 itemCopy.get().duration = PAL::toCMTime(groupDuration);
             [groupCopy addObject:itemCopy.get()];
@@ -5495,7 +4494,7 @@ NSArray* playerKVOProperties()
     AVPlayerItem* playerItem = notification.object;
     double currentTime = 0;
     if ([playerItem isKindOfClass:PAL::getAVPlayerItemClassSingleton()])
-        currentTime = CMTimeGetSeconds([playerItem currentTime]);
+        currentTime = PAL::CMTimeGetSeconds([playerItem currentTime]);
 
     ensureOnMainThread([self, currentTime, strongSelf = retainPtr(self)] {
         if (RefPtr player = m_player.get()) {
@@ -5721,12 +4720,10 @@ NSArray* playerKVOProperties()
         return NO;
 
     String scheme = loadingRequest.request.URL.scheme;
-    // 10.9 backport: WebCoreAVFResourceLoader is fully compiled into this build
-    // (the previous "it's stubbed, ensureAVFResourceLoader would dyld-fail" claim
-    // was wrong). Intercept the encrypted-media key schemes, our rewritten media
-    // scheme (see createAVAssetForURL), and blob:/data: media; everything else is
-    // dispatched into shouldWaitForLoadingOfResource below.
-    if (!scheme.startsWith("webkitstreaming-"_s) && scheme != "skd"_s && scheme != "clearkey"_s && scheme != "blob"_s && scheme != "data"_s)
+    // 10.9 backport: WebCoreAVFResourceLoader is fully compiled into this build.
+    // Intercept the encrypted-media key schemes and blob:/data: media; everything
+    // else is dispatched into shouldWaitForLoadingOfResource below.
+    if (scheme != "skd"_s && scheme != "clearkey"_s && scheme != "blob"_s && scheme != "data"_s)
         return NO;
 
     ensureOnMainThread([self, strongSelf = retainPtr(self), loadingRequest = retainPtr(loadingRequest)] mutable {

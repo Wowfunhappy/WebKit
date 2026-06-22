@@ -501,10 +501,10 @@ RefPtr<NativeImage> VideoFrame::copyNativeImage() const
 
 Ref<VideoFrameCV> VideoFrameCV::create(CMSampleBufferRef sampleBuffer, bool isMirrored, Rotation rotation)
 {
-    RetainPtr pixelBuffer = static_cast<CVPixelBufferRef>(CMSampleBufferGetImageBuffer(sampleBuffer));
-    auto timeStamp = CMSampleBufferGetOutputPresentationTimeStamp(sampleBuffer);
+    RetainPtr pixelBuffer = static_cast<CVPixelBufferRef>(PAL::CMSampleBufferGetImageBuffer(sampleBuffer));
+    auto timeStamp = PAL::CMSampleBufferGetOutputPresentationTimeStamp(sampleBuffer);
     if (CMTIME_IS_INVALID(timeStamp))
-        timeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
+        timeStamp = PAL::CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
 
     return VideoFrameCV::create(PAL::toMediaTime(timeStamp), isMirrored, rotation, pixelBuffer.get());
 }

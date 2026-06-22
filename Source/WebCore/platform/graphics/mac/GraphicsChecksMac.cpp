@@ -43,8 +43,10 @@ enum {
 
 static io_connect_t attachToAppleGraphicsControl()
 {
-    // IOMainPort is macOS 12.0+; use 0 (kIOMasterPortDefault) for compatibility
-    mach_port_t mainPort = 0;
+    mach_port_t mainPort;
+
+    if (IOMainPort(MACH_PORT_NULL, &mainPort) != KERN_SUCCESS)
+        return IO_OBJECT_NULL;
 
     RetainPtr classToMatch = adoptCF(IOServiceMatching("AppleGraphicsControl"));
     if (!classToMatch)

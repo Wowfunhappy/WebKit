@@ -21,24 +21,6 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-Modules/mediastream/gstreamer/GStreamerDataChannelHandler.cpp
-Modules/mediastream/gstreamer/GStreamerDtlsTransportBackend.cpp
-Modules/mediastream/gstreamer/GStreamerIceAgent.cpp
-Modules/mediastream/gstreamer/GStreamerIceStream.cpp
-Modules/mediastream/gstreamer/GStreamerIceTransport.cpp
-Modules/mediastream/gstreamer/GStreamerIceTransportBackend.cpp
-Modules/mediastream/gstreamer/GStreamerMediaEndpoint.cpp
-Modules/mediastream/gstreamer/GStreamerPeerConnectionBackend.cpp
-Modules/mediastream/gstreamer/GStreamerRtpReceiverBackend.cpp
-Modules/mediastream/gstreamer/GStreamerRtpReceiverTransformBackend.cpp
-Modules/mediastream/gstreamer/GStreamerRtpSenderBackend.cpp
-Modules/mediastream/gstreamer/GStreamerRtpSenderTransformBackend.cpp
-Modules/mediastream/gstreamer/GStreamerRtpTransceiverBackend.cpp
-Modules/mediastream/gstreamer/GStreamerRtpTransformBackend.cpp
-Modules/mediastream/gstreamer/GStreamerSctpTransportBackend.cpp
-Modules/mediastream/gstreamer/GStreamerStatsCollector.cpp
-Modules/mediastream/gstreamer/GStreamerWebRTCUtils.cpp
-Modules/mediastream/RTCRtpSFrameTransformerOpenSSL.cpp
 
 Modules/webaudio/MediaStreamAudioSourceGStreamer.cpp
 
@@ -128,16 +110,24 @@ platform/gstreamer/WebKitFliteSourceGStreamer.cpp
 
 platform/mediarecorder/MediaRecorderPrivateGStreamer.cpp
 
-platform/mediastream/libwebrtc/gstreamer/GStreamerVideoCommon.cpp
-platform/mediastream/libwebrtc/gstreamer/GStreamerVideoDecoderFactory.cpp
-platform/mediastream/libwebrtc/gstreamer/GStreamerVideoEncoderFactory.cpp
-platform/mediastream/libwebrtc/gstreamer/GStreamerVideoFrameLibWebRTC.cpp
-platform/mediastream/libwebrtc/gstreamer/LibWebRTCProviderGStreamer.cpp
-platform/mediastream/libwebrtc/gstreamer/RealtimeIncomingAudioSourceLibWebRTC.cpp
-platform/mediastream/libwebrtc/gstreamer/RealtimeIncomingVideoSourceLibWebRTC.cpp
-platform/mediastream/libwebrtc/gstreamer/RealtimeOutgoingAudioSourceLibWebRTC.cpp
-platform/mediastream/libwebrtc/gstreamer/RealtimeOutgoingVideoSourceLibWebRTC.cpp
 
+Modules/mediastream/gstreamer/GStreamerDataChannelHandler.cpp
+Modules/mediastream/gstreamer/GStreamerDtlsTransportBackend.cpp
+Modules/mediastream/gstreamer/GStreamerIceAgent.cpp
+Modules/mediastream/gstreamer/GStreamerIceStream.cpp
+Modules/mediastream/gstreamer/GStreamerIceTransport.cpp
+Modules/mediastream/gstreamer/GStreamerIceTransportBackend.cpp
+Modules/mediastream/gstreamer/GStreamerMediaEndpoint.cpp
+Modules/mediastream/gstreamer/GStreamerPeerConnectionBackend.cpp
+Modules/mediastream/gstreamer/GStreamerRtpReceiverBackend.cpp
+Modules/mediastream/gstreamer/GStreamerRtpReceiverTransformBackend.cpp
+Modules/mediastream/gstreamer/GStreamerRtpSenderBackend.cpp
+Modules/mediastream/gstreamer/GStreamerRtpSenderTransformBackend.cpp
+Modules/mediastream/gstreamer/GStreamerRtpTransceiverBackend.cpp
+Modules/mediastream/gstreamer/GStreamerRtpTransformBackend.cpp
+Modules/mediastream/gstreamer/GStreamerSctpTransportBackend.cpp
+Modules/mediastream/gstreamer/GStreamerStatsCollector.cpp
+Modules/mediastream/gstreamer/GStreamerWebRTCUtils.cpp
 platform/mediastream/gstreamer/DesktopPortal.cpp
 platform/mediastream/gstreamer/GStreamerAudioCaptureSource.cpp
 platform/mediastream/gstreamer/GStreamerAudioCapturer.cpp

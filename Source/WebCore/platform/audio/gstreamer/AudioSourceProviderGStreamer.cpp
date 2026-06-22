@@ -30,8 +30,10 @@
 #include <wtf/glib/GThreadSafeWeakPtr.h>
 #include <wtf/text/MakeString.h>
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 #include "GStreamerAudioData.h"
+#endif
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 #include "GStreamerMediaStreamSource.h"
 #include "MediaStreamPrivate.h"
 #endif
@@ -107,7 +109,7 @@ void AudioSourceProviderGStreamer::initialize()
     m_providerId = makeString("webkit-audio-source-provider-"_s, nProvider.exchangeAdd(1)).ascii();
 }
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 AudioSourceProviderGStreamer::AudioSourceProviderGStreamer(MediaStreamTrackPrivate& source)
     : m_captureSource(source)
     , m_notifier(MainThreadNotifier<MainThreadNotification>::create())
@@ -196,7 +198,7 @@ AudioSourceProviderGStreamer::~AudioSourceProviderGStreamer()
     }
 
     setClient(nullptr);
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     if (m_pipeline) {
         disconnectSimpleBusMessageCallback(m_pipeline.get());
         unregisterPipeline(m_pipeline);
@@ -362,7 +364,7 @@ void AudioSourceProviderGStreamer::setClient(WeakPtr<AudioSourceProviderClient>&
 
     m_deinterleaveSourcePads = 0;
     clearAdapters();
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     if (m_pipeline)
         gst_element_set_state(m_pipeline.get(), m_client ? GST_STATE_PLAYING : GST_STATE_NULL);
 #endif

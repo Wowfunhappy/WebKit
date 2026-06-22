@@ -47,11 +47,6 @@
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
-@interface NSWorkspace (WebKitMavericks109)
-- (BOOL)accessibilityDisplayShouldIncreaseContrast;
-- (BOOL)accessibilityDisplayShouldDifferentiateWithoutColor;
-@end
-
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ControlMac);
@@ -66,12 +61,12 @@ ControlMac::~ControlMac() = default;
 
 bool ControlMac::userPrefersContrast()
 {
-    return ([[NSWorkspace sharedWorkspace] respondsToSelector:@selector(accessibilityDisplayShouldIncreaseContrast)] ? [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldIncreaseContrast] : NO);
+    return [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldIncreaseContrast];
 }
 
 bool ControlMac::userPrefersWithoutColorDifferentiation()
 {
-    return ([[NSWorkspace sharedWorkspace] respondsToSelector:@selector(accessibilityDisplayShouldDifferentiateWithoutColor)] ? [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldDifferentiateWithoutColor] : NO);
+    return [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldDifferentiateWithoutColor];
 }
 
 FloatRect ControlMac::inflatedRect(const FloatRect& bounds, const FloatSize& size, const IntOutsets& outsets, const ControlStyle& style)

@@ -115,6 +115,11 @@ private:
     VideoFrameGStreamer(const GRefPtr<GstSample>&, const CreateOptions&, PlatformVideoColorSpace&&);
 
     bool isGStreamer() const final { return true; }
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: see VideoFrame::copyNativeImage(). The shared Cocoa definition (VideoFrameCV)
+    // assumes a CVPixelBuffer; this override converts the decoded GstSample to a CGImage instead.
+    RefPtr<NativeImage> copyNativeImage() const final;
+#endif
     Ref<VideoFrame> clone() final;
 
     GRefPtr<GstSample> convert(GstVideoFormat, const IntSize&);

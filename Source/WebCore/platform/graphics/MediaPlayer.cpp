@@ -317,6 +317,12 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
         registerRemoteEngine(addMediaEngine, MediaPlayerEnums::MediaEngineIdentifier::MockMSE);
 #endif
 
+    // MAVERICKS_BACKPORT: the AVFoundation media engines (player, MSE, MediaStream) are retired on this
+    // port — GStreamer is the sole media stack (registered below). Gating their registration off means
+    // <video>/<audio>, MSE, and MediaStream all resolve to the GStreamer engine. The AVFoundation media
+    // sources stay compiled (upstream, dead) so non-media AVFoundation users (image decode, capture
+    // utilities) keep their shared helpers.
+#if !USE(GSTREAMER)
     if (DeprecatedGlobalSettings::isAVFoundationEnabled()) {
         if (registerRemoteEngine)
             registerRemoteEngine(addMediaEngine, MediaPlayerEnums::MediaEngineIdentifier::AVFoundation);
@@ -343,6 +349,7 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
         MediaPlayerPrivateMediaStreamAVFObjC::registerMediaEngine(addMediaEngine);
 #endif
     }
+#endif // !USE(GSTREAMER)
 #endif // USE(AVFOUNDATION)
 
 #if USE(GSTREAMER)

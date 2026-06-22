@@ -20,7 +20,9 @@
 #include "config.h"
 #include "AudioFileReader.h"
 
-#if ENABLE(WEB_AUDIO)
+// MAVERICKS_BACKPORT: Cocoa Web Audio decodeAudioData uses AudioFileReaderCocoa (custom ExtAudioFile decoder;
+// see task #100). Compiling this GStreamer reader too duplicates WebCore::createBusFromInMemoryAudioFile.
+#if ENABLE(WEB_AUDIO) && !PLATFORM(COCOA)
 
 #include "AudioBus.h"
 #include "GStreamerCommon.h"

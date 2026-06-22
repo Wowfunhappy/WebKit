@@ -420,7 +420,10 @@ DisplayCaptureFactory& RealtimeMediaSourceCenter::displayCaptureFactory()
     return m_displayCaptureFactoryOverride ? *m_displayCaptureFactoryOverride : defaultDisplayCaptureFactory();
 }
 
-#if !PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: the Cocoa override (RealtimeMediaSourceCenterMac.mm) is excluded on this port via
+// !USE(GSTREAMER_MEDIA_STREAM) (GStreamer is the only capture backend). Compile the default fallback here
+// for the Cocoa+GStreamer build so the symbol is defined.
+#if !PLATFORM(COCOA) || USE(GSTREAMER_MEDIA_STREAM)
 bool RealtimeMediaSourceCenter::shouldInterruptAudioOnPageVisibilityChange()
 {
     return false;

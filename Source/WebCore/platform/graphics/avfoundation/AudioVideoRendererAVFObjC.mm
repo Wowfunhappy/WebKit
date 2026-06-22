@@ -39,17 +39,17 @@ AudioVideoRendererAVFObjC::AudioVideoRendererAVFObjC(Ref<const Logger>&& logger,
     AVR_BISECT("ctor ENTRY");
     CMTimebaseRef timebase = nullptr;
     AVR_BISECT("ctor: CMClockGetHostTimeClock() about to call");
-    CMClockRef hostClock = CMClockGetHostTimeClock();
+    CMClockRef hostClock = PAL::CMClockGetHostTimeClock();
     AVR_BISECT("ctor: hostClock=%p", hostClock);
     AVR_BISECT("ctor: CMTimebaseCreateWithMasterClock about to call");
-    OSStatus tbStatus = CMTimebaseCreateWithMasterClock(kCFAllocatorDefault, hostClock, &timebase);
+    OSStatus tbStatus = PAL::CMTimebaseCreateWithMasterClock(kCFAllocatorDefault, hostClock, &timebase);
     AVR_BISECT("ctor: CMTimebaseCreateWithMasterClock status=%d timebase=%p", (int)tbStatus, timebase);
     m_timebase = adoptCF(timebase);
     if (m_timebase) {
         AVR_BISECT("ctor: CMTimebaseSetRate(0)");
-        CMTimebaseSetRate(m_timebase.get(), 0);
+        PAL::CMTimebaseSetRate(m_timebase.get(), 0);
         AVR_BISECT("ctor: CMTimebaseSetTime(kCMTimeZero)");
-        CMTimebaseSetTime(m_timebase.get(), kCMTimeZero);
+        PAL::CMTimebaseSetTime(m_timebase.get(), PAL::kCMTimeZero);
     }
     AVR_BISECT("ctor: ensureDisplayLayer");
     ensureDisplayLayer();
@@ -183,7 +183,7 @@ void AudioVideoRendererAVFObjC::updateTimebaseRate()
     double effective = m_paused ? 0 : m_rate;
     AVR_BISECT("updateTimebaseRate: paused=%d rate=%g -> effective=%g hasTimebase=%d", m_paused, m_rate, effective, !!m_timebase);
     if (m_timebase)
-        CMTimebaseSetRate(m_timebase.get(), effective);
+        PAL::CMTimebaseSetRate(m_timebase.get(), effective);
     // Drive the AudioQueue alongside the video timebase.
     if (m_audioQueue) {
         if (m_paused || !m_rate) {
@@ -210,7 +210,7 @@ Ref<MediaTimePromise> AudioVideoRendererAVFObjC::seekTo(const MediaTime& time)
     bool needFlush = !m_seekFlushedFor || *m_seekFlushedFor != time;
     AVR_BISECT("seekTo: %.3f needFlush=%d", time.toDouble(), needFlush);
     if (m_timebase)
-        CMTimebaseSetTime(m_timebase.get(), PAL::toCMTime(time));
+        PAL::CMTimebaseSetTime(m_timebase.get(), PAL::toCMTime(time));
     if (needFlush) {
         // First seekTo for this target: drop stale decoded video + queued audio, then ask the player to
         // re-enqueue samples from the seek keyframe. Rejecting with RequiresFlushToResume is what drives
@@ -258,8 +258,8 @@ void AudioVideoRendererAVFObjC::removeTrack(TrackIdentifier id)
 
 void AudioVideoRendererAVFObjC::maybeReportSizeAndFirstFrame(CMSampleBufferRef sampleBuffer)
 {
-    if (CMFormatDescriptionRef description = CMSampleBufferGetFormatDescription(sampleBuffer)) {
-        CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(description);
+    if (CMFormatDescriptionRef description = PAL::CMSampleBufferGetFormatDescription(sampleBuffer)) {
+        CMVideoDimensions dimensions = PAL::CMVideoFormatDescriptionGetDimensions(description);
         FloatSize size(dimensions.width, dimensions.height);
         AVR_BISECT("maybeReportSizeAndFirstFrame: dims=%dx%d cur=%gx%g hasCb=%d", dimensions.width, dimensions.height, m_naturalSize.width(), m_naturalSize.height(), !!m_sizeChangedCallback);
         if (!size.isEmpty() && size != m_naturalSize) {
@@ -336,10 +336,10 @@ void AudioVideoRendererAVFObjC::onDecodedFrame(CVPixelBufferRef pixelBuffer, con
 
 void AudioVideoRendererAVFObjC::ensureDecompressionSession(CMSampleBufferRef sampleBuffer)
 {
-    CMFormatDescriptionRef format = CMSampleBufferGetFormatDescription(sampleBuffer);
+    CMFormatDescriptionRef format = PAL::CMSampleBufferGetFormatDescription(sampleBuffer);
     if (!format)
         return;
-    if (m_decompressionSession && m_decompressionFormat && CMFormatDescriptionEqual(m_decompressionFormat.get(), format))
+    if (m_decompressionSession && m_decompressionFormat && PAL::CMFormatDescriptionEqual(m_decompressionFormat.get(), format))
         return;
     teardownDecompressionSession();
 
@@ -454,10 +454,10 @@ void AudioVideoRendererAVFObjC::ensureAudioQueue(CMSampleBufferRef sampleBuffer)
         AVR_BISECT("ensureAudioQueue: early-out queue=%p failed=%d", m_audioQueue, m_audioQueueFailed);
         return;
     }
-    CMFormatDescriptionRef fmt = CMSampleBufferGetFormatDescription(sampleBuffer);
+    CMFormatDescriptionRef fmt = PAL::CMSampleBufferGetFormatDescription(sampleBuffer);
     if (!fmt) { AVR_BISECT("ensureAudioQueue: NO format description on audio sample"); m_audioQueueFailed = true; return; }
-    CMMediaType mt = CMFormatDescriptionGetMediaType(fmt);
-    const AudioStreamBasicDescription* srcAsbd = CMAudioFormatDescriptionGetStreamBasicDescription(fmt);
+    CMMediaType mt = PAL::CMFormatDescriptionGetMediaType(fmt);
+    const AudioStreamBasicDescription* srcAsbd = PAL::CMAudioFormatDescriptionGetStreamBasicDescription(fmt);
     AVR_BISECT("ensureAudioQueue: fmt mediaType=%c%c%c%c asbd=%p", (char)(mt>>24),(char)(mt>>16),(char)(mt>>8),(char)mt, srcAsbd);
     if (!srcAsbd) { AVR_BISECT("ensureAudioQueue: NO asbd (not an audio format description?)"); m_audioQueueFailed = true; return; }
 
@@ -509,13 +509,13 @@ void AudioVideoRendererAVFObjC::enqueueAudioSample(CMSampleBufferRef sampleBuffe
         AVR_BISECT("enqueueAudioSample: no audio queue after ensure (failed=%d)", m_audioQueueFailed);
         return;
     }
-    CMBlockBufferRef bb = CMSampleBufferGetDataBuffer(sampleBuffer);
+    CMBlockBufferRef bb = PAL::CMSampleBufferGetDataBuffer(sampleBuffer);
     if (!bb)
         return;
-    size_t totalLen = CMBlockBufferGetDataLength(bb);
+    size_t totalLen = PAL::CMBlockBufferGetDataLength(bb);
     if (!totalLen)
         return;
-    CMItemCount numPackets = CMSampleBufferGetNumSamples(sampleBuffer);
+    CMItemCount numPackets = PAL::CMSampleBufferGetNumSamples(sampleBuffer);
     if (numPackets < 1)
         numPackets = 1;
 
@@ -523,7 +523,7 @@ void AudioVideoRendererAVFObjC::enqueueAudioSample(CMSampleBufferRef sampleBuffe
     OSStatus st = AudioQueueAllocateBufferWithPacketDescriptions(m_audioQueue, static_cast<UInt32>(totalLen), static_cast<UInt32>(numPackets), &aqBuf);
     if (st != noErr || !aqBuf)
         return;
-    if (CMBlockBufferCopyDataBytes(bb, 0, totalLen, aqBuf->mAudioData) != kCMBlockBufferNoErr) {
+    if (PAL::CMBlockBufferCopyDataBytes(bb, 0, totalLen, aqBuf->mAudioData) != kCMBlockBufferNoErr) {
         AudioQueueFreeBuffer(m_audioQueue, aqBuf);
         return;
     }
@@ -532,7 +532,7 @@ void AudioVideoRendererAVFObjC::enqueueAudioSample(CMSampleBufferRef sampleBuffe
     // Per-packet (AAC frame) byte sizes → AudioStreamPacketDescription array.
     Vector<size_t> sizes(static_cast<size_t>(numPackets), 0);
     CMItemCount sizeArrayEntries = 0;
-    if (CMSampleBufferGetSampleSizeArray(sampleBuffer, numPackets, sizes.mutableSpan().data(), &sizeArrayEntries) != noErr)
+    if (PAL::CMSampleBufferGetSampleSizeArray(sampleBuffer, numPackets, sizes.mutableSpan().data(), &sizeArrayEntries) != noErr)
         sizeArrayEntries = 0;
     size_t offset = 0;
     UInt32 descCount = 0;
@@ -585,9 +585,9 @@ void AudioVideoRendererAVFObjC::decodeAndQueue(CMSampleBufferRef sampleBuffer)
         AVR_BISECT("decodeAndQueue: no session, bailing");
         return;
     }
-    CMFormatDescriptionRef fmt = CMSampleBufferGetFormatDescription(sampleBuffer);
-    CMBlockBufferRef bb = CMSampleBufferGetDataBuffer(sampleBuffer);
-    CMItemCount nSamples = CMSampleBufferGetNumSamples(sampleBuffer);
+    CMFormatDescriptionRef fmt = PAL::CMSampleBufferGetFormatDescription(sampleBuffer);
+    CMBlockBufferRef bb = PAL::CMSampleBufferGetDataBuffer(sampleBuffer);
+    CMItemCount nSamples = PAL::CMSampleBufferGetNumSamples(sampleBuffer);
     if (!fmt || !bb || nSamples < 1) {
         AVR_BISECT("decodeAndQueue: missing fmt/bb/samples (n=%ld)", (long)nSamples);
         return;
@@ -606,7 +606,7 @@ void AudioVideoRendererAVFObjC::decodeAndQueue(CMSampleBufferRef sampleBuffer)
             break;
         }
         CMSampleTimingInfo timing;
-        if (CMSampleBufferGetSampleTimingInfo(sampleBuffer, i, &timing) != noErr)
+        if (PAL::CMSampleBufferGetSampleTimingInfo(sampleBuffer, i, &timing) != noErr)
             timing = kCMTimingInfoInvalid;
 
         CMBlockBufferRef sub = nullptr;
@@ -618,12 +618,12 @@ void AudioVideoRendererAVFObjC::decodeAndQueue(CMSampleBufferRef sampleBuffer)
         }
         if (i == 0) {
             uint8_t head[8] = { 0 };
-            CMBlockBufferCopyDataBytes(sub, 0, 8, head);
+            PAL::CMBlockBufferCopyDataBytes(sub, 0, 8, head);
             AVR_BISECT("decodeAndQueue: sample0 size=%zu head=%02x%02x%02x%02x %02x%02x%02x%02x", sampleSize, head[0],head[1],head[2],head[3],head[4],head[5],head[6],head[7]);
         }
         CMSampleBufferRef one = nullptr;
         size_t oneSize = sampleSize;
-        OSStatus sbStatus = CMSampleBufferCreate(kCFAllocatorDefault, sub, true, nullptr, nullptr, fmt, 1, 1, &timing, 1, &oneSize, &one);
+        OSStatus sbStatus = PAL::CMSampleBufferCreate(kCFAllocatorDefault, sub, true, nullptr, nullptr, fmt, 1, 1, &timing, 1, &oneSize, &one);
         CFRelease(sub);
         if (sbStatus != noErr || !one) {
             AVR_BISECT("decodeAndQueue: single-sample CMSampleBufferCreate failed st=%d", (int)sbStatus);
@@ -631,7 +631,7 @@ void AudioVideoRendererAVFObjC::decodeAndQueue(CMSampleBufferRef sampleBuffer)
         }
         if (i == 0) {
             uint8_t head[8] = { 0 };
-            CMBlockBufferCopyDataBytes(sub ? sub : bb, 0, 8, head);
+            PAL::CMBlockBufferCopyDataBytes(sub ? sub : bb, 0, 8, head);
             AVR_BISECT("decodeAndQueue: sample0 size=%zu head=%02x%02x%02x%02x %02x%02x%02x%02x", sampleSize, head[0],head[1],head[2],head[3],head[4],head[5],head[6],head[7]);
         }
         VTDecodeInfoFlags infoFlags = 0;
@@ -675,7 +675,7 @@ MediaTime AudioVideoRendererAVFObjC::currentTime() const
 {
     if (!m_timebase)
         return MediaTime::zeroTime();
-    return PAL::toMediaTime(CMTimebaseGetTime(m_timebase.get()));
+    return PAL::toMediaTime(PAL::CMTimebaseGetTime(m_timebase.get()));
 }
 
 void AudioVideoRendererAVFObjC::flush()

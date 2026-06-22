@@ -343,15 +343,6 @@ void WebCoreAVFResourceLoader::startLoading()
     ResourceRequest request(nsRequest.get());
     request.setPriority(ResourceLoadPriority::Low);
 
-    // 10.9 backport: MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL
-    // rewrote http/https media URLs to a "webkitstreaming-" scheme to force
-    // AVFoundation to delegate loading to us. Strip that prefix so the real load
-    // targets the actual origin.
-    if (request.url().protocol().startsWith("webkitstreaming-"_s)) {
-        String realURL = request.url().string();
-        request.setURL(URL { realURL.substring(sizeof("webkitstreaming-") - 1) });
-    }
-
     m_loadStartTime = MonotonicTime::now();
 
     RetainPtr<AVAssetResourceLoadingDataRequest> dataRequest = [m_avRequest dataRequest];

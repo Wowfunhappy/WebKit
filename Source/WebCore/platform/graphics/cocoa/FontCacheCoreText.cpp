@@ -782,17 +782,8 @@ static RetainPtr<CTFontRef> lookupFallbackFont(CTFontRef font, FontSelectionValu
 
     CFIndex coveredLength = 0;
     auto upconvertedCharacters = characterCluster.upconvertedCharacters();
-    // 10.9 backport: CTFontCreateForCharactersWithLanguageAndOption does not exist in 10.9's
-    // CoreText and its libpolyfill stub returns NULL for every input — this broke ALL font
-    // fallback, so any character not in the page's primary font (emoji, CJK/Japanese/Korean,
-    // symbols, arrows, math, etc.) rendered as .notdef tofu boxes. The classic
-    // CTFontCreateForCharactersWithLanguage IS present on 10.9 and returns correct fonts
-    // (verified: U+1F600 -> Apple Color Emoji, U+4E2D -> Heiti SC, U+2192 -> Lucida Grande).
-    // The dropped fallbackOption only restricted fallback to system (non-user-installed) fonts
-    // for sandbox/anti-fingerprinting; on 10.9 the historical behavior of allowing all installed
-    // fonts in fallback is acceptable and is vastly preferable to no fallback at all.
-    UNUSED_PARAM(allowUserInstalledFonts);
-    auto result = adoptCF(CTFontCreateForCharactersWithLanguage(font, reinterpret_cast<const UTF16Char*>(upconvertedCharacters.get()), characterCluster.length(), localeString.get(), &coveredLength));
+    auto fallbackOption = allowUserInstalledFonts == AllowUserInstalledFonts::No ? kCTFontFallbackOptionSystem : kCTFontFallbackOptionDefault;
+    auto result = adoptCF(CTFontCreateForCharactersWithLanguageAndOption(font, reinterpret_cast<const UTF16Char*>(upconvertedCharacters.get()), characterCluster.length(), localeString.get(), fallbackOption, &coveredLength));
     ASSERT(!isUserInstalledFont(result.get()) || allowUserInstalledFonts == AllowUserInstalledFonts::Yes);
 
 #if PLATFORM(IOS_FAMILY)
@@ -1031,9 +1022,7 @@ void FontCache::prewarm(PrewarmInformation&& prewarmInformation)
                 CFIndex coveredLength = 0;
                 UniChar character = ' ';
 
-                // 10.9 backport: see lookupFallbackFont — the AndOption variant is a null-returning
-                // polyfill stub on 10.9; use the classic CTFontCreateForCharactersWithLanguage.
-                auto fallbackWarmingFont = adoptCF(CTFontCreateForCharactersWithLanguage(warmingFont.get(), &character, 1, nullptr, &coveredLength));
+                auto fallbackWarmingFont = adoptCF(CTFontCreateForCharactersWithLanguageAndOption(warmingFont.get(), &character, 1, nullptr, kCTFontFallbackOptionSystem, &coveredLength));
             }
         }
     });

@@ -191,7 +191,7 @@ void AudioSampleDataSource::pushSamples(const AudioStreamBasicDescription& sampl
     WebAudioBufferList list(*m_inputDescription, sampleBuffer);
     // 10.9 backport: this tree calls the CoreMedia CMSampleBuffer* accessors globally
     // (they are not PAL-softlinked here, unlike upstream); only toMediaTime lives in PAL.
-    pushSamplesInternal(list, PAL::toMediaTime(CMSampleBufferGetPresentationTimeStamp(sampleBuffer)), CMSampleBufferGetNumSamples(sampleBuffer), NeedsFlush::No);
+    pushSamplesInternal(list, PAL::toMediaTime(PAL::CMSampleBufferGetPresentationTimeStamp(sampleBuffer)), PAL::CMSampleBufferGetNumSamples(sampleBuffer), NeedsFlush::No);
 }
 
 void AudioSampleDataSource::pushSamples(const MediaTime& sampleTime, const PlatformAudioData& audioData, size_t sampleCount, NeedsFlush needsFlush)

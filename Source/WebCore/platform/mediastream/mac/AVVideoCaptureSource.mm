@@ -918,8 +918,8 @@ static bool isFrameRateMatching(double frameRate, AVCaptureDevice* device)
     if (CMTIME_IS_INVALID(activeVideoMinFrameDuration) || CMTIME_IS_INVALID(activeVideoMaxFrameDuration))
         return false;
 
-    auto frameDuration = CMTimeMake(1, frameRate);
-    return CMTimeCompare(frameDuration, activeVideoMinFrameDuration) >= 0 && CMTimeCompare(frameDuration, activeVideoMaxFrameDuration) <= 0;
+    auto frameDuration = PAL::CMTimeMake(1, frameRate);
+    return PAL::CMTimeCompare(frameDuration, activeVideoMinFrameDuration) >= 0 && PAL::CMTimeCompare(frameDuration, activeVideoMaxFrameDuration) <= 0;
 }
 
 bool AVVideoCaptureSource::areSettingsMatching() const
@@ -975,10 +975,10 @@ void AVVideoCaptureSource::setSessionSizeFrameRateAndZoom()
         if (frameRateRange) {
             m_currentFrameRate = clampTo(m_currentFrameRate, frameRateRange.minFrameRate, frameRateRange.maxFrameRate);
 
-            auto frameDuration = CMTimeMake(1, m_currentFrameRate);
-            if (CMTimeCompare(frameDuration, frameRateRange.minFrameDuration) < 0)
+            auto frameDuration = PAL::CMTimeMake(1, m_currentFrameRate);
+            if (PAL::CMTimeCompare(frameDuration, frameRateRange.minFrameDuration) < 0)
                 frameDuration = frameRateRange.minFrameDuration;
-            else if (CMTimeCompare(frameDuration, frameRateRange.maxFrameDuration) > 0)
+            else if (PAL::CMTimeCompare(frameDuration, frameRateRange.maxFrameDuration) > 0)
                 frameDuration = frameRateRange.maxFrameDuration;
 
             ALWAYS_LOG_IF_POSSIBLE(LOGIDENTIFIER, "setting frame rate to ", m_currentFrameRate, ", duration ", PAL::toMediaTime(frameDuration));
@@ -1429,7 +1429,7 @@ void AVVideoCaptureSource::generatePresets()
     Vector<VideoPreset> presets;
     for (AVCaptureDeviceFormat* format in [device() formats]) {
 
-        CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription);
+        CMVideoDimensions dimensions = PAL::CMVideoFormatDescriptionGetDimensions(format.formatDescription);
         IntSize size = { dimensions.width, dimensions.height };
         auto index = presets.findIf([&size](auto& preset) {
             return size == preset.size();
