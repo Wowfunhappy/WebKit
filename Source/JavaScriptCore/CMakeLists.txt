@@ -1758,6 +1758,15 @@ if (APPLE)
     # blow past libobjc's _read_images limit. Using PRIVATE/target_link_options
     # so it doesn't leak into downstream targets.
     target_link_options(JavaScriptCore PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_classes.a")
+    # These two are pulled in via raw -Wl flags in target_link_options, which ninja does NOT treat
+    # as link inputs — so regenerating them (build-polyfill.sh) would leave JavaScriptCore linked
+    # against STALE copies and the injected methods / compat shims would silently not take effect
+    # (forcing a manual rm of the binary). LINK_DEPENDS makes them real link inputs so JSC relinks
+    # automatically when they change. (libpolyfill.a does NOT need this: it is linked by full path
+    # via link_libraries in OptionsMac, which CMake already tracks as a link dependency.)
+    set_property(TARGET JavaScriptCore APPEND PROPERTY LINK_DEPENDS
+        "${MAVERICKS_SUPPORT}/polyfill/build/libwtf_compat.a"
+        "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_classes.a")
 endif ()
 
 target_precompile_headers(JavaScriptCore PRIVATE JavaScriptCorePrefix.h)
