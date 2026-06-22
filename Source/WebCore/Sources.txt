@@ -1482,6 +1482,7 @@ editing/SplitTextNodeContainingElementCommand.cpp
 editing/TextCheckingHelper.cpp
 editing/TextInsertionBaseCommand.cpp
 editing/TextIterator.cpp
+editing/TextListParser.cpp @no-unify
 editing/TextManipulationController.cpp
 editing/TypingCommand.cpp
 editing/UnlinkCommand.cpp
