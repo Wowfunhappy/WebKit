@@ -3,6 +3,23 @@
 // real 4478-line wrapper is coupled to AXIsolatedTree/AXSearchManager/AXLiveRegionManager (compiled out by
 // that flag), so it won't link; gut it to an empty wrapper class. Feature-disable, not an SDK gap.
 #import "config.h"
+#import "SimpleRange.h"
+#import <pal/spi/mac/HIServicesSPI.h>
 #import <Foundation/Foundation.h>
 @interface WebAccessibilityObjectWrapper : NSObject @end
 @implementation WebAccessibilityObjectWrapper @end
+
+namespace WebCore {
+
+class AXObjectCache;
+
+// MAVERICKS_BACKPORT: the real rangeForTextMarkerRange lives in the gutted 4478-line wrapper above. Provide
+// a graceful stub so the symbol resolves — AccessibilityObjectCocoa.mm's attributedStringForTextMarkerRange
+// (the VoiceOver "read text" path) calls it. With the AX wrapper disabled it yields no range, so the
+// attributed string is nil (AX degrades gracefully) instead of a dyld-halt on the undefined symbol.
+std::optional<SimpleRange> rangeForTextMarkerRange(AXObjectCache*, AXTextMarkerRangeRef)
+{
+    return std::nullopt;
+}
+
+} // namespace WebCore
