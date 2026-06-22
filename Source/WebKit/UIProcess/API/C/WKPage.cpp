@@ -1570,6 +1570,21 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
                 return;
             }
 
+            // 10.9 / Safari-7 backport: the same V0 (no canShowMIMEType) handler ALSO mis-decides
+            // NON-displayable MAIN-FRAME responses — Safari 7 ignores them (cancelling the load and
+            // leaving the previous page) instead of downloading. So navigating to a .zip / installer /
+            // application-octet-stream does nothing. WebKit already knows the response can't be displayed,
+            // so download it directly via the listener (the proper UIProcess trigger that sets up the
+            // DownloadProxy). The App Store MZStore case above is a DISPLAYABLE main-frame response
+            // (canShowMIMEType==true), so it is unaffected and still reaches the V0 callback. Displayable
+            // responses (HTML/images/media/PDF — PDF is canShowMIMEType==true and force-downloaded later)
+            // are unaffected; the non-deprecated V1 callback gets canShowMIMEType and is left alone.
+            if (!canShowMIMEType && frame.isMainFrame() && resourceRequest.url().protocolIsInHTTPFamily()
+                && m_client.decidePolicyForResponse_deprecatedForUseWithV0 && !m_client.decidePolicyForResponse) {
+                listener->download();
+                return;
+            }
+
             Ref<API::URLResponse> response = API::URLResponse::create(resourceResponse);
             Ref<API::URLRequest> request = API::URLRequest::create(resourceRequest);
 
