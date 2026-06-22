@@ -31,5 +31,5 @@
 DECLARE_SYSTEM_HEADER
 
 @interface NSObject (PrivateKVOMethods)
-- (void)_notifyObserversOfChangeFromValuesForKeys:(NSDictionary *)oldValues toValuesForKeys:(NSDictionary *)newValues;
+- (void)_notifyObserversOfChangeFromValuesForKeys:(NSDictionary<NSString *, id> *)oldValues toValuesForKeys:(NSDictionary<NSString *, id> *)newValues;
 @end

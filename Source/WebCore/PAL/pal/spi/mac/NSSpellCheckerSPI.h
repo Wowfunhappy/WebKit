@@ -52,12 +52,12 @@ extern NSString *NSTextCompletionAttributeName;
 
 #if HAVE(INLINE_PREDICTIONS)
 @property (class, readonly, getter=isAutomaticInlineCompletionEnabled) BOOL automaticInlineCompletionEnabled;
-- (NSTextCheckingResult *)completionCandidateFromCandidates:(NSArray *)candidates;
+- (NSTextCheckingResult *)completionCandidateFromCandidates:(NSArray<NSTextCheckingResult *> *)candidates;
 - (void)showCompletionForCandidate:(NSTextCheckingResult *)candidate selectedRange:(NSRange)selectedRange offset:(NSUInteger)offset inString:(NSString *)string rect:(NSRect)rect view:(NSView *)view completionHandler:(void (^)(NSDictionary *resultDictionary))completionBlock;
 - (void)showCompletionForCandidate:(NSTextCheckingResult *)candidate selectedRange:(NSRange)selectedRange offset:(NSUInteger)offset inString:(NSString *)string rect:(NSRect)rect view:(NSView *)view client:(id <NSTextInputClient>)client completionHandler:(void (^)(NSDictionary *resultDictionary))completionBlock;
 #endif
 
-- (NSInteger)requestGrammarCheckingOfString:(NSString *)stringToCheck range:(NSRange)range language:(NSString *)language options:(NSDictionary *)options completionHandler:(void (^)(NSInteger sequenceNumber, NSArray *results))completionHandler;
+- (NSInteger)requestGrammarCheckingOfString:(NSString *)stringToCheck range:(NSRange)range language:(NSString *)language options:(NSDictionary<NSString *, id> *)options completionHandler:(void (^)(NSInteger sequenceNumber, NSArray<NSTextCheckingResult *> *results))completionHandler;
 - (NSString *)languageForWordRange:(NSRange)range inString:(NSString *)string orthography:(NSOrthography *)orthography;
 - (BOOL)deletesAutospaceBeforeString:(NSString *)string language:(NSString *)language;
 - (void)_preflightChosenSpellServer;

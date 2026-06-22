@@ -51,7 +51,7 @@ DECLARE_SYSTEM_HEADER
 @end
 
 @interface NSAdaptiveImageGlyph ()
-@property (readonly) NSArray *strikes;
+@property (readonly) NSArray<NSEmojiImageStrike *> *strikes;
 @end
 
 #endif // ENABLE(MULTI_REPRESENTATION_HEIC)

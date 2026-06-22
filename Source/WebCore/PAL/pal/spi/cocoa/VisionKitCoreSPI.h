@@ -162,7 +162,7 @@ typedef NS_ENUM(NSInteger, VKImageOrientation) {
 @end
 
 @interface VKWKLineInfo : VKWKTextInfo
-@property (nonatomic, readonly) NSArray *children;
+@property (nonatomic, readonly) NSArray<VKWKTextInfo *> *children;
 @property (nonatomic, readonly) BOOL shouldWrap;
 @end
 
@@ -170,17 +170,17 @@ typedef NS_ENUM(NSInteger, VKImageOrientation) {
 
 @interface VKWKDataDetectorInfo : NSObject
 @property (nonatomic, readonly) DDScannerResult *result;
-@property (nonatomic, readonly) NSArray *boundingQuads;
+@property (nonatomic, readonly) NSArray<VKQuad *> *boundingQuads;
 @end
 
 @interface VKImageAnalysis (WebKitSPI)
-@property (nonatomic, readonly) NSArray *allLines;
-@property (nonatomic, readonly) NSArray *textDataDetectors;
+@property (nonatomic, readonly) NSArray<VKWKLineInfo *> *allLines;
+@property (nonatomic, readonly) NSArray<VKWKDataDetectorInfo *> *textDataDetectors;
 #if HAVE(VK_IMAGE_ANALYSIS_FOR_MACHINE_READABLE_CODES)
 @property (nonatomic) UIMenu *mrcMenu;
 @property (nonatomic, nullable, weak) UIViewController *presentingViewControllerForMrcAction;
 @property (nonatomic) CGRect rectForMrcActionInPresentingViewController;
-@property (nonatomic, readonly) NSArray *barcodeActions;
+@property (nonatomic, readonly) NSArray<BCSAction *> *barcodeActions;
 #endif
 @end
 
@@ -213,7 +213,7 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 @interface VKCImageAnalysisTranslation : NSObject
-@property (nonatomic, readonly) NSArray *paragraphs;
+@property (nonatomic, readonly) NSArray<VKCTranslatedParagraph *> *paragraphs;
 @end
 
 NS_ASSUME_NONNULL_END
@@ -298,7 +298,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface VKCImageAnalyzer : NSObject
 @property (nonatomic, strong, nullable) dispatch_queue_t callbackQueue;
-@property (nonatomic, class, readonly) NSArray *supportedRecognitionLanguages;
+@property (nonatomic, class, readonly) NSArray<NSString *> *supportedRecognitionLanguages;
 - (void)cancelAllRequests;
 - (void)cancelRequestID:(VKImageAnalysisRequestID)requestID;
 - (VKImageAnalysisRequestID)processRequest:(VKCImageAnalyzerRequest *)request progressHandler:(void (^_Nullable)(double progress))progressHandler completionHandler:(void (^)(VKCImageAnalysis* _Nullable analysis, NSError * _Nullable error))completionHandler;
