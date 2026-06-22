@@ -236,7 +236,14 @@ list(APPEND PAL_SOURCES
     cocoa/AVFoundationSoftLink.mm
     cocoa/CoreMLSoftLink.mm
     cocoa/CoreMaterialSoftLink.mm
+    # MAVERICKS_BACKPORT: absent from upstream PAL cmake list; defines PAL::get_Contacts_* / CN* class
+    # soft-link singletons referenced by WebKit's CoreIPCContacts.mm (HAVE(CONTACTS)).
+    cocoa/ContactsSoftLink.mm
     cocoa/CoreTelephonySoftLink.mm
+    # MAVERICKS_BACKPORT: absent from upstream PAL cmake list; define PAL::setEnhancedSecurityEnabledForCurrentProcess
+    # and PAL::setLockdownModeEnabledForCurrentProcess referenced by WebKit process bootstrap.
+    cocoa/EnhancedSecurityCocoa.mm
+    cocoa/LockdownModeCocoa.mm
     cocoa/CryptoKitPrivateSoftLink.mm
     cocoa/DataDetectorsCoreSoftLink.mm
     cocoa/FileSizeFormatterCocoa.mm
@@ -251,6 +258,12 @@ list(APPEND PAL_SOURCES
     cocoa/SpeechSoftLink.mm
     cocoa/TranslationUIServicesSoftLink.mm
     cocoa/UsageTrackingSoftLink.mm
+    # MAVERICKS_BACKPORT: absent from upstream PAL cmake list; defines the PAL::getAXCustomContentClassSingleton
+    # Accessibility soft-link accessor referenced by accessibility/mac/WebAccessibilityObjectWrapperBase.mm.
+    cocoa/AccessibilitySoftLink.mm
+    # MAVERICKS_BACKPORT: absent from upstream PAL cmake list; defines PAL::VisionLibrary /
+    # PAL::getVN*Singleton soft-link helpers referenced by ImageAnalysisUtilities.mm + ShapeDetection.
+    cocoa/VisionSoftLink.mm
     cocoa/VisionKitCoreSoftLink.mm
     cocoa/WebPrivacySoftLink.mm
     cocoa/WritingToolsUISoftLink.mm

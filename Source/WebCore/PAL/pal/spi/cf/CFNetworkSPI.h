@@ -617,7 +617,7 @@ WTF_EXTERN_C_END
 
 @interface NSHTTPCookieStorage ()
 + (void)_setSharedHTTPCookieStorage:(NSHTTPCookieStorage *)storage;
-- (void)_setSubscribedDomainsForCookieChanges:(NSSet ** __nullable)domainList;
+- (void)_setSubscribedDomainsForCookieChanges:(NSSet<NSString*>* __nullable)domainList;
 - (NSArray* __nullable)_getCookiesForDomain:(NSString*)domain;
 - (void)_setCookiesChangedHandler:(void(^__nullable)(NSArray * addedCookies, NSString* domainForChangedCookie))cookiesChangedHandler onQueue:(dispatch_queue_t __nullable)queue;
 - (void)_setCookiesRemovedHandler:(void(^__nullable)(NSArray * __nullable removedCookies, NSString* __nullable domainForRemovedCookies, bool removeAllCookies))cookiesRemovedHandler onQueue:(dispatch_queue_t __nullable)queue;

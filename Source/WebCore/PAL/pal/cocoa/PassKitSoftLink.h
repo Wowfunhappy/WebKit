@@ -26,7 +26,7 @@
 #pragma once
 
 // FIXME: (rdar://167375656) Remove the `__has_feature(modules)` condition when possible.
-#if 1 /* WAS: !__has_feature(modules), broken on backport */
+#if !__has_feature(modules)
 
 #if USE(PASSKIT)
 

@@ -44,8 +44,8 @@ WTF_EXTERN_C_BEGIN
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 140000
 #import <ManagedConfiguration/ManagedConfiguration.h>
 @interface MCProfileConnection ()
-- (NSArray *)crossSiteTrackingPreventionRelaxedDomains;
-- (NSArray *)crossSiteTrackingPreventionRelaxedApps;
+- (NSArray<NSString *> *)crossSiteTrackingPreventionRelaxedDomains;
+- (NSArray<NSString *> *)crossSiteTrackingPreventionRelaxedApps;
 @end
 
 #else
@@ -77,7 +77,7 @@ typedef enum MCRestrictedBoolType {
 + (MCProfileConnection *)sharedConnection;
 - (MCRestrictedBoolType)effectiveBoolValueForSetting:(NSString *)feature;
 - (BOOL)isURLManaged:(NSURL *)url;
-- (NSArray *)crossSiteTrackingPreventionRelaxedDomains;
+- (NSArray<NSString *> *)crossSiteTrackingPreventionRelaxedDomains;
 @end
 
 #endif

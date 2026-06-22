@@ -26,7 +26,7 @@
 #pragma once
 
 // FIXME: Remove the `__has_feature(modules)` condition when possible.
-#if 1 /* WAS: !__has_feature(modules), broken on backport */
+#if !__has_feature(modules)
 
 DECLARE_SYSTEM_HEADER
 
@@ -107,7 +107,7 @@ typedef enum {
 @end
 
 @interface NSTextAlternatives : NSObject
-@property (readonly) NSArray *alternativeStrings;
+@property (readonly) NSArray<NSString *> *alternativeStrings;
 @end
 
 @interface UIApplication ()
@@ -281,11 +281,11 @@ typedef NS_ENUM(NSUInteger, NSTextBlockVerticalAlignment) {
 @end
 
 @interface NSParagraphStyle (TextBlocks)
-- (NSArray *)textBlocks;
+- (NSArray<NSTextBlock *> *)textBlocks;
 @end
 
 @interface NSMutableParagraphStyle (TextBlocks)
-- (void)setTextBlocks:(NSArray *)array;
+- (void)setTextBlocks:(NSArray<NSTextBlock *> *)array;
 @end
 
 #endif // !__has_include(<UIFoundation/NSTextTable.h>)
@@ -311,7 +311,7 @@ typedef NS_ENUM(NSUInteger, NSTextTabType) {
 
 @interface NSTextTab ()
 - (id)initWithType:(NSTextTabType)type location:(CGFloat)loc;
-- (instancetype)initWithTextAlignment:(NSTextAlignment)alignment location:(CGFloat)loc options:(NSDictionary *)options;
+- (instancetype)initWithTextAlignment:(NSTextAlignment)alignment location:(CGFloat)loc options:(NSDictionary<NSTextTabOptionKey, id> *)options;
 @end
 
 @interface NSTextBlock (Internal)

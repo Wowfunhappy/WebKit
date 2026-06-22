@@ -26,7 +26,7 @@
 #pragma once
 
 // FIXME: Remove the `__has_feature(modules)` condition when possible.
-#if 1 /* WAS: !__has_feature(modules), broken on backport */
+#if !__has_feature(modules)
 
 #include <wtf/Compiler.h>
 #include <wtf/Platform.h>
@@ -82,14 +82,7 @@ SOFT_LINK_CLASS_FOR_HEADER(PAL, AVSpeechUtterance)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVStreamDataParser)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVURLAsset)
 
-// MAVERICKS_BACKPORT: AVAudioSession is API_UNAVAILABLE(macos) in the macOS 26.1 SDK, so
-// SOFT_LINK_CLASS_FOR_HEADER's inline -allocAVAudioSessionInstance (which returns AVAudioSession*)
-// fails to compile on a non-internal macOS build. The class is iOS-only; its sole macOS consumer
-// (AudioSessionCocoa.mm) is not built for this target. Gate the class soft-link to iOS, where the
-// type is available. (Apple-internal macOS SDKs declare it available-on-macOS; public SDKs do not.)
-#if PLATFORM(IOS_FAMILY)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVAudioSession)
-#endif
 
 #if PLATFORM(IOS_FAMILY)
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVPersistableContentKeyRequest)
@@ -390,17 +383,17 @@ SOFT_LINK_CONSTANT_MAY_FAIL_FOR_HEADER(PAL, AVFoundation, AVCaptureDeviceTypeExt
 
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(WATCHOS)
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AVFoundation, AVCaptureSessionSetAuthorizedToUseCameraInMultipleForegroundAppLayout, void, (AVCaptureSession *session), (session))
-#define AVCaptureSessionSetAuthorizedToUseCameraInMultipleForegroundAppLayout PAL::softLink_AVFoundation_AVCaptureSessionSetAuthorizedToUseCameraInMultipleForegroundAppLayout
+#define AVCaptureSessionSetAuthorizedToUseCameraInMultipleForegroundAppLayout softLink_AVFoundation_AVCaptureSessionSetAuthorizedToUseCameraInMultipleForegroundAppLayout
 #endif // PLATFORM(IOS_FAMILY) && !PLATFORM(WATCHOS)
 
 #if !PLATFORM(WATCHOS)
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, AVFoundation, AVRouteDetectorMultipleRoutesDetectedDidChangeNotification, NSString *)
-#define AVRouteDetectorMultipleRoutesDetectedDidChangeNotification PAL::get_AVFoundation_AVRouteDetectorMultipleRoutesDetectedDidChangeNotificationSingleton()
+#define AVRouteDetectorMultipleRoutesDetectedDidChangeNotification get_AVFoundation_AVRouteDetectorMultipleRoutesDetectedDidChangeNotificationSingleton()
 #endif // HAVE(WATCHOS)
 
 #if HAVE(AVROUTEPICKERVIEW)
 SOFT_LINK_CONSTANT_FOR_HEADER(PAL, AVFoundation, AVOutputContextOutputDevicesDidChangeNotification, NSNotificationName)
-#define AVOutputContextOutputDevicesDidChangeNotification PAL::get_AVFoundation_AVOutputContextOutputDevicesDidChangeNotificationSingleton()
+#define AVOutputContextOutputDevicesDidChangeNotification get_AVFoundation_AVOutputContextOutputDevicesDidChangeNotificationSingleton()
 #endif // HAVE(AVROUTEPICKERVIEW)
 
 SOFT_LINK_CLASS_FOR_HEADER(PAL, AVAudioConverter)

@@ -47,7 +47,7 @@ NS_ASSUME_NONNULL_BEGIN
 #if !USE(APPLE_INTERNAL_SDK)
 
 @interface NSTouchBar ()
-@property (readonly, copy, nullable) NSArray *items;
+@property (readonly, copy, nullable) NSArray<NSTouchBarItem *> *items;
 @property (strong, nullable) NSTouchBarItem *escapeKeyReplacementItem;
 @end
 

@@ -279,7 +279,7 @@ typedef NS_OPTIONS(NSInteger, PKPaymentSetupFeatureSupportedOptions) {
 @interface PKPaymentSetupConfiguration ()
 @property (nonatomic, strong) NSURL *originatingURL;
 @property (nonatomic, copy) NSString *merchantIdentifier;
-@property (nonatomic, copy) NSArray *signedFields;
+@property (nonatomic, copy) NSArray<NSString *> *signedFields;
 @property (nonatomic, copy) NSString *signature;
 @end
 
@@ -370,7 +370,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 #if HAVE(PASSKIT_DEFAULT_SHIPPING_METHOD) && !USE(APPLE_INTERNAL_SDK)
 @interface PKShippingMethods : NSObject
-- (instancetype)initWithMethods:(NSArray *)methods defaultMethod:(nullable PKShippingMethod *)defaultMethod;
+- (instancetype)initWithMethods:(NSArray<PKShippingMethod *> *)methods defaultMethod:(nullable PKShippingMethod *)defaultMethod;
 @end
 
 @interface PKPaymentRequest ()
