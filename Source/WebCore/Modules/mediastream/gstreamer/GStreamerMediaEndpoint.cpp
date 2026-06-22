@@ -2102,10 +2102,24 @@ void GStreamerMediaEndpoint::prepareDataChannel(GstWebRTCDataChannel* dataChanne
         return;
 
     GRefPtr<GstWebRTCDataChannel> channel = dataChannel;
-    GST_DEBUG_OBJECT(m_pipeline.get(), "Setting up data channel %p", channel.get());
-    auto channelHandler = makeUniqueRef<GStreamerDataChannelHandler>(WTF::move(channel));
-    auto identifier = ObjectIdentifier<GstWebRTCDataChannel>(reinterpret_cast<uintptr_t>(channelHandler->channel()));
-    m_incomingDataChannels.add(identifier, WTF::move(channelHandler));
+    // MAVERICKS_BACKPORT: prepare-data-channel is emitted on webrtcbin's streaming thread, but
+    // m_incomingDataChannels is also accessed on the main thread (onDataChannel -> findOrCreate ->
+    // take). A HashMap touched from two threads is a data race that corrupts the stored UniqueRef
+    // and over-releases the GstWebRTCDataChannel, freeing its signal closures while a queue:src
+    // streaming thread still emits them — an intermittent g_closure_invoke use-after-free that
+    // crashes WebContent on fresh WebRTC data-channel loads. Every other webrtcbin signal handler
+    // in this class already marshals to the main thread (e.g. pad-removed above); do the same here
+    // so the map is only ever touched on the main thread. callOnMainThreadAndWait keeps it
+    // synchronous, so the handler's signals are still connected before webrtcbin proceeds (no early
+    // data-channel signals are missed).
+    callOnMainThreadAndWait([this, protectedThis = Ref(*this), channel = WTF::move(channel)]() mutable {
+        if (isStopped())
+            return;
+        GST_DEBUG_OBJECT(m_pipeline.get(), "Setting up data channel %p", channel.get());
+        auto channelHandler = makeUniqueRef<GStreamerDataChannelHandler>(WTF::move(channel));
+        auto identifier = ObjectIdentifier<GstWebRTCDataChannel>(reinterpret_cast<uintptr_t>(channelHandler->channel()));
+        m_incomingDataChannels.add(identifier, WTF::move(channelHandler));
+    });
 }
 
 UniqueRef<GStreamerDataChannelHandler> GStreamerMediaEndpoint::findOrCreateIncomingChannelHandler(GRefPtr<GstWebRTCDataChannel>&& dataChannel)
