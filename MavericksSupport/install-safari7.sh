@@ -374,6 +374,21 @@ if [ -d "$GST_SRC" ]; then
     bash "$REPO/MavericksSupport/deps/gstreamer/build-coreservices-compat.sh" >/dev/null \
         && echo "  rebuilt libcoreservices_compat.dylib" \
         || echo "  warning: libcoreservices_compat.dylib rebuild failed — deploying the checked-in copy"
+    # And the CoreText compat shim: libharfbuzz imports two 10.10+ OpenType-feature key constants
+    # (kCTFontOpenTypeFeatureTag / kCTFontOpenTypeFeatureValue), without which the text-rendering plugins
+    # (libgstassrender / libgstclosedcaption / libgstpango) fail to dlopen on 10.9. libharfbuzz's CoreText
+    # dependency is repointed to @rpath/libcoretext_compat.dylib (reexports CoreText + supplies the two).
+    bash "$REPO/MavericksSupport/deps/gstreamer/build-coretext-compat.sh" >/dev/null \
+        && echo "  rebuilt libcoretext_compat.dylib" \
+        || echo "  warning: libcoretext_compat.dylib rebuild failed — deploying the checked-in copy"
+    # And the AudioToolbox compat shim: libgstosxaudio (osxaudiosink) imports the AudioComponent API
+    # (AudioComponentFindNext / InstanceNew / InstanceDispose) which the 26.1 SDK homes in AudioToolbox
+    # but 10.9 keeps in AudioUnit, so without it the macOS audio sink fails to dlopen and there is no
+    # audio output. libgstosxaudio's AudioToolbox dependency is repointed to @rpath/libaudiotoolbox_compat.dylib
+    # (reexports AudioToolbox + AudioUnit).
+    bash "$REPO/MavericksSupport/deps/gstreamer/build-audiotoolbox-compat.sh" >/dev/null \
+        && echo "  rebuilt libaudiotoolbox_compat.dylib" \
+        || echo "  warning: libaudiotoolbox_compat.dylib rebuild failed — deploying the checked-in copy"
     mkdir -p "$GST_DEPLOY"
     cp -Rp "$GST_SRC/." "$GST_DEPLOY/"
 else
