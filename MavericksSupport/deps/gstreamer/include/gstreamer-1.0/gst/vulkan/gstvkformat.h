@@ -22,10 +22,12 @@
 #define __GST_VULKAN_FORMAT_H__
 
 #include <gst/vulkan/vulkan.h>
+#include <gst/video/video.h>
 
 G_BEGIN_DECLS
 
 typedef struct _GstVulkanFormatInfo GstVulkanFormatInfo;
+typedef struct _GstVulkanFormatMap GstVulkanFormatMap;
 
 /**
  * GST_VULKAN_MAX_COMPONENTS:
@@ -118,10 +120,56 @@ struct _GstVulkanFormatInfo
   guint8 poffset[GST_VULKAN_MAX_COMPONENTS];
   guint8 w_sub[GST_VULKAN_MAX_COMPONENTS];
   guint8 h_sub[GST_VULKAN_MAX_COMPONENTS];
+
+  /**
+   * GstVulkanFormatInfo.aspect:
+   *
+   * image aspect of this format
+   *
+   * Since: 1.24
+   */
+  VkImageAspectFlags aspect;
+};
+
+/**
+ * GstVulkanFormatMap:
+ * @format: the GStreamer video format
+ * @vkfrmt: the Vulkan format with a single memory
+ * @vkfrmts: Vulkan formats for multiple memories
+ *
+ * Since: 1.26
+ */
+struct _GstVulkanFormatMap {
+  GstVideoFormat format;
+  VkFormat vkfrmt;
+  VkFormat vkfrmts[GST_VIDEO_MAX_PLANES];
 };
 
 GST_VULKAN_API
 const GstVulkanFormatInfo *     gst_vulkan_format_get_info                      (VkFormat format);
+
+GST_VULKAN_API
+const GstVulkanFormatMap *     gst_vulkan_format_get_map                        (GstVideoFormat format);
+
+GST_VULKAN_API
+guint                           gst_vulkan_format_get_aspect                    (VkFormat format);
+
+GST_VULKAN_API
+VkFormat                        gst_vulkan_format_from_video_info               (GstVideoInfo * v_info,
+                                                                                 guint plane);
+
+GST_VULKAN_API
+gboolean                        gst_vulkan_format_from_video_info_2            (GstVulkanDevice * device,
+                                                                                GstVideoInfo * info,
+                                                                                VkImageTiling tiling,
+                                                                                gboolean no_multiplane,
+                                                                                VkImageUsageFlags requested_usage,
+                                                                                VkFormat fmts[GST_VIDEO_MAX_PLANES],
+                                                                                int * n_imgs,
+                                                                                VkImageUsageFlags * usage);
+
+GST_VULKAN_API
+GstVideoFormat                  gst_vulkan_format_to_video_format              (VkFormat vk_format);
 
 G_END_DECLS
 

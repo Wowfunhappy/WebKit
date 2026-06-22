@@ -34,13 +34,6 @@ G_BEGIN_DECLS
 #define G_IS_POLLABLE_INPUT_STREAM(obj)            (G_TYPE_CHECK_INSTANCE_TYPE ((obj), G_TYPE_POLLABLE_INPUT_STREAM))
 #define G_POLLABLE_INPUT_STREAM_GET_INTERFACE(obj) (G_TYPE_INSTANCE_GET_INTERFACE ((obj), G_TYPE_POLLABLE_INPUT_STREAM, GPollableInputStreamInterface))
 
-/**
- * GPollableInputStream:
- *
- * An interface for a #GInputStream that can be polled for readability.
- *
- * Since: 2.28
- */
 typedef struct _GPollableInputStreamInterface GPollableInputStreamInterface;
 
 /**
@@ -81,19 +74,19 @@ struct _GPollableInputStreamInterface
 				    GError               **error);
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType    g_pollable_input_stream_get_type         (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_pollable_input_stream_can_poll         (GPollableInputStream  *stream);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_pollable_input_stream_is_readable      (GPollableInputStream  *stream);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GSource *g_pollable_input_stream_create_source    (GPollableInputStream  *stream,
 						   GCancellable          *cancellable);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gssize   g_pollable_input_stream_read_nonblocking (GPollableInputStream  *stream,
 						   void                  *buffer,
 						   gsize                  count,

@@ -105,7 +105,7 @@ GST_VULKAN_API
 GstVulkanFullScreenQuad *   gst_vulkan_full_screen_quad_new         (GstVulkanQueue * queue);
 
 GST_VULKAN_API
-gboolean            gst_vulkan_full_screen_quad_set_info            (GstVulkanFullScreenQuad * self, GstVideoInfo *in_info, GstVideoInfo * out_info);
+gboolean            gst_vulkan_full_screen_quad_set_info            (GstVulkanFullScreenQuad * self, const GstVideoInfo *in_info, const GstVideoInfo * out_info);
 GST_VULKAN_API
 gboolean            gst_vulkan_full_screen_quad_set_shaders         (GstVulkanFullScreenQuad * self, GstVulkanHandle * vert, GstVulkanHandle * frag);
 GST_VULKAN_API
@@ -119,6 +119,22 @@ GST_VULKAN_API
 gboolean            gst_vulkan_full_screen_quad_set_input_buffer    (GstVulkanFullScreenQuad * self, GstBuffer * buffer, GError ** error);
 GST_VULKAN_API
 gboolean            gst_vulkan_full_screen_quad_set_output_buffer   (GstVulkanFullScreenQuad * self, GstBuffer * buffer, GError ** error);
+GST_VULKAN_API
+void                gst_vulkan_full_screen_quad_enable_blend        (GstVulkanFullScreenQuad * self,
+                                                                     gboolean enable_blend);
+GST_VULKAN_API
+void                gst_vulkan_full_screen_quad_set_blend_operation (GstVulkanFullScreenQuad * self,
+                                                                     VkBlendOp colour_blend_op,
+                                                                     VkBlendOp alpha_blend_op);
+GST_VULKAN_API
+void                gst_vulkan_full_screen_quad_set_blend_factors   (GstVulkanFullScreenQuad * self,
+                                                                     VkBlendFactor src_blend_factor,
+                                                                     VkBlendFactor dst_blend_factor,
+                                                                     VkBlendFactor src_alpha_blend_factor,
+                                                                     VkBlendFactor dst_alpha_blend_factor);
+GST_VULKAN_API
+void                gst_vulkan_full_screen_quad_enable_clear        (GstVulkanFullScreenQuad * self,
+                                                                     gboolean enable_clear);
 
 GST_VULKAN_API
 gboolean            gst_vulkan_full_screen_quad_prepare_draw        (GstVulkanFullScreenQuad * self, GstVulkanFence * fence, GError ** error);
@@ -131,6 +147,9 @@ gboolean            gst_vulkan_full_screen_quad_draw                (GstVulkanFu
 
 GST_VULKAN_API
 GstVulkanFence *    gst_vulkan_full_screen_quad_get_last_fence      (GstVulkanFullScreenQuad * self);
+
+GST_VULKAN_API
+GstVulkanQueue *    gst_vulkan_full_screen_quad_get_queue           (GstVulkanFullScreenQuad * self);
 
 G_END_DECLS
 #endif /* __GST_VULKAN_FULL_SCREEN_QUAD_H__ */

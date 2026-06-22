@@ -1,7 +1,9 @@
 /* json-reader.h - JSON cursor parser
  * 
  * This file is part of JSON-GLib
- * Copyright (C) 2010  Intel Corp.
+ *
+ * SPDX-FileCopyrightText: 2010  Intel Corp.
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -20,8 +22,7 @@
  *   Emmanuele Bassi  <ebassi@linux.intel.com>
  */
 
-#ifndef __JSON_READER_H__
-#define __JSON_READER_H__
+#pragma once
 
 #if !defined(__JSON_GLIB_INSIDE__) && !defined(JSON_COMPILATION)
 #error "Only <json-glib/json-glib.h> can be included directly."
@@ -41,7 +42,7 @@ G_BEGIN_DECLS
 /**
  * JSON_READER_ERROR:
  *
- * Error domain for #JsonReader errors
+ * Error domain for `JsonReader`.
  *
  * Since: 0.12
  */
@@ -63,7 +64,9 @@ typedef struct _JsonReaderClass         JsonReaderClass;
  * @JSON_READER_ERROR_INVALID_TYPE: The node at the current position does not
  *   hold a value of the desired type
  *
- * Error codes enumeration for #JsonReader errors
+ * Error codes for `JSON_READER_ERROR`.
+ *
+ * This enumeration can be extended at later date
  *
  * Since: 0.12
  */
@@ -77,14 +80,6 @@ typedef enum {
   JSON_READER_ERROR_INVALID_TYPE
 } JsonReaderError;
 
-/**
- * JsonReader:
- *
- * The `JsonReader` structure contains only private data and should
- * be accessed using the provided API
- *
- * Since: 0.12
- */
 struct _JsonReader
 {
   /*< private >*/
@@ -93,13 +88,6 @@ struct _JsonReader
   JsonReaderPrivate *priv;
 };
 
-/**
- * JsonReaderClass:
- *
- * The `JsonReaderClass` structure contains only private data
- *
- * Since: 0.12
- */
 struct _JsonReaderClass
 {
   /*< private >*/
@@ -165,11 +153,11 @@ JSON_AVAILABLE_IN_1_0
 gboolean               json_reader_get_boolean_value (JsonReader   *reader);
 JSON_AVAILABLE_IN_1_0
 gboolean               json_reader_get_null_value    (JsonReader   *reader);
+JSON_AVAILABLE_IN_1_8
+JsonNode *             json_reader_get_current_node  (JsonReader *reader);
 
 #ifdef G_DEFINE_AUTOPTR_CLEANUP_FUNC
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (JsonReader, g_object_unref)
 #endif
 
 G_END_DECLS
-
-#endif /* __JSON_READER_H__ */

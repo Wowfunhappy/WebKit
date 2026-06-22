@@ -2,7 +2,6 @@
 #ifndef _ORC_PROGRAM_H_
 #define _ORC_PROGRAM_H_
 
-#include <orc/orc.h>
 #include <orc/orclimits.h>
 #include <orc/orcexecutor.h>
 #include <orc/orccode.h>
@@ -105,8 +104,6 @@ struct _OrcProgram {
 #define ORC_DEST_VAL(p,insn,n) ((p)->vars[(insn)->dest_args[(n)]].value.i)
 
 
-ORC_API void orc_init (void);
-
 ORC_API OrcProgram * orc_program_new (void);
 ORC_API OrcProgram * orc_program_new_ds (int size1, int size2);
 ORC_API OrcProgram * orc_program_new_dss (int size1, int size2, int size3);
@@ -132,6 +129,8 @@ ORC_API void orc_program_append_str (OrcProgram *p, const char *opcode,
 ORC_API void orc_program_append_str_2 (OrcProgram *program, const char *name,
     unsigned int flags, const char *arg1, const char *arg2, const char *arg3,
     const char *arg4);
+ORC_API int orc_program_append_str_n (OrcProgram *program, const char *name,
+    unsigned int flags, int argc, const char **argv);
 ORC_API void orc_program_append_ds (OrcProgram *program, const char *opcode, int arg0,
     int arg1);
 ORC_API void orc_program_append_ds_str (OrcProgram *p, const char *opcode,

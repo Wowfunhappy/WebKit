@@ -158,6 +158,8 @@ struct _GstVulkanImageMemoryAllocatorClass
   gpointer _reserved        [GST_PADDING];
 };
 
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(GstVulkanImageMemoryAllocator, gst_object_unref);
+
 GST_VULKAN_API
 void            gst_vulkan_image_memory_init_once       (void);
 GST_VULKAN_API
@@ -168,11 +170,20 @@ gboolean        gst_vulkan_image_memory_init            (GstVulkanImageMemory * 
                                                          GstAllocator * allocator,
                                                          GstMemory * parent,
                                                          GstVulkanDevice * device,
+                                                         VkFormat format,
                                                          VkImageUsageFlags usage,
+                                                         VkImageLayout initial_layout,
                                                          GstAllocationParams * params,
                                                          gsize size,
                                                          gpointer user_data,
                                                          GDestroyNotify notify);
+
+GST_VULKAN_API
+GstMemory *     gst_vulkan_image_memory_alloc_with_image_info
+                                                       (GstVulkanDevice * device,
+                                                        VkImageCreateInfo * image_info,
+                                                        VkMemoryPropertyFlags mem_prop_flags);
+
 GST_VULKAN_API
 GstMemory *     gst_vulkan_image_memory_alloc           (GstVulkanDevice * device,
                                                          VkFormat format,
@@ -206,9 +217,6 @@ GST_VULKAN_API
 void            gst_vulkan_image_memory_add_view        (GstVulkanImageMemory * image,
                                                          GstVulkanImageView * view);
 
-GST_VULKAN_API
-VkFormat gst_vulkan_format_from_video_info   (GstVideoInfo * v_info,
-                                              guint plane);
 
 G_END_DECLS
 

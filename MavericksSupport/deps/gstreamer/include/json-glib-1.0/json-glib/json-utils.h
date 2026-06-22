@@ -1,7 +1,9 @@
 /* json-utils.h - JSON utility API
  * 
  * This file is part of JSON-GLib
- * Copyright 2015  Emmanuele Bassi
+ *
+ * SPDX-FileCopyrightText: 2015  Emmanuele Bassi
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -17,8 +19,7 @@
  * License along with this library. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __JSON_UTILS_H__
-#define __JSON_UTILS_H__
+#pragma once
 
 #if !defined(__JSON_GLIB_INSIDE__) && !defined(JSON_COMPILATION)
 #error "Only <json-glib/json-glib.h> can be included directly."
@@ -36,5 +37,3 @@ char *          json_to_string          (JsonNode    *node,
                                          gboolean     pretty);
 
 G_END_DECLS
-
-#endif /* __JSON_UTILS_H__ */

@@ -260,9 +260,11 @@ GType nice_agent_get_type (void);
 /**
  * NICE_AGENT_MAX_REMOTE_CANDIDATES:
  *
- * A hard limit for the number of remote candidates. This
- * limit is enforced to protect against malevolent remote
- * clients.
+ * Was a limit on the number of remote candidates one can set, but is
+ * no longer used by libnice itself.
+ *
+ * Deprecated: 0.1.20: Replace with dynamic value based on the
+ * #NiceAgent::max-connectivity-checks property
  */
 #define NICE_AGENT_MAX_REMOTE_CANDIDATES    25
 
@@ -580,7 +582,7 @@ nice_agent_set_port_range (
  * @agent: The #NiceAgent Object
  * @stream_id: The ID of the stream
  * @component_id: The ID of the component
- * @server_ip: The IP address of the TURN server
+ * @server_ip: The address of the TURN server
  * @server_port: The port of the TURN server
  * @username: The TURN username to use for the allocate
  * @password: The TURN password to use for the allocate

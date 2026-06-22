@@ -2,7 +2,6 @@
 #ifndef _ORC_COMPILER_H_
 #define _ORC_COMPILER_H_
 
-#include <orc/orc.h>
 #include <orc/orclimits.h>
 #include <orc/orcexecutor.h>
 #include <orc/orccode.h>
@@ -100,6 +99,7 @@ struct _OrcCompiler {
   int used_regs[ORC_N_REGS];
   int alloc_regs[ORC_N_REGS];
 
+  // 1 << loop shift means how many of these fit into a vector
   int loop_shift;
   int long_jumps;
   int use_frame_pointer;
@@ -160,13 +160,8 @@ ORC_API void orc_compiler_append_code (OrcCompiler *p, const char *fmt, ...) ORC
  
 #ifdef ORC_ENABLE_UNSTABLE_API
 
-ORC_API int orc_compiler_flag_check (const char *flag);
-
-/* FIXME: remove, these were never actually exported as public symbols, so unusable  */
-extern int _orc_compiler_flag_backup;
-extern int _orc_compiler_flag_emulate;
-extern int _orc_compiler_flag_debug;
-extern int _orc_compiler_flag_randomize;
+ORC_API orc_bool orc_compiler_flag_check (const char *flag);
+ORC_API OrcCompileResult orc_compiler_compile_program (OrcCompiler *compiler, OrcProgram *program, OrcTarget *target, unsigned int flags);
 
 #endif
 

@@ -3,10 +3,10 @@
 
 #pragma once
 
-            #include <glib-object.h>
-            #include <gst/rtsp/rtsp-prelude.h>
+#include <glib-object.h>
+#include <gst/rtsp/rtsp-prelude.h>
 
-            G_BEGIN_DECLS
+G_BEGIN_DECLS
 
 /* enumerations from "gstrtspdefs.h" */
 

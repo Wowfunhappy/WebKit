@@ -25,6 +25,10 @@
 #ifndef __GST_EVENT_H__
 #define __GST_EVENT_H__
 
+#ifdef _MSC_VER
+#pragma warning(disable: 5287)
+#endif
+
 typedef struct _GstEvent GstEvent;
 
 /**
@@ -169,6 +173,7 @@ typedef enum {
   GST_EVENT_GAP                   = GST_EVENT_MAKE_TYPE (160, _FLAG(DOWNSTREAM) | _FLAG(SERIALIZED)),
 
   /* sticky downstream non-serialized */
+  /* FIXME 2.0: change to value 72 and move after the GST_EVENT_SEGMENT event */
   GST_EVENT_INSTANT_RATE_CHANGE   = GST_EVENT_MAKE_TYPE (180, _FLAG(DOWNSTREAM) | _FLAG(STICKY)),
 
   /* upstream events */
@@ -417,6 +422,10 @@ GST_API
 GstEventTypeFlags
                 gst_event_type_get_flags        (GstEventType type);
 
+
+GST_API
+guint gst_event_type_to_sticky_ordering (GstEventType type) G_GNUC_CONST;
+
 #ifndef GST_DISABLE_MINIOBJECT_INLINE_FUNCTIONS
 /* refcounting */
 static inline GstEvent *
@@ -475,7 +484,7 @@ GstStructure *  gst_event_writable_structure    (GstEvent *event);
 GST_API
 gboolean        gst_event_has_name              (GstEvent *event, const gchar *name);
 
-GST_API
+GST_DEPRECATED_FOR(gst_event_has_name)
 gboolean        gst_event_has_name_id           (GstEvent *event, GQuark name);
 
 /* identifiers for events and messages */

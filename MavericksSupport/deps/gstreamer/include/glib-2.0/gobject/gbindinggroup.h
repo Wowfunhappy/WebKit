@@ -36,32 +36,24 @@ G_BEGIN_DECLS
 #define G_IS_BINDING_GROUP(obj) (G_TYPE_CHECK_INSTANCE_TYPE ((obj), G_TYPE_BINDING_GROUP))
 #define G_TYPE_BINDING_GROUP    (g_binding_group_get_type())
 
-/**
- * GBindingGroup:
- *
- * GBindingGroup is an opaque structure whose members
- * cannot be accessed directly.
- *
- * Since: 2.72
- */
 typedef struct _GBindingGroup GBindingGroup;
 
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 GType          g_binding_group_get_type           (void) G_GNUC_CONST;
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 GBindingGroup *g_binding_group_new                (void);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 gpointer       g_binding_group_dup_source         (GBindingGroup         *self);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 void           g_binding_group_set_source         (GBindingGroup         *self,
                                                    gpointer               source);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 void           g_binding_group_bind               (GBindingGroup         *self,
                                                    const gchar           *source_property,
                                                    gpointer               target,
                                                    const gchar           *target_property,
                                                    GBindingFlags          flags);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 void           g_binding_group_bind_full          (GBindingGroup         *self,
                                                    const gchar           *source_property,
                                                    gpointer               target,
@@ -71,7 +63,7 @@ void           g_binding_group_bind_full          (GBindingGroup         *self,
                                                    GBindingTransformFunc  transform_from,
                                                    gpointer               user_data,
                                                    GDestroyNotify         user_data_destroy);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 void           g_binding_group_bind_with_closures (GBindingGroup         *self,
                                                    const gchar           *source_property,
                                                    gpointer               target,

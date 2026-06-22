@@ -72,6 +72,11 @@ GST_GL_API
 GType gst_gl_upload_return_get_type (void);
 #define GST_TYPE_GL_UPLOAD_RETURN (gst_gl_upload_return_get_type())
 
+/* enumerations from "gstglutils.h" */
+GST_GL_API
+GType gst_gl_drm_format_flags_get_type (void);
+#define GST_TYPE_GL_DRM_FORMAT_FLAGS (gst_gl_drm_format_flags_get_type())
+
 /* enumerations from "gstglviewconvert.h" */
 GST_GL_API
 GType gst_gl_stereo_downmix_get_type (void);

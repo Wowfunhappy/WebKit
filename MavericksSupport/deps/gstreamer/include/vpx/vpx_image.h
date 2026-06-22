@@ -43,6 +43,7 @@ typedef enum vpx_img_fmt {
   VPX_IMG_FMT_I422 = VPX_IMG_FMT_PLANAR | 5,
   VPX_IMG_FMT_I444 = VPX_IMG_FMT_PLANAR | 6,
   VPX_IMG_FMT_I440 = VPX_IMG_FMT_PLANAR | 7,
+  VPX_IMG_FMT_NV12 = VPX_IMG_FMT_PLANAR | 9,
   VPX_IMG_FMT_I42016 = VPX_IMG_FMT_I420 | VPX_IMG_FMT_HIGHBITDEPTH,
   VPX_IMG_FMT_I42216 = VPX_IMG_FMT_I422 | VPX_IMG_FMT_HIGHBITDEPTH,
   VPX_IMG_FMT_I44416 = VPX_IMG_FMT_I444 | VPX_IMG_FMT_HIGHBITDEPTH,
@@ -131,10 +132,13 @@ typedef struct vpx_image_rect {
  *                         is NULL, the storage for the descriptor will be
  *                         allocated on the heap.
  * \param[in]    fmt       Format for the image
- * \param[in]    d_w       Width of the image
- * \param[in]    d_h       Height of the image
+ * \param[in]    d_w       Width of the image. Must not exceed 0x08000000
+ *                         (2^27).
+ * \param[in]    d_h       Height of the image. Must not exceed 0x08000000
+ *                         (2^27).
  * \param[in]    align     Alignment, in bytes, of the image buffer and
- *                         each row in the image(stride).
+ *                         each row in the image (stride). Must not exceed
+ *                         65536.
  *
  * \return Returns a pointer to the initialized image descriptor. If the img
  *         parameter is non-null, the value of the img parameter will be
@@ -154,9 +158,12 @@ vpx_image_t *vpx_img_alloc(vpx_image_t *img, vpx_img_fmt_t fmt,
  *                             parameter is NULL, the storage for the descriptor
  *                             will be allocated on the heap.
  * \param[in]    fmt           Format for the image
- * \param[in]    d_w           Width of the image
- * \param[in]    d_h           Height of the image
- * \param[in]    stride_align  Alignment, in bytes, of each row in the image.
+ * \param[in]    d_w           Width of the image. Must not exceed 0x08000000
+ *                             (2^27).
+ * \param[in]    d_h           Height of the image. Must not exceed 0x08000000
+ *                             (2^27).
+ * \param[in]    stride_align  Alignment, in bytes, of each row in the image
+ *                             (stride). Must not exceed 65536.
  * \param[in]    img_data      Storage to use for the image
  *
  * \return Returns a pointer to the initialized image descriptor. If the img
@@ -170,7 +177,8 @@ vpx_image_t *vpx_img_wrap(vpx_image_t *img, vpx_img_fmt_t fmt, unsigned int d_w,
 /*!\brief Set the rectangle identifying the displayed portion of the image
  *
  * Updates the displayed rectangle (aka viewport) on the image surface to
- * match the specified coordinates and size.
+ * match the specified coordinates and size. Specifically, sets img->d_w,
+ * img->d_h, and elements of the img->planes[] array.
  *
  * \param[in]    img       Image descriptor
  * \param[in]    x         leftmost column
@@ -178,7 +186,7 @@ vpx_image_t *vpx_img_wrap(vpx_image_t *img, vpx_img_fmt_t fmt, unsigned int d_w,
  * \param[in]    w         width
  * \param[in]    h         height
  *
- * \return 0 if the requested rectangle is valid, nonzero otherwise.
+ * \return 0 if the requested rectangle is valid, nonzero (-1) otherwise.
  */
 int vpx_img_set_rect(vpx_image_t *img, unsigned int x, unsigned int y,
                      unsigned int w, unsigned int h);

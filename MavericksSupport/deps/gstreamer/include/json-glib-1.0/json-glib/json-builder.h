@@ -1,7 +1,9 @@
 /* json-builder.h: JSON tree builder
  *
  * This file is part of JSON-GLib
- * Copyright (C) 2010  Luca Bruno <lethalman88@gmail.com>
+ *
+ * SPDX-FileCopyrightText: 2010  Luca Bruno <lethalman88@gmail.com>
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -20,8 +22,7 @@
  *   Luca Bruno  <lethalman88@gmail.com>
  */
 
-#ifndef __JSON_BUILDER_H__
-#define __JSON_BUILDER_H__
+#pragma once
 
 #if !defined(__JSON_GLIB_INSIDE__) && !defined(JSON_COMPILATION)
 #error "Only <json-glib/json-glib.h> can be included directly."
@@ -42,14 +43,6 @@ typedef struct _JsonBuilder           JsonBuilder;
 typedef struct _JsonBuilderPrivate    JsonBuilderPrivate;
 typedef struct _JsonBuilderClass      JsonBuilderClass;
 
-/**
- * JsonBuilder:
- *
- * The `JsonBuilder` structure contains only private data and should be
- * accessed using the provided API
- *
- * Since: 0.12
- */
 struct _JsonBuilder
 {
   /*< private >*/
@@ -58,13 +51,6 @@ struct _JsonBuilder
   JsonBuilderPrivate *priv;
 };
 
-/**
- * JsonBuilderClass:
- *
- * The `JsonBuilderClass` structure contains only private data
- *
- * Since: 0.12
- */
 struct _JsonBuilderClass
 {
   /*< private >*/
@@ -122,5 +108,3 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC (JsonBuilder, g_object_unref)
 #endif
 
 G_END_DECLS
-
-#endif /* __JSON_BUILDER_H__ */

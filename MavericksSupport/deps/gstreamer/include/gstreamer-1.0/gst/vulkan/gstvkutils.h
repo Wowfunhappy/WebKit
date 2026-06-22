@@ -30,6 +30,11 @@ gboolean                gst_vulkan_ensure_element_data          (GstElement * el
                                                                  GstVulkanDisplay ** display_ptr,
                                                                  GstVulkanInstance ** instance_ptr);
 GST_VULKAN_API
+gboolean                gst_vulkan_ensure_element_device        (GstElement * element,
+                                                                 GstVulkanInstance * instance,
+                                                                 GstVulkanDevice ** device_ptr,
+                                                                 guint device_id);
+GST_VULKAN_API
 gboolean                gst_vulkan_handle_set_context           (GstElement * element,
                                                                  GstContext * context,
                                                                  GstVulkanDisplay ** display,
@@ -54,6 +59,10 @@ gboolean                gst_vulkan_run_query                    (GstElement * el
 
 GST_VULKAN_API
 GstVulkanImageView *    gst_vulkan_get_or_create_image_view     (GstVulkanImageMemory * image);
+
+GST_VULKAN_API
+GstVulkanImageView *    gst_vulkan_get_or_create_image_view_with_info (GstVulkanImageMemory * image,
+                                                                       const VkImageViewCreateInfo * create_info);
 
 GST_VULKAN_API
 GstVulkanHandle *       gst_vulkan_create_shader                (GstVulkanDevice * device,

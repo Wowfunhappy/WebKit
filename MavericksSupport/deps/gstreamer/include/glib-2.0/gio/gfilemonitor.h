@@ -41,11 +41,6 @@ G_BEGIN_DECLS
 typedef struct _GFileMonitorClass       GFileMonitorClass;
 typedef struct _GFileMonitorPrivate	GFileMonitorPrivate;
 
-/**
- * GFileMonitor:
- *
- * Watches for changes to a file.
- **/
 struct _GFileMonitor
 {
   GObject parent_instance;
@@ -76,20 +71,20 @@ struct _GFileMonitorClass
   void (*_g_reserved5) (void);
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType    g_file_monitor_get_type       (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_file_monitor_cancel         (GFileMonitor      *monitor);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_file_monitor_is_cancelled   (GFileMonitor      *monitor);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void     g_file_monitor_set_rate_limit (GFileMonitor      *monitor,
                                         gint               limit_msecs);
 
 
 /* For implementations */
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void     g_file_monitor_emit_event     (GFileMonitor      *monitor,
                                         GFile             *child,
                                         GFile             *other_file,

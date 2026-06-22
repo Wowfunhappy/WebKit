@@ -3,10 +3,10 @@
 
 #pragma once
 
-            #include <glib-object.h>
-            #include <gst/mpegts/mpegts-prelude.h>
+#include <glib-object.h>
+#include <gst/mpegts/mpegts-prelude.h>
 
-            G_BEGIN_DECLS
+G_BEGIN_DECLS
 
 /* enumerations from "gst-atsc-descriptor.h" */
 
@@ -145,6 +145,10 @@ GType gst_mpegts_descriptor_type_get_type (void);
 #define GST_TYPE_MPEGTS_DESCRIPTOR_TYPE (gst_mpegts_descriptor_type_get_type())
 
 GST_MPEGTS_API
+GType gst_mpegts_extended_descriptor_type_get_type (void);
+#define GST_TYPE_MPEGTS_EXTENDED_DESCRIPTOR_TYPE (gst_mpegts_extended_descriptor_type_get_type())
+
+GST_MPEGTS_API
 GType gst_mpegts_misc_descriptor_type_get_type (void);
 #define GST_TYPE_MPEGTS_MISC_DESCRIPTOR_TYPE (gst_mpegts_misc_descriptor_type_get_type())
 
@@ -159,6 +163,14 @@ GType gst_mpegts_registration_id_get_type (void);
 GST_MPEGTS_API
 GType gst_mpegts_iso639_audio_type_get_type (void);
 #define GST_TYPE_MPEGTS_ISO639_AUDIO_TYPE (gst_mpegts_iso639_audio_type_get_type())
+
+GST_MPEGTS_API
+GType gst_mpegts_metadata_format_get_type (void);
+#define GST_TYPE_MPEGTS_METADATA_FORMAT (gst_mpegts_metadata_format_get_type())
+
+GST_MPEGTS_API
+GType gst_mpegts_metadata_application_format_get_type (void);
+#define GST_TYPE_MPEGTS_METADATA_APPLICATION_FORMAT (gst_mpegts_metadata_application_format_get_type())
 
 /* enumerations from "gstmpegtssection.h" */
 

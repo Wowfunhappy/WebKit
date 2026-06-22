@@ -3,10 +3,10 @@
 
 #pragma once
 
-            #include <glib-object.h>
-            #include <gst/webrtc/webrtc_fwd.h>
+#include <glib-object.h>
+#include <gst/webrtc/webrtc_fwd.h>
 
-            G_BEGIN_DECLS
+G_BEGIN_DECLS
 
 /* enumerations from "webrtc_fwd.h" */
 

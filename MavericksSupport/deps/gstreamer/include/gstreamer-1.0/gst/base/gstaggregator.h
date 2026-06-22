@@ -384,6 +384,10 @@ GstFlowReturn  gst_aggregator_finish_buffer_list    (GstAggregator              
                                                      GstBufferList                *  bufferlist);
 
 GST_BASE_API
+gboolean       gst_aggregator_push_src_event        (GstAggregator                *  aggregator,
+                                                     GstEvent                     *  event);
+
+GST_BASE_API
 void           gst_aggregator_set_src_caps          (GstAggregator                *  self,
                                                      GstCaps                      *  caps);
 
@@ -433,6 +437,13 @@ void            gst_aggregator_set_ignore_inactive_pads (GstAggregator * self,
 
 GST_BASE_API
 gboolean        gst_aggregator_get_ignore_inactive_pads (GstAggregator * self);
+
+GST_BASE_API
+gboolean        gst_aggregator_get_force_live       (GstAggregator *self);
+
+GST_BASE_API
+void            gst_aggregator_set_force_live       (GstAggregator *self,
+                                                     gboolean force_live);
 
 /**
  * GstAggregatorStartTimeSelection:

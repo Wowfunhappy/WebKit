@@ -118,11 +118,16 @@ namespace TagLib {
        * Save the file.
        *
        * This returns true if the save was successful.
-       *
-       * \warning In the current implementation, it's dangerous to call save()
-       * repeatedly.  It leads to a segfault.
        */
       virtual bool save();
+
+      /*!
+       * Check if the given \a stream can be opened as an Ogg Vorbis file.
+       *
+       * \note This method is designed to do a quick check.  The result may
+       * not necessarily be correct.
+       */
+      static bool isSupported(IOStream *stream);
 
     private:
       File(const File &);
@@ -133,7 +138,7 @@ namespace TagLib {
       class FilePrivate;
       FilePrivate *d;
     };
-  }
+  }  // namespace Vorbis
 
 /*
  * To keep compatibility with the current version put Vorbis in the Ogg namespace
@@ -147,6 +152,6 @@ namespace TagLib {
   namespace Ogg { namespace Vorbis { typedef TagLib::Vorbis::File File; } }
 #endif
 
-}
+}  // namespace TagLib
 
 #endif

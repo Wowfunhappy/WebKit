@@ -57,6 +57,8 @@ namespace TagLib {
        */
       virtual String toString() const;
 
+      PropertyMap asProperties() const;
+
     protected:
       // Reimplementations.
 
@@ -75,6 +77,6 @@ namespace TagLib {
       PodcastFramePrivate *d;
     };
 
-  }
-}
+  }  // namespace ID3v2
+}  // namespace TagLib
 #endif

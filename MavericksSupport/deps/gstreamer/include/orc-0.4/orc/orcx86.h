@@ -9,6 +9,45 @@ ORC_BEGIN_DECLS
 
 #ifdef ORC_ENABLE_UNSTABLE_API
 
+/* This struct is a naive wrapper of on top of the common
+ * code found on MMX, SSE and AVX. This is could be
+ * abstracted even more, but as an initial step is fine.
+ */
+typedef struct _OrcX86Target
+{
+  /* Same as OrcTarget */
+  const char *name;
+  unsigned int (*get_default_flags)(void);
+  const char * (*get_flag_name)(int shift);
+  int (*is_executable)(void);
+
+  /* X86 specific */
+  void (*validate_registers)(int *regs, int is_64bit);
+  void (*saveable_registers)(int *regs, int is_64bit);
+  int (*is_64bit)(int flags);
+  int (*use_frame_pointer)(int flags);
+  int (*use_long_jumps)(int flags);
+  int (*loop_shift)(int max_var_size);
+  void (*init_accumulator)(OrcCompiler *c, OrcVariable *var);
+  void (*reduce_accumulator)(OrcCompiler *c, int i, OrcVariable *var);
+  void (*load_constant)(OrcCompiler *c, int reg, int size, orc_uint64 value);
+  void (*load_constant_long)(OrcCompiler *c, int reg, OrcConstant *constant);
+  void (*move_register_to_memoffset)(OrcCompiler *compiler, int size, int reg1, int offset, int reg2, int aligned, int uncached);
+  void (*move_memoffset_to_register)(OrcCompiler *compiler, int size, int offset, int reg1, int reg2, int is_aligned);
+  int (*get_shift)(int size);
+  /* These are specific to the implementation. We need to keep private data
+   * and proceed accordingly with a generic prologue, epilogue instead of
+   * a function pointer for each case
+   */
+  void (*set_mxcsr)(OrcCompiler *c);
+  void (*restore_mxcsr)(OrcCompiler *c);
+  void (*clear_emms)(OrcCompiler *c);
+  int register_size;
+  int register_start;
+  int n_registers;
+  int label_step_up;
+} OrcX86Target;
+
 enum {
   X86_EAX = ORC_GP_REG_BASE,
   X86_ECX,
@@ -163,10 +202,10 @@ ORC_API void orc_x86_emit_cpuinsn_size (OrcCompiler *p, int opcode, int size,
     int src, int dest);
 ORC_API void orc_x86_emit_cpuinsn_imm (OrcCompiler *p, int opcode, int imm,
     int src, int dest);
-ORC_API void orc_x86_emit_cpuinsn_load_memoffset (OrcCompiler *p, int size, int index,
-    int offset, int src, int dest, int imm);
+ORC_API void orc_x86_emit_cpuinsn_load_memoffset (OrcCompiler *p, int index, int size,
+    int imm, int offset, int src, int dest);
 ORC_API void orc_x86_emit_cpuinsn_store_memoffset (OrcCompiler *p, int size, int index,
-    int src, int offset, int dest, int imm);
+    int imm, int offset, int src, int dest);
 ORC_API void orc_x86_emit_cpuinsn_load_memindex (OrcCompiler *p, int index, int size,
     int imm, int offset, int src, int src_index, int shift, int dest);
 ORC_API void orc_x86_emit_cpuinsn_load_register (OrcCompiler *p, int index, int imm,

@@ -3,10 +3,10 @@
 
 #pragma once
 
-            #include <glib-object.h>
-            #include <gst/gstconfig.h>
+#include <glib-object.h>
+#include <gst/gstconfig.h>
 
-            G_BEGIN_DECLS
+G_BEGIN_DECLS
 
 /* enumerations from "gstallocator.h" */
 

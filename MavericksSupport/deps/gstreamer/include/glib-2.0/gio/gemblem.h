@@ -37,25 +37,20 @@ G_BEGIN_DECLS
 #define G_IS_EMBLEM_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_EMBLEM))
 #define G_EMBLEM_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_EMBLEM, GEmblemClass))
 
-/**
- * GEmblem:
- *
- * An object for Emblems
- */
 typedef struct _GEmblem        GEmblem;
 typedef struct _GEmblemClass   GEmblemClass;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType          g_emblem_get_type        (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GEmblem       *g_emblem_new             (GIcon         *icon);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GEmblem       *g_emblem_new_with_origin (GIcon         *icon,
                                          GEmblemOrigin  origin);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GIcon         *g_emblem_get_icon        (GEmblem       *emblem);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GEmblemOrigin  g_emblem_get_origin      (GEmblem       *emblem);
 
 G_END_DECLS

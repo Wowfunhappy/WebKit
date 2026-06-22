@@ -91,6 +91,7 @@ typedef struct sbc_struct sbc_t;
 int sbc_init(sbc_t *sbc, unsigned long flags);
 int sbc_reinit(sbc_t *sbc, unsigned long flags);
 int sbc_init_msbc(sbc_t *sbc, unsigned long flags);
+int sbc_reinit_msbc(sbc_t *sbc, unsigned long flags);
 int sbc_init_a2dp(sbc_t *sbc, unsigned long flags,
 					const void *conf, size_t conf_len);
 int sbc_reinit_a2dp(sbc_t *sbc, unsigned long flags,
@@ -106,13 +107,13 @@ ssize_t sbc_decode(sbc_t *sbc, const void *input, size_t input_len,
 ssize_t sbc_encode(sbc_t *sbc, const void *input, size_t input_len,
 			void *output, size_t output_len, ssize_t *written);
 
-/* Returns the output block size in bytes */
+/* Returns the compressed block size in bytes */
 size_t sbc_get_frame_length(sbc_t *sbc);
 
 /* Returns the time one input/output block takes to play in msec*/
 unsigned sbc_get_frame_duration(sbc_t *sbc);
 
-/* Returns the input block size in bytes */
+/* Returns the uncompressed block size in bytes */
 size_t sbc_get_codesize(sbc_t *sbc);
 
 const char *sbc_get_implementation_info(sbc_t *sbc);

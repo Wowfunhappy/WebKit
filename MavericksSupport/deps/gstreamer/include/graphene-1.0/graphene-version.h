@@ -66,4 +66,4 @@
  *
  * Since: 1.0
  */
-#define GRAPHENE_MICRO_VERSION          (2)
+#define GRAPHENE_MICRO_VERSION          (8)

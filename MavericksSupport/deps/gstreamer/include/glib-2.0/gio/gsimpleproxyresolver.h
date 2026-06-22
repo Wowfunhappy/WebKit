@@ -36,11 +36,6 @@ G_BEGIN_DECLS
 #define G_IS_SIMPLE_PROXY_RESOLVER_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_SIMPLE_PROXY_RESOLVER))
 #define G_SIMPLE_PROXY_RESOLVER_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_SIMPLE_PROXY_RESOLVER, GSimpleProxyResolverClass))
 
-/**
- * GSimpleProxyResolver:
- *
- * A #GProxyResolver implementation for using a fixed set of proxies.
- **/
 typedef struct _GSimpleProxyResolver GSimpleProxyResolver;
 typedef struct _GSimpleProxyResolverPrivate GSimpleProxyResolverPrivate;
 typedef struct _GSimpleProxyResolverClass GSimpleProxyResolverClass;
@@ -66,22 +61,22 @@ struct _GSimpleProxyResolverClass
   void (*_g_reserved5) (void);
 };
 
-GLIB_AVAILABLE_IN_2_36
+GIO_AVAILABLE_IN_2_36
 GType           g_simple_proxy_resolver_get_type          (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_2_36
+GIO_AVAILABLE_IN_2_36
 GProxyResolver *g_simple_proxy_resolver_new               (const gchar           *default_proxy,
                                                            gchar                **ignore_hosts);
 
-GLIB_AVAILABLE_IN_2_36
+GIO_AVAILABLE_IN_2_36
 void            g_simple_proxy_resolver_set_default_proxy (GSimpleProxyResolver  *resolver,
                                                            const gchar           *default_proxy);
 
-GLIB_AVAILABLE_IN_2_36
+GIO_AVAILABLE_IN_2_36
 void            g_simple_proxy_resolver_set_ignore_hosts  (GSimpleProxyResolver  *resolver,
                                                            gchar                **ignore_hosts);
 
-GLIB_AVAILABLE_IN_2_36
+GIO_AVAILABLE_IN_2_36
 void            g_simple_proxy_resolver_set_uri_proxy     (GSimpleProxyResolver  *resolver,
                                                            const gchar           *uri_scheme,
                                                            const gchar           *proxy);

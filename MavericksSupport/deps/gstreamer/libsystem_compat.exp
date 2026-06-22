@@ -1,0 +1,16 @@
+_clock_gettime
+_utimensat
+_openat
+_linkat
+_unlinkat
+_fstatat$INODE64
+_fdopendir$INODE64
+_fclonefileat
+_pthread_jit_write_protect_np
+_pthread_jit_write_protect_supported_np
+_syslog$DARWIN_EXTSN
+_getentropy
+_mkostemp
+_CCRandomGenerateBytes
+___darwin_check_fd_set_overflow
+___availability_version_check

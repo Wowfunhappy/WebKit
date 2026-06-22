@@ -50,9 +50,9 @@ namespace TagLib {
          * Create an instance of AIFF::Properties with the data read from the
          * ByteVector \a data.
          *
-         * \deprecated
+         * \deprecated Use Properties(File *, ReadStyle).
          */
-        Properties(const ByteVector &data, ReadStyle style);
+        TAGLIB_DEPRECATED Properties(const ByteVector &data, ReadStyle style);
 
         /*!
          * Create an instance of AIFF::Properties with the data read from the
@@ -71,9 +71,9 @@ namespace TagLib {
          *
          * \note This method is just an alias of lengthInSeconds().
          *
-         * \deprecated
+         * \deprecated Use lengthInSeconds().
          */
-        virtual int length() const;
+        TAGLIB_DEPRECATED virtual int length() const;
 
         /*!
          * Returns the length of the file in seconds.  The length is rounded down to
@@ -117,9 +117,9 @@ namespace TagLib {
          *
          * \note This method is just an alias of bitsPerSample().
          *
-         * \deprecated
+         * \deprecated Use bitsPerSample().
          */
-        int sampleWidth() const;
+        TAGLIB_DEPRECATED int sampleWidth() const;
 
         /*!
          * Returns the number of sample frames
@@ -159,8 +159,8 @@ namespace TagLib {
         class PropertiesPrivate;
         PropertiesPrivate *d;
       };
-    }
-  }
-}
+    }  // namespace AIFF
+  }  // namespace RIFF
+}  // namespace TagLib
 
 #endif

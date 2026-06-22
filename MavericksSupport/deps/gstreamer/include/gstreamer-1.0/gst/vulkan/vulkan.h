@@ -59,6 +59,8 @@
 #include <gst/vulkan/gstvkhandlepool.h>
 #include <gst/vulkan/gstvkfullscreenquad.h>
 
+#include <gst/vulkan/gstvkoperation.h>
 #include <gst/vulkan/gstvkutils.h>
+#include <gst/vulkan/gstvkvideoutils.h>
 
 #endif /* __GST_VULKAN_H__ */

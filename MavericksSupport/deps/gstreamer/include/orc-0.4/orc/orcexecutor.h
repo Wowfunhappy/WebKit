@@ -2,8 +2,8 @@
 #ifndef _ORC_EXECUTOR_H_
 #define _ORC_EXECUTOR_H_
 
-#include <orc/orc.h>
 #include <orc/orclimits.h>
+#include <orc/orcutils.h>
 
 ORC_BEGIN_DECLS
 
@@ -16,7 +16,8 @@ typedef struct _OrcExecutorAlt OrcExecutorAlt;
 typedef void (*OrcOpcodeEmulateFunc)(OrcOpcodeExecutor *ex, void *user);
 typedef void (*OrcOpcodeEmulateNFunc)(OrcOpcodeExecutor *ex, int index, int n);
 typedef void (*OrcOpcodeEmulate16Func)(OrcOpcodeExecutor *ex);
-typedef void (*OrcExecutorFunc)(OrcExecutor *ex);
+
+typedef void (*OrcExecutorFunc)(OrcExecutor * ORC_RESTRICT ex);
 
 /**
  * OrcOpcodeExecutor:
@@ -79,8 +80,8 @@ struct _OrcExecutorAlt {
   int time;
   int unused2;
   int unused4[8];
-  int params[ORC_VAR_T1-ORC_VAR_P1];
-  int params_hi[ORC_VAR_T1-ORC_VAR_P1];
+  int params[ORC_N_PARAMS];
+  int params_hi[ORC_N_PARAMS];
   int unused3[ORC_N_VARIABLES - ORC_VAR_T9];
   int accumulators[4];
 };

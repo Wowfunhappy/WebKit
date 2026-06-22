@@ -3,10 +3,10 @@
 
 #pragma once
 
-            #include <glib-object.h>
-            #include <gst/interfaces/photography-prelude.h>
+#include <glib-object.h>
+#include <gst/interfaces/photography-prelude.h>
 
-            G_BEGIN_DECLS
+G_BEGIN_DECLS
 
 /* enumerations from "photography.h" */
 

@@ -6,8 +6,8 @@ Libraries WebKit links that the 10.9 system doesn't provide. Two kinds live here
   from source with the in-tree toolchain into **`build/`** (`build/lib` + `build/include`).
   `build/` is a gitignored artifact — `MavericksSupport/bootstrap.sh` runs the script.
 - **`gstreamer/`** is the vendored GStreamer runtime: a **committed** prebuilt x86_64
-  binary (it can't be practically rebuilt from source on 10.9), plus `gstreamer/glib/`,
-  the scripts that build the glib it carries.
+  binary, thinned from the official GStreamer macOS runtime (which would be annoying to
+  rebuild from source on 10.9).
 
 `Source/cmake/OptionsMac.cmake` points `MAVERICKS_DEPS` at `build/`; `WebKitFindPackage.cmake`
 finds ICU there; `OptionsMacGStreamer.cmake` points `GST_ROOT` at `gstreamer/`.
@@ -23,19 +23,18 @@ to `Source/WebCore/PlatformMac.cmake` (under `MAVERICKS_DEPS`).
 
 ## Updating the vendored GStreamer
 
-The committed `gstreamer/` tree is an x86_64-thinned copy of the official GStreamer
-macOS runtime with our glib swapped in. To move to a new GStreamer release:
+The committed `gstreamer/` tree is an x86_64-thinned copy of the official GStreamer macOS
+runtime. The package ships everything WebKit's GStreamer path links — including glib and the
+OpenSSL the WebRTC DTLS-SRTP crypto uses (`lib/libcrypto`/`libssl`, consumed via the
+`OpenSSL::Crypto` cmake target). Both are used as-shipped; there is no separate build or swap
+step. To move to a new GStreamer release:
 
 1. Download the official GStreamer macOS runtime for the target version and extract it.
 2. Thin every dylib to x86_64 (`lipo -thin x86_64`) and copy `lib/` + `include/` over
-   `gstreamer/lib` + `gstreamer/include`.
-3. The package bundles its own glib. If it's older than the glib the WebKit tree's GLib
-   helper layer needs, build a newer one and swap it in: run `gstreamer/glib/build-glib.sh`
-   (set `GLIB_VER` to the version you want) and follow the `NEXT` instructions it prints
-   (copy the glib dylibs over the bundled ones, rewrite install names to `@rpath`, flatten
-   `glibconfig.h` to x86_64). If the bundled glib already satisfies WebKit, skip this step —
-   the swap exists only to bridge that version gap, so a new-enough package removes the need
-   for it entirely.
+   `gstreamer/lib` + `gstreamer/include`. Flatten the arch-specific glibconfig
+   (`lib/glib-2.0/include/<arch>/glibconfig.h` → `lib/glib-2.0/include/glibconfig.h`).
+3. Confirm the bundled dylibs are 10.9-self-sufficient: `nm -u` on each must show no
+   post-10.9 symbol imports (the install names are already `@rpath`-relative, so no rewriting).
 4. Update the version in the `GStreamer is vendored at ...` comment in `OptionsMac.cmake`
-   and `GSTREAMER_VERSION`/`GLIB_VERSION` in `OptionsMacGStreamer.cmake`.
+   and `GSTREAMER_VERSION` in `OptionsMacGStreamer.cmake`.
 5. `git add gstreamer` to commit the new binary.

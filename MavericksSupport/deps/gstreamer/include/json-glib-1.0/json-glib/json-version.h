@@ -1,8 +1,10 @@
 /* json-version.h - JSON-GLib versioning information
  * 
  * This file is part of JSON-GLib
- * Copyright (C) 2007  OpenedHand Ltd.
- * Copyright (C) 2009  Intel Corp.
+ *
+ * SPDX-FileCopyrightText: 2007  OpenedHand Ltd.
+ * SPDX-FileCopyrightText: 2009  Intel Corp.
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -21,64 +23,64 @@
  *   Emmanuele Bassi  <ebassi@linux.intel.com>
  */
 
-#ifndef __JSON_VERSION_H__
-#define __JSON_VERSION_H__
+#pragma once
 
 #if !defined(__JSON_GLIB_INSIDE__) && !defined(JSON_COMPILATION)
 #error "Only <json-glib/json-glib.h> can be included directly."
 #endif
 
 /**
- * SECTION:json-version
- * @short_description: JSON-GLib version checking
- *
- * JSON-GLib provides macros to check the version of the library
- * at compile-time
- */
-
-/**
  * JSON_MAJOR_VERSION:
  *
- * Json major version component (e.g. 1 if %JSON_VERSION is 1.2.3)
+ * Json major version component (e.g. 1 if `JSON_VERSION` is "1.2.3")
  */
 #define JSON_MAJOR_VERSION              (1)
 
 /**
  * JSON_MINOR_VERSION:
  *
- * Json minor version component (e.g. 2 if %JSON_VERSION is 1.2.3)
+ * Json minor version component (e.g. 2 if `JSON_VERSION` is "1.2.3")
  */
-#define JSON_MINOR_VERSION              (6)
+#define JSON_MINOR_VERSION              (10)
 
 /**
  * JSON_MICRO_VERSION:
  *
- * Json micro version component (e.g. 3 if %JSON_VERSION is 1.2.3)
+ * Json micro version component (e.g. 3 if `JSON_VERSION` is "1.2.3")
  */
-#define JSON_MICRO_VERSION              (2)
+#define JSON_MICRO_VERSION              (6)
 
 /**
  * JSON_VERSION
  *
- * Json version.
+ * The version of JSON-GLib.
  */
-#define JSON_VERSION                    (1.6.2)
+#define JSON_VERSION                    (1.10.6)
 
 /**
  * JSON_VERSION_S:
  *
- * JSON-GLib version, encoded as a string, useful for printing and
+ * The version of JSON-GLib, encoded as a string, useful for printing and
  * concatenation.
  */
-#define JSON_VERSION_S                  "1.6.2"
+#define JSON_VERSION_S                  "1.10.6"
 
+/**
+ * JSON_ENCODE_VERSION:
+ * @major: (type int): the major version to encode
+ * @minor: (type int): the minor version to encode
+ * @micro: (type int): the micro version to encode
+ *
+ * Encodes a JSON-GLib version in an hexadecimal number, useful for
+ * integer comparisons.
+ */
 #define JSON_ENCODE_VERSION(major,minor,micro) \
         ((major) << 24 | (minor) << 16 | (micro) << 8)
 
 /**
  * JSON_VERSION_HEX:
  *
- * JSON-GLib version, encoded as an hexadecimal number, useful for
+ * The version of JSON-GLib, encoded as an hexadecimal number, useful for
  * integer comparisons.
  */
 #define JSON_VERSION_HEX \
@@ -90,13 +92,11 @@
  * @minor: required minor version
  * @micro: required micro version
  *
- * Compile-time version checking. Evaluates to %TRUE if the version
- * of Json is greater than the required one.
+ * Compile-time version checking. Evaluates to `TRUE` if the version
+ * of JSON-GLib is greater than the required one.
  */
 #define JSON_CHECK_VERSION(major,minor,micro)   \
         (JSON_MAJOR_VERSION > (major) || \
          (JSON_MAJOR_VERSION == (major) && JSON_MINOR_VERSION > (minor)) || \
          (JSON_MAJOR_VERSION == (major) && JSON_MINOR_VERSION == (minor) && \
           JSON_MICRO_VERSION >= (micro)))
-
-#endif /* __JSON_VERSION_H__ */

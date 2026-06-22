@@ -3,10 +3,10 @@
 
 #pragma once
 
-            #include <glib-object.h>
-            #include <gst/video/video-prelude.h>
+#include <glib-object.h>
+#include <gst/video/video-prelude.h>
 
-            G_BEGIN_DECLS
+G_BEGIN_DECLS
 
 /* enumerations from "colorbalance.h" */
 
@@ -45,6 +45,10 @@ GType gst_video_codec_frame_flags_get_type (void);
 /* enumerations from "navigation.h" */
 
 GST_VIDEO_API
+GType gst_navigation_modifier_type_get_type (void);
+#define GST_TYPE_NAVIGATION_MODIFIER_TYPE (gst_navigation_modifier_type_get_type())
+
+GST_VIDEO_API
 GType gst_navigation_command_get_type (void);
 #define GST_TYPE_NAVIGATION_COMMAND (gst_navigation_command_get_type())
 
@@ -69,6 +73,10 @@ GType gst_video_ancillary_did_get_type (void);
 GST_VIDEO_API
 GType gst_video_ancillary_di_d16_get_type (void);
 #define GST_TYPE_VIDEO_ANCILLARY_DI_D16 (gst_video_ancillary_di_d16_get_type())
+
+GST_VIDEO_API
+GType gst_ancillary_meta_field_get_type (void);
+#define GST_TYPE_ANCILLARY_META_FIELD (gst_ancillary_meta_field_get_type())
 
 GST_VIDEO_API
 GType gst_video_afd_value_get_type (void);

@@ -24,11 +24,14 @@
 #include <gst/webrtc/webrtc_fwd.h>
 #include <gst/webrtc/webrtc-enumtypes.h>
 #include <gst/webrtc/dtlstransport.h>
+#include <gst/webrtc/ice.h>
+#include <gst/webrtc/icestream.h>
 #include <gst/webrtc/icetransport.h>
 #include <gst/webrtc/rtcsessiondescription.h>
 #include <gst/webrtc/rtpreceiver.h>
 #include <gst/webrtc/rtpsender.h>
 #include <gst/webrtc/rtptransceiver.h>
+#include <gst/webrtc/sctptransport.h>
 #include <gst/webrtc/datachannel.h>
 
 #endif /* __GST_WEBRTC_WEBRTC_H__ */

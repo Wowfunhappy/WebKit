@@ -2,7 +2,6 @@
 #ifndef _ORC_TARGET_H_
 #define _ORC_TARGET_H_
 
-#include <orc/orc.h>
 #include <orc/orclimits.h>
 #include <orc/orcrule.h>
 
@@ -30,7 +29,8 @@ typedef enum {
 enum {
   ORC_TARGET_NEON_CLEAN_COMPILE = (1<<0),
   ORC_TARGET_NEON_NEON = (1<<1),
-  ORC_TARGET_NEON_EDSP = (1<<2)
+  ORC_TARGET_NEON_EDSP = (1<<2),
+  ORC_TARGET_NEON_64BIT = (1<<3)
 };
 
 enum {
@@ -61,8 +61,10 @@ typedef enum {
   ORC_TARGET_SSE_SSE5 = (1<<6),
   ORC_TARGET_SSE_FRAME_POINTER = (1<<7),
   ORC_TARGET_SSE_SHORT_JUMPS = (1<<8),
-  ORC_TARGET_SSE_64BIT = (1<<9)
-}OrcTargetSSEFlags;
+  ORC_TARGET_SSE_64BIT = (1<<9),
+  ORC_TARGET_AVX_AVX = (1<<10),
+  ORC_TARGET_AVX_AVX2 = (1<<11),
+} OrcTargetSSEFlags;
 
 
 /**
@@ -85,10 +87,14 @@ struct _OrcTarget {
   void (*load_constant)(OrcCompiler *compiler, int reg, int size, int value);
   const char * (*get_flag_name)(int shift);
   void (*flush_cache) (OrcCode *code);
+  /* FIXME or you either support the size, or provide a better function to also
+   * handle 64 bits constants, but there is no need to add another API for
+   * one specific case. Use a _full passing also the size.
+   */
   void (*load_constant_long)(OrcCompiler *compiler, int reg,
       OrcConstant *constant);
-
-  void *_unused[5];
+  void *target_data;
+  void *_unused[4];
 };
 
 

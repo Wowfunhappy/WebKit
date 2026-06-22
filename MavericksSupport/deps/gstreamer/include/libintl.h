@@ -33,7 +33,13 @@
 # define __GNU_GETTEXT_SUPPORTED_REVISION
 #endif
 
-#if __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ > 4)
+#if defined(__has_attribute)
+# define PROXY_LIBINTL_HAS_GNUC_FORMAT __has_attribute(__format_arg__)
+#else
+# define PROXY_LIBINTL_HAS_GNUC_FORMAT (__GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ > 4))
+#endif
+
+#if PROXY_LIBINTL_HAS_GNUC_FORMAT
 # define PROXY_LIBINTL_GNUC_FORMAT(arg_idx) __attribute__((__format_arg__(arg_idx)))
 #else
 # define PROXY_LIBINTL_GNUC_FORMAT(arg_idx)

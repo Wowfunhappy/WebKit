@@ -1,8 +1,10 @@
 /* json-gvariant.h - JSON GVariant integration
  *
  * This file is part of JSON-GLib
- * Copyright (C) 2007  OpenedHand Ltd.
- * Copyright (C) 2009  Intel Corp.
+ *
+ * SPDX-FileCopyrightText: 2007  OpenedHand Ltd.
+ * SPDX-FileCopyrightText: 2009  Intel Corp.
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -21,8 +23,7 @@
  *   Eduardo Lima Mitev  <elima@igalia.com>
  */
 
-#ifndef __JSON_GVARIANT_H__
-#define __JSON_GVARIANT_H__
+#pragma once
 
 #if !defined(__JSON_GLIB_INSIDE__) && !defined(JSON_COMPILATION)
 #error "Only <json-glib/json-glib.h> can be included directly."
@@ -49,5 +50,3 @@ GVariant * json_gvariant_deserialize_data (const gchar  *json,
                                            GError      **error);
 
 G_END_DECLS
-
-#endif /* __JSON_GVARIANT_H__ */

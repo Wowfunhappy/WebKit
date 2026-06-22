@@ -30,9 +30,7 @@
 #include "audioproperties.h"
 
 namespace TagLib {
-
   namespace MP4 {
-
     class Atoms;
     class File;
 
@@ -55,9 +53,9 @@ namespace TagLib {
        *
        * \note This method is just an alias of lengthInSeconds().
        *
-       * \deprecated
+       * \deprecated Use lengthInSeconds().
        */
-      virtual int length() const;
+      TAGLIB_DEPRECATED virtual int length() const;
 
       /*!
        * Returns the length of the file in seconds.  The length is rounded down to
@@ -112,9 +110,6 @@ namespace TagLib {
       class PropertiesPrivate;
       PropertiesPrivate *d;
     };
-
-  }
-
-}
-
+  }  // namespace MP4
+}  // namespace TagLib
 #endif

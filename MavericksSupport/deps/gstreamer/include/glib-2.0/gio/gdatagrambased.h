@@ -41,13 +41,6 @@ G_BEGIN_DECLS
 #define G_TYPE_IS_DATAGRAM_BASED(type)    (g_type_is_a ((type), \
                                            G_TYPE_DATAGRAM_BASED))
 
-/**
- * GDatagramBased:
- *
- * Interface for socket-like objects with datagram semantics.
- *
- * Since: 2.48
- */
 typedef struct _GDatagramBasedInterface GDatagramBasedInterface;
 
 /**
@@ -100,11 +93,11 @@ struct _GDatagramBasedInterface
                                          GError              **error);
 };
 
-GLIB_AVAILABLE_IN_2_48
+GIO_AVAILABLE_IN_2_48
 GType
 g_datagram_based_get_type             (void);
 
-GLIB_AVAILABLE_IN_2_48
+GIO_AVAILABLE_IN_2_48
 gint
 g_datagram_based_receive_messages     (GDatagramBased       *datagram_based,
                                        GInputMessage        *messages,
@@ -114,7 +107,7 @@ g_datagram_based_receive_messages     (GDatagramBased       *datagram_based,
                                        GCancellable         *cancellable,
                                        GError              **error);
 
-GLIB_AVAILABLE_IN_2_48
+GIO_AVAILABLE_IN_2_48
 gint
 g_datagram_based_send_messages        (GDatagramBased       *datagram_based,
                                        GOutputMessage       *messages,
@@ -124,16 +117,16 @@ g_datagram_based_send_messages        (GDatagramBased       *datagram_based,
                                        GCancellable         *cancellable,
                                        GError              **error);
 
-GLIB_AVAILABLE_IN_2_48
+GIO_AVAILABLE_IN_2_48
 GSource *
 g_datagram_based_create_source        (GDatagramBased       *datagram_based,
                                        GIOCondition          condition,
                                        GCancellable         *cancellable);
-GLIB_AVAILABLE_IN_2_48
+GIO_AVAILABLE_IN_2_48
 GIOCondition
 g_datagram_based_condition_check      (GDatagramBased       *datagram_based,
                                        GIOCondition          condition);
-GLIB_AVAILABLE_IN_2_48
+GIO_AVAILABLE_IN_2_48
 gboolean
 g_datagram_based_condition_wait       (GDatagramBased       *datagram_based,
                                        GIOCondition          condition,

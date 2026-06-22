@@ -25,7 +25,7 @@
 #include <glib-object.h>
 
 typedef struct _GstValidateReport GstValidateReport;
-typedef guintptr GstValidateIssueId;
+typedef GQuark GstValidateIssueId;
 
 #include <gst/gst.h>
 #include <gst/validate/validate-prelude.h>
@@ -138,6 +138,12 @@ typedef enum {
 #define SCENARIO_ACTION_CHECK_ERROR              _QUARK("scenario::check-error")
 #define SCENARIO_ACTION_TIMEOUT                  _QUARK("scenario::action-timeout")
 #define SCENARIO_ACTION_EXECUTION_ISSUE          _QUARK("scenario::execution-issue")
+/**
+ * SCENARIO_ACTION_ENDED_EARLY:
+ *
+ * Since: 1.22
+ */
+#define SCENARIO_ACTION_ENDED_EARLY              _QUARK("scenario::action-ended-early")
 
 #define CONFIG_LATENCY_TOO_HIGH                  _QUARK("config::latency-too-high")
 #define CONFIG_TOO_MANY_BUFFERS_DROPPED          _QUARK("config::too-many-buffers-dropped")
@@ -150,7 +156,7 @@ typedef enum {
 /**
  * GstValidateIssueFlags:
  * GST_VALIDATE_ISSUE_FLAGS_NONE: No special flags for the issue type
- * GST_VALIDATE_ISSUE_FLAGS_FULL_DETAILS: Always show all accurences of the issue in full details
+ * GST_VALIDATE_ISSUE_FLAGS_FULL_DETAILS: Always show all occurrences of the issue in full details
  * GST_VALIDATE_ISSUE_FLAGS_NO_BACKTRACE: Do not generate backtrace for the issue type
  */
 typedef enum {
@@ -235,13 +241,40 @@ struct _GstValidateReport {
   gchar *trace;
   gchar *dotfile_name;
 
-  gpointer _gst_reserved[GST_PADDING - 2];
+  gpointer _gst_reserved[GST_PADDING];
 };
+
+GST_VALIDATE_API
+GstValidateIssue * gst_validate_report_get_issue (GstValidateReport * report);
+
+GST_VALIDATE_API
+GstValidateReportLevel gst_validate_report_get_level (GstValidateReport * report);
+
+GST_VALIDATE_API
+GstValidateReporter * gst_validate_report_get_reporter (GstValidateReport * report);
+
+GST_VALIDATE_API
+GstClockTime gst_validate_report_get_timestamp (GstValidateReport * report);
+
+GST_VALIDATE_API
+gchar * gst_validate_report_get_message (GstValidateReport * report);
+
+GST_VALIDATE_API
+GstValidateReportingDetails gst_validate_report_get_reporting_level (GstValidateReport * report);
+
+GST_VALIDATE_API
+gchar * gst_validate_report_get_reporter_name (GstValidateReport * report);
+
+GST_VALIDATE_API
+gchar * gst_validate_report_get_trace (GstValidateReport * report);
+
+GST_VALIDATE_API
+gchar * gst_validate_report_get_dotfile_name (GstValidateReport * report);
 
 void gst_validate_report_add_message (GstValidateReport *report,
     const gchar *message);
 
-#define GST_VALIDATE_ISSUE_FORMAT G_GUINTPTR_FORMAT " (%s) : %s: %s"
+#define GST_VALIDATE_ISSUE_FORMAT G_GUINT32_FORMAT " (%s) : %s: %s"
 #define GST_VALIDATE_ISSUE_ARGS(i) gst_validate_issue_get_id (i), \
                                    gst_validate_report_level_get_name (i->default_level), \
                                    i->area, \
@@ -257,7 +290,7 @@ void               gst_validate_report_init (void);
 GST_VALIDATE_API
 GstValidateIssue  *gst_validate_issue_from_id (GstValidateIssueId issue_id);
 GST_VALIDATE_API
-GstValidateIssueId gst_validate_issue_get_id (GstValidateIssue * issue);
+guint32 gst_validate_issue_get_id (GstValidateIssue * issue);
 GST_VALIDATE_API
 void               gst_validate_issue_register (GstValidateIssue * issue);
 GST_VALIDATE_API
@@ -282,7 +315,7 @@ GST_VALIDATE_API
 GstValidateReport *gst_validate_report_ref   (GstValidateReport * report);
 
 GST_VALIDATE_API
-GstValidateIssueId gst_validate_report_get_issue_id (GstValidateReport * report);
+guint32 gst_validate_report_get_issue_id (GstValidateReport * report);
 
 GST_VALIDATE_API
 gboolean           gst_validate_report_check_abort (GstValidateReport * report);
@@ -333,4 +366,3 @@ void gst_validate_skip_test (const gchar* format, ...);
 G_END_DECLS
 
 #endif /* __GST_VALIDATE_REPORT_H__ */
-

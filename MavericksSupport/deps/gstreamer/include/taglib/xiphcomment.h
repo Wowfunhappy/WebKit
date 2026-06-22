@@ -35,6 +35,11 @@
 #include "flacpicture.h"
 #include "taglib_export.h"
 
+#ifdef _MSC_VER
+// Explained at end of tpropertymap.cpp
+extern template class TAGLIB_EXPORT TagLib::Map<TagLib::String, TagLib::StringList>;
+#endif
+
 namespace TagLib {
 
   namespace Ogg {
@@ -186,7 +191,7 @@ namespace TagLib {
        * \deprecated Using this method may lead to a linkage error.
        */
       // BIC: remove and merge with below
-      void removeField(const String &key, const String &value = String::null);
+      TAGLIB_DEPRECATED void removeField(const String &key, const String &value = String());
 
       /*!
        * Remove all the fields specified by \a key.
@@ -269,7 +274,7 @@ namespace TagLib {
       class XiphCommentPrivate;
       XiphCommentPrivate *d;
     };
-  }
-}
+  }  // namespace Ogg
+}  // namespace TagLib
 
 #endif

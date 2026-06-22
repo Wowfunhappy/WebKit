@@ -55,6 +55,11 @@ namespace TagLib {
     FileStream(FileName file, bool openReadOnly = false);
 
     /*!
+     * Construct a File object and opens the \a file using file descriptor.
+     */
+    FileStream(int fileDescriptor, bool openReadOnly = false);
+
+    /*!
      * Destroys this FileStream instance.
      */
     virtual ~FileStream();
@@ -149,6 +154,6 @@ namespace TagLib {
     FileStreamPrivate *d;
   };
 
-}
+}  // namespace TagLib
 
 #endif

@@ -36,6 +36,26 @@ GST_VULKAN_API
 GType gst_vulkan_physical_device_get_type       (void);
 
 /**
+ * GstVulkanQueueFamilyOps:
+ * @video: video operation supported by queue family
+ * @query_result_status: if queue family supports result status queries
+ *
+ * Since: 1.24
+ */
+struct _GstVulkanQueueFamilyOps
+{
+  guint32 video;
+    /**
+   * GstVulkanQueueFamilyOps.query_result_status:
+   *
+   * query status result support
+   *
+   * Since: 1.26
+   */
+  gboolean query_result_status;
+};
+
+/**
  * GstVulkanPhysicalDevice:
  * @parent: the parent #GstObject
  * @instance: the parent #GstVulkanInstance for this physical device
@@ -64,6 +84,15 @@ struct _GstVulkanPhysicalDevice
 
   VkQueueFamilyProperties *queue_family_props;
   guint32 n_queue_families;
+
+  /**
+   * GstVulkanPhysicalDevice.queue_family_ops:
+   *
+   * vulkan operations allowed per queue family
+   *
+   * Since: 1.24
+   */
+  GstVulkanQueueFamilyOps *queue_family_ops;
 
   /* <private> */
   gpointer _reserved        [GST_PADDING];
@@ -104,7 +133,16 @@ gboolean                    gst_vulkan_physical_device_get_layer_info       (Gst
                                                                              gchar ** description,
                                                                              guint32 * spec_version,
                                                                              guint32 * implementation_version);
-
+GST_VULKAN_API
+void                        gst_vulkan_physical_device_get_api_version      (GstVulkanPhysicalDevice * device,
+                                                                             guint * major,
+                                                                             guint * minor,
+                                                                             guint * patch);
+GST_VULKAN_API
+gboolean                    gst_vulkan_physical_device_check_api_version    (GstVulkanPhysicalDevice * device,
+                                                                             guint major,
+                                                                             guint minor,
+                                                                             guint patch);
 
 G_END_DECLS
 

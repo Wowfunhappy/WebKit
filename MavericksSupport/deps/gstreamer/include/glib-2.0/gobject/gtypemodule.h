@@ -40,13 +40,6 @@ typedef struct _GTypeModuleClass GTypeModuleClass;
 
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GTypeModule, g_object_unref)
 
-/**
- * GTypeModule:
- * @name: the name of the module
- * 
- * The members of the GTypeModule structure should not 
- * be accessed directly, except for the @name field.
- */
 struct _GTypeModule 
 {
   GObject parent_instance;
@@ -268,31 +261,31 @@ type_name##_register_type (GTypeModule *type_module) \
   TypeName##_private_offset = sizeof (TypeName##Private); \
 }
 
-GLIB_AVAILABLE_IN_ALL
+GOBJECT_AVAILABLE_IN_ALL
 GType    g_type_module_get_type       (void) G_GNUC_CONST;
-GLIB_AVAILABLE_IN_ALL
+GOBJECT_AVAILABLE_IN_ALL
 gboolean g_type_module_use            (GTypeModule          *module);
-GLIB_AVAILABLE_IN_ALL
+GOBJECT_AVAILABLE_IN_ALL
 void     g_type_module_unuse          (GTypeModule          *module);
-GLIB_AVAILABLE_IN_ALL
+GOBJECT_AVAILABLE_IN_ALL
 void     g_type_module_set_name       (GTypeModule          *module,
                                        const gchar          *name);
-GLIB_AVAILABLE_IN_ALL
+GOBJECT_AVAILABLE_IN_ALL
 GType    g_type_module_register_type  (GTypeModule          *module,
                                        GType                 parent_type,
                                        const gchar          *type_name,
                                        const GTypeInfo      *type_info,
                                        GTypeFlags            flags);
-GLIB_AVAILABLE_IN_ALL
+GOBJECT_AVAILABLE_IN_ALL
 void     g_type_module_add_interface  (GTypeModule          *module,
                                        GType                 instance_type,
                                        GType                 interface_type,
                                        const GInterfaceInfo *interface_info);
-GLIB_AVAILABLE_IN_ALL
+GOBJECT_AVAILABLE_IN_ALL
 GType    g_type_module_register_enum  (GTypeModule          *module,
                                        const gchar          *name,
                                        const GEnumValue     *const_static_values);
-GLIB_AVAILABLE_IN_ALL
+GOBJECT_AVAILABLE_IN_ALL
 GType    g_type_module_register_flags (GTypeModule          *module,
                                        const gchar          *name,
                                        const GFlagsValue    *const_static_values);

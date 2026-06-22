@@ -39,6 +39,26 @@
 #ifndef _NICE_H
 #define _NICE_H
 
+#include "nice-version.h"
+
+/**
+ * NICE_CHECK_VERSION:
+ * @major: The major numbe of the version
+ * @minor: The major numbe of the version
+ * @micro: The major numbe of the version
+ *
+ * Macro that returns TRUE if the version if libnice that you are compiling
+ * against is greater or equal to the argument
+ *
+ * Since: 0.1.20
+ */
+
+#define NICE_CHECK_VERSION(major, minor, micro)                         \
+    (NICE_VERSION_MAJOR > (major) ||                                    \
+     (NICE_VERSION_MAJOR == (major) && NICE_VERSION_MINOR > (minor)) || \
+     (NICE_VERSION_MAJOR == (major) && NICE_VERSION_MINOR == (minor) && \
+      NICE_VERSION_MICRO >= (micro)))
+
 #include "agent.h"
 #include "interfaces.h"
 

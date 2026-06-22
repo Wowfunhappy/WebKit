@@ -94,6 +94,10 @@ gpointer            gst_vulkan_instance_get_proc_address        (GstVulkanInstan
 GST_VULKAN_API
 GstVulkanDevice *   gst_vulkan_instance_create_device           (GstVulkanInstance * instance,
                                                                  GError ** error);
+GST_VULKAN_API
+GstVulkanDevice *   gst_vulkan_instance_create_device_with_index(GstVulkanInstance * instance,
+                                                                 guint device_index,
+                                                                 GError ** error);
 
 GST_VULKAN_API
 void                gst_context_set_vulkan_instance             (GstContext * context,
@@ -144,6 +148,16 @@ gboolean            gst_vulkan_instance_enable_layer            (GstVulkanInstan
 GST_VULKAN_API
 gboolean            gst_vulkan_instance_is_layer_enabled        (GstVulkanInstance * instance,
                                                                  const gchar * name);
+GST_VULKAN_API
+void                gst_vulkan_instance_get_api_version         (GstVulkanInstance * instance,
+                                                                 guint * major,
+                                                                 guint * minor,
+                                                                 guint * patch);
+GST_VULKAN_API
+gboolean            gst_vulkan_instance_check_api_version       (GstVulkanInstance * instance,
+                                                                 guint major,
+                                                                 guint minor,
+                                                                 guint patch);
 
 G_END_DECLS
 

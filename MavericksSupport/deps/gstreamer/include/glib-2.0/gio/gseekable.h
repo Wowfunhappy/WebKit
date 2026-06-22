@@ -36,11 +36,6 @@ G_BEGIN_DECLS
 #define G_IS_SEEKABLE(obj)         (G_TYPE_CHECK_INSTANCE_TYPE ((obj), G_TYPE_SEEKABLE))
 #define G_SEEKABLE_GET_IFACE(obj)  (G_TYPE_INSTANCE_GET_INTERFACE ((obj), G_TYPE_SEEKABLE, GSeekableIface))
 
-/**
- * GSeekable:
- *
- * Seek object for streaming operations.
- **/
 typedef struct _GSeekableIface   GSeekableIface;
 
 /**
@@ -78,22 +73,22 @@ struct _GSeekableIface
   /* TODO: Async seek/truncate */
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType    g_seekable_get_type     (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 goffset  g_seekable_tell         (GSeekable     *seekable);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_seekable_can_seek     (GSeekable     *seekable);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_seekable_seek         (GSeekable     *seekable,
 				  goffset        offset,
 				  GSeekType      type,
 				  GCancellable  *cancellable,
 				  GError       **error);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_seekable_can_truncate (GSeekable     *seekable);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_seekable_truncate     (GSeekable     *seekable,
 				  goffset        offset,
 				  GCancellable  *cancellable,

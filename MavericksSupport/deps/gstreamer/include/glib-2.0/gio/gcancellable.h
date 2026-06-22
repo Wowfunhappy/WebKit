@@ -38,11 +38,6 @@ G_BEGIN_DECLS
 #define G_IS_CANCELLABLE_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_CANCELLABLE))
 #define G_CANCELLABLE_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_CANCELLABLE, GCancellableClass))
 
-/**
- * GCancellable:
- *
- * Allows actions to be cancelled.
- */
 typedef struct _GCancellableClass   GCancellableClass;
 typedef struct _GCancellablePrivate GCancellablePrivate;
 
@@ -69,50 +64,50 @@ struct _GCancellableClass
   void (*_g_reserved5) (void);
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType         g_cancellable_get_type               (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GCancellable *g_cancellable_new                    (void);
 
 /* These are only safe to call inside a cancellable op */
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean      g_cancellable_is_cancelled           (GCancellable  *cancellable);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean      g_cancellable_set_error_if_cancelled (GCancellable  *cancellable,
 						    GError       **error);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 int           g_cancellable_get_fd                 (GCancellable  *cancellable);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean      g_cancellable_make_pollfd            (GCancellable  *cancellable,
 						    GPollFD       *pollfd);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void          g_cancellable_release_fd             (GCancellable  *cancellable);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GSource *     g_cancellable_source_new             (GCancellable  *cancellable);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GCancellable *g_cancellable_get_current            (void);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void          g_cancellable_push_current           (GCancellable  *cancellable);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void          g_cancellable_pop_current            (GCancellable  *cancellable);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void          g_cancellable_reset                  (GCancellable  *cancellable);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gulong        g_cancellable_connect                (GCancellable  *cancellable,
 						    GCallback      callback,
 						    gpointer       data,
 						    GDestroyNotify data_destroy_func);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void          g_cancellable_disconnect             (GCancellable  *cancellable,
 						    gulong         handler_id);
 
 
 /* This is safe to call from another thread */
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void          g_cancellable_cancel       (GCancellable  *cancellable);
 
 G_END_DECLS

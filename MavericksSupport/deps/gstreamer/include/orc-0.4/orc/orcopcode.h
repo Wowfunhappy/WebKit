@@ -2,8 +2,8 @@
 #ifndef _ORC_OPCODE_H_
 #define _ORC_OPCODE_H_
 
-#include <orc/orc.h>
 #include <orc/orclimits.h>
+#include <orc/orcexecutor.h>
 
 ORC_BEGIN_DECLS
 
@@ -47,6 +47,7 @@ struct _OrcStaticOpcode {
 
 ORC_API OrcStaticOpcode * orc_opcode_find_by_name (const char *name);
 
+/* FIXME 0.5 This should never be API */
 ORC_API void orc_opcode_init (void);
 
 ORC_API OrcOpcodeSet *orc_opcode_set_get (const char *name);
@@ -56,6 +57,10 @@ ORC_API OrcOpcodeSet *orc_opcode_set_get_nth (int opcode_major);
 ORC_API int orc_opcode_set_find_by_name (OrcOpcodeSet *opcode_set, const char *name);
 
 ORC_API int orc_opcode_register_static (OrcStaticOpcode *sopcode, char *prefix);
+
+#ifdef ORC_ENABLE_UNSTABLE_API
+ORC_API OrcOpcodeSet * orc_opcode_set_find_by_opcode (OrcStaticOpcode * opcode);
+#endif
 
 ORC_END_DECLS
 
