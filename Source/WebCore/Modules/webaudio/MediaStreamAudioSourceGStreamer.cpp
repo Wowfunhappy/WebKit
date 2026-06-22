@@ -20,7 +20,9 @@
 #include "config.h"
 #include "MediaStreamAudioSource.h"
 
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER) && ENABLE(WEB_AUDIO)
+// MAVERICKS_BACKPORT: Cocoa provides MediaStreamAudioSource (MediaStreamAudioSourceCocoa); compiling this
+// GStreamer variant too duplicates WebCore::MediaStreamAudioSource::consumeAudio.
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER) && ENABLE(WEB_AUDIO) && !PLATFORM(COCOA)
 
 #include "AudioBus.h"
 #include "GStreamerAudioData.h"
