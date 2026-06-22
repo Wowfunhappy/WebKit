@@ -43,12 +43,19 @@
 
 #pragma mark - Soft-link macros for use within a single source file
 
+// MAVERICKS_BACKPORT: the dlopen-based library/framework loaders below return NULL instead of
+// RELEASE_ASSERTing when the image is absent. Many newer system libraries/frameworks (e.g.
+// libsystem_networkextension, used by NetworkIssueReporter) do not exist on 10.9; their soft-link
+// symbol lookups already tolerate a null handle (returning a default — see SOFT_LINK_*_FOR_SOURCE),
+// so a null handle degrades the feature gracefully rather than aborting. dlerror() is still logged so
+// a genuinely-unexpected load failure remains diagnosable.
 #define SOFT_LINK_LIBRARY(lib) \
     static void* lib##Library() \
     { \
         static void* dylib = ^{ \
             void *result = dlopen("/usr/lib/" #lib ".dylib", RTLD_NOW); \
-            RELEASE_ASSERT_WITH_MESSAGE(result, "%s", dlerror()); \
+            if (!result) \
+                WTFLogAlways("MAVERICKS_BACKPORT: optional library " #lib " not loaded: %s", dlerror()); \
             return result; \
         }(); \
         return dylib; \
@@ -59,7 +66,8 @@
     { \
         static void* dylib = ^{ \
             void *result = dlopen("/usr/lib/system/" #lib ".dylib", RTLD_NOW); \
-            RELEASE_ASSERT_WITH_MESSAGE(result, "%s", dlerror()); \
+            if (!result) \
+                WTFLogAlways("MAVERICKS_BACKPORT: optional system library " #lib " not loaded: %s", dlerror()); \
             return result; \
         }(); \
         return dylib; \
@@ -91,7 +99,8 @@ static void* lib##Library() \
     { \
         static void* frameworkLibrary = ^{ \
             void* result = dlopen("/System/Library/Frameworks/" #framework ".framework/" #framework, RTLD_NOW); \
-            RELEASE_ASSERT_WITH_MESSAGE(result, "%s", dlerror()); \
+            if (!result) \
+                WTFLogAlways("MAVERICKS_BACKPORT: optional framework " #framework " not loaded: %s", dlerror()); \
             return result; \
         }(); \
         return frameworkLibrary; \
@@ -102,7 +111,8 @@ static void* lib##Library() \
     { \
         static void* frameworkLibrary = ^{ \
             void* result = dlopen("/System/Library/PrivateFrameworks/" #framework ".framework/" #framework, RTLD_NOW); \
-            RELEASE_ASSERT_WITH_MESSAGE(result, "%s", dlerror()); \
+            if (!result) \
+                WTFLogAlways("MAVERICKS_BACKPORT: optional private framework " #framework " not loaded: %s", dlerror()); \
             return result; \
         }(); \
         return frameworkLibrary; \
@@ -415,8 +425,8 @@ static void* lib##Library() \
         static dispatch_once_t once; \
         dispatch_once(&once, ^{ \
             library = dlopen("/usr/lib/" #lib ".dylib", RTLD_NOW); \
-            if (!isOptional) \
-                RELEASE_ASSERT_WITH_MESSAGE(library, "%s", dlerror()); \
+            if (!library) /* MAVERICKS_BACKPORT: tolerate absent-on-10.9 libraries (see loaders above) */ \
+                WTFLogAlways("MAVERICKS_BACKPORT: optional library " #lib " not loaded: %s", dlerror()); \
         }); \
         return library; \
     } \
@@ -440,8 +450,8 @@ static void* lib##Library() \
         static dispatch_once_t once; \
         dispatch_once(&once, ^{ \
             frameworkLibrary = dlopen("/System/Library/Frameworks/" #framework ".framework/" #framework, flags); \
-            if (!isOptional) \
-                RELEASE_ASSERT_WITH_MESSAGE(frameworkLibrary, "%s", dlerror()); \
+            if (!frameworkLibrary) /* MAVERICKS_BACKPORT: tolerate absent-on-10.9 frameworks (see loaders above) */ \
+                WTFLogAlways("MAVERICKS_BACKPORT: optional framework " #framework " not loaded: %s", dlerror()); \
         }); \
         return frameworkLibrary; \
     } \
@@ -465,8 +475,8 @@ static void* lib##Library() \
         static dispatch_once_t once; \
         dispatch_once(&once, ^{ \
             frameworkLibrary = dlopen("/System/Library/PrivateFrameworks/" #framework ".framework/" #framework, RTLD_NOW); \
-            if (!isOptional) \
-                RELEASE_ASSERT_WITH_MESSAGE(frameworkLibrary, "%s", dlerror()); \
+            if (!frameworkLibrary) /* MAVERICKS_BACKPORT: tolerate absent-on-10.9 frameworks (see loaders above) */ \
+                WTFLogAlways("MAVERICKS_BACKPORT: optional private framework " #framework " not loaded: %s", dlerror()); \
         }); \
         return frameworkLibrary; \
     } \

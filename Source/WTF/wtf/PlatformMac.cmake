@@ -36,8 +36,14 @@ ObjCRuntimeExtras.mm
     cocoa/ResourceUsageCocoa.cpp
     cocoa/RuntimeApplicationChecksCocoa.mm
     cocoa/SchedulePairCocoa.mm
+    # MAVERICKS_BACKPORT: absent from upstream WTF cmake list; defines WTF::dispatch_data_apply_span
+    # (a wrapper over the 10.9-available dispatch_data_apply) used by WebKit NetworkCache/NetworkRTC.
+    cocoa/SpanCocoa.mm
     cocoa/SystemTracingCocoa.cpp
     cocoa/URLCocoa.mm
+    # MAVERICKS_BACKPORT: absent from upstream WTF cmake list; defines WTF::UUID::createNSUUID/fromNSUUID
+    # used by WebKit (WebPushMessage, model element, etc.).
+    cocoa/UUIDCocoa.mm
     cocoa/WorkQueueCocoa.cpp
 
     darwin/LibraryPathDiagnostics.mm

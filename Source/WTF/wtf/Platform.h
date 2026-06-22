@@ -158,7 +158,13 @@
 #endif
 
 /* FIXME: Remove dependence on ENABLE(WEB_RTC). */
-#if PLATFORM(COCOA) && ENABLE(WEB_RTC)
+// MAVERICKS_BACKPORT: don't force libwebrtc on when the GStreamer webrtcbin backend is selected.
+// Upstream's Cocoa port only has libwebrtc, so this is unconditionally 1 there. Our port can use
+// GStreamer for WebRTC (USE(GSTREAMER_WEBRTC)); in that case libwebrtc stays off. Without the
+// !USE(GSTREAMER_WEBRTC) guard this line silently overrides cmake's USE_LIBWEBRTC value (Platform.h
+// is included after cmakeconfig.h), leaving the C++ USE(LIBWEBRTC) macro at 1 while cmake excludes
+// the libwebrtc sources — an inconsistent state.
+#if PLATFORM(COCOA) && ENABLE(WEB_RTC) && !USE(GSTREAMER_WEBRTC)
 #define USE_LIBWEBRTC 1
 #endif
 
