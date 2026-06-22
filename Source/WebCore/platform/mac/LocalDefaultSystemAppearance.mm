@@ -36,12 +36,16 @@ namespace WebCore {
 
 LocalDefaultSystemAppearance::LocalDefaultSystemAppearance(bool useDarkAppearance, const Color& tintColor)
 {
-    // 10.9 backport: NSAppearance API is 10.10+ and DarkAqua/currentDrawingAppearance are 10.14+.
-    // Bypass entirely on 10.9 — there is no appearance system to swap in or restore.
+    // MAVERICKS_BACKPORT: the NSAppearance appearance-swapping system is 10.10+ (currentDrawingAppearance/
+    // setCurrentAppearance: 10.14+, appearanceByApplyingTintColor: 11.0+) and absent on 10.9 — there is no
+    // appearance to swap in or restore. Gate on the DEPLOYMENT TARGET (__MAC_OS_X_VERSION_MIN_REQUIRED),
+    // NOT a respondsToSelector(currentDrawingAppearance) runtime check: that check is DEFEATED by the
+    // objc_inject currentDrawingAppearance shim (it returns YES on 10.9), which would let the 11.0+
+    // appearanceByApplyingTintColor: path run and crash (unrecognized selector when amazon paints a
+    // tinted scrollbar corner: ScrollbarThemeMac::paintScrollCorner -> AppKitControlSystemImage::draw).
     UNUSED_PARAM(tintColor);
     m_usingDarkAppearance = useDarkAppearance;
-    if (![NSAppearance respondsToSelector:@selector(currentDrawingAppearance)])
-        return;
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
     m_savedSystemAppearance = [NSAppearance currentDrawingAppearance];
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -52,6 +56,7 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 
     [NSAppearance setCurrentAppearance:appearance.get()];
 ALLOW_DEPRECATED_DECLARATIONS_END
+#endif
 }
 
 LocalDefaultSystemAppearance::~LocalDefaultSystemAppearance()
