@@ -17,6 +17,8 @@
 #import "WebProcessPool.h"
 #import "WebKit2Initialize.h"
 #import "DrawingAreaProxy.h"
+#import "WKPrintingView.h"
+#import "WebFrameProxy.h"
 // 10.9 backport: legacy ObjC group/controller classes that QuickLook's
 // Web2.qldisplay drives through WKView.
 #import "WKBrowsingContextControllerInternal.h"
@@ -205,7 +207,21 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 - (id)initWithFrame:(NSRect)frame { return [super initWithFrame:frame]; }
 - (BOOL)isFlipped { return YES; }
 - (BOOL)canChangeFrameLayout:(WKFrameRef)f { return NO; }
-- (NSPrintOperation *)printOperationWithPrintInfo:(NSPrintInfo *)pi forFrame:(WKFrameRef)f { return nil; }
+// MAVERICKS_BACKPORT: implement printing (was a return-nil stub, so Cmd+P / File > Print did nothing).
+// Mirrors WebViewImpl::printOperationWithPrintInfo: build a WKPrintingView over the frame and wrap it in
+// an NSPrintOperation that Safari drives. WKPrintingView paginates via the WebProcess print IPC.
+- (NSPrintOperation *)printOperationWithPrintInfo:(NSPrintInfo *)pi forFrame:(WKFrameRef)f
+{
+    WebFrameProxy* frame = toImpl(f);
+    if (!frame)
+        return nil;
+    RetainPtr<WKPrintingView> printingView = adoptNS([[WKPrintingView alloc] initWithFrameProxy:*frame view:self]);
+    RetainPtr<NSPrintOperation> printOperation = [NSPrintOperation printOperationWithView:printingView.get() printInfo:pi];
+    [printOperation setCanSpawnSeparateThread:YES];
+    [printOperation setJobTitle:frame->title().createNSString().get()];
+    printingView->_printOperation = printOperation.get();
+    return printOperation.autorelease();
+}
 // 10.9 backport: actually apply the frame. Safari calls this on its WKView
 // (treated as "viewBelowBanner") during Banner._moveBannerIntoPlace: to shrink
 // the web view by banner.height so that the banner can occupy that vacated
