@@ -211,10 +211,13 @@ private:
 
     void registerInsertionUndoGrouping() override;
 
+    // MAVERICKS_BACKPORT: gate to match the ENABLE(PDF_HUD)-off base (PDFs download on 10.9).
+#if ENABLE(PDF_HUD)
     void createPDFHUD(PDFPluginIdentifier, WebCore::FrameIdentifier, const WebCore::IntRect&) override;
     void updatePDFHUDLocation(PDFPluginIdentifier, const WebCore::IntRect&) override;
     void removePDFHUD(PDFPluginIdentifier) override;
     void removeAllPDFHUDs() override;
+#endif
 
 #if ENABLE(FULLSCREEN_API)
     WebFullScreenManagerProxyClient& NODELETE fullScreenManagerProxyClient() final;

@@ -5620,7 +5620,6 @@ void WebPageProxy::receivedNavigationResponsePolicyDecision(WebCore::PolicyActio
 
 void WebPageProxy::commitProvisionalPage(IPC::Connection& connection, FrameIdentifier frameID, FrameInfoData&& frameInfo, ResourceRequest&& request, std::optional<WebCore::NavigationIdentifier> navigationID, String&& mimeType, bool frameHasCustomContentProvider, FrameLoadType frameLoadType, const CertificateInfo& certificateInfo, bool usedLegacyTLS, bool privateRelayed, String&& proxyName, WebCore::ResourceResponseSource source, bool containsPluginDocument, HasInsecureContent hasInsecureContent, MouseEventPolicy mouseEventPolicy, DocumentSecurityPolicy&& documentSecurityPolicy, const UserData& userData)
 {
-    fprintf(stderr, "[WebPageProxy::commitProvisionalPage] mimeType=%s url=%s\n", mimeType.utf8().data(), request.url().string().utf8().data()); fflush(stderr);
     ASSERT(m_provisionalPage);
     RefPtr provisionalPage = std::exchange(m_provisionalPage, nullptr);
     WEBPAGEPROXY_RELEASE_LOG(Loading, "commitProvisionalPage: newPID=%i", provisionalPage->process().processID());
@@ -5783,7 +5782,6 @@ void WebPageProxy::continueNavigationInNewProcess(API::Navigation& navigation, W
     // It is important from the previous provisional page to unregister itself before we register a
     // new one to avoid confusion.
     m_provisionalPage = nullptr;
-    fprintf(stderr, "[WebPageProxy::continueNavigationInNewProcess] creating ProvisionalPageProxy for url=%s\n", navigation.currentRequest().url().string().utf8().data()); fflush(stderr);
     Ref provisionalPage = ProvisionalPageProxy::create(*this, WTF::move(frameProcess), browsingContextGroup, WTF::move(suspendedPage), navigation, isServerSideRedirect, navigation.currentRequest(), processSwapRequestedByClient, isProcessSwappingOnNavigationResponse, websitePolicies.get(), replacedDataStoreForWebArchiveLoad);
     m_provisionalPage = provisionalPage.copyRef();
 
@@ -9554,7 +9552,10 @@ using UIClientCallback = Function<void(Ref<API::NavigationAction>&&, NewPageCall
 static void trySOAuthorization(Ref<API::PageConfiguration>&& configuration, Ref<API::NavigationAction>&& navigationAction, WebPageProxy& page, NewPageCallback&& newPageCallback, UIClientCallback&& uiClientCallback)
 {
 #if HAVE(APP_SSO)
-    // SOAuth tryAuthorize not available on macOS 10.9
+    if (protect(page.preferences())->isExtensibleSSOEnabled()) {
+        protect(page.websiteDataStore())->soAuthorizationCoordinator(page).tryAuthorize(WTF::move(configuration), WTF::move(navigationAction), page, WTF::move(newPageCallback), WTF::move(uiClientCallback));
+        return;
+    }
 #endif
     uiClientCallback(WTF::move(navigationAction), WTF::move(newPageCallback));
 }
@@ -14389,6 +14390,10 @@ std::optional<IPC::Connection::AsyncReplyID> WebPageProxy::drawRectToImage(WebFr
         return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawRectToImage(frameID, printInfo, rect, imageSize), WTF::move(callback));
     }
 
+    // MAVERICKS_BACKPORT: the GPU-process snapshot path (and the DrawPrinting*ToSnapshot messages it
+    // sends) is defined #if ENABLE(GPU_PROCESS); GPU process is OFF in this port. With it off the guard
+    // above always takes the non-GPU return, so this tail is unreachable — guard it to match.
+#if ENABLE(GPU_PROCESS)
     auto snapshotIdentifier = RemoteSnapshotIdentifier::generate();
     Ref gpuProcess = GPUProcessProxy::getOrCreate();
     auto snapshotCallback = [weakGPUProcess = WeakPtr { gpuProcess }, snapshotIdentifier, callback = WTF::move(callback), rootFrameIdentifier = frameID, imageSize](bool success) mutable {
@@ -14408,6 +14413,11 @@ std::optional<IPC::Connection::AsyncReplyID> WebPageProxy::drawRectToImage(WebFr
     if (m_isPerformingDOMPrintOperation)
         return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPrintingRectToSnapshotDuringDOMPrintOperation(snapshotIdentifier, frameID, printInfo, rect, imageSize), WTF::move(snapshotCallback), IPC::SendOption::DispatchMessageEvenWhenWaitingForUnboundedSyncReply);
     return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPrintingRectToSnapshot(snapshotIdentifier, frameID, printInfo, rect, imageSize), WTF::move(snapshotCallback));
+#else
+    ASSERT_NOT_REACHED();
+    callback({ });
+    return std::nullopt;
+#endif
 }
 
 std::optional<IPC::Connection::AsyncReplyID> WebPageProxy::drawPagesToPDF(WebFrameProxy& frame, const PrintInfo& printInfo, uint32_t first, uint32_t count, CompletionHandler<void(API::Data*)>&& callback)
@@ -14421,6 +14431,10 @@ std::optional<IPC::Connection::AsyncReplyID> WebPageProxy::drawPagesToPDF(WebFra
         return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPagesToPDF(frameID, printInfo, first, count),  toAPIDataSharedBufferCallback(WTF::move(callback)));
     }
 
+    // MAVERICKS_BACKPORT: the GPU-process snapshot path (and the DrawPrinting*ToSnapshot messages it
+    // sends) is defined #if ENABLE(GPU_PROCESS); GPU process is OFF in this port. With it off the guard
+    // above always takes the non-GPU return, so this tail is unreachable — guard it to match.
+#if ENABLE(GPU_PROCESS)
     auto snapshotIdentifier = RemoteSnapshotIdentifier::generate();
     Ref gpuProcess = GPUProcessProxy::getOrCreate();
     auto snapshotCallback = [weakGPUProcess = WeakPtr { gpuProcess }, snapshotIdentifier, callback = WTF::move(callback), rootFrameIdentifier = frameID](std::optional<FloatSize> result) mutable {
@@ -14440,6 +14454,11 @@ std::optional<IPC::Connection::AsyncReplyID> WebPageProxy::drawPagesToPDF(WebFra
     if (m_isPerformingDOMPrintOperation)
         return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPrintingPagesToSnapshotDuringDOMPrintOperation(snapshotIdentifier, frameID, printInfo, first, count), WTF::move(snapshotCallback), IPC::SendOption::DispatchMessageEvenWhenWaitingForUnboundedSyncReply);
     return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPrintingPagesToSnapshot(snapshotIdentifier, frameID, printInfo, first, count), WTF::move(snapshotCallback));
+#else
+    ASSERT_NOT_REACHED();
+    callback(nullptr);
+    return std::nullopt;
+#endif
 }
 #elif PLATFORM(GTK)
 void WebPageProxy::drawPagesForPrinting(WebFrameProxy& frame, const PrintInfo& printInfo, CompletionHandler<void(std::optional<SharedMemory::Handle>&&, ResourceError&&)>&& callback)
@@ -16545,9 +16564,9 @@ void WebPageProxy::configureLoggingChannel(const String& channelName, WTFLogChan
 }
 
 #if HAVE(APP_SSO)
-void WebPageProxy::decidePolicyForSOAuthorizationLoad(const String&, CompletionHandler<void(SOAuthorizationLoadPolicy)>&& completionHandler)
+void WebPageProxy::decidePolicyForSOAuthorizationLoad(const String& extension, CompletionHandler<void(SOAuthorizationLoadPolicy)>&& completionHandler)
 {
-    completionHandler(SOAuthorizationLoadPolicy::Allow);
+    m_navigationClient->decidePolicyForSOAuthorizationLoad(*this, SOAuthorizationLoadPolicy::Allow, extension, WTF::move(completionHandler));
 }
 #endif
 
@@ -17582,7 +17601,9 @@ INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebPage::LoadURLInFrame);
 INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebPage::LoadDataInFrame);
 INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebProcess::BindAccessibilityFrameWithData);
 INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebPage::UpdateFrameScrollingMode);
-#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: ZoomPDFOut/ZoomPDFIn messages are #if ENABLE(PDF_PLUGIN) && PLATFORM(MAC); the
+// inline PDF plugin is OFF on this port (PDFs download), so match the message guard here.
+#if ENABLE(PDF_PLUGIN) && PLATFORM(MAC)
 INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebPage::ZoomPDFOut);
 INSTANTIATE_SEND_TO_PROCESS_CONTAINING_FRAME(WebPage::ZoomPDFIn);
 #endif
@@ -17634,7 +17655,9 @@ INSTANTIATE_SEND_WITH_ASYNC_REPLY_TO_PROCESS_CONTAINING_FRAME(WebPage::RequestDr
 INSTANTIATE_SEND_WITH_ASYNC_REPLY_TO_PROCESS_CONTAINING_FRAME(WebPage::RequestAdditionalItemsForDragSession);
 #endif
 #endif
-#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: SavePDF/OpenPDFWithPreview messages are #if ENABLE(PDF_PLUGIN) && PLATFORM(MAC);
+// the inline PDF plugin is OFF on this port (PDFs download), so match the message guard here.
+#if ENABLE(PDF_PLUGIN) && PLATFORM(MAC)
 INSTANTIATE_SEND_WITH_ASYNC_REPLY_TO_PROCESS_CONTAINING_FRAME(WebPage::SavePDF);
 INSTANTIATE_SEND_WITH_ASYNC_REPLY_TO_PROCESS_CONTAINING_FRAME(WebPage::OpenPDFWithPreview);
 #endif

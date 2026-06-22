@@ -34,6 +34,9 @@
 #import <WebCore/DictionaryLookup.h>
 #import <WebCore/Editor.h>
 #import <WebCore/LocalFrame.h>
+// MAVERICKS_BACKPORT: LocalFrame::selection() is an inline defined in LocalFrameInlines.h; include it so
+// the call here resolves inline instead of leaving an out-of-line undefined reference.
+#import <WebCore/LocalFrameInlines.h>
 #import <WebCore/LocalFrameView.h>
 #import <WebCore/Page.h>
 #import <WebCore/TextIndicator.h>

@@ -917,6 +917,15 @@ macro(GENERATE_MESSAGE_SOURCES _output_source _inputs)
 endmacro()
 GENERATE_MESSAGE_SOURCES(WebKit_DERIVED_SOURCES "${WebKit_MESSAGES_IN_FILES}")
 
+# MAVERICKS_BACKPORT: GENERATE_MESSAGE_SOURCES adds every receiver .cpp (incl. the daemon-internal
+# PushClientConnectionMessageReceiver.cpp) to the framework sources. That receiver dispatches to
+# PushClientConnection::showNotification -> WebPushDaemon::singleton(), which needs the 10.14+ XPC
+# daemon transport (disabled on 10.9); upstream builds it into the separate webpushd target instead.
+# Drop only the receiver .cpp here (PushClientConnectionMessages.h is still generated for the client).
+list(REMOVE_ITEM WebKit_DERIVED_SOURCES
+    ${WebKit_DERIVED_SOURCES_DIR}/PushClientConnectionMessageReceiver.cpp
+)
+
 # Helper macro which wraps the bindings script
 #   _output_source is a list name which will contain generated sources.(eg. WebKit_SOURCES)
 #   _inputs are .idl files to generate.
@@ -969,6 +978,10 @@ list(APPEND WebKit_DERIVED_SOURCES
     ${WebKit_DERIVED_SOURCES_DIR}/GeneratedSerializers.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
     ${WebKit_DERIVED_SOURCES_DIR}/SerializedTypeInfo.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
     ${WebKit_DERIVED_SOURCES_DIR}/WebKitPlatformGeneratedSerializers.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
+    # MAVERICKS_BACKPORT: generate-serializers.py also emits GeneratedWebKitSecureCoding (the #if !HAVE(WK_SECURE_CODING_*)
+    # fallback CoreIPC impls), which is the live path here because those HAVE flags are gated to macOS 15.4+. Upstream's
+    # cmake omits it (only its Xcode build compiles it); compile it so the fallback CoreIPC symbols are defined.
+    ${WebKit_DERIVED_SOURCES_DIR}/GeneratedWebKitSecureCoding.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
 )
 
 add_custom_command(
@@ -977,6 +990,8 @@ add_custom_command(
         ${WebKit_DERIVED_SOURCES_DIR}/GeneratedSerializers.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
         ${WebKit_DERIVED_SOURCES_DIR}/SerializedTypeInfo.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
         ${WebKit_DERIVED_SOURCES_DIR}/WebKitPlatformGeneratedSerializers.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
+        # MAVERICKS_BACKPORT: GeneratedWebKitSecureCoding holds the #if !HAVE(WK_SECURE_CODING_*) fallback CoreIPC impls (live on 10.9).
+        ${WebKit_DERIVED_SOURCES_DIR}/GeneratedWebKitSecureCoding.${WebKit_GENERATED_SERIALIZERS_SUFFIX}
     MAIN_DEPENDENCY ${WEBKIT_DIR}/Scripts/generate-serializers.py
     DEPENDS
         ${WEBKIT_DIR}/Scripts/webkit/opaque_ipc_types.py

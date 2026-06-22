@@ -91,7 +91,9 @@ void ConnectionToMachService<Traits>::initializeConnectionIfNeeded() const
         }
         weakThis->connectionReceivedEvent(event);
     });
-    xpc_connection_activate(m_connection.get());
+    // MAVERICKS_BACKPORT: xpc_connection_activate is 10.14+; use the equivalent xpc_connection_resume
+    // on a freshly-created connection (10.9). Semantically identical for a new connection.
+    xpc_connection_resume(m_connection.get());
 
     newConnectionWasInitialized();
 }

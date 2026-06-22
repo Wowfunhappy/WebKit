@@ -393,6 +393,8 @@ void PageClientImpl::registerInsertionUndoGrouping()
     registerInsertionUndoGroupingWithUndoManager(retainPtr([m_view.get() undoManager]).get());
 }
 
+// MAVERICKS_BACKPORT: gate to match the ENABLE(PDF_HUD)-off base (PDFs download on 10.9).
+#if ENABLE(PDF_HUD)
 void PageClientImpl::createPDFHUD(PDFPluginIdentifier identifier, WebCore::FrameIdentifier frameID, const WebCore::IntRect& rect)
 {
     protect(m_impl)->createPDFHUD(identifier, frameID, rect);
@@ -412,6 +414,7 @@ void PageClientImpl::removeAllPDFHUDs()
 {
     protect(m_impl)->removeAllPDFHUDs();
 }
+#endif // ENABLE(PDF_HUD)
 
 void PageClientImpl::clearAllEditCommands()
 {

@@ -2836,8 +2836,11 @@ void WebPage::setDeviceScaleFactor(float scaleFactor)
 
     // Tell all our plug-in views that the device scale factor changed.
 #if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: m_pluginViews is ENABLE(PDF_PLUGIN)-only; gate this use to match.
+#if ENABLE(PDF_PLUGIN)
     for (Ref pluginView : m_pluginViews)
         pluginView->setDeviceScaleFactor(scaleFactor);
+#endif
 
     updateHeaderAndFooterLayersForDeviceScaleChange(scaleFactor);
 #endif

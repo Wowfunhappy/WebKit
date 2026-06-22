@@ -47,8 +47,12 @@ list(APPEND WebKit_SOURCES
     GPUProcess/media/RemoteAudioDestinationManager.cpp
 
     NetworkProcess/cocoa/LaunchServicesDatabaseObserver.mm
-    # WebSocketTaskCocoa.mm requires NSURLSessionWebSocketMessage (10.15+)
-    # NetworkProcess/cocoa/WebSocketTaskCocoa.mm
+    # MAVERICKS_BACKPORT: re-enabled. NSURLSessionWebSocket* are 10.15+ classes but exist in the build
+    # SDK so this compiles/links; at runtime NetworkSessionCocoa::createWebSocketTask returns nullptr
+    # before any instantiation when -webSocketTaskWithRequest: is unrecognized (10.9), so the body is
+    # dead code there. Provides WebSocketTask::create + instance methods the always-compiled
+    # NetworkSessionCocoa references.
+    NetworkProcess/cocoa/WebSocketTaskCocoa.mm
 
     NetworkProcess/mac/NetworkConnectionToWebProcessMac.mm
 

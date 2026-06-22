@@ -213,9 +213,8 @@ NetworkProcess/cache/PrefetchCache.cpp
 NetworkProcess/webrtc/NetworkMDNSRegister.cpp
 NetworkProcess/webrtc/RTCDataChannelRemoteManagerProxy.cpp
 
-// WebTransport requires Network.framework (10.14+)
-// NetworkProcess/webtransport/NetworkTransportSession.cpp
-// NetworkProcess/webtransport/NetworkTransportStream.cpp
+NetworkProcess/webtransport/NetworkTransportSession.cpp
+NetworkProcess/webtransport/NetworkTransportStream.cpp
 
 Platform/IPC/DaemonCoders.cpp
 
@@ -754,6 +753,10 @@ WebProcess/Inspector/WebInspectorUI.cpp
 WebProcess/Inspector/WasmDebuggerDispatcher.cpp
 WebProcess/Inspector/WebInspectorUIExtensionController.cpp
 WebProcess/Inspector/PageInspectorTarget.cpp
+// MAVERICKS_BACKPORT: absent from the cmake list (files post-date upstream base 83b24ce); define
+// ServiceWorkerDebuggableProxy::create / ServiceWorkerDebuggableFrontendChannel::create (#if ENABLE(REMOTE_INSPECTOR))
+WebProcess/Inspector/ServiceWorkerDebuggableProxy.cpp
+WebProcess/Inspector/ServiceWorkerDebuggableFrontendChannel.cpp
 
 WebProcess/Media/RemoteMediaSessionManager.cpp
 
@@ -856,7 +859,7 @@ WebProcess/Network/WebResourceLoader.cpp
 WebProcess/Network/WebSocketChannel.cpp @no-unify
 WebProcess/Network/WebSocketChannelManager.cpp
 WebProcess/Network/WebSocketProvider.cpp
-// WebProcess/Network/WebTransportSession.cpp
+WebProcess/Network/WebTransportSession.cpp
 
 WebProcess/Network/webrtc/LibWebRTCDnsResolverFactory.cpp
 WebProcess/Network/webrtc/LibWebRTCNetwork.cpp
@@ -974,7 +977,7 @@ IPCTesterReceiverMessageReceiver.cpp
 ModelProcessModelPlayerManagerProxyMessageReceiver.cpp
 ModelProcessModelPlayerMessageReceiver.cpp
 NetworkBroadcastChannelRegistryMessageReceiver.cpp
-// NetworkTransportSessionMessageReceiver.cpp
+NetworkTransportSessionMessageReceiver.cpp
 RTCDataChannelRemoteManagerMessageReceiver.cpp
 RTCDataChannelRemoteManagerProxyMessageReceiver.cpp
 RemoteAudioMediaStreamTrackRendererInternalUnitManagerMessageReceiver.cpp
@@ -984,7 +987,13 @@ RemoteGraphicsContextGLMessageReceiver.cpp
 RemoteGraphicsContextGLProxyMessageReceiver.cpp
 PlatformXRSystemMessageReceiver.cpp
 PlatformXRSystemProxyMessageReceiver.cpp
-PushClientConnectionMessageReceiver.cpp
+// MAVERICKS_BACKPORT: PushClientConnection is a webpushd-daemon-internal message receiver. Upstream
+// compiles this receiver into the separate webpushd executable target, not the WebKit framework; this
+// cmake port lumps all receivers into the framework. The receiver dispatches to
+// PushClientConnection::showNotification -> WebPushDaemon::singleton(), which needs the 10.14+ XPC
+// daemon transport (DaemonUtilities/DaemonConnectionCocoa disabled on 10.9). Nothing in the framework
+// runs the daemon receiver. PushClientConnectionMessages.h (client encoder side) is still generated.
+// PushClientConnectionMessageReceiver.cpp
 RemoteAdapterMessageReceiver.cpp
 RemoteAudioVideoRendererProxyManagerMessageReceiver.cpp
 RemoteBarcodeDetectorMessageReceiver.cpp
@@ -1035,4 +1044,4 @@ WebSharedWorkerContextManagerConnectionMessageReceiver.cpp
 WebSharedWorkerObjectConnectionMessageReceiver.cpp
 WebSharedWorkerServerConnectionMessageReceiver.cpp
 WebSharedWorkerServerToContextConnectionMessageReceiver.cpp
-// WebTransportSessionMessageReceiver.cpp
+WebTransportSessionMessageReceiver.cpp
