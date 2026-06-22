@@ -26,6 +26,7 @@
 
 #include "GStreamerCommon.h"
 #include "GStreamerMockDeviceProvider.h"
+#include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/glib/GMallocString.h>
 #include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/GUniquePtr.h>
@@ -87,7 +88,19 @@ void teardownGStreamerCaptureDeviceManagers()
 
 GStreamerCaptureDeviceManager::GStreamerCaptureDeviceManager()
 {
-    ensureGStreamerInitialized();
+    // MAVERICKS_BACKPORT: navigator.mediaDevices.enumerateDevices() is serviced in the UIProcess
+    // (UserMediaPermissionRequestManagerProxy -> RealtimeMediaSourceCenter::getMediaStreamDevices), which
+    // reaches this manager. Upstream Cocoa enumerates there via AVFoundation; our capture backend is
+    // GStreamer. ensureGStreamerInitialized() RELEASE_ASSERTs isInWebProcess(), so calling it from the
+    // UIProcess crashed Safari for ANY page that enumerates devices. WebCore provides
+    // ensureGStreamerInitializedNonWebProcess() (a full gst_init_check that asserts !isInWebProcess())
+    // precisely for non-web-process callers — use it in the UIProcess so the device monitor runs and
+    // enumerateDevices() returns the REAL device list instead of crashing or coming back empty. Actual
+    // capture still runs in the web process.
+    if (isInWebProcess())
+        ensureGStreamerInitialized();
+    else
+        ensureGStreamerInitializedNonWebProcess();
 
     static std::once_flag onceFlag;
     std::call_once(onceFlag, [] {
