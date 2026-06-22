@@ -28,7 +28,12 @@
 #import "WebPageProxy.h"
 #import "WebPopupMenuProxyMac.h"
 #import "WebProcessProxy.h"
+#import "WebEditCommandProxy.h"
+#import "UndoOrRedo.h"
+#import "EditorState.h"
+#import "WKEditCommand.h"
 #import <WebCore/CGWindowUtilities.h>
+#import <WebCore/TextUndoInsertionMarkupMac.h>
 #import <WebCore/Cursor.h>
 #import <WebCore/IOSurface.h>
 #if ENABLE(FULLSCREEN_API)
@@ -74,6 +79,7 @@ public:
     explicit MinimalPageClient(NSView *view)
         : PageClientImplCocoa(nil)
         , m_view(view)
+        , m_undoTarget(adoptNS([[WKEditorUndoTarget alloc] init]))
     {
     }
 
@@ -530,6 +536,8 @@ private:
     WebPageProxy *m_page { nullptr };
     bool m_forceVisibleWhenWindowless { false };
     RetainPtr<CALayer> m_rootLayer;
+    RetainPtr<WKEditorUndoTarget> m_undoTarget;
+    bool m_inSecureInputState { false };
 #if ENABLE(FULLSCREEN_API)
     MinimalFullScreenManagerProxyClient m_fullScreenClient;
 #endif
@@ -849,14 +857,34 @@ void MinimalPageClient::setCursorHiddenUntilMouseMoves(bool hiddenUntilMouseMove
 {
     [NSCursor setHiddenUntilMouseMoves:hiddenUntilMouseMoves];
 }
-void MinimalPageClient::registerEditCommand(Ref<WebEditCommandProxy>&&, UndoOrRedo)
-{ }
+// MAVERICKS_BACKPORT: implement the WKView undo surface (these were empty stubs, so Cmd+Z no-op'd
+// in every web text field). The WebProcess sends RegisterEditCommandForUndo and WebPageProxy routes
+// it here; register the command with the view's NSUndoManager so the standard undo:/redo: actions
+// drive WebEditCommandProxy::unapply()/reapply(). Mirrors WebViewImpl/PageClientImplMac.
+void MinimalPageClient::registerEditCommand(Ref<WebEditCommandProxy>&& command, UndoOrRedo undoOrRedo)
+{
+    auto actionName = command->label();
+    auto commandObjC = adoptNS([[WKEditCommand alloc] initWithWebEditCommandProxy:WTF::move(command)]);
+
+    RetainPtr undoManager = [m_view undoManager];
+    [undoManager registerUndoWithTarget:m_undoTarget.get() selector:((undoOrRedo == UndoOrRedo::Undo) ? @selector(undoEditing:) : @selector(redoEditing:)) object:commandObjC.get()];
+    if (!actionName.isEmpty())
+        [undoManager setActionName:actionName.createNSString().get()];
+}
 void MinimalPageClient::clearAllEditCommands()
-{ }
-bool MinimalPageClient::canUndoRedo(UndoOrRedo)
-{ return { }; }
-void MinimalPageClient::executeUndoRedo(UndoOrRedo)
-{ }
+{
+    [[m_view undoManager] removeAllActionsWithTarget:m_undoTarget.get()];
+}
+bool MinimalPageClient::canUndoRedo(UndoOrRedo undoOrRedo)
+{
+    RetainPtr undoManager = [m_view undoManager];
+    return undoOrRedo == UndoOrRedo::Undo ? [undoManager canUndo] : [undoManager canRedo];
+}
+void MinimalPageClient::executeUndoRedo(UndoOrRedo undoOrRedo)
+{
+    RetainPtr undoManager = [m_view undoManager];
+    undoOrRedo == UndoOrRedo::Undo ? [undoManager undo] : [undoManager redo];
+}
 void MinimalPageClient::wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&)
 { }
 #if PLATFORM(COCOA)
@@ -908,13 +936,42 @@ bool MinimalPageClient::executeSavedCommandBySelector(const String& selector)
     return true;
 }
 #endif
+// MAVERICKS_BACKPORT: HIToolbox secure-event-input (declared in <Carbon/Carbon.h>, forward-declared
+// here to avoid pulling all of Carbon — which pollutes the namespace — into this file).
+extern "C" OSStatus EnableSecureEventInput(void);
+extern "C" OSStatus DisableSecureEventInput(void);
+
 #if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: enable secure event input while a web password field is focused (was an empty
+// stub, so web passwords typed in Safari lacked the keylogger protection stock Safari provides).
+// Mirrors WebViewImpl::updateSecureInputState; editorState().isInPasswordField is populated by
+// WebPage.cpp from input->isPasswordField().
 void MinimalPageClient::updateSecureInputState()
-{ }
+{
+    if (![[m_view window] isKeyWindow] || !isViewFocused()) {
+        if (m_inSecureInputState) {
+            DisableSecureEventInput();
+            m_inSecureInputState = false;
+        }
+        return;
+    }
+    bool isInPasswordField = m_page && m_page->editorState().isInPasswordField;
+    if (isInPasswordField) {
+        if (!m_inSecureInputState)
+            EnableSecureEventInput();
+    } else if (m_inSecureInputState)
+        DisableSecureEventInput();
+    m_inSecureInputState = isInPasswordField;
+}
 #endif
 #if PLATFORM(COCOA)
 void MinimalPageClient::resetSecureInputState()
-{ }
+{
+    if (m_inSecureInputState) {
+        DisableSecureEventInput();
+        m_inSecureInputState = false;
+    }
+}
 #endif
 #if PLATFORM(COCOA)
 void MinimalPageClient::notifyInputContextAboutDiscardedComposition()
@@ -1149,7 +1206,11 @@ void MinimalPageClient::intrinsicContentSizeDidChange(const WebCore::IntSize& in
 #endif
 #if PLATFORM(MAC)
 void MinimalPageClient::registerInsertionUndoGrouping()
-{ }
+{
+    // MAVERICKS_BACKPORT: coalesce typed-character insertions into proper undo groups
+    // (so Cmd+Z removes a typing run, matching AppKit text fields) instead of no-op.
+    WebCore::registerInsertionUndoGroupingWithUndoManager([m_view undoManager]);
+}
 #endif
 #if PLATFORM(MAC)
 void MinimalPageClient::setEditableElementIsFocused(bool)
