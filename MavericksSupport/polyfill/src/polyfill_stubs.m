@@ -4,12 +4,14 @@
  */
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
+#import <QuartzCore/QuartzCore.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <CoreServices/CoreServices.h>
 #import <CoreText/CoreText.h>
 #import <Security/Security.h>
 #import <objc/runtime.h>
+#import <xpc/xpc.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,12 +24,6 @@
 #include <limits.h>
 #include <dispatch/dispatch.h>
 #include <mach/port.h>
-
-// POLYFILL_GSTREAMER_ONLY: when defined, compile ONLY the "GStreamer media backend" section below
-// (the portable C / CoreFoundation symbols the bundled GStreamer needs), skipping every WebKit-
-// specific stub, ObjC class, and category. This lets the same single source of truth also produce a
-// small, dependency-light polyfill object for the GStreamer dylibs without duplicating any code.
-#ifndef POLYFILL_GSTREAMER_ONLY
 
 // 10.9 backport: CTRunGetBaseAdvancesAndOrigins is 10.11+. The prebuilt
 // all_stubs.o provides a return-0 no-op for it, which zeroes every glyph's
@@ -123,16 +119,9 @@ void *aligned_alloc(size_t alignment, size_t size) {
     return posix_memalign(&p, alignment, size) ? NULL : p;
 }
 
-// mkostemp/mkostemps (the flags-taking mkstemp variants) are absent on 10.9; emulate via mkstemp/mkstemps
-// plus fcntl to apply the documented O_CLOEXEC/O_APPEND/O_NONBLOCK flags.
-static void applyOpenFlags(int fd, int flags) {
-    if (fd < 0) return;
-    if (flags & O_CLOEXEC) fcntl(fd, F_SETFD, FD_CLOEXEC);
-    int sfl = (flags & (O_APPEND | O_NONBLOCK));
-    if (sfl) fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | sfl);
-}
-int mkostemp(char *tmpl, int flags) { int fd = mkstemp(tmpl); applyOpenFlags(fd, flags); return fd; }
-int mkostemps(char *tmpl, int suffixlen, int flags) { int fd = mkstemps(tmpl, suffixlen); applyOpenFlags(fd, flags); return fd; }
+// mkostemp/mkostemps (the flags-taking mkstemp variants) are absent on 10.9; their polyfill
+// now lives in legacy-support/src/mkostemp.c (compiled into libpolyfill.a) so the vendored
+// GStreamer compat shim can share the same definition.
 
 // timingsafe_bcmp (constant-time compare, used by crypto) is absent on 10.9. Provide a constant-time
 // implementation (no early-out) so timing characteristics match the real function.
@@ -155,8 +144,8 @@ int mach_memory_entry_ownership(unsigned int mem_entry, unsigned int owner, int 
     return 0; // KERN_SUCCESS
 }
 
-// (__darwin_check_fd_set_overflow lives in the shared "GStreamer media backend" section below, since
-// it is one of the symbols the bundled GStreamer also needs; it is defined exactly once.)
+// (__darwin_check_fd_set_overflow lives in the "newer-than-10.9 C / CoreFoundation symbols" section
+// below; it is defined exactly once.)
 
 // dispatch_queue_create_with_target() (10.10 SDK) has no 10.9 runtime symbol — the modern SDK emits the
 // ABI-tagged "$V2" variant. Recreate it from dispatch_queue_create + dispatch_set_target_queue (both 10.6).
@@ -242,88 +231,23 @@ const char *xpc_type_get_name(void *type) { (void)type; return "xpc-object"; }
 const CFStringRef kCACornerCurveCircular = CFSTR("circular");
 const CFStringRef kCTFontDownloadedAttribute = CFSTR("kCTFontDownloadedAttribute");
 
-#endif // !POLYFILL_GSTREAMER_ONLY
-
-#pragma mark - GStreamer media backend: newer-than-10.9 symbols
-// The bundled upstream GStreamer media player (MavericksSupport/deps/gstreamer — a prebuilt 1.20.7
-// stack that targets 10.11) references a handful of symbols absent from the 10.9 runtime. They are
-// all plain C / CoreFoundation symbols (no ObjC), so they belong in this shared polyfill: the same
-// source is compiled into libpolyfill.a (every WebKit framework) AND into the GStreamer-bundled
-// polyfill dylib (built from this very file with -DPOLYFILL_NO_OBJC_CLASSES). Single source of truth.
-// (mkostemp + __darwin_check_fd_set_overflow, which GStreamer also needs, are already defined above.)
-
-#ifndef AT_FDCWD
-#define AT_FDCWD -2
-#endif
-#ifndef AT_SYMLINK_NOFOLLOW
-#define AT_SYMLINK_NOFOLLOW 0x0020
-#endif
-
-// LaunchServices app-lookup (10.10+), reached through glib gio's osxappinfo backend. Media playback
-// never needs to resolve a handler application, so "none found" (NULL) is correct and safe.
-CFArrayRef LSCopyApplicationURLsForBundleIdentifier(CFStringRef bundleID, CFErrorRef *outError) {
-    (void)bundleID; if (outError) *outError = NULL; return NULL;
-}
-CFURLRef LSCopyDefaultApplicationURLForContentType(CFStringRef contentType, int roleMask, CFErrorRef *outError) {
-    (void)contentType; (void)roleMask; if (outError) *outError = NULL; return NULL;
-}
+#pragma mark - newer-than-10.9 C / CoreFoundation symbols WebKit references
+// A few plain C / CoreFoundation symbols WebKit (and the bundled libwebrtc) reference are absent from
+// the 10.9 runtime. (The vendored GStreamer dylibs' own post-10.9 libc gap is handled separately by
+// MavericksSupport/deps/gstreamer/libsystem_compat.dylib, not here.)
 
 // __darwin_check_fd_set_overflow (the fortified FD_SET bounds check) is newer; on 10.9 reproduce its
-// semantics: a descriptor is valid if non-negative and (when not unlimited) within FD_SETSIZE. Both
-// WebKit and GStreamer reference it, and no other libpolyfill member defines it, so it lives here
-// (always compiled) as the single definition.
+// semantics: a descriptor is valid if non-negative and (when not unlimited) within FD_SETSIZE. The
+// FD_SET macro the modern SDK emits calls it, and no other libpolyfill member defines it.
 int __darwin_check_fd_set_overflow(int n, const void *fdset, int unlimited) {
     (void)fdset;
     return (n >= 0 && (unlimited || n < FD_SETSIZE)) ? 1 : 0;
 }
 
-// openat / fdopendir / fstatat (all 10.10+) collide with the MacPorts-legacy-support members already
-// inside libpolyfill.a (atcalls.o / fdopendir.o / statxx.o), which satisfy WebKit's own references.
-// So compile them ONLY for the standalone GStreamer polyfill slice, which links none of those members.
-#ifdef POLYFILL_GSTREAMER_ONLY
-// openat (10.10+). Handle AT_FDCWD and absolute paths directly; resolve a relative path against the
-// dirfd via /dev/fd (present on 10.9).
-int openat(int dirfd, const char *path, int flags, ...) {
-    int mode = 0;
-    if (flags & O_CREAT) { va_list ap; va_start(ap, flags); mode = va_arg(ap, int); va_end(ap); }
-    if (dirfd == AT_FDCWD || (path && path[0] == '/'))
-        return open(path, flags, mode);
-    char full[PATH_MAX];
-    snprintf(full, sizeof full, "/dev/fd/%d/%s", dirfd, path ? path : "");
-    return open(full, flags, mode);
-}
-
-// fdopendir (10.10+) — open a directory stream from an existing fd. Recover the path with F_GETPATH
-// (works for directory fds on 10.9) and opendir() it, taking ownership of the fd like the real call.
-// The x86_64 10.x symbol carries the $INODE64 suffix; emit that exact name via an asm label.
-DIR *polyfill_fdopendir(int fd) __asm__("_fdopendir$INODE64");
-DIR *polyfill_fdopendir(int fd) {
-    char path[PATH_MAX];
-    if (fcntl(fd, F_GETPATH, path) == -1) return NULL;
-    DIR *d = opendir(path);
-    if (d) close(fd);
-    return d;
-}
-
-// fstatat (10.10+) — stat relative to a dirfd. On 10.9 x86_64, stat()/lstat() ARE the $INODE64
-// variants, so the struct stat layout matches the caller's exactly. Resolve relative paths against
-// the dirfd's path; honor AT_SYMLINK_NOFOLLOW. Emit the $INODE64-suffixed symbol via an asm label.
-int polyfill_fstatat(int dirfd, const char *path, struct stat *buf, int flags) __asm__("_fstatat$INODE64");
-int polyfill_fstatat(int dirfd, const char *path, struct stat *buf, int flags) {
-    int nofollow = (flags & AT_SYMLINK_NOFOLLOW) != 0;
-    if (dirfd == AT_FDCWD || (path && path[0] == '/'))
-        return nofollow ? lstat(path, buf) : stat(path, buf);
-    char dir[PATH_MAX], full[PATH_MAX];
-    if (fcntl(dirfd, F_GETPATH, dir) == -1) return -1;
-    snprintf(full, sizeof full, "%s/%s", dir, path ? path : "");
-    return nofollow ? lstat(full, buf) : stat(full, buf);
-}
-#endif // POLYFILL_GSTREAMER_ONLY
-
-// CoreVideo color-space constants added in 10.11 / 10.13 (referenced by GStreamer's video plugins to
-// tag HDR / wide-gamut frames). Absent on 10.9; provide the canonical CFString values. Rarely hit by
-// SDR web video, which uses ITU_R_709_2 (present on 10.9). Defining them non-NULL keeps the plugins
-// loadable and avoids feeding a NULL key/value into a CoreVideo attachment dictionary.
+// CoreVideo color-space constants added in 10.11 / 10.13 (referenced by the bundled libwebrtc H.264/
+// H.265 decoders, and by GStreamer's video plugins, to tag HDR / wide-gamut frames). Absent on 10.9;
+// provide the canonical CFString values so the dependent code links and never feeds a NULL key/value
+// into a CoreVideo attachment dictionary.
 const CFStringRef kCVImageBufferColorPrimaries_ITU_R_2020         = CFSTR("ITU_R_2020");
 const CFStringRef kCVImageBufferColorPrimaries_P3_D65             = CFSTR("P3_D65");
 const CFStringRef kCVImageBufferColorPrimaries_DCI_P3             = CFSTR("DCI_P3");
@@ -332,16 +256,27 @@ const CFStringRef kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ = CFSTR("SMPTE
 const CFStringRef kCVImageBufferTransferFunction_sRGB             = CFSTR("IEC_sRGB");
 const CFStringRef kCVImageBufferYCbCrMatrix_ITU_R_2020            = CFSTR("ITU_R_2020");
 
-#ifndef POLYFILL_GSTREAMER_ONLY
-
 #pragma mark - ObjC class stubs (proper metadata for 10.9 ObjC runtime)
 // Defined ONLY in JavaScriptCore.framework (JSC loads first). WebCore and WebKit
 // reference these via their JSC dylib dependency — otherwise duplicate class
 // registrations overflow libobjc's _read_images limit on 10.9.
-#ifndef POLYFILL_NO_OBJC_CLASSES
 
 @interface LSDatabaseContext : NSObject @end
 @implementation LSDatabaseContext @end
+
+// CoreAnimation classes absent on 10.9, referenced by PlatformCAFiltersCocoa for CSS backdrop-filter
+// (CABackdropLayer, 10.10+) and scroll-driven presentation modifiers (CAPresentationModifier, ~14.0).
+// CABackdropLayer MUST subclass CALayer: PlatformCALayerCocoa::createLayer does
+// `NSClassFromString(@"CABackdropLayer") ?: [CALayer class]`, so this stub IS used as a real layer
+// (the <video controls> bar uses backdrop-filter). An NSObject base crashed (-[... bounds] unrecognized,
+// and CA reads the layer struct directly). A bare CALayer subclass renders without the GPU-requiring
+// backdrop blur — a graceful degradation. The CALayer base makes libpolyfill.a need OBJC_CLASS_$_CALayer;
+// the JSC build tools that link it (LLIntSettingsExtractor) get -framework QuartzCore via OptionsMac.cmake.
+// CAPresentationModifier stays NSObject (its only path is HAVE(CORE_ANIMATION_SEPARATED_LAYERS), off on 10.9).
+@interface CABackdropLayer : CALayer @end
+@implementation CABackdropLayer @end
+@interface CAPresentationModifier : NSObject @end
+@implementation CAPresentationModifier @end
 
 @interface NSPresentationIntent : NSObject @end
 @implementation NSPresentationIntent @end
@@ -546,9 +481,9 @@ const CFStringRef kCVImageBufferYCbCrMatrix_ITU_R_2020            = CFSTR("ITU_R
 // Source/WebKit/PolyfillClasses_109.mm so Safari finds them in WebKit.framework
 // (where it expects them) without duplicating them in JSC too.
 
-// Additional stub classes that the polyfill previously provided as 3-byte
-// function stubs (libobjc would crash on those). Defining them here as proper
-// @interface/@implementation gives them real ObjC class metadata.
+// Stub classes that need real ObjC class metadata: defined here as proper
+// @interface/@implementation rather than bare function-symbol stubs, because
+// libobjc crashes on a class symbol that lacks metadata.
 // NOTE: CATransformLayer (QuartzCore), NSColorPopoverController (AppKit) and
 // SFCertificatePanel (SecurityInterface) are REAL classes that DO exist on macOS
 // 10.9 — they must NOT be stubbed here, or the empty stub can shadow the genuine
@@ -600,8 +535,6 @@ const CFStringRef kCVImageBufferYCbCrMatrix_ITU_R_2020            = CFSTR("ITU_R
 @implementation _WKTextExtractionInteractionResult @end
 @interface _WKTextExtractionResult : NSObject @end
 @implementation _WKTextExtractionResult @end
-@interface _WKTextManipulationItem : NSObject @end
-@implementation _WKTextManipulationItem @end
 @interface _WKTextPreview : NSObject @end
 @implementation _WKTextPreview @end
 @interface _WKWarningView : NSObject @end
@@ -612,8 +545,6 @@ const CFStringRef kCVImageBufferYCbCrMatrix_ITU_R_2020            = CFSTR("ITU_R
 @implementation _WKWebPushMessage @end
 @interface _WKWebPushSubscriptionData : NSObject @end
 @implementation _WKWebPushSubscriptionData @end
-
-#endif  // POLYFILL_NO_OBJC_CLASSES
 
 #pragma mark - NSPopUpMenu constants
 NSString * const NSPopUpMenuPopupButtonBounds = @"NSPopUpMenuPopupButtonBounds";
@@ -681,6 +612,7 @@ const void *dyld_image_header_containing_address(const void *addr) { return NULL
 
 #pragma mark - NSText constants (10.12+)
 NSString * const NSTextCheckingInsertionPointKey = @"NSTextCheckingInsertionPointKey";
+NSString * const NSTextCheckingSuppressInitialCapitalizationKey = @"NSTextCheckingSuppressInitialCapitalizationKey";
 NSString * const NSTextInsertionUndoableAttributeName = @"NSTextInsertionUndoableAttributeName";
 
 #pragma mark - Additional NSPopUpMenu constants
@@ -688,8 +620,8 @@ NSString * const NSPopUpMenuPopupButtonLabelOffset = @"NSPopUpMenuPopupButtonLab
 NSString * const NSPopUpMenuPopupButtonSize = @"NSPopUpMenuPopupButtonSize";
 NSString * const NSPopUpMenuPopupButtonWidget = @"NSPopUpMenuPopupButtonWidget";
 
-#pragma mark - NSURLProtocol private methods (10.10+) used by Safari 9.x
-// Safari 9.x calls +[NSURLProtocol _protocolClassForRequest:skipAppSSO:] which is a 10.10+
+#pragma mark - NSURLProtocol private method (10.10+) absent on 10.9
+// Modern WebCore (WebCoreNSURLExtras) calls +[NSURLProtocol _protocolClassForRequest:skipAppSSO:], a 10.10+
 // private API. On 10.9 this throws "doesNotRecognizeSelector". Provide a category that
 // implements it by falling back to the public +[NSURLProtocol classForRequest:] equivalent
 // (which doesn't exist publicly either, but the underlying lookup table does).
@@ -716,7 +648,7 @@ __attribute__((constructor)) static void installNSURLProtocolSkipAppSSOPolyfill(
 
 #pragma mark - NSView beginDeferringViewInWindowChanges (10.11+)
 
-// Safari 9's BrowserWindowControllerMac _selectTabAtIndex: calls
+// Safari's BrowserWindowControllerMac _selectTabAtIndex: calls
 // -[NSView beginDeferringViewInWindowChanges] / endDeferringViewInWindowChanges
 // before/after swapping the active tab's view (10.11+ NSView API).
 // On 10.9 the call throws "unrecognized selector" and aborts Safari's tab
@@ -777,6 +709,36 @@ NSString * const NSPasteboardNameDrag = @"Apple CFPasteboard drag";
 NSString * const NSPasteboardTypeURL = @"public.url";
 NSString * const NSPasteboardTypeFileURL = @"public.file-url";
 
+// --- CoreAnimation CAFilter HSL (non-separable) blend-mode names (10.10+) -----------------
+// 10.9's QuartzCore has the separable blend modes (multiply/overlay/screen/...) but not the four HSL
+// ones (CSS mix-blend-mode: hue/saturation/color/luminosity). PlatformCAFiltersCocoa references all of
+// them; define the missing four so it links. 10.9's CoreAnimation does not implement these filters, so
+// CAFilter rejects the unknown name and the blend degrades to normal compositing — the separable modes
+// (which 10.9 does support) are unaffected.
+NSString * const kCAFilterHueBlendMode = @"hueBlendMode";
+NSString * const kCAFilterSaturationBlendMode = @"saturationBlendMode";
+NSString * const kCAFilterColorBlendMode = @"colorBlendMode";
+NSString * const kCAFilterLuminosityBlendMode = @"luminosityBlendMode";
+
+// --- XPC functions / activity keys added after 10.9 (referenced via WTF XPCSPI.h) ----------
+// 10.9's libxpc has the other XPC_ACTIVITY_* criteria keys but not these two; 10.9's xpc_activity
+// ignores an unknown criterion, so the activity simply runs without that requirement.
+const char * const XPC_ACTIVITY_REQUIRE_NETWORK_CONNECTIVITY = "RequireNetworkConnectivity";
+const char * const XPC_ACTIVITY_RANDOM_INITIAL_DELAY = "RandomInitialDelay";
+
+// xpc_dictionary_get_array (10.10+): the typed array accessor. 10.9 has xpc_dictionary_get_value, which
+// returns the same borrowed object when the key holds an array — exactly what callers (e.g. the auth
+// client-certificate chain in AuthenticationManagerCocoa) expect.
+xpc_object_t xpc_dictionary_get_array(xpc_object_t xdict, const char *key) { return xpc_dictionary_get_value(xdict, key); }
+
+// xpc_connection_copy_invalidation_reason (10.10+): no per-connection reason string on 10.9; return a
+// caller-freeable generic reason (used only for diagnostic logging).
+char *xpc_connection_copy_invalidation_reason(xpc_connection_t connection) { (void)connection; return strdup("connection invalidated"); }
+
+// xpc_transaction_exit_clean (10.10+): exit once outstanding transactions drain. It is called from the
+// XPC service entry point's shutdown path (after the OS transaction is cleared), so a clean exit matches.
+void xpc_transaction_exit_clean(void) { exit(0); }
+
 // --- Other AppKit / Foundation string constants --------------------------
 NSString * const NSAppearanceNameDarkAqua = @"NSAppearanceNameDarkAqua";
 NSString * const NSPresentationIntentAttributeName = @"NSPresentationIntent";
@@ -806,12 +768,8 @@ BOOL NSEdgeInsetsEqual(NSEdgeInsets a, NSEdgeInsets b)
 // declaration"), so a bare @implementation would create a base-class-less root
 // class. Per the established fallback, declare a minimal @interface with the
 // correct superclass so the class gets real ObjC metadata.
-#ifndef POLYFILL_NO_OBJC_CLASSES
 @interface NSVisualEffectView : NSView @end
 @implementation NSVisualEffectView @end
 
 @interface NSDateComponentsFormatter : NSFormatter @end
 @implementation NSDateComponentsFormatter @end
-#endif  // POLYFILL_NO_OBJC_CLASSES
-
-#endif // !POLYFILL_GSTREAMER_ONLY

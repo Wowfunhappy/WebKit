@@ -1,5 +1,8 @@
-// WTF API compatibility shims for Safari 9.1.3 on macOS 10.9
-// Maps old WTF API (WebKit ~601) to modern WTF API (WebKit 615)
+// Legacy WTF entry points for Safari 7.0.6 on macOS 10.9.5. Safari's WebKit binds
+// against the WTF C++ API of its era (currentTime, monotonicallyIncreasingTime, the
+// threadID-based thread calls, callOnMainThread/cancelCallOnMainThread, the
+// atomically-initialized static mutex, ...); modern WTF (615) no longer exports
+// these, so this unit defines them. Force-loaded into JavaScriptCore.
 
 #include <pthread.h>
 #include <sys/time.h>
@@ -12,19 +15,18 @@
 
 namespace WTF {
 
-// WTF::initializeThreading() - was removed, threading is auto-initialized
+// WTF::initializeThreading(): a no-op — modern WTF initializes threading on demand.
 void initializeThreading() {
-    // No-op in modern WebKit - threading is initialized automatically
 }
 
-// WTF::currentTime() -> replaced by WallTime::now()
+// WTF::currentTime() (modern WTF: WallTime::now())
 double currentTime() {
     struct timeval tv;
     gettimeofday(&tv, nullptr);
     return (double)tv.tv_sec + (double)tv.tv_usec / 1000000.0;
 }
 
-// WTF::monotonicallyIncreasingTime() -> replaced by MonotonicTime::now()
+// WTF::monotonicallyIncreasingTime() (modern WTF: MonotonicTime::now())
 double monotonicallyIncreasingTime() {
     static mach_timebase_info_data_t info;
     if (info.denom == 0)
@@ -33,12 +35,12 @@ double monotonicallyIncreasingTime() {
     return (double)(t * info.numer / info.denom) / 1e9;
 }
 
-// WTF::currentThread() -> replaced by Thread::current()
+// WTF::currentThread() (modern WTF: Thread::current())
 unsigned int currentThread() {
     return (unsigned int)(uintptr_t)pthread_self();
 }
 
-// WTF::createThread() -> replaced by Thread::create()
+// WTF::createThread() (modern WTF: Thread::create())
 unsigned int createThread(void (*func)(void*), void* arg, const char* name) {
     pthread_t thread;
     pthread_create(&thread, nullptr, (void*(*)(void*))func, arg);
@@ -121,14 +123,14 @@ void cancelCallOnMainThread(void (*func)(void*), void* ctx) {
     pthread_mutex_unlock(&s_mainThreadCallsMutex);
 }
 
-// WTF::Mutex - replaced by Lock
+// WTF::Mutex (modern WTF: Lock)
 class Mutex {
     pthread_mutex_t m_mutex;
 public:
     Mutex() { pthread_mutex_init(&m_mutex, nullptr); }
 };
 
-// WTF::ThreadCondition - replaced by Condition
+// WTF::ThreadCondition (modern WTF: Condition)
 class ThreadCondition {
     pthread_cond_t m_cond;
 public:
