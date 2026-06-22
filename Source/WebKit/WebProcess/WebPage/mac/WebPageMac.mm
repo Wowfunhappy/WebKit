@@ -83,7 +83,11 @@
 #import <WebCore/ImageOverlay.h>
 #import <WebCore/ImmediateActionStage.h>
 #import <WebCore/KeyboardEvent.h>
+// MAVERICKS_BACKPORT: with -fno-modules these inline/template defs aren't transitively included here;
+// add them for LocalFrame::document()/selection() and IPC send<> (immediate action / acceptsFirstMouse).
+#import "MessageSenderInlines.h"
 #import <WebCore/LocalFrame.h>
+#import <WebCore/LocalFrameInlines.h>
 #import <WebCore/LocalFrameView.h>
 #import <WebCore/MIMETypeRegistry.h>
 #import <WebCore/NetworkStorageSession.h>

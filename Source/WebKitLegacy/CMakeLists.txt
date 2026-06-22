@@ -12,6 +12,8 @@ set(WebKitLegacy_SOURCES
     Storage/WebStorageNamespaceProvider.cpp
 
     WebCoreSupport/LegacySocketProvider.cpp
+    WebCoreSupport/LegacyWebPageDebuggable.cpp
+    WebCoreSupport/LegacyWebPageInspectorController.cpp
     WebCoreSupport/NetworkStorageSessionMap.cpp
     WebCoreSupport/SocketStreamHandle.cpp
     WebCoreSupport/SocketStreamHandleImpl.cpp

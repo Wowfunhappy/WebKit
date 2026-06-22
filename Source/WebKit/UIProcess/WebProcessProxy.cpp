@@ -707,7 +707,6 @@ std::optional<unsigned> WebProcessProxy::nominalFramesPerSecondForDisplay(WebCor
 void WebProcessProxy::startDisplayLink(DisplayLinkObserverID observerID, WebCore::PlatformDisplayID displayID, WebCore::FramesPerSecond preferredFramesPerSecond)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer));
-    fprintf(stderr, "[STARTDL] called displayID=%u fps=%u\n", displayID, preferredFramesPerSecond);
     processPool().displayLinks().startDisplayLink(m_displayLinkClient.get(), observerID, displayID, preferredFramesPerSecond);
 }
 
@@ -2848,7 +2847,10 @@ void WebProcessProxy::markProcessAsRecentlyUsed()
     liveProcessesLRU().moveToLastIfPresent(*this);
 }
 
-#if !USE(GLIB)
+// MAVERICKS_BACKPORT: also compile on Cocoa. This port forces USE(GLIB) on for the GStreamer helper
+// layer but does NOT provide the GLib WebProcessProxy override, so the Cocoa PAL::systemBeep() impl
+// must still be built (PAL::systemBeep works on macOS).
+#if !USE(GLIB) || PLATFORM(COCOA)
 void WebProcessProxy::systemBeep()
 {
     PAL::systemBeep();

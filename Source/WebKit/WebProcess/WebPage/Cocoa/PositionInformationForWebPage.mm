@@ -387,6 +387,8 @@ static void selectionPositionInformation(WebPage& page, const InteractionInforma
     if (RefPtr element = dynamicDowncast<WebCore::Element>(*hitNode))
         info.idAttribute = element->getIdAttribute();
 
+    // MAVERICKS_BACKPORT: ENABLE(ATTACHMENT_ELEMENT) is off on this port; gate this ungated upstream use.
+#if ENABLE(ATTACHMENT_ELEMENT)
     if (RefPtr attachment = dynamicDowncast<WebCore::HTMLAttachmentElement>(*hitNode)) {
         info.isAttachment = true;
         info.title = attachment->attachmentTitle();
@@ -394,6 +396,7 @@ static void selectionPositionInformation(WebPage& page, const InteractionInforma
         if (attachment->file())
             info.url = URL::fileURLWithFileSystemPath(attachment->file()->path());
     }
+#endif
 
     for (auto* currentNode = hitNode.get(); currentNode; currentNode = currentNode->parentOrShadowHostNode()) {
         auto* renderer = currentNode->renderer();

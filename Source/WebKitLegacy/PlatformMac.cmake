@@ -87,6 +87,7 @@ list(APPEND WebKitLegacy_SOURCES
     mac/Storage/WebStorageTrackerClient.mm
 
     mac/WebCoreSupport/CorrectionPanel.mm
+    mac/WebCoreSupport/LegacyHistoryItemClient.mm
     mac/WebCoreSupport/PopupMenuMac.mm
     mac/WebCoreSupport/SearchPopupMenuMac.mm
     mac/WebCoreSupport/WebAlternativeTextClient.mm

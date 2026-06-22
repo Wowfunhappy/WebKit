@@ -288,11 +288,14 @@ public:
     void viewWillStartLiveResize();
     void viewDidEndLiveResize();
 
+    // MAVERICKS_BACKPORT: gate to match the ENABLE(PDF_HUD)-off base (PDFs download on 10.9).
+#if ENABLE(PDF_HUD)
     void createPDFHUD(PDFPluginIdentifier, WebCore::FrameIdentifier, const WebCore::IntRect&);
     void updatePDFHUDLocation(PDFPluginIdentifier, const WebCore::IntRect&);
     void removePDFHUD(PDFPluginIdentifier);
     void removeAllPDFHUDs();
     RetainPtr<NSSet> pdfHUDs();
+#endif
 
     void renewGState();
     void setFrameSize(CGSize);

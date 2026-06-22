@@ -712,7 +712,10 @@ void UserMediaPermissionRequestManagerProxy::processUserMediaPermissionRequest()
     });
 }
 
-#if !USE(GLIB)
+// MAVERICKS_BACKPORT: also compile on Cocoa. This port forces USE(GLIB) on for the GStreamer helper
+// layer but uses the Cocoa media stack, so the RealtimeMediaSourceCenter-based impl must still be built
+// (no GLib UserMediaPermissionRequestManagerProxy override is in the Mac source lists).
+#if !USE(GLIB) || PLATFORM(COCOA)
 void UserMediaPermissionRequestManagerProxy::validateUserMediaRequestConstraints(WebCore::RealtimeMediaSourceCenter::ValidateHandler&& validateHandler, MediaDeviceHashSalts&& deviceIDHashSalts)
 {
     RealtimeMediaSourceCenter::singleton().validateRequestConstraints(WTF::move(validateHandler), m_currentUserMediaRequest->userRequest(), WTF::move(deviceIDHashSalts));
@@ -966,7 +969,9 @@ bool UserMediaPermissionRequestManagerProxy::wasGrantedVideoAccess(FrameIdentifi
     return m_grantedVideoFrames.contains(frameID);
 }
 
-#if !USE(GLIB)
+// MAVERICKS_BACKPORT: also compile on Cocoa (USE(GLIB) is forced on for the GStreamer helper layer but
+// the Cocoa media stack is used; no GLib override is in the Mac source lists).
+#if !USE(GLIB) || PLATFORM(COCOA)
 void UserMediaPermissionRequestManagerProxy::platformGetMediaStreamDevices(bool revealIdsAndLabels, CompletionHandler<void(Vector<CaptureDeviceWithCapabilities>&&)>&& completionHandler)
 {
     RealtimeMediaSourceCenter::singleton().getMediaStreamDevices([revealIdsAndLabels, completionHandler = WTF::move(completionHandler)](auto&& devices) mutable {

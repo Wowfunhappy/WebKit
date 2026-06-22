@@ -569,6 +569,8 @@ int WebPageProxy::footerBannerHeight() const
     return 0;
 }
 
+// MAVERICKS_BACKPORT: PDF-save-and-open path is ENABLE(PDF_PLUGIN)-only (PDFs download on 10.9).
+#if ENABLE(PDF_PLUGIN)
 static NSString *temporaryPDFDirectoryPath()
 {
     static NeverDestroyed path = [] {
@@ -644,6 +646,7 @@ void WebPageProxy::savePDFToTemporaryFolderAndOpenWithNativeApplication(const St
         [[NSWorkspace sharedWorkspace] openURL:pdfFileURL.createNSURL().get()];
     });
 }
+#endif // ENABLE(PDF_PLUGIN)
 
 #if ENABLE(PDF_PLUGIN)
 void WebPageProxy::showPDFContextMenu(const WebKit::PDFContextMenu& contextMenu, PDFPluginIdentifier identifier, WebCore::FrameIdentifier frameID, CompletionHandler<void(std::optional<int32_t>&&)>&& completionHandler)

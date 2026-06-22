@@ -1749,6 +1749,8 @@ void WebViewImpl::viewDidEndLiveResize()
     [m_layoutStrategy didEndLiveResize];
 }
 
+// MAVERICKS_BACKPORT: gate to match the ENABLE(PDF_HUD)-off base (PDFs download on 10.9).
+#if ENABLE(PDF_HUD)
 void WebViewImpl::createPDFHUD(PDFPluginIdentifier identifier, WebCore::FrameIdentifier frameID, const WebCore::IntRect& rect)
 {
     removePDFHUD(identifier);
@@ -1783,6 +1785,7 @@ RetainPtr<NSSet> WebViewImpl::pdfHUDs()
         [set addObject:hud.get()];
     return set;
 }
+#endif // ENABLE(PDF_HUD)
 
 void WebViewImpl::renewGState()
 {
@@ -2556,6 +2559,12 @@ bool WebViewImpl::hasScrolledContentsUnderTitlebar()
 
 void WebViewImpl::updateTitlebarAdjacencyState()
 {
+    // MAVERICKS_BACKPORT: the NSScrollViewSeparatorTrackingAdapter titlebar-separator feature, plus
+    // -[NSView effectiveAppearance] (10.10+) and -[NSAppearance _usesMetricsAppearance] (10.14+), do not
+    // exist on 10.9. The whole method no-ops there (no separator tracking adapter is registered), which
+    // matches the >=10.14 behavior on a 10.9 window (shouldRegister would be false). Compile-time gate
+    // (the #97 model) so it is immune to any runtime selector injection.
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
     RetainPtr window = WebViewImpl::window();
     bool visible = ![m_view.get() isHiddenOrHasHiddenAncestor];
     NSRect contentLayoutRect = NSZeroRect;
@@ -2578,6 +2587,7 @@ void WebViewImpl::updateTitlebarAdjacencyState()
         [window unregisterScrollViewSeparatorTrackingAdapter:(NSObject<NSScrollViewSeparatorTrackingAdapter> *)m_view.get().get()];
         m_isRegisteredScrollViewSeparatorTrackingAdapter = false;
     }
+#endif
 }
 
 void WebViewImpl::scrollToRect(const WebCore::FloatRect& targetRect, const WebCore::FloatPoint& origin)

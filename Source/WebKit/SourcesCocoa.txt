@@ -162,6 +162,8 @@ Shared/ApplePay/mac/WebPaymentCoordinatorProxyMac.mm @nonARC
 
 Shared/APIWebArchive.mm @nonARC
 Shared/APIWebArchiveResource.mm @nonARC
+// MAVERICKS_BACKPORT: absent from upstream cmake lists; defines AdditionalFonts::additionalFonts (ARC per pbxproj)
+Shared/AdditionalFonts.mm
 Shared/JavaScriptEvaluationResult.mm @nonARC
 Shared/DocumentEditingContext.mm @nonARC
 Shared/VisibleContentRectUpdateInfo.cpp
@@ -186,10 +188,36 @@ Shared/Cocoa/ARKitSoftLink.mm @nonARC
 Shared/Cocoa/ArgumentCodersCocoa.mm @nonARC
 Shared/Cocoa/AccessibilityPreferences.mm @nonARC
 Shared/Cocoa/AuxiliaryProcessCocoa.mm @nonARC
+// MAVERICKS_BACKPORT: absent from upstream cmake lists; defines BackgroundFetchState::toDictionary (ARC per pbxproj)
+Shared/Cocoa/BackgroundFetchStateCocoa.mm
 Shared/Cocoa/CodeSigning.mm @nonARC
 Shared/Cocoa/CompletionHandlerCallChecker.mm @nonARC
+Shared/Cocoa/CoreIPCAVOutputContext.mm
+Shared/Cocoa/CoreIPCArray.mm
+Shared/Cocoa/CoreIPCCFType.mm @nonARC
+Shared/Cocoa/CoreIPCCFURL.mm
+// MAVERICKS_BACKPORT: non-ARC so RetainPtr<CVPixelBufferRef> in sendRightFromPixelBuffer mangles as plain RetainPtr (not RetainPtrArc), matching the non-ARC WebKitPlatformGeneratedSerializers.mm that references it
+Shared/Cocoa/CoreIPCCVPixelBufferRef.mm @nonARC
+Shared/Cocoa/CoreIPCContacts.mm
+Shared/Cocoa/CoreIPCDDScannerResult.mm
+Shared/Cocoa/CoreIPCDateComponents.mm
+Shared/Cocoa/CoreIPCDictionary.mm
 Shared/Cocoa/CoreIPCError.mm @nonARC
+Shared/Cocoa/CoreIPCLocale.mm
+Shared/Cocoa/CoreIPCNSCFObject.mm @nonARC
+Shared/Cocoa/CoreIPCNSShadow.mm
+Shared/Cocoa/CoreIPCNSURLCredential.mm
+Shared/Cocoa/CoreIPCNSURLProtectionSpace.mm
+Shared/Cocoa/CoreIPCNSURLRequest.mm
+Shared/Cocoa/CoreIPCNSValue.mm
+Shared/Cocoa/CoreIPCNull.mm
+Shared/Cocoa/CoreIPCPersonNameComponents.mm
+Shared/Cocoa/CoreIPCPlistArray.mm
+Shared/Cocoa/CoreIPCPlistDictionary.mm
+Shared/Cocoa/CoreIPCPlistObject.mm
+Shared/Cocoa/CoreIPCPresentationIntent.mm
 Shared/Cocoa/CoreIPCSecureCoding.mm
+Shared/Cocoa/CoreIPCStringSet.mm
 Shared/Cocoa/DefaultWebBrowserChecks.mm @nonARC
 Shared/Cocoa/EnhancedSecurityLinkUtilities.mm @nonARC
 Shared/Cocoa/InteractionInformationAtPosition.mm @nonARC
@@ -204,6 +232,8 @@ Shared/Cocoa/SharedCARingBuffer.cpp
 Shared/Cocoa/TCCSoftLink.mm @nonARC @no-unify
 Shared/Cocoa/WebErrorsCocoa.mm @nonARC
 Shared/Cocoa/WebKit2InitializeCocoa.mm @nonARC
+// MAVERICKS_BACKPORT: absent from upstream cmake lists; defines WKKeyedCoder, referenced by generated GeneratedWebKitSecureCoding.mm (ARC per pbxproj)
+Shared/Cocoa/WKKeyedCoder.mm
 Shared/Cocoa/WKNSArray.mm @nonARC
 Shared/Cocoa/WKNSData.mm @nonARC
 Shared/Cocoa/WKNSDictionary.mm @nonARC
@@ -215,10 +245,13 @@ Shared/Cocoa/WKNSURLExtras.mm @nonARC
 Shared/Cocoa/WKNSURLRequest.mm @nonARC
 Shared/Cocoa/WKObject.mm @nonARC
 Shared/Cocoa/WebIconUtilities.mm @nonARC
+// MAVERICKS_BACKPORT: absent from upstream cmake lists; defines WebPushMessage::fromDictionary (ARC per pbxproj)
+Shared/Cocoa/WebPushMessageCocoa.mm
 Shared/Cocoa/WebPreferencesDefaultValuesCocoa.mm @nonARC
 
-// DaemonUtilities requires xpc_connection_activate (10.14+)
-// Shared/Daemon/DaemonUtilities.mm @nonARC
+// MAVERICKS_BACKPORT: re-enabled; the one 10.14+ call (xpc_connection_activate) is replaced by
+// xpc_connection_resume in the file. Provides encoderToXPCData/vectorToXPCData used by the daemon clients.
+Shared/Daemon/DaemonUtilities.mm @nonARC
 
 Shared/EntryPointUtilities/Cocoa/XPCService/XPCEndpointMessages.mm @nonARC
 Shared/EntryPointUtilities/Cocoa/XPCService/XPCServiceEntryPoint.mm @nonARC
@@ -456,10 +489,15 @@ UIProcess/Cocoa/SOAuthorization/WKSOAuthorizationDelegate.mm @nonARC
 UIProcess/Cocoa/AppKitSoftLink.mm @nonARC
 UIProcess/Cocoa/AutomationClient.mm @nonARC
 UIProcess/Cocoa/AutomationSessionClient.mm @nonARC
+UIProcess/Cocoa/AuxiliaryProcessProxyCocoa.mm @nonARC
 UIProcess/Cocoa/BrowsingWarningCocoa.mm @nonARC
+// MAVERICKS_BACKPORT: absent from upstream cmake lists; defines to[WK]ContentSecurityPolicyModeForExtension (ARC per pbxproj)
+UIProcess/Cocoa/CSPExtensionUtilities.mm
 UIProcess/Cocoa/CoreTelephonyUtilities.mm @nonARC
 UIProcess/Cocoa/DiagnosticLoggingClient.mm @nonARC
 UIProcess/Cocoa/DownloadProxyMapCocoa.mm @nonARC
+// MAVERICKS_BACKPORT: absent from upstream cmake lists; defines DownloadProxy::publishProgress + Cocoa download bits (ARC per pbxproj)
+UIProcess/Downloads/DownloadProxyCocoa.mm
 UIProcess/Cocoa/ExtensionCapabilityGranter.mm @nonARC
 UIProcess/Cocoa/FindClient.mm @nonARC
 UIProcess/Cocoa/FullscreenClient.mm @nonARC
@@ -469,8 +507,8 @@ UIProcess/Cocoa/IconLoadingDelegate.mm @nonARC
 UIProcess/Cocoa/LegacyCustomProtocolManagerClient.mm @nonARC
 UIProcess/Cocoa/LegacyDownloadClient.mm @nonARC
 UIProcess/Cocoa/MediaUtilities.mm @nonARC
-// MediaPermissionUtilities requires AVFoundation types not available on 10.9
-// UIProcess/Cocoa/MediaPermissionUtilities.mm @nonARC
+// MAVERICKS_BACKPORT: AVFoundation/SFSpeechRecognizer/TCC types are SDK-present (MacOSX26.1.sdk) and runtime-guarded (TCC+SFSpeechRecognizer soft-linked; AVCaptureDevice access is auto-granted, not a hard class ref), so this file links on the 10.9 deploy target — required for getUserMedia/SpeechRecognition permission symbols.
+UIProcess/Cocoa/MediaPermissionUtilities.mm @nonARC
 UIProcess/Cocoa/ModelElementControllerCocoa.mm @nonARC
 UIProcess/Cocoa/NavigationState.mm @nonARC
 UIProcess/Cocoa/PageClientImplCocoa.mm @nonARC
@@ -686,6 +724,10 @@ UIProcess/Model/cocoa/ModelProcessProxyCocoa.mm @nonARC
 UIProcess/Network/CustomProtocols/LegacyCustomProtocolManagerProxy.cpp
 
 UIProcess/RemoteLayerTree/cocoa/RemoteLayerTreeLayers.mm @nonARC
+// MAVERICKS_BACKPORT: file present upstream but missing from this list; it defines
+// eventRegionForPoint / layerEventRegionContainsPoint (CALayer event-region hit testing, all
+// 10.9-available CoreAnimation) referenced by RemoteScrollingTreeMac and RemoteLayerTreeDrawingAreaProxy.
+UIProcess/RemoteLayerTree/cocoa/RemoteScrollingTreeCocoa.mm @nonARC
 
 UIProcess/RemoteLayerTree/mac/RemoteLayerTreeDrawingAreaProxyMac.mm @nonARC
 UIProcess/RemoteLayerTree/mac/RemoteLayerTreeEventDispatcher.mm @nonARC
@@ -911,6 +953,10 @@ WebProcess/WebPage/Cocoa/TextAnimationController.mm @nonARC
 WebProcess/WebPage/Cocoa/WebCookieCacheCocoa.mm @nonARC
 WebProcess/WebPage/Cocoa/WebCookieJarCocoa.mm @nonARC
 WebProcess/WebPage/Cocoa/WebPageCocoa.mm @nonARC
+// MAVERICKS_BACKPORT: absent from the cmake Cocoa list (upstream lists them only in the Xcode project);
+// define positionInformationForWebPage / DataDetectionResult::setResults referenced by the WK2 link.
+WebProcess/WebPage/Cocoa/PositionInformationForWebPage.mm @nonARC
+Shared/Cocoa/DataDetectionResult.mm @nonARC
 WebProcess/WebPage/Cocoa/WebRemoteObjectRegistry.cpp
 
 WebProcess/WebPage/ios/FindIndicatorIOS.cpp
@@ -1079,4 +1125,8 @@ WebSWContextManagerConnectionMessageReceiver.cpp
 WebSWServerConnectionMessageReceiver.cpp
 WebSWServerToContextConnectionMessageReceiver.cpp
 WebUserContentControllerMessageReceiver.cpp
+Shared/cf/CoreIPCCFArray.mm @no-unify
+Shared/cf/CoreIPCCFDictionary.mm @no-unify
 Shared/cf/CoreIPCCGColorSpace.mm @no-unify @nonARC
+Shared/cf/CoreIPCNumber.mm @no-unify
+Shared/cf/CoreIPCSecTrust.mm @no-unify
