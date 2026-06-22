@@ -15,7 +15,7 @@ BUILD="$HERE/build"
 SCRIPTS="$HERE/scripts"
 mkdir -p "$BUILD"
 
-echo "### [1/5] assemble build/clang from vendor/clang"
+echo "### [1/6] assemble build/clang from vendor/clang"
 CLANG_OUT="$BUILD/clang"
 if [ ! -x "$CLANG_OUT/bin/clang-22" ]; then
     rm -rf "$CLANG_OUT"; mkdir -p "$CLANG_OUT/bin"
@@ -40,10 +40,11 @@ else
     echo "    already present, skipping"
 fi
 
-echo "### [2/5] python3"; [ -x "$BUILD/python3/bin/python3" ] || "$SCRIPTS/build_python3.sh"
-echo "### [3/5] nasm";    [ -x "$BUILD/nasm/bin/nasm" ]       || "$SCRIPTS/build_nasm.sh"
-echo "### [4/5] ninja";   [ -x "$BUILD/ninja/bin/ninja" ]     || "$SCRIPTS/build_ninja.sh"
-echo "### [5/5] cmake";   [ -x "$BUILD/cmake/bin/cmake" ]     || "$SCRIPTS/build_cmake.sh"
+echo "### [2/6] python3"; [ -x "$BUILD/python3/bin/python3" ] || "$SCRIPTS/build_python3.sh"
+echo "### [3/6] nasm";    [ -x "$BUILD/nasm/bin/nasm" ]       || "$SCRIPTS/build_nasm.sh"
+echo "### [4/6] ninja";   [ -x "$BUILD/ninja/bin/ninja" ]     || "$SCRIPTS/build_ninja.sh"
+echo "### [5/6] cmake";   [ -x "$BUILD/cmake/bin/cmake" ]     || "$SCRIPTS/build_cmake.sh"
+echo "### [6/6] ccache";  [ -x "$BUILD/ccache/bin/ccache" ]   || "$SCRIPTS/build_ccache.sh"
 
 echo
 echo "### toolchain ready under $BUILD"

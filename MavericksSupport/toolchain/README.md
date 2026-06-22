@@ -7,7 +7,7 @@ is obvious by location:
   just clang: `clang-NN` + `lld` (bzip2-compressed), `llvm-ar/nm/objcopy`, the
   `clang.cfg`/`clang++.cfg` link set, the resource headers, and the private
   `libc++`/`libc++abi`/`libunwind` dylibs.
-- **`scripts/`** — COMMITTED source: `build_{python3,nasm,ninja,cmake}.sh`.
+- **`scripts/`** — COMMITTED source: `build_{python3,nasm,ninja,cmake,ccache}.sh`.
 - **`bootstrap.sh`** — assembles `build/` from `vendor/` + `scripts/`.
 - **`build/`** — ARTIFACTS (gitignored): the unpacked, usable clang plus the
   from-source helper tools. Delete it and re-run `bootstrap.sh` to reconstruct.
@@ -16,7 +16,7 @@ The clang `.cfg` files use clang's `<CFGDIR>` token (`-L/-rpath <CFGDIR>/../lib`
 toolchain is relocatable: it finds its own `libc++`/`libc++abi`/`libunwind` wherever it's
 unpacked.
 
-## Updating the helper tools (cmake / ninja / python3 / nasm)
+## Updating the helper tools (cmake / ninja / python3 / nasm / ccache)
 
 1. Bump `VERSION` (or `VER`) at the top of the relevant `scripts/build_*.sh`.
 2. `rm -rf build/<tool>` and re-run `bootstrap.sh` (or just that script).
