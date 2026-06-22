@@ -40,7 +40,10 @@ CGColorSpaceSerialization CoreIPCCGColorSpace::serializableColorSpace(CGColorSpa
     if (auto colorSpace = WebCore::colorSpaceForCGColorSpace(cgColorSpace))
         return *colorSpace;
 
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
+    // MAVERICKS_BACKPORT: CGColorSpaceGetName is 10.12+ (absent on 10.9, weak-imported -> calling it
+    // crashes). Gate on the DEPLOYMENT TARGET (the #97 model), not the SDK; on 10.9 fall through to the
+    // CGColorSpaceCopyPropertyList (ICC) path below, which preserves the color space (better than sRGB).
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200
     if (RetainPtr<CFStringRef> name = CGColorSpaceGetName(cgColorSpace))
         return WTF::move(name);
 #endif

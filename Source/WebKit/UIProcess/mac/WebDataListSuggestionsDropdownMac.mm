@@ -204,10 +204,7 @@ void WebDataListSuggestionsDropdownMac::close()
     _bottomDivider = adoptNS([[NSView alloc] init]);
     [_bottomDivider setWantsLayer:YES];
     [_bottomDivider setHidden:YES];
-    if ([NSColor respondsToSelector:@selector(separatorColor)])
-        [_bottomDivider layer].backgroundColor = RetainPtr { ((NSColor *)[NSColor performSelector:@selector(separatorColor)]).CGColor }.get();
-    else
-        [_bottomDivider layer].backgroundColor = RetainPtr { [NSColor grayColor].CGColor }.get();
+    [_bottomDivider layer].backgroundColor = RetainPtr { NSColor.separatorColor.CGColor }.get();
     [self addSubview:_bottomDivider.get()];
 
     auto setUpTextField = [strongSelf = retainPtr(self)](NSTextField *textField) {
@@ -272,7 +269,7 @@ void WebDataListSuggestionsDropdownMac::close()
     [super setBackgroundStyle:backgroundStyle];
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     [_valueField setTextColor:backgroundStyle == NSBackgroundStyleLight ? NSColor.textColor : NSColor.alternateSelectedControlTextColor];
-    [_labelField setTextColor:[NSColor respondsToSelector:@selector(secondaryLabelColor)] ? [NSColor performSelector:@selector(secondaryLabelColor)] : [NSColor grayColor]];
+    [_labelField setTextColor:NSColor.secondaryLabelColor];
 ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
@@ -304,7 +301,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [self setBackgroundColor:[NSColor clearColor]];
     [self setIntercellSpacing:NSMakeSize(0, self.intercellSpacing.height)];
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101100
-    [self setStyle:NSTableViewStyleFullWidth];
+    // MAVERICKS_BACKPORT: -[NSTableView setStyle:] (NSTableViewStyle) is 11.0+; respondsToSelector-guard so
+    // 10.9 keeps the default table style instead of an unrecognized-selector crash when a datalist dropdown shows.
+    if ([self respondsToSelector:@selector(setStyle:)])
+        [self setStyle:NSTableViewStyleFullWidth];
 #endif
 
     auto column = adoptNS([[NSTableColumn alloc] init]);
