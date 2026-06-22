@@ -982,12 +982,17 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
         return;
     }
 
-    // 10.9 backport: Safari's UIProcess policy delegate returns PolicyAction::Ignore
-    // for our main-frame HTML loads (likely due to incomplete URL-bar→WKPageLoadRequest
-    // wiring). That cancels the load and triggers FrameLoader::stopParsing, killing the
-    // parser-blocking script chain. For the FIRST main-frame HTML response, short-circuit
-    // and return Use directly so the load can commit. Subsequent (duplicate) responses
-    // for the same URL must be Ignore'd to avoid creating a second document on top.
+    // MAVERICKS_BACKPORT: Safari 7's V0 (deprecated, no-canShowMIMEType) decidePolicyForResponse
+    // callback decides Download for a DISPLAYABLE main-frame text/html response (empirically
+    // confirmed 2026-06-22: with this short-circuit removed, example.com's response reaches
+    // Safari's V0 callback at WKPage.cpp and returns PolicyAction::Download even though
+    // canShowMIMEType==true, so the page renders blank). This is the same Safari-V0-policy-delegate
+    // mis-decision family as the response-download (#108) and nav-action-userData (#60) fixes — NOT
+    // an IPC dispatch issue; the async reply returns fine. Short-circuit the FIRST main-frame
+    // html/xhtml response to Use in the WebProcess so the load commits. The MIME allow-list is
+    // deliberately html/xhtml ONLY (not text/xml): the App Store's main-frame text/xml MZStore plist
+    // must still reach Safari's V0 callback (WKPage.cpp main-frame note), so it is not short-circuited.
+    // Ignore subsequent duplicate responses for the same URL (defensive) to avoid stacking a document.
     if (m_frame->isMainFrame() && downloadAttribute.isEmpty()) {
         auto& mimeType = response.mimeType();
         if (mimeType.startsWithIgnoringASCIICase("text/html"_s) || mimeType.startsWithIgnoringASCIICase("application/xhtml"_s)) {
@@ -997,8 +1002,6 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
                 function(PolicyAction::Use);
                 return;
             }
-            FILE* _f = ((FILE*)0);
-            if (_f) { auto u = urlKey.utf8(); fprintf(_f, "[WebLFLC::dispatchDecidePolicyForResponse PID %d] duplicate Ignore url=%.150s\n", getpid(), u.data()); fclose(_f); }
             function(PolicyAction::Ignore);
             return;
         }
