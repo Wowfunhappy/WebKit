@@ -29,3 +29,12 @@ void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset) {
 void pthread_jit_write_protect_np(int enabled) {
 	(void)enabled;
 }
+
+/*
+ * pthread_jit_write_protect_supported_np (added macOS 11.0)
+ * Reports whether per-thread JIT write-protection (Apple Silicon W^X) exists.
+ * x86_64 has no such mechanism, so report unsupported.
+ */
+int pthread_jit_write_protect_supported_np(void) {
+	return 0;
+}

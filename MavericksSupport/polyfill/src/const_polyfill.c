@@ -2,7 +2,12 @@
 // that 10.9 does not define but modern WebKit references. Each is a CFString whose value
 // is its own name: a unique token used as a dictionary key/identifier. The 10.9 frameworks
 // predate these keys and never interpret them, so the exact string is immaterial.
+//
+// The tail of the file also defines a few trivial libSystem SPI functions that the 26.1 SDK resolves
+// against libSystem (recording a two-level bind that fails to load on the 10.9 runtime, which lacks
+// them). Defining them here makes the linker satisfy WebKit's reference from libpolyfill.a instead.
 #include <CoreFoundation/CoreFoundation.h>
+#include <stdbool.h>
 
 const CFStringRef kAXInterfaceDifferentiateWithoutColorKey = CFSTR("kAXInterfaceDifferentiateWithoutColorKey");
 const CFStringRef kAXInterfaceIncreaseContrastKey = CFSTR("kAXInterfaceIncreaseContrastKey");
@@ -91,3 +96,17 @@ const CFStringRef kCUIWidgetSwitchKnob = CFSTR("kCUIWidgetSwitchKnob");
 const CFStringRef kCUIWidgetSwitchOnOffLabel = CFSTR("kCUIWidgetSwitchOnOffLabel");
 const CFStringRef kSCCompAnyRegex = CFSTR("kSCCompAnyRegex");
 const CFStringRef kSCDynamicStorePropNetInterfaces = CFSTR("kSCDynamicStorePropNetInterfaces");
+// NSHTTPCookie SameSite property key (NSString, 10.13+). WebKit only reads it behind a
+// respondsToSelector(@selector(sameSitePolicy)) guard that fails on 10.9, so it is never dereferenced;
+// defined here so the weak import resolves rather than dangling.
+const CFStringRef NSHTTPCookieSameSitePolicy = CFSTR("SameSitePolicy");
+
+// os_feature_enabled(domain, feature) — libSystem feature-flag query (10.13+). Every WebKit call site
+// gates a feature that postdates 10.9 (VisualIntelligence/Translate/TextComposer post-editing/the
+// redesigned text cursor), so the faithful answer on this OS is "not enabled".
+bool _os_feature_enabled_impl(const char *domain, const char *feature)
+{
+    (void)domain;
+    (void)feature;
+    return false;
+}
