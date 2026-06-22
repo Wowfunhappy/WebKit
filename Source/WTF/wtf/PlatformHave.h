@@ -394,8 +394,13 @@
 #define HAVE_THREAD_TIME_CONSTRAINTS 1
 #endif
 
+// MAVERICKS_BACKPORT: HAVE(AVASSETREADER) gates only the AVFoundation AVAssetReader *image* decoder
+// (ImageDecoderAVFObjC, for animated HEIC/motion images). This build decodes images through GStreamer
+// (ImageDecoderGStreamer) instead, so the AVFoundation image-decoder path is unused; leaving it on
+// referenced ImageDecoderAVFObjC's (stubbed) symbols and crashed the WebContent render path when the
+// image Accept header was built. Off here — media *playback* does not depend on this flag.
 #if PLATFORM(COCOA)
-#define HAVE_AVASSETREADER 1
+#define HAVE_AVASSETREADER 0
 #endif
 
 #if PLATFORM(COCOA)
@@ -587,10 +592,7 @@
 #define HAVE_AVPLAYER_RESOURCE_CONSERVATION_LEVEL 1
 #endif
 
-// MAVERICKS_BACKPORT: App SSO needs the SOAuthorization runtime (macOS 10.15+), absent on 10.9.
-// Upstream gates this on __MAC_OS_X_VERSION_MAX_ALLOWED (the SDK), which is satisfied by the 26.1
-// SDK; gate on __MAC_OS_X_VERSION_MIN_REQUIRED (the deployment target) so the feature is off on 10.9.
-#if PLATFORM(IOS) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || PLATFORM(VISION)
+#if PLATFORM(IOS) || PLATFORM(MAC) || PLATFORM(VISION)
 #define HAVE_APP_SSO 1
 #endif
 
@@ -898,9 +900,10 @@
 #define HAVE_XPC_CONNECTION_COPY_INVALIDATION_REASON 1
 #endif
 
+// MAVERICKS_BACKPORT: AssetViewer / ASVInlinePreview is absent on macOS 10.9.
 #if ((PLATFORM(IOS) || PLATFORM(VISION)) && !PLATFORM(IOS_SIMULATOR)) \
     || PLATFORM(MACCATALYST) \
-    || PLATFORM(MAC)
+    || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000)
 #define HAVE_ASV_INLINE_PREVIEW 1
 #endif
 

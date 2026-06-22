@@ -762,6 +762,13 @@
 #define ENABLE_UNIFIED_PDF_BY_DEFAULT 1
 #endif
 
+// MAVERICKS_BACKPORT: the inline PDF plugins (PluginView/PDFPlugin/UnifiedPDFPlugin) rely on modern
+// PDFKit SPI absent on 10.9 and are intentionally not built (PDFs are handled via the download path).
+// Force all PDF-plugin enables OFF here so PluginView is never referenced and createPlugin returns null.
+#define ENABLE_LEGACY_PDFKIT_PLUGIN 0
+#define ENABLE_UNIFIED_PDF 0
+#define ENABLE_PDF_PLUGIN 0
+
 #if !defined(ENABLE_LEGACY_PDFKIT_PLUGIN) && PLATFORM(MAC) && !ENABLE(UNIFIED_PDF_BY_DEFAULT)
 #define ENABLE_LEGACY_PDFKIT_PLUGIN 1
 #endif
@@ -846,8 +853,9 @@
 #define ENABLE_REMOTE_INSPECTOR_SERVICE_WORKER_AUTO_INSPECTION 1
 #endif
 
+// MAVERICKS_BACKPORT: default to TiledCoreAnimation, not RemoteLayerTree, on Mac.
 #if !defined(ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT) && PLATFORM(MAC)
-#define ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT 1
+#define ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT 0
 #endif
 
 #if !defined(ENABLE_RESOURCE_USAGE)
