@@ -30,16 +30,6 @@
 #include <mutex>
 #include <wtf/Threading.h>
 
-// 10.9 backport instrumentation: record whenever the m_word corruption-recovery
-// guard below actually fires, so we can determine whether it is still needed.
-// XPC-service stderr is /dev/null, so log to a file via low-level syscalls (safe
-// on the rare corruption path; no malloc / no re-entrant WordLock).
-#include <atomic>
-#include <cstdio>
-#include <execinfo.h>
-#include <fcntl.h>
-#include <unistd.h>
-
 namespace WTF {
 
 namespace {
@@ -69,101 +59,16 @@ struct ThreadData {
 
 } // anonymous namespace
 
-// 10.9 backport: log a corruption-guard trip to a file (see #43). Rare path only.
-// Captures the lock address (offset 0 of the owning object, e.g. a
-// ThreadSafeWeakPtrControlBlock) and a raw backtrace of the victim thread (the
-// one trying to lock the already-corrupted word) for offline symbolication with
-// atos. backtrace() only walks the stack (no malloc), safe in this rare path.
-static void logWordLockCorruptionTrip(const char* where, uintptr_t value, const void* lockAddr)
-{
-    static std::atomic<unsigned> s_count { 0 };
-    unsigned n = ++s_count;
-    void* frames[32];
-    int nframes = ::backtrace(frames, 32);
-    int fd = ::open("/tmp/wk_wordlock_trips.log", O_WRONLY | O_APPEND | O_CREAT, 0644);
-    if (fd < 0)
-        return;
-    char buf[1280];
-    int len = ::snprintf(buf, sizeof(buf), "WORDLOCK-TRIP #%u pid=%d %s word=0x%llx lock=%p frames=",
-        n, static_cast<int>(::getpid()), where, static_cast<unsigned long long>(value), lockAddr);
-    for (int i = 0; i < nframes && len > 0 && len < static_cast<int>(sizeof(buf)) - 20; ++i)
-        len += ::snprintf(buf + len, sizeof(buf) - len, "%p ", frames[i]);
-    if (len > 0 && len < static_cast<int>(sizeof(buf)))
-        len += ::snprintf(buf + len, sizeof(buf) - len, "\n");
-    if (len > 0)
-        (void)::write(fd, buf, static_cast<size_t>(len));
-    ::close(fd);
-}
-
-// 10.9 backport instrumentation (#43 keystone): declared in ThreadSafeWeakPtr.h. Logs a
-// strong-refcount underflow (extra strongDeref / deref-after-destroy) + the culprit's backtrace.
-void reportThreadSafeWeakStrongDerefUnderflow(const void* controlBlock, int strongCount, const void* object)
-{
-    static std::atomic<unsigned> s_udf { 0 };
-    unsigned n = ++s_udf;
-    void* frames[40];
-    int nframes = ::backtrace(frames, 40);
-    int fd = ::open("/tmp/wk_wordlock_trips.log", O_WRONLY | O_APPEND | O_CREAT, 0644);
-    if (fd < 0)
-        return;
-    char buf[1600];
-    int len = ::snprintf(buf, sizeof(buf), "STRONGDEREF-UNDERFLOW #%u pid=%d cb=%p count=%d obj=%p frames=",
-        n, static_cast<int>(::getpid()), controlBlock, strongCount, object);
-    for (int i = 0; i < nframes && len > 0 && len < static_cast<int>(sizeof(buf)) - 20; ++i)
-        len += ::snprintf(buf + len, sizeof(buf) - len, "%p ", frames[i]);
-    if (len > 0 && len < static_cast<int>(sizeof(buf)))
-        len += ::snprintf(buf + len, sizeof(buf) - len, "\n");
-    if (len > 0)
-        (void)::write(fd, buf, static_cast<size_t>(len));
-    ::close(fd);
-}
-
-// 10.9 backport instrumentation (#43 keystone): declared in ThreadSafeWeakPtr.h. Logs a
-// WEAK-refcount underflow (an extra weakDeref, OR the deferred MainRunLoop deleteObject
-// lambda running twice — the suspected double-dispatch). A weak underflow frees the
-// control block early -> the surviving ThreadSafeWeakPtr later locks freed m_word -> the
-// 0xfffffffe corruption. `where` distinguishes the weakDeref site from the deferred-delete site.
-void reportThreadSafeWeakWeakDerefUnderflow(const void* controlBlock, const char* where, const void* object)
-{
-    static std::atomic<unsigned> s_wudf { 0 };
-    unsigned n = ++s_wudf;
-    void* frames[40];
-    int nframes = ::backtrace(frames, 40);
-    int fd = ::open("/tmp/wk_wordlock_trips.log", O_WRONLY | O_APPEND | O_CREAT, 0644);
-    if (fd < 0)
-        return;
-    char buf[1600];
-    int len = ::snprintf(buf, sizeof(buf), "WEAKDEREF-UNDERFLOW #%u pid=%d where=%s cb=%p obj=%p frames=",
-        n, static_cast<int>(::getpid()), where, controlBlock, object);
-    for (int i = 0; i < nframes && len > 0 && len < static_cast<int>(sizeof(buf)) - 20; ++i)
-        len += ::snprintf(buf + len, sizeof(buf) - len, "%p ", frames[i]);
-    if (len > 0 && len < static_cast<int>(sizeof(buf)))
-        len += ::snprintf(buf + len, sizeof(buf) - len, "\n");
-    if (len > 0)
-        (void)::write(fd, buf, static_cast<size_t>(len));
-    ::close(fd);
-}
-
 NEVER_INLINE void WordLock::lockSlow()
 {
     unsigned spinCount = 0;
 
     // This magic number turns out to be optimal based on past JikesRVM experiments.
     const unsigned spinLimit = 40;
-
+    
     for (;;) {
         uintptr_t currentWordValue = m_word.load();
-
-        // Recovery for memory corruption observed on macOS 10.9 (see unlockSlow). If the
-        // queue head portion encodes a value in the low 4GB, it can't be a real ThreadData*
-        // and the state is corrupted. Force-reset and retry to acquire normally.
-        uintptr_t maybeQueueHead = currentWordValue & ~queueHeadMask;
-        if (maybeQueueHead && maybeQueueHead < 0x100000000ULL) {
-            logWordLockCorruptionTrip("lockSlow", currentWordValue, this);
-            m_word.store(0);
-            continue;
-        }
-
+        
         if (!(currentWordValue & isLockedBit)) {
             // It's not possible for someone to hold the queue lock while the lock itself is no longer
             // held, since we will only attempt to acquire the queue lock when the lock is held and
@@ -263,27 +168,8 @@ NEVER_INLINE void WordLock::unlockSlow()
     for (;;) {
         uintptr_t currentWordValue = m_word.load();
 
-        // Recovery for an as-yet-unidentified memory corruption observed on macOS 10.9
-        // NetworkProcess: the m_word of certain ThreadSafeWeakPtrControlBlock locks gets
-        // corrupted to 0x00000000ffffffff during a strongDeref hold, presumably from a
-        // neighboring libdispatch object's writes overwriting offset 0 of the ControlBlock
-        // allocation. The corrupted value treats both isLockedBit and isQueueLockedBit as
-        // set, so the unlockSlow loop spins forever waiting for the (non-existent) queue
-        // lock holder to release. The corrupted "queue head pointer" portion is in the low
-        // 4GB which is invalid for any heap pointer. Detect and recover by force-releasing
-        // the lock; any threads parked on this lock (which can't actually exist if the
-        // queue head is bogus) would never have been wakeable anyway.
-        uintptr_t maybeQueueHead = currentWordValue & ~queueHeadMask;
-        if (maybeQueueHead && maybeQueueHead < 0x100000000ULL) {
-            // The "queue head" portion is non-null but in the low 4GB — impossible for a
-            // real ThreadData* on macOS x86_64. The state is corrupted; force-release.
-            logWordLockCorruptionTrip("unlockSlow", currentWordValue, this);
-            m_word.store(0);
-            return;
-        }
-
         ASSERT(currentWordValue & isLockedBit);
-
+        
         if (currentWordValue == isLockedBit) {
             if (m_word.compareExchangeWeak(isLockedBit, 0)) {
                 // The fast path's weak CAS had spuriously failed, and now we succeeded. The lock is
@@ -294,7 +180,7 @@ NEVER_INLINE void WordLock::unlockSlow()
             Thread::yield();
             continue;
         }
-
+        
         if (currentWordValue & isQueueLockedBit) {
             Thread::yield();
             continue;

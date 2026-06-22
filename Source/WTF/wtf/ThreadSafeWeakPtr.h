@@ -40,11 +40,6 @@ template<typename T, typename> class ThreadSafeWeakRef;
 template<typename> class ThreadSafeWeakHashSet;
 template<typename, DestructionThread> class ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr;
 
-// 10.9 backport instrumentation (#43 keystone): defined in WordLock.cpp; logs a
-// strong-refcount underflow on a ThreadSafeWeakPtr control block + a backtrace.
-WTF_EXPORT_PRIVATE void reportThreadSafeWeakStrongDerefUnderflow(const void* controlBlock, int strongCount, const void* object);
-WTF_EXPORT_PRIVATE void reportThreadSafeWeakWeakDerefUnderflow(const void* controlBlock, const char* where, const void* object);
-
 class ThreadSafeWeakPtrControlBlock {
     WTF_MAKE_NONCOPYABLE(ThreadSafeWeakPtrControlBlock);
     WTF_DEPRECATED_MAKE_FAST_ALLOCATED(ThreadSafeWeakPtrControlBlock);
@@ -61,12 +56,6 @@ public:
         bool shouldDeleteControlBlock { false };
         {
             Locker locker { m_lock };
-            // 10.9 backport instrumentation (#43): catch an extra weakDeref (freed-early
-            // mechanism behind the 0xfffffffe m_word corruption) before it underflows.
-            if (!m_weakReferenceCount) {
-                reportThreadSafeWeakWeakDerefUnderflow(this, "weakDeref", m_object);
-                return;
-            }
             ASSERT_WITH_SECURITY_IMPLICATION(m_weakReferenceCount);
             if (!--m_weakReferenceCount && !m_strongReferenceCount)
                 shouldDeleteControlBlock = true;
@@ -88,13 +77,6 @@ public:
         SUPPRESS_UNCOUNTED_LOCAL T* object;
         {
             Locker locker { m_lock };
-            // 10.9 backport instrumentation (#43 keystone): catch a strong-refcount
-            // underflow / deref-after-destroy directly, with the culprit's backtrace,
-            // then RECOVER (return) instead of trapping so the run continues for diagnosis.
-            if (!m_object || !m_strongReferenceCount) {
-                reportThreadSafeWeakStrongDerefUnderflow(this, static_cast<int>(m_strongReferenceCount), m_object);
-                return;
-            }
             ASSERT_WITH_SECURITY_IMPLICATION(m_object);
             if (--m_strongReferenceCount) [[likely]]
                 return;
@@ -116,14 +98,7 @@ public:
             {
                 // We retained ourselves above.
                 Locker locker { m_lock };
-                // 10.9 backport instrumentation (#43): if this deferred MainRunLoop
-                // deleteObject lambda runs twice (double-dispatch), the weak count
-                // underflows here -> control block freed early -> 0xfffffffe UAF.
-                if (!m_weakReferenceCount) {
-                    reportThreadSafeWeakWeakDerefUnderflow(this, "deferredDelete", object);
-                    hasOtherWeakRefs = true; // don't double-free the control block
-                } else
-                    hasOtherWeakRefs = --m_weakReferenceCount;
+                hasOtherWeakRefs = --m_weakReferenceCount;
                 // release the lock here so we don't do it in Locker's destuctor after we've already called delete.
             }
 

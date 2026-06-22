@@ -26,10 +26,6 @@
 #include "config.h"
 #include "Connection.h"
 
-#if PLATFORM(COCOA)
-#include <CoreFoundation/CFRunLoop.h>
-#endif
-
 #include "Encoder.h"
 #include "GeneratedSerializers.h"
 #include "Logging.h"
@@ -82,7 +78,7 @@ static Lock s_connectionMapLock;
 class Connection::SyncMessageState final : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<SyncMessageState> {
 public:
     static Ref<SyncMessageState> getOrCreate(SerialFunctionDispatcher&);
-    Ref<SerialFunctionDispatcher> dispatcher() const { return m_dispatcher; }
+    Ref<SerialFunctionDispatcher> dispatcher() const { return m_dispatcher.get(); }
     ~SyncMessageState();
 
     void wakeUpClientRunLoop()
@@ -148,12 +144,7 @@ private:
     Deque<ConnectionAndIncomingMessage> m_messagesBeingDispatched; // Only used on the main thread.
     Deque<ConnectionAndIncomingMessage> m_messagesToDispatchWhileWaitingForSyncReply WTF_GUARDED_BY_LOCK(m_lock);
 
-    // 10.9 backport: a ThreadSafeWeakRef forces SerialFunctionDispatcher
-    // (RunLoop::mainSingleton()) to allocate a ThreadSafeWeakPtrControlBlock,
-    // and that control block's heap memory gets clobbered by something (likely
-    // JSC GC). Use a hard Ref instead — RunLoop::mainSingleton() lives forever,
-    // so there is no leak risk.
-    Ref<SerialFunctionDispatcher> m_dispatcher;
+    ThreadSafeWeakRef<SerialFunctionDispatcher> m_dispatcher;
 };
 
 Lock Connection::SyncMessageState::syncMessageStateMapLock;
@@ -179,7 +170,7 @@ Connection::SyncMessageState::~SyncMessageState()
 
 void Connection::SyncMessageState::enqueueMatchingMessages(Connection& connection, MessageReceiveQueue& receiveQueue, const ReceiverMatcher& receiverMatcher)
 {
-    assertIsCurrent(m_dispatcher);
+    assertIsCurrent(m_dispatcher.get());
     auto enqueueMatchingMessagesInContainer = [&](Deque<ConnectionAndIncomingMessage>& connectionAndMessages) {
         Deque<ConnectionAndIncomingMessage> rest;
         for (auto& connectionAndMessage : connectionAndMessages) {
@@ -225,7 +216,7 @@ bool Connection::SyncMessageState::processIncomingMessage(Connection& connection
     }
 
     if (shouldDispatch) {
-        m_dispatcher->dispatch([protectedConnection = Ref { connection }]() mutable {
+        m_dispatcher.get()->dispatch([protectedConnection = Ref { connection }]() mutable {
             protectedConnection->dispatchSyncStateMessages();
         });
     }
@@ -237,7 +228,7 @@ bool Connection::SyncMessageState::processIncomingMessage(Connection& connection
 
 void Connection::SyncMessageState::dispatchMessages(Function<void(MessageName, uint64_t)>&& willDispatchMessage)
 {
-    assertIsCurrent(m_dispatcher);
+    assertIsCurrent(m_dispatcher.get());
     {
         Locker locker { m_lock };
         if (m_messagesBeingDispatched.isEmpty())
@@ -258,7 +249,7 @@ void Connection::SyncMessageState::dispatchMessages(Function<void(MessageName, u
 
 void Connection::SyncMessageState::dispatchMessagesUntil(MessageIdentifier lastMessageToDispatch)
 {
-    assertIsCurrent(m_dispatcher);
+    assertIsCurrent(m_dispatcher.get());
     {
         Locker locker { m_lock };
         if (!m_messagesToDispatchWhileWaitingForSyncReply.containsIf([&](auto& message) { return message.identifier == lastMessageToDispatch; }))
@@ -285,7 +276,7 @@ auto Connection::SyncMessageState::identifierOfLastMessageToDispatchWhileWaiting
 
 void Connection::SyncMessageState::dispatchMessagesAndResetDidScheduleDispatchMessagesForConnection(Connection& connection)
 {
-    assertIsCurrent(m_dispatcher);
+    assertIsCurrent(m_dispatcher.get());
     {
         Locker locker { m_lock };
         ASSERT(m_didScheduleDispatchMessagesWorkSet.contains(&connection));
@@ -587,8 +578,9 @@ static uintptr_t generateSignpostIdentifier()
 Error Connection::sendMessage(UniqueRef<Encoder>&& encoder, OptionSet<SendOption> sendOptions, std::optional<Thread::QOS> qos)
 {
 #if ENABLE(CORE_IPC_SIGNPOSTS)
-    // macOS 10.9 backport: ReceiverName::LogStream doesn't exist; drop the check.
-    if (signpostsEnabled()) [[unlikely]]
+    // Signposts can turn in to log message IPCs when emitted from WebContent. Don't emit a signpost
+    // for log messages to avoid an infinite number of signposts.
+    if (signpostsEnabled() && receiverName(encoder->messageName()) != IPC::ReceiverName::LogStream) [[unlikely]]
         WTFEmitSignpost(generateSignpostIdentifier(), IPCConnection, "sendMessage: %" PUBLIC_LOG_STRING, description(encoder->messageName()).characters());
 #endif
 
@@ -1049,21 +1041,21 @@ void Connection::processIncomingMessage(UniqueRef<Decoder> message)
     Locker incomingMessagesLocker { m_incomingMessagesLock };
 
     if (auto* receiveQueue = m_receiveQueues.get(message.get())) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PIM %d] diverted-rq msgEnum=%u destID=%llu\n", getpid(), (unsigned)message->messageName(), (unsigned long long)message->destinationID()); fclose(_d);}}
         receiveQueue->enqueueMessage(*this, WTF::move(message));
         return;
     }
 
     if (!message->isValid()) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PIM %d] invalid-msg msgEnum=%u\n", getpid(), (unsigned)message->messageName()); fclose(_d);}}
         incomingMessagesLocker.unlockEarly();
         waitForMessagesLocker.unlockEarly();
+        // If the message is invalid, we could send back a SyncMessageError. In case the message
+        // would need a reply, we do not cancel it as we don't know the destination to cancel it
+        // with. Currently ther is no use-case to handle invalid messages.
         dispatchDidReceiveInvalidMessage(message->messageName(), message->indicesOfObjectsFailingDecoding());
         return;
     }
 
     if (message->messageName() == MessageName::SyncMessageReply || message->messageName() == MessageName::CancelSyncMessageReply) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PIM %d] sync-reply msgEnum=%u\n", getpid(), (unsigned)message->messageName()); fclose(_d);}}
         incomingMessagesLocker.unlockEarly();
         waitForMessagesLocker.unlockEarly();
         processIncomingSyncReply(WTF::move(message));
@@ -1071,10 +1063,8 @@ void Connection::processIncomingMessage(UniqueRef<Decoder> message)
     }
 
     RefPtr syncState = m_syncState;
-    if (!syncState) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PIM %d] no-syncState msgEnum=%u\n", getpid(), (unsigned)message->messageName()); fclose(_d);}}
+    if (!syncState)
         return;
-    }
 
     if (message->isAsyncReplyMessage()) {
         // Disallow async replies with invalid destinationIDs to be sent
@@ -1090,7 +1080,6 @@ void Connection::processIncomingMessage(UniqueRef<Decoder> message)
             return;
         }
         if (auto replyHandlerWithDispatcher = takeAsyncReplyHandlerWithDispatcherWithLockHeld(AtomicObjectIdentifier<AsyncReplyIDType>(message->destinationID()))) {
-            {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PIM %d] async-reply msgEnum=%u\n", getpid(), (unsigned)message->messageName()); fclose(_d);}}
             replyHandlerWithDispatcher(this, message.moveToUniquePtr());
             return;
         }
@@ -1109,7 +1098,6 @@ void Connection::processIncomingMessage(UniqueRef<Decoder> message)
     // Check if we're waiting for this message, or if we need to interrupt waiting due to an incoming sync message.
     if (m_waitingForMessage && !m_waitingForMessage->decoder) {
         if (m_waitingForMessage->messageName == message->messageName() && m_waitingForMessage->destinationID == message->destinationID()) {
-            {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PIM %d] waitingFor-match msgEnum=%u\n", getpid(), (unsigned)message->messageName()); fclose(_d);}}
             m_waitingForMessage->decoder = message.moveToUniquePtr();
             ASSERT(m_waitingForMessage->decoder);
             m_waitForMessageCondition.notifyOne();
@@ -1117,13 +1105,11 @@ void Connection::processIncomingMessage(UniqueRef<Decoder> message)
         }
 
         if (m_waitingForMessage->waitForOptions.contains(WaitForOption::DispatchIncomingSyncMessagesWhileWaiting) && message->isSyncMessage() && syncState->processIncomingMessage(*this, message)) {
-            {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PIM %d] waitingFor-syncWhile msgEnum=%u\n", getpid(), (unsigned)message->messageName()); fclose(_d);}}
             m_waitForMessageCondition.notifyOne();
             return;
         }
 
         if (m_waitingForMessage->waitForOptions.contains(WaitForOption::InterruptWaitingIfSyncMessageArrives) && message->isSyncMessage()) {
-            {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PIM %d] waitingFor-interrupt msgEnum=%u\n", getpid(), (unsigned)message->messageName()); fclose(_d);}}
             m_waitingForMessage->messageWaitingInterrupted = true;
             m_waitForMessageCondition.notifyOne();
             enqueueIncomingMessage(WTF::move(message));
@@ -1132,7 +1118,6 @@ void Connection::processIncomingMessage(UniqueRef<Decoder> message)
     }
 
     if ((message->shouldDispatchMessageWhenWaitingForSyncReply() == ShouldDispatchWhenWaitingForSyncReply::YesDuringUnboundedIPC && !message->isAllowedWhenWaitingForUnboundedSyncReply()) || (message->shouldDispatchMessageWhenWaitingForSyncReply() == ShouldDispatchWhenWaitingForSyncReply::Yes && !message->isAllowedWhenWaitingForSyncReply())) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PIM %d] shouldDispatch-invalid msgEnum=%u\n", getpid(), (unsigned)message->messageName()); fclose(_d);}}
         dispatchDidReceiveInvalidMessage(message->messageName(), message->indicesOfObjectsFailingDecoding());
         return;
     }
@@ -1140,13 +1125,9 @@ void Connection::processIncomingMessage(UniqueRef<Decoder> message)
     // Check if this is a sync message or if it's a message that should be dispatched even when waiting for
     // a sync reply. If it is, and we're waiting for a sync reply this message needs to be dispatched.
     // If we don't we'll end up with a deadlock where both sync message senders are stuck waiting for a reply.
-    unsigned _msgEnumBeforeSync = (unsigned)message->messageName();
-    if (syncState->processIncomingMessage(*this, message)) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PIM %d] syncState-handled msgEnum=%u\n", getpid(), _msgEnumBeforeSync); fclose(_d);}}
+    if (syncState->processIncomingMessage(*this, message))
         return;
-    }
 
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PIM %d] enqueuing msgEnum=%u\n", getpid(), _msgEnumBeforeSync); fclose(_d);}}
     enqueueIncomingMessage(WTF::move(message));
 }
 
@@ -1384,33 +1365,14 @@ void Connection::enqueueIncomingMessage(UniqueRef<Decoder> incomingMessage)
 
     if (!m_syncState)
         return;
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[Connection::enqueueIncomingMessage PID %d] dispatching to dispatcher, throttle=%d\n", getpid(), isIncomingMessagesThrottlingEnabled()); fclose(_d);}}
-    // 10.9 backport: dispatcher() returns RunLoop::mainSingleton() which has its
-    // m_bits/control-block periodically clobbered by JSC GC, making the Ref<>
-    // construction or vtable dispatch crash. Dispatch directly to the main
-    // GCD queue (which is what mainSingleton's wakeUp ultimately uses anyway).
-    bool throttle = isIncomingMessagesThrottlingEnabled();
-    Ref<Connection> protectedThis { *this };
-    // 10.9 backport: dispatch both via dispatch_async to main_queue (drained by
-    // dispatch_main in xpc_main) AND via CFRunLoopPerformBlock+WakeUp on the main
-    // RunLoop (drained by NSApplication/CFRunLoopRun). Either path may be active
-    // depending on where we are in a process's lifecycle. Both call dispatchOne,
-    // which drains the whole queue in a loop, so a duplicate fire is harmless.
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (throttle)
+    if (isIncomingMessagesThrottlingEnabled()) {
+        dispatcher()->dispatch([protectedThis = Ref { *this }] {
             protectedThis->dispatchIncomingMessages();
-        else
+        });
+    } else {
+        dispatcher()->dispatch([protectedThis = Ref { *this }] {
             protectedThis->dispatchOneIncomingMessage();
-    });
-    if (CFRunLoopRef mainRL = CFRunLoopGetMain()) {
-        void (^cfBlock)(void) = ^{
-            if (throttle)
-                protectedThis->dispatchIncomingMessages();
-            else
-                protectedThis->dispatchOneIncomingMessage();
-        };
-        CFRunLoopPerformBlock(mainRL, kCFRunLoopCommonModes, cfBlock);
-        CFRunLoopWakeUp(mainRL);
+        });
     }
 }
 
@@ -1463,11 +1425,6 @@ void Connection::dispatchMessage(UniqueRef<Decoder> message)
 {
     if (!m_syncState)
         return;
-    {
-        Ref<SerialFunctionDispatcher> d = dispatcher();
-        FILE *_f=((FILE*)0);
-        if(_f){fprintf(_f,"[Connection::dispatchMessage(UniqueRef) PID %d] this=%p msg=%s dispatcher=%p\n", getpid(), this, description(message->messageName()).characters(), d.ptr()); fclose(_f);}
-    }
     assertIsCurrent(dispatcher());
     {
         // FIXME: The matches here come from
@@ -1558,34 +1515,36 @@ size_t Connection::numberOfMessagesToProcess(size_t totalMessages)
 
 Ref<SerialFunctionDispatcher> Connection::dispatcher()
 {
-    // 10.9 backport: m_syncState->dispatcher() goes through a ThreadSafeWeakRef
-    // whose control block sometimes gets corrupted by something (still TBD).
-    // For our use we always want the main RunLoop, so just return it directly.
-    // This bypasses the buggy weak-ref deref path entirely.
-    return RunLoop::mainSingleton();
+    // dispatcher can only be accessed while the connection is valid,
+    // and must have the incoming message lock held if not being
+    // called from the SerialFunctionDispatcher.
+    RefPtr syncState = m_syncState;
+    RELEASE_ASSERT(syncState);
+    RefPtr dispatcher = syncState->dispatcher();
+    RELEASE_ASSERT(dispatcher);
+#if !ENABLE(UNFAIR_LOCK)
+    if (!m_incomingMessagesLock.isLocked())
+        assertIsCurrent(*dispatcher);
+#endif
+
+    // Our syncState is specific to the SerialFunctionDispatcher we have been
+    // bound to during open(), so we can retrieve the SerialFunctionDispatcher
+    // from it (rather than storing another pointer on this class).
+    return dispatcher.releaseNonNull();
 }
 
 void Connection::dispatchOneIncomingMessage()
 {
-    // 10.9 backport: dispatch_async to main_queue's CFRunLoop integration coalesces
-    // wake-ups, so the main thread is often called back fewer times than we dispatch.
-    // Drain the whole queue here instead of one message per fire so messages don't
-    // pile up if the next wake-up is lost.
-    int drained = 0;
-    while (true) {
-        std::unique_ptr<Decoder> message;
-        {
-            Locker locker { m_incomingMessagesLock };
-            if (m_incomingMessages.isEmpty())
-                break;
-            message = m_incomingMessages.takeFirst().moveToUniquePtr();
-        }
-        dispatchMessage(makeUniqueRefFromNonNullUniquePtr(WTF::move(message)));
-        ++drained;
+    std::unique_ptr<Decoder> message;
+    {
+        Locker locker { m_incomingMessagesLock };
+        if (m_incomingMessages.isEmpty())
+            return;
+
+        message = m_incomingMessages.takeFirst().moveToUniquePtr();
     }
-    if (drained > 1) {
-        FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[dispatchOneIncomingMessage PID %d] drained %d in one fire\n", getpid(), drained); fclose(_d);}
-    }
+
+    dispatchMessage(makeUniqueRefFromNonNullUniquePtr(WTF::move(message)));
 }
 
 void Connection::dispatchSyncStateMessages()
@@ -1598,7 +1557,6 @@ void Connection::dispatchSyncStateMessages()
 
 void Connection::dispatchIncomingMessages()
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[Connection::dispatchIncomingMessages PID %d] entered, valid=%d, queue=%zu\n", getpid(), isValid(), m_incomingMessages.size()); fclose(_d);}}
     if (!isValid())
         return;
 
