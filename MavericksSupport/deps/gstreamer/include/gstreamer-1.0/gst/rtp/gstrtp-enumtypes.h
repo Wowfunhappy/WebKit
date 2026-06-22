@@ -3,10 +3,10 @@
 
 #pragma once
 
-            #include <glib-object.h>
-            #include <gst/rtp/rtp-prelude.h>
+#include <glib-object.h>
+#include <gst/rtp/rtp-prelude.h>
 
-            G_BEGIN_DECLS
+G_BEGIN_DECLS
 
 /* enumerations from "gstrtcpbuffer.h" */
 

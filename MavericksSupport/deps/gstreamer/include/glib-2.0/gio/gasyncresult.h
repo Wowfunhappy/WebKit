@@ -36,12 +36,6 @@ G_BEGIN_DECLS
 #define G_IS_ASYNC_RESULT(obj)	       (G_TYPE_CHECK_INSTANCE_TYPE ((obj), G_TYPE_ASYNC_RESULT))
 #define G_ASYNC_RESULT_GET_IFACE(obj)  (G_TYPE_INSTANCE_GET_INTERFACE ((obj), G_TYPE_ASYNC_RESULT, GAsyncResultIface))
 
-/**
- * GAsyncResult:
- *
- * Holds results information for an asynchronous operation,
- * usually passed directly to an asynchronous _finish() operation.
- **/
 typedef struct _GAsyncResultIface    GAsyncResultIface;
 
 
@@ -67,18 +61,18 @@ struct _GAsyncResultIface
 				   gpointer      source_tag);
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType    g_async_result_get_type          (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gpointer g_async_result_get_user_data     (GAsyncResult *res);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GObject *g_async_result_get_source_object (GAsyncResult *res);
 
-GLIB_AVAILABLE_IN_2_34
+GIO_AVAILABLE_IN_2_34
 gboolean g_async_result_legacy_propagate_error (GAsyncResult  *res,
 						GError       **error);
-GLIB_AVAILABLE_IN_2_34
+GIO_AVAILABLE_IN_2_34
 gboolean g_async_result_is_tagged              (GAsyncResult  *res,
 						gpointer       source_tag);
 

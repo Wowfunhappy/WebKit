@@ -123,7 +123,21 @@ typedef unsigned int orc_bool;
 #define ORC_PTR_TO_INT(x) ((int)(orc_intptr)(x))
 #define ORC_PTR_OFFSET(ptr,offset) ((void *)(((unsigned char *)(ptr)) + (offset)))
 
-#if (defined(__GNUC__)  && __GNUC__ >= 4) || defined (_MSC_VER)
+#if defined(__GNUC__) && defined(__GNUC_MINOR__)
+#define ORC_GNUC_PREREQ(maj, min) \
+  ((__GNUC__ << 16) + __GNUC_MINOR__ >= ((maj) << 16) + (min))
+#else
+#define ORC_GNUC_PREREQ(maj, min) 0
+#endif
+
+#if defined(__clang__) && defined(__clang_minor__)
+#define ORC_CLANG_PREREQ(maj, min) \
+  ((__clang_major__ << 16) + __clang_minor__ >= ((maj) << 16) + (min))
+#else
+#define ORC_CLANG_PREREQ(maj, min) 0
+#endif
+
+#if ORC_GNUC_PREREQ(4, 0) || ORC_CLANG_PREREQ(4, 0) || defined (_MSC_VER)
 #define ORC_STRUCT_OFFSET(struct_type, member) \
       ((int) offsetof (struct_type, member))
 #else
@@ -160,14 +174,7 @@ typedef unsigned int orc_bool;
 
 #endif
 
-#if defined(__GNUC__) && defined(__GNUC_MINOR__)
-#define ORC_GNUC_PREREQ(maj, min) \
-  ((__GNUC__ << 16) + __GNUC_MINOR__ >= ((maj) << 16) + (min))
-#else
-#define ORC_GNUC_PREREQ(maj, min) 0
-#endif
-  
-#if defined(__GNUC__) && (__GNUC__ > 2) && defined(__OPTIMIZE__)
+#if (ORC_GNUC_PREREQ(3,0) || ORC_CLANG_PREREQ(4, 0)) && defined(__OPTIMIZE__)
 #define ORC_LIKELY(expr) (__builtin_expect ((expr), 1))
 #define ORC_UNLIKELY(expr) (__builtin_expect ((expr), 0))
 #else
@@ -180,20 +187,20 @@ typedef unsigned int orc_bool;
 #define ORC_INTERNAL __attribute__((visibility("hidden")))
 #elif defined(__SUNPRO_C) && (__SUNPRO_C >= 0x550)
 #define ORC_INTERNAL __hidden
-#elif defined (__GNUC__) && ORC_GNUC_PREREQ(3,3) && defined(__ELF__)
+#elif ORC_GNUC_PREREQ(3,3) || ORC_CLANG_PREREQ(4, 0)
 #define ORC_INTERNAL __attribute__((visibility("hidden")))
 #else
 #define ORC_INTERNAL
 #endif
 #endif
 
-#if ORC_GNUC_PREREQ(3,3) /* guess */
+#if ORC_GNUC_PREREQ(3,3) || ORC_CLANG_PREREQ(4, 0)
 #define ORC_GNU_PRINTF(a,b) __attribute__((__format__ (__printf__, a, b)))
 #else
 #define ORC_GNU_PRINTF(a,b)
 #endif
 
-#if ORC_GNUC_PREREQ(2,4)
+#if ORC_GNUC_PREREQ(2, 4) || ORC_CLANG_PREREQ(4, 0)
 #define ORC_GNUC_UNUSED __attribute__((__unused__))
 #else
 #define ORC_GNUC_UNUSED
@@ -207,35 +214,53 @@ typedef unsigned int orc_bool;
 #define ORC_END_DECLS
 #endif
 
-/* FIXME: unused, remove */
-#define ORC_EXPORT
-
-#if (defined(_MSC_VER) || defined(_WIN32)) && !defined(ORC_STATIC_COMPILATION)
-#define ORC_API_IMPORT __declspec(dllimport) extern
+#if (defined(_WIN32) || defined(__CYGWIN__)) && !defined(ORC_STATIC_COMPILATION)
+#  define _ORC_EXPORT __declspec(dllexport)
+#  define _ORC_IMPORT __declspec(dllimport)
+#elif ORC_GNUC_PREREQ(4, 0) || ORC_CLANG_PREREQ(4, 0)
+#  define _ORC_EXPORT __attribute__((visibility("default")))
+#  define _ORC_IMPORT
 #else
-#define ORC_API_IMPORT extern
+#  define _ORC_EXPORT
+#  define _ORC_IMPORT
 #endif
 
+#define ORC_API_EXPORT _ORC_EXPORT extern
+#define ORC_API_IMPORT _ORC_IMPORT extern
+
 #ifdef BUILDING_ORC
-#define ORC_API ORC_API_EXPORT /* defined in config.h */
+#define ORC_API ORC_API_EXPORT
 #else
 #define ORC_API ORC_API_IMPORT
+#endif
+
+#ifndef ORC_RESTRICT
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#define ORC_RESTRICT restrict
+#elif ORC_GNUC_PREREQ(4, 0) || ORC_CLANG_PREREQ(4, 0)
+#define ORC_RESTRICT __restrict__
+#elif defined(_MSC_VER)
+#define ORC_RESTRICT __restrict
+#else
+#define ORC_RESTRICT
+#endif
+#endif
+
+#ifndef ORC_DEPRECATED
+#if defined(_MSC_VER)
+#define ORC_DEPRECATED __declspec(deprecated)
+#else
+#define ORC_DEPRECATED __attribute__((deprecated))
+#endif
+#endif
+
+#ifndef __has_builtin
+#define __has_builtin(x) 0
 #endif
 
 ORC_BEGIN_DECLS
 
 #ifdef ORC_ENABLE_UNSTABLE_API
-
-/* FIXME: remove, these are internal functions that were never exported */
-#if defined(__arm__) || defined(__mips__)
-char * get_proc_cpuinfo (void);
-#endif
-
-char * _strndup (const char *s, int n);
-char ** strsplit (const char *s, char delimiter);
-char * get_tag_value (char *s, const char *tag);
-
-orc_int64 _strtoll (const char *nptr, char **endptr, int base);
 
 /* FIXME: why are these exported ? */
 ORC_API void orc_global_mutex_lock (void);

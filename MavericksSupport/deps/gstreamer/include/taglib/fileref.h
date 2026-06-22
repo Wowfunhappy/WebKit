@@ -108,6 +108,16 @@ namespace TagLib {
                                audioPropertiesStyle = AudioProperties::Average) const = 0;
     };
 
+    class TAGLIB_EXPORT StreamTypeResolver : public FileTypeResolver
+    {
+      TAGLIB_IGNORE_MISSING_DESTRUCTOR
+    public:
+      virtual File *createFileFromStream(IOStream *stream,
+                               bool readAudioProperties = true,
+                               AudioProperties::ReadStyle
+                               audioPropertiesStyle = AudioProperties::Average) const = 0;
+    };
+
     /*!
      * Creates a null FileRef.
      */
@@ -166,8 +176,8 @@ namespace TagLib {
      * \warning This pointer will become invalid when this FileRef and all
      * copies pass out of scope.
      *
-     * \warning Do not cast it to any subclasses of \class Tag.
-     * Use tag returning methods of appropriate subclasses of \class File instead.
+     * \warning Do not cast it to any subclasses of Tag.
+     * Use tag returning methods of appropriate subclasses of File instead.
      *
      * \see File::tag()
      */
@@ -268,14 +278,16 @@ namespace TagLib {
      * \note You generally shouldn't use this method, but instead the constructor
      * directly.
      *
-     * \deprecated
+     * \deprecated Use FileRef(FileName, bool, AudioProperties::ReadStyle).
      */
     static File *create(FileName fileName,
                         bool readAudioProperties = true,
                         AudioProperties::ReadStyle audioPropertiesStyle = AudioProperties::Average);
 
-
   private:
+    void parse(FileName fileName, bool readAudioProperties, AudioProperties::ReadStyle audioPropertiesStyle);
+    void parse(IOStream *stream, bool readAudioProperties, AudioProperties::ReadStyle audioPropertiesStyle);
+
     class FileRefPrivate;
     FileRefPrivate *d;
   };

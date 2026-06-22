@@ -28,6 +28,7 @@
 #endif
 
 #include <glib-object.h>
+#include <gio/gio-visibility.h>
 
 G_BEGIN_DECLS
 
@@ -223,6 +224,9 @@ typedef enum {
  *   sizes.  Normally, the block-size is used, if available, as this is a
  *   more accurate representation of disk space used.
  *   Compare with `du --apparent-size`.
+ *   Since GLib 2.78. and similarly to `du` since GNU Coreutils 9.2, this will
+ *   ignore the sizes of file types other than regular files and links, as the
+ *   sizes of other file types are not specified in a standard way.
  * @G_FILE_MEASURE_NO_XDEV: Do not cross mount point boundaries.
  *   Compare with `du -x`.
  *
@@ -310,6 +314,8 @@ typedef enum {
  * @G_FILE_COPY_ALL_METADATA: Copy all file metadata instead of just default set used for copy (see #GFileInfo).
  * @G_FILE_COPY_NO_FALLBACK_FOR_MOVE: Don't use copy and delete fallback if native move not supported.
  * @G_FILE_COPY_TARGET_DEFAULT_PERMS: Leaves target file with default perms, instead of setting the source file perms.
+ * @G_FILE_COPY_TARGET_DEFAULT_MODIFIED_TIME: Use default modification
+ *     timestamps instead of copying them from the source file. Since 2.80
  *
  * Flags used when copying or moving files.
  */
@@ -320,7 +326,8 @@ typedef enum {
   G_FILE_COPY_NOFOLLOW_SYMLINKS    = (1 << 2),
   G_FILE_COPY_ALL_METADATA         = (1 << 3),
   G_FILE_COPY_NO_FALLBACK_FOR_MOVE = (1 << 4),
-  G_FILE_COPY_TARGET_DEFAULT_PERMS = (1 << 5)
+  G_FILE_COPY_TARGET_DEFAULT_PERMS = (1 << 5),
+  G_FILE_COPY_TARGET_DEFAULT_MODIFIED_TIME GIO_AVAILABLE_ENUMERATOR_IN_2_80 = (1 << 6),
 } GFileCopyFlags;
 
 
@@ -510,6 +517,7 @@ typedef enum {
  * @G_IO_ERROR_NOT_CONNECTED: Transport endpoint is not connected. Since 2.44
  * @G_IO_ERROR_MESSAGE_TOO_LARGE: Message too large. Since 2.48.
  * @G_IO_ERROR_NO_SUCH_DEVICE: No such device found. Since 2.74
+ * @G_IO_ERROR_DESTINATION_UNSET: Destination address unset. Since 2.80
  *
  * Error codes returned by GIO functions.
  *
@@ -579,7 +587,8 @@ typedef enum {
   G_IO_ERROR_CONNECTION_CLOSED = G_IO_ERROR_BROKEN_PIPE,
   G_IO_ERROR_NOT_CONNECTED,
   G_IO_ERROR_MESSAGE_TOO_LARGE,
-  G_IO_ERROR_NO_SUCH_DEVICE GLIB_AVAILABLE_ENUMERATOR_IN_2_74,
+  G_IO_ERROR_NO_SUCH_DEVICE GIO_AVAILABLE_ENUMERATOR_IN_2_74,
+  G_IO_ERROR_DESTINATION_UNSET GIO_AVAILABLE_ENUMERATOR_IN_2_80,
 } GIOErrorEnum;
 
 
@@ -1041,7 +1050,7 @@ typedef enum
   G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START = (1<<2),
   G_DBUS_PROXY_FLAGS_GET_INVALIDATED_PROPERTIES = (1<<3),
   G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START_AT_CONSTRUCTION = (1<<4),
-  G_DBUS_PROXY_FLAGS_NO_MATCH_RULE GLIB_AVAILABLE_ENUMERATOR_IN_2_72 = (1<<5)
+  G_DBUS_PROXY_FLAGS_NO_MATCH_RULE GIO_AVAILABLE_ENUMERATOR_IN_2_72 = (1<<5)
 } GDBusProxyFlags;
 
 /**
@@ -1234,8 +1243,8 @@ typedef enum {
   G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS = (1<<2),
   G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION = (1<<3),
   G_DBUS_CONNECTION_FLAGS_DELAY_MESSAGE_PROCESSING = (1<<4),
-  G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER GLIB_AVAILABLE_ENUMERATOR_IN_2_68 = (1<<5),
-  G_DBUS_CONNECTION_FLAGS_CROSS_NAMESPACE GLIB_AVAILABLE_ENUMERATOR_IN_2_74 = (1<<6)
+  G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER GIO_AVAILABLE_ENUMERATOR_IN_2_68 = (1<<5),
+  G_DBUS_CONNECTION_FLAGS_CROSS_NAMESPACE GIO_AVAILABLE_ENUMERATOR_IN_2_74 = (1<<6)
 } GDBusConnectionFlags;
 
 /**
@@ -1398,7 +1407,7 @@ typedef enum
   G_DBUS_SERVER_FLAGS_NONE = 0,
   G_DBUS_SERVER_FLAGS_RUN_IN_THREAD = (1<<0),
   G_DBUS_SERVER_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS = (1<<1),
-  G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER GLIB_AVAILABLE_ENUMERATOR_IN_2_68 = (1<<2)
+  G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER GIO_AVAILABLE_ENUMERATOR_IN_2_68 = (1<<2)
 } GDBusServerFlags;
 
 /**
@@ -1533,8 +1542,8 @@ typedef enum
  **/
 typedef enum /*< prefix=G_APPLICATION >*/
 {
-  G_APPLICATION_FLAGS_NONE GLIB_DEPRECATED_ENUMERATOR_IN_2_74_FOR(G_APPLICATION_DEFAULT_FLAGS),
-  G_APPLICATION_DEFAULT_FLAGS GLIB_AVAILABLE_ENUMERATOR_IN_2_74 = 0,
+  G_APPLICATION_FLAGS_NONE GIO_DEPRECATED_ENUMERATOR_IN_2_74_FOR(G_APPLICATION_DEFAULT_FLAGS),
+  G_APPLICATION_DEFAULT_FLAGS GIO_AVAILABLE_ENUMERATOR_IN_2_74 = 0,
   G_APPLICATION_IS_SERVICE  =          (1 << 0),
   G_APPLICATION_IS_LAUNCHER =          (1 << 1),
 
@@ -1622,7 +1631,7 @@ typedef enum {
  * Since: 2.28
  */
 typedef enum {
-  G_TLS_CERTIFICATE_NO_FLAGS GLIB_AVAILABLE_ENUMERATOR_IN_2_74 = 0,
+  G_TLS_CERTIFICATE_NO_FLAGS GIO_AVAILABLE_ENUMERATOR_IN_2_74 = 0,
   G_TLS_CERTIFICATE_UNKNOWN_CA    = (1 << 0),
   G_TLS_CERTIFICATE_BAD_IDENTITY  = (1 << 1),
   G_TLS_CERTIFICATE_NOT_ACTIVATED = (1 << 2),
@@ -1669,11 +1678,11 @@ typedef enum {
  *
  * Since: 2.66
  */
-GLIB_AVAILABLE_TYPE_IN_2_66
+GIO_AVAILABLE_TYPE_IN_2_66
 typedef enum {
   G_TLS_CHANNEL_BINDING_TLS_UNIQUE,
   G_TLS_CHANNEL_BINDING_TLS_SERVER_END_POINT,
-  G_TLS_CHANNEL_BINDING_TLS_EXPORTER GLIB_AVAILABLE_ENUMERATOR_IN_2_74,
+  G_TLS_CHANNEL_BINDING_TLS_EXPORTER GIO_AVAILABLE_ENUMERATOR_IN_2_74,
 } GTlsChannelBindingType;
 
 /**
@@ -1700,7 +1709,7 @@ typedef enum {
  *
  * Since: 2.66
  */
-GLIB_AVAILABLE_TYPE_IN_2_66
+GIO_AVAILABLE_TYPE_IN_2_66
 typedef enum {
   G_TLS_CHANNEL_BINDING_ERROR_NOT_IMPLEMENTED,
   G_TLS_CHANNEL_BINDING_ERROR_INVALID_STATE,
@@ -1728,7 +1737,7 @@ typedef enum {
   G_TLS_REHANDSHAKE_NEVER,
   G_TLS_REHANDSHAKE_SAFELY,
   G_TLS_REHANDSHAKE_UNSAFELY
-} GTlsRehandshakeMode GLIB_DEPRECATED_TYPE_IN_2_60;
+} GTlsRehandshakeMode GIO_DEPRECATED_TYPE_IN_2_60;
 
 /**
  * GTlsPasswordFlags:

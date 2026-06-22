@@ -33,10 +33,8 @@
 #include "asftag.h"
 
 namespace TagLib {
-
   //! An implementation of ASF (WMA) metadata
   namespace ASF {
-
     /*!
      * This implements and provides an interface for ASF files to the
      * TagLib::Tag and TagLib::AudioProperties interfaces by way of implementing
@@ -115,15 +113,22 @@ namespace TagLib {
        */
       virtual bool save();
 
+      /*!
+       * Returns whether or not the given \a stream can be opened as an ASF
+       * file.
+       *
+       * \note This method is designed to do a quick check.  The result may
+       * not necessarily be correct.
+       */
+      static bool isSupported(IOStream *stream);
+
     private:
       void read();
 
       class FilePrivate;
       FilePrivate *d;
     };
-
-  }
-
-}
+  }  // namespace ASF
+}  // namespace TagLib
 
 #endif

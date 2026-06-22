@@ -3,10 +3,10 @@
 
 #pragma once
 
-            #include <glib-object.h>
-            #include <gst/tag/tag-prelude.h>
+#include <glib-object.h>
+#include <gst/tag/tag-prelude.h>
 
-            G_BEGIN_DECLS
+G_BEGIN_DECLS
 
 /* enumerations from "gsttagdemux.h" */
 

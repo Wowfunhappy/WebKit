@@ -37,14 +37,6 @@ G_BEGIN_DECLS
 typedef struct _GDBusObjectProxyClass   GDBusObjectProxyClass;
 typedef struct _GDBusObjectProxyPrivate GDBusObjectProxyPrivate;
 
-/**
- * GDBusObjectProxy:
- *
- * The #GDBusObjectProxy structure contains private data and should
- * only be accessed using the provided API.
- *
- * Since: 2.30
- */
 struct _GDBusObjectProxy
 {
   /*< private >*/
@@ -68,12 +60,12 @@ struct _GDBusObjectProxyClass
   gpointer padding[8];
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType             g_dbus_object_proxy_get_type       (void) G_GNUC_CONST;
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GDBusObjectProxy *g_dbus_object_proxy_new            (GDBusConnection   *connection,
                                                       const gchar       *object_path);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GDBusConnection  *g_dbus_object_proxy_get_connection (GDBusObjectProxy  *proxy);
 
 G_END_DECLS

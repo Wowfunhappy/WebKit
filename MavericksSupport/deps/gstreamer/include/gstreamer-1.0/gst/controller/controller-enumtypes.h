@@ -3,10 +3,10 @@
 
 #pragma once
 
-            #include <glib-object.h>
-            #include <gst/controller/controller-prelude.h>
+#include <glib-object.h>
+#include <gst/controller/controller-prelude.h>
 
-            G_BEGIN_DECLS
+G_BEGIN_DECLS
 
 /* enumerations from "gstinterpolationcontrolsource.h" */
 

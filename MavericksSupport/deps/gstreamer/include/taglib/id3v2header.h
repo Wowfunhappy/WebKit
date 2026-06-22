@@ -28,6 +28,7 @@
 
 #include "tbytevector.h"
 #include "taglib_export.h"
+#include "id3v2.h"
 
 namespace TagLib {
 
@@ -169,7 +170,7 @@ namespace TagLib {
       HeaderPrivate *d;
     };
 
-  }
-}
+  }  // namespace ID3v2
+}  // namespace TagLib
 
 #endif

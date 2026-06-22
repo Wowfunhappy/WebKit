@@ -34,13 +34,6 @@ G_BEGIN_DECLS
 #define G_IS_POLLABLE_OUTPUT_STREAM(obj)            (G_TYPE_CHECK_INSTANCE_TYPE ((obj), G_TYPE_POLLABLE_OUTPUT_STREAM))
 #define G_POLLABLE_OUTPUT_STREAM_GET_INTERFACE(obj) (G_TYPE_INSTANCE_GET_INTERFACE ((obj), G_TYPE_POLLABLE_OUTPUT_STREAM, GPollableOutputStreamInterface))
 
-/**
- * GPollableOutputStream:
- *
- * An interface for a #GOutputStream that can be polled for writeability.
- *
- * Since: 2.28
- */
 typedef struct _GPollableOutputStreamInterface GPollableOutputStreamInterface;
 
 /**
@@ -94,26 +87,26 @@ struct _GPollableOutputStreamInterface
 					 GError                **error);
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType    g_pollable_output_stream_get_type          (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_pollable_output_stream_can_poll          (GPollableOutputStream  *stream);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_pollable_output_stream_is_writable       (GPollableOutputStream  *stream);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GSource *g_pollable_output_stream_create_source     (GPollableOutputStream  *stream,
 						     GCancellable           *cancellable);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gssize   g_pollable_output_stream_write_nonblocking (GPollableOutputStream  *stream,
 						     const void             *buffer,
 						     gsize                   count,
 						     GCancellable           *cancellable,
 						     GError                **error);
 
-GLIB_AVAILABLE_IN_2_60
+GIO_AVAILABLE_IN_2_60
 GPollableReturn g_pollable_output_stream_writev_nonblocking (GPollableOutputStream  *stream,
 							     const GOutputVector    *vectors,
 							     gsize                   n_vectors,

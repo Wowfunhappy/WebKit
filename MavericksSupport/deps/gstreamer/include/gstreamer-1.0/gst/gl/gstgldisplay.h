@@ -80,6 +80,14 @@ GType gst_gl_display_get_type (void);
  *
  * Since: 1.20
  */
+/**
+ * GST_GL_DISPLAY_TYPE_EGL_SURFACELESS:
+ *
+ * Mesa3D surfaceless display using the EGL_PLATFORM_SURFACELESS_MESA
+ * extension.
+ *
+ * Since: 1.24
+ */
 typedef enum
 {
   GST_GL_DISPLAY_TYPE_NONE = 0,
@@ -95,6 +103,7 @@ typedef enum
   GST_GL_DISPLAY_TYPE_EAGL = (1 << 9),
   GST_GL_DISPLAY_TYPE_WINRT = (1 << 10),
   GST_GL_DISPLAY_TYPE_ANDROID = (1 << 11),
+  GST_GL_DISPLAY_TYPE_EGL_SURFACELESS = (1 << 12),
 
   GST_GL_DISPLAY_TYPE_ANY = G_MAXUINT32
 } GstGLDisplayType;
@@ -175,12 +184,16 @@ gboolean        gst_gl_display_add_context      (GstGLDisplay * display,
 GST_GL_API
 void            gst_gl_display_remove_context   (GstGLDisplay * display,
                                                  GstGLContext * context);
-
+GST_GL_API
+gboolean        gst_gl_display_ensure_context   (GstGLDisplay * display,
+                                                 GstGLContext * other_context,
+                                                 GstGLContext ** context,
+                                                 GError ** error);
 GST_GL_API
 GstGLWindow *   gst_gl_display_create_window    (GstGLDisplay * display);
 GST_GL_API
 gboolean        gst_gl_display_remove_window    (GstGLDisplay * display, GstGLWindow * window);
-GST_GL_API G_DEPRECATED_FOR(gst_gl_display_retrieve_window)
+GST_GL_DEPRECATED_FOR(gst_gl_display_retrieve_window)
 GstGLWindow *   gst_gl_display_find_window      (GstGLDisplay * display, gpointer data, GCompareFunc compare_func);
 GST_GL_API
 GstGLWindow *   gst_gl_display_retrieve_window  (GstGLDisplay * display, gpointer data, GCompareFunc compare_func);

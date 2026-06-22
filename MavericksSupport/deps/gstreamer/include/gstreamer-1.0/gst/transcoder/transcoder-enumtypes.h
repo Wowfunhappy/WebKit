@@ -3,10 +3,10 @@
 
 #pragma once
 
-            #include <glib-object.h>
-            #include <gst/transcoder/transcoder-prelude.h>
+#include <glib-object.h>
+#include <gst/transcoder/transcoder-prelude.h>
 
-            G_BEGIN_DECLS
+G_BEGIN_DECLS
 
 /* enumerations from "gsttranscoder.h" */
 

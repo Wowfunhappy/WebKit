@@ -1,7 +1,9 @@
 /* json-path.h - JSONPath implementation
  *
  * This file is part of JSON-GLib
- * Copyright © 2011  Intel Corp.
+ *
+ * SPDX-FileCopyrightText: 2011  Intel Corp.
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -20,8 +22,7 @@
  *   Emmanuele Bassi  <ebassi@linux.intel.com>
  */
 
-#ifndef __JSON_PATH_H__
-#define __JSON_PATH_H__
+#pragma once
 
 #if !defined(__JSON_GLIB_INSIDE__) && !defined(JSON_COMPILATION)
 #error "Only <json-glib/json-glib.h> can be included directly."
@@ -38,7 +39,7 @@ G_BEGIN_DECLS
 /**
  * JSON_PATH_ERROR:
  *
- * Error domain for #JsonPath errors
+ * Error domain for `JsonPath`.
  *
  * Since: 0.14
  */
@@ -48,7 +49,9 @@ G_BEGIN_DECLS
  * JsonPathError:
  * @JSON_PATH_ERROR_INVALID_QUERY: Invalid query
  *
- * Error code enumeration for the %JSON_PATH_ERROR domain.
+ * Error codes for `JSON_PATH_ERROR`.
+ *
+ * This enumeration can be extended at later date
  *
  * Since: 0.14
  */
@@ -56,24 +59,7 @@ typedef enum {
   JSON_PATH_ERROR_INVALID_QUERY
 } JsonPathError;
 
-/**
- * JsonPath:
- *
- * The `JsonPath` structure is an opaque object whose members cannot be
- * directly accessed except through the provided API.
- *
- * Since: 0.14
- */
 typedef struct _JsonPath        JsonPath;
-
-/**
- * JsonPathClass:
- *
- * The `JsonPathClass` structure is an opaque object class whose members
- * cannot be directly accessed.
- *
- * Since: 0.14
- */
 typedef struct _JsonPathClass   JsonPathClass;
 
 JSON_AVAILABLE_IN_1_0
@@ -102,5 +88,3 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC (JsonPath, g_object_unref)
 #endif
 
 G_END_DECLS
-
-#endif /* __JSON_PATH_H__ */

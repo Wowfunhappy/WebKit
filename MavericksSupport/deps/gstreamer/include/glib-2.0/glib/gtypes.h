@@ -34,6 +34,10 @@
 #include <glibconfig.h>
 #include <glib/gmacros.h>
 #include <glib/gversionmacros.h>
+
+/* Must be included after the 3 headers above */
+#include <glib/glib-visibility.h>
+
 #include <time.h>
 
 G_BEGIN_DECLS
@@ -144,7 +148,7 @@ typedef void            (*GHFunc)               (gpointer       key,
 /**
  * GCopyFunc:
  * @src: (not nullable): A pointer to the data which should be copied
- * @user_data: Additional data
+ * @data: Additional data
  *
  * A function of this signature is used to copy the node data
  * when doing a deep-copy of a tree.
@@ -154,21 +158,21 @@ typedef void            (*GHFunc)               (gpointer       key,
  * Since: 2.4
  */
 typedef gpointer	(*GCopyFunc)            (gconstpointer  src,
-                                                 gpointer       user_data);
+                                                 gpointer       data);
 /**
  * GFreeFunc:
  * @data: a data pointer
  *
  * Declares a type of function which takes an arbitrary
  * data pointer argument and has no return value. It is
- * not currently used in GLib or GTK+.
+ * not currently used in GLib or GTK.
  */
 typedef void            (*GFreeFunc)            (gpointer       data);
 
 /**
  * GTranslateFunc:
  * @str: the untranslated string
- * @user_data: user data specified when installing the function, e.g.
+ * @data: user data specified when installing the function, e.g.
  *  in g_option_group_set_translate_func()
  * 
  * The type of functions which are used to translate user-visible
@@ -178,7 +182,7 @@ typedef void            (*GFreeFunc)            (gpointer       data);
  *  The returned string is owned by GLib and must not be freed.
  */
 typedef const gchar *   (*GTranslateFunc)       (const gchar   *str,
-						 gpointer       user_data);
+						 gpointer       data);
 
 
 /* Define some mathematical constants that aren't available
@@ -452,6 +456,14 @@ typedef const gchar *   (*GTranslateFunc)       (const gchar   *str,
 #endif
 #endif
 
+/* HACK: work around clang toolchain issue on android armv7/x86 compiling gdk-pixbuf
+ * in GStreamer cerbero: https://reviews.llvm.org/D103906 (undefined ref to __multi3)
+ * Android (5900059 based on r365631c) clang version 9.0.8
+ * https://gitlab.freedesktop.org/gstreamer/cerbero/-/merge_requests/864#note_1698211 */
+#if defined(__clang__) && !defined(CRT_HAS_128BIT)
+#undef _GLIB_HAVE_BUILTIN_OVERFLOW_CHECKS
+#endif
+
 #ifdef _GLIB_HAVE_BUILTIN_OVERFLOW_CHECKS
 
 #define g_uint_checked_add(dest, a, b) \
@@ -583,28 +595,5 @@ typedef gint grefcount;
 typedef gint gatomicrefcount;  /* should be accessed only using atomics */
 
 G_END_DECLS
-
-/* We prefix variable declarations so they can
- * properly get exported in Windows DLLs.
- */
-#ifndef GLIB_VAR
-#  ifdef G_PLATFORM_WIN32
-#    ifdef GLIB_STATIC_COMPILATION
-#      define GLIB_VAR extern
-#    else /* !GLIB_STATIC_COMPILATION */
-#      ifdef GLIB_COMPILATION
-#        ifdef DLL_EXPORT
-#          define GLIB_VAR extern __declspec(dllexport)
-#        else /* !DLL_EXPORT */
-#          define GLIB_VAR extern
-#        endif /* !DLL_EXPORT */
-#      else /* !GLIB_COMPILATION */
-#        define GLIB_VAR extern __declspec(dllimport)
-#      endif /* !GLIB_COMPILATION */
-#    endif /* !GLIB_STATIC_COMPILATION */
-#  else /* !G_PLATFORM_WIN32 */
-#    define GLIB_VAR _GLIB_EXTERN
-#  endif /* !G_PLATFORM_WIN32 */
-#endif /* GLIB_VAR */
 
 #endif /* __G_TYPES_H__ */

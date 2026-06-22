@@ -131,6 +131,9 @@ struct _GstValidatePadMonitor {
   GstClockTime min_buf_freq_interval_ts;
   GstClockTime min_buf_freq_first_buffer_ts;
   GstClockTime min_buf_freq_start;
+
+  /*< private >*/
+  gpointer _gst_reserved[GST_PADDING];
 };
 
 /**
@@ -141,6 +144,9 @@ struct _GstValidatePadMonitor {
  */
 struct _GstValidatePadMonitorClass {
   GstValidateMonitorClass	parent_class;
+
+  /*< private >*/
+  gpointer _gst_reserved[GST_PADDING];
 };
 
 /* normal GObject stuff */
@@ -148,7 +154,7 @@ GST_VALIDATE_API
 GType		gst_validate_pad_monitor_get_type		(void);
 
 GST_VALIDATE_API
-GstValidatePadMonitor *   gst_validate_pad_monitor_new      (GstPad * pad, GstValidateRunner * runner, GstValidateElementMonitor *element_monitor);
+GstValidatePadMonitor *   gst_validate_pad_monitor_new      (GstPad * pad, GstValidateRunner * runner, GstValidateElementMonitor * parent);
 
 G_END_DECLS
 

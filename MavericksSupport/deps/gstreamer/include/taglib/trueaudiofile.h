@@ -164,9 +164,9 @@ namespace TagLib {
        * Set the ID3v2::FrameFactory to something other than the default.
        *
        * \see ID3v2FrameFactory
-       * \deprecated This value should be passed in via the constructor
+       * \deprecated This value should be passed in via the constructor.
        */
-      void setID3v2FrameFactory(const ID3v2::FrameFactory *factory);
+      TAGLIB_DEPRECATED void setID3v2FrameFactory(const ID3v2::FrameFactory *factory);
 
       /*!
        * Saves the file.
@@ -235,6 +235,15 @@ namespace TagLib {
        */
       bool hasID3v2Tag() const;
 
+      /*!
+       * Returns whether or not the given \a stream can be opened as a TrueAudio
+       * file.
+       *
+       * \note This method is designed to do a quick check.  The result may
+       * not necessarily be correct.
+       */
+      static bool isSupported(IOStream *stream);
+
     private:
       File(const File &);
       File &operator=(const File &);
@@ -244,7 +253,7 @@ namespace TagLib {
       class FilePrivate;
       FilePrivate *d;
     };
-  }
-}
+  }  // namespace TrueAudio
+}  // namespace TagLib
 
 #endif

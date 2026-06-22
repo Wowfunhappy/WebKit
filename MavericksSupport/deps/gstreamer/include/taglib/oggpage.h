@@ -93,7 +93,7 @@ namespace TagLib {
        *
        * \deprecated Always returns null.
        */
-      Page* getCopyWithNewPageSequenceNumber(int sequenceNumber);
+      TAGLIB_DEPRECATED Page *getCopyWithNewPageSequenceNumber(int sequenceNumber);
 
       /*!
        * Returns the index of the first packet wholly or partially contained in
@@ -223,6 +223,6 @@ namespace TagLib {
       class PagePrivate;
       PagePrivate *d;
     };
-  }
-}
+  }  // namespace Ogg
+}  // namespace TagLib
 #endif

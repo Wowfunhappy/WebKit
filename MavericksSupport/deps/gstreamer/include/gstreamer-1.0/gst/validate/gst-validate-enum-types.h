@@ -17,6 +17,8 @@ GST_VALIDATE_API GType gst_validate_verbosity_flags_get_type (void);
 #define GST_TYPE_VALIDATE_VERBOSITY_FLAGS (gst_validate_verbosity_flags_get_type ())
 GST_VALIDATE_API GType gst_validate_structure_resolve_variables_flags_get_type (void);
 #define GST_TYPE_VALIDATE_STRUCTURE_RESOLVE_VARIABLES_FLAGS (gst_validate_structure_resolve_variables_flags_get_type ())
+GST_VALIDATE_API GType gst_validate_object_set_property_flags_get_type (void);
+#define GST_TYPE_VALIDATE_OBJECT_SET_PROPERTY_FLAGS (gst_validate_object_set_property_flags_get_type ())
 
 /* enumerations from "gst-validate-report.h" */
 GST_VALIDATE_API GType gst_validate_debug_flags_get_type (void);

@@ -38,6 +38,11 @@ GST_VULKAN_API
 GType gst_vulkan_handle_type_get_type (void);
 #define GST_TYPE_VULKAN_HANDLE_TYPE (gst_vulkan_handle_type_get_type())
 
+/* enumerations from "gstvkvideoutils.h" */
+GST_VULKAN_API
+GType gst_vulkan_video_operation_get_type (void);
+#define GST_TYPE_VULKAN_VIDEO_OPERATION (gst_vulkan_video_operation_get_type())
+
 /* enumerations from "gstvkwindow.h" */
 GST_VULKAN_API
 GType gst_vulkan_window_error_get_type (void);

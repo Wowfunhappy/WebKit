@@ -128,6 +128,9 @@ typedef enum {
   GST_AUDIO_FORMAT_F32BE,
   GST_AUDIO_FORMAT_F64LE,
   GST_AUDIO_FORMAT_F64BE,
+
+  /* Update GST_AUDIO_FORMAT_LAST below when adding more formats here */
+
   /* native endianness equivalents */
   GST_AUDIO_FORMAT_S16 = _GST_AUDIO_FORMAT_NE(S16),
   GST_AUDIO_FORMAT_U16 = _GST_AUDIO_FORMAT_NE(U16),
@@ -145,6 +148,14 @@ typedef enum {
   GST_AUDIO_FORMAT_F64 = _GST_AUDIO_FORMAT_NE(F64)
 } GstAudioFormat;
 
+/**
+ * GST_AUDIO_FORMAT_LAST:
+ *
+ * Number of audio formats in #GstAudioFormat.
+ *
+ * Since: 1.26
+ */
+#define GST_AUDIO_FORMAT_LAST (GST_AUDIO_FORMAT_F64BE + 1)
 
 typedef struct _GstAudioFormatInfo GstAudioFormatInfo;
 
@@ -255,6 +266,18 @@ struct _GstAudioFormatInfo {
 
 GST_AUDIO_API
 GType gst_audio_format_info_get_type (void);
+
+/**
+ * GST_AUDIO_FORMAT_INFO_IS_VALID_RAW:
+ *
+ * Tests that the given #GstAudioFormatInfo represents a valid un-encoded
+ * format.
+ *
+ * Since: 1.22
+ */
+#define GST_AUDIO_FORMAT_INFO_IS_VALID_RAW(info)                        \
+  (info != NULL && (info)->format > GST_AUDIO_FORMAT_ENCODED &&         \
+   (info)->width > 0 && (info)->depth > 0)
 
 #define GST_AUDIO_FORMAT_INFO_FORMAT(info)           ((info)->format)
 #define GST_AUDIO_FORMAT_INFO_NAME(info)             ((info)->name)

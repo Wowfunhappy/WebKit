@@ -111,7 +111,15 @@ typedef enum {
   GST_H264_PROFILE_MULTIVIEW_HIGH       = 118,
   GST_H264_PROFILE_STEREO_HIGH          = 128,
   GST_H264_PROFILE_SCALABLE_BASELINE    = 83,
-  GST_H264_PROFILE_SCALABLE_HIGH        = 86
+  GST_H264_PROFILE_SCALABLE_HIGH        = 86,
+  /**
+   * GST_H264_PROFILE_INVALID:
+   *
+   * Invalid H264 profile
+   *
+   * Since: 1.24
+   */
+  GST_H264_PROFILE_INVALID              = -1
 } GstH264Profile;
 
 /**
@@ -133,6 +141,8 @@ typedef enum {
  * @GST_H264_NAL_PREFIX_UNIT: Prefix NAL unit
  * @GST_H264_NAL_SUBSET_SPS: Subset sequence parameter set (SSPS) NAL unit
  * @GST_H264_NAL_DEPTH_SPS: Depth parameter set (DPS) NAL unit
+ * @GST_H264_NAL_RSV_1: First reserved parameter
+ * @GST_H264_NAL_RSV_2: Second reserved parameter
  * @GST_H264_NAL_SLICE_AUX: Auxiliary coded picture without partitioning NAL unit
  * @GST_H264_NAL_SLICE_EXT: Coded slice extension NAL unit
  * @GST_H264_NAL_SLICE_DEPTH: Coded slice extension for depth or 3D-AVC texture view
@@ -158,6 +168,24 @@ typedef enum
   GST_H264_NAL_PREFIX_UNIT  = 14,
   GST_H264_NAL_SUBSET_SPS   = 15,
   GST_H264_NAL_DEPTH_SPS    = 16,
+
+  /**
+   * GST_H264_NAL_RSV_1:
+   *
+   * First reserved parameter
+   *
+   * Since: 1.24
+   */
+  GST_H264_NAL_RSV_1        = 17,
+
+  /**
+   * GST_H264_NAL_RSV_2:
+   *
+   * Second reserved parameter
+   *
+   * Since: 1.24
+   */
+  GST_H264_NAL_RSV_2        = 18,
   GST_H264_NAL_SLICE_AUX    = 19,
   GST_H264_NAL_SLICE_EXT    = 20,
   GST_H264_NAL_SLICE_DEPTH  = 21
@@ -218,7 +246,8 @@ typedef enum
  * @GST_H264_FRAME_PACKING_COLUMN_INTERLEAVING: Column based interleaving
  * @GST_H264_FRAME_PACKING_ROW_INTERLEAVING: Row based interleaving
  * @GST_H264_FRAME_PACKING_SIDE_BY_SIDE: Side-by-side packing
- * @GST_H264_FRMAE_PACKING_TOP_BOTTOM: Top-Bottom packing
+ * @GST_H264_FRMAE_PACKING_TOP_BOTTOM: Deprecated; use GST_H264_FRAME_PACKING_TOP_BOTTOM instead
+ * @GST_H264_FRAME_PACKING_TOP_BOTTOM: Top-Bottom packing (Since: 1.22)
  * @GST_H264_FRAME_PACKING_TEMPORAL_INTERLEAVING: Temporal interleaving
  *
  * Frame packing arrangement types.
@@ -233,6 +262,15 @@ typedef enum
   GST_H264_FRAME_PACKING_ROW_INTERLEAVING               = 2,
   GST_H264_FRAME_PACKING_SIDE_BY_SIDE                   = 3,
   GST_H264_FRMAE_PACKING_TOP_BOTTOM                     = 4,
+
+  /**
+   * GST_H264_FRAME_PACKING_TOP_BOTTOM:
+   *
+   * Top-Bottom packing
+   *
+   * Since: 1.22
+   */
+  GST_H264_FRAME_PACKING_TOP_BOTTOM                     = 4,
   GST_H264_FRAME_PACKING_TEMPORAL_INTERLEAVING          = 5
 } GstH264FramePackingType;
 
@@ -253,11 +291,20 @@ typedef enum
  *
  * The type of SEI message.
  */
+/**
+ * GST_H264_SEI_USER_DATA_UNREGISTERED:
+ *
+ * User Data Unregistered (D.2.6)
+ *
+ * Since: 1.22
+ */
+
 typedef enum
 {
   GST_H264_SEI_BUF_PERIOD = 0,
   GST_H264_SEI_PIC_TIMING = 1,
   GST_H264_SEI_REGISTERED_USER_DATA = 4,
+  GST_H264_SEI_USER_DATA_UNREGISTERED = 5,
   GST_H264_SEI_RECOVERY_POINT = 6,
   GST_H264_SEI_STEREO_VIDEO_INFO = 21,
   GST_H264_SEI_FRAME_PACKING = 45,
@@ -333,6 +380,57 @@ typedef enum
   GST_H264_CT_TYPE_UNKNOWN = 2,
 } GstCtType;
 
+/**
+ * GstH264Level:
+ * @GST_H264_LEVEL_L1: Level 1
+ * @GST_H264_LEVEL_L1B: Level 1b
+ * @GST_H264_LEVEL_L1_1: Level 1.1
+ * @GST_H264_LEVEL_L1_2: Level 1.2
+ * @GST_H264_LEVEL_L1_3: Level 1.3
+ * @GST_H264_LEVEL_L2: Level 2
+ * @GST_H264_LEVEL_L2_1: Level 2.1
+ * @GST_H264_LEVEL_L2_2: Level 2.2
+ * @GST_H264_LEVEL_L3: Level 3
+ * @GST_H264_LEVEL_L3_1: Level 3.1
+ * @GST_H264_LEVEL_L3_2: Level 3.2
+ * @GST_H264_LEVEL_L4: Level 4
+ * @GST_H264_LEVEL_L4_1: Level 4.1
+ * @GST_H264_LEVEL_L4_2: Level 4.2
+ * @GST_H264_LEVEL_L5: Level 5
+ * @GST_H264_LEVEL_L5_1: Level 5.1
+ * @GST_H264_LEVEL_L5_2: Level 5.2
+ * @GST_H264_LEVEL_L6: Level 6
+ * @GST_H264_LEVEL_L6_1: Level 6.1
+ * @GST_H264_LEVEL_L6_2: Level 6.2
+ *
+ * H.264 level
+ *
+ * Since: 1.24
+ */
+typedef enum
+{
+  GST_H264_LEVEL_L1 = 10,
+  GST_H264_LEVEL_L1B = 9,
+  GST_H264_LEVEL_L1_1 = 11,
+  GST_H264_LEVEL_L1_2 = 12,
+  GST_H264_LEVEL_L1_3 = 13,
+  GST_H264_LEVEL_L2 = 20,
+  GST_H264_LEVEL_L2_1 = 21,
+  GST_H264_LEVEL_L2_2 = 22,
+  GST_H264_LEVEL_L3 = 30,
+  GST_H264_LEVEL_L3_1 = 31,
+  GST_H264_LEVEL_L3_2 = 32,
+  GST_H264_LEVEL_L4 = 40,
+  GST_H264_LEVEL_L4_1 = 41,
+  GST_H264_LEVEL_L4_2 = 42,
+  GST_H264_LEVEL_L5 = 50,
+  GST_H264_LEVEL_L5_1 = 51,
+  GST_H264_LEVEL_L5_2 = 52,
+  GST_H264_LEVEL_L6 = 60,
+  GST_H264_LEVEL_L6_1 = 61,
+  GST_H264_LEVEL_L6_2 = 62,
+} GstH264Level;
+
 typedef struct _GstH264NalParser              GstH264NalParser;
 
 typedef struct _GstH264NalUnit                GstH264NalUnit;
@@ -357,6 +455,7 @@ typedef struct _GstH264SliceHdr               GstH264SliceHdr;
 typedef struct _GstH264ClockTimestamp         GstH264ClockTimestamp;
 typedef struct _GstH264PicTiming              GstH264PicTiming;
 typedef struct _GstH264RegisteredUserData     GstH264RegisteredUserData;
+typedef struct _GstH264UserDataUnregistered   GstH264UserDataUnregistered;
 typedef struct _GstH264BufferingPeriod        GstH264BufferingPeriod;
 typedef struct _GstH264RecoveryPoint          GstH264RecoveryPoint;
 typedef struct _GstH264StereoVideoInfo        GstH264StereoVideoInfo;
@@ -365,6 +464,7 @@ typedef struct _GstH264MasteringDisplayColourVolume GstH264MasteringDisplayColou
 typedef struct _GstH264ContentLightLevel        GstH264ContentLightLevel;
 typedef struct _GstH264SEIUnhandledPayload    GstH264SEIUnhandledPayload;
 typedef struct _GstH264SEIMessage             GstH264SEIMessage;
+typedef struct _GstH264DecoderConfigRecord    GstH264DecoderConfigRecord;
 
 /**
  * GstH264NalUnitExtensionMVC:
@@ -819,7 +919,7 @@ struct _GstH264PPS
   guint8 scaling_lists_4x4[6][16];
   guint8 scaling_lists_8x8[6][64];
 
-  guint8 second_chroma_qp_index_offset;
+  gint8 second_chroma_qp_index_offset;
 
   gboolean valid;
 
@@ -1111,6 +1211,23 @@ struct _GstH264RegisteredUserData
   guint size;
 };
 
+/**
+ * GstH264UserDataUnregistered:
+ * @uuid: an uuid_iso_iec_11578.
+ * @data: the data of user_data_payload_byte
+ * @size: the size of @data in bytes
+ *
+ * The User data unregistered SEI message syntax.
+ *
+ * Since: 1.22
+ */
+struct _GstH264UserDataUnregistered
+{
+  guint8 uuid[16];
+  const guint8 *data;
+  guint size;
+};
+
 struct _GstH264BufferingPeriod
 {
   GstH264SPS *sps;
@@ -1185,6 +1302,13 @@ struct _GstH264SEIUnhandledPayload
   guint size;
 };
 
+/**
+ * _GstH264SEIMessage.payload.user_data_unregistered:
+ *
+ * User Data Unregistered
+ *
+ * Since: 1.22
+ */
 struct _GstH264SEIMessage
 {
   GstH264SEIPayloadType payloadType;
@@ -1199,8 +1323,109 @@ struct _GstH264SEIMessage
     GstH264MasteringDisplayColourVolume mastering_display_colour_volume;
     GstH264ContentLightLevel content_light_level;
     GstH264SEIUnhandledPayload unhandled_payload;
+    GstH264UserDataUnregistered user_data_unregistered;
     /* ... could implement more */
   } payload;
+};
+
+/**
+ * GstH264DecoderConfigRecord:
+ *
+ * Contains AVCDecoderConfigurationRecord data as defined in ISO/IEC 14496-15
+ *
+ * Since: 1.22
+ */
+struct _GstH264DecoderConfigRecord
+{
+  /**
+   * GstH264DecoderConfigRecord.configuration_version:
+   *
+   * Indicates configurationVersion, must be 1
+   */
+  guint8 configuration_version;
+
+  /**
+   * GstH264DecoderConfigRecord.profile_indication:
+   *
+   * H.264 profile indication
+   */
+  guint8 profile_indication;
+
+  /**
+   * GstH264DecoderConfigRecord.profile_compatibility:
+   *
+   * H.264 profile compatibility
+   */
+  guint8 profile_compatibility;
+
+  /**
+   * GstH264DecoderConfigRecord.level_indication:
+   *
+   * H.264 level indiction
+   */
+  guint8 level_indication;
+
+  /**
+   * GstH264DecoderConfigRecord.length_size_minus_one:
+   *
+   * Indicates the length in bytes of the NAL unit length field
+   */
+  guint8 length_size_minus_one;
+
+  /**
+   * GstH264DecoderConfigRecord.sps
+   *
+   * Array of identified #GstH264NalUnit from sequenceParameterSetNALUnit.
+   * This array may contain non-SPS nal units such as SEI message
+   */
+  GArray *sps;
+
+  /**
+   * GstH264DecoderConfigRecord.pps
+   *
+   * Array of identified #GstH264NalUnit from pictureParameterSetNALUnit.
+   * This array may contain non-PPS nal units such as SEI message
+   */
+  GArray *pps;
+
+  /**
+   * GstH264DecoderConfigRecord.chroma_format_present
+   *
+   * %TRUE if chroma information is present. Otherwise below values
+   * have no meaning
+   */
+  gboolean chroma_format_present;
+
+  /**
+   * GstH264DecoderConfigRecord.chroma_format
+   *
+   * chroma_format_idc defined in ISO/IEC 14496-10
+   */
+  guint8 chroma_format;
+
+  /**
+   * GstH264DecoderConfigRecord.bit_depth_luma_minus8
+   *
+   * Indicates bit depth of luma component
+   */
+  guint8 bit_depth_luma_minus8;
+
+  /**
+   * GstH264DecoderConfigRecord.bit_depth_chroma_minus8
+   *
+   * Indicates bit depth of chroma component
+   */
+  guint8 bit_depth_chroma_minus8;
+
+  /**
+   * GstH264DecoderConfigRecord.sps_ext
+   *
+   * Array of identified #GstH264NalUnit from sequenceParameterSetExtNALUnit.
+   */
+  GArray *sps_ext;
+
+  /*< private >*/
+  gpointer _gst_reserved[GST_PADDING];
 };
 
 /**
@@ -1234,6 +1459,15 @@ GST_CODEC_PARSERS_API
 GstH264ParserResult gst_h264_parser_identify_nalu_avc (GstH264NalParser *nalparser, const guint8 *data,
                                                        guint offset, gsize size, guint8 nal_length_size,
                                                        GstH264NalUnit *nalu);
+
+GST_CODEC_PARSERS_API
+GstH264ParserResult gst_h264_parser_identify_and_split_nalu_avc (GstH264NalParser *nalparser,
+                                                                 const guint8 *data,
+                                                                 guint offset,
+                                                                 gsize size,
+                                                                 guint8 nal_length_size,
+                                                                 GArray * nalus,
+                                                                 gsize * consumed);
 
 GST_CODEC_PARSERS_API
 GstH264ParserResult gst_h264_parser_parse_nal         (GstH264NalParser *nalparser,
@@ -1330,6 +1564,20 @@ GstBuffer * gst_h264_parser_insert_sei_avc (GstH264NalParser * nalparser,
                                             guint8 nal_length_size,
                                             GstBuffer * au,
                                             GstMemory * sei);
+
+GST_CODEC_PARSERS_API
+void        gst_h264_decoder_config_record_free (GstH264DecoderConfigRecord * config);
+
+GST_CODEC_PARSERS_API
+GstH264ParserResult gst_h264_parser_parse_decoder_config_record (GstH264NalParser * nalparser,
+                                                                 const guint8 * data,
+                                                                 gsize size,
+                                                                 GstH264DecoderConfigRecord ** config);
+GST_CODEC_PARSERS_API
+GstH264Profile gst_h264_profile_from_string (const gchar * profile);
+
+GST_CODEC_PARSERS_API
+const gchar *   gst_h264_slice_type_to_string      (GstH264SliceType slice_type);
 
 G_END_DECLS
 

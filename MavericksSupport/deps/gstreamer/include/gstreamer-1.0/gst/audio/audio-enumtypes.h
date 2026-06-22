@@ -3,10 +3,10 @@
 
 #pragma once
 
-            #include <glib-object.h>
-            #include <gst/audio/audio-prelude.h>
+#include <glib-object.h>
+#include <gst/audio/audio-prelude.h>
 
-            G_BEGIN_DECLS
+G_BEGIN_DECLS
 
 /* enumerations from "audio-channel-mixer.h" */
 
@@ -113,6 +113,12 @@ GType gst_audio_ring_buffer_state_get_type (void);
 GST_AUDIO_API
 GType gst_audio_ring_buffer_format_type_get_type (void);
 #define GST_TYPE_AUDIO_RING_BUFFER_FORMAT_TYPE (gst_audio_ring_buffer_format_type_get_type())
+
+/* enumerations from "gstdsdformat.h" */
+
+GST_AUDIO_API
+GType gst_dsd_format_get_type (void);
+#define GST_TYPE_DSD_FORMAT (gst_dsd_format_get_type())
 
 G_END_DECLS
 

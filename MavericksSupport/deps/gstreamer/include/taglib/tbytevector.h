@@ -278,10 +278,10 @@ namespace TagLib {
      *
      * \see isEmpty()
      *
-     * \deprecated
+     * \deprecated Use isEmpty(), do not differentiate between null and empty.
      */
      // BIC: remove
-    bool isNull() const;
+    TAGLIB_DEPRECATED bool isNull() const;
 
     /*!
      * Returns true if the ByteVector is empty.
@@ -592,10 +592,10 @@ namespace TagLib {
      * \warning Do not modify this variable.  It will mess up the internal state
      * of TagLib.
      *
-     * \deprecated
+     * \deprecated Use ByteVector().
      */
     // BIC: remove
-    static ByteVector null;
+    TAGLIB_DEPRECATED static ByteVector null;
 
     /*!
      * Returns a hex-encoded copy of the byte vector.
@@ -624,7 +624,7 @@ namespace TagLib {
     class ByteVectorPrivate;
     ByteVectorPrivate *d;
   };
-}
+}  // namespace TagLib
 
 /*!
  * \relates TagLib::ByteVector

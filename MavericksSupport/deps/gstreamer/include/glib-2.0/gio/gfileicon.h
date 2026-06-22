@@ -38,20 +38,15 @@ G_BEGIN_DECLS
 #define G_IS_FILE_ICON_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_FILE_ICON))
 #define G_FILE_ICON_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_FILE_ICON, GFileIconClass))
 
-/**
- * GFileIcon:
- *
- * Gets an icon for a #GFile. Implements #GLoadableIcon.
- **/
 typedef struct _GFileIconClass   GFileIconClass;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType   g_file_icon_get_type (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GIcon * g_file_icon_new      (GFile     *file);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GFile * g_file_icon_get_file (GFileIcon *icon);
 
 G_END_DECLS

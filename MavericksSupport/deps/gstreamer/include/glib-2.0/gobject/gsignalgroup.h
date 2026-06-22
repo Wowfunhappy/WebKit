@@ -36,58 +36,50 @@ G_BEGIN_DECLS
 #define G_IS_SIGNAL_GROUP(obj) (G_TYPE_CHECK_INSTANCE_TYPE ((obj), G_TYPE_SIGNAL_GROUP))
 #define G_TYPE_SIGNAL_GROUP    (g_signal_group_get_type())
 
-/**
- * GSignalGroup:
- *
- * #GSignalGroup is an opaque structure whose members
- * cannot be accessed directly.
- *
- * Since: 2.72
- */
 typedef struct _GSignalGroup GSignalGroup;
 
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 GType         g_signal_group_get_type        (void) G_GNUC_CONST;
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 GSignalGroup *g_signal_group_new             (GType           target_type);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 void          g_signal_group_set_target      (GSignalGroup   *self,
                                               gpointer        target);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 gpointer      g_signal_group_dup_target      (GSignalGroup   *self);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 void          g_signal_group_block           (GSignalGroup   *self);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 void          g_signal_group_unblock         (GSignalGroup   *self);
-GLIB_AVAILABLE_IN_2_74
+GOBJECT_AVAILABLE_IN_2_74
 void          g_signal_group_connect_closure (GSignalGroup   *self,
                                               const gchar    *detailed_signal,
                                               GClosure       *closure,
                                               gboolean        after);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 void          g_signal_group_connect_object  (GSignalGroup   *self,
                                               const gchar    *detailed_signal,
                                               GCallback       c_handler,
                                               gpointer        object,
                                               GConnectFlags   flags);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 void          g_signal_group_connect_data    (GSignalGroup   *self,
                                               const gchar    *detailed_signal,
                                               GCallback       c_handler,
                                               gpointer        data,
                                               GClosureNotify  notify,
                                               GConnectFlags   flags);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 void          g_signal_group_connect         (GSignalGroup   *self,
                                               const gchar    *detailed_signal,
                                               GCallback       c_handler,
                                               gpointer        data);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 void          g_signal_group_connect_after   (GSignalGroup   *self,
                                               const gchar    *detailed_signal,
                                               GCallback       c_handler,
                                               gpointer        data);
-GLIB_AVAILABLE_IN_2_72
+GOBJECT_AVAILABLE_IN_2_72
 void          g_signal_group_connect_swapped (GSignalGroup   *self,
                                               const gchar    *detailed_signal,
                                               GCallback       c_handler,

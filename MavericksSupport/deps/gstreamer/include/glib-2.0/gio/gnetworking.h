@@ -22,6 +22,7 @@
 #define __G_NETWORKING_H__
 
 #include <glib.h>
+#include <gio/gio-visibility.h>
 
 #ifdef G_OS_WIN32
 #include <winsock2.h>
@@ -48,6 +49,8 @@
 #include <arpa/nameser.h>
 #include <arpa/nameser_compat.h>
 
+#ifndef __GI_SCANNER__
+
 #ifndef T_SRV
 #define T_SRV 33
 #endif
@@ -70,9 +73,11 @@
 #endif
 #endif
 
+#endif  /* !__GI_SCANNER__ */
+
 G_BEGIN_DECLS
 
-GLIB_AVAILABLE_IN_2_36
+GIO_AVAILABLE_IN_2_36
 void g_networking_init (void);
 
 G_END_DECLS

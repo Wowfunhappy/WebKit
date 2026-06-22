@@ -135,8 +135,32 @@ typedef enum {
   GST_MTS_DESC_STEREOSCOPIC_PROGRAM_INFO        = 0x35,
   GST_MTS_DESC_STEREOSCOPIC_VIDEO_INFO          = 0x36,
 
+  /**
+   * GST_MTS_DESC_EXTENSION:
+   *
+   * Extension Descriptor.
+   *
+   * Since: 1.26
+   */
+  GST_MTS_DESC_EXTENSION                        = 0x3f
   /* 55-63 ITU-T Rec. H.222.0 | ISO/IEC 13818-1 Reserved */
 } GstMpegtsDescriptorType;
+
+/**
+ * GstMpegtsExtendedDescriptorType:
+ *
+ * The type of an extended descriptor
+ *
+ * The values correpond to the registered extended descriptor types from the
+ * base ISO 13818 / ITU H.222.0 specifications
+ *
+ * Consult the specification for more details
+ *
+ * Since: 1.26
+ */
+typedef enum {
+  GST_MTS_DESC_EXT_JXS_VIDEO                    = 0x14,
+} GstMpegtsExtendedDescriptorType;
 
 /**
  * GstMpegtsMiscDescriptorType:
@@ -180,7 +204,7 @@ GType gst_mpegts_descriptor_get_type (void);
 /**
  * GstMpegtsDescriptor:
  * @tag: the type of descriptor
- * @tag_extension: the extended type (if @descriptor_tag is 0x7f)
+ * @tag_extension: the extended type (if @tag is 0x7f (for DVB) or 0x3f (for H.222.0))
  * @length: the length of the descriptor content (excluding tag/length field)
  * @data: the full descriptor data (including tag, extension, length). The first
  * two bytes are the @tag and @length.
@@ -201,6 +225,9 @@ struct _GstMpegtsDescriptor
 
 GST_MPEGTS_API
 void       gst_mpegts_descriptor_free (GstMpegtsDescriptor *desc);
+
+GST_MPEGTS_API
+GstMpegtsDescriptor       * gst_mpegts_descriptor_copy (GstMpegtsDescriptor *desc);
 
 GST_MPEGTS_API
 GPtrArray *gst_mpegts_parse_descriptors (guint8 * buffer, gsize buf_len);
@@ -227,7 +254,7 @@ const GstMpegtsDescriptor * gst_mpegts_find_descriptor_with_extension (GPtrArray
  * @GST_MTS_REGISTRATION_BSSD: SMPTE 302M, Mapping of AES3 Data in mpeg-ts
  * @GST_MTS_REGISTRATION_GA94: ATSC A/53 compliant stream (i.e. ATSC)
  * @GST_MTS_REGISTRATION_HDMV: Blu-ray, "System Description Blu-ray Disc
- *             Read-Only Format part 3 Audio Visual Basic Specifications" 
+ *             Read-Only Format part 3 Audio Visual Basic Specifications"
  * @GST_MTS_REGISTRATION_KLVA: SMPTE RP217 : Non-synchronized Mapping of KLV
  *             Packets in mpeg-ts
  * @GST_MTS_REGISTRATION_OPUS: Opus Audio
@@ -245,36 +272,38 @@ const GstMpegtsDescriptor * gst_mpegts_find_descriptor_with_extension (GPtrArray
  */
 
 /**
- * REG_TO_UINT32: (skip) (attributes doc.skip=true)
+ * GST_MPEGTS_REG_TO_UINT32: (skip) (attributes doc.skip=true)
  */
-#define REG_TO_UINT32(a,b,c,d)((a) << 24 | (b) << 16 | (c) << 8 | (d))
+#define GST_MPEGTS_REG_TO_UINT32(a,b,c,d)((a) << 24 | (b) << 16 | (c) << 8 | (d))
 
 typedef enum {
   GST_MTS_REGISTRATION_0 = 0,
 
   /* SMPTE-RA registered */
-  GST_MTS_REGISTRATION_AC_3 = REG_TO_UINT32 ('A', 'C', '-', '3'),
-  GST_MTS_REGISTRATION_CUEI = REG_TO_UINT32 ('C', 'U', 'E', 'I'),
-  GST_MTS_REGISTRATION_drac = REG_TO_UINT32 ('d', 'r', 'a', 'c'),
-  GST_MTS_REGISTRATION_DTS1 = REG_TO_UINT32 ('D', 'T', 'S', '1'),
-  GST_MTS_REGISTRATION_DTS2 = REG_TO_UINT32 ('D', 'T', 'S', '2'),
-  GST_MTS_REGISTRATION_DTS3 = REG_TO_UINT32 ('D', 'T', 'S', '3'),
-  GST_MTS_REGISTRATION_BSSD = REG_TO_UINT32 ('B', 'S', 'S', 'D'),
-  GST_MTS_REGISTRATION_EAC3 = REG_TO_UINT32 ('E', 'A', 'C', '3'),
-  GST_MTS_REGISTRATION_ETV1 = REG_TO_UINT32 ('E', 'T', 'V', '1'),
-  GST_MTS_REGISTRATION_GA94 = REG_TO_UINT32 ('G', 'A', '9', '4'),
-  GST_MTS_REGISTRATION_HDMV = REG_TO_UINT32 ('H', 'D', 'M', 'V'),
-  GST_MTS_REGISTRATION_KLVA = REG_TO_UINT32 ('K', 'L', 'V', 'A'),
-  GST_MTS_REGISTRATION_OPUS = REG_TO_UINT32 ('O', 'P', 'U', 'S'),
-  GST_MTS_REGISTRATION_TSHV = REG_TO_UINT32 ('T', 'S', 'H', 'V'),
-  GST_MTS_REGISTRATION_VC_1 = REG_TO_UINT32 ('V', 'C', '-', '1'),
+  GST_MTS_REGISTRATION_AC_3 = GST_MPEGTS_REG_TO_UINT32 ('A', 'C', '-', '3'),
+  GST_MTS_REGISTRATION_CUEI = GST_MPEGTS_REG_TO_UINT32 ('C', 'U', 'E', 'I'),
+  GST_MTS_REGISTRATION_drac = GST_MPEGTS_REG_TO_UINT32 ('d', 'r', 'a', 'c'),
+  GST_MTS_REGISTRATION_DTS1 = GST_MPEGTS_REG_TO_UINT32 ('D', 'T', 'S', '1'),
+  GST_MTS_REGISTRATION_DTS2 = GST_MPEGTS_REG_TO_UINT32 ('D', 'T', 'S', '2'),
+  GST_MTS_REGISTRATION_DTS3 = GST_MPEGTS_REG_TO_UINT32 ('D', 'T', 'S', '3'),
+  GST_MTS_REGISTRATION_BSSD = GST_MPEGTS_REG_TO_UINT32 ('B', 'S', 'S', 'D'),
+  GST_MTS_REGISTRATION_EAC3 = GST_MPEGTS_REG_TO_UINT32 ('E', 'A', 'C', '3'),
+  GST_MTS_REGISTRATION_ETV1 = GST_MPEGTS_REG_TO_UINT32 ('E', 'T', 'V', '1'),
+  GST_MTS_REGISTRATION_GA94 = GST_MPEGTS_REG_TO_UINT32 ('G', 'A', '9', '4'),
+  GST_MTS_REGISTRATION_HDMV = GST_MPEGTS_REG_TO_UINT32 ('H', 'D', 'M', 'V'),
+  GST_MTS_REGISTRATION_KLVA = GST_MPEGTS_REG_TO_UINT32 ('K', 'L', 'V', 'A'),
+  GST_MTS_REGISTRATION_OPUS = GST_MPEGTS_REG_TO_UINT32 ('O', 'P', 'U', 'S'),
+  GST_MTS_REGISTRATION_TSHV = GST_MPEGTS_REG_TO_UINT32 ('T', 'S', 'H', 'V'),
+  GST_MTS_REGISTRATION_VC_1 = GST_MPEGTS_REG_TO_UINT32 ('V', 'C', '-', '1'),
 
   /* Self-registered by formats, but not in SMPTE-RA registry */
-  GST_MTS_REGISTRATION_AC_4 = REG_TO_UINT32 ('A', 'C', '-', '4'),
+  GST_MTS_REGISTRATION_AC_4 = GST_MPEGTS_REG_TO_UINT32 ('A', 'C', '-', '4'),
 
   /* Found elsewhere */
-  GST_MTS_REGISTRATION_OTHER_HEVC = REG_TO_UINT32 ('H', 'E', 'V', 'C')
+  GST_MTS_REGISTRATION_OTHER_HEVC = GST_MPEGTS_REG_TO_UINT32 ('H', 'E', 'V', 'C')
 } GstMpegtsRegistrationId;
+
+#undef GST_MPEGTS_REG_TO_UINT32
 
 /* GST_MTS_DESC_REGISTRATION (0x05) */
 
@@ -343,8 +372,6 @@ guint gst_mpegts_descriptor_parse_iso_639_language_nb (const GstMpegtsDescriptor
 GST_MPEGTS_API
 GstMpegtsDescriptor * gst_mpegts_descriptor_from_iso_639_language (const gchar * language);
 
-
-
 /* GST_MTS_DESC_DTG_LOGICAL_CHANNEL (0x83) */
 typedef struct _GstMpegtsLogicalChannelDescriptor GstMpegtsLogicalChannelDescriptor;
 typedef struct _GstMpegtsLogicalChannel GstMpegtsLogicalChannel;
@@ -387,6 +414,308 @@ gst_mpegts_descriptor_from_custom (guint8 tag, const guint8 *data, gsize length)
 GST_MPEGTS_API
 GstMpegtsDescriptor *
 gst_mpegts_descriptor_from_custom_with_extension (guint8 tag, guint8 tag_extension, const guint8 *data, gsize length);
+
+/**
+ * GstMpegtsMetadataFormat:
+ *
+ * metadata_descriptor metadata_format valid values. See ISO/IEC 13818-1:2018(E) Table 2-85.
+ *
+ * Since: 1.24
+ */
+typedef enum
+{
+  /**
+   * GST_MPEGTS_METADATA_FORMAT_TEM:
+   *
+   * ISO/IEC 15938-1 TeM.
+   *
+   * Since: 1.24
+   */
+  GST_MPEGTS_METADATA_FORMAT_TEM = 0x10,
+  /**
+   * GST_MPEGTS_METADATA_FORMAT_BIM:
+   *
+   * ISO/IEC 15938-1 BiM.
+   *
+   * Since: 1.24
+   */
+  GST_MPEGTS_METADATA_FORMAT_BIM = 0x11,
+  /**
+   * GST_MPEGTS_METADATA_FORMAT_APPLICATION_FORMAT:
+   *
+   * Defined by metadata application format.
+   *
+   * Since: 1.24
+   */
+  GST_MPEGTS_METADATA_FORMAT_APPLICATION_FORMAT = 0x3f,
+  /**
+   * GST_MPEGTS_METADATA_FORMAT_IDENTIFIER_FIELD:
+   *
+   * Defined by metadata_format_identifier field.
+   *
+   * Since: 1.24
+   */
+  GST_MPEGTS_METADATA_FORMAT_IDENTIFIER_FIELD = 0xff
+} GstMpegtsMetadataFormat;
+
+/**
+ * GstMpegtsMetadataApplicationFormat:
+ *
+ * @GST_MPEGTS_METADATA_APPLICATION_FORMAT_ISAN ISO 15706-1 (ISAN) encoded in its binary form
+ * @GST_MPEGTS_METADATA_APPLICATION_FORMAT_VSAN ISO 15706-2 (V-ISAN) encoded in its binary form
+ * @GST_MPEGTS_METADATA_APPLICATION_FORMAT_IDENTIFIER_FIELD Defined by the metadata_application_format_identifier field
+ *
+ * metadata_application_format valid values. See ISO/IEC 13818-1:2023(E) Table 2-84.
+ *
+ * Since: 1.26
+ */
+typedef enum
+{
+  GST_MPEGTS_METADATA_APPLICATION_FORMAT_ISAN = 0x0010,
+  GST_MPEGTS_METADATA_APPLICATION_FORMAT_VSAN = 0x0011,
+  GST_MPEGTS_METADATA_APPLICATION_FORMAT_IDENTIFIER_FIELD = 0xffff,
+} GstMpegtsMetadataApplicationFormat;
+
+/* MPEG-TS Metadata Descriptor (0x26) */
+typedef struct _GstMpegtsMetadataDescriptor GstMpegtsMetadataDescriptor;
+
+/**
+ * GstMpegtsMetadataDescriptor:
+ * @metadata_application_format: specifies the application responsible for defining usage, syntax and semantics
+ * @metadata_format: indicates the format and coding of the metadata
+ * @metadata_format_identifier: format identifier (equivalent to registration descriptor), for example 0x4B4C4641 ('KLVA') to indicate SMPTE 336 KLV.
+ * @metadata_service_id:  metadata service to which this metadata descriptor applies, typically 0x00
+ * @decoder_config_flags: decoder flags, see ISO/IEC 13818-1:2018 Table 2-88.
+ * @dsm_cc_flag: true if stream associated with this descriptor is in an ISO/IEC 13818-6 data or object carousel.
+ *
+ * The metadata descriptor specifies parameters of a metadata service carried in an MPEG-2 Transport Stream (or Program Stream). The descriptor is included in the PMT in the descriptor loop for the elementary stream that carries the
+metadata service. The descriptor specifies the format of the associated metadata, and contains the value of the
+metadata_service_id to identify the metadata service to which the metadata descriptor applies.
+ *
+ * Note that this structure does not include all of the metadata_descriptor items, and will need extension to support DSM-CC and private data.
+ * See ISO/IEC 13818-1:2018 Section 2.6.60 and Section 2.6.61 for more information.
+ *
+ * Since: 1.24
+ */
+struct _GstMpegtsMetadataDescriptor
+{
+  GstMpegtsMetadataApplicationFormat metadata_application_format;
+  GstMpegtsMetadataFormat metadata_format;
+  guint32 metadata_format_identifier;
+  guint8 metadata_service_id;
+  guint8 decoder_config_flags;
+  gboolean dsm_cc_flag;
+};
+
+/**
+ * GST_TYPE_MPEGTS_METADATA_DESCRIPTOR:
+ *
+ * metadata_descriptor type
+ *
+ * Since: 1.24
+ */
+#define GST_TYPE_MPEGTS_METADATA_DESCRIPTOR (gst_mpegts_metadata_descriptor_get_type())
+
+GST_MPEGTS_API
+GType gst_mpegts_metadata_descriptor_get_type(void);
+
+/**
+ * gst_mpegts_descriptor_from_metadata
+ *
+ * Since: 1.26
+ */
+GST_MPEGTS_API
+GstMpegtsDescriptor *gst_mpegts_descriptor_from_metadata(const GstMpegtsMetadataDescriptor *metadata_descriptor);
+
+GST_MPEGTS_API
+gboolean gst_mpegts_descriptor_parse_metadata(const GstMpegtsDescriptor *descriptor, GstMpegtsMetadataDescriptor **res);
+
+GST_MPEGTS_API
+gboolean gst_mpegts_descriptor_parse_metadata_std(const GstMpegtsDescriptor *descriptor,
+                                                  guint32 *metadata_input_leak_rate,
+                                                  guint32 *metadata_buffer_size,
+                                                  guint32 *metadata_output_leak_rate);
+
+typedef struct _GstMpegtsPESMetadataMeta GstMpegtsPESMetadataMeta;
+
+/**
+ * gst_mpegts_pes_metadata_meta_api_get_type
+ *
+ * Return the #GType associated with #GstMpegtsPESMetadataMeta
+ *
+ * Returns: a #GType
+ *
+ * Since: 1.24
+ */
+GST_MPEGTS_API
+GType gst_mpegts_pes_metadata_meta_api_get_type(void);
+
+/**
+ * GST_MPEGTS_PES_METADATA_META_API_TYPE:
+ *
+ * The #GType associated with #GstMpegtsPESMetadataMeta.
+ *
+ * Since: 1.24
+ */
+#define GST_MPEGTS_PES_METADATA_META_API_TYPE (gst_mpegts_pes_metadata_meta_api_get_type())
+
+/**
+ * GST_MPEGTS_PES_METADATA_META_INFO:
+ *
+ * The #GstMetaInfo associated with #GstMpegtsPESMetadataMeta.
+ *
+ * Since: 1.24
+ */
+#define GST_MPEGTS_PES_METADATA_META_INFO (gst_mpegts_pes_metadata_meta_get_info())
+
+/**
+ * gst_mpegts_pes_metadata_meta_get_info:
+ *
+ * Gets the global #GstMetaInfo describing the #GstMpegtsPESMetadataMeta meta.
+ *
+ * Returns: (transfer none): The #GstMetaInfo
+ *
+ * Since: 1.24
+ */
+GST_MPEGTS_API
+const GstMetaInfo *gst_mpegts_pes_metadata_meta_get_info(void);
+
+/**
+ * GstMpegtsPESMetadataMeta:
+ * @meta: parent #GstMeta
+ * @metadata_service_id: metadata service identifier
+ * @flags: bit flags, see spec for details
+ *
+ * Extra buffer metadata describing the PES Metadata context.
+ * This is based on the Metadata AU cell header in
+ * ISO/IEC 13818-1:2018 Section 2.12.4.
+ *
+ * AU_cell_data_length is not provided, since it matches the length of the buffer
+ *
+ * Since: 1.24
+ */
+struct _GstMpegtsPESMetadataMeta
+{
+  GstMeta meta;
+  guint8 metadata_service_id;
+  guint8 flags;
+};
+
+/**
+ * gst_buffer_add_mpegts_pes_metadata_meta:
+ * @buffer: a #GstBuffer
+ *
+ * Creates and adds a #GstMpegtsPESMetadataMeta to a @buffer.
+ *
+ * Returns: (transfer none): a newly created #GstMpegtsPESMetadataMeta
+ *
+ * Since: 1.24
+ */
+GST_MPEGTS_API
+GstMpegtsPESMetadataMeta *
+gst_buffer_add_mpegts_pes_metadata_meta(GstBuffer *buffer);
+
+/* MPEG-TS Metadata Descriptor (0x25) */
+typedef struct _GstMpegtsMetadataPointerDescriptor
+    GstMpegtsMetadataPointerDescriptor;
+
+/**
+ * GstMpegtsMetadataPointerDescriptor:
+ * @metadata_application_format: specifies the application responsible for defining usage, syntax and semantics
+ * @metadata_format: indicates the format and coding of the metadata
+ * @metadata_format_identifier: format identifier (equivalent to registration descriptor), for example 0x4B4C4641 ('KLVA') to indicate SMPTE 336 KLV, or 0x49443320 ('ID3 ').
+ * @metadata_service_id:  metadata service to which this metadata descriptor applies, typically 0x00
+ * @program_number: Indicates the program in which the metadata is carried.
+ *
+ * This structure is not complete. The following fields are missing in comparison to the standard (ISO/IEC 13818-1:2023 Section 2.6.58):
+ * * metadata_locator_record_flag: hardcoded to 0. Indicating no metadata_locator_record present in the descriptor.
+ * * MPEG_carriage_flags: hardcoded to 0b00, indicating the metadata is carried in the same transport steam.
+ * * metadata_locator_record_length.
+ * * transport_stream_location.
+ * * transport_stream_id.
+ *
+ * See also: gst_mpegts_descriptor_from_metadata_pointer
+ *
+ * Since: 1.26
+ */
+struct _GstMpegtsMetadataPointerDescriptor
+{
+  GstMpegtsMetadataApplicationFormat metadata_application_format;
+  GstMpegtsMetadataFormat metadata_format;
+  guint32 metadata_format_identifier;
+  guint8 metadata_service_id;
+  guint16 program_number;
+};
+
+/**
+ * GST_TYPE_MPEGTS_METADATA_POINTER_DESCRIPTOR
+ *
+ * Since: 1.26
+ */
+#define GST_TYPE_MPEGTS_METADATA_POINTER_DESCRIPTOR \
+  (gst_mpegts_metadata_pointer_descriptor_get_type())
+GST_MPEGTS_API
+GType gst_mpegts_metadata_pointer_descriptor_get_type(void);
+
+/**
+ * gst_mpegts_descriptor_from_metadata_pointer:
+ * @metadata_pointer_descriptor: a #GstMpegtsMetadataPointerDescriptor
+ *
+ * Returns: a #GstMpegtsDescriptor from the metadata pointer descriptor.
+ *
+ * Since: 1.26
+ */
+GST_MPEGTS_API
+GstMpegtsDescriptor *gst_mpegts_descriptor_from_metadata_pointer(const GstMpegtsMetadataPointerDescriptor *metadata_pointer_descriptor);
+
+/* JPEG-XS descriptor */
+
+/**
+ * GstMpegtsJpegXsDescriptor:
+ *
+ * JPEG-XS descriptor
+ *
+ * Since: 1.26
+ */
+
+typedef struct _GstMpegtsJpegXsDescriptor {
+  guint8 descriptor_version;
+  guint16 horizontal_size, vertical_size;
+  guint32 brat, frat;
+  guint16 schar, Ppih, Plev;
+  guint32 max_buffer_size;
+  guint8 buffer_model_type;
+  guint8 colour_primaries;
+  guint8 transfer_characteristics;
+  guint8 matrix_coefficients;
+  gboolean video_full_range_flag;
+  gboolean still_mode;
+  gboolean mdm_flag;
+  guint16 X_c0, Y_c0, X_c1, Y_c1, X_c2, Y_c2;
+  guint16 X_wp, Y_wp;
+  guint32 L_max, L_min;
+  guint16 MaxCLL, MaxFALL;
+} GstMpegtsJpegXsDescriptor;
+
+/**
+ * GST_TYPE_MPEGTS_JPEG_XS_DESCRIPTOR:
+ *
+ * Since: 1.26
+ */
+#define GST_TYPE_MPEGTS_JPEG_XS_DESCRIPTOR	\
+  (gst_mpegts_jpeg_xs_descriptor_get_type())
+
+GST_MPEGTS_API
+GType gst_mpegts_jpeg_xs_descriptor_get_type(void);
+
+GST_MPEGTS_API
+gboolean
+gst_mpegts_descriptor_parse_jpeg_xs(const GstMpegtsDescriptor *descriptor,
+                                   GstMpegtsJpegXsDescriptor *res);
+
+GST_MPEGTS_API
+GstMpegtsDescriptor *
+gst_mpegts_descriptor_from_jpeg_xs(const GstMpegtsJpegXsDescriptor *jpegxs);
 
 G_END_DECLS
 

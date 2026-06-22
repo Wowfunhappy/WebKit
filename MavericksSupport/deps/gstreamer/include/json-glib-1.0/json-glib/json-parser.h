@@ -1,8 +1,10 @@
 /* json-parser.h - JSON streams parser
  * 
  * This file is part of JSON-GLib
- * Copyright (C) 2007  OpenedHand Ltd.
- * Copyright (C) 2009  Intel Corp.
+ *
+ * SPDX-FileCopyrightText: 2007  OpenedHand Ltd.
+ * SPDX-FileCopyrightText: 2009  Intel Corp.
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -20,9 +22,7 @@
  * Author:
  *   Emmanuele Bassi  <ebassi@linux.intel.com>
  */
-
-#ifndef __JSON_PARSER_H__
-#define __JSON_PARSER_H__
+#pragma once
 
 #if !defined(__JSON_GLIB_INSIDE__) && !defined(JSON_COMPILATION)
 #error "Only <json-glib/json-glib.h> can be included directly."
@@ -40,7 +40,21 @@ G_BEGIN_DECLS
 #define JSON_IS_PARSER_CLASS(klass)     (G_TYPE_CHECK_CLASS_TYPE ((klass), JSON_TYPE_PARSER))
 #define JSON_PARSER_GET_CLASS(obj)      (G_TYPE_INSTANCE_GET_CLASS ((obj), JSON_TYPE_PARSER, JsonParserClass))
 
+/**
+ * JSON_PARSER_ERROR:
+ *
+ * Error domain for `JsonParser`.
+ */
 #define JSON_PARSER_ERROR               (json_parser_error_quark ())
+
+/**
+ * JSON_PARSER_MAX_RECURSION_DEPTH:
+ *
+ * The maximum recursion depth for a JSON tree.
+ *
+ * Since: 1.10
+ */
+#define JSON_PARSER_MAX_RECURSION_DEPTH (1024)
 
 typedef struct _JsonParser              JsonParser;
 typedef struct _JsonParserPrivate       JsonParserPrivate;
@@ -53,11 +67,9 @@ typedef struct _JsonParserClass         JsonParserClass;
  * @JSON_PARSER_ERROR_MISSING_COMMA: expected comma
  * @JSON_PARSER_ERROR_MISSING_COLON: expected colon
  * @JSON_PARSER_ERROR_INVALID_BAREWORD: invalid bareword
- * @JSON_PARSER_ERROR_EMPTY_MEMBER_NAME: empty member name (Since: 0.16)
- * @JSON_PARSER_ERROR_INVALID_DATA: invalid data (Since: 0.18)
  * @JSON_PARSER_ERROR_UNKNOWN: unknown error
  *
- * Error enumeration for #JsonParser
+ * Error codes for `JSON_PARSER_ERROR`.
  *
  * This enumeration can be extended at later date
  */
@@ -67,18 +79,49 @@ typedef enum {
   JSON_PARSER_ERROR_MISSING_COMMA,
   JSON_PARSER_ERROR_MISSING_COLON,
   JSON_PARSER_ERROR_INVALID_BAREWORD,
+  /**
+   * JSON_PARSER_ERROR_EMPTY_MEMBER_NAME:
+   *
+   * Empty member name.
+   *
+   * Since: 0.16
+   */
   JSON_PARSER_ERROR_EMPTY_MEMBER_NAME,
+  /**
+   * JSON_PARSER_ERROR_INVALID_DATA:
+   *
+   * Invalid data.
+   *
+   * Since: 0.18
+   */
   JSON_PARSER_ERROR_INVALID_DATA,
-
-  JSON_PARSER_ERROR_UNKNOWN
+  JSON_PARSER_ERROR_UNKNOWN,
+  /**
+   * JSON_PARSER_ERROR_NESTING:
+   *
+   * Too many levels of nesting.
+   *
+   * Since: 1.10
+   */
+  JSON_PARSER_ERROR_NESTING,
+  /**
+   * JSON_PARSER_ERROR_INVALID_STRUCTURE:
+   *
+   * Invalid structure.
+   *
+   * Since: 1.10
+   */
+  JSON_PARSER_ERROR_INVALID_STRUCTURE,
+  /**
+   * JSON_PARSER_ERROR_INVALID_ASSIGNMENT:
+   *
+   * Invalid assignment.
+   *
+   * Since: 1.10
+   */
+  JSON_PARSER_ERROR_INVALID_ASSIGNMENT
 } JsonParserError;
 
-/**
- * JsonParser:
- * 
- * JSON data streams parser. The contents of the #JsonParser structure are
- * private and should only be accessed via the provided API.
- */
 struct _JsonParser
 {
   /*< private >*/
@@ -99,7 +142,7 @@ struct _JsonParser
  * @parse_end: class handler for the JsonParser::parse-end signal
  * @error: class handler for the JsonParser::error signal
  *
- * #JsonParser class.
+ * The class structure for the JsonParser type.
  */
 struct _JsonParserClass
 {
@@ -149,6 +192,11 @@ JSON_AVAILABLE_IN_1_0
 JsonParser *json_parser_new                     (void);
 JSON_AVAILABLE_IN_1_2
 JsonParser *json_parser_new_immutable           (void);
+JSON_AVAILABLE_IN_1_10
+void        json_parser_set_strict              (JsonParser           *parser,
+                                                 gboolean              strict);
+JSON_AVAILABLE_IN_1_10
+gboolean    json_parser_get_strict              (JsonParser           *parser);
 JSON_AVAILABLE_IN_1_0
 gboolean    json_parser_load_from_file          (JsonParser           *parser,
                                                  const gchar          *filename,
@@ -196,5 +244,3 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC (JsonParser, g_object_unref)
 #endif
 
 G_END_DECLS
-
-#endif /* __JSON_PARSER_H__ */

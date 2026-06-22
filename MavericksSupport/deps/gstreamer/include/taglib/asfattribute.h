@@ -33,10 +33,8 @@
 
 namespace TagLib
 {
-
   namespace ASF
   {
-
     class File;
     class Picture;
 
@@ -113,7 +111,7 @@ namespace TagLib
       /*!
        * Copies the contents of \a other into this item.
        */
-      ASF::Attribute &operator=(const Attribute &other);
+      Attribute &operator=(const Attribute &other);
 
       /*!
        * Exchanges the content of the Attribute by the content of \a other.
@@ -201,8 +199,7 @@ namespace TagLib
       class AttributePrivate;
       AttributePrivate *d;
     };
-  }
-
-}
+  }  // namespace ASF
+}  // namespace TagLib
 
 #endif

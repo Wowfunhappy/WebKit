@@ -32,6 +32,8 @@
  * @title: GstWebRTC Enumerations
  */
 
+G_BEGIN_DECLS
+
 #ifndef GST_WEBRTC_API
 # ifdef BUILDING_GST_WEBRTC
 #  define GST_WEBRTC_API GST_API_EXPORT         /* from config.h */
@@ -40,13 +42,48 @@
 # endif
 #endif
 
-#include <gst/webrtc/webrtc-enumtypes.h>
+/**
+ * GST_WEBRTC_DEPRECATED: (attributes doc.skip=true)
+ */
+/**
+ * GST_WEBRTC_DEPRECATED_FOR: (attributes doc.skip=true)
+ */
+#ifndef GST_DISABLE_DEPRECATED
+#define GST_WEBRTC_DEPRECATED GST_WEBRTC_API
+#define GST_WEBRTC_DEPRECATED_FOR(f) GST_WEBRTC_API
+#else
+#define GST_WEBRTC_DEPRECATED G_DEPRECATED GST_WEBRTC_API
+#define GST_WEBRTC_DEPRECATED_FOR(f) G_DEPRECATED_FOR(f) GST_WEBRTC_API
+#endif
 
 /**
  * GstWebRTCDTLSTransport:
  */
 typedef struct _GstWebRTCDTLSTransport GstWebRTCDTLSTransport;
 typedef struct _GstWebRTCDTLSTransportClass GstWebRTCDTLSTransportClass;
+
+/**
+ * GstWebRTCICE:
+ *
+ * Since: 1.22
+ */
+typedef struct _GstWebRTCICE GstWebRTCICE;
+typedef struct _GstWebRTCICEClass GstWebRTCICEClass;
+
+/**
+ * GstWebRTCICECandidateStats:
+ *
+ * Since: 1.22
+ */
+typedef struct _GstWebRTCICECandidateStats GstWebRTCICECandidateStats;
+
+/**
+ * GstWebRTCICEStream:
+ *
+ * Since: 1.22
+ */
+typedef struct _GstWebRTCICEStream GstWebRTCICEStream;
+typedef struct _GstWebRTCICEStreamClass GstWebRTCICEStreamClass;
 
 /**
  * GstWebRTCICETransport:
@@ -271,7 +308,7 @@ typedef enum /*< underscore_name=gst_webrtc_dtls_setup >*/
  * @GST_WEBRTC_STATS_REMOTE_INBOUND_RTP: remote-inbound-rtp
  * @GST_WEBRTC_STATS_REMOTE_OUTBOUND_RTP: remote-outbound-rtp
  * @GST_WEBRTC_STATS_CSRC: csrc
- * @GST_WEBRTC_STATS_PEER_CONNECTION: peer-connectiion
+ * @GST_WEBRTC_STATS_PEER_CONNECTION: peer-connection
  * @GST_WEBRTC_STATS_DATA_CHANNEL: data-channel
  * @GST_WEBRTC_STATS_STREAM: stream
  * @GST_WEBRTC_STATS_TRANSPORT: transport
@@ -279,6 +316,8 @@ typedef enum /*< underscore_name=gst_webrtc_dtls_setup >*/
  * @GST_WEBRTC_STATS_LOCAL_CANDIDATE: local-candidate
  * @GST_WEBRTC_STATS_REMOTE_CANDIDATE: remote-candidate
  * @GST_WEBRTC_STATS_CERTIFICATE: certificate
+ *
+ * See <https://w3c.github.io/webrtc-stats/#dom-rtcstatstype>
  */
 typedef enum /*< underscore_name=gst_webrtc_stats_type >*/
 {
@@ -351,8 +390,7 @@ typedef enum /*< underscore_name=gst_webrtc_priority_type >*/
 
 /**
  * GstWebRTCDataChannelState:
- * @GST_WEBRTC_DATA_CHANNEL_STATE_NEW: new
- * @GST_WEBRTC_DATA_CHANNEL_STATE_CONNECTING: connection
+ * @GST_WEBRTC_DATA_CHANNEL_STATE_CONNECTING: connecting
  * @GST_WEBRTC_DATA_CHANNEL_STATE_OPEN: open
  * @GST_WEBRTC_DATA_CHANNEL_STATE_CLOSING: closing
  * @GST_WEBRTC_DATA_CHANNEL_STATE_CLOSED: closed
@@ -363,8 +401,7 @@ typedef enum /*< underscore_name=gst_webrtc_priority_type >*/
  */
 typedef enum /*< underscore_name=gst_webrtc_data_channel_state >*/
 {
-  GST_WEBRTC_DATA_CHANNEL_STATE_NEW,
-  GST_WEBRTC_DATA_CHANNEL_STATE_CONNECTING,
+  GST_WEBRTC_DATA_CHANNEL_STATE_CONNECTING = 1,
   GST_WEBRTC_DATA_CHANNEL_STATE_OPEN,
   GST_WEBRTC_DATA_CHANNEL_STATE_CLOSING,
   GST_WEBRTC_DATA_CHANNEL_STATE_CLOSED,
@@ -410,7 +447,7 @@ typedef enum /*<underscore_name=gst_webrtc_ice_transport_policy>*/
  * GstWebRTCKind:
  * @GST_WEBRTC_KIND_UNKNOWN: Kind has not yet been set
  * @GST_WEBRTC_KIND_AUDIO: Kind is audio
- * @GST_WEBRTC_KIND_VIDEO: Kind is audio
+ * @GST_WEBRTC_KIND_VIDEO: Kind is video
  *
  * https://w3c.github.io/mediacapture-main/#dom-mediastreamtrack-kind
  *
@@ -450,6 +487,20 @@ GQuark gst_webrtc_error_quark (void);
  *
  * Since: 1.20
  */
+/**
+ * GST_WEBRTC_ERROR_INVALID_MODIFICATION:
+ *
+ * invalid-modification (part of WebIDL specification)
+ *
+ * Since: 1.22
+ */
+/**
+ * GST_WEBRTC_ERROR_TYPE_ERROR:
+ *
+ * type-error (maps to JavaScript TypeError)
+ *
+ * Since: 1.22
+ */
 typedef enum /*<underscore_name=gst_webrtc_error>*/
 {
   GST_WEBRTC_ERROR_DATA_CHANNEL_FAILURE,
@@ -460,8 +511,11 @@ typedef enum /*<underscore_name=gst_webrtc_error>*/
   GST_WEBRTC_ERROR_HARDWARE_ENCODER_NOT_AVAILABLE,
   GST_WEBRTC_ERROR_ENCODER_ERROR,
   GST_WEBRTC_ERROR_INVALID_STATE,
-  GST_WEBRTC_ERROR_INTERNAL_FAILURE
+  GST_WEBRTC_ERROR_INTERNAL_FAILURE,
+  GST_WEBRTC_ERROR_INVALID_MODIFICATION,
+  GST_WEBRTC_ERROR_TYPE_ERROR,
 } GstWebRTCError;
 
+G_END_DECLS
 
 #endif /* __GST_WEBRTC_FWD_H__ */

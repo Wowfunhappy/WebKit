@@ -137,11 +137,28 @@ GType        gst_play_error_get_type                (void);
 /**
  * GstPlayError:
  * @GST_PLAY_ERROR_FAILED: generic error.
+ * @GST_PLAY_ERROR_MISSING_PLUGIN: playback requires additional plugins (Since: 1.26).
  *
  * Since: 1.20
  */
 typedef enum {
-  GST_PLAY_ERROR_FAILED = 0
+  GST_PLAY_ERROR_FAILED = 0,
+
+  /**
+   * GST_PLAY_ERROR_MISSING_PLUGIN:
+   *
+   * Playback requires additional plugins. Information about the missing
+   * plugins can be retrieved from the message details.
+   *
+   * The details will contain the the missing plugin details in a field of
+   * type %GstArray named "missing-plugin-details". This array will contain
+   * %GstStructure with string "description" and a string "installer-details".
+   *
+   * The "installer-details" can be passed to gst_install_plugins_async().
+   *
+   * Since: 1.26
+   */
+  GST_PLAY_ERROR_MISSING_PLUGIN
 } GstPlayError;
 
 GST_PLAY_API
@@ -273,17 +290,34 @@ GST_PLAY_API
 void         gst_play_set_subtitle_track_enabled    (GstPlay    * play,
                                                      gboolean enabled);
 
-GST_PLAY_API
+GST_PLAY_DEPRECATED_FOR(gst_play_set_audio_track_id)
 gboolean     gst_play_set_audio_track               (GstPlay    *play,
                                                      gint stream_index);
 
-GST_PLAY_API
+GST_PLAY_DEPRECATED_FOR(gst_play_set_video_track_id)
 gboolean     gst_play_set_video_track               (GstPlay    *play,
                                                      gint stream_index);
 
-GST_PLAY_API
+GST_PLAY_DEPRECATED_FOR(gst_play_set_subtitle_track_id)
 gboolean     gst_play_set_subtitle_track            (GstPlay    *play,
                                                      gint stream_index);
+GST_PLAY_API
+gboolean     gst_play_set_audio_track_id            (GstPlay     *play,
+                                                     const gchar *stream_id);
+
+GST_PLAY_API
+gboolean     gst_play_set_video_track_id            (GstPlay     *play,
+                                                     const gchar *stream_id);
+
+GST_PLAY_API
+gboolean     gst_play_set_subtitle_track_id         (GstPlay     *play,
+                                                     const gchar *stream_id);
+
+GST_PLAY_API
+gboolean     gst_play_set_track_ids                 (GstPlay     *play,
+                                                     const gchar *audio_stream_id,
+                                                     const gchar *video_stream_id,
+                                                     const gchar *subtitle_stream_id);
 
 GST_PLAY_API
 GstPlayMediaInfo *    gst_play_get_media_info     (GstPlay * play);
@@ -378,6 +412,13 @@ void           gst_play_config_set_seek_accurate (GstStructure * config, gboolea
 GST_PLAY_API
 gboolean       gst_play_config_get_seek_accurate (const GstStructure * config);
 
+GST_PLAY_API
+void           gst_play_config_set_pipeline_dump_in_error_details (GstStructure * config,
+                                                                   gboolean       value);
+
+GST_PLAY_API
+gboolean       gst_play_config_get_pipeline_dump_in_error_details (const GstStructure * config);
+
 /**
  * GstPlaySnapshotFormat:
  * @GST_PLAY_THUMBNAIL_RAW_NATIVE: raw native format.
@@ -402,13 +443,25 @@ GstSample * gst_play_get_video_snapshot (GstPlay * play,
     GstPlaySnapshotFormat format, const GstStructure * config);
 
 GST_PLAY_API
-gboolean       gst_play_is_play_message                        (GstMessage *msg);
+gboolean       gst_play_is_play_message                          (GstMessage *msg);
 
 GST_PLAY_API
 void           gst_play_message_parse_type                       (GstMessage *msg, GstPlayMessage *type);
 
 GST_PLAY_API
+const gchar *  gst_play_message_get_uri                          (GstMessage *msg);
+
+GST_PLAY_API
+const gchar *  gst_play_message_get_stream_id                    (GstMessage *msg);
+
+GST_PLAY_API
+void           gst_play_message_parse_uri_loaded                 (GstMessage *msg, gchar **uri);
+
+GST_PLAY_DEPRECATED_FOR(gst_play_message_parse_duration_changed)
 void           gst_play_message_parse_duration_updated           (GstMessage *msg, GstClockTime *duration);
+
+GST_PLAY_API
+void           gst_play_message_parse_duration_changed           (GstMessage *msg, GstClockTime *duration);
 
 GST_PLAY_API
 void           gst_play_message_parse_position_updated           (GstMessage *msg, GstClockTime *position);
@@ -416,14 +469,23 @@ void           gst_play_message_parse_position_updated           (GstMessage *ms
 GST_PLAY_API
 void           gst_play_message_parse_state_changed              (GstMessage *msg, GstPlayState *state);
 
-GST_PLAY_API
+GST_PLAY_DEPRECATED_FOR(gst_play_message_parse_buffering_percent)
 void           gst_play_message_parse_buffering_percent          (GstMessage *msg, guint *percent);
+
+GST_PLAY_API
+void           gst_play_message_parse_buffering                  (GstMessage *msg, guint *percent);
 
 GST_PLAY_API
 void           gst_play_message_parse_error                      (GstMessage *msg, GError **error, GstStructure **details);
 
 GST_PLAY_API
+gboolean       gst_play_message_parse_error_missing_plugin       (GstMessage *msg, gchar *** descriptions, gchar *** installer_details);
+
+GST_PLAY_API
 void           gst_play_message_parse_warning                    (GstMessage *msg, GError **error, GstStructure **details);
+
+GST_PLAY_API
+gboolean       gst_play_message_parse_warning_missing_plugin       (GstMessage *msg, gchar *** descriptions, gchar *** installer_details);
 
 GST_PLAY_API
 void           gst_play_message_parse_video_dimensions_changed   (GstMessage *msg, guint *width, guint *height);
@@ -436,6 +498,9 @@ void           gst_play_message_parse_volume_changed             (GstMessage *ms
 
 GST_PLAY_API
 void           gst_play_message_parse_muted_changed              (GstMessage *msg, gboolean *muted);
+
+GST_PLAY_API
+void           gst_play_message_parse_seek_done                  (GstMessage *msg, GstClockTime *position);
 
 G_END_DECLS
 

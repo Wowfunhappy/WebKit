@@ -72,8 +72,15 @@ typedef struct _GstVideoCropMeta GstVideoCropMeta;
  * - padding-bottom (uint): extra pixels on the bottom
  * - padding-left (uint): extra pixels on the left side
  * - padding-right (uint): extra pixels on the right side
- * The padding fields have the same semantic as #GstVideoMeta.alignment
- * and so represent the paddings requested on produced video buffers.
+ * - stride-align0 (uint): stride align requirements for plane 0
+ * - stride-align1 (uint): stride align requirements for plane 1
+ * - stride-align2 (uint): stride align requirements for plane 2
+ * - stride-align3 (uint): stride align requirements for plane 3
+ * The padding and stride-align fields have the same semantic as #GstVideoMeta.alignment
+ * and so represent the paddings and stride-align requested on produced video buffers.
+ *
+ * Since 1.24 it can be serialized using gst_meta_serialize() and
+ * gst_meta_deserialize().
  */
 struct _GstVideoMeta {
   GstMeta            meta;
@@ -116,8 +123,8 @@ GstVideoMeta * gst_buffer_add_video_meta       (GstBuffer *buffer, GstVideoFrame
 GST_VIDEO_API
 GstVideoMeta * gst_buffer_add_video_meta_full  (GstBuffer *buffer, GstVideoFrameFlags flags,
                                                 GstVideoFormat format, guint width, guint height,
-                                                guint n_planes, gsize offset[GST_VIDEO_MAX_PLANES],
-                                                gint stride[GST_VIDEO_MAX_PLANES]);
+                                                guint n_planes, const gsize offset[GST_VIDEO_MAX_PLANES],
+                                                const gint stride[GST_VIDEO_MAX_PLANES]);
 
 GST_VIDEO_API
 gboolean       gst_video_meta_map        (GstVideoMeta *meta, guint plane, GstMapInfo *info,

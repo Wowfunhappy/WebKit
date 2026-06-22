@@ -45,7 +45,7 @@
 #if defined(QT_VERSION) && (QT_VERSION >= 0x040000)
 #define QStringToTString(s) TagLib::String(s.toUtf8().data(), TagLib::String::UTF8)
 #else
-#define QStringToTString(s) TagLib::String(s.utf8().data(), TagLib::String::UTF8)
+#define QStringToTString(s) TagLib::String((s).utf8().data(), TagLib::String::UTF8)
 #endif
 
 /*!
@@ -58,7 +58,7 @@
  *
  */
 
-#define TStringToQString(s) QString::fromUtf8(s.toCString(true))
+#define TStringToQString(s) QString::fromUtf8((s).toCString(true))
 
 namespace TagLib {
 
@@ -337,10 +337,10 @@ namespace TagLib {
      *
      * \see isEmpty()
      *
-     * \deprecated
+     * \deprecated Use isEmpty(), do not differentiate between null and empty.
      */
      // BIC: remove
-    bool isNull() const;
+    TAGLIB_DEPRECATED bool isNull() const;
 
     /*!
      * Returns a ByteVector containing the string's data.  If \a t is Latin1 or
@@ -522,10 +522,10 @@ namespace TagLib {
      * \warning Do not modify this variable.  It will mess up the internal state
      * of TagLib.
      *
-     * \deprecated
+     * \deprecated Use String().
      */
      // BIC: remove
-    static String null;
+    TAGLIB_DEPRECATED static String null;
 
   protected:
     /*!
@@ -541,33 +541,33 @@ namespace TagLib {
      * may lead to a linkage error.
      */
      // BIC: remove
-    static const Type WCharByteOrder;
+    TAGLIB_DEPRECATED static const Type WCharByteOrder;
 
     class StringPrivate;
     StringPrivate *d;
   };
-}
+}  // namespace TagLib
 
 /*!
  * \relates TagLib::String
  *
  * Concatenates \a s1 and \a s2 and returns the result as a string.
  */
-TAGLIB_EXPORT const TagLib::String operator+(const TagLib::String &s1, const TagLib::String &s2);
+TAGLIB_EXPORT TagLib::String operator+(const TagLib::String &s1, const TagLib::String &s2);
 
 /*!
  * \relates TagLib::String
  *
  * Concatenates \a s1 and \a s2 and returns the result as a string.
  */
-TAGLIB_EXPORT const TagLib::String operator+(const char *s1, const TagLib::String &s2);
+TAGLIB_EXPORT TagLib::String operator+(const char *s1, const TagLib::String &s2);
 
 /*!
  * \relates TagLib::String
  *
  * Concatenates \a s1 and \a s2 and returns the result as a string.
  */
-TAGLIB_EXPORT const TagLib::String operator+(const TagLib::String &s1, const char *s2);
+TAGLIB_EXPORT TagLib::String operator+(const TagLib::String &s1, const char *s2);
 
 
 /*!
