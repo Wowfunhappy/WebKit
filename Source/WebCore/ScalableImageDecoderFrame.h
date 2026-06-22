@@ -1,1 +1,0 @@
-/Users/jonathan/Desktop/WebKit/Source/WebCore/platform/image-decoders/ScalableImageDecoderFrame.h
