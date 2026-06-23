@@ -1143,7 +1143,12 @@ endif ()
 if (APPLE)
     list(APPEND WebKit_SOURCES
         ${WEBKIT_DIR}/PolyfillClasses_109.mm
+        # MAVERICKS_BACKPORT: RFC 6455 WebSocket client over CFStream, providing
+        # NSURLSessionWebSocketTask/Message (10.15+, absent on 10.9) so WebSocketTaskCocoa works.
+        ${WEBKIT_DIR}/WebSocketPolyfill_109.mm
     )
+    # WebSocketPolyfill_109.mm is written against ARC (zeroing __weak, block copy semantics).
+    set_source_files_properties(${WEBKIT_DIR}/WebSocketPolyfill_109.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 endif ()
 
 list(APPEND WebKit_SOURCES ${WebKit_DERIVED_SOURCES})
