@@ -30,6 +30,7 @@
 #include "GStreamerCommon.h"
 #include "PipeWireCaptureDevice.h"
 #include "PipeWireCaptureDeviceManager.h"
+#include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/text/MakeString.h>
 
 namespace WebCore {
@@ -39,7 +40,12 @@ GST_DEBUG_CATEGORY(webkit_video_capture_source_debug);
 
 static void initializeVideoCaptureSourceDebugCategory()
 {
-    ensureGStreamerInitialized();
+    // MAVERICKS_BACKPORT: see GStreamerCapturer.cpp — constructed in the UIProcess during getUserMedia
+    // validation, where ensureGStreamerInitialized() RELEASE_ASSERTs isInWebProcess().
+    if (isInWebProcess())
+        ensureGStreamerInitialized();
+    else
+        ensureGStreamerInitializedNonWebProcess();
 
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {

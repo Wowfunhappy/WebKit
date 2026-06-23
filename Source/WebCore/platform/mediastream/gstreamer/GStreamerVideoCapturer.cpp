@@ -26,6 +26,7 @@
 #include "GStreamerVideoCapturer.h"
 
 #include "VideoFrameGStreamer.h"
+#include <wtf/RuntimeApplicationChecks.h>
 #include <gst/app/gstappsink.h>
 
 GST_DEBUG_CATEGORY(webkit_video_capturer_debug);
@@ -35,7 +36,12 @@ namespace WebCore {
 
 static void initializeVideoCapturerDebugCategory()
 {
-    ensureGStreamerInitialized();
+    // MAVERICKS_BACKPORT: see GStreamerCapturer.cpp — capture sources are constructed in the UIProcess
+    // during getUserMedia validation, where ensureGStreamerInitialized() RELEASE_ASSERTs isInWebProcess().
+    if (isInWebProcess())
+        ensureGStreamerInitialized();
+    else
+        ensureGStreamerInitializedNonWebProcess();
 
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {

@@ -30,6 +30,7 @@
 #include "GStreamerCaptureDeviceManager.h"
 
 #include <wtf/NeverDestroyed.h>
+#include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/text/MakeString.h>
 
 namespace WebCore {
@@ -85,7 +86,12 @@ GStreamerAudioCaptureSource::GStreamerAudioCaptureSource(GStreamerCaptureDevice&
     : RealtimeMediaSource(device, WTF::move(hashSalts))
     , m_capturer(adoptRef(*new GStreamerAudioCapturer(WTF::move(device))))
 {
-    ensureGStreamerInitialized();
+    // MAVERICKS_BACKPORT: see GStreamerCapturer.cpp — this ctor runs in the UIProcess during getUserMedia
+    // validation, where ensureGStreamerInitialized() RELEASE_ASSERTs isInWebProcess().
+    if (isInWebProcess())
+        ensureGStreamerInitialized();
+    else
+        ensureGStreamerInitializedNonWebProcess();
 
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {

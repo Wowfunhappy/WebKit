@@ -42,7 +42,14 @@ namespace WebCore {
 
 static void initializeCapturerDebugCategory()
 {
-    ensureGStreamerInitialized();
+    // MAVERICKS_BACKPORT: capture sources are constructed in the Safari UIProcess during getUserMedia
+    // device validation (RealtimeMediaSourceCenter::getUserMediaDevices). ensureGStreamerInitialized()
+    // RELEASE_ASSERTs isInWebProcess(), so off the web process use the non-web-process initializer
+    // (mirrors GStreamerCaptureDeviceManager). Actual capture still runs in WebContent.
+    if (isInWebProcess())
+        ensureGStreamerInitialized();
+    else
+        ensureGStreamerInitializedNonWebProcess();
 
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {
