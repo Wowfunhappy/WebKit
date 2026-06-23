@@ -20,9 +20,14 @@
 #include "config.h"
 #include "MediaStreamAudioSource.h"
 
-// MAVERICKS_BACKPORT: Cocoa provides MediaStreamAudioSource (MediaStreamAudioSourceCocoa); compiling this
-// GStreamer variant too duplicates WebCore::MediaStreamAudioSource::consumeAudio.
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER) && ENABLE(WEB_AUDIO) && !PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: this hybrid build renders WebAudio via Cocoa (AudioDestinationCocoa) but consumes
+// MediaStream/WebRTC audio via GStreamer (webkitmediastreamsrc / RealtimeOutgoing* expect GStreamerAudioData).
+// Compile THIS GStreamer consumeAudio — it converts the rendered AudioBus to a GstSample. The Cocoa variant
+// (MediaStreamAudioSourceCocoa.cpp, dropped from PlatformMac.cmake) delivered a WebAudioBufferList that the
+// GStreamer consumers static_cast to GStreamerAudioData -> garbage pointer -> crash (LiveKit #115). The base
+// MediaStreamAudioSource.cpp's notImplemented() setNumberOfChannels covers that method (gated to include
+// USE(GSTREAMER)); channels are handled per-buffer in consumeAudio below.
+#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER) && ENABLE(WEB_AUDIO)
 
 #include "AudioBus.h"
 #include "GStreamerAudioData.h"
