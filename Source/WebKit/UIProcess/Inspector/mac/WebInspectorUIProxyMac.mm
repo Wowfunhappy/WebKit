@@ -1001,6 +1001,16 @@ bool WebInspectorUIProxy::platformInspectorPageLoadOverride(WebPageProxy& inspec
         // exposes them as attribute getters under different names).
         NSRange firstScript = [html rangeOfString:@"<script"];
         if (firstScript.location != NSNotFound) {
+            // 10.9 backport (#69): paint the unified-toolbar gradient + traffic-light inset here at
+            // frontend-load time instead of patching the system WebInspectorUI Main.css — keeps the
+            // stock bundle pristine (no system-file edit). The undocked inspector window has no
+            // native textured titlebar, and _WKInspectorWindow makes #toolbar fill the titlebar
+            // region (full-size-content-view emulation), so paint the docked gradient on the
+            // undocked toolbar and reserve 78px for the floating window buttons.
+            NSString *unifiedToolbarCSS = @"<style>"
+                @"body:not(.docked) #toolbar, body:not(.docked) .toolbar{background-image:-webkit-linear-gradient(top,rgb(216,216,216),rgb(190,190,190)) !important;box-shadow:inset rgba(255,255,255,0.1) 0 1px 0,inset rgba(0,0,0,0.02) 0 -1px 0 !important;}"
+                @"body:not(.docked) #toolbar{padding-left:78px !important;}"
+                @"</style>";
             NSString *shim = @"<script>(function(){"
                               "window.__inspErrors=[];window.addEventListener('error',function(e){window.__inspErrors.push((e.message||'?')+' @ '+(e.filename||'?').replace(/.*\\//,'')+':'+(e.lineno||'?'));});"
                               "var IFH=window.InspectorFrontendHost;if(!IFH){window.__inspErrors.push('no IFH');return;}"
@@ -1031,7 +1041,7 @@ bool WebInspectorUIProxy::platformInspectorPageLoadOverride(WebPageProxy& inspec
                               "var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){return origDisp(obj.params.message);}}catch(e){}return origDisp(message);};}}});"
                               "})();}catch(e){console.log('[shim] THREW '+e);}"
                               "})();</script>";
-            html = [html stringByReplacingCharactersInRange:NSMakeRange(firstScript.location, 0) withString:shim];
+            html = [html stringByReplacingCharactersInRange:NSMakeRange(firstScript.location, 0) withString:[unifiedToolbarCSS stringByAppendingString:shim]];
         }
         htmlData = [html dataUsingEncoding:NSUTF8StringEncoding];
     }
