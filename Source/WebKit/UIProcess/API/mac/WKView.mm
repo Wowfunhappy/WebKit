@@ -25,6 +25,7 @@
 #import "WKProcessGroupInternal.h"
 #import "WKBrowsingContextGroupInternal.h"
 #import <WebCore/ActivityState.h>
+#import <WebCore/ColorCocoa.h>
 #import <WebCore/IntSize.h>
 #import <WebCore/KeypressCommand.h>
 #import <QuartzCore/QuartzCore.h>
@@ -186,6 +187,25 @@ struct WKViewState {
         if (RefPtr drawingArea = _wkState->page->drawingArea())
             drawingArea->setSize(WebCore::IntSize(frame.size.width, frame.size.height));
     }
+}
+
+// MAVERICKS_BACKPORT: implement the underlayColor property. It is declared in WKViewPrivate.h
+// but was never implemented here, so when Safari 7's ContinuousReadingListViewController opens a
+// Reading List item it sends -setUnderlayColor: to BrowserWKView, the message falls through to
+// the forwarding path, and the resulting unrecognized-selector NSInvalidArgumentException is
+// uncaught — terminating the whole Safari UI process. Mirror WebViewImpl::setUnderlayColor /
+// underlayColor, delegating straight to the page proxy.
+- (void)setUnderlayColor:(NSColor *)underlayColor
+{
+    if (_wkState && _wkState->page)
+        _wkState->page->setUnderlayColor(WebCore::colorFromCocoaColor(underlayColor));
+}
+
+- (NSColor *)underlayColor
+{
+    if (_wkState && _wkState->page)
+        return WebCore::cocoaColorOrNil(_wkState->page->underlayColor()).autorelease();
+    return nil;
 }
 // NSTextInputClient minimal stubs — Safari crashes with validAttributesForMarkedText
 // unrecognized selector when BrowserWKView is added to a window without these.
