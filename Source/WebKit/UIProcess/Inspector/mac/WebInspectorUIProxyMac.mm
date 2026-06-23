@@ -762,6 +762,22 @@ void WebInspectorUIProxy::windowFrameDidChange()
 
     RetainPtr frameString = NSStringFromRect([m_inspectorWindow frame]);
     inspectedPage->pageGroup().preferences().setInspectorWindowFrame(frameString.get());
+
+    // 10.9 backport (#66/#69): the inspector webView is hosted in the window's NSThemeFrame for the
+    // unified toolbar. NSThemeFrame does its own layout and does NOT honor the autoresizing mask on
+    // our manually-added subview, and 10.9 WKWebView doesn't auto-propagate its size to its
+    // DrawingArea (same reason platformCreateFrontendPage force-pushes the initial size). So on every
+    // window resize, explicitly resize the webView to fill the frame view and push the new size to
+    // the inspector page's DrawingArea — otherwise the frontend never reflows to the new size.
+    RetainPtr<NSView> contentView = [m_inspectorWindow contentView];
+    NSView *frameView = [contentView superview] ?: contentView.get();
+    NSRect frameBounds = [frameView bounds];
+    if (RetainPtr<WKWebView> inspectorView = [m_inspectorViewController webView])
+        inspectorView.get().frame = frameBounds;
+    if (RefPtr page = m_inspectorPage.get()) {
+        if (RefPtr da = page->drawingArea())
+            da->setSize(WebCore::IntSize(static_cast<int>(frameBounds.size.width), static_cast<int>(frameBounds.size.height)));
+    }
 }
 
 void WebInspectorUIProxy::windowFullScreenDidChange()
@@ -1040,6 +1056,17 @@ bool WebInspectorUIProxy::platformInspectorPageLoadOverride(WebPageProxy& inspec
                               "}catch(e){}return origSend(messageStr);};"
                               "var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){return origDisp(obj.params.message);}}catch(e){}return origDisp(message);};}}});"
                               "})();}catch(e){console.log('[shim] THREW '+e);}"
+                              // 10.9 (#69): make the WHOLE inspector toolbar background a native window-drag
+                              // handle. The web view covers the native titlebar (unified-toolbar emulation) so
+                              // AppKit titlebar-dragging is gone, and the stock frontend only arms a narrow
+                              // moveWindowBy region. Route toolbar-background mousedowns (off interactive items)
+                              // to startWindowDrag(), now backed by a 10.9 manual drag loop in WebViewImpl.
+                              "try{document.addEventListener('mousedown',function(ev){"
+                              "if(ev.button!==0||!ev.target||!ev.target.closest)return;"
+                              "if(!ev.target.closest('#toolbar, .toolbar'))return;"
+                              "if(ev.target.closest('button,input,select,textarea,a,.item,.toolbar-item,.dashboard-container,.navigation-bar,.search-bar,[role=button]'))return;"
+                              "if(IFH.startWindowDrag){IFH.startWindowDrag();ev.preventDefault();ev.stopPropagation();}"
+                              "},true);}catch(e){}"
                               "})();</script>";
             html = [html stringByReplacingCharactersInRange:NSMakeRange(firstScript.location, 0) withString:[unifiedToolbarCSS stringByAppendingString:shim]];
         }

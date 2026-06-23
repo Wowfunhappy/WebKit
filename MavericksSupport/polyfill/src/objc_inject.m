@@ -91,6 +91,31 @@ static id mav_appearanceTintColor(id s, SEL c) { return [NSColor controlAccentCo
 // Lets the upstream pressure-event code (PlatformEventFactoryMac) read event.stage unguarded. ---
 static NSInteger mav_eventStage(id s, SEL c) { return 0; }
 
+// --- NSWindow: -performWindowDragWithEvent: (10.11+). 10.9 has no native window drag from web content,
+// so WebViewImpl::startWindowDrag() (e.g. the Web Inspector's unified toolbar, which hosts the web view
+// over the native titlebar, or any -webkit-app-region:drag region) never moved the window. Provide the
+// classic pre-10.11 manual drag loop: follow the mouse with -setFrameOrigin: until mouse-up. Injecting it
+// lets WebViewImpl call -performWindowDragWithEvent: unguarded, exactly as upstream does. ---
+static void mav_performWindowDragWithEvent(id self, SEL c, NSEvent *event)
+{
+    (void)event;
+    NSWindow *win = (NSWindow *)self;
+    NSPoint startMouse = [NSEvent mouseLocation];
+    NSRect startFrame = [win frame];
+    while (YES) {
+        @autoreleasepool {
+            NSEvent *e = [NSApp nextEventMatchingMask:(NSEventMaskLeftMouseDragged | NSEventMaskLeftMouseUp)
+                                            untilDate:[NSDate distantFuture]
+                                               inMode:NSEventTrackingRunLoopMode
+                                              dequeue:YES];
+            if (!e || e.type == NSEventTypeLeftMouseUp)
+                break;
+            NSPoint now = [NSEvent mouseLocation];
+            [win setFrameOrigin:NSMakePoint(startFrame.origin.x + (now.x - startMouse.x), startFrame.origin.y + (now.y - startMouse.y))];
+        }
+    }
+}
+
 @interface MavericksObjCInjection : NSObject @end
 @implementation MavericksObjCInjection
 + (void)load
@@ -148,6 +173,11 @@ static NSInteger mav_eventStage(id s, SEL c) { return 0; }
         char retInteger[8];
         snprintf(retInteger, sizeof retInteger, "%s%s%s", @encode(NSInteger), @encode(id), @encode(SEL));
         addInstance([NSEvent class], @selector(stage), (IMP)mav_eventStage, retInteger);
+
+        // -[NSWindow performWindowDragWithEvent:] (10.11+): void return, NSEvent* arg.
+        char retVoidEvent[12];
+        snprintf(retVoidEvent, sizeof retVoidEvent, "%s%s%s%s", @encode(void), @encode(id), @encode(SEL), @encode(id));
+        addInstance([NSWindow class], @selector(performWindowDragWithEvent:), (IMP)mav_performWindowDragWithEvent, retVoidEvent);
     }
 }
 @end
