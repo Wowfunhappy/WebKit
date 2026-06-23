@@ -162,6 +162,11 @@ list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
 )
 
 list(APPEND WebCore_SOURCES
+    # MAVERICKS_BACKPORT: AVSpeechSynthesizer polyfill (NSSpeechSynthesizer-backed)
+    # so the Web Speech API synthesis path resolves on 10.9. -fobjc-arc + non-unified
+    # (must not be bundled with files that import AVFoundation's AVSpeech* headers).
+    platform/cocoa/SpeechSynthesisAVFoundationPolyfill_109.mm
+
     Modules/geolocation/cocoa/GeolocationPositionDataCocoa.mm
 
     Modules/paymentrequest/MerchantValidationEvent.cpp
@@ -1016,4 +1021,7 @@ endif ()
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${MAVERICKS_DEPS}/include"
 )
+
+# MAVERICKS_BACKPORT: the AVSpeechSynthesizer polyfill is written for ARC.
+set_source_files_properties(platform/cocoa/SpeechSynthesisAVFoundationPolyfill_109.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 
