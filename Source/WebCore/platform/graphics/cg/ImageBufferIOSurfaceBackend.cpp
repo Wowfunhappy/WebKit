@@ -52,7 +52,6 @@ IntSize ImageBufferIOSurfaceBackend::calculateSafeBackendSize(const Parameters& 
         return { };
 
     IntSize maxSize = IOSurface::maximumSize();
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IOSurfBE::calcSafe] backendSize=%dx%d maxSize=%dx%d\n", backendSize.width(), backendSize.height(), maxSize.width(), maxSize.height()); fclose(_d);}}
     // 10.9 backport: IOSurface::maximumSize() returns 0x0 due to polyfill stub returning
     // junk via struct-return register. Substitute a sane cap (16K x 16K) so the size
     // check doesn't reject every valid backing-store request.
@@ -78,7 +77,6 @@ size_t ImageBufferIOSurfaceBackend::calculateMemoryCost(const Parameters& parame
 
 std::unique_ptr<ImageBufferIOSurfaceBackend> ImageBufferIOSurfaceBackend::create(const Parameters& parameters, const ImageBufferCreationContext& creationContext)
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WCore::IOSurfBE::create] purpose=%d paramsBackendSize=%dx%d scale=%g\n", (int)parameters.purpose, parameters.backendSize.width(), parameters.backendSize.height(), (double)parameters.resolutionScale); fclose(_d);}}
     // 10.9 backport: skip IOSurface backend for canvas — IOSurface drawing/readback is
     // unreliable on this build (canvas pixels read back as zeros even after fillRect,
     // canvas.toDataURL returns empty "data:,"). Falling back to ImageBufferPlatformBitmapBackend
@@ -88,17 +86,14 @@ std::unique_ptr<ImageBufferIOSurfaceBackend> ImageBufferIOSurfaceBackend::create
         return nullptr;
 
     IntSize backendSize = calculateSafeBackendSize(parameters);
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WCore::IOSurfBE] backendSize=%dx%d empty=%d\n", backendSize.width(), backendSize.height(), (int)backendSize.isEmpty()); fclose(_d);}}
     if (backendSize.isEmpty())
         return nullptr;
 
     auto surface = IOSurface::create(RefPtr { creationContext.surfacePool }.get(), backendSize, parameters.colorSpace, IOSurface::Name::ImageBuffer, convertToIOSurfaceFormat(parameters.bufferFormat.pixelFormat), parameters.bufferFormat.useLosslessCompression);
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WCore::IOSurfBE] IOSurface::create returned=%p\n", surface.get()); fclose(_d);}}
     if (!surface)
         return nullptr;
 
     RetainPtr<CGContextRef> cgContext = surface->createPlatformContext(creationContext.displayID);
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WCore::IOSurfBE] createPlatformContext returned=%p\n", cgContext.get()); fclose(_d);}}
     if (!cgContext)
         return nullptr;
 

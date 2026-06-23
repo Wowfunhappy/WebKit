@@ -355,7 +355,6 @@ void PlatformCALayerRemote::updateBackingStore()
     parameters.includeDisplayList = shouldIncludeDisplayListInBackingStore();
 #endif
 
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PCL-Remote::ubs] bounds=%gx%g acceleratesDrawing=%d → params: type=%d size=%gx%g opaque=%d\n", (double)m_properties.bounds.size().width(), (double)m_properties.bounds.size().height(), (int)m_acceleratesDrawing, (int)parameters.type, (double)parameters.size.width(), (double)parameters.size.height(), (int)parameters.isOpaque); fclose(_d);}}
     store->ensureBackingStore(parameters);
 }
 

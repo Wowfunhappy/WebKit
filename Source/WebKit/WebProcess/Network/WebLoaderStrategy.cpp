@@ -134,11 +134,6 @@ WebLoaderStrategy::WebLoaderStrategy(WebProcess& webProcess)
     , m_internallyFailedLoadTimer((
         []() -> RunLoop& {
             auto& mrl = RunLoop::mainSingleton();
-            uintptr_t bits;
-            memcpy(&bits, (char*)&mrl + 0x8, sizeof(bits));
-            FILE *_d = ((FILE*)0);
-            if (_d) { fprintf(_d, "[PID %d] WebLoaderStrategy ctor: mrl=%p m_bits=0x%llx\n",
-                getpid(), &mrl, (unsigned long long)bits); fclose(_d); }
             return mrl;
         }()), "WebLoaderStrategy::InternallyFailedLoadTimer"_s, this, &WebLoaderStrategy::internallyFailedLoadTimerFired)
 {
@@ -425,9 +420,7 @@ bool WebLoaderStrategy::tryLoadingUsingURLSchemeHandler(ResourceLoader& resource
     if (resourceLoader.request().url().protocolIsAbout() && !resourceLoader.documentLoader()->isLoadingMainResource())
         return false;
 
-    auto urlForLog = resourceLoader.request().url().string();
     RefPtr handler = webPage->urlSchemeHandlerForScheme(resourceLoader.request().url().protocol());
-    { FILE *_f=((FILE*)0); if(_f) { fprintf(_f, "[INSPECTOR-WL] tryLoadingUsingURLSchemeHandler url=%s handler=%p\n", urlForLog.utf8().data(), handler.get()); fclose(_f); } }
     if (!handler)
         return false;
 

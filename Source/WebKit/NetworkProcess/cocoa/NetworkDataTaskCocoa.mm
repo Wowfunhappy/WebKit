@@ -682,15 +682,6 @@ String NetworkDataTaskCocoa::suggestedFilename() const
 
 void NetworkDataTaskCocoa::cancel()
 {
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) {
-            auto u = m_task.get().originalRequest.URL.absoluteString.UTF8String ?: "";
-            fprintf(_f, "[NetworkDataTaskCocoa::cancel PID %d] task=%llu url=%.150s\n",
-                getpid(), (unsigned long long)m_task.get().taskIdentifier, u);
-            fclose(_f);
-        }
-    }
     WTFEmitSignpost(m_task.get(), DataTask, "cancel");
     [m_task cancel];
 }

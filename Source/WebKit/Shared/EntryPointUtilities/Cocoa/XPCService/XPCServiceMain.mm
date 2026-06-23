@@ -63,7 +63,6 @@
 #endif
 
 namespace WebKit {
-static void xpc_trace(const char *msg) { FILE *f = ((FILE*)0); if (f) { fprintf(f, "[PID %d] %s\n", getpid(), msg); fclose(f); } }
 
 static Vector<String>& NODELETE overrideLanguagesFromBootstrap()
 {
@@ -150,7 +149,7 @@ static void setUserDirSuffix(ASCIILiteral suffix)
 }
 
 void XPCServiceEventHandler(xpc_connection_t peer)
-{ xpc_trace("XPCServiceEventHandler called");
+{
     OSObjectPtr<xpc_connection_t> retainedPeerConnection(peer);
 
     // 10.9: dispatch the bootstrap handler to the MAIN queue rather than a global
@@ -166,7 +165,6 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             RELEASE_LOG_ERROR(IPC, "XPCServiceEventHandler: Received unexpected XPC event type: %{public}s", xpc_type_get_name(type));
             if (type == XPC_TYPE_ERROR) {
                 if (event == XPC_ERROR_CONNECTION_INVALID || event == XPC_ERROR_TERMINATION_IMMINENT) {
-                    xpc_trace(event == XPC_ERROR_CONNECTION_INVALID ? "XPC_ERROR_CONNECTION_INVALID" : "XPC_ERROR_TERMINATION_IMMINENT");
                     RELEASE_LOG_FAULT(IPC, "Exiting: Received XPC event type: %{public}s", event == XPC_ERROR_CONNECTION_INVALID ? "XPC_ERROR_CONNECTION_INVALID" : "XPC_ERROR_TERMINATION_IMMINENT");
                     // On 10.9, Safari closes the XPC connection after bootstrap completes.
                     // The WebContent process must continue running using the IPC mach port.
@@ -334,7 +332,6 @@ int XPCServiceMain(int, const char**)
     }
     for (int sig : { SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGFPE, SIGTRAP })
         signal(sig, webkitMavericksCrashBacktrace);
-    xpc_trace("XPCServiceMain entered");
 
     // Initialize WTF and main thread on the ACTUAL main thread (before xpc_main).
     // This is critical because xpc_main's event handlers run on background threads,
@@ -342,7 +339,6 @@ int XPCServiceMain(int, const char**)
     // so that IPC message dispatch reaches xpc_main's CFRunLoop.
     WTF::initialize();
     WTF::initializeMainThread();
-    xpc_trace("main thread initialized");
 
     // xpc_copy_bootstrap is 10.12+. On 10.9, skip it.
     OSObjectPtr<xpc_object_t> bootstrap;
@@ -365,9 +361,7 @@ int XPCServiceMain(int, const char**)
 #endif
     }
 
-    xpc_trace("calling xpc_main");
     xpc_main(XPCServiceEventHandler);
-    xpc_trace("xpc_main returned");
 
     // 10.9 backport: with RunLoopType=NSRunLoop (set in the .xpc Info.plist), xpc_main runs a real
     // run loop on the main thread and does not return. This fallback only runs if it ever does

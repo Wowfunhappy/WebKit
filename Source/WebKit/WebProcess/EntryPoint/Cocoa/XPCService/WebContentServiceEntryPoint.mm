@@ -43,11 +43,6 @@
 
 extern "C" WK_EXPORT void WEBCONTENT_SERVICE_INITIALIZER(xpc_connection_t connection, xpc_object_t initializerMessage);
 
-static void trace(const char *msg) {
-    FILE *f = ((FILE*)0);
-    if (f) { fprintf(f, "[PID %d] %s\n", getpid(), msg); fclose(f); }
-}
-
 void WEBCONTENT_SERVICE_INITIALIZER(xpc_connection_t connection, xpc_object_t initializerMessage)
 {
     // 10.9 backport: redirect stderr to per-pid file so WebContent fprintfs are visible.
@@ -57,18 +52,13 @@ void WEBCONTENT_SERVICE_INITIALIZER(xpc_connection_t connection, xpc_object_t in
         int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0666);
         if (fd >= 0) { dup2(fd, 2); close(fd); }
     }
-    trace("WEBCONTENT_SERVICE_INITIALIZER entered");
 
 #if USE(TZONE_MALLOC)
     bmalloc::api::TZoneHeapManager::setBucketParams(4);
 #endif
-    trace("calling initializeMainThread");
     WTF::initializeMainThread();
-    trace("initializeMainThread done");
 
     WebKit::EnvironmentUtilities::removeValuesEndingWith("DYLD_INSERT_LIBRARIES"_s, "/WebProcessShim.dylib"_s);
 
-    trace("calling XPCServiceInitializer<WebProcess>");
     WebKit::XPCServiceInitializer<WebKit::WebProcess, WebKit::XPCServiceInitializerDelegate, true>(connection, initializerMessage);
-    trace("XPCServiceInitializer returned");
 }

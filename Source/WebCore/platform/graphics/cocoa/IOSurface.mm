@@ -190,7 +190,6 @@ WTF::MachSendRight IOSurface::createSendRight() const
     if (!m_surface)
         return { };
     mach_port_t p = IOSurfaceCreateMachPort(m_surface.get());
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[IOSurface::createSendRight] surface=%p port=0x%x\n", m_surface.get(), (unsigned)p); fclose(_d);}}
     return WTF::MachSendRight::adopt(p);
 }
 

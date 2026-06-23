@@ -104,16 +104,6 @@ RunLoop& RunLoop::currentSingleton()
 RunLoop& RunLoop::mainSingleton()
 {
     ASSERT(s_mainRunLoop);
-    {
-        FILE *_d = ((FILE*)0);
-        if (_d) {
-            uintptr_t bits = 0;
-            if (s_mainRunLoop) memcpy(&bits, (char*)s_mainRunLoop + 0x8, sizeof(bits));
-            fprintf(_d, "[PID %d] mainSingleton() s_mainRunLoop=%p m_bits=0x%llx\n",
-                getpid(), s_mainRunLoop, (unsigned long long)bits);
-            fclose(_d);
-        }
-    }
     return *s_mainRunLoop;
 }
 
@@ -168,7 +158,6 @@ bool RunLoop::isCurrent() const
 
 void RunLoop::performWork()
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[RunLoop::performWork PID %d] this=%p\n", getpid(), this); fclose(_d);}}
     bool didSuspendFunctions = false;
 
     {
@@ -209,7 +198,6 @@ void RunLoop::dispatch(Function<void()>&& function)
         needsWakeup = m_nextIteration.isEmpty();
         m_nextIteration.append(WTF::move(function));
     }
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[RunLoop::dispatch PID %d] this=%p needsWakeup=%d\n", getpid(), this, needsWakeup); fclose(_d);}}
 
     if (needsWakeup)
         wakeUp();

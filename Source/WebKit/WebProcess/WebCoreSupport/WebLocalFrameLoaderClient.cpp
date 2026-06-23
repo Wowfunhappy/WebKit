@@ -668,7 +668,6 @@ void WebLocalFrameLoaderClient::dispatchDidCommitLoad(std::optional<HasInsecureC
 
 void WebLocalFrameLoaderClient::dispatchDidFailProvisionalLoad(const ResourceError& error, WillContinueLoading willContinueLoading, WillInternallyHandleFailure willInternallyHandleFailure)
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[wc-fail-prov PID %d] err domain=%s code=%d url=%s desc=%s mainFrame=%d\n", getpid(), error.domain().utf8().data(), error.errorCode(), error.failingURL().string().utf8().data(), error.localizedDescription().utf8().data(), (int)m_frame->isMainFrame()); fclose(_d);}}
     RefPtr webPage = m_frame->page();
     if (!webPage)
         return;
@@ -958,17 +957,6 @@ void WebLocalFrameLoaderClient::dispatchShow()
 
 void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceResponse& response, const ResourceRequest& request, const String& downloadAttribute, FramePolicyFunction&& function)
 {
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) {
-            auto u = response.url().string().utf8();
-            auto m = response.mimeType().utf8();
-            auto da = downloadAttribute.utf8();
-            fprintf(_f, "[WebLFLC::dispatchDecidePolicyForResponse PID %d entry] mainFrame=%d mime=%.40s download=%.40s url=%.150s\n",
-                getpid(), (int)m_frame->isMainFrame(), m.data(), da.data(), u.data());
-            fclose(_f);
-        }
-    }
     RefPtr webPage = m_frame->page();
     if (!webPage) {
         WebLocalFrameLoaderClient_RELEASE_LOG(Network, "dispatchDecidePolicyForResponse: ignoring because there's no web page");
@@ -1109,7 +1097,6 @@ WebCore::AllowsContentJavaScript WebLocalFrameLoaderClient::allowsContentJavaScr
 void WebLocalFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const NavigationAction& navigationAction, const ResourceRequest& request, const ResourceResponse& redirectResponse,
     FormState* formState, const String& clientRedirectSourceForHistory, std::optional<WebCore::NavigationIdentifier> navigationID, std::optional<WebCore::HitTestResult>&& hitTestResult, bool hasOpener, NavigationUpgradeToHTTPSBehavior navigationUpgradeToHTTPSBehavior, WebCore::SandboxFlags sandboxFlags, PolicyDecisionMode policyDecisionMode, FramePolicyFunction&& function)
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[wc-policy PID %d] url=%s policyDecisionMode=%d\n", getpid(), request.url().string().utf8().data(), (int)policyDecisionMode); fclose(_d);}}
     if (auto requestor = navigationAction.requester()) {
         if (requestor->frameID && *requestor->frameID != m_frame->frameID() && Site(requestor->url) != Site(m_frame->url()))
             removeStorageAccess();

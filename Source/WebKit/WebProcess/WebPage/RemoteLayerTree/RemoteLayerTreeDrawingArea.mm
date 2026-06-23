@@ -174,7 +174,6 @@ void RemoteLayerTreeDrawingArea::attachViewOverlayGraphicsLayer(WebCore::FrameId
 
 void RemoteLayerTreeDrawingArea::addRootFrame(WebCore::FrameIdentifier frameID)
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[RLT::addRootFrame PID %d] frameID=%llu\n", getpid(), frameID.toUInt64()); fclose(_d);}}
     ASSERT(Frame::isRootFrameIdentifier(frameID));
     auto layer = GraphicsLayer::create(graphicsLayerFactory(), *this);
     layer->setName(makeString("drawing area root "_s, frameID));
@@ -207,7 +206,6 @@ void RemoteLayerTreeDrawingArea::setRootCompositingLayer(WebCore::Frame& frame, 
 
 void RemoteLayerTreeDrawingArea::updateGeometry(const IntSize& viewSize, bool flushSynchronously, const WTF::MachSendRight&, CompletionHandler<void()>&& completionHandler)
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[RLT::updateGeometry PID %d] viewSize=(%d,%d)\n", getpid(), viewSize.width(), viewSize.height()); fclose(_d);}}
     IntSize size = viewSize;
     IntSize contentSize = IntSize(-1, -1);
 

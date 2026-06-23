@@ -45,9 +45,7 @@ public:
 template<>
 void initializeAuxiliaryProcess<NetworkProcess>(AuxiliaryProcessInitializationParameters&& parameters)
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] initializeAuxiliaryProcess<NetworkProcess> entered\n", getpid()); fclose(_d);}}
     static NeverDestroyed<Ref<NetworkProcess>> networkProcess = NetworkProcess::create(WTF::move(parameters));
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] initializeAuxiliaryProcess<NetworkProcess> done\n", getpid()); fclose(_d);}}
 }
 
 } // namespace WebKit
