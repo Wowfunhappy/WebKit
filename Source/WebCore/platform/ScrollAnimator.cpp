@@ -71,6 +71,18 @@ bool ScrollAnimator::singleAxisScroll(ScrollEventAxis axis, float scrollDelta, O
     CheckedRef scrollableArea = m_scrollableArea.get();
     scrollableArea->scrollbarsController().setScrollbarAnimationsUnsuspendedByUserInteraction(true);
 
+    // MAVERICKS_BACKPORT: a line/page (keyboard) scroll is computed relative to m_currentPosition, but
+    // wheel/trackpad scrolling is performed by the async scrolling thread, which updates the
+    // ScrollableArea's scroll position (and the visible layer) out-of-band without routing through this
+    // ScrollAnimator. So after a wheel scroll m_currentPosition is stale and the next arrow/Page key
+    // scrolls relative to the pre-wheel position -- the page visibly jumps back to where it was before
+    // the wheel scroll. (Latent until #74 routed keyboard scrolling through this synchronous path
+    // instead of the never-serviced async keyboard animation.) When no animation owns m_currentPosition,
+    // reconcile it with the real scroll position first so the step is applied from where the content
+    // actually is. Mirrors the out-of-sync defense already in scrollToPositionWithoutAnimation().
+    if (scrollableArea->scrollAnimationStatus() == ScrollAnimationStatus::NotAnimating && roundedIntPoint(m_currentPosition) != scrollableArea->scrollPosition())
+        m_currentPosition = scrollableArea->scrollPosition();
+
     auto delta = setValueForAxis(FloatSize { }, axis, scrollDelta);
 
     if (behavior.contains(ScrollBehavior::RespectScrollSnap) && m_scrollController.usesScrollSnap()) {
