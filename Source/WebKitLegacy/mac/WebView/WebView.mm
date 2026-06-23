@@ -2518,7 +2518,14 @@ static bool fastDocumentTeardownEnabled()
     if (!_private || _private->closed)
         return;
 
-    _private->inspectorDebuggable->detachFromPage();
+    // 10.9 backport: on Mac the legacy WebView is intentionally NOT registered as a RemoteInspector
+    // debuggable (see _commonInitializationWithFrameName — webinspectord is absent on 10.9, so
+    // creating/registering one faults), so _private->inspectorDebuggable is null here. Guard the
+    // teardown: closing such a WebView (e.g. Safari disabling an extension, which closes its WK1
+    // view via -[WebView _close]) would otherwise null-deref in detachFromPage() and terminate the
+    // whole Safari UI process.
+    if (_private->inspectorDebuggable)
+        _private->inspectorDebuggable->detachFromPage();
     _private->inspectorController->willDestroyPage(*_private->page);
 
     [[NSNotificationCenter defaultCenter] postNotificationName:WebViewWillCloseNotification object:self];
@@ -2761,12 +2768,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (BOOL)allowsRemoteInspection
 {
-    return _private->inspectorDebuggable->inspectable();
+    // 10.9 backport: inspectorDebuggable is null on Mac (see -[WebView _close]); report not-inspectable.
+    return _private->inspectorDebuggable ? _private->inspectorDebuggable->inspectable() : NO;
 }
 
 - (void)setAllowsRemoteInspection:(BOOL)allow
 {
-    _private->inspectorDebuggable->setInspectable(allow);
+    // 10.9 backport: inspectorDebuggable is null on Mac (see -[WebView _close]); nothing to configure.
+    if (_private->inspectorDebuggable)
+        _private->inspectorDebuggable->setInspectable(allow);
 }
 
 - (void)setShowingInspectorIndication:(BOOL)showing

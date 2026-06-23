@@ -81,7 +81,16 @@ NSBezelStyle ButtonMac::bezelStyle(const FloatRect& rect, const ControlStyle& st
     auto controlSize = style.states.contains(ControlStyle::State::LargeControls) ? NSControlSizeLarge : NSControlSizeRegular;
     auto size = cellSize(controlSize, style);
 
-    if (rect.height() > size.height() * style.zoomFactor)
+    float heightLimit = size.height() * style.zoomFactor;
+    // MAVERICKS_BACKPORT: on 10.9 the classic Aqua gel (NSBezelStyleRounded) is the correct look for
+    // ordinary unstyled push buttons even when they are a little taller than the exact standard cell
+    // height -- it renders at its natural height, centered, via rectForBounds(). The default check flips
+    // to the flat shadowless-square bezel for anything over the cell height (20px), so typical buttons
+    // (~22-26px) all draw flat. Reserve the flat bezel for genuinely tall buttons on 10.9.
+    if (NSAppKitVersionNumber < 1343 /* NSAppKitVersionNumber10_10 */)
+        heightLimit *= 1.6;
+
+    if (rect.height() > heightLimit)
         return NSBezelStyleShadowlessSquare;
 
     return NSBezelStyleRounded;
