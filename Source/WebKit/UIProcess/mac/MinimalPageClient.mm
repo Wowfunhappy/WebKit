@@ -49,28 +49,147 @@
 #import <WebCore/ValidationBubble.h>
 #import <WebCore/WebCoreCALayerExtras.h>
 #import <QuartzCore/QuartzCore.h>
+#import <AppKit/AppKit.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/SortedArrayMap.h>
+
+#if ENABLE(FULLSCREEN_API)
+// MAVERICKS_BACKPORT: a borderless content window must opt in to becoming key
+// and main, otherwise the web view it hosts never receives keyboard events
+// (notably Escape, which WebCore's EventHandler uses to exit fullscreen).
+@interface WKMinimalFullScreenWindow : NSWindow
+@end
+
+@implementation WKMinimalFullScreenWindow
+- (BOOL)canBecomeKeyWindow { return YES; }
+- (BOOL)canBecomeMainWindow { return YES; }
+@end
+#endif
 
 namespace WebKit {
 
 #if ENABLE(FULLSCREEN_API)
-// Standalone fullscreen client (held as a member rather than via multiple
-// inheritance, which collides with PageClientImplCocoa's allocator/destructor).
-// Element fullscreen isn't wired up in this minimal WKView client, so each request
-// completes immediately (enter -> denied, exit/began -> done) so page promises
-// don't hang.
+// MAVERICKS_BACKPORT: element/video fullscreen for the WKView client. (Held as a
+// member rather than via multiple inheritance, which collides with
+// PageClientImplCocoa's allocator/destructor.) The full upstream
+// WKFullScreenWindowController depends on VideoPresentationManagerProxy and a
+// number of 10.10+ AppKit/animation APIs, so this implements the handshake
+// directly. The WebProcess renders the :fullscreen element against a black
+// backdrop at viewport size, so the UIProcess side only needs to host the
+// existing web view at screen size in a black borderless window for the duration
+// of the session, and return it to its original place on exit. Escape exits
+// because WebCore's EventHandler (web process) calls fullyExitFullscreen() when
+// the focused web content receives the keydown.
 class MinimalFullScreenManagerProxyClient final : public WebFullScreenManagerProxyClient {
 public:
-    void closeFullScreenManager() final { }
-    bool isFullScreen() final { return false; }
-    void enterFullScreen(WebCore::FloatSize, CompletionHandler<void(bool)>&& completionHandler) final { completionHandler(false); }
+    void closeFullScreenManager() final
+    {
+        if (m_isFullScreen)
+            restoreView();
+    }
+
+    bool isFullScreen() final { return m_isFullScreen; }
+
+    void enterFullScreen(WebCore::FloatSize, CompletionHandler<void(bool)>&& completionHandler) final
+    {
+        if (m_isFullScreen || !m_view) {
+            completionHandler(false);
+            return;
+        }
+
+        NSView *view = m_view;
+        m_savedSuperview = [view superview];
+        m_savedWindow = [view window];
+        m_savedFrame = [view frame];
+        m_savedAutoresizingMask = [view autoresizingMask];
+
+        NSScreen *screen = [m_savedWindow screen];
+        if (!screen)
+            screen = [NSScreen mainScreen];
+
+        m_fullScreenWindow = adoptNS([[WKMinimalFullScreenWindow alloc] initWithContentRect:[screen frame] styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO]);
+        [m_fullScreenWindow setBackgroundColor:[NSColor blackColor]];
+        [m_fullScreenWindow setOpaque:YES];
+        [m_fullScreenWindow setHasShadow:NO];
+        [m_fullScreenWindow setLevel:NSMainMenuWindowLevel + 1];
+        [m_fullScreenWindow setReleasedWhenClosed:NO];
+
+        NSView *contentView = [m_fullScreenWindow contentView];
+        [view removeFromSuperview];
+        [view setFrame:[contentView bounds]];
+        [view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+        [contentView addSubview:view];
+
+        [NSApp setPresentationOptions:NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar];
+        [m_fullScreenWindow makeKeyAndOrderFront:nil];
+        [m_fullScreenWindow makeFirstResponder:view];
+
+        m_isFullScreen = true;
+        completionHandler(true);
+    }
+
 #if ENABLE(QUICKLOOK_FULLSCREEN)
     void updateImageSource() final { }
 #endif
-    void exitFullScreen(CompletionHandler<void()>&& completionHandler) final { completionHandler(); }
-    void beganEnterFullScreen(const WebCore::IntRect&, const WebCore::IntRect&, CompletionHandler<void(bool)>&& completionHandler) final { completionHandler(false); }
-    void beganExitFullScreen(const WebCore::IntRect&, const WebCore::IntRect&, CompletionHandler<void()>&& completionHandler) final { completionHandler(); }
+
+    void exitFullScreen(CompletionHandler<void()>&& completionHandler) final
+    {
+        // Signal readiness to exit; the actual view restore happens in
+        // beganExitFullScreen, after the web process has re-laid-out the element
+        // back to its normal size.
+        completionHandler();
+    }
+
+    void beganEnterFullScreen(const WebCore::IntRect&, const WebCore::IntRect&, CompletionHandler<void(bool)>&& completionHandler) final
+    {
+        completionHandler(m_isFullScreen);
+    }
+
+    void beganExitFullScreen(const WebCore::IntRect&, const WebCore::IntRect&, CompletionHandler<void()>&& completionHandler) final
+    {
+        restoreView();
+        completionHandler();
+    }
+
+    NSView *m_view { nullptr };
+
+private:
+    void restoreView()
+    {
+        if (!m_isFullScreen)
+            return;
+        m_isFullScreen = false;
+
+        NSView *view = m_view;
+        if (view && m_savedSuperview) {
+            [view removeFromSuperview];
+            [view setFrame:m_savedFrame];
+            [view setAutoresizingMask:m_savedAutoresizingMask];
+            [m_savedSuperview addSubview:view];
+        }
+
+        [NSApp setPresentationOptions:NSApplicationPresentationDefault];
+
+        [m_fullScreenWindow orderOut:nil];
+        [m_fullScreenWindow close];
+        m_fullScreenWindow = nil;
+
+        if (m_savedWindow) {
+            [m_savedWindow makeKeyAndOrderFront:nil];
+            if (view)
+                [m_savedWindow makeFirstResponder:view];
+        }
+
+        m_savedSuperview = nil;
+        m_savedWindow = nil;
+    }
+
+    bool m_isFullScreen { false };
+    RetainPtr<NSWindow> m_fullScreenWindow;
+    RetainPtr<NSView> m_savedSuperview;
+    RetainPtr<NSWindow> m_savedWindow;
+    NSRect m_savedFrame { };
+    NSAutoresizingMaskOptions m_savedAutoresizingMask { NSViewNotSizable };
 };
 #endif
 
@@ -81,6 +200,9 @@ public:
         , m_view(view)
         , m_undoTarget(adoptNS([[WKEditorUndoTarget alloc] init]))
     {
+#if ENABLE(FULLSCREEN_API)
+        m_fullScreenClient.m_view = view;
+#endif
     }
 
     void setPage(WebPageProxy* page) { m_page = page; }
