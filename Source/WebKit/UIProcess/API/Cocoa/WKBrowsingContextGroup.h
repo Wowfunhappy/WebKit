@@ -52,6 +52,16 @@ __attribute__((visibility("default")))
 - (BOOL)allowsJavascript;
 - (void)setAllowsJavascript:(BOOL)allowsJavascript;
 
+// Web2.qldisplay also toggles plug-ins on the preview's page group while
+// configuring it. Modern WebKit has no plug-in support, so this is tracked for
+// API fidelity but is inert.
+@property (nonatomic) BOOL allowsPlugIns;
+
+// Web2.qldisplay may install a user style sheet on the group to style the
+// preview. The page-group user-content C SPI is a no-op on this backport, so the
+// preview renders the document's own styles.
+- (void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelistedURLPatterns blacklistedURLPatterns:(NSArray *)blacklistedURLPatterns mainFrameOnly:(BOOL)mainFrameOnly;
+
 @end
 
 #endif // !TARGET_OS_IPHONE

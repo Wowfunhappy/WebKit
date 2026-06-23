@@ -40,6 +40,7 @@
 @implementation WKBrowsingContextGroup {
     WKPageGroupRef _pageGroup;
     BOOL _allowsJavaScript;
+    BOOL _allowsPlugIns;
 }
 
 - (instancetype)initWithIdentifier:(NSString *)identifier
@@ -54,6 +55,7 @@
 
     _allowsJavaScript = YES;
     [self setAllowsJavaScript:YES];
+    _allowsPlugIns = YES;
 
     return self;
 }
@@ -92,6 +94,31 @@
 - (void)setAllowsJavascript:(BOOL)allowsJavascript
 {
     [self setAllowsJavaScript:allowsJavascript];
+}
+
+- (BOOL)allowsPlugIns
+{
+    return _allowsPlugIns;
+}
+
+- (void)setAllowsPlugIns:(BOOL)allowsPlugIns
+{
+    // Modern WebKit has no plug-in support, so there is nothing to enable; track
+    // the flag for API fidelity. Web2.qldisplay sets this while configuring the
+    // HTML preview's page group (a null page group here would crash the QL host).
+    _allowsPlugIns = allowsPlugIns;
+}
+
+- (void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelistedURLPatterns blacklistedURLPatterns:(NSArray *)blacklistedURLPatterns mainFrameOnly:(BOOL)mainFrameOnly
+{
+    // The page-group user-content C SPI (WKPageGroupAddUserStyleSheet) is a no-op
+    // on this backport, so QuickLook's optional preview style sheet is dropped and
+    // the preview renders the document's own styles.
+    (void)source;
+    (void)baseURL;
+    (void)whitelistedURLPatterns;
+    (void)blacklistedURLPatterns;
+    (void)mainFrameOnly;
 }
 
 @end

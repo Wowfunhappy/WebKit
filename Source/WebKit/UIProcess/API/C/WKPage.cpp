@@ -207,7 +207,16 @@ WKContextRef WKPageGetContext(WKPageRef pageRef)
 
 WKPageGroupRef WKPageGetPageGroup(WKPageRef pageRef)
 {
-    return nullptr;
+    // MAVERICKS_BACKPORT: upstream gutted this to return null (page groups were
+    // decoupled from pages), but QuickLook's Web2.qldisplay drives the HTML
+    // preview by calling WKPageGetPageGroup(page) -> WKPageGroupGetPreferences()
+    // and then WKPreferencesSet*() on the result to configure the preview. A null
+    // here makes the QL host crash in WKPreferencesSet* on a null WKPreferencesRef.
+    // WebPageProxy still owns m_pageGroup, so hand it back.
+    auto* page = toImpl(pageRef);
+    if (!page)
+        return nullptr;
+    return toAPI(&page->pageGroup());
 }
 
 WKPageConfigurationRef WKPageCopyPageConfiguration(WKPageRef pageRef)
