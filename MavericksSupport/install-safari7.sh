@@ -391,6 +391,14 @@ if [ -d "$GST_SRC" ]; then
         || echo "  warning: libaudiotoolbox_compat.dylib rebuild failed — deploying the checked-in copy"
     mkdir -p "$GST_DEPLOY"
     cp -Rp "$GST_SRC/." "$GST_DEPLOY/"
+    # applemedia (#117): the macOS-26-built libgstapplemedia.dylib (avfvideosrc / avfdeviceprovider --
+    # the macOS camera-capture plugin) hard-links Metal.framework (absent on 10.9) via its dead
+    # Vulkan/MoltenVK video path and references 15 CoreVideo/AVFoundation constants added after 10.9, so
+    # it fails to dlopen and getUserMedia/enumerateDevices report no camera. This builds the stubs +
+    # reexport shims into $GST_DEPLOY and repoints the plugin onto them so it loads (camera capture works).
+    bash "$REPO/MavericksSupport/deps/gstreamer/build-applemedia-compat.sh" "$GST_DEPLOY" >/dev/null \
+        && echo "  built applemedia compat shims (camera capture)" \
+        || echo "  warning: applemedia compat build failed — camera capture (getUserMedia video) will not work"
 else
     echo "  warning: GStreamer source tree $GST_SRC missing — media will not load"
 fi
