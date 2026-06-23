@@ -35,6 +35,9 @@
 #include <wtf/TZoneMallocInlines.h>
 
 #if USE(GSTREAMER)
+#include "DestinationColorSpace.h"
+#include "ImageBuffer.h"
+#include "PixelBuffer.h"
 #include "VideoFrameGStreamer.h"
 #endif
 
@@ -238,8 +241,28 @@ void CanvasCaptureMediaStreamTrack::Source::captureCanvas()
     metadata.captureTime = MonotonicTime::now().secondsSinceEpoch();
 
 #if USE(GSTREAMER)
-    auto& gstVideoFrame = downcast<VideoFrameGStreamer>(*videoFrame);
     static const double s_fixedFrameRate = 60.0;
+
+    // MAVERICKS_BACKPORT: only the GTK/WPE ports return a VideoFrameGStreamer from canvas->toVideoFrame()
+    // / the WebGL surface path. On the Cocoa+GStreamer hybrid those hand back a CoreVideo-backed
+    // VideoFrame, so the upstream unconditional downcast<VideoFrameGStreamer> hits a RELEASE_ASSERT and
+    // crashes the WebProcess — e.g. canvas.captureStream() feeding a WebRTC sender, which is exactly what
+    // the LiveKit browser test does. When we don't already have a GStreamer frame, re-wrap the canvas
+    // pixels as one so the GStreamer MediaStream/WebRTC pipeline gets the type it requires.
+    RefPtr<VideoFrameGStreamer> gstVideoFramePtr = dynamicDowncast<VideoFrameGStreamer>(videoFrame.get());
+    if (!gstVideoFramePtr) {
+        RefPtr imageBuffer = canvas->makeRenderingResultsAvailable();
+        if (!imageBuffer)
+            return;
+        auto pixelBuffer = imageBuffer->getPixelBuffer({ AlphaPremultiplication::Unpremultiplied, PixelFormat::BGRA8, DestinationColorSpace::SRGB() }, { { }, imageBuffer->truncatedLogicalSize() });
+        if (!pixelBuffer)
+            return;
+        gstVideoFramePtr = VideoFrameGStreamer::createFromPixelBuffer(pixelBuffer.releaseNonNull(), imageBuffer->truncatedLogicalSize(), s_fixedFrameRate, { });
+        if (!gstVideoFramePtr)
+            return;
+        videoFrame = gstVideoFramePtr;
+    }
+    auto& gstVideoFrame = *gstVideoFramePtr;
 
     if (!m_clock)
         m_clock = adoptGRef(gst_system_clock_obtain());
