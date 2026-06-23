@@ -408,31 +408,18 @@ if [ -d "$OLD_PRIVRT" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# #66: undocked Web Inspector toolbar appeared as a separate white bar instead of a
-# UNIFIED titlebar+toolbar. The real fix is native: _WKInspectorWindow now emulates
-# NSWindowStyleMaskFullSizeContentView (10.10+, ignored on 10.9) via a contentRect ==
-# frameRect override, so the inspector's HTML #toolbar fills the top of the window and
-# merges with the titlebar (traffic-light buttons float over it). Stock WebInspectorUI
-# CSS intentionally leaves the UNDOCKED toolbar transparent (only `body.docked .toolbar`
-# paints a gradient) because stock relied on a native textured titlebar showing through.
-# Our window has no textured titlebar, so we (1) paint the same docked gradient on the
-# now-top undocked toolbar and (2) reserve left space for the floating window buttons.
-# Idempotent (strips any prior copy first, marked with /*WK66-UNIFIED*/).
-echo "### Patching Web Inspector unified undocked toolbar (#66)"
+# #66/#69: the unified undocked Web Inspector toolbar (gradient + 78px traffic-light inset)
+# is now injected by WebInspectorUIProxyMac.mm into the inspector frontend HTML at load time,
+# so the stock system WebInspectorUI Main.css is left PRISTINE (no system-file edit). The
+# native half (_WKInspectorWindow emulating NSWindowStyleMaskFullSizeContentView so #toolbar
+# fills the titlebar region) lives in WebKit. Here we only restore the stock Main.css by
+# stripping any WK66-UNIFIED rules a previous install appended to it.
+echo "### Restoring stock Web Inspector Main.css (#69: toolbar CSS now injected at load time)"
 INSPECTOR_CSS=/System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/Resources/Main.css
-if [ -f "$INSPECTOR_CSS" ]; then
-    # Idempotent: strip any prior WebKit-66 rules (each on its own /*WK66-UNIFIED*/ line).
+if [ -f "$INSPECTOR_CSS" ] && grep -q 'WK66-UNIFIED' "$INSPECTOR_CSS"; then
     # Marker-only match — never line-matches the giant minified stylesheet (line 1).
-    if grep -q 'WK66-UNIFIED' "$INSPECTOR_CSS"; then
-        grep -v 'WK66-UNIFIED' "$INSPECTOR_CSS" > "$INSPECTOR_CSS.tmp66" && mv "$INSPECTOR_CSS.tmp66" "$INSPECTOR_CSS"
-    fi
-    # Ensure the stylesheet ends with a newline so our rules land on their own lines.
-    [ -n "$(tail -c1 "$INSPECTOR_CSS")" ] && printf '\n' >> "$INSPECTOR_CSS"
-    printf '%s\n' '/*WK66-UNIFIED*/body:not(.docked) #toolbar, body:not(.docked) .toolbar{background-image:-webkit-linear-gradient(top,rgb(216,216,216),rgb(190,190,190)) !important;box-shadow:inset rgba(255,255,255,0.1) 0 1px 0,inset rgba(0,0,0,0.02) 0 -1px 0 !important;}' >> "$INSPECTOR_CSS"
-    printf '%s\n' '/*WK66-UNIFIED*/body:not(.docked) #toolbar{padding-left:78px !important;}' >> "$INSPECTOR_CSS"
-    echo "  applied unified-toolbar CSS to $INSPECTOR_CSS"
-else
-    echo "  WARN: $INSPECTOR_CSS not found"
+    grep -v 'WK66-UNIFIED' "$INSPECTOR_CSS" > "$INSPECTOR_CSS.tmp66" && mv "$INSPECTOR_CSS.tmp66" "$INSPECTOR_CSS"
+    echo "  stripped legacy WK66-UNIFIED rules from $INSPECTOR_CSS (now pristine)"
 fi
 
 echo "### Done. Verify with: MavericksSupport/safari7-abi/check-abi-gap.sh and 'otool -L' on each installed binary."
