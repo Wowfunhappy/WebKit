@@ -1176,15 +1176,6 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 #endif
 #endif
 
-    {
-        FILE *_f=((FILE*)0);
-        if(_f) {
-            fprintf(_f, "[INSPECTOR-WC-CTOR] WebPage ctor iter urlSchemeHandlers size=%zu\n", parameters.urlSchemeHandlers.size());
-            for (const auto& iterator : parameters.urlSchemeHandlers)
-                fprintf(_f, "  scheme=%s id=%" PRIu64 "\n", iterator.key.utf8().data(), iterator.value.toUInt64());
-            fclose(_f);
-        }
-    }
     for (const auto& iterator : parameters.urlSchemeHandlers)
         registerURLSchemeHandler(iterator.value, iterator.key);
     for (auto& scheme : parameters.urlSchemesWithLegacyCustomProtocolHandlers)
@@ -2242,21 +2233,17 @@ void WebPage::loadDidCommitInAnotherProcess(WebCore::FrameIdentifier frameID, st
 void WebPage::loadRequest(LoadParameters&& loadParameters)
 {
     WEBPAGE_RELEASE_LOG_FORWARDABLE(Loading, WEBPAGE_LOADREQUEST, loadParameters.navigationID ? loadParameters.navigationID->toUInt64() : 0, static_cast<unsigned>(loadParameters.shouldTreatAsContinuingLoad), loadParameters.request.isAppInitiated(), loadParameters.existingNetworkResourceLoadIdentifierToResume ? loadParameters.existingNetworkResourceLoadIdentifierToResume->toUInt64() : 0);
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadRequest PID %d] entered, url=%s\n", getpid(), loadParameters.request.url().string().utf8().data()); fclose(_d);}}
 
     RefPtr frame = loadParameters.frameIdentifier ? WebProcess::singleton().webFrame(*loadParameters.frameIdentifier) : m_mainFrame.ptr();
     if (!frame) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadRequest PID %d] no frame!\n", getpid()); fclose(_d);}}
         ASSERT_NOT_REACHED();
         return;
     }
     RefPtr localFrame = frame->coreLocalFrame() ? frame->coreLocalFrame() : frame->provisionalFrame();
     if (!localFrame) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadRequest PID %d] no localFrame!\n", getpid()); fclose(_d);}}
         ASSERT_NOT_REACHED();
         return;
     }
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadRequest PID %d] frame=%p localFrame=%p, calling load\n", getpid(), frame.get(), localFrame.get()); fclose(_d);}}
 
     setLastNavigationWasAppInitiated(loadParameters.request.isAppInitiated());
 
@@ -2309,9 +2296,7 @@ void WebPage::loadRequest(LoadParameters&& loadParameters)
 
     localFrame->loader().setNavigationUpgradeToHTTPSBehavior(loadParameters.navigationUpgradeToHTTPSBehavior);
     localFrame->loader().setRequiredCookiesVersion(loadParameters.requiredCookiesVersion);
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadRequest PID %d] about to call FrameLoader::load\n", getpid()); fclose(_d);}}
     localFrame->loader().load(WTF::move(frameLoadRequest), WTF::move(loadParameters.requester));
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadRequest PID %d] FrameLoader::load returned\n", getpid()); fclose(_d);}}
 
     ASSERT(!m_pendingNavigationID);
     ASSERT(!m_internals->pendingWebsitePolicies);
@@ -2355,14 +2340,11 @@ void WebPage::loadDataImpl(std::optional<WebCore::NavigationIdentifier> navigati
     frameLoadRequest.setShouldOpenExternalURLsPolicy(shouldOpenExternalURLsPolicy);
     frameLoadRequest.setShouldTreatAsContinuingLoad(shouldTreatAsContinuingLoad);
     frameLoadRequest.setIsRequestFromClientOrUserInput();
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadDataImpl PID %d] calling loader().load localFrame=%p document=%p drawingArea=%p hostWindow=%p\n", getpid(), localFrame.get(), localFrame->document(), m_drawingArea.get(), localFrame->page() ? localFrame->page()->chrome().client().platformPageClient() : nullptr); fclose(_d);}}
     localFrame->loader().load(WTF::move(frameLoadRequest));
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadDataImpl PID %d] loader().load returned\n", getpid()); fclose(_d);}}
 }
 
 void WebPage::loadData(LoadParameters&& loadParameters)
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[WebPage::loadData PID %d] entered pageID=%llu mainFrame=%p dataSize=%zu type=%s baseURL=%s\n", getpid(), (unsigned long long)m_identifier.toUInt64(), m_mainFrame.ptr(), loadParameters.data ? loadParameters.data->size() : 0, loadParameters.MIMEType.utf8().data(), loadParameters.baseURLString.utf8().data()); fclose(_d);}}
     WEBPAGE_RELEASE_LOG(Loading, "loadData: navigationID=%" PRIu64 ", shouldTreatAsContinuingLoad=%u", loadParameters.navigationID ? loadParameters.navigationID->toUInt64() : 0, static_cast<unsigned>(loadParameters.shouldTreatAsContinuingLoad));
 
     platformDidReceiveLoadParameters(loadParameters);
@@ -8036,7 +8018,6 @@ void WebPage::didFinishLoad(WebFrame& frame)
     // never produce a second commit (the initial empty paint stays as the layer.contents)
     // because the m_isScheduled / m_waitingForBackingStoreSwap state machine races with
     // the data: URL load completing.
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[wc-finish PID %d] didFinishLoad mainFrame, drawingArea=%p\n",getpid(),m_drawingArea.get());fclose(_d);}}
     if (RefPtr drawingArea = m_drawingArea)
         drawingArea->updateRenderingWithForcedRepaint();
 }
@@ -8579,7 +8560,6 @@ void WebPage::stopAllURLSchemeTasks()
 
 void WebPage::registerURLSchemeHandler(WebURLSchemeHandlerIdentifier handlerIdentifier, const String& scheme)
 {
-    { FILE *_f=((FILE*)0); if(_f) { fprintf(_f, "[INSPECTOR-WC] registerURLSchemeHandler scheme=%s\n", scheme.utf8().data()); fclose(_f); } }
     WEBPAGE_RELEASE_LOG(Process, "registerURLSchemeHandler: Registered handler %" PRIu64 " for the '%s' scheme", handlerIdentifier.toUInt64(), scheme.utf8().data());
     WebCore::LegacySchemeRegistry::registerURLSchemeAsHandledBySchemeHandler(scheme);
     WebCore::LegacySchemeRegistry::registerURLSchemeAsCORSEnabled(scheme);

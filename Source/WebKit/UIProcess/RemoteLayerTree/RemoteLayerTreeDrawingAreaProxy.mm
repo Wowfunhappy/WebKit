@@ -153,7 +153,6 @@ std::unique_ptr<RemoteLayerTreeHost> RemoteLayerTreeDrawingAreaProxy::detachRemo
 
 void RemoteLayerTreeDrawingAreaProxy::sizeDidChange()
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[RLT-Proxy::sizeDidChange] pageID=%llu size=(%d,%d) hasProcess=%d isWaiting=%d\n", this->page() ? (unsigned long long)this->page()->identifier().toUInt64() : 0, size().width(), size().height(), this->page() ? (int)this->page()->hasRunningProcess() : -1, (int)m_isWaitingForDidUpdateGeometry); fclose(_d);}}
     RefPtr page = this->page();
     if (!page || !page->hasRunningProcess())
         return;
@@ -483,15 +482,6 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
 
     LOG_WITH_STREAM(RemoteLayerTree, stream << "RemoteLayerTreeDrawingAreaProxy::commitLayerTree transaction:" << layerTreeTransaction.description());
     LOG_WITH_STREAM(RemoteLayerTree, stream << "RemoteLayerTreeDrawingAreaProxy::commitLayerTree scrolling tree:" << scrollingTreeTransaction.description());
-    {FILE *_d=((FILE*)0); if(_d){
-        CALayer *root = m_remoteLayerTreeHost ? m_remoteLayerTreeHost->rootLayer() : nil;
-        fprintf(_d,"[ui-commit] txn id=%llu pageID=%llu root=%p frame=(%f,%f,%f,%f) txnContentsSize=(%f,%f)\n",
-            (unsigned long long)transactionID.object().toUInt64(),
-            this->page() ? (unsigned long long)this->page()->identifier().toUInt64() : 0,
-            root, root.frame.origin.x, root.frame.origin.y, root.frame.size.width, root.frame.size.height,
-            layerTreeTransaction.contentsSize().width(), layerTreeTransaction.contentsSize().height());
-        fclose(_d);
-    }}
 
     RefPtr page = this->page();
     if (!page)
@@ -506,19 +496,11 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
                 ++m_countOfTransactionsWithNonEmptyLayerChanges;
 
             bool rootChanged = m_remoteLayerTreeHost->updateLayerTree(connection, layerTreeTransaction, mainFrameData);
-            {FILE *_d=((FILE*)0); if(_d){
-                CALayer *root = m_remoteLayerTreeHost ? m_remoteLayerTreeHost->rootLayer() : nil;
-                fprintf(_d,"[ui-postUpdate] rootChanged=%d rootLayer=%p frame=(%f,%f,%f,%f) sublayers=%lu replyForUnhiding=%d detached=%d\n",
-                    (int)rootChanged, root, root.frame.origin.x, root.frame.origin.y, root.frame.size.width, root.frame.size.height,
-                    (unsigned long)root.sublayers.count, (int)!!m_replyForUnhidingContent, (int)m_hasDetachedRootLayer);
-                fclose(_d);
-            }}
             if (rootChanged) {
                 if (!m_replyForUnhidingContent) {
                     if (m_hasDetachedRootLayer)
                         RELEASE_LOG(RemoteLayerTree, "RemoteLayerTreeDrawingAreaProxy(%" PRIu64 ") Unhiding layer tree", identifier().toUInt64());
                     auto rootNode = protect(m_remoteLayerTreeHost->rootNode());
-                    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-setRootNode] rootNode=%p\n",rootNode.get());fclose(_d);}}
                     page->setRemoteLayerTreeRootNode(rootNode.get());
                     m_hasDetachedRootLayer = false;
                 } else
@@ -604,67 +586,6 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
             fixPassthrough(rl);
         }
     }
-
-    // 10.9 diagnostic: dump root layer tree state to /tmp/load_dbg.log
-    // (disabled by default for perf; set to true to re-enable)
-    static const bool kDiagDump = false;
-    if (kDiagDump && m_remoteLayerTreeHost) {
-        if (auto root = m_remoteLayerTreeHost->rootNode()) {
-            CALayer *rl = root->layer();
-            CALayer *container = [rl superlayer];
-            static unsigned s_diagCount = 0;
-            FILE *_d = (s_diagCount++ < 5) ? ((FILE*)0) : ((FILE*)0);
-            if (_d && rl) {
-                fprintf(_d, "[diag PID %d] rl=%p class=%s frame=(%g,%g,%gx%g) bounds=(%g,%g,%gx%g) hidden=%d masksToBounds=%d opacity=%g sublayers=%lu container=%p\n",
-                    getpid(), rl, object_getClassName(rl),
-                    (double)[rl frame].origin.x, (double)[rl frame].origin.y,
-                    (double)[rl frame].size.width, (double)[rl frame].size.height,
-                    (double)[rl bounds].origin.x, (double)[rl bounds].origin.y,
-                    (double)[rl bounds].size.width, (double)[rl bounds].size.height,
-                    (int)[rl isHidden], (int)[rl masksToBounds], (double)[rl opacity],
-                    (unsigned long)[[rl sublayers] count], container);
-                if (container) {
-                    fprintf(_d, "  container=%p class=%s frame=(%g,%g,%gx%g) bounds=(%g,%g,%gx%g) hidden=%d masksToBounds=%d opacity=%g geomFlipped=%d\n",
-                        container, object_getClassName(container),
-                        (double)[container frame].origin.x, (double)[container frame].origin.y,
-                        (double)[container frame].size.width, (double)[container frame].size.height,
-                        (double)[container bounds].origin.x, (double)[container bounds].origin.y,
-                        (double)[container bounds].size.width, (double)[container bounds].size.height,
-                        (int)[container isHidden], (int)[container masksToBounds], (double)[container opacity],
-                        (int)[container isGeometryFlipped]);
-                }
-                std::function<void(CALayer*, int, int)> dumpRec = [&](CALayer *sl, int depth, int idx) {
-                    CATransform3D t = [sl transform];
-                    auto* node = RemoteLayerTreeNode::forCALayer(sl);
-                    uint64_t lid = node ? node->layerID().object().toUInt64() : 0;
-                    fprintf(_d, "  %*ssub[%d]=%p lid=%llu class=%s frame=(%g,%g,%gx%g) bounds=(%g,%g,%gx%g) hidden=%d opacity=%g contents=%p subs=%lu pos=(%g,%g) anchor=(%g,%g) T=[m11=%g m22=%g m41=%g m42=%g]\n",
-                        depth*2, "", idx, sl, (unsigned long long)lid, object_getClassName(sl),
-                        (double)[sl frame].origin.x, (double)[sl frame].origin.y,
-                        (double)[sl frame].size.width, (double)[sl frame].size.height,
-                        (double)[sl bounds].origin.x, (double)[sl bounds].origin.y,
-                        (double)[sl bounds].size.width, (double)[sl bounds].size.height,
-                        (int)[sl isHidden], (double)[sl opacity], [sl contents],
-                        (unsigned long)[[sl sublayers] count],
-                        (double)[sl position].x, (double)[sl position].y,
-                        (double)[sl anchorPoint].x, (double)[sl anchorPoint].y,
-                        t.m11, t.m22, t.m41, t.m42);
-                    if (depth < 8) {
-                        int ci = 0;
-                        for (CALayer *c in [sl sublayers]) {
-                            dumpRec(c, depth + 1, ci++);
-                            if (ci >= 12) break;
-                        }
-                    }
-                };
-                int idx = 0;
-                for (CALayer *sl in [rl sublayers]) {
-                    dumpRec(sl, 1, idx++);
-                    if (idx >= 5) break;
-                }
-                fclose(_d);
-            }
-        }
-    }
 }
 
 void RemoteLayerTreeDrawingAreaProxy::remirrorFor10_9()
@@ -682,7 +603,6 @@ void RemoteLayerTreeDrawingAreaProxy::remirrorFor10_9()
     if (auto root = m_remoteLayerTreeHost->rootNode()) {
         CALayer *rl = root->layer();
         CALayer *container = [rl superlayer]; // The wrapper container we attached.
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[mirror-walk PID %d] rl=%p container=%p\n", getpid(), rl, container); fclose(_d);}}
         if (rl && container) {
             // 10.9 backport: defer removing existing mirrors until we know we have
             // new content. On cold loads with intermittent layer commits, an
@@ -714,8 +634,6 @@ void RemoteLayerTreeDrawingAreaProxy::remirrorFor10_9()
                         continue;
                     }
                     if ([c contents]) {
-                        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[mirror PID %d] emit for layer=%p contents=%p frame=(%g,%g,%gx%g) abs=(%g,%g)\n", getpid(), c, [c contents], (double)f.origin.x, (double)f.origin.y, (double)f.size.width, (double)f.size.height, (double)childAbs.x, (double)childAbs.y); fclose(_d);}}
-
                         CALayer *m = [CALayer layer];
                         [m setName:@"__10_9_mirror__"];
                         [m setContents:[c contents]];
@@ -824,7 +742,6 @@ void RemoteLayerTreeDrawingAreaProxy::remirrorFor10_9()
                             CFRelease(dst);
                         }
                         CFRelease(url);
-                        FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[uiproc-dump PID %d] dumped %s w=%zu h=%zu\n", getpid(), path, CGImageGetWidth((CGImageRef)raw), CGImageGetHeight((CGImageRef)raw)); fclose(_d);}
                     }
                 }
                 // Compute absolute position by walking up the CALayer tree to find ancestor coordinates.
@@ -851,16 +768,11 @@ void RemoteLayerTreeDrawingAreaProxy::remirrorFor10_9()
                     [m setZPosition:2];
                 [newMirrors addObject:m];
                 ++extras;
-                if (extras < 8) {
-                    FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[mirror-extra PID %d] layerID=%llu c=%p contents=%p frame=(%g,%g,%gx%g)\n",
-                        getpid(), (unsigned long long)layerID.object().toUInt64(), c, [c contents], (double)f.origin.x, (double)f.origin.y, (double)f.size.width, (double)f.size.height); fclose(_d);}
-                }
             }
             // 10.9 backport: only swap the mirror set if we have new content.
             // If extras == 0 (transient blank state), leave the previous good
             // mirrors in place so the visible render isn't destroyed.
             if (extras > 0) {
-                {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[mirror-extra PID %d] total extras=%d, swapping mirrors\n", getpid(), extras); fclose(_d);}}
                 NSArray *exist = [[container sublayers] copy];
                 for (CALayer *sl in exist) {
                     if ([[sl name] isEqualToString:@"__10_9_mirror__"])
@@ -883,64 +795,6 @@ void RemoteLayerTreeDrawingAreaProxy::remirrorFor10_9()
                 }
             }
 
-        }
-    }
-
-    // 10.9 backport: diagnose by dumping transforms and sublayerTransforms so we can
-    // see if an ancestor is collapsing the subtree.
-    if (auto root = m_remoteLayerTreeHost->rootNode()) {
-        CALayer *rl = root->layer();
-        if (rl) {
-            FILE *_d=((FILE*)0);
-            if (_d) {
-                fprintf(_d, "[xform-dump PID %d] root=%p\n", getpid(), rl);
-                NSMutableArray *stack = [NSMutableArray array];
-                for (CALayer *s in [rl sublayers]) [stack addObject:@[s, @1]];
-                while ([stack count] > 0) {
-                    NSArray *e = [stack lastObject]; [stack removeLastObject];
-                    CALayer *sl = e[0]; int d = [e[1] intValue];
-                    CATransform3D t = [sl transform];
-                    CATransform3D st = [sl sublayerTransform];
-                    fprintf(_d, "  d=%d %p T=[%g %g %g %g; %g %g %g %g; %g %g %g %g; %g %g %g %g] sT=[%g %g %g %g; %g %g %g %g; %g %g %g %g; %g %g %g %g]\n",
-                        d, sl,
-                        t.m11, t.m12, t.m13, t.m14, t.m21, t.m22, t.m23, t.m24,
-                        t.m31, t.m32, t.m33, t.m34, t.m41, t.m42, t.m43, t.m44,
-                        st.m11, st.m12, st.m13, st.m14, st.m21, st.m22, st.m23, st.m24,
-                        st.m31, st.m32, st.m33, st.m34, st.m41, st.m42, st.m43, st.m44);
-                    if (d < 8)
-                        for (CALayer *c in [sl sublayers]) [stack addObject:@[c, @(d+1)]];
-                }
-                fclose(_d);
-            }
-        }
-    }
-
-    // 10.9 diag: dump rootNode's tree after commit
-    if (auto root = m_remoteLayerTreeHost->rootNode()) {
-        CALayer *rl = root->layer();
-        FILE *_d=((FILE*)0);
-        if (_d && rl) {
-            fprintf(_d, "[post-commit PID %d] drawingArea=%p root=%p sublayers=%lu bounds=%gx%g\n",
-                getpid(), this, rl, (unsigned long)[[rl sublayers] count],
-                (double)[rl bounds].size.width, (double)[rl bounds].size.height);
-            NSMutableArray *stack = [NSMutableArray array];
-            for (CALayer *s in [rl sublayers]) [stack addObject:@[s, @1]];
-            while ([stack count] > 0) {
-                NSArray *e = [stack lastObject]; [stack removeLastObject];
-                CALayer *sl = e[0]; int d = [e[1] intValue];
-                fprintf(_d, "  %*s[d=%d] %p frame=(%g,%g,%gx%g) contents=%p subs=%lu contentsScale=%g contentsGravity=%s contentsRect=(%g,%g,%gx%g) opaque=%d\n",
-                    d*2, "", d, sl,
-                    (double)[sl frame].origin.x, (double)[sl frame].origin.y,
-                    (double)[sl frame].size.width, (double)[sl frame].size.height,
-                    [sl contents], (unsigned long)[[sl sublayers] count],
-                    (double)[sl contentsScale], [[sl contentsGravity] UTF8String] ?: "<nil>",
-                    (double)[sl contentsRect].origin.x, (double)[sl contentsRect].origin.y,
-                    (double)[sl contentsRect].size.width, (double)[sl contentsRect].size.height,
-                    (int)[sl isOpaque]);
-                if (d < 8)
-                    for (CALayer *ss in [sl sublayers]) [stack addObject:@[ss, @(d+1)]];
-            }
-            fclose(_d);
         }
     }
 }

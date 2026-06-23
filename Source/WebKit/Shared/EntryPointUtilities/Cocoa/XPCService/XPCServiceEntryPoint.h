@@ -81,9 +81,7 @@ protected:
 template<typename XPCServiceType>
 void initializeAuxiliaryProcess(AuxiliaryProcessInitializationParameters&& parameters)
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] initializeAuxiliaryProcess about to call singleton().initialize\n", getpid()); fclose(_d);}}
     XPCServiceType::singleton().initialize(WTF::move(parameters));
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] initializeAuxiliaryProcess returned from initialize\n", getpid()); fclose(_d);}}
 }
 
 #if !USE(RUNNINGBOARD)
@@ -132,20 +130,16 @@ void XPCServiceInitializer(OSObjectPtr<xpc_connection_t> connection, xpc_object_
     setAuxiliaryProcessType(parameters.processType);
 
     InitializeWebKit2();
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] post-InitializeWebKit2 — checking entitlements\n", getpid()); fclose(_d);}}
 
     if (!delegate.checkEntitlements()) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] FAIL: checkEntitlements\n", getpid()); fclose(_d);}}
         exitProcess(EXIT_FAILURE);
     }
 
     if (!delegate.getConnectionIdentifier(parameters.connectionIdentifier)) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] FAIL: getConnectionIdentifier\n", getpid()); fclose(_d);}}
         exitProcess(EXIT_FAILURE);
     }
 
     if (!delegate.getClientIdentifier(parameters.clientIdentifier)) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] FAIL: getClientIdentifier\n", getpid()); fclose(_d);}}
         exitProcess(EXIT_FAILURE);
     }
 
@@ -154,16 +148,13 @@ void XPCServiceInitializer(OSObjectPtr<xpc_connection_t> connection, xpc_object_
 
     std::optional<WebCore::ProcessIdentifier> processIdentifier;
     if (!delegate.getProcessIdentifier(processIdentifier)) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] FAIL: getProcessIdentifier\n", getpid()); fclose(_d);}}
         exitProcess(EXIT_FAILURE);
     }
     parameters.processIdentifier = *processIdentifier;
 
     if (!delegate.getClientProcessName(parameters.uiProcessName)) {
-        {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] FAIL: getClientProcessName\n", getpid()); fclose(_d);}}
         exitProcess(EXIT_FAILURE);
     }
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] all delegate checks passed\n", getpid()); fclose(_d);}}
 
     // Set the task default voucher to the current value (as propagated by XPC).
     // voucher_replace_default_voucher is 10.10+.
@@ -173,7 +164,6 @@ void XPCServiceInitializer(OSObjectPtr<xpc_connection_t> connection, xpc_object_
         Thread::setGlobalMaxQOSClass(QOS_CLASS_UTILITY);
 #endif
 
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[PID %d] about to call initializeAuxiliaryProcess<XPCServiceType>\n", getpid()); fclose(_d);}}
     initializeAuxiliaryProcess<XPCServiceType>(WTF::move(parameters));
 }
 

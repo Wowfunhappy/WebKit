@@ -1127,7 +1127,6 @@ void WebProcess::forEachWebPage(NOESCAPE const Function<void(WebPage&)>& apply) 
 
 void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 {
-    { FILE *_f=((FILE*)0); if(_f) { fprintf(_f, "[INSPECTOR-WP] WebProcess::createWebPage pageID=%" PRIu64 " urlSchemeHandlers.size=%zu\n", pageID.toUInt64(), parameters.urlSchemeHandlers.size()); fclose(_f); } }
     // 10.9 perf: removed debug fopen logging
     m_hasEverHadAnyWebPages = true;
 

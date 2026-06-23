@@ -1887,7 +1887,6 @@ CGSize WebViewImpl::fixedLayoutSize() const
 
 Ref<WebKit::DrawingAreaProxy> WebViewImpl::createDrawingAreaProxy(WebProcessProxy& webProcessProxy)
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-createDA] viewClass=%s drawingAreaType=%d\n", object_getClassName(m_view.getAutoreleased()), (int)m_drawingAreaType); fclose(_d);}}
 #if ENABLE(TILED_CA_DRAWING_AREA)
     switch (m_drawingAreaType) {
     case DrawingAreaType::TiledCoreAnimation:
@@ -4262,14 +4261,6 @@ void WebViewImpl::enterAcceleratedCompositingWithRootLayer(CALayer *rootLayer)
 
 void WebViewImpl::setAcceleratedCompositingRootLayer(CALayer *rootLayer)
 {
-    {FILE *_d=((FILE*)0); if(_d){
-        NSView *hostView = m_layerHostingView.getAutoreleased();
-        fprintf(_d,"[ui-setACRL] rootLayer=%p layerFrame=(%f,%f,%f,%f) layerHidden=%d layerOpaque=%d sublayers=%lu\n",
-            rootLayer,
-            rootLayer.frame.origin.x, rootLayer.frame.origin.y, rootLayer.frame.size.width, rootLayer.frame.size.height,
-            (int)rootLayer.hidden, (int)rootLayer.opaque, (unsigned long)rootLayer.sublayers.count);
-        fclose(_d);
-    }}
     [rootLayer web_disableAllActions];
 
     m_rootLayer = rootLayer;

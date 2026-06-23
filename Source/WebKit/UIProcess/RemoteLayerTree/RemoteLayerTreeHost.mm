@@ -166,7 +166,6 @@ bool RemoteLayerTreeHost::updateBannerLayers(const std::optional<MainFrameData>&
 
 bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, const RemoteLayerTreeTransaction& transaction, const std::optional<MainFrameData>& mainFrameData, float indicatorScaleFactor)
 {
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-host PID %d] updateLayerTree: drawingArea=%p createdLayers=%lu changedLayers=%lu rootLayerID=%llu mainFrameData=%d graveyard=%lu\n",getpid(),m_drawingArea.get(),(unsigned long)transaction.createdLayers().size(),(unsigned long)transaction.changedLayerProperties().size(),(unsigned long long)(transaction.rootLayerID() ? transaction.rootLayerID()->object().toUInt64() : 0),(int)!!mainFrameData,(unsigned long)m_destroyedLayerGraveyard.size());fclose(_d);}}
     if (!m_drawingArea)
         return false;
     // 10.9 backport: keep prior commit's destroyed CALayers alive through this
@@ -181,13 +180,8 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
     }
     auto processIdentifier = sender->coreProcessIdentifier();
 
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-host-preCreateLoop PID %d] createdLayers.size=%lu\n", getpid(), (unsigned long)transaction.createdLayers().size()); fclose(_d);}}
-    int createdCount = 0;
-    for (const auto& createdLayer : transaction.createdLayers()) {
-        ++createdCount;
+    for (const auto& createdLayer : transaction.createdLayers())
         createLayer(createdLayer);
-    }
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-host-postCreateLoop PID %d] createdCount=%d\n", getpid(), createdCount); fclose(_d);}}
 
     bool rootLayerChanged = false;
     RefPtr rootNode = nodeForID(transaction.rootLayerID());
@@ -206,18 +200,7 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
     };
     Vector<LayerAndClone> clonesToUpdate;
 
-    {
-        const auto& clp = transaction.changedLayerProperties();
-        FILE *_d=((FILE*)0);
-        if (_d) {
-            fprintf(_d,"[ui-host-preHierLoop PID %d] clp.size=%lu createdLayers.size=%lu\n",
-                getpid(), (unsigned long)clp.size(), (unsigned long)transaction.createdLayers().size());
-            fclose(_d);
-        }
-    }
-    int hierIter = 0;
     for (auto& [layerID, properties] : transaction.changedLayerProperties()) {
-        ++hierIter;
         RefPtr node = nodeForID(layerID);
         ASSERT(node);
 
@@ -229,7 +212,6 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
 
         RemoteLayerTreePropertyApplier::applyHierarchyUpdates(*node, properties.get(), m_nodes);
     }
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-host-postHierLoop PID %d] hierIter=%d clp.size=%lu\n", getpid(), hierIter, (unsigned long)transaction.changedLayerProperties().size()); fclose(_d);}}
 
     if (auto contextHostedID = transaction.remoteContextHostedIdentifier()) {
         m_hostedLayers.set(*contextHostedID, rootNode->layerID());
@@ -248,9 +230,6 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
         protect(*m_drawingArea)->updateTimelinesRegistration(processIdentifier, transaction.timelinesUpdate(), MonotonicTime::now());
 #endif
 
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-host-prePropLoop PID %d] entering second loop, size=%lu\n", getpid(), (unsigned long)transaction.changedLayerProperties().size()); fclose(_d);}}
-    int found = 0, missing = 0, withBackingStore = 0;
-    bool isLargeTxn = transaction.changedLayerProperties().size() > 5;
     for (auto& changedLayer : transaction.changedLayerProperties()) {
         auto layerID = changedLayer.key;
         const auto& properties = changedLayer.value.get();
@@ -259,28 +238,10 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
         ASSERT(node);
 
         if (!node) {
-            ++missing;
             // We have evidence that this can still happen, but don't know how (see r241899 for one already-fixed cause).
             REMOTE_LAYER_TREE_HOST_RELEASE_LOG("%p RemoteLayerTreeHost::updateLayerTree - failed to find layer with ID %llu", this, layerID.object().toUInt64());
             continue;
         }
-        ++found;
-        bool hasBSC = properties.changedProperties.contains(LayerChange::BackingStoreChanged);
-        bool hasBSAC = properties.changedProperties.contains(LayerChange::BackingStoreAttachmentChanged);
-        if (hasBSC)
-            ++withBackingStore;
-        if (isLargeTxn) {
-            FILE *_d=((FILE*)0);
-            if(_d){
-                fprintf(_d,"[ui-host-layer PID %d] layerID=%llu mask=0x%llx bsc=%d bsac=%d hasProps=%d\n",
-                    getpid(), (unsigned long long)layerID.object().toUInt64(),
-                    (unsigned long long)properties.changedProperties.toRaw(),
-                    (int)hasBSC, (int)hasBSAC,
-                    (int)!!properties.backingStoreOrProperties.properties.get());
-                fclose(_d);
-            }
-        }
-
         if (properties.changedProperties.contains(LayerChange::ClonedContentsChanged) && properties.clonedLayerID)
             clonesToUpdate.append({ layerID, *properties.clonedLayerID });
 
@@ -294,7 +255,6 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
         }
     }
     
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[ui-host-iter PID %d] iterated changedLayers: found=%d missing=%d withBackingStore=%d\n", getpid(), found, missing, withBackingStore); fclose(_d);}}
 
     // 10.9 backport: CATransformLayer on Mavericks doesn't implement
     // -[CALayer contents] / -setContents:. Sending either raises

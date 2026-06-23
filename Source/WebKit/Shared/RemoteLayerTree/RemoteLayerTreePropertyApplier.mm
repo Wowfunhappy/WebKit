@@ -502,14 +502,6 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
         || properties.changedProperties & LayerChange::BackingStoreAttachmentChanged)
     {
         auto* backingStore = properties.backingStoreOrProperties.properties.get();
-        { static int s_n = 0; if (++s_n <= 200) { FILE *_d=((FILE*)0); if(_d){
-            unsigned long long lid = layerTreeNode ? (unsigned long long)layerTreeNode->layerID().object().toUInt64() : 0ULL;
-            int bsBit = (properties.changedProperties & LayerChange::BackingStoreChanged) ? 1 : 0;
-            int attachBit = (properties.changedProperties & LayerChange::BackingStoreAttachmentChanged) ? 1 : 0;
-            fprintf(_d,"[bs-decision PID %d] layerID=%llu bsBit=%d attachBit=%d hasProperties=%d backingStoreAttached=%d → action=%s\n",
-                getpid(), lid, bsBit, attachBit, backingStore ? 1 : 0, (int)properties.backingStoreAttached,
-                (backingStore && properties.backingStoreAttached) ? "apply" : "clear");
-            fclose(_d);} } }
         if (backingStore && properties.backingStoreAttached) {
             RELEASE_ASSERT(layerTreeNode);
             layerTreeNode->applyBackingStore(layerTreeHost, *backingStore);
@@ -686,11 +678,6 @@ void RemoteLayerTreePropertyApplier::applyHierarchyUpdates(RemoteLayerTreeNode& 
         layer = contentLayer;
 #endif
 
-    {FILE *_d=((FILE*)0); if(_d){fprintf(_d,"[applyChildren PID %d] nodeID=%llu layer=%p layerClass=%s bounds=%gx%g children.size=%zu existingSubcount=%lu\n",
-        getpid(), (unsigned long long)node.layerID().object().toUInt64(), layer.get(),
-        object_getClassName(layer.get()),
-        (double)[layer bounds].size.width, (double)[layer bounds].size.height, (size_t)properties.children.size(),
-        (unsigned long)[[layer sublayers] count]); fclose(_d);}}
 
     // 10.9 backport: combine graveyard (keeps freed parents alive) with a
     // filter that skips children whose superlayer is non-nil but not in m_nodes

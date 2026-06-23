@@ -75,32 +75,17 @@ std::unique_ptr<ImageBufferShareableBitmapBackend> ImageBufferShareableBitmapBac
 #endif
 
     IntSize backendSize = calculateSafeBackendSize(parameters);
-    if (backendSize.isEmpty()) {
-        FILE *f = ((FILE*)0);
-        if (f) { fprintf(f, "[PID %d] ShareableBitmapBackend::create: empty backendSize\n", getpid()); fclose(f); }
+    if (backendSize.isEmpty())
         return nullptr;
-    }
 
     auto bitmap = ShareableBitmap::create({ backendSize, parameters.colorSpace });
-    if (!bitmap) {
-        FILE *f = ((FILE*)0);
-        if (f) { fprintf(f, "[PID %d] ShareableBitmapBackend::create: ShareableBitmap::create returned null (size=%dx%d)\n",
-            getpid(), backendSize.width(), backendSize.height()); fclose(f); }
+    if (!bitmap)
         return nullptr;
-    }
     if (creationContext.resourceOwner)
         bitmap->setOwnershipOfMemory(creationContext.resourceOwner);
     auto context = bitmap->createGraphicsContext();
-    if (!context) {
-        FILE *f = ((FILE*)0);
-        if (f) { fprintf(f, "[PID %d] ShareableBitmapBackend::create: createGraphicsContext returned null\n", getpid()); fclose(f); }
+    if (!context)
         return nullptr;
-    }
-    {
-        FILE *f = ((FILE*)0);
-        if (f) { fprintf(f, "[PID %d] ShareableBitmapBackend::create: SUCCESS size=%dx%d\n",
-            getpid(), backendSize.width(), backendSize.height()); fclose(f); }
-    }
 
     return makeUnique<ImageBufferShareableBitmapBackend>(parameters, bitmap.releaseNonNull(), WTF::move(context));
 }

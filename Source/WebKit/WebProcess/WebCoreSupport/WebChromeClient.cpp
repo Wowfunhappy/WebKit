@@ -560,11 +560,6 @@ void WebChromeClient::closeWindow()
 
 void WebChromeClient::rootFrameAdded(const WebCore::LocalFrame& frame)
 {
-    {FILE *_d=((FILE*)0); if(_d){
-        auto *da = m_page ? m_page->drawingArea() : nullptr;
-        fprintf(_d,"[WCC::rootFrameAdded PID %d] page=%p da=%p daType=%d frameID=%llu\n", getpid(), m_page.get(), da, da ? (int)da->type() : -1, frame.frameID().toUInt64());
-        fclose(_d);
-    }}
     if (!m_page)
         return;
 

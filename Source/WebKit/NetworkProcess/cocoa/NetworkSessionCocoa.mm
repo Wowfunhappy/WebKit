@@ -611,16 +611,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     NegotiatedLegacyTLS negotiatedLegacyTLS = NegotiatedLegacyTLS::No;
 
     if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]) {
-        {
-            FILE* _f = ((FILE*)0);
-            if (_f) {
-                const char* host = challenge.protectionSpace.host.UTF8String ?: "";
-                const char* urlStr = task.originalRequest.URL.absoluteString.UTF8String ?: "";
-                fprintf(_f, "[NetSess::trustChallenge PID %d] task=%llu host=%s url=%.150s\n",
-                    getpid(), (unsigned long long)task.taskIdentifier, host, urlStr);
-                fclose(_f);
-            }
-        }
         sessionCocoa->setClientAuditToken(challenge);
 
         if ([task respondsToSelector:@selector(_incompleteTaskMetrics)])
@@ -634,10 +624,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         // missing, just defer to CFNetwork's default trust evaluation (PerformDefaultHandling
         // — same disposition the fast path returns when its evaluation succeeds).
         if (![NSURLSession respondsToSelector:@selector(_strictTrustEvaluate:queue:completionHandler:)]) {
-            {
-                FILE* _f = ((FILE*)0);
-                if (_f) { fprintf(_f, "[NetSess::trustChallenge PID %d] task=%llu => PerformDefaultHandling (10.9 fallback)\n", getpid(), (unsigned long long)task.taskIdentifier); fclose(_f); }
-            }
             completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
             return;
         }
@@ -741,17 +727,6 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error
 {
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) {
-            const char* urlStr = task.originalRequest.URL.absoluteString.UTF8String ?: "";
-            const char* errDom = error.domain.UTF8String ?: "";
-            const char* errDesc = error.localizedDescription.UTF8String ?: "";
-            fprintf(_f, "[NetSess::didCompleteWithError PID %d] task=%llu code=%ld dom=%s desc=%s url=%.150s\n",
-                getpid(), (unsigned long long)task.taskIdentifier, (long)error.code, errDom, errDesc, urlStr);
-            fclose(_f);
-        }
-    }
     LOG(NetworkSession, "%zu didCompleteWithError %@", task.taskIdentifier, error);
 
     RetainPtr updatedError = error;
@@ -921,18 +896,6 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 {
     auto taskIdentifier = dataTask.taskIdentifier;
     auto _existing = [self existingTask:dataTask];
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) {
-            const char* urlStr = dataTask.originalRequest.URL.absoluteString.UTF8String ?: "";
-            int statusCode = 0;
-            if ([response isKindOfClass:[NSHTTPURLResponse class]])
-                statusCode = (int)[(NSHTTPURLResponse*)response statusCode];
-            fprintf(_f, "[NetSess::didReceiveResponse PID %d] task=%llu http=%d hasExisting=%d url=%.150s\n",
-                getpid(), (unsigned long long)taskIdentifier, statusCode, (int)!!_existing, urlStr);
-            fclose(_f);
-        }
-    }
     LOG(NetworkSession, "%zu didReceiveResponse", taskIdentifier);
     if (auto networkDataTask = _existing) {
         ASSERT(RunLoop::isMain());
@@ -983,10 +946,6 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         resourceResponse.setDeprecatedNetworkLoadMetrics(WebCore::copyTimingData(taskMetrics.get(), networkDataTask->networkLoadMetrics()));
         resourceResponse.setProxyName(WTF::move(proxyName));
         networkDataTask->didReceiveResponse(WTF::move(resourceResponse), negotiatedLegacyTLS, privateRelayed, [completionHandler = makeBlockPtr(completionHandler), taskIdentifier](WebCore::PolicyAction policyAction) {
-            {
-                FILE* _f = ((FILE*)0);
-                if (_f) { fprintf(_f, "[NetSess::respPolicyCompletion PID %d] task=%llu policy=%d\n", getpid(), (unsigned long long)taskIdentifier, (int)policyAction); fclose(_f); }
-            }
 #if !LOG_DISABLED
             LOG(NetworkSession, "%zu didReceiveResponse completionHandler (%s)", taskIdentifier, toString(policyAction).characters());
 #else
@@ -1003,15 +962,6 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data
 {
     auto _ndt = [self existingTask:dataTask];
-    {
-        FILE* _f = ((FILE*)0);
-        if (_f) {
-            const char* urlStr = dataTask.originalRequest.URL.absoluteString.UTF8String ?: "";
-            fprintf(_f, "[NetSess::didReceiveData PID %d] task=%llu bytes=%lu hasExisting=%d url=%.150s\n",
-                getpid(), (unsigned long long)dataTask.taskIdentifier, (unsigned long)[data length], (int)!!_ndt, urlStr);
-            fclose(_f);
-        }
-    }
     if (auto networkDataTask = _ndt) {
         // 10.9 backport: bypass SharedBuffer::create(NSData*), which dyld binds
         // to a return-zero weak fallback stub instead of WebCore's real impl.

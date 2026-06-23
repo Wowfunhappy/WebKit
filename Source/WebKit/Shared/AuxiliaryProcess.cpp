@@ -87,18 +87,12 @@ void AuxiliaryProcess::didClose(IPC::Connection&)
 void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& parameters)
 {
     // Minimal init for 10.9: skip everything except essential IPC setup
-    FILE *f = ((FILE*)0);
-    if (f) { fprintf(f, "[PID %d] AuxProcess::initialize MINIMAL\n", getpid()); fclose(f); }
 
     // 10.9 backport: Safari sends a second XPC bootstrap message after the first
     // initialize completes. Calling initialize twice would re-lazyInitialize the
     // already-set m_connection (RELEASE_ASSERT — SIGTRAP). Skip via m_connection check
     // (function-local static was firing too early in Safari's case).
     if (m_connection) {
-        if (f = ((FILE*)0)) {
-            fprintf(f, "[PID %d] AuxProcess::initialize already-initialized (m_connection set), skipping\n", getpid());
-            fclose(f);
-        }
         return;
     }
 
@@ -114,19 +108,14 @@ void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& par
     initializeProcess(parameters);
 
     // The critical part: establish the IPC connection back to the UI process.
-    if (f = ((FILE*)0)) { fprintf(f, "[PID %d] creating IPC connection\n", getpid()); fclose(f); }
     Ref connection = IPC::Connection::createClientConnection(WTF::move(parameters.connectionIdentifier));
-    if (f = ((FILE*)0)) { fprintf(f, "[PID %d] IPC connection created\n", getpid()); fclose(f); }
     lazyInitialize(m_connection, connection.copyRef());
-    if (f = ((FILE*)0)) { fprintf(f, "[PID %d] calling initializeConnection\n", getpid()); fclose(f); }
     initializeConnection(connection.ptr());
-    if (f = ((FILE*)0)) { fprintf(f, "[PID %d] opening connection (thread=%p, isMain=%d)\n", getpid(), (void*)pthread_self(), pthread_main_np()); fclose(f); }
     // 10.9: AuxiliaryProcess::initialize runs on a dispatch worker thread, so the
     // default Connection::open(Client&) — which uses RunLoop::currentSingleton() as
     // dispatcher — would bind dispatch to a worker-thread RunLoop nobody pumps.
     // Force the main RunLoop so message dispatch reaches WebPage etc.
     connection->open(*this, RunLoop::mainSingleton());
-    if (f = ((FILE*)0)) { fprintf(f, "[PID %d] AuxProcess::initialize COMPLETE!\n", getpid()); fclose(f); }
 
     // 10.9 backport: Safari closes the XPC bootstrap connection after init completes.
     // Without an active source on the main dispatch queue, dispatch_main() returns and the
@@ -140,10 +129,6 @@ void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& par
                                   60ull * NSEC_PER_SEC, 1ull * NSEC_PER_SEC);
         dispatch_source_set_event_handler(s_heartbeat, ^{ /* no-op */ });
         dispatch_resume(s_heartbeat);
-        if (f = ((FILE*)0)) {
-            fprintf(f, "[PID %d] AuxProcess::initialize installed heartbeat source\n", getpid());
-            fclose(f);
-        }
     }
 }
 

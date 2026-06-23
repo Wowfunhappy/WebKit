@@ -2283,13 +2283,6 @@ void WebPage::willCommitLayerTree(RemoteLayerTreeTransaction& layerTransaction, 
         layerTransaction.setTimelinesUpdate(acceleratedTimelinesUpdater->takeTimelinesUpdate());
 #endif
 
-    {FILE *_d=((FILE*)0); if(_d){
-        WebCore::IntSize cs = frameView->contentsSize();
-        WebCore::IntSize sz = frameView->size();
-        WebCore::IntSize vs = frameView->visibleSize();
-        fprintf(_d,"[wc-prep-txn PID %d] frameView contentsSize=(%d,%d) size=(%d,%d) visibleSize=(%d,%d)\n", getpid(), cs.width(), cs.height(), sz.width(), sz.height(), vs.width(), vs.height());
-        fclose(_d);
-    }}
     layerTransaction.setContentsSize(frameView->contentsSize());
     layerTransaction.setScrollGeometryContentSize(frameView->scrollGeometryContentSize());
     layerTransaction.setScrollOrigin(frameView->scrollOrigin());

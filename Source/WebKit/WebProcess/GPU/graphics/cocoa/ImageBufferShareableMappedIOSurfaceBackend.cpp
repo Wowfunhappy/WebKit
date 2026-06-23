@@ -44,31 +44,18 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(ImageBufferShareableMappedIOSurfaceBackend);
 std::unique_ptr<ImageBufferShareableMappedIOSurfaceBackend> ImageBufferShareableMappedIOSurfaceBackend::create(const Parameters& parameters, const ImageBufferCreationContext& creationContext)
 {
     IntSize backendSize = calculateSafeBackendSize(parameters);
-    if (backendSize.isEmpty()) {
-        FILE *f = ((FILE*)0);
-        if (f) { fprintf(f, "[PID %d] IOSurfaceBackend::create: empty backendSize\n", getpid()); fclose(f); }
+    if (backendSize.isEmpty())
         return nullptr;
-    }
 
     auto surface = IOSurface::create(RefPtr { creationContext.surfacePool }.get(), backendSize, parameters.colorSpace, IOSurface::nameForRenderingPurpose(parameters.purpose), convertToIOSurfaceFormat(parameters.bufferFormat.pixelFormat), parameters.bufferFormat.useLosslessCompression);
-    if (!surface) {
-        FILE *f = ((FILE*)0);
-        if (f) { fprintf(f, "[PID %d] IOSurfaceBackend::create: IOSurface::create returned null sz=%dx%d\n", getpid(), backendSize.width(), backendSize.height()); fclose(f); }
+    if (!surface)
         return nullptr;
-    }
     if (creationContext.resourceOwner)
         surface->setOwnershipIdentity(creationContext.resourceOwner);
 
     RetainPtr<CGContextRef> cgContext = surface->createPlatformContext();
-    if (!cgContext) {
-        FILE *f = ((FILE*)0);
-        if (f) { fprintf(f, "[PID %d] IOSurfaceBackend::create: createPlatformContext null\n", getpid()); fclose(f); }
+    if (!cgContext)
         return nullptr;
-    }
-    {
-        FILE *f = ((FILE*)0);
-        if (f) { fprintf(f, "[PID %d] IOSurfaceBackend::create: SUCCESS sz=%dx%d\n", getpid(), backendSize.width(), backendSize.height()); fclose(f); }
-    }
 
     CGContextClearRect(cgContext.get(), FloatRect(FloatPoint::zero(), backendSize));
 

@@ -68,16 +68,6 @@ void RunLoop::performWork(void* context)
 RunLoop::RunLoop()
     : m_runLoop(CFRunLoopGetCurrent())
 {
-    {
-        FILE *_d = ((FILE*)0);
-        if (_d) {
-            uintptr_t bits;
-            memcpy(&bits, (char*)this + 0x8, sizeof(bits));
-            fprintf(_d, "[PID %d] RunLoop::RunLoop() this=%p m_bits@+8=0x%llx (should be 0x3)\n",
-                getpid(), this, (unsigned long long)bits);
-            fclose(_d);
-        }
-    }
     CFRunLoopSourceContext context = { 0, this, 0, 0, 0, 0, 0, 0, 0, performWork };
     lazyInitialize(m_runLoopSource, adoptCF(CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context)));
     CFRunLoopAddSource(m_runLoop.get(), m_runLoopSource.get(), kCFRunLoopCommonModes);
