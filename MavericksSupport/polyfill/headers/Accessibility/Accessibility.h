@@ -1,4 +1,0 @@
-/* Stub for macOS 10.9 */
-#ifndef _ACCESSIBILITY_ACCESSIBILITY_H_
-#define _ACCESSIBILITY_ACCESSIBILITY_H_
-#endif
