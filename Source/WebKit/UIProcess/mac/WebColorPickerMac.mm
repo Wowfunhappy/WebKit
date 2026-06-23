@@ -180,7 +180,10 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color)
     RetainPtr<NSColorPopoverController> controller = (NSColorPopoverController *)[popover.get() contentViewController];
     controller.get().delegate = self;
 
-    if (_suggestedColors) {
+    // 10.9 backport: -[NSColorPopoverController topBarMatrixView] (used below to render the
+    // suggested-colors top bar) is absent on 10.9 AppKit. Skip the suggestions decoration when it's
+    // unavailable — the popover still opens for normal RGB selection, just without the swatch bar.
+    if (_suggestedColors && [controller respondsToSelector:@selector(topBarMatrixView)]) {
         NSUInteger numColors = [[_suggestedColors allKeys] count];
         CGFloat swatchWidth = (colorPickerMatrixNumColumns * colorPickerMatrixSwatchWidth + (colorPickerMatrixNumColumns * colorPickerMatrixBorderWidth - numColors)) / numColors;
         CGFloat swatchHeight = colorPickerMatrixSwatchWidth;
@@ -245,7 +248,11 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color)
     [_popoverWell setWebDelegate:self];
     [_popoverWell setAction:@selector(didChooseColor:)];
     [_popoverWell setColor:color];
-    [_popoverWell setSupportsAlpha:supportsAlpha == WebKit::ColorControlSupportsAlpha::Yes];
+    // 10.9 backport: -[NSColorWell setSupportsAlpha:] is a newer AppKit SPI absent on 10.9, so
+    // sending it raises an unrecognized-selector exception that terminates the UIProcess. Alpha
+    // configurability is non-essential (the picker still edits RGB), so apply it only when supported.
+    if ([_popoverWell respondsToSelector:@selector(setSupportsAlpha:)])
+        [_popoverWell setSupportsAlpha:supportsAlpha == WebKit::ColorControlSupportsAlpha::Yes];
 
     RetainPtr<NSColorList> suggestedColors;
     if (suggestions.size()) {
