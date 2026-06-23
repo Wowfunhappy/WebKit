@@ -399,6 +399,12 @@ if [ -d "$GST_SRC" ]; then
     bash "$REPO/MavericksSupport/deps/gstreamer/build-applemedia-compat.sh" "$GST_DEPLOY" >/dev/null \
         && echo "  built applemedia compat shims (camera capture)" \
         || echo "  warning: applemedia compat build failed — camera capture (getUserMedia video) will not work"
+    # WebRTC audio DSP: the C++17 libs libgstwebrtcdsp + libwebrtc-audio-processing link the 10.9 system
+    # libc++ (too old for std::bad_optional_access etc.) and fail to dlopen, so getUserMedia/WebRTC audio
+    # gets no echo cancellation / noise suppression. Repoint them onto the bundle's modern C++ runtime.
+    bash "$REPO/MavericksSupport/deps/gstreamer/build-cxxgst-compat.sh" "$GST_DEPLOY" >/dev/null \
+        && echo "  built cxxgst compat shim (WebRTC audio DSP)" \
+        || echo "  warning: cxxgst compat build failed — WebRTC audio DSP plugins will not load"
 else
     echo "  warning: GStreamer source tree $GST_SRC missing — media will not load"
 fi
