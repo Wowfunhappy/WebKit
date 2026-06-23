@@ -171,7 +171,10 @@ list(APPEND WebCore_SOURCES
 
     Modules/paymentrequest/MerchantValidationEvent.cpp
 
-    Modules/webaudio/MediaStreamAudioSourceCocoa.cpp
+    # MAVERICKS_BACKPORT: MediaStreamAudioSourceCocoa.cpp is intentionally NOT built — its consumeAudio
+    # delivers a WebAudioBufferList, but this build's MediaStream/WebRTC consumers are GStreamer and
+    # static_cast the PlatformAudioData to GStreamerAudioData (LiveKit #115 crash). The GStreamer variant
+    # (Modules/webaudio/MediaStreamAudioSourceGStreamer.cpp, via SourcesGStreamer.txt) is compiled instead.
 
     accessibility/isolatedtree/mac/AXIsolatedObjectMac.mm
     accessibility/mac/AXObjectCacheMac.mm

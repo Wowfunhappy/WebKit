@@ -61,7 +61,11 @@ const RealtimeMediaSourceSettings& MediaStreamAudioSource::settings()
     return m_currentSettings;
 }
 
-#if !PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: also provide the no-op setNumberOfChannels on the Cocoa+GStreamer hybrid build, where
+// MediaStreamAudioSourceCocoa.cpp (which defined it) is dropped in favor of the GStreamer consumeAudio
+// (see MediaStreamAudioSourceGStreamer.cpp). GStreamer derives the channel count per-buffer in consumeAudio,
+// so this stays a no-op.
+#if !PLATFORM(COCOA) || USE(GSTREAMER)
 void MediaStreamAudioSource::setNumberOfChannels(unsigned)
 {
     // FIXME: implement this.
