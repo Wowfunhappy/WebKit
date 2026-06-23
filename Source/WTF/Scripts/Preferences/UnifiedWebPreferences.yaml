@@ -648,6 +648,18 @@ AsyncOverflowScrollingEnabled:
       default: false
     WebKit:
       "USE(COORDINATED_GRAPHICS)": true
+      # 10.9 backport: async overflow scrolling drives wheel/trackpad scrolls through the async
+      # ThreadedScrollingTree (ScrollingTreeOverflowScrollingNodeMac::repositionScrollingLayers, run
+      # on the scrolling thread). That scrolling-thread layer commit is never serviced in this backport
+      # -- the same root as the keyboard-scroll fix in EventHandlerDrivenSmoothKeyboardScrollingEnabled
+      # (#56/#57). So the scroll offset, scrollbar and hit-testing all update but the composited
+      # scrolled-contents layer never moves: the scroller's pixels are stuck while its clickable areas
+      # scroll (most visible inside popovers/<dialog>, but it affects every composited overflow scroller).
+      # Default OFF for PLATFORM(MAC) so overflow scrolling takes the synchronous main-thread RenderLayer
+      # path -- the same path programmatic scrollTop already updates correctly, and the 10.9-era behavior
+      # (async overflow scrolling postdates this WebKit vintage). Selects an existing upstream path; adds
+      # no mechanism. MAC must precede COCOA here: the generator emits #if/#elif/#else in order, first match wins.
+      "PLATFORM(MAC)": false
       "PLATFORM(COCOA)": true
       default: false
     WebCore:
