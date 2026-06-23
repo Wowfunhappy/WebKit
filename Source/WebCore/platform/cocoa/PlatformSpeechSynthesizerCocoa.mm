@@ -48,9 +48,11 @@ static float getAVSpeechUtteranceDefaultSpeechRate()
     static float value;
     static void* symbol;
     if (!symbol) {
-        void* symbol = dlsym(PAL::AVFoundationLibrary(), "AVSpeechUtteranceDefaultSpeechRate");
-        RELEASE_ASSERT_WITH_MESSAGE(symbol, "%s", dlerror());
-        value = *static_cast<float const *>(symbol);
+        symbol = dlsym(PAL::AVFoundationLibrary(), "AVSpeechUtteranceDefaultSpeechRate");
+        // MAVERICKS_BACKPORT: this constant is 10.14+ and absent from 10.9's
+        // AVFoundation (the synthesizer is provided by an NSSpeechSynthesizer
+        // polyfill). Fall back to the documented default rather than crash.
+        value = symbol ? *static_cast<float const *>(symbol) : 0.5f;
     }
     return value;
 }
@@ -60,9 +62,9 @@ static float getAVSpeechUtteranceMaximumSpeechRate()
     static float value;
     static void* symbol;
     if (!symbol) {
-        void* symbol = dlsym(PAL::AVFoundationLibrary(), "AVSpeechUtteranceMaximumSpeechRate");
-        RELEASE_ASSERT_WITH_MESSAGE(symbol, "%s", dlerror());
-        value = *static_cast<float const *>(symbol);
+        symbol = dlsym(PAL::AVFoundationLibrary(), "AVSpeechUtteranceMaximumSpeechRate");
+        // MAVERICKS_BACKPORT: 10.14+ constant absent on 10.9; documented default.
+        value = symbol ? *static_cast<float const *>(symbol) : 1.0f;
     }
     return value;
 }
