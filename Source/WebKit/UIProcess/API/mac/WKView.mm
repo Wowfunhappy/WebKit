@@ -30,6 +30,14 @@
 #import <QuartzCore/QuartzCore.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
+#if ENABLE(DRAG_SUPPORT)
+#import "PasteboardTypes.h"
+#import "SandboxExtension.h"
+#import <WebCore/DragData.h>
+#import <WebCore/DragActions.h>
+#import <WebCore/PlatformEventFactoryMac.h>
+#import <wtf/Compiler.h>
+#endif
 
 using namespace WebKit;
 
@@ -45,6 +53,11 @@ void setMinimalPageClientForceVisibleWhenWindowless(PageClient&, bool);
 struct WKViewState {
     RefPtr<WebKit::WebPageProxy> page;
     std::unique_ptr<WebKit::PageClient> pageClient;
+#if ENABLE(DRAG_SUPPORT)
+    // 10.9 backport: the originating mouse-down event, needed by the classic
+    // -[NSView dragImage:...event:...] API to start an HTML5 drag session.
+    RetainPtr<NSEvent> lastMouseDownEvent;
+#endif
 };
 
 @interface WKView () {
@@ -82,6 +95,14 @@ struct WKViewState {
         setMinimalPageClientForceVisibleWhenWindowless(*_wkState->pageClient, true);
 
     _wkState->page->initializeWebPage(WebCore::Site(WTF::HashTableEmptyValue), WebCore::SandboxFlags {}, WebCore::ReferrerPolicy::Default);
+
+#if ENABLE(DRAG_SUPPORT)
+    // 10.9 backport: become an NSDraggingDestination so drops route into the page.
+    auto dragTypes = adoptNS([[NSMutableSet alloc] initWithArray:WebKit::PasteboardTypes::forEditingSingleton()]);
+    [dragTypes addObjectsFromArray:WebKit::PasteboardTypes::forURLSingleton()];
+    [dragTypes addObject:WebKit::PasteboardTypes::WebDummyPboardType];
+    [self registerForDraggedTypes:[dragTypes allObjects]];
+#endif
 
     return self;
 }
@@ -305,7 +326,19 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     } @catch (NSException *) { } \
 }
 
-WKV_FORWARD_MOUSE(mouseDown)
+// 10.9 backport: mouseDown is explicit (not via the macro) so it can retain the
+// originating event for the classic drag-image API used to start HTML5 drags.
+- (void)mouseDown:(NSEvent *)event
+{
+    if (!_wkState || !_wkState->page) { [super mouseDown:event]; return; }
+#if ENABLE(DRAG_SUPPORT)
+    _wkState->lastMouseDownEvent = event;
+#endif
+    @try {
+        WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebMouseEventInputSource::UserDriven);
+        _wkState->page->handleMouseEvent(webEvent);
+    } @catch (NSException *) { }
+}
 WKV_FORWARD_MOUSE(mouseUp)
 WKV_FORWARD_MOUSE(mouseMoved)
 WKV_FORWARD_MOUSE(mouseDragged)
@@ -319,6 +352,159 @@ WKV_FORWARD_MOUSE(mouseEntered)
 WKV_FORWARD_MOUSE(mouseExited)
 
 #undef WKV_FORWARD_MOUSE
+
+#if ENABLE(DRAG_SUPPORT)
+// 10.9 backport: HTML5 drag-and-drop for WKView. Safari 7 drives WebKit2 through
+// WKView, whose input pipeline is hand-written here (the full WebViewImpl/WKWebView
+// path is unused), so the drag source + destination must be wired up directly or
+// dragstart fires but no OS drag session begins. Mirrors WebViewImpl, using the
+// classic -[NSView dragImage:...] API (NSFilePromiseProvider / beginDraggingSession
+// are 10.12+, already gated out of WebViewImpl::startDrag).
+
+static OptionSet<WebCore::DragOperation> wkCoreDragOperationMask(NSDragOperation operation)
+{
+    OptionSet<WebCore::DragOperation> result;
+    if (operation & NSDragOperationCopy)
+        result.add(WebCore::DragOperation::Copy);
+    if (operation & NSDragOperationLink)
+        result.add(WebCore::DragOperation::Link);
+    if (operation & NSDragOperationGeneric)
+        result.add(WebCore::DragOperation::Generic);
+    if (operation & NSDragOperationPrivate)
+        result.add(WebCore::DragOperation::Private);
+    if (operation & NSDragOperationMove)
+        result.add(WebCore::DragOperation::Move);
+    if (operation & NSDragOperationDelete)
+        result.add(WebCore::DragOperation::Delete);
+    return result;
+}
+
+static NSDragOperation wkKitDragOperation(std::optional<WebCore::DragOperation> op)
+{
+    if (!op)
+        return NSDragOperationNone;
+    switch (*op) {
+    case WebCore::DragOperation::Copy: return NSDragOperationCopy;
+    case WebCore::DragOperation::Link: return NSDragOperationLink;
+    case WebCore::DragOperation::Generic: return NSDragOperationGeneric;
+    case WebCore::DragOperation::Private: return NSDragOperationPrivate;
+    case WebCore::DragOperation::Move: return NSDragOperationMove;
+    case WebCore::DragOperation::Delete: return NSDragOperationDelete;
+    }
+    return NSDragOperationNone;
+}
+
+static OptionSet<WebCore::DragApplicationFlags> wkDragApplicationFlags(NSView *view, id<NSDraggingInfo> info)
+{
+    OptionSet<WebCore::DragApplicationFlags> flags;
+    if ([NSApp modalWindow])
+        flags.add(WebCore::DragApplicationFlags::IsModal);
+    if (view.window.attachedSheet)
+        flags.add(WebCore::DragApplicationFlags::HasAttachedSheet);
+    if (info.draggingSource == view)
+        flags.add(WebCore::DragApplicationFlags::IsSource);
+    if ([NSApp currentEvent].modifierFlags & NSEventModifierFlagOption)
+        flags.add(WebCore::DragApplicationFlags::IsCopyKeyDown);
+    return flags;
+}
+
+static WebCore::DragData wkDragDataFromInfo(NSView *view, id<NSDraggingInfo> info, WebKit::WebPageProxy& page)
+{
+    WebCore::IntPoint client([view convertPoint:info.draggingLocation fromView:nil]);
+    NSPoint global = WebCore::globalPoint(info.draggingLocation, [view window]);
+    return WebCore::DragData(info, client, WebCore::IntPoint(global), wkCoreDragOperationMask(info.draggingSourceOperationMask), wkDragApplicationFlags(view, info), WebCore::anyDragDestinationAction(), page.webPageIDInMainFrameProcess());
+}
+
+// NSDraggingDestination — drops route into the page.
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info
+{
+    if (!_wkState || !_wkState->page)
+        return NSDragOperationNone;
+    auto dragData = wkDragDataFromInfo(self, info, *_wkState->page);
+    _wkState->page->resetCurrentDragInformation();
+    _wkState->page->dragEntered(dragData, info.draggingPasteboard.name);
+    return NSDragOperationCopy;
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info
+{
+    if (!_wkState || !_wkState->page)
+        return NSDragOperationNone;
+    auto dragData = wkDragDataFromInfo(self, info, *_wkState->page);
+    _wkState->page->dragUpdated(dragData, info.draggingPasteboard.name);
+    // 10.9 backport: currentDragOperation is set by an async IPC reply to
+    // PerformDragControllerAction. Returning None until it arrives makes AppKit
+    // reject the drop on quick drags; fall back to Copy while it is still pending
+    // so AppKit proceeds to performDragOperation, where WebCore makes the final
+    // accept/reject decision (a non-drop-target there fires no DOM drop event).
+    auto op = _wkState->page->currentDragOperation();
+    if (!op)
+        return NSDragOperationCopy;
+    return wkKitDragOperation(op);
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)info
+{
+    if (!_wkState || !_wkState->page)
+        return;
+    auto dragData = wkDragDataFromInfo(self, info, *_wkState->page);
+    _wkState->page->dragExited(dragData);
+    _wkState->page->resetCurrentDragInformation();
+}
+
+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)info
+{
+    return YES;
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)info
+{
+    if (!_wkState || !_wkState->page)
+        return NO;
+    auto dragData = wkDragDataFromInfo(self, info, *_wkState->page);
+    _wkState->page->performDragOperation(dragData, info.draggingPasteboard.name, { }, { });
+    return YES;
+}
+
+// NSDraggingSource (classic informal protocol, paired with -dragImage:...).
+- (NSDragOperation)draggingSourceOperationMaskForLocal:(BOOL)isLocal
+{
+    if (!isLocal || (_wkState && _wkState->page && _wkState->page->currentDragIsOverFileInput()))
+        return NSDragOperationCopy;
+    return NSDragOperationGeneric | NSDragOperationMove | NSDragOperationCopy;
+}
+
+- (void)draggedImage:(NSImage *)image endedAt:(NSPoint)screenPoint operation:(NSDragOperation)operation
+{
+    if (!_wkState || !_wkState->page)
+        return;
+    NSWindow *window = [self window];
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    NSPoint windowPoint = window ? [window convertScreenToBase:screenPoint] : screenPoint;
+ALLOW_DEPRECATED_DECLARATIONS_END
+    _wkState->page->dragEnded(WebCore::IntPoint(windowPoint), WebCore::IntPoint(WebCore::globalPoint(windowPoint, window)), wkCoreDragOperationMask(operation));
+}
+
+// Called by MinimalPageClient::startDrag once the drag image is ready.
+- (void)_wk_beginDragWithImage:(NSImage *)image atWindowPoint:(NSPoint)windowPoint
+{
+    if (!_wkState || !_wkState->page)
+        return;
+    NSPoint viewPoint = [self convertPoint:windowPoint fromView:nil];
+    NSPasteboard *pasteboard = [NSPasteboard pasteboardWithName:NSDragPboard];
+    // WebCore has already written the drag data to NSDragPboard; the dummy type just
+    // guarantees the source pasteboard advertises at least one registered type.
+    [pasteboard setString:@"" forType:WebKit::PasteboardTypes::WebDummyPboardType];
+    NSEvent *event = _wkState->lastMouseDownEvent.get();
+    if (!event)
+        event = [NSApp currentEvent];
+    if (!event)
+        return;
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    [self dragImage:image at:viewPoint offset:NSZeroSize event:event pasteboard:pasteboard source:self slideBack:YES];
+ALLOW_DEPRECATED_DECLARATIONS_END
+}
+#endif // ENABLE(DRAG_SUPPORT)
 
 - (void)scrollWheel:(NSEvent *)event
 {
