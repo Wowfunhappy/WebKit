@@ -10,6 +10,37 @@ LOG=/tmp/wk_build.log
 # environment (without this, ccache falls back to ~/.ccache and the cache is split / cold).
 export CCACHE_DIR="$ROOT/WebKitBuild/ccache"
 
+# --- Polyfill (NOT in the ninja graph) -------------------------------------------------------
+# MavericksSupport/polyfill/scripts/build-polyfill.sh compiles polyfill/src into the libpolyfill*.a
+# archives, which are force-loaded / statically linked into the frameworks via raw -Wl,-force_load
+# flags that ninja does NOT track as dependency edges. Without this step, editing a polyfill source
+# (e.g. objc_inject.m) is SILENTLY ignored by an incremental rebuild — and even after rebuilding the
+# archive, ninja won't relink the consuming framework. So: rebuild the polyfill here, then, if an
+# archive's CONTENT changed (llvm-ar is deterministic — unchanged source yields identical bytes), rm
+# the binaries that consume it so ninja relinks them against the new archive.
+#   libpolyfill.a         -> linked into ALL four frameworks
+#   libpolyfill_classes.a -> force-loaded into JavaScriptCore only
+#   libwtf_compat.a       -> force-loaded into JavaScriptCore only
+POLY_OUT="$ROOT/MavericksSupport/polyfill/build"
+poly_hash() { shasum -a 256 "$POLY_OUT/$1" 2>/dev/null | awk '{print $1}'; }
+PRE_ALL="$(poly_hash libpolyfill.a)"
+PRE_JSC="$(poly_hash libpolyfill_classes.a)$(poly_hash libwtf_compat.a)"
+echo "### building polyfill archives (MavericksSupport/polyfill/scripts/build-polyfill.sh)"
+if bash "$ROOT/MavericksSupport/polyfill/scripts/build-polyfill.sh" > /tmp/wk_polyfill.log 2>&1; then
+    RELINK=""
+    [ "$PRE_ALL" != "$(poly_hash libpolyfill.a)" ] && RELINK="JavaScriptCore WebCore WebKit WebKitLegacy"
+    [ -z "$RELINK" ] && [ "$PRE_JSC" != "$(poly_hash libpolyfill_classes.a)$(poly_hash libwtf_compat.a)" ] && RELINK="JavaScriptCore"
+    if [ -n "$RELINK" ]; then
+        echo "###   polyfill archives changed -> forcing relink:$RELINK"
+        for fw in $RELINK; do rm -f "$BUILD/lib/$fw.framework/Versions/A/$fw"; done
+    else
+        echo "###   polyfill unchanged"
+    fi
+else
+    echo "### POLYFILL BUILD FAILED (see /tmp/wk_polyfill.log) — frameworks may link a STALE polyfill"
+    tail -8 /tmp/wk_polyfill.log
+fi
+
 cd "$BUILD"
 # -k 0 : keep going after the first failure so a link stage surfaces ALL undefined symbols at once.
 "$NINJA" -k 0 2>&1 | tee "$LOG"
