@@ -24,6 +24,7 @@
 #import "RemoteLayerTreeNode.h"
 #import "TiledCoreAnimationDrawingAreaProxy.h"
 #import "ViewSnapshotStore.h"
+#import "WebColorPickerMac.h"
 #import "WebContextMenuProxyMac.h"
 #import "WebPageProxy.h"
 #import "WebPopupMenuProxyMac.h"
@@ -1270,8 +1271,13 @@ Ref<WebContextMenuProxy> MinimalPageClient::createContextMenuProxy(WebPageProxy&
     return WebContextMenuProxyMac::create(m_view, page, WTF::move(frameInfo), WTF::move(context), userData);
 }
 #endif
-RefPtr<WebColorPicker> MinimalPageClient::createColorPicker(WebPageProxy&, const WebCore::Color& initialColor, const WebCore::IntRect&, ColorControlSupportsAlpha, Vector<WebCore::Color>&&, std::optional<WebCore::FrameIdentifier>)
-{ return { }; }
+RefPtr<WebColorPicker> MinimalPageClient::createColorPicker(WebPageProxy& page, const WebCore::Color& initialColor, const WebCore::IntRect& rect, ColorControlSupportsAlpha supportsAlpha, Vector<WebCore::Color>&& suggestions, std::optional<WebCore::FrameIdentifier>)
+{
+    // MAVERICKS_BACKPORT: was a `{ return { }; }` stub, so clicking an <input type=color> produced
+    // no picker. WKView's page client is MinimalPageClient; mirror PageClientImplMac and vend a real
+    // NSColorPanel-backed WebColorPickerMac so the native color picker opens.
+    return WebColorPickerMac::create(protect(page.colorPickerClient()).ptr(), initialColor, rect, supportsAlpha, WTF::move(suggestions), m_view);
+}
 RefPtr<WebDataListSuggestionsDropdown> MinimalPageClient::createDataListSuggestionsDropdown(WebPageProxy&)
 { return { }; }
 RefPtr<WebDateTimePicker> MinimalPageClient::createDateTimePicker(WebPageProxy&)
