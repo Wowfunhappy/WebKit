@@ -35,6 +35,10 @@
 #import <pal/spi/mac/CoreUISPI.h>
 #import <pal/spi/mac/NSAppearanceSPI.h>
 
+// MAVERICKS_BACKPORT: Carbon HITheme (HIThemeDrawTrack) draws the classic Aqua progress bar on 10.9,
+// where the modern CoreUI path (-[NSAppearance _drawInRect:context:options:], 10.14+) is unavailable.
+#import <Carbon/Carbon.h>
+
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ProgressBarMac);
@@ -149,24 +153,27 @@ void ProgressBarMac::draw(GraphicsContext& context, const FloatRoundedRect& bord
             (__bridge NSString *)kCUIAnimationTimeKey: @(MonotonicTime::now().secondsSinceEpoch().seconds())
         }];
     } else {
-        // 10.9 backport: CoreUI progress drawing via -[NSAppearance _drawInRect:context:options:] is
-        // 10.14+. Draw a simple native-style progress bar (rounded gray track + blue accent fill) with CG.
-        CGRect barRect = CGRectMake(0, 0, inflatedRect.width(), inflatedRect.height());
-        CGFloat radius = std::min<CGFloat>(barRect.size.height / 2, 4);
-        CGContextSaveGState(cgContext);
-        RetainPtr<CGPathRef> trackPath = adoptCF(CGPathCreateWithRoundedRect(barRect, radius, radius, nullptr));
-        CGContextAddPath(cgContext, trackPath.get());
-        CGContextSetRGBFillColor(cgContext, 0.86, 0.86, 0.86, 1);
-        CGContextFillPath(cgContext);
-        double position = isIndeterminate ? 0.3 : std::max<double>(0, std::min<double>(1, progressBarPart->position()));
-        if (position > 0) {
-            CGRect fillRect = CGRectMake(0, 0, barRect.size.width * position, barRect.size.height);
-            RetainPtr<CGPathRef> fillPath = adoptCF(CGPathCreateWithRoundedRect(fillRect, radius, radius, nullptr));
-            CGContextAddPath(cgContext, fillPath.get());
-            CGContextSetRGBFillColor(cgContext, 0.13, 0.46, 0.92, 1);
-            CGContextFillPath(cgContext);
-        }
-        CGContextRestoreGState(cgContext);
+        // 10.9 backport: the CoreUI path above (-[NSAppearance _drawInRect:context:options:]) is 10.14+.
+        // Draw the real classic Aqua progress bar via Carbon HITheme (HIThemeDrawTrack) — the exact path
+        // Mavericks-era WebKit's RenderThemeMac::paintProgressBar used — so the track + fill get the
+        // glossy Aqua look instead of a flat approximation.
+        HIThemeTrackDrawInfo trackInfo = { };
+        trackInfo.version = 0;
+        bool regular = controlSize == NSControlSizeRegular || controlSize == NSControlSizeLarge;
+        if (regular)
+            trackInfo.kind = isIndeterminate ? kThemeLargeIndeterminateBar : kThemeLargeProgressBar;
+        else
+            trackInfo.kind = isIndeterminate ? kThemeMediumIndeterminateBar : kThemeMediumProgressBar;
+        trackInfo.bounds = CGRectMake(0, 0, inflatedRect.width(), inflatedRect.height());
+        trackInfo.min = 0;
+        trackInfo.max = std::numeric_limits<SInt32>::max();
+        double clampedPosition = std::max<double>(0, std::min<double>(1, progressBarPart->position()));
+        trackInfo.value = std::lround(clampedPosition * nextafter(static_cast<double>(trackInfo.max), 0));
+        double elapsed = MonotonicTime::now().secondsSinceEpoch().seconds() - progressBarPart->animationStartTime().seconds();
+        trackInfo.trackInfo.progress.phase = std::lround(elapsed * 30); // barber-pole phase for the indeterminate bar
+        trackInfo.attributes = kThemeTrackHorizontal;
+        trackInfo.enableState = isActive ? kThemeTrackActive : kThemeTrackInactive;
+        HIThemeDrawTrack(&trackInfo, 0, cgContext, kHIThemeOrientationNormal);
     }
 
     GraphicsContextStateSaver stateSaver(context);
