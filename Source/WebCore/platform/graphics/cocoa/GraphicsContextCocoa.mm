@@ -113,10 +113,17 @@ void GraphicsContextCG::drawFocusRing(const Path& path, float width, const Color
     // theme focus ring; this is WebCore's own focus-ring path, used when the theme reports it doesn't
     // draw the ring — e.g. text fields.) On < 10.10 draw a plain stroked ring in the focus color.
     if (NSAppKitVersionNumber < 1343 /* NSAppKitVersionNumber10_10 */) {
+        // Classic Aqua's keyboard-focus ring is a soft blue GLOW, not a hard solid line. Approximate
+        // it with a thin core stroke plus a CG blur shadow in the focus color — a plain solid stroke
+        // at the full outline width reads as much heavier than the real Aqua focus ring.
         CGContextRef ctx = platformContext();
         CGContextStateSaver legacySaver(ctx);
-        CGContextSetStrokeColorWithColor(ctx, cachedCGColor(color).get());
-        CGContextSetLineWidth(ctx, width > 0 ? width : 2);
+        CGFloat glowRadius = width > 0 ? width : 3;
+        RetainPtr<CGColorRef> ringColor = cachedCGColor(color);
+        CGContextSetShadowWithColor(ctx, CGSizeZero, glowRadius, ringColor.get());
+        CGContextSetStrokeColorWithColor(ctx, ringColor.get());
+        CGContextSetLineWidth(ctx, 1.5);
+        CGContextSetAlpha(ctx, 0.85);
         CGContextBeginPath(ctx);
         CGContextAddPath(ctx, path.platformPath());
         CGContextStrokePath(ctx);
