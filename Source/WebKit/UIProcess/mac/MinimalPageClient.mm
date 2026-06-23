@@ -36,6 +36,10 @@
 #import <WebCore/TextUndoInsertionMarkupMac.h>
 #import <WebCore/Cursor.h>
 #import <WebCore/IOSurface.h>
+#if ENABLE(DRAG_SUPPORT)
+#import <WebCore/ShareableBitmap.h>
+#import <WebCore/DragItem.h>
+#endif
 #if ENABLE(FULLSCREEN_API)
 #import "WebFullScreenManagerProxy.h"
 #endif
@@ -63,6 +67,15 @@
 @implementation WKMinimalFullScreenWindow
 - (BOOL)canBecomeKeyWindow { return YES; }
 - (BOOL)canBecomeMainWindow { return YES; }
+@end
+#endif
+
+#if ENABLE(DRAG_SUPPORT)
+// MAVERICKS_BACKPORT: WKView (in WKView.mm) implements this to start the OS drag
+// session once startDrag has built the drag image. Declared here so the page
+// client can invoke it on its NSView.
+@interface NSView (WKViewDragSource)
+- (void)_wk_beginDragWithImage:(NSImage *)image atWindowPoint:(NSPoint)windowPoint;
 @end
 #endif
 
@@ -272,6 +285,7 @@ private:
 #if PLATFORM(GTK)
     void startDrag(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<WebCore::ShareableBitmap>&& dragImage, WebCore::IntPoint&& dragImageHotspot) final;
 #endif
+    void startDrag(const WebCore::DragItem&, WebCore::ShareableBitmap::Handle&&, const std::optional<WebCore::NodeIdentifier>&, const std::optional<WebCore::FrameIdentifier>&) final;
 #endif
     void setCursor(const WebCore::Cursor&) final;
     void setCursorHiddenUntilMouseMoves(bool) final;
@@ -945,6 +959,32 @@ void MinimalPageClient::didChangeContentSize(const WebCore::IntSize&)
 void MinimalPageClient::startDrag(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<WebCore::ShareableBitmap>&& dragImage, WebCore::IntPoint&& dragImageHotspot)
 { }
 #endif
+// 10.9 backport: hand the OS drag session off to the WKView. Mirrors
+// WebViewImpl::startDrag (already 10.9-adapted: NSFilePromiseProvider drag is
+// 10.12+, so a promised-attachment drag is cancelled rather than attempted).
+void MinimalPageClient::startDrag(const WebCore::DragItem& item, WebCore::ShareableBitmap::Handle&& dragImageHandle, const std::optional<WebCore::NodeIdentifier>&, const std::optional<WebCore::FrameIdentifier>&)
+{
+    auto bitmap = WebCore::ShareableBitmap::create(WTF::move(dragImageHandle));
+    if (!bitmap || !m_view || !m_page) {
+        if (m_page)
+            m_page->dragCancelled();
+        return;
+    }
+
+    if (item.promisedAttachmentInfo) {
+        m_page->dragCancelled();
+        return;
+    }
+
+    RetainPtr dragCGImage = bitmap->createPlatformImage(WebCore::DontCopyBackingStore);
+    auto dragNSImage = adoptNS([[NSImage alloc] initWithCGImage:dragCGImage.get() size:bitmap->size()]);
+    WebCore::IntSize size([dragNSImage size]);
+    size.scale(1.0 / m_page->deviceScaleFactor());
+    [dragNSImage setSize:size];
+
+    m_page->didStartDrag();
+    [m_view _wk_beginDragWithImage:dragNSImage.get() atWindowPoint:NSMakePoint(item.dragLocationInWindowCoordinates.x(), item.dragLocationInWindowCoordinates.y())];
+}
 #endif
 void MinimalPageClient::setCursor(const WebCore::Cursor& cursor)
 {
