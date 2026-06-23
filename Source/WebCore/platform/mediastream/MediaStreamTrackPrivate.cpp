@@ -40,10 +40,12 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/UUID.h>
 
-#if PLATFORM(COCOA)
-#include "MediaStreamTrackAudioSourceProviderCocoa.h"
-#elif ENABLE(WEB_AUDIO) && ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
+// MAVERICKS_BACKPORT: MediaStream audio is captured through GStreamer in this build, so prefer the
+// GStreamer audio source provider over the Cocoa one (see createAudioSourceProvider below).
+#if ENABLE(WEB_AUDIO) && ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
 #include "AudioSourceProviderGStreamer.h"
+#elif PLATFORM(COCOA)
+#include "MediaStreamTrackAudioSourceProviderCocoa.h"
 #else
 #include "WebAudioSourceProvider.h"
 #endif
@@ -549,10 +551,17 @@ RefPtr<WebAudioSourceProvider> MediaStreamTrackPrivate::createAudioSourceProvide
     ASSERT(isMainThread());
     ALWAYS_LOG(LOGIDENTIFIER);
 
-#if PLATFORM(COCOA)
-    return MediaStreamTrackAudioSourceProviderCocoa::create(*this);
-#elif USE(GSTREAMER)
+    // MAVERICKS_BACKPORT: this build captures MediaStream audio through GStreamer
+    // (USE_GSTREAMER_MEDIA_STREAM; GStreamerAudioCaptureSource), so the audio source provider must be
+    // the GStreamer one. The upstream Cocoa-first order hands a GStreamerAudioStreamDescription +
+    // GStreamerAudioData to WebAudioSourceProviderCocoa, whose AudioSampleDataSource::setOutputFormat
+    // then divides by the (garbage) sample rate and crashes the WebProcess (SIGFPE) the instant
+    // getUserMedia audio reaches a Web Audio node (e.g. createMediaStreamSource on mictests.com).
+    // Prefer USE(GSTREAMER) so the GStreamer-native provider consumes the GStreamer samples.
+#if USE(GSTREAMER)
     return AudioSourceProviderGStreamer::create(*this);
+#elif PLATFORM(COCOA)
+    return MediaStreamTrackAudioSourceProviderCocoa::create(*this);
 #else
     return nullptr;
 #endif
