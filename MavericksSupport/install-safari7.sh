@@ -16,9 +16,12 @@
 # the system's old 10.9 libc++ is never used by us and never overwritten (it is not
 # a strict superset — see INSTALL-PLAN.md).
 #
-# SAFETY: every target path is backed up (once) to $BACKUP_ROOT before being
-# overwritten. Re-running is idempotent for the backup (won't clobber an existing
-# backup). Run with: sudo bash install-safari7.sh   (writes to /System, /usr/local)
+# SAFETY: the factory (stock) frameworks are preserved ONCE in $STOCK_BACKUP (the
+# flat *.framework dirs in stock-webkit-backup). Installs do NOT snapshot each build —
+# a re-run only replaces our own previous build, and backing that up every time is pure
+# disk churn (~670MB/run, which once filled the startup disk). backup() captures stock
+# at most once and is skipped entirely whenever the stock backup already exists.
+# Run with: sudo bash install-safari7.sh   (writes to /System, /usr/local)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -27,7 +30,11 @@ LIBDIR="$REPO/WebKitBuild/Release/lib"
 TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
 INT="${INSTALL_NAME_TOOL:-install_name_tool}"
 OTOOL="${OTOOL:-otool}"
-BACKUP_ROOT="${BACKUP_ROOT:-$(dirname "$REPO")/stock-webkit-backup/replaced-$(date +%Y%m%d-%H%M%S 2>/dev/null || echo manual)}"
+# Canonical stock backup (flat *.framework dirs), preserved once. BACKUP_ROOT is a
+# single fixed dir — NOT a per-run timestamped one — so backup() never accumulates a
+# new ~670MB snapshot on every install.
+STOCK_BACKUP="${STOCK_BACKUP:-$(dirname "$REPO")/stock-webkit-backup}"
+BACKUP_ROOT="${BACKUP_ROOT:-$STOCK_BACKUP/replaced-original}"
 
 FRAMEWORKS_DIR=/System/Library/Frameworks
 PRIVATE_DIR=/System/Library/PrivateFrameworks
@@ -70,6 +77,10 @@ id_path() {
 backup() {
     local path="$1"
     [ -e "$path" ] || return 0
+    # Stock is already preserved in the canonical $STOCK_BACKUP; never snapshot our own
+    # incremental builds (that churn is what filled the startup disk). Skip entirely once
+    # the stock backup exists.
+    [ -d "$STOCK_BACKUP/WebKit.framework" ] && return 0
     local dest="$BACKUP_ROOT$path"
     if [ -e "$dest" ]; then echo "  (backup already exists for $path)"; return 0; fi
     mkdir -p "$(dirname "$dest")"
