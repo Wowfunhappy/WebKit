@@ -510,7 +510,16 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 {
     if (!_wkState || !_wkState->page)
         return;
-    NSPoint viewPoint = [self convertPoint:windowPoint fromView:nil];
+    // windowPoint is item.dragLocationInWindowCoordinates: a WebCore window coordinate
+    // (top-left origin, relative to this view's content — the WebProcess has no toolbar/
+    // window offset). WKView is isFlipped == YES, so its own coordinate system is already
+    // top-left with the same origin; the WebCore point maps to a WKView point with NO
+    // conversion. -dragImage:at: takes that location directly. (Mirrors both reference
+    // paths: WebViewImpl::startDrag hands dragLocationInMainFrameCoordinates straight to
+    // -dragImage:at:, and WK1 WebDragClient::startDrag does the same with
+    // dragLocationInContentCoordinates.) A -convertPoint:fromView: here is wrong: it
+    // interprets this top-left point as an AppKit bottom-left window point and flips Y to
+    // (windowHeight - y), planting the drag image at an inverted vertical position.
     NSPasteboard *pasteboard = [NSPasteboard pasteboardWithName:NSDragPboard];
     // WebCore has already written the drag data to NSDragPboard; the dummy type just
     // guarantees the source pasteboard advertises at least one registered type.
@@ -521,7 +530,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!event)
         return;
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    [self dragImage:image at:viewPoint offset:NSZeroSize event:event pasteboard:pasteboard source:self slideBack:YES];
+    [self dragImage:image at:windowPoint offset:NSZeroSize event:event pasteboard:pasteboard source:self slideBack:YES];
 ALLOW_DEPRECATED_DECLARATIONS_END
 }
 #endif // ENABLE(DRAG_SUPPORT)
