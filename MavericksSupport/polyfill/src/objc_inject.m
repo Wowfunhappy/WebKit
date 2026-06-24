@@ -17,6 +17,12 @@
 #import <objc/runtime.h>
 #import <stdio.h>
 
+// _lp_simplifiedDisplayString is LinkPresentation-private (not declared in the SDK); forward-declare
+// the selector so it can be referenced and injected without an undeclared-selector warning.
+@interface NSURL (MavericksLinkPresentationForward)
+- (NSString *)_lp_simplifiedDisplayString;
+@end
+
 #define SRGB(r, g, b, a) [NSColor colorWithSRGBRed:(r)/255.0 green:(g)/255.0 blue:(b)/255.0 alpha:(a)/255.0]
 
 static void addInstance(Class cls, SEL sel, IMP imp, const char *types)
@@ -116,6 +122,17 @@ static void mav_performWindowDragWithEvent(id self, SEL c, NSEvent *event)
     }
 }
 
+// --- NSURL: -_lp_simplifiedDisplayString (LinkPresentation, 10.15+). LinkPresentation is absent on
+// 10.9, so NSURL never gains this category method, yet createDragImageForLink (DragImageCocoa.mm)
+// sends it unguarded under HAVE(URL_FORMATTING) to label a link drag image's domain line — so dragging
+// a link sends an unrecognized selector to NSURL and crashes the WebProcess. Return the host (the
+// nearest 10.9 meaning of a "simplified" display URL), falling back to the absolute string. ---
+static id mav_lpSimplifiedDisplayString(id self, SEL c)
+{
+    NSString *host = [(NSURL *)self host];
+    return host.length ? host : [(NSURL *)self absoluteString];
+}
+
 @interface MavericksObjCInjection : NSObject @end
 @implementation MavericksObjCInjection
 + (void)load
@@ -178,6 +195,9 @@ static void mav_performWindowDragWithEvent(id self, SEL c, NSEvent *event)
         char retVoidEvent[12];
         snprintf(retVoidEvent, sizeof retVoidEvent, "%s%s%s%s", @encode(void), @encode(id), @encode(SEL), @encode(id));
         addInstance([NSWindow class], @selector(performWindowDragWithEvent:), (IMP)mav_performWindowDragWithEvent, retVoidEvent);
+
+        // -[NSURL _lp_simplifiedDisplayString] (LinkPresentation, 10.15+): id return, no extra arg.
+        addInstance([NSURL class], @selector(_lp_simplifiedDisplayString), (IMP)mav_lpSimplifiedDisplayString, retId);
     }
 }
 @end
