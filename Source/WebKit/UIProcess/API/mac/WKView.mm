@@ -15,6 +15,7 @@
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "WebProcessPool.h"
+#import "WebUserContentControllerProxy.h"
 #import "WebKit2Initialize.h"
 #import "DrawingAreaProxy.h"
 #import "WKPrintingView.h"
@@ -132,6 +133,11 @@ struct WKViewState {
     if (pageGroupRef) {
         RefPtr<WebKit::WebPageGroup> pageGroup = WebKit::toImpl(pageGroupRef);
         configuration->setPreferences(&pageGroup->preferences());
+        // 10.9 backport: share the page group's user content controller so user
+        // scripts/style sheets installed on the group (WKPageGroupAddUserScript /
+        // AddUserStyleSheet, e.g. via Mail's WKBrowsingContextGroup) are injected
+        // into this page. Without this the page would get a fresh empty controller.
+        configuration->setUserContentController(&pageGroup->userContentController());
         configuration->setPageGroup(WTF::move(pageGroup));
     }
 

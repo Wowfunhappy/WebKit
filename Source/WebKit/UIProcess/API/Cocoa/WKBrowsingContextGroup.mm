@@ -31,11 +31,29 @@
 #import "config.h"
 #import "WKBrowsingContextGroupInternal.h"
 
+#import "WKMutableArray.h"
 #import "WKPageGroup.h"
 #import "WKPreferencesRef.h"
+#import "WKRetainPtr.h"
 #import "WKString.h"
 #import "WKStringCF.h"
 #import "WKType.h"
+#import "WKURLCF.h"
+#import "WKUserContentInjectedFrames.h"
+
+// 10.9 backport: convert an NSArray<NSString *> of URL patterns to a WKArray for
+// the WKPageGroup user-content C SPI.
+static WKRetainPtr<WKMutableArrayRef> createWKArray(NSArray<NSString *> *array)
+{
+    auto wkArray = adoptWK(WKMutableArrayCreate());
+    for (id entry in array) {
+        if ([entry isKindOfClass:[NSString class]]) {
+            auto wkString = adoptWK(WKStringCreateWithCFString((__bridge CFStringRef)entry));
+            WKArrayAppendItem(wkArray.get(), wkString.get());
+        }
+    }
+    return wkArray;
+}
 
 @implementation WKBrowsingContextGroup {
     WKPageGroupRef _pageGroup;
@@ -109,16 +127,49 @@
     _allowsPlugIns = allowsPlugIns;
 }
 
+// Forward to the WKPageGroup user-content C SPI, which adds the scripts/style sheets
+// to the group's user content controller (WebPageGroup); pages created in the group
+// share that controller, so the content is injected. QuickLook's Web2.qldisplay
+// installs a preview style sheet here, and Mail's -[MUIWebDocumentViewGroup
+// _refreshUserStyleSheet]/_refreshUserScripts clear and reinstall the message-view
+// style sheet and scripts when a message opens.
+
 - (void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelistedURLPatterns blacklistedURLPatterns:(NSArray *)blacklistedURLPatterns mainFrameOnly:(BOOL)mainFrameOnly
 {
-    // The page-group user-content C SPI (WKPageGroupAddUserStyleSheet) is a no-op
-    // on this backport, so QuickLook's optional preview style sheet is dropped and
-    // the preview renders the document's own styles.
-    (void)source;
-    (void)baseURL;
-    (void)whitelistedURLPatterns;
-    (void)blacklistedURLPatterns;
-    (void)mainFrameOnly;
+    if (!source)
+        return;
+
+    auto wkSource = adoptWK(WKStringCreateWithCFString((__bridge CFStringRef)source));
+    auto wkBaseURL = baseURL ? adoptWK(WKURLCreateWithCFURL((__bridge CFURLRef)baseURL)) : WKRetainPtr<WKURLRef>();
+    auto wkWhitelist = createWKArray(whitelistedURLPatterns);
+    auto wkBlacklist = createWKArray(blacklistedURLPatterns);
+    WKUserContentInjectedFrames injectedFrames = mainFrameOnly ? kWKInjectInTopFrameOnly : kWKInjectInAllFrames;
+
+    WKPageGroupAddUserStyleSheet(_pageGroup, wkSource.get(), wkBaseURL.get(), wkWhitelist.get(), wkBlacklist.get(), injectedFrames);
+}
+
+- (void)removeAllUserStyleSheets
+{
+    WKPageGroupRemoveAllUserStyleSheets(_pageGroup);
+}
+
+- (void)addUserScript:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelistedURLPatterns blacklistedURLPatterns:(NSArray *)blacklistedURLPatterns injectionTime:(_WKUserScriptInjectionTime)injectionTime mainFrameOnly:(BOOL)mainFrameOnly
+{
+    if (!source)
+        return;
+
+    auto wkSource = adoptWK(WKStringCreateWithCFString((__bridge CFStringRef)source));
+    auto wkBaseURL = baseURL ? adoptWK(WKURLCreateWithCFURL((__bridge CFURLRef)baseURL)) : WKRetainPtr<WKURLRef>();
+    auto wkWhitelist = createWKArray(whitelistedURLPatterns);
+    auto wkBlacklist = createWKArray(blacklistedURLPatterns);
+    WKUserContentInjectedFrames injectedFrames = mainFrameOnly ? kWKInjectInTopFrameOnly : kWKInjectInAllFrames;
+
+    WKPageGroupAddUserScript(_pageGroup, wkSource.get(), wkBaseURL.get(), wkWhitelist.get(), wkBlacklist.get(), injectedFrames, injectionTime);
+}
+
+- (void)removeAllUserScripts
+{
+    WKPageGroupRemoveAllUserScripts(_pageGroup);
 }
 
 @end
