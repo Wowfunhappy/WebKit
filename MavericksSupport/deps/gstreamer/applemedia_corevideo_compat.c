@@ -1,5 +1,5 @@
 /*
- * MAVERICKS_BACKPORT: CoreVideo compatibility shim for libgstapplemedia.dylib.
+ * CoreVideo compatibility shim for libgstapplemedia.dylib.
  *
  * The macOS-26-built applemedia plugin references 8 wide-gamut / HDR colorimetry constants added to
  * CoreVideo after 10.9. This shim REEXPORTS the real CoreVideo (so the plugin's ~20 pre-10.9 CV symbols

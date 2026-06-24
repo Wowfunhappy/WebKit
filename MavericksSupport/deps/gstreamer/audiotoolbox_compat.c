@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: AudioToolbox compatibility shim for the vendored GStreamer (Cerbero 1.26.6,
+// AudioToolbox compatibility shim for the vendored GStreamer (Cerbero 1.26.6,
 // deploy target 10.13). libgstosxaudio (osxaudiosink / osxaudiosrc) imports the AudioComponent API
 //   AudioComponentFindNext / AudioComponentInstanceNew / AudioComponentInstanceDispose
 // and the 26.1 SDK homes those symbols in AudioToolbox. On 10.9 the plain _AudioComponent* symbols

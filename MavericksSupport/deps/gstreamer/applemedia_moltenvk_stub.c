@@ -1,5 +1,5 @@
 /*
- * MAVERICKS_BACKPORT: no-op stub for the 8 Vulkan/MoltenVK symbols libgstapplemedia.dylib imports.
+ * no-op stub for the 8 Vulkan/MoltenVK symbols libgstapplemedia.dylib imports.
  *
  * Companion to applemedia_vulkan_stub.c -- see that file for the rationale. The real libMoltenVK is a
  * full Vulkan-on-Metal implementation that cannot load on 10.9 (no Metal), so it is dead weight here;

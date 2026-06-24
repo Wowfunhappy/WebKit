@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: extra libSystem gap-fills for the vendored GStreamer (Cerbero 1.26.6, deploy
+// extra libSystem gap-fills for the vendored GStreamer (Cerbero 1.26.6, deploy
 // target 10.13). These three symbols postdate 10.9 and are imported by the vendored libcrypto.3.dylib
 // (and other libs built against a newer SDK). They are "expected in" the repointed libSystem
 // dependency (@rpath/libsystem_compat.dylib), so defining them here lets those libraries load on 10.9.

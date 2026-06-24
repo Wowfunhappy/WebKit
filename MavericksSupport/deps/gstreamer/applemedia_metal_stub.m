@@ -1,5 +1,5 @@
 /*
- * MAVERICKS_BACKPORT: provides the one Metal class libgstapplemedia.dylib references directly,
+ * provides the one Metal class libgstapplemedia.dylib references directly,
  * MTLTextureDescriptor. The plugin links Metal.framework (absent on 10.9) for its Vulkan/Metal video
  * path; this dummy class lets the plugin's direct Metal symbol resolve so the dylib can LOAD. It is
  * never instantiated during AVFoundation camera capture.

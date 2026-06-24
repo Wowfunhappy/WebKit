@@ -1,5 +1,5 @@
 /*
- * MAVERICKS_BACKPORT: no-op stub for the 8 gst_vulkan_* symbols libgstapplemedia.dylib imports.
+ * no-op stub for the 8 gst_vulkan_* symbols libgstapplemedia.dylib imports.
  *
  * The vendored GStreamer applemedia plugin (avfvideosrc / avfdeviceprovider -- the macOS camera-capture
  * elements) is built on the modern host with the Vulkan/Metal zero-copy video path enabled, so it links
