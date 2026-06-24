@@ -6,8 +6,9 @@ toolchain, vendored deps); this folder is the prose.
 
 - **[UPSTREAM-MERGE-NOTES.md](UPSTREAM-MERGE-NOTES.md)** — what a future merge of newer upstream WebKit
   disturbs in this fork, and how to reconcile it. Read before every upstream merge.
-- **[SAFARI7-ABI-REFERENCE.md](SAFARI7-ABI-REFERENCE.md)** — the private WebKit API surface stock Safari 7
-  binds against (the frozen 725-symbol contract across JavaScriptCore / WebKitLegacy / WebKit2).
+- **[MAVERICKS-WEBKIT-ABI-REFERENCE.md](MAVERICKS-WEBKIT-ABI-REFERENCE.md)** — the private WebKit API contract
+  the backport must satisfy on 10.9 (the frozen 725-symbol core Safari 7 binds against, across JavaScriptCore /
+  WebKitLegacy / WebKit2, plus the extra legacy surface Mail and QuickLook need).
 
 Related, but not prose (kept with the data/tooling they belong to):
 - `../README.md` — overview of `MavericksSupport/` itself.
