@@ -1,14 +1,16 @@
-# The Safari 7 WebKit Private API — ABI Reference
+# The Mavericks WebKit Private API — ABI Reference
 
-This documents the private WebKit API surface that stock **Safari 7.0.6** (WebKit 9537.78.2,
-dylib version 537.78.x, shipped with OS X 10.9.5) binds against. It is a **frozen contract**: Safari is
-unmodifiable, so the backported frameworks must export exactly these symbols, with compatible signatures,
-at the paths Safari loads. No public Apple documentation covers this SPI; this reference is reconstructed
-from the symbols Safari actually imports (`safari-needs-from-*.txt`, **725** symbols total) plus the WebKit
-C/Objective-C API of that era.
+The private WebKit API contract the backported frameworks must satisfy on **OS X 10.9.5**. Its frozen core is
+what stock **Safari 7.0.6** (WebKit 9537.78.2, dylib version 537.78.x) binds against — Safari is unmodifiable,
+so the frameworks must export exactly those symbols, with compatible signatures, at the paths Safari loads. A
+few other Safari-7-era system clients (**Mail**, **QuickLook**) additionally bind legacy surface Safari does
+not; that surface, also removed or gutted upstream, is restored by the backport and flagged inline. No public
+Apple documentation covers this SPI; this reference is reconstructed from the symbols Safari imports
+(`safari-needs-from-*.txt`, **725** symbols total) plus the WebKit C/Objective-C API of that era.
 
-It is organized by providing framework, then by API group. Symbol counts per group are noted; representative
-entry points are named. The exhaustive symbol lists are the `safari-needs-from-<framework>.txt` files.
+It is organized by providing framework, then by API group. Symbol counts per group are Safari's imports;
+representative entry points are named. The exhaustive symbol lists are the `safari-needs-from-<framework>.txt`
+files.
 
 ---
 
@@ -115,6 +117,17 @@ This is the surface through which Safari drives the browser.
 > These three classes were **removed from upstream WebKit** and are reimplemented by the backport (the rest
 > of the WK2 surface is the still-living C API).
 
+The same legacy WebKit2 ObjC embedding API is used by the **other Safari-7-era system WebKit2 clients** — chiefly
+**Mail** (message rendering) and **QuickLook** (`Web2.qldisplay` HTML previews) — which build a `WKView` from a
+process/page group object rather than from C refs. The backport therefore reimplements two further removed-upstream
+classes they need (not in Safari's own import set):
+- **`WKProcessGroup`** — wraps the process pool that backs a `WKView`'s web processes.
+- **`WKBrowsingContextGroup`** — wraps the page group: `-initWithIdentifier:`, JavaScript/plug-in toggles, and the
+  user-content methods `-addUserStyleSheet:…` / `-removeAllUserStyleSheets` / `-addUserScript:…` /
+  `-removeAllUserScripts` (forwarded to the `WKPageGroup` user-content C SPI above). Mail's `MUIWebDocumentViewGroup`
+  installs its message-view style sheet and scripts through these while opening a message; a missing selector
+  terminates Mail with an unrecognized-selector exception.
+
 ### `WKContext` — process pool & global context (52)
 `WKContextCreate` / `WKContextCreateWithInjectedBundlePath` (Safari passes its WebProcess plug-in here),
 `WKContextSetCacheModel`, history/download/connection client registration, and accessors to the storage
@@ -128,6 +141,17 @@ managers below (`WKContextGetCookieManager`, `…GetIconDatabase`, `…GetApplic
 - **Clients** — `WKPageSetPage{UI,Loader,Policy,Form,ContextMenu,Find}Client`: the callback structs through
   which Safari implements window/UI prompts, load notifications, navigation policy, form submission, the
   context menu, and find-on-page.
+
+### `WKPageGroup` — page group (3)
+Groups pages that share preferences and user content. Safari creates one per page and attaches its
+`WKPreferences`: `WKPageGroupCreateWithIdentifier`, `WKPageGroupGetPreferences` / `WKPageGroupSetPreferences`.
+The backport additionally **restores the page group's user-content C SPI** — `WKPageGroupGetUserContentController`,
+`WKPageGroupAddUserStyleSheet` / `WKPageGroupRemoveAllUserStyleSheets`, `WKPageGroupAddUserScript` /
+`WKPageGroupRemoveAllUserScripts` (gutted to no-ops upstream when the page-group user-content model was removed).
+The page group owns a `WebUserContentControllerProxy`, and pages created in the group share it (the WKView
+initializer seeds the page configuration with it), so scripts and style sheets added here are injected. Safari
+itself drives user content through the injected bundle (`WKBundleAddUserScript`) and only imports the three
+preferences symbols; **Mail** and **QuickLook** install their user content here via `WKBrowsingContextGroup`.
 
 ### `WKPreferences` — settings (106)
 Per-page-group settings as one setter/getter pair per feature: `WKPreferencesCreate` / `CreateCopy`,
@@ -210,7 +234,8 @@ is fatal: Safari either fails to launch (`dyld: Symbol not found`) or traps when
 
 Most WK2 C-API symbols still exist unchanged in modern WebKit and need no work. What the backport actively
 fills in:
-- the **Objective-C classes** `WKView`, `WKBrowsingContextController`, `WKWebInspectorProxyObjCAdapter`
-  (removed upstream → reimplemented);
-- some gutted C API such as parts of `WKBundlePageGroup*` and `WKSerializedScriptValue*` (restored);
+- the **Objective-C classes** `WKView`, `WKBrowsingContextController`, `WKWebInspectorProxyObjCAdapter` (Safari),
+  plus `WKProcessGroup` and `WKBrowsingContextGroup` (Mail / QuickLook) — all removed upstream → reimplemented;
+- some gutted C API such as the `WKPageGroup` user-content functions, parts of `WKBundlePageGroup*`, and
+  `WKSerializedScriptValue*` (restored);
 - the **old WTF mangled names** in JavaScriptCore.
