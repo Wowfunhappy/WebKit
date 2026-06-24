@@ -1,5 +1,5 @@
 /*
- * MAVERICKS_BACKPORT: AVFoundation compatibility shim for libgstapplemedia.dylib.
+ * AVFoundation compatibility shim for libgstapplemedia.dylib.
  *
  * The macOS-26-built applemedia plugin references 7 AVAudioSettings keys that 10.9's AVFoundation does
  * not export. This shim REEXPORTS the real AVFoundation (so the plugin's AVCapture* / AVAsset* classes

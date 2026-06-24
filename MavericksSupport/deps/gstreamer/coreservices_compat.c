@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: CoreServices compatibility shim for the vendored GStreamer (Cerbero 1.26.6,
+// CoreServices compatibility shim for the vendored GStreamer (Cerbero 1.26.6,
 // deploy target 10.13; see PROVENANCE.txt). The vendored libgio-2.0.0.dylib's macOS GAppInfo /
 // content-type backend imports two LaunchServices functions that postdate 10.9:
 //

@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: system-framework SPI that the macOS 26.1 SDK resolves against the system
+// system-framework SPI that the macOS 26.1 SDK resolves against the system
 // frameworks (recording a two-level bind) but the 10.9 runtime does not export. Without a definition
 // here the link records a bind to e.g. Security/CoreText/CFNetwork that fails on 10.9 — a non-lazy
 // bind SIGTRAPs at load, a lazy one when the call site is first reached. libpolyfill.a is on every

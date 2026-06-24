@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: TCC (Transparency, Consent and Control) shim for macOS 10.9.
+// TCC (Transparency, Consent and Control) shim for macOS 10.9.
 //
 // Per-application camera/microphone privacy gating did not exist before macOS 10.14. The 10.9 TCC
 // framework therefore has no kTCCServiceCamera / kTCCServiceMicrophone identifiers, and WebKit's

@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: CoreText compatibility shim for the vendored GStreamer (Cerbero 1.26.6, deploy
+// CoreText compatibility shim for the vendored GStreamer (Cerbero 1.26.6, deploy
 // target 10.13; see PROVENANCE.txt). The vendored libharfbuzz's CoreText shaper backend imports two
 // OpenType-feature dictionary-key constants that postdate 10.9:
 //
