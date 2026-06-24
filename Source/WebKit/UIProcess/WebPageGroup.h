@@ -38,6 +38,7 @@ namespace WebKit {
 
 class WebPreferences;
 class WebPageProxy;
+class WebUserContentControllerProxy;
 
 class WebPageGroup : public API::ObjectImpl<API::Object::Type::PageGroup>, public CanMakeWeakPtr<WebPageGroup> {
 public:
@@ -61,9 +62,18 @@ public:
     // bundle-injected user content (data().identifier).
     const String& identifier() const LIFETIME_BOUND { return m_data.identifier; }
 
+    // 10.9 backport: restore the page group's user content controller, removed
+    // upstream with the page-group user-content model. The legacy WKPageGroup C SPI
+    // (WKPageGroupAddUserScript / AddUserStyleSheet / RemoveAll*) and Safari 7-era
+    // clients (Mail's MUIWebDocumentViewGroup, QuickLook's Web2.qldisplay) add user
+    // scripts and style sheets here; pages created in the group share this controller
+    // (WKView seeds the page configuration with it) so the content is injected.
+    WebUserContentControllerProxy& userContentController() { return m_userContentController; }
+
 private:
     WebPageGroupData m_data;
     Ref<WebPreferences> m_preferences;
+    Ref<WebUserContentControllerProxy> m_userContentController;
 };
 
 } // namespace WebKit

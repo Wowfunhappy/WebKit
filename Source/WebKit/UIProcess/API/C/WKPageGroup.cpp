@@ -26,9 +26,17 @@
 #include "config.h"
 #include "WKPageGroup.h"
 
+#include "APIArray.h"
+#include "APIContentWorld.h"
+#include "APIUserScript.h"
+#include "APIUserStyleSheet.h"
+#include "InjectUserScriptImmediately.h"
 #include "WKAPICast.h"
 #include "WebPageGroup.h"
 #include "WebPreferences.h"
+#include "WebUserContentControllerProxy.h"
+#include <WebCore/UserScript.h>
+#include <WebCore/UserStyleSheet.h>
 
 // 10.9 backport: these were gutted to null upstream, but Safari 7 creates its
 // browsing page group with WKPageGroupCreateWithIdentifier, attaches its
@@ -62,23 +70,68 @@ WKPreferencesRef WKPageGroupGetPreferences(WKPageGroupRef pageGroupRef)
     return WebKit::toAPI(&pageGroup->preferences());
 }
 
+// 10.9 backport: restore the page-group user-content C SPI (gutted upstream with
+// the page-group user-content model). The page group owns a WebUserContentControllerProxy
+// (WebPageGroup::userContentController); pages created in the group share it (WKView seeds
+// the page configuration with it), so scripts and style sheets added here are injected.
+// Safari 7-era clients drive this through WKBrowsingContextGroup — e.g. Mail's
+// -[MUIWebDocumentViewGroup _refreshUserStyleSheet]/_refreshUserScripts install the
+// message-view style sheet and scripts. Faithful to the pre-removal implementation.
 WKUserContentControllerRef WKPageGroupGetUserContentController(WKPageGroupRef pageGroupRef)
 {
-    return nullptr;
+    return WebKit::toAPI(&WebKit::toImpl(pageGroupRef)->userContentController());
 }
 
-void WKPageGroupAddUserStyleSheet(WKPageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, WKUserContentInjectedFrames)
+void WKPageGroupAddUserStyleSheet(WKPageGroupRef pageGroupRef, WKStringRef sourceRef, WKURLRef baseURLRef, WKArrayRef allowedURLPatterns, WKArrayRef blockedURLPatterns, WKUserContentInjectedFrames injectedFrames)
 {
+    auto source = WebKit::toWTFString(sourceRef);
+    if (source.isEmpty())
+        return;
+
+    auto baseURLString = WebKit::toWTFString(baseURLRef);
+    auto* allowlist = WebKit::toImpl(allowedURLPatterns);
+    auto* blocklist = WebKit::toImpl(blockedURLPatterns);
+
+    Ref<API::UserStyleSheet> userStyleSheet = API::UserStyleSheet::create(WebCore::UserStyleSheet {
+        source,
+        baseURLString.isEmpty() ? aboutBlankURL() : URL { baseURLString },
+        allowlist ? allowlist->toStringVector() : Vector<String>(),
+        blocklist ? blocklist->toStringVector() : Vector<String>(),
+        WebKit::toUserContentInjectedFrames(injectedFrames)
+    }, API::ContentWorld::pageContentWorldSingleton());
+
+    WebKit::toImpl(pageGroupRef)->userContentController().addUserStyleSheet(userStyleSheet.get());
 }
 
-void WKPageGroupRemoveAllUserStyleSheets(WKPageGroupRef)
+void WKPageGroupRemoveAllUserStyleSheets(WKPageGroupRef pageGroupRef)
 {
+    WebKit::toImpl(pageGroupRef)->userContentController().removeAllUserStyleSheets();
 }
 
-void WKPageGroupAddUserScript(WKPageGroupRef, WKStringRef, WKURLRef, WKArrayRef, WKArrayRef, WKUserContentInjectedFrames, _WKUserScriptInjectionTime)
+void WKPageGroupAddUserScript(WKPageGroupRef pageGroupRef, WKStringRef sourceRef, WKURLRef baseURLRef, WKArrayRef allowedURLPatterns, WKArrayRef blockedURLPatterns, WKUserContentInjectedFrames injectedFrames, _WKUserScriptInjectionTime injectionTime)
 {
+    auto source = WebKit::toWTFString(sourceRef);
+    if (source.isEmpty())
+        return;
+
+    auto baseURLString = WebKit::toWTFString(baseURLRef);
+    auto* allowlist = WebKit::toImpl(allowedURLPatterns);
+    auto* blocklist = WebKit::toImpl(blockedURLPatterns);
+
+    auto url = baseURLString.isEmpty() ? aboutBlankURL() : URL { baseURLString };
+    Ref<API::UserScript> userScript = API::UserScript::create(WebCore::UserScript {
+        WTF::move(source),
+        WTF::move(url),
+        allowlist ? allowlist->toStringVector() : Vector<String>(),
+        blocklist ? blocklist->toStringVector() : Vector<String>(),
+        WebKit::toUserScriptInjectionTime(injectionTime),
+        WebKit::toUserContentInjectedFrames(injectedFrames)
+    }, API::ContentWorld::pageContentWorldSingleton());
+
+    WebKit::toImpl(pageGroupRef)->userContentController().addUserScript(userScript.get(), WebKit::InjectUserScriptImmediately::No);
 }
 
-void WKPageGroupRemoveAllUserScripts(WKPageGroupRef)
+void WKPageGroupRemoveAllUserScripts(WKPageGroupRef pageGroupRef)
 {
+    WebKit::toImpl(pageGroupRef)->userContentController().removeAllUserScripts();
 }

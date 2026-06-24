@@ -33,6 +33,7 @@
 #include "WebCompiledContentRuleList.h"
 #include "WebPageProxy.h"
 #include "WebPreferences.h"
+#include "WebUserContentControllerProxy.h"
 #include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
@@ -89,6 +90,7 @@ static WebPageGroupData pageGroupData(const String& identifier)
 WebPageGroup::WebPageGroup(const String& identifier)
     : m_data(pageGroupData(identifier))
     , m_preferences(WebPreferences::createWithLegacyDefaults(m_data.identifier, ".WebKit2"_s, "WebKit2."_s))
+    , m_userContentController(WebUserContentControllerProxy::create())
 {
     webPageGroupMap().set(m_data.pageGroupID, *this);
 }

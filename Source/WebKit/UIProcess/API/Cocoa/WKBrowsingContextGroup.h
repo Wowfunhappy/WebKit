@@ -32,9 +32,10 @@
 
 // 10.9 backport: the WKBrowsingContextGroup class interface was gutted upstream
 // (only the header shell remains). Restore the minimal surface that Apple's
-// QuickLook Web2.qldisplay uses so the HTML preview display bundle can link and
-// instantiate it. Without the class, dlopen of Web2 fails on the missing
-// _OBJC_CLASS_$_WKBrowsingContextGroup symbol.
+// QuickLook Web2.qldisplay and Mail.app (MUIWebDocumentViewGroup) use so those
+// clients can link and instantiate it. Without the class, dlopen of Web2 fails
+// on the missing _OBJC_CLASS_$_WKBrowsingContextGroup symbol, and Mail crashes
+// when it sends the user-content messages below while opening a message.
 
 #if !TARGET_OS_IPHONE
 
@@ -57,10 +58,17 @@ __attribute__((visibility("default")))
 // API fidelity but is inert.
 @property (nonatomic) BOOL allowsPlugIns;
 
-// Web2.qldisplay may install a user style sheet on the group to style the
-// preview. The page-group user-content C SPI is a no-op on this backport, so the
-// preview renders the document's own styles.
+// User-content management on the group, forwarded to the page group's user content
+// controller (WebPageGroup). Web2.qldisplay installs a preview style sheet; Mail's
+// -[MUIWebDocumentViewGroup _refreshUserStyleSheet]/_refreshUserScripts clear and
+// reinstall the message-view style sheet and scripts here, which are then injected
+// into pages created in the group. Mail sends these while opening a message, so the
+// selectors must exist (a missing one terminates Mail with an unrecognized-selector
+// exception).
 - (void)addUserStyleSheet:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelistedURLPatterns blacklistedURLPatterns:(NSArray *)blacklistedURLPatterns mainFrameOnly:(BOOL)mainFrameOnly;
+- (void)removeAllUserStyleSheets;
+- (void)addUserScript:(NSString *)source baseURL:(NSURL *)baseURL whitelistedURLPatterns:(NSArray *)whitelistedURLPatterns blacklistedURLPatterns:(NSArray *)blacklistedURLPatterns injectionTime:(_WKUserScriptInjectionTime)injectionTime mainFrameOnly:(BOOL)mainFrameOnly;
+- (void)removeAllUserScripts;
 
 @end
 
