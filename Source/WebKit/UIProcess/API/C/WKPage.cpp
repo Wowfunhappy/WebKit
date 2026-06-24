@@ -26,7 +26,6 @@
 #include "config.h"
 #include "WKPage.h"
 #include "WKPagePrivate.h"
-#include <asl.h> // 10.9 backport GUM-DIAG: UIProcess stderr is discarded; asl_log reaches syslog.
 
 #include "APIArray.h"
 #include "APICompletionListener.h"
@@ -2162,7 +2161,6 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
 
         void decidePolicyForUserMediaPermissionRequest(WebPageProxy& page, WebFrameProxy& frame, API::SecurityOrigin& userMediaDocumentOrigin, API::SecurityOrigin& topLevelDocumentOrigin, UserMediaPermissionRequestProxy& permissionRequest) final
         {
-            asl_log(nullptr, nullptr, ASL_LEVEL_ERR, "[GUM-DIAG] WKPageUIClient decidePolicy hasClient=%d hasAudioDev=%d hasVideoDev=%d", !!m_client.decidePolicyForUserMediaPermissionRequest, permissionRequest.hasAudioDevice(), permissionRequest.hasVideoDevice());
             if (!m_client.decidePolicyForUserMediaPermissionRequest) {
                 // 10.9 backport: Safari 7 predates getUserMedia and never installs this WKPageUIClient
                 // callback, so the upstream default deny() makes camera/microphone capture impossible.

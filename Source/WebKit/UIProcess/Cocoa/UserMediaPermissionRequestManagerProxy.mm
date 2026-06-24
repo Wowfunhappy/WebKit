@@ -39,7 +39,6 @@
 
 #import <pal/cocoa/AVFoundationSoftLink.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
-#import <asl.h> // 10.9 backport GUM-DIAG
 
 #if ENABLE(MEDIA_STREAM) && HAVE(AVCAPTUREDEVICEROTATIONCOORDINATOR)
 
