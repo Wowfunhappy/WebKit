@@ -22,6 +22,9 @@ list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source"
     "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/third_party/abseil-cpp"
     "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/webrtc"
+    # 10.9 backport: WebView +initialize calls PAL::GCrypt::initialize() (WebCrypto
+    # is libgcrypt-backed on this port), so WebKitLegacy needs gcrypt.h reachable.
+    "${MAVERICKS_DEPS}/include"
 )
 
 list(APPEND WebKitLegacy_UNIFIED_SOURCE_LIST_FILES
