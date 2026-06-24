@@ -55,7 +55,6 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WeakHashSet.h>
-#include <asl.h> // 10.9 backport GUM-DIAG: UIProcess stderr is discarded; asl_log reaches syslog.
 
 #if ENABLE(GPU_PROCESS)
 #include "GPUProcessMessages.h"
@@ -262,7 +261,6 @@ void UserMediaPermissionRequestManagerProxy::denyRequest(UserMediaPermissionRequ
         return;
 
     ALWAYS_LOG(LOGIDENTIFIER, request.userMediaID() ? request.userMediaID()->toUInt64() : 0, ", reason: ", reason);
-    asl_log(nullptr, nullptr, ASL_LEVEL_ERR, "[GUM-DIAG] denyRequest reason=%d audio=%d video=%d display=%d", (int)reason, request.requiresAudioCapture(), request.requiresVideoCapture(), request.requiresDisplayCapture());
 
     bool shouldCacheResult = true;
 #if ENABLE(WEB_ARCHIVE)
@@ -576,7 +574,6 @@ void UserMediaPermissionRequestManagerProxy::requestUserMediaPermissionForFrame(
         return;
 
     ALWAYS_LOG(LOGIDENTIFIER, userMediaID.toUInt64());
-    asl_log(nullptr, nullptr, ASL_LEVEL_ERR, "[GUM-DIAG] requestUserMediaPermissionForFrame ENTRY id=%llu audio=%d video=%d", userMediaID.toUInt64(), userRequest.audioConstraints.isValid, userRequest.videoConstraints.isValid);
 
     Ref request = UserMediaPermissionRequestProxy::create(*this, userMediaID, page->mainFrame()->frameID(), WTF::move(frameInfo), WTF::move(userMediaDocumentOrigin), WTF::move(topLevelDocumentOrigin), { }, { }, WTF::move(userRequest));
     if (m_currentUserMediaRequest) {
@@ -745,7 +742,6 @@ void UserMediaPermissionRequestManagerProxy::processUserMediaPermissionValidRequ
 
     auto action = getRequestAction(*currentUserMediaRequest);
     ALWAYS_LOG(LOGIDENTIFIER, currentUserMediaRequest->userMediaID() ? currentUserMediaRequest->userMediaID()->toUInt64() : 0, ", action: ", action);
-    asl_log(nullptr, nullptr, ASL_LEVEL_ERR, "[GUM-DIAG] validRequest action=%d userGesture=%d hasVid=%d hasAud=%d", (int)action, currentUserMediaRequest->isUserGesturePriviledged(), currentUserMediaRequest->hasVideoDevice(), currentUserMediaRequest->hasAudioDevice());
 
     if (action == RequestAction::Deny) {
         denyRequest(*currentUserMediaRequest, UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::PermissionDenied);
