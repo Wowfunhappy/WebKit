@@ -21,8 +21,7 @@
 // in WebKit.framework (alongside PolyfillClasses_109.mm) so its strong class definition satisfies the
 // weak `_OBJC_CLASS_$_NSURLSessionWebSocketMessage` import in WebSocketTaskCocoa.mm. It provides:
 //   * NSURLSessionWebSocketMessage  — the value object WebSocketTaskCocoa constructs.
-//   * WKWebSocketStream             — an RFC 6455 client over CFStream (TLS via
-//     kCFStreamSocketSecurityLevelNegotiatedSSL) that masquerades as the NSURLSessionWebSocketTask
+//   * WKWebSocketStream             — an RFC 6455 client that masquerades as the NSURLSessionWebSocketTask
 //     WebSocketTaskCocoa drives (resume/cancel/currentRequest/response/closeCode/taskIdentifier/
 //     receiveMessageWithCompletionHandler:/sendMessage:completionHandler:/cancelWithCloseCode:reason:).
 //   * -[NSURLSession webSocketTaskWithRequest:] — already called (respondsToSelector-guarded) by
@@ -32,14 +31,18 @@
 // didConnect/didClose path is unchanged. Delegate + receive callbacks are delivered on the main queue
 // (where createWebSocketTask/addWebSocketTask run); socket I/O runs on a private serial queue.
 //
-// Compiled with -fobjc-arc (see CMakeLists.txt). The CFStream client context retains self, so the
-// stream outlives any in-flight socket callbacks until teardown clears the client.
+// Transport: a blocking HTTP CONNECT through the system proxy on a plain BSD socket, then an OpenSSL 3
+// TLS 1.3 session over that fd (the local MITM proxy only hijacks WebSocket upgrades on TLS 1.3; 10.9's
+// SecureTransport is TLS-1.2-only, so we borrow the bundle's vendored OpenSSL), driven non-blocking by GCD
+// readiness sources on the serial I/O queue. Compiled with -fobjc-arc (see CMakeLists.txt).
 
 #include "config.h"
 #import <CFNetwork/CFNetwork.h>
 #import <CommonCrypto/CommonDigest.h>
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
+#import <dlfcn.h>
+#import <fcntl.h>
 #import <netdb.h>
 #import <sys/socket.h>
 #import <unistd.h>
@@ -81,7 +84,7 @@
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// WKWebSocketStream: RFC 6455 client over CFStream, shaped like NSURLSessionWebSocketTask.
+// WKWebSocketStream: RFC 6455 client (OpenSSL 3 / TLS 1.3 transport), shaped like NSURLSessionWebSocketTask.
 // ---------------------------------------------------------------------------------------------------
 
 static NSString * const kWebSocketGUID = @"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -107,12 +110,19 @@ typedef NS_ENUM(NSInteger, WKWSState) {
     NSUInteger _taskIdentifier;
     NSInteger _closeCode;
 
-    CFReadStreamRef _readStream;
-    CFWriteStreamRef _writeStream;
-    dispatch_queue_t _ioQueue;      // socket I/O + frame parsing run here
+    // OpenSSL 3 (TLS 1.3) over a non-blocking tunnel fd, driven by GCD readiness sources on _ioQueue. TLS 1.3
+    // is required because the local MITM proxy only hijacks WebSocket upgrades on TLS 1.3 (see startConnection
+    // comment); 10.9's SecureTransport caps at TLS 1.2, so we borrow the bundle's vendored OpenSSL.
+    void *_ssl;                     // SSL* (NULL for plain ws://)
+    void *_sslCtx;                  // SSL_CTX*
+    int _fd;                        // tunnel socket fd (non-blocking)
+    dispatch_source_t _readSource;  // socket readable (always resumed once started)
+    dispatch_source_t _writeSource; // socket writable (armed only on write backpressure)
+    BOOL _writeSourceArmed;
+    BOOL _tlsHandshakeDone;         // TLS layer ready (always YES for plain ws://)
+    dispatch_queue_t _ioQueue;      // OpenSSL, writes, frame parsing, and all state run here
 
     WKWSState _state;
-    BOOL _writeStreamOpen;
     BOOL _sentClose;
 
     BOOL _secure;                   // wss
@@ -193,6 +203,7 @@ static id wsHTTPResponseValueForHeaderField(NSHTTPURLResponse *self, SEL, NSStri
     _messageBuffer = [NSMutableData data];
     _incomingMessages = [NSMutableArray array];
     _lock = [[NSLock alloc] init];
+    _fd = -1;
     _ioQueue = dispatch_queue_create("com.apple.WebKit.LegacyWebSocket", DISPATCH_QUEUE_SERIAL);
     return self;
 }
@@ -310,10 +321,85 @@ static id wsHTTPResponseValueForHeaderField(NSHTTPURLResponse *self, SEL, NSStri
     });
 }
 
-// ----- connection + TLS (on _ioQueue) -----
+// ----- connection + TLS: an OpenSSL 3 (TLS 1.3) session over the non-blocking tunnel fd, all on _ioQueue -----
+//
+// WHY OpenSSL and not SecureTransport: the local MITM proxy (AquaProxy, a Go net/http httputil.ReverseProxy)
+// only HIJACKS WebSocket upgrades on TLS 1.3 connections. Over the TLS 1.2 that 10.9's SecureTransport is
+// capped at, the proxy relays the 101 but never switches to tunnel mode — it reads the first client frame as
+// a (malformed) HTTP request, so server->client frames never flow (verified: identical request bytes succeed
+// over TLS 1.3 and fail over TLS 1.2 through the same proxy). 10.9 SecureTransport can't do TLS 1.3, so we
+// borrow the OpenSSL 3 already vendored in the bundle (for GStreamer) and drive it non-blocking over the fd.
 
-static void *wsContextRetain(void *info) { return (void *)CFRetain((CFTypeRef)info); }
-static void wsContextRelease(void *info) { CFRelease((CFTypeRef)info); }
+// OpenSSL constants (stable ABI; declared here so we needn't pull in <openssl/ssl.h>).
+enum {
+    OSSL_TLS1_3_VERSION = 0x0304,
+    OSSL_CTRL_SET_MIN_PROTO_VERSION = 123,
+    OSSL_CTRL_SET_MAX_PROTO_VERSION = 124,
+    OSSL_CTRL_SET_TLSEXT_HOSTNAME = 55,
+    OSSL_TLSEXT_NAMETYPE_host_name = 0,
+    OSSL_CTRL_MODE = 33,
+    OSSL_MODE_ENABLE_PARTIAL_WRITE = 0x01,
+    OSSL_MODE_ACCEPT_MOVING_WRITE_BUFFER = 0x02,
+    OSSL_VERIFY_NONE = 0x00,
+    OSSL_ERROR_WANT_READ = 2,
+    OSSL_ERROR_WANT_WRITE = 3,
+    OSSL_ERROR_ZERO_RETURN = 6,
+};
+
+static void *(*ossl_TLS_client_method)(void);
+static void *(*ossl_SSL_CTX_new)(const void *);
+static void  (*ossl_SSL_CTX_free)(void *);
+static long  (*ossl_SSL_CTX_ctrl)(void *, int, long, void *);
+static void  (*ossl_SSL_CTX_set_verify)(void *, int, void *);
+static void *(*ossl_SSL_new)(void *);
+static void  (*ossl_SSL_free)(void *);
+static int   (*ossl_SSL_set_fd)(void *, int);
+static long  (*ossl_SSL_ctrl)(void *, int, long, void *);
+static void  (*ossl_SSL_set_connect_state)(void *);
+static int   (*ossl_SSL_connect)(void *);
+static int   (*ossl_SSL_read)(void *, void *, int);
+static int   (*ossl_SSL_write)(void *, const void *, int);
+static int   (*ossl_SSL_get_error)(const void *, int);
+static int   (*ossl_SSL_shutdown)(void *);
+
+static BOOL wsLoadOpenSSL(void)
+{
+    static BOOL ok = NO;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        // The vendored OpenSSL ships beside the GStreamer libs inside WebCore.framework. Pre-load its
+        // dependencies by absolute path so libssl's @rpath references resolve in the NetworkProcess (which
+        // has no GStreamer rpath of its own), then load libssl itself.
+        const char *dir = "/System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/"
+                          "WebCore.framework/Versions/A/Frameworks/gstreamer/lib/";
+        char path[1024];
+        snprintf(path, sizeof(path), "%slibsystem_compat.dylib", dir); dlopen(path, RTLD_GLOBAL | RTLD_NOW);
+        snprintf(path, sizeof(path), "%slibcrypto.3.dylib", dir);      dlopen(path, RTLD_GLOBAL | RTLD_NOW);
+        snprintf(path, sizeof(path), "%slibssl.3.dylib", dir);
+        void *h = dlopen(path, RTLD_GLOBAL | RTLD_NOW);
+        if (!h) { NSLog(@"[WebSocket] could not load OpenSSL: %s", dlerror()); return; }
+        ossl_TLS_client_method   = (void *(*)(void))dlsym(h, "TLS_client_method");
+        ossl_SSL_CTX_new         = (void *(*)(const void *))dlsym(h, "SSL_CTX_new");
+        ossl_SSL_CTX_free        = (void (*)(void *))dlsym(h, "SSL_CTX_free");
+        ossl_SSL_CTX_ctrl        = (long (*)(void *, int, long, void *))dlsym(h, "SSL_CTX_ctrl");
+        ossl_SSL_CTX_set_verify  = (void (*)(void *, int, void *))dlsym(h, "SSL_CTX_set_verify");
+        ossl_SSL_new             = (void *(*)(void *))dlsym(h, "SSL_new");
+        ossl_SSL_free            = (void (*)(void *))dlsym(h, "SSL_free");
+        ossl_SSL_set_fd          = (int (*)(void *, int))dlsym(h, "SSL_set_fd");
+        ossl_SSL_ctrl            = (long (*)(void *, int, long, void *))dlsym(h, "SSL_ctrl");
+        ossl_SSL_set_connect_state = (void (*)(void *))dlsym(h, "SSL_set_connect_state");
+        ossl_SSL_connect         = (int (*)(void *))dlsym(h, "SSL_connect");
+        ossl_SSL_read            = (int (*)(void *, void *, int))dlsym(h, "SSL_read");
+        ossl_SSL_write           = (int (*)(void *, const void *, int))dlsym(h, "SSL_write");
+        ossl_SSL_get_error       = (int (*)(const void *, int))dlsym(h, "SSL_get_error");
+        ossl_SSL_shutdown        = (int (*)(void *))dlsym(h, "SSL_shutdown");
+        ok = ossl_TLS_client_method && ossl_SSL_CTX_new && ossl_SSL_CTX_ctrl && ossl_SSL_new
+            && ossl_SSL_set_fd && ossl_SSL_ctrl && ossl_SSL_connect && ossl_SSL_read
+            && ossl_SSL_write && ossl_SSL_get_error;
+        if (!ok) NSLog(@"[WebSocket] OpenSSL symbols missing");
+    });
+    return ok;
+}
 
 - (void)startConnection
 {
@@ -331,51 +417,71 @@ static void wsContextRelease(void *info) { CFRelease((CFTypeRef)info); }
     _targetPort = port;
 
     // This VM has no direct route to external hosts; all traffic goes through the system proxy (the same
-    // one NSURLSession uses). Raw CFSocketStreams ignore kCFStreamPropertyHTTPProxy, and adding TLS to an
-    // already-open CFStream (deferred TLS after a CONNECT) is unreliable. So we open the proxy tunnel on a
-    // plain BSD socket (blocking HTTP CONNECT — cheap, the proxy is local), then wrap the established
-    // socket in CFStreams with TLS configured BEFORE opening, which engages reliably.
+    // one NSURLSession uses). So we open the proxy tunnel on a plain BSD socket (blocking HTTP CONNECT —
+    // cheap, the proxy is local), then run our own SecureTransport session over the established socket.
     NSDictionary *sys = (__bridge_transfer NSDictionary *)CFNetworkCopySystemProxySettings();
     NSString *proxyHost = secure ? sys[@"HTTPSProxy"] : sys[@"HTTPProxy"];
     NSNumber *proxyPort = secure ? sys[@"HTTPSPort"] : sys[@"HTTPPort"];
     BOOL proxyEnabled = [sys[secure ? @"HTTPSEnable" : @"HTTPEnable"] boolValue];
 
+    int fd = -1;
     if (proxyEnabled && proxyHost.length) {
-        int fd = [self openProxyTunnel:proxyHost port:(proxyPort ? proxyPort.unsignedIntValue : (secure ? 443 : 80)) targetHost:host targetPort:port];
+        fd = [self openProxyTunnel:proxyHost port:(proxyPort ? proxyPort.unsignedIntValue : (secure ? 443 : 80)) targetHost:host targetPort:port];
         if (fd < 0) {
             [self failWithReason:@"Proxy CONNECT failed"];
             return;
         }
-        CFStreamCreatePairWithSocket(kCFAllocatorDefault, (CFSocketNativeHandle)fd, &_readStream, &_writeStream);
-        if (!_readStream || !_writeStream) {
-            close(fd);
-            [self failWithReason:@"Could not wrap tunnel socket"];
-            return;
-        }
-        CFReadStreamSetProperty(_readStream, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanTrue);
-        CFWriteStreamSetProperty(_writeStream, kCFStreamPropertyShouldCloseNativeSocket, kCFBooleanTrue);
     } else {
-        CFStreamCreatePairWithSocketToHost(kCFAllocatorDefault, (__bridge CFStringRef)host, port, &_readStream, &_writeStream);
-        if (!_readStream || !_writeStream) {
-            [self failWithReason:@"Could not create socket streams"];
+        fd = [self openDirectSocket:host port:port];
+        if (fd < 0) {
+            [self failWithReason:@"Could not connect socket"];
             return;
         }
     }
+    _fd = fd;
 
-    if (secure)
-        [self enableTLS];
+    // Non-blocking from here on: OpenSSL returns SSL_ERROR_WANT_READ/WRITE and the GCD readiness sources
+    // re-drive the pump, so nothing ever blocks _ioQueue.
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0)
+        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 
-    CFStreamClientContext context = { 0, (__bridge void *)self, wsContextRetain, wsContextRelease, NULL };
-    CFOptionFlags readFlags = kCFStreamEventHasBytesAvailable | kCFStreamEventErrorOccurred | kCFStreamEventEndEncountered | kCFStreamEventOpenCompleted;
-    CFOptionFlags writeFlags = kCFStreamEventCanAcceptBytes | kCFStreamEventErrorOccurred | kCFStreamEventEndEncountered | kCFStreamEventOpenCompleted;
-    CFReadStreamSetClient(_readStream, readFlags, readStreamCallback, &context);
-    CFWriteStreamSetClient(_writeStream, writeFlags, writeStreamCallback, &context);
-    CFReadStreamSetDispatchQueue(_readStream, _ioQueue);
-    CFWriteStreamSetDispatchQueue(_writeStream, _ioQueue);
-    CFReadStreamOpen(_readStream);
-    CFWriteStreamOpen(_writeStream);
-    _state = WKWSStateHandshaking;
-    [self sendHandshake];
+    if (secure && ![self setupTLS]) {
+        [self failWithReason:@"Could not initialize TLS"];
+        return;
+    }
+
+    [self startSources];
+
+    if (secure) {
+        // Run the TLS handshake first; sendHandshake (the WS upgrade) is issued once it completes.
+        [self driveHandshake];
+    } else {
+        _tlsHandshakeDone = YES;
+        _state = WKWSStateHandshaking;
+        [self sendHandshake];
+    }
+}
+
+// Blocking direct connect (used only when no proxy is configured; this VM normally proxies all traffic).
+- (int)openDirectSocket:(NSString *)host port:(UInt32)port
+{
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo *res = NULL;
+    NSString *portStr = [NSString stringWithFormat:@"%u", port];
+    if (getaddrinfo(host.UTF8String, portStr.UTF8String, &hints, &res) || !res)
+        return -1;
+    int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (fd < 0 || connect(fd, res->ai_addr, res->ai_addrlen)) {
+        if (fd >= 0) close(fd);
+        freeaddrinfo(res);
+        return -1;
+    }
+    freeaddrinfo(res);
+    return fd;
 }
 
 // Blocking HTTP CONNECT through the proxy. Returns a connected, tunneled native socket (or -1).
@@ -424,92 +530,187 @@ static void wsContextRelease(void *info) { CFRelease((CFTypeRef)info); }
     return fd;
 }
 
-- (void)enableTLS
+- (BOOL)setupTLS
 {
-    // Enable TLS first, then apply the SSL settings LAST. kCFStreamSSLPeerName both validates the cert
-    // and sets the TLS SNI server-name; the proxy's MITM requires SNI, so the settings must not be
-    // clobbered by a later kCFStreamPropertySocketSecurityLevel write (which resets the peer name).
-    CFReadStreamSetProperty(_readStream, kCFStreamPropertySocketSecurityLevel, kCFStreamSocketSecurityLevelNegotiatedSSL);
-    CFWriteStreamSetProperty(_writeStream, kCFStreamPropertySocketSecurityLevel, kCFStreamSocketSecurityLevelNegotiatedSSL);
-    NSDictionary *ssl = @{ (__bridge id)kCFStreamSSLPeerName: _targetHost };
-    CFReadStreamSetProperty(_readStream, kCFStreamPropertySSLSettings, (__bridge CFDictionaryRef)ssl);
-    CFWriteStreamSetProperty(_writeStream, kCFStreamPropertySSLSettings, (__bridge CFDictionaryRef)ssl);
+    if (!wsLoadOpenSSL())
+        return NO;
+    _sslCtx = ossl_SSL_CTX_new(ossl_TLS_client_method());
+    if (!_sslCtx)
+        return NO;
+    // Pin TLS 1.3 (the only version the proxy hijacks WebSocket upgrades over). PARTIAL_WRITE +
+    // MOVING_WRITE_BUFFER let flushTLSWrites advance by the byte count SSL_write reports and retry the
+    // remainder from a moved buffer. The hop to the proxy is localhost trusted MITM infra, so we don't
+    // verify its leaf (the proxy itself validated the real origin).
+    ossl_SSL_CTX_ctrl(_sslCtx, OSSL_CTRL_SET_MIN_PROTO_VERSION, OSSL_TLS1_3_VERSION, NULL);
+    ossl_SSL_CTX_ctrl(_sslCtx, OSSL_CTRL_SET_MAX_PROTO_VERSION, OSSL_TLS1_3_VERSION, NULL);
+    ossl_SSL_CTX_ctrl(_sslCtx, OSSL_CTRL_MODE, OSSL_MODE_ENABLE_PARTIAL_WRITE | OSSL_MODE_ACCEPT_MOVING_WRITE_BUFFER, NULL);
+    if (ossl_SSL_CTX_set_verify)
+        ossl_SSL_CTX_set_verify(_sslCtx, OSSL_VERIFY_NONE, NULL);
+    _ssl = ossl_SSL_new(_sslCtx);
+    if (!_ssl)
+        return NO;
+    ossl_SSL_set_fd(_ssl, _fd);
+    // SNI to the ORIGIN host (never the proxy). SSL_set_tlsext_host_name copies the string.
+    char host[256];
+    NSData *hostUTF8 = [_targetHost dataUsingEncoding:NSUTF8StringEncoding];
+    NSUInteger hl = MIN(hostUTF8.length, sizeof(host) - 1);
+    memcpy(host, hostUTF8.bytes, hl);
+    host[hl] = 0;
+    ossl_SSL_ctrl(_ssl, OSSL_CTRL_SET_TLSEXT_HOSTNAME, OSSL_TLSEXT_NAMETYPE_host_name, host);
+    ossl_SSL_set_connect_state(_ssl);
+    return YES;
 }
 
-static void readStreamCallback(CFReadStreamRef, CFStreamEventType type, void *info)
+- (void)startSources
 {
-    [(__bridge WKWebSocketStream *)info handleReadEvent:type];
-}
-static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *info)
-{
-    [(__bridge WKWebSocketStream *)info handleWriteEvent:type];
+    _readSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, (uintptr_t)_fd, 0, _ioQueue);
+    _writeSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_WRITE, (uintptr_t)_fd, 0, _ioQueue);
+    __weak WKWebSocketStream *weakSelf = self;
+    dispatch_source_set_event_handler(_readSource, ^{ [weakSelf socketReadable]; });
+    dispatch_source_set_event_handler(_writeSource, ^{ [weakSelf socketWritable]; });
+    _writeSourceArmed = NO;
+    dispatch_resume(_readSource);   // read source stays active for the life of the connection
+    // _writeSource stays suspended until there is write backpressure (a WRITE source spins while writable).
 }
 
-- (void)handleReadEvent:(CFStreamEventType)type
+- (void)armWriteSource
 {
-    switch (type) {
-    case kCFStreamEventHasBytesAvailable: {
+    if (!_writeSource || _writeSourceArmed)
+        return;
+    _writeSourceArmed = YES;
+    dispatch_resume(_writeSource);
+}
+
+- (void)disarmWriteSource
+{
+    if (!_writeSource || !_writeSourceArmed)
+        return;
+    _writeSourceArmed = NO;
+    dispatch_suspend(_writeSource);
+}
+
+// OpenSSL ops can each want the opposite readiness (SSL_read wanting writable during a key update, SSL_write
+// wanting readable, etc.), so each readiness event drives BOTH directions.
+- (void)socketReadable
+{
+    if (_state == WKWSStateClosed)
+        return;
+    if (!_tlsHandshakeDone) {
+        [self driveHandshake];
+        return;
+    }
+    [self drainReads];
+    if (_outBuffer.length)
+        [self flushTLSWrites];
+}
+
+- (void)socketWritable
+{
+    if (_state == WKWSStateClosed)
+        return;
+    if (!_tlsHandshakeDone) {
+        [self driveHandshake];
+        return;
+    }
+    [self flushTLSWrites];
+    [self drainReads];
+}
+
+// Drive the TLS 1.3 handshake to completion. SSL_get_error tells us which readiness it is waiting on; the
+// read source is always armed, the write source is armed on demand. On completion, send the WS GET.
+- (void)driveHandshake
+{
+    if (_state == WKWSStateClosed || _tlsHandshakeDone)
+        return;
+    int ret = ossl_SSL_connect(_ssl);
+    if (ret == 1) {
+        _tlsHandshakeDone = YES;
+        _state = WKWSStateHandshaking;
+        [self sendHandshake];       // queues the WS GET; writeBytes flushes it now that TLS is up
+        [self drainReads];          // in case the 101 already arrived
+        return;
+    }
+    int err = ossl_SSL_get_error(_ssl, ret);
+    if (err == OSSL_ERROR_WANT_READ)
+        return;                     // read source is always armed
+    if (err == OSSL_ERROR_WANT_WRITE) {
+        [self armWriteSource];
+        return;
+    }
+    [self failWithReason:@"TLS handshake failed"];
+}
+
+// Pump decrypted plaintext until OpenSSL has none left (SSL_read is the decrypt engine; loop until it can't
+// produce more), hand it to the frame parser, then act on close/error.
+- (void)drainReads
+{
+    if (!_tlsHandshakeDone || _state == WKWSStateClosed)
+        return;
+    BOOL peerClosed = NO, failed = NO;
+    for (;;) {
         uint8_t buf[16384];
-        while (CFReadStreamHasBytesAvailable(_readStream)) {
-            CFIndex n = CFReadStreamRead(_readStream, buf, sizeof(buf));
-            if (n <= 0)
-                break;
-            [_inBuffer appendBytes:buf length:n];
+        if (_ssl) {
+            int ret = ossl_SSL_read(_ssl, buf, sizeof(buf));
+            if (ret > 0) { [_inBuffer appendBytes:buf length:ret]; continue; }
+            int err = ossl_SSL_get_error(_ssl, ret);
+            if (err == OSSL_ERROR_WANT_READ) break;
+            if (err == OSSL_ERROR_WANT_WRITE) { [self armWriteSource]; break; }
+            if (err == OSSL_ERROR_ZERO_RETURN) { peerClosed = YES; break; }
+            failed = YES; break;
+        } else {
+            ssize_t n = read(_fd, buf, sizeof(buf));
+            if (n > 0) { [_inBuffer appendBytes:buf length:n]; continue; }
+            if (n == 0) { peerClosed = YES; break; }
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            failed = YES; break;
         }
-        [self processInput];
-        break;
     }
-    case kCFStreamEventErrorOccurred: {
-        NSError *e = (__bridge_transfer NSError *)CFReadStreamCopyError(_readStream);
-        [self failWithReason:@"WebSocket socket read error"];
-        break;
+    [self processInput];
+    if (failed) {
+        [self failWithReason:@"WebSocket read error"];
+        return;
     }
-    case kCFStreamEventEndEncountered:
-        if (_state != WKWSStateClosed && _state != WKWSStateClosing) {
+    if (peerClosed) {
+        if (_state != WKWSStateClosed && _state != WKWSStateClosing)
             [self failWithReason:@"WebSocket connection closed unexpectedly"];
-        } else
+        else
             [self teardownStreams];
-        break;
-    default:
-        break;
     }
 }
 
-- (void)handleWriteEvent:(CFStreamEventType)type
+// Flush pending plaintext. With PARTIAL_WRITE + MOVING_WRITE_BUFFER, SSL_write reports the bytes it consumed;
+// advance by that and retry the remainder. On WANT_WRITE arm the write source so it finishes when writable.
+- (void)flushTLSWrites
 {
-    switch (type) {
-    case kCFStreamEventOpenCompleted:
-        _writeStreamOpen = YES;
-        [self flushOutput];
-        break;
-    case kCFStreamEventCanAcceptBytes:
-        [self flushOutput];
-        break;
-    case kCFStreamEventErrorOccurred: {
-        NSError *e = (__bridge_transfer NSError *)CFWriteStreamCopyError(_writeStream);
-        [self failWithReason:@"WebSocket socket write error"];
-        break;
+    while (_outBuffer.length) {
+        if (_ssl) {
+            int len = (int)MIN(_outBuffer.length, (NSUInteger)INT_MAX);
+            int ret = ossl_SSL_write(_ssl, _outBuffer.bytes, len);
+            if (ret > 0) { [_outBuffer replaceBytesInRange:NSMakeRange(0, ret) withBytes:NULL length:0]; continue; }
+            int err = ossl_SSL_get_error(_ssl, ret);
+            if (err == OSSL_ERROR_WANT_WRITE) { [self armWriteSource]; return; }
+            if (err == OSSL_ERROR_WANT_READ) return;   // needs readable; read source is armed
+            [self failWithReason:@"WebSocket write error"];
+            return;
+        } else {
+            ssize_t n = write(_fd, _outBuffer.bytes, _outBuffer.length);
+            if (n > 0) { [_outBuffer replaceBytesInRange:NSMakeRange(0, n) withBytes:NULL length:0]; continue; }
+            if (n == 0 || errno == EAGAIN || errno == EWOULDBLOCK) { [self armWriteSource]; return; }
+            if (errno == EINTR) continue;
+            [self failWithReason:@"WebSocket write error"];
+            return;
+        }
     }
-    default:
-        break;
-    }
-}
-
-- (void)flushOutput
-{
-    while (_outBuffer.length && CFWriteStreamCanAcceptBytes(_writeStream)) {
-        CFIndex n = CFWriteStreamWrite(_writeStream, (const uint8_t *)_outBuffer.bytes, _outBuffer.length);
-        if (n <= 0)
-            break;
-        [_outBuffer replaceBytesInRange:NSMakeRange(0, n) withBytes:NULL length:0];
-    }
+    if (!_outBuffer.length)
+        [self disarmWriteSource];
 }
 
 - (void)writeBytes:(NSData *)data
 {
     [_outBuffer appendData:data];
-    if (_writeStreamOpen)
-        [self flushOutput];
+    if (_tlsHandshakeDone)
+        [self flushTLSWrites];
 }
 
 // ----- handshake -----
@@ -563,29 +764,6 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
 
 - (void)processInput
 {
-    if (_state == WKWSStateProxyConnect) {
-        const char terminator[] = "\r\n\r\n";
-        NSRange end = [_inBuffer rangeOfData:[NSData dataWithBytes:terminator length:4] options:0 range:NSMakeRange(0, _inBuffer.length)];
-        if (end.location == NSNotFound)
-            return;
-        NSUInteger headerEnd = end.location + end.length;
-        NSData *respData = [_inBuffer subdataWithRange:NSMakeRange(0, headerEnd)];
-        [_inBuffer replaceBytesInRange:NSMakeRange(0, headerEnd) withBytes:NULL length:0];
-        NSString *resp = [[NSString alloc] initWithData:respData encoding:NSISOLatin1StringEncoding];
-        NSString *statusLine = [resp componentsSeparatedByString:@"\r\n"].firstObject;
-        NSArray<NSString *> *parts = [statusLine componentsSeparatedByString:@" "];
-        NSInteger status = parts.count >= 2 ? [parts[1] integerValue] : 0;
-        if (status != 200) {
-            [self failWithReason:[NSString stringWithFormat:@"Proxy CONNECT failed (%ld)", (long)status]];
-            return;
-        }
-        // Tunnel established. Start TLS to the origin inside it (for wss), then the WebSocket handshake.
-        if (_secure)
-            [self enableTLS];
-        _state = WKWSStateHandshaking;
-        [self sendHandshake];
-        return; // the handshake response arrives later (after TLS); _inBuffer is empty here
-    }
     if (_state == WKWSStateHandshaking) {
         const char terminator[] = "\r\n\r\n";
         NSRange end = [_inBuffer rangeOfData:[NSData dataWithBytes:terminator length:4] options:0 range:NSMakeRange(0, _inBuffer.length)];
@@ -799,7 +977,7 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     if (reason.length)
         [payload appendData:reason];
     [self enqueueFrameWithOpcode:0x8 payload:payload];
-    [self flushOutput];
+    [self flushTLSWrites];
 }
 
 // ----- teardown / failure -----
@@ -813,22 +991,36 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     [self teardownStreams];
 }
 
+// Called on _ioQueue (the only queue touching OpenSSL + the sources), so there is no concurrent handler to
+// race. Cancel the readiness sources (resuming the write source first if suspended — releasing a suspended
+// dispatch source crashes), tear down the OpenSSL session, then close the fd.
 - (void)teardownStreams
 {
     _state = WKWSStateClosed;
-    if (_readStream) {
-        CFReadStreamSetClient(_readStream, kCFStreamEventNone, NULL, NULL);
-        CFReadStreamSetDispatchQueue(_readStream, NULL);
-        CFReadStreamClose(_readStream);
-        CFRelease(_readStream);
-        _readStream = NULL;
+    if (_readSource) {
+        dispatch_source_cancel(_readSource);
+        _readSource = NULL;
     }
-    if (_writeStream) {
-        CFWriteStreamSetClient(_writeStream, kCFStreamEventNone, NULL, NULL);
-        CFWriteStreamSetDispatchQueue(_writeStream, NULL);
-        CFWriteStreamClose(_writeStream);
-        CFRelease(_writeStream);
-        _writeStream = NULL;
+    if (_writeSource) {
+        if (!_writeSourceArmed) {
+            _writeSourceArmed = YES;
+            dispatch_resume(_writeSource);  // must not release a suspended source
+        }
+        dispatch_source_cancel(_writeSource);
+        _writeSource = NULL;
+    }
+    if (_ssl) {
+        ossl_SSL_shutdown(_ssl);            // best-effort close_notify
+        ossl_SSL_free(_ssl);
+        _ssl = NULL;
+    }
+    if (_sslCtx) {
+        ossl_SSL_CTX_free(_sslCtx);
+        _sslCtx = NULL;
+    }
+    if (_fd >= 0) {
+        close(_fd);
+        _fd = -1;
     }
 }
 
