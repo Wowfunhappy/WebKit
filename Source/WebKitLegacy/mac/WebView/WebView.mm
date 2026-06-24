@@ -269,6 +269,10 @@
 #import <pal/spi/ios/BrowserEngineKitSPI.h>
 #import <pal/spi/mac/NSResponderSPI.h>
 #import <pal/spi/mac/NSSpellCheckerSPI.h>
+
+#if USE(GCRYPT)
+#import <pal/crypto/gcrypt/Initialization.h>
+#endif
 #import <pal/spi/mac/NSViewSPI.h>
 #import <pal/spi/mac/NSWindowSPI.h>
 #import <wtf/Assertions.h>
@@ -5173,6 +5177,16 @@ IGNORE_WARNINGS_END
         RELEASE_LOG_FAULT_WITH_PAYLOAD(Threading, "WebView initialized");
 
     WebCore::initializeMainThreadIfNeeded();
+
+#if USE(GCRYPT)
+    // 10.9 backport: WebCrypto is backed by libgcrypt on this port. WK1 in-process
+    // hosts (e.g. Dashboard's DashboardClient rendering web clips) never run the
+    // WebKit2 process init that calls this, so initialize libgcrypt here too —
+    // before any other libgcrypt call — to satisfy its required first-call
+    // (gcry_check_version); otherwise it logs "Libgcrypt warning: missing
+    // initialization - please fix the application".
+    PAL::GCrypt::initialize();
+#endif
 
     WTF::RefCountDebuggerBase::enableThreadingChecksGlobally();
 
