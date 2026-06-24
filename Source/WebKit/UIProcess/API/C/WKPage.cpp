@@ -1543,7 +1543,25 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
 
             Ref<API::URLRequest> request = API::URLRequest::create(resourceRequest);
 
-            m_client.decidePolicyForNewWindowAction(toAPI(&page), toAPI(&frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(request.ptr()), toAPI(frameName.impl()), toAPI(listener.ptr()), nullptr, m_client.base.clientInfo);
+            // MAVERICKS_BACKPORT: rebuild the bundle-policy userData dictionary that Safari 7's
+            // WKPagePolicyClient policy handler reads, exactly as the #60 navigation-action fix does in
+            // WebFrameLoaderClient.cpp. Safari casts this userData to a WKDictionary and reads
+            // "CanHandleRequest"/"OriginatingFrame"; modern WebKit dropped userData from
+            // API::PolicyClient::decidePolicyForNewWindowAction, so with the null userData this shim used
+            // to pass, Safari's handler returns WITHOUT driving the policy listener and the new window
+            // never opens (target="_blank" links did nothing, while window.open — which skips this policy
+            // gate — worked). The navigation path builds this in the web process as a serialized
+            // FrameHandle and the UI process REHYDRATES it (transformHandlesToObjects) into a real frame
+            // before Safari reads it; we are already in the UI process with the live frame, so put the
+            // live WebFrameProxy in directly (toAPI gives a real WKFrameRef) — an un-rehydrated
+            // FrameHandle here reaches Safari as a raw handle, not a WKFrameRef, and it bails.
+            // See webkit-mavericks-policy-userdata (#60).
+            API::Dictionary::MapType map;
+            map.add("CanHandleRequest"_s, API::Boolean::create(navigationAction->canHandleRequest()));
+            map.add("OriginatingFrame"_s, Ref<API::Object> { frame });
+            Ref<API::Object> userData = API::Dictionary::create(WTF::move(map));
+
+            m_client.decidePolicyForNewWindowAction(toAPI(&page), toAPI(&frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(request.ptr()), toAPI(frameName.impl()), toAPI(listener.ptr()), toAPI(userData.ptr()), m_client.base.clientInfo);
         }
 
         void decidePolicyForResponse(WebPageProxy& page, WebFrameProxy& frame, const WebCore::ResourceResponse& resourceResponse, const WebCore::ResourceRequest& resourceRequest, bool canShowMIMEType, Ref<WebFramePolicyListenerProxy>&& listener) override
