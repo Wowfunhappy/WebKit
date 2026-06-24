@@ -454,7 +454,14 @@ bool ensureGStreamerInitialized()
 {
     // WARNING: Please note this function can be called from any thread, for instance when creating
     // a WebCodec element from a JS Worker.
-    RELEASE_ASSERT(isInWebProcess());
+    // MAVERICKS_BACKPORT: upstream RELEASE_ASSERTs this only runs in the WK2 WebProcess. The backport
+    // also renders web content OUTSIDE a WebProcess — notably DashboardClient, which renders Dashboard
+    // web-clip widgets in-process via WebKitLegacy (WK1). There a clipped page calling video.canPlayType()
+    // reaches this GStreamer media engine and the assert crashed (and crash-looped) the whole Dashboard.
+    // GStreamer is only ever set up in the WebProcess, so outside it report "not initialized" gracefully —
+    // callers (supportsType, load) already handle a false return — instead of asserting.
+    if (!isInWebProcess())
+        return false;
     static std::once_flag onceFlag;
     static bool isGStreamerInitialized;
     std::call_once(onceFlag, [] {
