@@ -2636,8 +2636,17 @@ void GraphicsLayerCA::updateContentsOpaque(float pageScaleFactor)
         float contentsScale = pageScaleFactor * deviceScaleFactor();
         if (!WTF::isIntegral(contentsScale) && !client().paintsOpaquelyAtNonIntegralScales(this))
             contentsOpaque = false;
+        // MAVERICKS_BACKPORT (#124): 10.9's CoreAnimation leaves an opaque CALayer's backing uninitialized to
+        // BLACK wherever it isn't painted (modern macOS clears it). WebCore marks a layer opaque from its CSS
+        // background, but the painted result can still be transparent (e.g. DuckDuckGo's inline-SVG logo
+        // layer) — and on the TiledCoreAnimation path there is no draw callback to white-fill it — so the
+        // opaque black backing shows through as a black box. 10.9's opaque-layer fast path is thus unsafe:
+        // always composite with alpha. Cost is grayscale instead of subpixel AA for composited text (which
+        // matches modern macOS, where subpixel AA is gone) plus a minor blend overhead — fine on this
+        // software-rendered target.
+        contentsOpaque = false;
     }
-    
+
     protect(m_layer)->setOpaque(contentsOpaque);
 
     if (m_layerClones) {
