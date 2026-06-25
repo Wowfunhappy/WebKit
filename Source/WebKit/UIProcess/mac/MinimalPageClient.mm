@@ -80,6 +80,12 @@
 @end
 #endif
 
+// 10.9 backport: WKView's auto-layout intrinsic-content-size setter, invoked from
+// intrinsicContentSizeDidChange so Mail's message view sizes to its content.
+@interface NSView (WKViewAutoLayout)
+- (void)_setIntrinsicContentSize:(NSSize)intrinsicContentSize;
+@end
+
 namespace WebKit {
 
 #if ENABLE(FULLSCREEN_API)
@@ -1370,7 +1376,11 @@ _WKRemoteObjectRegistry *MinimalPageClient::remoteObjectRegistry()
 #endif
 #if PLATFORM(MAC)
 void MinimalPageClient::intrinsicContentSizeDidChange(const WebCore::IntSize& intrinsicContentSize)
-{ }
+{
+    // 10.9 backport: forward the web process's laid-out content size to the WKView's
+    // auto-layout SPI so self-sizing embedders (Mail's message viewer) size to fit.
+    [m_view _setIntrinsicContentSize:NSMakeSize(intrinsicContentSize.width(), intrinsicContentSize.height())];
+}
 #endif
 #if PLATFORM(MAC)
 void MinimalPageClient::registerInsertionUndoGrouping()
