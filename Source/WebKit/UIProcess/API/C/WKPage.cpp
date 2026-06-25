@@ -1523,6 +1523,27 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
                 return;
             }
 
+            // 10.9 backport (#137): the app's OWN programmatic load (WKPageLoadData / WKPageLoadURL /
+            // WKPageLoadRequest) must not be vetoed by a legacy V0/V1 nav-action policy callback. In
+            // original WebKit2 the embedder-initiated API loads bypassed the nav-action policy client
+            // entirely — that client was only consulted for content-initiated navigations (link clicks,
+            // form submits, script redirects). Modern WebKit routes the initial API load through the
+            // client too, so a legacy callback that assumes "I am only called for web-content navigations"
+            // never drives the listener for the app's own load and the page hangs blank. This is exactly
+            // why Apple Mail's message body stayed blank: Mail loads the message HTML via
+            // -[WKBrowsingContextController loadData:...] (WKPageLoadData) and its V0 policy callback,
+            // not expecting to see its own load, returns without calling use()/ignore()/download().
+            // An app/API-initiated load is flagged isRequestFromClientOrUserInput WITHOUT a web-content
+            // user gesture (a real link click carries a user gesture and still reaches the callback so the
+            // app can route it externally). Same family as the Top Sites offscreen bypass above and #60.
+            if ((m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0 || m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1)
+                && !m_client.decidePolicyForNavigationAction
+                && navigationAction->data().isRequestFromClientOrUserInput
+                && !navigationAction->isProcessingUserGesture()) {
+                listener->use();
+                return;
+            }
+
             Ref<API::URLRequest> originalRequest = API::URLRequest::create(originalResourceRequest);
             Ref<API::URLRequest> request = API::URLRequest::create(resourceRequest);
 

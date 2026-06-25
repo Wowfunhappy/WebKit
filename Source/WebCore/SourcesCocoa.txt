@@ -315,6 +315,7 @@ platform/cf/RunLoopObserverCF.cpp
 platform/cf/SharedBufferCF.cpp
 platform/cocoa/AppleVisualEffect.cpp
 platform/cocoa/ContentFilterUnblockHandlerCocoa.mm @nonARC @no-unify
+platform/cocoa/MavericksBackportWebCoreGlue.mm @no-unify
 platform/cocoa/CoreLocationGeolocationProvider.mm @nonARC
 platform/cocoa/CoreVideoSoftLink.cpp
 platform/cocoa/DragDataCocoa.mm @nonARC
@@ -489,6 +490,7 @@ platform/graphics/cocoa/SourceBufferParserISOBMFF.cpp @no-unify
 platform/graphics/cocoa/SystemFontDatabaseCocoa.mm @nonARC
 platform/graphics/cocoa/SystemFontDatabaseCoreText.cpp
 platform/graphics/cocoa/TextTrackRepresentationCocoa.mm @nonARC
+platform/graphics/cocoa/TextTransformCocoa.cpp
 platform/graphics/cocoa/TransformationMatrixCocoa.cpp
 platform/graphics/cocoa/UnrealizedCoreTextFont.cpp
 platform/graphics/cocoa/VP9UtilitiesCocoa.mm @nonARC @no-unify

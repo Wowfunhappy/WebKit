@@ -36,8 +36,13 @@
 #import <Cocoa/Cocoa.h>
 
 @class WKProcessGroup;
+@class WKConnection;
 
 @protocol WKProcessGroupDelegate <NSObject>
+@optional
+// MAVERICKS_BACKPORT (#137): Mail.app implements this to grab the bundle<->app WKConnection (it stores
+// them in its _wkConnectionsByProcessGroup map and sets itself as each connection's delegate).
+- (void)processGroup:(WKProcessGroup *)processGroup didCreateConnectionToWebProcessPlugIn:(WKConnection *)connection;
 @end
 
 // visibility("default") so _OBJC_CLASS_$_WKProcessGroup is exported from WebKit2

@@ -31,13 +31,30 @@
 #import "config.h"
 #import "WKProcessGroupInternal.h"
 
+#import "WKConnectionInternal.h"
 #import "WKContext.h"
+#import "WKContextInjectedBundleClient.h"
 #import "WKString.h"
 #import "WKStringCF.h"
 #import "WKType.h"
+#import <wtf/RetainPtr.h>
 
 @implementation WKProcessGroup {
     WKContextRef _context;
+    id <WKProcessGroupDelegate> _delegate; // assign: Mail owns the process group and outlives it.
+    WKConnection *_connection;             // app-side end of the bundle<->app channel.
+}
+
+// MAVERICKS_BACKPORT (#137): bundle->app messages (MailUIWebBundle -> Mail.app, e.g.
+// MUIMessageKeyWebProcessDidLayoutContent) arrive here and are dispatched to the WKConnection delegate.
+static void didReceiveMessageFromInjectedBundle(WKContextRef, WKStringRef messageName, WKTypeRef messageBody, const void* clientInfo)
+{
+    WKProcessGroup *processGroup = (__bridge WKProcessGroup *)clientInfo;
+    WKConnection *connection = processGroup->_connection;
+    if (!connection)
+        return;
+    RetainPtr<CFStringRef> cfName = adoptCF(WKStringCopyCFString(kCFAllocatorDefault, messageName));
+    [connection _dispatchDidReceiveMessageWithName:(__bridge NSString *)cfName.get() serializedBody:messageBody];
 }
 
 - (instancetype)init
@@ -63,9 +80,47 @@
 
 - (void)dealloc
 {
-    if (_context)
+    if (_context) {
+        WKContextSetInjectedBundleClient(_context, nullptr);
         WKRelease(_context);
+    }
+    [_connection _dispatchDidClose];
+    [_connection release];
     [super dealloc];
+}
+
+- (id <WKProcessGroupDelegate>)delegate
+{
+    return _delegate;
+}
+
+- (void)setDelegate:(id <WKProcessGroupDelegate>)delegate
+{
+    _delegate = delegate;
+
+    if (!delegate || !_context)
+        return;
+
+    // Create the app-side WKConnection (sends to the injected bundle) and route incoming bundle
+    // messages to it, then hand it to Mail so it can set itself as the connection's delegate.
+    if (!_connection) {
+        WKContextRef context = _context;
+        _connection = [[WKConnection alloc] initWithSender:^(NSString *messageName, WKTypeRef serializedBody) {
+            WKStringRef wkName = WKStringCreateWithCFString((__bridge CFStringRef)messageName);
+            WKContextPostMessageToInjectedBundle(context, wkName, serializedBody);
+            WKRelease(wkName);
+        }];
+
+        WKContextInjectedBundleClientV1 injectedBundleClient;
+        memset(&injectedBundleClient, 0, sizeof(injectedBundleClient));
+        injectedBundleClient.base.version = 1;
+        injectedBundleClient.base.clientInfo = (__bridge void*)self;
+        injectedBundleClient.didReceiveMessageFromInjectedBundle = didReceiveMessageFromInjectedBundle;
+        WKContextSetInjectedBundleClient(_context, &injectedBundleClient.base);
+    }
+
+    if ([delegate respondsToSelector:@selector(processGroup:didCreateConnectionToWebProcessPlugIn:)])
+        [delegate processGroup:self didCreateConnectionToWebProcessPlugIn:_connection];
 }
 
 - (WKContextRef)_contextRef
