@@ -1,1 +1,0 @@
-/Users/jonathan/Desktop/WebKit/Source/WebKitLegacy/mac/Configurations/config.h
