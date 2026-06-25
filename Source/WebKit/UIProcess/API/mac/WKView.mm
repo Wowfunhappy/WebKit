@@ -43,6 +43,12 @@
 
 using namespace WebKit;
 
+// 10.9 backport: NSViewNoIntrinsicMetric is an APPKIT_EXTERN const symbol available
+// only on macOS 10.11+ — it is NOT exported by 10.9's AppKit, so referencing it
+// null-binds and dereferencing it crashes (EXC_BAD_ACCESS). Use its documented
+// value (-1) directly. See [[webkit-mavericks-moved-framework-symbols]].
+static const CGFloat kWKViewNoIntrinsicMetric = -1;
+
 // Declared in PageClientImplMac.mm
 namespace WebKit {
 std::unique_ptr<PageClient> createMinimalPageClient(NSView *view);
@@ -65,6 +71,10 @@ struct WKViewState {
 @interface WKView () {
     WKViewState *_wkState;
     WKBrowsingContextController *_browsingContextController;
+    // 10.9 backport: cached intrinsic content size for the auto-layout SPI Mail's
+    // MUIWKView drives (the web process reports the laid-out content size back via
+    // MinimalPageClient::intrinsicContentSizeDidChange -> -_setIntrinsicContentSize:).
+    NSSize _intrinsicContentSize;
 }
 @end
 
@@ -78,6 +88,8 @@ struct WKViewState {
 
     [self setWantsLayer:YES];
     self.layer.backgroundColor = CGColorGetConstantColor(kCGColorWhite);
+
+    _intrinsicContentSize = NSMakeSize(kWKViewNoIntrinsicMetric, kWKViewNoIntrinsicMetric);
 
     WebKit::InitializeWebKit2();
 
@@ -116,6 +128,62 @@ struct WKViewState {
     delete _wkState;
     _wkState = nullptr;
     [super dealloc];
+}
+
+// 10.9 backport: WKView auto-layout / intrinsic-content-size SPI. Mail's message
+// viewer (MUIWKView) drives the message view through this: it enables auto-sizing
+// with -setMinimumSizeForAutoLayout:, and the web process reports the laid-out
+// content height back so the view sizes to fit the message inside Mail's scroll
+// view. Without it the message body renders blank. Ported from WebViewImpl.
+- (NSSize)intrinsicContentSize
+{
+    return _intrinsicContentSize;
+}
+
+- (void)setMinimumSizeForAutoLayout:(NSSize)minimumSizeForAutoLayout
+{
+    if (!_wkState || !_wkState->page)
+        return;
+    // Matches WebViewImpl::setMinimumSizeForAutoLayout: a positive minimum width enables
+    // auto-sizing (the web process lays out at >= this width and reports the content height
+    // back via intrinsicContentSizeDidChange), and the main frame becomes non-scrollable so
+    // it grows to fit instead of clipping. Mail relies on this to size each message body.
+    BOOL expandsToFit = minimumSizeForAutoLayout.width > 0;
+    _wkState->page->setMinimumSizeForAutoLayout(WebCore::IntSize(minimumSizeForAutoLayout.width, minimumSizeForAutoLayout.height));
+    _wkState->page->setMainFrameIsScrollable(!expandsToFit);
+}
+
+- (NSSize)minimumSizeForAutoLayout
+{
+    if (!_wkState || !_wkState->page)
+        return NSZeroSize;
+    auto size = _wkState->page->minimumSizeForAutoLayout();
+    return NSMakeSize(size.width(), size.height());
+}
+
+- (void)setShouldExpandToViewHeightForAutoLayout:(BOOL)shouldExpand
+{
+    if (_wkState && _wkState->page)
+        _wkState->page->setAutoSizingShouldExpandToViewHeight(shouldExpand);
+}
+
+- (BOOL)shouldExpandToViewHeightForAutoLayout
+{
+    return _wkState && _wkState->page ? _wkState->page->autoSizingShouldExpandToViewHeight() : NO;
+}
+
+// Called by MinimalPageClient::intrinsicContentSizeDidChange when the web process
+// reports a new laid-out content size.
+- (void)_setIntrinsicContentSize:(NSSize)intrinsicContentSize
+{
+    // If the content's intrinsic width is less than the minimum layout width, the
+    // content flowed to fit, so report the width as flexible (no intrinsic metric);
+    // otherwise report it so auto-layout reserves space. Matches WebViewImpl.
+    NSSize size = intrinsicContentSize;
+    if (_wkState && _wkState->page && intrinsicContentSize.width < _wkState->page->minimumSizeForAutoLayout().width())
+        size.width = kWKViewNoIntrinsicMetric;
+    _intrinsicContentSize = size;
+    [self invalidateIntrinsicContentSize];
 }
 
 - (id)initWithFrame:(NSRect)frame contextRef:(WKContextRef)contextRef pageGroupRef:(WKPageGroupRef)pageGroupRef
@@ -184,6 +252,16 @@ struct WKViewState {
         if (RefPtr drawingArea = _wkState->page->drawingArea())
             drawingArea->setSize(WebCore::IntSize(newSize.width, newSize.height));
     }
+    // 10.9 backport: the WebContent's hosted layer is added as a sublayer of our backing
+    // layer by MinimalPageClient::enterAcceleratedCompositingMode, framed to the view's
+    // bounds AT THAT TIME. It is not re-framed on resize, so a view that composites while
+    // small (e.g. Mail's message view before its auto-layout height arrives) stays clipped
+    // to that initial size and shows blank. Keep the hosted sublayer matched to our bounds.
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    for (CALayer *sublayer in [[self layer] sublayers])
+        [sublayer setFrame:[self bounds]];
+    [CATransaction commit];
 }
 
 - (void)setFrame:(NSRect)frame
@@ -289,8 +367,28 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // pipeline is stubbed out in this build, so add a minimal mouseDown/Up/Moved/Dragged,
 // scrollWheel, and keyDown/Up forwarding here so links/forms/scrolling become interactive.
 - (BOOL)acceptsFirstResponder { return YES; }
-- (BOOL)becomeFirstResponder { return [super becomeFirstResponder]; }
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+
+// 10.9 backport (#138): notify the page when this view gains/loses first-responder status so the
+// WebContent's ActivityState::IsFocused flag tracks focus. Without it the page's FocusController is
+// never marked focused, so FrameSelection::isFocusedAndActive() stays false and WebCore suppresses the
+// text-insertion caret (and active selection highlight) even though typing works. Matches WebViewImpl,
+// which fires activityStateDidChange(IsFocused) on become/resignFirstResponder. activityStateDidChange
+// defers the recompute, so by the time it re-queries -isViewFocused the window firstResponder has settled.
+- (BOOL)becomeFirstResponder
+{
+    BOOL result = [super becomeFirstResponder];
+    if (_wkState && _wkState->page)
+        _wkState->page->activityStateDidChange(WebCore::ActivityState::IsFocused);
+    return result;
+}
+
+- (BOOL)resignFirstResponder
+{
+    if (_wkState && _wkState->page)
+        _wkState->page->activityStateDidChange(WebCore::ActivityState::IsFocused);
+    return [super resignFirstResponder];
+}
 
 // 10.9 backport: tell WebPageProxy when this view's window membership changes.
 // Without this, Safari's tab swap (which removes the inactive tab's WKView from
