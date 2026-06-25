@@ -126,6 +126,12 @@ Source/JavaScriptCore/shell/Makefile
 Source/ThirdParty/unifdef/Makefile
 Source/WTF/wtf/Makefile
 Source/WebCore/PAL/pal/Makefile
+# Top-level module Makefiles: hand-written upstream wrappers (include ../Makefile.shared),
+# but a CMake Unix-Makefiles generation clobbers them with machine-specific generated dumps.
+# Keep the upstream versions tracked and ignore local cmake regeneration.
+Source/Makefile
+Source/WTF/Makefile
+Source/WebInspectorUI/Makefile
 # IDL preprocessor scratch
 Source/WebCore/idl_files_*.tmp
 Source/WebCore/included_idl_files_*.tmp
