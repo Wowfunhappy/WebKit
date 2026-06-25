@@ -27,11 +27,17 @@
 #import "WKBrowsingContextControllerInternal.h"
 
 #import "PageLoadStateObserver.h"
+#import "WebPageProxy.h"
 #import "WebProcessPool.h"
+#import "WKAPICast.h"
+#import "WKConnectionInternal.h"
+#import "WKData.h"
 #import "WKErrorCF.h"
 #import "WKFrame.h"
 #import "WKPage.h"
 #import "WKPageLoaderClient.h"
+#import "WKString.h"
+#import "WKStringCF.h"
 #import "WKType.h"
 #import "WKURL.h"
 #import "WKURLCF.h"
@@ -58,7 +64,7 @@ static WKBrowsingContextController *controllerFromClientInfo(const void *clientI
     return (__bridge WKBrowsingContextController *)clientInfo;
 }
 
-static void didStartProvisionalLoadForFrame(WKPageRef, WKFrameRef frame, WKTypeRef, const void *clientInfo)
+static void didStartProvisionalLoadForFrame(WKPageRef page, WKFrameRef frame, WKTypeRef, const void *clientInfo)
 {
     if (!WKFrameIsMainFrame(frame))
         return;
@@ -78,7 +84,7 @@ static void didReceiveServerRedirectForProvisionalLoadForFrame(WKPageRef, WKFram
         [delegate browsingContextControllerDidReceiveServerRedirectForProvisionalLoad:controller];
 }
 
-static void didCommitLoadForFrame(WKPageRef, WKFrameRef frame, WKTypeRef, const void *clientInfo)
+static void didCommitLoadForFrame(WKPageRef page, WKFrameRef frame, WKTypeRef, const void *clientInfo)
 {
     if (!WKFrameIsMainFrame(frame))
         return;
@@ -88,7 +94,7 @@ static void didCommitLoadForFrame(WKPageRef, WKFrameRef frame, WKTypeRef, const 
         [delegate browsingContextControllerDidCommitLoad:controller];
 }
 
-static void didFinishLoadForFrame(WKPageRef, WKFrameRef frame, WKTypeRef, const void *clientInfo)
+static void didFinishLoadForFrame(WKPageRef page, WKFrameRef frame, WKTypeRef, const void *clientInfo)
 {
     if (!WKFrameIsMainFrame(frame))
         return;
@@ -105,6 +111,26 @@ static NSError *nsErrorFromWKError(WKErrorRef error)
     // MRC: WKErrorCopyCFError returns +1; balance via autorelease (toll-free bridge).
     CFErrorRef cfError = WKErrorCopyCFError(kCFAllocatorDefault, error);
     return [(NSError *)cfError autorelease];
+}
+
+// 10.9 backport: convert a +1 WKURLRef to an autoreleased NSURL, consuming the WKURLRef.
+static NSURL *nsURLFromWKURLConsuming(WKURLRef wkURL)
+{
+    if (!wkURL)
+        return nil;
+    CFURLRef cfURL = WKURLCopyCFURL(kCFAllocatorDefault, wkURL); // +1
+    WKRelease(wkURL);
+    return cfURL ? [(NSURL *)cfURL autorelease] : nil;
+}
+
+// 10.9 backport: convert a +1 WKStringRef to an autoreleased NSString, consuming the WKStringRef.
+static NSString *nsStringFromWKStringConsuming(WKStringRef wkString)
+{
+    if (!wkString)
+        return nil;
+    CFStringRef cfString = WKStringCopyCFString(kCFAllocatorDefault, wkString); // +1
+    WKRelease(wkString);
+    return cfString ? [(NSString *)cfString autorelease] : nil;
 }
 
 static void didFailProvisionalLoadWithErrorForFrame(WKPageRef, WKFrameRef frame, WKErrorRef error, WKTypeRef, const void *clientInfo)
@@ -137,8 +163,12 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     if (!self)
         return nil;
     _pageRef = pageRef;
-    if (_pageRef)
+    if (_pageRef) {
         WKRetain(_pageRef);
+        // MAVERICKS_BACKPORT (#137): register so a controller referenced in a WKConnection message body
+        // (Mail keys its DidLayout/DidPaintContent and MessageContents by it) round-trips to this object.
+        WKConnectionRegisterController(WebKit::toImpl(_pageRef)->identifier().toUInt64(), self);
+    }
     return self;
 }
 
@@ -225,6 +255,87 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     WKRelease(fileURL);
     if (resourceDirectoryURL)
         WKRelease(resourceDirectoryURL);
+}
+
+// 10.9 backport: Mail renders a message by loading its HTML as data (not a URL)
+// through this — -[MUIWebDocumentView ...] calls it on the message-view controller.
+// Without it Mail throws an unrecognized-selector exception and terminates after the
+// message view is built. Route through the still-present WKPageLoadData* C SPI.
+- (void)loadData:(NSData *)data MIMEType:(NSString *)MIMEType textEncodingName:(NSString *)encodingName baseURL:(NSURL *)baseURL userData:(id)userData
+{
+    if (!_pageRef || !data)
+        return;
+    WKDataRef wkData = WKDataCreate(static_cast<const unsigned char*>(data.bytes), data.length);
+    WKStringRef wkMIMEType = MIMEType ? WKStringCreateWithCFString((__bridge CFStringRef)MIMEType) : nullptr;
+    WKStringRef wkEncoding = encodingName ? WKStringCreateWithCFString((__bridge CFStringRef)encodingName) : nullptr;
+    WKURLRef wkBaseURL = baseURL ? WKURLCreateWithCFURL((__bridge CFURLRef)baseURL) : nullptr;
+    // MAVERICKS_BACKPORT (#142): Mail passes its document load context (which carries
+    // MUIDocumentLoadContextKeyLoadRemoteContent and other per-load display flags) as userData; the
+    // MailUIWebBundle reads it back in -willLoadDataRequest to decide whether to load images/remote
+    // content. Dropping it left every (re)load with remote content blocked, so "Load Images" did
+    // nothing. Serialize it to a WK object graph (the standard injected-bundle ObjC bridge re-wraps it
+    // as an NSDictionary on the bundle side) and route through WKPageLoadDataWithUserData.
+    WKTypeRef wkUserData = userData ? WKConnectionCreateSerializedBody(userData) : nullptr;
+    WKPageLoadDataWithUserData(_pageRef, wkData, wkMIMEType, wkEncoding, wkBaseURL, wkUserData);
+    WKRelease(wkData);
+    if (wkMIMEType)
+        WKRelease(wkMIMEType);
+    if (wkEncoding)
+        WKRelease(wkEncoding);
+    if (wkBaseURL)
+        WKRelease(wkBaseURL);
+    if (wkUserData)
+        WKRelease(wkUserData);
+}
+
+// 10.9 backport: Mail also drives stop/zoom on the message-view controller
+// (wkView.browsingContextController.pageZoom / stopLoading).
+- (void)stopLoading
+{
+    if (_pageRef)
+        WKPageStopLoading(_pageRef);
+}
+
+- (CGFloat)pageZoom
+{
+    return _pageRef ? WKPageGetPageZoomFactor(_pageRef) : 1;
+}
+
+- (void)setPageZoom:(CGFloat)pageZoom
+{
+    if (_pageRef)
+        WKPageSetPageZoomFactor(_pageRef, pageZoom);
+}
+
+// 10.9 backport (#137): Mail's load-delegate handlers (browsingContextControllerDidStartProvisionalLoad:
+// / DidCommitLoad: etc.) read back the controller's current URL/title to update the message-view chrome.
+// These read-only accessors were part of the original WKBrowsingContextController SPI Mail compiled
+// against; without them Mail throws -[WKBrowsingContextController activeURL]: unrecognized selector and
+// terminates the moment the message body actually starts loading. Route through the still-present
+// WKPageCopy*/WKPageGet* C SPI on the wrapped page.
+- (NSURL *)activeURL
+{
+    return _pageRef ? nsURLFromWKURLConsuming(WKPageCopyActiveURL(_pageRef)) : nil;
+}
+
+- (NSURL *)provisionalURL
+{
+    return _pageRef ? nsURLFromWKURLConsuming(WKPageCopyProvisionalURL(_pageRef)) : nil;
+}
+
+- (NSURL *)committedURL
+{
+    return _pageRef ? nsURLFromWKURLConsuming(WKPageCopyCommittedURL(_pageRef)) : nil;
+}
+
+- (NSString *)title
+{
+    return _pageRef ? nsStringFromWKStringConsuming(WKPageCopyTitle(_pageRef)) : nil;
+}
+
+- (double)estimatedProgress
+{
+    return _pageRef ? WKPageGetEstimatedProgress(_pageRef) : 0;
 }
 
 #pragma mark Loading

@@ -147,6 +147,7 @@ Shared/API/Cocoa/RemoteObjectRegistry.mm @nonARC
 Shared/API/Cocoa/WKBrowsingContextHandle.mm @nonARC
 Shared/API/Cocoa/WKRemoteObject.mm @nonARC
 Shared/API/Cocoa/WKRemoteObjectCoder.mm @nonARC
+Shared/API/Cocoa/WKTypeRefWrapper.mm @nonARC @no-unify
 
 Shared/ApplePay/ApplePayPaymentSetupFeatures.mm @nonARC
 Shared/ApplePay/WebPaymentCoordinatorProxy.cpp
@@ -401,6 +402,7 @@ UIProcess/API/Cocoa/WKBrowsingContextController.mm @nonARC
 // here as minimal wrappers over the still-present C SPI. See webkit-mavericks-quicklook memory.
 UIProcess/API/Cocoa/WKBrowsingContextGroup.mm @nonARC
 UIProcess/API/Cocoa/WKProcessGroup.mm @nonARC
+UIProcess/API/Cocoa/WKConnection.mm @nonARC @no-unify
 UIProcess/API/Cocoa/WKContentRuleList.mm @nonARC
 UIProcess/API/Cocoa/WKContentRuleListStore.mm @nonARC
 UIProcess/API/Cocoa/WKContentWorld.mm @nonARC

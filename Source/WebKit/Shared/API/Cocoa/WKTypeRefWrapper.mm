@@ -23,27 +23,40 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT (#137): the legacy WebKit2 WKConnection bundle<->app message channel, removed
-// upstream. Apple Mail uses it to ferry message data both ways between its main app and its WebContent
-// injected bundle (MailUIWebBundle): the app sends MUIMessageKeyMessageContents/MessageObject to the
-// bundle, and the bundle replies MUIMessageKeyWebProcessDidLayoutContent/DidPaintContent so the app can
-// size and reveal the message-body WKView. Restored as a thin wrapper over the still-present
-// WKBundlePostMessage / WKContextPostMessageToInjectedBundle IPC, with NSKeyedArchiver body coding.
+// MAVERICKS_BACKPORT (#137): see WKTypeRefWrapper.h. Faithful restoration of the legacy WebKit2
+// WKTypeRefWrapper ObjC class so Apple Mail's MailUIWebBundle (which references it) can load.
+// The wrapper retains the WKTypeRef for its lifetime (WKRetain/WKRelease), matching the original.
 
-#import <Foundation/Foundation.h>
+#import "config.h"
+#import "WKTypeRefWrapper.h"
 
-@class WKConnection;
+#import "WKType.h"
 
-@protocol WKConnectionDelegate <NSObject>
-@optional
-- (void)connection:(WKConnection *)connection didReceiveMessageWithName:(NSString *)name body:(id)body;
-- (void)connectionDidClose:(WKConnection *)connection;
-@end
+@implementation WKTypeRefWrapper
 
-@interface WKConnection : NSObject
+- (instancetype)initWithObject:(WKTypeRef)object
+{
+    self = [super init];
+    if (!self)
+        return nil;
 
-@property (nonatomic, assign) id <WKConnectionDelegate> delegate;
+    _object = object;
+    if (_object)
+        WKRetain(_object);
 
-- (void)sendMessageWithName:(NSString *)messageName body:(id)messageBody;
+    return self;
+}
+
+- (void)dealloc
+{
+    if (_object)
+        WKRelease(_object);
+    [super dealloc];
+}
+
+- (WKTypeRef)object
+{
+    return _object;
+}
 
 @end
