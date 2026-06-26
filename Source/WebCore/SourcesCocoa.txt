@@ -317,7 +317,13 @@ platform/cocoa/AppleVisualEffect.cpp
 platform/cocoa/ContentFilterUnblockHandlerCocoa.mm @nonARC @no-unify
 // MAVERICKS_BACKPORT: compile the backport glue TU (10.9-specific WebCore shims) for the Mac build.
 platform/cocoa/MavericksBackportWebCoreGlue.mm @no-unify
-platform/cocoa/CoreLocationGeolocationProvider.mm @nonARC
+// MAVERICKS_BACKPORT: CoreLocationGeolocationProvider.mm is excluded from the build rather than stubbed,
+// so the source file stays pristine-upstream. It is used only on iOS (WKGeolocationProviderIOS + the
+// PLATFORM(IOS_FAMILY) path in WebGeolocationManagerProxy); on Mac, geolocation positions come from the
+// embedding app's WK provider (e.g. Safari's Safari::BrowserGeolocationProvider). The upstream source
+// references kCLAuthorizationStatusAuthorizedWhenInUse, which is API_UNAVAILABLE(macos), so it cannot
+// compile at the 10.9 deploy target — and no Mac code references its symbols, so dropping it is link-clean.
+// platform/cocoa/CoreLocationGeolocationProvider.mm @nonARC
 platform/cocoa/CoreVideoSoftLink.cpp
 platform/cocoa/DragDataCocoa.mm @nonARC
 platform/cocoa/DragImageCocoa.mm @nonARC
