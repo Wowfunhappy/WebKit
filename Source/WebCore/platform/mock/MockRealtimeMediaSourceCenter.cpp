@@ -269,14 +269,19 @@ public:
         switch (device.type()) {
         case CaptureDevice::DeviceType::Screen:
         case CaptureDevice::DeviceType::Window: {
-#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: prefer the GStreamer mock display capturer over the Cocoa one. GStreamer is
+// this port's real media-stream backend, and the Cocoa MockDisplayCapturer's source comes from
+// MockRealtimeVideoSourceMac::createForMockDisplayCapturer, which has no implementation on 10.9.
+// Selecting GStreamer here means that Cocoa path is never instantiated. (Mirrors the GStreamer-over-
+// Cocoa seam used for createAudioSourceProvider.)
+#if USE(GSTREAMER) && USE(GSTREAMER_MEDIA_STREAM)
+            return MockDisplayCaptureSourceGStreamer::create(device, WTF::move(hashSalts), constraints, pageIdentifier);
+#elif PLATFORM(COCOA)
             return DisplayCaptureSourceCocoa::create([this, &device, pageIdentifier] (auto& observer) {
                 auto capturer = makeUniqueRefWithoutRefCountedCheck<MockDisplayCapturer>(observer, device, pageIdentifier);
                 m_capturer = capturer.get();
                 return capturer;
             }, device, WTF::move(hashSalts), constraints, pageIdentifier);
-#elif USE(GSTREAMER) && USE(GSTREAMER_MEDIA_STREAM)
-            return MockDisplayCaptureSourceGStreamer::create(device, WTF::move(hashSalts), constraints, pageIdentifier);
 #else
             return MockRealtimeVideoSource::create(String { device.persistentId() }, AtomString { device.label() }, WTF::move(hashSalts), constraints, pageIdentifier);
 #endif
