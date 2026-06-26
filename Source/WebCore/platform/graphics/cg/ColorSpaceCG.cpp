@@ -57,6 +57,7 @@ template<const CFStringRef& colorSpaceNameGlobalConstant> static CGColorSpaceRef
         // calling a missing symbol.
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200
         colorSpace.construct(adoptCF(CGColorSpaceCreateExtended(RetainPtr { namedColorSpace<colorSpaceNameGlobalConstant>() }.get())));
+// MAVERICKS_BACKPORT: on 10.9 (below 10.12) fall back to the non-extended named color space.
 #else
         colorSpace.construct(RetainPtr<CGColorSpaceRef>(namedColorSpace<colorSpaceNameGlobalConstant>()));
 #endif

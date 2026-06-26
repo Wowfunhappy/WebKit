@@ -144,6 +144,7 @@ bool WebEditorClient::canConvertToTraditionalChinese(const String& selection)
 bool WebEditorClient::canConvertToSimplifiedChinese(const String& selection)
 {
     RetainPtr untransformed = selection.createNSString();
+    // MAVERICKS_BACKPORT: -[NSString stringByApplyingTransform:reverse:] is 10.11+; report the conversion unavailable rather than crash on an unrecognized selector while building the context menu.
     if (![untransformed respondsToSelector:@selector(stringByApplyingTransform:reverse:)])
         return false;
     RetainPtr transformed = [untransformed stringByApplyingTransform:@"Hant-Hans" reverse:NO];
@@ -158,6 +159,7 @@ void WebEditorClient::convertToTraditionalChinese()
     RefPtr page = m_page.get();
     if (!page)
         return;
+    // MAVERICKS_BACKPORT: -[NSString stringByApplyingTransform:reverse:] is 10.11+; pass the string through unchanged when absent rather than crash on an unrecognized selector.
     applyTextTransformation(*page, [] (NSString *string) -> NSString * {
         if (![string respondsToSelector:@selector(stringByApplyingTransform:reverse:)])
             return string;
@@ -170,6 +172,7 @@ void WebEditorClient::convertToSimplifiedChinese()
     RefPtr page = m_page.get();
     if (!page)
         return;
+    // MAVERICKS_BACKPORT: -[NSString stringByApplyingTransform:reverse:] is 10.11+; pass the string through unchanged when absent rather than crash on an unrecognized selector.
     applyTextTransformation(*page, [] (NSString *string) -> NSString * {
         if (![string respondsToSelector:@selector(stringByApplyingTransform:reverse:)])
             return string;

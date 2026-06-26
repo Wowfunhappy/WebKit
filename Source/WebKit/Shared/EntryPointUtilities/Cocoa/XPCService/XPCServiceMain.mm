@@ -33,6 +33,7 @@
 #import "XPCServiceEntryPoint.h"
 #import "XPCUtilities.h"
 #import <CoreFoundation/CoreFoundation.h>
+// MAVERICKS_BACKPORT: dlsym entry-point fallback + opt-in crash-backtrace/stderr-redirect diagnostics below.
 #import <dlfcn.h>
 #import <execinfo.h>
 #import <fcntl.h>
@@ -45,6 +46,7 @@
 #import <sys/sysctl.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/Language.h>
+// MAVERICKS_BACKPORT: WorkQueue is referenced by the 10.9 bootstrap dispatch path below.
 #import <wtf/WorkQueue.h>
 #import <wtf/OSObjectPtr.h>
 #import <wtf/RetainPtr.h>
@@ -123,6 +125,7 @@ NEVER_INLINE NO_RETURN_DUE_TO_CRASH static void crashDueWebKitFrameworkVersionMi
 static void checkFrameworkVersion(xpc_object_t message)
 {
     auto uiProcessWebKitBundleVersion = xpcDictionaryGetString(message, "WebKitBundleVersion"_s);
+    // MAVERICKS_BACKPORT: hardcode the bundle version (the WEBKIT_BUNDLE_VERSION build macro is not threaded into this build).
     auto webkitBundleVersion = ASCIILiteral::fromLiteralUnsafe("615.1.1");
     if (!uiProcessWebKitBundleVersion.isNull() && uiProcessWebKitBundleVersion != webkitBundleVersion) {
         auto errorMessage = makeString("WebKit framework version mismatch: "_s, uiProcessWebKitBundleVersion, " != "_s, webkitBundleVersion);
@@ -152,6 +155,7 @@ void XPCServiceEventHandler(xpc_connection_t peer)
 {
     OSObjectPtr<xpc_connection_t> retainedPeerConnection(peer);
 
+    // MAVERICKS_BACKPORT: bootstrap on the main queue instead of a global worker queue.
     // 10.9: dispatch the bootstrap handler to the MAIN queue rather than a global
     // worker queue. WebProcess::WebProcess() constructs members like UserActivity →
     // PAL::HysteresisActivity which assume RunLoop::mainSingleton() is the current
@@ -166,12 +170,14 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             if (type == XPC_TYPE_ERROR) {
                 if (event == XPC_ERROR_CONNECTION_INVALID || event == XPC_ERROR_TERMINATION_IMMINENT) {
                     RELEASE_LOG_FAULT(IPC, "Exiting: Received XPC event type: %{public}s", event == XPC_ERROR_CONNECTION_INVALID ? "XPC_ERROR_CONNECTION_INVALID" : "XPC_ERROR_TERMINATION_IMMINENT");
+                    // MAVERICKS_BACKPORT: replaces the ENABLE(CLOSE_WEBCONTENT_XPC_CONNECTION_POST_LAUNCH) guard.
                     // On 10.9, Safari closes the XPC connection after bootstrap completes.
                     // The WebContent process must continue running using the IPC mach port.
                     if (s_isWebProcess)
                         return;
+                    // MAVERICKS_BACKPORT: the upstream #if ENABLE(CLOSE_WEBCONTENT_XPC_CONNECTION_POST_LAUNCH)/#endif guard is dropped here.
                     // FIXME: Handle this case more gracefully.
-                    // 10.9 doesn't have -[NSRunLoop performBlock:] (10.13+); use main queue dispatch.
+                    // MAVERICKS_BACKPORT: 10.9 doesn't have -[NSRunLoop performBlock:] (10.13+); use main queue dispatch.
                     dispatch_async(dispatch_get_main_queue(), ^{
                         exitProcess(EXIT_FAILURE);
                     });
@@ -249,6 +255,7 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             RetainPtr webKitBundle = CFBundleGetBundleWithIdentifier(CFSTR("com.apple.WebKit"));
             typedef void (*InitializerFunction)(xpc_connection_t, xpc_object_t);
             InitializerFunction initializerFunctionPtr = reinterpret_cast<InitializerFunction>(CFBundleGetFunctionPointerForName(webKitBundle.get(), entryPointFunctionName));
+            // MAVERICKS_BACKPORT: dlsym fallback when CFBundleGetFunctionPointerForName returns null.
             // 10.9: CFBundleGetFunctionPointerForName can return null when the bundle's
             // Versions/Current symlink points to a different version than the actually
             // loaded binary (e.g. Versions/A vs Versions/615.1.1). Fall back to dlsym
@@ -260,7 +267,7 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             }
             if (!initializerFunctionPtr) {
                 RELEASE_LOG_FAULT(IPC, "Exiting: Unable to find entry point in WebKit.framework with name: %s", [bridge_cast(entryPointFunctionName) UTF8String]);
-                // 10.9 doesn't have -[NSRunLoop performBlock:] (10.13+); use main queue dispatch.
+                // MAVERICKS_BACKPORT: 10.9 doesn't have -[NSRunLoop performBlock:] (10.13+); use main queue dispatch.
                 dispatch_async(dispatch_get_main_queue(), ^{
                     exitProcess(EXIT_FAILURE);
                 });
@@ -280,17 +287,20 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             if (fd != -1)
                 dup2(fd, STDERR_FILENO);
 
-            // Run inline on the XPC handler thread. The isMainThread assert
+            // MAVERICKS_BACKPORT: run the initializer inline on the XPC handler thread instead of
+            // WorkQueue::mainSingleton().dispatchSync. The isMainThread assert
             // in InitializeWebKit2 has been removed for 10.9 compatibility.
             {
                 WTF::initializeMainThread();
-                initializeCFPrefs();
+                initializeCFPrefs(); // MAVERICKS_BACKPORT: inline init body (see block comment above)
+                // MAVERICKS_BACKPORT: pass the raw xpc_object_t event (no OSObjectPtr wrapper) since this runs inline.
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
                 checkFrameworkVersion(event);
 #endif
+                // MAVERICKS_BACKPORT: pass the raw xpc_object_t event (no OSObjectPtr wrapper) since this runs inline.
                 initializerFunctionPtr(retainedPeerConnection.get(), event);
                 setAppleLanguagesPreference();
-            }
+            } // MAVERICKS_BACKPORT: end inline init block (replaces WorkQueue::dispatchSync lambda)
 
             return;
         }

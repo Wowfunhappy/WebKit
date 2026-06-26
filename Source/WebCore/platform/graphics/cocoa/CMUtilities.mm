@@ -127,11 +127,14 @@ static RetainPtr<CFDictionaryRef> createExtensionAtomsDictionary(const Vector<st
 #if ENABLE(ENCRYPTED_MEDIA) && HAVE(AVCONTENTKEYSESSION)
 static std::optional<EncryptionDataCollection> getEncryptionDataCollection(CMFormatDescriptionRef description)
 {
+    // MAVERICKS_BACKPORT: call CoreMedia's CMFormatDescriptionGetExtensions/GetExtension directly throughout this function; these symbols exist natively in the 10.9 CoreMedia framework so the PAL soft-link indirection is bypassed.
     RetainPtr extensions = CMFormatDescriptionGetExtensions(description);
     std::optional<TrackInfoEncryptionData> encryptionData = [](CMFormatDescriptionRef description) -> std::optional<TrackInfoEncryptionData> {
+        // MAVERICKS_BACKPORT: bare CoreMedia CMFormatDescriptionGetExtension (native on 10.9; no PAL wrapper).
         if (RetainPtr trackEncryptionData = dynamic_cf_cast<CFDataRef>(CMFormatDescriptionGetExtension(description, CFSTR("CommonEncryptionTrackEncryptionBox"))))
             return TrackInfoEncryptionData { EncryptionBoxType::CommonEncryptionTrackEncryptionBox, SharedBuffer::create(trackEncryptionData.get()) };
 #if HAVE(FAIRPLAYSTREAMING_MTPS_INITDATA)
+        // MAVERICKS_BACKPORT: bare CoreMedia CMFormatDescriptionGetExtension (native on 10.9; no PAL wrapper).
         if (RetainPtr trackEncryptionData = dynamic_cf_cast<CFDataRef>(CMFormatDescriptionGetExtension(description, CFSTR("TransportStreamEncryptionInitData"))))
             return TrackInfoEncryptionData { EncryptionBoxType::TransportStreamEncryptionInitData, SharedBuffer::create(trackEncryptionData.get()) };
 #endif
@@ -142,6 +145,7 @@ static std::optional<EncryptionDataCollection> getEncryptionDataCollection(CMFor
         return { };
 
     std::optional<FourCC> encryptionOriginalFormat;
+    // MAVERICKS_BACKPORT: call CoreMedia's CMFormatDescriptionGetExtension directly; the symbol exists natively in the 10.9 CoreMedia framework so the PAL soft-link indirection is bypassed.
     RetainPtr cfEncryptionOriginalFormat = dynamic_cf_cast<CFNumberRef>(CMFormatDescriptionGetExtension(description, CFSTR("CommonEncryptionOriginalFormat")));
     if (cfEncryptionOriginalFormat) {
         uint32_t plainTextCodecType = 0;
@@ -149,6 +153,7 @@ static std::optional<EncryptionDataCollection> getEncryptionDataCollection(CMFor
         encryptionOriginalFormat = plainTextCodecType;
     }
 
+    // MAVERICKS_BACKPORT: use the bare CoreMedia CMFormatDescriptionGetExtension call and kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms constant; both are exported natively by the 10.9 CoreMedia framework so the PAL soft-link wrappers are unnecessary.
     RetainPtr extensionAtoms = dynamic_cf_cast<CFDictionaryRef>(CMFormatDescriptionGetExtension(description, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
     if (!extensionAtoms) {
         return EncryptionDataCollection {
@@ -158,6 +163,7 @@ static std::optional<EncryptionDataCollection> getEncryptionDataCollection(CMFor
     }
 
     // For video content, the first element of the dictionary is always the video's atomData.
+    // MAVERICKS_BACKPORT: call CoreMedia's CMFormatDescriptionGetMediaType directly; the symbol exists natively in the 10.9 CoreMedia framework so the PAL soft-link indirection is bypassed.
     size_t indexStart = CMFormatDescriptionGetMediaType(description) == kCMMediaType_Video;
     size_t extensionsCount = CFDictionaryGetCount(extensionAtoms.get());
     if (extensionsCount <= indexStart) {
@@ -570,6 +576,7 @@ Expected<RetainPtr<CMSampleBufferRef>, CString> toCMSampleBuffer(const MediaSamp
     if (!samples.info() || !samples.info()->encryptionDataCollection())
         return adoptCF(rawSampleBuffer);
 
+    // MAVERICKS_BACKPORT: call CoreMedia's CMSampleBufferGetSampleAttachmentsArray directly; the symbol exists natively in the 10.9 CoreMedia framework so the PAL soft-link indirection is bypassed.
     RetainPtr attachmentsArray = CMSampleBufferGetSampleAttachmentsArray(rawSampleBuffer, true);
     ASSERT(attachmentsArray);
     if (!attachmentsArray)
@@ -590,6 +597,7 @@ Expected<RetainPtr<CMSampleBufferRef>, CString> toCMSampleBuffer(const MediaSamp
         CFDictionarySetValue(attachmentsDictionary.get(), CFSTR("BytesOfClearDataCount") /* PAL::kCMSampleAttachmentKey_BytesOfClearDataCount */, value.get());
         if (RefPtr cryptorIV = sample.cryptorIV)
             CFDictionarySetValue(attachmentsDictionary.get(), CFSTR("CryptorIV") /* PAL::kCMSampleAttachmentKey_CryptorInitializationVector */, cryptorIV->createCFData().get());
+        // MAVERICKS_BACKPORT: use the bare CoreMedia kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData constant; it is exported natively by the 10.9 CoreMedia framework so the PAL soft-link wrapper is unnecessary.
         if (RefPtr cryptorSubsampleAuxiliaryData = sample.cryptorSubsampleAuxiliaryData)
             CFDictionarySetValue(attachmentsDictionary.get(), kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData, cryptorSubsampleAuxiliaryData->createCFData().get());
     }
@@ -606,6 +614,7 @@ UniqueRef<MediaSamplesBlock> samplesBlockFromCMSampleBuffer(CMSampleBufferRef cm
             if (PAL::CMFormatDescriptionGetMediaType(description.get()) == kCMMediaType_Audio)
                 info = createAudioInfoFromFormatDescription(description.get());
             else {
+                // MAVERICKS_BACKPORT: call CoreMedia's CMFormatDescriptionGetMediaType directly; the symbol exists natively in the 10.9 CoreMedia framework so the PAL soft-link indirection is bypassed.
                 ASSERT(CMFormatDescriptionGetMediaType(description.get()) == kCMMediaType_Video);
                 info = createVideoInfoFromFormatDescription(description.get());
             }
@@ -626,6 +635,7 @@ UniqueRef<MediaSamplesBlock> samplesBlockFromCMSampleBuffer(CMSampleBufferRef cm
         RefPtr<SharedBuffer> cryptorIV;
         RefPtr<SharedBuffer> cryptorSubsampleAuxiliaryData;
 
+        // MAVERICKS_BACKPORT: call CoreMedia's CMSampleBufferGetSampleAttachmentsArray directly; the symbol exists natively in the 10.9 CoreMedia framework so the PAL soft-link indirection is bypassed.
         RetainPtr attachmentsArray = CMSampleBufferGetSampleAttachmentsArray(sample->sampleBuffer(), false);
         if (attachmentsArray && CFArrayGetCount(attachmentsArray.get()) > 0) {
             if (RetainPtr attachmentsDictionary = dynamic_cf_cast<CFMutableDictionaryRef>(CFArrayGetValueAtIndex(attachmentsArray.get(), 0))) {
@@ -633,6 +643,7 @@ UniqueRef<MediaSamplesBlock> samplesBlockFromCMSampleBuffer(CMSampleBufferRef cm
                     CFNumberGetValue(number.get(), kCFNumberSInt32Type, &bytesOfClearDataCount);
                 if (RetainPtr data = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(attachmentsDictionary.get(), CFSTR("CryptorIV") /* PAL::kCMSampleAttachmentKey_CryptorInitializationVector */)))
                     cryptorIV = SharedBuffer::create(data.get());
+                // MAVERICKS_BACKPORT: use the bare CoreMedia kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData constant; it is exported natively by the 10.9 CoreMedia framework so the PAL soft-link wrapper is unnecessary.
                 if (RetainPtr data = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(attachmentsDictionary.get(), kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData)))
                     cryptorSubsampleAuxiliaryData = SharedBuffer::create(data.get());
             }
@@ -906,6 +917,7 @@ Vector<Ref<SharedBuffer>> getKeyIDs(CMFormatDescriptionRef description)
 {
     if (!description)
         return { };
+    // MAVERICKS_BACKPORT: call CoreMedia's CMFormatDescriptionGetExtension directly; the symbol exists natively in the 10.9 CoreMedia framework so the PAL soft-link indirection is bypassed.
     if (RetainPtr trackEncryptionData = static_cast<CFDataRef>(CMFormatDescriptionGetExtension(description, CFSTR("CommonEncryptionTrackEncryptionBox")))) {
         // AVStreamDataParser will attach the 'tenc' box to each sample, not including the leading
         // size and boxType data. Extract the 'tenc' box and use that box to derive the sample's
@@ -923,6 +935,7 @@ Vector<Ref<SharedBuffer>> getKeyIDs(CMFormatDescriptionRef description)
     }
 
 #if HAVE(FAIRPLAYSTREAMING_MTPS_INITDATA)
+    // MAVERICKS_BACKPORT: call CoreMedia's CMFormatDescriptionGetExtension directly; the symbol exists natively in the 10.9 CoreMedia framework so the PAL soft-link indirection is bypassed.
     if (static_cast<CFDataRef>(CMFormatDescriptionGetExtension(description, CFSTR("TransportStreamEncryptionInitData")))) {
         // AVStreamDataParser will attach a JSON transport stream encryption
         // description object to each sample. Use a static keyID in this case

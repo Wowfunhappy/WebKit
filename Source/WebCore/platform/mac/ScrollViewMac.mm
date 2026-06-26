@@ -47,6 +47,8 @@
 #import "WebCoreFrameView.h"
 #import <wtf/BlockObjCExceptions.h>
 
+// MAVERICKS_BACKPORT: the NSScrollView -contentInsets forward-declaration is dropped — content insets are
+// 10.10+ and the platform code below never calls them on 10.9.
 @interface NSWindow (WebWindowDetails)
 - (BOOL)_needsToResetDragMargins;
 - (void)_setNeedsToResetDragMargins:(BOOL)needs;
@@ -75,7 +77,7 @@ void ScrollView::platformAddChild(Widget* child)
     RetainPtr parentView = documentView();
     RetainPtr childView = child->outerView();
     ASSERT(![parentView isDescendantOf:childView.get()]);
-
+    // MAVERICKS_BACKPORT: trailing-whitespace cleanup only.
     // Suppress the resetting of drag margins since we know we can't affect them.
     RetainPtr<NSWindow> window = [parentView window];
     BOOL resetDragMargins = [window _needsToResetDragMargins];
@@ -123,18 +125,19 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 FloatBoxExtent ScrollView::platformContentInsets() const
 {
-    // 10.9: NSScrollView content insets (10.10+) are unavailable; they are always zero.
+    // MAVERICKS_BACKPORT: NSScrollView content insets (10.10+) are unavailable on 10.9; they are always zero.
     return { };
 }
 
+// MAVERICKS_BACKPORT: NSScrollView -contentInsets / -automaticallyAdjustsContentInsets (10.10+) are unavailable on 10.9; the parameter is unused.
 void ScrollView::platformSetContentInsets(const FloatBoxExtent&)
 {
-    // 10.9: NSScrollView -contentInsets / -automaticallyAdjustsContentInsets (10.10+) are unavailable.
+    // MAVERICKS_BACKPORT: NSScrollView -contentInsets / -automaticallyAdjustsContentInsets (10.10+) are unavailable on 10.9.
 }
 
 IntRect ScrollView::platformVisibleContentRect(bool includeScrollbars) const
 {
-    // 10.9: content insets are always zero, so this is just the obscured-area rect.
+    // MAVERICKS_BACKPORT: content insets (10.10+) are always zero on 10.9, so this is just the obscured-area rect.
     return platformVisibleContentRectIncludingObscuredArea(includeScrollbars);
 }
 
@@ -195,7 +198,7 @@ void ScrollView::platformSetScrollPosition(const IntPoint& scrollPoint)
     NSPoint floatPoint = scrollPoint;
     NSPoint tempPoint = { std::max(-[scrollView scrollOrigin].x, floatPoint.x), std::max(-[scrollView scrollOrigin].y, floatPoint.y) };  // Don't use NSMakePoint to work around 4213314.
 
-    // 10.9: no content insets to factor out of the scroll position.
+    // MAVERICKS_BACKPORT: no content insets (10.10+) to factor out of the scroll position on 10.9.
     [protect(documentView()) scrollPoint:tempPoint];
     END_BLOCK_OBJC_EXCEPTIONS
 }
@@ -224,7 +227,7 @@ IntRect ScrollView::platformContentsToScreen(const IntRect& rect) const
     if (RetainPtr documentView = this->documentView()) {
         NSRect tempRect = rect;
         tempRect = [documentView convertRect:tempRect toView:nil];
-        // 10.9: -[NSWindow convertPointToScreen:] is 10.12+; use the 10.7+ rect variant.
+        // MAVERICKS_BACKPORT: -[NSWindow convertPointToScreen:] is 10.12+; use the 10.7+ rect variant on 10.9.
         tempRect.origin = [retainPtr([documentView window]) convertRectToScreen:NSMakeRect(tempRect.origin.x, tempRect.origin.y, 0, 0)].origin;
         return enclosingIntRect(tempRect);
     }
@@ -236,7 +239,7 @@ IntPoint ScrollView::platformScreenToContents(const IntPoint& point) const
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     if (RetainPtr documentView = this->documentView()) {
-        // 10.9: -[NSWindow convertPointFromScreen:] is 10.12+; use the 10.7+ rect variant.
+        // MAVERICKS_BACKPORT: -[NSWindow convertPointFromScreen:] is 10.12+; use the 10.7+ rect variant on 10.9.
         NSPoint windowCoord = [retainPtr([documentView window]) convertRectFromScreen:NSMakeRect(point.x(), point.y(), 0, 0)].origin;
         return IntPoint([documentView convertPoint:windowCoord fromView:nil]);
     }

@@ -669,6 +669,7 @@ private:
     bool m_isSuspended { false };
     bool m_didSyncCookiesForClose { false };
 #if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: NOTIFY_TOKEN_INVALID is absent from 10.9 notify.h; use its value (-1) directly.
     int m_mediaStreamingActivitityToken { -1 }; // NOTIFY_TOKEN_INVALID not in 10.9 notify.h
     bool m_isParentProcessFullWebBrowserOrRunningTest { false };
 #endif

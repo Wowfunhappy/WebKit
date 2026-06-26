@@ -230,7 +230,7 @@ void TextDecorationPainter::paintBackgroundDecorations(const RenderStyle& style,
                 // FIXME: Need to support text-decoration-skip: none.
                 m_context.drawLineForText(paintRect, m_isPrinting, underlineStyle == TextDecorationStyle::Double, strokeStyle);
             }
-#endif
+#endif // MAVERICKS_BACKPORT: PLATFORM(MAC) skip-ink-underline workaround (10.9 CoreText per-glyph-path state corruption); see #if PLATFORM(MAC) above.
         } else
             ASSERT_NOT_REACHED();
     };

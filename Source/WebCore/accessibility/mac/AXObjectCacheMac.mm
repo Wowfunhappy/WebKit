@@ -7,14 +7,17 @@
 // #if HAVE(ACCESSIBILITY) guard — HAVE_ACCESSIBILITY is undefined in modern WebKit so the guard was 0,
 // which compiled the stubs out and dyld-halted WebContent on any text input via shouldSpellCheck().
 
+// MAVERICKS_BACKPORT: minimal include set for the stub bodies (the full file's AX-thread/soft-link headers are unused with the feature off).
 #include "config.h"
 
+// MAVERICKS_BACKPORT: only the headers the no-op stub bodies reference (the AX-thread/soft-link imports are dropped with the feature off).
 #import "AXObjectCache.h"
 #import "AccessibilityObject.h"
 #import "AXTextStateChangeIntent.h"
 
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: no-op platform stubs replacing the isolated-tree/live-region implementations; must always compile on Mac (see header note).
 void AXObjectCache::initializeUserDefaultValues() { }
 void AXObjectCache::attachWrapper(AccessibilityObject&) { }
 void AXObjectCache::postPlatformNotification(AccessibilityObject&, AXNotification) { }

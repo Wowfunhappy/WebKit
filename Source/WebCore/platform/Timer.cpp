@@ -32,8 +32,10 @@
 #include "ThreadTimers.h"
 #include <limits>
 #include <math.h>
+// MAVERICKS_BACKPORT: Lock.h for the cross-thread sharedTimerHeapLock().
 #include <wtf/Lock.h>
 #include <wtf/MainThread.h>
+// MAVERICKS_BACKPORT: NeverDestroyed.h for the static sharedTimerHeapLock() storage.
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -88,6 +90,8 @@ inline ThreadTimerHeapItem::ThreadTimerHeapItem(TimerBase& timer, MonotonicTime 
     ASSERT(m_timer);
 }
 
+// MAVERICKS_BACKPORT: emit the TZone allocator impl after the ctor definition
+// (relocated from above it) for this build.
 WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(ThreadTimerHeapItem);
 
 inline RefPtr<ThreadTimerHeapItem> ThreadTimerHeapItem::create(TimerBase& timer, MonotonicTime time, unsigned insertionOrder)
@@ -323,6 +327,7 @@ TimerBase::~TimerBase()
 void TimerBase::start(Seconds nextFireInterval, Seconds repeatInterval)
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
+    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace) in this start() body.
     m_repeatInterval = repeatInterval;
     setNextFireTime(MonotonicTime::now() + nextFireInterval);
 }
@@ -489,6 +494,8 @@ bool TimerBase::hasValidHeapPosition() const
     // which scrub the heap.
     const auto& heap = item->timerHeap();
     unsigned heapIndex = item->heapIndex();
+    // MAVERICKS_BACKPORT: pointer/time sanity checks for heap entries that JSC GC
+    // may have corrupted, used by the validation below.
     auto isAddrValid = [](uintptr_t addr) -> bool {
         return addr >= 0x100000 && !(addr >> 47) && !(addr & 0x7);
     };
@@ -507,6 +514,8 @@ bool TimerBase::hasValidHeapPosition() const
         return false;
     unsigned childIndex1 = 2 * heapIndex + 1;
     unsigned childIndex2 = childIndex1 + 1;
+    // MAVERICKS_BACKPORT: validate child/parent heap entries before the property
+    // checks dereference them (heap may be corrupted by JSC GC).
     if (!checkEntry(childIndex1) || !checkEntry(childIndex2))
         return false;
     if (!parentHeapPropertyHolds(this, heap, heapIndex))
@@ -548,7 +557,8 @@ void TimerBase::updateHeapIfNeeded(MonotonicTime oldTime)
 
 void TimerBase::setNextFireTime(MonotonicTime newTime)
 {
-    // Log nothing for now (too verbose); restore if needed.
+    // MAVERICKS_BACKPORT: serializes heap mutations across threads via the
+    // sharedTimerHeapLock acquired below.
 #if USE(WEB_THREAD)
     RELEASE_ASSERT(WebThreadIsLockedOrDisabledInMainOrWebThread());
 #endif

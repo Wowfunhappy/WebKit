@@ -100,6 +100,7 @@ static bool webThreadIsUninitializedOrLockedOrDisabled()
 
 bool isMainThread()
 {
+    // MAVERICKS_BACKPORT: also accept the main GCD queue as the main thread (dispatch_main() exits it on 10.9).
     if ((isWebThread() || pthread_main_np()) && webThreadIsUninitializedOrLockedOrDisabled())
         return true;
     // 10.9: dispatch_main() exits the main thread; subsequent main-queue blocks

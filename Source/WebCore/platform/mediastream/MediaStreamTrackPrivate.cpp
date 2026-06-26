@@ -44,6 +44,7 @@
 // GStreamer audio source provider over the Cocoa one (see createAudioSourceProvider below).
 #if ENABLE(WEB_AUDIO) && ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
 #include "AudioSourceProviderGStreamer.h"
+// MAVERICKS_BACKPORT: Cocoa provider demoted below the GStreamer one (GStreamer audio capture backend).
 #elif PLATFORM(COCOA)
 #include "MediaStreamTrackAudioSourceProviderCocoa.h"
 #else
@@ -560,6 +561,7 @@ RefPtr<WebAudioSourceProvider> MediaStreamTrackPrivate::createAudioSourceProvide
     // Prefer USE(GSTREAMER) so the GStreamer-native provider consumes the GStreamer samples.
 #if USE(GSTREAMER)
     return AudioSourceProviderGStreamer::create(*this);
+    // MAVERICKS_BACKPORT: Cocoa provider demoted below the GStreamer one (avoids the SIGFPE noted above).
 #elif PLATFORM(COCOA)
     return MediaStreamTrackAudioSourceProviderCocoa::create(*this);
 #else

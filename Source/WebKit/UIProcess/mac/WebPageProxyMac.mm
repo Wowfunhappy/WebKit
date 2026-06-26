@@ -637,6 +637,7 @@ void WebPageProxy::savePDFToTemporaryFolderAndOpenWithNativeApplication(const St
         [[NSWorkspace sharedWorkspace] openURL:pdfFileURL.createNSURL().get()];
     });
 }
+// MAVERICKS_BACKPORT: close the PDF_PLUGIN guard around the save-and-open path (PDFs download on 10.9).
 #endif // ENABLE(PDF_PLUGIN)
 
 #if ENABLE(PDF_PLUGIN)
@@ -845,6 +846,7 @@ std::optional<IPC::AsyncReplyID> WebPageProxy::willPerformPasteCommand(DOMPasteA
     }
 }
 
+// MAVERICKS_BACKPORT: platformView() is referenced only by the wireless-playback target path; gate it to that build so it isn't an unused function otherwise.
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
 RetainPtr<CocoaView> WebPageProxy::Internals::platformView() const
 {
@@ -854,7 +856,7 @@ RetainPtr<CocoaView> WebPageProxy::Internals::platformView() const
     RetainPtr window = pageClient->platformWindow();
     return [window contentView];
 }
-#endif
+#endif // MAVERICKS_BACKPORT ENABLE(WIRELESS_PLAYBACK_TARGET)
 
 #if ENABLE(PDF_PLUGIN)
 

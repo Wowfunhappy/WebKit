@@ -35,6 +35,7 @@
 // compiled (and only used, below) when ENABLE(MEDIA_STREAM); gate the include to match its use sites.
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 #include "GStreamerCaptureDeviceManager.h"
+// MAVERICKS_BACKPORT: end of the USE(GSTREAMER_MEDIA_STREAM) capture-device-manager include guard.
 #endif
 #include "GStreamerCommon.h"
 #include "GStreamerQuirks.h"
@@ -64,6 +65,7 @@
 #if ENABLE(MEDIA_STREAM)
 #include "MediaStreamPrivate.h"
 #endif
+// MAVERICKS_BACKPORT: gate the GStreamer MediaStream src header on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 #include "GStreamerMediaStreamSource.h"
 #endif
@@ -1102,6 +1104,7 @@ void MediaPlayerPrivateGStreamer::sourceSetup(GstElement* sourceElement)
         webKitWebSrcSetReferrer(source, m_referrer);
         webKitWebSrcSetResourceLoader(source, m_loader);
         webKitWebSrcSetPlayer(source, ThreadSafeWeakPtr { *this });
+    // MAVERICKS_BACKPORT: gate the GStreamer MediaStream src setup branch on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     } else if (WEBKIT_IS_MEDIA_STREAM_SRC(sourceElement)) {
         RefPtr player = m_player.get();
@@ -1570,6 +1573,7 @@ GstElement* MediaPlayerPrivateGStreamer::createAudioSink()
     auto role = player->isVideoPlayer() ? "video"_s : "music"_s;
     GstElement* audioSink = nullptr;
 
+    // MAVERICKS_BACKPORT: gate the GStreamer MediaStream audio-output-device sink path on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     auto deviceId = player->audioOutputDeviceId();
     if (!deviceId.isEmpty()) {
@@ -1597,6 +1601,7 @@ GstElement* MediaPlayerPrivateGStreamer::createAudioSink()
 
 bool MediaPlayerPrivateGStreamer::isMediaStreamPlayer() const
 {
+    // MAVERICKS_BACKPORT: gate the GStreamer MediaStream src check on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     if (m_source)
         return WEBKIT_IS_MEDIA_STREAM_SRC(m_source.get());
@@ -1969,6 +1974,7 @@ FloatSize MediaPlayerPrivateGStreamer::naturalSize() const
 
 void MediaPlayerPrivateGStreamer::configureMediaStreamAudioTracks()
 {
+    // MAVERICKS_BACKPORT: gate the GStreamer MediaStream src track configuration on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     if (WEBKIT_IS_MEDIA_STREAM_SRC(m_source.get()))
         webkitMediaStreamSrcConfigureAudioTracks(WEBKIT_MEDIA_STREAM_SRC(m_source.get()), volume(), isMuted(), !paused());
@@ -3725,6 +3731,7 @@ void MediaPlayerPrivateGStreamer::pausedTimerFired()
 void MediaPlayerPrivateGStreamer::acceleratedRenderingStateChanged()
 {
     RefPtr player = m_player.get();
+    // MAVERICKS_BACKPORT: this Cocoa/CoreGraphics port builds without COORDINATED_GRAPHICS, so the #else branch forces software (non-accelerated) video-frame rendering.
 #if USE(COORDINATED_GRAPHICS)
     m_canRenderingBeAccelerated = player && player->acceleratedCompositingEnabled();
 #else
@@ -4756,6 +4763,7 @@ void MediaPlayerPrivateGStreamer::checkPlayingConsistency()
     }
 }
 
+// MAVERICKS_BACKPORT: gate the GStreamer MediaStream audio-output-device resolver on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 std::pair<String, GRefPtr<GstDevice>> MediaPlayerPrivateGStreamer::resolveAudioOutputDevice(const String& deviceId)
 {

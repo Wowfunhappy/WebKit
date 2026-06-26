@@ -55,6 +55,7 @@
 struct vpx_usec_timer {
 #if defined(_WIN32)
   LARGE_INTEGER begin, end;
+// MAVERICKS_BACKPORT: store mach_absolute_time() ticks since clock_gettime/timespec path is macOS 10.12+.
 #elif defined(__APPLE__)
   uint64_t begin, end;
 #else
@@ -65,6 +66,7 @@ struct vpx_usec_timer {
 static INLINE void vpx_usec_timer_start(struct vpx_usec_timer *t) {
 #if defined(_WIN32)
   QueryPerformanceCounter(&t->begin);
+// MAVERICKS_BACKPORT: clock_gettime/CLOCK_MONOTONIC are macOS 10.12+; sample via mach_absolute_time().
 #elif defined(__APPLE__)
   t->begin = mach_absolute_time();
 #elif defined(CLOCK_MONOTONIC_RAW)
@@ -77,6 +79,7 @@ static INLINE void vpx_usec_timer_start(struct vpx_usec_timer *t) {
 static INLINE void vpx_usec_timer_mark(struct vpx_usec_timer *t) {
 #if defined(_WIN32)
   QueryPerformanceCounter(&t->end);
+// MAVERICKS_BACKPORT: clock_gettime/CLOCK_MONOTONIC are macOS 10.12+; sample via mach_absolute_time().
 #elif defined(__APPLE__)
   t->end = mach_absolute_time();
 #elif defined(CLOCK_MONOTONIC_RAW)
@@ -94,6 +97,7 @@ static INLINE int64_t vpx_usec_timer_elapsed(struct vpx_usec_timer *t) {
 
   QueryPerformanceFrequency(&freq);
   return diff.QuadPart * 1000000 / freq.QuadPart;
+// MAVERICKS_BACKPORT: clock_gettime/CLOCK_MONOTONIC are macOS 10.12+; compute elapsed via mach_absolute_time timebase.
 #elif defined(__APPLE__)
   static mach_timebase_info_data_t tb = { 0, 0 };
   if (tb.denom == 0) mach_timebase_info(&tb);

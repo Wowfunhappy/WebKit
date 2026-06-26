@@ -184,6 +184,8 @@ void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<Completi
             callCompletionHandler(WTF::move(result));
     }).get());
 }
+// MAVERICKS_BACKPORT: no-op DNS fallback for the 10.9 deploy target (the nw_resolver_* path above
+// is 10.14+ runtime API absent on Mavericks); resolve always reports CannotResolve.
 #else
 void DNSResolveQueueCFNet::performDNSLookup(const String&, Ref<CompletionHandlerWrapper>&& completionHandler)
 {

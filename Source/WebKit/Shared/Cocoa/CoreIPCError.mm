@@ -106,6 +106,7 @@ RetainPtr<id> CoreIPCError::toID() const
     }
 
     return adoptNS([[NSError alloc] initWithDomain:m_domain.createNSString().get() code:m_code userInfo:(__bridge NSDictionary *)mutableUserInfo.get()]);
+// MAVERICKS_BACKPORT: end of the disabled (#if 0) original userInfo-building path (10.10+ keys).
 #endif
 }
 
@@ -123,6 +124,8 @@ RetainPtr<id> CoreIPCError::toID() const
 }
 
 CoreIPCError::CoreIPCError(NSError *nsError)
+    // MAVERICKS_BACKPORT: hardcode a safe constant domain and read only the code (see body below);
+    // upstream copies [nsError domain]/userInfo, which carries bridge-corrupted fields on 10.9.
     : m_domain("WebKitErrorDomain"_s)
     , m_code(nsError ? [nsError code] : 0)
 {
@@ -226,6 +229,7 @@ CoreIPCError::CoreIPCError(NSError *nsError)
     EXTRACT_STRING_VALUE(@"networkTaskMetricsPrivacyStance", m_networkTaskMetricsPrivacyStance)
 
     EXTRACT_STRING_VALUE(@"NSDescription", m_description)
+// MAVERICKS_BACKPORT: end of the disabled (#if 0) original userInfo extraction; see ctor body above.
 #endif
 }
 

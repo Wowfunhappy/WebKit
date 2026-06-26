@@ -119,9 +119,10 @@ void MainThreadSharedTimer::setFireInterval(Seconds interval)
         // MAVERICKS_BACKPORT: install the shared timer on the main run loop (CFRunLoopGetMain) rather than the
         // calling thread's current run loop, and fold the existing-timer reschedule into an else branch so the
         // timer is created/added exactly once on 10.9.
-        CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), kCFRunLoopCommonModes);
+        CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), kCFRunLoopCommonModes); // MAVERICKS_BACKPORT: main run loop, not the current thread's.
 #endif
         setupPowerObserver();
+    // MAVERICKS_BACKPORT: fold the existing-timer reschedule into this else branch so the timer is created/added exactly once on 10.9.
     } else
         CFRunLoopTimerSetNextFireDate(sharedTimer().get(), fireDate);
 }

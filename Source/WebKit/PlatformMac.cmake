@@ -1,14 +1,19 @@
+# MAVERICKS_BACKPORT: -ObjC++/-std=c++2b moved to per-target flags (not added globally here).
 # Moved to per-target: add_definitions("-ObjC++ -std=c++2b -D__STDC_WANT_LIB_EXT1__")
 find_library(APPLICATIONSERVICES_LIBRARY ApplicationServices)
 find_library(CARBON_LIBRARY Carbon)
 find_library(CORESERVICES_LIBRARY CoreServices)
+# MAVERICKS_BACKPORT: Network.framework is 10.14+ and absent on 10.9
 # Removed: Network not on 10.9
 find_library(SECURITY_LIBRARY Security)
 find_library(SECURITYINTERFACE_LIBRARY SecurityInterface)
 find_library(QUARTZ_LIBRARY Quartz)
+# MAVERICKS_BACKPORT: UniformTypeIdentifiers framework is macOS 11+ and absent on 10.9
 # Removed
 find_library(AVFOUNDATION_LIBRARY AVFoundation)
+# MAVERICKS_BACKPORT: AVFAudio not on 10.9
 # Removed: AVFAudio not on 10.9
+# MAVERICKS_BACKPORT: DeviceIdentity PrivateFramework not on 10.9
 # Removed: DeviceIdentity not on 10.9
 add_definitions(-iframework ${QUARTZ_LIBRARY}/Frameworks)
 add_definitions(-iframework ${CARBON_LIBRARY}/Frameworks)
@@ -33,7 +38,7 @@ if (NOT AVFAUDIO_LIBRARY-NOTFOUND)
     list(APPEND WebKit_LIBRARIES ${AVFAUDIO_LIBRARY})
 endif ()
 
-# ObjC class stubs removed - assembly-generated OBJC_CLASS symbols have invalid
+# MAVERICKS_BACKPORT: ObjC class stubs removed - assembly-generated OBJC_CLASS symbols have invalid
 # metadata and crash the ObjC runtime's map_images_nolock on 10.9.
 # These classes are resolved via -undefined dynamic_lookup at runtime.
 
@@ -56,12 +61,14 @@ list(APPEND WebKit_SOURCES
 
     NetworkProcess/mac/NetworkConnectionToWebProcessMac.mm
 
+    # MAVERICKS_BACKPORT: NetworkRTC sources disabled (require frameworks not available on 10.9; WebRTC is on GStreamer here).
     # WebRTC requires frameworks not available on 10.9
     # NetworkProcess/webrtc/NetworkRTCProvider.mm
     # NetworkProcess/webrtc/NetworkRTCTCPSocketCocoa.mm
     # NetworkProcess/webrtc/NetworkRTCUDPSocketCocoa.mm
     # NetworkProcess/webrtc/NetworkRTCUtilitiesCocoa.mm
 
+    # MAVERICKS_BACKPORT: WKDownloadProgress source disabled (NSProgress/NSKeyValueChangeKey are 10.10+, absent on 10.9).
     # WKDownloadProgress requires NSProgress/NSKeyValueChangeKey (10.10+)
     # NetworkProcess/Downloads/cocoa/WKDownloadProgress.mm
 
@@ -94,6 +101,7 @@ list(APPEND WebKit_SOURCES
 
     WebProcess/WebAuthentication/WebAuthenticatorCoordinator.cpp
 
+    # MAVERICKS_BACKPORT: AudioSessionRoutingArbitrator source disabled (requires ENABLE_ROUTING_ARBITRATION / GPU process, off on 10.9).
     # AudioSessionRoutingArbitrator requires ENABLE_ROUTING_ARBITRATION (GPU process)
     # WebProcess/cocoa/AudioSessionRoutingArbitrator.cpp
     WebProcess/cocoa/HandleXPCEndpointMessages.mm
@@ -195,7 +203,7 @@ set(GPUProcess_SOURCES
     ${XPCService_SOURCES}
 )
 
-# 10.9 / Safari-7 backport: the XPC-service executables must be named WITHOUT the
+# MAVERICKS_BACKPORT: the XPC-service executables must be named WITHOUT the
 # ".Development" suffix. The WK2 process launcher (and launchd, resolving the
 # .xpc bundle) execs Contents/MacOS/com.apple.WebKit.WebContent — a ".Development"
 # binary name yields ENOENT ("XPC Service could not exec(3)") so the WebContent /
@@ -236,11 +244,13 @@ list(APPEND WebKit_MESSAGES_IN_FILES
     UIProcess/ViewGestureController
 
     UIProcess/Cocoa/PlaybackSessionManagerProxy
+    # MAVERICKS_BACKPORT: VideoFullscreenManagerProxy messages disabled (requires ENABLE_VIDEO_PRESENTATION_MODE, off on 10.9).
     # VideoFullscreenManagerProxy requires ENABLE_VIDEO_PRESENTATION_MODE
     # UIProcess/Cocoa/VideoFullscreenManagerProxy
 
     UIProcess/Inspector/WebInspectorUIExtensionControllerProxy
 
+    # MAVERICKS_BACKPORT: AudioSessionRoutingArbitratorProxy messages disabled (requires ENABLE_GPU_PROCESS, off on 10.9).
     # AudioSessionRoutingArbitratorProxy requires ENABLE_GPU_PROCESS
     # UIProcess/Media/AudioSessionRoutingArbitratorProxy
 
@@ -270,11 +280,13 @@ list(APPEND WebKit_MESSAGES_IN_FILES
     WebProcess/cocoa/PlaybackSessionManager
     WebProcess/cocoa/RemoteCaptureSampleManager
     WebProcess/cocoa/UserMediaCaptureManager
+    # MAVERICKS_BACKPORT: VideoFullscreenManager messages disabled (ENABLE_VIDEO_PRESENTATION_MODE off on 10.9).
     # WebProcess/cocoa/VideoFullscreenManager
 )
 
 list(APPEND WebKit_SERIALIZATION_IN_FILES
     Shared/Cocoa/CacheStoragePolicy.serialization.in
+    # MAVERICKS_BACKPORT: register the CoreIPC CF/Cocoa serialization descriptors so their generated coders build.
     Shared/cf/CFTypes.serialization.in
     Shared/cf/CoreIPCBoolean.serialization.in
     Shared/cf/CoreIPCCFArray.serialization.in
@@ -315,6 +327,7 @@ list(APPEND WebKit_SERIALIZATION_IN_FILES
     Shared/Cocoa/RemoteObjectInvocation.serialization.in
     Shared/Cocoa/RevealItem.serialization.in
     Shared/Cocoa/WebCoreArgumentCodersCocoa.serialization.in
+    # MAVERICKS_BACKPORT: register these additional serialization descriptors so their generated coders build.
     Shared/AppPrivacyReportTestingData.serialization.in
     Shared/AdditionalFonts.serialization.in
     Shared/AlternativeTextClient.serialization.in
@@ -425,6 +438,7 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/WKHTTPCookieStore.h
     UIProcess/API/Cocoa/WKHTTPCookieStorePrivate.h
     UIProcess/API/Cocoa/WKHistoryDelegatePrivate.h
+    # MAVERICKS_BACKPORT: forward these headers (referenced via <WebKit/...> but missing upstream from the list).
     UIProcess/API/Cocoa/WKJSScriptingBuffer.h
     UIProcess/API/Cocoa/WKJSSerializedNode.h
     UIProcess/API/Cocoa/WKMenuItemIdentifiersPrivate.h
@@ -518,6 +532,7 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/_WKElementAction.h
     UIProcess/API/Cocoa/_WKErrorRecoveryAttempting.h
     UIProcess/API/Cocoa/_WKExperimentalFeature.h
+    # MAVERICKS_BACKPORT: forward this header (referenced via <WebKit/...> but missing upstream from the list).
     UIProcess/API/Cocoa/_WKFeature.h
     UIProcess/API/Cocoa/_WKFindDelegate.h
     UIProcess/API/Cocoa/_WKFindOptions.h
@@ -554,6 +569,7 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/_WKPublicKeyCredentialUserEntity.h
     UIProcess/API/Cocoa/_WKRemoteWebInspectorViewController.h
     UIProcess/API/Cocoa/_WKRemoteWebInspectorViewControllerPrivate.h
+    # MAVERICKS_BACKPORT: forward this header (referenced via <WebKit/...> but missing upstream from the list).
     UIProcess/API/Cocoa/_WKResidentKeyRequirement.h
     UIProcess/API/Cocoa/_WKResourceLoadDelegate.h
     UIProcess/API/Cocoa/_WKResourceLoadInfo.h
@@ -568,6 +584,7 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/_WKTextManipulationExclusionRule.h
     UIProcess/API/Cocoa/_WKTextManipulationItem.h
     UIProcess/API/Cocoa/_WKTextManipulationToken.h
+    # MAVERICKS_BACKPORT: forward this header (referenced via <WebKit/...> but missing upstream from the list).
     UIProcess/API/Cocoa/_WKTextPreview.h
     UIProcess/API/Cocoa/_WKThumbnailView.h
     UIProcess/API/Cocoa/_WKUserContentWorld.h
@@ -845,6 +862,7 @@ set(ObjCForwardingHeaders
     DOMXPathResult.h
 )
 
+# MAVERICKS_BACKPORT: quote the linker-flags append (preserve prior flags) and drop -framework AuthKit (AuthKit absent on 10.9).
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION}")
 target_link_options(WebKit PRIVATE -lsandbox)
 
@@ -901,6 +919,7 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
     set(WebKit_RESOURCES_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/Versions/A/Resources)
     add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb COMMAND
         grep -o "^[^;]*" ${WEBKIT_DIR}/WebProcess/com.apple.WebProcess.sb.in | clang -E -P -w -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb
+        # MAVERICKS_BACKPORT: add an explicit DEPENDS so edits to the .sb.in source retrigger this rule.
         DEPENDS ${WEBKIT_DIR}/WebProcess/com.apple.WebProcess.sb.in
         VERBATIM)
     list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb)
@@ -925,6 +944,8 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
     add_custom_target(WebKitSandboxProfiles ALL DEPENDS ${WebKit_SB_FILES})
     add_dependencies(WebKit WebKitSandboxProfiles)
 
+    # MAVERICKS_BACKPORT: WebContentProcess.xib has no 10.9-runnable nib content; create an empty
+    # placeholder .nib (make_directory + touch) instead of running ibtool on it.
     add_custom_command(OUTPUT ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib COMMAND
         ${CMAKE_COMMAND} -E make_directory ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources
         COMMAND ${CMAKE_COMMAND} -E touch ${WebKit_XPC_SERVICE_DIR}/com.apple.WebKit.WebContent.xpc/Contents/Resources/WebContentProcess.nib
@@ -934,4 +955,5 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
 endfunction()
 
 set(WebKit_GENERATED_SERIALIZERS_SUFFIX mm)
+# MAVERICKS_BACKPORT: link the classic-CoreGraphics-API forwarding shim (libcg_polyfill) for symbols absent on 10.9.
 list(APPEND WebKit_LIBRARIES /usr/local/lib/libcg_polyfill.dylib)

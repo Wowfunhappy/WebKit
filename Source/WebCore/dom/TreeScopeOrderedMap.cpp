@@ -87,6 +87,7 @@ void TreeScopeOrderedMap::remove(const AtomString& key, Element& element)
     if (key.isNull())
         return;
     auto it = m_map.find(key);
+    // MAVERICKS_BACKPORT: #54/#40 band-aid — silent bail replacing the upstream end()-trap.
     // arstechnica's JS DOM manipulation triggers remove(<key>, <element>) for entries where
     // the map state is out of sync with the element (id/name attribute change races,
     // custom-element bypass effects, etc.). Bail rather than SIGTRAP — the map rebuilds
@@ -95,13 +96,18 @@ void TreeScopeOrderedMap::remove(const AtomString& key, Element& element)
     if (it == m_map.end())
         return;
     MapEntry& entry = it->value;
+    // MAVERICKS_BACKPORT: #54/#40 band-aid — registeredElements bookkeeping kept only for assert builds
+    // (its result is no longer asserted on); skip it in release to match the softened traps above.
 #if ASSERT_ENABLED || ENABLE(SECURITY_ASSERTIONS)
     entry.registeredElements.remove(element);
 #endif
+    // MAVERICKS_BACKPORT: #54/#40 band-aid — tolerate entry.count==0 (treat like ==1) and drop the
+    // upstream RELEASE_ASSERT(entry.count)/element-identity security traps; remove the entry and bail.
     if (!entry.count || entry.count == 1) {
         m_map.remove(it);
-        return;
+        return; // MAVERICKS_BACKPORT: #54/#40 band-aid — bail on count 0/1 without the upstream traps.
     }
+    // MAVERICKS_BACKPORT: #54/#40 band-aid — multi-count path without the security asserts above.
     if (entry.element == &element)
         entry.element = nullptr;
     entry.count--;

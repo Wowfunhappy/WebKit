@@ -85,12 +85,14 @@ static bool canUseFastRenderer(std::span<const UniChar> buffer)
         // WebCore requires a flipped graphics context.
         bool flipped = [nsContext isFlipped];
         if (!flipped)
+            // MAVERICKS_BACKPORT: cgContext is a raw CGContextRef (-graphicsPort SPI), not a RetainPtr.
             CGContextScaleCTM(cgContext, 1, -1);
 
         graphicsContext.setFillColor(colorFromCocoaColor(textColor));
         webCoreFont.drawText(graphicsContext, run, FloatPoint(point.x, flipped ? point.y : -point.y));
 
         if (!flipped)
+            // MAVERICKS_BACKPORT: cgContext is a raw CGContextRef (-graphicsPort SPI), not a RetainPtr.
             CGContextScaleCTM(cgContext, 1, -1);
     } else {
         // The given point is on the baseline.

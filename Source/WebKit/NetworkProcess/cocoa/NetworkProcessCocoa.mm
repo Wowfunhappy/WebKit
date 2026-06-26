@@ -65,8 +65,8 @@
 
 #import <pal/spi/cocoa/NetworkSPI.h>
 
-// 10.9: NSHTTPCookieStorage exposes only the argument-less -_saveCookies (selector "_saveCookies",
-// type encoding v16@0:8); modern macOS replaced it with the completion-block -_saveCookies:. Declare
+// MAVERICKS_BACKPORT: NSHTTPCookieStorage on 10.9 exposes only the argument-less -_saveCookies (selector
+// "_saveCookies", type encoding v16@0:8); modern macOS replaced it with the completion-block -_saveCookies:. Declare
 // the legacy selector at global scope (ObjC categories may not appear inside a C++ namespace) so we
 // can message it without a -Wundeclared-selector / performSelector-leak warning. saveCookies() still
 // guards the call with class_getInstanceMethod before messaging.

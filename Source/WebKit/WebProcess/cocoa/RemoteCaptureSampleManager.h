@@ -89,9 +89,10 @@ private:
     // Messages
     void audioStorageChanged(WebCore::RealtimeMediaSourceIdentifier, ConsumerSharedCARingBuffer::Handle&&, const WebCore::CAAudioStreamDescription&, IPC::Semaphore&&, const MediaTime&, uint64_t frameSampleSize);
     void audioSamplesAvailable(WebCore::RealtimeMediaSourceIdentifier, MediaTime, uint64_t numberOfFrames);
+// MAVERICKS_BACKPORT: the RemoteVideoFrameProxy delivery message is GPU-process-only; on 10.9 frames arrive via videoFrameAvailableCV() below.
 #if ENABLE(GPU_PROCESS)
     void videoFrameAvailable(WebCore::RealtimeMediaSourceIdentifier, RemoteVideoFrameProxy::Properties&&, WebCore::VideoFrameTimeMetadata);
-#endif
+#endif // MAVERICKS_BACKPORT
     // FIXME: Will be removed once RemoteVideoFrameProxy providers are the only ones sending data.
     void videoFrameAvailableCV(WebCore::RealtimeMediaSourceIdentifier, RetainPtr<CVPixelBufferRef>&&, WebCore::VideoFrameRotation, bool mirrored, MediaTime, WebCore::VideoFrameTimeMetadata);
 
@@ -131,10 +132,11 @@ private:
     HashMap<WebCore::RealtimeMediaSourceIdentifier, std::unique_ptr<RemoteAudio>> m_audioSources;
     HashMap<WebCore::RealtimeMediaSourceIdentifier, Ref<RemoteRealtimeVideoSource>> m_videoSources;
 
+// MAVERICKS_BACKPORT: RemoteVideoFrameObjectHeapProxy is GPU-process-only; the heap-proxy member and its lock exist only with ENABLE(GPU_PROCESS) (off on 10.9).
 #if ENABLE(GPU_PROCESS)
     Lock m_videoFrameObjectHeapProxyLock;
     RefPtr<RemoteVideoFrameObjectHeapProxy> m_videoFrameObjectHeapProxy WTF_GUARDED_BY_LOCK(m_videoFrameObjectHeapProxyLock);
-#endif
+#endif // MAVERICKS_BACKPORT
 };
 
 } // namespace WebKit

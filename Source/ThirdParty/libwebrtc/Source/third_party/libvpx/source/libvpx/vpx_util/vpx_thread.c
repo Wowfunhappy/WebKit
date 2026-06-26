@@ -162,6 +162,7 @@ static int reset(VPxWorker *const worker) {
     worker->status_ = VPX_WORKER_STATUS_OK;
 #endif
   } else if (worker->status_ > VPX_WORKER_STATUS_OK) {
+    // MAVERICKS_BACKPORT: `sync` renamed to `sync_worker` to avoid collision with POSIX `void sync(void)` on the 10.9 SDK.
     ok = sync_worker(worker);
   }
   assert(!ok || (worker->status_ == VPX_WORKER_STATUS_OK));
@@ -201,6 +202,7 @@ static void end(VPxWorker *const worker) {
 
 //------------------------------------------------------------------------------
 
+// MAVERICKS_BACKPORT: `sync` renamed to `sync_worker` to avoid collision with POSIX `void sync(void)` on the 10.9 SDK.
 static VPxWorkerInterface g_worker_interface = { init,   reset,   sync_worker,
                                                  launch, execute, end };
 

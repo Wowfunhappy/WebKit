@@ -92,6 +92,7 @@ ScrollRequestData RemoteScrollingCoordinatorProxy::commitScrollingTreeState(IPC:
     UNUSED_PARAM(connection);
     UNUSED_PARAM(transaction);
     UNUSED_PARAM(identifier);
+    // MAVERICKS_BACKPORT: skip the scrolling-tree commit (see above) and return empty scroll-request data.
     m_scrollRequestData.clear();
     return { };
 }

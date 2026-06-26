@@ -69,16 +69,19 @@ std::pair<RefPtr<WebCore::WebTransportSession>, Ref<WebTransportSessionPromise>>
             Locker locker { protectedThis->m_networkProcessConnectionLock };
             return protectedThis->m_networkProcessConnection;
         };
+        // MAVERICKS_BACKPORT: connection is a nullable RefPtr that may start null, so guard for null before checking isValid().
         RefPtr connection = getConnection();
         if (!connection || !connection->isValid()) {
             WorkQueue::mainSingleton().dispatchSync([protectedThis = Ref { *this }] {
                 ASSERT(RunLoop::isMain());
                 Locker locker { protectedThis->m_networkProcessConnectionLock };
+                // MAVERICKS_BACKPORT: lazily establish the connection on the main thread (m_networkProcessConnection is a nullable RefPtr), taking its address since it is now a pointer member.
                 protectedThis->m_networkProcessConnection = &WebProcess::singleton().ensureNetworkProcessConnection().connection();
             });
             connection = getConnection();
         }
 
+        // MAVERICKS_BACKPORT: connection is now a (lazily-acquired) RefPtr, so releaseNonNull() once it is known-good.
         auto [session, promise] = WebKit::WebTransportSession::initialize(connection.releaseNonNull(), workerSession, url, options, m_webPageProxyID, scope->clientOrigin());
         workerSession->attachSession(session);
         return { WTF::move(workerSession), WTF::move(promise) };

@@ -32,7 +32,7 @@
 #import "WebPageProxy.h"
 #import <WebCore/LocalizedStrings.h>
 
-// NSDatePickerElementFlagYearMonthDay was renamed from NSYearMonthDayDatePickerElementFlag in 10.15.4
+// MAVERICKS_BACKPORT: NSDatePickerElementFlagYearMonthDay was renamed from NSYearMonthDayDatePickerElementFlag in 10.15.4
 #ifndef NSDatePickerElementFlagYearMonthDay
 #define NSDatePickerElementFlagYearMonthDay (0x00e0)
 #endif
@@ -124,6 +124,7 @@ void WebDateTimePickerMac::didChooseDate(StringView date)
 
     self.hasShadow = YES;
     self.releasedWhenClosed = NO;
+    // MAVERICKS_BACKPORT: -[NSWindow setTitleVisibility:]/setTitlebarAppearsTransparent: are 10.10+; guard before sending.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
     if ([self respondsToSelector:@selector(setTitleVisibility:)])
         self.titleVisibility = NSWindowTitleHidden;
@@ -236,11 +237,12 @@ void WebDateTimePickerMac::didChooseDate(StringView date)
     if ([_enclosingWindow respondsToSelector:@selector(_setSharesParentFirstResponder:)])
         [(id)_enclosingWindow.get() _setSharesParentFirstResponder:presentingWindowCanBeKey];
 
+    // MAVERICKS_BACKPORT: -[NSWindow contentView] returns id on the 10.9 SDK; cast to NSView * to read -bounds.
     _datePicker = adoptNS([[WKEscapeHandlingDatePicker alloc] initWithFrame:((NSView *)[_enclosingWindow contentView]).bounds]);
     [_datePicker setDateTimePicker:self];
     [_datePicker setBezeled:NO];
     [_datePicker setDrawsBackground:NO];
-    // NSDatePickerStyleClockAndCalendar = 1, available since 10.15.4
+    // MAVERICKS_BACKPORT: NSDatePickerStyleClockAndCalendar = 1, available since 10.15.4; use the raw value.
     [_datePicker setDatePickerStyle:(NSDatePickerStyle)1];
     [_datePicker setDatePickerElements:NSDatePickerElementFlagYearMonthDay];
     [_datePicker setTimeZone:timeZone.get()];

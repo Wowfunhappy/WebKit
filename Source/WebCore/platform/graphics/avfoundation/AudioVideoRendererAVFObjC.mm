@@ -4,8 +4,10 @@
 #include "config.h"
 #import "AudioVideoRendererAVFObjC.h"
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 #if ENABLE(MEDIA_SOURCE)
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 #import "Logging.h"
 #import "MediaSampleAVFObjC.h"
 #import <AVFoundation/AVFoundation.h>
@@ -20,22 +22,29 @@
 #import <wtf/MainThread.h>
 #import <wtf/MonotonicTime.h>
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 #define AVR_BISECT(fmt, ...) ((void)0) // 10.9: MSE bring-up logging disabled (verified working)
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 Ref<AudioVideoRendererAVFObjC> AudioVideoRendererAVFObjC::create(Ref<const Logger>&& logger, uint64_t logIdentifier)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     return adoptRef(*new AudioVideoRendererAVFObjC(WTF::move(logger), logIdentifier));
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 AudioVideoRendererAVFObjC::AudioVideoRendererAVFObjC(Ref<const Logger>&& logger, uint64_t logIdentifier)
     : m_logger(WTF::move(logger))
     , m_logIdentifier(logIdentifier)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     AVR_BISECT("ctor ENTRY");
     CMTimebaseRef timebase = nullptr;
     AVR_BISECT("ctor: CMClockGetHostTimeClock() about to call");
@@ -51,13 +60,16 @@ AudioVideoRendererAVFObjC::AudioVideoRendererAVFObjC(Ref<const Logger>&& logger,
         AVR_BISECT("ctor: CMTimebaseSetTime(kCMTimeZero)");
         PAL::CMTimebaseSetTime(m_timebase.get(), PAL::kCMTimeZero);
     }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     AVR_BISECT("ctor: ensureDisplayLayer");
     ensureDisplayLayer();
     AVR_BISECT("ctor EXIT");
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 AudioVideoRendererAVFObjC::~AudioVideoRendererAVFObjC()
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     if (m_displayTimer)
         dispatch_source_cancel(m_displayTimer.get());
     teardownDecompressionSession();
@@ -65,10 +77,13 @@ AudioVideoRendererAVFObjC::~AudioVideoRendererAVFObjC()
     // m_videoDataRequest is an AutoRejectProducer: it auto-rejects if still pending at destruction.
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::ensureDisplayLayer()
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     if (m_videoLayer)
         return;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     // 10.9: AVSampleBufferDisplayLayer accepts samples but never decodes/displays here. Use a plain
     // CALayer whose .contents we set to each decoded frame's IOSurface (the proven 10.9 path), and a
     // VideoToolbox VTDecompressionSession created lazily from the first sample's format description.
@@ -83,10 +98,13 @@ void AudioVideoRendererAVFObjC::ensureDisplayLayer()
     AVR_BISECT("ensureDisplayLayer EXIT (videoLayer=%p)", m_videoLayer.get());
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::startDisplayTimer()
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     if (m_displayTimer)
         return;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     m_displayTimer = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue()));
     dispatch_source_set_timer(m_displayTimer.get(), DISPATCH_TIME_NOW, NSEC_PER_SEC / 60, NSEC_PER_SEC / 120);
     ThreadSafeWeakPtr weakThis { *this };
@@ -128,6 +146,7 @@ void AudioVideoRendererAVFObjC::displayTick()
         }
     }
 
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     if (frameToShow) {
         IOSurfaceRef surface = CVPixelBufferGetIOSurface(frameToShow.get());
         AVR_BISECT("displayTick: SHOW pts=%.3f target=%.3f depth=%zu surface=%p", frameToShowPTS.toFloat(), target.toFloat(), queueDepth, surface);
@@ -139,15 +158,19 @@ void AudioVideoRendererAVFObjC::displayTick()
     }
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 // AudioInterface
 void AudioVideoRendererAVFObjC::setVolume(float volume)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     m_volume = volume;
     if (m_audioQueue)
         AudioQueueSetParameter(m_audioQueue, kAudioQueueParam_Volume, m_muted ? 0.0f : m_volume);
 }
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::setMuted(bool muted)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     m_muted = muted;
     if (m_audioQueue)
         AudioQueueSetParameter(m_audioQueue, kAudioQueueParam_Volume, m_muted ? 0.0f : m_volume);
@@ -194,6 +217,7 @@ void AudioVideoRendererAVFObjC::updateTimebaseRate()
             m_audioQueueStarted = (ss == noErr);
         }
     }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     if (m_effectiveRateChangedCallback)
         m_effectiveRateChangedCallback(effective);
 }
@@ -230,11 +254,14 @@ Ref<MediaTimePromise> AudioVideoRendererAVFObjC::seekTo(const MediaTime& time)
     return MediaTimePromise::createAndResolve(time);
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 bool AudioVideoRendererAVFObjC::seeking() const { return false; }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 // TracksRendererManager
 auto AudioVideoRendererAVFObjC::addTrack(TrackType type) -> std::optional<TrackIdentifier>
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     auto id = TrackIdentifier::generate();
     m_tracks.add(id, TrackState { type });
     AVR_BISECT("addTrack: type=%d (Video=%d) -> id=%llu", (int)type, (int)TrackType::Video, (unsigned long long)id.toUInt64());
@@ -246,8 +273,10 @@ auto AudioVideoRendererAVFObjC::addTrack(TrackType type) -> std::optional<TrackI
     return id;
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::removeTrack(TrackIdentifier id)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     m_tracks.remove(id);
     m_reenqueueCallbacks.remove(id);
     if (m_videoTrack == id)
@@ -256,8 +285,10 @@ void AudioVideoRendererAVFObjC::removeTrack(TrackIdentifier id)
         m_audioTrack = std::nullopt;
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::maybeReportSizeAndFirstFrame(CMSampleBufferRef sampleBuffer)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     if (CMFormatDescriptionRef description = PAL::CMSampleBufferGetFormatDescription(sampleBuffer)) {
         CMVideoDimensions dimensions = PAL::CMVideoFormatDescriptionGetDimensions(description);
         FloatSize size(dimensions.width, dimensions.height);
@@ -267,6 +298,7 @@ void AudioVideoRendererAVFObjC::maybeReportSizeAndFirstFrame(CMSampleBufferRef s
             if (m_sizeChangedCallback)
                 m_sizeChangedCallback(currentTime(), size);
         }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     } else
         AVR_BISECT("maybeReportSizeAndFirstFrame: NO format description on sample");
     if (!m_hasReportedFirstFrame) {
@@ -278,13 +310,16 @@ void AudioVideoRendererAVFObjC::maybeReportSizeAndFirstFrame(CMSampleBufferRef s
     }
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::enqueueSample(TrackIdentifier id, Ref<MediaSample>&& sample, std::optional<MediaTime>)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     auto it = m_tracks.find(id);
     if (it == m_tracks.end()) {
         AVR_BISECT("enqueueSample: unknown track id=%llu, dropping", (unsigned long long)id.toUInt64());
         return;
     }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     AVR_BISECT("enqueueSample: id=%llu resolvedType=%d (Video=%d audioTrack=%llu)", (unsigned long long)id.toUInt64(), (int)it->value.type, (int)TrackType::Video, (unsigned long long)(m_audioTrack ? m_audioTrack->toUInt64() : 0));
     if (it->value.type != TrackType::Video) {
         // 10.9: play AAC via AudioQueue (no AVSampleBufferAudioRenderer on this OS).
@@ -294,30 +329,37 @@ void AudioVideoRendererAVFObjC::enqueueSample(TrackIdentifier id, Ref<MediaSampl
             enqueueAudioSample(audioSampleBuffer);
         return;
     }
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 
     CMSampleBufferRef cmSampleBuffer = downcast<MediaSampleAVFObjC>(sample.get()).sampleBuffer();
     if (!cmSampleBuffer) {
         AVR_BISECT("enqueueSample: null cmSampleBuffer!");
         return;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     }
     // 10.9: decode with VideoToolbox and queue the resulting frame for the display timer to show.
     maybeReportSizeAndFirstFrame(cmSampleBuffer);
     decodeAndQueue(cmSampleBuffer);
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 // VTDecompressionSession output callback: runs on a VT-internal queue. Hand the decoded frame back.
 static void avrDecompressionOutputCallback(void* decompressionOutputRefCon, void* sourceFrameRefCon, OSStatus status, VTDecodeInfoFlags, CVImageBufferRef imageBuffer, CMTime presentationTimeStamp, CMTime)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     auto* weakPtr = static_cast<ThreadSafeWeakPtr<AudioVideoRendererAVFObjC>*>(decompressionOutputRefCon);
     RefPtr<AudioVideoRendererAVFObjC> renderer = weakPtr ? weakPtr->get() : nullptr;
     if (!renderer || status != noErr || !imageBuffer || CFGetTypeID(imageBuffer) != CVPixelBufferGetTypeID())
         return;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     MediaTime pts = PAL::toMediaTime(presentationTimeStamp);
     renderer->onDecodedFrame((CVPixelBufferRef)imageBuffer, pts);
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::onDecodedFrame(CVPixelBufferRef pixelBuffer, const MediaTime& pts)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     size_t depth;
     {
         Locker locker { m_frameLock };
@@ -331,18 +373,23 @@ void AudioVideoRendererAVFObjC::onDecodedFrame(CVPixelBufferRef pixelBuffer, con
             m_decodedFrames.removeAt(0);
         depth = m_decodedFrames.size();
     }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     AVR_BISECT("onDecodedFrame: pts=%.3f depth=%zu", pts.toFloat(), depth);
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::ensureDecompressionSession(CMSampleBufferRef sampleBuffer)
 {
     CMFormatDescriptionRef format = PAL::CMSampleBufferGetFormatDescription(sampleBuffer);
     if (!format)
         return;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     if (m_decompressionSession && m_decompressionFormat && PAL::CMFormatDescriptionEqual(m_decompressionFormat.get(), format))
         return;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     teardownDecompressionSession();
 
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     // Output 32BGRA IOSurface-backed pixel buffers (what CALayer.contents composites on 10.9).
     NSDictionary *pixelBufferAttributes = @{
         (__bridge NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
@@ -358,22 +405,28 @@ void AudioVideoRendererAVFObjC::ensureDecompressionSession(CMSampleBufferRef sam
             CFRelease(session);
         return;
     }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     m_decompressionSession = adoptCF(session);
     m_decompressionFormat = format;
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::teardownDecompressionSession()
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     if (m_decompressionSession) {
         VTDecompressionSessionWaitForAsynchronousFrames(m_decompressionSession.get());
         VTDecompressionSessionInvalidate(m_decompressionSession.get());
         m_decompressionSession = nullptr;
     }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     m_decompressionFormat = nullptr;
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 // ---- Audio (10.9 AudioQueue AAC playback) -------------------------------------------------------
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 static void avrAudioQueueOutputCallback(void*, AudioQueueRef queue, AudioQueueBufferRef buffer)
 {
     // Each enqueued sample gets its own buffer; free it once the queue has consumed it. A firing
@@ -382,17 +435,20 @@ static void avrAudioQueueOutputCallback(void*, AudioQueueRef queue, AudioQueueBu
     AudioQueueFreeBuffer(queue, buffer);
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 // Build a 2-byte MPEG-4 AudioSpecificConfig for AAC-LC from the sample rate and channel count.
 // Bit layout: audioObjectType(5) | samplingFrequencyIndex(4) | channelConfiguration(4) | 000(3).
 // AAC-LC (AOT=2), e.g. 44100/stereo → 0x12 0x10. This is the magic cookie AudioQueue wants.
 static Vector<uint8_t> avrSynthesizeAudioSpecificConfig(double sampleRate, uint32_t channels)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     static const int kFreqTable[] = { 96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350 };
     int rate = static_cast<int>(sampleRate + 0.5);
     int freqIndex = 4; // default 44100
     for (size_t k = 0; k < sizeof(kFreqTable) / sizeof(kFreqTable[0]); ++k) {
         if (kFreqTable[k] == rate) { freqIndex = static_cast<int>(k); break; }
     }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     int chanConfig = (channels >= 1 && channels <= 7) ? static_cast<int>(channels) : 2;
     const int aot = 2; // AAC-LC
     Vector<uint8_t> asc;
@@ -401,10 +457,12 @@ static Vector<uint8_t> avrSynthesizeAudioSpecificConfig(double sampleRate, uint3
     return asc;
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 // (Unused fallback) Walk the MPEG-4 esds descriptor tree to extract the DecoderSpecificInfo (tag 0x05).
 // Kept for reference; the synthesized ASC above is used instead (esds-walk proved fragile).
 [[maybe_unused]] static Vector<uint8_t> avrExtractAudioSpecificConfig(std::span<const uint8_t> esds)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     size_t i = 0;
     size_t n = esds.size();
     // The format description cookie is the esds box content, which begins with the FullBox version+flags.
@@ -418,6 +476,7 @@ static Vector<uint8_t> avrSynthesizeAudioSpecificConfig(double sampleRate, uint3
             if (!(b & 0x80))
                 break;
         }
+        // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
         return len;
     };
     // ES_Descriptor (0x03)
@@ -545,20 +604,24 @@ void AudioVideoRendererAVFObjC::enqueueAudioSample(CMSampleBufferRef sampleBuffe
             pktSize = totalLen - offset;
         if (!pktSize)
             break;
+        // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
         aqBuf->mPacketDescriptions[descCount].mStartOffset = static_cast<SInt64>(offset);
         aqBuf->mPacketDescriptions[descCount].mVariableFramesInPacket = 0;
         aqBuf->mPacketDescriptions[descCount].mDataByteSize = static_cast<UInt32>(pktSize);
         offset += pktSize;
         ++descCount;
     }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     aqBuf->mPacketDescriptionCount = descCount;
 
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     OSStatus es = AudioQueueEnqueueBuffer(m_audioQueue, aqBuf, 0, nullptr);
     if (es != noErr) {
         AVR_BISECT("enqueueAudioSample: EnqueueBuffer status=%d", (int)es);
         AudioQueueFreeBuffer(m_audioQueue, aqBuf);
         return;
     }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     // Start once we actually have data, if playing.
     if (!m_audioQueueStarted && !m_paused) {
         OSStatus ss = AudioQueueStart(m_audioQueue, nullptr);
@@ -567,24 +630,30 @@ void AudioVideoRendererAVFObjC::enqueueAudioSample(CMSampleBufferRef sampleBuffe
     }
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::teardownAudioQueue()
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     if (m_audioQueue) {
         AudioQueueStop(m_audioQueue, true);
         AudioQueueDispose(m_audioQueue, true);
         m_audioQueue = nullptr;
     }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     m_audioQueueStarted = false;
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::decodeAndQueue(CMSampleBufferRef sampleBuffer)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     AVR_BISECT("decodeAndQueue: ENTRY, ensuring session");
     ensureDecompressionSession(sampleBuffer);
     if (!m_decompressionSession) {
         AVR_BISECT("decodeAndQueue: no session, bailing");
         return;
     }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     CMFormatDescriptionRef fmt = PAL::CMSampleBufferGetFormatDescription(sampleBuffer);
     CMBlockBufferRef bb = PAL::CMSampleBufferGetDataBuffer(sampleBuffer);
     CMItemCount nSamples = PAL::CMSampleBufferGetNumSamples(sampleBuffer);
@@ -593,6 +662,7 @@ void AudioVideoRendererAVFObjC::decodeAndQueue(CMSampleBufferRef sampleBuffer)
         return;
     }
 
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     // VTDecompressionSessionDecodeFrame decodes ONE frame per call. Our demuxer packs a whole
     // MediaSamplesBlock (e.g. 24 frames) into a single multi-sample CMSampleBuffer; passing that
     // directly returns kVTVideoDecoderBadDataErr (-8969). Split into per-sample CMSampleBuffers
@@ -634,6 +704,7 @@ void AudioVideoRendererAVFObjC::decodeAndQueue(CMSampleBufferRef sampleBuffer)
             PAL::CMBlockBufferCopyDataBytes(sub ? sub : bb, 0, 8, head);
             AVR_BISECT("decodeAndQueue: sample0 size=%zu head=%02x%02x%02x%02x %02x%02x%02x%02x", sampleSize, head[0],head[1],head[2],head[3],head[4],head[5],head[6],head[7]);
         }
+        // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
         VTDecodeInfoFlags infoFlags = 0;
         OSStatus st = VTDecompressionSessionDecodeFrame(m_decompressionSession.get(), one,
             kVTDecodeFrame_EnableAsynchronousDecompression, nullptr, &infoFlags);
@@ -641,14 +712,18 @@ void AudioVideoRendererAVFObjC::decodeAndQueue(CMSampleBufferRef sampleBuffer)
             AVR_BISECT("decodeAndQueue: DecodeFrame[0] status=%d", (int)st);
         CFRelease(one);
     }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     AVR_BISECT("decodeAndQueue: dispatched %ld samples to decoder", (long)nSamples);
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 bool AudioVideoRendererAVFObjC::isReadyForMoreSamples(TrackIdentifier id)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     auto it = m_tracks.find(id);
     if (it == m_tracks.end())
         return false;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     // VT decode path: accept samples as long as we're not sitting on a huge backlog of decoded frames.
     if (it->value.type == TrackType::Video) {
         Locker locker { m_frameLock };
@@ -657,29 +732,38 @@ bool AudioVideoRendererAVFObjC::isReadyForMoreSamples(TrackIdentifier id)
     return true;
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 Ref<AudioVideoRendererAVFObjC::RequestPromise> AudioVideoRendererAVFObjC::requestMediaDataWhenReady(TrackIdentifier id)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     // VT decode path is asynchronous and self-paced; always signal ready so the SourceBuffer keeps
     // feeding samples (isReadyForMoreSamples applies backpressure when the decoded queue is full).
     return RequestPromise::createAndResolve(id);
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::notifyTrackNeedsReenqueuing(TrackIdentifier id, Function<void(TrackIdentifier, const MediaTime&)>&& callback)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     m_reenqueueCallbacks.set(id, WTF::move(callback));
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 bool AudioVideoRendererAVFObjC::timeIsProgressing() const { return !m_paused && m_rate > 0; }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 MediaTime AudioVideoRendererAVFObjC::currentTime() const
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     if (!m_timebase)
         return MediaTime::zeroTime();
     return PAL::toMediaTime(PAL::CMTimebaseGetTime(m_timebase.get()));
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::flush()
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     // Drop all queued decoded frames (VT path; no AVSampleBufferDisplayLayer on 10.9).
     Locker locker { m_frameLock };
     m_decodedFrames.clear();
@@ -688,6 +772,7 @@ void AudioVideoRendererAVFObjC::flush()
 
 void AudioVideoRendererAVFObjC::flushAudio()
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     if (m_audioQueue) {
         // AudioQueueReset drops all enqueued buffers (invoking the output callback to free each) and
         // clears decoder state, while leaving the queue running so post-seek samples play immediately.
@@ -696,19 +781,24 @@ void AudioVideoRendererAVFObjC::flushAudio()
     }
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::flushTrack(TrackIdentifier id)
 {
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     auto it = m_tracks.find(id);
     if (it == m_tracks.end())
         return;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     if (it->value.type == TrackType::Video)
         flush();
     else
         flushAudio();
 }
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 void AudioVideoRendererAVFObjC::notifyWhenErrorOccurs(Function<void(PlatformMediaError)>&& callback) { m_errorCallback = WTF::move(callback); }
 
 } // namespace WebCore
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
 
 #endif // ENABLE(MEDIA_SOURCE)

@@ -57,8 +57,10 @@ String preferredExtensionForImageType(const String& uti)
     if (uti == "com.microsoft.bmp"_s) return "bmp"_s;
     if (uti == "com.microsoft.ico"_s) return "ico"_s;
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    // MAVERICKS_BACKPORT: capture the CF result so a NULL return can be handled (see fallbacks above).
     auto cfExt = adoptCF(UTTypeCopyPreferredTagWithClass(uti.createCFString().get(), kUTTagClassFilenameExtension));
 ALLOW_DEPRECATED_DECLARATIONS_END
+    // MAVERICKS_BACKPORT: tolerate a NULL result from UTTypeCopyPreferredTagWithClass (see fallbacks above).
     if (!cfExt)
         return { };
     return String { cfExt.get() };

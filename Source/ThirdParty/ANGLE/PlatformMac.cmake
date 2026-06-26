@@ -6,11 +6,13 @@ find_library(COREGRAPHICS_LIBRARY CoreGraphics)
 find_library(FOUNDATION_LIBRARY Foundation)
 find_library(IOKIT_LIBRARY IOKit)
 find_library(IOSURFACE_LIBRARY IOSurface)
+# MAVERICKS_BACKPORT: locate OpenGL (not Metal) for the CGL backend used on 10.9.
 find_library(OPENGL_LIBRARY OpenGL)
 find_library(QUARTZ_LIBRARY Quartz)
 find_package(ZLIB REQUIRED)
 
 list(APPEND ANGLE_SOURCES
+    # MAVERICKS_BACKPORT: build the CGL/desktop-GL backend sources instead of the Metal backend (Metal absent on 10.9).
     ${gl_backend_sources}
 
     ${libangle_gpu_info_util_mac_sources}
@@ -34,6 +36,7 @@ list(APPEND ANGLEGLESv2_LIBRARIES
     ${FOUNDATION_LIBRARY}
     ${IOKIT_LIBRARY}
     ${IOSURFACE_LIBRARY}
+    # MAVERICKS_BACKPORT: link OpenGL (not Metal); the CGL backend renders GLES via desktop GL on 10.9.
     ${OPENGL_LIBRARY}
     ${QUARTZ_LIBRARY}
 )

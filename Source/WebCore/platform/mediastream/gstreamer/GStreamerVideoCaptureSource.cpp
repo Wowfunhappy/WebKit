@@ -30,6 +30,7 @@
 #include "GStreamerCommon.h"
 #include "PipeWireCaptureDevice.h"
 #include "PipeWireCaptureDeviceManager.h"
+// MAVERICKS_BACKPORT: isInWebProcess() for the UIProcess-vs-WebProcess GStreamer-init split below.
 #include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/text/MakeString.h>
 

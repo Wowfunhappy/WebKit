@@ -37,6 +37,7 @@
 #import "WKAPICast.h"
 #import "WKBrowsingContextHandleInternal.h"
 #import "WKMouseDeviceObserver.h"
+// MAVERICKS_BACKPORT: WKStylusDeviceObserver is iOS-only; gate the import so the Mac build doesn't reference a missing header.
 #if PLATFORM(IOS_FAMILY)
 #import "WKStylusDeviceObserver.h"
 #endif
@@ -280,6 +281,7 @@ std::optional<Vector<SandboxExtension::Handle>> WebProcessProxy::fontdMachExtens
 {
     if (std::exchange(m_sentFontdMachExtensionHandles, true))
         return std::nullopt;
+    // MAVERICKS_BACKPORT: SANDBOX_EXTENSIONS is OFF on 10.9; gate the real createHandlesForMachLookup call (see #else below).
 #if ENABLE(SANDBOX_EXTENSIONS)
     return SandboxExtension::createHandlesForMachLookup({ "com.apple.fonts"_s }, auditToken(), SandboxExtension::MachBootstrapOptions::EnableMachBootstrap);
 #else

@@ -51,6 +51,8 @@ platform/graphics/gstreamer/GStreamerVideoFrameConverter.cpp
 platform/graphics/gstreamer/GStreamerVideoSinkCommon.cpp
 platform/graphics/gstreamer/GstAllocatorFastMalloc.cpp
 platform/graphics/gstreamer/ImageDecoderGStreamer.cpp
+// MAVERICKS_BACKPORT: CG-backed ImageGStreamer (the Cocoa graphics path), built in
+// place of the Skia variant on this host.
 platform/graphics/gstreamer/ImageGStreamerCG.cpp
 platform/graphics/gstreamer/ImageGStreamerSkia.cpp
 platform/graphics/gstreamer/InbandTextTrackPrivateGStreamer.cpp
@@ -111,6 +113,9 @@ platform/gstreamer/WebKitFliteSourceGStreamer.cpp
 platform/mediarecorder/MediaRecorderPrivateGStreamer.cpp
 
 
+// MAVERICKS_BACKPORT: WebRTC now runs on GStreamer webrtcbin (libwebrtc dropped); the
+// libwebrtc-backed gstreamer sources are gone and these Modules/mediastream/gstreamer
+// backends are listed here instead.
 Modules/mediastream/gstreamer/GStreamerDataChannelHandler.cpp
 Modules/mediastream/gstreamer/GStreamerDtlsTransportBackend.cpp
 Modules/mediastream/gstreamer/GStreamerIceAgent.cpp

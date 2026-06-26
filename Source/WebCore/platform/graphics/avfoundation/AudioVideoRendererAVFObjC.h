@@ -10,6 +10,7 @@
 // MediaPlayerPrivateMediaSourceAVFObjC works unchanged.
 #pragma once
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
 #if ENABLE(MEDIA_SOURCE)
 
 #include "AudioVideoRenderer.h"
@@ -17,14 +18,17 @@
 #include "IntSize.h"
 #include <dispatch/dispatch.h>
 #include <wtf/HashMap.h>
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
 #include <wtf/Lock.h>
 #include <wtf/MediaTime.h>
 #include <wtf/OSObjectPtr.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/ThreadSafeWeakPtr.h>
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
 #include <wtf/Vector.h>
 
 OBJC_CLASS AVSampleBufferDisplayLayer;
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
 OBJC_CLASS CALayer;
 typedef struct OpaqueCMTimebase* CMTimebaseRef;
 typedef struct opaqueCMSampleBuffer* CMSampleBufferRef;
@@ -36,12 +40,15 @@ typedef struct AudioQueueBuffer* AudioQueueBufferRef;
 
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
 class AudioVideoRendererAVFObjC final
     : public AudioVideoRenderer
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<AudioVideoRendererAVFObjC> {
 public:
     WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
 
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     static Ref<AudioVideoRendererAVFObjC> create(Ref<const Logger>&&, uint64_t logIdentifier);
     virtual ~AudioVideoRendererAVFObjC();
 
@@ -50,8 +57,10 @@ public:
     void setMuted(bool) final;
 
     // VideoInterface
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     void setIsVisible(bool) final;
     void setPresentationSize(const IntSize&) final;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     RefPtr<VideoFrame> currentVideoFrame() const final;
     std::optional<VideoPlaybackQualityMetrics> videoPlaybackQualityMetrics() final;
     PlatformLayer* platformVideoLayer() const final;
@@ -60,11 +69,14 @@ public:
     void notifyWhenRequiresFlushToResume(Function<void()>&&) final;
     void notifyRenderingModeChanged(Function<void()>&&) final;
     void notifySizeChanged(Function<void(const MediaTime&, FloatSize)>&&) final;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     void flushAndRemoveImage() final;
     FloatSize videoLayerSize() const final;
     void setVideoLayerSize(const FloatSize&) final;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     void notifyVideoLayerSizeChanged(Function<void(const MediaTime&, FloatSize)>&&) final;
 
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     // SynchronizerInterface
     void play(std::optional<MonotonicTime>) final;
     void pause(std::optional<MonotonicTime>) final;
@@ -75,6 +87,7 @@ public:
     Ref<MediaTimePromise> seekTo(const MediaTime&) final;
     bool seeking() const final;
 
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     // TracksRendererManager
     std::optional<TrackIdentifier> addTrack(TrackType) final;
     void removeTrack(TrackIdentifier) final;
@@ -88,9 +101,11 @@ public:
     void flushTrack(TrackIdentifier) final;
     void notifyWhenErrorOccurs(Function<void(PlatformMediaError)>&&) final;
 
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     // Called from the VTDecompressionSession output callback (static C function) — must be public.
     void onDecodedFrame(CVPixelBufferRef, const MediaTime& pts);
 
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
 private:
     AudioVideoRendererAVFObjC(Ref<const Logger>&&, uint64_t);
 
@@ -121,6 +136,7 @@ private:
         TrackType type;
     };
 
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     RetainPtr<AVSampleBufferDisplayLayer> m_displayLayer;
     RetainPtr<CALayer> m_videoLayer;            // host layer returned as platformVideoLayer()
     RetainPtr<VTDecompressionSessionRef> m_decompressionSession;
@@ -145,17 +161,21 @@ private:
 
     Function<void()> m_firstFrameAvailableCallback;
     Function<void(const MediaTime&, double)> m_hasAvailableVideoFrameCallback;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     Function<void()> m_requiresFlushToResumeCallback;
     Function<void()> m_renderingModeChangedCallback;
     Function<void(const MediaTime&, FloatSize)> m_sizeChangedCallback;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     Function<void(const MediaTime&, FloatSize)> m_videoLayerSizeChangedCallback;
     Function<void(double)> m_effectiveRateChangedCallback;
     Function<void(PlatformMediaError)> m_errorCallback;
     HashMap<TrackIdentifier, Function<void(TrackIdentifier, const MediaTime&)>> m_reenqueueCallbacks;
 
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     FloatSize m_naturalSize;
     FloatSize m_videoLayerSize;
     IntSize m_presentationSize;
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     bool m_hasReportedFirstFrame { false };
     bool m_paused { true };
     bool m_visible { true };
@@ -163,10 +183,12 @@ private:
     float m_volume { 1.0 };
     bool m_muted { false };
 
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     Ref<const Logger> m_logger;
     uint64_t m_logIdentifier { 0 };
 };
 
 } // namespace WebCore
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
 
 #endif // ENABLE(MEDIA_SOURCE)

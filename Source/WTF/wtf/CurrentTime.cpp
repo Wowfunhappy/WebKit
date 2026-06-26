@@ -347,7 +347,7 @@ ApproximateTime ApproximateTime::now()
 #if OS(DARWIN) && HAVE(MACH_APPROXIMATE_TIME)
     return fromMachApproximateTime(mach_approximate_time());
 #elif OS(DARWIN)
-    // 10.9-10.11: mach_approximate_time() is unavailable; mach_absolute_time() is the exact monotonic
+    // MAVERICKS_BACKPORT: 10.9-10.11: mach_approximate_time() is unavailable; mach_absolute_time() is the exact monotonic
     // clock on the same timebase (slightly costlier but correct).
     return fromMachApproximateTime(mach_absolute_time());
 #elif OS(LINUX)
@@ -372,7 +372,7 @@ ContinuousTime ContinuousTime::now()
 #if OS(DARWIN) && HAVE(MACH_CONTINUOUS_TIME)
     return fromMachContinuousTime(mach_continuous_time());
 #elif OS(DARWIN)
-    // 10.9-10.11: mach_continuous_time() is unavailable; mach_absolute_time() shares the timebase
+    // MAVERICKS_BACKPORT: 10.9-10.11: mach_continuous_time() is unavailable; mach_absolute_time() shares the timebase
     // but does not advance during sleep. Acceptable fallback for these deployment targets.
     return fromMachContinuousTime(mach_absolute_time());
 #elif OS(LINUX) || OS(OPENBSD)
@@ -396,7 +396,7 @@ ContinuousApproximateTime ContinuousApproximateTime::now()
 #if OS(DARWIN) && HAVE(MACH_CONTINUOUS_TIME)
     return fromMachContinuousApproximateTime(mach_continuous_approximate_time());
 #elif OS(DARWIN)
-    // 10.9-10.11 fallback: see ContinuousTime::now().
+    // MAVERICKS_BACKPORT: 10.9-10.11 fallback (mach_continuous_approximate_time() unavailable); see ContinuousTime::now().
     return fromMachContinuousApproximateTime(mach_absolute_time());
 #elif OS(LINUX) || OS(OPENBSD)
     struct timespec ts { };

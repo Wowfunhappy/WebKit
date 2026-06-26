@@ -18,10 +18,12 @@
 
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: no SFSpeechRecognizer on 10.9 — drop captured audio (no recognition task to feed).
 void SpeechRecognizer::dataCaptured(const MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t)
 {
 }
 
+// MAVERICKS_BACKPORT: no SFSpeechRecognizer on 10.9; fail cleanly instead of constructing a WebSpeechRecognizerTask.
 bool SpeechRecognizer::startRecognition(bool, SpeechRecognitionConnectionClientIdentifier, const String&, bool, bool, uint64_t)
 {
     // No SFSpeechRecognizer on 10.9 — fail cleanly so start() emits a service-not-allowed error instead
@@ -29,14 +31,20 @@ bool SpeechRecognizer::startRecognition(bool, SpeechRecognitionConnectionClientI
     return false;
 }
 
+// MAVERICKS_BACKPORT: no SFSpeechRecognizer on 10.9 — abort by delivering the terminal End update (below) so the SpeechRecognition object completes instead of hanging.
 void SpeechRecognizer::abortRecognition()
 {
+    // MAVERICKS_BACKPORT: terminal End update (no real SFSpeechRecognitionTask to abort on 10.9).
     m_delegateCallback(SpeechRecognitionUpdate::create(clientIdentifier(), SpeechRecognitionUpdateType::End));
 }
 
+// MAVERICKS_BACKPORT: no SFSpeechRecognizer on 10.9 — stop by delivering the terminal End update (below) so the SpeechRecognition object completes instead of hanging.
 void SpeechRecognizer::stopRecognition()
 {
+    // MAVERICKS_BACKPORT: terminal End update (no real SFSpeechRecognitionTask to stop on 10.9).
     m_delegateCallback(SpeechRecognitionUpdate::create(clientIdentifier(), SpeechRecognitionUpdateType::End));
 }
 
 } // namespace WebCore
+// MAVERICKS_BACKPORT: no HAVE(SPEECHRECOGNIZER) #if/#endif wrapper — these methods are defined
+// unconditionally on 10.9 (the conditionally-compiled upstream version is empty on this port).

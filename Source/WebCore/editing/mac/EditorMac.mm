@@ -184,6 +184,8 @@ RefPtr<SharedBuffer> Editor::dataSelectionForPasteboard(const String& pasteboard
     if (!canCopy())
         return nullptr;
 
+    // MAVERICKS_BACKPORT: runtime-absent API #76 — UTTypeWebArchive.identifier is 11.0+; use utTypeWebArchiveId()
+    // routed to the legacy kUTTypeWebArchive constant.
     if (pasteboardType == WebArchivePboardType || pasteboardType == String(utTypeWebArchiveId()))
         return selectionInWebArchiveFormat();
 

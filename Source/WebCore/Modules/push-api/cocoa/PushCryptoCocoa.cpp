@@ -142,6 +142,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     auto result = CCCryptorGCMOneshotDecrypt(kCCAlgorithmAES, key.data(), key.size(), iv.data(), iv.size(), nullptr /* additionalData */, 0 /* additionalDataLength */, cipherTextWithTag.data(), nonTagCipherTextLength, plainText.mutableSpan().data(), cipherTextWithTag.subspan(nonTagCipherTextLength).data(), aes128GCMTagLength);
     if (result != kCCSuccess)
         return std::nullopt;
+// MAVERICKS_BACKPORT: closes the PLATFORM(MAC) CCCryptorGCM fallback for the 10.10+ CCCryptorGCMOneshotDecrypt.
 #endif
 
     return plainText;

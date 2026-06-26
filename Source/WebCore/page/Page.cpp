@@ -5906,6 +5906,7 @@ bool Page::requiresUserGestureForAudioPlayback() const
     if (autoplayPolicy != AutoplayPolicy::Default)
         return autoplayPolicy == AutoplayPolicy::AllowWithoutSound || autoplayPolicy == AutoplayPolicy::Deny;
     return m_settings->requiresUserGestureForAudioPlayback();
+// MAVERICKS_BACKPORT: behavior — upstream path kept under #else; MEDIA_SOURCE build returns false above for script-started MSE playback.
 #endif
 }
 
@@ -5919,6 +5920,7 @@ bool Page::requiresUserGestureForVideoPlayback() const
     if (autoplayPolicy != AutoplayPolicy::Default)
         return autoplayPolicy == AutoplayPolicy::Deny;
     return m_settings->requiresUserGestureForVideoPlayback();
+// MAVERICKS_BACKPORT: behavior — upstream path kept under #else; MEDIA_SOURCE build returns false above for script-started MSE playback.
 #endif
 }
 

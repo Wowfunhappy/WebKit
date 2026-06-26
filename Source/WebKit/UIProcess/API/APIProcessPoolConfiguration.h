@@ -197,7 +197,7 @@ private:
     bool m_alwaysKeepAndReuseSwappedProcesses { false };
     bool m_processSwapsOnNavigationWithinSameNonHTTPFamilyProtocol { false };
     std::optional<bool> m_isAutomaticProcessWarmingEnabledByClient;
-    bool m_usesWebProcessCache { true }; // 10.9: default the WebProcessCache ON (Safari 9 doesn't enable it; a disabled cache terminates swapped-out processes -> "A problem occurred ... reloaded" on heavy-site navigation).
+    bool m_usesWebProcessCache { true }; // MAVERICKS_BACKPORT (10.9): default the WebProcessCache ON (Safari 9 doesn't enable it; a disabled cache terminates swapped-out processes -> "A problem occurred ... reloaded" on heavy-site navigation).
     bool m_usesBackForwardCache { defaultUsesWebBackForwardCache() };
     bool m_clientWouldBenefitFromAutomaticProcessPrewarming { false };
     bool m_shouldConfigureJSCForTesting { false };

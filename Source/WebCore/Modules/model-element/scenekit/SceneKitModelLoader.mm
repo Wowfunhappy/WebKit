@@ -7,6 +7,7 @@
 
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: only the vtable-anchoring client dtor survives; loadSceneKitModel is dropped (SceneKit USD is 10.13+).
 SceneKitModelLoaderClient::~SceneKitModelLoaderClient() = default;
 
 } // namespace WebCore

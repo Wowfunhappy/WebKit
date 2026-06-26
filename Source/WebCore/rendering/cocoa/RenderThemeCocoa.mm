@@ -732,7 +732,7 @@ String RenderThemeCocoa::mediaControlsFormattedStringForDuration(const double du
         m_durationFormatter.get().maximumUnitCount = 2;
     }
     return [m_durationFormatter stringFromTimeInterval:durationInSeconds];
-#else
+#else // MAVERICKS_BACKPORT: deployment target < 10.10 — NSDateComponentsFormatter is absent, so format the duration manually.
     int hours = (int)(durationInSeconds / 3600);
     int minutes = (int)((durationInSeconds - hours * 3600) / 60);
     int seconds = (int)(durationInSeconds - hours * 3600 - minutes * 60);

@@ -83,6 +83,7 @@ static RetainPtr<CFMutableDictionaryRef> createImageSourceOptions()
     // keys whose contents match the real ImageIO constants (CG looks up
     // options by string value, not pointer identity).
     RetainPtr<CFMutableDictionaryRef> options = adoptCF(CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+    // MAVERICKS_BACKPORT: literal CFSTR() keys instead of the libpolyfill-stubbed kCGImageSource* constants (see above).
     CFDictionarySetValue(options.get(), CFSTR("kCGImageSourceShouldCache"), kCFBooleanTrue);
     CFDictionarySetValue(options.get(), CFSTR("kCGImageSourceShouldPreferRGB32"), kCFBooleanTrue);
     CFDictionarySetValue(options.get(), CFSTR("kCGImageSourceSkipMetadata"), kCFBooleanTrue);
@@ -193,6 +194,7 @@ static CFDictionaryRef animationPropertiesFromProperties(CFDictionaryRef propert
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300
     if (auto animationProperties = (CFDictionaryRef)CFDictionaryGetValue(properties, kCGImagePropertyWebPDictionary))
         return animationProperties;
+// MAVERICKS_BACKPORT: closes the 10.13+ gate around kCGImagePropertyWebPDictionary (NULL on 10.9).
 #endif
     if (auto animationProperties = (CFDictionaryRef)CFDictionaryGetValue(properties, kCGImagePropertyPNGDictionary))
         return animationProperties;
@@ -451,6 +453,7 @@ size_t ImageDecoderCG::primaryFrameIndex() const
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
     return CGImageSourceGetPrimaryImageIndex(m_nativeDecoder.get());
 #else
+    // MAVERICKS_BACKPORT: CGImageSourceGetPrimaryImageIndex is 10.14+ (NULL on 10.9); primary frame is index 0.
     return 0;
 #endif
 }

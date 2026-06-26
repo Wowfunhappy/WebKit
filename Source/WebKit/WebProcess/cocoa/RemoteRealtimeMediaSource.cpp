@@ -70,7 +70,7 @@ void RemoteRealtimeMediaSource::createRemoteMediaSource()
         // shouldCaptureInGPUProcess() is always false on a no-GPU build, so this is dead there.
         if (m_proxy.shouldCaptureInGPUProcess())
             protect(WebProcess::singleton().ensureGPUProcessConnection())->addClient(*this);
-#endif
+#endif // MAVERICKS_BACKPORT: GPU-process capture is dead on 10.9 (GPU_PROCESS off)
     }, m_proxy.shouldCaptureInGPUProcess() && m_manager->shouldUseGPUProcessRemoteFrames());
 }
 

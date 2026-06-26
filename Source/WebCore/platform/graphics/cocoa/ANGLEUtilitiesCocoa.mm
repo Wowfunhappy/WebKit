@@ -42,6 +42,7 @@
 #if WK_ANGLE_METAL
 #include <Metal/Metal.h>
 #include <pal/spi/cocoa/MetalSPI.h>
+// MAVERICKS_BACKPORT: Metal headers compiled in only when WK_ANGLE_METAL (Metal is 10.11+, absent on 10.9).
 #endif
 #include <wtf/SoftLinking.h>
 #include <wtf/StdLibExtras.h>
@@ -65,17 +66,20 @@ SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, CompositorServices, cp_rasterization_rate
 #define cp_rasterization_rate_map_update_shared_from_layered_descriptor softLink_CompositorServices_cp_rasterization_rate_map_update_shared_from_layered_descriptor
 
 
+// MAVERICKS_BACKPORT: return type reduced to plain NSArray * (the MTLRasterizationRateMap protocol is Metal/10.11+, absent here).
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CompositorServices, cp_proxy_process_rasterization_rate_map_get_metal_maps, NSArray *>*, (cp_proxy_process_rasterization_rate_map_t proxy_map), (proxy_map))
 SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, CompositorServices, cp_proxy_process_rasterization_rate_map_get_metal_maps, NSArray *>*, (cp_proxy_process_rasterization_rate_map_t proxy_map), (proxy_map))
 #define cp_proxy_process_rasterization_rate_map_get_metal_maps softLink_CompositorServices_cp_proxy_process_rasterization_rate_map_get_metal_maps
 
 
+// MAVERICKS_BACKPORT: return type reduced to plain NSArray * (MTLRasterizationRateMapDescriptor is Metal/10.11+, absent here).
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CompositorServices, cp_proxy_process_rasterization_rate_map_get_metal_descriptors, NSArray **, (cp_proxy_process_rasterization_rate_map_t proxy_map), (proxy_map))
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CompositorServices, cp_rasterization_rate_map_update_from_descriptor, void, (cp_proxy_process_rasterization_rate_map_t proxy_map, __unsafe_unretained MTLRasterizationRateMapDescriptor* descriptors[2]), (proxy_map, descriptors))
 SOFT_LINK_CLASS_FOR_SOURCE(WebCore, CompositorServices, CP_OBJECT_cp_proxy_process_rasterization_rate_map)
 
 SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, CompositorServices, cp_drawable_get_layer_renderer_layout, cp_layer_renderer_layout_private, (cp_drawable_t drawable), (drawable))
 
+// MAVERICKS_BACKPORT: return type reduced to plain NSArray * (MTLRasterizationRateMapDescriptor is Metal/10.11+, absent here).
 SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, CompositorServices, cp_proxy_process_rasterization_rate_map_get_metal_descriptors, NSArray **, (cp_proxy_process_rasterization_rate_map_t proxy_map), (proxy_map))
 
 SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, CompositorServices, cp_rasterization_rate_map_update_from_descriptor, void, (cp_proxy_process_rasterization_rate_map_t proxy_map, __unsafe_unretained MTLRasterizationRateMapDescriptor* descriptors[2]), (proxy_map, descriptors))
@@ -234,6 +238,7 @@ RetainPtr<id<MTLSharedEvent>> newSharedEvent(GCGLDisplay display)
 
     return adoptNS([mtlDevice newSharedEvent]);
 }
+// MAVERICKS_BACKPORT: closes the WK_ANGLE_METAL split selecting Metal vs. the no-op stubs (Metal is 10.11+).
 #endif // WK_ANGLE_METAL
 
 }

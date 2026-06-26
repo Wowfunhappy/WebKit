@@ -617,7 +617,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         return gpuProcess->isMetalShaderValidationEnabledForTesting();
     return WebKit::GPUProcessProxy::isMetalShaderValidationEnabledInNewGPUProcessesForTesting();
 }
-#endif
+#endif // ENABLE(GPU_PROCESS) — MAVERICKS_BACKPORT: GPU process is off on 10.9; the GPUProcessProxy testing methods above are guarded out
 
 - (BOOL)_isCookieStoragePartitioningEnabled
 {
@@ -716,7 +716,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
     return result.autorelease();
 }
-#endif
+#endif // ENABLE(GPU_PROCESS) — MAVERICKS_BACKPORT: GPU process is off on 10.9; the _gpuProcessInfo accessor above is guarded out
 
 + (NSArray<_WKProcessInfo *> *)_networkingProcessInfo
 {

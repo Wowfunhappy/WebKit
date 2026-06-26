@@ -143,6 +143,7 @@ void SHA1::addBytes(std::span<const std::byte> input)
     }
 }
 
+// MAVERICKS_BACKPORT: param renamed to `digest` (the built-in finalization writes into it directly).
 void SHA1::computeHash(Digest& digest)
 {
     // MAVERICKS_BACKPORT: built-in padding/finalization instead of CC_SHA1_Final (CC_SHA1_* crashes on 10.9; see block header above).

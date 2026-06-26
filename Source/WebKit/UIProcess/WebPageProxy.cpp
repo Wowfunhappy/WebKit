@@ -339,11 +339,12 @@
 #include <WebCore/AttributedString.h>
 #include <WebCore/CoreAudioCaptureDeviceManager.h>
 #include <WebCore/LegacyWebArchive.h>
+// MAVERICKS_BACKPORT: the playback-session-interface headers only exist when VIDEO_PRESENTATION_MODE is on; gate the includes.
 #if ENABLE(VIDEO_PRESENTATION_MODE)
 #include <WebCore/NullPlaybackSessionInterface.h>
 #include <WebCore/PlaybackSessionInterfaceAVKitLegacy.h>
 #include <WebCore/PlaybackSessionInterfaceMac.h>
-#endif
+#endif // MAVERICKS_BACKPORT: ENABLE(VIDEO_PRESENTATION_MODE)
 #include <WebCore/PlaybackSessionInterfaceTVOS.h>
 #include <WebCore/RunLoopObserver.h>
 #include <WebCore/SystemBattery.h>
@@ -472,6 +473,7 @@
 #if ENABLE(VIDEO) || ENABLE(WEB_AUDIO)
 #include "RemoteAudioSessionConfiguration.h"
 #include "RemoteMediaSessionManagerProxy.h"
+// MAVERICKS_BACKPORT: stub GPUProcessProxy declarations (GPU process is OFF on this port).
 #include "GPUProcessProxyStub.h"
 #endif
 
@@ -4440,6 +4442,7 @@ void WebPageProxy::handleWheelEvent(const WebWheelEvent& wheelEvent)
 
         scrollingCoordinatorProxy->handleWheelEvent(wheelEvent, rubberBandingBehavior);
         // continueWheelEventHandling() will get called after the event has been handled by the scrolling thread.
+        // MAVERICKS_BACKPORT: return here so only the no-scrolling-coordinator (TCA) path falls through to the synchronous handler below.
         return;
     }
     // MAVERICKS_BACKPORT: TCA path doesn't have a scrolling coordinator proxy.
@@ -7170,6 +7173,7 @@ void WebPageProxy::didChangeProgress(double value)
 
     pageLoadState->commitChanges();
 
+    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 9.1.3 uses this).
     if (m_loaderClient)
         m_loaderClient->didChangeProgress(*this);
 }
@@ -7184,6 +7188,7 @@ void WebPageProxy::didFinishProgress()
 
     pageLoadState->commitChanges();
 
+    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 9.1.3 uses this).
     if (m_loaderClient)
         m_loaderClient->didFinishProgress(*this);
 }
@@ -8551,6 +8556,7 @@ void WebPageProxy::didReceiveTitleForFrame(IPC::Connection& connection, FrameIde
         }
     }
 
+    // MAVERICKS_BACKPORT: keep a copy of the title before it's moved, to forward to the legacy loader client below.
     String forwardedTitle = title;
     frame->didChangeTitle(WTF::move(title));
 
@@ -9240,7 +9246,7 @@ void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process,
             // Disallows loading model files as the main resource for child frames. If desired in the future, we can remove this line and add required support to enable this behavior.
             if (!frame->isMainFrame() && MIMETypeRegistry::isSupportedModelMIMEType(navigationResponse->response().mimeType()))
                 return true;
-            // 10.9 / Safari-7 backport: inline PDF viewing is intentionally not
+            // MAVERICKS_BACKPORT: inline PDF viewing is intentionally not
             // supported on this port. Always download PDFs (canShowMIMEType is true
             // for PDF on Mac, so without this they would be routed to a non-functional
             // inline viewer and render blank). Real downloads via Safari's download UI.
@@ -12956,6 +12962,7 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
     parameters.smartInsertDeleteEnabled = m_isSmartInsertDeleteEnabled;
     parameters.additionalSupportedImageTypes = m_configuration->additionalSupportedImageTypes().value_or(Vector<String>());
 
+    // MAVERICKS_BACKPORT: also gate the GPU sandbox-extension handles on ENABLE(SANDBOX_EXTENSIONS) (OFF on this port).
 #if !ENABLE(WEBCONTENT_GPU_SANDBOX_EXTENSIONS_BLOCKING) && ENABLE(SANDBOX_EXTENSIONS)
 #if ENABLE(TILED_CA_DRAWING_AREA)
     if (!shouldBlockIOKit(preferences) || drawingArea.type() == DrawingAreaType::TiledCoreAnimation)
@@ -12966,6 +12973,7 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
         parameters.gpuIOKitExtensionHandles = SandboxExtension::createHandlesForIOKitClassExtensions(gpuIOKitClasses(), std::nullopt);
         parameters.gpuMachExtensionHandles = SandboxExtension::createHandlesForMachLookup(gpuMachServices(), std::nullopt);
     }
+// MAVERICKS_BACKPORT: matching close of the ENABLE(SANDBOX_EXTENSIONS) gate above.
 #endif // !ENABLE(WEBCONTENT_GPU_SANDBOX_EXTENSIONS_BLOCKING) && ENABLE(SANDBOX_EXTENSIONS)
 #endif // PLATFORM(COCOA)
 
@@ -13054,6 +13062,7 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
 #endif
 
     // FIXME: This is also being passed over the to WebProcess via the PreferencesStore.
+    // MAVERICKS_BACKPORT: gate the GPU-process capture flags on ENABLE(GPU_PROCESS) (OFF on this port).
 #if ENABLE(GPU_PROCESS)
     parameters.shouldCaptureAudioInGPUProcess = preferences->captureAudioInGPUProcessEnabled();
     parameters.shouldCaptureVideoInGPUProcess = preferences->captureVideoInGPUProcessEnabled();
@@ -14413,6 +14422,7 @@ std::optional<IPC::Connection::AsyncReplyID> WebPageProxy::drawRectToImage(WebFr
     if (m_isPerformingDOMPrintOperation)
         return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPrintingRectToSnapshotDuringDOMPrintOperation(snapshotIdentifier, frameID, printInfo, rect, imageSize), WTF::move(snapshotCallback), IPC::SendOption::DispatchMessageEvenWhenWaitingForUnboundedSyncReply);
     return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPrintingRectToSnapshot(snapshotIdentifier, frameID, printInfo, rect, imageSize), WTF::move(snapshotCallback));
+// MAVERICKS_BACKPORT: GPU process is OFF in this port, so this tail is unreachable; satisfy the return.
 #else
     ASSERT_NOT_REACHED();
     callback({ });
@@ -14454,6 +14464,7 @@ std::optional<IPC::Connection::AsyncReplyID> WebPageProxy::drawPagesToPDF(WebFra
     if (m_isPerformingDOMPrintOperation)
         return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPrintingPagesToSnapshotDuringDOMPrintOperation(snapshotIdentifier, frameID, printInfo, first, count), WTF::move(snapshotCallback), IPC::SendOption::DispatchMessageEvenWhenWaitingForUnboundedSyncReply);
     return sendWithAsyncReplyToProcessContainingFrame(frameID, Messages::WebPage::DrawPrintingPagesToSnapshot(snapshotIdentifier, frameID, printInfo, first, count), WTF::move(snapshotCallback));
+// MAVERICKS_BACKPORT: GPU process is OFF in this port, so this tail is unreachable; satisfy the return.
 #else
     ASSERT_NOT_REACHED();
     callback(nullptr);
@@ -15036,10 +15047,12 @@ void WebPageProxy::takeSnapshot(const IntRect& rect, const IntSize& bitmapSize, 
             return;
         }
         gpuProcess->sinkCompletedSnapshotToBitmap(snapshotIdentifier, bitmapSize, rootFrameIdentifier, [callback = WTF::move(callback)] (std::optional<WebCore::ShareableBitmap::Handle>&& handle) mutable {
+            // MAVERICKS_BACKPORT: always invoke the completion handler (with nullptr) on the no-handle path
+            // so the snapshot caller isn't left hanging.
             if (!handle) {
                 callback(nullptr);
                 return;
-            }
+            } // MAVERICKS_BACKPORT: end of always-invoke-completion-handler guard.
             RetainPtr<CGImageRef> image;
             if (RefPtr bitmap = WebCore::ShareableBitmap::create(WTF::move(*handle), WebCore::SharedMemory::Protection::ReadOnly))
                 image = bitmap->createPlatformImage(DontCopyBackingStore);
@@ -15839,6 +15852,7 @@ void WebPageProxy::setURLSchemeHandlerForScheme(Ref<WebURLSchemeHandler>&& handl
     ASSERT_UNUSED(handlerIdentifierResult, handlerIdentifierResult.isNewEntry);
 
     WebCore::LegacySchemeRegistry::registerURLSchemeAsHandledBySchemeHandler(scheme);
+    // MAVERICKS_BACKPORT: hoist hasRunningProcess() into a local (see process-liveness handling on this port).
     bool running = hasRunningProcess();
     if (running)
         send(Messages::WebPage::RegisterURLSchemeHandler(handlerIdentifier, canonicalizedScheme.value()));

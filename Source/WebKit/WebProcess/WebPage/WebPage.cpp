@@ -1197,8 +1197,8 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     send(Messages::WebPageProxy::DidCreateContextInWebProcessForVisibilityPropagation(contextID));
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW) && !HAVE(NON_HOSTING_VISIBILITY_PROPAGATION_VIEW)
 
+// MAVERICKS_BACKPORT: VP9 decode (and WebCore's VP9TestingOverrides impl) is unavailable on 10.9; gate the call on >= 11.0.
 #if ENABLE(VP9) && PLATFORM(COCOA) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
-    // VP9 decode (and WebCore's VP9TestingOverrides impl) is unavailable on 10.9; gate the call.
     VP9TestingOverrides::singleton().setShouldEnableVP9Decoder(parameters.shouldEnableVP9Decoder);
 #endif
 
@@ -2526,6 +2526,7 @@ void WebPage::setSize(const WebCore::IntSize& viewSize)
         ASSERT_NOT_REACHED();
         return;
     }
+    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace).
     view->resize(viewSize);
     protect(drawingArea())->setNeedsDisplay();
 
@@ -2822,6 +2823,7 @@ void WebPage::setDeviceScaleFactor(float scaleFactor)
 #if ENABLE(PDF_PLUGIN)
     for (Ref pluginView : m_pluginViews)
         pluginView->setDeviceScaleFactor(scaleFactor);
+// MAVERICKS_BACKPORT: close the ENABLE(PDF_PLUGIN) guard around the m_pluginViews iteration.
 #endif
 
     updateHeaderAndFooterLayersForDeviceScaleChange(scaleFactor);
@@ -4130,6 +4132,7 @@ void WebPage::updatePotentialTapSecurityOrigin(const WebTouchEvent& touchEvent, 
 void WebPage::touchEvent(const WebTouchEvent& touchEvent, CompletionHandler<void(std::optional<WebEventType>, bool)>&& completionHandler)
 {
     RefPtr localMainFrame = this->localMainFrame();
+    // MAVERICKS_BACKPORT: invoke the CompletionHandler on early-out (must always be called).
     if (!localMainFrame)
         return completionHandler(std::nullopt, false);
 
@@ -4456,8 +4459,8 @@ void WebPage::didStartPageTransition()
 #endif
     m_lastEditorStateWasContentEditable = EditorStateIsContentEditable::Unset;
 
+// MAVERICKS_BACKPORT: also gate on HAVE(TOUCH_BAR) — hasPreviouslyFocusedDueToUserInteraction is declared above under HAVE(TOUCH_BAR); keep this use in step.
 #if PLATFORM(MAC) && HAVE(TOUCH_BAR)
-    // hasPreviouslyFocusedDueToUserInteraction is declared above under HAVE(TOUCH_BAR); keep this use in step.
     if (hasPreviouslyFocusedDueToUserInteraction)
         send(Messages::WebPageProxy::SetHasFocusedElementWithUserInteraction(false));
 #endif
@@ -4981,7 +4984,7 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
 
     updateSettingsGenerated(store, settings);
 
-
+    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace).
 #if !PLATFORM(GTK) && !PLATFORM(WIN) && !PLATFORM(PLAYSTATION) && !PLATFORM(WPE)
     if (!settings.acceleratedCompositingEnabled()) {
         WEBPAGE_RELEASE_LOG(Layers, "updatePreferences: acceleratedCompositingEnabled setting was false. WebKit cannot function in this mode; changing setting to true");
@@ -5141,8 +5144,8 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
 #endif // ENABLE(MODEL_PROCESS)
 #endif // ENABLE(IPC_TESTING_API)
 
+// MAVERICKS_BACKPORT: VP9 decode (and WebCore's VP9TestingOverrides impl) is unavailable on 10.9; gate the call on >= 11.0.
 #if ENABLE(VP9) && PLATFORM(COCOA) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
-    // VP9 decode (and WebCore's VP9TestingOverrides impl) is unavailable on 10.9; gate the call.
     VP9TestingOverrides::singleton().setSWVPDecodersAlwaysEnabled(store.getBoolValueForKey(WebPreferencesKey::sWVPDecodersAlwaysEnabledKey()));
 #endif
 
@@ -5633,6 +5636,7 @@ void WebPage::performDragControllerAction(DragControllerAction action, const Int
         return completionHandler(std::nullopt, DragHandlingMethod::None, false, 0, { }, { }, std::nullopt);
 
     RefPtr localMainFrame = this->localMainFrame();
+    // MAVERICKS_BACKPORT: invoke the CompletionHandler on early-out (must always be called).
     if (!localMainFrame)
         return completionHandler(std::nullopt, DragHandlingMethod::None, false, 0, { }, { }, std::nullopt);
 
@@ -5666,12 +5670,14 @@ void WebPage::performDragControllerAction(std::optional<FrameIdentifier> frameID
     RefPtr frame = frameID ? WebProcess::singleton().webFrame(*frameID) : &mainWebFrame();
     if (!frame) {
         ASSERT_NOT_REACHED();
+        // MAVERICKS_BACKPORT: invoke the CompletionHandler on early-out (must always be called).
         return completionHandler(std::nullopt, DragHandlingMethod::None, false, 0, { }, { }, std::nullopt);
     }
 
     RefPtr localFrame = frame->coreLocalFrame();
     if (!localFrame) {
         ASSERT_NOT_REACHED();
+        // MAVERICKS_BACKPORT: invoke the CompletionHandler on early-out (must always be called).
         return completionHandler(std::nullopt, DragHandlingMethod::None, false, 0, { }, { }, std::nullopt);
     }
 
@@ -5691,6 +5697,8 @@ void WebPage::performDragControllerAction(std::optional<FrameIdentifier> frameID
         break;
     }
     ASSERT_NOT_REACHED();
+    // MAVERICKS_BACKPORT: invoke the CompletionHandler on the unreachable fall-through path; a bare
+    // return leaves the caller's reply waiting forever (CompletionHandler must always be called).
     completionHandler(std::nullopt, DragHandlingMethod::None, false, 0, { }, { }, std::nullopt);
 }
 

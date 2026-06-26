@@ -191,5 +191,6 @@ void RemoteLayerWithRemoteRenderingBackingStore::dump(WTF::TextStream& ts) const
 
 } // namespace WebKit
 
+// MAVERICKS_BACKPORT: end GPU-process-only remote-rendering backing-store implementation; not compiled on 10.9.
 #endif // ENABLE(GPU_PROCESS)
 

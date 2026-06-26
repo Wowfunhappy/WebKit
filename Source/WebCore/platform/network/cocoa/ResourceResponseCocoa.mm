@@ -115,6 +115,7 @@ CertificateInfo ResourceResponse::platformCertificateInfo(std::span<const std::b
 #else
         if (!SecTrustEvaluateWithError(trust.get(), nullptr))
             return { };
+// MAVERICKS_BACKPORT: closes the SecTrustEvaluate-vs-SecTrustEvaluateWithError (10.14+) deploy-target gate above.
 #endif
     }
 

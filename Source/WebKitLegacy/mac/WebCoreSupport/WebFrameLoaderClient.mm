@@ -1656,6 +1656,8 @@ static NSView *pluginView(WebFrame *frame, WebPluginPackage *pluginPackage,
     [pluginPackage load];
     Class viewFactory = [pluginPackage viewFactory];
 
+    // MAVERICKS_BACKPORT: declare the plug-in view up front; it is created (instead of the
+    // upstream `return nil` stub) below so WebKit-ObjC plug-ins like WebClip.plugin instantiate.
     NSView *view = nil;
     NSDictionary *arguments = nil;
 
@@ -1682,6 +1684,8 @@ IGNORE_WARNINGS_END
         };
         LOG(Plugins, "arguments:\n%@", arguments);
     }
+    // MAVERICKS_BACKPORT: the upstream `(void)arguments;` discard is dropped here because
+    // arguments is now actually consumed by the plug-in view creation below.
 
     // MAVERICKS_BACKPORT: this was stubbed to `return nil` (so WebKit-ObjC plug-ins never
     // instantiated). Restore the real view creation: WebPluginController creates the plug-in
@@ -1708,6 +1712,8 @@ private:
     }
 };
 
+// MAVERICKS_BACKPORT: take the plug-in package (upstream ignores it) so trusted WebKit-ObjC
+// "application" plug-ins like WebClip.plugin are allowed rather than blanket-blocked.
 static bool shouldBlockPlugin(WebBasePluginPackage *pluginPackage)
 {
     // MAVERICKS_BACKPORT: this was stubbed to block ALL plug-ins (no third-party / NPAPI plug-ins

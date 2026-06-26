@@ -641,6 +641,7 @@ UIProcess/Inspector/WebPageInspectorController.cpp
 
 UIProcess/Inspector/Agents/InspectorBrowserAgent.cpp
 
+// MAVERICKS_BACKPORT: AudioSessionRoutingArbitratorProxy depends on AVAudioSession routing arbitration (unavailable on 10.9); excluded from the build.
 // UIProcess/Media/AudioSessionRoutingArbitratorProxy.cpp
 UIProcess/Media/MediaUsageManager.cpp
 UIProcess/Media/RemoteMediaSessionClientProxy.cpp
@@ -714,6 +715,7 @@ WebProcess/Geolocation/WebGeolocationManager.cpp
 
 WebProcess/InjectedBundle/InjectedBundle.cpp
 WebProcess/InjectedBundle/InjectedBundleClient.cpp
+// MAVERICKS_BACKPORT: WK109 injected-bundle page-group user-content source (restored WKPageGroup* / WKBundleAddUserScript API).
 WebProcess/InjectedBundle/WK109PageGroupUserContent.cpp
 WebProcess/InjectedBundle/InjectedBundleDOMWindowExtension.cpp
 WebProcess/InjectedBundle/InjectedBundleHitTestResult.cpp

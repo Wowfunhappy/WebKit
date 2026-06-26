@@ -38,6 +38,7 @@ namespace WTF {
 
 using namespace Unicode;
 
+// MAVERICKS_BACKPORT: || PLATFORM(MAC) so the shared AtomStringTable is locked on 10.9 (see below).
 #if USE(WEB_THREAD) || PLATFORM(MAC)
 
 // MAVERICKS_BACKPORT: on PLATFORM(MAC) the AtomStringTable is shared process-wide across
@@ -66,7 +67,7 @@ public:
     AtomStringTableLocker() { }
 };
 
-#endif // USE(WEB_THREAD) || PLATFORM(MAC)
+#endif // USE(WEB_THREAD) || PLATFORM(MAC) -- MAVERICKS_BACKPORT: PLATFORM(MAC) added so the shared table is locked on 10.9 (see above).
 
 using StringTableImpl = AtomStringTable::StringTableImpl;
 

@@ -25,6 +25,7 @@
 
 #import "config.h"
 #import "RemoteLayerTreeDrawingArea.h"
+// MAVERICKS_BACKPORT: explicit includes for sched_yield and the DisplayRefreshMonitor/DisplayUpdate types used by the 10.9 display-refresh fallback path.
 #include <sched.h>
 #include <WebCore/DisplayRefreshMonitor.h>
 #include <WebCore/DisplayUpdate.h>
@@ -33,6 +34,7 @@
 #import "GraphicsLayerCARemote.h"
 #import "MessageSenderInlines.h"
 #import "PlatformCALayerRemote.h"
+// MAVERICKS_BACKPORT: GPU process is disabled on this port; only import its proxy header when GPU_PROCESS is enabled.
 #if ENABLE(GPU_PROCESS)
 #import "RemoteImageBufferSetProxy.h"
 #endif
@@ -41,6 +43,7 @@
 #import "RemoteLayerTreeContext.h"
 #import "RemoteLayerTreeDrawingAreaProxyMessages.h"
 #import "RemoteScrollingCoordinator.h"
+// MAVERICKS_BACKPORT: WebDisplayRefreshMonitor needed by the display-refresh path used on 10.9.
 #import "WebDisplayRefreshMonitor.h"
 #import "RemoteScrollingCoordinatorTransaction.h"
 #import "WebFrame.h"
@@ -128,12 +131,13 @@ void RemoteLayerTreeDrawingArea::setPreferredFramesPerSecond(FramesPerSecond pre
     send(Messages::RemoteLayerTreeDrawingAreaProxy::SetPreferredFramesPerSecond(preferredFramesPerSecond));
 }
 
+// MAVERICKS_BACKPORT: GPU process is disabled on this port; this handler only exists when GPU_PROCESS is enabled.
 #if ENABLE(GPU_PROCESS)
 void RemoteLayerTreeDrawingArea::gpuProcessConnectionWasDestroyed()
 {
     m_remoteLayerTreeContext->gpuProcessConnectionWasDestroyed();
 }
-#endif
+#endif // MAVERICKS_BACKPORT: ENABLE(GPU_PROCESS)
 
 void RemoteLayerTreeDrawingArea::updateRootLayers()
 {
@@ -179,7 +183,7 @@ void RemoteLayerTreeDrawingArea::removeRootFrame(WebCore::FrameIdentifier frameI
 
 void RemoteLayerTreeDrawingArea::setRootCompositingLayer(WebCore::Frame& frame, GraphicsLayer* rootGraphicsLayer)
 {
-    // 10.9 perf: removed debug fopen logging
+    // MAVERICKS_BACKPORT: 10.9 perf: removed debug fopen logging
     for (auto& rootLayer : m_rootLayers) {
         if (rootLayer.frameID == frame.frameID())
             rootLayer.contentLayer = rootGraphicsLayer;
@@ -327,7 +331,7 @@ void RemoteLayerTreeDrawingArea::startRenderingUpdateTimer()
 
 void RemoteLayerTreeDrawingArea::triggerRenderingUpdate()
 {
-    // 10.9 perf: removed debug fopen logging
+    // MAVERICKS_BACKPORT: 10.9 perf: removed debug fopen logging
     if (m_isRenderingSuspended) {
         m_hasDeferredRenderingUpdate = true;
         return;
@@ -472,6 +476,7 @@ void RemoteLayerTreeDrawingArea::displayDidRefresh(MonotonicTime start)
 
     auto wasWaitingForBackingStoreSwap = std::exchange(m_waitingForBackingStoreSwap, false);
 
+    // MAVERICKS_BACKPORT: GPU process is disabled here; with no remote rendering the IOSurface-GC transaction must always run, so the guard is compiled out.
 #if ENABLE(GPU_PROCESS)
     if (!WebProcess::singleton().shouldUseRemoteRenderingFor(WebCore::RenderingPurpose::DOM))
 #endif
@@ -542,9 +547,9 @@ bool RemoteLayerTreeDrawingArea::BackingStoreFlusher::flush(UniqueRef<IPC::Encod
 
     m_pendingFlushes--;
 
-    // 10.9 perf: removed debug fopen logging
+    // MAVERICKS_BACKPORT: 10.9 perf: removed debug fopen logging
     auto sendError = m_connection->sendMessage(WTF::move(commitEncoder), { });
-    // 10.9 perf: removed debug fopen logging
+    // MAVERICKS_BACKPORT: 10.9 perf: removed debug fopen logging
     return flushSucceeded;
 }
 

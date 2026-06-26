@@ -43,6 +43,7 @@
 #import <wtf/NeverDestroyed.h>
 
 #import <pal/cocoa/AVFoundationSoftLink.h>
+// MAVERICKS_BACKPORT: AVCaptureDevice/AVCaptureDeviceDiscoverySession SPI decls for the 10.9 device-enum fallbacks below.
 #import <pal/spi/cocoa/AVFoundationSPI.h>
 
 using namespace WebCore;

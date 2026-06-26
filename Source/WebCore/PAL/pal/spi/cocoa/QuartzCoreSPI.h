@@ -40,38 +40,50 @@ DECLARE_SYSTEM_HEADER
 
 #if USE(APPLE_INTERNAL_SDK)
 
+// MAVERICKS_BACKPORT: even under USE(APPLE_INTERNAL_SDK), the public macOS 26.1 SDK does not ship these
+// private QuartzCore headers, so wrap each import in __has_include so the header still parses without them.
 #if __has_include(<QuartzCore/CABackingStore.h>)
 #import <QuartzCore/CABackingStore.h>
 #endif
+// MAVERICKS_BACKPORT: __has_include-gate CAColorMatrix.h (private header absent in the public SDK).
 #if __has_include(<QuartzCore/CAColorMatrix.h>)
 #import <QuartzCore/CAColorMatrix.h>
 #endif
+// MAVERICKS_BACKPORT: __has_include-gate CARenderServer.h (private header absent in the public SDK).
 #if __has_include(<QuartzCore/CARenderServer.h>)
 #import <QuartzCore/CARenderServer.h>
 #endif
 
 #ifdef __OBJC__
 
+// MAVERICKS_BACKPORT: __has_include-gate CAAnimationPrivate.h (private header absent in the public SDK).
 #if __has_include(<QuartzCore/CAAnimationPrivate.h>)
 #import <QuartzCore/CAAnimationPrivate.h>
 #endif
+// MAVERICKS_BACKPORT: __has_include-gate CAContext.h; record CACONTEXT_DECLARED when the private header is present
+// so the fallback @interface CAContext below is only declared when the SDK lacks it.
 #if __has_include(<QuartzCore/CAContext.h>)
 #import <QuartzCore/CAContext.h>
 #define CACONTEXT_DECLARED 1
 #endif
+// MAVERICKS_BACKPORT: __has_include-gate CALayerHost.h (private header absent in the public SDK).
 #if __has_include(<QuartzCore/CALayerHost.h>)
 #import <QuartzCore/CALayerHost.h>
 #endif
+// MAVERICKS_BACKPORT: __has_include-gate CALayerPrivate.h (private header absent in the public SDK).
 #if __has_include(<QuartzCore/CALayerPrivate.h>)
 #import <QuartzCore/CALayerPrivate.h>
 #endif
+// MAVERICKS_BACKPORT: __has_include-gate CAMediaTimingFunctionPrivate.h (private header absent in the public SDK).
 #if __has_include(<QuartzCore/CAMediaTimingFunctionPrivate.h>)
 #import <QuartzCore/CAMediaTimingFunctionPrivate.h>
 #endif
+// MAVERICKS_BACKPORT: __has_include-gate QuartzCorePrivate.h (private header absent in the public SDK).
 #if __has_include(<QuartzCore/QuartzCorePrivate.h>)
 #import <QuartzCore/QuartzCorePrivate.h>
 #endif
 
+// MAVERICKS_BACKPORT: also __has_include-gate CARenderCG.h (private header absent in the public SDK).
 #if PLATFORM(MAC) && __has_include(<QuartzCore/CARenderCG.h>)
 #import <QuartzCore/CARenderCG.h>
 #endif
@@ -116,6 +128,7 @@ typedef struct _CARenderContext CARenderContext;
 @end
 #endif
 
+// MAVERICKS_BACKPORT: mark CAContext as declared in this non-internal-SDK path so the later fallback @interface CAContext is skipped.
 #define CACONTEXT_DECLARED 1
 @interface CAContext : NSObject
 @end
@@ -278,6 +291,7 @@ typedef enum {
 #endif
 
 @interface CARemoteEffectGroup : CARemoteEffect
+// MAVERICKS_BACKPORT: drop the lightweight generic (NSArray<CARemoteEffect *> *); CARemoteEffect is not declared on this SDK.
 + (instancetype)groupWithEffects:(NSArray *)effects;
 @property (copy) NSString *groupName;
 @property (getter=isMatched) BOOL matched;
@@ -286,6 +300,7 @@ typedef enum {
 @end
 
 @interface CALayer (RemoteEffects)
+// MAVERICKS_BACKPORT: drop the lightweight generic (NSArray<CARemoteEffect *> *); CARemoteEffect is not declared on this SDK.
 @property (copy) NSArray *remoteEffects;
 @end
 
@@ -308,7 +323,7 @@ typedef uint32_t CAHighFrameRateReason;
 
 #endif
 
-// If CAContext was not declared (e.g., USE(APPLE_INTERNAL_SDK) is true
+// MAVERICKS_BACKPORT: If CAContext was not declared (e.g., USE(APPLE_INTERNAL_SDK) is true
 // but the private CAContext.h header is missing on older SDKs, or modules
 // are enabled but the module doesn't export the private CAContext class), declare it.
 #ifdef __OBJC__

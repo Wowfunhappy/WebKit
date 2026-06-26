@@ -17,21 +17,26 @@
 
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: reimplemented for 10.9 (see file header) — the only routine the video getUserMedia path needs.
 RetainPtr<CMSampleBufferRef> createVideoSampleBuffer(CVPixelBufferRef pixelBuffer, CMTime sampleTime)
 {
     if (!pixelBuffer)
         return nullptr;
 
+    // MAVERICKS_BACKPORT: derive the format via CMVideoFormatDescriptionCreateForImageBuffer (10.7+), soft-linked through PAL.
     CMVideoFormatDescriptionRef rawFormatDescription = nullptr;
     if (PAL::CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, &rawFormatDescription) != noErr || !rawFormatDescription)
         return nullptr;
+    // MAVERICKS_BACKPORT: adopt the 10.9-soft-linked format description.
     auto formatDescription = adoptCF(rawFormatDescription);
 
+    // MAVERICKS_BACKPORT: build the CMSampleBuffer via CMSampleBufferCreateForImageBuffer (10.7+), soft-linked through PAL.
     CMSampleTimingInfo timing = { PAL::kCMTimeInvalid, sampleTime, PAL::kCMTimeInvalid };
     CMSampleBufferRef rawSampleBuffer = nullptr;
     if (PAL::CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, true, nullptr, nullptr, formatDescription.get(), &timing, &rawSampleBuffer) != noErr || !rawSampleBuffer)
         return nullptr;
 
+    // MAVERICKS_BACKPORT: see file header — reimplemented createVideoSampleBuffer for 10.9.
     return adoptCF(rawSampleBuffer);
 }
 

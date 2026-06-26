@@ -101,7 +101,7 @@ void MemoryPressureHandler::install()
         auto memoryStatusFlags = DISPATCH_MEMORYPRESSURE_NORMAL | DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL;
 #else
         auto memoryStatusFlags = DISPATCH_MEMORYPRESSURE_NORMAL | DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL | DISPATCH_MEMORYPRESSURE_PROC_LIMIT_WARN | DISPATCH_MEMORYPRESSURE_PROC_LIMIT_CRITICAL;
-#endif
+#endif // MAVERICKS_BACKPORT: PROC_LIMIT flags are 10.10+, dropped on Mac (see above).
         // FIXME: This is a false positive. rdar://160931336
         SUPPRESS_RETAINPTR_CTOR_ADOPT memoryPressureEventSource() = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_MEMORYPRESSURE, 0, memoryStatusFlags, m_dispatchQueue.get()));
 
@@ -252,13 +252,14 @@ void MemoryPressureHandler::respondToMemoryPressure(Critical critical, Synchrono
 
 std::optional<MemoryPressureHandler::ReliefLogger::MemoryUsage> MemoryPressureHandler::ReliefLogger::platformMemoryUsage()
 {
-    /* phys_footprint not available on macOS 10.9 - use resident_size instead */
+    // MAVERICKS_BACKPORT: phys_footprint / TASK_VM_INFO not available on macOS 10.9; use TASK_BASIC_INFO resident_size instead.
     task_basic_info_data_t basicInfo;
     mach_msg_type_number_t count = TASK_BASIC_INFO_COUNT;
     kern_return_t err = task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t) &basicInfo, &count);
     if (err != KERN_SUCCESS)
         return std::nullopt;
 
+    // MAVERICKS_BACKPORT: report resident_size for both fields (no phys_footprint on 10.9).
     return MemoryUsage {static_cast<size_t>(basicInfo.resident_size), static_cast<size_t>(basicInfo.resident_size)};
 }
 

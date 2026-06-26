@@ -24,6 +24,7 @@
  */
 
 #import "config.h"
+// MAVERICKS_BACKPORT: dlfcn for runtime dlsym/SoftLinking lookups added below.
 #include <dlfcn.h>
 #import "MediaPlayerPrivateAVFoundationObjC.h"
 
@@ -79,9 +80,11 @@
 #import "WebCoreCALayerExtras.h"
 #import "WebCoreNSURLExtras.h"
 #import "WebCoreNSURLSession.h"
+// MAVERICKS_BACKPORT: explicit AVFoundation imports (AVAssetExportSession) for the HLS-composition path the cut-down build needs.
 #import <AVFoundation/AVAssetExportSession.h>
 #import <AVFoundation/AVAssetImageGenerator.h>
 #import <AVFoundation/AVAssetTrack.h>
+// MAVERICKS_BACKPORT: explicit AVFoundation imports (AVComposition/AVCompositionTrack) for the HLS-composition path the cut-down build needs.
 #import <AVFoundation/AVComposition.h>
 #import <AVFoundation/AVCompositionTrack.h>
 #import <AVFoundation/AVMediaSelectionGroup.h>
@@ -92,6 +95,7 @@
 #import <AVFoundation/AVPlayerItemTrack.h>
 #import <AVFoundation/AVPlayerLayer.h>
 #import <AVFoundation/AVTime.h>
+// MAVERICKS_BACKPORT: explicit AudioToolbox import for the AudioQueue audio path the cut-down build needs.
 #import <AudioToolbox/AudioToolbox.h>
 #import <CoreVideo/CoreVideo.h>
 #import <JavaScriptCore/DataView.h>
@@ -111,10 +115,12 @@
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/CompletionHandler.h>
+// MAVERICKS_BACKPORT: explicit WTF import (Deque) the backport additions need.
 #import <wtf/Deque.h>
 #import <wtf/FileSystem.h>
 #import <wtf/Function.h>
 #import <wtf/ListHashSet.h>
+// MAVERICKS_BACKPORT: explicit WTF imports (Lock/OSObjectPtr) the backport additions need.
 #import <wtf/Lock.h>
 #import <wtf/OSObjectPtr.h>
 #import <wtf/NativePromise.h>
@@ -271,6 +277,7 @@ struct LogArgument<AVPlayerTimeControlStatus> {
 
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 
 static NSArray *assetMetadataKeyNames();
 static NSArray *itemKVOProperties();
@@ -330,6 +337,7 @@ void MediaPlayerPrivateAVFoundationObjC::registerMediaEngine(MediaEngineRegistra
     if (!isAvailable())
         return;
 
+    // MAVERICKS_BACKPORT: AVAssetMIMETypeCache is stubbed on 10.9; availability ASSERT cannot hold.
     // ASSERT(AVAssetMIMETypeCache::singleton().isAvailable()); // backport: cache stubbed
 
     registrar(makeUnique<Factory>());
@@ -478,6 +486,7 @@ MediaPlayerPrivateAVFoundationObjC::~MediaPlayerPrivateAVFoundationObjC()
     @try {
         [[m_avAsset resourceLoader] setDelegate:nil queue:0];
 
+        // MAVERICKS_BACKPORT: wrap the destructor body in @try: AVFoundation teardown can throw an ObjC exception, which would std::terminate the noexcept dtor (BBC News crash).
         forEachResourceLoader([&] (auto& loader) {
             m_targetDispatcher->dispatch([loader = Ref { loader }] () mutable {
                 loader->stopLoading();
@@ -734,6 +743,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerLayer()
     setNeedsRenderingModeChanged();
 }
 
+// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 
 void MediaPlayerPrivateAVFoundationObjC::destroyVideoLayer()
 {
@@ -744,6 +754,7 @@ void MediaPlayerPrivateAVFoundationObjC::destroyVideoLayer()
 
     ALWAYS_LOG(LOGIDENTIFIER);
 
+// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 
     [m_videoLayer removeObserver:m_objcObserver.get() forKeyPath:@"readyForDisplay"];
     [m_videoLayer setPlayer:nil];
@@ -868,6 +879,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url)
     m_createAssetPending = true;
     RetainPtr<NSMutableDictionary> options = adoptNS([[NSMutableDictionary alloc] init]);
 
+// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 
 #if PLATFORM(IOS_FAMILY)
     if (!PAL::canLoad_AVFoundation_AVURLAssetHTTPCookiesKey()) {
@@ -966,6 +978,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
     if (AVURLAssetReferenceRestrictionsKey)
         [options setObject:@(AVAssetReferenceRestrictionForbidRemoteReferenceToLocal | AVAssetReferenceRestrictionForbidLocalReferenceToRemote) forKey:AVURLAssetReferenceRestrictionsKey];
 
+    // MAVERICKS_BACKPORT: AVURLAsset option keys are soft-linked on 10.9; nil-check before use.
     if (shouldEnableInheritURIQueryComponent() && AVURLAssetInheritURIQueryComponentFromReferencingURIKey)
         [options setObject:@YES forKey:AVURLAssetInheritURIQueryComponentFromReferencingURIKey];
 
@@ -979,6 +992,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
     if (!identifier.isEmpty())
         [options setObject:identifier.createNSString().get() forKey:AVURLAssetClientBundleIdentifierKey];
 #endif
+    // MAVERICKS_BACKPORT: AVAssetPrefersSandboxedParsingOptionKey is 10.10+; soft-linked and nil-checked.
     // Backport: AVAssetPrefersSandboxedParsingOptionKey is 10.10+ — SoftLinking now
     // returns nil for missing constants; check before using as a dictionary key.
     if (AVAssetPrefersSandboxedParsingOptionKey)
@@ -995,6 +1009,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
             type = "audio/ogg"_s;
 
         auto codecs = player->contentTypeCodecs();
+        // MAVERICKS_BACKPORT: AVURLAsset out-of-band option keys are soft-linked on 10.9; nil-check before use.
         if (AVURLAssetOutOfBandMIMETypeKey) {
             if (!codecs.isEmpty()) {
                 RetainPtr typeString = adoptNS([[NSString alloc] initWithFormat:@"%@; codecs=\"%@\"", type.createNSString().get(), codecs.createNSString().get()]);
@@ -1023,6 +1038,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
             return dict;
         });
 
+        // MAVERICKS_BACKPORT: AVURLAssetOutOfBandAlternateTracksKey is soft-linked on 10.9; nil-check before use.
         if (AVURLAssetOutOfBandAlternateTracksKey)
             [options setObject:outOfBandTracks.get() forKey:AVURLAssetOutOfBandAlternateTracksKey];
     }
@@ -1034,10 +1050,12 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
 #endif
 
     bool usePersistentCache = player->shouldUsePersistentCache();
+    // MAVERICKS_BACKPORT: AVURLAssetUsesNoPersistentCacheKey is soft-linked on 10.9; nil-check before use.
     if (AVURLAssetUsesNoPersistentCacheKey)
         [options setObject:@(!usePersistentCache) forKey:AVURLAssetUsesNoPersistentCacheKey];
 
     if (usePersistentCache) {
+        // MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
         if (RetainPtr assetCache = ensureAssetCacheExistsForPath(player->mediaCacheDirectory())) {
             if (AVURLAssetCacheKey)
                 [options setObject:assetCache.get() forKey:AVURLAssetCacheKey];
@@ -1077,6 +1095,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
         [options setObject:nsTypes.get() forKey:AVURLAssetAllowableCaptionFormatsKey];
     }
 
+    // MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
     URL assetURL = url;
 
     RetainPtr nsURL = canonicalURL(assetURL);
@@ -1085,6 +1104,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
         m_avAsset = adoptNS([PAL::allocAVURLAssetInstance() initWithURL:nsURL.get() options:options.get()]);
     } @catch(NSException *exception) {
         ERROR_LOG(LOGIDENTIFIER, "-[AVURLAssetInstance initWithURL:nsURL.get() options:] threw an exception: ", exception.name, ", reason : ", exception.reason);
+        // MAVERICKS_BACKPORT: catch the AVURLAsset init ObjC exception thrown on 10.9 and retry with a canonicalised URL.
         nsURL = canonicalURL(conformFragmentIdentifierForURL(assetURL));
 
         @try {
@@ -1100,6 +1120,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
     AVAssetResourceLoader *resourceLoader = [m_avAsset resourceLoader];
     [resourceLoader setDelegate:m_loaderDelegate.get() queue:globalLoaderDelegateQueue()];
 
+    // MAVERICKS_BACKPORT: AVAssetChapterMetadataGroupsDidChangeNotification is 10.10+; nil-checked.
     // Backport: AVAssetChapterMetadataGroupsDidChangeNotification is 10.10+; nil-check.
     if (NSString *chapterNotifName = AVAssetChapterMetadataGroupsDidChangeNotification)
         [[NSNotificationCenter defaultCenter] addObserver:m_objcObserver selector:@selector(chapterMetadataDidChange:) name:chapterNotifName object:m_avAsset.get()];
@@ -1163,12 +1184,14 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
     m_avPlayer = adoptNS([PAL::allocAVPlayerInstance() init]);
     for (NSString *keyName in playerKVOProperties())
         [m_avPlayer addObserver:m_objcObserver.get() forKeyPath:keyName options:NSKeyValueObservingOptionNew context:(void *)MediaPlayerAVFoundationObservationContextPlayer];
+    // MAVERICKS_BACKPORT: automaticallyWaitsToMinimizeStalling is 10.12+; guarded.
     // Backport: automaticallyWaitsToMinimizeStalling is 10.12+
     if ([m_avPlayer respondsToSelector:@selector(automaticallyWaitsToMinimizeStalling)])
         m_automaticallyWaitsToMinimizeStalling = [m_avPlayer automaticallyWaitsToMinimizeStalling];
 
     setShouldObserveTimeControlStatus(true);
 
+    // MAVERICKS_BACKPORT: appliesMediaSelectionCriteriaAutomatically is 10.10+; guarded.
     // Backport: appliesMediaSelectionCriteriaAutomatically is 10.10+
     if ([m_avPlayer respondsToSelector:@selector(setAppliesMediaSelectionCriteriaAutomatically:)])
         m_avPlayer.get().appliesMediaSelectionCriteriaAutomatically = NO;
@@ -1205,6 +1228,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
         [m_avPlayer setMuted:m_muted];
 
     if (m_isVideoPlayer)
+        // MAVERICKS_BACKPORT: _setSuppressesAudioRendering: guarded via respondsToSelector on 10.9.
         if ([m_avPlayer respondsToSelector:@selector(_setSuppressesAudioRendering:)])
             [m_avPlayer _setSuppressesAudioRendering:!m_isAudible];
 
@@ -1216,6 +1240,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
     updateSpatialTrackingLabel();
 #endif
 
+    // MAVERICKS_BACKPORT: replaceCurrentItemWithPlayerItem: guarded via respondsToSelector on 10.9.
     if (m_avPlayerItem && [m_avPlayer respondsToSelector:@selector(replaceCurrentItemWithPlayerItem:)])
         setAVPlayerItem(m_avPlayerItem.get());
 
@@ -1286,6 +1311,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerItem()
         [m_avPlayerItem addObserver:m_objcObserver.get() forKeyPath:keyName options:options context:(void *)MediaPlayerAVFoundationObservationContextPlayerItem];
     }
 
+    // MAVERICKS_BACKPORT: setAudioTimePitchAlgorithm with the spectral/varispeed constants available on 10.9.
     [m_avPlayerItem setAudioTimePitchAlgorithm:(player->preservesPitch() ? AVAudioTimePitchAlgorithmSpectral : AVAudioTimePitchAlgorithmVarispeed)];
 
 #if HAVE(AVFOUNDATION_INTERSTITIAL_EVENTS)
@@ -1299,6 +1325,7 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
         setAVPlayerItem(m_avPlayerItem.get());
 
     const NSTimeInterval avPlayerOutputAdvanceInterval = 2;
+    // MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
     (void)avPlayerOutputAdvanceInterval;
 
     // Backport: AVPlayerItemLegibleOutput is 10.9+ but textStylingResolution is 10.10+; skip captions.
@@ -1323,6 +1350,7 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
             [m_avPlayerItem addMediaDataCollector:m_metadataCollector];
         }
 
+        // MAVERICKS_BACKPORT: AVPlayerItemMetadataOutput is allocated via the soft-link instance helper on 10.9.
         m_metadataOutput = adoptNS([PAL::allocAVPlayerItemMetadataOutputInstance() initWithIdentifiers:nil]);
         if (m_metadataOutput) {
             [m_metadataOutput setDelegate:m_objcObserver queue:mainDispatchQueueSingleton()];
@@ -1705,9 +1733,11 @@ void MediaPlayerPrivateAVFoundationObjC::seekToTargetInternal(const SeekTarget& 
     ASSERT(target.time.isFinite());
 
     // setCurrentTime generates several event callbacks, update afterwards.
+// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 #if ENABLE(DATACUE_VALUE)
     if (RefPtr metadataTrack = m_metadataTrack)
         metadataTrack->flushPartialCues();
+// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 #endif
 
 
@@ -1757,6 +1787,7 @@ void MediaPlayerPrivateAVFoundationObjC::setVolume(float volume)
 
     updateIsAudible();
 
+// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 
     if (!m_avPlayer)
         return;
@@ -1776,6 +1807,7 @@ void MediaPlayerPrivateAVFoundationObjC::setMuted(bool muted)
     m_muted = muted;
     updateIsAudible();
 
+// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 
     if (!m_avPlayer)
         return;
@@ -1794,6 +1826,7 @@ void MediaPlayerPrivateAVFoundationObjC::setRateDouble(double rate)
 void MediaPlayerPrivateAVFoundationObjC::setPlayerRate(double rate, std::optional<MonotonicTime>&& hostTime)
 {
     if (auto player = this->player())
+        // MAVERICKS_BACKPORT: setAudioTimePitchAlgorithm with the spectral/varispeed constants available on 10.9.
         [m_avPlayerItem setAudioTimePitchAlgorithm:(player->preservesPitch() ? AVAudioTimePitchAlgorithmSpectral : AVAudioTimePitchAlgorithmVarispeed)];
 
     setShouldObserveTimeControlStatus(false);
@@ -1803,6 +1836,7 @@ void MediaPlayerPrivateAVFoundationObjC::setPlayerRate(double rate, std::optiona
     // and enable otherwise.
     bool shouldAutomaticallyWait = !hostTime;
     if (m_automaticallyWaitsToMinimizeStalling != shouldAutomaticallyWait) {
+        // MAVERICKS_BACKPORT: setAutomaticallyWaitsToMinimizeStalling: is 10.12+; guarded.
         // Backport: setAutomaticallyWaitsToMinimizeStalling: is 10.12+
         if ([m_avPlayer respondsToSelector:@selector(setAutomaticallyWaitsToMinimizeStalling:)])
             [m_avPlayer setAutomaticallyWaitsToMinimizeStalling:shouldAutomaticallyWait];
@@ -1887,6 +1921,7 @@ void MediaPlayerPrivateAVFoundationObjC::setPreservesPitch(bool preservesPitch)
 {
     auto player = this->player();
     if (m_avPlayerItem && player)
+        // MAVERICKS_BACKPORT: setAudioTimePitchAlgorithm with the spectral/varispeed constants available on 10.9.
         [m_avPlayerItem setAudioTimePitchAlgorithm:(player->preservesPitch() ? AVAudioTimePitchAlgorithmSpectral : AVAudioTimePitchAlgorithmVarispeed)];
 }
 
@@ -1894,6 +1929,7 @@ void MediaPlayerPrivateAVFoundationObjC::setPitchCorrectionAlgorithm(MediaPlayer
 {
     auto player = this->player();
     if (m_avPlayerItem && player)
+        // MAVERICKS_BACKPORT: setAudioTimePitchAlgorithm with the spectral/varispeed constants available on 10.9.
         [m_avPlayerItem setAudioTimePitchAlgorithm:(player->preservesPitch() ? AVAudioTimePitchAlgorithmSpectral : AVAudioTimePitchAlgorithmVarispeed)];
 }
 
@@ -1943,6 +1979,7 @@ MediaTime MediaPlayerPrivateAVFoundationObjC::platformMaxTimeSeekable() const
         if (!CMTIMERANGE_IS_VALID(timeRange) || CMTIMERANGE_IS_EMPTY(timeRange))
             continue;
 
+        // MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
         MediaTime endOfRange = PAL::toMediaTime(CMTimeRangeGetEnd(timeRange));
         if (maxTimeSeekable < endOfRange)
             maxTimeSeekable = endOfRange;
@@ -2116,6 +2153,7 @@ MediaPlayerPrivateAVFoundation::AssetStatus MediaPlayerPrivateAVFoundationObjC::
             return MediaPlayerAVAssetStatusLoading;
     }
 
+    // MAVERICKS_BACKPORT: -[AVAsset variants] is 10.15+; treat its absence as not-HLS.
     // Backport: -[AVAsset variants] is 10.15+; treat absence as "not HLS".
     if (!m_cachedAssetIsHLS) {
         m_cachedAssetIsHLS = [m_avAsset respondsToSelector:@selector(variants)]
@@ -2144,11 +2182,13 @@ long MediaPlayerPrivateAVFoundationObjC::assetErrorCode() const
 
 void MediaPlayerPrivateAVFoundationObjC::paintCurrentFrameInContext(GraphicsContext& context, const FloatRect& rect)
 {
+    // MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
     if (!metaDataAvailable() || context.paintingDisabled())
         return;
 #if ENABLE(WIRELESS_PLAYBACK_TARGET)
     if (isCurrentPlaybackTargetWireless())
         return;
+// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 #endif
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
@@ -2197,6 +2237,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 void MediaPlayerPrivateAVFoundationObjC::getSupportedTypes(HashSet<String>& supportedTypes)
 {
+    // MAVERICKS_BACKPORT: AVAssetMIMETypeCache is stubbed on 10.9; advertise the standard types directly.
     // Backport: AVAssetMIMETypeCache is stubbed on 10.9; advertise the standard
     // container types AVFoundation has supported since 10.7.
     supportedTypes = {
@@ -2230,6 +2271,7 @@ MediaPlayer::SupportsType MediaPlayerPrivateAVFoundationObjC::supportsTypeAndCod
     if (!contentTypeMeetsContainerAndCodecTypeRequirements(parameters.type, parameters.allowedMediaContainerTypes, parameters.allowedMediaCodecTypes))
         return MediaPlayer::SupportsType::IsNotSupported;
 
+    // MAVERICKS_BACKPORT: AVAssetMIMETypeCache is stubbed on 10.9; consult the hardcoded type list.
     // Backport: AVAssetMIMETypeCache is stubbed on 10.9; consult our hardcoded
     // list (getSupportedTypes above) by type containment.
     HashSet<String> supportedTypes;
@@ -2257,6 +2299,7 @@ bool MediaPlayerPrivateAVFoundationObjC::supportsKeySystem(const String& keySyst
         if (!keySystemIsSupported(keySystem))
             return false;
 
+        // MAVERICKS_BACKPORT: AVAssetMIMETypeCache is stubbed on 10.9; supported-type check uses the local list.
         if (!mimeType.isEmpty()) {
             HashSet<String> supportedTypes;
             getSupportedTypes(supportedTypes);
@@ -2479,6 +2522,7 @@ void MediaPlayerPrivateAVFoundationObjC::updateIsAudible()
     if (!m_avPlayer)
         return;
 
+    // MAVERICKS_BACKPORT: _setSuppressesAudioRendering: guarded via respondsToSelector on 10.9.
     if (m_isVideoPlayer && [m_avPlayer respondsToSelector:@selector(_setSuppressesAudioRendering:)])
         [m_avPlayer _setSuppressesAudioRendering:!m_isAudible];
 
@@ -2842,12 +2886,15 @@ void MediaPlayerPrivateAVFoundationObjC::resolvedURLChanged()
 
 bool MediaPlayerPrivateAVFoundationObjC::didPassCORSAccessCheck() const
 {
+    // MAVERICKS_BACKPORT: WebCoreNSURLSession is stubbed on 10.9; assume no CORS pass.
     // Backport: WebCoreNSURLSession is stubbed on 10.9; assume no CORS pass.
     return false;
 }
 
+// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 std::optional<bool> MediaPlayerPrivateAVFoundationObjC::isCrossOrigin(const SecurityOrigin&) const
 {
+    // MAVERICKS_BACKPORT: WebCoreNSURLSession is stubbed on 10.9; cross-origin determination unavailable.
     // Backport: WebCoreNSURLSession is stubbed on 10.9.
     return std::nullopt;
 }
@@ -3371,6 +3418,7 @@ void MediaPlayerPrivateAVFoundationObjC::processMediaSelectionOptions()
     processNewAndRemovedTextTracks(removedTextTracks);
 }
 
+// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 #if ENABLE(DATACUE_VALUE)
 void MediaPlayerPrivateAVFoundationObjC::processMetadataTrack()
 {
@@ -3383,6 +3431,7 @@ void MediaPlayerPrivateAVFoundationObjC::processMetadataTrack()
     if (auto player = this->player())
         player->addTextTrack(metadataTrack);
 }
+// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 #endif
 
 void MediaPlayerPrivateAVFoundationObjC::processCue(NSArray *attributedStrings, NSArray *nativeSamples, const MediaTime& time)
@@ -3483,6 +3532,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     }
 
     AVAssetTrack *track = [tracks objectAtIndex:0];
+    // MAVERICKS_BACKPORT: AVTrackPrivateAVFObjCImpl is stubbed on 10.9; derive language directly from the track.
     // Backport: AVTrackPrivateAVFObjCImpl is stubbed on 10.9; derive language directly from track.
     if (id locale = [track respondsToSelector:@selector(languageCode)] ? [track languageCode] : nil)
         m_languageOfPrimaryAudioTrack = String((NSString *)locale);
@@ -3815,6 +3865,7 @@ void MediaPlayerPrivateAVFoundationObjC::loadedTimeRangesDidChange(RetainPtr<NSA
     for (NSValue *thisRangeValue in loadedRanges.get()) {
         CMTimeRange timeRange = [thisRangeValue CMTimeRangeValue];
         if (CMTIMERANGE_IS_VALID(timeRange) && !CMTIMERANGE_IS_EMPTY(timeRange))
+            // MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
             m_buffered.add(PAL::toMediaTime(timeRange.start), PAL::toMediaTime(CMTimeRangeGetEnd(timeRange)));
     }
 
@@ -3976,6 +4027,7 @@ void MediaPlayerPrivateAVFoundationObjC::metadataDidArrive(const RetainPtr<NSArr
 
         MediaTime end = MediaTime::positiveInfiniteTime();
         auto duration = item.duration;
+        // MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
         if (CMTIME_IS_VALID(duration) && CMTimeGetSeconds(duration) > 0.001)
             end = start + PAL::toMediaTime(duration);
 
@@ -4175,6 +4227,7 @@ ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
     id<WebAVVideoPerformanceMetrics> metricsSPI = (id<WebAVVideoPerformanceMetrics>)metrics;
 
     return VideoPlaybackQualityMetrics {
+        // MAVERICKS_BACKPORT: video performance metrics read via the 10.9-available WebAVVideoPerformanceMetrics SPI accessors.
         static_cast<uint32_t>([metricsSPI totalNumberOfVideoFrames]),
         static_cast<uint32_t>([metricsSPI numberOfDroppedVideoFrames]),
         static_cast<uint32_t>([metricsSPI numberOfCorruptedVideoFrames]),
@@ -4220,6 +4273,7 @@ void MediaPlayerPrivateAVFoundationObjC::setShouldObserveTimeControlStatus(bool 
     if (shouldObserve == m_shouldObserveTimeControlStatus)
         return;
 
+    // MAVERICKS_BACKPORT: timeControlStatus is 10.12+; bail out when unsupported.
     // Backport: timeControlStatus is 10.12+; bail out if not supported.
     if (![m_avPlayer respondsToSelector:@selector(timeControlStatus)])
         return;
@@ -4463,6 +4517,7 @@ void MediaPlayerPrivateAVFoundationObjC::setParticipatesInAudioSession(bool part
 
 NSArray* assetMetadataKeyNames()
 {
+    // MAVERICKS_BACKPORT: restrict to asset metadata keys present on 10.9 to avoid statusOfValueForKey: throwing.
     // Backport: only keys present on 10.9 AVAsset to avoid statusOfValueForKey: throws.
     static NSArray* keys = [[NSArray alloc] initWithObjects:
         @"duration",

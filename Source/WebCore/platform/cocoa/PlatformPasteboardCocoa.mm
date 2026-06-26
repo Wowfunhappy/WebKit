@@ -77,6 +77,8 @@ String PlatformPasteboard::urlStringSuitableForLoading(String& title)
 #if PLATFORM(IOS_FAMILY)
     UNUSED_PARAM(title);
 #endif
+    // MAVERICKS_BACKPORT: UTTypeURL/UTTypeText (UniformTypeIdentifiers) are macOS 11+; use the legacy
+    // NSPasteboard type singletons on all platforms here on 10.9.
     String urlPasteboardType = legacyURLPasteboardTypeSingleton();
     String stringPasteboardType = legacyStringPasteboardTypeSingleton();
 

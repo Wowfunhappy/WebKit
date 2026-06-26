@@ -26,9 +26,9 @@
 #include "config.h"
 #include "WebProcess.h"
 
-#include <wtf/MachSendRight.h>
+#include <wtf/MachSendRight.h> // MAVERICKS_BACKPORT: explicit include (not transitively available with -fno-modules)
 #include "APIFrameHandle.h"
-#include "APIPageGroupHandle.h"
+#include "APIPageGroupHandle.h" // MAVERICKS_BACKPORT: page-group handles travel through the legacy C API (Safari 7)
 #include "APIPageHandle.h"
 #include "AudioMediaStreamTrackRendererInternalUnitManager.h"
 #include "AuxiliaryProcessMessages.h"
@@ -68,7 +68,7 @@
 #include "WebIDBConnectionToServer.h"
 #include "WebLoaderStrategy.h"
 #include "WebMediaKeyStorageManager.h"
-#include "WK109PageGroupUserContent.h"
+#include "WK109PageGroupUserContent.h" // MAVERICKS_BACKPORT: legacy page-group user-content application (Safari 7 extension content scripts)
 #include "WebMemorySampler.h"
 #include "WebMessagePortChannelProvider.h"
 #include "WebNotificationManager.h"
@@ -85,6 +85,7 @@
 #include "WebProcessDataStoreParameters.h"
 #include "WebProcessMessages.h"
 #include "WebProcessProxyMessages.h"
+// MAVERICKS_BACKPORT: 10.9 build divergence (placeholder guard block; no display-link include needed here).
 #if HAVE(DISPLAY_LINK)
 #endif
 #include "WebResourceLoadObserver.h"
@@ -158,10 +159,10 @@
 #include <wtf/CallbackAggregator.h>
 #include <wtf/CoroutineUtilities.h>
 #include <wtf/DateMath.h>
-#include <wtf/FastMalloc.h>
+#include <wtf/FastMalloc.h> // MAVERICKS_BACKPORT: releaseFastMallocFreeMemory() for the 10.9 background memory scavenger
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
-#include <wtf/Threading.h>
+#include <wtf/Threading.h> // MAVERICKS_BACKPORT: Thread::create for the 10.9 background memory scavenger
 #include <wtf/RunLoop.h>
 #include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/SystemTracing.h>
@@ -432,9 +433,13 @@ void WebProcess::initializeProcess(const AuxiliaryProcessInitializationParameter
     m_isLockdownModeEnabled = parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("enable-lockdown-mode"_s) == "1"_s;
     m_isEnhancedSecurityEnabled = parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("enable-enhanced-security"_s) == "1"_s;
 
+    // MAVERICKS_BACKPORT: skip setProcessPrivileges({ }) — dropping privileges here interferes with the
+    // 10.9 in-process service model (no GPU/sandboxed split for these capabilities on this port).
     // WTF::setProcessPrivileges({ });
 
     {
+        // MAVERICKS_BACKPORT: leave JSC non-SP-tagging / pointer-tagging options at their defaults; the
+        // disable path here is not needed and the AllowUnfinalizedAccessScope dance is unnecessary on 10.9.
         // JSC::Options::AllowUnfinalizedAccessScope scope;
         // JSC::Options::allowNonSPTagging() = false;
         // JSC::Options::notifyOptionsChanged();
@@ -444,7 +449,7 @@ void WebProcess::initializeProcess(const AuxiliaryProcessInitializationParameter
     // functional NetworkProcess (WebMessagePortChannelProvider -> ensureNetworkProcessConnection
     // -> NetworkConnectionToWebProcess CreateNewMessagePortChannel / EntangleLocalPortInThisProcessToRemote / TakeAllMessagesForPort).
     MessagePortChannelProvider::setSharedProvider(WebMessagePortChannelProvider::singleton());
-
+    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace).
     platformInitializeProcess(parameters);
     updateCPULimit();
 }
@@ -740,6 +745,8 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
     for (auto& scheme : parameters.urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest)
         registerURLSchemeAsCanDisplayOnlyIfCanRequest(scheme);
 
+    // MAVERICKS_BACKPORT: track app-registered custom-protocol schemes (e.g. safari-reader://) so
+    // canHandleRequest accepts them — they're served by the NetworkProcess's LegacyCustomProtocolManager.
     for (auto& scheme : parameters.urlSchemesRegisteredForCustomProtocols)
         registerURLSchemeForCustomProtocol(scheme);
 
@@ -1121,6 +1128,7 @@ WebPage* WebProcess::webPage(PageIdentifier pageID) const
     return m_pageMap.get(pageID);
 }
 
+// MAVERICKS_BACKPORT: restored helper to iterate all WebPages (used by legacy page-group user-content application).
 void WebProcess::forEachWebPage(NOESCAPE const Function<void(WebPage&)>& apply) const
 {
     for (auto& page : copyToVector(m_pageMap.values()))
@@ -1129,7 +1137,7 @@ void WebProcess::forEachWebPage(NOESCAPE const Function<void(WebPage&)>& apply) 
 
 void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 {
-    // 10.9 perf: removed debug fopen logging
+    // MAVERICKS_BACKPORT: 10.9 perf — no debug fopen logging on page creation.
     m_hasEverHadAnyWebPages = true;
 
     auto addResult = m_pageMap.ensure(pageID, [&] {
@@ -1216,7 +1224,7 @@ void WebProcess::terminate()
 
 bool WebProcess::dispatchMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    // 10.9 perf: removed debug fopen logging
+    // MAVERICKS_BACKPORT: 10.9 perf — no debug fopen logging on this hot IPC path.
     if (decoder.messageReceiverName() == Messages::WebFrame::messageReceiverName()) {
         if (RefPtr frame = FrameIdentifier::isValidIdentifier(decoder.destinationID()) ? webFrame(FrameIdentifier(decoder.destinationID())) : nullptr)
             frame->didReceiveMessage(connection, decoder);
@@ -1542,7 +1550,7 @@ NetworkProcessConnection& WebProcess::ensureNetworkProcessConnection()
         if (std::exchange(m_needsIDBConnectionRefreshForWorkers, false))
             refreshIDBConnectionForWorkers();
     }
-
+    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace).
     return *m_networkProcessConnection;
 }
 
@@ -1709,6 +1717,7 @@ void WebProcess::gpuProcessConnectionDidBecomeUnresponsive()
     protect(parentProcessConnection())->send(Messages::WebProcessProxy::GPUProcessConnectionDidBecomeUnresponsive(m_gpuProcessConnection->identifier()), 0);
 }
 
+// MAVERICKS_BACKPORT: also gate on ENABLE(GPU_PROCESS) — libWebRTC HW codecs run via the GPU process, which is off here.
 #if PLATFORM(COCOA) && USE(LIBWEBRTC) && ENABLE(GPU_PROCESS)
 LibWebRTCCodecs& WebProcess::libWebRTCCodecs()
 {
@@ -2240,6 +2249,7 @@ RefPtr<API::Object> WebProcess::transformHandlesToObjects(API::Object* object)
             case API::Object::Type::PageHandle:
                 return WebProcess::singleton().webPage(downcast<const API::PageHandle>(object).webPageID());
 
+            // MAVERICKS_BACKPORT: resolve page-group handles to this process's WebPageGroupProxy (Safari 7).
             case API::Object::Type::PageGroupHandle:
                 return &WebProcess::singleton().webPageGroup(WebPageGroupData { downcast<const API::PageGroupHandle>(object).pageGroupData() });
 
@@ -2278,6 +2288,7 @@ RefPtr<API::Object> WebProcess::transformObjectsToHandles(API::Object* object)
             case API::Object::Type::BundlePage:
                 return API::PageHandle::createAutoconverting(downcast<const WebPage>(object).webPageProxyIdentifier(), downcast<const WebPage>(object).identifier());
 
+            // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7).
             case API::Object::Type::BundlePageGroup:
                 return API::PageGroupHandle::create(WebPageGroupData { downcast<const WebPageGroupProxy>(object).data() });
 
@@ -2535,7 +2546,7 @@ void WebProcess::setAppBadge(WebCore::Frame* frame, const WebCore::SecurityOrigi
 void WebProcess::displayDidRefresh(uint32_t displayID, const DisplayUpdate& displayUpdate)
 {
     ASSERT(RunLoop::isMain());
-
+    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace).
     protect(eventDispatcher())->notifyScrollingTreesDisplayDidRefresh(displayID);
     DisplayRefreshMonitorManager::sharedManager().displayDidRefresh(displayID, displayUpdate);
 }

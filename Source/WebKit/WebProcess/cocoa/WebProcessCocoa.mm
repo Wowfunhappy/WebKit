@@ -133,6 +133,7 @@
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/cocoa/VectorCocoa.h>
 
+// MAVERICKS_BACKPORT: WebCrypto is backed by libgcrypt on this build; pull in its initialization header.
 #if USE(GCRYPT)
 #include <pal/crypto/gcrypt/Initialization.h>
 #endif
@@ -339,6 +340,7 @@ enum class VideoDecoderBehavior : uint8_t {
 
 static void setVideoDecoderBehaviors(OptionSet<VideoDecoderBehavior> videoDecoderBehavior)
 {
+    // MAVERICKS_BACKPORT: VideoToolbox VTRestrictVideoDecoders soft-link is unavailable on 10.9; force the early return so decoder restrictions are never applied.
     if (!(false && false))
         return;
 
@@ -352,11 +354,13 @@ static void setVideoDecoderBehaviors(OptionSet<VideoDecoderBehavior> videoDecode
 
     if (videoDecoderBehavior.contains(VideoDecoderBehavior::EnableHEIC)) {
         allowedCodecTypeList.append(kCMVideoCodecType_HEVC);
+        // MAVERICKS_BACKPORT: kCMVideoCodecType_HEVCWithAlpha is absent on 10.9 CoreMedia; append a placeholder (this list is never applied — see the disabled guard above).
         allowedCodecTypeList.append(0);
     }
 
 #if HAVE(AVIF)
     if (videoDecoderBehavior.contains(VideoDecoderBehavior::EnableAVIF))
+        // MAVERICKS_BACKPORT: kCMVideoCodecType_AV1 is absent on 10.9 CoreMedia; append a placeholder (this list is never applied — see the disabled guard above).
         allowedCodecTypeList.append(0);
 #endif
 
@@ -372,6 +376,9 @@ static void setVideoDecoderBehaviors(OptionSet<VideoDecoderBehavior> videoDecode
     flags |= kVTRestrictions_RegisterLimitedSystemDecodersWithoutValidation;
 #endif
 
+    // MAVERICKS_BACKPORT: upstream applies the computed restrictions here via
+    // PAL::softLinkVideoToolboxVTRestrictVideoDecoders(flags, ...). That VideoToolbox SPI is absent on
+    // 10.9 (and the function early-returns above), so the call is omitted entirely.
 }
 
 void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)
@@ -976,7 +983,7 @@ void WebProcess::initializeLogForwarding(const WebProcessCreationParameters& par
 #endif
 
 void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationParameters& parameters)
-
+// MAVERICKS_BACKPORT: 10.9 build divergence (stray blank line; see WindowServer-connection note below).
 {
     WebCore::PublicSuffixStore::singleton().enablePublicSuffixCache();
 
@@ -1064,6 +1071,7 @@ void WebProcess::initializeSandbox(const AuxiliaryProcessInitializationParameter
     registerVorbisDecoderIfNeeded();
 #endif
 
+    // MAVERICKS_BACKPORT: locate the WebKit framework bundle via the legacy WKView class (WKWebView is absent on this build's WK2 driver) to resolve the sandbox profile path.
     auto webKitBundle = [NSBundle bundleForClass:NSClassFromString(@"WKView")];
 
     sandboxParameters.setOverrideSandboxProfilePath(makeString(String([webKitBundle resourcePath]), "/com.apple.WebProcess.sb"_s));
@@ -1207,6 +1215,7 @@ void WebProcess::destroyRenderingResources()
 #if !RELEASE_LOG_DISABLED
     MonotonicTime startTime = MonotonicTime::now();
 #endif
+    // MAVERICKS_BACKPORT: CABackingStoreCollectBlocking() is a 10.10+ QuartzCore SPI absent on 10.9; no-op the backing-store reclaim.
     (void)0;
 #if !RELEASE_LOG_DISABLED
     MonotonicTime endTime = MonotonicTime::now();
@@ -1436,6 +1445,7 @@ void WebProcess::dispatchSimulatedNotificationsForPreferenceChange(const String&
         [notificationCenter postNotificationName:NSSystemColorsDidChangeNotification object:nil];
     } else if (key == increaseContrastPreferenceKey()) {
         RetainPtr notificationCenter = [[NSWorkspace sharedWorkspace] notificationCenter];
+        // MAVERICKS_BACKPORT: NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification is a 10.10+ symbol absent on 10.9; use its string value directly.
         [notificationCenter postNotificationName:@"NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification" object:nil];
     }
 #endif
@@ -1528,8 +1538,8 @@ void WebProcess::setScreenProperties(const WebCore::ScreenProperties& properties
 #if PLATFORM(MAC)
 void WebProcess::updatePageScreenProperties()
 {
-// WebCore::setShouldOverrideScreenSupportsHighDynamicRange is undefined on 10.9 (no HDR-display
-// support), so this MediaToolbox HDR-override fallback is gated to the platforms that provide it.
+// MAVERICKS_BACKPORT: WebCore::setShouldOverrideScreenSupportsHighDynamicRange is undefined on 10.9
+// (no HDR-display support), so this MediaToolbox HDR-override fallback is gated to platforms that provide it.
 #if !HAVE(AVPLAYER_VIDEORANGEOVERRIDE) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
     // Only override HDR support at the MediaToolbox level if AVPlayer.videoRangeOverride support is
     // not present, as the MediaToolbox override functionality is both duplicative and process global.
@@ -1539,7 +1549,7 @@ void WebProcess::updatePageScreenProperties()
     }
 
     bool allPagesAreOnHDRScreens = std::ranges::all_of(m_pageMap.values(), [](auto& page) {
-        // m_pageMap holds Ref<WebPage> (never null); no bool-check on the Ref.
+        // MAVERICKS_BACKPORT: m_pageMap holds Ref<WebPage> (never null); no bool-check on the Ref.
         return screenSupportsHighDynamicRange(page->localMainFrameView());
     });
     setShouldOverrideScreenSupportsHighDynamicRange(true, allPagesAreOnHDRScreens);
@@ -1707,6 +1717,7 @@ void WebProcess::registerAdditionalFonts(AdditionalFonts&& fonts)
         return true;
     });
 
+    // MAVERICKS_BACKPORT: CTFontManagerRegisterFontURLs (block-callback overload) is absent on 10.9; additional web fonts are not registered process-wide.
 //    CTFontManagerRegisterFontURLs((__bridge CFArrayRef)fontURLs.get(), kCTFontManagerScopeProcess, true, blockPtr.get());
 }
 

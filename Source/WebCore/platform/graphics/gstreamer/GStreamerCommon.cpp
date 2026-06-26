@@ -82,6 +82,7 @@
 #include "WebKitMediaSourceGStreamer.h"
 #endif
 
+// MAVERICKS_BACKPORT: gate the GStreamer MediaStream capture headers on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 #include "GStreamerCaptureDeviceManager.h"
 #include "GStreamerMediaStreamSource.h"
@@ -556,6 +557,7 @@ void registerWebKitGStreamerElements()
         }
 #endif
 
+        // MAVERICKS_BACKPORT: gate the GStreamer MediaStream src element on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
         gst_element_register(nullptr, "mediastreamsrc", GST_RANK_PRIMARY, WEBKIT_TYPE_MEDIA_STREAM_SRC);
 #endif
@@ -734,6 +736,7 @@ void deinitializeGStreamer()
     if (auto* sharedDisplay = PlatformDisplay::sharedDisplayIfExists())
         sharedDisplay->clearGStreamerGLState();
 #endif
+// MAVERICKS_BACKPORT: gate the GStreamer MediaStream capture path on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     teardownGStreamerCaptureDeviceManagers();
 #endif
@@ -1065,6 +1068,7 @@ void disconnectSimpleBusMessageCallback(GstElement* pipeline)
     g_signal_handler_disconnect(bus.get(), handler);
     gst_bus_remove_signal_watch(bus.get());
     g_object_set_qdata(G_OBJECT(pipeline), customMessageHandlerQuark(), nullptr);
+// MAVERICKS_BACKPORT: end of the #if PLATFORM(COCOA) qdata-GDestroyNotify teardown split (upstream #else branch).
 #endif
 }
 
@@ -1220,6 +1224,7 @@ void connectSimpleBusMessageCallback(GstElement* pipeline, Function<void(GstMess
         destroyMessageBusData(reinterpret_cast<MessageBusData*>(data));
     }), static_cast<GConnectFlags>(0));
     g_object_set_qdata(G_OBJECT(pipeline), customMessageHandlerQuark(), GUINT_TO_POINTER(handler));
+// MAVERICKS_BACKPORT: end of the #if PLATFORM(COCOA) CFRunLoopSource bus-drain split (upstream #else branch).
 #endif
 }
 

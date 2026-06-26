@@ -300,6 +300,7 @@ static void showGlyphsWithAdvances(const FloatPoint& point, const Font& font, CG
 
         auto ascentDelta = font.fontMetrics().ascent(FontBaseline::Ideographic) - font.fontMetrics().ascent();
         fillVectorWithVerticalGlyphPositions(positions, translations, advances, point, ascentDelta, CGContextGetTextMatrix(context));
+        // MAVERICKS_BACKPORT: fall back to path fill when CTFontDrawGlyphs would drop text in a PDF transparency layer.
         if (emitGlyphsAsPaths)
             fillGlyphsAsPaths(context, ctFont.get(), glyphs, positions.span());
         else
@@ -307,6 +308,7 @@ static void showGlyphsWithAdvances(const FloatPoint& point, const Font& font, CG
     } else {
         fillVectorWithHorizontalGlyphPositions(positions, context, advances, point);
         RetainPtr ctFont = platformData.ctFont();
+        // MAVERICKS_BACKPORT: fall back to path fill when CTFontDrawGlyphs would drop text in a PDF transparency layer.
         if (emitGlyphsAsPaths)
             fillGlyphsAsPaths(context, ctFont.get(), glyphs, positions.span());
         else
@@ -409,16 +411,20 @@ void FontCascade::drawGlyphs(GraphicsContext& context, const Font& font, std::sp
         Color shadowFillColor = shadow->color.colorWithAlphaMultipliedBy(fillColor.alphaAsFloat());
         context.setFillColor(shadowFillColor);
         auto shadowTextOffset = point + context.platformShadowOffset(shadow->offset);
+        // MAVERICKS_BACKPORT: pass emitGlyphsAsPaths so PDF-in-transparency-layer text falls back to path fill.
         showGlyphsWithAdvances(shadowTextOffset, font, cgContext.get(), glyphs, advances, textMatrix, emitGlyphsAsPaths);
         if (syntheticBoldOffset) {
             shadowTextOffset.move(syntheticBoldOffset, 0);
+            // MAVERICKS_BACKPORT: pass emitGlyphsAsPaths so PDF-in-transparency-layer text falls back to path fill.
             showGlyphsWithAdvances(shadowTextOffset, font, cgContext.get(), glyphs, advances, textMatrix, emitGlyphsAsPaths);
         }
         context.setFillColor(fillColor);
     }
 
+    // MAVERICKS_BACKPORT: pass emitGlyphsAsPaths so PDF-in-transparency-layer text falls back to path fill.
     showGlyphsWithAdvances(point, font, cgContext.get(), glyphs, advances, textMatrix, emitGlyphsAsPaths);
 
+    // MAVERICKS_BACKPORT: pass emitGlyphsAsPaths so PDF-in-transparency-layer text falls back to path fill.
     if (syntheticBoldOffset)
         showGlyphsWithAdvances(FloatPoint(point.x() + syntheticBoldOffset, point.y()), font, cgContext.get(), glyphs, advances, textMatrix, emitGlyphsAsPaths);
 

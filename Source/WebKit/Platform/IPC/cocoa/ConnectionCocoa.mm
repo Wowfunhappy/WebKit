@@ -144,6 +144,7 @@ void Connection::cancelReceiveSource()
 {
     dispatch_source_cancel(m_receiveSource.get());
     m_receiveSource = nullptr;
+    // MAVERICKS_BACKPORT: also tear down the receive-poll safety-net timer (the 10.9 MACH_RECV re-fire fallback).
     if (m_receivePollTimer) {
         dispatch_source_cancel(m_receivePollTimer.get());
         m_receivePollTimer = nullptr;
@@ -187,7 +188,7 @@ void Connection::platformOpen()
 #endif
 
 #if PLATFORM(MAC)
-    // MACH_PORT_DENAP_RECEIVER not on 10.9
+    // MAVERICKS_BACKPORT: MACH_PORT_DENAP_RECEIVER is unavailable on 10.9, so no de-nap attribute is set on the receive port.
 #endif
 
         m_isConnected = true;
@@ -256,6 +257,7 @@ void Connection::platformOpen()
 
     m_connectionQueue->dispatch([strongRef = Ref { *this }, this] {
         dispatch_resume(m_receiveSource.get());
+        // MAVERICKS_BACKPORT: also resume the 10.9 receive-poll safety-net timer set up above.
         dispatch_resume(m_receivePollTimer.get());
     });
 
@@ -655,6 +657,7 @@ static mach_msg_header_t* readFromMachPort(mach_port_t machPort, ReceiveBuffer& 
     buffer.resize(receiveBufferSize);
 
     auto* header = &reinterpretCastSpanStartTo<mach_msg_header_t>(buffer.mutableSpan());
+    // MAVERICKS_BACKPORT: MACH_RCV_VOUCHER is unavailable on 10.9; receive without the voucher flag.
     kern_return_t kr = mach_msg(header, MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT , 0, buffer.size(), machPort, 0, MACH_PORT_NULL);
     if (kr == MACH_RCV_TIMED_OUT)
         return nullptr;
@@ -667,6 +670,7 @@ static mach_msg_header_t* readFromMachPort(mach_port_t machPort, ReceiveBuffer& 
         buffer.resize(newBufferSize);
         header = &reinterpretCastSpanStartTo<mach_msg_header_t>(buffer.mutableSpan());
 
+        // MAVERICKS_BACKPORT: MACH_RCV_VOUCHER is unavailable on 10.9; retry the receive without the voucher flag.
         kr = mach_msg(header, MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT , 0, buffer.size(), machPort, 0, MACH_PORT_NULL);
         ASSERT(kr != MACH_RCV_TOO_LARGE);
     }
@@ -723,10 +727,12 @@ void Connection::receiveSourceEventHandler()
 
     case MACH_NOTIFY_SEND_ONCE:
     default:
+        // MAVERICKS_BACKPORT: continue draining the receive port (was return) for the 10.9 drain loop.
         continue;
     }
 
     std::unique_ptr<Decoder> decoder = createMessageDecoder(header, buffer.mutableSpan());
+    // MAVERICKS_BACKPORT: continue draining the receive port (was return) for the 10.9 drain loop.
     if (!decoder)
         continue;
 
@@ -759,10 +765,12 @@ void Connection::receiveSourceEventHandler()
             // Do not initialize the send source, as there is nobody to send to.
             // Keep the receive source, so that we receive the sent messages and then
             // the NO_SENDERS notification.
+            // MAVERICKS_BACKPORT: continue draining the receive port (was return) for the 10.9 drain loop.
             continue;
         }
         m_sendPort = sendRight->leakSendRight();
         initializeSendSource();
+        // MAVERICKS_BACKPORT: continue draining the receive port (was return) for the 10.9 drain loop.
         continue;
     }
 

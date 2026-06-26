@@ -33,6 +33,7 @@
 #import "RemoteLayerTreeDrawingAreaProxy.h"
 #import "RemoteLayerTreePropertyApplier.h"
 #import "RemoteLayerTreeTransaction.h"
+// MAVERICKS_BACKPORT: VideoPresentationManagerProxy is disabled on 10.9, so its header is not imported.
 // [10.9] #import "VideoPresentationManagerProxy.h"
 #import "WKAnimationDelegate.h"
 #import "WebPageProxy.h"
@@ -242,6 +243,7 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
             REMOTE_LAYER_TREE_HOST_RELEASE_LOG("%p RemoteLayerTreeHost::updateLayerTree - failed to find layer with ID %llu", this, layerID.object().toUInt64());
             continue;
         }
+        // MAVERICKS_BACKPORT: 10.9 build divergence (blank line removed here).
         if (properties.changedProperties.contains(LayerChange::ClonedContentsChanged) && properties.clonedLayerID)
             clonesToUpdate.append({ layerID, *properties.clonedLayerID });
 
@@ -279,6 +281,7 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
         RefPtr node = nodeForID(newlyUnreachableLayerID);
         ASSERT(node);
         if (node) {
+            // MAVERICKS_BACKPORT: CATransformLayer has no -setContents: on 10.9; guard so clearing contents doesn't raise an unrecognized-selector exception.
             RetainPtr l = protect(node->layer());
             if ([l respondsToSelector:@selector(setContents:)])
                 l.get().contents = nullptr;
@@ -346,6 +349,7 @@ void RemoteLayerTreeHost::layerWillBeRemoved(WebCore::ProcessIdentifier processI
     auto videoLayerIter = m_videoLayers.find(layerID);
     if (videoLayerIter != m_videoLayers.end()) {
         RefPtr page = drawingArea().page();
+        // MAVERICKS_BACKPORT: VideoPresentationManagerProxy is disabled on 10.9; just drop the tracked video layer without notifying it.
 // [10.9]         if (RefPtr videoManager = page ? (WebKit::VideoPresentationManagerProxy*)nullptr : nullptr)
 // [10.9]             videoManager->willRemoveLayerForID(videoLayerIter->value);
         m_videoLayers.remove(videoLayerIter);
@@ -497,6 +501,7 @@ RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeT
         return makeWithLayer(adoptNS([[CATransformLayer alloc] init]));
 
     case PlatformCALayer::LayerType::LayerTypeBackdropLayer:
+        // MAVERICKS_BACKPORT: CABackdropLayer may be unavailable on 10.9; look it up by name and fall back to a plain CALayer.
         return makeWithLayer(adoptNS([(NSClassFromString(@"CABackdropLayer") ?: [CALayer class]) new]));
 
 #if HAVE(CORE_MATERIAL)
@@ -521,6 +526,7 @@ RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeT
 #if HAVE(AVKIT)
         if (properties.videoElementData) {
             RefPtr page = drawingArea().page();
+            // MAVERICKS_BACKPORT: VideoPresentationManagerProxy-backed video layer creation is disabled on 10.9; fall through to a plain hosted render layer below.
 // [10.9]             if (RefPtr videoManager = page ? (WebKit::VideoPresentationManagerProxy*)nullptr : nullptr) {
 // [10.9]                 m_videoLayers.add(*properties.layerID, properties.videoElementData->playerIdentifier);
 // [10.9]                 return makeWithLayer(videoManager->createLayerWithID(properties.videoElementData->playerIdentifier, { properties.hostingContextID() }, properties.videoElementData->initialSize, properties.videoElementData->naturalSize, properties.hostingDeviceScaleFactor()));

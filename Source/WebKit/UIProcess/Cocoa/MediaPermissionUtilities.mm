@@ -247,7 +247,7 @@ void requestAVCaptureAccessForType(MediaPermissionType type, CompletionHandler<v
     // (and on this VM resolves to a denying status), so report access as granted; app-level consent is
     // handled by the WKPageUIClient auto-grant.
     UNUSED_PARAM(type);
-    completionHandler(true);
+    completionHandler(true); // MAVERICKS_BACKPORT: no TCC on 10.9; report capture access granted.
 }
 
 MediaPermissionResult checkAVCaptureAccessForType(MediaPermissionType type)
@@ -258,7 +258,7 @@ MediaPermissionResult checkAVCaptureAccessForType(MediaPermissionType type)
     // NotAllowedError (reason=PermissionDenied at requestSystemValidation). Report Granted unconditionally so
     // capture is reachable and the request proceeds to the auto-grant.
     UNUSED_PARAM(type);
-    return MediaPermissionResult::Granted;
+    return MediaPermissionResult::Granted; // MAVERICKS_BACKPORT: no TCC on 10.9; report capture access granted.
 }
 
 #if HAVE(SPEECHRECOGNIZER)

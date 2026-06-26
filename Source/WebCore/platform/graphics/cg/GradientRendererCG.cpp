@@ -405,6 +405,7 @@ void GradientRendererCG::drawConicGradient(CGContextRef platformContext, CGPoint
             CGContextDrawShading(platformContext, adoptCF(CGShadingCreateConic(shading.colorSpace.get(), center, angle, shading.function.get())).get());
         }
     );
+// MAVERICKS_BACKPORT: closes the MIN_REQUIRED < 101200 manual conic-gradient fallback (CGContextDrawConicGradient/CGShadingCreateConic are 10.12+).
 #endif
 }
 

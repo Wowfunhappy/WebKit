@@ -33,6 +33,7 @@
 #import "InteractionInformationAtPosition.h"
 #import "LoadParameters.h"
 #import "MessageSenderInlines.h"
+// MAVERICKS_BACKPORT: PDF_PLUGIN is disabled on this port (PDFs download instead of rendering inline); only import PDFPlugin.h when it is enabled.
 #if ENABLE(PDF_PLUGIN)
 #import "PDFPlugin.h"
 #endif
@@ -152,6 +153,7 @@
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/cf/VectorCF.h>
 #import <wtf/cocoa/SpanCocoa.h>
+// MAVERICKS_BACKPORT: makeVector/createNSArray helpers from VectorCocoa.h are needed by the 10.9 code paths in this file.
 #import <wtf/cocoa/VectorCocoa.h>
 #import <wtf/spi/darwin/SandboxSPI.h>
 #import <wtf/text/StringToIntegerConversion.h>
@@ -223,6 +225,7 @@ void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
     platformInitializeAccessibility(shouldInitializeAccessibility ? ShouldInitializeNSAccessibility::Yes : ShouldInitializeNSAccessibility::No);
 
 #if ENABLE(MEDIA_STREAM)
+// MAVERICKS_BACKPORT: GPU process is disabled here; the #else branch routes capture entirely in-process (see the detailed note below).
 #if ENABLE(GPU_PROCESS)
     protect(WebProcess::singleton().userMediaCaptureManager())->setupCaptureProcesses(parameters.shouldCaptureAudioInUIProcess, parameters.shouldCaptureAudioInGPUProcess, parameters.shouldCaptureVideoInUIProcess, parameters.shouldCaptureVideoInGPUProcess, parameters.shouldCaptureDisplayInUIProcess, parameters.shouldCaptureDisplayInGPUProcess,
 #if ENABLE(WEB_RTC)
@@ -250,6 +253,7 @@ void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
     LibWebRTCCodecs::setWebRTCMediaPipelineAdditionalLoggingEnabled(m_page->settings().webRTCMediaPipelineAdditionalLoggingEnabled());
 #endif
 
+// MAVERICKS_BACKPORT: the eager CARenderServer/launchd-blocking handshake below uses 10.10+ APIs; gate it on the SDK so it is skipped on 10.9.
 #if PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
     // In order to be able to block launchd on macOS, we need to eagerly open up a connection to CARenderServer here.
     // This is because PDF rendering on macOS requires access to CARenderServer, unless unified PDF is enabled.
@@ -476,10 +480,11 @@ void WebPage::insertDictatedTextAsync(const String& text, const EditingRange& re
 void WebPage::addDictationAlternative(const String& text, DictationContext context, CompletionHandler<void(bool)>&& completion)
 {
     RefPtr frame = corePage()->focusController().focusedOrMainFrame();
+    // MAVERICKS_BACKPORT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
     if (!frame) {
         completion(false);
         return;
-    }
+    } // MAVERICKS_BACKPORT: braced early-out (added completion call above).
 
     RefPtr document = frame->document();
     if (!document) {
@@ -517,10 +522,11 @@ void WebPage::addDictationAlternative(const String& text, DictationContext conte
 void WebPage::dictationAlternativesAtSelection(CompletionHandler<void(Vector<DictationContext>&&)>&& completion)
 {
     RefPtr frame = corePage()->focusController().focusedOrMainFrame();
+    // MAVERICKS_BACKPORT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
     if (!frame) {
         completion({ });
         return;
-    }
+    } // MAVERICKS_BACKPORT: braced early-out (added completion call above).
 
     RefPtr document = frame->document();
     if (!document) {
@@ -1468,28 +1474,28 @@ void WebPage::createTextIndicatorForElementWithID(const String& elementID, Compl
     RefPtr frame = corePage()->focusController().focusedOrMainFrame();
     if (!frame) {
         ASSERT_NOT_REACHED();
-        completionHandler(nullptr);
+        completionHandler(nullptr); // MAVERICKS_BACKPORT: pass nullptr (not nil) to the RefPtr completion handler.
         return;
     }
 
     RefPtr document = frame->document();
     if (!document) {
         ASSERT_NOT_REACHED();
-        completionHandler(nullptr);
+        completionHandler(nullptr); // MAVERICKS_BACKPORT: pass nullptr (not nil) to the RefPtr completion handler.
         return;
     }
 
     RefPtr element = document->getElementById(elementID);
     if (!element) {
         ASSERT_NOT_REACHED();
-        completionHandler(nullptr);
+        completionHandler(nullptr); // MAVERICKS_BACKPORT: pass nullptr (not nil) to the RefPtr completion handler.
         return;
     }
 
     RefPtr styledElement = dynamicDowncast<StyledElement>(element.get());
     if (!styledElement) {
         ASSERT_NOT_REACHED();
-        completionHandler(nullptr);
+        completionHandler(nullptr); // MAVERICKS_BACKPORT: pass nullptr (not nil) to the RefPtr completion handler.
         return;
     }
 
@@ -1514,7 +1520,7 @@ void WebPage::createTextIndicatorForElementWithID(const String& elementID, Compl
 
     RefPtr textIndicator = WebCore::TextIndicator::createWithRange(elementRange, textIndicatorOptions, WebCore::TextIndicatorPresentationTransition::None, { });
     if (!textIndicator) {
-        completionHandler(nullptr);
+        completionHandler(nullptr); // MAVERICKS_BACKPORT: pass nullptr (not nil) to the RefPtr completion handler.
         return;
     }
 
@@ -1617,6 +1623,7 @@ static void drawPDFPage(PDFDocument *pdfDocument, CFIndex pageIndex, CGContextRe
         if (![[annotation valueForAnnotationKey:get_PDFKit_PDFAnnotationKeySubtypeSingleton()] isEqualToString:get_PDFKit_PDFAnnotationSubtypeLinkSingleton()])
             continue;
 
+        // MAVERICKS_BACKPORT: the PDFAnnotation.URL property is 10.13+; read it via KVC valueForKey:@"URL" which works on the 10.9 PDFKit.
         RetainPtr<NSURL> url = (NSURL *)[annotation valueForKey:@"URL"];
         if (!url)
             continue;
@@ -1799,6 +1806,7 @@ RetainPtr<PDFDocument> WebPage::pdfDocumentForPrintingFrame(LocalFrame* coreFram
 void WebPage::drawToPDF(const std::optional<FloatRect>& rect, bool allowTransparentBackground, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&& completionHandler)
 {
     RefPtr localMainFrame = this->localMainFrame();
+    // MAVERICKS_BACKPORT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
     if (!localMainFrame)
         return completionHandler(nullptr);
 
@@ -1806,6 +1814,7 @@ void WebPage::drawToPDF(const std::optional<FloatRect>& rect, bool allowTranspar
     auto snapshotRect = IntRect { rect.value_or(FloatRect { { }, frameView->contentsSize() }) };
 
     RefPtr buffer = ImageBuffer::create(snapshotRect.size(), RenderingMode::PDFDocument, RenderingPurpose::Snapshot, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+    // MAVERICKS_BACKPORT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
     if (!buffer)
         return completionHandler(nullptr);
 
@@ -1913,6 +1922,7 @@ void WebPage::drawPrintContextPagesToGraphicsContext(GraphicsContext& context, c
     }
 }
 
+// MAVERICKS_BACKPORT: the remote-snapshot print path depends on the GPU process; gate it out since GPU_PROCESS is disabled on this port.
 #if ENABLE(GPU_PROCESS)
 void WebPage::drawPrintingRectToSnapshot(RemoteSnapshotIdentifier snapshotIdentifier, WebCore::FrameIdentifier frameID, const PrintInfo& printInfo, const WebCore::IntRect& rect, const WebCore::IntSize& imageSize, CompletionHandler<void(bool)>&& completionHandler)
 {
@@ -2001,7 +2011,7 @@ void WebPage::drawPrintingPagesToSnapshot(RemoteSnapshotIdentifier snapshotIdent
     remoteRenderingBackend->sinkSnapshotRecorderIntoSnapshotFrame(WTF::move(m_remoteSnapshotState->recorder), frameID, Ref { m_remoteSnapshotState->callback }->chain());
     m_remoteSnapshotState = std::nullopt;
 }
-#endif // ENABLE(GPU_PROCESS)
+#endif // MAVERICKS_BACKPORT: ENABLE(GPU_PROCESS) — the remote-snapshot print path exists only with a GPU process, which is disabled here.
 
 void WebPage::handleAlternativeTextUIResult(const String& result)
 {
@@ -2140,6 +2150,7 @@ void WebPage::getSelectedRangeAsync(CompletionHandler<void(const EditingRange& s
 void WebPage::characterIndexForPointAsync(const WebCore::IntPoint& point, CompletionHandler<void(uint64_t)>&& completionHandler)
 {
     RefPtr localMainFrame = this->localMainFrame();
+    // MAVERICKS_BACKPORT: always invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
     if (!localMainFrame)
         return completionHandler({ });
     constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent,  HitTestRequest::Type::AllowChildFrameContent };

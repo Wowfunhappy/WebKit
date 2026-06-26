@@ -60,6 +60,7 @@ bool CompressionStream::initializeIfNecessary(Algorithm algorithm, Operation ope
         auto result = compression_stream_init(&m_stream, operation == Operation::Compression ? COMPRESSION_STREAM_ENCODE : COMPRESSION_STREAM_DECODE, COMPRESSION_BROTLI);
         if (result != COMPRESSION_STATUS_OK)
             return false;
+        // MAVERICKS_BACKPORT: COMPRESSION_BROTLI undeclared in the 10.9 polyfill header; take this branch (Brotli unsupported).
 #else
         return false;
 #endif

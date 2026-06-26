@@ -37,7 +37,7 @@
 #import "../mac/UTTypeIdentifiers.h"
 #else
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#endif
+#endif // MAVERICKS_BACKPORT: UTType header used only off-Mac; Mac uses the legacy CoreServices identifiers.
 #import <wtf/ListHashSet.h>
 #import <wtf/text/StringHash.h>
 
@@ -68,14 +68,17 @@ static ImageType cocoaTypeToImageType(const String& cocoaType)
     if (cocoaType == String(legacyTIFFPasteboardTypeSingleton()))
         return ImageType::TIFF;
 #endif
+    // MAVERICKS_BACKPORT: utType*Id() return legacy CoreServices kUTType* identifiers (UTType* are macOS 11+).
     if (cocoaType == String(utTypeTIFFId()))
         return ImageType::TIFF;
 #if PLATFORM(MAC)
     if (cocoaType == String(legacyPNGPasteboardTypeSingleton())) // NSPNGPboardType
         return ImageType::PNG;
 #endif
+    // MAVERICKS_BACKPORT: utType*Id() return legacy CoreServices kUTType* identifiers (UTType* are macOS 11+).
     if (cocoaType == String(utTypePNGId()))
         return ImageType::PNG;
+    // MAVERICKS_BACKPORT: utType*Id() return legacy CoreServices kUTType* identifiers (UTType* are macOS 11+).
     if (cocoaType == String(utTypeJPEGId()))
         return ImageType::JPEG;
     if (cocoaType == String(utTypeGIFId()))
@@ -168,6 +171,7 @@ Pasteboard::FileContentState Pasteboard::fileContentState()
             if (cocoaType == String(legacyURLPasteboardTypeSingleton()))
                 return true;
 #endif
+            // MAVERICKS_BACKPORT: utTypeURLId() returns the legacy CoreServices kUTTypeURL identifier (UTTypeURL is macOS 11+).
             return cocoaType == String(utTypeURLId());
         });
         mayContainFilePaths = indexOfURL != notFound && !platformStrategies()->pasteboardStrategy()->containsStringSafeForDOMToReadForType(cocoaTypes[indexOfURL], m_pasteboardName, context());

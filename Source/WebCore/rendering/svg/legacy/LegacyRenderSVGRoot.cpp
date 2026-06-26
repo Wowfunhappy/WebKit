@@ -26,6 +26,7 @@
 #include "LegacyRenderSVGRoot.h"
 
 #include "GraphicsContext.h"
+// MAVERICKS_BACKPORT: ImageBuffer needed for the keystone #56 rasterize-to-bitmap SVG icon fix in paintReplaced().
 #include "ImageBuffer.h"
 #include "HitTestResult.h"
 #include "LayoutRepainter.h"

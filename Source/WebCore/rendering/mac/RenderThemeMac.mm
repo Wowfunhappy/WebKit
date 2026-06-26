@@ -54,8 +54,10 @@
 #import "LocalFrameView.h"
 #import "LocalizedStrings.h"
 #import "Logging.h"
+// MAVERICKS_BACKPORT: extra includes for 10.9 control-theming helpers (Page, RenderProgress, UserAgentParts, BlockObjCExceptions).
 #import "Page.h"
 #import "PaintInfo.h"
+// MAVERICKS_BACKPORT: extra includes for 10.9 control-theming helpers (RenderProgress, UserAgentParts, BlockObjCExceptions).
 #import "RenderProgress.h"
 #import "UserAgentParts.h"
 #import <wtf/BlockObjCExceptions.h>
@@ -110,6 +112,7 @@
         return nil;
 
     RetainPtr systemColorsChangedNotification = NSSystemColorsDidChangeNotification;
+    // MAVERICKS_BACKPORT: no accessibility-display-options notification RetainPtr — that symbol is 10.10+ (see below).
 
     [[NSNotificationCenter defaultCenter] addObserver:self
         selector:@selector(systemColorsDidChange:) name:systemColorsChangedNotification.get() object:nil];
@@ -308,11 +311,14 @@ bool RenderThemeMac::supportsLargeFormControls() const
 // 10.9 is always light, non-system-appearance — hard-code the standard OS X 10.9 selection colors.
 Color RenderThemeMac::platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
 {
+    // MAVERICKS_BACKPORT: hard-code text-selection background (NSColor path returns black on 10.9).
     return SRGBA<uint8_t> { 166, 207, 252, 255 };
 }
 
+// MAVERICKS_BACKPORT: hard-code inactive text-selection background (NSColor path returns black on 10.9).
 Color RenderThemeMac::platformInactiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
 {
+    // MAVERICKS_BACKPORT: hard-code inactive text-selection background (NSColor path returns black on 10.9).
     return SRGBA<uint8_t> { 220, 220, 220, 255 };
 }
 
@@ -354,21 +360,28 @@ Color RenderThemeMac::platformInactiveSelectionForegroundColor(OptionSet<StyleCo
 // black on 10.9, same as the text-selection colors above).
 Color RenderThemeMac::platformActiveListBoxSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
 {
+    // MAVERICKS_BACKPORT: hard-code list-box selection background (NSColor path returns black on 10.9).
     return SRGBA<uint8_t> { 56, 117, 215, 255 };
 }
 
+// MAVERICKS_BACKPORT: hard-code list-box selection colors; options param unused (NSColor paths return black on 10.9).
 Color RenderThemeMac::platformInactiveListBoxSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
 {
+    // MAVERICKS_BACKPORT: hard-code list-box selection background (NSColor path returns black on 10.9).
     return SRGBA<uint8_t> { 220, 220, 220, 255 };
 }
 
+// MAVERICKS_BACKPORT: hard-code list-box selection colors; options param unused (NSColor paths return black on 10.9).
 Color RenderThemeMac::platformActiveListBoxSelectionForegroundColor(OptionSet<StyleColorOptions>) const
 {
+    // MAVERICKS_BACKPORT: hard-code list-box selection foreground (NSColor path returns black on 10.9).
     return Color::white;
 }
 
+// MAVERICKS_BACKPORT: hard-code list-box selection colors; options param unused (NSColor paths return black on 10.9).
 Color RenderThemeMac::platformInactiveListBoxSelectionForegroundColor(OptionSet<StyleColorOptions>) const
 {
+    // MAVERICKS_BACKPORT: hard-code list-box selection foreground (NSColor path returns black on 10.9).
     return Color::black;
 }
 
@@ -392,6 +405,7 @@ Color RenderThemeMac::platformFocusRingColor(OptionSet<StyleColorOptions> option
     return colorFromCocoaColor([NSColor keyboardFocusIndicatorColor]).opaqueColor();
 }
 
+// MAVERICKS_BACKPORT: behavior fix — -[NSColor findHighlightColor] returns black on 10.9; hard-code yellow (options unused).
 Color RenderThemeMac::platformTextSearchHighlightColor(OptionSet<StyleColorOptions>) const
 {
     // MAVERICKS_BACKPORT: behavior fix — -[NSColor findHighlightColor] returns black on 10.9; use the
@@ -795,6 +809,7 @@ bool RenderThemeMac::isControlStyled(const RenderStyle& style) const
     return RenderTheme::isControlStyled(style);
 }
 
+// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
 static FloatRect inflateRect(const FloatRect& rect, const IntSize& size, std::span<const int, 4> margins, float zoomLevel)
 {
     // Only do the inflation if the available width/height are too small. Otherwise try to
@@ -866,6 +881,7 @@ static Style::PreferredSizePair sizeFromFont(const FontCascade& font, const Styl
 
 // Popup button
 
+// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
 static std::span<const int, 4> popupButtonMargins(NSControlSize size)
 {
     static constexpr std::array margins {
@@ -877,6 +893,7 @@ static std::span<const int, 4> popupButtonMargins(NSControlSize size)
     return margins[size];
 }
 
+// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
 static std::span<const IntSize, 4> popupButtonSizes()
 {
     static constexpr std::array sizes {
@@ -888,6 +905,7 @@ static std::span<const IntSize, 4> popupButtonSizes()
     return sizes;
 }
 
+// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
 static std::span<const int, 4> popupButtonPadding(NSControlSize size, bool isRTL)
 {
     static constexpr std::array paddingLTR {
@@ -907,6 +925,7 @@ static std::span<const int, 4> popupButtonPadding(NSControlSize size, bool isRTL
 
 // Checkboxes and radio buttons
 
+// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
 static const std::span<const IntSize, 4> checkboxSizes()
 {
     static constexpr std::array sizes = {
@@ -918,6 +937,7 @@ static const std::span<const IntSize, 4> checkboxSizes()
     return sizes;
 }
 
+// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
 static std::span<const int, 4> checkboxMargins(NSControlSize controlSize)
 {
     static constexpr std::array margins {
@@ -951,6 +971,7 @@ static const std::span<const IntSize, 4> radioSizes()
     return sizes;
 }
 
+// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
 static std::span<const int, 4> radioMargins(NSControlSize controlSize)
 {
     static constexpr std::array margins {
@@ -975,6 +996,7 @@ static Style::PreferredSizePair radioSize(const Style::PreferredSizePair& zoomed
 // Buttons
 
 // Buttons really only constrain height. They respect width.
+// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
 static const std::span<const IntSize, 4> buttonSizes()
 {
     static constexpr std::array sizes = {
@@ -986,6 +1008,7 @@ static const std::span<const IntSize, 4> buttonSizes()
     return sizes;
 }
 
+// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
 static std::span<const int, 4> buttonMargins(NSControlSize controlSize)
 {
     // FIXME: These values may need to be reevaluated. They appear to have been originally chosen
@@ -1002,6 +1025,7 @@ static std::span<const int, 4> buttonMargins(NSControlSize controlSize)
 
 // Stepper
 
+// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
 static const std::span<const IntSize, 4> stepperSizes()
 {
     static constexpr std::array sizes = {
@@ -1029,6 +1053,7 @@ static NSControlSize stepperControlSizeForFont(const FontCascade& font)
 
 // Switch
 
+// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
 static const std::span<const IntSize, 4> switchSizes()
 {
     static constexpr std::array sizes = {
@@ -1040,6 +1065,7 @@ static const std::span<const IntSize, 4> switchSizes()
     return sizes;
 }
 
+// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
 static std::span<const int, 4> visualSwitchMargins(NSControlSize controlSize, bool isVertical)
 {
     static constexpr std::array switchMarginsNonMini { 2, 2, 1, 2 };
@@ -1327,6 +1353,7 @@ const int styledPopupPaddingLeft = 8;
 const int styledPopupPaddingTop = 1;
 const int styledPopupPaddingBottom = 2;
 
+// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
 static std::span<const IntSize, 4> menuListButtonSizes()
 {
     static constexpr std::array sizes { IntSize(0, 21), IntSize(0, 18), IntSize(0, 15), IntSize(0, 28) };
@@ -1791,10 +1818,12 @@ static RefPtr<Icon> iconForAttachment(const String& fileName, const String& atta
 
     if (!attachmentType.isEmpty() && !equalLettersIgnoringASCIICase(attachmentType, "public.data"_s)) {
         if (equalLettersIgnoringASCIICase(attachmentType, "public.directory"_s) || equalLettersIgnoringASCIICase(attachmentType, "multipart/x-folder"_s) || equalLettersIgnoringASCIICase(attachmentType, "application/vnd.apple.folder"_s)) {
+            // MAVERICKS_BACKPORT: UTTypeFolder.identifier is macOS 11+; utTypeFolderId() returns the legacy CoreServices folder UTI on 10.9.
             if (auto icon = Icon::createIconForUTI(utTypeFolderId())) {
                 LOG_ATTACHMENT("-> Got icon for folder UTI");
                 return icon;
             }
+            // MAVERICKS_BACKPORT: log message refers to the legacy folder UTI (no UTTypeFolder constant on 10.9).
             LOG_ATTACHMENT("-> No icon for folder UTI! Will fallback to filename or title...");
         } else {
             String type;

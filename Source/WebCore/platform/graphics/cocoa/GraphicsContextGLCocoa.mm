@@ -48,13 +48,16 @@
 #else
 #define WK_WEBGL_METAL_BACKEND 0
 #endif
+// MAVERICKS_BACKPORT: Metal headers are only included for the Metal WebGL backend, which is compiled out on 10.9 (WK_WEBGL_METAL_BACKEND==0); ANGLE uses its OpenGL (CGL) backend here.
 #if WK_WEBGL_METAL_BACKEND
 #import <Metal/Metal.h>
 #endif
 #import <pal/spi/cg/CoreGraphicsSPI.h>
+// MAVERICKS_BACKPORT: MetalSPI is only needed by the Metal WebGL backend, which is compiled out on 10.9 (WK_WEBGL_METAL_BACKEND==0).
 #if WK_WEBGL_METAL_BACKEND
 #import <pal/spi/cocoa/MetalSPI.h>
 #endif
+// MAVERICKS_BACKPORT: pthread is used to pin ANGLE's CGL context to the OS thread that bound it (see currentContextThread below).
 #import <pthread.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/RuntimeApplicationChecks.h>
@@ -151,6 +154,7 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
 
     Vector<EGLAttrib> displayAttributes;
     displayAttributes.append(EGL_PLATFORM_ANGLE_TYPE_ANGLE);
+    // MAVERICKS_BACKPORT: select ANGLE's OpenGL (CGL) backend on 10.9; the Metal backend type below is compiled out (Metal requires 10.11+).
 #if WK_WEBGL_METAL_BACKEND
     displayAttributes.append(EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE);
 #else
@@ -186,13 +190,16 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
         displayAttributes.append(static_cast<EGLAttrib>(attrs.windowGPUID));
     }
 #endif
+// MAVERICKS_BACKPORT: close of the power-preference / device-id block, which is Metal-backend only and compiled out on 10.9 (OpenGL/CGL backend).
 #endif // WK_WEBGL_METAL_BACKEND
+// MAVERICKS_BACKPORT: ANGLE Metal feature-control overrides only apply to the Metal backend; compiled out on 10.9 (OpenGL/CGL backend).
 #if WK_WEBGL_METAL_BACKEND
     ASSERT(WTF::contains(clientExtensions, "EGL_ANGLE_feature_control"_span));
     displayAttributes.append(EGL_FEATURE_OVERRIDES_DISABLED_ANGLE);
     displayAttributes.append(reinterpret_cast<EGLAttrib>(disabledANGLEMetalFeatures));
     displayAttributes.append(EGL_FEATURE_OVERRIDES_ENABLED_ANGLE);
     displayAttributes.append(reinterpret_cast<EGLAttrib>(enabledANGLEMetalFeatures));
+// MAVERICKS_BACKPORT: end of the Metal-only feature-override block.
 #endif
     displayAttributes.append(EGL_NONE);
 
@@ -205,6 +212,7 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
     }
     LOG(WebGL, "ANGLE initialised Major: %d Minor: %d", majorVersion, minorVersion);
 
+    // MAVERICKS_BACKPORT: the metal_shared_event_sync extension assert is Metal-backend only; also gate on WK_WEBGL_METAL_BACKEND (OpenGL/CGL backend on 10.9 doesn't advertise it).
 #if ASSERT_ENABLED && WK_WEBGL_METAL_BACKEND
     auto displayExtensions = unsafeSpan(EGL_QueryString(display, EGL_EXTENSIONS));
     ASSERT(WTF::contains(displayExtensions, "EGL_ANGLE_metal_shared_event_sync"_span));
@@ -314,6 +322,7 @@ bool GraphicsContextGLCocoa::platformInitializeContext()
     eglContextAttributes.append(EGL_CONTEXT_BIND_GENERATES_RESOURCE_CHROMIUM);
     eglContextAttributes.append(EGL_FALSE);
 
+// MAVERICKS_BACKPORT: the Metal context-ownership-identity attribute is Metal-backend only, so also gate this block on WK_WEBGL_METAL_BACKEND (compiled out on 10.9 / OpenGL backend).
 #if HAVE(TASK_IDENTITY_TOKEN) && WK_WEBGL_METAL_BACKEND
     auto displayExtensions = unsafeSpan(EGL_QueryString(m_displayObj, EGL_EXTENSIONS));
     bool supportsOwnershipIdentity = WTF::contains(displayExtensions, "EGL_ANGLE_metal_create_context_ownership_identity"_span);
@@ -330,6 +339,7 @@ bool GraphicsContextGLCocoa::platformInitializeContext()
         LOG(WebGL, "EGLContext Initialization failed.");
         return false;
     }
+    // MAVERICKS_BACKPORT: the Metal shared-event listener/event are only set up for the Metal backend, which is compiled out on 10.9 (OpenGL/CGL backend).
 #if WK_WEBGL_METAL_BACKEND
     m_finishedMetalSharedEventListener = adoptNS([[MTLSharedEventListener alloc] init]);
     if (!m_finishedMetalSharedEventListener) {
@@ -341,6 +351,7 @@ bool GraphicsContextGLCocoa::platformInitializeContext()
         ASSERT_NOT_REACHED();
         return false;
     }
+// MAVERICKS_BACKPORT: end of the Metal shared-event setup compiled out on 10.9 (OpenGL/CGL backend has no Metal shared event).
 #endif
     return true;
 }
@@ -420,7 +431,7 @@ bool GraphicsContextGLANGLE::makeContextCurrent()
 {
     if (!m_contextObj)
         return false;
-    // Only trust the cache if we are still on the same OS thread that actually bound the
+    // MAVERICKS_BACKPORT: only trust the cache if we are still on the same OS thread that actually bound the
     // context (see currentContextThread note above). On the 10.9 rotating-worker main thread
     // the same logical "main thread" can be a different pthread, so re-bind when it differs.
     if (currentContext == this && pthread_equal(currentContextThread, pthread_self()))
@@ -428,6 +439,7 @@ bool GraphicsContextGLANGLE::makeContextCurrent()
     if (!EGL_MakeCurrent(m_displayObj, EGL_NO_SURFACE, EGL_NO_SURFACE, m_contextObj))
         return false;
     currentContext = this;
+    // MAVERICKS_BACKPORT: record the binding OS thread so the cache shortcut above only fires when still current on this pthread (10.9 rotating-worker main thread).
     currentContextThread = pthread_self();
     return true;
 }
@@ -716,6 +728,7 @@ void GraphicsContextGLCocoa::framebufferResolveRenderbuffer(GCGLenum target, GCG
 
 RetainPtr<id> GraphicsContextGLCocoa::newSharedEventWithMachPort(mach_port_t sharedEventSendRight)
 {
+    // MAVERICKS_BACKPORT: Metal shared events are unavailable with the OpenGL (CGL) backend; the #else branch below returns nullptr on 10.9.
 #if WK_WEBGL_METAL_BACKEND
     return WebCore::newSharedEventWithMachPort(m_displayObj, sharedEventSendRight);
 #else
@@ -727,6 +740,7 @@ RetainPtr<id> GraphicsContextGLCocoa::newSharedEventWithMachPort(mach_port_t sha
 
 GCGLExternalSync GraphicsContextGLCocoa::createExternalSync(ExternalSyncSource&& syncEvent)
 {
+    // MAVERICKS_BACKPORT: cross-process Metal shared-event sync is unused with the in-process OpenGL (CGL) backend; the #else branch below returns an empty sync on 10.9.
 #if WK_WEBGL_METAL_BACKEND
     auto [syncEventHandle, signalValue] = WTF::move(syncEvent);
     auto sharedEvent = newSharedEventWithMachPort(syncEventHandle.sendRight());
@@ -781,6 +795,7 @@ bool GraphicsContextGLCocoa::enableRequiredWebXRExtensionsImpl()
 
 void* GraphicsContextGLCocoa::createMetalSharedEventEGLSync(id sharedEvent, uint64_t signalValue)
 {
+    // MAVERICKS_BACKPORT: Metal shared-event EGL syncs are unavailable with the OpenGL (CGL) backend; the #else branch below returns nullptr on 10.9.
 #if WK_WEBGL_METAL_BACKEND
     static_assert(sizeof(EGLAttrib) == sizeof(void*), "EGLAttrib not pointer-sized!");
     auto signalValueLo = static_cast<EGLAttrib>(signalValue);
@@ -960,6 +975,7 @@ RefPtr<NativeImage> GraphicsContextGLCocoa::copyNativeImageYFlipped(SurfaceBuffe
 
 void GraphicsContextGLCocoa::insertFinishedSignalOrInvoke(Function<void()> signal)
 {
+    // MAVERICKS_BACKPORT: the Metal shared-event completion path is compiled out on 10.9; the #else branch below uses GL_Finish + synchronous signal with the in-process OpenGL (CGL) backend.
 #if WK_WEBGL_METAL_BACKEND
     static std::atomic<uint64_t> nextSignalValue;
     uint64_t signalValue = ++nextSignalValue;

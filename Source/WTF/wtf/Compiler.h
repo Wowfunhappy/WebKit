@@ -575,6 +575,7 @@
 // so the annotation is defined empty off the APPLE_CLANG path.
 #if COMPILER(APPLE_CLANG)
 #define CLANG_POINTER_CONVERSION [[clang::annotate_type("webkit.pointerconversion")]]
+// MAVERICKS_BACKPORT: define empty off APPLE_CLANG; this build's clang rejects the webkit.pointerconversion attribute.
 #else
 #define CLANG_POINTER_CONVERSION
 #endif
@@ -586,6 +587,7 @@
 // the APPLE_CLANG path.
 #if COMPILER(APPLE_CLANG)
 #define NODELETE [[clang::annotate_type("webkit.nodelete")]]
+// MAVERICKS_BACKPORT: define NODELETE empty off APPLE_CLANG; this build's clang rejects the webkit.nodelete attribute.
 #else
 #define NODELETE
 #endif

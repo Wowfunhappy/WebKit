@@ -302,6 +302,8 @@ void UnrealizedCoreTextFont::modifyFromContext(const FontDescription& fontDescri
             auto ctWeight = denormalizeCTWeight(m_weight);
             ctWeight = CTFontGetAccessibilityBoldWeightOfWeight(ctWeight);
             m_weight = normalizeCTWeight(ctWeight);
+// MAVERICKS_BACKPORT: end of the !PLATFORM(MAC) guard skipping the 10.13+
+// CTFontGetAccessibilityBoldWeightOfWeight accessibility bold-weight adjustment.
 #endif
         }
     }

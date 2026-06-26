@@ -83,6 +83,7 @@
 #import <pal/cocoa/AVFoundationSoftLink.h>
 #import <pal/cocoa/MediaToolboxSoftLink.h>
 
+// MAVERICKS_BACKPORT: MSE bring-up bisect-logging scaffold (headers + no-op MSE_BISECT macro).
 #import <asl.h>
 #import <unistd.h>
 // 10.9 MSE bisect: granular ASL logs at every entry point so when MEDIA_SOURCE=ON
@@ -101,9 +102,9 @@ namespace WebCore {
 
 Ref<AudioVideoRenderer> MediaPlayerPrivateMediaSourceAVFObjC::createRenderer(LoggerHelper& loggerHelper, HTMLMediaElementIdentifier mediaElementIdentifier, MediaPlayerIdentifier playerIdentifier)
 {
-    // 10.9: GPU process is disabled, so there is no remote AudioVideoRenderer. The MediaStrategy
-    // createAudioVideoRenderer() hook is a libpolyfill stub that returns garbage via sret (it would
-    // be mistaken for a non-null renderer), so bypass it and always create the local AVFObjC renderer.
+    // MAVERICKS_BACKPORT: GPU process is disabled, so there is no remote AudioVideoRenderer. The
+    // MediaStrategy createAudioVideoRenderer() hook is a libpolyfill stub that returns garbage via sret
+    // (it would be mistaken for a non-null renderer), so bypass it and always create the local AVFObjC renderer.
     UNUSED_PARAM(mediaElementIdentifier);
     UNUSED_PARAM(playerIdentifier);
     return AudioVideoRendererAVFObjC::create(Ref { loggerHelper.logger() }, loggerHelper.logIdentifier());
@@ -163,15 +164,18 @@ private:
 
 void MediaPlayerPrivateMediaSourceAVFObjC::registerMediaEngine(MediaEngineRegistrar registrar)
 {
+    // MAVERICKS_BACKPORT: MSE bring-up bisect logs (compiled out via MSE_BISECT no-op).
     MSE_BISECT("registerMediaEngine ENTRY");
     if (!isAvailable()) {
         MSE_BISECT("registerMediaEngine: isAvailable=false, bailing (no MSE engine on 10.9)");
         return;
+    // MAVERICKS_BACKPORT: MSE bring-up bisect logs (compiled out via MSE_BISECT no-op).
     }
     MSE_BISECT("registerMediaEngine: isAvailable=true, about to check MIMETypeCache");
 
     ASSERT(AVAssetMIMETypeCache::singleton().isAvailable());
 
+    // MAVERICKS_BACKPORT: MSE bring-up bisect logs (compiled out via MSE_BISECT no-op).
     MSE_BISECT("registerMediaEngine: about to register factory");
     registrar(makeUnique<MediaPlayerFactoryMediaSourceAVFObjC>());
     MSE_BISECT("registerMediaEngine: registered factory OK");
@@ -199,9 +203,9 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::isAvailable()
 
 void MediaPlayerPrivateMediaSourceAVFObjC::getSupportedTypes(HashSet<String>& types)
 {
-    // 10.9: AVStreamDataParser and its MIME cache are unavailable. The software SourceBufferParser
-    // (SourceBufferParserISOBMFF) performs the real per-type check in supportsTypeAndCodecs; here we
-    // just advertise the MP4 containers it can demux.
+    // MAVERICKS_BACKPORT: AVStreamDataParser and its MIME cache are unavailable. The software
+    // SourceBufferParser (SourceBufferParserISOBMFF) performs the real per-type check in
+    // supportsTypeAndCodecs; here we just advertise the MP4 containers it can demux.
     types.add("video/mp4"_s);
     types.add("audio/mp4"_s);
 }
@@ -365,19 +369,21 @@ void MediaPlayerPrivateMediaSourceAVFObjC::playInternal(std::optional<MonotonicT
 {
     assertIsMainThread();
     RefPtr mediaSourcePrivate = m_mediaSourcePrivate;
+    // MAVERICKS_BACKPORT: MSE bring-up bisect log (compiled out via MSE_BISECT no-op).
     MSE_BISECT("playInternal ENTRY hasMSP=%d curTime=%.3f duration=%.3f", !!mediaSourcePrivate, currentTime().toFloat(), mediaSourcePrivate ? mediaSourcePrivate->duration().toFloat() : -1.0f);
     if (!mediaSourcePrivate)
         return;
 
-    // 10.9: do NOT bail when currentTime>=duration if duration is invalid/zero — for a freshly-appended
-    // MSE buffer the duration may not be set yet, and bailing here leaves the timebase stopped (frozen
-    // first frame). Only honor the end-of-media guard when we have a valid positive duration.
+    // MAVERICKS_BACKPORT: do NOT bail when currentTime>=duration if duration is invalid/zero — for a
+    // freshly-appended MSE buffer the duration may not be set yet, and bailing here leaves the timebase
+    // stopped (frozen first frame). Only honor the end-of-media guard when we have a valid positive duration.
     MediaTime dur = mediaSourcePrivate->duration();
     if (dur.isValid() && dur > MediaTime::zeroTime() && currentTime() >= dur) {
         MSE_BISECT("playInternal: bailing, curTime>=duration (%.3f>=%.3f)", currentTime().toFloat(), dur.toFloat());
         return;
     }
 
+    // MAVERICKS_BACKPORT: MSE bring-up bisect log (compiled out via MSE_BISECT no-op).
     MSE_BISECT("playInternal: calling renderer->play()");
     flushVideoIfNeeded();
 
@@ -945,6 +951,7 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::shouldBePlaying() const
 void MediaPlayerPrivateMediaSourceAVFObjC::setHasAvailableVideoFrame(bool flag)
 {
     assertIsMainThread();
+    // MAVERICKS_BACKPORT: MSE bring-up bisect log (compiled out via MSE_BISECT no-op).
     MSE_BISECT("setHasAvailableVideoFrame: flag=%d cur=%d waiting=%d", flag, m_hasAvailableVideoFrame, m_readyStateIsWaitingForAvailableFrame);
     if (m_hasAvailableVideoFrame == flag)
         return;
@@ -995,6 +1002,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::effectiveRateChanged()
 void MediaPlayerPrivateMediaSourceAVFObjC::setNaturalSize(const FloatSize& size)
 {
     assertIsMainThread();
+    // MAVERICKS_BACKPORT: MSE bring-up bisect log (compiled out via MSE_BISECT no-op).
     MSE_BISECT("setNaturalSize: %gx%g (cur %gx%g) hasPlayer=%d", size.width(), size.height(), m_naturalSize.width(), m_naturalSize.height(), !!m_player.get());
     if (size == m_naturalSize)
         return;
@@ -1188,6 +1196,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::characteristicsFromMediaSourceChanged
         player->characteristicChanged();
 }
 
+// MAVERICKS_BACKPORT: fullscreen-layer methods gated behind VIDEO_PRESENTATION_MODE (off on 10.9).
 #if ENABLE(VIDEO_PRESENTATION_MODE)
 RetainPtr<PlatformLayer> MediaPlayerPrivateMediaSourceAVFObjC::createVideoFullscreenLayer()
 {
@@ -1203,6 +1212,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::setVideoFullscreenFrame(const FloatRe
 {
     m_renderer->setVideoFullscreenFrame(frame);
 }
+// MAVERICKS_BACKPORT: end of VIDEO_PRESENTATION_MODE-gated fullscreen-layer block (off on 10.9).
 #endif // ENABLE(VIDEO_PRESENTATION_MODE)
 
 void MediaPlayerPrivateMediaSourceAVFObjC::syncTextTrackBounds()
@@ -1437,11 +1447,12 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::supportsLimitedMatroska() const
     return m_loadOptions.supportsLimitedMatroska;
 }
 
-// Declared unconditionally in the header (a `final` override → vtable slot), so it must be defined
-// even when VIDEO_PRESENTATION_MODE is off (otherwise WebCore has an undefined symbol → dyld load
-// crash). The renderer's method only exists under VIDEO_PRESENTATION_MODE, so guard only the body.
+// MAVERICKS_BACKPORT: declared unconditionally in the header (a `final` override → vtable slot), so it
+// must be defined even when VIDEO_PRESENTATION_MODE is off (otherwise WebCore has an undefined symbol →
+// dyld load crash). The renderer's method only exists under VIDEO_PRESENTATION_MODE, so guard only the body.
 void MediaPlayerPrivateMediaSourceAVFObjC::isInFullscreenOrPictureInPictureChanged(bool isInFullscreenOrPictureInPicture)
 {
+// MAVERICKS_BACKPORT: renderer's fullscreen/PiP method only exists under VIDEO_PRESENTATION_MODE (off on 10.9); guard the body.
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     m_renderer->isInFullscreenOrPictureInPictureChanged(isInFullscreenOrPictureInPicture);
 #else

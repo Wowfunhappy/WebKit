@@ -38,6 +38,7 @@ namespace WebKit {
 
 class WebPreferences;
 class WebPageProxy;
+// MAVERICKS_BACKPORT: forward declaration for the restored page-group user content controller.
 class WebUserContentControllerProxy;
 
 class WebPageGroup : public API::ObjectImpl<API::Object::Type::PageGroup>, public CanMakeWeakPtr<WebPageGroup> {
@@ -72,12 +73,16 @@ public:
 
 private:
     WebPageGroupData m_data;
+    // MAVERICKS_BACKPORT: drop const so setPreferences() can reseat m_preferences
+    // (Safari 7 attaches its own WKPreferences via WKPageGroupSetPreferences).
     Ref<WebPreferences> m_preferences;
     Ref<WebUserContentControllerProxy> m_userContentController;
 };
 
 } // namespace WebKit
 
+// MAVERICKS_BACKPORT: type traits so a WebPageGroup can be downcast from an
+// API::Object (PageGroupHandle resolution / WKPageGroup C SPI).
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebPageGroup)
 static bool isType(const API::Object& object) { return object.type() == API::Object::Type::PageGroup; }
 SPECIALIZE_TYPE_TRAITS_END()

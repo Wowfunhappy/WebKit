@@ -349,6 +349,7 @@ NSArray *makeNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector& c
                 AXTreeStore<AXIsolatedTree>::applyPendingChangesForAllIsolatedTrees();
                 return m_isolatedObject.get();
             }
+// MAVERICKS_BACKPORT: closes the ENABLE(ACCESSIBILITY_ISOLATED_TREE) gate above (flag off on this port).
 #endif
             return nil;
         }

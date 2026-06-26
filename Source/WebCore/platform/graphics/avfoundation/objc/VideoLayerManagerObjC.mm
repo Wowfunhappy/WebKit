@@ -41,6 +41,7 @@
 
 #import <pal/cocoa/AVFoundationSoftLink.h>
 
+// MAVERICKS_BACKPORT: import AVPlayerLayer directly (PAL soft-link helpers not set up on 10.9).
 #import <AVFoundation/AVPlayerLayer.h>
 
 OBJC_CLASS AVPlayerLayer;

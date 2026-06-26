@@ -12,15 +12,15 @@ find_library(AUDIOUNIT_LIBRARY AudioUnit)
 find_library(CARBON_LIBRARY Carbon)
 find_library(CFNETWORK_LIBRARY CFNetwork)
 find_library(COCOA_LIBRARY Cocoa)
-# Removed: Compression not on 10.9
+# MAVERICKS_BACKPORT: no Compression.framework link (Compression API is 10.11+; absent on 10.9).
 find_library(COREAUDIO_LIBRARY CoreAudio)
 find_library(COREMEDIA_LIBRARY CoreMedia)
 find_library(CORESERVICES_LIBRARY CoreServices)
 find_library(DISKARBITRATION_LIBRARY DiskArbitration)
 find_library(IOKIT_LIBRARY IOKit)
 find_library(IOSURFACE_LIBRARY IOSurface)
-# Removed: Metal not on 10.9
-# Removed: NetworkExtension not on 10.9
+# MAVERICKS_BACKPORT: no Metal.framework link (Metal is 10.11+; absent on 10.9).
+# MAVERICKS_BACKPORT: no NetworkExtension.framework link (absent on 10.9).
 find_library(OPENGL_LIBRARY OpenGL)
 find_library(QUARTZ_LIBRARY Quartz)
 find_library(QUARTZCORE_LIBRARY QuartzCore)
@@ -78,10 +78,10 @@ if (NOT DATADETECTORSCORE_FRAMEWORK-NOTFOUND)
     list(APPEND WebCore_LIBRARIES ${DATADETECTORSCORE_FRAMEWORK})
 endif ()
 
-# Lookup.framework depends on WebKit.framework, creating a circular dep chain:
+# MAVERICKS_BACKPORT: Lookup.framework depends on WebKit.framework, creating a circular dep chain:
 # WebCore -> Lookup -> WebKit -> WebKitLegacy -> WebCore
 # This causes all frameworks to load simultaneously and crashes the ObjC runtime.
-# Disable direct linking; Lookup symbols resolved via -undefined dynamic_lookup.
+# Do not link Lookup directly; its symbols resolve via -undefined dynamic_lookup.
 # find_library(LOOKUP_FRAMEWORK Lookup HINTS ${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks)
 # list(APPEND WebCore_LIBRARIES ${LOOKUP_FRAMEWORK})
 
@@ -533,6 +533,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     crypto/keys/CryptoKeyEC.h
 
     dom/EventLoop.h
+    # MAVERICKS_BACKPORT: export TouchEvent.h (touch-event interface header).
     dom/TouchEvent.h
     dom/WindowEventLoop.h
 
@@ -542,8 +543,10 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     editing/cocoa/AutofillElements.h
     editing/cocoa/DataDetection.h
     editing/cocoa/DataDetectorType.h
+    # MAVERICKS_BACKPORT: export EditingHTMLConverter.h (HTML serialization helper).
     editing/cocoa/EditingHTMLConverter.h
     editing/cocoa/HTMLConverter.h
+    # MAVERICKS_BACKPORT: export NodeHTMLConverter.h and TextAttachmentForSerialization.h (HTML/attachment serialization).
     editing/cocoa/NodeHTMLConverter.h
     editing/cocoa/TextAttachmentForSerialization.h
 
@@ -567,13 +570,16 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     page/CaptionUserPreferencesMediaAF.h
 
+    # MAVERICKS_BACKPORT: export ContentChangeObserver.h and DOMTimerHoldingTank.h (page/cocoa observers).
     page/cocoa/ContentChangeObserver.h
     page/cocoa/DOMTimerHoldingTank.h
     page/cocoa/DataDetectionResultsStorage.h
     page/cocoa/DataDetectorElementInfo.h
     page/cocoa/ImageOverlayDataDetectionResultIdentifier.h
+    # MAVERICKS_BACKPORT: export WebTextIndicatorLayer.h (text-indicator layer).
     page/cocoa/WebTextIndicatorLayer.h
 
+    # MAVERICKS_BACKPORT: export CorrectionIndicator.h (autocorrection indicator UI).
     page/mac/CorrectionIndicator.h
     page/mac/TextIndicatorWindow.h
     page/mac/WebCoreFrameView.h
@@ -585,14 +591,17 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     page/scrolling/cocoa/ScrollingTreePositionedNodeCocoa.h
     page/scrolling/cocoa/ScrollingTreeStickyNodeCocoa.h
 
+    # MAVERICKS_BACKPORT: export ScrollerMac.h/ScrollerPairMac.h (mac overlay-scroller painting).
     page/scrolling/mac/ScrollerMac.h
     page/scrolling/mac/ScrollerPairMac.h
     page/scrolling/mac/ScrollingCoordinatorMac.h
     page/scrolling/mac/ScrollingTreeFrameScrollingNodeMac.h
     page/scrolling/mac/ScrollingTreeOverflowScrollingNodeMac.h
+    # MAVERICKS_BACKPORT: export ScrollingTreePluginScrollingNodeMac.h.
     page/scrolling/mac/ScrollingTreePluginScrollingNodeMac.h
     page/scrolling/mac/ScrollingTreeScrollingNodeDelegateMac.h
 
+    # MAVERICKS_BACKPORT: export WebCoreMainThread.h (main-thread helper) ahead of the platform headers.
     platform/WebCoreMainThread.h
     platform/CaptionPreferencesDelegate.h
     platform/FrameRateMonitor.h
@@ -619,12 +628,14 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/audio/cocoa/MediaSessionManagerCocoa.h
     platform/audio/cocoa/WebAudioBufferList.h
 
+    # MAVERICKS_BACKPORT: export AudioUtilitiesCocoa.h and SpatialAudioExperienceHelper.h (audio helpers).
     platform/audio/cocoa/AudioUtilitiesCocoa.h
     platform/audio/cocoa/SpatialAudioExperienceHelper.h
     platform/audio/mac/SharedRoutingArbitrator.h
 
     platform/cf/MediaAccessibilitySoftLink.h
 
+    # MAVERICKS_BACKPORT: export additional platform/cocoa headers (visual-effect/view/geolocation/CoreVideo) the WK build references.
     platform/cocoa/AppleVisualEffect.h
     platform/cocoa/CocoaView.h
     platform/cocoa/CocoaWritingToolsTypes.h
@@ -633,6 +644,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/cocoa/CoreVideoSoftLink.h
     platform/cocoa/LocalCurrentGraphicsContext.h
     platform/cocoa/NetworkExtensionContentFilter.h
+    # MAVERICKS_BACKPORT: export the ParentalControls content/URL-filter headers + PlatformTextAlternatives.h.
     platform/cocoa/ParentalControlsContentFilter.h
     platform/cocoa/ParentalControlsURLFilter.h
     platform/cocoa/ParentalControlsURLFilterParameters.h
@@ -647,6 +659,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/cocoa/SharedVideoFrameInfo.h
     platform/cocoa/SystemBattery.h
     platform/cocoa/SystemVersion.h
+    # MAVERICKS_BACKPORT: export the video-presentation/fullscreen + WebKitAvailability cocoa headers the WK build references.
     platform/cocoa/VideoFullscreenCaptions.h
     platform/cocoa/VideoPresentationLayerProvider.h
     platform/cocoa/VideoPresentationModel.h
@@ -670,8 +683,10 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     platform/graphics/angle/ANGLEUtilities.h
 
+    # MAVERICKS_BACKPORT: export MediaPlaybackTargetWirelessPlayback.h (wireless playback target type).
     platform/graphics/MediaPlaybackTargetWirelessPlayback.h
     platform/graphics/avfoundation/AudioSourceProviderAVFObjC.h
+    # MAVERICKS_BACKPORT: export MediaPlayerPrivateAVFoundation.h (base AVFoundation media player).
     platform/graphics/avfoundation/MediaPlayerPrivateAVFoundation.h
     platform/graphics/avfoundation/AudioVideoRendererAVFObjC.h
     platform/graphics/avfoundation/MediaPlaybackTargetCocoa.h
@@ -697,29 +712,37 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/ca/cocoa/PlatformCALayerCocoa.h
     platform/graphics/ca/cocoa/WebVideoContainerLayer.h
 
+    # MAVERICKS_BACKPORT: export PlatformCALayerDelegatedContents.h and ContentsFormatCocoa.h (CA layer contents/format).
     platform/graphics/ca/PlatformCALayerDelegatedContents.h
     platform/graphics/ca/cocoa/ContentsFormatCocoa.h
 
     platform/graphics/cg/CGContextStateSaver.h
     platform/graphics/cg/CGUtilities.h
+    # MAVERICKS_BACKPORT: export CGWindowUtilities.h (CGS window helpers).
     platform/graphics/cg/CGWindowUtilities.h
     platform/graphics/cg/ColorSpaceCG.h
     platform/graphics/cg/GradientRendererCG.h
     platform/graphics/cg/GraphicsContextCG.h
     platform/graphics/cg/IOSurfacePool.h
+    # MAVERICKS_BACKPORT: export IOSurfacePoolIdentifier.h.
     platform/graphics/cg/IOSurfacePoolIdentifier.h
     platform/graphics/cg/ImageBufferCGBackend.h
     platform/graphics/cg/ImageBufferCGBitmapBackend.h
+    # MAVERICKS_BACKPORT: export ImageBufferCGPDFDocumentBackend.h (CG PDF-document image buffer backend).
     platform/graphics/cg/ImageBufferCGPDFDocumentBackend.h
     platform/graphics/cg/ImageBufferIOSurfaceBackend.h
+    # MAVERICKS_BACKPORT: export ImageDecoderCG.h (CG image decoder).
     platform/graphics/cg/ImageDecoderCG.h
     platform/graphics/cg/PDFDocumentImage.h
+    # MAVERICKS_BACKPORT: export PathCG.h (CG path helpers).
     platform/graphics/cg/PathCG.h
     platform/graphics/cg/UTIRegistry.h
 
+    # MAVERICKS_BACKPORT: export AV1UtilitiesCocoa.h (AV1 codec utility helpers).
     platform/graphics/cocoa/AV1UtilitiesCocoa.h
     platform/graphics/cocoa/CMUtilities.h
     platform/graphics/cocoa/ColorCocoa.h
+    # MAVERICKS_BACKPORT: export DynamicContentScalingDisplayList.h.
     platform/graphics/cocoa/DynamicContentScalingDisplayList.h
     platform/graphics/cocoa/FontCacheCoreText.h
     platform/graphics/cocoa/FontCocoa.h
@@ -732,6 +755,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/cocoa/MediaPlayerPrivateWebM.h
     platform/graphics/cocoa/SourceBufferParser.h
     platform/graphics/cocoa/SourceBufferParserWebM.h
+    # MAVERICKS_BACKPORT: export additional graphics/cocoa headers (font/HEVC/media-enum/presentation) the WK build references.
     platform/graphics/cocoa/FontCascadeCocoaInlines.h
     platform/graphics/cocoa/HEVCUtilitiesCocoa.h
     platform/graphics/cocoa/IOSurfaceDrawingBuffer.h
@@ -741,6 +765,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/cocoa/SystemFontDatabaseCoreText.h
     platform/graphics/cocoa/TextTrackRepresentationCocoa.h
     platform/graphics/cocoa/VP9UtilitiesCocoa.h
+    # MAVERICKS_BACKPORT: export VideoTargetFactory.h (video presentation target creation).
     platform/graphics/cocoa/VideoTargetFactory.h
     platform/graphics/cocoa/WebActionDisablingCALayerDelegate.h
     platform/graphics/cocoa/WebCoreCALayerExtras.h
@@ -753,12 +778,15 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/cv/PixelBufferConformerCV.h
     platform/graphics/cv/VideoFrameCV.h
 
+    # MAVERICKS_BACKPORT: export AppKitControlSystemImage.h (AppKit control system-image drawing).
     platform/graphics/mac/AppKitControlSystemImage.h
     platform/graphics/mac/ColorMac.h
     platform/graphics/mac/GraphicsChecksMac.h
+    # MAVERICKS_BACKPORT: export ScrollbarTrackCornerSystemImageMac.h (scrollbar corner system image).
     platform/graphics/mac/ScrollbarTrackCornerSystemImageMac.h
     platform/graphics/mac/SwitchingGPUClient.h
 
+    # MAVERICKS_BACKPORT: export the platform/ios headers the WK build references (shared iOS-named types/stubs).
     platform/ios/AbstractPasteboard.h
     platform/ios/DeviceOrientationUpdateProvider.h
     platform/ios/KeyEventCodesIOS.h
@@ -767,6 +795,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/ios/LocalizedDeviceModel.h
     platform/ios/PlatformEventFactoryIOS.h
     platform/ios/PlaybackSessionInterfaceAVKit.h
+    # MAVERICKS_BACKPORT: export additional playback-session/video-presentation interface headers.
     platform/ios/PlaybackSessionInterfaceAVKitLegacy.h
     platform/ios/PlaybackSessionInterfaceIOS.h
     platform/ios/PlaybackSessionInterfaceTVOS.h
@@ -777,6 +806,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/ios/VideoPresentationInterfaceIOS.h
     platform/ios/VideoPresentationInterfaceTVOS.h
     platform/ios/WebAVPlayerController.h
+    # MAVERICKS_BACKPORT: export the remaining platform/ios shared headers referenced by the WK build.
     platform/ios/WebBackgroundTaskController.h
     platform/ios/WebCoreMotionManager.h
     platform/ios/WebEvent.h
@@ -786,6 +816,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/ios/WebVideoFullscreenControllerAVKit.h
 
     platform/ios/wak/FloatingPointEnvironment.h
+    # MAVERICKS_BACKPORT: export the full WAK/WebThread header set (WAK*/WK*/WebCoreThread*) the WK build needs.
     platform/ios/wak/WAKAppKitStubs.h
     platform/ios/wak/WAKClipView.h
     platform/ios/wak/WAKResponder.h
@@ -802,6 +833,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/ios/wak/WebCoreThreadInternal.h
     platform/ios/wak/WebCoreThreadMessage.h
     platform/ios/wak/WebCoreThreadRun.h
+    # MAVERICKS_BACKPORT: export WebCoreThreadSystemInterface.h (part of the WAK/WebThread headers built here).
     platform/ios/wak/WebCoreThreadSystemInterface.h
 
     platform/mac/HIDDevice.h
@@ -817,6 +849,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/mac/SerializedPlatformDataCueMac.h
     platform/mac/ScrollbarThemeMac.h
     platform/mac/StringUtilities.h
+    # MAVERICKS_BACKPORT: export VideoPresentationInterfaceMac.h (video presentation/fullscreen path).
     platform/mac/VideoPresentationInterfaceMac.h
     platform/mac/VideoFullscreenInterfaceMac.h
     platform/mac/WebCoreFullScreenPlaceholderView.h
@@ -825,6 +858,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/mac/WebCoreNSURLExtras.h
     platform/mac/WebCoreObjCExtras.h
     platform/mac/WebCoreView.h
+    # MAVERICKS_BACKPORT: WebNSAttributedStringExtras.h lives under platform/cocoa here (upstream path is platform/mac).
     platform/cocoa/WebNSAttributedStringExtras.h
     platform/mac/WebPlaybackControlsManager.h
 
@@ -840,8 +874,10 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     platform/mediastream/cocoa/AudioMediaStreamTrackRendererInternalUnit.h
     platform/mediastream/cocoa/AudioMediaStreamTrackRendererUnit.h
+    # MAVERICKS_BACKPORT: export BaseAudioMediaStreamTrackRendererUnit.h (shared base for the audio renderer unit).
     platform/mediastream/cocoa/BaseAudioMediaStreamTrackRendererUnit.h
 
+    # MAVERICKS_BACKPORT: export the mac capture-source headers (getUserMedia camera/audio/screen capture).
     platform/mediastream/mac/AVVideoCaptureSource.h
     platform/mediastream/mac/BaseAudioCaptureUnit.h
     platform/mediastream/mac/CoreAudioCaptureDeviceManager.h
@@ -849,6 +885,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/mediastream/mac/CoreAudioCaptureUnit.h
     platform/mediastream/mac/RealtimeIncomingVideoSourceCocoa.h
     platform/mediastream/mac/RealtimeVideoUtilities.h
+    # MAVERICKS_BACKPORT: export the ScreenCaptureKit capture headers.
     platform/mediastream/mac/ScreenCaptureKitCaptureSource.h
     platform/mediastream/mac/ScreenCaptureKitSharingSessionManager.h
     platform/mediastream/mac/WebAudioSourceProviderCocoa.h
@@ -867,6 +904,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/network/cocoa/CredentialCocoa.h
     platform/network/cocoa/HTTPCookieAcceptPolicyCocoa.h
     platform/network/cocoa/ProtectionSpaceCocoa.h
+    # MAVERICKS_BACKPORT: export RangeResponseGenerator.h (byte-range media response handling).
     platform/network/cocoa/RangeResponseGenerator.h
     platform/network/cocoa/WebCoreNSURLSession.h
 
@@ -875,9 +913,11 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/network/mac/UTIUtilities.h
     platform/network/mac/WebCoreURLResponse.h
 
+    # MAVERICKS_BACKPORT: export WebRTCVideoDecoder.h (GStreamer/WebRTC video-codecs path).
     platform/video-codecs/cocoa/WebRTCVideoDecoder.h
 
     rendering/cocoa/RenderThemeCocoa.h
+    # MAVERICKS_BACKPORT: export RenderThemeMac.h (restored Aqua form-control theme; needed by the WK build).
     rendering/mac/RenderThemeMac.h
 
     rendering/ios/RenderThemeIOS.h
@@ -897,6 +937,7 @@ list(APPEND WebCore_IDL_FILES
     Modules/applepay/ApplePayDateComponents.idl
     Modules/applepay/ApplePayDateComponentsRange.idl
     Modules/applepay/ApplePayDeferredPaymentRequest.idl
+    # MAVERICKS_BACKPORT: also generate the ApplePayDisbursementRequest IDL binding.
 Modules/applepay/ApplePayDisbursementRequest.idl
     Modules/applepay/ApplePayDetailsUpdateBase.idl
     Modules/applepay/ApplePayError.idl
@@ -954,6 +995,7 @@ set(ADDITIONAL_BINDINGS_DEPENDENCIES
     ${WORKERGLOBALSCOPE_CONSTRUCTORS_FILE}
     ${DEDICATEDWORKERGLOBALSCOPE_CONSTRUCTORS_FILE}
 )
+# MAVERICKS_BACKPORT: pass bare macro names (no =1) to the CSS value preprocessor; the value-1 form trips the in-tree makeprop/CSS preprocessor here.
 set(CSS_VALUE_PLATFORM_DEFINES "WTF_PLATFORM_MAC WTF_PLATFORM_COCOA ENABLE_APPLE_PAY_NEW_BUTTON_TYPES")
 
 set(WebCore_USER_AGENT_SCRIPTS ${WebCore_DERIVED_SOURCES_DIR}/ModernMediaControls.js)

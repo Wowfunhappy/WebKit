@@ -39,7 +39,7 @@
 #import <wtf/ASCIICType.h>
 #import <wtf/UUID.h>
 
-// Compat defines for pre-10.12 modifier flag names
+// MAVERICKS_BACKPORT: compat defines for pre-10.12 modifier flag names (NSEventModifierFlag* spellings are 10.12+).
 #ifndef NSEventModifierFlagCapsLock
 #define NSEventModifierFlagCapsLock NSAlphaShiftKeyMask
 #endif
@@ -128,6 +128,7 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(NSEvent *event, NSEvent *last
     if ([event type] == NSEventTypePressure) {
         // Since AppKit doesn't send mouse events for force down or force up, we have to use the current pressure
         // event and lastPressureEvent to detect if this is MouseForceDown, MouseForceUp, or just MouseForceChanged.
+        // MAVERICKS_BACKPORT: NSEvent.stage (Force Touch) is 10.10.3+; on an older SDK there are no force events, only MouseForceChanged.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101003
         if ([event respondsToSelector:@selector(stage)]) {
             if (lastPressureEvent.stage == 1 && event.stage == 2)
@@ -152,6 +153,7 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(NSEvent *event, NSEvent *last
     int eventNumber = [event eventNumber];
     int menuTypeForEvent = typeForEvent(event);
 
+    // MAVERICKS_BACKPORT: NSEvent.stage (Force Touch) is 10.10.3+; on an older SDK there is no stage, so it is 0.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101003
     int stage = ([event respondsToSelector:@selector(stage)]) ? ([event type] == NSEventTypePressure ? event.stage : lastPressureEvent.stage) : 0;
 #else
@@ -236,6 +238,7 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(NSEvent *event, NSView *windo
         auto ioHIDEventTimestampMachAbsoluteTime = IOHIDEventGetTimeStamp(ioHIDEvent.get());
         ioHIDEventTimestamp = MonotonicTime::fromMachAbsoluteTime(ioHIDEventTimestampMachAbsoluteTime);
 
+        // MAVERICKS_BACKPORT: this IOHIDEventGetFloatValue read is the non-Mac-only path (compiled out on 10.9).
         rawPlatformDelta = { WebCore::FloatSize(-IOHIDEventGetFloatValue(ioHIDEvent.get(), kIOHIDEventFieldScrollX), -IOHIDEventGetFloatValue(ioHIDEvent.get(), kIOHIDEventFieldScrollY)) };
 
         if (IOHIDEventGetScrollMomentum(ioHIDEvent.get()) & kIOHIDEventScrollMomentumWillBegin) {
@@ -246,7 +249,7 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(NSEvent *event, NSView *windo
         bool momentumWasInterrupted = IOHIDEventGetScrollMomentum(ioHIDEvent.get()) & kIOHIDEventScrollMomentumInterrupted;
         momentumEndType = momentumWasInterrupted ? WebWheelEvent::MomentumEndType::Interrupted : WebWheelEvent::MomentumEndType::Natural;
     })();
-#endif
+#endif // MAVERICKS_BACKPORT: IOHIDEvent path skipped on Mac (float-return polyfill stubs corrupt XMM0).
 
     if (phase == WebWheelEvent::Phase::Cancelled) {
         deltaX = 0;

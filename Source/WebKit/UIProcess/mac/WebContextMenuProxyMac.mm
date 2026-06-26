@@ -68,7 +68,7 @@
 #import <WebKitAdditions/WKAppKitGestureControllerAdditionsBefore.mm>
 #endif
 
-// NSControlStateValueOn/Off were added in 10.13; previously named NSOnState/NSOffState.
+// MAVERICKS_BACKPORT: NSControlStateValueOn/Off were added in 10.13; previously named NSOnState/NSOffState.
 #ifndef NSControlStateValueOn
 #define NSControlStateValueOn NSOnState
 #endif
@@ -197,13 +197,14 @@
 }
 #endif
 
+// MAVERICKS_BACKPORT: gate the share action on SERVICE_CONTROLS, which is disabled on 10.9.
 #if ENABLE(SERVICE_CONTROLS)
 - (void)performShare:(id)sender
 {
     if (RefPtr menuProxy = _menuProxy.get())
         menuProxy->handleShareMenuItem();
 }
-#endif
+#endif // MAVERICKS_BACKPORT ENABLE(SERVICE_CONTROLS)
 
 @end
 
@@ -286,6 +287,7 @@ void WebContextMenuProxyMac::handleContextMenuWritingTools(WebCore::WritingTools
 }
 #endif
 
+// MAVERICKS_BACKPORT: gate handleShareMenuItem on SERVICE_CONTROLS, which is disabled on 10.9.
 #if ENABLE(SERVICE_CONTROLS)
 void WebContextMenuProxyMac::handleShareMenuItem()
 {
@@ -293,7 +295,7 @@ void WebContextMenuProxyMac::handleShareMenuItem()
     [shareMenuItem setMenu:m_menu.get()];
     [[NSApplication sharedApplication] sendAction:[shareMenuItem action] to:retainPtr([shareMenuItem target]).get() from:shareMenuItem.get()];
 }
-#endif
+#endif // MAVERICKS_BACKPORT ENABLE(SERVICE_CONTROLS)
 
 #if ENABLE(SERVICE_CONTROLS)
 void WebContextMenuProxyMac::setupServicesMenu()
@@ -317,6 +319,7 @@ void WebContextMenuProxyMac::setupServicesMenu()
             RetainPtr cgImage = image->createPlatformImage(DontCopyBackingStore);
             auto nsImage = adoptNS([[NSImage alloc] initWithCGImage:cgImage.get() size:image->size()]);
 
+            // MAVERICKS_BACKPORT: UTTypeTIFF (UniformTypeIdentifiers) is 11.0+; use the legacy CoreServices kUTTypeTIFF identifier.
             itemProvider = adoptNS([[NSItemProvider alloc] initWithItem:retainPtr([nsImage TIFFRepresentation]).get() typeIdentifier:(__bridge NSString *)kUTTypeTIFF]);
         }
         items = @[ itemProvider.get() ];
@@ -460,6 +463,7 @@ void WebContextMenuProxyMac::removeBackgroundFromControlledImage()
     page->replaceImageForRemoveBackground(*elementContext, { String(type.get()) }, span(data.get()));
 #endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
 }
+// MAVERICKS_BACKPORT: close the SERVICE_CONTROLS guard wrapping the share/services menu code (disabled on 10.9).
 #endif // ENABLE(SERVICE_CONTROLS)
 
 #if ENABLE(CONTEXT_MENU_IMAGES_ON_MAC)
@@ -498,6 +502,7 @@ static void updateMenuItemImage(NSMenuItem *menuItem, const WebCore::ContextMenu
 }
 #endif
 
+// MAVERICKS_BACKPORT: gate share-menu construction on SERVICE_CONTROLS, which is disabled on 10.9.
 #if ENABLE(SERVICE_CONTROLS)
 RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemType type)
 {
@@ -558,6 +563,7 @@ RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemT
     } else
         [shareMenuItem setRepresentedObject:sharingServicePicker.get()];
 
+    // MAVERICKS_BACKPORT: -[NSMenuItem setIdentifier:] is 10.12+; send only when supported.
     if ([shareMenuItem respondsToSelector:@selector(setIdentifier:)])
         [shareMenuItem setIdentifier:_WKMenuItemIdentifierShareMenu];
     return shareMenuItem;
@@ -780,6 +786,7 @@ static RetainPtr<NSMenuItem> createMenuActionItem(const WebContextMenuItemData& 
     [menuItem setState:item.checked() ? NSControlStateValueOn : NSControlStateValueOff];
     [menuItem setIndentationLevel:item.indentationLevel()];
     [menuItem setTarget:[WKMenuTarget sharedMenuTarget]];
+    // MAVERICKS_BACKPORT: -[NSMenuItem setIdentifier:] is 10.12+; send only when supported.
     if ([menuItem respondsToSelector:@selector(setIdentifier:)])
         [menuItem setIdentifier:menuItemIdentifier(item.action()).get()];
 
@@ -989,6 +996,7 @@ void WebContextMenuProxyMac::getContextMenuItem(const WebContextMenuItemData& it
         RetainPtr menuItem = adoptNS([[NSMenuItem alloc] initWithTitle:item.title().createNSString().get() action:nullptr keyEquivalent:@""]);
         [menuItem setEnabled:item.enabled()];
         [menuItem setIndentationLevel:item.indentationLevel()];
+        // MAVERICKS_BACKPORT: -[NSMenuItem setIdentifier:] is 10.12+; send only when supported.
         if ([menuItem respondsToSelector:@selector(setIdentifier:)])
             [menuItem setIdentifier:menuItemIdentifier(item.action()).get()];
 #if ENABLE(CONTEXT_MENU_IMAGES_ON_MAC)
@@ -1122,6 +1130,7 @@ static RetainPtr<NSDictionary> contentsOfContextMenuItem(NSMenuItem *item)
 
     if (item.isSeparatorItem)
         result.get()[@"separator"] = @YES;
+    // MAVERICKS_BACKPORT: use the -isEnabled message; the `enabled` dot-property accessor is unavailable on 10.9 NSMenuItem.
     else if (![item isEnabled])
         result.get()[@"enabled"] = @NO;
 
@@ -1191,18 +1200,20 @@ void WebContextMenuProxyMac::captionStyleMenuSetPreviewProfileID(const String& p
 
 void WebContextMenuProxyMac::captionStyleMenuWillOpen()
 {
+    // MAVERICKS_BACKPORT: showCaptionDisplaySettingsPreview only exists with MEDIA_CONTROLS_CONTEXT_MENUS, which is off on 10.9; guard the body.
 #if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
     if (auto identifier = m_context.mediaElementIdentifier())
         protect(page())->showCaptionDisplaySettingsPreview(m_frameInfo, *identifier);
-#endif
+#endif // MAVERICKS_BACKPORT ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
 }
 
 void WebContextMenuProxyMac::captionStyleMenuDidClose()
 {
+    // MAVERICKS_BACKPORT: hideCaptionDisplaySettingsPreview only exists with MEDIA_CONTROLS_CONTEXT_MENUS, which is off on 10.9; guard the body.
 #if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
     if (auto identifier = m_context.mediaElementIdentifier())
         protect(page())->hideCaptionDisplaySettingsPreview(m_frameInfo, *identifier);
-#endif
+#endif // MAVERICKS_BACKPORT ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
 }
 
 } // namespace WebKit

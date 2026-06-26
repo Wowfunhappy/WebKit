@@ -50,12 +50,14 @@
 #include "NetworkRTCTCPSocketCocoa.h"
 #include "NetworkRTCUDPSocketCocoa.h"
 #include "NetworkSessionCocoa.h"
+// MAVERICKS_BACKPORT: WK_RTC_USE_NW (vs upstream PLATFORM(COCOA)); 10.9 takes the portable libwebrtc includes.
 #else // !WK_RTC_USE_NW
 
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <webrtc/api/environment/environment_factory.h>
 #include <webrtc/rtc_base/async_packet_socket.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+// MAVERICKS_BACKPORT: end of WK_RTC_USE_NW socket-backend selection (vs upstream PLATFORM(COCOA)).
 #endif // !WK_RTC_USE_NW
 
 namespace WebKit {
@@ -78,6 +80,8 @@ NetworkRTCProvider::NetworkRTCProvider(NetworkConnectionToWebProcess& connection
     , m_packetSocketFactory(makeUniqueRefWithoutFastMallocCheck<webrtc::BasicPacketSocketFactory>(rtcNetworkThread().socketserver()))
 #endif
 {
+// MAVERICKS_BACKPORT: WK_RTC_USE_NW gate (vs upstream PLATFORM(COCOA)); the bundle-identifier lookup
+// goes through NetworkSessionCocoa's nw_* path, compiled out on 10.9.
 #if WK_RTC_USE_NW
     if (CheckedPtr session = downcast<NetworkSessionCocoa>(connection.networkSession()))
         m_applicationBundleIdentifier = session->sourceApplicationBundleIdentifier().utf8();

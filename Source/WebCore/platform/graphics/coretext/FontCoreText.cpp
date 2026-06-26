@@ -739,7 +739,7 @@ GlyphBufferAdvance Font::applyTransforms(GlyphBuffer& glyphBuffer, unsigned begi
         options,
         localeString.get(),
         handler);
-#endif
+#endif // MAVERICKS_BACKPORT: end PLATFORM(MAC) guard skipping the 10.13+ CTFontShapeGlyphs (stub leaks XMM)
 
     LOG_WITH_STREAM(TextShaping,
         stream << "Shaping result: " << glyphBuffer.size() - beginningGlyphIndex << " glyphs.\n";

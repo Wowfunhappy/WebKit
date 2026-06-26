@@ -65,6 +65,7 @@ using RectType = CGRect;
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
 @interface _WKWarningView : _WKWarningViewBox<NSTextViewDelegate, NSAccessibilityGroup>
 #else
+// MAVERICKS_BACKPORT: 10.9 SDK lacks NSAccessibilityGroup; conform only to NSTextViewDelegate here.
 @interface _WKWarningView : _WKWarningViewBox<NSTextViewDelegate>
 #endif
 #else

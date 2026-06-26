@@ -30,6 +30,7 @@
 
 #import "FloatRoundedRect.h"
 #import "GraphicsContext.h"
+// MAVERICKS_BACKPORT: ImageBuffer is needed for the offscreen buffer the Carbon HITheme stepper fallback draws into.
 #import "ImageBuffer.h"
 #import "InnerSpinButtonPart.h"
 #import "LocalDefaultSystemAppearance.h"
@@ -65,6 +66,7 @@ IntSize InnerSpinButtonMac::cellSize(NSControlSize controlSize, const ControlSty
     return sizes[controlSize];
 }
 
+// MAVERICKS_BACKPORT: name the deviceScaleFactor param (unused upstream) so the Carbon HITheme fallback below can size its offscreen buffer.
 void InnerSpinButtonMac::draw(GraphicsContext& context, const FloatRoundedRect& borderRect, float deviceScaleFactor, const ControlStyle& style)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS

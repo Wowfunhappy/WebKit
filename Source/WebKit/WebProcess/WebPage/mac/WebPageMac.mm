@@ -87,7 +87,7 @@
 // add them for LocalFrame::document()/selection() and IPC send<> (immediate action / acceptsFirstMouse).
 #import "MessageSenderInlines.h"
 #import <WebCore/LocalFrame.h>
-#import <WebCore/LocalFrameInlines.h>
+#import <WebCore/LocalFrameInlines.h> // MAVERICKS_BACKPORT: explicit inline defs (LocalFrame::document()/selection()) not transitively included under -fno-modules
 #import <WebCore/LocalFrameView.h>
 #import <WebCore/MIMETypeRegistry.h>
 #import <WebCore/NetworkStorageSession.h>
@@ -478,6 +478,7 @@ void WebPage::registerUIProcessAccessibilityTokens(WebCore::AccessibilityRemoteT
     [remoteElement setWindowUIElement:remoteWindow.get()];
     [remoteElement setTopLevelUIElement:remoteWindow.get()];
     RetainPtr accessibilityRemoteObject = this->accessibilityRemoteObject();
+    // MAVERICKS_BACKPORT: explicit (NSWindow *) cast — the 10.9 SDK's setWindow: signature needs it to compile.
     [accessibilityRemoteObject setWindow:(NSWindow *)remoteWindow.get()];
     [accessibilityRemoteObject setRemoteParent:remoteElement.get() token:elementTokenData.get()];
 }
@@ -1007,11 +1008,14 @@ bool WebPage::shouldAvoidComputingPostLayoutDataForEditorState() const
         return false;
     }
 
+    // MAVERICKS_BACKPORT: gate the touch-bar editing-controls check on HAVE(TOUCH_BAR); the touch bar
+    // doesn't exist on 10.9 and m_requiresUserActionForEditingControlsManager is touch-bar-only state.
 #if HAVE(TOUCH_BAR)
     if (!m_requiresUserActionForEditingControlsManager || !m_userInteractionsSincePageTransition.isEmpty()) {
         // Text editing controls on the touch bar depend on having post-layout editor state data.
         return false;
     }
+    // MAVERICKS_BACKPORT: close the HAVE(TOUCH_BAR) guard around the touch-bar editing-controls check.
 #endif
 
     if (m_hasEverDisplayedContextMenu) {

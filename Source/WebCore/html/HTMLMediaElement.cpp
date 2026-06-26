@@ -9724,11 +9724,13 @@ void HTMLMediaElement::updateShouldAutoplay()
     if (!session->hasBehaviorRestriction(MediaElementSession::InvisibleAutoplayNotPermitted) && !m_wasInterruptedForInvisibleAutoplay)
         return;
 
+    // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75) — go through the null-guarded `session` local, not mediaSession().
     bool canAutoplay = session->autoplayPermitted();
 
     if (canAutoplay) {
         if (m_wasInterruptedForInvisibleAutoplay) {
             m_wasInterruptedForInvisibleAutoplay = false;
+            // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75) — go through the null-guarded `session` local, not mediaSession().
             session->endInterruption(PlatformMediaSession::EndInterruptionFlags::MayResumePlaying);
             return;
         }
@@ -9737,15 +9739,18 @@ void HTMLMediaElement::updateShouldAutoplay()
         return;
     }
 
+    // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75) — go through the null-guarded `session` local, not mediaSession().
     if (session->state() == PlatformMediaSession::State::Interrupted)
         return;
 
     if (m_wasInterruptedForInvisibleAutoplay) {
         m_wasInterruptedForInvisibleAutoplay = false;
+        // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75) — go through the null-guarded `session` local, not mediaSession().
         session->endInterruption(PlatformMediaSession::EndInterruptionFlags::NoFlags);
     }
 
     m_wasInterruptedForInvisibleAutoplay = true;
+    // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75) — go through the null-guarded `session` local, not mediaSession().
     session->beginInterruption(PlatformMediaSession::InterruptionType::InvisibleAutoplay);
 }
 

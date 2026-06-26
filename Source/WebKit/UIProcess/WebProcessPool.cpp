@@ -1428,6 +1428,7 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
 
     ASSERT(process);
 
+    // MAVERICKS_BACKPORT: process is resolved by the single-WebContent reuse/consolidation block above.
     process->setAllowTestOnlyIPC(pageConfiguration->allowTestOnlyIPC());
 
     auto page = process->createWebPage(pageClient, WTF::move(pageConfiguration));
@@ -1732,6 +1733,7 @@ void WebProcessPool::unregisterGlobalURLSchemeAsHavingCustomProtocolHandlers(con
     globalURLSchemesWithCustomProtocolHandlers().remove(urlScheme);
     for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
         networkProcess->unregisterSchemeForLegacyCustomProtocol(urlScheme);
+    // MAVERICKS_BACKPORT: also tell already-running WebProcesses (mirror of the register path above).
     for (Ref processPool : allProcessPools())
         processPool->sendToAllProcesses(Messages::WebProcess::UnregisterURLSchemeForCustomProtocol(urlScheme));
 }

@@ -67,7 +67,7 @@ static Box<NetworkLoadMetrics> packageTimingData(MonotonicTime redirectStart, NS
 
 Box<NetworkLoadMetrics> copyTimingData(NSURLSessionTaskMetrics *incompleteMetrics, const NetworkLoadMetrics& metricsFromTask)
 {
-    // NSURLSessionTaskTransactionMetrics is macOS 10.12+; return empty metrics on older macOS
+    // MAVERICKS_BACKPORT: NSURLSessionTaskTransactionMetrics is macOS 10.12+; return empty metrics on older macOS
     UNUSED_PARAM(incompleteMetrics);
     auto timing = Box<NetworkLoadMetrics>::create();
     timing->failsTAOCheck = metricsFromTask.failsTAOCheck;

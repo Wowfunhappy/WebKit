@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * MAVERICKS_BACKPORT: stubbed minimal controller; original copyright span narrowed accordingly.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,6 +36,7 @@
 #import "config.h"
 #import "WKFullScreenWindowController.h"
 
+// MAVERICKS_BACKPORT: gate on PLATFORM(MAC) (upstream uses !PLATFORM(IOS_FAMILY)); this stub is Mac-only.
 #if ENABLE(FULLSCREEN_API) && PLATFORM(MAC)
 
 #import "WebPageProxy.h"
@@ -48,6 +50,7 @@ enum FullScreenState : NSInteger {
     ExitingFullScreen,
 };
 
+// MAVERICKS_BACKPORT: stub @implementation; init keeps only the page/view/state ivars (no placeholder/background/clip views or PiP observer).
 @implementation WKFullScreenWindowController
 
 - (instancetype)initWithWindow:(NSWindow *)window webView:(WKWebView *)webView page:(std::reference_wrapper<WebKit::WebPageProxy>)page
@@ -58,16 +61,19 @@ enum FullScreenState : NSInteger {
 
     _webView = webView;
     _page = page.get();
+    // MAVERICKS_BACKPORT: start in NotInFullScreen; no enter/exit animation pipeline exists here.
     _fullScreenState = NotInFullScreen;
 
     return self;
 }
 
+// MAVERICKS_BACKPORT: plain accessor (upstream's is @synthesize-backed in the full controller).
 - (NSRect)initialFrame
 {
     return _initialFrame;
 }
 
+// MAVERICKS_BACKPORT: plain accessor (upstream's is @synthesize-backed in the full controller).
 - (NSRect)finalFrame
 {
     return _finalFrame;
@@ -78,21 +84,25 @@ enum FullScreenState : NSInteger {
     return _savedConstraints.get();
 }
 
+// MAVERICKS_BACKPORT: plain accessor (upstream's is @synthesize-backed via the full controller's ivars).
 - (void)setSavedConstraints:(NSArray *)savedConstraints
 {
     _savedConstraints = savedConstraints;
 }
 
+// MAVERICKS_BACKPORT: no placeholder view in the stub; upstream returns the swapped-in WKFullScreenPlaceholderView.
 - (WebCoreFullScreenPlaceholderView *)webViewPlaceholder
 {
     return nil;
 }
 
+// MAVERICKS_BACKPORT: stub tracks only InFullScreen (no entering/waiting transient states are reached).
 - (BOOL)isFullScreen
 {
     return _fullScreenState == InFullScreen;
 }
 
+// MAVERICKS_BACKPORT: stub reports enter-failure so requestFullscreen() rejects instead of hanging.
 - (void)enterFullScreen:(CompletionHandler<void(bool)>&&)completionHandler
 {
     // Element fullscreen is not available in this minimal implementation; report
@@ -101,6 +111,7 @@ enum FullScreenState : NSInteger {
         completionHandler(false);
 }
 
+// MAVERICKS_BACKPORT: stub exit just resets state and completes immediately (no exit animation).
 - (void)exitFullScreen:(CompletionHandler<void()>&&)completionHandler
 {
     _fullScreenState = NotInFullScreen;
@@ -108,6 +119,7 @@ enum FullScreenState : NSInteger {
         completionHandler();
 }
 
+// MAVERICKS_BACKPORT: stub immediate-exit just resets state (no placeholder/window teardown).
 - (void)exitFullScreenImmediately
 {
     _fullScreenState = NotInFullScreen;
@@ -118,11 +130,13 @@ enum FullScreenState : NSInteger {
     _fullScreenState = NotInFullScreen;
 }
 
+// MAVERICKS_BACKPORT: stub close just resets state; upstream tears down placeholder views/animation.
 - (void)close
 {
     _fullScreenState = NotInFullScreen;
 }
 
+// MAVERICKS_BACKPORT: stub records frames and reports enter-failure (no fullscreen animation on 10.9).
 - (void)beganEnterFullScreenWithInitialFrame:(NSRect)initialFrame finalFrame:(NSRect)finalFrame completionHandler:(CompletionHandler<void(bool)>&&)completionHandler
 {
     _initialFrame = initialFrame;
@@ -131,6 +145,7 @@ enum FullScreenState : NSInteger {
         completionHandler(false);
 }
 
+// MAVERICKS_BACKPORT: stub records frames and immediately completes the exit handshake (no animation path).
 - (void)beganExitFullScreenWithInitialFrame:(NSRect)initialFrame finalFrame:(NSRect)finalFrame completionHandler:(CompletionHandler<void()>&&)completionHandler
 {
     _initialFrame = initialFrame;
@@ -140,10 +155,12 @@ enum FullScreenState : NSInteger {
         completionHandler();
 }
 
+// MAVERICKS_BACKPORT: no-op stub; video controls manager wiring depends on VideoPresentationManagerProxy (absent here).
 - (void)videoControlsManagerDidChange
 {
 }
 
 @end
 
+// MAVERICKS_BACKPORT: guard pairs with the PLATFORM(MAC) gate substituted for upstream's !PLATFORM(IOS_FAMILY).
 #endif // ENABLE(FULLSCREEN_API) && PLATFORM(MAC)

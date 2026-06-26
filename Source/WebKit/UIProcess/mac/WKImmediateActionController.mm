@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * MAVERICKS_BACKPORT: inert force-touch controller stub; original copyright span narrowed accordingly.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,21 +36,25 @@
 
 #if PLATFORM(MAC)
 
+// MAVERICKS_BACKPORT: stub pulls only these headers; the Lookup/DataDetectors/NSMenu/QuickLookUI SPI imports are dropped with the inert force-touch UI.
 #import "APIObject.h"
 #import "WebPageProxy.h"
 #import "WebViewImpl.h"
 
 @implementation WKImmediateActionController
 
+// MAVERICKS_BACKPORT: stub init only captures page/view/viewImpl/recognizer; no force-touch wiring.
 - (instancetype)initWithPage:(std::reference_wrapper<WebKit::WebPageProxy>)page view:(NSView *)view viewImpl:(std::reference_wrapper<WebKit::WebViewImpl>)viewImpl recognizer:(NSImmediateActionGestureRecognizer *)immediateActionRecognizer
 {
     self = [super init];
+    // MAVERICKS_BACKPORT: stub init (no force-touch wiring; blank line after super init dropped).
     if (!self)
         return nil;
 
     _page = page.get();
     _view = view;
     _viewImpl = viewImpl.get();
+    // MAVERICKS_BACKPORT: initialize to ImmediateActionState::None (upstream init set the legacy _type ivar).
     _state = WebKit::ImmediateActionState::None;
     _immediateActionRecognizer = immediateActionRecognizer;
     _hasActiveImmediateAction = NO;
@@ -57,11 +62,13 @@
     return self;
 }
 
+// MAVERICKS_BACKPORT: stub teardown; `view` is unused since no animation/Data Detectors state is held.
 - (void)willDestroyView:(NSView *)view
 {
     UNUSED_PARAM(view);
     _page = nullptr;
     _viewImpl = nullptr;
+    // MAVERICKS_BACKPORT: stub teardown only nils ivars; no Data Detectors / QLPreview / action-context cleanup.
     _view = nil;
     _immediateActionRecognizer = nil;
 }

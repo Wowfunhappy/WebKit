@@ -6,12 +6,16 @@
 #import "SimpleRange.h"
 #import <pal/spi/mac/HIServicesSPI.h>
 #import <Foundation/Foundation.h>
+// MAVERICKS_BACKPORT: empty wrapper class + trimmed imports replace the real 4478-line wrapper,
+// which is coupled to the isolated-tree AX classes compiled out on this port (see header above).
 @interface WebAccessibilityObjectWrapper : NSObject @end
 @implementation WebAccessibilityObjectWrapper @end
 
+// MAVERICKS_BACKPORT: minimal namespace + forward-decl for the graceful stub below; the real
+// wrapper's AXObjectCache uses (and #includes) are gone with the gutted implementation.
 namespace WebCore {
 
-class AXObjectCache;
+class AXObjectCache; // MAVERICKS_BACKPORT: forward-decl for the gutted wrapper's graceful stub below.
 
 // MAVERICKS_BACKPORT: the real rangeForTextMarkerRange lives in the gutted 4478-line wrapper above. Provide
 // a graceful stub so the symbol resolves — AccessibilityObjectCocoa.mm's attributedStringForTextMarkerRange
@@ -19,7 +23,8 @@ class AXObjectCache;
 // attributed string is nil (AX degrades gracefully) instead of a dyld-halt on the undefined symbol.
 std::optional<SimpleRange> rangeForTextMarkerRange(AXObjectCache*, AXTextMarkerRangeRef)
 {
-    return std::nullopt;
+    return std::nullopt; // MAVERICKS_BACKPORT: AX disabled → no marker range (graceful nil, no dyld-halt).
 }
 
+// MAVERICKS_BACKPORT: closes the WebCore namespace of this gutted wrapper translation unit.
 } // namespace WebCore

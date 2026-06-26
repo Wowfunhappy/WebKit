@@ -987,6 +987,7 @@ void MediaPlayerPrivateWebM::enqueueSample(Ref<MediaSample>&& sample, TrackID tr
         ERROR_LOG(logSiteIdentifier, "Received sample with a null formatDescription. Bailing.");
         return;
     }
+    // MAVERICKS_BACKPORT: call CoreMedia's CMFormatDescriptionGetMediaType directly; the symbol is present in the 10.9 CoreMedia framework so the PAL soft-link wrapper is bypassed.
     auto mediaType = CMFormatDescriptionGetMediaType(formatDescription);
 
     if (isEnabledVideoTrackID(trackId)) {

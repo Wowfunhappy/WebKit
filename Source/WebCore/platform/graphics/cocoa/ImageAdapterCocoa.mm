@@ -87,6 +87,7 @@ RetainPtr<CFDataRef> ImageAdapter::tiffRepresentation(const Vector<Ref<NativeIma
 
     RetainPtr<CFMutableDataRef> data = adoptCF(CFDataCreateMutable(0, 0));
 
+    // MAVERICKS_BACKPORT: UTType.identifier (UTTypeTIFF) is macOS 11+; use utTypeTIFFId(), which returns the legacy CoreServices kUTTypeTIFF identifier available on 10.9.
     RetainPtr<CGImageDestinationRef> destination = adoptCF(CGImageDestinationCreateWithData(data.get(), (__bridge CFStringRef)utTypeTIFFId(), nativeImages.size(), 0));
     if (!destination)
         return nullptr;

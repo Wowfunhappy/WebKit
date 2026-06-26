@@ -108,6 +108,7 @@ void WebAutomationSession::sendSynthesizedEventsToPage(WebPageProxy& page, NSArr
     auto patchOriginalFunction = makeScopeExit([&methodToSwizzle, &originalImplementation] {
         method_setImplementation(methodToSwizzle, originalImplementation);
     });
+// MAVERICKS_BACKPORT: the +pressedMouseButtons swizzle above is gated to WEBDRIVER_MOUSE_INTERACTIONS because it captures m_mouseButtonsCurrentlyDown, which only exists under that flag.
 #endif // ENABLE(WEBDRIVER_MOUSE_INTERACTIONS)
 
     for (NSEvent *event in eventsToSend) {

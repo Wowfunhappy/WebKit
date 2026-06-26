@@ -140,11 +140,15 @@ protected:
     // access specifiers are rebalanced around the remaining gated members).
 private:
     void didAddPendingScrollUpdate() override;
+    // MAVERICKS_BACKPORT: re-open public access for the gated member below, since
+    // the hoisted override above left this section private.
 #if ENABLE(THREADED_ANIMATIONS)
 public:
     void updateProgressBasedTimelinesForNode(const WebCore::ScrollingTreeScrollingNode&);
 
 private:
+    // MAVERICKS_BACKPORT: the didAddPendingScrollUpdate() override that upstream
+    // declared here is hoisted above the feature gate (see comment near line 136).
     std::unique_ptr<RemoteProgressBasedTimelineRegistry> m_progressBasedTimelineRegistry;
 #endif
 };

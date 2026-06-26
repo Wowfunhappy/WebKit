@@ -902,11 +902,11 @@ void TiledCoreAnimationDrawingArea::addFence(const MachSendRight& fencePort)
     m_layerHostingContext->setFencePort(fencePort.sendRight());
 }
 
-// 10.9: one frame at the DISPLAY'S ACTUAL refresh rate, not a hardcoded 60Hz, so a 120Hz/144Hz panel
-// animates at full rate (was capped to 60 = choppy) and unusual rates aren't mismatched. Prefer the
-// page's plumbed per-window nominal FPS (multi-monitor aware); fall back to the main display's
-// CoreGraphics-reported rate (cached ~2s to avoid per-frame CG allocation); finally 60Hz if nothing
-// reports a usable value (e.g. VMs report 0).
+// MAVERICKS_BACKPORT: new helper — one frame at the DISPLAY'S ACTUAL refresh rate, not a hardcoded 60Hz,
+// so a 120Hz/144Hz panel animates at full rate (was capped to 60 = choppy) and unusual rates aren't
+// mismatched. Prefer the page's plumbed per-window nominal FPS (multi-monitor aware); fall back to the
+// main display's CoreGraphics-reported rate (cached ~2s to avoid per-frame CG allocation); finally 60Hz
+// if nothing reports a usable value (e.g. VMs report 0). Drives the 10.9 render-rate throttle.
 Seconds TiledCoreAnimationDrawingArea::displayUpdateInterval()
 {
     double displayHz = 0;
@@ -958,7 +958,7 @@ void TiledCoreAnimationDrawingArea::scheduleRenderingUpdateRunLoopObserver()
         return;
 
     tracePoint(RenderingUpdateRunLoopObserverStart);
-
+    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace).
     m_renderingUpdateRunLoopObserver->schedule();
 
     // MAVERICKS_BACKPORT: CFRunLoopObserver BeforeWaiting events don't reliably fire

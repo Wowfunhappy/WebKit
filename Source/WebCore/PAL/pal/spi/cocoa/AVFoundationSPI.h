@@ -508,7 +508,7 @@ NS_ASSUME_NONNULL_END
 @end
 #endif
 
-// The WKSecureCoding category extends AVOutputContext, which only exists under
+// MAVERICKS_BACKPORT: The WKSecureCoding category extends AVOutputContext, which only exists under
 // ENABLE(WIRELESS_PLAYBACK_TARGET), and its sole consumer (CoreIPCAVOutputContext.mm) is gated on
 // HAVE(WK_SECURE_CODING_AVOUTPUTCONTEXT). Guard it with the same macro so it isn't declared on
 // builds (e.g. 10.9, WIRELESS_PLAYBACK_TARGET off) where AVOutputContext is undefined.
@@ -519,6 +519,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)_initWithWebKitPropertyListData:(NSDictionary *)plist;
 @end
 NS_ASSUME_NONNULL_END
+// MAVERICKS_BACKPORT: close the HAVE(WK_SECURE_CODING_AVOUTPUTCONTEXT) guard around the category above.
 #endif
 
 #endif // !__has_feature(modules)

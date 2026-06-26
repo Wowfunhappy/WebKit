@@ -202,6 +202,7 @@
 #import <WebCore/MemoryCache.h>
 #import <WebCore/MemoryRelease.h>
 #import <WebCore/MutableStyleProperties.h>
+// MAVERICKS_BACKPORT: Seconds/Threading for the WK1 background memory scavenger added in WebInstallMemoryPressureHandler.
 #import <wtf/Seconds.h>
 #import <wtf/Threading.h>
 #import <WebCore/NativeImage.h>
@@ -270,6 +271,7 @@
 #import <pal/spi/mac/NSResponderSPI.h>
 #import <pal/spi/mac/NSSpellCheckerSPI.h>
 
+// MAVERICKS_BACKPORT: WebCrypto runs on libgcrypt (USE_GCRYPT); pull in its initializer for PAL::GCrypt::initialize().
 #if USE(GCRYPT)
 #import <pal/crypto/gcrypt/Initialization.h>
 #endif
@@ -406,6 +408,7 @@ SOFT_LINK_CLASS(AVKit, AVTouchBarScrubber)
 
 #if !PLATFORM(IOS_FAMILY)
 
+// MAVERICKS_BACKPORT: forward-declare NSFilePromiseReceiver (10.12+) so promised-file drag code compiles on 10.9.
 // NSFilePromiseReceiver is macOS 10.12+; absent from the 10.9 AppKit headers. performDragOperation:
 // uses it for promised-file drops. On 10.9 +[NSFilePromiseReceiver class] is nil so the drag
 // enumeration finds none — this stub only needs to satisfy the compile-time references.
@@ -1038,6 +1041,7 @@ static const NSUInteger orderedListSegment = 2;
     [insertListControl setWidth:listControlSegmentWidth forSegment:noListSegment];
     [insertListControl setWidth:listControlSegmentWidth forSegment:unorderedListSegment];
     [insertListControl setWidth:listControlSegmentWidth forSegment:orderedListSegment];
+    // MAVERICKS_BACKPORT: cast to NSSegmentedControl * for the .font setter; the 10.9 SDK's NSSegmentedControl has no font property on the RetainPtr's id type.
     ((NSSegmentedControl *)insertListControl.get()).font = [NSFont systemFontOfSize:15];
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -1859,6 +1863,7 @@ static void WebKitInitializeGamepadProviderIfNecessary()
         makeUniqueRef<WebCore::DummyStorageProvider>(),
         WebCore::DummyModelPlayerProvider::create(),
         WebCore::EmptyBadgeClient::create(),
+        // MAVERICKS_BACKPORT: was LegacyHistoryItemClient::singleton() (null in this process → SIGSEGV); use the fallback client.
         WK109FallbackHistoryItemClient::shared(),
 #if ENABLE(APPLE_PAY)
         WebPaymentCoordinatorClient::create(),
@@ -2599,6 +2604,7 @@ static bool fastDocumentTeardownEnabled()
 
     [WebPreferences _removeReferenceForIdentifier:[self preferencesIdentifier]];
 
+    // MAVERICKS_BACKPORT: std::exchange with an explicit empty RetainPtr (the 10.9 toolchain rejects the nil literal here).
     auto preferences = std::exchange(_private->preferences, RetainPtr<WebPreferences> { });
     [preferences didRemoveFromWebView];
 
@@ -3000,6 +3006,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     if (isLockdownModeEnabled())
         settings.disableFeaturesForLockdownMode();
+    // MAVERICKS_BACKPORT: trailing-whitespace cleanup (no behavior change).
 
     // FIXME: These should switch to using WebPreferences for storage and adopt autogeneration.
     settings.setInteractiveFormValidationEnabled([self interactiveFormValidationEnabled]);
@@ -4339,6 +4346,7 @@ IGNORE_WARNINGS_END
     WebCore::SecurityPolicy::resetOriginAccessAllowlists();
 }
 
+// MAVERICKS_BACKPORT: restore the old "Whitelist" origin-access SPI names Safari 7 still calls.
 // Safari 7-era compatibility: these SPI were renamed "Whitelist" -> "AllowList" in modern
 // WebKit. Safari's Extension::configureCrossOriginWhiteList still calls the old "Whitelist"
 // selectors when enabling an extension; without them the call raises NSInvalidArgumentException
@@ -4679,10 +4687,12 @@ IGNORE_WARNINGS_END
 
 - (void)_setIsVisible:(BOOL)isVisible
 {
+    // MAVERICKS_BACKPORT: track the prior visibility so we can force a render on the hidden->visible edge (block below).
     if (_private->page) {
         bool wasVisible = _private->page->isVisible();
         _private->page->setIsVisible(isVisible);
 
+        // MAVERICKS_BACKPORT: WK1 has no implicit repaint on becoming visible; force one so offscreen-loaded WebViews aren't blank.
         // When a Legacy WebKit page transitions to visible, force a fresh rendering update.
         // Unlike WebKit2 (whose drawing area re-displays the page when it becomes visible),
         // WK1 has no implicit repaint here: WebCore's Page::setIsVisibleInternal(true) only
@@ -4950,7 +4960,8 @@ IGNORE_WARNINGS_END
 #if PLATFORM(MAC)
 - (bool)_effectiveAppearanceIsDark
 {
-    return false; // No dark mode support on macOS 10.9
+    // MAVERICKS_BACKPORT: NSAppearanceNameDarkAqua and -bestMatchFromAppearancesWithNames: are 10.14+; no dark mode on 10.9.
+    return false;
 }
 
 - (bool)_effectiveUserInterfaceLevelIsElevated
@@ -5006,6 +5017,7 @@ IGNORE_WARNINGS_END
 
 #if HAVE(TOUCH_BAR)
 
+// MAVERICKS_BACKPORT: drop the lightweight generic parameter type (NSArray<NSTextCheckingResult *> *); unsupported by the 10.9 SDK.
 - (void)showCandidates:(NSArray *)candidates forString:(NSString *)string inRect:(NSRect)rectOfTypedString forSelectedRange:(NSRange)range view:(NSView *)view completionHandler:(void (^)(NSTextCheckingResult *acceptedCandidate))completionBlock
 {
     [self.candidateList setCandidates:candidates forSelectedRange:range inString:string rect:rectOfTypedString view:view completionHandler:completionBlock];
@@ -5373,6 +5385,7 @@ IGNORE_WARNINGS_END
     return db;
 }
 
+// MAVERICKS_BACKPORT: restore the plug-in lookup (upstream returns nil); consult per-view/shared/widget-bundle databases so Web Clips find WebClip.plugin.
 - (WebBasePluginPackage *)_pluginForMIMEType:(NSString *)MIMEType
 {
     if (_private->pluginDatabase) {
@@ -5388,6 +5401,7 @@ IGNORE_WARNINGS_END
     return nil;
 }
 
+// MAVERICKS_BACKPORT: restore the plug-in lookup (upstream returns nil); consult per-view/shared/widget-bundle databases so Web Clips find WebClip.plugin.
 - (WebBasePluginPackage *)_pluginForExtension:(NSString *)extension
 {
     if (_private->pluginDatabase) {
@@ -5630,7 +5644,7 @@ static bool needsWebViewInitThreadWorkaround()
 {
     // Set asside the subviews before we archive. We don't want to archive any subviews.
     // The subviews will always be created in _commonInitializationFrameName:groupName:.
-    // macOS 10.9: skip subview-ivar manipulation; not critical for our use.
+    // MAVERICKS_BACKPORT: skip the _subviewsIvar set-aside/restore (NSView private ivar accessor differs on 10.9); not critical for our use.
     [super encodeWithCoder:encoder];
 
     BOOL useBackForwardList = _private->page && static_cast<BackForwardList&>(_private->page->backForward().client()).enabled();
@@ -7018,7 +7032,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 #if HAVE(TOUCH_BAR)
 
-// macOS 10.9: no NSResponder touchBar property to be @dynamic for.
+// MAVERICKS_BACKPORT: macOS 10.9 NSResponder has no touchBar property to be @dynamic for.
 
 - (NSTouchBar *)makeTouchBar
 {
@@ -9090,6 +9104,7 @@ FORWARD(toggleUnderline)
 
         // First exit Fullscreen for the old videoElement.
         [_private->fullscreenController videoElement]->exitFullscreen();
+        // MAVERICKS_BACKPORT: std::exchange with an explicit empty RetainPtr (the 10.9 toolchain rejects the nil literal here).
         _private->fullscreenControllersExiting.append(std::exchange(_private->fullscreenController, RetainPtr<WebVideoFullscreenController> { }));
     }
 
@@ -9468,21 +9483,25 @@ FORWARD(toggleUnderline)
         [touchBarItem.get() dismissPopover:nil];
 }
 
+// MAVERICKS_BACKPORT: drop the lightweight generic return type (NSArray<NSString *> *); unsupported by the 10.9 SDK.
 - (NSArray *)_textTouchBarCustomizationAllowedIdentifiers
 {
     return @[ NSTouchBarItemIdentifierCharacterPicker, NSTouchBarItemIdentifierTextColorPicker, NSTouchBarItemIdentifierTextStyle, NSTouchBarItemIdentifierTextAlignment, NSTouchBarItemIdentifierTextList, NSTouchBarItemIdentifierFlexibleSpace ];
 }
 
+// MAVERICKS_BACKPORT: drop the lightweight generic return type (NSArray<NSString *> *); unsupported by the 10.9 SDK.
 - (NSArray *)_plainTextTouchBarDefaultItemIdentifiers
 {
     return @[ NSTouchBarItemIdentifierCharacterPicker, NSTouchBarItemIdentifierCandidateList ];
 }
 
+// MAVERICKS_BACKPORT: drop the lightweight generic return type (NSArray<NSString *> *); unsupported by the 10.9 SDK.
 - (NSArray *)_richTextTouchBarDefaultItemIdentifiers
 {
     return @[ NSTouchBarItemIdentifierCharacterPicker, NSTouchBarItemIdentifierTextFormat, NSTouchBarItemIdentifierCandidateList ];
 }
 
+// MAVERICKS_BACKPORT: drop the lightweight generic return type (NSArray<NSString *> *); unsupported by the 10.9 SDK.
 - (NSArray *)_passwordTextTouchBarDefaultItemIdentifiers
 {
     return @[ NSTouchBarItemIdentifierCandidateList ];
@@ -9515,6 +9534,7 @@ FORWARD(toggleUnderline)
 
 - (void)setUpTextTouchBar:(NSTouchBar *)textTouchBar
 {
+    // MAVERICKS_BACKPORT: drop lightweight generics (NSSet<NSTouchBarItem *> */NSArray<NSTouchBarItemIdentifier> *); unsupported by the 10.9 SDK.
     NSSet *templateItems = nil;
     NSArray *defaultItemIdentifiers = nil;
     NSArray *customizationAllowedItemIdentifiers = nil;
@@ -9668,6 +9688,7 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
     }
 
     NSTouchBar *textTouchBar = self.textTouchBar;
+    // MAVERICKS_BACKPORT: drop the lightweight generic (NSArray<NSString *> *); unsupported by the 10.9 SDK headers.
     NSArray *itemIdentifiers = textTouchBar.defaultItemIdentifiers;
     BOOL isShowingCombinedTextFormatItem = [itemIdentifiers containsObject:NSTouchBarItemIdentifierTextFormat];
     [textTouchBar setPrincipalItemIdentifier:isShowingCombinedTextFormatItem ? NSTouchBarItemIdentifierTextFormat : nil];
@@ -9842,11 +9863,13 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
     }
 
     auto translationViewController = adoptNS([PAL::allocLTUITranslationViewControllerInstance() init]);
+    // MAVERICKS_BACKPORT: LTUITranslationViewController (Translation UI) is absent on 10.9; feed an empty string and cast to id.
     [translationViewController setText:(id)@""];
     if (info.mode == WebCore::TranslationContextMenuMode::Editable) {
         [translationViewController setIsSourceEditable:YES];
         [translationViewController setReplacementHandler:[weakSelf = WeakObjCPtr<WebView>(self)](NSAttributedString *string) {
             auto strongSelf = weakSelf.get();
+            // MAVERICKS_BACKPORT: cast WTF::String's NSString * conversion explicitly for the 10.9 SDK.
             [strongSelf insertText:(NSString *)string.string];
         }];
     }
@@ -9856,8 +9879,9 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
 
     auto popover = adoptNS([[NSPopover alloc] init]);
     [popover setBehavior:NSPopoverBehaviorTransient];
-    // macOS 10.9: NSPopover.appearance is an enum, not NSAppearance *. Skip.
+    // MAVERICKS_BACKPORT: macOS 10.9: NSPopover.appearance is an enum, not NSAppearance *. Skip.
     [popover setAnimates:YES];
+    // MAVERICKS_BACKPORT: LTUITranslationViewController is unavailable on 10.9; cast the stand-in and use a fixed content size.
     [popover setContentViewController:(NSViewController *)translationViewController.get()];
     [popover setContentSize:NSMakeSize(300, 200)];
 
@@ -10044,6 +10068,7 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
 
 @implementation WebView (WebViewIOSAdditions)
 
+// MAVERICKS_BACKPORT: drop the lightweight-generic return type (NSArray<DOMElement *> *); the 10.9 SDK headers lack it.
 - (NSArray *)_editableElementsInRect:(CGRect)rect
 {
     auto* page = core(self);
@@ -10156,6 +10181,7 @@ void WebInstallMemoryPressureHandler(void)
 #endif
 
 // ============================================================================
+// MAVERICKS_BACKPORT: restore the removed WKContextGetOriginDataManager / WKOriginDataManager* C SPI.
 // Safari 9 / 10.9 compat: WebKit2 C SPI WKContextGetOriginDataManager + the
 // WKOriginDataManager* family were removed from modern WebKit. Safari 9.1.3's
 // Privacy preference pane (-[PrivacyPreferences moduleWasInstalled] ->

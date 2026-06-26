@@ -46,6 +46,7 @@ set(webrtc_SOURCES
     Source/third_party/abseil-cpp/absl/base/internal/sysinfo.cc
     Source/third_party/abseil-cpp/absl/base/internal/thread_identity.cc
     Source/third_party/abseil-cpp/absl/base/internal/throw_delegate.cc
+    # MAVERICKS_BACKPORT: build absl tracing.cc; this abseil version references its symbols (undefined otherwise).
     Source/third_party/abseil-cpp/absl/base/internal/tracing.cc
     Source/third_party/abseil-cpp/absl/base/internal/unscaledcycleclock.cc
     Source/third_party/abseil-cpp/absl/base/log_severity.cc
@@ -2501,6 +2502,7 @@ set(webrtc_INCLUDE_DIRECTORIES PRIVATE
 if (APPLE)
     list(APPEND webrtc_INCLUDE_DIRECTORIES PRIVATE
         Source/third_party/libvpx/source/libvpx
+        # MAVERICKS_BACKPORT: use the vendored webkit_sdk/objc tree (WebKit's fork of the WebRTC ObjC SDK).
         Source/webrtc/webkit_sdk/objc
         Source/webrtc/webkit_sdk/objc/base
         Source/webrtc/webkit_sdk/objc/Framework/Classes

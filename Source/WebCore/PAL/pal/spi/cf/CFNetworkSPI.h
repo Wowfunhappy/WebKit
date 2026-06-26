@@ -82,6 +82,8 @@ DECLARE_SYSTEM_HEADER
 
 #endif // defined(__OBJC__)
 
+// MAVERICKS_BACKPORT: guard the nw_* type fallback declarations so they don't redeclare the same types
+// already provided by the Network-framework polyfill (which #defines NW_POLYFILL_TYPES_DECLARED).
 #if !defined(NW_POLYFILL_TYPES_DECLARED)
 typedef enum {
     nw_context_privacy_level_public = 1,
@@ -212,6 +214,8 @@ typedef struct OpaqueCFHTTPCookieStorage* CFHTTPCookieStorageRef;
 typedef CFIndex CFURLRequestPriority;
 typedef int CFHTTPCookieStorageAcceptPolicy;
 
+// MAVERICKS_BACKPORT: plain enum instead of CF_ENUM(CFHTTPCookieStorageAcceptPolicy) — the 10.9 SDK's
+// CF_ENUM expansion conflicts with the redeclaration of these already-defined CFNetwork constants.
 enum
 {
     CFHTTPCookieStorageAcceptPolicyAlways = 0,
@@ -230,8 +234,8 @@ typedef enum {
 
 #if defined(__OBJC__)
 
-// NSURLSessionTaskMetrics and NSURLSessionTaskTransactionMetrics were added in macOS 10.12.
-// Declare base classes for older SDKs so category extensions below compile.
+// MAVERICKS_BACKPORT: NSURLSessionTaskMetrics and NSURLSessionTaskTransactionMetrics were added in macOS 10.12.
+// Declare base classes for older SDKs so the category extensions below compile.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED < 101200 && !defined(NSURLSESSION_TASK_METRICS_DECLARED)
 #define NSURLSESSION_TASK_METRICS_DECLARED 1
 @interface NSURLSessionTaskTransactionMetrics : NSObject
@@ -383,6 +387,7 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 @interface _NSHSTSStorage : NSObject
 - (instancetype)initPersistentStoreWithURL:(nullable NSURL*)path;
 - (BOOL)shouldPromoteHostToHTTPS:(NSString *)host;
+// MAVERICKS_BACKPORT: plain NSArray (no Objective-C lightweight generics on the 10.9 SDK).
 - (NSArray *)nonPreloadedHosts;
 - (void)resetHSTSForHost:(NSString *)host;
 - (void)resetHSTSHostsSinceDate:(NSDate *)date;
@@ -480,6 +485,7 @@ typedef NS_ENUM(NSInteger, NSURLSessionCompanionProxyPreference) {
 @property (readonly, nonatomic) NSURL *path;
 + (instancetype)sharedPersistentStore;
 - (instancetype)initPersistentStoreWithURL:(nullable NSURL *)path;
+// MAVERICKS_BACKPORT: plain NSArray (no Objective-C lightweight generics on the 10.9 SDK).
 - (NSArray *)HTTPServiceEntriesWithFilter:(_NSHTTPAlternativeServicesFilter *)filter;
 - (void)removeHTTPAlternativeServiceEntriesWithRegistrableDomain:(NSString *)domain;
 - (void)removeHTTPAlternativeServiceEntriesCreatedAfterDate:(NSDate *)date;
@@ -494,6 +500,7 @@ enum : NSUInteger {
 };
 
 @interface NSURLSessionTask ()
+// MAVERICKS_BACKPORT: plain NSArray (no Objective-C lightweight generics on the 10.9 SDK).
 @property (nonatomic, copy, nullable) NSArray * (^_cookieTransformCallback)(NSArray * cookies);
 @property (nonatomic, readonly, nullable) NSArray * _resolvedCNAMEChain;
 @property (nonatomic, readonly) int64_t _countOfBytesReceivedEncoded;
@@ -619,6 +626,7 @@ WTF_EXTERN_C_END
 + (void)_setSharedHTTPCookieStorage:(NSHTTPCookieStorage *)storage;
 - (void)_setSubscribedDomainsForCookieChanges:(NSSet<NSString*>* __nullable)domainList;
 - (NSArray* __nullable)_getCookiesForDomain:(NSString*)domain;
+// MAVERICKS_BACKPORT: plain NSArray (no Objective-C lightweight generics on the 10.9 SDK).
 - (void)_setCookiesChangedHandler:(void(^__nullable)(NSArray * addedCookies, NSString* domainForChangedCookie))cookiesChangedHandler onQueue:(dispatch_queue_t __nullable)queue;
 - (void)_setCookiesRemovedHandler:(void(^__nullable)(NSArray * __nullable removedCookies, NSString* __nullable domainForRemovedCookies, bool removeAllCookies))cookiesRemovedHandler onQueue:(dispatch_queue_t __nullable)queue;
 @end

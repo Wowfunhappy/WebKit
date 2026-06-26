@@ -140,6 +140,7 @@ void WebPopupMenuProxyMac::showPopupMenu(const IntRect& rect, TextDirection text
         [m_popup setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
 
     RetainPtr menu = [m_popup menu];
+    // MAVERICKS_BACKPORT: -[NSMenu setUserInterfaceLayoutDirection:] is 10.11+; send only when supported.
     if ([menu respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
         [menu setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
 
@@ -220,6 +221,7 @@ void WebPopupMenuProxyMac::showPopupMenu(const IntRect& rect, TextDirection text
                                             pressure:[initiatingNSEvent pressure]];
 
     [NSApp postEvent:fakeEvent.get() atStart:YES];
+    // MAVERICKS_BACKPORT: -[NSWindow convertPointFromScreen:] is 10.12+; convert via the 10.7+ -convertRectFromScreen: and take its origin.
     fakeEvent = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
                                    location:[(NSWindow *)[m_webView.get() window] convertRectFromScreen:NSMakeRect([NSEvent mouseLocation].x, [NSEvent mouseLocation].y, 0, 0)].origin
                               modifierFlags:[initiatingNSEvent modifierFlags]

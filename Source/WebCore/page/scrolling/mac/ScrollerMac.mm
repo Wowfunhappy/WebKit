@@ -198,6 +198,7 @@ enum class FeatureToAnimate {
     // FIXME: This is a static analysis false positive.
     SUPPRESS_UNRETAINED_ARG if (auto *appearance = [NSAppearance appearanceNamed:_scroller->pair()->useDarkAppearance() ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua])
         return appearance;
+    // MAVERICKS_BACKPORT: runtime-absent selector #77 — +[NSAppearance currentDrawingAppearance] is 10.14+; guard with respondsToSelector, nil on 10.9.
     return [NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil;
 }
 
@@ -297,6 +298,7 @@ enum class FeatureToAnimate {
 
 - (void)invalidate
 {
+    // MAVERICKS_BACKPORT: _scroller is a CheckedPtr<ScrollerMac> (C++ smart pointer); clear with nullptr, not nil.
     _scroller = nullptr;
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [_knobAlphaAnimation invalidate];

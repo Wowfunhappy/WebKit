@@ -44,6 +44,8 @@
 #import "MediaSessionManagerCocoa.h"
 #import "MediaSourcePrivateAVFObjC.h"
 #import "SharedBuffer.h"
+// MAVERICKS_BACKPORT: SourceBufferParserAVFObjC.h / SourceBufferParserWebM.h are not imported here —
+// the AVStreamDataParser-backed and WebM parsers are unavailable on 10.9 (software ISOBMFF parser only).
 #import "SourceBufferPrivateClient.h"
 #import "TimeRanges.h"
 #import "VideoMediaSampleRenderer.h"
@@ -72,6 +74,7 @@
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
 
+// MAVERICKS_BACKPORT: MSE bring-up bisect-logging scaffold (headers + no-op SBP_BISECT macro).
 #import <asl.h>
 #import <unistd.h>
 #define SBP_BISECT(fmt, ...) ((void)0) // 10.9: MSE bring-up logging disabled (verified working)
@@ -83,6 +86,7 @@ namespace WebCore {
 
 Ref<SourceBufferPrivateAVFObjC> SourceBufferPrivateAVFObjC::create(MediaSourcePrivateAVFObjC& parent, const MediaSourceConfiguration& configuration, Ref<SourceBufferParser>&& parser, Ref<AudioVideoRenderer>&& renderer)
 {
+    // MAVERICKS_BACKPORT: MSE bring-up bisect log (compiled out via SBP_BISECT no-op).
     SBP_BISECT("create");
     return adoptRef(*new SourceBufferPrivateAVFObjC(parent, configuration, WTF::move(parser), WTF::move(renderer)));
 }
@@ -98,10 +102,13 @@ SourceBufferPrivateAVFObjC::SourceBufferPrivateAVFObjC(MediaSourcePrivateAVFObjC
     , m_logIdentifier(parent.nextSourceBufferLogIdentifier())
 #endif
 {
+    // MAVERICKS_BACKPORT: MSE bring-up bisect logs (compiled out via SBP_BISECT no-op).
     SBP_BISECT("ctor: ALWAYS_LOG about to fire");
     ALWAYS_LOG(LOGIDENTIFIER);
+    // MAVERICKS_BACKPORT: MSE bring-up bisect logs (compiled out via SBP_BISECT no-op).
     SBP_BISECT("ctor: configureParser about to call");
     configureParser(m_parser);
+    // MAVERICKS_BACKPORT: MSE bring-up bisect logs (compiled out via SBP_BISECT no-op).
     SBP_BISECT("ctor: EXIT");
 }
 
@@ -691,6 +698,7 @@ void SourceBufferPrivateAVFObjC::enqueueSample(Ref<MediaSampleAVFObjC>&& sample,
     // (VTDecompressionSession path) ignores that hint anyway (it was only for AVSampleBufferDisplayLayer's
     // expectMinimumUpcomingSampleBufferPresentationTime), so pass nullopt.
     if (auto trackIdentifier = trackIdentifierFor(trackId))
+        // MAVERICKS_BACKPORT: pass nullopt (no minimumUpcomingPresentationTime) to avoid the self-deadlock described above.
         protect(renderer())->enqueueSample(*trackIdentifier, sample, std::optional<MediaTime> { });
     else
         SBP_BISECT("enqueueSample: NO trackIdentifier for track=%d (not enqueued)", (int)trackId);
@@ -805,7 +813,7 @@ void SourceBufferPrivateAVFObjC::configureParser(SourceBufferParser& parser)
             protectedThis->didProvideContentKeyRequestInitializationDataForTrackID(WTF::move(initData), trackID);
     });
 
-    // 10.9: WebM parser unavailable (libwebm absent); no limited-Matroska path.
+    // MAVERICKS_BACKPORT: WebM parser unavailable (libwebm absent); no limited-Matroska path.
 
 #if !RELEASE_LOG_DISABLED
     parser.setLogger(m_logger.get(), m_logIdentifier);

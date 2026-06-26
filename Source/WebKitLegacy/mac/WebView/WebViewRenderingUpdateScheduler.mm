@@ -140,6 +140,7 @@ void WebViewRenderingUpdateScheduler::registerCACommitHandlers()
     [CATransaction addCommitHandler:^{
         [webView.get() _didCompleteRenderingUpdateDisplay];
     } forPhase:kCATransactionPhasePostCommit];
+    // MAVERICKS_BACKPORT: trailing-whitespace cleanup (no behavior change).
 
     m_haveRegisteredCommitHandlers = true;
 }

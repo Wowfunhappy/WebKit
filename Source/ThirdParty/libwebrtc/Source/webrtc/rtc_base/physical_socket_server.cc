@@ -40,6 +40,7 @@
 
 #if defined(WEBRTC_POSIX)
 #include <fcntl.h>
+// MAVERICKS_BACKPORT: explicit <netinet/in.h> needed so IP_RECVTOS can be checked/defined below on the 10.9 SDK.
 #include <netinet/in.h>
 #include <netinet/tcp.h>  // for TCP_NODELAY
 // MAVERICKS_BACKPORT: IP_RECVTOS (receive IP TOS byte, used for ECN) is absent from the 10.9 SDK

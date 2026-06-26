@@ -26,6 +26,7 @@
 #pragma once
 
 #include "FrameInfoData.h"
+// MAVERICKS_BACKPORT (#60): UserData carries the bundlePolicyUserData field added below.
 #include "UserData.h"
 #include "WebHitTestResultData.h"
 #include "WebMouseEvent.h"

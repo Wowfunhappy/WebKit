@@ -665,6 +665,8 @@ static NSURL *createUniqueWebDataURL();
 #if !PLATFORM(IOS_FAMILY)
     ASSERT([[NSGraphicsContext currentContext] isFlipped]);
 
+    // MAVERICKS_BACKPORT: -[NSGraphicsContext CGContext] is 10.10+; on 10.9 reach the
+    // CGContextRef through the -graphicsPort SPI.
     RetainPtr<CGContextRef> ctx = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];
 #else
     RetainPtr<CGContextRef> ctx = WKGetCurrentGraphicsContext();

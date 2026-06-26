@@ -124,7 +124,7 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioComponentInstanceDispose, 
 #define AudioComponentInstanceDispose softLink_AudioToolbox_AudioComponentInstanceDispose
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioComponentCopyName, OSStatus, (AudioComponent inComponent, CFStringRef* outName), (inComponent, outName))
 #define AudioComponentCopyName softLink_AudioToolbox_AudioComponentCopyName
-#endif
+#endif // MAVERICKS_BACKPORT: AudioUnit-vs-AudioToolbox framework split (see above)
 
 SOFT_LINK_FUNCTION_MAY_FAIL_FOR_HEADER(PAL, AudioToolboxCore, AudioComponentFetchServerRegistrations, OSStatus, (CFDataRef* outBundleRegistrations), (outBundleRegistrations))
 #define AudioComponentFetchServerRegistrations softLinkAudioToolboxCoreAudioComponentFetchServerRegistrations
@@ -155,6 +155,7 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, ExtAudioFileWrapAudioFileID, OS
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, ExtAudioFileOpenURL, OSStatus, (CFURLRef inURL, ExtAudioFileRef* outExtAudioFile), (inURL, outExtAudioFile))
 #define ExtAudioFileOpenURL softLink_AudioToolbox_ExtAudioFileOpenURL
 
+// MAVERICKS_BACKPORT: AudioComponent*/AudioUnit* live in AudioUnit.framework on 10.9 (moved to AudioToolbox in 10.10). See .cpp.
 #if PLATFORM(MAC)
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioUnit, AudioComponentFindNext, AudioComponent, (AudioComponent inComponent, const AudioComponentDescription* inDesc), (inComponent, inDesc))
 #define AudioComponentFindNext softLink_AudioUnit_AudioComponentFindNext
@@ -185,6 +186,6 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioUnitRender, OSStatus, (Aud
 #define AudioUnitRender softLink_AudioToolbox_AudioUnitRender
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioUnitUninitialize, OSStatus, (AudioUnit inUnit), (inUnit))
 #define AudioUnitUninitialize softLink_AudioToolbox_AudioUnitUninitialize
-#endif
+#endif // MAVERICKS_BACKPORT: AudioUnit-vs-AudioToolbox framework split (see above)
 
 #endif // USE(AVFOUNDATION)

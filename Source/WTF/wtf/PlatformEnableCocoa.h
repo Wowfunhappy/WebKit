@@ -67,6 +67,7 @@
 #define ENABLE_AIRPLAY_PICKER 1
 #endif
 
+// MAVERICKS_BACKPORT: gate the WebM player on ENABLE(MEDIA_SOURCE) (forced OFF on 10.9), since it depends on MSE.
 #if !defined(ENABLE_COCOA_WEBM_PLAYER) && !PLATFORM(MACCATALYST) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV) && ENABLE(MEDIA_SOURCE)
 #define ENABLE_COCOA_WEBM_PLAYER 1
 #endif
@@ -188,7 +189,7 @@
 #define ENABLE_APPLE_PAY_UPDATE_SHIPPING_METHODS_WHEN_CHANGING_LINE_ITEMS 1
 #endif
 
-// APPLE_PAY_AMS_UI requires PAYMENT_REQUEST: ApplePayAMSUIPaymentHandler is a PaymentHandler and its
+// MAVERICKS_BACKPORT: APPLE_PAY_AMS_UI requires PAYMENT_REQUEST: ApplePayAMSUIPaymentHandler is a PaymentHandler and its
 // class definition is gated on ENABLE(APPLE_PAY_AMS_UI) && ENABLE(PAYMENT_REQUEST). Without this
 // dependency, Page.cpp compiles the AMS-UI block while the handler stays an incomplete type.
 #if !defined(ENABLE_APPLE_PAY_AMS_UI) && ENABLE(PAYMENT_REQUEST) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION))
@@ -445,7 +446,7 @@
 #define ENABLE_IMAGE_ANALYSIS 1
 #endif
 
-// Image-analysis enhancements build on VisionKit (VKCImageAnalysis); require it (off on 10.9).
+// MAVERICKS_BACKPORT: image-analysis enhancements build on VisionKit (VKCImageAnalysis); require it (off on 10.9).
 #if !defined(ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS) && HAVE(VK_IMAGE_ANALYSIS) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST))
 #define ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS 1
 #endif
@@ -581,7 +582,7 @@
 #if !defined(ENABLE_MEDIA_SOURCE) && !PLATFORM(MACCATALYST) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
 #define ENABLE_MEDIA_SOURCE 1
 #endif
-#endif
+#endif // MAVERICKS_BACKPORT: closes the < 101000 vs newer-OS MEDIA_SOURCE guard added above.
 
 #if !defined(ENABLE_MEDIA_SOURCE_IN_WORKERS) && ENABLE(MEDIA_SOURCE) && ENABLE(GPU_PROCESS)
 #define ENABLE_MEDIA_SOURCE_IN_WORKERS 1
@@ -866,10 +867,11 @@
 #define ENABLE_REVEAL 1
 #endif
 
-// 10.9: AudioSessionRoutingArbitratorProxy is stubbed in libpolyfill (constructor
+// MAVERICKS_BACKPORT: 10.9: AudioSessionRoutingArbitratorProxy is stubbed in libpolyfill (constructor
 // returns 0, leaving the unique_ptr-stored object with NULL vtable → crash on
 // destruction). Disable until we have a real implementation.
 #if !defined(ENABLE_ROUTING_ARBITRATION) && PLATFORM(MAC)
+// MAVERICKS_BACKPORT: force OFF on 10.9 (no real routing-arbitration implementation; see above).
 #define ENABLE_ROUTING_ARBITRATION 0
 #endif
 
@@ -986,6 +988,7 @@
 #define ENABLE_VARIATION_FONTS 1
 #endif
 
+// MAVERICKS_BACKPORT: parenthesize the condition so MAC also requires the AVKIT/IOS_FAMILY guard correctly.
 #if !defined(ENABLE_VIDEO_PRESENTATION_MODE) \
     && ((PLATFORM(IOS_FAMILY) && HAVE(AVKIT)) \
     || PLATFORM(MAC))
@@ -1206,6 +1209,7 @@
 #define ENABLE_OPT_IN_PARTITIONED_COOKIES 1
 #endif
 
+// MAVERICKS_BACKPORT: gate the Mac DNS test server on macOS 10.15+ (its SPI is absent on 10.9).
 #if !defined(ENABLE_DNS_SERVER_FOR_TESTING) && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || PLATFORM(IOS_FAMILY_SIMULATOR))
 #define ENABLE_DNS_SERVER_FOR_TESTING 1
 #endif

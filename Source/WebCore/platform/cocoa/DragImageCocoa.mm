@@ -298,6 +298,7 @@ DragImageData createDragImageForLink(Element& element, URL& url, const String& t
     RetainPtr<NSImage> dragImage = adoptNS([[NSImage alloc] initWithSize:imageSize]);
     [dragImage _web_lockFocusWithDeviceScaleFactor:deviceScaleFactor];
 
+    // MAVERICKS_BACKPORT: -[NSGraphicsContext CGContext] is 10.10+; use the classic graphicsPort on 10.9.
     GraphicsContextCG context((CGContextRef)[[NSGraphicsContext currentContext] graphicsPort]);
 
     context.fillRoundedRect(FloatRoundedRect(layout.boundingRect, CornerRadii(linkImageCornerRadius)), colorFromCocoaColor([NSColor controlBackgroundColor]));

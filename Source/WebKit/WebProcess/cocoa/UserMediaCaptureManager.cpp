@@ -100,7 +100,7 @@ void UserMediaCaptureManager::setupCaptureProcesses(bool shouldCaptureAudioInUIP
     // capture flags are forced false (see WebPageCocoa.mm), so this branch never runs anyway.
     if (shouldCaptureAudioInUIProcess || shouldCaptureAudioInGPUProcess)
         WebCore::AudioMediaStreamTrackRendererInternalUnit::setCreateFunction(createRemoteAudioMediaStreamTrackRendererInternalUnitProxy);
-#endif
+#endif // MAVERICKS_BACKPORT: end GPU-process audio-render routing (GPU_PROCESS off on 10.9)
 
     if (shouldCaptureAudioInUIProcess || shouldCaptureAudioInGPUProcess)
         RealtimeMediaSourceCenter::singleton().setAudioCaptureFactory(m_audioFactory);
@@ -211,6 +211,7 @@ void UserMediaCaptureManager::applyConstraintsFailed(RealtimeMediaSourceIdentifi
 CaptureSourceOrError UserMediaCaptureManager::AudioFactory::createAudioCaptureSource(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier> pageIdentifier)
 {
 #if !ENABLE(GPU_PROCESS)
+    // MAVERICKS_BACKPORT: CaptureSourceOrError takes a CaptureSourceError (message + MediaAccessDenialReason) on this build; construct it explicitly. GPU-process audio capture is unimplemented on 10.9 (no GPU process).
     if (m_shouldCaptureInGPUProcess)
         return CaptureSourceOrError({ "Audio capture in GPUProcess is not implemented"_s, WebCore::MediaAccessDenialReason::PermissionDenied });
 #endif
@@ -237,6 +238,7 @@ void UserMediaCaptureManager::VideoFactory::setShouldCaptureInGPUProcess(bool va
 CaptureSourceOrError UserMediaCaptureManager::VideoFactory::createVideoCaptureSource(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier> pageIdentifier)
 {
 #if !ENABLE(GPU_PROCESS)
+    // MAVERICKS_BACKPORT: CaptureSourceOrError takes a CaptureSourceError (message + MediaAccessDenialReason) on this build; construct it explicitly. GPU-process video capture is unimplemented on 10.9 (no GPU process).
     if (m_shouldCaptureInGPUProcess)
         return CaptureSourceOrError({ "Video capture in GPUProcess is not implemented"_s, WebCore::MediaAccessDenialReason::PermissionDenied });
 #else
@@ -245,6 +247,7 @@ CaptureSourceOrError UserMediaCaptureManager::VideoFactory::createVideoCaptureSo
     // on a no-GPU build, so this path is GPU-process-only.
     if (m_shouldCaptureInGPUProcess)
         protect(m_manager->remoteCaptureSampleManager())->setVideoFrameObjectHeapProxy(&protect(WebProcess::singleton().ensureGPUProcessConnection())->videoFrameObjectHeapProxy());
+// MAVERICKS_BACKPORT: the #else (GPU-process) arm above is dead on 10.9 (GPU_PROCESS off); only the !ENABLE branch builds.
 #endif
 
     return RemoteRealtimeVideoSource::create(device, constraints, WTF::move(hashSalts), m_manager, m_shouldCaptureInGPUProcess, pageIdentifier);
@@ -253,6 +256,7 @@ CaptureSourceOrError UserMediaCaptureManager::VideoFactory::createVideoCaptureSo
 CaptureSourceOrError UserMediaCaptureManager::DisplayFactory::createDisplayCaptureSource(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier> pageIdentifier)
 {
 #if !ENABLE(GPU_PROCESS)
+    // MAVERICKS_BACKPORT: CaptureSourceOrError takes a CaptureSourceError (message + MediaAccessDenialReason) on this build; construct it explicitly. GPU-process display capture is unimplemented on 10.9 (no GPU process).
     if (m_shouldCaptureInGPUProcess)
         return CaptureSourceOrError({ "Display capture in GPUProcess is not implemented"_s, WebCore::MediaAccessDenialReason::PermissionDenied });
 #else
@@ -260,6 +264,7 @@ CaptureSourceOrError UserMediaCaptureManager::DisplayFactory::createDisplayCaptu
         Ref videoFrameObjectHeapProxy = protect(WebProcess::singleton().ensureGPUProcessConnection())->videoFrameObjectHeapProxy();
         protect(m_manager->remoteCaptureSampleManager())->setVideoFrameObjectHeapProxy(WTF::move(videoFrameObjectHeapProxy));
     }
+// MAVERICKS_BACKPORT: the #else (GPU-process) arm above is dead on 10.9 (GPU_PROCESS off); only the !ENABLE branch builds.
 #endif
 
     return RemoteRealtimeVideoSource::create(device, constraints, WTF::move(hashSalts), m_manager, m_shouldCaptureInGPUProcess, pageIdentifier);

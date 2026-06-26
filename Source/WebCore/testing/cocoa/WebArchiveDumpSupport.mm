@@ -49,6 +49,7 @@ static RetainPtr<CFURLResponseRef> createCFURLResponseFromResponseData(CFDataRef
     auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingFromData:(__bridge NSData *)responseData error:nullptr]);
     unarchiver.get().decodingFailurePolicy = NSDecodingFailurePolicyRaiseException;
 #else
+    // MAVERICKS_BACKPORT: 10.9 path uses the classic initForReadingWithData: (no error:/decodingFailurePolicy).
     auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:(__bridge NSData *)responseData]);
 #endif
     @try {

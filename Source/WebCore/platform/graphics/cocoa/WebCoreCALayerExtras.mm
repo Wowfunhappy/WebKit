@@ -3,9 +3,12 @@
 #include "WebCoreCALayerExtras.h"
 
 #import "TransformationMatrix.h"
+// MAVERICKS_BACKPORT: include the public QuartzCore umbrella directly; the upstream
+// PAL QuartzCoreSPI.h header pulls in newer-SDK-only CA SPI not present on 10.9.
 #import <QuartzCore/QuartzCore.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
+// MAVERICKS_BACKPORT: explanatory note for the CALayerHost-based remote-layer hosting below.
 // CALayerHost (private CoreAnimation class, declared in the force-included compat
 // header / CA SPI) displays a layer tree rendered in another process: the
 // WebContent process renders into a CAContext and sends its 32-bit contextId
@@ -26,6 +29,9 @@
 
 - (void)web_disableAllActions
 {
+    // MAVERICKS_BACKPORT: disable implicit animations via the layer's -actions map (10.9-native)
+    // rather than the upstream -style/@"actions" nested dictionary; sets only properties
+    // this build actually animates.
     self.actions = @{
         @"anchorPoint": [NSNull null],
         @"backgroundColor": [NSNull null],
@@ -47,6 +53,7 @@
 
 - (void)_web_setLayerBoundsOrigin:(CGPoint)origin
 {
+    // MAVERICKS_BACKPORT: bounds origin set via dot-syntax accessors (10.9-native CALayer geometry).
     CGRect bounds = self.bounds;
     bounds.origin = origin;
     self.bounds = bounds;
@@ -54,6 +61,8 @@
 
 - (void)_web_setLayerTopLeftPosition:(CGPoint)position
 {
+    // MAVERICKS_BACKPORT: top-left position computed via dot-syntax accessors (no NaN
+    // logging/assert path); all CALayer geometry properties used here are 10.9-native.
     CGRect bounds = self.bounds;
     CGPoint anchor = self.anchorPoint;
     self.position = CGPointMake(position.x + anchor.x * bounds.size.width,
@@ -95,12 +104,18 @@
 
 - (void)_web_clearContents
 {
+    // MAVERICKS_BACKPORT: just drop the contents; the upstream contentsOpaque reset, the
+    // RE_DYNAMIC_CONTENT_SCALING display-list clear, and the SUPPORT_HDR_DISPLAY_APIS
+    // contentsHeadroom reset all rely on newer-SDK CALayer surface not present on 10.9.
     self.contents = nil;
+    // MAVERICKS_BACKPORT: end _web_clearContents (the newer-SDK resets above are intentionally dropped).
 }
 
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
 - (void)_web_clearDynamicContentScalingDisplayListIfNeeded
 {
+    // MAVERICKS_BACKPORT: no-op; the WKDynamicContentScaling* CALayer key paths it would
+    // clear do not exist on 10.9 (dynamic content scaling is unsupported on this build).
 }
 #endif
 

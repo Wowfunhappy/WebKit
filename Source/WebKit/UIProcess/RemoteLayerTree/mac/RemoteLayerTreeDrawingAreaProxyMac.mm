@@ -50,7 +50,8 @@
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/TZoneMallocInlines.h>
 
-// Forward declaration in case QuartzCoreSPI.h fails to provide it on older SDKs.
+// MAVERICKS_BACKPORT: forward-declare CAContext in case QuartzCoreSPI.h fails to
+// provide it on older SDKs.
 @class CAContext;
 
 namespace WebKit {
@@ -633,6 +634,8 @@ MachSendRight RemoteLayerTreeDrawingAreaProxyMac::createFence()
     if (!page)
         return MachSendRight();
 
+    // MAVERICKS_BACKPORT: cast -context to CAContext* explicitly, since the older
+    // SDK declares it as returning id rather than CAContext*.
     RetainPtr<CAContext> rootLayerContext = (CAContext *)[protect(page->acceleratedCompositingRootLayer()) context];
     if (!rootLayerContext)
         return MachSendRight();
@@ -651,6 +654,8 @@ MachSendRight RemoteLayerTreeDrawingAreaProxyMac::createFence()
     if (connection->hasIncomingSyncMessage())
         return MachSendRight();
 
+    // MAVERICKS_BACKPORT: cast the createFencePort return through uintptr_t to a
+    // mach_port_t for MachSendRight::adopt, since the older SDK types it differently.
     MachSendRight fencePort = MachSendRight::adopt((mach_port_t)(uintptr_t)[rootLayerContext createFencePort]);
 
     // Invalidate the fence if a synchronous message arrives while it's installed,

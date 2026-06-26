@@ -97,7 +97,7 @@
 #include "MediaPlayerPrivateMediaStreamAVFObjC.h"
 #endif
 
-// 10.9: MediaPlayerPrivateWebM excluded (libwebm absent); header not included.
+// MAVERICKS_BACKPORT: MediaPlayerPrivateWebM excluded (libwebm absent); header not included.
 
 #endif // PLATFORM(COCOA)
 
@@ -339,7 +339,7 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
 #if ENABLE(COCOA_WEBM_PLAYER)
         bool useRemoteRenderer = hasPlatformStrategies() && platformStrategies()->mediaStrategy()->hasRemoteRendererFor(MediaPlayerMediaEngineIdentifier::CocoaWebM);
         if (!hasPlatformStrategies() || platformStrategies()->mediaStrategy()->enableWebMMediaPlayer()) {
-            // 10.9: MediaPlayerPrivateWebM is excluded (libwebm absent); only the remote-engine path remains.
+            // MAVERICKS_BACKPORT: MediaPlayerPrivateWebM is excluded (libwebm absent); only the remote-engine path remains.
             if (registerRemoteEngine && !useRemoteRenderer)
                 registerRemoteEngine(addMediaEngine, MediaPlayerEnums::MediaEngineIdentifier::CocoaWebM);
         }
@@ -349,6 +349,7 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
         MediaPlayerPrivateMediaStreamAVFObjC::registerMediaEngine(addMediaEngine);
 #endif
     }
+// MAVERICKS_BACKPORT: AVFoundation media engines are gated out (GStreamer is the sole media stack).
 #endif // !USE(GSTREAMER)
 #endif // USE(AVFOUNDATION)
 

@@ -1348,7 +1348,7 @@ static bool validateArgument(id argument)
             model.requestCloseAllMediaPresentations(false, [callbackAggregator] { });
         });
     }
-#endif
+#endif // ENABLE(VIDEO_PRESENTATION_MODE) — MAVERICKS_BACKPORT: that mode is off on 10.9, so the videoPresentationManager path above is guarded out
 
     if (RefPtr fullScreenManager = _page->fullScreenManager(); fullScreenManager && fullScreenManager->isFullScreen())
         fullScreenManager->closeWithCallback([callbackAggregator] { });
@@ -4616,7 +4616,7 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr page = _page)
         page->enterFullscreen();
-#endif
+#endif // ENABLE(VIDEO_PRESENTATION_MODE) — MAVERICKS_BACKPORT: off on 10.9, so enterFullscreen() above is a no-op (guarded out)
 }
 
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
@@ -5459,7 +5459,7 @@ static void convertAndAddHighlight(Vector<Ref<WebCore::SharedMemory>>& buffers, 
         hasOpenMediaPresentations = videoPresentationManager->hasMode(WebCore::HTMLMediaElementEnums::VideoFullscreenModePictureInPicture)
             || videoPresentationManager->hasMode(WebCore::HTMLMediaElementEnums::VideoFullscreenModeStandard);
     }
-#endif
+#endif // ENABLE(VIDEO_PRESENTATION_MODE) — MAVERICKS_BACKPORT: off on 10.9, so the video-presentation probe above is guarded out
 
     if (!hasOpenMediaPresentations) {
         RefPtr fullScreenManager = _page->fullScreenManager();

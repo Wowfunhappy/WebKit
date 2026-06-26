@@ -83,8 +83,10 @@ void MainThreadSharedTimer::setFiredFunction(Function<void()>&& firedFunction)
 
 void MainThreadSharedTimer::fired()
 {
-    // 10.9 perf: removed debug fopen logging
+    // MAVERICKS_BACKPORT: debug fopen logging removed for 10.9 perf.
     ASSERT(m_firedFunction);
+    // MAVERICKS_BACKPORT: ThreadGlobalData/TLS clobbering by JSC GC can leave
+    // m_firedFunction null on the main thread; null-guard instead of crashing.
     if (m_firedFunction)
         m_firedFunction();
 }

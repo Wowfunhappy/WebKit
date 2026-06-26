@@ -30,7 +30,7 @@
 #include "CSSPrimitiveValue.h"
 #include "CSSValuePair.h"
 #include "StyleListStyleType.h"
-#include "UserAgentStyle.h"
+#include "UserAgentStyle.h" // MAVERICKS_BACKPORT: for the decimalCounter() UA-sheet init guard below.
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {

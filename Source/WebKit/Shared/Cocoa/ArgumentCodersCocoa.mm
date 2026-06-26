@@ -534,6 +534,8 @@ static constexpr bool haveSecureActionContext = true;
 static constexpr bool haveSecureActionContext = false;
 #endif
 
+// MAVERICKS_BACKPORT: DataDetectors classes return invalid pointers on 10.9; this block is
+// disabled via `#if 0 &&` so the secure-action-context check is skipped.
 #if 0 && ENABLE(DATA_DETECTION)
     // rdar://107553330 - don't re-introduce rdar://107676726
     if (PAL::isDataDetectorsCoreFrameworkAvailable()

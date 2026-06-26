@@ -38,6 +38,7 @@
 
 #if PLATFORM(MAC)
 #include <WebCore/CoreVideoExtras.h>
+// MAVERICKS_BACKPORT: headers for the dispatch-timer refresh fallback (CVDisplayLink fires at <1Hz in the VM).
 #include <dispatch/dispatch.h>
 #include <wtf/OSObjectPtr.h>
 #endif

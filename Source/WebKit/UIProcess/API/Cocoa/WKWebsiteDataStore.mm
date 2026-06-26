@@ -409,7 +409,7 @@ private:
     // type would not match the property's NSArray<nw_proxy_config_t> * type.
 #if HAVE(NW_PROXY_CONFIG)
     RetainPtr<NSArray> _proxyConfigurations;
-#endif
+#endif // HAVE(NW_PROXY_CONFIG) — MAVERICKS_BACKPORT: NW proxy-config runtime is macOS 14+, so this backing ivar is guarded out on 10.9
 }
 
 WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
@@ -690,6 +690,7 @@ struct WKWebsiteData {
         return;
     }
 
+    // MAVERICKS_BACKPORT: construct the Box with an explicit empty RetainPtr<NSError> rather than nil; the older compiler/SDK doesn't deduce RetainPtr<NSError> from a bare nil here.
     auto error = Box<RetainPtr<NSError>>::create(RetainPtr<NSError> { });
 
     Ref callbackAggregator = CallbackAggregator::create([completionHandler = makeBlockPtr(completionHandler), error] {

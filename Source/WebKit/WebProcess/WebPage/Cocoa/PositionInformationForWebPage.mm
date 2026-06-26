@@ -396,7 +396,7 @@ static void selectionPositionInformation(WebPage& page, const InteractionInforma
         if (attachment->file())
             info.url = URL::fileURLWithFileSystemPath(attachment->file()->path());
     }
-#endif
+#endif // MAVERICKS_BACKPORT: ENABLE(ATTACHMENT_ELEMENT) is off on this port; the block above is gated to match.
 
     for (auto* currentNode = hitNode.get(); currentNode; currentNode = currentNode->parentOrShadowHostNode()) {
         auto* renderer = currentNode->renderer();

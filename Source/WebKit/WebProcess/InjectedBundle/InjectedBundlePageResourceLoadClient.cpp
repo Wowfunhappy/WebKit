@@ -63,7 +63,7 @@ void InjectedBundlePageResourceLoadClient::willSendRequestForFrame(WebPage& page
     if (!m_client.willSendRequestForFrame)
         return;
 
-    // Pin page/frame across the callback: Safari's handler WKRetains them (same transient-frame trap as didInitiateLoadForResource).
+    // MAVERICKS_BACKPORT (github SIGTRAP fix): pin page/frame across the callback — Safari's handler WKRetains them (same transient-frame ref() trap as didInitiateLoadForResource).
     Ref protectedPage { page };
     Ref protectedFrame { frame };
     RefPtr<API::URLRequest> returnedRequest = adoptRef(toImpl(m_client.willSendRequestForFrame(toAPI(&page), toAPI(&frame), identifier.toUInt64(), toAPI(request), toAPI(redirectResponse), m_client.base.clientInfo)));
@@ -83,6 +83,7 @@ void InjectedBundlePageResourceLoadClient::didReceiveResponseForResource(WebPage
     if (!m_client.didReceiveResponseForResource)
         return;
 
+    // MAVERICKS_BACKPORT (github SIGTRAP fix): pin page/frame across the callback (Safari WKRetains them; same transient-frame ref() trap).
     Ref protectedPage { page };
     Ref protectedFrame { frame };
     m_client.didReceiveResponseForResource(toAPI(&page), toAPI(&frame), identifier.toUInt64(), toAPI(response), m_client.base.clientInfo);
@@ -93,6 +94,7 @@ void InjectedBundlePageResourceLoadClient::didReceiveContentLengthForResource(We
     if (!m_client.didReceiveContentLengthForResource)
         return;
 
+    // MAVERICKS_BACKPORT (github SIGTRAP fix): pin page/frame across the callback (Safari WKRetains them; same transient-frame ref() trap).
     Ref protectedPage { page };
     Ref protectedFrame { frame };
     m_client.didReceiveContentLengthForResource(toAPI(&page), toAPI(&frame), identifier.toUInt64(), contentLength, m_client.base.clientInfo);
@@ -103,6 +105,7 @@ void InjectedBundlePageResourceLoadClient::didFinishLoadForResource(WebPage& pag
     if (!m_client.didFinishLoadForResource)
         return;
 
+    // MAVERICKS_BACKPORT (github SIGTRAP fix): pin page/frame across the callback (Safari WKRetains them; same transient-frame ref() trap).
     Ref protectedPage { page };
     Ref protectedFrame { frame };
     m_client.didFinishLoadForResource(toAPI(&page), toAPI(&frame), identifier.toUInt64(), m_client.base.clientInfo);
@@ -113,6 +116,7 @@ void InjectedBundlePageResourceLoadClient::didFailLoadForResource(WebPage& page,
     if (!m_client.didFailLoadForResource)
         return;
 
+    // MAVERICKS_BACKPORT (github SIGTRAP fix): pin page/frame across the callback (Safari WKRetains them; same transient-frame ref() trap).
     Ref protectedPage { page };
     Ref protectedFrame { frame };
     m_client.didFailLoadForResource(toAPI(&page), toAPI(&frame), identifier.toUInt64(), toAPI(error), m_client.base.clientInfo);
@@ -123,6 +127,7 @@ bool InjectedBundlePageResourceLoadClient::shouldCacheResponse(WebPage& page, We
     if (!m_client.shouldCacheResponse)
         return true;
 
+    // MAVERICKS_BACKPORT (github SIGTRAP fix): pin page/frame across the callback (Safari WKRetains them; same transient-frame ref() trap).
     Ref protectedPage { page };
     Ref protectedFrame { frame };
     return m_client.shouldCacheResponse(toAPI(&page), toAPI(&frame), identifier.toUInt64(), m_client.base.clientInfo);
@@ -133,6 +138,7 @@ bool InjectedBundlePageResourceLoadClient::shouldUseCredentialStorage(WebPage& p
     if (!m_client.shouldUseCredentialStorage)
         return true;
 
+    // MAVERICKS_BACKPORT (github SIGTRAP fix): pin page/frame across the callback (Safari WKRetains them; same transient-frame ref() trap).
     Ref protectedPage { page };
     Ref protectedFrame { frame };
     return m_client.shouldUseCredentialStorage(toAPI(&page), toAPI(&frame), identifier.toUInt64(), m_client.base.clientInfo);

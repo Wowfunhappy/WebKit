@@ -68,9 +68,11 @@ HashSet<String> RequiredMIMETypesFromUTI(const String& uti)
 
 RetainPtr<NSString> mimeTypeFromUTITree(UTType *utType)
 {
-    // UTType is macOS 11+; use CoreServices UTType functions on older macOS
+    // MAVERICKS_BACKPORT: UTType (the modern Swift-bridged class) is macOS 11+; reach the MIME type via the
+    // CoreServices UTTypeCopyPreferredTagWithClass API on 10.9 instead of utType.preferredMIMEType / _parentTypes.
     if (!utType)
         return nullptr;
+    // MAVERICKS_BACKPORT: guard -identifier (modern UTType selector) before calling it on the 10.9 type object.
     NSString *identifier = [(id)utType respondsToSelector:@selector(identifier)] ? [(id)utType identifier] : nil;
     if (!identifier)
         return nullptr;
@@ -144,7 +146,7 @@ String UTIFromMIMEType(const String& mimeType)
 
 bool isDeclaredUTI(const String& uti)
 {
-    // UTType.isDeclared is macOS 11+; use UTTypeDeclaration on older macOS
+    // MAVERICKS_BACKPORT: UTType.isDeclared is macOS 11+; use the CoreServices UTTypeCopyDeclaration API on 10.9.
     RetainPtr<CFDictionaryRef> decl = adoptCF(UTTypeCopyDeclaration(uti.createCFString().get()));
     return decl != nullptr;
 }

@@ -62,7 +62,9 @@ void ThreadTimers::setSharedTimer(SharedTimer* sharedTimer)
         sharedTimer->stop();
         m_pendingSharedTimerFireTime = MonotonicTime { };
     }
-    
+
+    // MAVERICKS_BACKPORT: setSharedTimer reworked for cross-thread heap locking;
+    // see the updateSharedTimer guard below.
     m_sharedTimer = sharedTimer;
 
     if (sharedTimer) {
@@ -150,12 +152,15 @@ void ThreadTimers::sharedTimerFiredInternal()
             interval = timer->repeatInterval();
         }
 
+        // MAVERICKS_BACKPORT: fire setNextFireTime OUTSIDE sharedTimerHeapLock() — the
+        // callback can re-enter setNextFireTime, which re-acquires the lock.
         timer->setNextFireTime(interval ? fireTime + interval : MonotonicTime { });
 
         // Once the timer has been fired, it may be deleted, so do nothing else with it after this point.
         {
             TraceScope timerFiredScope { TimerFiredStart, TimerFiredEnd };
-            // Re-check item still has timer (could have been cleared/deleted across setNextFireTime).
+            // MAVERICKS_BACKPORT: re-check item still has a timer (could have been
+            // cleared/deleted across setNextFireTime under cross-thread heap mutation).
             if (item->hasTimer())
                 item->timer().fired();
         }
@@ -171,6 +176,8 @@ void ThreadTimers::sharedTimerFiredInternal()
     m_firingTimers = false;
     m_shouldBreakFireLoopForRenderingUpdate = false;
 
+    // MAVERICKS_BACKPORT: take sharedTimerHeapLock() before updateSharedTimer, which
+    // now expects the caller to hold it (cross-thread heap serialization).
 #if PLATFORM(MAC)
     Locker locker { sharedTimerHeapLock() };
 #endif
@@ -187,6 +194,8 @@ void ThreadTimers::fireTimersInNestedEventLoop()
         m_pendingSharedTimerFireTime = MonotonicTime { };
     }
 
+    // MAVERICKS_BACKPORT: take sharedTimerHeapLock() before updateSharedTimer, which
+    // now expects the caller to hold it (cross-thread heap serialization).
 #if PLATFORM(MAC)
     Locker locker { sharedTimerHeapLock() };
 #endif

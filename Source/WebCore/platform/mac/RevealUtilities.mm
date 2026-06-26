@@ -32,10 +32,15 @@
 
 #if PLATFORM(MAC)
 
+// MAVERICKS_BACKPORT: the <objc/runtime.h> and <pal/cocoa/RevealSoftLink.h> imports are dropped — the
+// RevealKit soft-link allocator (10.13+) and the associated-object plumbing are unused by the 10.9 stub.
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: RevealKit is 10.13+; with the soft-link allocator absent, this stub takes no
+// arguments and returns null instead of constructing an RVPresentingContext.
 RetainPtr<RVPresentingContext> createRVPresentingContextWithRetainedDelegate(NSPoint, NSView *, id<RVPresenterHighlightDelegate>)
 {
+    // MAVERICKS_BACKPORT: no RVPresentingContext to build on 10.9 — return null so callers degrade gracefully.
     return { };
 }
 

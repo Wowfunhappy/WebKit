@@ -36,6 +36,8 @@ list(APPEND WebKitLegacy_SOURCES
     cf/WebCoreSupport/WebInspectorClientCF.cpp
 
     mac/DefaultDelegates/WebDefaultEditingDelegate.m
+    # MAVERICKS_BACKPORT: WebDefaultPolicyDelegate is built as ObjC++ (.mm) here, not the
+    # upstream plain-ObjC (.m) source.
     mac/DefaultDelegates/WebDefaultPolicyDelegate.mm
     mac/DefaultDelegates/WebDefaultUIDelegate.mm
 
@@ -51,6 +53,8 @@ list(APPEND WebKitLegacy_SOURCES
     mac/Misc/WebDownload.mm
     mac/Misc/WebElementDictionary.mm
     mac/Misc/WebIconDatabase.mm
+    # MAVERICKS_BACKPORT: build the legacy WebKeyGenerator (<keygen> support), which the
+    # modern upstream WebKitLegacy build omits.
     mac/Misc/WebKeyGenerator.mm
     mac/Misc/WebKitErrors.m
     mac/Misc/WebKitLogInitialization.mm
@@ -90,12 +94,16 @@ list(APPEND WebKitLegacy_SOURCES
     mac/Storage/WebStorageTrackerClient.mm
 
     mac/WebCoreSupport/CorrectionPanel.mm
+    # MAVERICKS_BACKPORT: build the legacy LegacyHistoryItemClient source, which the modern
+    # upstream WebKitLegacy build omits.
     mac/WebCoreSupport/LegacyHistoryItemClient.mm
     mac/WebCoreSupport/PopupMenuMac.mm
     mac/WebCoreSupport/SearchPopupMenuMac.mm
     mac/WebCoreSupport/WebAlternativeTextClient.mm
     mac/WebCoreSupport/WebChromeClient.mm
     mac/WebCoreSupport/WebContextMenuClient.mm
+    # MAVERICKS_BACKPORT: build the legacy WebCryptoClient (libgcrypt-backed WebCrypto on
+    # this port), which the modern upstream WebKitLegacy build omits.
     WebCoreSupport/WebCryptoClient.mm
     mac/WebCoreSupport/WebDragClient.mm
     mac/WebCoreSupport/WebEditorClient.mm
@@ -597,11 +605,14 @@ set(CPP_FILES
 foreach (_file ${WebKitLegacy_SOURCES})
     list(FIND C99_FILES ${_file} _c99_index)
     list(FIND CPP_FILES ${_file} _cpp_index)
+    # MAVERICKS_BACKPORT: detect plain ObjC (.m) sources by extension and build them as
+    # -std=gnu17 instead of defaulting them to the -ObjC++ C++2b branch.
     get_filename_component(_ext ${_file} EXT)
     if (NOT ${_c99_index} EQUAL -1)
         set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS -std=c99)
     elseif (NOT ${_cpp_index} EQUAL -1)
         set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS -std=c++2b)
+    # MAVERICKS_BACKPORT: plain ObjC (.m) sources compile as -std=gnu17, not -ObjC++.
     elseif (_ext STREQUAL ".m")
         set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS -std=gnu17)
     else ()
@@ -620,6 +631,8 @@ endforeach ()
 add_custom_command(
     OUTPUT ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebViewPreferencesChangedGenerated.mm ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebPreferencesInternalFeatures.mm ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebPreferencesExperimentalFeatures.mm ${WebKitLegacy_DERIVED_SOURCES_DIR}/WebPreferencesDefinitions.h
     DEPENDS ${WebKit_WEB_PREFERENCES_TEMPLATES} ${WebKit_WEB_PREFERENCES} WTF_CopyPreferences
+    # MAVERICKS_BACKPORT: pass each preferences template as an explicit --template path
+    # rather than the upstream $<JOIN> generator-expression form.
     COMMAND ${Ruby_EXECUTABLE} ${WTF_SCRIPTS_DIR}/GeneratePreferences.rb --frontend WebKitLegacy --outputDir "${WebKitLegacy_DERIVED_SOURCES_DIR}" --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebViewPreferencesChangedGenerated.mm.erb --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesDefinitions.h.erb --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesExperimentalFeatures.mm.erb --template ${CMAKE_SOURCE_DIR}/Source/WebKitLegacy/mac/Scripts/PreferencesTemplates/WebPreferencesInternalFeatures.mm.erb ${WTF_SCRIPTS_DIR}/Preferences/UnifiedWebPreferences.yaml
     COMMAND_EXPAND_LISTS
     VERBATIM

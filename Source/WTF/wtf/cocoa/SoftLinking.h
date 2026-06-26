@@ -24,7 +24,7 @@
 
 #pragma once
 
-#import <dispatch/dispatch.h>
+#import <dispatch/dispatch.h> // MAVERICKS_BACKPORT: explicit dispatch include for the dispatch_once-based loaders below.
 #import <dlfcn.h>
 #import <objc/runtime.h>
 #import <wtf/Assertions.h>
@@ -180,7 +180,7 @@ static void* lib##Library() \
     static resultType init##functionName parameterDeclarations; \
     static resultType (*softLink##functionName) parameterDeclarations = init##functionName; \
     \
-    /* Backport: macOS 10.9 lacks many newer symbols. When dlsym fails, softLink \
+    /* MAVERICKS_BACKPORT: macOS 10.9 lacks many newer symbols. When dlsym fails, softLink \
        points here permanently so the always-inline fast path stays callable on \
        every subsequent call (a null softLink would crash). Callers handle nil/zero. */ \
     static resultType stub##functionName parameterDeclarations \
@@ -192,6 +192,7 @@ static void* lib##Library() \
     { \
         _STORE_IN_DLSYM_SECTION static char const auditedName[] = #functionName; \
         softLink##functionName = (resultType (*) parameterDeclarations) dlsym(framework##Library(), auditedName); \
+        /* MAVERICKS_BACKPORT: dlsym fails for 10.10+ symbols on 10.9 → point at the stub above instead of aborting. */ \
         if (!softLink##functionName) \
             softLink##functionName = stub##functionName; \
         return softLink##functionName parameterNames; \
@@ -327,7 +328,7 @@ static void* lib##Library() \
     { \
         _STORE_IN_DLSYM_SECTION static char const auditedName[] = #name; \
         void** pointer = static_cast<void**>(dlsym(framework##Library(), auditedName)); \
-        /* Backport: missing symbols on 10.9 → return default-constructed pointer. */ \
+        /* MAVERICKS_BACKPORT: missing symbols on 10.9 → return default-constructed pointer. */ \
         if (!pointer) { \
             get##name = name##Function; \
             return pointer##name; \
@@ -372,7 +373,7 @@ static void* lib##Library() \
     { \
         _STORE_IN_DLSYM_SECTION static char const auditedName[] = #name; \
         void* constant = dlsym(framework##Library(), auditedName); \
-        /* Backport: missing constants on 10.9 → leave default-constructed. */ \
+        /* MAVERICKS_BACKPORT: missing constants on 10.9 → leave default-constructed. */ \
         if (constant) \
             constant##name.constant = *static_cast<type const *>(constant); \
         get##name##Singleton = name##Function; \
@@ -525,10 +526,10 @@ static void* lib##Library() \
     { \
         static dispatch_once_t once; \
         dispatch_once(&once, ^{ \
-            framework##Library(true /* backport: always treat as optional on 10.9 */); \
+            framework##Library(true /* MAVERICKS_BACKPORT: always treat as optional on 10.9 */); \
             _STORE_IN_GETCLASS_SECTION static char const auditedClassName[] = #className; \
             class##className = objc_getClass(auditedClassName); \
-            /* Backport: never assert on missing class so 10.9 build doesn't abort \
+            /* MAVERICKS_BACKPORT: never assert on missing class so 10.9 build doesn't abort \
                when alloc'ing 10.10+ classes; callers get nil and should handle it. */ \
             get##className##ClassSingleton = className##Function; \
         }); \
@@ -580,7 +581,7 @@ static void* lib##Library() \
         dispatch_once(&once, ^{ \
             _STORE_IN_DLSYM_SECTION static char const auditedName[] = #variableName; \
             void* constant = dlsym(framework##Library(), auditedName); \
-            /* Backport: macOS 10.9 lacks many newer constants; return default-constructed \
+            /* MAVERICKS_BACKPORT: macOS 10.9 lacks many newer constants; return default-constructed \
                value instead of aborting. Callers must handle nil/zero. */ \
             if (!constant) \
                 return; \

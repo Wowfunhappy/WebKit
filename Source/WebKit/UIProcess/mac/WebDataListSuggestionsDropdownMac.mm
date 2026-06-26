@@ -35,7 +35,7 @@
 #import <WebCore/LocalizedStrings.h>
 #import <pal/spi/mac/NSColorSPI.h>
 
-
+// MAVERICKS_BACKPORT: 10.9 build divergence.
 constexpr CGFloat dropdownTopMargin = 3;
 constexpr CGFloat dropdownVerticalPadding = 4;
 constexpr CGFloat dropdownRowHeightWithoutLabel = 20;
@@ -151,6 +151,7 @@ void WebDataListSuggestionsDropdownMac::close()
 #endif
 
     if (!_backdropView) {
+        // MAVERICKS_BACKPORT: NSVisualEffectView is 10.10+; fall back to a plain NSView backdrop on 10.9.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
         if (NSClassFromString(@"NSVisualEffectView")) {
             RetainPtr visualEffectView = adoptNS([[NSVisualEffectView alloc] initWithFrame:contentRect]);
@@ -377,6 +378,7 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
     }
 #endif
 
+    // MAVERICKS_BACKPORT: -[NSWindow contentView] returns id on the 10.9 SDK; cast to NSView * to read -bounds.
     _scrollView = adoptNS([[NSScrollView alloc] initWithFrame:[(NSView *)[_enclosingWindow contentView] bounds]]);
     [_scrollView setHasVerticalScroller:YES];
     [_scrollView setVerticalScrollElasticity:NSScrollElasticityAllowed];
@@ -418,6 +420,7 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
     [_table reload];
 
     [_enclosingWindow setFrame:[self dropdownRectForElementRect:information.elementRect] display:YES];
+    // MAVERICKS_BACKPORT: -[NSWindow contentView] returns id on the 10.9 SDK; cast to NSView * to read -bounds.
     [_scrollView setFrame:[(NSView *)[_enclosingWindow contentView] bounds]];
 }
 

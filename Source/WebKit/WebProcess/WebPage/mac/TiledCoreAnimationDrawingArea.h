@@ -28,13 +28,13 @@
 #if ENABLE(TILED_CA_DRAWING_AREA)
 
 #include "CallbackID.h"
-#include "DisplayLinkObserverID.h"
+#include "DisplayLinkObserverID.h" // MAVERICKS_BACKPORT: UIProcess display-link heartbeat that un-throttles the 10.9 render loop
 #include "DrawingArea.h"
 #include "LayerTreeContext.h"
 #include <WebCore/FloatRect.h>
 #include <WebCore/TransformationMatrix.h>
 #include <wtf/HashMap.h>
-#include <wtf/MonotonicTime.h>
+#include <wtf/MonotonicTime.h> // MAVERICKS_BACKPORT: timestamps for the 10.9 render-rate throttle members
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>

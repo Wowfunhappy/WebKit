@@ -6,72 +6,96 @@
 
 #if PLATFORM(MAC)
 
+// MAVERICKS_BACKPORT: includes for the event-forwarding category that backfills WKWebView's input handling.
 #import "WKWebViewInternal.h"
 #import "WebViewImpl.h"
+// MAVERICKS_BACKPORT: native event + keypress types used to marshal NSEvents to the page proxy.
 #import "NativeWebMouseEvent.h"
 #import "NativeWebWheelEvent.h"
 #import "NativeWebKeyboardEvent.h"
 #import "WebPageProxy.h"
 #import <WebCore/KeypressCommand.h>
 
+// MAVERICKS_BACKPORT: category adding the NSEvent forwarders/NSTextInputClient stubs absent from upstream WKWebView on Mac.
 @implementation WKWebView (Mac10_9EventForwarding)
 
-// WKView returns YES; WKWebView's upstream Mac impl also returns YES (set elsewhere). On this
+// MAVERICKS_BACKPORT: WKView returns YES; WKWebView's upstream Mac impl also returns YES (set elsewhere). On this
 // backport WKWebView inherits NSView's default NO, so window→view convertPoint never flips Y
 // and clicks land in the wrong DOM element. Override to YES so positions arrive top-left.
 - (BOOL)isFlipped { return YES; }
 
+// MAVERICKS_BACKPORT: forward mouse-down into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)mouseDown:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super mouseDown:event]; return; }
     @try { self._impl->mouseDown(event, WebKit::WebMouseEventInputSource::UserDriven); } @catch (NSException *e) {}
 }
+// MAVERICKS_BACKPORT: forward mouse-up into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)mouseUp:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super mouseUp:event]; return; }
     @try { self._impl->mouseUp(event, WebKit::WebMouseEventInputSource::UserDriven); } @catch (NSException *e) {}
 }
+// MAVERICKS_BACKPORT: forward mouse-moved into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)mouseMoved:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super mouseMoved:event]; return; }
     @try { self._impl->mouseMoved(event); } @catch (NSException *e) {}
 }
+// MAVERICKS_BACKPORT: forward mouse-dragged into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)mouseDragged:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super mouseDragged:event]; return; }
     @try { self._impl->mouseDragged(event, WebKit::WebMouseEventInputSource::UserDriven); } @catch (NSException *e) {}
 }
+// MAVERICKS_BACKPORT: forward right-mouse-down into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)rightMouseDown:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super rightMouseDown:event]; return; }
     @try { self._impl->rightMouseDown(event); } @catch (NSException *e) {}
 }
+// MAVERICKS_BACKPORT: forward right-mouse-up into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)rightMouseUp:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super rightMouseUp:event]; return; }
     @try { self._impl->rightMouseUp(event); } @catch (NSException *e) {}
 }
+// MAVERICKS_BACKPORT: forward other-mouse-down into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)otherMouseDown:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super otherMouseDown:event]; return; }
     @try { self._impl->otherMouseDown(event); } @catch (NSException *e) {}
 }
+// MAVERICKS_BACKPORT: forward other-mouse-up into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)otherMouseUp:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super otherMouseUp:event]; return; }
     @try { self._impl->otherMouseUp(event); } @catch (NSException *e) {}
 }
+// MAVERICKS_BACKPORT: forward mouse-entered into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)mouseEntered:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super mouseEntered:event]; return; }
     @try { self._impl->mouseEntered(event); } @catch (NSException *e) {}
 }
+// MAVERICKS_BACKPORT: forward mouse-exited into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)mouseExited:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super mouseExited:event]; return; }
     @try { self._impl->mouseExited(event); } @catch (NSException *e) {}
 }
 
+// MAVERICKS_BACKPORT: forward scroll-wheel into the page (missing from upstream WKWebView Mac impl here).
 - (void)scrollWheel:(NSEvent *)event
 {
     WebKit::WebViewImpl *impl = self._impl;
@@ -99,12 +123,14 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
 - (BOOL)hasMarkedText { return NO; }
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange
 {
+    // MAVERICKS_BACKPORT: capture inserted text into the thread-local KeypressCommand collector for keyDown: to forward.
     NSString *s = [string isKindOfClass:[NSAttributedString class]] ? [(NSAttributedString *)string string] : (NSString *)string;
     if (!s)
         return;
     if (tlsWKWVCommands)
         tlsWKWVCommands->append(WebCore::KeypressCommand("insertText:"_s, String(s)));
 }
+// MAVERICKS_BACKPORT: remaining minimal NSTextInputClient stubs so AppKit vends an input context for interpretKeyEvents:.
 - (NSRange)markedRange { return NSMakeRange(NSNotFound, 0); }
 - (NSRange)selectedRange { return NSMakeRange(NSNotFound, 0); }
 - (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {}
@@ -144,8 +170,10 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
     } @catch (NSException *) { }
 }
 
+// MAVERICKS_BACKPORT: forward key-up into the page (missing from upstream WKWebView Mac impl here).
 - (void)keyUp:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: build a NativeWebKeyboardEvent and hand it to the page proxy.
     WebKit::WebViewImpl *impl = self._impl;
     if (!impl) { [super keyUp:event]; return; }
     @try {
@@ -155,8 +183,10 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
     } @catch (NSException *) { }
 }
 
+// MAVERICKS_BACKPORT: forward modifier-key changes into the page (missing from upstream WKWebView Mac impl here).
 - (void)flagsChanged:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: build a NativeWebKeyboardEvent and hand it to the page proxy.
     WebKit::WebViewImpl *impl = self._impl;
     if (!impl) { [super flagsChanged:event]; return; }
     @try {
@@ -166,29 +196,32 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
     } @catch (NSException *) { }
 }
 
-// Declared in WKWebViewMac.h and called from -[WKWebView dealloc]; upstream's
+// MAVERICKS_BACKPORT: Declared in WKWebViewMac.h and called from -[WKWebView dealloc]; upstream's
 // Mac WKWebView category (not built here) implemented it. Without it, EVERY
 // Mac WKWebView teardown raised unrecognized-selector and terminated Safari —
 // the Web Inspector frontend (WKInspectorWKWebView) crashed Safari on
 // open/close because of this.
 - (void)_resetSecureInputState
 {
+    // MAVERICKS_BACKPORT: forward to WebViewImpl::resetSecureInputState.
     if (WebKit::WebViewImpl *impl = self._impl)
         impl->resetSecureInputState();
 }
 
-// Declared in WKWebViewMac.h, called from -[WKWebView _takeFindStringFromSelection:]
+// MAVERICKS_BACKPORT: Declared in WKWebViewMac.h, called from -[WKWebView _takeFindStringFromSelection:]
 // (Edit ▸ Find ▸ Use Selection for Find). Same unrecognized-selector hazard as
 // _resetSecureInputState. The WebCore edit command writes the find pasteboard.
 - (void)_takeFindStringFromSelectionInternal:(id)sender
 {
+    // MAVERICKS_BACKPORT: route Use-Selection-for-Find through the page proxy's edit command.
     if (WebKit::WebViewImpl *impl = self._impl)
         impl->page().executeEditCommand("TakeFindStringFromSelection"_s);
 }
 
-// Declared in WKWebViewMac.h, called from WebViewImpl's drag handling.
+// MAVERICKS_BACKPORT: declared in WKWebViewMac.h, called from WebViewImpl's drag handling; upstream's unbuilt Mac category provided it.
 - (Vector<String>)_promisedFileMIMETypes:(id<NSDraggingInfo>)info
 {
+    // MAVERICKS_BACKPORT: no promised file types on this backport; return empty.
     return { };
 }
 

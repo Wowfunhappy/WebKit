@@ -44,6 +44,7 @@ DECLARE_SYSTEM_HEADER
 #pragma clang diagnostic ignored "-Wnon-modular-include-in-module"
 #include <webrtc/webkit_sdk/WebKit/CMBaseObjectSPI.h>
 #pragma clang diagnostic pop
+// MAVERICKS_BACKPORT: forward-declare CMBase types when the libwebrtc CMBaseObjectSPI.h header isn't on the include path.
 #else
 typedef struct OpaqueCMBaseObject *CMBaseObjectRef;
 typedef struct OpaqueCMBaseClass *CMBaseClassID;
@@ -61,7 +62,7 @@ typedef void (*FigThreadAbortAction)(void* refcon);
 typedef struct OpaqueFigThreadAbortActionToken* FigThreadAbortActionToken;
 #endif
 
-
+// MAVERICKS_BACKPORT: 10.9 build divergence (cosmetic spacing).
 WTF_EXTERN_C_BEGIN
 OSStatus FigThreadRegisterAbortAction(FigThreadAbortAction, void* refcon, FigThreadAbortActionToken*);
 void FigThreadUnregisterAbortAction(FigThreadAbortActionToken);
