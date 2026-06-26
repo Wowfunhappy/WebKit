@@ -116,15 +116,18 @@ public:
 private:
     void releaseAssertOrSetThreadUID()
     {
-        // MAVERICKS_BACKPORT: KEYSTONE BAND-AID #54 (broken main-thread identity under
-        // dispatch_main) — releaseAssertOrSetThreadUID gutted to an early return.
-        // Thread::mayBeGCThread() returns false on this build because the GC thread tagging
-        // hooks aren't wired through our polyfills. That makes the upstream RELEASE_ASSERT
-        // trip on github's React landing page, where add/removeEventListener fires from a
-        // worker dispatched off-main. Skip the cross-thread invariant check; the underlying
-        // m_lock still serializes mutations.
-        // FLAG: fix the #54 thread-identity keystone, then restore the upstream UID check.
-        return;
+#if PLATFORM(IOS_FAMILY)
+        if (WebThreadIsEnabled())
+            return;
+#endif
+        if (!m_threadUID) {
+            ASSERT(!Thread::mayBeGCThread());
+            m_threadUID = Thread::currentSingleton().uid();
+            return;
+        }
+        if (m_threadUID == Thread::currentSingleton().uid()) [[likely]]
+            return;
+        RELEASE_ASSERT(Thread::mayBeGCThread());
     }
 
     Vector<std::pair<AtomString, EventListenerVector>, 0, CrashOnOverflow, 4> m_entries;

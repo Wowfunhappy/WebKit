@@ -64,11 +64,6 @@ public:
 
     RemoteLayerTreeNode* nodeForID(std::optional<WebCore::PlatformLayerIdentifier>) const;
     RemoteLayerTreeNode* rootNode() const { return m_rootNode.get(); }
-    // 10.9 backport: expose all known nodes so the mirror-walk hack can find
-    // tile-bearing layers that aren't reachable from rootNode->layer() (e.g.,
-    // when the wrapper's children property update never propagates from
-    // WebContent for github navigations).
-    const HashMap<WebCore::PlatformLayerIdentifier, Ref<RemoteLayerTreeNode>>& allNodesFor10_9() const { return m_nodes; }
 
     CALayer *layerForID(std::optional<WebCore::PlatformLayerIdentifier>) const;
     CALayer *NODELETE rootLayer() const;

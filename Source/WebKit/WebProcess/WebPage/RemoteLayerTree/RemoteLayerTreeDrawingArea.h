@@ -185,8 +185,6 @@ private:
     bool m_isRenderingSuspended { false };
     bool m_hasDeferredRenderingUpdate { false };
     bool m_inUpdateRendering { false };
-    // 10.9 perf: dedupe dispatch_async render-update fallbacks (see startRenderingUpdateTimer).
-    std::atomic<bool> m_dispatchedRenderingUpdate { false };
 
     bool m_waitingForBackingStoreSwap { false };
     bool m_deferredRenderingUpdateWhileWaitingForBackingStoreSwap { false };

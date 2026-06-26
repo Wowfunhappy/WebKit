@@ -1583,18 +1583,7 @@ public:
 
     LayoutRect absoluteEventHandlerBounds(bool&) final;
 
-    // MAVERICKS_BACKPORT: KEYSTONE BAND-AID #50/#53/#55 — hardcodes visualUpdatesAllowed=true.
-    // Document::m_visualUpdatesPreventedReasons gets set to ReadyState during the Loading
-    // phase and is supposed to be cleared by m_visualUpdatesSuppressionTimer (5-second timer)
-    // if readyState never reaches Complete. On 10.9 our WebCore Timer second-fire is unreliable
-    // (timer-heap/render-cadence keystone), so the suppression timer often never fires for
-    // long-loading pages like github.com (which stays in Loading state forever as its async
-    // chunks keep arriving). Without visualUpdatesAllowed=true, the entire compositor pipeline
-    // (RenderLayerCompositor::updateCompositingLayers, etc.) is skipped, so the new doc's
-    // CALayer tree is never built and no paint requests reach the WebPage drawing area.
-    // Always allow visual updates on 10.9 — pages render incrementally as content loads.
-    // FLAG: fix the suppression-timer keystone (#53/#55), then restore the upstream check.
-    bool visualUpdatesAllowed() const { return true; }
+    bool visualUpdatesAllowed() const { return m_visualUpdatesPreventedReasons.isEmpty(); }
 
     bool isInDocumentWrite() { return m_writeRecursionDepth > 0; }
 

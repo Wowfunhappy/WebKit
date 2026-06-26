@@ -25,8 +25,6 @@
 
 #import "config.h"
 #import "RemoteLayerBackingStore.h"
-#import <syslog.h>
-
 #import "ArgumentCoders.h"
 #import "DynamicContentScalingImageBufferBackend.h"
 #if ENABLE(GPU_PROCESS)
@@ -504,22 +502,6 @@ void RemoteLayerBackingStore::drawInContext(GraphicsContext& context)
 #endif
     case PlatformCALayer::LayerType::LayerTypeTiledBackingTileLayer:
         layer->owner()->platformCALayerPaintContents(layer.ptr(), context, dirtyBounds, paintBehavior);
-        // 10.9: sample paint output. The pixel sampling is also a perf-relevant
-        // CPU yield point for github (without it, github's JS hot-loop starves
-        // rendering and tiles paint as zeros). Keep this even if log output is
-        // throwaway — the syscall path of the disk write helps schedule.
-        {
-            CGContextRef cg = context.platformContext();
-            if (cg && CGBitmapContextGetData(cg)) {
-                uint32_t* p = static_cast<uint32_t*>(CGBitmapContextGetData(cg));
-                size_t w = CGBitmapContextGetWidth(cg);
-                size_t h = CGBitmapContextGetHeight(cg);
-                uint32_t nonzero = 0, total = 0;
-                size_t step = (w*h) / 16 ? (w*h) / 16 : 1;
-                for (size_t i = 0; i < w*h; i += step) { if (p[i]) ++nonzero; ++total; }
-                // 10.9 perf: removed debug fopen logging
-            }
-        }
         break;
     case PlatformCALayer::LayerType::LayerTypeWebLayer:
     case PlatformCALayer::LayerType::LayerTypeBackdropLayer:
@@ -733,67 +715,56 @@ void RemoteLayerBackingStoreProperties::applyBackingStoreToNode(RemoteLayerTreeN
 
 RemoteLayerBackingStoreProperties::LayerContentsBufferInfo RemoteLayerBackingStoreProperties::lookupCachedBuffer(RemoteLayerTreeNode& node)
 {
-    // 10.9 backport: this function shows up in Safari crash logs as
-    // lookupCachedBuffer + 1280 with EXC_BAD_ACCESS at heap addresses, suggesting
-    // freed-buffer access during IOSurface/CALayer interaction. Wrap the whole
-    // body — anything thrown becomes an empty buffer info (the caller treats
-    // that as "no cached buffer; will rebuild") rather than crashing Safari.
-    LayerContentsBufferInfo safeResult = { { }, false };
-    try { @try {
-        Vector<RemoteLayerTreeNode::CachedContentsBuffer> cachedBuffers = node.takeCachedContentsBuffers();
+    Vector<RemoteLayerTreeNode::CachedContentsBuffer> cachedBuffers = node.takeCachedContentsBuffers();
 
-        if (!m_frontBufferInfo)
-            return { { }, false };
+    if (!m_frontBufferInfo)
+        return { { }, false };
 
-        cachedBuffers.removeAllMatching([&](const RemoteLayerTreeNode::CachedContentsBuffer& current) {
-            auto matches = [&](std::optional<BufferAndBackendInfo>& backendInfo) {
-                if (!backendInfo || *backendInfo != current.imageBufferInfo)
-                    return false;
-                return true;
-            };
-            if (matches(m_frontBufferInfo))
+    cachedBuffers.removeAllMatching([&](const RemoteLayerTreeNode::CachedContentsBuffer& current) {
+        auto matches = [&](std::optional<BufferAndBackendInfo>& backendInfo) {
+            if (!backendInfo || *backendInfo != current.imageBufferInfo)
                 return false;
-
-            if (matches(m_backBufferInfo))
-                return false;
-
-            if (matches(m_secondaryBackBufferInfo))
-                return false;
-
             return true;
-        });
+        };
+        if (matches(m_frontBufferInfo))
+            return false;
 
-        LayerContentsBufferInfo result = { { }, false };
-        bool hasFreshHandle = m_bufferHandle && std::holds_alternative<MachSendRight>(*m_bufferHandle);
-        if (!hasFreshHandle) {
-            for (auto& current : cachedBuffers) {
-                if (m_frontBufferInfo->resourceIdentifier == current.imageBufferInfo.resourceIdentifier) {
-                    result.buffer = current.buffer;
+        if (matches(m_backBufferInfo))
+            return false;
+
+        if (matches(m_secondaryBackBufferInfo))
+            return false;
+
+        return true;
+    });
+
+    LayerContentsBufferInfo result = { { }, false };
+    for (auto& current : cachedBuffers) {
+        if (m_frontBufferInfo->resourceIdentifier == current.imageBufferInfo.resourceIdentifier) {
+            result.buffer = current.buffer;
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
-                    if (current.ioSurface && current.ioSurface->pixelFormat() == WebCore::IOSurface::Format::RGBA16F)
-                        result.hasExtendedDynamicRange = true;
+            if (current.ioSurface->pixelFormat() == WebCore::IOSurface::Format::RGBA16F)
+                result.hasExtendedDynamicRange = true;
 #endif
-                    break;
-                }
-            }
+            break;
         }
+    }
 
-        if (!result.buffer && m_bufferHandle && std::holds_alternative<MachSendRight>(*m_bufferHandle)) {
-            if (auto surface = WebCore::IOSurface::createFromSendRight(std::get<MachSendRight>(*std::exchange(m_bufferHandle, std::nullopt)))) {
-                result.buffer = surface->asCAIOSurfaceLayerContents();
+    if (!result.buffer && m_bufferHandle && std::holds_alternative<MachSendRight>(*m_bufferHandle)) {
+        if (auto surface = WebCore::IOSurface::createFromSendRight(std::get<MachSendRight>(*std::exchange(m_bufferHandle, std::nullopt)))) {
+            result.buffer = surface->asCAIOSurfaceLayerContents();
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
-                if (surface->pixelFormat() == WebCore::IOSurface::Format::RGBA16F)
-                    result.hasExtendedDynamicRange = true;
+            if (surface->pixelFormat() == WebCore::IOSurface::Format::RGBA16F)
+                result.hasExtendedDynamicRange = true;
 #endif
-                if (surface->isVolatile())
-                    RELEASE_LOG_ERROR(RemoteLayerTree, "Received volatile IOSurface");
-                cachedBuffers.append({ *m_frontBufferInfo, result.buffer, WTF::move(surface) });
-            }
+            if (surface->isVolatile())
+                RELEASE_LOG_ERROR(RemoteLayerTree, "Received volatile IOSurface");
+            cachedBuffers.append({ *m_frontBufferInfo, result.buffer, WTF::move(surface) });
         }
+    }
 
-        node.setCachedContentsBuffers(WTF::move(cachedBuffers));
-        return result;
-    } @catch (NSException *) { return safeResult; } } catch (...) { return safeResult; }
+    node.setCachedContentsBuffers(WTF::move(cachedBuffers));
+    return result;
 }
 
 void RemoteLayerBackingStoreProperties::setBackendHandle(BufferSetBackendHandle& bufferSetHandle)

@@ -131,11 +131,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(WebLoaderStrategy);
 
 WebLoaderStrategy::WebLoaderStrategy(WebProcess& webProcess)
     : m_webProcess(webProcess)
-    , m_internallyFailedLoadTimer((
-        []() -> RunLoop& {
-            auto& mrl = RunLoop::mainSingleton();
-            return mrl;
-        }()), "WebLoaderStrategy::InternallyFailedLoadTimer"_s, this, &WebLoaderStrategy::internallyFailedLoadTimerFired)
+    , m_internallyFailedLoadTimer(RunLoop::mainSingleton(), "WebLoaderStrategy::InternallyFailedLoadTimer"_s, this, &WebLoaderStrategy::internallyFailedLoadTimerFired)
 {
 }
 

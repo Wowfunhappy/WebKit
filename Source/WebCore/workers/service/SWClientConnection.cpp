@@ -53,16 +53,7 @@ namespace WebCore {
 
 static bool dispatchToContextThreadIfNecessary(const ServiceWorkerOrClientIdentifier& contextIdentifier, Function<void(ScriptExecutionContext&)>&& task)
 {
-    // MAVERICKS_BACKPORT: KEYSTONE BAND-AID #54 (broken main-thread identity under dispatch_main)
-    // — replaces upstream RELEASE_ASSERT(isMainThread()) with a callOnMainThread bounce. Shared
-    // ThreadTimers mean worker threads can call into this on the 10.9 build.
-    // FLAG: fix the #54 thread-identity keystone, then restore the upstream assert.
-    if (!isMainThread()) {
-        callOnMainThread([contextIdentifier, task = WTF::move(task)]() mutable {
-            dispatchToContextThreadIfNecessary(contextIdentifier, WTF::move(task));
-        });
-        return true;
-    }
+    RELEASE_ASSERT(isMainThread());
 
     return switchOn(contextIdentifier, [&] (ScriptExecutionContextIdentifier identifier) {
         return ScriptExecutionContext::postTaskTo(identifier, WTF::move(task));

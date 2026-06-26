@@ -116,20 +116,6 @@ void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& par
     // dispatcher — would bind dispatch to a worker-thread RunLoop nobody pumps.
     // Force the main RunLoop so message dispatch reaches WebPage etc.
     connection->open(*this, RunLoop::mainSingleton());
-
-    // 10.9 backport: Safari closes the XPC bootstrap connection after init completes.
-    // Without an active source on the main dispatch queue, dispatch_main() returns and the
-    // main thread exits — leaving WebContent unable to process IPC messages even though
-    // the libdispatch-manager thread keeps the process alive.
-    // Schedule a perpetual no-op dispatch_after to keep the main queue alive.
-    static dispatch_source_t s_heartbeat = nullptr;
-    if (!s_heartbeat) {
-        s_heartbeat = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-        dispatch_source_set_timer(s_heartbeat, dispatch_time(DISPATCH_TIME_NOW, 60ull * NSEC_PER_SEC),
-                                  60ull * NSEC_PER_SEC, 1ull * NSEC_PER_SEC);
-        dispatch_source_set_event_handler(s_heartbeat, ^{ /* no-op */ });
-        dispatch_resume(s_heartbeat);
-    }
 }
 
 void AuxiliaryProcess::setProcessSuppressionEnabled(bool enabled)

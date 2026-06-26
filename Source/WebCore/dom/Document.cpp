@@ -5980,14 +5980,7 @@ void Document::addAudioProducer(MediaProducer& audioProducer)
 
 void Document::removeAudioProducer(MediaProducer& audioProducer)
 {
-    // MAVERICKS_BACKPORT: keystone #54 (broken main-thread identity under dispatch_main).
-    // HTMLMediaElement teardown can run on Worker thread
-    // (shared ThreadGlobalData/dispatch fragmentation). Skip the unregister
-    // — the producer is being destroyed and will drop out of the set when
-    // the Document itself goes away. updateIsPlayingMedia would touch
-    // additional main-thread-only state.
-    if (!isMainThread())
-        return;
+    RELEASE_ASSERT(isMainThread());
     m_audioProducers.remove(audioProducer);
     updateIsPlayingMedia();
 }

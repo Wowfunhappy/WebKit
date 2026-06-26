@@ -1715,13 +1715,8 @@ void CachedResourceLoader::loadDone(LoadCompletionType type, bool shouldPerformP
     if (shouldPerformPostLoadActions)
         performPostLoadActions();
 
-    // MAVERICKS_BACKPORT: keystone #53 (timer-heap corruption avoidance). Skip the GC timer
-    // entirely. The thread timer heap is corrupted by JSC GC overwriting Vector storage during
-    // heavy navigations, and TimerBase::heapInsert crashes in __sift_up dereferencing entries
-    // with addresses in the JIT region (e.g. 0x1600000006). The GC pass is just an optimization
-    // to evict idle CachedResources; skipping it leaks memory but does not affect correctness.
-    // if (!m_garbageCollectDocumentResourcesTimer.isActive())
-    //     m_garbageCollectDocumentResourcesTimer.startOneShot(0_s);
+    if (!m_garbageCollectDocumentResourcesTimer.isActive())
+        m_garbageCollectDocumentResourcesTimer.startOneShot(0_s);
 }
 
 // Garbage collecting m_documentResources is a workaround for the

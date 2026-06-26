@@ -137,13 +137,8 @@ Vector<std::unique_ptr<ThreadSafeImageBufferSetFlusher>> RemoteLayerBackingStore
     for (auto& layer : transaction.changedLayers()) {
         if (layer->properties().changedProperties & LayerChange::BackingStoreChanged) {
             needToScheduleVolatilityTimer = true;
-            if (CheckedPtr store = layer->properties().backingStoreOrProperties.store.get()) {
+            if (CheckedPtr store = layer->properties().backingStoreOrProperties.store.get())
                 flushers.appendVector(store->takePendingFlushers());
-                // 10.9 backport: count this commit. Forced-display in
-                // backingStoreWillBeDisplayed gates on m_committedCount <
-                // kForceFirstNCommits.
-                ++store->m_committedCount;
-            }
         }
 
         layer->didCommit();
@@ -193,17 +188,8 @@ bool RemoteLayerBackingStoreCollection::backingStoreWillBeDisplayed(RemoteLayerB
     auto backingStoreIter = m_unparentedBackingStore.find(backingStore);
     bool wasUnparented = backingStoreIter != m_unparentedBackingStore.end();
 
-    // 10.9 backport: force display for the first 30 commits of every backing
-    // store. needsDisplay() is racy on 10.9 — tile body content arrives in
-    // commits 5-20 but doesn't mark the tile dirty, so subsequent paints are
-    // skipped and the tile shows the empty initial paint. After 30, normal
-    // dirty tracking takes over. Removing this window caused white tiles.
-    bool inForcedWindow = backingStore.m_committedCount < RemoteLayerBackingStore::kForceFirstNCommits;
-    if (backingStore.needsDisplay() || wasUnparented || inForcedWindow)
+    if (backingStore.needsDisplay() || wasUnparented)
         m_backingStoresNeedingDisplay.add(backingStore);
-
-    if (inForcedWindow && !wasUnparented)
-        return true;
 
     if (!wasUnparented)
         return false;
