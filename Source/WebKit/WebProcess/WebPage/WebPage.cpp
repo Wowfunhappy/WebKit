@@ -3090,15 +3090,19 @@ void WebPage::postInjectedBundleMessage(const String& messageName, const UserDat
     if (!injectedBundle)
         return;
 
-    // 10.9 backport: Safari's Safe Browsing is non-functional here (Google's Safe Browsing
+    // MAVERICKS_BACKPORT: Safari's Safe Browsing is non-functional here (Google's Safe Browsing
     // service/integration is gone), and its bundle handler crashes WebContent — an
     // intermittent SIGSEGV in -[BrowserBundlePageController urlPassedSafeBrowsingCheck] →
     // HashSet<Safari::CF::URL>::remove → CFEqual on a freed CFURL (a lifetime bug inside
     // Safari.framework's closed code we cannot patch). That crash fires mid-load, BEFORE
     // dispatchDidFinishLoad, so it also prevents load completion (and thus Top Sites preview
-    // capture, which keys off load-finish). Drop the dead Safe Browsing messages so the bundle
-    // never enters the crashing path; everything downstream (load-finish, Top Sites) proceeds.
-    if (messageName.containsIgnoringASCIICase("SafeBrowsing"_s))
+    // capture, which keys off load-finish). Drop exactly the two Safe Browsing result messages
+    // Safari.framework posts on this path (the only injected-bundle messages that enter the
+    // crashing HashSet<Safari::CF::URL> code) so the bundle never reaches it; everything
+    // downstream (load-finish, Top Sites) proceeds. Matched by exact name — not a substring —
+    // so any other (including future) injected-bundle message is delivered normally.
+    if (messageName == "BrowserBundlePageController.URLPassedSafeBrowsingCheck"_s
+        || messageName == "BrowserBundlePageController.URLFailedSafeBrowsingCheck"_s)
         return;
 
     injectedBundle->didReceiveMessageToPage(Ref { *this }, messageName, webProcess.transformHandlesToObjects(protect(userData.object()).get()));

@@ -85,7 +85,7 @@ static bool isInReadOnlyRegion(std::span<const uint8_t> span)
         return nil;
     }
 
-    // DISABLED:     API::Object::constructInWrapper<API::JSBuffer>(self, sharedMemory.releaseNonNull());
+    API::Object::constructInWrapper<API::JSBuffer>(self, sharedMemory.releaseNonNull());
 
     return self;
 }

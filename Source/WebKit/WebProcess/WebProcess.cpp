@@ -440,8 +440,11 @@ void WebProcess::initializeProcess(const AuxiliaryProcessInitializationParameter
         // JSC::Options::notifyOptionsChanged();
     }
 
-    // MessagePortChannelProvider::setSharedProvider(WebMessagePortChannelProvider::singleton());
-    
+    // MAVERICKS_BACKPORT: routes MessageChannel/MessagePort ops through the
+    // functional NetworkProcess (WebMessagePortChannelProvider -> ensureNetworkProcessConnection
+    // -> NetworkConnectionToWebProcess CreateNewMessagePortChannel / EntangleLocalPortInThisProcessToRemote / TakeAllMessagesForPort).
+    MessagePortChannelProvider::setSharedProvider(WebMessagePortChannelProvider::singleton());
+
     platformInitializeProcess(parameters);
     updateCPULimit();
 }
@@ -871,11 +874,10 @@ void WebProcess::setWebsiteDataStoreParameters(WebProcessDataStoreParameters&& p
 
     platformSetWebsiteDataStoreParameters(WTF::move(parameters));
 
-    // 10.9 backport: NetworkProcess.cpp / NetworkConnectionToWebProcess.cpp are
-    // stubbed in this build; sendSync(GetNetworkProcessConnection) would deadlock
-    // waiting for a NetworkProcess that has no message handlers. Skip the
-    // proactive setup so initializeWebProcess returns; data: URLs render without it.
-    // ensureNetworkProcessConnection();
+    // MAVERICKS_BACKPORT: eagerly establish the NetworkProcess connection (upstream
+    // behavior). The NetworkProcess handles real HTTP requests on 10.9, so the sync
+    // GetNetworkProcessConnection round-trip to UIProcess returns a real connection.
+    ensureNetworkProcessConnection();
 
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
     setOptInCookiePartitioningEnabled(parameters.isOptInCookiePartitioningEnabled);

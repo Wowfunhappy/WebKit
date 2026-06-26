@@ -1670,6 +1670,13 @@ void WebViewImpl::showWarningView(const BrowsingWarning& warning, CompletionHand
     if (!m_view)
         return completionHandler(ContinueUnsafeLoad::Yes);
 
+    // MAVERICKS_BACKPORT: The Safe-Browsing / HTTPS-warning UI (_WKWarningView) is
+    // unsupported on macOS 10.9 — its implementation is not linked into this build and
+    // relies on AppKit APIs absent on 10.9. If the class is unavailable, degrade the
+    // warning to "continue the unsafe load" rather than messaging a non-existent class.
+    if (![_WKWarningView class])
+        return completionHandler(ContinueUnsafeLoad::Yes);
+
     WebCore::DiagnosticLoggingClient::ValueDictionary showedWarningDictionary;
     showedWarningDictionary.set("source"_s, "service"_s);
 

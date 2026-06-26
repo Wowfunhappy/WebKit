@@ -60,9 +60,6 @@
 
 static NSString * const WKInspectorResourceScheme = @"inspector-resource";
 
-static NSString * const safeAreaInsetsKVOKey = @"safeAreaInsets";
-static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
-
 @interface WKInspectorViewController () <WKUIDelegate, WKNavigationDelegate, WKInspectorWKWebViewDelegate>
 @end
 
@@ -127,13 +124,6 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
     return _webView.get();
 }
 
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey, id> *)change context:(void*)context
-{
-    if (context == safeAreaInsetsKVOContext) {
-    } else
-        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
-}
-
 - (void)setDelegate:(id <WKInspectorViewControllerDelegate>)delegate
 {
     _delegate = delegate;
@@ -163,7 +153,6 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
 
     [inspectorSchemeHandler setAllowedURLSchemesForCSP:allowedURLSchemes.get()];
     [configuration setURLSchemeHandler:inspectorSchemeHandler.get() forURLScheme:WKInspectorResourceScheme];
-    NSLog(@"[INSPECTOR-CFG] registered scheme handler %@ for scheme=%@ on config=%@", inspectorSchemeHandler.get(), WKInspectorResourceScheme, configuration.get());
 
     RefPtr inspectedPage = _inspectedPage.get();
 #if ENABLE(WK_WEB_EXTENSIONS) && ENABLE(INSPECTOR_EXTENSIONS)
@@ -345,10 +334,6 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
 
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView
 {
-    // 10.9 backport: safeAreaInsets KVO was never added (selector doesn't exist on 10.9);
-    // skip removeObserver to avoid NSRangeException.
-    @try { [_webView removeObserver:self forKeyPath:safeAreaInsetsKVOKey]; } @catch (NSException *) { }
-
     RetainPtr delegate = _delegate.get();
     if (!!delegate && [delegate respondsToSelector:@selector(inspectorViewControllerInspectorDidCrash:)])
         [delegate inspectorViewControllerInspectorDidCrash:self];
@@ -368,8 +353,10 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
         return;
     }
 
-    // 10.9 backport: also allow file:// URLs into WebInspectorUI bundle (we load Main.html
-    // via loadData with file:// baseURL to bypass the broken IPC scheme handler path).
+    // MAVERICKS_BACKPORT: also allow file:// URLs into the WebInspectorUI bundle. The inspector
+    // frontend is loaded via loadData with a file:// baseURL pointing at WebInspectorUI.framework
+    // (inspectorPageURL returns that file:// URL), so this branch is what lets the main-frame
+    // frontend load proceed; without it the inspector would never load.
     if ([navigationAction.request.URL.scheme isEqualToString:@"file"]
         && [navigationAction.request.URL.path rangeOfString:@"/WebInspectorUI.framework/"].location != NSNotFound) { // 10.9: containsString: is 10.10+
         decisionHandler(WKNavigationActionPolicyAllow);

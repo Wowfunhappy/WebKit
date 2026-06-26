@@ -596,10 +596,9 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 
     WebCore::sleepDisablerClient() = makeUnique<WebSleepDisablerClient>();
 
-#if PLATFORM(MAC) && !ENABLE(HARDWARE_JPEG)
-    if (false && false)
-#endif
-
+    // MAVERICKS_BACKPORT: Upstream gates a software-JPEG hardware-cutoff hint here via
+    // PAL::softLinkMediaToolboxFigPhotoDecompressionSetHardwareCutoff. That MediaToolbox SPI
+    // does not exist on 10.9, so the call is omitted entirely.
     SystemSoundManager::singleton().setSystemSoundDelegate(makeUnique<WebSystemSoundDelegate>());
 
 #if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
@@ -979,8 +978,12 @@ void WebProcess::initializeLogForwarding(const WebProcessCreationParameters& par
 void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationParameters& parameters)
 
 {
-    // Stubbed for 10.9: skip all platform init (CGS deny, sandbox, accessibility)
-    // Just set the process type.
+    // MAVERICKS_BACKPORT: the upstream platform init (CGS connection deny, extra sandbox
+    // parameters, accessibility bootstrap) is handled elsewhere on 10.9; the one piece that
+    // must run here is enabling the public-suffix cache, which PublicSuffixStore::addPublicSuffix
+    // asserts is engaged on every page load. enablePublicSuffixCache() only takes a lock and
+    // assigns an empty set (no 10.9-absent API), so it is safe.
+    WebCore::PublicSuffixStore::singleton().enablePublicSuffixCache();
     if (parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("is-prewarmed"_s) == "1"_s)
         m_processType = ProcessType::PrewarmedWebContent;
     else

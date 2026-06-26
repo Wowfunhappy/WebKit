@@ -180,14 +180,20 @@ static void* lib##Library() \
     static resultType init##functionName parameterDeclarations; \
     static resultType (*softLink##functionName) parameterDeclarations = init##functionName; \
     \
+    /* Backport: macOS 10.9 lacks many newer symbols. When dlsym fails, softLink \
+       points here permanently so the always-inline fast path stays callable on \
+       every subsequent call (a null softLink would crash). Callers handle nil/zero. */ \
+    static resultType stub##functionName parameterDeclarations \
+    { \
+        return resultType(); \
+    } \
+    \
     static resultType init##functionName parameterDeclarations \
     { \
         _STORE_IN_DLSYM_SECTION static char const auditedName[] = #functionName; \
         softLink##functionName = (resultType (*) parameterDeclarations) dlsym(framework##Library(), auditedName); \
-        /* Backport: macOS 10.9 lacks many newer symbols; return default-constructed \
-           value instead of aborting. Callers must handle nil/zero. */ \
         if (!softLink##functionName) \
-            return resultType(); \
+            softLink##functionName = stub##functionName; \
         return softLink##functionName parameterNames; \
     } \
     \

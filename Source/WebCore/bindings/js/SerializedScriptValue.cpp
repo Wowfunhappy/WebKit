@@ -2611,22 +2611,15 @@ private:
 #endif
 
 #if PLATFORM(COCOA)
-        RetainPtr colorSpace = destinationColorSpace.platformColorSpace();
-
-        // MAVERICKS_BACKPORT: CGColorSpaceGetName is runtime-absent on 10.9 (10.10+),
-        // so the upstream named-colorspace serialization branch is skipped entirely;
-        // serialize via the property-list path below (or fall back to sRGB).
-        if (auto propertyList = adoptCF(CGColorSpaceCopyPropertyList(colorSpace.get()))) {
-            auto data = adoptCF(CFPropertyListCreateData(nullptr, propertyList.get(), kCFPropertyListBinaryFormat_v1_0, 0, nullptr));
-            if (!data) {
-                write(DestinationColorSpaceSRGBTag);
-                return;
-            }
-
-            write(DestinationColorSpaceCGColorSpacePropertyListTag);
-            write(data);
-            return;
-        }
+        // MAVERICKS_BACKPORT: both colorspace-serialization paths reconstruct on the
+        // read side via APIs absent on 10.9 (CGColorSpaceCreateWithName is 10.10+ for
+        // the named branch; CGColorSpaceCreateWithPropertyList is 10.12+ for the
+        // property-list branch). Emitting either tag here would produce a message the
+        // reader cannot decode, aborting the entire structured-clone deserialize. Any
+        // non-predefined colorspace therefore degrades to sRGB so the message stays
+        // decodable.
+        write(DestinationColorSpaceSRGBTag);
+        return;
 #endif
 
         ASSERT_NOT_REACHED();

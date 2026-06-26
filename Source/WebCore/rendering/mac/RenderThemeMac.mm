@@ -1427,10 +1427,9 @@ void RenderThemeMac::adjustMenuListButtonStyle(RenderStyle& style, const Element
 #else
     UNUSED_PARAM(element);
 #endif
-    // MAVERICKS_BACKPORT: behavior — compute menulist-button fontScale without the usedZoomForLength()
-    // divisor (kept-uncertain; usedZoomForLength() exists in-tree so this is not an API gap. .mm is
-    // comment-only here, so logic is left as-is per audit rule 5).
-    float fontScale = style.computedFontSize() / baseFontSize;
+
+    auto usedZoom = style.usedZoomForLength();
+    float fontScale = style.computedFontSize() / baseFontSize / usedZoom.value;
 
     style.resetPadding();
 

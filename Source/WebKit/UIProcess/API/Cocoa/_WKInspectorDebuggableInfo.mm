@@ -35,7 +35,7 @@
     if (!(self = [super init]))
         return nil;
 
-    // DISABLED:     API::Object::constructInWrapper<API::DebuggableInfo>(self);
+    API::Object::constructInWrapper<API::DebuggableInfo>(self);
 
     return self;
 }
