@@ -242,6 +242,13 @@ void Connection::platformOpen()
     // kernel coalesce these wakeups to near-zero when idle.
     dispatch_source_set_timer(m_receivePollTimer.get(), dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC), 200 * NSEC_PER_MSEC, 100 * NSEC_PER_MSEC);
     dispatch_source_set_event_handler(m_receivePollTimer.get(), [this, protectedThis = Ref { *this }] {
+        // 10.9: also drain any send stashed by a MACH_SEND_TIMED_OUT. The stash is normally
+        // retried off the DISPATCH_MACH_SEND_POSSIBLE source edge, which is unreliable on this
+        // OS, so the poll timer is the dependable flush. resumeSendSource() is a no-op when
+        // nothing is pending. Both this and the send source run on the serial connection queue,
+        // so the send path and receive path never race.
+        if (m_pendingOutgoingMachMessage && MACH_PORT_VALID(m_sendPort))
+            resumeSendSource();
         if (!MACH_PORT_VALID(m_receivePort))
             return;
         receiveSourceEventHandler();
@@ -261,28 +268,16 @@ Connection::SendMessageResult Connection::sendMessage(std::unique_ptr<MachMessag
     ASSERT(message);
     ASSERT(!m_pendingOutgoingMachMessage);
     // Send the message.
-    // 10.9 backport: the destination port's message queue can fill up during init bursts
-    // (default queue limit on 10.9 may be as low as 16 despite our setMachPortQueueLength call).
-    // When MACH_SEND_TIMEOUT with timeout=0 returns MACH_SEND_TIMED_OUT, the stash-and-retry
-    // path depends on DISPATCH_MACH_SEND_POSSIBLE firing, which is unreliable on 10.9.
-    // Retry inline with a short sleep so the receiver has a chance to drain. Total budget
-    // ~500ms before we fall through to the stash path.
-    kern_return_t kr;
-    int retryCount = 0;
-    const int maxRetries = 100; // 100 * 5ms = 500ms
-    do {
-        // 10.9 backport: MACH_SEND_NOTIFY with MACH_PORT_NULL notify port returns
-        // MACH_SEND_INVALID_NOTIFY (0x1000000A) on this OS for messages with port descriptors
-        // (e.g. layer-tree IPC carrying IOSurface mach send rights). Drop the NOTIFY flag.
-        kr = mach_msg(message->header(), MACH_SEND_MSG | MACH_SEND_TIMEOUT, message->size(), 0, MACH_PORT_NULL, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
-        // 10.9: disabled leftover per-send debug log (fopen/fprintf/fclose to /tmp/wc.log ran on EVERY
-        // IPC send in every process — synchronous disk I/O contending on one 600MB+ file stalled the
-        // serial connection queue, which also dispatches receives, hanging sync IPC -> nav/freeze).
-        if (kr != MACH_SEND_TIMED_OUT)
-            break;
-        usleep(5000); // 5ms wait for receiver to drain
-        ++retryCount;
-    } while (retryCount < maxRetries);
+    // 10.9 backport: MACH_SEND_NOTIFY with MACH_PORT_NULL notify port returns
+    // MACH_SEND_INVALID_NOTIFY (0x1000000A) on this OS for messages with port descriptors
+    // (e.g. layer-tree IPC carrying IOSurface mach send rights). Drop the NOTIFY flag.
+    // The destination port's queue can fill up during init bursts (default queue limit on
+    // 10.9 may be as low as 16 despite setMachPortQueueLength). On MACH_SEND_TIMED_OUT the
+    // message is stashed in m_pendingOutgoingMachMessage (case below) and re-sent later. This
+    // send runs on m_connectionQueue, which also dispatches receives, so it must NOT block —
+    // the stash is drained by resumeSendSource(), driven both by DISPATCH_MACH_SEND_POSSIBLE
+    // and (since that source edge is unreliable on 10.9) by the receive poll timer.
+    kern_return_t kr = mach_msg(message->header(), MACH_SEND_MSG | MACH_SEND_TIMEOUT, message->size(), 0, MACH_PORT_NULL, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
     switch (kr) {
     case MACH_MSG_SUCCESS:
         // The kernel has already adopted the descriptors.

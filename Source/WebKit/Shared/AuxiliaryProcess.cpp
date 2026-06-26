@@ -38,6 +38,7 @@
 #include <WebCore/LogInitialization.h>
 #include <pal/SessionID.h>
 #include <wtf/LogInitialization.h>
+#include <wtf/RefCountDebugger.h>
 #include <wtf/SetForScope.h>
 #include <wtf/WTFProcess.h>
 
@@ -86,35 +87,48 @@ void AuxiliaryProcess::didClose(IPC::Connection&)
 
 void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& parameters)
 {
-    // Minimal init for 10.9: skip everything except essential IPC setup
-
-    // 10.9 backport: Safari sends a second XPC bootstrap message after the first
-    // initialize completes. Calling initialize twice would re-lazyInitialize the
-    // already-set m_connection (RELEASE_ASSERT — SIGTRAP). Skip via m_connection check
-    // (function-local static was firing too early in Safari's case).
-    if (m_connection) {
+    // MAVERICKS_BACKPORT: Safari sends a second XPC bootstrap message after the first
+    // initialize completes. Calling initialize twice re-lazyInitializes the already-set
+    // m_connection (RELEASE_ASSERT — SIGTRAP). Guard via the m_connection check (the
+    // function-local static fired too early in Safari's multi-instance bring-up).
+    if (m_connection)
         return;
-    }
+
+    WTF::RefCountDebuggerBase::enableThreadingChecksGlobally();
 
 #if PLATFORM(COCOA)
+    // On Cocoa platforms, setAuxiliaryProcessType() is called in XPCServiceInitializer().
     ASSERT(processType() == parameters.processType);
 #endif
 
     if (parameters.processIdentifier)
         Process::setIdentifier(*parameters.processIdentifier);
 
-    // Skip platformInitialize, sandbox, and most of initializeProcess.
-    // Just set the process type:
+    // MAVERICKS_BACKPORT: the Mac initializeSandbox()/applySandbox() path needs a
+    // 10.9-compatible sandbox profile that is not yet in place, so the sandbox is not
+    // initialized here. initializeSandbox is only ever called from this initialize(),
+    // so WebContent currently runs unsandboxed until the 10.9 profile lands.
     initializeProcess(parameters);
 
-    // The critical part: establish the IPC connection back to the UI process.
+#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+    WTF::logChannels().initializeLogChannelsIfNecessary();
+    WebCore::logChannels().initializeLogChannelsIfNecessary();
+    WebKit::logChannels().initializeLogChannelsIfNecessary();
+#endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
+
+    initializeProcessName(parameters);
+
+    // In WebKit2, only the UI process should ever be generating certain identifiers.
+    PAL::SessionID::enableGenerationProtection();
+    WebPageProxyIdentifier::enableGenerationProtection();
+
     Ref connection = IPC::Connection::createClientConnection(WTF::move(parameters.connectionIdentifier));
     lazyInitialize(m_connection, connection.copyRef());
     initializeConnection(connection.ptr());
-    // 10.9: AuxiliaryProcess::initialize runs on a dispatch worker thread, so the
-    // default Connection::open(Client&) — which uses RunLoop::currentSingleton() as
-    // dispatcher — would bind dispatch to a worker-thread RunLoop nobody pumps.
-    // Force the main RunLoop so message dispatch reaches WebPage etc.
+    // MAVERICKS_BACKPORT: AuxiliaryProcess::initialize runs on a dispatch worker thread, so
+    // the default Connection::open(Client&) — which uses RunLoop::currentSingleton() as
+    // dispatcher — would bind dispatch to a worker-thread RunLoop nobody pumps. Force the
+    // main RunLoop so message dispatch reaches WebPage etc.
     connection->open(*this, RunLoop::mainSingleton());
 }
 

@@ -30,6 +30,7 @@
 #include "CSSPrimitiveValue.h"
 #include "CSSValuePair.h"
 #include "StyleListStyleType.h"
+#include "UserAgentStyle.h"
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
@@ -118,27 +119,19 @@ Ref<CSSCounterStyle> CSSCounterStyleRegistry::decimalCounter()
     auto& userAgentCounters = userAgentCounterStyles();
     auto iterator = userAgentCounters.find("decimal"_s);
 
-    // MAVERICKS_BACKPORT: KEEP+FLAG keystone #50. On this build the UA counter-styles
-    // stylesheet sometimes hasn't been loaded by the time decimalCounter() is called
-    // (e.g. before UserAgentStyle::initDefaultStyle, an init-ordering symptom of the
-    // #50 stylesheet-loading keystone). Without a fallback, dereferencing the
-    // end-iterator crashes during list-marker layout. Synthesize a real numeric
-    // decimal counter (system: numeric; symbols: 0..9) and cache it so layout can
-    // proceed. Band-aid: revisit once keystone #50 stylesheet ordering is fixed.
-    if (iterator == userAgentCounters.end()) [[unlikely]] {
-        CSSCounterStyleDescriptors d;
-        d.m_name = "decimal"_s;
-        d.m_system = CSSCounterStyleDescriptors::System::Numeric;
-        d.m_negativeSymbols.m_prefix = { false, "-"_s };
-        d.m_suffix = { false, ". "_s };
-        d.m_symbols = {
-            { false, "0"_s }, { false, "1"_s }, { false, "2"_s }, { false, "3"_s },
-            { false, "4"_s }, { false, "5"_s }, { false, "6"_s }, { false, "7"_s },
-            { false, "8"_s }, { false, "9"_s },
-        };
-        userAgentCounters.set("decimal"_s, CSSCounterStyle::create(d, true));
-        return userAgentCounters.find("decimal"_s)->value.get();
+    // MAVERICKS_BACKPORT: ensure the UA counter-style sheet is loaded before
+    // dereferencing. decimalCounter() can be reached during list-marker layout
+    // before Style::UserAgentStyle::initDefaultStyleSheet() has run, leaving the
+    // map empty. That init parses counterStylesUserAgentStyleSheet and registers
+    // the real "decimal" @counter-style (and the rest). The call is idempotent,
+    // so trigger it once here and re-find.
+    if (iterator == userAgentCounters.end()) {
+        Style::UserAgentStyle::initDefaultStyleSheet();
+        iterator = userAgentCounters.find("decimal"_s);
     }
+
+    // user agent counter style should always be populated with a counter named decimal if counter-style-at-rule is enabled
+    ASSERT(iterator != userAgentCounters.end());
     return iterator->value.get();
 }
 

@@ -141,12 +141,16 @@ void WebInspectorUIProxy::connect()
     if (!inspectedPage)
         return;
 
-    // 10.9 backport: bypass developerExtras + m_showMessageSent checks to allow
-    // Cmd+Alt+I to reach createFrontendPage().
-    if (m_showMessageSent) {
-        // Re-open instead of bailing.
-        m_showMessageSent = false;
-    }
+    // An explicit connect() is the embedder's intent to inspect this page, so enable
+    // developer extras on the inspected page's preferences (Safari sets it on the
+    // inspector page's preferences, not the inspected page's).
+    protect(inspectedPage->preferences())->setDeveloperExtrasEnabled(true);
+
+    if (!protect(inspectedPage->preferences())->developerExtrasEnabled())
+        return;
+
+    if (m_showMessageSent)
+        return;
 
     m_showMessageSent = true;
     m_ignoreFirstBringToFront = true;
@@ -481,7 +485,7 @@ void WebInspectorUIProxy::openLocalInspectorFrontend()
     if (!inspectedPage)
         return;
 
-    if (false /* 10.9 backport: skip check */)
+    if (!protect(inspectedPage->preferences())->developerExtrasEnabled())
         return;
 
     if (inspectedPage->inspectorController().hasLocalFrontend()) {
@@ -844,7 +848,7 @@ void WebInspectorUIProxy::systemAppearanceDidChange()
 
 void WebInspectorUIProxy::save(Vector<InspectorFrontendClient::SaveData>&& saveDatas, bool forceSaveAs)
 {
-    if (false /* 10.9 backport: skip check */)
+    if (!protect(protect(inspectedPage())->preferences())->developerExtrasEnabled())
         return;
 
     ASSERT(!saveDatas.isEmpty());
@@ -860,7 +864,7 @@ void WebInspectorUIProxy::save(Vector<InspectorFrontendClient::SaveData>&& saveD
 
 void WebInspectorUIProxy::load(const String& path, CompletionHandler<void(const String&)>&& completionHandler)
 {
-    if (false /* 10.9 backport: skip check */)
+    if (!protect(protect(inspectedPage())->preferences())->developerExtrasEnabled())
         return completionHandler({ });
 
     ASSERT(!path.isEmpty());
@@ -872,7 +876,7 @@ void WebInspectorUIProxy::load(const String& path, CompletionHandler<void(const 
 
 void WebInspectorUIProxy::pickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color> &)>&& completionHandler)
 {
-    if (false /* 10.9 backport: skip check */) {
+    if (!protect(protect(inspectedPage())->preferences())->developerExtrasEnabled()) {
         completionHandler({ });
         return;
     }

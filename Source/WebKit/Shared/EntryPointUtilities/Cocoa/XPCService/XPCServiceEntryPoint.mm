@@ -201,11 +201,14 @@ void setOSTransaction(OSObjectPtr<os_transaction_t>&& transaction)
 
 void setJSCOptions(xpc_object_t initializerMessage, EnableLockdownMode enableLockdownMode, EnableEnhancedSecurity enableEnhancedSecurity, bool isWebContentProcess)
 {
-    // 10.9 backport: skip JSC option overrides entirely. The default options work; setting
-    // them after JSC has already been touched (which can happen during Safari's WebContent
-    // bring-up sequence) crashes inside JSC::Options::initialize.
-    return;
-    RELEASE_ASSERT(!g_jscConfig.initializeHasBeenCalled);
+    // MAVERICKS_BACKPORT: JSC::Options::initialize() asserts that it runs exactly once, before JSC
+    // is otherwise touched. On 10.9 the WebContent bring-up sequence can touch JSC before reaching
+    // here, in which case g_jscConfig.initializeHasBeenCalled is already set and re-entering would
+    // trip the RELEASE_ASSERT inside initialize(). Guard on that flag instead of asserting so the
+    // option overrides (notably web-facing "enable-shared-array-buffer" for cross-origin-isolated
+    // pages, and "disable-jit") still take effect on the normal, not-yet-initialized path.
+    if (g_jscConfig.initializeHasBeenCalled)
+        return;
 
     if (xpc_dictionary_get_bool(initializerMessage, "configure-jsc-for-testing"))
         JSC::Config::configureForTesting();

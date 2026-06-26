@@ -3365,7 +3365,7 @@ void MediaPlayerPrivateAVFoundationObjC::processMediaSelectionOptions()
             continue;
         }
 
-        // Backport: InbandTextTrackPrivateAVFObjC is stubbed on 10.9; skip inband text tracks.
+        m_textTracks.append(InbandTextTrackPrivateAVFObjC::create(legibleGroup.get(), option, m_currentTextTrackID++, InbandTextTrackPrivate::CueFormat::Generic, WTF::move(modeChangedCallback)));
     }
 
     processNewAndRemovedTextTracks(removedTextTracks);

@@ -397,16 +397,7 @@ void WebPageProxy::registerUIProcessAccessibilityTokens(WebCore::AccessibilityRe
 
 void WebPageProxy::executeSavedCommandBySelector(IPC::Connection& connection, const String& selector, CompletionHandler<void(bool)>&& completionHandler)
 {
-    UNUSED_PARAM(connection);
-    // 10.9 backport: the upstream MESSAGE_CHECK validated `selector` against
-    // m_knownKeypressCommandNames, but the registration path that populates that
-    // set is not driven on this build. The MESSAGE_CHECK therefore always
-    // failed → bbadbeef Safari crash on every keypress command that the
-    // WebContent Editor didn't handle (e.g. Cmd+W close-window selector). Just
-    // hand the selector to pageClient; if it's bogus, executeSavedCommandBySelector
-    // returns false and nothing bad happens.
-    if (selector.isEmpty())
-        return completionHandler(false);
+    MESSAGE_CHECK_COMPLETION(isValidKeypressCommandName(selector), connection, completionHandler(false));
 
     RefPtr pageClient = this->pageClient();
     if (!pageClient)

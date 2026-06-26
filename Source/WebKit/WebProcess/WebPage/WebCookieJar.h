@@ -96,11 +96,6 @@ private:
     const Ref<WebCookieCache> m_cache;
     HashMap<String, WeakHashSet<WebCore::CookieChangeListener>> m_changeListeners;
 
-    // 10.9 backport: per-host name->value local cookie store. JS document.cookie
-    // writes go through here so subsequent JS reads on the same WebContent
-    // process see them immediately, even if NetworkProcess persistence races.
-    mutable HashMap<String, HashMap<String, String>> m_localDOMCookies;
-
 #if PLATFORM(COCOA)
     const RetainPtr<NSHTTPCookieStorage> m_partitionedStorageForDOMCookies;
 #endif
