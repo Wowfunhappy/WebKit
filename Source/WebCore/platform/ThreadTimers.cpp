@@ -66,7 +66,7 @@ void ThreadTimers::setSharedTimer(SharedTimer* sharedTimer)
     // MAVERICKS_BACKPORT: setSharedTimer reworked for cross-thread heap locking;
     // see the updateSharedTimer guard below.
     m_sharedTimer = sharedTimer;
-
+    
     if (sharedTimer) {
         sharedTimer->setFiredFunction([] { threadGlobalDataSingleton().threadTimers().sharedTimerFiredInternal(); });
         // MAVERICKS_BACKPORT: do NOT call updateSharedTimer here unconditionally.

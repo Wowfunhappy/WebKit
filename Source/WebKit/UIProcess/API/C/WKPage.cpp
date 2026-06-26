@@ -1338,7 +1338,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
             m_client.didCommitLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
-
+        
         void didStartProvisionalLoadForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, API::Object* userData) override
         {
             if (!m_client.didStartProvisionalLoadForFrame)
