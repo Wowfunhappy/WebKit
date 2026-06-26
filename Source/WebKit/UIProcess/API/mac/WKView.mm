@@ -414,9 +414,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     flags.add(WebCore::ActivityState::IsVisibleOrOccluded);
     flags.add(WebCore::ActivityState::WindowIsActive);
     flags.add(WebCore::ActivityState::IsFocused);
-    @try {
-        _wkState->page->activityStateDidChange(flags);
-    } @catch (NSException *) { }
+    _wkState->page->activityStateDidChange(flags);
 }
 
 // 10.9 backport: the WebContent layer tree is hosted as a plain CALayer SUBLAYER of
@@ -444,10 +442,8 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 - (void)SEL_NAME:(NSEvent *)event \
 { \
     if (!_wkState || !_wkState->page) { [super SEL_NAME:event]; return; } \
-    @try { \
-        WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebMouseEventInputSource::UserDriven); \
-        _wkState->page->handleMouseEvent(webEvent); \
-    } @catch (NSException *) { } \
+    WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebMouseEventInputSource::UserDriven); \
+    _wkState->page->handleMouseEvent(webEvent); \
 }
 
 // 10.9 backport: mouseDown is explicit (not via the macro) so it can retain the
@@ -458,10 +454,8 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 #if ENABLE(DRAG_SUPPORT)
     _wkState->lastMouseDownEvent = event;
 #endif
-    @try {
-        WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebMouseEventInputSource::UserDriven);
-        _wkState->page->handleMouseEvent(webEvent);
-    } @catch (NSException *) { }
+    WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebMouseEventInputSource::UserDriven);
+    _wkState->page->handleMouseEvent(webEvent);
 }
 WKV_FORWARD_MOUSE(mouseUp)
 WKV_FORWARD_MOUSE(mouseMoved)
@@ -642,53 +636,45 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)scrollWheel:(NSEvent *)event
 {
     if (!_wkState || !_wkState->page) { [super scrollWheel:event]; return; }
-    @try {
-        WebKit::NativeWebWheelEvent webEvent(event, self);
-        _wkState->page->handleNativeWheelEvent(webEvent);
-    } @catch (NSException *) { }
+    WebKit::NativeWebWheelEvent webEvent(event, self);
+    _wkState->page->handleNativeWheelEvent(webEvent);
 }
 
 - (void)keyDown:(NSEvent *)event
 {
     if (!_wkState || !_wkState->page) { [super keyDown:event]; return; }
-    @try {
-        WTF::Vector<WebCore::KeypressCommand> commands;
-        // Run AppKit's interpretKeyEvents to translate the NSEvent into NSTextInputClient
-        // calls (insertText:/doCommandBySelector:); collect them in a thread-local that
-        // our NSTextInputClient stubs append to.
-        // 10.9 backport: skip interpretKeyEvents for Cmd-modified keys. Those are
-        // menu shortcuts dispatched via sendAction: (already handled by my copy:/
-        // paste:/etc. action methods). Running interpretKeyEvents would double-
-        // dispatch the action via doCommandBySelector → KeypressCommand path.
-        BOOL hasCmd = ([event modifierFlags] & NSCommandKeyMask) != 0;
-        if (!hasCmd) {
-            tlsCollectingCommands = &commands;
-            @try { [self interpretKeyEvents:@[event]]; } @catch (NSException *) { }
-            tlsCollectingCommands = nullptr;
-        }
-        WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
-        _wkState->page->handleKeyboardEvent(webEvent);
-    } @catch (NSException *) { }
+    WTF::Vector<WebCore::KeypressCommand> commands;
+    // Run AppKit's interpretKeyEvents to translate the NSEvent into NSTextInputClient
+    // calls (insertText:/doCommandBySelector:); collect them in a thread-local that
+    // our NSTextInputClient stubs append to.
+    // MAVERICKS_BACKPORT: skip interpretKeyEvents for Cmd-modified keys. Those are
+    // menu shortcuts dispatched via sendAction: (already handled by my copy:/
+    // paste:/etc. action methods). Running interpretKeyEvents would double-
+    // dispatch the action via doCommandBySelector → KeypressCommand path.
+    BOOL hasCmd = ([event modifierFlags] & NSCommandKeyMask) != 0;
+    if (!hasCmd) {
+        tlsCollectingCommands = &commands;
+        [self interpretKeyEvents:@[event]];
+        tlsCollectingCommands = nullptr;
+    }
+    WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
+    _wkState->page->handleKeyboardEvent(webEvent);
 }
 
 - (void)keyUp:(NSEvent *)event
 {
     if (!_wkState || !_wkState->page) { [super keyUp:event]; return; }
-    @try {
-        WTF::Vector<WebCore::KeypressCommand> commands;
-        WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
-        _wkState->page->handleKeyboardEvent(webEvent);
-    } @catch (NSException *) { }
+    WTF::Vector<WebCore::KeypressCommand> commands;
+    WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
+    _wkState->page->handleKeyboardEvent(webEvent);
 }
 
 - (void)flagsChanged:(NSEvent *)event
 {
     if (!_wkState || !_wkState->page) { [super flagsChanged:event]; return; }
-    @try {
-        WTF::Vector<WebCore::KeypressCommand> commands;
-        WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
-        _wkState->page->handleKeyboardEvent(webEvent);
-    } @catch (NSException *) { }
+    WTF::Vector<WebCore::KeypressCommand> commands;
+    WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
+    _wkState->page->handleKeyboardEvent(webEvent);
 }
 
 // 10.9 backport: Edit menu items dispatch action selectors to first responder.
