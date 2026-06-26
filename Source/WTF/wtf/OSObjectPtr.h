@@ -27,7 +27,8 @@
 
 #include <os/object.h>
 
-/* os_retain/os_release not available on macOS 10.9 */
+/* MAVERICKS_BACKPORT: os_retain/os_release are unavailable on macOS 10.9; provide them as
+   dispatch_retain/dispatch_release wrappers (os_object_t types are dispatch objects there). */
 #ifndef os_retain
 #define os_retain(obj) ({ __typeof__(obj) _o = (obj); dispatch_retain((dispatch_object_t)_o); _o; })
 #define os_release(obj) dispatch_release((dispatch_object_t)(obj))

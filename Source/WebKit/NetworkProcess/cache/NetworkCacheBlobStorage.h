@@ -29,6 +29,8 @@
 #include "NetworkCacheData.h"
 #include "NetworkCacheKey.h"
 #include <memory>
+// MAVERICKS_BACKPORT: include wtf/Lock.h explicitly so UnfairLock m_lock resolves;
+// the 10.9 (no-modules) build no longer gets it through a transitive include.
 #include <wtf/Lock.h>
 #include <wtf/SHA1.h>
 

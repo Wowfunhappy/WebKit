@@ -72,6 +72,7 @@ namespace ax = WebCore::Accessibility;
 
 - (void)dealloc
 {
+    // MAVERICKS_BACKPORT: NSAccessibilityUnregisterUniqueIdForUIElement is 10.10+ and absent on 10.9; gate on the SDK version and weak-check the symbol so the call is skipped on the 10.9 runtime instead of failing to link/load.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
     if (&NSAccessibilityUnregisterUniqueIdForUIElement != NULL)
         NSAccessibilityUnregisterUniqueIdForUIElement(self);

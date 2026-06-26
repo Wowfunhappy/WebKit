@@ -25,6 +25,8 @@
 
 #pragma once
 
+// MAVERICKS_BACKPORT: this header is a flat-path copy of Source/WebCore/platform/mediastream/libwebrtc/LibWebRTCProvider.h, placed directly in Source/WebCore/ so the 10.9 build's include path resolves the bare "LibWebRTCProvider.h" reference (the original still lives in its platform/mediastream/libwebrtc subdirectory).
+
 #if USE(LIBWEBRTC)
 
 #include <WebCore/LibWebRTCMacros.h>

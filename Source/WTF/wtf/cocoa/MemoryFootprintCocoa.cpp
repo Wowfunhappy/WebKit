@@ -33,6 +33,7 @@ namespace WTF {
 
 size_t memoryFootprint()
 {
+    // MAVERICKS_BACKPORT: TASK_VM_INFO / phys_footprint is 10.11+; on 10.9 approximate the footprint with TASK_BASIC_INFO resident_size.
     task_basic_info_data_t basicInfo;
     mach_msg_type_number_t count = TASK_BASIC_INFO_COUNT;
     kern_return_t result = task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t) &basicInfo, &count);

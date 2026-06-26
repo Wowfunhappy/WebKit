@@ -225,6 +225,7 @@ void InternalAudioEncoderCocoa::compressedAudioOutputBufferCallback(void* object
 
 Vector<uint8_t> InternalAudioEncoderCocoa::generateDecoderDescriptionFromSample(CMSampleBufferRef sample) const
 {
+    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
     RetainPtr formatDescription = CMSampleBufferGetFormatDescription(sample);
     ASSERT(formatDescription);
     const AudioStreamBasicDescription* const asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription.get());
@@ -246,6 +247,7 @@ AudioEncoder::ActiveConfiguration InternalAudioEncoderCocoa::activeConfiguration
     assertIsCurrent(queueSingleton());
     ASSERT(!m_isClosed && m_converter);
 
+    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
     RetainPtr formatDescription = CMSampleBufferGetFormatDescription(sample);
     ASSERT(formatDescription);
     const AudioStreamBasicDescription* const asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription.get());
@@ -269,6 +271,7 @@ void InternalAudioEncoderCocoa::processEncodedOutputs()
 
     while (RetainPtr cmSample = converter()->takeOutputSampleBuffer()) {
         Ref sample = MediaSampleAVFObjC::create(cmSample.get(), 0);
+        // MAVERICKS_BACKPORT: call CoreMedia (CMSampleBuffer/CMBlockBuffer) by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
         RetainPtr rawBuffer = CMSampleBufferGetDataBuffer(cmSample.get());
         ASSERT(rawBuffer);
         // Make sure block buffer is contiguous.
@@ -314,6 +317,7 @@ Ref<AudioEncoder::EncodePromise> InternalAudioEncoderCocoa::encode(AudioEncoder:
 
     RetainPtr cmSample = downcast<PlatformRawAudioDataCocoa>(rawFrame.frame)->sampleBuffer();
     ASSERT(cmSample);
+    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
     if (auto error = CMSampleBufferSetOutputPresentationTimeStamp(cmSample.get(), CMTimeMake(rawFrame.timestamp, 1000000)))
         RELEASE_LOG_ERROR(MediaStream, "AudioSampleBufferConverter CMSampleBufferSetOutputPresentationTimeStamp failed with %d", error);
 

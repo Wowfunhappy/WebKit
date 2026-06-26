@@ -32,9 +32,11 @@ header: "APIObject.h"
     API::FrameHandle
     WebKit::WebImage
     API::PageHandle
+    # MAVERICKS_BACKPORT: restore serialization for API::PageGroupHandle (resurrected WKPageGroup* C API the base gutted) for the 10.9 build
     API::PageGroupHandle
     API::Point
     API::Rect
+    # MAVERICKS_BACKPORT: restore serialization for API::SerializedScriptValue (resurrected do-JS-result C API the base gutted) for the 10.9 build
     API::SerializedScriptValue
     API::Size
     API::String

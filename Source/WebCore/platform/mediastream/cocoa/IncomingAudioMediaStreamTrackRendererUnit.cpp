@@ -224,6 +224,7 @@ void IncomingAudioMediaStreamTrackRendererUnit::renderAudioChunk(uint64_t curren
                 hasCopiedData = true;
         }
 
+        // MAVERICKS_BACKPORT: call CoreMedia's CMTimeMake directly rather than the PAL:: soft-linked wrapper, which is not provided in the 10.9 build.
         CMTime startTime = CMTimeMake(renderMixer.writeCount, m_outputStreamDescription->sampleRate());
         if (hasCopiedData)
             renderMixer.mixedSource->pushSamples(PAL::toMediaTime(startTime), *m_audioBufferList, m_sampleCount);

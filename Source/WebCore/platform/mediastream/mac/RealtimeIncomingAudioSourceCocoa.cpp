@@ -132,6 +132,7 @@ void RealtimeIncomingAudioSourceCocoa::OnData(const void* audioData, int bitsPer
             m_numberOfFrames = 0;
     }
 
+    // MAVERICKS_BACKPORT: call CoreMedia's CMTimeMake directly rather than the PAL:: soft-linked wrapper, which is not provided in the 10.9 build.
     CMTime startTime = CMTimeMake(audioModule() ? audioModule()->currentAudioSampleCount() : m_numberOfFrames, LibWebRTCAudioFormat::sampleRate);
     auto mediaTime = PAL::toMediaTime(startTime);
     m_numberOfFrames += numberOfFrames;

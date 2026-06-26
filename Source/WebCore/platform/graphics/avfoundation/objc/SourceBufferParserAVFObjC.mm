@@ -186,6 +186,7 @@ private:
         if (!description)
             return emptyString();
         FourCC originalCodec = PAL::softLink_CoreMedia_CMFormatDescriptionGetMediaSubType(description);
+        // MAVERICKS_BACKPORT: use the CoreMedia key constant and CMFormatDescriptionGetExtension directly (unqualified), since on 10.9 they resolve to the framework-provided symbols rather than the PAL:: soft-link wrappers.
         CFStringRef originalFormatKey = PAL::canLoad_CoreMedia_kCMFormatDescriptionExtension_ProtectedContentOriginalFormat() ? kCMFormatDescriptionExtension_ProtectedContentOriginalFormat : CFSTR("CommonEncryptionOriginalFormat");
         if (auto originalFormat = dynamic_cf_cast<CFNumberRef>(CMFormatDescriptionGetExtension(description, originalFormatKey)))
             CFNumberGetValue(originalFormat, kCFNumberSInt32Type, &originalCodec.value);

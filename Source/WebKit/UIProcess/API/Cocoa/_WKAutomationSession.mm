@@ -50,6 +50,7 @@
     if (!(self = [super init]))
         return nil;
 
+    // MAVERICKS_BACKPORT: WebAutomationSession is not built in this backport, so the wrapper-backing object is not constructed here.
     // DISABLED:     API::Object::constructInWrapper<WebKit::WebAutomationSession>(self);
 
     _configuration = adoptNS([configuration copy]);

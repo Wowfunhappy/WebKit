@@ -152,6 +152,7 @@ RetainPtr<NSDateFormatter> LocaleCocoa::dateTimeFormatterWithoutSeconds()
 
 Locale::WritingDirection LocaleCocoa::defaultWritingDirection() const
 {
+    // MAVERICKS_BACKPORT: the -[NSLocale languageCode] property is 10.12+; on 10.9 read the same value via -[NSLocale objectForKey:NSLocaleLanguageCode].
     // languageCode property is 10.12+; use objectForKey: on older macOS
     NSString *langCode = [m_locale.get() objectForKey:NSLocaleLanguageCode];
     switch ([PlatformNSParagraphStyle defaultWritingDirectionForLanguage:langCode]) {

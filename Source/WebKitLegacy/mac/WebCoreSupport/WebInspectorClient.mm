@@ -237,6 +237,9 @@ String WebInspectorFrontendClient::localizedStringsURL() const
     if (!path.length)
         return String();
     
+    // MAVERICKS_BACKPORT: +[NSURL fileURLWithPath:isDirectory:] returns id on the 10.9 SDK, so the
+    // result is cast to NSURL * and -absoluteString is sent explicitly (dot-property syntax on id
+    // does not resolve here).
     return [(NSURL *)[NSURL fileURLWithPath:path isDirectory:NO] absoluteString];
 }
 
@@ -566,8 +569,10 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
     CGFloat approximatelyHalfScreenSize = ([window screen].frame.size.width / 2) - 4;
     CGFloat minimumFullScreenWidth = std::max<CGFloat>(636, approximatelyHalfScreenSize);
-    // macOS 10.9: setMinFullScreenContentSize / fullscreen tiling not available.
-    // [window setMinFullScreenContentSize:NSMakeSize(minimumFullScreenWidth, minimumWindowHeight)];
+    // MAVERICKS_BACKPORT: -[NSWindow setMinFullScreenContentSize:] and the
+    // NSWindowCollectionBehaviorFullScreenAllowsTiling / ...Auxiliary tiling behaviors are 10.11+ and
+    // absent on 10.9, so the inspector window skips them; minimumFullScreenWidth is voided to avoid an
+    // unused-variable warning.
     (void)minimumFullScreenWidth;
 
     [window setTitlebarAppearsTransparent:YES];

@@ -25,6 +25,7 @@
 
 #import "config.h"
 #import "RemoteLayerBackingStoreCollection.h"
+// MAVERICKS_BACKPORT: extra includes for the in-process-only build (syslog, CompletionHandler used by the non-GPU completion paths below).
 #import <syslog.h>
 
 #import <wtf/CompletionHandler.h>
@@ -33,12 +34,14 @@
 #import "Logging.h"
 #import "PlatformCALayerRemote.h"
 #import "PrepareBackingStoreBuffersData.h"
+// MAVERICKS_BACKPORT: GPU process / remote rendering is disabled on 10.9; the remote-rendering proxy headers only exist under ENABLE(GPU_PROCESS).
 #if ENABLE(GPU_PROCESS)
 #import "RemoteImageBufferSetProxy.h"
 #endif
 #import "RemoteLayerBackingStore.h"
 #import "RemoteLayerTreeContext.h"
 #import "RemoteLayerWithInProcessRenderingBackingStore.h"
+// MAVERICKS_BACKPORT: remote-rendering backing store + backend proxy are GPU-process-only; guarded out for the in-process-only 10.9 build.
 #if ENABLE(GPU_PROCESS)
 #import "RemoteLayerWithRemoteRenderingBackingStore.h"
 #import "RemoteRenderingBackendProxy.h"
@@ -74,6 +77,7 @@ void RemoteLayerBackingStoreCollection::deref() const
 
 void RemoteLayerBackingStoreCollection::prepareBackingStoresForDisplay(RemoteLayerTreeTransaction& transaction)
 {
+    // MAVERICKS_BACKPORT: no remote rendering backend on 10.9; skip the GPU-process prepare bracket and let the in-process backing stores prepare directly.
 #if ENABLE(GPU_PROCESS)
     Ref remoteRenderingBackend = protect(layerTreeContext())->ensureRemoteRenderingBackendProxy();
     remoteRenderingBackend->startPreparingImageBufferSetsForDisplay();
@@ -86,6 +90,7 @@ void RemoteLayerBackingStoreCollection::prepareBackingStoresForDisplay(RemoteLay
         backingStore->prepareToDisplay();
     }
 
+    // MAVERICKS_BACKPORT: close of the GPU-process prepare bracket; absent on 10.9 (in-process rendering only).
 #if ENABLE(GPU_PROCESS)
     remoteRenderingBackend->endPreparingImageBufferSetsForDisplay();
 #endif
@@ -213,6 +218,7 @@ bool RemoteLayerBackingStoreCollection::backingStoreWillBeDisplayedWithRendering
 
 void RemoteLayerBackingStoreCollection::purgeFrontBufferForTesting(RemoteLayerBackingStore& backingStore)
 {
+    // MAVERICKS_BACKPORT: remote-rendering branch is GPU-process-only; on 10.9 every backing store is in-process, so only the else body runs.
 #if ENABLE(GPU_PROCESS)
     if (CheckedPtr remoteBackingStore = dynamicDowncast<RemoteLayerWithRemoteRenderingBackingStore>(&backingStore)) {
         if (RefPtr bufferSet = remoteBackingStore->bufferSet()) {
@@ -231,6 +237,7 @@ void RemoteLayerBackingStoreCollection::purgeFrontBufferForTesting(RemoteLayerBa
 
 void RemoteLayerBackingStoreCollection::purgeBackBufferForTesting(RemoteLayerBackingStore& backingStore)
 {
+    // MAVERICKS_BACKPORT: remote-rendering branch is GPU-process-only; on 10.9 every backing store is in-process, so only the else body runs.
 #if ENABLE(GPU_PROCESS)
     if (CheckedPtr remoteBackingStore = dynamicDowncast<RemoteLayerWithRemoteRenderingBackingStore>(&backingStore)) {
         if (RefPtr bufferSet = remoteBackingStore->bufferSet()) {
@@ -250,6 +257,7 @@ void RemoteLayerBackingStoreCollection::purgeBackBufferForTesting(RemoteLayerBac
 
 void RemoteLayerBackingStoreCollection::markFrontBufferVolatileForTesting(RemoteLayerBackingStore& backingStore)
 {
+    // MAVERICKS_BACKPORT: remote-rendering branch is GPU-process-only; on 10.9 every backing store is in-process, so only the else body runs.
 #if ENABLE(GPU_PROCESS)
     if (CheckedPtr remoteBackingStore = dynamicDowncast<RemoteLayerWithRemoteRenderingBackingStore>(&backingStore)) {
         if (RefPtr bufferSet = remoteBackingStore->bufferSet()) {
@@ -312,6 +320,7 @@ void RemoteLayerBackingStoreCollection::backingStoreBecameUnreachable(RemoteLaye
 
 void RemoteLayerBackingStoreCollection::markBackingStoreVolatileAfterReachabilityChange(RemoteLayerBackingStore& backingStore)
 {
+    // MAVERICKS_BACKPORT: remote-rendering branch is GPU-process-only; on 10.9 every backing store is in-process, so only the else body runs.
 #if ENABLE(GPU_PROCESS)
     if (CheckedPtr remoteBackingStore = dynamicDowncast<RemoteLayerWithRemoteRenderingBackingStore>(&backingStore)) {
         Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>> identifiers;
@@ -355,6 +364,7 @@ void RemoteLayerBackingStoreCollection::tryMarkAllBackingStoreVolatile(Completio
 {
     bool successfullyMadeBackingStoreVolatile = markAllBackingStoreVolatile(VolatilityMarkingBehavior::IgnoreReachability, VolatilityMarkingBehavior::IgnoreReachability);
 
+    // MAVERICKS_BACKPORT: no remote-rendering buffers on 10.9; the #else completes immediately with just the in-process result.
 #if ENABLE(GPU_PROCESS)
     Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>> identifiers;
     bool collectedAllRemoteRenderingBuffers = collectAllRemoteRenderingBufferIdentifiersToMarkVolatile(VolatilityMarkingBehavior::IgnoreReachability, VolatilityMarkingBehavior::IgnoreReachability, identifiers);
@@ -380,6 +390,7 @@ void RemoteLayerBackingStoreCollection::markAllBackingStoreVolatileFromTimer()
     bool successfullyMadeBackingStoreVolatile = markAllBackingStoreVolatile(VolatilityMarkingBehavior::ConsiderTimeSinceLastDisplay, { });
     LOG_WITH_STREAM(RemoteLayerBuffers, stream << "RemoteLayerBackingStoreCollection::markAllBackingStoreVolatileFromTimer() - live " << m_liveBackingStore.computeSize() << ", unparented " << m_unparentedBackingStore.computeSize() << "; successfullyMadeBackingStoreVolatile " << successfullyMadeBackingStoreVolatile);
 
+    // MAVERICKS_BACKPORT: no remote-rendering buffers on 10.9; the #else stops the timer based on the in-process result alone.
 #if ENABLE(GPU_PROCESS)
     Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>> identifiers;
     bool collectedAllRemoteRenderingBuffers = collectAllRemoteRenderingBufferIdentifiersToMarkVolatile(VolatilityMarkingBehavior::ConsiderTimeSinceLastDisplay, { }, identifiers);
@@ -421,6 +432,7 @@ void RemoteLayerBackingStoreCollection::scheduleVolatilityTimer()
 
 void RemoteLayerBackingStoreCollection::gpuProcessConnectionWasDestroyed()
 {
+    // MAVERICKS_BACKPORT: no GPU process / remote-rendering backing stores on 10.9, so this becomes a no-op.
 #if ENABLE(GPU_PROCESS)
     for (CheckedRef backingStore : m_liveBackingStore) {
         if (is<RemoteLayerWithRemoteRenderingBackingStore>(backingStore))
@@ -434,6 +446,7 @@ void RemoteLayerBackingStoreCollection::gpuProcessConnectionWasDestroyed()
 #endif
 }
 
+// MAVERICKS_BACKPORT: these remote-rendering volatility collectors operate on RemoteImageBufferSetProxy, which is GPU-process-only; whole block is compiled out on 10.9.
 #if ENABLE(GPU_PROCESS)
 bool RemoteLayerBackingStoreCollection::collectRemoteRenderingBackingStoreBufferIdentifiersToMarkVolatile(RemoteLayerWithRemoteRenderingBackingStore& backingStore, OptionSet<VolatilityMarkingBehavior> markingBehavior, MonotonicTime now, Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>>& identifiers)
 {
@@ -482,6 +495,7 @@ bool RemoteLayerBackingStoreCollection::collectAllRemoteRenderingBufferIdentifie
 #endif
 
 
+// MAVERICKS_BACKPORT: sends volatility marks to the remote rendering backend (GPU-process-only); compiled out on 10.9's in-process-only rendering.
 #if ENABLE(GPU_PROCESS)
 void RemoteLayerBackingStoreCollection::sendMarkBuffersVolatile(Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>>&& identifiers, CompletionHandler<void(bool)>&& completionHandler, bool forcePurge)
 {

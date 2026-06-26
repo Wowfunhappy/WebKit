@@ -66,11 +66,13 @@ ValidationBubble::ValidationBubble(NSView* view, String&& message, const Setting
     [label setStringValue:m_message.createNSString().get()];
     m_fontSize = std::max(settings.minimumFontSize, 13.0);
     [label setFont:[NSFont systemFontOfSize:m_fontSize]];
+    // MAVERICKS_BACKPORT: -[NSTextField setMaximumNumberOfLines:] is 10.11+; guard with respondsToSelector: so it is skipped on 10.9 instead of throwing.
     // setMaximumNumberOfLines: is 10.11+, sizeThatFits: is 10.10+
     if ([label respondsToSelector:@selector(setMaximumNumberOfLines:)])
         [(id)label setMaximumNumberOfLines:4];
     [[label cell] setTruncatesLastVisibleLine:YES];
     [popoverView addSubview:label.get()];
+    // MAVERICKS_BACKPORT: -[NSTextField sizeThatFits:] is 10.10+; size the label to a max width and use the classic -sizeToFit (available on 10.9) to measure it.
     [label setFrameSize:NSMakeSize(maxLabelWidth, CGFLOAT_MAX)];
     [label sizeToFit];
     NSSize labelSize = [label frame].size;

@@ -81,6 +81,7 @@ static CAAudioStreamDescription::IsInterleaved NODELETE interleavedFormat(AudioS
 
 static RetainPtr<CMSampleBufferRef> createSampleBuffer(const CAAudioStreamDescription& description, const CMTime& time, size_t numberOfFrames, const WebAudioBufferList& list)
 {
+    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
     CMAudioFormatDescriptionRef rawFormatDescription;
     if (CMAudioFormatDescriptionCreate(kCFAllocatorDefault, &description.streamDescription(), 0, nullptr, 0, nullptr, nullptr, &rawFormatDescription))
         return nullptr;
@@ -102,6 +103,7 @@ static RetainPtr<CMSampleBufferRef> createSampleBuffer(const CAAudioStreamDescri
         return nullptr;
 
     auto [newList, blockBuffer] = WTF::move(*result);
+    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); this CM symbol links directly on 10.9.
     if (CMSampleBufferSetDataBuffer(rawSampleBuffer, blockBuffer.get()))
         return nullptr;
     return sampleBuffer;
@@ -134,6 +136,7 @@ RefPtr<PlatformRawAudioData> PlatformRawAudioData::create(std::span<const uint8_
         skip(data, sizePlane);
     }
 
+    // MAVERICKS_BACKPORT: call CoreMedia CMTimeMake by bare name (no PAL:: soft-link wrapper); links directly on 10.9.
     RetainPtr sample = createSampleBuffer(inputDescription, CMTimeMake(timestamp, 1000000), numberOfFrames, inputList);
     if (!sample) {
         RELEASE_LOG_ERROR(MediaStream, "PlatformRawAudioData::create failed");
@@ -151,6 +154,7 @@ PlatformRawAudioDataCocoa::PlatformRawAudioDataCocoa(Ref<MediaSampleAVFObjC>&& s
 
 const AudioStreamBasicDescription& PlatformRawAudioDataCocoa::asbd() const
 {
+    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
     RetainPtr description = CMSampleBufferGetFormatDescription(RetainPtr { m_sample->sampleBuffer() }.get());
     ASSERT(description);
     const AudioStreamBasicDescription* const asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description.get());
@@ -187,6 +191,7 @@ size_t PlatformRawAudioDataCocoa::numberOfChannels() const
 
 size_t PlatformRawAudioDataCocoa::numberOfFrames() const
 {
+    // MAVERICKS_BACKPORT: call CoreMedia CMSampleBufferGetNumSamples by bare name (no PAL:: soft-link wrapper); links directly on 10.9.
     return CMSampleBufferGetNumSamples(RetainPtr { m_sample->sampleBuffer() }.get());
 }
 

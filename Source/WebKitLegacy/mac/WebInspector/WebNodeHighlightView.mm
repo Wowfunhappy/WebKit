@@ -98,6 +98,8 @@ using namespace WebCore;
 
         ASSERT([[NSGraphicsContext currentContext] isFlipped]);
 
+        // MAVERICKS_BACKPORT: -[NSGraphicsContext CGContext] is 10.10+; on 10.9 the backing CGContextRef
+        // is obtained via the deprecated-but-present -graphicsPort and cast.
         GraphicsContextCG context((CGContextRef)[[NSGraphicsContext currentContext] graphicsPort]);
         if (CheckedPtr controller = [_webNodeHighlight inspectorController].get())
             controller->drawHighlight(context);

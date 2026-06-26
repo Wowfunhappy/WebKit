@@ -27,6 +27,8 @@
 #pragma once
 
 #include <WebCore/Icon.h>
+// MAVERICKS_BACKPORT: mark this include chain so RenderTheme.h skips re-including the
+// platform theme header, breaking the RenderThemeCocoa ↔ RenderTheme circular include.
 #define RENDERTHEMECOCOA_BEING_INCLUDED
 #include <WebCore/RenderTheme.h>
 #undef RENDERTHEMECOCOA_BEING_INCLUDED

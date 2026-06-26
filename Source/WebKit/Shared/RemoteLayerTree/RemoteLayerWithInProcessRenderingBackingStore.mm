@@ -28,6 +28,7 @@
 
 #import "DynamicContentScalingBifurcatedImageBuffer.h"
 #import "ImageBufferShareableBitmapBackend.h"
+// MAVERICKS_BACKPORT: the shareable mapped-IOSurface backend is GPU-process-only; on 10.9 alias the name to WebCore's plain ImageBufferIOSurfaceBackend so the in-process path still has a usable IOSurface backend.
 #if ENABLE(GPU_PROCESS) && HAVE(IOSURFACE)
 #import "ImageBufferShareableMappedIOSurfaceBackend.h"
 #else
@@ -39,6 +40,7 @@ using ImageBufferShareableMappedIOSurfaceBackend = WebCore::ImageBufferIOSurface
 #import "Logging.h"
 #import "PlatformCALayerRemote.h"
 #import "PrepareBackingStoreBuffersData.h"
+// MAVERICKS_BACKPORT: remote image-buffer-set proxy is GPU-process-only; not present in the in-process-only 10.9 build.
 #if ENABLE(GPU_PROCESS)
 #import "RemoteImageBufferSetProxy.h"
 #endif
@@ -82,6 +84,7 @@ void RemoteLayerWithInProcessRenderingBackingStore::clearBackingStore()
 
 static std::optional<ImageBufferBackendHandle> handleFromBuffer(ImageBuffer& buffer)
 {
+    // MAVERICKS_BACKPORT: 10.9 uses WebCore's plain ImageBufferIOSurfaceBackend, which is not an ImageBufferBackendHandleSharing; when the sharing downcast fails, derive the backend handle directly from the IOSurface send right so the layer can still receive contents.
     auto* backendSharing = buffer.toBackendSharing();
     auto* sharing = dynamicDowncast<ImageBufferBackendHandleSharing>(backendSharing);
     auto* surface = buffer.surface();

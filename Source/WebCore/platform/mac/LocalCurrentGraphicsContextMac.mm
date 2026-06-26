@@ -34,10 +34,12 @@ LocalCurrentContextSaver::LocalCurrentContextSaver(CGContextRef cgContext, bool 
         return;
     }
 
+    // MAVERICKS_BACKPORT: -[NSGraphicsContext CGContext] is 10.10+; use the classic -graphicsPort accessor available on 10.9.
     if (cgContext == (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort])
         return;
 
     lazyInitialize(m_savedNSGraphicsContext, RetainPtr { [NSGraphicsContext currentContext] });
+    // MAVERICKS_BACKPORT: +graphicsContextWithCGContext:flipped: is 10.10+; use the classic +graphicsContextWithGraphicsPort:flipped: available on 10.9.
     NSGraphicsContext* newContext = [NSGraphicsContext graphicsContextWithGraphicsPort:cgContext flipped:isFlipped];
     [NSGraphicsContext setCurrentContext:newContext];
     m_didSetGraphicsContext = true;

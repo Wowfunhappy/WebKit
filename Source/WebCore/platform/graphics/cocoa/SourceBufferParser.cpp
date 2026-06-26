@@ -31,6 +31,7 @@
 #include "ContentType.h"
 #include "MediaSourceConfiguration.h"
 #include "SharedBuffer.h"
+// MAVERICKS_BACKPORT: include the software ISO-BMFF parser instead of SourceBufferParserAVFObjC/SourceBufferParserWebM — AVStreamDataParser and the WebM parser are unavailable on 10.9.
 #include "SourceBufferParserISOBMFF.h"
 #include <pal/spi/cocoa/MediaToolboxSPI.h>
 #include <wtf/text/WTFString.h>
@@ -41,12 +42,13 @@ namespace WebCore {
 
 MediaPlayerEnums::SupportsType SourceBufferParser::isContentTypeSupported(const ContentType& type)
 {
-    // 10.9: software fragmented-MP4 parser only (WebM/AVStreamDataParser unavailable).
+    // MAVERICKS_BACKPORT: route content-type support through the software ISO-BMFF parser only — the WebM and AVFObjC (AVStreamDataParser) parsers are unavailable on 10.9.
     return SourceBufferParserISOBMFF::isContentTypeSupported(type);
 }
 
 RefPtr<SourceBufferParser> SourceBufferParser::create(const ContentType& type, const MediaSourceConfiguration& configuration)
 {
+    // MAVERICKS_BACKPORT: only the software ISO-BMFF parser is constructible on 10.9 (no WebM/AVStreamDataParser parsers); configuration is unused on this path.
     UNUSED_PARAM(configuration);
     if (SourceBufferParserISOBMFF::isContentTypeSupported(type) != MediaPlayerEnums::SupportsType::IsNotSupported)
         return SourceBufferParserISOBMFF::create();

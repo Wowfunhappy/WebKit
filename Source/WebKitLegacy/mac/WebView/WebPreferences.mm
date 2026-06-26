@@ -486,6 +486,8 @@ public:
     [self _postPreferencesChangedNotification];
 }
 
+// MAVERICKS_BACKPORT: declared with a bare NSArray (no NSArray<NSString *> lightweight generics) so the
+// signature matches the bare-NSArray form used by the corresponding 10.9 WebKitLegacy header.
 - (NSArray *)_stringArrayValueForKey:(NSString *)key
 {
     id value = [self _valueForKey:key];
@@ -498,9 +500,11 @@ public:
             return nil;
     }
 
+    // MAVERICKS_BACKPORT: bare-NSArray cast (no NSArray<NSString *> generics) to match the bare return type above.
     return (NSArray *)array.autorelease();
 }
 
+// MAVERICKS_BACKPORT: bare-NSArray parameter (no NSArray<NSString *> lightweight generics) to match the 10.9 header signature.
 - (void)_setStringArrayValueForKey:(NSArray *)value forKey:(NSString *)key
 {
     NSString *_key = KEY(key);
@@ -916,11 +920,13 @@ public:
     return [self _boolValueForKey: WebKitDisplayImagesKey];
 }
 
+// MAVERICKS_BACKPORT: bare-NSArray parameter (no NSArray<NSString *> lightweight generics) to match the 10.9 WebPreferencesPrivate.h property.
 - (void)setAdditionalSupportedImageTypes:(NSArray *)imageTypes
 {
     [self _setStringArrayValueForKey:imageTypes forKey:WebKitAdditionalSupportedImageTypesKey];
 }
 
+// MAVERICKS_BACKPORT: bare-NSArray return (no NSArray<NSString *> lightweight generics) to match the 10.9 WebPreferencesPrivate.h property.
 - (NSArray *)additionalSupportedImageTypes
 {
     return [self _stringArrayValueForKey:WebKitAdditionalSupportedImageTypesKey];

@@ -33,8 +33,9 @@ DECLARE_SYSTEM_HEADER
 
 #else
 
-// PDFKitPlatformScrollView is a PDFKit cross-platform typedef (NSScrollView on macOS) absent from the
-// 10.9 Quartz headers.
+// MAVERICKS_BACKPORT: PDFKitPlatformScrollView is a PDFKit cross-platform typedef (NSScrollView on
+// macOS) absent from the 10.9 Quartz headers, so it is provided here when the SDK lacks
+// <PDFKit/PDFKitPlatform.h> to satisfy the -documentScrollView declaration below.
 #if !defined(PDFKitPlatformScrollView) && !__has_include(<PDFKit/PDFKitPlatform.h>)
 typedef NSScrollView PDFKitPlatformScrollView;
 #endif

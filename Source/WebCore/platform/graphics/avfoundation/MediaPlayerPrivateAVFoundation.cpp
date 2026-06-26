@@ -69,11 +69,11 @@ MediaPlayerPrivateAVFoundation::MediaPlayerPrivateAVFoundation(MediaPlayer& play
     , m_delayCharacteristicsChangedNotification(0)
     , m_mainThreadCallPending(false)
     , m_assetIsPlayable(false)
-    // Backport: default to true on 10.9 since RenderVideo's prepareForRendering hook
+    // MAVERICKS_BACKPORT: default to true on 10.9 since RenderVideo's prepareForRendering hook
     // isn't reliably wired through MediaPlayer::setPageIsVisible on this build.
     , m_visible(true)
     , m_loadingMetadata(false)
-    // Backport: default to true on 10.9 to make isReadyForVideoSetup work without
+    // MAVERICKS_BACKPORT: default to true on 10.9 to make isReadyForVideoSetup work without
     // RenderVideo's prepareForRendering ping.
     , m_isAllowedToRender(true)
     , m_cachedHasAudio(false)
@@ -522,7 +522,7 @@ void MediaPlayerPrivateAVFoundation::updateStates()
         AssetStatus assetStatus = this->assetStatus();
         ItemStatus itemStatus = playerItemStatus();
 
-        // Backport: 10.9 — trackIsPlayable can fail because formatDescription
+        // MAVERICKS_BACKPORT: 10.9 — trackIsPlayable can fail because formatDescription
         // checks go through soft-linked CoreMedia functions that may return 0
         // for the media type. Treat "loaded" as "playable" too on 10.9, since
         // AVFoundation itself will refuse to play unplayable content.
@@ -741,7 +741,7 @@ void MediaPlayerPrivateAVFoundation::setPreload(MediaPlayer::Preload preload)
 
     // Don't force creation of the player and player item unless we already know that the asset is playable. If we aren't
     // there yet, or if we already know it is not playable, creating them now won't help.
-    // Backport: assetIsPlayable detection unreliable on 10.9 — also create eagerly
+    // MAVERICKS_BACKPORT: assetIsPlayable detection unreliable on 10.9 — also create eagerly
     // once asset loaded so user can actually play.
     if (m_preload == MediaPlayer::Preload::Auto && (m_assetIsPlayable || assetStatus() >= MediaPlayerAVAssetStatusLoaded)) {
         createAVPlayerItem();

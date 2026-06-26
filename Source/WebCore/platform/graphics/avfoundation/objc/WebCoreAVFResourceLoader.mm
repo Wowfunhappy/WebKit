@@ -353,6 +353,7 @@ void WebCoreAVFResourceLoader::startLoading()
 
     if (dataRequest && m_requestedLength > 0
         && !request.hasHTTPHeaderField(HTTPHeaderName::Range)) {
+        // MAVERICKS_BACKPORT: hardcode NO in place of dataRequest.requestsAllDataToEndOfResource, since the 10.9 AVAssetResourceLoadingDataRequest polyfill lacks that property; always request a bounded byte range.
         String rangeEnd = NO /* requestsAllDataToEndOfResource: 10.9 polyfill lacks this property; request a specific range */ ? emptyString() : makeString(m_requestedOffset + m_requestedLength - 1);
         request.addHTTPHeaderField(HTTPHeaderName::Range, makeString("bytes="_s, m_requestedOffset, '-', rangeEnd));
     }

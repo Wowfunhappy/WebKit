@@ -49,8 +49,8 @@ RetainPtr<CFHTTPCookieStorageRef> cookieStorageFromIdentifyingData(const Vector<
 Vector<uint8_t> identifyingDataFromCookieStorage(CFHTTPCookieStorageRef cookieStorage)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
-    // 10.9: CFHTTPCookieStorageCreateIdentifyingData is stubbed (returns NULL).
-    // Guard against NULL CFData to avoid crashing in CFDataGetBytePtr.
+    // MAVERICKS_BACKPORT: 10.9's CFHTTPCookieStorageCreateIdentifyingData is stubbed (returns NULL).
+    // Guard against NULL CFData to avoid crashing in makeVector / CFDataGetBytePtr.
     auto data = adoptCF(CFHTTPCookieStorageCreateIdentifyingData(kCFAllocatorDefault, cookieStorage));
     if (!data)
         return { };

@@ -101,6 +101,7 @@ MediaRecorderPrivateWriterAVFObjC::MediaRecorderPrivateWriterAVFObjC(RetainPtr<A
     , m_writer(WTF::move(writer))
     , m_waitingQueue(WorkQueue::create("MediaRecorderPrivateWriterAVFObjC"_s))
 {
+    // MAVERICKS_BACKPORT: reference CoreMedia's kCMTimeIndefinite constant directly rather than the PAL:: soft-linked wrapper, which is not provided in the 10.9 build.
     [m_writer setPreferredOutputSegmentInterval:kCMTimeIndefinite];
     [m_writer setDelegate:m_delegate.get()];
 }
@@ -157,6 +158,7 @@ bool MediaRecorderPrivateWriterAVFObjC::allTracksAdded()
     }
     END_BLOCK_OBJC_EXCEPTIONS
 
+    // MAVERICKS_BACKPORT: reference CoreMedia's kCMTimeZero constant directly rather than the PAL:: soft-linked wrapper, which is not provided in the 10.9 build.
     [m_writer startSessionAtSourceTime:kCMTimeZero];
     m_writerStarted = true;
     return true;
@@ -200,6 +202,7 @@ MediaRecorderPrivateWriterAVFObjC::Result MediaRecorderPrivateWriterAVFObjC::wri
 
 static inline void appendEndsPreviousSampleDurationMarker(AVAssetWriterInput *assetWriterInput, CMTime presentationTimeStamp)
 {
+    // MAVERICKS_BACKPORT: reference CoreMedia's kCMTimeInvalid/kCMSampleBufferAttachmentKey_EndsPreviousSampleDuration constants and call CMSampleBufferCreate/CMSetAttachment directly rather than the PAL:: soft-linked wrappers, which are not provided in the 10.9 build.
     CMSampleTimingInfo timingInfo = { kCMTimeInvalid, presentationTimeStamp, presentationTimeStamp };
 
     CMSampleBufferRef buffer = NULL;

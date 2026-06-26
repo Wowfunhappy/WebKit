@@ -186,6 +186,7 @@ RefPtr<VideoFrame> VideoFrame::createBGRA(std::span<const uint8_t> span, size_t 
 
     auto sourceBuffer = makeVImageBuffer8888(spanConstCast<uint8_t>(span), width, height, plane.sourceWidthBytes);
     auto destinationBuffer = makeVImageBuffer8888(pixelBuffer.get());
+    // MAVERICKS_BACKPORT: vImageCopyBuffer() is 10.10+, so replace it with a manual row-by-row memcpy of the 8888 buffer and report kvImageNoError.
     // 10.9: vImageCopyBuffer is 10.10+; copy the 8888 buffer manually, row by row.
     {
         size_t bytesPerRow = std::min<size_t>(sourceBuffer.rowBytes, destinationBuffer.rowBytes);

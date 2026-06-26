@@ -350,6 +350,8 @@ static inline WebHistoryDateKey dateKey(NSTimeInterval date)
     auto entryArrays = copyToVector(_entriesByDate->values());
     _entriesByDate->clear();
     
+    // MAVERICKS_BACKPORT: take-and-clear _entriesByURL via an explicit copy-then-nil pair
+    // rather than std::exchange to stay within the 10.9 toolchain's libc++ surface.
     auto entriesByURL = _entriesByURL; _entriesByURL = nil;
     
     _orderedLastVisitedDays = nil;

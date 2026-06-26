@@ -62,6 +62,8 @@ void NetworkRTCSharedMonitor::addListener(NetworkRTCMonitor& monitor)
     if (!shouldStart)
         return;
 
+    // MAVERICKS_BACKPORT: WK_RTC_USE_NW gate (vs upstream PLATFORM(COCOA)); the nw_path_monitor fast
+    // path is 10.14+, so on 10.9 we fall through to the getifaddrs()/timer monitor below.
 #if WK_RTC_USE_NW
     if (protect(monitor.rtcProvider())->webRTCInterfaceMonitoringViaNWEnabled()) {
         setupNWPathMonitor();
@@ -84,6 +86,8 @@ void NetworkRTCSharedMonitor::removeListener(NetworkRTCMonitor& monitor)
     if (!shouldStop)
         return;
 
+    // MAVERICKS_BACKPORT: WK_RTC_USE_NW gate (vs upstream PLATFORM(COCOA)); m_nwMonitor/nw_path_monitor_cancel
+    // only exist on the 10.14+ nw_* path, absent on 10.9.
 #if WK_RTC_USE_NW
     if (auto nwMonitor = std::exchange(m_nwMonitor, { }))
         nw_path_monitor_cancel(nwMonitor.get());
@@ -94,6 +98,8 @@ void NetworkRTCSharedMonitor::removeListener(NetworkRTCMonitor& monitor)
 
 webrtc::AdapterType NetworkRTCSharedMonitor::adapterTypeFromInterfaceName(const char* interfaceName) const
 {
+    // MAVERICKS_BACKPORT: WK_RTC_USE_NW gate (vs upstream PLATFORM(COCOA)); m_adapterTypes is populated
+    // only by the nw_* path, so on 10.9 this lookup is skipped.
 #if WK_RTC_USE_NW
     auto iterator = m_adapterTypes.find(String::fromUTF8(interfaceName));
     if (iterator != m_adapterTypes.end())

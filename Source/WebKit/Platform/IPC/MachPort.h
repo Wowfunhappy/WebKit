@@ -25,6 +25,9 @@
 
 #pragma once
 
+// MAVERICKS_BACKPORT: this file exists in the backport as a verbatim copy of the upstream
+// Platform/IPC/darwin/MachPort.h, placed in Platform/IPC/ so that the bare #import "MachPort.h" used by
+// ConnectionCocoa.mm and ProcessLauncherCocoa.mm resolves on 10.9's header-search paths.
 #include <mach/mach_port.h>
 
 namespace IPC {

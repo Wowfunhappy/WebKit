@@ -133,6 +133,11 @@ protected:
     bool m_hasBannerViewOverlay { false };
 #endif
 
+    // MAVERICKS_BACKPORT: declare the didAddPendingScrollUpdate() override
+    // unconditionally instead of only under ENABLE(THREADED_ANIMATIONS).
+    // THREADED_ANIMATIONS is off on this build, but the base class still
+    // requires the override, so it is hoisted out of the feature gate (and the
+    // access specifiers are rebalanced around the remaining gated members).
 private:
     void didAddPendingScrollUpdate() override;
 #if ENABLE(THREADED_ANIMATIONS)

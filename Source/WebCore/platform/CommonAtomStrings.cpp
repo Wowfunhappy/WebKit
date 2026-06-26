@@ -38,7 +38,8 @@ WEBCORE_COMMON_ATOM_STRINGS_FOR_EACH_KEYWORD(DEFINE_COMMON_ATOM)
 void initializeCommonAtomStrings()
 {
     // Initialization is not thread safe, so this function must be called from the main thread first.
-    // 10.9: WebContent XPC service initializes from the XPC dispatch queue, not the main thread.
+    // MAVERICKS_BACKPORT: the inner RELEASE_ASSERT(isUIThread()) is dropped because on 10.9 the
+    // WebContent XPC service initializes from the XPC dispatch queue, not the main thread.
     // Both processes only call this once, so std::call_once still provides the needed synchronization.
     ASSERT(isUIThread());
 

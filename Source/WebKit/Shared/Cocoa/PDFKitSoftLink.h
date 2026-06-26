@@ -41,6 +41,7 @@ SOFT_LINK_CLASS_FOR_HEADER(WebKit, PDFLayerController)
 SOFT_LINK_CLASS_FOR_HEADER(WebKit, PDFSelection)
 SOFT_LINK_CONSTANT_FOR_HEADER(WebKit, PDFKit, kPDFDestinationUnspecifiedValue, CGFloat)
 SOFT_LINK_CONSTANT_FOR_HEADER(WebKit, PDFKit, PDFViewCopyPermissionNotification, NSNotificationName)
+// MAVERICKS_BACKPORT: define the PDFDocumentAttribute type the 10.9 PDFKit SDK lacks (it is a plain NSString * there)
 // PDFDocumentAttribute is NSString * on older SDKs
 #ifndef PDFDocumentAttribute
 typedef NSString * PDFDocumentAttribute;

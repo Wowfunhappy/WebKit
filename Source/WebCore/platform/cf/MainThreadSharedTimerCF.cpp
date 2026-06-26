@@ -27,6 +27,7 @@
 #import "MainThreadSharedTimer.h"
 
 #include <wtf/AutodrainedPool.h>
+// MAVERICKS_BACKPORT: include RunLoop for the main-thread run loop used by the timer install below.
 #include <wtf/RunLoop.h>
 #include <wtf/cf/NotificationCenterCF.h>
 
@@ -115,6 +116,9 @@ void MainThreadSharedTimer::setFireInterval(Seconds interval)
 #if PLATFORM(IOS_FAMILY)
         CFRunLoopAddTimer(WebThreadRunLoop(), sharedTimer().get(), kCFRunLoopCommonModes);
 #else
+        // MAVERICKS_BACKPORT: install the shared timer on the main run loop (CFRunLoopGetMain) rather than the
+        // calling thread's current run loop, and fold the existing-timer reschedule into an else branch so the
+        // timer is created/added exactly once on 10.9.
         CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), kCFRunLoopCommonModes);
 #endif
         setupPowerObserver();

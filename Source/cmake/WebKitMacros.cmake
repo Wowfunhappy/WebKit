@@ -49,6 +49,7 @@ macro(WEBKIT_COMPUTE_SOURCES _framework)
         foreach (_file IN LISTS _outputTmp)
             if (_file MATCHES "\\.c$")
                 list(APPEND ${_framework}_C_SOURCES ${_file})
+            # MAVERICKS_BACKPORT: compile unified bundles of -ARC.mm sources with -fobjc-arc so ARC files (added for the 10.9 build) get ARC even when unified.
             elseif (_file MATCHES "-ARC\\.mm$")
                 set_source_files_properties(${_file} PROPERTIES COMPILE_FLAGS "-fobjc-arc")
                 list(APPEND ${_framework}_SOURCES ${_file})

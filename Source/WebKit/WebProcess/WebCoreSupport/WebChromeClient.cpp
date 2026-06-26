@@ -503,7 +503,7 @@ void WebChromeClient::addMessageToConsole(MessageSource source, MessageLevel lev
     if (!page)
         return;
 
-
+    // MAVERICKS_BACKPORT: 10.9 build divergence in this console path (the injected-bundle UI client forwarding stays gated behind !PLATFORM(COCOA)).
 #if !PLATFORM(COCOA)
     page->injectedBundleUIClient().willAddMessageToConsole(page.get(), source, level, message, lineNumber, columnNumber, sourceID);
 #endif

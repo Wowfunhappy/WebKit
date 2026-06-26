@@ -211,6 +211,8 @@ double currentTime()
     return (double)real_time_clock_usecs() / 1'000'000.0;
 }
 
+// MAVERICKS_BACKPORT: dedicated Darwin wall-clock path added because the generic #else branch uses
+// clock_gettime()/CLOCK_REALTIME, which macOS 10.9-10.11 lack; gettimeofday() exists on all versions.
 #elif OS(DARWIN)
 
 // macOS < 10.12 has no clock_gettime()/CLOCK_REALTIME; gettimeofday() is available on all versions.
@@ -340,6 +342,8 @@ MonotonicTime MonotonicTime::now()
 
 ApproximateTime ApproximateTime::now()
 {
+    // MAVERICKS_BACKPORT: HAVE(MACH_APPROXIMATE_TIME) gate + Darwin fallback added because
+    // mach_approximate_time() does not exist on 10.9-10.11; fall back to mach_absolute_time().
 #if OS(DARWIN) && HAVE(MACH_APPROXIMATE_TIME)
     return fromMachApproximateTime(mach_approximate_time());
 #elif OS(DARWIN)
@@ -363,6 +367,8 @@ ApproximateTime ApproximateTime::now()
 
 ContinuousTime ContinuousTime::now()
 {
+    // MAVERICKS_BACKPORT: HAVE(MACH_CONTINUOUS_TIME) gate + Darwin fallback added because
+    // mach_continuous_time() does not exist on 10.9-10.11; fall back to mach_absolute_time().
 #if OS(DARWIN) && HAVE(MACH_CONTINUOUS_TIME)
     return fromMachContinuousTime(mach_continuous_time());
 #elif OS(DARWIN)
@@ -385,6 +391,8 @@ ContinuousTime ContinuousTime::now()
 
 ContinuousApproximateTime ContinuousApproximateTime::now()
 {
+    // MAVERICKS_BACKPORT: HAVE(MACH_CONTINUOUS_TIME) gate + Darwin fallback added because
+    // mach_continuous_approximate_time() does not exist on 10.9-10.11; fall back to mach_absolute_time().
 #if OS(DARWIN) && HAVE(MACH_CONTINUOUS_TIME)
     return fromMachContinuousApproximateTime(mach_continuous_approximate_time());
 #elif OS(DARWIN)

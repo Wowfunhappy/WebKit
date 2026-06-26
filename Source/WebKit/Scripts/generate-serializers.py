@@ -1065,6 +1065,9 @@ def generate_one_impl(type, template_argument, serialized_types):
         result.append(f'#if {type.condition}')
 
     if type.members_are_subclasses:
+        # MAVERICKS_BACKPORT: when subclass members carry #if conditions, more of them are disabled on 10.9
+        # (absent features), which can leave the first emitted enumerator preceded by a stray leading comma.
+        # Emit a _dummy_first_entry sentinel so every real member can be written as ", name" unconditionally.
         # Check if any member has a condition; if so, use a dummy first entry
         # to avoid leading comma issues when conditional members are disabled.
         any_conditional = any(m.condition is not None for m in type.members)

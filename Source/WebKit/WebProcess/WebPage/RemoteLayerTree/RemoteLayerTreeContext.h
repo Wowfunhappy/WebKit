@@ -97,6 +97,7 @@ public:
 
     void adoptLayersFromContext(RemoteLayerTreeContext&);
 
+    // MAVERICKS_BACKPORT: these GPU-process accessors are wrapped in ENABLE(GPU_PROCESS) so they only compile when the GPU process is built; the 10.9 backport keeps the guard to match its conditional GPU-process support.
 #if ENABLE(GPU_PROCESS)
     RemoteRenderingBackendProxy& ensureRemoteRenderingBackendProxy();
     void gpuProcessConnectionWasDestroyed();

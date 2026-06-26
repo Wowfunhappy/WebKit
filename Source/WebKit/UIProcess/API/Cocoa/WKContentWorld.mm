@@ -27,12 +27,17 @@
 #import "WKContentWorldInternal.h"
 
 #import "WKContentWorldConfigurationInternal.h"
+// MAVERICKS_BACKPORT: import the public _WKContentWorldConfiguration declaration so the
+// respondsToSelector: property guards below compile.
 #import "_WKContentWorldConfiguration.h"
 #import "_WKUserContentWorldInternal.h"
 #import <WebCore/WebCoreObjCExtras.h>
 
 static void checkContentWorldOptions(API::ContentWorld& world, _WKContentWorldConfiguration *configuration)
 {
+    // MAVERICKS_BACKPORT: each configuration property is read only after a respondsToSelector: check
+    // so an older _WKContentWorldConfiguration that predates these newer options does not raise a
+    // false mismatch exception; a missing selector is treated as the unset/default value.
     if (configuration && [configuration respondsToSelector:@selector(allowAccessToClosedShadowRoots)]) {
         if (world.allowAccessToClosedShadowRoots() != configuration.allowAccessToClosedShadowRoots)
             [NSException raise:NSInternalInconsistencyException format:@"The value of allowAccessToClosedShadowRoots does not match the existing world"];

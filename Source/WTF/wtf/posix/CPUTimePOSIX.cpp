@@ -30,6 +30,7 @@
 #include <sys/time.h>
 #include <time.h>
 
+// MAVERICKS_BACKPORT: 10.9 lacks clock_gettime, so pull in mach.h for the thread_info()-based per-thread CPU time path below.
 #if OS(DARWIN) && !HAVE(CLOCK_GETTIME)
 #include <mach/mach.h>
 #endif
@@ -51,6 +52,7 @@ std::optional<CPUTime> CPUTime::get()
 
 Seconds CPUTime::forCurrentThread()
 {
+    // MAVERICKS_BACKPORT: clock_gettime(CLOCK_THREAD_CPUTIME_ID) is 10.12+; on 10.9 (HAVE(CLOCK_GETTIME) false) fall back to mach thread_info() THREAD_BASIC_INFO for per-thread CPU time.
 #if HAVE(CLOCK_GETTIME)
     struct timespec ts { };
     int ret = clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);

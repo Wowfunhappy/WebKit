@@ -29,7 +29,7 @@
 #include <wtf/OSObjectPtr.h>
 #include <wtf/darwin/TypeCastsOSObject.h>
 
-/* dispatch_queue_global not available on macOS 10.9 */
+// MAVERICKS_BACKPORT: the dispatch_queue_global OS-object type is 10.10+; on the 10.9 SDK (detected by the absence of DISPATCH_QUEUE_SERIAL_WITH_AUTORELEASE_POOL) omit it from the OS-object type list so the OSObjectPtr machinery is not generated for a type that does not exist.
 #ifndef DISPATCH_QUEUE_SERIAL_WITH_AUTORELEASE_POOL
 #define WTF_OS_OBJECT_DISPATCH_TYPES(M) \
     M(dispatch_data) \

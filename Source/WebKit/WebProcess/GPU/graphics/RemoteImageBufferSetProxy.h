@@ -39,8 +39,9 @@
 #include <wtf/Lock.h>
 #include <wtf/TZoneMallocInlines.h>
 
-// ThreadSafeImageBufferSetFlusher is needed by RemoteLayerBackingStore regardless
-// of GPU_PROCESS being enabled.
+// MAVERICKS_BACKPORT: ThreadSafeImageBufferSetFlusher / BufferSetBackendHandle are hoisted out of
+// the ENABLE(GPU_PROCESS) block (where base 83b24ce keeps them) because RemoteLayerBackingStore in
+// this build needs them even with GPU_PROCESS disabled.
 namespace WebKit {
 
 struct BufferSetBackendHandle;
@@ -61,6 +62,8 @@ public:
 
 } // namespace WebKit
 
+// MAVERICKS_BACKPORT: GPU_PROCESS guard re-opened here (after the hoisted flusher above) so the
+// remaining IPC/RemoteImageBufferSetProxy machinery stays GPU_PROCESS-only as in base 83b24ce.
 #if ENABLE(GPU_PROCESS)
 
 namespace IPC {

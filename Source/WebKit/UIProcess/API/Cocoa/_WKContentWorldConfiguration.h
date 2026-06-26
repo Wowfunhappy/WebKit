@@ -23,6 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// MAVERICKS_BACKPORT: textual include guard added so this header is safe to import more than once under the backport's -fno-modules build.
 #ifndef _WKContentWorldConfiguration_h
 #define _WKContentWorldConfiguration_h
 
@@ -65,4 +66,5 @@ WK_CLASS_AVAILABLE(macos(15.4), ios(18.4), visionos(2.4))
 
 NS_ASSUME_NONNULL_END
 
+// MAVERICKS_BACKPORT: closes the textual include guard added for the backport's -fno-modules build.
 #endif // _WKContentWorldConfiguration_h

@@ -44,6 +44,7 @@ TransformationMatrix::TransformationMatrix(const simd_float4x4& t)
 
 TransformationMatrix::operator simd_float4x4() const
 {
+    // MAVERICKS_BACKPORT: build the simd_float4x4 via per-column arrays + memcpy instead of brace-initializing simd_float4 columns — the 10.9 toolchain's simd headers don't support the aggregate simd_float4{...} initializer used upstream.
     simd_float4x4 result;
     float col0[] = {(float)m11(), (float)m12(), (float)m13(), (float)m14()};
     float col1[] = {(float)m21(), (float)m22(), (float)m23(), (float)m24()};

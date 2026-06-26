@@ -28,6 +28,7 @@
 #include "RemoteLayerBackingStore.h"
 #include <wtf/TZoneMalloc.h>
 
+// MAVERICKS_BACKPORT: this whole remote-rendering backing-store class is GPU-process-only; the entire declaration is compiled out on 10.9 (in-process rendering only).
 #if ENABLE(GPU_PROCESS)
 
 namespace WebKit {

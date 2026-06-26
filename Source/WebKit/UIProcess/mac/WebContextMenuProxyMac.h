@@ -63,6 +63,9 @@ public:
 #endif
 
 #if ENABLE(SERVICE_CONTROLS)
+    // MAVERICKS_BACKPORT: handleShareMenuItem() is declared inside the SERVICE_CONTROLS guard so it
+    // matches its definition in WebContextMenuProxyMac.mm (also SERVICE_CONTROLS-only); base 83b24ce
+    // declared it unconditionally, leaving an undefined symbol when SERVICE_CONTROLS is off in this build.
     void handleShareMenuItem();
     void clearServicesMenu();
     void removeBackgroundFromControlledImage();

@@ -500,6 +500,7 @@ static void encodeObject(WKRemoteObjectEncoder *encoder, id object)
 static RefPtr<API::Dictionary> createEncodedObject(WKRemoteObjectEncoder *encoder, id object)
 {
     if (!object)
+        // MAVERICKS_BACKPORT: return nullptr (not nil) so the RefPtr<API::Dictionary> return compiles cleanly under the 10.9 build toolchain
         return nullptr;
 
     Ref<API::Dictionary> dictionary = API::Dictionary::create();

@@ -89,7 +89,7 @@
 #import "WKFormInfoInternal.h"
 #import "WKFrameInfoInternal.h"
 #import "WKHistoryDelegatePrivate.h"
-// Apple Intelligence text effects not available on 10.9
+// MAVERICKS_BACKPORT: Apple Intelligence text-effect coordinators are unavailable on 10.9; omit these imports (the corresponding call sites below are stubbed out).
 // #import "WKIntelligenceReplacementTextEffectCoordinator.h"
 // #import "WKIntelligenceSmartReplyTextEffectCoordinator.h"
 // #import "WKIntelligenceTextEffectCoordinator.h"
@@ -111,6 +111,7 @@
 #import "WKTextExtractionUtilities.h"
 #import "WKUIDelegate.h"
 #import "WKUIDelegateInternal.h"
+// MAVERICKS_BACKPORT: scroll-edge-effect is an iOS-family feature; guard the import so it is not pulled into the macOS 10.9 build.
 #if PLATFORM(IOS_FAMILY)
 #import "WKUIScrollEdgeEffect.h"
 #endif
@@ -279,7 +280,7 @@
 #import <pal/spi/mac/NSViewSPI.h>
 #endif
 
-// NSEdgeInsetsEqual was added in 10.10; provide a fallback for 10.9.
+// MAVERICKS_BACKPORT: NSEdgeInsetsEqual is a 10.10 Foundation function; provide an inline definition so the macOS 10.9 build links.
 #if PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101000
 static inline BOOL NSEdgeInsetsEqual(NSEdgeInsets a, NSEdgeInsets b) {
     return a.top == b.top && a.left == b.left && a.bottom == b.bottom && a.right == b.right;
@@ -1147,6 +1148,7 @@ static void addBrowsingContextControllerMethodStubsIfNeeded()
 - (void)resumeDownloadFromResumeData:(NSData *)resumeData completionHandler:(void(^)(WKDownload *))completionHandler
 {
     THROW_IF_SUSPENDED;
+    // MAVERICKS_BACKPORT: use the 10.9-available -initForReadingWithData: + -setRequiresSecureCoding: pair; -initForReadingFromData:error: and -setDecodingFailurePolicy: are 10.13+.
     auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:resumeData]);
     [unarchiver setRequiresSecureCoding:YES];
     RetainPtr dictionary = [unarchiver decodeObjectOfClasses:[NSSet setWithObjects:[NSDictionary class], [NSArray class], [NSString class], [NSNumber class], [NSData class], [NSURL class], [NSURLRequest class], nil] forKey:@"NSKeyedArchiveRootObjectKey"];
@@ -1339,6 +1341,7 @@ static bool validateArgument(id argument)
     });
 
 #if ENABLE(FULLSCREEN_API)
+    // MAVERICKS_BACKPORT: gate the video-presentation-manager path on ENABLE(VIDEO_PRESENTATION_MODE); that mode is disabled on 10.9, so WebPageProxy has no videoPresentationManager().
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr videoPresentationManager = _page->videoPresentationManager()) {
         videoPresentationManager->forEachSession([callbackAggregator] (auto& model, auto& interface) mutable {
@@ -1693,6 +1696,7 @@ static WKMediaPlaybackState NODELETE toWKMediaPlaybackState(WebKit::MediaPlaybac
 }
 
 #if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: re-provide the macOS -_snapshotRect:intoImageOfWidth:completionHandler: SPI that upstream keeps iOS-only, so Safari 9 Top Sites / Webpage Previews capture works on 10.9.
 // 10.9 Top Sites backport: Safari 9 captures Top Sites / "Webpage Previews" via the
 // legacy -[WKWebView _snapshotRect:intoImageOfWidth:completionHandler:] SPI. Upstream
 // retained this entry point only on iOS (see WKWebViewIOS.mm), so on macOS the selector
@@ -3778,6 +3782,7 @@ struct WKWebViewData {
         return;
     }
 
+    // MAVERICKS_BACKPORT: construct the Box with an explicit empty RetainPtr<NSError>; the older toolchain does not deduce the RetainPtr<NSError> element type from a bare nil here.
     auto error = Box<RetainPtr<NSError>>::create(RetainPtr<NSError> { });
 
     Ref callbackAggregator = CallbackAggregator::create([completionHandler = makeBlockPtr(completionHandler), error] {
@@ -4469,6 +4474,7 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 
 - (BOOL)_canEnterFullscreen
 {
+    // MAVERICKS_BACKPORT: gate on ENABLE(VIDEO_PRESENTATION_MODE); that mode is off on 10.9, so WebPageProxy::canEnterFullscreen() is unavailable — report not-enterable.
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     return _page->canEnterFullscreen();
 #else
@@ -4606,6 +4612,7 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 
 - (void)_enterFullscreen
 {
+    // MAVERICKS_BACKPORT: gate on ENABLE(VIDEO_PRESENTATION_MODE); that mode is off on 10.9, so WebPageProxy::enterFullscreen() is unavailable — the call is a no-op there.
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr page = _page)
         page->enterFullscreen();
@@ -4848,6 +4855,7 @@ static void convertAndAddHighlight(Vector<Ref<WebCore::SharedMemory>>& buffers, 
 - (void)_loadAlternateHTMLString:(NSString *)string baseURL:(NSURL *)baseURL forUnreachableURL:(NSURL *)unreachableURL withWebpagePreferences:(WKWebpagePreferences *)preferences
 {
     THROW_IF_SUSPENDED;
+    // MAVERICKS_BACKPORT: spell out -[NSData data] and cast the ?: result to NSData *; the 10.9 SDK lacks the NSData.data class-property shorthand and needs the explicit common type for bridge_cast.
     RetainPtr data = bridge_cast((NSData *)([string dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data]));
     _page->loadAlternateHTML(WebCore::DataSegment::create(WTF::move(data)), "UTF-8"_s, baseURL, unreachableURL, preferences ? preferences->_websitePolicies.get() : nullptr);
 }
@@ -5445,6 +5453,7 @@ static void convertAndAddHighlight(Vector<Ref<WebCore::SharedMemory>>& buffers, 
 {
 #if ENABLE(FULLSCREEN_API)
     bool hasOpenMediaPresentations = false;
+    // MAVERICKS_BACKPORT: gate the video-presentation-manager probe on ENABLE(VIDEO_PRESENTATION_MODE); that mode is off on 10.9 so only element-fullscreen below is considered.
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr videoPresentationManager = _page->videoPresentationManager()) {
         hasOpenMediaPresentations = videoPresentationManager->hasMode(WebCore::HTMLMediaElementEnums::VideoFullscreenModePictureInPicture)
@@ -6586,6 +6595,7 @@ static Vector<Ref<API::TargetedElementInfo>> elementsFromWKElements(NSArray<_WKT
     if (!self._isValid)
         return completionHandler(NO);
 
+    // MAVERICKS_BACKPORT: WebPageProxy::playPredominantOrNowPlayingMediaSession() is part of the media-session support absent on 10.9; report failure instead of calling it.
     // playPredominantOrNowPlayingMediaSession not available without media session support
     completionHandler(NO);
 }
@@ -6595,6 +6605,7 @@ static Vector<Ref<API::TargetedElementInfo>> elementsFromWKElements(NSArray<_WKT
     if (!self._isValid)
         return completionHandler(NO);
 
+    // MAVERICKS_BACKPORT: WebPageProxy::pauseNowPlayingMediaSession() is part of the media-session support absent on 10.9; report failure instead of calling it.
     // pauseNowPlayingMediaSession not available without media session support
     completionHandler(NO);
 }
@@ -6833,6 +6844,7 @@ static Vector<Ref<API::TargetedElementInfo>> elementsFromWKElements(NSArray<_WKT
     Vector<String> itemTitles;
     itemTitles.reserveInitialCapacity([allItems count]);
     for (NSMenuItem *item in allItems.get()) {
+        // MAVERICKS_BACKPORT: send -isEnabled explicitly; the 10.9 NSMenuItem SDK does not expose the `enabled` dot-syntax property used upstream.
         if (![item isEnabled])
             continue;
 
@@ -6930,6 +6942,7 @@ static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
             if (hasRules)
                 return [strongSelf _extractDebugTextWithConfigurationWithoutUpdatingFilterRules:configuration.get() assertionScope:WTF::move(assertionScope) completionHandler:completionHandler.get()];
 
+            // MAVERICKS_BACKPORT: requestTextExtractionFilterRuleData()/updateTextExtractionFilterRules() depend on Apple Intelligence APIs absent on 10.9; extract directly without fetching/applying filter-rule data.
             // Text extraction filter rules require Apple Intelligence APIs not available on 10.9
             [strongSelf _extractDebugTextWithConfigurationWithoutUpdatingFilterRules:configuration.get() assertionScope:WTF::move(assertionScope) completionHandler:completionHandler.get()];
         });
@@ -7541,6 +7554,7 @@ static OptionSet<WebCore::DataDetectorType> NODELETE coreDataDetectorTypes(_WKTe
         if (!result)
             return completionHandler(nil);
 
+        // MAVERICKS_BACKPORT: return no extracted item on 10.9 instead of building the WKTextExtractionItem tree via WebKit::createItem; the root-view-to-web-view conversion path is only exercised by iOS callers here.
         // Text extraction item creation - simplified for 10.9
         completionHandler(nil);
     }];

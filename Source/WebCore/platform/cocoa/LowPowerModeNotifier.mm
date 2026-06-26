@@ -47,7 +47,9 @@
         return nil;
 
     _notifier = &notifier;
-    // lowPowerModeEnabled and NSProcessInfoPowerStateDidChangeNotification are 10.12+
+    // MAVERICKS_BACKPORT: -[NSProcessInfo isLowPowerModeEnabled] and NSProcessInfoPowerStateDidChangeNotification
+    // are 10.12+, so guard the query with respondsToSelector: and report not-enabled on 10.9 (no Low Power Mode);
+    // the change-notification observer registration is also dropped here.
     _isLowPowerModeEnabled = [[NSProcessInfo processInfo] respondsToSelector:@selector(isLowPowerModeEnabled)] ? [(id)[NSProcessInfo processInfo] isLowPowerModeEnabled] : NO;
     return self;
 }
@@ -62,7 +64,8 @@
 - (void)detach
 {
     ASSERT(isMainThread());
-    // NSProcessInfoPowerStateDidChangeNotification is 10.12+
+    // MAVERICKS_BACKPORT: NSProcessInfoPowerStateDidChangeNotification is 10.12+, so remove this object as an
+    // observer of all notifications rather than naming that unavailable notification.
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     _notifier = nullptr;
 }
@@ -70,6 +73,8 @@
 - (void)_didReceiveLowPowerModeChange
 {
     // We need to make sure we notify the client on the main thread.
+    // MAVERICKS_BACKPORT: -[NSProcessInfo isLowPowerModeEnabled] is 10.12+, so guard the query with
+    // respondsToSelector: and report not-enabled on 10.9 instead of reading the property directly.
     BOOL currentLPM = [[NSProcessInfo processInfo] respondsToSelector:@selector(isLowPowerModeEnabled)] ? [(id)[NSProcessInfo processInfo] isLowPowerModeEnabled] : NO;
     ensureOnMainRunLoop([self, protectedSelf = RetainPtr<WebLowPowerModeObserver>(self), lowPowerModeEnabled = currentLPM] {
         if (!_notifier)

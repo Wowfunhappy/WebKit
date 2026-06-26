@@ -205,6 +205,7 @@ private:
     const RefPtr<IPC::Connection> m_connection;
     IPC::MessageReceiverMap m_messageReceiverMap;
 
+    // MAVERICKS_BACKPORT: wrap in std::optional so the member is not eagerly constructed.
     // 10.9: UserActivity → HysteresisActivity → RunLoop::Timer crashes during ctor
     // (HashTable::add memory corruption). Make this optional so WebProcess can construct.
     std::optional<UserActivity> m_processSuppressionDisabled;

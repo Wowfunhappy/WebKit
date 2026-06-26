@@ -51,6 +51,7 @@ private:
 
     WebPageProxyIdentifier m_webPageProxyID;
     Lock m_networkProcessConnectionLock;
+    // MAVERICKS_BACKPORT: nullable RefPtr (base uses a non-null Ref) so the connection can start null and be acquired lazily on first use; see WebSocketProvider.cpp.
     RefPtr<IPC::Connection> m_networkProcessConnection WTF_GUARDED_BY_LOCK(m_networkProcessConnectionLock);
 };
 

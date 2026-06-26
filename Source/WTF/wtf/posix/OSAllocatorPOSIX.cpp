@@ -37,6 +37,7 @@
 #include <wtf/SafeStrerror.h>
 #include <wtf/text/CString.h>
 
+// MAVERICKS_BACKPORT: the 10.9 SDK does not pull in the mach VM declarations (mach_vm_map, VM_* flags, mach_task_self) transitively, so include mach.h explicitly for the Darwin aligned-reservation path below.
 #if OS(DARWIN)
 #include <mach/mach.h>
 #endif

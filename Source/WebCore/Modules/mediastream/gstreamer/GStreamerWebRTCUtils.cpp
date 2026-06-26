@@ -36,6 +36,7 @@
 #include <wtf/WallTime.h>
 #include <wtf/WeakRandomNumber.h>
 #include <wtf/glib/GSpanExtras.h>
+// MAVERICKS_BACKPORT: explicit include for GMallocString (used below in createSDP); the declaration is no longer pulled in transitively under this build's non-unified/no-modules config.
 #include <wtf/glib/GMallocString.h>
 #include <wtf/text/Base64.h>
 #include <wtf/text/StringToIntegerConversion.h>

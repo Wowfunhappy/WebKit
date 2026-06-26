@@ -843,6 +843,7 @@ SUPPRESS_NODELETE static NSString *NODELETE defaultApplicationNameForUserAgent()
 
 - (void)_setPortsForUpgradingInsecureSchemeForTesting:(NSArray<NSNumber *> *)ports
 {
+    // MAVERICKS_BACKPORT: cast each NSArray element to NSNumber * before sending -unsignedIntegerValue; the 10.9 SDK's id-typed subscript result does not resolve the property dot-syntax used upstream.
     if (ports.count != 2 || ((NSNumber *)ports[0]).unsignedIntegerValue > std::numeric_limits<uint16_t>::max() || ((NSNumber *)ports[1]).unsignedIntegerValue > std::numeric_limits<uint16_t>::max())
         return;
     _pageConfiguration->setPortsForUpgradingInsecureSchemeForTesting((uint16_t)((NSNumber *)ports[0]).unsignedIntegerValue, (uint16_t)((NSNumber *)ports[1]).unsignedIntegerValue);
@@ -1280,6 +1281,7 @@ static WebKit::AttributionOverrideTesting toAttributionOverrideTesting(_WKAttrib
 
 - (BOOL)_requiresUserActionForEditingControlsManager
 {
+    // MAVERICKS_BACKPORT: gate on HAVE(TOUCH_BAR); the Touch Bar / editing-controls-manager config is absent on 10.9, so report the no-action default.
 #if HAVE(TOUCH_BAR)
     return _pageConfiguration->requiresUserActionForEditingControlsManager();
 #else
@@ -1289,6 +1291,7 @@ static WebKit::AttributionOverrideTesting toAttributionOverrideTesting(_WKAttrib
 
 - (void)_setRequiresUserActionForEditingControlsManager:(BOOL)requiresUserAction
 {
+    // MAVERICKS_BACKPORT: gate on HAVE(TOUCH_BAR); the Touch Bar / editing-controls-manager config is absent on 10.9, so the setter is a no-op there.
 #if HAVE(TOUCH_BAR)
     _pageConfiguration->setRequiresUserActionForEditingControlsManager(requiresUserAction);
 #else

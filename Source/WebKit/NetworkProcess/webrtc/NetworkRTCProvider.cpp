@@ -43,6 +43,9 @@
 #include <wtf/MainThread.h>
 #include <wtf/text/WTFString.h>
 
+// MAVERICKS_BACKPORT: select the WebRTC socket backend on WK_RTC_USE_NW rather than PLATFORM(COCOA).
+// The Cocoa nw_* socket/session classes require 10.14+, so on 10.9 (WK_RTC_USE_NW == 0) we compile
+// the portable libwebrtc BasicPacketSocketFactory path instead. See RTCNetwork.h.
 #if WK_RTC_USE_NW
 #include "NetworkRTCTCPSocketCocoa.h"
 #include "NetworkRTCUDPSocketCocoa.h"
@@ -66,6 +69,8 @@ NetworkRTCProvider::NetworkRTCProvider(NetworkConnectionToWebProcess& connection
     , m_ipcConnection(connection.connection())
     , m_rtcMonitor(*this)
     , m_sharedPreferences(connection.sharedPreferencesForWebProcessValue())
+// MAVERICKS_BACKPORT: WK_RTC_USE_NW gate (vs upstream PLATFORM(COCOA)): on 10.9 the nw_*-backed
+// members are absent and we instead build the portable libwebrtc packet-socket factory below.
 #if WK_RTC_USE_NW
     , m_sourceApplicationAuditToken(connection.networkProcess().sourceApplicationAuditToken())
     , m_rtcNetworkThreadQueue(WorkQueue::create("NetworkRTCProvider Queue"_s, WorkQueue::QOS::UserInitiated))
@@ -107,6 +112,8 @@ void NetworkRTCProvider::close()
         for (auto& socket : sockets)
             socket.second->close();
         ASSERT(m_sockets.empty());
+// MAVERICKS_BACKPORT: WK_RTC_USE_NW gate (vs upstream PLATFORM(COCOA)); m_attributedBundleIdentifiers
+// only exists on the nw_* path, which is compiled out on 10.9.
 #if WK_RTC_USE_NW
         m_attributedBundleIdentifiers.clear();
 #endif
@@ -237,6 +244,9 @@ void NetworkRTCProvider::stopResolver(LibWebRTCResolverIdentifier identifier)
     WebCore::stopResolveDNS(identifier.toUInt64());
 }
 
+// MAVERICKS_BACKPORT: WK_RTC_USE_NW (vs upstream PLATFORM(COCOA)) selects the nw_*-backed method
+// bodies; on 10.9 (WK_RTC_USE_NW == 0) the portable libwebrtc implementations in the #else block
+// below are compiled instead.
 #if WK_RTC_USE_NW
 bool NetworkRTCProvider::webRTCInterfaceMonitoringViaNWEnabled() const
 {
@@ -308,6 +318,8 @@ void NetworkRTCProvider::assertIsRTCNetworkThread()
     assertIsCurrent(m_rtcNetworkThreadQueue);
 }
 
+// MAVERICKS_BACKPORT: portable libwebrtc rtcNetworkThread()/socket implementations used on 10.9
+// where the nw_* path above is unavailable (WK_RTC_USE_NW == 0; upstream gates this on !PLATFORM(COCOA)).
 #else // !WK_RTC_USE_NW
 webrtc::Thread& NetworkRTCProvider::rtcNetworkThread()
 {
@@ -383,6 +395,7 @@ void NetworkRTCProvider::assertIsRTCNetworkThread()
     ASSERT(rtcNetworkThread().IsCurrent());
 }
 
+// MAVERICKS_BACKPORT: portable getInterfaceName provided for the 10.9 build (base lacks it).
 // The Cocoa getInterfaceName uses Network.framework nw_* (10.14+) to bind candidates to a
 // specific interface. On the portable path (10.9) we don't have it; return an empty name so
 // the caller (LibWebRTCNetworkManager) simply skips the interface-binding optimization. The

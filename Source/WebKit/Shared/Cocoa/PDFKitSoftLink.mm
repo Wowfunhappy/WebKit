@@ -37,6 +37,7 @@ SOFT_LINK_CLASS_FOR_SOURCE(WebKit, PDFKit, PDFActionNamed)
 SOFT_LINK_CLASS_FOR_SOURCE(WebKit, PDFKit, PDFDocument)
 SOFT_LINK_CLASS_FOR_SOURCE(WebKit, PDFKit, PDFLayerController)
 SOFT_LINK_CLASS_FOR_SOURCE(WebKit, PDFKit, PDFSelection)
+// MAVERICKS_BACKPORT: undefine the 10.9 SDK's kPDFDestinationUnspecifiedValue macro so the soft-link machinery can token-paste the symbol name.
 // kPDFDestinationUnspecifiedValue may be defined as a macro expanding to CGFLOAT_MAX,
 // which creates an invalid preprocessing token when pasted into get_PDFKit_##variableName.
 // Undefine the macro so the soft-link machinery can use the symbol name as a token.
@@ -45,6 +46,7 @@ SOFT_LINK_CLASS_FOR_SOURCE(WebKit, PDFKit, PDFSelection)
 #endif
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, PDFKit, kPDFDestinationUnspecifiedValue, CGFloat)
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, PDFKit, PDFViewCopyPermissionNotification, NSNotificationName)
+// MAVERICKS_BACKPORT: define the PDFDocumentAttribute type the 10.9 PDFKit SDK lacks (it is a plain NSString * there)
 // PDFDocumentAttribute is NSString * on older SDKs
 #ifndef PDFDocumentAttribute
 typedef NSString * PDFDocumentAttribute;

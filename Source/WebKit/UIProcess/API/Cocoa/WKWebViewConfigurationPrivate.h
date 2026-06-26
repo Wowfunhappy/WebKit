@@ -1,3 +1,4 @@
+// MAVERICKS_BACKPORT: add a textual include guard; built with -fno-modules on 10.9, so this header is imported textually and needs guarding against double inclusion.
 #ifndef WKWebViewConfigurationPrivate_h
 #define WKWebViewConfigurationPrivate_h
 
@@ -200,4 +201,5 @@ typedef NS_ENUM(NSUInteger, _WKContentSecurityPolicyModeForExtension) {
 
 #endif
 
+// MAVERICKS_BACKPORT: close the textual include guard added at the top for the -fno-modules 10.9 build.
 #endif /* WKWebViewConfigurationPrivate_h */

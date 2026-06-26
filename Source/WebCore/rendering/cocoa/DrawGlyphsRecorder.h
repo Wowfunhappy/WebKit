@@ -26,6 +26,12 @@
 
 #pragma once
 
+// MAVERICKS_BACKPORT: this file is a verbatim copy of
+// platform/graphics/coretext/DrawGlyphsRecorder.h placed at the rendering/cocoa/
+// include path so RenderThemeCocoa.mm / RenderThemeIOS.mm resolve `#import
+// "DrawGlyphsRecorder.h"` under this build's header map. Keep it in sync with the
+// canonical coretext header.
+
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
 #include <WebCore/AffineTransform.h>
