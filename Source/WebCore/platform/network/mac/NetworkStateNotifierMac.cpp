@@ -76,13 +76,28 @@ void NetworkStateNotifier::updateStateWithoutNotifying()
 
 void NetworkStateNotifier::startObserving()
 {
-    // 10.9 backport: SystemConfiguration constants in our polyfill don't behave as
-    // proper CFStrings — SCDynamicStoreKeyCreate* calls format them via
-    // CFStringCreateWithFormat / __CFCopyFormattingDescription, which sends -description
-    // to the (non-CFString) polyfill values and crashes in CF objc forwarding.
-    // We skip the whole notifier; m_isOnLine stays at its default (true) so navigator.onLine
-    // reports online and HTTP fetches proceed.
-    return;
+    SCDynamicStoreContext context = { 0, this, 0, 0, 0 };
+    m_store = adoptCF(SCDynamicStoreCreate(0, CFSTR("com.apple.WebCore"), [] (SCDynamicStoreRef, CFArrayRef, void*) {
+        // Calling updateState() could be expensive so we coalesce calls with a timer.
+        singleton().updateStateSoon();
+    }, &context));
+    if (!m_store)
+        return;
+
+    auto source = adoptCF(SCDynamicStoreCreateRunLoopSource(0, m_store.get(), 0));
+    if (!source)
+        return;
+
+    CFRunLoopAddSource(RetainPtr { CFRunLoopGetMain() }.get(), source.get(), kCFRunLoopCommonModes);
+
+    auto keys = adoptCF(CFArrayCreateMutable(0, 0, &kCFTypeArrayCallBacks));
+    CFArrayAppendValue(keys.get(), adoptCF(SCDynamicStoreKeyCreateNetworkGlobalEntity(0, kSCDynamicStoreDomainState, kSCEntNetIPv4)).get());
+    CFArrayAppendValue(keys.get(), adoptCF(SCDynamicStoreKeyCreateNetworkGlobalEntity(0, kSCDynamicStoreDomainState, kSCEntNetDNS)).get());
+
+    auto patterns = adoptCF(CFArrayCreateMutable(0, 0, &kCFTypeArrayCallBacks));
+    CFArrayAppendValue(patterns.get(), adoptCF(SCDynamicStoreKeyCreateNetworkInterfaceEntity(0, kSCDynamicStoreDomainState, kSCCompAnyRegex, kSCEntNetIPv4)).get());
+
+    SCDynamicStoreSetNotificationKeys(m_store.get(), keys.get(), patterns.get());
 }
     
 }

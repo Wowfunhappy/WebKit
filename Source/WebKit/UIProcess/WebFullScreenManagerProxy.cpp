@@ -173,8 +173,7 @@ void WebFullScreenManagerProxy::close()
 
 void WebFullScreenManagerProxy::detachFromClient()
 {
-    // 10.9 backport: close() crashes when called during the process-termination cascade
-    // because m_client may already point to freed memory. Just clear the pointer.
+    close();
     m_client = nullptr;
 }
 

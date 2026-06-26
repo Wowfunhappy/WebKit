@@ -978,16 +978,46 @@ void WebProcess::initializeLogForwarding(const WebProcessCreationParameters& par
 void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationParameters& parameters)
 
 {
-    // MAVERICKS_BACKPORT: the upstream platform init (CGS connection deny, extra sandbox
-    // parameters, accessibility bootstrap) is handled elsewhere on 10.9; the one piece that
-    // must run here is enabling the public-suffix cache, which PublicSuffixStore::addPublicSuffix
-    // asserts is engaged on every page load. enablePublicSuffixCache() only takes a lock and
-    // assigns an empty set (no 10.9-absent API), so it is safe.
     WebCore::PublicSuffixStore::singleton().enablePublicSuffixCache();
-    if (parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("is-prewarmed"_s) == "1"_s)
+
+#if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: upstream also calls CGSSetDenyWindowServerConnections(true) here
+    // (with a RELEASE_ASSERT on success). The WebContent process intentionally keeps its
+    // WindowServer connection on this backport for the TiledCoreAnimation drawing path, so
+    // that call stays removed. shouldSetupPowerObserver() is a plain WebCore setter with no
+    // 10.9-absent API and must run.
+    MainThreadSharedTimer::shouldSetupPowerObserver() = false;
+#endif // PLATFORM(MAC)
+
+    if (parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("inspector-process"_s) == "1"_s)
+        m_processType = ProcessType::Inspector;
+    else if (parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("service-worker-process"_s) == "1"_s) {
+        m_processType = ProcessType::ServiceWorker;
+#if PLATFORM(MAC)
+        m_registrableDomain = RegistrableDomain::uncheckedCreateFromRegistrableDomainString(parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("registrable-domain"_s));
+#endif
+    }
+    else if (parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("is-prewarmed"_s) == "1"_s)
         m_processType = ProcessType::PrewarmedWebContent;
     else
         m_processType = ProcessType::WebContent;
+
+#if USE(OS_STATE)
+    registerWithStateDumper("WebContent state"_s);
+#endif
+
+#if HAVE(APP_SSO) || PLATFORM(MACCATALYST)
+    // MAVERICKS_BACKPORT: App SSO is 10.13+; +[NSURLSession _disableAppSSO] is absent on 10.9.
+    // Guard with respondsToSelector so the call is skipped (instead of throwing) on this build.
+    if ([NSURLSession respondsToSelector:@selector(_disableAppSSO)])
+        [NSURLSession _disableAppSSO];
+#endif
+
+#if HAVE(CSCHECKFIXDISABLE)
+    // _CSCheckFixDisable() needs to be called before checking in with Launch Services. The WebContent process is checking in
+    // with Launch Services in WebProcess::platformInitializeWebProcess when calling +[NSApplication _accessibilityInitialize].
+    _CSCheckFixDisable();
+#endif
 }
 
 #if USE(APPKIT)

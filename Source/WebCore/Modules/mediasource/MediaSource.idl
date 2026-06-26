@@ -44,14 +44,10 @@ enum ReadyState {
     ActiveDOMObject,
     Conditional=MEDIA_SOURCE,
     ConditionalForWorker=MEDIA_SOURCE_IN_WORKERS,
+    EnabledBySetting=MediaSourceEnabled,
     EnabledForContext,
     Exposed=(Window,DedicatedWorker)
 ] interface MediaSource : EventTarget {
-    // MAVERICKS_BACKPORT: keystone band-aid #50 — EnabledBySetting=MediaSourceEnabled removed. On this
-    // port MEDIA_SOURCE is always compiled on and must always be exposed, but Safari 7/9's UIProcess never
-    // sets the modern mediaSourceEnabled preference true, so the per-page setting stayed false and
-    // window.MediaSource was never installed (verified: typeof MediaSource === "undefined"). Gating only on
-    // the compile-time Conditional + EnabledForContext (true for Documents) exposes it unconditionally.
     [CallWith=CurrentScriptExecutionContext] constructor(optional MediaSourceInit init = {});
 
     [EnabledBySetting=DetachableMediaSourceEnabled] readonly attribute boolean detachable;

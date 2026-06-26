@@ -94,7 +94,6 @@ const CFStringRef kCUIWidgetSwitchFill = CFSTR("kCUIWidgetSwitchFill");
 const CFStringRef kCUIWidgetSwitchFillMask = CFSTR("kCUIWidgetSwitchFillMask");
 const CFStringRef kCUIWidgetSwitchKnob = CFSTR("kCUIWidgetSwitchKnob");
 const CFStringRef kCUIWidgetSwitchOnOffLabel = CFSTR("kCUIWidgetSwitchOnOffLabel");
-const CFStringRef kSCCompAnyRegex = CFSTR("kSCCompAnyRegex");
 const CFStringRef kSCDynamicStorePropNetInterfaces = CFSTR("kSCDynamicStorePropNetInterfaces");
 // NSHTTPCookie SameSite property key (NSString, 10.13+). WebKit only reads it behind a
 // respondsToSelector(@selector(sameSitePolicy)) guard that fails on 10.9, so it is never dereferenced;

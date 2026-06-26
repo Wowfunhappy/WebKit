@@ -631,6 +631,16 @@ AsyncFrameScrollingEnabled:
       default: false
     WebKit:
       "USE(COORDINATED_GRAPHICS)": true
+      # 10.9 backport: async frame (main-frame) scrolling drives wheel/trackpad scrolls through the
+      # async ThreadedScrollingTree, whose scrolling-thread layer commit is never serviced in this
+      # backport -- the same root as AsyncOverflowScrollingEnabled (#125) and the keyboard-scroll fix
+      # (#56/#57). With it on, the main frame's scroll offset/scrollbar/hit-testing update but the
+      # composited scrolled-contents layer never moves, so the page appears stuck. Default OFF for
+      # PLATFORM(MAC) so main-frame wheel scrolling takes the synchronous main-thread
+      # ScrollableArea::handleWheelEventForScrolling path (preserving wheel granularity, rubber-band,
+      # snap points and latching). Selects an existing upstream path; adds no mechanism. MAC must
+      # precede COCOA here: the generator emits #if/#elif/#else in order, first match wins.
+      "PLATFORM(MAC)": false
       "PLATFORM(COCOA)": true
       default: false
     WebCore:

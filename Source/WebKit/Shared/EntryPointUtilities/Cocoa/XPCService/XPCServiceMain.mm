@@ -301,11 +301,11 @@ void XPCServiceEventHandler(xpc_connection_t peer)
     xpc_connection_resume(peer);
 }
 
-// 10.9 backport DIAGNOSTIC: ReportCrash/sample/spindump all crash on this VM, so fatal signals never
-// produce a usable backtrace. Install an in-process handler that dumps backtrace_symbols to stderr (which
-// XPCServiceMain redirects to /tmp/wc-stderr-<pid>.log) before re-raising the default action. This is how
-// we capture the NetworkProcess SIGSEGV stack. Safe-enough for a debugging build: backtrace()/write() are
-// the standard crash-dump primitives.
+// 10.9 backport DIAGNOSTIC (opt-in via WEBKIT_MAVERICKS_DEBUG): ReportCrash/sample/spindump all crash on
+// this VM, so fatal signals never produce a usable backtrace. When the handler is installed, it dumps
+// backtrace_symbols to stderr (which XPCServiceMain redirects to /tmp/wc-stderr-<pid>.log) before
+// re-raising the default action. This is how we capture the NetworkProcess SIGSEGV stack. backtrace()/write()
+// are the standard crash-dump primitives, and the handler re-raises with SIG_DFL so crashes are never swallowed.
 static void webkitMavericksCrashBacktrace(int sig)
 {
     void* frames[256];
@@ -322,16 +322,20 @@ static void webkitMavericksCrashBacktrace(int sig)
 
 int XPCServiceMain(int, const char**)
 {
-    // 10.9 backport: redirect stderr to per-pid file so WebContent fprintfs are visible.
-    {
+    // 10.9 backport DIAGNOSTIC (opt-in via WEBKIT_MAVERICKS_DEBUG, default OFF): redirect stderr to a
+    // per-pid file so WebContent fprintfs are visible, and install the in-process crash-backtrace handler.
+    // Both are gated off by default so production launches do not write world-readable /tmp logs or alter
+    // signal disposition; export WEBKIT_MAVERICKS_DEBUG to enable while debugging.
+    if (getenv("WEBKIT_MAVERICKS_DEBUG")) {
         char path[128];
         snprintf(path, sizeof(path), "/tmp/wc-stderr-%d.log", getpid());
         int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0666);
         if (fd >= 0) { dup2(fd, 2); close(fd); }
         fprintf(stderr, "[XPCServiceMain] stderr redirect active pid=%d\n", getpid()); fflush(stderr);
+
+        for (int sig : { SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGFPE, SIGTRAP })
+            signal(sig, webkitMavericksCrashBacktrace);
     }
-    for (int sig : { SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGFPE, SIGTRAP })
-        signal(sig, webkitMavericksCrashBacktrace);
 
     // Initialize WTF and main thread on the ACTUAL main thread (before xpc_main).
     // This is critical because xpc_main's event handlers run on background threads,

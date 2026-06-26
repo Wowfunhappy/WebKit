@@ -359,7 +359,7 @@ RetainPtr<NSWindow> WebInspectorUIProxy::createFrontendWindow(NSRect savedWindow
     if (inspectedPage)
         [window setInspectedWebView:inspectedPage->cocoaView().get()];
 
-    // 10.9 backport: NSWindow lacks setMinFullScreenContentSize / FullScreenAllowsTiling / Auxiliary / titlebarAppearsTransparent.
+    // MAVERICKS_BACKPORT: NSWindow lacks setMinFullScreenContentSize / FullScreenAllowsTiling / Auxiliary / titlebarAppearsTransparent.
     if ([window respondsToSelector:@selector(setMinFullScreenContentSize:)]) {
         CGFloat approximatelyHalfScreenSize = ([window screen].frame.size.width / 2) - 4;
         CGFloat minimumFullScreenWidth = std::max<CGFloat>(636, approximatelyHalfScreenSize);
@@ -473,7 +473,7 @@ void WebInspectorUIProxy::platformCreateFrontendWindow()
     RetainPtr<WKWebView> inspectorView = [m_inspectorViewController webView];
     RetainPtr<NSView> contentView = [m_inspectorWindow contentView];
 
-    // 10.9 backport (#66/#69, unified inspector toolbar): NSWindowStyleMaskFullSizeContentView and
+    // MAVERICKS_BACKPORT (#66/#69, unified inspector toolbar): NSWindowStyleMaskFullSizeContentView and
     // -setTitlebarAppearsTransparent: are 10.10+ and silently ignored on 10.9, and overriding the
     // window's public contentRectForFrameRect: doesn't move the content view either (10.9's
     // NSThemeFrame lays it out below the titlebar regardless). So host the inspector webView
@@ -499,19 +499,19 @@ void WebInspectorUIProxy::platformCreateFrontendWindow()
     updateInspectorWindowTitle();
     applyForcedAppearance();
 
-    // 10.9 backport: force the inspector page to be in-window+visible so its DrawingArea
+    // MAVERICKS_BACKPORT: force the inspector page to be in-window+visible so its DrawingArea
     // sends layer-tree commits to the UI process. Without this, the inspector WebPage exists
     // and loads its frontend HTML but never paints (no ui-commit transactions for its pageID).
     [m_inspectorWindow makeKeyAndOrderFront:nil];
     if (RefPtr page = m_inspectorPage.get())
         page->activityStateDidChange(WebCore::allActivityStates(), WebPageProxy::ActivityStateChangeDispatchMode::Immediate);
 
-    // 10.9 backport: force wantsLayer on inspectorView so the RemoteLayerTree rootLayer
+    // MAVERICKS_BACKPORT: force wantsLayer on inspectorView so the RemoteLayerTree rootLayer
     // attached inside m_layerHostingView actually composites.
     [inspectorView.get() setWantsLayer:YES];
     [contentView.get() setWantsLayer:YES];
 
-    // 10.9 backport: explicitly push the inspector view size to the inspector WebPage's
+    // MAVERICKS_BACKPORT: explicitly push the inspector view size to the inspector WebPage's
     // DrawingAreaProxy. Without this the rootLayer stays 0x0 and the inspector frontend
     // renders into nothing (10.9 WKWebView layout strategy doesn't auto-propagate size).
     NSSize newSize = contentView.get().bounds.size;
@@ -763,7 +763,7 @@ void WebInspectorUIProxy::windowFrameDidChange()
     RetainPtr frameString = NSStringFromRect([m_inspectorWindow frame]);
     inspectedPage->pageGroup().preferences().setInspectorWindowFrame(frameString.get());
 
-    // 10.9 backport (#66/#69): the inspector webView is hosted in the window's NSThemeFrame for the
+    // MAVERICKS_BACKPORT (#66/#69): the inspector webView is hosted in the window's NSThemeFrame for the
     // unified toolbar. NSThemeFrame does its own layout and does NOT honor the autoresizing mask on
     // our manually-added subview, and 10.9 WKWebView doesn't auto-propagate its size to its
     // DrawingArea (same reason platformCreateFrontendPage force-pushes the initial size). So on every
@@ -989,7 +989,7 @@ void WebInspectorUIProxy::platformStartWindowDrag()
 
 bool WebInspectorUIProxy::platformInspectorPageLoadOverride(WebPageProxy& inspectorPage, const String& url)
 {
-    // 10.9 backport: force the inspector page into a visible/in-window state so WebContent's
+    // MAVERICKS_BACKPORT: force the inspector page into a visible/in-window state so WebContent's
     // FrameLoader actually executes the load. Without this, hostWindow is null and the load
     // queues forever inside WebCore::Page.
     inspectorPage.activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsInWindow, WebCore::ActivityState::WindowIsActive, WebCore::ActivityState::IsFocused }, WebPageProxy::ActivityStateChangeDispatchMode::Immediate);
@@ -1001,23 +1001,23 @@ bool WebInspectorUIProxy::platformInspectorPageLoadOverride(WebPageProxy& inspec
         return false;
     NSString *html = [[[NSString alloc] initWithData:htmlData encoding:NSUTF8StringEncoding] autorelease];
     if (html) {
-        // 10.9 backport: strip CSP meta — classic frontend's `default-src 'self'; script-src
+        // MAVERICKS_BACKPORT: strip CSP meta — classic frontend's `default-src 'self'; script-src
         // 'self' 'unsafe-inline'` blocks under file:// because 'self' has the null origin.
         NSRange metaStart = [html rangeOfString:@"<meta http-equiv=\"Content-Security-Policy\""];
         if (metaStart.location != NSNotFound) {
             NSRange metaEnd = [html rangeOfString:@">" options:0 range:NSMakeRange(metaStart.location, html.length - metaStart.location)];
             if (metaEnd.location != NSNotFound) {
                 NSRange whole = NSMakeRange(metaStart.location, metaEnd.location - metaStart.location + 1);
-                html = [html stringByReplacingCharactersInRange:whole withString:@"<!-- CSP stripped by 10.9 backport -->"];
+                html = [html stringByReplacingCharactersInRange:whole withString:@"<!-- CSP stripped by MAVERICKS_BACKPORT -->"];
             }
         }
-        // 10.9 backport: inject a shim BEFORE Main.js that bridges the classic Safari 9-era
+        // MAVERICKS_BACKPORT: inject a shim BEFORE Main.js that bridges the classic Safari 9-era
         // InspectorFrontendHost API (which expects platform(), localizedStringsURL(),
         // inspectorBackendCommandsURLs() as methods) to the modern WebKit 615.1.1 IDL (which
         // exposes them as attribute getters under different names).
         NSRange firstScript = [html rangeOfString:@"<script"];
         if (firstScript.location != NSNotFound) {
-            // 10.9 backport (#69): paint the unified-toolbar gradient + traffic-light inset here at
+            // MAVERICKS_BACKPORT (#69): paint the unified-toolbar gradient + traffic-light inset here at
             // frontend-load time instead of patching the system WebInspectorUI Main.css — keeps the
             // stock bundle pristine (no system-file edit). The undocked inspector window has no
             // native textured titlebar, and _WKInspectorWindow makes #toolbar fill the titlebar
@@ -1056,7 +1056,7 @@ bool WebInspectorUIProxy::platformInspectorPageLoadOverride(WebPageProxy& inspec
                               "}catch(e){}return origSend(messageStr);};"
                               "var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){return origDisp(obj.params.message);}}catch(e){}return origDisp(message);};}}});"
                               "})();}catch(e){console.log('[shim] THREW '+e);}"
-                              // 10.9 (#69): make the WHOLE inspector toolbar background a native window-drag
+                              // MAVERICKS_BACKPORT (#69): make the WHOLE inspector toolbar background a native window-drag
                               // handle. The web view covers the native titlebar (unified-toolbar emulation) so
                               // AppKit titlebar-dragging is gone, and the stock frontend only arms a narrow
                               // moveWindowBy region. Route toolbar-background mousedowns (off interactive items)
@@ -1080,7 +1080,7 @@ bool WebInspectorUIProxy::platformInspectorPageLoadOverride(WebPageProxy& inspec
 
 String WebInspectorUIProxy::inspectorPageURL()
 {
-    // 10.9 backport: bypass the inspector-resource:// scheme handler (IPC encoding of
+    // MAVERICKS_BACKPORT: bypass the inspector-resource:// scheme handler (IPC encoding of
     // SharedBuffer over WebPage::URLSchemeTaskDidReceiveData crashes the UI process).
     // Use file:// directly so WebContent can read the bundle resources itself.
     // Prefer the Safari 8-era WebInspectorUI at /System/Library/PrivateFrameworks/ — its

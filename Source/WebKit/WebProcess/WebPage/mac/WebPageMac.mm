@@ -184,18 +184,6 @@ void WebPage::platformDetach()
 
 void WebPage::getPlatformEditorState(LocalFrame& frame, EditorState& result) const
 {
-    // 10.9 backport: skip the full VisibleSelection-based path because DDG
-    // (and likely other sites) trigger SIGSEGV deep inside it via a stale
-    // m_anchorNode pointer. BUT compute isContentEditable safely from
-    // Document::focusedElement (which uses computed style, not selection)
-    // so the UIProcess can route Cmd-C/V/X actions correctly when focus is
-    // on a real editable element.
-    if (RefPtr document = frame.document()) {
-        if (RefPtr focused = document->focusedElement())
-            result.isContentEditable = focused->isContentEditable();
-    }
-    return;
-
     getPlatformEditorStateCommon(frame, result);
 
     result.canEnableAutomaticSpellingCorrection = result.isContentEditable && protect(frame.editor())->canEnableAutomaticSpellingCorrection();

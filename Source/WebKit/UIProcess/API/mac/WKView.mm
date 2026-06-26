@@ -306,8 +306,15 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     NSString *s = [string isKindOfClass:[NSAttributedString class]] ? [(NSAttributedString *)string string] : (NSString *)string;
     if (!s)
         return;
-    if (tlsCollectingCommands)
-        tlsCollectingCommands->append(WebCore::KeypressCommand("insertText:"_s, String(s)));
+    if (tlsCollectingCommands) {
+        WebCore::KeypressCommand command("insertText:"_s, String(s));
+        tlsCollectingCommands->append(command);
+        // Register the collected selector so WebPageProxy::executeSavedCommandBySelector's
+        // MESSAGE_CHECK(isValidKeypressCommandName) accepts the WebContent reply for it,
+        // mirroring WebViewImpl's WKWebView path.
+        if (_wkState && _wkState->page)
+            _wkState->page->registerKeypressCommandName(command.commandName);
+    }
 }
 - (NSRange)markedRange { return NSMakeRange(NSNotFound, 0); }
 - (NSRange)selectedRange { return NSMakeRange(NSNotFound, 0); }
@@ -317,7 +324,13 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 {
     if (!tlsCollectingCommands)
         return;
-    tlsCollectingCommands->append(WebCore::KeypressCommand(String::fromLatin1(sel_getName(selector))));
+    WebCore::KeypressCommand command(String::fromLatin1(sel_getName(selector)));
+    tlsCollectingCommands->append(command);
+    // Register the collected selector so WebPageProxy::executeSavedCommandBySelector's
+    // MESSAGE_CHECK(isValidKeypressCommandName) accepts the WebContent reply for it,
+    // mirroring WebViewImpl's WKWebView path.
+    if (_wkState && _wkState->page)
+        _wkState->page->registerKeypressCommandName(command.commandName);
 }
 - (BOOL)conformsToProtocol:(Protocol *)protocol
 {

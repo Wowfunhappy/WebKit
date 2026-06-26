@@ -331,7 +331,15 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
     // endpoints reject with HTTP 400. Manually inject cookies whenever the
     // request doesn't already carry a Cookie header — covers fetch() requests
     // whose storedCredentialsPolicy may not be Use even for same-origin endpoints.
-    if (parameters.storedCredentialsPolicy != WebCore::StoredCredentialsPolicy::DoNotUse) {
+    // Honor the loader's intent to suppress cookies: CrossOriginAccessControl
+    // clears request.allowCookies() for CORS no-credentials requests and
+    // preflights, and HTTPShouldHandleCookies==NO means the same. On 10.9 the
+    // per-task suppression in blockCookies() is a no-op (it needs 10.10+/10.13+
+    // SPI), so this gate is the only thing keeping us from attaching cookies the
+    // loader meant to drop.
+    if (parameters.storedCredentialsPolicy != WebCore::StoredCredentialsPolicy::DoNotUse
+        && request.allowCookies()
+        && [nsRequest HTTPShouldHandleCookies]) {
         NSString *existingCookie = [nsRequest valueForHTTPHeaderField:@"Cookie"];
         if (existingCookie.length == 0) {
             NSHTTPCookieStorage *cookieStorage = m_sessionWrapper->session.get().configuration.HTTPCookieStorage;

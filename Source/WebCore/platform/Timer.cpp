@@ -271,9 +271,13 @@ private:
 
 static bool shouldSuppressThreadSafetyCheck()
 {
-    // 10.9 backport: m_thread can be clobbered by various heap corruption.
-    // Suppress unconditionally so timers can still be stopped/restarted.
-    return true;
+#if PLATFORM(IOS_FAMILY)
+    return WebThreadIsEnabled() || !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::TimerThreadSafetyChecks);
+#elif PLATFORM(MAC)
+    return !isInWebProcess() && !linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::TimerThreadSafetyChecks);
+#else
+    return false;
+#endif
 }
 
 struct SameSizeAsTimer {
