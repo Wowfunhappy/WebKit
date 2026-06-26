@@ -459,7 +459,7 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
         if (properties.cornerRadius && [layer respondsToSelector:@selector(setCornerCurve:)])
             layer.cornerCurve = kCACornerCurveCircular;
-#endif
+#endif // MAVERICKS_BACKPORT: CALayer.cornerCurve is 10.15+; absent on 10.9.
     }
 
     if (properties.changedProperties & LayerChange::ShapeRoundedRectChanged) {

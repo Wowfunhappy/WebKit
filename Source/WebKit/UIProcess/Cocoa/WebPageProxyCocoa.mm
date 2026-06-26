@@ -85,13 +85,14 @@
 #import <WebCore/NetworkExtensionContentFilter.h>
 #import <WebCore/NotImplemented.h>
 #import <WebCore/NowPlayingInfo.h>
+// MAVERICKS_BACKPORT: VIDEO_PRESENTATION_MODE is off on 10.9, so these PlaybackSessionInterface headers aren't built; gate the imports to avoid pulling in unbuilt interfaces.
 #if ENABLE(VIDEO_PRESENTATION_MODE) || PLATFORM(IOS_FAMILY)
 #import <WebCore/NullPlaybackSessionInterface.h>
 #import <WebCore/PlatformPlaybackSessionInterface.h>
 #import <WebCore/PlaybackSessionInterfaceAVKitLegacy.h>
 #import <WebCore/PlaybackSessionInterfaceMac.h>
 #import <WebCore/PlaybackSessionInterfaceTVOS.h>
-#endif
+#endif // MAVERICKS_BACKPORT: end VIDEO_PRESENTATION_MODE-gated PlaybackSessionInterface imports.
 #import <WebCore/RenderTheme.h>
 #import <WebCore/RunLoopObserver.h>
 #import <WebCore/SearchPopupMenuCocoa.h>
@@ -102,6 +103,7 @@
 #import <WebCore/VideoPresentationInterfaceIOS.h>
 #import <WebCore/WebTextIndicatorLayer.h>
 #import <pal/spi/cocoa/LaunchServicesSPI.h>
+// MAVERICKS_BACKPORT: pull in the public QuartzCore header for CATransaction on 10.9.
 #import <QuartzCore/QuartzCore.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <pal/spi/ios/BrowserEngineKitSPI.h>
@@ -840,7 +842,7 @@ void WebPageProxy::addActivityStateUpdateCompletionHandler(CompletionHandler<voi
 void WebPageProxy::createTextFragmentDirectiveFromSelection(CompletionHandler<void(URL&&)>&& completionHandler)
 {
     if (!hasRunningProcess()) {
-        completionHandler({ });
+        completionHandler({ }); // MAVERICKS_BACKPORT: always invoke the async completion handler on the no-process early return.
         return;
     }
 
@@ -1601,7 +1603,7 @@ void WebPageProxy::proofreadingSessionUpdateStateForSuggestionWithID(IPC::Connec
 void WebPageProxy::createTextIndicatorForElementWithID(const String& elementID, CompletionHandler<void(RefPtr<WebCore::TextIndicator>&&)>&& completionHandler)
 {
     if (!hasRunningProcess()) {
-        completionHandler(nullptr);
+        completionHandler(nullptr); // MAVERICKS_BACKPORT: pass nullptr (not nil) to the typed RefPtr async completion handler.
         return;
     }
 

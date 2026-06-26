@@ -132,6 +132,8 @@ Ref<ScrollingTreeNode> RemoteScrollingTreeMac::createScrollingTreeNode(Scrolling
         return ScrollingTreeOverflowScrollingNodeRemoteMac::create(*this, nodeID);
 
     case ScrollingNodeType::PluginScrolling:
+        // MAVERICKS_BACKPORT: PDF plugin scrolling nodes are disabled, so the
+        // dedicated node type is never created; fall back to the base instead.
         ASSERT_NOT_REACHED();
         return RemoteScrollingTree::createScrollingTreeNode(nodeType, nodeID);
 

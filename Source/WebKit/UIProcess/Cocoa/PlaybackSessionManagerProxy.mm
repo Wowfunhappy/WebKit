@@ -46,7 +46,7 @@
 #import <WebCore/PlaybackSessionInterfaceAVKitLegacy.h>
 #import <WebCore/PlaybackSessionInterfaceMac.h>
 #import <WebCore/PlaybackSessionInterfaceTVOS.h>
-#endif
+#endif // MAVERICKS_BACKPORT: end of VIDEO_PRESENTATION_MODE-gated PlaybackSessionInterface imports (unbuilt on 10.9).
 #if HAVE(PIP_SKIP_PREROLL)
 #import <WebCore/VideoPresentationInterfaceMac.h>
 #endif

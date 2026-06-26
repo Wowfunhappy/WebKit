@@ -143,6 +143,7 @@ void ScrollingTreeScrollingNodeDelegateMac::updateFromStateNode(const ScrollingS
 
 bool ScrollingTreeScrollingNodeDelegateMac::handleWheelEvent(const PlatformWheelEvent& wheelEvent)
 {
+    // MAVERICKS_BACKPORT: behavior #55/#39 — track presentation-value state across the WHOLE gesture (active drag + momentum); see below.
     bool wasUsingPresentationValues = m_inActiveScrollGesture || m_inMomentumPhase;
 
     if (wheelEvent.momentumPhase() == PlatformWheelEventPhase::Began)
@@ -409,6 +410,7 @@ void ScrollingTreeScrollingNodeDelegateMac::updateScrollbarPainters()
     // values so the thumb still updates (this is the call already used on commit; same thread).
     if (m_scrollerPair->isUsingPresentationValues())
         m_scrollerPair->updateScrollbarPainters();
+    // MAVERICKS_BACKPORT: behavior #55/#39 — outside the gesture (discrete ticks/idle) push normal scroller values so the thumb still updates.
     else
         m_scrollerPair->updateValues();
 }

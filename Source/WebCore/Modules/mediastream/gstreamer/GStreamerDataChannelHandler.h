@@ -30,12 +30,14 @@
 #include <wtf/Condition.h>
 #include <wtf/Lock.h>
 #include <wtf/TZoneMalloc.h>
+// MAVERICKS_BACKPORT: base class for the DataChannelHandlerGuard alive-guard below.
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class Document;
+// MAVERICKS_BACKPORT: forward-declared for the DataChannelHandlerGuard alive-guard below.
 class GStreamerDataChannelHandler;
 class RTCDataChannelEvent;
 class RTCDataChannelHandlerClient;

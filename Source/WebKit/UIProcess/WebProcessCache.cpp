@@ -92,24 +92,30 @@ void WebProcessCache::deref() const
 
 bool WebProcessCache::canCacheProcess(WebProcessProxy& process) const
 {
+    // MAVERICKS_BACKPORT: same eligibility checks as upstream, with the per-reason WEBPROCESSCACHE_RELEASE_LOG diagnostics dropped.
     if (!process.isEligibleForWebProcessCache())
         return false;
 
+    // MAVERICKS_BACKPORT: release-log dropped (see note above).
     if (!capacity())
         return false;
 
+    // MAVERICKS_BACKPORT: release-log dropped (see note above).
     if (!process.isSharedProcess() && (!process.site() || process.site()->domain().isEmpty()))
         return false;
 
     if (RefPtr websiteDataStore = process.websiteDataStore()) {
         // Network process might wait for this web process to exit before clearing data.
+        // MAVERICKS_BACKPORT: release-log dropped (see note above).
         if (websiteDataStore->isRemovingData())
             return false;
     }
 
+    // MAVERICKS_BACKPORT: release-log dropped (see note above).
     if (MemoryPressureHandler::singleton().isUnderMemoryPressure())
         return false;
 
+    // MAVERICKS_BACKPORT: release-log dropped (see note above).
     if (!process.websiteDataStore())
         return false;
 

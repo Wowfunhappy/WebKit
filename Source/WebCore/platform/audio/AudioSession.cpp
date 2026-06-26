@@ -79,6 +79,8 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(AudioSessionDummy);
 
 static Ref<AudioSession>& dummyAudioSession()
 {
+    // MAVERICKS_BACKPORT: construct the concrete AudioSessionDummy (AudioSessionMac is
+    // stubbed empty on this build, so AudioSession::create() can't be used here).
     static NeverDestroyed<Ref<AudioSession>> dummySession = adoptRef<AudioSession>(*new AudioSessionDummy);
     return dummySession.get();
 }
@@ -253,36 +255,46 @@ float AudioSession::sampleRate() const
     return 44100;
 #else
     notImplemented();
+    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) 44100 Hz default above.
     return 0;
 #endif
 }
 
 size_t AudioSession::bufferSize() const
 {
+    // MAVERICKS_BACKPORT: AudioSessionDummy uses this base impl; return a sensible
+    // default buffer size on Mac instead of notImplemented()/0.
 #if PLATFORM(MAC)
     return 512;
 #else
     notImplemented();
+    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) default above.
     return 0;
 #endif
 }
 
 size_t AudioSession::numberOfOutputChannels() const
 {
+    // MAVERICKS_BACKPORT: AudioSessionDummy uses this base impl; return a sensible
+    // stereo default on Mac instead of notImplemented()/0.
 #if PLATFORM(MAC)
     return 2;
 #else
     notImplemented();
+    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) default above.
     return 0;
 #endif
 }
 
 size_t AudioSession::maximumNumberOfOutputChannels() const
 {
+    // MAVERICKS_BACKPORT: AudioSessionDummy uses this base impl; return a sensible
+    // stereo default on Mac instead of notImplemented()/0.
 #if PLATFORM(MAC)
     return 2;
 #else
     notImplemented();
+    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) default above.
     return 0;
 #endif
 }

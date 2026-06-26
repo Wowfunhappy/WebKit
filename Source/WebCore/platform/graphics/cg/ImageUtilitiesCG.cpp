@@ -26,6 +26,7 @@
 #include "config.h"
 #include "ImageUtilities.h"
 
+// MAVERICKS_BACKPORT: for sRGBColorSpaceSingleton(), the fallback when platformColorSpace() is NULL.
 #include "ColorSpaceCG.h"
 #include "FloatRect.h"
 #include "GraphicsContext.h"

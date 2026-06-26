@@ -88,10 +88,12 @@ static RetainPtr<CMSampleBufferRef> createSampleBuffer(const CAAudioStreamDescri
     RetainPtr formatDescription = adoptCF(rawFormatDescription);
 
     CMSampleBufferRef rawSampleBuffer;
+    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
     if (CMAudioSampleBufferCreateWithPacketDescriptions(kCFAllocatorDefault, nullptr, false, nullptr, nullptr, rawFormatDescription, numberOfFrames, time, nullptr, &rawSampleBuffer))
         return nullptr;
     auto sampleBuffer = adoptCF(rawSampleBuffer);
 
+    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); this CM symbol links directly on 10.9.
     if (auto error = CMSampleBufferSetDataBufferFromAudioBufferList(sampleBuffer.get(), kCFAllocatorDefault, kCFAllocatorDefault, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, list.list())) {
         RELEASE_LOG_ERROR(MediaStream, "PlatformRawAudioData::create createSampleBuffer couldn't allocate memory with error %d", error);
         return nullptr;

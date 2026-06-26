@@ -42,6 +42,7 @@
 #include <skia/core/SkData.h>
 #include <skia/core/SkImage.h>
 #endif
+// MAVERICKS_BACKPORT: CoreGraphics + FastMalloc/RetainPtr back the CG fromNativeImage path used on this build.
 #if USE(CG)
 #include <CoreGraphics/CoreGraphics.h>
 #include <wtf/FastMalloc.h>
@@ -60,10 +61,12 @@
 #include <gst/gl/gl.h>
 #endif
 
+// MAVERICKS_BACKPORT: SkPixmap is only used by the Skia fromNativeImage path; this build is USE(CG), so guard the include.
 #if USE(SKIA)
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <skia/core/SkPixmap.h>
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+// MAVERICKS_BACKPORT: end of the USE(SKIA)-only SkPixmap include guard (this build is USE(CG)).
 #endif
 
 GST_DEBUG_CATEGORY(webkit_video_frame_debug);
@@ -197,6 +200,7 @@ RefPtr<VideoFrame> VideoFrame::fromNativeImage(NativeImage& image)
     size_t offsets[GST_VIDEO_MAX_PLANES] = { 0, };
     int strides[GST_VIDEO_MAX_PLANES] = { 0, };
 
+    // MAVERICKS_BACKPORT: upstream reads the NativeImage's Skia platformImage; this build is USE(CG), so the CG path (#elif USE(CG) below) reads the CGImage into a packed BGRA GstBuffer instead.
 #if USE(SKIA)
     auto platformImage = image.platformImage();
     const auto& imageInfo = platformImage->imageInfo();

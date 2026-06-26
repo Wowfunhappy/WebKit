@@ -53,6 +53,8 @@
 #include "CoreAudioCaptureSourceIOS.h"
 #endif
 
+// MAVERICKS_BACKPORT: gate the GStreamer mock-capture headers on USE(GSTREAMER_MEDIA_STREAM) too —
+// GStreamer is this port's real media-stream backend (see the GStreamer-over-Cocoa seam below).
 #if USE(GSTREAMER) && USE(GSTREAMER_MEDIA_STREAM)
 #include "GStreamerMockDeviceProvider.h"
 #include "MockDisplayCaptureSourceGStreamer.h"

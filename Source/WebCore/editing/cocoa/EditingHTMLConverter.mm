@@ -97,7 +97,7 @@ static String preferredFilenameForElement(const HTMLImageElement& element)
         if (auto title = attachment->attachmentTitle(); !title.isEmpty())
             return title;
     }
-#endif
+#endif // MAVERICKS_BACKPORT: closes the ATTACHMENT_ELEMENT (=0 here) guard added above.
 
     auto altText = element.altText();
 
@@ -174,7 +174,7 @@ static RetainPtr<NSFileWrapper> fileWrapperForElement(const HTMLAttachmentElemen
     [wrapper setPreferredFilename:makeString(WebContentReader::placeholderAttachmentFilenamePrefix, identifier).createNSString().get()];
     return wrapper;
 }
-#endif
+#endif // MAVERICKS_BACKPORT: closes the ATTACHMENT_ELEMENT (=0 here) overload guard added above.
 
 static RetainPtr<NSAttributedString> attributedStringWithAttachmentForFileWrapper(NSFileWrapper *fileWrapper)
 {
@@ -211,7 +211,7 @@ static RetainPtr<NSAttributedString> attributedStringWithAttachmentForElement(co
     RetainPtr fileWrapper = fileWrapperForElement(element);
     return attributedStringWithAttachmentForFileWrapper(fileWrapper.get());
 }
-#endif
+#endif // MAVERICKS_BACKPORT: closes the ATTACHMENT_ELEMENT (=0 here) overload guard added above.
 
 #if ENABLE(WRITING_TOOLS)
 static bool elementQualifiesForWritingToolsPreservation(Element* element)
@@ -484,7 +484,7 @@ static AttributedString editingAttributedStringInternal(const SimpleRange& range
             [string appendAttributedString:attachmentAttributedString.get()];
             stringLength += [attachmentAttributedString length];
         }
-#endif // ENABLE(ATTACHMENT_ELEMENT)
+#endif // ENABLE(ATTACHMENT_ELEMENT) — MAVERICKS_BACKPORT: closes the ATTACHMENT_ELEMENT (=0 here) guard added above.
 
         auto currentTextLength = it.text().length();
         if (!currentTextLength)

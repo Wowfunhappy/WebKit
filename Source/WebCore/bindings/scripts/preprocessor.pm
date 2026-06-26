@@ -64,6 +64,8 @@ sub applyPreprocessor
         # when arch/vendor/os are all present rather than splitting a multi-arch ARCHS.
         my $arch = $ENV{ARCHS};
         my $vendor = $ENV{LLVM_TARGET_TRIPLE_VENDOR};
+        # MAVERICKS_BACKPORT: take the raw OS-version var (suffix appended below only when the
+        # full triple is present); avoids forming a bad -target from unset vars in this Xcode env.
         my $os = $ENV{LLVM_TARGET_TRIPLE_OS_VERSION};
         if ($arch && $vendor && $os) {
             $os .= ($ENV{LLVM_TARGET_TRIPLE_SUFFIX} // "");

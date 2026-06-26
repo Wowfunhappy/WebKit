@@ -26,6 +26,7 @@
 #include "config.h"
 #include "WebFrameLoaderClient.h"
 
+// MAVERICKS_BACKPORT (#60): API:: object + UserData includes for reconstructing Safari 7's injected-bundle navigation-action userData dictionary below.
 #include "APIArray.h"
 #include "APIDictionary.h"
 #include "APIFrameHandle.h"
@@ -35,7 +36,7 @@
 #include "Logging.h"
 #include "MessageSenderInlines.h"
 #include "NavigationActionData.h"
-#include "UserData.h"
+#include "UserData.h" // MAVERICKS_BACKPORT (#60): serializes the rebuilt navigation-action userData so the frame handle rehydrates into a WKFrameRef in the UI process.
 #include "WebFrame.h"
 #include "WebLocalFrameLoaderClient.h"
 #include "WebMouseEvent.h"

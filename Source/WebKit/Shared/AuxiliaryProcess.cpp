@@ -26,6 +26,7 @@
 #include "config.h"
 #include "AuxiliaryProcess.h"
 
+// MAVERICKS_BACKPORT: pthread.h for 10.9 thread handling in the reworked initialize() path.
 #include <pthread.h>
 #include "AuxiliaryProcessCreationParameters.h"
 #include "Connection.h"
@@ -38,6 +39,7 @@
 #include <WebCore/LogInitialization.h>
 #include <pal/SessionID.h>
 #include <wtf/LogInitialization.h>
+// MAVERICKS_BACKPORT: RefCountDebugger.h for the explicit enableThreadingChecksGlobally() call in initialize().
 #include <wtf/RefCountDebugger.h>
 #include <wtf/SetForScope.h>
 #include <wtf/WTFProcess.h>
@@ -62,8 +64,8 @@ using namespace WebCore;
 
 AuxiliaryProcess::AuxiliaryProcess()
     : m_terminationCounter(0)
-    // 10.9: m_processSuppressionDisabled (UserActivity) crashes during construction
-    // in HashTable<TimerBase*>::add. Leave nullopt; we don't need it for the basic test.
+    // MAVERICKS_BACKPORT, 10.9: m_processSuppressionDisabled (UserActivity) crashes during
+    // construction in HashTable<TimerBase*>::add. Leave nullopt; we don't need it for the basic test.
 {
 }
 
@@ -84,7 +86,8 @@ void AuxiliaryProcess::didClose(IPC::Connection&)
 #endif
 }
 
-
+// MAVERICKS_BACKPORT: initialize() is reworked for 10.9 multi-instance bring-up (see markers below):
+// re-entry guard, optional process identifier, sandbox skipped, main-RunLoop connection open.
 void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& parameters)
 {
     // MAVERICKS_BACKPORT: Safari sends a second XPC bootstrap message after the first
@@ -99,8 +102,12 @@ void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& par
 #if PLATFORM(COCOA)
     // On Cocoa platforms, setAuxiliaryProcessType() is called in XPCServiceInitializer().
     ASSERT(processType() == parameters.processType);
+    // MAVERICKS_BACKPORT: the non-Cocoa #else branch (setAuxiliaryProcessType(parameters.processType))
+    // is dropped here — on 10.9 this only ever runs the Cocoa path.
 #endif
 
+    // MAVERICKS_BACKPORT: upstream RELEASE_ASSERTs on a missing process identifier; the 10.9
+    // multi-instance bring-up can initialize without one, so set it only when present.
     if (parameters.processIdentifier)
         Process::setIdentifier(*parameters.processIdentifier);
 
@@ -134,9 +141,12 @@ void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& par
 
 void AuxiliaryProcess::setProcessSuppressionEnabled(bool enabled)
 {
+    // MAVERICKS_BACKPORT: m_processSuppressionDisabled is left nullopt on 10.9 (see ctor);
+    // bail out when it was never constructed.
     if (!m_processSuppressionDisabled)
         return;
     if (enabled)
+        // MAVERICKS_BACKPORT: m_processSuppressionDisabled is now optional; dereference it.
         m_processSuppressionDisabled->stop();
     else
         m_processSuppressionDisabled->start();

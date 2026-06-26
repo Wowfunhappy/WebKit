@@ -38,11 +38,13 @@ namespace IPC {
 class ImportanceAssertion {
 public:
     ImportanceAssertion() = default;
+    // MAVERICKS_BACKPORT: mach voucher APIs (10.10+) absent; this ctor ignores the header (no-op).
     explicit ImportanceAssertion(mach_msg_header_t*) { }
     ImportanceAssertion(ImportanceAssertion&&) = default;
     ImportanceAssertion& operator=(ImportanceAssertion&&) = default;
     ImportanceAssertion(const ImportanceAssertion&) = delete;
     ImportanceAssertion& operator=(const ImportanceAssertion&) = delete;
+    // MAVERICKS_BACKPORT: no mach voucher held, so the destructor is a trivial default (no deallocate).
     ~ImportanceAssertion() = default;
 };
 

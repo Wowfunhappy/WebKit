@@ -498,6 +498,7 @@ static RetainPtr<NSString> linkDestinationName(PDFDocument *document, PDFDestina
 
     for (const auto& destination : _linkDestinationsPerPage[page]) {
         CGPoint destinationPoint = CGPointApplyAffineTransform(NSPointToCGPoint([destination point]), transform);
+        // MAVERICKS_BACKPORT: `context` is a raw CGContextRef (from -graphicsPort), not a RetainPtr, so no .get().
         CGPDFContextAddDestinationAtPoint(context, bridge_cast(linkDestinationName(pdfDocument, destination.get())).get(), destinationPoint);
     }
 
@@ -505,20 +506,25 @@ static RetainPtr<NSString> linkDestinationName(PDFDocument *document, PDFDestina
         if (![[annotation valueForAnnotationKey:WebKit::get_PDFKit_PDFAnnotationKeySubtypeSingleton()] isEqualToString:WebKit::get_PDFKit_PDFAnnotationSubtypeLinkSingleton()])
             continue;
 
+        // MAVERICKS_BACKPORT: -[PDFAnnotation URL] is 10.13+; probe via respondsToSelector + valueForKey on 10.9.
         RetainPtr<NSURL> url = [annotation respondsToSelector:@selector(URL)] ? (NSURL *)[annotation valueForKey:@"URL"] : nil;
         CGRect transformedRect = CGRectApplyAffineTransform(NSRectToCGRect(annotation.bounds), transform);
 
         if (!url) {
+            // MAVERICKS_BACKPORT: -[PDFAnnotation destination] is 10.13+; probe via respondsToSelector + valueForKey on 10.9.
             RetainPtr<PDFDestination> destination = [annotation respondsToSelector:@selector(destination)] ? (PDFDestination *)[annotation valueForKey:@"destination"] : nil;
             if (!destination)
                 continue;
+            // MAVERICKS_BACKPORT: `context` is a raw CGContextRef (from -graphicsPort), not a RetainPtr, so no .get().
             CGPDFContextSetDestinationForRect(context, bridge_cast(linkDestinationName(pdfDocument, destination.get())).get(), transformedRect);
             continue;
         }
 
+        // MAVERICKS_BACKPORT: `context` is a raw CGContextRef (from -graphicsPort), not a RetainPtr, so no .get().
         CGPDFContextSetURLForRect(context, bridge_cast(url.get()), transformedRect);
     }
 
+    // MAVERICKS_BACKPORT: `context` is a raw CGContextRef (from -graphicsPort), not a RetainPtr, so no .get().
     CGContextRestoreGState(context);
 }
 
@@ -572,6 +578,7 @@ static RetainPtr<NSString> linkDestinationName(PDFDocument *document, PDFDestina
         return;
     }
 
+    // MAVERICKS_BACKPORT: use -[NSGraphicsContext graphicsPort] (-CGContext is 10.10+) to get the CGContextRef.
     WebCore::GraphicsContextCG context((CGContextRef)[[NSGraphicsContext currentContext] graphicsPort]);
     WebCore::GraphicsContextStateSaver stateSaver(context);
 
@@ -611,9 +618,11 @@ static RetainPtr<NSString> linkDestinationName(PDFDocument *document, PDFDestina
                 if (![[annotation valueForAnnotationKey:WebKit::get_PDFKit_PDFAnnotationKeySubtypeSingleton()] isEqualToString:WebKit::get_PDFKit_PDFAnnotationSubtypeLinkSingleton()])
                     continue;
 
+                // MAVERICKS_BACKPORT: -[PDFAnnotation URL] is 10.13+; probe via respondsToSelector + valueForKey on 10.9.
                 if ([annotation respondsToSelector:@selector(URL)] && [annotation valueForKey:@"URL"])
                     continue;
 
+                // MAVERICKS_BACKPORT: -[PDFAnnotation destination] is 10.13+; probe via respondsToSelector + valueForKey on 10.9.
                 RetainPtr<PDFDestination> destination = [annotation respondsToSelector:@selector(destination)] ? (PDFDestination *)[annotation valueForKey:@"destination"] : nil;
                 if (!destination)
                     continue;

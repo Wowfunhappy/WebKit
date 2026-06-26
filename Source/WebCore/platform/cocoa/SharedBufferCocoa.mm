@@ -10,23 +10,28 @@
 #import "config.h"
 #import "SharedBuffer.h"
 
+// MAVERICKS_BACKPORT: CoreFoundation/CoreMedia are the only dependencies of this minimal reimplementation.
 #import <CoreFoundation/CoreFoundation.h>
 #import <pal/cf/CoreMediaSoftLink.h>
 
+// MAVERICKS_BACKPORT: minimal Cocoa SharedBuffer reimplementation (see file header) lives in this namespace.
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: minimal Cocoa overload replacing the return-zero fallback stub (see file header).
 Ref<SharedBuffer> SharedBuffer::create(NSData* data)
 {
     return SharedBuffer::create(reinterpret_cast<CFDataRef>(data));
 }
 
+// MAVERICKS_BACKPORT: CFData-based segment iteration replacing the upstream NSData enumerateByteRanges path.
 void SharedBuffer::DataSegment::iterate(CFDataRef data, NOESCAPE const Function<void(std::span<const uint8_t>)>& apply) const
 {
-    // Simple, single-region iteration. CFDataGetBytePtr returns a contiguous pointer
+    // MAVERICKS_BACKPORT: simple, single-region iteration. CFDataGetBytePtr returns a contiguous pointer
     // to the data, and CFDataGetLength returns its size. This is sufficient for the
     // CFData instances created from NSData on 10.9.
     if (!data)
         return;
+    // MAVERICKS_BACKPORT: read the contiguous CFData region directly on 10.9.
     CFIndex length = CFDataGetLength(data);
     const UInt8* bytes = CFDataGetBytePtr(data);
     if (!bytes || length <= 0)
@@ -34,21 +39,24 @@ void SharedBuffer::DataSegment::iterate(CFDataRef data, NOESCAPE const Function<
     apply(std::span<const uint8_t> { bytes, static_cast<size_t>(length) });
 }
 
+// MAVERICKS_BACKPORT: minimal Cocoa overload replacing the return-zero fallback stub (see file header).
 RetainPtr<CFDataRef> SharedBuffer::createCFData() const
 {
     auto contig = span();
     return adoptCF(CFDataCreate(kCFAllocatorDefault, contig.data(), contig.size()));
 }
 
+// MAVERICKS_BACKPORT: minimal Cocoa overload replacing the return-zero fallback stub (see file header).
 RetainPtr<NSData> SharedBuffer::createNSData() const
 {
     return (__bridge_transfer NSData *)createCFData().leakRef();
 }
 
+// MAVERICKS_BACKPORT: by-reference NSData segment wrapping (see comment below) replacing the upstream copy-per-segment path.
 RetainPtr<NSArray> FragmentedSharedBuffer::createNSDataArray() const
 {
-    // Wrap each existing segment's bytes BY REFERENCE (no copy), keeping the segment alive for the
-    // NSData's lifetime via the deallocator block.
+    // MAVERICKS_BACKPORT: wrap each existing segment's bytes BY REFERENCE (no copy), keeping the segment
+    // alive for the NSData's lifetime via the deallocator block.
     //
     // The previous implementation returned `makeContiguous()->createNSData()`, i.e. a fresh contiguous
     // *copy of the entire buffer* on every call. The AVFoundation media loader calls this on each
@@ -72,11 +80,12 @@ RetainPtr<NSArray> FragmentedSharedBuffer::createNSDataArray() const
     return array;
 }
 
-// Wrap the buffer's bytes in a CMBlockBuffer (used by toCMSampleBuffer to build CMSampleBuffers for
-// the MSE pipeline). The block buffer owns a copy of the data, so its lifetime is independent of this
-// SharedBuffer. CMBlockBuffer* are CoreMedia (10.7+), available on 10.9.
+// MAVERICKS_BACKPORT: wrap the buffer's bytes in a CMBlockBuffer (used by toCMSampleBuffer to build
+// CMSampleBuffers for the MSE pipeline). The block buffer owns a copy of the data, so its lifetime is
+// independent of this SharedBuffer. CMBlockBuffer* are CoreMedia (10.7+), available on 10.9.
 RetainPtr<CMBlockBufferRef> FragmentedSharedBuffer::createCMBlockBuffer() const
 {
+    // MAVERICKS_BACKPORT: contiguous-copy CMBlockBuffer (see comment above) replacing the upstream segment-wrapping path.
     auto contiguousBuffer = makeContiguous();
     auto contiguous = contiguousBuffer->span();
     if (contiguous.empty())
@@ -88,6 +97,7 @@ RetainPtr<CMBlockBufferRef> FragmentedSharedBuffer::createCMBlockBuffer() const
         CFRelease(blockBuffer);
         return nullptr;
     }
+    // MAVERICKS_BACKPORT: CMBlockBuffer built from a contiguous copy (see comment above) for 10.9.
     return adoptCF(blockBuffer);
 }
 

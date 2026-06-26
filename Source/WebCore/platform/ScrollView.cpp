@@ -508,10 +508,14 @@ void ScrollView::scrollTo(const ScrollPosition& newPosition)
         return;
 
     if (platformWidget()) {
+        // MAVERICKS_BACKPORT: push the clamped position to the platform widget so it
+        // matches the clamping applied above.
         platformSetScrollPosition(clampedPosition);
         return;
     }
 
+    // MAVERICKS_BACKPORT: store the clamped position so the contents layer never
+    // translates past the page bottom (synchronous-scroll visual-scroll fix).
     m_scrollPosition = clampedPosition;
 
     if (scrollbarsSuppressed())

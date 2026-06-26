@@ -1,11 +1,15 @@
-// Restored for macOS 10.9 WebContent XPC service
+// MAVERICKS_BACKPORT: file restored/rewritten for the macOS 10.9 WebContent XPC service; upstream
+// routes through push/PCM daemon entry points that don't exist on 10.9.
 #import "config.h"
 #import "WKMain.h"
 
+// MAVERICKS_BACKPORT: include the raw xpc/stdio/unistd headers used by the 10.9 entry point instead
+// of the upstream daemon-entry-point headers (PCMDaemonEntryPoint.h / WebPush*Main.h).
 #import <xpc/xpc.h>
 #import <stdio.h>
 #import <unistd.h>
 
+// MAVERICKS_BACKPORT: forward-declare XPCServiceMain instead of pulling in XPCServiceEntryPoint.h.
 namespace WebKit {
 int XPCServiceMain(int argc, const char** argv);
 }
@@ -24,11 +28,15 @@ int WKXPCServiceMain(int argc, const char** argv)
 extern "C" void NetworkServiceInitializer(xpc_connection_t, xpc_object_t);
 extern "C" void WebContentServiceInitializer(xpc_connection_t, xpc_object_t);
 
+// MAVERICKS_BACKPORT: WebKitEntryPoint exported so the legacy WebKit2 xpc service stub can
+// dispatch into modern WebKit (see block comment above).
 extern "C" __attribute__((visibility("default")))
 void WebKitEntryPoint(xpc_connection_t connection, xpc_object_t initializerMessage)
 {
-    // 10.9 perf: removed debug fopen logging
+    // MAVERICKS_BACKPORT, 10.9 perf: removed debug fopen logging
 
+    // MAVERICKS_BACKPORT: dispatch the legacy WebKit2 entry point by service name to the
+    // modern Network/WebContent service initializers.
     const char* serviceName = nullptr;
     if (initializerMessage)
         serviceName = xpc_dictionary_get_string(initializerMessage, "service-name");

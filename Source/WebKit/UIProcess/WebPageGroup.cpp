@@ -33,7 +33,7 @@
 #include "WebCompiledContentRuleList.h"
 #include "WebPageProxy.h"
 #include "WebPreferences.h"
-#include "WebUserContentControllerProxy.h"
+#include "WebUserContentControllerProxy.h" // MAVERICKS_BACKPORT: page-group user content controller
 #include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
@@ -90,6 +90,7 @@ static WebPageGroupData pageGroupData(const String& identifier)
 WebPageGroup::WebPageGroup(const String& identifier)
     : m_data(pageGroupData(identifier))
     , m_preferences(WebPreferences::createWithLegacyDefaults(m_data.identifier, ".WebKit2"_s, "WebKit2."_s))
+    // MAVERICKS_BACKPORT: give the page group its own user content controller (see header).
     , m_userContentController(WebUserContentControllerProxy::create())
 {
     webPageGroupMap().set(m_data.pageGroupID, *this);

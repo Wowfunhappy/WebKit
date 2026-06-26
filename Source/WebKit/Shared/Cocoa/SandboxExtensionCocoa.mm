@@ -29,6 +29,7 @@
 #if ENABLE(SANDBOX_EXTENSIONS)
 
 #import "Logging.h"
+// MAVERICKS_BACKPORT: dlsym runtime resolution for sandbox_extension_issue_file_to_process (10.10+, absent on 10.9).
 #import <dlfcn.h>
 #import <string.h>
 #import <wtf/FileSystem.h>

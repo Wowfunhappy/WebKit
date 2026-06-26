@@ -38,6 +38,8 @@
 // loadSceneKitModel() nor SceneKitModel is ever instantiated, so no 10.11+ framework is touched.
 #import "SceneKitModel.h"
 #import "SceneKitModelLoader.h"
+// MAVERICKS_BACKPORT: no <pal/spi/cocoa/SceneKitSPI.h> / <wtf/cocoa/VectorCocoa.h> imports — the SceneKit
+// SPI is absent on 10.9 and the VectorCocoa makeVectorElement helper is unused once the scene path is inert.
 
 // MAVERICKS_BACKPORT: SceneKit + SCNMetalLayer require Metal (10.11+) and the SceneKit
 // model-loading SPI, all absent on macOS 10.9. We keep SceneKitModelPlayer::create
@@ -55,6 +57,7 @@ Ref<SceneKitModelPlayer> SceneKitModelPlayer::create(ModelPlayerClient& client)
 
 SceneKitModelPlayer::SceneKitModelPlayer(ModelPlayerClient& client)
     : m_client { client }
+    // MAVERICKS_BACKPORT: no m_layer { [[SCNMetalLayer alloc] init] } initializer — Metal is 10.11+; m_layer stays null.
     , m_id { ModelPlayerIdentifier::generate() }
 {
     // MAVERICKS_BACKPORT: do NOT create an SCNMetalLayer here (Metal, 10.11+); leave m_layer null.
@@ -72,6 +75,7 @@ ModelPlayerIdentifier SceneKitModelPlayer::identifier() const
     return m_id;
 }
 
+// MAVERICKS_BACKPORT: params unnamed — SceneKit model loading is unavailable on 10.9, so load() is a no-op.
 void SceneKitModelPlayer::load(Model&, LayoutSize)
 {
     // MAVERICKS_BACKPORT: SceneKit model loading is unavailable on 10.9; no-op.
@@ -81,6 +85,7 @@ void SceneKitModelPlayer::sizeDidChange(LayoutSize)
 {
 }
 
+// MAVERICKS_BACKPORT: params unnamed — m_layer is null (no SCNMetalLayer), so nothing is attached.
 void SceneKitModelPlayer::configureGraphicsLayer(GraphicsLayer&, ModelPlayerGraphicsLayerConfiguration&&)
 {
     // MAVERICKS_BACKPORT: m_layer is null (no SCNMetalLayer); nothing to attach to the GraphicsLayer.
@@ -158,6 +163,7 @@ ModelPlayerAccessibilityChildren SceneKitModelPlayer::accessibilityChildren()
 
 // MARK: - SceneKitModelLoaderClient overrides.
 
+// MAVERICKS_BACKPORT: params unnamed — no loader is ever started, so this callback is unreachable/inert.
 void SceneKitModelPlayer::didFinishLoading(SceneKitModelLoader&, Ref<SceneKitModel>)
 {
     // MAVERICKS_BACKPORT: no loader is ever started; this is unreachable. Keep it inert.

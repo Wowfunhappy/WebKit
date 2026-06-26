@@ -583,8 +583,10 @@ set(WebKit_SERIALIZATION_IN_FILES
     Shared/API/APIGeometry.serialization.in
     Shared/API/APINumber.serialization.in
     Shared/API/APIObject.serialization.in
+    # MAVERICKS_BACKPORT: serialize APIPageGroupHandle (restored gutted WKPageGroup* C API).
     Shared/API/APIPageGroupHandle.serialization.in
     Shared/API/APIPageHandle.serialization.in
+    # MAVERICKS_BACKPORT: serialize APISerializedScriptValue (restored gutted do-JS-result C API).
     Shared/API/APISerializedScriptValue.serialization.in
     Shared/API/APIString.serialization.in
     Shared/API/APIURL.serialization.in
@@ -759,6 +761,7 @@ set(WebKit_FRAMEWORKS
     bmalloc
 )
 
+# MAVERICKS_BACKPORT: re-export WebKitLegacy through WebKit.framework so DOM ObjC classes resolve.
 # Re-export WebKitLegacy so that DOM ObjC classes (DOMHTMLAnchorElement etc.)
 # are visible through WebKit.framework. DataDetectors.framework expects these.
 # Note: WebKitLegacy is linked ONLY via -reexport_framework (not also as a regular
@@ -859,6 +862,7 @@ endif ()
 # has a different realpath than the source so #pragma once fails to dedup and the
 # class is defined twice. Symlinks share the source realpath, so #pragma once works.
 if (WebKit_PUBLIC_FRAMEWORK_HEADERS)
+    # MAVERICKS_BACKPORT: SYMLINK (not copy) so forwarded headers share the source realpath and #pragma once dedups across <WebKit/X.h> and "X.h" in one TU.
     WEBKIT_SYMLINK_FILES(WebKit_CopyHeaders
         DESTINATION ${WebKit_FRAMEWORK_HEADERS_DIR}/WebKit
         FILES ${WebKit_PUBLIC_FRAMEWORK_HEADERS}
@@ -868,6 +872,7 @@ if (WebKit_PUBLIC_FRAMEWORK_HEADERS)
 endif ()
 
 if (WebKit_PRIVATE_FRAMEWORK_HEADERS)
+    # MAVERICKS_BACKPORT: SYMLINK (not copy) so forwarded private headers share the source realpath and #pragma once dedups across <WebKit/X.h> and "X.h" in one TU.
     WEBKIT_SYMLINK_FILES(WebKit_CopyPrivateHeaders
         DESTINATION ${WebKit_PRIVATE_FRAMEWORK_HEADERS_DIR}/WebKit
         FILES ${WebKit_PRIVATE_FRAMEWORK_HEADERS}
@@ -1155,11 +1160,13 @@ list(APPEND WebKit_SOURCES ${WebKit_DERIVED_SOURCES})
 
 WEBKIT_COMPUTE_SOURCES(WebKit)
 
+# MAVERICKS_BACKPORT: placeholder list-append seam for adding non-unified polyfill stub sources.
 # Add polyfill class stubs as a non-unified source (avoids header conflicts)
 list(APPEND WebKit_SOURCES
 )
 
 WEBKIT_FRAMEWORK(WebKit)
+# MAVERICKS_BACKPORT: pin the Versions/A framework layout (SOVERSION "A") + com.apple.WebKit identifier so Safari 7's absolute WebKit2 LC_LOAD_DYLIB resolves.
 set_target_properties(WebKit PROPERTIES
     LINKER_LANGUAGE CXX
     # 10.9 / Safari-7 backport: use the standard Versions/A framework layout

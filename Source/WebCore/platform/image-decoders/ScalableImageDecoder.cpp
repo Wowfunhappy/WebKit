@@ -160,6 +160,7 @@ RefPtr<ScalableImageDecoder> ScalableImageDecoder::create(FragmentedSharedBuffer
 
     if (matchesBMPSignature(contentsSpan))
         return BMPImageDecoder::create(alphaOption, gammaAndColorProfileOption);
+// MAVERICKS_BACKPORT: the WebP dispatch is lifted out of this !PLATFORM(COCOA) block into the PLATFORM(MAC)-inclusive block below.
 #endif
 
 #if PLATFORM(MAC) || !PLATFORM(COCOA)

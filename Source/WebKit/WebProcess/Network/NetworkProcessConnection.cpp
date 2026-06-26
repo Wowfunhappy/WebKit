@@ -26,7 +26,7 @@
 #include "config.h"
 #include "NetworkProcessConnection.h"
 
-#include <wtf/RunLoop.h>
+#include <wtf/RunLoop.h> // MAVERICKS_BACKPORT: for RunLoop::mainSingleton(), used to pin the connection to the main RunLoop below.
 #include "LibWebRTCNetwork.h"
 #include "Logging.h"
 #include "NetworkConnectionToWebProcessMessages.h"

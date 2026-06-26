@@ -297,6 +297,7 @@ bool GraphicsContextGLANGLE::initialize()
             return;
         auto* gl = reinterpret_cast<const GraphicsContextGLANGLE*>(context);
         if (gl->m_client)
+            // MAVERICKS_BACKPORT: length is already validated non-negative above; widen safely to size_t for the span.
             gl->m_client->addDebugMessage(type, id, severity, CString { unsafeMakeSpan(message, static_cast<size_t>(length)) });
     };
     GL_DebugMessageCallbackKHR(debugMessageCallback, this);

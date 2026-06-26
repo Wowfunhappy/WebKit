@@ -26,6 +26,7 @@
 
 #include "GStreamerCommon.h"
 #include "GStreamerMockDeviceProvider.h"
+// MAVERICKS_BACKPORT: isInWebProcess() for the UIProcess-vs-WebProcess GStreamer-init split below.
 #include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/glib/GMallocString.h>
 #include <wtf/glib/GSpanExtras.h>

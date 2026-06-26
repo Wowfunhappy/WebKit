@@ -208,6 +208,7 @@ static NSString *NODELETE toCAFilterType(PlatformCALayer::FilterType type)
 
 PlatformCALayer::LayerType PlatformCALayerCocoa::layerTypeForPlatformLayer(PlatformLayer* layer)
 {
+    // MAVERICKS_BACKPORT: resolve AVPlayerLayer via NSClassFromString (PAL soft-link helpers not set up on 10.9).
     if (NSClassFromString(@"AVPlayerLayer") && [layer isKindOfClass:NSClassFromString(@"AVPlayerLayer")])
         return LayerType::LayerTypeAVPlayerLayer;
 
@@ -249,9 +250,11 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
         layerClass = [CALayer class];
 #else
         layerClass = [CATransformLayer class];
+// MAVERICKS_BACKPORT: end of PLATFORM(MAC) CATransformLayer→CALayer fallback (10.9 QC over-release).
 #endif
         break;
     case LayerType::LayerTypeBackdropLayer:
+        // MAVERICKS_BACKPORT: CABackdropLayer may be absent on 10.9; fall back to plain CALayer.
         layerClass = NSClassFromString(@"CABackdropLayer") ?: [CALayer class];
         break;
 #if HAVE(CORE_MATERIAL)
@@ -302,6 +305,7 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
     isBackdropLayer |= layerType == LayerType::LayerTypeMaterialLayer;
 #endif
     if (isBackdropLayer)
+        // MAVERICKS_BACKPORT: guard setWindowServerAware: with respondsToSelector (backdrop layer may be a plain CALayer on 10.9).
         if ([m_layer.get() respondsToSelector:@selector(setWindowServerAware:)])
             [(id)m_layer.get() setWindowServerAware:NO];
 #endif

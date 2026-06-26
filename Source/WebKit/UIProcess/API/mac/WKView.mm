@@ -3,9 +3,11 @@
 // Creates a WebPageProxy when Safari's BrowserWKView initializes
 
 #import "config.h"
+// MAVERICKS_BACKPORT: include the public WKView.h (not WKViewInternal.h) — this is a standalone reimplementation, not the upstream PLATFORM(MAC) WebViewImpl wrapper.
 #import "WKView.h"
 
 #import "APIPageConfiguration.h"
+// MAVERICKS_BACKPORT: includes for the hand-written NSEvent→WebPageProxy input forwarding and page wiring below.
 #import "NativeWebKeyboardEvent.h"
 #import "NativeWebMouseEvent.h"
 #import "NativeWebWheelEvent.h"
@@ -33,6 +35,7 @@
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
 #if ENABLE(DRAG_SUPPORT)
+// MAVERICKS_BACKPORT: extra includes for the hand-written WKView HTML5 drag source/destination.
 #import "PasteboardTypes.h"
 #import "SandboxExtension.h"
 #import <WebCore/DragData.h>
@@ -41,6 +44,7 @@
 #import <wtf/Compiler.h>
 #endif
 
+// MAVERICKS_BACKPORT: this WKView reimplementation uses WebKit:: types unqualified throughout.
 using namespace WebKit;
 
 // MAVERICKS_BACKPORT: NSViewNoIntrinsicMetric is an APPKIT_EXTERN const symbol available
@@ -49,7 +53,7 @@ using namespace WebKit;
 // value (-1) directly. See [[webkit-mavericks-moved-framework-symbols]].
 static const CGFloat kWKViewNoIntrinsicMetric = -1;
 
-// Declared in PageClientImplMac.mm
+// MAVERICKS_BACKPORT: minimal page-client factory/accessors declared in PageClientImplMac.mm.
 namespace WebKit {
 std::unique_ptr<PageClient> createMinimalPageClient(NSView *view);
 void setMinimalPageClientPage(PageClient&, WebPageProxy *);
@@ -76,23 +80,30 @@ struct WKViewState {
     // MinimalPageClient::intrinsicContentSizeDidChange -> -_setIntrinsicContentSize:).
     NSSize _intrinsicContentSize;
 }
-@end
+@end // MAVERICKS_BACKPORT: WKView class extension holding the backported per-view state ivars
 
+// MAVERICKS_BACKPORT: WKView is reimplemented for the 10.9 backport (the upstream WebViewImpl-backed body is stubbed).
 @implementation WKView
 
+// MAVERICKS_BACKPORT: designated initializer — creates a WebPageProxy + minimal page client for this view.
 - (instancetype)initWithFrame:(NSRect)frame processPool:(std::reference_wrapper<WebKit::WebProcessPool>)processPool configuration:(Ref<API::PageConfiguration>&&)configuration
 {
+    // MAVERICKS_BACKPORT: chain to NSView's initializer before wiring up the page.
     self = [super initWithFrame:frame];
     if (!self)
         return nil;
 
+    // MAVERICKS_BACKPORT: layer-back the view and paint a white base so empty/loading pages aren't black.
     [self setWantsLayer:YES];
     self.layer.backgroundColor = CGColorGetConstantColor(kCGColorWhite);
 
+    // MAVERICKS_BACKPORT: start with a flexible intrinsic size until the web process reports a laid-out one.
     _intrinsicContentSize = NSMakeSize(kWKViewNoIntrinsicMetric, kWKViewNoIntrinsicMetric);
 
+    // MAVERICKS_BACKPORT: ensure WebKit2 globals are initialized before creating the page proxy.
     WebKit::InitializeWebKit2();
 
+    // MAVERICKS_BACKPORT: allocate the backported per-view state holding the page proxy + minimal page client.
     _wkState = new WKViewState;
     _wkState->pageClient = createMinimalPageClient(self);
     _wkState->page = processPool.get().createWebPage(*_wkState->pageClient, WTF::move(configuration));
@@ -108,6 +119,7 @@ struct WKViewState {
     if (frame.size.width > 0 && frame.size.height > 0)
         setMinimalPageClientForceVisibleWhenWindowless(*_wkState->pageClient, true);
 
+    // MAVERICKS_BACKPORT: bring up the WebPage now that the page proxy + client are wired (no Site/sandbox yet).
     _wkState->page->initializeWebPage(WebCore::Site(WTF::HashTableEmptyValue), WebCore::SandboxFlags {}, WebCore::ReferrerPolicy::Default);
 
 #if ENABLE(DRAG_SUPPORT)
@@ -118,11 +130,14 @@ struct WKViewState {
     [self registerForDraggedTypes:[dragTypes allObjects]];
 #endif
 
+    // MAVERICKS_BACKPORT: designated initializer returns the fully wired-up WKView.
     return self;
 }
 
+// MAVERICKS_BACKPORT: tear down the backported per-view state (page proxy, page client, cached controller).
 - (void)dealloc
 {
+    // MAVERICKS_BACKPORT: release the lazily-created browsing-context controller and delete the WKViewState.
     [_browsingContextController release];
     _browsingContextController = nil;
     delete _wkState;
@@ -137,9 +152,11 @@ struct WKViewState {
 // view. Without it the message body renders blank. Ported from WebViewImpl.
 - (NSSize)intrinsicContentSize
 {
+    // MAVERICKS_BACKPORT: return the cached auto-layout content size so Mail can size message bodies.
     return _intrinsicContentSize;
 }
 
+// MAVERICKS_BACKPORT: auto-layout SPI — a positive min width enables web-process auto-sizing (ported from WebViewImpl).
 - (void)setMinimumSizeForAutoLayout:(NSSize)minimumSizeForAutoLayout
 {
     if (!_wkState || !_wkState->page)
@@ -153,6 +170,7 @@ struct WKViewState {
     _wkState->page->setMainFrameIsScrollable(!expandsToFit);
 }
 
+// MAVERICKS_BACKPORT: auto-layout SPI getter for the configured minimum layout size (ported from WebViewImpl).
 - (NSSize)minimumSizeForAutoLayout
 {
     if (!_wkState || !_wkState->page)
@@ -161,21 +179,25 @@ struct WKViewState {
     return NSMakeSize(size.width(), size.height());
 }
 
+// MAVERICKS_BACKPORT: auto-layout SPI — let auto-sizing expand to fill the view height (ported from WebViewImpl for Mail).
 - (void)setShouldExpandToViewHeightForAutoLayout:(BOOL)shouldExpand
 {
+    // MAVERICKS_BACKPORT: forward the auto-size-expands-to-view-height flag to the page proxy.
     if (_wkState && _wkState->page)
         _wkState->page->setAutoSizingShouldExpandToViewHeight(shouldExpand);
 }
 
+// MAVERICKS_BACKPORT: auto-layout SPI getter mirroring WebViewImpl::shouldExpandToViewHeightForAutoLayout.
 - (BOOL)shouldExpandToViewHeightForAutoLayout
 {
     return _wkState && _wkState->page ? _wkState->page->autoSizingShouldExpandToViewHeight() : NO;
 }
 
-// Called by MinimalPageClient::intrinsicContentSizeDidChange when the web process
+// MAVERICKS_BACKPORT: Called by MinimalPageClient::intrinsicContentSizeDidChange when the web process
 // reports a new laid-out content size.
 - (void)_setIntrinsicContentSize:(NSSize)intrinsicContentSize
 {
+    // MAVERICKS_BACKPORT: clamp the reported width to a flexible metric when it flowed below the min layout width (matches WebViewImpl).
     // If the content's intrinsic width is less than the minimum layout width, the
     // content flowed to fit, so report the width as flexible (no intrinsic metric);
     // otherwise report it so auto-layout reserves space. Matches WebViewImpl.
@@ -186,11 +208,13 @@ struct WKViewState {
     [self invalidateIntrinsicContentSize];
 }
 
+// MAVERICKS_BACKPORT: C-ref WKView initializer Safari/QuickLook use; forwards to the relatedToPage: variant.
 - (id)initWithFrame:(NSRect)frame contextRef:(WKContextRef)contextRef pageGroupRef:(WKPageGroupRef)pageGroupRef
 {
     return [self initWithFrame:frame contextRef:contextRef pageGroupRef:pageGroupRef relatedToPage:nil];
 }
 
+// MAVERICKS_BACKPORT: build an API::PageConfiguration from the C refs and route through the designated initializer.
 - (id)initWithFrame:(NSRect)frame contextRef:(WKContextRef)contextRef pageGroupRef:(WKPageGroupRef)pageGroupRef relatedToPage:(WKPageRef)relatedPage
 {
     auto configuration = API::PageConfiguration::create();
@@ -281,17 +305,19 @@ struct WKViewState {
 // underlayColor, delegating straight to the page proxy.
 - (void)setUnderlayColor:(NSColor *)underlayColor
 {
+    // MAVERICKS_BACKPORT: implement -setUnderlayColor: (was unimplemented → unrecognized-selector crash from Reading List).
     if (_wkState && _wkState->page)
         _wkState->page->setUnderlayColor(WebCore::colorFromCocoaColor(underlayColor));
 }
 
+// MAVERICKS_BACKPORT: underlayColor getter mirroring WebViewImpl::underlayColor (the property was declared but never implemented).
 - (NSColor *)underlayColor
 {
     if (_wkState && _wkState->page)
         return WebCore::cocoaColorOrNil(_wkState->page->underlayColor()).autorelease();
     return nil;
 }
-// NSTextInputClient minimal stubs — Safari crashes with validAttributesForMarkedText
+// MAVERICKS_BACKPORT: NSTextInputClient minimal stubs — Safari crashes with validAttributesForMarkedText
 // unrecognized selector when BrowserWKView is added to a window without these.
 // insertText: + doCommandBySelector: capture commands during interpretKeyEvents:
 // so the keyDown handler can forward them to WebPage as KeypressCommands.
@@ -303,6 +329,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 - (BOOL)hasMarkedText { return NO; }
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange
 {
+    // MAVERICKS_BACKPORT: capture inserted text as a KeypressCommand during interpretKeyEvents so keyDown can forward it to WebPage.
     NSString *s = [string isKindOfClass:[NSAttributedString class]] ? [(NSAttributedString *)string string] : (NSString *)string;
     if (!s)
         return;
@@ -390,12 +417,14 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // defers the recompute, so by the time it re-queries -isViewFocused the window firstResponder has settled.
 - (BOOL)becomeFirstResponder
 {
+    // MAVERICKS_BACKPORT: notify the page so ActivityState::IsFocused tracks focus and the text caret/selection shows (#138).
     BOOL result = [super becomeFirstResponder];
     if (_wkState && _wkState->page)
         _wkState->page->activityStateDidChange(WebCore::ActivityState::IsFocused);
     return result;
 }
 
+// MAVERICKS_BACKPORT: clear ActivityState::IsFocused on resign so the page's FocusController matches first-responder state (#138).
 - (BOOL)resignFirstResponder
 {
     if (_wkState && _wkState->page)
@@ -443,6 +472,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // descendant resolves to self so the responder-chain forwarding stays correct.
 - (NSView *)hitTest:(NSPoint)point
 {
+    // MAVERICKS_BACKPORT: resolve a hit on self or any descendant back to self so responder-chain forwarding stays correct.
     NSView *result = [super hitTest:point];
     if (!result)
         return nil;
@@ -451,6 +481,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     return result;
 }
 
+// MAVERICKS_BACKPORT: macro that forwards each NSResponder mouse selector into the page proxy (WebViewImpl's input path is stubbed here).
 #define WKV_FORWARD_MOUSE(SEL_NAME) \
 - (void)SEL_NAME:(NSEvent *)event \
 { \
@@ -463,6 +494,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // originating event for the classic drag-image API used to start HTML5 drags.
 - (void)mouseDown:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: forward the mouse-down into the page proxy (stash the event for drag-image start).
     if (!_wkState || !_wkState->page) { [super mouseDown:event]; return; }
 #if ENABLE(DRAG_SUPPORT)
     _wkState->lastMouseDownEvent = event;
@@ -583,13 +615,16 @@ static WebCore::DragData wkDragDataFromInfo(NSView *view, id<NSDraggingInfo> inf
     _wkState->page->resetCurrentDragInformation();
 }
 
+// MAVERICKS_BACKPORT: NSDraggingDestination — always accept so AppKit proceeds to performDragOperation.
 - (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)info
 {
     return YES;
 }
 
+// MAVERICKS_BACKPORT: NSDraggingDestination drop handler — route the drop into the page proxy.
 - (BOOL)performDragOperation:(id<NSDraggingInfo>)info
 {
+    // MAVERICKS_BACKPORT: hand the drop data to WebCore via the page proxy's performDragOperation.
     if (!_wkState || !_wkState->page)
         return NO;
     auto dragData = wkDragDataFromInfo(self, info, *_wkState->page);
@@ -597,16 +632,19 @@ static WebCore::DragData wkDragDataFromInfo(NSView *view, id<NSDraggingInfo> inf
     return YES;
 }
 
-// NSDraggingSource (classic informal protocol, paired with -dragImage:...).
+// MAVERICKS_BACKPORT: NSDraggingSource (classic informal protocol, paired with -dragImage:...).
 - (NSDragOperation)draggingSourceOperationMaskForLocal:(BOOL)isLocal
 {
+    // MAVERICKS_BACKPORT: file-input drags advertise Copy only; otherwise allow the generic source operations.
     if (!isLocal || (_wkState && _wkState->page && _wkState->page->currentDragIsOverFileInput()))
         return NSDragOperationCopy;
     return NSDragOperationGeneric | NSDragOperationMove | NSDragOperationCopy;
 }
 
+// MAVERICKS_BACKPORT: classic NSDraggingSource drag-ended callback that pairs with -dragImage:... (the 10.12+ session API is unused here).
 - (void)draggedImage:(NSImage *)image endedAt:(NSPoint)screenPoint operation:(NSDragOperation)operation
 {
+    // MAVERICKS_BACKPORT: report the drag end back to the page proxy to finish the HTML5 drag session.
     if (!_wkState || !_wkState->page)
         return;
     NSWindow *window = [self window];
@@ -641,11 +679,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!event)
         return;
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    // MAVERICKS_BACKPORT: start the OS drag via the classic -dragImage:... API (beginDraggingSession is 10.12+).
     [self dragImage:image at:windowPoint offset:NSZeroSize event:event pasteboard:pasteboard source:self slideBack:YES];
 ALLOW_DEPRECATED_DECLARATIONS_END
 }
-#endif // ENABLE(DRAG_SUPPORT)
+#endif // ENABLE(DRAG_SUPPORT) — MAVERICKS_BACKPORT: HTML5 drag source/destination wired up here for the WKView input path
 
+// MAVERICKS_BACKPORT: forward scroll-wheel NSEvents into the page (the stubbed WebViewImpl input path is unused here).
 - (void)scrollWheel:(NSEvent *)event
 {
     if (!_wkState || !_wkState->page) { [super scrollWheel:event]; return; }

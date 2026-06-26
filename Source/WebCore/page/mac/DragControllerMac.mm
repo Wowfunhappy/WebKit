@@ -128,15 +128,18 @@ void DragController::updateSupportedTypeIdentifiersForDragHandlingMethod(DragHan
     Vector<String> supportedTypes;
     switch (dragHandlingMethod) {
     case DragHandlingMethod::PageLoad:
+        // MAVERICKS_BACKPORT: UTType class accessors are 11.0+; utTypeURLId() routes to legacy kUTTypeURL on 10.9.
         supportedTypes.append(utTypeURLId());
         break;
     case DragHandlingMethod::EditPlainText:
+        // MAVERICKS_BACKPORT: UTType class accessors are 11.0+; utType*Id() route to legacy kUTType* on 10.9.
         supportedTypes.append(utTypeURLId());
         supportedTypes.append(utTypePlainTextId());
         break;
     case DragHandlingMethod::EditRichText:
         if (DeprecatedGlobalSettings::attachmentElementEnabled()) {
             supportedTypes.append(WebArchivePboardType);
+            // MAVERICKS_BACKPORT: UTType class accessors are 11.0+; utType*Id() route to legacy kUTType* on 10.9.
             supportedTypes.append(utTypeContentId());
             supportedTypes.append(utTypeItemId());
         } else {

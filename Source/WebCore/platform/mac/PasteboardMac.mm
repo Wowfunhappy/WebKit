@@ -40,6 +40,7 @@
 #import "PlatformStrategies.h"
 #import "SharedBuffer.h"
 #import "UTIUtilities.h"
+// MAVERICKS_BACKPORT: <UniformTypeIdentifiers/UniformTypeIdentifiers.h> is macOS 11+; pull the legacy kUTType* identifiers from this in-tree header instead.
 #import "UTTypeIdentifiers.h"
 #import "WebNSAttributedStringExtras.h"
 #import <pal/spi/cg/CoreGraphicsSPI.h>
@@ -154,6 +155,7 @@ void Pasteboard::write(const PasteboardWebContent& content)
         types.append(WebSmartPastePboardType);
     if (content.dataInWebArchiveFormat) {
         types.append(WebArchivePboardType);
+        // MAVERICKS_BACKPORT: UTTypeWebArchive (UniformTypeIdentifiers, 11+) is absent on 10.9; use the literal com.apple.webarchive identifier.
         types.append(UT_WEB_ARCHIVE_ID);
     }
     if (content.dataInRTFDFormat)
@@ -186,6 +188,7 @@ void Pasteboard::write(const PasteboardWebContent& content)
     if (!didWriteWebArchive && content.dataInWebArchiveFormat) {
         m_changeCount = platformStrategies()->pasteboardStrategy()->setBufferForType(content.dataInWebArchiveFormat.get(), WebArchivePboardType, m_pasteboardName, context());
 
+        // MAVERICKS_BACKPORT: UTTypeWebArchive (UniformTypeIdentifiers, 11+) is absent on 10.9; use the literal com.apple.webarchive identifier.
         m_changeCount = platformStrategies()->pasteboardStrategy()->setBufferForType(content.dataInWebArchiveFormat.get(), UT_WEB_ARCHIVE_ID, m_pasteboardName, context());
     }
 
@@ -298,6 +301,7 @@ void Pasteboard::write(const PasteboardImage& pasteboardImage)
     auto types = writableTypesForImage();
     if (pasteboardImage.dataInWebArchiveFormat) {
         types.append(WebArchivePboardType);
+        // MAVERICKS_BACKPORT: UTTypeWebArchive (UniformTypeIdentifiers, 11+) is absent on 10.9; use the literal com.apple.webarchive identifier.
         types.append(UT_WEB_ARCHIVE_ID);
     }
 
@@ -305,6 +309,7 @@ void Pasteboard::write(const PasteboardImage& pasteboardImage)
     m_changeCount = platformStrategies()->pasteboardStrategy()->setBufferForType(SharedBuffer::create(imageData.get()).ptr(), legacyTIFFPasteboardTypeSingleton(), m_pasteboardName, context());
     if (auto archiveData = pasteboardImage.dataInWebArchiveFormat) {
         m_changeCount = platformStrategies()->pasteboardStrategy()->setBufferForType(archiveData.get(), WebArchivePboardType, m_pasteboardName, context());
+        // MAVERICKS_BACKPORT: UTTypeWebArchive (UniformTypeIdentifiers, 11+) is absent on 10.9; use the literal com.apple.webarchive identifier.
         m_changeCount = platformStrategies()->pasteboardStrategy()->setBufferForType(archiveData.get(), UT_WEB_ARCHIVE_ID, m_pasteboardName, context());
     }
     if (!pasteboardImage.dataInHTMLFormat.isEmpty())
@@ -483,6 +488,7 @@ void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolic
         }
     }
 
+    // MAVERICKS_BACKPORT: UTTypeWebArchive (UniformTypeIdentifiers, 11+) is absent on 10.9; use the literal com.apple.webarchive identifier.
     if (types.contains(String(UT_WEB_ARCHIVE_ID))) {
         if (auto buffer = readBufferAtPreferredItemIndex(UT_WEB_ARCHIVE_ID, itemIndex, strategy.get(), m_pasteboardName, context())) {
             if (m_changeCount != changeCount() || reader.readWebArchive(*buffer))
@@ -551,6 +557,7 @@ void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolic
         { String(NSPasteboardTypeTIFF), "image/tiff"_s },
         { String(legacyPDFPasteboardTypeSingleton()), "application/pdf"_s },
         { String(NSPasteboardTypePDF), "application/pdf"_s },
+        // MAVERICKS_BACKPORT: UTTypePNG/UTTypeJPEG (UniformTypeIdentifiers, 11+) are absent on 10.9; use the legacy kUTType* identifiers.
         { String(UT_PNG_ID()), "image/png"_s },
         { String(UT_JPEG_ID()), "image/jpeg"_s }
     } };
@@ -597,6 +604,7 @@ void Pasteboard::read(PasteboardWebContentReader& reader, WebContentReadingPolic
             return;
     }
 
+    // MAVERICKS_BACKPORT: UTTypeUTF8PlainText (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeUTF8PlainText identifier.
     if (types.contains(String(UT_UTF8_PLAIN_ID()))) {
         String string = strategy->stringForType(UT_UTF8_PLAIN_ID(), m_pasteboardName, context());
         if (m_changeCount != changeCount() || (!string.isNull() && reader.readPlainText(string)))
@@ -860,6 +868,7 @@ RefPtr<WebCore::SharedBuffer> Pasteboard::bufferConvertedToPasteboardType(const 
     if (pasteboardType != String(legacyTIFFPasteboardTypeSingleton()))
         return pasteboardBuffer.data;
 
+    // MAVERICKS_BACKPORT: UTTypeTIFF (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeTIFF identifier.
     if (pasteboardBuffer.type == String(UT_TIFF_ID()))
         return pasteboardBuffer.data;
 
@@ -875,6 +884,7 @@ RefPtr<WebCore::SharedBuffer> Pasteboard::bufferConvertedToPasteboardType(const 
         return nullptr;
 
     auto data = adoptCF(CFDataCreateMutable(0, 0));
+    // MAVERICKS_BACKPORT: UTTypeTIFF (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeTIFF identifier.
     auto destination = adoptCF(CGImageDestinationCreateWithData(data.get(), bridge_cast(UT_TIFF_ID()), 1, NULL));
     if (!destination)
         return nullptr;

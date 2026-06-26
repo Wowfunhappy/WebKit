@@ -35,6 +35,7 @@
 #include <wtf/TZoneMallocInlines.h>
 
 #if USE(GSTREAMER)
+// MAVERICKS_BACKPORT: extra includes for the canvas->pixels re-wrap path in captureCanvas() (Cocoa+GStreamer hybrid).
 #include "DestinationColorSpace.h"
 #include "ImageBuffer.h"
 #include "PixelBuffer.h"
@@ -241,6 +242,8 @@ void CanvasCaptureMediaStreamTrack::Source::captureCanvas()
     metadata.captureTime = MonotonicTime::now().secondsSinceEpoch();
 
 #if USE(GSTREAMER)
+    // MAVERICKS_BACKPORT: the upstream unconditional downcast<VideoFrameGStreamer>(*videoFrame) is replaced
+    // by the alive/re-wrap path below (Cocoa+GStreamer hybrid hands back a CoreVideo-backed VideoFrame).
     static const double s_fixedFrameRate = 60.0;
 
     // MAVERICKS_BACKPORT: only the GTK/WPE ports return a VideoFrameGStreamer from canvas->toVideoFrame()

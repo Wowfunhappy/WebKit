@@ -48,6 +48,7 @@ static MonotonicTime mediaTimeToCurrentTime(CFTimeInterval t)
 
 static NSString * const WKExplicitBeginTimeFlag = @"WKPlatformCAAnimationExplicitBeginTimeFlag";
 
+// MAVERICKS_BACKPORT: the CAAnimationDelegate formal protocol is 10.12+; forward-declare it on older SDKs so WKAnimationDelegate can declare conformance.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED < 101200
 @protocol CAAnimationDelegate <NSObject>
 @end
@@ -581,6 +582,7 @@ static RetainPtr<CAAnimation> createAnimation(CALayer *layer, RemoteLayerTreeHos
             }
         }
         caAnimation = WTF::move(springAnimation);
+// MAVERICKS_BACKPORT: deployment-target < 10.11 has no CASpringAnimation; fall back to CABasicAnimation.
 #else
         // CASpringAnimation is not available before macOS 10.11; fall back to basic animation.
         caAnimation = [CABasicAnimation animationWithKeyPath:properties.keyPath.createNSString().get()];

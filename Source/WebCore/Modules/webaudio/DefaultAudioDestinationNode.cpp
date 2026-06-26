@@ -188,6 +188,7 @@ void DefaultAudioDestinationNode::startRendering(CompletionHandler<void(std::opt
     };
 
     m_wasDestinationStarted = true;
+    // MAVERICKS_BACKPORT: keystone #54 — null-guard m_destination (createDestination may leave it null).
     if (!m_destination)
         return innerCompletionHandler(false);
     m_destination->start(dispatchToRenderThreadFunction(), WTF::move(innerCompletionHandler));
@@ -203,6 +204,7 @@ void DefaultAudioDestinationNode::resume(CompletionHandler<void(std::optional<Ex
         return;
     }
     m_wasDestinationStarted = true;
+    // MAVERICKS_BACKPORT: keystone #54 — null-guard m_destination (createDestination may leave it null).
     if (!m_destination) {
         completionHandler(Exception { ExceptionCode::InvalidStateError, "AudioDestination unavailable"_s });
         return;
@@ -223,6 +225,7 @@ void DefaultAudioDestinationNode::suspend(CompletionHandler<void(std::optional<E
     }
 
     m_wasDestinationStarted = false;
+    // MAVERICKS_BACKPORT: keystone #54 — null-guard m_destination (createDestination may leave it null).
     if (!m_destination) {
         completionHandler(std::nullopt);
         return;
@@ -237,6 +240,7 @@ void DefaultAudioDestinationNode::restartRendering()
     if (!m_wasDestinationStarted)
         return;
 
+    // MAVERICKS_BACKPORT: keystone #54 — null-guard m_destination (createDestination may leave it null).
     if (!m_destination)
         return;
     m_destination->stop();

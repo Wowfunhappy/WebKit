@@ -1072,12 +1072,15 @@ def generate_one_impl(type, template_argument, serialized_types):
         # to avoid leading comma issues when conditional members are disabled.
         any_conditional = any(m.condition is not None for m in type.members)
         result.append(f'enum class {type.subclass_enum_name()} : IPC::EncodedVariantIndex {{')
+        # MAVERICKS_BACKPORT: with conditional members disabled on 10.9, emit a _dummy_first_entry sentinel
+        # so every real member is written as ", name" and no stray leading comma is produced.
         if any_conditional:
             result.append(f'    _dummy_first_entry = 0')
             for member in type.members:
                 if member.condition is not None:
                     result.append(f'#if {member.condition}')
                 result.append(f'    , {member.name}')
+                # MAVERICKS_BACKPORT: close the per-member #if so disabled-on-10.9 members drop cleanly.
                 if member.condition is not None:
                     result.append('#endif')
         else:

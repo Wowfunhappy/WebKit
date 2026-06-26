@@ -50,4 +50,5 @@ private:
 }
 
 #endif // PLATFORM(MAC) && ENABLE(PDF_PLUGIN)
+// MAVERICKS_BACKPORT: close the #if 0 that disables this PDF-plugin scrolling node.
 #endif // #if 0

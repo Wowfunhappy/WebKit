@@ -45,6 +45,7 @@ LocalDefaultSystemAppearance::LocalDefaultSystemAppearance(bool useDarkAppearanc
     // tinted scrollbar corner: ScrollbarThemeMac::paintScrollCorner -> AppKitControlSystemImage::draw).
     UNUSED_PARAM(tintColor);
     m_usingDarkAppearance = useDarkAppearance;
+    // MAVERICKS_BACKPORT: deployment-target gate — the appearance-swap APIs below are 10.14+; skip on 10.9.
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
     m_savedSystemAppearance = [NSAppearance currentDrawingAppearance];
 
@@ -56,11 +57,14 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 
     [NSAppearance setCurrentAppearance:appearance.get()];
 ALLOW_DEPRECATED_DECLARATIONS_END
+// MAVERICKS_BACKPORT: end of the 10.14+ appearance-swap block compiled out on 10.9.
 #endif
 }
 
 LocalDefaultSystemAppearance::~LocalDefaultSystemAppearance()
 {
+    // MAVERICKS_BACKPORT: on 10.9 nothing was saved (the appearance swap was compiled out), so there is
+    // nothing to restore — bail before touching the 10.14+ setCurrentAppearance: API.
     if (!m_savedSystemAppearance)
         return;
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN

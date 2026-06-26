@@ -290,6 +290,7 @@ void PageClientImpl::pageClosed()
 
 void PageClientImpl::scrollingCoordinatorWasCreated()
 {
+    // MAVERICKS_BACKPORT: protect(m_impl) to hold a strong ref across the call (upstream dereferences m_impl directly).
     protect(m_impl)->scrollingCoordinatorWasCreated();
 }
 
@@ -414,6 +415,7 @@ void PageClientImpl::removeAllPDFHUDs()
 {
     protect(m_impl)->removeAllPDFHUDs();
 }
+// MAVERICKS_BACKPORT: closes the ENABLE(PDF_HUD) gate (PDFs download on 10.9, so the HUD is off).
 #endif // ENABLE(PDF_HUD)
 
 void PageClientImpl::clearAllEditCommands()
@@ -433,9 +435,11 @@ void PageClientImpl::executeUndoRedo(UndoOrRedo undoOrRedo)
     return undoOrRedo == UndoOrRedo::Undo ? [undoManager undo] : [undoManager redo];
 }
 
+// MAVERICKS_BACKPORT: nodeID/frameID params are unused; WebViewImpl::startDrag() in this tree takes only (item, image).
 void PageClientImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Handle&& image, const std::optional<WebCore::NodeIdentifier>& nodeID, const std::optional<WebCore::FrameIdentifier>&)
 {
     UNUSED_PARAM(nodeID);
+    // MAVERICKS_BACKPORT: WebViewImpl::startDrag() in this tree takes only (item, image); frameID is dropped.
     protect(m_impl)->startDrag(item, WTF::move(image));
 }
 
@@ -489,6 +493,7 @@ void PageClientImpl::drawPageBorderForPrinting(WebCore::FloatSize&& size)
 IntPoint PageClientImpl::screenToRootView(const IntPoint& point)
 {
     RetainPtr view = m_view.get();
+    // MAVERICKS_BACKPORT: use -[NSWindow convertScreenToBase:] (convertPointFromScreen: is 10.12+), guarded for a nil window.
     RetainPtr<NSWindow> window = [view window];
     NSPoint windowCoord = window ? [window.get() convertScreenToBase:NSMakePoint(point.x(), point.y())] : NSMakePoint(point.x(), point.y());
     return IntPoint([view convertPoint:windowCoord fromView:nil]);
@@ -497,6 +502,7 @@ IntPoint PageClientImpl::screenToRootView(const IntPoint& point)
 IntPoint PageClientImpl::rootViewToScreen(const IntPoint& point)
 {
     RetainPtr view = m_view.get();
+    // MAVERICKS_BACKPORT: use -[NSWindow convertBaseToScreen:] (convertPointToScreen: is 10.12+), guarded for a nil window.
     RetainPtr<NSWindow> window = [view window];
     NSPoint viewPoint = [view convertPoint:NSMakePoint(point.x(), point.y()) toView:nil];
     NSPoint screenPoint = window ? [window.get() convertBaseToScreen:viewPoint] : viewPoint;
@@ -507,6 +513,7 @@ IntRect PageClientImpl::rootViewToScreen(const IntRect& rect)
 {
     NSRect tempRect = rect;
     RetainPtr view = m_view.get();
+    // MAVERICKS_BACKPORT: use -[NSWindow convertBaseToScreen:] (convertPointToScreen: is 10.12+), guarded for a nil window.
     RetainPtr<NSWindow> window = [view window];
     tempRect = [view convertRect:tempRect toView:nil];
     if (window)
@@ -574,6 +581,7 @@ void PageClientImpl::didDismissContextMenu()
 
 #endif // ENABLE(CONTEXT_MENUS)
 
+// MAVERICKS_BACKPORT: frameID param is unused and WebColorPickerMac::create() takes no frameID in this tree's signature.
 RefPtr<WebColorPicker> PageClientImpl::createColorPicker(WebPageProxy& page, const WebCore::Color& initialColor, const WebCore::IntRect& rect, ColorControlSupportsAlpha supportsAlpha, Vector<WebCore::Color>&& suggestions, std::optional<WebCore::FrameIdentifier>)
 {
     return WebColorPickerMac::create(protect(page.colorPickerClient()).ptr(), initialColor, rect, supportsAlpha, WTF::move(suggestions), m_view.get().get());
@@ -753,6 +761,7 @@ String PageClientImpl::dismissCorrectionPanelSoon(WebCore::ReasonForDismissingAl
 #endif
 }
 
+// MAVERICKS_BACKPORT: drop the NODELETE attribute macro (unavailable here); plain static inline.
 static inline NSCorrectionResponse toCorrectionResponse(AutocorrectionResponse response)
 {
     switch (response) {
@@ -1086,10 +1095,12 @@ std::optional<float> PageClientImpl::computeAutomaticTopObscuredInset()
 {
     RetainPtr view = m_view.get();
     RetainPtr window = [view window];
+    // MAVERICKS_BACKPORT: -[NSWindow contentLayoutRect] is 10.10+; bail out when absent (and use literal 1<<15 for NSWindowStyleMaskFullSizeContentView).
     if (![window respondsToSelector:@selector(contentLayoutRect)])
         return std::nullopt;
     if (([window styleMask] & (1ULL << 15)) && ![window titlebarAppearsTransparent] && ![view enclosingScrollView]) {
         [window updateConstraintsIfNeeded];
+        // MAVERICKS_BACKPORT: call contentLayoutRect via NSInvocation since the selector is unavailable at compile time on the 10.9 SDK.
         NSRect contentLayoutRect;
         NSMethodSignature *sig = [window methodSignatureForSelector:@selector(contentLayoutRect)];
         NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
@@ -1118,6 +1129,7 @@ bool PageClientImpl::effectiveAppearanceIsDark() const
 
 bool PageClientImpl::effectiveUserInterfaceLevelIsElevated() const
 {
+    // MAVERICKS_BACKPORT: protect(m_impl) to hold a strong ref across the call (upstream dereferences m_impl directly).
     return protect(m_impl)->effectiveUserInterfaceLevelIsElevated();
 }
 
@@ -1133,6 +1145,7 @@ void PageClientImpl::takeFocus(WebCore::FocusDirection direction)
 
 void PageClientImpl::performSwitchHapticFeedback()
 {
+    // MAVERICKS_BACKPORT: NSHapticFeedbackManager is 10.11+; look it up dynamically and no-op when absent on 10.9.
     Class cls = NSClassFromString(@"NSHapticFeedbackManager");
     if (!cls)
         return;

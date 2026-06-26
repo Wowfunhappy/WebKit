@@ -162,7 +162,7 @@ static PixelRange NODELETE pixelRangeFromPixelFormat(OSType pixelFormat)
     case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange:
     case kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange:
     case kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange:
-#endif
+#endif // MAVERICKS_BACKPORT: end 10.13+ guard around 10-bit HDR video-range formats
 #if HAVE(COREVIDEO_COMPRESSED_PIXEL_FORMAT_TYPES)
     case kCVPixelFormatType_AGX_420YpCbCr8BiPlanarVideoRange:
 #endif
@@ -178,7 +178,7 @@ static PixelRange NODELETE pixelRangeFromPixelFormat(OSType pixelFormat)
     case kCVPixelFormatType_420YpCbCr10BiPlanarFullRange:
     case kCVPixelFormatType_422YpCbCr10BiPlanarFullRange:
     case kCVPixelFormatType_444YpCbCr10BiPlanarFullRange:
-#endif
+#endif // MAVERICKS_BACKPORT: end 10.13+ guard around 10-bit/2101010 HDR full-range formats
 #if HAVE(COREVIDEO_COMPRESSED_PIXEL_FORMAT_TYPES)
     case kCVPixelFormatType_AGX_420YpCbCr8BiPlanarFullRange:
 #endif

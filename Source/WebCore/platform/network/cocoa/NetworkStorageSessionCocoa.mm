@@ -8,6 +8,7 @@
 #import "NetworkStorageSession.h"
 
 #import "Cookie.h"
+// MAVERICKS_BACKPORT: trimmed include set for the minimal 10.9 NSHTTPCookieStorage-backed rewrite.
 #import "ClientOrigin.h"
 #import "CookieRequestHeaderFieldProxy.h"
 #import "CookieStorageObserver.h"
@@ -19,6 +20,7 @@
 
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: resolve an NSHTTPCookieStorage from the CF cookie storage, tolerating 10.10+ SPI absent on 10.9.
 RetainPtr<NSHTTPCookieStorage> NetworkStorageSession::nsCookieStorage() const
 {
     auto cf = cookieStorage();
@@ -36,16 +38,20 @@ RetainPtr<NSHTTPCookieStorage> NetworkStorageSession::nsCookieStorage() const
     return [NSHTTPCookieStorage sharedHTTPCookieStorage];
 }
 
+// MAVERICKS_BACKPORT: cookie-storage observer over the NSHTTPCookieStorage resolved above.
 CookieStorageObserver& NetworkStorageSession::cookieStorageObserver() const
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     if (!m_cookieStorageObserver)
         m_cookieStorageObserver = makeUnique<CookieStorageObserver>(nsCookieStorage().get());
     return *m_cookieStorageObserver;
 }
 
+// MAVERICKS_BACKPORT: helper to build NSHTTPCookie properties from a WebCore::Cookie (public NSHTTPCookie API, 10.9-safe).
 // Helper: build NSHTTPCookie properties dict from WebCore::Cookie struct.
 static RetainPtr<NSDictionary> cookiePropertiesFromCookieStruct(const Cookie& cookie)
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr properties = adoptNS([[NSMutableDictionary alloc] init]);
     if (!cookie.name.isEmpty())
         [properties setObject:cookie.name.createNSString().get() forKey:NSHTTPCookieName];
@@ -59,8 +65,10 @@ static RetainPtr<NSDictionary> cookiePropertiesFromCookieStruct(const Cookie& co
     return properties;
 }
 
+// MAVERICKS_BACKPORT: setCookie via NSHTTPCookieStorage (10.9-safe public API).
 void NetworkStorageSession::setCookie(const Cookie& cookie, const URL&, const URL&)
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
     if (!storage)
         return;
@@ -69,19 +77,24 @@ void NetworkStorageSession::setCookie(const Cookie& cookie, const URL&, const UR
         [storage setCookie:ns.get()];
 }
 
+// MAVERICKS_BACKPORT: setCookie overload routes through the NSHTTPCookieStorage path.
 void NetworkStorageSession::setCookie(const Cookie& cookie)
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     setCookie(cookie, URL { }, URL { });
 }
 
+// MAVERICKS_BACKPORT: setCookies loops the NSHTTPCookieStorage path.
 void NetworkStorageSession::setCookies(const Vector<Cookie>& cookies, const URL& url, const URL& mainDocumentURL)
 {
     for (auto& c : cookies)
         setCookie(c, url, mainDocumentURL);
 }
 
+// MAVERICKS_BACKPORT: deleteCookie by name via NSHTTPCookieStorage (10.9-safe public API).
 void NetworkStorageSession::deleteCookie(const URL& /*firstParty*/, const URL& url, const String& cookieName, CompletionHandler<void()>&& completionHandler) const
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
     if (storage) {
         RetainPtr nsURL = url.createNSURL();
@@ -91,11 +104,14 @@ void NetworkStorageSession::deleteCookie(const URL& /*firstParty*/, const URL& u
                 [storage deleteCookie:c];
         }
     }
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     completionHandler();
 }
 
+// MAVERICKS_BACKPORT: deleteCookie by struct via NSHTTPCookieStorage.
 void NetworkStorageSession::deleteCookie(const Cookie& cookie, CompletionHandler<void()>&& completionHandler)
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
     if (storage) {
         RetainPtr ns = adoptNS([[NSHTTPCookie alloc] initWithProperties:cookiePropertiesFromCookieStruct(cookie).get()]);
@@ -105,13 +121,17 @@ void NetworkStorageSession::deleteCookie(const Cookie& cookie, CompletionHandler
     completionHandler();
 }
 
+// MAVERICKS_BACKPORT: deleteCookies(ClientOrigin) no-op stub for 10.9.
 void NetworkStorageSession::deleteCookies(const ClientOrigin&, CompletionHandler<void()>&& completionHandler)
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     completionHandler();
 }
 
+// MAVERICKS_BACKPORT: deleteCookiesForHostnames via NSHTTPCookieStorage; rangeOfString instead of 10.10+ containsString.
 void NetworkStorageSession::deleteCookiesForHostnames(const Vector<String>& hostnames, IncludeHttpOnlyCookies includeHttpOnly, ScriptWrittenCookiesOnly, CompletionHandler<void()>&& completionHandler)
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
     if (storage) {
         for (auto& hostname : hostnames) {
@@ -124,6 +144,7 @@ void NetworkStorageSession::deleteCookiesForHostnames(const Vector<String>& host
             }
         }
     }
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     completionHandler();
 }
 
@@ -134,6 +155,7 @@ void NetworkStorageSession::deleteCookiesForHostnames(const Vector<String>& host
 // methods above.
 Vector<Cookie> NetworkStorageSession::getAllCookies()
 {
+    // MAVERICKS_BACKPORT: getAllCookies implemented against shared NSHTTPCookieStorage (upstream had only Curl/Soup backends).
     Vector<Cookie> result;
     RetainPtr storage = nsCookieStorage();
     if (!storage)
@@ -149,11 +171,14 @@ Vector<Cookie> NetworkStorageSession::getAllCookies()
         cookie.session = [c isSessionOnly];
         result.append(std::move(cookie));
     }
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     return result;
 }
 
+// MAVERICKS_BACKPORT: getHostnamesWithCookies against shared NSHTTPCookieStorage.
 void NetworkStorageSession::getHostnamesWithCookies(HashSet<String>& hostnames)
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
     if (!storage)
         return;
@@ -164,8 +189,10 @@ void NetworkStorageSession::getHostnamesWithCookies(HashSet<String>& hostnames)
     }
 }
 
+// MAVERICKS_BACKPORT: deleteAllCookies against shared NSHTTPCookieStorage (enables Safari Clear History).
 void NetworkStorageSession::deleteAllCookies(CompletionHandler<void()>&& completionHandler)
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     if (RetainPtr storage = nsCookieStorage()) {
         // Copy first: -deleteCookie: mutates the live -cookies array we would be enumerating.
         RetainPtr<NSArray> all = adoptNS([[storage cookies] copy]);
@@ -175,6 +202,7 @@ void NetworkStorageSession::deleteAllCookies(CompletionHandler<void()>&& complet
     completionHandler();
 }
 
+// MAVERICKS_BACKPORT: deleteAllCookiesModifiedSince approximated by full clear (no per-cookie mod date / removeCookiesSinceDate: is 10.10+).
 void NetworkStorageSession::deleteAllCookiesModifiedSince(WallTime, CompletionHandler<void()>&& completionHandler)
 {
     // MAVERICKS_BACKPORT: NSHTTPCookie exposes no per-cookie modification date and -removeCookiesSinceDate:
@@ -183,8 +211,10 @@ void NetworkStorageSession::deleteAllCookiesModifiedSince(WallTime, CompletionHa
     deleteAllCookies(std::move(completionHandler));
 }
 
+// MAVERICKS_BACKPORT: hasCookies(domain) by scanning NSHTTPCookieStorage cookies.
 void NetworkStorageSession::hasCookies(const RegistrableDomain& domain, CompletionHandler<void(bool)>&& completionHandler) const
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     bool found = false;
     if (RetainPtr storage = nsCookieStorage()) {
         auto target = domain.string();
@@ -198,11 +228,14 @@ void NetworkStorageSession::hasCookies(const RegistrableDomain& domain, Completi
             }
         }
     }
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     completionHandler(found);
 }
 
+// MAVERICKS_BACKPORT: getRawCookies via -cookiesForURL: on NSHTTPCookieStorage.
 bool NetworkStorageSession::getRawCookies(const URL&, const SameSiteInfo&, const URL& url, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, ApplyTrackingPrevention, ShouldRelaxThirdPartyCookieBlocking, Vector<Cookie>& outCookies) const
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
     if (!storage)
         return false;
@@ -211,6 +244,7 @@ bool NetworkStorageSession::getRawCookies(const URL&, const SameSiteInfo&, const
     for (NSHTTPCookie *c in nsCookies) {
         if (![[c name] length])
             continue;
+        // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
         Cookie cookie;
         cookie.name = String([c name]);
         cookie.value = String([c value]);
@@ -221,11 +255,14 @@ bool NetworkStorageSession::getRawCookies(const URL&, const SameSiteInfo&, const
         cookie.session = [c isSessionOnly];
         outCookies.append(WTF::move(cookie));
     }
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     return true;
 }
 
+// MAVERICKS_BACKPORT: domCookiesForHost via -cookiesForURL:, skipping HTTPOnly.
 Vector<Cookie> NetworkStorageSession::domCookiesForHost(const URL& url)
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
     if (!storage)
         return { };
@@ -247,36 +284,46 @@ Vector<Cookie> NetworkStorageSession::domCookiesForHost(const URL& url)
         cookie.session = [c isSessionOnly];
         result.append(WTF::move(cookie));
     }
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     return result;
 }
 
+// MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
 bool NetworkStorageSession::startListeningForCookieChangeNotifications(CookieChangeObserver&, const URL&, const URL&, FrameIdentifier, PageIdentifier, ShouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker)
 {
+    // MAVERICKS_BACKPORT: cookie-change listener API unavailable on 10.9; report no listener.
     return false;
 }
 
+// MAVERICKS_BACKPORT: cookie-change listener stop is a no-op on 10.9.
 void NetworkStorageSession::stopListeningForCookieChangeNotifications(CookieChangeObserver&, const HashSet<String>&)
 {
 }
 
+// MAVERICKS_BACKPORT: unregister cookie-change listeners (guarded; 10.10+ change-handler SPI).
 void NetworkStorageSession::unregisterCookieChangeListenersIfNecessary()
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     if (!m_didRegisterCookieListeners)
         return;
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     [nsCookieStorage() _setCookiesChangedHandler:nil onQueue:nil];
     [nsCookieStorage() _setCookiesRemovedHandler:nil onQueue:nil];
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     [nsCookieStorage() _setSubscribedDomainsForCookieChanges:nil];
     m_didRegisterCookieListeners = false;
 }
 #endif
 
+// MAVERICKS_BACKPORT: helper to format NSHTTPCookies into a Cookie: header string.
 // Helper: filter NSHTTPCookies by includeSecureCookies and HTTPOnly, build "k1=v1; k2=v2"
 // header-style string. Returns {string, hadSecureCookie}.
 static std::pair<String, bool> formatCookies(NSArray<NSHTTPCookie*>* cookies, bool includeSecure, bool excludeHTTPOnly)
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     StringBuilder builder;
     bool sawSecure = false;
     bool first = true;
@@ -284,12 +331,15 @@ static std::pair<String, bool> formatCookies(NSArray<NSHTTPCookie*>* cookies, bo
         if (excludeHTTPOnly && [cookie isHTTPOnly])
             continue;
         if ([cookie isSecure]) {
+            // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
             if (!includeSecure)
                 continue;
+            // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
             sawSecure = true;
         }
         if (![[cookie name] length])
             continue;
+        // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
         if (!first)
             builder.append("; "_s);
         first = false;
@@ -297,11 +347,14 @@ static std::pair<String, bool> formatCookies(NSArray<NSHTTPCookie*>* cookies, bo
         builder.append('=');
         builder.append(String([cookie value]));
     }
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     return { builder.toString(), sawSecure };
 }
 
+// MAVERICKS_BACKPORT: cookiesForDOM via -cookiesForURL:, excluding HTTPOnly.
 std::pair<String, bool> NetworkStorageSession::cookiesForDOM(const URL&, const SameSiteInfo&, const URL& url, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, IncludeSecureCookies includeSecureCookies, ApplyTrackingPrevention, ShouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker) const
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
     if (!storage)
         return { String(), false };
@@ -310,8 +363,10 @@ std::pair<String, bool> NetworkStorageSession::cookiesForDOM(const URL&, const S
     return formatCookies(cookies, includeSecureCookies == IncludeSecureCookies::Yes, /*excludeHTTPOnly=*/true);
 }
 
+// MAVERICKS_BACKPORT: cookieRequestHeaderFieldValue via -cookiesForURL:, including HTTPOnly.
 std::pair<String, bool> NetworkStorageSession::cookieRequestHeaderFieldValue(const URL&, const SameSiteInfo&, const URL& url, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, IncludeSecureCookies includeSecureCookies, ApplyTrackingPrevention, ShouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker) const
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
     if (!storage)
         return { String(), false };
@@ -321,18 +376,23 @@ std::pair<String, bool> NetworkStorageSession::cookieRequestHeaderFieldValue(con
     return formatCookies(cookies, includeSecureCookies == IncludeSecureCookies::Yes, /*excludeHTTPOnly=*/false);
 }
 
+// MAVERICKS_BACKPORT: cookieRequestHeaderFieldValue(proxy) forwards to the URL-based overload.
 std::pair<String, bool> NetworkStorageSession::cookieRequestHeaderFieldValue(const CookieRequestHeaderFieldProxy& proxy) const
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     return cookieRequestHeaderFieldValue(proxy.firstParty, proxy.sameSiteInfo, proxy.url, proxy.frameID, proxy.pageID, proxy.includeSecureCookies, ApplyTrackingPrevention::Yes, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No);
 }
 
+// MAVERICKS_BACKPORT: setCookiesFromDOM parses Set-Cookie via NSHTTPCookie and stores, skipping HTTPOnly.
 void NetworkStorageSession::setCookiesFromDOM(const URL&, const SameSiteInfo&, const URL& url, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, ApplyTrackingPrevention, RequiresScriptTrackingPrivacy, const String& cookieString, ShouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker) const
 {
     if (cookieString.isEmpty())
         return;
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
     if (!storage)
         return;
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr nsURL = url.createNSURL();
     // Parse the cookieString as a Set-Cookie header. NSHTTPCookie does the heavy lifting.
     NSDictionary *headerFields = @{ @"Set-Cookie": cookieString.createNSString().get() };
@@ -354,6 +414,7 @@ void NetworkStorageSession::setCookiesFromDOM(const URL&, const SameSiteInfo&, c
 // instead of upstream's deleteHTTPCookie/setHTTPCookiesForURL, which rely on 10.10+ CFNetwork SPI absent on 10.9.
 static Vector<Cookie> nsCookiesToCookieVector(NSArray<NSHTTPCookie *> *nsCookies, NOESCAPE const Function<bool(NSHTTPCookie *)>& filter = { })
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     Vector<Cookie> cookies;
     cookies.reserveInitialCapacity(nsCookies.count);
     for (NSHTTPCookie *nsCookie in nsCookies) {
@@ -367,6 +428,7 @@ static Vector<Cookie> nsCookiesToCookieVector(NSArray<NSHTTPCookie *> *nsCookies
     return cookies;
 }
 
+// MAVERICKS_BACKPORT: getCookies restored from upstream; routes through nsCookieStorage().
 Vector<Cookie> NetworkStorageSession::getCookies(const URL& url)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
@@ -400,16 +462,20 @@ void NetworkStorageSession::setAllCookiesToSameSiteStrict(const RegistrableDomai
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
     if (!storage)
         return completionHandler();
 
+    // MAVERICKS_BACKPORT: -[NSHTTPCookie sameSitePolicy] is 10.13+; respondsToSelector-guard before rewriting cookies.
     if (![NSHTTPCookie instancesRespondToSelector:@selector(sameSitePolicy)])
         return completionHandler();
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr<NSMutableArray<NSHTTPCookie *>> oldCookiesToDelete = adoptNS([[NSMutableArray alloc] init]);
     RetainPtr<NSMutableArray<NSHTTPCookie *>> newCookiesToAdd = adoptNS([[NSMutableArray alloc] init]);
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     for (NSHTTPCookie *nsCookie in [storage cookies]) {
         if (RegistrableDomain::uncheckedCreateFromHost(nsCookie.domain) == domain && nsCookie.sameSitePolicy != NSHTTPCookieSameSiteStrict) {
             [oldCookiesToDelete addObject:nsCookie];
@@ -421,6 +487,7 @@ void NetworkStorageSession::setAllCookiesToSameSiteStrict(const RegistrableDomai
         }
     }
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     auto aggregator = CallbackAggregator::create([completionHandler = WTF::move(completionHandler), newCookiesToAdd = WTF::move(newCookiesToAdd), storage = RetainPtr { storage }] () mutable {
         BEGIN_BLOCK_OBJC_EXCEPTIONS
         for (NSHTTPCookie *newCookie in newCookiesToAdd.get())
@@ -430,21 +497,26 @@ void NetworkStorageSession::setAllCookiesToSameSiteStrict(const RegistrableDomai
     });
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     for (NSHTTPCookie *oldCookie in oldCookiesToDelete.get()) {
         [storage deleteCookie:oldCookie];
         UNUSED_PARAM(aggregator);
     }
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
+// MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
 // Restored upstream static helper adjustScriptWrittenCookie (and the capExpiryOfPersistentCookie it calls, whose
 // static declaration in NetworkStorageSession.h was left undefined by the backport). Both use only public NSHTTPCookie
 // API and are 10.9-safe.
 RetainPtr<NSHTTPCookie> NetworkStorageSession::capExpiryOfPersistentCookie(NSHTTPCookie *cookie, Seconds cap)
 {
+    // MAVERICKS_BACKPORT: capExpiryOfPersistentCookie restored (upstream static decl left undefined by the backport); public NSHTTPCookie API only.
     if ([cookie isSessionOnly])
         return cookie;
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     if (!cookie.expiresDate || cookie.expiresDate.timeIntervalSinceNow > cap.seconds()) {
         auto properties = adoptNS([[cookie properties] mutableCopy]);
         auto date = adoptNS([[NSDate alloc] initWithTimeIntervalSinceNow:cap.seconds()]);
@@ -454,13 +526,17 @@ RetainPtr<NSHTTPCookie> NetworkStorageSession::capExpiryOfPersistentCookie(NSHTT
     return cookie;
 }
 
+// MAVERICKS_BACKPORT: adjustScriptWrittenCookie restored from upstream; public NSHTTPCookie API only.
 static RetainPtr<NSHTTPCookie> adjustScriptWrittenCookie(NSHTTPCookie *initialCookie, std::optional<Seconds> cappedLifetime)
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     if (!initialCookie)
         return nil;
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr cookie = initialCookie;
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     // <rdar://problem/5632883> On 10.5, NSHTTPCookieStorage would store an empty cookie,
     // which would be sent as "Cookie: =". We have a workaround in setCookies() to prevent
     // that, but we also need to avoid sending cookies that were previously stored, and
@@ -468,43 +544,54 @@ static RetainPtr<NSHTTPCookie> adjustScriptWrittenCookie(NSHTTPCookie *initialCo
     if (![[cookie name] length])
         return nil;
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     if ([cookie isHTTPOnly])
         return nil;
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     // Cap lifetime of persistent, client-side cookies.
     if (cappedLifetime)
         return NetworkStorageSession::capExpiryOfPersistentCookie(cookie.get(), *cappedLifetime);
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     return cookie;
 }
 
+// MAVERICKS_BACKPORT: setCookieFromDOM keeps upstream logic but writes via nsCookieStorage() (upstream setHTTPCookiesForURL is 10.10+ SPI).
 bool NetworkStorageSession::setCookieFromDOM(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ApplyTrackingPrevention applyTrackingPrevention, RequiresScriptTrackingPrivacy requiresScriptTrackingPrivacy, const Cookie& cookie, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker isKnownCrossSiteTracker) const
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     auto thirdPartyCookieBlockingDecision = thirdPartyCookieBlockingDecisionForRequest(firstParty, url, frameID, pageID, shouldRelaxThirdPartyCookieBlocking, isKnownCrossSiteTracker);
     if (applyTrackingPrevention == ApplyTrackingPrevention::Yes && shouldBlockCookies(thirdPartyCookieBlockingDecision))
         return false;
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     auto expiryCap = clientSideCookieCap(RegistrableDomain { firstParty }, requiresScriptTrackingPrivacy, pageID);
     RetainPtr nshttpCookie = adjustScriptWrittenCookie(cookie.createNSHTTPCookie().get(), expiryCap);
     if (!nshttpCookie)
         return false;
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
     if (!storage)
         return false;
     [storage setCookie:nshttpCookie.get()];
     return true;
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     END_BLOCK_OBJC_EXCEPTIONS
     return false;
 }
 
+// MAVERICKS_BACKPORT: cookiesForDOMAsVector via -cookiesForURL:, excluding HTTPOnly/secure as requested.
 std::optional<Vector<Cookie>> NetworkStorageSession::cookiesForDOMAsVector(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, IncludeSecureCookies includeSecureCookies, ApplyTrackingPrevention applyTrackingPrevention, ShouldRelaxThirdPartyCookieBlocking relaxBlocking, IsKnownCrossSiteTracker tracker, CookieStoreGetOptions&&) const
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
     if (!storage)
         return Vector<Cookie>{};
@@ -531,56 +618,71 @@ std::optional<Vector<Cookie>> NetworkStorageSession::cookiesForDOMAsVector(const
     return result;
 }
 
+// MAVERICKS_BACKPORT: destructor unregisters cookie-change listeners (guarded by HAVE(COOKIE_CHANGE_LISTENER_API)).
 NetworkStorageSession::~NetworkStorageSession()
 {
+// MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
     unregisterCookieChangeListenersIfNecessary();
 #endif
     clearCookiesVersionChangeCallbacks();
 }
 
+// MAVERICKS_BACKPORT: createPrivateStorageSession restored from upstream; CFURLStorageSession APIs present on 10.9.
 RetainPtr<CFURLStorageSessionRef> createPrivateStorageSession(CFStringRef identifier, std::optional<HTTPCookieAcceptPolicy> cookieAcceptPolicy, NetworkStorageSession::ShouldDisableCFURLCache shouldDisableCFURLCache)
 {
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     const void* sessionPropertyKeys[] = { _kCFURLStorageSessionIsPrivate };
     const void* sessionPropertyValues[] = { kCFBooleanTrue };
     auto sessionProperties = adoptCF(CFDictionaryCreate(kCFAllocatorDefault, sessionPropertyKeys, sessionPropertyValues, sizeof(sessionPropertyKeys) / sizeof(*sessionPropertyKeys), &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
     auto storageSession = adoptCF(_CFURLStorageSessionCreate(kCFAllocatorDefault, identifier, sessionProperties.get()));
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     if (!storageSession)
         return nullptr;
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     if (shouldDisableCFURLCache == NetworkStorageSession::ShouldDisableCFURLCache::Yes)
         _CFURLStorageSessionDisableCache(storageSession.get());
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     // The private storage session should have the same properties as the default storage session,
     // with the exception that it should be in-memory only storage.
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     // FIXME 9199649: If any of the storages do not exist, do no use the storage session.
     // This could occur if there is an issue figuring out where to place a storage on disk (e.g. the
     // sandbox does not allow CFNetwork access).
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     if (shouldDisableCFURLCache == NetworkStorageSession::ShouldDisableCFURLCache::No) {
         auto cache = adoptCF(_CFURLStorageSessionCopyCache(kCFAllocatorDefault, storageSession.get()));
         if (!cache)
             return nullptr;
 
+        // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
         CFURLCacheSetMemoryCapacity(cache.get(), [[NSURLCache sharedURLCache] memoryCapacity]);
     }
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     auto cookieStorage = adoptCF(_CFURLStorageSessionCopyCookieStorage(kCFAllocatorDefault, storageSession.get()));
     if (!cookieStorage)
         return nullptr;
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     NSHTTPCookieAcceptPolicy nsCookieAcceptPolicy;
     if (cookieAcceptPolicy)
         nsCookieAcceptPolicy = toNSHTTPCookieAcceptPolicy(*cookieAcceptPolicy);
     else
         nsCookieAcceptPolicy = [[NSHTTPCookieStorage sharedHTTPCookieStorage] cookieAcceptPolicy];
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     // FIXME: Use _CFHTTPCookieStorageGetDefault when USE(CFNETWORK) is defined in WebKit for consistency.
     CFHTTPCookieStorageSetCookieAcceptPolicy(cookieStorage.get(), nsCookieAcceptPolicy);
 
+    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     return storageSession;
 }
 
+// MAVERICKS_BACKPORT: close of namespace WebCore for the 10.9 rewrite.
 }

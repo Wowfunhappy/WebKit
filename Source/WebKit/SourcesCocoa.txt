@@ -62,6 +62,7 @@ NetworkProcess/mac/SecItemShim.mm @nonARC
 
 NetworkProcess/webrtc/LibWebRTCSocketClient.cpp
 NetworkProcess/webrtc/NetworkRTCMonitor.cpp
+// MAVERICKS_BACKPORT: NetworkRTCSharedMonitorCocoa.mm removed here (nw_*/Network.framework path-monitor needs 10.14+); see exclusion note below.
 NetworkProcess/webrtc/NetworkRTCProvider.cpp
 NetworkProcess/webrtc/NetworkRTCSharedMonitor.cpp
 // MAVERICKS_BACKPORT (WK_RTC_USE_NW=0): the nw_*/Network.framework socket + path-monitor
@@ -147,6 +148,7 @@ Shared/API/Cocoa/RemoteObjectRegistry.mm @nonARC
 Shared/API/Cocoa/WKBrowsingContextHandle.mm @nonARC
 Shared/API/Cocoa/WKRemoteObject.mm @nonARC
 Shared/API/Cocoa/WKRemoteObjectCoder.mm @nonARC
+// MAVERICKS_BACKPORT: WKTypeRefWrapper restored (bundle dlopen / Mail WKConnection body coding need this class).
 Shared/API/Cocoa/WKTypeRefWrapper.mm @nonARC @no-unify
 
 Shared/ApplePay/ApplePayPaymentSetupFeatures.mm @nonARC
@@ -186,6 +188,7 @@ Shared/Extensions/Cocoa/WebExtensionFrameIdentifierCocoa.mm @nonARC
 Shared/Cocoa/APIDataCocoa.mm @nonARC
 Shared/Cocoa/APIObject.mm @nonARC
 Shared/Cocoa/ARKitSoftLink.mm @nonARC
+// MAVERICKS_BACKPORT: absent from upstream's Cocoa list; provides the Cocoa argument coders the WK2 IPC link needs.
 Shared/Cocoa/ArgumentCodersCocoa.mm @nonARC
 Shared/Cocoa/AccessibilityPreferences.mm @nonARC
 Shared/Cocoa/AuxiliaryProcessCocoa.mm @nonARC
@@ -324,7 +327,7 @@ UIProcess/API/Cocoa/_WKAppHighlight.mm @nonARC
 UIProcess/API/Cocoa/_WKApplicationManifest.mm @nonARC
 UIProcess/API/Cocoa/_WKArchiveConfiguration.mm @nonARC
 UIProcess/API/Cocoa/_WKArchiveExclusionRule.mm @nonARC
-// _WKAttachment requires ENABLE_ATTACHMENT_ELEMENT
+// MAVERICKS_BACKPORT: excluded — _WKAttachment requires ENABLE_ATTACHMENT_ELEMENT.
 // UIProcess/API/Cocoa/_WKAttachment.mm @nonARC
 UIProcess/API/Cocoa/_WKAutomationSession.mm @nonARC
 UIProcess/API/Cocoa/_WKAutomationSessionConfiguration.mm @nonARC
@@ -370,7 +373,7 @@ UIProcess/API/Cocoa/_WKTextPreview.mm @nonARC
 UIProcess/API/Cocoa/_WKTextRun.mm @nonARC
 UIProcess/API/Cocoa/_WKThumbnailView.mm @nonARC
 UIProcess/API/Cocoa/_WKTouchEventGenerator.mm @nonARC
-// _WKUserContentExtensionStore/_WKUserContentFilter depend on WKContentRuleListStore enums
+// MAVERICKS_BACKPORT: excluded — _WKUserContentExtensionStore/_WKUserContentFilter depend on WKContentRuleListStore enums.
 // UIProcess/API/Cocoa/_WKUserContentExtensionStore.mm @nonARC
 // UIProcess/API/Cocoa/_WKUserContentFilter.mm @nonARC
 UIProcess/API/Cocoa/_WKUserContentWorld.mm @nonARC
@@ -379,7 +382,7 @@ UIProcess/API/Cocoa/_WKUserStyleSheet.mm @nonARC
 UIProcess/API/Cocoa/_WKVisitedLinkStore.mm @nonARC
 UIProcess/API/Cocoa/_WKWebAuthenticationAssertionResponse.mm @nonARC
 UIProcess/API/Cocoa/_WKWebAuthenticationPanel.mm @nonARC
-// Web Push not available on 10.9
+// MAVERICKS_BACKPORT: excluded — Web Push is not available on 10.9.
 // UIProcess/API/Cocoa/_WKWebPushDaemonConnection.mm @nonARC
 // UIProcess/API/Cocoa/_WKWebPushMessage.mm @nonARC
 // UIProcess/API/Cocoa/_WKWebPushSubscriptionData.mm @nonARC
@@ -388,7 +391,7 @@ UIProcess/API/Cocoa/_WKWebExtensionSidebar.mm
 UIProcess/API/Cocoa/_WKWebPushAction.mm @nonARC
 UIProcess/API/Cocoa/_WKWebsiteDataSize.mm @nonARC
 UIProcess/API/Cocoa/_WKWebsiteDataStoreConfiguration.mm @nonARC
-// APIAttachmentCocoa requires ENABLE_ATTACHMENT_ELEMENT
+// MAVERICKS_BACKPORT: excluded — APIAttachmentCocoa requires ENABLE_ATTACHMENT_ELEMENT.
 // UIProcess/API/Cocoa/APIAttachmentCocoa.mm @nonARC
 UIProcess/API/Cocoa/APIContentRuleListStoreCocoa.mm @nonARC
 UIProcess/API/Cocoa/APIPageConfigurationCocoa.mm @nonARC
@@ -453,6 +456,7 @@ UIProcess/API/Cocoa/WKWebExtensionTabConfiguration.mm
 UIProcess/API/Cocoa/WKWebExtensionWindowConfiguration.mm
 UIProcess/API/Cocoa/WKWebsiteDataRecord.mm @nonARC
 UIProcess/API/Cocoa/WKWebsiteDataStore.mm @nonARC
+// MAVERICKS_BACKPORT: @no-unify — WKWebView.mm is built standalone to avoid unified-build symbol collisions here.
 UIProcess/API/Cocoa/WKWebView.mm @nonARC @no-unify
 UIProcess/API/Cocoa/WKWebViewTesting.mm @nonARC
 UIProcess/API/Cocoa/WKWebViewConfiguration.mm @nonARC
@@ -462,6 +466,7 @@ UIProcess/API/Cocoa/WKWindowFeatures.mm @nonARC
 UIProcess/API/ios/WKWebViewIOS.mm @nonARC
 UIProcess/API/ios/WKWebViewTestingIOS.mm @nonARC
 
+// MAVERICKS_BACKPORT: @no-unify — WKView.mm is built standalone (legacy WKView reinstated for this backport).
 UIProcess/API/mac/WKView.mm @nonARC @no-unify
 UIProcess/API/mac/WKWebViewMac.mm @nonARC
 UIProcess/API/mac/WKWebViewTestingMac.mm @nonARC
@@ -491,6 +496,7 @@ UIProcess/Cocoa/SOAuthorization/WKSOAuthorizationDelegate.mm @nonARC
 UIProcess/Cocoa/AppKitSoftLink.mm @nonARC
 UIProcess/Cocoa/AutomationClient.mm @nonARC
 UIProcess/Cocoa/AutomationSessionClient.mm @nonARC
+// MAVERICKS_BACKPORT: absent from upstream's Cocoa list; provides AuxiliaryProcessProxy Cocoa bits the WK2 link needs.
 UIProcess/Cocoa/AuxiliaryProcessProxyCocoa.mm @nonARC
 UIProcess/Cocoa/BrowsingWarningCocoa.mm @nonARC
 // MAVERICKS_BACKPORT: absent from upstream cmake lists; defines to[WK]ContentSecurityPolicyModeForExtension (ARC per pbxproj)
@@ -528,7 +534,7 @@ UIProcess/Cocoa/UIDelegate.mm @nonARC
 UIProcess/Cocoa/UIProcessLogInitializationCocoa.mm @nonARC
 UIProcess/Cocoa/UIRemoteObjectRegistry.cpp
 UIProcess/Cocoa/UserMediaPermissionRequestManagerProxy.mm @nonARC
-// VideoPresentationManagerProxy requires ENABLE_VIDEO_PRESENTATION_MODE
+// MAVERICKS_BACKPORT: excluded — VideoPresentationManagerProxy requires ENABLE_VIDEO_PRESENTATION_MODE (off on 10.9).
 // UIProcess/Cocoa/VideoPresentationManagerProxy.mm @nonARC
 UIProcess/Cocoa/WebGeolocationManagerProxyCocoa.cpp
 UIProcess/Cocoa/WebKitSwiftSoftLink.mm @nonARC @no-unify
@@ -689,6 +695,7 @@ UIProcess/mac/DisplayCaptureSessionManager.mm @nonARC
 UIProcess/mac/DisplayLinkMac.cpp
 UIProcess/mac/LegacySessionStateCoding.cpp
 UIProcess/mac/PageClientImplMac.mm @nonARC
+// MAVERICKS_BACKPORT: WKView's page client (absent from upstream's list); backs the legacy WKView used here.
 UIProcess/mac/MinimalPageClient.mm @nonARC
 UIProcess/mac/SecItemShimProxy.cpp
 UIProcess/mac/ServicesController.mm @nonARC
@@ -717,6 +724,7 @@ UIProcess/mac/WKTextAnimationManagerMac.mm @nonARC
 UIProcess/mac/WKViewLayoutStrategy.mm @nonARC
 UIProcess/mac/WebViewImpl.mm @nonARC
 
+// MAVERICKS_BACKPORT: excluded — AudioSession routing arbitration is unavailable on 10.9.
 // UIProcess/Media/cocoa/AudioSessionRoutingArbitratorProxyCocoa.mm @nonARC
 UIProcess/Media/cocoa/MediaUsageManagerCocoa.mm @nonARC
 
@@ -805,7 +813,7 @@ WebProcess/cocoa/RemoteRealtimeMediaSourceProxy.cpp
 WebProcess/cocoa/RemoteRealtimeVideoSource.cpp
 WebProcess/cocoa/TextRecognitionRequest.cpp
 WebProcess/cocoa/UserMediaCaptureManager.cpp
-// VideoPresentationManager requires ENABLE_VIDEO_PRESENTATION_MODE
+// MAVERICKS_BACKPORT: excluded — VideoPresentationManager requires ENABLE_VIDEO_PRESENTATION_MODE (off on 10.9).
 // WebProcess/cocoa/VideoPresentationManager.mm @nonARC
 WebProcess/cocoa/WebProcessCocoa.mm @nonARC
 
@@ -985,6 +993,7 @@ WebProcess/WebPage/RemoteLayerTree/RemoteScrollbarsController.mm @nonARC
 WebProcess/WebPage/RemoteLayerTree/RemoteScrollingCoordinator.mm @nonARC
 
 // Derived Sources
+// MAVERICKS_BACKPORT: excluded — AudioSessionRoutingArbitrator is unavailable on 10.9 (its source is excluded above).
 // AudioSessionRoutingArbitratorProxyMessageReceiver.cpp
 AuthenticationManagerMessageReceiver.cpp
 AuxiliaryProcessMessageReceiver.cpp
@@ -1002,11 +1011,13 @@ LegacyCustomProtocolManagerProxyMessageReceiver.cpp
 LibWebRTCCodecsMessageReceiver.cpp
 LibWebRTCCodecsProxyMessageReceiver.cpp
 LibWebRTCNetworkMessageReceiver.cpp
+// MAVERICKS_BACKPORT: LogStreamMessageReceiver.cpp removed — the os_log streaming path is unavailable on 10.9.
 ModelConnectionToWebProcessMessageReceiver.cpp
 MediaPlayerPrivateRemoteMessageReceiver.cpp
 MediaSourcePrivateRemoteMessageReceiverMessageReceiver.cpp
 ModelProcessConnectionMessageReceiver.cpp
 ModelProcessMessageReceiver.cpp
+// MAVERICKS_BACKPORT: ModelProcessModelPlayerProxyMessageReceiver.cpp removed — the model process is unavailable on 10.9.
 ModelProcessProxyMessageReceiver.cpp
 NetworkConnectionToWebProcessMessageReceiver.cpp
 NetworkContentRuleListManagerMessageReceiver.cpp
@@ -1072,6 +1083,7 @@ SampleBufferDisplayLayerMessageReceiver.cpp
 SecItemShimProxyMessageReceiver.cpp
 SerializedTypeInfo.mm @nonARC
 ServiceWorkerFetchTaskMessageReceiver.cpp
+// MAVERICKS_BACKPORT: SmartMagnificationControllerMessageReceiver.cpp removed — smart-magnification is iOS-only / unavailable here.
 SourceBufferPrivateRemoteMessageReceiverMessageReceiver.cpp
 SpeechRecognitionRealtimeMediaSourceManagerMessageReceiver.cpp
 SpeechRecognitionRemoteRealtimeMediaSourceManagerMessageReceiver.cpp
@@ -1080,6 +1092,7 @@ StorageAreaMapMessageReceiver.cpp
 TextCheckingControllerProxyMessageReceiver.cpp
 UserMediaCaptureManagerMessageReceiver.cpp
 UserMediaCaptureManagerProxyMessageReceiver.cpp
+// MAVERICKS_BACKPORT: VideoPresentationManager[Proxy]MessageReceiver.cpp removed — ENABLE_VIDEO_PRESENTATION_MODE is off on 10.9.
 ViewGestureControllerMessageReceiver.cpp
 ViewGestureGeometryCollectorMessageReceiver.cpp
 ViewUpdateDispatcherMessageReceiver.cpp
@@ -1089,6 +1102,7 @@ WebAuthenticatorCoordinatorProxyMessageReceiver.cpp
 WebAutomationSessionProxyMessageReceiver.cpp
 WebBackForwardListMessageReceiver.cpp
 WebCookieManagerMessageReceiver.cpp
+// MAVERICKS_BACKPORT: WebDeviceOrientationUpdateProvider[Proxy]MessageReceiver.cpp removed — device-orientation is unavailable on 10.9.
 WebExtensionContextMessageReceiver.cpp
 WebExtensionContextProxyMessageReceiver.cpp
 WebExtensionControllerMessageReceiver.cpp
@@ -1127,6 +1141,7 @@ WebSWContextManagerConnectionMessageReceiver.cpp
 WebSWServerConnectionMessageReceiver.cpp
 WebSWServerToContextConnectionMessageReceiver.cpp
 WebUserContentControllerMessageReceiver.cpp
+// MAVERICKS_BACKPORT: build these CF-type CoreIPC coders (absent from upstream's Cocoa list) so the WK2 link resolves their symbols.
 Shared/cf/CoreIPCCFArray.mm @no-unify
 Shared/cf/CoreIPCCFDictionary.mm @no-unify
 Shared/cf/CoreIPCCGColorSpace.mm @no-unify @nonARC

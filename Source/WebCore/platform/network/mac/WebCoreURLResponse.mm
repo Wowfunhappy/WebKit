@@ -187,7 +187,8 @@ void adjustMIMETypeIfNecessary(CFURLResponseRef response, IsMainResourceLoad, Is
 
 RetainPtr<NSString> preferredMIMETypeForFileExtensionFromUTType(NSString *extension)
 {
-    // UTType and UTTagClassFilenameExtension are macOS 11+; use CoreServices API
+    // MAVERICKS_BACKPORT: UTType and UTTagClassFilenameExtension are macOS 11+; map extension→MIME via the
+    // CoreServices UTTypeCreatePreferredIdentifierForTag / UTTypeCopyPreferredTagWithClass API on 10.9.
     RetainPtr<CFStringRef> uti = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)extension, nullptr));
     if (!uti)
         return nil;

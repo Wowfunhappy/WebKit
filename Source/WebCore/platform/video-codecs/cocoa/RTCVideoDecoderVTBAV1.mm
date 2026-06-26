@@ -92,12 +92,14 @@ static RetainPtr<CMSampleBufferRef> av1BufferToCMSampleBuffer(std::span<const ui
     }
     auto blockBuffer = adoptCF(newVlockBuffer);
 
+    // MAVERICKS_BACKPORT: call CMBlockBufferReplaceDataBytes directly; the PAL:: soft-link wrapper is not provided for this symbol in this backport.
     if (auto error = CMBlockBufferReplaceDataBytes(buffer.data(), blockBuffer.get(), 0, buffer.size())) {
         RELEASE_LOG_ERROR(WebRTC, "AV1BufferToCMSampleBuffer CMBlockBufferReplaceDataBytes failed with: %d", error);
         return nullptr;
     }
 
     CMSampleBufferRef sampleBuffer = nullptr;
+    // MAVERICKS_BACKPORT: call CMSampleBufferCreate directly; the PAL:: soft-link wrapper is not provided for this symbol in this backport.
     if (auto error = CMSampleBufferCreate(kCFAllocatorDefault, blockBuffer.get(), true, nullptr, nullptr, videoFormat, 1, 0, nullptr, 0, nullptr, &sampleBuffer)) {
         RELEASE_LOG_ERROR(WebRTC, "AV1BufferToCMSampleBuffer CMSampleBufferCreate failed with: %d", error);
         return nullptr;

@@ -66,6 +66,7 @@ class UserMediaCaptureManagerProxySourceProxy final
     WTF_MAKE_TZONE_ALLOCATED_INLINE(UserMediaCaptureManagerProxySourceProxy);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(UserMediaCaptureManagerProxySourceProxy);
 public:
+    // MAVERICKS_BACKPORT: the videoFrameObjectHeap create() overload only exists with GPU_PROCESS.
 #if ENABLE(GPU_PROCESS)
     static Ref<UserMediaCaptureManagerProxySourceProxy> create(RealtimeMediaSourceIdentifier id, Ref<IPC::Connection>&& connection, ProcessIdentity&& resourceOwner, Ref<RealtimeMediaSource>&& source, RefPtr<RemoteVideoFrameObjectHeap>&& videoFrameObjectHeap) { return adoptRef(*new UserMediaCaptureManagerProxySourceProxy(id, WTF::move(connection), WTF::move(resourceOwner), WTF::move(source), WTF::move(videoFrameObjectHeap))); }
 #else
@@ -334,6 +335,7 @@ public:
 #endif
 
 private:
+    // MAVERICKS_BACKPORT: the videoFrameObjectHeap ctor parameter and member only exist with GPU_PROCESS.
     UserMediaCaptureManagerProxySourceProxy(RealtimeMediaSourceIdentifier id, Ref<IPC::Connection>&& connection, ProcessIdentity&& resourceOwner, Ref<RealtimeMediaSource>&& source
 #if ENABLE(GPU_PROCESS)
         , RefPtr<RemoteVideoFrameObjectHeap>&& videoFrameObjectHeap
@@ -343,6 +345,7 @@ private:
         , m_connection(WTF::move(connection))
         , m_resourceOwner(WTF::move(resourceOwner))
         , m_source(WTF::move(source))
+        // MAVERICKS_BACKPORT: m_videoFrameObjectHeap only exists with GPU_PROCESS.
 #if ENABLE(GPU_PROCESS)
         , m_videoFrameObjectHeap(WTF::move(videoFrameObjectHeap))
 #endif
@@ -447,6 +450,7 @@ private:
             return;
         }
 #endif
+        // MAVERICKS_BACKPORT: with GPU_PROCESS off this is the only path; frames always travel as CVPixelBuffers.
         m_connection->send(Messages::RemoteCaptureSampleManager::VideoFrameAvailableCV(m_id, frame.pixelBuffer(), frame.rotation(), frame.isMirrored(), frame.presentationTime(), metadata), 0);
     }
 
@@ -474,6 +478,7 @@ private:
     int64_t m_remainingFrameCount { 0 };
     size_t m_frameChunkSize { 0 };
     MediaTime m_startTime;
+    // MAVERICKS_BACKPORT: the GPU frame heap member only exists with GPU_PROCESS; without it frames go out as CVPixelBuffers.
 #if ENABLE(GPU_PROCESS)
     RefPtr<RemoteVideoFrameObjectHeap> m_videoFrameObjectHeap;
 #endif
@@ -619,10 +624,12 @@ void UserMediaCaptureManagerProxy::createMediaSourceForCaptureDeviceWithConstrai
 
     ASSERT(!m_proxies.contains(id));
     Ref connection = m_connectionProxy->connection();
+    // MAVERICKS_BACKPORT: without GPU_PROCESS there is no RemoteVideoFrameObjectHeap; create the proxy without it.
 #if ENABLE(GPU_PROCESS)
     RefPtr remoteVideoFrameObjectHeap = shouldUseGPUProcessRemoteFrames ? m_connectionProxy->remoteVideoFrameObjectHeap() : nullptr;
     auto proxy = UserMediaCaptureManagerProxySourceProxy::create(id, WTF::move(connection), m_connectionProxy->resourceOwner(), WTF::move(source), WTF::move(remoteVideoFrameObjectHeap));
 #else
+    // MAVERICKS_BACKPORT: !GPU_PROCESS path — no frame-heap arg; the GPU-remote-frames flag is unused.
     UNUSED_PARAM(shouldUseGPUProcessRemoteFrames);
     auto proxy = UserMediaCaptureManagerProxySourceProxy::create(id, WTF::move(connection), m_connectionProxy->resourceOwner(), WTF::move(source));
 #endif
@@ -776,10 +783,12 @@ void UserMediaCaptureManagerProxy::clone(RealtimeMediaSourceIdentifier clonedID,
         }
 
         Ref connection = m_connectionProxy->connection();
+        // MAVERICKS_BACKPORT: without GPU_PROCESS there is no RemoteVideoFrameObjectHeap; create the clone without it.
 #if ENABLE(GPU_PROCESS)
         RefPtr remoteVideoFrameObjectHeap = m_connectionProxy->remoteVideoFrameObjectHeap();
         auto cloneProxy = UserMediaCaptureManagerProxySourceProxy::create(newSourceID, WTF::move(connection), m_connectionProxy->resourceOwner(), WTF::move(sourceClone), WTF::move(remoteVideoFrameObjectHeap));
 #else
+        // MAVERICKS_BACKPORT: !GPU_PROCESS path — create the clone without the frame-heap arg.
         auto cloneProxy = UserMediaCaptureManagerProxySourceProxy::create(newSourceID, WTF::move(connection), m_connectionProxy->resourceOwner(), WTF::move(sourceClone));
 #endif
         cloneProxy->copySettings(*proxy);

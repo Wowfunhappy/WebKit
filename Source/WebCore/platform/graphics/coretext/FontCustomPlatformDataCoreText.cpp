@@ -28,6 +28,7 @@
 #include "FontCreationContext.h"
 #include "FontDescription.h"
 #include "FontPlatformData.h"
+// MAVERICKS_BACKPORT: extra includes for the sfnt variation-table stripper / CGFont font-load path below.
 #include <algorithm>
 #include <cstring>
 #include <wtf/NeverDestroyed.h>
@@ -113,6 +114,8 @@ static RetainPtr<CFDataRef> extractFontCustomPlatformDataMemorySafe(const Shared
 }
 #endif
 
+// MAVERICKS_BACKPORT: big-endian sfnt byte helpers + checksum for the legacy-CoreText
+// variation-table stripper and CGFont-based font loader below.
 static inline uint32_t readBE32(const uint8_t* p) { return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3]; }
 static inline uint16_t readBE16(const uint8_t* p) { return (uint16_t(p[0]) << 8) | p[1]; }
 static inline void writeBE32(uint8_t* p, uint32_t v) { p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = v; }

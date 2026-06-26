@@ -1145,6 +1145,7 @@ set(WebCore_NON_SVG_IDL_FILES
     dom/AddEventListenerOptions.idl
     dom/AriaNotifyOptions.idl
     dom/Attr.idl
+    # MAVERICKS_BACKPORT: legacy beforeload event restored (used by extension network blocking).
     dom/BeforeLoadEvent.idl
     dom/BeforeUnloadEvent.idl
     dom/BroadcastChannel.idl
@@ -2168,6 +2169,7 @@ if (USE_ANGLE_EGL)
     )
 elseif (USE_LIBEPOXY)
     list(APPEND WebCore_LIBRARIES Epoxy::Epoxy)
+# MAVERICKS_BACKPORT: only link OpenGL::GLES when WebGL/WebGPU is enabled; otherwise (both off on 10.9) skip the GLES dependency entirely.
 elseif (ENABLE_WEBGL OR ENABLE_WEBGPU)
     list(APPEND WebCore_LIBRARIES OpenGL::GLES)
 
@@ -3124,6 +3126,7 @@ list(APPEND WebCore_INTERFACE_DEPENDENCIES WebCore_CopyPrivateHeaders)
 list(APPEND WebCoreTestSupport_INTERFACE_DEPENDENCIES WebCore_CopyPrivateHeaders)
 
 WEBKIT_FRAMEWORK(WebCore)
+# MAVERICKS_BACKPORT: force C++ linker driver so libc++ and the C++ runtime are pulled in correctly under the clang-22 toolchain.
 set_target_properties(WebCore PROPERTIES LINKER_LANGUAGE CXX)
 
 if (APPLE)
@@ -3159,9 +3162,11 @@ list(APPEND WebCoreTestSupport_PRIVATE_INCLUDE_DIRECTORIES ${WebCore_PRIVATE_INC
 list(APPEND WebCoreTestSupport_SYSTEM_INCLUDE_DIRECTORIES ${WebCore_SYSTEM_INCLUDE_DIRECTORIES})
 
 WEBKIT_LIBRARY(WebCoreTestSupport)
+# MAVERICKS_BACKPORT: force C++ linker driver so libc++ and the C++ runtime are pulled in correctly under the clang-22 toolchain.
 set_target_properties(WebCoreTestSupport PROPERTIES LINKER_LANGUAGE CXX)
 
 if (${WebCore_LIBRARY_TYPE} MATCHES "SHARED")
+    # MAVERICKS_BACKPORT: install name versioning is "A" (the WebCore.framework/Versions/A layout) instead of the numeric PROJECT_VERSION.
     set_target_properties(WebCore PROPERTIES SOVERSION "A")
     install(TARGETS WebCore DESTINATION "${LIB_INSTALL_DIR}")
 endif ()

@@ -319,6 +319,8 @@ std::optional<SystemFontKind> SystemFontDatabaseCoreText::matchSystemFontUse(con
         };
         std::ranges::sort(m_textStyles, compareAsPointer);
     }
+// MAVERICKS_BACKPORT: end of the #if 0 disabling the kCTUIFontTextStyle* registration
+// (stub-symbol constants crash when read as CFStringRefs); m_textStyles stays empty.
 #endif
     UNUSED_PARAM(compareAsPointer);
 

@@ -98,6 +98,7 @@ struct nw_http_fields;
 typedef struct nw_http_fields *nw_http_fields_t;
 typedef nw_http_fields_t nw_http_response_t;
 #endif // OS_OBJECT_USE_OBJC
+// MAVERICKS_BACKPORT: close the redefinition guard added for the 10.9 polyfill block above.
 #endif // NW_POLYFILL_TYPES_DECLARED
 
 #if USE(APPLE_INTERNAL_SDK)

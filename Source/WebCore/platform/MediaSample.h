@@ -70,6 +70,8 @@ public:
 
 #if PLATFORM(COCOA)
     CMSampleBufferRef cmSampleBuffer() const { return std::get<RetainPtr<CMSampleBufferRef>>(m_sample).get(); }
+    // MAVERICKS_BACKPORT: COCOA and GSTREAMER are both on; split the upstream #elif so
+    // gstSample() is also available alongside cmSampleBuffer().
 #endif
 #if USE(GSTREAMER)
     GstSample* gstSample() const { return std::get<GstSample*>(m_sample); }

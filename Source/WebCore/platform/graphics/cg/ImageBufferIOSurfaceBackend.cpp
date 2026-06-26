@@ -151,6 +151,7 @@ bool ImageBufferIOSurfaceBackend::flushContextDraws()
     if (!contextNeedsFlush && !m_needsFirstFlush)
         return false;
     m_needsFirstFlush = false;
+    // MAVERICKS_BACKPORT: ensurePlatformContext() can return null on this build; only flush a valid context.
     if (auto* ctx = ensurePlatformContext())
         CGContextFlush(ctx);
     return true;
@@ -164,6 +165,7 @@ CGContextRef ImageBufferIOSurfaceBackend::ensurePlatformContext()
         if (!m_surface)
             return nullptr;
         m_platformContext = m_surface->createPlatformContext(m_displayID);
+        // MAVERICKS_BACKPORT: createPlatformContext can fail on this build; return null instead of the upstream RELEASE_ASSERT.
         if (!m_platformContext)
             return nullptr;
     }
@@ -240,6 +242,7 @@ void ImageBufferIOSurfaceBackend::getPixelBuffer(const IntRect& srcRect, PixelBu
 
 void ImageBufferIOSurfaceBackend::putPixelBuffer(const PixelBufferSourceView& pixelBuffer, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat)
 {
+    // MAVERICKS_BACKPORT: m_surface can be null on this build; guard before m_surface->lock() (same as getPixelBuffer).
     if (!m_surface)
         return;
     prepareForExternalWrite();

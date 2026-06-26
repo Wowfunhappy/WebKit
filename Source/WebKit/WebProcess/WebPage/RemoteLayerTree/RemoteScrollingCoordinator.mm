@@ -24,6 +24,7 @@
  */
 
 #import "config.h"
+// MAVERICKS_BACKPORT: wtf/Scope.h for makeScopeExit used by the deferred scheduleTreeStateCommit below.
 #import <wtf/Scope.h>
 #import "RemoteScrollingCoordinator.h"
 

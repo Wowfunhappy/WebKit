@@ -39,6 +39,7 @@ size_t memoryFootprint()
     kern_return_t result = task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t) &basicInfo, &count);
     if (result != KERN_SUCCESS)
         return 0;
+    // MAVERICKS_BACKPORT: TASK_BASIC_INFO resident_size stands in for the 10.11+ phys_footprint.
     return static_cast<size_t>(basicInfo.resident_size);
 }
 

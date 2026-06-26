@@ -177,7 +177,7 @@ static ASCIILiteral webContentServiceName(const ProcessLauncher::LaunchOptions& 
     if (useEnhancedSecurity)
         return "com.apple.WebKit.WebContent.EnhancedSecurity"_s;
 
-    // On 10.9, the staged XPC service has no ".Development" variant.
+    // MAVERICKS_BACKPORT: on 10.9, the staged XPC service has no ".Development" variant, so always use the production service name.
     return "com.apple.WebKit.WebContent"_s;
 }
 
@@ -291,10 +291,10 @@ void ProcessLauncher::launchProcess()
     launchWithExtensionKit(*this, m_launchOptions.processType, m_client.get(), WTF::move(handler));
 #else
     auto name = serviceName(m_launchOptions, m_client.get());
-    // 10.9 perf: removed debug fopen logging
+    // MAVERICKS_BACKPORT: 10.9 perf — removed debug fopen logging
     // FIXME: This is a false positive. <rdar://164843889>
     SUPPRESS_RETAINPTR_CTOR_ADOPT m_xpcConnection = adoptOSObject(xpc_connection_create(name, nullptr));
-    // 10.9 perf: removed debug fopen logging
+    // MAVERICKS_BACKPORT: 10.9 perf — removed debug fopen logging
     finishLaunchingProcess(name);
 #endif
 }
@@ -319,6 +319,9 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
 #if !USE(EXTENSIONKIT)
     // FIXME: This is a false positive. <rdar://164843889>
     SUPPRESS_RETAINPTR_CTOR_ADOPT auto initializationMessage = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
+    // MAVERICKS_BACKPORT: _CFBundleSetupXPCBootstrap and xpc_connection_set_bootstrap are
+    // 10.10+; skip them on 10.9. The bootstrap dictionary is delivered separately via
+    // xpc_connection_send_message below.
     // _CFBundleSetupXPCBootstrap is 10.10+; skip on 10.9.
     // _CFBundleSetupXPCBootstrap(initializationMessage.get());
     // xpc_connection_set_bootstrap is 10.10+; skip on 10.9.
@@ -358,6 +361,7 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
     SUPPRESS_RETAINPTR_CTOR_ADOPT auto bootstrapMessage = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+    // MAVERICKS_BACKPORT: hardcode the WebKit bundle version; the WEBKIT_BUNDLE_VERSION macro is not defined in this 10.9 build configuration.
     xpc_dictionary_set_string(bootstrapMessage.get(), "WebKitBundleVersion", "615.1.1");
 #endif
 

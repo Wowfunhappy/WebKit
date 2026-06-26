@@ -26,6 +26,7 @@
 #import "config.h"
 #import "NetworkSessionCocoa.h"
 
+// MAVERICKS_BACKPORT: pull in the ObjC runtime headers for the respondsToSelector / KVC runtime checks used below.
 #import <objc/runtime.h>
 #import <objc/message.h>
 
@@ -205,7 +206,7 @@ static NSString* privacyStanceToString(WebCore::PrivacyStance stance)
     return @"Unknown";
 }
 
-// Compat defines for DTLS protocol versions not available on older SDKs
+// MAVERICKS_BACKPORT: tls_protocol_version_DTLSv10/DTLSv12 are absent in older SDKs; define them locally.
 #ifndef tls_protocol_version_DTLSv10
 #define tls_protocol_version_DTLSv10 0xFEFF
 #endif
@@ -234,9 +235,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return { };
 }
 
+// MAVERICKS_BACKPORT: extra blank-line formatting divergence (the two blank lines around this comment).
 
 static String stringForTLSCipherSuite(tls_ciphersuite_t suite)
 {
+// MAVERICKS_BACKPORT: the tls_ciphersuite_* enumerators only exist in the 10.15+ SDK; gate the name table on it.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
 #define STRINGIFY_CIPHER(cipher) \
     case tls_ciphersuite_##cipher: \
@@ -275,6 +278,7 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 ALLOW_DEPRECATED_DECLARATIONS_END
 
 #undef STRINGIFY_CIPHER
+// MAVERICKS_BACKPORT: tls_ciphersuite_t enumerators are 10.15+; on older SDKs there is no cipher name to return.
 #else
     UNUSED_PARAM(suite);
 #endif // __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
@@ -282,6 +286,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return { };
 }
 
+// MAVERICKS_BACKPORT: NSURLSessionWebSocketDelegate is 10.15+; conform to it conditionally, and document
+// that the removed NSOperation-KVO swizzle (a crash mask) must not be reintroduced.
 // NOTE (2026-06-14): a swizzle of NSObject's `_changeValueForKey:key:key:usingBlock:`
 // used to live here to keep the NetworkProcess alive through a crash in NSURLSession's
 // NSOperation KVO. It was a MASK (it converted the crash into a silent delegate-queue
@@ -292,6 +298,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 // the real root cause is fixed -- do NOT reintroduce a mask here.
 
 @interface WKNetworkSessionDelegate : NSObject <NSURLSessionDataDelegate
+// MAVERICKS_BACKPORT: only conform to NSURLSessionWebSocketDelegate when the SDK provides it (10.15+).
 #if defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
     , NSURLSessionWebSocketDelegate
 #endif
@@ -322,6 +329,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return self;
 }
 
+// MAVERICKS_BACKPORT: extra blank-line formatting divergence (the two blank lines around this comment).
 
 - (void)sessionInvalidated
 {
@@ -373,6 +381,7 @@ static RetainPtr<NSURLRequest> downgradeRequest(NSURLRequest *request)
     auto nsMutableRequest = adoptNS([request mutableCopy]);
     if ([[nsMutableRequest URL].scheme isEqualToString:@"https"]) {
         RetainPtr components = [NSURLComponents componentsWithURL:retainPtr([nsMutableRequest URL]).get() resolvingAgainstBaseURL:NO];
+        // MAVERICKS_BACKPORT: cast the RetainPtr to NSURLComponents * so -setScheme:/-URL resolve on 10.9.
         [(NSURLComponents *)components.get() setScheme:@"http"];
         [nsMutableRequest setURL:[(NSURLComponents *)components.get() URL]];
         ASSERT([[nsMutableRequest URL].scheme isEqualToString:@"http"]);
@@ -598,6 +607,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     auto taskIdentifier = task.taskIdentifier;
     LOG(NetworkSession, "%zu didReceiveChallenge", taskIdentifier);
+    // MAVERICKS_BACKPORT: trailing-whitespace-only formatting divergence on the blank line below.
 
     // Proxy authentication is handled by CFNetwork internally. We can get here if the user cancels
     // CFNetwork authentication dialog, and we shouldn't ask the client to display another one in that case.
@@ -613,6 +623,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]) {
         sessionCocoa->setClientAuditToken(challenge);
 
+        // MAVERICKS_BACKPORT: -_incompleteTaskMetrics is 10.12+; guard before reading legacy-TLS metrics.
         if ([task respondsToSelector:@selector(_incompleteTaskMetrics)])
             negotiatedLegacyTLS = checkForLegacyTLS(task._incompleteTaskMetrics.transactionMetrics.lastObject);
         if (negotiatedLegacyTLS == NegotiatedLegacyTLS::Yes && task._preconnect)
@@ -646,6 +657,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
                 }
                 processServerTrustEvaluation(*session, CheckedRef { *strongSelf->_sessionWrapper }, challenge, negotiatedLegacyTLS, taskIdentifier, task.get(), WTF::move(completionHandler));
             });
+            // MAVERICKS_BACKPORT: -[NSOperationQueue underlyingQueue] is 10.10+; read it via KVC so it binds at runtime.
             [NSURLSession _strictTrustEvaluate:challenge queue:retainPtr((dispatch_queue_t)[[NSOperationQueue mainQueue] valueForKey:@"underlyingQueue"]).get() completionHandler:decisionHandler.get()];
             return;
         }
@@ -800,6 +812,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         };
 
         auto& networkLoadMetrics = networkDataTask->networkLoadMetrics();
+        // MAVERICKS_BACKPORT: cast firstObject to NSURLSessionTaskTransactionMetrics * so -fetchStartDate resolves on 10.9.
         networkLoadMetrics.redirectStart = dateToMonotonicTime(retainPtr(((NSURLSessionTaskTransactionMetrics *)transactionMetrics.get().firstObject).fetchStartDate).get());
         networkLoadMetrics.fetchStart = dateToMonotonicTime(retainPtr(m.get().fetchStartDate).get());
         networkLoadMetrics.domainLookupStart = dateToMonotonicTime(retainPtr(m.get().domainLookupStartDate).get());
@@ -826,6 +839,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 
         if (networkDataTask->shouldCaptureExtraNetworkLoadMetrics()) {
             auto additionalMetrics = WebCore::AdditionalNetworkLoadMetricsForWebInspector::create();
+            // MAVERICKS_BACKPORT: read task.priority via KVC so it binds at runtime on 10.9.
             additionalMetrics->priority = toNetworkLoadPriority([[task valueForKey:@"priority"] floatValue]);
 
             if (auto port = [m.get().remotePort unsignedIntValue])
@@ -855,10 +869,12 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
             additionalMetrics->requestBodyBytesSent = task.countOfBytesSent;
             additionalMetrics->responseHeaderBytesReceived = responseHeaderBytesReceived;
 
+            // MAVERICKS_BACKPORT: -isProxyConnection is newer metrics API; guard it and default to NO when absent.
             additionalMetrics->isProxyConnection = [m respondsToSelector:@selector(isProxyConnection)] ? (BOOL)(uintptr_t)[(id)m.get() proxyConnection] : NO;
 
             networkLoadMetrics.additionalNetworkLoadMetricsForWebInspector = WTF::move(additionalMetrics);
         }
+        // MAVERICKS_BACKPORT: countOfResponseBody* properties are newer API; read via KVC so they bind at runtime.
         networkLoadMetrics.responseBodyBytesReceived = [[m.get() valueForKey:@"countOfResponseBodyBytesReceived"] longLongValue];
         networkLoadMetrics.responseBodyDecodedSize = [[m.get() valueForKey:@"countOfResponseBodyBytesAfterDecoding"] longLongValue];
 
@@ -895,16 +911,20 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition disposition))completionHandler
 {
     auto taskIdentifier = dataTask.taskIdentifier;
+    // MAVERICKS_BACKPORT: hoist the existingTask lookup out of the if-init so it isn't re-resolved through the weak fallback stub.
     auto _existing = [self existingTask:dataTask];
     LOG(NetworkSession, "%zu didReceiveResponse", taskIdentifier);
+    // MAVERICKS_BACKPORT: use the hoisted lookup result.
     if (auto networkDataTask = _existing) {
         ASSERT(RunLoop::isMain());
 
         NegotiatedLegacyTLS negotiatedLegacyTLS = NegotiatedLegacyTLS::No;
+        // MAVERICKS_BACKPORT: -_incompleteTaskMetrics is 10.12+; guard it and tolerate a nil metrics result below.
         RetainPtr<NSURLSessionTaskMetrics> taskMetrics;
         if ([dataTask respondsToSelector:@selector(_incompleteTaskMetrics)])
             taskMetrics = dataTask._incompleteTaskMetrics;
 
+        // MAVERICKS_BACKPORT: taskMetrics may be nil on 10.9 (no _incompleteTaskMetrics); fall back to nil metrics.
         RetainPtr<NSURLSessionTaskTransactionMetrics> metrics = taskMetrics ? taskMetrics.get().transactionMetrics.lastObject : nil;
         auto privateRelayed = metrics.get()._privacyStance == nw_connection_privacy_stance_direct
             || metrics.get()._privacyStance == nw_connection_privacy_stance_not_eligible
@@ -921,6 +941,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
                     proxyName = String::fromUTF8(unsafeSpan(hostname));
             }
         }
+// MAVERICKS_BACKPORT: end of the 10.14+-only proxy-name telemetry (compiled out on 10.9).
 #endif
 
         negotiatedLegacyTLS = checkForLegacyTLS(metrics.get());
@@ -991,6 +1012,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
                     RELEASE_LOG_ERROR(NetworkSession, "didFinishDownloadingToURL: failed to move temp download into place for id %" PRIu64, downloadID->toUInt64());
             }
             download->didFinish();
+        // MAVERICKS_BACKPORT: end of the manual temp-file-to-destination move (no _pathToDownloadTaskFile on 10.9).
         }
     }
 }
@@ -1251,6 +1273,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         configuration.get()._allowsHSTSWithUntrustedRootCertificate = YES;
     
 #if HAVE(APP_SSO) || PLATFORM(MACCATALYST)
+    // MAVERICKS_BACKPORT: -_preventsAppSSO is a newer SPI; guard the setter.
     if ([configuration respondsToSelector:@selector(set_preventsAppSSO:)])
         configuration.get()._preventsAppSSO = true;
 #endif
@@ -1271,12 +1294,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (auto data = networkProcess.sourceApplicationAuditData(); data && [configuration respondsToSelector:@selector(set_sourceApplicationAuditTokenData:)])
         configuration.get()._sourceApplicationAuditTokenData = (__bridge NSData *)data.get();
 
+    // MAVERICKS_BACKPORT: -_sourceApplicationBundleIdentifier is 10.11+; guard the setter.
     if (!m_sourceApplicationBundleIdentifier.isEmpty() && [configuration respondsToSelector:@selector(set_sourceApplicationBundleIdentifier:)]) {
         configuration.get()._sourceApplicationBundleIdentifier = m_sourceApplicationBundleIdentifier.createNSString().get();
+        // MAVERICKS_BACKPORT: -_sourceApplicationAuditTokenData is 10.10+; guard the setter.
         if ([configuration respondsToSelector:@selector(set_sourceApplicationAuditTokenData:)])
             configuration.get()._sourceApplicationAuditTokenData = nil;
     }
 
+    // MAVERICKS_BACKPORT: -_sourceApplicationSecondaryIdentifier is 10.11+; guard the setter.
     if (!m_sourceApplicationSecondaryIdentifier.isEmpty() && [configuration respondsToSelector:@selector(set_sourceApplicationSecondaryIdentifier:)])
         configuration.get()._sourceApplicationSecondaryIdentifier = m_sourceApplicationSecondaryIdentifier.createNSString().get();
 
@@ -1321,6 +1347,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         configuration.get()._timingDataOptions = _TimingDataOptionsEnableW3CNavigationTiming;
 
     // FIXME: Replace @"kCFStreamPropertyAutoErrorOnSystemChange" with a constant from the SDK once rdar://problem/40650244 is in a build.
+    // MAVERICKS_BACKPORT: -_socketStreamProperties is 10.11+; guard the setter.
     if (parameters.suppressesConnectionTerminationOnSystemChange && [configuration respondsToSelector:@selector(set_socketStreamProperties:)])
         configuration.get()._socketStreamProperties = @{ @"kCFStreamPropertyAutoErrorOnSystemChange" : @NO };
 
@@ -1800,6 +1827,7 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
     if (!allowPrivacyProxy && [ensureMutableRequest() respondsToSelector:@selector(_setProhibitPrivacyProxy:)])
         ensureMutableRequest().get()._prohibitPrivacyProxy = YES;
 
+    // MAVERICKS_BACKPORT: _privacyProxyFailClosedForUnreachableNonMainHosts is 10.15+ SPI; guard the setter.
     if ((hadMainFrameMainResourcePrivateRelayed || request.url().host() == clientOrigin.topOrigin.host())
         && [ensureMutableRequest() respondsToSelector:@selector(_setPrivacyProxyFailClosedForUnreachableNonMainHosts:)])
         ensureMutableRequest().get()._privacyProxyFailClosedForUnreachableNonMainHosts = YES;
@@ -1827,6 +1855,7 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
 
     // Although the WebSocket protocol allows full 64-bit lengths, Chrome and Firefox limit the length to 2^63 - 1.
     // Use NSIntegerMax instead of 2^63 - 1 for 32-bit systems.
+    // MAVERICKS_BACKPORT: -setMaximumMessageSize: is part of the 10.15+ NSURLSessionWebSocketTask API; guard it.
     if ([task respondsToSelector:@selector(setMaximumMessageSize:)])
         [(NSURLSessionWebSocketTask *)task.get() setMaximumMessageSize:NSIntegerMax];
 

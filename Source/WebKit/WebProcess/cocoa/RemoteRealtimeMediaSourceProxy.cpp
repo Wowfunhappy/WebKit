@@ -207,6 +207,7 @@ bool RemoteRealtimeMediaSourceProxy::isPowerEfficient() const
     auto [isPowerEfficient] = syncResult.takeReplyOr(false);
     return isPowerEfficient;
 #else
+    // MAVERICKS_BACKPORT: no GPU process on 10.9; capture is in-process and this proxy is unused, so report not-power-efficient.
     return false;
 #endif
 }

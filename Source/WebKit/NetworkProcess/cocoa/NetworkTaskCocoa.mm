@@ -98,6 +98,7 @@ NSString *NetworkTaskCocoa::lastRemoteIPAddress(NSURLSessionTask *task)
         return nil;
     return task._incompleteTaskMetrics.transactionMetrics.lastObject.remoteAddress;
 #else
+    // MAVERICKS_BACKPORT: pre-10.12 SDK lacks _incompleteTaskMetrics; no remote IP available.
     return nil;
 #endif
 }

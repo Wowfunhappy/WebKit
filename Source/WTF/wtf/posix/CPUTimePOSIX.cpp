@@ -58,6 +58,7 @@ Seconds CPUTime::forCurrentThread()
     int ret = clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
     RELEASE_ASSERT(!ret);
     return Seconds(ts.tv_sec) + Seconds::fromNanoseconds(ts.tv_nsec);
+// MAVERICKS_BACKPORT: 10.9 has no clock_gettime(CLOCK_THREAD_CPUTIME_ID); take the mach thread_info() path instead.
 #elif OS(DARWIN)
     // macOS < 10.12 has no clock_gettime(CLOCK_THREAD_CPUTIME_ID); read per-thread CPU time from mach.
     thread_basic_info_data_t info { };

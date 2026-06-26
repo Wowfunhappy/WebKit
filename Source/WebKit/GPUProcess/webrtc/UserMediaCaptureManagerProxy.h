@@ -29,6 +29,8 @@
 
 #include "Connection.h"
 #include "MessageReceiver.h"
+// MAVERICKS_BACKPORT: RemoteVideoFrameObjectHeap.h is empty when !GPU_PROCESS (type forward-declared below),
+// so SharedPreferencesForWebProcess.h must be pulled in directly (it was transitively included via that header).
 #include "RemoteVideoFrameObjectHeap.h" // 10.9: empty when !GPU_PROCESS (RemoteVideoFrameObjectHeap forward-declared below).
 #include "SharedPreferencesForWebProcess.h" // 10.9: was transitively included via RemoteVideoFrameObjectHeap.h.
 #include "UserMediaCaptureManager.h"

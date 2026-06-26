@@ -43,16 +43,19 @@
 // WKPreferences to it, and passes the group to WKView — and the injected
 // bundle later scopes extension content scripts by this group's identifier.
 
+// MAVERICKS_BACKPORT: restored real body (was gutted to return 0 upstream).
 WKTypeID WKPageGroupGetTypeID()
 {
     return WebKit::toAPI(WebKit::WebPageGroup::APIType);
 }
 
+// MAVERICKS_BACKPORT: restored real body (was gutted to return nullptr upstream).
 WKPageGroupRef WKPageGroupCreateWithIdentifier(WKStringRef identifierRef)
 {
     return WebKit::toAPILeakingRef(WebKit::WebPageGroup::create(WebKit::toWTFString(identifierRef)));
 }
 
+// MAVERICKS_BACKPORT: restored real body (was gutted to an empty no-op upstream).
 void WKPageGroupSetPreferences(WKPageGroupRef pageGroupRef, WKPreferencesRef preferencesRef)
 {
     auto* pageGroup = WebKit::toImpl(pageGroupRef);
@@ -62,6 +65,7 @@ void WKPageGroupSetPreferences(WKPageGroupRef pageGroupRef, WKPreferencesRef pre
     pageGroup->setPreferences(*preferences);
 }
 
+// MAVERICKS_BACKPORT: restored real body (was gutted to return nullptr upstream).
 WKPreferencesRef WKPageGroupGetPreferences(WKPageGroupRef pageGroupRef)
 {
     auto* pageGroup = WebKit::toImpl(pageGroupRef);
@@ -79,11 +83,14 @@ WKPreferencesRef WKPageGroupGetPreferences(WKPageGroupRef pageGroupRef)
 // message-view style sheet and scripts. Faithful to the pre-removal implementation.
 WKUserContentControllerRef WKPageGroupGetUserContentController(WKPageGroupRef pageGroupRef)
 {
+    // MAVERICKS_BACKPORT: restored real body (was gutted to return nullptr upstream).
     return WebKit::toAPI(&WebKit::toImpl(pageGroupRef)->userContentController());
 }
 
+// MAVERICKS_BACKPORT: restored page-group user-content SPI body (was gutted to a no-op upstream).
 void WKPageGroupAddUserStyleSheet(WKPageGroupRef pageGroupRef, WKStringRef sourceRef, WKURLRef baseURLRef, WKArrayRef allowedURLPatterns, WKArrayRef blockedURLPatterns, WKUserContentInjectedFrames injectedFrames)
 {
+    // MAVERICKS_BACKPORT: restored implementation builds a real API::UserStyleSheet and injects it.
     auto source = WebKit::toWTFString(sourceRef);
     if (source.isEmpty())
         return;
@@ -103,13 +110,16 @@ void WKPageGroupAddUserStyleSheet(WKPageGroupRef pageGroupRef, WKStringRef sourc
     WebKit::toImpl(pageGroupRef)->userContentController().addUserStyleSheet(userStyleSheet.get());
 }
 
+// MAVERICKS_BACKPORT: restored page-group user-content SPI body (was gutted to a no-op upstream).
 void WKPageGroupRemoveAllUserStyleSheets(WKPageGroupRef pageGroupRef)
 {
     WebKit::toImpl(pageGroupRef)->userContentController().removeAllUserStyleSheets();
 }
 
+// MAVERICKS_BACKPORT: restored page-group user-content SPI body (was gutted to a no-op upstream).
 void WKPageGroupAddUserScript(WKPageGroupRef pageGroupRef, WKStringRef sourceRef, WKURLRef baseURLRef, WKArrayRef allowedURLPatterns, WKArrayRef blockedURLPatterns, WKUserContentInjectedFrames injectedFrames, _WKUserScriptInjectionTime injectionTime)
 {
+    // MAVERICKS_BACKPORT: restored implementation builds a real API::UserScript and injects it.
     auto source = WebKit::toWTFString(sourceRef);
     if (source.isEmpty())
         return;
@@ -131,6 +141,7 @@ void WKPageGroupAddUserScript(WKPageGroupRef pageGroupRef, WKStringRef sourceRef
     WebKit::toImpl(pageGroupRef)->userContentController().addUserScript(userScript.get(), WebKit::InjectUserScriptImmediately::No);
 }
 
+// MAVERICKS_BACKPORT: restored page-group user-content SPI body (was gutted to a no-op upstream).
 void WKPageGroupRemoveAllUserScripts(WKPageGroupRef pageGroupRef)
 {
     WebKit::toImpl(pageGroupRef)->userContentController().removeAllUserScripts();

@@ -157,7 +157,7 @@ void RemoteCaptureSampleManager::setVideoFrameObjectHeapProxy(RefPtr<RemoteVideo
     Locker lock(m_videoFrameObjectHeapProxyLock);
     m_videoFrameObjectHeapProxy = WTF::move(proxy);
 }
-#endif
+#endif // MAVERICKS_BACKPORT: setVideoFrameObjectHeapProxy is GPU-process-only (GPU_PROCESS off on 10.9)
 
 void RemoteCaptureSampleManager::audioStorageChanged(WebCore::RealtimeMediaSourceIdentifier identifier, ConsumerSharedCARingBuffer::Handle&& handle, const WebCore::CAAudioStreamDescription& description, IPC::Semaphore&& semaphore, const MediaTime& mediaTime, uint64_t frameChunkSize)
 {
@@ -189,7 +189,7 @@ void RemoteCaptureSampleManager::videoFrameAvailable(RealtimeMediaSourceIdentifi
     }
     Ref { iterator->value }->remoteVideoFrameAvailable(WTF::move(videoFrame), metadata);
 }
-#endif // ENABLE(GPU_PROCESS)
+#endif // ENABLE(GPU_PROCESS) — MAVERICKS_BACKPORT: GPU-process frame delivery dead on 10.9; frames arrive via videoFrameAvailableCV below
 
 void RemoteCaptureSampleManager::videoFrameAvailableCV(RealtimeMediaSourceIdentifier identifier, RetainPtr<CVPixelBufferRef>&& pixelBuffer, WebCore::VideoFrame::Rotation rotation, bool mirrored, MediaTime presentationTime, WebCore::VideoFrameTimeMetadata metadata)
 {

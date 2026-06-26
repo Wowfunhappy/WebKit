@@ -48,6 +48,8 @@ public:
 
     const String& identifier() const LIFETIME_BOUND { return m_data.identifier; }
     PageGroupIdentifier pageGroupID() const { return m_data.pageGroupID; }
+    // MAVERICKS_BACKPORT: expose the underlying WebPageGroupData so the page group can be (re)wrapped
+    // as an API::PageGroupHandle for legacy C API round-trips (Safari 7).
     const WebPageGroupData& data() const LIFETIME_BOUND { return m_data; }
     // Namespace IDs for local storage namespaces are currently equivalent to web page group IDs.
     WebCore::PageGroup* NODELETE corePageGroup() const;
@@ -61,6 +63,8 @@ private:
 
 } // namespace WebKit
 
+// MAVERICKS_BACKPORT: type traits so downcast<WebPageGroupProxy>(API::Object&) works now that the
+// proxy is an API::ObjectImpl again (legacy C API page-group plumbing, Safari 7).
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebPageGroupProxy)
 static bool isType(const API::Object& object) { return object.type() == API::Object::Type::BundlePageGroup; }
 SPECIALIZE_TYPE_TRAITS_END()

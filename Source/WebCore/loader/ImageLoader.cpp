@@ -694,6 +694,8 @@ void ImageLoader::dispatchPendingBeforeLoadEvent()
         updateRenderer();
         return;
     }
+    // MAVERICKS_BACKPORT: behavior fix (#62 restored image beforeload for Safari-7 extension blocking).
+    // A canceled beforeload drops the image load: detach the cached image and cancel its load event.
     if (m_image) {
         m_image->removeClient(*this);
         m_image = nullptr;

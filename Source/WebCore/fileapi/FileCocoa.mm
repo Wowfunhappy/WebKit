@@ -60,12 +60,16 @@ bool File::shouldReplaceFile(const String& path)
         return false;
     }
 
+    // MAVERICKS_BACKPORT: UTType (macOS 11+) is absent on 10.9; resolve the file's UTI as an NSString via the
+    // legacy NSURLTypeIdentifierKey resource value instead of NSURLContentTypeKey / UTType.
     NSString *uti;
     if (![pathURL getResourceValue:&uti forKey:NSURLTypeIdentifierKey error:&error]) {
         LOG_ERROR("Failed to get type identifier of resource at URL %@ with error %@.\n", pathURL.get(), error);
         return false;
     }
 
+    // MAVERICKS_BACKPORT: UTType (macOS 11+) is absent on 10.9; test package-conformance with the legacy
+    // CoreServices UTTypeConformsTo + kUTTypePackage instead of UTType.conforms(to: .package).
     return UTTypeConformsTo((__bridge CFStringRef)uti, kUTTypePackage);
 }
 

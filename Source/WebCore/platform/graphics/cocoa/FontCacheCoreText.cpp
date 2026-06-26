@@ -71,6 +71,7 @@ static RetainPtr<CFArrayRef> variationAxesWithNonLocalizedAxesNames(CTFontDescri
     // Reading kCTFontVariationAxesAttribute returns non localized axes names
     return adoptCF(static_cast<CFArrayRef>(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontVariationAxesAttribute)));
 #else
+    // MAVERICKS_BACKPORT: on 10.9 kCTFontVariationAxesAttribute is unavailable; return null so the caller falls back to the localized axes via CTFontCopyVariationAxes.
     UNUSED_PARAM(fontDescriptor);
     return nullptr;
 #endif

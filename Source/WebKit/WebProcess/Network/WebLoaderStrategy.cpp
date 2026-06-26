@@ -65,12 +65,13 @@
 #include <WebCore/NetscapePlugInStreamLoader.h>
 #include <WebCore/NetworkLoadInformation.h>
 #include <WebCore/NodeDocument.h>
-#include <WebCore/MIMETypeRegistry.h>
+#include <WebCore/MIMETypeRegistry.h> // MAVERICKS_BACKPORT: for serving Safari's file-backed custom-protocol resources (Reader/safari-resource) directly from Safari.framework.
 #include <WebCore/PlatformStrategies.h>
 #include <WebCore/ReferrerPolicy.h>
 #include <WebCore/ResourceLoader.h>
-#include <WebCore/ResourceResponse.h>
+#include <WebCore/ResourceResponse.h> // MAVERICKS_BACKPORT: for serving Safari's file-backed custom-protocol resources (Reader/safari-resource) directly from Safari.framework.
 #include <WebCore/SecurityOrigin.h>
+// MAVERICKS_BACKPORT: for serving Safari's file-backed custom-protocol resources (Reader/safari-resource) directly from Safari.framework.
 #include <WebCore/SharedBuffer.h>
 #include <wtf/FileSystem.h>
 #include <WebCore/Settings.h>
@@ -78,6 +79,7 @@
 #include <WebCore/UserContentProvider.h>
 #include <pal/SessionID.h>
 #include <wtf/CompletionHandler.h>
+// MAVERICKS_BACKPORT: for serving Safari's file-backed custom-protocol resources (Reader/safari-resource) directly from Safari.framework.
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/RuntimeApplicationChecks.h>

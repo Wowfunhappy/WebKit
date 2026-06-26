@@ -35,13 +35,14 @@
 #import "WebPageProxy.h"
 #import "WebPageProxyMessages.h"
 #import "WebProcessProxy.h"
+// MAVERICKS_BACKPORT: pull QuartzCore for CAContext, which the 10.9 QuartzCoreSPI.h does not declare.
 #import <QuartzCore/QuartzCore.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/MachSendRight.h>
 #import <wtf/TZoneMallocInlines.h>
 
-// Forward declaration in case QuartzCoreSPI.h fails to provide it on older SDKs.
+// MAVERICKS_BACKPORT: forward declaration in case QuartzCoreSPI.h fails to provide it on older SDKs.
 @class CAContext;
 
 namespace WebKit {
@@ -181,6 +182,7 @@ MachSendRight TiledCoreAnimationDrawingAreaProxy::createFence()
     if (!page)
         return MachSendRight();
 
+    // MAVERICKS_BACKPORT: explicit (CAContext *) cast — -[CALayer context] returns id on the 10.9 SDK, so the RetainPtr<CAContext> assignment needs the cast.
     RetainPtr<CAContext> rootLayerContext = (CAContext *)[protect(page->acceleratedCompositingRootLayer()) context];
     if (!rootLayerContext)
         return MachSendRight();

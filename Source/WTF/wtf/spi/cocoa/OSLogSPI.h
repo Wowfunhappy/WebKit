@@ -48,7 +48,7 @@ enum {
     OS_TRACE_MODE_STREAM_LIVE                   = 0x08,
     OS_TRACE_MODE_DISABLE                       = 0x0100,
     OS_TRACE_MODE_OFF                           = 0x0400,
-};
+}; // MAVERICKS_BACKPORT: plain enum, OS_ENUM()/os_trace absent on 10.9 (see above).
 
 typedef struct os_log_message_s {
     uint64_t trace_id;
@@ -71,11 +71,13 @@ static inline void os_log_with_args(os_log_t oslog, os_log_type_t type, const ch
     (void)oslog; (void)type; (void)format; (void)args; (void)ret_addr;
 }
 
+// MAVERICKS_BACKPORT: no-op inline stubs; os_trace mode SPI does not exist in 10.9 libsystem.
 static inline void os_trace_set_mode(os_trace_mode_t mode) { (void)mode; }
 static inline os_trace_mode_t os_trace_get_mode(void) { return 0; }
 
 typedef void (^os_log_hook_t)(os_log_type_t type, os_log_message_t msg);
 
+// MAVERICKS_BACKPORT: no-op inline stubs; these os_log SPI symbols do not exist in 10.9 libsystem.
 static inline os_log_hook_t os_log_set_hook(os_log_type_t level, os_log_hook_t hook) { (void)level; return hook; }
 static inline char* os_log_copy_message_string(os_log_message_t msg) { (void)msg; return 0; }
 

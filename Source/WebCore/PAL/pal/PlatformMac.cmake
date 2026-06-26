@@ -11,6 +11,8 @@ list(APPEND PAL_PUBLIC_HEADERS
     crypto/tasn1/Utilities.h
 
     cf/AudioToolboxSoftLink.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list; CoreAudioExtras backfills CoreAudio
+    # type/constant declarations the 10.9 SDK lacks, reachable via <pal/cf/CoreAudioExtras.h>.
     cf/CoreAudioExtras.h
     cf/CoreMediaSoftLink.h
     cf/CoreTextSoftLink.h
@@ -19,18 +21,23 @@ list(APPEND PAL_PUBLIC_HEADERS
 
     cg/CoreGraphicsSoftLink.h
 
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list; AVFAudio / Accessibility soft-link headers
+    # added so WebCore audio and accessibility sources resolve their includes on this Mac build.
     cocoa/AVFAudioSoftLink.h
     cocoa/AccessibilitySoftLink.h
     cocoa/AppSSOSoftLink.h
     cocoa/AVFoundationSoftLink.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list (Contacts soft-link, reachable for unified build).
     cocoa/ContactsSoftLink.h
     cocoa/CoreMLSoftLink.h
     cocoa/CoreMaterialSoftLink.h
     cocoa/CoreTelephonySoftLink.h
     cocoa/CryptoKitPrivateSoftLink.h
     cocoa/DataDetectorsCoreSoftLink.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list (EnhancedSecurity header for WebKit process bootstrap).
     cocoa/EnhancedSecurityCocoa.h
     cocoa/LinkPresentationSoftLink.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list (LockdownMode header for WebKit process bootstrap).
     cocoa/LockdownModeCocoa.h
     cocoa/MediaToolboxSoftLink.h
     cocoa/NaturalLanguageSoftLink.h
@@ -44,6 +51,8 @@ list(APPEND PAL_PUBLIC_HEADERS
     cocoa/UsageTrackingSoftLink.h
     cocoa/VisionKitCoreSoftLink.h
     cocoa/VisionSoftLink.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list; WebContentAnalysis / WebContentRestrictions
+    # soft-link headers added so WebKit parental-controls sources resolve their includes on this Mac build.
     cocoa/WebContentAnalysisSoftLink.h
     cocoa/WebContentRestrictionsSoftLink.h
     cocoa/WebPrivacySoftLink.h
@@ -52,6 +61,7 @@ list(APPEND PAL_PUBLIC_HEADERS
     mac/DataDetectorsSoftLink.h
     mac/LookupSoftLink.h
     mac/QuickLookUISoftLink.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list (ScreenCaptureKit soft-link, reachable for unified build).
     mac/ScreenCaptureKitSoftLink.h
 
     spi/cf/CFNetworkConnectionCacheSPI.h
@@ -63,24 +73,30 @@ list(APPEND PAL_PUBLIC_HEADERS
     spi/cf/CoreTextSPI.h
     spi/cf/CoreVideoSPI.h
     spi/cf/MediaAccessibilitySPI.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list (VideoToolbox SPI, reachable for unified build).
     spi/cf/VideoToolboxSPI.h
 
     spi/cg/CoreGraphicsSPI.h
     spi/cg/ImageIOSPI.h
 
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list (ARKit SPI, reachable for unified build).
     spi/cocoa/ARKitSPI.h
     spi/cocoa/AVAssetWriterSPI.h
     spi/cocoa/AVFoundationSPI.h
     spi/cocoa/AVKitSPI.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list (AVStreamDataParser SPI, reachable for unified build).
     spi/cocoa/AVStreamDataParserSPI.h
     spi/cocoa/AXSpeechManagerSPI.h
     spi/cocoa/AccessibilitySupportSPI.h
     spi/cocoa/AccessibilitySupportSoftLink.h
     spi/cocoa/AppSSOSPI.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list (AudioToolboxCore SPI, reachable for unified build).
     spi/cocoa/AudioToolboxCoreSPI.h
     spi/cocoa/AuthKitSPI.h
     spi/cocoa/AudioToolboxSPI.h
     spi/cocoa/CommonCryptoSPI.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list; Contacts / CoreCrypto / CoreMotion SPI
+    # headers added so WebCore/WebKit sources resolve their includes on this single-config Mac build.
     spi/cocoa/ContactsSPI.h
     spi/cocoa/CoreCryptoSPI.h
     spi/cocoa/CoreMotionSPI.h
@@ -90,6 +106,7 @@ list(APPEND PAL_PUBLIC_HEADERS
     spi/cocoa/CryptoKitPrivateSPI.h
     spi/cocoa/DataDetectorsCoreSPI.h
     spi/cocoa/FeatureFlagsSPI.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list (Foundation SPI, reachable for unified build).
     spi/cocoa/FoundationSPI.h
     spi/cocoa/FilePortSPI.h
     spi/cocoa/IOKitSPI.h
@@ -106,6 +123,7 @@ list(APPEND PAL_PUBLIC_HEADERS
     spi/cocoa/NSCalendarDateSPI.h
     spi/cocoa/NSExtensionSPI.h
     spi/cocoa/NSFileManagerSPI.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list (NSKeyedUnarchiver SPI, reachable for unified build).
     spi/cocoa/NSKeyedUnarchiverSPI.h
     spi/cocoa/NSFileSizeFormatterSPI.h
     spi/cocoa/NSProgressSPI.h
@@ -129,25 +147,33 @@ list(APPEND PAL_PUBLIC_HEADERS
     spi/cocoa/SpeechSPI.h
     spi/cocoa/TCCSPI.h
     spi/cocoa/URLFormattingSPI.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list; cocoa SPI headers added so WebCore/WebKit
+    # sources resolve their includes on this single-config Mac build.
     spi/cocoa/TranslationUIServicesSPI.h
     spi/cocoa/UIFoundationSPI.h
     spi/cocoa/UniformTypeIdentifiersSPI.h
     spi/cocoa/VisionKitCoreSPI.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list (WebContentRestrictions SPI, reachable for unified build).
     spi/cocoa/WebContentRestrictionsSPI.h
     spi/cocoa/WebFilterEvaluatorSPI.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list; WebPrivacy / WritingTools SPI headers added for the unified build.
     spi/cocoa/WebPrivacySPI.h
     spi/cocoa/WritingToolsSPI.h
     spi/cocoa/WritingToolsUISPI.h
     spi/cocoa/pthreadSPI.h
 
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list; iOS SPI headers added so the unified-build
+    # of cross-platform PAL/WebCore sources resolves their includes on this single-config Mac build.
     spi/ios/AXRuntimeSPI.h
     spi/ios/BarcodeSupportSPI.h
     spi/ios/BrowserEngineKitSPI.h
     spi/ios/CelestialSPI.h
     spi/ios/CoreUISPI.h
     spi/ios/DataDetectorsUISPI.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list (iOS DataDetectorsUI soft-link, reachable for unified build).
     spi/ios/DataDetectorsUISoftLink.h
     spi/ios/GraphicsServicesSPI.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list; iOS SPI headers added so the unified build resolves their includes.
     spi/ios/IOKitSPIIOS.h
     spi/ios/ManagedConfigurationSPI.h
     spi/ios/MediaPlayerSPI.h
@@ -197,6 +223,8 @@ list(APPEND PAL_PUBLIC_HEADERS
     spi/mac/PIPSPI.h
     spi/mac/QuickLookMacSPI.h
     spi/mac/SystemPreviewSPI.h
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list; AppKit-cell / PowerLog / Quarantine SPI
+    # headers added so WebCore form-control and download sources resolve their includes on 10.9.
     spi/mac/NSSearchFieldCellSPI.h
     spi/mac/NSTextFieldCellSPI.h
     spi/mac/PowerLogSPI.h
@@ -205,12 +233,15 @@ list(APPEND PAL_PUBLIC_HEADERS
 
     system/cocoa/SleepDisablerCocoa.h
 
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list; iOS soft-link / system headers added so the
+    # unified-build of cross-platform PAL sources resolves their includes on this single-config Mac build.
     ios/AVRoutingSoftLink.h
     ios/ManagedConfigurationSoftLink.h
     ios/QuickLookSoftLink.h
     ios/SystemStatusSoftLink.h
     ios/UIKitSoftLink.h
 
+    # MAVERICKS_BACKPORT: absent from upstream Mac PAL header list (iOS idiom header reachable for unified build).
     system/ios/UserInterfaceIdiom.h
 
     system/mac/DefaultSearchProvider.h

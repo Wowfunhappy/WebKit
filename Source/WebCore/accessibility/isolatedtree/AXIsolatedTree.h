@@ -8,8 +8,10 @@
 
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: minimal stub replacing the compiled-out isolated-tree definition (feature off).
 class AXIsolatedTree : public RefCounted<AXIsolatedTree> {
 public:
+    // MAVERICKS_BACKPORT: only member needed by callers that include this header with the feature off.
     void updateNodeProperties(std::initializer_list<void*>) { }
 };
 

@@ -163,6 +163,7 @@ Ref<WebCore::PlatformCALayer> PlatformCALayerRemoteCustom::clone(PlatformCALayer
             RunLoop::mainSingleton().dispatch([destinationPlayerLayer = WTF::move(destinationPlayerLayer), sourcePlayerLayer = WTF::move(sourcePlayerLayer)] {
                 [destinationPlayerLayer setPlayer:[sourcePlayerLayer player]];
             });
+        // MAVERICKS_BACKPORT: closes the HAVE(AVFOUNDATION) guard; when AVFoundation is unavailable on 10.9 control falls through to the plain CALayer clone below.
         } else
 #endif
         {

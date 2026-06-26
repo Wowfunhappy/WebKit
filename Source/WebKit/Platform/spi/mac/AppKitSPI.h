@@ -57,6 +57,7 @@ DECLARE_SYSTEM_HEADER
 #endif
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
 #import <AppKit/NSPanGestureRecognizer_Private.h>
+// MAVERICKS_BACKPORT: close the 10.12+ NSPanGestureRecognizer_Private import guard.
 #endif
 #import <AppKit/NSPressGestureRecognizer_Private.h>
 
@@ -121,6 +122,7 @@ static const NSWindowStyleMask NSWindowStyleMaskAlertWindow = (NSWindowStyleMask
 @interface NSPreviewRepresentingActivityItem ()
 - (instancetype)initWithItem:(id)item linkMetadata:(LPLinkMetadata *)linkMetadata;
 @end
+// MAVERICKS_BACKPORT: close the 10.13+ NSPreviewRepresentingActivityItem SPI guard.
 #endif
 
 typedef NS_ENUM(NSInteger, NSScrollPocketStyle) {
@@ -155,6 +157,7 @@ typedef NS_ENUM(NSInteger, NSScrollPocketEdge) {
 @interface NSPanGestureRecognizer (SPI)
 @property (readonly) NSTimeInterval timestamp;
 @end
+// MAVERICKS_BACKPORT: close the 10.12+ NSPanGestureRecognizer SPI guard.
 #endif
 
 #if HAVE(NSVIEW_CORNER_CONFIGURATION)
@@ -205,6 +208,7 @@ typedef NS_ENUM(NSInteger, NSScrollPocketEdge) {
 - (BOOL)_gestureRecognizer:(NSGestureRecognizer *)preventingGestureRecognizer canPreventGestureRecognizer:(NSGestureRecognizer *)preventedGestureRecognizer;
 
 @end
+// MAVERICKS_BACKPORT: close the 10.10+ NSGestureRecognizer SPI guard.
 #endif // __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
 
 #endif

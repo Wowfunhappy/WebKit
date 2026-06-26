@@ -30,6 +30,7 @@
 #import "RemoteLayerTreeLayers.h"
 #import <QuartzCore/CALayer.h>
 #import <WebCore/WebActionDisablingCALayerDelegate.h>
+// MAVERICKS_BACKPORT: objc/runtime.h for objc_setAssociatedObject, used in place of CALayer KVC (see below).
 #import <objc/runtime.h>
 #import <wtf/TZoneMallocInlines.h>
 

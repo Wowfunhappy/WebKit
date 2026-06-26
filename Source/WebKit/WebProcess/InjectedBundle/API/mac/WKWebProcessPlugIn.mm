@@ -29,16 +29,19 @@
 #import "APIArray.h"
 #import "WKBundle.h"
 #import "WKBundleAPICast.h"
+// MAVERICKS_BACKPORT (#137): legacy WKConnection used for the bundle<->app message channel below.
 #import "WKConnectionInternal.h"
 #import "WKRetainPtr.h"
 #import "WKStringCF.h"
 #import "WKWebProcessPlugInBrowserContextControllerInternal.h"
+// MAVERICKS_BACKPORT (#137): WebPage for webPageProxyIdentifier() used in WKConnection controller registration below.
 #import "WebPage.h"
 #import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/AlignedStorage.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/StdLibExtras.h>
 
+// MAVERICKS_BACKPORT (#137): private accessor for the legacy WKConnection (defined below).
 @interface WKWebProcessPlugInController ()
 - (WKConnection *)connection;
 @end
@@ -46,6 +49,7 @@
 @implementation WKWebProcessPlugInController {
     AlignedStorage<WebKit::InjectedBundle> _bundle;
     RetainPtr<id <WKWebProcessPlugIn>> _principalClassInstance;
+    // MAVERICKS_BACKPORT (#137): lazily-created legacy WKConnection backing the bundle<->app message channel.
     RetainPtr<WKConnection> _connection;
 }
 
@@ -70,6 +74,7 @@ static void didCreatePage(WKBundleRef bundle, WKBundlePageRef page, const void* 
     WKConnectionRegisterController(webPage->webPageProxyIdentifier().toUInt64(), controller.get());
 
     if ([principalClassInstance respondsToSelector:@selector(webProcessPlugIn:didCreateBrowserContextController:)])
+        // MAVERICKS_BACKPORT (#137): hand the WKConnection-registered controller (above) to the plug-in.
         [principalClassInstance webProcessPlugIn:plugInController didCreateBrowserContextController:controller.get()];
 }
 
@@ -101,6 +106,7 @@ static void setUpBundleClient(WKWebProcessPlugInController *plugInController, We
     bundleClient.base.clientInfo = (__bridge void*)plugInController;
     bundleClient.didCreatePage = didCreatePage;
     bundleClient.willDestroyPage = willDestroyPage;
+    // MAVERICKS_BACKPORT (#137): route UIProcess->bundle messages to the legacy WKConnection delegate.
     bundleClient.didReceiveMessage = didReceiveMessage;
 
     WKBundleSetClient(toAPI(&bundle), &bundleClient.base);

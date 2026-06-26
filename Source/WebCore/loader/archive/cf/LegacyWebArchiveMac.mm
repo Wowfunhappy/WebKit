@@ -47,6 +47,7 @@ ResourceResponse LegacyWebArchive::createResourceResponseFromMacArchivedData(CFD
     // initForReadingWithData:/decodeObjectForKey: pair available on 10.9.
     auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:(__bridge NSData *)responseData]);
     @try {
+        // MAVERICKS_BACKPORT: -decodeObjectOfClass:forKey: is 10.13+; use the legacy decodeObjectForKey: on 10.9.
         response = [unarchiver decodeObjectForKey:LegacyWebArchiveResourceResponseKey];
         [unarchiver finishDecoding];
     } @catch (NSException *exception) {
@@ -69,6 +70,7 @@ RetainPtr<CFDataRef> LegacyWebArchive::createPropertyListRepresentation(const Re
     RetainPtr data = adoptNS([[NSMutableData alloc] init]);
     auto archiver = adoptNS([[NSKeyedArchiver alloc] initForWritingWithMutableData:data.get()]);
     [archiver encodeObject:nsResponse.get() forKey:LegacyWebArchiveResourceResponseKey];
+    // MAVERICKS_BACKPORT: legacy archiver finalize/read-back — -encodedData is 10.13+; finishEncoding into the backing data on 10.9.
     [archiver finishEncoding];
     return (__bridge CFDataRef)data.get();
 }

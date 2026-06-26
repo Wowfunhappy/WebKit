@@ -28,6 +28,7 @@
 
 #if USE(CG)
 
+// MAVERICKS_BACKPORT: for sRGBColorSpaceSingleton(), the fallback when platformColorSpace() is NULL.
 #include "ColorSpaceCG.h"
 #include "GraphicsContext.h"
 #include "GraphicsContextCG.h"
@@ -133,6 +134,7 @@ RefPtr<NativeImage> ImageBufferCGBitmapBackend::createNativeImageReference()
         cs = sRGBColorSpaceSingleton();
     return NativeImage::create(adoptCF(CGImageCreate(
         backendSize.width(), backendSize.height(), 8, 32, bytesPerRow(),
+        // MAVERICKS_BACKPORT: sRGB fallback for a NULL platformColorSpace() (see above).
         cs.get(), static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Host), m_dataProvider.get(),
         0, true, kCGRenderingIntentDefault)));
 }

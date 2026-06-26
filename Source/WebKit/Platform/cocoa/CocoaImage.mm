@@ -30,6 +30,7 @@
 // CoreServices UTType C API (kUTTypeImage, UTTypeCreatePreferredIdentifierForTag) lives here.
 #import <CoreServices/CoreServices.h>
 #import <ImageIO/ImageIO.h>
+// MAVERICKS_BACKPORT: UniformTypeIdentifiers is macOS 11+; guard the import so 10.9 builds skip it.
 #if __has_include(<UniformTypeIdentifiers/UniformTypeIdentifiers.h>)
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #endif

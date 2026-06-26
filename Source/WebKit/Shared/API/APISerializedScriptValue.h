@@ -25,6 +25,8 @@
 
 #pragma once
 
+// MAVERICKS_BACKPORT: extra includes for the restored legacy WKSerializedScriptValue support
+// (API::Object base, JavaScriptEvaluationResult value transfer, JSContextRef conversions).
 #include "APIObject.h"
 #include "JavaScriptEvaluationResult.h"
 #include <JavaScriptCore/JSContextRef.h>
@@ -45,9 +47,11 @@ namespace API {
 // it to/from a JSValueRef in the caller's JSContext.
 class SerializedScriptValue final : public ObjectImpl<Object::Type::SerializedScriptValue> {
 public:
+    // MAVERICKS_BACKPORT: legacy WKSerializedScriptValue support.
     // Used by the GLib ports only (APISerializedScriptValue.cpp is not built on Mac).
     static JSRetainPtr<JSGlobalContextRef> deserializationContext();
 
+    // MAVERICKS_BACKPORT: factory wrapping WebKit::JavaScriptEvaluationResult for the legacy C API.
     static Ref<SerializedScriptValue> create(WebKit::JavaScriptEvaluationResult&& result)
     {
         return adoptRef(*new SerializedScriptValue(WTF::move(result)));
@@ -81,9 +85,12 @@ private:
     {
     }
 
+    // MAVERICKS_BACKPORT: held value backing the restored legacy WKSerializedScriptValue API.
     WebKit::JavaScriptEvaluationResult m_result;
 };
 
 }
 
+// MAVERICKS_BACKPORT: type-traits specialization for the restored API::SerializedScriptValue
+// (legacy WKSerializedScriptValue support); absent upstream where the class was a bare struct.
 SPECIALIZE_TYPE_TRAITS_API_OBJECT(SerializedScriptValue);

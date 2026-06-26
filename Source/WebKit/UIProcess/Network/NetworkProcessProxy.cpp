@@ -2000,10 +2000,10 @@ void NetworkProcessProxy::addAllowedFirstPartyForCookies(WebProcessProxy& webPro
     if (loadedWebArchive == LoadedWebArchive::Yes && pair.first != LoadedWebArchive::Yes)
         pair.first = LoadedWebArchive::Yes;
 
-    // Forward to NetworkProcess so it accepts ScheduleResourceLoad for this
-    // WebProcess+domain pair. Without this, NetworkConnectionToWebProcess
-    // returns AllowCookieAccess::Terminate at MESSAGE_CHECK and the load is
-    // silently dropped.
+    // MAVERICKS_BACKPORT: unconditionally forward to NetworkProcess so it accepts
+    // ScheduleResourceLoad for this WebProcess+domain pair. Without this,
+    // NetworkConnectionToWebProcess returns AllowCookieAccess::Terminate at
+    // MESSAGE_CHECK and the load is silently dropped.
     sendWithAsyncReply(Messages::NetworkProcess::AddAllowedFirstPartyForCookies { webProcessProxy.coreProcessIdentifier(), firstPartyForCookies, loadedWebArchive }, WTF::move(completionHandler));
 }
 

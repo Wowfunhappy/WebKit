@@ -1219,6 +1219,7 @@ static NSControlStateValue NODELETE kit(TriState state)
     if ([types containsObject:WebCore::legacyPDFPasteboardTypeSingleton()] && (fragment = [self _documentFragmentFromPasteboard:pasteboard forType:WebCore::legacyPDFPasteboardTypeSingleton() inContext:context subresources:0]))
         return fragment;
 
+    // MAVERICKS_BACKPORT: UTType (UTTypePNG.identifier) is 11.0+; use the classic kUTTypePNG constant.
     if ([types containsObject:(NSString *)kUTTypePNG] && (fragment = [self _documentFragmentFromPasteboard:pasteboard forType:(NSString *)kUTTypePNG inContext:context subresources:0]))
         return fragment;
 
@@ -1522,6 +1523,7 @@ static NSControlStateValue NODELETE kit(TriState state)
 {
     NSEvent *fakeEvent = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
         location:[[self window]
+        // MAVERICKS_BACKPORT: -convertPointFromScreen: is 10.12+; use -convertScreenToBase:.
         convertScreenToBase:[NSEvent mouseLocation]]
         modifierFlags:[[NSApp currentEvent] modifierFlags]
         timestamp:[NSDate timeIntervalSinceReferenceDate]
@@ -1575,7 +1577,7 @@ static NSControlStateValue NODELETE kit(TriState state)
     _private->subviewsSetAside = YES;
 #endif
  }
-
+    // MAVERICKS_BACKPORT: stray whitespace stripped from the blank line between these methods.
  - (void)_restoreSubviews
  {
 #if PLATFORM(MAC)
@@ -1978,6 +1980,7 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     static NeverDestroyed<RetainPtr<NSArray>> types = @[
         WebArchivePboardType, WebCore::legacyHTMLPasteboardTypeSingleton(), WebCore::legacyFilenamesPasteboardTypeSingleton(), WebCore::legacyTIFFPasteboardTypeSingleton(),
         WebCore::legacyPDFPasteboardTypeSingleton(), WebCore::legacyURLPasteboardTypeSingleton(), WebCore::legacyRTFDPasteboardTypeSingleton(), WebCore::legacyRTFPasteboardTypeSingleton(),
+        // MAVERICKS_BACKPORT: UTType (UTTypePNG.identifier) is 11.0+; use the classic kUTTypePNG constant.
         WebCore::legacyStringPasteboardTypeSingleton(), WebCore::legacyColorPasteboardTypeSingleton(), (NSString *)kUTTypePNG,
     ];
 ALLOW_DEPRECATED_DECLARATIONS_END
@@ -2096,6 +2099,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
     NSEvent *fakeEvent = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDragged
         location:[[self window]
+        // MAVERICKS_BACKPORT: -convertPointFromScreen: is 10.12+; use -convertScreenToBase:.
         convertScreenToBase:[NSEvent mouseLocation]]
         modifierFlags:[[NSApp currentEvent] modifierFlags]
         timestamp:[NSDate timeIntervalSinceReferenceDate]
@@ -2363,6 +2367,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:WebCore::legacyTIFFPasteboardTypeSingleton() imageMIMEType:@"image/tiff"];
     if ([pboardType isEqualToString:WebCore::legacyPDFPasteboardTypeSingleton()])
         return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:WebCore::legacyPDFPasteboardTypeSingleton() imageMIMEType:@"application/pdf"];
+    // MAVERICKS_BACKPORT: UTType (UTTypePNG.identifier) is 11.0+; use the classic kUTTypePNG constant.
     if ([pboardType isEqualToString:(NSString *)kUTTypePNG])
         return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:(NSString *)kUTTypePNG imageMIMEType:@"image/png"];
 
@@ -3847,7 +3852,7 @@ static BOOL currentScrollIsBlit(NSView *clipView)
 #if PLATFORM(MAC)
     [NSGraphicsContext saveGraphicsState];
     NSRectClip(rect);
-
+    // MAVERICKS_BACKPORT: trailing whitespace stripped from the blank line below.
     ASSERT([[self superview] isKindOfClass:[WebClipView class]]);
 
     [(WebClipView *)[self superview] setAdditionalClip:rect];
@@ -3891,7 +3896,7 @@ static BOOL currentScrollIsBlit(NSView *clipView)
 - (void)drawRect:(NSRect)rect
 {
     LOG(View, "%@ drawing", self);
-
+    // MAVERICKS_BACKPORT: trailing whitespace stripped from the blank line below.
     TraceScope scope(WebHTMLViewPaintStart, WebHTMLViewPaintEnd);
 
 #if PLATFORM(MAC)
@@ -5026,6 +5031,8 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 #if PLATFORM(IOS_FAMILY)
         return [accTree accessibilityHitTest:point];
 #else
+        // MAVERICKS_BACKPORT: -[NSWindow convertPointFromScreen:] is 10.12+; use the
+        // long-standing -convertScreenToBase: to map the screen point into window coords.
         NSPoint windowCoord = [[self window] convertScreenToBase:point];
         return [accTree accessibilityHitTest:[self convertPoint:windowCoord fromView:nil]];
 #endif
@@ -6688,6 +6695,8 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     if (event && shouldSaveCommand && !isFromInputMethod) {
         auto isFunctionKeyCommandWithMatchingMenuItem = ([&] {
 #if PLATFORM(MAC)
+            // MAVERICKS_BACKPORT: NSApp is typed id here; send -mainMenu via an explicit
+            // (NSApplication *) cast rather than the upstream NSApp.mainMenu dot syntax.
             auto menu = [(NSApplication *)NSApp mainMenu];
             auto* platformKeyEvent = event->underlyingPlatformEvent();
             if (!platformKeyEvent)

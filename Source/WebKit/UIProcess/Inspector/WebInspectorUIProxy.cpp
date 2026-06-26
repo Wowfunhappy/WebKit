@@ -141,7 +141,7 @@ void WebInspectorUIProxy::connect()
     if (!inspectedPage)
         return;
 
-    // An explicit connect() is the embedder's intent to inspect this page, so enable
+    // MAVERICKS_BACKPORT: an explicit connect() is the embedder's intent to inspect this page, so enable
     // developer extras on the inspected page's preferences (Safari sets it on the
     // inspector page's preferences, not the inspected page's).
     protect(inspectedPage->preferences())->setDeveloperExtrasEnabled(true);
@@ -864,11 +864,13 @@ void WebInspectorUIProxy::save(Vector<InspectorFrontendClient::SaveData>&& saveD
 
 void WebInspectorUIProxy::load(const String& path, CompletionHandler<void(const String&)>&& completionHandler)
 {
+    // MAVERICKS_BACKPORT: invoke the CompletionHandler on the early-return path so it isn't destroyed unrun (asserts).
     if (!protect(protect(inspectedPage())->preferences())->developerExtrasEnabled())
         return completionHandler({ });
 
     ASSERT(!path.isEmpty());
     if (path.isEmpty())
+        // MAVERICKS_BACKPORT: invoke the CompletionHandler on the early-return path so it isn't destroyed unrun (asserts).
         return completionHandler({ });
 
     platformLoad(path, WTF::move(completionHandler));

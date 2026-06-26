@@ -100,6 +100,7 @@ void enableAdvancedPrivacyProtections(NSMutableURLRequest *request, OptionSet<We
         && [request respondsToSelector:@selector(_setUseEnhancedPrivacyMode:)])
         request._useEnhancedPrivacyMode = YES;
 
+    // MAVERICKS_BACKPORT: _setBlockTrackers: is 10.15+ SPI; guard before calling.
     if (policy.contains(WebCore::AdvancedPrivacyProtections::BaselineProtections)
         && [request respondsToSelector:@selector(_setBlockTrackers:)]
         && shouldBlockTrackersForThirdPartyCloaking(request))
@@ -261,6 +262,7 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         [mutableRequest _setPrivacyProxyFailClosedForUnreachableNonMainHosts:YES];
     }
 
+    // MAVERICKS_BACKPORT: _setProhibitPrivacyProxy: is 10.15+ SPI; guard before calling.
     if (!parameters.allowPrivacyProxy && [mutableRequest respondsToSelector:@selector(_setProhibitPrivacyProxy:)])
         [mutableRequest _setProhibitPrivacyProxy:YES];
 
@@ -285,14 +287,17 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         && [mutableRequest respondsToSelector:@selector(_setPrivacyProxyFailClosedForUnreachableHosts:)])
         [mutableRequest _setPrivacyProxyFailClosedForUnreachableHosts:YES];
 
+    // MAVERICKS_BACKPORT: _setPrivacyProxyFailClosed: is 10.15+ SPI; guard before calling.
     if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::FailClosedForAllHosts)
         && [mutableRequest respondsToSelector:@selector(_setPrivacyProxyFailClosed:)])
         [mutableRequest _setPrivacyProxyFailClosed:YES];
 
+    // MAVERICKS_BACKPORT: _setWebSearchContent: is 10.15+ SPI; guard before calling.
     if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::WebSearchContent)
         && [mutableRequest respondsToSelector:@selector(_setWebSearchContent:)])
         [mutableRequest _setWebSearchContent:YES];
 
+    // MAVERICKS_BACKPORT: _setAllowPrivateAccessTokensForThirdParty: is 10.15+ SPI; guard before calling.
     if (parameters.request.isPrivateTokenUsageByThirdPartyAllowed()
         && [mutableRequest respondsToSelector:@selector(_setAllowPrivateAccessTokensForThirdParty:)])
         [mutableRequest _setAllowPrivateAccessTokensForThirdParty:YES];
@@ -391,6 +396,7 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         break;
     };
 
+    // MAVERICKS_BACKPORT: taskIdentifierKey() shifts the 0-based 10.9 taskIdentifier off the HashMap empty-key sentinel.
     RELEASE_ASSERT(!m_sessionWrapper->dataTaskMap.contains(taskIdentifierKey(m_task.get())));
     m_sessionWrapper->dataTaskMap.add(taskIdentifierKey(m_task.get()), this);
     LOG(NetworkSession, "%lu Creating NetworkDataTask with URL %s", (unsigned long)[m_task taskIdentifier], [nsRequest URL].absoluteString.UTF8String);
@@ -418,6 +424,7 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         blockCookies();
     }
 
+    // MAVERICKS_BACKPORT: NSURLSessionTask.priority property is 10.10+; set it via KVC and guard the selector.
     if (WebCore::ResourceRequest::resourcePrioritiesEnabled())
         if ([m_task.get() respondsToSelector:@selector(setPriority:)])
             [m_task.get() setValue:@(toNSURLSessionTaskPriority(request.priority())) forKey:@"priority"];
@@ -437,6 +444,7 @@ NetworkDataTaskCocoa::~NetworkDataTaskCocoa()
 
     if (m_task && m_sessionWrapper) {
         auto& map = m_sessionWrapper->dataTaskMap;
+        // MAVERICKS_BACKPORT: taskIdentifierKey() shifts the 0-based 10.9 taskIdentifier off the HashMap empty-key sentinel.
         auto iterator = map.find(taskIdentifierKey(m_task.get()));
         RELEASE_ASSERT(iterator != map.end());
         ASSERT(!iterator->value.get());
@@ -801,6 +809,7 @@ void NetworkDataTaskCocoa::setPriority(WebCore::ResourceLoadPriority priority)
 {
     if (!WebCore::ResourceRequest::resourcePrioritiesEnabled())
         return;
+    // MAVERICKS_BACKPORT: NSURLSessionTask.priority property is 10.10+; set it via KVC and guard the selector.
     if ([m_task.get() respondsToSelector:@selector(setPriority:)])
         [m_task.get() setValue:@(toNSURLSessionTaskPriority(priority)) forKey:@"priority"];
 }

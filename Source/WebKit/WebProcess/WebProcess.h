@@ -260,6 +260,7 @@ public:
 
     InjectedBundle* injectedBundle() const { return m_injectedBundle.get(); }
     
+    // MAVERICKS_BACKPORT: m_sessionID can be unset when the WK2 driver queries it early; fall back to the default session instead of asserting.
     PAL::SessionID sessionID() const { return m_sessionID.value_or(PAL::SessionID::defaultSessionID()); }
 
     WebCore::ThirdPartyCookieBlockingMode thirdPartyCookieBlockingMode() const { return m_thirdPartyCookieBlockingMode; }

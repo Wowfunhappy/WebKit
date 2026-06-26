@@ -99,6 +99,7 @@ ImageDrawResult GraphicsContext::drawMultiRepresentationHEIC(Image& image, const
 
 #endif
 
+// MAVERICKS_BACKPORT: name the focus-ring width parameter (upstream leaves it unnamed) so the < 10.10 stroked-ring fallback below can size its glow to the requested outline width.
 void GraphicsContextCG::drawFocusRing(const Path& path, float width, const Color& color)
 {
     if (path.isEmpty())

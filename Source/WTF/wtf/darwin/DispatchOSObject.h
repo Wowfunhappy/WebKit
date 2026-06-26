@@ -49,7 +49,7 @@
     M(dispatch_queue_global) \
     M(dispatch_semaphore) \
     M(dispatch_source)
-#endif
+#endif // MAVERICKS_BACKPORT: dispatch_queue_global is 10.10+; omitted on the 10.9 SDK (see above).
 
 // Forward declarations for dispatch base struct types.
 WTF_EXTERN_C_BEGIN

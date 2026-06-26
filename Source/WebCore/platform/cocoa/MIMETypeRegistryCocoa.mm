@@ -8,16 +8,20 @@
 #include "config.h"
 #import "MIMETypeRegistry.h"
 
+// MAVERICKS_BACKPORT: include the classic CoreServices UTType C APIs (10.3+) instead of the 11.0+
+// UniformTypeIdentifiers / NSURLFileTypeMappings SPI used upstream.
 #import <CoreServices/CoreServices.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
 #import <wtf/text/StringView.h>
 #import <wtf/text/WTFString.h>
 
+// MAVERICKS_BACKPORT: the classic UTType C APIs are deprecated on the modern SDK; wrap the file.
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: real implementation replacing the broken libpolyfill stub (see file header).
 String MIMETypeRegistry::mimeTypeForExtension(StringView extension)
 {
     if (extension.isEmpty())
@@ -32,6 +36,7 @@ String MIMETypeRegistry::mimeTypeForExtension(StringView extension)
     return mimeType ? String(mimeType.get()) : String();
 }
 
+// MAVERICKS_BACKPORT: real implementation replacing the broken libpolyfill stub (see file header).
 String MIMETypeRegistry::preferredExtensionForMIMEType(const String& type)
 {
     if (type.isEmpty())
@@ -46,10 +51,11 @@ String MIMETypeRegistry::preferredExtensionForMIMEType(const String& type)
     return extension ? String(extension.get()) : String();
 }
 
+// MAVERICKS_BACKPORT: real implementation replacing the broken libpolyfill stub (see file header).
 Vector<String> MIMETypeRegistry::extensionsForMIMEType(const String& type)
 {
-    // The full tag list (UTTypeCopyAllTagsWithClass) is not used here; the preferred extension is
-    // sufficient for WebCore's callers on 10.9.
+    // MAVERICKS_BACKPORT: the full tag list (UTTypeCopyAllTagsWithClass) is not used here; the preferred
+    // extension is sufficient for WebCore's callers on 10.9.
     Vector<String> extensions;
     String preferred = preferredExtensionForMIMEType(type);
     if (!preferred.isEmpty())
@@ -57,6 +63,7 @@ Vector<String> MIMETypeRegistry::extensionsForMIMEType(const String& type)
     return extensions;
 }
 
+// MAVERICKS_BACKPORT: real implementation replacing the broken libpolyfill stub (see file header).
 bool MIMETypeRegistry::isApplicationPluginMIMEType(const String& mimeType)
 {
     // MAVERICKS_BACKPORT: "application plug-ins" are user-agent-provided plug-ins (the legacy
@@ -70,4 +77,5 @@ bool MIMETypeRegistry::isApplicationPluginMIMEType(const String& mimeType)
 
 }
 
+// MAVERICKS_BACKPORT: the legacy CoreServices UTType C APIs used above are deprecated on the modern SDK.
 ALLOW_DEPRECATED_DECLARATIONS_END

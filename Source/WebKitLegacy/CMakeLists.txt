@@ -24,6 +24,8 @@ set(WebKitLegacy_SOURCES
     WebCoreSupport/SocketStreamHandleImplCFNet.cpp
     WebCoreSupport/WebBroadcastChannelRegistry.cpp
     WebCoreSupport/WebResourceLoadScheduler.cpp
+    # MAVERICKS_BACKPORT: legacy WebSocketChannel, the WebKitLegacy-side backing for the
+    # 10.9 WebSocket implementation, which the modern upstream WebKitLegacy build omits.
     WebCoreSupport/WebSocketChannel.cpp
     WebCoreSupport/WebViewGroup.cpp
 )

@@ -1,6 +1,7 @@
 set_property(DIRECTORY . PROPERTY FOLDER "ANGLE")
 
 if (APPLE)
+    # MAVERICKS_BACKPORT: set is_apple so GLESv2.cmake adds the Apple common CGL-backend sources (see below).
     set(is_apple TRUE)
     set(is_mac TRUE)
     # MAVERICKS_BACKPORT: use the CGL OpenGL backend (Metal is unavailable). Must be set before

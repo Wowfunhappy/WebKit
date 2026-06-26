@@ -33,6 +33,7 @@
 // legibility soft-links below use it), so it is declared here rather than only under
 // ENABLE(ACCESSIBILITY_ANIMATION_CONTROL).
 SOFT_LINK_LIBRARY_OPTIONAL(libAccessibility)
+// MAVERICKS_BACKPORT: this #if no longer also declares the library soft-link (moved above).
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
 SOFT_LINK_OPTIONAL(libAccessibility, _AXSReduceMotionAutoplayAnimatedImagesEnabled, Boolean, (), ());
 #endif

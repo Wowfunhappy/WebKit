@@ -198,7 +198,7 @@ std::optional<DestinationColorSpace> DestinationColorSpace::asExtended() const
     SUPPRESS_UNRETAINED_ARG if (RetainPtr colorSpace = adoptCF(CGColorSpaceCreateExtended(platformColorSpace())))
         return DestinationColorSpace(WTF::move(colorSpace));
 #endif
-#endif
+#endif // MAVERICKS_BACKPORT: close USE(CG) — extended color spaces fall back to nullopt on 10.9.
     return std::nullopt;
 }
 

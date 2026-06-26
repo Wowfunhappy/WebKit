@@ -236,6 +236,7 @@ Vector<uint8_t> InternalAudioEncoderCocoa::generateDecoderDescriptionFromSample(
         return createOpusPrivateData(*asbd, m_converter->preSkip());
 
     size_t cookieSize = 0;
+    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); this CM symbol links directly on 10.9.
     auto* cookie = CMAudioFormatDescriptionGetMagicCookie(formatDescription.get(), &cookieSize);
     if (!cookieSize)
         return { };
@@ -275,6 +276,7 @@ void InternalAudioEncoderCocoa::processEncodedOutputs()
         RetainPtr rawBuffer = CMSampleBufferGetDataBuffer(cmSample.get());
         ASSERT(rawBuffer);
         // Make sure block buffer is contiguous.
+        // MAVERICKS_BACKPORT: call CoreMedia (CMBlockBuffer) by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
         if (!CMBlockBufferIsRangeContiguous(rawBuffer.get(), 0, 0)) {
             CMBlockBufferRef contiguousBuffer;
             if (auto error = CMBlockBufferCreateContiguous(nullptr, rawBuffer.get(), nullptr, nullptr, 0, 0, 0, &contiguousBuffer)) {
@@ -284,6 +286,7 @@ void InternalAudioEncoderCocoa::processEncodedOutputs()
             }
             rawBuffer = adoptCF(contiguousBuffer);
         }
+        // MAVERICKS_BACKPORT: call CoreMedia (CMBlockBuffer) by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
         auto size = CMBlockBufferGetDataLength(rawBuffer.get());
         char* data = nullptr;
         if (auto error = CMBlockBufferGetDataPointer(rawBuffer.get(), 0, nullptr, nullptr, &data)) {
@@ -321,9 +324,11 @@ Ref<AudioEncoder::EncodePromise> InternalAudioEncoderCocoa::encode(AudioEncoder:
     if (auto error = CMSampleBufferSetOutputPresentationTimeStamp(cmSample.get(), CMTimeMake(rawFrame.timestamp, 1000000)))
         RELEASE_LOG_ERROR(MediaStream, "AudioSampleBufferConverter CMSampleBufferSetOutputPresentationTimeStamp failed with %d", error);
 
+    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
     RetainPtr formatDescription = CMSampleBufferGetFormatDescription(cmSample.get());
     if (!formatDescription)
         return EncodePromise::createAndReject("Couldn't retrieve AudioData's format description"_s);
+    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); this CM symbol links directly on 10.9.
     const AudioStreamBasicDescription* const asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription.get());
     if (!asbd)
         return EncodePromise::createAndReject("Couldn't retrieve AudioData's basic description"_s);

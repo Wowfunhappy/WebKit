@@ -24,9 +24,12 @@
  */
 
 #import "config.h"
+// MAVERICKS_BACKPORT: import the Internal header (not the public one) to reach the restored
+// _initWithPageRef:/loader-client SPI this file re-implements for QuickLook/Mail.
 #import "WKBrowsingContextControllerInternal.h"
 
 #import "PageLoadStateObserver.h"
+// MAVERICKS_BACKPORT: extra imports backing the restored controller implementation below.
 #import "WebPageProxy.h"
 #import "WebProcessPool.h"
 #import "WKAPICast.h"

@@ -189,8 +189,8 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color)
         CGFloat swatchHeight = colorPickerMatrixSwatchWidth;
 
         // topBarMatrixView cannot be accessed until view has been loaded
-        // isViewLoaded is only available on macOS 10.10+; use respondsToSelector
-        // and valueForKey to avoid compile errors on older SDKs.
+        // MAVERICKS_BACKPORT: -[NSViewController isViewLoaded] is only available on macOS 10.10+; use
+        // respondsToSelector + valueForKey to avoid compile errors on older SDKs.
         BOOL viewLoaded = YES;
         if ([controller respondsToSelector:@selector(isViewLoaded)])
             viewLoaded = [[controller valueForKey:@"isViewLoaded"] boolValue];

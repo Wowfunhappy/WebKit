@@ -26,6 +26,7 @@
 #include "config.h"
 #include <wtf/RunLoop.h>
 
+// MAVERICKS_BACKPORT: extra includes for the 10.9 main-GCD-queue RunLoop equivalence logic below.
 #include <dispatch/dispatch.h>
 #include <wtf/Lock.h>
 #include <wtf/Vector.h>
@@ -68,6 +69,7 @@ private:
 void RunLoop::initializeMain()
 {
     RELEASE_ASSERT(!s_mainRunLoop);
+    // MAVERICKS_BACKPORT: no main-RunLoop pinning needed on 10.9 (rationale below).
     // The main thread runs a real CFRunLoop for the whole process lifetime
     // (XPCServiceMain → xpc_main → -[NSRunLoop run], via RunLoopType=NSRunLoop;
     // verified the main thread is parked in __CFRunLoopRun), so its per-thread
@@ -143,6 +145,7 @@ Ref<RunLoop> RunLoop::create(ASCIILiteral threadName, ThreadType threadType, Thr
 bool RunLoop::isCurrent() const
 {
     // Avoid constructing the RunLoop for the current thread if it has not been created yet.
+    // MAVERICKS_BACKPORT: also treat the main GCD queue as the main RunLoop (see 10.9 note below).
     if (runLoopHolder().isSet() && this == &RunLoop::currentSingleton())
         return true;
     // 10.9: dispatch_main() calls pthread_exit on the main thread, so blocks

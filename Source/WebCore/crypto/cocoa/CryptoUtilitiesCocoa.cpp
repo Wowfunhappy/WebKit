@@ -196,6 +196,8 @@ CCStatus keyDerivationHMAC(CCDigestAlgorithm digest, std::span<const uint8_t> ke
 
     return rv;
 }
+// MAVERICKS_BACKPORT: closes the PLATFORM(MAC) HKDF split — the CCKDFParametersCreateHkdf/CCDeriveKey
+// path above is the non-10.9 branch (those CC* symbols are 10.10+; the MAC branch reimplements HKDF via CCHmac).
 #endif
 
 ExceptionOr<Vector<uint8_t>> deriveHDKFBits(CCDigestAlgorithm digestAlgorithm, std::span<const uint8_t> key, std::span<const uint8_t> salt, std::span<const uint8_t> info, size_t length)

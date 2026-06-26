@@ -488,11 +488,13 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTreeTransaction(IPC::Connection
             if (layerTreeTransaction.hasAnyLayerChanges())
                 ++m_countOfTransactionsWithNonEmptyLayerChanges;
 
+            // MAVERICKS_BACKPORT: capture the root-changed result in a named local before branching on it.
             bool rootChanged = m_remoteLayerTreeHost->updateLayerTree(connection, layerTreeTransaction, mainFrameData);
             if (rootChanged) {
                 if (!m_replyForUnhidingContent) {
                     if (m_hasDetachedRootLayer)
                         RELEASE_LOG(RemoteLayerTree, "RemoteLayerTreeDrawingAreaProxy(%" PRIu64 ") Unhiding layer tree", identifier().toUInt64());
+                    // MAVERICKS_BACKPORT: hold the root node in a local RetainPtr across the setter so it isn't released mid-call.
                     auto rootNode = protect(m_remoteLayerTreeHost->rootNode());
                     page->setRemoteLayerTreeRootNode(rootNode.get());
                     m_hasDetachedRootLayer = false;

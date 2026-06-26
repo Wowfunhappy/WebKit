@@ -34,6 +34,7 @@
 #import "LegacyNSPasteboardTypes.h"
 #import "Pasteboard.h"
 #import "SharedBuffer.h"
+// MAVERICKS_BACKPORT: <UniformTypeIdentifiers/UniformTypeIdentifiers.h> is macOS 11+; pull the legacy kUTType* identifiers from this in-tree header instead.
 #import "UTTypeIdentifiers.h"
 #import <pal/spi/cocoa/FoundationSPI.h>
 #import <pal/spi/mac/NSPasteboardSPI.h>
@@ -83,6 +84,7 @@ static bool isFilePasteboardType(const String& type)
     RetainPtr nsType = type.createNSString();
     return [legacyFilenamesPasteboardTypeSingleton() isEqualToString:nsType.get()]
         || [legacyFilesPromisePasteboardTypeSingleton() isEqualToString:nsType.get()]
+        // MAVERICKS_BACKPORT: UTTypeFileURL (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeFileURL identifier.
         || [fileURLTypeIdentifier() isEqualToString:nsType.get()];
 }
 
@@ -137,6 +139,7 @@ PasteboardBuffer PlatformPasteboard::bufferForType(const String& pasteboardType)
             static NeverDestroyed<RetainPtr<NSArray>> sourceTypes = [] -> NSArray * {
                 RetainPtr originalSourceTypes = adoptCF(CGImageSourceCopyTypeIdentifiers());
                 if (originalSourceTypes)
+                    // MAVERICKS_BACKPORT: UTTypePDF (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypePDF identifier.
                     return [(__bridge NSArray *)originalSourceTypes.get() arrayByExcludingObjectsInArray:@[pdfTypeIdentifier()]];
                 return nil;
             }();
@@ -234,6 +237,7 @@ static Vector<String> urlStringsFromPasteboard(NSPasteboard *pasteboard)
     urlStrings.reserveInitialCapacity(items.get().count);
     if (items.get().count > 1) {
         for (NSPasteboardItem *item in items.get()) {
+            // MAVERICKS_BACKPORT: UTTypeURL (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeURL identifier.
             if (RetainPtr<id> propertyList = [item propertyListForType:urlTypeIdentifier()]) {
                 if (auto urlFromItem = adoptNS([[NSURL alloc] initWithPasteboardPropertyList:propertyList.get() ofType:urlTypeIdentifier()]))
                     urlStrings.append([urlFromItem absoluteString]);
@@ -258,12 +262,15 @@ static String typeIdentifierForPasteboardType(const String& pasteboardType)
     if ([utType isDeclared])
         return pasteboardType;
 
+    // MAVERICKS_BACKPORT: UTTypeUTF8PlainText (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeUTF8PlainText identifier.
     if (pasteboardType == String(legacyStringPasteboardTypeSingleton()))
         return utf8PlainTextTypeIdentifier();
 
+    // MAVERICKS_BACKPORT: UTTypeHTML (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeHTML identifier.
     if (pasteboardType == String(legacyHTMLPasteboardTypeSingleton()))
         return htmlTypeIdentifier();
 
+    // MAVERICKS_BACKPORT: UTTypeURL (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeURL identifier.
     if (pasteboardType == String(legacyURLPasteboardTypeSingleton()))
         return urlTypeIdentifier();
 
@@ -273,6 +280,7 @@ static String typeIdentifierForPasteboardType(const String& pasteboardType)
 Vector<String> PlatformPasteboard::allStringsForType(const String& pasteboardType) const
 {
     auto typeIdentifier = typeIdentifierForPasteboardType(pasteboardType);
+    // MAVERICKS_BACKPORT: UTTypeURL (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeURL identifier.
     if (typeIdentifier == String(urlTypeIdentifier()))
         return urlStringsFromPasteboard(m_pasteboard.get());
 
@@ -298,6 +306,7 @@ static ASCIILiteral safeTypeForDOMToReadAndWriteForPlatformType(NSString *platfo
     if ([platformType isEqualToString:legacyURLPasteboardTypeSingleton()])
         return "text/uri-list"_s;
 
+    // MAVERICKS_BACKPORT: UTTypeWebArchive (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeWebArchive identifier.
     if ([platformType isEqualToString:legacyHTMLPasteboardTypeSingleton()] || [platformType isEqualToString:webArchiveTypeIdentifier()]
         || [platformType  isEqualToString:legacyRTFDPasteboardTypeSingleton()] || [platformType isEqualToString:legacyRTFPasteboardTypeSingleton()])
         return "text/html"_s;
@@ -499,12 +508,14 @@ int64_t PlatformPasteboard::setStringForType(const String& string, const String&
                 return 0;
         }
 
+        // MAVERICKS_BACKPORT: UTTypeURL (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeURL identifier.
         if ([retainPtr([m_pasteboard types]) containsObject:urlTypeIdentifier()]) {
             didWriteData = [m_pasteboard setString:retainPtr([url absoluteString]).get() forType:urlTypeIdentifier()];
             if (!didWriteData)
                 return 0;
         }
 
+        // MAVERICKS_BACKPORT: UTTypeFileURL (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeFileURL identifier.
         if ([retainPtr([m_pasteboard types]) containsObject:fileURLTypeIdentifier()] && [url isFileURL]) {
             didWriteData = [m_pasteboard setString:retainPtr([url absoluteString]).get() forType:fileURLTypeIdentifier()];
             if (!didWriteData)

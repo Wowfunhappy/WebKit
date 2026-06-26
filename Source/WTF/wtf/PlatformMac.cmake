@@ -11,6 +11,7 @@ list(APPEND WTF_LIBRARIES
 
 list(APPEND WTF_SOURCES
     BlockObjCExceptions.mm
+    # MAVERICKS_BACKPORT: build ObjCRuntimeExtras.mm here (not in upstream's Mac WTF source list).
 ObjCRuntimeExtras.mm
     ProcessPrivilege.cpp
     TranslatedProcess.cpp
@@ -34,6 +35,7 @@ ObjCRuntimeExtras.mm
     cocoa/MemoryPressureHandlerCocoa.mm
     cocoa/NSURLExtras.mm
     cocoa/ResourceUsageCocoa.cpp
+    # MAVERICKS_BACKPORT: .mm (not upstream's .cpp) — this file is built as Objective-C++ here.
     cocoa/RuntimeApplicationChecksCocoa.mm
     cocoa/SchedulePairCocoa.mm
     # MAVERICKS_BACKPORT: absent from upstream WTF cmake list; defines WTF::dispatch_data_apply_span

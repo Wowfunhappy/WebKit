@@ -32,6 +32,7 @@
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 
+// MAVERICKS_BACKPORT: the 10.9 SDK lacks CAContext SPI declarations, so declare CAContext and its SPI here.
 // Ensure CAContext is declared (QuartzCoreSPI.h may be skipped when modules are enabled).
 #if !defined(CACONTEXT_DECLARED)
 #define CACONTEXT_DECLARED 1

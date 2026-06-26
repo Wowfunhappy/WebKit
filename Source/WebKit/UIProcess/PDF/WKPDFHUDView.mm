@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * MAVERICKS_BACKPORT: this file is a minimal stub of the upstream PDF HUD (see status note below).
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,34 +35,42 @@
 
 #if ENABLE(PDF_HUD)
 
+// MAVERICKS_BACKPORT: inert HUD stub — the upstream QuartzCore/PAL SPI imports, layout constants, control-name strings, and isInRecoveryOS/controlArray helpers are all dropped.
 #import "WebPageProxy.h"
 
+// MAVERICKS_BACKPORT: inert HUD stub — the upstream private ivars (layers, cached icons, visibility flags) are dropped along with their machinery.
 @implementation WKPDFHUDView
 
 - (instancetype)initWithFrame:(NSRect)frame pluginIdentifier:(WebKit::PDFPluginIdentifier)pluginIdentifier frameIdentifier:(WebCore::FrameIdentifier)frameID page:(WebKit::WebPageProxy&)page
 {
+    // MAVERICKS_BACKPORT: inert HUD stub — construct a bare NSView; the upstream layer setup, icon loading, and hide-timer are omitted.
     self = [super initWithFrame:frame];
     if (!self)
         return nil;
+    // MAVERICKS_BACKPORT: inert HUD stub — identifiers/page are unused since no controls are wired up.
     UNUSED_PARAM(pluginIdentifier);
     UNUSED_PARAM(frameID);
     UNUSED_PARAM(page);
     return self;
 }
 
+// MAVERICKS_BACKPORT: inert HUD stub — the upstream dealloc, layout, hitTest, mouseMoved, visibility/timer, icon-loading, and control-action methods are all dropped.
 - (void)setDeviceScaleFactor:(CGFloat)deviceScaleFactor
 {
+    // MAVERICKS_BACKPORT: inert HUD stub — no layer to rescale.
     UNUSED_PARAM(deviceScaleFactor);
 }
 
 - (BOOL)handleMouseDown:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: inert HUD stub — return NO so the mouse-down falls through to the page.
     UNUSED_PARAM(event);
     return NO;
 }
 
 - (BOOL)handleMouseUp:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: inert HUD stub — return NO so the mouse-up falls through to the page.
     UNUSED_PARAM(event);
     return NO;
 }

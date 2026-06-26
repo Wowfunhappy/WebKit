@@ -157,7 +157,7 @@
 #import <WebKitAdditions/WebProcessPoolAdditions.h>
 #endif
 
-// encodedData property was added as public API in 10.12 but the method exists earlier.
+// MAVERICKS_BACKPORT: encodedData was added as public API in 10.12 but the method exists earlier; redeclare it.
 @interface NSKeyedArchiver (WKEncodedData)
 @property (readonly, copy) NSData *encodedData;
 @end
@@ -442,6 +442,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
             LOG_ERROR("Failed to encode bundle parameters: %@", exception);
         }
 
+        // MAVERICKS_BACKPORT: call -encodedData via message send (the property accessor is 10.12+ API).
         RetainPtr<NSData> data = [keyedArchiver.get() encodedData];
 
         parameters.bundleParameterData = API::Data::createWithoutCopying(data.get());
@@ -869,7 +870,7 @@ void WebProcessPool::registerNotificationObservers()
     m_accessibilityDisplayOptionsNotificationObserver = [retainPtr([NSWorkspace.sharedWorkspace notificationCenter]) addObserverForName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         screenPropertiesChanged();
     }];
-#endif
+#endif // MAVERICKS_BACKPORT: a11y-display-options observer only built on 10.10+ (see above).
 
     m_scrollerStyleNotificationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSPreferredScrollerStyleDidChangeNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         auto scrollbarStyle = [NSScroller preferredScrollerStyle];
@@ -965,6 +966,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         RetainPtr fontFamily = dynamic_objc_cast<NSString>(notification.userInfo[@"FontActivateNotificationFontFamilyKey"]);
         if (fontFamily) {
             RetainPtr ctFont = adoptCF(CTFontCreateWithName(bridge_cast(fontFamily.get()), 0.0, nullptr));
+            // MAVERICKS_BACKPORT: kCTFontDownloadedAttribute (downloadable-font gating) is 10.12+; skip the check on 10.9.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
             RetainPtr downloaded = adoptCF(static_cast<CFBooleanRef>(CTFontCopyAttribute(ctFont.get(), kCTFontDownloadedAttribute)));
             if (downloaded == kCFBooleanFalse)
@@ -975,7 +977,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
                     continue;
                 process->send(Messages::WebProcess::RegisterAdditionalFonts(AdditionalFonts::additionalFonts({ URL(url.get()) }, process->auditToken())), 0);
             }
-#endif
+#endif // MAVERICKS_BACKPORT: end kCTFontDownloadedAttribute gate.
         }
     }];
 
@@ -1343,6 +1345,7 @@ void WebProcessPool::registerDisplayConfigurationCallback()
         });
 }
 
+// MAVERICKS_BACKPORT: the HDR-video-change callback relies on MediaToolbox HDR SPI (kMTSupportNotification_*) absent on 10.9; gate the whole helper out. CFNotificationName is a 10.13+ typedef, so alias it for older SDKs.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
 #if __MAC_OS_X_VERSION_MAX_ALLOWED < 101300
 typedef CFStringRef CFNotificationName;
@@ -1355,10 +1358,11 @@ static void webProcessPoolHighDynamicRangeDidChangeCallback(CFNotificationCenter
             pool->sendToAllProcesses(Messages::WebProcess::SetScreenProperties(properties));
     });
 }
-#endif
+#endif // MAVERICKS_BACKPORT: end HDR-change callback helper (MediaToolbox HDR SPI absent on 10.9).
 
 void WebProcessPool::registerHighDynamicRangeChangeCallback()
 {
+    // MAVERICKS_BACKPORT: skip the HDR-change observer registration on 10.9 (MediaToolbox HDR SPI absent).
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
     static std::once_flag onceFlag;
     std::call_once(
@@ -1372,7 +1376,7 @@ void WebProcessPool::registerHighDynamicRangeChangeCallback()
 
         CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenterSingleton(), nullptr, webProcessPoolHighDynamicRangeDidChangeCallback, kMTSupportNotification_ShouldPlayHDRVideoChanged, MT_GetShouldPlayHDRVideoNotificationSingleton(), static_cast<CFNotificationSuspensionBehavior>(0));
     });
-#endif
+#endif // MAVERICKS_BACKPORT: end HDR-change observer registration (skipped on 10.9).
 }
 
 void WebProcessPool::systemWillSleep()
@@ -1594,11 +1598,12 @@ void WebProcessPool::registerAdditionalFonts(NSArray *fontNames)
 
     for (NSString *nsFontName : fontNames) {
         RetainPtr ctFont = adoptCF(CTFontCreateWithName(bridge_cast(nsFontName), 0.0, nullptr));
+        // MAVERICKS_BACKPORT: kCTFontDownloadedAttribute (downloadable-font gating) is 10.12+; skip the check on 10.9.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
         RetainPtr downloaded = adoptCF(static_cast<CFBooleanRef>(CTFontCopyAttribute(ctFont.get(), kCTFontDownloadedAttribute)));
         if (downloaded == kCFBooleanFalse)
             return;
-#endif
+#endif // MAVERICKS_BACKPORT: end kCTFontDownloadedAttribute gate.
         RetainPtr url = adoptCF(static_cast<CFURLRef>(CTFontCopyAttribute(ctFont.get(), kCTFontURLAttribute)));
         URL fontURL(url.get());
         String fontName(nsFontName);

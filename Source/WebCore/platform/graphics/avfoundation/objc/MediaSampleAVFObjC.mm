@@ -79,6 +79,7 @@ void MediaSampleAVFObjC::commonInit()
     m_duration = PAL::toMediaTime(duration);
 
 #if ENABLE(ENCRYPTED_MEDIA) && HAVE(AVCONTENTKEYSESSION)
+    // MAVERICKS_BACKPORT: call CMSampleBufferGetFormatDescription directly (no PAL:: soft-link) on 10.9.
     RetainPtr formatDescription = CMSampleBufferGetFormatDescription(m_sample.get());
     m_keyIDs = getKeyIDs(formatDescription.get());
 #endif

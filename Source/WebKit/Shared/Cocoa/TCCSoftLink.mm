@@ -56,6 +56,7 @@ void* TCCLibrary(bool isOptional)
 }
 #else
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE(WebKit, TCC)
+// MAVERICKS_BACKPORT: 10.14+ uses the real TCC framework directly; the libtcc_polyfill path above is only for <10.14.
 #endif
 
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, TCC, kTCCServiceAccessibility, CFStringRef)

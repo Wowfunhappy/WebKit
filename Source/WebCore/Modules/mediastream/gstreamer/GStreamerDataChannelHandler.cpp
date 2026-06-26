@@ -75,6 +75,7 @@ GUniquePtr<GstStructure> GStreamerDataChannelHandler::fromRTCDataChannelInit(con
 }
 
 struct DataChannelNotifier {
+    // MAVERICKS_BACKPORT: takes the shared alive-guard (not a raw handler ref) so signals can check liveness.
     explicit DataChannelNotifier(Ref<DataChannelHandlerGuard>&& guard)
         : m_guard(WTF::move(guard))
     {
@@ -92,6 +93,7 @@ struct DataChannelNotifier {
 
 GStreamerDataChannelHandler::GStreamerDataChannelHandler(GRefPtr<GstWebRTCDataChannel>&& channel)
     : m_channel(WTF::move(channel))
+    // MAVERICKS_BACKPORT: create the shared alive-guard the signal handlers check before deref'ing this handler.
     , m_guard(DataChannelHandlerGuard::create(*this))
 {
     static Atomic<uint64_t> nChannel = 0;
@@ -119,26 +121,31 @@ GStreamerDataChannelHandler::GStreamerDataChannelHandler(GRefPtr<GstWebRTCDataCh
     m_signalHandlers.append(g_signal_connect_data(m_channel.get(), "notify::buffered-amount", G_CALLBACK(+[](GstWebRTCDataChannel* channel, GParamSpec*, DataChannelNotifier* notifier) {
         uint64_t currentBufferedAmount;
         g_object_get(channel, "buffered-amount", &currentBufferedAmount, nullptr);
+        // MAVERICKS_BACKPORT: guard-lock + alive-check before calling the streaming-thread handler.
         Locker locker { notifier->m_guard->lock };
         if (auto* handler = notifier->m_guard->handler)
             handler->bufferedAmountChanged(static_cast<size_t>(currentBufferedAmount));
     }), new DataChannelNotifier { m_guard.copyRef() }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
     m_signalHandlers.append(g_signal_connect_data(m_channel.get(), "on-message-data", G_CALLBACK(+[](GstWebRTCDataChannel*, GBytes* bytes, DataChannelNotifier* notifier) {
+        // MAVERICKS_BACKPORT: guard-lock + alive-check before calling the streaming-thread handler.
         Locker locker { notifier->m_guard->lock };
         if (auto* handler = notifier->m_guard->handler)
             handler->onMessageData(bytes);
     }), new DataChannelNotifier { m_guard.copyRef() }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
     m_signalHandlers.append(g_signal_connect_data(m_channel.get(), "on-message-string", G_CALLBACK(+[](GstWebRTCDataChannel*, const char* message, DataChannelNotifier* notifier) {
+        // MAVERICKS_BACKPORT: guard-lock + alive-check before calling the streaming-thread handler.
         Locker locker { notifier->m_guard->lock };
         if (auto* handler = notifier->m_guard->handler)
             handler->onMessageString(CStringView::unsafeFromUTF8(message));
     }), new DataChannelNotifier { m_guard.copyRef() }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
     m_signalHandlers.append(g_signal_connect_data(m_channel.get(), "on-error", G_CALLBACK(+[](GstWebRTCDataChannel*, GError* error, DataChannelNotifier* notifier) {
+        // MAVERICKS_BACKPORT: guard-lock + alive-check before calling the streaming-thread handler.
         Locker locker { notifier->m_guard->lock };
         if (auto* handler = notifier->m_guard->handler)
             handler->onError(error);
     }), new DataChannelNotifier { m_guard.copyRef() }, DataChannelNotifier::destruct, static_cast<GConnectFlags>(0)));
     m_signalHandlers.append(g_signal_connect_data(m_channel.get(), "on-close", G_CALLBACK(+[](GstWebRTCDataChannel*, DataChannelNotifier* notifier) {
+        // MAVERICKS_BACKPORT: guard-lock + alive-check before calling the streaming-thread handler.
         Locker locker { notifier->m_guard->lock };
         if (auto* handler = notifier->m_guard->handler)
             handler->onClose();

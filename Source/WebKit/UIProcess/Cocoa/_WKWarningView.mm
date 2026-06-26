@@ -222,6 +222,7 @@ static RetainPtr<ViewType> viewForIconImage(_WKWarningView *warningView)
     if (![NSImage respondsToSelector:@selector(imageWithSystemSymbolName:accessibilityDescription:)])
         return nil;
     RetainPtr view = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:symbolName accessibilityDescription:nil]];
+    // MAVERICKS_BACKPORT: -setSymbolConfiguration:/-setContentTintColor: are 11.0+; guard with respondsToSelector on 10.9.
     if ([view respondsToSelector:@selector(setSymbolConfiguration:)])
         [view setSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:imagePointSize weight:NSFontWeightRegular scale:NSImageSymbolScaleLarge]];
     if (shouldSetTint && [view respondsToSelector:@selector(setContentTintColor:)])

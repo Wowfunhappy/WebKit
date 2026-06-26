@@ -40,6 +40,7 @@ using namespace WebCore;
 // i.e. off the main thread, which notifyObserversDisplayDidRefresh() asserts).
 void DisplayLink::displayLinkTimerFired(void* context)
 {
+    // MAVERICKS_BACKPORT: dispatch-timer tick drives the refresh notification in place of the CVDisplayLink output callback.
     static_cast<DisplayLink*>(context)->notifyObserversDisplayDidRefresh();
 }
 
@@ -63,6 +64,7 @@ void DisplayLink::platformInitialize()
         return;
     }
 
+    // MAVERICKS_BACKPORT: program the dispatch timer at the nominal refresh interval (replaces CVDisplayLink vsync).
     uint64_t intervalNanos = NSEC_PER_SEC / m_displayNominalFramesPerSecond;
     dispatch_source_set_timer(m_timer.get(), DISPATCH_TIME_NOW, intervalNanos, intervalNanos / 10);
     // The DisplayLink owns m_timer and cancels it in platformFinalize before destruction, so the
@@ -76,6 +78,7 @@ void DisplayLink::platformInitialize()
 
 void DisplayLink::platformFinalize()
 {
+    // MAVERICKS_BACKPORT: tear down the dispatch refresh timer that replaces CVDisplayLink on this port.
     if (m_timer) {
         // A suspended dispatch source must be resumed before release or libdispatch aborts.
         if (!m_timerRunning) {
@@ -86,11 +89,12 @@ void DisplayLink::platformFinalize()
         m_timer = nullptr;
     }
 
+    // MAVERICKS_BACKPORT: a CVDisplayLink is never created on this port, but stop/release it defensively if one exists.
     if (m_displayLink) {
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         CVDisplayLinkStop(m_displayLink.get());
 ALLOW_DEPRECATED_DECLARATIONS_END
-        m_displayLink = nullptr;
+        m_displayLink = nullptr; // MAVERICKS_BACKPORT: defensive CVDisplayLink release (none is created on this port).
     }
 }
 
@@ -108,11 +112,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 bool DisplayLink::platformIsRunning() const
 {
+    // MAVERICKS_BACKPORT: running state tracks the dispatch refresh timer (no CVDisplayLink on this port).
     return m_timerRunning;
 }
 
 void DisplayLink::platformStart()
 {
+    // MAVERICKS_BACKPORT: start = resume the dispatch refresh timer (no CVDisplayLink on this port).
     if (!m_timer || m_timerRunning)
         return;
     dispatch_resume(m_timer.get());
@@ -121,6 +127,7 @@ void DisplayLink::platformStart()
 
 void DisplayLink::platformStop()
 {
+    // MAVERICKS_BACKPORT: stop = suspend the dispatch refresh timer (no CVDisplayLink on this port).
     if (!m_timer || !m_timerRunning)
         return;
     // Safe to call from within the timer's own event handler (the no-observers auto-stop path):

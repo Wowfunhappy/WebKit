@@ -189,6 +189,7 @@ private:
     const Ref<WorkQueue> m_rtcNetworkThreadQueue;
 #endif
 
+    // MAVERICKS_BACKPORT: portable libwebrtc socket factory declared on 10.9 (WK_RTC_USE_NW == 0; upstream gates on !PLATFORM(COCOA)).
 #if !WK_RTC_USE_NW
     UniqueRef<webrtc::BasicPacketSocketFactory> m_packetSocketFactory;
 #endif

@@ -36,11 +36,13 @@
 #import "WKOpenPanelParameters.h"
 #import "WKProcessPoolInternal.h"
 #import "WKWebViewInternal.h"
+// MAVERICKS_BACKPORT: for _pageConfiguration access used by the shared-process-pool divergence below.
 #import "WKWebViewConfigurationInternal.h"
 #import "WKWebsiteDataStoreInternal.h"
 #import "WebInspectorUIProxy.h"
 #import "WebInspectorUtilities.h"
 #import "WebPageProxy.h"
+// MAVERICKS_BACKPORT: for the _pageConfiguration->setDelaysWebProcessLaunchUntilFirstLoad shared-process-pool divergence below.
 #import "APIPageConfiguration.h"
 #import "WebsiteDataStore.h"
 #import "_WKInspectorConfigurationInternal.h"
@@ -117,6 +119,7 @@ static NSString * const WKInspectorResourceScheme = @"inspector-resource";
             [_webView _setUseSystemAppearance:YES];
         [_webView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
 
+        // MAVERICKS_BACKPORT: guard 10.10+ _setObscuredContentInsets: that WKWebView doesn't implement (no safeAreaInsets on 10.9).
         if ([_webView respondsToSelector:@selector(_setObscuredContentInsets:immediate:)])
             [_webView _setObscuredContentInsets:NSEdgeInsetsMake(0, 0, 0, 0) immediate:NO];
     }
@@ -237,6 +240,7 @@ static NSString * const WKInspectorResourceScheme = @"inspector-resource";
 
 + (NSURL *)URLForInspectorResource:(NSString *)resource
 {
+    // MAVERICKS_BACKPORT: cast to NSURL* so -URLByStandardizingPath resolves on 10.9 (NSString id-return ambiguity).
     return [(NSURL *)[NSURL URLWithString:adoptNS([[NSString alloc] initWithFormat:@"%@:///%@", WKInspectorResourceScheme, resource]).get()] URLByStandardizingPath];
 }
 

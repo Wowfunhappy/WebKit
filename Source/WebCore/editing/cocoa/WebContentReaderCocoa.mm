@@ -266,6 +266,8 @@ static bool shouldReplaceRichContentWithAttachments()
 
 static String mimeTypeFromContentType(const String& contentType)
 {
+    // MAVERICKS_BACKPORT: runtime-absent API #76 — UTTypeVCard.identifier is 11.0+; use the utTypeVCardId()
+    // helper routed to the legacy kUTTypeVCard constant.
     if (contentType == String(utTypeVCardId())) {
         // CoreServices erroneously reports that "public.vcard" maps to "text/directory", rather
         // than either "text/vcard" or "text/x-vcard". Work around this by special casing the
@@ -320,6 +322,8 @@ static Ref<DocumentFragment> createFragmentForImageAttachment(LocalFrame& frame,
     }
     return fragment;
 #else
+    // MAVERICKS_BACKPORT: build glue — with ATTACHMENT_ELEMENT (=0 here) all of these params are unused;
+    // mark each to silence -Wunused-parameter.
     UNUSED_PARAM(frame);
     UNUSED_PARAM(buffer);
     UNUSED_PARAM(contentType);
@@ -865,10 +869,14 @@ static Ref<HTMLElement> attachmentForFilePath(LocalFrame& frame, const String& p
     bool isDirectory = fileType == FileSystem::FileType::Directory;
     String contentType = typeForAttachmentElement(explicitContentType);
     if (contentType.isEmpty()) {
+        // MAVERICKS_BACKPORT: runtime-absent API #76 — UTType.identifier accessors are 11.0+; route to the
+        // legacy kUTType* constants via the utType*Id() helpers.
         if (isDirectory)
             contentType = utTypeDirectoryId();
         else {
             contentType = File::contentTypeForFile(path);
+            // MAVERICKS_BACKPORT: runtime-absent API #76 — UTTypeData.identifier is 11.0+; use utTypeDataId()
+            // routed to the legacy kUTTypeData constant.
             if (contentType.isEmpty())
                 contentType = utTypeDataId();
         }

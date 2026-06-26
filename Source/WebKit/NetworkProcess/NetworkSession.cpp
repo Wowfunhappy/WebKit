@@ -274,7 +274,7 @@ void NetworkSession::destroyPrivateClickMeasurementStore(CompletionHandler<void(
 void NetworkSession::setTrackingPreventionEnabled(bool enabled)
 {
     ASSERT(!m_isInvalidated);
-
+    // MAVERICKS_BACKPORT: the upstream isCurrentlyEnabled early-return and RELEASE_LOG are dropped; ITP is force-disabled (see below).
     // MAVERICKS_BACKPORT: ResourceLoadStatistics (Intelligent Tracking Prevention) creates a
     // WebResourceLoadStatisticsStore that opens an SQLite database on a background SuspendableWorkQueue.
     // The first SQLite open runs initializeSQLiteIfNecessary() via callOnMainThreadAndWait(), and on 10.9
@@ -283,10 +283,12 @@ void NetworkSession::setTrackingPreventionEnabled(bool enabled)
     // crash broke page loads across the whole browser. ITP is a privacy/anti-tracking heuristic, not
     // required for correctness, so disable it entirely on 10.9: never create the store.
     UNUSED_PARAM(enabled);
+    // MAVERICKS_BACKPORT: ITP disabled on 10.9 (see above) — force off and never create the store.
     if (CheckedPtr storageSession = networkStorageSession())
         storageSession->setTrackingPreventionEnabled(false);
     if (m_resourceLoadStatistics)
         destroyResourceLoadStatistics([] { });
+    // MAVERICKS_BACKPORT: the upstream WebResourceLoadStatisticsStore creation/populate block is dropped here (ITP off).
 }
 
 void NetworkSession::forwardResourceLoadStatisticsSettings()

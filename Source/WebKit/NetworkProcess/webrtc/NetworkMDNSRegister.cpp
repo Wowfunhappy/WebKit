@@ -64,6 +64,7 @@ NetworkMDNSRegister::NetworkMDNSRegister(NetworkConnectionToWebProcess& connecti
 }
 #endif
 
+// MAVERICKS_BACKPORT: also compile the default dtor on Cocoa (USE(GLIB) is forced on but no GLib impl exists here).
 #if !USE(GLIB) || PLATFORM(COCOA)
 NetworkMDNSRegister::~NetworkMDNSRegister() = default;
 #endif

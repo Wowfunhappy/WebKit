@@ -88,6 +88,7 @@
 #include <libxslt/xslt.h>
 #endif
 
+// MAVERICKS_BACKPORT: csetjmp/signal.h for the SIGSEGV/SIGBUS-guarded safeXmlParseChunk wrapper (10.9 libxml2 crashes in xmlParseChunk).
 #include <csetjmp>
 #include <signal.h>
 
@@ -776,6 +777,7 @@ void XMLDocumentParser::doWrite(const String& parseString)
 
         // FIXME: Can we parse 8-bit strings directly as Latin-1 instead of upconverting to UTF-16?
         switchToUTF16(context->context());
+        // MAVERICKS_BACKPORT: route through safeXmlParseChunk (SIGSEGV/SIGBUS-guarded) — 10.9 libxml2 crashes in xmlParseChunk on some payloads.
         safeXmlParseChunk(context->context(), reinterpret_cast<const char*>(StringView(parseString).upconvertedCharacters().get()), sizeof(char16_t) * parseString.length(), 0);
 
         // JavaScript (which may be run under the xmlParseChunk callstack) may
@@ -1447,6 +1449,7 @@ void XMLDocumentParser::doEnd()
             // Tell libxml we're done.
             {
                 XMLDocumentParserScope scope(&protect(document())->cachedResourceLoader());
+                // MAVERICKS_BACKPORT: route through safeXmlParseChunk (SIGSEGV/SIGBUS-guarded) — 10.9 libxml2 crashes in xmlParseChunk on some payloads.
                 safeXmlParseChunk(context(), nullptr, 0, 1);
             }
 
@@ -1636,6 +1639,7 @@ std::optional<HashMap<String, String>> parseAttributes(CachedResourceLoader& cac
 
     XMLDocumentParserScope scope(&cachedResourceLoader);
     // FIXME: Can we parse 8-bit strings directly as Latin-1 instead of upconverting to UTF-16?
+    // MAVERICKS_BACKPORT: route through safeXmlParseChunk (SIGSEGV/SIGBUS-guarded) — 10.9 libxml2 crashes in xmlParseChunk on some payloads.
     safeXmlParseChunk(parser->context(), reinterpret_cast<const char*>(StringView(parseString).upconvertedCharacters().get()), parseString.length() * sizeof(char16_t), 1);
 
     return attributes;

@@ -47,6 +47,7 @@
 #include "APIOpenPanelParameters.h"
 #include "APIPageConfiguration.h"
 #include "APIPolicyClient.h"
+// MAVERICKS_BACKPORT: needed to vend a deserializable WKSerializedScriptValueRef from the legacy WKPageRunJavaScriptInMainFrame alias.
 #include "APISerializedScriptValue.h"
 #include "APISessionState.h"
 #include "APIUIClient.h"
@@ -112,6 +113,7 @@
 #include <WebCore/SerializedCryptoKeyWrap.h>
 #include <WebCore/SharedBuffer.h>
 #include <WebCore/WindowFeatures.h>
+// MAVERICKS_BACKPORT: needed by runLoadOnMainRunLoop (main-thread marshalling of off-main load calls).
 #include <wtf/MainThread.h>
 #include <wtf/RunLoop.h>
 #include <wtf/StdLibExtras.h>
@@ -243,6 +245,7 @@ static void runLoadOnMainRunLoop(Function<void()>&& load)
 void WKPageLoadURL(WKPageRef pageRef, WKURLRef URLRef)
 {
     CRASH_IF_SUSPENDED;
+    // MAVERICKS_BACKPORT: marshal the load onto the main run loop (see runLoadOnMainRunLoop) for off-main callers.
     runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), url = URL { toWTFString(URLRef) }]() mutable {
         page->loadRequest(WTF::move(url));
     });
@@ -252,6 +255,7 @@ void WKPageLoadURLWithShouldOpenExternalURLsPolicy(WKPageRef pageRef, WKURLRef U
 {
     CRASH_IF_SUSPENDED;
     WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy = shouldOpenExternalURLs ? WebCore::ShouldOpenExternalURLsPolicy::ShouldAllow : WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow;
+    // MAVERICKS_BACKPORT: marshal the load onto the main run loop (see runLoadOnMainRunLoop) for off-main callers.
     runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), url = URL { toWTFString(URLRef) }, shouldOpenExternalURLsPolicy]() mutable {
         page->loadRequest(WTF::move(url), shouldOpenExternalURLsPolicy);
     });
@@ -260,6 +264,7 @@ void WKPageLoadURLWithShouldOpenExternalURLsPolicy(WKPageRef pageRef, WKURLRef U
 void WKPageLoadURLWithUserData(WKPageRef pageRef, WKURLRef URLRef, WKTypeRef userDataRef)
 {
     CRASH_IF_SUSPENDED;
+    // MAVERICKS_BACKPORT: marshal the load onto the main run loop (see runLoadOnMainRunLoop) for off-main callers.
     runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), url = URL { toWTFString(URLRef) }, userData = protect(toImpl(userDataRef))]() mutable {
         page->loadRequest(WTF::move(url), WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow, WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy, nullptr, userData.get());
     });
@@ -268,6 +273,7 @@ void WKPageLoadURLWithUserData(WKPageRef pageRef, WKURLRef URLRef, WKTypeRef use
 void WKPageLoadURLRequest(WKPageRef pageRef, WKURLRequestRef urlRequestRef)
 {
     CRASH_IF_SUSPENDED;
+    // MAVERICKS_BACKPORT: marshal the load onto the main run loop (see runLoadOnMainRunLoop) for off-main callers.
     runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), resourceRequest = toImpl(urlRequestRef)->resourceRequest()]() mutable {
         page->loadRequest(WTF::move(resourceRequest));
     });
@@ -276,6 +282,7 @@ void WKPageLoadURLRequest(WKPageRef pageRef, WKURLRequestRef urlRequestRef)
 void WKPageLoadURLRequestWithUserData(WKPageRef pageRef, WKURLRequestRef urlRequestRef, WKTypeRef userDataRef)
 {
     CRASH_IF_SUSPENDED;
+    // MAVERICKS_BACKPORT: marshal the load onto the main run loop (see runLoadOnMainRunLoop) for off-main callers.
     runLoadOnMainRunLoop([page = protect(toImpl(pageRef)), resourceRequest = toImpl(urlRequestRef)->resourceRequest(), userData = protect(toImpl(userDataRef))]() mutable {
         page->loadRequest(WTF::move(resourceRequest), WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow, WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy, nullptr, userData.get());
     });
@@ -1310,7 +1317,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
         }
 
     private:
-        // Safari 9's BrowserPageLoaderClient bails immediately if userData is null
+        // MAVERICKS_BACKPORT: Safari 9's BrowserPageLoaderClient bails immediately if userData is null
         // (early return before isMainFrame check). Without a userData dict on link-click
         // navigations, BCVC::provisionalURLHasChanged() is never invoked and the address
         // bar stays stuck on the previously typed URL. Substitute an empty Dictionary
@@ -1328,6 +1335,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didCommitLoadForFrame)
                 return;
 
+            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
             m_client.didCommitLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
@@ -1336,6 +1344,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didStartProvisionalLoadForFrame)
                 return;
 
+            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
             m_client.didStartProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
@@ -1344,6 +1353,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didReceiveServerRedirectForProvisionalLoadForFrame)
                 return;
 
+            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
             m_client.didReceiveServerRedirectForProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
@@ -1352,6 +1362,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didFailProvisionalLoadWithErrorForFrame)
                 return;
 
+            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
             m_client.didFailProvisionalLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
@@ -1360,6 +1371,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didFinishLoadForFrame)
                 return;
 
+            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
             m_client.didFinishLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
@@ -1368,6 +1380,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didFailLoadWithErrorForFrame)
                 return;
 
+            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
             m_client.didFailLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
@@ -1376,6 +1389,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didFirstVisuallyNonEmptyLayoutForFrame)
                 return;
 
+            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
             m_client.didFirstVisuallyNonEmptyLayoutForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
@@ -1483,12 +1497,14 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
     public:
         explicit PolicyClient(const WKPagePolicyClientBase* client)
         {
+            // MAVERICKS_BACKPORT: constructor no longer RELEASE_ASSERTs against the deprecated callbacks Safari 9.1.3 sets.
             initialize(client);
             // MAVERICKS_BACKPORT: Safari 9.1.3 sets m_client.unableToImplementPolicy.
             // Modern WebKit forbids it; we silently ignore so Safari can launch.
         }
 
     private:
+        // MAVERICKS_BACKPORT: signature carries an extra userData parameter forwarded to the legacy V0/V1 callbacks below.
         void decidePolicyForNavigationAction(WebPageProxy& page, WebFrameProxy* frame, Ref<API::NavigationAction>&& navigationAction, WebFrameProxy* originatingFrame, const WebCore::ResourceRequest& originalResourceRequest, const WebCore::ResourceRequest& resourceRequest, Ref<WebFramePolicyListenerProxy>&& listener, API::Object* userData) override
         {
             if (!m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0 && !m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1 && !m_client.decidePolicyForNavigationAction) {
@@ -1536,6 +1552,7 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
             // An app/API-initiated load is flagged isRequestFromClientOrUserInput WITHOUT a web-content
             // user gesture (a real link click carries a user gesture and still reaches the callback so the
             // app can route it externally). Same family as the Top Sites offscreen bypass above and #60.
+            // MAVERICKS_BACKPORT (#137): bypass the legacy V0/V1 callback for the app's own programmatic load.
             if ((m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0 || m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1)
                 && !m_client.decidePolicyForNavigationAction
                 && navigationAction->data().isRequestFromClientOrUserInput
@@ -1547,10 +1564,13 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
             Ref<API::URLRequest> originalRequest = API::URLRequest::create(originalResourceRequest);
             Ref<API::URLRequest> request = API::URLRequest::create(resourceRequest);
 
+            // MAVERICKS_BACKPORT: pass the real userData through to the legacy V0/V1/V2 callbacks (modern WebKit passed nullptr here).
             if (m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0)
                 m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0(toAPI(&page), toAPI(frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(request.ptr()), toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
+            // MAVERICKS_BACKPORT: pass the real userData through (modern WebKit passed nullptr here).
             else if (m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1)
                 m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1(toAPI(&page), toAPI(frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(originatingFrame), toAPI(request.ptr()), toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
+            // MAVERICKS_BACKPORT: pass the real userData through (modern WebKit passed nullptr here).
             else
                 m_client.decidePolicyForNavigationAction(toAPI(&page), toAPI(frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(originatingFrame), toAPI(originalRequest.ptr()), toAPI(request.ptr()), toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
         }
@@ -1577,6 +1597,7 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
             // live WebFrameProxy in directly (toAPI gives a real WKFrameRef) — an un-rehydrated
             // FrameHandle here reaches Safari as a raw handle, not a WKFrameRef, and it bails.
             // See webkit-mavericks-policy-userdata (#60).
+            // MAVERICKS_BACKPORT: build the CanHandleRequest/OriginatingFrame userData dict Safari 7 reads.
             API::Dictionary::MapType map;
             map.add("CanHandleRequest"_s, API::Boolean::create(navigationAction->canHandleRequest()));
             map.add("OriginatingFrame"_s, Ref<API::Object> { frame });
@@ -1592,7 +1613,7 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
                 return;
             }
 
-            // 10.9 / Safari-7 backport: the V0 (deprecated) decidePolicyForResponse
+            // MAVERICKS_BACKPORT (10.9 / Safari-7): the V0 (deprecated) decidePolicyForResponse
             // callback does not receive canShowMIMEType. Safari 7's handler predates
             // that parameter and, against modern WebKit, mis-decides — it downloads
             // or ignores perfectly displayable SUBFRAME responses (ad/tracker/login
@@ -1612,12 +1633,13 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
             // Suppressing the main-frame callback made the App Store show raw <plist>
             // XML. So only bypass for non-main frames; always consult the client for
             // the main frame (restoring original behavior).
+            // MAVERICKS_BACKPORT: render displayable subframe responses; only consult the legacy V0 client otherwise.
             if (canShowMIMEType && !frame.isMainFrame() && m_client.decidePolicyForResponse_deprecatedForUseWithV0 && !m_client.decidePolicyForResponse) {
                 listener->use();
                 return;
             }
 
-            // 10.9 / Safari-7 backport: the same V0 (no canShowMIMEType) handler ALSO mis-decides
+            // MAVERICKS_BACKPORT (10.9 / Safari-7): the same V0 (no canShowMIMEType) handler ALSO mis-decides
             // NON-displayable MAIN-FRAME responses — Safari 7 ignores them (cancelling the load and
             // leaving the previous page) instead of downloading. So navigating to a .zip / installer /
             // application-octet-stream does nothing. WebKit already knows the response can't be displayed,
@@ -1626,6 +1648,7 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
             // (canShowMIMEType==true), so it is unaffected and still reaches the V0 callback. Displayable
             // responses (HTML/images/media/PDF — PDF is canShowMIMEType==true and force-downloaded later)
             // are unaffected; the non-deprecated V1 callback gets canShowMIMEType and is left alone.
+            // MAVERICKS_BACKPORT: download non-displayable main-frame HTTP responses the legacy V0 client would ignore.
             if (!canShowMIMEType && frame.isMainFrame() && resourceRequest.url().protocolIsInHTTPFamily()
                 && m_client.decidePolicyForResponse_deprecatedForUseWithV0 && !m_client.decidePolicyForResponse) {
                 listener->download();

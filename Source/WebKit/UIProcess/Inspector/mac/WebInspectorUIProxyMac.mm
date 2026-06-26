@@ -43,6 +43,7 @@
 #import "WebInspectorUIMessages.h"
 #import "WebPageGroup.h"
 #import "WebPageProxy.h"
+// MAVERICKS_BACKPORT: for the page->drawingArea()->setSize force-push divergences that drive the inspector frontend to paint.
 #import "DrawingAreaProxy.h"
 #import "_WKInspectorConfigurationInternal.h"
 #import "_WKInspectorInternal.h"
@@ -83,6 +84,7 @@ static void* kWindowContentLayoutObserverContext = &kWindowContentLayoutObserver
 
 - (WKInspectorRef)inspectorRef
 {
+    // MAVERICKS_BACKPORT: route through the _protectedInspector helper (inline protect(_inspectorProxy) doesn't resolve here).
     return toAPI(self._protectedInspector.get());
 }
 
@@ -93,6 +95,7 @@ static void* kWindowContentLayoutObserverContext = &kWindowContentLayoutObserver
     return nil;
 }
 
+// MAVERICKS_BACKPORT: helper that materializes a RefPtr from the WeakObjCPtr/WeakPtr (the inline protect() form doesn't resolve here).
 - (RefPtr<WebKit::WebInspectorUIProxy>)_protectedInspector
 {
     return _inspectorProxy.get();
@@ -200,6 +203,7 @@ static void* kWindowContentLayoutObserverContext = &kWindowContentLayoutObserver
 
 - (BOOL)inspectorViewControllerInspectorIsUnderTest:(WKInspectorViewController *)inspectorViewController
 {
+    // MAVERICKS_BACKPORT: explicit ternary so the WeakPtr-to-BOOL conversion compiles cleanly on this toolchain.
     return _inspectorProxy ? _inspectorProxy->isUnderTest() : false;
 }
 
@@ -365,10 +369,12 @@ RetainPtr<NSWindow> WebInspectorUIProxy::createFrontendWindow(NSRect savedWindow
         CGFloat minimumFullScreenWidth = std::max<CGFloat>(636, approximatelyHalfScreenSize);
         [window setMinFullScreenContentSize:NSMakeSize(minimumFullScreenWidth, minimumWindowHeight)];
     }
+    // MAVERICKS_BACKPORT: FullScreenAllowsTiling / Auxiliary collection behaviors are 10.11+; only apply them when the SDK defines them.
 #if defined(NSWindowCollectionBehaviorFullScreenAllowsTiling)
     [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenAllowsTiling | NSWindowCollectionBehaviorAuxiliary)];
 #endif
 
+    // MAVERICKS_BACKPORT: -setTitlebarAppearsTransparent: is 10.10+; guard with respondsToSelector on 10.9.
     if ([window respondsToSelector:@selector(setTitlebarAppearsTransparent:)])
         [window setTitlebarAppearsTransparent:YES];
 
@@ -641,6 +647,7 @@ bool WebInspectorUIProxy::platformCanAttach(bool webProcessCanAttach)
     if ([WKInspectorViewController viewIsInspectorWebView:inspectedView.get()])
         return webProcessCanAttach;
 
+    // MAVERICKS_BACKPORT: use the -isHidden message (the .hidden dot-property accessor isn't available here on the 10.9 SDK).
     if ([inspectedView.get() isHidden])
         return false;
 
@@ -737,6 +744,7 @@ void WebInspectorUIProxy::platformLoad(const String& path, CompletionHandler<voi
 
 void WebInspectorUIProxy::platformPickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&& completionHandler)
 {
+    // MAVERICKS_BACKPORT: NSColorSampler is 10.14+; resolve via NSClassFromString and bail (no-op) when absent on 10.9.
     Class samplerCls = NSClassFromString(@"NSColorSampler");
     if (!samplerCls) { completionHandler(std::nullopt); return; }
     auto sampler = adoptNS([[samplerCls alloc] init]);
@@ -828,6 +836,7 @@ void WebInspectorUIProxy::inspectedViewFrameDidChange(CGFloat currentDimension)
         if (!inspectorWindow)
             return frameIgnoringContentLayoutRect;
 
+        // MAVERICKS_BACKPORT: -[NSWindow contentLayoutRect] is 10.10+; call it via respondsToSelector/NSInvocation and fall back to the contentView frame on 10.9.
         NSRect windowContentLayoutRect;
         if ([inspectorWindow.get() respondsToSelector:@selector(contentLayoutRect)]) {
             NSMethodSignature *sig = [inspectorWindow.get() methodSignatureForSelector:@selector(contentLayoutRect)];
@@ -963,6 +972,7 @@ void WebInspectorUIProxy::platformSetAttachedWindowHeight(unsigned height)
     if (!m_isAttached)
         return;
 
+    // MAVERICKS_BACKPORT: no safeAreaInsets on 10.9; pass the raw height (upstream adds top/bottom insets).
     inspectedViewFrameDidChange(height);
 }
 
@@ -971,6 +981,7 @@ void WebInspectorUIProxy::platformSetAttachedWindowWidth(unsigned width)
     if (!m_isAttached)
         return;
 
+    // MAVERICKS_BACKPORT: no safeAreaInsets on 10.9; pass the raw width (upstream adds left/right insets).
     inspectedViewFrameDidChange(width);
 }
 
@@ -1095,6 +1106,7 @@ String WebInspectorUIProxy::inspectorPageURL()
 
 String WebInspectorUIProxy::inspectorTestPageURL()
 {
+    // MAVERICKS_BACKPORT: use the bundle file:// URL directly (the inspector-resource:// scheme handler's IPC SharedBuffer encoding crashes the UI process).
     return [[NSURL fileURLWithPath:[[NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"] pathForResource:@"Test" ofType:@"html"]] absoluteString];
 }
 

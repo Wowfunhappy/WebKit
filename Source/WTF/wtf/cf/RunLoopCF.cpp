@@ -28,10 +28,12 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <dispatch/dispatch.h>
+// MAVERICKS_BACKPORT: extra C includes for the 10.9 GCD main-RunLoop timer path below.
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <wtf/AutodrainedPool.h>
+// MAVERICKS_BACKPORT: for the out-of-line mainDispatchTimers() map of cancellable GCD timers below.
 #include <wtf/NeverDestroyed.h>
 #include <wtf/OSObjectPtr.h>
 #include <wtf/SchedulePair.h>
@@ -80,6 +82,7 @@ RunLoop::~RunLoop()
 
 void RunLoop::wakeUp()
 {
+    // MAVERICKS_BACKPORT: main-RunLoop wakeUp goes through the main GCD queue (rationale below).
     // 10.9: for the main RunLoop, wake via the main GCD queue rather than
     // CFRunLoopSourceSignal+CFRunLoopWakeUp. NOTE (2026-06-14): this is NOT the
     // old "GC clobbers the source" reason (that corruption is gone now that the main
@@ -160,6 +163,7 @@ void RunLoop::TimerBase::start(Seconds interval, bool repeat)
     bool isMain = (this->m_runLoop.ptr() == &RunLoop::mainSingleton());
     if (m_timer) {
         bool canReschedule = !repeat && !CFRunLoopTimerDoesRepeat(m_timer.get()) && CFRunLoopTimerIsValid(m_timer.get());
+        // MAVERICKS_BACKPORT: never CF-reschedule a main-RunLoop timer; it uses the GCD dispatch_source path below.
         if (canReschedule && !isMain) {
             CFRunLoopTimerSetNextFireDate(m_timer.get(), CFAbsoluteTimeGetCurrent() + interval.seconds());
             return;
@@ -178,6 +182,7 @@ void RunLoop::TimerBase::start(Seconds interval, bool repeat)
         timer->fired();
     }, this);
 
+    // MAVERICKS_BACKPORT: main-RunLoop timers use a cancellable GCD dispatch_source (see below).
     if (isMain) {
         // Cancellable GCD timer for the main RunLoop. A NATIVE repeating dispatch_source re-fires
         // itself — the handler NEVER touches the timer after fired(). An earlier variant made every
@@ -236,6 +241,7 @@ void RunLoop::TimerBase::stop()
     if (!m_timer)
         return;
 
+    // MAVERICKS_BACKPORT: trailing whitespace trimmed on the blank line above.
     CFRunLoopTimerInvalidate(m_timer.get());
     m_timer = nullptr;
 }

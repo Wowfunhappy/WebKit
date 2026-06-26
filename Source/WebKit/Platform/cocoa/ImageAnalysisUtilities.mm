@@ -292,6 +292,7 @@ void requestBackgroundRemoval(CGImageRef image, CompletionHandler<void(CGImageRe
     }
 
     // FIXME (rdar://88834023): We should find a way to avoid this extra transcoding.
+    // MAVERICKS_BACKPORT: UTTypeTIFF.identifier (UniformTypeIdentifiers, 10.11+) unavailable; use the legacy kUTTypeTIFF CFString.
     auto tiffData = transcode(image, kUTTypeTIFF);
     if (![tiffData length]) {
         completion(nullptr);

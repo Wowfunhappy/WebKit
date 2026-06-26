@@ -25,6 +25,7 @@
 
 #pragma once
 
+// MAVERICKS_BACKPORT: forward-declare / typedef SDK types absent on macOS 10.9 (NSFilePromiseProvider is 10.12+; the image-analysis Cocoa types are gated off here).
 // Forward declarations for types not available on macOS 10.9
 #if __MAC_OS_X_VERSION_MAX_ALLOWED < 101200
 @class NSFilePromiseProvider;
@@ -295,7 +296,7 @@ public:
     void removePDFHUD(PDFPluginIdentifier);
     void removeAllPDFHUDs();
     RetainPtr<NSSet> pdfHUDs();
-#endif
+#endif // MAVERICKS_BACKPORT: ENABLE(PDF_HUD)
 
     void renewGState();
     void setFrameSize(CGSize);
@@ -605,6 +606,7 @@ public:
     NSDragOperation dragSourceOperationMask(NSDraggingSession *, NSDraggingContext);
     void draggingSessionEnded(NSDraggingSession *, NSPoint, NSDragOperation);
 
+    // MAVERICKS_BACKPORT: NSFilePromiseProvider is 10.12+; take it as id so the signatures compile on 10.9.
     NSString *fileNameForFilePromiseProvider(id /*NSFilePromiseProvider* */, NSString *fileType);
     void writeToURLForFilePromiseProvider(id /*NSFilePromiseProvider* */, NSURL *, void(^)(NSError *));
 
@@ -632,6 +634,7 @@ public:
 
     ViewGestureController* gestureController() const { return m_gestureController.get(); }
     ViewGestureController& ensureGestureController();
+    // MAVERICKS_BACKPORT: ref-returning gesture-controller accessor for the WKView call sites.
     Ref<ViewGestureController> ensureProtectedGestureController();
 #if HAVE(APPKIT_GESTURES_SUPPORT)
     WKAppKitGestureController *appKitGestureController() const LIFETIME_BOUND { return m_appKitGestureController.get(); }
@@ -676,6 +679,7 @@ public:
     void insertText(id string, NSRange replacementRange);
     NSTextInputContext *inputContext();
     NSTextInputContext *inputContextForSelectionUpdates();
+    // MAVERICKS_BACKPORT: text-input context accessor used by the WKView responder path.
     NSTextInputContext *inputContextIncludingNonEditable();
     void unmarkText();
     void setMarkedText(id string, NSRange selectedRange, NSRange replacementRange);
@@ -898,9 +902,10 @@ private:
     void performOrDeferImageAnalysisOverlayViewHierarchyTask(std::function<void()>&&);
     void fulfillDeferredImageAnalysisOverlayViewHierarchyTask();
 #endif
+    // MAVERICKS_BACKPORT: close the HAVE(TOUCH_BAR) gate here so the scroll/titlebar members below are lifted out of it.
 #endif // HAVE(TOUCH_BAR)
 
-    // Not Touch Bar functionality — scroll/titlebar state + content-relative child views; these are
+    // MAVERICKS_BACKPORT: Not Touch Bar functionality — scroll/titlebar state + content-relative child views; these are
     // used unconditionally (e.g. WebViewImpl.mm scroll handling), so they must not be TOUCH_BAR-gated.
     bool pageIsScrolledToTop() const { return m_lastPageScrollPosition.y() <= 0; }
     void pageScrollingHysteresisFired(PAL::HysteresisState);
@@ -910,6 +915,7 @@ private:
     void suppressContentRelativeChildViews();
     void restoreContentRelativeChildViews();
 
+    // MAVERICKS_BACKPORT: re-open the HAVE(TOUCH_BAR) gate so the Touch Bar member state below stays gated (the methods above were lifted out of it).
 #if HAVE(TOUCH_BAR)
     bool m_clientWantsMediaPlaybackControlsView { false };
     bool m_canCreateTouchBars { false };

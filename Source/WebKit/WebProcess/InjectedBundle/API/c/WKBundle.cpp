@@ -31,6 +31,7 @@
 #include "InjectedBundle.h"
 #include "InjectedBundleClient.h"
 #include "InjectedBundleScriptWorld.h"
+// MAVERICKS_BACKPORT: backing store for the restored legacy page-group user-content C API (below).
 #include "WK109PageGroupUserContent.h"
 #include "WKAPICast.h"
 #include "WKBundleAPICast.h"
@@ -45,6 +46,7 @@
 #include "WebPage.h"
 #include "WebPageGroupProxy.h"
 #include <WebCore/DatabaseTracker.h>
+// MAVERICKS_BACKPORT: UserScript/UserStyleSheet types for the restored legacy page-group user-content C API (below).
 #include <WebCore/UserScript.h>
 #include <WebCore/UserStyleSheet.h>
 #include <WebCore/MemoryRelease.h>

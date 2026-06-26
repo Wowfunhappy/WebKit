@@ -116,11 +116,13 @@ void Attachment::setFileWrapperAndUpdateContentType(NSFileWrapper *fileWrapper, 
         NSString *dirType = (__bridge NSString *)kUTTypeDirectory;
         NSString *dataType = (__bridge NSString *)kUTTypeData;
         if (fileWrapper.directory)
+            // MAVERICKS_BACKPORT: legacy kUTTypeDirectory constant in place of UTTypeDirectory.identifier (macOS 11+).
             updatedContentType = dirType;
         else if (fileWrapper.regularFile) {
             if (RetainPtr<NSString> pathExtension = (fileWrapper.filename.length ? fileWrapper.filename : fileWrapper.preferredFilename).pathExtension)
                 updatedContentType = WebCore::MIMETypeRegistry::mimeTypeForExtension(WTF::String(pathExtension.get())).createNSString();
             if (!updatedContentType.get().length)
+                // MAVERICKS_BACKPORT: legacy kUTTypeData constant in place of UTTypeData.identifier (macOS 11+).
                 updatedContentType = dataType;
         }
     }

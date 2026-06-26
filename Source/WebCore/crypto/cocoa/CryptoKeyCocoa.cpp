@@ -6,6 +6,7 @@
 #include "config.h"
 #include "CryptoKey.h"
 
+// MAVERICKS_BACKPORT: pull in gcrypt instead of CommonCryptoUtilities.h (gcrypt is the WebCrypto backend here).
 #include <gcrypt.h>
 
 namespace WebCore {
@@ -13,6 +14,7 @@ namespace WebCore {
 Vector<uint8_t> CryptoKey::randomData(size_t size)
 {
     Vector<uint8_t> result(size);
+    // MAVERICKS_BACKPORT: fill via gcrypt's RNG (active WebCrypto backend) instead of CCRandomGenerateBytes.
     gcry_randomize(result.mutableSpan().data(), result.size(), GCRY_STRONG_RANDOM);
     return result;
 }

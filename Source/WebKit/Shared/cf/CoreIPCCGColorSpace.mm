@@ -34,7 +34,7 @@ namespace WebKit {
 
 CGColorSpaceSerialization CoreIPCCGColorSpace::serializableColorSpace(CGColorSpaceRef cgColorSpace)
 {
-    // On 10.9, colorSpaceForCGColorSpace handles the common cases (sRGB etc.)
+    // MAVERICKS_BACKPORT: on 10.9, colorSpaceForCGColorSpace handles the common cases (sRGB etc.)
     // and the extended color space APIs (CGColorSpaceGetName, extended property list
     // keys) don't exist. Just match known spaces and fall back to sRGB.
     if (auto colorSpace = WebCore::colorSpaceForCGColorSpace(cgColorSpace))
@@ -46,20 +46,23 @@ CGColorSpaceSerialization CoreIPCCGColorSpace::serializableColorSpace(CGColorSpa
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200
     if (RetainPtr<CFStringRef> name = CGColorSpaceGetName(cgColorSpace))
         return WTF::move(name);
-#endif
+#endif // MAVERICKS_BACKPORT: CGColorSpaceGetName is 10.12+; absent on 10.9.
 
     if (auto propertyList = adoptCF(CGColorSpaceCopyPropertyList(cgColorSpace))) {
         if (auto data = dynamic_cf_cast<CFDataRef>(propertyList.get()))
             return ICCData { makeVector(data), ExtendedRangeDerivative::kNone };
+        // MAVERICKS_BACKPORT: the CFDictionary property-list cases (extended-range ICC derivatives, indexed
+        // color tables) use 10.12+ keys/derivative property lists; omitted on 10.9, falling through to sRGB.
     }
 
     return WebCore::ColorSpace::SRGB;
 }
 
 CoreIPCCGColorSpace::CoreIPCCGColorSpace(CGColorSpaceRef cgColorSpace)
+// MAVERICKS_BACKPORT: when built against a pre-10.12 SDK the serialization types are unavailable; default to sRGB.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
     : m_cgColorSpace(serializableColorSpace(cgColorSpace))
-#else
+#else // MAVERICKS_BACKPORT: pre-10.12 SDK has no serializable color space path; use sRGB.
     : m_cgColorSpace(WebCore::ColorSpace::SRGB)
 #endif
 {
@@ -72,7 +75,7 @@ CoreIPCCGColorSpace::CoreIPCCGColorSpace(CGColorSpaceSerialization data)
 
 RetainPtr<CGColorSpaceRef> CoreIPCCGColorSpace::toCF() const
 {
-    // On 10.9, only ColorSpace enum values are serialized (no ICCData/IndexedColorSpace).
+    // MAVERICKS_BACKPORT: on 10.9, only ColorSpace enum values are serialized (no ICCData/IndexedColorSpace).
     // Just handle the ColorSpace case and fall back to sRGB.
     auto colorSpace = WTF::switchOn(m_cgColorSpace,
     [](WebCore::ColorSpace colorSpace) -> RetainPtr<CGColorSpaceRef> {
@@ -81,10 +84,12 @@ RetainPtr<CGColorSpaceRef> CoreIPCCGColorSpace::toCF() const
     [](RetainPtr<CFStringRef> name) -> RetainPtr<CGColorSpaceRef> {
         return adoptCF(CGColorSpaceCreateWithName(name.get()));
     },
+    // MAVERICKS_BACKPORT: ICC property-list color spaces are never serialized on 10.9 (CGColorSpaceCreateWithPropertyList absent); fall back to sRGB.
     [](const ICCData&) -> RetainPtr<CGColorSpaceRef> {
         // CGColorSpaceCreateWithPropertyList not available on 10.9
         return adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
     },
+    // MAVERICKS_BACKPORT: indexed color spaces are never serialized on 10.9 (CGColorSpaceCreateWithPropertyList absent); fall back to sRGB.
     [](const IndexedColorSpace&) -> RetainPtr<CGColorSpaceRef> {
         return adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
     });
