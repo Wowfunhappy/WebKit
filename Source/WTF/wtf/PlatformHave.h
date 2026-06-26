@@ -313,6 +313,7 @@
 #define HAVE_PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER 1
 #endif
 
+// MAVERICKS_BACKPORT: CAFrameRateRange is 10.15+; gate on the SDK so it is off on the 10.9 build.
 #if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
 #define HAVE_CORE_ANIMATION_FRAME_RATE_RANGE 1
 #endif
@@ -351,12 +352,12 @@
 #endif
 
 #if !defined(HAVE_QOS_CLASSES) && PLATFORM(COCOA)
-/* QoS classes (qos_class_t / dispatch_qos_class_t) were introduced in macOS 10.10; they do not
+/* MAVERICKS_BACKPORT: QoS classes (qos_class_t / dispatch_qos_class_t) were introduced in macOS 10.10; they do not
    exist on 10.9. Gate on the deployment target so a 10.9 build falls back to default scheduling. */
 #if !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101000
 #define HAVE_QOS_CLASSES 1
 #endif
-#endif
+#endif // MAVERICKS_BACKPORT: closes the 10.10+ QoS-classes deployment-target guard.
 
 #if !defined(HAVE_MACH_CONTINUOUS_TIME) && OS(DARWIN)
 /* mach_continuous_time() / mach_continuous_approximate_time() were introduced in macOS 10.12 / iOS 10. */
@@ -400,6 +401,7 @@
 // referenced ImageDecoderAVFObjC's (stubbed) symbols and crashed the WebContent render path when the
 // image Accept header was built. Off here — media *playback* does not depend on this flag.
 #if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: AVFoundation image-decoder path off; this build decodes images via GStreamer (see above).
 #define HAVE_AVASSETREADER 0
 #endif
 
@@ -433,14 +435,14 @@
 #define HAVE_IOSURFACE_SET_OWNERSHIP_IDENTITY 1
 #endif
 
-// task_create_identity_token is unavailable on macOS 10.9.
+// MAVERICKS_BACKPORT: task_create_identity_token is unavailable on macOS 10.9.
 // __MAC_10_9 == 1090, __MAC_10_10 == 101000 (newer SDKs use 6-digit form),
 // so use a guard that excludes 1090 specifically.
 #if PLATFORM(COCOA) && !PLATFORM(IOS_FAMILY_SIMULATOR) && (!defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101000)
 #define HAVE_TASK_IDENTITY_TOKEN 1
 #endif
 
-// CGContextSetOwnerIdentity takes a task_id_token_t, which (like HAVE_TASK_IDENTITY_TOKEN above)
+// MAVERICKS_BACKPORT: CGContextSetOwnerIdentity takes a task_id_token_t, which (like HAVE_TASK_IDENTITY_TOKEN above)
 // does not exist before macOS 10.10; gate it the same way so a 10.9 build doesn't reference the type.
 #if (PLATFORM(MAC) || (PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR))) && (!defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101000)
 #define HAVE_CG_CONTEXT_SET_OWNER_IDENTITY 1
@@ -450,6 +452,7 @@
 #define HAVE_NS_ACTIVITY 1
 #endif
 
+// MAVERICKS_BACKPORT: NSTouchBar is macOS 10.12.2+; gate it off on 10.9.
 #if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101202
 #define HAVE_TOUCH_BAR 1
 #endif
@@ -470,18 +473,20 @@
 #define HAVE_MEMMEM 1
 #endif
 
-// AVContentKeySession (and its report-group / will-output-be-obscured relatives) is macOS 10.12.4+;
+// MAVERICKS_BACKPORT: AVContentKeySession (and its report-group / will-output-be-obscured relatives) is macOS 10.12.4+;
 // gate on the deployment target so a 10.9 build does not import the absent AVContentKeySession header.
 #if (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION) || PLATFORM(APPLETV)) \
     && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200)
 #define HAVE_AVCONTENTKEYSESSION 1
 #endif
 
+// MAVERICKS_BACKPORT: AVContentKeyReportGroup is 10.12+; gate the Mac case off on 10.9.
 #if !PLATFORM(IOS_FAMILY_SIMULATOR) \
     && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200)
 #define HAVE_AVCONTENTKEYREPORTGROUP 1
 #endif
 
+// MAVERICKS_BACKPORT: AVContentKeySession willOutputBeObscured is 10.12+; gate the Mac case off on 10.9.
 #if (PLATFORM(MAC) \
     || ((PLATFORM(IOS) || PLATFORM(VISION)) && !PLATFORM(IOS_FAMILY_SIMULATOR)) \
     || PLATFORM(MACCATALYST)) \
@@ -588,6 +593,7 @@
 #define HAVE_DEVICE_MANAGEMENT 1
 #endif
 
+// MAVERICKS_BACKPORT: AVPlayer resourceConservationLevelWhilePaused is macOS 12+; gate the Mac case off on 10.9.
 #if PLATFORM(COCOA) && !PLATFORM(MACCATALYST) && !(PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 120000)
 #define HAVE_AVPLAYER_RESOURCE_CONSERVATION_LEVEL 1
 #endif
@@ -608,6 +614,7 @@
 #define HAVE_OS_SIGNPOST 1
 #endif
 
+// MAVERICKS_BACKPORT: AVPlayer videoRangeOverride is macOS 11+; gate it off on 10.9.
 #if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
 #define HAVE_AVPLAYER_VIDEORANGEOVERRIDE 1
 #endif
@@ -664,7 +671,7 @@
 #define HAVE_MEDIA_USAGE_FRAMEWORK 1
 #endif
 
-// PassKit.framework (and thus Apple Pay) did not exist on macOS before 10.12. Gate on the deployment
+// MAVERICKS_BACKPORT: PassKit.framework (and thus Apple Pay) did not exist on macOS before 10.12. Gate on the deployment
 // target so a 10.9 build doesn't enable the PassKit-dependent Apple Pay sub-features (which would
 // otherwise compile Apple Pay bindings that reference the disabled base Apple Pay types).
 #if (PLATFORM(IOS) || PLATFORM(VISION) || (PLATFORM(MAC) && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200)))
@@ -714,6 +721,7 @@
 #define HAVE_AVROUTEPICKERVIEW 1
 #endif
 
+// MAVERICKS_BACKPORT: AVPlayer audioOutputDeviceUniqueID is macOS 11+; gate it off on 10.9.
 #if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
 #define HAVE_AUDIO_OUTPUT_DEVICE_UNIQUE_ID 1
 #endif
@@ -887,6 +895,7 @@
 #if PLATFORM(MAC) \
     || PLATFORM(IOS_FAMILY)
 #define HAVE_CFNETWORK_NSURLSESSION_HSTS_WITH_UNTRUSTED_ROOT 1
+// MAVERICKS_BACKPORT: NSURLSession task-delegate API is 10.15+; gate on the SDK so it is off on the 10.9 deployment.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500 || PLATFORM(IOS_FAMILY)
 #define HAVE_NSURLSESSION_TASK_DELEGATE 1
 #endif
@@ -921,11 +930,11 @@
 // the broken sbix path (only the OT-SVG path is used).
 #if !PLATFORM(MAC)
 #define HAVE_CORE_TEXT_SBIX_IMAGE_SIZE_FUNCTIONS 1
-#endif
+#endif // MAVERICKS_BACKPORT: closes the !PLATFORM(MAC) guard disabling the 10.13+ sbix path on Mac.
 #define HAVE_WOFF_SUPPORT 1
 #endif
 
-// VisionKit image analysis (VKCImageAnalysis) on Mac is macOS 13+; absent on 10.9.
+// MAVERICKS_BACKPORT: VisionKit image analysis (VKCImageAnalysis) on Mac is macOS 13+; absent on 10.9.
 #if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 130000) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
 #if !defined(HAVE_VK_IMAGE_ANALYSIS)
 #define HAVE_VK_IMAGE_ANALYSIS 1
@@ -986,6 +995,7 @@
 #define HAVE_SYSTEM_STATUS 1
 #endif
 
+// MAVERICKS_BACKPORT: AVSampleBufferVideoOutput is macOS 14+ / iOS 17+; gate the Mac case off on 10.9.
 #if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) \
     || ((PLATFORM(IOS) || PLATFORM(MACCATALYST)) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 170000) \
     || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 170000) \
@@ -1055,7 +1065,7 @@
 #define HAVE_UNIFIED_SPEECHSYNTHESIS_FIX_FOR_81465164 1
 #endif
 
-// ScreenCaptureKit is macOS 12.3+; gate it off on older deployment targets (10.9 has no SCKit).
+// MAVERICKS_BACKPORT: ScreenCaptureKit is macOS 12.3+; gate it off on older deployment targets (10.9 has no SCKit).
 #if PLATFORM(MAC) && (!defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 120300)
 #define HAVE_SCREEN_CAPTURE_KIT 1
 #endif
@@ -1128,7 +1138,12 @@
 #define HAVE_APPLE_PUSH_SERVICE_URL_TOKEN_SUPPORT 1
 #endif
 
-#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: AVIF decode goes through CGImageSource, which only gained AVIF in macOS 11.
+// The 10.9 deploy target cannot decode AVIF, so do not claim HAVE(AVIF) on Mac. Otherwise the image
+// Accept header advertises image/avif and content-negotiating image CDNs (e.g. img.clerk.com) serve
+// AVIF that then fails to decode (broken image), and the MIME/UTI registries falsely list it as a
+// supported image type. WebP (vendored libwebp) stays advertised and decodable.
+#if PLATFORM(COCOA) && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000)
 #define HAVE_AVIF 1
 #endif
 
@@ -1179,6 +1194,7 @@
 #define HAVE_UI_WINDOW_SCENE_LIVE_RESIZE_API_143004359 1
 #endif
 
+// MAVERICKS_BACKPORT: Continuity Camera is macOS 14+; gate the Mac case off on 10.9.
 #if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
 #define HAVE_CONTINUITY_CAMERA 1
 #endif
@@ -1201,6 +1217,7 @@
 #define HAVE_APFS_CACHEDELETE_PURGEABLE 1
 #endif
 
+// MAVERICKS_BACKPORT: AVCaptureDevice.minimumFocusDistance is macOS 14+; gate the Mac case off on 10.9.
 #if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) || PLATFORM(IOS_FAMILY)
 #define HAVE_AVCAPTUREDEVICE_MINFOCUSLENGTH 1
 #endif
@@ -1387,7 +1404,10 @@
 #define HAVE_JPEGXL 1
 #endif
 
-#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: HEIC decode goes through CGImageSource, added in macOS 10.13. The 10.9 deploy
+// target cannot decode HEIC, so do not claim HAVE(HEIC) on Mac (same Accept-header / MIME+UTI-registry
+// reasoning as HAVE(AVIF)) — otherwise content-negotiating CDNs serve undecodable HEIC.
+#if PLATFORM(COCOA) && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300)
 #define HAVE_HEIC 1
 #endif
 
@@ -1558,6 +1578,7 @@
 // IOSurfaceMemoryLedgerTags). That depends on the SDK version, not the deployment target,
 // so gate the Mac case on __MAC_OS_X_VERSION_MAX_ALLOWED — otherwise on a modern SDK with a
 // 10.9 deployment target we would re-declare types the SDK already provides and collide.
+// MAVERICKS_BACKPORT: Mac case gated on __MAC_OS_X_VERSION_MAX_ALLOWED (SDK), not MIN_REQUIRED — see comment above.
 #if !defined(HAVE_BROWSER_ENGINE_SUPPORTING_API) \
     && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 140400) \
     || ((PLATFORM(IOS) || PLATFORM(MACCATALYST)) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 170400) \
