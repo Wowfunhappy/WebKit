@@ -77,7 +77,7 @@ void ScrollView::platformAddChild(Widget* child)
     RetainPtr parentView = documentView();
     RetainPtr childView = child->outerView();
     ASSERT(![parentView isDescendantOf:childView.get()]);
-    // MAVERICKS_BACKPORT: trailing-whitespace cleanup only.
+    
     // Suppress the resetting of drag margins since we know we can't affect them.
     RetainPtr<NSWindow> window = [parentView window];
     BOOL resetDragMargins = [window _needsToResetDragMargins];

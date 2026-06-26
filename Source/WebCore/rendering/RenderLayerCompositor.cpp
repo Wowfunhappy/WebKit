@@ -4108,7 +4108,7 @@ bool RenderLayerCompositor::requiresCompositingForPosition(RenderLayerModelObjec
     bool isFixed = renderer.isFixedPositioned();
     if (isFixed && !layer.isStackingContext())
         return false;
-    // MAVERICKS_BACKPORT: trailing-whitespace-only divergence on the blank line below (no behavior change).
+    
     bool isSticky = renderer.isInFlowPositioned() && position == PositionType::Sticky;
     if (!isFixed && !isSticky)
         return false;

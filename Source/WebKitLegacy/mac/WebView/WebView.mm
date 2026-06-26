@@ -3006,8 +3006,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     if (isLockdownModeEnabled())
         settings.disableFeaturesForLockdownMode();
-    // MAVERICKS_BACKPORT: trailing-whitespace cleanup (no behavior change).
-
+    
     // FIXME: These should switch to using WebPreferences for storage and adopt autogeneration.
     settings.setInteractiveFormValidationEnabled([self interactiveFormValidationEnabled]);
     settings.setValidationMessageTimerMagnification([self validationMessageTimerMagnification]);

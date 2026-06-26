@@ -674,8 +674,7 @@ IntSize TileController::computeTileSize()
     if (surfaceSizeLimit.width() > 0 && surfaceSizeLimit.height() > 0)
         maxTileSize = maxTileSize.shrunkTo(surfaceSizeLimit);
 #endif
-    // MAVERICKS_BACKPORT: trailing-whitespace normalization at the end of the IOSurface size-limit guard above.
-
+    
     if (owningGraphicsLayer()->platformCALayerUseGiantTiles())
         return maxTileSize;
 

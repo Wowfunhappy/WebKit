@@ -958,7 +958,7 @@ void TiledCoreAnimationDrawingArea::scheduleRenderingUpdateRunLoopObserver()
         return;
 
     tracePoint(RenderingUpdateRunLoopObserverStart);
-    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace).
+    
     m_renderingUpdateRunLoopObserver->schedule();
 
     // MAVERICKS_BACKPORT: CFRunLoopObserver BeforeWaiting events don't reliably fire
