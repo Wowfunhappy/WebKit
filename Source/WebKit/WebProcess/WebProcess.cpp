@@ -418,8 +418,8 @@ WebProcess::WebProcess()
     WebMockContentFilterManager::singleton().startObservingSettings();
 #endif
 
-    // WebCore::WebLockRegistry::setSharedRegistry(RemoteWebLockRegistry::create(*this));
-    // WebCore::PermissionController::setSharedController(WebPermissionController::create(*this));
+    WebCore::WebLockRegistry::setSharedRegistry(RemoteWebLockRegistry::create(*this));
+    WebCore::PermissionController::setSharedController(WebPermissionController::create(*this));
 }
 
 WebProcess::~WebProcess()
