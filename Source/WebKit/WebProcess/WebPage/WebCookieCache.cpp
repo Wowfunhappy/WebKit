@@ -68,6 +68,7 @@ static String cookiesToString(const Vector<WebCore::Cookie>& cookies)
 
 String WebCookieCache::cookiesForDOM(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, FrameIdentifier frameID, PageIdentifier pageID, WebPageProxyIdentifier webPageProxyID, IncludeSecureCookies includeSecureCookies)
 {
+    // MAVERICKS_BACKPORT: this DOM-cookie path queries the NetworkProcess by host (DomCookiesForHost) for 10.9 cookie persistence and does not use the full cookie context, so the unused parameters are explicitly consumed to suppress warnings.
     UNUSED_PARAM(firstParty); UNUSED_PARAM(sameSiteInfo); UNUSED_PARAM(frameID); UNUSED_PARAM(pageID);
     UNUSED_PARAM(webPageProxyID); UNUSED_PARAM(includeSecureCookies);
     auto sendResult = WebProcess::singleton().ensureNetworkProcessConnection().connection().sendSync(Messages::NetworkConnectionToWebProcess::DomCookiesForHost(url), 0);

@@ -25,6 +25,8 @@
 
 #pragma once
 
+// MAVERICKS_BACKPORT: this header is a flat-path copy of Source/WebCore/platform/graphics/cocoa/controls/ControlFactoryCocoa.h, placed directly in Source/WebCore/ so the 10.9 build's include path resolves the bare "ControlFactoryCocoa.h" reference (the original still lives in its platform/graphics/cocoa/controls subdirectory).
+
 #if PLATFORM(COCOA)
 
 #import "ControlFactory.h"

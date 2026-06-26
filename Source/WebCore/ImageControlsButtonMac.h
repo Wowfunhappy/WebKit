@@ -25,6 +25,8 @@
 
 #pragma once
 
+// MAVERICKS_BACKPORT: this header is a flat-path copy of Source/WebCore/platform/graphics/mac/controls/ImageControlsButtonMac.h, placed directly in Source/WebCore/ so the 10.9 build's include path resolves the bare "ImageControlsButtonMac.h" reference (the original still lives in its platform/graphics/mac/controls subdirectory).
+
 #if PLATFORM(MAC) && ENABLE(SERVICE_CONTROLS)
 
 #import "ControlMac.h"

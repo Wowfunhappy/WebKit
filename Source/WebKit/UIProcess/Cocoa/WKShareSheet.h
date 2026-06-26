@@ -30,6 +30,7 @@
 @class WKWebView;
 @protocol WKShareSheetDelegate;
 
+// MAVERICKS_BACKPORT: force the C++-type declarations always-on (build is non-modular here), so these forward decls and the C++-typed methods below are always available.
 #if 1 // backport: #if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 #include <optional>
@@ -50,6 +51,7 @@ enum class PickerDismissalReason : uint8_t;
 
 - (instancetype)initWithView:(WKWebView *)view;
 
+// MAVERICKS_BACKPORT: force the C++-typed presentWithParameters: method always-on (build is non-modular here) so it stays declared.
 #if 1 // backport: #if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 - (void)presentWithParameters:(const WebCore::ShareDataWithParsedURL&)data inRect:(std::optional<WebCore::FloatRect>)rect completionHandler:(WTF::CompletionHandler<void(bool)>&&)completionHandler;

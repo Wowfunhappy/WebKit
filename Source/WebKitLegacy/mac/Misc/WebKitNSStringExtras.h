@@ -51,6 +51,7 @@ extern NSString *WebKitResourceLoadStatisticsDirectoryDefaultsKey;
 
 - (NSString *)_webkit_stringByTrimmingWhitespace;
 
+// MAVERICKS_BACKPORT: restores the _webkit_fixedCarbonPOSIXPath SPI declaration the base lacks.
 // Safari 7-era compatibility (removed from modern WebKit; still called by Safari).
 - (NSString *)_webkit_fixedCarbonPOSIXPath;
 

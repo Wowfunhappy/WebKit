@@ -23,6 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// MAVERICKS_BACKPORT: gate the whole interface on ENABLE(ATTACHMENT_ELEMENT); the attachment element is disabled on 10.9, so APIAttachment is unavailable and this declaration must be compiled out.
 #if ENABLE(ATTACHMENT_ELEMENT)
 #import "APIAttachment.h"
 #import <WebKit/_WKAttachment.h>
@@ -43,4 +44,5 @@ template<> struct WrapperTraits<API::Attachment> {
 
 - (void)setData:(NSData *)data newContentType:(NSString *)newContentType;
 @end
+// MAVERICKS_BACKPORT: close the ENABLE(ATTACHMENT_ELEMENT) gate added at the top (attachment element disabled on 10.9).
 #endif // ENABLE(ATTACHMENT_ELEMENT)

@@ -40,6 +40,7 @@ DECLARE_SYSTEM_HEADER
 
 typedef uint32_t os_trace_mode_t;
 
+// MAVERICKS_BACKPORT: defined as a plain enum because the OS_ENUM() macro (and the os_trace tracing infrastructure it belongs to) does not exist in the 10.9 <os/trace.h>.
 enum {
     OS_TRACE_MODE_INFO                          = 0x01,
     OS_TRACE_MODE_DEBUG                         = 0x02,
@@ -65,7 +66,7 @@ typedef struct os_log_message_s {
 
 WTF_EXTERN_C_BEGIN
 
-/* These functions are stubs on macOS 10.9 where os_log doesn't exist */
+// MAVERICKS_BACKPORT: these os_log/os_trace SPI functions are provided as no-op inline stubs because the underlying symbols do not exist in the macOS 10.9 libsystem; upstream declares them as external OS_EXPORT functions, which would fail to link here.
 static inline void os_log_with_args(os_log_t oslog, os_log_type_t type, const char *format, va_list args, void *ret_addr) {
     (void)oslog; (void)type; (void)format; (void)args; (void)ret_addr;
 }

@@ -174,6 +174,7 @@ PlatformCAAnimationCocoa::PlatformCAAnimationCocoa(AnimationType type, const Str
         m_animation = [CAKeyframeAnimation animationWithKeyPath:keyPath.createNSString().get()];
         break;
     case AnimationType::Spring:
+        // MAVERICKS_BACKPORT: CASpringAnimation is 10.11+ and absent on 10.9; look the class up at runtime via NSClassFromString and fall back to CABasicAnimation when it is unavailable, instead of referencing CASpringAnimation directly.
         // CASpringAnimation is 10.11+; fall back to CABasicAnimation
         if (NSClassFromString(@"CASpringAnimation"))
             m_animation = [NSClassFromString(@"CASpringAnimation") animationWithKeyPath:keyPath.createNSString().get()];
@@ -187,6 +188,7 @@ PlatformCAAnimationCocoa::PlatformCAAnimationCocoa(PlatformAnimationRef animatio
 {
     auto caAnimation = static_cast<CAAnimation *>(animation);
     if ([caAnimation isKindOfClass:[CABasicAnimation class]]) {
+        // MAVERICKS_BACKPORT: CASpringAnimation is 10.11+ and absent on 10.9; resolve the class at runtime via NSClassFromString before the isKindOfClass: test instead of referencing [CASpringAnimation class] directly.
         if (NSClassFromString(@"CASpringAnimation") && [caAnimation isKindOfClass:NSClassFromString(@"CASpringAnimation")])
             setType(AnimationType::Spring);
         else
@@ -339,6 +341,7 @@ void PlatformCAAnimationCocoa::setTimingFunction(const TimingFunction* timingFun
         break;
     case AnimationType::Spring:
         if (auto* function = dynamicDowncast<SpringTimingFunction>(timingFunction)) {
+            // MAVERICKS_BACKPORT: CASpringAnimation and its mass/stiffness/damping/initialVelocity properties are 10.11+; set them via KVC (guarded by respondsToSelector:) instead of the typed CASpringAnimation accessors, which do not exist on 10.9.
             // CASpringAnimation is 10.11+; set properties via KVC for compatibility
             id springAnimation = (id)m_animation.get();
             if ([springAnimation respondsToSelector:@selector(setMass:)]) {

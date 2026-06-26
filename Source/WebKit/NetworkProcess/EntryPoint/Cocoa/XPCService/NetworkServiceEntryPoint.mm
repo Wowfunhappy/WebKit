@@ -25,6 +25,8 @@
 
 #import "config.h"
 
+// MAVERICKS_BACKPORT: explicitly pull in the C stdio/POSIX headers; the 10.9 build
+// (no-modules, modern SDK) no longer gets them transitively here.
 #import <stdio.h>
 #import <unistd.h>
 #import "EnvironmentUtilities.h"

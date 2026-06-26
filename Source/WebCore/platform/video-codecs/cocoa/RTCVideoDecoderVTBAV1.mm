@@ -85,6 +85,7 @@ struct RTCFrameDecodeParams {
 static RetainPtr<CMSampleBufferRef> av1BufferToCMSampleBuffer(std::span<const uint8_t> buffer, CMVideoFormatDescriptionRef videoFormat)
 {
     CMBlockBufferRef newVlockBuffer;
+    // MAVERICKS_BACKPORT: call these CoreMedia functions directly instead of through the PAL:: soft-link wrappers, which are not provided for these symbols in this backport's soft-link header set (applies to the CMBlockBuffer*/CMSampleBufferCreate calls below).
     if (auto error = CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, NULL, buffer.size(), kCFAllocatorDefault, NULL, 0, buffer.size(), kCMBlockBufferAssureMemoryNowFlag, &newVlockBuffer)) {
         RELEASE_LOG_ERROR(WebRTC, "AV1BufferToCMSampleBuffer CMBlockBufferCreateWithMemoryBlock failed with: %d", error);
         return nullptr;
@@ -117,6 +118,7 @@ static void av1DecompressionOutputCallback(void* decoderRef, void* params, OSSta
     }
 
     static const int64_t kNumNanosecsPerSec = 1000000000;
+    // MAVERICKS_BACKPORT: call CMTimeGetSeconds directly rather than through the PAL:: soft-link wrapper, which is not provided for this symbol in this backport.
     decodeParams->callback.get()(imageBuffer, decodeParams->timestamp, CMTimeGetSeconds(timestamp) * kNumNanosecsPerSec, false);
 }
 
@@ -154,6 +156,7 @@ static void av1DecompressionOutputCallback(void* decoderRef, void* params, OSSta
     auto data = unsafeMakeSpan(rawData, size);
 
     if (auto inputFormat = computeAV1InputFormat(data, _width, _height)) {
+        // MAVERICKS_BACKPORT: call CMFormatDescriptionEqual directly rather than through the PAL:: soft-link wrapper, which is not provided for this symbol in this backport.
         if (!CMFormatDescriptionEqual(inputFormat.get(), _videoFormat.get())) {
             _videoFormat = WTF::move(inputFormat);
             if (int error = [self resetDecompressionSession]; error != WEBRTC_VIDEO_CODEC_OK) {

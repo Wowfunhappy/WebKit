@@ -30,6 +30,9 @@
 
 DECLARE_SYSTEM_HEADER
 
+// MAVERICKS_BACKPORT: 10.9 ships an empty Network.framework that declares none of the nw_* types this
+// header needs; when the real framework is absent (no __NW_CONNECTION_H__), declare the nw_* object types,
+// the NW_OBJECT_DECL macros, and OS_OBJECT_RETURNS_RETAINED ourselves so PAL/WebCore still compile.
 // Include Network/Network.h if available; on 10.9 this is just our empty polyfill.
 #include <Network/Network.h>
 // Check if the real Network.framework was included (defines __NW_CONNECTION_H__).
@@ -82,6 +85,8 @@ typedef void (^nw_parameters_configure_protocol_block_t)(void *);
 typedef void (^nw_webtransport_drain_handler_t)(void);
 typedef void (^nw_webtransport_receive_error_handler_t)(uint64_t receive_error_code);
 typedef void (^nw_webtransport_send_error_handler_t)(uint64_t send_error_code);
+// MAVERICKS_BACKPORT: guard the nw_http_fields/nw_http_response type declarations so they are skipped when
+// the 10.9 polyfill block above has already declared them (NW_POLYFILL_TYPES_DECLARED), avoiding redefinition.
 #ifndef NW_POLYFILL_TYPES_DECLARED
 typedef void (^nw_http_optional_string_accessor_t)(const char * _Nullable string);
 

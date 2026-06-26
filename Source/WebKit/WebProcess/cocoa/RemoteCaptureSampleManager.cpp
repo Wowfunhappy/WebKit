@@ -150,6 +150,7 @@ void RemoteCaptureSampleManager::didUpdateSourceConnection(IPC::Connection& conn
     setConnection(&connection);
 }
 
+// MAVERICKS_BACKPORT: the backport runs without a GPU process, so the RemoteVideoFrameObjectHeapProxy path does not exist; guard this setter under ENABLE(GPU_PROCESS) so it compiles out on 10.9.
 #if ENABLE(GPU_PROCESS)
 void RemoteCaptureSampleManager::setVideoFrameObjectHeapProxy(RefPtr<RemoteVideoFrameObjectHeapProxy>&& proxy)
 {
@@ -170,6 +171,7 @@ void RemoteCaptureSampleManager::audioStorageChanged(WebCore::RealtimeMediaSourc
     iterator->value->setStorage(WTF::move(handle), description, WTF::move(semaphore), mediaTime, frameChunkSize);
 }
 
+// MAVERICKS_BACKPORT: the RemoteVideoFrameProxy delivery path requires a GPU process, which the backport does not run; guard this handler under ENABLE(GPU_PROCESS) so it compiles out on 10.9. Capture frames instead arrive via videoFrameAvailableCV below.
 #if ENABLE(GPU_PROCESS)
 void RemoteCaptureSampleManager::videoFrameAvailable(RealtimeMediaSourceIdentifier identifier, RemoteVideoFrameProxy::Properties&& properties, VideoFrameTimeMetadata metadata)
 {

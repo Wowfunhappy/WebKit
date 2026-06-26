@@ -1992,6 +1992,10 @@ void NetworkProcessProxy::addAllowedFirstPartyForCookies(WebProcessProxy& webPro
         return std::make_pair(LoadedWebArchive::No, HashSet<RegistrableDomain> { });
     }).iterator->value;
 
+    // MAVERICKS_BACKPORT: drop upstream's `madeChange` skip-if-unchanged
+    // optimization and unconditionally forward to the NetworkProcess. On 10.9
+    // the conditional send leaves the NetworkProcess side unregistered for the
+    // WebProcess+domain pair, so the load is rejected at MESSAGE_CHECK below.
     pair.second.add(firstPartyForCookies);
     if (loadedWebArchive == LoadedWebArchive::Yes && pair.first != LoadedWebArchive::Yes)
         pair.first = LoadedWebArchive::Yes;

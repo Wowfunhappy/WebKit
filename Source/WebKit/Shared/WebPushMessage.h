@@ -27,6 +27,7 @@
 
 #include <wtf/Platform.h>
 
+// MAVERICKS_BACKPORT: force the struct body to compile; the original modules-guard never fires under the 10.9 -fno-modules build, so the declarations would otherwise be dropped.
 #if 1 // backport: force body, was: #if !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 #include <WebCore/NotificationPayload.h>

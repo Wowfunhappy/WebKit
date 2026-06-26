@@ -107,6 +107,8 @@ WK_EXPORT void WKContextSetPrimaryWebsiteDataStore(WKContextRef context, WKWebsi
 WK_EXPORT WKArrayRef WKContextCopyLocalhostAliases(WKContextRef context);
 WK_EXPORT void WKContextSetLocalhostAliases(WKContextRef context, WKArrayRef localhostAliases);
 
+// MAVERICKS_BACKPORT: declarations for three WKContext C-API symbols removed in modern WebKit,
+// restored so Safari 9.1.3 (TrackingDataController and friends) still links on 10.9.
 // Removed in modern WebKit; preserved as a compatibility stub so Safari 9.1.3
 // (TrackingDataController and friends) can still link.
 WK_EXPORT WKCookieManagerRef WKContextGetCookieManager(WKContextRef context) WK_C_API_DEPRECATED;

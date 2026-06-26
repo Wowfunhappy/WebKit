@@ -67,6 +67,7 @@
         RetainPtr<NSString> encodedString;
 
         if (newValue) {
+// MAVERICKS_BACKPORT: +[NSKeyedArchiver archivedDataWithRootObject:requiringSecureCoding:error:] is 10.11+; use the deprecated 10.9-available archivedDataWithRootObject: (secure-coding support is already vetted just above).
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
             auto data = retainPtr([NSKeyedArchiver archivedDataWithRootObject:newValue.get()]);
 ALLOW_DEPRECATED_DECLARATIONS_END

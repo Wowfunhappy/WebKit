@@ -198,6 +198,7 @@ static const Seconds PostAnimationDelay { 100_ms };
     if (!CGRectEqualToRect(self.videoLayerFrame, self.bounds)) {
         self.videoLayerFrame = self.bounds;
         if (RefPtr<WebKit::VideoLayerRemoteParent> parent = self.parent) {
+            // MAVERICKS_BACKPORT: 10.9's CAContext -createFencePort returns uint32_t (not mach_port_t), so cast explicitly to satisfy MachSendRight::adopt.
             MachSendRight fenceSendRight = MachSendRight::adopt((mach_port_t)[_context createFencePort]);
             parent->setVideoLayerSizeFenced(WebCore::FloatSize(self.videoLayerFrame.size), { WTF::move(fenceSendRight), { } });
         }

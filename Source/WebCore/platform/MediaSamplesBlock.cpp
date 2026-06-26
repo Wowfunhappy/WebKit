@@ -38,7 +38,8 @@ namespace WebCore {
 
 RefPtr<MediaSample> MediaSamplesBlock::toMediaSample(const MediaSample* referenceSample) const
 {
-    // CoreMedia PAL soft-link unavailable on macOS 10.9.
+    // MAVERICKS_BACKPORT: the USE(AVFOUNDATION) CMSampleBuffer path is dropped because the CoreMedia
+    // PAL soft-link is unavailable on macOS 10.9; return nullptr instead of asserting.
     UNUSED_PARAM(referenceSample);
     return nullptr;
 }

@@ -130,6 +130,7 @@ RefPtr<ImageBuffer> trackMaskImage(GraphicsContext& context, FloatSize trackRect
 
     CGContextStateSaver stateSaver(cgContext);
 
+    // MAVERICKS_BACKPORT: +[NSAppearance currentDrawingAppearance] is 10.14+; absent on 10.9, so guard with respondsToSelector: and fall back to nil instead of calling it unconditionally.
     [([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil) _drawInRect:drawingTrackRect context:cgContext options:@{
         (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)kCUIWidgetSwitchFillMask,
         (__bridge NSString *)kCUISizeKey: coreUISize,

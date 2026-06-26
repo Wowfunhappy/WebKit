@@ -87,6 +87,7 @@ static RefPtr<ImageBuffer> trackImage(GraphicsContext& context, RefPtr<ImageBuff
     // FIXME: clipping in context() might not always be accurate for context().platformContext().
     trackImage->context().clipToImageBuffer(*trackMaskImage, drawingTrackRect);
 
+    // MAVERICKS_BACKPORT: +[NSAppearance currentDrawingAppearance] is 10.14+; absent on 10.9, so guard with respondsToSelector: and fall back to nil instead of calling it unconditionally.
     [([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil) _drawInRect:drawingTrackRect context:cgContext.get() options:@{
         (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)kCUIWidgetSwitchFill,
         (__bridge NSString *)kCUIStateKey: coreUIState,
@@ -97,6 +98,7 @@ static RefPtr<ImageBuffer> trackImage(GraphicsContext& context, RefPtr<ImageBuff
         (__bridge NSString *)kCUIScaleKey: @(deviceScaleFactor),
     }];
 
+    // MAVERICKS_BACKPORT: +[NSAppearance currentDrawingAppearance] is 10.14+; absent on 10.9, so guard with respondsToSelector: and fall back to nil instead of calling it unconditionally.
     [([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil) _drawInRect:drawingTrackRect context:cgContext.get() options:@{
         (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)kCUIWidgetSwitchBorder,
         (__bridge NSString *)kCUISizeKey: coreUISize,
@@ -118,6 +120,7 @@ static RefPtr<ImageBuffer> trackImage(GraphicsContext& context, RefPtr<ImageBuff
             SwitchMacUtilities::rotateContextForVerticalWritingMode(trackImage->context(), drawingTrackRect);
         }
 
+        // MAVERICKS_BACKPORT: +[NSAppearance currentDrawingAppearance] is 10.14+; absent on 10.9, so guard with respondsToSelector: and fall back to nil instead of calling it unconditionally.
         [([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil) _drawInRect:drawingTrackRect context:cgContext.get() options:@{
             (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)kCUIWidgetSwitchOnOffLabel,
             // FIXME: Below does not pass kCUIStatePressed like NSCoreUIStateForSwitchState does,

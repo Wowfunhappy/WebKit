@@ -980,6 +980,7 @@ void MediaPlayerPrivateWebM::enqueueSample(Ref<MediaSample>&& sample, TrackID tr
 
     PlatformSample platformSample = sample->platformSample();
 
+    // MAVERICKS_BACKPORT: Call CoreMedia directly instead of through the PAL CoreMedia soft-link wrappers (here and CMFormatDescriptionGetMediaType below); these symbols are present in the 10.9 CoreMedia framework, so the soft-link indirection is bypassed.
     CMFormatDescriptionRef formatDescription = CMSampleBufferGetFormatDescription(platformSample.cmSampleBuffer());
     ASSERT(formatDescription);
     if (!formatDescription) {

@@ -1,3 +1,4 @@
+// MAVERICKS_BACKPORT: no-op GPUProcessProxy stub class; the GPU process is not built on the 10.9 CMake build, so WebPageProxy.cpp includes this in its place to satisfy GPUProcessProxy references (singletonIfCreated/getOrCreate/send/releaseSnapshot) with inert no-ops.
 // Stub for GPUProcessProxy (not available on macOS 10.9 CMake build)
 #pragma once
 #include <wtf/CanMakeWeakPtr.h>

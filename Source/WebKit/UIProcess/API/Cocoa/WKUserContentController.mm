@@ -43,7 +43,7 @@
 #import "WebScriptMessageHandler.h"
 #import "WebUserContentControllerProxy.h"
 #import "_WKJSBuffer.h"
-// _WKUserContentFilter class may not be compiled in; forward-declare to avoid incomplete type.
+// MAVERICKS_BACKPORT: _WKUserContentFilterInternal is not built in this backport; forward-declare the class and drop the internal import to avoid an incomplete-type dependency.
 @class _WKUserContentFilter;
 // #import "_WKUserContentFilterInternal.h"
 #import "_WKUserContentWorldInternal.h"
@@ -275,7 +275,7 @@ private:
 #pragma clang diagnostic pop
 {
 #if ENABLE(CONTENT_EXTENSIONS)
-    // _WKUserContentFilter internals may not be available; use WKContentRuleList directly if possible.
+    // MAVERICKS_BACKPORT: _WKUserContentFilter internals (_contentRuleList) are unavailable since _WKUserContentFilterInternal is not built here; the body is a no-op (callers use _addContentRuleList: directly).
     UNUSED_PARAM(userContentFilter);
 #endif
 }

@@ -570,6 +570,9 @@
     IGNORE_CLANG_STATIC_ANALYZER_WARNINGS_ATTRIBUTE("alpha.webkit.NoUnretainedMemberChecker")
 #define SUPPRESS_RETAINPTR_CTOR_ADOPT \
     IGNORE_CLANG_STATIC_ANALYZER_WARNINGS_ATTRIBUTE("alpha.webkit.RetainPtrCtorAdoptChecker")
+// MAVERICKS_BACKPORT: the WebKit-specific `webkit.pointerconversion` annotate_type attribute is only
+// understood by Apple's clang; the upstream-newer/open-source clang used for this 10.9 build rejects it,
+// so the annotation is defined empty off the APPLE_CLANG path.
 #if COMPILER(APPLE_CLANG)
 #define CLANG_POINTER_CONVERSION [[clang::annotate_type("webkit.pointerconversion")]]
 #else
@@ -578,6 +581,9 @@
 
 // Add this annotation to right after the return type of a function when the function does not run any destructor or free memory.
 // Static analyzer does not require the use of smart pointers in the code which calls a function with this annotation.
+// MAVERICKS_BACKPORT: the WebKit-specific `webkit.nodelete` annotate_type attribute is only understood
+// by Apple's clang; the compiler used for this 10.9 build rejects it, so NODELETE is defined empty off
+// the APPLE_CLANG path.
 #if COMPILER(APPLE_CLANG)
 #define NODELETE [[clang::annotate_type("webkit.nodelete")]]
 #else

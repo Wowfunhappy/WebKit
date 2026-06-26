@@ -26,6 +26,7 @@
 #include "config.h"
 #include "XPCUtilities.h"
 
+// MAVERICKS_BACKPORT: extra blank line above is the only divergence from upstream in this file (10.9 build).
 
 #if USE(EXIT_XPC_MESSAGE_WORKAROUND)
 #include "Logging.h"

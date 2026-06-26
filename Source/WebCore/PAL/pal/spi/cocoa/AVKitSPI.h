@@ -404,10 +404,12 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (readonly) NSArray *seekableTimeRanges;
 
+// MAVERICKS_BACKPORT: Touch Bar media-selection SPI (Touch Bar is 10.12.2+); element type stripped from the lightweight-generic NSArray<AVTouchBarMediaSelectionOption *> to plain NSArray for the 10.9 build.
 @property (readonly) NSArray *audioTouchBarMediaSelectionOptions;
 
 @property (strong) AVTouchBarMediaSelectionOption *currentAudioTouchBarMediaSelectionOption;
 
+// MAVERICKS_BACKPORT: same as above — NSArray<AVTouchBarMediaSelectionOption *> de-genericized to plain NSArray.
 @property (readonly) NSArray *legibleTouchBarMediaSelectionOptions;
 
 @property (strong) AVTouchBarMediaSelectionOption *currentLegibleTouchBarMediaSelectionOption;
@@ -418,6 +420,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)endTouchBarScrubbing;
 
+// MAVERICKS_BACKPORT: Touch Bar thumbnail SPI; NSArray<NSNumber *>/NSArray<AVThumbnail *> de-genericized to plain NSArray for the 10.9 build.
 - (void)generateTouchBarThumbnailsForTimes:(NSArray *)thumbnailTimes tolerance:(NSTimeInterval)tolerance size:(NSSize)size thumbnailHandler:(void (^)(NSArray *thumbnails, BOOL thumbnailGenerationFailed))thumbnailHandler;
 
 - (void)cancelThumbnailGeneration;
@@ -439,7 +442,8 @@ typedef NS_ENUM(NSInteger, AVTouchBarMediaSelectionOptionType) {
 @class AVPlaybackSpeedCollection;
 
 @protocol NSTouchBarProvider;
-@class NSTouchBar; // 10.12.2+; forward-declare so the AVTouchBar* SPI parses on 10.9 (pointer only).
+// MAVERICKS_BACKPORT: NSTouchBar is 10.12.2+; forward-declare so the AVTouchBar* SPI parses on 10.9 (pointer only).
+@class NSTouchBar;
 
 @interface AVTouchBarPlaybackControlsProvider : NSResponder <NSTouchBarProvider>
 
@@ -602,6 +606,7 @@ typedef NS_ENUM(NSInteger, AVPlayerControllerTimeControlStatus) {
 @interface __AVPlayerLayerView (IPI)
 @property (nonatomic, strong, nullable) AVPlayerController *playerController;
 @property (nonatomic, readonly) AVPlayerLayer *playerLayer;
+// MAVERICKS_BACKPORT: NSDictionary<NSString *, id> de-genericized to plain NSDictionary for the 10.9 build.
 @property (nonatomic, copy, nullable) NSDictionary *pixelBufferAttributes;
 @end
 

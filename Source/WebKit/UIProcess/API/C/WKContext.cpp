@@ -422,25 +422,27 @@ WKResourceCacheManagerRef WKContextGetResourceCacheManager(WKContextRef context)
     return reinterpret_cast<WKResourceCacheManagerRef>(WKWebsiteDataStoreGetDefaultDataStore());
 }
 
-// Legacy stub: Safari 9.1.3 (TrackingDataController) still calls this. Modern
-// WebKit replaces it with the per-data-store WKHTTPCookieStore API. We return
-// nullptr; Safari's TrackingDataController null-checks the result and skips
-// the optional tracking-data feature when there is no cookie manager.
+// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base; Safari 9.1.3
+// (TrackingDataController) still calls this. Modern WebKit replaces it with the
+// per-data-store WKHTTPCookieStore API. We return nullptr; Safari's
+// TrackingDataController null-checks the result and skips the optional
+// tracking-data feature when there is no cookie manager.
 WKCookieManagerRef WKContextGetCookieManager(WKContextRef)
 {
     return nullptr;
 }
 
-// Legacy stub: Safari 9.1.3's AppController applicationDidFinishLaunching:
-// queries this. Modern WebKit dropped per-context process suppression in
-// favour of per-page activity throttling — return false (suppression off).
+// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base; Safari 9.1.3's
+// AppController applicationDidFinishLaunching: queries this. Modern WebKit dropped
+// per-context process suppression in favour of per-page activity throttling —
+// return false (suppression off).
 bool WKContextGetProcessSuppressionEnabled(WKContextRef)
 {
     return false;
 }
 
-// Legacy stub: Safari 9.1.3 toggles this around windowed/background tabs.
-// Modern WebKit ignores it.
+// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base; Safari 9.1.3
+// toggles this around windowed/background tabs. Modern WebKit ignores it.
 void WKContextSetProcessSuppressionEnabled(WKContextRef, bool)
 {
 }

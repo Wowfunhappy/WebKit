@@ -27,6 +27,7 @@
 
 DECLARE_SYSTEM_HEADER
 
+// MAVERICKS_BACKPORT: the UserNotifications framework is unavailable on Mac before 10.14, so gate the entire header (import + SPI) on its presence to keep the 10.9 build from importing a missing framework.
 #if __has_include(<UserNotifications/UserNotifications.h>) && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MAX_ALLOWED >= 101400)
 #import <UserNotifications/UserNotifications.h>
 
@@ -76,4 +77,5 @@ DECLARE_SYSTEM_HEADER
 
 #endif // USE(APPLE_INTERNAL_SDK)
 
+// MAVERICKS_BACKPORT: closes the framework-presence guard opened above; absent on Mac before 10.14.
 #endif // __has_include(<UserNotifications/UserNotifications.h>) && version check

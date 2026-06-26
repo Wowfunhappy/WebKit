@@ -391,3 +391,5 @@ struct WebPageCreationParameters {
 
 } // namespace WebKit
 
+// MAVERICKS_BACKPORT: trailing newline at end of file (10.9 build divergence)
+

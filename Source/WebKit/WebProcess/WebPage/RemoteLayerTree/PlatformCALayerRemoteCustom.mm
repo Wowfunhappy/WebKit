@@ -153,6 +153,7 @@ Ref<WebCore::PlatformCALayer> PlatformCALayerRemoteCustom::clone(PlatformCALayer
     bool copyContents = true;
 
     if (layerType() == PlatformCALayer::LayerType::LayerTypeAVPlayerLayer) {
+        // MAVERICKS_BACKPORT: cloning the AVPlayerLayer is guarded by HAVE(AVFOUNDATION); when AVFoundation is unavailable on 10.9 the code falls through to the plain CALayer clone below.
 #if HAVE(AVFOUNDATION)
         if (PAL::isAVFoundationFrameworkAvailable() && [m_platformLayer isKindOfClass:PAL::getAVPlayerLayerClassSingleton()]) {
             clonedLayer = adoptNS([PAL::allocAVPlayerLayerInstance() init]);

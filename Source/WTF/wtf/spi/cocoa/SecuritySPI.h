@@ -105,9 +105,12 @@ WTF_EXTERN_C_END
 
 #endif // USE(APPLE_INTERNAL_SDK)
 
-/* SecTrustRef is defined in system Security headers on 10.9. SecTaskRef, however, is NOT typedef'd by
- * the 10.9 <Security/SecTask.h> (the symbols SecTaskCreateFromSelf/SecTaskCopyValueForEntitlement DO
- * exist in the framework — only the type declaration is missing), so declare it here. */
+/* MAVERICKS_BACKPORT: upstream blindly forward-declares both SecTaskRef and SecTrustRef. On 10.9 that
+ * conflicts/diverges: SecTrustRef is already provided by the system Security headers, while SecTaskRef
+ * is NOT typedef'd by the 10.9 <Security/SecTask.h> (the symbols SecTaskCreateFromSelf/
+ * SecTaskCopyValueForEntitlement DO exist in the framework — only the type declaration is missing), so
+ * pull in the system headers and guard-declare just SecTaskRef. SecAccessControlRef (next block) is a
+ * 10.10+ addition and is guard-declared here as well. */
 #include <Security/SecTrust.h>
 #include <Security/SecTask.h>
 #ifndef WEBKIT_BACKPORT_SECTASKREF

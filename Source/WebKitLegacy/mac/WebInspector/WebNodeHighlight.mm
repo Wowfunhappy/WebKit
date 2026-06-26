@@ -268,6 +268,8 @@ using namespace WebCore;
     ASSERT([_targetView window]);
 
     NSRect highlightWindowFrame = [_targetView convertRect:[_targetView visibleRect] toView:nil];
+    // MAVERICKS_BACKPORT: -[NSWindow convertPointToScreen:] is 10.12+; on 10.9 the origin is converted
+    // via the available -convertRectToScreen: (zero-size rect) and its origin is taken.
     NSRect screenRect = [[_targetView window] convertRectToScreen:NSMakeRect(highlightWindowFrame.origin.x, highlightWindowFrame.origin.y, 0, 0)];
     highlightWindowFrame.origin = screenRect.origin;
 

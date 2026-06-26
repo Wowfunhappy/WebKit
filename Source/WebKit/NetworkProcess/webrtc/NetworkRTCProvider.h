@@ -41,6 +41,9 @@
 #include <wtf/UniqueRef.h>
 #include <wtf/text/WTFString.h>
 
+// MAVERICKS_BACKPORT: pull in RTCNetwork.h for the WK_RTC_USE_NW macro and gate the libwebrtc
+// socket-factory members/methods on it (vs upstream PLATFORM(COCOA)). On 10.9 the nw_* path is
+// unavailable so WK_RTC_USE_NW == 0 selects the portable libwebrtc factory throughout this header.
 #include "RTCNetwork.h" // For WK_RTC_USE_NW.
 
 #if !WK_RTC_USE_NW
@@ -121,6 +124,8 @@ public:
 
     void closeSocket(WebCore::LibWebRTCSocketIdentifier);
 
+    // MAVERICKS_BACKPORT: nw_*-only accessors gated on WK_RTC_USE_NW (vs upstream PLATFORM(COCOA));
+    // declared only when the Cocoa Network.framework path is built (not on 10.9).
 #if WK_RTC_USE_NW
     bool webRTCInterfaceMonitoringViaNWEnabled() const;
     const std::optional<audit_token_t>& sourceApplicationAuditToken() const LIFETIME_BOUND { return m_sourceApplicationAuditToken; }
@@ -145,6 +150,8 @@ private:
 
     void addSocket(WebCore::LibWebRTCSocketIdentifier, std::unique_ptr<Socket>&&);
 
+    // MAVERICKS_BACKPORT: WK_RTC_USE_NW (vs upstream PLATFORM(COCOA)) picks the nw_* helper vs the
+    // portable libwebrtc rtcNetworkThread()/createSocket() helpers declared in the #else; on 10.9 the latter.
 #if WK_RTC_USE_NW
     const String& attributedBundleIdentifierFromPageIdentifier(WebPageProxyIdentifier);
 #else
@@ -173,6 +180,8 @@ private:
     mutable Lock m_sharedPreferencesLock;
     SharedPreferencesForWebProcess m_sharedPreferences WTF_GUARDED_BY_LOCK(m_sharedPreferencesLock);
 
+    // MAVERICKS_BACKPORT: WK_RTC_USE_NW (vs upstream PLATFORM(COCOA)) selects the nw_*-backed members
+    // here vs the portable libwebrtc m_packetSocketFactory below; on 10.9 only the latter is declared.
 #if WK_RTC_USE_NW
     HashMap<WebPageProxyIdentifier, String> m_attributedBundleIdentifiers;
     std::optional<audit_token_t> m_sourceApplicationAuditToken;

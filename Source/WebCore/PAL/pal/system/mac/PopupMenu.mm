@@ -52,6 +52,8 @@ void popUpMenu(NSMenu *menu, NSPoint location, float width, NSView *view, int se
 
     // These numbers were extracted from visual inspection as the menu animates shut.
     NSSize labelOffset = NSMakeSize(11, 1);
+    // MAVERICKS_BACKPORT: -[NSMenu userInterfaceLayoutDirection] is 10.11+ and absent on 10.9, so the RTL
+    // label-offset branch is hard-disabled (always the LTR offset) instead of calling the unavailable selector.
     /* userInterfaceLayoutDirection added in macOS 10.11 */
     if (NO)
         labelOffset = NSMakeSize(24, 1);

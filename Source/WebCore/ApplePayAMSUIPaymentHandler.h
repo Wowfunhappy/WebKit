@@ -25,6 +25,8 @@
 
 #pragma once
 
+// MAVERICKS_BACKPORT: this header is a flat-path copy of Source/WebCore/Modules/applepay-ams-ui/ApplePayAMSUIPaymentHandler.h, placed directly in Source/WebCore/ so the 10.9 build's include path resolves the bare "ApplePayAMSUIPaymentHandler.h" reference (the original still lives in its Modules subdirectory).
+
 #if ENABLE(APPLE_PAY_AMS_UI) && ENABLE(PAYMENT_REQUEST)
 
 #include "ApplePayAMSUIRequest.h"

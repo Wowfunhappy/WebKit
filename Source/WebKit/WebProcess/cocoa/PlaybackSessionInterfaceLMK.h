@@ -1,2 +1,3 @@
 #pragma once
+// MAVERICKS_BACKPORT: empty stub header that exists only in the backport. WebProcess/cocoa is on the WebKit include path, so a bare-name `#import "PlaybackSessionInterfaceLMK.h"` (which on iOS resolves to Platform/ios/PlaybackSessionInterfaceLMK.h) resolves here on the Mac/10.9 build, making the include a harmless no-op so the iOS-only LinearMediaKit PlaybackSessionInterfaceLMK type is not pulled into the Mac path.
 // stubbed

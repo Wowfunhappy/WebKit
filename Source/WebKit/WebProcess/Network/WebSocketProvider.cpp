@@ -54,6 +54,7 @@ RefPtr<ThreadableWebSocketChannel> WebSocketProvider::createWebSocketChannel(Doc
 
 WebSocketProvider::~WebSocketProvider() = default;
 
+// MAVERICKS_BACKPORT: defer acquiring the NetworkProcess connection (m_networkProcessConnection stays null here) instead of eagerly ensuring it in the constructor; it is fetched lazily on first WebTransport use, avoiding a too-early connection bring-up on 10.9.
 WebSocketProvider::WebSocketProvider(WebPageProxyIdentifier webPageProxyID)
     : m_webPageProxyID(webPageProxyID) { }
 
@@ -63,6 +64,7 @@ std::pair<RefPtr<WebCore::WebTransportSession>, Ref<WebTransportSessionPromise>>
         ASSERT(!RunLoop::isMain());
         Ref workerSession = WorkerWebTransportSession::create(context.identifier(), client);
 
+        // MAVERICKS_BACKPORT: because m_networkProcessConnection is a nullable RefPtr that starts null (see constructor), getConnection returns RefPtr and the validity check tolerates null; on null/invalid we lazily establish it on the main thread, then releaseNonNull() once known good.
         auto getConnection = [protectedThis = Ref { *this }]() -> RefPtr<IPC::Connection> {
             Locker locker { protectedThis->m_networkProcessConnectionLock };
             return protectedThis->m_networkProcessConnection;

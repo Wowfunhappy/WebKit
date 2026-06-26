@@ -1198,6 +1198,7 @@ dom/ActiveDOMObject.cpp
 dom/AddEventListenerOptions.cpp
 dom/AllDescendantsCollection.cpp
 dom/Attr.cpp
+// MAVERICKS_BACKPORT: compile BeforeLoadEvent.cpp standalone (@no-unify) so the restored beforeload event is built on 10.9 (uBlock network blocking depends on it).
 dom/BeforeLoadEvent.cpp @no-unify
 dom/BeforeTextInsertedEvent.cpp
 dom/BeforeUnloadEvent.cpp
@@ -1482,6 +1483,7 @@ editing/SplitTextNodeContainingElementCommand.cpp
 editing/TextCheckingHelper.cpp
 editing/TextInsertionBaseCommand.cpp
 editing/TextIterator.cpp
+// MAVERICKS_BACKPORT: compile TextListParser.cpp standalone (@no-unify) so its WebCore symbols are built for the 10.9 link (text input dyld-halt fix).
 editing/TextListParser.cpp @no-unify
 editing/TextManipulationController.cpp
 editing/TypingCommand.cpp

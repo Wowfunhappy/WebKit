@@ -30,6 +30,7 @@
 #include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
 
+// MAVERICKS_BACKPORT: gate the GStreamer MediaStream audio includes behind USE(GSTREAMER_MEDIA_STREAM); on 10.9 MediaStream capture uses the Cocoa/applemedia path, so these are not built.
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 #include "GStreamerAudioStreamDescription.h"
 #include "MediaStreamTrackPrivate.h"
@@ -47,6 +48,7 @@ public:
         return adoptRef(*new AudioSourceProviderGStreamer());
     }
 
+    // MAVERICKS_BACKPORT: gate the GStreamer MediaStream capture factory/constructor behind USE(GSTREAMER_MEDIA_STREAM); not built on 10.9 (Cocoa/applemedia capture path is used instead).
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     static Ref<AudioSourceProviderGStreamer> create(MediaStreamTrackPrivate& source)
     {
@@ -76,6 +78,7 @@ private:
 
     void determineSampleRate(const GstCaps*);
 
+    // MAVERICKS_BACKPORT: gate the GStreamer MediaStream capture member fields behind USE(GSTREAMER_MEDIA_STREAM); these are unused on 10.9 (Cocoa/applemedia capture path is used instead).
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
     WeakPtr<MediaStreamTrackPrivate> m_captureSource;
     RefPtr<MediaStreamPrivate> m_streamPrivate;

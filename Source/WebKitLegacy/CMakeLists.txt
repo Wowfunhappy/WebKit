@@ -11,10 +11,14 @@ set(WebKitLegacy_SOURCES
     Storage/WebDatabaseProvider.cpp
     Storage/WebStorageNamespaceProvider.cpp
 
+    # MAVERICKS_BACKPORT: build the legacy socket provider + WebKitLegacy inspector
+    # debuggable/controller sources, which the modern upstream WebKitLegacy build omits.
     WebCoreSupport/LegacySocketProvider.cpp
     WebCoreSupport/LegacyWebPageDebuggable.cpp
     WebCoreSupport/LegacyWebPageInspectorController.cpp
     WebCoreSupport/NetworkStorageSessionMap.cpp
+    # MAVERICKS_BACKPORT: compile the in-process SocketStreamHandle (CFNetwork) + legacy
+    # WebSocketChannel, the WebKitLegacy-side backing for the 10.9 WebSocket implementation.
     WebCoreSupport/SocketStreamHandle.cpp
     WebCoreSupport/SocketStreamHandleImpl.cpp
     WebCoreSupport/SocketStreamHandleImplCFNet.cpp

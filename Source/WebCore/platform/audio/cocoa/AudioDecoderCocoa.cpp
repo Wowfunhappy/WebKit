@@ -353,6 +353,8 @@ Ref<AudioDecoder::DecodePromise> InternalAudioDecoderCocoa::decode(Ref<SharedBuf
     if (!blockBuffer)
         return DecodePromise::createAndReject("Couldn't create CMBlockBuffer"_s);
 
+    // MAVERICKS_BACKPORT: call CMTimeMake directly (not via the PAL soft-link) because the CoreMedia
+    // PAL soft-link is unavailable on 10.9; CoreMedia is linked directly here instead.
     CMSampleTimingInfo packetTiming = {
         .duration = CMTimeMake(duration.value_or(0), 1000000), // CoreMedia does not deal with a CMSampleBuffer with a duration set to either invalid or indefinite. So use 0 instead if no duration has been provided.
         .presentationTimeStamp = CMTimeMake(timestamp, 1000000),
@@ -361,6 +363,8 @@ Ref<AudioDecoder::DecodePromise> InternalAudioDecoderCocoa::decode(Ref<SharedBuf
     size_t packetSize = frameData->size();
 
     CMSampleBufferRef rawSampleBuffer = nullptr;
+    // MAVERICKS_BACKPORT: call CMSampleBufferCreateReady directly (not via the PAL soft-link), which is
+    // unavailable on 10.9; CoreMedia is linked directly here instead.
     if (auto error = CMSampleBufferCreateReady(kCFAllocatorDefault, blockBuffer.get(), m_inputFormatDescription.get(), 1, 1, &packetTiming, 1, &packetSize, &rawSampleBuffer))
         return DecodePromise::createAndReject(makeString("CMSampleBufferCreateReady failed: OOM with error "_s, error));
 

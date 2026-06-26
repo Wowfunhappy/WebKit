@@ -175,6 +175,7 @@ NSString * const _WKLocalAuthenticatorCredentialLastUsedDateKey = @"_WKLocalAuth
         return nil;
 
 #if ENABLE(WEB_AUTHN)
+    // MAVERICKS_BACKPORT: API::WebAuthenticationPanel is not built in this backport, so the wrapper-backing object is not constructed here.
     // DISABLED:     API::Object::constructInWrapper<API::WebAuthenticationPanel>(self);
 #endif
     return self;

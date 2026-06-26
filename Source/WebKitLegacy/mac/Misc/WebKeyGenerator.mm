@@ -26,6 +26,11 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// MAVERICKS_BACKPORT: this file does not exist in the base; it reconstructs the legacy
+// WebKeyGenerator class (+sharedGenerator / -addCertificatesToKeychainFromData:) that Safari
+// 7.0.6 binds against to import downloaded X.509/PKCS#7 certificates into the keychain. Modern
+// WebKit removed it with the rest of legacy <keygen> support, so it is provided here for the 10.9 build.
+
 #import "WebKeyGenerator.h"
 
 #import "WebKitLogging.h"

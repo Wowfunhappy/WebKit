@@ -241,6 +241,9 @@ void MemoryPressureHandler::measurementTimerFired()
 
     setMemoryUsagePolicyBasedOnFootprint(footprint);
 
+    // MAVERICKS_BACKPORT: the upstream switch reclaims memory synchronously on the main thread here;
+    // on 10.9 that froze interaction, so the policy-driven reclamation is removed and footprint bounding
+    // moves off-thread (see comment below).
     // This poll only maintains the MemoryUsagePolicy above (which the rest of the engine reads via
     // currentMemoryUsagePolicy()/isUnderMemoryPressure()); it deliberately does NOT reclaim here.
     // Reclamation that runs synchronously on the main thread (cache eviction + scavenge) freezes

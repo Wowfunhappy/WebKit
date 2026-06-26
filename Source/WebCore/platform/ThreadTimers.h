@@ -28,6 +28,7 @@
 #define ThreadTimers_h
 
 #include <wtf/CheckedPtr.h>
+// MAVERICKS_BACKPORT: Lock.h is pulled in for the sharedTimerHeapLock() declaration added below.
 #include <wtf/Lock.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/Noncopyable.h>
@@ -38,6 +39,8 @@
 
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: exposes a shared lock (defined in Timer.cpp) serializing shared timer heap
+// mutations across threads on Mac, where the backport drives timers off non-main threads.
 #if PLATFORM(MAC)
 // Defined in Timer.cpp. Serializes shared timer heap mutations across threads.
 WEBCORE_EXPORT Lock& sharedTimerHeapLock();

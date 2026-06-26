@@ -125,6 +125,7 @@ void SwitchThumbMac::draw(GraphicsContext& context, const FloatRoundedRect& bord
         // FIXME: clipping in context() might not always be accurate for context().platformContext().
         trackImage->context().clipToImageBuffer(*maskImage, NSMakeRect(0, 0, inflatedTrackRect.width(), inflatedTrackRect.height()));
 
+        // MAVERICKS_BACKPORT: +[NSAppearance currentDrawingAppearance] is 10.14+; absent on 10.9, so guard with respondsToSelector: and fall back to nil instead of calling it unconditionally.
         [([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil) _drawInRect:drawingThumbRect context:cgContext options:@{
             (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)kCUIWidgetSwitchKnob,
             (__bridge NSString *)kCUIStateKey: (__bridge NSString *)(!isEnabled ? kCUIStateDisabled : isPressed ? kCUIStatePressed : kCUIStateActive),

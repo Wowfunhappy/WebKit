@@ -1154,10 +1154,14 @@ void WebEditorClient::requestCandidatesForSelection(const VisibleSelection& sele
     m_rangeForCandidates = NSMakeRange(selectionStartOffsetInParagraph, selectionLength);
     m_paragraphContextForCandidateRequest = contextForCandidateRequest.createNSString();
 
-    // macOS 10.9: NSSpellChecker has no requestCandidatesForSelectedRange. Skip candidates.
+    // MAVERICKS_BACKPORT: NSSpellChecker on 10.9 has no requestCandidatesForSelectedRange:...
+    // typed-candidate API, so the upstream async candidate request is skipped and the sequence
+    // number is left at 0 (no candidates are ever requested or delivered).
     m_lastCandidateRequestSequenceNumber = 0;
 }
 
+// MAVERICKS_BACKPORT: signature takes a bare NSArray (no NSArray<NSTextCheckingResult *> generics)
+// to match the header; on 10.9 candidates are never requested, so this is effectively dead.
 void WebEditorClient::handleRequestedCandidates(NSInteger sequenceNumber, NSArray *candidates)
 {
     if (![m_webView shouldRequestCandidates])

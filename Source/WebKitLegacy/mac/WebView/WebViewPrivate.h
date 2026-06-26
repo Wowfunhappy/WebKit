@@ -150,6 +150,7 @@ typedef enum {
 @property (nonatomic, retain) UIImage *dataInteractionImage;
 @property (nonatomic, assign) CGRect selectionRectInRootViewCoordinates;
 @property (nonatomic, assign) CGRect textBoundingRectInRootViewCoordinates;
+// MAVERICKS_BACKPORT: bare NSArray (no NSArray<NSValue *> lightweight generics) for the 10.9 build.
 @property (nonatomic, retain) NSArray *textRectsInBoundingRectCoordinates; // CGRect values
 @property (nonatomic, assign) CGFloat contentImageScaleFactor;
 @property (nonatomic, retain) UIImage *contentImageWithHighlight;
@@ -752,7 +753,7 @@ Could be worth adding to the API.
 // Removes all allow list entries created with _addOriginAccessAllowListEntryWithSourceOrigin.
 + (void)_resetOriginAccessAllowLists;
 
-// Safari 7-era compatibility aliases (the SPI was renamed "Whitelist" -> "AllowList"). Safari's
+// MAVERICKS_BACKPORT: Safari 7-era compatibility aliases (the SPI was renamed "Whitelist" -> "AllowList"). Safari's
 // extension-enable path still calls these names; forward to the AllowList implementations.
 + (void)_addOriginAccessWhitelistEntryWithSourceOrigin:(NSString *)sourceOrigin destinationProtocol:(NSString *)destinationProtocol destinationHost:(NSString *)destinationHost allowDestinationSubdomains:(BOOL)allowDestinationSubdomains;
 + (void)_removeOriginAccessWhitelistEntryWithSourceOrigin:(NSString *)sourceOrigin destinationProtocol:(NSString *)destinationProtocol destinationHost:(NSString *)destinationHost allowDestinationSubdomains:(BOOL)allowDestinationSubdomains;
@@ -1021,6 +1022,7 @@ typedef struct WebEdgeInsets {
 @end
 
 @interface WebView (WebViewIOSAdditions)
+// MAVERICKS_BACKPORT: bare NSArray (no NSArray<DOMElement *> lightweight generics) for the 10.9 build.
 - (NSArray *)_editableElementsInRect:(CGRect)rect;
 - (void)revealCurrentSelection;
 

@@ -25,6 +25,7 @@
 
 #pragma once
 
+// MAVERICKS_BACKPORT: the real ImageBufferSet header is GPU-process-only; on 10.9 we instead pull in the identifier header + ImageBuffer and define a local stub below.
 #if ENABLE(GPU_PROCESS)
 #include "ImageBufferSet.h"
 #endif
@@ -32,11 +33,13 @@
 #include "PrepareBackingStoreBuffersData.h"
 #include "RemoteLayerBackingStore.h"
 #include <WebCore/DynamicContentScalingResourceCache.h>
+// MAVERICKS_BACKPORT: needed for the local in-process ImageBufferSet stub's RefPtr<WebCore::ImageBuffer> members when GPU_PROCESS is off.
 #include <WebCore/ImageBuffer.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
 
+// MAVERICKS_BACKPORT: GPU_PROCESS is off on 10.9, so SwapBuffersDisplayRequirement and ImageBufferSet (both normally GPU-process-only) are provided here as local in-process definitions.
 #if !ENABLE(GPU_PROCESS)
 // SwapBuffersDisplayRequirement is normally defined in PrepareBackingStoreBuffersData.h
 // which is entirely guarded by ENABLE(GPU_PROCESS).

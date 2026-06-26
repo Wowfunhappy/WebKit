@@ -205,8 +205,10 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
     # the only thing we need is the interpreter. Unlike Python, cmake does not provide a macro
     # for finding only the Ruby interpreter.
     message(CHECK_START "Ruby interpreter executable")
+    # MAVERICKS_BACKPORT: macOS 10.9 ships Ruby 2.0; accept the older interpreter (1.9 floor instead of 2.5) so the build runs with the system Ruby.
     find_package(Ruby 1.9 QUIET)
     if (Ruby_EXECUTABLE AND Ruby_VERSION)
+        # MAVERICKS_BACKPORT: floor matches the lowered find_package requirement (1.9) for the 10.9 system Ruby.
         if (Ruby_VERSION VERSION_LESS 1.9)
             message(CHECK_FAIL "${Ruby_EXECUTABLE} (version: ${Ruby_VERSION}, minimum required 2.5)")
             set(Ruby_EXECUTABLE NOTFOUND)
@@ -217,6 +219,7 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
         message(CHECK_FAIL "not found")
     endif ()
     if (NOT Ruby_EXECUTABLE)
+        # MAVERICKS_BACKPORT: downgrade the missing-Ruby FATAL_ERROR to a WARNING so the 10.9 build proceeds with the system Ruby.
         message(WARNING "Ruby 2.5 or higher recommended.")
     endif ()
 

@@ -23,6 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// MAVERICKS_BACKPORT: _WKUserContentFilter and APIContentRuleList are not built in this backport, so this internal class extension is compiled out to avoid undefined-class errors.
 // _WKUserContentFilter class is excluded from build for this backport.
 // Guard the class extension to avoid "undefined class" errors.
 #if 0
@@ -40,4 +41,5 @@
 }
 @end
 
+// MAVERICKS_BACKPORT: closes the #if 0 guard that compiles out the _WKUserContentFilter class extension in this backport.
 #endif

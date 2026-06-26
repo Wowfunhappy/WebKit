@@ -45,6 +45,7 @@
     Vector<String> urlSchemesRegisteredAsAlwaysRevalidated;
     Vector<String> urlSchemesRegisteredAsCachePartitioned;
     Vector<String> urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest;
+    # MAVERICKS_BACKPORT: restored legacy custom-protocol scheme list (LegacyCustomProtocolManager / WebProcess registerURLSchemeAsCustom) used by the backport's custom-scheme network routing; field absent at base.
     Vector<String> urlSchemesRegisteredForCustomProtocols;
 
 #if ENABLE(WK_WEB_EXTENSIONS)

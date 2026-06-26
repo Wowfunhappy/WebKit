@@ -77,6 +77,8 @@ static bool canUseFastRenderer(std::span<const UniChar> buffer)
         point.y = CGCeiling(point.y);
 
         NSGraphicsContext *nsContext = [NSGraphicsContext currentContext];
+        // MAVERICKS_BACKPORT: -[NSGraphicsContext CGContext] is 10.10+; on 10.9 reach the
+        // CGContextRef through the -graphicsPort SPI (subsequent uses pass the raw ref, not a RetainPtr).
         CGContextRef cgContext = (CGContextRef)[nsContext graphicsPort];
         GraphicsContextCG graphicsContext { cgContext };
 
@@ -181,6 +183,7 @@ static bool canUseFastRenderer(std::span<const UniChar> buffer)
     return [cacheDirectory stringByAppendingPathComponent:bundleIdentifier];
 }
 
+// MAVERICKS_BACKPORT: provides the _webkit_fixedCarbonPOSIXPath SPI the base lacks, restored for the 10.9 build.
 // Safari 7-era compatibility: this NSString SPI was removed from modern WebKit, but Safari still
 // calls it (e.g. when resolving an extension's on-disk bundle path). Without it the call raises
 // NSInvalidArgumentException ("unrecognized selector"). A Carbon-style POSIX path can carry a

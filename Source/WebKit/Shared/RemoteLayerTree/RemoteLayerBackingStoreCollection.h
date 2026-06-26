@@ -100,11 +100,12 @@ protected:
     virtual void markBackingStoreVolatileAfterReachabilityChange(RemoteLayerBackingStore&);
     virtual void markAllBackingStoreVolatileFromTimer();
 
+    // MAVERICKS_BACKPORT: gate these remote-rendering volatility helpers behind ENABLE(GPU_PROCESS) to match their .mm definitions; GPU_PROCESS is off on 10.9, so without the guard these declarations reference the GPU-process-only RemoteImageBufferSetProxy type.
 #if ENABLE(GPU_PROCESS)
     bool collectRemoteRenderingBackingStoreBufferIdentifiersToMarkVolatile(RemoteLayerWithRemoteRenderingBackingStore&, OptionSet<VolatilityMarkingBehavior>, MonotonicTime now, Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>>&);
 
     bool collectAllRemoteRenderingBufferIdentifiersToMarkVolatile(OptionSet<VolatilityMarkingBehavior> liveBackingStoreMarkingBehavior, OptionSet<VolatilityMarkingBehavior> unparentedBackingStoreMarkingBehavior, Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>>&);
-#endif
+#endif // MAVERICKS_BACKPORT: closes the ENABLE(GPU_PROCESS) gate added for the 10.9 build (GPU_PROCESS off).
 
 
 private:
@@ -115,6 +116,7 @@ private:
     void volatilityTimerFired();
 
 protected:
+    // MAVERICKS_BACKPORT: gate behind ENABLE(GPU_PROCESS) to match the .mm definition; GPU_PROCESS is off on 10.9 and this signature names the GPU-process-only RemoteImageBufferSetProxy type.
 #if ENABLE(GPU_PROCESS)
     void sendMarkBuffersVolatile(Vector<std::pair<Ref<RemoteImageBufferSetProxy>, OptionSet<BufferInSetType>>>&&, CompletionHandler<void(bool)>&&, bool forcePurge = false);
 #endif

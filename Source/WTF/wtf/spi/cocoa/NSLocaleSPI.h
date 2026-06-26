@@ -42,6 +42,7 @@ DECLARE_SYSTEM_HEADER
 #endif
 
 @interface NSLocale ()
+// MAVERICKS_BACKPORT: declared with plain (non-lightweight-generic, non-nullability) NSArray * because the 10.9 toolchain/SDK lacks the Objective-C lightweight-generics (NSArray<NSString *> *) and nonnull annotations the upstream declaration uses.
 + (NSArray *)minimizedLanguagesFromLanguages:(NSArray *)languages;
 + (NSArray *)matchedLanguagesFromAvailableLanguages:(NSArray *)availableLanguages forPreferredLanguages:(NSArray *)preferredLanguages;
 @end

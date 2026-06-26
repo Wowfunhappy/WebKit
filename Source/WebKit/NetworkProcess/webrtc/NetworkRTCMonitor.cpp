@@ -46,6 +46,9 @@
 #include <wtf/WorkQueue.h>
 #include <wtf/posix/SocketPOSIX.h>
 
+// MAVERICKS_BACKPORT: gate the Network.framework nw_* monitor path on WK_RTC_USE_NW instead of
+// PLATFORM(COCOA); nw_path_monitor and friends are 10.14+, so on 10.9 we fall back to the portable
+// libwebrtc network monitor. See RTCNetwork.h for the macro definition.
 #if WK_RTC_USE_NW
 #include <pal/spi/cocoa/NetworkSPI.h>
 #include <wtf/BlockPtr.h>

@@ -26,7 +26,7 @@
 #include "config.h"
 #include "NetworkConnectionToWebProcess.h"
 
-
+// MAVERICKS_BACKPORT: incidental extra blank line from the 10.9 backport; no behavior change.
 #include "BlobDataFileReferenceWithSandboxExtension.h"
 #include "LogInitialization.h"
 #include "Logging.h"

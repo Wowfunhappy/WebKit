@@ -35,6 +35,7 @@ DECLARE_SYSTEM_HEADER
 
 #include <os/base.h>
 
+// MAVERICKS_BACKPORT: the 10.9 <os/base.h> predates these os/ helper macros, so provide fallback definitions for the os_state SPI declarations below to compile.
 #ifndef OS_EXPORT
 #define OS_EXPORT __attribute__((visibility("default")))
 #endif

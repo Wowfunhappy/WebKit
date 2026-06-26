@@ -2638,6 +2638,7 @@ void GraphicsLayerCA::updateContentsOpaque(float pageScaleFactor)
             contentsOpaque = false;
     }
 
+    // MAVERICKS_BACKPORT: Whitespace-only artifact (stripped trailing whitespace on the blank line above); no behavioral divergence from upstream here. The #124 force-non-opaque edit that once lived in this function was reverted, leaving this body upstream-equivalent.
     protect(m_layer)->setOpaque(contentsOpaque);
 
     if (m_layerClones) {

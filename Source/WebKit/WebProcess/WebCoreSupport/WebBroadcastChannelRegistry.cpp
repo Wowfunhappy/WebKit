@@ -26,7 +26,7 @@
 #include "config.h"
 #include "WebBroadcastChannelRegistry.h"
 
-
+// MAVERICKS_BACKPORT: 10.9 build divergence in this include block.
 #include "NetworkBroadcastChannelRegistryMessages.h"
 #include "NetworkProcessConnection.h"
 #include "WebProcess.h"

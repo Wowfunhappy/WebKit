@@ -26,6 +26,9 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// MAVERICKS_BACKPORT: this header (and its companion WebKeyGenerator.mm) is reconstructed
+// for the 10.9 build; modern upstream WebKit removed the class. Details below.
+//
 // 10.9 / Safari-7 backport: WebKeyGenerator is the legacy WebKit.framework class
 // that Safari 7.0.6 binds against (it sends +sharedGenerator and
 // -addCertificatesToKeychainFromData:). It is the receiver Safari uses to import

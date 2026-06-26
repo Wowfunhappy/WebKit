@@ -30,6 +30,7 @@
 #import "CacheModel.h"
 #import "Connection.h"
 #import "DownloadManager.h"
+// MAVERICKS_BACKPORT: GPU process is disabled on 10.9 (GPU_PROCESS off); guard the GPUProcessProxy import so it isn't required when the proxy isn't built.
 #if ENABLE(GPU_PROCESS)
 #import "GPUProcessProxy.h"
 #endif
@@ -71,7 +72,7 @@
 #import "WKGeolocationProviderIOS.h"
 #endif
 
-// encodedData property was added as public API in 10.12 but the method exists earlier.
+// MAVERICKS_BACKPORT: the -encodedData property is declared public only in the 10.12 SDK; it exists at runtime on 10.9, so re-declare it in a category to make it callable when building against an older SDK surface.
 @interface NSKeyedArchiver (WKEncodedData)
 @property (readonly, copy) NSData *encodedData;
 @end
@@ -277,6 +278,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     else
         [protect(processPool->ensureBundleParameters()) removeObjectForKey:parameter];
 
+    // MAVERICKS_BACKPORT: call -encodedData via message syntax (the property isn't declared on 10.9's SDK surface), backed by the category above.
     RetainPtr<NSData> data = [keyedArchiver.get() encodedData];
     processPool->sendToAllProcesses(Messages::WebProcess::SetInjectedBundleParameter(parameter, span(data.get())));
 }
@@ -296,6 +298,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     Ref processPool = *_processPool;
     [protect(processPool->ensureBundleParameters()) setValuesForKeysWithDictionary:copy.get()];
 
+    // MAVERICKS_BACKPORT: call -encodedData via message syntax (the property isn't declared on 10.9's SDK surface), backed by the category above.
     RetainPtr<NSData> data = [keyedArchiver.get() encodedData];
     processPool->sendToAllProcesses(Messages::WebProcess::SetInjectedBundleParameters(span(data.get())));
 }
@@ -589,6 +592,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     WebKit::setLockdownModeEnabledGloballyForTesting(std::nullopt);
 }
 
+// MAVERICKS_BACKPORT: GPU process is off on 10.9; guard these GPUProcessProxy-backed testing methods out so they don't reference an unbuilt proxy.
 #if ENABLE(GPU_PROCESS)
 + (void)_setEnableMetalDebugDeviceInNewGPUProcessesForTesting:(BOOL)enable
 {
@@ -699,6 +703,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     return WebKit::toAPI(protect(protect(*_processPool)->supplement<WebKit::WebNotificationManagerProxy>()).get());
 }
 
+// MAVERICKS_BACKPORT: GPU process is off on 10.9; guard the GPU process-info accessor out (GPUProcessProxy isn't built).
 #if ENABLE(GPU_PROCESS)
 + (_WKProcessInfo *)_gpuProcessInfo
 {

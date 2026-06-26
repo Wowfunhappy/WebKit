@@ -58,7 +58,7 @@ LocaleComponents parseLocale(const String& localeIdentifier)
 {
     auto locale = retainPtr([NSLocale localeWithLocaleIdentifier:localeIdentifier.createNSString().get()]);
 
-    /* languageCode/scriptCode/countryCode properties added in macOS 10.12 */
+    // MAVERICKS_BACKPORT: NSLocale languageCode/scriptCode/countryCode properties are 10.12+; on 10.9 read the components via objectForKey: with the classic NSLocale keys.
     return {
         [locale.get() objectForKey:NSLocaleLanguageCode],
         [locale.get() objectForKey:NSLocaleScriptCode],
@@ -82,6 +82,7 @@ RetainPtr<CFArrayRef> minimizedLanguagesFromLanguages(CFArrayRef languages)
     }
 
 ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
+    // MAVERICKS_BACKPORT: the 10.9 SDK lacks the NSArray<NSString *> lightweight-generic syntax, so the bridge cast uses the plain NSArray * type.
     return (__bridge CFArrayRef)[NSLocale minimizedLanguagesFromLanguages:(__bridge NSArray *)languages];
 ALLOW_NEW_API_WITHOUT_GUARDS_END
 }

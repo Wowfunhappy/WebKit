@@ -26,6 +26,7 @@
 #import "config.h"
 #import "RemoteLayerWithRemoteRenderingBackingStore.h"
 
+// MAVERICKS_BACKPORT: this remote-rendering backing store is GPU-process-only; the entire implementation is compiled out on 10.9 (in-process rendering only).
 #if ENABLE(GPU_PROCESS)
 
 #import "PlatformCALayerRemote.h"

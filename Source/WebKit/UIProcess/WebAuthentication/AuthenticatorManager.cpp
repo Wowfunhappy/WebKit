@@ -359,6 +359,9 @@ void AuthenticatorManager::authenticatorStatusUpdated(WebAuthenticationStatus st
 
 void AuthenticatorManager::requestPin(uint64_t retries, CompletionHandler<void(const WTF::String&)>&& completionHandler)
 {
+    // MAVERICKS_BACKPORT: invoke completionHandler({ }) on the early-out instead
+    // of dropping it. A CompletionHandler destroyed without being called trips
+    // a RELEASE_ASSERT in WTF, so the no-pending-request path must still call it.
     if (!m_pendingRequest || !m_pendingRequest->completionHandler)
         return completionHandler({ });
 
@@ -393,6 +396,9 @@ void AuthenticatorManager::requestPin(uint64_t retries, CompletionHandler<void(c
 
 void AuthenticatorManager::requestNewPin(uint64_t minLength, CompletionHandler<void(const WTF::String&)>&& completionHandler)
 {
+    // MAVERICKS_BACKPORT: invoke completionHandler({ }) on the early-out instead
+    // of dropping it. A CompletionHandler destroyed without being called trips
+    // a RELEASE_ASSERT in WTF, so the no-pending-request path must still call it.
     if (!m_pendingRequest || !m_pendingRequest->completionHandler)
         return completionHandler({ });
 

@@ -46,6 +46,11 @@ namespace WTF {
 
 #if PLATFORM(COCOA)
 
+// MAVERICKS_BACKPORT: the entire COCOA SHA1 implementation below (SHA1State helpers,
+// constructor, addBytes, computeHash) replaces the CommonCrypto CC_SHA1_* calls with a
+// built-in reference implementation, because CC_SHA1_Update crashes on 10.9 (see detail
+// immediately below). State is stored inside the existing CC_SHA1_CTX bytes so the header
+// layout / sizeof(SHA1) is unchanged.
 // On macOS 10.9, CC_SHA1_Update crashes inside ccdigest_update at memmove(0x40,...)
 // because libcorecrypto's internal context layout differs from the public CC_SHA1_CTX
 // shape. Use a built-in reference implementation that stores its state directly inside
@@ -122,11 +127,13 @@ inline SHA1State& stateOf(CC_SHA1_CTX& ctx)
 
 SHA1::SHA1()
 {
+    // MAVERICKS_BACKPORT: use the built-in implementation instead of CC_SHA1_Init (the CC_SHA1_* path crashes on 10.9; see block header above).
     refReset(stateOf(m_context));
 }
 
 void SHA1::addBytes(std::span<const std::byte> input)
 {
+    // MAVERICKS_BACKPORT: built-in block hashing instead of CC_SHA1_Update (crashes on 10.9; see block header above).
     auto& s = stateOf(m_context);
     for (auto byte : input) {
         s.buffer[s.cursor++] = std::to_integer<uint8_t>(byte);
@@ -138,6 +145,7 @@ void SHA1::addBytes(std::span<const std::byte> input)
 
 void SHA1::computeHash(Digest& digest)
 {
+    // MAVERICKS_BACKPORT: built-in padding/finalization instead of CC_SHA1_Final (CC_SHA1_* crashes on 10.9; see block header above).
     auto& s = stateOf(m_context);
     s.buffer[s.cursor++] = 0x80;
     if (s.cursor > 56) {

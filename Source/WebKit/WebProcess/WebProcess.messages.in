@@ -49,6 +49,7 @@ messages -> WebProcess : AuxiliaryProcess WantsAsyncDispatchMessage {
     RegisterURLSchemeAsCachePartitioned(String scheme)
     RegisterURLSchemeAsCanDisplayOnlyIfCanRequest(String scheme)
 
+    # MAVERICKS_BACKPORT: restored custom-protocol scheme (un)registration IPC messages the base lacks; the 10.9 build routes custom URL schemes through the legacy CFURLProtocol/custom-protocol path, so the WebProcess must learn which schemes are claimed.
     RegisterURLSchemeForCustomProtocol(String scheme)
     UnregisterURLSchemeForCustomProtocol(String scheme)
 

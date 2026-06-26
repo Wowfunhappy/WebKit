@@ -92,6 +92,7 @@ IGNORE_NULL_CHECK_WARNINGS_END
     connectionConfiguration.hostAppAuditTokenData = WTF::move(hostAppAuditTokenData);
 #endif
 
+    // MAVERICKS_BACKPORT: API::WebPushDaemonConnection is not built in this backport, so the wrapper-backing object is not constructed here.
     // DISABLED:     API::Object::constructInWrapper<API::WebPushDaemonConnection>(self, configuration.machServiceName, WTF::move(connectionConfiguration));
 
     return self;

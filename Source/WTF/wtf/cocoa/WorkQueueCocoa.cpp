@@ -56,7 +56,7 @@ void WorkQueueBase::dispatch(Function<void()>&& function)
 
 void WorkQueueBase::dispatchWithQOS(Function<void()>&& function, QOS qos)
 {
-    /* dispatch_block_create_with_qos_class not available on macOS 10.9 */
+    // MAVERICKS_BACKPORT: dispatch_block_create_with_qos_class is 10.10+; on 10.9 ignore the requested QoS and dispatch the work item plainly.
     UNUSED_PARAM(qos);
     dispatch_async_f(m_dispatchQueue.get(), new DispatchWorkItem { WTF::move(function) }, dispatchWorkItem<DispatchWorkItem>);
 }
@@ -80,6 +80,7 @@ WorkQueueBase::WorkQueueBase(OSObjectPtr<dispatch_queue_t>&& dispatchQueue)
 void WorkQueueBase::platformInitialize(ASCIILiteral name, Type type, QOS qos)
 {
     dispatch_queue_attr_t attr = type == Type::Concurrent ? DISPATCH_QUEUE_CONCURRENT : DISPATCH_QUEUE_SERIAL;
+    // MAVERICKS_BACKPORT: HAVE(QOS_CLASSES) is false on 10.9, so guard dispatch_queue_attr_make_with_qos_class (10.10+) and create the queue with default scheduling.
 #if HAVE(QOS_CLASSES)
     attr = dispatch_queue_attr_make_with_qos_class(attr, Thread::dispatchQOSClass(qos), 0);
 #else

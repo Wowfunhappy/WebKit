@@ -64,7 +64,7 @@ void NetworkLoadScheduler::HostContext::schedule(NetworkLoad& load)
         auto& request = load.currentRequest();
         if (request.priority() > WebCore::ResourceLoadPriority::Low)
             return true;
-
+        // MAVERICKS_BACKPORT: trailing whitespace stripped from this blank line in the 10.9 backport; no behavior change.
         if (request.isConditional())
             return true;
 

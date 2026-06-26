@@ -64,6 +64,7 @@ public:
 
     bool displayDidRefreshIsPending() const { return m_waitingForBackingStoreSwap; }
 
+    // MAVERICKS_BACKPORT: gpuProcessConnectionWasDestroyed() is wrapped in ENABLE(GPU_PROCESS) so it only compiles when the GPU process is built; the 10.9 backport keeps the guard to match its conditional GPU-process support.
 #if ENABLE(GPU_PROCESS)
     void gpuProcessConnectionWasDestroyed();
 #endif

@@ -41,6 +41,7 @@ public:
 
     bool hasFrame() const { return !!m_frame; }
 
+    // MAVERICKS_BACKPORT: declared out-of-line (not inline) so the 10.9 toolchain emits a linkable symbol and avoids -Wundefined-inline.
     LocalFrame* frame() const; // Defined in FrameDestructionObserverInlines.h. (inline removed for backport -Wundefined-inline)
 
 protected:
