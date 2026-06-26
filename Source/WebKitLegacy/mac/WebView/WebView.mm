@@ -1394,13 +1394,7 @@ typedef enum {
 
 + (NSString *)_standardUserAgentWithApplicationName:(NSString *)applicationName
 {
-    // PATCH: Bypass WebCore::standardUserAgentWithApplicationName which calls
-    // into stubbed code that returns invalid String values on macOS 10.9 backport.
-    // Hardcode a reasonable user agent and append the application name.
-    NSString *base = @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_5) AppleWebKit/605.1.15 (KHTML, like Gecko)";
-    if (applicationName && [applicationName length])
-        return [NSString stringWithFormat:@"%@ %@", base, applicationName];
-    return base;
+    return WebCore::standardUserAgentWithApplicationName(applicationName).createNSString().autorelease();
 }
 
 #if PLATFORM(IOS_FAMILY)

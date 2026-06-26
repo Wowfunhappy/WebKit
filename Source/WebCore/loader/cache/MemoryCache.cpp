@@ -53,19 +53,14 @@ static const int cDefaultCacheCapacity = 8192 * 1024;
 static const Seconds cMinDelayBeforeLiveDecodedPrune { 1_s };
 static const float cTargetPrunePercentage = .95f; // Percentage of capacity toward which we prune, to avoid immediately pruning again.
 
-// MAVERICKS_BACKPORT: keystone band-aid (#54 broken main-thread identity under dispatch_main()).
-// Throughout this file the upstream `RELEASE_ASSERT(isMainThread())` guards are relaxed: worker
-// threads reach MemoryCache via CachedResource destruction (script-load cleanup), and on this
-// backport isMainThread() is unreliable, so the asserts would crash and Workers could not be
-// enabled at all. The relaxations only tolerate the worker path; no cache logic is changed. The
-// `/* MAVERICKS_BACKPORT: relaxed for worker access (#54) */` one-liners below are all the same
-// pattern as this site — the representative explanation lives here.
 MemoryCache& MemoryCache::singleton()
 {
-    // MAVERICKS_BACKPORT: keystone band-aid (#54). Relax main-thread assertion. Worker threads call
-    // into MemoryCache via CachedResource destruction (script load cleanup). The race is real but
-    // rare; without this relaxation Workers can't be enabled at all because Worker::create's
-    // downstream WorkerScriptLoader path hits CachedResource → MemoryCache::singleton → RELEASE_ASSERT crash.
+    // MAVERICKS_BACKPORT (#54): tolerate resolving the singleton off the main thread. On this
+    // backport isMainThread() is unreliable under dispatch_main(), so the upstream
+    // RELEASE_ASSERT(isMainThread()) here would abort when a worker resolves the singleton during
+    // CachedResource teardown. Only the singleton lookup is relaxed; every mutator/accessor below
+    // keeps its RELEASE_ASSERT(isMainThread()) — production worker resource loads marshal to the
+    // main thread (WorkerThreadableLoader), so they never reach those methods off the main thread.
     static NeverDestroyed<MemoryCache> memoryCache;
     return memoryCache;
 }
@@ -89,7 +84,7 @@ MemoryCache::MemoryCache()
 auto MemoryCache::sessionResourceMap(PAL::SessionID sessionID) const -> CachedResourceMap*
 {
     RELEASE_ASSERT(sessionID.isValid());
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     RELEASE_ASSERT(m_sessionResources.isValidKey(sessionID));
     return m_sessionResources.get(sessionID);
 }
@@ -97,7 +92,7 @@ auto MemoryCache::sessionResourceMap(PAL::SessionID sessionID) const -> CachedRe
 auto MemoryCache::ensureSessionResourceMap(PAL::SessionID sessionID) -> CachedResourceMap&
 {
     RELEASE_ASSERT(sessionID.isValid());
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     RELEASE_ASSERT(m_sessionResources.isValidKey(sessionID));
     auto& map = m_sessionResources.add(sessionID, nullptr).iterator->value;
     if (!map)
@@ -126,7 +121,7 @@ URL MemoryCache::removeFragmentIdentifierIfNeeded(const URL& originalURL)
 
 bool MemoryCache::add(CachedResource& resource)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
 
     if (disabled())
         return false;
@@ -152,7 +147,7 @@ bool MemoryCache::add(CachedResource& resource)
 
 void MemoryCache::revalidationSucceeded(CachedResource& revalidatingResource, const ResourceResponse& response)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     ASSERT(response.source() == ResourceResponse::Source::MemoryCacheAfterValidation);
     ASSERT(revalidatingResource.resourceToRevalidate());
     RefPtr protectedRevalidatingResource { revalidatingResource };
@@ -192,7 +187,7 @@ void MemoryCache::revalidationSucceeded(CachedResource& revalidatingResource, co
 
 void MemoryCache::revalidationFailed(CachedResource& revalidatingResource)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     LOG(ResourceLoading, "Revalidation failed for %p", &revalidatingResource);
     ASSERT(revalidatingResource.resourceToRevalidate());
     revalidatingResource.clearResourceToRevalidate();
@@ -200,7 +195,7 @@ void MemoryCache::revalidationFailed(CachedResource& revalidatingResource)
 
 CachedResource* MemoryCache::resourceForRequest(const ResourceRequest& request, PAL::SessionID sessionID)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     // FIXME: Change all clients to make sure HTTP(s) URLs have no fragment identifiers before calling here.
     // CachedResourceLoader is now doing this. Add an assertion once all other clients are doing it too.
     auto* resources = sessionResourceMap(sessionID);
@@ -233,7 +228,7 @@ unsigned MemoryCache::liveCapacity() const
 
 void MemoryCache::pruneLiveResources(bool shouldDestroyDecodedDataForAllLiveResources)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     unsigned capacity = shouldDestroyDecodedDataForAllLiveResources ? 0 : liveCapacity();
     if (capacity && m_liveSize <= capacity)
         return;
@@ -245,7 +240,7 @@ void MemoryCache::pruneLiveResources(bool shouldDestroyDecodedDataForAllLiveReso
 
 void MemoryCache::forEachResource(NOESCAPE const Function<void(CachedResource&)>& function)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     Vector<CachedResourceHandle<CachedResource>> allResources;
     for (auto& lruList : m_allResources) {
         allResources.reserveCapacity(allResources.size() + lruList->computeSize());
@@ -259,7 +254,7 @@ void MemoryCache::forEachResource(NOESCAPE const Function<void(CachedResource&)>
 
 void MemoryCache::forEachSessionResource(PAL::SessionID sessionID, NOESCAPE const Function<void(CachedResource&)>& function)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     RELEASE_ASSERT(m_sessionResources.isValidKey(sessionID));
     auto it = m_sessionResources.find(sessionID);
     if (it == m_sessionResources.end())
@@ -273,7 +268,7 @@ void MemoryCache::forEachSessionResource(PAL::SessionID sessionID, NOESCAPE cons
 
 void MemoryCache::destroyDecodedDataForAllImages()
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     forEachResource([](CachedResource& resource) {
         if (auto cachedImage = dynamicDowncast<CachedImage>(resource)) {
             if (RefPtr image = cachedImage->image())
@@ -284,7 +279,7 @@ void MemoryCache::destroyDecodedDataForAllImages()
 
 void MemoryCache::pruneLiveResourcesToSize(unsigned targetSize, bool shouldDestroyDecodedDataForAllLiveResources)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     if (m_inPruneResources)
         return;
 
@@ -340,7 +335,7 @@ void MemoryCache::pruneLiveResourcesToSize(unsigned targetSize, bool shouldDestr
 void MemoryCache::pruneDeadResources()
 {
     LOG(ResourceLoading, "MemoryCache::pruneDeadResources");
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
 
     unsigned capacity = deadCapacity();
     if (capacity && m_deadSize <= capacity)
@@ -352,7 +347,7 @@ void MemoryCache::pruneDeadResources()
 
 void MemoryCache::pruneDeadResourcesToSize(unsigned targetSize)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     if (m_inPruneResources)
         return;
 
@@ -437,7 +432,7 @@ void MemoryCache::setCapacities(unsigned minDeadBytes, unsigned maxDeadBytes, un
 
 void MemoryCache::remove(CachedResource& resource)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     RefPtr protectedResource { resource };
 
     LOG(ResourceLoading, "Evicting resource %p for '%.255s' from cache", &resource, resource.url().string().latin1().data());
@@ -473,7 +468,7 @@ void MemoryCache::remove(CachedResource& resource)
 
 auto MemoryCache::lruListFor(CachedResource& resource) -> LRUList&
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     unsigned accessCount = std::max(resource.accessCount(), 1U);
     unsigned queueIndex = WTF::fastLog2(resource.size() / accessCount);
 #if ASSERT_ENABLED
@@ -488,7 +483,7 @@ auto MemoryCache::lruListFor(CachedResource& resource) -> LRUList&
 
 void MemoryCache::removeFromLRUList(CachedResource& resource)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     // If we've never been accessed, then we're brand new and not in any list.
     if (!resource.accessCount())
         return;
@@ -508,7 +503,7 @@ void MemoryCache::removeFromLRUList(CachedResource& resource)
 
 void MemoryCache::insertInLRUList(CachedResource& resource)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     ASSERT(resource.inCache());
     ASSERT(resource.accessCount() > 0);
     
@@ -518,7 +513,7 @@ void MemoryCache::insertInLRUList(CachedResource& resource)
 
 void MemoryCache::resourceAccessed(CachedResource& resource)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     ASSERT(resource.inCache());
     
     // Need to make sure to remove before we increase the access count, since
@@ -538,13 +533,13 @@ void MemoryCache::resourceAccessed(CachedResource& resource)
 
 bool MemoryCache::inLiveDecodedResourcesList(CachedResource& resource) const
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     return m_liveDecodedResources.contains(resource);
 }
 
 void MemoryCache::removeResourcesWithOrigin(const SecurityOrigin& origin, const String& cachePartition)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     Vector<WeakPtr<CachedResource>> resourcesWithOrigin;
     for (auto& resources : m_sessionResources.values()) {
         for (auto& keyValue : *resources) {
@@ -568,21 +563,21 @@ void MemoryCache::removeResourcesWithOrigin(const SecurityOrigin& origin, const 
 
 void MemoryCache::removeResourcesWithOrigin(const SecurityOrigin& origin)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     String originPartition = ResourceRequest::partitionName(origin.host());
     removeResourcesWithOrigin(origin, originPartition);
 }
 
 void MemoryCache::removeResourcesWithOrigin(const ClientOrigin& origin)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     auto cachePartition = origin.topOrigin == origin.clientOrigin ? emptyString() : ResourceRequest::partitionName(origin.topOrigin.host());
     removeResourcesWithOrigin(origin.clientOrigin.securityOrigin(), cachePartition);
 }
 
 void MemoryCache::removeResourcesWithOrigins(PAL::SessionID sessionID, const HashSet<Ref<SecurityOrigin>>& origins)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     auto* resourceMap = sessionResourceMap(sessionID);
     if (!resourceMap)
         return;
@@ -612,7 +607,7 @@ void MemoryCache::removeResourcesWithOrigins(PAL::SessionID sessionID, const Has
 
 void MemoryCache::getOriginsWithCache(SecurityOriginSet& origins)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     for (auto& resources : m_sessionResources.values()) {
         for (auto& keyValue : *resources) {
             Ref resource = *keyValue.value;
@@ -627,7 +622,7 @@ void MemoryCache::getOriginsWithCache(SecurityOriginSet& origins)
 
 HashSet<Ref<SecurityOrigin>> MemoryCache::originsWithCache(PAL::SessionID sessionID) const
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
 
     HashSet<Ref<SecurityOrigin>> origins;
 
@@ -648,19 +643,19 @@ HashSet<Ref<SecurityOrigin>> MemoryCache::originsWithCache(PAL::SessionID sessio
 
 void MemoryCache::removeFromLiveDecodedResourcesList(CachedResource& resource)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     m_liveDecodedResources.remove(resource);
 }
 
 void MemoryCache::moveToEndOfLiveDecodedResourcesListIfPresent(CachedResource& resource)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     m_liveDecodedResources.moveToLastIfPresent(resource);
 }
 
 void MemoryCache::insertInLiveDecodedResourcesList(CachedResource& resource)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     // Make sure we aren't in the list already.
     ASSERT(!m_liveDecodedResources.contains(resource));
     m_liveDecodedResources.add(resource);
@@ -668,21 +663,21 @@ void MemoryCache::insertInLiveDecodedResourcesList(CachedResource& resource)
 
 void MemoryCache::addToLiveResourcesSize(CachedResource& resource)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     m_liveSize += resource.size();
     m_deadSize -= resource.size();
 }
 
 void MemoryCache::removeFromLiveResourcesSize(CachedResource& resource)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     m_liveSize -= resource.size();
     m_deadSize += resource.size();
 }
 
 void MemoryCache::adjustSize(bool live, long long delta)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     if (live) {
         ASSERT(delta >= 0 || (static_cast<long long>(m_liveSize) + delta >= 0));
         m_liveSize += delta;
@@ -755,7 +750,7 @@ MemoryCache::Statistics MemoryCache::getStatistics()
 
 void MemoryCache::setDisabled(bool disabled)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     m_disabled = disabled;
     if (!m_disabled)
         return;
@@ -770,7 +765,7 @@ void MemoryCache::setDisabled(bool disabled)
 
 void MemoryCache::evictResources()
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     if (disabled())
         return;
 
@@ -780,7 +775,7 @@ void MemoryCache::evictResources()
 
 void MemoryCache::evictResources(PAL::SessionID sessionID)
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     if (disabled())
         return;
 
@@ -796,7 +791,7 @@ bool MemoryCache::needsPruning() const
 
 void MemoryCache::prune()
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     if (!needsPruning())
         return;
         
@@ -806,7 +801,7 @@ void MemoryCache::prune()
 
 void MemoryCache::pruneSoon()
 {
-    /* MAVERICKS_BACKPORT: relaxed for worker access (#54) */ if (!isMainThread()) { /* main-thread-only path; tolerate worker access */ }
+    RELEASE_ASSERT(isMainThread());
     if (!needsPruning())
         return;
     if (m_pruneTimer.isActive())

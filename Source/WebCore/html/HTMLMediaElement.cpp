@@ -9711,22 +9711,25 @@ void HTMLMediaElement::scheduleUpdateShouldAutoplay()
 
 void HTMLMediaElement::updateShouldAutoplay()
 {
-    // MAVERICKS_BACKPORT: behavior fix (#35/#75 media backport). re-disabled (paired with
-    // Page::mediaSessionManager revert) — updateShouldAutoplay's mediaSession path is not safe here.
-    return;
     if (!autoplay())
         return;
 
-    Ref mediaSession = this->mediaSession();
-    if (!mediaSession->hasBehaviorRestriction(MediaElementSession::InvisibleAutoplayNotPermitted) && !m_wasInterruptedForInvisibleAutoplay)
+    // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75 mediaSessionIfExists null-guard). mediaSession() lazily
+    // inits m_mediaSession, which may leave it null on this build (stubbed media paths); guard before
+    // dereferencing rather than constructing a null Ref.
+    auto* session = mediaSessionIfExists();
+    if (!session)
         return;
 
-    bool canAutoplay = mediaSession->autoplayPermitted();
+    if (!session->hasBehaviorRestriction(MediaElementSession::InvisibleAutoplayNotPermitted) && !m_wasInterruptedForInvisibleAutoplay)
+        return;
+
+    bool canAutoplay = session->autoplayPermitted();
 
     if (canAutoplay) {
         if (m_wasInterruptedForInvisibleAutoplay) {
             m_wasInterruptedForInvisibleAutoplay = false;
-            mediaSession->endInterruption(PlatformMediaSession::EndInterruptionFlags::MayResumePlaying);
+            session->endInterruption(PlatformMediaSession::EndInterruptionFlags::MayResumePlaying);
             return;
         }
         if (!isPlaying())
@@ -9734,16 +9737,16 @@ void HTMLMediaElement::updateShouldAutoplay()
         return;
     }
 
-    if (mediaSession->state() == PlatformMediaSession::State::Interrupted)
+    if (session->state() == PlatformMediaSession::State::Interrupted)
         return;
 
     if (m_wasInterruptedForInvisibleAutoplay) {
         m_wasInterruptedForInvisibleAutoplay = false;
-        mediaSession->endInterruption(PlatformMediaSession::EndInterruptionFlags::NoFlags);
+        session->endInterruption(PlatformMediaSession::EndInterruptionFlags::NoFlags);
     }
 
     m_wasInterruptedForInvisibleAutoplay = true;
-    mediaSession->beginInterruption(PlatformMediaSession::InterruptionType::InvisibleAutoplay);
+    session->beginInterruption(PlatformMediaSession::InterruptionType::InvisibleAutoplay);
 }
 
 void HTMLMediaElement::updateShouldPlay()

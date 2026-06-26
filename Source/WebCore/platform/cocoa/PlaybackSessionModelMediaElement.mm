@@ -807,7 +807,8 @@ String PlaybackSessionModelMediaElement::externalPlaybackLocalizedDeviceName() c
 
 bool PlaybackSessionModelMediaElement::wirelessVideoPlaybackDisabled() const
 {
-    // wirelessVideoPlaybackDisabled is unavailable in this build configuration.
+    if (RefPtr mediaElement = m_mediaElement)
+        return mediaElement->mediaSession().wirelessVideoPlaybackDisabled();
     return false;
 }
 

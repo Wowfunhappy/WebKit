@@ -34,7 +34,7 @@
 {
     if (!(self = [super init]))
         return nil;
-    // DISABLED:     API::Object::constructInWrapper<API::UserInitiatedAction>(self);
+    API::Object::constructInWrapper<API::UserInitiatedAction>(self);
     return self;
 }
 

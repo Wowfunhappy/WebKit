@@ -1563,28 +1563,27 @@ static NSControlStateValue NODELETE kit(TriState state)
 #if PLATFORM(MAC)
     ASSERT(!_private->subviewsSetAside);
     ASSERT(_private->savedSubviews == nil);
-// stubbed for 10.9
-    // We need to keep the layer-hosting view in the subviews, otherwise the layers flash.
-    if (_private->layerHostingView) {
-        NSMutableArray* newSubviews = [[NSMutableArray alloc] initWithObjects:_private->layerHostingView, nil];
-// stubbed for 10.9
-    } else
-// stubbed for 10.9
+    // MAVERICKS_BACKPORT: the upstream _subviewsIvar/_setSubviewsIvar: property is 10.12+ AppKit SPI
+    // (absent at runtime on 10.9), so set the subviews aside through the long-standing public
+    // -subviews/-setSubviews: API instead. We keep the layer-hosting view in the subviews, otherwise
+    // the layers flash.
+    _private->savedSubviews = [[self subviews] copy];
+    if (_private->layerHostingView)
+        [self setSubviews:@[_private->layerHostingView]];
+    else
+        [self setSubviews:@[]];
     _private->subviewsSetAside = YES;
 #endif
  }
- 
+
  - (void)_restoreSubviews
  {
 #if PLATFORM(MAC)
     ASSERT(_private->subviewsSetAside);
-    if (_private->layerHostingView) {
-
-
-    } else {
-
-
-    }
+    // MAVERICKS_BACKPORT: restore through public -setSubviews: (see -_setAsideSubviews). savedSubviews
+    // was retained with -copy above, so release it after handing it back to AppKit.
+    [self setSubviews:(_private->savedSubviews ?: @[])];
+    [_private->savedSubviews release];
     _private->savedSubviews = nil;
     _private->subviewsSetAside = NO;
 #endif

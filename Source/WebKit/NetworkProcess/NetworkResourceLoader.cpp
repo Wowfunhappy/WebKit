@@ -1285,8 +1285,11 @@ void NetworkResourceLoader::willSendRedirectedRequestInternal(ResourceRequest&& 
     } else if (!result.error().isEmpty())
         addConsoleMessage(MessageSource::PrivateClickMeasurement, MessageLevel::Error, result.error());
 
-    // 10.9 backport: skip cache storage of redirects (same workaround as tryStoreAsCacheEntry).
-    (void)isFromServiceWorker;
+    if (isFromServiceWorker == IsFromServiceWorker::No) {
+        auto maxAgeCap = validateCacheEntryForMaxAgeCapValidation(request, redirectRequest, redirectResponse);
+        if (redirectResponse.source() == ResourceResponse::Source::Network && canUseCachedRedirect(request))
+            protect(m_cache)->storeRedirect(request, redirectResponse, redirectRequest, maxAgeCap);
+    }
 
     if (isMainResource() && shouldInterruptNavigationForCrossOriginEmbedderPolicy(redirectResponse)) {
         this->didFailLoading(ResourceError { errorDomainWebKitInternal, 0, redirectRequest.url(), "Redirection was blocked by Cross-Origin-Embedder-Policy"_s, ResourceError::Type::AccessControl });

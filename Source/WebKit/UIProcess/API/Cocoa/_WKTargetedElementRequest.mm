@@ -50,7 +50,9 @@
     if (!(self = [super init]))
         return nil;
 
-    // DISABLED:     API::Object::constructInWrapper<API::TargetedElementRequest>(self);
+    // MAVERICKS_BACKPORT: construct the AlignedStorage<API::TargetedElementRequest> backing _request;
+    // initWith*/getters/dealloc all deref it, so it must be placement-new'd here.
+    API::Object::constructInWrapper<API::TargetedElementRequest>(self);
     return self;
 }
 

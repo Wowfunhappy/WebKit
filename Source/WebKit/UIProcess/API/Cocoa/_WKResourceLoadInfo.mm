@@ -210,7 +210,7 @@ static _WKResourceLoadInfoResourceType NODELETE toWKResourceLoadInfoResourceType
         static_cast<WebKit::ResourceLoadInfo::Type>(type.get().unsignedCharValue),
     };
 
-    // DISABLED:     API::Object::constructInWrapper<API::ResourceLoadInfo>(self, WTF::move(info));
+    API::Object::constructInWrapper<API::ResourceLoadInfo>(self, WTF::move(info));
 
     return self;
 }

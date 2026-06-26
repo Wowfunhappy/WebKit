@@ -79,12 +79,6 @@ static inline SharedWorkerObjectConnection* mainThreadConnection()
 
 ExceptionOr<Ref<SharedWorker>> SharedWorker::create(Document& document, Variant<Ref<TrustedScriptURL>, String>&& scriptURLString, std::optional<Variant<String, WorkerOptions>>&& maybeOptions)
 {
-    // MAVERICKS_BACKPORT: KEYSTONE BAND-AID #55 (IPC/render cadence — no true CFRunLoop in
-    // WebContent) — early-returns NotSupportedError to mask a WorkerDedicatedRunLoop null deref
-    // (in WorkerDedicatedRunLoop::runInMode + 668). Reject construction so sites fall back to
-    // non-SharedWorker code paths.
-    // FLAG: fix the #55 run-loop keystone, then restore SharedWorker construction.
-    return Exception { ExceptionCode::NotSupportedError, "Shared workers disabled on this build"_s };
     auto compliantScriptURLString = trustedTypeCompliantString(protect(document.contextDocument()), WTF::move(scriptURLString), "SharedWorker constructor"_s);
     if (compliantScriptURLString.hasException())
         return compliantScriptURLString.releaseException();

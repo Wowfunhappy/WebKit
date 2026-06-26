@@ -46,7 +46,8 @@
 
     WebKit::InitializeWebKit2();
 
-    // DISABLED:     API::Object::constructInWrapper<API::UserStyleSheet>(self, WebCore::UserStyleSheet { source, { }, { }, { }, forMainFrameOnly ? WebCore::UserContentInjectedFrames::InjectInTopFrameOnly : WebCore::UserContentInjectedFrames::InjectInAllFrames, WebCore::UserContentMatchParentFrame::Never, WebCore::UserStyleLevel::User }, API::ContentWorld::pageContentWorldSingleton());
+    // MAVERICKS_BACKPORT: construct the API::UserStyleSheet so _userStyleSheet is initialized; callers adopt its refcount.
+    API::Object::constructInWrapper<API::UserStyleSheet>(self, WebCore::UserStyleSheet { source, { }, { }, { }, forMainFrameOnly ? WebCore::UserContentInjectedFrames::InjectInTopFrameOnly : WebCore::UserContentInjectedFrames::InjectInAllFrames, WebCore::UserContentMatchParentFrame::Never, WebCore::UserStyleLevel::User }, API::ContentWorld::pageContentWorldSingleton());
 
     return self;
 }
@@ -56,7 +57,8 @@
 
     WebKit::InitializeWebKit2();
 
-    // DISABLED:     API::Object::constructInWrapper<API::UserStyleSheet>(self, WebCore::UserStyleSheet { source, baseURL, makeVector<String>(includeMatchPatternStrings), makeVector<String>(excludeMatchPatternStrings), forMainFrameOnly ? WebCore::UserContentInjectedFrames::InjectInTopFrameOnly : WebCore::UserContentInjectedFrames::InjectInAllFrames, WebCore::UserContentMatchParentFrame::Never, API::toWebCoreUserStyleLevel(level), webView ? std::optional<WebCore::PageIdentifier>([webView _page]->webPageIDInMainFrameProcess()) : std::nullopt }, Ref { contentWorld ? *contentWorld->_contentWorld : API::ContentWorld::pageContentWorldSingleton() });
+    // MAVERICKS_BACKPORT: construct the API::UserStyleSheet so _userStyleSheet is initialized; callers adopt its refcount.
+    API::Object::constructInWrapper<API::UserStyleSheet>(self, WebCore::UserStyleSheet { source, baseURL, makeVector<String>(includeMatchPatternStrings), makeVector<String>(excludeMatchPatternStrings), forMainFrameOnly ? WebCore::UserContentInjectedFrames::InjectInTopFrameOnly : WebCore::UserContentInjectedFrames::InjectInAllFrames, WebCore::UserContentMatchParentFrame::Never, API::toWebCoreUserStyleLevel(level), webView ? std::optional<WebCore::PageIdentifier>([webView _page]->webPageIDInMainFrameProcess()) : std::nullopt }, Ref { contentWorld ? *contentWorld->_contentWorld : API::ContentWorld::pageContentWorldSingleton() });
 
     return self;
 }

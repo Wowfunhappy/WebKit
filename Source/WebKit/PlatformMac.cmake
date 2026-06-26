@@ -82,7 +82,6 @@ list(APPEND WebKit_SOURCES
     UIProcess/API/Cocoa/_WKResourceLoadStatisticsThirdParty.mm
 
     UIProcess/Cocoa/PreferenceObserver.mm
-    UIProcess/Cocoa/WKSafeBrowsingWarning.mm
     UIProcess/Cocoa/WKShareSheet.mm
     UIProcess/Cocoa/WKStorageAccessAlert.mm
     UIProcess/Cocoa/WebInspectorPreferenceObserver.mm

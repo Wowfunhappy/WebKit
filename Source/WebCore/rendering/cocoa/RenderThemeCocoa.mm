@@ -311,11 +311,7 @@ void RenderThemeCocoa::paintFileUploadIconDecorations(const RenderElement&, cons
 
 Seconds RenderThemeCocoa::animationRepeatIntervalForProgressBar(const RenderProgress& renderer) const
 {
-    // 10.9 backport: renderer.page() can return null OR
-    // page->preferredRenderingUpdateInterval crashes on this build (kernel.org,
-    // cloudflare). Just return a safe ~60fps fallback unconditionally.
-    UNUSED_PARAM(renderer);
-    return 16_ms;
+    return protect(renderer.page())->preferredRenderingUpdateInterval();
 }
 
 #if ENABLE(APPLE_PAY)

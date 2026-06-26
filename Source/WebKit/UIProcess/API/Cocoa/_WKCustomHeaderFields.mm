@@ -38,7 +38,8 @@
     if (!(self = [super init]))
         return nil;
     
-    // DISABLED:     API::Object::constructInWrapper<API::CustomHeaderFields>(self);
+    // MAVERICKS_BACKPORT: placement-construct the API::CustomHeaderFields into _fields so -dealloc and the accessor methods operate on a live object rather than uninitialized AlignedStorage.
+    API::Object::constructInWrapper<API::CustomHeaderFields>(self);
     return self;
 }
 

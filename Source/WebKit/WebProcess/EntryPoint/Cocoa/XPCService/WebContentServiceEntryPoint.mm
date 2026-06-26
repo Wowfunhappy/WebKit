@@ -29,8 +29,6 @@
 #import "WKBase.h"
 #import "WebProcess.h"
 #import "XPCServiceEntryPoint.h"
-#import <fcntl.h>
-#import <unistd.h>
 
 #if USE(TZONE_MALLOC)
 #import <bmalloc/TZoneHeapManager.h>
@@ -45,14 +43,6 @@ extern "C" WK_EXPORT void WEBCONTENT_SERVICE_INITIALIZER(xpc_connection_t connec
 
 void WEBCONTENT_SERVICE_INITIALIZER(xpc_connection_t connection, xpc_object_t initializerMessage)
 {
-    // 10.9 backport: redirect stderr to per-pid file so WebContent fprintfs are visible.
-    {
-        char path[128];
-        snprintf(path, sizeof(path), "/tmp/wc-stderr-%d.log", getpid());
-        int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0666);
-        if (fd >= 0) { dup2(fd, 2); close(fd); }
-    }
-
 #if USE(TZONE_MALLOC)
     bmalloc::api::TZoneHeapManager::setBucketParams(4);
 #endif

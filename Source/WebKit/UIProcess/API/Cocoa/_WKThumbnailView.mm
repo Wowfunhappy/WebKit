@@ -121,14 +121,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 {
     [super updateLayer];
 
-    NSColor *backgroundColor = self.overrideBackgroundColor ?: [NSColor lightGrayColor];
-    // NSColor.CGColor is 10.14+; use colorUsingColorSpace conversion instead
-    NSColor *rgbColor = [backgroundColor colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-    if (rgbColor) {
-        CGFloat r, g, b, a;
-        [rgbColor getRed:&r green:&g blue:&b alpha:&a];
-        self.layer.backgroundColor = CGColorCreateGenericRGB(r, g, b, a);
-    }
+    // MAVERICKS_BACKPORT: quaternaryLabelColor is 10.14+; use lightGrayColor on 10.9. -[NSColor CGColor] is available (since 10.8).
+    RetainPtr backgroundColor = self.overrideBackgroundColor ?: [NSColor lightGrayColor];
+    self.layer.backgroundColor = RetainPtr { backgroundColor.get().CGColor }.get();
 }
 
 - (void)requestSnapshot

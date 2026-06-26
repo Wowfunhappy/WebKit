@@ -53,6 +53,7 @@
 #import <WebCore/Region.h>
 #import <WebCore/ValidationBubble.h>
 #import <WebCore/WebCoreCALayerExtras.h>
+#import <WebCore/WebMediaSessionManager.h>
 #import <QuartzCore/QuartzCore.h>
 #import <AppKit/AppKit.h>
 #import <wtf/RetainPtr.h>
@@ -1600,7 +1601,7 @@ NSObject *MinimalPageClient::immediateActionAnimationControllerForHitTestResult(
 #endif
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
 WebCore::WebMediaSessionManager& MinimalPageClient::mediaSessionManager()
-{ RELEASE_ASSERT_NOT_REACHED(); }
+{ return WebCore::WebMediaSessionManager::singleton(); }
 #endif
 void MinimalPageClient::didRestoreScrollPosition()
 { }

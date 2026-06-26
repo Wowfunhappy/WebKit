@@ -26,9 +26,6 @@
 #include "config.h"
 #include "WebLoaderStrategy.h"
 
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
 #include "HangDetectionDisabler.h"
 #include "Logging.h"
 #include "NetworkConnectionToWebProcessMessages.h"

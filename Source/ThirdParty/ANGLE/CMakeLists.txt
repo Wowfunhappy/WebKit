@@ -3,7 +3,7 @@ set_property(DIRECTORY . PROPERTY FOLDER "ANGLE")
 if (APPLE)
     set(is_apple TRUE)
     set(is_mac TRUE)
-    # 10.9 backport: use the CGL OpenGL backend (Metal is unavailable). Must be set before
+    # MAVERICKS_BACKPORT: use the CGL OpenGL backend (Metal is unavailable). Must be set before
     # include(GL.cmake) so the renderer/gl/cgl/* sources are added to gl_backend_sources.
     # is_apple gates the Apple common sources in GLESv2.cmake (FunctionsCGL.cpp soft-links,
     # apple_platform_utils.mm, system_utils_mac.cpp) — required by the CGL backend.
@@ -97,7 +97,7 @@ set(ANGLE_SOURCES
     src/libANGLE/capture/serialize_mock.cpp
 )
 
-# 10.9 backport: the GLSL (desktop-GL) output path on Apple runs Apple-specific AST tree ops
+# MAVERICKS_BACKPORT: the GLSL (desktop-GL) output path on Apple runs Apple-specific AST tree ops
 # (UnfoldShortCircuitAST, AddAndTrueToLoopCondition, RewriteRowMajorMatrices). Compiler.cmake
 # defines this group but the base ANGLE_SOURCES never included it, so TranslatorGLSL referenced
 # sh::UnfoldShortCircuitAST as an undefined symbol -> dyld lazy-bind crash in WebContent on the
@@ -266,11 +266,11 @@ if (COMPILER_IS_GCC_OR_CLANG)
         if (TARGET ${angle_target})
             WEBKIT_ADD_TARGET_C_FLAGS(${angle_target} -w)
             WEBKIT_ADD_TARGET_CXX_FLAGS(${angle_target} -w)
-            # 10.9 backport: do NOT build ANGLE with -frtti. It was tried to emit rx::FunctionsGL
-            # type_info (suppressed by WebKit's global -fno-rtti), but enabling RTTI only for ANGLE
-            # made libc++ std::stringstream destructors crash (RTTI/ABI skew vs the -fno-rtti libc++
-            # instantiations elsewhere). Instead the missing ANGLE type_infos are stub-aliased in
-            # ANGLETypeInfoStubs.cpp (same pattern as InbandTextTrackPrivateAVFTypeInfo.cpp).
+            # MAVERICKS_BACKPORT: this block only suppresses ANGLE's compiler warnings (-w). RTTI
+            # stays off — ANGLE inherits WebKit's global -fno-rtti and no -frtti is applied here.
+            # The GLSL (desktop-GL) Apple AST symbols that were previously undefined are resolved by
+            # the list(APPEND ANGLE_SOURCES ${angle_translator_glsl_apple_sources}) above, not by any
+            # stub source.
         endif ()
     endforeach ()
 endif ()
