@@ -1577,7 +1577,7 @@ static NSControlStateValue NODELETE kit(TriState state)
     _private->subviewsSetAside = YES;
 #endif
  }
-    // MAVERICKS_BACKPORT: stray whitespace stripped from the blank line between these methods.
+ 
  - (void)_restoreSubviews
  {
 #if PLATFORM(MAC)
@@ -3852,7 +3852,7 @@ static BOOL currentScrollIsBlit(NSView *clipView)
 #if PLATFORM(MAC)
     [NSGraphicsContext saveGraphicsState];
     NSRectClip(rect);
-    // MAVERICKS_BACKPORT: trailing whitespace stripped from the blank line below.
+        
     ASSERT([[self superview] isKindOfClass:[WebClipView class]]);
 
     [(WebClipView *)[self superview] setAdditionalClip:rect];
@@ -3896,7 +3896,7 @@ static BOOL currentScrollIsBlit(NSView *clipView)
 - (void)drawRect:(NSRect)rect
 {
     LOG(View, "%@ drawing", self);
-    // MAVERICKS_BACKPORT: trailing whitespace stripped from the blank line below.
+    
     TraceScope scope(WebHTMLViewPaintStart, WebHTMLViewPaintEnd);
 
 #if PLATFORM(MAC)

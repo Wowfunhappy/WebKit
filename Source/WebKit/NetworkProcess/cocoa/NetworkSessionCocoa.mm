@@ -607,8 +607,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     auto taskIdentifier = task.taskIdentifier;
     LOG(NetworkSession, "%zu didReceiveChallenge", taskIdentifier);
-    // MAVERICKS_BACKPORT: trailing-whitespace-only formatting divergence on the blank line below.
-
+    
     // Proxy authentication is handled by CFNetwork internally. We can get here if the user cancels
     // CFNetwork authentication dialog, and we shouldn't ask the client to display another one in that case.
     if (challenge.protectionSpace.isProxy

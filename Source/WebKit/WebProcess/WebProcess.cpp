@@ -449,7 +449,7 @@ void WebProcess::initializeProcess(const AuxiliaryProcessInitializationParameter
     // functional NetworkProcess (WebMessagePortChannelProvider -> ensureNetworkProcessConnection
     // -> NetworkConnectionToWebProcess CreateNewMessagePortChannel / EntangleLocalPortInThisProcessToRemote / TakeAllMessagesForPort).
     MessagePortChannelProvider::setSharedProvider(WebMessagePortChannelProvider::singleton());
-    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace).
+    
     platformInitializeProcess(parameters);
     updateCPULimit();
 }
@@ -1550,7 +1550,7 @@ NetworkProcessConnection& WebProcess::ensureNetworkProcessConnection()
         if (std::exchange(m_needsIDBConnectionRefreshForWorkers, false))
             refreshIDBConnectionForWorkers();
     }
-    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace).
+    
     return *m_networkProcessConnection;
 }
 
@@ -2546,7 +2546,6 @@ void WebProcess::setAppBadge(WebCore::Frame* frame, const WebCore::SecurityOrigi
 void WebProcess::displayDidRefresh(uint32_t displayID, const DisplayUpdate& displayUpdate)
 {
     ASSERT(RunLoop::isMain());
-    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace).
     protect(eventDispatcher())->notifyScrollingTreesDisplayDidRefresh(displayID);
     DisplayRefreshMonitorManager::sharedManager().displayDidRefresh(displayID, displayUpdate);
 }

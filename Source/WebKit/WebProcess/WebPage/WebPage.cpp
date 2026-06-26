@@ -2526,7 +2526,7 @@ void WebPage::setSize(const WebCore::IntSize& viewSize)
         ASSERT_NOT_REACHED();
         return;
     }
-    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace).
+
     view->resize(viewSize);
     protect(drawingArea())->setNeedsDisplay();
 
@@ -4984,7 +4984,6 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
 
     updateSettingsGenerated(store, settings);
 
-    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace).
 #if !PLATFORM(GTK) && !PLATFORM(WIN) && !PLATFORM(PLAYSTATION) && !PLATFORM(WPE)
     if (!settings.acceleratedCompositingEnabled()) {
         WEBPAGE_RELEASE_LOG(Layers, "updatePreferences: acceleratedCompositingEnabled setting was false. WebKit cannot function in this mode; changing setting to true");

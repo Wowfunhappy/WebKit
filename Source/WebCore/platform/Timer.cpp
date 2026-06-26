@@ -327,7 +327,7 @@ TimerBase::~TimerBase()
 void TimerBase::start(Seconds nextFireInterval, Seconds repeatInterval)
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
-    // MAVERICKS_BACKPORT: 10.9 build divergence (whitespace) in this start() body.
+
     m_repeatInterval = repeatInterval;
     setNextFireTime(MonotonicTime::now() + nextFireInterval);
 }

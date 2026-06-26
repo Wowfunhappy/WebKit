@@ -240,8 +240,7 @@ void RunLoop::TimerBase::stop()
 
     if (!m_timer)
         return;
-
-    // MAVERICKS_BACKPORT: trailing whitespace trimmed on the blank line above.
+    
     CFRunLoopTimerInvalidate(m_timer.get());
     m_timer = nullptr;
 }
