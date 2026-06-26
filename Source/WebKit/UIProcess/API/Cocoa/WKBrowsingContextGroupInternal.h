@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2013 Apple Inc. All rights reserved.
  *
- * 10.9 backport: internal accessor letting WKView pull the underlying
+ * MAVERICKS_BACKPORT: internal accessor letting WKView pull the underlying
  * WKPageGroupRef out of a WKBrowsingContextGroup so it can route the legacy
  * -initWithFrame:processGroup:browsingContextGroup: initializer through the
  * existing -initWithFrame:contextRef:pageGroupRef: path.

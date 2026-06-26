@@ -125,7 +125,7 @@ typedef struct nw_path_evaluator *nw_path_evaluator_t;
 #endif // OS_OBJECT_USE_OBJC
 #endif // !NW_POLYFILL_TYPES_DECLARED
 
-// macOS 10.9 backport: tls_protocol_version_t is from <Security/SecProtocolTypes.h> (10.13+).
+// MAVERICKS_BACKPORT: tls_protocol_version_t is from <Security/SecProtocolTypes.h> (10.13+).
 #if !HAVE(TLS_PROTOCOL_VERSION_T)
 typedef enum {
     tls_protocol_version_TLSv10 = 0x0301,
@@ -137,7 +137,7 @@ typedef enum {
 } tls_protocol_version_t;
 #endif
 
-// macOS 10.9 backport: NSURLSessionTaskPriority* float constants are 10.10+. Used as plain
+// MAVERICKS_BACKPORT: NSURLSessionTaskPriority* float constants are 10.10+. Used as plain
 // float values (set via KVC), so the documented defaults are runtime-equivalent.
 #if !HAVE(NSURLSESSION_TASK_PRIORITY)
 #define NSURLSessionTaskPriorityDefault 0.5f
@@ -638,7 +638,7 @@ WTF_EXTERN_C_END
 - (void)_setExplicitCookieStorage:(CFHTTPCookieStorageRef)storage;
 @end
 
-// 10.9 backport: NSURLSessionWebSocketTask and NSURLSessionWebSocketCloseCode are macOS 10.15+.
+// MAVERICKS_BACKPORT: NSURLSessionWebSocketTask and NSURLSessionWebSocketCloseCode are macOS 10.15+.
 // On older SDKs provide minimal stubs so this SPI category compiles (used only behind runtime guards).
 #if !defined(__MAC_OS_X_VERSION_MAX_ALLOWED) || __MAC_OS_X_VERSION_MAX_ALLOWED < 101500
 typedef NSInteger NSURLSessionWebSocketCloseCode;

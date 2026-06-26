@@ -232,7 +232,7 @@ void WebDateTimePickerMac::didChooseDate(StringView date)
     // AppKit that we explicitly do want to share first responders across windows.
     RetainPtr presentingWindow = [presentingView window];
     BOOL presentingWindowCanBeKey = [presentingWindow isKeyWindow] || [presentingWindow canBecomeKeyWindow];
-    // 10.9 backport: _setSharesParentFirstResponder: is 10.10+ private SPI.
+    // MAVERICKS_BACKPORT: _setSharesParentFirstResponder: is 10.10+ private SPI.
     if ([_enclosingWindow respondsToSelector:@selector(_setSharesParentFirstResponder:)])
         [(id)_enclosingWindow.get() _setSharesParentFirstResponder:presentingWindowCanBeKey];
 

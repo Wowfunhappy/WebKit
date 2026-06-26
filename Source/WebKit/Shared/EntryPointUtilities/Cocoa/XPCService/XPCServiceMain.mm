@@ -301,7 +301,7 @@ void XPCServiceEventHandler(xpc_connection_t peer)
     xpc_connection_resume(peer);
 }
 
-// 10.9 backport DIAGNOSTIC (opt-in via WEBKIT_MAVERICKS_DEBUG): ReportCrash/sample/spindump all crash on
+// MAVERICKS_BACKPORT DIAGNOSTIC (opt-in via WEBKIT_MAVERICKS_DEBUG): ReportCrash/sample/spindump all crash on
 // this VM, so fatal signals never produce a usable backtrace. When the handler is installed, it dumps
 // backtrace_symbols to stderr (which XPCServiceMain redirects to /tmp/wc-stderr-<pid>.log) before
 // re-raising the default action. This is how we capture the NetworkProcess SIGSEGV stack. backtrace()/write()
@@ -322,7 +322,7 @@ static void webkitMavericksCrashBacktrace(int sig)
 
 int XPCServiceMain(int, const char**)
 {
-    // 10.9 backport DIAGNOSTIC (opt-in via WEBKIT_MAVERICKS_DEBUG, default OFF): redirect stderr to a
+    // MAVERICKS_BACKPORT DIAGNOSTIC (opt-in via WEBKIT_MAVERICKS_DEBUG, default OFF): redirect stderr to a
     // per-pid file so WebContent fprintfs are visible, and install the in-process crash-backtrace handler.
     // Both are gated off by default so production launches do not write world-readable /tmp logs or alter
     // signal disposition; export WEBKIT_MAVERICKS_DEBUG to enable while debugging.
@@ -367,7 +367,7 @@ int XPCServiceMain(int, const char**)
 
     xpc_main(XPCServiceEventHandler);
 
-    // 10.9 backport: with RunLoopType=NSRunLoop (set in the .xpc Info.plist), xpc_main runs a real
+    // MAVERICKS_BACKPORT: with RunLoopType=NSRunLoop (set in the .xpc Info.plist), xpc_main runs a real
     // run loop on the main thread and does not return. This fallback only runs if it ever does
     // (e.g. a future RunLoopType=dispatch_main); WebContent's IPC mach port source is on the main
     // RunLoop, so CFRunLoop keeps message dispatch alive.

@@ -47,7 +47,7 @@ void InjectedBundlePageResourceLoadClient::didInitiateLoadForResource(WebPage& p
     if (!m_client.didInitiateLoadForResource)
         return;
 
-    // 10.9 backport (github SIGTRAP fix): Safari's didInitiateLoadForResource handler WKRetains the
+    // MAVERICKS_BACKPORT (github SIGTRAP fix): Safari's didInitiateLoadForResource handler WKRetains the
     // page/frame it is handed (-> WebPage::ref()/WebFrame::ref()). During github's heavy Turbo/SPA
     // resource churn the frame can be a transient/provisional one whose refcount has already dropped
     // to 0 when this fires; Safari (asserts-on) then traps in ref() (EXC_BREAKPOINT). Pin both across

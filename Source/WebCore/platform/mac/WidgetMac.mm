@@ -243,7 +243,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     {
-        // 10.9 backport: +[NSGraphicsContext graphicsContextWithCGContext:flipped:] is 10.10+. On 10.9 it
+        // MAVERICKS_BACKPORT: +[NSGraphicsContext graphicsContextWithCGContext:flipped:] is 10.10+. On 10.9 it
         // throws an "unrecognized selector" NSInvalidArgumentException, which BEGIN/END_BLOCK_OBJC_EXCEPTIONS
         // silently swallows — so -displayRectIgnoringOpacity:inContext: never runs and the widget renders
         // BLANK. This breaks NSView-backed widgets, notably Dashboard web clips drawn by DashboardClient

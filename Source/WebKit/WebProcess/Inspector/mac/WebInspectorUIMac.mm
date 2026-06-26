@@ -57,7 +57,7 @@ bool WebInspectorUI::canPickColorFromScreen()
 
 String WebInspectorUI::localizedStringsURL() const
 {
-    // 10.9 backport: serve localizedStrings.js directly as file:// from whichever
+    // MAVERICKS_BACKPORT: serve localizedStrings.js directly as file:// from whichever
     // WebInspectorUI bundle is in use. Prefer Safari 8-era (PrivateFrameworks) en.lproj,
     // fall back to bundleWithIdentifier lookup, fall back to scheme handler URL.
     NSString *path = @"/System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/Resources/en.lproj/localizedStrings.js";

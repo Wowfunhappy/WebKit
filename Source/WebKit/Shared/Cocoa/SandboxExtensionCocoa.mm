@@ -112,7 +112,7 @@ CString SandboxExtensionImpl::sandboxExtensionForType(const char* path, SandboxE
 #if PLATFORM(MAC)
             extensionFlags |= SANDBOX_EXTENSION_USER_INTENT;
 #endif
-            // 10.9 backport: sandbox_extension_issue_file_to_process() is 10.10+. On 10.9 the
+            // MAVERICKS_BACKPORT: sandbox_extension_issue_file_to_process() is 10.10+. On 10.9 the
             // symbol is absent (calling it crashes). Resolve at runtime and, when unavailable,
             // fall back to the process-agnostic sandbox_extension_issue_file() — which exists on
             // 10.9 and yields a read extension the target process can consume just the same.

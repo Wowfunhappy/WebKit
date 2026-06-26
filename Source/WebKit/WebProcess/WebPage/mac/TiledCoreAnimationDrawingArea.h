@@ -90,11 +90,11 @@ private:
     WebCore::FloatRect exposedContentRect() const override;
     void setExposedContentRect(const WebCore::FloatRect&) override;
 
-    // 10.9 backport: async scrolling needs the UIProcess scrolling thread,
+    // MAVERICKS_BACKPORT: async scrolling needs the UIProcess scrolling thread,
     // which we don't have. Use synchronous main-thread scrolling instead.
     bool supportsAsyncScrolling() const override { return false; }
 
-    // 10.9 backport: explicit override to ensure Page::scheduleRenderingUpdateInternal
+    // MAVERICKS_BACKPORT: explicit override to ensure Page::scheduleRenderingUpdateInternal
     // gets a true return, avoiding the fallback to RenderingUpdateScheduler
     // (CVDisplayLink, broken on 10.9).
     bool scheduleRenderingUpdate() override { triggerRenderingUpdate(); return true; }
@@ -156,7 +156,7 @@ private:
     void scheduleRenderingUpdateRunLoopObserver();
     void invalidateRenderingUpdateRunLoopObserver();
     WTF::Seconds displayUpdateInterval(); // 10.9: one frame at the display's refresh rate (used to throttle updateRendering()).
-    void startRenderingDisplayLink(); // 10.9 backport: UIProcess display-link heartbeat to un-throttle the render loop
+    void startRenderingDisplayLink(); // MAVERICKS_BACKPORT: UIProcess display-link heartbeat to un-throttle the render loop
     void stopRenderingDisplayLink();
     void renderingUpdateRunLoopCallback();
 
@@ -193,8 +193,8 @@ private:
     MonotonicTime m_lastRenderingUpdateRunTime; // 10.9: throttle the dispatch_async render fallback to ~60Hz (stop runaway-CPU kills).
     bool m_renderingUpdatePending { false };
     bool m_renderingThrottleScheduled { false }; // 10.9: a deferred (frame-boundary) updateRendering() dispatch_after is outstanding.
-    DisplayLinkObserverID m_renderingDisplayLinkObserverID { DisplayLinkObserverID::generate() }; // 10.9 backport
-    bool m_renderingDisplayLinkActive { false }; // 10.9 backport
+    DisplayLinkObserverID m_renderingDisplayLinkObserverID { DisplayLinkObserverID::generate() }; // MAVERICKS_BACKPORT
+    bool m_renderingDisplayLinkActive { false }; // MAVERICKS_BACKPORT
 
     bool m_isPaintingSuspended { false };
     bool m_inUpdateGeometry { false };

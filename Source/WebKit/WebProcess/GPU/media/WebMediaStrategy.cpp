@@ -1,5 +1,5 @@
-// 10.9 backport: minimal WebMediaStrategy implementation. The original WK2 file
-// stages everything through GPU process; on this 10.9 backport GPU process is
+// MAVERICKS_BACKPORT: minimal WebMediaStrategy implementation. The original WK2 file
+// stages everything through GPU process; on this MAVERICKS_BACKPORT GPU process is
 // disabled, so we route createAudioDestination directly to AudioDestination::create
 // like WebKitLegacy does. Without this, the polyfill-supplied empty vtable for
 // WebMediaStrategy left createAudioDestination as a NULL function pointer, crashing

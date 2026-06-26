@@ -194,7 +194,7 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
     if (!navigationActionData)
         return function(PolicyAction::Ignore);
 
-    // 10.9 backport (#60): Reconstruct the userData dictionary that Safari 7's injected-bundle
+    // MAVERICKS_BACKPORT (#60): Reconstruct the userData dictionary that Safari 7's injected-bundle
     // policy client (BrowserBundlePagePolicyClient::userDataForAction) produced before that whole
     // bundle-client mechanism was removed upstream. Safari's UI-process WKPagePolicyClient callback
     // (BrowserPagePolicyClient::decidePolicyForAction) casts this userData to a WKDictionary and, if

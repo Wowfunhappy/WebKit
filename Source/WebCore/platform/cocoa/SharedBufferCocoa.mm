@@ -1,4 +1,4 @@
-// 10.9 backport: minimal Cocoa SharedBuffer overloads.
+// MAVERICKS_BACKPORT: minimal Cocoa SharedBuffer overloads.
 // SharedBuffer::create(NSData*), createCFData, createNSData are declared as
 // WEBCORE_EXPORT but the upstream implementations live in a code path that
 // doesn't build cleanly here. Without these, callers bind to the return-zero

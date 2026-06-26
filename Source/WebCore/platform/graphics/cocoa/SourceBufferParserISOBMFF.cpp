@@ -1,5 +1,5 @@
 /*
- * 10.9 backport: software ISO BMFF (fragmented-MP4) Media Source parser.
+ * MAVERICKS_BACKPORT: software ISO BMFF (fragmented-MP4) Media Source parser.
  * See SourceBufferParserISOBMFF.h for the architecture overview.
  */
 

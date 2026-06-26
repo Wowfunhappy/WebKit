@@ -3,7 +3,7 @@ list(APPEND PAL_PUBLIC_HEADERS
     avfoundation/OutputContext.h
     avfoundation/OutputDevice.h
 
-    # 10.9 backport: WebCrypto via libgcrypt requires these to be reachable from
+    # MAVERICKS_BACKPORT: WebCrypto via libgcrypt requires these to be reachable from
     # WebCore via the <pal/crypto/...> include path.
     crypto/gcrypt/Handle.h
     crypto/gcrypt/Initialization.h
@@ -268,7 +268,7 @@ list(APPEND PAL_SOURCES
     cocoa/WebPrivacySoftLink.mm
     cocoa/WritingToolsUISoftLink.mm
 
-    # 10.9 backport: CryptoDigest + tasn1 ASN.1 helpers now use libgcrypt/libtasn1
+    # MAVERICKS_BACKPORT: CryptoDigest + tasn1 ASN.1 helpers now use libgcrypt/libtasn1
     # (same source files as the GTK port). The CommonCrypto variant relied on
     # CC_SHA224* symbols missing from 10.9.
     crypto/gcrypt/CryptoDigestGCrypt.cpp
@@ -305,6 +305,6 @@ list(APPEND PAL_PRIVATE_INCLUDE_DIRECTORIES
     "${PAL_DIR}/pal/spi/cg"
     "${PAL_DIR}/pal/spi/cocoa"
     "${PAL_DIR}/pal/spi/mac"
-    # 10.9 backport: gcrypt-based CryptoDigest needs libgcrypt headers.
+    # MAVERICKS_BACKPORT: gcrypt-based CryptoDigest needs libgcrypt headers.
     "${MAVERICKS_DEPS}/include"
 )

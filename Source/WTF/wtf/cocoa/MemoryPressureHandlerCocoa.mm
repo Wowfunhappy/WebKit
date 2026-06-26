@@ -82,7 +82,7 @@ void MemoryPressureHandler::install()
     if (m_installed || timerEventSource())
         return;
 
-    // 10.9 backport: dispatch queue is initialized by the constructor via
+    // MAVERICKS_BACKPORT: dispatch queue is initialized by the constructor via
     // setDispatchQueue(mainDispatchQueueSingleton()), so it should be valid.
     // Null-guard anyway to avoid the dispatch_async crash that motivated the
     // original stub.
@@ -92,7 +92,7 @@ void MemoryPressureHandler::install()
     }
 
     dispatch_async(m_dispatchQueue.get(), ^{
-        // 10.9 backport: DISPATCH_MEMORYPRESSURE_PROC_LIMIT_{WARN,CRITICAL}
+        // MAVERICKS_BACKPORT: DISPATCH_MEMORYPRESSURE_PROC_LIMIT_{WARN,CRITICAL}
         // are 10.10+. The base NORMAL/WARN/CRITICAL flags exist on 10.9 — those
         // give us system VM pressure events, which is what triggers cache purges
         // when the user's RAM is full (the source of the OOM the user reported

@@ -86,7 +86,7 @@ const RemoteLayerTreeHost* RemoteScrollingCoordinatorProxy::layerTreeHost() cons
 
 ScrollRequestData RemoteScrollingCoordinatorProxy::commitScrollingTreeState(IPC::Connection& connection, const RemoteScrollingCoordinatorTransaction& transaction, std::optional<LayerHostingContextIdentifier> identifier)
 {
-    // 10.9 backport: scrolling tree commit crashes in ThreadSafeRefCounted::deref
+    // MAVERICKS_BACKPORT: scrolling tree commit crashes in ThreadSafeRefCounted::deref
     // for ScrollingTreeNode. The scrolling subsystem isn't required for basic
     // rendering, so skip it.
     UNUSED_PARAM(connection);

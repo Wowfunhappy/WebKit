@@ -349,7 +349,7 @@ void GradientRendererCG::drawRadialGradient(CGContextRef platformContext, CGPoin
 void GradientRendererCG::drawConicGradient(CGContextRef platformContext, CGPoint center, CGFloat angle)
 {
 #if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200
-    // 10.9 backport: CGContextDrawConicGradient and CGShadingCreateConic are both macOS 10.12+ and absent
+    // MAVERICKS_BACKPORT: CGContextDrawConicGradient and CGShadingCreateConic are both macOS 10.12+ and absent
     // on 10.9 (neither CGShadingCreateConic nor a conic CGGradient draw exists), so conic gradients render
     // completely blank. Render them manually: sample the EXACT colour ramp into a 1xN strip by reusing the
     // existing linear-gradient draw (so colours/interpolation/alpha match the native paths), then paint the

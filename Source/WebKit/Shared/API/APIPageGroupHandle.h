@@ -1,5 +1,5 @@
 /*
- * 10.9 backport: carrier for page groups crossing the UI<->WebContent
+ * MAVERICKS_BACKPORT: carrier for page groups crossing the UI<->WebContent
  * boundary inside UserData. Safari 7 places its browsing WKPageGroup in the
  * injected-bundle initialization user data (and in bundle messages); the UI
  * process transforms the WebPageGroup into this handle before encoding

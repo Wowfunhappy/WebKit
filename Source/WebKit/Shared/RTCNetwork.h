@@ -42,7 +42,7 @@ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 IGNORE_CLANG_WARNINGS_END
 
-// macOS 10.9 backport: the Cocoa NetworkRTC socket and path-monitor code uses
+// MAVERICKS_BACKPORT: the Cocoa NetworkRTC socket and path-monitor code uses
 // Network.framework nw_* APIs that require 10.14+. On older deployment targets we
 // route WebRTC through libwebrtc's portable BSD-socket BasicPacketSocketFactory and a
 // getifaddrs()/timer network monitor (the same code paths the GTK/WPE ports use, all

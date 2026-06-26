@@ -892,7 +892,7 @@ void ScrollbarsControllerMac::willRemoveHorizontalScrollbar(Scrollbar* scrollbar
 void ScrollbarsControllerMac::invalidateScrollbarPartLayers(Scrollbar* scrollbar)
 {
     RetainPtr painter = scrollerImpForScrollbar(*scrollbar);
-    // 10.9 backport: scrollerImpForScrollbar may return an NSScrollerImpPair
+    // MAVERICKS_BACKPORT: scrollerImpForScrollbar may return an NSScrollerImpPair
     // or another class on 10.9 that doesn't respond to setNeedsDisplay:.
     // Stack Overflow load triggered an objc doesNotRecognizeSelector exception.
     if ([painter respondsToSelector:@selector(setNeedsDisplay:)])

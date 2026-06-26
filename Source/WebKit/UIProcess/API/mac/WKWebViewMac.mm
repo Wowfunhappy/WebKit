@@ -1,4 +1,4 @@
-// macOS 10.9 backport: add mouse/keyboard event forwarders missing from upstream
+// MAVERICKS_BACKPORT: add mouse/keyboard event forwarders missing from upstream
 // WKWebView (modern API) — the inspector uses WKInspectorWKWebView which extends
 // WKWebView and without these methods AppKit's mouseDown: hits NSResponder's no-op,
 // so the inspector window swallowed every click.
@@ -82,7 +82,7 @@
     } @catch (NSException *) { }
 }
 
-// 10.9 backport: WKWebView ships no NSTextInputClient implementation, so AppKit's
+// MAVERICKS_BACKPORT: WKWebView ships no NSTextInputClient implementation, so AppKit's
 // interpretKeyEvents: had no client to translate keystrokes into insertText:/command
 // callbacks — typing into the inspector (console, filter fields) produced nothing.
 // Mirror the proven WKView path: a thread-local command collector + minimal
@@ -130,7 +130,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
     if (!impl) { [super keyDown:event]; return; }
     @try {
         WTF::Vector<WebCore::KeypressCommand> commands;
-        // 10.9 backport: skip interpretKeyEvents for Cmd-modified keys — those are menu
+        // MAVERICKS_BACKPORT: skip interpretKeyEvents for Cmd-modified keys — those are menu
         // shortcuts dispatched via sendAction:; running interpretKeyEvents would double-
         // dispatch via doCommandBySelector.
         BOOL hasCmd = ([event modifierFlags] & NSCommandKeyMask) != 0;

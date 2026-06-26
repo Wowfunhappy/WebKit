@@ -1,5 +1,5 @@
 /*
- * 10.9 backport: page-group-scoped user content for the legacy
+ * MAVERICKS_BACKPORT: page-group-scoped user content for the legacy
  * WKBundleAddUserScript/WKBundleAddUserStyleSheet C API.
  * See WK109PageGroupUserContent.h.
  */

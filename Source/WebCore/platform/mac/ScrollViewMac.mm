@@ -23,7 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// 10.9 backport: the upstream file uses NSScrollView -contentInsets /
+// MAVERICKS_BACKPORT: the upstream file uses NSScrollView -contentInsets /
 // -automaticallyAdjustsContentInsets / NSEdgeInsets (all 10.10+) and
 // -[NSWindow convertPointToScreen:]/convertPointFromScreen: (10.12+). On 10.9
 // content insets do not exist (they are always zero) and the point<->screen

@@ -77,7 +77,7 @@ void VideoLayerManagerObjC::setVideoLayer(PlatformLayer *videoLayer, FloatSize c
     [m_videoInlineLayer setName:@"WebVideoContainerLayer"];
     [m_videoInlineLayer setFrame:CGRectMake(0, 0, contentSize.width(), contentSize.height())];
     [m_videoInlineLayer setContentsGravity:kCAGravityResizeAspect];
-    // 10.9 backport: PAL helpers (isAVFoundationFrameworkAvailable, getAVPlayerLayerClassSingleton)
+    // MAVERICKS_BACKPORT: PAL helpers (isAVFoundationFrameworkAvailable, getAVPlayerLayerClassSingleton)
     // aren't set up. AVPlayerLayer exists directly on 10.9 — reference it directly.
     if ([videoLayer isKindOfClass:[AVPlayerLayer class]])
         [m_videoInlineLayer setPlayerLayer:(AVPlayerLayer *)videoLayer];

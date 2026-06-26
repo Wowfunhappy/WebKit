@@ -204,7 +204,7 @@ uintptr_t StreamClientConnection::generateSignpostIdentifier()
 
 void StreamClientConnection::emitSendSignpost(MessageName messageName)
 {
-    // macOS 10.9 backport: ReceiverName::LogStream doesn't exist; drop the check.
+    // MAVERICKS_BACKPORT: ReceiverName::LogStream doesn't exist; drop the check.
     if (signpostsEnabled()) [[unlikely]]
         WTFEmitSignpost(generateSignpostIdentifier(), StreamClientConnection, "send: %" PUBLIC_LOG_STRING, description(messageName).characters());
 }

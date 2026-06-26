@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// 10.9 backport: this legacy WebKit2 Objective-C SPI class was reduced to a
+// MAVERICKS_BACKPORT: this legacy WebKit2 Objective-C SPI class was reduced to a
 // stub upstream. It is restored here because Apple's QuickLook HTML preview
 // display bundle (Web2.qldisplay -> QLWeb2DisplayBundle) instantiates it to
 // host a WKView. Without it, dlopen of Web2.qldisplay fails on the missing

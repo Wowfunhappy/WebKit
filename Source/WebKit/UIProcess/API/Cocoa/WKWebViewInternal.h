@@ -725,7 +725,7 @@ struct PerWebProcessState {
 
 #endif // !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP
 
-// macOS 10.9 backport: _WKTextExtractionConfiguration / _WKTextExtractionInteraction not available.
+// MAVERICKS_BACKPORT: _WKTextExtractionConfiguration / _WKTextExtractionInteraction not available.
 // - (void)_requestTextExtraction:...
 // - (void)_describeInteraction:...
 

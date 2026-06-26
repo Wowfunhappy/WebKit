@@ -93,7 +93,7 @@ namespace WebCore {
 
 bool platformIsANGLEAvailable()
 {
-    // 10.9 backport: ANGLE is STATICALLY linked into WebCore (not a separately-loaded dylib), so
+    // MAVERICKS_BACKPORT: ANGLE is STATICALLY linked into WebCore (not a separately-loaded dylib), so
     // the weak-link "is the ANGLE dylib present" check (EGL_Initialize != NULL) is both unnecessary
     // and unsafe here (reading the weak-imported symbol's address crashes under static linking).
     // ANGLE is always present in this build.
@@ -136,7 +136,7 @@ void destroyPbufferAndDetachIOSurface(EGLDisplay display, void* handle)
 }
 
 #if !WK_ANGLE_METAL
-// 10.9 backport: Metal-only helpers are stubbed (callers compiled out with the OpenGL/CGL backend).
+// MAVERICKS_BACKPORT: Metal-only helpers are stubbed (callers compiled out with the OpenGL/CGL backend).
 RetainPtr<id<MTLRasterizationRateMap>> newRasterizationRateMap(GCGLDisplay, IntSize, IntSize, IntSize, std::span<const float>, std::span<const float>, std::span<const float>)
 {
     return nullptr;

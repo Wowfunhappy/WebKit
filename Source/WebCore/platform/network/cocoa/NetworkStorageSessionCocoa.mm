@@ -1,4 +1,4 @@
-// 10.9 backport: minimal Cocoa-side NetworkStorageSession.
+// MAVERICKS_BACKPORT: minimal Cocoa-side NetworkStorageSession.
 // The full upstream implementation depends on cookie/sameSite APIs not present in
 // the 10.9 SDK. We provide a working subset that uses NSHTTPCookieStorage directly
 // — enough for sites that check `document.cookie` (e.g., iCloud "iCloud requires
@@ -24,11 +24,11 @@ RetainPtr<NSHTTPCookieStorage> NetworkStorageSession::nsCookieStorage() const
     auto cf = cookieStorage();
     if (!cf)
         return [NSHTTPCookieStorage sharedHTTPCookieStorage];
-    // 10.9 backport: -_cookieStorage is private; respondsToSelector to check.
+    // MAVERICKS_BACKPORT: -_cookieStorage is private; respondsToSelector to check.
     if ([[NSHTTPCookieStorage sharedHTTPCookieStorage] respondsToSelector:@selector(_cookieStorage)]
         && [NSHTTPCookieStorage sharedHTTPCookieStorage]._cookieStorage == cf.get())
         return [NSHTTPCookieStorage sharedHTTPCookieStorage];
-    // 10.9 backport: -_initWithCFHTTPCookieStorage: is 10.10+. Fall back to
+    // MAVERICKS_BACKPORT: -_initWithCFHTTPCookieStorage: is 10.10+. Fall back to
     // sharedHTTPCookieStorage when not available — cookies will share globally
     // across sessions, but at least JS document.cookie reads/writes work.
     if ([NSHTTPCookieStorage instancesRespondToSelector:@selector(_initWithCFHTTPCookieStorage:)])
@@ -127,7 +127,7 @@ void NetworkStorageSession::deleteCookiesForHostnames(const Vector<String>& host
     completionHandler();
 }
 
-// 10.9 backport: these cookie-management methods were unimplemented in this minimal Cocoa file
+// MAVERICKS_BACKPORT: these cookie-management methods were unimplemented in this minimal Cocoa file
 // (only the Curl/Soup backends had them), so they fell back to libpolyfill no-op stubs — leaving
 // Safari's "Clear History" unable to clear cookies and cookie-management/getAll APIs empty. Implement
 // them directly against the shared NSHTTPCookieStorage (nsCookieStorage()), mirroring the existing
@@ -177,7 +177,7 @@ void NetworkStorageSession::deleteAllCookies(CompletionHandler<void()>&& complet
 
 void NetworkStorageSession::deleteAllCookiesModifiedSince(WallTime, CompletionHandler<void()>&& completionHandler)
 {
-    // 10.9 backport: NSHTTPCookie exposes no per-cookie modification date and -removeCookiesSinceDate:
+    // MAVERICKS_BACKPORT: NSHTTPCookie exposes no per-cookie modification date and -removeCookiesSinceDate:
     // is 10.10+. Approximate by clearing all cookies — a privacy-safe over-delete for time-ranged
     // "Clear History"; the common case ("all history") wants exactly this.
     deleteAllCookies(std::move(completionHandler));
@@ -393,7 +393,7 @@ HTTPCookieAcceptPolicy NetworkStorageSession::cookieAcceptPolicy() const
     return HTTPCookieAcceptPolicy::Never;
 }
 
-// 10.9 backport: -[NSHTTPCookie sameSitePolicy]/NSHTTPCookieSameSitePolicy/NSHTTPCookieSameSiteStrict are 10.13+.
+// MAVERICKS_BACKPORT: -[NSHTTPCookie sameSitePolicy]/NSHTTPCookieSameSitePolicy/NSHTTPCookieSameSiteStrict are 10.13+.
 // Guard with respondsToSelector so we still iterate cleanly on 10.9 (where SameSite has no effect) and only
 // rewrite cookies when the API is actually present.
 void NetworkStorageSession::setAllCookiesToSameSiteStrict(const RegistrableDomain& domain, CompletionHandler<void()>&& completionHandler)

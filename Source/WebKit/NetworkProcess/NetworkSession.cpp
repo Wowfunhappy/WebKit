@@ -275,7 +275,7 @@ void NetworkSession::setTrackingPreventionEnabled(bool enabled)
 {
     ASSERT(!m_isInvalidated);
 
-    // 10.9 backport: ResourceLoadStatistics (Intelligent Tracking Prevention) creates a
+    // MAVERICKS_BACKPORT: ResourceLoadStatistics (Intelligent Tracking Prevention) creates a
     // WebResourceLoadStatisticsStore that opens an SQLite database on a background SuspendableWorkQueue.
     // The first SQLite open runs initializeSQLiteIfNecessary() via callOnMainThreadAndWait(), and on 10.9
     // that crashes the NetworkProcess (SIGSEGV in RunLoop::dispatch / pthread_mutex_lock — the main-thread

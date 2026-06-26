@@ -1753,7 +1753,7 @@ WEBKIT_FRAMEWORK(JavaScriptCore)
 # Force-load WTF API compat shims for Safari 9.1.3 on 10.9
 if (APPLE)
     target_link_options(JavaScriptCore PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libwtf_compat.a")
-    # 10.9 backport: polyfill ObjC classes (NSTouchBar, UTType, etc.) live ONLY
+    # MAVERICKS_BACKPORT: polyfill ObjC classes (NSTouchBar, UTType, etc.) live ONLY
     # in JavaScriptCore so WebCore + WebKit don't duplicate-register them and
     # blow past libobjc's _read_images limit. Using PRIVATE/target_link_options
     # so it doesn't leak into downstream targets.

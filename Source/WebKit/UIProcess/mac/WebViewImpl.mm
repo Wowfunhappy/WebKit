@@ -125,7 +125,7 @@
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/NowPlayingInfo.h>
 #import <WebCore/Pasteboard.h>
-// #import <WebCore/PlatformDynamicRangeLimitCocoa.h>  // 10.9 backport: not in PrivateHeaders
+// #import <WebCore/PlatformDynamicRangeLimitCocoa.h>  // MAVERICKS_BACKPORT: not in PrivateHeaders
 #ifndef NSViewNoIntrinsicMetric
 #define NSViewNoIntrinsicMetric NSViewNoInstrinsicMetric
 #endif
@@ -156,7 +156,7 @@ static NSString * const webkitNSWorkspaceAccessibilityDisplayOptionsDidChangeNot
 #import <WebCore/WebTextIndicatorLayer.h>
 #import <WebKit/WKShareSheet.h>
 #import <WebKit/WKWebViewPrivate.h>
-// #import <WebKit/WebBackForwardList.h>  // 10.9 backport: already imported as "WebBackForwardList.h"
+// #import <WebKit/WebBackForwardList.h>  // MAVERICKS_BACKPORT: already imported as "WebBackForwardList.h"
 #import <pal/HysteresisActivity.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/AVKitSPI.h>
@@ -216,7 +216,7 @@ SOFT_LINK_CLASS(AVKit, AVTouchBarScrubber)
 static NSString * const WKMediaExitFullScreenItem = @"WKMediaExitFullScreenItem";
 #endif // HAVE(TOUCH_BAR) && ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
 
-// macOS 10.9 backport: NSFilePromiseReceiver (file-promise drag receiving) is 10.12+. Stub the
+// MAVERICKS_BACKPORT: NSFilePromiseReceiver (file-promise drag receiving) is 10.12+. Stub the
 // class so the drop handler compiles; on 10.9 +[NSFilePromiseReceiver class] is nil at runtime, so
 // the file-promise dragging-item branch is simply never entered.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED < 101200
@@ -2204,7 +2204,7 @@ void WebViewImpl::windowDidBecomeKey(NSWindow *keyWindow)
         updateSecureInputState();
         m_page->activityStateDidChange(WebCore::ActivityState::WindowIsActive);
 
-        // 10.9 backport: re-establish the hover state and cursor under the pointer when the window
+        // MAVERICKS_BACKPORT: re-establish the hover state and cursor under the pointer when the window
         // regains key focus. The cursor shape and CSS :hover only update when WebContent receives a
         // mouseMoved to hit-test under the pointer, and on this port those are delivered by an
         // app-wide NSEvent monitor (see WKView installEventMonitorOnce) that fires only on real
@@ -2756,7 +2756,7 @@ void WebViewImpl::updateSecureInputState()
         return;
     }
     // WKView has a single input context for all editable areas (except for plug-ins).
-    // 10.9 backport: WKInspectorWKWebView doesn't implement _web_superInputContext.
+    // MAVERICKS_BACKPORT: WKInspectorWKWebView doesn't implement _web_superInputContext.
     RetainPtr context = [m_view.get() respondsToSelector:@selector(_web_superInputContext)] ? [m_view.get() _web_superInputContext] : nil;
     bool isInPasswordField = m_page->editorState().isInPasswordField;
 
@@ -2793,7 +2793,7 @@ void WebViewImpl::notifyInputContextAboutDiscardedComposition()
 
     LOG(TextInput, "-> discardMarkedText");
 
-    // 10.9 backport: WKInspectorWKWebView doesn't implement _web_superInputContext.
+    // MAVERICKS_BACKPORT: WKInspectorWKWebView doesn't implement _web_superInputContext.
     if ([m_view.get() respondsToSelector:@selector(_web_superInputContext)])
         [retainPtr([m_view.get() _web_superInputContext]) discardMarkedText]; // Inform the input method that we won't have an inline input area despite having been asked to.
 }
@@ -3055,7 +3055,7 @@ void WebViewImpl::selectionDidChange()
             [inspectorBar _update];
     }
 
-    // 10.9 backport: WKInspectorWKWebView doesn't implement _web_editorStateDidChange.
+    // MAVERICKS_BACKPORT: WKInspectorWKWebView doesn't implement _web_editorStateDidChange.
     if ([m_view.get() respondsToSelector:@selector(_web_editorStateDidChange)])
         [m_view.get() _web_editorStateDidChange];
 }
@@ -3616,7 +3616,7 @@ void WebViewImpl::requestCandidatesForSelectionIfNeeded()
     NSRange selectedRange = NSMakeRange(postLayoutData->candidateRequestStartPosition, postLayoutData->selectedTextLength);
     NSTextCheckingTypes checkingTypes = getTextCheckingTypes();
 
-    // 10.9 backport: requestCandidatesForSelectedRange:...completionHandler: is 10.12.2+. Skip.
+    // MAVERICKS_BACKPORT: requestCandidatesForSelectedRange:...completionHandler: is 10.12.2+. Skip.
     WeakPtr weakThis { *this };
     (void)selectedRange; (void)checkingTypes; (void)weakThis;
     return;
@@ -3746,7 +3746,7 @@ CALayer* WebViewImpl::textIndicatorInstallationLayer()
 
 void WebViewImpl::dismissContentRelativeChildWindowsWithAnimation(bool animate)
 {
-    // 10.9 backport: WKInspectorWKWebView doesn't implement _web_dismissContentRelativeChildWindowsWithAnimation:.
+    // MAVERICKS_BACKPORT: WKInspectorWKWebView doesn't implement _web_dismissContentRelativeChildWindowsWithAnimation:.
     if ([m_view.get() respondsToSelector:@selector(_web_dismissContentRelativeChildWindowsWithAnimation:)])
         [m_view.get() _web_dismissContentRelativeChildWindowsWithAnimation:animate];
 }
@@ -3916,7 +3916,7 @@ void WebViewImpl::completeImmediateActionAnimation()
 
 void WebViewImpl::didChangeContentSize(CGSize newSize)
 {
-    // 10.9 backport: WKInspectorWKWebView doesn't implement _web_didChangeContentSize.
+    // MAVERICKS_BACKPORT: WKInspectorWKWebView doesn't implement _web_didChangeContentSize.
     if ([m_view.get() respondsToSelector:@selector(_web_didChangeContentSize:)])
         [m_view.get() _web_didChangeContentSize:NSSizeFromCGSize(newSize)];
 }
@@ -4272,7 +4272,7 @@ void WebViewImpl::setAcceleratedCompositingRootLayer(CALayer *rootLayer)
 
     m_rootLayer = rootLayer;
     rootLayer.hidden = NO;
-    // 10.9 backport: force rootLayer frame to match m_layerHostingView frame since the
+    // MAVERICKS_BACKPORT: force rootLayer frame to match m_layerHostingView frame since the
     // wrapper rootLayer's frame stays 0,0 even after transactions arrive (sublayers have
     // the real content). Without this, even though sublayers[0] has proper content,
     // the wrapper layer's 0-size frame clips it to nothing.
@@ -4709,7 +4709,7 @@ void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Hand
             RetainPtr pasteboard = [NSPasteboard pasteboardWithName:NSDragPboard];
 
             if (promisedAttachmentInfo) {
-                // 10.9 backport: NSFilePromiseProvider drag is 10.12+.
+                // MAVERICKS_BACKPORT: NSFilePromiseProvider drag is 10.12+.
                 page->dragCancelled();
                 return;
             }
@@ -6159,7 +6159,7 @@ void WebViewImpl::nativeMouseEventHandler(NSEvent *event, WebMouseEventInputSour
         return;
     }
 
-    // 10.9 backport: -[NSTextInputContext handleEvent:completionHandler:] is 10.10+. Skip
+    // MAVERICKS_BACKPORT: -[NSTextInputContext handleEvent:completionHandler:] is 10.10+. Skip
     // the inputContext path entirely on 10.9; mouse events go straight to WebPageProxy.
     if (RetainPtr context = [m_view.get() inputContext]) {
         if ([context respondsToSelector:@selector(handleEvent:completionHandler:)]) {
@@ -6486,7 +6486,7 @@ void WebViewImpl::effectiveAppearanceDidChange()
 
 bool WebViewImpl::effectiveAppearanceIsDark()
 {
-    // 10.9 backport: -[NSAppearance bestMatchFromAppearancesWithNames:] is 10.14+ (absent, not polyfilled) → unrecognized-selector crash on appearance change. 10.9 has no dark mode, so guard and report not-dark. (Mirrors WebControlView.mm's nil-guard of this same selector.)
+    // MAVERICKS_BACKPORT: -[NSAppearance bestMatchFromAppearancesWithNames:] is 10.14+ (absent, not polyfilled) → unrecognized-selector crash on appearance change. 10.9 has no dark mode, so guard and report not-dark. (Mirrors WebControlView.mm's nil-guard of this same selector.)
     RetainPtr effectiveAppearance = retainPtr([m_view.get() effectiveAppearance]);
     if (![effectiveAppearance.get() respondsToSelector:@selector(bestMatchFromAppearancesWithNames:)])
         return false;
@@ -6795,7 +6795,7 @@ void WebViewImpl::togglePictureInPicture()
 }
 
 
-// 10.9 backport: playbackSessionManager / in-window-fullscreen are 10.13+. Stub.
+// MAVERICKS_BACKPORT: playbackSessionManager / in-window-fullscreen are 10.13+. Stub.
 PlatformPlaybackSessionInterface* WebViewImpl::playbackSessionInterface() const { return nullptr; }
 bool WebViewImpl::isInWindowFullscreenActive() const { return false; }
 void WebViewImpl::enterInWindowFullscreen() { }
@@ -6978,7 +6978,7 @@ void WebViewImpl::setMediaSessionCoordinatorForTesting(MediaSessionCoordinatorPr
 }
 #endif
 
-// 10.9 backport: TRANSLATION_UI_SERVICES is 10.15+. Stubs added at end of file.
+// MAVERICKS_BACKPORT: TRANSLATION_UI_SERVICES is 10.15+. Stubs added at end of file.
 #if 0 && HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
 
 bool WebViewImpl::canHandleContextMenuTranslation() const
@@ -7475,7 +7475,7 @@ void WebViewImpl::addTextSelectionManager()
 }
 #endif // HAVE(APPKIT_GESTURES_SUPPORT)
 
-// 10.9 backport: stubs for 10.10+ APIs.
+// MAVERICKS_BACKPORT: stubs for 10.10+ APIs.
 bool WebViewImpl::canHandleContextMenuTranslation() const { return false; }
 void WebViewImpl::handleContextMenuTranslation(const WebCore::TranslationContextMenuInfo&) { }
 

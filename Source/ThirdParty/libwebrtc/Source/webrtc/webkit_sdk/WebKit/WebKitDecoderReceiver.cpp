@@ -29,7 +29,7 @@
 #include "modules/video_coding/include/video_error_codes.h"
 #include "rtc_base/logging.h"
 
-// 10.9 backport: the 10-bit bi-planar CVPixelBuffer formats below are macOS
+// MAVERICKS_BACKPORT: the 10-bit bi-planar CVPixelBuffer formats below are macOS
 // 10.13+, absent from the 10.9 SDK's CVPixelBuffer.h. Provide their documented
 // FourCC values so the I010/I210 mapping compiles (decode of 10-bit content).
 #ifndef kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange

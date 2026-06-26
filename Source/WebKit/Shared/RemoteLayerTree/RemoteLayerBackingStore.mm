@@ -436,7 +436,7 @@ void RemoteLayerBackingStore::paintContents()
     if (layer->owner()->platformCALayerDelegatesDisplay(layer.ptr()))
         return;
 
-    // 10.9 backport: REVERTED to v1 (unite always). v2/v3/v4 attempts to skip
+    // MAVERICKS_BACKPORT: REVERTED to v1 (unite always). v2/v3/v4 attempts to skip
     // unnecessary repaint caused major page corruption. Some upstream content
     // isn't being marked dirty correctly; until that's understood, force full
     // repaint every commit. This is the perf killer.
@@ -462,17 +462,17 @@ void RemoteLayerBackingStore::drawInContext(GraphicsContext& context)
 {
     GraphicsContextStateSaver stateSaver(context);
     IntRect dirtyBounds = m_dirtyRegion.bounds();
-// 10.9 backport: skip the debug magenta fill — it overdraws actual content here.
+// MAVERICKS_BACKPORT: skip the debug magenta fill — it overdraws actual content here.
 // (Original guard: #ifndef NDEBUG.)
 
-// 10.9 backport: clear the dirty region to TRANSPARENT (not white) before paint.
+// MAVERICKS_BACKPORT: clear the dirty region to TRANSPARENT (not white) before paint.
 // This prevents textContent overlay artifacts where antialiased glyphs from the
 // previous paint cycle blend with the new ones. CGContextClearRect with alpha=0
 // won't trigger the same CGContextFillPath silent-fail that white-fill does, so
 // inline SVG icons painted afterwards still render correctly.
     if (CGContextRef cg = context.platformContext()) {
         CGContextSaveGState(cg);
-        // 10.9 backport (#56): opaque layers use a no-alpha (BGRX8) backing, so clearing to
+        // MAVERICKS_BACKPORT (#56): opaque layers use a no-alpha (BGRX8) backing, so clearing to
         // TRANSPARENT zeros the RGB -> BLACK wherever the layer's content doesn't fully cover it
         // (the DuckDuckGo logo black-box, and any opaque composited layer with an unpainted gap).
         // Fill opaque backings WHITE instead; keep the transparent-clear for non-opaque (BGRA8)

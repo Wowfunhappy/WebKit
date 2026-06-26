@@ -35,7 +35,7 @@ WK_CLASS_AVAILABLE(macos(10.15))
 @interface _WKInspectorWindow : NSWindow
 
 @property (nonatomic, readonly, getter=isForRemoteTarget) BOOL forRemoteTarget;
-// 10.9 backport: zeroing-weak properties cannot be synthesized under manual reference counting;
+// MAVERICKS_BACKPORT: zeroing-weak properties cannot be synthesized under manual reference counting;
 // use unsafe_unretained (the inspected web view outlives this readonly accessor's use).
 @property (nonatomic, nullable, readonly, unsafe_unretained) WKWebView *inspectedWebView WK_API_AVAILABLE(macos(13.3));
 

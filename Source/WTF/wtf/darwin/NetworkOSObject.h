@@ -25,7 +25,7 @@
 
 #pragma once
 
-// macOS 10.9 backport: Network.framework (10.10+) is not available. This
+// MAVERICKS_BACKPORT: Network.framework (10.10+) is not available. This
 // header is reduced to a no-op so files that include it still compile.
 // Code paths that use nw_* types will only be exercised by WK2 networking
 // which we route through CFNetwork instead on this backport.

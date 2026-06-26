@@ -100,7 +100,7 @@ void RemoteLayerTreeDrawingArea::setNeedsDisplayInRect(const IntRect&)
 
 void RemoteLayerTreeDrawingArea::scroll(const IntRect& scrollRect, const IntSize& scrollDelta)
 {
-    // 10.9 backport: scroll position changed but the layer tree commit needs
+    // MAVERICKS_BACKPORT: scroll position changed but the layer tree commit needs
     // to be scheduled so the new viewport translation reaches UIProcess.
     UNUSED_PARAM(scrollRect);
     UNUSED_PARAM(scrollDelta);
@@ -114,7 +114,7 @@ GraphicsLayerFactory* RemoteLayerTreeDrawingArea::graphicsLayerFactory()
 
 RefPtr<DisplayRefreshMonitor> RemoteLayerTreeDrawingArea::createDisplayRefreshMonitor(PlatformDisplayID displayID)
 {
-    // 10.9 backport: returning nullptr here causes RenderingUpdateScheduler
+    // MAVERICKS_BACKPORT: returning nullptr here causes RenderingUpdateScheduler
     // to fall back to LegacyDisplayRefreshMonitorMac (CVDisplayLink-based)
     // which actually works on 10.9. Tried WebDisplayRefreshMonitor (the
     // WebKit2 IPC-driven one) but that regresses: it relies on UIProcess

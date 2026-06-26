@@ -76,7 +76,7 @@ void RunLoopObserver::runLoopObserverFired(CFRunLoopObserverRef, CFRunLoopActivi
 
 void RunLoopObserver::schedule(PlatformRunLoop runLoop, OptionSet<Activity> activity)
 {
-    // 10.9 backport: dispatch workers on Mavericks have unreliable
+    // MAVERICKS_BACKPORT: dispatch workers on Mavericks have unreliable
     // CFRunLoopGetCurrent — observers added there never fire. Use Main runloop
     // explicitly so they fire from the actual main thread.
     RetainPtr effectiveRunLoop = runLoop ? runLoop : CFRunLoopGetMain();

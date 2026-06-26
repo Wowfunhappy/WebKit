@@ -33,7 +33,7 @@
  */
 #include <time.h>
 #if defined(__APPLE__)
-/* 10.9 backport: clock_gettime/CLOCK_MONOTONIC are macOS 10.12+; use mach_absolute_time(). */
+/* MAVERICKS_BACKPORT: clock_gettime/CLOCK_MONOTONIC are macOS 10.12+; use mach_absolute_time(). */
 #include <mach/mach_time.h>
 #include <stdint.h>
 #endif

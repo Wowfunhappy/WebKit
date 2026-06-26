@@ -1,5 +1,5 @@
 /*
- * 10.9 backport: force-included (via this directory's CMakeLists.txt, for
+ * MAVERICKS_BACKPORT: force-included (via this directory's CMakeLists.txt, for
  * C/C++/ObjC/ObjC++ — NOT ASM) into every libwebrtc translation unit.
  *
  * MAVERICKS_BACKPORT: libwebrtc (and its bundled libvpx/libyuv/abseil/boringssl)

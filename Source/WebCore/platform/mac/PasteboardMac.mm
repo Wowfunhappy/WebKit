@@ -708,7 +708,7 @@ void Pasteboard::writeString(const String& type, const String& data)
     // MAVERICKS_BACKPORT: UTTypeFileURL is macOS 11+; use the legacy kUTTypeFileURL identifier.
     NSString *fileURLId = utTypeFileURLId();
     if (cocoaType == String(legacyURLPasteboardTypeSingleton()) || cocoaType == String(fileURLId)) {
-        // 10.9 backport: -[NSURL initWithString:nil] throws; nil-check before constructing.
+        // MAVERICKS_BACKPORT: -[NSURL initWithString:nil] throws; nil-check before constructing.
         RetainPtr cocoaNSString = cocoaData.createNSString();
         RetainPtr<NSURL> url = cocoaNSString ? adoptNS([[NSURL alloc] initWithString:cocoaNSString.get()]) : RetainPtr<NSURL> { };
         if ([url isFileURL])

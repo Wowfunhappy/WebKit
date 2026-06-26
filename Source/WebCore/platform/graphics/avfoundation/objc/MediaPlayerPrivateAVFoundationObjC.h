@@ -202,7 +202,7 @@ private:
     void createAVPlayerItem() final;
     void createAVPlayerLayer();
 #if PLATFORM(MAC)
-    // 10.9 backport: AVPlayer playback pipeline is non-functional in WebContent; drive video
+    // MAVERICKS_BACKPORT: AVPlayer playback pipeline is non-functional in WebContent; drive video
     // frames manually via AVAssetReader. See project_video_decode_works_assetreader_may23.
 #endif
     void createAVAssetForURL(const URL&) final;
@@ -414,7 +414,7 @@ private:
     RetainPtr<AVPlayerItem> m_avPlayerItem;
     RetainPtr<AVPlayerLayer> m_videoLayer WTF_GUARDED_BY_CAPABILITY(mainThread);
 #if PLATFORM(MAC)
-    // 10.9 backport (#67): path to the concatenated local .ts built from an HLS (.m3u8) source, so it
+    // MAVERICKS_BACKPORT (#67): path to the concatenated local .ts built from an HLS (.m3u8) source, so it
     // can be removed on teardown. nil for non-HLS sources.
 #endif
     const UniqueRef<VideoLayerManagerObjC> m_videoLayerManager;

@@ -1028,7 +1028,7 @@ static NSURL *createUniqueWebDataURL();
 
 @implementation WebFrame (WebPrivate)
 
-// 10.9 backport: restore the legacy null-event SPI removed upstream with
+// MAVERICKS_BACKPORT: restore the legacy null-event SPI removed upstream with
 // ENABLE(NETSCAPE_PLUGIN_API) (232462). macOS 10.9's DashboardClient drives
 // widget visibility by pausing/resuming null events for plug-ins across the
 // frame tree; without these selectors the unrecognized-selector exception

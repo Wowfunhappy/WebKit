@@ -35,7 +35,7 @@ namespace PAL {
 
 CFStringEncoding webDefaultCFStringEncoding()
 {
-    // 10.9 backport: on Mavericks, _CFStringGetUserDefaultEncoding() + TECGetWebTextEncodings()
+    // MAVERICKS_BACKPORT: on Mavericks, _CFStringGetUserDefaultEncoding() + TECGetWebTextEncodings()
     // typically returns kCFStringEncodingMacRoman, which causes UTF-8 HTTP responses to be
     // misinterpreted (every multi-byte UTF-8 sequence becomes garbage; ASCII is fine but
     // anything else, including HTML <meta> charset hints, gets mangled). The modern web is

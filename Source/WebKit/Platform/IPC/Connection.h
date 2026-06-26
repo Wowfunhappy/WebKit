@@ -814,7 +814,7 @@ private:
 
     mach_port_t m_receivePort { MACH_PORT_NULL };
     OSObjectPtr<dispatch_source_t> m_receiveSource;
-    // 10.9 backport: fallback timer that polls the receive port in case
+    // MAVERICKS_BACKPORT: fallback timer that polls the receive port in case
     // DISPATCH_SOURCE_TYPE_MACH_RECV fails to re-fire after handling a batch.
     OSObjectPtr<dispatch_source_t> m_receivePollTimer;
 

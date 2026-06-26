@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// 10.9 backport status: minimal implementation. The full WKShareSheet drives an
+// MAVERICKS_BACKPORT status: minimal implementation. The full WKShareSheet drives an
 // NSSharingServicePicker; that exists on 10.9, so the share menu can be restored
 // from upstream. For initial bring-up this implementation reports the share as
 // declined (completionHandler(false)) so that requesting navigator.share simply

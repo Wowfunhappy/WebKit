@@ -63,7 +63,7 @@ void ScrollbarTrackCornerSystemImageMac::drawControl(GraphicsContext& graphicsCo
 
     auto cornerDrawingOptions = @{ (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)kCUIWidgetScrollBarTrackCorner,
         (__bridge NSString *)kCUIIsFlippedKey: (__bridge NSNumber *)kCFBooleanTrue };
-    // 10.9 backport: +[NSAppearance currentDrawingAppearance] (and -_drawInRect:context:options:) are
+    // MAVERICKS_BACKPORT: +[NSAppearance currentDrawingAppearance] (and -_drawInRect:context:options:) are
     // 10.14+/11.0+; guard like the sibling control system-images (ControlMac.mm). nil receiver on 10.9 ->
     // the track corner is simply not drawn. No change on 11.0+.
     [([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil) _drawInRect:rect context:localContext.cgContext() options:cornerDrawingOptions];

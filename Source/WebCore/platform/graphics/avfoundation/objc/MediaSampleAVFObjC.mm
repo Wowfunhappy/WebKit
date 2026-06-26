@@ -259,7 +259,7 @@ Vector<Ref<MediaSampleAVFObjC>> MediaSampleAVFObjC::divide()
 
     Vector<Ref<MediaSampleAVFObjC>> samples;
     samples.reserveInitialCapacity(numSamples);
-    // 10.9 backport: CMSampleBufferCallBlockForEachSample (block variant) is 10.10+ / not exported here
+    // MAVERICKS_BACKPORT: CMSampleBufferCallBlockForEachSample (block variant) is 10.10+ / not exported here
     // (soft-link dlsym RELEASE_ASSERTs → EXC_BREAKPOINT). Split per-sample via the C-API
     // CMSampleBufferCopySampleBufferForRange instead.
     for (CMItemCount i = 0; i < numSamples; ++i) {
@@ -279,7 +279,7 @@ std::pair<RefPtr<MediaSample>, RefPtr<MediaSample>> MediaSampleAVFObjC::divide(c
 
     CFIndex samplesBeforePresentationTime = 0;
 
-    // 10.9 backport: replace block-based CMSampleBufferCallBlockForEachSample (10.10+, soft-link
+    // MAVERICKS_BACKPORT: replace block-based CMSampleBufferCallBlockForEachSample (10.10+, soft-link
     // dlsym RELEASE_ASSERTs → EXC_BREAKPOINT on YouTube's eviction path) with a per-sample loop using
     // CMSampleBufferGetSampleTimingInfo, which exists on 10.9. Per-sample PTS comes from the timing info.
     {

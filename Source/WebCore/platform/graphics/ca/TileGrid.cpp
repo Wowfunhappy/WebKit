@@ -292,7 +292,7 @@ bool TileGrid::getTileIndexRangeForRect(const IntRect& rect, TileIndex& topLeft,
         return false;
 
     auto tileSize = m_tileSize;
-    // 10.9 backport defence: divide-by-zero if either dimension is 0. The root
+    // MAVERICKS_BACKPORT defence: divide-by-zero if either dimension is 0. The root
     // cause is fixed in TileController::computeTileSize, but this guard keeps
     // the process alive against any other path that ever lands a zero size here.
     if (tileSize.width() <= 0 || tileSize.height() <= 0)

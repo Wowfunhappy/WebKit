@@ -69,7 +69,7 @@ public:
 #if ENABLE(GPU_PROCESS)
     static Ref<UserMediaCaptureManagerProxySourceProxy> create(RealtimeMediaSourceIdentifier id, Ref<IPC::Connection>&& connection, ProcessIdentity&& resourceOwner, Ref<RealtimeMediaSource>&& source, RefPtr<RemoteVideoFrameObjectHeap>&& videoFrameObjectHeap) { return adoptRef(*new UserMediaCaptureManagerProxySourceProxy(id, WTF::move(connection), WTF::move(resourceOwner), WTF::move(source), WTF::move(videoFrameObjectHeap))); }
 #else
-    // 10.9 backport: no RemoteVideoFrameObjectHeap without GPU_PROCESS; frames go out as CVPixelBuffers.
+    // MAVERICKS_BACKPORT: no RemoteVideoFrameObjectHeap without GPU_PROCESS; frames go out as CVPixelBuffers.
     static Ref<UserMediaCaptureManagerProxySourceProxy> create(RealtimeMediaSourceIdentifier id, Ref<IPC::Connection>&& connection, ProcessIdentity&& resourceOwner, Ref<RealtimeMediaSource>&& source) { return adoptRef(*new UserMediaCaptureManagerProxySourceProxy(id, WTF::move(connection), WTF::move(resourceOwner), WTF::move(source))); }
 #endif
     ~UserMediaCaptureManagerProxySourceProxy()
@@ -439,7 +439,7 @@ private:
             frame.setOwnershipIdentity(m_resourceOwner);
 
 #if ENABLE(GPU_PROCESS)
-        // 10.9 backport: the GPU-frame-heap path requires ENABLE(GPU_PROCESS). With it off, frames always
+        // MAVERICKS_BACKPORT: the GPU-frame-heap path requires ENABLE(GPU_PROCESS). With it off, frames always
         // travel as CVPixelBuffers (the m_videoFrameObjectHeap member is gated out and always null anyway).
         if (RefPtr videoFrameObjectHeap = m_videoFrameObjectHeap) {
             auto properties = videoFrameObjectHeap->add(frame);

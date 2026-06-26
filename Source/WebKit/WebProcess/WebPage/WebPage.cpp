@@ -1670,7 +1670,7 @@ EditorState WebPage::editorState(ShouldPerformLayout shouldPerformLayout) const
 
     Ref editor = frame->editor();
 
-    // 10.9 backport: the NODE-dereferencing parts of selection access (hasEditableStyle
+    // MAVERICKS_BACKPORT: the NODE-dereferencing parts of selection access (hasEditableStyle
     // etc.) can crash on a stale VisibleSelection::m_anchorNode, so isContentEditable is
     // computed safely from the focused element below. BUT selectionType() only reads an
     // enum member (no node deref), so report the REAL selection type — without it the
@@ -1834,7 +1834,7 @@ void WebPage::updateEditorStateAfterLayoutIfEditabilityChanged()
     if (!frame)
         return;
 
-    // 10.9 backport: avoid frame->selection().selection() (stale m_anchorNode
+    // MAVERICKS_BACKPORT: avoid frame->selection().selection() (stale m_anchorNode
     // can SEGV). Use Document::focusedElement-based isContentEditable instead.
     EditorStateIsContentEditable isEditable = EditorStateIsContentEditable::No;
     if (RefPtr document = frame->document()) {
@@ -3391,7 +3391,7 @@ static DestinationColorSpace snapshotColorSpace(SnapshotOptions options, WebPage
 {
 #if USE(CG)
     if (options.contains(SnapshotOption::UseScreenColorSpace)) {
-        // 10.9 backport: screenColorSpace() polyfill stub returns garbage struct
+        // MAVERICKS_BACKPORT: screenColorSpace() polyfill stub returns garbage struct
         // (see [[project_image_rightclick_crash_fixed_may20]]). Use plain SRGB
         // for snapshots instead — image quality is fine, no crash.
         return DestinationColorSpace::SRGB();
@@ -4406,7 +4406,7 @@ void WebPage::setActivityState(OptionSet<ActivityState> activityState, ActivityS
 {
     LOG_WITH_STREAM(ActivityState, stream << "WebPage " << identifier().toUInt64() << " setActivityState to " << activityState);
 
-    // 10.9 backport: Safari's URL-bar typed navigation incorrectly sends
+    // MAVERICKS_BACKPORT: Safari's URL-bar typed navigation incorrectly sends
     // setActivityState with IsVisible=0/IsInWindow=0 forever, leaving the
     // WebPage in prerender mode. The TileController never builds content
     // layers and the page renders blank. Force visibility on so the
@@ -4444,7 +4444,7 @@ void WebPage::setActivityState(OptionSet<ActivityState> activityState, ActivityS
 
 void WebPage::didStartPageTransition()
 {
-    // 10.9 backport: skip the page-transition freeze. The page transition is supposed to be
+    // MAVERICKS_BACKPORT: skip the page-transition freeze. The page transition is supposed to be
     // unfrozen via dispatchDidReachVisuallyNonEmptyState (or frameLoadCompleted), but on 10.9
     // the visually-non-empty milestone doesn't fire reliably, leaving the layer tree frozen
     // forever and the rendered page never paints. Just skip the freeze entirely.
@@ -4990,7 +4990,7 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
 #endif
 
 #if ENABLE(MEDIA_SOURCE)
-    // 10.9 backport: guarantee window.MediaSource is exposed to JavaScript. The MediaSource IDL is
+    // MAVERICKS_BACKPORT: guarantee window.MediaSource is exposed to JavaScript. The MediaSource IDL is
     // EnabledBySetting=MediaSourceEnabled, and Safari 9's UIProcess predates the modern preference key
     // (it either omits MediaSourceEnabled — so a stale/false value can win — or sends the legacy key),
     // which left window.MediaSource undefined and broke YouTube/MSE playback entirely. Force the setting
@@ -4999,7 +4999,7 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
     settings.setMediaSourceEnabled(true);
 #endif
 
-    // 10.9 backport: same root cause as MediaSource above — Safari 9's UIProcess predates these modern
+    // MAVERICKS_BACKPORT: same root cause as MediaSource above — Safari 9's UIProcess predates these modern
     // preference keys, so the value applied from the store can be stale/false and the feature never
     // gets exposed to JavaScript even though the WebKit default is true. Force-enable the safe, mature
     // modern features Safari 9 doesn't know to turn on.
@@ -5020,7 +5020,7 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
     settings.setBroadcastChannelEnabled(true);
     settings.setPermissionsAPIEnabled(true);
 #if ENABLE(MEDIA_STREAM)
-    // 10.9 backport: MEDIA_STREAM is compiled in (ENABLE_MEDIA_STREAM=1) but WEB_RTC is NOT. The
+    // MAVERICKS_BACKPORT: MEDIA_STREAM is compiled in (ENABLE_MEDIA_STREAM=1) but WEB_RTC is NOT. The
     // MediaDevices interface (navigator.mediaDevices + getUserMedia/enumerateDevices) is gated by
     // EnabledBySetting=MediaDevicesEnabled, which arrives false from Safari's store (it predates the API),
     // so navigator.mediaDevices stayed undefined even with capture compiled in. Force it on so camera/mic
@@ -5030,7 +5030,7 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
     settings.setMediaDevicesEnabled(true);
 #endif
 #if ENABLE(WEB_RTC)
-    // 10.9 backport: when WebRTC is compiled in (ENABLE_WEB_RTC=1, USE_LIBWEBRTC=1, libwebrtc.a), also
+    // MAVERICKS_BACKPORT: when WebRTC is compiled in (ENABLE_WEB_RTC=1, USE_LIBWEBRTC=1, libwebrtc.a), also
     // expose RTCPeerConnection (data channels work without a camera). Same Safari-store-stale-pref issue.
     settings.setPeerConnectionEnabled(true);
 #endif
@@ -5039,7 +5039,7 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
     settings.setRequiresUserGestureForVideoPlayback(requiresUserGestureForMedia || store.getBoolValueForKey(WebPreferencesKey::requiresUserGestureForVideoPlaybackKey()));
     settings.setRequiresUserGestureForAudioPlayback(requiresUserGestureForMedia || store.getBoolValueForKey(WebPreferencesKey::requiresUserGestureForAudioPlaybackKey()));
 #if ENABLE(MEDIA_SOURCE)
-    // 10.9 backport: allow programmatic/auto play without a user gesture so MSE sites (YouTube et al.)
+    // MAVERICKS_BACKPORT: allow programmatic/auto play without a user gesture so MSE sites (YouTube et al.)
     // that call video.play() from script actually start the custom pipeline's CMTimebase. Without this,
     // play() is rejected NotAllowedError, the timebase never runs, and only the first decoded frame shows.
     settings.setRequiresUserGestureForVideoPlayback(false);
@@ -7101,7 +7101,7 @@ bool WebPage::canHandleRequest(const WebCore::ResourceRequest& request)
     if (request.url().protocolIsBlob())
         return true;
 
-    // 10.9 backport: accept app-registered custom-protocol schemes (e.g. Safari's safari-reader://).
+    // MAVERICKS_BACKPORT: accept app-registered custom-protocol schemes (e.g. Safari's safari-reader://).
     // These are served by the app via LegacyCustomProtocolManager; without this, WebCore's
     // PolicyChecker treats the navigation as "cannot show URL" and never starts the load.
     if (WebProcess::singleton().isURLSchemeRegisteredForCustomProtocol(request.url().protocol().toString()))
@@ -8018,7 +8018,7 @@ void WebPage::didFinishLoad(WebFrame& frame)
     spatialBackdropSourceChanged();
 #endif
 
-    // 10.9 backport: force a repaint after page load completes. Without this, ~50% of runs
+    // MAVERICKS_BACKPORT: force a repaint after page load completes. Without this, ~50% of runs
     // never produce a second commit (the initial empty paint stays as the layer.contents)
     // because the m_isScheduled / m_waitingForBackingStoreSwap state machine races with
     // the data: URL load completing.

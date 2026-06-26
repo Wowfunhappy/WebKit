@@ -555,7 +555,7 @@ void WebInspectorUIProxy::openLocalInspectorFrontend()
 
     {
         auto url = m_underTest ? WebInspectorUIProxy::inspectorTestPageURL() : WebInspectorUIProxy::inspectorPageURL();
-        // 10.9 backport: platformInspectorPageLoadOverride reads the file in UI process and
+        // MAVERICKS_BACKPORT: platformInspectorPageLoadOverride reads the file in UI process and
         // calls loadData on the inspector page (bypassing the hung decidePolicy round-trip).
         if (platformInspectorPageLoadOverride(*inspectorPage, url))
             return;

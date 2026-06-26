@@ -281,7 +281,7 @@ template<> Class getClass<WKDDActionContext>()
 }
 #endif
 #endif
-#if USE(AVFOUNDATION) && 0  // 10.9 backport: getAVOutputContextClassSingleton not available
+#if USE(AVFOUNDATION) && 0  // MAVERICKS_BACKPORT: getAVOutputContextClassSingleton not available
 template<> Class getClass<AVOutputContext>()
 {
     return PAL::getAVOutputContextClassSingleton();
@@ -444,7 +444,7 @@ bool isSerializableValue(id value)
 
 template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder, NSObject<NSSecureCoding> *object)
 {
-    // 10.9 backport: initRequiringSecureCoding: is 10.13+. Use the deprecated
+    // MAVERICKS_BACKPORT: initRequiringSecureCoding: is 10.13+. Use the deprecated
     // initForWritingWithMutableData: with secure coding enabled.
     RetainPtr<NSMutableData> mutableData = adoptNS([[NSMutableData alloc] init]);
     RetainPtr<NSKeyedArchiver> archiver;
@@ -457,7 +457,7 @@ template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder,
 
     auto delegate = adoptNS([[WKSecureCodingArchivingDelegate alloc] init]);
 
-// 10.9 backport: DataDetectors classes return invalid pointers; isKindOfClass crashes
+// MAVERICKS_BACKPORT: DataDetectors classes return invalid pointers; isKindOfClass crashes
 #if 0 && ENABLE(DATA_DETECTION)
     if (PAL::isDataDetectorsCoreFrameworkAvailable() && [object isKindOfClass:PAL::getDDScannerResultClassSingleton()])
         [delegate setRewriteMutableString:YES];
@@ -471,7 +471,7 @@ template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder,
         [delegate setRewriteMutableString:YES];
 #endif // ENABLE(REVEAL)
 
-    // 10.9 backport: NSTextAttachment isKindOfClass crashes on encoded NSURLRequest
+    // MAVERICKS_BACKPORT: NSTextAttachment isKindOfClass crashes on encoded NSURLRequest
     // (object pointer is somehow invalid). Skip the check.
     // if ([object isKindOfClass:NSTextAttachment.class]) {
     //     [delegate setRewriteMutableData:YES];
@@ -483,7 +483,7 @@ template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder,
     if (PAL::isRevealCoreFrameworkAvailable() && [object isKindOfClass:PAL::getRVItemClassSingleton()])
         [delegate setTransformURLs:NO];
 #endif
-    // 10.9 backport: do NOT transform/wrap an NSURLRequest's URLs through the
+    // MAVERICKS_BACKPORT: do NOT transform/wrap an NSURLRequest's URLs through the
     // CoreIPCSecureCoding path; encode them directly so the real URL survives.
     if ([object isKindOfClass:[NSURLRequest class]])
         [delegate setTransformURLs:NO];
@@ -509,7 +509,7 @@ template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder,
     [archiver finishEncoding];
     [archiver setDelegate:nil];
 
-    // 10.9 backport: -[NSKeyedArchiver encodedData] is 10.13+. Use mutableData
+    // MAVERICKS_BACKPORT: -[NSKeyedArchiver encodedData] is 10.13+. Use mutableData
     // (passed at init) when not available.
     RetainPtr<CFDataRef> archivedData;
     if ([archiver respondsToSelector:@selector(encodedData)])
@@ -634,10 +634,10 @@ template<> std::optional<RetainPtr<id>> decodeObjectDirectlyRequiringAllowedClas
     if (!data)
         return std::nullopt;
 
-    // 10.9 backport: initForReadingFromData:error: and decodingFailurePolicy
+    // MAVERICKS_BACKPORT: initForReadingFromData:error: and decodingFailurePolicy
     // are 10.13+. Use deprecated initForReadingWithData: (10.5+).
     auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:(__bridge NSData *)data->get()]);
-    // 10.9 backport: on modern Foundation -decodeObjectOfClasses: implies secure
+    // MAVERICKS_BACKPORT: on modern Foundation -decodeObjectOfClasses: implies secure
     // coding, but on 10.9 it does not — without this the secure archive routes
     // through the non-secure -[NSURLRequest initWithCoder:] path
     // (_CFURLRequestCreateFromArchiveList → URLRequest::initialize SIGSEGV).
@@ -681,7 +681,7 @@ template<> std::optional<RetainPtr<id>> decodeObjectDirectlyRequiringAllowedClas
         [allowedClassSet addObject:allowedClass.get()];
 
     if (shouldEnableStrictMode(decoder, allowedClasses)) {
-        // 10.9 backport: _enableStrictSecureDecodingMode is 10.13+.
+        // MAVERICKS_BACKPORT: _enableStrictSecureDecodingMode is 10.13+.
         if ([unarchiver respondsToSelector:@selector(_enableStrictSecureDecodingMode)])
             [unarchiver _enableStrictSecureDecodingMode];
     }

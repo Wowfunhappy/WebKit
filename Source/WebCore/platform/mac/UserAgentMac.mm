@@ -34,7 +34,7 @@ namespace WebCore {
 
 String standardUserAgentWithApplicationName(const String& applicationName, const String&, UserAgentType)
 {
-    // 10.9 backport: ignore the host application name (Safari 9.1.3 passes
+    // MAVERICKS_BACKPORT: ignore the host application name (Safari 9.1.3 passes
     // "Safari/9537.86.7.8", which is inconsistent with Version/17.0). Always
     // emit a clean modern Safari UA so UA-sniffing sites see a coherent pair.
     UNUSED_PARAM(applicationName);

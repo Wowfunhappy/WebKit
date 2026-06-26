@@ -103,7 +103,7 @@ list(APPEND WebKit_SOURCES
 list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_BINARY_DIR}/libwebrtc/PrivateHeaders"
     "${ICU_INCLUDE_DIRS}"
-    # 10.9 backport: WebKit Cocoa init now calls PAL::GCrypt::initialize().
+    # MAVERICKS_BACKPORT: WebKit Cocoa init now calls PAL::GCrypt::initialize().
     "${MAVERICKS_DEPS}/include"
     "${WEBKIT_DIR}/GPUProcess/mac"
     "${WEBKIT_DIR}/NetworkProcess/cocoa"
@@ -474,7 +474,7 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/WKWebViewPrivate.h
     UIProcess/API/Cocoa/WKWebViewPrivateForTesting.h
     UIProcess/API/Cocoa/WKWebpagePreferences.h
-    # 10.9 backport: headers referenced via <WebKit/X.h> by generated serializers
+    # MAVERICKS_BACKPORT: headers referenced via <WebKit/X.h> by generated serializers
     # and cross-including API headers, but missing from the forwarding list.
     UIProcess/API/Cocoa/WKJSHandle.h
     UIProcess/API/Cocoa/WebFeature.h
@@ -853,7 +853,7 @@ set(WebKit_OUTPUT_NAME WebKit)
 # XPC Services
 
 function(WEBKIT_DEFINE_XPC_SERVICES)
-    # 10.9 backport: the modern "_WebKit" RunLoopType is unknown to 10.9's libxpc, which then falls
+    # MAVERICKS_BACKPORT: the modern "_WebKit" RunLoopType is unknown to 10.9's libxpc, which then falls
     # back to dispatch_main() — that parks the main thread, so the main GCD queue is drained by a
     # worker whose idle->active wakeup latency is ~166ms (~6Hz), throttling timers/rAF/page loads.
     # "NSRunLoop" makes xpc_main run a real run loop on the main thread, which drains the main queue

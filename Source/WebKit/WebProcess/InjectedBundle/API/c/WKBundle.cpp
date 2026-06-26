@@ -109,7 +109,7 @@ void WKBundleResetOriginAccessAllowLists(WKBundleRef bundleRef)
     protect(WebKit::toImpl(bundleRef))->resetOriginAccessAllowLists();
 }
 
-// 10.9 backport: legacy page-group user content C API, used by Safari 7's
+// MAVERICKS_BACKPORT: legacy page-group user content C API, used by Safari 7's
 // injected bundle to install extension content scripts and style sheets.
 // Upstream removed these (user content is per-WKUserContentController now);
 // they are reimplemented on top of WK109PageGroupUserContent, which records

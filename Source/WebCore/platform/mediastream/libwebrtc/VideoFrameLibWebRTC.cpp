@@ -32,7 +32,7 @@
 #include "CoreVideoSoftLink.h"
 #include <pal/cf/CoreMediaSoftLink.h>
 
-// 10.9 backport: 10-bit bi-planar CVPixelBuffer formats are macOS 10.13+ and
+// MAVERICKS_BACKPORT: 10-bit bi-planar CVPixelBuffer formats are macOS 10.13+ and
 // absent from the 10.9 SDK; provide their documented FourCC values.
 #ifndef kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
 #define kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange 0x78343230 // 'x420'

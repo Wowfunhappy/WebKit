@@ -155,19 +155,19 @@ bridge/objc/objc_class.mm @nonARC @no-unify
 bridge/objc/objc_instance.mm @nonARC @no-unify
 bridge/objc/objc_runtime.mm @nonARC @no-unify
 bridge/objc/objc_utility.mm @nonARC @no-unify
-// 10.9 backport: emit stub typeinfo for InbandTextTrackPrivateAVF (vtable
+// MAVERICKS_BACKPORT: emit stub typeinfo for InbandTextTrackPrivateAVF (vtable
 // references it but -fno-rtti suppresses real emission; dyld on 10.9 refuses to
 // load WebCore.framework otherwise — see file header for details).
 // platform/graphics/avfoundation/InbandTextTrackPrivateAVFTypeInfo.cpp @no-unify  -- lost backport RTTI helper; never committed. See task: build InbandTextTrack typeinfo (handle link-time if needed).
 
-// 10.9 backport: WebCrypto uses libgcrypt (built from source under
+// MAVERICKS_BACKPORT: WebCrypto uses libgcrypt (built from source under
 // /Users/jonathan/Desktop/gcrypt/install). The cocoa/CommonCrypto-backed
 // implementations relied on Apple Swift CryptoKit symbols and CCECCryptor
 // SPI that 10.9 doesn't ship; replacing them with libgcrypt avoids the
 // missing-symbol crashes documented in [[project_ecdh_enabled_may17]]
 // and the WebCrypto SHA-224 / SPKI asserts.
 crypto/cocoa/CryptoKeyCocoa.cpp
-// 10.9 backport: WebCrypto uses libgcrypt, but the CommonCrypto-based CryptoUtilitiesCocoa (AES-CTR
+// MAVERICKS_BACKPORT: WebCrypto uses libgcrypt, but the CommonCrypto-based CryptoUtilitiesCocoa (AES-CTR
 // transform helpers) is still required by the WebRTC SFrame transformer (RTCRtpSFrameTransformerCocoa).
 crypto/cocoa/CryptoUtilitiesCocoa.cpp
 crypto/gcrypt/CryptoAlgorithmAESCBCGCrypt.cpp

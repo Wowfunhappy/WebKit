@@ -13,7 +13,7 @@
 
 #import <VideoToolbox/VideoToolbox.h>
 #include <vector>
-// 10.9 backport: these VideoToolbox keys/levels postdate 10.9. ConstrainedBaseline≈Baseline;
+// MAVERICKS_BACKPORT: these VideoToolbox keys/levels postdate 10.9. ConstrainedBaseline≈Baseline;
 // the temporal-layer BaseLayerFrameRateFraction key is unavailable, so alias it to an existing
 // key (SetVTSessionProperty then fails gracefully at runtime; base H.264 encoding is unaffected).
 #ifndef kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel

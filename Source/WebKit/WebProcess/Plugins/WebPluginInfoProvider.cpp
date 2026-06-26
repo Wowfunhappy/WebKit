@@ -48,7 +48,7 @@ void WebPluginInfoProvider::refreshPlugins()
 
 static Vector<WebCore::PluginInfo> pluginInfoVector(WebCore::Page& page)
 {
-    // 10.9 backport: PDFPluginBase::pluginInfo() not available; skip.
+    // MAVERICKS_BACKPORT: PDFPluginBase::pluginInfo() not available; skip.
     UNUSED_PARAM(page);
     return { };
 }

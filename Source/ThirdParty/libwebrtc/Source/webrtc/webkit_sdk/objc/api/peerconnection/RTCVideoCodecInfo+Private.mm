@@ -36,7 +36,7 @@
 
 @end
 
-// 10.9 backport: this translation unit is a category-only .o (it adds the
+// MAVERICKS_BACKPORT: this translation unit is a category-only .o (it adds the
 // RTCVideoCodecInfo(Private) methods used by the codec factories), so a plain
 // static-archive link drops it and the methods are missing at runtime
 // ("unrecognized selector -nativeSdpVideoFormat" on `new RTCPeerConnection`).

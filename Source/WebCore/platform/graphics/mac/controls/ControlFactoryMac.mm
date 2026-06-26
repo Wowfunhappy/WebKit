@@ -77,7 +77,7 @@ NSView *ControlFactoryMac::drawingView(const FloatRect& rect, const ControlStyle
 
     // Use a fake view.
     [m_drawingView setFrameSize:NSSizeFromCGSize(rect.size())];
-    // 10.9 backport: +currentDrawingAppearance is 10.14+; _setSemanticContext: is 10.14+.
+    // MAVERICKS_BACKPORT: +currentDrawingAppearance is 10.14+; _setSemanticContext: is 10.14+.
     if ([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)])
         [m_drawingView setAppearance:[NSAppearance currentDrawingAppearance]];
     if (style.states.contains(ControlStyle::State::FormSemanticContext)
@@ -190,7 +190,7 @@ NSSearchFieldCell *ControlFactoryMac::searchFieldCell() const
         [m_searchFieldCell setBezeled:YES];
         [m_searchFieldCell setEditable:YES];
         [m_searchFieldCell setFocusRingType:NSFocusRingTypeExterior];
-        // 10.9 backport: -[NSSearchFieldCell setCenteredLook:] is 10.10+ SPI; absent on 10.9.
+        // MAVERICKS_BACKPORT: -[NSSearchFieldCell setCenteredLook:] is 10.10+ SPI; absent on 10.9.
         if ([m_searchFieldCell respondsToSelector:@selector(setCenteredLook:)])
             [m_searchFieldCell setCenteredLook:NO];
     }

@@ -101,7 +101,7 @@ RetainPtr<CFStringRef> copyLocalizedString(CFStringRef key)
 {
     static CFStringRef notFound = CFSTR("localized string not found");
 
-    // 10.9 backport: webCoreBundleSingleton() can return NULL when the WebCore
+    // MAVERICKS_BACKPORT: webCoreBundleSingleton() can return NULL when the WebCore
     // framework isn't registered as a loaded bundle (no com.apple.WebCore Info.plist
     // identifier in this build). CFBundleCopyLocalizedString crashes on NULL bundle
     // in 10.9's CoreFoundation. Fall back to the English key itself, which is what

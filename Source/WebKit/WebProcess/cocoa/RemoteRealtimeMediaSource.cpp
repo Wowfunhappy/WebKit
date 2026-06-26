@@ -66,7 +66,7 @@ void RemoteRealtimeMediaSource::createRemoteMediaSource()
 
         m_proxy.setAsReady();
 #if ENABLE(GPU_PROCESS)
-        // 10.9 backport: ensureGPUProcessConnection() only exists with ENABLE(GPU_PROCESS).
+        // MAVERICKS_BACKPORT: ensureGPUProcessConnection() only exists with ENABLE(GPU_PROCESS).
         // shouldCaptureInGPUProcess() is always false on a no-GPU build, so this is dead there.
         if (m_proxy.shouldCaptureInGPUProcess())
             protect(WebProcess::singleton().ensureGPUProcessConnection())->addClient(*this);

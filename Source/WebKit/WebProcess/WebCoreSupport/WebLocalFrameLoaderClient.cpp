@@ -758,7 +758,7 @@ void WebLocalFrameLoaderClient::dispatchDidFinishDocumentLoad()
 
     webPage->didFinishDocumentLoad(m_frame);
 
-    // 10.9 backport: complete page transition early so the layer tree unfreezes and the
+    // MAVERICKS_BACKPORT: complete page transition early so the layer tree unfreezes and the
     // page actually paints. The normal trigger (dispatchDidReachVisuallyNonEmptyState)
     // depends on rendering happening, which won't happen while frozen.
     if (m_frame->isMainFrame())
@@ -789,7 +789,7 @@ void WebLocalFrameLoaderClient::dispatchDidFinishLoad()
 
     webPage->didFinishLoad(m_frame);
 
-    // 10.9 backport: page transition freeze unfreezes via dispatchDidReachVisuallyNonEmptyState
+    // MAVERICKS_BACKPORT: page transition freeze unfreezes via dispatchDidReachVisuallyNonEmptyState
     // (which depends on rendering happening) or via FrameState::Complete transition. On 10.9
     // the visually-non-empty milestone never fires reliably (display link broken), so the layer
     // tree stays frozen forever and the rendered page is never painted. Force-complete the page

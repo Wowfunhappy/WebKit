@@ -107,7 +107,7 @@ void NetworkProcess::platformInitializeNetworkProcessCocoa(const NetworkProcessC
     initializeNetworkSettings();
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-    // 10.9 backport: cookieStorageFromIdentifyingData uses 10.10+ private API that
+    // MAVERICKS_BACKPORT: cookieStorageFromIdentifyingData uses 10.10+ private API that
     // crashes on 10.9 when the identifier is empty/invalid. Skip if empty; NSURLSession
     // falls back to a fresh per-process cookie storage, which is fine for HTTP loads.
     if (!parameters.uiProcessCookieStorageIdentifier.isEmpty())
@@ -239,7 +239,7 @@ void NetworkProcess::clearDiskCache(WallTime modifiedSince, CompletionHandler<vo
 void NetworkProcess::setSharedHTTPCookieStorage(const Vector<uint8_t>& identifier)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
-    // 10.9 backport: -_initWithCFHTTPCookieStorage: and +_setSharedHTTPCookieStorage:
+    // MAVERICKS_BACKPORT: -_initWithCFHTTPCookieStorage: and +_setSharedHTTPCookieStorage:
     // are 10.10+ SPI on NSHTTPCookieStorage. Skip when unavailable — the network
     // path falls back to the default shared cookie storage.
     if (![NSHTTPCookieStorage instancesRespondToSelector:@selector(_initWithCFHTTPCookieStorage:)]
@@ -257,7 +257,7 @@ void NetworkProcess::flushCookies(PAL::SessionID sessionID, CompletionHandler<vo
 void saveCookies(NSHTTPCookieStorage *cookieStorage, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
-    // 10.9 backport: NetworkProcess shutdown can invoke this on a freed/stale
+    // MAVERICKS_BACKPORT: NetworkProcess shutdown can invoke this on a freed/stale
     // cookieStorage (objc_msgSend_corrupt_cache_error on the save selector). Verify
     // the receiver's class table actually advertises a save selector WITHOUT
     // dispatching to the receiver itself (class_getInstanceMethod walks the
@@ -298,7 +298,7 @@ void saveCookies(NSHTTPCookieStorage *cookieStorage, CompletionHandler<void()>&&
 void NetworkProcess::platformFlushCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
 {
     UNUSED_PARAM(sessionID);
-    // 10.9 backport: persist cookies to disk at shutdown via the process-wide cookie jar.
+    // MAVERICKS_BACKPORT: persist cookies to disk at shutdown via the process-wide cookie jar.
     //
     // Upstream derives the cookie storage from the session's NSURLStorageSession; on 10.9 that
     // wrapper object can be freed/stale during didClose (faults even on class introspection), which

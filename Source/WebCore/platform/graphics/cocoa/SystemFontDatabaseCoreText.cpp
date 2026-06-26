@@ -144,7 +144,7 @@ RetainPtr<CTFontRef> SystemFontDatabaseCoreText::createFontByApplyingWeightWidth
     const float systemFontItalicSlope = 0.07;
     float italicsRawNumber = italic ? systemFontItalicSlope : 0;
     auto italicsNumber = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &italicsRawNumber));
-    // 10.9 backport: kCTFontUIFontDesignTrait/kCTFontUIFontDesignDefault are 10.13+ APIs.
+    // MAVERICKS_BACKPORT: kCTFontUIFontDesignTrait/kCTFontUIFontDesignDefault are 10.13+ APIs.
     // On 10.9 our polyfill defines them as stub function symbols, not real CFStringRef
     // constants, so they hold garbage when read as data. Including them as keys/values
     // in a CFTypeRef dictionary triggers a crash in CFHash via __forwarding__. Drop
@@ -292,7 +292,7 @@ std::optional<SystemFontKind> SystemFontDatabaseCoreText::matchSystemFontUse(con
         return lhs.impl() < rhs.impl();
     };
 
-    // 10.9 backport: kCTUIFontTextStyle* constants are stub functions in our
+    // MAVERICKS_BACKPORT: kCTUIFontTextStyle* constants are stub functions in our
     // polyfill, not real CFStringRefs. Trying to add them as AtomStrings calls
     // CFStringGetCStringPtr on the function address and crashes. Skip the
     // text-style lookup on 10.9 — none of the registered styles are valid.
@@ -404,7 +404,7 @@ static CTFontTextStylePlatform NODELETE fontPlatform()
 auto SystemFontDatabase::platformSystemFontShorthandInfo(FontShorthand fontShorthand) -> SystemFontShorthandInfo
 {
     auto interrogateFontDescriptorShorthandItem = [] (CTFontDescriptorRef fontDescriptor, const String& family) {
-        // 10.9 backport: CTFontDescriptorCopyAttribute on a UI-font descriptor crashes
+        // MAVERICKS_BACKPORT: CTFontDescriptorCopyAttribute on a UI-font descriptor crashes
         // inside CFDictionaryGetValue (key/equal callbacks dispatch to a missing selector
         // on this build). Skip the CT-introspection fast path entirely and return a
         // sensible default. Pages using system-ui font-family keywords will get a
@@ -415,7 +415,7 @@ auto SystemFontDatabase::platformSystemFontShorthandInfo(FontShorthand fontShort
     };
 
     auto interrogateTextStyleShorthandItem = [] (CFStringRef textStyle) {
-        // 10.9 backport: CTFontDescriptorGetTextStyleSize is a 10.10+ function. Use a
+        // MAVERICKS_BACKPORT: CTFontDescriptorGetTextStyleSize is a 10.10+ function. Use a
         // safe default; -apple-system text-style keywords are rare on the public web.
         return SystemFontShorthandInfo { textStyle ? AtomString(textStyle) : AtomString("system-ui"_s), 13.0f, FontSelectionValue(400) };
     };

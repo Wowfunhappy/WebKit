@@ -82,7 +82,7 @@ WKTypeID WKBundlePageGetTypeID()
     return WebKit::toAPI(WebKit::WebPage::APIType);
 }
 
-// 10.9 backport: removed upstream; Safari 7's injected bundle uses the page
+// MAVERICKS_BACKPORT: removed upstream; Safari 7's injected bundle uses the page
 // group to scope extension content scripts (see WKBundleAddUserScript).
 // WKBundlePageGroupCopyIdentifier is also required by the system Mac App Store
 // injected bundle (StoreJavaScript.framework/StoreWebBundle): store-page JS calls

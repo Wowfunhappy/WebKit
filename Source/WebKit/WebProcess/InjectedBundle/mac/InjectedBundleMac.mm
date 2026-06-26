@@ -76,7 +76,7 @@ static NSEventModifierFlags currentModifierFlags(id self, SEL _cmd)
 static RetainPtr<NSKeyedUnarchiver> createUnarchiver(std::span<const uint8_t> span)
 {
     RetainPtr data = toNSDataNoCopy(span, FreeWhenDone::No);
-    // 10.9 backport: initForReadingFromData:error: + decodingFailurePolicy are 10.11+.
+    // MAVERICKS_BACKPORT: initForReadingFromData:error: + decodingFailurePolicy are 10.11+.
     // Use the classic (deprecated) NSKeyedUnarchiver initializer, the only one on 10.9.
     // Malformed data raises an NSException, caught by the @try/@catch around every
     // decode call below.

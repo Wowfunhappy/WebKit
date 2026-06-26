@@ -95,7 +95,7 @@ static void runInitializationCode(void* = nullptr)
     WebCore::populateJITOperations();
 
 #if USE(GCRYPT)
-    // 10.9 backport: UIProcess calls wrapSerializedCryptoKey through the
+    // MAVERICKS_BACKPORT: UIProcess calls wrapSerializedCryptoKey through the
     // libgcrypt path too (see WebPageProxy.cpp / WebProcessProxy.cpp).
     // gcry_check_version must run before any other libgcrypt call.
     PAL::GCrypt::initialize();

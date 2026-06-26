@@ -1,5 +1,5 @@
 /*
- * 10.9 backport: software ISO BMFF (fragmented-MP4) Media Source parser.
+ * MAVERICKS_BACKPORT: software ISO BMFF (fragmented-MP4) Media Source parser.
  *
  * AVStreamDataParser does not exist on macOS 10.9 and libwebm is not built,
  * so MSE demuxing is done in software here: the MSE byte stream (ftyp/moov

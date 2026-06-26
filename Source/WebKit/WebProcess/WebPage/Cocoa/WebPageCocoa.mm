@@ -232,7 +232,7 @@ void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
 #endif // ENABLE(WEB_RTC)
     );
 #else
-    // 10.9 backport: there is no GPU process and no UIProcess capture-manager proxy
+    // MAVERICKS_BACKPORT: there is no GPU process and no UIProcess capture-manager proxy
     // (UserMediaCaptureManagerProxy is instantiated only in the GPU process), so the only working
     // capture path is in the WebProcess itself. Pass all capture-process flags false so
     // UserMediaCaptureManager::setupCaptureProcesses does NOT register the Remote capture factory —
@@ -243,7 +243,7 @@ void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
 #endif // ENABLE(GPU_PROCESS)
 #endif // ENABLE(MEDIA_STREAM)
 #if USE(LIBWEBRTC) && ENABLE(GPU_PROCESS)
-    // 10.9 backport: LibWebRTCCodecs is the GPU-process codec proxy (only defined with GPU_PROCESS).
+    // MAVERICKS_BACKPORT: LibWebRTCCodecs is the GPU-process codec proxy (only defined with GPU_PROCESS).
     // With GPU_PROCESS off, WebRTC video uses in-process VideoToolbox (libwebrtc webkit_sdk fallback),
     // so there are no GPU-process codec callbacks to configure.
     LibWebRTCCodecs::setCallbacks(m_page->settings().webRTCPlatformCodecsInGPUProcessEnabled(), m_page->settings().webRTCRemoteVideoFrameEnabled());
@@ -1016,7 +1016,7 @@ void WebPage::getPlatformEditorStateCommon(LocalFrame& frame, EditorState& resul
         endNodeIsInsideFixedPosition = startNodeIsInsideFixedPosition;
         visualData.caretRectAtEnd = visualData.caretRectAtStart;
     } else if (selection.isRange()) {
-        // 10.9 backport: defensively skip selection geometry extraction if the
+        // MAVERICKS_BACKPORT: defensively skip selection geometry extraction if the
         // selection's anchor nodes are detached/orphaned. DDG load triggered
         // a SIGSEGV in toNormalizedRange when a stale Position pointed at a
         // freed Node from a previous page.

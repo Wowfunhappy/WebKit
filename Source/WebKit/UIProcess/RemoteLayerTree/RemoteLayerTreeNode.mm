@@ -77,7 +77,7 @@ RemoteLayerTreeNode::RemoteLayerTreeNode(WebCore::PlatformLayerIdentifier layerI
     , m_layer(WTF::move(layer))
 {
     initializeLayer();
-    // 10.9 backport: CATransformLayer on Mavericks does not implement setDelegate:.
+    // MAVERICKS_BACKPORT: CATransformLayer on Mavericks does not implement setDelegate:.
     // Calling it raises NSInvalidArgumentException ("unrecognized selector"), which
     // crashes UIProcess mid-iteration when github commits 350+ new layers (most are
     // CATransformLayer for stacking contexts). Guard with respondsToSelector.
@@ -109,7 +109,7 @@ RemoteLayerTreeNode::~RemoteLayerTreeNode()
     if (RefPtr animationStack = m_animationStack)
         animationStack->clear(layer.get());
 #endif
-    // 10.9 backport: see initializeLayer; use associated object instead of KVC.
+    // MAVERICKS_BACKPORT: see initializeLayer; use associated object instead of KVC.
     objc_setAssociatedObject(layer.get(), (__bridge void*)WKRemoteLayerTreeNodePropertyKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 #if ENABLE(GAZE_GLOW_FOR_INTERACTION_REGIONS)
     removeInteractionRegionsContainer();
@@ -118,7 +118,7 @@ RemoteLayerTreeNode::~RemoteLayerTreeNode()
 
 Ref<RemoteLayerTreeNode> RemoteLayerTreeNode::createWithPlainLayer(WebCore::PlatformLayerIdentifier layerID)
 {
-    // 10.9 backport: WKCompositingLayer (a CALayer subclass) does not composite its
+    // MAVERICKS_BACKPORT: WKCompositingLayer (a CALayer subclass) does not composite its
     // sublayers on Mavericks (verified empirically: its sublayers — including tile
     // layers with valid .contents — are invisible). Use a plain CALayer instead.
     RetainPtr<CALayer> layer = adoptNS([[CALayer alloc] init]);
@@ -154,7 +154,7 @@ void RemoteLayerTreeNode::setEventRegion(const WebCore::EventRegion& eventRegion
 void RemoteLayerTreeNode::initializeLayer()
 {
     RetainPtr layer = this->layer();
-    // 10.9 backport: [CALayer setValue:forKey:] for arbitrary KVC keys falls
+    // MAVERICKS_BACKPORT: [CALayer setValue:forKey:] for arbitrary KVC keys falls
     // through to setValue:forUndefinedKey: on some CALayer subclasses on this
     // build (likely from polyfill stubs). That triggers _NSDescriptionWithLocaleFunc
     // → respondsToSelector → _class_getNonMetaClass → _objc_fatal "no class for
@@ -402,7 +402,7 @@ std::optional<WebCore::PlatformLayerIdentifier> RemoteLayerTreeNode::layerID(CAL
 
 RemoteLayerTreeNode* RemoteLayerTreeNode::forCALayer(CALayer *layer)
 {
-    // 10.9 backport: see initializeLayer; use associated object instead of KVC.
+    // MAVERICKS_BACKPORT: see initializeLayer; use associated object instead of KVC.
     return static_cast<RemoteLayerTreeNode*>([objc_getAssociatedObject(layer, (__bridge void*)WKRemoteLayerTreeNodePropertyKey) pointerValue]);
 }
 

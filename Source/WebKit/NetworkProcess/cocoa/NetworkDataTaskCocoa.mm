@@ -62,7 +62,7 @@
 
 namespace WebKit {
 
-// 10.9 backport: NSURLSessionTask.taskIdentifier on 10.9 starts from 0, but the
+// MAVERICKS_BACKPORT: NSURLSessionTask.taskIdentifier on 10.9 starts from 0, but the
 // WTF::HashMap<uint64_t, ...> used as dataTaskMap treats key 0 as the empty-slot
 // sentinel and key UINT64_MAX as the deleted sentinel. Shift by 1 so keys start
 // at 1 (and UINT64_MAX - 1 -> UINT64_MAX never happens since NSURLSession does not
@@ -95,7 +95,7 @@ inline static bool shouldBlockTrackersForThirdPartyCloaking(NSURLRequest *reques
 void enableAdvancedPrivacyProtections(NSMutableURLRequest *request, OptionSet<WebCore::AdvancedPrivacyProtections> policy)
 {
 #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
-    // 10.9 backport: _setUseEnhancedPrivacyMode: / _setBlockTrackers: are 10.15+ SPI.
+    // MAVERICKS_BACKPORT: _setUseEnhancedPrivacyMode: / _setBlockTrackers: are 10.15+ SPI.
     if (policy.contains(WebCore::AdvancedPrivacyProtections::EnhancedNetworkPrivacy)
         && [request respondsToSelector:@selector(_setUseEnhancedPrivacyMode:)])
         request._useEnhancedPrivacyMode = YES;
@@ -113,7 +113,7 @@ void enableAdvancedPrivacyProtections(NSMutableURLRequest *request, OptionSet<We
 void setPCMDataCarriedOnRequest(WebCore::PrivateClickMeasurement::PcmDataCarried pcmDataCarried, NSMutableURLRequest *request)
 {
 #if ENABLE(TRACKER_DISPOSITION)
-    // 10.9 backport: _needsNetworkTrackingPrevention is 10.15+ SPI.
+    // MAVERICKS_BACKPORT: _needsNetworkTrackingPrevention is 10.15+ SPI.
     if (![request respondsToSelector:@selector(_needsNetworkTrackingPrevention)]
         || ![request respondsToSelector:@selector(_setNeedsNetworkTrackingPrevention:)]) {
         UNUSED_PARAM(pcmDataCarried);
@@ -194,7 +194,7 @@ void NetworkDataTaskCocoa::updateFirstPartyInfoForSession(const URL& requestURL)
         return;
 
     CheckedPtr session = networkSession();
-    // 10.9 backport: -_resolvedCNAMEChain is 10.13+ SPI.
+    // MAVERICKS_BACKPORT: -_resolvedCNAMEChain is 10.13+ SPI.
     auto cnameDomain = [this]() {
         if (![m_task respondsToSelector:@selector(_resolvedCNAMEChain)])
             return WebCore::RegistrableDomain { };
@@ -253,7 +253,7 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
     ASSERT(nsRequest);
     RetainPtr<NSMutableURLRequest> mutableRequest = adoptNS([nsRequest.get() mutableCopy]);
 
-    // 10.9 backport: _setPrivacyProxy* are 10.15+ SPI on NSMutableURLRequest.
+    // MAVERICKS_BACKPORT: _setPrivacyProxy* are 10.15+ SPI on NSMutableURLRequest.
     if ((parameters.isMainFrameNavigation
             || parameters.hadMainFrameMainResourcePrivateRelayed
             || request.url().host() == request.firstPartyForCookies().host())
@@ -273,13 +273,13 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
 #endif
 
 #if HAVE(STRICT_FAIL_CLOSED)
-    // 10.9 backport: _setPrivacyProxyStrictFailClosed: is 10.15+ SPI.
+    // MAVERICKS_BACKPORT: _setPrivacyProxyStrictFailClosed: is 10.15+ SPI.
     if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::StrictFailClosed)
         && [mutableRequest respondsToSelector:@selector(_setPrivacyProxyStrictFailClosed:)])
         [mutableRequest _setPrivacyProxyStrictFailClosed:YES];
 #endif
 
-    // 10.9 backport: the _setPrivacyProxy* / _setWebSearchContent / _setAllowPrivateAccessTokensForThirdParty
+    // MAVERICKS_BACKPORT: the _setPrivacyProxy* / _setWebSearchContent / _setAllowPrivateAccessTokensForThirdParty
     // SPIs are all 10.15+. Guard each call.
     if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::FailClosedForUnreachableHosts)
         && [mutableRequest respondsToSelector:@selector(_setPrivacyProxyFailClosedForUnreachableHosts:)])
@@ -325,7 +325,7 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         return;
     }
 
-    // 10.9 backport: NSURLSession on Mavericks doesn't auto-inject Cookie headers
+    // MAVERICKS_BACKPORT: NSURLSession on Mavericks doesn't auto-inject Cookie headers
     // from configuration.HTTPCookieStorage even when cookies are stored. Without
     // Cookie headers, github's tree-commit-info / latest-commit / refs / etc
     // endpoints reject with HTTP 400. Manually inject cookies whenever the
@@ -378,7 +378,7 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         ASSERT(!m_sessionWrapper->session.get().configuration.URLCredentialStorage);
         break;
     case WebCore::StoredCredentialsPolicy::DoNotUse:
-        // 10.9 backport: -[NSURLSessionDataTask _adoptEffectiveConfiguration:] is a 10.10+
+        // MAVERICKS_BACKPORT: -[NSURLSessionDataTask _adoptEffectiveConfiguration:] is a 10.10+
         // SPI. On 10.9 it raises NSInvalidArgumentException and tears down NetworkProcess
         // (taking out subresource loads — every CDN asset request fails, which is what
         // makes pages like github render blank). Skip the per-task config override; we
@@ -397,7 +397,7 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
 
     if (parameters.shouldPreconnectOnly == PreconnectOnly::Yes) {
 #if ENABLE(SERVER_PRECONNECT)
-        // 10.9 backport: -_preconnect is 10.11+. Without it, the task simply
+        // MAVERICKS_BACKPORT: -_preconnect is 10.11+. Without it, the task simply
         // executes as a regular request — acceptable since preconnect is just
         // an optimization.
         if ([m_task respondsToSelector:@selector(set_preconnect:)])
@@ -485,7 +485,7 @@ void NetworkDataTaskCocoa::didReceiveData(const WebCore::SharedBuffer& data)
 {
     WTFEmitSignpost(m_task.get(), DataTask, "received %zd bytes", data.size());
 
-    // 10.9 backport: -_countOfBytesReceivedEncoded is 10.13+.
+    // MAVERICKS_BACKPORT: -_countOfBytesReceivedEncoded is 10.13+.
     if ([m_task respondsToSelector:@selector(_countOfBytesReceivedEncoded)])
         setBytesTransferredOverNetwork([m_task _countOfBytesReceivedEncoded]);
     else
@@ -501,7 +501,7 @@ void NetworkDataTaskCocoa::didReceiveResponse(WebCore::ResourceResponse&& respon
     if (isTopLevelNavigation())
         updateFirstPartyInfoForSession(response.url());
 #if ENABLE(NETWORK_ISSUE_REPORTING)
-    // 10.9 backport: -_incompleteTaskMetrics is 10.12+.
+    // MAVERICKS_BACKPORT: -_incompleteTaskMetrics is 10.12+.
     else if ([m_task respondsToSelector:@selector(_incompleteTaskMetrics)]
         && NetworkIssueReporter::shouldReport(retainPtr([m_task _incompleteTaskMetrics]).get())) {
         if (CheckedPtr session = networkSession())
@@ -509,7 +509,7 @@ void NetworkDataTaskCocoa::didReceiveResponse(WebCore::ResourceResponse&& respon
     }
 #endif
 
-    // 10.9 backport: NSURLSession on Mavericks doesn't auto-store Set-Cookie
+    // MAVERICKS_BACKPORT: NSURLSession on Mavericks doesn't auto-store Set-Cookie
     // from responses into configuration.HTTPCookieStorage, mirroring its
     // failure to inject Cookie headers on requests. Manually extract Set-Cookie
     // here so subsequent requests pick them up via the cookie injection path.

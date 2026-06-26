@@ -321,7 +321,7 @@ void NetworkProcess::initializeNetworkProcess(NetworkProcessCreationParameters&&
     WebCore::SQLiteDatabase::useFastMalloc();
     WebCore::NetworkStorageSession::permitProcessToUseCookieAPI(true);
 
-    // 10.9 backport: eagerly run WebCore's one-time SQLite initialization (initializeSQLiteIfNecessary) NOW,
+    // MAVERICKS_BACKPORT: eagerly run WebCore's one-time SQLite initialization (initializeSQLiteIfNecessary) NOW,
     // on the main thread, by opening a throwaway in-memory database. Later, ITP (ResourceLoadStatisticsStore)
     // and PrivateClickMeasurement (PCM::Database) open their SQLite stores on a background SuspendableWorkQueue;
     // the first such open would otherwise run initializeSQLiteIfNecessary() there and dispatch

@@ -1154,7 +1154,7 @@ void PageClientImpl::makeViewBlank(bool makeBlank)
 #if HAVE(APP_ACCENT_COLORS)
 WebCore::Color PageClientImpl::accentColor()
 {
-    // 10.9 backport: _effectiveAccentColor is 10.14+.
+    // MAVERICKS_BACKPORT: _effectiveAccentColor is 10.14+.
     if ([NSApp respondsToSelector:@selector(_effectiveAccentColor)])
         return WebCore::colorFromCocoaColor([NSApp performSelector:@selector(_effectiveAccentColor)]);
     return WebCore::colorFromCocoaColor([NSColor selectedControlColor]);

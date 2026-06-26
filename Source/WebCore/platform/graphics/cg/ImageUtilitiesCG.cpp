@@ -485,7 +485,7 @@ static bool encode(const PixelBuffer& source, const String& mimeType, std::optio
         return false;
 
     auto imageSize = source.size();
-    // 10.9 backport: source.format().colorSpace.platformColorSpace() can be NULL; fall back to sRGB.
+    // MAVERICKS_BACKPORT: source.format().colorSpace.platformColorSpace() can be NULL; fall back to sRGB.
     RetainPtr<CGColorSpaceRef> cs = source.format().colorSpace.platformColorSpace();
     if (!cs)
         cs = sRGBColorSpaceSingleton();

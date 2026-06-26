@@ -418,7 +418,7 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(IPC::Connection& connectio
 
     // Keep IOSurface send rights alive until the transaction is commited, otherwise we will
     // prematurely drop the only reference to them, and `inUse` will be wrong for a brief window.
-    // 10.9 backport: +[CATransaction addCommitHandler:forPhase:] is 10.10+. Drop the rights via
+    // MAVERICKS_BACKPORT: +[CATransaction addCommitHandler:forPhase:] is 10.10+. Drop the rights via
     // a runloop dispatch instead. The IOSurface ref-counting still works because the layer
     // already holds the surface as its contents.
     if (!sendRights.isEmpty()) {
@@ -453,7 +453,7 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(IPC::Connection& connectio
     updateSlowFrameIndicator();
     scheduleDisplayRefreshCallbacks();
 
-    // 10.9 backport: the old "send didRefreshDisplay 150ms after each commit" band-aid is removed.
+    // MAVERICKS_BACKPORT: the old "send didRefreshDisplay 150ms after each commit" band-aid is removed.
     // The display link now actually runs (m_displayID is populated in scheduleDisplayRefreshCallbacks,
     // and DisplayLinkMac drives it from a real timer instead of the VM's dead CVDisplayLink), so
     // DisplayDidRefresh flows continuously at the display rate rather than once per commit.

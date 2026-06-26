@@ -23,7 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// 10.9 backport: the upstream file uses -[NSGraphicsContext CGContext] (10.10+). On 10.9
+// MAVERICKS_BACKPORT: the upstream file uses -[NSGraphicsContext CGContext] (10.10+). On 10.9
 // the equivalent is the deprecated -[NSGraphicsContext graphicsPort] (a CGContextRef).
 // That property is only reached in the rare NSPatternColorSpace fallback below; the whole
 // file had been stubbed to two lines because of it, which left colorFromCocoaColor() bound

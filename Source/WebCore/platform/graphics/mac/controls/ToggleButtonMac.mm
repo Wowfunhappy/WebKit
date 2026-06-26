@@ -123,7 +123,7 @@ void ToggleButtonMac::draw(GraphicsContext& context, const FloatRoundedRect& bor
         context.scale(style.zoomFactor);
     }
 
-    // 10.9 backport: -[NSButtonCell _stateAnimationRunning] / -_renderCurrentAnimationFrameInContext:
+    // MAVERICKS_BACKPORT: -[NSButtonCell _stateAnimationRunning] / -_renderCurrentAnimationFrameInContext:
     // are 10.10+ SPI. On 10.9 there is no state animation; fall through to the normal NSCell draw.
     if ([m_buttonCell respondsToSelector:@selector(_stateAnimationRunning)] && [m_buttonCell _stateAnimationRunning]) {
         context.translate(logicalRect.location());

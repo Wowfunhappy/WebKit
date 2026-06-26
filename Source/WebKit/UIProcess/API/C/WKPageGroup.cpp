@@ -38,7 +38,7 @@
 #include <WebCore/UserScript.h>
 #include <WebCore/UserStyleSheet.h>
 
-// 10.9 backport: these were gutted to null upstream, but Safari 7 creates its
+// MAVERICKS_BACKPORT: these were gutted to null upstream, but Safari 7 creates its
 // browsing page group with WKPageGroupCreateWithIdentifier, attaches its
 // WKPreferences to it, and passes the group to WKView — and the injected
 // bundle later scopes extension content scripts by this group's identifier.
@@ -70,7 +70,7 @@ WKPreferencesRef WKPageGroupGetPreferences(WKPageGroupRef pageGroupRef)
     return WebKit::toAPI(&pageGroup->preferences());
 }
 
-// 10.9 backport: restore the page-group user-content C SPI (gutted upstream with
+// MAVERICKS_BACKPORT: restore the page-group user-content C SPI (gutted upstream with
 // the page-group user-content model). The page group owns a WebUserContentControllerProxy
 // (WebPageGroup::userContentController); pages created in the group share it (WKView seeds
 // the page configuration with it), so scripts and style sheets added here are injected.

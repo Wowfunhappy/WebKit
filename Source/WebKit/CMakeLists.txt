@@ -299,7 +299,7 @@ set(WebKit_MESSAGES_IN_FILES
 
     UIProcess/Media/RemoteMediaSessionCoordinatorProxy
     UIProcess/Media/RemoteMediaSessionManagerProxy
-    # 10.9 backport: WebPageProxy.cpp includes VideoPresentationManagerProxyMessages.h
+    # MAVERICKS_BACKPORT: WebPageProxy.cpp includes VideoPresentationManagerProxyMessages.h
     # unconditionally; generate it so the WK2 framework compiles.
     UIProcess/Cocoa/VideoPresentationManagerProxy
 
@@ -853,7 +853,7 @@ if (PORT STREQUAL GTK OR PORT STREQUAL WPE)
     )
 endif ()
 
-# 10.9 backport: SYMLINK (not copy) the forwarded framework headers. WebKit's
+# MAVERICKS_BACKPORT: SYMLINK (not copy) the forwarded framework headers. WebKit's
 # own code includes some headers both via <WebKit/X.h> (forwarded) and "X.h"
 # (source) in the same TU (e.g. _WKJSHandle.h vs WKJSHandleInternal.h); a copy
 # has a different realpath than the source so #pragma once fails to dedup and the
@@ -1139,7 +1139,7 @@ if (ENABLE_SWIFT_DEMO_URI_SCHEME)
     )
 endif ()
 
-# 10.9 backport: stub @implementations Safari 9.1.3 expects from WebKit.framework.
+# MAVERICKS_BACKPORT: stub @implementations Safari 9.1.3 expects from WebKit.framework.
 if (APPLE)
     list(APPEND WebKit_SOURCES
         ${WEBKIT_DIR}/PolyfillClasses_109.mm

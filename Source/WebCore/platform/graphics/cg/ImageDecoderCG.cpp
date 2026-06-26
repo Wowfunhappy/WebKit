@@ -75,7 +75,7 @@ constexpr float panoramicImageAspectRatioThreshold = 2.0;
 
 static RetainPtr<CFMutableDictionaryRef> createImageSourceOptions()
 {
-    // 10.9 backport: kCGImageSourceShouldCache / kCGImageSourceSkipMetadata /
+    // MAVERICKS_BACKPORT: kCGImageSourceShouldCache / kCGImageSourceSkipMetadata /
     // kCGImageSourceUseHardwareAcceleration / etc. are stubbed in libpolyfill.a
     // with `xorl %eax,%eax; ret`, which leaves the returned CFStringRef key
     // with a corrupted class pointer. Passing those into CFDictionarySetValue

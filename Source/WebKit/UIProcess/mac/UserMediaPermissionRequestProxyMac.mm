@@ -1,4 +1,4 @@
-// Stubbed for macOS 10.9 backport.
+// Stubbed for MAVERICKS_BACKPORT.
 // Exception: UserMediaPermissionRequestProxy::create() — the cross-platform definition in
 // UserMediaPermissionRequestProxy.cpp is gated `#if !PLATFORM(COCOA)`, so on Cocoa it must come from
 // the Mac file. The rest of the Mac permission UI stays stubbed (getUserMedia auto-grant path); only

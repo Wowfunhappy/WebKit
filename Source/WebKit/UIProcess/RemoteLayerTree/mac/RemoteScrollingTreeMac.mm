@@ -34,7 +34,7 @@
 #import "RemoteScrollingTreeCocoa.h"
 #import "ScrollingTreeFrameScrollingNodeRemoteMac.h"
 #import "ScrollingTreeOverflowScrollingNodeRemoteMac.h"
-// ScrollingTreePluginScrollingNodeRemoteMac.h disabled for macOS 10.9 backport
+// ScrollingTreePluginScrollingNodeRemoteMac.h disabled for MAVERICKS_BACKPORT
 #import <WebCore/EventRegion.h>
 #import <WebCore/FrameView.h>
 #import <WebCore/LocalFrameView.h>

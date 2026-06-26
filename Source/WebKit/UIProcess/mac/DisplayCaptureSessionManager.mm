@@ -1,4 +1,4 @@
-// macOS 10.9 backport: the full screen-capture (getDisplayMedia) session manager needs
+// MAVERICKS_BACKPORT: the full screen-capture (getDisplayMedia) session manager needs
 // ScreenCaptureKit (12.3+), so provide a minimal DisplayCaptureSessionManager — a real singleton with
 // no-op display capture (screen sharing is unavailable on 10.9; isAvailable() returns false) — so the
 // ENABLE(MEDIA_STREAM) getUserMedia path links. checkSandboxRequirementForType() and the other

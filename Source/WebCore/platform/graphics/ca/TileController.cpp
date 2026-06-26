@@ -666,7 +666,7 @@ IntSize TileController::computeTileSize()
 #if HAVE(IOSURFACE)
     IntSize surfaceSizeLimit = IOSurface::maximumSize();
     surfaceSizeLimit.scale(1 / m_deviceScaleFactor);
-    // 10.9 backport: WebProcess receives maximumIOSurfaceSize from the UI process
+    // MAVERICKS_BACKPORT: WebProcess receives maximumIOSurfaceSize from the UI process
     // via WebProcessCreationParameters. If that wasn't initialised (e.g. when the
     // legacy WebKit2 UI process never set it) we get IntSize(0,0) here, which
     // shrinks maxTileSize to zero and triggers a divide-by-zero downstream.

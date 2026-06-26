@@ -534,7 +534,7 @@ Expected<RetainPtr<CMSampleBufferRef>, CString> toCMSampleBuffer(const MediaSamp
     }
 
     CMSampleBufferRef rawSampleBuffer = nullptr;
-    // 10.9 backport: CMSampleBufferCreateReady is 10.10+ (absent from this OS's CoreMedia export
+    // MAVERICKS_BACKPORT: CMSampleBufferCreateReady is 10.10+ (absent from this OS's CoreMedia export
     // table — its soft-link dlsym RELEASE_ASSERTs → EXC_BREAKPOINT). CMSampleBufferCreate IS present
     // on 10.9 and is equivalent when passed dataReady=true with no make-ready callback.
     if (PAL::CMSampleBufferCreate(kCFAllocatorDefault, completeBlockBuffers.get(), true, nullptr, nullptr, format.get(), packetSizes.size(), packetTimings.size(), packetTimings.span().data(), packetSizes.size(), packetSizes.span().data(), &rawSampleBuffer))

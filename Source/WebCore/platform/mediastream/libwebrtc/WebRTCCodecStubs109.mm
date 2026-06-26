@@ -1,5 +1,5 @@
 /*
- * 10.9 backport: stub definitions for the H.265 (HEVC) and AV1 WebRTC video
+ * MAVERICKS_BACKPORT: stub definitions for the H.265 (HEVC) and AV1 WebRTC video
  * codec classes.
  *
  * libwebrtc's WebKit SDK references the H.265 and AV1 encoder/decoder classes
@@ -25,7 +25,7 @@
 #import <Foundation/Foundation.h>
 #import <dispatch/dispatch.h>
 
-// 10.9 backport: reference the marker exported by RTCVideoCodecInfo+Private.mm so
+// MAVERICKS_BACKPORT: reference the marker exported by RTCVideoCodecInfo+Private.mm so
 // the linker keeps that category-only object file (otherwise -nativeSdpVideoFormat
 // is missing at runtime — the codec factory crashes on `new RTCPeerConnection`).
 extern "C" void webkit109_keep_RTCVideoCodecInfo_Private(void);

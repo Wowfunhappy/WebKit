@@ -216,7 +216,7 @@ static Seconds NODELETE maximumBufferingTime(CachedResource* resource)
     return 0_s;
 }
 
-// 10.9 backport: Safari serves its internal custom-protocol resources (the Reader template and the
+// MAVERICKS_BACKPORT: Safari serves its internal custom-protocol resources (the Reader template and the
 // reader UI chrome) by translating the scheme to a file in Safari.framework/Resources and serving that
 // file — its TranslatedFileURLProtocol uses CFURLProtocolRegisterImplementation (a CFNetwork private
 // API), which modern WebKit's NSURLConnection-based loading does NOT consult, and forwarding the load
@@ -352,7 +352,7 @@ void WebLoaderStrategy::scheduleLoad(ResourceLoader& resourceLoader, CachedResou
     if (tryLoadingUsingURLSchemeHandler(resourceLoader, trackingParameters))
         return;
 
-    // 10.9 backport: serve Safari's file-backed custom-protocol resources (safari-reader:// reader
+    // MAVERICKS_BACKPORT: serve Safari's file-backed custom-protocol resources (safari-reader:// reader
     // template, safari-resource:// reader chrome) directly from Safari.framework/Resources, since
     // its CFURLProtocol-based serving is not reachable through modern WebKit's NSURLConnection path.
     if (WebProcess::singleton().isURLSchemeRegisteredForCustomProtocol(resourceLoader.request().url().protocol().toString())

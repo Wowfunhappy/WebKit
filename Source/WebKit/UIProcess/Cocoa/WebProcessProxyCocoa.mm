@@ -100,7 +100,7 @@ void WebProcessProxy::registerNotifyObservers()
 
 const MemoryCompactLookupOnlyRobinHoodHashSet<String>& WebProcessProxy::platformPathsWithAssumedReadAccess()
 {
-    // 10.9 backport: bundleWithIdentifier may return nil for our locally-built frameworks,
+    // MAVERICKS_BACKPORT: bundleWithIdentifier may return nil for our locally-built frameworks,
     // and bundleForClass may return nil if WKWebView isn't loaded yet. Build the set safely
     // by skipping nil paths instead of feeding them into the initializer_list.
     static NeverDestroyed<MemoryCompactLookupOnlyRobinHoodHashSet<String>> platformPathsWithAssumedReadAccess([] {

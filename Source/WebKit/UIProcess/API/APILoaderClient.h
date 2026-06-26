@@ -65,7 +65,7 @@ public:
     virtual bool processDidCrash(WebKit::WebPageProxy&) { return false; }
     virtual void didChangeBackForwardList(WebKit::WebPageProxy&, WebKit::WebBackForwardListItem*, Vector<Ref<WebKit::WebBackForwardListItem>>&&) { }
     virtual void didCommitLoadForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Navigation*, API::Object*) { }
-    // 10.9 backport: Safari 9.1.3 needs these legacy callbacks.
+    // MAVERICKS_BACKPORT: Safari 9.1.3 needs these legacy callbacks.
     virtual void didFinishDocumentLoadForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Navigation*, API::Object*) { }
     virtual void didReceiveTitleForFrame(WebKit::WebPageProxy&, const WTF::String&, WebKit::WebFrameProxy&, API::Object*) { }
     virtual void didFirstVisuallyNonEmptyLayoutForFrameLegacy(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Object*) { }

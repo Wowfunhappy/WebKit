@@ -1,4 +1,4 @@
-// 10.9 backport: minimal implementation of WebCoreCALayerExtras category.
+// MAVERICKS_BACKPORT: minimal implementation of WebCoreCALayerExtras category.
 #include "config.h"
 #include "WebCoreCALayerExtras.h"
 
@@ -15,7 +15,7 @@
 
 + (CALayer *)_web_renderLayerWithContextID:(uint32_t)contextID shouldPreserveFlip:(BOOL)preservesFlip
 {
-    // 10.9 backport: the previous stub returned an empty [CALayer layer], ignoring
+    // MAVERICKS_BACKPORT: the previous stub returned an empty [CALayer layer], ignoring
     // the contextID — so the WebContent process's rendered content was never shown
     // and the WKView painted blank. Host the remote CAContext for real.
     CALayerHost *layer = [CALayerHost layer];

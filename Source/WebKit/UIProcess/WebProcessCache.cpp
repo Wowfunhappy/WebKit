@@ -309,7 +309,7 @@ RefPtr<WebProcessProxy> WebProcessCache::takeSharedProcess(const WebCore::Site& 
 void WebProcessCache::updateCapacity(WebProcessPool& processPool)
 {
 #if ENABLE(WEBPROCESS_CACHE)
-    // 10.9 backport: force-enable the WebProcessCache whenever process-swap-on-navigation can occur.
+    // MAVERICKS_BACKPORT: force-enable the WebProcessCache whenever process-swap-on-navigation can occur.
     // On this port the client (Safari 9) leaves usesWebProcessCache() at its default (false) and the
     // cache model may not be PrimaryWebBrowser, so the upstream guard set m_capacity = 0. A 0-capacity
     // cache means a process swapped out on navigation cannot be cached/suspended and is TERMINATED

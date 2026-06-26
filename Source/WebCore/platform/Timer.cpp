@@ -54,7 +54,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(Timer);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(DeferrableOneShotTimer);
 
 #if PLATFORM(MAC)
-// 10.9 backport: ThreadTimers heap is process-wide singleton (per
+// MAVERICKS_BACKPORT: ThreadTimers heap is process-wide singleton (per
 // project_threadtimers_shared.md). Worker threads + main thread can mutate
 // the heap concurrently — std::push_heap / std::pop_heap are NOT thread-safe
 // and crash in __sift_up. Wrap heap mutations with a global lock.
@@ -309,7 +309,7 @@ TimerBase::TimerBase()
 
 TimerBase::~TimerBase()
 {
-    // 10.9 backport: m_thread can be clobbered by JSC GC overwriting RunLoop
+    // MAVERICKS_BACKPORT: m_thread can be clobbered by JSC GC overwriting RunLoop
     // memory; suppress the thread-safety release assert so destruction can
     // proceed (the actual stop() below is safe to call from any thread).
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
@@ -333,7 +333,7 @@ void TimerBase::stopSlowCase()
 
     // Properly remove this timer's item from the shared heap, as upstream does:
     // setNextFireTime({}) drives updateHeapIfNeeded → heapDelete (which locks the
-    // heap internally). The earlier 10.9 backport instead detached and left an ORPHAN
+    // heap internally). The earlier MAVERICKS_BACKPORT instead detached and left an ORPHAN
     // !hasTimer() entry in the heap (to dodge a __sift_up crash on the then-corrupted
     // heap), which made stale entries accumulate, jam heap min-extraction, and require
     // the heapInsert scrub. The heap corruption is fixed (RunLoop-lifetime keystone
@@ -482,7 +482,7 @@ bool TimerBase::hasValidHeapPosition() const
     ASSERT(item);
     if (!inHeap())
         return false;
-    // 10.9 backport: defensively validate heap entries before dereferencing.
+    // MAVERICKS_BACKPORT: defensively validate heap entries before dereferencing.
     // Thread timer heap is corrupted by JSC GC overwriting Vector storage.
     // Bad entries (NULL pointers, non-aligned, NaN times) would crash compare().
     // Returning false forces updateHeapIfNeeded to call heap{Insert,Delete,...}
@@ -553,7 +553,7 @@ void TimerBase::setNextFireTime(MonotonicTime newTime)
     RELEASE_ASSERT(WebThreadIsLockedOrDisabledInMainOrWebThread());
 #endif
 #if PLATFORM(MAC)
-    // 10.9 backport: serialize heap mutations across threads. Released
+    // MAVERICKS_BACKPORT: serialize heap mutations across threads. Released
     // before updateSharedTimer to avoid recursive lock attempt.
     std::optional<Locker<Lock>> timerHeapLocker;
     timerHeapLocker.emplace(sharedTimerHeapLock());
@@ -591,7 +591,7 @@ void TimerBase::setNextFireTime(MonotonicTime newTime)
 
         bool isFirstTimerInHeap = item->isFirstInHeap();
 
-        // 10.9 backport: keep heap lock held — updateSharedTimer no longer
+        // MAVERICKS_BACKPORT: keep heap lock held — updateSharedTimer no longer
         // locks (it expects caller to hold the lock).
         if (wasFirstTimerInHeap || isFirstTimerInHeap)
             threadGlobalDataSingleton().threadTimers().updateSharedTimer();

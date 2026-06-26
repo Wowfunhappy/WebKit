@@ -29,7 +29,7 @@
 #include <pal/spi/cocoa/QuartzCoreSPI.h>
 #include <wtf/SoftLinking.h>
 
-// 10.9 backport: IOSurfaceRef and the private CAIOSurfaceRef are not reliably declared here on 10.9
+// MAVERICKS_BACKPORT: IOSurfaceRef and the private CAIOSurfaceRef are not reliably declared here on 10.9
 // (QuartzCoreSPI.h only forward-declares CAIOSurfaceRef under the internal-SDK path). The CAIOSurface
 // functions below are soft-linked (resolved lazily, never called on 10.9), so forward-declaring the
 // opaque types is sufficient for compilation.

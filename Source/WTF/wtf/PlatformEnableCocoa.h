@@ -46,7 +46,7 @@
 #define ENABLE_ACCESSIBILITY_ANIMATION_CONTROL 1
 #endif
 
-// macOS 10.9 backport: requires newer accessibility APIs
+// MAVERICKS_BACKPORT: requires newer accessibility APIs
 #if !defined(ENABLE_ACCESSIBILITY_ISOLATED_TREE)
 #define ENABLE_ACCESSIBILITY_ISOLATED_TREE 0
 #endif
@@ -566,7 +566,7 @@
 #define ENABLE_VIDEO 1
 #endif
 
-// 10.9 backport: keep ENABLE_MEDIA_SOURCE driven by the cmake flag (ENABLE_MEDIA_SOURCE=OFF in
+// MAVERICKS_BACKPORT: keep ENABLE_MEDIA_SOURCE driven by the cmake flag (ENABLE_MEDIA_SOURCE=OFF in
 // OptionsMac.cmake → FEATURE_DEFINES_WITH_SPACE_SEPARATOR doesn't include it → IDL preprocessor
 // generates JSHTMLMediaElement.cpp's MediaProvider as Variant<Blob> only). If we also default
 // ENABLE_MEDIA_SOURCE=1 here, the C++ side (HTMLMediaElement.h MediaProvider) becomes

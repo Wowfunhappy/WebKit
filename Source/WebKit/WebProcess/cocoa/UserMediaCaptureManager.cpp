@@ -95,7 +95,7 @@ void UserMediaCaptureManager::setupCaptureProcesses(bool shouldCaptureAudioInUIP
     m_displayFactory.setShouldCaptureInGPUProcess(shouldCaptureDisplayInGPUProcess);
 
 #if ENABLE(GPU_PROCESS)
-    // 10.9 backport: createRemoteAudioMediaStreamTrackRendererInternalUnitProxy routes audio rendering
+    // MAVERICKS_BACKPORT: createRemoteAudioMediaStreamTrackRendererInternalUnitProxy routes audio rendering
     // to the GPU process (GPU-process-only symbol). With GPU_PROCESS off, audio renders in-process, and
     // capture flags are forced false (see WebPageCocoa.mm), so this branch never runs anyway.
     if (shouldCaptureAudioInUIProcess || shouldCaptureAudioInGPUProcess)
@@ -240,7 +240,7 @@ CaptureSourceOrError UserMediaCaptureManager::VideoFactory::createVideoCaptureSo
     if (m_shouldCaptureInGPUProcess)
         return CaptureSourceOrError({ "Video capture in GPUProcess is not implemented"_s, WebCore::MediaAccessDenialReason::PermissionDenied });
 #else
-    // 10.9 backport: ensureGPUProcessConnection()/videoFrameObjectHeapProxy() only exist with
+    // MAVERICKS_BACKPORT: ensureGPUProcessConnection()/videoFrameObjectHeapProxy() only exist with
     // ENABLE(GPU_PROCESS); the block above already early-returns when GPU capture is requested
     // on a no-GPU build, so this path is GPU-process-only.
     if (m_shouldCaptureInGPUProcess)

@@ -643,7 +643,7 @@ public:
 #endif
 
     WebPageGroupProxy& pageGroup() const { return m_pageGroup; }
-    // 10.9 backport: exposed for the legacy WKBundleAddUserScript page-group
+    // MAVERICKS_BACKPORT: exposed for the legacy WKBundleAddUserScript page-group
     // user content registry (WK109PageGroupUserContent.cpp).
     WebUserContentController& userContentController() { return m_userContentController.get(); }
 

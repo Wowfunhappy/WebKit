@@ -495,7 +495,7 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 
 #if USE(APPKIT)
     // We don't need to talk to the Dock.
-    // 10.9 backport: _preventDockConnections is 10.10+; skip if not present.
+    // MAVERICKS_BACKPORT: _preventDockConnections is 10.10+; skip if not present.
     if ([NSApplication respondsToSelector:@selector(_preventDockConnections)])
         [NSApplication performSelector:@selector(_preventDockConnections)];
 
@@ -509,7 +509,7 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
     Method methodToPatch = class_getInstanceMethod([NSApplication class], @selector(accessibilityFocusedUIElement));
     method_setImplementation(methodToPatch, (IMP)NSApplicationAccessibilityFocusedUIElement);
 
-    // 10.9 backport: _updateCanQuitQuietlyAndSafely may not exist; null-guard before swizzle.
+    // MAVERICKS_BACKPORT: _updateCanQuitQuietlyAndSafely may not exist; null-guard before swizzle.
     if (auto method = class_getInstanceMethod([NSApplication class], @selector(_updateCanQuitQuietlyAndSafely)))
         method_setImplementation(method, (IMP)preventAppKitFromContactingLaunchServices);
 #endif
@@ -532,7 +532,7 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 #endif
 
 #if PLATFORM(MAC)
-    // 10.9 backport: WEB_UI_NSSTRING / CFBundleCopyLocalizedString crashes here
+    // MAVERICKS_BACKPORT: WEB_UI_NSSTRING / CFBundleCopyLocalizedString crashes here
     // because the standalone WK2 driver lacks the localization bundle. Skip
     // process-name update for now.
     // updateProcessName(IsInProcessInitialization::Yes);
@@ -552,7 +552,7 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 #else
     // Initialize the shared application so method calls using `NSApp` are not no-ops.
     [NSApplication sharedApplication];
-    // 10.9 backport: LSUIElement in the XPC plist isn't honored on 10.9, so the WebContent
+    // MAVERICKS_BACKPORT: LSUIElement in the XPC plist isn't honored on 10.9, so the WebContent
     // process shows up in the Dock and bounces. Force accessory activation policy here.
     [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
 #endif // ENABLE(INITIALIZE_NSAPPLICATION_ON_DEMAND)
@@ -569,7 +569,7 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 
     if (!parameters.mediaMIMETypes.isEmpty())
         setMediaMIMETypes(parameters.mediaMIMETypes);
-    // 10.9 backport: AVAssetMIMETypeCache.mm is stubbed; skip the cache setup.
+    // MAVERICKS_BACKPORT: AVAssetMIMETypeCache.mm is stubbed; skip the cache setup.
     // else {
     //     AVAssetMIMETypeCache::singleton().setCacheMIMETypesCallback([protectedThis = Ref { *this }](const Vector<String>& types) {
     //         protect(protectedThis->parentProcessConnection())->send(Messages::WebProcessProxy::CacheMediaMIMETypes(types), 0);
@@ -706,7 +706,7 @@ std::optional<audit_token_t> WebProcess::auditTokenForSelf()
 
 void WebProcess::updateProcessName(IsInProcessInitialization isInProcessInitialization)
 {
-    // 10.9 backport: WEB_UI_NSSTRING calls WebCore::copyLocalizedString which calls
+    // MAVERICKS_BACKPORT: WEB_UI_NSSTRING calls WebCore::copyLocalizedString which calls
     // CFBundleCopyLocalizedString. Our bundle's localized strings table is missing or
     // unreachable on 10.9 (the keys come back NULL), causing a crash. Skip the rename.
     return;
@@ -1029,7 +1029,7 @@ void WebProcess::stopRunLoop()
 
 void WebProcess::platformTerminate()
 {
-    // 10.9 backport: AVAssetMIMETypeCache::singleton touches AVFoundation
+    // MAVERICKS_BACKPORT: AVAssetMIMETypeCache::singleton touches AVFoundation
     // paths that crash on 10.9 (media is mostly disabled on this build).
     // Skip — the cache will be torn down by the OS on process exit anyway.
 }
@@ -1054,7 +1054,7 @@ void WebProcess::initializeSandbox(const AuxiliaryProcessInitializationParameter
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
 
 #if USE(GCRYPT)
-    // 10.9 backport: WebCrypto is backed by libgcrypt. Call gcry_check_version
+    // MAVERICKS_BACKPORT: WebCrypto is backed by libgcrypt. Call gcry_check_version
     // and finish secmem setup before any thread can touch the library.
     PAL::GCrypt::initialize();
 #endif
@@ -1391,7 +1391,7 @@ void WebProcess::enableRemoteWebInspector()
 
 void WebProcess::setMediaMIMETypes(const Vector<String> types)
 {
-    // 10.9 backport: AVAssetMIMETypeCache::singleton touches AVFoundation paths
+    // MAVERICKS_BACKPORT: AVAssetMIMETypeCache::singleton touches AVFoundation paths
     // that crash on 10.9. Media is mostly disabled — skip cache update entirely.
     UNUSED_PARAM(types);
 }

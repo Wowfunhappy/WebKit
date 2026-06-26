@@ -108,7 +108,7 @@ static RetainPtr<NSMutableSet>& NODELETE pluginViews()
 
 - (NSView *)plugInViewWithArguments:(NSDictionary *)arguments fromPluginPackage:(WebPluginPackage *)pluginPackage
 {
-    // 10.9 backport: this was stubbed to `return nil`, so WebKit-ObjC plug-ins never produced a
+    // MAVERICKS_BACKPORT: this was stubbed to `return nil`, so WebKit-ObjC plug-ins never produced a
     // view (the package loaded but no instance existed). Restore the real view creation by asking
     // the package's view factory; the view is then added to the document by WebHTMLView, which
     // runs -webPlugInInitialize (where e.g. WebClip.plugin publishes its `webClip` scripting object).

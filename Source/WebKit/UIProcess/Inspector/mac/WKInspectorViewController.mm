@@ -110,7 +110,7 @@ static NSString * const WKInspectorResourceScheme = @"inspector-resource";
         [_webView setUIDelegate:self];
         [_webView setNavigationDelegate:self];
         [_webView setInspectorWKWebViewDelegate:self];
-        // 10.9 backport: guard 10.10+ private accessors that WKWebView doesn't implement.
+        // MAVERICKS_BACKPORT: guard 10.10+ private accessors that WKWebView doesn't implement.
         if ([_webView respondsToSelector:@selector(_setAutomaticallyAdjustsContentInsets:)])
             [_webView _setAutomaticallyAdjustsContentInsets:NO];
         if ([_webView respondsToSelector:@selector(_setUseSystemAppearance:)])
@@ -132,13 +132,13 @@ static NSString * const WKInspectorResourceScheme = @"inspector-resource";
 - (WKWebViewConfiguration *)webViewConfiguration
 {
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    // 10.9 backport: ensure processPool is set (WKWebView _initializeWithConfiguration crashes if not).
+    // MAVERICKS_BACKPORT: ensure processPool is set (WKWebView _initializeWithConfiguration crashes if not).
     // Reuse the inspected page's process pool so the inspector shares a WebContent process
     // (CreateWebPage IPC won't deliver into a Launching XPC process on 10.9).
-    // 10.9 backport: share the inspectedPage's process pool so the inspector page actually
+    // MAVERICKS_BACKPORT: share the inspectedPage's process pool so the inspector page actually
     // creates a WebPage in WebContent (a fresh pool tries to launch a 2nd XPC service which
     // never moves out of Launching state on 10.9). Combined with the WebProcessPool.cpp
-    // 10.9 backport that reuses existing Running process when freshly-picked is Launching,
+    // MAVERICKS_BACKPORT that reuses existing Running process when freshly-picked is Launching,
     // this gets the inspector WebPage created and HTML loaded inside the shared WebContent.
     if (RefPtr inspectedPage = _inspectedPage.get()) {
         WebKit::WebProcessPool& pool = inspectedPage->configuration().processPool();
@@ -168,7 +168,7 @@ static NSString * const WKInspectorResourceScheme = @"inspector-resource";
     [configuration _setAllowTopNavigationToDataURLs:YES];
     preferences.get()._storageBlockingPolicy = _WKStorageBlockingPolicyAllowAll;
     preferences.get()._javaScriptRuntimeFlags = 0;
-    // 10.9 backport: disable accelerated compositing for the inspector page. 10.9's
+    // MAVERICKS_BACKPORT: disable accelerated compositing for the inspector page. 10.9's
     // CoreAnimation only allows one GL context per process; example.com already owns it.
     // Software rendering avoids the second GL context entirely.
     if ([preferences respondsToSelector:@selector(_setAcceleratedCompositingEnabled:)])

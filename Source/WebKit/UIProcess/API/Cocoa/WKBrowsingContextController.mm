@@ -42,7 +42,7 @@
 #import "WKURL.h"
 #import "WKURLCF.h"
 
-// 10.9 backport: the legacy controller's loading/delegate API was gutted
+// MAVERICKS_BACKPORT: the legacy controller's loading/delegate API was gutted
 // upstream. QuickLook's Web2.qldisplay needs a controller it can pull off a
 // WKView (-[WKView browsingContextController]) and drive. It loads/observes via
 // the C SPI (WKPageLoad*, WKPageSetPageLoaderClient) on the page it gets from
@@ -55,7 +55,7 @@
 - (id)loadDelegate;
 @end
 
-// 10.9 backport: bridge the WebKit2 C-SPI page loader client to the legacy
+// MAVERICKS_BACKPORT: bridge the WebKit2 C-SPI page loader client to the legacy
 // -[<loadDelegate> browsingContextControllerDid...] callbacks that Web2.qldisplay
 // relies on to know when its preview has finished loading (so it can snapshot).
 // Only main-frame milestones are forwarded, matching the original SPI semantics.
@@ -113,7 +113,7 @@ static NSError *nsErrorFromWKError(WKErrorRef error)
     return [(NSError *)cfError autorelease];
 }
 
-// 10.9 backport: convert a +1 WKURLRef to an autoreleased NSURL, consuming the WKURLRef.
+// MAVERICKS_BACKPORT: convert a +1 WKURLRef to an autoreleased NSURL, consuming the WKURLRef.
 static NSURL *nsURLFromWKURLConsuming(WKURLRef wkURL)
 {
     if (!wkURL)
@@ -123,7 +123,7 @@ static NSURL *nsURLFromWKURLConsuming(WKURLRef wkURL)
     return cfURL ? [(NSURL *)cfURL autorelease] : nil;
 }
 
-// 10.9 backport: convert a +1 WKStringRef to an autoreleased NSString, consuming the WKStringRef.
+// MAVERICKS_BACKPORT: convert a +1 WKStringRef to an autoreleased NSString, consuming the WKStringRef.
 static NSString *nsStringFromWKStringConsuming(WKStringRef wkString)
 {
     if (!wkString)
@@ -257,7 +257,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         WKRelease(resourceDirectoryURL);
 }
 
-// 10.9 backport: Mail renders a message by loading its HTML as data (not a URL)
+// MAVERICKS_BACKPORT: Mail renders a message by loading its HTML as data (not a URL)
 // through this — -[MUIWebDocumentView ...] calls it on the message-view controller.
 // Without it Mail throws an unrecognized-selector exception and terminates after the
 // message view is built. Route through the still-present WKPageLoadData* C SPI.
@@ -288,7 +288,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         WKRelease(wkUserData);
 }
 
-// 10.9 backport: Mail also drives stop/zoom on the message-view controller
+// MAVERICKS_BACKPORT: Mail also drives stop/zoom on the message-view controller
 // (wkView.browsingContextController.pageZoom / stopLoading).
 - (void)stopLoading
 {
@@ -307,7 +307,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         WKPageSetPageZoomFactor(_pageRef, pageZoom);
 }
 
-// 10.9 backport (#137): Mail's load-delegate handlers (browsingContextControllerDidStartProvisionalLoad:
+// MAVERICKS_BACKPORT (#137): Mail's load-delegate handlers (browsingContextControllerDidStartProvisionalLoad:
 // / DidCommitLoad: etc.) read back the controller's current URL/title to update the message-view chrome.
 // These read-only accessors were part of the original WKBrowsingContextController SPI Mail compiled
 // against; without them Mail throws -[WKBrowsingContextController activeURL]: unrecognized selector and

@@ -38,7 +38,7 @@ namespace WebKit {
 
 class WebUserContentController;
 
-// 10.9 backport: API::ObjectImpl base restored (was RefCounted) so the page
+// MAVERICKS_BACKPORT: API::ObjectImpl base restored (was RefCounted) so the page
 // group can travel through the legacy C API again (WKBundlePageGetPageGroup /
 // WKBundleAddUserScript — Safari 7 extension content-script injection).
 class WebPageGroupProxy : public API::ObjectImpl<API::Object::Type::BundlePageGroup> {

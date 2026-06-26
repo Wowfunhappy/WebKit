@@ -30,7 +30,7 @@
 
 // FIXME: Remove this header once rdar://112426343 is resolved.
 
-// 10.9 backport: the WKBrowsingContextGroup class interface was gutted upstream
+// MAVERICKS_BACKPORT: the WKBrowsingContextGroup class interface was gutted upstream
 // (only the header shell remains). Restore the minimal surface that Apple's
 // QuickLook Web2.qldisplay and Mail.app (MUIWebDocumentViewGroup) use so those
 // clients can link and instantiate it. Without the class, dlopen of Web2 fails

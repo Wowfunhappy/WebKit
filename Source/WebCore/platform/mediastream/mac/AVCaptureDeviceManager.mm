@@ -103,7 +103,7 @@ inline static bool deviceIsAvailable(AVCaptureDevice *device)
 RetainPtr<NSArray> AVCaptureDeviceManager::currentCameras()
 {
 #if HAVE(AVCAPTUREDEVICE)
-    // 10.9 backport: AVCaptureDeviceDiscoverySession is 10.10+. On 10.9 its class singleton is nil,
+    // MAVERICKS_BACKPORT: AVCaptureDeviceDiscoverySession is 10.10+. On 10.9 its class singleton is nil,
     // so enumerate video devices with the pre-10.10 (deprecated) +[AVCaptureDevice devicesWithMediaType:].
     if (!PAL::getAVCaptureDeviceDiscoverySessionClassSingleton()) {
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -294,7 +294,7 @@ AVCaptureDeviceManager::~AVCaptureDeviceManager()
     for (AVCaptureDevice *device in m_avCaptureDevices.get())
         [device removeObserver:m_objcObserver.get() forKeyPath:@"suspended"];
 #if HAVE(AVCAPTUREDEVICE)
-    // 10.9 backport: only remove observers that could have been registered (systemPreferredCamera is 12.0+,
+    // MAVERICKS_BACKPORT: only remove observers that could have been registered (systemPreferredCamera is 12.0+,
     // AVCaptureDeviceDiscoverySession is 10.10+ — neither exists on 10.9). Matches registerForDeviceNotifications.
     if ([PAL::getAVCaptureDeviceClassSingleton() respondsToSelector:@selector(systemPreferredCamera)])
         [PAL::getAVCaptureDeviceClassSingleton() removeObserver:m_objcObserver.get() forKeyPath:@"systemPreferredCamera"];
@@ -329,7 +329,7 @@ void AVCaptureDeviceManager::registerForDeviceNotifications()
     [[NSNotificationCenter defaultCenter] addObserver:m_objcObserver.get() selector:@selector(deviceConnectedDidChange:) name:AVCaptureDeviceWasConnectedNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:m_objcObserver.get() selector:@selector(deviceConnectedDidChange:) name:AVCaptureDeviceWasDisconnectedNotification object:nil];
     IGNORE_WARNINGS_BEGIN("objc-method-access")
-    // 10.9 backport: guard KVO keypaths that don't exist pre-10.10/12 (would throw NSUnknownKeyException).
+    // MAVERICKS_BACKPORT: guard KVO keypaths that don't exist pre-10.10/12 (would throw NSUnknownKeyException).
     if ([PAL::getAVCaptureDeviceClassSingleton() respondsToSelector:@selector(systemPreferredCamera)])
         [PAL::getAVCaptureDeviceClassSingleton() addObserver:m_objcObserver.get() forKeyPath:@"systemPreferredCamera" options:(NSKeyValueObservingOptionOld | NSKeyValueObservingOptionNew) context:nil];
     if (PAL::getAVCaptureDeviceDiscoverySessionClassSingleton())

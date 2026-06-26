@@ -157,7 +157,7 @@ bool UserMediaPermissionRequestManagerProxy::permittedToCaptureVideo()
 #if ENABLE(MEDIA_STREAM)
 void UserMediaPermissionRequestManagerProxy::requestSystemValidation(const WebPageProxy& page, UserMediaPermissionRequestProxy& request, CompletionHandler<void(bool)>&& callback)
 {
-    // 10.9 backport: macOS 10.9 predates TCC camera/microphone privacy authorization (that arrived in
+    // MAVERICKS_BACKPORT: macOS 10.9 predates TCC camera/microphone privacy authorization (that arrived in
     // 10.14), so this OS-level capture-authorization gate is not meaningful here. Worse, the helpers it
     // relies on — checkAVCaptureAccessForType()/requestAVCaptureAccessForType() in MediaPermissionUtilities.mm
     // — are excluded from the 10.9 build (that file uses 10.14+ AVCaptureDevice TCC APIs), so they resolve to

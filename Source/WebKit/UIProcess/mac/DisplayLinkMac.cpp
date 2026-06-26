@@ -36,7 +36,7 @@ namespace WebKit {
 
 using namespace WebCore;
 
-// 10.9 backport: the dispatch timer's event handler (runs on a global high-priority queue,
+// MAVERICKS_BACKPORT: the dispatch timer's event handler (runs on a global high-priority queue,
 // i.e. off the main thread, which notifyObserversDisplayDidRefresh() asserts).
 void DisplayLink::displayLinkTimerFired(void* context)
 {
@@ -45,7 +45,7 @@ void DisplayLink::displayLinkTimerFired(void* context)
 
 void DisplayLink::platformInitialize()
 {
-    // 10.9 backport: CVDisplayLink is unusable in this VM. CoreVideo logs
+    // MAVERICKS_BACKPORT: CVDisplayLink is unusable in this VM. CoreVideo logs
     // "CVCGDisplayLink::setCurrentDisplay didn't find a valid display - falling back to 60Hz"
     // (the VM has no real display to vsync against) and the output callback then fires at well
     // under 1 Hz. Because the WebProcess gates EVERY rendering update on DisplayDidRefresh

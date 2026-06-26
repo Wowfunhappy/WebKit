@@ -72,7 +72,7 @@ std::unique_ptr<ImageBufferCGBitmapBackend> ImageBufferCGBitmapBackend::create(c
 
     verifyImageBufferIsBigEnough(data.span());
 
-    // 10.9 backport: parameters.colorSpace.platformColorSpace() can return NULL on this build,
+    // MAVERICKS_BACKPORT: parameters.colorSpace.platformColorSpace() can return NULL on this build,
     // making CG infer "0-component color space; 8 bits/pixel" and fail. Fall back to sRGB.
     RetainPtr<CGColorSpaceRef> cs = parameters.colorSpace.platformColorSpace();
     if (!cs)
@@ -126,7 +126,7 @@ RefPtr<NativeImage> ImageBufferCGBitmapBackend::copyNativeImage()
 RefPtr<NativeImage> ImageBufferCGBitmapBackend::createNativeImageReference()
 {
     auto backendSize = size();
-    // 10.9 backport: colorSpace().platformColorSpace() can be NULL on this build,
+    // MAVERICKS_BACKPORT: colorSpace().platformColorSpace() can be NULL on this build,
     // and CGImageCreate logs "invalid image colorspace: NULL" + returns NULL. Fall back to sRGB.
     RetainPtr<CGColorSpaceRef> cs = colorSpace().platformColorSpace();
     if (!cs)

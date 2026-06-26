@@ -46,7 +46,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(CoreIPCError);
 
 RetainPtr<id> CoreIPCError::toID() const
 {
-    // 10.9 backport: build a minimal NSError from domain + code only.
+    // MAVERICKS_BACKPORT: build a minimal NSError from domain + code only.
     // Original implementation references 10.10+ NSError userInfo keys.
     return adoptNS([[NSError alloc] initWithDomain:m_domain.createNSString().get() code:m_code userInfo:nil]);
 #if 0
@@ -126,7 +126,7 @@ CoreIPCError::CoreIPCError(NSError *nsError)
     : m_domain("WebKitErrorDomain"_s)
     , m_code(nsError ? [nsError code] : 0)
 {
-    // 10.9 backport: NSError on this build (built from CFNetwork errors,
+    // MAVERICKS_BACKPORT: NSError on this build (built from CFNetwork errors,
     // SecError, etc.) often has bridge-corrupted NSString fields that cause
     // IPC::ArgumentCoder<WTF::String>::encode to SIGILL when the receiver
     // process tries to read span8/span16. Skip the userInfo extraction
@@ -136,7 +136,7 @@ CoreIPCError::CoreIPCError(NSError *nsError)
     // don't support 10.9's SecureTransport).
     UNUSED_PARAM(nsError);
     return;
-#if 0  // 10.9 backport: original userInfo extraction disabled (uses 10.10+ keys + SPIs)
+#if 0  // MAVERICKS_BACKPORT: original userInfo extraction disabled (uses 10.10+ keys + SPIs)
     RetainPtr<NSDictionary> userInfo = [nsError userInfo];
 
     if (RetainPtr<NSArray> clientIdentityAndCertificates = [userInfo objectForKey:@"NSErrorClientCertificateChainKey"]) {

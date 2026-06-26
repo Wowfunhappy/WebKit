@@ -141,7 +141,7 @@ DisplayLink* RemoteLayerTreeDrawingAreaProxyMac::existingDisplayLink()
 
 DisplayLink& RemoteLayerTreeDrawingAreaProxyMac::displayLink()
 {
-    // 10.9 backport: m_displayID is normally populated by windowScreenDidChange when the
+    // MAVERICKS_BACKPORT: m_displayID is normally populated by windowScreenDidChange when the
     // view's NSWindow gets a screen. In our minimal PageClient that hookup never fires,
     // so m_displayID stays nullopt and *m_displayID would crash (SIGILL on libc++).
     // Lazily fall back to the main display ID so display-link callbacks (which drive
@@ -475,7 +475,7 @@ void RemoteLayerTreeDrawingAreaProxyMac::scheduleDisplayRefreshCallbacks()
     if (m_displayRefreshObserverID)
         return;
 
-    // 10.9 backport: in this VM the view's NSWindow never gets a screen, so windowScreenDidChange
+    // MAVERICKS_BACKPORT: in this VM the view's NSWindow never gets a screen, so windowScreenDidChange
     // never populates m_displayID — and bailing here means NO display-link observer is ever added,
     // so the display link never runs and WebContent stays stuck waiting for DisplayDidRefresh after
     // its first commit (rAF, IntersectionObserver/lazy-loading and compositing all stall). Fall back

@@ -1,4 +1,4 @@
-// Stubbed for macOS 10.9 backport
+// Stubbed for MAVERICKS_BACKPORT
 #include "config.h"
 #import "WKRevealItemPresenter.h"
 

@@ -2466,7 +2466,7 @@ if (USE_LIBWEBRTC)
         "${WEBCORE_DIR}/platform/libwebrtc"
         "${WEBCORE_DIR}/platform/mediastream/libwebrtc"
     )
-    # 10.9 backport: the libwebrtc WebKit ObjC SDK is full of category-only
+    # MAVERICKS_BACKPORT: the libwebrtc WebKit ObjC SDK is full of category-only
     # translation units (RTCVideoCodecInfo+Private, NSString+StdString, etc.) whose
     # methods are invoked dynamically by the C++ codec factories. A plain archive link
     # drops those .o files (no external symbol references them), so the selectors are
@@ -3127,12 +3127,12 @@ WEBKIT_FRAMEWORK(WebCore)
 set_target_properties(WebCore PROPERTIES LINKER_LANGUAGE CXX)
 
 if (APPLE)
-    # [10.9 backport] The macOS 10.9 system ld64 (ld64-241.9) crashes encoding WebCore's export trie
+    # [MAVERICKS_BACKPORT] The macOS 10.9 system ld64 (ld64-241.9) crashes encoding WebCore's export trie
     # (Assertion bindingDirectlyBound in ExportInfoAtom::encode -> SIGSEGV) for certain symbol sets — it
     # broke once the global -fno-rtti removed the weak C++ typeinfo/vtable exports the .mm files used to
     # emit. lld (shipped with the clang-22 toolchain) has no such bug and emits a 10.9-loadable Mach-O for
     # a 10.9 deployment target, so link WebCore with it. Other frameworks still link fine with system ld.
-    # 10.9 backport: drop `-sub_library libobjc` — lld rejects it ("does not match a
+    # MAVERICKS_BACKPORT: drop `-sub_library libobjc` — lld rejects it ("does not match a
     # supplied dylib") and clients link libobjc directly anyway.
     set_target_properties(WebCore PROPERTIES LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy")
 endif ()

@@ -223,7 +223,7 @@ WKPageConfigurationRef WKPageCopyPageConfiguration(WKPageRef pageRef)
     return toAPILeakingRef(toImpl(pageRef)->configuration().copy());
 }
 
-// 10.9 backport: the legacy App Store drives WebKit2 page loads (WKPageLoadURL /
+// MAVERICKS_BACKPORT: the legacy App Store drives WebKit2 page loads (WKPageLoadURL /
 // WKPageLoadURLRequest) from a background GCD queue ("WebView Initial Load Queue").
 // Modern WebKit's load path (WebPageProxy::loadRequest -> launchProcess ->
 // WebProcessProxy::removeWebPage -> WebProcessPool::pageEndUsingWebsiteDataStore)
@@ -1302,7 +1302,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
         explicit LoaderClient(const WKPageLoaderClientBase* client)
         {
             initialize(client);
-            // 10.9 backport: Safari 9.1.3 still calls the deprecated WKPageSetPageLoaderClient
+            // MAVERICKS_BACKPORT: Safari 9.1.3 still calls the deprecated WKPageSetPageLoaderClient
             // with the old callbacks set. The asserts here intentionally forbid that to
             // force migration to WKPageNavigationClient. To let Safari launch, we instead
             // ignore those callbacks silently — Safari will not get those events but it
@@ -1420,7 +1420,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             return m_client.shouldKeepCurrentBackForwardListItemInList(toAPI(&page), toAPI(&item), m_client.base.clientInfo);
         }
 
-        // 10.9 backport: forward legacy callbacks Safari uses.
+        // MAVERICKS_BACKPORT: forward legacy callbacks Safari uses.
         void didFinishDocumentLoadForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, API::Object* userData) override
         {
             if (m_client.didFinishDocumentLoadForFrame)
@@ -1484,7 +1484,7 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
         explicit PolicyClient(const WKPagePolicyClientBase* client)
         {
             initialize(client);
-            // 10.9 backport: Safari 9.1.3 sets m_client.unableToImplementPolicy.
+            // MAVERICKS_BACKPORT: Safari 9.1.3 sets m_client.unableToImplementPolicy.
             // Modern WebKit forbids it; we silently ignore so Safari can launch.
         }
 
@@ -1496,7 +1496,7 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
                 return;
             }
 
-            // 10.9 backport: Safari 7's deprecated V0/V1 decidePolicyForNavigationAction callback
+            // MAVERICKS_BACKPORT: Safari 7's deprecated V0/V1 decidePolicyForNavigationAction callback
             // mis-fires Ignore for app-registered custom-protocol schemes it does not recognize as
             // normal browser navigations — notably safari-reader:// (Reader mode loads its content
             // from this scheme), plus safari-resource:// and safari-extension://. These schemes are
@@ -1510,7 +1510,7 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
                 return;
             }
 
-            // 10.9 backport: Safari 7's legacy V0 nav-action policy client for the Top Sites snapshot
+            // MAVERICKS_BACKPORT: Safari 7's legacy V0 nav-action policy client for the Top Sites snapshot
             // fetcher's offscreen pages blanket-ignore()s every navigation — in the original WebKit the
             // app's own programmatic WKPageLoadURL did NOT pass through the client's nav-action policy;
             // the ignore() was only meant to lock the page against content-initiated navigations after
@@ -1523,7 +1523,7 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
                 return;
             }
 
-            // 10.9 backport (#137): the app's OWN programmatic load (WKPageLoadData / WKPageLoadURL /
+            // MAVERICKS_BACKPORT (#137): the app's OWN programmatic load (WKPageLoadData / WKPageLoadURL /
             // WKPageLoadRequest) must not be vetoed by a legacy V0/V1 nav-action policy callback. In
             // original WebKit2 the embedder-initiated API loads bypassed the nav-action policy client
             // entirely — that client was only consulted for content-initiated navigations (link clicks,
@@ -2201,7 +2201,7 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
         void decidePolicyForUserMediaPermissionRequest(WebPageProxy& page, WebFrameProxy& frame, API::SecurityOrigin& userMediaDocumentOrigin, API::SecurityOrigin& topLevelDocumentOrigin, UserMediaPermissionRequestProxy& permissionRequest) final
         {
             if (!m_client.decidePolicyForUserMediaPermissionRequest) {
-                // 10.9 backport: Safari 7 predates getUserMedia and never installs this WKPageUIClient
+                // MAVERICKS_BACKPORT: Safari 7 predates getUserMedia and never installs this WKPageUIClient
                 // callback, so the upstream default deny() makes camera/microphone capture impossible.
                 // macOS 10.9 also has no TCC camera/mic consent prompt (that arrived in 10.14), and this
                 // is a single-user setup, so auto-GRANT the request with the default eligible devices to
@@ -2869,7 +2869,7 @@ void WKPageEvaluateJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef scriptRe
     WKPageEvaluateJavaScriptInFrame(pageRef, nullptr, scriptRef, context, callback);
 }
 
-// 10.9 backport: Safari 7/9 call the older WKPageRunJavaScriptInMainFrame
+// MAVERICKS_BACKPORT: Safari 7/9 call the older WKPageRunJavaScriptInMainFrame
 // symbol (the API was renamed to *Evaluate*). Without this alias, Safari
 // crashes with dyld_fatal_error on osascript "do JavaScript" commands.
 // Unlike the modern Evaluate API, the legacy contract hands the callback a
@@ -2906,7 +2906,7 @@ extern "C" void WKPageRunJavaScriptInMainFrame(WKPageRef pageRef, WKStringRef sc
     });
 }
 
-// 10.9 backport: MailUI.framework links against the block-based WKPageRunJavaScriptInMainFrame_b
+// MAVERICKS_BACKPORT: MailUI.framework links against the block-based WKPageRunJavaScriptInMainFrame_b
 // variant (the Safari-7-era spelling). Without this exported symbol Mail.app fails to launch with
 // dyld: Symbol not found: _WKPageRunJavaScriptInMainFrame_b (expected in WebKit2). The block carries
 // its own context, so copy it into the function-pointer implementation's context slot and release it
@@ -3775,7 +3775,7 @@ void WKPageDoAfterProcessingAllPendingKeyEvents(WKPageRef page, void* context, W
 }
 #endif
 
-// 10.9 backport: Safari 9.1.3 lazy-binds 40+ removed/renamed legacy WK_* C-API
+// MAVERICKS_BACKPORT: Safari 9.1.3 lazy-binds 40+ removed/renamed legacy WK_* C-API
 // symbols. dyld_fatal_error fires on first call. Provide no-op shims so Safari
 // proceeds. None of these features (Java, plugins, app-cache, WebSQL,
 // region-based columns, screen-font substitution) work on modern WebKit
@@ -3822,7 +3822,7 @@ void WKPreferencesSetScreenFontSubstitutionEnabled(WKPreferencesRef, bool) {}
 bool WKPreferencesGetScreenFontSubstitutionEnabled(WKPreferencesRef) { return false; }
 void WKPreferencesSetApplicationChromeModeEnabled(WKPreferencesRef, bool) {}
 void WKPageSetVisibilityState(WKPageRef, int, bool) {}
-// 10.9 backport: Safari 7 uses this to open .webarchive files; load the bytes
+// MAVERICKS_BACKPORT: Safari 7 uses this to open .webarchive files; load the bytes
 // with the webarchive MIME type, which WebCore's LegacyWebArchive handles.
 void WKPageLoadWebArchiveData(WKPageRef pageRef, WKDataRef dataRef)
 {

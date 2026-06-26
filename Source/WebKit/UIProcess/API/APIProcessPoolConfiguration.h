@@ -121,7 +121,7 @@ public:
 
     bool processSwapsOnNavigation() const
     {
-        // 10.9 backport: force process-swap-on-navigation OFF and reuse the single web process
+        // MAVERICKS_BACKPORT: force process-swap-on-navigation OFF and reuse the single web process
         // for all navigations. On this 2-core VM each WebContent process is ~600MB and takes
         // 3-4s (dyld + WP-init) to come up. PSON spawns a fresh process per cross-site navigation
         // and, on navigate-away-from-a-still-loading page, tears the previous process down via

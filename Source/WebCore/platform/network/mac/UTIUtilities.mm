@@ -109,7 +109,7 @@ public:
         if (RetainPtr type = UTIFromPotentiallyUnknownMIMEType(mimeType))
             return type;
 
-        // 10.9 backport: [UTType typeWithMIMEType:] is 10.13+. html5test.com hits
+        // MAVERICKS_BACKPORT: [UTType typeWithMIMEType:] is 10.13+. html5test.com hits
         // this from canvas.toDataURL → encodeData → MIMETypeRegistry::isJPEGMIMEType.
         // Use the old UTTypeCreatePreferredIdentifierForTag API (10.6+) as fallback.
         static BOOL hasTypeWithMIMEType = [UTType respondsToSelector:@selector(typeWithMIMEType:)];

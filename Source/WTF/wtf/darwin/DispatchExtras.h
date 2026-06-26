@@ -51,7 +51,7 @@ namespace WTF {
 
 inline dispatch_queue_t globalDispatchQueueSingleton(intptr_t identifier, uintptr_t flags)
 {
-    // 10.9 backport: dispatch_get_global_queue with QOS class identifiers (10.10+)
+    // MAVERICKS_BACKPORT: dispatch_get_global_queue with QOS class identifiers (10.10+)
     // returns NULL on 10.9. Map QOS classes to legacy dispatch priorities so the
     // call always returns a valid queue.
     if (identifier == 0x21 /*QOS_CLASS_USER_INTERACTIVE*/ || identifier == 0x19 /*QOS_CLASS_USER_INITIATED*/)

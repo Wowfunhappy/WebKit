@@ -685,7 +685,7 @@ void SourceBufferPrivateAVFObjC::enqueueSample(Ref<MediaSampleAVFObjC>&& sample,
     auto mediaType = PAL::CMFormatDescriptionGetMediaType(formatDescription);
 
     SBP_BISECT("enqueueSample: track=%d mediaType=%c%c%c%c", (int)trackId, (char)(mediaType>>24), (char)(mediaType>>16), (char)(mediaType>>8), (char)mediaType);
-    // 10.9 backport: do NOT pass minimumUpcomingPresentationTimeForTrackID here — on this port it
+    // MAVERICKS_BACKPORT: do NOT pass minimumUpcomingPresentationTimeForTrackID here — on this port it
     // does a dispatch_barrier_sync that self-deadlocks on the main thread (sample-confirmed hang in
     // SourceBufferPrivate.cpp:minimumUpcomingPresentationTimeForTrackID). Our AudioVideoRendererAVFObjC
     // (VTDecompressionSession path) ignores that hint anyway (it was only for AVSampleBufferDisplayLayer's

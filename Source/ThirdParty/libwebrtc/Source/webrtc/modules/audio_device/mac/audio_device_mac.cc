@@ -13,7 +13,7 @@
 #include <ApplicationServices/ApplicationServices.h>
 #include <mach/mach.h>   // mach_task_self()
 #include <sys/sysctl.h>  // sysctlbyname()
-// 10.9 backport: kAudioObjectPropertyElementMain was renamed from ...Master in macOS 12;
+// MAVERICKS_BACKPORT: kAudioObjectPropertyElementMain was renamed from ...Master in macOS 12;
 // the 10.9 SDK only has the Master spelling.
 #ifndef kAudioObjectPropertyElementMain
 #define kAudioObjectPropertyElementMain kAudioObjectPropertyElementMaster

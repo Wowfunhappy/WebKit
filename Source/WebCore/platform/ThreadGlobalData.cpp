@@ -57,7 +57,7 @@ ThreadGlobalData::~ThreadGlobalData() = default;
 ThreadTimers& ThreadGlobalData::threadTimers()
 {
 #if PLATFORM(MAC)
-    // 10.9 backport: WK2 XPC services run dispatch_main(), which serves the
+    // MAVERICKS_BACKPORT: WK2 XPC services run dispatch_main(), which serves the
     // libdispatch worker pool. dispatch_get_main_queue() callbacks land on
     // whichever worker is available. The "main thread" is fragmented across
     // libdispatch workers — share ThreadTimers across them so setTimeout works.
@@ -153,7 +153,7 @@ EventNames& ThreadGlobalData::eventNames()
 {
     ASSERT(!m_destroyed);
 #if PLATFORM(MAC)
-    // 10.9 backport: IDBDatabase (and a few other classes) cache `const EventNames&`
+    // MAVERICKS_BACKPORT: IDBDatabase (and a few other classes) cache `const EventNames&`
     // members captured at construction. If the originating ThreadGlobalData is destroyed
     // before the cache holder, accessing the cached reference reads freed memory and
     // crashes inside Event::create at the first AtomString deref. Same root cause as
@@ -179,7 +179,7 @@ QualifiedNameCache& ThreadGlobalData::qualifiedNameCache()
 {
     ASSERT(!m_destroyed);
 #if PLATFORM(MAC)
-    // 10.9 backport: dispatch_get_main_queue() callbacks land on whichever
+    // MAVERICKS_BACKPORT: dispatch_get_main_queue() callbacks land on whichever
     // libdispatch worker is available — per-thread caches fragment and race.
     // Use a process-wide singleton like ThreadTimers / AtomStringTable.
     static NeverDestroyed<std::unique_ptr<QualifiedNameCache>> sharedCache { makeUnique<QualifiedNameCache>() };

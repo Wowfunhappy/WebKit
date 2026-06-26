@@ -37,7 +37,7 @@
 #include <wtf/SchedulePair.h>
 
 namespace {
-// 10.9 backport: cancellable GCD timers for the main RunLoop, stored out-of-line so
+// MAVERICKS_BACKPORT: cancellable GCD timers for the main RunLoop, stored out-of-line so
 // RunLoop::TimerBase::stop()/dtor can cancel them WITHOUT enlarging the heavily-included
 // RunLoop.h. Only main-RunLoop (main-thread) timers live here and are only touched on the
 // main thread; the lock is belt-and-suspenders. A cancellable dispatch_source (vs the old
@@ -120,7 +120,7 @@ void RunLoop::stop()
 
 void RunLoop::dispatch(const SchedulePairHashSet& schedulePairs, Function<void()>&& function)
 {
-    // 10.9 backport: WK2 XPC services run dispatch_main(), which pumps GCD but
+    // MAVERICKS_BACKPORT: WK2 XPC services run dispatch_main(), which pumps GCD but
     // not CFRunLoop. CFRunLoopAddTimer() on the main loop would silently drop
     // the timer because nothing pumps it. Route everything through
     // RunLoop::mainSingleton().dispatch(), which honors our dispatch_main
@@ -146,7 +146,7 @@ RunLoop::TimerBase::~TimerBase()
 
 void RunLoop::TimerBase::start(Seconds interval, bool repeat)
 {
-    // 10.9 backport — ROOT-CAUSE FIX (2026-06-11) for the rapid-navigation crash.
+    // MAVERICKS_BACKPORT — ROOT-CAUSE FIX (2026-06-11) for the rapid-navigation crash.
     // WK2 XPC services have dispatch_main() semantics, so the main RunLoop needs a
     // GCD-driven timer (a plain CFRunLoopAddTimer firing rate differs and busy-loops
     // here — the rendering/heartbeat scheduling on this backport is tuned to the GCD
@@ -223,7 +223,7 @@ void RunLoop::TimerBase::start(Seconds interval, bool repeat)
 
 void RunLoop::TimerBase::stop()
 {
-    // 10.9 backport: cancel the main-thread GCD timer (if any). Because this runs on the
+    // MAVERICKS_BACKPORT: cancel the main-thread GCD timer (if any). Because this runs on the
     // main thread, serialized with the dispatch_source's event handler, a cancelled
     // source's handler will never run afterwards — so an in-flight/torn-down timer can
     // no longer fire an orphaned block (the rapid-navigation teardown crash).

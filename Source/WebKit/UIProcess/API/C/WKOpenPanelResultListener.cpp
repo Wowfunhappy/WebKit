@@ -65,7 +65,7 @@ void WKOpenPanelResultListenerChooseMediaFiles(WKOpenPanelResultListenerRef list
 
 void WKOpenPanelResultListenerChooseFiles(WKOpenPanelResultListenerRef listenerRef, WKArrayRef fileURLsRef, WKArrayRef allowedMimeTypesRef)
 {
-    // 10.9 backport: Safari 9.1.3's BrowserPageUIClient was compiled against the
+    // MAVERICKS_BACKPORT: Safari 9.1.3's BrowserPageUIClient was compiled against the
     // legacy 2-arg WKOpenPanelResultListenerChooseFiles(listenerRef, fileURLs).
     // The modern 3-arg variant reads whatever stale value happened to be in %rdx
     // and crashes inside API::Object::unwrap (`[(__bridge id)garbage _apiObject]`)

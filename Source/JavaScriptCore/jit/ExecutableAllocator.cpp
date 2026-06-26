@@ -105,7 +105,7 @@ static constexpr size_t fixedExecutableMemoryPoolSize = 32 * MB;
 static constexpr size_t fixedExecutableMemoryPoolSize = 16 * MB;
 #endif
 #elif CPU(X86_64)
-// 10.9 backport: the 1GB JIT executable pool is sized for modern (16-64GB) machines. JSC only reclaims
+// MAVERICKS_BACKPORT: the 1GB JIT executable pool is sized for modern (16-64GB) machines. JSC only reclaims
 // dead JIT code as the pool approaches full, so on a Mavericks-era machine (4-8GB) the WebContent RSS
 // climbs to ~0.7-1GB+ of JIT code across a browsing session and never drops when navigating to a light
 // page (vmmap "JS JIT generated code" is by far the dominant growth — confirmed by repeated-visit RSS

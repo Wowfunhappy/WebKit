@@ -1,4 +1,4 @@
-// macOS 10.9 backport: TCC framework not available. Stubbed.
+// MAVERICKS_BACKPORT: TCC framework not available. Stubbed.
 #pragma once
 
 #include <wtf/Compiler.h>

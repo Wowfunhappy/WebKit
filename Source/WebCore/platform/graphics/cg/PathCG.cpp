@@ -187,7 +187,7 @@ static void addEvenCornersRoundedRect(PlatformPathPtr platformPath, const FloatR
     CGPathAddRoundedRect(platformPath, nullptr, rectToDraw, radiusWidth, radiusHeight);
 }
 
-// 10.9 backport: CGPathAddUnevenCornersRoundedRect is absent before macOS 10.13 and resolves to a
+// MAVERICKS_BACKPORT: CGPathAddUnevenCornersRoundedRect is absent before macOS 10.13 and resolves to a
 // polyfill no-op here, so uneven (per-corner-different) border-radius paths came out empty/degenerate
 // (invisible or full-flood borders on rounded buttons, e.g. scritch.dev). Gate it out on < 10.13 so the
 // dispatcher falls through to PathImpl::beziersForRoundedRect, which handles per-corner radii correctly.
@@ -232,7 +232,7 @@ static inline void addToCGPath(CGMutablePathRef path, const PathRoundedRect& rou
             return;
         }
 
-// 10.9 backport: CGPathAddUnevenCornersRoundedRect is absent before macOS 10.13 and resolves to a
+// MAVERICKS_BACKPORT: CGPathAddUnevenCornersRoundedRect is absent before macOS 10.13 and resolves to a
 // polyfill no-op here, so uneven (per-corner-different) border-radius paths came out empty/degenerate
 // (invisible or full-flood borders on rounded buttons, e.g. scritch.dev). Gate it out on < 10.13 so the
 // dispatcher falls through to PathImpl::beziersForRoundedRect, which handles per-corner radii correctly.

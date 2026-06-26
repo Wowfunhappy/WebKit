@@ -77,7 +77,7 @@ RemoteLayerTreeHost::RemoteLayerTreeHost(RemoteLayerTreeDrawingAreaProxy& drawin
 
 RemoteLayerTreeHost::~RemoteLayerTreeHost()
 {
-    // 10.9 backport: Safari quit crashes via std::terminate from this dtor.
+    // MAVERICKS_BACKPORT: Safari quit crashes via std::terminate from this dtor.
     // The previous @try only wrapped the explicit body; the IMPLICIT member
     // destructors (m_nodes Ref<>, m_destroyedLayerGraveyard CALayer release,
     // m_animationDelegates WKAnimationDelegate release) ran AFTER the @try
@@ -168,7 +168,7 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
 {
     if (!m_drawingArea)
         return false;
-    // 10.9 backport: keep prior commit's destroyed CALayers alive through this
+    // MAVERICKS_BACKPORT: keep prior commit's destroyed CALayers alive through this
     // commit so CA's insert_sublayer can safely dereference stale superlayer
     // pointers. Drained at function end via local.
     auto previousGraveyard = std::exchange(m_destroyedLayerGraveyard, { });
@@ -256,7 +256,7 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
     }
     
 
-    // 10.9 backport: CATransformLayer on Mavericks doesn't implement
+    // MAVERICKS_BACKPORT: CATransformLayer on Mavericks doesn't implement
     // -[CALayer contents] / -setContents:. Sending either raises
     // NSInvalidArgumentException and crashes UIProcess. Skip the contents
     // copy/clear when either layer is a CATransformLayer (they don't have
@@ -320,7 +320,7 @@ void RemoteLayerTreeHost::layerWillBeRemoved(WebCore::ProcessIdentifier processI
     }
 
     if (auto node = m_nodes.take(layerID)) {
-        // 10.9 backport: keep this layer alive until the next commit so any
+        // MAVERICKS_BACKPORT: keep this layer alive until the next commit so any
         // surviving children with a stale _superlayer pointer to it can be
         // safely re-parented by CA's insert_sublayer (which dereferences the
         // old parent to call remove_sublayer).

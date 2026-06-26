@@ -67,7 +67,7 @@ void ThreadTimers::setSharedTimer(SharedTimer* sharedTimer)
 
     if (sharedTimer) {
         sharedTimer->setFiredFunction([] { threadGlobalDataSingleton().threadTimers().sharedTimerFiredInternal(); });
-        // 10.9 backport: do NOT call updateSharedTimer here unconditionally.
+        // MAVERICKS_BACKPORT: do NOT call updateSharedTimer here unconditionally.
         // setSharedTimer is invoked from ThreadTimers ctor *during* the lazy
         // init triggered inside TimerBase::setNextFireTime — which already
         // holds sharedTimerHeapLock. Calling updateSharedTimer would attempt
@@ -88,7 +88,7 @@ void ThreadTimers::updateSharedTimer()
     if (!m_sharedTimer)
         return;
 
-    // 10.9 backport: caller (setNextFireTime / sharedTimerFiredInternal) is
+    // MAVERICKS_BACKPORT: caller (setNextFireTime / sharedTimerFiredInternal) is
     // expected to hold sharedTimerHeapLock(). Do NOT acquire it here — that
     // would deadlock since the lock is non-recursive.
     while (!m_timerHeap.isEmpty() && !m_timerHeap.first()->hasTimer()) {
@@ -128,7 +128,7 @@ void ThreadTimers::sharedTimerFiredInternal()
     auto timeToQuit = ApproximateTime::now() + maxDurationOfFiringTimers;
 
     while (true) {
-        // 10.9 backport: lock around heap inspection; release before firing the
+        // MAVERICKS_BACKPORT: lock around heap inspection; release before firing the
         // timer (the callback may re-enter setNextFireTime which also locks).
         RefPtr<ThreadTimerHeapItem> item;
         TimerBase* timer = nullptr;

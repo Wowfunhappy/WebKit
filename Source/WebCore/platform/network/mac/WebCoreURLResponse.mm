@@ -200,7 +200,7 @@ NSURLResponse *synthesizeRedirectResponseIfNecessary(NSURLRequest *currentReques
     if (redirectResponse)
         return redirectResponse;
 
-    // 10.9 backport: -[NSURLRequest _schemeWasUpgradedDueToDynamicHSTS] is a CFNetwork SPI that
+    // MAVERICKS_BACKPORT: -[NSURLRequest _schemeWasUpgradedDueToDynamicHSTS] is a CFNetwork SPI that
     // does not exist on 10.9 — calling it unguarded throws an unrecognized-selector NSException
     // (→ std::terminate). Guard it like the other call sites in NetworkSessionCocoa.mm; when the
     // selector is absent the scheme was not HSTS-upgraded, so treat it as NO.

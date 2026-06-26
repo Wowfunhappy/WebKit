@@ -240,7 +240,7 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
         break;
     case LayerType::LayerTypeTransformLayer:
 #if PLATFORM(MAC)
-        // 10.9 backport: CATransformLayer on 10.9 is over-released by QC
+        // MAVERICKS_BACKPORT: CATransformLayer on 10.9 is over-released by QC
         // internals — even compensating CFRetain only shifts the crash from
         // mark_visible (read freed back-ptr) to actionForKey on removal.
         // Multiple slots in CA::Layer are populated incorrectly for
@@ -269,7 +269,7 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
         layerClass = [WebTiledBackingLayer class];
         break;
     case LayerType::LayerTypeAVPlayerLayer:
-        // 10.9 backport: AVPlayer support deferred
+        // MAVERICKS_BACKPORT: AVPlayer support deferred
         layerClass = [CALayer class];
         break;
 #if ENABLE(MODEL_ELEMENT)
@@ -326,7 +326,7 @@ void PlatformCALayerCocoa::commonInit()
     }
 
     // Clear all the implicit animations on the CALayer
-    // 10.9 backport: setting WebActionDisablingCALayerDelegate causes CA crashes
+    // MAVERICKS_BACKPORT: setting WebActionDisablingCALayerDelegate causes CA crashes
     // on second navigation (the delegate's actionForLayer:forKey: gets called on
     // some path where the delegate pointer is stale). Use the actions dictionary
     // directly to disable all known implicit animations — no delegate needed.
@@ -851,7 +851,7 @@ bool PlatformCALayerCocoa::hasContents() const
 
 CFTypeRef PlatformCALayerCocoa::contents() const
 {
-    // 10.9 backport: CATransformLayer doesn't implement -contents (only
+    // MAVERICKS_BACKPORT: CATransformLayer doesn't implement -contents (only
     // children have content). doesNotRecognizeSelector here crashes WebContent
     // via uncaught NSException — observed on Wikipedia/Apple_silicon.
     if (m_layerType == PlatformCALayer::LayerType::LayerTypeTransformLayer)
@@ -872,7 +872,7 @@ void PlatformCALayerCocoa::clearContents()
 
 void PlatformCALayerCocoa::setContents(CFTypeRef value)
 {
-    // 10.9 backport: same TransformLayer guard as contents() getter.
+    // MAVERICKS_BACKPORT: same TransformLayer guard as contents() getter.
     if (m_layerType == PlatformCALayer::LayerType::LayerTypeTransformLayer)
         return;
     if (![m_layer respondsToSelector:@selector(setContents:)])
@@ -1015,7 +1015,7 @@ void PlatformCALayerCocoa::setTimeOffset(CFTimeInterval value)
 
 float PlatformCALayerCocoa::contentsScale() const
 {
-    // 10.9 backport: CATransformLayer doesn't implement -contentsScale on this
+    // MAVERICKS_BACKPORT: CATransformLayer doesn't implement -contentsScale on this
     // OS version. The setter (below) already guards against TransformLayer for
     // setContentsScale: — mirror that guard here. Default to 1.0 (1x scale).
     if (m_layerType == PlatformCALayer::LayerType::LayerTypeTransformLayer)
@@ -1045,7 +1045,7 @@ void PlatformCALayerCocoa::setCornerRadius(float value)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_layer setCornerRadius:value];
-    // 10.9 backport: kCACornerCurveCircular is 10.13+; skip
+    // MAVERICKS_BACKPORT: kCACornerCurveCircular is 10.13+; skip
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
@@ -1239,7 +1239,7 @@ void PlatformCALayerCocoa::updateContentsFormat()
         BEGIN_BLOCK_OBJC_EXCEPTIONS
         auto contentsFormat = this->contentsFormat();
         (void)contentsFormat;
-        // 10.9 backport: WebTiledBackingLayer's setContentsFormat takes ContentsFormat,
+        // MAVERICKS_BACKPORT: WebTiledBackingLayer's setContentsFormat takes ContentsFormat,
         // but CALayer's takes NSString. The branches got tangled; skip this set on 10.9.
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
         if (contentsFormat == ContentsFormat::RGBA16F) {
@@ -1420,7 +1420,7 @@ unsigned PlatformCALayerCocoa::backingStoreBytesPerPixel() const
 
 AVPlayerLayer *PlatformCALayerCocoa::avPlayerLayer() const
 {
-    // 10.9 backport: stubbed out
+    // MAVERICKS_BACKPORT: stubbed out
     return nil;
 }
 
