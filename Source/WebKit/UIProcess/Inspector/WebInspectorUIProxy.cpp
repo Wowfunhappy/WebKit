@@ -162,9 +162,6 @@ void WebInspectorUIProxy::connect()
                 openLocalInspectorFrontend();
         },
         m_inspectedPage->webPageIDInMainFrameProcess());
-    // 10.9 backport: also call openLocalInspectorFrontend synchronously in case the
-    // async IPC reply doesn't make it back (WebContent backend exists but reply path broken).
-    openLocalInspectorFrontend();
 }
 
 void WebInspectorUIProxy::show()
@@ -492,13 +489,7 @@ void WebInspectorUIProxy::openLocalInspectorFrontend()
         return;
     }
 
-    // 10.9 backport: connect() already calls createFrontendPage() before invoking this (both
-    // directly and via the async Show() reply path). Guard against creating a SECOND inspector
-    // frontend page that orphans the first — a duplicate inspector WebContent racing the original
-    // is the suspected cause of the intermittent inspector-open Safari UI crash. Reuse the page
-    // connect() already made.
-    if (!m_inspectorPage)
-        createFrontendPage();
+    createFrontendPage();
 
     RefPtr inspectorPage = m_inspectorPage.get();
     ASSERT(inspectorPage);

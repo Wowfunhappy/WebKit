@@ -80,21 +80,10 @@ void LegacyDisplayRefreshMonitorMac::dispatchDisplayDidRefresh(const DisplayUpda
 
 WebCore::FramesPerSecond LegacyDisplayRefreshMonitorMac::nominalFramesPerSecondFromDisplayLink(CVDisplayLinkRef displayLink)
 {
-#if PLATFORM(MAC)
-    // 10.9 backport: CVDisplayLinkGetNominalOutputVideoRefreshPeriod is statically
-    // shadowed by the polyfill stub `xorl %eax,%eax; retq`, which only zeros RAX. The
-    // function returns CVTime (16B struct: int64 timeValue + int32 timeScale + uint32 flags).
-    // After the stub: timeValue=0, timeScale+flags=garbage. Caller would compute
-    // round(garbage / 0) = bogus FPS, breaking display-refresh pacing. Return the standard
-    // 60 FPS — matches what real CoreVideo returns on every typical display we run on.
-    UNUSED_PARAM(displayLink);
-    return 60;
-#else
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     CVTime refreshPeriod = CVDisplayLinkGetNominalOutputVideoRefreshPeriod(displayLink);
 ALLOW_DEPRECATED_DECLARATIONS_END
     return round((double)refreshPeriod.timeScale / (double)refreshPeriod.timeValue);
-#endif
 }
 
 bool LegacyDisplayRefreshMonitorMac::ensureDisplayLink()

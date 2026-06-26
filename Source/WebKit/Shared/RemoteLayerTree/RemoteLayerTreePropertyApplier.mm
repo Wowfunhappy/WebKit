@@ -454,6 +454,8 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
 
     if (properties.changedProperties & LayerChange::CornerRadiusChanged) {
         layer.cornerRadius = properties.cornerRadius;
+        // MAVERICKS_BACKPORT: CALayer.cornerCurve / kCACornerCurveCircular are 10.15+; guard the build
+        // (MAX_ALLOWED) and gate the call behind respondsToSelector: so it no-ops on 10.9.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
         if (properties.cornerRadius && [layer respondsToSelector:@selector(setCornerCurve:)])
             layer.cornerCurve = kCACornerCurveCircular;
@@ -678,34 +680,16 @@ void RemoteLayerTreePropertyApplier::applyHierarchyUpdates(RemoteLayerTreeNode& 
         layer = contentLayer;
 #endif
 
-
-    // 10.9 backport: combine graveyard (keeps freed parents alive) with a
-    // filter that skips children whose superlayer is non-nil but not in m_nodes
-    // (stale parent — would crash CA::Layer::insert_sublayer at offsets 0x21/0x5f/0x6c).
-    HashSet<CFTypeRef> aliveLayers;
-    for (auto& entry : relatedLayers)
-        aliveLayers.add((__bridge CFTypeRef)entry.value->layer());
-
-    @try {
-        [layer setSublayers:createNSArray(properties.children, [&] (auto& child) -> CALayer * {
-            auto* childNode = relatedLayers.get(child);
-            ASSERT(childNode);
-            if (!childNode)
-                return nil;
+    [layer setSublayers:createNSArray(properties.children, [&] (auto& child) -> CALayer * {
+        auto* childNode = relatedLayers.get(child);
+        ASSERT(childNode);
+        if (!childNode)
+            return nil;
 #if PLATFORM(IOS_FAMILY)
-            ASSERT(!childNode->uiView());
+        ASSERT(!childNode->uiView());
 #endif
-            CALayer *cl = childNode->layer();
-            if (!cl)
-                return nil;
-            CALayer *sup = nil;
-            @try { sup = [cl superlayer]; }
-            @catch (NSException *e) { return nil; }
-            if (sup && sup != layer.get() && !aliveLayers.contains((__bridge CFTypeRef)sup))
-                return nil;
-            return cl;
-        }).get()];
-    } @catch (NSException *e) { /* survive */ }
+        return childNode->layer();
+    }).get()];
 
 #if ENABLE(OVERLAY_REGIONS_REMOTE_EFFECT)
     node.updateOverlayRegionAfterHierarchyChange();

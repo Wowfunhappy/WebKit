@@ -2750,14 +2750,55 @@ void determineChangedTracksFromNewTracksAndOldItems(MediaSelectionGroupAVFObjC* 
 
 void MediaPlayerPrivateAVFoundationObjC::updateAudioTracks()
 {
-    // Backport: AudioTrackPrivateAVFObjC + AVTrackPrivateAVFObjCImpl are stubbed on 10.9.
-    // Skip track enumeration — AVPlayer handles audio rendering directly without exposed tracks.
+    auto player = this->player();
+    if (!player)
+        return;
+
+    size_t count = m_audioTracks.size();
+
+    Vector<String> characteristics = player->preferredAudioCharacteristics();
+    if (!m_audibleGroup) {
+        if (RetainPtr<AVMediaSelectionGroup> group = safeMediaSelectionGroupForAudibleMedia())
+            m_audibleGroup = MediaSelectionGroupAVFObjC::create(m_avPlayerItem.get(), group.get(), characteristics);
+    }
+
+    if (m_audibleGroup)
+        determineChangedTracksFromNewTracksAndOldItems(m_audibleGroup.get(), m_audioTracks, characteristics, &AudioTrackPrivateAVFObjC::create, player, &MediaPlayer::removeAudioTrack, &MediaPlayer::addAudioTrack);
+    else
+        determineChangedTracksFromNewTracksAndOldItems(m_cachedTracks.get(), AVMediaTypeAudio, m_audioTracks, &AudioTrackPrivateAVFObjC::create, player, &MediaPlayer::removeAudioTrack, &MediaPlayer::addAudioTrack);
+
+    for (auto& track : m_audioTracks)
+        track->resetPropertiesFromTrack();
+
+    ALWAYS_LOG(LOGIDENTIFIER, "track count was ", count, ", is ", m_audioTracks.size());
 }
 
 void MediaPlayerPrivateAVFoundationObjC::updateVideoTracks()
 {
-    // Backport: VideoTrackPrivateAVFObjC + AVTrackPrivateAVFObjCImpl are stubbed on 10.9.
-    // Skip track enumeration — AVPlayer handles video rendering via AVPlayerLayer.
+    auto player = this->player();
+    if (!player)
+        return;
+
+    size_t count = m_videoTracks.size();
+
+    determineChangedTracksFromNewTracksAndOldItems(m_cachedTracks.get(), AVMediaTypeVideo, m_videoTracks, &VideoTrackPrivateAVFObjC::create, player, &MediaPlayer::removeVideoTrack, &MediaPlayer::addVideoTrack);
+
+    if (!m_visualGroup) {
+        if (RetainPtr<AVMediaSelectionGroup> group = safeMediaSelectionGroupForVisualMedia())
+            m_visualGroup = MediaSelectionGroupAVFObjC::create(m_avPlayerItem.get(), group.get(), Vector<String>());
+    }
+
+    if (m_visualGroup)
+        determineChangedTracksFromNewTracksAndOldItems(m_visualGroup.get(), m_videoTracks, Vector<String>(), &VideoTrackPrivateAVFObjC::create, player, &MediaPlayer::removeVideoTrack, &MediaPlayer::addVideoTrack);
+
+    for (auto& track : m_videoTracks)
+        track->resetPropertiesFromTrack();
+
+    // In case the video track content changed, we may be able to perform a readback again.
+    if (count)
+        m_waitForVideoOutputMediaDataWillChangeTimedOut = false;
+
+    ALWAYS_LOG(LOGIDENTIFIER, "track count was ", count, ", is ", m_videoTracks.size());
 }
 
 void MediaPlayerPrivateAVFoundationObjC::syncTextTrackBounds()
@@ -2814,8 +2855,24 @@ std::optional<bool> MediaPlayerPrivateAVFoundationObjC::isCrossOrigin(const Secu
 void MediaPlayerPrivateAVFoundationObjC::createVideoOutput()
 {
     INFO_LOG(LOGIDENTIFIER);
-    // Backport: QueuedVideoOutput is stubbed on 10.9 — video frames go through AVPlayerLayer
-    // for compositing. Canvas/WebGL drawImage(video) and paintCurrentFrameInContext won't work.
+
+    if (!m_avPlayerItem || m_videoOutput)
+        return;
+
+    RefPtr videoOutput = QueuedVideoOutput::create(m_avPlayerItem.get(), m_avPlayer.get());
+    m_videoOutput = videoOutput;
+    ASSERT(m_videoOutput);
+    if (!m_videoOutput) {
+        ERROR_LOG(LOGIDENTIFIER, "-[AVPlayerItemVideoOutput initWithPixelBufferAttributes:] failed!");
+        return;
+    }
+    if (RefPtr observer = m_currentImageChangedObserver)
+        videoOutput->addCurrentImageChangedObserver(*observer);
+
+    if (RefPtr observer = m_waitForVideoOutputMediaDataWillChangeObserver)
+        videoOutput->addCurrentImageChangedObserver(*observer);
+
+    setNeedsRenderingModeChanged();
 }
 
 void MediaPlayerPrivateAVFoundationObjC::destroyVideoOutput()

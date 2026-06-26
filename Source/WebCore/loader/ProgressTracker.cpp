@@ -115,10 +115,7 @@ void ProgressTracker::progressStarted(LocalFrame& frame)
         m_progressValue = initialProgressValue;
         m_originatingProgressFrame = frame;
 
-        // MAVERICKS_BACKPORT: keystone band-aid (#53 timer-heap corruption). startRepeating triggers
-        // TimerBase::heapInsert which crashes on the corrupted timer heap (see Timer.cpp). Progress
-        // reporting is best-effort UI state — skip the heartbeat timer.
-        // m_progressHeartbeatTimer.startRepeating(progressHeartbeatInterval);
+        m_progressHeartbeatTimer.startRepeating(progressHeartbeatInterval);
         RefPtr originatingProgressFrame = m_originatingProgressFrame;
         originatingProgressFrame->loader().loadProgressingStatusChanged();
 

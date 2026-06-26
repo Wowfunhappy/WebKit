@@ -408,11 +408,7 @@ public:
     void addMessageReceiver(FunctionDispatcher&, MessageReceiver&, ReceiverName, uint64_t destinationID = 0);
     void removeMessageReceiver(ReceiverName, uint64_t destinationID = 0);
 
-    // 10.9 backport: default to mainSingleton instead of currentSingleton.
-    // Open is often called on a dispatch worker thread (e.g., XPC bootstrap
-    // handler), and binding to a worker-thread RunLoop creates a dangling
-    // pointer once the worker exits.
-    bool open(Client&, SerialFunctionDispatcher& = RunLoop::mainSingleton());
+    bool open(Client&, SerialFunctionDispatcher& = RunLoop::currentSingleton());
     // Ensures that messages sent prior to the call are not affected by invalidate() or crash done after the call returns.
     Error flushSentMessages(Timeout);
     void invalidate();

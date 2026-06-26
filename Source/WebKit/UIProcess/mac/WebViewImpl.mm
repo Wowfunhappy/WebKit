@@ -7471,7 +7471,6 @@ void WebViewImpl::addTextSelectionManager()
 // 10.9 backport: stubs for 10.10+ APIs.
 bool WebViewImpl::canHandleContextMenuTranslation() const { return false; }
 void WebViewImpl::handleContextMenuTranslation(const WebCore::TranslationContextMenuInfo&) { }
-void WebViewImpl::clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation) { }
 
 } // namespace WebKit
 

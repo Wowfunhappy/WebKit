@@ -248,12 +248,6 @@ void RunLoop::unregisterTimer(TimerBase& timer)
     m_registeredTimers.remove(&timer);
 }
 
-bool RunLoop::isTimerRegistered(const TimerBase* timer) const
-{
-    Locker locker { m_registeredTimerLock };
-    return m_registeredTimers.contains(const_cast<TimerBase*>(timer));
-}
-
 String RunLoop::listActiveTimersForLogging() const
 {
     Vector<ASCIILiteral> timers;

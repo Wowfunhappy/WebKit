@@ -669,13 +669,6 @@ HTMLMediaElement::HTMLMediaElement(const QualifiedName& tagName, Document& docum
     RefPtr page = document.page();
     m_shouldAudioPlaybackRequireUserGesture = page && page->requiresUserGestureForAudioPlayback() && !processingUserGestureForMedia();
     m_shouldVideoPlaybackRequireUserGesture = page && page->requiresUserGestureForVideoPlayback() && !processingUserGestureForMedia();
-#if ENABLE(MEDIA_SOURCE)
-    // MAVERICKS_BACKPORT: behavior fix (#35/#67/#75 custom MSE+AVFoundation media). never require a user gesture to start playback so script/auto play works for the
-    // custom MSE pipeline (otherwise HTMLMediaElement::play() rejects NotAllowedError via
-    // RequireUserGestureForVideoRateChange and the CMTimebase never starts → frozen first frame).
-    m_shouldAudioPlaybackRequireUserGesture = false;
-    m_shouldVideoPlaybackRequireUserGesture = false;
-#endif
 
     allMediaElements().add(*this);
 

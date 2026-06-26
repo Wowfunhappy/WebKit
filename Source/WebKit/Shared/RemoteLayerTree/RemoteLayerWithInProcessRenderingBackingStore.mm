@@ -283,20 +283,9 @@ void RemoteLayerWithInProcessRenderingBackingStore::prepareToDisplay()
     LOG_WITH_STREAM(RemoteLayerBuffers, stream << "RemoteLayerBackingStore " << m_layer->layerID() << " prepareToDisplay()");
 
     m_contentsBufferHandle = std::nullopt;
-    bool emptyDirty = hasEmptyDirtyRegion();
-    auto displayRequirement = m_bufferSet.swapBuffersForDisplay(emptyDirty, supportsPartialRepaint());
-    if (displayRequirement == SwapBuffersDisplayRequirement::NeedsNoDisplay) {
-        // 10.9 backport: even when swap says NeedsNoDisplay, we still need a
-        // front buffer so the IPC encoder (RemoteLayerTreeTransaction.mm:444)
-        // can serialize the store. Otherwise hasFrontBuffer=false at encode
-        // time → encoder sends empty payload → UIProcess clears layer contents.
-        // For github tiles' first commit cycle, swapBuffersForDisplay returns
-        // NeedsNoDisplay (uninitialized state), so without this they never
-        // ship their content via IPC.
-        if (!m_bufferSet.m_frontBuffer)
-            ensureFrontBuffer();
+    auto displayRequirement = m_bufferSet.swapBuffersForDisplay(hasEmptyDirtyRegion(), supportsPartialRepaint());
+    if (displayRequirement == SwapBuffersDisplayRequirement::NeedsNoDisplay)
         return;
-    }
 
     if (displayRequirement == SwapBuffersDisplayRequirement::NeedsFullDisplay)
         setNeedsDisplay();

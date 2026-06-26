@@ -144,23 +144,7 @@ void RemoteLayerTreeDrawingArea::updateRootLayers()
             if (rootLayer.viewOverlayRootLayer)
                 children.append(Ref { *rootLayer.viewOverlayRootLayer });
         }
-        // 10.9 backport: GraphicsLayer::setChildren → noteSublayersChanged →
-        // commitLayerChangesAfterSublayers → updateSublayerList → setSublayers
-        // chain doesn't reliably propagate the new children to the wrapper's
-        // PlatformCALayerRemote.m_children for github navigations on this build.
-        // Result: recursiveBuildTransaction never reaches github's content layer
-        // tree, so github's tile BackingStore never gets committed via IPC, and
-        // the page renders blank. Bypass: directly setSublayers on the wrapper's
-        // PlatformCALayer after setChildren.
-        Vector<RefPtr<PlatformCALayer>> platformChildren;
-        for (auto& child : children) {
-            if (RefPtr platformChild = downcast<GraphicsLayerCARemote>(child.get()).platformCALayer())
-                platformChildren.append(WTF::move(platformChild));
-        }
         rootLayer.layer->setChildren(WTF::move(children));
-        if (RefPtr wrapperPlatformLayer = downcast<GraphicsLayerCARemote>(*rootLayer.layer.ptr()).platformCALayer())
-            wrapperPlatformLayer->setSublayers(platformChildren);
-        // 10.9 perf: removed debug fopen logging
     }
 }
 
@@ -265,16 +249,6 @@ DelegatedScrollingMode RemoteLayerTreeDrawingArea::delegatedScrollingMode() cons
 
 void RemoteLayerTreeDrawingArea::setLayerTreeStateIsFrozen(bool isFrozen)
 {
-    // 10.9 perf: removed debug fopen logging
-    // 10.9 backport: WebKit relies on Document::m_visualUpdatesSuppressionTimer
-    // (a 5-second WebCore Timer) to unfreeze the layer tree if a page never
-    // reaches readyState=Complete. On 10.9 our SharedTimer chain is intermittent
-    // for repeated fires (CFRunLoopTimer + dispatch_after fallback have race
-    // conditions), so the unfreeze timer often never fires. Pages like github
-    // keep loading async chunks and stay in Loading state forever, so the freeze
-    // is permanent. Skip the freeze entirely; pages render incrementally.
-    if (isFrozen)
-        return;
     if (m_isRenderingSuspended == isFrozen)
         return;
 
@@ -344,25 +318,6 @@ void RemoteLayerTreeDrawingArea::setExposedContentRect(const FloatRect& exposedC
 
 void RemoteLayerTreeDrawingArea::startRenderingUpdateTimer()
 {
-    // 10.9 perf: removed debug fopen logging
-    // 10.9 backport: m_updateRenderingTimer (a WebCore Timer) is unreliable for
-    // repeated fires on this build — startOneShot(0_s) schedules into the
-    // ThreadTimers heap but the second/Nth cycle's heap entry never makes it
-    // through sharedTimerFiredInternal. Even though MainThreadSharedTimer fires
-    // ~14 times during a github load, m_updateRenderingTimer's heap entry only
-    // delivers updateRendering once. As a parallel path, also dispatch the
-    // updateRendering call via dispatch_async on the main queue. dispatch_async
-    // is reliable on 10.9 (used by the MainThreadSharedTimerCF dispatch_after
-    // fallback). updateRendering is reentrancy-guarded so a double-fire is safe.
-    {
-        WeakPtr<RemoteLayerTreeDrawingArea> weak { *this };
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (RefPtr strong = weak.get()) {
-                if (!strong->m_isRenderingSuspended)
-                    strong->updateRendering();
-            }
-        });
-    }
     if (m_updateRenderingTimer.isActive())
         return;
     if (!m_updateStartTime)

@@ -111,13 +111,6 @@ void NavigatorBeacon::logError(const ResourceError& error)
 
 ExceptionOr<bool> NavigatorBeacon::sendBeacon(Document& document, const String& url, std::optional<FetchBody::Init>&& body)
 {
-    // MAVERICKS_BACKPORT: keystone band-aid #54 (broken main-thread identity under dispatch_main).
-    // theverge.com calls sendBeacon from a ServiceWorker microtask; the downstream
-    // MemoryCache::singleton() RELEASE_ASSERTs main-thread. Bail silently from non-main-thread callers to
-    // avoid crashing WebContent (masks the MemoryCache assert).
-    if (!isMainThread())
-        return false;
-
     URL parsedUrl = document.completeURL(url);
 
     // Set parsedUrl to the result of the URL parser steps with url and base. If the algorithm returns an error, or if

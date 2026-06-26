@@ -93,15 +93,13 @@ void DefaultAudioDestinationNode::initialize()
 
 void DefaultAudioDestinationNode::uninitialize()
 {
-    // MAVERICKS_BACKPORT: keystone band-aid #54 (broken main-thread identity under dispatch_main).
-    // The upstream ASSERT(isMainThread()) tripped during worker teardown; bail instead of crashing.
-    if (!isMainThread())
-        return;
+    ASSERT(isMainThread());
     if (!isInitialized())
         return;
 
-    // MAVERICKS_BACKPORT: keystone #54 — skip ALWAYS_LOG (logger()/m_logger may not be valid during
-    // partial teardown; the +222 WebContent crash signature mapped here) and null-guard m_destination.
+    ALWAYS_LOG(LOGIDENTIFIER);
+    // MAVERICKS_BACKPORT: keystone #54 — null-guard m_destination (createDestination
+    // can leave m_destination null on this port; see createDestination below).
     if (m_destination)
         clearDestination();
     m_numberOfInputChannels = 0;

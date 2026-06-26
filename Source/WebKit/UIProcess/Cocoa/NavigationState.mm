@@ -932,10 +932,7 @@ static RetainPtr<NSError> createErrorWithRecoveryAttempter(WKWebView *webView, c
     auto frameHandle = API::FrameHandle::create(frameInfo.frameID);
     auto recoveryAttempter = adoptNS([[WKReloadFrameErrorRecoveryAttempter alloc] initWithWebView:webView frameHandle:protect(wrapper(frameHandle.get())).get() urlString:url.string()]);
 
-    // 10.9 backport: skip recovery-attempter userInfo entry (the _WKRecoveryAttempterErrorKey
-    // global is exported but its address isn't a valid NSString on this OS — setObject crashes).
-    RetainPtr<NSMutableDictionary> userInfo = adoptNS([[NSMutableDictionary alloc] init]);
-    (void)recoveryAttempter;
+    auto userInfo = adoptNS([[NSMutableDictionary alloc] initWithObjectsAndKeys:recoveryAttempter.get(), _WKRecoveryAttempterErrorKey, nil]);
 
     if (RetainPtr<NSDictionary> originalUserInfo = originalError.userInfo)
         [userInfo addEntriesFromDictionary:originalUserInfo.get()];

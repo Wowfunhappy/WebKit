@@ -301,11 +301,6 @@ private:
 
     void registerTimer(TimerBase&);
     void unregisterTimer(TimerBase&);
-    // 10.9 backport: the Cocoa main-thread timer path schedules an uncancelable dispatch_after
-    // that captures a raw TimerBase*. This lets that block confirm the TimerBase is still alive
-    // (registered) before dereferencing it, avoiding a use-after-free if the timer's owner was
-    // destroyed before the block fired (e.g. during process-swap teardown).
-    bool isTimerRegistered(const TimerBase*) const;
 
 #if ENABLE(UNFAIR_LOCK)
     mutable UnfairLock m_registeredTimerLock;

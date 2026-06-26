@@ -69,10 +69,7 @@ enum class BackingStoreNeedsDisplayReason : uint8_t {
     HasDirtyRegion,
 };
 
-class RemoteLayerBackingStoreCollection;
-
 class RemoteLayerBackingStore : public CanMakeWeakPtr<RemoteLayerBackingStore>, public CanMakeCheckedPtr<RemoteLayerBackingStore> {
-    friend class RemoteLayerBackingStoreCollection;
     WTF_MAKE_TZONE_ALLOCATED(RemoteLayerBackingStore);
     WTF_MAKE_NONCOPYABLE(RemoteLayerBackingStore);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RemoteLayerBackingStore);
@@ -191,20 +188,6 @@ protected:
     WebCore::IntRect layerBounds() const;
 
     WeakRef<PlatformCALayerRemote> m_layer;
-
-    // 10.9 backport: tracks how many times this backing store has been
-    // committed. Used by RemoteLayerBackingStoreCollection::backingStoreWillBeDisplayed
-    // to force the FIRST 30 commits to succeed. On 10.9 the github tile backing
-    // stores go directly to m_liveBackingStore (never to m_unparentedBackingStore)
-    // so wasUnparented is always false. After the first commit (which paints
-    // empty content because page hasn't loaded yet), needsDisplay()=false because
-    // dirty tracking on github tiles is broken on 10.9 — body content arrives
-    // in subsequent commits but the tile region isn't marked dirty. By forcing
-    // display for the first 30 commits (~30 layout cycles, plenty for body to
-    // arrive), the tile actually receives the painted body content. After 30,
-    // normal dirty tracking takes over for late updates (scroll, hover etc).
-    unsigned m_committedCount { 0 };
-    static constexpr unsigned kForceFirstNCommits = 30;
 
     Parameters m_parameters;
 

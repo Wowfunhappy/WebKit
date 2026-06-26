@@ -595,8 +595,6 @@ public:
 #if ENABLE(DRAG_SUPPORT)
     void draggedImage(NSImage *, CGPoint endPoint, NSDragOperation);
     NSDragOperation draggingEntered(id <NSDraggingInfo>);
-    void clearTextIndicatorWithAnimation(WebCore::TextIndicatorDismissalAnimation);
-
     NSDragOperation draggingUpdated(id <NSDraggingInfo>);
     void draggingExited(id <NSDraggingInfo>);
     bool prepareForDragOperation(id <NSDraggingInfo>);

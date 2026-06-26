@@ -63,12 +63,7 @@ void ImageFrameWorkQueue::start()
     if (!decoder)
         return;
 
-    // 10.9 backport: decoding images the user just scrolled into view IS user-initiated work.
-    // On this CPU-limited VM the user-interactive main thread (scroll layout/paint) was starving a
-    // Default-QoS decoder thread, causing multi-second stalls before lazy images appeared (measured
-    // 2.4s for a 600x400 decode that normally takes ~150ms). UserInitiated keeps the decoder
-    // competitive so visible images decode promptly without blocking the main thread (which is higher).
-    m_workQueue = WorkQueue::create("org.webkit.ImageDecoder"_s, WorkQueue::QOS::UserInitiated);
+    m_workQueue = WorkQueue::create("org.webkit.ImageDecoder"_s, WorkQueue::QOS::Default);
 
     m_workQueue->dispatch([protectedThis = Ref { *this }, protectedWorkQueue = Ref { *m_workQueue }, protectedSource = m_source.get(), protectedDecoder = Ref { *decoder }, protectedRequestQueue = Ref { requestQueue() }] () mutable {
         Request request;
