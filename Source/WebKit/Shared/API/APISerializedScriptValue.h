@@ -88,7 +88,7 @@ private:
     // MAVERICKS_BACKPORT: held value backing the restored legacy WKSerializedScriptValue API.
     WebKit::JavaScriptEvaluationResult m_result;
 };
-
+    
 }
 
 // MAVERICKS_BACKPORT: type-traits specialization for the restored API::SerializedScriptValue
