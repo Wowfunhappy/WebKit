@@ -68,7 +68,7 @@
 #import <BrowserEngineKit/BEWebContentProcess.h>
 #endif // USE(EXTENSIONKIT)
 
-// 10.9 backport: xpc_connection_set_oneshot_instance() (used by modern WebKit to give
+// MAVERICKS_BACKPORT: xpc_connection_set_oneshot_instance() (used by modern WebKit to give
 // every WebContent connection its OWN service instance, i.e. a distinct process) is a
 // 10.10+ API and is absent here. Without it, every xpc_connection_create() for
 // "com.apple.WebKit.WebContent" attaches to the SAME singleton service instance: only
@@ -304,7 +304,7 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
     uuid_t uuid;
     uuid_generate(uuid);
 
-    // 10.9 backport: xpc_connection_set_oneshot_instance is 10.10+; use the 10.9-exported
+    // MAVERICKS_BACKPORT: xpc_connection_set_oneshot_instance is 10.10+; use the 10.9-exported
     // predecessor xpc_connection_set_instance() with this fresh per-connection UUID so each
     // WebContent/Network/GPU connection targets its OWN service instance (a distinct
     // process) instead of all collapsing onto one singleton. This restores multi-process

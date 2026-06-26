@@ -12,7 +12,7 @@
 #import "RTCVideoDecoderH264.h"
 
 #import <VideoToolbox/VideoToolbox.h>
-// 10.9 backport: kCVImageBufferTransferFunction_sRGB (a CoreVideo CFStringRef constant) postdates
+// MAVERICKS_BACKPORT: kCVImageBufferTransferFunction_sRGB (a CoreVideo CFStringRef constant) postdates
 // 10.9. Its value is the "IEC_sRGB" transfer-function string; define it when targeting < 10.13.
 #import <Availability.h>
 #if !defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED < 101300

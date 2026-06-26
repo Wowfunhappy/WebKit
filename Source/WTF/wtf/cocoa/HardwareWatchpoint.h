@@ -1,5 +1,5 @@
 /*
- * 10.9 backport debugging tool (#43 keystone): in-process hardware watchpoint.
+ * MAVERICKS_BACKPORT debugging tool (#43 keystone): in-process hardware watchpoint.
  *
  * Sets an x86-64 debug-register (DR0..DR3) write watchpoint on up to four addresses
  * across ALL current and future threads of this process, and logs the faulting thread's

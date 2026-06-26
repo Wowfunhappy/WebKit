@@ -29,7 +29,7 @@ DECLARE_SYSTEM_HEADER
 
 #include <CommonCrypto/CommonCrypto.h>
 
-// macOS 10.9 backport: CCStatus and CCKDFAlgorithm are not in 10.9 public headers.
+// MAVERICKS_BACKPORT: CCStatus and CCKDFAlgorithm are not in 10.9 public headers.
 #ifndef CC_KDF_TYPES_DEFINED
 #define CC_KDF_TYPES_DEFINED 1
 typedef int32_t CCStatus;

@@ -92,7 +92,7 @@ NetworkProcessConnection::NetworkProcessConnection(IPC::Connection::Identifier&&
     : m_connection(IPC::Connection::createClientConnection(WTF::move(connectionIdentifier)))
     , m_cookieAcceptPolicy(cookieAcceptPolicy)
 {
-    // 10.9 backport: pin to main RunLoop (default would bind to a worker
+    // MAVERICKS_BACKPORT: pin to main RunLoop (default would bind to a worker
     // thread's RunLoop that may die when the worker exits, dangling the
     // dispatcher pointer in the Connection).
     m_connection->open(*this, RunLoop::mainSingleton());

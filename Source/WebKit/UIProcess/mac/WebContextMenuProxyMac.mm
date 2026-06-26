@@ -41,7 +41,7 @@
 #import "WKSharingServicePickerDelegate.h"
 #import "WebContextMenuItem.h"
 #import "WebContextMenuItemData.h"
-#import "WebMouseEvent.h" // 10.9 backport: complete WebMouseEventInputSource type (relied on bundle-transitive include before SourcesCocoa reshuffle).
+#import "WebMouseEvent.h" // MAVERICKS_BACKPORT: complete WebMouseEventInputSource type (relied on bundle-transitive include before SourcesCocoa reshuffle).
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "_WKCaptionStyleMenuController.h"
@@ -302,7 +302,7 @@ void WebContextMenuProxyMac::setupServicesMenu()
     bool hasControlledImage = m_context.controlledImage();
     bool isPDFAttachment = false;
     auto attachment = protect(page())->attachmentForIdentifier(m_context.controlledImageAttachmentID());
-    // 10.9 backport: UTType class is 11.0+. Compare to literal "com.adobe.pdf" instead.
+    // MAVERICKS_BACKPORT: UTType class is 11.0+. Compare to literal "com.adobe.pdf" instead.
     if (attachment)
         isPDFAttachment = attachment->utiType() == "com.adobe.pdf"_s;
     NSArray *items = nil;
@@ -413,7 +413,7 @@ void WebContextMenuProxyMac::appendRemoveBackgroundItemToControlledImageMenuIfNe
                 return;
 
             auto removeBackgroundItem = adoptNS([[NSMenuItem alloc] initWithTitle:contextMenuItemTitleRemoveBackground().createNSString().get() action:@selector(removeBackground) keyEquivalent:@""]);
-            // 10.9 backport: +[NSImage imageWithSystemSymbolName:accessibilityDescription:] is 11.0+ (SF Symbols). Skip silently — menu item just won't have an icon.
+            // MAVERICKS_BACKPORT: +[NSImage imageWithSystemSymbolName:accessibilityDescription:] is 11.0+ (SF Symbols). Skip silently — menu item just won't have an icon.
             if ([NSImage respondsToSelector:@selector(imageWithSystemSymbolName:accessibilityDescription:)])
                 [removeBackgroundItem setImage:[NSImage imageWithSystemSymbolName:@"person.fill.viewfinder" accessibilityDescription:contextMenuItemTitleRemoveBackground().createNSString().get()]];
             [removeBackgroundItem setTarget:WKSharingServicePickerDelegate.sharedSharingServicePickerDelegate];
@@ -802,7 +802,7 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
     auto filteredItems = items;
     auto webView = m_webView.get();
 
-    // 10.9 backport: _childWindowOrderingPriority is 10.12+ private NSWindow SPI.
+    // MAVERICKS_BACKPORT: _childWindowOrderingPriority is 10.12+ private NSWindow SPI.
     // Sending it to NSWindow on 10.9 fires doesNotRecognizeSelector and crashes
     // UIProcess on every right-click. Guard before sending.
     bool isPopover = false;
@@ -875,7 +875,7 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
         if (--itemsRemaining)
             return;
 
-        // 10.9 backport: -[NSMenu setItemArray:] is 10.10+. Add each item individually.
+        // MAVERICKS_BACKPORT: -[NSMenu setItemArray:] is 10.10+. Add each item individually.
         if ([menu respondsToSelector:@selector(setItemArray:)])
             [menu setItemArray:[sparseMenuItems allObjects]];
         else {
@@ -1052,7 +1052,7 @@ void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuI
         RELEASE_ASSERT_NOT_REACHED();
 #endif
     } else {
-        // 10.9 backport: Safari 9.1.3 passes a wrapper view with degenerate
+        // MAVERICKS_BACKPORT: Safari 9.1.3 passes a wrapper view with degenerate
         // bounds, so [webView convertPoint:toView:nil] returns (0,0), placing
         // the menu in the wrong location. Use the cursor's current screen
         // position via popUpMenuPositioningItem:atLocation:inView:nil instead.

@@ -224,7 +224,7 @@ void Connection::platformOpen()
         mach_port_mod_refs(mach_task_self(), receivePort, MACH_PORT_RIGHT_RECEIVE, -1);
     });
 
-    // 10.9 backport: DISPATCH_SOURCE_TYPE_MACH_RECV does not reliably re-fire after handling
+    // MAVERICKS_BACKPORT: DISPATCH_SOURCE_TYPE_MACH_RECV does not reliably re-fire after handling
     // a batch of messages on this OS. Add a periodic timer that polls the receive port as a
     // fallback. Both fire on the same serial connection queue, so handlers don't race.
     // 2026-05-19: Reduced from 50ms to 2ms. The 50ms poll meant every IPC roundtrip
@@ -268,7 +268,7 @@ Connection::SendMessageResult Connection::sendMessage(std::unique_ptr<MachMessag
     ASSERT(message);
     ASSERT(!m_pendingOutgoingMachMessage);
     // Send the message.
-    // 10.9 backport: MACH_SEND_NOTIFY with MACH_PORT_NULL notify port returns
+    // MAVERICKS_BACKPORT: MACH_SEND_NOTIFY with MACH_PORT_NULL notify port returns
     // MACH_SEND_INVALID_NOTIFY (0x1000000A) on this OS for messages with port descriptors
     // (e.g. layer-tree IPC carrying IOSurface mach send rights). Drop the NOTIFY flag.
     // The destination port's queue can fill up during init bursts (default queue limit on
@@ -316,7 +316,7 @@ Connection::SendMessageResult Connection::sendMessage(std::unique_ptr<MachMessag
 #endif
 
     default:
-        // 10.9 backport: an unexpected mach_msg send error (historically INVALID_RIGHT 0x1000000A from an
+        // MAVERICKS_BACKPORT: an unexpected mach_msg send error (historically INVALID_RIGHT 0x1000000A from an
         // invalid IOSurface send right, tied to compositing #56) would otherwise abort WebContent. Fail the
         // individual send gracefully instead of killing the whole process — but SURFACE it (WTFLogAlways),
         // do NOT hide it. Verified 0 occurrences across heavy browsing (8+ sites, video, scroll) 2026-06-16.
@@ -692,7 +692,7 @@ static bool shouldLogIncomingMessageHandling()
 void Connection::receiveSourceEventHandler()
 {
 
-    // 10.9 backport: drain ALL queued mach messages on each fire. dispatch_source_t
+    // MAVERICKS_BACKPORT: drain ALL queued mach messages on each fire. dispatch_source_t
     // MACH_RECV sometimes fails to re-fire on 10.9 after handling one message, so
     // we keep reading until the port is empty. Earlier this function would also
     // retry-with-1ms-usleep after the port reported empty (to catch messages
@@ -770,7 +770,7 @@ void Connection::receiveSourceEventHandler()
         RELEASE_LOG(IPCMessages, "Connection::processIncomingMessage(%p) received %" PUBLIC_LOG_STRING " from port 0x%08x", this, description(decoder->messageName()).characters(), m_receivePort);
 
     processIncomingMessage(makeUniqueRefFromNonNullUniquePtr(WTF::move(decoder)));
-    } // end while(true) loop — 10.9 backport drain
+    } // end while(true) loop — MAVERICKS_BACKPORT drain
 }
 
 IPC::Connection::Identifier Connection::identifier() const

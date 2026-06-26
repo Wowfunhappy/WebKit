@@ -15,7 +15,7 @@ int WKXPCServiceMain(int argc, const char** argv)
     return WebKit::XPCServiceMain(argc, argv);
 }
 
-// 10.9 backport: the system /System/Library/PrivateFrameworks/WebKit2.framework Networking
+// MAVERICKS_BACKPORT: the system /System/Library/PrivateFrameworks/WebKit2.framework Networking
 // xpc service stub looks up `WebKitEntryPoint` via CFBundleGetFunctionPointerForName on bundle
 // "com.apple.WebKit2" and calls it with (connection, initializerMessage). Provide that entry
 // point so the legacy stub can dispatch into modern WebKit. Loaded via dlsym(RTLD_DEFAULT)

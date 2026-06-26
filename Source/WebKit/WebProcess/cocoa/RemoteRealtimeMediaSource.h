@@ -59,7 +59,7 @@ public:
     using RealtimeMediaSource::configurationChanged;
     void configurationChanged(String&& persistentID, WebCore::RealtimeMediaSourceSettings&&, WebCore::RealtimeMediaSourceCapabilities&&);
 
-    // 10.9 backport: this IMPL (which satisfies RealtimeMediaSource's abstract ThreadSafeRefCounted+WeakPtr
+    // MAVERICKS_BACKPORT: this IMPL (which satisfies RealtimeMediaSource's abstract ThreadSafeRefCounted+WeakPtr
     // ref/deref/controlBlock/weakRefCount and disambiguates the multiple ref-counted bases) is needed
     // regardless of GPU_PROCESS. It was incorrectly gated on ENABLE(GPU_PROCESS), leaving the derived
     // RemoteRealtimeVideo/AudioSource abstract when GPU_PROCESS is off. Always include it.

@@ -29,7 +29,7 @@
 
 #include "BPlatform.h"
 
-// 10.9 backport: qos_class_t (used by setScavengerThreadQOSClass below) lives in <sys/qos.h>
+// MAVERICKS_BACKPORT: qos_class_t (used by setScavengerThreadQOSClass below) lives in <sys/qos.h>
 // (a macOS 10.10+ header, provided by the polyfill include dir). Pull it in explicitly since the
 // 10.9 SDK doesn't make it transitively available.
 #if BOS(DARWIN)

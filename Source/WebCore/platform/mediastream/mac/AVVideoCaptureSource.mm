@@ -257,7 +257,7 @@ static double cameraZoomScaleFactor(AVCaptureDeviceType deviceType)
 #endif
 }
 
-// 10.9 backport: -[AVCaptureDevice deviceType] is macOS 10.15+ and -[AVCaptureDevice portraitEffectActive]
+// MAVERICKS_BACKPORT: -[AVCaptureDevice deviceType] is macOS 10.15+ and -[AVCaptureDevice portraitEffectActive]
 // is macOS 12+. Neither exists on 10.9 — the VM's AVCaptureDALDevice throws unrecognized-selector and
 // crashes the whole capture path (this was the getUserMedia crash). Guard both behind respondsToSelector.
 // nil is a safe AVCaptureDeviceType sentinel: it equals no AVCaptureDeviceType constant, indexOfObject:
@@ -280,7 +280,7 @@ AVVideoCaptureSource::AVVideoCaptureSource(AVCaptureDevice* avDevice, const Capt
     , m_defaultTorchMode((int64_t)[m_device torchMode])
 {
     [m_device addObserver:m_objcObserver.get() forKeyPath:@"suspended" options:NSKeyValueObservingOptionNew context:(void *)nil];
-    // 10.9 backport: only observe portraitEffectActive where it exists (macOS 12+); KVO on a key the
+    // MAVERICKS_BACKPORT: only observe portraitEffectActive where it exists (macOS 12+); KVO on a key the
     // device doesn't implement is unsafe on 10.9.
     if ([m_device respondsToSelector:@selector(portraitEffectActive)])
         [m_device addObserver:m_objcObserver.get() forKeyPath:@"portraitEffectActive" options:NSKeyValueObservingOptionNew context:(void *)nil];

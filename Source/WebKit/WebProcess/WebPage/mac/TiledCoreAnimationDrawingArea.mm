@@ -44,8 +44,8 @@
 #import "WebPreferencesKeys.h"
 #import "WebPreferencesStore.h"
 #import "WebProcess.h"
-#import "WebProcessProxyMessages.h" // 10.9 backport: StartDisplayLink/StopDisplayLink
-#import <WebCore/AnimationFrameRate.h> // 10.9 backport: FullSpeedFramesPerSecond
+#import "WebProcessProxyMessages.h" // MAVERICKS_BACKPORT: StartDisplayLink/StopDisplayLink
+#import <WebCore/AnimationFrameRate.h> // MAVERICKS_BACKPORT: FullSpeedFramesPerSecond
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <QuartzCore/QuartzCore.h>
 #import <CoreGraphics/CoreGraphics.h> // 10.9: CGMainDisplayID / CGDisplayCopyDisplayMode / CGDisplayModeGetRefreshRate for adaptive refresh-rate pacing
@@ -126,7 +126,7 @@ void TiledCoreAnimationDrawingArea::sendDidFirstLayerFlushIfNeeded()
     if (!m_layerHostingContext)
         return;
 
-    // 10.9 backport: send the IPC SYNCHRONOUSLY here rather than going through
+    // MAVERICKS_BACKPORT: send the IPC SYNCHRONOUSLY here rather than going through
     // dispatch_async(main_queue). The original code used CATransaction commit
     // handlers (10.10+) to defer until commit; without them we used main_queue
     // dispatch as a stand-in. But main_queue is often jammed by the same
@@ -237,7 +237,7 @@ void TiledCoreAnimationDrawingArea::triggerRenderingUpdate()
     if (m_layerTreeStateIsFrozen)
         return;
 
-    // 10.9 backport: always schedule the observer immediately. Previously a
+    // MAVERICKS_BACKPORT: always schedule the observer immediately. Previously a
     // dispatch_after-based 60Hz throttle here meant that during link
     // navigation — when the OLD page was firing rAFs up to the moment of
     // click — the FIRST render of the new page was deferred via
@@ -356,7 +356,7 @@ void TiledCoreAnimationDrawingArea::addCommitHandlers()
     if (m_haveRegisteredHandlersForNextCommit)
         return;
 
-    // 10.9 backport: +[CATransaction addCommitHandler:forPhase:] is 10.10+.
+    // MAVERICKS_BACKPORT: +[CATransaction addCommitHandler:forPhase:] is 10.10+.
     // Skip registration entirely; the runloop observers in updateRendering
     // still drive the rendering cycle. willStart/didComplete callbacks won't
     // fire from CA's perspective.
@@ -401,7 +401,7 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
 
     m_lastRenderingUpdateRunTime = MonotonicTime::now(); // 10.9: record for the ~60Hz dispatch_async throttle in scheduleRenderingUpdateRunLoopObserver().
 
-    // 10.9 backport: clear the "update wanted" flag now; a callback during this update
+    // MAVERICKS_BACKPORT: clear the "update wanted" flag now; a callback during this update
     // (rAF/CSS animation/IntersectionObserver) will set it again via scheduleRenderingUpdateRunLoopObserver(),
     // and we re-queue the loop at the end if so. See the comment there.
     m_renderingUpdatePending = false;
@@ -461,13 +461,13 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
         handleActivityStateChangeCallbacksIfNeeded();
         invalidateRenderingUpdateRunLoopObserver();
 
-        // 10.9 backport: explicitly flush CATransaction so layer changes
+        // MAVERICKS_BACKPORT: explicitly flush CATransaction so layer changes
         // (especially scroll position deltas) propagate to the CAContext.
         // Normally CA auto-commits when CFRunLoop drains, but on Mavericks
         // the WebContent "main thread" doesn't run a true CFRunLoop.
         [CATransaction flush];
 
-        // 10.9 backport: normally +[CATransaction addCommitHandler:forPhase:]
+        // MAVERICKS_BACKPORT: normally +[CATransaction addCommitHandler:forPhase:]
         // hooks the kCATransactionPhasePostCommit phase to drive
         // didCompleteRenderingUpdateDisplay() once CA has flushed. On 10.9
         // that API doesn't exist (addCommitHandlers is a no-op in this build),
@@ -482,7 +482,7 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
         didCompleteRenderingUpdateDisplay();
     }
 
-    // 10.9 backport: if a callback re-scheduled a rendering update during this one (continuous
+    // MAVERICKS_BACKPORT: if a callback re-scheduled a rendering update during this one (continuous
     // rAF, CSS animations, IntersectionObserver, lazy-loading reveal), re-queue the loop. This
     // is the fix for animation freezing after one frame. scheduleRenderingUpdateRunLoopObserver()
     // also (re)starts the display-link heartbeat so the loop actually runs near 60Hz rather than
@@ -513,7 +513,7 @@ void TiledCoreAnimationDrawingArea::handleActivityStateChangeCallbacksIfNeeded()
     if (!m_shouldHandleActivityStateChangeCallbacks)
         return;
 
-    // 10.9 backport: +currentState and +addCommitHandler:forPhase: are 10.10+.
+    // MAVERICKS_BACKPORT: +currentState and +addCommitHandler:forPhase: are 10.10+.
     // Fall back to immediate execution (slightly less precise but works).
     handleActivityStateChangeCallbacks();
 }
@@ -932,7 +932,7 @@ Seconds TiledCoreAnimationDrawingArea::displayUpdateInterval()
 
 void TiledCoreAnimationDrawingArea::scheduleRenderingUpdateRunLoopObserver()
 {
-    // 10.9 backport: mark that a rendering update is wanted. updateRendering() clears this at
+    // MAVERICKS_BACKPORT: mark that a rendering update is wanted. updateRendering() clears this at
     // its start and re-checks it at the end: if a rAF/CSS-animation/IntersectionObserver callback
     // re-scheduled an update DURING the update, this stays true and the loop is re-queued. Without
     // this, continuous animation froze after a single frame — a reschedule that arrived while the
@@ -940,7 +940,7 @@ void TiledCoreAnimationDrawingArea::scheduleRenderingUpdateRunLoopObserver()
     // invalidated at the end of updateRendering(), so the next frame was silently dropped.
     m_renderingUpdatePending = true;
 
-    // 10.9 backport: request a 60Hz display-link heartbeat from the UIProcess. On this port the
+    // MAVERICKS_BACKPORT: request a 60Hz display-link heartbeat from the UIProcess. On this port the
     // WebContent main thread (xpc_main→dispatch_main) drains its GCD queue only ~6Hz on its own,
     // so the dispatch_async render fallback below crawls. But inbound IPC wakes the main thread
     // promptly, and the UIProcess (a normal app with a working run loop) drives the DisplayLink at
@@ -948,7 +948,7 @@ void TiledCoreAnimationDrawingArea::scheduleRenderingUpdateRunLoopObserver()
     // render. stopRenderingDisplayLink() is called from updateRendering() once animation settles.
     startRenderingDisplayLink();
 
-    // 10.9 backport: always wake the main runloop so the observer (which only
+    // MAVERICKS_BACKPORT: always wake the main runloop so the observer (which only
     // fires on BeforeWaiting ticks) actually runs. On Mavericks the main thread
     // is dispatch-driven and the CFRunLoop doesn't tick on its own, so without
     // this every kick after the first one is silent.
@@ -961,7 +961,7 @@ void TiledCoreAnimationDrawingArea::scheduleRenderingUpdateRunLoopObserver()
 
     m_renderingUpdateRunLoopObserver->schedule();
 
-    // 10.9 backport: CFRunLoopObserver BeforeWaiting events don't reliably fire
+    // MAVERICKS_BACKPORT: CFRunLoopObserver BeforeWaiting events don't reliably fire
     // on Mavericks because the WebContent "main thread" is served by libdispatch
     // workers that don't run a true CFRunLoop. Fallback: dispatch updateRendering
     // to the main queue so it runs from a place that does work.
@@ -1010,7 +1010,7 @@ void TiledCoreAnimationDrawingArea::invalidateRenderingUpdateRunLoopObserver()
     m_renderingUpdateRunLoopObserver->invalidate();
 }
 
-// 10.9 backport: drive the rendering loop from a UIProcess display-link heartbeat (see
+// MAVERICKS_BACKPORT: drive the rendering loop from a UIProcess display-link heartbeat (see
 // scheduleRenderingUpdateRunLoopObserver). Reuses the existing StartDisplayLink/StopDisplayLink IPC;
 // the UIProcess DisplayLink sends DisplayDidRefresh back at the display rate, each waking the
 // throttled WebContent main thread to drain the next render.

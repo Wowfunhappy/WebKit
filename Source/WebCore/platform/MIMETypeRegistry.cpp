@@ -474,7 +474,7 @@ std::unique_ptr<MIMETypeRegistryThreadGlobalData> MIMETypeRegistry::createMIMETy
 #if PLATFORM(COCOA)
     RetainPtr<CFArrayRef> supportedTypes = adoptCF(CGImageDestinationCopyTypeIdentifiers());
     HashSet<String, ASCIICaseInsensitiveHash> supportedImageMIMETypesForEncoding;
-    // 10.9 backport: CGImageDestinationCopyTypeIdentifiers can return null when ImageIO
+    // MAVERICKS_BACKPORT: CGImageDestinationCopyTypeIdentifiers can return null when ImageIO
     // initialization is incomplete, leading to CFArrayGetCount(NULL) SIGSEGV during
     // canvas.toDataURL on certain rAF callbacks (e.g. HN scroll handlers). Fall back to
     // a static list of known image encoding types instead of crashing.

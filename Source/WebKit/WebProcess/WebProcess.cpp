@@ -554,7 +554,7 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
         // Let's be nice and not enable the memory kill mechanism.
         memoryPressureHandler.setShouldUsePeriodicMemoryMonitor(isFastMallocEnabled() || JSC::Options::enableStrongRefTracker() || JSC::Options::dumpHeapOnLowMemory());
 #endif
-        // 10.9 backport: the 5s periodic memory monitor I tried earlier was
+        // MAVERICKS_BACKPORT: the 5s periodic memory monitor I tried earlier was
         // causing input lag — the timer fires on WebContent main thread and
         // its measurementTimerFired() calls releaseMemory() synchronously
         // when footprint crosses thresholds, blocking input handling.
@@ -587,7 +587,7 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
         });
         memoryPressureHandler.install();
 
-        // 10.9 backport: drive WebKit's footprint-based memory reclamation ourselves.
+        // MAVERICKS_BACKPORT: drive WebKit's footprint-based memory reclamation ourselves.
         //
         // Upstream Mac relies almost entirely on the OS DISPATCH_SOURCE_TYPE_MEMORYPRESSURE source to
         // trigger releaseMemory() (eviction of the back/forward cache, memory-cache pruning, decoded-image
@@ -1026,7 +1026,7 @@ void WebProcess::registerURLSchemeAsCanDisplayOnlyIfCanRequest(const String& url
     LegacySchemeRegistry::registerAsCanDisplayOnlyIfCanRequest(urlScheme);
 }
 
-// 10.9 backport: app-registered custom-protocol schemes (e.g. safari-reader://) are served by the
+// MAVERICKS_BACKPORT: app-registered custom-protocol schemes (e.g. safari-reader://) are served by the
 // NetworkProcess via LegacyCustomProtocolManager, but the WebProcess's WebPage::canHandleRequest only
 // consults NSURLConnection — which doesn't know about them — so WebCore's PolicyChecker would ignore
 // the navigation as "cannot show URL" before it ever reached the network. Track the schemes here so
@@ -1145,7 +1145,7 @@ void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&
             page->gpuProcessConnectionDidBecomeAvailable(*gpuProcessConnection);
 #endif
 
-        // 10.9 backport: apply legacy page-group user content (Safari 7
+        // MAVERICKS_BACKPORT: apply legacy page-group user content (Safari 7
         // extension content scripts) added via WKBundleAddUserScript before
         // this page existed.
         wk109ApplyPageGroupUserContent(page);
@@ -1474,7 +1474,7 @@ static NetworkProcessConnectionInfo getNetworkProcessConnection(IPC::Connection&
 
 NetworkProcessConnection& WebProcess::ensureNetworkProcessConnection()
 {
-    // 10.9 backport: this used to RELEASE_ASSERT(isMain). theverge.com Service
+    // MAVERICKS_BACKPORT: this used to RELEASE_ASSERT(isMain). theverge.com Service
     // Workers call this from a WebCore::WorkerDedicatedRunLoop thread to load
     // fonts. On 10.9, libdispatch worker threads serving main queue make
     // RunLoop::isMain() ambiguously return true, so the assert no longer fires
@@ -1506,7 +1506,7 @@ NetworkProcessConnection& WebProcess::ensureNetworkProcessConnection()
 
     // If we've lost our connection to the network process (e.g. it crashed) try to re-establish it.
     if (!m_networkProcessConnection) {
-        // 10.9 backport: previously stubbed with a local mach-port pair because
+        // MAVERICKS_BACKPORT: previously stubbed with a local mach-port pair because
         // NetworkConnectionToWebProcess was non-functional. The network process
         // now handles real HTTP requests, so go through the normal sync round-trip
         // to UIProcess to obtain a real connection.
@@ -2220,7 +2220,7 @@ RefPtr<API::Object> WebProcess::transformHandlesToObjects(API::Object* object)
             case API::Object::Type::PageHandle:
                 return downcast<const API::PageHandle>(object).isAutoconverting();
 
-            // 10.9 backport: resolve page-group handles (Safari 7 bundle
+            // MAVERICKS_BACKPORT: resolve page-group handles (Safari 7 bundle
             // initialization user data) to this process's WebPageGroupProxy.
             case API::Object::Type::PageGroupHandle:
                 return true;
@@ -2260,7 +2260,7 @@ RefPtr<API::Object> WebProcess::transformObjectsToHandles(API::Object* object)
             switch (object.type()) {
             case API::Object::Type::BundleFrame:
             case API::Object::Type::BundlePage:
-            // 10.9 backport: page groups travel as handles (Safari 7).
+            // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7).
             case API::Object::Type::BundlePageGroup:
                 return true;
 
@@ -2718,7 +2718,7 @@ void WebProcess::setUseGPUProcessForWebGL(bool useGPUProcessForWebGL)
 
 bool WebProcess::shouldUseRemoteRenderingForWebGL() const
 {
-    // 10.9 backport: this port runs no GPU process — WebGL/ANGLE runs in-process in WebContent
+    // MAVERICKS_BACKPORT: this port runs no GPU process — WebGL/ANGLE runs in-process in WebContent
     // (like video/audio/canvas). Taking the RemoteGraphicsContextGLProxy path would try to reach a
     // nonexistent GPU process and crash. Force the in-process GraphicsContextGLCocoa path.
     return false;

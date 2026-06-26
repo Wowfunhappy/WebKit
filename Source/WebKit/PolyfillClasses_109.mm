@@ -1,4 +1,4 @@
-// 10.9 backport: stub @implementations for ObjC classes that Safari 9.1.3
+// MAVERICKS_BACKPORT: stub @implementations for ObjC classes that Safari 9.1.3
 // references from WebKit.framework directly. These were previously provided by
 // /Users/jonathan/Desktop/clang/polyfill_stubs.o but that put them in EVERY
 // framework as duplicates and crashed libobjc. Defining them here lives in

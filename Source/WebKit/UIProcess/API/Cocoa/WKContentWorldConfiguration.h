@@ -1,5 +1,5 @@
 #pragma once
-// Stubbed for macOS 10.9 backport
+// Stubbed for MAVERICKS_BACKPORT
 #import <Foundation/Foundation.h>
 #ifndef WKContentWorldConfiguration_STUB_DEFINED
 #define WKContentWorldConfiguration_STUB_DEFINED

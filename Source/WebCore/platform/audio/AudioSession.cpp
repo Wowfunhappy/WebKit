@@ -65,7 +65,7 @@ static RefPtr<AudioSession>& NODELETE sharedAudioSession()
     return session.get();
 }
 
-// 10.9 backport: dummy AudioSession concrete subclass; mirrors AudioSessionCocoa's
+// MAVERICKS_BACKPORT: dummy AudioSession concrete subclass; mirrors AudioSessionCocoa's
 // approach for diamond inheritance with TZone allocator and ref-counted weak ptr.
 namespace {
 class AudioSessionDummy : public AudioSession, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<AudioSessionDummy> {
@@ -100,7 +100,7 @@ bool AudioSession::enableMediaPlayback()
 
 Ref<AudioSession> AudioSession::create()
 {
-    // 10.9 backport: AudioSessionMac.mm is stubbed empty on this build, so
+    // MAVERICKS_BACKPORT: AudioSessionMac.mm is stubbed empty on this build, so
     // AudioSessionMac::create() resolves to a polyfill stub that returns
     // garbage. Use the dummy session unconditionally; we don't need media
     // playback to be controllable on this OS.
@@ -246,7 +246,7 @@ AudioSession::Mode AudioSession::mode() const
 float AudioSession::sampleRate() const
 {
 #if PLATFORM(MAC)
-    // 10.9 backport: AudioSessionDummy uses this base impl. Returning 0 makes Web Audio
+    // MAVERICKS_BACKPORT: AudioSessionDummy uses this base impl. Returning 0 makes Web Audio
     // sampleRate=0 which breaks everything that does sample-rate math. Return the
     // standard hardware default (44100 Hz) so apps get sensible numbers. Real audio
     // pipeline uses the actual device sample rate via AudioOutputUnitAdaptor.

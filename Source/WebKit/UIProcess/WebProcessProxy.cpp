@@ -1138,7 +1138,7 @@ void WebProcessProxy::getNetworkProcessConnection(CompletionHandler<void(Network
 {
     RefPtr dataStore = websiteDataStore();
     if (!dataStore) {
-        // 10.9 backport: Safari's URL-bar Enter dispatches WebPage::create to a
+        // MAVERICKS_BACKPORT: Safari's URL-bar Enter dispatches WebPage::create to a
         // freshly prewarmed WebProcessProxy before WebKit-internal code paths
         // bind a WebsiteDataStore to it. Empty replies smash WebContent's stack
         // canary downstream. Use the data store from any existing page in this
@@ -1835,7 +1835,7 @@ RefPtr<API::Object> WebProcessProxy::transformHandlesToObjects(API::Object* obje
             case API::Object::Type::PageHandle:
                 return downcast<const API::PageHandle>(object).isAutoconverting();
 
-            // 10.9 backport: page groups travel as handles (Safari 7).
+            // MAVERICKS_BACKPORT: page groups travel as handles (Safari 7).
             case API::Object::Type::PageGroupHandle:
                 return true;
 
@@ -1897,7 +1897,7 @@ RefPtr<API::Object> WebProcessProxy::transformObjectsToHandles(API::Object* obje
             case API::Object::Type::Page:
                 return API::PageHandle::createAutoconverting(downcast<WebPageProxy>(object).identifier(), downcast<WebPageProxy>(object).webPageIDInMainFrameProcess());
 
-            // 10.9 backport: Safari 7 puts its WKPageGroup in the bundle
+            // MAVERICKS_BACKPORT: Safari 7 puts its WKPageGroup in the bundle
             // initialization user data; carry it as a PageGroupHandle (the
             // API::Object encoder has no case for the raw UI-type object and
             // would corrupt the stream).

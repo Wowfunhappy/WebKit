@@ -29,7 +29,7 @@
 #include "CacheModel.h"
 #include "EventDispatcher.h"
 #include "IdentifierTypes.h"
-#include "DisplayLinkObserverID.h" // 10.9 backport
+#include "DisplayLinkObserverID.h" // MAVERICKS_BACKPORT
 #include "NetworkProcessConnection.h"
 #include "ScriptTrackingPrivacyFilter.h"
 #include "SharedPreferencesForWebProcess.h"
@@ -210,7 +210,7 @@ public:
     static WebProcess& singleton();
     static constexpr WTF::AuxiliaryProcessType processType = WTF::AuxiliaryProcessType::WebContent;
 
-    // 10.9 backport: true for app-registered custom-protocol schemes (e.g. safari-reader://), so the
+    // MAVERICKS_BACKPORT: true for app-registered custom-protocol schemes (e.g. safari-reader://), so the
     // static WebPage::canHandleRequest accepts them (see WebProcess::registerURLSchemeForCustomProtocol).
     bool isURLSchemeRegisteredForCustomProtocol(const String&) const;
 
@@ -248,7 +248,7 @@ public:
     void deref() const final { }
 
     WebPage* webPage(WebCore::PageIdentifier) const;
-    // 10.9 backport: used by the legacy WKBundleAddUserScript page-group user
+    // MAVERICKS_BACKPORT: used by the legacy WKBundleAddUserScript page-group user
     // content registry (WK109PageGroupUserContent.cpp).
     void forEachWebPage(NOESCAPE const Function<void(WebPage&)>&) const;
     void createWebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
@@ -326,7 +326,7 @@ public:
     void gpuProcessConnectionDidBecomeUnresponsive();
 
 #if PLATFORM(COCOA) && USE(LIBWEBRTC) && ENABLE(GPU_PROCESS)
-    // 10.9 backport: LibWebRTCCodecs is the GPU-process codec proxy and only exists when
+    // MAVERICKS_BACKPORT: LibWebRTCCodecs is the GPU-process codec proxy and only exists when
     // ENABLE(GPU_PROCESS) (the m_libWebRTCCodecs member is already so-gated below). Match the
     // accessor's gate, else it references a non-existent member (GPU_PROCESS is off on 10.9).
     LibWebRTCCodecs& libWebRTCCodecs();
@@ -606,7 +606,7 @@ private:
     void registerURLSchemeAsCachePartitioned(const String&) const;
     void registerURLSchemeAsCanDisplayOnlyIfCanRequest(const String&) const;
 
-    // 10.9 backport: schemes registered by the app for NetworkProcess custom-protocol handling
+    // MAVERICKS_BACKPORT: schemes registered by the app for NetworkProcess custom-protocol handling
     // (e.g. safari-reader://). Tracked so WebPage::canHandleRequest accepts them (the public query
     // isURLSchemeRegisteredForCustomProtocol is declared in the public section above).
     void registerURLSchemeForCustomProtocol(const String&);
@@ -870,7 +870,7 @@ private:
     HashSet<String> m_dnsPrefetchedHosts;
     PAL::HysteresisActivity m_dnsPrefetchHystereris;
 
-    // 10.9 backport: app-registered custom-protocol schemes (case-insensitive, like URL schemes).
+    // MAVERICKS_BACKPORT: app-registered custom-protocol schemes (case-insensitive, like URL schemes).
     HashSet<String, ASCIICaseInsensitiveHash> m_urlSchemesRegisteredForCustomProtocols;
 
     RefPtr<WebAutomationSessionProxy> m_automationSessionProxy;

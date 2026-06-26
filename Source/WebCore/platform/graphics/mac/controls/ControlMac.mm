@@ -97,7 +97,7 @@ void ControlMac::updateCheckedState(NSCell *cell, const ControlStyle& style)
     auto newState = indeterminate ? NSControlStateValueMixed : (checked ? NSControlStateValueOn : NSControlStateValueOff);
 
     if (auto *buttonCell = dynamic_objc_cast<NSButtonCell>(cell)) {
-        // 10.9 backport: -_setState:animated: is 10.10+ NSButtonCell SPI.
+        // MAVERICKS_BACKPORT: -_setState:animated: is 10.10+ NSButtonCell SPI.
         if ([buttonCell respondsToSelector:@selector(_setState:animated:)])
             [buttonCell _setState:newState animated:false];
         else
@@ -117,7 +117,7 @@ void ControlMac::updateEnabledState(NSCell *cell, const ControlStyle& style)
 
 void ControlMac::updateFocusedState(NSCell *cell, const ControlStyle& style)
 {
-    // 10.9 backport: when showsFirstResponder is YES the NSCell draws its own first-responder focus
+    // MAVERICKS_BACKPORT: when showsFirstResponder is YES the NSCell draws its own first-responder focus
     // ring, but in WebKit's viewless/fake-view drawing on 10.9 that renders as a SOLID BLACK fill
     // over the whole control (e.g. a focused text field becomes an unreadable black box). Never set
     // it; the keyboard-focus indicator is a cosmetic nicety and a black control is far worse. (WebKit's
@@ -135,7 +135,7 @@ void ControlMac::updatePressedState(NSCell *cell, const ControlStyle& style)
         return;
 
     if (auto *buttonCell = dynamic_objc_cast<NSButtonCell>(cell)) {
-        // 10.9 backport: -_setHighlighted:animated: is 10.10+ NSButtonCell SPI.
+        // MAVERICKS_BACKPORT: -_setHighlighted:animated: is 10.10+ NSButtonCell SPI.
         if ([buttonCell respondsToSelector:@selector(_setHighlighted:animated:)])
             [buttonCell _setHighlighted:pressed animated:false];
         else
@@ -358,7 +358,7 @@ void ControlMac::drawCellOrFocusRing(GraphicsContext& context, const FloatRect& 
         drawCellInternal(context, rect, deviceScaleFactor, style, cell);
 
     if (style.states.contains(ControlStyle::State::Focused)) {
-        // 10.9 backport: the CGStyle-based focus-ring path (CGStyleCreateFocusRingWithColor +
+        // MAVERICKS_BACKPORT: the CGStyle-based focus-ring path (CGStyleCreateFocusRingWithColor +
         // -[NSCell drawFocusRingMaskWithFrame:inView:], with NSInitializeCGFocusRingStyleForTime
         // coming from a libpolyfill whose CGFocusRingStyle struct layout doesn't match 10.9's
         // CoreGraphics) does not apply the focus-ring style, so the mask fills the control's whole

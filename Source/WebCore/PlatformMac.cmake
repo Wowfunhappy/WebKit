@@ -94,10 +94,10 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/bridge/objc"
     "${WEBCORE_DIR}/crypto/mac"
     "${WEBCORE_DIR}/crypto/gcrypt"
-    # 10.9 backport: crypto/cocoa header dir for CryptoUtilitiesCocoa.h — still needed by the WebRTC
+    # MAVERICKS_BACKPORT: crypto/cocoa header dir for CryptoUtilitiesCocoa.h — still needed by the WebRTC
     # SFrame transformer (CommonCrypto AES-CTR helper), distinct from the libgcrypt WebCrypto impl.
     "${WEBCORE_DIR}/crypto/cocoa"
-    # 10.9 backport: libgcrypt/libtasn1/libgpg-error built in-tree by
+    # MAVERICKS_BACKPORT: libgcrypt/libtasn1/libgpg-error built in-tree by
     # MavericksSupport/deps/build_deps.sh; see [[project_webcrypto_cc_stubs_stripped]]
     # for the prior CommonCrypto approach that's now retired.
     "${MAVERICKS_DEPS}/include"
@@ -984,7 +984,7 @@ if (NOT EXISTS ${CMAKE_BINARY_DIR}/WebCore/WebKitAvailability.h)
 endif ()
 list(APPEND WebCore_LIBRARIES /usr/local/lib/libcg_polyfill.dylib)
 
-# 10.9 backport: vendored libwebp for the WEBPImageDecoder fallback (ImageIO on
+# MAVERICKS_BACKPORT: vendored libwebp for the WEBPImageDecoder fallback (ImageIO on
 # this build can't decode WebP). Static libs at MavericksSupport/deps/libwebp/lib.
 # IMPORTANT: changing this section invalidates WebCore IPC structs — must rebuild
 # WebKit too (`ninja WebKit`) or Safari crashes in IPC::ArgumentCoder decode.
@@ -999,7 +999,7 @@ list(APPEND WebCore_LIBRARIES
     "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/lib/libsharpyuv.a"
 )
 
-# 10.9 backport: libgcrypt powers WebCrypto (replaces the cocoa CommonCrypto path).
+# MAVERICKS_BACKPORT: libgcrypt powers WebCrypto (replaces the cocoa CommonCrypto path).
 # libtasn1 handles SPKI/PKCS8 ASN.1 parsing for the gcrypt EC/RSA importers.
 # All built in-tree by MavericksSupport/deps/build_deps.sh; static link.
 list(APPEND WebCore_LIBRARIES
@@ -1008,7 +1008,7 @@ list(APPEND WebCore_LIBRARIES
     "${MAVERICKS_DEPS}/lib/libgpg-error.a"
 )
 
-# 10.9 backport: WOFF2 web-font decoder (USE_WOFF2=ON). Our modern UA makes Google Fonts/Material
+# MAVERICKS_BACKPORT: WOFF2 web-font decoder (USE_WOFF2=ON). Our modern UA makes Google Fonts/Material
 # Icons serve WOFF2; WOFFFileFormat.cpp::convertWOFFToSfntIfNecessary then calls woff2::ConvertWOFF2ToTTF
 # (Brotli-decompress + table reconstruction). Built locally from google/woff2 + google/brotli (static).
 # WebCore/CMakeLists.txt does `list(APPEND WebCore_LIBRARIES WOFF2::dec)` when USE_WOFF2 is ON, so we

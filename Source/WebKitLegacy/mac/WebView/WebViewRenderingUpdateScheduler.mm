@@ -103,7 +103,7 @@ void WebViewRenderingUpdateScheduler::registerCACommitHandlers()
 
     RetainPtr webView = m_webView;
 
-    // 10.9 backport: +[CATransaction addCommitHandler:forPhase:] is 10.10+. Calling it
+    // MAVERICKS_BACKPORT: +[CATransaction addCommitHandler:forPhase:] is 10.10+. Calling it
     // unconditionally throws "unrecognized selector sent to class", which aborts this
     // callback before m_haveRegisteredCommitHandlers is set and — crucially — before the
     // postCommit handler that drives -_didCompleteRenderingUpdateDisplay is registered. That

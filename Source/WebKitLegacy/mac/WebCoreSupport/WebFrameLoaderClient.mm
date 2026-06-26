@@ -1683,7 +1683,7 @@ IGNORE_WARNINGS_END
         LOG(Plugins, "arguments:\n%@", arguments);
     }
 
-    // 10.9 backport: this was stubbed to `return nil` (so WebKit-ObjC plug-ins never
+    // MAVERICKS_BACKPORT: this was stubbed to `return nil` (so WebKit-ObjC plug-ins never
     // instantiated). Restore the real view creation: WebPluginController creates the plug-in
     // view from the package + arguments and (via -addPlugin:) runs -webPlugInInitialize, which
     // is where e.g. WebClip.plugin's WebClipper publishes its scripting object to JS as the
@@ -1710,7 +1710,7 @@ private:
 
 static bool shouldBlockPlugin(WebBasePluginPackage *pluginPackage)
 {
-    // 10.9 backport: this was stubbed to block ALL plug-ins (no third-party / NPAPI plug-ins
+    // MAVERICKS_BACKPORT: this was stubbed to block ALL plug-ins (no third-party / NPAPI plug-ins
     // are enabled on this build). But WebKit-ObjC "application" plug-ins (WebPluginPackage)
     // are user-agent-provided and trusted — in particular WebClip.plugin, which renders
     // Safari Web Clips. Blocking it made the widget show "Blocked Plug-In (Insecure plug-in)".
@@ -2148,7 +2148,7 @@ void WebFrameLoaderClient::finishedLoadingIcon(WebCore::FragmentedSharedBuffer* 
 - (void)use
 {
 #if HAVE(APP_LINKS)
-    // 10.9 backport: App Links (LSAppLink + _LSOpenConfiguration.referrerURL) are 10.10+ APIs.
+    // MAVERICKS_BACKPORT: App Links (LSAppLink + _LSOpenConfiguration.referrerURL) are 10.10+ APIs.
     // On 10.9 _LSOpenConfiguration exists but does NOT respond to -setReferrerURL:, so assigning
     // .referrerURL threw NSInvalidArgumentException right inside the navigation policy delegate —
     // WebKit caught and DISCARDED it, silently dropping the navigation (clicked links did nothing).

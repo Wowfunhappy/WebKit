@@ -64,7 +64,7 @@ NetworkProcess/webrtc/LibWebRTCSocketClient.cpp
 NetworkProcess/webrtc/NetworkRTCMonitor.cpp
 NetworkProcess/webrtc/NetworkRTCProvider.cpp
 NetworkProcess/webrtc/NetworkRTCSharedMonitor.cpp
-// macOS 10.9 backport (WK_RTC_USE_NW=0): the nw_*/Network.framework socket + path-monitor
+// MAVERICKS_BACKPORT (WK_RTC_USE_NW=0): the nw_*/Network.framework socket + path-monitor
 // implementations require 10.14+. We route WebRTC through libwebrtc's portable BSD-socket
 // path (LibWebRTCSocketClient + BasicPacketSocketFactory) instead, so these are excluded:
 // NetworkProcess/webrtc/NetworkRTCSharedMonitorCocoa.mm @nonARC
@@ -397,7 +397,7 @@ UIProcess/API/Cocoa/NSAttributedString.mm @nonARC
 UIProcess/API/Cocoa/WKBackForwardList.mm @nonARC
 UIProcess/API/Cocoa/WKBackForwardListItem.mm @nonARC
 UIProcess/API/Cocoa/WKBrowsingContextController.mm @nonARC
-// 10.9 backport: WKBrowsingContextGroup.mm and WKProcessGroup.mm were removed upstream (5065b21) but the
+// MAVERICKS_BACKPORT: WKBrowsingContextGroup.mm and WKProcessGroup.mm were removed upstream (5065b21) but the
 // legacy ObjC classes are needed by Apple's QuickLook HTML preview bundle (Web2.qldisplay). Reinstated
 // here as minimal wrappers over the still-present C SPI. See webkit-mavericks-quicklook memory.
 UIProcess/API/Cocoa/WKBrowsingContextGroup.mm @nonARC

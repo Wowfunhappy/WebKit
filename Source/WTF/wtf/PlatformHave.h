@@ -719,7 +719,7 @@
 #endif
 
 #if PLATFORM(COCOA)
-// 10.9 backport: LSDatabaseContext.sharedDatabaseContext is 10.10+ only.
+// MAVERICKS_BACKPORT: LSDatabaseContext.sharedDatabaseContext is 10.10+ only.
 #define HAVE_LSDATABASECONTEXT 0
 #define HAVE_CGS_FIX_FOR_RADAR_97530095 0
 #endif
@@ -916,7 +916,7 @@
 #endif
 
 #if PLATFORM(COCOA)
-// 10.9 backport: CTFontGetSbixImageSizeForGlyphAndContentsScale is 10.13+. Polyfill stub
+// MAVERICKS_BACKPORT: CTFontGetSbixImageSizeForGlyphAndContentsScale is 10.13+. Polyfill stub
 // returns garbage CGFloat. Disable on Mac so emoji-glyph color-format detection skips
 // the broken sbix path (only the OT-SVG path is used).
 #if !PLATFORM(MAC)
@@ -1034,7 +1034,7 @@
 #endif
 
 #if PLATFORM(COCOA)
-// macOS 10.9 backport: WebGPU native bindings (wgpu) not available.
+// MAVERICKS_BACKPORT: WebGPU native bindings (wgpu) not available.
 // #define HAVE_WEBGPU_IMPLEMENTATION 1
 // FIXME: PlatformHave.h should not depend or defined ENABLE macros.
 #if !defined(ENABLE_WEBGPU_SWIFT)
@@ -1042,7 +1042,7 @@
 #endif
 #endif
 
-// macOS 10.9 backport: Vision.framework (10.13+) is not available.
+// MAVERICKS_BACKPORT: Vision.framework (10.13+) is not available.
 // #if PLATFORM(COCOA) && !PLATFORM(WATCHOS)
 // #define HAVE_SHAPE_DETECTION_API_IMPLEMENTATION 1
 // #endif
@@ -1098,7 +1098,7 @@
 #endif
 
 #if (PLATFORM(MAC)  || PLATFORM(IOS) || PLATFORM(VISION))
-// 10.9 backport: getSystemContentDatabaseObject4WebKit uses LSDatabaseContext (10.10+).
+// MAVERICKS_BACKPORT: getSystemContentDatabaseObject4WebKit uses LSDatabaseContext (10.10+).
 #define HAVE_SYSTEM_CONTENT_LS_DATABASE 0
 #endif
 
@@ -1288,7 +1288,7 @@
     || (PLATFORM(VISION) && __VISION_OS_VERSION_MIN_REQUIRED >= 20000)) \
     || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 110000) \
     || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 180000)
-// 10.9 backport: CoreIPCNSURLRequest depends on _webKitPropertyListData
+// MAVERICKS_BACKPORT: CoreIPCNSURLRequest depends on _webKitPropertyListData
 // (10.10+) and _initWithWebKitPropertyListData (10.10+). Disable on 10.9 so
 // the legacy NSKeyedArchiver/NSKeyedUnarchiver path is used.
 // #define HAVE_WK_SECURE_CODING_NSURLREQUEST 1

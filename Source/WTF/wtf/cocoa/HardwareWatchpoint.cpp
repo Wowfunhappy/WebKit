@@ -1,5 +1,5 @@
 /*
- * 10.9 backport debugging tool (#43 keystone): in-process x86-64 hardware watchpoint.
+ * MAVERICKS_BACKPORT debugging tool (#43 keystone): in-process x86-64 hardware watchpoint.
  * See HardwareWatchpoint.h for rationale. Debug-only; armed only when WK_WATCHPOINT=1.
  */
 

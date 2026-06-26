@@ -1,4 +1,4 @@
-// WKView implementation for macOS 10.9 backport
+// WKView implementation for MAVERICKS_BACKPORT
 #import <objc/runtime.h>
 // Creates a WebPageProxy when Safari's BrowserWKView initializes
 
@@ -20,7 +20,7 @@
 #import "DrawingAreaProxy.h"
 #import "WKPrintingView.h"
 #import "WebFrameProxy.h"
-// 10.9 backport: legacy ObjC group/controller classes that QuickLook's
+// MAVERICKS_BACKPORT: legacy ObjC group/controller classes that QuickLook's
 // Web2.qldisplay drives through WKView.
 #import "WKBrowsingContextControllerInternal.h"
 #import "WKProcessGroupInternal.h"
@@ -43,7 +43,7 @@
 
 using namespace WebKit;
 
-// 10.9 backport: NSViewNoIntrinsicMetric is an APPKIT_EXTERN const symbol available
+// MAVERICKS_BACKPORT: NSViewNoIntrinsicMetric is an APPKIT_EXTERN const symbol available
 // only on macOS 10.11+ — it is NOT exported by 10.9's AppKit, so referencing it
 // null-binds and dereferencing it crashes (EXC_BAD_ACCESS). Use its documented
 // value (-1) directly. See [[webkit-mavericks-moved-framework-symbols]].
@@ -62,7 +62,7 @@ struct WKViewState {
     RefPtr<WebKit::WebPageProxy> page;
     std::unique_ptr<WebKit::PageClient> pageClient;
 #if ENABLE(DRAG_SUPPORT)
-    // 10.9 backport: the originating mouse-down event, needed by the classic
+    // MAVERICKS_BACKPORT: the originating mouse-down event, needed by the classic
     // -[NSView dragImage:...event:...] API to start an HTML5 drag session.
     RetainPtr<NSEvent> lastMouseDownEvent;
 #endif
@@ -71,7 +71,7 @@ struct WKViewState {
 @interface WKView () {
     WKViewState *_wkState;
     WKBrowsingContextController *_browsingContextController;
-    // 10.9 backport: cached intrinsic content size for the auto-layout SPI Mail's
+    // MAVERICKS_BACKPORT: cached intrinsic content size for the auto-layout SPI Mail's
     // MUIWKView drives (the web process reports the laid-out content size back via
     // MinimalPageClient::intrinsicContentSizeDidChange -> -_setIntrinsicContentSize:).
     NSSize _intrinsicContentSize;
@@ -97,7 +97,7 @@ struct WKViewState {
     _wkState->pageClient = createMinimalPageClient(self);
     _wkState->page = processPool.get().createWebPage(*_wkState->pageClient, WTF::move(configuration));
     setMinimalPageClientPage(*_wkState->pageClient, _wkState->page.get());
-    // 10.9 backport: a WKView born with a real (non-zero) frame is an offscreen render
+    // MAVERICKS_BACKPORT: a WKView born with a real (non-zero) frame is an offscreen render
     // view — Safari's Top Sites snapshot fetcher allocs a WKView at the snapshot size,
     // loads a URL into it, and snapshots it WITHOUT ever adding it to a window or
     // resizing it. Normal browser tab WKViews are created at 0x0 and later attached to
@@ -111,7 +111,7 @@ struct WKViewState {
     _wkState->page->initializeWebPage(WebCore::Site(WTF::HashTableEmptyValue), WebCore::SandboxFlags {}, WebCore::ReferrerPolicy::Default);
 
 #if ENABLE(DRAG_SUPPORT)
-    // 10.9 backport: become an NSDraggingDestination so drops route into the page.
+    // MAVERICKS_BACKPORT: become an NSDraggingDestination so drops route into the page.
     auto dragTypes = adoptNS([[NSMutableSet alloc] initWithArray:WebKit::PasteboardTypes::forEditingSingleton()]);
     [dragTypes addObjectsFromArray:WebKit::PasteboardTypes::forURLSingleton()];
     [dragTypes addObject:WebKit::PasteboardTypes::WebDummyPboardType];
@@ -130,7 +130,7 @@ struct WKViewState {
     [super dealloc];
 }
 
-// 10.9 backport: WKView auto-layout / intrinsic-content-size SPI. Mail's message
+// MAVERICKS_BACKPORT: WKView auto-layout / intrinsic-content-size SPI. Mail's message
 // viewer (MUIWKView) drives the message view through this: it enables auto-sizing
 // with -setMinimumSizeForAutoLayout:, and the web process reports the laid-out
 // content height back so the view sizes to fit the message inside Mail's scroll
@@ -195,13 +195,13 @@ struct WKViewState {
 {
     auto configuration = API::PageConfiguration::create();
     configuration->setProcessPool(WebKit::toImpl(contextRef));
-    // 10.9 backport: honor the page group Safari passes — its identifier is
+    // MAVERICKS_BACKPORT: honor the page group Safari passes — its identifier is
     // how the injected bundle scopes extension content scripts
     // (WKBundleAddUserScript), and its preferences carry Safari's settings.
     if (pageGroupRef) {
         RefPtr<WebKit::WebPageGroup> pageGroup = WebKit::toImpl(pageGroupRef);
         configuration->setPreferences(&pageGroup->preferences());
-        // 10.9 backport: share the page group's user content controller so user
+        // MAVERICKS_BACKPORT: share the page group's user content controller so user
         // scripts/style sheets installed on the group (WKPageGroupAddUserScript /
         // AddUserStyleSheet, e.g. via Mail's WKBrowsingContextGroup) are injected
         // into this page. Without this the page would get a fresh empty controller.
@@ -215,7 +215,7 @@ struct WKViewState {
 - (id)initWithFrame:(NSRect)frame configurationRef:(WKPageConfigurationRef)configurationRef { return nil; }
 - (WKPageRef)pageRef { return _wkState ? WebKit::toAPI(_wkState->page.get()) : nullptr; }
 
-// 10.9 backport: legacy initializer used by QuickLook's Web2.qldisplay. It hands
+// MAVERICKS_BACKPORT: legacy initializer used by QuickLook's Web2.qldisplay. It hands
 // us a WKProcessGroup + WKBrowsingContextGroup; unwrap them to the underlying
 // WKContextRef/WKPageGroupRef and route through the existing C-ref init path.
 - (id)initWithFrame:(NSRect)frame processGroup:(WKProcessGroup *)processGroup browsingContextGroup:(WKBrowsingContextGroup *)browsingContextGroup
@@ -229,7 +229,7 @@ struct WKViewState {
     return [self initWithFrame:frame contextRef:contextRef pageGroupRef:pageGroupRef];
 }
 
-// 10.9 backport: vend a controller bound to this view's page so Web2.qldisplay
+// MAVERICKS_BACKPORT: vend a controller bound to this view's page so Web2.qldisplay
 // can load/observe via the controller (or pull its pageRef for the C SPI).
 - (WKBrowsingContextController *)browsingContextController
 {
@@ -238,21 +238,21 @@ struct WKViewState {
     return _browsingContextController;
 }
 
-// 10.9 backport: WKView's normal setFrameSize: propagates the new viewport size to
+// MAVERICKS_BACKPORT: WKView's normal setFrameSize: propagates the new viewport size to
 // WebContent via WebPageProxy::setSize. Without this override, WebContent renders at
 // 0x0 — Safari creates WKViews with zero frame and resizes them later.
 - (void)setFrameSize:(NSSize)newSize
 {
     [super setFrameSize:newSize];
     if (_wkState && _wkState->page) {
-        // 10.9 backport: if drawingArea is null, the WKView was created before WebContent
+        // MAVERICKS_BACKPORT: if drawingArea is null, the WKView was created before WebContent
         // was running. Re-attempt initializeWebPage now that the process should be alive.
         if (!_wkState->page->drawingArea())
             _wkState->page->initializeWebPage(WebCore::Site(WTF::HashTableEmptyValue), WebCore::SandboxFlags {}, WebCore::ReferrerPolicy::Default);
         if (RefPtr drawingArea = _wkState->page->drawingArea())
             drawingArea->setSize(WebCore::IntSize(newSize.width, newSize.height));
     }
-    // 10.9 backport: the WebContent's hosted layer is added as a sublayer of our backing
+    // MAVERICKS_BACKPORT: the WebContent's hosted layer is added as a sublayer of our backing
     // layer by MinimalPageClient::enterAcceleratedCompositingMode, framed to the view's
     // bounds AT THAT TIME. It is not re-framed on resize, so a view that composites while
     // small (e.g. Mail's message view before its auto-layout height arrives) stays clipped
@@ -360,7 +360,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     printingView->_printOperation = printOperation.get();
     return printOperation.autorelease();
 }
-// 10.9 backport: actually apply the frame. Safari calls this on its WKView
+// MAVERICKS_BACKPORT: actually apply the frame. Safari calls this on its WKView
 // (treated as "viewBelowBanner") during Banner._moveBannerIntoPlace: to shrink
 // the web view by banner.height so that the banner can occupy that vacated
 // area. The empty stub left WKView at full container height, and Safari then
@@ -376,13 +376,13 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 - (BOOL)frameSizeUpdatesDisabled { return NO; }
 + (void)hideWordDefinitionWindow {}
 
-// 10.9 backport: forward NSEvents to WebPageProxy. The full WebViewImpl.mm input
+// MAVERICKS_BACKPORT: forward NSEvents to WebPageProxy. The full WebViewImpl.mm input
 // pipeline is stubbed out in this build, so add a minimal mouseDown/Up/Moved/Dragged,
 // scrollWheel, and keyDown/Up forwarding here so links/forms/scrolling become interactive.
 - (BOOL)acceptsFirstResponder { return YES; }
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
 
-// 10.9 backport (#138): notify the page when this view gains/loses first-responder status so the
+// MAVERICKS_BACKPORT (#138): notify the page when this view gains/loses first-responder status so the
 // WebContent's ActivityState::IsFocused flag tracks focus. Without it the page's FocusController is
 // never marked focused, so FrameSelection::isFocusedAndActive() stays false and WebCore suppresses the
 // text-insertion caret (and active selection highlight) even though typing works. Matches WebViewImpl,
@@ -403,7 +403,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     return [super resignFirstResponder];
 }
 
-// 10.9 backport: tell WebPageProxy when this view's window membership changes.
+// MAVERICKS_BACKPORT: tell WebPageProxy when this view's window membership changes.
 // Without this, Safari's tab swap (which removes the inactive tab's WKView from
 // the window and re-adds it on switch-back) leaves the WebPage with a stale
 // activity-state and the visible content blank. Calling activityStateDidChange
@@ -411,7 +411,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // fresh layer-tree commit, restoring the visible content.
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
-    // 10.9 backport: the cursor only changes on hover (and CSS :hover fires) when
+    // MAVERICKS_BACKPORT: the cursor only changes on hover (and CSS :hover fires) when
     // WebContent receives mouseMoved events to hit-test under the pointer. The
     // WindowServer suppresses mouseMoved unless the hosting window opts in. Stock
     // WKWebView gets them via an NSTrackingArea; here -mouseMoved: is delivered by
@@ -430,7 +430,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     _wkState->page->activityStateDidChange(flags);
 }
 
-// 10.9 backport: the WebContent layer tree is hosted as a plain CALayer SUBLAYER of
+// MAVERICKS_BACKPORT: the WebContent layer tree is hosted as a plain CALayer SUBLAYER of
 // WKView's own backing layer (see MinimalPageClient::enterAcceleratedCompositingMode /
 // setRemoteLayerTreeRootNode — [[m_view layer] addSublayer:]). CALayers do NOT participate
 // in NSView -hitTest:, and WKView mounts no NSView subviews of its own, so AppKit's normal
@@ -459,7 +459,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     _wkState->page->handleMouseEvent(webEvent); \
 }
 
-// 10.9 backport: mouseDown is explicit (not via the macro) so it can retain the
+// MAVERICKS_BACKPORT: mouseDown is explicit (not via the macro) so it can retain the
 // originating event for the classic drag-image API used to start HTML5 drags.
 - (void)mouseDown:(NSEvent *)event
 {
@@ -485,7 +485,7 @@ WKV_FORWARD_MOUSE(mouseExited)
 #undef WKV_FORWARD_MOUSE
 
 #if ENABLE(DRAG_SUPPORT)
-// 10.9 backport: HTML5 drag-and-drop for WKView. Safari 7 drives WebKit2 through
+// MAVERICKS_BACKPORT: HTML5 drag-and-drop for WKView. Safari 7 drives WebKit2 through
 // WKView, whose input pipeline is hand-written here (the full WebViewImpl/WKWebView
 // path is unused), so the drag source + destination must be wired up directly or
 // dragstart fires but no OS drag session begins. Mirrors WebViewImpl, using the
@@ -563,7 +563,7 @@ static WebCore::DragData wkDragDataFromInfo(NSView *view, id<NSDraggingInfo> inf
         return NSDragOperationNone;
     auto dragData = wkDragDataFromInfo(self, info, *_wkState->page);
     _wkState->page->dragUpdated(dragData, info.draggingPasteboard.name);
-    // 10.9 backport: currentDragOperation is set by an async IPC reply to
+    // MAVERICKS_BACKPORT: currentDragOperation is set by an async IPC reply to
     // PerformDragControllerAction. Returning None until it arrives makes AppKit
     // reject the drop on quick drags; fall back to Copy while it is still pending
     // so AppKit proceeds to performDragOperation, where WebCore makes the final
@@ -690,7 +690,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     _wkState->page->handleKeyboardEvent(webEvent);
 }
 
-// 10.9 backport: Edit menu items dispatch action selectors to first responder.
+// MAVERICKS_BACKPORT: Edit menu items dispatch action selectors to first responder.
 // We forward to WebPageProxy. For Copy/Cut/Paste/Undo/Redo, only forward when
 // an editable element is focused (per WebPage::getPlatformEditorState now-safe
 // computation via Document::focusedElement). When focus isn't on editable
@@ -707,7 +707,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!_wkState || !_wkState->page) return; \
     _wkState->page->executeEditCommand(WTF::String(COMMAND ## _s), WTF::String()); \
 }
-// 10.9 backport: implementing copy:/cut: PROTECTS against Safari's default
+// MAVERICKS_BACKPORT: implementing copy:/cut: PROTECTS against Safari's default
 // fallback navigation. Without our handlers, even bare Cmd+C (no selection)
 // navigates to "Untitled" (URL goes empty). With our handlers, Cmd+C alone
 // is safe; only Cmd+A→Cmd+C combo still triggers navigation (selection

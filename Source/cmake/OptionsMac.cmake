@@ -12,7 +12,7 @@ WEBKIT_OPTION_BEGIN()
 
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_LCMS PRIVATE OFF)
-# 10.9 backport: ENABLE WOFF2 web fonts. Our modern UA makes servers (Google Fonts, Material
+# MAVERICKS_BACKPORT: ENABLE WOFF2 web fonts. Our modern UA makes servers (Google Fonts, Material
 # Icons, etc.) send WOFF2; without a decoder CGFontCreateWithDataProvider fails on the raw bytes
 # and icon/web fonts render as empty boxes. Decoder = locally-built libwoff2dec + libbrotli (see
 # PlatformMac.cmake). [[project_woff2_enabled]]
@@ -81,7 +81,7 @@ WEBKIT_OPTION_END()
 # (Source/CMakeLists.txt gates it on USE_LIBWEBRTC) and the WK_RTCVideoDecoder* ObjC classes (10.10+
 # VideoToolbox SPI that crash WebContent at load on 10.9). ENABLE_WEB_RTC stays ON.
 SET_AND_EXPOSE_TO_BUILD(USE_LIBWEBRTC OFF)
-# 10.9 backport: WebCrypto via libgcrypt instead of CommonCrypto/CryptoKit.
+# MAVERICKS_BACKPORT: WebCrypto via libgcrypt instead of CommonCrypto/CryptoKit.
 # See PlatformMac.cmake for libgcrypt include + link, and SourcesCocoa.txt
 # for the crypto/gcrypt/ source replacements.
 SET_AND_EXPOSE_TO_BUILD(USE_GCRYPT TRUE)
@@ -115,7 +115,7 @@ set(JavaScriptCore_LIBRARY_TYPE SHARED)
 set(PAL_LIBRARY_TYPE OBJECT)
 set(WebCore_LIBRARY_TYPE SHARED)
 
-# 10.9 backport: enable ANGLE-backed WebGL. ANGLE uses its CGL OpenGL backend (see
+# MAVERICKS_BACKPORT: enable ANGLE-backed WebGL. ANGLE uses its CGL OpenGL backend (see
 # ThirdParty/ANGLE/PlatformMac.cmake) since Metal is unavailable on 10.9.
 set(USE_ANGLE_EGL ON)
 
@@ -135,7 +135,7 @@ set(MAVERICKS_TC "${MAVERICKS_TC}" CACHE INTERNAL "clang-22 toolchain root")
 set(MAVERICKS_SUPPORT "${CMAKE_SOURCE_DIR}/MavericksSupport" CACHE INTERNAL "MavericksSupport dir")
 set(MAVERICKS_DEPS "${MAVERICKS_SUPPORT}/deps/build" CACHE INTERNAL "third-party libraries built by deps/build_deps.sh")
 
-# 10.9 backport: link libc++ DYNAMICALLY (one shared copy) rather than statically into every
+# MAVERICKS_BACKPORT: link libc++ DYNAMICALLY (one shared copy) rather than statically into every
 # dylib. Static libc++ per-dylib gives WebCore and JavaScriptCore each their own copy of libc++'s
 # locale/iostream global state; destroying a std::stringstream then corrupts across copies and
 # crashes WebContent (see task #280). These are the clang-22 toolchain's libc++/libc++abi
@@ -163,16 +163,16 @@ add_link_options(
   "$<$<NOT:$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>>:LINKER:-compatibility_version,1.0.0>"
   "$<$<NOT:$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>>:LINKER:-current_version,615.1.1>")
 # Set deployment target so dyld shared cache accepts our frameworks
-# 10.9 backport: exclude ASM_NASM (libvpx/libwebrtc .asm via nasm) — nasm rejects -m*/-W*/-iframework.
+# MAVERICKS_BACKPORT: exclude ASM_NASM (libvpx/libwebrtc .asm via nasm) — nasm rejects -m*/-W*/-iframework.
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-mmacosx-version-min=10.9>)
 add_link_options(-mmacosx-version-min=10.9)
 
-# 10.9 backport: skip clang.cfg for ASM-language (.S) sources so its link flags
+# MAVERICKS_BACKPORT: skip clang.cfg for ASM-language (.S) sources so its link flags
 # (-lobjc/-framework) are not parsed as assembler input. ASM_NASM uses nasm, not
 # clang, so it is excluded.
 add_compile_options($<$<COMPILE_LANGUAGE:ASM>:--no-default-config>)
 
-# 10.9 backport: the modern SDK's availability annotations flag every post-10.9 API
+# MAVERICKS_BACKPORT: the modern SDK's availability annotations flag every post-10.9 API
 # WebKit calls against the 10.9 deployment target. WebKit handles 10.9 via weak
 # linking plus targeted runtime guards rather than @available everywhere, so silence
 # the availability/deprecation diagnostics (nasm rejects -W*).
@@ -182,7 +182,7 @@ add_compile_options(
   $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-Wno-deprecated-declarations>
   $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-Wno-availability>)
 
-# 10.9 backport: libc++ marks parts of the standard library (std::filesystem from
+# MAVERICKS_BACKPORT: libc++ marks parts of the standard library (std::filesystem from
 # 10.15, the std::any/optional/variant bad-access throwers and aligned operator new
 # from 10.14, ...) unavailable below those versions, because those symbols entered the
 # SYSTEM libc++ dylib then. This build ships the clang-22 libc++ privately (install_name
@@ -191,27 +191,27 @@ add_compile_options(
 # availability markup so the standard library is usable against the 10.9 target.
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-D_LIBCPP_DISABLE_AVAILABILITY>)
 
-# 10.9 backport: gap-fill header overlay, searched AFTER the real SDK (-idirafter) so
+# MAVERICKS_BACKPORT: gap-fill header overlay, searched AFTER the real SDK (-idirafter) so
 # the SDK's header always wins where present and only genuinely-missing headers fall
 # through. With a modern SDK the Apple headers come from the SDK; the overlay mainly
 # covers third-party gaps (e.g. libwebrtc's opus_defines.h).
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-idirafter> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:${MAVERICKS_SUPPORT}/polyfill/headers>)
 
-# 10.9 backport: clang-22 enables C++/ObjC modules by default, so __has_feature(modules) is true.
+# MAVERICKS_BACKPORT: clang-22 enables C++/ObjC modules by default, so __has_feature(modules) is true.
 # Many WebKit SPI headers guard their forward declarations with `#if !__has_feature(modules)`,
 # expecting the types to come from framework modules instead. But the 10.9 system frameworks lack the
 # newer types those declarations cover (CMTag, FigThreadAbortAction, ...), leaving them undeclared.
 # Disable implicit modules so the SPI headers fall back to providing the declarations textually.
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-fno-modules> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-fno-cxx-modules>)
 
-# 10.9 backport: WebCrypto runs on libgcrypt (USE_GCRYPT), not the Swift CryptoKit path.
+# MAVERICKS_BACKPORT: WebCrypto runs on libgcrypt (USE_GCRYPT), not the Swift CryptoKit path.
 # CryptoKey*/CryptoAlgorithm* gate the Swift bridge (PALSwift-Generated.h, generated only by
 # Apple's internal Swift build) on `#if !defined(CLANG_WEBKIT_BRANCH)`. Define it so the Swift
 # path is skipped and the gcrypt/CommonCrypto fallbacks compile. Value is unused (only its
 # definedness is tested). nasm has no preprocessor C macros, so exclude ASM_NASM.
 add_compile_options($<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-DCLANG_WEBKIT_BRANCH=0>)
 
-# 10.9 backport: libwebrtc's final static archive aggregates ~2000 objects; `ar qc <all .o>`
+# MAVERICKS_BACKPORT: libwebrtc's final static archive aggregates ~2000 objects; `ar qc <all .o>`
 # exceeds ARG_MAX ("Argument list too long"). With CMAKE_NINJA_FORCE_RESPONSE_FILE=1 (passed on
 # the cmake command line) ninja writes objects to a response file and invokes the archiver as
 # `<ar> qc <target> @objects.rsp`. Apple's ar/libtool reject @response-files, but llvm-ar accepts

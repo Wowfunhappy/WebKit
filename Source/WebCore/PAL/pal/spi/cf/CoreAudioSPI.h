@@ -46,7 +46,7 @@ enum {
 #if PLATFORM(MAC)
 #include <CoreAudio/AudioHardware.h>
 
-// macOS 10.9 backport: CF_ENUM on older SDK is a plain enum which can't
+// MAVERICKS_BACKPORT: CF_ENUM on older SDK is a plain enum which can't
 // have a parenthesized type argument. Use plain enum.
 enum {
 #if HAVE(AUDIO_DEVICE_PROPERTY_REFERENCE_STREAM_ENABLED)

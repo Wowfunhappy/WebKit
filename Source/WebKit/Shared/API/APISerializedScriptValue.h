@@ -32,7 +32,7 @@
 
 namespace API {
 
-// 10.9 backport: legacy WKSerializedScriptValue support.
+// MAVERICKS_BACKPORT: legacy WKSerializedScriptValue support.
 //
 // Upstream removed the WKSerializedScriptValue implementation (the C API
 // functions were gutted to return null), but Safari 7 still round-trips

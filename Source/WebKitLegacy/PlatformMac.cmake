@@ -22,7 +22,7 @@ list(APPEND WebKitLegacy_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source"
     "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/third_party/abseil-cpp"
     "${CMAKE_SOURCE_DIR}/Source/ThirdParty/libwebrtc/Source/webrtc"
-    # 10.9 backport: WebView +initialize calls PAL::GCrypt::initialize() (WebCrypto
+    # MAVERICKS_BACKPORT: WebView +initialize calls PAL::GCrypt::initialize() (WebCrypto
     # is libgcrypt-backed on this port), so WebKitLegacy needs gcrypt.h reachable.
     "${MAVERICKS_DEPS}/include"
 )
@@ -635,7 +635,7 @@ set(WebKitLegacy_OUTPUT_NAME WebKitLegacy)
 
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION} -framework SecurityInterface")
 
-# 10.9 backport: macOS's bundled WebKit-ObjC plug-ins — notably Safari Web Clips'
+# MAVERICKS_BACKPORT: macOS's bundled WebKit-ObjC plug-ins — notably Safari Web Clips'
 # WebClip.plugin — were linked against a 10.9 WebKit.framework that was an umbrella
 # re-exporting WebCore, so they import e.g. _OBJC_CLASS_$_WebUndefined two-level-bound
 # "from WebKit". WebUndefined (the JS `undefined` in the WebKit-ObjC bridge) lives in

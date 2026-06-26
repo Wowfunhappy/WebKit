@@ -115,7 +115,7 @@ WEBCORE_EXPORT @interface WebCoreNSURLSession : NSObject {
 - (NSURLSessionDownloadTask *)downloadTaskWithRequest:(NSURLRequest *)request;
 - (NSURLSessionDownloadTask *)downloadTaskWithURL:(NSURL *)url;
 - (NSURLSessionDownloadTask *)downloadTaskWithResumeData:(NSData *)resumeData;
-// macOS 10.9 backport: NSURLSessionStreamTask is 10.11+. Hide these methods.
+// MAVERICKS_BACKPORT: NSURLSessionStreamTask is 10.11+. Hide these methods.
 // - (NSURLSessionStreamTask *)streamTaskWithHostName:(NSString *)hostname port:(NSInteger)port;
 // - (NSURLSessionStreamTask *)streamTaskWithNetService:(NSNetService *)service;
 @end

@@ -1179,7 +1179,7 @@ bool SourceBufferPrivate::processMediaSample(SourceBufferPrivateClient& client, 
             // 1.6.3 Unset the last frame duration on all track buffers.
             // 1.6.4 Unset the highest presentation timestamp on all track buffers.
             // 1.6.5 Set the need random access point flag on all track buffers to true.
-            // 10.9 backport fix (serious long-run stall): reset the track buffers SYNCHRONOUSLY here.
+            // MAVERICKS_BACKPORT fix (serious long-run stall): reset the track buffers SYNCHRONOUSLY here.
             // Step 1.6.6 below `continue`s to restart processing of THIS coded frame, which re-evaluates
             // this same discontinuity condition — so the reset MUST take effect before the loop restarts.
             // resetTrackBuffers() marshals through ensureWeakOnDispatcher→ensureOnDispatcher, and on this

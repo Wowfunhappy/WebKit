@@ -495,7 +495,7 @@ void ScrollView::scrollTo(const ScrollPosition& newPosition)
 {
     LOG_WITH_STREAM(Scrolling, stream << "ScrollView::scrollTo " << newPosition << " min: " << minimumScrollPosition() << " max: " << maximumScrollPosition());
 
-    // 10.9 backport: callers (wheel-event paths via the synchronous scroll
+    // MAVERICKS_BACKPORT: callers (wheel-event paths via the synchronous scroll
     // fallback) don't always clamp before reaching here. Without clamping,
     // m_scrollPosition can exceed maximumScrollPosition and our visual-scroll
     // fix in frameViewDidScroll → updateScrollLayerPosition translates the

@@ -145,7 +145,7 @@ void ScrollbarThemeMac::didCreateScrollerImp(Scrollbar& scrollbar)
 #if PLATFORM(MAC)
     RetainPtr scrollerImp = scrollerImpForScrollbar(scrollbar);
     ASSERT(scrollerImp);
-    // 10.9 backport: -[NSScrollerImp setUserInterfaceLayoutDirection:] is 10.10+.
+    // MAVERICKS_BACKPORT: -[NSScrollerImp setUserInterfaceLayoutDirection:] is 10.10+.
     // Without this guard, a doesNotRecognizeSelector: SIGILL takes down WebContent
     // the moment a scrollable area is laid out (i.e. as soon as github's nav menu
     // appears).

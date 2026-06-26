@@ -44,7 +44,7 @@ class WebPageGroup : public API::ObjectImpl<API::Object::Type::PageGroup>, publi
 public:
     explicit WebPageGroup(const String& identifier = { });
     static Ref<WebPageGroup> create(const String& identifier = { });
-    // 10.9 backport: lookup for PageGroupHandle resolution.
+    // MAVERICKS_BACKPORT: lookup for PageGroupHandle resolution.
     static RefPtr<WebPageGroup> get(PageGroupIdentifier);
 
     virtual ~WebPageGroup();
@@ -54,15 +54,15 @@ public:
     const WebPageGroupData& data() const LIFETIME_BOUND { return m_data; }
 
     WebPreferences& preferences() const { return m_preferences; }
-    // 10.9 backport: Safari 7 attaches its own WKPreferences to the page
+    // MAVERICKS_BACKPORT: Safari 7 attaches its own WKPreferences to the page
     // group via WKPageGroupSetPreferences.
     void setPreferences(WebPreferences& preferences) { m_preferences = preferences; }
 
-    // 10.9 backport: the page group's identifier, needed by WKView to scope
+    // MAVERICKS_BACKPORT: the page group's identifier, needed by WKView to scope
     // bundle-injected user content (data().identifier).
     const String& identifier() const LIFETIME_BOUND { return m_data.identifier; }
 
-    // 10.9 backport: restore the page group's user content controller, removed
+    // MAVERICKS_BACKPORT: restore the page group's user content controller, removed
     // upstream with the page-group user-content model. The legacy WKPageGroup C SPI
     // (WKPageGroupAddUserScript / AddUserStyleSheet / RemoveAll*) and Safari 7-era
     // clients (Mail's MUIWebDocumentViewGroup, QuickLook's Web2.qldisplay) add user

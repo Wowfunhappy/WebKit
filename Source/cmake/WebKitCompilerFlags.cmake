@@ -143,7 +143,7 @@ if (DEVELOPER_MODE OR ARM)
 endif ()
 
 if (COMPILER_IS_GCC_OR_CLANG)
-    # 10.9 backport: -fdebug-types-section is a DWARF/ELF feature; clang rejects it for the Mach-O
+    # MAVERICKS_BACKPORT: -fdebug-types-section is a DWARF/ELF feature; clang rejects it for the Mach-O
     # target ("unsupported option '-fdebug-types-section' for target x86_64-apple-darwin..."). It's
     # only needed for ELF/aarch64 anyway, so skip it on Apple.
     if ((COMPILER_IS_CLANG OR (DEVELOPER_MODE AND NOT ARM)) AND NOT APPLE)
@@ -163,7 +163,7 @@ if (COMPILER_IS_GCC_OR_CLANG)
     if (NOT COMPILER_IS_CLANG_CL)
         WEBKIT_APPEND_GLOBAL_COMPILER_FLAGS(-fno-exceptions)
         WEBKIT_APPEND_GLOBAL_CXX_FLAGS(-fno-rtti)
-        # [10.9 backport] WebKit intends RTTI disabled everywhere (Xcode's GCC_ENABLE_CPP_RTTI=NO covers
+        # [MAVERICKS_BACKPORT] WebKit intends RTTI disabled everywhere (Xcode's GCC_ENABLE_CPP_RTTI=NO covers
         # ObjC++ too), but this CMake port applied -fno-rtti only to CXX, leaving OBJCXX (.mm) with RTTI on.
         # That mismatch made .mm files emit/reference C++ typeinfos for classes whose .cc/.cpp definitions
         # (compiled -fno-rtti) emit none -> strong-undefined "typeinfo for ..." symbols that abort every
@@ -375,7 +375,7 @@ if (MSVC)
 elseif (COMPILER_IS_QCC)
     set(CODE_GENERATOR_PREPROCESSOR "\"${CMAKE_CXX_COMPILER}\" -E -Wp,-P -x c++")
 else ()
-    # 10.9 backport: --no-default-config so the IDL/CSS preprocessor (clang -E) does
+    # MAVERICKS_BACKPORT: --no-default-config so the IDL/CSS preprocessor (clang -E) does
     # NOT force-include the macOS 10.9 compat header. That header pulls in system
     # type headers whose C typedefs (e.g. `typedef signed char __int8_t;`) would
     # otherwise leak into the preprocessed IDL and make IDLParser.pm choke.

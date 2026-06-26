@@ -1,4 +1,4 @@
-// macOS 10.9 backport: custom AudioVideoRendererAVFObjC (see header).
+// MAVERICKS_BACKPORT: custom AudioVideoRendererAVFObjC (see header).
 // Video plays through AVSampleBufferDisplayLayer driven by a manually-managed CMTimebase.
 // Audio is not yet wired (stage 1); audio samples are accepted and dropped so the append loop runs.
 #include "config.h"

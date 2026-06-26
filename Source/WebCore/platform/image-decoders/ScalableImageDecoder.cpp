@@ -34,7 +34,7 @@
 #include "JPEGImageDecoder.h"
 #include "PNGImageDecoder.h"
 #endif
-// 10.9 backport: WEBPImageDecoder also compiled on PLATFORM(MAC) so libwebp
+// MAVERICKS_BACKPORT: WEBPImageDecoder also compiled on PLATFORM(MAC) so libwebp
 // can decode WebP responses that ImageIO can't handle on this build.
 #include "WEBPImageDecoder.h"
 #if USE(AVIF)
@@ -97,7 +97,7 @@ static bool matchesCURSignature(std::span<const uint8_t> contents)
 
 #endif
 
-// 10.9 backport: also needed on PLATFORM(MAC) for the WebP fallback path.
+// MAVERICKS_BACKPORT: also needed on PLATFORM(MAC) for the WebP fallback path.
 static bool matchesWebPSignature(std::span<const uint8_t> contents)
 {
     return spanHasPrefix(contents, "RIFF"_span) && spanHasPrefix(contents.subspan(8), "WEBPVP"_span);
@@ -163,7 +163,7 @@ RefPtr<ScalableImageDecoder> ScalableImageDecoder::create(FragmentedSharedBuffer
 #endif
 
 #if PLATFORM(MAC) || !PLATFORM(COCOA)
-    // 10.9 backport: ImageIO on this build doesn't decode WebP, so fall back to the
+    // MAVERICKS_BACKPORT: ImageIO on this build doesn't decode WebP, so fall back to the
     // libwebp-backed scalable decoder. iOS Cocoa's ImageIO handles WebP natively.
     if (matchesWebPSignature(contentsSpan))
         return WEBPImageDecoder::create(alphaOption, gammaAndColorProfileOption);

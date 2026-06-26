@@ -1,5 +1,5 @@
 #pragma once
-// Minimal stub for macOS 10.9 backport
+// Minimal stub for MAVERICKS_BACKPORT
 
 #if ENABLE(PDF_PLUGIN)
 

@@ -502,7 +502,7 @@ static void tryInterceptNavigation(Ref<API::NavigationAction>&& navigationAction
 #endif // HAVE(MARKETPLACE_KIT)
 
 #if HAVE(APP_LINKS)
-    // 10.9 backport: LSAppLink + _LSOpenConfiguration.referrerURL are 10.10+ APIs. On 10.9
+    // MAVERICKS_BACKPORT: LSAppLink + _LSOpenConfiguration.referrerURL are 10.10+ APIs. On 10.9
     // _LSOpenConfiguration does not respond to -setReferrerURL:, so the app-link path below would
     // throw. Feature-detect and otherwise fall through to trySOAuthorization (normal navigation).
     if (navigationAction->shouldOpenAppLinks()

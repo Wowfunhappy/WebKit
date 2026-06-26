@@ -18,7 +18,7 @@
 #include <Metal/Metal.h>
 #endif
 
-// 10.9 backport: kIOMainPortDefault was introduced in the macOS 12 SDK (renamed from
+// MAVERICKS_BACKPORT: kIOMainPortDefault was introduced in the macOS 12 SDK (renamed from
 // kIOMasterPortDefault).
 #if !defined(MAC_OS_VERSION_12_0) || (defined(MAC_OS_X_VERSION_MAX_ALLOWED) && MAC_OS_X_VERSION_MAX_ALLOWED < 120000)
 #    define kIOMainPortDefault kIOMasterPortDefault
@@ -30,7 +30,7 @@ namespace angle
 bool IsMetalRendererAvailable()
 {
 #if !ANGLE_ENABLE_METAL
-    // 10.9 backport: built with ANGLE's OpenGL (CGL) backend; Metal is unavailable.
+    // MAVERICKS_BACKPORT: built with ANGLE's OpenGL (CGL) backend; Metal is unavailable.
     return false;
 #else
 #if defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)

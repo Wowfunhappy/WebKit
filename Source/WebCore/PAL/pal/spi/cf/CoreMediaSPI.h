@@ -36,7 +36,7 @@ DECLARE_SYSTEM_HEADER
 #include <CoreMedia/CoreMedia.h>
 
 #if PLATFORM(MAC)
-// 10.9 backport: the libwebrtc include path is only on WebRTC-enabled targets;
+// MAVERICKS_BACKPORT: the libwebrtc include path is only on WebRTC-enabled targets;
 // WK2 framework TUs that include this header don't have it. Use the real header
 // when available, else forward-declare the CMBase types it provides.
 #if __has_include(<webrtc/webkit_sdk/WebKit/CMBaseObjectSPI.h>)

@@ -156,7 +156,7 @@ bool isMainThread()
 {
     if (pthread_main_np())
         return true;
-    // 10.9 backport: dispatch_main() exits the main thread.
+    // MAVERICKS_BACKPORT: dispatch_main() exits the main thread.
     return dispatch_get_current_queue() == dispatch_get_main_queue();
 }
 

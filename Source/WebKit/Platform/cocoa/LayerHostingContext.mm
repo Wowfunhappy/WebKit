@@ -89,7 +89,7 @@ std::unique_ptr<LayerHostingContext> LayerHostingContext::create(const LayerHost
 #endif
     layerHostingContext->m_context = [CAContext remoteContextWithOptions:contextOptions];
 #elif !PLATFORM(MACCATALYST)
-    // 10.9 backport: prefer the explicit CGSConnection variant (more reliable
+    // MAVERICKS_BACKPORT: prefer the explicit CGSConnection variant (more reliable
     // on older systems than +remoteContextWithOptions:).
     layerHostingContext->m_context = [CAContext contextWithCGSConnection:CGSMainConnectionID() options:@{
         kCAContextCIFilterBehavior : @"ignore",
@@ -182,7 +182,7 @@ void LayerHostingContext::setFencePort(mach_port_t fencePort)
 #if USE(EXTENSIONKIT)
     ASSERT(!m_hostable);
 #endif
-    // 10.9 backport: -[CAContext setFencePort:] is 10.10+.
+    // MAVERICKS_BACKPORT: -[CAContext setFencePort:] is 10.10+.
     if ([m_context respondsToSelector:@selector(setFencePort:)])
         [m_context setFencePort:fencePort];
 }

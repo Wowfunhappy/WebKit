@@ -1,4 +1,4 @@
-# 10.9 backport: ANGLE uses its CGL OpenGL backend instead of Metal (Metal is unavailable on
+# MAVERICKS_BACKPORT: ANGLE uses its CGL OpenGL backend instead of Metal (Metal is unavailable on
 # 10.9). The CGL backend (src/libANGLE/renderer/gl/cgl/*) renders GLES via desktop OpenGL through
 # CGL and can present into an IOSurface — the software-CGL→IOSurface→WindowServer path that works
 # on this VM. angle_enable_cgl/angle_enable_gl are set in CMakeLists.txt before include(GL.cmake).
@@ -21,7 +21,7 @@ list(APPEND ANGLE_SOURCES
 list(APPEND ANGLE_DEFINITIONS
     ANGLE_ENABLE_OPENGL
     ANGLE_ENABLE_CGL
-    # 10.9 backport: the CGL backend uses DESKTOP OpenGL. Without this, the entire
+    # MAVERICKS_BACKPORT: the CGL backend uses DESKTOP OpenGL. Without this, the entire
     # body of DispatchTableGL::initProcsDesktopGL() (DispatchTableGL_autogen.cpp,
     # guarded by #if defined(ANGLE_ENABLE_GL_DESKTOP_BACKEND)) compiles away, so NO
     # desktop GL entry points load and the FunctionsGL pointers stay null — caps

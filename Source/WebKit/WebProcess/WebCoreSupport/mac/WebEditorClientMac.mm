@@ -128,7 +128,7 @@ bool WebEditorClient::canApplyCaseTransformations(const String& selection)
 bool WebEditorClient::canConvertToTraditionalChinese(const String& selection)
 {
     RetainPtr untransformed = selection.createNSString();
-    // 10.9 backport: -[NSString stringByApplyingTransform:reverse:] is 10.11+. Without it the
+    // MAVERICKS_BACKPORT: -[NSString stringByApplyingTransform:reverse:] is 10.11+. Without it the
     // Simplified/Traditional Chinese context-menu conversion is unavailable — report false rather
     // than crash with an unrecognized selector (this is invoked while building the menu for EVERY
     // right-click on an editable field).

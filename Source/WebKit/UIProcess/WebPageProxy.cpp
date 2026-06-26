@@ -1791,7 +1791,7 @@ void WebPageProxy::setDrawingArea(RefPtr<DrawingAreaProxy>&& newDrawingArea)
 
 void WebPageProxy::initializeWebPage(const Site& site, WebCore::SandboxFlags effectiveSandboxFlags, WebCore::ReferrerPolicy effectiveReferrerPolicy)
 {
-    // 10.9 backport: hasRunningProcess() returns false when WebPageProxy thinks the WebContent
+    // MAVERICKS_BACKPORT: hasRunningProcess() returns false when WebPageProxy thinks the WebContent
     // process is Terminated. Safari closes the XPC bootstrap connection after init completes,
     // which makes WebPageProxy think the process died — but the mach port IPC remains alive.
     // Skip the gate: even if WebPageProxy thinks the process is dead, we still want a drawing
@@ -2267,7 +2267,7 @@ void WebPageProxy::loadRequestWithNavigationShared(Ref<WebProcessProxy>&& proces
         process->requestResourceMonitorRuleLists(protect(preferences())->iFrameResourceMonitoringTestingSettingsEnabled());
 #endif
 
-    // 10.9 backport: register the WebProcess as allowed to access the first-party
+    // MAVERICKS_BACKPORT: register the WebProcess as allowed to access the first-party
     // cookie set for this navigation's URL. NetworkProcess otherwise rejects
     // ScheduleResourceLoad for this domain with AllowCookieAccess::Terminate
     // because the path-of-least-resistance code paths (processForNavigation,
@@ -4442,7 +4442,7 @@ void WebPageProxy::handleWheelEvent(const WebWheelEvent& wheelEvent)
         // continueWheelEventHandling() will get called after the event has been handled by the scrolling thread.
         return;
     }
-    // 10.9 backport: TCA path doesn't have a scrolling coordinator proxy.
+    // MAVERICKS_BACKPORT: TCA path doesn't have a scrolling coordinator proxy.
     // Fall through to synchronous main-thread scrolling.
     continueWheelEventHandling(wheelEvent, { WheelEventProcessingSteps::SynchronousScrolling, false }, { });
 #endif
@@ -5371,14 +5371,14 @@ void WebPageProxy::receivedNavigationActionPolicyDecision(WebProcessProxy& proce
             return protect(preferences->siteIsolationEnabled() && frame->isMainFrame() && provisionalPage && !provisionalPage->didFailProvisionalLoad() ? provisionalPage->process() : frame->process());
         }();
 
-        // 10.9 backport: spawning additional WebContent processes is unreliable on this OS.
+        // MAVERICKS_BACKPORT: spawning additional WebContent processes is unreliable on this OS.
         // Force the existing process to handle the navigation (no process swap). This means
         // a single WebContent process handles all origins — site isolation is sacrificed for
         // working navigation. processNavigatingTo is reassigned to the from-process so the
         // downstream code paths (sharedProcess, addAllowedFirstPartyForCookies, etc.) all
         // proceed against the existing process instead of a new one that would never start.
         if (processNavigatingTo->coreProcessIdentifier() != processNavigatingFrom->coreProcessIdentifier()) {
-            WEBPAGEPROXY_RELEASE_LOG(ProcessSwapping, "decidePolicyForNavigationAction: 10.9 backport — forcing same-process navigation (would have swapped %i->%i)", legacyMainFrameProcessID(), processNavigatingTo->processID());
+            WEBPAGEPROXY_RELEASE_LOG(ProcessSwapping, "decidePolicyForNavigationAction: MAVERICKS_BACKPORT — forcing same-process navigation (would have swapped %i->%i)", legacyMainFrameProcessID(), processNavigatingTo->processID());
             processNavigatingTo = processNavigatingFrom.copyRef();
         }
         const bool navigationChangesFrameProcess = false;
@@ -7155,7 +7155,7 @@ void WebPageProxy::didStartProgress()
 
     pageLoadState->commitChanges();
 
-    // 10.9 backport: forward to legacy loader client.
+    // MAVERICKS_BACKPORT: forward to legacy loader client.
     if (m_loaderClient)
         m_loaderClient->didStartProgress(*this);
 }
@@ -8074,7 +8074,7 @@ void WebPageProxy::didFinishDocumentLoadForFrame(IPC::Connection& connection, Fr
         internals().didFinishDocumentLoadForMainFrameTimestamp = MonotonicTime::now();
     }
 
-    // 10.9 backport: forward to legacy loader client (Safari 9.1.3 uses this).
+    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 9.1.3 uses this).
     if (m_loaderClient)
         m_loaderClient->didFinishDocumentLoadForFrame(*this, *frame, navigation.get(), nullptr);
 }
@@ -8556,7 +8556,7 @@ void WebPageProxy::didReceiveTitleForFrame(IPC::Connection& connection, FrameIde
 
     protectedPageLoadState->commitChanges();
 
-    // 10.9 backport: forward to legacy loader client (Safari 9.1.3 uses this).
+    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 9.1.3 uses this).
     if (m_loaderClient)
         m_loaderClient->didReceiveTitleForFrame(*this, forwardedTitle, *frame, nullptr);
 
@@ -8704,7 +8704,7 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
     auto originatingFrameInfoData = navigationActionData.originatingFrameInfoData;
     auto originalRequest = navigationActionData.originalRequest;
     auto request = navigationActionData.request;
-    // 10.9 backport (#60): capture the injected-bundle policy userData (serialized handles) before
+    // MAVERICKS_BACKPORT (#60): capture the injected-bundle policy userData (serialized handles) before
     // navigationActionData is consumed; rehydrated and handed to the legacy policy client below.
     RefPtr<API::Object> bundlePolicyUserDataObject = navigationActionData.bundlePolicyUserData.objectForSerialization();
 
@@ -8845,7 +8845,7 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
     if (!protect(preferences())->safeBrowsingEnabled())
         shouldExpectSafeBrowsingResult = ShouldExpectSafeBrowsingResult::No;
 
-    // 10.9 backport: NetworkProcess is fake and never replies to hasLocalStorageOrCookies,
+    // MAVERICKS_BACKPORT: NetworkProcess is fake and never replies to hasLocalStorageOrCookies,
     // so skip the wait — the policy decision would otherwise stall forever.
     ShouldWaitForSiteHasStorageCheck shouldWaitForSiteHasStorageCheck = ShouldWaitForSiteHasStorageCheck::No;
 
@@ -9039,7 +9039,7 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
         logFrameNavigation(frame, URL { internals().pageLoadState.url() }, request, navigationAction->data().redirectResponse.url(), wasPotentiallyInitiatedByUser);
 
     if (m_policyClient) {
-        // 10.9 backport (#60): rehydrate the injected-bundle policy userData dictionary
+        // MAVERICKS_BACKPORT (#60): rehydrate the injected-bundle policy userData dictionary
         // ("CanHandleRequest"/"OriginatingFrame") that the WebProcess attached. Safari's legacy
         // V0/V1 WKPagePolicyClient callback (BrowserPagePolicyClient::decidePolicyForAction) casts
         // this to a WKDictionary and bails WITHOUT driving the listener if it is null. Passing the
@@ -13058,7 +13058,7 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
     parameters.shouldCaptureAudioInGPUProcess = preferences->captureAudioInGPUProcessEnabled();
     parameters.shouldCaptureVideoInGPUProcess = preferences->captureVideoInGPUProcessEnabled();
 #else
-    // 10.9 backport: this build has no GPUProcess (ENABLE_GPU_PROCESS=OFF). getUserMedia capture must
+    // MAVERICKS_BACKPORT: this build has no GPUProcess (ENABLE_GPU_PROCESS=OFF). getUserMedia capture must
     // therefore run directly in the (unsandboxed) WebContent process, not a nonexistent GPU process.
     parameters.shouldCaptureAudioInGPUProcess = false;
     parameters.shouldCaptureVideoInGPUProcess = false;
@@ -16738,7 +16738,7 @@ void WebPageProxy::setOrientationForMediaCapture(WebCore::IntDegrees orientation
 
 #if ENABLE(MEDIA_STREAM)
 #if PLATFORM(COCOA) && ENABLE(GPU_PROCESS)
-    // 10.9 backport: WebProcessPool::gpuProcess() only exists with GPU_PROCESS. With it off, capture
+    // MAVERICKS_BACKPORT: WebProcessPool::gpuProcess() only exists with GPU_PROCESS. With it off, capture
     // runs in-process and there is no GPU process to forward capture orientation to.
     RefPtr gpuProcess = m_configuration->processPool().gpuProcess();
     if (gpuProcess && protect(preferences())->captureVideoInGPUProcessEnabled())

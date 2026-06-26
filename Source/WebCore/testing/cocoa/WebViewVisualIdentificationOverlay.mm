@@ -1,4 +1,4 @@
-// 10.9 backport: minimal real implementation so the +class method exists.
+// MAVERICKS_BACKPORT: minimal real implementation so the +class method exists.
 #include "config.h"
 #import "WebViewVisualIdentificationOverlay.h"
 

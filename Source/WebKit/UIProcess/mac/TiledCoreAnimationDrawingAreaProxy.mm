@@ -199,7 +199,7 @@ MachSendRight TiledCoreAnimationDrawingAreaProxy::createFence()
     if (connection->hasIncomingSyncMessage())
         return MachSendRight();
 
-    // 10.9 backport: -[CAContext createFencePort] is 10.10+.
+    // MAVERICKS_BACKPORT: -[CAContext createFencePort] is 10.10+.
     if (![rootLayerContext respondsToSelector:@selector(createFencePort)])
         return MachSendRight();
     MachSendRight fencePort = MachSendRight::adopt((mach_port_t)(uintptr_t)[rootLayerContext createFencePort]);

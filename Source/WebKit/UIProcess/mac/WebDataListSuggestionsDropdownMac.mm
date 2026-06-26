@@ -357,7 +357,7 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
     _enclosingWindow = adoptNS([[WKDataListSuggestionWindow alloc] initWithContentRect:NSZeroRect styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskFullSizeContentView) backing:NSBackingStoreBuffered defer:NO]);
     [_enclosingWindow setReleasedWhenClosed:NO];
     [_enclosingWindow setFrame:[self dropdownRectForElementRect:information.elementRect] display:YES];
-    // 10.9 backport: -[NSWindow setTitleVisibility:] / setTitlebarAppearsTransparent:
+    // MAVERICKS_BACKPORT: -[NSWindow setTitleVisibility:] / setTitlebarAppearsTransparent:
     // are 10.10+. Datalist popup uses NSWindowStyleMaskFullSizeContentView (also
     // 10.10+) so the popup looks weird without these, but skipping them avoids
     // doesNotRecognizeSelector aborts.
@@ -385,7 +385,7 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
     [_scrollView setDrawsBackground:NO];
 
     auto insetView = _scrollView;
-    // 10.9 backport: -[NSScrollView setAutomaticallyAdjustsContentInsets:] and
+    // MAVERICKS_BACKPORT: -[NSScrollView setAutomaticallyAdjustsContentInsets:] and
     // setContentInsets: are 10.10+. Without the guard, datalist autocomplete
     // popup throws unrecognized-selector and crashes Safari.
     if ([insetView respondsToSelector:@selector(setAutomaticallyAdjustsContentInsets:)]) {

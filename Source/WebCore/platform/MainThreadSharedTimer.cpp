@@ -75,7 +75,7 @@ void MainThreadSharedTimer::invalidate()
 
 void MainThreadSharedTimer::setFiredFunction(Function<void()>&& firedFunction)
 {
-    // 10.9 backport: ThreadGlobalData can get re-constructed on the same main
+    // MAVERICKS_BACKPORT: ThreadGlobalData can get re-constructed on the same main
     // thread when its TLS slot is clobbered by JSC's GC overwriting adjacent
     // memory. The release assert here would crash; instead, allow overwrite.
     m_firedFunction = WTF::move(firedFunction);

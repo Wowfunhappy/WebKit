@@ -71,7 +71,7 @@ using DragImage = CGImageRef;
 
 static RefPtr<ShareableBitmap> convertDragImageToBitmap(DragImage image, const IntSize& size, Frame& frame)
 {
-    // 10.9 backport: WebCore::screenColorSpace(Widget*) is a polyfill stub
+    // MAVERICKS_BACKPORT: WebCore::screenColorSpace(Widget*) is a polyfill stub
     // (`xorl %eax; ret` — see [[feedback_polyfill_stub_returns]]) that returns
     // a garbage-bytes DestinationColorSpace by value. Caller's CFRetain on the
     // inner CGColorSpaceRef then SIGSEGVs. Same root cause as

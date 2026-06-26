@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// 10.9 backport: this file was previously stubbed down to setSampleCount()+buffers(), so
+// MAVERICKS_BACKPORT: this file was previously stubbed down to setSampleCount()+buffers(), so
 // WebAudioBufferList never allocated its backing storage. That left the mic capture buffer
 // (m_microphoneSampleBuffer in CoreAudioCaptureUnit) zero-capacity, so AudioUnitRender wrote
 // past it and crashed WebContent on getUserMedia({audio}). The stub claimed the CoreMedia PAL
@@ -134,7 +134,7 @@ RetainPtr<CMBlockBufferRef> WebAudioBufferList::setSampleCountWithBlockBuffer(si
     }
 
     CMBlockBufferRef blockBuffer = nullptr;
-    // 10.9 backport: in this tree CMBlockBufferCreateWithMemoryBlock is a soft-link macro
+    // MAVERICKS_BACKPORT: in this tree CMBlockBufferCreateWithMemoryBlock is a soft-link macro
     // that already expands to PAL::…, so it must be called unqualified (unlike the inline
     // PAL helpers CMBlockBufferGetDataSpan / createAudioBufferList which keep their PAL:: prefix).
     if (auto error = PAL::CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, nullptr, bufferSizes->second, kCFAllocatorDefault, nullptr, 0, bufferSizes->second, kCMBlockBufferAssureMemoryNowFlag, &blockBuffer)) {

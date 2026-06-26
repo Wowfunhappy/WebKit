@@ -52,7 +52,7 @@ DECLARE_SYSTEM_HEADER
 
 #else // !USE(APPLE_INTERNAL_SDK)
 
-// 10.9 backport: NSPersonNameComponents is a Foundation class added in 10.11. It is only used below
+// MAVERICKS_BACKPORT: NSPersonNameComponents is a Foundation class added in 10.11. It is only used below
 // as a pointer-typed property, so a forward declaration is sufficient on the 10.9 SDK.
 @class NSPersonNameComponents;
 

@@ -20,7 +20,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# 10.9 backport: page-group UserData carrier (see APIPageGroupHandle.h).
+# MAVERICKS_BACKPORT: page-group UserData carrier (see APIPageGroupHandle.h).
 
 header: "APIPageGroupHandle.h"
 

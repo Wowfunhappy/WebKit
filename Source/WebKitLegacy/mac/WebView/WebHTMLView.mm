@@ -4097,7 +4097,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // the current event prevents that from causing a problem inside WebKit or AppKit code.
     retainPtr(event).autorelease();
 
-    // 10.9 backport: when this WebView is hosted in a window that can never become the key
+    // MAVERICKS_BACKPORT: when this WebView is hosted in a window that can never become the key
     // window — a Safari legacy-extension popover is an _NSPopoverWindow, which is borderless and
     // returns canBecomeKeyWindow == NO on this port — AppKit treats the first click only as a
     // window-activation gesture and, since the window cannot key, swallows it. With the default
@@ -5648,7 +5648,7 @@ static BOOL writingDirectionKeyBindingsEnabled()
 
 - (void)otherMouseDown:(NSEvent *)event
 {
-    // 10.9 backport: +[NSMenu menuTypeForEvent:] is a 10.10+ API that raises unrecognized-selector
+    // MAVERICKS_BACKPORT: +[NSMenu menuTypeForEvent:] is a 10.10+ API that raises unrecognized-selector
     // on 10.9. A middle-click (buttonNumber 2) is never a context-menu gesture there, so guard the
     // call instead of letting it throw and abort the event.
     BOOL isContextMenuEvent = NO;

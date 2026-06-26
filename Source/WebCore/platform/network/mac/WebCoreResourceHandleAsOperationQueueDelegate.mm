@@ -332,7 +332,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
     LOG(Network, "Handle %p delegate connectionDidFinishLoading:%p", m_handle.get(), connection);
 
-    // 10.9 backport: -[NSURLConnection _timingData] is a newer CFNetwork SPI absent on 10.9;
+    // MAVERICKS_BACKPORT: -[NSURLConnection _timingData] is a newer CFNetwork SPI absent on 10.9;
     // guard it to avoid an unrecognized-selector exception (→ std::terminate).
     RetainPtr<NSDictionary> connectionTimingData = [connection respondsToSelector:@selector(_timingData)] ? [connection _timingData] : nil;
     auto work = [protectedSelf = retainPtr(self), connection = retainPtr(connection), timingData = connectionTimingData] mutable {

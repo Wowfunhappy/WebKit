@@ -126,7 +126,7 @@ std::unique_ptr<CryptoDigest> CryptoDigest::create(CryptoDigest::Algorithm algor
     digest->m_context->ccContext = createCryptoDigest(algorithm);
     return digest;
 #else
-    // 10.9 backport: PALSwift is unavailable, but CommonCrypto's CC_SHAxxx_*
+    // MAVERICKS_BACKPORT: PALSwift is unavailable, but CommonCrypto's CC_SHAxxx_*
     // functions provide all the algorithms we need.
     std::unique_ptr<CryptoDigest> digest = WTF::makeUnique<CryptoDigest>();
     ASSERT(digest->m_context);
@@ -180,7 +180,7 @@ void CryptoDigest::addBytes(std::span<const uint8_t> input)
         return;
     }
 #else
-    // 10.9 backport: route through CommonCrypto.
+    // MAVERICKS_BACKPORT: route through CommonCrypto.
     switch (m_context->algorithm) {
     case CryptoDigest::Algorithm::SHA_1:
         CC_SHA1_Update(toSHA1Context(m_context.get()), static_cast<const void*>(input.data()), input.size());
@@ -217,7 +217,7 @@ Vector<uint8_t> CryptoDigest::computeHash()
     }
     return result;
 #else
-    // 10.9 backport: route through CommonCrypto.
+    // MAVERICKS_BACKPORT: route through CommonCrypto.
     Vector<uint8_t> result;
     switch (m_context->algorithm) {
     case CryptoDigest::Algorithm::SHA_1:

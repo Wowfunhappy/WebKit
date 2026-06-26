@@ -75,7 +75,7 @@ NSHTTPCookieStorage *NetworkTaskCocoa::statelessCookieStorage()
 {
     static NeverDestroyed<RetainPtr<NSHTTPCookieStorage>> statelessCookieStorage;
     if (!statelessCookieStorage.get()) {
-        // 10.9 backport: -_initWithIdentifier:private: is 10.13+ SPI. Fall back to the
+        // MAVERICKS_BACKPORT: -_initWithIdentifier:private: is 10.13+ SPI. Fall back to the
         // shared cookie storage with NSHTTPCookieAcceptPolicyNever — no per-task cookie
         // isolation on 10.9, but the call site only needs a storage whose cookies won't
         // be sent with the redirected request.
@@ -93,7 +93,7 @@ NSString *NetworkTaskCocoa::lastRemoteIPAddress(NSURLSessionTask *task)
     // FIXME (246428): In a future patch, this should adopt CFNetwork API that retrieves the original
     // IP address of the proxied response, rather than the proxy itself.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
-    // 10.9 backport: -_incompleteTaskMetrics is 10.12+.
+    // MAVERICKS_BACKPORT: -_incompleteTaskMetrics is 10.12+.
     if (![task respondsToSelector:@selector(_incompleteTaskMetrics)])
         return nil;
     return task._incompleteTaskMetrics.transactionMetrics.lastObject.remoteAddress;
@@ -200,7 +200,7 @@ void NetworkTaskCocoa::setCookieTransformForFirstPartyRequest(const WebCore::Res
     if (!shouldApplyCookiePolicyForThirdPartyCloaking())
         return;
 
-    // 10.9 backport: NSURLSessionTask -_cookieTransformCallback / -set_cookieTransformCallback:
+    // MAVERICKS_BACKPORT: NSURLSessionTask -_cookieTransformCallback / -set_cookieTransformCallback:
     // are 10.13+ SPI used to implement the CNAME cloaking heuristic. Bail when unavailable.
     if (![task() respondsToSelector:@selector(set_cookieTransformCallback:)])
         return;
@@ -310,7 +310,7 @@ void NetworkTaskCocoa::blockCookies()
     if (m_hasBeenSetToUseStatelessCookieStorage)
         return;
 
-    // 10.9 backport: NSURLSessionTask's -_setExplicitCookieStorage: is 10.13+ SPI, and
+    // MAVERICKS_BACKPORT: NSURLSessionTask's -_setExplicitCookieStorage: is 10.13+ SPI, and
     // NSHTTPCookieStorage's -_cookieStorage is 10.10+ SPI. Skip cookie blocking entirely
     // when the selector isn't available — tracking prevention is best-effort on 10.9.
     if ([task() respondsToSelector:@selector(_setExplicitCookieStorage:)]
@@ -328,7 +328,7 @@ void NetworkTaskCocoa::unblockCookies()
         return;
 
     if (CheckedPtr storageSession = protect(m_networkSession)->networkStorageSession()) {
-        // 10.9 backport: same SPI guards as in blockCookies().
+        // MAVERICKS_BACKPORT: same SPI guards as in blockCookies().
         if ([task() respondsToSelector:@selector(_setExplicitCookieStorage:)]) {
             RetainPtr<NSHTTPCookieStorage> cs = storageSession->nsCookieStorage();
             if ([cs respondsToSelector:@selector(_cookieStorage)])
@@ -364,7 +364,7 @@ void NetworkTaskCocoa::updateTaskWithFirstPartyForSameSiteCookies(NSURLSessionTa
     if (request.isSameSiteUnspecified())
         return;
 #if HAVE(FOUNDATION_WITH_SAME_SITE_COOKIE_SUPPORT)
-    // 10.9 backport: -_siteForCookies / -_isTopLevelNavigation are 10.13+ SPI.
+    // MAVERICKS_BACKPORT: -_siteForCookies / -_isTopLevelNavigation are 10.13+ SPI.
     if ([task respondsToSelector:@selector(set_siteForCookies:)])
         task._siteForCookies = RetainPtr { request.isSameSite() ? task.currentRequest.URL : URL::emptyNSURL() }.get();
     if ([task respondsToSelector:@selector(set_isTopLevelNavigation:)])

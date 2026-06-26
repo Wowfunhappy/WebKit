@@ -49,7 +49,7 @@ using namespace WebCore;
 RefPtr<ShareableBitmap> createShareableBitmap(RenderImage& renderImage, CreateShareableBitmapFromImageOptions&& options)
 {
     Ref frame = renderImage.frame();
-    // 10.9 backport: WebCore::screenColorSpace(Widget*) is provided by the
+    // MAVERICKS_BACKPORT: WebCore::screenColorSpace(Widget*) is provided by the
     // polyfill stubs as `xorl %eax;ret` (see [[feedback_polyfill_stub_returns]]).
     // DestinationColorSpace is a struct-by-value return — the polyfill leaves
     // RDI uninitialised, so the returned struct contains garbage CGColorSpaceRef

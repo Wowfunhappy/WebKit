@@ -39,7 +39,7 @@
 #include <WebCore/CAAudioStreamDescription.h>
 #include <WebCore/CARingBuffer.h>
 #include <WebCore/WebAudioBufferList.h>
-// 10.9 backport: videoFrameAvailableCV() takes a RetainPtr<CVPixelBufferRef>. That type used to come
+// MAVERICKS_BACKPORT: videoFrameAvailableCV() takes a RetainPtr<CVPixelBufferRef>. That type used to come
 // transitively from RemoteVideoFrameProxy.h, which is now empty when !ENABLE(GPU_PROCESS); include
 // CoreVideo directly so the header is self-sufficient.
 #include <CoreVideo/CVPixelBuffer.h>
@@ -77,7 +77,7 @@ public:
 
     void didUpdateSourceConnection(IPC::Connection&);
 #if ENABLE(GPU_PROCESS)
-    // 10.9 backport: RemoteVideoFrameObjectHeapProxy/RemoteVideoFrameProxy are GPU-process-only.
+    // MAVERICKS_BACKPORT: RemoteVideoFrameObjectHeapProxy/RemoteVideoFrameProxy are GPU-process-only.
     // Without a GPU process, captured frames arrive as CVPixelBuffers via videoFrameAvailableCV().
     void setVideoFrameObjectHeapProxy(RefPtr<RemoteVideoFrameObjectHeapProxy>&&);
 #endif

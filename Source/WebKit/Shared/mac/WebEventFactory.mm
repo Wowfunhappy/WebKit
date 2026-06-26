@@ -100,7 +100,7 @@ static WebWheelEvent::Phase momentumPhaseForEvent(NSEvent *event)
 
 static int typeForEvent(NSEvent *event)
 {
-    // 10.9 backport: +[NSMenu menuTypeForEvent:] was added in 10.10. On 10.9 it throws
+    // MAVERICKS_BACKPORT: +[NSMenu menuTypeForEvent:] was added in 10.10. On 10.9 it throws
     // unrecognized selector. Guard with respondsToSelector and fall back to checking the
     // event type directly (right-click → context menu, otherwise none).
     static BOOL menuRespondsToTypeForEvent = [NSMenu respondsToSelector:@selector(menuTypeForEvent:)];
@@ -217,7 +217,7 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(NSEvent *event, NSView *windo
     auto momentumEndType = WebWheelEvent::MomentumEndType::Unknown;
     
 #if PLATFORM(MAC)
-    // 10.9 backport: IOHIDEvent* APIs are stubbed in our polyfill as `xorl %eax,%eax;retq`.
+    // MAVERICKS_BACKPORT: IOHIDEvent* APIs are stubbed in our polyfill as `xorl %eax,%eax;retq`.
     // That's correct for void/int/pointer returns but BROKEN for floats: IOHIDEventGetFloatValue
     // returns IOHIDFloat (double via XMM0) — the stub leaves XMM0 with garbage from prior calls,
     // so rawPlatformDelta would carry random values that downstream wheel-event logic uses to

@@ -200,7 +200,7 @@ void RemoteRealtimeMediaSourceProxy::didFail(CaptureSourceError&& reason)
 bool RemoteRealtimeMediaSourceProxy::isPowerEfficient() const
 {
 #if ENABLE(GPU_PROCESS)
-    // 10.9 backport: GPUProcessConnection (for defaultTimeout) only exists with GPU_PROCESS. This proxy
+    // MAVERICKS_BACKPORT: GPUProcessConnection (for defaultTimeout) only exists with GPU_PROCESS. This proxy
     // talks to the GPU-process capture backend; on a no-GPU build capture is in-process and this proxy
     // is unused, so just report not-power-efficient.
     auto syncResult = protect(m_connection)->sendSync(Messages::UserMediaCaptureManagerProxy::IsPowerEfficient { identifier() }, 0, GPUProcessConnection::defaultTimeout);

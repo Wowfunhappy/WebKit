@@ -140,7 +140,7 @@ void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, 
         videoElement.naturalSize()
     };
 
-    // 10.9 backport: videoPresentationManager not available
+    // MAVERICKS_BACKPORT: videoPresentationManager not available
     // protect(protect(webPage())->videoPresentationManager())->setupRemoteLayerHosting(videoElement);
     m_videoLayers.add(layerID, videoElement.identifier());
 
@@ -161,7 +161,7 @@ void RemoteLayerTreeContext::layerWillLeaveContext(PlatformCALayerRemote& layer)
 #if HAVE(AVKIT)
     auto videoLayerIter = m_videoLayers.find(layerID);
     if (videoLayerIter != m_videoLayers.end()) {
-        // 10.9 backport: videoPresentationManager not available
+        // MAVERICKS_BACKPORT: videoPresentationManager not available
         // protect(protect(webPage())->videoPresentationManager())->willRemoveLayerForID(videoLayerIter->value);
         m_videoLayers.remove(videoLayerIter);
     }
@@ -236,7 +236,7 @@ void RemoteLayerTreeContext::animationDidEnd(WebCore::PlatformLayerIdentifier la
         RefPtr { it->value.get() }->animationEnded(key);
 }
 
-// 10.9 backport: ensureRemoteRenderingBackendProxy / gpuProcessConnectionWasDestroyed
+// MAVERICKS_BACKPORT: ensureRemoteRenderingBackendProxy / gpuProcessConnectionWasDestroyed
 // not available in this build (no GPU process); definitions removed.
 
 } // namespace WebKit

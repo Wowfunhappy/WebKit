@@ -87,7 +87,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(CoreIPCNSURLRequest);
 
 CoreIPCNSURLRequest::CoreIPCNSURLRequest(NSURLRequest *request)
 {
-    // 10.9 backport: _webKitPropertyListData is 10.10+. Build a minimal dict
+    // MAVERICKS_BACKPORT: _webKitPropertyListData is 10.10+. Build a minimal dict
     // with just the URL when missing — enough for navigation policy decisions.
     RetainPtr<NSDictionary> dict;
     if ([request respondsToSelector:@selector(_webKitPropertyListData)])
@@ -383,7 +383,7 @@ RetainPtr<id> CoreIPCNSURLRequest::toID() const
         [dict setObject:array.get() forKey:@"contentDispositionEncodingFallbackArray"];
     }
 
-    // 10.9 backport: _initWithWebKitPropertyListData: is a 10.10+ private
+    // MAVERICKS_BACKPORT: _initWithWebKitPropertyListData: is a 10.10+ private
     // selector. Fall back to a plain NSURLRequest with the URL only, which is
     // enough for navigation policy decisions on basic loads (data: URLs etc.).
     if ([NSURLRequest instancesRespondToSelector:@selector(_initWithWebKitPropertyListData:)])

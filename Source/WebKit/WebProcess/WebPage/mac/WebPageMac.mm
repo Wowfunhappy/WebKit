@@ -193,14 +193,14 @@ void WebPage::getPlatformEditorState(LocalFrame& frame, EditorState& result) con
     if (!result.hasPostLayoutAndVisualData())
         return;
 
-    // 10.9 backport: VisibleSelection::toNormalizedRange crashes on a non-content-editable
+    // MAVERICKS_BACKPORT: VisibleSelection::toNormalizedRange crashes on a non-content-editable
     // initial document. The selection-related editor state isn't required for non-editable
     // pages — skip it.
     if (!result.isContentEditable)
         return;
 
     auto& selection = frame.selection().selection();
-    // 10.9 backport: defensive guard before toNormalizedRange — crash on DDG
+    // MAVERICKS_BACKPORT: defensive guard before toNormalizedRange — crash on DDG
     // when selection's anchor nodes are stale/orphaned across page navigation.
     if (selection.isNoneOrOrphaned())
         return;
@@ -1028,7 +1028,7 @@ void WebPage::setAccentColor(WebCore::Color color)
 {
     if (!color.isValid())
         return;
-    // 10.9 backport: -[NSApplication _setAccentColor:] is 10.14+. The Web
+    // MAVERICKS_BACKPORT: -[NSApplication _setAccentColor:] is 10.14+. The Web
     // Inspector frontend's WebPageCreationParameters carry an accent color, so
     // without this guard the inspector's WebContent process throws
     // unrecognized-selector and terminates the moment the inspector opens.

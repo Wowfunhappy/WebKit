@@ -1232,14 +1232,14 @@ uint32_t GenerateCRC32(const uint8_t *data, size_t size)
 uint32_t InitCRC32()
 {
     // To get required initial value for the crc, need to pass nullptr into buf.
-    // 10.9 backport: crc32_z is zlib 1.2.9+; the system zlib is older. crc32 with a 0 length and
+    // MAVERICKS_BACKPORT: crc32_z is zlib 1.2.9+; the system zlib is older. crc32 with a 0 length and
     // null buffer yields the same initial value.
     return static_cast<uint32_t>(crc32(0u, nullptr, 0u));
 }
 
 uint32_t UpdateCRC32(uint32_t prevCrc32, const uint8_t *data, size_t size)
 {
-    // 10.9 backport: crc32() takes a uInt length (vs crc32_z's size_t); chunk for large inputs.
+    // MAVERICKS_BACKPORT: crc32() takes a uInt length (vs crc32_z's size_t); chunk for large inputs.
     uLong crc = static_cast<uLong>(prevCrc32);
     while (size > 0)
     {

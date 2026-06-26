@@ -25,7 +25,7 @@
 
 #include "WebKitUtilities.h"
 
-// 10.9 backport: these 10-bit/alpha CoreVideo pixel formats were added after 10.9 (10.13+).
+// MAVERICKS_BACKPORT: these 10-bit/alpha CoreVideo pixel formats were added after 10.9 (10.13+).
 // Define their stable FourCC values so the pixel-format mapping compiles; the 10-bit paths
 // are not exercised on 10.9 hardware (frames are 8-bit).
 #import <CoreVideo/CoreVideo.h>

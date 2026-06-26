@@ -1,4 +1,4 @@
-// 10.9 backport: minimal but functional IOSurface wrapper. Modern WebKit's
+// MAVERICKS_BACKPORT: minimal but functional IOSurface wrapper. Modern WebKit's
 // version is heavily integrated with newer IOKit features (volatility,
 // EDR/HDR, lossless compression, sharing primitives) that don't all exist on
 // 10.9. We implement just enough for layer backing-store allocation +
@@ -153,7 +153,7 @@ std::unique_ptr<IOSurface> IOSurface::createFromSurface(IOSurfaceRef surface, st
     return std::unique_ptr<IOSurface>(new IOSurface(surface, WTF::move(colorSpace)));
 }
 
-// 10.9 backport: createFromImage was dropped from this tree but is still called by
+// MAVERICKS_BACKPORT: createFromImage was dropped from this tree but is still called by
 // WebViewImpl (swipe-navigation snapshots) and RemoteMediaPlayerProxy. Recreate the
 // upstream behavior: allocate an sRGB IOSurface the size of the image and paint the
 // CGImage into it through the surface's CG context.
@@ -193,7 +193,7 @@ WTF::MachSendRight IOSurface::createSendRight() const
     return WTF::MachSendRight::adopt(p);
 }
 
-// 10.9 backport: override the libpolyfill.a stub for IOSurface::createImage. The polyfill stub
+// MAVERICKS_BACKPORT: override the libpolyfill.a stub for IOSurface::createImage. The polyfill stub
 // calls CGIOSurfaceContextCreateImage, which fails ("invalid context ... serious error") on the
 // CGBitmapContext returned by createPlatformContext below — every page paint logged the spam, and
 // the returned CGImageRef was null so consumers got blank images. Use CGBitmapContextCreateImage
@@ -303,7 +303,7 @@ RetainPtr<id> IOSurface::asCAIOSurfaceLayerContents() const
 #ifdef __OBJC__
     if (!m_surface)
         return nullptr;
-    // 10.9 backport: CALayer.contents = IOSurface is unreliable on Mavericks. Snapshot
+    // MAVERICKS_BACKPORT: CALayer.contents = IOSurface is unreliable on Mavericks. Snapshot
     // the IOSurface's pixel data into a CGImage and return that instead.
     if (IOSurfaceLock(m_surface.get(), kIOSurfaceLockReadOnly, nullptr) != kIOReturnSuccess)
         return nullptr;
@@ -319,7 +319,7 @@ RetainPtr<id> IOSurface::asCAIOSurfaceLayerContents() const
         WTF::fastFree(info);
     }));
     auto cs = m_colorSpace.value_or(DestinationColorSpace::SRGB());
-    // 10.9 backport: cs.platformColorSpace() can return NULL on Mavericks (CG fails to
+    // MAVERICKS_BACKPORT: cs.platformColorSpace() can return NULL on Mavericks (CG fails to
     // construct named SRGB). Fall back to sRGBColorSpaceSingleton so CGImageCreate
     // doesn't return NULL → blank tile → invisible content.
     RetainPtr<CGColorSpaceRef> csRef = cs.platformColorSpace();

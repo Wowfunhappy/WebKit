@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// 10.9 backport status: minimal implementation. NSImmediateActionGestureRecognizer
+// MAVERICKS_BACKPORT status: minimal implementation. NSImmediateActionGestureRecognizer
 // (force-touch) is a 10.10+ trackpad feature that does not exist on 10.9 hardware,
 // so this controller is inert here: it owns its members and answers queries safely
 // but performs no force-touch UI. The class keeps real ObjC metadata in

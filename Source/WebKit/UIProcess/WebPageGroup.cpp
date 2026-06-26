@@ -54,7 +54,7 @@ Ref<WebPageGroup> WebPageGroup::create(const String& identifier)
     return adoptRef(*new WebPageGroup(identifier));
 }
 
-// 10.9 backport: resolve a page group received as an API::PageGroupHandle
+// MAVERICKS_BACKPORT: resolve a page group received as an API::PageGroupHandle
 // from the WebContent process (WebProcessProxy::transformHandlesToObjects).
 RefPtr<WebPageGroup> WebPageGroup::get(PageGroupIdentifier pageGroupID)
 {

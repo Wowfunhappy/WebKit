@@ -88,7 +88,7 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(GraphicsContextGLCocoa);
 // This variable is accessed in single-threaded manner.
 // For WK1, this variable is accessed from multiple threads but always sequentially.
 static GraphicsContextGLANGLE* currentContext;
-// 10.9 backport: WebKit's "main thread" here is serviced by a rotating pool of libdispatch
+// MAVERICKS_BACKPORT: WebKit's "main thread" here is serviced by a rotating pool of libdispatch
 // worker threads (see MainThreadSharedTimerCF / ThreadTimers). ANGLE's CGL backend binds the
 // EGL/CGL context to the *calling* OS thread's TLS, so the process-wide `currentContext` cache
 // above is not sufficient: if a GL call (e.g. WebGL context teardown on navigation) lands on a
@@ -125,7 +125,7 @@ static bool platformSupportsMetal()
     return true;
 }
 #else
-// 10.9 backport: ANGLE uses its OpenGL (CGL) backend; there is no Metal device gate.
+// MAVERICKS_BACKPORT: ANGLE uses its OpenGL (CGL) backend; there is no Metal device gate.
 static bool platformSupportsMetal()
 {
     return true;
@@ -154,13 +154,13 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
 #if WK_WEBGL_METAL_BACKEND
     displayAttributes.append(EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE);
 #else
-    // 10.9 backport: ANGLE's OpenGL (CGL) backend.
+    // MAVERICKS_BACKPORT: ANGLE's OpenGL (CGL) backend.
     displayAttributes.append(EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE);
 #endif
     // These properties are defined for EGL_ANGLE_power_preference as EGLContext attributes,
     // but Metal backend uses EGLDisplay attributes.
     //
-    // 10.9 backport: EGL_POWER_PREFERENCE_ANGLE and EGL_PLATFORM_ANGLE_DEVICE_ID_*_ANGLE are
+    // MAVERICKS_BACKPORT: EGL_POWER_PREFERENCE_ANGLE and EGL_PLATFORM_ANGLE_DEVICE_ID_*_ANGLE are
     // Metal-backend EGLDisplay attributes (power preference / IOKit GPU registry id for multi-GPU
     // selection). ANGLE's OpenGL/CGL backend does NOT advertise EGL_ANGLE_power_preference /
     // EGL_ANGLE_platform_angle_device_id, so passing them made eglGetPlatformDisplay's validation
@@ -351,7 +351,7 @@ bool GraphicsContextGLCocoa::platformInitializeExtensions()
     // For creating the EGL surface from an IOSurface.
     if (!enableExtensionsImpl({ "GL_EXT_texture_format_BGRA8888"_s }))
         return false;
-    // 10.9 backport: the CGL/desktop-GL backend backs the WebGL drawing buffer with an
+    // MAVERICKS_BACKPORT: the CGL/desktop-GL backend backs the WebGL drawing buffer with an
     // IOSurface bound as a GL_TEXTURE_RECTANGLE_ANGLE texture (EGL_TEXTURE_RECTANGLE_ANGLE).
     // ANGLE's GLES validation rejects GL_TEXTURE_RECTANGLE_ANGLE as a glFramebufferTexture2D
     // target with GL_INVALID_ENUM unless GL_ANGLE_texture_rectangle is enabled in the context,
@@ -719,7 +719,7 @@ RetainPtr<id> GraphicsContextGLCocoa::newSharedEventWithMachPort(mach_port_t sha
 #if WK_WEBGL_METAL_BACKEND
     return WebCore::newSharedEventWithMachPort(m_displayObj, sharedEventSendRight);
 #else
-    // 10.9 backport: Metal shared events are unavailable with the OpenGL (CGL) backend.
+    // MAVERICKS_BACKPORT: Metal shared events are unavailable with the OpenGL (CGL) backend.
     UNUSED_PARAM(sharedEventSendRight);
     return nullptr;
 #endif
@@ -744,7 +744,7 @@ GCGLExternalSync GraphicsContextGLCocoa::createExternalSync(ExternalSyncSource&&
     m_eglSyncs.add(newName, eglSync);
     return newName;
 #else
-    // 10.9 backport: cross-process Metal shared-event sync is unused with the in-process OpenGL backend.
+    // MAVERICKS_BACKPORT: cross-process Metal shared-event sync is unused with the in-process OpenGL backend.
     UNUSED_PARAM(syncEvent);
     return { };
 #endif
@@ -796,7 +796,7 @@ void* GraphicsContextGLCocoa::createMetalSharedEventEGLSync(id sharedEvent, uint
     };
     return EGL_CreateSync(display, EGL_SYNC_METAL_SHARED_EVENT_ANGLE, syncAttributes);
 #else
-    // 10.9 backport: no Metal shared-event EGL sync with the OpenGL (CGL) backend.
+    // MAVERICKS_BACKPORT: no Metal shared-event EGL sync with the OpenGL (CGL) backend.
     UNUSED_PARAM(sharedEvent);
     UNUSED_PARAM(signalValue);
     return nullptr;
@@ -978,7 +978,7 @@ void GraphicsContextGLCocoa::insertFinishedSignalOrInvoke(Function<void()> signa
     bool result = EGL_DestroySync(platformDisplay(), eglSync);
     ASSERT_UNUSED(result, result);
 #else
-    // 10.9 backport: with the in-process OpenGL (CGL) backend there is no cross-process GPU
+    // MAVERICKS_BACKPORT: with the in-process OpenGL (CGL) backend there is no cross-process GPU
     // completion event; flush+finish to ensure rendering is done, then signal synchronously.
     GL_Finish();
     signal();

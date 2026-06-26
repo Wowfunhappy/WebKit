@@ -73,7 +73,7 @@ RemoteScrollingCoordinator::~RemoteScrollingCoordinator()
 
 void RemoteScrollingCoordinator::scheduleTreeStateCommit()
 {
-    // 10.9 backport: when invoked synchronously from RenderLayer destruction
+    // MAVERICKS_BACKPORT: when invoked synchronously from RenderLayer destruction
     // during page-navigation render-tree teardown, the thread-local timer heap
     // can be in a corrupt state, causing triggerRenderingUpdate to crash inside
     // TimerBase::heapInsert. Defer via RunLoop::main().dispatch so the trigger

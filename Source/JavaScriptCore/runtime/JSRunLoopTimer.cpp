@@ -75,7 +75,7 @@ void JSRunLoopTimer::Manager::timerDidFire()
             MonotonicTime now = MonotonicTime::now();
             for (auto& entry : m_mapping) {
                 PerVMData& data = *entry.value;
-                // 10.9 backport: don't raw-compare to RunLoop::currentSingleton(). dispatch_main()
+                // MAVERICKS_BACKPORT: don't raw-compare to RunLoop::currentSingleton(). dispatch_main()
                 // pthread_exits the real main thread, so the main RunLoop's timer fires on a transient
                 // dispatch worker whose currentSingleton() differs from the VM's (main) RunLoop. Use
                 // isCurrent(), which treats "running on the main GCD queue" as the main RunLoop —

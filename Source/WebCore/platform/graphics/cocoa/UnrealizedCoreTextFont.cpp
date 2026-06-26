@@ -96,7 +96,7 @@ void UnrealizedCoreTextFont::addAttributesForOpticalSizing(CFMutableDictionaryRe
 
 static inline void appendOpenTypeFeature(CFMutableArrayRef features, const FontFeature& feature)
 {
-    // 10.9 backport: kCTFontOpenTypeFeatureTag/kCTFontOpenTypeFeatureValue are 10.10+
+    // MAVERICKS_BACKPORT: kCTFontOpenTypeFeatureTag/kCTFontOpenTypeFeatureValue are 10.10+
     // CoreText constants. Our polyfill exposes them as stub function symbols, so
     // reading them as CFStringRef returns garbage. Building a feature dictionary with
     // those keys then crashes inside CTFontCreateWithFontDescriptor when CT processes
@@ -296,7 +296,7 @@ void UnrealizedCoreTextFont::modifyFromContext(const FontDescription& fontDescri
             m_slope = std::max(std::min(m_slope, static_cast<float>(slopeValue->maximum)), static_cast<float>(slopeValue->minimum));
         if (shouldEnhanceTextLegibility && fontTypeForPreparation == FontTypeForPreparation::SystemFont) {
 #if !PLATFORM(MAC)
-            // 10.9 backport: CTFontGetAccessibilityBoldWeightOfWeight is 10.13+. Polyfill stub
+            // MAVERICKS_BACKPORT: CTFontGetAccessibilityBoldWeightOfWeight is 10.13+. Polyfill stub
             // returns garbage CGFloat (only zeros RAX, leaves XMM0 dirty). Skip the bold-weight
             // adjustment for accessibility on Mac. Pages don't expect this on 10.9 anyway.
             auto ctWeight = denormalizeCTWeight(m_weight);

@@ -56,7 +56,7 @@ namespace WebKit {
 
 class WebProcessProxy;
 class UserMediaCaptureManagerProxySourceProxy;
-// 10.9 backport: GPU-process-only type; the include above is empty when !GPU_PROCESS. Only used here
+// MAVERICKS_BACKPORT: GPU-process-only type; the include above is empty when !GPU_PROCESS. Only used here
 // as a pointer return (ConnectionProxy::remoteVideoFrameObjectHeap, default nullptr), so forward-decl suffices.
 class RemoteVideoFrameObjectHeap;
 

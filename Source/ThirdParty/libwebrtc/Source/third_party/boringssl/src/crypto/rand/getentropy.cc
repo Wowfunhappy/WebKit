@@ -27,7 +27,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-// 10.9 backport: getentropy() and <sys/random.h> are macOS 10.12+. Provide getentropy() via
+// MAVERICKS_BACKPORT: getentropy() and <sys/random.h> are macOS 10.12+. Provide getentropy() via
 // arc4random_buf (macOS 10.7+, a CSPRNG). Version-guarded so newer SDKs keep their own.
 #if defined(__APPLE__)
 #include <Availability.h>

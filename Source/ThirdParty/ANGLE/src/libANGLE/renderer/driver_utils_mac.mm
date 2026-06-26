@@ -23,7 +23,7 @@ OSVersion GetMacOSVersion()
     OSVersion result;
 
 #if !defined(MAC_OS_X_VERSION_10_10) || (defined(MAC_OS_X_VERSION_MAX_ALLOWED) && MAC_OS_X_VERSION_MAX_ALLOWED < 101000)
-    // 10.9 backport: -[NSProcessInfo operatingSystemVersion] / NSOperatingSystemVersion are 10.10+.
+    // MAVERICKS_BACKPORT: -[NSProcessInfo operatingSystemVersion] / NSOperatingSystemVersion are 10.10+.
     SInt32 major = 10, minor = 0, bugfix = 0;
     Gestalt(gestaltSystemVersionMajor, &major);
     Gestalt(gestaltSystemVersionMinor, &minor);

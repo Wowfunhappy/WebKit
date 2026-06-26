@@ -24,7 +24,7 @@
 #    include "common/gl/cgl/FunctionsCGL.h"
 #endif
 
-// 10.9 backport SDK shims: these identifiers were introduced in newer SDKs.
+// MAVERICKS_BACKPORT SDK shims: these identifiers were introduced in newer SDKs.
 #if !defined(MAC_OS_VERSION_12_0) || (defined(MAC_OS_X_VERSION_MAX_ALLOWED) && MAC_OS_X_VERSION_MAX_ALLOWED < 120000)
 #    define kIOMainPortDefault kIOMasterPortDefault
 #endif

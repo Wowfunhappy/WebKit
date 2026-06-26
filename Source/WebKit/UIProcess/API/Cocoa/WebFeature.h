@@ -1,5 +1,5 @@
 /*
- * 10.9 backport: WebFeature.h provides the WebFeatureStatus / WebFeatureCategory
+ * MAVERICKS_BACKPORT: WebFeature.h provides the WebFeatureStatus / WebFeatureCategory
  * enums that _WKFeature.h (the experimental/internal feature-flag API) exposes.
  * Upstream generates/ships this header; it was absent from this tree (referenced
  * via <WebKit/WebFeature.h> but never present). The enumerators are not

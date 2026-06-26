@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// 10.9 backport status: minimal implementation. The PDF HUD is the floating
+// MAVERICKS_BACKPORT status: minimal implementation. The PDF HUD is the floating
 // zoom/save overlay shown over inline PDFs by the PDF plugin. This inert view
 // is created and laid out by WebViewImpl but draws nothing and handles no
 // clicks (handleMouse* return NO so events fall through to the page). Real ObjC

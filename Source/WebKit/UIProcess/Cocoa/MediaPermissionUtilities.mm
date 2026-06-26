@@ -242,7 +242,7 @@ void requestAVCaptureAccessForType(MediaPermissionType type, CompletionHandler<v
 {
     ASSERT(isMainRunLoop());
 
-    // 10.9 backport: 10.9 has no TCC privacy layer, so OS-level camera/mic access is unrestricted. The
+    // MAVERICKS_BACKPORT: 10.9 has no TCC privacy layer, so OS-level camera/mic access is unrestricted. The
     // 10.14+ -[AVCaptureDevice requestAccessForMediaType:completionHandler:] gate is not meaningful here
     // (and on this VM resolves to a denying status), so report access as granted; app-level consent is
     // handled by the WKPageUIClient auto-grant.
@@ -252,7 +252,7 @@ void requestAVCaptureAccessForType(MediaPermissionType type, CompletionHandler<v
 
 MediaPermissionResult checkAVCaptureAccessForType(MediaPermissionType type)
 {
-    // 10.9 backport: 10.9 has no TCC privacy layer, so OS-level camera/mic access is unrestricted (app-level
+    // MAVERICKS_BACKPORT: 10.9 has no TCC privacy layer, so OS-level camera/mic access is unrestricted (app-level
     // consent is handled by the WKPageUIClient auto-grant). The 10.14+ authorizationStatusForMediaType: gate
     // resolves at runtime on this VM and returns a non-Authorized status, which denied getUserMedia with
     // NotAllowedError (reason=PermissionDenied at requestSystemValidation). Report Granted unconditionally so

@@ -72,7 +72,7 @@ void PDFDocumentImage::drawPDFPage(GraphicsContext& context)
     // on the context's state stack. (<rdar://35738181>)
     bool allowsSubpixelPositioning = CGContextGetAllowsFontSubpixelPositioning(context.platformContext());
 
-    // 10.9 backport: -[PDFPage drawWithBox:toContext:] is 10.13+. On 10.9 only -[PDFPage
+    // MAVERICKS_BACKPORT: -[PDFPage drawWithBox:toContext:] is 10.13+. On 10.9 only -[PDFPage
     // drawWithBox:] exists (uses the current NSGraphicsContext). Bridge by setting up an
     // NSGraphicsContext temporarily, or — much simpler and crash-free — drop down to the raw
     // CGPDFPage and use CGContextDrawPDFPage (which we proved works for inspector toolbar

@@ -179,7 +179,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::registerMediaEngine(MediaEngineRegist
 
 bool MediaPlayerPrivateMediaSourceAVFObjC::isAvailable()
 {
-    // 10.9 backport: the modern engine normally requires AVStreamDataParser,
+    // MAVERICKS_BACKPORT: the modern engine normally requires AVStreamDataParser,
     // AVSampleBufferAudioRenderer and AVSampleBufferRenderSynchronizer — all ABSENT on 10.9.
     // The custom pipeline replaces them: SourceBufferParserISOBMFF (software fMP4 demux) instead of
     // AVStreamDataParser, and AudioVideoRendererAVFObjC drives AVSampleBufferDisplayLayer (PRESENT

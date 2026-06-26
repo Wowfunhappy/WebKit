@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// 10.9 backport status: minimal implementation. The full element-fullscreen
+// MAVERICKS_BACKPORT status: minimal implementation. The full element-fullscreen
 // controller depends on VideoPresentationManagerProxy and a number of 10.10+
 // AppKit/animation APIs. This inert controller keeps real ObjC metadata in
 // WebKit.framework and — crucially — completes every fullscreen request handshake

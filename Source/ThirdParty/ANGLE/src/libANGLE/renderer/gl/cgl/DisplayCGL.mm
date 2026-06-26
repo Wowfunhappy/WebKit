@@ -188,7 +188,7 @@ egl::Error DisplayCGL::initialize(egl::Display *display)
 
         if (mPixelFormat == nullptr)
         {
-            // 10.9 backport: no accelerated 3.2-Core renderer in the VM. Fall back to the software
+            // MAVERICKS_BACKPORT: no accelerated 3.2-Core renderer in the VM. Fall back to the software
             // (GenericFloat) renderer.
             std::vector<CGLPixelFormatAttribute> swAttribs;
             swAttribs.push_back(kCGLPFAOpenGLProfile);

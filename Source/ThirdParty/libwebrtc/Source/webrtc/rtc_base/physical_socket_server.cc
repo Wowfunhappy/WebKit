@@ -42,7 +42,7 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>  // for TCP_NODELAY
-// 10.9 backport: IP_RECVTOS (receive IP TOS byte, used for ECN) is absent from the 10.9 SDK
+// MAVERICKS_BACKPORT: IP_RECVTOS (receive IP TOS byte, used for ECN) is absent from the 10.9 SDK
 // (added to macOS later). Define it to its macOS value when the SDK doesn't provide it.
 #if !defined(IP_RECVTOS)
 #define IP_RECVTOS 27

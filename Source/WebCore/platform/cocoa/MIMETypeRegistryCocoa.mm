@@ -1,4 +1,4 @@
-// macOS 10.9 backport: real Cocoa MIMETypeRegistry implementations.
+// MAVERICKS_BACKPORT: real Cocoa MIMETypeRegistry implementations.
 //
 // The libpolyfill.a stubs for these four functions returned garbage Strings on 10.9 (corrupt
 // StringImpl -> SIGSEGV 0x100000004 in commonMimeTypesMap() during YouTube's media load). Provide
@@ -59,7 +59,7 @@ Vector<String> MIMETypeRegistry::extensionsForMIMEType(const String& type)
 
 bool MIMETypeRegistry::isApplicationPluginMIMEType(const String& mimeType)
 {
-    // 10.9 backport: "application plug-ins" are user-agent-provided plug-ins (the legacy
+    // MAVERICKS_BACKPORT: "application plug-ins" are user-agent-provided plug-ins (the legacy
     // WebKit-ObjC WebPlugin protocol), as opposed to third-party NPAPI — only these are
     // permitted by SubframeLoader. Safari Web Clips render the clipped page through one such
     // plug-in: application/x-apple-webclip-plug-in (the WebClip.plugin bundled in the

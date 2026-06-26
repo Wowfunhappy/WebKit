@@ -49,7 +49,7 @@ public:
         virtual bool mayBecomeUnresponsive() = 0;
     };
 
-    // 10.9 backport: raised from 3s. On this slow, software-rendered VM, heavy modern sites
+    // MAVERICKS_BACKPORT: raised from 3s. On this slow, software-rendered VM, heavy modern sites
     // (nytimes/theverge/bbc — lots of JS/ads/trackers) legitimately block the WebContent main
     // thread for several seconds while loading. At 3s the UIProcess declared the still-loading
     // process "unresponsive", and Safari then SIGKILLed+reloaded it on the next navigation

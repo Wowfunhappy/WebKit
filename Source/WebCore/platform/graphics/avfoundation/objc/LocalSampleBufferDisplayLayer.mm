@@ -234,7 +234,7 @@ void LocalSampleBufferDisplayLayer::layerStatusDidChange()
     ASSERT(isMainThread());
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     RefPtr client = m_client.get();
-    // 10.9 backport: -[AVSampleBufferDisplayLayer status] is macOS 10.10+ and an unrecognized selector on
+    // MAVERICKS_BACKPORT: -[AVSampleBufferDisplayLayer status] is macOS 10.10+ and an unrecognized selector on
     // 10.9 (crashes). Guard the access; when absent the layer can't report a failed status.
     if (client && [m_sampleBufferDisplayLayer respondsToSelector:@selector(status)] && m_sampleBufferDisplayLayer.get().status == AVQueuedSampleBufferRenderingStatusFailed) {
 ALLOW_DEPRECATED_DECLARATIONS_END
@@ -270,7 +270,7 @@ PlatformLayer* LocalSampleBufferDisplayLayer::rootLayer()
 bool LocalSampleBufferDisplayLayer::didFail() const
 {
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    // 10.9 backport: -[AVSampleBufferDisplayLayer status] is macOS 10.10+; on 10.9 it is an unrecognized
+    // MAVERICKS_BACKPORT: -[AVSampleBufferDisplayLayer status] is macOS 10.10+; on 10.9 it is an unrecognized
     // selector (crashes). When absent, the layer can't report a failed render status, so treat as not-failed.
     return m_didFail || ([m_sampleBufferDisplayLayer respondsToSelector:@selector(status)] && [m_sampleBufferDisplayLayer status] == AVQueuedSampleBufferRenderingStatusFailed);
 ALLOW_DEPRECATED_DECLARATIONS_END
@@ -426,7 +426,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #if !RELEASE_LOG_DISABLED
     constexpr size_t frameCountPerLog = 1800; // log every minute at 30 fps
     if (!(m_frameRateMonitor.frameCount() % frameCountPerLog)) {
-        // 10.9 backport: -[AVSampleBufferDisplayLayer videoPerformanceMetrics] is macOS 10.10+ and an
+        // MAVERICKS_BACKPORT: -[AVSampleBufferDisplayLayer videoPerformanceMetrics] is macOS 10.10+ and an
         // unrecognized selector on 10.9 (this metrics logging crashed the WebContent capture path). Guard it.
         RetainPtr metrics = [m_sampleBufferDisplayLayer respondsToSelector:@selector(videoPerformanceMetrics)] ? [m_sampleBufferDisplayLayer videoPerformanceMetrics] : nil;
         // MAVERICKS_BACKPORT: message the frame-count SPI getters through WebAVVideoPerformanceMetrics

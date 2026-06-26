@@ -25,7 +25,7 @@ macro(find_package package)
 
         set(ICU_INCLUDE_DIRS ${CMAKE_BINARY_DIR}/ICU/Headers)
 
-        # 10.9 backport: the system ICU (libicucore) is ICU 51 and lacks the
+        # MAVERICKS_BACKPORT: the system ICU (libicucore) is ICU 51 and lacks the
         # modern Intl symbols JSC needs (ucfpos_*, udtitvfmt_*, ureldatefmt_*,
         # ulistfmt_*, ...). Link our in-tree ICU 74.2 static libs instead. The
         # bundled ICU headers above are 74.2, matching these libs.

@@ -41,7 +41,7 @@ SOFT_LINK_FRAMEWORK_FOR_SOURCE(PAL, AudioToolbox)
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, AudioToolboxCore, PAL_EXPORT)
 
 #if PLATFORM(MAC)
-// 10.9 backport: on Mavericks, AudioComponent* / AudioUnit* / AudioOutputUnit*
+// MAVERICKS_BACKPORT: on Mavericks, AudioComponent* / AudioUnit* / AudioOutputUnit*
 // functions are exported from AudioUnit.framework, NOT AudioToolbox.framework
 // (that move happened in 10.10). Soft-linking them from AudioToolbox returns
 // NULL function pointers — calling NULL crashes WebContent with "null function

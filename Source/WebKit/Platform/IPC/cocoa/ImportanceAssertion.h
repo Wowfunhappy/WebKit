@@ -33,7 +33,7 @@
 
 namespace IPC {
 
-// macOS 10.9 backport: mach voucher APIs (10.10+) are stubbed out as no-ops.
+// MAVERICKS_BACKPORT: mach voucher APIs (10.10+) are stubbed out as no-ops.
 // IPC importance inheritance just doesn't happen on this OS.
 class ImportanceAssertion {
 public:

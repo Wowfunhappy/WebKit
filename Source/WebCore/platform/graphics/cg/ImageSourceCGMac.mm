@@ -43,7 +43,7 @@ String MIMETypeForImageType(const String& uti)
 
 String preferredExtensionForImageType(const String& uti)
 {
-    // 10.9 backport: UTTypeCopyPreferredTagWithClass may go through a registry
+    // MAVERICKS_BACKPORT: UTTypeCopyPreferredTagWithClass may go through a registry
     // that's not fully initialized in WebContent, raising unrecognized-selector
     // on UTType class. Hardcoded fallbacks for common image UTIs avoid the crash.
     if (uti == "public.png"_s) return "png"_s;

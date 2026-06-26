@@ -187,7 +187,7 @@ static void fontCacheRegisteredFontsChangedNotificationCallback(CFNotificationCe
 
 void FontCache::platformInit()
 {
-    // 10.9 backport: kCTFontManagerRegisteredFontsChangedNotification and
+    // MAVERICKS_BACKPORT: kCTFontManagerRegisteredFontsChangedNotification and
     // kAXSEnhanceTextLegibilityChangedNotification don't exist on 10.9 — our
     // polyfill stubs them as functions, and CFNotificationCenterAddObserver
     // treats the function address as a CFStringRef and crashes. The locale
@@ -404,7 +404,7 @@ FontSelectionCapabilities capabilitiesForFontDescriptor(CTFontDescriptorRef font
     if (!fontDescriptor)
         return { };
 
-    // 10.9 backport: CTFontDescriptorCopyAttribute on matched descriptors keeps
+    // MAVERICKS_BACKPORT: CTFontDescriptorCopyAttribute on matched descriptors keeps
     // crashing inside CFDictionary forwarding (some internal attribute key in
     // the descriptor dict is a stubbed-as-function CT constant). Skip the
     // capability lookup entirely and use defaults.
@@ -838,7 +838,7 @@ RefPtr<Font> FontCache::systemFallbackForCharacterCluster(const FontDescription&
     FontPlatformData alternateFont(substituteFont.get(), platformData.size(), syntheticBold, syntheticOblique, platformData.orientation(), platformData.widthVariant(), platformData.textRenderingMode(), customPlatformData.get());
 
 #if PLATFORM(MAC)
-    // 10.9 backport: when a system fallback font is first created (typically because the page
+    // MAVERICKS_BACKPORT: when a system fallback font is first created (typically because the page
     // contains an em-dash, en-dash, or other punctuation not in the primary font), the very first
     // CTFontDrawGlyphs call on that fallback font causes the surrounding line to render with the
     // bottom half of every glyph clipped. Subsequent uses of the same fallback font render fine.
@@ -926,7 +926,7 @@ ASCIILiteral FontCache::platformAlternateFamilyName(const String& familyName)
 
 void addAttributesForInstalledFonts(CFMutableDictionaryRef attributes, AllowUserInstalledFonts allowUserInstalledFonts)
 {
-    // 10.9 backport: kCTFontUserInstalledAttribute and kCTFontFallbackOptionAttribute
+    // MAVERICKS_BACKPORT: kCTFontUserInstalledAttribute and kCTFontFallbackOptionAttribute
     // are 10.10+ and stubbed as functions in our polyfill — using them as CFStringRef
     // dictionary keys crashes inside CFDictionary's hash callout.
     UNUSED_PARAM(attributes);
@@ -946,7 +946,7 @@ RetainPtr<CTFontRef> createFontForInstalledFonts(CTFontDescriptorRef fontDescrip
 
 static inline bool isFontMatchingUserInstalledFontFallback(CTFontRef font, AllowUserInstalledFonts allowUserInstalledFonts)
 {
-    // 10.9 backport: kCTFontFallbackOptionAttribute is stubbed as a function in our polyfill;
+    // MAVERICKS_BACKPORT: kCTFontFallbackOptionAttribute is stubbed as a function in our polyfill;
     // passing it to CTFontCopyAttribute crashes. Assume the font already matches the request.
     UNUSED_PARAM(font);
     UNUSED_PARAM(allowUserInstalledFonts);
@@ -969,14 +969,14 @@ RetainPtr<CTFontRef> createFontForInstalledFonts(CTFontRef font, AllowUserInstal
 
 void addAttributesForWebFonts(CFMutableDictionaryRef attributes, AllowUserInstalledFonts allowUserInstalledFonts)
 {
-    // 10.9 backport: kCTFontFallbackOptionAttribute is stubbed as a function; skip.
+    // MAVERICKS_BACKPORT: kCTFontFallbackOptionAttribute is stubbed as a function; skip.
     UNUSED_PARAM(attributes);
     UNUSED_PARAM(allowUserInstalledFonts);
 }
 
 RetainPtr<CFSetRef> installedFontMandatoryAttributes(AllowUserInstalledFonts allowUserInstalledFonts)
 {
-    // 10.9 backport: kCTFontUserInstalledAttribute / kCTFontFallbackOptionAttribute
+    // MAVERICKS_BACKPORT: kCTFontUserInstalledAttribute / kCTFontFallbackOptionAttribute
     // are stubbed as functions in our polyfill — adding them to a CFSet calls
     // the (function-pointer-as-CFStringRef)'s hash callout and crashes.
     UNUSED_PARAM(allowUserInstalledFonts);

@@ -225,7 +225,7 @@ bool H264AnnexBBufferToCMSampleBuffer(const uint8_t* annexb_buffer,
   return true;
 }
 
-#ifdef RTC_ENABLE_H265  // 10.9 backport: consistently gate HEVC off (was #ifndef DISABLE_H265)
+#ifdef RTC_ENABLE_H265  // MAVERICKS_BACKPORT: consistently gate HEVC off (was #ifndef DISABLE_H265)
 bool H265CMSampleBufferToAnnexBBuffer(
     CMSampleBufferRef hvcc_sample_buffer,
     bool is_keyframe,
@@ -765,7 +765,7 @@ std::optional<H264Information> ComputeH264InfoFromAVC(const uint8_t* avcData, si
   return { };
 }
 
-#ifdef RTC_ENABLE_H265  // 10.9 backport: consistently gate HEVC off (was #ifndef DISABLE_H265)
+#ifdef RTC_ENABLE_H265  // MAVERICKS_BACKPORT: consistently gate HEVC off (was #ifndef DISABLE_H265)
 CMVideoFormatDescriptionRef CreateH265VideoFormatDescription(
     const uint8_t* annexb_buffer,
     size_t annexb_buffer_size) {
@@ -863,7 +863,7 @@ bool AnnexBBufferReader::SeekToNextNaluOfType(NaluType type) {
   return false;
 }
 
-#ifdef RTC_ENABLE_H265  // 10.9 backport: consistently gate HEVC off (was #ifndef DISABLE_H265)
+#ifdef RTC_ENABLE_H265  // MAVERICKS_BACKPORT: consistently gate HEVC off (was #ifndef DISABLE_H265)
 bool AnnexBBufferReader::SeekToNextNaluOfType(H265::NaluType type) {
   for (; offset_ != offsets_.end(); ++offset_) {
     if (offset_->payload_size < 1)

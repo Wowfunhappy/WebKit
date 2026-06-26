@@ -40,7 +40,7 @@ using namespace Unicode;
 
 #if USE(WEB_THREAD) || PLATFORM(MAC)
 
-// 10.9 backport: on PLATFORM(MAC) the AtomStringTable is shared process-wide across
+// MAVERICKS_BACKPORT: on PLATFORM(MAC) the AtomStringTable is shared process-wide across
 // threads (see Threading.cpp), so concurrent JS parser threads / DOM main thread can
 // all hit the same hash table. Without a real lock, simultaneous rehash() calls
 // corrupt the table (double-free / "pointer being freed was not allocated" abort).

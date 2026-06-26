@@ -1,4 +1,4 @@
-// 10.9 backport: this file was stubbed empty during the backport (its upstream form is
+// MAVERICKS_BACKPORT: this file was stubbed empty during the backport (its upstream form is
 // MediaUtilities.mm, which the backport excluded), which left WebCore::createVideoSampleBuffer()
 // UNDEFINED. getUserMedia camera capture then crashed the WebContent process with a dyld
 // "Symbol not found: WebCore::createVideoSampleBuffer(CVPixelBufferRef, CMTime)" the moment

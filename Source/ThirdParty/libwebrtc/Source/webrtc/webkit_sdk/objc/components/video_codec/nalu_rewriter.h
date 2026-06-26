@@ -113,7 +113,7 @@ class AnnexBBufferReader final {
   // reached the end instead
   bool SeekToNextNaluOfType(H264::NaluType type);
 #ifdef RTC_ENABLE_H265
-  // 10.9 backport: this overload was unguarded but H265::NaluType comes from h265_common.h,
+  // MAVERICKS_BACKPORT: this overload was unguarded but H265::NaluType comes from h265_common.h,
   // which is only #included under RTC_ENABLE_H265 (HEVC is unsupported pre-10.13). Guard to match.
   bool SeekToNextNaluOfType(H265::NaluType type);
 #endif

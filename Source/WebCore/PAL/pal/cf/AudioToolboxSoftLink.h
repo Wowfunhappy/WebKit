@@ -104,7 +104,7 @@ SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioConverterConvertComplexBuf
 #define AudioConverterConvertComplexBuffer softLink_AudioToolbox_AudioConverterConvertComplexBuffer
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioToolbox, AudioConverterFillComplexBuffer, OSStatus, (AudioConverterRef inAudioConverter, AudioConverterComplexInputDataProc inInputDataProc, void* inInputDataProcUserData, UInt32* ioOutputDataPacketSize, AudioBufferList* outOutputData, AudioStreamPacketDescription* outPacketDescription), (inAudioConverter, inInputDataProc, inInputDataProcUserData, ioOutputDataPacketSize, outOutputData, outPacketDescription))
 #define AudioConverterFillComplexBuffer softLink_AudioToolbox_AudioConverterFillComplexBuffer
-// 10.9 backport: AudioComponent* / AudioUnit* / AudioOutputUnit* live in
+// MAVERICKS_BACKPORT: AudioComponent* / AudioUnit* / AudioOutputUnit* live in
 // AudioUnit.framework on Mavericks (moved to AudioToolbox in 10.10). See .cpp for details.
 #if PLATFORM(MAC)
 SOFT_LINK_FUNCTION_FOR_HEADER(PAL, AudioUnit, AudioOutputUnitStart, OSStatus, (AudioUnit ci), (ci))

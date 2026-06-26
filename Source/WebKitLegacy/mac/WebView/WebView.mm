@@ -1320,7 +1320,7 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
 
 @end
 
-// 10.9 backport: LegacyHistoryItemClient::singleton() returns NULL in the Safari/WebKitLegacy process
+// MAVERICKS_BACKPORT: LegacyHistoryItemClient::singleton() returns NULL in the Safari/WebKitLegacy process
 // (WebCore::HistoryItemClient's TZone operator new yields null there), so constructing the page's
 // Ref<HistoryItemClient> ref()'d null → Safari SIGSEGV whenever a legacy WebView is created (e.g. the
 // Preferences NIB). Use this fastMalloc/placement-new-allocated fallback client instead at the WebView
@@ -1341,7 +1341,7 @@ private:
 
 @implementation WebView (WebPrivate)
 
-// 10.9 backport: restore the legacy WebDashboard SPI removed upstream in
+// MAVERICKS_BACKPORT: restore the legacy WebDashboard SPI removed upstream in
 // "Remove Legacy Dashboard Support" (255204). macOS 10.9's DashboardClient
 // (which renders Dashboard widgets, including Safari Web Clips via the
 // WebClip.plugin WebKit-ObjC plug-in) calls -[WebView _setDashboardBehavior:to:]
@@ -1371,7 +1371,7 @@ typedef enum {
     return nil;
 }
 
-// 10.9 backport: Safari's Top Sites view uses BrowserContentViewController which
+// MAVERICKS_BACKPORT: Safari's Top Sites view uses BrowserContentViewController which
 // renders caption labels via CaptionLayer::display(). CaptionLayer calls
 // `+[WebView _shouldUseFontSmoothing]` to pick a smoothing flag. Upstream
 // WebKit (modern) dropped this class method since the global is configured
@@ -1384,7 +1384,7 @@ typedef enum {
     return YES;
 }
 
-// 10.9 backport: Safari's BrowserContentViewController may also set the
+// MAVERICKS_BACKPORT: Safari's BrowserContentViewController may also set the
 // smoothing pref before drawing. Provide the setter as a no-op so the call
 // doesn't raise an unrecognized-selector exception.
 + (void)_setShouldUseFontSmoothing:(BOOL)smoothing
@@ -1586,7 +1586,7 @@ static void WebKitInitializeGamepadProviderIfNecessary()
         makeUniqueRef<WebCore::DummyStorageProvider>(),
         WebCore::DummyModelPlayerProvider::create(),
         WebCore::EmptyBadgeClient::create(),
-        WK109FallbackHistoryItemClient::shared(), // 10.9 backport: was LegacyHistoryItemClient::singleton() (null → SIGSEGV)
+        WK109FallbackHistoryItemClient::shared(), // MAVERICKS_BACKPORT: was LegacyHistoryItemClient::singleton() (null → SIGSEGV)
 #if ENABLE(CONTEXT_MENUS)
         makeUniqueRef<WebContextMenuClient>(self),
 #endif
@@ -1635,7 +1635,7 @@ static void WebKitInitializeGamepadProviderIfNecessary()
 
     _private->inspectorController = LegacyWebPageInspectorController::create(*_private->page);
 #if ENABLE(REMOTE_INSPECTOR)
-    // 10.9 backport: do NOT wire the in-process legacy WebView into the system RemoteInspector.
+    // MAVERICKS_BACKPORT: do NOT wire the in-process legacy WebView into the system RemoteInspector.
     // Safari browses with WKWebView (multi-process); a WebKitLegacy WebView is only instantiated
     // for auxiliary chrome (e.g. the Preferences window NIB unarchives one via initWithCoder:).
     // Remote inspection of such a WebView goes through the webinspectord XPC service, which is
@@ -2516,7 +2516,7 @@ static bool fastDocumentTeardownEnabled()
     if (!_private || _private->closed)
         return;
 
-    // 10.9 backport: on Mac the legacy WebView is intentionally NOT registered as a RemoteInspector
+    // MAVERICKS_BACKPORT: on Mac the legacy WebView is intentionally NOT registered as a RemoteInspector
     // debuggable (see _commonInitializationWithFrameName — webinspectord is absent on 10.9, so
     // creating/registering one faults), so _private->inspectorDebuggable is null here. Guard the
     // teardown: closing such a WebView (e.g. Safari disabling an extension, which closes its WK1
@@ -2766,13 +2766,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (BOOL)allowsRemoteInspection
 {
-    // 10.9 backport: inspectorDebuggable is null on Mac (see -[WebView _close]); report not-inspectable.
+    // MAVERICKS_BACKPORT: inspectorDebuggable is null on Mac (see -[WebView _close]); report not-inspectable.
     return _private->inspectorDebuggable ? _private->inspectorDebuggable->inspectable() : NO;
 }
 
 - (void)setAllowsRemoteInspection:(BOOL)allow
 {
-    // 10.9 backport: inspectorDebuggable is null on Mac (see -[WebView _close]); nothing to configure.
+    // MAVERICKS_BACKPORT: inspectorDebuggable is null on Mac (see -[WebView _close]); nothing to configure.
     if (_private->inspectorDebuggable)
         _private->inspectorDebuggable->setInspectable(allow);
 }
@@ -5173,7 +5173,7 @@ IGNORE_WARNINGS_END
     WebCore::initializeMainThreadIfNeeded();
 
 #if USE(GCRYPT)
-    // 10.9 backport: WebCrypto is backed by libgcrypt on this port. WK1 in-process
+    // MAVERICKS_BACKPORT: WebCrypto is backed by libgcrypt on this port. WK1 in-process
     // hosts (e.g. Dashboard's DashboardClient rendering web clips) never run the
     // WebKit2 process init that calls this, so initialize libgcrypt here too —
     // before any other libgcrypt call — to satisfy its required first-call
@@ -5317,7 +5317,7 @@ IGNORE_WARNINGS_END
     return [[self class] _canShowMIMEType:MIMEType allowingPlugins:NO];
 }
 
-// 10.9 backport: these were stubbed to nil upstream (the WebView-level WebKit-ObjC
+// MAVERICKS_BACKPORT: these were stubbed to nil upstream (the WebView-level WebKit-ObjC
 // plug-in lookup fell out of use). Safari Web Clips need them: WebClip.html's <embed
 // type="application/x-apple-webclip-plug-in"> reaches objectContentType() ->
 // _pluginForMIMEType:; with the stub returning nil the embed never became a plug-in
@@ -10101,7 +10101,7 @@ void WebInstallMemoryPressureHandler(void)
             });
             memoryPressureHandler.install();
 
-            // 10.9 backport: WebKit1 processes (DashboardClient for Safari Web Clips, the QuickLook
+            // MAVERICKS_BACKPORT: WebKit1 processes (DashboardClient for Safari Web Clips, the QuickLook
             // host, etc.) run full live web pages but, unlike WebContent (fixed in #20), have no
             // mechanism that hands the allocator's freed pages back to the OS. Modern WebKit relies
             // on bmalloc's dedicated background Scavenger thread for this; bmalloc's libpas cannot

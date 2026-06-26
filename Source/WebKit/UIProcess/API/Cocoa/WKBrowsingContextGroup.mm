@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// 10.9 backport: minimal restoration of the legacy WebKit2 ObjC
+// MAVERICKS_BACKPORT: minimal restoration of the legacy WebKit2 ObjC
 // WKBrowsingContextGroup, removed upstream. QuickLook's Web2.qldisplay creates
 // one to back its WKView. We wrap a WKPageGroupRef created through the still-
 // present C SPI; WKView pulls it back out via -_pageGroupRef.
@@ -41,7 +41,7 @@
 #import "WKURLCF.h"
 #import "WKUserContentInjectedFrames.h"
 
-// 10.9 backport: convert an NSArray<NSString *> of URL patterns to a WKArray for
+// MAVERICKS_BACKPORT: convert an NSArray<NSString *> of URL patterns to a WKArray for
 // the WKPageGroup user-content C SPI.
 static WKRetainPtr<WKMutableArrayRef> createWKArray(NSArray<NSString *> *array)
 {

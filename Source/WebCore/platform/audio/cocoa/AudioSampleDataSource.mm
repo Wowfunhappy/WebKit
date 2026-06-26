@@ -23,7 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// 10.9 backport: the full AudioSampleDataSource implementation (ring-buffer + resampling
+// MAVERICKS_BACKPORT: the full AudioSampleDataSource implementation (ring-buffer + resampling
 // DSP that carries captured-microphone samples) was previously stubbed, so getUserMedia
 // audio capture did not work. Restored from upstream WebKit; the only change is dropping the
 // unused `writeAhead` from two getFetchTimeBounds() structured bindings to match this tree's
@@ -189,7 +189,7 @@ void AudioSampleDataSource::pushSamples(const AudioStreamBasicDescription& sampl
     ASSERT_UNUSED(sampleDescription, *m_inputDescription == sampleDescription);
 
     WebAudioBufferList list(*m_inputDescription, sampleBuffer);
-    // 10.9 backport: this tree calls the CoreMedia CMSampleBuffer* accessors globally
+    // MAVERICKS_BACKPORT: this tree calls the CoreMedia CMSampleBuffer* accessors globally
     // (they are not PAL-softlinked here, unlike upstream); only toMediaTime lives in PAL.
     pushSamplesInternal(list, PAL::toMediaTime(PAL::CMSampleBufferGetPresentationTimeStamp(sampleBuffer)), PAL::CMSampleBufferGetNumSamples(sampleBuffer), NeedsFlush::No);
 }
@@ -220,7 +220,7 @@ bool AudioSampleDataSource::pullSamples(AudioBufferList& buffer, size_t sampleCo
     if (seekTo != NoSeek)
         m_readCount = seekTo;
 
-    // 10.9 backport: this tree.s CARingBuffer::TimeBounds has only {startFrame, endFrame} (no
+    // MAVERICKS_BACKPORT: this tree.s CARingBuffer::TimeBounds has only {startFrame, endFrame} (no
     // writeAhead member, which upstream added later and which is unused here anyway).
     auto [startFrame, endFrame] = m_ringBuffer->getFetchTimeBounds();
     startFrame = std::max(m_readCount, startFrame);
@@ -311,7 +311,7 @@ bool AudioSampleDataSource::pullAvailableSamplesAsChunks(AudioBufferList& buffer
     if (buffer.mNumberBuffers != m_ringBuffer->channelCount())
         return false;
 
-    // 10.9 backport: this tree.s CARingBuffer::TimeBounds has only {startFrame, endFrame} (no
+    // MAVERICKS_BACKPORT: this tree.s CARingBuffer::TimeBounds has only {startFrame, endFrame} (no
     // writeAhead member, which upstream added later and which is unused here anyway).
     auto [startFrame, endFrame] = m_ringBuffer->getFetchTimeBounds();
     if (m_shouldComputeOutputSampleOffset) {

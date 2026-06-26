@@ -160,7 +160,7 @@ void WebPreferences::platformInitializeStore()
 
 #undef INITIALIZE_DEFAULT_OVERRIDABLE_PREFERENCE_FROM_NSUSERDEFAULTS
 
-        // 10.9 backport (#300): Safari 9 / WebKit1 apps store their content prefs as global "WebKit*"
+        // MAVERICKS_BACKPORT (#300): Safari 9 / WebKit1 apps store their content prefs as global "WebKit*"
         // NSUserDefaults (e.g. WebKitJavaScriptEnabled, set by the Security pane). But the modern WKWebView's
         // WebPreferences is anonymous (empty identifier, keyPrefix "WebKit"), so the persistent read below is
         // gated out by `if (!m_identifier)` and every Preferences-pane toggle silently does nothing. Honor each

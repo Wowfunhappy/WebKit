@@ -153,7 +153,7 @@ void ProgressBarMac::draw(GraphicsContext& context, const FloatRoundedRect& bord
             (__bridge NSString *)kCUIAnimationTimeKey: @(MonotonicTime::now().secondsSinceEpoch().seconds())
         }];
     } else {
-        // 10.9 backport: the CoreUI path above (-[NSAppearance _drawInRect:context:options:]) is 10.14+.
+        // MAVERICKS_BACKPORT: the CoreUI path above (-[NSAppearance _drawInRect:context:options:]) is 10.14+.
         // Draw the real classic Aqua progress bar via Carbon HITheme (HIThemeDrawTrack) — the exact path
         // Mavericks-era WebKit's RenderThemeMac::paintProgressBar used — so the track + fill get the
         // glossy Aqua look instead of a flat approximation.

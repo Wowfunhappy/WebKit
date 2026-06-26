@@ -1,4 +1,4 @@
-// 10.9 backport: WebTransport requires Network.framework features (nw_connection_group_t)
+// MAVERICKS_BACKPORT: WebTransport requires Network.framework features (nw_connection_group_t)
 // from 10.14+. Provide minimal stubs so NetworkConnectionToWebProcess::initializeWebTransportSession
 // links cleanly. WebTransport unsupported in this build — initialize calls back nullopt and create
 // returns nullptr; NetworkConnectionToWebProcess handles those cases.

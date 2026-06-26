@@ -469,7 +469,7 @@ MediaPlayerPrivateAVFoundationObjC::MediaPlayerPrivateAVFoundationObjC(MediaPlay
 
 MediaPlayerPrivateAVFoundationObjC::~MediaPlayerPrivateAVFoundationObjC()
 {
-    // 10.9 backport: AVFoundation calls in our cut-down build can throw ObjC
+    // MAVERICKS_BACKPORT: AVFoundation calls in our cut-down build can throw ObjC
     // exceptions (e.g. -[AVAsset cancelLoading] on a partially-initialised
     // asset). A C++ destructor is implicitly noexcept, so an ObjC exception
     // escaping here would std::terminate the WebContent process during GC
@@ -493,7 +493,7 @@ MediaPlayerPrivateAVFoundationObjC::~MediaPlayerPrivateAVFoundationObjC()
 
         cancelLoad();
     } @catch (NSException *exception) {
-        NSLog(@"[10.9 backport] ~MediaPlayerPrivateAVFoundationObjC swallowed exception: %@", exception);
+        NSLog(@"[MAVERICKS_BACKPORT] ~MediaPlayerPrivateAVFoundationObjC swallowed exception: %@", exception);
     }
 }
 
@@ -537,7 +537,7 @@ void MediaPlayerPrivateAVFoundationObjC::cancelLoad()
         for (NSString *keyName in itemKVOProperties())
             [m_avPlayerItem removeObserver:m_objcObserver.get() forKeyPath:keyName];
 
-        // 10.9 backport: tracksDidChange normally tears down per-track KVO
+        // MAVERICKS_BACKPORT: tracksDidChange normally tears down per-track KVO
         // observers, but on player teardown the playerItem is invalidated before
         // a fresh tracksDidChange runs. AVF then dealloc's the tracks while our
         // observers are still attached, producing a stream of NSKVODeallocate
@@ -562,7 +562,7 @@ void MediaPlayerPrivateAVFoundationObjC::cancelLoad()
 
         [m_avPlayer replaceCurrentItemWithPlayerItem:nil];
 #if !PLATFORM(IOS_FAMILY)
-        // 10.9 backport: -[AVPlayer setOutputContext:] is 10.13+ (AirPlay output
+        // MAVERICKS_BACKPORT: -[AVPlayer setOutputContext:] is 10.13+ (AirPlay output
         // routing). Without a guard, AVPlayer teardown on a page with audio
         // logs "unrecognized selector" or worse, crashes mid-cleanup. Skip when
         // the selector isn't there.
@@ -718,7 +718,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerLayer()
             sz = FloatSize(400, 300); // last-resort fallback
     }
     m_videoLayerManager->setVideoLayer(m_videoLayer.get(), sz);
-    // 10.9 backport: per-second NSLog poll for 6s used to debug video readyForDisplay.
+    // MAVERICKS_BACKPORT: per-second NSLog poll for 6s used to debug video readyForDisplay.
     // Removed — Discord (and any page with many <video> tags) creates dozens of
     // layers, blasting syslog with hundreds of lines per page load. The video
     // pipeline state machine reaches "playing" reliably; visual frames are a
@@ -960,7 +960,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
     if (m_avAsset)
         return;
 
-    // 10.9 backport: SoftLinked POINTER constants return nil when the symbol isn't
+    // MAVERICKS_BACKPORT: SoftLinked POINTER constants return nil when the symbol isn't
     // present in the loaded AVFoundation. Setting a nil key on NSMutableDictionary
     // throws NSInvalidArgumentException → SIGABRT. Guard every constant key below.
     if (AVURLAssetReferenceRestrictionsKey)
@@ -1007,7 +1007,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
     auto outOfBandTrackSources = player->outOfBandTrackSources();
     if (!outOfBandTrackSources.isEmpty()) {
         auto outOfBandTracks = createNSArray(outOfBandTrackSources, [](auto& trackSource) -> RetainPtr<NSDictionary> {
-            // 10.9 backport: the AVOutOfBandAlternateTrack* constant keys are 10.10+ and SoftLink to nil
+            // MAVERICKS_BACKPORT: the AVOutOfBandAlternateTrack* constant keys are 10.10+ and SoftLink to nil
             // on this OS. An @{...} literal with a nil key (or value) throws NSInvalidArgumentException →
             // uncaught → std::terminate → SIGILL. This was crashing the WebContent on autoplay videos
             // that carry <track> caption sources (e.g. nytimes.com). Build defensively: insert only
@@ -1818,7 +1818,7 @@ void MediaPlayerPrivateAVFoundationObjC::setPlayerRate(double rate, std::optiona
 
     setShouldObserveTimeControlStatus(true);
 
-    // 10.9 backport: AVPlayer.timeControlStatus is 10.12+, so it can't be observed and
+    // MAVERICKS_BACKPORT: AVPlayer.timeControlStatus is 10.12+, so it can't be observed and
     // m_cachedTimeControlStatus stays Paused forever. currentTime() only advances via the
     // wall-clock extrapolation when the cached status is Playing, so currentTime would stay
     // pinned at 0 during playback. Synthesize the status from the requested rate.
@@ -1854,7 +1854,7 @@ double MediaPlayerPrivateAVFoundationObjC::seekableTimeRangesLastModifiedTime() 
 {
 #if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
     if (!m_cachedSeekableTimeRangesLastModifiedTime) {
-        // 10.9 backport: -[AVPlayerItem seekableTimeRangesLastModifiedTime] is 10.13+ SPI; sending it on
+        // MAVERICKS_BACKPORT: -[AVPlayerItem seekableTimeRangesLastModifiedTime] is 10.13+ SPI; sending it on
         // Mavericks throws unrecognized-selector and kills WebContent (e.g. on The Verge video).
         if ([m_avPlayerItem respondsToSelector:@selector(seekableTimeRangesLastModifiedTime)])
             m_cachedSeekableTimeRangesLastModifiedTime = [m_avPlayerItem seekableTimeRangesLastModifiedTime];
@@ -1871,7 +1871,7 @@ double MediaPlayerPrivateAVFoundationObjC::liveUpdateInterval() const
 {
 #if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
     if (!m_cachedLiveUpdateInterval) {
-        // 10.9 backport: -[AVPlayerItem liveUpdateInterval] is 10.13+ SPI (same crash class as above).
+        // MAVERICKS_BACKPORT: -[AVPlayerItem liveUpdateInterval] is 10.13+ SPI (same crash class as above).
         if ([m_avPlayerItem respondsToSelector:@selector(liveUpdateInterval)])
             m_cachedLiveUpdateInterval = [m_avPlayerItem liveUpdateInterval];
         else
@@ -2374,7 +2374,7 @@ bool MediaPlayerPrivateAVFoundationObjC::shouldWaitForLoadingOfResource(AVAssetR
 #endif
 #endif
 
-    // 10.9 backport: route blob: and data: media data through WebKit's network
+    // MAVERICKS_BACKPORT: route blob: and data: media data through WebKit's network
     // stack via WebCoreAVFResourceLoader.
     if (scheme == "blob"_s || scheme == "data"_s) {
         ensureAVFResourceLoader(avRequest);
@@ -4157,7 +4157,7 @@ std::optional<VideoPlaybackQualityMetrics> MediaPlayerPrivateAVFoundationObjC::v
 #else
 ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
 
-    // 10.9 backport: -[AVPlayerLayer videoPerformanceMetrics] is 10.10+. On 10.9 the layer does not
+    // MAVERICKS_BACKPORT: -[AVPlayerLayer videoPerformanceMetrics] is 10.10+. On 10.9 the layer does not
     // respond, and an unguarded call raises doesNotRecognizeSelector → uncaught NSException →
     // std::terminate (crashed WebContent on e.g. YouTube's getVideoPlaybackQuality()).
     if (![videoLayer respondsToSelector:@selector(videoPerformanceMetrics)])
@@ -4594,7 +4594,7 @@ NSArray* playerKVOProperties()
         auto seekableTimeRanges = RetainPtr<NSArray> { newValue };
 
         RefPtr { m_backgroundQueue }->dispatch([seekableTimeRanges = WTF::move(seekableTimeRanges), playerItem = RetainPtr<AVPlayerItem> { object }, queueTaskOnEventLoopWithPlayer] mutable {
-            // 10.9 backport: both selectors are 10.13+ AVPlayerItem SPI; sending them on Mavericks
+            // MAVERICKS_BACKPORT: both selectors are 10.13+ AVPlayerItem SPI; sending them on Mavericks
             // throws unrecognized-selector and crashes WebContent on sites with live/seekable video.
             NSTimeInterval seekableTimeRangesLastModifiedTime = [playerItem respondsToSelector:@selector(seekableTimeRangesLastModifiedTime)] ? [playerItem seekableTimeRangesLastModifiedTime] : 0;
             NSTimeInterval liveUpdateInterval = [playerItem respondsToSelector:@selector(liveUpdateInterval)] ? [playerItem liveUpdateInterval] : 0;
@@ -4777,7 +4777,7 @@ NSArray* playerKVOProperties()
         return NO;
 
     String scheme = loadingRequest.request.URL.scheme;
-    // 10.9 backport: WebCoreAVFResourceLoader is fully compiled into this build.
+    // MAVERICKS_BACKPORT: WebCoreAVFResourceLoader is fully compiled into this build.
     // Intercept the encrypted-media key schemes and blob:/data: media; everything
     // else is dispatched into shouldWaitForLoadingOfResource below.
     if (scheme != "skd"_s && scheme != "clearkey"_s && scheme != "blob"_s && scheme != "data"_s)

@@ -218,7 +218,7 @@ static RetainPtr<ViewType> viewForIconImage(_WKWarningView *warningView)
         shouldSetTint = YES;
     });
 #if PLATFORM(MAC)
-    // 10.9 backport: +[NSImage imageWithSystemSymbolName:...] and NSImageSymbolConfiguration are 11.0+. Return early — caller falls through to a text-only warning.
+    // MAVERICKS_BACKPORT: +[NSImage imageWithSystemSymbolName:...] and NSImageSymbolConfiguration are 11.0+. Return early — caller falls through to a text-only warning.
     if (![NSImage respondsToSelector:@selector(imageWithSystemSymbolName:accessibilityDescription:)])
         return nil;
     RetainPtr view = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:symbolName accessibilityDescription:nil]];

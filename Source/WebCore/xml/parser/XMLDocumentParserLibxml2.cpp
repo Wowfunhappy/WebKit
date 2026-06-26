@@ -93,7 +93,7 @@
 
 namespace WebCore {
 
-// 10.9 backport: 10.9 libxml2 (`__xmlRaiseError + 1294`) crashes inside xmlParseChunk
+// MAVERICKS_BACKPORT: 10.9 libxml2 (`__xmlRaiseError + 1294`) crashes inside xmlParseChunk
 // when parsing certain SVG/XML payloads (e.g. WhatsApp Web). The crash is in libxml2
 // itself, beyond our process-wide xmlSetGenericErrorFunc/xmlSetStructuredErrorFunc
 // no-ops. Wrap each xmlParseChunk call with a SIGSEGV handler that longjmps out so
@@ -647,7 +647,7 @@ void initializeXMLParser()
         defaultEntityLoader = xmlGetExternalEntityLoader();
         RELEASE_ASSERT_WITH_MESSAGE(defaultEntityLoader != WebCore::externalEntityLoader, "XMLDocumentParserScope was created too early");
         libxmlLoaderThread = &Thread::currentSingleton();
-        // 10.9 backport: 10.9 libxml2 (__xmlRaiseError + 1294) crashes when
+        // MAVERICKS_BACKPORT: 10.9 libxml2 (__xmlRaiseError + 1294) crashes when
         // SVG image parse hits a fatal error and tries to call back into a
         // structured error handler that has stale state. Stack Overflow load
         // crashes WebContent in xmlFatalErr → xmlRaiseError. Install a no-op

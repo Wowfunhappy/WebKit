@@ -1,4 +1,4 @@
-// MinimalPageClient — PageClient backing WKView on the macOS 10.9 backport.
+// MinimalPageClient — PageClient backing WKView on the MAVERICKS_BACKPORT.
 //
 // Safari 7 drives WebKit2 through WKView (an NSView), not WKWebView. WKView
 // creates its WebPageProxy with this lightweight PageClient instead of the
@@ -81,7 +81,7 @@
 @end
 #endif
 
-// 10.9 backport: WKView's auto-layout intrinsic-content-size setter, invoked from
+// MAVERICKS_BACKPORT: WKView's auto-layout intrinsic-content-size setter, invoked from
 // intrinsicContentSizeDidChange so Mail's message view sizes to its content.
 @interface NSView (WKViewAutoLayout)
 - (void)_setIntrinsicContentSize:(NSSize)intrinsicContentSize;
@@ -227,7 +227,7 @@ public:
     }
 
     void setPage(WebPageProxy* page) { m_page = page; }
-    // 10.9 backport: when true, a view with no NSWindow still reports itself
+    // MAVERICKS_BACKPORT: when true, a view with no NSWindow still reports itself
     // visible/in-window/active. Set for offscreen render views (Safari's Top Sites
     // snapshot fetcher allocs a WKView at the snapshot size and never adds it to a
     // window) so their WebContent takes a foreground assertion and actually loads,
@@ -892,7 +892,7 @@ void MinimalPageClient::processDidExit()
 { }
 void MinimalPageClient::didRelaunchProcess()
 {
-    // 10.9 backport: hasRunningProcess() returns false after Safari closes the XPC
+    // MAVERICKS_BACKPORT: hasRunningProcess() returns false after Safari closes the XPC
     // bootstrap, so WebPageProxy::loadRequest() relaunches the process on essentially
     // every load. launchProcess() -> finishAttachingToWebProcess() -> initializeWebPage()
     // installs a FRESH drawing area sized 0x0. Visible WKViews recover because Safari
@@ -913,7 +913,7 @@ void MinimalPageClient::preferencesDidChange()
 { }
 void MinimalPageClient::toolTipChanged(const String&, const String&)
 {
-    // 10.9 backport: tooltips (the `title` attribute) are NOT wired up. Wiring them via
+    // MAVERICKS_BACKPORT: tooltips (the `title` attribute) are NOT wired up. Wiring them via
     // NSToolTipManager would need a tracking area / owner; left as a no-op deliberately —
     // a marginal feature, out of scope. (Mouse events now reach WKView through AppKit's
     // normal responder chain, so this is no longer entangled with the cursor path.)
@@ -967,7 +967,7 @@ void MinimalPageClient::didChangeContentSize(const WebCore::IntSize&)
 void MinimalPageClient::startDrag(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<WebCore::ShareableBitmap>&& dragImage, WebCore::IntPoint&& dragImageHotspot)
 { }
 #endif
-// 10.9 backport: hand the OS drag session off to the WKView. Mirrors
+// MAVERICKS_BACKPORT: hand the OS drag session off to the WKView. Mirrors
 // WebViewImpl::startDrag (already 10.9-adapted: NSFilePromiseProvider drag is
 // 10.12+, so a promised-attachment drag is cancelled rather than attempted).
 void MinimalPageClient::startDrag(const WebCore::DragItem& item, WebCore::ShareableBitmap::Handle&& dragImageHandle, const std::optional<WebCore::NodeIdentifier>&, const std::optional<WebCore::FrameIdentifier>&)
@@ -996,7 +996,7 @@ void MinimalPageClient::startDrag(const WebCore::DragItem& item, WebCore::Sharea
 #endif
 void MinimalPageClient::setCursor(const WebCore::Cursor& cursor)
 {
-    // 10.9 backport: WebCore asks the page client to change the cursor (hand over links, I-beam over
+    // MAVERICKS_BACKPORT: WebCore asks the page client to change the cursor (hand over links, I-beam over
     // text, etc.). The previous empty stub meant the cursor never updated under WKView. Mirror
     // PageClientImpl (minus the WebViewImpl-only image-analysis overlay check).
     if (!isViewWindowActive())
@@ -1062,7 +1062,7 @@ void MinimalPageClient::accessibilityWebProcessTokenReceived(std::span<const uin
 { }
 #endif
 #if PLATFORM(COCOA)
-// 10.9 backport: map an AppKit responder scroll selector to its WebCore Editor command.
+// MAVERICKS_BACKPORT: map an AppKit responder scroll selector to its WebCore Editor command.
 // These are the always-enabled (non-editable) scrolling commands that the WebContent-side
 // keypress path (WebPage::executeKeypressCommandsInternal) deliberately does NOT handle and
 // instead forwards to the UIProcess responder fallback. Upstream WKWebView implements these
@@ -1086,7 +1086,7 @@ static String scrollCommandNameForSavedSelector(const String& selector)
 
 bool MinimalPageClient::executeSavedCommandBySelector(const String& selector)
 {
-    // 10.9 backport: upstream WKWebView implements scrollPageDown:/scrollPageUp:/etc. as
+    // MAVERICKS_BACKPORT: upstream WKWebView implements scrollPageDown:/scrollPageUp:/etc. as
     // NSResponder action methods, so when the WebContent Editor doesn't handle a keypress
     // command (e.g. PageDown over non-editable content), the IPC fallback
     // (WebPageProxy::executeSavedCommandBySelector -> _web_superDoCommandBySelector:) lands on
@@ -1378,7 +1378,7 @@ _WKRemoteObjectRegistry *MinimalPageClient::remoteObjectRegistry()
 #if PLATFORM(MAC)
 void MinimalPageClient::intrinsicContentSizeDidChange(const WebCore::IntSize& intrinsicContentSize)
 {
-    // 10.9 backport: forward the web process's laid-out content size to the WKView's
+    // MAVERICKS_BACKPORT: forward the web process's laid-out content size to the WKView's
     // auto-layout SPI so self-sizing embedders (Mail's message viewer) size to fit.
     [m_view _setIntrinsicContentSize:NSMakeSize(intrinsicContentSize.width(), intrinsicContentSize.height())];
 }

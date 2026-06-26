@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// 10.9 backport: minimal restoration of the legacy WebKit2 ObjC WKProcessGroup,
+// MAVERICKS_BACKPORT: minimal restoration of the legacy WebKit2 ObjC WKProcessGroup,
 // removed upstream. QuickLook's Web2.qldisplay creates one to back its WKView.
 // We wrap a WKContextRef (WebProcessPool) created through the still-present C
 // SPI; WKView pulls it back out via -_contextRef (WKProcessGroupInternal.h).

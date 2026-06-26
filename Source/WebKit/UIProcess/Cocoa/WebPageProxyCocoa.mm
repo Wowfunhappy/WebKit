@@ -819,7 +819,7 @@ bool WebPageProxy::updateIconForDirectory(NSFileWrapper *fileWrapper, const Stri
 
 void WebPageProxy::scheduleActivityStateUpdate()
 {
-    // 10.9 backport: -[CATransaction addCommitHandler:forPhase:] is 10.10+.
+    // MAVERICKS_BACKPORT: -[CATransaction addCommitHandler:forPhase:] is 10.10+.
     // Skip the CA transaction integration and dispatch via runloop observer.
     if (m_hasScheduledActivityStateUpdate)
         return;
@@ -1061,7 +1061,7 @@ NSDictionary *WebPageProxy::contentsOfUserInterfaceItem(NSString *userInterfaceI
 #if PLATFORM(MAC)
 bool WebPageProxy::isQuarantinedAndNotUserApproved(const String& fileURLString)
 {
-    // 10.9 backport: -[NSURL initWithString:nil] throws; nil-check.
+    // MAVERICKS_BACKPORT: -[NSURL initWithString:nil] throws; nil-check.
     RetainPtr nsString = fileURLString.createNSString();
     if (!nsString)
         return false;

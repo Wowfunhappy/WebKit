@@ -134,7 +134,7 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color)
     static NeverDestroyed<RetainPtr<NSPopover>> colorPopover;
     if (forceCreation) {
         auto popover = adoptNS([[NSPopover alloc] init]);
-        // 10.9 backport: -[NSPopover _setRequiresCorrectContentAppearance:] is a
+        // MAVERICKS_BACKPORT: -[NSPopover _setRequiresCorrectContentAppearance:] is a
         // 10.10+ private SPI. Send only if responding.
         if ([popover respondsToSelector:@selector(_setRequiresCorrectContentAppearance:)])
             [popover _setRequiresCorrectContentAppearance:YES];
@@ -171,7 +171,7 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color)
     if (RetainPtr owner = dynamic_objc_cast<NSPopoverColorWell>([NSColorWell _exclusiveColorPanelOwner]))
         [owner deactivate];
 
-    // 10.9 backport: NSColorPopoverController is a private AppKit class — its OBJC_CLASS_$ symbol is
+    // MAVERICKS_BACKPORT: NSColorPopoverController is a private AppKit class — its OBJC_CLASS_$ symbol is
     // not exported for linking, so a checked_objc_cast<> (which references [NSColorPopoverController class])
     // forces us to ship a stub class that then duplicates/shadows the real AppKit class at runtime
     // ("implemented in both AppKit and JavaScriptCore"). The popover's contentViewController is an
@@ -180,7 +180,7 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color)
     RetainPtr<NSColorPopoverController> controller = (NSColorPopoverController *)[popover.get() contentViewController];
     controller.get().delegate = self;
 
-    // 10.9 backport: -[NSColorPopoverController topBarMatrixView] (used below to render the
+    // MAVERICKS_BACKPORT: -[NSColorPopoverController topBarMatrixView] (used below to render the
     // suggested-colors top bar) is absent on 10.9 AppKit. Skip the suggestions decoration when it's
     // unavailable — the popover still opens for normal RGB selection, just without the swatch bar.
     if (_suggestedColors && [controller respondsToSelector:@selector(topBarMatrixView)]) {
@@ -248,7 +248,7 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color)
     [_popoverWell setWebDelegate:self];
     [_popoverWell setAction:@selector(didChooseColor:)];
     [_popoverWell setColor:color];
-    // 10.9 backport: -[NSColorWell setSupportsAlpha:] is a newer AppKit SPI absent on 10.9, so
+    // MAVERICKS_BACKPORT: -[NSColorWell setSupportsAlpha:] is a newer AppKit SPI absent on 10.9, so
     // sending it raises an unrecognized-selector exception that terminates the UIProcess. Alpha
     // configurability is non-essential (the picker still edits RGB), so apply it only when supported.
     if ([_popoverWell respondsToSelector:@selector(setSupportsAlpha:)])

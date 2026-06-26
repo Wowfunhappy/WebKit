@@ -29,7 +29,7 @@
 #include "APISerializedScriptValue.h"
 #include "WKSharedAPICast.h"
 
-// 10.9 backport: upstream gutted these functions to return null, but Safari 7
+// MAVERICKS_BACKPORT: upstream gutted these functions to return null, but Safari 7
 // still uses them — WKPageRunJavaScriptInMainFrame results are handed to
 // WKSerializedScriptValueDeserialize ("do JavaScript" returned "missing value"
 // with the null stub), and WKSerializedScriptValueCreate serializes values for

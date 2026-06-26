@@ -1,4 +1,4 @@
-// macOS 10.9 backport: custom AudioVideoRendererAVFObjC.
+// MAVERICKS_BACKPORT: custom AudioVideoRendererAVFObjC.
 //
 // The upstream renderer is built on AVSampleBufferRenderSynchronizer + AVSampleBufferAudioRenderer
 // (both 10.10+, ABSENT on 10.9). This reimplementation drives video through a VideoToolbox

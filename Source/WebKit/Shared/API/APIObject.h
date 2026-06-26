@@ -27,7 +27,7 @@
 
 #include <wtf/Platform.h>
 
-// macOS 10.9 backport: force the full class definition to be compiled.
+// MAVERICKS_BACKPORT: force the full class definition to be compiled.
 // Safari 9.1.3 / clang on this build doesn't have the Swift/ObjC interop module path.
 #if 1 // !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
@@ -74,13 +74,13 @@ public:
         FrameHandle,
         Image,
         PageHandle,
-        PageGroupHandle, // 10.9 backport: page-group carrier in UserData for Safari 7 (removed upstream).
+        PageGroupHandle, // MAVERICKS_BACKPORT: page-group carrier in UserData for Safari 7 (removed upstream).
         ProtectionSpace,
         RenderLayer,
         RenderObject,
         ResourceLoadInfo,
         SecurityOrigin,
-        SerializedScriptValue, // 10.9 backport: legacy WKSerializedScriptValue support for Safari 7.
+        SerializedScriptValue, // MAVERICKS_BACKPORT: legacy WKSerializedScriptValue support for Safari 7.
         SessionState,
         String,
         TargetedElementInfo,
@@ -237,7 +237,7 @@ public:
         BundleNodeHandle,
         BundlePage,
         BundlePageBanner,
-        BundlePageGroup, // 10.9 backport: legacy WKBundlePageGroupRef support for Safari 7.
+        BundlePageGroup, // MAVERICKS_BACKPORT: legacy WKBundlePageGroupRef support for Safari 7.
         BundlePageOverlay,
         BundleRangeHandle,
         BundleScriptWorld,

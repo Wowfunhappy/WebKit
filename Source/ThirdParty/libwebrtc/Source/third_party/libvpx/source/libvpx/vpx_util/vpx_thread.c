@@ -120,7 +120,7 @@ static void init(VPxWorker *const worker) {
   worker->status_ = VPX_WORKER_STATUS_NOT_OK;
 }
 
-// 10.9 backport: renamed from `sync` to avoid collision with POSIX `void sync(void)`
+// MAVERICKS_BACKPORT: renamed from `sync` to avoid collision with POSIX `void sync(void)`
 // declared in <unistd.h> on the 10.9 SDK (clang errors: static-after-non-static + arg count).
 static int sync_worker(VPxWorker *const worker) {
 #if CONFIG_MULTITHREAD

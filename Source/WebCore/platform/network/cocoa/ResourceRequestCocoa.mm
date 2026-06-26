@@ -54,7 +54,7 @@ ResourceRequest::ResourceRequest(NSURLRequest *nsRequest)
 #if ENABLE(APP_PRIVACY_REPORT)
     setIsAppInitiated(nsRequest.attribution == NSURLRequestAttributionDeveloper);
 #endif
-    // 10.9 backport: _privacyProxyFailClosedForUnreachableNonMainHosts is 10.10+ private API.
+    // MAVERICKS_BACKPORT: _privacyProxyFailClosedForUnreachableNonMainHosts is 10.10+ private API.
     if ([nsRequest respondsToSelector:@selector(_privacyProxyFailClosedForUnreachableNonMainHosts)])
         setPrivacyProxyFailClosedForUnreachableNonMainHosts(nsRequest._privacyProxyFailClosedForUnreachableNonMainHosts);
 #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
@@ -255,7 +255,7 @@ static void configureRequestWithData(NSMutableURLRequest *request, const Resourc
     UNUSED_PARAM(data);
 #endif
 
-    // 10.9 backport: _privacyProxyFailClosedForUnreachableNonMainHosts is 10.16+
+    // MAVERICKS_BACKPORT: _privacyProxyFailClosedForUnreachableNonMainHosts is 10.16+
     if ([request respondsToSelector:@selector(_setPrivacyProxyFailClosedForUnreachableNonMainHosts:)])
         request._privacyProxyFailClosedForUnreachableNonMainHosts = data.m_privacyProxyFailClosedForUnreachableNonMainHosts;
 
@@ -278,7 +278,7 @@ void ResourceRequest::doUpdatePlatformRequest()
     else
         nsRequest = adoptNS([[NSMutableURLRequest alloc] initWithURL:url().createNSURL().get()]);
 
-    // 10.9 backport: skip the private CF API calls that crash on 10.9, but
+    // MAVERICKS_BACKPORT: skip the private CF API calls that crash on 10.9, but
     // KEEP the safe NSMutableURLRequest setters for HTTP method, headers,
     // cookies — without these, POST requests have no method/body/headers.
     configureRequestWithData(nsRequest.get(), m_requestData);

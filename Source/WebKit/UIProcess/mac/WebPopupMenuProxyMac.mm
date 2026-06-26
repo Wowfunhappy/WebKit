@@ -96,7 +96,7 @@ void WebPopupMenuProxyMac::populate(const Vector<WebPopupItem>& items, NSFont *f
             }
             if (!items[i].m_language.isEmpty())
                 [attributes setObject:items[i].m_language.createNSString().get() forKey:webkitNSLanguageIdentifierAttributeName];
-            // 10.9 backport: -[NSAttributedString initWithString:nil] throws.
+            // MAVERICKS_BACKPORT: -[NSAttributedString initWithString:nil] throws.
             // <select><option></option></select> has empty text. createNSString
             // returns nil for null/empty WTF::String, so substitute @"".
             RetainPtr itemTextNSString = items[i].m_text.createNSString();
@@ -135,7 +135,7 @@ void WebPopupMenuProxyMac::showPopupMenu(const IntRect& rect, TextDirection text
 
     [m_popup attachPopUpWithFrame:rect inView:m_webView.get().get()];
     [m_popup selectItemAtIndex:selectedIndex];
-    // 10.9 backport: setUserInterfaceLayoutDirection: on NSMenu is 10.11+. NSPopUpButtonCell + NSView are 10.8+.
+    // MAVERICKS_BACKPORT: setUserInterfaceLayoutDirection: on NSMenu is 10.11+. NSPopUpButtonCell + NSView are 10.8+.
     if ([m_popup respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
         [m_popup setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
 

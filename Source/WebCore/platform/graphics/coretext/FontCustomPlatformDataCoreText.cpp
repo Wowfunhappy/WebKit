@@ -133,7 +133,7 @@ static uint32_t sfntTableChecksum(const uint8_t* data, uint32_t length)
     return sum;
 }
 
-// 10.9 backport: macOS 10.9's CoreText predates OpenType 1.8 variable fonts and instances them via its
+// MAVERICKS_BACKPORT: macOS 10.9's CoreText predates OpenType 1.8 variable fonts and instances them via its
 // legacy TrueType-GX path. A single-axis font (lone 'wght' — Inter, Open Sans) instances correctly, but
 // the moment a font carries a SECOND axis ('wdth'/'opsz'/… — Mona Sans / GitHub's UI font, Roboto Flex)
 // the CGFont we build from it (CGFontCreateWithDataProvider, below) produces collapsed/empty glyph
@@ -258,7 +258,7 @@ static RetainPtr<CFDataRef> stripVariationTablesForLegacyCoreText(CFDataRef inpu
 
 RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buffer, const String& itemInCollection)
 {
-    // 10.9 backport: CoreText 10.9's TFontFeatures pipeline crashes on many
+    // MAVERICKS_BACKPORT: CoreText 10.9's TFontFeatures pipeline crashes on many
     // downloaded fonts (DDG and others) — TBaseFont::CopyFeatures calls
     // CreateFontWithFontURL which message-sends to a freed object.
     //
@@ -269,7 +269,7 @@ RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buff
     RetainPtr<CFDataRef> bufferData = buffer.createCFData();
     if (!bufferData)
         return nullptr;
-    // 10.9 backport: neutralize multi-axis variable fonts (see stripVariationTablesForLegacyCoreText).
+    // MAVERICKS_BACKPORT: neutralize multi-axis variable fonts (see stripVariationTablesForLegacyCoreText).
     bufferData = stripVariationTablesForLegacyCoreText(bufferData.get());
     RetainPtr provider = adoptCF(CGDataProviderCreateWithCFData(bufferData.get()));
     if (!provider)

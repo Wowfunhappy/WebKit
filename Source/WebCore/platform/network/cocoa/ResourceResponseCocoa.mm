@@ -106,7 +106,7 @@ CertificateInfo ResourceResponse::platformCertificateInfo(std::span<const std::b
 
     if (trustResultType == kSecTrustResultInvalid) {
 #if defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 101400
-        // 10.9 backport: SecTrustEvaluateWithError() is macOS 10.14+. Fall back to the older
+        // MAVERICKS_BACKPORT: SecTrustEvaluateWithError() is macOS 10.14+. Fall back to the older
         // SecTrustEvaluate() and accept only Proceed/Unspecified results.
         SecTrustResultType reEvaluatedResult = kSecTrustResultInvalid;
         if (SecTrustEvaluate(trust.get(), &reEvaluatedResult) != errSecSuccess
@@ -208,7 +208,7 @@ bool ResourceResponse::platformCompare(const ResourceResponse& a, const Resource
 
 } // namespace WebCore
 
-// 10.9 backport: stop the Networking process from SIGABRTing on EVERY file download.
+// MAVERICKS_BACKPORT: stop the Networking process from SIGABRTing on EVERY file download.
 // Modern WebKit's NetworkDataTaskCocoa::setPendingDownloadLocation does `task._pathToDownloadTaskFile = path`,
 // but NSURLSessionTask on 10.9 has no such private property → -[__NSCFLocalDataTask set_pathToDownloadTaskFile:]
 // is an unrecognized selector → uncaught NSInvalidArgumentException → std::terminate → the whole

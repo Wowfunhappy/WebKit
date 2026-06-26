@@ -105,7 +105,7 @@ void GraphicsContextCG::drawFocusRing(const Path& path, float width, const Color
         return;
 
 #if USE(APPKIT)
-    // 10.9 backport: NSInitializeCGFocusRingStyleForTime is absent from 10.9 AppKit and is supplied
+    // MAVERICKS_BACKPORT: NSInitializeCGFocusRingStyleForTime is absent from 10.9 AppKit and is supplied
     // by libpolyfill, whose CGFocusRingStyle layout doesn't match 10.9 CoreGraphics. The resulting
     // CGStyle from CGStyleCreateFocusRingWithColor does NOT constrain the fill to a ring, so the
     // CGContextFillPath below floods the element's whole shape SOLID — turning any focused control,

@@ -112,7 +112,7 @@ void InnerSpinButtonMac::draw(GraphicsContext& context, const FloatRoundedRect& 
             (__bridge NSString *)kCUIMaskOnlyKey: @NO
         }];
     } else {
-        // 10.9 backport: the CoreUI path above is 10.14+ and nil here, so the stepper would draw
+        // MAVERICKS_BACKPORT: the CoreUI path above is 10.14+ and nil here, so the stepper would draw
         // nothing. Draw the classic Aqua increment/decrement arrows via Carbon HITheme
         // (kThemeIncDecButton) into an offscreen buffer, then composite — same approach as ProgressBarMac.
         if (auto imageBuffer = context.createImageBuffer(FloatSize(logicalRect.width(), logicalRect.height()), deviceScaleFactor)) {

@@ -40,7 +40,7 @@
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WorkQueue.h>
 
-// macOS 10.9 backport: include real CM/CV headers to avoid conflicting forward-typedefs.
+// MAVERICKS_BACKPORT: include real CM/CV headers to avoid conflicting forward-typedefs.
 #include <CoreMedia/CoreMedia.h>
 #include <CoreVideo/CoreVideo.h>
 #include <VideoToolbox/VideoToolbox.h>

@@ -73,7 +73,7 @@ private:
 
     WTF::MachSendRight createFence() override;
 
-    // 10.9 backport: EventDispatcher uses a separate scrolling thread we don't
+    // MAVERICKS_BACKPORT: EventDispatcher uses a separate scrolling thread we don't
     // have running. Send wheel events through the regular WebPage::HandleWheelEvent
     // IPC instead, which goes to the main thread.
     bool shouldSendWheelEventsToEventDispatcher() const override { return false; }

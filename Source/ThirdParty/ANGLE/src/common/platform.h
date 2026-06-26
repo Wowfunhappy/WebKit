@@ -123,7 +123,7 @@
 #    include <AvailabilityMacros.h>
 #    include <TargetConditionals.h>
 #    if TARGET_OS_OSX
-// 10.9 backport: the macOS 12 SDK requirement is for the Metal backend; we build ANGLE's CGL
+// MAVERICKS_BACKPORT: the macOS 12 SDK requirement is for the Metal backend; we build ANGLE's CGL
 // OpenGL backend, which works against the older SDK. Guard relaxed.
 #        define ANGLE_PLATFORM_MACOS 1
 #    elif TARGET_OS_IPHONE

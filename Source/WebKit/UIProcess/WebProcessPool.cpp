@@ -715,7 +715,7 @@ void WebProcessPool::establishRemoteWorkerContextConnectionToNetworkProcess(Remo
 
     // Prioritize the requesting WebProcess for running the service worker.
     if (!remoteWorkerProcessProxy && !s_useSeparateServiceWorkerProcess && requestingProcess && requestingProcess->state() != WebProcessProxy::State::Terminated) {
-        // 10.9 backport: WebProcesses launched by Safari are never committed to a Site
+        // MAVERICKS_BACKPORT: WebProcesses launched by Safari are never committed to a Site
         // (site() stays an uninitialized Expected), so the strict site-equality check below
         // never matches; we then fall through to creating a standalone service-worker context
         // process, which never finishes launching on this OS. The result is that EVERY
@@ -1023,7 +1023,7 @@ void WebProcessPool::initializeNewWebProcess(WebProcessProxy& process, WebsiteDa
     parameters.urlSchemesRegisteredAsAlwaysRevalidated = copyToVector(m_schemesToRegisterAsAlwaysRevalidated);
     parameters.urlSchemesRegisteredAsCachePartitioned = copyToVector(m_schemesToRegisterAsCachePartitioned);
     parameters.urlSchemesRegisteredAsCanDisplayOnlyIfCanRequest = copyToVector(m_schemesToRegisterAsCanDisplayOnlyIfCanRequest);
-    // 10.9 backport: tell new WebProcesses about app-registered custom-protocol schemes (e.g. safari-reader://)
+    // MAVERICKS_BACKPORT: tell new WebProcesses about app-registered custom-protocol schemes (e.g. safari-reader://)
     // so WebPage::canHandleRequest accepts them; see WebProcess::registerURLSchemeForCustomProtocol.
     parameters.urlSchemesRegisteredForCustomProtocols = WebProcessPool::urlSchemesWithCustomProtocolHandlers();
 
@@ -1383,7 +1383,7 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
 
     Ref userContentController = pageConfiguration->userContentController();
 
-    // 10.9 backport: if we already have a real (non-dummy) WebContent process running, reuse it.
+    // MAVERICKS_BACKPORT: if we already have a real (non-dummy) WebContent process running, reuse it.
     // Spawning additional WebContent processes is unreliable on this OS — the second process never
     // wires up its NetworkProcess connection to receive responses, so navigation silently no-ops.
     // NOTE: do NOT remove the dummy from m_processes / m_dummyProcessProxies — the dummy may
@@ -1543,7 +1543,7 @@ void WebProcessPool::didReachGoodTimeToPrewarm()
 {
     loadRestrictedOpenerTypeDataIfNeeded();
 
-    // 10.9 backport: skip prewarming entirely. On this build, a prewarmed
+    // MAVERICKS_BACKPORT: skip prewarming entirely. On this build, a prewarmed
     // WebContent process can race with the user's existing page, replacing it
     // and stealing focus when keyboard activity (e.g. Cmd+A→Cmd+C) triggers
     // implicit process selection. Without prewarming, page state stays stable.
@@ -1717,7 +1717,7 @@ void WebProcessPool::registerGlobalURLSchemeAsHavingCustomProtocolHandlers(const
     globalURLSchemesWithCustomProtocolHandlers().add(urlScheme);
     for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
         networkProcess->registerSchemeForLegacyCustomProtocol(urlScheme);
-    // 10.9 backport: also tell already-running WebProcesses, so WebPage::canHandleRequest accepts
+    // MAVERICKS_BACKPORT: also tell already-running WebProcesses, so WebPage::canHandleRequest accepts
     // the scheme and WebCore's PolicyChecker lets the navigation through to the NetworkProcess.
     for (Ref processPool : allProcessPools())
         processPool->sendToAllProcesses(Messages::WebProcess::RegisterURLSchemeForCustomProtocol(urlScheme));

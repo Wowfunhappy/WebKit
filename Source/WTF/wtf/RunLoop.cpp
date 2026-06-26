@@ -86,7 +86,7 @@ auto RunLoop::runLoopHolder() -> ThreadSpecific<Holder>&
 
 RunLoop& RunLoop::currentSingleton()
 {
-    // 10.9 backport: dispatch_main() pthread_exits the real main thread, so
+    // MAVERICKS_BACKPORT: dispatch_main() pthread_exits the real main thread, so
     // blocks on dispatch_get_main_queue() run on transient dispatch workers
     // (each with its own per-thread RunLoop holder). When code constructs an
     // object on the "main" thread (e.g. JSC's VM caches RunLoop::currentSingleton()

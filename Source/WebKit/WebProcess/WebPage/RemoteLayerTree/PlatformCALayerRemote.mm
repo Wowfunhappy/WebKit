@@ -339,7 +339,7 @@ void PlatformCALayerRemote::updateBackingStore()
     ASSERT(m_properties.backingStoreAttached);
 
     RemoteLayerBackingStore::Parameters parameters;
-    // 10.9 backport: IOSurfaceCreateMachPort returns garbage (looks like a high stack address
+    // MAVERICKS_BACKPORT: IOSurfaceCreateMachPort returns garbage (looks like a high stack address
     // truncated to 32 bits) so the resulting mach send right in the layer commit IPC fails
     // with MACH_SEND_INVALID_RIGHT. Force Bitmap backend (ShareableBitmap via shared memory)
     // which doesn't transfer mach ports per layer.
