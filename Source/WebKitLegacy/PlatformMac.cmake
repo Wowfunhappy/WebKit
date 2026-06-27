@@ -658,3 +658,16 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_versi
 # (ld64.lld doesn't implement -reexported_symbols_list, but does implement whole-library
 # -reexport_library.)
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-reexport_library,${CMAKE_BINARY_DIR}/lib/WebCore.framework/Versions/A/WebCore")
+
+# MAVERICKS_BACKPORT: same story for legacy Dashboard widgets that ship a native plug-in bundle
+# (declared by the "Plugin" key in the widget Info.plist, e.g. Sol.wdgt's TimeZoneHelper.bundle).
+# DashboardClient dlopens the bundle and exposes its principal class to the widget's JS as
+# window.<PluginName>. Those bundles were built against WebKit 523.x and two-level-bind the old ObjC
+# "fixup" dispatch runtime symbols (__objc_empty_cache, __objc_empty_vtable, _objc_msgSend_fixup,
+# _objc_msgSendSuper2_fixup) "from WebKit", because that era's WebKit re-exported libobjc. Ours does
+# not, so the bundle fails to load ("Symbol not found: __objc_empty_cache, Expected in: WebKit") and
+# the widget's JS throws on its first plug-in call (Sol: window.TimeZoneHelper.synchronizePreferences()),
+# leaving it dead. 10.9's /usr/lib/libobjc.A.dylib still vends all four; re-export libobjc through this
+# framework (this binary installs as WebKit.framework/Versions/A/WebKit). The forwarding resolves
+# dynamically against the running 10.9 libobjc, so the build SDK dropping the fixup symbols is moot.
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-reexport-lobjc")

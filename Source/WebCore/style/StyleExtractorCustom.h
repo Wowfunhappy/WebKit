@@ -85,6 +85,9 @@ public:
     static Ref<CSSValue> extractWritingMode(ExtractorState&);
     static Ref<CSSValue> extractFloat(ExtractorState&);
     static Ref<CSSValue> extractContent(ExtractorState&);
+#if ENABLE(DASHBOARD_SUPPORT)
+    static Ref<CSSValue> extractWebkitDashboardRegion(ExtractorState&); // MAVERICKS_BACKPORT
+#endif
     static Ref<CSSValue> extractLetterSpacing(ExtractorState&);
     static Ref<CSSValue> extractWordSpacing(ExtractorState&);
     static Ref<CSSValue> extractLineHeight(ExtractorState&);
@@ -183,6 +186,9 @@ public:
     static void extractWritingModeSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
     static void extractFloatSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
     static void extractContentSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
+#if ENABLE(DASHBOARD_SUPPORT)
+    static void extractWebkitDashboardRegionSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&); // MAVERICKS_BACKPORT
+#endif
     static void extractLetterSpacingSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
     static void extractWordSpacingSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
     static void extractLineHeightSerialization(ExtractorState&, StringBuilder&, const CSS::SerializationContext&);
@@ -1876,6 +1882,20 @@ inline void ExtractorCustom::extractContentSerialization(ExtractorState& state, 
 {
     extractSerialization<CSSPropertyContent>(state, builder, context);
 }
+
+#if ENABLE(DASHBOARD_SUPPORT)
+// MAVERICKS_BACKPORT: -apple-dashboard-region is a write-only legacy property for Dashboard widgets;
+// no widget reads it back via getComputedStyle, so the computed value is reported as `none`.
+inline Ref<CSSValue> ExtractorCustom::extractWebkitDashboardRegion(ExtractorState&)
+{
+    return CSSPrimitiveValue::create(CSSValueNone);
+}
+
+inline void ExtractorCustom::extractWebkitDashboardRegionSerialization(ExtractorState&, StringBuilder& builder, const CSS::SerializationContext&)
+{
+    builder.append("none"_s);
+}
+#endif
 
 inline Ref<CSSValue> ExtractorCustom::extractLetterSpacing(ExtractorState& state)
 {

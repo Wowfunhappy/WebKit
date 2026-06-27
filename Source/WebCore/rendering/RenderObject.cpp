@@ -3162,6 +3162,42 @@ void printGraphicsLayerTreeForLiveDocuments()
 
 #endif // ENABLE(TREE_DEBUGGING)
 
+#if ENABLE(DASHBOARD_SUPPORT)
+
+// MAVERICKS_BACKPORT: collect -apple-dashboard-region control regions. Shipping widgets use zero offsets,
+// so each region is the element's absolute border box (used as both bounds and clip; widget controls are
+// not clipped).
+void RenderObject::addAnnotatedRegions(Vector<AnnotatedRegionValue>& regions)
+{
+    if (style().visibility() != Visibility::Visible)
+        return;
+
+    CheckedPtr box = dynamicDowncast<RenderBox>(*this);
+    if (!box)
+        return;
+
+    auto absoluteRect = LayoutRect(box->absoluteBoundingBoxRect());
+    for (auto& styleRegion : style().dashboardRegions().list) {
+        AnnotatedRegionValue region;
+        region.label = styleRegion.label;
+        region.type = styleRegion.type;
+        region.bounds = absoluteRect;
+        region.clip = absoluteRect;
+        regions.append(region);
+    }
+}
+
+void RenderObject::collectAnnotatedRegions(Vector<AnnotatedRegionValue>& regions)
+{
+    addAnnotatedRegions(regions);
+    if (CheckedPtr element = dynamicDowncast<RenderElement>(*this)) {
+        for (CheckedPtr current = element->firstChild(); current; current = current->nextSibling())
+            current->collectAnnotatedRegions(regions);
+    }
+}
+
+#endif // ENABLE(DASHBOARD_SUPPORT)
+
 } // namespace WebCore
 
 #if ENABLE(TREE_DEBUGGING)

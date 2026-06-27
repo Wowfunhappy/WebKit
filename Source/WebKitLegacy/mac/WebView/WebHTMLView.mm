@@ -4102,15 +4102,19 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // the current event prevents that from causing a problem inside WebKit or AppKit code.
     retainPtr(event).autorelease();
 
-    // MAVERICKS_BACKPORT: when this WebView is hosted in a window that can never become the key
-    // window — a Safari legacy-extension popover is an _NSPopoverWindow, which is borderless and
-    // returns canBecomeKeyWindow == NO on this port — AppKit treats the first click only as a
-    // window-activation gesture and, since the window cannot key, swallows it. With the default
-    // (NO unless the click is a selection/drag/scrollbar event) the popover's content is therefore
-    // permanently uninteractive (uBlock's popup buttons do nothing). There is no "activate then
-    // click" path for such a window, so the first mouse must be accepted to make the content usable.
-    // Normal browser content is a WK2 WKView (not a WebHTMLView) and key-capable browser windows
-    // still return NO here, so ordinary click-through behavior is preserved.
+    // MAVERICKS_BACKPORT: a WebHTMLView hosted in a window that can never become the key window — a
+    // Dashboard widget window or a Safari legacy-extension popover (_NSPopoverWindow), both borderless
+    // and non-activating — would otherwise have non-selection content swallowed. AppKit treats a click
+    // in a non-key window as a first-mouse event and, by the default rule below, only accepts it for
+    // selection/drag/scrollbar hits. Since such a window can never "activate then click", a click that
+    // is not a selection (a <select> pop-up button, a uBlock popup button) never receives its mouseDown
+    // and the whole gesture is discarded (in Dashboard it falls through to the backdrop and dismisses).
+    // For these windows accept the first mouse unconditionally so the content is interactive. Key-capable
+    // windows (Safari, Mail) fall through to the default rule and preserve ordinary click-through.
+    NSWindow *hostWindow = [self window];
+    if (hostWindow && ![hostWindow isKeyWindow] && ![hostWindow canBecomeKeyWindow])
+        return YES;
+
     NSView *hitView = [self _hitViewForEvent:event];
     RetainPtr<WebHTMLView> hitHTMLView = dynamic_objc_cast<WebHTMLView>(hitView);
 
@@ -6179,7 +6183,21 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     
     // Parent our root layer in the container layer
     [viewLayer addSublayer:layer];
-    
+
+    // MAVERICKS_BACKPORT: Dashboard widget windows are non-opaque (borderless, drawsBackground=NO). When
+    // WK1 content composites it is hosted in layerHostingView (a layer-hosting subview); if the window's
+    // root content view is not itself layer-backed, the window's CPU backing store stays empty where the
+    // content composites, so the WindowServer's per-pixel mouse hit-test treats those pixels as transparent
+    // and clicks fall through — the widget never becomes key and its controls (e.g. <select> dropdowns)
+    // can't be clicked. Making the window's contentView layer-backed folds the hosted CA tree into the
+    // window surface the WindowServer hit-tests, so composited content becomes mouse-solid. Opaque windows
+    // (Safari, Mail) already hit-test correctly and are left untouched.
+    if (NSWindow *hostWindow = [self window]; hostWindow && ![hostWindow isOpaque]) {
+        NSView *windowContentView = [hostWindow contentView];
+        if (windowContentView && ![windowContentView wantsLayer])
+            [windowContentView setWantsLayer:YES];
+    }
+
     if ([[self _webView] _postsAcceleratedCompositingNotifications])
         [[NSNotificationCenter defaultCenter] postNotificationName:_WebViewDidStartAcceleratedCompositingNotification object:[self _webView] userInfo:nil];
 

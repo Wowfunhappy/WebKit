@@ -244,6 +244,10 @@ private:
 
     void registerBlobPathForTesting(const String&, CompletionHandler<void()>&&) final;
 
+#if ENABLE(DASHBOARD_SUPPORT)
+    void annotatedRegionsChanged() final; // MAVERICKS_BACKPORT
+#endif
+
 #if ENABLE(CONTENT_CHANGE_OBSERVER)
     void didFinishContentChangeObserving(WebCore::LocalFrame&, WebCore::ContentChange) final;
 #endif

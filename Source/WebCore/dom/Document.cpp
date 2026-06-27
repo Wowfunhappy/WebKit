@@ -6469,6 +6469,12 @@ void Document::invalidateEventListenerRegions()
 
 void Document::invalidateRenderingDependentRegions()
 {
+#if ENABLE(DASHBOARD_SUPPORT)
+    // MAVERICKS_BACKPORT: recompute Dashboard control regions after layout-affecting changes so
+    // DashboardClient learns where the widget's interactive controls are.
+    updateAnnotatedRegions();
+#endif
+
 #if PLATFORM(IOS_FAMILY) && ENABLE(TOUCH_EVENTS)
     setTouchEventRegionsNeedUpdate();
 #endif
@@ -6482,6 +6488,36 @@ void Document::invalidateRenderingDependentRegions()
     }
 #endif
 }
+
+#if ENABLE(DASHBOARD_SUPPORT)
+
+void Document::setAnnotatedRegions(const Vector<AnnotatedRegionValue>& regions)
+{
+    m_annotatedRegions = regions;
+    setAnnotatedRegionsDirty(false);
+}
+
+void Document::updateAnnotatedRegions()
+{
+    if (!hasAnnotatedRegions())
+        return;
+
+    CheckedPtr renderView = this->renderView();
+    if (!renderView)
+        return;
+
+    Vector<AnnotatedRegionValue> newRegions;
+    renderView->collectAnnotatedRegions(newRegions);
+    if (newRegions == annotatedRegions())
+        return;
+
+    setAnnotatedRegions(newRegions);
+
+    if (RefPtr page = this->page())
+        page->chrome().client().annotatedRegionsChanged();
+}
+
+#endif // ENABLE(DASHBOARD_SUPPORT)
 
 bool Document::setFocusedElement(Element* element, BroadcastFocusedElement broadcast)
 {

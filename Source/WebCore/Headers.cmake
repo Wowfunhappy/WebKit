@@ -3037,6 +3037,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     rendering/style/RenderStyle+GettersInlines.h
     rendering/style/RenderStyleConstants.h
     rendering/style/StyleContentAlignmentData.h
+    rendering/style/StyleDashboardRegion.h
     rendering/style/StyleSelfAlignmentData.h
 
     rendering/svg/RenderSVGInlineText.h
@@ -3304,6 +3305,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     style/values/multicol/StyleColumnCount.h
     style/values/multicol/StyleColumnWidth.h
 
+    style/values/non-standard/StyleDashboardRegions.h
     style/values/non-standard/StyleWebKitBorderSpacing.h
     style/values/non-standard/StyleWebKitBoxReflect.h
     style/values/non-standard/StyleWebKitLineBoxContain.h

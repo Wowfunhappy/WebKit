@@ -280,6 +280,10 @@ typedef enum {
 
 @interface WebView (WebPrivate)
 
+// MAVERICKS_BACKPORT: legacy Dashboard control regions, consumed by DashboardClient via
+// -webView:dashboardRegionsChanged: and read internally by WebChromeClient.
+- (NSDictionary *)_dashboardRegions;
+
 + (void)_setIconLoadingEnabled:(BOOL)enabled;
 + (BOOL)_isIconLoadingEnabled;
 

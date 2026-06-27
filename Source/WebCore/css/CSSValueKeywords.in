@@ -1348,6 +1348,8 @@ repeating-conic-gradient
 filter
 -webkit-filter
 paint
+// MAVERICKS_BACKPORT: legacy Dashboard widget control-region function name.
+dashboard-region
 
 // image-set's MIME type
 type

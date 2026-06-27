@@ -9674,6 +9674,25 @@
                 "url": "https://www.w3.org/TR/2009/WD-css3-flexbox-20090723/#propdef-box-pack"
             }
         },
+        "-webkit-dashboard-region": {
+            "comment": "MAVERICKS_BACKPORT: legacy Dashboard widget control regions (removed upstream in 2d364c6).",
+            "animation-type": "not animatable (legacy)",
+            "initial": "none",
+            "codegen-properties": {
+                "enable-if": "ENABLE_DASHBOARD_SUPPORT",
+                "aliases": ["-apple-dashboard-region"],
+                "parser-function": "consumeWebkitDashboardRegion",
+                "parser-grammar-unused": "none | <dashboard-region>+",
+                "parser-grammar-unused-reason": "Legacy non-standard Dashboard syntax parsed by a custom consumer.",
+                "style-builder-custom": "All",
+                "style-extractor-custom": true,
+                "computed-style-name-for-methods": "DashboardRegions",
+                "computed-style-storage-path": ["m_nonInheritedData", "rareData"],
+                "computed-style-storage-kind": "reference",
+                "computed-style-type": "Style::DashboardRegions"
+            },
+            "status": "non-standard"
+        },
         "-webkit-box-reflect": {
             "animation-type": "not animatable (legacy)",
             "initial": "none",

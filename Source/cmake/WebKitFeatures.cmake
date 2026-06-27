@@ -163,6 +163,8 @@ macro(WEBKIT_OPTION_BEGIN)
     WEBKIT_OPTION_DEFINE(ENABLE_CURSOR_VISIBILITY "Toggle cursor visibility support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_C_LOOP "Enable CLoop interpreter" PRIVATE ${ENABLE_C_LOOP_DEFAULT})
     WEBKIT_OPTION_DEFINE(ENABLE_DARK_MODE_CSS "Toggle Dark Mode CSS support" PRIVATE OFF)
+    # MAVERICKS_BACKPORT: legacy Dashboard widget -apple-dashboard-region control regions (removed upstream in 2d364c6).
+    WEBKIT_OPTION_DEFINE(ENABLE_DASHBOARD_SUPPORT "Toggle legacy Dashboard widget support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_DATACUE_VALUE "Toggle datacue value support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_DEVICE_ORIENTATION "Toggle Device Orientation support" PRIVATE OFF)
     WEBKIT_OPTION_DEFINE(ENABLE_DFG_JIT "Toggle data flow graph JIT tier" PRIVATE ${ENABLE_JIT_DEFAULT})

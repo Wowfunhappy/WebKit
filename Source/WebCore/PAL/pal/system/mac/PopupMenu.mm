@@ -43,6 +43,19 @@ namespace PAL {
 
 void popUpMenu(NSMenu *menu, NSPoint location, float width, NSView *view, int selectedItem, NSFont *font, NSControlSize controlSize, bool usesCustomAppearance)
 {
+    // MAVERICKS_BACKPORT: On macOS 10.9 -[NSMenu _menuImpl] is an NSCarbonMenuImpl whose private
+    // -popUpMenu:atLocation:width:forView:… runs a nested menu-tracking loop that never enters when the
+    // owning window is a non-key, non-activating overlay — e.g. a Dashboard widget window in the Dashboard
+    // layer — so the pop-up button menu silently fails to appear. For such windows fall back to the public
+    // AppKit -popUpMenuPositioningItem:atLocation:inView:, which tracks correctly from a non-key window. Key
+    // windows (Safari, Mail, desktop widgets that became key) keep the native pop-up-button presentation.
+    NSWindow *ownerWindow = [view window];
+    if (ownerWindow && ![ownerWindow isKeyWindow]) {
+        NSMenuItem *selectedMenuItem = (selectedItem >= 0 && selectedItem < [menu numberOfItems]) ? [menu itemAtIndex:selectedItem] : nil;
+        [menu popUpMenuPositioningItem:selectedMenuItem atLocation:location inView:view];
+        return;
+    }
+
     NSRect adjustedPopupBounds = [view.window convertRectToScreen:[view convertRect:view.bounds toView:nil]];
     if (controlSize != NSControlSizeMini) {
         adjustedPopupBounds.origin.x -= 3;

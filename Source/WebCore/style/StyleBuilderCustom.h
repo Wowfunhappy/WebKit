@@ -31,6 +31,11 @@
 #include "CSSCounterStyleRegistry.h"
 #include "CSSCounterStyleRule.h"
 #include "CSSCounterValue.h"
+#if ENABLE(DASHBOARD_SUPPORT)
+#include "CSSDashboardRegionValue.h"
+#include "StyleDashboardRegion.h"
+#include "StyleDashboardRegions.h"
+#endif
 #include "CSSPrimitiveValueMappings.h"
 #include "CSSPropertyParserConsumer+Font.h"
 #include "CSSRegisteredCustomProperty.h"
@@ -227,6 +232,11 @@ public:
     static void applyValueWebkitTextSizeAdjust(BuilderState&, CSSValue&);
 #endif
     static void applyValueWebkitTextZoom(BuilderState&, CSSValue&);
+#if ENABLE(DASHBOARD_SUPPORT)
+    static void applyInitialWebkitDashboardRegion(BuilderState&); // MAVERICKS_BACKPORT
+    static void applyInheritWebkitDashboardRegion(BuilderState&);
+    static void applyValueWebkitDashboardRegion(BuilderState&, CSSValue&);
+#endif
     static void applyValueWritingMode(BuilderState&, CSSValue&);
     static void applyValueFontSizeAdjust(BuilderState&, CSSValue&);
 
@@ -552,6 +562,51 @@ inline void BuilderCustom::applyValueWebkitTextZoom(BuilderState& builderState, 
         builderState.style().setTextZoom(TextZoom::Reset);
     builderState.setFontDirty();
 }
+
+#if ENABLE(DASHBOARD_SUPPORT)
+
+// MAVERICKS_BACKPORT: legacy -apple-dashboard-region control regions. Shipping widgets always use zero
+// offsets, so a region is simply the element's border box (computed at collection time); only the label
+// and geometry type are retained on the style.
+inline void BuilderCustom::applyInitialWebkitDashboardRegion(BuilderState& builderState)
+{
+    builderState.style().setDashboardRegions(DashboardRegions { });
+}
+
+inline void BuilderCustom::applyInheritWebkitDashboardRegion(BuilderState& builderState)
+{
+    builderState.style().setDashboardRegions(DashboardRegions { builderState.parentStyle().dashboardRegions() });
+}
+
+inline void BuilderCustom::applyValueWebkitDashboardRegion(BuilderState& builderState, CSSValue& value)
+{
+    DashboardRegions regions;
+
+    if (RefPtr primitiveValue = dynamicDowncast<CSSPrimitiveValue>(value)) {
+        if (primitiveValue->valueID() == CSSValueNone) {
+            // An explicit `none` clears any regions contributed by this element.
+            regions.list.append(WebCore::StyleDashboardRegion { emptyString(), WebCore::StyleDashboardRegion::None });
+            builderState.style().setDashboardRegions(WTF::move(regions));
+        }
+        return;
+    }
+
+    RefPtr regionValue = dynamicDowncast<CSSDashboardRegionValue>(value);
+    if (!regionValue)
+        return;
+
+    for (auto& region : regionValue->regions())
+        regions.list.append(WebCore::StyleDashboardRegion { region.label, region.geometryType });
+
+    if (!regions.list.isEmpty()) {
+        // Flag the document so it recomputes/reports annotated regions after layout.
+        const_cast<Document&>(builderState.document()).setHasAnnotatedRegions(true);
+    }
+
+    builderState.style().setDashboardRegions(WTF::move(regions));
+}
+
+#endif // ENABLE(DASHBOARD_SUPPORT)
 
 inline void BuilderCustom::applyInitialFontFamily(BuilderState& builderState)
 {
