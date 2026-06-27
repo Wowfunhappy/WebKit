@@ -93,11 +93,22 @@ void _CFPrefsSetReadOnly(Boolean flag) { (void)flag; }
 // CoreGraphics
 // ---------------------------------------------------------------------------------------------------
 
-// Absent on 10.9 (only CGBitmapContextGetColorSpace is public). Forward to it for bitmap contexts;
-// other context kinds have no public accessor and yield null, which the caller already handles.
+// Absent on 10.9 (modern WebCore calls it constantly from GraphicsContextCG during -drawRect:).
+// The obvious forward — CGBitmapContextGetColorSpace() — is WRONG: on any non-bitmap context (the
+// IOSurface-backed layer/drawRect contexts of compositing views, window contexts, …) it doesn't just
+// return null, it first emits "CGBitmapContextGetColorSpace: invalid context 0x… This is a serious
+// error…" to the console. WebKit drawing hits that on every paint, producing thousands of log lines
+// (visible in Safari's WebContent and DashboardClient). CGContextCopyDeviceColorSpace() returns the
+// context's colorspace for EVERY context kind silently (for a genuine bitmap context it returns that
+// bitmap's colorspace, matching CGBitmapContextGetColorSpace). It returns +1 (a Copy), so autorelease
+// to match CGContextGetColorSpace()'s +0 "get" ownership — the caller stores the result in a RetainPtr.
+// CGContextCopyDeviceColorSpace exists in 10.9's CoreGraphics but the modern SDK we build against
+// dropped its header declaration, so forward-declare it.
+extern CGColorSpaceRef CGContextCopyDeviceColorSpace(CGContextRef);
 CGColorSpaceRef CGContextGetColorSpace(CGContextRef context)
 {
-    return CGBitmapContextGetColorSpace(context);
+    CGColorSpaceRef colorSpace = CGContextCopyDeviceColorSpace(context);
+    return colorSpace ? (CGColorSpaceRef)CFAutorelease(colorSpace) : NULL;
 }
 
 // Lockdown Mode for PDF (macOS 13+). No Lockdown Mode on 10.9.
