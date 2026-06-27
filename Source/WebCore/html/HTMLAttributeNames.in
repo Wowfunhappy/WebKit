@@ -319,6 +319,7 @@ onreset
 onresize
 onscroll
 onscrollend
+onsearch
 onsecuritypolicyviolation
 onseeked
 onseeking

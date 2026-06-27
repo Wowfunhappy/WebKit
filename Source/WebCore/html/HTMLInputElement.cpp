@@ -1370,8 +1370,14 @@ void HTMLInputElement::defaultEventHandler(Event& event)
     }
 
     if (m_inputType->shouldSubmitImplicitly(event)) {
-        if (isSearchField())
+        if (isSearchField()) {
             addSearchResult();
+            // MAVERICKS_BACKPORT: the non-standard `search` event (fired on Enter for <input type=search>)
+            // was removed upstream (webkit.org/b/278309), but legacy Dashboard widgets — the Dictionary
+            // widget's onsearch handler runs the lookup — and other 10.9-era content depend on it. Dispatch
+            // it here on implicit submission, after keypress, which is the original timing.
+            dispatchEvent(Event::create(eventNames().searchEvent, Event::CanBubble::Yes, Event::IsCancelable::No));
+        }
         // Form submission finishes editing, just as loss of focus does.
         // If there was a change, send the event now.
         if (wasChangedSinceLastFormControlChangeEvent())
