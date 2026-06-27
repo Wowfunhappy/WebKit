@@ -1070,3 +1070,16 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
 # MAVERICKS_BACKPORT: the AVSpeechSynthesizer polyfill is written for ARC.
 set_source_files_properties(platform/cocoa/SpeechSynthesisAVFoundationPolyfill_109.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 
+# MAVERICKS_BACKPORT: re-export /usr/lib/libobjc.A.dylib through WebCore, exactly as stock 10.9 did.
+# (Verified against the stock framework: stock WebCore.framework/WebCore carries an LC_REEXPORT_DYLIB for
+# /usr/lib/libobjc.A.dylib, and stock WebKit.framework/WebKit re-exports WebCore — so plug-ins resolve the
+# old ObjC "fixup" dispatch symbols via a WebKit -> WebCore -> libobjc chain.) Legacy native plug-ins —
+# Safari Web Clips' WebClip.plugin and Dashboard widget Plugin bundles such as Sol.wdgt's
+# TimeZoneHelper.bundle and the Dictionary widget — two-level-bind __objc_empty_cache / __objc_empty_vtable
+# / _objc_msgSend_fixup / _objc_msgSendSuper2_fixup "from WebKit" and reach them through that chain. The
+# modern build SDK's libobjc.tbd dropped those symbols, but the re-export binds dynamically against the
+# running 10.9 /usr/lib/libobjc.A.dylib (install_name /usr/lib/libobjc.A.dylib), which still vends all four.
+# WebKitLegacy already re-exports this WebCore, so WebKit.framework reaches libobjc transitively, matching
+# stock; nothing else needs the flag.
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-reexport-lobjc")
+
