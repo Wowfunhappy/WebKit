@@ -137,6 +137,8 @@ struct WKViewState {
 // MAVERICKS_BACKPORT: tear down the backported per-view state (page proxy, page client, cached controller).
 - (void)dealloc
 {
+    // MAVERICKS_BACKPORT: stop observing backing-scale changes (registered in -viewDidMoveToWindow for the Retina fix).
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidChangeBackingPropertiesNotification object:nil];
     // MAVERICKS_BACKPORT: release the lazily-created browsing-context controller and delete the WKViewState.
     [_browsingContextController release];
     _browsingContextController = nil;
@@ -450,6 +452,18 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     if (NSWindow *window = [self window])
         [window setAcceptsMouseMovedEvents:YES];
     if (!_wkState || !_wkState->page) return;
+
+    // MAVERICKS_BACKPORT: propagate the window's backing scale to the page so it renders at the display's
+    // device pixel ratio (Retina = 2x). The MinimalPageClient/WKView path replaces WebViewImpl and dropped
+    // WebViewImpl's setIntrinsicDeviceScaleFactor wiring, so WebPageProxy::m_intrinsicDeviceScaleFactor stayed
+    // at its 1.0 default and the page rendered at 1x even on a Retina screen. Mirror WebViewImpl: set it on
+    // (re)entering a window and observe NSWindowDidChangeBackingPropertiesNotification (display / scale change).
+    NSNotificationCenter *backingCenter = [NSNotificationCenter defaultCenter];
+    [backingCenter removeObserver:self name:NSWindowDidChangeBackingPropertiesNotification object:nil];
+    if (NSWindow *window = [self window])
+        [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeBackingProperties:) name:NSWindowDidChangeBackingPropertiesNotification object:window];
+    [self _wk_updateIntrinsicDeviceScaleFactor];
+
     OptionSet<WebCore::ActivityState> flags;
     flags.add(WebCore::ActivityState::IsInWindow);
     flags.add(WebCore::ActivityState::IsVisible);
@@ -457,6 +471,32 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     flags.add(WebCore::ActivityState::WindowIsActive);
     flags.add(WebCore::ActivityState::IsFocused);
     _wkState->page->activityStateDidChange(flags);
+}
+
+// MAVERICKS_BACKPORT: read the current window's (or main screen's) backing scale and push it to the page.
+- (void)_wk_updateIntrinsicDeviceScaleFactor
+{
+    if (!_wkState || !_wkState->page)
+        return;
+    NSWindow *window = [self window];
+    CGFloat scale = window ? [window backingScaleFactor] : [[NSScreen mainScreen] backingScaleFactor];
+    if (scale <= 0)
+        scale = 1;
+    _wkState->page->setIntrinsicDeviceScaleFactor(scale);
+}
+
+// MAVERICKS_BACKPORT: the window changed backing scale (e.g. moved to a Retina display) — re-propagate it.
+- (void)_wk_windowDidChangeBackingProperties:(NSNotification *)notification
+{
+    UNUSED_PARAM(notification);
+    [self _wk_updateIntrinsicDeviceScaleFactor];
+}
+
+// MAVERICKS_BACKPORT: AppKit also delivers this directly to the view when its backing scale changes.
+- (void)viewDidChangeBackingProperties
+{
+    [super viewDidChangeBackingProperties];
+    [self _wk_updateIntrinsicDeviceScaleFactor];
 }
 
 // MAVERICKS_BACKPORT: the WebContent layer tree is hosted as a plain CALayer SUBLAYER of
