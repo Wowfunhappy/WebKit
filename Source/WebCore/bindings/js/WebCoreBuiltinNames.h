@@ -675,6 +675,7 @@ namespace WebCore {
     macro(onbackgroundfetchclick) \
     macro(onbeforematch) \
     macro(oncommand) \
+    macro(onsearch) \
     macro(oncookiechange) \
     macro(ondevicemotion) \
     macro(ondeviceorientation) \
