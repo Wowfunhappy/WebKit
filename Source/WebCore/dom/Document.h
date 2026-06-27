@@ -294,6 +294,9 @@ class DOMTimerHoldingTank;
 class DocumentImmersive;
 #endif
 
+#if ENABLE(DASHBOARD_SUPPORT)
+struct AnnotatedRegionValue; // MAVERICKS_BACKPORT
+#endif
 struct ApplicationManifest;
 struct AriaNotifyOptions;
 struct BoundaryPoint;
@@ -1408,6 +1411,17 @@ public:
 
     void invalidateRenderingDependentRegions();
     void invalidateEventRegionsForFrame(HTMLFrameOwnerElement&);
+
+#if ENABLE(DASHBOARD_SUPPORT)
+    // MAVERICKS_BACKPORT: legacy Dashboard widget -apple-dashboard-region control regions.
+    void setHasAnnotatedRegions(bool f) { m_hasAnnotatedRegions = f; }
+    bool hasAnnotatedRegions() const { return m_hasAnnotatedRegions; }
+    void setAnnotatedRegionsDirty(bool f = true) { m_annotatedRegionsDirty = f; }
+    bool annotatedRegionsDirty() const { return m_annotatedRegionsDirty; }
+    const Vector<AnnotatedRegionValue>& annotatedRegions() const { return m_annotatedRegions; }
+    void setAnnotatedRegions(const Vector<AnnotatedRegionValue>&);
+    void updateAnnotatedRegions();
+#endif
 
     void invalidateEventListenerRegions();
 
@@ -2836,6 +2850,12 @@ private:
     mutable WeakPtr<AXObjectCache> m_topAXObjectCache;
 #endif
     RefPtr<FrameMemoryMonitor> m_frameMemoryMonitor;
+
+#if ENABLE(DASHBOARD_SUPPORT)
+    Vector<AnnotatedRegionValue> m_annotatedRegions; // MAVERICKS_BACKPORT
+    bool m_hasAnnotatedRegions { false };
+    bool m_annotatedRegionsDirty { false };
+#endif
 
 #if ENABLE(CONTENT_EXTENSIONS)
     RefPtr<ResourceMonitor> m_resourceMonitor;

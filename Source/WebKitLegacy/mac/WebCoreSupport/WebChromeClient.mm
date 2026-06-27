@@ -1190,3 +1190,13 @@ void WebChromeClient::didFinishContentChangeObserving(WebCore::LocalFrame& frame
 #endif
 }
 #endif
+
+#if ENABLE(DASHBOARD_SUPPORT)
+// MAVERICKS_BACKPORT: forward the document's -apple-dashboard-region control regions to DashboardClient.
+void WebChromeClient::annotatedRegionsChanged()
+{
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+    CallUIDelegate(webView(), @selector(webView:dashboardRegionsChanged:), [webView() _dashboardRegions]);
+    END_BLOCK_OBJC_EXCEPTIONS
+}
+#endif

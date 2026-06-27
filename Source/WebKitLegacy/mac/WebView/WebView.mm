@@ -151,6 +151,11 @@
 #import <WebCore/DictionaryLookup.h>
 #import <WebCore/DisplayRefreshMonitorManager.h>
 #import <WebCore/Document.h>
+#if ENABLE(DASHBOARD_SUPPORT)
+#import "WebDashboardRegion.h" // MAVERICKS_BACKPORT
+#import <WebCore/RenderObject.h>
+#import <WebCore/StyleDashboardRegion.h>
+#endif
 #import <WebCore/DocumentFullscreen.h>
 #import <WebCore/DocumentLoader.h>
 #import <WebCore/DocumentSyncClient.h>
@@ -1372,7 +1377,44 @@ typedef enum {
 
 - (NSDictionary *)_dashboardRegions
 {
+#if ENABLE(DASHBOARD_SUPPORT)
+    // MAVERICKS_BACKPORT: report the document's -apple-dashboard-region control regions so DashboardClient
+    // knows which areas are interactive controls (vs. drag handles).
+    auto* coreFrame = [self _mainCoreFrame];
+    if (!coreFrame || !coreFrame->document())
+        return nil;
+
+    auto& regions = coreFrame->document()->annotatedRegions();
+    NSMutableDictionary *webRegions = [NSMutableDictionary dictionaryWithCapacity:regions.size()];
+    for (auto& region : regions) {
+        if (region.type == WebCore::StyleDashboardRegion::None)
+            continue;
+
+        RetainPtr<NSString> label = region.label.createNSString();
+        WebDashboardRegionType type = WebDashboardRegionTypeNone;
+        if (region.type == WebCore::StyleDashboardRegion::Circle)
+            type = WebDashboardRegionTypeCircle;
+        else if (region.type == WebCore::StyleDashboardRegion::Rectangle)
+            type = WebDashboardRegionTypeRectangle;
+
+        NSMutableArray *regionValues = [webRegions objectForKey:label.get()];
+        if (!regionValues) {
+            regionValues = [NSMutableArray arrayWithCapacity:1];
+            [webRegions setObject:regionValues forKey:label.get()];
+        }
+
+        auto boundsRect = WebCore::snappedIntRect(region.bounds);
+        auto clipRect = WebCore::snappedIntRect(region.clip);
+        NSRect nsBounds = NSMakeRect(boundsRect.x(), boundsRect.y(), boundsRect.width(), boundsRect.height());
+        NSRect nsClip = NSMakeRect(clipRect.x(), clipRect.y(), clipRect.width(), clipRect.height());
+        WebDashboardRegion *webRegion = [[WebDashboardRegion alloc] initWithRect:nsBounds clip:nsClip type:type];
+        [regionValues addObject:webRegion];
+        [webRegion release];
+    }
+    return webRegions;
+#else
     return nil;
+#endif
 }
 
 // MAVERICKS_BACKPORT: Safari's Top Sites view uses BrowserContentViewController which

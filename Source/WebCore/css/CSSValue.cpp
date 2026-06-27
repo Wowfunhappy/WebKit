@@ -43,6 +43,9 @@
 #include "CSSCrossfadeValue.h"
 #include "CSSCursorImageValue.h"
 #include "CSSCustomPropertyValue.h"
+#if ENABLE(DASHBOARD_SUPPORT)
+#include "CSSDashboardRegionValue.h"
+#endif
 #include "CSSDynamicRangeLimitValue.h"
 #include "CSSEasingFunctionValue.h"
 #include "CSSFilterImageValue.h"
@@ -139,6 +142,10 @@ template<typename Visitor> constexpr decltype(auto) CSSValue::visitDerived(Visit
         return std::invoke(std::forward<Visitor>(visitor), uncheckedDowncast<CSSCursorImageValue>(*this));
     case CustomProperty:
         return std::invoke(std::forward<Visitor>(visitor), uncheckedDowncast<CSSCustomPropertyValue>(*this));
+#if ENABLE(DASHBOARD_SUPPORT)
+    case DashboardRegion: // MAVERICKS_BACKPORT
+        return std::invoke(std::forward<Visitor>(visitor), uncheckedDowncast<CSSDashboardRegionValue>(*this));
+#endif
     case DynamicRangeLimit:
         return std::invoke(std::forward<Visitor>(visitor), uncheckedDowncast<CSSDynamicRangeLimitValue>(*this));
     case EasingFunction:

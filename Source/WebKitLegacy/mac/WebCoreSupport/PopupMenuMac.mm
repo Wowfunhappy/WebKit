@@ -148,12 +148,22 @@ void PopupMenuMac::show(const IntRect& r, LocalFrameView& frameView, int selecte
 
     TextDirection textDirection = protect(m_client)->menuStyle().textDirection();
 
+    // MAVERICKS_BACKPORT: -[NSMenu setUserInterfaceLayoutDirection:] is 10.11+ and
+    // -[NSView setUserInterfaceLayoutDirection:] is 10.10+; both are absent on 10.9 and raise an
+    // unrecognized-selector NSInvalidArgumentException that aborts -show before the menu is presented,
+    // so the <select> pop-up silently never opens. Guard each call with respondsToSelector:. 10.9 lays
+    // these widgets out left-to-right by default — the value used here — so skipping the setter when the
+    // receiver predates the selector is behaviourally correct.
+    NSUserInterfaceLayoutDirection layoutDirection = textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft;
+
     [m_popup attachPopUpWithFrame:r inView:view.get()];
     [m_popup selectItemAtIndex:selectedIndex];
-    [m_popup setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
+    if ([m_popup respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
+        [m_popup setUserInterfaceLayoutDirection:layoutDirection];
 
     NSMenu *menu = [m_popup menu];
-    [menu setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
+    if ([menu respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
+        [menu setUserInterfaceLayoutDirection:layoutDirection];
 
     NSPoint location;
 
@@ -190,7 +200,8 @@ void PopupMenuMac::show(const IntRect& r, LocalFrameView& frameView, int selecte
     Ref<PopupMenuMac> protector(*this);
 
     RetainPtr<NSView> dummyView = adoptNS([[NSView alloc] initWithFrame:r]);
-    [dummyView.get() setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
+    if ([dummyView respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
+        [dummyView.get() setUserInterfaceLayoutDirection:layoutDirection];
     [view.get() addSubview:dummyView.get()];
     location = [dummyView convertPoint:location fromView:view.get()];
     

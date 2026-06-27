@@ -330,6 +330,17 @@
 #define ENABLE_DATA_DETECTION 1
 #endif
 
+// MAVERICKS_BACKPORT: Dashboard support was removed upstream (2d364c6, "Remove Dashboard
+// support"). macOS 10.9's Dashboard is still present and its widgets rely on the
+// -apple-dashboard-region CSS control regions (reported to DashboardClient via
+// -webView:dashboardRegionsChanged:) to mark areas where mouse events drive controls
+// instead of dragging the widget. Re-enable the feature for the Mac backport so those
+// regions are computed and reported; without it widget controls (dropdowns, text
+// selection) are dead because the whole widget acts as a drag handle.
+#if !defined(ENABLE_DASHBOARD_SUPPORT) && PLATFORM(MAC)
+#define ENABLE_DASHBOARD_SUPPORT 1
+#endif
+
 #if !defined(ENABLE_DECLARATIVE_WEB_PUSH) && (PLATFORM(MAC) || PLATFORM(IOS))
 #define ENABLE_DECLARATIVE_WEB_PUSH 1
 #endif
