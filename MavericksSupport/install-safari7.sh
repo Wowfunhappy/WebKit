@@ -259,6 +259,55 @@ ln -sfh Versions/Current/Frameworks "$FRAMEWORKS_DIR/WebKit.framework/Frameworks
     ln -sf Versions/Current/Frameworks "$FRAMEWORKS_DIR/WebKit.framework/Frameworks" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
+# QuickLook web previews (.webloc from a Dock stack): restore the FULL stock WK2
+# XPC service set.
+#
+# macOS 10.9's QuickLook (QuickLookUIHelper, sandboxed) renders a web preview by
+# loading our WebKit2 and launching the SAME fixed set of helper services the 2014
+# stock WebKit shipped: production AND ".Development" variants of every service,
+# plus OfflineStorage and Plugin.{32,64}. xpcd resolves the sandboxed host's
+# connection to each service through the on-disk .xpc bundles; when a requested
+# bundle is MISSING the domain-extension fails the sandbox check and the preview
+# hangs (spins forever). Modern WebKit only builds Networking.xpc + WebContent.xpc
+# (it folded OfflineStorage into NetworkProcess and dropped the NPAPI Plugin
+# process), so the other seven bundles stock ships are absent and QuickLook stalls.
+# (Safari is unaffected: ProcessLauncherCocoa requests only the two production
+# services, and Safari's own host is not sandboxed the way QuickLook's is.)
+#
+# Recreate the missing bundles as identity-renamed clones of the two real services:
+# the .Development network/web variants clone their production counterpart; the
+# storage/plugin bundles clone WebContent — they only need to EXIST and be
+# launchable so xpcd's domain check passes (the actual rendering is done by
+# WebContent + Networking, and QuickLook launches this set for every web preview
+# regardless of page content). Clone the ALREADY-INSTALLED services so the dyld
+# load commands install_framework rewrote to absolute in-bundle paths are inherited
+# intact. The clone differs from its base ONLY in the three identity keys + the
+# renamed executable file.
+XPCSERVICES="$PRIVATE_DIR/WebKit2.framework/Versions/A/XPCServices"
+make_xpc_variant() {
+    local base="$1" newname="$2"
+    local src="$XPCSERVICES/com.apple.WebKit.$base.xpc"
+    local dst="$XPCSERVICES/com.apple.WebKit.$newname.xpc"
+    [ -d "$src" ] || { echo "  xpc-variant: missing base $src" >&2; return 1; }
+    rm -rf "$dst"
+    cp -RP "$src" "$dst"
+    mv "$dst/Contents/MacOS/com.apple.WebKit.$base" "$dst/Contents/MacOS/com.apple.WebKit.$newname"
+    local pl="$dst/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.apple.WebKit.$newname" "$pl"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable com.apple.WebKit.$newname" "$pl"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName       com.apple.WebKit.$newname" "$pl"
+    echo "  created $newname.xpc (clone of $base)"
+}
+echo "### Restoring full stock WK2 XPC service set (QuickLook web previews)"
+make_xpc_variant Networking Networking.Development
+make_xpc_variant WebContent WebContent.Development
+make_xpc_variant WebContent OfflineStorage
+make_xpc_variant WebContent OfflineStorage.Development
+make_xpc_variant WebContent Plugin.32
+make_xpc_variant WebContent Plugin.64
+make_xpc_variant WebContent Plugin.Development
+
+# ---------------------------------------------------------------------------
 # 32-bit (i386) compatibility — graft the STOCK 10.9 i386 slices back in.
 #
 # Our backport builds x86_64 only, but macOS 10.9 still runs 32-bit apps and the
