@@ -4144,19 +4144,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // the current event prevents that from causing a problem inside WebKit or AppKit code.
     retainPtr(event).autorelease();
 
-    // MAVERICKS_BACKPORT: must mirror -acceptsFirstMouse: for windows that can never become key
-    // (Dashboard widget windows, Safari legacy-extension popovers). AppKit only forwards the
-    // subsequent -mouseDragged: events of a first-mouse drag to a view that ALSO returns YES here;
-    // otherwise it consumes the drag as a window-ordering gesture and the view sees only the
-    // mouse-down. Without this, any non-selection drag in such a window is dead — e.g. dragging the
-    // Dictionary widget's JavaScript scrollbar thumb (AppleScrollbar.js), which adds its document
-    // mousemove handler on mousedown but never receives a single move. Returning YES delays the
-    // window ordering so the drag is delivered to our content. Key-capable windows fall through to
-    // the default selection/drag rule below and preserve ordinary click-through.
-    NSWindow *hostWindow = [self window];
-    if (hostWindow && ![hostWindow isKeyWindow] && ![hostWindow canBecomeKeyWindow])
-        return YES;
-
     NSView *hitView = [self _hitViewForEvent:event];
     RetainPtr<WebHTMLView> hitHTMLView = dynamic_objc_cast<WebHTMLView>(hitView);
     if (hitHTMLView) {
