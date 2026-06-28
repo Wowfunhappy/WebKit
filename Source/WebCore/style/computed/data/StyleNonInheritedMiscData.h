@@ -114,6 +114,7 @@ public:
     PREFERRED_TYPE(UserDrag) unsigned userDrag : 2;
     PREFERRED_TYPE(ObjectFit) unsigned objectFit : 3;
     PREFERRED_TYPE(Resize) unsigned resize : 3;
+    PREFERRED_TYPE(BorderFit) unsigned borderFit : 1; // MAVERICKS_BACKPORT: non-standard -webkit-border-fit for 10.9 Messages.app speech bubbles.
 
 private:
     NonInheritedMiscData();

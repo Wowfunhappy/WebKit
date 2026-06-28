@@ -1018,6 +1018,11 @@ logical
 visual
 
 //
+// MAVERICKS_BACKPORT: CSS_PROP__WEBKIT_BORDER_FIT (non-standard, for 10.9 Messages.app speech bubbles)
+//
+lines
+
+//
 // CSS_PROP__WEBKIT_ANIMATION_DIRECTION
 //
 // alternate
