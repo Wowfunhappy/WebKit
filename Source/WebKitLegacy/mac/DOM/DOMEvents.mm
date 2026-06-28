@@ -55,6 +55,17 @@ Class kitClass(WebCore::Event* impl)
     case WebCore::EventInterfaceType::WheelEvent:
         return [DOMWheelEvent class];
     default:
+        // MAVERICKS_BACKPORT: MouseEvent/KeyboardEvent subclasses that report their own
+        // interfaceType (DragEvent, PointerEvent, …) have no legacy ObjC wrapper of their own and
+        // otherwise fall through to the base DOMUIEvent. Map them to the nearest wrapper that
+        // exposes their accessors — as stock WebKit did by keying off isMouseEvent()/key state —
+        // so reads like -[DOMMouseEvent metaKey] don't reach a base DOMUIEvent and crash with an
+        // unrecognized selector (e.g. Messages reads modifier keys off the events it handles). The
+        // downcast inside the wrapper is valid because the impl IS a MouseEvent/UIEventWithKeyState.
+        if (impl->isMouseEvent())
+            return [DOMMouseEvent class];
+        if (impl->isUIEventWithKeyState())
+            return [DOMKeyboardEvent class];
         if (impl->isUIEvent())
             return [DOMUIEvent class];
 
