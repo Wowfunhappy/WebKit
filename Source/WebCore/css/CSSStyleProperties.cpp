@@ -301,6 +301,22 @@ ExceptionOr<void> CSSStyleProperties::setPropertyValueForEpubCasedIDLAttribute(c
     return setPropertyInternal(propertyID, value, IsImportant::No);
 }
 
+// MAVERICKS_BACKPORT: lowercase-first Apple-cased IDL attribute (e.g. element.style.appleDashboardRegion).
+// Like the Webkit/Epub cases, the camel-cased attribute maps back to its dashed CSS property name.
+String CSSStyleProperties::propertyValueForAppleCasedIDLAttribute(const AtomString& attribute)
+{
+    auto propertyID = lookupCSSPropertyFromIDLAttribute<CSSPropertyLookupMode::ConvertUsingDashPrefix>(attribute);
+    ASSERT_WITH_MESSAGE(propertyID != CSSPropertyInvalid, "Invalid attribute: %s", attribute.string().utf8().data());
+    return getPropertyValueInternal(propertyID);
+}
+
+ExceptionOr<void> CSSStyleProperties::setPropertyValueForAppleCasedIDLAttribute(const AtomString& attribute, const String& value)
+{
+    auto propertyID = lookupCSSPropertyFromIDLAttribute<CSSPropertyLookupMode::ConvertUsingDashPrefix>(attribute);
+    ASSERT_WITH_MESSAGE(propertyID != CSSPropertyInvalid, "Invalid attribute: %s", attribute.string().utf8().data());
+    return setPropertyInternal(propertyID, value, IsImportant::No);
+}
+
 String CSSStyleProperties::cssFloat()
 {
     return getPropertyValueInternal(CSSPropertyFloat);
