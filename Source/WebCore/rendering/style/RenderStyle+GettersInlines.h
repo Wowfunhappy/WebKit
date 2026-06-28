@@ -673,7 +673,15 @@ template<BoxSide side> struct UsedBorderWidthsAccessor {
     {
         using namespace CSS::Literals;
 
-        if (!data.edges[side].hasVisibleStyle())
+        // MAVERICKS_BACKPORT: stock 10.9 WebKit honored the specified border widths whenever a
+        // -webkit-border-image was present, even with border-style:none, so the image had a
+        // border box to paint into. macOS 10.9 Messages.app's balloons.css relies on exactly
+        // this — every <messagetext> sets border-top/bottom/left/right widths with NO
+        // border-style plus a -webkit-border-image speech-balloon — and modern WebKit's
+        // spec-correct "style:none => used width 0" collapses the bubble to a thin line. Keep
+        // the specified width when a border-image source is present so the balloon paints.
+        bool hasBorderImageSource = !data.borderImage->borderImage.borderImageSource.isNone();
+        if (!data.edges[side].hasVisibleStyle() && !hasBorderImageSource)
             return 0_css_px;
         if (data.borderImage->borderImage.borderImageWidth.overridesBorderWidths()) {
             if (auto fixedBorderWidthValue = data.borderImage->borderImage.borderImageWidth.values[side].tryFixed())

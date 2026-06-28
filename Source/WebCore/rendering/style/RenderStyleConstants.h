@@ -539,6 +539,13 @@ enum class QuoteType : uint8_t {
     NoCloseQuote
 };
 
+// MAVERICKS_BACKPORT: non-standard -webkit-border-fit, restored for macOS 10.9 Messages.app,
+// whose balloons.css shrink-wraps chat speech bubbles to their text with -webkit-border-fit:lines.
+enum class BorderFit : uint8_t {
+    Border,
+    Lines
+};
+
 enum class AnimationFillMode : uint8_t {
     None,
     Forwards,
@@ -1139,6 +1146,7 @@ WTF::TextStream& operator<<(WTF::TextStream&, BlockStepAlign);
 WTF::TextStream& operator<<(WTF::TextStream&, BlockStepInsert);
 WTF::TextStream& operator<<(WTF::TextStream&, BlockStepRound);
 WTF::TextStream& operator<<(WTF::TextStream&, BorderCollapse);
+WTF::TextStream& operator<<(WTF::TextStream&, BorderFit);
 WTF::TextStream& operator<<(WTF::TextStream&, BorderStyle);
 WTF::TextStream& operator<<(WTF::TextStream&, BoxAlignment);
 WTF::TextStream& operator<<(WTF::TextStream&, BoxDecorationBreak);
