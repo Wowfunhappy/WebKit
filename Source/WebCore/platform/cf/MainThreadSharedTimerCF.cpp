@@ -27,8 +27,10 @@
 #import "MainThreadSharedTimer.h"
 
 #include <wtf/AutodrainedPool.h>
+#include <wtf/MainThread.h>
 // MAVERICKS_BACKPORT: include RunLoop for the main-thread run loop used by the timer install below.
 #include <wtf/RunLoop.h>
+#include <wtf/Vector.h>
 #include <wtf/cf/NotificationCenterCF.h>
 
 #if PLATFORM(MAC)
@@ -49,6 +51,15 @@ static RetainPtr<CFRunLoopTimerRef>& NODELETE sharedTimer()
 static void timerFired(CFRunLoopTimerRef, void*);
 
 static const CFTimeInterval kCFTimeIntervalDistantFuture = std::numeric_limits<CFTimeInterval>::max();
+
+// MAVERICKS_BACKPORT: app-registered run-loop modes the shared timer must also fire in (in
+// addition to kCFRunLoopCommonModes), so WebCore timers advance while an app pumps a private
+// mode. Only ever touched on the main thread. See MainThreadSharedTimer::addRunLoopMode().
+static Vector<RetainPtr<CFStringRef>>& extraTimerRunLoopModes()
+{
+    static NeverDestroyed<Vector<RetainPtr<CFStringRef>>> modes;
+    return modes;
+}
 
 bool& MainThreadSharedTimer::shouldSetupPowerObserver()
 {
@@ -106,6 +117,21 @@ void MainThreadSharedTimer::invalidate()
     sharedTimer() = nullptr;
 }
 
+void MainThreadSharedTimer::addRunLoopMode(CFStringRef mode)
+{
+    ASSERT(isMainThread());
+    for (auto& existing : extraTimerRunLoopModes()) {
+        if (CFEqual(existing.get(), mode))
+            return;
+    }
+    extraTimerRunLoopModes().append(mode);
+
+    // If the timer already exists, start firing it in this mode now; otherwise setFireInterval()
+    // will pick the mode up from extraTimerRunLoopModes() when it creates the timer.
+    if (sharedTimer())
+        CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), mode);
+}
+
 void MainThreadSharedTimer::setFireInterval(Seconds interval)
 {
     ASSERT(m_firedFunction);
@@ -121,6 +147,9 @@ void MainThreadSharedTimer::setFireInterval(Seconds interval)
         // timer is created/added exactly once on 10.9.
         CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), kCFRunLoopCommonModes); // MAVERICKS_BACKPORT: main run loop, not the current thread's.
 
+        // MAVERICKS_BACKPORT: also install in any app-registered private modes (see addRunLoopMode).
+        for (auto& mode : extraTimerRunLoopModes())
+            CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), mode.get());
 #endif
         setupPowerObserver();
     // MAVERICKS_BACKPORT: fold the existing-timer reschedule into this else branch so the timer is created/added exactly once on 10.9.

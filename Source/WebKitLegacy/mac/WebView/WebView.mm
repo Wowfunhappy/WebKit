@@ -204,6 +204,7 @@
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/LogInitialization.h>
 #import <WebCore/MIMETypeRegistry.h>
+#import <WebCore/MainThreadSharedTimer.h>
 #import <WebCore/MemoryCache.h>
 #import <WebCore/MemoryRelease.h>
 #import <WebCore/MutableStyleProperties.h>
@@ -7557,12 +7558,39 @@ static WebFrameView *containingFrameView(NSView *view)
 
 @end
 
+// MAVERICKS_BACKPORT: also fire WebCore's shared timer in a private run-loop mode an app pumps to
+// advance a load. WebCore::Timer fires from MainThreadSharedTimer's CFRunLoopTimer, registered only
+// in kCFRunLoopCommonModes; the load-completion path (FrameLoader's checkCompleted, the HTML parser
+// scheduler) runs on those timers, so it never progresses while an app spins a non-common mode
+// (Messages pumps @"iChatWebKitLoadingRunLoopMode" via -[NSRunLoop acceptInputForMode:beforeDate:]
+// in -_windowDidLoad). Register the mode with the shared timer so the timer fires there too. (The
+// other two halves of in-mode delivery already exist: resource callbacks via
+// -[WebCoreResourceHandleAsOperationQueueDelegate callFunctionOnMainThread:] CFRunLoopPerformBlock,
+// and the deferred main-resource continuation via RunLoop::dispatch(SchedulePairHashSet&).)
+// This closes the upstream "FIXME: make SharedTimerMac use these SchedulePairs" (PageCocoa.mm).
+static void registerSharedTimerRunLoopMode(NSRunLoop *runLoop, NSString *mode)
+{
+    // The shared timer lives on the main run loop; only wire modes that belong to it. The standard
+    // modes already run as (or within) common modes where the timer fires already, so skip them.
+    if ([runLoop getCFRunLoop] != CFRunLoopGetMain())
+        return;
+    if ([mode isEqualToString:(NSString *)kCFRunLoopCommonModes]
+        || [mode isEqualToString:NSDefaultRunLoopMode]
+        || [mode isEqualToString:NSEventTrackingRunLoopMode]
+        || [mode isEqualToString:NSModalPanelRunLoopMode])
+        return;
+
+    WebCore::MainThreadSharedTimer::addRunLoopMode((CFStringRef)mode);
+}
+
 @implementation WebView (WebPendingPublic)
 
 - (void)scheduleInRunLoop:(NSRunLoop *)runLoop forMode:(NSString *)mode
 {
-    if (runLoop && mode)
+    if (runLoop && mode) {
         core(self)->addSchedulePair(SchedulePair::create(runLoop, (CFStringRef)mode));
+        registerSharedTimerRunLoopMode(runLoop, mode);
+    }
 }
 
 - (void)unscheduleFromRunLoop:(NSRunLoop *)runLoop forMode:(NSString *)mode

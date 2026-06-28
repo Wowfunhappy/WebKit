@@ -33,6 +33,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <wtf/AutodrainedPool.h>
+#include <wtf/BlockPtr.h>
 // MAVERICKS_BACKPORT: for the out-of-line mainDispatchTimers() map of cancellable GCD timers below.
 #include <wtf/NeverDestroyed.h>
 #include <wtf/OSObjectPtr.h>
@@ -123,13 +124,28 @@ void RunLoop::stop()
 
 void RunLoop::dispatch(const SchedulePairHashSet& schedulePairs, Function<void()>&& function)
 {
-    // MAVERICKS_BACKPORT: WK2 XPC services run dispatch_main(), which pumps GCD but
-    // not CFRunLoop. CFRunLoopAddTimer() on the main loop would silently drop
-    // the timer because nothing pumps it. Route everything through
-    // RunLoop::mainSingleton().dispatch(), which honors our dispatch_main
-    // wakeUp path (see wakeUp() above).
-    UNUSED_PARAM(schedulePairs);
-    RunLoop::mainSingleton().dispatch(WTF::move(function));
+    // Deliver the work into the caller's scheduled run-loop modes (a one-shot CFRunLoopTimer added
+    // to each pair's runLoop+mode), so it runs in whatever mode is being pumped — including a
+    // *private* mode an app spins to advance a load. Messages defers its initial substitute-data
+    // main resource through here (DocumentLoader::tryLoadingSubstituteData) and pumps
+    // @"iChatWebKitLoadingRunLoopMode" in -_windowDidLoad waiting for it; without per-mode delivery
+    // the continuation never runs in that mode and the app wedges at 100% CPU.
+    //
+    // MAVERICKS_BACKPORT: WK2 XPC services run dispatch_main() (which pumps GCD but not a CFRunLoop)
+    // and register no schedule pairs; for that case the CFRunLoopTimer would never fire, so fall
+    // back to the main GCD queue (honoring our dispatch_main wakeUp path, see wakeUp() above).
+    if (schedulePairs.isEmpty()) {
+        RunLoop::mainSingleton().dispatch(WTF::move(function));
+        return;
+    }
+
+    RetainPtr<CFRunLoopTimerRef> timer = adoptCF(CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent(), 0, 0, 0, makeBlockPtr([function = WTF::move(function)](CFRunLoopTimerRef timer) mutable {
+        AutodrainedPool pool;
+        function();
+        CFRunLoopTimerInvalidate(timer);
+    }).get()));
+    for (auto& schedulePair : schedulePairs)
+        CFRunLoopAddTimer(schedulePair->runLoop(), timer.get(), schedulePair->mode());
 }
 
 // RunLoop::Timer
