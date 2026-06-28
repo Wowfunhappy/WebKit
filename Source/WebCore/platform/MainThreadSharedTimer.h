@@ -35,6 +35,10 @@
 #include <wtf/RunLoop.h>
 #endif
 
+#if USE(CF)
+typedef const struct __CFString* CFStringRef;
+#endif
+
 namespace WebCore {
 
 class MainThreadSharedTimer final : public SharedTimer
@@ -63,6 +67,13 @@ public:
 
     WEBCORE_EXPORT static bool& NODELETE shouldSetupPowerObserver();
     WEBCORE_EXPORT static void restartSharedTimer();
+
+#if USE(CF)
+    // MAVERICKS_BACKPORT: also fire the shared timer in an app-registered run-loop mode, so
+    // WebCore timers (and the load-completion checks they drive) advance while an app pumps a
+    // private mode. See -[WebView(WebPendingPublic) scheduleInRunLoop:forMode:].
+    WEBCORE_EXPORT static void addRunLoopMode(CFStringRef);
+#endif
 
 private:
     MainThreadSharedTimer();
