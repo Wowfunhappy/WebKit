@@ -17,13 +17,13 @@ SRC="$HERE/coreservices_compat.c"
 EXP="$HERE/libcoreservices_compat.exp"
 
 mkdir -p "$(dirname "$OUT")"
-# -isysroot / : built against the 10.9 host SDK (the two functions are declared locally, not via the
-# SDK, so they compile regardless of availability macros). The export list keeps the shim's own
-# exports to exactly the two gap functions; the reexport makes every real CoreServices symbol resolve.
-"$CLANG" --no-default-config -isysroot / -mmacosx-version-min=10.9 -dynamiclib -fPIC -O2 \
-    -install_name @rpath/libcoreservices_compat.dylib \
-    -compatibility_version 1.0.0 -current_version 1226.0.0 \
-    -Wl,-reexport_framework,CoreServices \
-    -Wl,-exported_symbols_list,"$EXP" \
-    "$SRC" -o "$OUT"
+# Built against the 10.9 host SDK (-isysroot /, the helper default): the two functions are declared
+# locally, not via the SDK, so they compile regardless of availability macros. The export list keeps the
+# shim's own exports to exactly the two gap functions; the reexport makes every real CoreServices symbol
+# resolve. See reexport-shim.sh for the shared recipe.
+source "$REPO/MavericksSupport/reexport-shim.sh"
+build_reexport_shim --clang "$CLANG" --out "$OUT" \
+    --install-name @rpath/libcoreservices_compat.dylib --compat 1.0.0 --current 1226.0.0 \
+    --cflags "-fPIC -O2" --reexport-framework CoreServices --exported-symbols-list "$EXP" \
+    "$SRC"
 echo "built $OUT"

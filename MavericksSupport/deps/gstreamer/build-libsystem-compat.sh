@@ -57,13 +57,12 @@ done
 "$CLANG" $CFLAGS -c "$HERE/libsystem_compat_extra.c" -o "$OBJDIR/libsystem_compat_extra.o"
 objs+=("$OBJDIR/libsystem_compat_extra.o")
 
-mkdir -p "$(dirname "$OUT")"
-"$CLANG" --no-default-config -isysroot / -mmacosx-version-min=10.9 -dynamiclib \
-    -install_name @rpath/libsystem_compat.dylib \
-    -compatibility_version 1.0.0 -current_version 1351.0.0 \
-    -Wl,-reexport-lSystem \
-    -Wl,-exported_symbols_list,"$EXP" \
-    "${objs[@]}" -o "$OUT"
+# Reexport libSystem (not a framework) + restrict exports to the gap functions. See reexport-shim.sh.
+source "$REPO/MavericksSupport/reexport-shim.sh"
+build_reexport_shim --clang "$CLANG" --out "$OUT" \
+    --install-name @rpath/libsystem_compat.dylib --compat 1.0.0 --current 1351.0.0 \
+    --reexport-lib System --exported-symbols-list "$EXP" \
+    "${objs[@]}"
 
 echo "built $OUT"
 echo "exports: $(/usr/bin/nm -gU "$OUT" 2>/dev/null | grep ' T ' | awk '{print $NF}' | tr '\n' ' ')"

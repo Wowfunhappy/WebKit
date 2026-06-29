@@ -41,3 +41,22 @@ bool __availability_version_check(uint32_t count, void *versions)
     (void)versions;
     return false;
 }
+
+// OSAtomicIncrement32Barrier / OSAtomicDecrement32Barrier (libkern/OSAtomic.h): on 10.9 these are inline
+// functions in the SDK header (they expand to the real OSAtomicAdd32Barrier export), so libSystem does
+// NOT export them as symbols and there is nothing for libsystem_compat's libSystem reexport to forward.
+// The vendored GStreamer dylibs (Cerbero 1.26.6, deploy target 10.13) were built against a newer SDK
+// where these became real exported symbols, so libtag/libgstsctp/libzbar import them by name and fail to
+// load on 10.9 ("Symbol not found: _OSAtomicDecrement32Barrier, Expected in: libsystem_compat.dylib").
+// Define them as the standard full-barrier atomics (returning the post-update value), which is exactly
+// the OSAtomic contract. (OSAtomicAdd32Barrier and OSAtomicCompareAndSwapIntBarrier ARE real 10.9 libSystem
+// exports and resolve through the reexport, so they need no shim here.)
+int32_t OSAtomicIncrement32Barrier(volatile int32_t *value)
+{
+    return __sync_add_and_fetch(value, 1);
+}
+
+int32_t OSAtomicDecrement32Barrier(volatile int32_t *value)
+{
+    return __sync_sub_and_fetch(value, 1);
+}

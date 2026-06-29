@@ -9,11 +9,11 @@ REPO="$(cd "$HERE/../../.." && pwd)"
 CLANG="${1:-$REPO/MavericksSupport/toolchain/build/clang/bin/clang}"
 OUT="${2:-$HERE/lib/libaudiotoolbox_compat.dylib}"
 SRC="$HERE/audiotoolbox_compat.c"
-mkdir -p "$(dirname "$OUT")"
-"$CLANG" --no-default-config -isysroot / -mmacosx-version-min=10.9 -dynamiclib -fPIC -O2 \
-    -install_name @rpath/libaudiotoolbox_compat.dylib \
-    -compatibility_version 1.0.0 -current_version 1000.0.0 \
-    -Wl,-reexport_framework,AudioToolbox \
-    -Wl,-reexport_framework,AudioUnit \
-    "$SRC" -o "$OUT"
+# See reexport-shim.sh for the shared recipe.
+source "$REPO/MavericksSupport/reexport-shim.sh"
+build_reexport_shim --clang "$CLANG" --out "$OUT" \
+    --install-name @rpath/libaudiotoolbox_compat.dylib --compat 1.0.0 --current 1000.0.0 \
+    --cflags "-fPIC -O2" \
+    --reexport-framework AudioToolbox --reexport-framework AudioUnit \
+    "$SRC"
 echo "built $OUT"
