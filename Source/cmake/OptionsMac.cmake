@@ -163,9 +163,12 @@ link_libraries(${MAVERICKS_TC}/lib/libc++abi.1.dylib)
 # the POSIX/libc base plus the WebKit-specific framework-SPI stubs. Linked into every
 # binary.
 link_libraries(${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a)
-# libpolyfill's polyfill_stubs.o defines a CABackdropLayer : CALayer stub, so every binary that pulls
-# in that object (including JSC build tools like LLIntSettingsExtractor) needs QuartzCore's CALayer.
-# QuartzCore is a 10.9 system framework, so linking it everywhere is harmless.
+# libpolyfill_classes.dylib (the polyfill ObjC class stubs) is NOT link_libraries'd here: it is linked
+# per-framework in WEBKIT_FRAMEWORK (WebKitMacros.cmake) so it covers the framework targets without also
+# being dragged into build tools, and the classes its owning framework is linked earlier than are handled by
+# the reexport+repoint in install-safari7.sh (see the WEBKIT_FRAMEWORK note).
+# QuartzCore's CALayer is the superclass of the CABackdropLayer stub; linking it everywhere (it is a 10.9
+# system framework) is harmless and also covers any binary that uses CALayer directly.
 link_libraries("-framework QuartzCore")
 # -nostdlib++ is needed because we use a custom libc++ (clang-22).
 # Upstream WebKit applies -undefined dynamic_lookup only to WebCore via its

@@ -149,6 +149,23 @@ macro(_WEBKIT_TARGET_SETUP _target _logical_name)
         target_compile_options(${_target} PRIVATE ${${_logical_name}_COMPILE_OPTIONS})
     endif ()
 
+    # MAVERICKS_BACKPORT: link the polyfill ObjC-class stubs dylib into every WebKit framework. The polyfilled
+    # classes have absent-on-10.9 SYSTEM names (UTType, NSScrollingPredominantAxisFilter, CABackdropLayer,
+    # SecKeyProxy, ...) that the build SDK declares in system frameworks (AppKit/QuartzCore/Foundation/Security/
+    # CFNetwork/CoreServices); under the two-level namespace a reference binds to whichever provider the linker
+    # resolves it against. Linking this dylib here covers the classes the linker resolves against IT — those
+    # owned by frameworks the linker reaches after it (AppKit/QuartzCore/Foundation) — which then bind to this
+    # ONE shared definition (no "Class X is implemented in both ..." warning, no "Symbol not found" crash). It
+    # only ever wins for the absent classes it defines; real 10.9 classes (NSColor, NSView, ...) are not in the
+    # dylib and still bind to their system framework. CMake link-line ordering is NOT controllable enough to
+    # make this dylib beat EVERY system framework, so classes owned by frameworks linked earlier (Security ->
+    # SecKeyProxy; CFNetwork -> _NSHTTPAlternativeServices*/_NSHSTSStorage; CoreServices -> LSBundleProxy;
+    # QuartzCore in some binaries) are handled deterministically at install time instead:
+    # libpolyfill_classes.dylib reexports those four frameworks and install-safari7.sh repoints each binary's
+    # dependency on them to it (see rewrite_abs_deps). Together that resolves all of them to this one dylib.
+    if (MAVERICKS_SUPPORT)
+        target_link_libraries(${_target} PRIVATE ${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_classes.dylib)
+    endif ()
     if (${_logical_name}_LIBRARIES)
         target_link_libraries(${_target} PUBLIC ${${_logical_name}_LIBRARIES})
     endif ()
