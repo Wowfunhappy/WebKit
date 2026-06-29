@@ -34,6 +34,13 @@
 #import <QuartzCore/QuartzCore.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
+// MAVERICKS_BACKPORT: Services support — advertise the web selection to AppKit's Services
+// machinery (the app-menu Services submenu and the context-menu services). The standalone
+// WKView talks to WebPageProxy directly (no WebViewImpl), so these are wired here.
+#import "EditorState.h"
+#import "PasteboardTypes.h"
+#import <WebCore/LegacyNSPasteboardTypes.h>
+#import <WebCore/SharedBuffer.h>
 #if ENABLE(DRAG_SUPPORT)
 // MAVERICKS_BACKPORT: extra includes for the hand-written WKView HTML5 drag source/destination.
 #import "PasteboardTypes.h"
@@ -121,6 +128,11 @@ struct WKViewState {
 
     // MAVERICKS_BACKPORT: bring up the WebPage now that the page proxy + client are wired (no Site/sandbox yet).
     _wkState->page->initializeWebPage(WebCore::Site(WTF::HashTableEmptyValue), WebCore::SandboxFlags {}, WebCore::ReferrerPolicy::Default);
+
+    // MAVERICKS_BACKPORT: tell AppKit which pasteboard types this view can supply from / accept into the
+    // selection, so the Services machinery offers services for the web selection (app-menu Services submenu
+    // and context-menu services). Ported from WebViewImpl's constructor (which this WKView does not use).
+    [NSApp registerServicesMenuSendTypes:WebKit::PasteboardTypes::forSelectionSingleton() returnTypes:WebKit::PasteboardTypes::forEditingSingleton()];
 
 #if ENABLE(DRAG_SUPPORT)
     // MAVERICKS_BACKPORT: become an NSDraggingDestination so drops route into the page.
@@ -404,6 +416,62 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 - (void)enableFrameSizeUpdates {}
 - (BOOL)frameSizeUpdatesDisabled { return NO; }
 + (void)hideWordDefinitionWindow {}
+
+// MAVERICKS_BACKPORT: NSServicesRequests responder hooks. AppKit walks the responder chain calling
+// -validRequestorForSendType:returnType: to decide which services apply to the current selection, then
+// -writeSelectionToPasteboard:types: to hand the selection to the chosen service (and
+// -readSelectionFromPasteboard: for services that return a replacement). The standalone WKView talks to
+// WebPageProxy directly (no WebViewImpl), so without these the web selection is never offered to Services
+// and the Services submenu is empty in BOTH the app menu and the context menu. Ported from
+// WebViewImpl::validRequestorForSendAndReturnTypes / writeSelectionToPasteboard / readSelectionFromPasteboard.
+- (id)validRequestorForSendType:(NSString *)sendType returnType:(NSString *)returnType
+{
+    if (!_wkState->page)
+        return [[self nextResponder] validRequestorForSendType:sendType returnType:returnType];
+
+    const WebKit::EditorState& editorState = _wkState->page->editorState();
+    bool isValidSendType = !sendType;
+    if (sendType && editorState.selectionType != WebCore::SelectionType::None) {
+        if (editorState.isInPlugin)
+            isValidSendType = [sendType isEqualToString:WebCore::legacyStringPasteboardTypeSingleton()];
+        else
+            isValidSendType = [WebKit::PasteboardTypes::forSelectionSingleton() containsObject:sendType];
+    }
+
+    bool isValidReturnType = false;
+    if (!returnType)
+        isValidReturnType = true;
+    else if ([WebKit::PasteboardTypes::forEditingSingleton() containsObject:returnType] && editorState.isContentEditable)
+        isValidReturnType = editorState.isContentRichlyEditable || [returnType isEqualToString:WebCore::legacyStringPasteboardTypeSingleton()];
+
+    if (isValidSendType && isValidReturnType)
+        return self;
+    return [[self nextResponder] validRequestorForSendType:sendType returnType:returnType];
+}
+
+- (BOOL)writeSelectionToPasteboard:(NSPasteboard *)pasteboard types:(NSArray *)types
+{
+    if (!_wkState->page)
+        return NO;
+    [pasteboard clearContents];
+    [pasteboard addTypes:types owner:nil];
+    for (NSString *type in types) {
+        if ([type isEqualTo:WebCore::legacyStringPasteboardTypeSingleton()])
+            [pasteboard setString:_wkState->page->stringSelectionForPasteboard().createNSString().get() forType:WebCore::legacyStringPasteboardTypeSingleton()];
+        else {
+            RefPtr<WebCore::SharedBuffer> buffer = _wkState->page->dataSelectionForPasteboard(type);
+            [pasteboard setData:buffer ? buffer->createNSData().get() : nil forType:type];
+        }
+    }
+    return YES;
+}
+
+- (BOOL)readSelectionFromPasteboard:(NSPasteboard *)pasteboard
+{
+    if (!_wkState->page)
+        return NO;
+    return _wkState->page->readSelectionFromPasteboard([pasteboard name]);
+}
 
 // MAVERICKS_BACKPORT: forward NSEvents to WebPageProxy. The full WebViewImpl.mm input
 // pipeline is stubbed out in this build, so add a minimal mouseDown/Up/Moved/Dragged,
