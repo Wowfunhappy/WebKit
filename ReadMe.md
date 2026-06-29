@@ -8,6 +8,8 @@ At this time, if you are actively using Mavericks as a daily driver, I still rec
 
 If you use Mavericks on a secondary machine, you may be able to get away with using Safari 7 as your web browser. However, some complex web apps such as Figma do not currently work in the backport. If you previously deleted Safari, you can find a working copy of Safari 7 in the Applications folder of the Mavericks installer DMG (no special extraction necessary). If you previously upgraded to Safari 9, you will need to downgrade to Safari 7; doing this properly is currently beyond the scope of this documentation (TODO), but simply replacing Safari.app should basically work.
 
+Regardless, please be aware that this backport is still experimental, and installing it has the potential to impact almost any app on your machine. Expect to experience some weirdness. (Please report these problems in the Issues tab on Github.)
+
 You are expected to have Time Machine enabled in case anything goes wrong.
 
 ## Architecture
