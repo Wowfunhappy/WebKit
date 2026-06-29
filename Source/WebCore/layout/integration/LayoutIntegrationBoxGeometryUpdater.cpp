@@ -27,6 +27,8 @@
 #include "config.h"
 #include "LayoutIntegrationBoxGeometryUpdater.h"
 
+#include "Chrome.h"
+#include "ChromeClient.h"
 #include "FontCascadeInlines.h"
 #include "FormattingConstraints.h"
 #include "InlineWalker.h"
@@ -36,6 +38,7 @@
 #if ENABLE(MULTI_REPRESENTATION_HEIC)
 #include "MultiRepresentationHEICMetrics.h"
 #endif
+#include "Page.h"
 #include "RenderAttachment.h"
 #include "RenderBlockFlowInlines.h"
 #include "RenderBoxInlines.h"
@@ -575,7 +578,26 @@ static std::optional<LayoutUnit> baselineForBox(const RenderBox& renderBox)
     }
 
     if (CheckedPtr blockFlow = dynamicDowncast<RenderBlockFlow>(renderBox)) {
-        if (shouldUseMarginBoxAsBaseline(*blockFlow) || blockFlow->style().overflowY() != Overflow::Visible)
+        bool useMarginBoxAsBaseline = shouldUseMarginBoxAsBaseline(*blockFlow) || blockFlow->style().overflowY() != Overflow::Visible;
+#if ENABLE(DASHBOARD_SUPPORT)
+        // MAVERICKS_BACKPORT: CSS2.1 (and modern WebKit) take an inline-block's baseline from its bottom margin
+        // edge when its overflow is not visible; stock 10.9 instead used the baseline of the inline-block's last
+        // line box (its text baseline). Restore that legacy text-baseline alignment for a Dashboard widget host
+        // ONLY (Safari/WK2 keeps the modern behavior) so e.g. the Stocks widget's detail labels line up with
+        // their values. A genuinely scrolled or marquee inline-block has no meaningful line baseline and keeps
+        // bottom (margin-box) alignment even on 10.9.
+        if (useMarginBoxAsBaseline && blockFlow->childrenInline() && blockFlow->hasContentfulInlineOrBlockLine()) {
+            if (auto* page = blockFlow->document().page(); page && page->chrome().client().isDashboardWidgetClient()) {
+                CheckedPtr scrollableArea = blockFlow->layer() ? blockFlow->layer()->scrollableArea() : nullptr;
+                bool scrolledOrMarquee = scrollableArea && (scrollableArea->marquee()
+                    || (writingMode.isHorizontal() ? (scrollableArea->verticalScrollbar() || scrollableArea->scrollOffset().y())
+                                                    : (scrollableArea->horizontalScrollbar() || scrollableArea->scrollOffset().x())));
+                if (!scrolledOrMarquee)
+                    useMarginBoxAsBaseline = false;
+            }
+        }
+#endif
+        if (useMarginBoxAsBaseline)
             return marginBoxBottom;
 
         // Note that here we only take the left and bottom into consideration. Our caller takes the right and top into consideration.
