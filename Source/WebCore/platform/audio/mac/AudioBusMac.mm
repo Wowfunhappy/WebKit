@@ -44,6 +44,12 @@ RefPtr<AudioBus> AudioBus::loadPlatformResource(const char* name, float sampleRa
     @autoreleasepool {
         RetainPtr<NSBundle> bundle = [NSBundle bundleForClass:[WebCoreAudioBundleClass class]];
         RetainPtr<NSURL> audioFileURL = [bundle URLForResource:[NSString stringWithUTF8String:name] withExtension:@"wav" subdirectory:@"audio"];
+        // MAVERICKS_BACKPORT: guard a missing bundled resource. +[NSData dataWithContentsOfURL:] raises an
+        // uncaught ObjC exception on a nil URL, and because HRTFDatabaseLoader runs on a worker thread that
+        // exception terminates the entire WebContent process (observed as the HRTF panner reload loop). Returning
+        // nullptr lets Web Audio degrade gracefully — every caller already null-checks the result.
+        if (!audioFileURL)
+            return nullptr;
         if (NSData *audioData = [NSData dataWithContentsOfURL:audioFileURL.get() options:NSDataReadingMappedIfSafe error:nil])
             return createBusFromInMemoryAudioFile(span(audioData), false, sampleRate);
     }

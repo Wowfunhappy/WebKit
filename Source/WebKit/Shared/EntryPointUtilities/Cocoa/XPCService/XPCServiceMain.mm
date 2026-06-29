@@ -336,7 +336,9 @@ int XPCServiceMain(int, const char**)
     // per-pid file so WebContent fprintfs are visible, and install the in-process crash-backtrace handler.
     // Both are gated off by default so production launches do not write world-readable /tmp logs or alter
     // signal disposition; export WEBKIT_MAVERICKS_DEBUG to enable while debugging.
-    if (getenv("WEBKIT_MAVERICKS_DEBUG")) {
+    // MAVERICKS_BACKPORT DIAGNOSTIC: also enable when the sentinel file /tmp/wk-debug-on exists, because
+    // env vars do not propagate to XPC-launched service processes on 10.9 (a file check does).
+    if (getenv("WEBKIT_MAVERICKS_DEBUG") || access("/tmp/wk-debug-on", F_OK) == 0) {
         char path[128];
         snprintf(path, sizeof(path), "/tmp/wc-stderr-%d.log", getpid());
         int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0666);
