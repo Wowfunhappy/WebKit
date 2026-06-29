@@ -246,6 +246,7 @@ private:
 
 #if ENABLE(DASHBOARD_SUPPORT)
     void annotatedRegionsChanged() final; // MAVERICKS_BACKPORT
+    bool isDashboardWidgetClient() const final; // MAVERICKS_BACKPORT
 #endif
 
 #if ENABLE(CONTENT_CHANGE_OBSERVER)

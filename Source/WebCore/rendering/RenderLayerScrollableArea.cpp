@@ -897,6 +897,19 @@ Ref<Scrollbar> RenderLayerScrollableArea::createScrollbar(ScrollbarOrientation o
             scrollAnimator().setWheelEventTestMonitor(page->wheelEventTestMonitor());
     }
     protect(renderer.view().frameView())->addChild(*widget);
+
+#if ENABLE(DASHBOARD_SUPPORT)
+    // MAVERICKS_BACKPORT: a native scrollbar is auto-reported as a Dashboard "control" region by
+    // -[WebView _addScrollerDashboardRegions:]. Prime the document's annotated-regions flag so
+    // updateAnnotatedRegions() runs and that report reaches DashboardClient (otherwise dragging a
+    // scrollbar inside a widget that declares no -apple-dashboard-region moves the widget). Gated on the
+    // client to avoid the region-collection walk on non-Dashboard clients (Safari/Mail).
+    if (RefPtr page = renderer.document().page(); page && page->chrome().client().isDashboardWidgetClient()) {
+        renderer.document().setHasAnnotatedRegions(true);
+        renderer.document().setAnnotatedRegionsDirty();
+    }
+#endif
+
     return widget.releaseNonNull();
 }
 

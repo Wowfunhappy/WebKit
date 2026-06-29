@@ -1376,6 +1376,96 @@ typedef enum {
     return NO;
 }
 
+#if ENABLE(DASHBOARD_SUPPORT)
+
+// MAVERICKS_BACKPORT: the scroller/control auto-region helpers below were removed upstream (2d364c6 "Remove
+// Dashboard support"). -_dashboardRegions augments the document's CSS -apple-dashboard-region set with a
+// "control" region for every native scroller (NSScroller) and every WebCore scrollbar (e.g. a <textarea> or
+// overflow scrollbar). DashboardClient reads -_dashboardRegions to decide which areas of a widget are
+// interactive vs. a drag handle: a widget that declares no -apple-dashboard-region in CSS (e.g. the third-
+// party "Text Area" widget, a bare native <textarea>) still reports its scrollbar as a control region, which
+// is what makes DashboardClient leave the widget interior interactive (text drag-selects, the scrollbar
+// drags) and move the widget only from its border. Without this the reported set is empty and DashboardClient
+// treats the whole widget as a drag handle, so any drag moves the widget instead of selecting/scrolling.
+// Restored verbatim from stock 9537.78, adapted to the modern LocalFrameView / HashSet<Ref<Widget>> API.
+#define DASHBOARD_CONTROL_LABEL @"control"
+
+- (void)_addControlRect:(NSRect)bounds clip:(NSRect)clip fromView:(NSView *)view toDashboardRegions:(NSMutableDictionary *)regions
+{
+    NSRect adjustedBounds = bounds;
+    adjustedBounds.origin = [self convertPoint:bounds.origin fromView:view];
+    adjustedBounds.origin.y = [self bounds].size.height - adjustedBounds.origin.y;
+    adjustedBounds.size = bounds.size;
+
+    NSRect adjustedClip;
+    adjustedClip.origin = [self convertPoint:clip.origin fromView:view];
+    adjustedClip.origin.y = [self bounds].size.height - adjustedClip.origin.y;
+    adjustedClip.size = clip.size;
+
+    WebDashboardRegion *region = [[WebDashboardRegion alloc] initWithRect:adjustedBounds
+        clip:adjustedClip type:WebDashboardRegionTypeScrollerRectangle];
+    NSMutableArray *scrollerRegions = [regions objectForKey:DASHBOARD_CONTROL_LABEL];
+    if (!scrollerRegions) {
+        scrollerRegions = [[NSMutableArray alloc] init];
+        [regions setObject:scrollerRegions forKey:DASHBOARD_CONTROL_LABEL];
+        [scrollerRegions release];
+    }
+    [scrollerRegions addObject:region];
+    [region release];
+}
+
+- (void)_addScrollerDashboardRegionsForFrameView:(WebCore::LocalFrameView*)frameView dashboardRegions:(NSMutableDictionary *)regions
+{
+    using namespace WebCore;
+
+    NSView *documentView = [[kit(&frameView->frame()) frameView] documentView];
+
+    for (auto& widget : frameView->children()) {
+        if (is<LocalFrameView>(widget.get())) {
+            [self _addScrollerDashboardRegionsForFrameView:&downcast<LocalFrameView>(widget.get()) dashboardRegions:regions];
+            continue;
+        }
+
+        if (!widget->isScrollbar())
+            continue;
+
+        // FIXME: This should really pass an appropriate clip, but our first try got it wrong, and
+        // it's not common to need this to be correct in Dashboard widgets.
+        auto frameRect = widget->frameRect();
+        NSRect bounds = NSMakeRect(frameRect.x(), frameRect.y(), frameRect.width(), frameRect.height());
+        [self _addControlRect:bounds clip:bounds fromView:documentView toDashboardRegions:regions];
+    }
+}
+
+- (void)_addScrollerDashboardRegions:(NSMutableDictionary *)regions from:(NSArray *)views
+{
+    // Add scroller regions for NSScroller and WebCore scrollbars
+    NSUInteger count = [views count];
+    for (NSUInteger i = 0; i < count; i++) {
+        NSView *view = [views objectAtIndex:i];
+
+        if ([view isKindOfClass:[WebHTMLView class]]) {
+            if (auto* coreFrame = core([(WebHTMLView*)view _frame])) {
+                if (auto* coreView = coreFrame->view())
+                    [self _addScrollerDashboardRegionsForFrameView:coreView dashboardRegions:regions];
+            }
+        } else if ([view isKindOfClass:[NSScroller class]]) {
+            // AppKit places absent scrollers at -100,-100
+            if ([view frame].origin.y < 0)
+                continue;
+            [self _addControlRect:[view bounds] clip:[view visibleRect] fromView:view toDashboardRegions:regions];
+        }
+        [self _addScrollerDashboardRegions:regions from:[view subviews]];
+    }
+}
+
+- (void)_addScrollerDashboardRegions:(NSMutableDictionary *)regions
+{
+    [self _addScrollerDashboardRegions:regions from:[self subviews]];
+}
+
+#endif // ENABLE(DASHBOARD_SUPPORT)
+
 - (NSDictionary *)_dashboardRegions
 {
 #if ENABLE(DASHBOARD_SUPPORT)
@@ -1412,6 +1502,12 @@ typedef enum {
         [regionValues addObject:webRegion];
         [webRegion release];
     }
+
+    // MAVERICKS_BACKPORT: augment with auto-generated scroller/control regions (native scrollbars) so widgets
+    // that declare no -apple-dashboard-region in CSS still report their scrollbars as control regions. Matches
+    // stock 9537.78 (see -_addScrollerDashboardRegions: above).
+    [self _addScrollerDashboardRegions:webRegions];
+
     return webRegions;
 #else
     return nil;

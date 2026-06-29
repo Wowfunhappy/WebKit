@@ -1199,4 +1199,13 @@ void WebChromeClient::annotatedRegionsChanged()
     CallUIDelegate(webView(), @selector(webView:dashboardRegionsChanged:), [webView() _dashboardRegions]);
     END_BLOCK_OBJC_EXCEPTIONS
 }
+
+// MAVERICKS_BACKPORT: only collect annotated regions for a WebView whose UI delegate actually wants them
+// (a Dashboard widget host). This keeps native text controls / scrollbars from priming the (post-layout +
+// per-scroll) region-collection walk on ordinary WebKit1 clients (Mail, Dictionary.app) or in Safari (WK2,
+// which doesn't override this and gets the false default).
+bool WebChromeClient::isDashboardWidgetClient() const
+{
+    return [[webView() UIDelegate] respondsToSelector:@selector(webView:dashboardRegionsChanged:)];
+}
 #endif
