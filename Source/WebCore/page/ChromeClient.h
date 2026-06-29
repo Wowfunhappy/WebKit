@@ -631,6 +631,12 @@ public:
     // MAVERICKS_BACKPORT: the document's -apple-dashboard-region control regions changed; the WebKitLegacy
     // client forwards them to DashboardClient via -webView:dashboardRegionsChanged:.
     virtual void annotatedRegionsChanged() { }
+    // MAVERICKS_BACKPORT: true only for a legacy Dashboard widget host (a WebKit1 client whose UI delegate
+    // implements -webView:dashboardRegionsChanged:). Gates Dashboard-only rendering quirks so they never affect
+    // ordinary Safari (WK2, which uses the false default) or Mail pages: (1) native text controls / scrollbars
+    // prime Document::hasAnnotatedRegions() so DashboardClient learns their control regions, and (2) inline-block
+    // baselines fall back to the legacy text-baseline (matching stock 10.9) instead of the modern margin-box edge.
+    virtual bool isDashboardWidgetClient() const { return false; }
 #endif
 
     virtual bool shouldUseTiledBackingForFrameView(const LocalFrameView&) const { return false; }

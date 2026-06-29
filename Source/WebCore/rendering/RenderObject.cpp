@@ -3185,6 +3185,22 @@ void RenderObject::addAnnotatedRegions(Vector<AnnotatedRegionValue>& regions)
         region.clip = absoluteRect;
         regions.append(region);
     }
+
+    // MAVERICKS_BACKPORT: a native text control (<textarea>/<input>) is implicitly a "control" region so a
+    // Dashboard widget that is a bare native text field (and declares no -apple-dashboard-region in CSS) is
+    // still interactive: DashboardClient/Dock forwards drags inside the control's box to the web content (text
+    // drag-select, scrollbar drag) instead of treating the area as a drag handle. The surrounding widget chrome
+    // (outside the control's border box) carries no region and stays a drag handle, matching stock's "drag the
+    // border to move, drag the text to select" behaviour. hasAnnotatedRegions() is primed in
+    // RenderTextControl::styleDidChange so updateAnnotatedRegions() runs for these widgets.
+    if (is<RenderTextControl>(*this)) {
+        AnnotatedRegionValue region;
+        region.label = "control"_s;
+        region.type = StyleDashboardRegion::Rectangle;
+        region.bounds = absoluteRect;
+        region.clip = absoluteRect;
+        regions.append(region);
+    }
 }
 
 void RenderObject::collectAnnotatedRegions(Vector<AnnotatedRegionValue>& regions)
