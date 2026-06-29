@@ -1060,11 +1060,19 @@ void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuI
         RELEASE_ASSERT_NOT_REACHED();
 #endif
     } else {
-        // MAVERICKS_BACKPORT: Safari 9.1.3 passes a wrapper view with degenerate
-        // bounds, so [webView convertPoint:toView:nil] returns (0,0), placing
-        // the menu in the wrong location. Use the cursor's current screen
-        // position via popUpMenuPositioningItem:atLocation:inView:nil instead.
-        [m_menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
+        // MAVERICKS_BACKPORT: present via the AppKit contextual-menu path
+        // (popUpContextMenu:withEvent:forView:) so AppKit inserts the standard "Services"
+        // submenu by walking webView's responder chain (validRequestorForSendType:returnType:).
+        // popUpMenuPositioningItem:atLocation:inView:nil omits that submenu because it has no
+        // view/responder context. Safari 9.1.3 wraps WKView in a degenerate-bounds container, so
+        // [webView convertPoint:menuLocation toView:nil] returns (0,0) and mispositions the menu;
+        // derive the window location from the cursor's screen position instead
+        // (-[NSWindow convertRectFromScreen:] is 10.9-safe; convertPointFromScreen: is 10.12+).
+        RetainPtr<NSWindow> window = [webView window];
+        NSPoint screenLocation = [NSEvent mouseLocation];
+        NSPoint windowLocation = [window convertRectFromScreen:NSMakeRect(screenLocation.x, screenLocation.y, 0, 0)].origin;
+        RetainPtr<NSEvent> event = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown location:windowLocation modifierFlags:0 timestamp:0 windowNumber:[window windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
+        [NSMenu popUpContextMenu:m_menu.get() withEvent:event.get() forView:webView.get()];
     }
 }
 
