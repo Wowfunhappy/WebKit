@@ -218,6 +218,16 @@ install_framework() {
         cp -f "$REPO"/Source/WebCore/Modules/modern-media-controls/images/macOS/* "$res/modern-media-controls/images/" 2>/dev/null || \
             echo "  WARN: macOS media-control icons not found"
         echo "  staged modern-media-controls resources ($(ls "$res/modern-media-controls/images" 2>/dev/null | wc -l | tr -d ' ') icons)"
+
+        # Likewise, the CMake Mac build does not copy the Web Audio HRTF impulse-response database that
+        # AudioBus::loadPlatformResource() reads from the bundle (audio/Composite.wav, the concatenated
+        # database used when USE(CONCATENATED_IMPULSE_RESPONSES); subject name "Composite"). Without it,
+        # any HRTF PannerNode (positional audio) makes +[NSData dataWithContentsOfURL:] throw on a nil URL
+        # and the whole WebContent process aborts (e.g. the 5-million-devs.netlify.com 3D game reload loop).
+        mkdir -p "$res/audio"
+        cp -f "$REPO/Source/WebCore/platform/audio/resources/Composite.wav" "$res/audio/" 2>/dev/null \
+            && echo "  staged HRTF database (audio/Composite.wav)" \
+            || echo "  WARN: HRTF Composite.wav not found"
     fi
 
     # Rename the binary (Versions/A/<old> -> Versions/A/<new>) + Current symlink + top symlink.
