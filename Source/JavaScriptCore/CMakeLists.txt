@@ -1754,20 +1754,23 @@ WEBKIT_FRAMEWORK(JavaScriptCore)
 # Force-load WTF API compat shims for Safari 9.1.3 on 10.9
 if (APPLE)
     target_link_options(JavaScriptCore PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libwtf_compat.a")
-    # MAVERICKS_BACKPORT: polyfill ObjC classes (NSTouchBar, UTType, etc.) live ONLY
-    # in JavaScriptCore so WebCore + WebKit don't duplicate-register them and
-    # blow past libobjc's _read_images limit. Using PRIVATE/target_link_options
-    # so it doesn't leak into downstream targets.
-    target_link_options(JavaScriptCore PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_classes.a")
-    # These two are pulled in via raw -Wl flags in target_link_options, which ninja does NOT treat
-    # as link inputs — so regenerating them (build-polyfill.sh) would leave JavaScriptCore linked
-    # against STALE copies and the injected methods / compat shims would silently not take effect
-    # (forcing a manual rm of the binary). LINK_DEPENDS makes them real link inputs so JSC relinks
-    # automatically when they change. (libpolyfill.a does NOT need this: it is linked by full path
-    # via link_libraries in OptionsMac, which CMake already tracks as a link dependency.)
+    # MAVERICKS_BACKPORT: the polyfill ObjC method-injector (libpolyfill_classes.a = objc_inject.o) is
+    # force-loaded into WebCore, NOT JavaScriptCore (see Source/WebCore/CMakeLists.txt). It references and
+    # initializes AppKit classes (NSColor/NSScreen/NSWindow/NSWorkspace/NSEvent/NSAppearance) at +load to
+    # add absent-on-10.9 methods for the rendering code. Keeping AppKit out of JavaScriptCore lets a
+    # dyld-restricted setuid program that loads only JSC — e.g. the macOS Installer's privileged `runner`,
+    # which loads JavaScriptCore via Install.framework/DistributionKit to run Distribution scripts — start
+    # without tripping AppKit's "running setugid(), which is not allowed" abort (which otherwise killed the
+    # runner before it connected back, hanging the Installer). WebCore links AppKit and loads in every
+    # WebKit rendering process, so the injections still happen everywhere they are needed.
+    # libwtf_compat.a is pulled in via a raw -Wl flag in target_link_options, which ninja does NOT treat
+    # as a link input — so regenerating it (build-polyfill.sh) would leave JavaScriptCore linked against a
+    # STALE copy and the compat shims would silently not take effect (forcing a manual rm of the binary).
+    # LINK_DEPENDS makes it a real link input so JSC relinks automatically when it changes. (libpolyfill.a
+    # does NOT need this: it is linked by full path via link_libraries in OptionsMac, which CMake already
+    # tracks as a link dependency.)
     set_property(TARGET JavaScriptCore APPEND PROPERTY LINK_DEPENDS
-        "${MAVERICKS_SUPPORT}/polyfill/build/libwtf_compat.a"
-        "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_classes.a")
+        "${MAVERICKS_SUPPORT}/polyfill/build/libwtf_compat.a")
 endif ()
 
 target_precompile_headers(JavaScriptCore PRIVATE JavaScriptCorePrefix.h)
