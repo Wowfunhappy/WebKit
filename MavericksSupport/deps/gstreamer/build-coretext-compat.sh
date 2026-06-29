@@ -16,13 +16,13 @@ SRC="$HERE/coretext_compat.c"
 EXP="$HERE/libcoretext_compat.exp"
 
 mkdir -p "$(dirname "$OUT")"
-# -framework CoreFoundation resolves __CFConstantStringClassReference for the CFSTR() constants;
-# -reexport_framework CoreText makes every real CoreText symbol libharfbuzz uses resolve through us.
-"$CLANG" --no-default-config -isysroot / -mmacosx-version-min=10.9 -dynamiclib -fPIC -O2 \
-    -install_name @rpath/libcoretext_compat.dylib \
-    -compatibility_version 1.0.0 -current_version 844.5.0 \
-    -framework CoreFoundation \
-    -Wl,-reexport_framework,CoreText \
-    -Wl,-exported_symbols_list,"$EXP" \
-    "$SRC" -o "$OUT"
+# --framework CoreFoundation resolves __CFConstantStringClassReference for the CFSTR() constants;
+# --reexport-framework CoreText makes every real CoreText symbol libharfbuzz uses resolve through us.
+# See reexport-shim.sh for the shared recipe.
+source "$REPO/MavericksSupport/reexport-shim.sh"
+build_reexport_shim --clang "$CLANG" --out "$OUT" \
+    --install-name @rpath/libcoretext_compat.dylib --compat 1.0.0 --current 844.5.0 \
+    --cflags "-fPIC -O2" --framework CoreFoundation \
+    --reexport-framework CoreText --exported-symbols-list "$EXP" \
+    "$SRC"
 echo "built $OUT"

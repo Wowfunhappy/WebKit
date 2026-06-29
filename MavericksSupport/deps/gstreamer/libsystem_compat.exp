@@ -14,3 +14,5 @@ _mkostemp
 _CCRandomGenerateBytes
 ___darwin_check_fd_set_overflow
 ___availability_version_check
+_OSAtomicIncrement32Barrier
+_OSAtomicDecrement32Barrier
