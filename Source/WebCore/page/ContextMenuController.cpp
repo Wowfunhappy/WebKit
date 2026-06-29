@@ -1233,7 +1233,12 @@ void ContextMenuController::populate()
                 addSelectedTextActionsIfNeeded(selectedText);
 
                 appendItem(CopyItem, m_contextMenu.get());
-                if (!selectionIsInsideImageOverlay && isMainFrame && page && page->settings().scrollToTextFragmentGenerationEnabled())
+                // MAVERICKS_BACKPORT: only offer "Copy Link with Highlight" where it can actually
+                // function — an HTTP(S) document with a range selection. Upstream always appends it
+                // and merely disables it for non-HTTP content (e.g. an Apple Mail message body),
+                // leaving a permanently-greyed entry in the menu. Gate the append on the same
+                // predicate that enables it so the dead item never appears.
+                if (!selectionIsInsideImageOverlay && isMainFrame && page && page->settings().scrollToTextFragmentGenerationEnabled() && shouldEnableCopyLinkWithHighlight())
                     appendItem(CopyLinkWithHighlightItem, m_contextMenu.get());
 #if PLATFORM(COCOA)
                 appendItem(*separatorItem(), m_contextMenu.get());
