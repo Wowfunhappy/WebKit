@@ -25,15 +25,12 @@
 #include <dispatch/dispatch.h>
 #include <mach/port.h>
 
-// 10.9 backport: CTRunGetBaseAdvancesAndOrigins is 10.11+. The prebuilt
-// all_stubs.o provides a return-0 no-op for it, which zeroes every glyph's
-// advance and origin — so any complex-text run that reports
-// kCTRunStatusHasOrigins (e.g. ligature-substituted icon fonts like Material
-// Icons) collapses all its glyphs onto x=0 and renders blank.
-// Provide a correct implementation: base advances come from the real (10.9)
-// CTRunGetAdvances, and origins are zero (10.9 CoreText has no per-glyph
-// origin offsets for the scripts WebKit shapes here). The return-0 copy in
-// all_stubs.o is localized out (rebuild_polyfill_stubs.sh) so this wins.
+// 10.9 backport: CTRunGetBaseAdvancesAndOrigins is 10.11+, so implement it here. A naive return-0 stub
+// would zero every glyph's advance and origin, so any complex-text run that reports
+// kCTRunStatusHasOrigins (e.g. ligature-substituted icon fonts like Material Icons) would collapse all
+// its glyphs onto x=0 and render blank. Instead take the base advances from the real (10.9)
+// CTRunGetAdvances and leave the origins zero (10.9 CoreText has no per-glyph origin offsets for the
+// scripts WebKit shapes here).
 void CTRunGetBaseAdvancesAndOrigins(CTRunRef run, CFRange range, CGSize* advances, CGPoint* origins)
 {
     if (!run)
@@ -261,8 +258,6 @@ const CFStringRef kCVImageBufferYCbCrMatrix_ITU_R_2020            = CFSTR("ITU_R
 // reference these via their JSC dylib dependency — otherwise duplicate class
 // registrations overflow libobjc's _read_images limit on 10.9.
 
-@interface LSDatabaseContext : NSObject @end
-@implementation LSDatabaseContext @end
 
 // CoreAnimation classes absent on 10.9, referenced by PlatformCAFiltersCocoa for CSS backdrop-filter
 // (CABackdropLayer, 10.10+) and scroll-driven presentation modifiers (CAPresentationModifier, ~14.0).
@@ -273,161 +268,13 @@ const CFStringRef kCVImageBufferYCbCrMatrix_ITU_R_2020            = CFSTR("ITU_R
 // backdrop blur — a graceful degradation. The CALayer base makes libpolyfill.a need OBJC_CLASS_$_CALayer;
 // the JSC build tools that link it (LLIntSettingsExtractor) get -framework QuartzCore via OptionsMac.cmake.
 // CAPresentationModifier stays NSObject (its only path is HAVE(CORE_ANIMATION_SEPARATED_LAYERS), off on 10.9).
-@interface CABackdropLayer : CALayer @end
-@implementation CABackdropLayer @end
-@interface CAPresentationModifier : NSObject @end
-@implementation CAPresentationModifier @end
 
-@interface NSPresentationIntent : NSObject @end
-@implementation NSPresentationIntent @end
 
-@interface SecKeyProxy : NSObject @end
-@implementation SecKeyProxy @end
 
 // UTType polyfill — provides class methods returning UTType instances whose
 // .identifier matches the kUTType* CFString constant. This avoids the
 // unrecognized-selector crash from `UTTypeFileURL.identifier` etc.
-@interface UTType : NSObject {
-    NSString *_identifier;
-}
-@property (nullable, copy, readonly) NSString *identifier;
-@end
 
-@implementation UTType
-@synthesize identifier = _identifier;
-- (instancetype)initWithIdentifier:(NSString *)ident
-{
-    if ((self = [super init]))
-        _identifier = [ident copy];
-    return self;
-}
-- (void)dealloc { [_identifier release]; [super dealloc]; }
-+ (instancetype)_polyfillTypeWith:(CFStringRef)ident
-{
-    if (!ident) return nil;
-    return [[[self alloc] initWithIdentifier:(__bridge NSString *)ident] autorelease];
-}
-+ (instancetype)png       { return [self _polyfillTypeWith:kUTTypePNG]; }
-+ (instancetype)jpeg      { return [self _polyfillTypeWith:kUTTypeJPEG]; }
-+ (instancetype)tiff      { return [self _polyfillTypeWith:kUTTypeTIFF]; }
-+ (instancetype)gif       { return [self _polyfillTypeWith:kUTTypeGIF]; }
-+ (instancetype)bmp       { return [self _polyfillTypeWith:kUTTypeBMP]; }
-+ (instancetype)pdf       { return [self _polyfillTypeWith:kUTTypePDF]; }
-+ (instancetype)rtf       { return [self _polyfillTypeWith:kUTTypeRTF]; }
-+ (instancetype)rtfd      { return [self _polyfillTypeWith:kUTTypeRTFD]; }
-+ (instancetype)flatRTFD  { return [self _polyfillTypeWith:kUTTypeFlatRTFD]; }
-+ (instancetype)html      { return [self _polyfillTypeWith:kUTTypeHTML]; }
-+ (instancetype)xml       { return [self _polyfillTypeWith:kUTTypeXML]; }
-+ (instancetype)text      { return [self _polyfillTypeWith:kUTTypeText]; }
-+ (instancetype)plainText { return [self _polyfillTypeWith:kUTTypePlainText]; }
-+ (instancetype)utf8PlainText { return [self _polyfillTypeWith:kUTTypeUTF8PlainText]; }
-+ (instancetype)url       { return [self _polyfillTypeWith:kUTTypeURL]; }
-+ (instancetype)fileURL   { return [self _polyfillTypeWith:kUTTypeFileURL]; }
-+ (instancetype)image     { return [self _polyfillTypeWith:kUTTypeImage]; }
-+ (instancetype)movie     { return [self _polyfillTypeWith:kUTTypeMovie]; }
-+ (instancetype)audio     { return [self _polyfillTypeWith:kUTTypeAudio]; }
-+ (instancetype)video     { return [self _polyfillTypeWith:kUTTypeVideo]; }
-+ (instancetype)data      { return [self _polyfillTypeWith:kUTTypeData]; }
-+ (instancetype)content   { return [self _polyfillTypeWith:kUTTypeContent]; }
-+ (instancetype)item      { return [self _polyfillTypeWith:kUTTypeItem]; }
-+ (instancetype)directory { return [self _polyfillTypeWith:kUTTypeDirectory]; }
-+ (instancetype)folder    { return [self _polyfillTypeWith:kUTTypeFolder]; }
-+ (instancetype)vCard     { return [self _polyfillTypeWith:kUTTypeVCard]; }
-+ (instancetype)webArchive { return [[[self alloc] initWithIdentifier:@"com.apple.webarchive"] autorelease]; }
-+ (instancetype)mp3       { return [self _polyfillTypeWith:kUTTypeMP3]; }
-+ (instancetype)mpeg      { return [self _polyfillTypeWith:kUTTypeMPEG]; }
-+ (instancetype)mpeg4Movie { return [self _polyfillTypeWith:kUTTypeMPEG4]; }
-+ (instancetype)mpeg4Audio { return [self _polyfillTypeWith:kUTTypeMPEG4Audio]; }
-+ (instancetype)quickTimeMovie { return [self _polyfillTypeWith:kUTTypeQuickTimeMovie]; }
-+ (instancetype)application { return [self _polyfillTypeWith:kUTTypeApplication]; }
-+ (instancetype)applicationBundle { return [self _polyfillTypeWith:kUTTypeApplicationBundle]; }
-+ (instancetype)compositeContent { return [self _polyfillTypeWith:kUTTypeCompositeContent]; }
-+ (instancetype)sourceCode { return [self _polyfillTypeWith:kUTTypeSourceCode]; }
-+ (instancetype)icns      { return [self _polyfillTypeWith:kUTTypeAppleICNS]; }
-+ (instancetype)ico       { return [self _polyfillTypeWith:kUTTypeICO]; }
-+ (instancetype)utf16PlainText { return [self _polyfillTypeWith:kUTTypeUTF16PlainText]; }
-+ (instancetype)webP      { return [[[self alloc] initWithIdentifier:@"public.webp"] autorelease]; }
-+ (instancetype)heic      { return [[[self alloc] initWithIdentifier:@"public.heic"] autorelease]; }
-+ (instancetype)svg       { return [[[self alloc] initWithIdentifier:@"public.svg-image"] autorelease]; }
-// Aliases to handle both lowercase (real UTType API) and uppercase (some WebKit code) selectors.
-+ (instancetype)PNG       { return [self png]; }
-+ (instancetype)JPEG      { return [self jpeg]; }
-+ (instancetype)TIFF      { return [self tiff]; }
-+ (instancetype)GIF       { return [self gif]; }
-+ (instancetype)BMP       { return [self bmp]; }
-+ (instancetype)PDF       { return [self pdf]; }
-+ (instancetype)RTF       { return [self rtf]; }
-+ (instancetype)RTFD      { return [self rtfd]; }
-+ (instancetype)HTML      { return [self html]; }
-+ (instancetype)XML       { return [self xml]; }
-+ (instancetype)URL       { return [self url]; }
-+ (instancetype)UTF8PlainText { return [self utf8PlainText]; }
-+ (nullable instancetype)typeWithIdentifier:(NSString *)ident
-{
-    if (!ident) return nil;
-    return [[[self alloc] initWithIdentifier:ident] autorelease];
-}
-+ (nullable instancetype)typeWithFilenameExtension:(NSString *)ext
-{
-    if (!ext) return nil;
-    CFStringRef uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)ext, NULL);
-    if (!uti) return nil;
-    UTType *t = [[[self alloc] initWithIdentifier:(__bridge NSString *)uti] autorelease];
-    CFRelease(uti);
-    return t;
-}
-+ (nullable instancetype)typeWithMIMEType:(NSString *)mimeType
-{
-    if (!mimeType) return nil;
-    CFStringRef uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, (__bridge CFStringRef)mimeType, NULL);
-    if (!uti) return nil;
-    UTType *t = [[[self alloc] initWithIdentifier:(__bridge NSString *)uti] autorelease];
-    CFRelease(uti);
-    return t;
-}
-- (BOOL)conformsToType:(UTType *)other
-{
-    if (!other || !_identifier || !other->_identifier) return NO;
-    return UTTypeConformsTo((__bridge CFStringRef)_identifier, (__bridge CFStringRef)other->_identifier);
-}
-- (NSString *)preferredMIMEType
-{
-    if (!_identifier) return nil;
-    CFStringRef mime = UTTypeCopyPreferredTagWithClass((__bridge CFStringRef)_identifier, kUTTagClassMIMEType);
-    if (!mime) return nil;
-    return [(__bridge NSString *)mime autorelease];
-}
-- (NSString *)preferredFilenameExtension
-{
-    if (!_identifier) return nil;
-    CFStringRef ext = UTTypeCopyPreferredTagWithClass((__bridge CFStringRef)_identifier, kUTTagClassFilenameExtension);
-    if (!ext) return nil;
-    return [(__bridge NSString *)ext autorelease];
-}
-- (BOOL)isEqual:(id)other
-{
-    if (![other isKindOfClass:[UTType class]]) return NO;
-    NSString *otherId = ((UTType *)other)->_identifier;
-    if (!_identifier) return !otherId;
-    return [_identifier isEqualToString:otherId];
-}
-- (NSUInteger)hash { return _identifier.hash; }
-// 11.0+ instance method used by WebCore::canWritePasteboardType during Cmd+C copy.
-// Without this, Safari crashes on every copy operation with NSInvalidArgumentException.
-// UTTypeIsDeclared isn't exported from CoreServices on 10.9, so use the convention
-// that "dyn." prefixed UTIs are dynamic / not-declared, and everything else is
-// treated as declared (matches LaunchServices semantics for the common cases).
-- (BOOL)isDeclared
-{
-    if (!_identifier) return NO;
-    return ![_identifier hasPrefix:@"dyn."];
-}
-- (BOOL)isDynamic
-{
-    if (!_identifier) return NO;
-    return [_identifier hasPrefix:@"dyn."];
-}
-@end
 
 // NSTouchBar and its item classes are deliberately NOT stubbed. Touch Bar is a 10.12.2+ feature and
 // HAVE(TOUCH_BAR) is gated off for the 10.9 deployment target, so WebKit references none of these
@@ -437,26 +284,12 @@ const CFStringRef kCVImageBufferYCbCrMatrix_ITU_R_2020            = CFSTR("ITU_R
 // crash invoking the absent -[NSResponder setTouchBar:] (observed: Dash.app aborts on launch when its
 // nib-load path enables a Touch Bar). Leaving the names undefined keeps the runtime honest about 10.9.
 
-@interface NSFilePromiseReceiver : NSObject @end
-@implementation NSFilePromiseReceiver @end
 
-@interface LSAppLink : NSObject @end
-@implementation LSAppLink @end
 
-@interface _LSOpenConfiguration : NSObject @end
-@implementation _LSOpenConfiguration @end
 
-@interface WebSpeechRecognizerTask : NSObject @end
-@implementation WebSpeechRecognizerTask @end
 
-@interface _NSScrollingMomentumCalculator : NSObject @end
-@implementation _NSScrollingMomentumCalculator @end
 
-@interface _NSScrollingPredominantAxisFilter : NSObject @end
-@implementation _NSScrollingPredominantAxisFilter @end
 
-@interface WebFullScreenController : NSObject @end
-@implementation WebFullScreenController @end
 
 // WebViewVisualIdentificationOverlay: the real Source/WebCore/testing/cocoa/
 // WebViewVisualIdentificationOverlay.mm is excluded from the build (it would
@@ -465,10 +298,6 @@ const CFStringRef kCVImageBufferYCbCrMatrix_ITU_R_2020            = CFSTR("ITU_R
 // at creation time, so the stub MUST implement that class method (as a no-op)
 // or every web-view creation throws unrecognized-selector. The overlay is a
 // debug/visual-identification affordance, so a no-op is functionally complete.
-@interface WebViewVisualIdentificationOverlay : NSObject @end
-@implementation WebViewVisualIdentificationOverlay
-+ (void)installForWebViewIfNeeded:(id)view kind:(NSString *)kind deprecated:(BOOL)isDeprecated { }
-@end
 
 // WKWebInspectorProxyObjCAdapter and WebKeyGenerator are defined in
 // Source/WebKit/PolyfillClasses_109.mm so Safari finds them in WebKit.framework
@@ -482,62 +311,10 @@ const CFStringRef kCVImageBufferYCbCrMatrix_ITU_R_2020            = CFSTR("ITU_R
 // 10.9 — they must NOT be stubbed here, or the empty stub can shadow the genuine
 // system class (e.g. CATransformLayer backs 3D CSS transforms). They resolve from
 // their system frameworks, which WebCore/WebKit already link.
-@interface LSBundleProxy : NSObject @end
-@implementation LSBundleProxy @end
-@interface WKCaptionStyleMenuController : NSObject @end
-@implementation WKCaptionStyleMenuController @end
-@interface WKDownloadProgress : NSObject @end
-@implementation WKDownloadProgress @end
 // WKInspectorViewController is compiled from real source
 // (Source/WebKit/UIProcess/Inspector/mac/WKInspectorViewController.mm) into
 // WebKit.framework, so it must NOT be stubbed here — doing so duplicated the
 // symbol in the WebKit framework link.
-@interface WKTextExtractionContainerItem : NSObject @end
-@implementation WKTextExtractionContainerItem @end
-@interface WKTextExtractionContentEditableItem : NSObject @end
-@implementation WKTextExtractionContentEditableItem @end
-@interface WKTextExtractionEditable : NSObject @end
-@implementation WKTextExtractionEditable @end
-@interface WKTextExtractionFormItem : NSObject @end
-@implementation WKTextExtractionFormItem @end
-@interface WKTextExtractionIFrameItem : NSObject @end
-@implementation WKTextExtractionIFrameItem @end
-@interface WKTextExtractionImageItem : NSObject @end
-@implementation WKTextExtractionImageItem @end
-@interface WKTextExtractionLink : NSObject @end
-@implementation WKTextExtractionLink @end
-@interface WKTextExtractionLinkItem : NSObject @end
-@implementation WKTextExtractionLinkItem @end
-@interface WKTextExtractionScrollableItem : NSObject @end
-@implementation WKTextExtractionScrollableItem @end
-@interface WKTextExtractionSelectItem : NSObject @end
-@implementation WKTextExtractionSelectItem @end
-@interface WKTextExtractionTextFormControlItem : NSObject @end
-@implementation WKTextExtractionTextFormControlItem @end
-@interface WKTextExtractionTextItem : NSObject @end
-@implementation WKTextExtractionTextItem @end
-@interface WebAVPlayerLayer : NSObject @end
-@implementation WebAVPlayerLayer @end
-@interface _NSHSTSStorage : NSObject @end
-@implementation _NSHSTSStorage @end
-@interface _NSHTTPAlternativeServicesFilter : NSObject @end
-@implementation _NSHTTPAlternativeServicesFilter @end
-@interface _NSHTTPAlternativeServicesStorage : NSObject @end
-@implementation _NSHTTPAlternativeServicesStorage @end
-@interface _WKTextExtractionInteractionResult : NSObject @end
-@implementation _WKTextExtractionInteractionResult @end
-@interface _WKTextExtractionResult : NSObject @end
-@implementation _WKTextExtractionResult @end
-@interface _WKTextPreview : NSObject @end
-@implementation _WKTextPreview @end
-@interface _WKWarningView : NSObject @end
-@implementation _WKWarningView @end
-@interface _WKWebPushDaemonConnection : NSObject @end
-@implementation _WKWebPushDaemonConnection @end
-@interface _WKWebPushMessage : NSObject @end
-@implementation _WKWebPushMessage @end
-@interface _WKWebPushSubscriptionData : NSObject @end
-@implementation _WKWebPushSubscriptionData @end
 
 #pragma mark - NSPopUpMenu constants
 NSString * const NSPopUpMenuPopupButtonBounds = @"NSPopUpMenuPopupButtonBounds";
@@ -548,13 +325,6 @@ NSString * const NSTouchBarDidExitCustomization = @"NSTouchBarDidExitCustomizati
 NSString * const NSTouchBarWillEnterCustomization = @"NSTouchBarWillEnterCustomization";
 
 #pragma mark - NSWorkspace polyfill (10.15+)
-@implementation NSWorkspace (Polyfill10_9)
-- (NSArray *)URLsForApplicationsToOpenURL:(NSURL *)url {
-    CFArrayRef urls = LSCopyApplicationURLsForURL((__bridge CFURLRef)url, kLSRolesAll);
-    if (urls) return [(__bridge NSArray *)urls autorelease];
-    return @[];
-}
-@end
 
 #pragma mark - CGColorSpace polyfills
 
@@ -650,17 +420,7 @@ __attribute__((constructor)) static void installNSURLProtocolSkipAppSSOPolyfill(
 // completes: tab bar becomes visible, new tab shows its top-sites/favorites
 // page. NOTE: the previous tab's WKView content is still lost on switch-back —
 // that is a separate deeper bug being worked on independently.
-@interface NSView (Polyfill_10_11_DeferViewInWindow)
-- (void)beginDeferringViewInWindowChanges;
-- (void)endDeferringViewInWindowChanges;
-- (void)endDeferringViewInWindowChangesSync;
-@end
 
-@implementation NSView (Polyfill_10_11_DeferViewInWindow)
-- (void)beginDeferringViewInWindowChanges { /* 10.9 no-op */ }
-- (void)endDeferringViewInWindowChanges { /* 10.9 no-op */ }
-- (void)endDeferringViewInWindowChangesSync { /* 10.9 no-op */ }
-@end
 
 // 10.9 backport: kVTVideoEncoderSpecification_RequiredLowLatency is a 10.13+
 // VideoToolbox encoder-spec key. libwebrtc's VTB H.264/VP9 encoder (built with
@@ -761,8 +521,5 @@ BOOL NSEdgeInsetsEqual(NSEdgeInsets a, NSEdgeInsets b)
 // declaration"), so a bare @implementation would create a base-class-less root
 // class. Per the established fallback, declare a minimal @interface with the
 // correct superclass so the class gets real ObjC metadata.
-@interface NSVisualEffectView : NSView @end
-@implementation NSVisualEffectView @end
 
-@interface NSDateComponentsFormatter : NSFormatter @end
-@implementation NSDateComponentsFormatter @end
+

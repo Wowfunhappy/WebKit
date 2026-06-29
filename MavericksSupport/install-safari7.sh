@@ -126,12 +126,37 @@ rewrite_rpath_deps() {
     done < <("$OTOOL" -L "$bin" | awk 'NR>1{print $1}')
 }
 
-# libcg_polyfill.dylib is linked with a BAKED absolute install_name (/usr/local/lib/...) at build
-# time, so rewrite_rpath_deps (which only touches @rpath deps) never sees it. Repoint it to its
-# in-bundle location in every binary: the CG polyfill inside WebCore.framework ($PRIVLIB).
+# Repoint one of $bin's LC_LOAD_DYLIB load commands — the one whose recorded path CONTAINS <match> — to
+# <new>. The match-by-substring form handles both a baked absolute install_name (pass the full /usr/local
+# path) and a system framework (pass "/<Name>.framework/"). The install-side counterpart of the build-side
+# reexport shims (the vendored GStreamer dylibs are pre-repointed at vendor time; these are the WebKit ones).
+repoint_framework_dep() {
+    local bin="$1" match="$2" new="$3" cur
+    cur=$("$OTOOL" -L "$bin" 2>/dev/null | awk -v m="$match" 'index($1, m){print $1; exit}')
+    [ -n "$cur" ] && "$INT" -change "$cur" "$new" "$bin" 2>/dev/null || true
+}
+
+# libcg_polyfill.dylib + libpolyfill_classes.dylib carry BAKED absolute install_names (/usr/local/lib/...)
+# from build time, so rewrite_rpath_deps (which only touches @rpath deps) never sees them — repoint them to
+# their in-bundle homes (CG polyfill in WebCore.framework $PRIVLIB; the classes dylib in
+# JavaScriptCore.framework $PRIVLIBCXX, the universal dependency every WebKit binary already loads).
 rewrite_abs_deps() {
     local bin="$1"
-    "$INT" -change /usr/local/lib/libcg_polyfill.dylib "$PRIVLIB/libcg_polyfill.dylib" "$bin" 2>/dev/null || true
+    repoint_framework_dep "$bin" /usr/local/lib/libcg_polyfill.dylib      "$PRIVLIB/libcg_polyfill.dylib"
+    repoint_framework_dep "$bin" /usr/local/lib/libpolyfill_classes.dylib "$PRIVLIBCXX/libpolyfill_classes.dylib"
+    # Redirect Security/CoreServices/CFNetwork/QuartzCore to libpolyfill_classes.dylib, which REEXPORTS each of
+    # them and ADDS the absent-on-10.9 ObjC classes the build SDK declares in them (SecKeyProxy,
+    # _NSHTTPAlternativeServices*/_NSHSTSStorage, LSBundleProxy, CABackdropLayer, ...). WebKit's two-level
+    # reference to those classes is stamped "from <that framework>"; redirecting the framework's load command
+    # to this dylib makes the class resolve from the single shared definition here (no "Class X is implemented
+    # in both ..." warning, no "Symbol not found" crash), while the framework's real symbols pass straight
+    # through the reexport. Safe + uniform: a binary that only uses the framework's real API is unaffected.
+    # (Never applied to libpolyfill_classes.dylib itself — it is deployed after this per-binary pass, so it is
+    # not iterated here, and a self-redirect can't occur.)
+    local _fw
+    for _fw in Security CoreServices CFNetwork QuartzCore; do
+        repoint_framework_dep "$bin" "/${_fw}.framework/" "$PRIVLIBCXX/libpolyfill_classes.dylib"
+    done
 }
 
 # Remove every LC_RPATH from one Mach-O binary. After rewrite_rpath_deps no
@@ -408,6 +433,14 @@ if [ -f "$HERE/polyfill/build/libcg_polyfill.dylib" ]; then
     # -id cosmetic (loaded by absolute path); polyfill dylibs lack headerpad, so tolerate a too-long id.
     "$INT" -id "$PRIVLIB/libcg_polyfill.dylib" "$PRIVLIB/libcg_polyfill.dylib" 2>/dev/null || true
 fi
+echo "### Deploying polyfill ObjC classes dylib into JavaScriptCore.framework ($PRIVLIBCXX)"
+mkdir -p "$PRIVLIBCXX"
+if [ -f "$HERE/polyfill/build/libpolyfill_classes.dylib" ]; then
+    cp -f "$HERE/polyfill/build/libpolyfill_classes.dylib" "$PRIVLIBCXX/libpolyfill_classes.dylib"
+    "$INT" -id "$PRIVLIBCXX/libpolyfill_classes.dylib" "$PRIVLIBCXX/libpolyfill_classes.dylib" 2>/dev/null || true
+else
+    echo "  WARNING: libpolyfill_classes.dylib missing — WebKit apps will fail to load (polyfill ObjC classes)" >&2
+fi
 # TCC polyfill: WebKit::TCCLibrary() dlopens this in place of the system TCC framework on 10.9 (which
 # lacks the camera/microphone privacy services). It sits beside the WebKit2 binary under Frameworks/
 # so the dlopen "@loader_path/Frameworks/libtcc_polyfill.dylib" resolves to it.
@@ -451,6 +484,27 @@ if [ -d "$GST_SRC" ]; then
         || echo "  warning: libaudiotoolbox_compat.dylib rebuild failed — deploying the checked-in copy"
     mkdir -p "$GST_DEPLOY"
     cp -Rp "$GST_SRC/." "$GST_DEPLOY/"
+    # Drop the Python3-dependent plugins from the deployed set: libgstpython (Python element bindings) links
+    # @rpath/Python3.framework/Versions/3.9/Python3 directly, and libgstges (GStreamer Editing Services)
+    # links it indirectly via @rpath/libges-1.0.dylib. Python3.framework does not exist on 10.9 (no system
+    # Python 3, and we deliberately do not ship one), so these can only fail the GStreamer registry scan
+    # ("Library not loaded: @rpath/Python3.framework/.../Python3"). WebKit never instantiates Python/GES
+    # elements, so removing them keeps the plugin scan clean. Check the plugin and one level of its @rpath
+    # deps (resolved within the deployed lib tree) so the indirect GES case is caught too.
+    _gst_needs_python3() {
+        otool -L "$1" 2>/dev/null | grep -q 'Python3\.framework' && return 0
+        local _dep
+        for _dep in $(otool -L "$1" 2>/dev/null | awk '/@rpath\/lib/{print $1}' | sed 's#@rpath/##'); do
+            [ -f "$GST_DEPLOY/$_dep" ] && otool -L "$GST_DEPLOY/$_dep" 2>/dev/null | grep -q 'Python3\.framework' && return 0
+        done
+        return 1
+    }
+    for _plug in "$GST_DEPLOY"/gstreamer-1.0/*.dylib; do
+        if _gst_needs_python3 "$_plug"; then
+            echo "  excluding $(basename "$_plug") (needs Python3, absent on 10.9)"
+            rm -f "$_plug"
+        fi
+    done
     # applemedia (#117): the macOS-26-built libgstapplemedia.dylib (avfvideosrc / avfdeviceprovider --
     # the macOS camera-capture plugin) hard-links Metal.framework (absent on 10.9) via its dead
     # Vulkan/MoltenVK video path and references 15 CoreVideo/AVFoundation constants added after 10.9, so
