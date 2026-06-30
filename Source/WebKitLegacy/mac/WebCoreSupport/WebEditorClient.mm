@@ -1282,9 +1282,15 @@ void WebEditorClient::requestCheckingOfString(TextCheckingRequest& request, cons
     NSTextCheckingType types = NSTextCheckingTypeSpelling | NSTextCheckingTypeGrammar | NSTextCheckingTypeLink | NSTextCheckingTypeQuote | NSTextCheckingTypeDash | NSTextCheckingTypeReplacement | NSTextCheckingTypeCorrection;
     [[NSSpellChecker sharedSpellChecker] requestCheckingOfString:request.data().text().createNSString().get() range:range types:types options:options inSpellDocumentWithTag:0 completionHandler:^(NSInteger, NSArray *results, NSOrthography *, NSInteger) {
         RetainPtr<WebEditorSpellCheckResponder> responder = adoptNS([[WebEditorSpellCheckResponder alloc] initWithClient:weakThis identifier:identifier results:results]);
-        [currentLoop performBlock:^{
+        // MAVERICKS_BACKPORT: -[NSRunLoop performBlock:] is 10.12+; on 10.9 it is an unrecognized selector, so
+        // this async spell-check completion handler (invoked on NSSpellChecker's NSOperationQueue) threw and
+        // aborted the process — crashing real continuous spell checking and every editing/spelling test.
+        // CFRunLoopPerformBlock (10.6+) schedules the block on the originating run loop identically.
+        CFRunLoopRef cfRunLoop = [currentLoop getCFRunLoop];
+        CFRunLoopPerformBlock(cfRunLoop, kCFRunLoopCommonModes, ^{
             [responder perform];
-        }];
+        });
+        CFRunLoopWakeUp(cfRunLoop);
     }];
 #endif
 }
