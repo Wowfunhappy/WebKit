@@ -60,3 +60,12 @@ list(APPEND DumpRenderTree_SOURCES
 WEBKIT_EXECUTABLE_DECLARE(DumpRenderTree)
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 WEBKIT_EXECUTABLE(DumpRenderTree)
+
+# MAVERICKS_BACKPORT: DumpRenderTree links both the WebKit2 (WebKit) and WebKit1 (WebKitLegacy) frameworks,
+# whose <WebKit/...> umbrellas share a few header names (e.g. WebFeature.h, where WebKit2 ships only a
+# forward declaration). The WebKit2 headers root lands first via its interface includes, so force the
+# WebKit1 (WebKitLegacy) headers root to be searched before it; WebKit2-only headers still resolve from the
+# later entry. (WebKitLegacy_FRAMEWORK_HEADERS_DIR is set globally in WebKitFS.cmake.)
+if (TARGET DumpRenderTree)
+    target_include_directories(DumpRenderTree BEFORE PRIVATE ${WebKitLegacy_FRAMEWORK_HEADERS_DIR})
+endif ()

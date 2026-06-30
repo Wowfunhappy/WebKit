@@ -3129,6 +3129,21 @@ WEBKIT_FRAMEWORK(WebCore)
 # MAVERICKS_BACKPORT: force C++ linker driver so libc++ and the C++ runtime are pulled in correctly under the clang-22 toolchain.
 set_target_properties(WebCore PROPERTIES LINKER_LANGUAGE CXX)
 
+# MAVERICKS_BACKPORT (#162): stage the Web Audio HRTF database into the framework bundle at build time.
+# AudioBus::loadPlatformResource() reads audio/<name>.wav from WebCore.framework/Resources; the CMake build
+# otherwise leaves Resources with only Info.plist, so an HRTF PannerNode aborts the process on a nil URL.
+# Copying it here makes the build output a complete, runnable framework (required by the layout-test drivers
+# and any tool run against the build tree), instead of relying on install-safari7.sh to bolt it on at
+# install time. copy_if_different keeps incremental builds cheap.
+if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/platform/audio/resources/Composite.wav")
+    add_custom_command(TARGET WebCore POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:WebCore>/Resources/audio"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/platform/audio/resources/Composite.wav"
+            "$<TARGET_FILE_DIR:WebCore>/Resources/audio/Composite.wav"
+        VERBATIM)
+endif ()
+
 if (APPLE)
     # [MAVERICKS_BACKPORT] The macOS 10.9 system ld64 (ld64-241.9) crashes encoding WebCore's export trie
     # (Assertion bindingDirectlyBound in ExportInfoAtom::encode -> SIGSEGV) for certain symbol sets — it
@@ -3137,7 +3152,10 @@ if (APPLE)
     # a 10.9 deployment target, so link WebCore with it. Other frameworks still link fine with system ld.
     # MAVERICKS_BACKPORT: drop `-sub_library libobjc` — lld rejects it ("does not match a
     # supplied dylib") and clients link libobjc directly anyway.
-    set_target_properties(WebCore PROPERTIES LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy")
+    # MAVERICKS_BACKPORT: also allow the layout-test drivers to link WebCore directly (they pull in the
+    # WebCoreTestSupport/Internals code that calls into WebCore); without this, DumpRenderTree/WebKitTestRunner
+    # fail to link with "not an allowed client".
+    set_target_properties(WebCore PROPERTIES LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle")
 
     # MAVERICKS_BACKPORT: force-load the polyfill ObjC method-injector (libpolyfill_classes.a =
     # objc_inject.o). +[MavericksObjCInjection load] adds absent-on-10.9 methods to AppKit classes
