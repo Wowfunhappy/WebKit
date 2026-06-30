@@ -1,0 +1,114 @@
+#!/bin/bash
+# MAVERICKS_BACKPORT: make the in-place WebKitBuild/Release frameworks loadable WITHOUT installing anything over
+# the system, so the layout-test drivers (DumpRenderTree for WebKit1, WebKitTestRunner + the WebContent/Networking
+# XPC services for WebKit2) can run against the test-instrumented build. Re-run after any relink (idempotent).
+#
+# The build-dir frameworks reference post-10.9 system framework symbols (e.g. QuartzCore's CAPresentationModifier)
+# that 10.9 lacks; libpolyfill_classes.dylib REEXPORTS each framework and DEFINES the missing symbols (and the
+# build also links libcg_polyfill.dylib). The build bakes these as /usr/local/lib/<leaf> deps.
+#
+# To stay SELF-CONTAINED to the build tree (no /usr/local/lib, no system writes, no DYLD_* env -- which matters
+# because WebKit2's XPC services are spawned by launchd, which strips DYLD_* from their environment), this stages
+# the two polyfill dylibs into WebKitBuild/Release/lib (already on every build binary's @rpath) and rewrites every
+# polyfill / post-10.9-framework dependency to @rpath/<leaf>. dyld then resolves them from the build lib dir for
+# both the in-process drivers and the out-of-process WebKit2 services. install-safari7.sh does the equivalent for
+# the shipping product by bundling the polyfills inside the .framework and repointing to a framework-private path.
+set -uo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIBDIR="$ROOT/WebKitBuild/Release/lib"
+BINDIR="$ROOT/WebKitBuild/Release/bin"
+POLYBUILD="$ROOT/MavericksSupport/polyfill/build"
+WKTR_DIR="$ROOT/Tools/WebKitTestRunner"
+INT="${INSTALL_NAME_TOOL:-install_name_tool}"
+
+# Polyfill dylibs the build links, and the post-10.9 frameworks whose missing symbols libpolyfill_classes supplies.
+POLYFILL_LEAVES="libpolyfill_classes.dylib libcg_polyfill.dylib"
+REDIRECT_FRAMEWORKS="QuartzCore Security CoreServices CFNetwork"
+POLY="@rpath/libpolyfill_classes.dylib"   # resolved from WebKitBuild/Release/lib via each binary's @rpath
+
+# Stage the polyfills into the build's @rpath dir with an @rpath install id (refresh when the source is newer).
+for leaf in $POLYFILL_LEAVES; do
+    src="$POLYBUILD/$leaf"; dst="$LIBDIR/$leaf"
+    [ -f "$src" ] || continue
+    if [ ! -f "$dst" ] || [ "$src" -nt "$dst" ]; then
+        cp -f "$src" "$dst" && "$INT" -id "@rpath/$leaf" "$dst" 2>/dev/null && echo "  staged $leaf -> $LIBDIR"
+    fi
+done
+
+# WebKit2 XPC service executables (WebContent/Networking/GPU) link the post-10.9 system frameworks directly, so
+# they need the same redirection as the frameworks.
+XPC_BINS=""
+XPCDIR="$LIBDIR/WebKit.framework/Versions/A/XPCServices"
+if [ -d "$XPCDIR" ]; then
+    for svc in "$XPCDIR"/*.xpc; do
+        exe="$svc/Contents/MacOS/$(basename "${svc%.xpc}")"
+        [ -f "$exe" ] && XPC_BINS="$XPC_BINS $exe"
+    done
+fi
+
+# WebKitTestRunner's WebKit2 injected bundle: the cmake build emits it as a plain dylib (lib/libTestRunnerInjected
+# Bundle.dylib), but -[NSBundle initWithPath:] in the WebContent process needs a real .bundle wrapper next to the
+# executable (TestController::initializeInjectedBundlePath builds the path from the main bundle). Assemble/refresh
+# it here, and include its binary in the repoint pass below so its polyfill deps resolve from the build tree too.
+BUNDLE_BIN=""
+IB_SRC="$LIBDIR/libTestRunnerInjectedBundle.dylib"
+if [ -f "$IB_SRC" ]; then
+    IB_BUNDLE="$BINDIR/WebKitTestRunnerInjectedBundle.bundle"
+    IB_EXE="$IB_BUNDLE/Contents/MacOS/WebKitTestRunnerInjectedBundle"
+    if [ ! -f "$IB_EXE" ] || [ "$IB_SRC" -nt "$IB_EXE" ]; then
+        mkdir -p "$IB_BUNDLE/Contents/MacOS"
+        cp -f "$IB_SRC" "$IB_EXE" && "$INT" -id "WebKitTestRunnerInjectedBundle" "$IB_EXE" 2>/dev/null
+        # The injected bundle activates the layout-test fonts from its own Contents/Resources
+        # (ActivateFontsCocoa.mm: -[NSBundle bundleForClass:] resourceURL). Apple's Xcode build copies the
+        # WebKitTestRunner font set there; mirror that so CTFontManagerRegisterFontsForURLs succeeds (otherwise
+        # activateFonts() calls exit(1) and the WebContent process dies before running any test).
+        mkdir -p "$IB_BUNDLE/Contents/Resources"
+        cp -f "$WKTR_DIR/fonts/"* "$IB_BUNDLE/Contents/Resources/" 2>/dev/null
+        cp -f "$WKTR_DIR/FontWithFeatures.otf" "$WKTR_DIR/FontWithFeatures.ttf" "$IB_BUNDLE/Contents/Resources/" 2>/dev/null
+        if [ ! -f "$IB_BUNDLE/Contents/Info.plist" ]; then
+            cat > "$IB_BUNDLE/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleDevelopmentRegion</key><string>English</string>
+  <key>CFBundleExecutable</key><string>WebKitTestRunnerInjectedBundle</string>
+  <key>CFBundleIdentifier</key><string>com.apple.WebKitTestRunnerInjectedBundle</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundlePackageType</key><string>BNDL</string>
+  <key>CFBundleVersion</key><string>1</string>
+</dict></plist>
+PLIST
+        fi
+        echo "  assembled WebKitTestRunnerInjectedBundle.bundle"
+    fi
+    BUNDLE_BIN="$IB_EXE"
+fi
+
+# change every dependency matching <substr> to <new> (handles 0..N matches; idempotent if already <new>).
+repoint_all() { # bin substr new
+    local bin="$1" substr="$2" new="$3" dep
+    /usr/bin/otool -L "$bin" 2>/dev/null | awk '{print $1}' | grep -F "$substr" | grep -vF "$new" | sort -u | while read -r dep; do
+        [ -n "$dep" ] && "$INT" -change "$dep" "$new" "$bin" 2>/dev/null || true
+    done
+}
+
+for fwbin in \
+    "$LIBDIR/JavaScriptCore.framework/Versions/A/JavaScriptCore" \
+    "$LIBDIR/WebCore.framework/Versions/A/WebCore" \
+    "$LIBDIR/WebKitLegacy.framework/Versions/A/WebKitLegacy" \
+    "$LIBDIR/WebKit.framework/Versions/A/WebKit" \
+    "$BINDIR/DumpRenderTree" \
+    "$BINDIR/WebKitTestRunner" \
+    $BUNDLE_BIN \
+    $XPC_BINS; do
+    [ -f "$fwbin" ] || continue
+    # 1) point the baked /usr/local/lib polyfill deps at the staged @rpath copies
+    repoint_all "$fwbin" "/usr/local/lib/libpolyfill_classes.dylib" "@rpath/libpolyfill_classes.dylib"
+    repoint_all "$fwbin" "/usr/local/lib/libcg_polyfill.dylib"      "@rpath/libcg_polyfill.dylib"
+    # 2) redirect the post-10.9 system frameworks onto the reexporting polyfill (fresh builds still link these)
+    for fw in $REDIRECT_FRAMEWORKS; do
+        repoint_all "$fwbin" "/System/Library/Frameworks/${fw}.framework/" "$POLY"
+    done
+    echo "  repointed $(basename "$fwbin")"
+done
+echo "done; build frameworks are self-contained under $LIBDIR (no /usr/local/lib, no DYLD_* needed)"
