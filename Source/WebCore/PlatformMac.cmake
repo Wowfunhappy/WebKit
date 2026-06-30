@@ -1028,7 +1028,10 @@ list(APPEND WebCoreTestSupport_IDL_FILES
 if (NOT EXISTS ${CMAKE_BINARY_DIR}/WebCore/WebKitAvailability.h)
     file(COPY platform/cocoa/WebKitAvailability.h DESTINATION ${CMAKE_BINARY_DIR}/WebCore)
 endif ()
-list(APPEND WebCore_LIBRARIES /usr/local/lib/libcg_polyfill.dylib)
+# MAVERICKS_BACKPORT: link the freshly-built classic-CoreGraphics forwarding shim from the build tree (NOT a
+# stale /usr/local copy). Its install_name is @rpath/libcg_polyfill.dylib, resolved at install time to the
+# absolute in-bundle copy — keeping the build self-contained (no /usr/local dependency at build or runtime).
+list(APPEND WebCore_LIBRARIES ${MAVERICKS_SUPPORT}/polyfill/build/libcg_polyfill.dylib)
 
 # MAVERICKS_BACKPORT: vendored libwebp for the WEBPImageDecoder fallback (ImageIO on
 # this build can't decode WebP). Static libs at MavericksSupport/deps/libwebp/lib.

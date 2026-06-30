@@ -1005,4 +1005,6 @@ endfunction()
 
 set(WebKit_GENERATED_SERIALIZERS_SUFFIX mm)
 # MAVERICKS_BACKPORT: link the classic-CoreGraphics-API forwarding shim (libcg_polyfill) for symbols absent on 10.9.
-list(APPEND WebKit_LIBRARIES /usr/local/lib/libcg_polyfill.dylib)
+# From the build tree (NOT a stale /usr/local copy); its @rpath/libcg_polyfill.dylib install_name is resolved
+# at install time to the absolute in-bundle copy, keeping the build self-contained (no /usr/local dependency).
+list(APPEND WebKit_LIBRARIES ${MAVERICKS_SUPPORT}/polyfill/build/libcg_polyfill.dylib)

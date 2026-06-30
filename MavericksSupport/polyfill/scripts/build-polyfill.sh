@@ -65,11 +65,12 @@ echo "### libpolyfill_classes.dylib (the ObjC class stubs — ONE shared definit
 # REEXPORTS those four frameworks and install-safari7.sh install_name_tool -change's each WebKit binary's
 # dependency on them to this dylib: the class then resolves here, and the framework's real symbols pass through
 # the reexport. compatibility_version is set very high so the repointed (Security/... compat 1.0.0) load
-# commands are satisfied. install_name mirrors libcg_polyfill.dylib so install-safari7.sh can relocate it into
-# the bundle and repoint refs to an absolute in-bundle path (no /usr/local at runtime).
+# commands are satisfied. The install_name is @rpath/libpolyfill_classes.dylib (self-contained, like every
+# other WebKit dylib): the build resolves it from WebKitBuild/Release/lib via each binary's @rpath, and
+# install-safari7.sh maps that @rpath dep to the absolute in-bundle copy it deploys (no /usr/local anywhere).
 source "$REPO/MavericksSupport/reexport-shim.sh"
 build_reexport_shim --clang "$CLANG" --out "$OUT/libpolyfill_classes.dylib" \
-    --install-name /usr/local/lib/libpolyfill_classes.dylib --compat 9999.0.0 --current 9999.0.0 \
+    --install-name @rpath/libpolyfill_classes.dylib --compat 9999.0.0 --current 9999.0.0 \
     --framework Foundation --framework AppKit --framework CoreFoundation \
     --reexport-framework QuartzCore --reexport-framework CoreServices \
     --reexport-framework Security --reexport-framework CFNetwork \
@@ -95,7 +96,7 @@ echo "### libcg_polyfill.dylib"
 # WebKit dylib, so WebCore (which records "requires libcg_polyfill 1.0.0") loads the deployed copy.
 # Without it the dylib defaults to 0.0.0 and dyld rejects it ("Incompatible library version").
 "$CLANG" --no-default-config -mmacosx-version-min=10.9 -dynamiclib \
-    -install_name /usr/local/lib/libcg_polyfill.dylib \
+    -install_name @rpath/libcg_polyfill.dylib \
     -compatibility_version 1.0.0 -current_version 615.1.1 \
     -o "$OUT/libcg_polyfill.dylib" "$SRC/cg_colorspace.c" -framework CoreGraphics -framework CoreFoundation
 
