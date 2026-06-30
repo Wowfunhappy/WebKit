@@ -170,6 +170,24 @@ link_libraries(${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a)
 # QuartzCore's CALayer is the superclass of the CABackdropLayer stub; linking it everywhere (it is a 10.9
 # system framework) is harmless and also covers any binary that uses CALayer directly.
 link_libraries("-framework QuartzCore")
+
+# MAVERICKS_BACKPORT: the Apple Mac port builds the layout-test tools (ImageDiff) via Xcode upstream, so
+# the CMake path never defines the Apple::<framework> imported targets that Tools/ImageDiff references.
+# Provide them as INTERFACE targets that link the system frameworks via -framework, so ENABLE_LAYOUT_TESTS
+# can configure on the Mac CMake port. Defining unused imported targets is harmless to the framework build.
+foreach (_appleFramework CoreFoundation CoreGraphics CoreText ImageIO)
+    if (NOT TARGET Apple::${_appleFramework})
+        add_library(Apple::${_appleFramework} INTERFACE IMPORTED GLOBAL)
+        set_target_properties(Apple::${_appleFramework} PROPERTIES
+            INTERFACE_LINK_LIBRARIES "-framework ${_appleFramework}")
+    endif ()
+endforeach ()
+
+# MAVERICKS_BACKPORT: with DEVELOPER_MODE, bmalloc builds its mbmalloc microbenchmark dylib, which links
+# Threads::Threads. The other CMake ports (GTK/WPE/JSCOnly/PlayStation) call find_package(Threads); the Mac
+# port did not because the framework build links pthread implicitly. Provide the imported target so the
+# DEVELOPER_MODE tooling configures (on Darwin this resolves to the C library's built-in pthreads).
+find_package(Threads)
 # -nostdlib++ is needed because we use a custom libc++ (clang-22).
 # Upstream WebKit applies -undefined dynamic_lookup only to WebCore via its
 # target LINK_FLAGS (with -umbrella WebKit), not globally. We follow that pattern.

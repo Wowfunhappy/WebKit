@@ -482,6 +482,27 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/WKView.h
     UIProcess/API/Cocoa/WKViewPrivate.h
     UIProcess/API/Cocoa/WKWebArchive.h
+    # MAVERICKS_BACKPORT: the <WebKit/WebKit.h> umbrella imports these unconditionally, but they were missing
+    # from the forward list, so any consumer of the umbrella (e.g. WebKitTestRunner) failed to compile. They
+    # are declaration-only public API headers; forward them so the umbrella resolves. (The WKWebExtension
+    # classes are inert at runtime since ENABLE_WK_WEB_EXTENSIONS=0, but the headers compile fine.)
+    UIProcess/API/Cocoa/WKFormInfo.h
+    UIProcess/API/Cocoa/WKWebExtension.h
+    UIProcess/API/Cocoa/WKWebExtensionAction.h
+    UIProcess/API/Cocoa/WKWebExtensionCommand.h
+    UIProcess/API/Cocoa/WKWebExtensionContext.h
+    UIProcess/API/Cocoa/WKWebExtensionController.h
+    UIProcess/API/Cocoa/WKWebExtensionControllerConfiguration.h
+    UIProcess/API/Cocoa/WKWebExtensionControllerDelegate.h
+    UIProcess/API/Cocoa/WKWebExtensionDataRecord.h
+    UIProcess/API/Cocoa/WKWebExtensionDataType.h
+    UIProcess/API/Cocoa/WKWebExtensionMatchPattern.h
+    UIProcess/API/Cocoa/WKWebExtensionMessagePort.h
+    UIProcess/API/Cocoa/WKWebExtensionPermission.h
+    UIProcess/API/Cocoa/WKWebExtensionTab.h
+    UIProcess/API/Cocoa/WKWebExtensionTabConfiguration.h
+    UIProcess/API/Cocoa/WKWebExtensionWindow.h
+    UIProcess/API/Cocoa/WKWebExtensionWindowConfiguration.h
     UIProcess/API/Cocoa/WKWebView.h
     UIProcess/API/Cocoa/WKWebViewConfiguration.h
     UIProcess/API/Cocoa/WKWebViewConfigurationPrivate.h
@@ -495,6 +516,34 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/_WKContentWorldConfiguration.h
     UIProcess/API/Cocoa/_WKTextExtraction.h
     UIProcess/API/Cocoa/_WKRectEdge.h
+    # MAVERICKS_BACKPORT: additional Cocoa API headers reached via <WebKit/X.h> by cross-including API/private
+    # headers and by WebKitTestRunner's TestRunnerWKWebView / UIScriptController. Forwarding only symlinks them;
+    # they are compiled only where actually included. (The legacy WebFrame.h/WebPreferences.h/WebBackForwardList.h
+    # references resolve from the WebKitLegacy headers root, so they are intentionally not forwarded here.)
+    UIProcess/API/Cocoa/WKDownloadDelegatePrivate.h
+    UIProcess/API/Cocoa/WKWebExtensionActionPrivate.h
+    UIProcess/API/Cocoa/WKWebExtensionCommandPrivate.h
+    UIProcess/API/Cocoa/WKWebExtensionContextPrivate.h
+    UIProcess/API/Cocoa/WKWebExtensionControllerConfigurationPrivate.h
+    UIProcess/API/Cocoa/WKWebExtensionControllerDelegatePrivate.h
+    UIProcess/API/Cocoa/WKWebExtensionControllerPrivate.h
+    UIProcess/API/Cocoa/WKWebExtensionDataRecordPrivate.h
+    UIProcess/API/Cocoa/WKWebExtensionMatchPatternPrivate.h
+    UIProcess/API/Cocoa/WKWebExtensionMessagePortPrivate.h
+    UIProcess/API/Cocoa/WKWebExtensionPermissionPrivate.h
+    UIProcess/API/Cocoa/WKWebExtensionPrivate.h
+    UIProcess/API/Cocoa/_WKImmersiveEnvironmentDelegate.h
+    UIProcess/API/Cocoa/_WKPageLoadTiming.h
+    UIProcess/API/Cocoa/_WKSpatialBackdropSource.h
+    UIProcess/API/Cocoa/_WKTargetedElementInfo.h
+    UIProcess/API/Cocoa/_WKTargetedElementRequest.h
+    UIProcess/API/Cocoa/_WKTextRun.h
+    UIProcess/API/Cocoa/_WKWebPushAction.h
+    UIProcess/API/Cocoa/_WKWebPushDaemonConnection.h
+    UIProcess/API/Cocoa/_WKWebPushMessage.h
+    UIProcess/API/Cocoa/_WKWebPushSubscriptionData.h
+    UIProcess/Cocoa/_WKCaptionStyleMenuController.h
+    UIProcess/API/C/mac/WKNotificationPrivateMac.h
     Shared/mac/SecItemRequestData.h
     GPUProcess/graphics/Model/Float3.h
     GPUProcess/graphics/Model/Float4x4.h

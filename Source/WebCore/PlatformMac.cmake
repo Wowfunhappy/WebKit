@@ -1013,6 +1013,10 @@ list(APPEND WebCoreTestSupport_SOURCES
     testing/ServiceWorkerInternals.mm
 
     testing/cocoa/WebArchiveDumpSupport.mm
+    # MAVERICKS_BACKPORT: WebKitTestRunner's UIScriptController and AccessibilityUIElementMac call
+    # WebCoreTestSupport::serializationForCSS(NSColor *), but this source was missing from the Mac
+    # WebCoreTestSupport build, leaving the symbol undefined when linking WebKitTestRunner.
+    testing/cocoa/CocoaColorSerialization.mm
 )
 list(APPEND WebCoreTestSupport_IDL_FILES
     testing/MockPaymentAddress.idl

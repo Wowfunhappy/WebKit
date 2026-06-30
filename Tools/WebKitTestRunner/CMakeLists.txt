@@ -84,6 +84,11 @@ set(TestRunnerInjectedBundle_PRIVATE_INCLUDE_DIRECTORIES
     ${WebKitTestRunner_DERIVED_SOURCES_DIR}/InjectedBundle
     ${WebKitTestRunner_DIR}
     ${WebKitTestRunner_DIR}/InjectedBundle
+    # MAVERICKS_BACKPORT: the injected-bundle mac/ sources quote-include cocoa/ headers (AccessibilityCommonCocoa.h)
+    # and the shared cocoa/ headers (CrashReporterInfo.h), which the Mac CMake path did not put on the bundle's
+    # include path (Apple builds this via Xcode). Add both so the bundle compiles.
+    ${WebKitTestRunner_DIR}/InjectedBundle/cocoa
+    ${WebKitTestRunner_DIR}/cocoa
 )
 
 set(TestRunnerInjectedBundle_LIBRARY_TYPE SHARED)
@@ -123,6 +128,36 @@ WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 
 WEBKIT_LIBRARY(TestRunnerInjectedBundle)
 WEBKIT_EXECUTABLE(WebKitTestRunner)
+
+# MAVERICKS_BACKPORT: the SHARED injected bundle absorbs the WTF (and bmalloc) OBJECT libraries directly, which
+# REDEFINES the WTF/JSC process-singleton g_config (the __DATA,__wtf_config record holding the JSC structure-heap
+# base, gigacage limits, etc.) -- a SECOND, never-initialized copy alongside the one in the JavaScriptCore
+# framework the bundle also links. The bundle's inline JSC binding code (creating window.internals) then reads a
+# null structure-heap base and crashes the WebContent process. JavaScriptCore.framework already contains WTF and
+# exports its symbols (WebCore/WebKit import g_config from it, never define their own), so strip the absorbed
+# WTF/bmalloc objects from the bundle and let it import them from the framework -- keeping g_config a single
+# initialized instance. (The standalone WebKitTestRunner executable keeps them: it initializes its own config.)
+if (TARGET TestRunnerInjectedBundle)
+    get_target_property(_ib_link_libs TestRunnerInjectedBundle LINK_LIBRARIES)
+    set(_ib_link_libs_filtered "")
+    foreach (_ib_lib IN LISTS _ib_link_libs)
+        if ((NOT _ib_lib STREQUAL "WTF") AND (NOT _ib_lib STREQUAL "bmalloc") AND (NOT _ib_lib MATCHES "TARGET_OBJECTS:(WTF|bmalloc)>"))
+            list(APPEND _ib_link_libs_filtered "${_ib_lib}")
+        endif ()
+    endforeach ()
+    set_target_properties(TestRunnerInjectedBundle PROPERTIES LINK_LIBRARIES "${_ib_link_libs_filtered}")
+endif ()
+
+# MAVERICKS_BACKPORT: WebKitTestRunner is a WebKit2 tool but also needs the WebKit1 (WebKitLegacy) <WebKit/...>
+# umbrella on its include path, because the WebKit2 <WebKit/WebKit.h> umbrella pulls in <WebKit/WebKitLegacy.h>
+# -> <WebKit/DOM.h>, which only exist in the WebKitLegacy headers root (added in PlatformMac.cmake). That root
+# also contains a WebKit1 <WebKit/WebKit.h> (the legacy umbrella, no WKWebView), which would shadow the WebKit2
+# umbrella and leave WKWebView only forward-declared -- breaking the TestRunnerWKWebView : WKWebView subclass.
+# So force the WebKit2 headers root to be searched first; WebKit1-only headers (DOM.h, WebView.h, ...) still
+# resolve from the WebKitLegacy root since WebKit2 does not ship them. (Inverse of the DumpRenderTree order fix.)
+if (TARGET WebKitTestRunner)
+    target_include_directories(WebKitTestRunner BEFORE PRIVATE ${WebKit_FRAMEWORK_HEADERS_DIR})
+endif ()
 
 if (COMPILER_IS_GCC_OR_CLANG)
     WEBKIT_ADD_TARGET_CXX_FLAGS(TestRunnerInjectedBundle -Wno-unused-parameter)
