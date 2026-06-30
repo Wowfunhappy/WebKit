@@ -72,7 +72,11 @@ PlatformWebView::PlatformWebView(WKPageConfigurationRef configuration, const Tes
 
     NSRect rect = NSMakeRect(0, 0, options.viewWidth(), options.viewHeight());
     m_view = [[TestRunnerWKWebView alloc] initWithFrame:rect configuration:(__bridge WKWebViewConfiguration *)configuration];
-    [m_view _setWindowOcclusionDetectionEnabled:NO];
+    // MAVERICKS_BACKPORT: -[WKWebView _setWindowOcclusionDetectionEnabled:] is not present in this build; guard
+    // the SPI so the absent selector does not raise. (Render cadence for the offscreen test view is driven by
+    // window-level visibility in MinimalPageClient, not by occlusion detection on the WKWebView.)
+    if ([m_view respondsToSelector:@selector(_setWindowOcclusionDetectionEnabled:)])
+        [m_view _setWindowOcclusionDetectionEnabled:NO];
 
     NSScreen *firstScreen = [[NSScreen screens] firstObject];
     RELEASE_ASSERT_WITH_MESSAGE(firstScreen, "No screens found, possibly due to no WindowServer session. This configuration is not supported.");

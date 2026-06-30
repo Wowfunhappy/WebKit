@@ -183,6 +183,12 @@ RefPtr<AudioBus> createBusFromInMemoryAudioFile(std::span<const uint8_t> data, b
     if (!framesRead)
         return nullptr;
 
+    // MAVERICKS_BACKPORT: the bus was over-allocated (ceil(frames*ratio) + 1) so the sample-rate conversion
+    // never truncates; trim it to the frames actually decoded so decodeAudioData reports the exact length
+    // and carries no trailing silence (else a 176400-frame WAV decoded to length 176401 with a silent frame).
+    if (framesRead < numberOfFrames)
+        audioBus->setLength(framesRead);
+
     // MAVERICKS_BACKPORT: rewritten in-memory Web Audio decoder (see file header).
     if (mixToMono && numberOfChannels > 1)
         return AudioBus::createByMixingToMono(audioBus.get());

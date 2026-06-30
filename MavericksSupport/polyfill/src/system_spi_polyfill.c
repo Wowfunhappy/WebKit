@@ -45,6 +45,19 @@ int _AXUIElementNotifyProcessSuspendStatus(int status)
 // WebProcess init (a flat-namespace bind, so it must resolve). The setting is off by default.
 unsigned char _AXSEnhanceTextLegibilityEnabled(void) { return 0; }
 
+// HIServices SPI that tags the calling process with an AX "client type" (e.g. WebKitTesting) so the AX
+// runtime can special-case test harnesses. Absent on 10.9 (postdates this OS). The layout-test drivers
+// (DumpRenderTree/WebKitTestRunner) call it during accessibility-controller setup; on 10.9 there is no AX
+// client-type registry, so a no-op is the correct behavior (the AX tests that depend on it are skipped).
+void _AXSetClientIdentificationOverride(int clientType) { (void)clientType; }
+
+// LaunchServices UTType predicates added after 10.9 (10.9's LaunchServices has the rest of the UTType API
+// — UTTypeConformsTo/UTTypeCopyPreferredTagWithClass/etc. — but not these two). The layout-test drivers
+// reference them; callers fall back to the pre-UTI MIME/extension path, so a conservative "no" is correct
+// on 10.9 (treat nothing as a dynamic or specially-declared UTI).
+Boolean UTTypeIsDynamic(CFStringRef inUTI) { (void)inUTI; return false; }
+Boolean UTTypeIsDeclared(CFStringRef inUTI) { (void)inUTI; return false; }
+
 // ---------------------------------------------------------------------------------------------------
 // CFNetwork — features absent on 10.9; callers tolerate null/no-op.
 // ---------------------------------------------------------------------------------------------------
