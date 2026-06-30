@@ -21,7 +21,7 @@
 # a re-run only replaces our own previous build, and backing that up every time is pure
 # disk churn (~670MB/run, which once filled the startup disk). backup() captures stock
 # at most once and is skipped entirely whenever the stock backup already exists.
-# Run with: sudo bash install-safari7.sh   (writes to /System, /usr/local)
+# Run with: sudo bash install-safari7.sh   (writes to /System only — fully self-contained, no /usr/local)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -100,6 +100,11 @@ absolute_for_rpath_dep() {
         @rpath/libc++.1.dylib)             echo "$PRIVLIBCXX/libc++.1.dylib";;
         @rpath/libc++abi.1.dylib)          echo "$PRIVLIBCXX/libc++abi.1.dylib";;
         @rpath/libunwind.1.dylib)          echo "$PRIVLIBCXX/libunwind.1.dylib";;
+        # The two polyfill dylibs carry an @rpath install_name (build-polyfill.sh), so every binary that links
+        # them — and the WK2 layout-test harness, which also redirects the post-10.9 frameworks onto the
+        # reexporting libpolyfill_classes — records @rpath/<leaf>. Map both to their deployed in-bundle homes.
+        @rpath/libpolyfill_classes.dylib)  echo "$PRIVLIBCXX/libpolyfill_classes.dylib";;
+        @rpath/libcg_polyfill.dylib)       echo "$PRIVLIB/libcg_polyfill.dylib";;
         # GStreamer (#90): any remaining @rpath/libX.dylib present in the vendored GStreamer tree maps
         # to its deployed copy inside WebCore.framework. The -e guard avoids mis-mapping a stray dep.
         @rpath/*.dylib)
@@ -127,23 +132,21 @@ rewrite_rpath_deps() {
 }
 
 # Repoint one of $bin's LC_LOAD_DYLIB load commands — the one whose recorded path CONTAINS <match> — to
-# <new>. The match-by-substring form handles both a baked absolute install_name (pass the full /usr/local
-# path) and a system framework (pass "/<Name>.framework/"). The install-side counterpart of the build-side
-# reexport shims (the vendored GStreamer dylibs are pre-repointed at vendor time; these are the WebKit ones).
+# <new>. The match-by-substring form locates a load command by a stable fragment of its path — used here for
+# the system frameworks (pass "/<Name>.framework/"). The install-side counterpart of the build-side reexport
+# shims (the vendored GStreamer dylibs are pre-repointed at vendor time; these are the WebKit ones).
 repoint_framework_dep() {
     local bin="$1" match="$2" new="$3" cur
     cur=$("$OTOOL" -L "$bin" 2>/dev/null | awk -v m="$match" 'index($1, m){print $1; exit}')
     [ -n "$cur" ] && "$INT" -change "$cur" "$new" "$bin" 2>/dev/null || true
 }
 
-# libcg_polyfill.dylib + libpolyfill_classes.dylib carry BAKED absolute install_names (/usr/local/lib/...)
-# from build time, so rewrite_rpath_deps (which only touches @rpath deps) never sees them — repoint them to
-# their in-bundle homes (CG polyfill in WebCore.framework $PRIVLIB; the classes dylib in
-# JavaScriptCore.framework $PRIVLIBCXX, the universal dependency every WebKit binary already loads).
+# The two polyfill dylibs now carry an @rpath install_name, so rewrite_rpath_deps already remapped them to
+# their in-bundle homes (CG polyfill in WebCore.framework $PRIVLIB; the classes dylib in JavaScriptCore.framework
+# $PRIVLIBCXX, the universal dependency every WebKit binary already loads) via absolute_for_rpath_dep. This pass
+# only handles the absolute SYSTEM-framework deps the build links directly, which have no @rpath form.
 rewrite_abs_deps() {
     local bin="$1"
-    repoint_framework_dep "$bin" /usr/local/lib/libcg_polyfill.dylib      "$PRIVLIB/libcg_polyfill.dylib"
-    repoint_framework_dep "$bin" /usr/local/lib/libpolyfill_classes.dylib "$PRIVLIBCXX/libpolyfill_classes.dylib"
     # Redirect Security/CoreServices/CFNetwork/QuartzCore to libpolyfill_classes.dylib, which REEXPORTS each of
     # them and ADDS the absent-on-10.9 ObjC classes the build SDK declares in them (SecKeyProxy,
     # _NSHTTPAlternativeServices*/_NSHSTSStorage, LSBundleProxy, CABackdropLayer, ...). WebKit's two-level
@@ -280,6 +283,42 @@ install_framework() {
 # lib). The frameworks' load commands are already rewritten to these absolute in-bundle paths
 # during install_framework, so recording them before the files exist is fine (paths resolve at
 # runtime). See the deploy block after the 32-bit graft below.
+# PREFLIGHT (#168 fallout): refuse to touch /System if any source binary carries an @rpath dependency we
+# cannot resolve. install_framework rewrites frameworks one at a time and rm -rf's each destination first, so
+# an unmappable dep discovered on the 4th framework would already have left /System with 3 new + 1 stale
+# framework — a mismatched, possibly-unbootable install. absolute_for_rpath_dep maps every @rpath dep the build
+# produces (the WebKit frameworks, the two polyfill leaves, the C++ runtime, the vendored GStreamer dylibs), so
+# the only way to trip this is a genuinely unknown @rpath dylib (a newly vendored lib, a typo); the preflight
+# catches it BEFORE the first /System write rather than partway through. Scan all four
+# source bundles up front; abort cleanly with the remediation if anything is unmappable.
+preflight_check_rpaths() {
+    local bad=0 fw src f dep abs
+    for fw in JavaScriptCore WebKitLegacy WebCore WebKit; do
+        src="$LIBDIR/$fw.framework"
+        [ -d "$src" ] || continue
+        while IFS= read -r f; do
+            file "$f" 2>/dev/null | grep -q "Mach-O" || continue
+            while read -r dep; do
+                case "$dep" in @rpath/*) ;; *) continue;; esac
+                abs="$(absolute_for_rpath_dep "$dep")"
+                if [ -z "$abs" ]; then
+                    echo "  UNMAPPABLE @rpath dep in ${f#$LIBDIR/}: $dep" >&2
+                    bad=1
+                fi
+            done < <("$OTOOL" -L "$f" | awk 'NR>1{print $1}')
+        done < <(find "$src" -type f -perm +111)
+    done
+    if [ "$bad" != 0 ]; then
+        echo "ERROR: build tree has unmappable @rpath deps — refusing to install (no /System writes made)." >&2
+        echo "       A binary references an @rpath dylib absolute_for_rpath_dep doesn't know how to relocate" >&2
+        echo "       into the bundle (e.g. a newly vendored dylib). Add a case for it there, or relink the" >&2
+        echo "       offending binary; for the XPC-service execs, 'ninja -C WebKitBuild/Release NetworkProcess" >&2
+        echo "       WebProcess' (or a full rebuild.sh) relinks them." >&2
+        exit 1
+    fi
+}
+preflight_check_rpaths
+
 echo "### Installing frameworks (name shift)"
 # Order matters: install_framework rm -rf's its destination bundle. WebCore now nests inside
 # WebKit.framework, so WebKitLegacy (-> WebKit.framework) MUST run first, then WebCore is laid into it.

@@ -5,7 +5,8 @@
 #
 # The build-dir frameworks reference post-10.9 system framework symbols (e.g. QuartzCore's CAPresentationModifier)
 # that 10.9 lacks; libpolyfill_classes.dylib REEXPORTS each framework and DEFINES the missing symbols (and the
-# build also links libcg_polyfill.dylib). The build bakes these as /usr/local/lib/<leaf> deps.
+# build also links libcg_polyfill.dylib). Both polyfill dylibs carry an @rpath install_name, so the build
+# records them as @rpath/<leaf> (resolved from $LIBDIR); only the directly-linked system frameworks are redirected.
 #
 # To stay SELF-CONTAINED to the build tree (no /usr/local/lib, no system writes, no DYLD_* env -- which matters
 # because WebKit2's XPC services are spawned by launchd, which strips DYLD_* from their environment), this stages
@@ -102,10 +103,9 @@ for fwbin in \
     $BUNDLE_BIN \
     $XPC_BINS; do
     [ -f "$fwbin" ] || continue
-    # 1) point the baked /usr/local/lib polyfill deps at the staged @rpath copies
-    repoint_all "$fwbin" "/usr/local/lib/libpolyfill_classes.dylib" "@rpath/libpolyfill_classes.dylib"
-    repoint_all "$fwbin" "/usr/local/lib/libcg_polyfill.dylib"      "@rpath/libcg_polyfill.dylib"
-    # 2) redirect the post-10.9 system frameworks onto the reexporting polyfill (fresh builds still link these)
+    # The two polyfill dylibs already carry an @rpath install_name (build-polyfill.sh), so the build records
+    # @rpath/<leaf> and they resolve from the staged copies in $LIBDIR — no rewrite needed. Only the post-10.9
+    # system frameworks the build still links directly need redirecting onto the reexporting polyfill.
     for fw in $REDIRECT_FRAMEWORKS; do
         repoint_all "$fwbin" "/System/Library/Frameworks/${fw}.framework/" "$POLY"
     done
