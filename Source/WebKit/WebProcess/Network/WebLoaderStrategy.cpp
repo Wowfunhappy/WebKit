@@ -678,7 +678,16 @@ void WebLoaderStrategy::scheduleLoadFromNetworkProcess(ResourceLoader& resourceL
             loadParameters.openerURL = openerDocument->url();
     }
 
-    loadParameters.shouldEnableCrossOriginResourcePolicy = !loadParameters.isMainFrameNavigation;
+    // MAVERICKS_BACKPORT (#172): only enforce Cross-Origin-Resource-Policy for loads initiated by a
+    // document that can run content JavaScript. CORP exists to keep a cross-origin resource out of a
+    // process where script could read it through a Spectre side-channel; a document with content
+    // JavaScript disabled (e.g. an Apple Mail message, which sets scriptMarkupEnabled=false →
+    // allowsContentJavaScript()==false) has no script to mount that attack, so enforcing CORP there
+    // only blocks legitimate cross-origin email images (which stock 10.9 WebKit, predating CORP,
+    // rendered) while buying no security. The response is still delivered Tainting::Opaque (see
+    // NetworkLoadChecker), so CORS, canvas-tainting and opaque-response confidentiality are
+    // unaffected. Normal web content runs script (allowsContentJavaScript()==true) → full CORP.
+    loadParameters.shouldEnableCrossOriginResourcePolicy = !loadParameters.isMainFrameNavigation && (!document || document->allowsContentJavaScript());
 
     if (resourceLoader.options().mode == FetchOptions::Mode::Navigate) {
         Vector<Ref<SecurityOrigin>> frameAncestorOrigins;

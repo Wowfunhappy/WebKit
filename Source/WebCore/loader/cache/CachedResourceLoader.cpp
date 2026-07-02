@@ -1269,7 +1269,12 @@ ResourceErrorOr<Ref<CachedResource>> CachedResourceLoader::requestResource(Cache
         // Per the Fetch specification, the "cross-origin resource policy check" should only occur in the HTTP Fetch case (https://fetch.spec.whatwg.org/#concept-http-fetch).
         // However, per https://fetch.spec.whatwg.org/#main-fetch, if the request URL's protocol is "data:", then we should perform a scheme fetch which would end up
         // returning a response WITHOUT performing an HTTP fetch (and thus no CORP check).
-        if (request.options().mode == FetchOptions::Mode::NoCors && !url.protocolIsData()) {
+        // MAVERICKS_BACKPORT (#172): skip the Cross-Origin-Resource-Policy check (here, the
+        // memory-cache-reuse path; the fresh-load path is gated in NetworkLoadChecker) for documents
+        // that cannot run content JavaScript (e.g. Apple Mail messages). CORP guards against scripted
+        // cross-origin reads (Spectre); with no content script there is nothing to protect, and the
+        // response stays opaque so CORS/canvas-tainting are unaffected. Normal web content keeps CORP.
+        if (request.options().mode == FetchOptions::Mode::NoCors && !url.protocolIsData() && (!document || document->allowsContentJavaScript())) {
             auto coep = document ? document->crossOriginEmbedderPolicy().value : CrossOriginEmbedderPolicyValue::UnsafeNone;
             if (auto error = validateCrossOriginResourcePolicy(coep, *protect(request.origin()), request.resourceRequest().url(), resource->response(), ForNavigation::No, OriginAccessPatternsForWebProcess::singleton()))
                 return makeUnexpected(WTF::move(*error));
