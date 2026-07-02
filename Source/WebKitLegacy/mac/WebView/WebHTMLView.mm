@@ -152,6 +152,7 @@
 #import <pal/spi/mac/NSSpellCheckerSPI.h>
 #import <pal/spi/mac/NSViewSPI.h>
 #import <pal/spi/mac/NSWindowSPI.h>
+#import <objc/runtime.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/MainThread.h>
 #import <wtf/MathExtras.h>
@@ -1560,32 +1561,61 @@ static NSControlStateValue NODELETE kit(TriState state)
     _private->lastScrollPosition = origin;
 }
 
+// MAVERICKS_BACKPORT: upstream reaches the subviews storage through the 10.12+
+// _subviewsIvar/_setSubviewsIvar: AppKit SPI, which is absent on 10.9. Going through the public
+// -setSubviews: API instead is NOT equivalent: it runs the full view-hierarchy machinery —
+// willRemoveSubview:, autoresizing-constraint regeneration, and NSISEngine constraint work that
+// re-enters -[WebHTMLView setNeedsLayout:] — on EVERY draw. In a constraint-based window whose
+// WebHTMLView has plug-in subviews (a Mail compose with an attachment), that re-dirtied WebCore
+// layout and re-armed the window's constraint pass each cycle, an endless layout/display spin
+// during which WebCore refuses to paint (content frozen at its first paint, pegged CPU).
+// 10.9 AppKit still stores subviews in NSView's _subviews ivar — the same storage the 10.12+ SPI
+// wraps — so swap it directly with no side effects, exactly like the WebKit that shipped with
+// Safari 7 on this OS.
+static Ivar webHTMLViewSubviewsIvar()
+{
+    static Ivar ivar = class_getInstanceVariable([NSView class], "_subviews");
+    return ivar;
+}
+
 - (void)_setAsideSubviews
 {
 #if PLATFORM(MAC)
     ASSERT(!_private->subviewsSetAside);
     ASSERT(_private->savedSubviews == nil);
-    // MAVERICKS_BACKPORT: the upstream _subviewsIvar/_setSubviewsIvar: property is 10.12+ AppKit SPI
-    // (absent at runtime on 10.9), so set the subviews aside through the long-standing public
-    // -subviews/-setSubviews: API instead. We keep the layer-hosting view in the subviews, otherwise
-    // the layers flash.
-    _private->savedSubviews = [[self subviews] copy];
-    if (_private->layerHostingView)
-        [self setSubviews:@[_private->layerHostingView]];
-    else
-        [self setSubviews:@[]];
+    Ivar subviewsIvar = webHTMLViewSubviewsIvar();
+    if (subviewsIvar) {
+        // Take over the reference the view holds; hand the view a replacement array it owns.
+        _private->savedSubviews = object_getIvar(self, subviewsIvar);
+        if (_private->layerHostingView) {
+            // We keep the layer-hosting view in the subviews, otherwise the layers flash.
+            object_setIvar(self, subviewsIvar, [[NSMutableArray alloc] initWithObjects:_private->layerHostingView, nil]);
+        } else
+            object_setIvar(self, subviewsIvar, nil);
+    } else {
+        _private->savedSubviews = [[self subviews] copy];
+        if (_private->layerHostingView)
+            [self setSubviews:@[_private->layerHostingView]];
+        else
+            [self setSubviews:@[]];
+    }
     _private->subviewsSetAside = YES;
 #endif
  }
- 
+
  - (void)_restoreSubviews
  {
 #if PLATFORM(MAC)
     ASSERT(_private->subviewsSetAside);
-    // MAVERICKS_BACKPORT: restore through public -setSubviews: (see -_setAsideSubviews). savedSubviews
-    // was retained with -copy above, so release it after handing it back to AppKit.
-    [self setSubviews:(_private->savedSubviews ?: @[])];
-    [_private->savedSubviews release];
+    Ivar subviewsIvar = webHTMLViewSubviewsIvar();
+    if (subviewsIvar) {
+        // Drop the replacement array and hand the saved reference back to the view.
+        [object_getIvar(self, subviewsIvar) release];
+        object_setIvar(self, subviewsIvar, _private->savedSubviews);
+    } else {
+        [self setSubviews:(_private->savedSubviews ?: @[])];
+        [_private->savedSubviews release];
+    }
     _private->savedSubviews = nil;
     _private->subviewsSetAside = NO;
 #endif
@@ -1666,6 +1696,15 @@ static NSControlStateValue NODELETE kit(TriState state)
         } else if (wasInPrintingMode)
             [self _web_clearPrintingModeRecursive];
 
+        // MAVERICKS_BACKPORT: 10.9 AppKit drives window display through this method, and layout
+        // can be invalidated after -viewWillDraw has already run: 10.9's Auto Layout machinery
+        // (NSISEngine) sends -setNeedsLayout: to this view while it updates the window's
+        // constraints mid-display. WebCore refuses to paint with a pending layout (it bails out
+        // without drawing at all), which would leave the backing store frozen at its last
+        // painted state. Run the pending layout before drawing, the same protection
+        // -_recursiveDisplayRectIfNeededIgnoringOpacity: has for this situation.
+        if ([self _needsLayout])
+            [self _web_updateLayoutAndStyleIfNeededRecursive];
 
         [self _setAsideSubviews];
     }
@@ -3830,8 +3869,19 @@ static BOOL currentScrollIsBlit(NSView *clipView)
     if (auto* frame = core([self _frame])) {
         if (frame->document() && frame->document()->backForwardCacheState() != WebCore::Document::NotInBackForwardCache)
             return;
+        // MAVERICKS_BACKPORT: 10.9's Auto Layout machinery (NSISEngine tryAddingDirectly:)
+        // sends -setNeedsLayout:YES to views it adds constraints for, and WebHTMLView
+        // overrides that NSView selector with the WebKit-document meaning. In a
+        // constraint-based window (Mail compose), setNeedsLayoutAfterViewConfigurationChange()
+        // would also arm a zero-delay layout timer whose full relayout + full-view repaint
+        // re-enters the constraint machinery, so the window never settles: WebCore layout is
+        // dirty at every -drawRect: and LocalFrameView::paintContents refuses to paint
+        // (content frozen at its first paint, pegged CPU). Match the WebKit that shipped with
+        // Safari 7 on this OS: only mark the render tree as needing layout (still honoring the
+        // disable-setNeedsLayout deferral window); the next display pass runs the layout in
+        // -viewWillDraw.
         if (auto* view = frame->view())
-            view->setNeedsLayoutAfterViewConfigurationChange();
+            view->setNeedsLayoutWithoutScheduling();
     }
 }
 

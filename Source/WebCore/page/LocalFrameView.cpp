@@ -4187,6 +4187,11 @@ void LocalFrameView::setNeedsLayoutAfterViewConfigurationChange()
     layoutContext().setNeedsLayoutAfterViewConfigurationChange();
 }
 
+void LocalFrameView::setNeedsLayoutWithoutScheduling()
+{
+    layoutContext().setNeedsLayoutWithoutScheduling();
+}
+
 void LocalFrameView::setNeedsCompositingConfigurationUpdate()
 {
     CheckedPtr renderView = this->renderView();
