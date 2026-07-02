@@ -51,7 +51,6 @@ static void checkCandidate(WebBasePluginPackage **currentPlugin, WebBasePluginPa
 
 @interface WebPluginDatabase (Internal)
 + (NSArray *)_defaultPlugInPaths;
-- (NSArray *)_plugInPaths;
 - (void)_addPlugin:(WebBasePluginPackage *)plugin;
 - (void)_removePlugin:(WebBasePluginPackage *)plugin;
 - (NSMutableSet *)_scanForNewPlugins;

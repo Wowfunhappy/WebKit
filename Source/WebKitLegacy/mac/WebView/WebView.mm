@@ -5505,8 +5505,7 @@ IGNORE_WARNINGS_END
         return nil;
 
     WebPluginDatabase *db = _private->pluginDatabase.get();
-    NSArray *existing = nil;
-    @try { existing = [db valueForKey:@"plugInPaths"]; } @catch (...) { }
+    NSArray *existing = [db _plugInPaths];
     if (existing && [existing containsObject:wdgt])
         return db; // already scanned this bundle; don't rescan on every miss
 
@@ -5523,7 +5522,41 @@ IGNORE_WARNINGS_END
     return db;
 }
 
-// MAVERICKS_BACKPORT: restore the plug-in lookup (upstream returns nil); consult per-view/shared/widget-bundle databases so Web Clips find WebClip.plugin.
+// MAVERICKS_BACKPORT: lazily scan the HOST APP's own built-in PlugIns directory
+// (-[NSBundle builtInPlugInsPath], e.g. Mail.app/Contents/PlugIns) for a WebKit-ObjC
+// WebPlugin. Mail's file-attachment cells are <object type="application/x-apple-msg-attachment">
+// handled by Mail's bundled MailWebPlugIn.webplugin; without a handler objectContentType()
+// falls through to a failed createPlugin() and the cell renders the "Missing Plug-in" text.
+// Stock 10.9 found such app plug-ins via +[WebPluginDatabase sharedDatabase], whose
+// _defaultPlugInPaths includes builtInPlugInsPath. We deliberately do NOT create the shared
+// database here (it would also scan ~/ and /Library/Internet Plug-Ins for old NPAPI plug-ins),
+// mirroring _ensureWidgetBundlePluginDatabase: scan ONLY the app bundle's own PlugIns dir.
+- (WebPluginDatabase *)_ensureAppBuiltInPluginDatabase
+{
+    NSString *builtIn = [[NSBundle mainBundle] builtInPlugInsPath];
+    BOOL isDir = NO;
+    if (![builtIn length] || ![[NSFileManager defaultManager] fileExistsAtPath:builtIn isDirectory:&isDir] || !isDir)
+        return nil;
+
+    WebPluginDatabase *db = _private->pluginDatabase.get();
+    NSArray *existing = [db _plugInPaths];
+    if (existing && [existing containsObject:builtIn])
+        return db; // already scanned this bundle; don't rescan on every miss
+
+    if (!db) {
+        _private->pluginDatabase = adoptNS([[WebPluginDatabase alloc] init]);
+        db = _private->pluginDatabase.get();
+    }
+    NSMutableArray *paths = [NSMutableArray array];
+    if (existing)
+        [paths addObjectsFromArray:existing];
+    [paths addObject:builtIn];
+    [db setPlugInPaths:paths];
+    [db refresh];
+    return db;
+}
+
+// MAVERICKS_BACKPORT: restore the plug-in lookup (upstream returns nil); consult per-view/shared/app-built-in/widget-bundle databases so Web Clips find WebClip.plugin and Mail attachments find MailWebPlugIn.
 - (WebBasePluginPackage *)_pluginForMIMEType:(NSString *)MIMEType
 {
     if (_private->pluginDatabase) {
@@ -5532,6 +5565,10 @@ IGNORE_WARNINGS_END
     }
     if (WebPluginDatabase *shared = [WebPluginDatabase sharedDatabaseIfExists]) {
         if (WebBasePluginPackage *pluginPackage = [shared pluginForMIMEType:MIMEType])
+            return pluginPackage;
+    }
+    if (WebPluginDatabase *appDB = [self _ensureAppBuiltInPluginDatabase]) {
+        if (WebBasePluginPackage *pluginPackage = [appDB pluginForMIMEType:MIMEType])
             return pluginPackage;
     }
     if (WebPluginDatabase *bundleDB = [self _ensureWidgetBundlePluginDatabase])
@@ -5548,6 +5585,10 @@ IGNORE_WARNINGS_END
     }
     if (WebPluginDatabase *shared = [WebPluginDatabase sharedDatabaseIfExists]) {
         if (WebBasePluginPackage *pluginPackage = [shared pluginForExtension:extension])
+            return pluginPackage;
+    }
+    if (WebPluginDatabase *appDB = [self _ensureAppBuiltInPluginDatabase]) {
+        if (WebBasePluginPackage *pluginPackage = [appDB pluginForExtension:extension])
             return pluginPackage;
     }
     if (WebPluginDatabase *bundleDB = [self _ensureWidgetBundlePluginDatabase])

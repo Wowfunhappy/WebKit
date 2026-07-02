@@ -61,6 +61,9 @@
 - (void)refresh;
 
 - (void)setPlugInPaths:(NSArray *)newPaths;
+// MAVERICKS_BACKPORT: exposed so WebView's per-view database helpers (widget-bundle and
+// app-built-in plug-in scans) can append to the existing paths instead of clobbering them.
+- (NSArray *)_plugInPaths;
 
 - (void)close;
 
