@@ -96,6 +96,9 @@ public:
     void setCSPResponseHeaders(WebCore::ContentSecurityPolicyResponseHeaders&& headers) { m_cspResponseHeaders = WTF::move(headers); }
     void setParentCrossOriginEmbedderPolicy(const WebCore::CrossOriginEmbedderPolicy& parentCrossOriginEmbedderPolicy) { m_parentCrossOriginEmbedderPolicy = parentCrossOriginEmbedderPolicy; }
     void setCrossOriginEmbedderPolicy(const WebCore::CrossOriginEmbedderPolicy& crossOriginEmbedderPolicy) { m_crossOriginEmbedderPolicy = crossOriginEmbedderPolicy; }
+    // MAVERICKS_BACKPORT (#172): gate the no-cors Cross-Origin-Resource-Policy check; false for loads
+    // from documents that cannot run content JavaScript (e.g. Apple Mail messages). See validateResponse.
+    void setShouldEnableCrossOriginResourcePolicy(bool enable) { m_shouldEnableCrossOriginResourcePolicy = enable; }
 #if ENABLE(CONTENT_EXTENSIONS)
     void setContentExtensionController(URL&& mainDocumentURL, URL&& frameURL, std::optional<UserContentControllerIdentifier> identifier)
     {
@@ -177,6 +180,7 @@ private:
     std::optional<WebCore::ContentSecurityPolicyResponseHeaders> m_cspResponseHeaders;
     WebCore::CrossOriginEmbedderPolicy m_parentCrossOriginEmbedderPolicy;
     WebCore::CrossOriginEmbedderPolicy m_crossOriginEmbedderPolicy;
+    bool m_shouldEnableCrossOriginResourcePolicy { true }; // MAVERICKS_BACKPORT (#172)
 #if ENABLE(CONTENT_EXTENSIONS)
     URL m_mainDocumentURL;
     URL m_frameURL;
