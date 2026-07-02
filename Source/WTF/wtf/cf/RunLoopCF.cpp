@@ -83,20 +83,29 @@ RunLoop::~RunLoop()
 
 void RunLoop::wakeUp()
 {
-    // MAVERICKS_BACKPORT: main-RunLoop wakeUp goes through the main GCD queue (rationale below).
-    // 10.9: for the main RunLoop, wake via the main GCD queue rather than
-    // CFRunLoopSourceSignal+CFRunLoopWakeUp. NOTE (2026-06-14): this is NOT the
-    // old "GC clobbers the source" reason (that corruption is gone now that the main
-    // thread runs a real CFRunLoop). The real reason is that this WTF RunLoop's custom
-    // source is not reliably serviced by xpc_main's NSRunLoop on 10.9 — signalling it
-    // delivers the first wake but does NOT reliably re-wake the loop once rendering goes
-    // idle, freezing requestAnimationFrame to ~0.5fps (verified by reverting this). The
-    // main dispatch queue IS serviced in all run-loop modes, so it wakes reliably.
-    // TODO: the cleaner fix is to add m_runLoopSource to the exact mode xpc_main runs.
+    // MAVERICKS_BACKPORT: the main RunLoop is woken via BOTH the main GCD queue and the
+    // version-0 CFRunLoopSource, because each covers a case the other misses on 10.9:
+    //  - The main GCD queue is serviced in all run-loop modes and reliably RE-wakes
+    //    xpc_main's NSRunLoop once rendering goes idle. Source-signalling alone delivers
+    //    the first wake but does NOT reliably re-wake the idle loop, which throttles
+    //    requestAnimationFrame to ~0.5fps (verified by removing the dispatch path).
+    //  - The version-0 m_runLoopSource (registered in kCFRunLoopCommonModes) is serviced
+    //    even inside a NESTED CFRunLoopRunInMode that is itself running within a GCD
+    //    main-queue callout. libdispatch suppresses the main-queue drain in that nested
+    //    case (__CFTSDKeyIsInGCDMainQ re-entrancy guard), so the dispatch_async above is
+    //    NOT serviced there. Mail pumps exactly such a nested kCFRunLoopDefaultMode loop
+    //    in -[MUIWKViewController sendMessageToWebProcessControllerSynchronously:] (entered
+    //    from the ShowContextMenu main-queue callback) and otherwise waits its full 1s
+    //    timeout for the injected-bundle reply (#173 context-menu delay); a version-0
+    //    source is exempt from the GCD guard, so the reply is delivered within ms.
+    // performWork() swaps m_nextIteration under m_nextIterationLock and is a no-op when
+    // empty, so being triggered by both paths is idempotent and re-entrancy-safe.
     if (this == &RunLoop::mainSingleton()) {
         dispatch_async(dispatch_get_main_queue(), ^{
             performWork(this);
         });
+        CFRunLoopSourceSignal(m_runLoopSource.get());
+        CFRunLoopWakeUp(m_runLoop.get());
         return;
     }
     CFRunLoopSourceSignal(m_runLoopSource.get());
