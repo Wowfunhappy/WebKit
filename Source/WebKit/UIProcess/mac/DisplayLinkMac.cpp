@@ -64,9 +64,11 @@ void DisplayLink::platformInitialize()
         return;
     }
 
-    // MAVERICKS_BACKPORT: program the dispatch timer at the nominal refresh interval (replaces CVDisplayLink vsync).
+    // MAVERICKS_BACKPORT: program the dispatch timer at the nominal refresh interval (replaces
+    // CVDisplayLink vsync). First fire is one interval after resume, matching vsync semantics —
+    // an immediate fire would race the unsynchronized m_currentUpdate reset in addObserver().
     uint64_t intervalNanos = NSEC_PER_SEC / m_displayNominalFramesPerSecond;
-    dispatch_source_set_timer(m_timer.get(), DISPATCH_TIME_NOW, intervalNanos, intervalNanos / 10);
+    dispatch_source_set_timer(m_timer.get(), dispatch_time(DISPATCH_TIME_NOW, intervalNanos), intervalNanos, intervalNanos / 10);
     // The DisplayLink owns m_timer and cancels it in platformFinalize before destruction, so the
     // raw `this` context is safe (the handler runs off the main thread, as the assert in
     // notifyObserversDisplayDidRefresh() requires). Use the function-pointer form rather than a
@@ -80,12 +82,15 @@ void DisplayLink::platformFinalize()
 {
     // MAVERICKS_BACKPORT: tear down the dispatch refresh timer that replaces CVDisplayLink on this port.
     if (m_timer) {
-        // A suspended dispatch source must be resumed before release or libdispatch aborts.
+        // Cancel BEFORE resuming: a cancelled source delivers no further events, so the
+        // never-started case (timer created suspended, no observer ever added) cannot fire one
+        // last tick into notifyObserversDisplayDidRefresh() with the default m_currentUpdate.
+        // The resume is still required — releasing a suspended dispatch source aborts.
+        dispatch_source_cancel(m_timer.get());
         if (!m_timerRunning) {
             dispatch_resume(m_timer.get());
             m_timerRunning = true;
         }
-        dispatch_source_cancel(m_timer.get());
         m_timer = nullptr;
     }
 
