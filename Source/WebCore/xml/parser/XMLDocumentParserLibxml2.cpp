@@ -649,16 +649,20 @@ void initializeXMLParser()
         RELEASE_ASSERT_WITH_MESSAGE(defaultEntityLoader != WebCore::externalEntityLoader, "XMLDocumentParserScope was created too early");
         libxmlLoaderThread = &Thread::currentSingleton();
         // MAVERICKS_BACKPORT: 10.9 libxml2 (__xmlRaiseError + 1294) crashes when
-        // SVG image parse hits a fatal error and tries to call back into a
-        // structured error handler that has stale state. Stack Overflow load
-        // crashes WebContent in xmlFatalErr → xmlRaiseError. Install a no-op
-        // handler so xmlRaiseError just returns without dereferencing anything.
+        // SVG image parse hits a fatal error and reaches the default error output with
+        // stale state. Install a no-op GENERIC handler so the default-channel path never
+        // dereferences anything. Deliberately do NOT install a global STRUCTURED handler:
+        // 10.9 libxml2's __xmlRaiseError returns after calling a global structured handler,
+        // BEFORE the per-context sax->error channel — a global one (even a no-op) would
+        // swallow every parse error, so WebCore's XML parser would never see errors and
+        // never build the <parsererror> document. The sax->error channel itself is safe:
+        // it targets the live XMLDocumentParser through ctxt->_private, and the
+        // SIGSEGV/SIGBUS guard around xmlParseChunk above backstops libxml2-internal
+        // crashes either way.
         struct NoOpErrorFns {
             static void generic(void*, const char*, ...) {}
-            static void structured(void*, xmlErrorPtr) {}
         };
         xmlSetGenericErrorFunc(nullptr, NoOpErrorFns::generic);
-        xmlSetStructuredErrorFunc(nullptr, NoOpErrorFns::structured);
     });
 }
 
