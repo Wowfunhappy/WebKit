@@ -1144,10 +1144,16 @@ bool WebPageProxy::useGPUProcessForDOMRenderingEnabled() const
 
     HashSet<Ref<const WebPageProxy>> visitedPages;
     visitedPages.add(*this);
-    for (RefPtr page = configuration->relatedPage(); page && !visitedPages.contains(*page); page = page->configuration().relatedPage()) {
+    // MAVERICKS_BACKPORT: fetch the next related page before releaseNonNull() empties |page|. When
+    // useGPUProcessForDOMRenderingEnabled() is false for every page in the chain (the case on 10.9,
+    // which runs without a GPU process), a loop increment of page->configuration().relatedPage()
+    // dereferences the emptied RefPtr and crashes on any page opened with a relatedPage.
+    for (RefPtr page = configuration->relatedPage(); page && !visitedPages.contains(*page);) {
         if (protect(page->preferences())->useGPUProcessForDOMRenderingEnabled())
             return true;
+        RefPtr nextPage = page->configuration().relatedPage();
         visitedPages.add(page.releaseNonNull());
+        page = WTF::move(nextPage);
     }
 
     return false;
