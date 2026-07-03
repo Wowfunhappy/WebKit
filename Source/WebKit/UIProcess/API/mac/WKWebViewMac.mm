@@ -14,7 +14,9 @@
 #import "NativeWebWheelEvent.h"
 #import "NativeWebKeyboardEvent.h"
 #import "WebPageProxy.h"
+#import <WebCore/CGWindowUtilities.h>
 #import <WebCore/KeypressCommand.h>
+#import <pal/spi/cg/CoreGraphicsSPI.h>
 
 // MAVERICKS_BACKPORT: category adding the NSEvent forwarders/NSTextInputClient stubs absent from upstream WKWebView on Mac.
 @implementation WKWebView (Mac10_9EventForwarding)
@@ -225,6 +227,41 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
     return { };
 }
 
+@end
+
+// MAVERICKS_BACKPORT: upstream's mouse-simulation testing SPI, restored for WebKitTestRunner's
+// EventSenderProxy (upstream keeps these in its full WKWebViewMac.mm).
+@implementation WKWebView (WKMouseSimulation)
+- (void)_simulateMouseMove:(NSEvent *)event
+{
+    if (self._impl)
+        self._impl->mouseMoved(event);
+}
+
+- (void)_simulateMouseEnter:(NSEvent *)event
+{
+    if (self._impl)
+        self._impl->mouseEntered(event);
+}
+
+- (void)_simulateMouseExit:(NSEvent *)event
+{
+    if (self._impl)
+        self._impl->mouseExited(event);
+}
+@end
+
+// MAVERICKS_BACKPORT: upstream's WKWindowSnapshot category, restored for WebKitTestRunner's
+// windowSnapshotImage() pixel-dump path (upstream keeps it in its full WKWebViewMac.mm).
+@implementation WKWebView (WKWindowSnapshot)
+- (NSImage *)_windowSnapshotInRect:(CGRect)rect withOptions:(CGWindowImageOption)options
+{
+    RetainPtr snapshot = WebCore::cgWindowListCreateImage(rect, kCGWindowListOptionIncludingWindow, (CGSWindowID)[[self window] windowNumber], options);
+    if (!snapshot)
+        return nil;
+
+    SUPPRESS_RETAINPTR_CTOR_ADOPT return [[NSImage alloc] initWithCGImage:snapshot.get() size:NSZeroSize];
+}
 @end
 
 #endif // PLATFORM(MAC)
