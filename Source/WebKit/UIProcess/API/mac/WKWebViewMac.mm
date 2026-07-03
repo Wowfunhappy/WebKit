@@ -227,6 +227,82 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
     return { };
 }
 
+// MAVERICKS_BACKPORT: upstream's NSView geometry/window/responder plumbing (one-line WebViewImpl
+// forwards from the full WKWebViewMac.mm). Without setFrameSize:, programmatic view resizes never
+// reach the web process (window.open feature sizes, window-resize tests); without the
+// viewWillMoveToWindow:/viewDidMoveToWindow pair, WebViewImpl never observes its window, so
+// key-window / visibility / backing-scale state never updates (window focus events).
+- (BOOL)acceptsFirstResponder
+{
+    return self._impl && self._impl->acceptsFirstResponder();
+}
+
+- (BOOL)becomeFirstResponder
+{
+    return self._impl && self._impl->becomeFirstResponder();
+}
+
+- (BOOL)resignFirstResponder
+{
+    return self._impl ? self._impl->resignFirstResponder() : [super resignFirstResponder];
+}
+
+- (void)viewWillStartLiveResize
+{
+    if (self._impl)
+        self._impl->viewWillStartLiveResize();
+}
+
+- (void)viewDidEndLiveResize
+{
+    if (self._impl)
+        self._impl->viewDidEndLiveResize();
+}
+
+- (void)setFrameSize:(NSSize)size
+{
+    [super setFrameSize:size];
+    if (self._impl)
+        self._impl->setFrameSize(NSSizeToCGSize(size));
+}
+
+- (void)renewGState
+{
+    if (self._impl)
+        self._impl->renewGState();
+    [super renewGState];
+}
+
+- (void)viewWillMoveToWindow:(NSWindow *)window
+{
+    if (self._impl)
+        self._impl->viewWillMoveToWindow(window);
+}
+
+- (void)viewDidMoveToWindow
+{
+    if (self._impl)
+        self._impl->viewDidMoveToWindow();
+}
+
+- (void)viewDidHide
+{
+    if (self._impl)
+        self._impl->viewDidHide();
+}
+
+- (void)viewDidUnhide
+{
+    if (self._impl)
+        self._impl->viewDidUnhide();
+}
+
+- (void)viewDidChangeBackingProperties
+{
+    if (self._impl)
+        self._impl->viewDidChangeBackingProperties();
+}
+
 @end
 
 // MAVERICKS_BACKPORT: upstream's mouse-simulation testing SPI, restored for WebKitTestRunner's
