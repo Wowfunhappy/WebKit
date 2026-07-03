@@ -41,6 +41,14 @@ namespace WebCore {
 
 struct ResourceRequestPlatformData {
     RetainPtr<NSURLRequest> m_urlRequest;
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+    // MAVERICKS_BACKPORT: the legacy NSKeyedArchiver IPC path archives the request's NSURL via
+    // -relativeString, which on 10.9 Foundation returns a percent-escaped form rather than the
+    // original bytes (e.g. a data: URL's '<' becomes %3C). Carry the exact WTF URL alongside the
+    // archived request and re-apply it after decode, so URLs survive IPC byte-exactly (the UI
+    // process MESSAGE_CHECKs navigation URLs against what the web process reports).
+    URL m_exactURL;
+#endif
     std::optional<bool> m_isAppInitiated;
     std::optional<ResourceRequestRequester> m_requester;
     bool m_privacyProxyFailClosedForUnreachableNonMainHosts { false };
