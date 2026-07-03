@@ -4,12 +4,81 @@
 // that flag), so it won't link; gut it to an empty wrapper class. Feature-disable, not an SDK gap.
 #import "config.h"
 #import "SimpleRange.h"
+#import "WebAccessibilityObjectWrapperMac.h"
 #import <pal/spi/mac/HIServicesSPI.h>
 #import <Foundation/Foundation.h>
-// MAVERICKS_BACKPORT: empty wrapper class + trimmed imports replace the real 4478-line wrapper,
+// MAVERICKS_BACKPORT: bare wrapper subclass + trimmed imports replace the real 4478-line wrapper,
 // which is coupled to the isolated-tree AX classes compiled out on this port (see header above).
-@interface WebAccessibilityObjectWrapper : NSObject @end
-@implementation WebAccessibilityObjectWrapper @end
+// It inherits WebAccessibilityObjectWrapperBase (fully compiled), so AXObjectCache::attachWrapper's
+// -initWithAccessibilityObject: and the base attach/detach/axBackingObject plumbing work; only the
+// Mac NSAccessibility attribute layer is absent (AppKit's NSObject informal AX protocol answers
+// those with defaults).
+@implementation WebAccessibilityObjectWrapper
+
+// MAVERICKS_BACKPORT: 10.9 AppKit does not implement the informal NSAccessibility protocol on
+// NSObject, so without these a plain attribute query on the wrapper raises unrecognized-selector
+// and kills WebContent (e.g. WKAccessibilityWebPageObjectBase's accessibilityFocusedUIElement,
+// WebKitTestRunner's accessibilityController). Answer the legacy informal protocol with empty
+// values so assistive queries degrade gracefully while the attribute layer is feature-disabled.
+- (NSArray *)accessibilityAttributeNames
+{
+    return @[];
+}
+
+- (id)accessibilityAttributeValue:(NSString *)attribute
+{
+    return nil;
+}
+
+- (BOOL)accessibilityIsAttributeSettable:(NSString *)attribute
+{
+    return NO;
+}
+
+- (void)accessibilitySetValue:(id)value forAttribute:(NSString *)attribute
+{
+}
+
+- (NSArray *)accessibilityParameterizedAttributeNames
+{
+    return @[];
+}
+
+- (id)accessibilityAttributeValue:(NSString *)attribute forParameter:(id)parameter
+{
+    return nil;
+}
+
+- (NSArray *)accessibilityActionNames
+{
+    return @[];
+}
+
+- (NSString *)accessibilityActionDescription:(NSString *)action
+{
+    return nil;
+}
+
+- (void)accessibilityPerformAction:(NSString *)action
+{
+}
+
+- (BOOL)accessibilityIsIgnored
+{
+    return YES;
+}
+
+- (id)accessibilityHitTest:(NSPoint)point
+{
+    return self;
+}
+
+- (id)accessibilityFocusedUIElement
+{
+    return self;
+}
+
+@end
 
 // MAVERICKS_BACKPORT: minimal namespace + forward-decl for the graceful stub below; the real
 // wrapper's AXObjectCache uses (and #includes) are gone with the gutted implementation.

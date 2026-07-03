@@ -10,16 +10,25 @@
 // MAVERICKS_BACKPORT: minimal include set for the stub bodies (the full file's AX-thread/soft-link headers are unused with the feature off).
 #include "config.h"
 
-// MAVERICKS_BACKPORT: only the headers the no-op stub bodies reference (the AX-thread/soft-link imports are dropped with the feature off).
+// MAVERICKS_BACKPORT: only the headers the stub bodies reference (the AX-thread/soft-link imports are dropped with the feature off).
 #import "AXObjectCache.h"
 #import "AccessibilityObject.h"
 #import "AXTextStateChangeIntent.h"
+#import "WebAccessibilityObjectWrapperMac.h"
 
 namespace WebCore {
 
 // MAVERICKS_BACKPORT: no-op platform stubs replacing the isolated-tree/live-region implementations; must always compile on Mac (see header note).
 void AXObjectCache::initializeUserDefaultValues() { }
-void AXObjectCache::attachWrapper(AccessibilityObject&) { }
+
+// MAVERICKS_BACKPORT: upstream body — the ObjC accessibility wrapper works without the isolated
+// tree, and WebKitTestRunner's _WKAccessibilityRootObjectForTesting requires a non-null wrapper
+// (its AccessibilityUIElement::create RELEASE_ASSERTs the element).
+void AXObjectCache::attachWrapper(AccessibilityObject& object)
+{
+    RetainPtr<WebAccessibilityObjectWrapper> wrapper = adoptNS([[WebAccessibilityObjectWrapper alloc] initWithAccessibilityObject:object]);
+    object.setWrapper(wrapper.get());
+}
 void AXObjectCache::postPlatformNotification(AccessibilityObject&, AXNotification) { }
 void AXObjectCache::postPlatformAnnouncementNotification(const String&) { }
 void AXObjectCache::postPlatformARIANotifyNotification(AccessibilityObject&, const AriaNotifyData&) { }
