@@ -717,9 +717,22 @@ bool MinimalPageClient::isViewFocused()
 
 bool MinimalPageClient::isActiveViewVisible()
 {
-    if (!m_view || [m_view isHiddenOrHasHiddenAncestor])
+    // Window-level visibility, exactly like isVisuallyIdle() below (and for the same reason): the
+    // BrowserWKView's own isHidden flag toggles spuriously while content composites through its
+    // layer-hosting sublayer, so consulting the view's flag latches IsVisible=0 at whichever
+    // recompute happens to run while it flickers — Safari's typed-URL navigation then leaves the
+    // page in prerender mode forever (blank tab). A hidden ANCESTOR (an unselected tab's
+    // container) and window-level state are the reliable signals.
+    if (!m_view)
         return false;
-    return [m_view window] || m_forceVisibleWhenWindowless;
+    NSWindow *window = [m_view window];
+    if (!window)
+        return m_forceVisibleWhenWindowless;
+    if (![window isVisible])
+        return false;
+    if ([[m_view superview] isHiddenOrHasHiddenAncestor])
+        return false;
+    return true;
 }
 
 bool MinimalPageClient::isMainViewVisible()

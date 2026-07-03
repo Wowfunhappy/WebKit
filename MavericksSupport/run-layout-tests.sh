@@ -38,5 +38,5 @@ bash "$ROOT/MavericksSupport/make-build-frameworks-runnable.sh" >/dev/null 2>&1
 export DYLD_LIBRARY_PATH="$ROOT/MavericksSupport/polyfill/build${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 
 exec /usr/local/bin/python3 "$ROOT/Tools/Scripts/run-webkit-tests" \
-    -1 --no-build --release --root="$ROOT/WebKitBuild/Release/bin" \
+    -1 --no-build --no-new-test-results --release --root="$ROOT/WebKitBuild/Release/bin" \
     "$@"

@@ -541,6 +541,23 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     _wkState->page->activityStateDidChange(flags);
 }
 
+// MAVERICKS_BACKPORT: recompute visibility when this view (or an ancestor) hides/unhides, mirroring
+// upstream WebViewImpl's viewDidHide/viewDidUnhide forwarding. Without these, a recompute that runs
+// while the view is hidden latches IsVisible=0 and the unhide never triggers another recompute.
+- (void)viewDidHide
+{
+    [super viewDidHide];
+    if (_wkState && _wkState->page)
+        _wkState->page->activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsVisibleOrOccluded });
+}
+
+- (void)viewDidUnhide
+{
+    [super viewDidUnhide];
+    if (_wkState && _wkState->page)
+        _wkState->page->activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsVisibleOrOccluded });
+}
+
 // MAVERICKS_BACKPORT: read the current window's (or main screen's) backing scale and push it to the page.
 - (void)_wk_updateIntrinsicDeviceScaleFactor
 {

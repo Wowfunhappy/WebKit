@@ -303,6 +303,21 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
         self._impl->viewDidChangeBackingProperties();
 }
 
+// MAVERICKS_BACKPORT: upstream WKWebViewPrivate SPI (from the full WKWebViewMac.mm).
+// WebKitTestRunner turns occlusion detection off so its offscreen test windows count as
+// visible; 10.9 never reports offscreen windows as occlusion-visible, so without this the
+// page's activity state is pinned by the occlusion check.
+- (void)_setWindowOcclusionDetectionEnabled:(BOOL)enabled
+{
+    if (self._impl)
+        self._impl->setWindowOcclusionDetectionEnabled(enabled);
+}
+
+- (BOOL)_windowOcclusionDetectionEnabled
+{
+    return self._impl && self._impl->windowOcclusionDetectionEnabled();
+}
+
 @end
 
 // MAVERICKS_BACKPORT: upstream's mouse-simulation testing SPI, restored for WebKitTestRunner's

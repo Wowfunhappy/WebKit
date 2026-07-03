@@ -2208,7 +2208,11 @@ void WebViewImpl::windowDidBecomeKey(NSWindow *keyWindow)
         UIGamepadProvider::singleton().viewBecameActive(m_page.get());
 #endif
         updateSecureInputState();
-        m_page->activityStateDidChange(WebCore::ActivityState::WindowIsActive);
+        // MAVERICKS_BACKPORT: also recompute IsVisible — 10.9 AppKit does not post the private
+        // NSWindowDidOrderOnScreenNotification, so a window shown with makeKeyAndOrderFront:
+        // (e.g. WebKitTestRunner's un-hide) would otherwise keep the hidden state that the
+        // preceding orderOut:'s windowDidOrderOffScreen() recorded.
+        m_page->activityStateDidChange({ WebCore::ActivityState::WindowIsActive, WebCore::ActivityState::IsVisible });
 
         // MAVERICKS_BACKPORT: re-establish the hover state and cursor under the pointer when the window
         // regains key focus. The cursor shape and CSS :hover only update when WebContent receives a
