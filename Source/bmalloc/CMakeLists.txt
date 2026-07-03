@@ -703,6 +703,12 @@ if (DEVELOPER_MODE AND (APPLE OR HAVE_MALLOC_TRIM))
     add_library(mbmalloc SHARED bmalloc/mbmalloc.cpp)
     target_include_directories(mbmalloc PRIVATE ${bmalloc_PRIVATE_INCLUDE_DIRECTORIES})
     target_link_libraries(mbmalloc Threads::Threads bmalloc)
+    if (APPLE)
+        # MAVERICKS_BACKPORT: bmalloc is an OBJECT library, so mbmalloc absorbs ProcessCheck.mm
+        # (which uses Foundation), and the globally linked libpolyfill.a stubs forward to
+        # CoreGraphics/CoreText; link all three so this dylib resolves on the Mac CMake port.
+        target_link_libraries(mbmalloc "-framework Foundation" "-framework CoreGraphics" "-framework CoreText")
+    endif ()
     set_target_properties(mbmalloc PROPERTIES COMPILE_DEFINITIONS "BUILDING_mbmalloc")
     WEBKIT_ADD_TARGET_CXX_FLAGS(mbmalloc -Wno-missing-field-initializers)
 endif ()
