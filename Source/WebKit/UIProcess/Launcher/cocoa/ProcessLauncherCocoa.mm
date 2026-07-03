@@ -393,6 +393,18 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
     }
 #endif
 
+#if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: 10.9 launchd spawns XPC services with a clean environment, while modern
+    // macOS forwards the host app's; forward TZ over the ContainerEnvironmentVariables channel so
+    // the child processes render dates in the host's zone (the layout-test harness pins
+    // TZ=US/Pacific and the date-formatting expectations depend on the web process seeing it).
+    if (const char* environmentTZ = getenv("TZ")) {
+        auto containerEnvironmentVariables = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
+        xpc_dictionary_set_string(containerEnvironmentVariables.get(), "TZ", environmentTZ);
+        xpc_dictionary_set_value(bootstrapMessage.get(), "ContainerEnvironmentVariables", containerEnvironmentVariables.get());
+    }
+#endif
+
     CheckedPtr client = m_client;
     if (client) {
         if (client->shouldConfigureJSCForTesting())
