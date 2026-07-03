@@ -75,7 +75,14 @@ void DisplayLink::addObserver(Client& client, DisplayLinkObserverID observerID, 
     if (!platformIsRunning()) {
         LOG_WITH_STREAM(DisplayLink, stream << "[UI ] DisplayLink for display " << m_displayID << " starting DisplayLink with fps " << m_displayNominalFramesPerSecond);
 
-        m_currentUpdate = { 0, m_displayNominalFramesPerSecond };
+        {
+            // MAVERICKS_BACKPORT: notifyObserversDisplayDidRefresh() reads and advances
+            // m_currentUpdate on the timer thread under m_clientsLock; publish this reset under
+            // the same lock so the first tick cannot observe the pre-reset value (its default
+            // updatesPerSecond of 0 divides-by-zero in DisplayUpdate::nextUpdate()).
+            Locker locker { m_clientsLock };
+            m_currentUpdate = { 0, m_displayNominalFramesPerSecond };
+        }
 
         platformStart();
     }
