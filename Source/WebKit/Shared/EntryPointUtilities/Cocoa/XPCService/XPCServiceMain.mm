@@ -218,7 +218,9 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             register_for_dlsym_callbacks();
 #endif
 
-#if PLATFORM(IOS_FAMILY)
+// MAVERICKS_BACKPORT: also applied on Mac — the 10.9 launcher forwards TZ through this
+// channel because 10.9 launchd spawns the services with a clean environment.
+#if PLATFORM(IOS_FAMILY) || PLATFORM(MAC)
             if (RetainPtr containerEnvironmentVariables = xpc_dictionary_get_value(event, "ContainerEnvironmentVariables")) {
                 xpc_dictionary_apply(containerEnvironmentVariables.get(), ^(const char *key, xpc_object_t value) {
                     setenv(key, xpc_string_get_string_ptr(value), 1);  // NOLINT
