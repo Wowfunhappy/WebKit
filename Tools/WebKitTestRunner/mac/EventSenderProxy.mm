@@ -25,6 +25,8 @@
  */
 
 #import "config.h"
+// MAVERICKS_BACKPORT: dlfcn for the CGEventCreateScrollWheelEvent2 runtime resolution below.
+#import <dlfcn.h>
 #import "EventSenderProxy.h"
 
 #import "CoreGraphicsTestSPI.h"
@@ -802,9 +804,21 @@ void EventSenderProxy::rawKeyUp(WKStringRef key, WKEventModifiers modifiers, uns
     [NSApp _setCurrentEvent:nil];
 }
 
+// MAVERICKS_BACKPORT: CGEventCreateScrollWheelEvent2 is not exported by 10.9 CoreGraphics; resolve
+// it at runtime and fall back to the (varargs) CGEventCreateScrollWheelEvent, which takes the same
+// wheel counts/deltas on 10.9. A hard reference would dyld-halt WebKitTestRunner on first use.
+static CGEventRef mavericksCreateScrollWheelEvent(CGEventSourceRef source, CGScrollEventUnit units, uint32_t wheelCount, int32_t wheel1, int32_t wheel2, int32_t wheel3)
+{
+    using ScrollWheelEvent2Fn = CGEventRef (*)(CGEventSourceRef, CGScrollEventUnit, uint32_t, int32_t, int32_t, int32_t);
+    static auto scrollWheelEvent2 = reinterpret_cast<ScrollWheelEvent2Fn>(dlsym(RTLD_DEFAULT, "CGEventCreateScrollWheelEvent2"));
+    if (scrollWheelEvent2)
+        return scrollWheelEvent2(source, units, wheelCount, wheel1, wheel2, wheel3);
+    return CGEventCreateScrollWheelEvent(source, units, wheelCount, wheel1, wheel2, wheel3);
+}
+
 void EventSenderProxy::mouseScrollBy(int x, int y)
 {
-    auto cgScrollEvent = adoptCF(CGEventCreateScrollWheelEvent2(0, kCGScrollEventUnitLine, 2, y, x, 0));
+    auto cgScrollEvent = adoptCF(mavericksCreateScrollWheelEvent(0, kCGScrollEventUnitLine, 2, y, x, 0));
 
     // Set the CGEvent location in flipped coords relative to the first screen, which
     // compensates for the behavior of +[NSEvent eventWithCGEvent:] when the event has
@@ -831,7 +845,7 @@ void EventSenderProxy::continuousMouseScrollBy(int x, int y, bool paged)
 
 void EventSenderProxy::mouseScrollByWithWheelAndMomentumPhases(int x, int y, int phase, int momentum)
 {
-    auto cgScrollEvent = adoptCF(CGEventCreateScrollWheelEvent2(0, kCGScrollEventUnitLine, 2, y, x, 0));
+    auto cgScrollEvent = adoptCF(mavericksCreateScrollWheelEvent(0, kCGScrollEventUnitLine, 2, y, x, 0));
 
     // Set the CGEvent location in flipped coords relative to the first screen, which
     // compensates for the behavior of +[NSEvent eventWithCGEvent:] when the event has
@@ -901,7 +915,7 @@ static CGMomentumScrollPhase cgMomentumPhaseFromPhase(EventSenderProxy::WheelEve
 void EventSenderProxy::sendWheelEvent(EventTimestamp timestamp, double windowX, double windowY, double deltaX, double deltaY, WheelEventPhase phase, WheelEventPhase momentumPhase)
 {
     constexpr uint32_t wheelCount = 2;
-    auto cgScrollEvent = adoptCF(CGEventCreateScrollWheelEvent2(nullptr, kCGScrollEventUnitPixel, wheelCount, deltaY, deltaX, 0));
+    auto cgScrollEvent = adoptCF(mavericksCreateScrollWheelEvent(nullptr, kCGScrollEventUnitPixel, wheelCount, deltaY, deltaX, 0));
     CGEventSetTimestamp(cgScrollEvent.get(), timestamp);
 
     // Set the CGEvent location in flipped coords relative to the first screen, which
