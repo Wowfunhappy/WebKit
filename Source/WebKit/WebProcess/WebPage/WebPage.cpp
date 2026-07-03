@@ -4409,17 +4409,6 @@ void WebPage::setActivityState(OptionSet<ActivityState> activityState, ActivityS
 {
     LOG_WITH_STREAM(ActivityState, stream << "WebPage " << identifier().toUInt64() << " setActivityState to " << activityState);
 
-    // MAVERICKS_BACKPORT: Safari's URL-bar typed navigation incorrectly sends
-    // setActivityState with IsVisible=0/IsInWindow=0 forever, leaving the
-    // WebPage in prerender mode. The TileController never builds content
-    // layers and the page renders blank. Force visibility on so the
-    // compositor allocates content tiles. (osascript "set URL" path correctly
-    // sends IsVisible=1, so it's unaffected.)
-    if (!activityState.contains(WebCore::ActivityState::IsVisible))
-        activityState.add({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsVisibleOrOccluded });
-    if (!activityState.contains(WebCore::ActivityState::IsInWindow))
-        activityState.add(WebCore::ActivityState::IsInWindow);
-
     auto changed = m_activityState ^ activityState;
     m_activityState = activityState;
 
