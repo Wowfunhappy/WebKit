@@ -662,7 +662,10 @@ static void testObjectiveCAPIMain()
         JSValue *iteratorSymbol = context[@"Symbol"][@"iterator"];
         JSValue *array = [JSValue valueWithNewArrayInContext:context];
         checkResult(@"Looking up by subscript with symbol should work", [array[iteratorSymbol] isEqual:arrayIterator]);
-        checkResult(@"Looking up by method with symbol should work", [[array valueForProperty:iteratorSymbol] isEqual:arrayIterator]);
+        // MAVERICKS_BACKPORT: with a <10.15 deployment target JSValue.h types JSValueProperty as
+        // NSString*, so the JSValue* symbol keys here (and below) need an explicit cast; the
+        // runtime accepts symbol keys regardless of the declared type.
+        checkResult(@"Looking up by method with symbol should work", [[array valueForProperty:(JSValueProperty)iteratorSymbol] isEqual:arrayIterator]);
     }
 
     @autoreleasepool {
@@ -679,7 +682,7 @@ static void testObjectiveCAPIMain()
         JSValue *iteratorSymbol = context[@"Symbol"][@"iterator"];
         JSValue *object = [JSValue valueWithNewObjectInContext:context];
         JSValue *theAnswer = [JSValue valueWithUInt32:42 inContext:context];
-        [object setValue:theAnswer forProperty:iteratorSymbol];
+        [object setValue:theAnswer forProperty:(JSValueProperty)iteratorSymbol];
         checkResult(@"Setting by method with symbol should work", [object[iteratorSymbol] isEqual:theAnswer]);
     }
 
@@ -689,7 +692,7 @@ static void testObjectiveCAPIMain()
         JSValue *object = [JSValue valueWithNewObjectInContext:context];
         JSValue *theAnswer = [JSValue valueWithUInt32:42 inContext:context];
         object[iteratorSymbol] = theAnswer;
-        checkResult(@"has property with symbol should work", [object hasProperty:iteratorSymbol]);
+        checkResult(@"has property with symbol should work", [object hasProperty:(JSValueProperty)iteratorSymbol]);
     }
 
     @autoreleasepool {
@@ -697,9 +700,9 @@ static void testObjectiveCAPIMain()
         JSValue *iteratorSymbol = context[@"Symbol"][@"iterator"];
         JSValue *object = [JSValue valueWithNewObjectInContext:context];
         JSValue *theAnswer = [JSValue valueWithUInt32:42 inContext:context];
-        checkResult(@"delete property with symbol should work without property", [object deleteProperty:iteratorSymbol]);
+        checkResult(@"delete property with symbol should work without property", [object deleteProperty:(JSValueProperty)iteratorSymbol]);
         object[iteratorSymbol] = theAnswer;
-        checkResult(@"delete property with symbol should work with property", [object deleteProperty:iteratorSymbol]);
+        checkResult(@"delete property with symbol should work with property", [object deleteProperty:(JSValueProperty)iteratorSymbol]);
         checkResult(@"delete should be false with non-configurable property", ![context[@"Array"] deleteProperty:@"prototype"]);
     }
 
