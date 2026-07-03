@@ -1642,13 +1642,25 @@ void NetworkSessionCocoa::invalidateAndCancelSessionSet(SessionSet& sessionSet)
     for (auto& session : sessionSet.isolatedSessions.values()) {
         [session->sessionWithCredentialStorage->session invalidateAndCancel];
         [session->sessionWithCredentialStorage->delegate sessionInvalidated];
+        // MAVERICKS_BACKPORT: see below.
+        session->sessionWithCredentialStorage->session = nil;
     }
     sessionSet.isolatedSessions.clear();
 
     if (sessionSet.appBoundSession) {
         [sessionSet.appBoundSession->sessionWithCredentialStorage->session invalidateAndCancel];
         [sessionSet.appBoundSession->sessionWithCredentialStorage->delegate sessionInvalidated];
+        // MAVERICKS_BACKPORT: see below.
+        sessionSet.appBoundSession->sessionWithCredentialStorage->session = nil;
     }
+
+    // MAVERICKS_BACKPORT: clear the wrapper sessions so ~SessionWrapper does not invalidate them a
+    // second time. Modern CFNetwork treats re-invalidating an invalidated NSURLSession as a no-op;
+    // 10.9's __NSCFLocalSessionBridge re-runs _onqueue_completeInvalidation against a work queue the
+    // first invalidation already released, crashing the network process in dispatch_group_notify_f
+    // (intermittent, seen tearing down ephemeral (-private browsing) data stores between tests).
+    sessionSet.sessionWithCredentialStorage->session = nil;
+    sessionSet.ephemeralStatelessSession->session = nil;
 }
 
 void NetworkSessionCocoa::invalidateAndCancel()
