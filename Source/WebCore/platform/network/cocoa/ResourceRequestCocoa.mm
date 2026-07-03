@@ -68,6 +68,13 @@ ResourceRequest::ResourceRequest(ResourceRequestPlatformData&& platformData, con
         if (platformData.m_requester)
             setRequester(*platformData.m_requester);
         m_nsRequest = platformData.m_urlRequest;
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+        // MAVERICKS_BACKPORT: restore the byte-exact URL that the 10.9 NSKeyedArchiver escaped in
+        // transit (see ResourceRequest.h). setURL() marks the platform request dirty, so the
+        // NSURLRequest regenerates from the exact URL on next use, keeping its other fields.
+        if (!platformData.m_exactURL.isNull() && platformData.m_exactURL != URL { [m_nsRequest URL] })
+            setURL(URL { platformData.m_exactURL });
+#endif
         if (platformData.m_isAppInitiated)
             setIsAppInitiated(*platformData.m_isAppInitiated);
         setPrivacyProxyFailClosedForUnreachableNonMainHosts(platformData.m_privacyProxyFailClosedForUnreachableNonMainHosts);
@@ -114,8 +121,13 @@ ResourceRequestPlatformData ResourceRequest::getResourceRequestPlatformData() co
     }
     ASSERT([requestToSerialize class] == [NSURLRequest class] || [requestToSerialize class] == [NSMutableURLRequest class]);
 
-    if (!requestToSerialize)
+    if (!requestToSerialize) {
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+        return ResourceRequestPlatformData { NULL, { }, std::nullopt, std::nullopt };
+#else
         return ResourceRequestPlatformData { NULL, std::nullopt, std::nullopt };
+#endif
+    }
 
     // We don't send HTTP body over IPC for better performance.
     // Also, it's not always possible to do, as streams can only be created in process that does networking.
@@ -127,6 +139,10 @@ ResourceRequestPlatformData ResourceRequest::getResourceRequestPlatformData() co
     }
     return {
         WTF::move(requestToSerialize),
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+        // MAVERICKS_BACKPORT: byte-exact URL rider for the escaping 10.9 archiver (see ResourceRequest.h).
+        url(),
+#endif
         isAppInitiated(),
         requester(),
         privacyProxyFailClosedForUnreachableNonMainHosts(),
