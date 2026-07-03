@@ -1,0 +1,18 @@
+# MAVERICKS_BACKPORT: WebKit2 (WebKitTestRunner) expectations for the macOS 10.9 backport.
+# Failures under re-enabled suites are REAL backport issues to triage and fix — not reasons to skip.
+
+# --- Feature gaps on 10.9 ---------------------------------------------------------------------
+# Display-P3 canvas color space needs kCGColorSpaceDisplayP3 (macOS 10.11+); getImageData with
+# { colorSpace: "display-p3" } throws TypeError here.
+storage/indexeddb/structured-clone-image-data-display-p3.html [ Failure ]
+
+# --- Known open issues (tracked, under investigation — see webkit-mavericks-wk2-test-crashes) --
+# location.reload(true) from the load event never fires its scheduled navigation: all three
+# processes go idle and notifyDone never arrives. Skipped to avoid the 30s timeout per run.
+fast/frames/layout-after-destruction.html [ Skip ]
+# IDB abort-while-committing: the abort during commit never resolves; same idle-timeout shape.
+storage/indexeddb/abort-while-committing-crash.html [ Skip ]
+
+# HiDPI iframe pixel tests are flaky at 2x on the VM (no real Retina hardware).
+fast/frames/hidpi-position-iframe-on-device-pixel.html [ Pass ImageOnlyFailure ]
+fast/frames/iframe-translucent-background.html [ Pass ImageOnlyFailure ]
