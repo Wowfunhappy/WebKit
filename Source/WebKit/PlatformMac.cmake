@@ -122,6 +122,10 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/UIProcess/API/Cocoa"
     "${WEBKIT_DIR}/UIProcess/API/mac"
     "${WEBKIT_DIR}/UIProcess/Authentication/cocoa"
+    # MAVERICKS_BACKPORT: WKWebViewTesting.mm imports WKContentViewInteraction.h unconditionally
+    # (its content is entirely PLATFORM(IOS_FAMILY)-guarded); the Xcode build resolves project
+    # headers by name, so the CMake port needs the ios dir on the include path for parity.
+    "${WEBKIT_DIR}/UIProcess/ios"
     "${WEBKIT_DIR}/UIProcess/Cocoa"
     "${WEBKIT_DIR}/UIProcess/Cocoa/SOAuthorization"
     "${WEBKIT_DIR}/UIProcess/Inspector/Cocoa"
