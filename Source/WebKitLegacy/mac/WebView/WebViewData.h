@@ -124,6 +124,12 @@ class WebSelectionServiceController;
     RefPtr<WebCore::Page> page;
     RefPtr<WebViewGroup> group;
 
+    // MAVERICKS_BACKPORT: backing store for WebView's -observationInfo/-setObservationInfo:
+    // (NSKeyValueObservingCustomization). The legacy Safari-7-era WebView provided these; Xcode
+    // 6.2's DVTFoundation KVO-dealloc setup asserts the WebView class overrides observationInfo
+    // and aborts at launch when it doesn't (Xcode links WebKit for its documentation web views).
+    void* observationInfo;
+
     id UIDelegate;
     RetainPtr<id> UIDelegateForwarder;
     id resourceProgressDelegate;
