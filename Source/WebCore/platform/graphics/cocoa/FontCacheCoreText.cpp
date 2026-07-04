@@ -405,42 +405,55 @@ FontSelectionCapabilities capabilitiesForFontDescriptor(CTFontDescriptorRef font
     if (!fontDescriptor)
         return { };
 
-    // MAVERICKS_BACKPORT: CTFontDescriptorCopyAttribute on matched descriptors keeps
-    // crashing inside CFDictionary forwarding (some internal attribute key in
-    // the descriptor dict is a stubbed-as-function CT constant). Skip the
-    // capability lookup entirely and use defaults.
-    FontSelectionCapabilities defaults;
-    defaults.weight = FontSelectionRange(FontSelectionValue(normalWeightValue()), FontSelectionValue(normalWeightValue()));
-    defaults.width = FontSelectionRange(FontSelectionValue(normalWidthValue()), FontSelectionValue(normalWidthValue()));
-    defaults.slope = FontSelectionRange(FontSelectionValue(normalItalicValue()), FontSelectionValue(normalItalicValue()));
-    return defaults;
-
     VariationCapabilities variationCapabilities = variationCapabilitiesForFontDescriptor(fontDescriptor);
 
+    // MAVERICKS_BACKPORT: source weight/width/slope from the kCTFontTraitsAttribute dictionary
+    // (kCTFontWeightTrait / kCTFontWidthTrait / kCTFontSymbolicTrait — all present and correct on
+    // 10.9) rather than the kCTFontCSSWeightAttribute / kCTFontCSSWidthAttribute descriptor
+    // attributes the upstream code uses: those keys are 10.15+ CoreText and simply do not exist in
+    // 10.9's CoreText, so CTFontDescriptorCopyAttribute returns NULL for them and getCSSAttribute()
+    // hands back its normal-weight fallback for every face. This is the same trait-dictionary path
+    // cssWeightOfSystemFontDescriptor() falls back to. Without real per-face capabilities,
+    // findClosestFont() cannot tell Helvetica-Bold from Helvetica for a bold request, so it
+    // selects the regular face and the engine synthesizes bold — which also hides the real
+    // bold/italic trait from NSFontManager (Mail's formatting toolbar/state bug).
+    RetainPtr traits = adoptCF(static_cast<CFDictionaryRef>(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontTraitsAttribute)));
+    int32_t symbolicTraits = 0;
+    if (traits) {
+        if (RetainPtr symbolicTraitsNumber = static_cast<CFNumberRef>(CFDictionaryGetValue(traits.get(), kCTFontSymbolicTrait)))
+            CFNumberGetValue(symbolicTraitsNumber.get(), kCFNumberSInt32Type, &symbolicTraits);
+    }
+
     if (!variationCapabilities.slope) {
-        auto traits = adoptCF(static_cast<CFDictionaryRef>(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontTraitsAttribute)));
-        if (traits) {
-            if (!variationCapabilities.slope) {
-                RetainPtr symbolicTraitsNumber = static_cast<CFNumberRef>(CFDictionaryGetValue(traits.get(), kCTFontSymbolicTrait));
-                if (symbolicTraitsNumber) {
-                    int32_t symbolicTraits;
-                    auto success = CFNumberGetValue(symbolicTraitsNumber.get(), kCFNumberSInt32Type, &symbolicTraits);
-                    ASSERT_UNUSED(success, success);
-                    auto slopeValue = static_cast<float>(symbolicTraits & kCTFontTraitItalic ? italicValue() : normalItalicValue());
-                    variationCapabilities.slope = {{ slopeValue, slopeValue }};
-                } else
-                    variationCapabilities.slope = {{ static_cast<float>(normalItalicValue()), static_cast<float>(normalItalicValue()) }};
-            }
-        }
+        auto slopeValue = static_cast<float>(symbolicTraits & kCTFontTraitItalic ? italicValue() : normalItalicValue());
+        variationCapabilities.slope = {{ slopeValue, slopeValue }};
     }
 
     if (!variationCapabilities.weight) {
-        auto value = getCSSAttribute(fontDescriptor, kCTFontCSSWeightAttribute, static_cast<float>(normalWeightValue()));
+        float value = static_cast<float>(normalWeightValue());
+        float ctWeight = 0;
+        if (traits) {
+            if (RetainPtr weightNumber = static_cast<CFNumberRef>(CFDictionaryGetValue(traits.get(), kCTFontWeightTrait)); weightNumber && CFNumberGetValue(weightNumber.get(), kCFNumberFloatType, &ctWeight))
+                value = normalizeCTWeight(ctWeight);
+            else if (symbolicTraits & kCTFontTraitBold)
+                value = static_cast<float>(boldWeightValue());
+        }
         variationCapabilities.weight = {{ value, value }};
     }
 
     if (!variationCapabilities.width) {
-        auto value = getCSSAttribute(fontDescriptor, kCTFontCSSWidthAttribute, static_cast<float>(normalWidthValue()));
+        float value = static_cast<float>(normalWidthValue());
+        float ctWidth = 0;
+        if (traits) {
+            if (RetainPtr widthNumber = static_cast<CFNumberRef>(CFDictionaryGetValue(traits.get(), kCTFontWidthTrait)); widthNumber && CFNumberGetValue(widthNumber.get(), kCFNumberFloatType, &ctWidth)) {
+                // kCTFontWidthTrait is normalized [-1, 1] (condensed..expanded); map to a CSS
+                // percentage where 0 -> 100%. This mirrors the CoreText width-percentage scale.
+                value = ctWidth < 0 ? (100.0f + ctWidth * 50.0f) : (100.0f + ctWidth * 100.0f);
+            } else if (symbolicTraits & kCTFontTraitExpanded)
+                value = 125.0f;
+            else if (symbolicTraits & kCTFontTraitCondensed)
+                value = 75.0f;
+        }
         variationCapabilities.width = {{ value, value }};
     }
 
