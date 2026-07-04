@@ -145,3 +145,4 @@ Source/WebCore/PAL/pal/PALSwift-Generated.h
 *.10_9_stub
 *.minimal
 
+MavericksSupport/deps/.tarball-cache/
