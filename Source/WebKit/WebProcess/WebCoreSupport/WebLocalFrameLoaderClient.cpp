@@ -975,21 +975,17 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
     // Safari's V0 callback at WKPage.cpp and returns PolicyAction::Download even though
     // canShowMIMEType==true, so the page renders blank). This is the same Safari-V0-policy-delegate
     // mis-decision family as the response-download (#108) and nav-action-userData (#60) fixes — NOT
-    // an IPC dispatch issue; the async reply returns fine. Short-circuit the FIRST main-frame
-    // html/xhtml response to Use in the WebProcess so the load commits. The MIME allow-list is
+    // an IPC dispatch issue; the async reply returns fine. Short-circuit every main-frame
+    // html/xhtml response to Use in the WebProcess so the load commits — including repeat
+    // responses for the same URL: a reload (location.reload(), Cmd+R) or renavigation to the
+    // current URL is a second response with the same URL, and answering anything but Use kills
+    // the provisional load, leaving the stale old document on screen. The MIME allow-list is
     // deliberately html/xhtml ONLY (not text/xml): the App Store's main-frame text/xml MZStore plist
     // must still reach Safari's V0 callback (WKPage.cpp main-frame note), so it is not short-circuited.
-    // Ignore subsequent duplicate responses for the same URL (defensive) to avoid stacking a document.
     if (m_frame->isMainFrame() && downloadAttribute.isEmpty()) {
         auto& mimeType = response.mimeType();
         if (mimeType.startsWithIgnoringASCIICase("text/html"_s) || mimeType.startsWithIgnoringASCIICase("application/xhtml"_s)) {
-            String urlKey = response.url().string();
-            if (m_shortCircuitedResponseURL != urlKey) {
-                m_shortCircuitedResponseURL = urlKey;
-                function(PolicyAction::Use);
-                return;
-            }
-            function(PolicyAction::Ignore);
+            function(PolicyAction::Use);
             return;
         }
     }
