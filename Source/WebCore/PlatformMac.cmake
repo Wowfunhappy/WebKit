@@ -24,7 +24,14 @@ find_library(IOSURFACE_LIBRARY IOSurface)
 find_library(OPENGL_LIBRARY OpenGL)
 find_library(QUARTZ_LIBRARY Quartz)
 find_library(QUARTZCORE_LIBRARY QuartzCore)
-find_library(SCENEKIT_LIBRARY SceneKit)
+# MAVERICKS_BACKPORT: no SceneKit.framework link. WebCore binds no SceneKit symbols on this
+# port (the <model> element's SceneKit backing TUs are stubbed and its runtime pref defaults
+# off on Mac), but a hard link records an LC_LOAD_DYLIB that loads the 10.9 system SceneKit
+# into every WebKit client at launch. Apps that bundle a newer SceneKit — Xcode 6's editor
+# plug-ins reference @rpath/SceneKit and ship v186 in Contents/SharedFrameworks — then get
+# the already-loaded 10.9 image (dyld matches the framework's partial path
+# SceneKit.framework/Versions/A/SceneKit to the loaded /System copy) instead of their bundled
+# one, which lacks 10.10+ classes such as SCNParticlePropertyController, and abort at launch.
 find_library(SECURITY_LIBRARY Security)
 find_library(SYSTEMCONFIGURATION_LIBRARY SystemConfiguration)
 find_library(VIDEOTOOLBOX_LIBRARY VideoToolbox)
@@ -54,7 +61,6 @@ list(APPEND WebCore_LIBRARIES
     ${OPENGL_LIBRARY}
     ${QUARTZ_LIBRARY}
     ${QUARTZCORE_LIBRARY}
-    ${SCENEKIT_LIBRARY}
     ${SECURITY_LIBRARY}
     ${SQLITE3_LIBRARIES}
     ${SYSTEMCONFIGURATION_LIBRARY}
