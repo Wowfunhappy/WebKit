@@ -849,7 +849,21 @@ static id wsWebSocketTaskWithRequest(NSURLSession *session, SEL, NSURLRequest *r
     NSMutableURLRequest *mutableRequest = [request mutableCopy];
     if (![mutableRequest valueForHTTPHeaderField:@"Cookie"]) {
         NSHTTPCookieStorage *storage = session.configuration.HTTPCookieStorage ?: [NSHTTPCookieStorage sharedHTTPCookieStorage];
-        NSArray<NSHTTPCookie *> *cookies = [storage cookiesForURL:request.URL];
+        // MAVERICKS_BACKPORT: -[NSHTTPCookieStorage cookiesForURL:] only treats http/https as a
+        // secure scheme, so looking cookies up under a ws://wss:// URL silently drops every Secure
+        // cookie (e.g. figma's __Host-figma.authn / figma.session), leaving the WebSocket handshake
+        // unauthenticated. WebKit always looks WebSocket cookies up under the http(s) equivalent URL
+        // (WebSocketHandshake::httpURLForAuthenticationAndCookies); mirror that here so a wss:// URL
+        // gets exactly the cookies https:// would.
+        NSURL *cookieURL = request.URL;
+        NSString *scheme = cookieURL.scheme.lowercaseString;
+        if ([scheme isEqualToString:@"wss"] || [scheme isEqualToString:@"ws"]) {
+            NSURLComponents *components = [NSURLComponents componentsWithURL:cookieURL resolvingAgainstBaseURL:NO];
+            components.scheme = [scheme isEqualToString:@"wss"] ? @"https" : @"http";
+            if (components.URL)
+                cookieURL = components.URL;
+        }
+        NSArray<NSHTTPCookie *> *cookies = [storage cookiesForURL:cookieURL];
         if (cookies.count) {
             NSString *cookieHeader = [NSHTTPCookie requestHeaderFieldsWithCookies:cookies][@"Cookie"];
             if (cookieHeader.length)
