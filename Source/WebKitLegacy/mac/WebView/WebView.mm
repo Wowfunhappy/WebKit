@@ -8281,6 +8281,21 @@ static NSAppleEventDescriptor* aeDescFromJSValue(JSC::JSGlobalObject* lexicalGlo
     [super removeObserver:anObserver forKeyPath:keyPath];
 }
 
+// MAVERICKS_BACKPORT: NSKeyValueObservingCustomization — store the KVO observation info in an ivar
+// rather than the global KVO side table. The legacy Safari-7-era WebView provided this override;
+// Xcode 6.2's DVTFoundation KVO-dealloc-assertion setup requires the WebView class to override
+// observationInfo and aborts at launch when it does not (Xcode links WebKit for its help/doc web
+// views, so this runs during every Xcode startup). Restoring the override lets Xcode launch.
+- (void *)observationInfo
+{
+    return _private->observationInfo;
+}
+
+- (void)setObservationInfo:(void *)info
+{
+    _private->observationInfo = info;
+}
+
 @end
 
 #endif // !PLATFORM(IOS_FAMILY)
