@@ -13,11 +13,15 @@
 #      for anything longer — so upstream merges see the original text in place.
 #      A pure-deletion hunk is therefore always a violation, marker or not.
 #   3. A file added by the backport carries at least one marker.
+#   4. Whitespace-only differences are divergence too: restore upstream's exact
+#      bytes. (In whitespace-semantic files — Python, Makefiles — they are also
+#      real behavioral changes, which is why they are never silently skipped.)
 #
 # Report sections:
-#   (a) UNMARKED   - modified hunk with no marker in it or just above it
-#   (b) DELETED    - pure-deletion hunk (restore the lines, commented out)
-#   (c) NEW FILE   - backport-added file without a marker
+#   (a) UNMARKED    - modified hunk with no marker in it or just above it
+#   (b) DELETED     - pure-deletion hunk (restore the lines, commented out)
+#   (c) NEW FILE    - backport-added file without a marker
+#   (d) WHITESPACE  - hunk identical to upstream except whitespace (revert it)
 # Marked, rule-conforming hunks are silent.
 #
 # Exit status:
@@ -109,7 +113,8 @@ TMPDIR_RUN="$(mktemp -d "${TMPDIR:-/tmp}/backport-markers.XXXXXX")" || exit 2
 OUT_UNMARKED="$TMPDIR_RUN/unmarked"
 OUT_DELETED="$TMPDIR_RUN/deleted"
 OUT_NEWFILE="$TMPDIR_RUN/newfile"
-: > "$OUT_UNMARKED"; : > "$OUT_DELETED"; : > "$OUT_NEWFILE"
+OUT_WS="$TMPDIR_RUN/whitespace"
+: > "$OUT_UNMARKED"; : > "$OUT_DELETED"; : > "$OUT_NEWFILE"; : > "$OUT_WS"
 trap 'rm -rf "$TMPDIR_RUN"' EXIT
 
 n_unmarked=0; n_deleted=0; n_marked=0; n_newfile_bad=0; n_ws=0
@@ -196,9 +201,13 @@ function flush(   added_strip, removed_strip, ctx, snip) {
     added_strip = strip_ws(added)
     removed_strip = strip_ws(removed)
 
-    # whitespace-only churn is ignored
+    # identical to upstream except whitespace: divergence with a trivial fix
     if ((added_strip != "" || removed_strip != "") && added_strip == removed_strip) {
-        ws++; return
+        ws++
+        snip = trim(first_nonblank(added))
+        if (length(snip) > 120) snip = substr(snip, 1, 120)
+        printf "WHITESPACE\t%s\t%s\t%s\n", curfile, newstart, snip
+        return
     }
 
     # Pure deletion: always a violation — the divergence rules keep upstream
@@ -299,6 +308,9 @@ while IFS= read -r row; do
                 DELETED)
                     printf '%s:%s: DELETED hunk (restore the lines commented out — /* */ for blocks — with a %s marker)\n    %s\n' \
                         "$file" "$line" "$MARKER" "$snip" >> "$OUT_DELETED" ;;
+                WHITESPACE)
+                    printf '%s:%s: WHITESPACE-only divergence (restore upstream bytes)\n    %s\n' \
+                        "$file" "$line" "$snip" >> "$OUT_WS" ;;
             esac
             ;;
     esac
@@ -321,6 +333,7 @@ print_section() {
 print_section "(a) UNMARKED hunks" "$OUT_UNMARKED"
 print_section "(b) DELETED hunks (comment out instead of deleting)" "$OUT_DELETED"
 print_section "(c) NEW files lacking a $MARKER marker" "$OUT_NEWFILE"
+print_section "(d) WHITESPACE-only divergences (restore upstream bytes)" "$OUT_WS"
 
 echo "==================================================================="
 echo "TOTALS"
@@ -329,13 +342,13 @@ echo "  conforming MARKED hunks (pass)  : $n_marked"
 echo "  UNMARKED hunks                  : $n_unmarked"
 echo "  DELETED hunks                   : $n_deleted"
 echo "  NEW files missing marker        : $n_newfile_bad"
-echo "  whitespace-only hunks (ignored) : $n_ws"
+echo "  WHITESPACE-only hunks           : $n_ws"
 echo
 
-violations=$((n_unmarked + n_deleted + n_newfile_bad))
+violations=$((n_unmarked + n_deleted + n_newfile_bad + n_ws))
 if [ "$violations" -gt 0 ]; then
     echo "RESULT: FAIL - $violations violation(s) of the divergence rules."
     exit 1
 fi
-echo "RESULT: PASS - every divergence is marked and no upstream code is deleted."
+echo "RESULT: PASS - every divergence is marked, none deleted, none whitespace-only."
 exit 0
