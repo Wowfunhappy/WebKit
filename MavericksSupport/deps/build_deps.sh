@@ -7,6 +7,9 @@
 #   libgpg-error, libgcrypt, libtasn1   -> WebCore USE(GCRYPT) WebCrypto
 #   brotli (common/dec/enc)             -> WOFF2 + Brotli Content-Encoding
 #   woff2 (decoder)                     -> WOFF2 web font decompression
+#   FFmpeg 5.1.6 (shared, @rpath)       -> codec backend for the gst-libav plugin
+#   gst-libav 1.20.7                    -> GStreamer's libav codec plugin (video/audio
+#                                          decode for MediaPlayerPrivateGStreamer)
 #
 # Built with the in-tree clang-22 / 10.9 toolchain. Output (headers + static libs)
 # lands in MavericksSupport/deps/build/{include,lib} -- a gitignored artifact this
@@ -26,6 +29,12 @@ SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
 # clang on Darwin reads SDKROOT as the default -isysroot, so this puts <memory>/<string>
 # (and the system frameworks/headers) on the search path for every sub-build below.
 export SDKROOT="$SDK"
+
+# /usr/bin/make, gnumake, ar, etc. are xcode-select shims; when xcode-select points at
+# an Xcode.app whose Developer dir lacks the CLI tools (Xcode 6.2), every shim errors
+# with "unable to find utility". Prefer the CommandLineTools binaries directly so this
+# script is independent of the machine's current xcode-select state.
+export PATH="/Library/Developer/CommandLineTools/usr/bin:$PATH"
 
 DEST="$HERE/build"                                 # gitignored artifact: include/ + lib/
 SCRATCH="$(mktemp -d -t depbuild)"
@@ -130,6 +139,53 @@ d=$(get https://github.com/google/woff2/archive/refs/tags/v1.0.2.tar.gz woff2)
   && cp include/woff2/*.h "$STAGE/include/woff2/" \
   && cp libwoff2dec.a "$STAGE/lib/" )
 
+echo "==== FFmpeg 5.1.6 ===="
+# Shared dylibs with @rpath install names; the GStreamer runtime's rpath covers them
+# at load time. Apple-framework codepaths (audiotoolbox/videotoolbox/securetransport)
+# stay off: decoding runs through FFmpeg's own codecs so behavior is identical on
+# every 10.9 install.
+FFSTAGE="$SCRATCH/ffstage"
+d=$(get https://ffmpeg.org/releases/ffmpeg-5.1.6.tar.gz ffmpeg)
+( cd "$d" && ./configure --cc="$CC_VANILLA" --prefix="$FFSTAGE" \
+    --install-name-dir='@rpath' \
+    --enable-shared --disable-static --disable-programs --disable-doc \
+    --disable-debug --disable-audiotoolbox --disable-videotoolbox \
+    --disable-securetransport --disable-iconv --disable-lzma \
+    --disable-sdl2 --disable-xlib --disable-coreimage \
+    --x86asmexe="$REPO/MavericksSupport/toolchain/build/nasm/bin/nasm" \
+    --extra-cflags="-mmacosx-version-min=10.9" \
+    --extra-ldflags="-mmacosx-version-min=10.9" \
+  && make -j4 && make install )
+
+echo "==== gst-libav 1.20.7 ===="
+# The plugin's sources build directly with clang against the GStreamer headers in
+# gstreamer/ and the FFmpeg stage above (its meson build adds nothing we need).
+# config.h carries the handful of defines the sources read.
+GSTLIB="$HERE/gstreamer/lib"
+GSTINC="$HERE/gstreamer/include"
+d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-1.20.7.tar.xz gstlibav)
+( cd "$d/ext/libav" && \
+  printf '%s\n' \
+    '#define PACKAGE "gst-libav"' \
+    '#define PACKAGE_VERSION "1.20.7"' \
+    '#define VERSION "1.20.7"' \
+    '#define GST_API_VERSION "1.0"' \
+    '#define GST_LICENSE "LGPL"' \
+    '#define GST_PACKAGE_NAME "GStreamer FFMPEG Plug-ins source release"' \
+    '#define GST_PACKAGE_ORIGIN "Unknown package origin"' \
+    '#define LIBAV_SOURCE "system install"' \
+    > config.h && \
+  "$CC" -O2 -mmacosx-version-min=10.9 -DHAVE_CONFIG_H -I. \
+    -I"$GSTINC/gstreamer-1.0" -I"$GSTINC/glib-2.0" \
+    -I"$GSTLIB/glib-2.0/include" -I"$FFSTAGE/include" \
+    -c ./*.c && \
+  "$CC" -dynamiclib -mmacosx-version-min=10.9 -o libgstlibav.dylib ./*.o \
+    -install_name @rpath/libgstlibav.dylib \
+    -L"$FFSTAGE/lib" -lavcodec -lavformat -lavutil -lavfilter -lswscale -lswresample \
+    -L"$GSTLIB" -lgstreamer-1.0 -lgstbase-1.0 -lgstvideo-1.0 -lgstaudio-1.0 \
+    -lgstpbutils-1.0 -lgsttag-1.0 -lglib-2.0 -lgobject-2.0 )
+GSTLIBAV_BUILD="$d/ext/libav"
+
 echo "==== collect into deps/build ===="
 rm -rf "$DEST/include" "$DEST/lib"; mkdir -p "$DEST/include" "$DEST/lib"
 # headers
@@ -145,6 +201,16 @@ for l in libicuuc.a libicui18n.a libicudata.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a; do
   cp "$STAGE/lib/$l" "$DEST/lib/"
 done
+# shared dylibs: FFmpeg (real files only, stored under their @rpath majored install
+# names) and the gst-libav plugin; the install scripts stage these next to the
+# GStreamer runtime libraries.
+mkdir -p "$DEST/lib/gstreamer-1.0"
+for f in "$FFSTAGE"/lib/*.dylib; do
+  [ -L "$f" ] && continue
+  cp "$f" "$DEST/lib/$(basename "$(otool -D "$f" | tail -1)")"
+done
+cp "$GSTLIBAV_BUILD/libgstlibav.dylib" "$DEST/lib/gstreamer-1.0/"
 
 echo "==== done. deps/build: ===="
 ls -la "$DEST/lib" "$DEST/include"
+

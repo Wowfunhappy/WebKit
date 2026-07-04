@@ -2,12 +2,15 @@
 
 Libraries WebKit links that the 10.9 system doesn't provide. Two kinds live here:
 
-- **`build_deps.sh`** builds ICU, libgcrypt/libgpg-error/libtasn1, brotli, and woff2
-  from source with the in-tree toolchain into **`build/`** (`build/lib` + `build/include`).
-  `build/` is a gitignored artifact — `MavericksSupport/bootstrap.sh` runs the script.
+- **`build_deps.sh`** builds ICU, libgcrypt/libgpg-error/libtasn1, brotli, woff2,
+  FFmpeg, and the gst-libav plugin from source with the in-tree toolchain into
+  **`build/`** (`build/lib` + `build/include`). `build/` is a gitignored artifact —
+  `MavericksSupport/bootstrap.sh` runs the script.
 - **`gstreamer/`** is the vendored GStreamer runtime: a **committed** prebuilt x86_64
-  binary, thinned from the official GStreamer macOS runtime (which would be annoying to
-  rebuild from source on 10.9).
+  binary, thinned from the official GStreamer macOS runtime. The deployed runtime is
+  assembled from this tree plus the codec dylibs `build_deps.sh` builds (FFmpeg and
+  `gstreamer-1.0/libgstlibav.dylib`) — `install-safari7.sh` overlays `build/lib` over
+  the staged copy.
 
 `Source/cmake/OptionsMac.cmake` points `MAVERICKS_DEPS` at `build/`; `WebKitFindPackage.cmake`
 finds ICU there; `OptionsMacGStreamer.cmake` points `GST_ROOT` at `gstreamer/`.
@@ -38,3 +41,4 @@ step. To move to a new GStreamer release:
 4. Update the version in the `GStreamer is vendored at ...` comment in `OptionsMac.cmake`
    and `GSTREAMER_VERSION` in `OptionsMacGStreamer.cmake`.
 5. `git add gstreamer` to commit the new binary.
+

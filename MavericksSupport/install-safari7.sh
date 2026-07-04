@@ -59,6 +59,7 @@ OLD_PRIVRT=/System/Library/WebKitPrivateRuntime   # pre-#68 standalone location;
 # libcg_polyfill). The libs are self-contained via their own LC_RPATH @loader_path/../lib, so they ship
 # as-is; only the WebKit frameworks' @rpath/libg*/libgst*/etc. deps are rewritten to these absolute paths.
 GST_SRC="$REPO/MavericksSupport/deps/gstreamer/lib"
+GST_BUILT="$REPO/MavericksSupport/deps/build/lib"   # dylibs build_deps.sh produces (FFmpeg, libgstlibav)
 GST_DEPLOY="$PRIVLIB/gstreamer/lib"
 
 # Absolute install_name each framework binary must advertise (matches Safari's
@@ -109,7 +110,7 @@ absolute_for_rpath_dep() {
         # to its deployed copy inside WebCore.framework. The -e guard avoids mis-mapping a stray dep.
         @rpath/*.dylib)
             local base="${dep#@rpath/}"
-            if [ -e "$GST_SRC/$base" ]; then echo "$GST_DEPLOY/$base"; else echo ""; fi
+            if [ -e "$GST_SRC/$base" ] || [ -e "$GST_BUILT/$base" ]; then echo "$GST_DEPLOY/$base"; else echo ""; fi
             ;;
         *) echo "";;
     esac
@@ -533,6 +534,14 @@ if [ -d "$GST_SRC" ]; then
         || echo "  warning: libaudiotoolbox_compat.dylib rebuild failed — deploying the checked-in copy"
     mkdir -p "$GST_DEPLOY"
     cp -Rp "$GST_SRC/." "$GST_DEPLOY/"
+    # The runtime is assembled from the vendored tree plus the dylibs build_deps.sh
+    # builds from source (FFmpeg + the gst-libav plugin).
+    if [ -d "$GST_BUILT" ]; then
+        for _b in "$GST_BUILT"/lib*.dylib; do
+            [ -e "$_b" ] && cp -p "$_b" "$GST_DEPLOY/"
+        done
+        [ -e "$GST_BUILT/gstreamer-1.0/libgstlibav.dylib" ]             && cp -p "$GST_BUILT/gstreamer-1.0/libgstlibav.dylib" "$GST_DEPLOY/gstreamer-1.0/"
+    fi
     # Drop the Python3-dependent plugins from the deployed set: libgstpython (Python element bindings) links
     # @rpath/Python3.framework/Versions/3.9/Python3 directly, and libgstges (GStreamer Editing Services)
     # links it indirectly via @rpath/libges-1.0.dylib. Python3.framework does not exist on 10.9 (no system
