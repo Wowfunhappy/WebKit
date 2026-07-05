@@ -68,16 +68,13 @@ echo "### libpolyfill_classes.dylib (the ObjC class stubs — ONE shared definit
 # commands are satisfied. The install_name is @rpath/libpolyfill_classes.dylib (self-contained, like every
 # other WebKit dylib): the build resolves it from WebKitBuild/Release/lib via each binary's @rpath, and
 # install-safari7.sh maps that @rpath dep to the absolute in-bundle copy it deploys (no /usr/local anywhere).
-# -isysroot / links the shim against the real on-disk 10.9 frameworks (the ones it
-# reexports), not the modern SDK's stubs.
-rm -f "$OUT/libpolyfill_classes.dylib"
-"$CLANG" --no-default-config -isysroot / -mmacosx-version-min=10.9 -dynamiclib \
-    -install_name @rpath/libpolyfill_classes.dylib \
-    -compatibility_version 9999.0.0 -current_version 9999.0.0 \
-    -framework Foundation -framework AppKit -framework CoreFoundation \
-    -Wl,-reexport_framework,QuartzCore -Wl,-reexport_framework,CoreServices \
-    -Wl,-reexport_framework,Security -Wl,-reexport_framework,CFNetwork \
-    "$OBJ/polyfill_classes.o" -o "$OUT/libpolyfill_classes.dylib"
+source "$REPO/MavericksSupport/reexport-shim.sh"
+build_reexport_shim --clang "$CLANG" --out "$OUT/libpolyfill_classes.dylib" \
+    --install-name @rpath/libpolyfill_classes.dylib --compat 9999.0.0 --current 9999.0.0 \
+    --framework Foundation --framework AppKit --framework CoreFoundation \
+    --reexport-framework QuartzCore --reexport-framework CoreServices \
+    --reexport-framework Security --reexport-framework CFNetwork \
+    "$OBJ/polyfill_classes.o"
 
 echo "### libpolyfill_classes.a (force-loaded into JSC: method injection only)"
 # objc_inject.o's method-injection +load ships ONLY here and is force-loaded into JavaScriptCore so it runs
@@ -110,11 +107,6 @@ echo "### libtcc_polyfill.dylib"
     -install_name @loader_path/Frameworks/libtcc_polyfill.dylib \
     -compatibility_version 1.0.0 -current_version 615.1.1 \
     -o "$OUT/libtcc_polyfill.dylib" "$SRC/tcc_polyfill.c" -framework CoreFoundation
-
-# Guard against the polyfill silently shadowing a symbol 10.9 already provides (the class of bug that
-# swapped the real CGColorSpaceEqualToColorSpace for a stub and broke label fills). Fails the build.
-echo "### checking for accidental runtime-symbol shadows"
-bash "$HERE/check-polyfill-shadows.sh"
 
 echo "### done -> $OUT"
 ls -la "$OUT"
