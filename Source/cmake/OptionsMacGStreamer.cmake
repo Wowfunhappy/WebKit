@@ -1,7 +1,7 @@
-# MAVERICKS_BACKPORT: wire the GStreamer runtime that MavericksSupport/deps/build_deps.sh
-# builds from source (GLib 2.80 + GStreamer 1.26 + codecs, 10.9-targeted shared dylibs in
-# MavericksSupport/deps/build) into the build, replacing the pkg-config-based
-# FindGStreamer/FindGLIB that the GTK/WPE ports use (no pkg-config on this toolchain). Defines the GLib::* imported targets and all GSTREAMER_*_{INCLUDE_DIRS,
+# MAVERICKS_BACKPORT: wire the VENDORED GStreamer (MavericksSupport/deps/gstreamer, a prebuilt
+# x86_64 macOS GStreamer 1.20.7 / glib 2.72 that runs on 10.9 with a small symbol polyfill) into the build,
+# replacing the pkg-config-based FindGStreamer/FindGLIB that the GTK/WPE ports use (no pkg-config
+# on this toolchain). Defines the GLib::* imported targets and all GSTREAMER_*_{INCLUDE_DIRS,
 # LIBRARIES} variables that Source/WebCore/platform/GStreamer.cmake consumes, so the upstream
 # MediaPlayerPrivateGStreamer compiles unchanged. Software/appsink path only (GL + TextureMapper
 # + CoordinatedGraphics OFF); decoded frames reach CG via ImageGStreamerCG.cpp.
@@ -9,11 +9,11 @@
 # Full GStreamer media stack (like the GTK/WPE ports): the GStreamer player handles <video>/<audio>,
 # GStreamer mediastream handles getUserMedia capture, and GStreamer webrtcbin handles WebRTC, so
 # libwebrtc and the AVFoundation media engines are not used for playback/capture/WebRTC. The WebRTC
-# plugins (libgstwebrtc/nice/srtp/sctp/dtls + OpenSSL) all come from the same deps build.
+# plugins (libgstwebrtc/nice/srtp/sctp/dtls + OpenSSL) are all in the vendored GStreamer package.
 SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_MEDIA_STREAM TRUE)
 SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER_WEBRTC TRUE)
 
-set(GST_ROOT "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/build")
+set(GST_ROOT "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/gstreamer")
 set(GST_LIB "${GST_ROOT}/lib")
 
 set(_GST_INCLUDE_DIRS
@@ -79,7 +79,7 @@ _GST_DEFINE_COMPONENT(GSTREAMER_ALLOCATORS libgstallocators-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_RTP    libgstrtp-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_SDP    libgstsdp-1.0.dylib)
 _GST_DEFINE_COMPONENT(GSTREAMER_WEBRTC libgstwebrtc-1.0.dylib)
-# OpenSSL (from the deps build) — WebCore GStreamer WebRTC links OpenSSL::Crypto.
+# OpenSSL (vendored in the GStreamer package) — WebCore GStreamer WebRTC links OpenSSL::Crypto.
 if (NOT TARGET OpenSSL::Crypto)
     add_library(OpenSSL::Crypto UNKNOWN IMPORTED GLOBAL)
     set_target_properties(OpenSSL::Crypto PROPERTIES IMPORTED_LOCATION "${GST_LIB}/libcrypto.3.dylib" INTERFACE_INCLUDE_DIRECTORIES "${GST_ROOT}/include")

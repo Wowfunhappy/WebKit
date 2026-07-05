@@ -104,7 +104,7 @@ SET_AND_EXPOSE_TO_BUILD(USE_GCRYPT TRUE)
 
 # MAVERICKS_BACKPORT: HTML5 <video>/<audio> via the upstream GStreamer media player instead of the
 # custom AVAssetReader pump (AVPlayer is dead on 10.9). GStreamer is vendored at
-# MavericksSupport/deps/build (GStreamer 1.26 built from source for 10.9 by build_deps.sh). Use the
+# MavericksSupport/deps/gstreamer (prebuilt 1.20.7, runs on 10.9 with a small symbol polyfill). Use the
 # software/appsink path: GL + TextureMapper + CoordinatedGraphics OFF; decoded frames reach CG via
 # ImageGStreamerCG.cpp. OptionsMacGStreamer.cmake defines the GLib::* targets + GSTREAMER_* vars from
 # the vendored tree (no pkg-config on this toolchain).
