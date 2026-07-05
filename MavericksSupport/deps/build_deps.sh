@@ -80,7 +80,11 @@ get() {
   local url="$1" label="$2" f; f="$SRC/$(basename "$url")"
   # NB: this function's stdout is captured by the caller ($(get ...)) as the build dir,
   # so the progress line must go to stderr or it corrupts the returned path.
-  [ -f "$f" ] || ( cd "$SRC" && echo "download $(basename "$url")" >&2 && curl -fsSL -m 300 -O "$url" )
+  # 10.9's Secure Transport cannot complete a TLS handshake with some CDNs (freedesktop.org
+  # among them); those go through the local AquaProxy endpoint, which terminates TLS itself.
+  [ -f "$f" ] || ( echo "download $(basename "$url")" >&2 \
+    && ( curl -fsSL -m 600 -o "$f" "$url" 2>/dev/null \
+         || https_proxy=http://localhost:6531 curl -fsSL -m 600 -o "$f" "$url" ) )
   rm -rf "${SCRATCH:?}/build-$label"; mkdir -p "$SCRATCH/build-$label"
   tar xf "$f" -C "$SCRATCH/build-$label" --strip-components=1
   echo "$SCRATCH/build-$label"
