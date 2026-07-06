@@ -23,6 +23,32 @@ if [ ! -x "$ROOT/WebKitBuild/Release/bin/WebKitTestRunner" ]; then
     exit 1
 fi
 
+# MAVERICKS_BACKPORT: orphan hygiene + worker cap (2026-07-06 WindowServer crash).
+# An aborted run orphans build-tree WebContent processes (kill of the python runner
+# does not reach grandchildren); an orphan parked on a GL-retrying test page spams
+# "CoreAnimation: failed to create OpenGL context" at frame cadence until 10.9's
+# WindowServer hits its null-texture compositor race and takes the whole login
+# session down (see DiagnosticReports/WindowServer_2026-07-06-140140). So: reap any
+# stale build-tree test processes before starting AND on every exit, and refuse
+# more than 2 parallel workers on this VM.
+reap_test_orphans() {
+    pkill -9 -f "WebKitBuild/Release/bin/WebKitTestRunner" 2>/dev/null
+    pkill -9 -f "WebKitBuild/Release/.*com\.apple\.WebKit\.(WebContent|Networking)" 2>/dev/null
+    return 0
+}
+reap_test_orphans
+trap reap_test_orphans EXIT INT TERM
+for arg in "$@"; do
+    case "$arg" in
+        --child-processes=*)
+            n="${arg#*=}"
+            if [ "$n" -gt 2 ] 2>/dev/null; then
+                echo "ERROR: --child-processes=$n refused — >2 parallel WKTR workers can crash 10.9's WindowServer (grey screen, session logout). Use --child-processes=2." >&2
+                exit 1
+            fi;;
+    esac
+done
+
 # Re-apply the in-place framework surgery (idempotent; must run after any relink). Stages the polyfills into the
 # build @rpath dir, repoints all deps to @rpath, patches the XPC services, and assembles the injected bundle.
 bash "$ROOT/MavericksSupport/make-build-frameworks-runnable.sh" >/dev/null 2>&1
@@ -32,6 +58,9 @@ bash "$ROOT/MavericksSupport/make-build-frameworks-runnable.sh" >/dev/null 2>&1
 # that Quartz/QuickLookUI may drag in. Self-contained to the repo; never written to /usr. See run-layout-tests.sh.
 export DYLD_LIBRARY_PATH="$ROOT/MavericksSupport/polyfill/build${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 
-exec /usr/local/bin/python3 "$ROOT/Tools/Scripts/run-webkit-tests" \
+# No exec: the runner must stay our child so the EXIT trap can reap orphans even
+# when this wrapper is interrupted.
+/usr/local/bin/python3 "$ROOT/Tools/Scripts/run-webkit-tests" \
     -2 --no-build --no-new-test-results --release --root="$ROOT/WebKitBuild/Release/bin" \
     "$@"
+exit $?

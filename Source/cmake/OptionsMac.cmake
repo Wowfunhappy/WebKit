@@ -29,8 +29,7 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_CONTENT_EXTENSIONS PRIVATE ON)
 # MAVERICKS_BACKPORT: OFF — parental-controls content filtering uses the 10.9-absent WebFilterEvaluator/NEFilter SPI.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_CONTENT_FILTERING PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_CURSOR_VISIBILITY PRIVATE ON)
-# MAVERICKS_BACKPORT: OFF — dark-mode CSS keys off NSAppearance dark variants that don't exist before 10.14.
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DARK_MODE_CSS PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DARK_MODE_CSS PRIVATE ON)
 # MAVERICKS_BACKPORT: ON — 10.9 Dashboard widgets need -apple-dashboard-region control regions
 # (subsystem removed upstream in 2d364c6; restored for the backport).
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DASHBOARD_SUPPORT PRIVATE ON)
@@ -136,6 +135,19 @@ set(WebCore_LIBRARY_TYPE SHARED)
 set(USE_ANGLE_EGL ON)
 
 find_package(ICU 70.1 REQUIRED COMPONENTS data i18n uc)
+# MAVERICKS_BACKPORT: link the vendored libxml2 2.13 (already shipped for GStreamer,
+# @rpath install name, 10.9-massaged via libsystem_compat) instead of the SDK tbd.
+# The SDK tbd binds /usr/lib/libxml2.2.dylib, which on 10.9 is libxml2 2.9.0 — its
+# __xmlRaiseError crashes on fatal parse errors from SVG/XML payloads (the bug the
+# retired safeXmlParseChunk SIGSEGV guard papered over), and its runtime behavior
+# diverges from the 2.9.13 SDK headers WebCore compiles against. Headers and dylib
+# now match. libxslt stays on the system copy (no vendored build): it keeps using the
+# system libxml 2.9.0 internally, which is safe across the boundary — libxml2 keeps
+# xmlDoc/xmlNode struct ABI stable across 2.x, and WebCore intercepts libxslt's
+# document loading at the libxslt layer (xsltSetLoaderFunc), so no uncontrolled 2.9
+# parsing happens. Align libxslt if/when the deps move to a from-source build.
+set(LIBXML2_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/gstreamer/include/libxml2" CACHE PATH "" FORCE)
+set(LIBXML2_LIBRARY "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/gstreamer/lib/libxml2.2.dylib" CACHE FILEPATH "" FORCE)
 find_package(LibXml2 2.8.0 REQUIRED)
 find_package(LibXslt 1.1.13 REQUIRED)
 

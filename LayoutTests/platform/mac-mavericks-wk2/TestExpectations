@@ -6,8 +6,12 @@
 # { colorSpace: "display-p3" } throws TypeError here.
 storage/indexeddb/structured-clone-image-data-display-p3.html [ Failure ]
 
-# --- Known open issues (tracked, under investigation — see webkit-mavericks-wk2-test-crashes) --
-# IDB abort-while-committing: the abort during commit never resolves.
+# NOT an IDB hang: this fuzzer-derived test touches navigator.mediaSession mid-script, and
+# ENABLE_MEDIA_SESSION is OFF in the upstream CMake Mac port config (WebKitFeatures.cmake
+# default, no OptionsMac override — matches upstream). The TypeError rejects the async test
+# body before notifyDone, so it times out by construction. The IDB abort-while-committing
+# path itself is fine (its sibling ThreadTimers-family bug, fast/frames/layout-after-
+# destruction.html, passes since the shared-heap timer fix).
 storage/indexeddb/abort-while-committing-crash.html [ Skip ]
 
 # HiDPI iframe pixel tests are flaky at 2x on the VM (no real Retina hardware).

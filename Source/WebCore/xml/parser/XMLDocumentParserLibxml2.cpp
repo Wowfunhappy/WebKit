@@ -88,57 +88,7 @@
 #include <libxslt/xslt.h>
 #endif
 
-// MAVERICKS_BACKPORT: csetjmp/signal.h for the SIGSEGV/SIGBUS-guarded safeXmlParseChunk wrapper (10.9 libxml2 crashes in xmlParseChunk).
-#include <csetjmp>
-#include <signal.h>
-
 namespace WebCore {
-
-// MAVERICKS_BACKPORT: 10.9 libxml2 (`__xmlRaiseError + 1294`) crashes inside xmlParseChunk
-// when parsing certain SVG/XML payloads (e.g. WhatsApp Web). The crash is in libxml2
-// itself, beyond our process-wide xmlSetGenericErrorFunc/xmlSetStructuredErrorFunc
-// no-ops. Wrap each xmlParseChunk call with a SIGSEGV handler that longjmps out so
-// the parser bails on the corrupted document instead of taking down WebContent.
-
-static thread_local sigjmp_buf s_xmlParseJmp;
-static thread_local bool s_xmlParseJmpActive = false;
-static struct sigaction s_xmlOldSegvAction;
-
-static void xmlParseSegvHandler(int sig)
-{
-    if (s_xmlParseJmpActive) {
-        s_xmlParseJmpActive = false;
-        siglongjmp(s_xmlParseJmp, 1);
-    }
-    // Not in our parser — restore old handler and re-raise so other crash reporting fires.
-    sigaction(sig, &s_xmlOldSegvAction, nullptr);
-    raise(sig);
-}
-
-static int safeXmlParseChunk(xmlParserCtxtPtr ctxt, const char* chunk, int size, int terminate)
-{
-    struct sigaction sa;
-    sa.sa_handler = xmlParseSegvHandler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_NODEFER;
-    sigaction(SIGSEGV, &sa, &s_xmlOldSegvAction);
-    sigaction(SIGBUS, &sa, nullptr);
-
-    int result = -1;
-    if (sigsetjmp(s_xmlParseJmp, 1) == 0) {
-        s_xmlParseJmpActive = true;
-        result = xmlParseChunk(ctxt, chunk, size, terminate);
-        s_xmlParseJmpActive = false;
-    } else {
-        // Crashed inside xmlParseChunk; mark context as stopped so callers bail cleanly.
-        if (ctxt)
-            xmlStopParser(ctxt);
-    }
-
-    sigaction(SIGSEGV, &s_xmlOldSegvAction, nullptr);
-    sigaction(SIGBUS, &s_xmlOldSegvAction, nullptr);
-    return result;
-}
 
 #if ENABLE(XSLT)
 
@@ -648,21 +598,6 @@ void initializeXMLParser()
         defaultEntityLoader = xmlGetExternalEntityLoader();
         RELEASE_ASSERT_WITH_MESSAGE(defaultEntityLoader != WebCore::externalEntityLoader, "XMLDocumentParserScope was created too early");
         libxmlLoaderThread = &Thread::currentSingleton();
-        // MAVERICKS_BACKPORT: 10.9 libxml2 (__xmlRaiseError + 1294) crashes when
-        // SVG image parse hits a fatal error and reaches the default error output with
-        // stale state. Install a no-op GENERIC handler so the default-channel path never
-        // dereferences anything. Deliberately do NOT install a global STRUCTURED handler:
-        // 10.9 libxml2's __xmlRaiseError returns after calling a global structured handler,
-        // BEFORE the per-context sax->error channel — a global one (even a no-op) would
-        // swallow every parse error, so WebCore's XML parser would never see errors and
-        // never build the <parsererror> document. The sax->error channel itself is safe:
-        // it targets the live XMLDocumentParser through ctxt->_private, and the
-        // SIGSEGV/SIGBUS guard around xmlParseChunk above backstops libxml2-internal
-        // crashes either way.
-        struct NoOpErrorFns {
-            static void generic(void*, const char*, ...) {}
-        };
-        xmlSetGenericErrorFunc(nullptr, NoOpErrorFns::generic);
     });
 }
 
@@ -781,8 +716,7 @@ void XMLDocumentParser::doWrite(const String& parseString)
 
         // FIXME: Can we parse 8-bit strings directly as Latin-1 instead of upconverting to UTF-16?
         switchToUTF16(context->context());
-        // MAVERICKS_BACKPORT: route through safeXmlParseChunk (SIGSEGV/SIGBUS-guarded) — 10.9 libxml2 crashes in xmlParseChunk on some payloads.
-        safeXmlParseChunk(context->context(), reinterpret_cast<const char*>(StringView(parseString).upconvertedCharacters().get()), sizeof(char16_t) * parseString.length(), 0);
+        xmlParseChunk(context->context(), reinterpret_cast<const char*>(StringView(parseString).upconvertedCharacters().get()), sizeof(char16_t) * parseString.length(), 0);
 
         // JavaScript (which may be run under the xmlParseChunk callstack) may
         // cause the parser to be stopped or detached.
@@ -1453,8 +1387,7 @@ void XMLDocumentParser::doEnd()
             // Tell libxml we're done.
             {
                 XMLDocumentParserScope scope(&protect(document())->cachedResourceLoader());
-                // MAVERICKS_BACKPORT: route through safeXmlParseChunk (SIGSEGV/SIGBUS-guarded) — 10.9 libxml2 crashes in xmlParseChunk on some payloads.
-                safeXmlParseChunk(context(), nullptr, 0, 1);
+                xmlParseChunk(context(), nullptr, 0, 1);
             }
 
             m_context = nullptr;
@@ -1643,8 +1576,7 @@ std::optional<HashMap<String, String>> parseAttributes(CachedResourceLoader& cac
 
     XMLDocumentParserScope scope(&cachedResourceLoader);
     // FIXME: Can we parse 8-bit strings directly as Latin-1 instead of upconverting to UTF-16?
-    // MAVERICKS_BACKPORT: route through safeXmlParseChunk (SIGSEGV/SIGBUS-guarded) — 10.9 libxml2 crashes in xmlParseChunk on some payloads.
-    safeXmlParseChunk(parser->context(), reinterpret_cast<const char*>(StringView(parseString).upconvertedCharacters().get()), parseString.length() * sizeof(char16_t), 1);
+    xmlParseChunk(parser->context(), reinterpret_cast<const char*>(StringView(parseString).upconvertedCharacters().get()), parseString.length() * sizeof(char16_t), 1);
 
     return attributes;
 }
