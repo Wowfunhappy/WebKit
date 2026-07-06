@@ -65,6 +65,11 @@ Lock& sharedTimerHeapLock()
     static NeverDestroyed<Lock> lock;
     return lock.get();
 }
+
+// MAVERICKS_BACKPORT: defined in ThreadGlobalData.cpp (declared here rather than in a
+// widely-included header). True on every thread that shares the process-wide main
+// ThreadTimers; false only on worker/worklet threads with a dedicated instance.
+bool currentThreadUsesSharedThreadTimers();
 #endif
 
 class TimerHeapReference;
@@ -563,13 +568,26 @@ void TimerBase::setNextFireTime(MonotonicTime newTime)
     RELEASE_ASSERT(WebThreadIsLockedOrDisabledInMainOrWebThread());
 #endif
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: serialize heap mutations across threads. Released
-    // before updateSharedTimer to avoid recursive lock attempt.
+    // MAVERICKS_BACKPORT: serialize heap mutations across threads. Held across
+    // updateSharedTimer below, which expects its caller to hold this lock.
     std::optional<Locker<Lock>> timerHeapLocker;
     timerHeapLocker.emplace(sharedTimerHeapLock());
 #endif
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
+#if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: timers bound to the process-shared main ThreadTimers heap are
+    // legitimately armed/stopped/fired across threads (mutations serialized by
+    // sharedTimerHeapLock, firing on the main run loop). The strict thread-identity check
+    // still applies to worker-owned timers (dedicated per-thread heaps).
+    bool boundToSharedHeap = currentThreadUsesSharedThreadTimers();
+    if (boundToSharedHeap) {
+        if (RefPtr existingItem = m_heapItemWithBitfields.pointer())
+            boundToSharedHeap = &existingItem->timerHeap() == &threadGlobalDataSingleton().threadTimers().timerHeap();
+    }
+    RELEASE_ASSERT(canCurrentThreadAccessThreadLocalData(m_thread) || shouldSuppressThreadSafetyCheck() || boundToSharedHeap);
+#else
     RELEASE_ASSERT(canCurrentThreadAccessThreadLocalData(m_thread) || shouldSuppressThreadSafetyCheck());
+#endif
     bool timerHasBeenDeleted = m_unalignedNextFireTime.isNaN();
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!timerHasBeenDeleted);
 

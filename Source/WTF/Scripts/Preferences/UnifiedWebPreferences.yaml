@@ -6809,7 +6809,19 @@ ResourceLoadSchedulingEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      default: true
+      # MAVERICKS_BACKPORT: off by default (task #6). NetworkLoadScheduler's Prioritized
+      # mode holds low-priority loads while >=2 loads are active per host, and frees a
+      # slot only when an active load completes. 10.9 CFNetwork never surfaces server
+      # half-closes on pooled connections (CLOSE_WAIT sockets observed), so an active
+      # load riding a dead connection hangs for the full 60s request timeout AND blocks
+      # every queued load for that host behind it — head-of-line amplification of a
+      # platform defect (probe-observed on nytimes: per-host queues starved, 15+ stuck
+      # resources, ~70s loads). In probe-free A/B runs the amplified failure shows up in
+      # the worst rounds: scheduler ON produced a >120s never-firing load event where
+      # scheduler OFF fired load in <=9s in equivalent rounds. Stock Safari 7 predates
+      # this scheduler entirely; CFNetwork's own per-host connection limit still
+      # serializes, so only the prioritization optimization is lost.
+      default: false
     WebCore:
       default: true
 

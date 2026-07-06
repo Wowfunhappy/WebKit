@@ -49,8 +49,16 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(ThreadTimers);
 
 ThreadTimers::ThreadTimers()
 {
+    // MAVERICKS_BACKPORT: on Mac the process-shared main instance gets its SharedTimer
+    // attached by ThreadGlobalData::sharedMainThreadTimers(), and worker threads attach
+    // theirs via setSharedTimer(). Per-thread private instances must NOT grab the main CF
+    // timer here: no run loop ever fires a private instance, and attaching the CF timer
+    // made such dead heaps look serviceable (task #6 root cause — frozen armed-forever
+    // timers when code ran on a transiently main-classified thread).
+#if !PLATFORM(MAC)
     if (isUIThread())
         setSharedTimer(&MainThreadSharedTimer::singleton());
+#endif
 }
 
 // A worker thread may initialize SharedTimer after some timers are created.
