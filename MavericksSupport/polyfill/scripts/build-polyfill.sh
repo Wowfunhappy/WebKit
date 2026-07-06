@@ -21,14 +21,13 @@ SRC="$POLY/src"; LEGACY="$POLY/legacy-support"; OUT="$POLY/build"
 OBJ="$(mktemp -d -t polybuild)"; trap 'rm -rf "$OBJ"' EXIT
 mkdir -p "$OUT"
 
-# polyfill_stubs.m / vector_stubs.c etc. are compiled with --no-default-config so the
+# polyfill_stubs.m etc. are compiled with --no-default-config so the
 # clang wrapper does NOT force its default link set; they are pure object code.
 CF='--no-default-config -mmacosx-version-min=10.9 -Wno-unused-command-line-argument'
 
 echo "### compiling polyfill/src"
 "$CLANG" -c $CF -o "$OBJ/polyfill_stubs.o"   "$SRC/polyfill_stubs.m"
 "$CLANG" -c $CF -o "$OBJ/polyfill_classes.o" "$SRC/polyfill_classes.m"
-"$CLANG" -c $CF -o "$OBJ/vector_stubs.o"    "$SRC/vector_stubs.c"
 "$CLANG" -c $CF -o "$OBJ/const_polyfill.o"  "$SRC/const_polyfill.c"
 "$CLANG" -c $CF -o "$OBJ/graphics_shims.o"  "$SRC/graphics_shims.c"
 # system_spi_polyfill.c needs the SDK's CoreText/Security/ImageIO headers (it calls 10.9-present APIs
@@ -47,7 +46,7 @@ bash "$HERE/build-legacy-polyfills.sh" "$CLANG" "$OBJ/legacy.a" "$OBJ/legacy-obj
 
 echo "### libpolyfill.a (C function/constant stubs only — NO ObjC classes)"
 rm -f "$OUT/libpolyfill.a"
-"$AR" rcs "$OUT/libpolyfill.a" "$OBJ/polyfill_stubs.o" "$OBJ/vector_stubs.o" \
+"$AR" rcs "$OUT/libpolyfill.a" "$OBJ/polyfill_stubs.o" \
     "$OBJ/const_polyfill.o" "$OBJ/graphics_shims.o" "$OBJ/system_spi_polyfill.o" "$OBJ/legacy-obj"/*.o
 
 echo "### libpolyfill_classes.dylib (the ObjC class stubs — ONE shared definition)"
@@ -107,6 +106,9 @@ echo "### libtcc_polyfill.dylib"
     -install_name @loader_path/Frameworks/libtcc_polyfill.dylib \
     -compatibility_version 1.0.0 -current_version 615.1.1 \
     -o "$OUT/libtcc_polyfill.dylib" "$SRC/tcc_polyfill.c" -framework CoreFoundation
+
+echo "### shadow check (fail if the polyfill defines a symbol the 10.9 runtime already provides)"
+bash "$HERE/check-polyfill-shadows.sh"
 
 echo "### done -> $OUT"
 ls -la "$OUT"

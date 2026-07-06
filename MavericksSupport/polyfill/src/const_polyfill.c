@@ -14,21 +14,17 @@ const CFStringRef kAXInterfaceIncreaseContrastKey = CFSTR("kAXInterfaceIncreaseC
 const CFStringRef kAXInterfaceReduceMotionKey = CFSTR("kAXInterfaceReduceMotionKey");
 const CFStringRef kAXSAccessibilityPreferenceDomain = CFSTR("kAXSAccessibilityPreferenceDomain");
 const CFStringRef kAXSEnhanceTextLegibilityChangedNotification = CFSTR("kAXSEnhanceTextLegibilityChangedNotification");
-const CFStringRef kCFHTTPCookieLocalFileDomain = CFSTR("kCFHTTPCookieLocalFileDomain");
-const CFStringRef kCFStreamPropertyHTTPProxyHost = CFSTR("kCFStreamPropertyHTTPProxyHost");
-const CFStringRef kCFStreamPropertyHTTPProxyPort = CFSTR("kCFStreamPropertyHTTPProxyPort");
-const CFStringRef kCFStreamPropertyHTTPSProxyHost = CFSTR("kCFStreamPropertyHTTPSProxyHost");
-const CFStringRef kCFStreamPropertyHTTPSProxyPort = CFSTR("kCFStreamPropertyHTTPSProxyPort");
+// kCFHTTPCookieLocalFileDomain / kCFStreamPropertyHTTP(S)Proxy* are NOT defined here:
+// the 10.9 runtime exports them (real values ".^filecookies^", "HTTPProxy", ...) and the
+// modern SDK still links them — a name-string copy here silently shadowed the real values
+// (local-file cookie domain and proxy stream keys never matched CFNetwork's).
 const CFStringRef kCFURLRequestContentDecoderSkipURLCheck = CFSTR("kCFURLRequestContentDecoderSkipURLCheck");
 const CFStringRef kCGColorSpaceGenericXYZ = CFSTR("kCGColorSpaceGenericXYZ");
 const CFStringRef kCGGradientInterpolatesPremultiplied = CFSTR("kCGGradientInterpolatesPremultiplied");
-const CFStringRef kCGImagePropertyExifPixelXDimension = CFSTR("kCGImagePropertyExifPixelXDimension");
-const CFStringRef kCGImagePropertyExifPixelYDimension = CFSTR("kCGImagePropertyExifPixelYDimension");
-const CFStringRef kCGImagePropertyTIFFResolutionUnit = CFSTR("kCGImagePropertyTIFFResolutionUnit");
-const CFStringRef kCGImageSourceCreateThumbnailFromImageAlways = CFSTR("kCGImageSourceCreateThumbnailFromImageAlways");
-const CFStringRef kCGImageSourceShouldCacheImmediately = CFSTR("kCGImageSourceShouldCacheImmediately");
-const CFStringRef kCGImageSourceSkipMetadata = CFSTR("kCGImageSourceSkipMetadata");
-const CFStringRef kCGImageSourceSubsampleFactor = CFSTR("kCGImageSourceSubsampleFactor");
+// The ImageIO kCGImageProperty*/kCGImageSource* keys 10.9 already exports (Exif pixel
+// dimensions, TIFF resolution unit, thumbnail/cache/skip-metadata/subsample options) are
+// NOT defined here: the name-string copies shadowed ImageIO's real values ("PixelXDimension"
+// et al.), so EXIF dimension lookups silently missed. The SDK links them; 10.9 provides them.
 const CFStringRef kCGImageSourceUseHardwareAcceleration = CFSTR("kCGImageSourceUseHardwareAcceleration");
 const CFStringRef kCTFontCSSFamilyCursive = CFSTR("kCTFontCSSFamilyCursive");
 const CFStringRef kCTFontCSSFamilyFantasy = CFSTR("kCTFontCSSFamilyFantasy");
@@ -94,7 +90,8 @@ const CFStringRef kCUIWidgetSwitchFill = CFSTR("kCUIWidgetSwitchFill");
 const CFStringRef kCUIWidgetSwitchFillMask = CFSTR("kCUIWidgetSwitchFillMask");
 const CFStringRef kCUIWidgetSwitchKnob = CFSTR("kCUIWidgetSwitchKnob");
 const CFStringRef kCUIWidgetSwitchOnOffLabel = CFSTR("kCUIWidgetSwitchOnOffLabel");
-const CFStringRef kSCDynamicStorePropNetInterfaces = CFSTR("kSCDynamicStorePropNetInterfaces");
+// kSCDynamicStorePropNetInterfaces is NOT defined here: 10.9 SystemConfiguration exports it
+// (real value "Interfaces"); the name-string copy broke online/offline detection.
 // NSHTTPCookie SameSite property key (NSString, 10.13+). WebKit only reads it behind a
 // respondsToSelector(@selector(sameSitePolicy)) guard that fails on 10.9, so it is never dereferenced;
 // defined here so the weak import resolves rather than dangling.

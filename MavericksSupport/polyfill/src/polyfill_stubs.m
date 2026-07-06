@@ -333,25 +333,6 @@ CFStringRef CGColorSpaceGetName(CGColorSpaceRef cs) {
     return NULL;
 }
 
-/* CGColorSpaceEqualToColorSpace (10.12+) */
-CG_EXTERN CFPropertyListRef CGColorSpaceCopyPropertyList(CGColorSpaceRef) __attribute__((weak_import));
-
-bool CGColorSpaceEqualToColorSpace(CGColorSpaceRef cs1, CGColorSpaceRef cs2) {
-    if (cs1 == cs2) return true;
-    if (!cs1 || !cs2) return false;
-    if (CGColorSpaceGetModel(cs1) != CGColorSpaceGetModel(cs2)) return false;
-    if (CGColorSpaceGetNumberOfComponents(cs1) != CGColorSpaceGetNumberOfComponents(cs2)) return false;
-    if (CGColorSpaceCopyPropertyList) {
-        CFPropertyListRef plist1 = CGColorSpaceCopyPropertyList(cs1);
-        CFPropertyListRef plist2 = CGColorSpaceCopyPropertyList(cs2);
-        bool equal = false;
-        if (plist1 && plist2) equal = CFEqual(plist1, plist2);
-        if (plist1) CFRelease(plist1);
-        if (plist2) CFRelease(plist2);
-        return equal;
-    }
-    return false;
-}
 
 #pragma mark - CGColorSpace name constants (10.11.2+)
 CFStringRef const kCGColorSpaceDisplayP3 = CFSTR("kCGColorSpaceDisplayP3");
