@@ -345,8 +345,13 @@ void WebSWServerConnection::startFetch(ServiceWorkerFetchTask& task, SWServerWor
         }
 
         RefPtr server = protectedThis->server();
-        if (!server)
+        if (!server) {
+            // MAVERICKS_BACKPORT: behavior fix (task #6) — without cannotHandle() the loader
+            // waits forever (subresource fetches have no timeout). Fall back to network like
+            // every sibling failure path in this lambda.
+            task->cannotHandle();
             return;
+        }
 
         RefPtr worker = server->workerByID(*task->serviceWorkerIdentifier());
         if (!worker || worker->hasTimedOutAnyFetchTasks()) {

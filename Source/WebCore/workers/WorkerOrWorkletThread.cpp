@@ -42,6 +42,12 @@
 
 namespace WebCore {
 
+#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: defined in ThreadGlobalData.cpp (declared locally to avoid
+// touching widely-included headers).
+void setCurrentThreadUsesDedicatedThreadTimers();
+#endif
+
 ThreadSafeWeakHashSet<WorkerOrWorkletThread>& WorkerOrWorkletThread::workerOrWorkletThreads()
 {
     static NeverDestroyed<ThreadSafeWeakHashSet<WorkerOrWorkletThread>> workerOrWorkletThreads;
@@ -130,6 +136,14 @@ void WorkerOrWorkletThread::workerOrWorkletThread()
         });
         return;
     }
+
+#if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: mark this dedicated worker thread as servicing its own
+    // ThreadTimers heap (WorkerDedicatedRunLoop installs the SharedTimer), BEFORE any
+    // timer can arm. All unmarked threads share the process-wide main ThreadTimers —
+    // see ThreadGlobalData::threadTimers().
+    setCurrentThreadUsesDedicatedThreadTimers();
+#endif
 
     // Propagate the mainThread's fenv to workers.
 #if PLATFORM(IOS_FAMILY)

@@ -30,6 +30,9 @@
 #include "CachedResourceRequestInitiatorTypes.h"
 #include "EventNames.h"
 #include "FontCache.h"
+// MAVERICKS_BACKPORT: MainThreadSharedTimer.h for attaching the CF shared timer to the
+// process-shared ThreadTimers below.
+#include "MainThreadSharedTimer.h"
 #include "MIMETypeRegistry.h"
 #include "QualifiedNameCache.h"
 #include "SharedTimer.h"
@@ -54,23 +57,55 @@ ThreadGlobalData::ThreadGlobalData()
 
 ThreadGlobalData::~ThreadGlobalData() = default;
 
+#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: threads whose ThreadTimers heap is serviced by their own run loop
+// (worker/worklet threads, which install a SharedTimer via setSharedTimer) opt out of the
+// process-shared heap. The flag is per-thread and set once at worker-thread entry, BEFORE
+// any timer can arm, so the classification is sticky for the thread's whole lifetime.
+static thread_local bool t_useDedicatedThreadTimers;
+
+void setCurrentThreadUsesDedicatedThreadTimers()
+{
+    t_useDedicatedThreadTimers = true;
+}
+
+bool currentThreadUsesSharedThreadTimers()
+{
+    return !t_useDedicatedThreadTimers;
+}
+
+// The ONE process-shared main ThreadTimers. The CF shared timer is attached here (and only
+// here) — never to per-thread private instances, which no run loop ever fires.
+static ThreadTimers& sharedMainThreadTimers()
+{
+    static NeverDestroyed<UniqueRef<ThreadTimers>> shared { [] {
+        auto timers = makeUniqueRef<ThreadTimers>();
+        timers->setSharedTimer(&MainThreadSharedTimer::singleton());
+        return timers;
+    }() };
+    return shared.get();
+}
+#endif
+
 ThreadTimers& ThreadGlobalData::threadTimers()
 {
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: WK2 XPC services run dispatch_main(), which serves the
-    // libdispatch worker pool. dispatch_get_main_queue() callbacks land on
-    // whichever worker is available. The "main thread" is fragmented across
-    // libdispatch workers — share ThreadTimers across them so setTimeout works.
+    // MAVERICKS_BACKPORT: WK2 XPC services fragment the "main thread" identity across
+    // libdispatch workers, and loader/network callbacks can run WebCore code on threads
+    // that fail isMainThread() transiently. Any timer armed via a per-thread private
+    // ThreadTimers on such a thread joins a heap NO run loop ever fires — the timer stays
+    // isActive() forever and never runs (task #6: nytimes load-event stall, frozen
+    // ScriptRunner/parser/load-delay timers, blank ad frames).
     //
-    // BUT do NOT share with Web Worker threads (WorkerOrWorkletThread). They
-    // run their own WorkerDedicatedRunLoop and would fire Document-targeting
-    // shared timers, hitting main-thread-only asserts deep in style/layout.
-    // Web Workers get their own per-thread ThreadTimers (m_threadTimers).
-    if (isMainThread()) {
-        static NeverDestroyed<UniqueRef<ThreadTimers>> sharedThreadTimers { makeUniqueRef<ThreadTimers>() };
-        return sharedThreadTimers.get();
-    }
-    return m_threadTimers;
+    // So the classification must be structural, not time-varying: worker/worklet threads
+    // (marked at thread entry; they service their own heap via WorkerDedicatedRunLoop's
+    // SharedTimer) keep the upstream per-thread instance; EVERY other thread — main,
+    // main-classified dispatch workers, and stray callback threads — shares one process-wide
+    // ThreadTimers serviced by the main CF shared timer. Heap mutations are serialized by
+    // sharedTimerHeapLock().
+    if (t_useDedicatedThreadTimers)
+        return m_threadTimers;
+    return sharedMainThreadTimers();
 #else
     return m_threadTimers;
 #endif
