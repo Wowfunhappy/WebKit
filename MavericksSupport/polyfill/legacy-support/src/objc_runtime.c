@@ -13,10 +13,8 @@ id objc_alloc_init(Class cls) {
 	return ((id(*)(id, SEL))objc_msgSend)(obj, sel_getUid("init"));
 }
 
-/* objc_alloc (added ~10.14) — optimized [cls alloc] */
-id objc_alloc(Class cls) {
-	return ((id(*)(Class, SEL))objc_msgSend)(cls, sel_getUid("alloc"));
-}
+/* objc_alloc is NOT polyfilled: 10.9's libobjc already exports it (dlsym/nm-confirmed);
+ * a copy here would shadow the real optimized entry point. */
 
 /* objc_opt_class (added macOS 11) — optimized [obj class] */
 Class objc_opt_class(id obj) {
