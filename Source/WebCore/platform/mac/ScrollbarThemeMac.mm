@@ -185,6 +185,10 @@ bool ScrollbarThemeMac::isLayoutDirectionRTL(Scrollbar& scrollbar)
             return protect(scrollbar.scrollableArea())->shouldPlaceVerticalScrollbarOnLeft() ? NSUserInterfaceLayoutDirectionRightToLeft : NSUserInterfaceLayoutDirectionLeftToRight;
         return false;
     }
+    // MAVERICKS_BACKPORT: -[NSScrollerImp userInterfaceLayoutDirection] is 10.10+; treat
+    // its absence as LTR (10.9 overlay scrollers have no RTL layout support).
+    if (![scrollerImp.get() respondsToSelector:@selector(userInterfaceLayoutDirection)])
+        return false;
     return scrollerImp.get().userInterfaceLayoutDirection == NSUserInterfaceLayoutDirectionRightToLeft;
 #else
     UNUSED_PARAM(scrollbar);

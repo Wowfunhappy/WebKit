@@ -1309,11 +1309,11 @@ Ref<WebProcessProxy> WebProcessPool::processForSite(WebsiteDataStore& websiteDat
     }
 
     if (usesSingleWebProcess()) {
-#if PLATFORM(COCOA)
-        bool mustMatchDataStore = WebKit::WebsiteDataStore::defaultDataStoreExists() && &websiteDataStore != &WebKit::WebsiteDataStore::defaultDataStore();
-#else
-        bool mustMatchDataStore = false;
-#endif
+        // MAVERICKS_BACKPORT: always match the data store, not only for non-default target stores.
+        // A WebProcess hosts exactly one session (WebProcessProxy asserts it, and in-process paths
+        // like BroadcastChannel's postMessageLocally rely on it); without this, a default-store page
+        // created after an ephemeral one reuses the ephemeral process and folds two sessions together.
+        bool mustMatchDataStore = true;
 
         for (Ref process : m_processes) {
             if (process->isPrewarmed() || process->isDummyProcessProxy())
@@ -1382,53 +1382,9 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
     }
 
     Ref userContentController = pageConfiguration->userContentController();
-
-    // MAVERICKS_BACKPORT: if we already have a real (non-dummy) WebContent process running, reuse it.
-    // Spawning additional WebContent processes is unreliable on this OS — the second process never
-    // wires up its NetworkProcess connection to receive responses, so navigation silently no-ops.
-    // NOTE: do NOT remove the dummy from m_processes / m_dummyProcessProxies — the dummy may
-    // own the mach send right shared by the existing connection; releasing it makes subsequent
-    // sends to the existing process return MACH_SEND_INVALID_DEST.
-    // Extended: also reuse when the freshly-picked process is still Launching (e.g. inspector
-    // page got routed to a brand-new XPC service via processForSite, but that 2nd XPC never
-    // finishes launching on 10.9 → CreateWebPage IPC is dropped). Reusing the existing Running
-    // process lets the inspector WebPage share WebContent with the inspected page.
-    //
-    // Extended further (extension support): CONSOLIDATE every WebPage into the first existing
-    // Running WebContent, even when processForSite handed us another Running process. A Safari
-    // extension's global/background page (e.g. uBlock Origin) is otherwise placed in its own
-    // 2nd WebContent, which — per the note above — can't load over the network, so its filter
-    // engine never initializes and content-script canLoad() decisions all come back
-    // "don't block". Sharing one process also makes the content-script ↔ global-page
-    // safari.* messaging intra-process and reliable. Only the first real process (which owns the
-    // working NetworkProcess connection) is ever used for page content on this OS anyway.
-    bool shouldReuse = process && (process->isDummyProcessProxy() || process->state() != WebProcessProxy::State::Running);
-    if (!shouldReuse && process) {
-        // Picked a Running process; if an EARLIER Running process exists, prefer it so all pages
-        // (incl. the extension global page) land in the single network-capable WebContent.
-        for (Ref<WebProcessProxy> existing : m_processes) {
-            if (existing.ptr() == process.get())
-                break; // the picked process is the first Running one — keep it
-            if (!existing->isDummyProcessProxy() && existing->state() == WebProcessProxy::State::Running) {
-                shouldReuse = true;
-                break;
-            }
-        }
-    }
-    if (shouldReuse) {
-        for (Ref<WebProcessProxy> existing : m_processes) {
-            if (existing.ptr() == process.get())
-                continue;
-            if (!existing->isDummyProcessProxy() && existing->state() == WebProcessProxy::State::Running) {
-                process = existing.ptr();
-                break;
-            }
-        }
-    }
-
+    
     ASSERT(process);
-
-    // MAVERICKS_BACKPORT: process is resolved by the single-WebContent reuse/consolidation block above.
+    
     process->setAllowTestOnlyIPC(pageConfiguration->allowTestOnlyIPC());
 
     auto page = process->createWebPage(pageClient, WTF::move(pageConfiguration));
@@ -1543,12 +1499,6 @@ static void loadRestrictedOpenerTypeDataIfNeeded()
 void WebProcessPool::didReachGoodTimeToPrewarm()
 {
     loadRestrictedOpenerTypeDataIfNeeded();
-
-    // MAVERICKS_BACKPORT: skip prewarming entirely. On this build, a prewarmed
-    // WebContent process can race with the user's existing page, replacing it
-    // and stealing focus when keyboard activity (e.g. Cmd+A→Cmd+C) triggers
-    // implicit process selection. Without prewarming, page state stays stable.
-    return;
 
     if (!configuration().isAutomaticProcessWarmingEnabled() || !configuration().processSwapsOnNavigation() || usesSingleWebProcess())
         return;
@@ -2324,7 +2274,12 @@ std::tuple<Ref<WebProcessProxy>, RefPtr<SuspendedPageProxy>, ASCIILiteral> WebPr
         return processForSite(dataStore, isolatedProcessType, targetSite, mainFrameSite, { }, lockdownMode, enhancedSecurity, pageConfiguration, WebCore::ProcessSwapDisposition::None);
     };
 
-    if (usesSingleWebProcess())
+    // MAVERICKS_BACKPORT: single-WebProcess mode must still honor a session change. A WebProcess
+    // hosts exactly one session (WebProcessProxy::addExistingWebPage asserts it; in-process paths
+    // like BroadcastChannel's postMessageLocally rely on it), so a navigation whose target
+    // WebsiteDataStore differs from the source process's (e.g. a swap into an ephemeral session)
+    // takes the swap path below instead of folding two sessions into one process.
+    if (usesSingleWebProcess() && sourceProcess->websiteDataStore() == dataStore.ptr())
         return { WTF::move(sourceProcess), nullptr, "Single WebProcess mode is enabled"_s };
 
     if (pageConfiguration->relatedPage() && page.alwaysUseRelatedPageProcess())

@@ -8013,13 +8013,6 @@ void WebPage::didFinishLoad(WebFrame& frame)
 #if ENABLE(WEB_PAGE_SPATIAL_BACKDROP)
     spatialBackdropSourceChanged();
 #endif
-
-    // MAVERICKS_BACKPORT: force a repaint after page load completes. Without this, ~50% of runs
-    // never produce a second commit (the initial empty paint stays as the layer.contents)
-    // because the m_isScheduled / m_waitingForBackingStoreSwap state machine races with
-    // the data: URL load completing.
-    if (RefPtr drawingArea = m_drawingArea)
-        drawingArea->updateRenderingWithForcedRepaint();
 }
 
 void WebPage::didSameDocumentNavigationForFrame(WebFrame& frame)

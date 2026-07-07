@@ -41,8 +41,10 @@ static auto cocoaFontClassSingleton()
 
 RetainPtr<CTFontDescriptorRef> SystemFontDatabaseCoreText::smallCaptionFontDescriptor()
 {
-    auto font = [cocoaFontClassSingleton() systemFontOfSize:[cocoaFontClassSingleton() smallSystemFontSize]];
-    return static_cast<CTFontDescriptorRef>(font.fontDescriptor);
+    // MAVERICKS_BACKPORT: NSFontDescriptor is not toll-free bridged to CTFontDescriptorRef on
+    // 10.9 (bridging is 10.11+), so the upstream static_cast hands CoreText an NSFontDescriptor
+    // and CT introspection crashes. Build the equivalent descriptor natively in CoreText.
+    return adoptCF(CTFontDescriptorCreateForUIType(kCTFontUIFontSmallSystem, [cocoaFontClassSingleton() smallSystemFontSize], nullptr));
 }
 
 RetainPtr<CTFontDescriptorRef> SystemFontDatabaseCoreText::menuFontDescriptor()
@@ -60,8 +62,8 @@ RetainPtr<CTFontDescriptorRef> SystemFontDatabaseCoreText::miniControlFontDescri
 #if PLATFORM(IOS_FAMILY)
     return adoptCF(CTFontDescriptorCreateForUIType(kCTFontUIFontMiniSystem, 0, nullptr));
 #else
-    auto font = [cocoaFontClassSingleton() systemFontOfSize:[cocoaFontClassSingleton() systemFontSizeForControlSize:NSControlSizeMini]];
-    return static_cast<CTFontDescriptorRef>(font.fontDescriptor);
+    // MAVERICKS_BACKPORT: no NSFontDescriptor→CT bridging on 10.9; native CT descriptor instead.
+    return adoptCF(CTFontDescriptorCreateForUIType(kCTFontUIFontMiniSystem, [cocoaFontClassSingleton() systemFontSizeForControlSize:NSControlSizeMini], nullptr));
 #endif
 }
 
@@ -70,8 +72,8 @@ RetainPtr<CTFontDescriptorRef> SystemFontDatabaseCoreText::smallControlFontDescr
 #if PLATFORM(IOS_FAMILY)
     return adoptCF(CTFontDescriptorCreateForUIType(kCTFontUIFontSmallSystem, 0, nullptr));
 #else
-    auto font = [cocoaFontClassSingleton() systemFontOfSize:[cocoaFontClassSingleton() systemFontSizeForControlSize:NSControlSizeSmall]];
-    return static_cast<CTFontDescriptorRef>(font.fontDescriptor);
+    // MAVERICKS_BACKPORT: no NSFontDescriptor→CT bridging on 10.9; native CT descriptor instead.
+    return adoptCF(CTFontDescriptorCreateForUIType(kCTFontUIFontSmallSystem, [cocoaFontClassSingleton() systemFontSizeForControlSize:NSControlSizeSmall], nullptr));
 #endif
 }
 
@@ -80,8 +82,8 @@ RetainPtr<CTFontDescriptorRef> SystemFontDatabaseCoreText::controlFontDescriptor
 #if PLATFORM(IOS_FAMILY)
     return adoptCF(CTFontDescriptorCreateForUIType(kCTFontUIFontSystem, 0, nullptr));
 #else
-    auto font = [cocoaFontClassSingleton() systemFontOfSize:[cocoaFontClassSingleton() systemFontSizeForControlSize:NSControlSizeRegular]];
-    return static_cast<CTFontDescriptorRef>(font.fontDescriptor);
+    // MAVERICKS_BACKPORT: no NSFontDescriptor→CT bridging on 10.9; native CT descriptor instead.
+    return adoptCF(CTFontDescriptorCreateForUIType(kCTFontUIFontSystem, [cocoaFontClassSingleton() systemFontSizeForControlSize:NSControlSizeRegular], nullptr));
 #endif
 }
 

@@ -121,18 +121,7 @@ public:
 
     bool processSwapsOnNavigation() const
     {
-        // MAVERICKS_BACKPORT: force process-swap-on-navigation OFF and reuse the single web process
-        // for all navigations. On this 2-core VM each WebContent process is ~600MB and takes
-        // 3-4s (dyld + WP-init) to come up. PSON spawns a fresh process per cross-site navigation
-        // and, on navigate-away-from-a-still-loading page, tears the previous process down via
-        // shutDown()->XPC-disconnect, which launchd turns into a SIGKILL the UIProcess misreads as
-        // an unexpected crash (didClose reason=Crash, not NavigationSwap) -> the visible
-        // "A problem occurred with this web page so it was reloaded." banner + a respawn. Reusing
-        // the existing process (the !processSwapsOnNavigation() branch in
-        // WebProcessPool::processForNavigation, which returns the source process) is rock-solid here
-        // and also eliminates the per-navigation memory churn. Site isolation is sacrificed, which is
-        // an acceptable trade for a single-user daily driver where stability dominates.
-        return false;
+        return m_processSwapsOnNavigationFromClient.value_or(m_processSwapsOnNavigationFromExperimentalFeatures);
     }
     void setProcessSwapsOnNavigation(bool swaps) { m_processSwapsOnNavigationFromClient = swaps; }
     void setProcessSwapsOnNavigationFromExperimentalFeatures(bool swaps) { m_processSwapsOnNavigationFromExperimentalFeatures = swaps; }
@@ -197,12 +186,18 @@ private:
     bool m_alwaysKeepAndReuseSwappedProcesses { false };
     bool m_processSwapsOnNavigationWithinSameNonHTTPFamilyProtocol { false };
     std::optional<bool> m_isAutomaticProcessWarmingEnabledByClient;
-    bool m_usesWebProcessCache { true }; // MAVERICKS_BACKPORT (10.9): default the WebProcessCache ON (Safari 9 doesn't enable it; a disabled cache terminates swapped-out processes -> "A problem occurred ... reloaded" on heavy-site navigation).
+    bool m_usesWebProcessCache { false };
     bool m_usesBackForwardCache { defaultUsesWebBackForwardCache() };
     bool m_clientWouldBenefitFromAutomaticProcessPrewarming { false };
     bool m_shouldConfigureJSCForTesting { false };
     bool m_isJITEnabled { true };
-    bool m_usesSingleWebProcess { false };
+    // MAVERICKS_BACKPORT (10.9): default single-WebProcess mode ON. This port runs all pages of a
+    // pool in one WebContent process (per WebsiteDataStore — processForSite's single-process reuse
+    // skips mismatched stores, so ephemeral sessions still get their own process, preserving the
+    // one-session-per-WebProcess invariant that BroadcastChannel's postMessageLocally relies on).
+    // Sharing one process keeps a Safari extension's content-script <-> global-page safari.*
+    // messaging intra-process and lets inspector WebPages share WebContent with the inspected page.
+    bool m_usesSingleWebProcess { true };
 #if PLATFORM(PLAYSTATION)
     WTF::String m_webProcessPath;
     WTF::String m_networkProcessPath;
