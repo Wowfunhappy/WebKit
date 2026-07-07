@@ -59,7 +59,6 @@ OLD_PRIVRT=/System/Library/WebKitPrivateRuntime   # pre-#68 standalone location;
 # libcg_polyfill). The libs are self-contained via their own LC_RPATH @loader_path/../lib, so they ship
 # as-is; only the WebKit frameworks' @rpath/libg*/libgst*/etc. deps are rewritten to these absolute paths.
 GST_SRC="$REPO/MavericksSupport/deps/gstreamer/lib"
-GST_BUILT="$REPO/MavericksSupport/deps/build/lib"   # dylibs build_deps.sh produces (FFmpeg, libgstlibav)
 GST_DEPLOY="$PRIVLIB/gstreamer/lib"
 
 # Absolute install_name each framework binary must advertise (matches Safari's
@@ -110,7 +109,7 @@ absolute_for_rpath_dep() {
         # to its deployed copy inside WebCore.framework. The -e guard avoids mis-mapping a stray dep.
         @rpath/*.dylib)
             local base="${dep#@rpath/}"
-            if [ -e "$GST_SRC/$base" ] || [ -e "$GST_BUILT/$base" ]; then echo "$GST_DEPLOY/$base"; else echo ""; fi
+            if [ -e "$GST_SRC/$base" ]; then echo "$GST_DEPLOY/$base"; else echo ""; fi
             ;;
         *) echo "";;
     esac
@@ -504,79 +503,16 @@ fi
 # rewritten to $GST_DEPLOY during install_framework, so they resolve to these copies at runtime.
 echo "### Deploying GStreamer libs into WebCore.framework ($GST_DEPLOY)"
 if [ -d "$GST_SRC" ]; then
-    # Rebuild the 10.9 libSystem compat shim from the current polyfill sources so the deployed
-    # copy always matches legacy-support/src (clock_gettime, the *at family, mkostemp, ...). The
-    # GStreamer dylibs' libSystem dependency is already repointed to @rpath/libsystem_compat.dylib.
-    bash "$REPO/MavericksSupport/deps/gstreamer/build-libsystem-compat.sh" >/dev/null \
-        && echo "  rebuilt libsystem_compat.dylib" \
-        || echo "  warning: libsystem_compat.dylib rebuild failed — deploying the checked-in copy"
-    # Same for the CoreServices compat shim: libgio imports two 10.10+ LaunchServices functions
-    # (LSCopyApplicationURLsForBundleIdentifier / LSCopyDefaultApplicationURLForContentType) that
-    # crash gst_init_check on 10.9. libgio/libglib's CoreServices dependency is already repointed to
-    # @rpath/libcoreservices_compat.dylib (reexports CoreServices + supplies those two as NULL).
-    bash "$REPO/MavericksSupport/deps/gstreamer/build-coreservices-compat.sh" >/dev/null \
-        && echo "  rebuilt libcoreservices_compat.dylib" \
-        || echo "  warning: libcoreservices_compat.dylib rebuild failed — deploying the checked-in copy"
-    # And the CoreText compat shim: libharfbuzz imports two 10.10+ OpenType-feature key constants
-    # (kCTFontOpenTypeFeatureTag / kCTFontOpenTypeFeatureValue), without which the text-rendering plugins
-    # (libgstassrender / libgstclosedcaption / libgstpango) fail to dlopen on 10.9. libharfbuzz's CoreText
-    # dependency is repointed to @rpath/libcoretext_compat.dylib (reexports CoreText + supplies the two).
-    bash "$REPO/MavericksSupport/deps/gstreamer/build-coretext-compat.sh" >/dev/null \
-        && echo "  rebuilt libcoretext_compat.dylib" \
-        || echo "  warning: libcoretext_compat.dylib rebuild failed — deploying the checked-in copy"
-    # And the AudioToolbox compat shim: libgstosxaudio (osxaudiosink) imports the AudioComponent API
-    # (AudioComponentFindNext / InstanceNew / InstanceDispose) which the 26.1 SDK homes in AudioToolbox
-    # but 10.9 keeps in AudioUnit, so without it the macOS audio sink fails to dlopen and there is no
-    # audio output. libgstosxaudio's AudioToolbox dependency is repointed to @rpath/libaudiotoolbox_compat.dylib
-    # (reexports AudioToolbox + AudioUnit).
-    bash "$REPO/MavericksSupport/deps/gstreamer/build-audiotoolbox-compat.sh" >/dev/null \
-        && echo "  rebuilt libaudiotoolbox_compat.dylib" \
-        || echo "  warning: libaudiotoolbox_compat.dylib rebuild failed — deploying the checked-in copy"
+    # The runtime is built from source for 10.9 (MavericksSupport/deps/build_deps.sh)
+    # and proved self-contained by that script's resolution gate: every strong undefined symbol in
+    # every dylib/plugin resolves on this host, no NULL-binding weak imports beyond the documented
+    # allow-list, no compat/reexport shims, and the C++17 runtime is vendored in-tree
+    # (libc++.1.dylib / libc++abi.1.dylib). Deploying is a plain copy into a CLEARED
+    # directory — a copy over a previous install would leave stale dylibs/plugins behind
+    # for the GStreamer registry scan to pick up.
+    rm -rf "$GST_DEPLOY"
     mkdir -p "$GST_DEPLOY"
     cp -Rp "$GST_SRC/." "$GST_DEPLOY/"
-    # The runtime is assembled from the vendored tree plus the dylibs build_deps.sh
-    # builds from source (FFmpeg + the gst-libav plugin).
-    if [ -d "$GST_BUILT" ]; then
-        for _b in "$GST_BUILT"/lib*.dylib; do
-            [ -e "$_b" ] && cp -p "$_b" "$GST_DEPLOY/"
-        done
-        [ -e "$GST_BUILT/gstreamer-1.0/libgstlibav.dylib" ]             && cp -p "$GST_BUILT/gstreamer-1.0/libgstlibav.dylib" "$GST_DEPLOY/gstreamer-1.0/"
-    fi
-    # Drop the Python3-dependent plugins from the deployed set: libgstpython (Python element bindings) links
-    # @rpath/Python3.framework/Versions/3.9/Python3 directly, and libgstges (GStreamer Editing Services)
-    # links it indirectly via @rpath/libges-1.0.dylib. Python3.framework does not exist on 10.9 (no system
-    # Python 3, and we deliberately do not ship one), so these can only fail the GStreamer registry scan
-    # ("Library not loaded: @rpath/Python3.framework/.../Python3"). WebKit never instantiates Python/GES
-    # elements, so removing them keeps the plugin scan clean. Check the plugin and one level of its @rpath
-    # deps (resolved within the deployed lib tree) so the indirect GES case is caught too.
-    _gst_needs_python3() {
-        otool -L "$1" 2>/dev/null | grep -q 'Python3\.framework' && return 0
-        local _dep
-        for _dep in $(otool -L "$1" 2>/dev/null | awk '/@rpath\/lib/{print $1}' | sed 's#@rpath/##'); do
-            [ -f "$GST_DEPLOY/$_dep" ] && otool -L "$GST_DEPLOY/$_dep" 2>/dev/null | grep -q 'Python3\.framework' && return 0
-        done
-        return 1
-    }
-    for _plug in "$GST_DEPLOY"/gstreamer-1.0/*.dylib; do
-        if _gst_needs_python3 "$_plug"; then
-            echo "  excluding $(basename "$_plug") (needs Python3, absent on 10.9)"
-            rm -f "$_plug"
-        fi
-    done
-    # applemedia (#117): the macOS-26-built libgstapplemedia.dylib (avfvideosrc / avfdeviceprovider --
-    # the macOS camera-capture plugin) hard-links Metal.framework (absent on 10.9) via its dead
-    # Vulkan/MoltenVK video path and references 15 CoreVideo/AVFoundation constants added after 10.9, so
-    # it fails to dlopen and getUserMedia/enumerateDevices report no camera. This builds the stubs +
-    # reexport shims into $GST_DEPLOY and repoints the plugin onto them so it loads (camera capture works).
-    bash "$REPO/MavericksSupport/deps/gstreamer/build-applemedia-compat.sh" "$GST_DEPLOY" >/dev/null \
-        && echo "  built applemedia compat shims (camera capture)" \
-        || echo "  warning: applemedia compat build failed — camera capture (getUserMedia video) will not work"
-    # WebRTC audio DSP: the C++17 libs libgstwebrtcdsp + libwebrtc-audio-processing link the 10.9 system
-    # libc++ (too old for std::bad_optional_access etc.) and fail to dlopen, so getUserMedia/WebRTC audio
-    # gets no echo cancellation / noise suppression. Repoint them onto the bundle's modern C++ runtime.
-    bash "$REPO/MavericksSupport/deps/gstreamer/build-cxxgst-compat.sh" "$GST_DEPLOY" >/dev/null \
-        && echo "  built cxxgst compat shim (WebRTC audio DSP)" \
-        || echo "  warning: cxxgst compat build failed — WebRTC audio DSP plugins will not load"
 else
     echo "  warning: GStreamer source tree $GST_SRC missing — media will not load"
 fi

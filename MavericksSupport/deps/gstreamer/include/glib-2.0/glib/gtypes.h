@@ -456,14 +456,6 @@ typedef const gchar *   (*GTranslateFunc)       (const gchar   *str,
 #endif
 #endif
 
-/* HACK: work around clang toolchain issue on android armv7/x86 compiling gdk-pixbuf
- * in GStreamer cerbero: https://reviews.llvm.org/D103906 (undefined ref to __multi3)
- * Android (5900059 based on r365631c) clang version 9.0.8
- * https://gitlab.freedesktop.org/gstreamer/cerbero/-/merge_requests/864#note_1698211 */
-#if defined(__clang__) && !defined(CRT_HAS_128BIT)
-#undef _GLIB_HAVE_BUILTIN_OVERFLOW_CHECKS
-#endif
-
 #ifdef _GLIB_HAVE_BUILTIN_OVERFLOW_CHECKS
 
 #define g_uint_checked_add(dest, a, b) \
