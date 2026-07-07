@@ -60,7 +60,7 @@
  *
  * Whether the allocation hooks are per-thread
  */
-#if 1
+#if 0
 #define LIBXML_THREAD_ALLOC_ENABLED
 #endif
 
@@ -327,7 +327,7 @@
  *
  * Whether the Zlib support is compiled in
  */
-#if 1
+#if 0
 #define LIBXML_ZLIB_ENABLED
 #endif
 

@@ -2,43 +2,36 @@
 
 Libraries WebKit links that the 10.9 system doesn't provide. Two kinds live here:
 
-- **`build_deps.sh`** builds ICU, libgcrypt/libgpg-error/libtasn1, brotli, woff2,
-  FFmpeg, and the gst-libav plugin from source with the in-tree toolchain into
-  **`build/`** (`build/lib` + `build/include`). `build/` is a gitignored artifact —
-  `MavericksSupport/bootstrap.sh` runs the script.
-- **`gstreamer/`** is the vendored GStreamer runtime: a **committed** prebuilt x86_64
-  binary, thinned from the official GStreamer macOS runtime. The deployed runtime is
-  assembled from this tree plus the codec dylibs `build_deps.sh` builds (FFmpeg and
-  `gstreamer-1.0/libgstlibav.dylib`) — `install-safari7.sh` overlays `build/lib` over
-  the staged copy.
+- **`build_deps.sh`** builds EVERYTHING from source with the in-tree
+  toolchain into **`build/`** (`build/lib` + `build/include` + `build/bin`): the
+  static libraries WebKit links directly (ICU 74.2, libgcrypt/libgpg-error/libtasn1,
+  brotli, woff2) and the complete GStreamer 1.26.6 runtime (glib 2.80.5, gstreamer
+  core/base/good/bad, FFmpeg + gst-libav, libvpx, dav1d, libnice/srtp/dtls + OpenSSL,
+  WebRTC audio DSP). Every deployed Mach-O targets 10.9 and the script ends with a
+  symbol-resolution gate proving, on this host, that every strong undefined symbol
+  resolves and no weak import binds NULL beyond the documented allow-list — no compat
+  or reexport shims. `build/` is a gitignored artifact — `MavericksSupport/bootstrap.sh`
+  runs the script.
+- **`gstreamer/`** is the vendored GStreamer runtime: the **committed** copy of the
+  script's runtime output (`lib/` dylibs + plugins, `include/` build-time headers,
+  `bin/` gst-inspect/gst-launch for debugging) including libxml2 2.13
+  (`lib/libxml2.2.dylib`, `include/libxml2`), which WebCore links in place of the
+  crash-prone 10.9 system libxml2 2.9. `install-safari7.sh` deploys `gstreamer/lib`
+  into WebCore.framework as-is — the dylibs are self-contained (own `@rpath` +
+  `LC_RPATH @loader_path/../lib`, C++17 runtime vendored in-tree), so there is no
+  repointing, shimming, or overlay step.
 
-`Source/cmake/OptionsMac.cmake` points `MAVERICKS_DEPS` at `build/`; `WebKitFindPackage.cmake`
-finds ICU there; `OptionsMacGStreamer.cmake` points `GST_ROOT` at `gstreamer/`.
+`Source/cmake/OptionsMac.cmake` points `MAVERICKS_DEPS` at `build/` and libxml2 at
+`gstreamer/` (built by the same script); `WebKitFindPackage.cmake` finds ICU there; `OptionsMacGStreamer.cmake`
+points `GST_ROOT` at `gstreamer/`.
 
-## Updating the built libraries (ICU / gcrypt / brotli / woff2)
+## Updating
 
-1. Bump the version variable at the top of `build_deps.sh` (e.g. `ICU=`, `GCRYPT=`).
-2. `rm -rf build && ./build_deps.sh` (or re-run `../bootstrap.sh`).
-3. The output is gitignored, so the only thing to commit is the `build_deps.sh` change.
-
-If a new library is needed, add its build to `build_deps.sh` and its include/link wiring
-to `Source/WebCore/PlatformMac.cmake` (under `MAVERICKS_DEPS`).
-
-## Updating the vendored GStreamer
-
-The committed `gstreamer/` tree is an x86_64-thinned copy of the official GStreamer macOS
-runtime. The package ships everything WebKit's GStreamer path links — including glib and the
-OpenSSL the WebRTC DTLS-SRTP crypto uses (`lib/libcrypto`/`libssl`, consumed via the
-`OpenSSL::Crypto` cmake target). Both are used as-shipped; there is no separate build or swap
-step. To move to a new GStreamer release:
-
-1. Download the official GStreamer macOS runtime for the target version and extract it.
-2. Thin every dylib to x86_64 (`lipo -thin x86_64`) and copy `lib/` + `include/` over
-   `gstreamer/lib` + `gstreamer/include`. Flatten the arch-specific glibconfig
-   (`lib/glib-2.0/include/<arch>/glibconfig.h` → `lib/glib-2.0/include/glibconfig.h`).
-3. Confirm the bundled dylibs are 10.9-self-sufficient: `nm -u` on each must show no
-   post-10.9 symbol imports (the install names are already `@rpath`-relative, so no rewriting).
-4. Update the version in the `GStreamer is vendored at ...` comment in `OptionsMac.cmake`
-   and `GSTREAMER_VERSION` in `OptionsMacGStreamer.cmake`.
-5. `git add gstreamer` to commit the new binary.
-
+1. Bump the version variable in `build_deps.sh`.
+2. `rm -rf build && ./build_deps.sh` (or re-run `../bootstrap.sh`); the
+   script's final gate must print `ok: ... every strong undefined resolves on 10.9`.
+3. Refresh the committed runtime: replace `gstreamer/{lib,include,bin}` with the
+   `build/` output (drop the static `*.a`).
+4. Update `GSTREAMER_VERSION`/`GLIB_VERSION` in `OptionsMacGStreamer.cmake` and the
+   version in the `GStreamer is vendored at ...` comment in `OptionsMac.cmake`.
+5. `git add gstreamer` to commit the new binaries.

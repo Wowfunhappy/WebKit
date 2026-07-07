@@ -1,5 +1,6 @@
-# MAVERICKS_BACKPORT: wire the VENDORED GStreamer (MavericksSupport/deps/gstreamer, a prebuilt
-# x86_64 macOS GStreamer 1.20.7 / glib 2.72 that runs on 10.9 with a small symbol polyfill) into the build,
+# MAVERICKS_BACKPORT: wire the VENDORED GStreamer (MavericksSupport/deps/gstreamer — GStreamer 1.26.6 /
+# glib 2.80.5, built from source for x86_64 macOS 10.9 by MavericksSupport/deps/build_deps.sh
+# and proved 10.9-clean by that script's symbol-resolution gate; no compat shims) into the build,
 # replacing the pkg-config-based FindGStreamer/FindGLIB that the GTK/WPE ports use (no pkg-config
 # on this toolchain). Defines the GLib::* imported targets and all GSTREAMER_*_{INCLUDE_DIRS,
 # LIBRARIES} variables that Source/WebCore/platform/GStreamer.cmake consumes, so the upstream
@@ -33,7 +34,7 @@ include_directories(SYSTEM ${_GST_INCLUDE_DIRS})
 
 # --- GLib imported targets (FindGLIB.cmake equivalents) ---
 set(GLIB_INCLUDE_DIRS "${GST_ROOT}/include/glib-2.0" "${GST_LIB}/glib-2.0/include")
-set(GLIB_VERSION "2.74.7")
+set(GLIB_VERSION "2.80.5")
 set(GLIB_FOUND TRUE)
 macro(_GST_DEFINE_GLIB_TARGET _name _lib)
     if (NOT TARGET GLib::${_name})

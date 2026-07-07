@@ -7,23 +7,42 @@
 #   libgpg-error, libgcrypt, libtasn1   -> WebCore USE(GCRYPT) WebCrypto
 #   brotli (common/dec/enc)             -> WOFF2 + Brotli Content-Encoding
 #   woff2 (decoder)                     -> WOFF2 web font decompression
-#   FFmpeg 5.1.6 (shared, @rpath)       -> codec backend for the gst-libav plugin
-#   gst-libav 1.20.7                    -> GStreamer's libav codec plugin (video/audio
-#                                          decode for MediaPlayerPrivateGStreamer)
+#   GLib 2.80.5 + GStreamer 1.26.6      -> the media runtime (core, plugins-base/
+#     (+ codecs, OpenSSL, libnice, ...)     good/bad, gst-libav on FFmpeg 7.1.2 with
+#                                          dav1d AV1 decode, libvpx VP8/VP9) that
+#                                          MediaPlayerPrivateGStreamer drives; built
+#                                          shared with @rpath install names
 #
-# Built with the in-tree clang-22 / 10.9 toolchain. Output (headers + static libs)
-# lands in MavericksSupport/deps/build/{include,lib} -- a gitignored artifact this
-# script regenerates. Source tarballs download to a scratch dir outside the tree.
+# Built with the in-tree clang-22 / 10.9 toolchain. Output lands in
+# MavericksSupport/deps/build/{include,lib,bin} -- a gitignored artifact this script
+# regenerates. lib/ holds the static link libs plus the whole shared media runtime
+# (with lib/gstreamer-1.0 plugins); bin/ holds gst-inspect-1.0/gst-launch-1.0 for
+# on-box verification. Source tarballs cache in a gitignored dir next to this script.
+#
+# The media dylibs compile against the modern SDK (SDKROOT) with deployment target
+# 10.9, so every libc symbol that postdates 10.9 (openat/utimensat/fstatat$INODE64/
+# getentropy/...) is a weak import that binds NULL on 10.9 and crashes on first call.
+# A gap archive built from the project's legacy-support polyfill sources against the
+# REAL 10.9 SDK (-isysroot /) force-loads into every media dylib, so those symbols
+# resolve DEFINED at link time instead. A fail-fast gate at the end proves the
+# shipped runtime resolves completely on this 10.9 host (see "fail-fast gate").
 #
 # Usage: MavericksSupport/deps/build_deps.sh   (or via MavericksSupport/bootstrap.sh)
 set -euo pipefail
+# NB: the 10.9 system bash (3.2) does NOT abort when a ( ... ) section subshell fails,
+# even under set -e / trap ERR -- hence the explicit `|| exit 1` on every section.
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"                   # repo root
 TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
 CMAKE="${MAVERICKS_CMAKE:-$REPO/MavericksSupport/toolchain/build/cmake/bin/cmake}"
 NINJA="${MAVERICKS_NINJA:-$REPO/MavericksSupport/toolchain/build/ninja/bin/ninja}"
+NASM="${MAVERICKS_NASM:-$REPO/MavericksSupport/toolchain/build/nasm/bin/nasm}"
 SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
+
+# glib's libffi wrap tracks the meson-ports "meson" BRANCH; this pins it to an exact
+# commit so the build is reproducible (update deliberately, with a rebuild).
+LIBFFI_REV=83d0cfd00d7d37af4b4349511d29f1f0512621b3
 
 # The in-tree clang ships the libc++ dylibs but not its headers; those live in the SDK.
 # clang on Darwin reads SDKROOT as the default -isysroot, so this puts <memory>/<string>
@@ -33,23 +52,38 @@ export SDKROOT="$SDK"
 # /usr/bin/make, gnumake, ar, etc. are xcode-select shims; when xcode-select points at
 # an Xcode.app whose Developer dir lacks the CLI tools (Xcode 6.2), every shim errors
 # with "unable to find utility". Prefer the CommandLineTools binaries directly so this
-# script is independent of the machine's current xcode-select state.
-export PATH="/Library/Developer/CommandLineTools/usr/bin:$PATH"
+# script is independent of the machine's current xcode-select state. The in-tree ninja
+# and nasm dirs join the PATH for meson and the assembly-heavy codec builds.
+export PATH="$(dirname "$NASM"):$(dirname "$NINJA"):/Library/Developer/CommandLineTools/usr/bin:$PATH"
 
-DEST="$HERE/build"                                 # gitignored artifact: include/ + lib/
+DEST="$HERE/build"                                 # gitignored artifact: include/ + lib/ + bin/
 SCRATCH="$(mktemp -d -t depbuild)"
 trap 'rm -rf "$SCRATCH"' EXIT
-SRC="$SCRATCH/src"
+# Tarballs cache in a persistent (gitignored) dir so a rerun after a mid-script failure
+# does not re-download everything.
+SRC="$HERE/.tarball-cache"
 STAGE="$SCRATCH/install"                            # full autotools install prefix
 
 export CC="$TC/bin/clang"
 export CXX="$TC/bin/clang++"
+# meson probes objc separately; without these it picks up the CommandLineTools clang,
+# which cannot read the modern SDK's .tbd stubs ("library not found for -lSystem").
+export OBJC="$TC/bin/clang"
+export OBJCXX="$TC/bin/clang++"
 export AR="$TC/bin/llvm-ar"
 export RANLIB="$TC/bin/llvm-ranlib"
-export NM="$TC/bin/llvm-nm"
+# Classic BSD nm from CommandLineTools: libtool's symbol-pipe probing only understands
+# its output, and the toolchain's llvm-nm binary does not run on this host (its libc++
+# lacks the libc++abi reexport it was linked against).
+export NM=/Library/Developer/CommandLineTools/usr/bin/nm
 export MACOSX_DEPLOYMENT_TARGET=10.9
 export CFLAGS="-O2 -mmacosx-version-min=10.9"
 export CXXFLAGS="-O2 -mmacosx-version-min=10.9"
+export OBJCFLAGS="-O2 -mmacosx-version-min=10.9"
+export LDFLAGS="-mmacosx-version-min=10.9"
+
+INT=/Library/Developer/CommandLineTools/usr/bin/install_name_tool
+NMBIN=/Library/Developer/CommandLineTools/usr/bin/nm
 
 # The clang-22 toolchain's clang.cfg/clang++.cfg add a default link set (libc++/
 # objc/frameworks). That is correct for building WebKit but breaks autotools/gnulib
@@ -74,14 +108,26 @@ CXX_VANILLA="$VBIN/cxx"
 
 mkdir -p "$SRC" "$STAGE" "$DEST/include" "$DEST/lib"
 
+# fetch <url> <dest-file>: download with curl. 10.9's Secure Transport cannot complete
+# a TLS handshake with some hosts (freedesktop.org's CDN among them); those go through
+# the local AquaProxy endpoint, which terminates TLS itself. Every other host is fetched
+# directly. Downloads land in a .tmp and move into place only on success, so an
+# interrupted transfer never leaves a truncated file a later run trusts.
+fetch() {
+  local url="$1" dest="$2"
+  rm -f "$dest.tmp"
+  { curl -fsSL -m 600 -o "$dest.tmp" "$url" 2>/dev/null \
+      || https_proxy=http://localhost:6531 curl -fsSL -m 600 -o "$dest.tmp" "$url"; } \
+    && mv "$dest.tmp" "$dest"
+}
+
 # get <url> <label>: download the tarball (once) and extract it, echoing the build
 # dir. To update a library, change its version in the URL on its line below.
 get() {
   local url="$1" label="$2" f; f="$SRC/$(basename "$url")"
   # NB: this function's stdout is captured by the caller ($(get ...)) as the build dir,
   # so the progress line must go to stderr or it corrupts the returned path.
-  [ -f "$f" ] || ( echo "download $(basename "$url")" >&2 \
-    && curl -fsSL -m 600 -o "$f" "$url" )
+  [ -f "$f" ] || ( echo "download $(basename "$url")" >&2 && fetch "$url" "$f" )
   rm -rf "${SCRATCH:?}/build-$label"; mkdir -p "$SCRATCH/build-$label"
   tar xf "$f" -C "$SCRATCH/build-$label" --strip-components=1
   echo "$SCRATCH/build-$label"
@@ -97,25 +143,25 @@ icud=$(get https://github.com/unicode-org/icu/releases/download/release-74-2/icu
   && CXXFLAGS="$CXXFLAGS -std=c++17" ./configure --prefix="$STAGE" \
        --enable-static --disable-shared --disable-renaming \
        --disable-samples --disable-tests --disable-extras --disable-icuio --disable-layoutex \
-  && make -j4 && make install )
+  && make -j2 && make install ) || exit 1
 
 echo "==== libgpg-error ===="
 d=$(get https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.51.tar.bz2 gpgerror)
 ( cd "$d" && ./configure CC="$CC_VANILLA" --prefix="$STAGE" --disable-shared \
     --enable-static --disable-doc --disable-tests --disable-languages \
-  && make -j4 && make install )
+  && make -j2 && make install ) || exit 1
 
 echo "==== libgcrypt ===="
 d=$(get https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-1.11.0.tar.bz2 gcrypt)
 ( cd "$d" && ./configure CC="$CC_VANILLA" --prefix="$STAGE" --disable-shared \
     --enable-static --disable-doc --disable-asm --with-libgpg-error-prefix="$STAGE" \
-  && make -j4 && make install )
+  && make -j2 && make install ) || exit 1
 
 echo "==== libtasn1 ===="
 d=$(get https://ftp.gnu.org/gnu/libtasn1/libtasn1-4.20.0.tar.gz tasn1)
 ( cd "$d" && ./configure CC="$CC_VANILLA" --prefix="$STAGE" --disable-shared \
     --enable-static --disable-doc \
-  && make -j4 && make install )
+  && make -j2 && make install ) || exit 1
 
 echo "==== brotli ===="
 d=$(get https://github.com/google/brotli/archive/refs/tags/v1.1.0.tar.gz brotli)
@@ -125,7 +171,7 @@ d=$(get https://github.com/google/brotli/archive/refs/tags/v1.1.0.tar.gz brotli)
        -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
        -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
        -DCMAKE_INSTALL_PREFIX="$STAGE" .. \
-  && "$NINJA" && "$NINJA" install )
+  && "$NINJA" -j2 && "$NINJA" install ) || exit 1
 
 echo "==== woff2 (decoder) ===="
 d=$(get https://github.com/google/woff2/archive/refs/tags/v1.0.2.tar.gz woff2)
@@ -138,80 +184,625 @@ d=$(get https://github.com/google/woff2/archive/refs/tags/v1.0.2.tar.gz woff2)
        woff2_common.o woff2_out.o \
   && mkdir -p "$STAGE/include/woff2" \
   && cp include/woff2/*.h "$STAGE/include/woff2/" \
-  && cp libwoff2dec.a "$STAGE/lib/" )
+  && cp libwoff2dec.a "$STAGE/lib/" ) || exit 1
 
-echo "==== FFmpeg 5.1.6 ===="
-# Shared dylibs with @rpath install names; the GStreamer runtime's rpath covers them
-# at load time. Apple-framework codepaths (audiotoolbox/videotoolbox/securetransport)
-# stay off: decoding runs through FFmpeg's own codecs so behavior is identical on
-# every 10.9 install.
-FFSTAGE="$SCRATCH/ffstage"
-d=$(get https://ffmpeg.org/releases/ffmpeg-5.1.6.tar.gz ffmpeg)
-( cd "$d" && ./configure --cc="$CC_VANILLA" --prefix="$FFSTAGE" \
-    --install-name-dir='@rpath' \
-    --enable-shared --disable-static --disable-programs --disable-doc \
-    --disable-debug --disable-audiotoolbox --disable-videotoolbox \
-    --disable-securetransport --disable-iconv --disable-lzma \
-    --disable-sdl2 --disable-xlib --disable-coreimage \
-    --x86asmexe="$REPO/MavericksSupport/toolchain/build/nasm/bin/nasm" \
+# ============================ GStreamer media runtime ============================
+# GLib + GStreamer (core, plugins-base/good/bad, gst-libav on FFmpeg) and their
+# codec/transport libraries, all shared dylibs targeting 10.9. Meson drives most of
+# these; the build tools it needs (meson itself, pkgconf, bison >= 2.4) build first
+# since 10.9 ships none of them.
+
+MESONENV="$SCRATCH/mesonenv"
+TOOLS="$SCRATCH/tools"
+/usr/local/bin/python3 -m venv "$MESONENV"
+"$MESONENV/bin/pip" -q install meson==1.5.2 packaging
+MESON="$MESONENV/bin/meson"
+export PATH="$STAGE/bin:$TOOLS/bin:$MESONENV/bin:$PATH"
+export PKG_CONFIG="$TOOLS/bin/pkg-config"
+export PKG_CONFIG_PATH="$STAGE/lib/pkgconfig"
+
+echo "==== pkgconf ===="
+d=$(get https://distfiles.ariadne.space/pkgconf/pkgconf-2.3.0.tar.xz pkgconf)
+( cd "$d" && ./configure -q --prefix="$TOOLS" \
+  && make -s -j2 && make -s install && ln -sf pkgconf "$TOOLS/bin/pkg-config" ) || exit 1
+
+echo "==== bison ===="
+d=$(get https://ftp.gnu.org/gnu/bison/bison-3.8.2.tar.xz bison)
+( cd "$d" && CC="$CC_VANILLA" ./configure -q --prefix="$TOOLS" > /dev/null \
+  && make -s -j2 && make -s install ) || exit 1
+
+echo "==== 10.9 gap archive ===="
+# The media dylibs below compile against the modern SDK, so every libc/LaunchServices
+# symbol that postdates 10.9 is a weak import that binds NULL on 10.9 and crashes on
+# first call. This archive supplies real definitions from the project's own
+# legacy-support polyfill sources (the same objects libpolyfill uses for WebKit),
+# compiled against the REAL 10.9 SDK (-isysroot /): its headers emit the inode-ABI
+# symbol spellings 64-bit callers reference (_fstatat$INODE64, _fdopendir$INODE64, ...).
+#
+# -Wl,-force_load makes every member a regular object in every link, and object-file
+# definitions always beat dylib (SDK .tbd) exports in ld64 resolution -- so the gap
+# functions link DEFINED, order-independent of -framework/-l flags. -fvisibility=hidden
+# keeps the definitions out of each dylib's export table (private copies, no shadowing
+# of anything the loader resolves; cf. the check-polyfill-shadows.sh discipline).
+#
+# Source inventory (each is a pure gap on 10.9 -- no symbol here exists in the 10.9
+# runtime, except jit.c's mmap wrapper, a transparent forward that only strips the
+# 10.14+ MAP_JIT flag):
+#   time            clock_gettime/clock_gettime_nsec_np/timespec_get, mach_*_time
+#   atcalls         openat + the *at() family (via per-thread chdir emulation)
+#   utimensat       utimensat/futimens
+#   fdopendir       fdopendir$INODE64 and friends
+#   dirfuncs_compat internal opendir/readdir helpers for fdopendir
+#   clonefile       clonefile/clonefileat/fclonefileat
+#   jit             pthread_jit_write_protect[_supported]_np + MAP_JIT-stripping mmap
+#   statxx          fstatat/fstatat$INODE64/fstatat64
+#   getentropy      getentropy
+#   mkostemp        mkostemp/mkostemps
+#   pthread_chdir   __mpls_best_fchdir closure for atcalls (private helpers)
+#   os_version      _availability_version_check (@available lowering; lld requires a
+#                   definition for compiler-rt's weak-import reference)
+#   os_unfair_lock  os_unfair_lock_lock/trylock/unlock (10.12+)
+#   os_unfair_lock_ext  os_unfair_lock_lock_with_flags/_with_options
+#   aligned_alloc   C11 aligned_alloc (10.15+)
+#   ccrandom        CCRandomGenerateBytes (10.10+)
+LEGACY="$REPO/MavericksSupport/polyfill/legacy-support"
+GAPDIR="$SCRATCH/gap"
+mkdir -p "$GAPDIR"
+GAP_SOURCES="time atcalls utimensat fdopendir dirfuncs_compat clonefile jit statxx getentropy mkostemp pthread_chdir os_version os_unfair_lock os_unfair_lock_ext aligned_alloc ccrandom"
+GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$LEGACY/include"
+( for s in $GAP_SOURCES; do
+    "$TC/bin/clang" $GAPCFLAGS -c "$LEGACY/src/$s.c" -o "$GAPDIR/$s.o" || exit 1
+  done ) || exit 1
+# GLib's macOS GAppInfo/content-type backend (gosxappinfo) calls two 10.10+
+# LaunchServices functions. Returning NULL makes GAppInfo report "no default
+# application", which GStreamer tolerates (media decode never needs a default
+# handler). Declared locally so they compile against the 10.9 host SDK.
+cat > "$GAPDIR/lsstubs.c" <<'EOF'
+#include <CoreFoundation/CoreFoundation.h>
+
+typedef UInt32 LSRolesMask;
+
+CFArrayRef LSCopyApplicationURLsForBundleIdentifier(CFStringRef inBundleIdentifier, CFErrorRef *outError)
+{
+    (void)inBundleIdentifier;
+    if (outError)
+        *outError = NULL;
+    return NULL;
+}
+
+CFURLRef LSCopyDefaultApplicationURLForContentType(CFStringRef inContentType, LSRolesMask inRoleMask, CFErrorRef *outError)
+{
+    (void)inContentType;
+    (void)inRoleMask;
+    if (outError)
+        *outError = NULL;
+    return NULL;
+}
+EOF
+( "$TC/bin/clang" $GAPCFLAGS -c "$GAPDIR/lsstubs.c" -o "$GAPDIR/lsstubs.o" ) || exit 1
+# applemedia (vtdec/vtenc/avfvideosrc) references 8 wide-gamut/HDR CoreVideo colorimetry
+# constants that postdate 10.9. Defining them here (canonical CFString values, identical
+# to CoreVideo's on newer macOS) makes the plugin's references resolve DEFINED at link
+# time; they only tag frames' color space, so the values matter for correctness, not for
+# decode to function.
+cat > "$GAPDIR/cvconsts.c" <<'EOF'
+#include <CoreFoundation/CoreFoundation.h>
+
+#define D(n, v) const CFStringRef n = CFSTR(v);
+D(kCVImageBufferColorPrimaries_DCI_P3, "DCI_P3")
+D(kCVImageBufferColorPrimaries_ITU_R_2020, "ITU_R_2020")
+D(kCVImageBufferColorPrimaries_P3_D65, "P3_D65")
+D(kCVImageBufferTransferFunction_ITU_R_2020, "ITU_R_2020")
+D(kCVImageBufferTransferFunction_ITU_R_2100_HLG, "ITU_R_2100_HLG")
+D(kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ, "SMPTE_ST_2084_PQ")
+D(kCVImageBufferTransferFunction_sRGB, "IEC_sRGB")
+D(kCVImageBufferYCbCrMatrix_ITU_R_2020, "ITU_R_2020")
+EOF
+( "$TC/bin/clang" $GAPCFLAGS -c "$GAPDIR/cvconsts.c" -o "$GAPDIR/cvconsts.o" ) || exit 1
+GAP_A="$GAPDIR/libmavericks_gap.a"
+( "$AR" rcs "$GAP_A" "$GAPDIR"/*.o ) || exit 1
+# Every media build below (meson via env, autotools via env, FFmpeg/OpenSSL via their
+# own flag plumbing) links the gap archive.
+export LDFLAGS="$LDFLAGS -Wl,-force_load,$GAP_A"
+
+echo "==== GLib 2.80.5 ===="
+# GLib's bundled subprojects come from meson wraps. The wrap-file tarballs pre-cache
+# into subprojects/packagecache (meson verifies their hashes); the wrap-git ones
+# land as plain directories at a pinned revision (gvdb/proxy-libintl by upstream URL,
+# libffi by $LIBFFI_REV because its upstream wrap floats on a branch).
+d=$(get https://download.gnome.org/sources/glib/2.80/glib-2.80.5.tar.xz glib)
+( cd "$d/subprojects" && mkdir -p packagecache && cd packagecache \
+  && fetch https://github.com/PhilipHazel/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.bz2 pcre2-10.42.tar.bz2 \
+  && fetch https://wrapdb.mesonbuild.com/v2/pcre2_10.42-2/get_patch pcre2_10.42-2_patch.zip \
+  && fetch https://zlib.net/fossils/zlib-1.2.11.tar.gz zlib-1.2.11.tar.gz \
+  && fetch https://wrapdb.mesonbuild.com/v2/zlib_1.2.11-6/get_patch zlib_1.2.11-6_patch.zip ) || exit 1
+( cd "$d/subprojects" \
+  && fetch https://gitlab.gnome.org/GNOME/gvdb/-/archive/0854af0fdb6d527a8d1999835ac2c5059976c210/gvdb.tar.gz gvdb.tar.gz \
+  && tar xzf gvdb.tar.gz && rm -rf gvdb && mv gvdb-0854af0* gvdb \
+  && fetch "https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi/-/archive/$LIBFFI_REV/libffi-$LIBFFI_REV.tar.gz" libffi-meson.tar.gz \
+  && tar xzf libffi-meson.tar.gz && rm -rf libffi && mv "libffi-$LIBFFI_REV" libffi \
+  && fetch https://github.com/frida/proxy-libintl/archive/refs/tags/0.4.tar.gz proxy-libintl-0.4.tar.gz \
+  && tar xzf proxy-libintl-0.4.tar.gz && rm -rf proxy-libintl && mv proxy-libintl-0.4 proxy-libintl ) || exit 1
+( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Ddefault_library=shared -Dbuildtype=release \
+    -Dtests=false -Dglib_debug=disabled -Dman-pages=disabled -Ddocumentation=false \
+    -Dintrospection=disabled > /tmp/depslog-glib-setup.log 2>&1 \
+  && "$MESON" compile -C b -j 2 > /tmp/depslog-glib-compile.log 2>&1 \
+  && "$MESON" install -C b > /tmp/depslog-glib-install.log 2>&1 ) || exit 1
+
+echo "==== orc / ogg / vorbis / opus / flac ===="
+d=$(get https://gstreamer.freedesktop.org/src/orc/orc-0.4.41.tar.xz orc)
+( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
+    -Dexamples=disabled > /tmp/depslog-orc-setup.log 2>&1 \
+  && "$MESON" compile -C b -j 2 > /tmp/depslog-orc-compile.log 2>&1 \
+  && "$MESON" install -C b > /tmp/depslog-orc-install.log 2>&1 ) || exit 1
+d=$(get https://downloads.xiph.org/releases/ogg/libogg-1.3.5.tar.gz ogg)
+( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static && make -s -j2 && make -s install ) || exit 1
+d=$(get https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz vorbis)
+( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static && make -s -j2 && make -s install ) || exit 1
+d=$(get https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz opus)
+( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static --disable-doc \
+    --disable-extra-programs && make -s -j2 && make -s install ) || exit 1
+d=$(get https://downloads.xiph.org/releases/flac/flac-1.4.3.tar.xz flac)
+( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static --disable-programs \
+    --disable-examples --disable-cpplibs && make -s -j2 && make -s install ) || exit 1
+
+echo "==== libvpx 1.14.1 ===="
+# VP8/VP9 encode + decode for the gst vpx plugin: WebRTC sends VP8/VP9 through vpxenc,
+# which gst-libav does not provide (FFmpeg carries no VP8/VP9 encoder of its own).
+# darwin13 is the 10.9 target triple; nasm assembles the SIMD code from the PATH.
+d=$(get https://github.com/webmproject/libvpx/archive/refs/tags/v1.14.1.tar.gz vpx)
+( cd "$d" && mkdir -p b && cd b \
+  && ../configure --target=x86_64-darwin13-gcc --prefix="$STAGE" \
+       --enable-shared --disable-static --enable-pic --enable-vp8 --enable-vp9 \
+       --disable-examples --disable-tools --disable-docs --disable-unit-tests \
+       --as=nasm \
+       --extra-cflags="-isysroot $SDK -mmacosx-version-min=10.9" \
+       --extra-cxxflags="-isysroot $SDK -mmacosx-version-min=10.9" > /tmp/depslog-vpx-setup.log 2>&1 \
+  && make -s -j2 > /tmp/depslog-vpx-compile.log 2>&1 \
+  && make -s install > /tmp/depslog-vpx-install.log 2>&1 ) || exit 1
+# libvpx's makefile stamps a BARE install name (libvpx.9.dylib) instead of the staged
+# path, so consumers (libgstvpx) record a bare LC_LOAD_DYLIB that normalize()'s
+# "^$STAGE/lib/" rewrite never matches and 10.9 dyld can never resolve. Stamp the
+# staged path here, before anything links it, so consumers record the full path and
+# normalize() turns it into @rpath like every other staged dependency.
+for v in "$STAGE"/lib/libvpx.*.dylib; do
+  [ -L "$v" ] && continue
+  "$INT" -id "$STAGE/lib/$(basename "$v")" "$v" || exit 1
+done
+
+echo "==== libxml2 2.13.6 ===="
+# WebCore links this in place of the 10.9 system libxml2 2.9.0, whose __xmlRaiseError
+# crashes on fatal parse errors (OptionsMac.cmake repoints LIBXML2_INCLUDE_DIR/LIBRARY
+# here). Not a GStreamer dependency — it rides the same staging/collect/gate pipeline.
+# Ambient CFLAGS/LDFLAGS apply: the gap archive supplies getentropy (10.12+, which
+# configure detects against the modern SDK and xmlInitRandom then calls) as a DEFINED
+# symbol, the same way it does for every other media dylib.
+d=$(get https://download.gnome.org/sources/libxml2/2.13/libxml2-2.13.6.tar.xz libxml2)
+( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static --without-python --without-lzma \
+    > /tmp/depslog-libxml2-setup.log 2>&1 \
+  && make -s -j2 > /tmp/depslog-libxml2-compile.log 2>&1 \
+  && make -s install > /tmp/depslog-libxml2-install.log 2>&1 ) || exit 1
+
+echo "==== dav1d 1.4.3 ===="
+# FFmpeg links it (--enable-libdav1d) for AV1 via the libdav1d wrapper codec. NOTE:
+# gst-libav does not wrap external-library ("lib*") FFmpeg decoders, so no avdec_av1
+# element materializes — matching the prebuilt runtime, which had no AV1 element either.
+d=$(get https://downloads.videolan.org/pub/videolan/dav1d/1.4.3/dav1d-1.4.3.tar.xz dav1d)
+( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release \
+    -Denable_tools=false -Denable_tests=false > /tmp/depslog-dav1d-setup.log 2>&1 \
+  && "$MESON" compile -C b -j 2 > /tmp/depslog-dav1d-compile.log 2>&1 \
+  && "$MESON" install -C b > /tmp/depslog-dav1d-install.log 2>&1 ) || exit 1
+
+echo "==== OpenSSL 3.0.16 ===="
+# WebRTC's DTLS-SRTP and WebKit's OpenSSL::Crypto cmake target consume these.
+d=$(get https://www.openssl.org/source/openssl-3.0.16.tar.gz openssl)
+( cd "$d" && ./Configure darwin64-x86_64-cc shared --prefix="$STAGE" --libdir=lib \
+    no-tests -mmacosx-version-min=10.9 > /dev/null \
+  && make -s -j2 > /dev/null && make -s install_sw > /dev/null ) || exit 1
+
+echo "==== libsrtp ===="
+d=$(get https://github.com/cisco/libsrtp/archive/refs/tags/v2.6.0.tar.gz srtp)
+( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release \
+    -Ddefault_library=shared > /tmp/depslog-srtp-setup.log 2>&1 \
+  && "$MESON" compile -C b -j 2 > /tmp/depslog-srtp-compile.log 2>&1 \
+  && "$MESON" install -C b > /tmp/depslog-srtp-install.log 2>&1 ) || exit 1
+
+echo "==== webrtc-audio-processing ===="
+# Echo cancellation / noise suppression for getUserMedia audio (gst's webrtcdsp).
+d=$(get https://www.freedesktop.org/software/pulseaudio/webrtc-audio-processing/webrtc-audio-processing-1.3.tar.xz webrtcap)
+( cd "$d/subprojects" 2>/dev/null && mkdir -p packagecache && cd packagecache \
+  && { for w in ../*.wrap; do
+         [ -f "$w" ] || continue
+         su=$(sed -n 's/^source_url *= *//p' "$w"); sf=$(sed -n 's/^source_filename *= *//p' "$w")
+         pu=$(sed -n 's/^patch_url *= *//p' "$w");  pf=$(sed -n 's/^patch_filename *= *//p' "$w")
+         [ -n "$su" ] && [ ! -f "$sf" ] && fetch "$su" "$sf"
+         [ -n "$pu" ] && [ ! -f "$pf" ] && fetch "$pu" "$pf"
+       done; true; } ) || true
+( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release > /tmp/depslog-webrtcap-setup.log 2>&1 \
+  && "$MESON" compile -C b -j 2 > /tmp/depslog-webrtcap-compile.log 2>&1 \
+  && "$MESON" install -C b > /tmp/depslog-webrtcap-install.log 2>&1 ) || exit 1
+
+echo "==== GStreamer 1.26.6 (core) ===="
+GSTOPTS="-Dbuildtype=release -Dtests=disabled -Dexamples=disabled -Ddoc=disabled"
+# -Dtools=enabled: gst-inspect-1.0/gst-launch-1.0 deploy into deps/build/bin for
+# on-box verification of the shipped runtime (webrtcbin present, plugins load).
+d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.26.6.tar.xz gstcore)
+( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
+    -Dtools=enabled -Dbenchmarks=disabled -Dlibunwind=disabled -Ddbghelp=disabled \
+    -Dbash-completion=disabled > /tmp/depslog-gstcore-setup.log 2>&1 \
+  && "$MESON" compile -C b -j 2 > /tmp/depslog-gstcore-compile.log 2>&1 \
+  && "$MESON" install -C b > /tmp/depslog-gstcore-install.log 2>&1 ) || exit 1
+
+# Media-critical plugins are ENABLED, not auto: a missing dependency then fails the
+# corresponding meson setup loudly instead of silently dropping the plugin from the
+# shipped runtime.
+echo "==== gst-plugins-base ===="
+d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-1.26.6.tar.xz gstbase)
+( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
+    -Dogg=enabled -Dvorbis=enabled -Dopus=enabled > /tmp/depslog-gstbase-setup.log 2>&1 \
+  && "$MESON" compile -C b -j 2 > /tmp/depslog-gstbase-compile.log 2>&1 \
+  && "$MESON" install -C b > /tmp/depslog-gstbase-install.log 2>&1 ) || exit 1
+
+echo "==== gst-plugins-good ===="
+# -Dasm=disabled: the deinterlace plugin's NASM yadif assembly is assembled non-PIC on
+# macho64, leaving relocations in __text; 10.9 dyld faults (SIGBUS, KERN_PROTECTION_FAILURE)
+# running the plugin's initializer off the fixed-up page, killing every registry scan.
+# The C yadif implementation is used instead; the gate below fails on any __text reloc.
+d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-1.26.6.tar.xz gstgood)
+( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dasm=disabled \
+    -Dvpx=enabled -Dflac=enabled -Dosxaudio=enabled -Dosxvideo=enabled > /tmp/depslog-gstgood-setup.log 2>&1 \
+  && "$MESON" compile -C b -j 2 > /tmp/depslog-gstgood-compile.log 2>&1 \
+  && "$MESON" install -C b > /tmp/depslog-gstgood-install.log 2>&1 ) || exit 1
+
+echo "==== libnice ===="
+# libnice sits between gst core (its own "nice" ICE-transport gst plugin needs
+# gstreamer-1.0 discoverable) and gst-plugins-bad (whose webrtc option needs nice.pc
+# discoverable at setup time -- webrtcbin, libgstwebrtc and libgstwebrtcnice only
+# build when libnice is already installed).
+d=$(get https://libnice.freedesktop.org/releases/libnice-0.1.22.tar.gz nice)
+( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
+    -Dexamples=disabled -Dgtk_doc=disabled -Dintrospection=disabled -Dgupnp=disabled \
+    -Dgstreamer=enabled -Dcrypto-library=openssl > /tmp/depslog-nice-setup.log 2>&1 \
+  && "$MESON" compile -C b -j 2 > /tmp/depslog-nice-compile.log 2>&1 \
+  && "$MESON" install -C b > /tmp/depslog-nice-install.log 2>&1 ) || exit 1
+
+echo "==== gst-plugins-bad ===="
+# sctp (WebRTC datachannels) builds from the usrsctp copy bundled in the tarball's
+# ext/sctp/usrsctp -- no extra download. dash stays off: dashdemux needs a
+# pkg-config-visible libxml2, which 10.9 lacks, and in-browser DASH runs through MSE
+# (JS players), never through dashdemux.
+d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.26.6.tar.xz gstbad)
+( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
+    -Dwebrtc=enabled -Dwebrtcdsp=enabled -Ddtls=enabled -Dsrtp=enabled -Dsctp=enabled \
+    -Dapplemedia=enabled > /tmp/depslog-gstbad-setup.log 2>&1 \
+  && "$MESON" compile -C b -j 2 > /tmp/depslog-gstbad-compile.log 2>&1 \
+  && "$MESON" install -C b > /tmp/depslog-gstbad-install.log 2>&1 ) || exit 1
+
+echo "==== FFmpeg 7.1.2 ===="
+# Apple-framework codepaths stay off: decoding runs through FFmpeg's own codecs so
+# behavior is identical on every 10.9 install. libdav1d supplies AV1 inside FFmpeg
+# (no gst element — see the dav1d note above).
+# FFmpeg's configure ignores the LDFLAGS environment, so the gap archive rides in
+# --extra-ldflags here.
+d=$(get https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz ffmpeg)
+( cd "$d" && ./configure --cc="$CC" --prefix="$STAGE" --install-name-dir='@rpath' \
+    --enable-shared --disable-static --disable-programs --disable-doc --disable-debug \
+    --disable-audiotoolbox --disable-videotoolbox --disable-securetransport \
+    --disable-iconv --disable-lzma --disable-sdl2 --disable-xlib --disable-coreimage \
+    --enable-libdav1d \
+    --x86asmexe="$NASM" \
     --extra-cflags="-mmacosx-version-min=10.9" \
-    --extra-ldflags="-mmacosx-version-min=10.9" \
-  && make -j4 && make install )
+    --extra-ldflags="-mmacosx-version-min=10.9 -Wl,-force_load,$GAP_A" > /dev/null \
+  && make -s -j2 > /dev/null && make -s install > /dev/null ) || exit 1
 
-echo "==== gst-libav 1.20.7 ===="
-# The plugin's sources build directly with clang against the GStreamer headers in
-# gstreamer/ and the FFmpeg stage above (its meson build adds nothing we need).
-# config.h carries the handful of defines the sources read.
-GSTLIB="$HERE/gstreamer/lib"
-GSTINC="$HERE/gstreamer/include"
-d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-1.20.7.tar.xz gstlibav)
-( cd "$d/ext/libav" && \
-  printf '%s\n' \
-    '#define PACKAGE "gst-libav"' \
-    '#define PACKAGE_VERSION "1.20.7"' \
-    '#define VERSION "1.20.7"' \
-    '#define GST_API_VERSION "1.0"' \
-    '#define GST_LICENSE "LGPL"' \
-    '#define GST_PACKAGE_NAME "GStreamer FFMPEG Plug-ins source release"' \
-    '#define GST_PACKAGE_ORIGIN "Unknown package origin"' \
-    '#define LIBAV_SOURCE "system install"' \
-    > config.h && \
-  "$CC" -O2 -mmacosx-version-min=10.9 -DHAVE_CONFIG_H -I. \
-    -I"$GSTINC/gstreamer-1.0" -I"$GSTINC/glib-2.0" \
-    -I"$GSTLIB/glib-2.0/include" -I"$FFSTAGE/include" \
-    -c ./*.c && \
-  "$CC" -dynamiclib -mmacosx-version-min=10.9 -o libgstlibav.dylib ./*.o \
-    -install_name @rpath/libgstlibav.dylib \
-    -L"$FFSTAGE/lib" -lavcodec -lavformat -lavutil -lavfilter -lswscale -lswresample \
-    -L"$GSTLIB" -lgstreamer-1.0 -lgstbase-1.0 -lgstvideo-1.0 -lgstaudio-1.0 \
-    -lgstpbutils-1.0 -lgsttag-1.0 -lglib-2.0 -lgobject-2.0 )
-GSTLIBAV_BUILD="$d/ext/libav"
+echo "==== gst-libav ===="
+d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-1.26.6.tar.xz gstlibav)
+# gst-libav's option set has no "examples"; it takes the shared options minus that one.
+( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
+    -Ddoc=disabled > /tmp/depslog-gstlibav-setup.log 2>&1 \
+  && "$MESON" compile -C b -j 2 > /tmp/depslog-gstlibav-compile.log 2>&1 \
+  && "$MESON" install -C b > /tmp/depslog-gstlibav-install.log 2>&1 ) || exit 1
 
 echo "==== collect into deps/build ===="
-rm -rf "$DEST/include" "$DEST/lib"; mkdir -p "$DEST/include" "$DEST/lib"
-# headers
+ls -la "$STAGE/lib" > /tmp/deps_stage_snapshot.txt 2>&1; ls "$STAGE/lib/gstreamer-1.0" >> /tmp/deps_stage_snapshot.txt 2>&1 || true
+rm -rf "$DEST/include" "$DEST/lib" "$DEST/bin"
+mkdir -p "$DEST/include" "$DEST/lib/gstreamer-1.0" "$DEST/bin"
+# headers (WebKit's own link deps + the GStreamer/GLib trees WebCore compiles against)
 cp -R "$STAGE/include/unicode"    "$DEST/include/"
 cp "$STAGE/include/gpg-error.h"   "$DEST/include/"
 cp "$STAGE/include/gcrypt.h"      "$DEST/include/"
 cp "$STAGE/include/libtasn1.h"    "$DEST/include/"
 cp -R "$STAGE/include/brotli"     "$DEST/include/"
 cp -R "$STAGE/include/woff2"      "$DEST/include/"
+for inc in glib-2.0 gio-unix-2.0 gstreamer-1.0 orc-0.4 openssl nice; do
+  [ -d "$STAGE/include/$inc" ] && cp -R "$STAGE/include/$inc" "$DEST/include/"
+done
+mkdir -p "$DEST/lib/glib-2.0/include"
+cp "$STAGE/lib/glib-2.0/include/glibconfig.h" "$DEST/lib/glib-2.0/include/"
 # static libs
 for l in libicuuc.a libicui18n.a libicudata.a \
          libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a; do
   cp "$STAGE/lib/$l" "$DEST/lib/"
 done
-# shared dylibs: FFmpeg (real files only, stored under their @rpath majored install
-# names) and the gst-libav plugin; the install scripts stage these next to the
-# GStreamer runtime libraries.
-mkdir -p "$DEST/lib/gstreamer-1.0"
-for f in "$FFSTAGE"/lib/*.dylib; do
-  [ -L "$f" ] && continue
-  cp "$f" "$DEST/lib/$(basename "$(otool -D "$f" | tail -1)")"
+
+# The C++ media libraries (webrtcdsp plugin + libwebrtc-audio-processing) link the
+# toolchain's modern C++ runtime via clang++.cfg (@rpath/libc++.1.dylib and friends;
+# the system libc++ on 10.9 predates the C++17 symbols they need). The trio stages
+# here so the collect loop deploys it next to them and the runtime is self-contained
+# -- the deployed set loads with the toolchain directory absent.
+for cxxlib in libc++.1.dylib libc++abi.1.dylib libunwind.1.dylib; do
+  [ -f "$TC/lib/$cxxlib" ] || { echo "  FATAL: $TC/lib/$cxxlib not found"; exit 1; }
+  cp "$TC/lib/$cxxlib" "$STAGE/lib/$cxxlib"
 done
-cp "$GSTLIBAV_BUILD/libgstlibav.dylib" "$DEST/lib/gstreamer-1.0/"
+
+# Shared dylibs: each real file deploys UNDER ITS MAJORED INSTALL-NAME BASENAME (the
+# name every dependent's LC_LOAD_DYLIB references), with the original file name and
+# the staged dev-name symlinks pointing at it. Every install name, inter-library
+# reference and rpath is @rpath / @loader_path relative so the deployed runtime is
+# relocatable; absolute build-machine rpaths get stripped and verified gone below.
+normalize() {  # normalize <file> <rpath-to-libdir>: @rpath deps, strip abs rpaths, add LC_RPATH
+  local f="$1" rp="$2" dep r
+  # staged-prefix dependencies -> @rpath/<install-name basename>
+  otool -L "$f" | awk 'NR>1 {print $1}' | { grep "^$STAGE/lib/" || true; } | while read -r dep; do
+    "$INT" -change "$dep" "@rpath/$(basename "$dep")" "$f" || exit 1
+  done
+  # a stray system-libc++ reference repoints onto the deployed toolchain copy (the
+  # 10.9 system libc++ lacks the modern C++ runtime symbols; the deployed copy is a
+  # superset, so non-C++17 users keep working too)
+  # NB: grep writes to /dev/null instead of -q throughout this script -- -q exits at
+  # first match, the upstream otool then dies of SIGPIPE, and pipefail turns that
+  # into a spurious failure status.
+  if otool -L "$f" | grep '/usr/lib/libc++\.1\.dylib' > /dev/null; then
+    "$INT" -change /usr/lib/libc++.1.dylib "@rpath/libc++.1.dylib" "$f" || exit 1
+  fi
+  if otool -L "$f" | grep '/usr/lib/libc++abi\.dylib' > /dev/null; then
+    "$INT" -change /usr/lib/libc++abi.dylib "@rpath/libc++abi.1.dylib" "$f" || exit 1
+  fi
+  # drop every absolute LC_RPATH (staged libdir, toolchain libdir) so nothing points
+  # off-tree; the gate below fails if any survives.
+  otool -l "$f" | awk '/LC_RPATH/{g=1} g&&/ path /{print $2; g=0}' | { grep "^/" || true; } | while read -r r; do
+    "$INT" -delete_rpath "$r" "$f" || exit 1
+  done
+  # each binary resolves its sibling @rpath dependencies from its own location at
+  # load time (WebCore dlopens these by absolute path, so nothing above them supplies
+  # an rpath).
+  if ! otool -l "$f" | awk '/LC_RPATH/{g=1} g&&/ path /{print $2; g=0}' | grep -x -F "$rp" > /dev/null; then
+    "$INT" -add_rpath "$rp" "$f" || exit 1
+  fi
+}
+collect_dylib() {  # collect_dylib <staged-real-file> <dest-dir> <rpath-to-libdir>
+  local f="$1" destdir="$2" rp="$3" id idbase filebase out
+  # The canonical deployed name is the basename of the STAGED install name -- read
+  # here, BEFORE the -id rewrite below replaces it. (Reading it from the copy after
+  # the rewrite yields the file name instead of the majored name, the majored name
+  # then never exists in the deployed tree, and every dependent -- gst-libav on
+  # libavcodec.61.dylib first among them -- fails to load.)
+  id=$(otool -D "$f" | tail -1)
+  idbase=$(basename "$id"); filebase=$(basename "$f")
+  case "$idbase" in *.dylib) : ;; *) idbase="$filebase" ;; esac
+  out="$destdir/$idbase"
+  cp "$f" "$out"
+  "$INT" -id "@rpath/$idbase" "$out" || exit 1
+  normalize "$out" "$rp"
+  # the original on-disk name (e.g. libavcodec.61.19.101.dylib) aliases the canonical
+  # majored name
+  if [ "$filebase" != "$idbase" ]; then ln -sf "$idbase" "$destdir/$filebase"; fi
+}
+collect_tool() {  # collect_tool <staged-executable>: deploy into DEST/bin, wired to ../lib
+  local f="$1" out="$DEST/bin/$(basename "$1")"
+  cp "$f" "$out"
+  normalize "$out" "@executable_path/../lib"
+}
+for f in "$STAGE"/lib/*.dylib; do
+  [ -L "$f" ] && continue
+  collect_dylib "$f" "$DEST/lib" "@loader_path/../lib"
+done
+for f in "$STAGE"/lib/gstreamer-1.0/*.dylib; do
+  [ -L "$f" ] && continue
+  collect_dylib "$f" "$DEST/lib/gstreamer-1.0" "@loader_path/../../lib"
+done
+# Alias symlinks reproduce the STAGED symlink structure (dev names like
+# libgstreamer-1.0.dylib, majored aliases like libogg.0.dylib), each retargeted at
+# the canonical deployed name of its ultimate target. Deriving these from the staged
+# tree -- rather than pattern-editing version suffixes -- keeps multi-dotted names
+# (libgstreamer-1.0.0.dylib) correct.
+for l in "$STAGE"/lib/*.dylib; do
+  [ -L "$l" ] || continue
+  base=$(basename "$l"); real="$l"; n=0
+  while [ -L "$real" ] && [ $n -lt 8 ]; do
+    tgt=$(readlink "$real")
+    case "$tgt" in /*) real="$tgt" ;; *) real="$(dirname "$real")/$tgt" ;; esac
+    n=$((n+1))
+  done
+  [ -f "$real" ] || continue
+  cname=$(basename "$(otool -D "$real" | tail -1)")
+  case "$cname" in *.dylib) : ;; *) cname=$(basename "$real") ;; esac
+  if [ "$base" != "$cname" ] && [ ! -e "$DEST/lib/$base" ]; then
+    ln -sf "$cname" "$DEST/lib/$base"
+  fi
+done
+# verification tools (see gate + NOTES verification plan)
+for t in gst-inspect-1.0 gst-launch-1.0; do
+  [ -f "$STAGE/bin/$t" ] || { echo "  FATAL: $STAGE/bin/$t not built"; exit 1; }
+  collect_tool "$STAGE/bin/$t"
+done
+
+echo "==== required artifacts ===="
+# Every media-critical artifact must exist by name; a silent dropout (plugin skipped,
+# majored name missing) fails here even if everything else builds.
+REQFAIL=0
+require_glob() {
+  if ! ls $1 > /dev/null 2>&1; then echo "  MISSING required artifact: $1"; REQFAIL=1; fi
+}
+require_glob "$DEST/lib/libglib-2.0.*.dylib"
+require_glob "$DEST/lib/libgstreamer-1.0.*.dylib"
+require_glob "$DEST/lib/libgstwebrtc-1.0.*.dylib"
+require_glob "$DEST/lib/libgstwebrtcnice-1.0.*.dylib"
+require_glob "$DEST/lib/libnice.*.dylib"
+require_glob "$DEST/lib/libavcodec.*.dylib"
+require_glob "$DEST/lib/libvpx.*.dylib"
+require_glob "$DEST/lib/libxml2.*.dylib"
+require_glob "$DEST/lib/libdav1d.*.dylib"
+require_glob "$DEST/lib/libc++.1.dylib"
+require_glob "$DEST/lib/libc++abi.1.dylib"
+require_glob "$DEST/lib/libunwind.1.dylib"
+for p in libgstcoreelements libgstlibav libgstwebrtc libgstnice libgstdtls libgstsrtp \
+         libgstsctp libgstvpx libgstwebrtcdsp libgstopus libgstapplemedia libgstosxaudio; do
+  require_glob "$DEST/lib/gstreamer-1.0/$p.dylib"
+done
+require_glob "$DEST/bin/gst-inspect-1.0"
+if [ "$REQFAIL" = 1 ]; then echo "  FAIL: required artifacts missing (see above)"; exit 1; fi
+echo "  ok: all required artifacts present"
+
+echo "==== fail-fast gate ===="
+# Ground truth on this 10.9 host: every deployed Mach-O must resolve completely --
+# every undefined symbol comes from the deployed set or from a library the real
+# 10.9 runtime supplies (proved by dlsym, which follows umbrella reexports), and any
+# weak import that resolves NOWHERE must be on the documented weak-allowed list
+# (references the SDK guards behind __builtin_available). Anything else fails loudly.
+GATE="$SCRATCH/gate"; mkdir -p "$GATE/und"
+FAILS="$GATE/failures.txt"; : > "$FAILS"
+
+# Weak imports allowed to bind NULL on 10.9. Each entry needs a reason:
+#   ___darwin_check_fd_set_overflow  emitted by the modern SDK's FD_SET() inline,
+#                                    called only under __builtin_available(macOS 11).
+# A first run against new code may surface more; verify the referencing source
+# guards the call (availability check) before extending this list -- an unguarded
+# one needs a gap-archive definition instead.
+WEAK_ALLOWED="___darwin_check_fd_set_overflow"
+
+# dlsym ground-truth probe: argv[1..] are libraries to dlopen; stdin carries one nm
+# symbol per line; the probe prints every symbol dyld cannot resolve.
+cat > "$GATE/dlsym_probe.c" <<'EOF'
+#include <dlfcn.h>
+#include <stdio.h>
+#include <string.h>
+int main(int argc, char **argv) {
+    int i; char line[4096];
+    for (i = 1; i < argc; i++)
+        dlopen(argv[i], RTLD_LAZY | RTLD_GLOBAL);
+    while (fgets(line, sizeof line, stdin)) {
+        size_t n = strlen(line);
+        while (n && (line[n-1] == '\n' || line[n-1] == '\r')) line[--n] = 0;
+        if (!n) continue;
+        const char *name = (line[0] == '_') ? line + 1 : line;
+        if (!dlsym(RTLD_DEFAULT, name)) printf("%s\n", line);
+    }
+    return 0;
+}
+EOF
+( "$CC_VANILLA" -O2 -mmacosx-version-min=10.9 -o "$GATE/dlsym_probe" "$GATE/dlsym_probe.c" ) || exit 1
+
+GATE_FILES=""
+for f in "$DEST"/lib/*.dylib "$DEST"/lib/gstreamer-1.0/*.dylib "$DEST"/bin/*; do
+  [ -L "$f" ] && continue
+  [ -f "$f" ] || continue
+  GATE_FILES="$GATE_FILES $f"
+done
+
+# pass 1: per-file undefineds (strong/weak), load commands, rpath + libc++ checks
+: > "$GATE/all-strong.txt"; : > "$GATE/all-weak.txt"; : > "$GATE/sysdeps.txt"
+: > "$GATE/deployed-exports.txt"
+for f in $GATE_FILES; do
+  b=$(basename "$f")
+  "$NMBIN" -arch x86_64 -gU "$f" 2>/dev/null | awk 'NF>=3{print $3}' >> "$GATE/deployed-exports.txt"
+  # dyld_stub_binder is the lazy-binding glue every 10.9-deployment Mach-O references;
+  # libdyld.dylib provides it on 10.9. It has no C underscore prefix, so the dlsym probe
+  # (which prepends one) can never see it — exclude it rather than false-FAIL every binary.
+  "$NMBIN" -m -arch x86_64 "$f" | awk '
+    /\(undefined\)/ {
+      line=$0; sub(/ \(from [^)]*\)[^)]*$/, "", line)
+      n=split(line, a, " "); sym=a[n]
+      if (sym == "dyld_stub_binder") next
+      if (index($0, " weak ")) print "W " sym; else print "S " sym
+    }' | sort -u > "$GATE/und/$b.und"
+  awk '$1=="S"{print $2}' "$GATE/und/$b.und" >> "$GATE/all-strong.txt"
+  awk '$1=="W"{print $2}' "$GATE/und/$b.und" >> "$GATE/all-weak.txt"
+  otool -l "$f" | awk '$1=="cmd"{t=$2}
+    $1=="name" && (t=="LC_LOAD_DYLIB"||t=="LC_LOAD_WEAK_DYLIB"||t=="LC_REEXPORT_DYLIB"){print t, $2}' \
+    >> "$GATE/sysdeps.txt"
+  # (c) verified: no absolute build-machine LC_RPATH survives normalize
+  absrp=$(otool -l "$f" | awk '/LC_RPATH/{g=1} g&&/ path /{print $2; g=0}' | { grep '^/' || true; })
+  if [ -n "$absrp" ]; then echo "absolute LC_RPATH in $b: $absrp" >> "$FAILS"; fi
+  # (d) no text relocations: S_ATTR_EXT_RELOC(0x200)/S_ATTR_LOC_RELOC(0x100) on __text means
+  # non-PIC code (e.g. NASM asm without PIC); 10.9 dyld faults executing the fixed-up page
+  # (SIGBUS in the module initializer — libgstdeinterlace's yadif asm was the live case).
+  textflags=$(otool -l "$f" | awk '/sectname __text/{t=1} t&&/flags 0x/{print $2; exit}')
+  case "$textflags" in
+    *[123567]00) echo "text relocations in $b (__text flags $textflags — non-PIC code)" >> "$FAILS" ;;
+  esac
+  # no deployed binary may lean on the (pre-C++17) system libc++
+  if otool -L "$f" | grep '/usr/lib/libc++' > /dev/null; then
+    echo "system libc++ reference in $b" >> "$FAILS"
+  fi
+done
+sort -u -o "$GATE/all-strong.txt" "$GATE/all-strong.txt"
+sort -u -o "$GATE/all-weak.txt"   "$GATE/all-weak.txt"
+sort -u -o "$GATE/deployed-exports.txt" "$GATE/deployed-exports.txt"
+
+# every non-@rpath load command must exist on this 10.9 host (weak dylib loads may
+# be absent -- dyld tolerates that); every @rpath one must exist in the deployed tree
+SYSLIBS=""
+for dep in $(awk '{print $2}' "$GATE/sysdeps.txt" | grep -v '^@' | sort -u); do
+  if [ -e "$dep" ]; then
+    SYSLIBS="$SYSLIBS $dep"
+  else
+    kinds=$(awk -v d="$dep" '$2==d{print $1}' "$GATE/sysdeps.txt" | sort -u)
+    case "$kinds" in
+      LC_LOAD_WEAK_DYLIB) echo "  note: weak dylib absent on 10.9 (tolerated): $dep" ;;
+      *) echo "hard-linked library absent on 10.9: $dep" >> "$FAILS" ;;
+    esac
+  fi
+done
+for dep in $(awk '{print $2}' "$GATE/sysdeps.txt" | grep '^@rpath/' | sort -u); do
+  base="${dep#@rpath/}"
+  if [ ! -e "$DEST/lib/$base" ] && [ ! -e "$DEST/lib/gstreamer-1.0/$base" ]; then
+    echo "@rpath dependency missing from deployed tree: $base" >> "$FAILS"
+  fi
+done
+
+# strong undefineds: (deployed exports) u (10.9 runtime via dlsym) covers all of them
+comm -23 "$GATE/all-strong.txt" "$GATE/deployed-exports.txt" > "$GATE/strong-unknown.txt"
+: > "$GATE/strong-missing.txt"
+if [ -s "$GATE/strong-unknown.txt" ]; then
+  "$GATE/dlsym_probe" $SYSLIBS < "$GATE/strong-unknown.txt" | sort -u > "$GATE/strong-missing.txt"
+fi
+if [ -s "$GATE/strong-missing.txt" ]; then
+  echo "strong undefined symbols with no provider on 10.9:" >> "$FAILS"
+  for f in $GATE_FILES; do
+    b=$(basename "$f")
+    hits=$(awk '$1=="S"{print $2}' "$GATE/und/$b.und" | sort -u | comm -12 - "$GATE/strong-missing.txt" | tr '\n' ' ')
+    if [ -n "$hits" ]; then echo "  $b: $hits" >> "$FAILS"; fi
+  done
+fi
+
+# weak undefineds: those with no provider anywhere bind NULL at load; each must be on
+# the documented allow-list
+comm -23 "$GATE/all-weak.txt" "$GATE/deployed-exports.txt" > "$GATE/weak-unknown.txt"
+: > "$GATE/weak-missing.txt"
+if [ -s "$GATE/weak-unknown.txt" ]; then
+  "$GATE/dlsym_probe" $SYSLIBS < "$GATE/weak-unknown.txt" | sort -u > "$GATE/weak-missing.txt"
+fi
+printf '%s\n' $WEAK_ALLOWED | sort -u > "$GATE/weak-allowed.txt"
+comm -23 "$GATE/weak-missing.txt" "$GATE/weak-allowed.txt" > "$GATE/weak-bad.txt"
+if [ -s "$GATE/weak-bad.txt" ]; then
+  echo "weak imports that bind NULL on 10.9 and are not allow-listed:" >> "$FAILS"
+  for f in $GATE_FILES; do
+    b=$(basename "$f")
+    hits=$(awk '$1=="W"{print $2}' "$GATE/und/$b.und" | sort -u | comm -12 - "$GATE/weak-bad.txt" | tr '\n' ' ')
+    if [ -n "$hits" ]; then echo "  $b: $hits" >> "$FAILS"; fi
+  done
+fi
+
+if [ -s "$FAILS" ]; then
+  echo "  ---- GATE FAILURES ----"
+  sed 's/^/  /' "$FAILS"
+  echo "  FAIL: the deployed runtime does not resolve cleanly on 10.9 (see above)"
+  exit 1
+fi
+echo "  ok: $(echo $GATE_FILES | wc -w | tr -d ' ') binaries; every strong undefined resolves on 10.9;"
+echo "      no NULL-binding weak imports beyond the allow-list; no absolute rpaths"
 
 echo "==== done. deps/build: ===="
-ls -la "$DEST/lib" "$DEST/include"
-
+ls "$DEST/lib" | head -40; ls "$DEST/lib/gstreamer-1.0" | wc -l
