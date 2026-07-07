@@ -151,6 +151,8 @@ struct WKViewState {
 {
     // MAVERICKS_BACKPORT: stop observing backing-scale changes (registered in -viewDidMoveToWindow for the Retina fix).
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidChangeBackingPropertiesNotification object:nil];
+    // MAVERICKS_BACKPORT: stop observing screen changes (registered in -viewDidMoveToWindow for the display-link wiring).
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidChangeScreenNotification object:nil];
     // MAVERICKS_BACKPORT: release the lazily-created browsing-context controller and delete the WKViewState.
     [_browsingContextController release];
     _browsingContextController = nil;
@@ -532,6 +534,20 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
         [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeBackingProperties:) name:NSWindowDidChangeBackingPropertiesNotification object:window];
     [self _wk_updateIntrinsicDeviceScaleFactor];
 
+    // MAVERICKS_BACKPORT: report the hosting window's screen to the page, mirroring upstream
+    // WebViewImpl::windowDidChangeScreen. WebPageProxy::windowScreenDidChange is what sets
+    // m_displayID (without it updateDisplayLinkFrequency() bails, so wheel/animated-scroll
+    // activity can never request full-speed DisplayLink updates) and what tells the WebContent
+    // side (WebPage::WindowScreenDidChange + EventDispatcher::PageScreenDidChange) which display
+    // the ThreadedScrollingTree belongs to — its displayDidRefresh() drops callbacks whose
+    // displayID doesn't match, so without this the scrolling thread never services scroll
+    // animations or desynchronized layer updates. Safari 7's WKView predates all of this wiring.
+    [backingCenter removeObserver:self name:NSWindowDidChangeScreenNotification object:nil];
+    if (NSWindow *window = [self window]) {
+        [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeScreen:) name:NSWindowDidChangeScreenNotification object:window];
+        [self _wk_windowDidChangeScreen:nil];
+    }
+
     OptionSet<WebCore::ActivityState> flags;
     flags.add(WebCore::ActivityState::IsInWindow);
     flags.add(WebCore::ActivityState::IsVisible);
@@ -575,6 +591,19 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 {
     UNUSED_PARAM(notification);
     [self _wk_updateIntrinsicDeviceScaleFactor];
+}
+
+// MAVERICKS_BACKPORT: push the hosting window's display ID to WebPageProxy (see -viewDidMoveToWindow).
+- (void)_wk_windowDidChangeScreen:(NSNotification *)notification
+{
+    UNUSED_PARAM(notification);
+    if (!_wkState || !_wkState->page)
+        return;
+    NSScreen *screen = [[self window] screen] ?: [NSScreen mainScreen];
+    CGDirectDisplayID displayID = [[[screen deviceDescription] objectForKey:@"NSScreenNumber"] unsignedIntValue];
+    if (!displayID)
+        displayID = CGMainDisplayID();
+    _wkState->page->windowScreenDidChange(displayID);
 }
 
 // MAVERICKS_BACKPORT: AppKit also delivers this directly to the view when its backing scale changes.

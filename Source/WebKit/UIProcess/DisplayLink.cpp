@@ -142,13 +142,30 @@ bool DisplayLink::removeInfoForClientIfUnused(Client& client)
 
 void DisplayLink::incrementFullSpeedRequestClientCount(Client& client)
 {
-    Locker locker { m_clientsLock };
+    {
+        Locker locker { m_clientsLock };
 
-    auto& clientInfo = m_clients.ensure(client, [] {
-        return ClientInfo { };
-    }).iterator->value;
+        auto& clientInfo = m_clients.ensure(client, [] {
+            return ClientInfo { };
+        }).iterator->value;
 
-    ++clientInfo.fullSpeedUpdatesClientCount;
+        ++clientInfo.fullSpeedUpdatesClientCount;
+
+        // MAVERICKS_BACKPORT: a full-speed request must be able to start the link itself. Upstream
+        // assumes some observer is already keeping it running (rendering observers, or the
+        // MomentumEventDispatcher's own StartDisplayLink for trackpad gesture streams). With a plain
+        // scroll-wheel mouse and an otherwise-idle page there is no such observer, so the
+        // EventDispatcher::DisplayDidRefresh stream that services ThreadedScrollingTree scroll
+        // animations (keyboard/animated scrolls) and desynchronized layer updates never flows.
+        // Publish the update reset under m_clientsLock like addObserver() does.
+        if (!platformIsRunning())
+            m_currentUpdate = { 0, m_displayNominalFramesPerSecond };
+    }
+
+    if (!platformIsRunning()) {
+        LOG_WITH_STREAM(DisplayLink, stream << "[UI ] DisplayLink for display " << m_displayID << " starting DisplayLink for a full-speed client");
+        platformStart();
+    }
 }
 
 void DisplayLink::decrementFullSpeedRequestClientCount(Client& client)
@@ -206,8 +223,18 @@ void DisplayLink::notifyObserversDisplayDidRefresh()
 
     bool anyConnectionHadObservers = false;
     for (auto& [client, clientInfo] : m_clients) {
-        if (clientInfo.observers.isEmpty())
+        if (clientInfo.observers.isEmpty()) {
+            // MAVERICKS_BACKPORT: service clients that only want full-speed updates (active wheel
+            // hysteresis / animated scrolls) even with no registered observers, and keep the link
+            // running for them — see incrementFullSpeedRequestClientCount(). Without this the
+            // scrolling thread's animations starve on idle pages (decrementFullSpeedRequestClientCount
+            // removes the client entry, so the link still stops once the demand ends).
+            if (clientInfo.fullSpeedUpdatesClientCount) {
+                anyConnectionHadObservers = true;
+                CheckedRef { client }->displayLinkFired(m_displayID, m_currentUpdate, true, false);
+            }
             continue;
+        }
 
         anyConnectionHadObservers = true;
 
@@ -299,12 +326,12 @@ void DisplayLinkCollection::setDisplayLinkPreferredFramesPerSecond(DisplayLink::
 
 void DisplayLinkCollection::setDisplayLinkForDisplayWantsFullSpeedUpdates(DisplayLink::Client& client, PlatformDisplayID displayID, bool wantsFullSpeedUpdates)
 {
-    if (auto* displayLink = existingDisplayLinkForDisplay(displayID)) {
-        if (wantsFullSpeedUpdates)
-            displayLink->incrementFullSpeedRequestClientCount(client);
-        else
-            displayLink->decrementFullSpeedRequestClientCount(client);
-    }
+    // MAVERICKS_BACKPORT: a full-speed request creates the link if needed (upstream only honors it
+    // for an already-existing link) — see DisplayLink::incrementFullSpeedRequestClientCount().
+    if (wantsFullSpeedUpdates)
+        displayLinkForDisplay(displayID).incrementFullSpeedRequestClientCount(client);
+    else if (auto* displayLink = existingDisplayLinkForDisplay(displayID))
+        displayLink->decrementFullSpeedRequestClientCount(client);
 }
 
 } // namespace WebKit
