@@ -12458,6 +12458,18 @@ void WebPageProxy::stopAllURLSchemeTasks(WebProcessProxy* process)
 
 void WebPageProxy::resetState(ResetStateReason resetStateReason)
 {
+#if HAVE(DISPLAY_LINK)
+    // MAVERICKS_BACKPORT: balance the DisplayLink full-speed registration when the page is
+    // invalidated (tab close / page destruction). Nothing else decrements it on this path —
+    // upstream tolerates the leaked count because a link with no observers still stops itself,
+    // but this port keeps the link running for full-speed clients (see DisplayLink.cpp), so a
+    // leaked count would pin a permanent 60Hz timer + EventDispatcher::DisplayDidRefresh IPC
+    // stream. Mirrors the deregistration windowScreenDidChange() already performs.
+    if (hasRunningProcess() && m_displayID && m_registeredForFullSpeedUpdates)
+        protect(legacyMainFrameProcess())->setDisplayLinkForDisplayWantsFullSpeedUpdates(*m_displayID, false);
+    m_registeredForFullSpeedUpdates = false;
+#endif
+
     m_mainFrame = nullptr;
     m_focusedFrame = nullptr;
     m_suspendedPageKeptToPreventFlashing = nullptr;

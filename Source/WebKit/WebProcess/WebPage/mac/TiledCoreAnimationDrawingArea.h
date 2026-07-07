@@ -90,9 +90,7 @@ private:
     WebCore::FloatRect exposedContentRect() const override;
     void setExposedContentRect(const WebCore::FloatRect&) override;
 
-    // MAVERICKS_BACKPORT: async scrolling needs the UIProcess scrolling thread,
-    // which we don't have. Use synchronous main-thread scrolling instead.
-    bool supportsAsyncScrolling() const override { return false; }
+    bool supportsAsyncScrolling() const override { return true; }
 
     // MAVERICKS_BACKPORT: explicit override to ensure Page::scheduleRenderingUpdateInternal
     // gets a true return, avoiding the fallback to RenderingUpdateScheduler
