@@ -1011,7 +1011,9 @@
 #endif
 #endif
 
-#if PLATFORM(MAC) \
+// MAVERICKS_BACKPORT: CVBufferCopyAttachments is macOS 12+; its soft-link init traps on
+// 10.9, where the pre-existing CVBufferGetAttachments fallback path is correct.
+#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000) \
     || (PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR))
 #define HAVE_CVBUFFERCOPYATTACHMENTS 1
 #endif

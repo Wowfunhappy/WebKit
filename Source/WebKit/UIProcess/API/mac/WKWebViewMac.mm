@@ -167,6 +167,14 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
             @try { [self interpretKeyEvents:@[event]]; } @catch (NSException *) { }
             tlsWKWVCommands = nullptr;
         }
+        // MAVERICKS_BACKPORT: register every collected command name so
+        // WebPageProxy::executeSavedCommandBySelector's MESSAGE_CHECK(isValidKeypressCommandName)
+        // accepts the selector WebContent echoes back when the DOM leaves it unhandled (e.g. Esc
+        // -> cancelOperation:). The sibling collectors (WKView.mm, WebViewImpl) register at
+        // collection time; this one previously omitted it, so the unhandled-key round-trip
+        // tripped the security check and SIGTRAPed the UI process.
+        for (auto& command : commands)
+            impl->page().registerKeypressCommandName(command.commandName);
         WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
         impl->page().handleKeyboardEvent(webEvent);
     } @catch (NSException *) { }
@@ -316,6 +324,70 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
 - (BOOL)_windowOcclusionDetectionEnabled
 {
     return self._impl && self._impl->windowOcclusionDetectionEnabled();
+}
+
+// MAVERICKS_BACKPORT: upstream's WKWebView (WKInternalMac) supercall methods (from the full
+// WKWebViewMac.mm). WebViewImpl invokes these on its view; without them, any WebViewImpl
+// path reaching one throws unrecognized-selector. In release builds an ObjC exception
+// unwinding through an IPC dispatch destroys the reply CompletionHandler uncalled —
+// WebPageProxy::executeSavedCommandBySelector's reply never gets sent and WebContent hangs
+// forever inside its synchronous ExecuteSavedCommandBySelector wait (every unhandled
+// keypress command, e.g. Esc -> cancelOperation:).
+- (NSTextInputContext *)_web_superInputContext
+{
+    return [super inputContext];
+}
+
+- (void)_web_superQuickLookWithEvent:(NSEvent *)event
+{
+    [super quickLookWithEvent:event];
+}
+
+- (void)_web_superSwipeWithEvent:(NSEvent *)event
+{
+    [super swipeWithEvent:event];
+}
+
+- (void)_web_superMagnifyWithEvent:(NSEvent *)event
+{
+    [super magnifyWithEvent:event];
+}
+
+- (void)_web_superSmartMagnifyWithEvent:(NSEvent *)event
+{
+    [super smartMagnifyWithEvent:event];
+}
+
+- (void)_web_superRemoveTrackingRect:(NSTrackingRectTag)tag
+{
+    [super removeTrackingRect:tag];
+}
+
+- (id)_web_superAccessibilityAttributeValue:(NSString *)attribute
+{
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    return [super accessibilityAttributeValue:attribute];
+ALLOW_DEPRECATED_DECLARATIONS_END
+}
+
+- (void)_web_superDoCommandBySelector:(SEL)selector
+{
+    [super doCommandBySelector:selector];
+}
+
+- (BOOL)_web_superPerformKeyEquivalent:(NSEvent *)event
+{
+    return [super performKeyEquivalent:event];
+}
+
+- (void)_web_superKeyDown:(NSEvent *)event
+{
+    [super keyDown:event];
+}
+
+- (NSView *)_web_superHitTest:(NSPoint)point
+{
+    return [super hitTest:point];
 }
 
 @end

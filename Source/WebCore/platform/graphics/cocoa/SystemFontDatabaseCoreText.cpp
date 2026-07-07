@@ -387,8 +387,14 @@ static inline FontSelectionValue cssWeightOfSystemFontDescriptor(CTFontDescripto
         return FontSelectionValue(result);
 
     auto traitsRef = adoptCF(static_cast<CFDictionaryRef>(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontTraitsAttribute)));
+    // MAVERICKS_BACKPORT: 10.9 CoreText can return null traits (and kCTFontCSSWeightAttribute
+    // above always misses — the constant is a stand-in key; the symbol is absent on 10.9).
+    // Regular weight is the correct answer for every UI-type system font descriptor here.
+    if (!traitsRef)
+        return FontSelectionValue(400);
     resultRef = static_cast<CFNumberRef>(CFDictionaryGetValue(traitsRef.get(), kCTFontWeightTrait));
-    CFNumberGetValue(resultRef.get(), kCFNumberFloatType, &result);
+    if (!resultRef || !CFNumberGetValue(resultRef.get(), kCFNumberFloatType, &result))
+        return FontSelectionValue(400);
     return FontSelectionValue(normalizeCTWeight(result));
 }
 
@@ -406,14 +412,14 @@ static CTFontTextStylePlatform NODELETE fontPlatform()
 auto SystemFontDatabase::platformSystemFontShorthandInfo(FontShorthand fontShorthand) -> SystemFontShorthandInfo
 {
     auto interrogateFontDescriptorShorthandItem = [] (CTFontDescriptorRef fontDescriptor, const String& family) {
-        // MAVERICKS_BACKPORT: CTFontDescriptorCopyAttribute on a UI-font descriptor crashes
-        // inside CFDictionaryGetValue (key/equal callbacks dispatch to a missing selector
-        // on this build). Skip the CT-introspection fast path entirely and return a
-        // sensible default. Pages using system-ui font-family keywords will get a
-        // 13pt regular font, which is fine for rendering.
-        if (!fontDescriptor)
-            return SystemFontShorthandInfo { AtomString(family), 13.0f, FontSelectionValue(400) };
-        return SystemFontShorthandInfo { AtomString(family), 13.0f, FontSelectionValue(400) };
+        auto sizeNumber = adoptCF(static_cast<CFNumberRef>(CTFontDescriptorCopyAttribute(fontDescriptor, kCTFontSizeAttribute)));
+        float size = 0;
+        // MAVERICKS_BACKPORT: 10.9 CoreText can return null for kCTFontSizeAttribute on a
+        // UI-type descriptor; fall back to the 13pt system size instead of dereferencing null.
+        if (!sizeNumber || !CFNumberGetValue(sizeNumber.get(), kCFNumberFloatType, &size))
+            size = 13.0f;
+        auto weight = cssWeightOfSystemFontDescriptor(fontDescriptor);
+        return SystemFontShorthandInfo { AtomString(family), size, FontSelectionValue(weight) };
     };
 
     auto interrogateTextStyleShorthandItem = [] (CFStringRef textStyle) {

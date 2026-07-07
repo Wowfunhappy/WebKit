@@ -5374,17 +5374,7 @@ void WebPageProxy::receivedNavigationActionPolicyDecision(WebProcessProxy& proce
             return protect(preferences->siteIsolationEnabled() && frame->isMainFrame() && provisionalPage && !provisionalPage->didFailProvisionalLoad() ? provisionalPage->process() : frame->process());
         }();
 
-        // MAVERICKS_BACKPORT: spawning additional WebContent processes is unreliable on this OS.
-        // Force the existing process to handle the navigation (no process swap). This means
-        // a single WebContent process handles all origins — site isolation is sacrificed for
-        // working navigation. processNavigatingTo is reassigned to the from-process so the
-        // downstream code paths (sharedProcess, addAllowedFirstPartyForCookies, etc.) all
-        // proceed against the existing process instead of a new one that would never start.
-        if (processNavigatingTo->coreProcessIdentifier() != processNavigatingFrom->coreProcessIdentifier()) {
-            WEBPAGEPROXY_RELEASE_LOG(ProcessSwapping, "decidePolicyForNavigationAction: MAVERICKS_BACKPORT — forcing same-process navigation (would have swapped %i->%i)", legacyMainFrameProcessID(), processNavigatingTo->processID());
-            processNavigatingTo = processNavigatingFrom.copyRef();
-        }
-        const bool navigationChangesFrameProcess = false;
+        const bool navigationChangesFrameProcess = processNavigatingTo->coreProcessIdentifier() != processNavigatingFrom->coreProcessIdentifier();
         const bool loadContinuingInNonInitiatingProcess = processInitiatingNavigation->coreProcessIdentifier() != processNavigatingTo->coreProcessIdentifier();
         if (navigationChangesFrameProcess) {
             policyAction = PolicyAction::LoadWillContinueInAnotherProcess;

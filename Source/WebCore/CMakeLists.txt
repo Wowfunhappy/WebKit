@@ -3144,6 +3144,23 @@ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/platform/audio/resources/Composite.wav")
         VERBATIM)
 endif ()
 
+# MAVERICKS_BACKPORT: stage the modern-media-controls bundle resources the same way. RenderThemeCocoa
+# loads the localized-strings script (mediaControlsScripts — without it the controls JS throws at load
+# and no control bar renders) and looks up <icon>.svg in modern-media-controls/images
+# (mediaControlsImageDataForIconNameAndType — a miss yields a 0-byte blob and every Button logs
+# "Button failed to load"). The upstream Xcode build copies these as bundle resources; the CMake Mac
+# build otherwise omits them, leaving the build-tree framework incomplete for the layout-test drivers.
+add_custom_command(TARGET WebCore POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:WebCore>/Resources/modern-media-controls/images"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/en.lproj/modern-media-controls-localized-strings.js"
+        "$<TARGET_FILE_DIR:WebCore>/Resources/modern-media-controls-localized-strings.js"
+    # Flat icon dir: the runtime lookup is pathForResource:inDirectory:@"modern-media-controls/images".
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/Modules/modern-media-controls/images/macOS"
+        "$<TARGET_FILE_DIR:WebCore>/Resources/modern-media-controls/images"
+    VERBATIM)
+
 if (APPLE)
     # [MAVERICKS_BACKPORT] The macOS 10.9 system ld64 (ld64-241.9) crashes encoding WebCore's export trie
     # (Assertion bindingDirectlyBound in ExportInfoAtom::encode -> SIGSEGV) for certain symbol sets — it
