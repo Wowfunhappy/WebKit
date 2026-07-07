@@ -98,7 +98,22 @@ void ValidationBubble::showRelativeTo(const IntRect& anchorRect)
         return;
 
     NSRect rect = NSMakeRect(anchorRect.x(), anchorRect.y(), anchorRect.width(), anchorRect.height());
+
+    // MAVERICKS_BACKPORT: on 10.9, -[NSPopover showRelativeToRect:ofView:preferredEdge:] runs
+    // -[NSWindow _makeParentWindowHaveFirstResponder:], forcibly making the popover's content view
+    // the ANCHOR window's first responder. Modern AppKit popovers keep their own responder state,
+    // which is the contract this file is written against. Left alone, the web view resigns first
+    // responder, the page's IsFocused activity state drops, the focused form control receives a
+    // blur event, and the control's blur handling hides the validation message — destroying the
+    // bubble milliseconds after it was shown. Restore the anchor window's first responder
+    // synchronously; the resign path only schedules a coalesced end-of-runloop activity-state
+    // recompute, so restoring within the same turn means no state change is ever sent. The bubble
+    // label takes no key input and transient/ESC dismissal don't rely on popover focus.
+    NSWindow *anchorWindow = [view window];
+    NSResponder *responderBeforeShowing = [anchorWindow firstResponder];
     [m_popover showRelativeToRect:rect ofView:view.get() preferredEdge:NSMinYEdge];
+    if ([anchorWindow firstResponder] != responderBeforeShowing)
+        [anchorWindow makeFirstResponder:responderBeforeShowing];
 }
 
 } // namespace WebCore
