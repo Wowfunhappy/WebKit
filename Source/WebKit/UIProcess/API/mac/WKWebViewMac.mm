@@ -199,6 +199,11 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
     // MAVERICKS_BACKPORT: build a NativeWebKeyboardEvent and hand it to the page proxy.
     WebKit::WebViewImpl *impl = self._impl;
     if (!impl) { [super flagsChanged:event]; return; }
+    // Don't make an event from the num lock and function keys (mirrors
+    // WebViewImpl::eventKeyCodeIsZeroOrNumLockOrFn); a keyCode-0 flagsChanged would reach
+    // the page as a key-down with windows keyCode 65 ('A') — a spurious Cmd+A.
+    unsigned short keyCode = [event keyCode];
+    if (!keyCode || keyCode == 10 || keyCode == 63) { [super flagsChanged:event]; return; }
     @try {
         WTF::Vector<WebCore::KeypressCommand> commands;
         WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);

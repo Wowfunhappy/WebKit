@@ -20,6 +20,7 @@
 
 #import "DrawingAreaProxy.h"
 #import "LayerTreeContext.h"
+#import "NativeWebKeyboardEvent.h"
 #import "PageClientImplCocoa.h"
 #import "RemoteLayerTreeNode.h"
 #import "TiledCoreAnimationDrawingAreaProxy.h"
@@ -85,6 +86,13 @@
 // intrinsicContentSizeDidChange so Mail's message view sizes to its content.
 @interface NSView (WKViewAutoLayout)
 - (void)_setIntrinsicContentSize:(NSSize)intrinsicContentSize;
+@end
+
+// MAVERICKS_BACKPORT: WKView's unhandled-key-down re-dispatch (the WebViewImpl::doneWithKeyEvent
+// m_keyDownEventBeingResent re-send), invoked from doneWithKeyEvent so menu key equivalents fire
+// after the page declines a key-down it got first crack at via -[WKView performKeyEquivalent:].
+@interface NSView (WKViewKeyResend)
+- (void)_mavericksResendUnhandledKeyDownEvent:(NSEvent *)event;
 @end
 
 namespace WebKit {
@@ -1258,8 +1266,21 @@ void MinimalPageClient::relayLiveRegionNotification(const WebCore::LiveRegionAnn
 void MinimalPageClient::didNotHandleTapAsClick(const WebCore::IntPoint&)
 { }
 #endif
-void MinimalPageClient::doneWithKeyEvent(const NativeWebKeyboardEvent&, bool wasEventHandled)
-{ }
+void MinimalPageClient::doneWithKeyEvent(const NativeWebKeyboardEvent& event, bool wasEventHandled)
+{
+    // MAVERICKS_BACKPORT: mirror WebViewImpl::doneWithKeyEvent — hide the cursor while typing,
+    // and re-dispatch unhandled key-downs to AppKit so Safari's menu key equivalents still fire
+    // after the page declined them in -[WKView performKeyEquivalent:].
+    NSEvent *nativeEvent = event.nativeEvent();
+    if (!nativeEvent || [nativeEvent type] != NSEventTypeKeyDown)
+        return;
+    if (wasEventHandled) {
+        [NSCursor setHiddenUntilMouseMoves:YES];
+        return;
+    }
+    if ([m_view respondsToSelector:@selector(_mavericksResendUnhandledKeyDownEvent:)])
+        [m_view _mavericksResendUnhandledKeyDownEvent:nativeEvent];
+}
 #if ENABLE(TOUCH_EVENTS)
 void MinimalPageClient::doneWithTouchEvent(const WebTouchEvent&, bool wasEventHandled)
 { }
