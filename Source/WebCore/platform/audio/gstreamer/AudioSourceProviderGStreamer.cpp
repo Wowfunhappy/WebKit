@@ -24,6 +24,11 @@
 #include "AudioBus.h"
 #include "AudioSourceProviderClient.h"
 #include "GStreamerCommon.h"
+// MAVERICKS_BACKPORT: bring in the WTF::GPtrDeleter specializations (e.g. GstAudioInfo) before
+// anything in this unified-source bundle instantiates the primary template — later bundle members
+// (PlatformRawAudioDataGStreamer.cpp) include this header and hit
+// "explicit specialization after instantiation" otherwise (unify-shuffle exposure).
+#include "GUniquePtrGStreamer.h"
 #include <gst/app/gstappsink.h>
 #include <gst/audio/audio-info.h>
 #include <gst/base/gstadapter.h>
