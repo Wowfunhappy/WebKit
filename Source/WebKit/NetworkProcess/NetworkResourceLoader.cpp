@@ -619,6 +619,12 @@ void NetworkResourceLoader::abort()
     LOADER_RELEASE_LOG("abort: (hasNetworkLoad=%d)", !!m_networkLoad);
     ASSERT(RunLoop::isMain());
 
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): load-lifecycle tracing; RELEASE_LOG is compiled out on 10.9.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[NRL-ABORT] url=%s\n", originalRequest().url().string().utf8().data());
+        fflush(stderr);
+    }
+
     if (m_parameters.options.keepAlive && m_response.isNull() && !m_isKeptAlive) {
         m_isKeptAlive = true;
         LOADER_RELEASE_LOG("abort: Keeping network load alive due to keepalive option");
@@ -1067,6 +1073,18 @@ void NetworkResourceLoader::sendDidReceiveResponsePotentiallyInNewBrowsingContex
 
     Ref connection = m_connection;
     auto browsingContextGroupSwitchDecision = connection->usesSingleWebProcess()? BrowsingContextGroupSwitchDecision::StayInGroup: toBrowsingContextGroupSwitchDecision(m_currentCoopEnforcementResult);
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): log the raw COOP/COEP headers, the parsed
+    // COOP value, and the browsing-context-group swap decision, to measure what isolation a page
+    // actually requests (this backport's process model never performs the isolating swap).
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        int coopVal = m_currentCoopEnforcementResult ? (int)m_currentCoopEnforcementResult->crossOriginOpenerPolicy.value : -1;
+        fprintf(stderr, "[COOP-DECIDE] decision=%d coopVal=%d singleProc=%d COOP='%s' COEP='%s' url=%s\n",
+            (int)browsingContextGroupSwitchDecision, coopVal, connection->usesSingleWebProcess(),
+            response.httpHeaderField(HTTPHeaderName::CrossOriginOpenerPolicy).utf8().data(),
+            response.httpHeaderField(HTTPHeaderName::CrossOriginEmbedderPolicy).utf8().data(),
+            response.url().string().utf8().data());
+        fflush(stderr);
+    }
     if (browsingContextGroupSwitchDecision == BrowsingContextGroupSwitchDecision::StayInGroup) {
         send(Messages::WebResourceLoader::DidReceiveResponse { response, privateRelayed, needsContinueDidReceiveResponseMessage, computeResponseMetrics(response) });
         return;
@@ -1130,6 +1148,12 @@ void NetworkResourceLoader::didFinishLoading(const NetworkLoadMetrics& networkLo
 
     LOADER_RELEASE_LOG("didFinishLoading: (numBytesReceived=%zd, hasCacheEntryForValidation=%d)", m_numBytesReceived, !!m_cacheEntryForValidation);
 
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): load-lifecycle tracing; RELEASE_LOG is compiled out on 10.9.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[NRL-FINISH] bytes=%zd url=%s\n", m_numBytesReceived, originalRequest().url().string().utf8().data());
+        fflush(stderr);
+    }
+
     // rdar://149080634: We can remove this when we finish investigating the logout issues.
     if (m_response.httpStatusCode() >= httpStatus400BadRequest && networkLoadMetrics.additionalNetworkLoadMetricsForWebInspector) {
         const auto& requestMetrics = networkLoadMetrics.additionalNetworkLoadMetricsForWebInspector;
@@ -1187,6 +1211,15 @@ void NetworkResourceLoader::didFailLoading(const ResourceError& error)
     bool wasServiceWorkerLoad = false;
     wasServiceWorkerLoad = !!m_serviceWorkerFetchTask;
     LOADER_RELEASE_LOG_ERROR("didFailLoading: (wasServiceWorkerLoad=%d, isTimeout=%d, isCancellation=%d, isAccessControl=%d, errorCode=%d)", wasServiceWorkerLoad, error.isTimeout(), error.isCancellation(), error.isAccessControl(), error.errorCode());
+
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): load-lifecycle tracing; RELEASE_LOG is compiled out on 10.9.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[NRL-FAIL] timeout=%d cancel=%d ac=%d code=%d domain=%s desc=%s url=%s\n",
+            error.isTimeout(), error.isCancellation(), error.isAccessControl(), error.errorCode(),
+            error.domain().utf8().data(), error.localizedDescription().utf8().data(),
+            originalRequest().url().string().utf8().data());
+        fflush(stderr);
+    }
     UNUSED_VARIABLE(wasServiceWorkerLoad);
 
     Ref connection = m_connection;

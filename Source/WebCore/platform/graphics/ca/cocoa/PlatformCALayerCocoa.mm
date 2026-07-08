@@ -465,11 +465,38 @@ void PlatformCALayerCocoa::animationEnded(const String& animationKey)
         m_owner->platformCALayerAnimationEnded(animationKey);
 }
 
+// MAVERICKS_BACKPORT: temporary #124 probe (sentinel-gated via /tmp/wk-ddg-probe, bounded) —
+// correlates layers marked dirty with layers actually drawn, to find the dirty-but-never-drawn
+// layer whose uninitialized backing is the black box at the DDG page origin. Remove with #124.
+static void ddgProbeLogLayerEvent(const char* event, void* layer, int layerType, CALayer *caLayer)
+{
+    static bool enabled = !access("/tmp/wk-ddg-probe", F_OK);
+    if (!enabled)
+        return;
+    static int count = 0;
+    if (count >= 4000)
+        return;
+    if (FILE* f = fopen("/tmp/wk-ddg-probe.log", "a")) {
+        ++count;
+        CGRect bounds = [caLayer bounds];
+        CGPoint position = [caLayer position];
+        CALayer *super1 = [caLayer superlayer];
+        CGRect superBounds = super1 ? [super1 bounds] : CGRectZero;
+        fprintf(f, "%s layer=%p ca=%p class=%s name=%s type=%d size=%.0fx%.0f pos=%.0f,%.0f opaque=%d hidden=%d contents=%d super=%p(%s %.0fx%.0f)\n",
+            event, layer, caLayer, object_getClassName(caLayer), [caLayer name] ? [caLayer name].UTF8String : "-",
+            layerType, bounds.size.width, bounds.size.height, position.x, position.y,
+            [caLayer isOpaque], [caLayer isHidden], [caLayer contents] ? 1 : 0,
+            super1, super1 ? object_getClassName(super1) : "-", superBounds.size.width, superBounds.size.height);
+        fclose(f);
+    }
+}
+
 void PlatformCALayerCocoa::setNeedsDisplay()
 {
     if (!m_backingStoreAttached)
         return;
 
+    ddgProbeLogLayerEvent("dirtyAll", this, (int)m_layerType, m_layer.get());
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_layer setNeedsDisplay];
     END_BLOCK_OBJC_EXCEPTIONS
@@ -480,6 +507,7 @@ void PlatformCALayerCocoa::setNeedsDisplayInRect(const FloatRect& dirtyRect)
     if (!m_backingStoreAttached)
         return;
 
+    ddgProbeLogLayerEvent("dirtyRect", this, (int)m_layerType, m_layer.get());
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_layer setNeedsDisplayInRect:dirtyRect];
     END_BLOCK_OBJC_EXCEPTIONS
@@ -881,6 +909,33 @@ void PlatformCALayerCocoa::setContents(CFTypeRef value)
         return;
     if (![m_layer respondsToSelector:@selector(setContents:)])
         return;
+    // MAVERICKS_BACKPORT: temporary #124 probe (sentinel-gated, bounded) — logs every
+    // contents-set layer so the opaque black box at the DDG page origin can be identified.
+    // Enable with `touch /tmp/wk-ddg-probe` before launching; remove once #124 is fixed.
+    static bool ddgProbeEnabled = !access("/tmp/wk-ddg-probe", F_OK);
+    if (ddgProbeEnabled && value) {
+        static int ddgProbeCount = 0;
+        if (ddgProbeCount < 400) {
+            if (FILE* f = fopen("/tmp/wk-ddg-probe.log", "a")) {
+                ++ddgProbeCount;
+                CGRect bounds = [m_layer bounds];
+                CFTypeID typeID = CFGetTypeID(value);
+                char typeDesc[128] = { 0 };
+                if (RetainPtr<CFStringRef> typeName = adoptCF(CFCopyTypeIDDescription(typeID)))
+                    CFStringGetCString(typeName.get(), typeDesc, sizeof(typeDesc), kCFStringEncodingUTF8);
+                if (typeID == CGImageGetTypeID()) {
+                    CGImageRef image = (CGImageRef)value;
+                    fprintf(f, "layer=%p type=%d size=%.0fx%.0f opaque=%d contents=CGImage %zux%zu bitmapInfo=0x%x alpha=%d\n",
+                        this, (int)m_layerType, bounds.size.width, bounds.size.height, [m_layer isOpaque],
+                        CGImageGetWidth(image), CGImageGetHeight(image), (unsigned)CGImageGetBitmapInfo(image), (int)CGImageGetAlphaInfo(image));
+                } else {
+                    fprintf(f, "layer=%p type=%d size=%.0fx%.0f opaque=%d contents=%s\n",
+                        this, (int)m_layerType, bounds.size.width, bounds.size.height, [m_layer isOpaque], typeDesc);
+                }
+                fclose(f);
+            }
+        }
+    }
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_layer setContents:(__bridge id)value];
     END_BLOCK_OBJC_EXCEPTIONS
@@ -1332,6 +1387,28 @@ PlatformCALayer::RepaintRectList PlatformCALayer::collectRectsToPaint(GraphicsCo
 
 void PlatformCALayer::drawLayerContents(GraphicsContext& graphicsContext, WebCore::PlatformCALayer* platformCALayer, RepaintRectList& dirtyRects, OptionSet<GraphicsLayerPaintBehavior> layerPaintBehavior)
 {
+    // MAVERICKS_BACKPORT: #124 probe counterpart of the dirty* events in setNeedsDisplay[InRect].
+    ddgProbeLogLayerEvent("draw", platformCALayer, (int)platformCALayer->layerType(), platformCALayer->platformLayer());
+    // MAVERICKS_BACKPORT: #124 probe — the box is an unpainted region inside the page tile, so
+    // log each paint's clip (CGContextGetClipBoundingBox) and dirty rects to see whether the box
+    // region is ever included.
+    static bool ddgRectProbeEnabled = !access("/tmp/wk-ddg-probe", F_OK);
+    if (ddgRectProbeEnabled) {
+        static int rectCount = 0;
+        if (rectCount < 400) {
+            if (FILE* f = fopen("/tmp/wk-ddg-probe.log", "a")) {
+                ++rectCount;
+                CGRect clip = CGContextGetClipBoundingBox(graphicsContext.platformContext());
+                fprintf(f, "drawRects layer=%p clip=%.0f,%.0f+%.0fx%.0f n=%u", platformCALayer,
+                    clip.origin.x, clip.origin.y, clip.size.width, clip.size.height, (unsigned)dirtyRects.size());
+                for (size_t i = 0; i < dirtyRects.size() && i < 4; ++i)
+                    fprintf(f, " r%zu=%.0f,%.0f+%.0fx%.0f", i, dirtyRects[i].x(), dirtyRects[i].y(), dirtyRects[i].width(), dirtyRects[i].height());
+                fprintf(f, "\n");
+                fclose(f);
+            }
+        }
+    }
+
     WebCore::PlatformCALayerClient* layerContents = platformCALayer->owner();
     if (!layerContents)
         return;
@@ -1369,6 +1446,24 @@ void PlatformCALayer::drawLayerContents(GraphicsContext& graphicsContext, WebCor
                     graphicsContext.clip(rect);
                     layerContents->platformCALayerPaintContents(platformCALayer, graphicsContext, rect, layerPaintBehavior);
                 }
+            }
+        }
+
+        // MAVERICKS_BACKPORT: #124 probe — AFTER the client paint, stamp a magenta rect over the
+        // black-box region of viewport-sized layers. If the on-screen box turns magenta, paints
+        // reach the displayed backing (the black comes from elsewhere); if the box stays black
+        // while its surroundings change, a lower-level clip is excluding exactly that rect.
+        if (ddgRectProbeEnabled) {
+            CGRect layerBounds = [platformCALayer->platformLayer() bounds];
+            if (layerBounds.size.width >= 900 && graphicsContext.hasPlatformContext()) {
+                CGContextRef cg = graphicsContext.platformContext();
+                CGContextSaveGState(cg);
+                // Half-width, 50%-alpha stamp: over painted-white content it reads pink
+                // (255,128,255); over never-painted black backing it reads dark purple
+                // (128,0,128); the right half of the box shows the raw truth.
+                CGContextSetRGBFillColor(cg, 1, 0, 1, 0.5);
+                CGContextFillRect(cg, CGRectMake(0, 0, 34, 80));
+                CGContextRestoreGState(cg);
             }
         }
     }

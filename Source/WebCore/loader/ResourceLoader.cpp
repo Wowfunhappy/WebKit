@@ -138,6 +138,11 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
             RESOURCELOADER_RELEASE_LOG("init: Cancelling because there is no document loader.");
         else
             RESOURCELOADER_RELEASE_LOG("init: Cancelling because the document loader has no frame.");
+        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): RELEASE_LOG is compiled out on 10.9.
+        if (!access("/tmp/wk-debug-on", F_OK)) {
+            fprintf(stderr, "[RL-INIT-FAIL] reason=%s url=%s\n", m_documentLoader ? "docloader-no-frame" : "no-docloader", clientRequest.url().string().utf8().data());
+            fflush(stderr);
+        }
         cancel();
         return completionHandler(false);
     }
@@ -150,12 +155,23 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
     m_loadTiming.markStartTime();
 
     RefPtr frame = m_frame.get();
-    if (!frame)
+    if (!frame) {
+        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated).
+        if (!access("/tmp/wk-debug-on", F_OK)) {
+            fprintf(stderr, "[RL-INIT-FAIL] reason=no-frame url=%s\n", clientRequest.url().string().utf8().data());
+            fflush(stderr);
+        }
         return completionHandler(false);
+    }
     m_defersLoading = m_options.defersLoadingPolicy == DefersLoadingPolicy::AllowDefersLoading && frame->page()->defersLoading();
 
     if (m_options.securityCheck == SecurityCheckPolicy::DoSecurityCheck && !protect(protect(frame->document())->securityOrigin())->canDisplay(clientRequest.url(), OriginAccessPatternsForWebProcess::singleton())) {
         RESOURCELOADER_RELEASE_LOG("init: Cancelling load because it violates security policy.");
+        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated).
+        if (!access("/tmp/wk-debug-on", F_OK)) {
+            fprintf(stderr, "[RL-INIT-FAIL] reason=canDisplay url=%s\n", clientRequest.url().string().utf8().data());
+            fflush(stderr);
+        }
         FrameLoader::reportLocalLoadFailed(frame.get(), clientRequest.url().string());
         releaseResources();
         return completionHandler(false);
@@ -163,6 +179,11 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
 
     if (!isPortAllowed(clientRequest.url())) {
         RESOURCELOADER_RELEASE_LOG("init: Cancelling load to a blocked port.");
+        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated).
+        if (!access("/tmp/wk-debug-on", F_OK)) {
+            fprintf(stderr, "[RL-INIT-FAIL] reason=blocked-port url=%s\n", clientRequest.url().string().utf8().data());
+            fflush(stderr);
+        }
         FrameLoader::reportBlockedLoadFailed(*frame, clientRequest.url());
         releaseResources();
         return completionHandler(false);
@@ -170,6 +191,11 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
 
     if (isIPAddressDisallowed(clientRequest.url())) {
         RESOURCELOADER_RELEASE_LOG("init: Cancelling load to disallowed IP address.");
+        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated).
+        if (!access("/tmp/wk-debug-on", F_OK)) {
+            fprintf(stderr, "[RL-INIT-FAIL] reason=disallowed-ip url=%s\n", clientRequest.url().string().utf8().data());
+            fflush(stderr);
+        }
         FrameLoader::reportBlockedLoadFailed(*frame, clientRequest.url());
         releaseResources();
         return completionHandler(false);
@@ -198,6 +224,12 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
 
         if (request.isNull()) {
             RESOURCELOADER_RELEASE_LOG("init: Cancelling load because the request is null.");
+            // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): the request was nulled during
+            // willSendRequest dispatch (e.g. by the injected bundle client).
+            if (!access("/tmp/wk-debug-on", F_OK)) {
+                fprintf(stderr, "[RL-INIT-FAIL] reason=request-nulled-by-willSendRequest\n");
+                fflush(stderr);
+            }
             cancel();
             return completionHandler(false);
         }

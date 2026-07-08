@@ -349,6 +349,25 @@ int XPCServiceMain(int, const char**)
 
         for (int sig : { SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGFPE, SIGTRAP })
             signal(sig, webkitMavericksCrashBacktrace);
+
+        // MAVERICKS_BACKPORT DIAGNOSTIC: env vars don't propagate to XPC services on 10.9, so
+        // GStreamer debug logging is file-driven too: /tmp/wk-gst-debug's first line becomes
+        // GST_DEBUG (e.g. "3" or "mse*:6,qtdemux:5"), output to /tmp/wk-gst-<pid>.log.
+        if (FILE* gstDebugFile = fopen("/tmp/wk-gst-debug", "r")) {
+            char level[128] = { 0 };
+            if (fgets(level, sizeof(level), gstDebugFile)) {
+                if (char* newline = strchr(level, '\n'))
+                    *newline = '\0';
+                if (level[0]) {
+                    setenv("GST_DEBUG", level, 1);
+                    char gstLogPath[128];
+                    snprintf(gstLogPath, sizeof(gstLogPath), "/tmp/wk-gst-%d.log", getpid());
+                    setenv("GST_DEBUG_FILE", gstLogPath, 1);
+                    setenv("GST_DEBUG_NO_COLOR", "1", 1);
+                }
+            }
+            fclose(gstDebugFile);
+        }
     }
 
     // Initialize WTF and main thread on the ACTUAL main thread (before xpc_main).
