@@ -498,7 +498,11 @@ d=$(get https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz ffmpeg)
 echo "==== gst-libav ===="
 d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-1.26.6.tar.xz gstlibav)
 # gst-libav's option set has no "examples"; it takes the shared options minus that one.
-( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
+# G_DISABLE_ASSERT matches official GStreamer release binaries (cerbero release builds
+# define it): gstavviddec.c wraps a g_error() vmeta-dimension check in
+# "#ifndef G_DISABLE_ASSERT" that otherwise hard-crashes WebContent on any H.264 stream
+# whose decoder pool returns MB-aligned buffers (e.g. 1088-vs-1080 on nytimes autoplay).
+( cd "$d" && CFLAGS="$CFLAGS -DG_DISABLE_ASSERT" "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
     -Ddoc=disabled > /tmp/depslog-gstlibav-setup.log 2>&1 \
   && "$MESON" compile -C b -j 2 > /tmp/depslog-gstlibav-compile.log 2>&1 \
   && "$MESON" install -C b > /tmp/depslog-gstlibav-install.log 2>&1 ) || exit 1
