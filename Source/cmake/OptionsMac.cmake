@@ -50,6 +50,12 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_CUSTOM_PROTOCOL_MANAGER PRIVATE O
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_ENCRYPTED_MEDIA PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SOURCE PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_STREAM PRIVATE ON)
+# MAVERICKS_BACKPORT: ON — WebCodecs, matching what Apple ships (PlatformEnableCocoa.h defaults it
+# to 1 on Mac; the cmake feature default is OFF only because non-Apple ports opt in per-port).
+# Backed by the GStreamer Audio/Video Encoder/Decoder implementations (AudioEncoder.cpp etc. pick
+# the GStreamer branch since USE_LIBWEBRTC is off), same as GTK/WPE. Sites feature-detect these
+# (Google Meet's media session setup uses VideoEncoder/AudioEncoder).
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_CODECS PRIVATE ON)
 # MAVERICKS_BACKPORT: OFF — memory sampler uses newer task-introspection SPI absent on 10.9; not needed for the drop-in.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEMORY_SAMPLER PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MOUSE_CURSOR_SCALE PRIVATE ON)
