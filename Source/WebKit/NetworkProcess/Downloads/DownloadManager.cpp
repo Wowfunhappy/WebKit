@@ -60,6 +60,15 @@ void DownloadManager::startDownload(PAL::SessionID sessionID, DownloadID downloa
     if (pageID)
         parameters.webPageID = *pageID;
     parameters.request = request;
+#if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: download bodies are written to disk by CFNetwork without passing
+    // through NetworkDataTaskCocoa::didReceiveData, so the brotli decode there can't run.
+    // Pin the pre-brotli Accept-Encoding for explicit downloads (10.9 CFNetwork decodes
+    // gzip/deflate itself); NetworkDataTaskCocoa only advertises br when no explicit
+    // Accept-Encoding is present.
+    if (parameters.request.httpHeaderField(WebCore::HTTPHeaderName::AcceptEncoding).isEmpty())
+        parameters.request.setHTTPHeaderField(WebCore::HTTPHeaderName::AcceptEncoding, "gzip, deflate"_s);
+#endif
     parameters.clientCredentialPolicy = ClientCredentialPolicy::MayAskClientForCredentials;
     parameters.isNavigatingToAppBoundDomain = isNavigatingToAppBoundDomain;
     if (request.url().protocolIsBlob()) {

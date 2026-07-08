@@ -1012,3 +1012,11 @@ set(WebKit_GENERATED_SERIALIZERS_SUFFIX mm)
 # From the build tree (NOT a stale /usr/local copy); its @rpath/libcg_polyfill.dylib install_name is resolved
 # at install time to the absolute in-bundle copy, keeping the build self-contained (no /usr/local dependency).
 list(APPEND WebKit_LIBRARIES ${MAVERICKS_SUPPORT}/polyfill/build/libcg_polyfill.dylib)
+
+# MAVERICKS_BACKPORT: brotli decoder for NetworkDataTaskCocoa's response decoding — modern CFNetwork
+# advertises and decodes "br" transparently; 10.9 CFNetwork passes br bodies through raw, so the
+# NetworkProcess decodes them itself (same vendored static brotli WebCore's WOFF2 decoder uses).
+list(APPEND WebKit_LIBRARIES
+    "${MAVERICKS_DEPS}/lib/libbrotlidec.a"
+    "${MAVERICKS_DEPS}/lib/libbrotlicommon.a"
+)
