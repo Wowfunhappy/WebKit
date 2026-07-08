@@ -601,6 +601,20 @@ void registerWebKitGStreamerElements()
                 gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE_CAST(factory.get()), GST_RANK_NONE);
         }
 
+        // MAVERICKS_BACKPORT: demote the applemedia VideoToolbox decoders so decodebin3 never
+        // auto-plugs them. The deps runtime deliberately decodes through FFmpeg (gst-libav) so
+        // behavior is identical on every 10.9 install; on this platform vtdec_hw's
+        // VTDecompressionSessionCreate fails with -8973 (no hardware decoder), which surfaced as
+        // a fatal "general resource error" on every MSE H.264 stream (bsky.app videos). The
+        // applemedia plugin still ships for its capture elements (avfvideosrc).
+        {
+            std::array<ASCIILiteral, 2> vtDecoderNames = { "vtdec"_s, "vtdec_hw"_s };
+            for (auto& elementName : vtDecoderNames) {
+                if (auto factory = adoptGRef(gst_element_factory_find(elementName)))
+                    gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE_CAST(factory.get()), GST_RANK_NONE);
+            }
+        }
+
         // The new demuxers based on adaptivedemux2 cannot be used in WebKit yet because this new
         // base class does not abstract away network access. They can't work in a sandboxed
         // media process, so demote their rank in order to prevent decodebin3 from auto-plugging them.
