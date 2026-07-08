@@ -28,8 +28,36 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 LIBDIR="$REPO/WebKitBuild/Release/lib"
 TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
-INT="${INSTALL_NAME_TOOL:-install_name_tool}"
-OTOOL="${OTOOL:-otool}"
+# cctools resolution. /usr/bin/{install_name_tool,lipo,otool} can be xcrun-style shims that
+# exec Xcode's xcodebuild — which crashes on 10.9 when a modern Xcode.app is present, and
+# errors out when no Xcode/CLT is installed at all. Never trust a candidate by name: probe
+# each one with a real invocation and take the first that actually works. Candidate order:
+# explicit env override, bare name from PATH (healthy CLT installs), MacPorts cctools
+# (mp-<name>), Xcode toolchain binary by absolute path (bypasses the broken shim).
+XCTC=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
+probe_lipo()  { "$1" -info /usr/lib/dyld >/dev/null 2>&1; }
+probe_otool() { "$1" -h /usr/lib/dyld >/dev/null 2>&1; }
+probe_int()   {
+    _t="$(mktemp -t int_probe)" || return 1
+    cp /usr/lib/libz.1.dylib "$_t" 2>/dev/null || { rm -f "$_t"; return 1; }
+    "$1" -id /tmp/int_probe.dylib "$_t" >/dev/null 2>&1; _rc=$?
+    rm -f "$_t"; return $_rc
+}
+resolve_tool() { # $1 = probe fn, $2 = friendly name, $3.. = candidates
+    _probe="$1"; _name="$2"; shift 2
+    for _cand in "$@"; do
+        [ -n "$_cand" ] || continue
+        _path="$(command -v "$_cand" 2>/dev/null || true)"
+        [ -n "$_path" ] || continue
+        if "$_probe" "$_path" 2>/dev/null; then echo "$_path"; return 0; fi
+    done
+    echo "install-safari7.sh: no working $_name found (tried: $*)" >&2
+    return 1
+}
+INT="$(resolve_tool probe_int install_name_tool "${INSTALL_NAME_TOOL:-}" install_name_tool mp-install_name_tool "$XCTC/install_name_tool")"
+OTOOL="$(resolve_tool probe_otool otool "${OTOOL:-}" otool mp-otool "$XCTC/otool")"
+LIPO="$(resolve_tool probe_lipo lipo "${LIPO:-}" lipo mp-lipo "$XCTC/lipo")"
+echo "### Tools: install_name_tool=$INT otool=$OTOOL lipo=$LIPO"
 # Canonical stock backup (flat *.framework dirs), preserved once. BACKUP_ROOT is a
 # single fixed dir — NOT a per-run timestamped one — so backup() never accumulates a
 # new ~670MB snapshot on every install.
@@ -408,20 +436,20 @@ graft_i386() {
     local dest="$1" stock="$2"
     [ -f "$dest" ]  || { echo "  graft: missing installed $dest" >&2; return 1; }
     [ -f "$stock" ] || { echo "  graft: missing stock $stock" >&2; return 1; }
-    case "$(lipo -info "$stock" 2>/dev/null)" in
+    case "$("$LIPO" -info "$stock" 2>/dev/null)" in
         *i386*) ;;
         *) echo "  graft: stock $stock has no i386 slice — skip" >&2; return 1;;
     esac
-    case "$(lipo -info "$dest" 2>/dev/null)" in
+    case "$("$LIPO" -info "$dest" 2>/dev/null)" in
         *i386*) echo "  graft: $dest already fat with i386 — skip"; return 0;;
     esac
     local ti tf
     ti="$(mktemp -t graft_i386)"; tf="$(mktemp -t graft_fat)"
-    lipo -thin i386 "$stock" -output "$ti"
-    lipo -create "$dest" "$ti" -output "$tf"
+    "$LIPO" -thin i386 "$stock" -output "$ti"
+    "$LIPO" -create "$dest" "$ti" -output "$tf"
     replace_inplace "$tf" "$dest"
     rm -f "$ti" "$tf"
-    echo "  grafted i386 into $(basename "$dest") -> $(lipo -info "$dest" 2>/dev/null | sed 's/.*are: //')"
+    echo "  grafted i386 into $(basename "$dest") -> $("$LIPO" -info "$dest" 2>/dev/null | sed 's/.*are: //')"
 }
 
 echo "### Grafting stock i386 slices for 32-bit app compatibility"
