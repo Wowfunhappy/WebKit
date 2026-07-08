@@ -261,7 +261,13 @@ static inline GstWebRTCBundlePolicy bundlePolicyFromConfiguration(const MediaEnd
 {
     switch (configuration.bundlePolicy) {
     case RTCBundlePolicy::Balanced:
-        return GST_WEBRTC_BUNDLE_POLICY_BALANCED;
+        // MAVERICKS_BACKPORT: webrtcbin does not implement GST_WEBRTC_BUNDLE_POLICY_BALANCED ("Balanced
+        // bundle policy not implemented yet" — gstwebrtcbin.c), so setting it silently fails and the
+        // bundle-policy property stays at its default (NONE), producing an offer with NO a=group:BUNDLE.
+        // "balanced" is the WebRTC default, so every PeerConnection created without an explicit policy
+        // hit this. Map it to MAX_BUNDLE, which webrtcbin supports and which real libwebrtc converges to
+        // for a bundled call; this matches how upstream Safari's offer bundles.
+        return GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE;
     case RTCBundlePolicy::MaxCompat:
         return GST_WEBRTC_BUNDLE_POLICY_MAX_COMPAT;
     case RTCBundlePolicy::MaxBundle:
