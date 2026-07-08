@@ -389,7 +389,11 @@ void ScrollerMac::updateValues()
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_scrollerImp setEnabled:m_isEnabled];
-    [m_scrollerImp setUserInterfaceLayoutDirection: m_scrollbarLayoutDirection == UserInterfaceLayoutDirection::RTL ? NSUserInterfaceLayoutDirectionRightToLeft : NSUserInterfaceLayoutDirectionLeftToRight];
+    // MAVERICKS_BACKPORT: -[NSScrollerImp setUserInterfaceLayoutDirection:] is 10.10+ (same
+    // guard as ScrollbarThemeMac). Unguarded, every scroller update raised (and WebKit
+    // discarded) an NSInvalidArgumentException — flooding ASL past its message quota.
+    if ([m_scrollerImp respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
+        [m_scrollerImp setUserInterfaceLayoutDirection: m_scrollbarLayoutDirection == UserInterfaceLayoutDirection::RTL ? NSUserInterfaceLayoutDirectionRightToLeft : NSUserInterfaceLayoutDirectionLeftToRight];
     [m_scrollerImp setBoundsSize:NSSizeFromCGSize([m_hostLayer bounds].size)];
     [m_scrollerImp setDoubleValue:values.value];
     [m_scrollerImp setPresentationValue:values.value];
@@ -521,7 +525,15 @@ void ScrollerMac::setNeedsDisplay()
 {
     Locker locker { m_scrollerImpLock };
 
-    [m_scrollerImp setNeedsDisplay:YES];
+    // MAVERICKS_BACKPORT: -[NSScrollerImp setNeedsDisplay:] doesn't exist on 10.9. Unguarded,
+    // the unrecognized selector raised an uncaught NSException that killed WebContent in a loop
+    // on any page toggling scrollbar appearance (Slack's dark theme hit it via
+    // ScrollerPairMac::setUseDarkAppearance). The imp draws into m_hostLayer ([m_scrollerImp
+    // setLayer:]), so marking that layer dirty is the 10.9 equivalent.
+    if ([m_scrollerImp respondsToSelector:@selector(setNeedsDisplay:)])
+        [m_scrollerImp setNeedsDisplay:YES];
+    else
+        [m_hostLayer setNeedsDisplay];
 }
 
 void ScrollerMac::scrollbarColorChanged(const std::optional<ScrollbarColor>& scrollbarColor)
@@ -620,7 +632,8 @@ String ScrollerMac::scrollbarState() const
     if ([m_scrollerImp knobAlpha] > 0)
         result.append(",visible_thumb"_s);
 
-    if ([m_scrollerImp userInterfaceLayoutDirection] == NSUserInterfaceLayoutDirectionRightToLeft)
+    // MAVERICKS_BACKPORT: -[NSScrollerImp userInterfaceLayoutDirection] is 10.10+; guard like the setter.
+    if ([m_scrollerImp respondsToSelector:@selector(userInterfaceLayoutDirection)] && [m_scrollerImp userInterfaceLayoutDirection] == NSUserInterfaceLayoutDirectionRightToLeft)
         result.append(",RTL"_s);
 
     if ([m_scrollerImp controlSize] != NSControlSizeRegular)

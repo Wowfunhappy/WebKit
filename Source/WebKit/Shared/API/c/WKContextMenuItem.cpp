@@ -44,7 +44,10 @@ WKTypeID WKContextMenuItemGetTypeID()
 WKContextMenuItemRef WKContextMenuItemCreateAsAction(WKContextMenuItemTag tag, WKStringRef title, bool enabled)
 {
 #if ENABLE(CONTEXT_MENUS)
-    return WebKit::toAPILeakingRef(WebKit::WebContextMenuItem::create(WebKit::WebContextMenuItemData(WebCore::ContextMenuItemType::Action, WebKit::toImpl(tag), protect(WebKit::toImpl(title))->string(), enabled, false)));
+    // MAVERICKS_BACKPORT: tolerate a null title. Safari 7's BrowserPageContextMenuClient passes a
+    // NULL WKStringRef for some media context-menu items (second right-click on a playing <video>,
+    // e.g. YouTube), which Safari-7-era WebKit accepted; dereferencing it crashed the UI process.
+    return WebKit::toAPILeakingRef(WebKit::WebContextMenuItem::create(WebKit::WebContextMenuItemData(WebCore::ContextMenuItemType::Action, WebKit::toImpl(tag), title ? protect(WebKit::toImpl(title))->string() : WTF::String(), enabled, false)));
 #else
     UNUSED_PARAM(tag);
     UNUSED_PARAM(title);
@@ -56,7 +59,8 @@ WKContextMenuItemRef WKContextMenuItemCreateAsAction(WKContextMenuItemTag tag, W
 WKContextMenuItemRef WKContextMenuItemCreateAsCheckableAction(WKContextMenuItemTag tag, WKStringRef title, bool enabled, bool checked)
 {
 #if ENABLE(CONTEXT_MENUS)
-    return WebKit::toAPILeakingRef(WebKit::WebContextMenuItem::create(WebKit::WebContextMenuItemData(WebCore::ContextMenuItemType::CheckableAction, WebKit::toImpl(tag), protect(WebKit::toImpl(title))->string(), enabled, checked)));
+    // MAVERICKS_BACKPORT: tolerate a null title (see WKContextMenuItemCreateAsAction).
+    return WebKit::toAPILeakingRef(WebKit::WebContextMenuItem::create(WebKit::WebContextMenuItemData(WebCore::ContextMenuItemType::CheckableAction, WebKit::toImpl(tag), title ? protect(WebKit::toImpl(title))->string() : WTF::String(), enabled, checked)));
 #else
     UNUSED_PARAM(tag);
     UNUSED_PARAM(title);
@@ -69,7 +73,8 @@ WKContextMenuItemRef WKContextMenuItemCreateAsCheckableAction(WKContextMenuItemT
 WKContextMenuItemRef WKContextMenuItemCreateAsSubmenu(WKStringRef title, bool enabled, WKArrayRef submenuItems)
 {
 #if ENABLE(CONTEXT_MENUS)
-    return WebKit::toAPILeakingRef(WebKit::WebContextMenuItem::create(protect(WebKit::toImpl(title))->string(), enabled, protect(WebKit::toImpl(submenuItems)).get()));
+    // MAVERICKS_BACKPORT: tolerate a null title (see WKContextMenuItemCreateAsAction).
+    return WebKit::toAPILeakingRef(WebKit::WebContextMenuItem::create(title ? protect(WebKit::toImpl(title))->string() : WTF::String(), enabled, protect(WebKit::toImpl(submenuItems)).get()));
 #else
     UNUSED_PARAM(title);
     UNUSED_PARAM(enabled);
