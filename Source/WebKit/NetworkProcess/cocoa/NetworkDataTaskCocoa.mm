@@ -56,11 +56,32 @@
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #import <wtf/text/Base64.h>
 
+// MAVERICKS_BACKPORT: streaming brotli decoder for "br" response bodies (vendored static brotli;
+// modern CFNetwork decodes br itself, 10.9 CFNetwork delivers the raw compressed bytes).
+#import <brotli/decode.h>
+
 #if HAVE(NW_ACTIVITY)
 #import <pal/spi/cocoa/NSURLConnectionSPI.h>
 #endif
 
 namespace WebKit {
+
+// MAVERICKS_BACKPORT: per-task streaming brotli decode state. Created in didReceiveResponse when
+// the response declares Content-Encoding: br; didReceiveData then feeds each chunk through it.
+struct NetworkDataTaskCocoa::BrotliStream {
+    BrotliStream()
+        : state(BrotliDecoderCreateInstance(nullptr, nullptr, nullptr))
+    {
+    }
+    ~BrotliStream()
+    {
+        if (state)
+            BrotliDecoderDestroyInstance(state);
+    }
+    BrotliDecoderState* state { nullptr };
+    bool sawInput { false };
+    bool failed { false };
+};
 
 // MAVERICKS_BACKPORT: NSURLSessionTask.taskIdentifier on 10.9 starts from 0, but the
 // WTF::HashMap<uint64_t, ...> used as dataTaskMap treats key 0 as the empty-slot
@@ -360,6 +381,21 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
             }
         }
     }
+    // MAVERICKS_BACKPORT: modern CFNetwork advertises "gzip, deflate, br" on every request and
+    // decodes brotli transparently; 10.9 CFNetwork only advertises gzip/deflate. CDNs keep
+    // separate cache variants per Accept-Encoding (Vary: Accept-Encoding), and a gzip-only
+    // browser can be served a stale/broken variant modern browsers never see (bsky's video CDN
+    // cached its gzip playlist variant without Access-Control-Allow-Origin, failing every HLS
+    // CORS fetch). Match modern Safari: advertise br here and decode it in didReceiveData
+    // (10.9 CFNetwork passes br bodies through raw; it still auto-decodes gzip/deflate even
+    // with an explicit Accept-Encoding header — verified against this exact CDN). Skip
+    // top-level navigations: those can convert to downloads, whose bodies CFNetwork writes to
+    // disk without passing through didReceiveData, which would save raw brotli bytes.
+    if (!isTopLevelNavigation() && ![nsRequest valueForHTTPHeaderField:@"Accept-Encoding"]) {
+        NSMutableURLRequest *mutableReq = [nsRequest mutableCopy];
+        [mutableReq setValue:@"gzip, deflate, br" forHTTPHeaderField:@"Accept-Encoding"];
+        nsRequest = adoptNS(mutableReq);
+    }
     m_task = [m_sessionWrapper->session dataTaskWithRequest:nsRequest.get()];
 
 #if HAVE(CFNETWORK_HOSTOVERRIDE)
@@ -485,6 +521,17 @@ void NetworkDataTaskCocoa::didCompleteWithError(const WebCore::ResourceError& er
 {
     WTFEmitSignpost(m_task.get(), DataTask, "completed with error: %d", !error.isNull());
 
+    // MAVERICKS_BACKPORT: a br body that errored mid-decode (we cancel the task on decode error,
+    // so the platform error here is "cancelled") or ended before the brotli stream completed
+    // must fail the load (CFNetwork reports the same for truncated gzip). Without this, a
+    // truncated/corrupt body would be delivered to the client as a successful load.
+    if (m_brotliStream
+        && (m_brotliStream->failed || (error.isNull() && m_brotliStream->sawInput && !BrotliDecoderIsFinished(m_brotliStream->state)))) {
+        if (RefPtr client = m_client.get())
+            client->didCompleteWithError(WebCore::ResourceError(String(NSURLErrorDomain), NSURLErrorCannotDecodeContentData, firstRequest().url(), "cannot decode brotli response body"_s), networkLoadMetrics);
+        return;
+    }
+
     if (RefPtr client = m_client.get())
         client->didCompleteWithError(error, networkLoadMetrics);
 }
@@ -498,6 +545,39 @@ void NetworkDataTaskCocoa::didReceiveData(const WebCore::SharedBuffer& data)
         setBytesTransferredOverNetwork([m_task _countOfBytesReceivedEncoded]);
     else
         setBytesTransferredOverNetwork(data.size());
+
+    // MAVERICKS_BACKPORT: decode br bodies (10.9 CFNetwork delivers the raw compressed bytes).
+    if (m_brotliStream) {
+        if (m_brotliStream->failed)
+            return;
+        m_brotliStream->sawInput = true;
+        auto span = data.span();
+        const uint8_t* nextIn = span.data();
+        size_t availableIn = span.size();
+        Vector<uint8_t> decoded;
+        uint8_t outputChunk[16384];
+        while (true) {
+            size_t availableOut = sizeof(outputChunk);
+            uint8_t* nextOut = outputChunk;
+            BrotliDecoderResult result = BrotliDecoderDecompressStream(m_brotliStream->state, &availableIn, &nextIn, &availableOut, &nextOut, nullptr);
+            if (size_t produced = sizeof(outputChunk) - availableOut)
+                decoded.append(std::span<const uint8_t> { outputChunk, produced });
+            if (result == BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT)
+                continue;
+            if (result == BROTLI_DECODER_RESULT_ERROR) {
+                m_brotliStream->failed = true;
+                [m_task cancel]; // stop the transfer; didCompleteWithError converts to a decode error
+                return;
+            }
+            break; // SUCCESS or NEEDS_MORE_INPUT: this chunk is fully consumed
+        }
+        if (!decoded.isEmpty()) {
+            Ref buffer = WebCore::SharedBuffer::create(WTF::move(decoded));
+            if (RefPtr client = m_client.get())
+                client->didReceiveData(buffer.get());
+        }
+        return;
+    }
 
     if (RefPtr client = m_client.get())
         client->didReceiveData(data);
@@ -533,6 +613,14 @@ void NetworkDataTaskCocoa::didReceiveResponse(WebCore::ResourceResponse&& respon
             }
         }
     }
+    // MAVERICKS_BACKPORT: 10.9 CFNetwork can't decode brotli — it delivers the raw br body with
+    // the Content-Encoding header intact. Set up a streaming decoder; didReceiveData feeds it.
+    // The header is left as-is, matching modern CFNetwork (which also decodes without stripping
+    // Content-Encoding). Downloads bypass didReceiveData, but a br'd download body only happens
+    // if the server compresses a file transfer — same truncated result stock 10.9 would produce.
+    if (equalLettersIgnoringASCIICase(response.httpHeaderField(WebCore::HTTPHeaderName::ContentEncoding), "br"_s))
+        m_brotliStream = std::unique_ptr<BrotliStream>(new BrotliStream);
+
     NetworkDataTask::didReceiveResponse(WTF::move(response), negotiatedLegacyTLS, privateRelayed, WebCore::IPAddress::fromString(lastRemoteIPAddress(m_task.get())), WTF::move(completionHandler));
 }
 

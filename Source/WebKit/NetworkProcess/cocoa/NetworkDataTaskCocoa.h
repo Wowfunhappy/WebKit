@@ -67,6 +67,10 @@ public:
     void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&);
     void didReceiveData(const WebCore::SharedBuffer&);
 
+    // MAVERICKS_BACKPORT: streaming brotli decode of "br" response bodies — modern CFNetwork
+    // decodes br transparently; 10.9 CFNetwork delivers the raw compressed bytes.
+    struct BrotliStream;
+
     void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, RedirectCompletionHandler&&);
     void transferSandboxExtensionToDownload(Download&);
 
@@ -120,6 +124,8 @@ private:
     bool m_isForMainResourceNavigationForAnyFrame { false };
     RefPtr<WebCore::SecurityOrigin> m_sourceOrigin;
     uint64_t m_requiredCookiesVersion { 0 };
+    // MAVERICKS_BACKPORT: non-null while decoding a "br" response body (see BrotliStream above).
+    std::unique_ptr<BrotliStream> m_brotliStream;
 };
 
 WebCore::Credential serverTrustCredential(const WebCore::AuthenticationChallenge&);
