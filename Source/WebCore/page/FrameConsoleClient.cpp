@@ -71,6 +71,9 @@
 #include <JavaScriptCore/ScriptCallStackFactory.h>
 #include <JavaScriptCore/StrongInlines.h>
 #include <wtf/Stopwatch.h>
+// MAVERICKS_BACKPORT DIAGNOSTIC: for the sentinel-gated full-console-argument dump below.
+#include <cstdio>
+#include <unistd.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
@@ -212,6 +215,18 @@ void FrameConsoleClient::messageWithTypeAndLevel(MessageType type, MessageLevel 
     if (!messageArgumentsVector.isEmpty()) {
         messageText = messageArgumentsVector.first();
         additionalArguments = messageArgumentsVector.subspan(1);
+    }
+
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): addMessageToConsole below forwards only the
+    // first console argument, so console.log("%c%s", style, text) loses the substituted text. When
+    // /tmp/wk-debug-on exists, dump every argument so page-JS styled logs (e.g. Google Meet's own
+    // diagnostics) are fully readable in /tmp/wc-stderr-<pid>.log. No behavior change.
+    if (messageArgumentsVector.size() > 1 && !access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[CARGS] lvl=%d", static_cast<int>(level));
+        for (auto& arg : messageArgumentsVector)
+            fprintf(stderr, " @@%s", arg.utf8().data());
+        fprintf(stderr, "\n");
+        fflush(stderr);
     }
 
     auto message = makeUnique<Inspector::ConsoleMessage>(MessageSource::ConsoleAPI, type, level, messageText, arguments.copyRef(), lexicalGlobalObject);

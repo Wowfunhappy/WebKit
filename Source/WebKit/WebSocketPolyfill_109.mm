@@ -274,6 +274,11 @@ static id wsHTTPResponseValueForHeaderField(NSHTTPURLResponse *self, SEL, NSStri
 
 - (void)deliverError:(NSError *)error
 {
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace WebSocket failures while debugging.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[WSPOLYFILL] error %s url=%s\n", error.description.UTF8String, _request.URL.absoluteString.UTF8String);
+        fflush(stderr);
+    }
     [_lock lock];
     void (^handler)(NSURLSessionWebSocketMessage *, NSError *) = _pendingReceive;
     _pendingReceive = nil;
@@ -286,6 +291,11 @@ static id wsHTTPResponseValueForHeaderField(NSHTTPURLResponse *self, SEL, NSStri
 
 - (void)deliverDidOpenWithProtocol:(NSString *)protocol
 {
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace WebSocket opens while debugging.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[WSPOLYFILL] open url=%s\n", _request.URL.absoluteString.UTF8String);
+        fflush(stderr);
+    }
     __weak id delegate = _delegate;
     __weak NSURLSession *session = _session;
     WKWebSocketStream *taskSelf = self;
@@ -640,6 +650,12 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
 
 - (BOOL)handshakeFailed:(NSInteger)statusCode
 {
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated like the XPCServiceMain stderr redirect):
+    // surface failed WebSocket handshakes in the per-pid stderr log while debugging.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[WSPOLYFILL] handshake failed HTTP %ld url=%s\n", (long)statusCode, _request.URL.absoluteString.UTF8String);
+        fflush(stderr);
+    }
     _state = WKWSStateClosed;
     NSString *desc = [NSString stringWithFormat:@"WebSocket handshake failed (HTTP %ld)", (long)statusCode];
     [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorBadServerResponse userInfo:@{ NSLocalizedDescriptionKey: desc }]];

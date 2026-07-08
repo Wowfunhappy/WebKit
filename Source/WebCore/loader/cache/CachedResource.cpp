@@ -155,6 +155,11 @@ void CachedResource::load(CachedResourceLoader& cachedResourceLoader)
 {
     if (!cachedResourceLoader.frame()) {
         CACHEDRESOURCE_RELEASE_LOG("load: No associated frame");
+        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): RELEASE_LOG is compiled out on 10.9.
+        if (!access("/tmp/wk-debug-on", F_OK)) {
+            fprintf(stderr, "[CR-LOAD-FAIL] reason=no-frame url=%s\n", url().string().utf8().data());
+            fflush(stderr);
+        }
         failBeforeStarting();
         return;
     }
@@ -174,10 +179,20 @@ void CachedResource::load(CachedResourceLoader& cachedResourceLoader)
                 if (m_options.keepAlive || shouldUsePingLoad(type()))
                     break;
                 CACHEDRESOURCE_RELEASE_LOG_WITH_FRAME("load: About to enter back/forward cache", frame.get());
+                // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated).
+                if (!access("/tmp/wk-debug-on", F_OK)) {
+                    fprintf(stderr, "[CR-LOAD-FAIL] reason=about-to-enter-bfcache url=%s\n", url().string().utf8().data());
+                    fflush(stderr);
+                }
                 failBeforeStarting();
                 return;
             case Document::InBackForwardCache:
                 CACHEDRESOURCE_RELEASE_LOG_WITH_FRAME("load: Already in back/forward cache", frame.get());
+                // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated).
+                if (!access("/tmp/wk-debug-on", F_OK)) {
+                    fprintf(stderr, "[CR-LOAD-FAIL] reason=in-bfcache url=%s\n", url().string().utf8().data());
+                    fflush(stderr);
+                }
                 failBeforeStarting();
                 return;
             }
@@ -187,14 +202,27 @@ void CachedResource::load(CachedResourceLoader& cachedResourceLoader)
     Ref frameLoader = frame->loader();
     if (m_options.securityCheck == SecurityCheckPolicy::DoSecurityCheck && !m_options.keepAlive && !shouldUsePingLoad(type())) {
         while (true) {
-            if (frameLoader->state() == FrameState::Provisional)
+            // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): RELEASE_LOG is compiled out on 10.9.
+            const char* mavericksFailReason = nullptr;
+            if (frameLoader->state() == FrameState::Provisional) {
                 CACHEDRESOURCE_RELEASE_LOG_WITH_FRAME("load: Failed security check -- state is provisional", frame.get());
-            else if (!frameLoader->activeDocumentLoader())
+                mavericksFailReason = "frame-state-provisional";
+            } else if (!frameLoader->activeDocumentLoader()) {
                 CACHEDRESOURCE_RELEASE_LOG_WITH_FRAME("load: Failed security check -- not active document", frame.get());
-            else if (frameLoader->activeDocumentLoader()->isStopping())
+                mavericksFailReason = "no-active-document-loader";
+            } else if (frameLoader->activeDocumentLoader()->isStopping()) {
                 CACHEDRESOURCE_RELEASE_LOG_WITH_FRAME("load: Failed security check -- active loader is stopping", frame.get());
-            else
+                mavericksFailReason = "active-loader-stopping";
+            } else
                 break;
+            if (!access("/tmp/wk-debug-on", F_OK)) {
+                RefPtr provisionalDL = frameLoader->provisionalDocumentLoader();
+                fprintf(stderr, "[CR-LOAD-FAIL] reason=%s mainFrame=%d loadType=%d provURL=%s url=%s\n",
+                    mavericksFailReason, frame->isMainFrame(), (int)frameLoader->loadType(),
+                    provisionalDL ? provisionalDL->url().string().utf8().data() : "(none)",
+                    url().string().utf8().data());
+                fflush(stderr);
+            }
             failBeforeStarting();
             return;
         }
