@@ -216,8 +216,8 @@ list(APPEND WebCore_SOURCES
 
     platform/audio/AudioSession.cpp
 
-    platform/audio/cocoa/AudioDecoderCocoa.cpp
-    platform/audio/cocoa/AudioEncoderCocoa.cpp
+    # MAVERICKS_BACKPORT: AudioDecoderCocoa.cpp / AudioEncoderCocoa.cpp are not compiled —
+    # WebCodecs audio runs on the GStreamer backend (see the SourcesCocoa.txt note).
     platform/audio/cocoa/WebAudioBufferList.cpp
 
     platform/audio/mac/AudioBusMac.mm

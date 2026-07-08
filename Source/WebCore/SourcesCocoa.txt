@@ -277,9 +277,14 @@ page/scrolling/mac/ScrollingTreeScrollingNodeDelegateMac.mm @nonARC
 page/writing-tools/WritingToolsController.mm @nonARC
 platform/VideoFrame.mm @nonARC
 platform/audio/AudioSession.cpp
-platform/audio/cocoa/AudioDecoderCocoa.cpp
+// MAVERICKS_BACKPORT: the Cocoa WebCodecs audio backend is not compiled — WebCodecs runs on the
+// GStreamer backend (AudioDecoder/AudioEncoder .cpp pick the USE(GSTREAMER) branch since
+// USE_LIBWEBRTC is off), and PlatformRawAudioDataCocoa.cpp defines the same
+// PlatformRawAudioData::create factories as PlatformRawAudioDataGStreamer.cpp (duplicate symbols
+// if both build). Same precedent as MediaStreamAudioSourceCocoa.cpp in PlatformMac.cmake.
+// platform/audio/cocoa/AudioDecoderCocoa.cpp -- 10.9: GStreamer WebCodecs backend used instead
 platform/audio/cocoa/AudioDestinationCocoa.cpp
-platform/audio/cocoa/AudioEncoderCocoa.cpp
+// platform/audio/cocoa/AudioEncoderCocoa.cpp -- 10.9: GStreamer WebCodecs backend used instead
 platform/audio/cocoa/AudioFileReaderCocoa.mm @nonARC
 platform/audio/cocoa/AudioOutputUnitAdaptor.cpp
 platform/audio/cocoa/AudioSampleBufferList.cpp
@@ -290,7 +295,7 @@ platform/audio/cocoa/AudioUtilitiesCocoa.cpp
 platform/audio/cocoa/CAAudioStreamDescription.cpp
 platform/audio/cocoa/CARingBuffer.cpp
 platform/audio/cocoa/MediaSessionManagerCocoa.mm @nonARC
-platform/audio/cocoa/PlatformRawAudioDataCocoa.cpp
+// platform/audio/cocoa/PlatformRawAudioDataCocoa.cpp -- 10.9: GStreamer WebCodecs backend used instead (see AudioDecoderCocoa note)
 platform/audio/cocoa/SpatialAudioExperienceHelper.mm @nonARC
 platform/audio/cocoa/WebAudioBufferList.cpp
 platform/audio/ios/AudioOutputUnitAdaptorIOS.cpp @no-unify
