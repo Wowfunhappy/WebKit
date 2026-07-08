@@ -31,6 +31,9 @@
 #include "FontCache.h"
 
 #include "FontCascade.h"
+// MAVERICKS_BACKPORT: explicit include for the inline FontCascade::fontSelector() used below —
+// this TU relied on another unified-source bundle member providing it (unify-shuffle exposure).
+#include "FontCascadeInlines.h"
 #include "FontCreationContext.h"
 #include "FontPlatformData.h"
 #include "FontSelector.h"
