@@ -2382,6 +2382,66 @@ void GStreamerMediaEndpoint::onIceCandidate(guint sdpMLineIndex, gchararray cand
     });
 }
 
+// MAVERICKS_BACKPORT: libwebrtc (real Safari/Chrome) pre-allocates SSRCs for every send-capable
+// audio/video m-section and advertises them in the offer as a=ssrc (plus a=ssrc-group:FID for the
+// video RTX pair). webrtcbin only learns SSRCs once media actually flows, so its offers carry no
+// ssrc attributes. Google Meet's Safari code path hard-requires them: its simulcast SDP munger
+// dereferences the video section's ssrc-group:FID and crashes without it, which aborts call setup
+// (DisconnectedError EndCause=16). Advertise generated SSRCs here, with the cname aligned to
+// rtpbin's RTCP SDES so RTCP stays consistent with the SDP.
+void GStreamerMediaEndpoint::advertiseSendSSRCs(GstSDPMessage* sdp)
+{
+    String cname;
+    if (auto rtpBin = adoptGRef(gst_bin_get_by_name(GST_BIN_CAST(m_webrtcBin.get()), "rtpbin"))) {
+        GUniqueOutPtr<GstStructure> sdes;
+        g_object_get(rtpBin.get(), "sdes", &sdes.outPtr(), nullptr);
+        if (sdes) {
+            if (auto value = gstStructureGetString(sdes.get(), "cname"_s))
+                cname = String::fromUTF8(value.span());
+        }
+    }
+    if (cname.isEmpty())
+        cname = createVersion4UUIDString();
+
+    unsigned totalMedias = gst_sdp_message_medias_len(sdp);
+    for (unsigned i = 0; i < totalMedias; i++) {
+        auto media = const_cast<GstSDPMedia*>(gst_sdp_message_get_media(sdp, i));
+        auto mediaType = StringView::fromLatin1(gst_sdp_media_get_media(media));
+        if (mediaType != "audio"_s && mediaType != "video"_s)
+            continue;
+
+        auto direction = getDirectionFromSDPMedia(media);
+        if (direction != GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_SENDONLY && direction != GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV)
+            continue;
+
+        if (gst_sdp_media_get_attribute_val(media, "ssrc"))
+            continue;
+
+        // Keep advertised SSRCs stable across renegotiations, like libwebrtc does, by caching them per mid.
+        const char* midValue = gst_sdp_media_get_attribute_val(media, "mid");
+        auto mid = midValue ? String::fromLatin1(midValue) : String();
+        auto result = m_advertisedSSRCs.ensure(mid.isEmpty() ? makeString("m-line-"_s, i) : mid, [&]() -> std::pair<uint32_t, uint32_t> {
+            return { m_ssrcGenerator->generateSSRC(), m_ssrcGenerator->generateSSRC() };
+        });
+        auto [ssrc, rtxSsrc] = result.iterator->value;
+        if (ssrc == std::numeric_limits<uint32_t>::max() || rtxSsrc == std::numeric_limits<uint32_t>::max())
+            continue;
+
+        if (mediaType == "video"_s) {
+            auto fidGroup = makeString("FID "_s, ssrc, ' ', rtxSsrc);
+            gst_sdp_media_add_attribute(media, "ssrc-group", fidGroup.ascii().data());
+            auto primaryAttribute = makeString(ssrc, " cname:"_s, cname);
+            gst_sdp_media_add_attribute(media, "ssrc", primaryAttribute.ascii().data());
+            auto rtxAttribute = makeString(rtxSsrc, " cname:"_s, cname);
+            gst_sdp_media_add_attribute(media, "ssrc", rtxAttribute.ascii().data());
+        } else {
+            auto ssrcAttribute = makeString(ssrc, " cname:"_s, cname);
+            gst_sdp_media_add_attribute(media, "ssrc", ssrcAttribute.ascii().data());
+        }
+        GST_DEBUG_OBJECT(m_pipeline.get(), "Advertised SSRC %u for %s m-section %u", ssrc, mediaType == "video"_s ? "video" : "audio", i);
+    }
+}
+
 void GStreamerMediaEndpoint::createSessionDescriptionSucceeded(GUniquePtr<GstWebRTCSessionDescription>&& description)
 {
     callOnMainThread([protectedThis = Ref(*this), this, description = WTF::move(description)] {
@@ -2390,6 +2450,10 @@ void GStreamerMediaEndpoint::createSessionDescriptionSucceeded(GUniquePtr<GstWeb
         auto peerConnectionBackend = this->peerConnectionBackend();
         if (!peerConnectionBackend)
             return;
+
+        // MAVERICKS_BACKPORT: see advertiseSendSSRCs().
+        if (description->type == GST_WEBRTC_SDP_TYPE_OFFER)
+            advertiseSendSSRCs(description->sdp);
 
         auto sdpString = sdpAsString(description->sdp);
 #ifndef GST_DISABLE_GST_DEBUG

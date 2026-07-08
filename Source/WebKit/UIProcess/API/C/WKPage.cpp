@@ -2472,7 +2472,12 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
         void queryPermission(const WTF::String& permissionName, API::SecurityOrigin& origin, CompletionHandler<void(std::optional<WebCore::PermissionState>)>&& completionHandler) final
         {
             if (!m_client.queryPermission) {
-                completionHandler({ });
+                // MAVERICKS_BACKPORT: legacy (Safari 7 era) UI clients predate this callback and can
+                // never implement it, which surfaced to pages as `navigator.permissions.query()`
+                // rejecting with NotSupportedError for camera/microphone. Real Safari answers these
+                // queries; report Prompt, the same default WebPermissionControllerProxy uses when no
+                // page is available.
+                completionHandler(WebCore::PermissionState::Prompt);
                 return;
             }
             m_client.queryPermission(toAPI(API::String::create(permissionName).ptr()), toAPI(&origin), toAPI(QueryPermissionResultCallback::create(WTF::move(completionHandler)).ptr()));
