@@ -77,7 +77,17 @@ struct WKViewState {
     // -[NSView dragImage:...event:...] API to start an HTML5 drag session.
     RetainPtr<NSEvent> lastMouseDownEvent;
 #endif
+    // MAVERICKS_BACKPORT: the unhandled key-down currently being re-dispatched to AppKit
+    // (mirrors WebViewImpl::m_keyDownEventBeingResent); performKeyEquivalent:/keyDown:
+    // pass it to super instead of re-entering the page.
+    RetainPtr<NSEvent> keyDownEventBeingResent;
 };
+
+// MAVERICKS_BACKPORT: NSApplication SPI WebViewImpl::doneWithKeyEvent uses when re-dispatching
+// an unhandled key-down back to AppKit, so [NSApp currentEvent] matches during menu dispatch.
+@interface NSApplication (WKMavericksKeyResend)
+- (void)_setCurrentEvent:(NSEvent *)event;
+@end
 
 @interface WKView () {
     WKViewState *_wkState;
@@ -850,6 +860,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)keyDown:(NSEvent *)event
 {
     if (!_wkState || !_wkState->page) { [super keyDown:event]; return; }
+    // We could be receiving a key down from AppKit if we re-sent an event the page left
+    // unhandled and it maps to an action that is currently unavailable (mirrors
+    // WebViewImpl::keyDown); the page has already seen it, so pass it to super.
+    if (_wkState->keyDownEventBeingResent.get() == event) { [super keyDown:event]; return; }
     WTF::Vector<WebCore::KeypressCommand> commands;
     // Run AppKit's interpretKeyEvents to translate the NSEvent into NSTextInputClient
     // calls (insertText:/doCommandBySelector:); collect them in a thread-local that
@@ -879,9 +893,73 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 - (void)flagsChanged:(NSEvent *)event
 {
     if (!_wkState || !_wkState->page) { [super flagsChanged:event]; return; }
+    // Don't make an event from the num lock and function keys (mirrors
+    // WebViewImpl::eventKeyCodeIsZeroOrNumLockOrFn). A keyCode-0 flagsChanged —
+    // which virtual keyboards (VMware) emit for bare modifier presses — would
+    // otherwise reach the page as a key-down with windows keyCode 65 ('A'), so a
+    // bare Cmd press became a spurious Cmd+A (select all) to pages like Google Docs.
+    unsigned short keyCode = [event keyCode];
+    if (!keyCode || keyCode == 10 || keyCode == 63) { [super flagsChanged:event]; return; }
     WTF::Vector<WebCore::KeypressCommand> commands;
     WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
     _wkState->page->handleKeyboardEvent(webEvent);
+}
+
+// MAVERICKS_BACKPORT: give the page first crack at Cmd-modified key-downs before AppKit's
+// menus (mirrors WebViewImpl::performKeyEquivalent; stock Safari-7-era WKView had the same).
+// Without this, every key equivalent went straight to Safari's menus, so pages that implement
+// their own shortcuts (Google Docs Cmd+Z undo/redo, etc.) never saw the key-down — the menu's
+// edit action then ran against WebCore's editor instead of the page's handler. Events the page
+// leaves unhandled come back through MinimalPageClient::doneWithKeyEvent and are re-dispatched
+// to AppKit (-_mavericksResendUnhandledKeyDownEvent:), so Safari's menu shortcuts still fire.
+- (BOOL)performKeyEquivalent:(NSEvent *)event
+{
+    if (!_wkState || !_wkState->page || [event type] != NSEventTypeKeyDown)
+        return [super performKeyEquivalent:event];
+
+    // A nested event loop during dispatch can release the current event; keep it alive.
+    retainPtr(event).autorelease();
+
+    // We get Esc here after Esc or Cmd+period gets transformed to a cancelOperation: command;
+    // don't interpret it again (avoids re-entrancy / infinite loops), matching WebViewImpl.
+    if ([[event charactersIgnoringModifiers] isEqualToString:@"\e"] && !([event modifierFlags] & NSEventModifierFlagDeviceIndependentFlagsMask))
+        return [super performKeyEquivalent:event];
+
+    // The page already saw this event; it is being re-dispatched to AppKit for the menus.
+    if (_wkState->keyDownEventBeingResent)
+        return [super performKeyEquivalent:event];
+
+    // Only Cmd-modified keys are menu key equivalents on this path; anything else keeps
+    // flowing through keyDown: (which also runs interpretKeyEvents command collection).
+    if (!([event modifierFlags] & NSCommandKeyMask))
+        return [super performKeyEquivalent:event];
+
+    // Pass key combos through WebCore so pages can intercept key-modified keypresses, but
+    // only when the web view has focus (not, e.g., while the URL bar field editor does).
+    if ([[self window] firstResponder] == self) {
+        WTF::Vector<WebCore::KeypressCommand> commands;
+        WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
+        _wkState->page->handleKeyboardEvent(webEvent);
+        return YES;
+    }
+
+    return [super performKeyEquivalent:event];
+}
+
+// MAVERICKS_BACKPORT: called by MinimalPageClient::doneWithKeyEvent when the page leaves a
+// key-down unhandled — re-dispatch it to AppKit so menu key equivalents (Cmd+T, Cmd+Z when the
+// page doesn't intercept it, etc.) still fire after the page had first crack. Mirrors the
+// m_keyDownEventBeingResent re-send in WebViewImpl::doneWithKeyEvent.
+- (void)_mavericksResendUnhandledKeyDownEvent:(NSEvent *)event
+{
+    if (!_wkState || _wkState->keyDownEventBeingResent)
+        return;
+    RetainPtr<WKView> protector = self; // re-sending the event may destroy this view
+    _wkState->keyDownEventBeingResent = event;
+    if ([NSApp respondsToSelector:@selector(_setCurrentEvent:)])
+        [NSApp _setCurrentEvent:event];
+    [NSApp sendEvent:event];
+    _wkState->keyDownEventBeingResent = nil;
 }
 
 // MAVERICKS_BACKPORT: Edit menu items dispatch action selectors to first responder.
