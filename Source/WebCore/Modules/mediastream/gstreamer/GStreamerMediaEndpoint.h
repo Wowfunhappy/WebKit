@@ -151,8 +151,6 @@ private:
     void onIceGatheringChange();
     void onIceCandidate(guint sdpMLineIndex, gchararray candidate);
 
-    void advertiseSendSSRCs(GstSDPMessage*);
-
     void prepareDataChannel(GstWebRTCDataChannel*, gboolean isLocal);
     void onDataChannel(GstWebRTCDataChannel*);
 
@@ -217,7 +215,6 @@ private:
     HashMap<DataChannelHandlerIdentifier, UniqueRef<GStreamerDataChannelHandler>> m_incomingDataChannels;
 
     RefPtr<UniqueSSRCGenerator> m_ssrcGenerator;
-    HashMap<String, std::pair<uint32_t, uint32_t>> m_advertisedSSRCs;
 
     using SSRC = unsigned;
     HashMap<SSRC, RefPtr<GStreamerIncomingTrackProcessor>> m_trackProcessors;

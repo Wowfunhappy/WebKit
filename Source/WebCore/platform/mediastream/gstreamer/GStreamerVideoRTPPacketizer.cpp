@@ -139,9 +139,14 @@ RefPtr<GStreamerVideoRTPPacketizer> GStreamerVideoRTPPacketizer::create(RefPtr<U
         return nullptr;
     }
 
-    auto ssrc = ssrcGenerator->generateSSRC();
-    if (ssrc != std::numeric_limits<uint32_t>::max())
-        gst_structure_set(codecParameters.get(), "ssrc", G_TYPE_UINT, ssrc, nullptr);
+    // MAVERICKS_BACKPORT: keep a pre-set "ssrc" (pinned on codec-preferences by
+    // RealtimeOutgoingMediaSourceGStreamer so webrtcbin advertises the same value) instead of
+    // always generating a fresh one — the SSRC we send with then matches the one advertised.
+    if (!gst_structure_has_field(codecParameters.get(), "ssrc")) {
+        auto ssrc = ssrcGenerator->generateSSRC();
+        if (ssrc != std::numeric_limits<uint32_t>::max())
+            gst_structure_set(codecParameters.get(), "ssrc", G_TYPE_UINT, ssrc, nullptr);
+    }
 
     auto rtpCaps = adoptGRef(gst_caps_new_empty());
     gst_caps_append_structure(rtpCaps.get(), codecParameters.release());
