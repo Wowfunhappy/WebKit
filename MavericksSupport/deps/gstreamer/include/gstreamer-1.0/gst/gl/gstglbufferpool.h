@@ -67,10 +67,10 @@ struct _GstGLBufferPoolClass
 };
 
 GST_GL_API
-GstBufferPool *gst_gl_buffer_pool_new (GstGLContext * context);
+GstBufferPool *gst_gl_buffer_pool_new (GstGLContext * context) G_GNUC_WARN_UNUSED_RESULT;
 
 GST_GL_API
-GstGLAllocationParams * gst_gl_buffer_pool_get_gl_allocation_params        (GstGLBufferPool * pool);
+GstGLAllocationParams * gst_gl_buffer_pool_get_gl_allocation_params        (GstGLBufferPool * pool) G_GNUC_WARN_UNUSED_RESULT;
 
 GST_GL_API
 GstGLAllocationParams * gst_buffer_pool_config_get_gl_allocation_params    (GstStructure * config);

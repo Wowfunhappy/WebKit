@@ -11,8 +11,24 @@ G_BEGIN_DECLS
 /* enumerations from "webrtc_fwd.h" */
 
 GST_WEBRTC_API
+GType gst_webrtc_ice_tcp_candidate_type_get_type (void);
+#define GST_TYPE_WEBRTC_ICE_TCP_CANDIDATE_TYPE (gst_webrtc_ice_tcp_candidate_type_get_type())
+
+GST_WEBRTC_API
+GType gst_webrtc_ice_candidate_protocol_type_get_type (void);
+#define GST_TYPE_WEBRTC_ICE_CANDIDATE_PROTOCOL_TYPE (gst_webrtc_ice_candidate_protocol_type_get_type())
+
+GST_WEBRTC_API
+GType gst_webrtc_ice_candidate_type_get_type (void);
+#define GST_TYPE_WEBRTC_ICE_CANDIDATE_TYPE (gst_webrtc_ice_candidate_type_get_type())
+
+GST_WEBRTC_API
 GType gst_webrtc_dtls_transport_state_get_type (void);
 #define GST_TYPE_WEBRTC_DTLS_TRANSPORT_STATE (gst_webrtc_dtls_transport_state_get_type())
+
+GST_WEBRTC_API
+GType gst_webrtc_dtls_role_get_type (void);
+#define GST_TYPE_WEBRTC_DTLS_ROLE (gst_webrtc_dtls_role_get_type())
 
 GST_WEBRTC_API
 GType gst_webrtc_ice_gathering_state_get_type (void);

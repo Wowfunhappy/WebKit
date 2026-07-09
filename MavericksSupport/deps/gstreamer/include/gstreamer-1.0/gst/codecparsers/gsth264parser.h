@@ -925,6 +925,15 @@ struct _GstH264PPS
 
   /* Since: 1.18 */
   guint8 pic_scaling_matrix_present_flag;
+
+  /**
+   * _GstH264PPS.sps_id:
+   *
+   * SPS id
+   *
+   * Since: 1.28
+   */
+  guint sps_id;
 };
 
 struct _GstH264RefPicListModification
@@ -1059,6 +1068,15 @@ struct _GstH264SliceHdr
    * delta_pic_order_cnt[1]. (Since: 1.18)
    */
   guint pic_order_cnt_bit_size;
+
+ /**
+  * _GstH264SliceHdr.pps_id:
+  *
+  * PPS id
+  *
+  * Since: 1.28
+  */
+  guint pps_id;
 };
 
 /**
@@ -1303,11 +1321,12 @@ struct _GstH264SEIUnhandledPayload
 };
 
 /**
- * _GstH264SEIMessage.payload.user_data_unregistered:
+ * GstH264SEIMessage:
+ * @payloadType: #GstH264SEIPayloadType
+ * @payload: union of all possible SEI message data types
  *
- * User Data Unregistered
- *
- * Since: 1.22
+ * Constains information about SEI message. The content depends on the
+ * @payloadType.
  */
 struct _GstH264SEIMessage
 {
@@ -1323,6 +1342,14 @@ struct _GstH264SEIMessage
     GstH264MasteringDisplayColourVolume mastering_display_colour_volume;
     GstH264ContentLightLevel content_light_level;
     GstH264SEIUnhandledPayload unhandled_payload;
+
+    /**
+     * GstH264SEIMessage.user_data_unregistered:
+     *
+     * User Data Unregistered
+     *
+     * Since: 1.22
+     */
     GstH264UserDataUnregistered user_data_unregistered;
     /* ... could implement more */
   } payload;

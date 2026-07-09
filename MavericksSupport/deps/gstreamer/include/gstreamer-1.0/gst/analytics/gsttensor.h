@@ -66,7 +66,75 @@ typedef enum _GstTensorDataType
   GST_TENSOR_DATA_TYPE_FLOAT16,
   GST_TENSOR_DATA_TYPE_FLOAT32,
   GST_TENSOR_DATA_TYPE_FLOAT64,
-  GST_TENSOR_DATA_TYPE_BFLOAT16
+  GST_TENSOR_DATA_TYPE_BFLOAT16,
+  /**
+   * GST_TENSOR_DATA_TYPE_STRING:
+   *
+   * UTF-8 string
+   *
+   * Since: 1.28
+   */
+  GST_TENSOR_DATA_TYPE_STRING,
+  /**
+   * GST_TENSOR_DATA_TYPE_BOOL:
+   *
+   * A boolean value stored in 1 byte.
+   *
+   * Since: 1.28
+   */
+  GST_TENSOR_DATA_TYPE_BOOL,
+  /**
+   * GST_TENSOR_DATA_TYPE_COMPLEX64:
+   *
+   * A 64-bit complex number stored in 2 32-bit values.
+   *
+   * Since: 1.28
+   */
+  GST_TENSOR_DATA_TYPE_COMPLEX64,
+  /**
+   * GST_TENSOR_DATA_TYPE_COMPLEX128:
+   *
+   * A 128-bit complex number stored in 2 64-bit values.
+   *
+   * Since: 1.28
+   */
+  GST_TENSOR_DATA_TYPE_COMPLEX128,
+  /**
+   * GST_TENSOR_DATA_TYPE_FLOAT8E4M3FN:
+   *
+   * A non-IEEE 8-bit floating point format with 4 exponent bits and 3 mantissa bits, with NaN and no infinite values (FN).
+   * See [this paper for more details](https://onnx.ai/onnx/technical/float8.html)
+   *
+   * Since: 1.28
+   */
+  GST_TENSOR_DATA_TYPE_FLOAT8E4M3FN,
+  /**
+   * GST_TENSOR_DATA_TYPE_FLOAT8E4M3FNUZ:
+   *
+   * A non-IEEE 8-bit floating point format with 4 exponent bits and 3 mantissa bits, with NaN, no infinite values (FN) and no negative zero (UZ).
+   * See [this paper for more details](https://onnx.ai/onnx/technical/float8.html)
+   *
+   * Since: 1.28
+   */
+  GST_TENSOR_DATA_TYPE_FLOAT8E4M3FNUZ,
+  /**
+   * GST_TENSOR_DATA_TYPE_FLOAT8E5M2:
+   *
+   * A non-IEEE 8-bit floating point format with 5 exponent bits and 2 mantissa bits.
+   * See [this paper for more details](https://onnx.ai/onnx/technical/float8.html)
+   *
+   * Since: 1.28
+   */
+  GST_TENSOR_DATA_TYPE_FLOAT8E5M2,
+  /**
+   * GST_TENSOR_DATA_TYPE_FLOAT8E5M2FNUZ:
+   *
+   * A non-IEEE 8-bit floating point format with 5 exponent bits and 2 mantissa bits, with NaN, no infinite values (FN) and no negative zero (UZ).
+   * See [this paper for more details](https://onnx.ai/onnx/technical/float8.html)
+   *
+   * Since: 1.28
+   */
+  GST_TENSOR_DATA_TYPE_FLOAT8E5M2FNUZ
 } GstTensorDataType;
 
 /**
@@ -127,7 +195,7 @@ G_BEGIN_DECLS
 #define GST_TYPE_TENSOR (gst_tensor_get_type())
 
 GST_ANALYTICS_META_API
-GstTensor * gst_tensor_alloc (gsize num_dims);
+GstTensor * gst_tensor_alloc (gsize num_dims) G_GNUC_WARN_UNUSED_RESULT;
 
 GST_ANALYTICS_META_API
 GstTensor * gst_tensor_new_simple (GQuark id,
@@ -135,19 +203,32 @@ GstTensor * gst_tensor_new_simple (GQuark id,
     GstBuffer * data,
     GstTensorDimOrder dims_order,
     gsize num_dims,
-    gsize * dims);
+    gsize * dims) G_GNUC_WARN_UNUSED_RESULT;
+
+GST_ANALYTICS_META_API
+gboolean gst_tensor_set_simple (GstTensor * tensor, GQuark id,
+    GstTensorDataType data_type, GstBuffer * data,
+    GstTensorDimOrder dims_order, gsize num_dims, gsize * dims);
 
 GST_ANALYTICS_META_API
 void gst_tensor_free (GstTensor * tensor);
 
 GST_ANALYTICS_META_API
-GstTensor * gst_tensor_copy (const GstTensor * tensor);
+GstTensor * gst_tensor_copy (const GstTensor * tensor) G_GNUC_WARN_UNUSED_RESULT;
 
 GST_ANALYTICS_META_API
 gsize * gst_tensor_get_dims (GstTensor * tensor, gsize * num_dims);
 
 GST_ANALYTICS_META_API
 GType gst_tensor_get_type (void);
+
+GST_ANALYTICS_META_API
+const gchar *gst_tensor_data_type_get_name (GstTensorDataType data_type);
+
+GST_ANALYTICS_META_API
+gboolean gst_tensor_check_type(const GstTensor * tensor,
+    GstTensorDataType data_type, GstTensorDimOrder order, gsize num_dims,
+    const gsize *dims);
 
 G_END_DECLS
 

@@ -93,10 +93,10 @@ GST_TRANSCODER_API
 void           gst_transcoder_message_parse_state              (GstMessage * msg, GstTranscoderState * state);
 
 GST_TRANSCODER_API
-void           gst_transcoder_message_parse_error              (GstMessage * msg, GError * error, GstStructure ** details);
+void           gst_transcoder_message_parse_error              (GstMessage * msg, GError ** error, GstStructure ** details);
 
 GST_TRANSCODER_API
-void           gst_transcoder_message_parse_warning            (GstMessage * msg, GError * error, GstStructure ** details);
+void           gst_transcoder_message_parse_warning            (GstMessage * msg, GError ** error, GstStructure ** details);
 
 
 
@@ -114,19 +114,19 @@ G_DECLARE_FINAL_TYPE (GstTranscoder, gst_transcoder, GST, TRANSCODER, GstObject)
 GST_TRANSCODER_API
 GstTranscoder * gst_transcoder_new                        (const gchar * source_uri,
                                                            const gchar * dest_uri,
-                                                           const gchar * encoding_profile);
+                                                           const gchar * encoding_profile) G_GNUC_WARN_UNUSED_RESULT;
 
 GST_TRANSCODER_API
 GstTranscoder * gst_transcoder_new_full                   (const gchar * source_uri,
                                                            const gchar * dest_uri,
-                                                           GstEncodingProfile * profile);
+                                                           GstEncodingProfile * profile) G_GNUC_WARN_UNUSED_RESULT;
 
 GST_TRANSCODER_API
 gboolean gst_transcoder_run                               (GstTranscoder * self,
                                                            GError ** error);
 
 GST_TRANSCODER_API
-GstBus * gst_transcoder_get_message_bus                   (GstTranscoder * transcoder);
+GstBus * gst_transcoder_get_message_bus                   (GstTranscoder * transcoder) G_GNUC_WARN_UNUSED_RESULT;
 
 GST_TRANSCODER_API
 void gst_transcoder_set_cpu_usage                         (GstTranscoder * self,
@@ -140,10 +140,10 @@ void gst_transcoder_set_position_update_interval          (GstTranscoder * self,
                                                            guint interval);
 
 GST_TRANSCODER_API
-gchar * gst_transcoder_get_source_uri                     (GstTranscoder * self);
+gchar * gst_transcoder_get_source_uri                     (GstTranscoder * self) G_GNUC_WARN_UNUSED_RESULT;
 
 GST_TRANSCODER_API
-gchar * gst_transcoder_get_dest_uri                       (GstTranscoder * self);
+gchar * gst_transcoder_get_dest_uri                       (GstTranscoder * self) G_GNUC_WARN_UNUSED_RESULT;
 
 GST_TRANSCODER_API
 guint gst_transcoder_get_position_update_interval         (GstTranscoder * self);
@@ -155,7 +155,7 @@ GST_TRANSCODER_API
 GstClockTime gst_transcoder_get_duration                  (GstTranscoder * self);
 
 GST_TRANSCODER_API
-GstElement * gst_transcoder_get_pipeline                  (GstTranscoder * self);
+GstElement * gst_transcoder_get_pipeline                  (GstTranscoder * self) G_GNUC_WARN_UNUSED_RESULT;
 
 GST_TRANSCODER_API
 gboolean gst_transcoder_get_avoid_reencoding              (GstTranscoder * self);
@@ -168,10 +168,10 @@ void gst_transcoder_set_avoid_reencoding                  (GstTranscoder * self,
 GST_TRANSCODER_API
 GstTranscoderSignalAdapter*
 gst_transcoder_get_signal_adapter                         (GstTranscoder * self,
-                                                           GMainContext *context);
+                                                           GMainContext *context) G_GNUC_WARN_UNUSED_RESULT;
 GST_TRANSCODER_API
 GstTranscoderSignalAdapter*
-gst_transcoder_get_sync_signal_adapter                    (GstTranscoder * self);
+gst_transcoder_get_sync_signal_adapter                    (GstTranscoder * self) G_GNUC_WARN_UNUSED_RESULT;
 
 G_END_DECLS
 

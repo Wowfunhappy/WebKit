@@ -7,7 +7,7 @@
 #   libgpg-error, libgcrypt, libtasn1   -> WebCore USE(GCRYPT) WebCrypto
 #   brotli (common/dec/enc)             -> WOFF2 + Brotli Content-Encoding
 #   woff2 (decoder)                     -> WOFF2 web font decompression
-#   GLib 2.80.5 + GStreamer 1.26.6      -> the media runtime (core, plugins-base/
+#   GLib 2.80.5 + GStreamer 1.28.5      -> the media runtime (core, plugins-base/
 #     (+ codecs, OpenSSL, libnice, ...)     good/bad, gst-libav on FFmpeg 7.1.2 with
 #                                          dav1d AV1 decode, libvpx VP8/VP9) that
 #                                          MediaPlayerPrivateGStreamer drives; built
@@ -422,11 +422,15 @@ d=$(get https://www.freedesktop.org/software/pulseaudio/webrtc-audio-processing/
   && "$MESON" compile -C b -j 2 > /tmp/depslog-webrtcap-compile.log 2>&1 \
   && "$MESON" install -C b > /tmp/depslog-webrtcap-install.log 2>&1 ) || exit 1
 
-echo "==== GStreamer 1.26.6 (core) ===="
-GSTOPTS="-Dbuildtype=release -Dtests=disabled -Dexamples=disabled -Ddoc=disabled"
+echo "==== GStreamer 1.28.5 (core) ===="
+# -Dc_std=gnu11: GStreamer 1.28's project() sets c_std=gnu11,c11 (a meson fallback list),
+# which add_languages('objc') propagates to objc_std; meson 1.5.2 rejects a list for
+# objc_std ("Value gnu11,c11 ... is not one of the choices"). Pin c_std to the single
+# value gnu11 (fully supported by clang-22) so objc_std inherits a valid single value.
+GSTOPTS="-Dbuildtype=release -Dtests=disabled -Dexamples=disabled -Ddoc=disabled -Dc_std=gnu11"
 # -Dtools=enabled: gst-inspect-1.0/gst-launch-1.0 deploy into deps/build/bin for
 # on-box verification of the shipped runtime (webrtcbin present, plugins load).
-d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.26.6.tar.xz gstcore)
+d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.28.5.tar.xz gstcore)
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
     -Dtools=enabled -Dbenchmarks=disabled -Dlibunwind=disabled -Ddbghelp=disabled \
     -Dbash-completion=disabled > /tmp/depslog-gstcore-setup.log 2>&1 \
@@ -437,7 +441,7 @@ d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.26.6.tar.xz 
 # corresponding meson setup loudly instead of silently dropping the plugin from the
 # shipped runtime.
 echo "==== gst-plugins-base ===="
-d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-1.26.6.tar.xz gstbase)
+d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-1.28.5.tar.xz gstbase)
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
     -Dogg=enabled -Dvorbis=enabled -Dopus=enabled > /tmp/depslog-gstbase-setup.log 2>&1 \
   && "$MESON" compile -C b -j 2 > /tmp/depslog-gstbase-compile.log 2>&1 \
@@ -448,7 +452,7 @@ echo "==== gst-plugins-good ===="
 # macho64, leaving relocations in __text; 10.9 dyld faults (SIGBUS, KERN_PROTECTION_FAILURE)
 # running the plugin's initializer off the fixed-up page, killing every registry scan.
 # The C yadif implementation is used instead; the gate below fails on any __text reloc.
-d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-1.26.6.tar.xz gstgood)
+d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-1.28.5.tar.xz gstgood)
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dasm=disabled \
     -Dvpx=enabled -Dflac=enabled -Dosxaudio=enabled -Dosxvideo=enabled > /tmp/depslog-gstgood-setup.log 2>&1 \
   && "$MESON" compile -C b -j 2 > /tmp/depslog-gstgood-compile.log 2>&1 \
@@ -459,7 +463,8 @@ echo "==== libnice ===="
 # gstreamer-1.0 discoverable) and gst-plugins-bad (whose webrtc option needs nice.pc
 # discoverable at setup time -- webrtcbin, libgstwebrtc and libgstwebrtcnice only
 # build when libnice is already installed).
-d=$(get https://libnice.freedesktop.org/releases/libnice-0.1.22.tar.gz nice)
+# libnice >= 0.1.23 is required by gst-plugins-bad 1.28.5 (gst-libs/gst/webrtc/nice).
+d=$(get https://libnice.freedesktop.org/releases/libnice-0.1.23.tar.gz nice)
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
     -Dexamples=disabled -Dgtk_doc=disabled -Dintrospection=disabled -Dgupnp=disabled \
     -Dgstreamer=enabled -Dcrypto-library=openssl > /tmp/depslog-nice-setup.log 2>&1 \
@@ -471,7 +476,13 @@ echo "==== gst-plugins-bad ===="
 # ext/sctp/usrsctp -- no extra download. dash stays off: dashdemux needs a
 # pkg-config-visible libxml2, which 10.9 lacks, and in-browser DASH runs through MSE
 # (JS players), never through dashdemux.
-d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.26.6.tar.xz gstbad)
+d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.28.5.tar.xz gstbad)
+# MAVERICKS_BACKPORT: patch webrtcbin's over-strict remote-ICE-credential charset check so
+# base64url ufrag/pwd (Google Meet) don't fail set-remote-description. See
+# patches/README.md. Applied unconditionally; -N keeps a re-run of the script idempotent.
+( cd "$d" && patch -p1 -N < "$HERE/patches/gst-plugins-bad-ice-credential-charset.patch" \
+    > /tmp/depslog-gstbad-patch.log 2>&1 || { grep -q 'previously applied' /tmp/depslog-gstbad-patch.log; } ) \
+  || { echo "gst-plugins-bad ICE patch failed to apply"; cat /tmp/depslog-gstbad-patch.log; exit 1; }
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
     -Dwebrtc=enabled -Dwebrtcdsp=enabled -Ddtls=enabled -Dsrtp=enabled -Dsctp=enabled \
     -Dapplemedia=enabled > /tmp/depslog-gstbad-setup.log 2>&1 \
@@ -496,7 +507,7 @@ d=$(get https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz ffmpeg)
   && make -s -j2 > /dev/null && make -s install > /dev/null ) || exit 1
 
 echo "==== gst-libav ===="
-d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-1.26.6.tar.xz gstlibav)
+d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-1.28.5.tar.xz gstlibav)
 # gst-libav's option set has no "examples"; it takes the shared options minus that one.
 # G_DISABLE_ASSERT matches official GStreamer release binaries (cerbero release builds
 # define it): gstavviddec.c wraps a g_error() vmeta-dimension check in
@@ -674,7 +685,14 @@ FAILS="$GATE/failures.txt"; : > "$FAILS"
 # A first run against new code may surface more; verify the referencing source
 # guards the call (availability check) before extending this list -- an unguarded
 # one needs a gap-archive definition instead.
-WEAK_ALLOWED="___darwin_check_fd_set_overflow"
+# _VTIsHardwareDecodeSupported / _VTRegisterSupplementalVideoDecoderIfAvailable
+#   emitted by GStreamer 1.28's applemedia vtdec (sys/applemedia/vtdec.c, vtutil.c).
+#   Both are reached ONLY from gst_vtdec_check_{vp9,av1}_support, which run per-vtdec
+#   INSTANCE at runtime -- and WebKit deranks vtdec/vtdec_hw to RANK_NONE, so no vtdec
+#   instance is ever created on this port. The register call is additionally guarded by
+#   __builtin_available(macOS 11.0) (false on 10.9). applemedia itself stays enabled for
+#   its capture elements (avfvideosrc/avfaudiosrc). So these bind NULL but are never called.
+WEAK_ALLOWED="___darwin_check_fd_set_overflow _VTIsHardwareDecodeSupported _VTRegisterSupplementalVideoDecoderIfAvailable"
 
 # dlsym ground-truth probe: argv[1..] are libraries to dlopen; stdin carries one nm
 # symbol per line; the probe prints every symbol dyld cannot resolve.
