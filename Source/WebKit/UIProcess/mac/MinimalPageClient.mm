@@ -27,6 +27,7 @@
 #import "ViewSnapshotStore.h"
 #import "WebColorPickerMac.h"
 #import "WebContextMenuProxyMac.h"
+#import "PageLoadState.h"
 #import "WebPageProxy.h"
 #import "WebPopupMenuProxyMac.h"
 #import "WebProcessProxy.h"
@@ -735,11 +736,21 @@ bool MinimalPageClient::isActiveViewVisible()
     if (!m_view)
         return false;
     NSWindow *window = [m_view window];
+    NSSize size = [m_view frame].size;
+    String activeURL = m_page ? m_page->pageLoadState().activeURL() : String();
+    // MAVERICKS_BACKPORT: Safari Reader loads its content into a WKView that it renders OFFSCREEN
+    // (windowless) to lay out the article before presenting the reader overlay. Its content size
+    // comes from the drawing area, not the WKView frame (which stays 0x0 until presentation), and
+    // Safari 7 predates backgroundTextExtractionEnabled, so neither the frame nor that flag marks
+    // it. Key off the reader scheme we already serve (WebLoaderStrategy): a safari-reader:// page
+    // must render, or its load-event script deactivates it (ReaderWebProcessController::deactivateNow)
+    // before it can post ContentIsReadyForDisplay. Scoped to the reader page — no blanket force.
+    bool isReaderPage = activeURL.startsWith("safari-reader:"_s);
     if (!window)
-        return m_forceVisibleWhenWindowless;
-    if (![window isVisible])
-        return false;
+        return m_forceVisibleWhenWindowless || (size.width > 0 && size.height > 0) || isReaderPage;
     if ([[m_view superview] isHiddenOrHasHiddenAncestor])
+        return false;
+    if (![window isVisible])
         return false;
     return true;
 }
@@ -756,7 +767,14 @@ bool MinimalPageClient::isViewVisibleOrOccluded()
 
 bool MinimalPageClient::isViewInWindow()
 {
-    return m_view && ([m_view window] || m_forceVisibleWhenWindowless);
+    if (!m_view)
+        return false;
+    if ([m_view window] || m_forceVisibleWhenWindowless)
+        return true;
+    // MAVERICKS_BACKPORT: a windowless safari-reader:// page (Safari Reader, rendered offscreen)
+    // must be treated as in-window so its drawing area is sized and it actually paints — otherwise
+    // it lays out but never paints and Safari's reader script deactivates it. See isActiveViewVisible().
+    return m_page && m_page->pageLoadState().activeURL().startsWith("safari-reader:"_s);
 }
 
 bool MinimalPageClient::isVisuallyIdle()
