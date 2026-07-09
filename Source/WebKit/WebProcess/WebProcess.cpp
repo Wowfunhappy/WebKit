@@ -1416,6 +1416,12 @@ void WebProcess::handleInjectedBundleMessage(const String& messageName, const Us
     if (!injectedBundle)
         return;
 
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace injected-bundle messages while debugging.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[BUNDLE-MSG-WP] pid=%d name=%s\n", getpid(), messageName.utf8().data());
+        fflush(stderr);
+    }
+
     injectedBundle->didReceiveMessage(messageName, transformHandlesToObjects(protect(messageBody.object()).get()));
 }
 
@@ -2246,8 +2252,17 @@ RefPtr<API::Object> WebProcess::transformHandlesToObjects(API::Object* object)
                 auto frameID = downcast<const API::FrameHandle>(object).frameID();
                 return frameID ? WebProcess::singleton().webFrame(*frameID) : nullptr;
             }
-            case API::Object::Type::PageHandle:
-                return WebProcess::singleton().webPage(downcast<const API::PageHandle>(object).webPageID());
+            case API::Object::Type::PageHandle: {
+                auto webPageID = downcast<const API::PageHandle>(object).webPageID();
+                RefPtr page = WebProcess::singleton().webPage(webPageID);
+                // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): a page handle that does not resolve
+                // in this process silently becomes null in the transformed message body.
+                if (!access("/tmp/wk-debug-on", F_OK)) {
+                    fprintf(stderr, "[XFORM-PAGE] pid=%d pageID=%llu -> %s\n", getpid(), webPageID.toUInt64(), page ? "resolved" : "NULL");
+                    fflush(stderr);
+                }
+                return page;
+            }
 
             // MAVERICKS_BACKPORT: resolve page-group handles to this process's WebPageGroupProxy (Safari 7).
             case API::Object::Type::PageGroupHandle:

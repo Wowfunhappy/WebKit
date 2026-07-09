@@ -66,3 +66,5 @@ grep -E 'error:|file not found|FAILED:' "$LOG" | grep -vE 'warning:' | sed -E 's
 
 echo "--- failed targets ---"
 grep -A1 '^FAILED:' "$LOG" | grep -oE '[A-Za-z0-9_]+\.framework|WebKitLegacy|WebCore|JavaScriptCore|WebKit' | sort -u | head
+
+exit $RC
