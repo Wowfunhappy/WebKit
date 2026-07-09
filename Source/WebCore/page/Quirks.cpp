@@ -190,6 +190,24 @@ bool Quirks::shouldAliasBodyScrollToDocumentScroll() const
     return aliased;
 }
 
+// MAVERICKS_BACKPORT: Safari 7's ReaderJS (compiled into the Safari binary and thus unfixable)
+// tells its own smoothScroll-driven scroll events apart from user scrolls with a guard flag
+// (scrollEventIsSmoothScroll) that it sets around each body.scrollTop assignment and clears on a
+// zero-delay setTimeout; any scroll event seen with the flag clear aborts the animation
+// (articleScrolled -> abortSmoothScroll). It targets the legacy engine, whose document event
+// queue dispatched scroll events from a zero-delay timer armed at scroll time — before that
+// setTimeout — so its own events always saw the flag set. The CSSOM-View rendering-update
+// dispatch runs after the setTimeout, so every keyboard/programmatic reader scroll aborts itself
+// after the first animation tick. For safari-reader: documents (served exclusively for Safari's
+// reader page by WebLoaderStrategy), Document::addPendingScrollEventTarget consults this and
+// dispatches the pending scroll events from an immediately-queued event-loop task, matching the
+// legacy ordering. Deliberately NOT gated on needsQuirks(), like
+// shouldAliasBodyScrollToDocumentScroll above.
+bool Quirks::shouldDispatchPendingScrollEventsEagerly() const
+{
+    return m_document && m_document->url().protocolIs("safari-reader"_s);
+}
+
 bool Quirks::shouldDisableBlobFileAccessEnforcement()
 {
     return shouldDisableBlobFileAccessEnforcementInternal();
