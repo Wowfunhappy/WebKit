@@ -257,12 +257,15 @@ std::optional<SimpleRange> DictionaryLookup::rangeForSelection(const VisibleSele
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
-    if (!canCreateRevealItems())
-        return std::nullopt;
-
     // Since we already have the range we want, we just need to grab the returned options.
     auto selectionStart = selection.visibleStart();
     auto selectionEnd = selection.visibleEnd();
+
+    // MAVERICKS_BACKPORT: RVItem (used below to widen the lookup range to a sensible unit) lives in
+    // the Reveal framework, which does not exist on 10.9 (ENABLE(REVEAL)=0). Fall back to the
+    // selection's own range so "Look Up" still works — the looked-up text is exactly the selection.
+    if (!canCreateRevealItems())
+        return makeSimpleRange(selectionStart, selectionEnd);
 
     // As context, we are going to use the surrounding paragraphs of text.
     auto paragraphStart = startOfParagraph(selectionStart);
