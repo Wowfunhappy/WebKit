@@ -52,6 +52,19 @@ template<> struct CGColorSpaceMapping<ColorSpace::A98RGB> {
     }
 };
 
+// MAVERICKS_BACKPORT: the named CG color spaces below were introduced after 10.9
+// (kCGColorSpaceDisplayP3/ITUR_2020/ROMMRGB/GenericXYZ are 10.11+, every Extended*/Linear*
+// variant is 10.12+), so on this deployment target CGColorSpaceCreateWithName returns NULL
+// for all of them. A mapping specialization's presence is this header's compile-time
+// capability signal (HasCGColorSpaceMapping) — leaving these mappings defined made the
+// engine "support" spaces that resolve to a NULL CGColorSpaceRef, so any color that needed
+// the ExtendedSRGB fallback (e.g. CSS oklch()) produced a NULL CGColor, and 10.9 AppKit's
+// +[NSColor colorWithCGColor:] raises on NULL (an uncaught exception that kills WebContent
+// via the rich-text/pasteboard HTMLConverter path). Declare them EMPTY, like the HSL/Lab/
+// OKLCH mappings below: every user of HasCGColorSpaceMapping already falls back to plain
+// sRGB with clamped components when a mapping is absent.
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200
+
 WEBCORE_EXPORT CGColorSpaceRef displayP3ColorSpaceSingleton();
 template<> struct CGColorSpaceMapping<ColorSpace::DisplayP3> {
     static CGColorSpaceRef colorSpaceSingleton()
@@ -155,6 +168,41 @@ template<> struct CGColorSpaceMapping<ColorSpace::XYZ_D50> {
         return xyzD50ColorSpaceSingleton();
     }
 };
+
+// MAVERICKS_BACKPORT: on 10.9 these named CG color spaces don't exist — empty mappings
+// (unsupported), same treatment as the HSL/Lab/OKLCH block below. The singleton functions
+// stay declared for colorSpaceForCGColorSpace's (null-tolerant) equality probes.
+#else
+
+WEBCORE_EXPORT CGColorSpaceRef displayP3ColorSpaceSingleton();
+WEBCORE_EXPORT CGColorSpaceRef extendedAdobeRGB1998ColorSpaceSingleton();
+WEBCORE_EXPORT CGColorSpaceRef extendedDisplayP3ColorSpaceSingleton();
+WEBCORE_EXPORT CGColorSpaceRef extendedITUR_2020ColorSpaceSingleton();
+WEBCORE_EXPORT CGColorSpaceRef extendedLinearDisplayP3ColorSpaceSingleton();
+WEBCORE_EXPORT CGColorSpaceRef extendedLinearSRGBColorSpaceSingleton();
+WEBCORE_EXPORT CGColorSpaceRef extendedROMMRGBColorSpaceSingleton();
+WEBCORE_EXPORT CGColorSpaceRef extendedSRGBColorSpaceSingleton();
+WEBCORE_EXPORT CGColorSpaceRef ITUR_2020ColorSpaceSingleton();
+WEBCORE_EXPORT CGColorSpaceRef linearDisplayP3ColorSpaceSingleton();
+WEBCORE_EXPORT CGColorSpaceRef linearSRGBColorSpaceSingleton();
+WEBCORE_EXPORT CGColorSpaceRef ROMMRGBColorSpaceSingleton();
+WEBCORE_EXPORT CGColorSpaceRef xyzD50ColorSpaceSingleton();
+
+template<> struct CGColorSpaceMapping<ColorSpace::DisplayP3> { };
+template<> struct CGColorSpaceMapping<ColorSpace::ExtendedA98RGB> { };
+template<> struct CGColorSpaceMapping<ColorSpace::ExtendedDisplayP3> { };
+template<> struct CGColorSpaceMapping<ColorSpace::ExtendedRec2020> { };
+template<> struct CGColorSpaceMapping<ColorSpace::ExtendedLinearDisplayP3> { };
+template<> struct CGColorSpaceMapping<ColorSpace::ExtendedLinearSRGB> { };
+template<> struct CGColorSpaceMapping<ColorSpace::ExtendedProPhotoRGB> { };
+template<> struct CGColorSpaceMapping<ColorSpace::ExtendedSRGB> { };
+template<> struct CGColorSpaceMapping<ColorSpace::Rec2020> { };
+template<> struct CGColorSpaceMapping<ColorSpace::LinearDisplayP3> { };
+template<> struct CGColorSpaceMapping<ColorSpace::LinearSRGB> { };
+template<> struct CGColorSpaceMapping<ColorSpace::ProPhotoRGB> { };
+template<> struct CGColorSpaceMapping<ColorSpace::XYZ_D50> { };
+
+#endif // MAVERICKS_BACKPORT __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200
 
 // FIXME: Add support for these once/if CoreGraphics adds support for them.
 template<> struct CGColorSpaceMapping<ColorSpace::HSL> { };
