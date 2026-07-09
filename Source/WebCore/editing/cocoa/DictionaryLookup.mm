@@ -291,10 +291,7 @@ std::optional<SimpleRange> DictionaryLookup::rangeForSelection(const VisibleSele
 std::optional<SimpleRange> DictionaryLookup::rangeAtHitTestResult(const HitTestResult& hitTestResult)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
-    
-    if (!canCreateRevealItems())
-        return std::nullopt;
-    
+
     RefPtr node = hitTestResult.innerNonSharedNode();
     if (!node || !node->renderer())
         return std::nullopt;
@@ -317,6 +314,21 @@ std::optional<SimpleRange> DictionaryLookup::rangeAtHitTestResult(const HitTestR
         return std::nullopt;
 
     auto selection = focusedOrMainFrame->selection().selection();
+
+    // MAVERICKS_BACKPORT: RVSelection/RVItem (used below to choose the lookup unit around the hit
+    // point) live in the Reveal framework, which does not exist on 10.9 (ENABLE(REVEAL)=0). Classic
+    // fallback: when the tap lands inside the current selection, look up the selection itself;
+    // otherwise look up the word under the point.
+    if (!canCreateRevealItems()) {
+        if (selection.isRange()) {
+            if (auto selectedRange = selection.range(); selectedRange && contains<ComposedTree>(*selectedRange, makeBoundaryPoint(position.deepEquivalent())))
+                return selectedRange;
+        }
+        VisibleSelection wordSelection { position };
+        wordSelection.expandUsingGranularity(TextGranularity::WordGranularity);
+        return wordSelection.range();
+    }
+
     NSRange selectionRange;
     NSUInteger hitIndex;
     std::optional<SimpleRange> fullCharacterRange;

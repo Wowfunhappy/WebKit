@@ -1357,7 +1357,12 @@ void MinimalPageClient::didPerformDictionaryLookup(const WebCore::DictionaryPopu
     // origin in the view's (flipped) coordinate space.
     if (!m_view || info.text.isEmpty())
         return;
-    RetainPtr<NSAttributedString> string = adoptNS([[NSAttributedString alloc] initWithString:info.text.createNSString().get()]);
+    // Prefer the font-scaled attributed string (carried for this panel — see DictionaryPopupInfo.h)
+    // so the panel's text overlay matches the page text's size and baseline; the plain-text
+    // fallback would render at the default font and misalign.
+    RetainPtr<NSAttributedString> string = info.attributedString.nsAttributedString();
+    if (!string)
+        string = adoptNS([[NSAttributedString alloc] initWithString:info.text.createNSString().get()]);
     [m_view showDefinitionForAttributedString:string.get() atPoint:NSMakePoint(info.origin.x(), info.origin.y())];
 }
 #endif
