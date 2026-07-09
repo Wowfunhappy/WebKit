@@ -2239,6 +2239,12 @@ void WebPage::loadRequest(LoadParameters&& loadParameters)
         ASSERT_NOT_REACHED();
         return;
     }
+
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): map pageID -> pid + URL while debugging.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[PAGE-WP] pid=%d pageID=%llu load url=%s\n", getpid(), m_identifier.toUInt64(), loadParameters.request.url().string().utf8().data());
+        fflush(stderr);
+    }
     RefPtr localFrame = frame->coreLocalFrame() ? frame->coreLocalFrame() : frame->provisionalFrame();
     if (!localFrame) {
         ASSERT_NOT_REACHED();
@@ -3091,6 +3097,12 @@ void WebPage::postInjectedBundleMessage(const String& messageName, const UserDat
     RefPtr injectedBundle = webProcess.injectedBundle();
     if (!injectedBundle)
         return;
+
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace page-targeted injected-bundle messages.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[BUNDLE-MSG-PAGE] pid=%d pageID=%llu name=%s\n", getpid(), m_identifier.toUInt64(), messageName.utf8().data());
+        fflush(stderr);
+    }
 
     // MAVERICKS_BACKPORT: Safari's Safe Browsing is non-functional here (Google's Safe Browsing
     // service/integration is gone), and its bundle handler crashes WebContent — an
@@ -3954,6 +3966,12 @@ void WebPage::dispatchWheelEventWithoutScrolling(FrameIdentifier frameID, const 
 
 void WebPage::keyEvent(FrameIdentifier frameID, const WebKeyboardEvent& keyboardEvent)
 {
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): map key events -> pageID while debugging.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[KEY-WP] pid=%d pageID=%llu type=%d key=%s\n", getpid(), m_identifier.toUInt64(), (int)keyboardEvent.type(), keyboardEvent.key().utf8().data());
+        fflush(stderr);
+    }
+
     SetForScope userIsInteractingChange { m_userIsInteracting, true };
 
     m_internals->userActivity.impulse();
