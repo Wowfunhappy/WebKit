@@ -2523,6 +2523,12 @@ WebPage* WebPage::fromCorePage(Page& page)
 
 void WebPage::setSize(const WebCore::IntSize& viewSize)
 {
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace the view-size sequence per page.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[SIZE-WP] pid=%d pageID=%llu %dx%d (was %dx%d)\n", getpid(), m_identifier.toUInt64(), viewSize.width(), viewSize.height(), m_viewSize.width(), m_viewSize.height());
+        fflush(stderr);
+    }
+
     if (m_viewSize == viewSize)
         return;
 
