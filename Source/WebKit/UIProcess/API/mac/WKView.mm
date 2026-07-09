@@ -29,6 +29,7 @@
 #import "WKBrowsingContextGroupInternal.h"
 #import <WebCore/ActivityState.h>
 #import <WebCore/ColorCocoa.h>
+#import <WebCore/FloatPoint.h>
 #import <WebCore/IntSize.h>
 #import <WebCore/KeypressCommand.h>
 #import <QuartzCore/QuartzCore.h>
@@ -688,6 +689,18 @@ WKV_FORWARD_MOUSE(mouseEntered)
 WKV_FORWARD_MOUSE(mouseExited)
 
 #undef WKV_FORWARD_MOUSE
+
+// MAVERICKS_BACKPORT: three-finger-tap "Look Up" trackpad gesture. AppKit delivers the gesture as
+// quickLookWithEvent: down the responder chain; upstream handles it in WebViewImpl::quickLookWithEvent,
+// which this WKView doesn't use. There is no immediate-action gesture recognizer on 10.9
+// (NSImmediateActionGestureRecognizer is 10.10.3+), so this is upstream's non-recognizer path:
+// a dictionary lookup at the tap location.
+- (void)quickLookWithEvent:(NSEvent *)event
+{
+    if (!_wkState || !_wkState->page) { [super quickLookWithEvent:event]; return; }
+    NSPoint locationInViewCoordinates = [self convertPoint:[event locationInWindow] fromView:nil];
+    _wkState->page->performDictionaryLookupAtLocation(WebCore::FloatPoint(locationInViewCoordinates));
+}
 
 #if ENABLE(DRAG_SUPPORT)
 // MAVERICKS_BACKPORT: HTML5 drag-and-drop for WKView. Safari 7 drives WebKit2 through

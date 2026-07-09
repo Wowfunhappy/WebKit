@@ -432,6 +432,9 @@ DictionaryPopupInfo WebPage::dictionaryPopupInfoForRange(LocalFrame& frame, cons
     dictionaryPopupInfo.platformData.attributedString = WebCore::AttributedString::fromNSAttributedString(scaledAttributedString);
 #else
     dictionaryPopupInfo.text = [scaledAttributedString string];
+    // MAVERICKS_BACKPORT: also ship the font-scaled attributed string so the classic 10.9
+    // definition panel can draw its text overlay at the page text's size (see DictionaryPopupInfo.h).
+    dictionaryPopupInfo.attributedString = WebCore::AttributedString::fromNSAttributedString(scaledAttributedString);
 #endif
 
 #elif PLATFORM(MACCATALYST)

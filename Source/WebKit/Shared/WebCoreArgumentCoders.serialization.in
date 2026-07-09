@@ -916,6 +916,9 @@ struct WebCore::DictionaryPopupInfo {
     WebCore::DictionaryPopupInfoCocoa platformData;
 #else
     String text;
+#if PLATFORM(COCOA)
+    WebCore::AttributedString attributedString;
+#endif
 #endif
 };
 
