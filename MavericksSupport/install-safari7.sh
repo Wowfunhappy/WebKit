@@ -86,7 +86,9 @@ OLD_PRIVRT=/System/Library/WebKitPrivateRuntime   # pre-#68 standalone location;
 # GStreamer (#90): the vendored lib tree is deployed inside WebCore.framework (self-contained, beside
 # libcg_polyfill). The libs are self-contained via their own LC_RPATH @loader_path/../lib, so they ship
 # as-is; only the WebKit frameworks' @rpath/libg*/libgst*/etc. deps are rewritten to these absolute paths.
-GST_SRC="$REPO/MavericksSupport/deps/gstreamer/lib"
+# GST_SRC overridable so a freshly-built deps/build (e.g. a GStreamer version bump under
+# test) can be deployed without first refreshing the committed deps/gstreamer snapshot.
+GST_SRC="${GST_SRC:-$REPO/MavericksSupport/deps/gstreamer/lib}"
 GST_DEPLOY="$PRIVLIB/gstreamer/lib"
 
 # Absolute install_name each framework binary must advertise (matches Safari's

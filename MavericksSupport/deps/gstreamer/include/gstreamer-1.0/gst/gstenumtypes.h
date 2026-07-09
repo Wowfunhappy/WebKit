@@ -158,6 +158,14 @@ GST_API
 GType gst_debug_color_mode_get_type (void);
 #define GST_TYPE_DEBUG_COLOR_MODE (gst_debug_color_mode_get_type())
 
+GST_API
+GType gst_log_context_hash_flags_get_type (void);
+#define GST_TYPE_LOG_CONTEXT_HASH_FLAGS (gst_log_context_hash_flags_get_type())
+
+GST_API
+GType gst_log_context_flags_get_type (void);
+#define GST_TYPE_LOG_CONTEXT_FLAGS (gst_log_context_flags_get_type())
+
 /* enumerations from "gstiterator.h" */
 
 GST_API

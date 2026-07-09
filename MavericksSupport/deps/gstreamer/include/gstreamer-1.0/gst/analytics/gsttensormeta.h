@@ -80,6 +80,14 @@ void gst_tensor_meta_set (GstTensorMeta *tmeta, guint num_tensors,
     GstTensor **tensors);
 
 GST_ANALYTICS_META_API
+const GstTensor *gst_tensor_meta_get_by_id (GstTensorMeta *tmeta, GQuark id);
+
+GST_ANALYTICS_META_API
+const GstTensor *gst_tensor_meta_get_typed_tensor (GstTensorMeta * tmeta,
+  GQuark tensor_id, GstTensorDataType data_type, GstTensorDimOrder order,
+    gsize num_dims, const gsize * dims);
+
+GST_ANALYTICS_META_API
 const GstTensor *gst_tensor_meta_get (GstTensorMeta *tmeta, gsize index);
 
 GST_ANALYTICS_META_API

@@ -81,11 +81,17 @@ GST_ALLOCATORS_API
 GType           gst_fd_allocator_get_type (void);
 
 GST_ALLOCATORS_API
-GstAllocator *  gst_fd_allocator_new    (void);
+GstAllocator *  gst_fd_allocator_new    (void) G_GNUC_WARN_UNUSED_RESULT;
 
 GST_ALLOCATORS_API
 GstMemory *     gst_fd_allocator_alloc  (GstAllocator * allocator, gint fd,
                                          gsize size, GstFdMemoryFlags flags);
+
+GST_ALLOCATORS_API
+GstMemory *     gst_fd_allocator_alloc_full
+                                        (GstAllocator * allocator, gint fd,
+                                         gsize maxsize, gsize offset, gsize size,
+                                         GstFdMemoryFlags flags);
 
 GST_ALLOCATORS_API
 gboolean        gst_is_fd_memory        (GstMemory *mem);

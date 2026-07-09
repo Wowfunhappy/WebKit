@@ -50,14 +50,14 @@ GType gst_gl_memory_allocator_get_type(void);
  */
 #if G_BYTE_ORDER == G_LITTLE_ENDIAN
 #define GST_GL_MEMORY_VIDEO_EXT_FORMATS \
-    ", RGBA64_LE, BGR10A2_LE, RGB10A2_LE, P010_10LE, P012_LE, P016_LE, Y212_LE, Y412_LE" \
+    ", RGBA64_LE, BGR10A2_LE, RGB10A2_LE, BGR10x2_LE, RGB10x2_LE, P010_10LE, P012_LE, P016_LE, Y212_LE, Y412_LE" \
     ", A444_16LE, A422_16LE, A420_16LE, A444_12LE, A422_12LE, A420_12LE, A420_10LE" \
-    ", A422_10LE, A444_10LE, I420_12LE, I420_10LE, I422_10LE, I422_12LE, Y444_10LE, Y444_16LE"
+    ", A422_10LE, A444_10LE, I420_12LE, I420_10LE, I422_10LE, I422_12LE, Y444_10LE, Y444_12LE, Y444_16LE"
 #else
 #define GST_GL_MEMORY_VIDEO_EXT_FORMATS \
     ", RGBA64_BE, P010_10BE, P012_BE, P016_BE, Y212_BE, Y412_BE" \
     ", A444_16BE, A422_16BE, A420_16BE, A444_12BE, A422_12BE, A420_12BE, A420_10BE" \
-    ", A422_10BE, A444_10BE, I420_12BE, I420_10BE, I422_10BE, I422_12BE, Y444_10BE, Y444_16BE"
+    ", A422_10BE, A444_10BE, I420_12BE, I420_10BE, I422_10BE, I422_12BE, Y444_10BE, Y444_12BE, Y444_16BE"
 #endif
 
 /**
@@ -67,7 +67,7 @@ GType gst_gl_memory_allocator_get_type(void);
  */
 #define GST_GL_MEMORY_VIDEO_FORMATS_STR \
     "{ RGBA, BGRA, RGBx, BGRx, ARGB, ABGR, xRGB, xBGR, GBRA, GBR, RGBP, BGRP, RGB, BGR, RGB16, BGR16, " \
-    "AYUV, VUYA, A444, A422, Y410, I420, YV12, NV12, NV21, NV16, NV61, YUY2, UYVY, Y210, Y41B, " \
+    "AYUV, VUYA, A444, A422, Y410, I420, YV12, NV12, NV21, NV16, NV61, NV24, YUY2, UYVY, Y210, Y41B, " \
     "Y42B, Y444, GRAY8, GRAY16_LE, GRAY16_BE, ARGB64, A420, AV12, NV12_16L32S, NV12_4L4, RBGA, v210" \
     GST_GL_MEMORY_VIDEO_EXT_FORMATS "}"
 
@@ -166,7 +166,7 @@ GstGLVideoAllocationParams * gst_gl_video_allocation_params_new (GstGLContext * 
                                                                  guint plane,
                                                                  const GstVideoAlignment * valign,
                                                                  GstGLTextureTarget target,
-                                                                 GstGLFormat tex_format);
+                                                                 GstGLFormat tex_format) G_GNUC_WARN_UNUSED_RESULT;
 GST_GL_API
 GstGLVideoAllocationParams * gst_gl_video_allocation_params_new_wrapped_data    (GstGLContext * context,
                                                                                  const GstAllocationParams * alloc_params,
@@ -177,7 +177,7 @@ GstGLVideoAllocationParams * gst_gl_video_allocation_params_new_wrapped_data    
                                                                                  GstGLFormat tex_format,
                                                                                  gpointer wrapped_data,
                                                                                  gpointer user_data,
-                                                                                 GDestroyNotify notify);
+                                                                                 GDestroyNotify notify) G_GNUC_WARN_UNUSED_RESULT;
 
 GST_GL_API
 GstGLVideoAllocationParams * gst_gl_video_allocation_params_new_wrapped_texture (GstGLContext * context,
@@ -189,7 +189,7 @@ GstGLVideoAllocationParams * gst_gl_video_allocation_params_new_wrapped_texture 
                                                                                  GstGLFormat tex_format,
                                                                                  guint tex_id,
                                                                                  gpointer user_data,
-                                                                                 GDestroyNotify notify);
+                                                                                 GDestroyNotify notify) G_GNUC_WARN_UNUSED_RESULT;
 
 GST_GL_API
 GstGLVideoAllocationParams * gst_gl_video_allocation_params_new_wrapped_gl_handle (GstGLContext * context,
@@ -201,7 +201,7 @@ GstGLVideoAllocationParams * gst_gl_video_allocation_params_new_wrapped_gl_handl
                                                                                  GstGLFormat tex_format,
                                                                                  gpointer gl_handle,
                                                                                  gpointer user_data,
-                                                                                 GDestroyNotify notify);
+                                                                                 GDestroyNotify notify) G_GNUC_WARN_UNUSED_RESULT;
 
 /* subclass usage */
 GST_GL_API

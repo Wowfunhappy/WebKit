@@ -70,12 +70,77 @@ typedef struct _GstWebRTCDTLSTransportClass GstWebRTCDTLSTransportClass;
 typedef struct _GstWebRTCICE GstWebRTCICE;
 typedef struct _GstWebRTCICEClass GstWebRTCICEClass;
 
+typedef struct _GstWebRTCICECandidate GstWebRTCICECandidate;
+
 /**
- * GstWebRTCICECandidateStats:
+ * GstWebRTCICECandidatePair:
  *
- * Since: 1.22
+ * Since: 1.28
  */
+typedef struct _GstWebRTCICECandidatePair GstWebRTCICECandidatePair;
+
 typedef struct _GstWebRTCICECandidateStats GstWebRTCICECandidateStats;
+
+/**
+ * GstWebRTCICETcpCandidateType:
+ * @GST_WEBRTC_ICE_TCP_CANDIDATE_TYPE_ACTIVE: An "active" TCP candidate is one for which the transport
+ *                                            will attempt to open an outbound connection but will not
+ *                                            receive incoming connection requests.
+ * @GST_WEBRTC_ICE_TCP_CANDIDATE_TYPE_PASSIVE: A "passive" TCP candidate is one for which the transport
+ *                                             will receive incoming connection attempts but not attempt
+ *                                             a connection.
+ * @GST_WEBRTC_ICE_TCP_CANDIDATE_TYPE_SO: An "so" candidate is one for which the transport will attempt
+ *                                        to open a connection simultaneously with its peer.
+ * @GST_WEBRTC_ICE_TCP_CANDIDATE_TYPE_NONE: Value used for non-TCP candidate type.
+ *
+ * Since: 1.28
+ */
+typedef enum /*< underscore_name=gst_webrtc_ice_tcp_candidate_type >*/
+{
+  GST_WEBRTC_ICE_TCP_CANDIDATE_TYPE_ACTIVE,
+  GST_WEBRTC_ICE_TCP_CANDIDATE_TYPE_PASSIVE,
+  GST_WEBRTC_ICE_TCP_CANDIDATE_TYPE_SO,
+  GST_WEBRTC_ICE_TCP_CANDIDATE_TYPE_NONE,
+} GstWebRTCICETcpCandidateType;
+
+/**
+ * GstWebRTCICECandidateProtocolType:
+ * @GST_WEBRTC_ICE_CANDIDATE_PROTOCOL_TYPE_TCP:
+ * @GST_WEBRTC_ICE_CANDIDATE_PROTOCOL_TYPE_UDP:
+ *
+ * Since: 1.28
+ */
+typedef enum /*< underscore_name=gst_webrtc_ice_candidate_protocol_type >*/
+{
+  GST_WEBRTC_ICE_CANDIDATE_PROTOCOL_TYPE_TCP,
+  GST_WEBRTC_ICE_CANDIDATE_PROTOCOL_TYPE_UDP,
+} GstWebRTCICECandidateProtocolType;
+
+/**
+ * GstWebRTCICECandidateType:
+ * @GST_WEBRTC_ICE_CANDIDATE_TYPE_HOST: The candidate is a host candidate, whose
+ *   IP address as specified in the RTCIceCandidate.address property is in fact the
+ *   true address of the remote peer.
+ * @GST_WEBRTC_ICE_CANDIDATE_TYPE_SERVER_REFLEXIVE: The candidate is a server
+ *   reflexive candidate; the ip and port are a binding allocated by a NAT for an
+ *   agent when it sent a packet through the NAT to a server. They can be learned by
+ *   the STUN server and TURN server to represent the candidate's peer anonymously.
+ * @GST_WEBRTC_ICE_CANDIDATE_TYPE_PEER_REFLEXIVE: The candidate is a peer
+ *   reflexive candidate; the ip and port are a binding allocated by a NAT when it
+ *   sent a STUN request to represent the candidate's peer anonymously.
+ * @GST_WEBRTC_ICE_CANDIDATE_TYPE_RELAYED: The candidate is a relay candidate,
+ *   obtained from a TURN server. The relay candidate's IP address is an address the
+ *   TURN server uses to forward the media between the two peers.
+ *
+ * Since: 1.28
+ */
+typedef enum /*< underscore_name=gst_webrtc_ice_candidate_type >*/
+{
+  GST_WEBRTC_ICE_CANDIDATE_TYPE_HOST,
+  GST_WEBRTC_ICE_CANDIDATE_TYPE_SERVER_REFLEXIVE,
+  GST_WEBRTC_ICE_CANDIDATE_TYPE_PEER_REFLEXIVE,
+  GST_WEBRTC_ICE_CANDIDATE_TYPE_RELAYED,
+} GstWebRTCICECandidateType;
 
 /**
  * GstWebRTCICEStream:
@@ -148,6 +213,21 @@ typedef enum /*< underscore_name=gst_webrtc_dtls_transport_state >*/
   GST_WEBRTC_DTLS_TRANSPORT_STATE_CONNECTING,
   GST_WEBRTC_DTLS_TRANSPORT_STATE_CONNECTED,
 } GstWebRTCDTLSTransportState;
+
+/**
+ * GstWebRTCDTLSRole:
+ * @GST_WEBRTC_DTLS_ROLE_CLIENT: client
+ * @GST_WEBRTC_DTLS_ROLE_SERVER: server
+ * @GST_WEBRTC_DTLS_ROLE_UNKNOWN: unknown
+ *
+ * Since: 1.28
+ */
+typedef enum /*< underscore_name=gst_webrtc_dtls_role >*/
+{
+  GST_WEBRTC_DTLS_ROLE_CLIENT,
+  GST_WEBRTC_DTLS_ROLE_SERVER,
+  GST_WEBRTC_DTLS_ROLE_UNKNOWN
+} GstWebRTCDTLSRole;
 
 /**
  * GstWebRTCICEGatheringState:

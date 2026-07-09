@@ -62,7 +62,7 @@ G_BEGIN_DECLS
  * Since: 1.18
  */
 #define GST_H265_IS_NAL_TYPE_IRAP(nal_type) \
-  ((nal_type) >= GST_H265_NAL_SLICE_BLA_W_LP && (nal_type) <= RESERVED_IRAP_NAL_TYPE_MAX)
+  ((nal_type) >= GST_H265_NAL_SLICE_BLA_W_LP && (nal_type) <= GST_H265_RESERVED_IRAP_NAL_TYPE_MAX)
 
 /**
  * GST_H265_IS_NAL_TYPE_BLA:
@@ -299,20 +299,20 @@ typedef enum
   GST_H265_NAL_SUFFIX_SEI       = 40
 } GstH265NalUnitType;
 
-#define RESERVED_NON_IRAP_SUBLAYER_NAL_TYPE_MIN 10
-#define RESERVED_NON_IRAP_SUBLAYER_NAL_TYPE_MAX 15
+#define GST_H265_RESERVED_NON_IRAP_SUBLAYER_NAL_TYPE_MIN 10
+#define GST_H265_RESERVED_NON_IRAP_SUBLAYER_NAL_TYPE_MAX 15
 
-#define RESERVED_IRAP_NAL_TYPE_MIN 22
-#define RESERVED_IRAP_NAL_TYPE_MAX 23
+#define GST_H265_RESERVED_IRAP_NAL_TYPE_MIN 22
+#define GST_H265_RESERVED_IRAP_NAL_TYPE_MAX 23
 
-#define RESERVED_NON_IRAP_NAL_TYPE_MIN 24
-#define RESERVED_NON_IRAP_NAL_TYPE_MAX 31
+#define GST_H265_RESERVED_NON_IRAP_NAL_TYPE_MIN 24
+#define GST_H265_RESERVED_NON_IRAP_NAL_TYPE_MAX 31
 
-#define RESERVED_NON_VCL_NAL_TYPE_MIN 41
-#define RESERVED_NON_VCL_NAL_TYPE_MAX 47
+#define GST_H265_RESERVED_NON_VCL_NAL_TYPE_MIN 41
+#define GST_H265_RESERVED_NON_VCL_NAL_TYPE_MAX 47
 
-#define UNSPECIFIED_NON_VCL_NAL_TYPE_MIN 48
-#define UNSPECIFIED_NON_VCL_NAL_TYPE_MAX 63
+#define GST_H265_UNSPECIFIED_NON_VCL_NAL_TYPE_MIN 48
+#define GST_H265_UNSPECIFIED_NON_VCL_NAL_TYPE_MAX 63
 
 /**
  * GstH265ParserResult:
@@ -474,6 +474,7 @@ typedef struct _GstH265NalUnit                  GstH265NalUnit;
 
 typedef struct _GstH265VPS                      GstH265VPS;
 typedef struct _GstH265SPS                      GstH265SPS;
+typedef struct _GstH265SPSEXT                   GstH265SPSEXT;
 typedef struct _GstH265PPS                      GstH265PPS;
 typedef struct _GstH265ProfileTierLevel         GstH265ProfileTierLevel;
 typedef struct _GstH265SubLayerHRDParams        GstH265SubLayerHRDParams;
@@ -488,6 +489,7 @@ typedef struct _GstH265ScalingList              GstH265ScalingList;
 typedef struct _GstH265RefPicListModification   GstH265RefPicListModification;
 typedef struct _GstH265PredWeightTable          GstH265PredWeightTable;
 typedef struct _GstH265ShortTermRefPicSet       GstH265ShortTermRefPicSet;
+typedef struct _GstH265ShortTermRefPicSetExt    GstH265ShortTermRefPicSetExt;
 typedef struct _GstH265SliceHdr                 GstH265SliceHdr;
 
 typedef struct _GstH265PicTiming                GstH265PicTiming;
@@ -509,7 +511,7 @@ typedef struct _GstH265DecoderConfigRecord      GstH265DecoderConfigRecord;
  * @temporal_id_plus1: A nal unit temporal identifier
  * @size: The size of the nal unit starting from @offset
  * @offset: The offset of the actual start of the nal unit
- * @sc_offset:The offset of the start code of the nal unit
+ * @sc_offset: The offset of the start code of the nal unit
  * @valid: If the nal unit is valid, which mean it has
  * already been parsed
  * @data: The data from which the Nalu has been parsed
@@ -556,18 +558,18 @@ struct _GstH265NalUnit
  * @max_14bit_constraint_flag: used to define profile extensions, see Annex A
  * @level idc: indicate the level which the CVS confirms
  * @sub_layer_profile_present_flag: sublayer profile presence ind
- * @sub_layer_level_present_flag:sublayer level presence indicator.
+ * @sub_layer_level_present_flag: sublayer level presence indicator.
  * @sub_layer_profile_space: profile space for sublayers
  * @sub_layer_tier_flag: tier flags for sublayers.
  * @sub_layer_profile_idc: conformant profile indicator for sublayers.
  * @sub_layer_profile_compatibility_flag[6][32]: compatibility flags for sublayers
- * @sub_layer_progressive_source_flag:progressive stream indicator for sublayer
+ * @sub_layer_progressive_source_flag: progressive stream indicator for sublayer
  * @sub_layer_interlaced_source_flag: interlaced stream indicator for sublayer
  * @sub_layer_non_packed_constraint_flag: indicate the presence of
  *   frame packing arrangement sei message with in sublayers
- * @sub_layer_frame_only_constraint_flag:recognize the sublayer
+ * @sub_layer_frame_only_constraint_flag: recognize the sublayer
  *   specific field_seq_flag
- * @sub_layer_level_idc:indicate the sublayer specific level
+ * @sub_layer_level_idc: indicate the sublayer specific level
  *
  * Define ProfileTierLevel parameters
  */
@@ -612,7 +614,7 @@ struct _GstH265ProfileTierLevel {
 
 /**
  * GstH265SubLayerHRDParams:
- * @bit_rate_value_minus1:togeter with bit_rate_scale, it specifies
+ * @bit_rate_value_minus1: together with bit_rate_scale, it specifies
  *   the maximum input bitrate when the CPB operates at the access
  *   unit level
  * @cpb_size_value_minus1: is used together with cpb_size_scale to
@@ -668,7 +670,7 @@ struct _GstH265SubLayerHRDParams
  * @fixed_pic_rate_within_cvs_flag: same as fixed_pic_rate_general_flag
  * @elemental_duration_in_tc_minus1: temporal distance in clock ticks
  * @low_delay_hrd_flag: specifies the HRD operational mode
- * @cpb_cnt_minus1:specifies the number of alternative CPS specifications.
+ * @cpb_cnt_minus1: specifies the number of alternative CPB specifications.
  * @sublayer_hrd_params: Sublayer HRD parameters.
  *
  * Defines the HRD parameters
@@ -707,7 +709,7 @@ struct _GstH265HRDParams
  * @base_layer_internal_flag and @base_layer_available_flag:
  *   specify availability of base layer
  * @max_layers_minus1: should be zero, but can be other values in future
- * @max_sub_layers_minus1:specifies the maximum number of temporal sub-layers
+ * @max_sub_layers_minus1: specifies the maximum number of temporal sub-layers
  * @temporal_id_nesting_flag: specifies whether inter prediction is
  *   additionally restricted
  * @profile_tier_level: ProfileTierLevel info
@@ -833,6 +835,30 @@ struct _GstH265ShortTermRefPicSet
   gint32 DeltaPocS0[16];
   gint32 DeltaPocS1[16];
   guint8 NumDeltaPocsOfRefRpsIdx;
+};
+
+/**
+ * GstH265ShortTermRefPicSetExt:
+ * @use_delta_flag: Bit j equals to 1 specifies that the j-th entry in the source candidate
+ *  short-term RPS is included in this candidate short-term RPS.
+ * @used_by_curr_pic: Bit j specifies if short-term RPS j is used by the current picture.
+ * @delta_poc_s0_minus1: Specifies the negative picture order count delta for the i-th
+ *  entry in the short-term RPS. See details in section 7.4.8 "Short-term reference
+ *  picture set semantics" of the specification.
+ * @delta_poc_s1_minus1: Specifies the positive picture order count delta for the i-th
+ *  entry in the short-term RPS. See details in section 7.4.8 "Short-term reference
+ *  picture set semantics" of the specification.
+ *
+ * Defines the extended #GstH265ShortTermRefPicSetExt params
+ *
+ * Since: 1.28
+ */
+struct _GstH265ShortTermRefPicSetExt
+{
+  guint8 use_delta_flag[16];
+  guint8 used_by_curr_pic_flag[16];
+  guint32 delta_poc_s0_minus1[16];
+  guint32 delta_poc_s1_minus1[16];
 };
 
 /**
@@ -1264,6 +1290,17 @@ struct _GstH265SPS
 };
 
 /**
+ * GstH265SPSEXT:
+ *
+ * H265 Sequence Parameter Set extension
+ *
+ * Since: 1.28
+ */
+struct _GstH265SPSEXT {
+  GstH265ShortTermRefPicSetExt short_term_ref_pic_set_ext[65];
+};
+
+/**
  * GstH265PPS:
  *
  * H265 Picture Parameter Set
@@ -1556,6 +1593,15 @@ struct _GstH265SliceHdr
    * Since: 1.22
    */
   guint long_term_ref_pic_set_size;
+
+  /**
+   * _GstH265SliceHdr.pps_id:
+   *
+   * PPS id
+   *
+   * Since: 1.28
+   */
+  guint pps_id;
 };
 
 struct _GstH265PicTiming
@@ -1706,11 +1752,12 @@ struct _GstH265ContentLightLevel
 };
 
 /**
- * _GstH265SEIMessage.payload.user_data_unregistered:
+ * GstH265SEIMessage:
+ * @payloadType: #GstH265SEIPayloadType
+ * @payload: union of all possible SEI message data types
  *
- * User Data Unregistered
- *
- * Since: 1.24
+ * Constains information about SEI message. The content depends on the
+ * @payloadType.
  */
 struct _GstH265SEIMessage
 {
@@ -1724,6 +1771,14 @@ struct _GstH265SEIMessage
     GstH265TimeCode time_code;
     GstH265MasteringDisplayColourVolume mastering_display_colour_volume;
     GstH265ContentLightLevel content_light_level;
+
+    /**
+     * GstH265SEIMessage.user_data_unregistered:
+     *
+     * User Data Unregistered
+     *
+     * Since: 1.24
+     */
     GstH265UserDataUnregistered user_data_unregistered;
     /* ... could implement more */
   } payload;
@@ -2086,6 +2141,12 @@ GstH265ParserResult gst_h265_parser_parse_slice_hdr (GstH265Parser   * parser,
                                                      GstH265SliceHdr * slice);
 
 GST_CODEC_PARSERS_API
+GstH265ParserResult gst_h265_parser_parse_slice_hdr_ext (GstH265Parser   * parser,
+                                                         GstH265NalUnit  * nalu,
+                                                         GstH265SliceHdr * slice,
+                                                         GstH265SPSEXT   * sps_ext);
+
+GST_CODEC_PARSERS_API
 GstH265ParserResult gst_h265_parser_parse_vps       (GstH265Parser   * parser,
                                                      GstH265NalUnit  * nalu,
                                                      GstH265VPS      * vps);
@@ -2096,6 +2157,12 @@ GstH265ParserResult gst_h265_parser_parse_sps       (GstH265Parser   * parser,
                                                      GstH265SPS      * sps,
                                                      gboolean          parse_vui_params);
 
+GST_CODEC_PARSERS_API
+GstH265ParserResult gst_h265_parser_parse_sps_ext   (GstH265Parser   * parser,
+                                                     GstH265NalUnit  * nalu,
+                                                     GstH265SPS      * sps,
+                                                     GstH265SPSEXT   * sps_ext,
+                                                     gboolean          parse_vui_params);
 GST_CODEC_PARSERS_API
 GstH265ParserResult gst_h265_parser_parse_pps       (GstH265Parser   * parser,
                                                      GstH265NalUnit  * nalu,
@@ -2119,6 +2186,10 @@ GstH265ParserResult gst_h265_parser_update_pps      (GstH265Parser   * parser,
                                                      GstH265PPS      * pps);
 
 GST_CODEC_PARSERS_API
+GstH265ParserResult gst_h265_parser_link_slice_hdr  (GstH265Parser * parser,
+                                                     GstH265SliceHdr * slice);
+
+GST_CODEC_PARSERS_API
 void                gst_h265_parser_free            (GstH265Parser  * parser);
 
 GST_CODEC_PARSERS_API
@@ -2129,6 +2200,13 @@ GST_CODEC_PARSERS_API
 GstH265ParserResult gst_h265_parse_sps              (GstH265Parser  * parser,
                                                      GstH265NalUnit * nalu,
                                                      GstH265SPS     * sps,
+                                                     gboolean         parse_vui_params);
+
+GST_CODEC_PARSERS_API
+GstH265ParserResult gst_h265_parse_sps_ext          (GstH265Parser  * parser,
+                                                     GstH265NalUnit * nalu,
+                                                     GstH265SPS     * sps,
+                                                     GstH265SPSEXT  * sps_ext,
                                                      gboolean         parse_vui_params);
 
 GST_CODEC_PARSERS_API
