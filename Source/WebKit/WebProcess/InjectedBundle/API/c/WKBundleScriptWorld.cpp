@@ -37,7 +37,13 @@ WKTypeID WKBundleScriptWorldGetTypeID()
 
 WKBundleScriptWorldRef WKBundleScriptWorldCreateWorld()
 {
-    RefPtr<WebKit::InjectedBundleScriptWorld> world = WebKit::InjectedBundleScriptWorld::create(WebKit::ContentWorldIdentifier::generate());
+    // MAVERICKS_BACKPORT: Safari 7's injected bundle creates the isolated worlds for its
+    // user-level scripts (the Reader article finder, extension content scripts) through this
+    // API, so type them User — like the GLib port's WebKitScriptWorld — which exposes the
+    // [EnabledForWorld=isUser] window.getMatchedCSSRules() that ReaderArticleFinderJS calls
+    // when sizing floated article elements.
+    // RefPtr<WebKit::InjectedBundleScriptWorld> world = WebKit::InjectedBundleScriptWorld::create(WebKit::ContentWorldIdentifier::generate());
+    RefPtr<WebKit::InjectedBundleScriptWorld> world = WebKit::InjectedBundleScriptWorld::create(WebKit::ContentWorldIdentifier::generate(), WebKit::InjectedBundleScriptWorld::Type::User);
     return toAPILeakingRef(WTF::move(world));
 }
 
