@@ -1701,22 +1701,12 @@ int Element::scrollLeft()
     return 0;
 }
 
-// MAVERICKS_BACKPORT: Safari 7's Reader script (ReaderJS, compiled into the Safari binary and thus
-// unfixable) drives all programmatic reader scrolling — keyboard scrolling, scroll restoration,
-// ReaderWebProcessController::setScrollTop — through document.body.scrollTop. It was written for
-// the pre-CSSOM-View engine where that aliased the document scroll in standards mode; today the
-// scrolling element of Reader.html is <html>, so every ReaderJS scroll silently no-ops. Alias the
-// body's scroll API to the document scroll for safari-reader: documents only (the scheme is served
-// exclusively for Safari's reader page by WebLoaderStrategy).
-static bool shouldAliasBodyScrollToDocumentScrollForSafariReader(const Document& document, const Element& element)
+// MAVERICKS_BACKPORT: Safari 7's compiled-in ReaderJS scrolls via document.body.scrollTop
+// (pre-CSSOM-View semantics); Quirks::shouldAliasBodyScrollToDocumentScroll() says when the
+// body's vertical scroll API must alias the document scroll. See that method for the details.
+static bool shouldAliasBodyScrollToDocumentScrollForSafariReader(Document& document, const Element& element)
 {
-    bool aliased = document.bodyOrFrameset() == &element && document.url().protocolIs("safari-reader"_s);
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace reader body-scroll alias hits while debugging.
-    if (aliased && !access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[READER-BODYSCROLL] pid=%d hit\n", getpid());
-        fflush(stderr);
-    }
-    return aliased;
+    return document.bodyOrFrameset() == &element && document.quirks().shouldAliasBodyScrollToDocumentScroll();
 }
 
 int Element::scrollTop()
@@ -1779,6 +1769,12 @@ void Element::setScrollTop(int newTop)
     if (document->scrollingElement() == this || shouldAliasBodyScrollToDocumentScrollForSafariReader(document, *this)) {
         if (RefPtr frame = documentFrameWithNonNullView()) {
             IntPoint position(frame->view()->scrollX(), static_cast<int>(newTop * frame->pageZoomFactor() * frame->frameScaleFactor()));
+            // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): reader-scroll geometry (first-activation race).
+            if (document->url().protocolIs("safari-reader"_s) && !access("/tmp/wk-debug-on", F_OK)) {
+                auto* view = frame->view();
+                fprintf(stderr, "[READER-GEOM] setScrollTop=%d contents=%dx%d visible=%dx%d maxY=%d\n", newTop, view->contentsSize().width(), view->contentsSize().height(), view->visibleWidth(), view->visibleHeight(), view->maximumScrollPosition().y());
+                fflush(stderr);
+            }
             protect(frame->view())->setScrollPosition(position, options);
         }
         return;
