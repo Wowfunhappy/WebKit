@@ -35,6 +35,7 @@
 #import "EditorState.h"
 #import "WKEditCommand.h"
 #import <WebCore/CGWindowUtilities.h>
+#import <WebCore/DictionaryPopupInfo.h>
 #import <WebCore/TextUndoInsertionMarkupMac.h>
 #import <WebCore/Cursor.h>
 #import <WebCore/IOSurface.h>
@@ -1336,8 +1337,19 @@ CALayer *MinimalPageClient::textIndicatorInstallationLayer()
 { return { }; }
 #endif
 #if PLATFORM(COCOA)
-void MinimalPageClient::didPerformDictionaryLookup(const WebCore::DictionaryPopupInfo&)
-{ }
+void MinimalPageClient::didPerformDictionaryLookup(const WebCore::DictionaryPopupInfo& info)
+{
+    // MAVERICKS_BACKPORT: the modern "Look Up" popover uses the Reveal framework, which does not
+    // exist on 10.9 (ENABLE(REVEAL)=0, so WebCore's DictionaryLookup::showPopup is a no-op).
+    // WebViewImpl is also absent on the standalone WKView. Present the classic definition panel
+    // instead via -[NSView showDefinitionForAttributedString:atPoint:] (AppKit, 10.6+) — the same
+    // panel stock Safari 7 used for the Look Up context-menu item. info.origin is the text baseline
+    // origin in the view's (flipped) coordinate space.
+    if (!m_view || info.text.isEmpty())
+        return;
+    RetainPtr<NSAttributedString> string = adoptNS([[NSAttributedString alloc] initWithString:info.text.createNSString().get()]);
+    [m_view showDefinitionForAttributedString:string.get() atPoint:NSMakePoint(info.origin.x(), info.origin.y())];
+}
 #endif
 #if HAVE(APP_ACCENT_COLORS)
 WebCore::Color MinimalPageClient::accentColor()
