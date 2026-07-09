@@ -1701,12 +1701,30 @@ int Element::scrollLeft()
     return 0;
 }
 
+// MAVERICKS_BACKPORT: Safari 7's Reader script (ReaderJS, compiled into the Safari binary and thus
+// unfixable) drives all programmatic reader scrolling — keyboard scrolling, scroll restoration,
+// ReaderWebProcessController::setScrollTop — through document.body.scrollTop. It was written for
+// the pre-CSSOM-View engine where that aliased the document scroll in standards mode; today the
+// scrolling element of Reader.html is <html>, so every ReaderJS scroll silently no-ops. Alias the
+// body's scroll API to the document scroll for safari-reader: documents only (the scheme is served
+// exclusively for Safari's reader page by WebLoaderStrategy).
+static bool shouldAliasBodyScrollToDocumentScrollForSafariReader(const Document& document, const Element& element)
+{
+    bool aliased = document.bodyOrFrameset() == &element && document.url().protocolIs("safari-reader"_s);
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace reader body-scroll alias hits while debugging.
+    if (aliased && !access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[READER-BODYSCROLL] pid=%d hit\n", getpid());
+        fflush(stderr);
+    }
+    return aliased;
+}
+
 int Element::scrollTop()
 {
     Ref document = this->document();
     document->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
 
-    if (document->scrollingElement() == this) {
+    if (document->scrollingElement() == this || shouldAliasBodyScrollToDocumentScrollForSafariReader(document, *this)) {
         if (RefPtr frame = documentFrameWithNonNullView())
             return adjustContentsScrollPositionOrSizeForZoom(frame->view()->contentsScrollPosition().y(), *frame);
         return 0;
@@ -1757,7 +1775,8 @@ void Element::setScrollTop(int newTop)
     if (options.animated == ScrollIsAnimated::Yes)
         setHasEverHadSmoothScroll(true);
 
-    if (document->scrollingElement() == this) {
+    // MAVERICKS_BACKPORT: see shouldAliasBodyScrollToDocumentScrollForSafariReader — ReaderJS scrolls via body.scrollTop.
+    if (document->scrollingElement() == this || shouldAliasBodyScrollToDocumentScrollForSafariReader(document, *this)) {
         if (RefPtr frame = documentFrameWithNonNullView()) {
             IntPoint position(frame->view()->scrollX(), static_cast<int>(newTop * frame->pageZoomFactor() * frame->frameScaleFactor()));
             protect(frame->view())->setScrollPosition(position, options);

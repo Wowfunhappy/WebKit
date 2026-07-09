@@ -259,6 +259,15 @@ struct WKViewState {
         configuration->setPageGroup(WTF::move(pageGroup));
     }
 
+    // MAVERICKS_BACKPORT: honor relatedToPage — the related page pins this page into the same
+    // WebProcess (WebProcessPool::createWebPage uses relatedPage->ensureRunningProcess()).
+    // Safari's SearchableWKView passes the current tab's page here; Safari Reader depends on it:
+    // the reader page's injected-bundle controller resolves the browser page's article finder
+    // in-process (ReaderWebProcessController::originalArticleFinder walks a same-process
+    // WKBundlePage link), and the extracted article DOM node is adopted across the two pages.
+    if (relatedPage)
+        configuration->setRelatedPage(protect(WebKit::toImpl(relatedPage)));
+
     return [self initWithFrame:frame processPool:*WebKit::toImpl(contextRef) configuration:WTF::move(configuration)];
 }
 
