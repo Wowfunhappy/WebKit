@@ -50,6 +50,7 @@ static inline RTCSctpTransportState toRTCSctpTransportState(GstWebRTCSCTPTranspo
 
 GStreamerSctpTransportBackend::GStreamerSctpTransportBackend(GRefPtr<GstWebRTCSCTPTransport>&& transport)
     : m_backend(WTF::move(transport))
+    , m_guard(AliveGuard::create(*this))
 {
     static std::once_flag debugRegisteredFlag;
     std::call_once(debugRegisteredFlag, [] {
@@ -72,16 +73,42 @@ UniqueRef<RTCDtlsTransportBackend> GStreamerSctpTransportBackend::dtlsTransportB
 
 void GStreamerSctpTransportBackend::registerClient(RTCSctpTransportBackendClient& client)
 {
+    ASSERT(isMainThread());
     ASSERT(!m_client);
     m_client = client;
-    g_signal_connect_swapped(m_backend.get(), "notify::state", G_CALLBACK(+[](GStreamerSctpTransportBackend* backend) {
-        backend->stateChanged();
-    }), this);
+    m_guard->backend = this;
+
+    // MAVERICKS_BACKPORT: notify::state is emitted on GStreamer's SCTP/usrsctp thread, and this
+    // backend is not ref-counted. The earlier lock-guarded design took a WTF Lock from that thread
+    // and dereferenced the backend cross-thread; it raced backend teardown/GC and crashed
+    // (freed AliveGuard → "Invalid value for lock"). Instead, do the minimum on the SCTP thread —
+    // take a thread-safe ref to the guard (the notifier is kept alive for the duration of the
+    // emission by GObject's handler ref) and marshal to the main thread. backend is then read and
+    // used ONLY on the main thread, where registerClient/unregisterClient/~backend also run, so
+    // there is no cross-thread access at all: an emission that arrives after teardown finds
+    // guard->backend already null.
+    struct Notifier {
+        Ref<AliveGuard> guard;
+        static void destruct(gpointer data, GClosure*) { delete static_cast<Notifier*>(data); }
+    };
+    m_stateSignalHandler = g_signal_connect_data(m_backend.get(), "notify::state", G_CALLBACK(+[](GstWebRTCSCTPTransport*, GParamSpec*, Notifier* notifier) {
+        callOnMainThread([guard = Ref { notifier->guard.get() }] {
+            if (auto* backend = guard->backend)
+                backend->stateChanged();
+        });
+    }), new Notifier { m_guard.copyRef() }, Notifier::destruct, static_cast<GConnectFlags>(0));
 }
 
 void GStreamerSctpTransportBackend::unregisterClient()
 {
-    g_signal_handlers_disconnect_by_data(m_backend.get(), this);
+    // MAVERICKS_BACKPORT: main-thread only (see registerClient). Null the backend so any marshaled
+    // notification that has not yet run becomes a no-op, then disconnect.
+    ASSERT(isMainThread());
+    m_guard->backend = nullptr;
+    if (m_stateSignalHandler) {
+        g_signal_handler_disconnect(m_backend.get(), m_stateSignalHandler);
+        m_stateSignalHandler = 0;
+    }
     m_client.clear();
 }
 

@@ -27,6 +27,7 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/glib/GMallocString.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 
 namespace WebCore {
@@ -50,6 +51,7 @@ private:
 
     GRefPtr<GstWebRTCICETransport> m_iceTransport;
     WeakPtr<RTCIceTransportBackendClient> m_client;
+    Vector<unsigned long> m_signalHandlers;
 };
 
 GStreamerIceTransportBackendObserver::GStreamerIceTransportBackendObserver(RTCIceTransportBackendClient& client, GRefPtr<GstWebRTCICETransport>&& iceTransport)
@@ -68,21 +70,33 @@ void GStreamerIceTransportBackendObserver::start()
     if (gstObjectHasProperty(GST_OBJECT_CAST(m_iceTransport.get()), "send-buffer-size"_s))
         g_object_set(m_iceTransport.get(), "send-buffer-size", 262144, nullptr);
 
-    g_signal_connect_swapped(m_iceTransport.get(), "notify::state", G_CALLBACK(+[](GStreamerIceTransportBackendObserver* backend) {
-        backend->onIceTransportStateChanged();
-    }), this);
-    g_signal_connect_swapped(m_iceTransport.get(), "notify::gathering-state", G_CALLBACK(+[](GStreamerIceTransportBackendObserver* backend) {
-        backend->onGatheringStateChanged();
-    }), this);
-    g_signal_connect_swapped(m_iceTransport.get(), "on-selected-candidate-pair-change", G_CALLBACK(+[](GStreamerIceTransportBackendObserver* backend) {
-        backend->onSelectedCandidatePairChanged();
-    }), this);
+    // MAVERICKS_BACKPORT: these signals fire on GStreamer's ICE/transport threads; reach the observer
+    // through a heap-held ThreadSafeWeakPtr (strong-ref'd for the duration of each callback) instead of
+    // a raw `this` — g_signal_handlers_disconnect* does not wait for an in-flight emission, so a raw
+    // pointer is a use-after-free when the observer is destroyed while a transport thread is mid-notify.
+    struct Notifier {
+        ThreadSafeWeakPtr<GStreamerIceTransportBackendObserver> weakObserver;
+        static void destruct(gpointer data, GClosure*) { delete static_cast<Notifier*>(data); }
+    };
+    m_signalHandlers.append(g_signal_connect_data(m_iceTransport.get(), "notify::state", G_CALLBACK(+[](GstWebRTCICETransport*, GParamSpec*, Notifier* notifier) {
+        if (RefPtr observer = notifier->weakObserver.get())
+            observer->onIceTransportStateChanged();
+    }), new Notifier { ThreadSafeWeakPtr<GStreamerIceTransportBackendObserver> { *this } }, Notifier::destruct, static_cast<GConnectFlags>(0)));
+    m_signalHandlers.append(g_signal_connect_data(m_iceTransport.get(), "notify::gathering-state", G_CALLBACK(+[](GstWebRTCICETransport*, GParamSpec*, Notifier* notifier) {
+        if (RefPtr observer = notifier->weakObserver.get())
+            observer->onGatheringStateChanged();
+    }), new Notifier { ThreadSafeWeakPtr<GStreamerIceTransportBackendObserver> { *this } }, Notifier::destruct, static_cast<GConnectFlags>(0)));
+    m_signalHandlers.append(g_signal_connect_data(m_iceTransport.get(), "on-selected-candidate-pair-change", G_CALLBACK(+[](GstWebRTCICETransport*, Notifier* notifier) {
+        if (RefPtr observer = notifier->weakObserver.get())
+            observer->onSelectedCandidatePairChanged();
+    }), new Notifier { ThreadSafeWeakPtr<GStreamerIceTransportBackendObserver> { *this } }, Notifier::destruct, static_cast<GConnectFlags>(0)));
 }
 
 void GStreamerIceTransportBackendObserver::stop()
 {
     m_client = nullptr;
-    g_signal_handlers_disconnect_by_data(m_iceTransport.get(), this);
+    while (!m_signalHandlers.isEmpty())
+        g_signal_handler_disconnect(m_iceTransport.get(), m_signalHandlers.takeLast());
 }
 
 void GStreamerIceTransportBackendObserver::onIceTransportStateChanged()
