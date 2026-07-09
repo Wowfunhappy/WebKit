@@ -30,6 +30,7 @@
 #include <gst/webrtc/webrtc.h>
 #undef GST_USE_UNSTABLE_API
 
+#include <limits>
 #include <wtf/UUID.h>
 #include <wtf/glib/GMallocString.h>
 #include <wtf/glib/WTFGType.h>
@@ -80,6 +81,14 @@ void RealtimeOutgoingMediaSourceGStreamer::initialize()
     std::call_once(debugRegisteredFlag, [] {
         GST_DEBUG_CATEGORY_INIT(webkit_webrtc_outgoing_media_debug, "webkitwebrtcoutgoingmedia", 0, "WebKit WebRTC outgoing media");
     });
+
+    // MAVERICKS_BACKPORT: allocate the stable send SSRC up front (see the header). Used both by
+    // the RTP packetizer and, via codec-preferences, by webrtcbin's offer so advertised == sent.
+    // generateSSRC() returns UINT32_MAX when it can't find a free value; normalize that to 0 so
+    // the guards below fall back to letting each packetizer/webrtcbin pick its own SSRC.
+    m_ssrc = m_ssrcGenerator->generateSSRC();
+    if (m_ssrc == std::numeric_limits<uint32_t>::max())
+        m_ssrc = 0;
 
     m_bin = gst_bin_new(nullptr);
     m_inputSelector = gst_element_factory_make("input-selector", nullptr);
@@ -480,6 +489,25 @@ bool RealtimeOutgoingMediaSourceGStreamer::configurePacketizers(GRefPtr<GstCaps>
     GST_DEBUG_OBJECT(m_bin.get(), "Configuring packetizers for caps %" GST_PTR_FORMAT, codecPreferences.get());
     if (gst_caps_is_empty(codecPreferences.get()) || gst_caps_is_any(codecPreferences.get())) [[unlikely]]
         return false;
+
+    // MAVERICKS_BACKPORT: stamp our stable send SSRC onto every codec structure so each RTP
+    // packetizer built below sends with it (the packetizers keep a pre-set "ssrc" instead of
+    // generating their own). GStreamerMediaEndpoint stamps the SAME value onto the transceiver's
+    // codec-preferences at add-transceiver time, so webrtcbin advertises a=ssrc/a=ssrc-group:FID for
+    // exactly this SSRC — which Google Meet's Safari path requires. Simulcast (multiple encodings,
+    // one packetizer per layer) needs a distinct SSRC per layer, so it is left to webrtcbin.
+    bool hasMultipleEncodings = false;
+    if (m_parameters) {
+        auto encodings = gstStructureGetList<const GstStructure*>(m_parameters.get(), "encodings"_s);
+        hasMultipleEncodings = encodings.size() > 1;
+    }
+    if (m_ssrc && !hasMultipleEncodings) {
+        codecPreferences = adoptGRef(gst_caps_make_writable(codecPreferences.leakRef()));
+        unsigned totalStructures = gst_caps_get_size(codecPreferences.get());
+        for (unsigned i = 0; i < totalStructures; i++)
+            gst_structure_set(gst_caps_get_structure(codecPreferences.get(), i), "ssrc", G_TYPE_UINT, m_ssrc, nullptr);
+        GST_DEBUG_OBJECT(m_bin.get(), "Stamped send SSRC %u onto packetizer caps", m_ssrc);
+    }
 
     auto inputSelectorSrcPad = adoptGRef(gst_element_get_static_pad(m_inputSelector.get(), "src"));
     if (!gst_pad_is_linked(inputSelectorSrcPad.get()) && !gst_element_link(m_inputSelector.get(), m_tee.get()))
