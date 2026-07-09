@@ -70,6 +70,8 @@ public:
     bool NODELETE shouldSilenceWindowResizeEventsDuringApplicationSnapshotting() const;
     bool NODELETE shouldSilenceMediaQueryListChangeEvents() const;
     bool shouldIgnoreInvalidSignal() const;
+    // MAVERICKS_BACKPORT: safari-reader: documents alias body.scrollTop to the document scroll (ReaderJS compat).
+    bool shouldAliasBodyScrollToDocumentScroll() const;
     bool needsFormControlToBeMouseFocusable() const;
     bool needsAutoplayPlayPauseEvents() const;
     bool needsSeekingSupportDisabled() const;

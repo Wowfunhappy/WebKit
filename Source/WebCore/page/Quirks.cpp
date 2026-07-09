@@ -168,6 +168,28 @@ bool Quirks::shouldIgnoreInvalidSignal() const
     return needsQuirks();
 }
 
+// MAVERICKS_BACKPORT: Safari 7's Reader script (ReaderJS, compiled into the Safari binary and thus
+// unfixable) drives all programmatic reader scrolling — keyboard scrolling, scroll restoration,
+// ReaderWebProcessController::setScrollTop — through document.body.scrollTop. It was written for
+// the pre-CSSOM-View engine where that aliased the document scroll in standards mode; today the
+// scrolling element of Reader.html is <html>, so every ReaderJS scroll would silently no-op.
+// Element::scrollTop/setScrollTop consult this to alias the body's scroll API to the document
+// scroll for safari-reader: documents (the scheme is served exclusively for Safari's reader page
+// by WebLoaderStrategy). Deliberately NOT gated on needsQuirks(): the reader page must always get
+// this behavior regardless of the site-specific-quirks setting. scrollLeft and
+// scrollHeight/clientHeight are NOT aliased — ReaderJS only scrolls vertically today; if a reader
+// paging or horizontal-scroll bug ever appears, look there first.
+bool Quirks::shouldAliasBodyScrollToDocumentScroll() const
+{
+    bool aliased = m_document && m_document->url().protocolIs("safari-reader"_s);
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace reader body-scroll alias hits while debugging.
+    if (aliased && !access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[READER-BODYSCROLL] pid=%d hit\n", getpid());
+        fflush(stderr);
+    }
+    return aliased;
+}
+
 bool Quirks::shouldDisableBlobFileAccessEnforcement()
 {
     return shouldDisableBlobFileAccessEnforcementInternal();
