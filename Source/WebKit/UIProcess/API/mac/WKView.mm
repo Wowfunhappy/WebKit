@@ -49,6 +49,8 @@
 #import <WebCore/DragData.h>
 #import <WebCore/DragActions.h>
 #import <WebCore/PlatformEventFactoryMac.h>
+// MAVERICKS_BACKPORT: _NSRecommendedScrollerStyle(), used to pick the mouse-tracking-area options.
+#import <pal/spi/mac/NSScrollerImpSPI.h>
 #import <wtf/Compiler.h>
 #endif
 
@@ -144,6 +146,22 @@ struct WKViewState {
     // selection, so the Services machinery offers services for the web selection (app-menu Services submenu
     // and context-menu services). Ported from WebViewImpl's constructor (which this WKView does not use).
     [NSApp registerServicesMenuSendTypes:WebKit::PasteboardTypes::forSelectionSingleton() returnTypes:WebKit::PasteboardTypes::forEditingSingleton()];
+
+    // MAVERICKS_BACKPORT: mouse-tracking area so this view receives mouseMoved:/mouseEntered:/
+    // mouseExited: even when it is not the window's first responder. AppKit routes plain
+    // NSMouseMoved window events to the first responder only, so an embedder that keeps focus
+    // elsewhere (Mail's message list stays first responder while the body WKView shows a message)
+    // would otherwise deliver no mouseMoved: to this view until it is first clicked — leaving the
+    // cursor a plain arrow over text/links and CSS :hover dead. A tracking area delivers these
+    // events to its owner regardless of first-responder status. Options match Safari 7 WebKit2's
+    // -[WKView initWithFrame:contextRef:pageGroupRef:relatedToPage:]: legacy scrollbars have
+    // design details that rely on tracking the mouse all the time, overlay scrollbars only need
+    // tracking while the window is key. (WebViewImpl::trackingAreaOptions() additionally sets
+    // NSTrackingCursorUpdate, which is for a cursorUpdate: handler this view does not have.)
+    NSTrackingAreaOptions trackingOptions = NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited | NSTrackingInVisibleRect;
+    trackingOptions |= _NSRecommendedScrollerStyle() == NSScrollerStyleLegacy ? NSTrackingActiveAlways : NSTrackingActiveInKeyWindow;
+    RetainPtr<NSTrackingArea> trackingArea = adoptNS([[NSTrackingArea alloc] initWithRect:frame options:trackingOptions owner:self userInfo:nil]);
+    [self addTrackingArea:trackingArea.get()];
 
 #if ENABLE(DRAG_SUPPORT)
     // MAVERICKS_BACKPORT: become an NSDraggingDestination so drops route into the page.
@@ -532,15 +550,6 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // fresh layer-tree commit, restoring the visible content.
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
-    // MAVERICKS_BACKPORT: the cursor only changes on hover (and CSS :hover fires) when
-    // WebContent receives mouseMoved events to hit-test under the pointer. The
-    // WindowServer suppresses mouseMoved unless the hosting window opts in. Stock
-    // WKWebView gets them via an NSTrackingArea; here -mouseMoved: is delivered by
-    // AppKit's normal responder chain (the WKView is the hit-test target), but only
-    // if the window emits mouseMoved at all — so opt the window in. Without this,
-    // setCursor IPC never fires and the pointer stays a plain arrow over links/text (#17).
-    if (NSWindow *window = [self window])
-        [window setAcceptsMouseMovedEvents:YES];
     if (!_wkState || !_wkState->page) return;
 
     // MAVERICKS_BACKPORT: propagate the window's backing scale to the page so it renders at the display's
@@ -677,7 +686,19 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     _wkState->page->handleMouseEvent(webEvent);
 }
 WKV_FORWARD_MOUSE(mouseUp)
-WKV_FORWARD_MOUSE(mouseMoved)
+// MAVERICKS_BACKPORT: mouseMoved is explicit (not via the macro) because it needs a filter the
+// other forwards don't: while this view is first responder, the window routes mouseMoved events
+// to it from anywhere in the window (not just over the tracking area installed in the designated
+// initializer), so drop moves outside the visible rect instead of hit-testing bogus coordinates.
+// Matches Safari 7 WebKit2's -[WKView mouseMoved:] and WebViewImpl::mouseMoved().
+- (void)mouseMoved:(NSEvent *)event
+{
+    if (!_wkState || !_wkState->page) { [super mouseMoved:event]; return; }
+    if (self == [[self window] firstResponder] && !NSPointInRect([self convertPoint:[event locationInWindow] fromView:nil], [self visibleRect]))
+        return;
+    WebKit::NativeWebMouseEvent webEvent(event, nil, self, WebKit::WebMouseEventInputSource::UserDriven);
+    _wkState->page->handleMouseEvent(webEvent);
+}
 WKV_FORWARD_MOUSE(mouseDragged)
 WKV_FORWARD_MOUSE(rightMouseDown)
 WKV_FORWARD_MOUSE(rightMouseUp)

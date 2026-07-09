@@ -36,6 +36,8 @@
 #import "WKEditCommand.h"
 #import <WebCore/CGWindowUtilities.h>
 #import <WebCore/DictionaryPopupInfo.h>
+// MAVERICKS_BACKPORT: WebCore::ScrollbarStyle, consumed by recommendedScrollbarStyleDidChange.
+#import <WebCore/ScrollTypes.h>
 #import <WebCore/TextUndoInsertionMarkupMac.h>
 #import <WebCore/Cursor.h>
 #import <WebCore/IOSurface.h>
@@ -1397,8 +1399,24 @@ void MinimalPageClient::recordAutocorrectionResponse(WebCore::AutocorrectionResp
 { }
 #endif
 #if PLATFORM(MAC)
-void MinimalPageClient::recommendedScrollbarStyleDidChange(WebCore::ScrollbarStyle)
-{ }
+// MAVERICKS_BACKPORT: recreate the WKView's mouse-tracking area with options matching the new
+// scrollbar style (legacy scrollbars rely on tracking the mouse all the time, overlay scrollbars
+// only need tracking while the window is key), mirroring PageClientImpl::
+// recommendedScrollbarStyleDidChange. The tracking area — installed by the WKView designated
+// initializer — is what delivers mouseMoved: to the view when it is not the window's first
+// responder, which keeps cursor changes and CSS :hover working.
+void MinimalPageClient::recommendedScrollbarStyleDidChange(WebCore::ScrollbarStyle newStyle)
+{
+    if (!m_view)
+        return;
+    NSTrackingAreaOptions options = NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited | NSTrackingInVisibleRect;
+    options |= newStyle == WebCore::ScrollbarStyle::AlwaysVisible ? NSTrackingActiveAlways : NSTrackingActiveInKeyWindow;
+    RetainPtr<NSArray> existingAreas = adoptNS([[m_view trackingAreas] copy]);
+    for (NSTrackingArea *area in existingAreas.get())
+        [m_view removeTrackingArea:area];
+    RetainPtr<NSTrackingArea> trackingArea = adoptNS([[NSTrackingArea alloc] initWithRect:[m_view frame] options:options owner:m_view userInfo:nil]);
+    [m_view addTrackingArea:trackingArea.get()];
+}
 #endif
 #if PLATFORM(MAC)
 void MinimalPageClient::handleControlledElementIDResponse(const String&)
