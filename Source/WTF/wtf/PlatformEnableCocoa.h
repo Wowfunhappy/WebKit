@@ -345,6 +345,18 @@
 #define ENABLE_DECLARATIVE_WEB_PUSH 1
 #endif
 
+// MAVERICKS_BACKPORT: 10.9 CoreGraphics cannot create the Display-P3 / extended-range named
+// color spaces (their kCGColorSpace* names are 10.11/10.12+), so these destination color
+// spaces are genuinely unsupported on this deployment target. With the flags left on,
+// DestinationColorSpace::DisplayP3()/ExtendedSRGB()/ExtendedRec2020() wrap a NULL
+// CGColorSpaceRef at runtime (reachable via canvas {colorSpace:'display-p3'} et al).
+// Matches the empty CGColorSpaceMapping gating in ColorSpaceCG.h.
+#if !defined(ENABLE_DESTINATION_COLOR_SPACE_DISPLAY_P3) && PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200
+#define ENABLE_DESTINATION_COLOR_SPACE_DISPLAY_P3 0
+#define ENABLE_DESTINATION_COLOR_SPACE_EXTENDED_SRGB 0
+#define ENABLE_DESTINATION_COLOR_SPACE_EXTENDED_REC_2020 0
+#endif
+
 #if !defined(ENABLE_DESTINATION_COLOR_SPACE_DISPLAY_P3)
 #define ENABLE_DESTINATION_COLOR_SPACE_DISPLAY_P3 1
 #endif
@@ -843,6 +855,13 @@
 
 #if !defined(ENABLE_POST_EDITING_GRAMMAR_CHECKING) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION))
 #define ENABLE_POST_EDITING_GRAMMAR_CHECKING 1
+#endif
+
+// MAVERICKS_BACKPORT: canvas cannot produce Display-P3 output on 10.9 (see the
+// ENABLE_DESTINATION_COLOR_SPACE_DISPLAY_P3 gate above), so don't expose the web-facing
+// 'display-p3' predefined color space either.
+#if !defined(ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3) && PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200
+#define ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3 0
 #endif
 
 #if !defined(ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3)

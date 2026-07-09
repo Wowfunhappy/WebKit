@@ -28,10 +28,13 @@
 
 #if USE(CG)
 
+#include <dlfcn.h>
 #include <mutex>
 #include <pal/spi/cg/CoreGraphicsSPI.h>
+#include <wtf/FileSystem.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
@@ -128,7 +131,40 @@ CGColorSpaceRef linearDisplayP3ColorSpaceSingleton()
 
 CGColorSpaceRef linearSRGBColorSpaceSingleton()
 {
+// MAVERICKS_BACKPORT: kCGColorSpaceLinearSRGB is 10.12+ (NULL name on 10.9), but linear sRGB is
+// required core functionality — SVG filters interpolate in linearRGB by default. Restore the
+// classic WebCore mechanism (shipped until the 10.12 floor, and by stock 10.9 WebCore): build the
+// space from the linearSRGB.icc profile in the WebCore framework bundle
+// (Source/WebCore/Resources/linearSRGB.icc, staged by install-safari7.sh). Fall back to plain
+// sRGB if the profile is missing so filters still run (in gamma space) rather than with a NULL
+// color space.
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200
     return namedColorSpace<kCGColorSpaceLinearSRGB>();
+#else
+    static LazyNeverDestroyed<RetainPtr<CGColorSpaceRef>> colorSpace;
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, [] {
+        RetainPtr<CGColorSpaceRef> linearSRGB;
+        // Locate the profile relative to the WebCore binary itself (…/Versions/A/WebCore →
+        // …/Versions/A/Resources/linearSRGB.icc) — the built framework's Info.plist carries no
+        // CFBundleIdentifier, so a bundle-identifier lookup can't be used here.
+        Dl_info info;
+        if (dladdr(reinterpret_cast<void*>(&linearSRGBColorSpaceSingleton), &info) && info.dli_fname) {
+            auto profilePath = FileSystem::pathByAppendingComponents(FileSystem::parentPath(String::fromUTF8(info.dli_fname)), std::initializer_list<StringView>({ "Resources"_s, "linearSRGB.icc"_s }));
+            if (auto contents = FileSystem::readEntireFile(profilePath)) {
+                if (RetainPtr profileData = adoptCF(CFDataCreate(kCFAllocatorDefault, contents->span().data(), contents->size()))) {
+                    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+                    linearSRGB = adoptCF(CGColorSpaceCreateWithICCProfile(profileData.get()));
+                    ALLOW_DEPRECATED_DECLARATIONS_END
+                }
+            }
+        }
+        if (!linearSRGB)
+            linearSRGB = sRGBColorSpaceSingleton();
+        colorSpace.construct(WTF::move(linearSRGB));
+    });
+    return colorSpace.get().get();
+#endif
 }
 
 CGColorSpaceRef ROMMRGBColorSpaceSingleton()
