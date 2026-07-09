@@ -198,7 +198,15 @@ template<> struct CGColorSpaceMapping<ColorSpace::ExtendedProPhotoRGB> { };
 template<> struct CGColorSpaceMapping<ColorSpace::ExtendedSRGB> { };
 template<> struct CGColorSpaceMapping<ColorSpace::Rec2020> { };
 template<> struct CGColorSpaceMapping<ColorSpace::LinearDisplayP3> { };
-template<> struct CGColorSpaceMapping<ColorSpace::LinearSRGB> { };
+// MAVERICKS_BACKPORT: LinearSRGB IS supported on 10.9 — linearSRGBColorSpaceSingleton() builds it
+// from the bundled linearSRGB.icc profile (the classic pre-10.12 WebCore mechanism), so it keeps a
+// real mapping here (SVG filters interpolate in linearRGB by default).
+template<> struct CGColorSpaceMapping<ColorSpace::LinearSRGB> {
+    static CGColorSpaceRef colorSpaceSingleton()
+    {
+        return linearSRGBColorSpaceSingleton();
+    }
+};
 template<> struct CGColorSpaceMapping<ColorSpace::ProPhotoRGB> { };
 template<> struct CGColorSpaceMapping<ColorSpace::XYZ_D50> { };
 

@@ -261,6 +261,14 @@ install_framework() {
         cp -f "$REPO/Source/WebCore/platform/audio/resources/Composite.wav" "$res/audio/" 2>/dev/null \
             && echo "  staged HRTF database (audio/Composite.wav)" \
             || echo "  WARN: HRTF Composite.wav not found"
+
+        # linearSRGB.icc: 10.9 CG has no kCGColorSpaceLinearSRGB, so WebCore's
+        # linearSRGBColorSpaceSingleton() builds the linear sRGB space from this
+        # profile (the classic pre-10.12 mechanism; stock 10.9 WebCore shipped the
+        # same file). Without it, SVG filters fall back to gamma-space sRGB.
+        cp -f "$REPO/Source/WebCore/Resources/linearSRGB.icc" "$res/" 2>/dev/null \
+            && echo "  staged linearSRGB.icc" \
+            || echo "  WARN: linearSRGB.icc not found"
     fi
 
     # Rename the binary (Versions/A/<old> -> Versions/A/<new>) + Current symlink + top symlink.
