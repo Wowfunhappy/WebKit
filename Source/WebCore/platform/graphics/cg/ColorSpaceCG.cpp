@@ -143,55 +143,64 @@ CGColorSpaceRef xyzD50ColorSpaceSingleton()
 
 // FIXME: Figure out how to create a CoreGraphics XYZ-D65 color space and add a xyzD65ColorSpaceRef(). Perhaps CGColorSpaceCreateCalibratedRGB() with identify black point, D65 white point, and identity matrix.
 
+// MAVERICKS_BACKPORT: on 10.9 the post-10.9 named color-space singletons above legitimately
+// return NULL (CGColorSpaceCreateWithName on a name the OS doesn't know). NULL means "this
+// color space doesn't exist here", so an equality probe against it is simply false — but
+// 10.9 CoreGraphics' CGColorSpaceEqualToColorSpace is not documented NULL-safe, so guard.
+static bool colorSpaceEqualToNullableColorSpace(CGColorSpaceRef colorSpace, CGColorSpaceRef candidate)
+{
+    return candidate && CGColorSpaceEqualToColorSpace(colorSpace, candidate);
+}
+
 std::optional<ColorSpace> colorSpaceForCGColorSpace(CGColorSpaceRef colorSpace)
 {
     // First test for the four most common spaces, sRGB, Extended sRGB, DisplayP3 and Linear sRGB, and then test
     // the reset in alphabetical order.
     // FIXME: Consider using a HashMap (with CFHash based keys) rather than the linear set of tests.
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, sRGBColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, sRGBColorSpaceSingleton()))
         return ColorSpace::SRGB;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedSRGBColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedSRGBColorSpaceSingleton()))
         return ColorSpace::ExtendedSRGB;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, displayP3ColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, displayP3ColorSpaceSingleton()))
         return ColorSpace::DisplayP3;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, linearSRGBColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, linearSRGBColorSpaceSingleton()))
         return ColorSpace::LinearSRGB;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, adobeRGB1998ColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, adobeRGB1998ColorSpaceSingleton()))
         return ColorSpace::A98RGB;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedAdobeRGB1998ColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedAdobeRGB1998ColorSpaceSingleton()))
         return ColorSpace::ExtendedA98RGB;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedDisplayP3ColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedDisplayP3ColorSpaceSingleton()))
         return ColorSpace::ExtendedDisplayP3;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedLinearDisplayP3ColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedLinearDisplayP3ColorSpaceSingleton()))
         return ColorSpace::ExtendedLinearDisplayP3;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedLinearSRGBColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedLinearSRGBColorSpaceSingleton()))
         return ColorSpace::ExtendedLinearSRGB;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedITUR_2020ColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedITUR_2020ColorSpaceSingleton()))
         return ColorSpace::ExtendedRec2020;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedROMMRGBColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedROMMRGBColorSpaceSingleton()))
         return ColorSpace::ExtendedProPhotoRGB;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, ITUR_2020ColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, ITUR_2020ColorSpaceSingleton()))
         return ColorSpace::Rec2020;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, linearDisplayP3ColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, linearDisplayP3ColorSpaceSingleton()))
         return ColorSpace::LinearDisplayP3;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, ROMMRGBColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, ROMMRGBColorSpaceSingleton()))
         return ColorSpace::ProPhotoRGB;
 
-    if (CGColorSpaceEqualToColorSpace(colorSpace, xyzD50ColorSpaceSingleton()))
+    if (colorSpaceEqualToNullableColorSpace(colorSpace, xyzD50ColorSpaceSingleton()))
         return ColorSpace::XYZ_D50;
 
     // FIXME: Add support for remaining color spaces to support more direct conversions.
