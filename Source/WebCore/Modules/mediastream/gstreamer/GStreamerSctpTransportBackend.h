@@ -23,6 +23,7 @@
 
 #include "GRefPtrGStreamer.h"
 #include "RTCSctpTransportBackend.h"
+#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
@@ -46,8 +47,24 @@ private :
     void registerClient(RTCSctpTransportBackendClient&) final;
     void unregisterClient() final;
 
+    // MAVERICKS_BACKPORT: notify::state fires on the SCTP/usrsctp thread and this backend is not
+    // ref-counted. The signal callback must not capture a raw `this` (g_signal_handler_disconnect does
+    // not wait for an in-flight emission on another thread). It holds this thread-safe guard instead
+    // and marshals to the main thread; `backend` is only ever read/written on the main thread (see
+    // registerClient), so a notification arriving after teardown finds it null. Thread-safe-refcounted
+    // so the SCTP thread can keep the guard alive while it posts.
+    class AliveGuard : public ThreadSafeRefCounted<AliveGuard> {
+    public:
+        static Ref<AliveGuard> create(GStreamerSctpTransportBackend& backend) { return adoptRef(*new AliveGuard(backend)); }
+        GStreamerSctpTransportBackend* backend { nullptr };
+    private:
+        explicit AliveGuard(GStreamerSctpTransportBackend& backendRef) : backend(&backendRef) { }
+    };
+
     GRefPtr<GstWebRTCSCTPTransport> m_backend;
     WeakPtr<RTCSctpTransportBackendClient> m_client;
+    const Ref<AliveGuard> m_guard;
+    unsigned long m_stateSignalHandler { 0 };
 };
 
 } // namespace WebCore
