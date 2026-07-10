@@ -24,6 +24,26 @@ The patch drops the character-set validation, keeping only the length bounds, ma
 libwebrtc behaviour. Fixed in GStreamer's own source because WebKit cannot legitimately
 alter the remote credential.
 
+## gst-plugins-bad-vtenc-color-match-10.9.patch
+
+**Target:** `gst-plugins-bad-1.28.5`, `sys/applemedia/vtenc.c`
+**Applied to:** libgstapplemedia (vtenc_h264)
+
+`gst_vtenc_set_colorimetry()` sets the compression session's destination color
+properties (`ColorPrimaries`/`TransferFunction`/`YCbCrMatrix`), which makes VideoToolbox
+color-match every source pixel buffer against them. vtenc's source buffers are wrapped
+from raw GstMemory and carry **no color attachments**; modern macOS infers defaults, but
+OS X 10.9's VideoToolbox cannot and fails **every** frame with
+`kVTInsufficientSourceColorDataErr` (-12917) — the session creates fine, then zero frames
+come out. Net effect: WebRTC outbound H.264 (e.g. our camera on Google Meet) never sends
+a single packet. A/B-proven with `gst-launch`: colorimetry that maps to no session color
+properties encodes clean; bt601/bt709 (properties set) fails every frame.
+
+The patch skips the destination color properties when `__builtin_available(macOS 10.13)`
+is false — the element's pre-existing version boundary for color constants — restoring
+the old (pre-color-properties) vtenc behavior there: the stream just carries no color
+information, which H.264/WebRTC receivers treat as unspecified/default.
+
 ## Retired / not applied
 
 - **SCTP-transport GWeakRef guard** (webrtcsctptransport.c raw-pointer signal callbacks):

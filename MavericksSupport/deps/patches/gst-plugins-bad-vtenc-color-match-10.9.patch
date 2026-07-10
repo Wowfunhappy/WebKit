@@ -1,0 +1,25 @@
+--- a/sys/applemedia/vtenc.c	2026-07-09 20:45:58.000000000 -0400
++++ b/sys/applemedia/vtenc.c	2026-07-09 20:46:14.000000000 -0400
+@@ -1353,6 +1353,22 @@
+   OSStatus status;
+   CFStringRef primaries = NULL, transfer = NULL, matrix = NULL;
+   GstVideoColorimetry cm = GST_VIDEO_INFO_COLORIMETRY (&self->video_info);
++  gboolean can_color_match = FALSE;
++
++  /* Setting the destination color properties makes VideoToolbox color-match
++   * the source pixel buffers against them. Buffers wrapped from raw GstMemory
++   * carry no color attachments, and old VideoToolbox (observed on OS X 10.9)
++   * cannot infer defaults for an untagged source: every frame then fails with
++   * kVTInsufficientSourceColorDataErr (-12917). Skip the destination color
++   * properties there, like this element did before they were introduced;
++   * the encoder simply doesn't write color information into the stream. */
++  if (__builtin_available (macOS 10.13, *))
++    can_color_match = TRUE;
++  if (!can_color_match) {
++    GST_INFO_OBJECT (self, "macOS version is too old to color-match untagged "
++        "source buffers, not setting destination color properties");
++    return;
++  }
+ 
+   /*
+    * https://developer.apple.com/documentation/corevideo/cvimagebuffer/image_buffer_ycbcr_matrix_constants
