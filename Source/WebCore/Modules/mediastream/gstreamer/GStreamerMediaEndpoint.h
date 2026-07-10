@@ -34,6 +34,7 @@
 #include <gst/webrtc/webrtc.h>
 #undef GST_USE_UNSTABLE_API
 
+#include <wtf/Lock.h>
 #include <wtf/LoggerHelper.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/glib/GUniquePtr.h>
@@ -212,7 +213,10 @@ private:
     UniqueRef<GStreamerDataChannelHandler> findOrCreateIncomingChannelHandler(GRefPtr<GstWebRTCDataChannel>&&);
 
     using DataChannelHandlerIdentifier = ObjectIdentifier<GstWebRTCDataChannel>;
-    HashMap<DataChannelHandlerIdentifier, UniqueRef<GStreamerDataChannelHandler>> m_incomingDataChannels;
+    // MAVERICKS_BACKPORT: guarded by a leaf lock — prepare-data-channel writes on webrtcbin's
+    // streaming thread while onDataChannel/teardown read on the main thread.
+    Lock m_incomingDataChannelsLock;
+    HashMap<DataChannelHandlerIdentifier, UniqueRef<GStreamerDataChannelHandler>> m_incomingDataChannels WTF_GUARDED_BY_LOCK(m_incomingDataChannelsLock);
 
     RefPtr<UniqueSSRCGenerator> m_ssrcGenerator;
 
@@ -222,8 +226,6 @@ private:
     Vector<String> m_pendingIncomingMediaStreamIDs;
 
     bool m_shouldIgnoreNegotiationNeededSignal { false };
-
-    Vector<RefPtr<MediaStreamTrackPrivate>> m_pendingIncomingTracks;
 
     Vector<RefPtr<RealtimeOutgoingMediaSourceGStreamer>> m_unlinkedOutgoingSources;
 

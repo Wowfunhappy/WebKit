@@ -373,7 +373,16 @@ void GStreamerMediaEndpoint::teardownPipeline()
     gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
 
     m_trackProcessors.clear();
-    m_incomingDataChannels.clear();
+    {
+        // Swap the handlers out under the lock but destroy them outside it: a handler's
+        // destructor unrefs the GstWebRTCDataChannel, which can take GStreamer-internal locks
+        // that a streaming thread may hold while waiting for this lock in prepareDataChannel.
+        HashMap<DataChannelHandlerIdentifier, UniqueRef<GStreamerDataChannelHandler>> danglingChannels;
+        {
+            Locker locker { m_incomingDataChannelsLock };
+            danglingChannels = std::exchange(m_incomingDataChannels, { });
+        }
+    }
     m_remoteStreamsById.clear();
     m_webrtcBin = nullptr;
     m_pipeline = nullptr;
@@ -1571,6 +1580,8 @@ void GStreamerMediaEndpoint::connectIncomingTrack(WebRTCTrackData& data)
     }
 
     auto mediaStreamBin = adoptGRef(gst_bin_get_by_name(GST_BIN_CAST(m_pipeline.get()), data.mediaStreamBinName.ascii().data()));
+    // Keep a reference for the state bump below; setBin() consumes the other one.
+    GRefPtr<GstElement> trackBin = mediaStreamBin;
     auto& track = transceiver->receiver().track();
     auto& source = track.privateTrack().source();
     if (source.isIncomingAudioSource()) {
@@ -1583,40 +1594,23 @@ void GStreamerMediaEndpoint::connectIncomingTrack(WebRTCTrackData& data)
             return;
     }
 
-    m_pendingIncomingTracks.append(&track.privateTrack());
+    // MAVERICKS_BACKPORT: each incoming track goes live as soon as its source is wired.
+    // The previous "wait until all expected tracks arrived" barrier counted every negotiated
+    // recvonly/sendrecv transceiver and only then set the pipeline PLAYING — but an SFU
+    // (e.g. Google Meet) negotiates receive transceivers that carry no RTP until much later
+    // (reserved screen-share/participant slots), and tracks arrive across multiple negotiation
+    // rounds while the pending list was cleared per batch. The threshold was then never reached,
+    // so bins added later (connectPad leaves them PAUSED until their source is wired here)
+    // stayed PAUSED forever: their sink prerolled and blocked, the queue behind it filled, a
+    // decoder renegotiation's serialized ALLOCATION query wedged, and backpressure froze ALL
+    // inbound media. Per-track liveness also matches libwebrtc, where each track's media flows
+    // as soon as its RTP arrives.
+    GST_DEBUG_OBJECT(m_pipeline.get(), "Incoming track %s on stream %s ready, notifying observers", track.privateTrack().id().utf8().data(), data.mediaStreamId.ascii().data());
+    ALWAYS_LOG(LOGIDENTIFIER, "Data flow started on track "_s, track.privateTrack().id());
+    track.privateTrack().dataFlowStarted();
+    source.setMuted(false);
 
-    unsigned totalExpectedMediaTracks = 0;
-    forEachTransceiver(m_webrtcBin, [&](auto&& transceiver) -> bool {
-        GstWebRTCRTPTransceiverDirection direction;
-        g_object_get(transceiver.get(), "current-direction", &direction, nullptr);
-        switch (direction) {
-        case GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_NONE:
-        case GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_INACTIVE:
-        case GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_SENDONLY:
-            break;
-        case GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_RECVONLY:
-        case GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV:
-            totalExpectedMediaTracks++;
-            break;
-        }
-        return false;
-    });
-
-    GST_DEBUG_OBJECT(m_pipeline.get(), "Expecting %u media tracks", totalExpectedMediaTracks);
-    if (m_pendingIncomingTracks.size() < totalExpectedMediaTracks) {
-        GST_DEBUG_OBJECT(m_pipeline.get(), "Only %zu track(s) received so far", m_pendingIncomingTracks.size());
-        return;
-    }
-
-    GST_DEBUG_OBJECT(m_pipeline.get(), "Incoming stream %s ready, notifying observers", data.mediaStreamId.ascii().data());
-    for (auto& track : m_pendingIncomingTracks) {
-        GST_DEBUG_OBJECT(m_pipeline.get(), "Incoming stream has track %s", track->id().utf8().data());
-        ALWAYS_LOG(LOGIDENTIFIER, "Data flow started on track "_s, track->id());
-        track->dataFlowStarted();
-        track->source().setMuted(false);
-    }
-
-    m_pendingIncomingTracks.clear();
+    gst_element_sync_state_with_parent(trackBin.get());
     gst_element_set_state(m_pipeline.get(), GST_STATE_PLAYING);
 }
 
@@ -2115,24 +2109,19 @@ void GStreamerMediaEndpoint::prepareDataChannel(GstWebRTCDataChannel* dataChanne
         return;
 
     GRefPtr<GstWebRTCDataChannel> channel = dataChannel;
-    // MAVERICKS_BACKPORT: prepare-data-channel is emitted on webrtcbin's streaming thread, but
-    // m_incomingDataChannels is also accessed on the main thread (onDataChannel -> findOrCreate ->
-    // take). A HashMap touched from two threads is a data race that corrupts the stored UniqueRef
-    // and over-releases the GstWebRTCDataChannel, freeing its signal closures while a queue:src
-    // streaming thread still emits them — an intermittent g_closure_invoke use-after-free that
-    // crashes WebContent on fresh WebRTC data-channel loads. Every other webrtcbin signal handler
-    // in this class already marshals to the main thread (e.g. pad-removed above); do the same here
-    // so the map is only ever touched on the main thread. callOnMainThreadAndWait keeps it
-    // synchronous, so the handler's signals are still connected before webrtcbin proceeds (no early
-    // data-channel signals are missed).
-    callOnMainThreadAndWait([this, protectedThis = Ref(*this), channel = WTF::move(channel)]() mutable {
-        if (isStopped())
-            return;
-        GST_DEBUG_OBJECT(m_pipeline.get(), "Setting up data channel %p", channel.get());
-        auto channelHandler = makeUniqueRef<GStreamerDataChannelHandler>(WTF::move(channel));
-        auto identifier = ObjectIdentifier<GstWebRTCDataChannel>(reinterpret_cast<uintptr_t>(channelHandler->channel()));
-        m_incomingDataChannels.add(identifier, WTF::move(channelHandler));
-    });
+    GST_DEBUG_OBJECT(m_pipeline.get(), "Setting up data channel %p", channel.get());
+    auto channelHandler = makeUniqueRef<GStreamerDataChannelHandler>(WTF::move(channel));
+    auto identifier = ObjectIdentifier<GstWebRTCDataChannel>(reinterpret_cast<uintptr_t>(channelHandler->channel()));
+    // MAVERICKS_BACKPORT: prepare-data-channel is emitted on webrtcbin's streaming thread with
+    // webrtcbin's data-channel lock held, while onDataChannel's take() and teardown's clear() run
+    // on the main thread — an unguarded HashMap race that over-releases the GstWebRTCDataChannel
+    // and crashes in g_closure_invoke. Marshaling here with callOnMainThreadAndWait is NOT an
+    // option: the main thread can concurrently be inside gst_webrtc_bin_create_data_channel
+    // waiting for the very data-channel lock this emission holds (proven three-way deadlock on
+    // Google Meet: JS createDataChannel + incoming SCTP channel announce). A leaf lock around the
+    // map keeps both threads safe without ever blocking on each other.
+    Locker locker { m_incomingDataChannelsLock };
+    m_incomingDataChannels.add(identifier, WTF::move(channelHandler));
 }
 
 UniqueRef<GStreamerDataChannelHandler> GStreamerMediaEndpoint::findOrCreateIncomingChannelHandler(GRefPtr<GstWebRTCDataChannel>&& dataChannel)
@@ -2141,7 +2130,11 @@ UniqueRef<GStreamerDataChannelHandler> GStreamerMediaEndpoint::findOrCreateIncom
         return makeUniqueRef<GStreamerDataChannelHandler>(WTF::move(dataChannel));
 
     auto identifier = ObjectIdentifier<GstWebRTCDataChannel>(reinterpret_cast<uintptr_t>(dataChannel.get()));
-    auto channelHandler = m_incomingDataChannels.take(identifier);
+    std::unique_ptr<GStreamerDataChannelHandler> channelHandler;
+    {
+        Locker locker { m_incomingDataChannelsLock };
+        channelHandler = m_incomingDataChannels.take(identifier);
+    }
     RELEASE_ASSERT(channelHandler);
     return makeUniqueRefFromNonNullUniquePtr(WTF::move(channelHandler));
 }
