@@ -800,6 +800,21 @@ void WebLoaderStrategy::remove(ResourceLoader* resourceLoader)
     loader->detachFromCoreLoader();
 }
 
+// MAVERICKS_BACKPORT DIAGNOSTIC: see the header declaration; pairs with [LOADDUMP-DOC]/[LOADDUMP-RES].
+void WebLoaderStrategy::dumpOutstandingLoadsForDebug()
+{
+    fprintf(stderr, "[LOADDUMP-WK] outstanding=%u internallyFailed=%u schemeTasks=%u\n",
+        m_webResourceLoaders.size(), m_internallyFailedResourceLoaders.size(), m_urlSchemeTasks.size());
+    for (auto& keyValue : m_webResourceLoaders) {
+        RefPtr coreLoader = keyValue.value->resourceLoader();
+        fprintf(stderr, "[LOADDUMP-WK] id=%llu hasCoreLoader=%d terminal=%d url=%s\n",
+            static_cast<unsigned long long>(keyValue.key.toUInt64()), !!coreLoader,
+            coreLoader ? coreLoader->reachedTerminalState() : -1,
+            coreLoader ? coreLoader->url().string().left(160).utf8().data() : "");
+    }
+    fflush(stderr);
+}
+
 void WebLoaderStrategy::setDefersLoading(ResourceLoader&, bool)
 {
 }

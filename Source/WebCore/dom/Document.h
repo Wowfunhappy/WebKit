@@ -2885,6 +2885,10 @@ inline bool Document::hasBrowsingContext() const
 
 Element* eventTargetElementForDocument(Document*);
 
+// MAVERICKS_BACKPORT DIAGNOSTIC: dump every live document's load-event blockers + still-loading
+// CachedResources to stderr (triggered by the /tmp/wk-dump-loads sentinel; see WebProcess.cpp).
+WEBCORE_EXPORT void mavericksDumpLoadStateForDebug();
+
 WTF::TextStream& operator<<(WTF::TextStream&, const Document&);
 WTF::TextStream& operator<<(WTF::TextStream&, const Document::VisualUpdatesPreventedReason&);
 
