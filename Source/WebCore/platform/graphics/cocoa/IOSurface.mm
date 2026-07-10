@@ -14,6 +14,9 @@
 #import "PlatformScreen.h"
 // MAVERICKS_BACKPORT: minimal CoreGraphics + WTF includes for the 10.9 wrapper.
 #import <CoreGraphics/CoreGraphics.h>
+// MAVERICKS_BACKPORT: CGIOSurfaceContext* SPI declarations (all but CreateImageReference exist in
+// 10.9's CoreGraphics; CreateImageReference resolves from libpolyfill as a CreateImage alias).
+#import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <wtf/FastMalloc.h>
 #import <wtf/MachSendRight.h>
 // MAVERICKS_BACKPORT: minimal WTF includes for the 10.9 wrapper.
@@ -229,62 +232,67 @@ WTF::MachSendRight IOSurface::createSendRight() const
     return WTF::MachSendRight::adopt(p);
 }
 
-// MAVERICKS_BACKPORT: override the libpolyfill.a stub for IOSurface::createImage. The polyfill stub
-// calls CGIOSurfaceContextCreateImage, which fails ("invalid context ... serious error") on the
-// CGBitmapContext returned by createPlatformContext below — every page paint logged the spam, and
-// the returned CGImageRef was null so consumers got blank images. Use CGBitmapContextCreateImage
-// which works on bitmap contexts (createPlatformContext is the only producer of these contexts).
-RetainPtr<CGImageRef> IOSurface::createImage(CGContextRef ctx)
+// MAVERICKS_BACKPORT: upstream body plus a null-context guard. Works because createPlatformContext
+// below produces a real CGIOSurfaceContext again.
+RetainPtr<CGImageRef> IOSurface::createImage(CGContextRef context)
 {
-    // MAVERICKS_BACKPORT: produce the image from the CGBitmapContext (createPlatformContext's product), not the unavailable CGIOSurfaceContext SPI.
-    if (ctx)
-        return adoptCF(CGBitmapContextCreateImage(ctx));
-    return { };
+    if (!context)
+        return { };
+    ASSERT(CGIOSurfaceContextGetSurface(context) == m_surface);
+    return adoptCF(CGIOSurfaceContextCreateImage(context));
 }
 
-// MAVERICKS_BACKPORT: restored (the upstream definition was dropped during the backport). The upstream
-// body uses CGIOSurfaceContext* SPI on a real IOSurface-backed context, but createPlatformContext on
-// this build returns a CGBitmapContext over the surface's memory, so produce the image with
-// CGBitmapContextCreateImage (same path as createImage above). Referenced by WK2 WebPageProxy::takeSnapshot.
+// MAVERICKS_BACKPORT: upstream body plus null guards. CGIOSurfaceContextCreateImageReference does
+// not exist in 10.9's CoreGraphics; libpolyfill supplies it as an alias of
+// CGIOSurfaceContextCreateImage (copy instead of live-reference semantics — safe for a sunk surface).
 RetainPtr<CGImageRef> IOSurface::sinkIntoImage(std::unique_ptr<IOSurface> surface, RetainPtr<CGContextRef> context)
 {
-    // MAVERICKS_BACKPORT: null-guard the sunk surface (restored function; upstream omits this).
     if (!surface)
         return { };
     if (!context)
         context = surface->createPlatformContext();
-    // MAVERICKS_BACKPORT: produce the image from the CGBitmapContext, not the unavailable CGIOSurfaceContext SPI.
     if (!context)
         return { };
-    return adoptCF(CGBitmapContextCreateImage(context.get()));
+    ASSERT(CGIOSurfaceContextGetSurface(context.get()) == surface->m_surface);
+    return adoptCF(CGIOSurfaceContextCreateImageReference(context.get()));
 }
 
-// MAVERICKS_BACKPORT: upstream wraps the IOSurface in a CGIOSurfaceContext; on 10.9 that SPI is unavailable, so wrap the surface's locked base address in a plain CGBitmapContext (unlock+release in the data-release callback).
-RetainPtr<CGContextRef> IOSurface::createPlatformContext(PlatformDisplayID, std::optional<CGImageAlphaInfo>)
+// MAVERICKS_BACKPORT: upstream bitmapConfiguration(), scoped to the 8-bit-per-component formats this
+// wrapper allocates (see pixelFormatTypeForFormat above).
+static CGBitmapInfo bitmapInfoForFormat(IOSurface::Format format)
+{
+    switch (format) {
+    case IOSurface::Format::BGRX:
+    case IOSurface::Format::RGBX:
+        return static_cast<CGBitmapInfo>(kCGImageAlphaNoneSkipFirst) | static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Host);
+    default:
+        return static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) | static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Host);
+    }
+}
+
+// MAVERICKS_BACKPORT: upstream body (CGIOSurfaceContextCreate — present and functional in 10.9's
+// CoreGraphics; the previous CGBitmapContext-over-locked-base-address fallback here was based on the
+// false premise that the SPI is unavailable, and it forced every IOSurface consumer onto bitmap-context
+// workarounds and permanent surface locks). Omitted relative to upstream: OpenGL display-mask
+// targeting (single-GPU 10.9) and CGContextSetOwnerIdentity resource tagging (no m_resourceOwner in
+// this wrapper; the API is 12.0+ anyway).
+RetainPtr<CGContextRef> IOSurface::createPlatformContext(PlatformDisplayID, std::optional<CGImageAlphaInfo> overrideAlphaInfo)
 {
     if (!m_surface)
         return nullptr;
-    if (IOSurfaceLock(m_surface.get(), 0, nullptr) != kIOReturnSuccess)
-        return nullptr;
-    void* base = IOSurfaceGetBaseAddress(m_surface.get());
-    size_t bytesPerRow = IOSurfaceGetBytesPerRow(m_surface.get());
+
+    CGBitmapInfo bitmapInfo = bitmapInfoForFormat(m_format ? m_format->format : Format::BGRA);
+    if (overrideAlphaInfo)
+        bitmapInfo = (bitmapInfo & ~kCGBitmapAlphaInfoMask) | *overrideAlphaInfo;
+
     auto cs = m_colorSpace.value_or(DestinationColorSpace::SRGB());
-    CGBitmapInfo bitmapInfo = kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst;
-    IOSurfaceRef surfaceForCallback = m_surface.get();
-    CFRetain(surfaceForCallback);
-    auto context = adoptCF(CGBitmapContextCreateWithData(base, m_size.width(), m_size.height(), 8, bytesPerRow, cs.platformColorSpace(), bitmapInfo, [](void* info, void*) {
-        auto* s = static_cast<IOSurfaceRef>(info);
-        IOSurfaceUnlock(s, 0, nullptr);
-        CFRelease(s);
-    }, surfaceForCallback));
-    if (!context) {
-        // MAVERICKS_BACKPORT: on failure the data-release callback never runs, so unlock+release the surface here.
-        IOSurfaceUnlock(surfaceForCallback, 0, nullptr);
-        CFRelease(surfaceForCallback);
-        return nullptr;
-    }
-    // MAVERICKS_BACKPORT: the surface stays locked for the lifetime of this CGBitmapContext; the data-release callback unlocks it.
-    return context;
+    // MAVERICKS_BACKPORT: cs.platformColorSpace() can return NULL on Mavericks (CG fails to construct
+    // named SRGB); fall back to sRGBColorSpaceSingleton like asCAIOSurfaceLayerContents below.
+    RetainPtr<CGColorSpaceRef> csRef = cs.platformColorSpace();
+    if (!csRef)
+        csRef = sRGBColorSpaceSingleton();
+
+    return adoptCF(CGIOSurfaceContextCreate(m_surface.get(), m_size.width(), m_size.height(), 8, 32, csRef.get(), bitmapInfo));
 }
 
 // MAVERICKS_BACKPORT: this wrapper stores the color space directly; default to sRGB when unset.

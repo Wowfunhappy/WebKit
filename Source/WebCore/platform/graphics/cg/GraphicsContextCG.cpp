@@ -242,15 +242,9 @@ const DestinationColorSpace& GraphicsContextCG::colorSpace() const
     auto contextType = CGContextGetType(context);
     if (contextType == kCGContextTypeIOSurface)
         colorSpace = CGIOSurfaceContextGetColorSpace(context);
-    else if (contextType == kCGContextTypeBitmap) {
-        // MAVERICKS_BACKPORT: 10.9's private CGContextType enum predates kCGContextTypeIOSurface, so the
-        // compositor's IOSurface-backed contexts report as kCGContextTypeBitmap here. Calling
-        // CGBitmapContextGetColorSpace() on one spams the console ("CGBitmapContextGetColorSpace: invalid
-        // context 0x… This is a serious error…") and returns null (silently falling back to sRGB below).
-        // CGContextGetColorSpace() returns the same colorspace for a genuine bitmap context and also
-        // resolves the IOSurface-backed case without logging, so prefer it.
-        colorSpace = CGContextGetColorSpace(context);
-    } else
+    else if (contextType == kCGContextTypeBitmap)
+        colorSpace = CGBitmapContextGetColorSpace(context);
+    else
         colorSpace = CGContextGetColorSpace(context);
 
     // FIXME: Need to ASSERT(colorSpace). For now fall back to sRGB if colorSpace is nil.
