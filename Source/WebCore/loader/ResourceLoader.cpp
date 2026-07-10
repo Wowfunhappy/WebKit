@@ -63,6 +63,9 @@
 #include <wtf/Ref.h>
 #include <wtf/text/MakeString.h>
 
+// MAVERICKS_BACKPORT DIAGNOSTIC: backtrace_symbols_fd for the sentinel-gated [RL-CANCEL] probe.
+#include <execinfo.h>
+
 #if ENABLE(CONTENT_EXTENSIONS)
 #include "UserContentController.h"
 #endif
@@ -732,6 +735,18 @@ void ResourceLoader::cancel(const ResourceError& error, LoadWillContinueInAnothe
     // If the load has already completed - succeeded, failed, or previously cancelled - do nothing.
     if (m_reachedTerminalState)
         return;
+
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): name the canceller of in-flight subresource
+    // loads. The nytimes stall family leaves ~12 loads/page cancelled MID-DATA-DELIVERY without
+    // their CachedResource clients noticing (WrlRoute signature: DidReceiveData found=1…1 then
+    // found=0, finish dropped); the backtrace here identifies which path cancels them.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[RL-CANCEL] url=%s errCode=%d errDomain=%s\n", m_request.url().string().utf8().data(), error.errorCode(), error.domain().utf8().data());
+        void* frames[48];
+        int frameCount = backtrace(frames, 48);
+        backtrace_symbols_fd(frames, frameCount, 2);
+        fflush(stderr);
+    }
        
     ResourceError nonNullError = error.isNull() ? cancelledError() : error;
     
