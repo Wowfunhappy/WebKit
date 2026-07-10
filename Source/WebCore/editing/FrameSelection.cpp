@@ -2470,8 +2470,19 @@ void FrameSelection::updateCaretVisibility(ShouldUpdateAppearance doAppearanceUp
     CaretBase::setCaretVisibility(visibility);
 #endif
 
-    if (doAppearanceUpdate == ShouldUpdateAppearance::Yes)
+    if (doAppearanceUpdate == ShouldUpdateAppearance::Yes) {
         m_pendingSelectionUpdate = true;
+        // MAVERICKS_BACKPORT: m_pendingSelectionUpdate is serviced only inside Page::updateRendering,
+        // and the focus/activation path that reaches here dirties no style or layout, so nothing else
+        // schedules that update. WebKit2 gets one anyway (its drawing area triggers a rendering update
+        // on every activity-state change), but in WebKitLegacy a caret un-suppressed on window
+        // reactivation stays invisible until unrelated work schedules an update. Schedule it here,
+        // at the point that defers the work.
+        if (RefPtr document = m_document.get()) {
+            if (RefPtr page = document->page())
+                page->scheduleRenderingUpdate(RenderingUpdateStep::CaretAnimation);
+        }
+    }
 }
 
 // Helper function that tells whether a particular node is an element that has an entire
