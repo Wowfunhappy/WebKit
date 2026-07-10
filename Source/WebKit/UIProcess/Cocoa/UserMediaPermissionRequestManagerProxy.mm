@@ -164,7 +164,7 @@ void UserMediaPermissionRequestManagerProxy::requestSystemValidation(const WebPa
     // a libpolyfill stub that always returns MediaPermissionResult::Denied. That made the upstream body deny
     // EVERY getUserMedia() request here with NotAllowedError (reason=PermissionDenied). On 10.9 capture access
     // is unrestricted at the OS level, so skip the system check and report success; per-origin consent is
-    // still applied afterwards by the WKPageUIClient auto-grant in decidePolicyForUserMediaPermissionRequest().
+    // still applied afterwards by the alertForPermission sheet (doDefaultAction in decidePolicyForUserMediaPermissionRequest).
     UNUSED_PARAM(page);
     UNUSED_PARAM(request);
     callback(true);

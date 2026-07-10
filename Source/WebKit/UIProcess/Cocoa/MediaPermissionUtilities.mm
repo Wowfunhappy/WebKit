@@ -26,6 +26,7 @@
 #import "config.h"
 #import "MediaPermissionUtilities.h"
 
+#import "PageClient.h" // MAVERICKS_BACKPORT: for the platformWindow() fallback in alertForPermission
 #import "SandboxUtilities.h"
 #import "WKWebViewInternal.h"
 #import "WebPageProxy.h"
@@ -190,11 +191,26 @@ void alertForPermission(WebPageProxy& page, MediaPermissionReason reason, const 
 #endif
 
     auto webView = page.cocoaView();
+#if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: under Safari 7 the page is hosted by a WKView, not a WKWebView, so
+    // cocoaView() is nil. The sheet only needs the hosting window; get it from the PageClient
+    // (MinimalPageClient overrides platformWindow() to return the WKView's window).
+    RetainPtr<NSWindow> hostWindow = [webView window];
+    if (!hostWindow) {
+        if (auto* pageClient = page.pageClient())
+            hostWindow = pageClient->platformWindow();
+    }
+    if (!hostWindow) {
+        completionHandler(false);
+        return;
+    }
+#else
     if (!webView) {
         completionHandler(false);
         return;
     }
-    
+#endif
+
     RetainPtr alertTitle = alertMessageText(reason, origin);
     if (!alertTitle) {
         completionHandler(false);
@@ -212,7 +228,8 @@ void alertForPermission(WebPageProxy& page, MediaPermissionReason reason, const 
     button.get().keyEquivalent = @"";
     button = [alert addButtonWithTitle:doNotAllowButtonString.get()];
     button.get().keyEquivalent = @"\E";
-    [alert beginSheetModalForWindow:retainPtr([webView window]).get() completionHandler:[completionBlock](NSModalResponse returnCode) {
+    // MAVERICKS_BACKPORT: host the sheet on hostWindow (WKView-aware; see above) instead of [webView window].
+    [alert beginSheetModalForWindow:hostWindow.get() completionHandler:[completionBlock](NSModalResponse returnCode) {
         auto shouldAllow = returnCode == NSAlertFirstButtonReturn;
         completionBlock(shouldAllow);
     }];
@@ -244,19 +261,19 @@ void requestAVCaptureAccessForType(MediaPermissionType type, CompletionHandler<v
 
     // MAVERICKS_BACKPORT: 10.9 has no TCC privacy layer, so OS-level camera/mic access is unrestricted. The
     // 10.14+ -[AVCaptureDevice requestAccessForMediaType:completionHandler:] gate is not meaningful here
-    // (and on this VM resolves to a denying status), so report access as granted; app-level consent is
-    // handled by the WKPageUIClient auto-grant.
+    // (and on this VM resolves to a denying status), so report access as granted; per-origin consent is
+    // the alertForPermission sheet (doDefaultAction path).
     UNUSED_PARAM(type);
     completionHandler(true); // MAVERICKS_BACKPORT: no TCC on 10.9; report capture access granted.
 }
 
 MediaPermissionResult checkAVCaptureAccessForType(MediaPermissionType type)
 {
-    // MAVERICKS_BACKPORT: 10.9 has no TCC privacy layer, so OS-level camera/mic access is unrestricted (app-level
-    // consent is handled by the WKPageUIClient auto-grant). The 10.14+ authorizationStatusForMediaType: gate
+    // MAVERICKS_BACKPORT: 10.9 has no TCC privacy layer, so OS-level camera/mic access is unrestricted (per-origin
+    // consent is the alertForPermission sheet via doDefaultAction). The 10.14+ authorizationStatusForMediaType: gate
     // resolves at runtime on this VM and returns a non-Authorized status, which denied getUserMedia with
     // NotAllowedError (reason=PermissionDenied at requestSystemValidation). Report Granted unconditionally so
-    // capture is reachable and the request proceeds to the auto-grant.
+    // capture is reachable and the request proceeds to the consent prompt.
     UNUSED_PARAM(type);
     return MediaPermissionResult::Granted; // MAVERICKS_BACKPORT: no TCC on 10.9; report capture access granted.
 }
