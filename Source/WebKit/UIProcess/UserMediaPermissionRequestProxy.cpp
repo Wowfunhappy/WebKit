@@ -221,7 +221,11 @@ void UserMediaPermissionRequestProxy::doDefaultAction()
 
 bool UserMediaPermissionRequestProxy::canRequestDisplayCapturePermission()
 {
-#if ENABLE(MEDIA_STREAM) && (PLATFORM(IOS) || PLATFORM(VISION))
+    // MAVERICKS_BACKPORT: also true on Mac. Upstream Mac routes getDisplayMedia consent through
+    // the ScreenCaptureKit picker (DisplayCaptureSessionManager, 12.3+), which doesn't exist on
+    // 10.9; promptForGetDisplayMedia's alertForPermission consent sheet is the working equivalent
+    // here, granting the first eligible screen device on Allow.
+#if ENABLE(MEDIA_STREAM) && (PLATFORM(IOS) || PLATFORM(VISION) || PLATFORM(MAC))
     return true;
 #else
     return false;

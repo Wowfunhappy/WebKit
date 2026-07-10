@@ -255,6 +255,10 @@ private:
     bool isViewWindowActive() final;
     bool isViewFocused() final;
     bool isActiveViewVisible() final;
+    // MAVERICKS_BACKPORT: PageClientImplCocoa::platformWindow() returns [webView() window], but this
+    // client has no WKWebView (constructed with nil), so surface the WKView's window — used by
+    // MediaPermissionUtilities::alertForPermission to host the getUserMedia consent sheet.
+    CocoaWindow *platformWindow() const final;
 #if PLATFORM(COCOA)
     bool canTakeForegroundAssertions() final;
 #endif
@@ -724,6 +728,12 @@ bool MinimalPageClient::isViewFocused()
     if (window)
         return [window firstResponder] == m_view;
     return m_forceVisibleWhenWindowless;
+}
+
+// MAVERICKS_BACKPORT: see the declaration comment; the WKView's window hosts permission sheets.
+CocoaWindow *MinimalPageClient::platformWindow() const
+{
+    return [m_view window];
 }
 
 bool MinimalPageClient::isActiveViewVisible()

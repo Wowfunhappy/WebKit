@@ -2225,17 +2225,10 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
         {
             if (!m_client.decidePolicyForUserMediaPermissionRequest) {
                 // MAVERICKS_BACKPORT: Safari 7 predates getUserMedia and never installs this WKPageUIClient
-                // callback, so the upstream default deny() makes camera/microphone capture impossible.
-                // macOS 10.9 also has no TCC camera/mic consent prompt (that arrived in 10.14), and this
-                // is a single-user setup, so auto-GRANT the request with the default eligible devices to
-                // let getUserMedia()/MediaStream actually function. (Privacy tradeoff: any page that asks
-                // gets access without a prompt, because the host app can't present one.)
-                if (permissionRequest.hasAudioDevice() || permissionRequest.hasVideoDevice()) {
-                    String audioUID = permissionRequest.hasAudioDevice() ? permissionRequest.audioDevice().persistentId() : String();
-                    String videoUID = permissionRequest.hasVideoDevice() ? permissionRequest.videoDevice().persistentId() : String();
-                    permissionRequest.allow(audioUID, videoUID);
-                } else
-                    permissionRequest.deny();
+                // callback. Route to the same default the base API::UIClient uses: doDefaultAction()
+                // presents WebKit's native per-origin NSAlert consent sheet (alertForPermission) for
+                // camera/microphone/screen capture and allows or denies from the user's answer.
+                permissionRequest.doDefaultAction();
                 return;
             }
 
