@@ -114,6 +114,8 @@
 #include <WebCore/DNS.h>
 #include <WebCore/DatabaseTracker.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
+// MAVERICKS_BACKPORT DIAGNOSTIC: for mavericksDumpLoadStateForDebug (the /tmp/wk-dump-loads dump).
+#include <WebCore/Document.h>
 #include <WebCore/DiagnosticLoggingClient.h>
 #include <WebCore/DiagnosticLoggingKeys.h>
 #include <WebCore/FontCache.h>
@@ -630,6 +632,20 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
                 while (true) {
                     WTF::sleep(3_s);
                     WTF::releaseFastMallocFreeMemory();
+
+                    // MAVERICKS_BACKPORT DIAGNOSTIC: on-demand load-state dump. `touch
+                    // /tmp/wk-dump-loads` makes the main thread print every live document's
+                    // load-event blockers + still-loading CachedResources ([LOADDUMP-DOC]/
+                    // [LOADDUMP-RES], Document.cpp) and the outstanding WebResourceLoader map
+                    // ([LOADDUMP-WK], WebLoaderStrategy.cpp) to stderr. This thread only hosts the
+                    // 3 s poll; the dump itself runs on the main thread.
+                    if (!access("/tmp/wk-dump-loads", F_OK)) {
+                        unlink("/tmp/wk-dump-loads");
+                        callOnMainThread([] {
+                            WebCore::mavericksDumpLoadStateForDebug();
+                            WebProcess::singleton().webLoaderStrategy().dumpOutstandingLoadsForDebug();
+                        });
+                    }
                 }
             }, ThreadType::Unknown, Thread::QOS::Utility)->detach();
 

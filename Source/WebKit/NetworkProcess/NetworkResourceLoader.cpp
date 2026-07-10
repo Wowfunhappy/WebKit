@@ -220,6 +220,14 @@ bool NetworkResourceLoader::isSynchronous() const
 
 void NetworkResourceLoader::start()
 {
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): load-lifecycle tracing — the start-side line
+    // that lets a stuck URL be classified as never-reached-NetworkProcess vs started-never-finished
+    // (pair with [NRL-FINISH]/[NRL-FAIL]/[NRL-ABORT]).
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[NRL-START] id=%llu url=%s\n", static_cast<unsigned long long>(coreIdentifier().toUInt64()), originalRequest().url().string().utf8().data());
+        fflush(stderr);
+    }
+
     startRequest(originalRequest());
 }
 
@@ -1585,6 +1593,15 @@ void NetworkResourceLoader::continueWillSendRequest(ResourceRequest&& newRequest
 void NetworkResourceLoader::continueDidReceiveResponse()
 {
     LOADER_RELEASE_LOG("continueDidReceiveResponse: (hasCacheEntryWaitingForContinueDidReceiveResponse=%d, hasResponseCompletionHandler=%d)", !!m_cacheEntryWaitingForContinueDidReceiveResponse, !!m_responseCompletionHandler);
+
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): pairs with the WebContent-side [WRL-CONT].
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[NRL-CONT] id=%llu sw=%d cacheEntry=%d respCH=%d url=%s\n",
+            static_cast<unsigned long long>(coreIdentifier().toUInt64()), !!m_serviceWorkerFetchTask,
+            !!m_cacheEntryWaitingForContinueDidReceiveResponse, !!m_responseCompletionHandler,
+            originalRequest().url().string().left(120).utf8().data());
+        fflush(stderr);
+    }
     if (m_serviceWorkerFetchTask) {
         LOADER_RELEASE_LOG("continueDidReceiveResponse: continuing with ServiceWorkerFetchTask (fetchIdentifier=%" PRIu64 ")", m_serviceWorkerFetchTask->fetchIdentifier().toUInt64());
         protect(m_serviceWorkerFetchTask)->continueDidReceiveFetchResponse();
