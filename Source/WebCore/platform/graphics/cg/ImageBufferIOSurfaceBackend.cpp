@@ -52,11 +52,6 @@ IntSize ImageBufferIOSurfaceBackend::calculateSafeBackendSize(const Parameters& 
         return { };
 
     IntSize maxSize = IOSurface::maximumSize();
-    // MAVERICKS_BACKPORT: IOSurface::maximumSize() returns 0x0 due to polyfill stub returning
-    // junk via struct-return register. Substitute a sane cap (16K x 16K) so the size
-    // check doesn't reject every valid backing-store request.
-    if (maxSize.width() <= 0 || maxSize.height() <= 0)
-        maxSize = IntSize(16384, 16384);
     if (backendSize.width() > maxSize.width() || backendSize.height() > maxSize.height())
         return { };
 
@@ -77,14 +72,6 @@ size_t ImageBufferIOSurfaceBackend::calculateMemoryCost(const Parameters& parame
 
 std::unique_ptr<ImageBufferIOSurfaceBackend> ImageBufferIOSurfaceBackend::create(const Parameters& parameters, const ImageBufferCreationContext& creationContext)
 {
-    // MAVERICKS_BACKPORT: skip IOSurface backend for canvas — IOSurface drawing/readback is
-    // unreliable on this build (canvas pixels read back as zeros even after fillRect,
-    // canvas.toDataURL returns empty "data:,"). Falling back to ImageBufferPlatformBitmapBackend
-    // gives a working CG bitmap context. Other purposes (compositing, layer scratch buffers)
-    // still use IOSurface — those paths have other 10.9 workarounds in place.
-    if (parameters.purpose == RenderingPurpose::Canvas)
-        return nullptr;
-
     IntSize backendSize = calculateSafeBackendSize(parameters);
     if (backendSize.isEmpty())
         return nullptr;
@@ -165,9 +152,7 @@ CGContextRef ImageBufferIOSurfaceBackend::ensurePlatformContext()
         if (!m_surface)
             return nullptr;
         m_platformContext = m_surface->createPlatformContext(m_displayID);
-        // MAVERICKS_BACKPORT: createPlatformContext can fail on this build; return null instead of the upstream RELEASE_ASSERT.
-        if (!m_platformContext)
-            return nullptr;
+        RELEASE_ASSERT(m_platformContext);
     }
     return m_platformContext.get();
 }
@@ -202,13 +187,11 @@ bool ImageBufferIOSurfaceBackend::invalidateCachedNativeImage()
 
 RefPtr<NativeImage> ImageBufferIOSurfaceBackend::copyNativeImage()
 {
-    // MAVERICKS_BACKPORT: m_surface->createImage is broken on this build
-    // (CFRelease crash on null CGImageRef). createImageReference uses
-    // CGIOSurfaceContextCreateImageReference which works. Same fix already
-    // applied to sinkIntoNativeImage.
+    // MAVERICKS_BACKPORT: null-guard only (CNN-family teardown races leave m_surface null); the
+    // upstream createImage() path works again now that IOSurface contexts are real CGIOSurfaceContexts.
     if (!m_surface)
         return nullptr;
-    return NativeImage::create(createImageReference());
+    return NativeImage::create(createImage());
 }
 
 RefPtr<NativeImage> ImageBufferIOSurfaceBackend::createNativeImageReference()
@@ -221,12 +204,11 @@ RefPtr<NativeImage> ImageBufferIOSurfaceBackend::createNativeImageReference()
 
 RefPtr<NativeImage> ImageBufferIOSurfaceBackend::sinkIntoNativeImage()
 {
-    // MAVERICKS_BACKPORT: IOSurface::sinkIntoImage AND m_surface->createImage are
-    // both broken on this build (vimeo canvas.toDataURL crashes CFRelease in
-    // both). createImageReference uses a different CG path and works.
+    // MAVERICKS_BACKPORT: null-guard only (see copyNativeImage); upstream sink path restored.
     if (!m_surface)
         return nullptr;
-    return NativeImage::create(createImageReference());
+    ensurePlatformContext();
+    return NativeImage::create(IOSurface::sinkIntoImage(WTF::move(m_surface), WTF::move(m_platformContext)));
 }
 
 void ImageBufferIOSurfaceBackend::getPixelBuffer(const IntRect& srcRect, PixelBuffer& destination)
@@ -356,17 +338,6 @@ RetainPtr<CGImageRef> ImageBufferIOSurfaceBackend::createImage()
 {
     // Consumers may hold on to the image, so mark external writes needing the invalidation marker.
     m_mayHaveOutstandingBackingStoreReferences = true;
-    // MAVERICKS_BACKPORT: IOSurface::createPlatformContext returns a CGBitmapContext (not a real
-    // CGIOSurfaceContext — CGIOSurfaceContextCreate is private/unavailable on 10.9). The upstream
-    // IOSurface::createImage path calls CGIOSurfaceContextCreateImage on that context which spams
-    // "CGIOSurfaceContextCreateImage: invalid context ... serious error" on every paint and returns
-    // null. Use CGBitmapContextCreateImage instead — it copies the pixel data into a standalone
-    // CGImage (matching the "may have outstanding references" contract above). The companion
-    // createImageReference() already uses a different CG path for synchronized reads.
-    if (auto ctx = ensurePlatformContext()) {
-        if (auto image = adoptCF(CGBitmapContextCreateImage(ctx)))
-            return image;
-    }
     return m_surface->createImage(ensurePlatformContext());
 }
 
@@ -374,17 +345,10 @@ RetainPtr<CGImageRef> ImageBufferIOSurfaceBackend::createImageReference()
 {
     // The reference is used only in synchronized manner, so after the use ends, we can update
     // externally without invalidation marker. Thus we do not set m_mayHaveOutstandingBackingStoreReferences.
-    // MAVERICKS_BACKPORT: libpolyfill's CGIOSurfaceContextCreateImageReference is just a wrapper that calls
-    // CGIOSurfaceContextCreateImage, which fails on our CGBitmapContext-backed "IOSurface" with
-    // "invalid context ... serious error" spam on every paint and returns null. CGBitmapContextCreateImage
-    // works correctly — it copies the bitmap pixels into a standalone CGImage. (We give up the
-    // "synchronized reference" semantics, but they were already broken: the previous code returned null
-    // images, so anywhere we relied on them seeing live IOSurface mutations was already getting blanks.)
-    RetainPtr<CGImageRef> image;
-    if (auto ctx = ensurePlatformContext())
-        image = adoptCF(CGBitmapContextCreateImage(ctx));
-    else
-        image = adoptCF(CGIOSurfaceContextCreateImageReference(ensurePlatformContext()));
+    // MAVERICKS_BACKPORT: on 10.9 CGIOSurfaceContextCreateImageReference resolves from libpolyfill as
+    // an alias of CGIOSurfaceContextCreateImage (copy instead of live-reference semantics).
+    auto image = adoptCF(CGIOSurfaceContextCreateImageReference(ensurePlatformContext()));
+    // MAVERICKS_BACKPORT: null guard (upstream assumes success; a torn-down surface returns null here).
     if (image) {
         // CG has internal caches for some operations related to software bitmap draw.
         // One of these caches are per-image color matching cache. Since these will not get any hits
