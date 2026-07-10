@@ -535,6 +535,10 @@ cp "$STAGE/include/gcrypt.h"      "$DEST/include/"
 cp "$STAGE/include/libtasn1.h"    "$DEST/include/"
 cp -R "$STAGE/include/brotli"     "$DEST/include/"
 cp -R "$STAGE/include/woff2"      "$DEST/include/"
+# libxml2 headers: WebCore compiles against these (OptionsMac.cmake points
+# LIBXML2_INCLUDE_DIR here so headers match the vendored 2.13 dylib; the 1.28 collect
+# rewrite dropped them, which broke cmake regeneration).
+cp -R "$STAGE/include/libxml2"    "$DEST/include/"
 for inc in glib-2.0 gio-unix-2.0 gstreamer-1.0 orc-0.4 openssl nice; do
   [ -d "$STAGE/include/$inc" ] && cp -R "$STAGE/include/$inc" "$DEST/include/"
 done
