@@ -461,6 +461,15 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
         handleActivityStateChangeCallbacksIfNeeded();
         invalidateRenderingUpdateRunLoopObserver();
 
+        // MAVERICKS_BACKPORT: on 10.10+ addCommitHandlers() registers a kCATransactionPhasePreLayout
+        // handler that drives willStartRenderingUpdateDisplay() when CA starts committing. That API
+        // doesn't exist on 10.9, but the commit below is the synchronous [CATransaction flush], so
+        // drive the pre-commit side here. This brackets the commit for
+        // PlatformCALayerContentsDelayedReleaser (mainThreadCommitWillStart) — without it,
+        // didCompleteRenderingUpdateDisplay() below underflowed the releaser's main-thread commit
+        // count and m_retainedContents (every dropped tile's backing store) was NEVER released.
+        willStartRenderingUpdateDisplay();
+
         // MAVERICKS_BACKPORT: explicitly flush CATransaction so layer changes
         // (especially scroll position deltas) propagate to the CAContext.
         // Normally CA auto-commits when CFRunLoop drains, but on Mavericks

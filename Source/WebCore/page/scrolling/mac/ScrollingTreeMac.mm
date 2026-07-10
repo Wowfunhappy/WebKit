@@ -241,22 +241,38 @@ void ScrollingTreeMac::didCompletePlatformRenderingUpdate()
 
 void ScrollingTreeMac::applyLayerPositionsInternal()
 {
-    if (ScrollingThread::isCurrentThread())
+    if (ScrollingThread::isCurrentThread()) {
+        // MAVERICKS_BACKPORT: +[CATransaction addCommitHandler:forPhase:] is 10.10+, so on 10.9
+        // registerForPlatformRenderingUpdateCallback() can't hook the scrolling thread's commit
+        // phases. Bracket the commit explicitly instead: apply the positions, then flush this
+        // thread's implicit transaction so the commit to the render server happens HERE, inside the
+        // PlatformCALayerContentsDelayedReleaser bracket. Without the bracket, tile contents dropped
+        // by the main thread could be released while the scrolling thread is mid-commit — a
+        // one-frame flash of missing/stale content on real hardware.
+        //
+        // Lock safety: callers hold m_treeLock, so the [CATransaction flush] below runs under it
+        // (upstream commits at run-loop drain, lock released). No deadlock cycle exists: the
+        // inversion would need the main thread to acquire m_treeLock from inside a CA commit
+        // callout (tile drawLayer/layoutSublayers), and no such acquisition exists — the main
+        // thread only takes m_treeLock in willStartRenderingUpdate (before its commit) and
+        // renderingUpdateComplete (after its flush returns, CA lock released);
+        // waitForRenderingUpdateCompletionOrTimeout waits on the condition with the lock
+        // RELEASED; the DelayedReleaser's own m_lock is leaf-only.
+        if (![CATransaction respondsToSelector:@selector(addCommitHandler:forPhase:)]) {
+            PlatformCALayerContentsDelayedReleaser::singleton().scrollingThreadCommitWillStart();
+            ThreadedScrollingTree::applyLayerPositionsInternal();
+            [CATransaction flush];
+            PlatformCALayerContentsDelayedReleaser::singleton().scrollingThreadCommitDidEnd();
+            return;
+        }
         registerForPlatformRenderingUpdateCallback();
+    }
 
     ThreadedScrollingTree::applyLayerPositionsInternal();
 }
 
 void ScrollingTreeMac::registerForPlatformRenderingUpdateCallback()
 {
-    // MAVERICKS_BACKPORT: runtime-absent selector — +[CATransaction addCommitHandler:forPhase:] is 10.10+. When it
-    // is unavailable, skip the delayed-releaser bracketing (the pre-feature default of
-    // releasing layer contents immediately is correct on 10.9). Calling the selector
-    // unconditionally throws "unrecognized selector sent to class", which aborts the
-    // in-progress layer-position application on the scrolling thread.
-    if (![CATransaction respondsToSelector:@selector(addCommitHandler:forPhase:)])
-        return;
-
     [CATransaction addCommitHandler:[] {
         PlatformCALayerContentsDelayedReleaser::singleton().scrollingThreadCommitWillStart();
     } forPhase:kCATransactionPhasePreLayout];
