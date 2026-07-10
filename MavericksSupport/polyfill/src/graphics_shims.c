@@ -76,15 +76,7 @@ int sqlite3_bind_blob64(sqlite3_stmt *statement, int index, const void *data, sq
     return sqlite3_bind_blob(statement, index, data, (int)length, destructor);
 }
 
-// SecTrustCopyCertificateChain (12.0+): rebuild the chain via the per-index accessor 10.9 ships.
-CFArrayRef SecTrustCopyCertificateChain(SecTrustRef trust) {
-    CFIndex count = SecTrustGetCertificateCount(trust);
-    CFMutableArrayRef array = CFArrayCreateMutable(kCFAllocatorDefault, count, &kCFTypeArrayCallBacks);
-    for (CFIndex i = 0; i < count; ++i) {
-        SecCertificateRef cert = SecTrustGetCertificateAtIndex(trust, i);
-        if (cert)
-            CFArrayAppendValue(array, cert);
-    }
-    return array;
-}
+// SecTrustCopyCertificateChain lives in const_polyfill.c (the canonical definition — it must be in
+// an object that every target's link already pulls, because the callers' references are WEAK
+// imports, which do not pull archive members on their own).
 #pragma clang diagnostic pop

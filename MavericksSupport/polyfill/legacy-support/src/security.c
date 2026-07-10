@@ -91,26 +91,8 @@ bool SecTrustEvaluateWithError(SecTrustRef trust, CFErrorRef  *error) {
 	return false;
 }
 
-/*
- * SecTrustCopyCertificateChain (added macOS 12.0)
- * Returns the evaluated certificate chain as a CFArray. On 10.9 we rebuild it
- * from the (deprecated) per-index accessors, which are populated once the
- * trust has been evaluated (callers always evaluate first). The caller owns
- * the returned array.
- */
-CFArrayRef SecTrustCopyCertificateChain(SecTrustRef trust) {
-	if (!trust) return NULL;
-	CFIndex count = SecTrustGetCertificateCount(trust);
-	if (count <= 0) return NULL;
-	CFMutableArrayRef chain = CFArrayCreateMutable(kCFAllocatorDefault, count,
-	                                               &kCFTypeArrayCallBacks);
-	if (!chain) return NULL;
-	for (CFIndex i = 0; i < count; i++) {
-		SecCertificateRef cert = SecTrustGetCertificateAtIndex(trust, i);
-		if (cert) CFArrayAppendValue(chain, cert);
-	}
-	return chain;
-}
+/* SecTrustCopyCertificateChain lives in const_polyfill.c (single canonical definition; this file
+ * previously carried a duplicate, a latent duplicate-symbol hazard within libpolyfill.a). */
 
 /* SecCertificateCopyKey (added 10.14) */
 SecKeyRef SecCertificateCopyKey(SecCertificateRef certificate) {

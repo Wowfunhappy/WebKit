@@ -7,6 +7,7 @@
 // against libSystem (recording a two-level bind that fails to load on the 10.9 runtime, which lacks
 // them). Defining them here makes the linker satisfy WebKit's reference from libpolyfill.a instead.
 #include <CoreFoundation/CoreFoundation.h>
+#include <Security/Security.h>
 #include <stdbool.h>
 
 const CFStringRef kAXInterfaceDifferentiateWithoutColorKey = CFSTR("kAXInterfaceDifferentiateWithoutColorKey");
@@ -96,6 +97,36 @@ const CFStringRef kCUIWidgetSwitchOnOffLabel = CFSTR("kCUIWidgetSwitchOnOffLabel
 // respondsToSelector(@selector(sameSitePolicy)) guard that fails on 10.9, so it is never dereferenced;
 // defined here so the weak import resolves rather than dangling.
 const CFStringRef NSHTTPCookieSameSitePolicy = CFSTR("SameSitePolicy");
+
+// NSError userInfo key NSLocalizedFailureErrorKey (NSString, 10.13+). CoreIPCError reads and writes
+// it when round-tripping NSErrors over IPC. REAL Foundation value, not the name-string: the key is
+// interpreted by -[NSError localizedDescription] on OSes that know it, and both IPC sides must agree.
+const CFStringRef NSLocalizedFailureErrorKey = CFSTR("NSLocalizedFailure");
+
+// SecTrustCopyCertificateChain (Security, 12.0+): rebuild the evaluated chain via the per-index
+// accessors 10.9 ships. CANONICAL definition (was duplicated in graphics_shims.c and
+// legacy-support/security.c). It must live in THIS object: callers reference the symbol as a WEAK
+// import (12.0+ availability), and weak references do not pull archive members — the definition is
+// only seen because every target's link already pulls const_polyfill.o for the constants above.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+CFArrayRef SecTrustCopyCertificateChain(SecTrustRef trust) {
+    if (!trust)
+        return NULL;
+    CFIndex count = SecTrustGetCertificateCount(trust);
+    if (count <= 0)
+        return NULL;
+    CFMutableArrayRef chain = CFArrayCreateMutable(kCFAllocatorDefault, count, &kCFTypeArrayCallBacks);
+    if (!chain)
+        return NULL;
+    for (CFIndex i = 0; i < count; i++) {
+        SecCertificateRef cert = SecTrustGetCertificateAtIndex(trust, i);
+        if (cert)
+            CFArrayAppendValue(chain, cert);
+    }
+    return chain;
+}
+#pragma clang diagnostic pop
 
 // os_feature_enabled(domain, feature) — libSystem feature-flag query (10.13+). Every WebKit call site
 // gates a feature that postdates 10.9 (VisualIntelligence/Translate/TextComposer post-editing/the
