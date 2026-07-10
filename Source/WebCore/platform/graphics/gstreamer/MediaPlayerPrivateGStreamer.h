@@ -266,6 +266,12 @@ public:
 
     void elementIdChanged(const String&) const final;
 
+    // MAVERICKS_BACKPORT: draw-wait latch bracket for main-thread blocking pipeline operations
+    // (gst_element_set_state / gst_element_send_event); public so the RAII scope in the .cpp's
+    // anonymous namespace can call them; see the definitions for the mechanism.
+    void beginMainThreadPipelineOperation();
+    void endMainThreadPipelineOperation();
+
 protected:
     enum MainThreadNotification {
         VideoChanged = 1 << 0,
@@ -601,6 +607,11 @@ private:
     Condition m_drawCondition;
     Lock m_drawLock;
     RunLoop::Timer m_drawTimer WTF_GUARDED_BY_LOCK(m_drawLock);
+    // MAVERICKS_BACKPORT: scoped draw-wait latch (see beginMainThreadPipelineOperation in the .cpp) —
+    // nonzero while the main thread is inside a blocking pipeline operation, during which the
+    // software-sink draw wait in triggerRepaint must be disarmed (same semantics as
+    // m_isBeingDestroyed, scoped instead of terminal).
+    int m_mainThreadPipelineOperationCount WTF_GUARDED_BY_LOCK(m_drawLock) { 0 };
     RunLoop::Timer m_pausedTimerHandler;
 #if USE(COORDINATED_GRAPHICS)
     RefPtr<CoordinatedPlatformLayerBufferProxy> m_contentsBufferProxy;
