@@ -1555,8 +1555,23 @@ static NSControlStateValue NODELETE kit(TriState state)
 #if PLATFORM(MAC)
         [_private->completionController endRevertingChange:NO moveLeft:NO];
 #endif
-        
+
         [webView _didScrollDocumentInFrameView:[self _frameView]];
+
+        // MAVERICKS_BACKPORT: flush the scroll's compositing-layer updates in THIS runloop cycle.
+        // scrollOffsetChangedViaPlatformWidget above synchronously recomputed viewport-constrained
+        // (sticky/fixed) GraphicsLayer geometry (LocalFrameView::scrollOffsetChangedViaPlatformWidgetImpl
+        // → updateCompositingLayersAfterScrolling), but the flush that pushes it to the CA layers
+        // normally waits for the next display-link-driven rendering update (RenderingUpdateScheduler →
+        // WebViewRenderingUpdateScheduler's runloop observer) — one cycle AFTER AppKit presents the new
+        // scroll position, so composited sticky/fixed content visibly trails the scroll by a frame.
+        // Modern AppKit hides that same scheduling lag because every window is layer-backed and the
+        // scroll and the flush ride one CA commit; 10.9 windows are not layer-backed, the window-backing
+        // presentation and the CA commit are separate channels, and the lag reaches the glass. Flushing
+        // here makes the sticky compensation join the same cycle as the scroll it compensates for. The
+        // geometry is already up to date (layout ran in the scroll notification), so this is only the
+        // push of pending GraphicsLayer state; non-composited documents return immediately.
+        [webView _flushCompositingChanges];
     }
     _private->lastScrollPosition = origin;
 }
