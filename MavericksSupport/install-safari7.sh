@@ -269,6 +269,15 @@ install_framework() {
         cp -f "$REPO/Source/WebCore/Resources/linearSRGB.icc" "$res/" 2>/dev/null \
             && echo "  staged linearSRGB.icc" \
             || echo "  WARN: linearSRGB.icc not found"
+
+        # Localizable.strings: WEB_UI_STRING looks localized UI strings up in the WebCore
+        # bundle (copyLocalizedString → CFBundleCopyLocalizedString). Without the table every
+        # string renders as its localization KEY (e.g. "Allow (usermedia)" on the getUserMedia
+        # consent sheet). The bundle identifier side is stamped at build time (WebKitMacros.cmake).
+        mkdir -p "$res/en.lproj"
+        cp -f "$REPO/Source/WebCore/en.lproj/Localizable.strings" "$res/en.lproj/" 2>/dev/null \
+            && echo "  staged en.lproj/Localizable.strings" \
+            || echo "  WARN: Localizable.strings not found"
     fi
 
     # Rename the binary (Versions/A/<old> -> Versions/A/<new>) + Current symlink + top symlink.
@@ -280,6 +289,11 @@ install_framework() {
         ln -sf "Versions/Current/$destBinName" "$destBundle/$destBinName"
         # Fix Info.plist CFBundleExecutable.
         /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $destBinName" "$va/Resources/Info.plist" 2>/dev/null || true
+        # MAVERICKS_BACKPORT: keep the STOCK bundle identifier for the name-shifted frameworks
+        # (WebKitLegacy installs as WebKit.framework = com.apple.WebKit; WK2 installs as
+        # WebKit2.framework = com.apple.WebKit2). The build stamps com.apple.<target-name>
+        # (see WebKitMacros.cmake), which is right for WebCore/JavaScriptCore but not these two.
+        /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.apple.$destBinName" "$va/Resources/Info.plist" 2>/dev/null || true
     fi
 
     # The build emits some top-level symlinks (notably XPCServices) as ABSOLUTE
