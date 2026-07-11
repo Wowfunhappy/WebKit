@@ -49,16 +49,8 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(ThreadTimers);
 
 ThreadTimers::ThreadTimers()
 {
-    // MAVERICKS_BACKPORT: on Mac the process-shared main instance gets its SharedTimer
-    // attached by ThreadGlobalData::sharedMainThreadTimers(), and worker threads attach
-    // theirs via setSharedTimer(). Per-thread private instances must NOT grab the main CF
-    // timer here: no run loop ever fires a private instance, and attaching the CF timer
-    // made such dead heaps look serviceable (task #6 root cause — frozen armed-forever
-    // timers when code ran on a transiently main-classified thread).
-#if !PLATFORM(MAC)
     if (isUIThread())
         setSharedTimer(&MainThreadSharedTimer::singleton());
-#endif
 }
 
 // A worker thread may initialize SharedTimer after some timers are created.
@@ -70,26 +62,12 @@ void ThreadTimers::setSharedTimer(SharedTimer* sharedTimer)
         sharedTimer->stop();
         m_pendingSharedTimerFireTime = MonotonicTime { };
     }
-
-    // MAVERICKS_BACKPORT: setSharedTimer reworked for cross-thread heap locking;
-    // see the updateSharedTimer guard below.
+    
     m_sharedTimer = sharedTimer;
     
     if (sharedTimer) {
         sharedTimer->setFiredFunction([] { threadGlobalDataSingleton().threadTimers().sharedTimerFiredInternal(); });
-        // MAVERICKS_BACKPORT: do NOT call updateSharedTimer here unconditionally.
-        // setSharedTimer is invoked from ThreadTimers ctor *during* the lazy
-        // init triggered inside TimerBase::setNextFireTime — which already
-        // holds sharedTimerHeapLock. Calling updateSharedTimer would attempt
-        // to re-acquire the lock and deadlock.
-        // The heap is empty at ctor time, so updateSharedTimer would be a
-        // no-op anyway. Skip it.
-        if (!m_timerHeap.isEmpty()) {
-#if PLATFORM(MAC)
-            Locker locker { sharedTimerHeapLock() };
-#endif
-            updateSharedTimer();
-        }
+        updateSharedTimer();
     }
 }
 
@@ -98,9 +76,6 @@ void ThreadTimers::updateSharedTimer()
     if (!m_sharedTimer)
         return;
 
-    // MAVERICKS_BACKPORT: caller (setNextFireTime / sharedTimerFiredInternal) is
-    // expected to hold sharedTimerHeapLock(). Do NOT acquire it here — that
-    // would deadlock since the lock is non-recursive.
     while (!m_timerHeap.isEmpty() && !m_timerHeap.first()->hasTimer()) {
         ASSERT_NOT_REACHED();
         TimerBase::heapDeleteNullMin(m_timerHeap);
@@ -137,40 +112,25 @@ void ThreadTimers::sharedTimerFiredInternal()
     auto fireTime = MonotonicTime::now();
     auto timeToQuit = ApproximateTime::now() + maxDurationOfFiringTimers;
 
-    while (true) {
-        // MAVERICKS_BACKPORT: lock around heap inspection; release before firing the
-        // timer (the callback may re-enter setNextFireTime which also locks).
-        RefPtr<ThreadTimerHeapItem> item;
-        TimerBase* timer = nullptr;
-        Seconds interval;
-        {
-#if PLATFORM(MAC)
-            Locker locker { sharedTimerHeapLock() };
-#endif
-            if (m_timerHeap.isEmpty())
-                break;
-            item = m_timerHeap.first().ptr();
-            if (!item->hasTimer()) {
-                TimerBase::heapDeleteNullMin(m_timerHeap);
-                continue;
-            }
-            if (item->time > fireTime)
-                break;
-            timer = &item->timer();
-            interval = timer->repeatInterval();
+    while (!m_timerHeap.isEmpty()) {
+        Ref item = m_timerHeap.first();
+        ASSERT(item->hasTimer());
+        if (!item->hasTimer()) {
+            TimerBase::heapDeleteNullMin(m_timerHeap);
+            continue;
         }
 
-        // MAVERICKS_BACKPORT: fire setNextFireTime OUTSIDE sharedTimerHeapLock() — the
-        // callback can re-enter setNextFireTime, which re-acquires the lock.
-        timer->setNextFireTime(interval ? fireTime + interval : MonotonicTime { });
+        if (item->time > fireTime)
+            break;
+
+        auto& timer = item->timer();
+        Seconds interval = timer.repeatInterval();
+        timer.setNextFireTime(interval ? fireTime + interval : MonotonicTime { });
 
         // Once the timer has been fired, it may be deleted, so do nothing else with it after this point.
         {
             TraceScope timerFiredScope { TimerFiredStart, TimerFiredEnd };
-            // MAVERICKS_BACKPORT: re-check item still has a timer (could have been
-            // cleared/deleted across setNextFireTime under cross-thread heap mutation).
-            if (item->hasTimer())
-                item->timer().fired();
+            item->timer().fired();
         }
 
         // Catch the case where the timer asked timers to fire in a nested event loop, or we are over time limit.
@@ -184,11 +144,6 @@ void ThreadTimers::sharedTimerFiredInternal()
     m_firingTimers = false;
     m_shouldBreakFireLoopForRenderingUpdate = false;
 
-    // MAVERICKS_BACKPORT: take sharedTimerHeapLock() before updateSharedTimer, which
-    // now expects the caller to hold it (cross-thread heap serialization).
-#if PLATFORM(MAC)
-    Locker locker { sharedTimerHeapLock() };
-#endif
     updateSharedTimer();
 }
 
@@ -202,11 +157,6 @@ void ThreadTimers::fireTimersInNestedEventLoop()
         m_pendingSharedTimerFireTime = MonotonicTime { };
     }
 
-    // MAVERICKS_BACKPORT: take sharedTimerHeapLock() before updateSharedTimer, which
-    // now expects the caller to hold it (cross-thread heap serialization).
-#if PLATFORM(MAC)
-    Locker locker { sharedTimerHeapLock() };
-#endif
     updateSharedTimer();
 }
 

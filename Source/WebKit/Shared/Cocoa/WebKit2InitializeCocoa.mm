@@ -63,11 +63,7 @@ enum class WebKitProfileTag { };
 
 static void runInitializationCode(void* = nullptr)
 {
-    // MAVERICKS_BACKPORT: the upstream RELEASE_ASSERT([NSThread isMainThread]) is removed because
-    // the WebContent XPC service calls this off the main thread on 10.9 (see comment below).
-    // On 10.9, the WebContent XPC service calls this from the XPC event handler
-    // thread, which is not the main thread. Skip the assert.
-    // RELEASE_ASSERT_WITH_MESSAGE([NSThread isMainThread], "InitializeWebKit2 should be called on the main thread");
+    RELEASE_ASSERT_WITH_MESSAGE([NSThread isMainThread], "InitializeWebKit2 should be called on the main thread");
 
     WTF::initializeMainThread();
 
@@ -111,11 +107,13 @@ static void runInitializationCode(void* = nullptr)
 
 void InitializeWebKit2()
 {
-    // MAVERICKS_BACKPORT: the upstream main-thread-vs-WorkQueue dispatch branch (and its comment)
-    // is dropped here because the XPC service calls this off the main thread on 10.9.
+    // Make sure the initialization code is run only once and on the main thread since things like initializeMainThread()
+    // are only safe to call on the main thread.
     std::call_once(flag, [] {
-        // MAVERICKS_BACKPORT: run initialization inline (see above).
-        runInitializationCode();
+        if ([NSThread isMainThread] || linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::InitializeWebKit2MainThreadAssertion))
+            runInitializationCode();
+        else
+            WorkQueue::mainSingleton().dispatchSync([] { runInitializationCode(); });
     });
 }
 

@@ -140,9 +140,9 @@ void RunLoop::dispatch(const SchedulePairHashSet& schedulePairs, Function<void()
     // @"iChatWebKitLoadingRunLoopMode" in -_windowDidLoad waiting for it; without per-mode delivery
     // the continuation never runs in that mode and the app wedges at 100% CPU.
     //
-    // MAVERICKS_BACKPORT: WK2 XPC services run dispatch_main() (which pumps GCD but not a CFRunLoop)
-    // and register no schedule pairs; for that case the CFRunLoopTimer would never fire, so fall
-    // back to the main GCD queue (honoring our dispatch_main wakeUp path, see wakeUp() above).
+    // MAVERICKS_BACKPORT: WK2 XPC services register no schedule pairs; the CFRunLoopTimer below is
+    // added only to schedule-pair run loops, so with zero pairs it would never fire. Fall back to
+    // dispatching on the main RunLoop for that case.
     if (schedulePairs.isEmpty()) {
         RunLoop::mainSingleton().dispatch(WTF::move(function));
         return;

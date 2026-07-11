@@ -100,15 +100,7 @@ static bool webThreadIsUninitializedOrLockedOrDisabled()
 
 bool isMainThread()
 {
-    // MAVERICKS_BACKPORT: also accept the main GCD queue as the main thread (dispatch_main() exits it on 10.9).
-    if ((isWebThread() || pthread_main_np()) && webThreadIsUninitializedOrLockedOrDisabled())
-        return true;
-    // 10.9: dispatch_main() exits the main thread; subsequent main-queue blocks
-    // run on dispatch workers where pthread_main_np()==0. Treat "running on the
-    // main GCD queue" as main thread for this purpose.
-    if (dispatch_get_current_queue() == dispatch_get_main_queue() && webThreadIsUninitializedOrLockedOrDisabled())
-        return true;
-    return false;
+    return (isWebThread() || pthread_main_np()) && webThreadIsUninitializedOrLockedOrDisabled();
 }
 
 bool isUIThread()
@@ -155,10 +147,7 @@ bool canCurrentThreadAccessThreadLocalData(Thread& thread)
 
 bool isMainThread()
 {
-    if (pthread_main_np())
-        return true;
-    // MAVERICKS_BACKPORT: dispatch_main() exits the main thread.
-    return dispatch_get_current_queue() == dispatch_get_main_queue();
+    return pthread_main_np();
 }
 
 #endif // USE(WEB_THREAD)
