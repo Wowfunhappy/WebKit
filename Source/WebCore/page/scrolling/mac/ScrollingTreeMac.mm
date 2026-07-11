@@ -28,6 +28,7 @@
 
 #if PLATFORM(MAC)
 
+#import "CATransactionCommitHandlers.h"
 #import "Logging.h"
 #import "PlatformCALayer.h"
 #import "PlatformCALayerContentsDelayedReleaser.h"
@@ -241,45 +242,24 @@ void ScrollingTreeMac::didCompletePlatformRenderingUpdate()
 
 void ScrollingTreeMac::applyLayerPositionsInternal()
 {
-    if (ScrollingThread::isCurrentThread()) {
-        // MAVERICKS_BACKPORT: +[CATransaction addCommitHandler:forPhase:] is 10.10+, so on 10.9
-        // registerForPlatformRenderingUpdateCallback() can't hook the scrolling thread's commit
-        // phases. Bracket the commit explicitly instead: apply the positions, then flush this
-        // thread's implicit transaction so the commit to the render server happens HERE, inside the
-        // PlatformCALayerContentsDelayedReleaser bracket. Without the bracket, tile contents dropped
-        // by the main thread could be released while the scrolling thread is mid-commit — a
-        // one-frame flash of missing/stale content on real hardware.
-        //
-        // Lock safety: callers hold m_treeLock, so the [CATransaction flush] below runs under it
-        // (upstream commits at run-loop drain, lock released). No deadlock cycle exists: the
-        // inversion would need the main thread to acquire m_treeLock from inside a CA commit
-        // callout (tile drawLayer/layoutSublayers), and no such acquisition exists — the main
-        // thread only takes m_treeLock in willStartRenderingUpdate (before its commit) and
-        // renderingUpdateComplete (after its flush returns, CA lock released);
-        // waitForRenderingUpdateCompletionOrTimeout waits on the condition with the lock
-        // RELEASED; the DelayedReleaser's own m_lock is leaf-only.
-        if (![CATransaction respondsToSelector:@selector(addCommitHandler:forPhase:)]) {
-            PlatformCALayerContentsDelayedReleaser::singleton().scrollingThreadCommitWillStart();
-            ThreadedScrollingTree::applyLayerPositionsInternal();
-            [CATransaction flush];
-            PlatformCALayerContentsDelayedReleaser::singleton().scrollingThreadCommitDidEnd();
-            return;
-        }
+    if (ScrollingThread::isCurrentThread())
         registerForPlatformRenderingUpdateCallback();
-    }
 
     ThreadedScrollingTree::applyLayerPositionsInternal();
 }
 
 void ScrollingTreeMac::registerForPlatformRenderingUpdateCallback()
 {
-    [CATransaction addCommitHandler:[] {
+    // MAVERICKS_BACKPORT: routed through the shared commit-phase helper because
+    // +[CATransaction addCommitHandler:forPhase:] is 10.10+; on 10.9 the helper straddles the
+    // scrolling thread's drain-time commit with run-loop observers instead. Same semantics as
+    // upstream: the PlatformCALayerContentsDelayedReleaser bracket covers the commit itself,
+    // committed at the scrolling thread's run-loop drain with m_treeLock released.
+    addCATransactionCommitHandlersForCurrentThread([] {
         PlatformCALayerContentsDelayedReleaser::singleton().scrollingThreadCommitWillStart();
-    } forPhase:kCATransactionPhasePreLayout];
-
-    [CATransaction addCommitHandler:[] {
+    }, [] {
         PlatformCALayerContentsDelayedReleaser::singleton().scrollingThreadCommitDidEnd();
-    } forPhase:kCATransactionPhasePostCommit];
+    });
 }
 
 #endif // PLATFORM(MAC)

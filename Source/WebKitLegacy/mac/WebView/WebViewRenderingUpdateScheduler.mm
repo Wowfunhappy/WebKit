@@ -27,6 +27,8 @@
 #import "WebViewRenderingUpdateScheduler.h"
 
 #import "WebViewInternal.h"
+// MAVERICKS_BACKPORT: shared 10.9-compatible CATransaction commit-phase helper.
+#import <WebCore/CATransactionCommitHandlers.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/TZoneMallocInlines.h>
 
@@ -108,39 +110,14 @@ void WebViewRenderingUpdateScheduler::registerCACommitHandlers()
     // callback before m_haveRegisteredCommitHandlers is set and — crucially — before the
     // postCommit handler that drives -_didCompleteRenderingUpdateDisplay is registered. That
     // wedges the WK1 rendering-update cycle and leaves layer-backed WebViews (e.g. Safari's
-    // Extensions preference pane) blank. CoreAnimation flushes its implicit transaction at
-    // kCFRunLoopBeforeWaiting/kCFRunLoopExit with observer order 2000000, so we reproduce the
-    // two commit phases with one-shot main-runloop observers ordered just below and just above
-    // that: the lower-ordered observer runs immediately before the commit (preLayout), the
-    // higher-ordered one immediately after (postCommit).
-    if (![CATransaction respondsToSelector:@selector(addCommitHandler:forPhase:)]) {
-        static const CFIndex caCommitOrder = 2000000;
-        CFRunLoopRef runLoop = CFRunLoopGetMain();
-
-        RetainPtr<CFRunLoopObserverRef> preObserver = adoptCF(CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting | kCFRunLoopExit, false, caCommitOrder - 1, ^(CFRunLoopObserverRef observer, CFRunLoopActivity) {
-            CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
-            [webView.get() _willStartRenderingUpdateDisplay];
-        }));
-        CFRunLoopAddObserver(runLoop, preObserver.get(), kCFRunLoopCommonModes);
-
-        RetainPtr<CFRunLoopObserverRef> postObserver = adoptCF(CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting | kCFRunLoopExit, false, caCommitOrder + 1, ^(CFRunLoopObserverRef observer, CFRunLoopActivity) {
-            CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, kCFRunLoopCommonModes);
-            [webView.get() _didCompleteRenderingUpdateDisplay];
-        }));
-        CFRunLoopAddObserver(runLoop, postObserver.get(), kCFRunLoopCommonModes);
-
-        m_haveRegisteredCommitHandlers = true;
-        return;
-    }
-
-    [CATransaction addCommitHandler:^{
+    // Extensions preference pane) blank. WebCore's shared helper registers via the real API
+    // when available and reproduces the two commit phases with run-loop observers on 10.9.
+    WebCore::addCATransactionCommitHandlersForCurrentThread([webView] {
         [webView.get() _willStartRenderingUpdateDisplay];
-    } forPhase:kCATransactionPhasePreLayout];
-
-    [CATransaction addCommitHandler:^{
+    }, [webView] {
         [webView.get() _didCompleteRenderingUpdateDisplay];
-    } forPhase:kCATransactionPhasePostCommit];
-    
+    });
+
     m_haveRegisteredCommitHandlers = true;
 }
 

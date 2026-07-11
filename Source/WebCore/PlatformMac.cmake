@@ -713,6 +713,8 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/ca/PlatformCALayerClient.h
     platform/graphics/ca/TileController.h
 
+    # MAVERICKS_BACKPORT: shared 10.9-compatible CATransaction commit-phase helper (also used by WebKitLegacy).
+    platform/graphics/ca/cocoa/CATransactionCommitHandlers.h
     platform/graphics/ca/cocoa/GraphicsLayerAsyncContentsDisplayDelegateCocoa.h
     platform/graphics/ca/cocoa/PlatformCAAnimationCocoa.h
     platform/graphics/ca/cocoa/PlatformCALayerCocoa.h
