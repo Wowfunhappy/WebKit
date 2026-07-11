@@ -150,6 +150,13 @@ static std::span<const ASCIILiteral> builtinSecureSchemes()
 #if ENABLE(PDFJS)
         "webkit-pdfjs-viewer"_s,
 #endif
+#if PLATFORM(MAC)
+        // MAVERICKS_BACKPORT: safari-extension:// (extension popups/background pages) and
+        // safari-resource:// (Reader mode chrome, see WebLoaderStrategy.cpp) are always served
+        // in-app by Safari itself, never over the network, so they're as trustworthy as "about"/"data".
+        "safari-extension"_s,
+        "safari-resource"_s,
+#endif
     };
     return schemes;
 }
