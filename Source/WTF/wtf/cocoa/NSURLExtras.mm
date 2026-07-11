@@ -241,6 +241,37 @@ NSURL *URLWithUserTypedStringDeprecated(NSString *string)
     return result;
 }
 
+// MAVERICKS_BACKPORT: restore the base-URL-honoring variant removed in 1516dd5 "[CF] Reduce duplication
+// and unneeded buffer allocations and copying in URL code". Upstream dropped base support because its
+// callers all passed nil, but Safari 7's -[NSURL _web_URLWithUserTypedString:relativeToURL:] caller
+// (the title-bar path pop-up menu) resolves path strings against a non-nil base.
+NSURL *URLWithUserTypedStringDeprecated(NSString *string, NSURL *baseURL)
+{
+    if (!string)
+        return nil;
+
+    NSURL *result = nil;
+    auto mappedString = URLHelpers::mapHostNames(stringByTrimmingWhitespace(string).get(), decodePercentEscapes);
+    if (!mappedString.isNull()) {
+        // Let's check whether the URL is bogus.
+        URL url { URL { baseURL }, mappedString };
+        if (url.createCFURL()) {
+            RetainPtr data = dataWithUserTypedString(mappedString.createNSString().get());
+            if (!data)
+                return [NSURL URLWithString:@""];
+            result = URLWithData(data.get(), baseURL);
+        }
+    }
+    if (!result) {
+        RetainPtr resultData = dataWithUserTypedString(string);
+        if (!resultData)
+            return [NSURL URLWithString:@""];
+        result = URLWithData(resultData.get(), baseURL);
+    }
+
+    return result;
+}
+
 static bool hasQuestionMarkOnlyQueryString(NSURL *URL)
 {
     CFRange rangeWithSeparators;

@@ -50,6 +50,18 @@
     return WTF::URLWithUserTypedStringDeprecated(string);
 }
 
+// MAVERICKS_BACKPORT: restore two upstream-removed SPI variants Safari 7 still calls (the title-bar
+// path pop-up menu passes a non-nil base URL).
++ (NSURL *)_web_URLWithUserTypedString:(NSString *)string relativeToURL:(NSURL *)url
+{
+    return WTF::URLWithUserTypedStringDeprecated(string, url);
+}
+
++ (NSURL *)_web_URLWithData:(NSData *)data
+{
+    return WTF::URLWithData(data, nil);
+}
+
 + (NSURL *)_webkit_URLWithUserTypedString:(NSString *)string
 {
     return WTF::URLWithUserTypedString(string);
