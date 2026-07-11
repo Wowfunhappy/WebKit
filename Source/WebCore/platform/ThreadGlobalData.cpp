@@ -30,9 +30,6 @@
 #include "CachedResourceRequestInitiatorTypes.h"
 #include "EventNames.h"
 #include "FontCache.h"
-// MAVERICKS_BACKPORT: MainThreadSharedTimer.h for attaching the CF shared timer to the
-// process-shared ThreadTimers below.
-#include "MainThreadSharedTimer.h"
 #include "MIMETypeRegistry.h"
 #include "QualifiedNameCache.h"
 #include "SharedTimer.h"
@@ -57,58 +54,9 @@ ThreadGlobalData::ThreadGlobalData()
 
 ThreadGlobalData::~ThreadGlobalData() = default;
 
-#if PLATFORM(MAC)
-// MAVERICKS_BACKPORT: threads whose ThreadTimers heap is serviced by their own run loop
-// (worker/worklet threads, which install a SharedTimer via setSharedTimer) opt out of the
-// process-shared heap. The flag is per-thread and set once at worker-thread entry, BEFORE
-// any timer can arm, so the classification is sticky for the thread's whole lifetime.
-static thread_local bool t_useDedicatedThreadTimers;
-
-void setCurrentThreadUsesDedicatedThreadTimers()
-{
-    t_useDedicatedThreadTimers = true;
-}
-
-bool currentThreadUsesSharedThreadTimers()
-{
-    return !t_useDedicatedThreadTimers;
-}
-
-// The ONE process-shared main ThreadTimers. The CF shared timer is attached here (and only
-// here) — never to per-thread private instances, which no run loop ever fires.
-static ThreadTimers& sharedMainThreadTimers()
-{
-    static NeverDestroyed<UniqueRef<ThreadTimers>> shared { [] {
-        auto timers = makeUniqueRef<ThreadTimers>();
-        timers->setSharedTimer(&MainThreadSharedTimer::singleton());
-        return timers;
-    }() };
-    return shared.get();
-}
-#endif
-
 ThreadTimers& ThreadGlobalData::threadTimers()
 {
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: WK2 XPC services fragment the "main thread" identity across
-    // libdispatch workers, and loader/network callbacks can run WebCore code on threads
-    // that fail isMainThread() transiently. Any timer armed via a per-thread private
-    // ThreadTimers on such a thread joins a heap NO run loop ever fires — the timer stays
-    // isActive() forever and never runs (task #6: nytimes load-event stall, frozen
-    // ScriptRunner/parser/load-delay timers, blank ad frames).
-    //
-    // So the classification must be structural, not time-varying: worker/worklet threads
-    // (marked at thread entry; they service their own heap via WorkerDedicatedRunLoop's
-    // SharedTimer) keep the upstream per-thread instance; EVERY other thread — main,
-    // main-classified dispatch workers, and stray callback threads — shares one process-wide
-    // ThreadTimers serviced by the main CF shared timer. Heap mutations are serialized by
-    // sharedTimerHeapLock().
-    if (t_useDedicatedThreadTimers)
-        return m_threadTimers;
-    return sharedMainThreadTimers();
-#else
     return m_threadTimers;
-#endif
 }
 
 void ThreadGlobalData::destroy()
@@ -187,21 +135,9 @@ void ThreadGlobalData::initializeEventNames()
 EventNames& ThreadGlobalData::eventNames()
 {
     ASSERT(!m_destroyed);
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: IDBDatabase (and a few other classes) cache `const EventNames&`
-    // members captured at construction. If the originating ThreadGlobalData is destroyed
-    // before the cache holder, accessing the cached reference reads freed memory and
-    // crashes inside Event::create at the first AtomString deref. Same root cause as
-    // QualifiedNameCache / AtomStringTable: per-thread caches don't survive the
-    // libdispatch-worker lifecycle on Mac. Share a single process-wide EventNames so
-    // the cached references stay valid forever.
-    static NeverDestroyed<std::unique_ptr<EventNames>> sharedEventNames { EventNames::create() };
-    return *sharedEventNames.get();
-#else
     if (!m_eventNames) [[unlikely]]
         initializeEventNames();
     return *m_eventNames;
-#endif
 }
 
 void ThreadGlobalData::initializeQualifiedNameCache()
@@ -213,17 +149,9 @@ void ThreadGlobalData::initializeQualifiedNameCache()
 QualifiedNameCache& ThreadGlobalData::qualifiedNameCache()
 {
     ASSERT(!m_destroyed);
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: dispatch_get_main_queue() callbacks land on whichever
-    // libdispatch worker is available — per-thread caches fragment and race.
-    // Use a process-wide singleton like ThreadTimers / AtomStringTable.
-    static NeverDestroyed<std::unique_ptr<QualifiedNameCache>> sharedCache { makeUnique<QualifiedNameCache>() };
-    return *sharedCache.get();
-#else
     if (!m_qualifiedNameCache) [[unlikely]]
         initializeQualifiedNameCache();
     return *m_qualifiedNameCache;
-#endif
 }
 
 void ThreadGlobalData::initializeMimeTypeRegistryThreadGlobalData()

@@ -38,14 +38,8 @@ namespace WTF {
 
 using namespace Unicode;
 
-// MAVERICKS_BACKPORT: || PLATFORM(MAC) so the shared AtomStringTable is locked on 10.9 (see below).
-#if USE(WEB_THREAD) || PLATFORM(MAC)
+#if USE(WEB_THREAD)
 
-// MAVERICKS_BACKPORT: on PLATFORM(MAC) the AtomStringTable is shared process-wide across
-// threads (see Threading.cpp), so concurrent JS parser threads / DOM main thread can
-// all hit the same hash table. Without a real lock, simultaneous rehash() calls
-// corrupt the table (double-free / "pointer being freed was not allocated" abort).
-// Use the same shared-lock pattern that USE(WEB_THREAD) uses.
 class AtomStringTableLocker : public Locker<Lock> {
     WTF_MAKE_NONCOPYABLE(AtomStringTableLocker);
 
@@ -67,7 +61,7 @@ public:
     AtomStringTableLocker() { }
 };
 
-#endif // USE(WEB_THREAD) || PLATFORM(MAC) -- MAVERICKS_BACKPORT: PLATFORM(MAC) added so the shared table is locked on 10.9 (see above).
+#endif // USE(WEB_THREAD)
 
 using StringTableImpl = AtomStringTable::StringTableImpl;
 

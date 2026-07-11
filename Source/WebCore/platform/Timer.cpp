@@ -32,11 +32,7 @@
 #include "ThreadTimers.h"
 #include <limits>
 #include <math.h>
-// MAVERICKS_BACKPORT: Lock.h for the cross-thread sharedTimerHeapLock().
-#include <wtf/Lock.h>
 #include <wtf/MainThread.h>
-// MAVERICKS_BACKPORT: NeverDestroyed.h for the static sharedTimerHeapLock() storage.
-#include <wtf/NeverDestroyed.h>
 #include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
@@ -54,23 +50,6 @@ namespace WebCore {
 WTF_MAKE_TZONE_ALLOCATED_IMPL(TimerBase);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(Timer);
 WTF_MAKE_TZONE_ALLOCATED_IMPL(DeferrableOneShotTimer);
-
-#if PLATFORM(MAC)
-// MAVERICKS_BACKPORT: ThreadTimers heap is process-wide singleton (per
-// project_threadtimers_shared.md). Worker threads + main thread can mutate
-// the heap concurrently — std::push_heap / std::pop_heap are NOT thread-safe
-// and crash in __sift_up. Wrap heap mutations with a global lock.
-Lock& sharedTimerHeapLock()
-{
-    static NeverDestroyed<Lock> lock;
-    return lock.get();
-}
-
-// MAVERICKS_BACKPORT: defined in ThreadGlobalData.cpp (declared here rather than in a
-// widely-included header). True on every thread that shares the process-wide main
-// ThreadTimers; false only on worker/worklet threads with a dedicated instance.
-bool currentThreadUsesSharedThreadTimers();
-#endif
 
 class TimerHeapReference;
 
@@ -318,10 +297,8 @@ TimerBase::TimerBase()
 
 TimerBase::~TimerBase()
 {
-    // MAVERICKS_BACKPORT: m_thread can be clobbered by JSC GC overwriting RunLoop
-    // memory; suppress the thread-safety release assert so destruction can
-    // proceed (the actual stop() below is safe to call from any thread).
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
+    RELEASE_ASSERT(canCurrentThreadAccessThreadLocalData(m_thread) || shouldSuppressThreadSafetyCheck());
     stop();
     ASSERT(!inHeap());
     if (auto* item = m_heapItemWithBitfields.pointer())
@@ -341,15 +318,12 @@ void TimerBase::stopSlowCase()
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
 
-    // Properly remove this timer's item from the shared heap, as upstream does:
-    // setNextFireTime({}) drives updateHeapIfNeeded → heapDelete (which locks the
-    // heap internally). The earlier MAVERICKS_BACKPORT instead detached and left an ORPHAN
-    // !hasTimer() entry in the heap (to dodge a __sift_up crash on the then-corrupted
-    // heap), which made stale entries accumulate, jam heap min-extraction, and require
-    // the heapInsert scrub. The heap corruption is fixed (RunLoop-lifetime keystone
-    // #42), so the real removal is safe and orphans are no longer created.
     m_repeatInterval = 0_s;
     setNextFireTime(MonotonicTime { });
+
+    ASSERT(!static_cast<bool>(nextFireTime()));
+    ASSERT(m_repeatInterval == 0_s);
+    ASSERT(!inHeap());
 }
 
 Seconds TimerBase::nextFireInterval() const
@@ -492,39 +466,15 @@ bool TimerBase::hasValidHeapPosition() const
     ASSERT(item);
     if (!inHeap())
         return false;
-    // MAVERICKS_BACKPORT: defensively validate heap entries before dereferencing.
-    // Thread timer heap is corrupted by JSC GC overwriting Vector storage.
-    // Bad entries (NULL pointers, non-aligned, NaN times) would crash compare().
-    // Returning false forces updateHeapIfNeeded to call heap{Insert,Delete,...}
-    // which scrub the heap.
+    // Check if the heap property still holds with the new fire time. If it does we don't need to do anything.
+    // This assumes that the STL heap is a standard binary heap. In an unlikely event it is not, the assertions
+    // in updateHeapIfNeeded() will get hit.
     const auto& heap = item->timerHeap();
     unsigned heapIndex = item->heapIndex();
-    // MAVERICKS_BACKPORT: pointer/time sanity checks for heap entries that JSC GC
-    // may have corrupted, used by the validation below.
-    auto isAddrValid = [](uintptr_t addr) -> bool {
-        return addr >= 0x100000 && !(addr >> 47) && !(addr & 0x7);
-    };
-    auto checkEntry = [&](unsigned idx) -> bool {
-        if (idx >= heap.size())
-            return true;
-        auto* hi = heap[idx].ptr();
-        if (!isAddrValid(reinterpret_cast<uintptr_t>(hi)))
-            return false;
-        if (!hi->hasTimer())
-            return false;
-        double t = hi->time.secondsSinceEpoch().value();
-        return !std::isnan(t) && !std::isinf(t);
-    };
-    if (heapIndex && !checkEntry((heapIndex - 1) / 2))
+    if (!parentHeapPropertyHolds(this, heap, heapIndex))
         return false;
     unsigned childIndex1 = 2 * heapIndex + 1;
     unsigned childIndex2 = childIndex1 + 1;
-    // MAVERICKS_BACKPORT: validate child/parent heap entries before the property
-    // checks dereference them (heap may be corrupted by JSC GC).
-    if (!checkEntry(childIndex1) || !checkEntry(childIndex2))
-        return false;
-    if (!parentHeapPropertyHolds(this, heap, heapIndex))
-        return false;
     return childHeapPropertyHolds(this, heap, childIndex1) && childHeapPropertyHolds(this, heap, childIndex2);
 }
 
@@ -562,32 +512,11 @@ void TimerBase::updateHeapIfNeeded(MonotonicTime oldTime)
 
 void TimerBase::setNextFireTime(MonotonicTime newTime)
 {
-    // MAVERICKS_BACKPORT: serializes heap mutations across threads via the
-    // sharedTimerHeapLock acquired below.
 #if USE(WEB_THREAD)
     RELEASE_ASSERT(WebThreadIsLockedOrDisabledInMainOrWebThread());
 #endif
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: serialize heap mutations across threads. Held across
-    // updateSharedTimer below, which expects its caller to hold this lock.
-    std::optional<Locker<Lock>> timerHeapLocker;
-    timerHeapLocker.emplace(sharedTimerHeapLock());
-#endif
     ASSERT(canCurrentThreadAccessThreadLocalData(m_thread));
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: timers bound to the process-shared main ThreadTimers heap are
-    // legitimately armed/stopped/fired across threads (mutations serialized by
-    // sharedTimerHeapLock, firing on the main run loop). The strict thread-identity check
-    // still applies to worker-owned timers (dedicated per-thread heaps).
-    bool boundToSharedHeap = currentThreadUsesSharedThreadTimers();
-    if (boundToSharedHeap) {
-        if (RefPtr existingItem = m_heapItemWithBitfields.pointer())
-            boundToSharedHeap = &existingItem->timerHeap() == &threadGlobalDataSingleton().threadTimers().timerHeap();
-    }
-    RELEASE_ASSERT(canCurrentThreadAccessThreadLocalData(m_thread) || shouldSuppressThreadSafetyCheck() || boundToSharedHeap);
-#else
     RELEASE_ASSERT(canCurrentThreadAccessThreadLocalData(m_thread) || shouldSuppressThreadSafetyCheck());
-#endif
     bool timerHasBeenDeleted = m_unalignedNextFireTime.isNaN();
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!timerHasBeenDeleted);
 
@@ -619,8 +548,6 @@ void TimerBase::setNextFireTime(MonotonicTime newTime)
 
         bool isFirstTimerInHeap = item->isFirstInHeap();
 
-        // MAVERICKS_BACKPORT: keep heap lock held — updateSharedTimer no longer
-        // locks (it expects caller to hold the lock).
         if (wasFirstTimerInHeap || isFirstTimerInHeap)
             threadGlobalDataSingleton().threadTimers().updateSharedTimer();
     }
