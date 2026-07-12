@@ -1669,7 +1669,6 @@ void WebLocalFrameLoaderClient::transitionToCommittedFromCachedFrame(CachedFrame
 
 void WebLocalFrameLoaderClient::transitionToCommittedForNewPage(InitializingIframe initializingIframe)
 {
-    // MAVERICKS_BACKPORT: no per-commit debug fopen logging here (kept off the hot path for 10.9 perf).
     RefPtr webPage = m_frame->page();
     if (!webPage)
         return;

@@ -47,9 +47,9 @@ namespace API {
 // it to/from a JSValueRef in the caller's JSContext.
 class SerializedScriptValue final : public ObjectImpl<Object::Type::SerializedScriptValue> {
 public:
+    static JSRetainPtr<JSGlobalContextRef> deserializationContext();
     // MAVERICKS_BACKPORT: legacy WKSerializedScriptValue support.
     // Used by the GLib ports only (APISerializedScriptValue.cpp is not built on Mac).
-    static JSRetainPtr<JSGlobalContextRef> deserializationContext();
 
     // MAVERICKS_BACKPORT: factory wrapping WebKit::JavaScriptEvaluationResult for the legacy C API.
     static Ref<SerializedScriptValue> create(WebKit::JavaScriptEvaluationResult&& result)

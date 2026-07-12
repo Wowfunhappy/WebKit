@@ -31,6 +31,7 @@
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/MakeString.h>
 
+// MAVERICKS_BACKPORT: CoreGraphics + parseInteger includes for the PLATFORM(MAC) avfvideosrc screen-capture path (portal/PipeWire is Linux-only).
 #if PLATFORM(MAC)
 #include <CoreGraphics/CoreGraphics.h>
 #include <wtf/RuntimeApplicationChecks.h>
@@ -133,6 +134,7 @@ void GStreamerDisplayCaptureDeviceManager::computeCaptureDevices(CompletionHandl
     CaptureDevice screenCaptureDevice(createVersion4UUIDString(), CaptureDevice::DeviceType::Screen, "Capture Screen"_s);
     screenCaptureDevice.setEnabled(true);
     m_devices.append(WTF::move(screenCaptureDevice));
+    // MAVERICKS_BACKPORT: closes the PLATFORM(MAC) per-display screen enumeration above; the #else portal/PipeWire path is Linux-only.
 #endif
     callback();
 }

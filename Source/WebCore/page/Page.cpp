@@ -5932,11 +5932,6 @@ static RefPtr<PlatformMediaSessionManager>& NODELETE mediaSessionManagerSingleto
 
 RefPtr<MediaSessionManagerInterface> Page::mediaSessionManager()
 {
-    // MAVERICKS_BACKPORT: behavior — re-enabled after adding null-guards on
-    // DefaultAudioDestinationNode::{startRendering,resume,suspend,restartRendering,recreateDestination}.
-    // The previous failure (HN SIGSEGV) was at startRendering+184 because m_destination
-    // is null on this build (createDestination is stubbed). The guards short-circuit
-    // WebAudio cleanly. If new regressions, revert here AND keep the audio guards.
     if (!m_identifier)
         return nullptr;
 

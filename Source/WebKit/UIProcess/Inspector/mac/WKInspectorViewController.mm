@@ -62,6 +62,11 @@
 
 static NSString * const WKInspectorResourceScheme = @"inspector-resource";
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// static NSString * const safeAreaInsetsKVOKey = @"safeAreaInsets";
+// static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
+//
+// (end MAVERICKS_BACKPORT restored block)
 @interface WKInspectorViewController () <WKUIDelegate, WKNavigationDelegate, WKInspectorWKWebViewDelegate>
 @end
 
@@ -127,6 +132,16 @@ static NSString * const WKInspectorResourceScheme = @"inspector-resource";
     return _webView.get();
 }
 
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey, id> *)change context:(void*)context
+{
+    if (context == safeAreaInsetsKVOContext)
+        [_webView _setObscuredContentInsets:_webView.get().safeAreaInsets immediate:NO];
+    else
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+}
+
+MAVERICKS_BACKPORT */
 - (void)setDelegate:(id <WKInspectorViewControllerDelegate>)delegate
 {
     _delegate = delegate;
@@ -338,6 +353,10 @@ static NSString * const WKInspectorResourceScheme = @"inspector-resource";
 
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView
 {
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     [_webView removeObserver:self forKeyPath:safeAreaInsetsKVOKey];
+//
+// (end MAVERICKS_BACKPORT restored block)
     RetainPtr delegate = _delegate.get();
     if (!!delegate && [delegate respondsToSelector:@selector(inspectorViewControllerInspectorDidCrash:)])
         [delegate inspectorViewControllerInspectorDidCrash:self];

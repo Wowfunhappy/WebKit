@@ -112,6 +112,7 @@ void ValidationBubble::showRelativeTo(const IntRect& anchorRect)
     NSWindow *anchorWindow = [view window];
     NSResponder *responderBeforeShowing = [anchorWindow firstResponder];
     [m_popover showRelativeToRect:rect ofView:view.get() preferredEdge:NSMinYEdge];
+    // MAVERICKS_BACKPORT: undo the 10.9 popover's forced first-responder change (see block above) so the focused control keeps focus and the bubble isn't blurred away.
     if ([anchorWindow firstResponder] != responderBeforeShowing)
         [anchorWindow makeFirstResponder:responderBeforeShowing];
 }

@@ -675,7 +675,7 @@ namespace WebCore {
     macro(onbackgroundfetchclick) \
     macro(onbeforematch) \
     macro(oncommand) \
-    macro(onsearch) \
+    macro(onsearch) /* MAVERICKS_BACKPORT: onsearch handler atom for the restored search event (<input type=search>). */ \
     macro(oncookiechange) \
     macro(ondevicemotion) \
     macro(ondeviceorientation) \

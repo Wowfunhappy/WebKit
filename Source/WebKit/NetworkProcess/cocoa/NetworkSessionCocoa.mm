@@ -237,10 +237,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     return { };
 }
 
-// MAVERICKS_BACKPORT: extra blank-line formatting divergence (the two blank lines around this comment).
-
 static String stringForTLSCipherSuite(tls_ciphersuite_t suite)
 {
+// MAVERICKS_BACKPORT: extra blank-line formatting divergence (the two blank lines around this comment).
+
 // MAVERICKS_BACKPORT: the tls_ciphersuite_* enumerators only exist in the 10.15+ SDK; gate the name table on it.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
 #define STRINGIFY_CIPHER(cipher) \
@@ -279,6 +279,10 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     }
 ALLOW_DEPRECATED_DECLARATIONS_END
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     return { };
+//
+// (end MAVERICKS_BACKPORT restored block)
 #undef STRINGIFY_CIPHER
 // MAVERICKS_BACKPORT: tls_ciphersuite_t enumerators are 10.15+; on older SDKs there is no cipher name to return.
 #else
@@ -330,8 +334,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     return self;
 }
-
-// MAVERICKS_BACKPORT: extra blank-line formatting divergence (the two blank lines around this comment).
 
 - (void)sessionInvalidated
 {

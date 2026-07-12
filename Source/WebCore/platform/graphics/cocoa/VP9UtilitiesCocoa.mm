@@ -7,13 +7,19 @@
 // would crash if a VP9TestingOverrides path were ever hit at runtime.
 #include "config.h"
 
+// MAVERICKS_BACKPORT: only VP9TestingOverrides is kept (see top), gated on ENABLE(VP9) without the AV/PLATFORM(COCOA) path.
 #if ENABLE(VP9)
 
+// MAVERICKS_BACKPORT: only the includes VP9TestingOverrides needs; the VideoToolbox/AVFoundation soft-link imports are absent on 10.9 (see top).
 #import "VP9UtilitiesCocoa.h"
 #import <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// using namespace webm;
+//
+// (end MAVERICKS_BACKPORT restored block)
 VP9TestingOverrides& VP9TestingOverrides::singleton()
 {
     static NeverDestroyed<VP9TestingOverrides> instance;
@@ -78,6 +84,8 @@ bool VP9TestingOverrides::shouldEnableVP9Decoder() const
     return m_vp9DecoderEnabled;
 }
 
+// MAVERICKS_BACKPORT: the VP9 codec-config/capabilities functions that would follow here depend on 10.10+ VideoToolbox/AVFoundation SPI and are omitted (see top).
 } // namespace WebCore
 
+// MAVERICKS_BACKPORT: matches the ENABLE(VP9) guard above; the PLATFORM(COCOA) AV path is not built here.
 #endif // ENABLE(VP9)

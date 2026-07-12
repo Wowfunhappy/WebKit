@@ -68,18 +68,6 @@
 #import <BrowserEngineKit/BEWebContentProcess.h>
 #endif // USE(EXTENSIONKIT)
 
-// MAVERICKS_BACKPORT: xpc_connection_set_oneshot_instance() (used by modern WebKit to give
-// every WebContent connection its OWN service instance, i.e. a distinct process) is a
-// 10.10+ API and is absent here. Without it, every xpc_connection_create() for
-// "com.apple.WebKit.WebContent" attaches to the SAME singleton service instance: only
-// the first connection's bootstrap handshake completes, so a second WebContent process
-// can never launch. That single-process limitation is why navigation was force-pinned
-// to one process and why Safari's Top Sites snapshot fetcher (which renders each site in
-// an offscreen page in its OWN process pool) produced only dark placeholders. 10.9's
-// libxpc DOES export the predecessor, xpc_connection_set_instance() (declared in
-// wtf/spi/darwin/XPCSPI.h); given a fresh random UUID per connection it yields the same
-// per-connection unique instance, restoring real multi-process launching.
-
 namespace WebKit {
 
 #if USE(EXTENSIONKIT)
@@ -291,10 +279,8 @@ void ProcessLauncher::launchProcess()
     launchWithExtensionKit(*this, m_launchOptions.processType, m_client.get(), WTF::move(handler));
 #else
     auto name = serviceName(m_launchOptions, m_client.get());
-    // MAVERICKS_BACKPORT: 10.9 perf — removed debug fopen logging
     // FIXME: This is a false positive. <rdar://164843889>
     SUPPRESS_RETAINPTR_CTOR_ADOPT m_xpcConnection = adoptOSObject(xpc_connection_create(name, nullptr));
-    // MAVERICKS_BACKPORT: 10.9 perf — removed debug fopen logging
     finishLaunchingProcess(name);
 #endif
 }

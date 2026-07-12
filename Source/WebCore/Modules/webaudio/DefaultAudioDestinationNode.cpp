@@ -93,7 +93,7 @@ void DefaultAudioDestinationNode::initialize()
 
 void DefaultAudioDestinationNode::uninitialize()
 {
-    ASSERT(isMainThread());
+    ASSERT(isMainThread()); 
     if (!isInitialized())
         return;
 
@@ -123,13 +123,6 @@ void DefaultAudioDestinationNode::clearDestination()
 
 void DefaultAudioDestinationNode::createDestination()
 {
-    // MAVERICKS_BACKPORT: runtime-absent symbols (context for the #54-cluster null guards). This was
-    // previously stubbed because AudioDestination::create crashed with "null function pointer call" — PAL
-    // soft-linked AudioComponentFindNext / AudioUnitInitialize / etc. from AudioToolbox.framework, but on
-    // 10.9 those symbols live in AudioUnit.framework (they migrated to AudioToolbox in 10.10). dlsym
-    // returned NULL, calling NULL crashed. Fixed in PAL/pal/cf/AudioToolboxSoftLink.{cpp,h} (soft-link
-    // from AudioUnit on PLATFORM(MAC)); the m_destination null guards in this file remain as belt-and-
-    // suspenders against a failed create.
     ALWAYS_LOG(LOGIDENTIFIER, "contextSampleRate = ", sampleRate(), ", hardwareSampleRate = ", AudioDestination::hardwareSampleRate());
     ASSERT(!m_destination);
     m_destination = platformStrategies()->mediaStrategy()->createAudioDestination({ *this, m_inputDeviceId, m_numberOfInputChannels, channelCount(), sampleRate()

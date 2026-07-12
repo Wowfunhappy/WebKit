@@ -34,6 +34,7 @@
 #include <gst/webrtc/webrtc.h>
 #undef GST_USE_UNSTABLE_API
 
+// MAVERICKS_BACKPORT: <wtf/Lock.h> for the leaf Lock guarding m_incomingDataChannels (webrtcbin streaming thread vs main thread).
 #include <wtf/Lock.h>
 #include <wtf/LoggerHelper.h>
 #include <wtf/ThreadSafeRefCounted.h>
@@ -227,6 +228,10 @@ private:
 
     bool m_shouldIgnoreNegotiationNeededSignal { false };
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     Vector<RefPtr<MediaStreamTrackPrivate>> m_pendingIncomingTracks;
+//
+// (end MAVERICKS_BACKPORT restored block)
     Vector<RefPtr<RealtimeOutgoingMediaSourceGStreamer>> m_unlinkedOutgoingSources;
 
     bool m_isGatheringRTCLogs { false };

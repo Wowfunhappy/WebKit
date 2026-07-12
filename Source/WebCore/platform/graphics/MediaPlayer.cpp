@@ -339,9 +339,12 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
 #if ENABLE(COCOA_WEBM_PLAYER)
         bool useRemoteRenderer = hasPlatformStrategies() && platformStrategies()->mediaStrategy()->hasRemoteRendererFor(MediaPlayerMediaEngineIdentifier::CocoaWebM);
         if (!hasPlatformStrategies() || platformStrategies()->mediaStrategy()->enableWebMMediaPlayer()) {
-            // MAVERICKS_BACKPORT: MediaPlayerPrivateWebM is excluded (libwebm absent); only the remote-engine path remains.
             if (registerRemoteEngine && !useRemoteRenderer)
                 registerRemoteEngine(addMediaEngine, MediaPlayerEnums::MediaEngineIdentifier::CocoaWebM);
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//             else
+//                 MediaPlayerPrivateWebM::registerMediaEngine(addMediaEngine);
+// (end MAVERICKS_BACKPORT restored block)
         }
 #endif
 

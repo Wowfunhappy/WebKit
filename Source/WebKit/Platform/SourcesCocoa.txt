@@ -2,19 +2,9 @@ Platform/cf/ModuleCF.cpp
 
 Platform/cocoa/CocoaHelpers.mm
 Platform/cocoa/CocoaImage.mm @nonARC
-// MAVERICKS_BACKPORT: re-enabled. The VisionKit (10.15+) region is #if ENABLE(IMAGE_ANALYSIS),
-// which is 0 here, so none of it (nor the VKImageAnalyzer soft-links, themselves #if HAVE(VK_IMAGE_ANALYSIS))
-// compiles. Only the #if HAVE(VISION) region compiles, including requestPayloadForQRCode (referenced by
-// WebContextMenuProxyMac under ENABLE(CONTEXT_MENU_QR_CODE_DETECTION)). That region uses the Vision
-// framework entirely via PAL SOFT_LINK (no hard Vision.framework dependency) and bails to completion(nil)
-// when PAL::isVisionFrameworkAvailable() is false, so it is link-clean and a runtime no-op on 10.9.
 Platform/cocoa/ImageAnalysisUtilities.mm @nonARC
 Platform/cocoa/LayerHostingContext.mm @nonARC
 Platform/cocoa/LayerHostingContextManager.mm @nonARC
-// MAVERICKS_BACKPORT: re-enabled. NSURLSessionTask[Transaction]Metrics are only parameter types here
-// (present in the build SDK, never instantiated); ne_tracker_* are SOFT_LINK_OPTIONAL so the reporter
-// degrades to "don't report" on 10.9. Provides NetworkIssueReporter::shouldReport referenced by
-// NetworkDataTaskCocoa under ENABLE(NETWORK_ISSUE_REPORTING).
 Platform/cocoa/NetworkIssueReporter.mm @nonARC
 Platform/cocoa/WKCrashReporter.mm @nonARC
 Platform/cocoa/XPCUtilities.mm @nonARC
@@ -22,8 +12,6 @@ Platform/cocoa/XPCUtilities.mm @nonARC
 Platform/foundation/LoggingFoundation.mm @nonARC
 
 Platform/IPC/cocoa/ConnectionCocoa.mm @nonARC
-// MAVERICKS_BACKPORT: re-enabled; the one 10.14+ call (xpc_connection_activate) is replaced by
-// xpc_connection_resume in the file. Provides the daemon-client ConnectionToMachService transport.
 Platform/IPC/cocoa/DaemonConnectionCocoa.mm @nonARC
 Platform/IPC/cocoa/MachMessage.cpp
 Platform/IPC/cocoa/TransferStringCocoa.mm @nonARC

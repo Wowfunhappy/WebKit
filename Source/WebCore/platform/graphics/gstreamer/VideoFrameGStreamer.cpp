@@ -421,7 +421,28 @@ RefPtr<VideoFrame> VideoFrame::createI420A(std::span<const uint8_t> span, size_t
     return VideoFrameGStreamer::create(WTF::move(sample), { { static_cast<int>(width), static_cast<int>(height) }, { { info } } }, WTF::move(colorSpace));
 }
 
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+static inline void setBufferFields(GstBuffer* buffer, const MediaTime& presentationTime, double frameRate)
+{
+    GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_LIVE);
+    GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer) = toGstClockTime(presentationTime);
+    GST_BUFFER_DURATION(buffer) = toGstClockTime(1_s / frameRate);
+}
 
+static MediaTime presentationTimeFromSample(const GRefPtr<GstSample>& sample)
+{
+    auto buffer = gst_sample_get_buffer(sample.get());
+    if (!GST_IS_BUFFER(buffer))
+        return MediaTime::invalidTime();
+MAVERICKS_BACKPORT */
+
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     if (GST_BUFFER_PTS_IS_VALID(buffer))
+//         return fromGstClockTime(GST_BUFFER_PTS(buffer));
+//
+//     return MediaTime::invalidTime();
+// }
+// (end MAVERICKS_BACKPORT restored block)
 
 #endif // !PLATFORM(COCOA) MAVERICKS_BACKPORT
 Ref<VideoFrameGStreamer> VideoFrameGStreamer::create(GRefPtr<GstSample>&& sample, const CreateOptions& options, PlatformVideoColorSpace&& colorSpace)

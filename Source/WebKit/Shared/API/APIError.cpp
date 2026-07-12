@@ -37,14 +37,15 @@ const WTF::String& Error::webKitErrorDomain()
     return webKitErrorDomainString;
 }
 
+const WTF::String& Error::webKitNetworkErrorDomain()
+{
 // MAVERICKS_BACKPORT: this port enables USE(GLIB) for GStreamer only; the API consumer is Cocoa
 // Safari, not the GTK/WPE API. Keep the Cocoa unified "WebKitErrorDomain" for the network/policy/
 // plugin domains: Safari 7 suppresses the error page for a provisional load that becomes a download
 // only when the error is (WebKitErrorDomain, kWKErrorCodeFrameLoadInterruptedByPolicyChange) —
 // the GLib split-domain strings ("WebKitPolicyError" etc.) defeat that check and every download
 // (PDF, blob:, attachments) paints a "Safari can't open the page" error page.
-const WTF::String& Error::webKitNetworkErrorDomain()
-{
+    // MAVERICKS_BACKPORT: exclude Cocoa (this port enables USE(GLIB) only for GStreamer) so the network domain stays the unified webKitErrorDomain(); the GLib "WebKitNetworkError" string defeats Safari 7's download error-page suppression.
 #if USE(GLIB) && !PLATFORM(COCOA)
     static NeverDestroyed<WTF::String> webKitErrorDomainString(MAKE_STATIC_STRING_IMPL("WebKitNetworkError"));
     return webKitErrorDomainString;
@@ -55,6 +56,7 @@ const WTF::String& Error::webKitNetworkErrorDomain()
 
 const WTF::String& Error::webKitPolicyErrorDomain()
 {
+    // MAVERICKS_BACKPORT: exclude Cocoa (this port enables USE(GLIB) only for GStreamer) so the policy domain stays the unified webKitErrorDomain(); the GLib "WebKitPolicyError" string defeats Safari 7's download error-page suppression.
 #if USE(GLIB) && !PLATFORM(COCOA)
     static NeverDestroyed<WTF::String> webKitErrorDomainString(MAKE_STATIC_STRING_IMPL("WebKitPolicyError"));
     return webKitErrorDomainString;
@@ -65,6 +67,7 @@ const WTF::String& Error::webKitPolicyErrorDomain()
 
 const WTF::String& Error::webKitPluginErrorDomain()
 {
+    // MAVERICKS_BACKPORT: exclude Cocoa (this port enables USE(GLIB) only for GStreamer) so the plugin domain stays the unified webKitErrorDomain(); the GLib "WebKitPluginError"/"WebKitMediaError" string defeats Safari 7's download error-page suppression.
 #if USE(GLIB) && !PLATFORM(COCOA)
 #if ENABLE(2022_GLIB_API)
     static NeverDestroyed<WTF::String> webKitErrorDomainString(MAKE_STATIC_STRING_IMPL("WebKitMediaError"));

@@ -35,6 +35,7 @@
 #include <wtf/RunLoop.h>
 #endif
 
+// MAVERICKS_BACKPORT: forward-declare CFStringRef for addRunLoopMode() below; the -fno-modules build doesn't auto-import CoreFoundation here.
 #if USE(CF)
 typedef const struct __CFString* CFStringRef;
 #endif

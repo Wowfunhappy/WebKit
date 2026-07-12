@@ -30,6 +30,9 @@
 #import "FloatRect.h"
 #import "GraphicsContext.h"
 #import "SharedBuffer.h"
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+// (end MAVERICKS_BACKPORT restored block)
 #import <wtf/cocoa/SpanCocoa.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/text/WTFString.h>

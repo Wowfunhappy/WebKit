@@ -29,9 +29,10 @@
 #import "Pasteboard.h"
 #import "PasteboardItemInfo.h"
 #import "WebCoreNSURLExtras.h"
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+// (end MAVERICKS_BACKPORT restored block)
 
-// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTType* constants) is macOS 11+ and absent on
-// 10.9; the legacy NSPasteboard type singletons are used for the URL/string pasteboard identifiers.
 #if PLATFORM(IOS_FAMILY)
 #import "AbstractPasteboard.h"
 #else
@@ -81,6 +82,9 @@ String PlatformPasteboard::urlStringSuitableForLoading(String& title)
     // NSPasteboard type singletons on all platforms here on 10.9.
     String urlPasteboardType = legacyURLPasteboardTypeSingleton();
     String stringPasteboardType = legacyStringPasteboardTypeSingleton();
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #endif
+// (end MAVERICKS_BACKPORT restored block)
 
     if (types.contains(urlPasteboardType)) {
         NSURL *URLFromPasteboard = [NSURL URLWithString:stringForType(urlPasteboardType).createNSString().get()];

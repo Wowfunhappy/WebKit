@@ -13,6 +13,11 @@
 #include "config.h"
 #include "MediaUtilities.h"
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #include "AudioStreamDescription.h"
+// #include "WebAudioBufferList.h"
+// #include <wtf/SoftLinking.h>
+// (end MAVERICKS_BACKPORT restored block)
 #include <pal/cf/CoreMediaSoftLink.h>
 
 namespace WebCore {

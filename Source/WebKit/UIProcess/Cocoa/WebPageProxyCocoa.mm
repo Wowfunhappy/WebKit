@@ -826,6 +826,29 @@ void WebPageProxy::scheduleActivityStateUpdate()
     if (m_hasScheduledActivityStateUpdate)
         return;
     m_hasScheduledActivityStateUpdate = true;
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+
+    // If there is an active transaction, we need to dispatch the update after the transaction is committed,
+    // to avoid flash caused by web process setting root layer too early.
+    // If there is no active transaction, likely there is no root layer change or change is committed,
+    // then schedule dispatch on runloop observer to collect changes in the same runloop cycle before dispatching.
+    if (hasActiveCATransaction) {
+        [CATransaction addCommitHandler:[weakThis = WeakPtr { *this }] {
+            // We can't call dispatchActivityStateChange directly underneath this commit handler, because it has side-effects
+            // that may result in other frameworks trying to install commit handlers for the same phase, which is not allowed.
+            // So, dispatch_async here; we only care that the activity state change doesn't apply until after the active commit is complete.
+            WorkQueue::mainSingleton().dispatch([weakThis] {
+                RefPtr protectedThis { weakThis.get() };
+                if (!protectedThis)
+                    return;
+
+                protectedThis->dispatchActivityStateChange();
+            });
+        } forPhase:kCATransactionPhasePostCommit];
+        return;
+    }
+
+MAVERICKS_BACKPORT */
     m_activityStateChangeDispatcher->schedule();
 }
 
@@ -1151,8 +1174,10 @@ bool WebPageProxy::useGPUProcessForDOMRenderingEnabled() const
     for (RefPtr page = configuration->relatedPage(); page && !visitedPages.contains(*page);) {
         if (protect(page->preferences())->useGPUProcessForDOMRenderingEnabled())
             return true;
+        // MAVERICKS_BACKPORT: cache the next related page before releaseNonNull() empties |page| (see the loop marker above).
         RefPtr nextPage = page->configuration().relatedPage();
         visitedPages.add(page.releaseNonNull());
+        // MAVERICKS_BACKPORT: advance |page| to the cached next related page (the loop increment is moved out of the for-header above).
         page = WTF::move(nextPage);
     }
 

@@ -141,6 +141,9 @@ static NSString * const webkitNSWorkspaceAccessibilityDisplayOptionsDidChangeNot
 #import <WebCore/PromisedAttachmentInfo.h>
 #import <WebCore/ReferrerPolicy.h>
 #import <WebCore/ResolvedCaptionDisplaySettingsOptions.h>
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #import <WebCore/SelectionType.h>
+// (end MAVERICKS_BACKPORT restored block)
 #import <WebCore/ShareableBitmap.h>
 #import <WebCore/Site.h>
 #import <WebCore/TextAlternativeWithRange.h>
@@ -1487,6 +1490,11 @@ void WebViewImpl::handleProcessSwapOrExit()
 
     notifyInputContextAboutDiscardedComposition();
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     if (std::exchange(m_lastEditorStateWasEditableOrRanged, false))
+//         [protect(inputContextForSelectionUpdates()) textInputClientDidUpdateSelection];
+//
+// (end MAVERICKS_BACKPORT restored block)
     updateRemoteAccessibilityRegistration(false);
 
     hideDOMPasteMenuWithResult(WebCore::DOMPasteAccessResponse::DeniedForGesture);
@@ -3641,8 +3649,8 @@ void WebViewImpl::requestCandidatesForSelectionIfNeeded()
     NSRange selectedRange = NSMakeRange(postLayoutData->candidateRequestStartPosition, postLayoutData->selectedTextLength);
     NSTextCheckingTypes checkingTypes = getTextCheckingTypes();
 
-    // MAVERICKS_BACKPORT: requestCandidatesForSelectedRange:...completionHandler: is 10.12.2+. Skip.
     WeakPtr weakThis { *this };
+    // MAVERICKS_BACKPORT: requestCandidatesForSelectedRange:...completionHandler: is 10.12.2+. Skip.
     (void)selectedRange; (void)checkingTypes; (void)weakThis;
     return;
 }
@@ -4586,9 +4594,9 @@ static bool handleLegacyFilesPromisePasteboard(id<NSDraggingInfo> draggingInfo, 
                 fileNames->append(path.get());
                 if (fileNames->size() != fileCount)
                     return;
-                // MAVERICKS_BACKPORT: pass the moved page Ref into the legacy-files drop (10.9 file-promise receiver path).
                 performDragWithLegacyFiles(protectedPage, WTF::move(fileNames), WTF::move(dragData), pasteboardName);
             });
+                // MAVERICKS_BACKPORT: pass the moved page Ref into the legacy-files drop (10.9 file-promise receiver path).
         }];
     }];
 
@@ -6219,9 +6227,9 @@ void WebViewImpl::nativeMouseEventHandler(NSEvent *event, WebMouseEventInputSour
         return;
     }
 
+    if (RetainPtr context = [m_view.get() inputContext]) {
     // MAVERICKS_BACKPORT: -[NSTextInputContext handleEvent:completionHandler:] is 10.10+. Skip
     // the inputContext path entirely on 10.9; mouse events go straight to WebPageProxy.
-    if (RetainPtr context = [m_view.get() inputContext]) {
         if ([context respondsToSelector:@selector(handleEvent:completionHandler:)]) {
             WeakPtr weakThis { *this };
             RetainPtr<NSEvent> retainedEvent = event;

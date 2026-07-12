@@ -158,10 +158,12 @@ void PopupMenuMac::show(const IntRect& r, LocalFrameView& frameView, int selecte
 
     [m_popup attachPopUpWithFrame:r inView:view.get()];
     [m_popup selectItemAtIndex:selectedIndex];
+    // MAVERICKS_BACKPORT: setUserInterfaceLayoutDirection: is 10.10+/10.11+ and absent on 10.9; guard with respondsToSelector: so an unrecognized-selector exception doesn't abort -show (see note above).
     if ([m_popup respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
         [m_popup setUserInterfaceLayoutDirection:layoutDirection];
 
     NSMenu *menu = [m_popup menu];
+    // MAVERICKS_BACKPORT: -[NSMenu setUserInterfaceLayoutDirection:] is 10.11+ and absent on 10.9; guard with respondsToSelector: so an unrecognized-selector exception doesn't abort -show (see note above).
     if ([menu respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
         [menu setUserInterfaceLayoutDirection:layoutDirection];
 
@@ -200,6 +202,7 @@ void PopupMenuMac::show(const IntRect& r, LocalFrameView& frameView, int selecte
     Ref<PopupMenuMac> protector(*this);
 
     RetainPtr<NSView> dummyView = adoptNS([[NSView alloc] initWithFrame:r]);
+    // MAVERICKS_BACKPORT: -[NSView setUserInterfaceLayoutDirection:] is 10.10+ and absent on 10.9; guard with respondsToSelector: so an unrecognized-selector exception doesn't abort -show (see note above).
     if ([dummyView respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
         [dummyView.get() setUserInterfaceLayoutDirection:layoutDirection];
     [view.get() addSubview:dummyView.get()];

@@ -65,6 +65,7 @@ std::optional<DestinationColorSpace> ShareableBitmapConfiguration::validateColor
 #if ENABLE(DESTINATION_COLOR_SPACE_EXTENDED_SRGB)
     return DestinationColorSpace::ExtendedSRGB();
 #else
+    // MAVERICKS_BACKPORT: 10.9 has no extended sRGB; clamp non-RGB colorspaces to plain sRGB.
     return DestinationColorSpace::SRGB();
 #endif
 }

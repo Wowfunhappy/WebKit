@@ -4187,6 +4187,7 @@ void LocalFrameView::setNeedsLayoutAfterViewConfigurationChange()
     layoutContext().setNeedsLayoutAfterViewConfigurationChange();
 }
 
+// MAVERICKS_BACKPORT: mark-only, deferral-honoring layout request for Legacy WebKit (WebHTMLView); forwards to LocalFrameViewLayoutContext::setNeedsLayoutWithoutScheduling().
 void LocalFrameView::setNeedsLayoutWithoutScheduling()
 {
     layoutContext().setNeedsLayoutWithoutScheduling();

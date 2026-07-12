@@ -65,6 +65,10 @@ static ThreadTimerHeap& threadGlobalTimerHeap()
 }
 #endif
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(ThreadTimerHeapItem);
+//
+// (end MAVERICKS_BACKPORT restored block)
 inline ThreadTimerHeapItem::ThreadTimerHeapItem(TimerBase& timer, MonotonicTime time, unsigned insertionOrder)
     : time(time)
     , insertionOrder(insertionOrder)

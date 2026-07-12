@@ -48,7 +48,18 @@ void WEBCONTENT_SERVICE_INITIALIZER(xpc_connection_t connection, xpc_object_t in
 #endif
     WTF::initializeMainThread();
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     // Remove the WebProcessShim from the DYLD_INSERT_LIBRARIES environment variable so any processes spawned by
+//     // the this process don't try to insert the shim and crash.
+// (end MAVERICKS_BACKPORT restored block)
     WebKit::EnvironmentUtilities::removeValuesEndingWith("DYLD_INSERT_LIBRARIES"_s, "/WebProcessShim.dylib"_s);
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #if PLATFORM(IOS_FAMILY)
+//     GSInitialize();
+//     InitWebCoreThreadSystemInterface();
+// #endif // PLATFORM(IOS_FAMILY)
+//
+// (end MAVERICKS_BACKPORT restored block)
     WebKit::XPCServiceInitializer<WebKit::WebProcess, WebKit::XPCServiceInitializerDelegate, true>(connection, initializerMessage);
 }

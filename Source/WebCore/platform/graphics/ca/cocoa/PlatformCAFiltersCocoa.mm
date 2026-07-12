@@ -23,9 +23,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-// MAVERICKS_BACKPORT: restored upstream CoreAnimation filter/blend implementation (file had been stubbed); defines PlatformCAFilters::setFiltersOnLayer/setBlendingFiltersOnLayer referenced by WebCore PlatformCALayerCocoa and WK2 RemoteLayerTreePropertyApplier.
-
-
 #import "config.h"
 #import "PlatformCAFilters.h"
 

@@ -303,7 +303,6 @@ void TextCodecUTF8::handlePartialSequence(std::span<char16_t>& destination, std:
 
 String TextCodecUTF8::decode(std::span<const uint8_t> bytes, bool flush, bool stopOnError, bool& sawError)
 {
-    // MAVERICKS_BACKPORT: this hot UTF-8 decode path carries no per-call debug file logging on 10.9 (keeps decode cheap).
     // Each input byte might turn into a character.
     // That includes all bytes in the partial-sequence buffer because
     // each byte in an invalid sequence will turn into a replacement character.
@@ -391,11 +390,9 @@ String TextCodecUTF8::decode(std::span<const uint8_t> bytes, bool flush, bool st
         sawError = true;
         return { };
     }
-    // MAVERICKS_BACKPORT: 8-bit decode return path carries no per-call debug file logging on 10.9.
     return String::adopt(WTF::move(buffer));
 
 upConvertTo16Bit:
-    // MAVERICKS_BACKPORT: 16-bit up-convert path carries no per-call debug file logging on 10.9.
     StringBuffer<char16_t> buffer16(bufferSize);
 
     auto destination16 = buffer16.span();

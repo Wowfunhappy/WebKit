@@ -23,24 +23,29 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: <model> element needs ARKit/RealityKit (10.15+), unsupportable on 10.9;
-// provide no-op impls so WebPageProxy's model message handlers link. Feature is inert (the web
-// process side reports no model support). The upstream Cocoa bodies drive ASVInlinePreview from
-// the AssetViewer private framework, whose inline-preview runtime does not function on 10.9.
-// All ModelElementController methods that WebPageProxy references under ENABLE(ARKIT_INLINE_PREVIEW)
-// are provided here as no-ops; each completion handler reports a safe failure/empty value.
-
 #import "config.h"
 #import "ModelElementController.h"
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#import <wtf/BlockPtr.h>
+#import <wtf/SoftLinking.h>
+
+#if ENABLE(ARKIT_INLINE_PREVIEW)
+MAVERICKS_BACKPORT */
 
 // MAVERICKS_BACKPORT: reduced include set for the no-op ModelElementController impls (no ASVInlinePreview/AssetViewer, SoftLinking, or SIMD on 10.9).
 #import <WebCore/HTMLModelElementCamera.h>
 #import <WebCore/LayoutPoint.h>
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#import <WebCore/LayoutUnit.h>
+MAVERICKS_BACKPORT */
 #import <WebCore/ResourceError.h>
 // MAVERICKS_BACKPORT: wtf includes the no-op impls need (no BlockPtr/SoftLinking/SIMD/QuartzCore on 10.9).
 #import <wtf/CompletionHandler.h>
 #import <wtf/Expected.h>
 #import <wtf/MachSendRight.h>
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#import <wtf/MainThread.h>
+MAVERICKS_BACKPORT */
 #import <wtf/MonotonicTime.h>
 // MAVERICKS_BACKPORT: Seconds/URL used by the inert no-op signatures below.
 #import <wtf/Seconds.h>
@@ -98,6 +103,11 @@ void ModelElementController::animationCurrentTimeForModelElement(ModelIdentifier
 {
     completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
 }
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#endif // ENABLE(ARKIT_INLINE_PREVIEW_MAC)
+
+#if ENABLE(ARKIT_INLINE_PREVIEW)
+MAVERICKS_BACKPORT */
 
 // MAVERICKS_BACKPORT: no-op set-animation-current-time (inline preview inert on 10.9); report failure.
 void ModelElementController::setAnimationCurrentTimeForModelElement(ModelIdentifier, Seconds, CompletionHandler<void(bool)>&& completionHandler)
@@ -141,6 +151,20 @@ void ModelElementController::modelElementLoadRemotePreview(String, URL, Completi
 // MAVERICKS_BACKPORT: no-op remote-preview destroy (no AssetViewer remote connection on 10.9).
 void ModelElementController::modelElementDestroyRemotePreview(String)
 {
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    RetainPtr preview = previewForModelIdentifier(modelIdentifier);
+    if (!previewHasAnimationSupport(preview.get())) {
+        completionHandler(false);
+        return;
+    }
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_ANIMATIONS_CONTROL)
+    preview.get().isLooping = isLooping;
+    completionHandler(true);
+#else
+    ASSERT_NOT_REACHED();
+#endif
+MAVERICKS_BACKPORT */
 }
 
 // MAVERICKS_BACKPORT: no-op size-change (no AssetViewer remote connection on 10.9); report general failure.
@@ -152,16 +176,50 @@ void ModelElementController::modelElementSizeDidChange(const String&, WebCore::F
 // MAVERICKS_BACKPORT: no-op mouse-down forwarding (inline preview inert on 10.9).
 void ModelElementController::handleMouseDownForModelElement(const String&, const WebCore::LayoutPoint&, MonotonicTime)
 {
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    RetainPtr preview = previewForModelIdentifier(modelIdentifier);
+    if (!previewHasAnimationSupport(preview.get())) {
+        completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+        return;
+    }
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_ANIMATIONS_CONTROL)
+    completionHandler(Seconds([preview currentTime]));
+#else
+    ASSERT_NOT_REACHED();
+#endif
+MAVERICKS_BACKPORT */
 }
 
 // MAVERICKS_BACKPORT: no-op mouse-move forwarding (inline preview inert on 10.9).
 void ModelElementController::handleMouseMoveForModelElement(const String&, const WebCore::LayoutPoint&, MonotonicTime)
 {
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    RetainPtr preview = previewForModelIdentifier(modelIdentifier);
+    if (!previewHasAnimationSupport(preview.get())) {
+        completionHandler(false);
+        return;
+    }
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_ANIMATIONS_CONTROL)
+    preview.get().currentTime = currentTime.seconds();
+    completionHandler(true);
+#else
+    ASSERT_NOT_REACHED();
+#endif
+MAVERICKS_BACKPORT */
 }
 
 // MAVERICKS_BACKPORT: no-op mouse-up forwarding (inline preview inert on 10.9).
 void ModelElementController::handleMouseUpForModelElement(const String&, const WebCore::LayoutPoint&, MonotonicTime)
 {
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#if ENABLE(ARKIT_INLINE_PREVIEW_AUDIO_CONTROL)
+    return [preview respondsToSelector:@selector(hasAudio)];
+#else
+    return false;
+#endif
+MAVERICKS_BACKPORT */
 }
 
 // MAVERICKS_BACKPORT: no-op preview-UUID enumeration (no inline previews exist on 10.9); report empty.

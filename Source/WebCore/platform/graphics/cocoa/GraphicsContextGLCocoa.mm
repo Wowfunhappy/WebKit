@@ -184,6 +184,13 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
 #if PLATFORM(MAC)
     else if (attrs.windowGPUID) {
         ASSERT(WTF::contains(clientExtensions, "EGL_ANGLE_platform_angle_device_id"_span));
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//         // If the power preference is default, use the GPU the context window is on.
+//         // If the power preference is low power, and we know which GPU the context window is on,
+//         // most likely the lowest power is the GPU that drives the context window, as that GPU
+//         // is anyway already powered on.
+//         // EGL_PLATFORM_ANGLE_DEVICE_ID_*_ANGLE is the IOKit registry id on EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE.
+// (end MAVERICKS_BACKPORT restored block)
         displayAttributes.append(EGL_PLATFORM_ANGLE_DEVICE_ID_HIGH_ANGLE);
         displayAttributes.append(static_cast<EGLAttrib>(attrs.windowGPUID >> 32));
         displayAttributes.append(EGL_PLATFORM_ANGLE_DEVICE_ID_LOW_ANGLE);

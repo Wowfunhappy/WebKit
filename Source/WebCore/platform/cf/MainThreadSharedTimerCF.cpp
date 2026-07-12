@@ -117,6 +117,7 @@ void MainThreadSharedTimer::invalidate()
     sharedTimer() = nullptr;
 }
 
+// MAVERICKS_BACKPORT: register an extra run-loop mode so the shared timer also fires while an app pumps a private mode; called from WK1's scheduleInRunLoop:forMode:.
 void MainThreadSharedTimer::addRunLoopMode(CFStringRef mode)
 {
     ASSERT(isMainThread());
@@ -151,6 +152,7 @@ void MainThreadSharedTimer::setFireInterval(Seconds interval)
         for (auto& mode : extraTimerRunLoopModes())
             CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), mode.get());
 #endif
+        // MAVERICKS_BACKPORT: setupPowerObserver runs once here in the create-timer branch (the existing-timer reschedule is folded into the else below).
         setupPowerObserver();
     // MAVERICKS_BACKPORT: fold the existing-timer reschedule into this else branch so the timer is created/added exactly once on 10.9.
     } else

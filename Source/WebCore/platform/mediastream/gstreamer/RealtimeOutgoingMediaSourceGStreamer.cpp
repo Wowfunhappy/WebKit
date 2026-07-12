@@ -30,6 +30,7 @@
 #include <gst/webrtc/webrtc.h>
 #undef GST_USE_UNSTABLE_API
 
+// MAVERICKS_BACKPORT: <limits> for std::numeric_limits used by the stable send-SSRC normalization in initialize().
 #include <limits>
 #include <wtf/UUID.h>
 #include <wtf/glib/GMallocString.h>

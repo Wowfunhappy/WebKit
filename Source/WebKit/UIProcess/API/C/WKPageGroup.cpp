@@ -74,6 +74,8 @@ WKPreferencesRef WKPageGroupGetPreferences(WKPageGroupRef pageGroupRef)
     return WebKit::toAPI(&pageGroup->preferences());
 }
 
+WKUserContentControllerRef WKPageGroupGetUserContentController(WKPageGroupRef pageGroupRef)
+{
 // MAVERICKS_BACKPORT: restore the page-group user-content C SPI (gutted upstream with
 // the page-group user-content model). The page group owns a WebUserContentControllerProxy
 // (WebPageGroup::userContentController); pages created in the group share it (WKView seeds
@@ -81,8 +83,6 @@ WKPreferencesRef WKPageGroupGetPreferences(WKPageGroupRef pageGroupRef)
 // Safari 7-era clients drive this through WKBrowsingContextGroup — e.g. Mail's
 // -[MUIWebDocumentViewGroup _refreshUserStyleSheet]/_refreshUserScripts install the
 // message-view style sheet and scripts. Faithful to the pre-removal implementation.
-WKUserContentControllerRef WKPageGroupGetUserContentController(WKPageGroupRef pageGroupRef)
-{
     // MAVERICKS_BACKPORT: restored real body (was gutted to return nullptr upstream).
     return WebKit::toAPI(&WebKit::toImpl(pageGroupRef)->userContentController());
 }

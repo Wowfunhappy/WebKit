@@ -20,15 +20,8 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
-
-// MAVERICKS_BACKPORT: the upstream file uses -[NSGraphicsContext CGContext] (10.10+). On 10.9
-// the equivalent is the deprecated -[NSGraphicsContext graphicsPort] (a CGContextRef).
-// That property is only reached in the rare NSPatternColorSpace fallback below; the whole
-// file had been stubbed to two lines because of it, which left colorFromCocoaColor() bound
-// to a polyfill stub returning a garbage color — so EVERY system/named color rendered wrong
-// (e.g. Safari's "Top Sites" title came out purple).
 
 #import "config.h"
 #import "ColorMac.h"

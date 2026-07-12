@@ -8,13 +8,13 @@
 #import <QuartzCore/QuartzCore.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
+@implementation CALayer (WebCoreCALayerExtras)
+
 // MAVERICKS_BACKPORT: explanatory note for the CALayerHost-based remote-layer hosting below.
 // CALayerHost (private CoreAnimation class, declared in the force-included compat
 // header / CA SPI) displays a layer tree rendered in another process: the
 // WebContent process renders into a CAContext and sends its 32-bit contextId
 // across; a CALayerHost with that contextId shows it here in the UI process.
-
-@implementation CALayer (WebCoreCALayerExtras)
 
 + (CALayer *)_web_renderLayerWithContextID:(uint32_t)contextID shouldPreserveFlip:(BOOL)preservesFlip
 {
@@ -69,11 +69,6 @@
                                 position.y + anchor.y * bounds.size.height);
 }
 
-// MAVERICKS_BACKPORT: the only consumer of these two mask hit-test methods is the
-// iOS RemoteLayerTree path (RemoteLayerTreeViews.mm, guarded #if PLATFORM(IOS_FAMILY)),
-// so they are never invoked on this Mac build. They are kept at the upstream bodies
-// (CAShapeLayer / CGPathContainsPoint / CGRectIntersectsRect — all 10.9-native) rather
-// than a blanket "return YES", which would be a wrong-answer landmine if ever reached.
 - (BOOL)_web_maskContainsPoint:(CGPoint)point
 {
     if (!self.mask)
@@ -104,10 +99,10 @@
 
 - (void)_web_clearContents
 {
+    self.contents = nil;
     // MAVERICKS_BACKPORT: just drop the contents; the upstream contentsOpaque reset, the
     // RE_DYNAMIC_CONTENT_SCALING display-list clear, and the SUPPORT_HDR_DISPLAY_APIS
     // contentsHeadroom reset all rely on newer-SDK CALayer surface not present on 10.9.
-    self.contents = nil;
     // MAVERICKS_BACKPORT: end _web_clearContents (the newer-SDK resets above are intentionally dropped).
 }
 

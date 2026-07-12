@@ -373,6 +373,7 @@ void GStreamerMediaEndpoint::teardownPipeline()
     gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
 
     m_trackProcessors.clear();
+    // MAVERICKS_BACKPORT: tear the incoming-data-channel map down under m_incomingDataChannelsLock so the streaming thread's prepareDataChannel can't race this teardown.
     {
         // Swap the handlers out under the lock but destroy them outside it: a handler's
         // destructor unrefs the GstWebRTCDataChannel, which can take GStreamer-internal locks
@@ -1580,6 +1581,7 @@ void GStreamerMediaEndpoint::connectIncomingTrack(WebRTCTrackData& data)
     }
 
     auto mediaStreamBin = adoptGRef(gst_bin_get_by_name(GST_BIN_CAST(m_pipeline.get()), data.mediaStreamBinName.ascii().data()));
+    // MAVERICKS_BACKPORT: retain the track bin so its state can be synced below after setBin() consumes mediaStreamBin (per-track liveness path).
     // Keep a reference for the state bump below; setBin() consumes the other one.
     GRefPtr<GstElement> trackBin = mediaStreamBin;
     auto& track = transceiver->receiver().track();
@@ -1777,22 +1779,26 @@ ExceptionOr<GStreamerMediaEndpoint::Backends> GStreamerMediaEndpoint::createTran
         if (auto track = source->track())
             msidBuilder.append(' ', track->id());
         source->setRtpHeaderExtensionMapping(rtpHeaderExtensionMapping);
+        // MAVERICKS_BACKPORT: capture the outgoing audio source's send SSRC to stamp onto the codec preferences (see sourceSsrc above).
         sourceSsrc = source->ssrc();
     }, [&, rtpHeaderExtensionMapping = m_rtpHeaderExtensions](Ref<RealtimeOutgoingVideoSourceGStreamer>& source) {
         msidBuilder.append(source->mediaStreamID());
         if (auto track = source->track())
             msidBuilder.append(' ', track->id());
         source->setRtpHeaderExtensionMapping(rtpHeaderExtensionMapping);
+        // MAVERICKS_BACKPORT: capture the outgoing video source's send SSRC to stamp onto the codec preferences (see sourceSsrc above).
         sourceSsrc = source->ssrc();
     }, [](std::nullptr_t&) { });
 
     int payloadType = pickAvailablePayloadType();
     auto msid = msidBuilder.toString();
     bool msidSet = false;
+    // MAVERICKS_BACKPORT: track whether the send SSRC has been stamped so it lands on exactly one codec structure (see sourceSsrc above).
     bool ssrcSet = false;
     auto caps = capsFromRtpCapabilities(m_rtpHeaderExtensions, { .codecs = codecs, .headerExtensions = rtpExtensions }, [&payloadType, &msid, &msidSet, sourceSsrc, &ssrcSet](GstStructure* structure) {
         if (!gst_structure_has_field(structure, "payload"))
             gst_structure_set(structure, "payload", G_TYPE_INT, payloadType++, nullptr);
+        // MAVERICKS_BACKPORT: stamp the send SSRC onto the first codec structure so webrtcbin emits a=ssrc for it (see sourceSsrc above).
         // Stamp the send SSRC once (webrtcbin reads it from the first codec structure to emit a=ssrc).
         if (sourceSsrc && !ssrcSet) {
             gst_structure_set(structure, "ssrc", G_TYPE_UINT, sourceSsrc, nullptr);
@@ -2130,6 +2136,7 @@ UniqueRef<GStreamerDataChannelHandler> GStreamerMediaEndpoint::findOrCreateIncom
         return makeUniqueRef<GStreamerDataChannelHandler>(WTF::move(dataChannel));
 
     auto identifier = ObjectIdentifier<GstWebRTCDataChannel>(reinterpret_cast<uintptr_t>(dataChannel.get()));
+    // MAVERICKS_BACKPORT: take from the incoming-data-channel map under m_incomingDataChannelsLock (guards the streaming-thread prepareDataChannel race).
     std::unique_ptr<GStreamerDataChannelHandler> channelHandler;
     {
         Locker locker { m_incomingDataChannelsLock };
@@ -2397,10 +2404,6 @@ void GStreamerMediaEndpoint::createSessionDescriptionSucceeded(GUniquePtr<GstWeb
         if (!peerConnectionBackend)
             return;
 
-        // MAVERICKS_BACKPORT: the offer's a=ssrc / a=ssrc-group:FID attributes (which Google Meet's
-        // Safari path requires) are emitted by webrtcbin itself, because
-        // RealtimeOutgoingMediaSourceGStreamer pins the send SSRC onto the transceiver's
-        // codec-preferences. No SDP post-processing here.
         auto sdpString = sdpAsString(description->sdp);
 #ifndef GST_DISABLE_GST_DEBUG
         GST_DEBUG_OBJECT(pipeline(), "Created SDP %s: %s", description->type == GST_WEBRTC_SDP_TYPE_OFFER ? "offer" : "answer", sdpString.utf8().data());

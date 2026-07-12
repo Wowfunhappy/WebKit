@@ -93,6 +93,7 @@ static bool isInsecureNetworkScheme(const URL& url)
 static bool isMixedContent(const Frame& frame, const URL& url)
 {
     if (isDocumentSecure(frame) || (frame.frameURLProtocol() == "data"_s && isDataContextSecure(frame)))
+        // MAVERICKS_BACKPORT: gate on isInsecureNetworkScheme so only http/ws/ftp network subresources count as mixed content; file:/in-process custom schemes never cross the network (see above).
         return !SecurityOrigin::isSecure(url) && isInsecureNetworkScheme(url);
 
     return false;

@@ -277,8 +277,6 @@ struct LogArgument<AVPlayerTimeControlStatus> {
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
-
 static NSArray *assetMetadataKeyNames();
 static NSArray *itemKVOProperties();
 static NSArray *assetTrackMetadataKeyNames();
@@ -492,10 +490,18 @@ MediaPlayerPrivateAVFoundationObjC::~MediaPlayerPrivateAVFoundationObjC()
                 loader->stopLoading();
             });
         });
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     });
+// (end MAVERICKS_BACKPORT restored block)
 
+        // MAVERICKS_BACKPORT: reindented into the @try wrapper above.
         if (RefPtr videoOutput = m_videoOutput)
             videoOutput->invalidate();
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     if (m_videoLayer)
+//         destroyVideoLayer();
+// (end MAVERICKS_BACKPORT restored block)
 
         if (m_videoLayer)
             destroyVideoLayer();
@@ -743,8 +749,6 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerLayer()
     setNeedsRenderingModeChanged();
 }
 
-// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
-
 void MediaPlayerPrivateAVFoundationObjC::destroyVideoLayer()
 {
     assertIsMainThread();
@@ -753,8 +757,6 @@ void MediaPlayerPrivateAVFoundationObjC::destroyVideoLayer()
         return;
 
     ALWAYS_LOG(LOGIDENTIFIER);
-
-// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 
     [m_videoLayer removeObserver:m_objcObserver.get() forKeyPath:@"readyForDisplay"];
     [m_videoLayer setPlayer:nil];
@@ -878,8 +880,6 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url)
 
     m_createAssetPending = true;
     RetainPtr<NSMutableDictionary> options = adoptNS([[NSMutableDictionary alloc] init]);
-
-// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 
 #if PLATFORM(IOS_FAMILY)
     if (!PAL::canLoad_AVFoundation_AVURLAssetHTTPCookiesKey()) {
@@ -1366,6 +1366,17 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
         provider->setAudioTrack(firstEnabledAudibleTrack());
     }
 #endif
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+
+    m_metadataCollector = adoptNS([PAL::allocAVPlayerItemMetadataCollectorInstance() initWithIdentifiers:nil classifyingLabels:nil]);
+    [m_metadataCollector setDelegate:m_objcObserver queue:mainDispatchQueueSingleton()];
+    [m_avPlayerItem addMediaDataCollector:m_metadataCollector];
+
+    m_metadataOutput = adoptNS([PAL::allocAVPlayerItemMetadataOutputInstance() initWithIdentifiers:nil]);
+    [m_metadataOutput setDelegate:m_objcObserver queue:mainDispatchQueueSingleton()];
+    [m_metadataOutput setAdvanceIntervalForDelegateInvocation:avPlayerOutputAdvanceInterval];
+    [m_avPlayerItem addOutput:m_metadataOutput];
+MAVERICKS_BACKPORT */
 }
 
 
@@ -1787,8 +1798,6 @@ void MediaPlayerPrivateAVFoundationObjC::setVolume(float volume)
 
     updateIsAudible();
 
-// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
-
     if (!m_avPlayer)
         return;
 
@@ -1806,8 +1815,6 @@ void MediaPlayerPrivateAVFoundationObjC::setMuted(bool muted)
 
     m_muted = muted;
     updateIsAudible();
-
-// MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
 
     if (!m_avPlayer)
         return;
@@ -4517,15 +4524,24 @@ void MediaPlayerPrivateAVFoundationObjC::setParticipatesInAudioSession(bool part
 
 NSArray* assetMetadataKeyNames()
 {
-    // MAVERICKS_BACKPORT: restrict to asset metadata keys present on 10.9 to avoid statusOfValueForKey: throwing.
-    // Backport: only keys present on 10.9 AVAsset to avoid statusOfValueForKey: throws.
     static NSArray* keys = [[NSArray alloc] initWithObjects:
         @"duration",
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//         @"naturalSize",
+// (end MAVERICKS_BACKPORT restored block)
         @"preferredTransform",
         @"preferredVolume",
         @"preferredRate",
         @"playable",
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//         @"resolvedURL",
+// (end MAVERICKS_BACKPORT restored block)
         @"tracks",
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//         @"availableMediaCharacteristicsWithMediaSelectionOptions",
+//         @"availableChapterLocales",
+//         @"variants",
+// (end MAVERICKS_BACKPORT restored block)
     nil];
     return keys;
 }

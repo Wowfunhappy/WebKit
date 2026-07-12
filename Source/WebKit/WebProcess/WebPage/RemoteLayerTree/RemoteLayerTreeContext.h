@@ -106,6 +106,10 @@ public:
     bool useDynamicContentScalingDisplayListsForDOMRendering() const { return m_useDynamicContentScalingDisplayListsForDOMRendering; }
     void setUseDynamicContentScalingDisplayListsForDOMRendering(bool useDynamicContentScalingDisplayLists) { m_useDynamicContentScalingDisplayListsForDOMRendering = useDynamicContentScalingDisplayLists; }
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     void gpuProcessConnectionWasDestroyed();
+//
+// (end MAVERICKS_BACKPORT restored block)
 #if PLATFORM(IOS_FAMILY)
     bool canShowWhileLocked() const;
 #endif

@@ -393,6 +393,7 @@ static inline FontSelectionValue cssWeightOfSystemFontDescriptor(CTFontDescripto
     if (!traitsRef)
         return FontSelectionValue(400);
     resultRef = static_cast<CFNumberRef>(CFDictionaryGetValue(traitsRef.get(), kCTFontWeightTrait));
+    // MAVERICKS_BACKPORT: 10.9 CoreText can return a null weight number here; fall back to regular weight.
     if (!resultRef || !CFNumberGetValue(resultRef.get(), kCFNumberFloatType, &result))
         return FontSelectionValue(400);
     return FontSelectionValue(normalizeCTWeight(result));

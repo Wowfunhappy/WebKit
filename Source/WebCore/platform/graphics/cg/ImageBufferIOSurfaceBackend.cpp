@@ -345,9 +345,9 @@ RetainPtr<CGImageRef> ImageBufferIOSurfaceBackend::createImageReference()
 {
     // The reference is used only in synchronized manner, so after the use ends, we can update
     // externally without invalidation marker. Thus we do not set m_mayHaveOutstandingBackingStoreReferences.
+    auto image = adoptCF(CGIOSurfaceContextCreateImageReference(ensurePlatformContext()));
     // MAVERICKS_BACKPORT: on 10.9 CGIOSurfaceContextCreateImageReference resolves from libpolyfill as
     // an alias of CGIOSurfaceContextCreateImage (copy instead of live-reference semantics).
-    auto image = adoptCF(CGIOSurfaceContextCreateImageReference(ensurePlatformContext()));
     // MAVERICKS_BACKPORT: null guard (upstream assumes success; a torn-down surface returns null here).
     if (image) {
         // CG has internal caches for some operations related to software bitmap draw.

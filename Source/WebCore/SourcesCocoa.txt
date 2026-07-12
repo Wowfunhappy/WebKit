@@ -31,6 +31,9 @@ JSApplePayCouponCodeUpdate.cpp
 JSApplePayDateComponents.cpp
 JSApplePayDateComponentsRange.cpp
 JSApplePayDeferredPaymentRequest.cpp
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// JSApplePayDisbursementRequest.cpp
+// (end MAVERICKS_BACKPORT restored block)
 JSApplePayDetailsUpdateBase.cpp
 JSApplePayError.cpp
 JSApplePayErrorCode.cpp
@@ -226,6 +229,9 @@ editing/mac/TextUndoInsertionMarkupMac.mm @nonARC
 fileapi/FileCocoa.mm @nonARC
 history/mac/HistoryItemMac.mm @nonARC
 html/canvas/GPUCanvasContextCocoa.mm @nonARC
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// html/canvas/UsdModelLoader.swift
+// (end MAVERICKS_BACKPORT restored block)
 html/shadow/YouTubeEmbedShadowElement.cpp
 inspector/LegacyWebSocketInspectorInstrumentation.cpp
 inspector/mac/PageDebuggerMac.mm @nonARC
@@ -284,6 +290,7 @@ platform/audio/AudioSession.cpp
 // if both build). Same precedent as MediaStreamAudioSourceCocoa.cpp in PlatformMac.cmake.
 // platform/audio/cocoa/AudioDecoderCocoa.cpp -- 10.9: GStreamer WebCodecs backend used instead
 platform/audio/cocoa/AudioDestinationCocoa.cpp
+// MAVERICKS_BACKPORT: AudioEncoderCocoa.cpp is excluded — WebCodecs runs on the GStreamer backend (see AudioDecoderCocoa note above).
 // platform/audio/cocoa/AudioEncoderCocoa.cpp -- 10.9: GStreamer WebCodecs backend used instead
 platform/audio/cocoa/AudioFileReaderCocoa.mm @nonARC
 platform/audio/cocoa/AudioOutputUnitAdaptor.cpp
@@ -295,6 +302,7 @@ platform/audio/cocoa/AudioUtilitiesCocoa.cpp
 platform/audio/cocoa/CAAudioStreamDescription.cpp
 platform/audio/cocoa/CARingBuffer.cpp
 platform/audio/cocoa/MediaSessionManagerCocoa.mm @nonARC
+// MAVERICKS_BACKPORT: PlatformRawAudioDataCocoa.cpp is excluded — its factories duplicate PlatformRawAudioDataGStreamer.cpp (see AudioDecoderCocoa note above).
 // platform/audio/cocoa/PlatformRawAudioDataCocoa.cpp -- 10.9: GStreamer WebCodecs backend used instead (see AudioDecoderCocoa note)
 platform/audio/cocoa/SpatialAudioExperienceHelper.mm @nonARC
 platform/audio/cocoa/WebAudioBufferList.cpp
@@ -433,6 +441,7 @@ platform/graphics/ca/TileController.cpp
 platform/graphics/ca/TileCoverageMap.cpp
 platform/graphics/ca/TileGrid.cpp
 platform/graphics/ca/TransformationMatrixCA.cpp
+// MAVERICKS_BACKPORT: compile CATransactionCommitHandlers.mm — the 10.9 commit-phase helper (+[CATransaction addCommitHandler:forPhase:] is 10.10+).
 platform/graphics/ca/cocoa/CATransactionCommitHandlers.mm @nonARC
 platform/graphics/ca/cocoa/GraphicsLayerAsyncContentsDisplayDelegateCocoa.mm @nonARC
 platform/graphics/ca/cocoa/PlatformCAAnimationCocoa.mm @nonARC

@@ -183,7 +183,6 @@ void RemoteLayerTreeDrawingArea::removeRootFrame(WebCore::FrameIdentifier frameI
 
 void RemoteLayerTreeDrawingArea::setRootCompositingLayer(WebCore::Frame& frame, GraphicsLayer* rootGraphicsLayer)
 {
-    // MAVERICKS_BACKPORT: 10.9 perf: removed debug fopen logging
     for (auto& rootLayer : m_rootLayers) {
         if (rootLayer.frameID == frame.frameID())
             rootLayer.contentLayer = rootGraphicsLayer;
@@ -331,7 +330,6 @@ void RemoteLayerTreeDrawingArea::startRenderingUpdateTimer()
 
 void RemoteLayerTreeDrawingArea::triggerRenderingUpdate()
 {
-    // MAVERICKS_BACKPORT: 10.9 perf: removed debug fopen logging
     if (m_isRenderingSuspended) {
         m_hasDeferredRenderingUpdate = true;
         return;

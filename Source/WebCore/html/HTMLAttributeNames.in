@@ -319,6 +319,7 @@ onreset
 onresize
 onscroll
 onscrollend
+# MAVERICKS_BACKPORT: onsearch content attribute for the restored search event on <input type=search>.
 onsearch
 onsecuritypolicyviolation
 onseeked

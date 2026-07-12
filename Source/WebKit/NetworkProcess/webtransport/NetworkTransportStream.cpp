@@ -32,15 +32,20 @@
 #include <wtf/CompletionHandler.h>
 #include <wtf/TZoneMallocInlines.h>
 
-// MAVERICKS_BACKPORT: WebTransport's Cocoa stream path needs nw_connection_t group APIs (10.14+),
-// so NetworkTransportStreamCocoa.mm is a stub. Upstream guards these bodies with #if !PLATFORM(COCOA);
-// here they are compiled unconditionally so NetworkTransportSession's references link. No stream is
-// ever created on this build (session create() returns nullptr), so these bodies are dead at runtime.
-
 namespace WebKit {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkTransportStream);
 
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#if !PLATFORM(COCOA)
+NetworkTransportStream::NetworkTransportStream()
+    : m_identifier(WebCore::WebTransportStreamIdentifier::generate())
+    , m_streamType(NetworkTransportStreamType::Bidirectional)
+    , m_streamState(NetworkTransportStreamState::Ready)
+{
+}
+
+MAVERICKS_BACKPORT */
 void NetworkTransportStream::sendBytes(std::span<const uint8_t>, bool, CompletionHandler<void(std::optional<WebCore::Exception>&&)>&& completionHandler)
 {
     completionHandler(std::nullopt);
@@ -68,4 +73,8 @@ WebCore::WebTransportReceiveStreamStats NetworkTransportStream::getReceiveStream
     return { };
 }
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #endif
+//
+// (end MAVERICKS_BACKPORT restored block)
 }

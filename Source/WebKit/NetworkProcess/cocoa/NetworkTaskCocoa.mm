@@ -85,6 +85,9 @@ NSHTTPCookieStorage *NetworkTaskCocoa::statelessCookieStorage()
             statelessCookieStorage.get() = [NSHTTPCookieStorage sharedHTTPCookieStorage];
         statelessCookieStorage.get().get().cookieAcceptPolicy = NSHTTPCookieAcceptPolicyNever;
     }
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     ASSERT(!statelessCookieStorage.get().get().cookies.count);
+// (end MAVERICKS_BACKPORT restored block)
     return statelessCookieStorage.get().get();
 }
 

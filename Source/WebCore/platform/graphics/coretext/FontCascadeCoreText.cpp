@@ -424,8 +424,8 @@ void FontCascade::drawGlyphs(GraphicsContext& context, const Font& font, std::sp
     // MAVERICKS_BACKPORT: pass emitGlyphsAsPaths so PDF-in-transparency-layer text falls back to path fill.
     showGlyphsWithAdvances(point, font, cgContext.get(), glyphs, advances, textMatrix, emitGlyphsAsPaths);
 
-    // MAVERICKS_BACKPORT: pass emitGlyphsAsPaths so PDF-in-transparency-layer text falls back to path fill.
     if (syntheticBoldOffset)
+    // MAVERICKS_BACKPORT: pass emitGlyphsAsPaths so PDF-in-transparency-layer text falls back to path fill.
         showGlyphsWithAdvances(FloatPoint(point.x() + syntheticBoldOffset, point.y()), font, cgContext.get(), glyphs, advances, textMatrix, emitGlyphsAsPaths);
 
     if (hasSimpleShadow)

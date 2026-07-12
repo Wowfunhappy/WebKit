@@ -248,6 +248,7 @@ static NSBundle *webInspectorUIBundle()
 
 String WebInspectorFrontendClient::localizedStringsURL() const
 {
+    // MAVERICKS_BACKPORT: resolve via webInspectorUIBundle(); the plain bundleWithIdentifier: lookup returns nil in every WK1 host and the nil path crashes fileURLWithPath:.
     NSBundle *bundle = webInspectorUIBundle();
     if (!bundle)
         return String();

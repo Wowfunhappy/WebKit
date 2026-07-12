@@ -67,6 +67,9 @@
 #include "WebKitWebSourceGStreamer.h"
 
 #if ENABLE(MEDIA_STREAM)
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#include "GStreamerMediaStreamSource.h"
+MAVERICKS_BACKPORT */
 #include "MediaStreamPrivate.h"
 #endif
 // MAVERICKS_BACKPORT: gate the GStreamer MediaStream src header on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.

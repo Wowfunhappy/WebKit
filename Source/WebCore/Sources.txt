@@ -893,6 +893,7 @@ css/CSSCounterValue.cpp
 css/CSSCrossfadeValue.cpp
 css/CSSCursorImageValue.cpp
 css/CSSCustomPropertyValue.cpp
+// MAVERICKS_BACKPORT: build CSSDashboardRegionValue.cpp — DASHBOARD_SUPPORT is enabled on 10.9 for Dashboard widget regions.
 css/CSSDashboardRegionValue.cpp
 css/CSSDynamicRangeLimitValue.cpp
 css/CSSEasingFunctionValue.cpp

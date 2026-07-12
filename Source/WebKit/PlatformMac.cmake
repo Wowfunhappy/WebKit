@@ -28,10 +28,20 @@ include(Headers.cmake)
 
 list(APPEND WebKit_PRIVATE_LIBRARIES
 
+# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#     Accessibility
+# (end MAVERICKS_BACKPORT restored block)
     WebKitLegacy
     ${APPLICATIONSERVICES_LIBRARY}
     ${CORESERVICES_LIBRARY}
+# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#     ${DEVICEIDENTITY_LIBRARY}
+#     ${NETWORK_LIBRARY}
+# (end MAVERICKS_BACKPORT restored block)
     ${SECURITYINTERFACE_LIBRARY}
+# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#     ${UNIFORMTYPEIDENTIFIERS_LIBRARY}
+# (end MAVERICKS_BACKPORT restored block)
 )
 
 if (NOT AVFAUDIO_LIBRARY-NOTFOUND)
@@ -89,6 +99,9 @@ list(APPEND WebKit_SOURCES
     UIProcess/API/Cocoa/_WKResourceLoadStatisticsThirdParty.mm
 
     UIProcess/Cocoa/PreferenceObserver.mm
+# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#     UIProcess/Cocoa/WKSafeBrowsingWarning.mm
+# (end MAVERICKS_BACKPORT restored block)
     UIProcess/Cocoa/WKShareSheet.mm
     UIProcess/Cocoa/WKStorageAccessAlert.mm
     UIProcess/Cocoa/WebInspectorPreferenceObserver.mm

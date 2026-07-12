@@ -26,6 +26,4 @@
 #import "config.h"
 #import "_WKErrorRecoveryAttempting.h"
 
-// MAVERICKS_BACKPORT: restored upstream definition (file had been stubbed); _WKRecoveryAttempterErrorKey
-// is referenced by WKRemoteObjectCoder.mm and declared WK_EXTERN in _WKErrorRecoveryAttempting.h.
 NSString * const _WKRecoveryAttempterErrorKey = @"_WKRecoveryAttempterErrorKey";

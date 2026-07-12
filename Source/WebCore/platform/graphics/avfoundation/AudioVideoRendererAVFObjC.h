@@ -8,9 +8,9 @@
 // video-only); audio samples are accepted and dropped so the MediaSource append loop keeps
 // progressing. It implements the WebCore::AudioVideoRenderer interface so
 // MediaPlayerPrivateMediaSourceAVFObjC works unchanged.
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
 #pragma once
 
-// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
 #if ENABLE(MEDIA_SOURCE)
 
 #include "AudioVideoRenderer.h"
@@ -27,6 +27,9 @@
 // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
 #include <wtf/Vector.h>
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// OBJC_CLASS AVSampleBufferAudioRenderer;
+// (end MAVERICKS_BACKPORT restored block)
 OBJC_CLASS AVSampleBufferDisplayLayer;
 // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
 OBJC_CLASS CALayer;
@@ -46,6 +49,11 @@ class AudioVideoRendererAVFObjC final
     // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<AudioVideoRendererAVFObjC> {
 public:
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     static Ref<AudioVideoRendererAVFObjC> create(const Logger& logger, uint64_t logIdentifier) { return adoptRef(*new AudioVideoRendererAVFObjC(logger, logIdentifier)); }
+//
+//     ~AudioVideoRendererAVFObjC();
+// (end MAVERICKS_BACKPORT restored block)
     WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
 
     // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
@@ -55,6 +63,14 @@ public:
     // AudioInterface
     void setVolume(float) final;
     void setMuted(bool) final;
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    void setPreservesPitchAndCorrectionAlgorithm(bool, std::optional<PitchCorrectionAlgorithm>) final;
+    void setAudioTimePitchAlgorithm(AVSampleBufferAudioRenderer *, NSString *) const;
+#if HAVE(AUDIO_OUTPUT_DEVICE_UNIQUE_ID)
+    void setOutputDeviceId(const String&) final;
+    void setOutputDeviceIdOnRenderer(AVSampleBufferAudioRenderer *);
+#endif
+MAVERICKS_BACKPORT */
 
     // VideoInterface
     // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
@@ -68,6 +84,9 @@ public:
     void notifyWhenHasAvailableVideoFrame(Function<void(const MediaTime&, double)>&&) final;
     void notifyWhenRequiresFlushToResume(Function<void()>&&) final;
     void notifyRenderingModeChanged(Function<void()>&&) final;
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     void expectMinimumUpcomingPresentationTime(const MediaTime&) final;
+// (end MAVERICKS_BACKPORT restored block)
     void notifySizeChanged(Function<void(const MediaTime&, FloatSize)>&&) final;
     // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     void flushAndRemoveImage() final;
@@ -135,6 +154,9 @@ private:
     struct TrackState {
         TrackType type;
     };
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     AudioTrackProperties& NODELETE audioTrackPropertiesFor(TrackIdentifier);
+// (end MAVERICKS_BACKPORT restored block)
 
     // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
     RetainPtr<AVSampleBufferDisplayLayer> m_displayLayer;
@@ -159,6 +181,15 @@ private:
 
     std::optional<RequestPromise::AutoRejectProducer> m_videoDataRequest;
 
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    const Ref<const Logger> m_logger;
+    const uint64_t m_logIdentifier;
+    const UniqueRef<VideoLayerManagerObjC> m_videoLayerManager;
+    const RetainPtr<AVSampleBufferRenderSynchronizer> m_synchronizer;
+    const Ref<WebAVSampleBufferListener> m_listener;
+
+    Function<void(PlatformMediaError)> m_errorCallback;
+MAVERICKS_BACKPORT */
     Function<void()> m_firstFrameAvailableCallback;
     Function<void(const MediaTime&, double)> m_hasAvailableVideoFrameCallback;
     // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).

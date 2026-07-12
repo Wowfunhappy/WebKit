@@ -983,7 +983,6 @@ void WebProcess::initializeLogForwarding(const WebProcessCreationParameters& par
 #endif
 
 void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationParameters& parameters)
-// MAVERICKS_BACKPORT: 10.9 build divergence (stray blank line; see WindowServer-connection note below).
 {
     WebCore::PublicSuffixStore::singleton().enablePublicSuffixCache();
 

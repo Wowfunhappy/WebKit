@@ -496,6 +496,7 @@ void PlatformCALayerCocoa::setNeedsDisplay()
     if (!m_backingStoreAttached)
         return;
 
+    // MAVERICKS_BACKPORT: #124 probe — record this layer being marked dirty (sentinel-gated, bounded). Remove with #124.
     ddgProbeLogLayerEvent("dirtyAll", this, (int)m_layerType, m_layer.get());
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_layer setNeedsDisplay];
@@ -507,6 +508,7 @@ void PlatformCALayerCocoa::setNeedsDisplayInRect(const FloatRect& dirtyRect)
     if (!m_backingStoreAttached)
         return;
 
+    // MAVERICKS_BACKPORT: #124 probe — record this layer being marked dirty in a rect (sentinel-gated, bounded). Remove with #124.
     ddgProbeLogLayerEvent("dirtyRect", this, (int)m_layerType, m_layer.get());
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_layer setNeedsDisplayInRect:dirtyRect];

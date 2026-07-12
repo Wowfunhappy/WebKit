@@ -195,6 +195,12 @@ void FontCache::platformInit()
     // change observer below is real, keep that.
     CFNotificationCenterRef center = CFNotificationCenterGetLocalCenterSingleton();
     const CFStringRef notificationName = kCFLocaleCurrentLocaleDidChangeNotification;
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #else
+//     CFNotificationCenterRef center = CFNotificationCenterGetDarwinNotifyCenterSingleton();
+//     const CFStringRef notificationName = CFSTR("com.apple.language.changed");
+// #endif
+// (end MAVERICKS_BACKPORT restored block)
     CFNotificationCenterAddObserver(center, this, &fontCacheRegisteredFontsChangedNotificationCallback, notificationName, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
 }
 
@@ -425,11 +431,13 @@ FontSelectionCapabilities capabilitiesForFontDescriptor(CTFontDescriptorRef font
     }
 
     if (!variationCapabilities.slope) {
+        // MAVERICKS_BACKPORT: derive slope from the hoisted symbolicTraits read from the kCTFontTraitsAttribute dictionary above (see the note there); the kCTFontCSS* descriptor attributes are 10.15+ and absent on 10.9.
         auto slopeValue = static_cast<float>(symbolicTraits & kCTFontTraitItalic ? italicValue() : normalItalicValue());
         variationCapabilities.slope = {{ slopeValue, slopeValue }};
     }
 
     if (!variationCapabilities.weight) {
+        // MAVERICKS_BACKPORT: derive weight from kCTFontWeightTrait / kCTFontTraitBold in the trait dictionary (see the note above); kCTFontCSSWeightAttribute is 10.15+ and absent on 10.9.
         float value = static_cast<float>(normalWeightValue());
         float ctWeight = 0;
         if (traits) {
@@ -442,6 +450,7 @@ FontSelectionCapabilities capabilitiesForFontDescriptor(CTFontDescriptorRef font
     }
 
     if (!variationCapabilities.width) {
+        // MAVERICKS_BACKPORT: derive width from kCTFontWidthTrait / expanded-condensed traits in the trait dictionary (see the note above); kCTFontCSSWidthAttribute is 10.15+ and absent on 10.9.
         float value = static_cast<float>(normalWidthValue());
         float ctWidth = 0;
         if (traits) {

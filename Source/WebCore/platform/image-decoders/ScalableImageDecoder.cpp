@@ -33,6 +33,9 @@
 #include "ICOImageDecoder.h"
 #include "JPEGImageDecoder.h"
 #include "PNGImageDecoder.h"
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #include "WEBPImageDecoder.h"
+// (end MAVERICKS_BACKPORT restored block)
 #endif
 // MAVERICKS_BACKPORT: WEBPImageDecoder also compiled on PLATFORM(MAC) so libwebp
 // can decode WebP responses that ImageIO can't handle on this build.
@@ -102,6 +105,9 @@ static bool matchesWebPSignature(std::span<const uint8_t> contents)
 {
     return spanHasPrefix(contents, "RIFF"_span) && spanHasPrefix(contents.subspan(8), "WEBPVP"_span);
 }
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #endif
+// (end MAVERICKS_BACKPORT restored block)
 
 #if USE(AVIF)
 static bool matchesAVIFSignature(std::span<const uint8_t> contents, FragmentedSharedBuffer& data)

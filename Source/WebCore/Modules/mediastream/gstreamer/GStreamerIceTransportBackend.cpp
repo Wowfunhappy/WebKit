@@ -27,6 +27,7 @@
 #include <wtf/TZoneMallocInlines.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/glib/GMallocString.h>
+// MAVERICKS_BACKPORT: <wtf/ThreadSafeWeakPtr.h> for the thread-safe weak observer the signal callbacks reach through (see start() below).
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 
@@ -51,6 +52,7 @@ private:
 
     GRefPtr<GstWebRTCICETransport> m_iceTransport;
     WeakPtr<RTCIceTransportBackendClient> m_client;
+    // MAVERICKS_BACKPORT: track the connected GObject signal-handler ids so stop() can disconnect them individually (callbacks hold a heap Notifier, not this).
     Vector<unsigned long> m_signalHandlers;
 };
 
@@ -95,6 +97,7 @@ void GStreamerIceTransportBackendObserver::start()
 void GStreamerIceTransportBackendObserver::stop()
 {
     m_client = nullptr;
+    // MAVERICKS_BACKPORT: disconnect each signal handler by id (the callbacks are bound to a heap Notifier, not this, so disconnect_by_data can't reach them).
     while (!m_signalHandlers.isEmpty())
         g_signal_handler_disconnect(m_iceTransport.get(), m_signalHandlers.takeLast());
 }

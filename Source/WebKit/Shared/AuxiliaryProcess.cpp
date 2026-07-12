@@ -86,10 +86,10 @@ void AuxiliaryProcess::didClose(IPC::Connection&)
 #endif
 }
 
-// MAVERICKS_BACKPORT: initialize() is reworked for 10.9 multi-instance bring-up (see markers below):
-// re-entry guard, optional process identifier, sandbox skipped, main-RunLoop connection open.
 void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& parameters)
 {
+// MAVERICKS_BACKPORT: initialize() is reworked for 10.9 multi-instance bring-up (see markers below):
+// re-entry guard, optional process identifier, sandbox skipped, main-RunLoop connection open.
     // MAVERICKS_BACKPORT: Safari sends a second XPC bootstrap message after the first
     // initialize completes. Calling initialize twice re-lazyInitializes the already-set
     // m_connection (RELEASE_ASSERT — SIGTRAP). Guard via the m_connection check (the
@@ -111,10 +111,6 @@ void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& par
     if (parameters.processIdentifier)
         Process::setIdentifier(*parameters.processIdentifier);
 
-    // MAVERICKS_BACKPORT: the Mac initializeSandbox()/applySandbox() path needs a
-    // 10.9-compatible sandbox profile that is not yet in place, so the sandbox is not
-    // initialized here. initializeSandbox is only ever called from this initialize(),
-    // so WebContent currently runs unsandboxed until the 10.9 profile lands.
     initializeProcess(parameters);
 
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED

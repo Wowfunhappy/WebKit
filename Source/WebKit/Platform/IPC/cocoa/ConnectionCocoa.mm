@@ -695,6 +695,9 @@ static bool shouldLogIncomingMessageHandling()
 
 void Connection::receiveSourceEventHandler()
 {
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     ReceiveBuffer buffer;
+// (end MAVERICKS_BACKPORT restored block)
 
     // MAVERICKS_BACKPORT: drain ALL queued mach messages on each fire. dispatch_source_t
     // MACH_RECV sometimes fails to re-fire on 10.9 after handling one message, so
@@ -732,8 +735,8 @@ void Connection::receiveSourceEventHandler()
     }
 
     std::unique_ptr<Decoder> decoder = createMessageDecoder(header, buffer.mutableSpan());
-    // MAVERICKS_BACKPORT: continue draining the receive port (was return) for the 10.9 drain loop.
     if (!decoder)
+    // MAVERICKS_BACKPORT: continue draining the receive port (was return) for the 10.9 drain loop.
         continue;
 
 #if PLATFORM(MAC)

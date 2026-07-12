@@ -21,6 +21,26 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// Modules/mediastream/gstreamer/GStreamerDataChannelHandler.cpp
+// Modules/mediastream/gstreamer/GStreamerDtlsTransportBackend.cpp
+// Modules/mediastream/gstreamer/GStreamerIceAgent.cpp
+// Modules/mediastream/gstreamer/GStreamerIceStream.cpp
+// Modules/mediastream/gstreamer/GStreamerIceTransport.cpp
+// Modules/mediastream/gstreamer/GStreamerIceTransportBackend.cpp
+// Modules/mediastream/gstreamer/GStreamerMediaEndpoint.cpp
+// Modules/mediastream/gstreamer/GStreamerPeerConnectionBackend.cpp
+// Modules/mediastream/gstreamer/GStreamerRtpReceiverBackend.cpp
+// Modules/mediastream/gstreamer/GStreamerRtpReceiverTransformBackend.cpp
+// Modules/mediastream/gstreamer/GStreamerRtpSenderBackend.cpp
+// Modules/mediastream/gstreamer/GStreamerRtpSenderTransformBackend.cpp
+// Modules/mediastream/gstreamer/GStreamerRtpTransceiverBackend.cpp
+// Modules/mediastream/gstreamer/GStreamerRtpTransformBackend.cpp
+// Modules/mediastream/gstreamer/GStreamerSctpTransportBackend.cpp
+// Modules/mediastream/gstreamer/GStreamerStatsCollector.cpp
+// Modules/mediastream/gstreamer/GStreamerWebRTCUtils.cpp
+// Modules/mediastream/RTCRtpSFrameTransformerOpenSSL.cpp
+// (end MAVERICKS_BACKPORT restored block)
 
 Modules/webaudio/MediaStreamAudioSourceGStreamer.cpp
 
@@ -115,6 +135,17 @@ platform/gstreamer/WebKitFliteSourceGStreamer.cpp
 
 platform/mediarecorder/MediaRecorderPrivateGStreamer.cpp
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// platform/mediastream/libwebrtc/gstreamer/GStreamerVideoCommon.cpp
+// platform/mediastream/libwebrtc/gstreamer/GStreamerVideoDecoderFactory.cpp
+// platform/mediastream/libwebrtc/gstreamer/GStreamerVideoEncoderFactory.cpp
+// platform/mediastream/libwebrtc/gstreamer/GStreamerVideoFrameLibWebRTC.cpp
+// platform/mediastream/libwebrtc/gstreamer/LibWebRTCProviderGStreamer.cpp
+// platform/mediastream/libwebrtc/gstreamer/RealtimeIncomingAudioSourceLibWebRTC.cpp
+// platform/mediastream/libwebrtc/gstreamer/RealtimeIncomingVideoSourceLibWebRTC.cpp
+// platform/mediastream/libwebrtc/gstreamer/RealtimeOutgoingAudioSourceLibWebRTC.cpp
+// platform/mediastream/libwebrtc/gstreamer/RealtimeOutgoingVideoSourceLibWebRTC.cpp
+// (end MAVERICKS_BACKPORT restored block)
 
 // MAVERICKS_BACKPORT: WebRTC now runs on GStreamer webrtcbin (libwebrtc dropped); the
 // libwebrtc-backed gstreamer sources are gone and these Modules/mediastream/gstreamer

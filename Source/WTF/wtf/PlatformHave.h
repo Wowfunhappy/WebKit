@@ -395,12 +395,12 @@
 #define HAVE_THREAD_TIME_CONSTRAINTS 1
 #endif
 
+#if PLATFORM(COCOA)
 // MAVERICKS_BACKPORT: HAVE(AVASSETREADER) gates only the AVFoundation AVAssetReader *image* decoder
 // (ImageDecoderAVFObjC, for animated HEIC/motion images). This build decodes images through GStreamer
 // (ImageDecoderGStreamer) instead, so the AVFoundation image-decoder path is unused; leaving it on
 // referenced ImageDecoderAVFObjC's (stubbed) symbols and crashed the WebContent render path when the
 // image Accept header was built. Off here — media *playback* does not depend on this flag.
-#if PLATFORM(COCOA)
 // MAVERICKS_BACKPORT: AVFoundation image-decoder path off; this build decodes images via GStreamer (see above).
 #define HAVE_AVASSETREADER 0
 #endif
@@ -786,7 +786,9 @@
 #endif
 
 #if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
-#define HAVE_CONTACTSUI 1
+// MAVERICKS_BACKPORT: ContactsUI.framework (the contact-picker UI) is 10.11+ and absent on 10.9;
+// WKContactPicker and its ContactPicker references are all HAVE(CONTACTSUI)-guarded, so this stays off.
+#define HAVE_CONTACTSUI 0
 #define HAVE_CONTACTS 1
 #endif
 
@@ -1515,7 +1517,8 @@
 
 #if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) \
     || (PLATFORM(VISION) && __has_include(<CoreTelephony/CoreTelephony.h>))
-#define HAVE_CORE_TELEPHONY 1
+// MAVERICKS_BACKPORT: CoreTelephony is not usable on 10.9; CoreTelephonyUtilities is HAVE(CORE_TELEPHONY)-guarded.
+#define HAVE_CORE_TELEPHONY 0
 #endif
 
 #if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) \

@@ -101,11 +101,6 @@ Worker::Worker(ScriptExecutionContext& context, JSC::RuntimeFlags runtimeFlags, 
 
 ExceptionOr<Ref<Worker>> Worker::create(ScriptExecutionContext& context, JSC::RuntimeFlags runtimeFlags, Variant<Ref<TrustedScriptURL>, String>&& url, WorkerOptions&& options)
 {
-    // MAVERICKS_BACKPORT: KEYSTONE BAND-AID #54 (broken main-thread identity under dispatch_main)
-    // — comment-only. Workers re-enabled after relaxing MemoryCache::singleton's main-thread
-    // RELEASE_ASSERT (see MemoryCache.cpp). May still race in rare cases but most progressive web
-    // apps work better with Workers enabled.
-    // FLAG: fix the #54 thread-identity keystone; this note documents the dependency.
     auto compliantScriptURLString = trustedTypeCompliantString(context, WTF::move(url), "Worker constructor"_s);
     if (compliantScriptURLString.hasException())
         return compliantScriptURLString.releaseException();

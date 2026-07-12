@@ -1146,6 +1146,7 @@ WTF::TextStream& operator<<(WTF::TextStream&, BlockStepAlign);
 WTF::TextStream& operator<<(WTF::TextStream&, BlockStepInsert);
 WTF::TextStream& operator<<(WTF::TextStream&, BlockStepRound);
 WTF::TextStream& operator<<(WTF::TextStream&, BorderCollapse);
+// MAVERICKS_BACKPORT: TextStream operator<< for the restored non-standard BorderFit enum (-webkit-border-fit; 10.9 Messages.app).
 WTF::TextStream& operator<<(WTF::TextStream&, BorderFit);
 WTF::TextStream& operator<<(WTF::TextStream&, BorderStyle);
 WTF::TextStream& operator<<(WTF::TextStream&, BoxAlignment);

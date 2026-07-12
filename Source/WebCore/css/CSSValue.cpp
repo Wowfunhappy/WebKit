@@ -43,6 +43,7 @@
 #include "CSSCrossfadeValue.h"
 #include "CSSCursorImageValue.h"
 #include "CSSCustomPropertyValue.h"
+// MAVERICKS_BACKPORT: include CSSDashboardRegionValue.h — DASHBOARD_SUPPORT is enabled on 10.9 for Dashboard region CSS values.
 #if ENABLE(DASHBOARD_SUPPORT)
 #include "CSSDashboardRegionValue.h"
 #endif

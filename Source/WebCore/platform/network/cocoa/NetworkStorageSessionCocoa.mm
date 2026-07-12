@@ -7,16 +7,44 @@
 #import "config.h"
 #import "NetworkStorageSession.h"
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #import "ClientOrigin.h"
+// (end MAVERICKS_BACKPORT restored block)
 #import "Cookie.h"
 // MAVERICKS_BACKPORT: trimmed include set for the minimal 10.9 NSHTTPCookieStorage-backed rewrite.
 #import "ClientOrigin.h"
 #import "CookieRequestHeaderFieldProxy.h"
 #import "CookieStorageObserver.h"
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #import "CookieStoreGetOptions.h"
+// (end MAVERICKS_BACKPORT restored block)
 #import "HTTPCookieAcceptPolicyCocoa.h"
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #import "ResourceRequest.h"
+// #import "SameSiteInfo.h"
+// #import <algorithm>
+// #import <optional>
+// (end MAVERICKS_BACKPORT restored block)
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <wtf/BlockObjCExceptions.h>
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #import <wtf/BlockPtr.h>
+// (end MAVERICKS_BACKPORT restored block)
 #import <wtf/CallbackAggregator.h>
 #import <wtf/ProcessPrivilege.h>
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#import <wtf/URL.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/cocoa/VectorCocoa.h>
+#import <wtf/darwin/DispatchExtras.h>
+#import <wtf/text/MakeString.h>
+#import <wtf/text/StringBuilder.h>
+#import <wtf/text/cf/StringConcatenateCF.h>
+
+@interface NSURL ()
+- (CFURLRef)_cfurl;
+@end
+MAVERICKS_BACKPORT */
 
 namespace WebCore {
 
@@ -199,6 +227,7 @@ void NetworkStorageSession::deleteAllCookies(CompletionHandler<void()>&& complet
         for (NSHTTPCookie *c in all.get())
             [storage deleteCookie:c];
     }
+    // MAVERICKS_BACKPORT: complete the handler after the synchronous NSHTTPCookieStorage clear above (no async CFNetwork completion on 10.9).
     completionHandler();
 }
 
@@ -299,6 +328,18 @@ bool NetworkStorageSession::startListeningForCookieChangeNotifications(CookieCha
 // MAVERICKS_BACKPORT: cookie-change listener stop is a no-op on 10.9.
 void NetworkStorageSession::stopListeningForCookieChangeNotifications(CookieChangeObserver&, const HashSet<String>&)
 {
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    if ([cookie isSessionOnly])
+        return cookie;
+
+    if (!cookie.expiresDate || cookie.expiresDate.timeIntervalSinceNow > cap.seconds()) {
+        auto properties = adoptNS([[cookie properties] mutableCopy]);
+        auto date = adoptNS([[NSDate alloc] initWithTimeIntervalSinceNow:cap.seconds()]);
+        [properties setObject:date.get() forKey:NSHTTPCookieExpires];
+        return adoptNS([[NSHTTPCookie alloc] initWithProperties:properties.get()]);
+    }
+    return cookie;
+MAVERICKS_BACKPORT */
 }
 
 // MAVERICKS_BACKPORT: unregister cookie-change listeners (guarded; 10.10+ change-handler SPI).
@@ -337,6 +378,29 @@ static std::pair<String, bool> formatCookies(NSArray<NSHTTPCookie*>* cookies, bo
             // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
             sawSecure = true;
         }
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+        cookiesBuilder.append(cookiesBuilder.isEmpty() ? ""_s : "; "_s, [cookie name], '=', [cookie value]);
+    }
+    return { cookiesBuilder.toString(), didAccessSecureCookies };
+
+    END_BLOCK_OBJC_EXCEPTIONS
+    return { String(), false };
+}
+
+std::optional<Vector<Cookie>> NetworkStorageSession::cookiesForSessionAsVector(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, CookiesFor cookiesFor, IncludeSecureCookies includeSecureCookies, ApplyTrackingPrevention applyTrackingPrevention, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker isKnownCrossSiteTracker, CookieStoreGetOptions&& options) const
+{
+    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies) || m_isInMemoryCookieStore);
+
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+
+    auto cookies = cookiesForURL(firstParty, sameSiteInfo, url, frameID, pageID, applyTrackingPrevention, shouldRelaxThirdPartyCookieBlocking, isKnownCrossSiteTracker);
+    if (![cookies count])
+        return Vector<Cookie> { };
+
+    Vector<Cookie> cookiesVector;
+    RetainPtr name = options.name.createNSString();
+    for (NSHTTPCookie *cookie in cookies.get()) {
+MAVERICKS_BACKPORT */
         if (![[cookie name] length])
             continue;
         // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
@@ -386,7 +450,30 @@ std::pair<String, bool> NetworkStorageSession::cookieRequestHeaderFieldValue(con
 // MAVERICKS_BACKPORT: setCookiesFromDOM parses Set-Cookie via NSHTTPCookie and stores, skipping HTTPOnly.
 void NetworkStorageSession::setCookiesFromDOM(const URL&, const SameSiteInfo&, const URL& url, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, ApplyTrackingPrevention, RequiresScriptTrackingPrivacy, const String& cookieString, ShouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker) const
 {
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     // <rdar://problem/5632883> On 10.5, NSHTTPCookieStorage would store an empty cookie,
+//     // which would be sent as "Cookie: =".
+// (end MAVERICKS_BACKPORT restored block)
     if (cookieString.isEmpty())
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+        return nil;
+
+    // <http://bugs.webkit.org/show_bug.cgi?id=6531>, <rdar://4409034>
+    // cookiesWithResponseHeaderFields doesn't parse cookies without a value
+    cookieString = cookieString.contains('=') ? cookieString : makeString(cookieString, '=');
+
+    return adjustScriptWrittenCookie([NSHTTPCookie _cookieForSetCookieString:cookieString.createNSString().get() forURL:cookieURL partition:nsStringNilIfEmpty(partition).get()], cappedLifetime);
+}
+
+void NetworkStorageSession::setCookiesFromDOM(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ApplyTrackingPrevention applyTrackingPrevention, RequiresScriptTrackingPrivacy requiresScriptTrackingPrivacy, const String& cookieString, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker isKnownCrossSiteTracker) const
+{
+    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies) || m_isInMemoryCookieStore);
+
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+
+    auto thirdPartyCookieBlockingDecision = thirdPartyCookieBlockingDecisionForRequest(firstParty, url, frameID, pageID, shouldRelaxThirdPartyCookieBlocking, isKnownCrossSiteTracker);
+    if (applyTrackingPrevention == ApplyTrackingPrevention::Yes && shouldBlockCookies(thirdPartyCookieBlockingDecision))
+MAVERICKS_BACKPORT */
         return;
     // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     RetainPtr storage = nsCookieStorage();
@@ -496,13 +583,17 @@ void NetworkStorageSession::setAllCookiesToSameSiteStrict(const RegistrableDomai
         completionHandler();
     });
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// void NetworkStorageSession::getHostnamesWithCookies(HashSet<String>& hostnames)
+// {
+// (end MAVERICKS_BACKPORT restored block)
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
     for (NSHTTPCookie *oldCookie in oldCookiesToDelete.get()) {
         [storage deleteCookie:oldCookie];
         UNUSED_PARAM(aggregator);
     }
-    // MAVERICKS_BACKPORT: minimal 10.9 NSHTTPCookieStorage-backed NetworkStorageSession (upstream relies on 10.10+ cookie/SameSite SPI absent on 10.9).
+    
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
@@ -617,6 +708,11 @@ std::optional<Vector<Cookie>> NetworkStorageSession::cookiesForDOMAsVector(const
     }
     return result;
 }
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #endif
+//
+// #if HAVE(COOKIE_CHANGE_LISTENER_API)
+// (end MAVERICKS_BACKPORT restored block)
 
 // MAVERICKS_BACKPORT: destructor unregisters cookie-change listeners (guarded by HAVE(COOKIE_CHANGE_LISTENER_API)).
 NetworkStorageSession::~NetworkStorageSession()

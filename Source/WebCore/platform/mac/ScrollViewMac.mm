@@ -20,19 +20,8 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
-
-// MAVERICKS_BACKPORT: the upstream file uses NSScrollView -contentInsets /
-// -automaticallyAdjustsContentInsets / NSEdgeInsets (all 10.10+) and
-// -[NSWindow convertPointToScreen:]/convertPointFromScreen: (10.12+). On 10.9
-// content insets do not exist (they are always zero) and the point<->screen
-// conversions are done via the 10.7+ rect variants. Everything else — most
-// importantly platformSetContentsSize(), which sizes the document NSView and
-// without which Legacy-WebKit WebViews leave their document view 0x0 and never
-// paint — is restored verbatim. This file had been stubbed to two lines, which
-// dropped the whole Mac ScrollView platform layer to the polyfill's empty
-// return-0 stubs.
 
 #import "config.h"
 #import "ScrollView.h"
@@ -178,7 +167,7 @@ void ScrollView::platformSetContentsSize()
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     int w = m_contentsSize.width();
     int h = m_contentsSize.height();
-    LOG(Frames, "%p %@ at w %d h %d\n", documentView(), [(id)[documentView() class] className], w, h);
+    LOG(Frames, "%p %@ at w %d h %d\n", documentView(), [(id)[documentView() class] className], w, h);            
     [protect(documentView()) setFrameSize:NSMakeSize(std::max(0, w), std::max(0, h))];
     END_BLOCK_OBJC_EXCEPTIONS
 }

@@ -211,8 +211,8 @@ void UserMediaCaptureManager::applyConstraintsFailed(RealtimeMediaSourceIdentifi
 CaptureSourceOrError UserMediaCaptureManager::AudioFactory::createAudioCaptureSource(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier> pageIdentifier)
 {
 #if !ENABLE(GPU_PROCESS)
-    // MAVERICKS_BACKPORT: CaptureSourceOrError takes a CaptureSourceError (message + MediaAccessDenialReason) on this build; construct it explicitly. GPU-process audio capture is unimplemented on 10.9 (no GPU process).
     if (m_shouldCaptureInGPUProcess)
+    // MAVERICKS_BACKPORT: CaptureSourceOrError takes a CaptureSourceError (message + MediaAccessDenialReason) on this build; construct it explicitly. GPU-process audio capture is unimplemented on 10.9 (no GPU process).
         return CaptureSourceOrError({ "Audio capture in GPUProcess is not implemented"_s, WebCore::MediaAccessDenialReason::PermissionDenied });
 #endif
 
@@ -238,8 +238,8 @@ void UserMediaCaptureManager::VideoFactory::setShouldCaptureInGPUProcess(bool va
 CaptureSourceOrError UserMediaCaptureManager::VideoFactory::createVideoCaptureSource(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier> pageIdentifier)
 {
 #if !ENABLE(GPU_PROCESS)
-    // MAVERICKS_BACKPORT: CaptureSourceOrError takes a CaptureSourceError (message + MediaAccessDenialReason) on this build; construct it explicitly. GPU-process video capture is unimplemented on 10.9 (no GPU process).
     if (m_shouldCaptureInGPUProcess)
+    // MAVERICKS_BACKPORT: CaptureSourceOrError takes a CaptureSourceError (message + MediaAccessDenialReason) on this build; construct it explicitly. GPU-process video capture is unimplemented on 10.9 (no GPU process).
         return CaptureSourceOrError({ "Video capture in GPUProcess is not implemented"_s, WebCore::MediaAccessDenialReason::PermissionDenied });
 #else
     // MAVERICKS_BACKPORT: ensureGPUProcessConnection()/videoFrameObjectHeapProxy() only exist with
@@ -256,8 +256,8 @@ CaptureSourceOrError UserMediaCaptureManager::VideoFactory::createVideoCaptureSo
 CaptureSourceOrError UserMediaCaptureManager::DisplayFactory::createDisplayCaptureSource(const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, const MediaConstraints* constraints, std::optional<PageIdentifier> pageIdentifier)
 {
 #if !ENABLE(GPU_PROCESS)
-    // MAVERICKS_BACKPORT: CaptureSourceOrError takes a CaptureSourceError (message + MediaAccessDenialReason) on this build; construct it explicitly. GPU-process display capture is unimplemented on 10.9 (no GPU process).
     if (m_shouldCaptureInGPUProcess)
+    // MAVERICKS_BACKPORT: CaptureSourceOrError takes a CaptureSourceError (message + MediaAccessDenialReason) on this build; construct it explicitly. GPU-process display capture is unimplemented on 10.9 (no GPU process).
         return CaptureSourceOrError({ "Display capture in GPUProcess is not implemented"_s, WebCore::MediaAccessDenialReason::PermissionDenied });
 #else
     if (m_shouldCaptureInGPUProcess) {

@@ -23,7 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: restored upstream Mac WebDriver automation implementation (file had been stubbed); defines WebAutomationSession::wasEventSynthesizedForAutomation and the platform event-synthesis methods referenced by the always-compiled WebAutomationSession.cpp.
 #import "config.h"
 #import "WebAutomationSession.h"
 

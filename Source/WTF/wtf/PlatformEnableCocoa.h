@@ -884,8 +884,8 @@
 #define ENABLE_REMOTE_INSPECTOR_SERVICE_WORKER_AUTO_INSPECTION 1
 #endif
 
-// MAVERICKS_BACKPORT: default to TiledCoreAnimation, not RemoteLayerTree, on Mac.
 #if !defined(ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT) && PLATFORM(MAC)
+// MAVERICKS_BACKPORT: default to TiledCoreAnimation, not RemoteLayerTree, on Mac.
 #define ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT 0
 #endif
 
@@ -897,10 +897,10 @@
 #define ENABLE_REVEAL 1
 #endif
 
+#if !defined(ENABLE_ROUTING_ARBITRATION) && PLATFORM(MAC)
 // MAVERICKS_BACKPORT: 10.9: AudioSessionRoutingArbitratorProxy is stubbed in libpolyfill (constructor
 // returns 0, leaving the unique_ptr-stored object with NULL vtable → crash on
 // destruction). Disable until we have a real implementation.
-#if !defined(ENABLE_ROUTING_ARBITRATION) && PLATFORM(MAC)
 // MAVERICKS_BACKPORT: force OFF on 10.9 (no real routing-arbitration implementation; see above).
 #define ENABLE_ROUTING_ARBITRATION 0
 #endif
@@ -1018,7 +1018,13 @@
 #define ENABLE_VARIATION_FONTS 1
 #endif
 
-// MAVERICKS_BACKPORT: parenthesize the condition so MAC also requires the AVKIT/IOS_FAMILY guard correctly.
+// MAVERICKS_BACKPORT: native AVKit video fullscreen / picture-in-picture (VideoPresentationInterfaceMac /
+// PlaybackSessionInterfaceMac) needs AVKit SPI absent on 10.9; force it off. Element fullscreen for
+// <video> is unaffected (ENABLE_VIDEO_USES_ELEMENT_FULLSCREEN below). Every reference is
+// ENABLE(VIDEO_PRESENTATION_MODE)-guarded upstream, so those interface files compile out and stay pristine.
+#define ENABLE_VIDEO_PRESENTATION_MODE 0
+
+// MAVERICKS_BACKPORT: parenthesize the OR — without it `... || PLATFORM(MAC)` (|| binds looser than &&) is always true on Mac and redefines this macro back to 1, overriding the forced-0 above.
 #if !defined(ENABLE_VIDEO_PRESENTATION_MODE) \
     && ((PLATFORM(IOS_FAMILY) && HAVE(AVKIT)) \
     || PLATFORM(MAC))
@@ -1048,6 +1054,12 @@
 #if !defined(ENABLE_WEB_AUDIO)
 #define ENABLE_WEB_AUDIO 1
 #endif
+
+// MAVERICKS_BACKPORT: WebAuthn (navigator.credentials passkeys) relies on AuthenticationServices /
+// LocalAuthentication / CryptoTokenKit SPI absent on 10.9, so the whole WebAuthentication subsystem
+// (LocalAuthenticator, the Ccid/Hid/Nfc connections and services, the ASC presenter) is off. Every
+// reference is ENABLE(WEB_AUTHN)-guarded upstream, so forcing it off compiles those files out.
+#define ENABLE_WEB_AUTHN 0
 
 #if !defined(ENABLE_WEB_AUTHN) && !PLATFORM(MACCATALYST) && !PLATFORM(WATCHOS)
 #define ENABLE_WEB_AUTHN 1
@@ -1137,6 +1149,12 @@
 #if !defined(ENABLE_WIRELESS_PLAYBACK_TARGET_AVAILABILITY_API) && ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(VISION)
 #define ENABLE_WIRELESS_PLAYBACK_TARGET_AVAILABILITY_API 1
 #endif
+
+// MAVERICKS_BACKPORT: the modern WKWebExtension API is Safari 17+/macOS 13+; Safari 7 uses the
+// classic .safariextz extension model instead, so this API is off. Every reference to it is
+// ENABLE(WK_WEB_EXTENSIONS)-guarded upstream, so forcing it off compiles the WebExtension API
+// surface (WebExtensionAPI*Cocoa, the WKWebExtension* wrappers, bindings) out.
+#define ENABLE_WK_WEB_EXTENSIONS 0
 
 #if !defined(ENABLE_WK_WEB_EXTENSIONS) && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(VISION))
 #define ENABLE_WK_WEB_EXTENSIONS 1

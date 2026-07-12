@@ -29,9 +29,6 @@
 #import "_WKTextManipulationToken.h"
 #import <wtf/RetainPtr.h>
 
-// MAVERICKS_BACKPORT: restored upstream implementation (file had been stubbed); defines
-// _WKTextManipulationItemErrorDomain / _WKTextManipulationItemErrorItemKey referenced by WKWebView.mm,
-// and the _WKTextManipulationItem API object.
 NSString * const _WKTextManipulationItemErrorDomain = @"WKTextManipulationItemErrorDomain";
 NSString * const _WKTextManipulationItemErrorItemKey = @"item";
 

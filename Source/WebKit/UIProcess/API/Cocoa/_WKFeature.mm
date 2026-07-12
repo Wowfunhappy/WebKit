@@ -23,11 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: full upstream _WKFeature wrapper. _wrappedFeature
-// (AlignedStorage<API::Feature>) is constructed via the standard newObject
-// wrapper-switch path (APIObject.mm Type::Feature), so reading it directly is
-// correct; +[WKPreferences _features]/_experimentalFeatures/_internalDebugFeatures
-// hand back wrappers around existing API::Feature objects.
 #import "config.h"
 #import "_WKFeatureInternal.h"
 #import "_WKExperimentalFeature.h"

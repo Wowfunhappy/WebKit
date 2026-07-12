@@ -27,7 +27,6 @@
 #include "config.h"
 #include "NetworkProcess.h"
 
-// MAVERICKS_BACKPORT: 10.9 build divergence (stray blank line).
 #include "ArgumentCoders.h"
 #include "Attachment.h"
 #include "AuthenticationManager.h"

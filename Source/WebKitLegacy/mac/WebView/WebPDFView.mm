@@ -81,10 +81,11 @@ extern "C" bool CGContextGetAllowsFontSubpixelQuantization(CGContextRef);
 #import <wtf/URL.h>
 #import <wtf/text/cf/StringConcatenateCF.h>
 
-// The CGContextGetAllowsFont* forward declarations that lived in this extern "C" block are
-// declared near the top of the file instead (before the imports).
-// MAVERICKS_BACKPORT: this block is intentionally empty (its declarations were relocated above).
 extern "C" {
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     bool CGContextGetAllowsFontSmoothing(CGContextRef context);
+//     bool CGContextGetAllowsFontSubpixelQuantization(CGContextRef context);
+// (end MAVERICKS_BACKPORT restored block)
 }
 
 // Redeclarations of PDFKit notifications. We can't use the API since we use a weak link to the framework.

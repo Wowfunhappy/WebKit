@@ -69,14 +69,6 @@ private:
 void RunLoop::initializeMain()
 {
     RELEASE_ASSERT(!s_mainRunLoop);
-    // MAVERICKS_BACKPORT: no main-RunLoop pinning needed on 10.9 (rationale below).
-    // The main thread runs a real CFRunLoop for the whole process lifetime
-    // (XPCServiceMain → xpc_main → -[NSRunLoop run], via RunLoopType=NSRunLoop;
-    // verified the main thread is parked in __CFRunLoopRun), so its per-thread
-    // RunLoop holder keeps the main RunLoop alive — no pinning needed. (The old
-    // 100000x ref + leaked weak was a workaround for an earlier dispatch_main()
-    // configuration where dispatch_main pthread_exited the main thread and TSD
-    // teardown freed the RunLoop; that configuration is gone.)
     s_mainRunLoop = &RunLoop::currentSingleton();
 }
 

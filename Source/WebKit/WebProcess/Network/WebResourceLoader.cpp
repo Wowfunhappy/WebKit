@@ -241,6 +241,7 @@ void WebResourceLoader::didReceiveResponse(ResourceResponse&& response, PrivateR
                     fflush(stderr);
                 }
                 WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDRECEIVERESPONSE_NOT_CONTINUING_LOAD);
+                // MAVERICKS_BACKPORT DIAGNOSTIC: closes the sentinel-gated not-continuing else branch above.
             }
         };
     }

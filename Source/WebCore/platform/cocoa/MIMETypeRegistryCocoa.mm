@@ -54,9 +54,9 @@ String MIMETypeRegistry::preferredExtensionForMIMEType(const String& type)
 // MAVERICKS_BACKPORT: real implementation replacing the broken libpolyfill stub (see file header).
 Vector<String> MIMETypeRegistry::extensionsForMIMEType(const String& type)
 {
+    Vector<String> extensions;
     // MAVERICKS_BACKPORT: the full tag list (UTTypeCopyAllTagsWithClass) is not used here; the preferred
     // extension is sufficient for WebCore's callers on 10.9.
-    Vector<String> extensions;
     String preferred = preferredExtensionForMIMEType(type);
     if (!preferred.isEmpty())
         extensions.append(preferred);
@@ -75,6 +75,22 @@ bool MIMETypeRegistry::isApplicationPluginMIMEType(const String& mimeType)
     return equalLettersIgnoringASCIICase(mimeType, "application/x-apple-webclip-plug-in"_s);
 }
 
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+bool MIMETypeRegistry::isApplicationPluginMIMEType(const String& MIMEType)
+{
+#if ENABLE(PDF_PLUGIN)
+    // FIXME: This should test if we're actually going to use PDFPlugin,
+    // but we only know that in WebKit2 at the moment. This is not a problem
+    // in practice because if we don't have PDFPlugin and we go to instantiate the
+    // plugin, there won't exist an application plugin supporting these MIME types.
+    if (isPDFMIMEType(MIMEType))
+        return true;
+#else
+    UNUSED_PARAM(MIMEType);
+#endif
+
+    return false;
+MAVERICKS_BACKPORT */
 }
 
 // MAVERICKS_BACKPORT: the legacy CoreServices UTType C APIs used above are deprecated on the modern SDK.

@@ -31,6 +31,7 @@
 #include "CSSCounterStyleRegistry.h"
 #include "CSSCounterStyleRule.h"
 #include "CSSCounterValue.h"
+// MAVERICKS_BACKPORT: Dashboard-region value/style headers for the DASHBOARD_SUPPORT -apple-dashboard-region builders below.
 #if ENABLE(DASHBOARD_SUPPORT)
 #include "CSSDashboardRegionValue.h"
 #include "StyleDashboardRegion.h"

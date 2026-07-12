@@ -262,16 +262,16 @@ static String typeIdentifierForPasteboardType(const String& pasteboardType)
     if ([utType isDeclared])
         return pasteboardType;
 
-    // MAVERICKS_BACKPORT: UTTypeUTF8PlainText (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeUTF8PlainText identifier.
     if (pasteboardType == String(legacyStringPasteboardTypeSingleton()))
+    // MAVERICKS_BACKPORT: UTTypeUTF8PlainText (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeUTF8PlainText identifier.
         return utf8PlainTextTypeIdentifier();
 
-    // MAVERICKS_BACKPORT: UTTypeHTML (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeHTML identifier.
     if (pasteboardType == String(legacyHTMLPasteboardTypeSingleton()))
+    // MAVERICKS_BACKPORT: UTTypeHTML (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeHTML identifier.
         return htmlTypeIdentifier();
 
-    // MAVERICKS_BACKPORT: UTTypeURL (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeURL identifier.
     if (pasteboardType == String(legacyURLPasteboardTypeSingleton()))
+    // MAVERICKS_BACKPORT: UTTypeURL (UniformTypeIdentifiers, 11+) is absent on 10.9; use the legacy kUTTypeURL identifier.
         return urlTypeIdentifier();
 
     return { };

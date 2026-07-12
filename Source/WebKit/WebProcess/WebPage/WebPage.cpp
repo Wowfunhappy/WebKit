@@ -1668,6 +1668,9 @@ EditorState WebPage::editorState(ShouldPerformLayout shouldPerformLayout) const
         return result;
 #endif
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     const VisibleSelection& selection = frame->selection().selection();
+// (end MAVERICKS_BACKPORT restored block)
     Ref editor = frame->editor();
 
     // MAVERICKS_BACKPORT: the NODE-dereferencing parts of selection access (hasEditableStyle
@@ -1694,6 +1697,14 @@ EditorState WebPage::editorState(ShouldPerformLayout shouldPerformLayout) const
 
     Ref<Document> document = *frame->document();
 
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    if (result.selectionType == WebCore::SelectionType::Range) {
+        auto selectionRange = selection.range();
+        result.selectionIsRangeInsideImageOverlay = selectionRange && ImageOverlay::isInsideOverlay(*selectionRange);
+        result.selectionIsRangeInAutoFilledAndViewableField = selection.isInAutoFilledAndViewableField();
+    }
+
+MAVERICKS_BACKPORT */
     m_lastEditorStateWasContentEditable = result.isContentEditable ? EditorStateIsContentEditable::Yes : EditorStateIsContentEditable::No;
 
     if (shouldAvoidComputingPostLayoutDataForEditorState()) {
@@ -4156,8 +4167,8 @@ void WebPage::updatePotentialTapSecurityOrigin(const WebTouchEvent& touchEvent, 
 void WebPage::touchEvent(const WebTouchEvent& touchEvent, CompletionHandler<void(std::optional<WebEventType>, bool)>&& completionHandler)
 {
     RefPtr localMainFrame = this->localMainFrame();
-    // MAVERICKS_BACKPORT: invoke the CompletionHandler on early-out (must always be called).
     if (!localMainFrame)
+    // MAVERICKS_BACKPORT: invoke the CompletionHandler on early-out (must always be called).
         return completionHandler(std::nullopt, false);
 
     CurrentEvent currentEvent(touchEvent);
@@ -5648,8 +5659,8 @@ void WebPage::performDragControllerAction(DragControllerAction action, const Int
         return completionHandler(std::nullopt, DragHandlingMethod::None, false, 0, { }, { }, std::nullopt);
 
     RefPtr localMainFrame = this->localMainFrame();
-    // MAVERICKS_BACKPORT: invoke the CompletionHandler on early-out (must always be called).
     if (!localMainFrame)
+    // MAVERICKS_BACKPORT: invoke the CompletionHandler on early-out (must always be called).
         return completionHandler(std::nullopt, DragHandlingMethod::None, false, 0, { }, { }, std::nullopt);
 
     DragData dragData(&selectionData, clientPosition, globalPosition, draggingSourceOperationMask, flags, anyDragDestinationAction(), m_identifier);

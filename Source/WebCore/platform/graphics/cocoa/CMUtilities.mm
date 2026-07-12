@@ -58,10 +58,6 @@
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: isOpusDecoderAvailable()/isVorbisDecoderAvailable() are defined in their
-// upstream home, WebMAudioUtilitiesCocoa.mm (restored). CMUtilities only references them here to
-// gate codec paths; it must not also define them or the symbols collide at the WebCore link.
-
 WTF_MAKE_TZONE_ALLOCATED_IMPL(PacketDurationParser);
 
 #if ENABLE(VORBIS)
@@ -597,8 +593,8 @@ Expected<RetainPtr<CMSampleBufferRef>, CString> toCMSampleBuffer(const MediaSamp
         CFDictionarySetValue(attachmentsDictionary.get(), CFSTR("BytesOfClearDataCount") /* PAL::kCMSampleAttachmentKey_BytesOfClearDataCount */, value.get());
         if (RefPtr cryptorIV = sample.cryptorIV)
             CFDictionarySetValue(attachmentsDictionary.get(), CFSTR("CryptorIV") /* PAL::kCMSampleAttachmentKey_CryptorInitializationVector */, cryptorIV->createCFData().get());
-        // MAVERICKS_BACKPORT: use the bare CoreMedia kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData constant; it is exported natively by the 10.9 CoreMedia framework so the PAL soft-link wrapper is unnecessary.
         if (RefPtr cryptorSubsampleAuxiliaryData = sample.cryptorSubsampleAuxiliaryData)
+        // MAVERICKS_BACKPORT: use the bare CoreMedia kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData constant; it is exported natively by the 10.9 CoreMedia framework so the PAL soft-link wrapper is unnecessary.
             CFDictionarySetValue(attachmentsDictionary.get(), kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData, cryptorSubsampleAuxiliaryData->createCFData().get());
     }
 #endif

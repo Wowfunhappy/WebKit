@@ -2909,6 +2909,11 @@ void RenderLayerCompositor::frameViewDidScroll()
     // directly translates m_scrolledContentsLayer.
     if (hasCoordinatedScrolling())
         scheduleRenderingUpdate();
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//         return;
+//     }
+//
+// (end MAVERICKS_BACKPORT restored block)
     updateScrollLayerPosition();
 
     // MAVERICKS_BACKPORT: keystone #55/#56. The same broken coordinated-scrolling path that makes

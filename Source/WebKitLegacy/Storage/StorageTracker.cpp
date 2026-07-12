@@ -28,6 +28,7 @@
 #include "StorageThread.h"
 #include "StorageTrackerClient.h"
 #include "WebStorageNamespaceProvider.h"
+// MAVERICKS_BACKPORT: <WebCore/SQLiteDatabase.h> for the eager main-thread SQLite init in internalInitialize() below.
 #include <WebCore/SQLiteDatabase.h>
 #include <WebCore/SQLiteDatabaseTracker.h>
 #include <WebCore/SQLiteStatement.h>

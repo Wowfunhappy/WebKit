@@ -1289,6 +1289,7 @@ void WebEditorClient::requestCheckingOfString(TextCheckingRequest& request, cons
         CFRunLoopRef cfRunLoop = [currentLoop getCFRunLoop];
         CFRunLoopPerformBlock(cfRunLoop, kCFRunLoopCommonModes, ^{
             [responder perform];
+        // MAVERICKS_BACKPORT: closes the CFRunLoopPerformBlock and wakes the run loop (10.9 lacks -[NSRunLoop performBlock:]).
         });
         CFRunLoopWakeUp(cfRunLoop);
     }];

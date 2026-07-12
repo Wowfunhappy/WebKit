@@ -353,9 +353,9 @@ Ref<AudioDecoder::DecodePromise> InternalAudioDecoderCocoa::decode(Ref<SharedBuf
     if (!blockBuffer)
         return DecodePromise::createAndReject("Couldn't create CMBlockBuffer"_s);
 
+    CMSampleTimingInfo packetTiming = {
     // MAVERICKS_BACKPORT: call CMTimeMake directly (not via the PAL soft-link) because the CoreMedia
     // PAL soft-link is unavailable on 10.9; CoreMedia is linked directly here instead.
-    CMSampleTimingInfo packetTiming = {
         .duration = CMTimeMake(duration.value_or(0), 1000000), // CoreMedia does not deal with a CMSampleBuffer with a duration set to either invalid or indefinite. So use 0 instead if no duration has been provided.
         .presentationTimeStamp = CMTimeMake(timestamp, 1000000),
         .decodeTimeStamp = CMTimeMake(timestamp, 1000000)

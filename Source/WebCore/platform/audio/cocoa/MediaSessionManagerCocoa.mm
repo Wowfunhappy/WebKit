@@ -23,19 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: Restored verbatim from upstream 83b24ce. The full
-// MediaSessionManagerCocoa class must exist because WebKit::RemoteMediaSessionManagerProxy
-// inherits from WebCore::MediaSessionManagerCocoa, so its vtable, constructor and the
-// PlatformMediaSessionManager overrides (addSession, sessionWillBeginPlayback,
-// audioOutputDeviceChanged, updateSessionState, resetSessionState, scheduleSessionStatusUpdate,
-// clientCharacteristicsChanged, supportedCommands, add/removeSupportedCommand, ...) are
-// referenced at the WebKit.framework link. PlatformMediaSessionManager::create() now returns
-// a real MediaSessionManagerCocoa. No 10.9 API adaptation was needed: AudioSession is the
-// cross-platform abstraction (AudioSessionCocoa/AudioSessionMac are compiled and linked),
-// and every MediaRemote* call is soft-linked via MediaRemoteSoftLink.h and gated behind
-// isMediaRemoteFrameworkAvailable()/canLoad_* null-checks, so it degrades gracefully when
-// MediaRemote is absent. HAVE(AVEXPERIENCECONTROLLER), USE(NOW_PLAYING_ACTIVITY_SUPPRESSION),
-// PLATFORM(VISION)/PLATFORM(APPLETV) are all OFF here, so those blocks compile out.
 #import "config.h"
 #import "MediaSessionManagerCocoa.h"
 

@@ -1809,16 +1809,16 @@ RetainPtr<PDFDocument> WebPage::pdfDocumentForPrintingFrame(LocalFrame* coreFram
 void WebPage::drawToPDF(const std::optional<FloatRect>& rect, bool allowTransparentBackground, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&& completionHandler)
 {
     RefPtr localMainFrame = this->localMainFrame();
-    // MAVERICKS_BACKPORT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
     if (!localMainFrame)
+    // MAVERICKS_BACKPORT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
         return completionHandler(nullptr);
 
     Ref frameView = *localMainFrame->view();
     auto snapshotRect = IntRect { rect.value_or(FloatRect { { }, frameView->contentsSize() }) };
 
     RefPtr buffer = ImageBuffer::create(snapshotRect.size(), RenderingMode::PDFDocument, RenderingPurpose::Snapshot, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
-    // MAVERICKS_BACKPORT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
     if (!buffer)
+    // MAVERICKS_BACKPORT: invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
         return completionHandler(nullptr);
 
     drawMainFrameToPDF(*localMainFrame, buffer->context(), snapshotRect, allowTransparentBackground);
@@ -2153,8 +2153,8 @@ void WebPage::getSelectedRangeAsync(CompletionHandler<void(const EditingRange& s
 void WebPage::characterIndexForPointAsync(const WebCore::IntPoint& point, CompletionHandler<void(uint64_t)>&& completionHandler)
 {
     RefPtr localMainFrame = this->localMainFrame();
-    // MAVERICKS_BACKPORT: always invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
     if (!localMainFrame)
+    // MAVERICKS_BACKPORT: always invoke the completion handler on the early-out so the async reply IPC is not dropped (a dropped reply hangs the caller).
         return completionHandler({ });
     constexpr OptionSet<HitTestRequest::Type> hitType { HitTestRequest::Type::ReadOnly, HitTestRequest::Type::Active, HitTestRequest::Type::DisallowUserAgentShadowContent,  HitTestRequest::Type::AllowChildFrameContent };
     auto result = localMainFrame->eventHandler().hitTestResultAtPoint(point, hitType);

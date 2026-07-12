@@ -160,6 +160,7 @@ void WebLoaderStrategy::loadResource(LocalFrame& frame, CachedResource& resource
     SubresourceLoader::create(frame, resource, WTF::move(request), options, [this, protectedThis = Ref { *this }, referrerPolicy = options.referrerPolicy, completionHandler = WTF::move(completionHandler), resource = Ref { resource }, frame = Ref { frame }] (RefPtr<SubresourceLoader>&& loader) mutable {
         if (loader)
             scheduleLoad(*loader, resource.ptr(), referrerPolicy == ReferrerPolicy::NoReferrerWhenDowngrade);
+        // MAVERICKS_BACKPORT DIAGNOSTIC: braces wrap the sentinel-gated no-loader trace below.
         else {
             RELEASE_LOG(Network, "%p - [webPageID=%" PRIu64 ", frameID=%" PRIu64 "] WebLoaderStrategy::loadResource: Unable to create SubresourceLoader", this, frame->pageID() ? frame->pageID()->toUInt64() : 0, frame->frameID().toUInt64());
             // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): RELEASE_LOG is compiled out on 10.9.

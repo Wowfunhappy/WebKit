@@ -237,9 +237,9 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     return _intrinsicContentSize;
 }
 
-// MAVERICKS_BACKPORT: auto-layout SPI — a positive min width enables web-process auto-sizing (ported from WebViewImpl).
 - (void)setMinimumSizeForAutoLayout:(NSSize)minimumSizeForAutoLayout
 {
+// MAVERICKS_BACKPORT: auto-layout SPI — a positive min width enables web-process auto-sizing (ported from WebViewImpl).
     if (!_wkState || !_wkState->page)
         return;
     // Matches WebViewImpl::setMinimumSizeForAutoLayout: a positive minimum width enables
@@ -268,9 +268,9 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
         _wkState->page->setAutoSizingShouldExpandToViewHeight(shouldExpand);
 }
 
-// MAVERICKS_BACKPORT: auto-layout SPI getter mirroring WebViewImpl::shouldExpandToViewHeightForAutoLayout.
 - (BOOL)shouldExpandToViewHeightForAutoLayout
 {
+// MAVERICKS_BACKPORT: auto-layout SPI getter mirroring WebViewImpl::shouldExpandToViewHeightForAutoLayout.
     return _wkState && _wkState->page ? _wkState->page->autoSizingShouldExpandToViewHeight() : NO;
 }
 
@@ -567,10 +567,12 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // element-fullscreen path uses (WKMinimalFullScreenWindow in MinimalPageClient.mm).
 - (NSWindow *)createFullScreenWindow
 {
+// MAVERICKS_BACKPORT: -createFullScreenWindow returns a borderless WebCoreFullScreenWindow sized to the main screen for Safari 7's fullscreen controller.
 #if ENABLE(FULLSCREEN_API)
     return [[[WebCoreFullScreenWindow alloc] initWithContentRect:[[NSScreen mainScreen] frame] styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO] autorelease];
 #else
     return nil;
+// MAVERICKS_BACKPORT: closes the FULLSCREEN_API guard above; -createFullScreenWindow returns nil when fullscreen is compiled out.
 #endif
 }
 
@@ -624,6 +626,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // fenced new-size layout swaps in aligned to the view.
 - (void)disableFrameSizeUpdates
 {
+    // MAVERICKS_BACKPORT: nest-count the frame-size-updates gate; a pageless WKView has no state to bump.
     if (_wkState)
         _wkState->frameSizeUpdatesDisabledCount++;
 }
@@ -634,9 +637,11 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     if (!_wkState || !_wkState->frameSizeUpdatesDisabledCount)
         return;
 
+    // MAVERICKS_BACKPORT: only the outermost enable (count reaching zero) resumes frame-size updates.
     if (--_wkState->frameSizeUpdatesDisabledCount)
         return;
 
+    // MAVERICKS_BACKPORT: on the last enable, push the settled frame size to the drawing area and clear the content-anchor shift.
     if (_wkState->page) {
         if (RefPtr drawingArea = _wkState->page->drawingArea())
             drawingArea->setSize(WebCore::IntSize([self frame].size.width, [self frame].size.height));
@@ -654,6 +659,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 {
     return _wkState && _wkState->frameSizeUpdatesDisabledCount > 0;
 }
+// MAVERICKS_BACKPORT: +hideWordDefinitionWindow stub; Safari 7 sends it unguarded to dismiss the dictionary definition panel.
 + (void)hideWordDefinitionWindow {}
 
 // MAVERICKS_BACKPORT: NSServicesRequests responder hooks. AppKit walks the responder chain calling
@@ -665,9 +671,11 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // WebViewImpl::validRequestorForSendAndReturnTypes / writeSelectionToPasteboard / readSelectionFromPasteboard.
 - (id)validRequestorForSendType:(NSString *)sendType returnType:(NSString *)returnType
 {
+    // MAVERICKS_BACKPORT: a pageless WKView forwards Services validation up the responder chain.
     if (!_wkState->page)
         return [[self nextResponder] validRequestorForSendType:sendType returnType:returnType];
 
+    // MAVERICKS_BACKPORT: consult the page's EditorState to decide which send types the current selection offers to Services.
     const WebKit::EditorState& editorState = _wkState->page->editorState();
     bool isValidSendType = !sendType;
     if (sendType && editorState.selectionType != WebCore::SelectionType::None) {
@@ -677,19 +685,23 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
             isValidSendType = [WebKit::PasteboardTypes::forSelectionSingleton() containsObject:sendType];
     }
 
+    // MAVERICKS_BACKPORT: a Service returning a replacement is valid only over editable content (rich or plain text).
     bool isValidReturnType = false;
     if (!returnType)
         isValidReturnType = true;
     else if ([WebKit::PasteboardTypes::forEditingSingleton() containsObject:returnType] && editorState.isContentEditable)
         isValidReturnType = editorState.isContentRichlyEditable || [returnType isEqualToString:WebCore::legacyStringPasteboardTypeSingleton()];
 
+    // MAVERICKS_BACKPORT: offer this view as the Services requestor when send/return types match, else fall through the responder chain.
     if (isValidSendType && isValidReturnType)
         return self;
     return [[self nextResponder] validRequestorForSendType:sendType returnType:returnType];
 }
 
+// MAVERICKS_BACKPORT: -writeSelectionToPasteboard: hands the web selection to the chosen Service (ported from WebViewImpl::writeSelectionToPasteboard).
 - (BOOL)writeSelectionToPasteboard:(NSPasteboard *)pasteboard types:(NSArray *)types
 {
+    // MAVERICKS_BACKPORT: write the web selection to the Services pasteboard via WebPageProxy.
     if (!_wkState->page)
         return NO;
     [pasteboard clearContents];
@@ -705,8 +717,10 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     return YES;
 }
 
+// MAVERICKS_BACKPORT: -readSelectionFromPasteboard: lets a Service replace the web selection (ported from WebViewImpl::readSelectionFromPasteboard).
 - (BOOL)readSelectionFromPasteboard:(NSPasteboard *)pasteboard
 {
+    // MAVERICKS_BACKPORT: hand the Services replacement pasteboard to WebPageProxy.
     if (!_wkState->page)
         return NO;
     return _wkState->page->readSelectionFromPasteboard([pasteboard name]);
@@ -801,6 +815,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // instead of an out-of-window/in-window flicker.
 - (void)beginDeferringViewInWindowChanges
 {
+    // MAVERICKS_BACKPORT: -beginDeferringViewInWindowChanges guards a pageless WKView (ported from WebViewImpl).
     if (!_wkState)
         return;
     if (_wkState->shouldDeferViewInWindowChanges) {
@@ -808,6 +823,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
         return;
     }
 
+    // MAVERICKS_BACKPORT: begin coalescing view-in-window changes so -viewDidMoveToWindow defers the IsInWindow push.
     _wkState->shouldDeferViewInWindowChanges = true;
 }
 
@@ -821,8 +837,10 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
         return;
     }
 
+    // MAVERICKS_BACKPORT: end the in-window-change deferral (ported from WebViewImpl::endDeferringViewInWindowChanges).
     _wkState->shouldDeferViewInWindowChanges = false;
 
+    // MAVERICKS_BACKPORT: push the coalesced IsInWindow change recorded while deferral was active.
     if (_wkState->viewInWindowChangeWasDeferred) {
         if (_wkState->page)
             _wkState->page->activityStateDidChange(WebCore::ActivityState::IsInWindow);
@@ -837,6 +855,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // content-inset machinery, so there is nothing to flush.)
 - (void)endDeferringViewInWindowChangesSync
 {
+    // MAVERICKS_BACKPORT: -endDeferringViewInWindowChangesSync guards a pageless WKView (ported from WebViewImpl).
     if (!_wkState)
         return;
     if (!_wkState->shouldDeferViewInWindowChanges) {
@@ -844,8 +863,10 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
         return;
     }
 
+    // MAVERICKS_BACKPORT: end the deferral, sync variant (ported from WebViewImpl::endDeferringViewInWindowChangesSync).
     _wkState->shouldDeferViewInWindowChanges = false;
 
+    // MAVERICKS_BACKPORT: push the coalesced IsInWindow change recorded while deferral was active.
     if (_wkState->viewInWindowChangeWasDeferred) {
         if (_wkState->page)
             _wkState->page->activityStateDidChange(WebCore::ActivityState::IsInWindow);
@@ -864,13 +885,16 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // while the view is hidden latches IsVisible=0 and the unhide never triggers another recompute.
 - (void)viewDidHide
 {
+    // MAVERICKS_BACKPORT: recompute IsVisible when this view hides, mirroring WebViewImpl's viewDidHide forwarding.
     [super viewDidHide];
     if (_wkState && _wkState->page)
         _wkState->page->activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsVisibleOrOccluded });
 }
 
+// MAVERICKS_BACKPORT: mirror -viewDidHide: recompute visibility when this view (or an ancestor) unhides.
 - (void)viewDidUnhide
 {
+    // MAVERICKS_BACKPORT: recompute IsVisible on unhide so a hidden-latched IsVisible=0 is cleared.
     [super viewDidUnhide];
     if (_wkState && _wkState->page)
         _wkState->page->activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsVisibleOrOccluded });
@@ -991,6 +1015,7 @@ WKV_FORWARD_MOUSE(mouseExited)
 // a dictionary lookup at the tap location.
 - (void)quickLookWithEvent:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: forward the three-finger-tap Look Up gesture to the page's dictionary lookup (WebViewImpl::quickLookWithEvent is unused here).
     if (!_wkState || !_wkState->page) { [super quickLookWithEvent:event]; return; }
     NSPoint locationInViewCoordinates = [self convertPoint:[event locationInWindow] fromView:nil];
     _wkState->page->performDictionaryLookupAtLocation(WebCore::FloatPoint(locationInViewCoordinates));
@@ -1316,6 +1341,7 @@ WKV_EDIT_ACTION(redo,            "Redo")
 // pushed to the WebContent process via WebProcessProxy::updateTextCheckerState.
 - (BOOL)isAutomaticQuoteSubstitutionEnabled
 {
+    // MAVERICKS_BACKPORT: read the automatic-quote-substitution flag from the process-global TextChecker state.
     return TextChecker::state().contains(TextCheckerState::AutomaticQuoteSubstitutionEnabled);
 }
 
@@ -1325,6 +1351,7 @@ WKV_EDIT_ACTION(redo,            "Redo")
     if (static_cast<bool>(flag) == TextChecker::state().contains(TextCheckerState::AutomaticQuoteSubstitutionEnabled))
         return;
 
+    // MAVERICKS_BACKPORT: store the quote-substitution flag in the process-global TextChecker state and push it to WebContent.
     TextChecker::setAutomaticQuoteSubstitutionEnabled(flag);
     if (_wkState && _wkState->page)
         protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
@@ -1342,6 +1369,7 @@ WKV_EDIT_ACTION(redo,            "Redo")
     if (static_cast<bool>(flag) == TextChecker::state().contains(TextCheckerState::AutomaticDashSubstitutionEnabled))
         return;
 
+    // MAVERICKS_BACKPORT: store the dash-substitution flag in the process-global TextChecker state and push it to WebContent.
     TextChecker::setAutomaticDashSubstitutionEnabled(flag);
     if (_wkState && _wkState->page)
         protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
@@ -1354,6 +1382,7 @@ WKV_EDIT_ACTION(redo,            "Redo")
 // the web view is first responder.
 - (void)toggleAutomaticQuoteSubstitution:(id)sender
 {
+    // MAVERICKS_BACKPORT: Substitutions menu toggle flips the process-global TextChecker quote flag and pushes it to WebContent.
     TextChecker::setAutomaticQuoteSubstitutionEnabled(!TextChecker::state().contains(TextCheckerState::AutomaticQuoteSubstitutionEnabled));
     if (_wkState && _wkState->page)
         protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
@@ -1372,6 +1401,7 @@ WKV_EDIT_ACTION(redo,            "Redo")
 // protocol and must not be sent NSMenuItem messages).
 static NSMenuItem *wkMenuItem(id <NSValidatedUserInterfaceItem> item)
 {
+    // MAVERICKS_BACKPORT: wkMenuItem downcasts only genuine NSMenuItems so toolbar items validating through the same protocol are not sent NSMenuItem messages.
     if (![(NSObject *)item isKindOfClass:[NSMenuItem class]])
         return nil;
     return (NSMenuItem *)item;
@@ -1385,21 +1415,30 @@ static NSMenuItem *wkMenuItem(id <NSValidatedUserInterfaceItem> item)
 // override preserves exactly that for them.
 - (BOOL)validateUserInterfaceItem:(id <NSValidatedUserInterfaceItem>)item
 {
+    // MAVERICKS_BACKPORT: -validateUserInterfaceItem: validates the restored Substitutions menu toggles dispatched down the responder chain.
     SEL action = [item action];
 
+    // MAVERICKS_BACKPORT: validate the Automatic Quote Substitution toggle: checkbox from the TextChecker flag, enabled only over editable content.
     if (action == @selector(toggleAutomaticQuoteSubstitution:)) {
         bool checked = TextChecker::state().contains(TextCheckerState::AutomaticQuoteSubstitutionEnabled);
         [wkMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
         return _wkState && _wkState->page && _wkState->page->editorState().isContentEditable;
     }
 
+    // MAVERICKS_BACKPORT: validate the Automatic Dash Substitution toggle: checkbox from the TextChecker flag, enabled only over editable content.
     if (action == @selector(toggleAutomaticDashSubstitution:)) {
         bool checked = TextChecker::state().contains(TextCheckerState::AutomaticDashSubstitutionEnabled);
         [wkMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
         return _wkState && _wkState->page && _wkState->page->editorState().isContentEditable;
     }
 
+    // MAVERICKS_BACKPORT: every other action falls through to YES (AppKit's responds-to-selector default validation for copy:/cut:/paste:/undo:/redo:/selectAll:).
     return YES;
 }
 
 @end
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// ALLOW_DEPRECATED_DECLARATIONS_END
+//
+// #endif // PLATFORM(MAC)
+// (end MAVERICKS_BACKPORT restored block)
