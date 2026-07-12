@@ -301,10 +301,23 @@ void ResourceRequest::doUpdatePlatformRequest()
 
     [nsRequest setCachePolicy:toPlatformRequestCachePolicy(cachePolicy())];
 
+    // MAVERICKS_BACKPORT: 10.9's NSURLSession gives a request-level timeoutInterval precedence over
+    // NSURLSessionConfiguration.timeoutIntervalForRequest, while modern CFNetwork enforces the
+    // config-level 60s idle backstop regardless. Upstream deliberately ships effectively-infinite
+    // request timeouts relying on that backstop (Safari seeds the process-wide default with INT_MAX
+    // via WKURLRequestSetDefaultTimeoutInterval, and XMLHttpRequest uses infinity when no XHR timeout
+    // is set), so on 10.9 every load would run with no timeout at all and a response that never
+    // arrives (e.g. a proxied keepalive-reuse race dropping a request) hangs its load forever.
+    // Restore the modern contract by mapping the infinite sentinels to the platform default idle
+    // timeout (60s, NSURLRequest's documented default, which WebKit's session config leaves untouched).
+    // Finite page-specified timeouts (e.g. XHR's timeout attribute) pass through unchanged.
+    auto clampInfiniteTimeoutInterval = [](double interval) {
+        return interval >= INT_MAX ? 60.0 : interval;
+    };
     if (double newTimeoutInterval = timeoutInterval())
-        [nsRequest setTimeoutInterval:newTimeoutInterval];
+        [nsRequest setTimeoutInterval:clampInfiniteTimeoutInterval(newTimeoutInterval)];
     else
-        [nsRequest setTimeoutInterval:defaultTimeoutInterval()];
+        [nsRequest setTimeoutInterval:clampInfiniteTimeoutInterval(defaultTimeoutInterval())];
 
     [nsRequest setMainDocumentURL:firstPartyForCookies().createNSURL().get()];
     if (!httpMethod().isEmpty())
