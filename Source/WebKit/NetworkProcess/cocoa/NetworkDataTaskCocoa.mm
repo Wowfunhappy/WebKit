@@ -38,6 +38,8 @@
 #import "WebPrivacyHelpers.h"
 #import <WebCore/AdvancedPrivacyProtections.h>
 #import <WebCore/AuthenticationChallenge.h>
+#import <WebCore/BlobData.h>
+#import <WebCore/FormData.h>
 #import <WebCore/HTTPStatusCodes.h>
 #import <WebCore/NetworkStorageSession.h>
 #import <WebCore/NotImplemented.h>
@@ -231,6 +233,98 @@ void NetworkDataTaskCocoa::updateFirstPartyInfoForSession(const URL& requestURL)
         session->setFirstPartyHostIPAddress(requestURL.host().toString(), ipAddress.get());
 }
 
+// MAVERICKS_BACKPORT: 10.9 CFNetwork sends every NSInputStream-bodied NSURLSession task with
+// Transfer-Encoding: chunked and DISCARDS an explicitly-set Content-Length header (verified
+// empirically against both dataTaskWithRequest: and uploadTaskWithStreamedRequest: — the wire
+// carries "Transfer-Encoding: Chunked" and no Content-Length). Bodies made only of in-memory
+// bytes coalesce into a single data element and ship as an NSData HTTPBody with a correct
+// Content-Length, so only bodies containing file-backed elements remain streams — and many
+// endpoints (GitHub/S3 asset uploads) reject length-less chunked uploads, which broke every
+// <input type=file> / drag-drop file upload. uploadTaskWithRequest:fromFile: is the one 10.9
+// body form that both carries Content-Length and replays safely across redirects/auth retries,
+// so file-backed bodies are materialized into a file for it: a body that is exactly one whole
+// file uploads straight from the original file (no copy); mixed multipart bodies are written
+// once to a temporary file (disk cost = upload size; still streams, no memory blowup), which
+// the caller deletes when the task dies. Returns nil to keep the regular stream body (and its
+// canonical failure semantics) when the body has no file elements, still has unresolved blob
+// elements, a file flunks the File.lastModified staleness check, or temporary-file IO fails.
+// Redirects: probed on 10.9 — an upload-from-file task re-sends the file body with a correct
+// Content-Length on a 307 hop even when the redirect delegate's request carries a fresh
+// HTTPBodyStream (WebKit's HTTPBodyUpdatePolicy::UpdateHTTPBody conversion does), so the
+// willPerformHTTPRedirection path needs no special handling. Cost: the multipart copy runs
+// synchronously at task creation on the NetworkProcess main thread; this VM copies 500MB in
+// ~1.7s (~300MB/s), so typical uploads (a few MB) cost single-digit milliseconds — an accepted
+// bound; only a multi-GB multipart upload would produce a user-visible stall.
+static RetainPtr<NSURL> materializeFileBackedRequestBody(const WebCore::FormData& body, String& temporaryPathOut)
+{
+    bool hasFileElement = false;
+    for (auto& element : body.elements()) {
+        if (std::holds_alternative<WebCore::FormDataElement::EncodedFileData>(element.data))
+            hasFileElement = true;
+        else if (std::holds_alternative<WebCore::FormDataElement::EncodedBlobData>(element.data))
+            return nil;
+    }
+    if (!hasFileElement)
+        return nil;
+
+    if (body.elements().size() == 1) {
+        auto& fileData = std::get<WebCore::FormDataElement::EncodedFileData>(body.elements()[0].data);
+        if (!fileData.fileStart && fileData.fileLength == WebCore::BlobDataItem::toEndOfFile && fileData.fileModificationTimeMatchesExpectation())
+            return adoptNS([[NSURL alloc] initFileURLWithPath:fileData.filename.createNSString().get() isDirectory:NO]);
+    }
+
+    auto [temporaryPath, temporaryHandle] = FileSystem::openTemporaryFile("WebKitUploadBody"_s);
+    if (!temporaryHandle)
+        return nil;
+
+    bool succeeded = true;
+    for (auto& element : body.elements()) {
+        succeeded = WTF::switchOn(element.data,
+            [&](const Vector<uint8_t>& bytes) {
+                return temporaryHandle.write(bytes.span()) == bytes.size();
+            },
+            [&](const WebCore::FormDataElement::EncodedFileData& fileData) {
+                if (!fileData.fileModificationTimeMatchesExpectation())
+                    return false;
+                auto sourceHandle = FileSystem::openFile(fileData.filename, FileSystem::FileOpenMode::Read);
+                if (!sourceHandle)
+                    return false;
+                if (fileData.fileStart && !sourceHandle.seek(fileData.fileStart, FileSystem::FileSeekOrigin::Beginning))
+                    return false;
+                long long remaining = fileData.fileLength;
+                Vector<uint8_t> buffer(1 << 16);
+                while (remaining) {
+                    size_t bytesToRead = buffer.size();
+                    if (remaining != WebCore::BlobDataItem::toEndOfFile)
+                        bytesToRead = std::min<long long>(remaining, bytesToRead);
+                    auto bytesRead = sourceHandle.read(buffer.mutableSpan().first(bytesToRead));
+                    if (!bytesRead)
+                        return false;
+                    if (!*bytesRead)
+                        break;
+                    if (temporaryHandle.write(buffer.span().first(*bytesRead)) != *bytesRead)
+                        return false;
+                    if (remaining != WebCore::BlobDataItem::toEndOfFile)
+                        remaining -= *bytesRead;
+                }
+                return true;
+            },
+            [](const WebCore::FormDataElement::EncodedBlobData&) {
+                return false;
+            });
+        if (!succeeded)
+            break;
+    }
+    temporaryHandle = { };
+
+    if (!succeeded) {
+        FileSystem::deleteFile(temporaryPath);
+        return nil;
+    }
+    temporaryPathOut = temporaryPath;
+    return adoptNS([[NSURL alloc] initFileURLWithPath:temporaryPath.createNSString().get() isDirectory:NO]);
+}
+
 NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataTaskClient& client, const NetworkLoadParameters& parameters)
     : NetworkDataTask(session, client, parameters.request, parameters.storedCredentialsPolicy, parameters.shouldClearReferrerOnHTTPSToHTTPRedirect, parameters.isMainFrameNavigation, parameters.isInitiatedByDedicatedWorker)
     , NetworkTaskCocoa(session)
@@ -396,7 +490,22 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         [mutableReq setValue:@"gzip, deflate, br" forHTTPHeaderField:@"Accept-Encoding"];
         nsRequest = adoptNS(mutableReq);
     }
-    m_task = [m_sessionWrapper->session dataTaskWithRequest:nsRequest.get()];
+    // MAVERICKS_BACKPORT: see materializeFileBackedRequestBody above — file-backed bodies must go
+    // out as upload-from-file tasks on 10.9 or they are sent chunked without a Content-Length.
+    RetainPtr<NSURL> uploadBodyFileURL;
+    if ([nsRequest HTTPBodyStream]) {
+        if (RefPtr body = request.httpBody())
+            uploadBodyFileURL = materializeFileBackedRequestBody(*body, m_uploadBodyTemporaryPath);
+    }
+    if (uploadBodyFileURL) {
+        RetainPtr<NSMutableURLRequest> uploadRequest = adoptNS([nsRequest.get() mutableCopy]);
+        [uploadRequest setHTTPBodyStream:nil];
+        // Drop the stream-derived Content-Length so CFNetwork recomputes it from the actual file.
+        [uploadRequest setValue:nil forHTTPHeaderField:@"Content-Length"];
+        nsRequest = uploadRequest;
+        m_task = [m_sessionWrapper->session uploadTaskWithRequest:nsRequest.get() fromFile:uploadBodyFileURL.get()];
+    } else
+        m_task = [m_sessionWrapper->session dataTaskWithRequest:nsRequest.get()];
 
 #if HAVE(CFNETWORK_HOSTOVERRIDE)
     // Avoid setting host override for WPT, since we are using a local DNS resolver then.
@@ -486,6 +595,10 @@ NetworkDataTaskCocoa::~NetworkDataTaskCocoa()
         ASSERT(!iterator->value.get());
         map.remove(iterator);
     }
+
+    // MAVERICKS_BACKPORT: reclaim the materialized upload body (see materializeFileBackedRequestBody).
+    if (!m_uploadBodyTemporaryPath.isNull())
+        FileSystem::deleteFile(m_uploadBodyTemporaryPath);
 }
 
 void NetworkDataTaskCocoa::didSendData(uint64_t totalBytesSent, uint64_t totalBytesExpectedToSend)

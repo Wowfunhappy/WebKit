@@ -224,12 +224,31 @@ void WebInspectorFrontendClient::frontendLoaded()
 
 void WebInspectorFrontendClient::startWindowDrag()
 {
-    [[m_frontendWindowController window] performWindowDragWithEvent:[NSApp currentEvent]];
+    // MAVERICKS_BACKPORT: -[NSWindow performWindowDragWithEvent:] is 10.11+; on 10.9 the frontend
+    // toolbar drag simply no-ops (the window still moves by its titlebar) rather than killing the host.
+    NSWindow *window = [m_frontendWindowController window];
+    if ([window respondsToSelector:@selector(performWindowDragWithEvent:)])
+        [window performWindowDragWithEvent:[NSApp currentEvent]];
+}
+
+// MAVERICKS_BACKPORT: [NSBundle bundleWithIdentifier:] only finds an already-loaded bundle, and
+// nothing in a WK1 host process loads WebInspectorUI.framework (upstream force-loads it through a
+// StagedFrameworks soft-link this port does not have), so the lookup returns nil in every WK1 host
+// and the nil resource paths crash -initWithInspectedWebView: inside +[NSURL fileURLWithPath:nil].
+// Mirror WebInspectorUIProxy::inspectorPageURL (WK2): prefer the on-disk Safari-8-era stock
+// frontend bundle at its fixed PrivateFrameworks path (its tab styling is the user-preferred one),
+// falling back to the loaded-bundle lookup.
+static NSBundle *webInspectorUIBundle()
+{
+    NSBundle *bundle = [NSBundle bundleWithPath:@"/System/Library/PrivateFrameworks/WebInspectorUI.framework"];
+    if (bundle && [bundle pathForResource:@"Main" ofType:@"html"])
+        return bundle;
+    return [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
 }
 
 String WebInspectorFrontendClient::localizedStringsURL() const
 {
-    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    NSBundle *bundle = webInspectorUIBundle();
     if (!bundle)
         return String();
 
@@ -514,6 +533,73 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     return self;
 }
 
+// MAVERICKS_BACKPORT: the classic Safari-8-era frontend needs the same load-time adaptations WK1-side
+// that WK2 applies in WebInspectorUIProxy::platformInspectorPageLoadOverride: strip the CSP meta
+// (under file:// the frontend's `default-src 'self'` blocks everything because 'self' is the null
+// origin) and bridge the classic InspectorFrontendHost API shapes (platform()/localizedStringsURL()/
+// inspectorBackendCommandsURL() as METHODS, setToolbarHeight/setAttachedWindow* present) to the
+// modern WebKit 615 IDL (attribute getters / removed methods), and — like WK2 — wrap the frontend's
+// bare per-domain commands in the modern Target domain (the Target-protocol bridge below): the
+// WebKit 615 WK1 local backend routes every command through Target, so without the bridge the DOM
+// and Resources trees stay empty and console eval returns nothing. Every bridge is typeof-guarded,
+// so a modern frontend (the built-tree Test.html) passes through untouched. The WK2 toolbar-CSS and
+// toolbar-mousedown window-drag shims are NOT ported: the 10.9 inspector window keeps its native
+// titlebar (see -[WebInspectorWindowController window]), so AppKit handles window dragging and the
+// unified-toolbar emulation those shims compensate for does not exist here.
+static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
+{
+    NSData *htmlData = [NSData dataWithContentsOfFile:pagePath options:NSDataReadingMappedIfSafe error:nullptr];
+    if (!htmlData)
+        return nil;
+    NSString *html = adoptNS([[NSString alloc] initWithData:htmlData encoding:NSUTF8StringEncoding]).autorelease();
+    if (!html)
+        return htmlData;
+
+    NSRange metaStart = [html rangeOfString:@"<meta http-equiv=\"Content-Security-Policy\""];
+    if (metaStart.location != NSNotFound) {
+        NSRange metaEnd = [html rangeOfString:@">" options:0 range:NSMakeRange(metaStart.location, html.length - metaStart.location)];
+        if (metaEnd.location != NSNotFound) {
+            NSRange whole = NSMakeRange(metaStart.location, metaEnd.location - metaStart.location + 1);
+            html = [html stringByReplacingCharactersInRange:whole withString:@"<!-- CSP stripped by MAVERICKS_BACKPORT -->"];
+        }
+    }
+
+    NSRange firstScript = [html rangeOfString:@"<script"];
+    if (firstScript.location != NSNotFound) {
+        NSString *shim = @"<script>(function(){"
+                          "var IFH=window.InspectorFrontendHost;if(!IFH)return;"
+                          "function asMethod(name){var val=IFH[name];Object.defineProperty(IFH,name,{value:function(){return val;},writable:true,configurable:true});}"
+                          "if(typeof IFH.platform!=='function')asMethod('platform');"
+                          "if(typeof IFH.localizedStringsURL!=='function')asMethod('localizedStringsURL');"
+                          "if(typeof IFH.inspectorBackendCommandsURL!=='function')Object.defineProperty(IFH,'inspectorBackendCommandsURL',{value:function(){return 'InspectorBackendCommands.js';},writable:true,configurable:true});"
+                          "if(typeof IFH.inspectorBackendCommandsURLs!=='function')Object.defineProperty(IFH,'inspectorBackendCommandsURLs',{value:function(){return ['InspectorBackendCommands.js'];},writable:true,configurable:true});"
+                          "if(typeof IFH.debuggableType!=='function'&&'debuggableInfo' in IFH){var di=IFH.debuggableInfo;Object.defineProperty(IFH,'debuggableType',{value:function(){return di&&di.debuggableType||'web';},writable:true,configurable:true});}"
+                          "if(typeof IFH.setToolbarHeight!=='function')Object.defineProperty(IFH,'setToolbarHeight',{value:function(){},writable:true,configurable:true});"
+                          "if(typeof IFH.setAttachedWindowHeight!=='function')Object.defineProperty(IFH,'setAttachedWindowHeight',{value:function(){},writable:true,configurable:true});"
+                          "if(typeof IFH.setAttachedWindowWidth!=='function')Object.defineProperty(IFH,'setAttachedWindowWidth',{value:function(){},writable:true,configurable:true});"
+                          // Protocol bridge (ported from WebInspectorUIProxyMac.mm platformInspectorPageLoadOverride):
+                          // the WebKit 615 backend routes every command through the modern Target domain, but the
+                          // Safari-8-era frontend emits bare per-domain commands ({method:'DOM.getDocument',id:N}).
+                          // Wrap outgoing non-Target/Browser commands in Target.sendMessageToTarget once the target
+                          // exists (queue until then), and unwrap incoming Target.dispatchMessageFromTarget. Without
+                          // this the console never returns a result and the Resources/Elements trees stay empty.
+                          "try{(function(){var origSend=IFH.sendMessageToBackend.bind(IFH);var currentTargetId=null;var pendingQueue=[];var wrapperIdBase=1000000;var wrapperIds=Object.create(null);"
+                          "function wrap(ms){var wid=wrapperIdBase++;wrapperIds[wid]=true;return JSON.stringify({id:wid,method:'Target.sendMessageToTarget',params:{targetId:currentTargetId,message:ms}});}"
+                          "function flushQueue(){if(!currentTargetId||!pendingQueue.length)return;var q=pendingQueue;pendingQueue=[];for(var i=0;i<q.length;i++){try{origSend(wrap(q[i]));}catch(e){}}}"
+                          "IFH.sendMessageToBackend=function(messageStr){"
+                          "try{var msg=JSON.parse(messageStr);var dom=msg.method&&msg.method.split('.')[0];"
+                          "if(dom==='Target'||dom==='Browser')return origSend(messageStr);"
+                          "if(!currentTargetId){pendingQueue.push(messageStr);return;}"
+                          "return origSend(wrap(messageStr));"
+                          "}catch(e){}return origSend(messageStr);};"
+                          "var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){return origDisp(obj.params.message);}}catch(e){}return origDisp(message);};}}});"
+                          "})();}catch(e){}"
+                          "})();</script>";
+        html = [html stringByReplacingCharactersInRange:NSMakeRange(firstScript.location, 0) withString:shim];
+    }
+    return [html dataUsingEncoding:NSUTF8StringEncoding];
+}
+
 - (id)initWithInspectedWebView:(WebView *)webView isUnderTest:(BOOL)isUnderTest
 {
     if (!(self = [self init]))
@@ -522,7 +608,23 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     _inspectedWebView = webView;
 
     NSString *pagePath = isUnderTest ? [self inspectorTestPagePath] : [self inspectorPagePath];
-    auto request = adoptNS([[NSURLRequest alloc] initWithURL:[NSURL fileURLWithPath:pagePath]]);
+    // MAVERICKS_BACKPORT: never hand a nil path to +[NSURL fileURLWithPath:] — the uncaught
+    // NSInvalidArgumentException kills the whole host app. With no frontend page on disk the
+    // inspector window opens empty instead.
+    if (!pagePath)
+        return self;
+
+    NSURL *pageURL = [NSURL fileURLWithPath:pagePath isDirectory:NO];
+    if (NSData *transformed = wkTransformedClassicFrontendPage(pagePath)) {
+        // The page file URL itself is the base: relative subresources resolve identically to a
+        // regular load, and the frontend policy delegate (-webView:decidePolicyForNavigationAction:...)
+        // path-matches the navigation URL against inspectorPagePath/inspectorTestPagePath — a
+        // directory base would be refused there and kicked to the INSPECTED web view instead.
+        [[_frontendWebView mainFrame] loadData:transformed MIMEType:@"text/html" textEncodingName:@"UTF-8" baseURL:pageURL];
+        return self;
+    }
+
+    auto request = adoptNS([[NSURLRequest alloc] initWithURL:pageURL]);
     [[_frontendWebView mainFrame] loadRequest:request.get()];
 
     return self;
@@ -532,7 +634,9 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
 - (NSString *)inspectorPagePath
 {
-    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    // MAVERICKS_BACKPORT: see webInspectorUIBundle() — the plain bundleWithIdentifier: lookup
+    // returns nil in every WK1 host and the nil path kills the host app in fileURLWithPath:.
+    NSBundle *bundle = webInspectorUIBundle();
     if (!bundle)
         return nil;
 
@@ -541,6 +645,14 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
 - (NSString *)inspectorTestPagePath
 {
+    // MAVERICKS_BACKPORT: under DumpRenderTree nothing loads WebInspectorUI.framework and the
+    // stock PrivateFrameworks bundle ships no Test.html — probe the build tree's staged modern
+    // frontend relative to the test-driver binary before the loaded-bundle lookup.
+    NSString *executableDirectory = [[[NSBundle mainBundle] executablePath] stringByDeletingLastPathComponent];
+    NSString *builtTestPage = [[executableDirectory stringByAppendingPathComponent:@"../WebInspectorUI/DerivedSources/InspectorResources/WebInspectorUI/Test.html"] stringByStandardizingPath];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:builtTestPage])
+        return builtTestPage;
+
     NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
     if (!bundle)
         return nil;
@@ -561,7 +673,13 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     if (auto *window = [super window])
         return window;
 
-    NSUInteger styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable | NSWindowStyleMaskFullSizeContentView;
+    // MAVERICKS_BACKPORT: NSWindowStyleMaskFullSizeContentView + -setTitlebarAppearsTransparent:
+    // (below) are the 10.10+ "content fills the titlebar region" combo. On 10.9 the style bit is
+    // inert but -setTitlebarAppearsTransparent: is an unrecognized selector that kills the host app,
+    // so both are dropped here for a normal titled inspector window.
+    NSUInteger styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+    if ([NSWindow instancesRespondToSelector:@selector(setTitlebarAppearsTransparent:)])
+        styleMask |= NSWindowStyleMaskFullSizeContentView;
     auto window = adoptNS([[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, initialWindowWidth, initialWindowHeight) styleMask:styleMask backing:NSBackingStoreBuffered defer:NO]);
     [window setDelegate:self];
     [window setMinSize:NSMakeSize(minimumWindowWidth, minimumWindowHeight)];
@@ -575,7 +693,9 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     // unused-variable warning.
     (void)minimumFullScreenWidth;
 
-    [window setTitlebarAppearsTransparent:YES];
+    // MAVERICKS_BACKPORT: -setTitlebarAppearsTransparent: is 10.10+; guard it (see styleMask above).
+    if ([window respondsToSelector:@selector(setTitlebarAppearsTransparent:)])
+        [window setTitlebarAppearsTransparent:YES];
 
     [self setWindow:window.get()];
     return window.unsafeGet();

@@ -5,6 +5,10 @@
 #import "config.h"
 // MAVERICKS_BACKPORT: include the public WKView.h (not WKViewInternal.h) — this is a standalone reimplementation, not the upstream PLATFORM(MAC) WebViewImpl wrapper.
 #import "WKView.h"
+// MAVERICKS_BACKPORT: WKViewPrivate.h carries the restored Safari-7 WKView SPI declarations
+// implemented below (the WKContentAnchor enum, the view-in-window deferral family, the async
+// drawing-area size-update pair, and the automatic-substitution flags).
+#import "WKViewPrivate.h"
 
 #import "APIPageConfiguration.h"
 // MAVERICKS_BACKPORT: includes for the hand-written NSEvent→WebPageProxy input forwarding and page wiring below.
@@ -17,6 +21,11 @@
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "WebProcessPool.h"
+// MAVERICKS_BACKPORT: process-global TextChecker state + the process proxy that pushes it to
+// WebContent, for the restored automatic quote/dash substitution SPI below.
+#import "TextChecker.h"
+#import "TextCheckerState.h"
+#import "WebProcessProxy.h"
 #import "WebUserContentControllerProxy.h"
 #import "WebKit2Initialize.h"
 #import "DrawingAreaProxy.h"
@@ -32,6 +41,8 @@
 #import <WebCore/FloatPoint.h>
 #import <WebCore/IntSize.h>
 #import <WebCore/KeypressCommand.h>
+// MAVERICKS_BACKPORT: WebCoreFullScreenWindow backs the restored -createFullScreenWindow SPI.
+#import <WebCore/WebCoreFullScreenWindow.h>
 #import <QuartzCore/QuartzCore.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/Vector.h>
@@ -84,7 +95,32 @@ struct WKViewState {
     // (mirrors WebViewImpl::m_keyDownEventBeingResent); performKeyEquivalent:/keyDown:
     // pass it to super instead of re-entering the page.
     RetainPtr<NSEvent> keyDownEventBeingResent;
+    // MAVERICKS_BACKPORT: Safari 7's content-anchor SPI — the corner painted content stays
+    // pinned to while frame-size updates are disabled (see -setContentAnchor:).
+    WKContentAnchor contentAnchor { WKContentAnchorTopLeft };
+    // MAVERICKS_BACKPORT: accumulated content-anchor shift of the hosted layer, and the
+    // -disableFrameSizeUpdates nesting count that gates the drawing-area size push (both
+    // mirror the 537 WKView's _frameOrigin / _frameSizeUpdatesDisabledCount).
+    NSPoint frameOrigin { 0, 0 };
+    unsigned frameSizeUpdatesDisabledCount { 0 };
+    // MAVERICKS_BACKPORT: view-in-window-change deferral state (mirrors WebViewImpl's
+    // m_shouldDeferViewInWindowChanges / m_viewInWindowChangeWasDeferred). While deferring,
+    // -viewDidMoveToWindow records the IsInWindow change here instead of pushing it;
+    // -endDeferringViewInWindowChanges[Sync] pushes the coalesced change.
+    bool shouldDeferViewInWindowChanges { false };
+    bool viewInWindowChangeWasDeferred { false };
 };
+
+// MAVERICKS_BACKPORT: WKContentAnchor corner tests, restored from the Safari-537-era WKView.mm.
+static inline bool isWKContentAnchorRight(WKContentAnchor x)
+{
+    return x == WKContentAnchorTopRight || x == WKContentAnchorBottomRight;
+}
+
+static inline bool isWKContentAnchorBottom(WKContentAnchor x)
+{
+    return x == WKContentAnchorBottomLeft || x == WKContentAnchorBottomRight;
+}
 
 // MAVERICKS_BACKPORT: NSApplication SPI WebViewImpl::doneWithKeyEvent uses when re-dispatching
 // an unhandled key-down back to AppKit, so [NSApp currentEvent] matches during menu dispatch.
@@ -319,10 +355,31 @@ struct WKViewState {
 // MAVERICKS_BACKPORT: WKView's normal setFrameSize: propagates the new viewport size to
 // WebContent via WebPageProxy::setSize. Without this override, WebContent renders at
 // 0x0 — Safari creates WKViews with zero frame and resizes them later.
+//
+// The Safari-537-era frame-size-updates gate and content-anchor shift are ported in here:
+// Safari 7's resize animations run disableFrameSizeUpdates → -setFrameSize: (repeatedly) →
+// forceAsyncDrawingAreaSizeUpdate: → waitForAsyncDrawingAreaSizeUpdate →
+// enableFrameSizeUpdates. While updates are disabled, the drawing-area push is skipped and
+// the hosted layer is shifted so the already-painted content stays pinned to the corner
+// Safari chose with -setContentAnchor: (the 537 setFrameSize: _frameOrigin/rootLayer.position
+// mechanism); -enableFrameSizeUpdates then pushes the settled frame size and clears the shift.
 - (void)setFrameSize:(NSSize)newSize
 {
+    // MAVERICKS_BACKPORT: compute the anchor-shifted content origin against the OLD frame size,
+    // before super updates it (mirrors the 537 setFrameSize: ordering).
+    bool frameSizeUpdatesEnabled = ![self frameSizeUpdatesDisabled];
+    NSPoint newFrameOrigin = NSZeroPoint;
+    if (!frameSizeUpdatesEnabled && _wkState) {
+        newFrameOrigin = _wkState->frameOrigin;
+        if (isWKContentAnchorRight(_wkState->contentAnchor))
+            newFrameOrigin.x += [self frame].size.width - newSize.width;
+        if (isWKContentAnchorBottom(_wkState->contentAnchor))
+            newFrameOrigin.y += [self frame].size.height - newSize.height;
+    }
+
     [super setFrameSize:newSize];
-    if (_wkState && _wkState->page) {
+
+    if (frameSizeUpdatesEnabled && _wkState && _wkState->page) {
         // MAVERICKS_BACKPORT: if drawingArea is null, the WKView was created before WebContent
         // was running. Re-attempt initializeWebPage now that the process should be alive.
         if (!_wkState->page->drawingArea())
@@ -334,20 +391,100 @@ struct WKViewState {
     // layer by MinimalPageClient::enterAcceleratedCompositingMode, framed to the view's
     // bounds AT THAT TIME. It is not re-framed on resize, so a view that composites while
     // small (e.g. Mail's message view before its auto-layout height arrives) stays clipped
-    // to that initial size and shows blank. Keep the hosted sublayer matched to our bounds.
+    // to that initial size and shows blank. Keep the hosted sublayer matched to our bounds —
+    // except while frame-size updates are disabled: then the sublayer keeps its size (the web
+    // process is still laid out at the old size) and only its origin moves, so the painted
+    // content stays pinned to the anchored corner. This view is flipped, so the top-left-origin
+    // math of the 537 anchor shift (rootLayer.position = -newFrameOrigin) carries over directly.
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    for (CALayer *sublayer in [[self layer] sublayers])
-        [sublayer setFrame:[self bounds]];
+    if (frameSizeUpdatesEnabled) {
+        if (_wkState)
+            _wkState->frameOrigin = NSZeroPoint;
+        for (CALayer *sublayer in [[self layer] sublayers])
+            [sublayer setFrame:[self bounds]];
+    } else {
+        if (_wkState)
+            _wkState->frameOrigin = newFrameOrigin;
+        for (CALayer *sublayer in [[self layer] sublayers]) {
+            CGRect sublayerFrame = [sublayer frame];
+            sublayerFrame.origin = CGPointMake(-newFrameOrigin.x, -newFrameOrigin.y);
+            [sublayer setFrame:sublayerFrame];
+        }
+    }
     [CATransaction commit];
 }
 
 - (void)setFrame:(NSRect)frame
 {
     [super setFrame:frame];
-    if (_wkState && _wkState->page) {
+    // MAVERICKS_BACKPORT: honor the frame-size-updates gate here too — while Safari has called
+    // -disableFrameSizeUpdates, no frame change reaches the drawing area until
+    // -enableFrameSizeUpdates pushes the settled size.
+    if (![self frameSizeUpdatesDisabled] && _wkState && _wkState->page) {
         if (RefPtr drawingArea = _wkState->page->drawingArea())
             drawingArea->setSize(WebCore::IntSize(frame.size.width, frame.size.height));
+    }
+}
+
+// MAVERICKS_BACKPORT: content-anchor SPI, declared in WKViewPrivate.h (with the restored
+// WKContentAnchor enum) and sent unguarded by Safari 7 around its gated resize animations
+// (-disableFrameSizeUpdates … -enableFrameSizeUpdates). The Safari-537-era anchoring had two
+// halves, and this port restores the UI-process half: while frame-size updates are disabled,
+// -setFrameSize: shifts the hosted layer by the accumulated size delta so the already-painted
+// content stays pinned to the anchored corner (537's rootLayer.position = -_frameOrigin shift).
+// The web-process half is gone from modern WebKit: 537's geometry update carried a layer offset
+// (DrawingAreaProxy::setSize(size, layerOffset, scrollOffset) → TiledCoreAnimationDrawingArea::
+// updateGeometry) that kept the FRESHLY painted new-size layout anchored too, whereas the modern
+// UpdateGeometry message is only (viewSize, flushSynchronously, fencePort) with no offset for
+// the web process to apply. So when -enableFrameSizeUpdates pushes the settled size, the anchor
+// shift is cleared in the same transaction and the fenced new-size layout swaps in
+// top-left-aligned — the anchor holds throughout the animation, not across the final repaint.
+- (void)setContentAnchor:(WKContentAnchor)contentAnchor
+{
+    if (_wkState)
+        _wkState->contentAnchor = contentAnchor;
+}
+
+// MAVERICKS_BACKPORT: content-anchor getter; pageless WKViews (no _wkState) report the default top-left anchor.
+- (WKContentAnchor)contentAnchor
+{
+    return _wkState ? _wkState->contentAnchor : WKContentAnchorTopLeft;
+}
+
+// MAVERICKS_BACKPORT: async drawing-area size-update SPI, declared in WKViewPrivate.h and sent
+// unguarded by Safari 7, typically while frame-size updates are disabled (the force bypasses
+// the -disableFrameSizeUpdates gate, which is its entire point). Ported from the Safari-537-era
+// -[WKView forceAsyncDrawingAreaSizeUpdate:] against the current drawing-area API: push the
+// given size to the drawing area without waiting (the drawn area need not match the view frame),
+// then poll with a zero timeout so an already-answered UpdateGeometry dispatches and the fresh
+// size can go out immediately — the modern shape of the old zero-timeout
+// waitForPossibleGeometryUpdate poll. Like the 537 version, this leaves any content-anchor shift
+// in place; -enableFrameSizeUpdates clears it. (The 537 version also refreshed the exposed rect
+// when clipping to the visible rect; this WKView has no clips-to-visible-rect machinery, so
+// there is no exposed rect to refresh.)
+- (void)forceAsyncDrawingAreaSizeUpdate:(NSSize)size
+{
+    if (!_wkState || !_wkState->page)
+        return;
+    if (RefPtr drawingArea = _wkState->page->drawingArea()) {
+        drawingArea->setSize(WebCore::IntSize(size.width, size.height));
+        drawingArea->waitForDidUpdateGeometry(WTF::Seconds { });
+    }
+}
+
+// MAVERICKS_BACKPORT: blocking counterpart, ported from the Safari-537-era
+// -[WKView waitForAsyncDrawingAreaSizeUpdate]. If a geometry update is still pending then
+// receiving its reply may schedule another update (the drawing area resends when the size
+// changed while waiting) — wait for that one too, matching the 537 implementation's split of
+// the 500ms didUpdateBackingStoreStateTimeout into two half-timeout waits.
+- (void)waitForAsyncDrawingAreaSizeUpdate
+{
+    if (!_wkState || !_wkState->page)
+        return;
+    if (RefPtr drawingArea = _wkState->page->drawingArea()) {
+        drawingArea->waitForDidUpdateGeometry(WTF::Seconds::fromMilliseconds(250));
+        drawingArea->waitForDidUpdateGeometry(WTF::Seconds::fromMilliseconds(250));
     }
 }
 
@@ -420,6 +557,23 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 }
 - (BOOL)wantsUpdateLayer { return NO; }
 - (NSView *)fullScreenPlaceholderView { return nil; }
+
+// MAVERICKS_BACKPORT: legacy fullscreen SPI, declared in WKViewPrivate.h and sent unguarded by
+// Safari 7's fullscreen controller, which asks its WKView for the window that hosts fullscreen
+// content. Ported verbatim from the Safari-537-era -[WKView createFullScreenWindow]: a borderless
+// WebCoreFullScreenWindow sized to the main screen. WebCoreFullScreenWindow is alive in this tree
+// (WebKitLegacy's WebFullScreenController builds the same window) and answers YES to
+// canBecomeKeyWindow, matching the borderless key-window arrangement this backport's own
+// element-fullscreen path uses (WKMinimalFullScreenWindow in MinimalPageClient.mm).
+- (NSWindow *)createFullScreenWindow
+{
+#if ENABLE(FULLSCREEN_API)
+    return [[[WebCoreFullScreenWindow alloc] initWithContentRect:[[NSScreen mainScreen] frame] styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO] autorelease];
+#else
+    return nil;
+#endif
+}
+
 - (void)updateLayer {}
 // Basic init methods for non-page WKView instances (e.g. title bar button)
 - (id)init { return [super init]; }
@@ -447,14 +601,59 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // area. The empty stub left WKView at full container height, and Safari then
 // positioned the banner ABOVE the unchanged WKView — outside the container's
 // clipping bounds, making the banner invisible.
+// The scroll offset is dropped: 537 stashed it in _resizeScrollOffset and passed it as the
+// scrollOffset argument of DrawingAreaProxy::setSize so the web process scroll-compensated a
+// bottom-anchored resize in the same geometry update, but the modern drawing area no longer
+// consumes it (DrawingAreaProxy::setSize accumulates m_scrollOffset and nothing reads it; the
+// TCA UpdateGeometry message carries no scroll delta). Recorded in the hack audit
+// ([[webkit-mavericks-hack-audit]]) as a known behavior gap: banner show/hide can jump the
+// scroll position by the banner height.
 - (void)setFrame:(NSRect)r andScrollBy:(NSSize)o
 {
     [super setFrame:r];
     (void)o;
 }
-- (void)disableFrameSizeUpdates {}
-- (void)enableFrameSizeUpdates {}
-- (BOOL)frameSizeUpdatesDisabled { return NO; }
+// MAVERICKS_BACKPORT: frame-size-updates gate, ported from the Safari-537-era WKView
+// (disableFrameSizeUpdates / enableFrameSizeUpdates / frameSizeUpdatesDisabled). Safari 7 nests
+// disable/enable around its resize animations so the web process sees one settled size instead
+// of every animation frame; while disabled, -setFrameSize: also applies the content-anchor
+// shift (see there). -enableFrameSizeUpdates pushes the current frame size on reaching zero,
+// exactly as the 537 implementation pushed _setDrawingAreaSize:[self frame].size — and, because
+// the modern geometry update carries no layer offset for the web process to compensate with
+// (see -setContentAnchor:), it also clears the anchor shift in the same transaction so the
+// fenced new-size layout swaps in aligned to the view.
+- (void)disableFrameSizeUpdates
+{
+    if (_wkState)
+        _wkState->frameSizeUpdatesDisabledCount++;
+}
+
+// MAVERICKS_BACKPORT: decrement the gate; on reaching zero push the settled frame size and clear the anchor shift (see -disableFrameSizeUpdates).
+- (void)enableFrameSizeUpdates
+{
+    if (!_wkState || !_wkState->frameSizeUpdatesDisabledCount)
+        return;
+
+    if (--_wkState->frameSizeUpdatesDisabledCount)
+        return;
+
+    if (_wkState->page) {
+        if (RefPtr drawingArea = _wkState->page->drawingArea())
+            drawingArea->setSize(WebCore::IntSize([self frame].size.width, [self frame].size.height));
+    }
+    _wkState->frameOrigin = NSZeroPoint;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    for (CALayer *sublayer in [[self layer] sublayers])
+        [sublayer setFrame:[self bounds]];
+    [CATransaction commit];
+}
+
+// MAVERICKS_BACKPORT: gate query (537-verbatim semantics); pageless WKViews report the default enabled state.
+- (BOOL)frameSizeUpdatesDisabled
+{
+    return _wkState && _wkState->frameSizeUpdatesDisabledCount > 0;
+}
 + (void)hideWordDefinitionWindow {}
 
 // MAVERICKS_BACKPORT: NSServicesRequests responder hooks. AppKit walks the responder chain calling
@@ -578,12 +777,86 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     }
 
     OptionSet<WebCore::ActivityState> flags;
-    flags.add(WebCore::ActivityState::IsInWindow);
+    // MAVERICKS_BACKPORT: while Safari is deferring view-in-window changes
+    // (-beginDeferringViewInWindowChanges), the IsInWindow push is suppressed and recorded so
+    // -endDeferringViewInWindowChanges[Sync] pushes the coalesced change. Mirrors the
+    // m_shouldDeferViewInWindowChanges gate in WebViewImpl::viewDidMoveToWindow.
+    if (_wkState->shouldDeferViewInWindowChanges)
+        _wkState->viewInWindowChangeWasDeferred = true;
+    else
+        flags.add(WebCore::ActivityState::IsInWindow);
     flags.add(WebCore::ActivityState::IsVisible);
     flags.add(WebCore::ActivityState::IsVisibleOrOccluded);
     flags.add(WebCore::ActivityState::WindowIsActive);
     flags.add(WebCore::ActivityState::IsFocused);
     _wkState->page->activityStateDidChange(flags);
+}
+
+// MAVERICKS_BACKPORT: view-in-window-change deferral SPI, declared in WKViewPrivate.h and sent
+// unguarded by Safari 7 when it moves a WKView between windows (tab drag-out/merge). Ported from
+// WebViewImpl::beginDeferringViewInWindowChanges / endDeferringViewInWindowChanges /
+// endDeferringViewInWindowChangesSync onto this WKView's activityStateDidChange machinery:
+// while deferring, -viewDidMoveToWindow suppresses the ActivityState::IsInWindow push and records
+// it; ending the deferral pushes the coalesced in-window change so the page sees one transition
+// instead of an out-of-window/in-window flicker.
+- (void)beginDeferringViewInWindowChanges
+{
+    if (!_wkState)
+        return;
+    if (_wkState->shouldDeferViewInWindowChanges) {
+        NSLog(@"beginDeferringViewInWindowChanges was called while already deferring view-in-window changes!");
+        return;
+    }
+
+    _wkState->shouldDeferViewInWindowChanges = true;
+}
+
+// MAVERICKS_BACKPORT: end the deferral and push the coalesced IsInWindow change (ported from WebViewImpl::endDeferringViewInWindowChanges).
+- (void)endDeferringViewInWindowChanges
+{
+    if (!_wkState)
+        return;
+    if (!_wkState->shouldDeferViewInWindowChanges) {
+        NSLog(@"endDeferringViewInWindowChanges was called without beginDeferringViewInWindowChanges!");
+        return;
+    }
+
+    _wkState->shouldDeferViewInWindowChanges = false;
+
+    if (_wkState->viewInWindowChangeWasDeferred) {
+        if (_wkState->page)
+            _wkState->page->activityStateDidChange(WebCore::ActivityState::IsInWindow);
+        _wkState->viewInWindowChangeWasDeferred = false;
+    }
+}
+
+// MAVERICKS_BACKPORT: Sync variant, ported from WebViewImpl::endDeferringViewInWindowChangesSync,
+// whose body upstream is identical to the non-Sync variant — the historical synchronous
+// waitForDidUpdateInWindowState is gone from modern WebKit, so "Sync" carries no extra wait.
+// (WebViewImpl also flushes its pending obscured-content-inset changes here; this WKView has no
+// content-inset machinery, so there is nothing to flush.)
+- (void)endDeferringViewInWindowChangesSync
+{
+    if (!_wkState)
+        return;
+    if (!_wkState->shouldDeferViewInWindowChanges) {
+        NSLog(@"endDeferringViewInWindowChangesSync was called without beginDeferringViewInWindowChanges!");
+        return;
+    }
+
+    _wkState->shouldDeferViewInWindowChanges = false;
+
+    if (_wkState->viewInWindowChangeWasDeferred) {
+        if (_wkState->page)
+            _wkState->page->activityStateDidChange(WebCore::ActivityState::IsInWindow);
+        _wkState->viewInWindowChangeWasDeferred = false;
+    }
+}
+
+// MAVERICKS_BACKPORT: deferral-state getter (ported from WebViewImpl::isDeferringViewInWindowChanges; declared in WKViewPrivate.h).
+- (BOOL)isDeferringViewInWindowChanges
+{
+    return _wkState && _wkState->shouldDeferViewInWindowChanges;
 }
 
 // MAVERICKS_BACKPORT: recompute visibility when this view (or an ancestor) hides/unhides, mirroring
@@ -1034,5 +1307,99 @@ WKV_EDIT_ACTION(pasteAsPlainText,"PasteAsPlainText")
 WKV_EDIT_ACTION(undo,            "Undo")
 WKV_EDIT_ACTION(redo,            "Redo")
 #undef WKV_EDIT_ACTION
+
+// MAVERICKS_BACKPORT: automatic quote/dash substitution SPI, declared in WKViewPrivate.h and sent
+// unguarded by Safari 7's substitutions plumbing. Ported from
+// WebViewImpl::isAutomaticQuoteSubstitutionEnabled / setAutomaticQuoteSubstitutionEnabled /
+// isAutomaticDashSubstitutionEnabled / setAutomaticDashSubstitutionEnabled: the flags live in the
+// process-global TextChecker state (persisted to user defaults by TextCheckerMac), and a change is
+// pushed to the WebContent process via WebProcessProxy::updateTextCheckerState.
+- (BOOL)isAutomaticQuoteSubstitutionEnabled
+{
+    return TextChecker::state().contains(TextCheckerState::AutomaticQuoteSubstitutionEnabled);
+}
+
+// MAVERICKS_BACKPORT: see -isAutomaticQuoteSubstitutionEnabled above (ported from WebViewImpl::setAutomaticQuoteSubstitutionEnabled).
+- (void)setAutomaticQuoteSubstitutionEnabled:(BOOL)flag
+{
+    if (static_cast<bool>(flag) == TextChecker::state().contains(TextCheckerState::AutomaticQuoteSubstitutionEnabled))
+        return;
+
+    TextChecker::setAutomaticQuoteSubstitutionEnabled(flag);
+    if (_wkState && _wkState->page)
+        protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+}
+
+// MAVERICKS_BACKPORT: see -isAutomaticQuoteSubstitutionEnabled above (ported from WebViewImpl::isAutomaticDashSubstitutionEnabled).
+- (BOOL)isAutomaticDashSubstitutionEnabled
+{
+    return TextChecker::state().contains(TextCheckerState::AutomaticDashSubstitutionEnabled);
+}
+
+// MAVERICKS_BACKPORT: see -isAutomaticQuoteSubstitutionEnabled above (ported from WebViewImpl::setAutomaticDashSubstitutionEnabled).
+- (void)setAutomaticDashSubstitutionEnabled:(BOOL)flag
+{
+    if (static_cast<bool>(flag) == TextChecker::state().contains(TextCheckerState::AutomaticDashSubstitutionEnabled))
+        return;
+
+    TextChecker::setAutomaticDashSubstitutionEnabled(flag);
+    if (_wkState && _wkState->page)
+        protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+}
+
+// MAVERICKS_BACKPORT: Edit ▸ Substitutions menu actions for the quote/dash pair, ported from
+// WebViewImpl::toggleAutomaticQuoteSubstitution / toggleAutomaticDashSubstitution (the
+// Safari-537-era WKView shipped the same responder actions). AppKit dispatches these down the
+// responder chain from the menu items; without them the items are permanently disabled while
+// the web view is first responder.
+- (void)toggleAutomaticQuoteSubstitution:(id)sender
+{
+    TextChecker::setAutomaticQuoteSubstitutionEnabled(!TextChecker::state().contains(TextCheckerState::AutomaticQuoteSubstitutionEnabled));
+    if (_wkState && _wkState->page)
+        protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+}
+
+// MAVERICKS_BACKPORT: see -toggleAutomaticQuoteSubstitution: above (ported from WebViewImpl::toggleAutomaticDashSubstitution).
+- (void)toggleAutomaticDashSubstitution:(id)sender
+{
+    TextChecker::setAutomaticDashSubstitutionEnabled(!TextChecker::state().contains(TextCheckerState::AutomaticDashSubstitutionEnabled));
+    if (_wkState && _wkState->page)
+        protect(_wkState->page->legacyMainFrameProcess())->updateTextCheckerState();
+}
+
+// MAVERICKS_BACKPORT: NSMenuItem downcast for -validateUserInterfaceItem: (restored from the
+// Safari-537-era WKView.mm static menuItem() helper; toolbar items validate through the same
+// protocol and must not be sent NSMenuItem messages).
+static NSMenuItem *wkMenuItem(id <NSValidatedUserInterfaceItem> item)
+{
+    if (![(NSObject *)item isKindOfClass:[NSMenuItem class]])
+        return nil;
+    return (NSMenuItem *)item;
+}
+
+// MAVERICKS_BACKPORT: menu validation for the two restored Substitutions toggles, ported from
+// the Safari-537-era -[WKView validateUserInterfaceItem:] cases (checkbox state from the
+// TextChecker flag; enabled only over editable content, matching WebViewImpl). Every other
+// action falls through to YES: this WKView's other menu actions (copy:/cut:/paste:/undo:/
+// redo:/selectAll:) are enabled by AppKit's responds-to-selector default validation, and this
+// override preserves exactly that for them.
+- (BOOL)validateUserInterfaceItem:(id <NSValidatedUserInterfaceItem>)item
+{
+    SEL action = [item action];
+
+    if (action == @selector(toggleAutomaticQuoteSubstitution:)) {
+        bool checked = TextChecker::state().contains(TextCheckerState::AutomaticQuoteSubstitutionEnabled);
+        [wkMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        return _wkState && _wkState->page && _wkState->page->editorState().isContentEditable;
+    }
+
+    if (action == @selector(toggleAutomaticDashSubstitution:)) {
+        bool checked = TextChecker::state().contains(TextCheckerState::AutomaticDashSubstitutionEnabled);
+        [wkMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        return _wkState && _wkState->page && _wkState->page->editorState().isContentEditable;
+    }
+
+    return YES;
+}
 
 @end

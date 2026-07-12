@@ -50,6 +50,7 @@
 #include <wtf/LoggerHelper.h>
 #include <wtf/OptionSet.h>
 #include <wtf/RefCounted.h>
+#include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeWeakPtr.h>
@@ -193,6 +194,18 @@ public:
 #if USE(COORDINATED_GRAPHICS)
     PlatformLayer* NODELETE platformLayer() const override;
     bool supportsAcceleratedRendering() const override { return true; }
+#elif PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: accelerated <video> compositing for the Cocoa+CoreGraphics build — the
+    // player exposes a CALayer whose contents triggerRepaint() updates per frame from the streaming
+    // thread (see VideoLayerGStreamerCocoa.h), so frames reach the screen through the compositor
+    // instead of the main-thread tile-repaint path. Streams of every orientation composite here: a
+    // rotated/mirrored source orientation is baked into the frame pixels by
+    // setGStreamerVideoLayerContents. The layer itself carries no orientation transform: as a
+    // compositor-managed contents layer its geometry (bounds/anchor point) is owned by
+    // GraphicsLayerCA, so a transform applied here would fight that geometry (e.g. rotating about a
+    // (0,0) anchor pushes the frame off-screen).
+    PlatformLayer* platformLayer() const override;
+    bool supportsAcceleratedRendering() const override { return true; }
 #endif
 
 #if ENABLE(ENCRYPTED_MEDIA)
@@ -266,12 +279,6 @@ public:
 
     void elementIdChanged(const String&) const final;
 
-    // MAVERICKS_BACKPORT: draw-wait latch bracket for main-thread blocking pipeline operations
-    // (gst_element_set_state / gst_element_send_event); public so the RAII scope in the .cpp's
-    // anonymous namespace can call them; see the definitions for the mechanism.
-    void beginMainThreadPipelineOperation();
-    void endMainThreadPipelineOperation();
-
 protected:
     enum MainThreadNotification {
         VideoChanged = 1 << 0,
@@ -327,6 +334,9 @@ protected:
 
 #if USE(COORDINATED_GRAPHICS)
     void pushTextureToCompositor(bool isDuplicateSample);
+#elif PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: accelerated-path counterpart of pushTextureToCompositor (see platformLayer()).
+    void pushSampleToVideoLayer(bool isDuplicateSample);
 #endif
 
     GstElement* videoSink() const { return m_videoSink.get(); }
@@ -607,14 +617,12 @@ private:
     Condition m_drawCondition;
     Lock m_drawLock;
     RunLoop::Timer m_drawTimer WTF_GUARDED_BY_LOCK(m_drawLock);
-    // MAVERICKS_BACKPORT: scoped draw-wait latch (see beginMainThreadPipelineOperation in the .cpp) —
-    // nonzero while the main thread is inside a blocking pipeline operation, during which the
-    // software-sink draw wait in triggerRepaint must be disarmed (same semantics as
-    // m_isBeingDestroyed, scoped instead of terminal).
-    int m_mainThreadPipelineOperationCount WTF_GUARDED_BY_LOCK(m_drawLock) { 0 };
     RunLoop::Timer m_pausedTimerHandler;
 #if USE(COORDINATED_GRAPHICS)
     RefPtr<CoordinatedPlatformLayerBufferProxy> m_contentsBufferProxy;
+#elif PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: the accelerated-compositing video layer (see platformLayer()).
+    RetainPtr<CALayer> m_videoLayer;
 #endif
 
     // These attributes can ONLY be changed from updateBufferingStatus() in order to keep the

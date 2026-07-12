@@ -130,6 +130,9 @@ private:
     uint64_t m_requiredCookiesVersion { 0 };
     // MAVERICKS_BACKPORT: non-null while decoding a "br" response body (see BrotliStream above).
     std::unique_ptr<BrotliStream> m_brotliStream;
+    // MAVERICKS_BACKPORT: temporary file holding a materialized file-backed request body
+    // (see materializeFileBackedRequestBody in NetworkDataTaskCocoa.mm); deleted with the task.
+    String m_uploadBodyTemporaryPath;
 };
 
 WebCore::Credential serverTrustCredential(const WebCore::AuthenticationChallenge&);

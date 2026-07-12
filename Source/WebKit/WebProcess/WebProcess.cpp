@@ -103,6 +103,7 @@
 #include "WebsiteDataType.h"
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/MemoryStatistics.h>
+#include <JavaScriptCore/Options.h>
 #include <JavaScriptCore/WasmFaultSignalHandler.h>
 #include <WebCore/AXObjectCache.h>
 #include <WebCore/AuthenticationChallenge.h>
@@ -516,6 +517,30 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
 #endif
 
     platformInitializeWebProcess(parameters);
+
+    // MAVERICKS_BACKPORT DIAGNOSTIC: env vars do not propagate to XPC-launched service processes on
+    // 10.9, so JSC options (which JSC reads from JSC_-prefixed env at startup) cannot be set the
+    // normal way while debugging WebContent. When the sentinel file /tmp/wk-jsc-options exists, apply
+    // each of its "optionName=value" lines via JSC::Options before any VM is created (page JS runs
+    // well after this point). Off by default (no file → no effect); it only alters option state while
+    // a developer is actively bisecting a JSC/Wasm issue on this VM. (Used to root-cause the
+    // equinox.space heap-corruption crash to JSC's concurrent/parallel GC marking under
+    // USE(SYSTEM_MALLOC); see webkit-mavericks-equinox-gc-crash memory. Serializing GC marking
+    // reduces but does NOT reliably eliminate that corruption — it is the #43 systemic family — so it
+    // is intentionally NOT forced on here; the reliable fix needs the deeper AtomStringImpl root.)
+    if (FILE* jscOptionsFile = fopen("/tmp/wk-jsc-options", "r")) {
+        char line[256];
+        while (fgets(line, sizeof(line), jscOptionsFile)) {
+            if (char* newline = strchr(line, '\n'))
+                *newline = '\0';
+            // JSC::Options::setOption self-calls notifyOptionsChanged() on a successful match, so no
+            // trailing notify is needed. It returns false on an unrecognized option name — surface that
+            // to stderr (→ /tmp/wc-stderr-<pid>.log) so a typo'd option can't silently skew a bisect.
+            if (line[0] && line[0] != '#' && !JSC::Options::setOption(line))
+                fprintf(stderr, "[wk-jsc-options] unrecognized JSC option ignored: %s\n", line);
+        }
+        fclose(jscOptionsFile);
+    }
 
     // Match the QoS of the UIProcess and the scrolling thread but use a slightly lower priority.
     WTF::Thread::setCurrentThreadIsUserInteractive(-1);
