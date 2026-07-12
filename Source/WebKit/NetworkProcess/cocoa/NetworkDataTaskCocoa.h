@@ -100,6 +100,10 @@ public:
 
     void checkTAO(const WebCore::ResourceResponse&);
 
+    // MAVERICKS_BACKPORT DIAGNOSTIC (task #6 loader-wedge probe family, remove with it): expose the
+    // platform task so the sentinel-gated [NTD] dump in NetworkSessionCocoa.mm can read its state.
+    NSURLSessionTask* taskForMavericksDump() const { return (NSURLSessionTask *)m_task.get(); }
+
 private:
     NetworkDataTaskCocoa(NetworkSession&, NetworkDataTaskClient&, const NetworkLoadParameters&);
 

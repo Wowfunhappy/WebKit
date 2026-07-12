@@ -6781,18 +6781,21 @@ ResourceLoadSchedulingEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT: off by default (task #6). NetworkLoadScheduler's Prioritized
-      # mode holds low-priority loads while >=2 loads are active per host, and frees a
-      # slot only when an active load completes. 10.9 CFNetwork never surfaces server
-      # half-closes on pooled connections (CLOSE_WAIT sockets observed), so an active
-      # load riding a dead connection hangs for the full 60s request timeout AND blocks
-      # every queued load for that host behind it — head-of-line amplification of a
-      # platform defect (probe-observed on nytimes: per-host queues starved, 15+ stuck
-      # resources, ~70s loads). In probe-free A/B runs the amplified failure shows up in
-      # the worst rounds: scheduler ON produced a >120s never-firing load event where
-      # scheduler OFF fired load in <=9s in equivalent rounds. Stock Safari 7 predates
-      # this scheduler entirely; CFNetwork's own per-host connection limit still
-      # serializes, so only the prioritization optimization is lost.
+      # MAVERICKS_BACKPORT: off by default (task #6, re-measured 2026-07-11 AFTER the
+      # infinite-request-timeout root cause was fixed in ResourceRequestCocoa.mm).
+      # NetworkLoadScheduler's Prioritized mode holds low-priority loads while >=2 loads
+      # are active per host and frees a slot only on completion. On this 10.9+MITM-proxy
+      # setup, a proxied keepalive-reuse race can swallow a response (the proxy holds the
+      # tunnel open, so no EOF reaches CFNetwork); the swallowed load now fails at the
+      # 60s idle timeout instead of hanging forever, but with the scheduler ON every
+      # queued same-host load is held behind it for that full minute — head-of-line
+      # amplification of a single raced connection into a whole-page stall. Post-fix A/B
+      # (fresh-Safari apple.com rounds, clamp installed in both arms): scheduler ON =
+      # 2/6 rounds complete only after 64-68s; scheduler OFF = 13/14 rounds complete in
+      # 3s (1 outlier >110s), matching the earlier larger A/B (3/6 degraded ON, 6/6
+      # clean OFF). Stock Safari 7 predates this scheduler entirely; CFNetwork's own
+      # per-host connection limit still serializes, so only the prioritization
+      # optimization is lost.
       default: false
     WebCore:
       default: true

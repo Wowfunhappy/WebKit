@@ -523,6 +523,13 @@ void SpeculativeLoadManager::revalidateSubresource(const SubresourceInfo& subres
 
     LOG(NetworkCacheSpeculativePreloading, "(NetworkProcess) Speculatively revalidating '%s':", key.identifier().utf8().data());
 
+    // MAVERICKS_BACKPORT: reserve the pending-preload slot BEFORE creating the SpeculativeLoad,
+    // matching the reserve-then-fill idiom preloadEntry() uses above. If the load completes
+    // synchronously, its completion handler's take(key) must find the key present — adding the
+    // (already-completed) revalidator afterwards would leave a stale entry that pins the key as
+    // pending forever and blocks every later preload of the same resource.
+    m_pendingPreloads.add(key, nullptr);
+
     Ref revalidator = SpeculativeLoad::create(protect(m_cache), frameID, revalidationRequest, WTF::move(entry), isNavigatingToAppBoundDomain, allowPrivacyProxy, advancedPrivacyProtections, [weakThis = WeakPtr { *this }, key, revalidationRequest, frameID](std::unique_ptr<Entry> revalidatedEntry) {
         ASSERT(!revalidatedEntry || !revalidatedEntry->needsValidation());
         ASSERT(!revalidatedEntry || revalidatedEntry->key() == key);
@@ -541,7 +548,10 @@ void SpeculativeLoadManager::revalidateSubresource(const SubresourceInfo& subres
         if (revalidatedEntry)
             checkedThis->addPreloadedEntry(WTF::move(revalidatedEntry), frameID, revalidationRequest);
     });
-    m_pendingPreloads.add(key, WTF::move(revalidator));
+    // MAVERICKS_BACKPORT: fill the reserved slot only if the completion handler hasn't already
+    // taken it (synchronous completion); see the reserve above.
+    if (auto it = m_pendingPreloads.find(key); it != m_pendingPreloads.end() && !it->value)
+        it->value = WTF::move(revalidator);
 }
     
 static bool canRevalidate(const SubresourceInfo& subresourceInfo, const Entry* entry)
