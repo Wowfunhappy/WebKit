@@ -65,6 +65,9 @@ private:
     void commitTransientZoom(double scale, WebCore::FloatPoint originInLayerForPageScale) override;
 
     void waitForDidUpdateActivityState(ActivityStateChangeID) override;
+    // MAVERICKS_BACKPORT: bounded wait for the in-flight UpdateGeometry reply (see DrawingAreaProxy.h);
+    // backs the restored Safari-7 WKView SPI -forceAsyncDrawingAreaSizeUpdate: / -waitForAsyncDrawingAreaSizeUpdate.
+    void waitForDidUpdateGeometry(Seconds) override;
     void dispatchPresentationCallbacksAfterFlushingLayers(IPC::Connection&, Vector<IPC::AsyncReplyID>&&) final;
 
     std::optional<WebCore::FramesPerSecond> displayNominalFramesPerSecond() final;
@@ -81,6 +84,10 @@ private:
 
     // Whether we're waiting for a DidUpdateGeometry message from the web process.
     bool m_isWaitingForDidUpdateGeometry { false };
+
+    // MAVERICKS_BACKPORT: async-reply ID of the in-flight UpdateGeometry, so
+    // waitForDidUpdateGeometry can block on exactly that reply.
+    std::optional<IPC::AsyncReplyID> m_pendingUpdateGeometryReplyID;
 
     // The last size we sent to the web process.
     WebCore::IntSize m_lastSentSize;

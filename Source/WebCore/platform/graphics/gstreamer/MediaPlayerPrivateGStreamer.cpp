@@ -57,6 +57,10 @@
 #include "TextSinkGStreamer.h"
 #include "TimeRanges.h"
 #include "VideoFrameMetadataGStreamer.h"
+// MAVERICKS_BACKPORT: accelerated <video> compositing layer for the Cocoa+CoreGraphics build.
+#if PLATFORM(COCOA) && !USE(COORDINATED_GRAPHICS)
+#include "VideoLayerGStreamerCocoa.h"
+#endif
 #include "VideoSinkGStreamer.h"
 #include "VideoTrackPrivateGStreamer.h"
 #include "WebKitAudioSinkGStreamer.h"
@@ -212,6 +216,11 @@ MediaPlayerPrivateGStreamer::MediaPlayerPrivateGStreamer(MediaPlayer& player)
 
 #if USE(COORDINATED_GRAPHICS)
     m_contentsBufferProxy = CoordinatedPlatformLayerBufferProxy::create();
+#elif PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: the accelerated-compositing video layer (see platformLayer()). Created
+    // eagerly (MediaPlayer construction happens on the main thread) so compositing can pick it up
+    // as soon as the element becomes composited.
+    m_videoLayer = createGStreamerVideoLayer();
 #endif
 
     ensureGStreamerInitialized();
@@ -581,54 +590,6 @@ struct AsyncSeekData {
 };
 WEBKIT_DEFINE_ASYNC_DATA_STRUCT(AsyncSeekData);
 
-// MAVERICKS_BACKPORT: scoped draw-wait latch. With non-accelerated rendering the fallback video
-// sink's triggerRepaint parks the streaming thread on m_drawCondition until the MAIN thread paints
-// (m_drawTimer). A main-thread blocking pipeline operation (gst_element_set_state /
-// gst_element_send_event take the element STATE_LOCK and can wait on the sink's PREROLL_LOCK or,
-// through a seek, the source task's STREAM_LOCK) cannot service m_drawTimer, so any streaming
-// thread parked in — or arriving at — the draw wait deadlocks the pipeline against the main thread.
-// Two lldb-captured cycles on nytimes.com: (1) async loop-seek holding STATE_LOCK →
-// gst_pad_pause_task → source STREAM_LOCK → full queue2 → sink draw wait → main thread pause()
-// blocked on STATE_LOCK; (2) rebuffering changePipelineState(PAUSED) blocked in
-// gst_base_sink_change_state on PREROLL_LOCK held by vqueue:src parked in the draw wait. Upstream's
-// m_isBeingDestroyed latch (bug 170003) is this exact mechanism for the teardown case; these
-// brackets scope it to every main-thread blocking pipeline entry: while the count is nonzero
-// triggerRepaint skips the wait (m_sample is stored and m_drawTimer armed, so the frame still
-// paints once the operation returns), and engaging the latch wakes any already-parked waiter.
-void MediaPlayerPrivateGStreamer::beginMainThreadPipelineOperation()
-{
-    ASSERT(isMainThread());
-    Locker locker { m_drawLock };
-    ++m_mainThreadPipelineOperationCount;
-    m_drawCondition.notifyAll();
-}
-
-void MediaPlayerPrivateGStreamer::endMainThreadPipelineOperation()
-{
-    ASSERT(isMainThread());
-    Locker locker { m_drawLock };
-    ASSERT(m_mainThreadPipelineOperationCount);
-    --m_mainThreadPipelineOperationCount;
-}
-
-namespace {
-// MAVERICKS_BACKPORT: RAII bracket for the draw-wait latch above.
-class MainThreadPipelineOperationScope {
-public:
-    explicit MainThreadPipelineOperationScope(MediaPlayerPrivateGStreamer& player)
-        : m_player(player)
-    {
-        m_player->beginMainThreadPipelineOperation();
-    }
-    ~MainThreadPipelineOperationScope()
-    {
-        m_player->endMainThreadPipelineOperation();
-    }
-private:
-    const Ref<MediaPlayerPrivateGStreamer> m_player;
-};
-} // namespace
-
 bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, bool isAsync, bool isSegment)
 {
     RefPtr player = m_player.get();
@@ -715,8 +676,6 @@ bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, b
         return true;
     }
 
-    // MAVERICKS_BACKPORT: disarm the software-sink draw wait for the duration (see the latch above changePipelineState).
-    MainThreadPipelineOperationScope pipelineOperationScope { *this };
     auto result = gst_element_send_event(m_pipeline.get(), event.leakRef());
     if (isSegment || !isSeamlessSeekingEnabled() || !result)
         return result;
@@ -1190,11 +1149,7 @@ MediaPlayerPrivateGStreamer::ChangePipelineStateResult MediaPlayerPrivateGStream
     GST_DEBUG_OBJECT(pipeline(), "Changing state change to %s from %s with %s pending", gst_state_get_name(newState),
         gst_state_get_name(currentState), gst_state_get_name(pending));
 
-    {
-        // MAVERICKS_BACKPORT: disarm the software-sink draw wait for the duration (see the latch above).
-        MainThreadPipelineOperationScope pipelineOperationScope { *this };
-        change = gst_element_set_state(m_pipeline.get(), newState);
-    }
+    change = gst_element_set_state(m_pipeline.get(), newState);
     GST_DEBUG_OBJECT(pipeline(), "Changing state returned %s", gst_state_change_return_get_name(change));
 
     GstState pausedOrPlaying = newState == GST_STATE_PLAYING ? GST_STATE_PAUSED : GST_STATE_PLAYING;
@@ -1814,11 +1769,7 @@ void MediaPlayerPrivateGStreamer::playbin3SendSelectStreamsIfAppropriate()
         return;
 
     m_waitingForStreamsSelectedEvent = true;
-    {
-        // MAVERICKS_BACKPORT: disarm the software-sink draw wait for the duration (see the latch above changePipelineState).
-        MainThreadPipelineOperationScope pipelineOperationScope { *this };
-        gst_element_send_event(m_pipeline.get(), gst_event_new_select_streams(streams));
-    }
+    gst_element_send_event(m_pipeline.get(), gst_event_new_select_streams(streams));
     g_list_free_full(streams, reinterpret_cast<GDestroyNotify>(g_free));
 }
 
@@ -2367,12 +2318,8 @@ void MediaPlayerPrivateGStreamer::handleMessage(GstMessage* message)
         // is disabled. It also happens relatively often with
         // HTTP adaptive streams when switching between different
         // variants of a stream.
-        {
-            // MAVERICKS_BACKPORT: disarm the software-sink draw wait for the duration (see the latch above changePipelineState).
-            MainThreadPipelineOperationScope pipelineOperationScope { *this };
-            gst_element_set_state(m_pipeline.get(), GST_STATE_PAUSED);
-            gst_element_set_state(m_pipeline.get(), GST_STATE_PLAYING);
-        }
+        gst_element_set_state(m_pipeline.get(), GST_STATE_PAUSED);
+        gst_element_set_state(m_pipeline.get(), GST_STATE_PLAYING);
         break;
     case GST_MESSAGE_ELEMENT:
 #if USE(GSTREAMER_MPEGTS)
@@ -3793,17 +3740,18 @@ void MediaPlayerPrivateGStreamer::pausedTimerFired()
 void MediaPlayerPrivateGStreamer::acceleratedRenderingStateChanged()
 {
     RefPtr player = m_player.get();
-    // MAVERICKS_BACKPORT: this Cocoa/CoreGraphics port builds without COORDINATED_GRAPHICS, so the #else branch forces software (non-accelerated) video-frame rendering.
 #if USE(COORDINATED_GRAPHICS)
     m_canRenderingBeAccelerated = player && player->acceleratedCompositingEnabled();
+#elif PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: this Cocoa/CoreGraphics port renders accelerated frames by updating the
+    // compositing layer's contents from the streaming thread (see platformLayer() and
+    // VideoLayerGStreamerCocoa.h). Every orientation is accelerated (a rotated source orientation is
+    // baked into the frame pixels), so this tracks only whether the element is composited.
+    m_canRenderingBeAccelerated = player && player->acceleratedCompositingEnabled();
 #else
-    // MAVERICKS_BACKPORT: this Cocoa/CoreGraphics port builds the GStreamer media player without
-    // COORDINATED_GRAPHICS, so there is no accelerated texture path for video frames
-    // (platformLayer()/pushTextureToCompositor() are USE(COORDINATED_GRAPHICS)-only, and
-    // supportsAcceleratedRendering() is false). Decoded frames must reach the screen through the
-    // software repaint() -> MediaPlayer::paint() -> drawVideoFrame() path, which triggerRepaint()
-    // only drives when rendering is NOT considered accelerated. Forcing this false also restores the
-    // m_drawCondition back-pressure that paces the appsink to the compositor's repaint cadence.
+    // MAVERICKS_BACKPORT: no accelerated video path on other configurations; decoded frames reach
+    // the screen through the software repaint() -> MediaPlayer::paint() -> drawVideoFrame() path,
+    // which triggerRepaint() only drives when rendering is NOT considered accelerated.
     UNUSED_VARIABLE(player);
     m_canRenderingBeAccelerated = false;
 #endif
@@ -3870,6 +3818,36 @@ void MediaPlayerPrivateGStreamer::pushTextureToCompositor(bool isDuplicateSample
     auto frame = VideoFrameGStreamer::createWrappedSample(m_sample, options);
 
     m_contentsBufferProxy->setDisplayBuffer(CoordinatedPlatformLayerBufferVideo::create(WTF::move(frame), m_videoDecoderPlatform, !m_isUsingFallbackVideoSink, m_textureMapperFlags));
+}
+#elif PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: Cocoa accelerated video path (see VideoLayerGStreamerCocoa.h).
+PlatformLayer* MediaPlayerPrivateGStreamer::platformLayer() const
+{
+    return m_videoLayer.get();
+}
+
+void MediaPlayerPrivateGStreamer::pushSampleToVideoLayer(bool isDuplicateSample)
+{
+    // Keep a reference to the sample instead of converting under m_sampleMutex, mirroring paint()'s
+    // deadlock-avoidance pattern.
+    GRefPtr<GstSample> sample;
+    {
+        Locker sampleLocker { m_sampleMutex };
+        if (!GST_IS_SAMPLE(m_sample.get()))
+            return;
+
+        // Duplicate samples (preroll re-reports) don't count as new presented frames for rvfc
+        // metadata, matching pushTextureToCompositor().
+        if (!isDuplicateSample)
+            ++m_sampleCount;
+
+        sample = m_sample;
+    }
+
+    // Read the source orientation at present time, mirroring the software paint() path
+    // (context.drawVideoFrame(..., m_videoSourceOrientation, ...)). A non-identity orientation is
+    // baked into the pixels so the layer needs no geometry transform.
+    setGStreamerVideoLayerContents(m_videoLayer.get(), sample, m_videoSourceOrientation);
 }
 #endif // USE(COORDINATED_GRAPHICS)
 
@@ -4123,18 +4101,15 @@ void MediaPlayerPrivateGStreamer::triggerRepaint(GRefPtr<GstSample>&& sample)
         if (m_isBeingDestroyed)
             return;
         m_drawTimer.startOneShot(0_s);
-        // MAVERICKS_BACKPORT: skip the wait while the main thread is inside a blocking pipeline
-        // operation — it cannot service m_drawTimer then, and this wait runs with basesink's
-        // STREAM_LOCK (and, during preroll, PREROLL_LOCK) held, so waiting would deadlock the
-        // pipeline against the main thread (see beginMainThreadPipelineOperation). The frame still
-        // paints when the timer runs after the operation returns.
-        if (!m_mainThreadPipelineOperationCount)
-            m_drawCondition.wait(m_drawLock);
+        m_drawCondition.wait(m_drawLock);
         return;
     }
 
 #if USE(COORDINATED_GRAPHICS)
     pushTextureToCompositor(isDuplicateSample);
+#elif PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: push the decoded frame to the compositing layer from the streaming thread.
+    pushSampleToVideoLayer(isDuplicateSample);
 #endif
 }
 
@@ -4218,11 +4193,7 @@ void MediaPlayerPrivateGStreamer::setVisibleInViewport(bool isVisible)
         m_stateToRestoreWhenVisible = targetState;
         GST_DEBUG_OBJECT(pipeline(), "Media element is muted and not visible in viewport, pausing it to save resources. Will resume afterwards to %s state.",
             gst_state_get_name(m_stateToRestoreWhenVisible));
-        {
-            // MAVERICKS_BACKPORT: disarm the software-sink draw wait for the duration (see the latch above changePipelineState).
-            MainThreadPipelineOperationScope pipelineOperationScope { *this };
-            gst_element_set_state(m_pipeline.get(), GST_STATE_PAUSED);
-        }
+        gst_element_set_state(m_pipeline.get(), GST_STATE_PAUSED);
         gst_element_get_state(m_pipeline.get(), &currentState, &pendingState, 0);
         GST_DEBUG_OBJECT(pipeline(), "Now pipeline is in %s state with %s pending", gst_state_get_name(currentState), gst_state_get_name(pendingState));
         m_isPipelinePlaying = false;
@@ -4709,8 +4680,6 @@ void MediaPlayerPrivateGStreamer::attemptToDecryptWithInstance([[maybe_unused]] 
 
 void MediaPlayerPrivateGStreamer::attemptToDecryptWithLocalInstance()
 {
-    // MAVERICKS_BACKPORT: disarm the software-sink draw wait for the duration (see the latch above changePipelineState).
-    MainThreadPipelineOperationScope pipelineOperationScope { *this };
     [[maybe_unused]] bool wasEventHandled = gst_element_send_event(pipeline(), gst_event_new_custom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB, gst_structure_new_empty("attempt-to-decrypt")));
     GST_DEBUG("attempting to decrypt, event handled %s", boolForPrinting(wasEventHandled));
 }
@@ -4829,8 +4798,6 @@ void MediaPlayerPrivateGStreamer::checkPlayingConsistency()
                 GST_WARNING_OBJECT(pipeline(), "Playbin is in PLAYING state but some sinks aren't, trying to recover.");
                 ASSERT_NOT_REACHED_WITH_MESSAGE("Playbin is in PLAYING state but some sinks aren't. This should not happen.");
                 m_didTryToRecoverPlayingState = true;
-                // MAVERICKS_BACKPORT: disarm the software-sink draw wait for the duration (see the latch above changePipelineState).
-                MainThreadPipelineOperationScope pipelineOperationScope { *this };
                 gst_element_set_state(pipeline(), GST_STATE_PAUSED);
                 gst_element_set_state(pipeline(), GST_STATE_PLAYING);
             }

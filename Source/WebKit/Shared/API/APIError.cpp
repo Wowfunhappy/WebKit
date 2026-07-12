@@ -37,9 +37,15 @@ const WTF::String& Error::webKitErrorDomain()
     return webKitErrorDomainString;
 }
 
+// MAVERICKS_BACKPORT: this port enables USE(GLIB) for GStreamer only; the API consumer is Cocoa
+// Safari, not the GTK/WPE API. Keep the Cocoa unified "WebKitErrorDomain" for the network/policy/
+// plugin domains: Safari 7 suppresses the error page for a provisional load that becomes a download
+// only when the error is (WebKitErrorDomain, kWKErrorCodeFrameLoadInterruptedByPolicyChange) —
+// the GLib split-domain strings ("WebKitPolicyError" etc.) defeat that check and every download
+// (PDF, blob:, attachments) paints a "Safari can't open the page" error page.
 const WTF::String& Error::webKitNetworkErrorDomain()
 {
-#if USE(GLIB)
+#if USE(GLIB) && !PLATFORM(COCOA)
     static NeverDestroyed<WTF::String> webKitErrorDomainString(MAKE_STATIC_STRING_IMPL("WebKitNetworkError"));
     return webKitErrorDomainString;
 #else
@@ -49,7 +55,7 @@ const WTF::String& Error::webKitNetworkErrorDomain()
 
 const WTF::String& Error::webKitPolicyErrorDomain()
 {
-#if USE(GLIB)
+#if USE(GLIB) && !PLATFORM(COCOA)
     static NeverDestroyed<WTF::String> webKitErrorDomainString(MAKE_STATIC_STRING_IMPL("WebKitPolicyError"));
     return webKitErrorDomainString;
 #else
@@ -59,7 +65,7 @@ const WTF::String& Error::webKitPolicyErrorDomain()
 
 const WTF::String& Error::webKitPluginErrorDomain()
 {
-#if USE(GLIB)
+#if USE(GLIB) && !PLATFORM(COCOA)
 #if ENABLE(2022_GLIB_API)
     static NeverDestroyed<WTF::String> webKitErrorDomainString(MAKE_STATIC_STRING_IMPL("WebKitMediaError"));
 #else

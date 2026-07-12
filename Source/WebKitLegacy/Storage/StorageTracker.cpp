@@ -28,6 +28,7 @@
 #include "StorageThread.h"
 #include "StorageTrackerClient.h"
 #include "WebStorageNamespaceProvider.h"
+#include <WebCore/SQLiteDatabase.h>
 #include <WebCore/SQLiteDatabaseTracker.h>
 #include <WebCore/SQLiteStatement.h>
 #include <WebCore/SecurityOrigin.h>
@@ -77,7 +78,21 @@ void StorageTracker::internalInitialize()
     // Make sure text encoding maps have been built on the main thread, as the StorageTracker thread might try to do it there instead.
     // FIXME (<rdar://problem/9127819>): Is there a more explicit way of doing this besides accessing the UTF8Encoding?
     PAL::UTF8Encoding();
-    
+
+    // MAVERICKS_BACKPORT: run WebCore's one-time SQLite initialization (initializeSQLiteIfNecessary) here, on the
+    // main thread, by opening a throwaway in-memory database. On Darwin that init dispatches sqlite3_initialize()
+    // to the main thread via callOnMainThreadAndWait() the first time any SQLiteDatabase is opened. The legacy
+    // localStorage path opens its databases on the StorageTracker and StorageAreaSync background threads while the
+    // main thread is parked in StorageAreaSync::blockUntilImportComplete(); a background open would then bounce
+    // SQLite init back to the already-blocked main thread and deadlock. Priming the std::call_once here — inline
+    // on the main thread, before the storage thread starts — leaves the background opens with nothing to dispatch.
+    // This mirrors the same class of main-thread pre-initialization as the UTF8Encoding() call above.
+    {
+        SQLiteDatabase eagerSQLiteInit;
+        eagerSQLiteInit.open(":memory:"_s);
+        eagerSQLiteInit.close();
+    }
+
     storageTracker->setIsActive(true);
     storageTracker->m_thread->start();  
     storageTracker->importOriginIdentifiers();

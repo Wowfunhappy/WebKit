@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<body style="margin:0">
+<div id="zone" style="width:400px;height:300px;background:#eef">zone</div>
+<pre id="out"></pre>
+<script>
+if (window.testRunner) {
+    testRunner.dumpAsText();
+    testRunner.waitUntilDone();
+}
+var out = [];
+function done() {
+    document.getElementById('out').textContent = out.join('\n');
+    if (window.testRunner)
+        testRunner.notifyDone();
+}
+var zone = document.getElementById('zone');
+zone.addEventListener('dragover', function(e) { e.preventDefault(); });
+zone.addEventListener('drop', function(e) {
+    e.preventDefault();
+    var f = e.dataTransfer.files[0];
+    if (!f) {
+        out.push('drop: NO FILE');
+        return done();
+    }
+    out.push('drop file: name=' + f.name + ' size=' + f.size);
+    var r = new FileReader();
+    r.onerror = function() { out.push('FileReader ERROR'); finishUploads(f); };
+    r.onload = function() {
+        out.push('FileReader OK bytes=' + r.result.byteLength);
+        finishUploads(f);
+    };
+    r.readAsArrayBuffer(f);
+});
+function finishUploads(f) {
+    try {
+        var x = new XMLHttpRequest();
+        x.open('POST', 'http://127.0.0.1:8765/upload', false);
+        var fd = new FormData();
+        fd.append('c', f, f.name);
+        x.send(fd);
+        out.push('formdata-file: status=' + x.status + ' ' + x.responseText);
+    } catch (err) { out.push('formdata-file THREW ' + err); }
+    try {
+        var x2 = new XMLHttpRequest();
+        x2.open('POST', 'http://127.0.0.1:8765/upload', false);
+        x2.send(f);
+        out.push('file-direct: status=' + x2.status + ' ' + x2.responseText);
+    } catch (err) { out.push('file-direct THREW ' + err); }
+    done();
+}
+if (window.eventSender) {
+    eventSender.beginDragWithFiles(['/Users/jonathan/Desktop/upload-test.png']);
+    eventSender.mouseMoveTo(100, 100);
+    eventSender.mouseUp();
+}
+</script>
+</body>
+</html>
