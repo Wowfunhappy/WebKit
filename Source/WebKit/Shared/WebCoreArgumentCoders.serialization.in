@@ -917,6 +917,7 @@ struct WebCore::DictionaryPopupInfo {
 #else
     String text;
 #if PLATFORM(COCOA)
+    # MAVERICKS_BACKPORT: mirror DictionaryPopupInfo's Cocoa attributedString so the classic Look Up definition panel receives the looked-up range's font-scaled text over IPC.
     WebCore::AttributedString attributedString;
 #endif
 #endif

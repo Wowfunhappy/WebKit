@@ -764,6 +764,7 @@ static void dumpCALayer(TextStream& ts, CALayer *layer, bool traverse)
     gpuProcess->webProcessConnectionCountForTesting([completionHandler = makeBlockPtr(completionHandler)](uint64_t count) {
         completionHandler(count);
     });
+    // MAVERICKS_BACKPORT: closes the !ENABLE(GPU_PROCESS) branch above (no GPU process on 10.9).
 #endif // ENABLE(GPU_PROCESS)
 }
 

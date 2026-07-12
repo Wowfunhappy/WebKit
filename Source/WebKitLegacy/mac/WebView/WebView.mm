@@ -204,6 +204,7 @@
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/LogInitialization.h>
 #import <WebCore/MIMETypeRegistry.h>
+// MAVERICKS_BACKPORT: MainThreadSharedTimer for addRunLoopMode(), which fires WebCore's shared timer in app-pumped private run-loop modes.
 #import <WebCore/MainThreadSharedTimer.h>
 #import <WebCore/MemoryCache.h>
 #import <WebCore/MemoryRelease.h>
@@ -5576,9 +5577,9 @@ IGNORE_WARNINGS_END
     return nil;
 }
 
-// MAVERICKS_BACKPORT: restore the plug-in lookup (upstream returns nil); consult per-view/shared/widget-bundle databases so Web Clips find WebClip.plugin.
 - (WebBasePluginPackage *)_pluginForExtension:(NSString *)extension
 {
+// MAVERICKS_BACKPORT: restore the plug-in lookup (upstream returns nil); consult per-view/shared/widget-bundle databases so Web Clips find WebClip.plugin.
     if (_private->pluginDatabase) {
         if (WebBasePluginPackage *pluginPackage = [_private->pluginDatabase pluginForExtension:extension])
             return pluginPackage;
@@ -5826,6 +5827,11 @@ static bool needsWebViewInitThreadWorkaround()
     // MAVERICKS_BACKPORT: skip the _subviewsIvar set-aside/restore (NSView private ivar accessor differs on 10.9); not critical for our use.
     [super encodeWithCoder:encoder];
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     // Restore the subviews we set aside.
+//     self._subviewsIvar = originalSubviews;
+//
+// (end MAVERICKS_BACKPORT restored block)
     BOOL useBackForwardList = _private->page && static_cast<BackForwardList&>(_private->page->backForward().client()).enabled();
     if ([encoder allowsKeyedCoding]) {
         [encoder encodeObject:[[self mainFrame] name] forKey:@"FrameName"];
@@ -7724,8 +7730,10 @@ static void registerSharedTimerRunLoopMode(NSRunLoop *runLoop, NSString *mode)
 
 - (void)scheduleInRunLoop:(NSRunLoop *)runLoop forMode:(NSString *)mode
 {
+    // MAVERICKS_BACKPORT: brace the schedule body so the run-loop mode is also registered with WebCore's shared timer below.
     if (runLoop && mode) {
         core(self)->addSchedulePair(SchedulePair::create(runLoop, (CFStringRef)mode));
+        // MAVERICKS_BACKPORT: also fire WebCore's shared timer in this app-registered mode (see registerSharedTimerRunLoopMode).
         registerSharedTimerRunLoopMode(runLoop, mode);
     }
 }

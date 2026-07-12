@@ -23,6 +23,7 @@
 
 #include "GRefPtrGStreamer.h"
 #include "RTCSctpTransportBackend.h"
+// MAVERICKS_BACKPORT: ThreadSafeRefCounted base for the AliveGuard the SCTP-thread notify::state callback keeps alive.
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
@@ -63,6 +64,7 @@ private :
 
     GRefPtr<GstWebRTCSCTPTransport> m_backend;
     WeakPtr<RTCSctpTransportBackendClient> m_client;
+    // MAVERICKS_BACKPORT: the AliveGuard ref and stored notify::state handler id back the cross-thread-safe SCTP-thread callback teardown.
     const Ref<AliveGuard> m_guard;
     unsigned long m_stateSignalHandler { 0 };
 };

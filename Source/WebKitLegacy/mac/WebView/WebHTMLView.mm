@@ -152,6 +152,7 @@
 #import <pal/spi/mac/NSSpellCheckerSPI.h>
 #import <pal/spi/mac/NSViewSPI.h>
 #import <pal/spi/mac/NSWindowSPI.h>
+// MAVERICKS_BACKPORT: <objc/runtime.h> for the Ivar / object_getIvar / object_setIvar subviews-storage swap used below.
 #import <objc/runtime.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/MainThread.h>
@@ -1583,6 +1584,7 @@ static Ivar webHTMLViewSubviewsIvar()
 #if PLATFORM(MAC)
     ASSERT(!_private->subviewsSetAside);
     ASSERT(_private->savedSubviews == nil);
+    // MAVERICKS_BACKPORT: set aside the subviews by swapping NSView's _subviews ivar directly (webHTMLViewSubviewsIvar), avoiding the 10.12+ _subviewsIvar SPI and -setSubviews: side effects.
     Ivar subviewsIvar = webHTMLViewSubviewsIvar();
     if (subviewsIvar) {
         // Take over the reference the view holds; hand the view a replacement array it owns.
@@ -1602,17 +1604,19 @@ static Ivar webHTMLViewSubviewsIvar()
     _private->subviewsSetAside = YES;
 #endif
  }
-
+ 
  - (void)_restoreSubviews
  {
 #if PLATFORM(MAC)
     ASSERT(_private->subviewsSetAside);
+    // MAVERICKS_BACKPORT: restore the subviews by swapping NSView's _subviews ivar directly (webHTMLViewSubviewsIvar), avoiding the 10.12+ _subviewsIvar SPI.
     Ivar subviewsIvar = webHTMLViewSubviewsIvar();
     if (subviewsIvar) {
         // Drop the replacement array and hand the saved reference back to the view.
         [object_getIvar(self, subviewsIvar) release];
         object_setIvar(self, subviewsIvar, _private->savedSubviews);
     } else {
+        // MAVERICKS_BACKPORT: fallback when the _subviews ivar is unavailable — restore the saved subviews through public -setSubviews:.
         [self setSubviews:(_private->savedSubviews ?: @[])];
         [_private->savedSubviews release];
     }
@@ -3869,6 +3873,7 @@ static BOOL currentScrollIsBlit(NSView *clipView)
     if (auto* frame = core([self _frame])) {
         if (frame->document() && frame->document()->backForwardCacheState() != WebCore::Document::NotInBackForwardCache)
             return;
+        if (auto* view = frame->view())
         // MAVERICKS_BACKPORT: 10.9's Auto Layout machinery (NSISEngine tryAddingDirectly:)
         // sends -setNeedsLayout:YES to views it adds constraints for, and WebHTMLView
         // overrides that NSView selector with the WebKit-document meaning. In a
@@ -3880,7 +3885,7 @@ static BOOL currentScrollIsBlit(NSView *clipView)
         // Safari 7 on this OS: only mark the render tree as needing layout (still honoring the
         // disable-setNeedsLayout deferral window); the next display pass runs the layout in
         // -viewWillDraw.
-        if (auto* view = frame->view())
+            // MAVERICKS_BACKPORT: mark layout without arming a timer; a scheduled relayout re-enters 10.9's constraint machinery and wedges display (see note above).
             view->setNeedsLayoutWithoutScheduling();
     }
 }

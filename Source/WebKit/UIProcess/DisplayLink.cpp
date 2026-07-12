@@ -142,6 +142,7 @@ bool DisplayLink::removeInfoForClientIfUnused(Client& client)
 
 void DisplayLink::incrementFullSpeedRequestClientCount(Client& client)
 {
+    // MAVERICKS_BACKPORT: scope m_clientsLock around the client bookkeeping (and the m_currentUpdate reset below) so the lock is released before platformStart() runs; a full-speed request must be able to start an otherwise-idle link.
     {
         Locker locker { m_clientsLock };
 
@@ -162,6 +163,7 @@ void DisplayLink::incrementFullSpeedRequestClientCount(Client& client)
             m_currentUpdate = { 0, m_displayNominalFramesPerSecond };
     }
 
+    // MAVERICKS_BACKPORT: start the link for a full-speed-only client when nothing else is keeping it running, so ThreadedScrollingTree scroll animations on an idle page still receive DisplayDidRefresh ticks.
     if (!platformIsRunning()) {
         LOG_WITH_STREAM(DisplayLink, stream << "[UI ] DisplayLink for display " << m_displayID << " starting DisplayLink for a full-speed client");
         platformStart();
@@ -234,6 +236,7 @@ void DisplayLink::notifyObserversDisplayDidRefresh()
                 CheckedRef { client }->displayLinkFired(m_displayID, m_currentUpdate, true, false);
             }
             continue;
+        // MAVERICKS_BACKPORT: closes the empty-observers branch that also fires full-speed-only clients above.
         }
 
         anyConnectionHadObservers = true;

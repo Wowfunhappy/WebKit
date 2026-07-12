@@ -869,15 +869,15 @@ static Ref<HTMLElement> attachmentForFilePath(LocalFrame& frame, const String& p
     bool isDirectory = fileType == FileSystem::FileType::Directory;
     String contentType = typeForAttachmentElement(explicitContentType);
     if (contentType.isEmpty()) {
+        if (isDirectory)
         // MAVERICKS_BACKPORT: runtime-absent API #76 — UTType.identifier accessors are 11.0+; route to the
         // legacy kUTType* constants via the utType*Id() helpers.
-        if (isDirectory)
             contentType = utTypeDirectoryId();
         else {
             contentType = File::contentTypeForFile(path);
+            if (contentType.isEmpty())
             // MAVERICKS_BACKPORT: runtime-absent API #76 — UTTypeData.identifier is 11.0+; use utTypeDataId()
             // routed to the legacy kUTTypeData constant.
-            if (contentType.isEmpty())
                 contentType = utTypeDataId();
         }
     }

@@ -35,8 +35,6 @@
 #if PLATFORM(COCOA)
 #include "MediaUtilities.h"
 #include <pal/cf/CoreMediaSoftLink.h>
-// MAVERICKS_BACKPORT: 10.9 build divergence (stray blank line below; no behavior change).
-
 #endif
 
 namespace WebCore {

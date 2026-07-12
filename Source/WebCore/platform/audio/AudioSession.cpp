@@ -255,8 +255,8 @@ float AudioSession::sampleRate() const
     return 44100;
 #else
     notImplemented();
-    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) 44100 Hz default above.
     return 0;
+    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) 44100 Hz default above.
 #endif
 }
 
@@ -268,8 +268,8 @@ size_t AudioSession::bufferSize() const
     return 512;
 #else
     notImplemented();
-    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) default above.
     return 0;
+    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) default above.
 #endif
 }
 
@@ -281,8 +281,8 @@ size_t AudioSession::numberOfOutputChannels() const
     return 2;
 #else
     notImplemented();
-    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) default above.
     return 0;
+    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) default above.
 #endif
 }
 
@@ -294,8 +294,8 @@ size_t AudioSession::maximumNumberOfOutputChannels() const
     return 2;
 #else
     notImplemented();
-    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) default above.
     return 0;
+    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) default above.
 #endif
 }
 

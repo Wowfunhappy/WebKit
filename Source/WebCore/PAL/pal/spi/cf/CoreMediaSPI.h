@@ -62,7 +62,6 @@ typedef void (*FigThreadAbortAction)(void* refcon);
 typedef struct OpaqueFigThreadAbortActionToken* FigThreadAbortActionToken;
 #endif
 
-// MAVERICKS_BACKPORT: 10.9 build divergence (cosmetic spacing).
 WTF_EXTERN_C_BEGIN
 OSStatus FigThreadRegisterAbortAction(FigThreadAbortAction, void* refcon, FigThreadAbortActionToken*);
 void FigThreadUnregisterAbortAction(FigThreadAbortActionToken);

@@ -4,6 +4,7 @@
 // so the inspector window swallowed every click.
 #include "config.h"
 
+// MAVERICKS_BACKPORT: the WKWebView Mac event-forwarding category below compiles only on Mac.
 #if PLATFORM(MAC)
 
 // MAVERICKS_BACKPORT: includes for the event-forwarding category that backfills WKWebView's input handling.
@@ -139,6 +140,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
 - (void)unmarkText {}
 - (void)doCommandBySelector:(SEL)selector
 {
+    // MAVERICKS_BACKPORT: record the command selector into the thread-local KeypressCommand collector (no-op when not collecting).
     if (!tlsWKWVCommands)
         return;
     tlsWKWVCommands->append(WebCore::KeypressCommand(String::fromLatin1(sel_getName(selector))));
@@ -247,31 +249,37 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
 // key-window / visibility / backing-scale state never updates (window focus events).
 - (BOOL)acceptsFirstResponder
 {
+    // MAVERICKS_BACKPORT: forward -acceptsFirstResponder to WebViewImpl.
     return self._impl && self._impl->acceptsFirstResponder();
 }
 
+// MAVERICKS_BACKPORT: forward -becomeFirstResponder to WebViewImpl (WebViewImpl forward from the full WKWebViewMac.mm not built here).
 - (BOOL)becomeFirstResponder
 {
     return self._impl && self._impl->becomeFirstResponder();
 }
 
+// MAVERICKS_BACKPORT: forward -resignFirstResponder to WebViewImpl, else NSView's default.
 - (BOOL)resignFirstResponder
 {
     return self._impl ? self._impl->resignFirstResponder() : [super resignFirstResponder];
 }
 
+// MAVERICKS_BACKPORT: forward -viewWillStartLiveResize to WebViewImpl.
 - (void)viewWillStartLiveResize
 {
     if (self._impl)
         self._impl->viewWillStartLiveResize();
 }
 
+// MAVERICKS_BACKPORT: forward -viewDidEndLiveResize to WebViewImpl.
 - (void)viewDidEndLiveResize
 {
     if (self._impl)
         self._impl->viewDidEndLiveResize();
 }
 
+// MAVERICKS_BACKPORT: forward -setFrameSize: to WebViewImpl so programmatic resizes reach the web process.
 - (void)setFrameSize:(NSSize)size
 {
     [super setFrameSize:size];
@@ -279,6 +287,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
         self._impl->setFrameSize(NSSizeToCGSize(size));
 }
 
+// MAVERICKS_BACKPORT: forward -renewGState to WebViewImpl before super.
 - (void)renewGState
 {
     if (self._impl)
@@ -286,30 +295,35 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
     [super renewGState];
 }
 
+// MAVERICKS_BACKPORT: forward -viewWillMoveToWindow: to WebViewImpl so it observes its window.
 - (void)viewWillMoveToWindow:(NSWindow *)window
 {
     if (self._impl)
         self._impl->viewWillMoveToWindow(window);
 }
 
+// MAVERICKS_BACKPORT: forward -viewDidMoveToWindow to WebViewImpl.
 - (void)viewDidMoveToWindow
 {
     if (self._impl)
         self._impl->viewDidMoveToWindow();
 }
 
+// MAVERICKS_BACKPORT: forward -viewDidHide to WebViewImpl.
 - (void)viewDidHide
 {
     if (self._impl)
         self._impl->viewDidHide();
 }
 
+// MAVERICKS_BACKPORT: forward -viewDidUnhide to WebViewImpl.
 - (void)viewDidUnhide
 {
     if (self._impl)
         self._impl->viewDidUnhide();
 }
 
+// MAVERICKS_BACKPORT: forward -viewDidChangeBackingProperties to WebViewImpl.
 - (void)viewDidChangeBackingProperties
 {
     if (self._impl)
@@ -322,10 +336,12 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
 // page's activity state is pinned by the occlusion check.
 - (void)_setWindowOcclusionDetectionEnabled:(BOOL)enabled
 {
+    // MAVERICKS_BACKPORT: forward the window-occlusion-detection toggle to WebViewImpl.
     if (self._impl)
         self._impl->setWindowOcclusionDetectionEnabled(enabled);
 }
 
+// MAVERICKS_BACKPORT: forward -_windowOcclusionDetectionEnabled to WebViewImpl (WKWebViewPrivate SPI from the full WKWebViewMac.mm).
 - (BOOL)_windowOcclusionDetectionEnabled
 {
     return self._impl && self._impl->windowOcclusionDetectionEnabled();
@@ -340,34 +356,41 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
 // keypress command, e.g. Esc -> cancelOperation:).
 - (NSTextInputContext *)_web_superInputContext
 {
+    // MAVERICKS_BACKPORT: return NSView's -inputContext for the WebViewImpl super-call forwarder.
     return [super inputContext];
 }
 
+// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -quickLookWithEvent: for WebViewImpl.
 - (void)_web_superQuickLookWithEvent:(NSEvent *)event
 {
     [super quickLookWithEvent:event];
 }
 
+// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -swipeWithEvent: for WebViewImpl.
 - (void)_web_superSwipeWithEvent:(NSEvent *)event
 {
     [super swipeWithEvent:event];
 }
 
+// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -magnifyWithEvent: for WebViewImpl.
 - (void)_web_superMagnifyWithEvent:(NSEvent *)event
 {
     [super magnifyWithEvent:event];
 }
 
+// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -smartMagnifyWithEvent: for WebViewImpl.
 - (void)_web_superSmartMagnifyWithEvent:(NSEvent *)event
 {
     [super smartMagnifyWithEvent:event];
 }
 
+// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -removeTrackingRect: for WebViewImpl.
 - (void)_web_superRemoveTrackingRect:(NSTrackingRectTag)tag
 {
     [super removeTrackingRect:tag];
 }
 
+// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -accessibilityAttributeValue: for WebViewImpl.
 - (id)_web_superAccessibilityAttributeValue:(NSString *)attribute
 {
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -375,26 +398,31 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
+// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -doCommandBySelector: for WebViewImpl.
 - (void)_web_superDoCommandBySelector:(SEL)selector
 {
     [super doCommandBySelector:selector];
 }
 
+// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -performKeyEquivalent: for WebViewImpl.
 - (BOOL)_web_superPerformKeyEquivalent:(NSEvent *)event
 {
     return [super performKeyEquivalent:event];
 }
 
+// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -keyDown: for WebViewImpl.
 - (void)_web_superKeyDown:(NSEvent *)event
 {
     [super keyDown:event];
 }
 
+// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -hitTest: for WebViewImpl.
 - (NSView *)_web_superHitTest:(NSPoint)point
 {
     return [super hitTest:point];
 }
 
+// MAVERICKS_BACKPORT: closes the Mac10_9EventForwarding category above.
 @end
 
 // MAVERICKS_BACKPORT: upstream's mouse-simulation testing SPI, restored for WebKitTestRunner's
@@ -402,21 +430,25 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 @implementation WKWebView (WKMouseSimulation)
 - (void)_simulateMouseMove:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: drive a synthesized mouse-move through WebViewImpl for WebKitTestRunner's EventSenderProxy.
     if (self._impl)
         self._impl->mouseMoved(event);
 }
 
 - (void)_simulateMouseEnter:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: drive a synthesized mouse-enter through WebViewImpl for WebKitTestRunner's EventSenderProxy.
     if (self._impl)
         self._impl->mouseEntered(event);
 }
 
 - (void)_simulateMouseExit:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: drive a synthesized mouse-exit through WebViewImpl for WebKitTestRunner's EventSenderProxy.
     if (self._impl)
         self._impl->mouseExited(event);
 }
+// MAVERICKS_BACKPORT: closes the WKMouseSimulation category above.
 @end
 
 // MAVERICKS_BACKPORT: upstream's WKWindowSnapshot category, restored for WebKitTestRunner's

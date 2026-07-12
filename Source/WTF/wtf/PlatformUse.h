@@ -243,6 +243,11 @@
 #elif OS(WINDOWS)
 /* Use Windows message pump abstraction. */
 #define USE_WINDOWS_EVENT_LOOP 1
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #elif PLATFORM(COCOA)
+// /* OS X and IOS. Use CoreFoundation & GCD abstraction. */
+// #define USE_COCOA_EVENT_LOOP 1
+// (end MAVERICKS_BACKPORT restored block)
 #else
 #define USE_GENERIC_EVENT_LOOP 1
 #endif

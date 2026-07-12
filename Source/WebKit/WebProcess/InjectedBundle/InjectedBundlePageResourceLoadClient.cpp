@@ -81,6 +81,7 @@ void InjectedBundlePageResourceLoadClient::willSendRequestForFrame(WebPage& page
             fflush(stderr);
         }
         request = { };
+        // MAVERICKS_BACKPORT DIAGNOSTIC: closes the sentinel-gated request-blocked else branch above.
     }
 }
 

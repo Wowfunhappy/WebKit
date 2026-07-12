@@ -72,6 +72,9 @@ void JSRunLoopTimer::Manager::timerDidFire()
     {
         Locker locker { m_lock };
         if (!m_mapping.isEmpty()) {
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//             RunLoop* currentRunLoop = &RunLoop::currentSingleton();
+// (end MAVERICKS_BACKPORT restored block)
             MonotonicTime now = MonotonicTime::now();
             for (auto& entry : m_mapping) {
                 PerVMData& data = *entry.value;

@@ -28,17 +28,6 @@
 
 #if HAVE(PARENTAL_CONTROLS)
 
-// MAVERICKS_BACKPORT: This file is built in full (not stubbed). HAVE(PARENTAL_CONTROLS) is 1 on
-// every Cocoa platform and ENABLE(CONTENT_FILTERING) is 1, so ContentFilter::types() materializes
-// &ParentalControlsContentFilter::create and the class vtable; ContentFilter::create() (reached on
-// the WK1 "Always filter in WK1" path, e.g. Mail.app bodies and QuickLook HTML) then calls into
-// these definitions. A stub leaves create()/enabled()/the virtuals undefined, which under WebCore's
-// -undefined dynamic_lookup aborts the first time that path runs. On the 10.9 deploy target
-// HAVE(WEBCONTENTRESTRICTIONS) is 0 (needs macOS 26.2+) and HAVE(WEBCONTENTANALYSIS_FRAMEWORK) is 1,
-// so the active branch below is the WebContentAnalysis one. WebContentAnalysis is soft-linked and
-// absent on 10.9, so getWebFilterEvaluatorClassSingleton() is nil and enabled() returns false,
-// making responseReceived() set State::Allowed — a correct no-op (no parental-controls filtering).
-
 #import "ContentFilterUnblockHandler.h"
 #import "Logging.h"
 #import "ResourceResponse.h"

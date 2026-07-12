@@ -62,6 +62,10 @@ public:
     void handleContextMenuWritingTools(WebCore::WritingTools::RequestedTool);
 #endif
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     void handleShareMenuItem();
+//
+// (end MAVERICKS_BACKPORT restored block)
 #if ENABLE(SERVICE_CONTROLS)
     // MAVERICKS_BACKPORT: handleShareMenuItem() is declared inside the SERVICE_CONTROLS guard so it
     // matches its definition in WebContextMenuProxyMac.mm (also SERVICE_CONTROLS-only); base 83b24ce

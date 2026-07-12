@@ -351,6 +351,7 @@ void WebSWServerConnection::startFetch(ServiceWorkerFetchTask& task, SWServerWor
             // every sibling failure path in this lambda.
             task->cannotHandle();
             return;
+        // MAVERICKS_BACKPORT: closes the !server cannotHandle() network-fallback branch above (task #6).
         }
 
         RefPtr worker = server->workerByID(*task->serviceWorkerIdentifier());

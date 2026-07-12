@@ -28,12 +28,15 @@
 
 #if USE(CG)
 
+// MAVERICKS_BACKPORT: <dlfcn.h> for dladdr/Dl_info locating the WebCore bundle's linearSRGB.icc on 10.9.
 #include <dlfcn.h>
 #include <mutex>
 #include <pal/spi/cg/CoreGraphicsSPI.h>
+// MAVERICKS_BACKPORT: <wtf/FileSystem.h> for reading the bundled linearSRGB.icc profile on 10.9.
 #include <wtf/FileSystem.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
+// MAVERICKS_BACKPORT: <wtf/text/WTFString.h> for String/StringView building the 10.9 linearSRGB path.
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -140,6 +143,7 @@ CGColorSpaceRef linearSRGBColorSpaceSingleton()
 // color space.
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200
     return namedColorSpace<kCGColorSpaceLinearSRGB>();
+// MAVERICKS_BACKPORT: on 10.9 (below 10.12) build linear sRGB from the WebCore bundle's linearSRGB.icc profile.
 #else
     static LazyNeverDestroyed<RetainPtr<CGColorSpaceRef>> colorSpace;
     static std::once_flag onceFlag;
@@ -194,48 +198,63 @@ std::optional<ColorSpace> colorSpaceForCGColorSpace(CGColorSpaceRef colorSpace)
     // the reset in alphabetical order.
     // FIXME: Consider using a HashMap (with CFHash based keys) rather than the linear set of tests.
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, sRGBColorSpaceSingleton()))
         return ColorSpace::SRGB;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedSRGBColorSpaceSingleton()))
         return ColorSpace::ExtendedSRGB;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, displayP3ColorSpaceSingleton()))
         return ColorSpace::DisplayP3;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, linearSRGBColorSpaceSingleton()))
         return ColorSpace::LinearSRGB;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, adobeRGB1998ColorSpaceSingleton()))
         return ColorSpace::A98RGB;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedAdobeRGB1998ColorSpaceSingleton()))
         return ColorSpace::ExtendedA98RGB;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedDisplayP3ColorSpaceSingleton()))
         return ColorSpace::ExtendedDisplayP3;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedLinearDisplayP3ColorSpaceSingleton()))
         return ColorSpace::ExtendedLinearDisplayP3;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedLinearSRGBColorSpaceSingleton()))
         return ColorSpace::ExtendedLinearSRGB;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedITUR_2020ColorSpaceSingleton()))
         return ColorSpace::ExtendedRec2020;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedROMMRGBColorSpaceSingleton()))
         return ColorSpace::ExtendedProPhotoRGB;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, ITUR_2020ColorSpaceSingleton()))
         return ColorSpace::Rec2020;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, linearDisplayP3ColorSpaceSingleton()))
         return ColorSpace::LinearDisplayP3;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, ROMMRGBColorSpaceSingleton()))
         return ColorSpace::ProPhotoRGB;
 
+    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
     if (colorSpaceEqualToNullableColorSpace(colorSpace, xyzD50ColorSpaceSingleton()))
         return ColorSpace::XYZ_D50;
 

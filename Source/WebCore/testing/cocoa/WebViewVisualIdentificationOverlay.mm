@@ -14,3 +14,7 @@
 }
 
 @end
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//
+// #endif // PLATFORM(COCOA)
+// (end MAVERICKS_BACKPORT restored block)

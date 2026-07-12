@@ -548,10 +548,10 @@ void ViewGestureController::beginSwipeGesture(WebBackForwardListItem* targetItem
         [m_swipeShadowLayer setGeometryFlipped:geometryIsFlippedToRoot];
         [m_swipeShadowLayer setDelegate:[WebActionDisablingCALayerDelegate shared]];
 
+        if (swipingLeft)
         // MAVERICKS_BACKPORT: explicit (CALayer *) casts so the 10.9 SDK's insertSublayer:above:/below:
         // selectors resolve unambiguously; the RetainPtr .get() return types don't bridge cleanly to the
         // older AppKit CALayer method signatures without the cast.
-        if (swipingLeft)
             // MAVERICKS_BACKPORT: explicit (CALayer *) cast so insertSublayer:above: resolves on the 10.9 SDK.
             [snapshotLayerParent insertSublayer:m_swipeDimmingLayer.get() above:(CALayer *)m_swipeLayer.get()];
         else

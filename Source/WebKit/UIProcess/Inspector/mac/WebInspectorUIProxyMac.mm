@@ -156,6 +156,14 @@ static void* kWindowContentLayoutObserverContext = &kWindowContentLayoutObserver
         proxy->windowFullScreenDidChange();
 }
 
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+- (void)_systemColorsDidChange:(NSNotification *)notification
+{
+    if (RefPtr proxy = _inspectorProxy.get())
+        proxy->systemAppearanceDidChange();
+}
+
+MAVERICKS_BACKPORT */
 - (void)inspectedViewFrameDidChange:(NSNotification *)notification
 {
     // Resizing the views while inside this notification can lead to bad results when entering
@@ -270,6 +278,46 @@ static void* kWindowContentLayoutObserverContext = &kWindowContentLayoutObserver
     _savePanel = savePanel;
 
     self.view = adoptNS([[NSView alloc] init]).get();
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+
+    RetainPtr label = [NSTextField labelWithString:WEB_UI_STRING("Format:", "Label for the save data format selector when saving data in Web Inspector").createNSString().get()];
+    label.get().textColor = NSColor.secondaryLabelColor;
+    label.get().font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    label.get().alignment = NSTextAlignmentRight;
+
+    _popUpButton = adoptNS([[NSPopUpButton alloc] init]);
+    [_popUpButton setAction:@selector(_popUpButtonAction:)];
+    [_popUpButton setTarget:self];
+    [_popUpButton addItemsWithTitles:createNSArray(_saveDatas, [] (const auto& item) {
+        return item.displayType.createNSString();
+    }).get()];
+    [_popUpButton selectItemAtIndex:0];
+
+    RetainPtr<NSView> view = self.view;
+    [view addSubview:label.get()];
+    [view addSubview:_popUpButton.get()];
+
+    [label setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [_popUpButton setTranslatesAutoresizingMaskIntoConstraints:NO];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [retainPtr(label.get().topAnchor) constraintEqualToAnchor:retainPtr(view.get().topAnchor).get() constant:8.0],
+        [retainPtr(label.get().leadingAnchor) constraintEqualToAnchor:retainPtr(view.get().leadingAnchor).get() constant:0.0],
+        [retainPtr(label.get().bottomAnchor) constraintEqualToAnchor:retainPtr(self.view.bottomAnchor).get() constant:-8.0],
+        [retainPtr(label.get().widthAnchor) constraintEqualToConstant:64.0],
+
+        [retainPtr([_popUpButton topAnchor]) constraintEqualToAnchor:retainPtr(view.get().topAnchor).get() constant:8.0],
+        [retainPtr([_popUpButton leadingAnchor]) constraintEqualToAnchor:retainPtr(label.get().trailingAnchor).get() constant:8.0],
+        [retainPtr([_popUpButton bottomAnchor]) constraintEqualToAnchor:retainPtr(view.get().bottomAnchor).get() constant:-8.0],
+        [retainPtr([_popUpButton trailingAnchor]) constraintEqualToAnchor:retainPtr(view.get().trailingAnchor).get() constant:-20.0],
+    ]];
+
+    if (_saveDatas.size() > 1)
+        [_savePanel setAccessoryView:self.view];
+
+    [self _updateSavePanel];
+
+MAVERICKS_BACKPORT */
     return self;
 }
 
@@ -453,6 +501,9 @@ RefPtr<WebPageProxy> WebInspectorUIProxy::platformCreateFrontendPage()
     m_objCAdapter = adoptNS([[WKWebInspectorUIProxyObjCAdapter alloc] initWithWebInspectorUIProxy:this]);
     RetainPtr inspectedView = inspectedPage->inspectorAttachmentView();
     [[NSNotificationCenter defaultCenter] addObserver:m_objCAdapter.get() selector:@selector(inspectedViewFrameDidChange:) name:NSViewFrameDidChangeNotification object:inspectedView.get()];
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     [[NSNotificationCenter defaultCenter] addObserver:m_objCAdapter.get() selector:@selector(_systemColorsDidChange:) name:NSSystemColorsDidChangeNotification object:nil];
+// (end MAVERICKS_BACKPORT restored block)
 
     Ref configuration = inspectedPage->uiClient().configurationForLocalInspector(*inspectedPage, *this);
     m_inspectorViewController = adoptNS([[WKInspectorViewController alloc] initWithConfiguration:protect(WebKit::wrapper(configuration.get())).get() inspectedPage:inspectedPage.get()]);

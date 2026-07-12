@@ -165,6 +165,7 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
             fflush(stderr);
         }
         return completionHandler(false);
+        // MAVERICKS_BACKPORT DIAGNOSTIC: closes the sentinel-gated no-frame init-fail block above.
     }
     m_defersLoading = m_options.defersLoadingPolicy == DefersLoadingPolicy::AllowDefersLoading && frame->page()->defersLoading();
 

@@ -206,15 +206,19 @@ void CachedResource::load(CachedResourceLoader& cachedResourceLoader)
             const char* mavericksFailReason = nullptr;
             if (frameLoader->state() == FrameState::Provisional) {
                 CACHEDRESOURCE_RELEASE_LOG_WITH_FRAME("load: Failed security check -- state is provisional", frame.get());
+                // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): record the fail reason for the log below.
                 mavericksFailReason = "frame-state-provisional";
             } else if (!frameLoader->activeDocumentLoader()) {
                 CACHEDRESOURCE_RELEASE_LOG_WITH_FRAME("load: Failed security check -- not active document", frame.get());
+                // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): record the fail reason for the log below.
                 mavericksFailReason = "no-active-document-loader";
             } else if (frameLoader->activeDocumentLoader()->isStopping()) {
                 CACHEDRESOURCE_RELEASE_LOG_WITH_FRAME("load: Failed security check -- active loader is stopping", frame.get());
+                // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): record the fail reason for the log below.
                 mavericksFailReason = "active-loader-stopping";
             } else
                 break;
+            // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): stderr log of the security-check failure (RELEASE_LOG is compiled out on 10.9).
             if (!access("/tmp/wk-debug-on", F_OK)) {
                 RefPtr provisionalDL = frameLoader->provisionalDocumentLoader();
                 fprintf(stderr, "[CR-LOAD-FAIL] reason=%s mainFrame=%d loadType=%d provURL=%s url=%s\n",

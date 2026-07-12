@@ -284,6 +284,10 @@ public:
                 m_capturer = capturer.get();
                 return capturer;
             }, device, WTF::move(hashSalts), constraints, pageIdentifier);
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #elif USE(GSTREAMER)
+//             return MockDisplayCaptureSourceGStreamer::create(device, WTF::move(hashSalts), constraints, pageIdentifier);
+// (end MAVERICKS_BACKPORT restored block)
 #else
             return MockRealtimeVideoSource::create(String { device.persistentId() }, AtomString { device.label() }, WTF::move(hashSalts), constraints, pageIdentifier);
 #endif

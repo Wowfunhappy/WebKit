@@ -38,13 +38,13 @@ WEBCORE_COMMON_ATOM_STRINGS_FOR_EACH_KEYWORD(DEFINE_COMMON_ATOM)
 void initializeCommonAtomStrings()
 {
     // Initialization is not thread safe, so this function must be called from the main thread first.
-    // MAVERICKS_BACKPORT: the inner RELEASE_ASSERT(isUIThread()) is dropped because on 10.9 the
-    // WebContent XPC service initializes from the XPC dispatch queue, not the main thread.
-    // Both processes only call this once, so std::call_once still provides the needed synchronization.
     ASSERT(isUIThread());
 
     static std::once_flag initializeKey;
     std::call_once(initializeKey, [] {
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//         RELEASE_ASSERT(isUIThread());
+// (end MAVERICKS_BACKPORT restored block)
         WEBCORE_COMMON_ATOM_STRINGS_FOR_EACH_KEYWORD(INITIALIZE_COMMON_ATOM)
     });
 }

@@ -905,8 +905,6 @@ private:
     // MAVERICKS_BACKPORT: close the HAVE(TOUCH_BAR) gate here so the scroll/titlebar members below are lifted out of it.
 #endif // HAVE(TOUCH_BAR)
 
-    // MAVERICKS_BACKPORT: Not Touch Bar functionality — scroll/titlebar state + content-relative child views; these are
-    // used unconditionally (e.g. WebViewImpl.mm scroll handling), so they must not be TOUCH_BAR-gated.
     bool pageIsScrolledToTop() const { return m_lastPageScrollPosition.y() <= 0; }
     void pageScrollingHysteresisFired(PAL::HysteresisState);
 

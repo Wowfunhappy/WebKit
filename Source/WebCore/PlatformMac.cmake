@@ -52,20 +52,36 @@ list(APPEND WebCore_LIBRARIES
     ${CARBON_LIBRARY}
     ${CFNETWORK_LIBRARY}
     ${COCOA_LIBRARY}
+# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#     ${COMPRESSION_LIBRARY}
+# (end MAVERICKS_BACKPORT restored block)
     ${COREAUDIO_LIBRARY}
     ${COREMEDIA_LIBRARY}
     ${CORESERVICES_LIBRARY}
     ${DISKARBITRATION_LIBRARY}
     ${IOKIT_LIBRARY}
     ${IOSURFACE_LIBRARY}
+# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#     ${METAL_LIBRARY}
+#     ${NETWORKEXTENSION_LIBRARY}
+# (end MAVERICKS_BACKPORT restored block)
     ${OPENGL_LIBRARY}
     ${QUARTZ_LIBRARY}
     ${QUARTZCORE_LIBRARY}
+# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#     ${SCENEKIT_LIBRARY}
+# (end MAVERICKS_BACKPORT restored block)
     ${SECURITY_LIBRARY}
     ${SQLITE3_LIBRARIES}
     ${SYSTEMCONFIGURATION_LIBRARY}
     ${VIDEOTOOLBOX_LIBRARY}
     ${XML2_LIBRARY}
+# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#     opus
+#     vpx
+#     webm
+#     yuv
+# (end MAVERICKS_BACKPORT restored block)
 )
 
 add_definitions(-iframework ${APPLICATIONSERVICES_LIBRARY}/Versions/Current/Frameworks)
@@ -185,6 +201,9 @@ list(APPEND WebCore_SOURCES
     accessibility/isolatedtree/mac/AXIsolatedObjectMac.mm
     accessibility/mac/AXObjectCacheMac.mm
     accessibility/mac/AccessibilityObjectMac.mm
+# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#     accessibility/mac/WebAccessibilityObjectWrapperMac.mm
+# (end MAVERICKS_BACKPORT restored block)
 
     dom/DataTransferMac.mm
     dom/SlotAssignment.cpp
@@ -259,6 +278,9 @@ list(APPEND WebCore_SOURCES
     platform/graphics/DisplayRefreshMonitorManager.cpp
     platform/graphics/FourCC.cpp
 
+# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#     platform/graphics/avfoundation/AVTrackPrivateAVFObjCImpl.mm
+# (end MAVERICKS_BACKPORT restored block)
     platform/graphics/avfoundation/AudioSourceProviderAVFObjC.mm
     platform/graphics/avfoundation/CDMFairPlayStreaming.cpp
     platform/graphics/avfoundation/InbandMetadataTextTrackPrivateAVF.cpp
@@ -414,6 +436,9 @@ list(APPEND WebCore_SOURCES
 
     platform/mediastream/mac/MockRealtimeVideoSourceMac.mm
     platform/mediastream/mac/RealtimeOutgoingVideoSourceCocoa.cpp
+# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#     platform/mediastream/mac/RealtimeOutgoingVideoSourceCocoa.mm
+# (end MAVERICKS_BACKPORT restored block)
 
     platform/network/cf/CertificateInfoCFNet.cpp
     platform/network/cf/DNSResolveQueueCFNet.cpp
@@ -1031,6 +1056,9 @@ list(APPEND WebCoreTestSupport_IDL_FILES
     testing/MockPaymentContactFields.idl
     testing/MockPaymentCoordinator.idl
     testing/MockPaymentError.idl
+# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#     testing/MockWebAuthenticationConfiguration.idl
+# (end MAVERICKS_BACKPORT restored block)
 )
 
 if (NOT EXISTS ${CMAKE_BINARY_DIR}/WebCore/WebKitAvailability.h)

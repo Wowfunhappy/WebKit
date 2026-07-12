@@ -452,11 +452,6 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(IPC::Connection& connectio
 
     updateSlowFrameIndicator();
     scheduleDisplayRefreshCallbacks();
-
-    // MAVERICKS_BACKPORT: the old "send didRefreshDisplay 150ms after each commit" band-aid is removed.
-    // The display link now actually runs (m_displayID is populated in scheduleDisplayRefreshCallbacks,
-    // and DisplayLinkMac drives it from a real timer instead of the VM's dead CVDisplayLink), so
-    // DisplayDidRefresh flows continuously at the display rate rather than once per commit.
 }
 
 #if ENABLE(TOUCH_EVENT_REGIONS)

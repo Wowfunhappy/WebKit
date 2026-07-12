@@ -254,7 +254,6 @@ static std::optional<WebCore::ApplicationManifest::Shortcut> makeVectorElement(c
     if (!manifest)
         return nil;
 
-    // MAVERICKS_BACKPORT: constructInWrapper is a plain placement-new header template (APIObject.h); no 10.9 API is involved. It must run so _applicationManifest (AlignedStorage = raw bytes) is constructed before any getter, -encodeWithCoder:, or -dealloc (~ApplicationManifest) touches it.
     API::Object::constructInWrapper<API::ApplicationManifest>(self, *manifest);
 
     return self;
@@ -312,7 +311,6 @@ static std::optional<WebCore::ApplicationManifest::Shortcut> makeVectorElement(c
         makeVector<WebCore::ApplicationManifest::Shortcut>(shortcuts.get()),
     };
 
-    // MAVERICKS_BACKPORT: constructInWrapper is a plain placement-new header template (APIObject.h); no 10.9 API is involved. It must run so _applicationManifest (AlignedStorage = raw bytes) is constructed before any getter, -encodeWithCoder:, or -dealloc (~ApplicationManifest) touches it.
     API::Object::constructInWrapper<API::ApplicationManifest>(self, WTF::move(coreApplicationManifest));
 
     return self;

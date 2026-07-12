@@ -209,6 +209,7 @@ void alertForPermission(WebPageProxy& page, MediaPermissionReason reason, const 
         completionHandler(false);
         return;
     }
+    // MAVERICKS_BACKPORT: closes the PLATFORM(MAC) WKView-aware hostWindow conditional above.
 #endif
 
     RetainPtr alertTitle = alertMessageText(reason, origin);

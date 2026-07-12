@@ -111,9 +111,9 @@ GStreamerDataChannelHandler::GStreamerDataChannelHandler(GRefPtr<GstWebRTCDataCh
         checkState();
     }
 
+    m_signalHandlers.append(g_signal_connect_data(m_channel.get(), "notify::ready-state", G_CALLBACK(+[](GstWebRTCDataChannel*, GParamSpec*, DataChannelNotifier* notifier) {
     // MAVERICKS_BACKPORT: each handler runs on the GStreamer streaming thread; take the guard lock and
     // only call into the handler while it is still alive (the dtor nulls guard->handler under this lock).
-    m_signalHandlers.append(g_signal_connect_data(m_channel.get(), "notify::ready-state", G_CALLBACK(+[](GstWebRTCDataChannel*, GParamSpec*, DataChannelNotifier* notifier) {
         Locker locker { notifier->m_guard->lock };
         if (auto* handler = notifier->m_guard->handler)
             handler->readyStateChanged();

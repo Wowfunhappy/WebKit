@@ -690,9 +690,6 @@ void HTMLMediaElement::invalidateMediaSession()
 
 void HTMLMediaElement::initializeMediaSession()
 {
-    // MAVERICKS_BACKPORT: behavior fix (#35/#67/#75 media backport). re-enabled (paired with
-    // Page::mediaSessionManager re-enable + DefaultAudioDestinationNode null-guards). MediaElementSession::create
-    // requires non-null mediaSessionManager; safe now.
     ASSERT(!m_mediaSession);
     Ref mediaSession = MediaElementSession::create(*this);
     m_mediaSession = mediaSession.copyRef();
@@ -1127,9 +1124,6 @@ Node::InsertedIntoAncestorResult HTMLMediaElement::insertedIntoAncestor(Insertio
 
 void HTMLMediaElement::didFinishInsertingNode()
 {
-    // MAVERICKS_BACKPORT: behavior fix (#35/#67/#75 media backport). stub reason ("m_mediaSession is null")
-    // was OBSOLETE once initializeMediaSession was re-enabled. Removed the early-return
-    // so <video>/<audio> elements that auto-load actually go through the prepareForLoad path.
     Ref protectedThis { *this }; // prepareForLoad may result in a 'beforeload' event, which can make arbitrary DOM mutations.
 
     HTMLMEDIAELEMENT_RELEASE_LOG(DIDFINISHINSERTINGNODE);
@@ -1514,10 +1508,6 @@ void HTMLMediaElement::load()
 
 void HTMLMediaElement::prepareForLoad()
 {
-    // MAVERICKS_BACKPORT: behavior fix (#35/#67/#75 media backport). try the real load preparation —
-    // sets up the load algorithm's bookkeeping
-    // (m_loadState, m_currentSrc=null, etc.) properly so JS code that probes those
-    // fields gets correct values instead of the stale prior state.
     // https://html.spec.whatwg.org/multipage/embedded-content.html#media-element-load-algorithm
     // The Media Element Load Algorithm
     // 12 February 2017
@@ -1658,8 +1648,6 @@ void HTMLMediaElement::mediaPlayerReloadAndResumePlaybackIfNeeded()
 
 void HTMLMediaElement::selectMediaResource()
 {
-    // MAVERICKS_BACKPORT: behavior fix (#35/#67/#75 media backport). un-stubbed now that
-    // MediaPlayerPrivateAVFoundationObjC registers a real engine. Was stubbed when the engine returned a polyfill stub.
     // https://www.w3.org/TR/2016/REC-html51-20161101/semantics-embedded-content.html#resource-selection-algorithm
     // The Resource Selection Algorithm
 
@@ -4479,10 +4467,6 @@ void HTMLMediaElement::setPreload(const AtomString& preload)
 
 void HTMLMediaElement::play(DOMPromiseDeferred<void>&& promise)
 {
-    // MAVERICKS_BACKPORT: behavior fix (#35/#67/#75 media backport). the early
-    // `promise.reject(NotAllowedError); return;` stub here was added when there was no working media player
-    // (calling play crashed deep in MediaPlayer). The custom MSE pipeline now has a real player, so let the
-    // normal play() path run — this stub was rejecting every YouTube/MSE video.play() and freezing the timebase.
     HTMLMEDIAELEMENT_RELEASE_LOG(PLAY);
 
     Ref mediaSession = this->mediaSession();
@@ -4770,8 +4754,6 @@ ExceptionOr<void> HTMLMediaElement::setVolume(double volume)
     if (!(volume >= 0 && volume <= 1))
         return Exception { ExceptionCode::IndexSizeError };
 
-    // MAVERICKS_BACKPORT: behavior fix (#35/#67/#75 media backport). setVolume internal path re-enabled
-    // with media controls (the mediaSession path it uses is exercised by the now-working play/pause controls).
     auto quirkVolumeZero = !m_volumeLocked && protect(document())->quirks().implicitMuteWhenVolumeSetToZero();
     auto muteImplicitly = quirkVolumeZero && !volume;
 
@@ -4843,7 +4825,6 @@ void HTMLMediaElement::setMuted(bool muted)
 
 void HTMLMediaElement::setMutedInternal(bool muted, ForceMuteChange forceChange)
 {
-    // MAVERICKS_BACKPORT: behavior fix (#35/#67/#75 media backport). mute internal path re-enabled with media controls.
     HTMLMEDIAELEMENT_RELEASE_LOG(SETMUTEDINTERNAL, muted);
 
     bool mutedStateChanged = m_muted != muted || forceChange == ForceMuteChange::True;
@@ -8072,9 +8053,6 @@ bool HTMLMediaElement::shouldForceControlsDisplay() const
 
 void HTMLMediaElement::configureMediaControls()
 {
-    // MAVERICKS_BACKPORT: behavior fix (#35/#67/#75 media backport). media controls re-enabled (now that
-    // <video> actually renders frames). The earlier blanket disable was paired with a VM-deref crash in
-    // requiresScriptTrackingPrivacyProtection, now hardened to a raw VM pointer.
     bool requireControls = controls();
 
     // Always create controls for video when fullscreen playback is required.
@@ -8198,10 +8176,6 @@ void HTMLMediaElement::createMediaPlayer() WTF_IGNORES_THREAD_SAFETY_ANALYSIS
 {
     HTMLMEDIAELEMENT_RELEASE_LOG(CREATEMEDIAPLAYER);
 
-    // MAVERICKS_BACKPORT: behavior fix (#35/#67/#75 media backport). re-enabled (paired with
-    // Page::mediaSessionManager + initializeMediaSession re-enable + DefaultAudioDestinationNode null-guards).
-    // m_player creation uses NullMediaPlayerPrivate which is safe; the AVFoundation engine
-    // load path (MediaPlayer::loadWithNextMediaEngine) is the next risk if this regresses.
     invalidateWatchtimeTimer();
     invalidateBufferingStopwatch();
 
@@ -8943,12 +8917,6 @@ void HTMLMediaElement::setControllerJSProperty(ASCIILiteral propertyName, JSC::J
 
 bool HTMLMediaElement::ensureMediaControls()
 {
-    // MAVERICKS_BACKPORT: behavior fix (#35/#67/#75 media backport). media controls re-enabled. The historic crash here
-    // (media-controls setInnerHTML → HTMLButtonElement::create → HTMLFormControlElement
-    // ctor → requiresScriptTrackingPrivacyProtection dereffing a RefPtr<VM> to 0
-    // mid-JS-execution → RELEASE_ASSERT(!entryScope)) is addressed by hardening that
-    // function to a raw VM pointer (ScriptExecutionContext.cpp). The common VM is
-    // leakRef()'d so it never reaches refcount 0.
     if (m_controlsState == ControlsState::Ready)
         return true;
 
@@ -9626,9 +9594,6 @@ void HTMLMediaElement::setBufferingPolicy(BufferingPolicy policy)
 
 void HTMLMediaElement::purgeBufferedDataIfPossible()
 {
-    // MAVERICKS_BACKPORT: behavior fix (#35/#67/#75 media backport). Was disabled when media was stubbed; media now
-    // works, and setBufferingPolicy / mediaSessionIfExists below are null-safe, so
-    // run the real purge to bound memory growth from already-buffered media.
     ALWAYS_LOG(LOGIDENTIFIER);
 
     bool isPausedOrMSE = [&] {

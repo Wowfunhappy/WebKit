@@ -51,6 +51,9 @@ static void checkCandidate(WebBasePluginPackage **currentPlugin, WebBasePluginPa
 
 @interface WebPluginDatabase (Internal)
 + (NSArray *)_defaultPlugInPaths;
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// - (NSArray *)_plugInPaths;
+// (end MAVERICKS_BACKPORT restored block)
 - (void)_addPlugin:(WebBasePluginPackage *)plugin;
 - (void)_removePlugin:(WebBasePluginPackage *)plugin;
 - (NSMutableSet *)_scanForNewPlugins;

@@ -35,7 +35,6 @@
 #import <WebCore/LocalizedStrings.h>
 #import <pal/spi/mac/NSColorSPI.h>
 
-// MAVERICKS_BACKPORT: 10.9 build divergence.
 constexpr CGFloat dropdownTopMargin = 3;
 constexpr CGFloat dropdownVerticalPadding = 4;
 constexpr CGFloat dropdownRowHeightWithoutLabel = 20;

@@ -304,8 +304,8 @@ void WebContextMenuProxyMac::setupServicesMenu()
     bool hasControlledImage = m_context.controlledImage();
     bool isPDFAttachment = false;
     auto attachment = protect(page())->attachmentForIdentifier(m_context.controlledImageAttachmentID());
-    // MAVERICKS_BACKPORT: UTType class is 11.0+. Compare to literal "com.adobe.pdf" instead.
     if (attachment)
+    // MAVERICKS_BACKPORT: UTType class is 11.0+. Compare to literal "com.adobe.pdf" instead.
         isPDFAttachment = attachment->utiType() == "com.adobe.pdf"_s;
     NSArray *items = nil;
     RetainPtr<NSItemProvider> itemProvider;
@@ -1045,6 +1045,9 @@ void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuI
         return;
     }
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     ASSERT(items.isEmpty());
+// (end MAVERICKS_BACKPORT restored block)
     if (!m_menu)
         return;
 

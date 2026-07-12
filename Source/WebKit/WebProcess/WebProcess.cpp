@@ -103,6 +103,7 @@
 #include "WebsiteDataType.h"
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/MemoryStatistics.h>
+// MAVERICKS_BACKPORT: <JavaScriptCore/Options.h> for the /tmp/wk-jsc-options JSC::Options::setOption loader in initializeWebProcess.
 #include <JavaScriptCore/Options.h>
 #include <JavaScriptCore/WasmFaultSignalHandler.h>
 #include <WebCore/AXObjectCache.h>

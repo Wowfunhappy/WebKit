@@ -27,6 +27,7 @@
 #include "config.h"
 #include "LayoutIntegrationBoxGeometryUpdater.h"
 
+// MAVERICKS_BACKPORT: Chrome/ChromeClient for the isDashboardWidgetClient() check that gates legacy inline-block baseline alignment.
 #include "Chrome.h"
 #include "ChromeClient.h"
 #include "FontCascadeInlines.h"
@@ -38,6 +39,7 @@
 #if ENABLE(MULTI_REPRESENTATION_HEIC)
 #include "MultiRepresentationHEICMetrics.h"
 #endif
+// MAVERICKS_BACKPORT: Page for document().page()->chrome() in the Dashboard-only inline-block baseline path.
 #include "Page.h"
 #include "RenderAttachment.h"
 #include "RenderBlockFlowInlines.h"

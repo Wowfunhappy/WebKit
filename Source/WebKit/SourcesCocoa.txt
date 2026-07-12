@@ -253,8 +253,6 @@ Shared/Cocoa/WebIconUtilities.mm @nonARC
 Shared/Cocoa/WebPushMessageCocoa.mm
 Shared/Cocoa/WebPreferencesDefaultValuesCocoa.mm @nonARC
 
-// MAVERICKS_BACKPORT: re-enabled; the one 10.14+ call (xpc_connection_activate) is replaced by
-// xpc_connection_resume in the file. Provides encoderToXPCData/vectorToXPCData used by the daemon clients.
 Shared/Daemon/DaemonUtilities.mm @nonARC
 
 Shared/EntryPointUtilities/Cocoa/XPCService/XPCEndpointMessages.mm @nonARC
@@ -515,7 +513,6 @@ UIProcess/Cocoa/IconLoadingDelegate.mm @nonARC
 UIProcess/Cocoa/LegacyCustomProtocolManagerClient.mm @nonARC
 UIProcess/Cocoa/LegacyDownloadClient.mm @nonARC
 UIProcess/Cocoa/MediaUtilities.mm @nonARC
-// MAVERICKS_BACKPORT: AVFoundation/SFSpeechRecognizer/TCC types are SDK-present (MacOSX26.1.sdk) and runtime-guarded (TCC+SFSpeechRecognizer soft-linked; AVCaptureDevice access is auto-granted, not a hard class ref), so this file links on the 10.9 deploy target — required for getUserMedia/SpeechRecognition permission symbols.
 UIProcess/Cocoa/MediaPermissionUtilities.mm @nonARC
 UIProcess/Cocoa/ModelElementControllerCocoa.mm @nonARC
 UIProcess/Cocoa/NavigationState.mm @nonARC

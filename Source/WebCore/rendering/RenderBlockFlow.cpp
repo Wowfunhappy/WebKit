@@ -3332,7 +3332,7 @@ void RenderBlockFlow::addOverflowFromInlineChildren()
         inlineLayout()->collectOverflow();
         return;
     }
-
+    
     if (svgTextLayout())
         svgTextLayout()->addOverflowFromInlineChildren();
 }

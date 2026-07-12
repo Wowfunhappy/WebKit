@@ -1714,6 +1714,7 @@ int Element::scrollTop()
     Ref document = this->document();
     document->updateLayoutIgnorePendingStylesheets({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, this);
 
+    // MAVERICKS_BACKPORT: also alias body.scrollTop to the document scroll for Safari 7 ReaderJS (see shouldAliasBodyScrollToDocumentScrollForSafariReader).
     if (document->scrollingElement() == this || shouldAliasBodyScrollToDocumentScrollForSafariReader(document, *this)) {
         if (RefPtr frame = documentFrameWithNonNullView())
             return adjustContentsScrollPositionOrSizeForZoom(frame->view()->contentsScrollPosition().y(), *frame);

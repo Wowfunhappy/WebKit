@@ -22,6 +22,7 @@
 #include "config.h"
 #include "RenderTextControl.h"
 
+// MAVERICKS_BACKPORT: Chrome/ChromeClient for the DASHBOARD_SUPPORT annotated-region priming in styleDidChange() below.
 #include "Chrome.h"
 #include "ChromeClient.h"
 #include "ContainerNodeInlines.h"

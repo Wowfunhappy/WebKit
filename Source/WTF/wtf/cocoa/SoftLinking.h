@@ -43,12 +43,6 @@
 
 #pragma mark - Soft-link macros for use within a single source file
 
-// MAVERICKS_BACKPORT: the dlopen-based library/framework loaders below return NULL instead of
-// RELEASE_ASSERTing when the image is absent. Many newer system libraries/frameworks (e.g.
-// libsystem_networkextension, used by NetworkIssueReporter) do not exist on 10.9; their soft-link
-// symbol lookups already tolerate a null handle (returning a default — see SOFT_LINK_*_FOR_SOURCE),
-// so a null handle degrades the feature gracefully rather than aborting. dlerror() is still logged so
-// a genuinely-unexpected load failure remains diagnosable.
 #define SOFT_LINK_LIBRARY(lib) \
     static void* lib##Library() \
     { \

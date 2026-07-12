@@ -1370,6 +1370,8 @@ void HTMLInputElement::defaultEventHandler(Event& event)
     }
 
     if (m_inputType->shouldSubmitImplicitly(event)) {
+        // MAVERICKS_BACKPORT: this <input type=search> branch opens a block that also dispatches the
+        // non-standard search event (below), which legacy 10.9 Dashboard widgets depend on.
         if (isSearchField()) {
             addSearchResult();
             // MAVERICKS_BACKPORT: the non-standard `search` event (fired on Enter for <input type=search>)

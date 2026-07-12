@@ -23,12 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: WK1 element fullscreen uses the upstream AppKit/CGS
-// NSWindowController implementation. It drives the WebCore fullscreen state
-// machine's enter/exit handshake (willEnterFullscreen/didEnterFullscreen and
-// exit completion handlers); every NSWindow/CGS/CoreAnimation API and WebCore
-// dependency it touches is present on macOS 10.9.
-
 #if ENABLE(FULLSCREEN_API) && !PLATFORM(IOS_FAMILY)
 
 #import "WebFullScreenController.h"

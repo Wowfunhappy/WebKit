@@ -50,6 +50,7 @@
 #include <wtf/LoggerHelper.h>
 #include <wtf/OptionSet.h>
 #include <wtf/RefCounted.h>
+// MAVERICKS_BACKPORT: <wtf/RetainPtr.h> for the RetainPtr<CALayer> m_videoLayer used by the Cocoa accelerated-compositing path below.
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>

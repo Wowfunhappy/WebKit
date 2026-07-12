@@ -43,6 +43,9 @@
 // MAVERICKS_BACKPORT: <UniformTypeIdentifiers/UniformTypeIdentifiers.h> is macOS 11+; pull the legacy kUTType* identifiers from this in-tree header instead.
 #import "UTTypeIdentifiers.h"
 #import "WebNSAttributedStringExtras.h"
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+// (end MAVERICKS_BACKPORT restored block)
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/mac/HIServicesSPI.h>
 #import <wtf/MallocSpan.h>

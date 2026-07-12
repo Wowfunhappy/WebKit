@@ -24,10 +24,6 @@
  */
 
 #import "config.h"
-
-// MAVERICKS_BACKPORT: restored upstream implementation (file had been stubbed); defines
-// presentStorageAccessAlert / presentStorageAccessAlertQuirk / presentStorageAccessAlertSSOQuirk
-// (referenced by UIDelegate.mm). Uses NSAlert/NSTableView, available on 10.9.
 #import "WKStorageAccessAlert.h"
 
 #import <wtf/HashMap.h>

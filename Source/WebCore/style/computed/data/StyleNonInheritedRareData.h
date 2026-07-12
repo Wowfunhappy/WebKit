@@ -81,6 +81,7 @@
 #include <WebCore/StyleWebKitLineClamp.h>
 #include <WebCore/StyleWillChange.h>
 #include <WebCore/StyleZoom.h>
+// MAVERICKS_BACKPORT: StyleDashboardRegions.h for the DASHBOARD_SUPPORT dashboardRegions member below.
 #if ENABLE(DASHBOARD_SUPPORT)
 #include <WebCore/StyleDashboardRegions.h>
 #endif

@@ -56,6 +56,7 @@ NonInheritedRareData::NonInheritedRareData()
     , usedCounterDirectives { }
     , willChange(ComputedStyle::initialWillChange())
     , boxReflect(ComputedStyle::initialBoxReflect())
+    // MAVERICKS_BACKPORT: DASHBOARD_SUPPORT is enabled on this 10.9 backport (Dashboard widgets), so this field is carried here.
 #if ENABLE(DASHBOARD_SUPPORT)
     , dashboardRegions(ComputedStyle::initialDashboardRegions())
 #endif
@@ -165,6 +166,7 @@ inline NonInheritedRareData::NonInheritedRareData(const NonInheritedRareData& o)
     , usedCounterDirectives(o.usedCounterDirectives)
     , willChange(o.willChange)
     , boxReflect(o.boxReflect)
+    // MAVERICKS_BACKPORT: DASHBOARD_SUPPORT enabled here (Dashboard widgets); copy the dashboardRegions field.
 #if ENABLE(DASHBOARD_SUPPORT)
     , dashboardRegions(o.dashboardRegions)
 #endif
@@ -281,6 +283,7 @@ bool NonInheritedRareData::operator==(const NonInheritedRareData& o) const
         && usedCounterDirectives == o.usedCounterDirectives
         && willChange == o.willChange
         && boxReflect == o.boxReflect
+        // MAVERICKS_BACKPORT: DASHBOARD_SUPPORT enabled here (Dashboard widgets); compare the dashboardRegions field.
 #if ENABLE(DASHBOARD_SUPPORT)
         && dashboardRegions == o.dashboardRegions
 #endif
@@ -417,6 +420,7 @@ void NonInheritedRareData::dumpDifferences(TextStream& ts, const NonInheritedRar
 
     LOG_IF_DIFFERENT(willChange);
     LOG_IF_DIFFERENT(boxReflect);
+    // MAVERICKS_BACKPORT: DASHBOARD_SUPPORT enabled here (Dashboard widgets); dump the dashboardRegions field.
 #if ENABLE(DASHBOARD_SUPPORT)
     LOG_IF_DIFFERENT(dashboardRegions);
 #endif

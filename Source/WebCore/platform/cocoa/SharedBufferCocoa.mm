@@ -80,11 +80,11 @@ RetainPtr<NSArray> FragmentedSharedBuffer::createNSDataArray() const
     return array;
 }
 
+RetainPtr<CMBlockBufferRef> FragmentedSharedBuffer::createCMBlockBuffer() const
+{
 // MAVERICKS_BACKPORT: wrap the buffer's bytes in a CMBlockBuffer (used by toCMSampleBuffer to build
 // CMSampleBuffers for the MSE pipeline). The block buffer owns a copy of the data, so its lifetime is
 // independent of this SharedBuffer. CMBlockBuffer* are CoreMedia (10.7+), available on 10.9.
-RetainPtr<CMBlockBufferRef> FragmentedSharedBuffer::createCMBlockBuffer() const
-{
     // MAVERICKS_BACKPORT: contiguous-copy CMBlockBuffer (see comment above) replacing the upstream segment-wrapping path.
     auto contiguousBuffer = makeContiguous();
     auto contiguous = contiguousBuffer->span();
@@ -96,9 +96,52 @@ RetainPtr<CMBlockBufferRef> FragmentedSharedBuffer::createCMBlockBuffer() const
     if (PAL::CMBlockBufferReplaceDataBytes(contiguous.data(), blockBuffer, 0, contiguous.size()) != noErr) {
         CFRelease(blockBuffer);
         return nullptr;
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    auto blockBuffer = adoptCF(rawBlockBuffer);
+
+    if (isEmpty())
+        return blockBuffer;
+
+    for (auto& segment : m_segments) {
+        if (!segment.segment->size())
+            continue;
+        auto partialBuffer = segmentToCMBlockBuffer(segment.segment);
+        if (!partialBuffer)
+            return nullptr;
+        if (PAL::CMBlockBufferAppendBufferReference(rawBlockBuffer, partialBuffer.get(), 0, 0, 0) != kCMBlockBufferNoErr)
+            return nullptr;
+MAVERICKS_BACKPORT */
     }
     // MAVERICKS_BACKPORT: CMBlockBuffer built from a contiguous copy (see comment above) for 10.9.
     return adoptCF(blockBuffer);
 }
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// RetainPtr<NSArray> FragmentedSharedBuffer::createNSDataArray() const
+// {
+//     return createNSArray(segments(), [] (auto& segment) {
+//         return segment.segment->createNSData();
+//     });
+// (end MAVERICKS_BACKPORT restored block)
 }
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+
+RetainPtr<NSData> DataSegment::createNSData() const
+{
+    return adoptNS([[WebCoreSharedBufferData alloc] initWithDataSegment:*this position:0 size:size()]);
+}
+
+void DataSegment::iterate(CFDataRef data, NOESCAPE const Function<void(std::span<const uint8_t>)>& apply) const
+{
+    [(__bridge NSData *)data enumerateByteRangesUsingBlock:^(const void *bytes, NSRange byteRange, BOOL *) {
+        apply(unsafeMakeSpan(static_cast<const uint8_t*>(bytes), byteRange.length));
+    }];
+}
+
+RetainPtr<NSData> SharedBufferDataView::createNSData() const
+{
+    return adoptNS([[WebCoreSharedBufferData alloc] initWithDataSegment:m_segment.get() position:m_positionWithinSegment size:size()]);
+}
+
+} // namespace WebCore
+MAVERICKS_BACKPORT */

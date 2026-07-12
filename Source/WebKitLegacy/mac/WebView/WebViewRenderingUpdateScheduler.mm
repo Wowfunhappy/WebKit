@@ -104,6 +104,11 @@ void WebViewRenderingUpdateScheduler::registerCACommitHandlers()
         return;
 
     RetainPtr webView = m_webView;
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    [CATransaction addCommitHandler:^{
+        [webView.get() _willStartRenderingUpdateDisplay];
+    } forPhase:kCATransactionPhasePreLayout];
+MAVERICKS_BACKPORT */
 
     // MAVERICKS_BACKPORT: +[CATransaction addCommitHandler:forPhase:] is 10.10+. Calling it
     // unconditionally throws "unrecognized selector sent to class", which aborts this
@@ -116,6 +121,7 @@ void WebViewRenderingUpdateScheduler::registerCACommitHandlers()
         [webView.get() _willStartRenderingUpdateDisplay];
     }, [webView] {
         [webView.get() _didCompleteRenderingUpdateDisplay];
+        // MAVERICKS_BACKPORT: closes the addCATransactionCommitHandlersForCurrentThread call above (10.9 two-phase commit shim).
     });
 
     m_haveRegisteredCommitHandlers = true;

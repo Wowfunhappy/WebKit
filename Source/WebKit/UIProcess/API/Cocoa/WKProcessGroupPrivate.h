@@ -1,2 +1,3 @@
 // MAVERICKS_BACKPORT: this file is absent from upstream base 83b24ce. It exists because the legacy WKProcessGroup/WKConnection ObjC API subsystem is restored for the 10.9 build (the bundle<->app wiring Mail.app and other WK1/WK2 clients rely on), and PlatformMac.cmake lists this header among the framework headers to copy — so the file must exist for the framework header-copy step to succeed. It carries no private declarations of its own (the public/internal surface lives in WKProcessGroup.h / WKProcessGroupInternal.h); this stub satisfies the build's header reference.
 /* stub */
+

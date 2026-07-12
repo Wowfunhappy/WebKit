@@ -38,6 +38,7 @@
 #import "WebPrivacyHelpers.h"
 #import <WebCore/AdvancedPrivacyProtections.h>
 #import <WebCore/AuthenticationChallenge.h>
+// MAVERICKS_BACKPORT: BlobData.h/FormData.h for the file-backed upload-body materialization below.
 #import <WebCore/BlobData.h>
 #import <WebCore/FormData.h>
 #import <WebCore/HTTPStatusCodes.h>
@@ -218,8 +219,8 @@ void NetworkDataTaskCocoa::updateFirstPartyInfoForSession(const URL& requestURL)
         return;
 
     CheckedPtr session = networkSession();
-    // MAVERICKS_BACKPORT: -_resolvedCNAMEChain is 10.13+ SPI.
     auto cnameDomain = [this]() {
+    // MAVERICKS_BACKPORT: -_resolvedCNAMEChain is 10.13+ SPI.
         if (![m_task respondsToSelector:@selector(_resolvedCNAMEChain)])
             return WebCore::RegistrableDomain { };
         if (RetainPtr lastResolvedCNAMEInChain = [[m_task _resolvedCNAMEChain] lastObject])
@@ -569,8 +570,8 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         blockCookies();
     }
 
-    // MAVERICKS_BACKPORT: NSURLSessionTask.priority property is 10.10+; set it via KVC and guard the selector.
     if (WebCore::ResourceRequest::resourcePrioritiesEnabled())
+    // MAVERICKS_BACKPORT: NSURLSessionTask.priority property is 10.10+; set it via KVC and guard the selector.
         if ([m_task.get() respondsToSelector:@selector(setPriority:)])
             [m_task.get() setValue:@(toNSURLSessionTaskPriority(request.priority())) forKey:@"priority"];
 

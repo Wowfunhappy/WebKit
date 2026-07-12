@@ -33,11 +33,11 @@
 
 namespace IPC {
 
-// MAVERICKS_BACKPORT: mach voucher APIs (10.10+) are stubbed out as no-ops.
-// IPC importance inheritance just doesn't happen on this OS.
 class ImportanceAssertion {
 public:
     ImportanceAssertion() = default;
+// MAVERICKS_BACKPORT: mach voucher APIs (10.10+) are stubbed out as no-ops.
+// IPC importance inheritance just doesn't happen on this OS.
     // MAVERICKS_BACKPORT: mach voucher APIs (10.10+) absent; this ctor ignores the header (no-op).
     explicit ImportanceAssertion(mach_msg_header_t*) { }
     ImportanceAssertion(ImportanceAssertion&&) = default;

@@ -148,11 +148,14 @@ void RunLoop::dispatch(const SchedulePairHashSet& schedulePairs, Function<void()
         return;
     }
 
+    // MAVERICKS_BACKPORT: one-shot CFRunLoopTimer for the per-mode SchedulePair delivery above; the handler block owns the moved Function.
     RetainPtr<CFRunLoopTimerRef> timer = adoptCF(CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent(), 0, 0, 0, makeBlockPtr([function = WTF::move(function)](CFRunLoopTimerRef timer) mutable {
         AutodrainedPool pool;
         function();
+        // MAVERICKS_BACKPORT: the one-shot timer self-invalidates after running the work (per-mode SchedulePair delivery).
         CFRunLoopTimerInvalidate(timer);
     }).get()));
+    // MAVERICKS_BACKPORT: add the timer to each scheduled pair's run loop+mode so work runs in the app-pumped (private) mode.
     for (auto& schedulePair : schedulePairs)
         CFRunLoopAddTimer(schedulePair->runLoop(), timer.get(), schedulePair->mode());
 }

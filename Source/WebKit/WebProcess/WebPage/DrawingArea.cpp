@@ -62,10 +62,8 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(DrawingArea);
 
 RefPtr<DrawingArea> DrawingArea::create(WebPage& webPage, const WebPageCreationParameters& parameters)
 {
-// MAVERICKS_BACKPORT: TILED_CA_DRAWING_AREA is enabled for this 10.9 build so the TiledCoreAnimation drawing area remains selectable alongside RemoteLayerTree; the backport runs on TCA (RemoteLayerTree-on-Mac is unavailable here).
 #if ENABLE(TILED_CA_DRAWING_AREA)
     SandboxExtension::consumePermanently(parameters.renderServerMachExtensionHandle);
-    // 10.9 perf: removed debug fopen logging
     switch (parameters.drawingAreaType) {
     case DrawingAreaType::TiledCoreAnimation:
         return TiledCoreAnimationDrawingArea::create(webPage, parameters);

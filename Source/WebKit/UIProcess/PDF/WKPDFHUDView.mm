@@ -37,6 +37,59 @@
 
 // MAVERICKS_BACKPORT: inert HUD stub — the upstream QuartzCore/PAL SPI imports, layout constants, control-name strings, and isInRecoveryOS/controlArray helpers are all dropped.
 #import "WebPageProxy.h"
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#import <QuartzCore/CATransaction.h>
+#import <WebCore/Color.h>
+#import <pal/spi/cf/CoreTextSPI.h>
+#import <pal/spi/cocoa/QuartzCoreSPI.h>
+#import <pal/spi/mac/NSImageSPI.h>
+#import <wtf/WeakObjCPtr.h>
+#import <wtf/WorkQueue.h>
+#import <wtf/cf/TypeCastsCF.h>
+#import <wtf/spi/darwin/OSVariantSPI.h>
+
+//  The HUD items should have the following spacing:
+//  -------------------------------------------------
+// |      12        12      10     12        12      |
+// |     ----      ----     |     ----      ----     |
+// | 10 |icon| 10 |icon| 10 | 10 |icon| 10 |icon| 10 |
+// |     ----      ----     |     ----      ----     |
+// |      12        12      10     12        12      |
+//  -------------------------------------------------
+//  where the 12 point vertical spacing is anchored to the smallest icon image,
+//  and all subsequent icons with be centered vertically with the smallest icon.
+
+static const CGFloat layerVerticalOffset = 40;
+static const CGFloat layerCornerRadius = 12;
+static const CGFloat layerGrayComponent = 0;
+static const CGFloat layerAlpha = 0.75;
+static const CGFloat layerImageScale = 1.5;
+static const CGFloat layerSeparatorControllerSize = 1.5;
+static const CGFloat layerControllerHorizontalMargin = 10.0;
+static const CGFloat layerImageVerticalMargin = 12.0;
+static const CGFloat layerSeparatorVerticalMargin = 10.0;
+static const CGFloat controlLayerNormalAlpha = 0.75;
+static const CGFloat controlLayerDownAlpha = 0.45;
+
+static NSString * const PDFHUDZoomInControl = @"plus.magnifyingglass";
+static NSString * const PDFHUDZoomOutControl = @"minus.magnifyingglass";
+static NSString * const PDFHUDLaunchPreviewControl = @"preview";
+static NSString * const PDFHUDSavePDFControl = @"arrow.down.circle";
+static NSString * const PDFHUDSeparatorControl = @"PDFHUDSeparatorControl";
+
+static const CGFloat layerFadeInTimeInterval = 0.25;
+static const CGFloat layerFadeOutTimeInterval = 0.5;
+static const CGFloat initialHideTimeInterval = 3.0;
+
+static bool isInRecoveryOS()
+{
+    return os_variant_is_basesystem("WebKit");
+}
+
+static NSArray<NSString *> *controlArray()
+{
+    NSArray<NSString *> *controls = @[ PDFHUDZoomOutControl, PDFHUDZoomInControl ];
+MAVERICKS_BACKPORT */
 
 // MAVERICKS_BACKPORT: inert HUD stub — the upstream private ivars (layers, cached icons, visibility flags) are dropped along with their machinery.
 @implementation WKPDFHUDView

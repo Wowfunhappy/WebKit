@@ -257,6 +257,11 @@ std::optional<SimpleRange> DictionaryLookup::rangeForSelection(const VisibleSele
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     if (!canCreateRevealItems())
+//         return std::nullopt;
+//
+// (end MAVERICKS_BACKPORT restored block)
     // Since we already have the range we want, we just need to grab the returned options.
     auto selectionStart = selection.visibleStart();
     auto selectionEnd = selection.visibleEnd();
@@ -292,6 +297,12 @@ std::optional<SimpleRange> DictionaryLookup::rangeAtHitTestResult(const HitTestR
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//
+//     if (!canCreateRevealItems())
+//         return std::nullopt;
+//
+// (end MAVERICKS_BACKPORT restored block)
     RefPtr node = hitTestResult.innerNonSharedNode();
     if (!node || !node->renderer())
         return std::nullopt;

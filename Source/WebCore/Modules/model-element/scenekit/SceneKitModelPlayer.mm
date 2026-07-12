@@ -32,12 +32,12 @@
 
 #import "GraphicsLayer.h"
 #import "ModelPlayerGraphicsLayerConfiguration.h"
+#import "SceneKitModel.h"
+#import "SceneKitModelLoader.h"
 // MAVERICKS_BACKPORT: SceneKitModel.h / SceneKitModelLoader.h are pure C++ interface headers
 // (no SceneKit/Metal import); including them only completes the RefPtr<SceneKitModel> /
 // RefPtr<SceneKitModelLoader> member types so this TU can generate their destructors. Neither
 // loadSceneKitModel() nor SceneKitModel is ever instantiated, so no 10.11+ framework is touched.
-#import "SceneKitModel.h"
-#import "SceneKitModelLoader.h"
 // MAVERICKS_BACKPORT: no <pal/spi/cocoa/SceneKitSPI.h> / <wtf/cocoa/VectorCocoa.h> imports — the SceneKit
 // SPI is absent on 10.9 and the VectorCocoa makeVectorElement helper is unused once the scene path is inert.
 

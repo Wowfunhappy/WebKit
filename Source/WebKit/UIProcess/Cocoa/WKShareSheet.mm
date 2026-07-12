@@ -23,36 +23,36 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#import "config.h"
 // MAVERICKS_BACKPORT status: minimal implementation. The full WKShareSheet drives an
 // NSSharingServicePicker; that exists on 10.9, so the share menu can be restored
 // from upstream. For initial bring-up this implementation reports the share as
 // declined (completionHandler(false)) so that requesting navigator.share simply
 // does nothing rather than crashing. Real ObjC metadata lives in WebKit.framework.
 
-#import "config.h"
 // MAVERICKS_BACKPORT: import the in-tree header directly (no <WebKit/...> umbrella for this minimal stub).
 #import "WKShareSheet.h"
 
 #if HAVE(SHARE_SHEET_UI)
 
-// MAVERICKS_BACKPORT: reduced include set for the minimal stub (no LinkPresentation/UniformTypeIdentifiers/NSSharingServicePicker SPI).
 #import "PickerDismissalReason.h"
+// MAVERICKS_BACKPORT: reduced include set for the minimal stub (no LinkPresentation/UniformTypeIdentifiers/NSSharingServicePicker SPI).
 #import <WebCore/FloatRect.h>
 #import <WebCore/ShareData.h>
 #import <wtf/StdLibExtras.h> // MAVERICKS_BACKPORT: minimal include set for the stub (no LinkPresentation/UTI/NSSharingServicePicker SPI).
 
+@implementation WKShareSheet {
 // MAVERICKS_BACKPORT: this file is compiled as manual-reference-counting (it is in the PlatformMac
 // explicit source list, not the ARC-tagged unified bundles), so the header's
 // `weak` delegate property cannot be @synthesize'd. Back it with an explicitly
 // unretained ivar and manual accessors — valid under both MRR and ARC. The
 // delegate (the WKWebView) outlives this transient share sheet.
-@implementation WKShareSheet {
     __unsafe_unretained id<WKShareSheetDelegate> _delegate; // MAVERICKS_BACKPORT: unretained ivar backs the header's weak delegate under MRR (see above).
 }
 
-// MAVERICKS_BACKPORT: manual delegate getter backing the unretained ivar (see above).
 - (id<WKShareSheetDelegate>)delegate
 {
+// MAVERICKS_BACKPORT: manual delegate getter backing the unretained ivar (see above).
     return _delegate;
 }
 
@@ -61,9 +61,9 @@
     _delegate = delegate;
 }
 
-// MAVERICKS_BACKPORT: minimal share-sheet stub holds no web-view reference (nothing is presented).
 - (instancetype)initWithView:(WKWebView *)view
 {
+// MAVERICKS_BACKPORT: minimal share-sheet stub holds no web-view reference (nothing is presented).
     self = [super init];
     if (!self)
         return nil;
@@ -82,9 +82,9 @@
         [_delegate shareSheetDidDismiss:self];
 }
 
-// MAVERICKS_BACKPORT: minimal share-sheet stub — nothing presented, so there is nothing to dismiss.
 - (BOOL)dismissIfNeededWithReason:(WebKit::PickerDismissalReason)reason
 {
+// MAVERICKS_BACKPORT: minimal share-sheet stub — nothing presented, so there is nothing to dismiss.
     UNUSED_PARAM(reason);
     return NO;
 }

@@ -1447,11 +1447,11 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::supportsLimitedMatroska() const
     return m_loadOptions.supportsLimitedMatroska;
 }
 
+void MediaPlayerPrivateMediaSourceAVFObjC::isInFullscreenOrPictureInPictureChanged(bool isInFullscreenOrPictureInPicture)
+{
 // MAVERICKS_BACKPORT: declared unconditionally in the header (a `final` override → vtable slot), so it
 // must be defined even when VIDEO_PRESENTATION_MODE is off (otherwise WebCore has an undefined symbol →
 // dyld load crash). The renderer's method only exists under VIDEO_PRESENTATION_MODE, so guard only the body.
-void MediaPlayerPrivateMediaSourceAVFObjC::isInFullscreenOrPictureInPictureChanged(bool isInFullscreenOrPictureInPicture)
-{
 // MAVERICKS_BACKPORT: renderer's fullscreen/PiP method only exists under VIDEO_PRESENTATION_MODE (off on 10.9); guard the body.
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     m_renderer->isInFullscreenOrPictureInPictureChanged(isInFullscreenOrPictureInPicture);

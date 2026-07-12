@@ -1497,8 +1497,8 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
     public:
         explicit PolicyClient(const WKPagePolicyClientBase* client)
         {
-            // MAVERICKS_BACKPORT: constructor no longer RELEASE_ASSERTs against the deprecated callbacks Safari 9.1.3 sets.
             initialize(client);
+            // MAVERICKS_BACKPORT: constructor no longer RELEASE_ASSERTs against the deprecated callbacks Safari 9.1.3 sets.
             // MAVERICKS_BACKPORT: Safari 9.1.3 sets m_client.unableToImplementPolicy.
             // Modern WebKit forbids it; we silently ignore so Safari can launch.
         }
@@ -1564,8 +1564,8 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
             Ref<API::URLRequest> originalRequest = API::URLRequest::create(originalResourceRequest);
             Ref<API::URLRequest> request = API::URLRequest::create(resourceRequest);
 
-            // MAVERICKS_BACKPORT: pass the real userData through to the legacy V0/V1/V2 callbacks (modern WebKit passed nullptr here).
             if (m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0)
+            // MAVERICKS_BACKPORT: pass the real userData through to the legacy V0/V1/V2 callbacks (modern WebKit passed nullptr here).
                 m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0(toAPI(&page), toAPI(frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(request.ptr()), toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
             // MAVERICKS_BACKPORT: pass the real userData through (modern WebKit passed nullptr here).
             else if (m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1)

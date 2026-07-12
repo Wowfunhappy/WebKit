@@ -24,9 +24,6 @@
  */
 
 #include "config.h"
-
-// MAVERICKS_BACKPORT: restored upstream UI-side remote scrolling node (file had been stubbed);
-// defines the ::create referenced by RemoteScrollingTreeMac::createScrollingTreeNode. No 10.10+ API.
 #include "ScrollingTreeOverflowScrollingNodeRemoteMac.h"
 
 #if PLATFORM(MAC)

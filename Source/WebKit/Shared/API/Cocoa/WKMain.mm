@@ -1,10 +1,10 @@
 // MAVERICKS_BACKPORT: file restored/rewritten for the macOS 10.9 WebContent XPC service; upstream
 // routes through push/PCM daemon entry points that don't exist on 10.9.
+// MAVERICKS_BACKPORT: include the raw xpc/stdio/unistd headers used by the 10.9 entry point instead
+// of the upstream daemon-entry-point headers (PCMDaemonEntryPoint.h / WebPush*Main.h).
 #import "config.h"
 #import "WKMain.h"
 
-// MAVERICKS_BACKPORT: include the raw xpc/stdio/unistd headers used by the 10.9 entry point instead
-// of the upstream daemon-entry-point headers (PCMDaemonEntryPoint.h / WebPush*Main.h).
 #import <xpc/xpc.h>
 #import <stdio.h>
 #import <unistd.h>

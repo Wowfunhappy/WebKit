@@ -121,11 +121,13 @@ ResourceRequestPlatformData ResourceRequest::getResourceRequestPlatformData() co
     }
     ASSERT([requestToSerialize class] == [NSURLRequest class] || [requestToSerialize class] == [NSMutableURLRequest class]);
 
+    // MAVERICKS_BACKPORT: 10.9's ResourceRequestPlatformData carries an extra byte-exact URL field (see ResourceRequest.h), so the null-request early return uses the 4-arg form under !HAVE(WK_SECURE_CODING_NSURLREQUEST).
     if (!requestToSerialize) {
 #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
         return ResourceRequestPlatformData { NULL, { }, std::nullopt, std::nullopt };
 #else
         return ResourceRequestPlatformData { NULL, std::nullopt, std::nullopt };
+    // MAVERICKS_BACKPORT: closes the !HAVE(WK_SECURE_CODING_NSURLREQUEST) split and the null-request early-return block above.
 #endif
     }
 
@@ -294,12 +296,25 @@ void ResourceRequest::doUpdatePlatformRequest()
     else
         nsRequest = adoptNS([[NSMutableURLRequest alloc] initWithURL:url().createNSURL().get()]);
 
-    // MAVERICKS_BACKPORT: skip the private CF API calls that crash on 10.9, but
-    // KEEP the safe NSMutableURLRequest setters for HTTP method, headers,
-    // cookies — without these, POST requests have no method/body/headers.
     configureRequestWithData(nsRequest.get(), m_requestData);
 
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    if (ResourceRequest::httpPipeliningEnabled())
+        CFURLRequestSetShouldPipelineHTTP([nsRequest _CFURLRequest], true, true);
+
+    if (ResourceRequest::resourcePrioritiesEnabled()) {
+        CFURLRequestSetRequestPriority([nsRequest _CFURLRequest], toPlatformRequestPriority(priority()));
+
+        // Used by PLT to ignore very low priority beacon and ping loads.
+        if (priority() == ResourceLoadPriority::VeryLow)
+            _CFURLRequestSetProtocolProperty([nsRequest _CFURLRequest], CFSTR("WKVeryLowLoadPriority"), kCFBooleanTrue);
+    }
+
+MAVERICKS_BACKPORT */
     [nsRequest setCachePolicy:toPlatformRequestCachePolicy(cachePolicy())];
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     _CFURLRequestSetProtocolProperty([nsRequest _CFURLRequest], kCFURLRequestAllowAllPOSTCaching, kCFBooleanTrue);
+// (end MAVERICKS_BACKPORT restored block)
 
     // MAVERICKS_BACKPORT: 10.9's NSURLSession gives a request-level timeoutInterval precedence over
     // NSURLSessionConfiguration.timeoutIntervalForRequest, while modern CFNetwork enforces the
@@ -315,8 +330,10 @@ void ResourceRequest::doUpdatePlatformRequest()
         return interval >= INT_MAX ? 60.0 : interval;
     };
     if (double newTimeoutInterval = timeoutInterval())
+        // MAVERICKS_BACKPORT: clamp the infinite timeout sentinel to the 60s idle backstop (see above).
         [nsRequest setTimeoutInterval:clampInfiniteTimeoutInterval(newTimeoutInterval)];
     else
+        // MAVERICKS_BACKPORT: clamp the infinite default-timeout sentinel to the 60s idle backstop (see above).
         [nsRequest setTimeoutInterval:clampInfiniteTimeoutInterval(defaultTimeoutInterval())];
 
     [nsRequest setMainDocumentURL:firstPartyForCookies().createNSURL().get()];
@@ -324,6 +341,12 @@ void ResourceRequest::doUpdatePlatformRequest()
         [nsRequest setHTTPMethod:httpMethod().createNSString().get()];
     [nsRequest setHTTPShouldHandleCookies:allowCookies()];
 
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     [nsRequest _setProperty:RetainPtr { siteForCookies(m_requestData.m_sameSiteDisposition, retainPtr([nsRequest URL]).get()) }.get() forKey:@"_kCFHTTPCookiePolicyPropertySiteForCookies"];
+//     // FIXME: This is a safer cpp false positive (rdar://160851489).
+//     SUPPRESS_UNRETAINED_ARG [nsRequest _setProperty:m_requestData.m_isTopSite ? @YES : @NO forKey:@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"];
+//
+// (end MAVERICKS_BACKPORT restored block)
     // Cannot just use setAllHTTPHeaderFields here, because it does not remove headers.
     for (NSString *oldHeaderName in [nsRequest allHTTPHeaderFields])
         [nsRequest setValue:nil forHTTPHeaderField:oldHeaderName];

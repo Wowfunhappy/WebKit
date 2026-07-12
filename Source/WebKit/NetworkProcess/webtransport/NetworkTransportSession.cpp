@@ -37,13 +37,6 @@
 #include <WebCore/WebTransportSendStreamStats.h>
 #include <wtf/TZoneMallocInlines.h>
 
-// MAVERICKS_BACKPORT: WebTransport's Cocoa data path requires nw_connection_group_t (10.14+),
-// so NetworkTransportSessionCocoa.mm is reduced to create()/initialize() stubs (create returns
-// nullptr -> no instance is ever constructed). The platform-independent method bodies below are
-// kept verbatim from upstream so the generated message receiver links; the no-op stream/datagram
-// fallbacks (upstream's #if !PLATFORM(COCOA) block) are compiled unconditionally here because the
-// Cocoa file no longer provides their real implementations. These bodies are dead at runtime.
-
 namespace WebKit {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkTransportSession);
@@ -202,5 +195,8 @@ bool NetworkTransportSession::isSessionClosed() const
 {
     return false;
 }
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #endif
+// (end MAVERICKS_BACKPORT restored block)
 
 }

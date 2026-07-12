@@ -89,7 +89,7 @@ if ! git rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null 2>&1; then
     exit 2
 fi
 echo "Upstream base: $(git rev-parse --short "$BASE")  (resolved from: $BASE_SOURCE)"
-echo "Scope: Source/  (excluding vendored binaries, build/generated dirs, and MavericksSupport/)"
+echo "Scope: Source/  (excluding vendored binaries, .json, build/generated dirs, and MavericksSupport/)"
 echo
 
 # --- path exclusion (mirrored in the awk below) ------------------------------
@@ -104,6 +104,11 @@ is_excluded_path() {
         *.a|*.o|*.dylib|*.so|*.bin|*.dat|*.png|*.jpg|*.jpeg|*.gif|*.bmp|*.ico|*.icns\
         |*.ttf|*.otf|*.woff|*.woff2|*.pdf|*.zip|*.gz|*.tar|*.mov|*.mp4|*.webp|*.wasm)
             return 0 ;;
+    esac
+    # JSON has no comment syntax, so a divergent line in a .json file cannot carry a
+    # marker; the extension is excluded from the audit.
+    case "$1" in
+        *.json) return 0 ;;
     esac
     return 1
 }
@@ -278,6 +283,8 @@ function is_excluded(p) {
     if (p ~ /\/Derived\//) return 1
     if (p ~ /^Source\/ThirdParty\/[^\/]+\/lib\//) return 1
     if (p ~ /\.(a|o|dylib|so|bin|dat|png|jpg|jpeg|gif|bmp|ico|icns|ttf|otf|woff|woff2|pdf|zip|gz|tar|mov|mp4|webp|wasm)$/) return 1
+    # JSON has no comment syntax to carry a marker.
+    if (p ~ /\.json$/) return 1
     return 0
 }
 ' > "$AWK_REPORT"

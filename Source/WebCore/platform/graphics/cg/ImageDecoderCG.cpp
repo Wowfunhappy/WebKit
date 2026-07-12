@@ -75,6 +75,7 @@ constexpr float panoramicImageAspectRatioThreshold = 2.0;
 
 static RetainPtr<CFMutableDictionaryRef> createImageSourceOptions()
 {
+    RetainPtr<CFMutableDictionaryRef> options = adoptCF(CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
     // MAVERICKS_BACKPORT: kCGImageSourceShouldCache / kCGImageSourceSkipMetadata /
     // kCGImageSourceUseHardwareAcceleration / etc. are stubbed in libpolyfill.a
     // with `xorl %eax,%eax; ret`, which leaves the returned CFStringRef key
@@ -82,7 +83,6 @@ static RetainPtr<CFMutableDictionaryRef> createImageSourceOptions()
     // triggers __forwarding__ → getAtomTarget SIGTRAP. Use literal CFSTR()
     // keys whose contents match the real ImageIO constants (CG looks up
     // options by string value, not pointer identity).
-    RetainPtr<CFMutableDictionaryRef> options = adoptCF(CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
     // MAVERICKS_BACKPORT: literal CFSTR() keys instead of the libpolyfill-stubbed kCGImageSource* constants (see above).
     CFDictionarySetValue(options.get(), CFSTR("kCGImageSourceShouldCache"), kCFBooleanTrue);
     CFDictionarySetValue(options.get(), CFSTR("kCGImageSourceShouldPreferRGB32"), kCFBooleanTrue);

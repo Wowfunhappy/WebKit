@@ -34,6 +34,9 @@
 // gcrypt provides the PlatformECKeyContainer instead. See SourcesCocoa.txt.
 #if OS(DARWIN) && !PLATFORM(GTK) && !USE(GCRYPT)
 #include <WebCore/CommonCryptoUtilities.h>
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #if !defined(CLANG_WEBKIT_BRANCH)
+// (end MAVERICKS_BACKPORT restored block)
 namespace pal {
 class ECKey;
 }
@@ -41,6 +44,13 @@ class ECKey;
 namespace WebCore {
 using PlatformECKeyContainer = UniqueRef<pal::ECKey>;
 }
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #else
+// namespace WebCore {
+// using PlatformECKeyContainer = std::unique_ptr<std::monostate>;
+// }
+// #endif
+// (end MAVERICKS_BACKPORT restored block)
 #endif
 
 #if USE(GCRYPT)

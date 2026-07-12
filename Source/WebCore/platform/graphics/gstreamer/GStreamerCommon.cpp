@@ -1192,11 +1192,63 @@ static void busMessagePollFDCallback(CFFileDescriptorRef fileDescriptor, CFOptio
 void connectSimpleBusMessageCallback(GstElement* pipeline, Function<void(GstMessage*)>&& customHandler, AsynchronousPipelineDumping asynchronousPipelineDumping)
 {
     auto bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(pipeline)));
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     gst_bus_add_signal_watch_full(bus.get(), RunLoopSourcePriority::RunLoopDispatcher);
+// (end MAVERICKS_BACKPORT restored block)
 
     auto data = createMessageBusData();
     data->pipeline.reset(pipeline);
     data->handler = WTF::move(customHandler);
     data->asynchronousPipelineDumping = asynchronousPipelineDumping;
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    auto handler = g_signal_connect_data(bus.get(), "message", G_CALLBACK(+[](GstBus*, GstMessage* message, gpointer userData) {
+        auto data = reinterpret_cast<MessageBusData*>(userData);
+        auto pipeline = data->pipeline.get();
+        if (!pipeline)
+            return;
+
+        switch (GST_MESSAGE_TYPE(message)) {
+        case GST_MESSAGE_ERROR: {
+            GST_ERROR_OBJECT(pipeline.get(), "Got message: %" GST_PTR_FORMAT, message);
+            if (!s_isGstDebugDotFilesSupportEnabled)
+                break;
+
+            auto dotFileName = makeString(unsafeSpan(GST_OBJECT_NAME(pipeline.get())), "_error"_s);
+            dumpPipeline(pipeline, WTF::move(dotFileName), data->asynchronousPipelineDumping);
+            break;
+        }
+        case GST_MESSAGE_STATE_CHANGED: {
+            if (GST_MESSAGE_SRC(message) != GST_OBJECT_CAST(pipeline.get()))
+                break;
+
+            GstState oldState;
+            GstState newState;
+            GstState pending;
+            gst_message_parse_state_changed(message, &oldState, &newState, &pending);
+
+            GST_INFO_OBJECT(pipeline.get(), "State changed (old: %s, new: %s, pending: %s)", gst_state_get_name(oldState),
+                gst_state_get_name(newState), gst_state_get_name(pending));
+            if (!s_isGstDebugDotFilesSupportEnabled)
+                break;
+
+            auto dotFileName = makeString(unsafeSpan(GST_OBJECT_NAME(pipeline.get())), '_', unsafeSpan(gst_state_get_name(oldState)), '_', unsafeSpan(gst_state_get_name(newState)));
+            dumpPipeline(pipeline, WTF::move(dotFileName), data->asynchronousPipelineDumping);
+            break;
+        }
+        case GST_MESSAGE_LATENCY:
+            // Recalculate the latency, we don't need any special handling
+            // here other than the GStreamer default.
+            // This can happen if the latency of live elements changes, or
+            // for one reason or another a new live element is added or
+            // removed from the pipeline.
+            gst_element_call_async(pipeline.get(), reinterpret_cast<GstElementCallAsyncFunc>(+[](GstElement* pipeline, gpointer) {
+                gst_bin_recalculate_latency(GST_BIN_CAST(pipeline));
+            }), nullptr, nullptr);
+            break;
+        default:
+            break;
+        }
+MAVERICKS_BACKPORT */
 
 #if PLATFORM(COCOA)
     // MAVERICKS_BACKPORT: on Cocoa there is no GLib GMainContext pumped on the main thread, so the

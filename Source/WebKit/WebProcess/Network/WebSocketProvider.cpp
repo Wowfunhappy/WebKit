@@ -54,8 +54,8 @@ RefPtr<ThreadableWebSocketChannel> WebSocketProvider::createWebSocketChannel(Doc
 
 WebSocketProvider::~WebSocketProvider() = default;
 
-// MAVERICKS_BACKPORT: defer acquiring the NetworkProcess connection (m_networkProcessConnection stays null here) instead of eagerly ensuring it in the constructor; it is fetched lazily on first WebTransport use, avoiding a too-early connection bring-up on 10.9.
 WebSocketProvider::WebSocketProvider(WebPageProxyIdentifier webPageProxyID)
+// MAVERICKS_BACKPORT: defer acquiring the NetworkProcess connection (m_networkProcessConnection stays null here) instead of eagerly ensuring it in the constructor; it is fetched lazily on first WebTransport use, avoiding a too-early connection bring-up on 10.9.
     : m_webPageProxyID(webPageProxyID) { }
 
 std::pair<RefPtr<WebCore::WebTransportSession>, Ref<WebTransportSessionPromise>> WebSocketProvider::initializeWebTransportSession(ScriptExecutionContext& context, WebTransportSessionClient& client, const URL& url, const WebCore::WebTransportOptions& options)

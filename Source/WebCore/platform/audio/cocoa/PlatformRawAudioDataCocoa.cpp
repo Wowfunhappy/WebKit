@@ -81,8 +81,8 @@ static CAAudioStreamDescription::IsInterleaved NODELETE interleavedFormat(AudioS
 
 static RetainPtr<CMSampleBufferRef> createSampleBuffer(const CAAudioStreamDescription& description, const CMTime& time, size_t numberOfFrames, const WebAudioBufferList& list)
 {
-    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
     CMAudioFormatDescriptionRef rawFormatDescription;
+    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
     if (CMAudioFormatDescriptionCreate(kCFAllocatorDefault, &description.streamDescription(), 0, nullptr, 0, nullptr, nullptr, &rawFormatDescription))
         return nullptr;
     RetainPtr formatDescription = adoptCF(rawFormatDescription);

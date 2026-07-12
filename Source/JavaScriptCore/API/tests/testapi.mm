@@ -682,6 +682,7 @@ static void testObjectiveCAPIMain()
         JSValue *iteratorSymbol = context[@"Symbol"][@"iterator"];
         JSValue *object = [JSValue valueWithNewObjectInContext:context];
         JSValue *theAnswer = [JSValue valueWithUInt32:42 inContext:context];
+        // MAVERICKS_BACKPORT: JSValueProperty is NSString* under a <10.15 deployment target, so cast the JSValue* symbol key; the runtime accepts symbol keys regardless.
         [object setValue:theAnswer forProperty:(JSValueProperty)iteratorSymbol];
         checkResult(@"Setting by method with symbol should work", [object[iteratorSymbol] isEqual:theAnswer]);
     }
@@ -692,6 +693,7 @@ static void testObjectiveCAPIMain()
         JSValue *object = [JSValue valueWithNewObjectInContext:context];
         JSValue *theAnswer = [JSValue valueWithUInt32:42 inContext:context];
         object[iteratorSymbol] = theAnswer;
+        // MAVERICKS_BACKPORT: JSValueProperty is NSString* under a <10.15 deployment target, so cast the JSValue* symbol key; the runtime accepts symbol keys regardless.
         checkResult(@"has property with symbol should work", [object hasProperty:(JSValueProperty)iteratorSymbol]);
     }
 
@@ -700,8 +702,10 @@ static void testObjectiveCAPIMain()
         JSValue *iteratorSymbol = context[@"Symbol"][@"iterator"];
         JSValue *object = [JSValue valueWithNewObjectInContext:context];
         JSValue *theAnswer = [JSValue valueWithUInt32:42 inContext:context];
+        // MAVERICKS_BACKPORT: JSValueProperty is NSString* under a <10.15 deployment target, so cast the JSValue* symbol key; the runtime accepts symbol keys regardless.
         checkResult(@"delete property with symbol should work without property", [object deleteProperty:(JSValueProperty)iteratorSymbol]);
         object[iteratorSymbol] = theAnswer;
+        // MAVERICKS_BACKPORT: JSValueProperty is NSString* under a <10.15 deployment target, so cast the JSValue* symbol key; the runtime accepts symbol keys regardless.
         checkResult(@"delete property with symbol should work with property", [object deleteProperty:(JSValueProperty)iteratorSymbol]);
         checkResult(@"delete should be false with non-configurable property", ![context[@"Array"] deleteProperty:@"prototype"]);
     }

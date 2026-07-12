@@ -33,6 +33,7 @@
 #include "CSSBorderRadius.h"
 #include "CSSBoxShadowPropertyValue.h"
 #include "CSSCalcTree+Parser.h"
+// MAVERICKS_BACKPORT: include CSSDashboardRegionValue.h — DASHBOARD_SUPPORT is enabled on 10.9 for the -webkit-dashboard-region parser below.
 #if ENABLE(DASHBOARD_SUPPORT)
 #include "CSSDashboardRegionValue.h"
 #endif

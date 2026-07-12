@@ -2470,6 +2470,7 @@ void FrameSelection::updateCaretVisibility(ShouldUpdateAppearance doAppearanceUp
     CaretBase::setCaretVisibility(visibility);
 #endif
 
+    // MAVERICKS_BACKPORT: brace this branch so it can also schedule a rendering update below (WebKitLegacy caret un-suppress on window reactivation needs it).
     if (doAppearanceUpdate == ShouldUpdateAppearance::Yes) {
         m_pendingSelectionUpdate = true;
         // MAVERICKS_BACKPORT: m_pendingSelectionUpdate is serviced only inside Page::updateRendering,

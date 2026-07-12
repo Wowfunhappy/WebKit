@@ -41,7 +41,13 @@ RefPtr<MediaSample> MediaSamplesBlock::toMediaSample(const MediaSample* referenc
     // MAVERICKS_BACKPORT: the USE(AVFOUNDATION) CMSampleBuffer path is dropped because the CoreMedia
     // PAL soft-link is unavailable on macOS 10.9; return nullptr instead of asserting.
     UNUSED_PARAM(referenceSample);
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+//     ASSERT_NOT_REACHED();
+// (end MAVERICKS_BACKPORT restored block)
     return nullptr;
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// #endif
+// (end MAVERICKS_BACKPORT restored block)
 }
 
 UniqueRef<MediaSamplesBlock> MediaSamplesBlock::fromMediaSample(const MediaSample& sample, const TrackInfo* trackInfo)

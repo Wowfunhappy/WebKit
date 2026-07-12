@@ -50,6 +50,7 @@ static inline RTCSctpTransportState toRTCSctpTransportState(GstWebRTCSCTPTranspo
 
 GStreamerSctpTransportBackend::GStreamerSctpTransportBackend(GRefPtr<GstWebRTCSCTPTransport>&& transport)
     : m_backend(WTF::move(transport))
+    // MAVERICKS_BACKPORT: the AliveGuard lets the SCTP-thread notify::state callback marshal safely to the main thread (see registerClient).
     , m_guard(AliveGuard::create(*this))
 {
     static std::once_flag debugRegisteredFlag;
@@ -73,6 +74,7 @@ UniqueRef<RTCDtlsTransportBackend> GStreamerSctpTransportBackend::dtlsTransportB
 
 void GStreamerSctpTransportBackend::registerClient(RTCSctpTransportBackendClient& client)
 {
+    // MAVERICKS_BACKPORT: registerClient/unregisterClient and the destructor run main-thread only; the guard's backend is read/written only here.
     ASSERT(isMainThread());
     ASSERT(!m_client);
     m_client = client;

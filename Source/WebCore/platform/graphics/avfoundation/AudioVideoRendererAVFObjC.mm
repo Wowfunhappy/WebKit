@@ -156,6 +156,20 @@ void AudioVideoRendererAVFObjC::displayTick()
             m_displayedPTS = frameToShowPTS;
         }
     }
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    [m_sampleBufferDisplayLayer setName:@"AudioVideoRendererAVFObjC AVSampleBufferDisplayLayer"];
+    // False positive see webkit.org/b/298035
+    SUPPRESS_UNRETAINED_ARG [m_sampleBufferDisplayLayer setVideoGravity:(m_shouldMaintainAspectRatio ? AVLayerVideoGravityResizeAspect : AVLayerVideoGravityResize)];
+
+    configureLayerOrVideoRenderer(m_sampleBufferDisplayLayer.get());
+
+    if ([m_sampleBufferDisplayLayer respondsToSelector:@selector(setToneMapToStandardDynamicRange:)])
+        [m_sampleBufferDisplayLayer setToneMapToStandardDynamicRange:m_shouldDisableHDR];
+
+    setLayerDynamicRangeLimit(m_sampleBufferDisplayLayer.get(), m_dynamicRangeLimit);
+
+    m_videoLayerManager->setVideoLayer(m_sampleBufferDisplayLayer.get(), m_presentationSize);
+MAVERICKS_BACKPORT */
 }
 
 // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
@@ -318,6 +332,15 @@ void AudioVideoRendererAVFObjC::enqueueSample(TrackIdentifier id, Ref<MediaSampl
     if (it == m_tracks.end()) {
         AVR_BISECT("enqueueSample: unknown track id=%llu, dropping", (unsigned long long)id.toUInt64());
         return;
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+
+    RefPtr videoRenderer = m_videoRenderer;
+    if (videoRenderer) {
+        videoRenderer->notifyWhenHasAvailableVideoFrame([weakThis = ThreadSafeWeakPtr { *this }](const MediaTime& presentationTime, double displayTime) {
+            if (RefPtr protectedThis = weakThis.get(); protectedThis && protectedThis->m_hasAvailableVideoFrameCallback)
+                protectedThis->m_hasAvailableVideoFrameCallback(presentationTime, displayTime);
+        });
+MAVERICKS_BACKPORT */
     }
     // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     AVR_BISECT("enqueueSample: id=%llu resolvedType=%d (Video=%d audioTrack=%llu)", (unsigned long long)id.toUInt64(), (int)it->value.type, (int)TrackType::Video, (unsigned long long)(m_audioTrack ? m_audioTrack->toUInt64() : 0));
@@ -328,15 +351,25 @@ void AudioVideoRendererAVFObjC::enqueueSample(TrackIdentifier id, Ref<MediaSampl
         if (audioSampleBuffer)
             enqueueAudioSample(audioSampleBuffer);
         return;
-    }
-// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
 
+    m_preferences |= VideoRendererPreference::PrefersDecompressionSession;
+    if (videoRenderer)
+        videoRenderer->setPreferences(m_preferences);
+
+    if (m_previousRendererConfiguration.hasVideoTrack) {
+        // Activating AvailableVideoFrame callback may force the use of decompression session.
+        updateDisplayLayerIfNeeded();
+MAVERICKS_BACKPORT */
+    }
+
+// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     CMSampleBufferRef cmSampleBuffer = downcast<MediaSampleAVFObjC>(sample.get()).sampleBuffer();
     if (!cmSampleBuffer) {
         AVR_BISECT("enqueueSample: null cmSampleBuffer!");
         return;
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     }
+    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     // 10.9: decode with VideoToolbox and queue the resulting frame for the display timer to show.
     maybeReportSizeAndFirstFrame(cmSampleBuffer);
     decodeAndQueue(cmSampleBuffer);
@@ -628,6 +661,30 @@ void AudioVideoRendererAVFObjC::enqueueAudioSample(CMSampleBufferRef sampleBuffe
         m_audioQueueStarted = (ss == noErr);
         AVR_BISECT("enqueueAudioSample: deferred AudioQueueStart status=%d", (int)ss);
     }
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    for (auto& pair : m_audioRenderers)
+        [(__bridge AVSampleBufferAudioRenderer *)pair.value.get() setSTSLabel:defaultLabel.get()];
+}
+#endif
+
+#if HAVE(AVCONTENTKEYSESSION)
+#if ENABLE(ENCRYPTED_MEDIA)
+void AudioVideoRendererAVFObjC::setCDMInstance(CDMInstance* instance)
+{
+    RefPtr fpsInstance = dynamicDowncast<CDMInstanceFairPlayStreamingAVFObjC>(instance);
+    if (fpsInstance == m_cdmInstance)
+        return;
+
+    ALWAYS_LOG(LOGIDENTIFIER);
+    if (RefPtr cdmInstance = m_cdmInstance)
+        cdmInstance->removeKeyStatusesChangedObserver(m_keyStatusesChangedObserver);
+
+    m_cdmInstance = fpsInstance;
+    if (fpsInstance)
+        fpsInstance->addKeyStatusesChangedObserver(m_keyStatusesChangedObserver);
+
+    attemptToDecrypt();
+MAVERICKS_BACKPORT */
 }
 
 // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
@@ -652,6 +709,55 @@ void AudioVideoRendererAVFObjC::decodeAndQueue(CMSampleBufferRef sampleBuffer)
     if (!m_decompressionSession) {
         AVR_BISECT("decodeAndQueue: no session, bailing");
         return;
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+
+    tryToEnqueueBlockedSamples();
+}
+
+void AudioVideoRendererAVFObjC::tryToEnqueueBlockedSamples()
+{
+    while (!m_blockedSamples.isEmpty()) {
+        auto& firstPair = m_blockedSamples.first();
+
+        // If we still can't enqueue the sample, bail.
+        if (!canEnqueueSample(firstPair.first, firstPair.second))
+            return;
+
+        auto firstPairTaken = m_blockedSamples.takeFirst();
+        enqueueSample(firstPairTaken.first, WTF::move(firstPairTaken.second), { });
+    }
+}
+
+bool AudioVideoRendererAVFObjC::canEnqueueSample(TrackIdentifier trackId, const MediaSample& sample)
+{
+    // if sample is unencrytped: enqueue sample
+    if (!sample.isProtected())
+        return true;
+
+    // if sample is encrypted, but we are not attached to a CDM: do not enqueue sample.
+    if (!m_cdmInstance && !m_session.get())
+        return false;
+
+    if (typeOf(trackId) == TrackType::Video && !isEnabledVideoTrackId(trackId))
+        return false;
+
+    Ref sampleAVFObjC = downcast<MediaSampleAVFObjC>(sample);
+
+    // if sample is encrypted, and keyIDs match the current set of keyIDs: enqueue sample.
+    if (auto findResult = m_currentTrackIds.find(trackId); findResult != m_currentTrackIds.end() && findResult->value == sampleAVFObjC->keyIDs())
+        return true;
+
+    // if sample's set of keyIDs does not match the current set of keyIDs, consult with the CDM
+    // to determine if the keyIDs are usable; if so, update the current set of keyIDs and enqueue sample.
+    if (RefPtr cdmInstance = m_cdmInstance; cdmInstance && cdmInstance->isAnyKeyUsable(sampleAVFObjC->keyIDs())) {
+        m_currentTrackIds.add(trackId, sampleAVFObjC->keyIDs());
+        return true;
+    }
+
+    if (RefPtr session = m_session.get(); session && session->isAnyKeyUsable(sampleAVFObjC->keyIDs())) {
+        m_currentTrackIds.add(trackId, sampleAVFObjC->keyIDs());
+        return true;
+MAVERICKS_BACKPORT */
     }
     // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     CMFormatDescriptionRef fmt = PAL::CMSampleBufferGetFormatDescription(sampleBuffer);
@@ -660,7 +766,46 @@ void AudioVideoRendererAVFObjC::decodeAndQueue(CMSampleBufferRef sampleBuffer)
     if (!fmt || !bb || nSamples < 1) {
         AVR_BISECT("decodeAndQueue: missing fmt/bb/samples (n=%ld)", (long)nSamples);
         return;
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+
+    ALWAYS_LOG(LOGIDENTIFIER);
+
+    if (RefPtr oldSession = m_session.get())
+        oldSession->removeRenderer(*this);
+
+    m_session = dynamicDowncast<CDMSessionAVContentKeySession>(session);
+
+    if (RefPtr session = m_session.get()) {
+        session->addRenderer(*this);
+        if (RefPtr initData = m_initData)
+            session->setInitData(*initData);
+        attemptToDecrypt();
+MAVERICKS_BACKPORT */
     }
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+}
+#endif
+#endif
+
+void AudioVideoRendererAVFObjC::setSynchronizerRate(float rate, std::optional<MonotonicTime> hostTime)
+{
+    if (hostTime) {
+        auto cmHostTime = PAL::CMClockMakeHostTimeFromSystemUnits(hostTime->toMachAbsoluteTime());
+        ALWAYS_LOG(LOGIDENTIFIER, "setting rate to: ", m_rate, " at host time: ", PAL::CMTimeGetSeconds(cmHostTime));
+        [m_synchronizer setRate:rate time:PAL::kCMTimeInvalid atHostTime:cmHostTime];
+    } else
+        [m_synchronizer setRate:rate];
+
+    // If we are pausing the synchronizer, update the last image to ensure we have something
+    // to display if and when the decoders are purged while in the background. And vice-versa,
+    // purge our retained images and pixel buffers when playing the synchronizer, to release that
+    // retained memory.
+    if (!rate)
+        updateLastPixelBuffer();
+    else
+        maybePurgeLastPixelBuffer();
+}
+MAVERICKS_BACKPORT */
 
     // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (VideoToolbox/CALayer reimplementation; upstream AVSampleBuffer synchronizer/audio-renderer are 10.10+).
     // VTDecompressionSessionDecodeFrame decodes ONE frame per call. Our demuxer packs a whole

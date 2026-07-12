@@ -24,8 +24,8 @@
  */
 
 #import "config.h"
-#import "RemoteLayerBackingStore.h"
 // MAVERICKS_BACKPORT: import list reflowed for the 10.9 GPU_PROCESS-off guards below.
+#import "RemoteLayerBackingStore.h"
 #import "ArgumentCoders.h"
 #import "DynamicContentScalingImageBufferBackend.h"
 // MAVERICKS_BACKPORT: GPU_PROCESS is off on 10.9; GPUProcess header is unused.

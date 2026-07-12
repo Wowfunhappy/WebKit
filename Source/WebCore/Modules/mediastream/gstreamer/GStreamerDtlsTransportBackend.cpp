@@ -27,6 +27,7 @@
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/glib/GMallocString.h>
+// MAVERICKS_BACKPORT: include for the ThreadSafeWeakPtr the DTLS signal callback holds the observer through (see below).
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 
@@ -55,6 +56,7 @@ private:
 
     GRefPtr<GstWebRTCDTLSTransport> m_backend;
     WeakPtr<RTCDtlsTransportBackendClient> m_client;
+    // MAVERICKS_BACKPORT: retained signal-handler id so stop() disconnects exactly this notify::state handler.
     unsigned long m_stateSignalHandler { 0 };
 };
 
@@ -108,6 +110,8 @@ struct DtlsObserverNotifier {
 
 void GStreamerDtlsTransportBackendObserver::start()
 {
+    // MAVERICKS_BACKPORT: connect through a heap DtlsObserverNotifier holding a ThreadSafeWeakPtr so the
+    // transport-thread notify::state callback never dereferences a destroyed observer (see the class comment).
     m_stateSignalHandler = g_signal_connect_data(m_backend.get(), "notify::state", G_CALLBACK(+[](GstWebRTCDTLSTransport*, GParamSpec*, DtlsObserverNotifier* notifier) {
         if (RefPtr observer = notifier->weakObserver.get())
             observer->stateChanged();
@@ -117,6 +121,7 @@ void GStreamerDtlsTransportBackendObserver::start()
 void GStreamerDtlsTransportBackendObserver::stop()
 {
     m_client = nullptr;
+    // MAVERICKS_BACKPORT: disconnect the retained handler id (its user-data is the heap DtlsObserverNotifier, not this).
     if (m_stateSignalHandler) {
         g_signal_handler_disconnect(m_backend.get(), m_stateSignalHandler);
         m_stateSignalHandler = 0;

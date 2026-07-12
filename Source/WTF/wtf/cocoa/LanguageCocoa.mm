@@ -58,8 +58,8 @@ LocaleComponents parseLocale(const String& localeIdentifier)
 {
     auto locale = retainPtr([NSLocale localeWithLocaleIdentifier:localeIdentifier.createNSString().get()]);
 
-    // MAVERICKS_BACKPORT: NSLocale languageCode/scriptCode/countryCode properties are 10.12+; on 10.9 read the components via objectForKey: with the classic NSLocale keys.
     return {
+    // MAVERICKS_BACKPORT: NSLocale languageCode/scriptCode/countryCode properties are 10.12+; on 10.9 read the components via objectForKey: with the classic NSLocale keys.
         [locale.get() objectForKey:NSLocaleLanguageCode],
         [locale.get() objectForKey:NSLocaleScriptCode],
         [locale.get() objectForKey:NSLocaleCountryCode]

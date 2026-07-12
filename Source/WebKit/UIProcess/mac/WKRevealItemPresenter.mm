@@ -21,6 +21,62 @@
 
 - (void)showContextMenu
 {
+/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    CheckedPtr impl = _impl.get();
+    if (!impl)
+        return;
+
+    RetainPtr view = impl->view();
+    if (!view)
+        return;
+
+    RetainPtr menuItems = [_presenter menuItemsForItem:_item.get() documentContext:nil presentingContext:_presentingContext.get() options:nil];
+    if (![menuItems count])
+        return;
+
+    RetainPtr menu = adoptNS([[NSMenu alloc] initWithTitle:@""]);
+    [menu setAutoenablesItems:NO];
+    [menu setItemArray:menuItems.get()];
+
+    auto clickLocationInWindow = [view convertPoint:_menuLocationInView toView:nil];
+    RetainPtr event = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:clickLocationInWindow modifierFlags:0 timestamp:0 windowNumber:view.get().window.windowNumber context:0 eventNumber:0 clickCount:1 pressure:1];
+    [NSMenu popUpContextMenu:menu.get() withEvent:event.get() forView:view.get()];
+
+    [self _callDidFinishPresentationIfNeeded];
+}
+
+- (void)_callDidFinishPresentationIfNeeded
+{
+    CheckedPtr impl = _impl.get();
+    if (!impl || _isHighlightingItem)
+        return;
+
+    impl->didFinishPresentation(self);
+}
+
+#pragma mark - RVPresenterHighlightDelegate
+
+- (NSArray<NSValue *> *)revealContext:(RVPresentingContext *)context rectsForItem:(RVItem *)item
+{
+    return @[ [NSValue valueWithRect:_frameInView] ];
+}
+
+- (BOOL)revealContext:(RVPresentingContext *)context shouldUseDefaultHighlightForItem:(RVItem *)item
+{
+    return self.shouldUseDefaultHighlight;
+}
+
+- (void)revealContext:(RVPresentingContext *)context startHighlightingItem:(RVItem *)item
+{
+    _isHighlightingItem = YES;
+}
+
+- (void)revealContext:(RVPresentingContext *)context stopHighlightingItem:(RVItem *)item
+{
+    _isHighlightingItem = NO;
+
+    [self _callDidFinishPresentationIfNeeded];
+MAVERICKS_BACKPORT */
 }
 
 @end

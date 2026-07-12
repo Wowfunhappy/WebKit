@@ -6501,6 +6501,7 @@ void Document::invalidateRenderingDependentRegions()
 #endif
 }
 
+// MAVERICKS_BACKPORT: Dashboard annotated-region bookkeeping, built because DASHBOARD_SUPPORT is enabled on 10.9 for Dashboard widgets.
 #if ENABLE(DASHBOARD_SUPPORT)
 
 void Document::setAnnotatedRegions(const Vector<AnnotatedRegionValue>& regions)
