@@ -362,4 +362,22 @@ WK_POLYFILL_SEL("setTitleVisibility:", "wk_setTitleVisibility:");
 @end
 WK_POLYFILL_SEL("stringByApplyingTransform:reverse:", "wk_stringByApplyingTransform:reverse:");
 
+// ---------------------------------------------------------------------------------------------------
+// -[NSRunLoop performBlock:] (10.13+) via CFRunLoopPerformBlock (10.6+): enqueue the block to run on the
+// next iteration of this run loop in the common modes, then wake the loop so it fires promptly. This is
+// exactly what the modern method does, and (like it) is safe to call from another thread — WebKit uses it
+// from async completion handlers (spell-check results, XPC teardown) to hop back onto a run loop.
+@interface NSRunLoop (WKPolyfillScope)
+- (void)wk_performBlock:(void (^)(void))block;
+@end
+@implementation NSRunLoop (WKPolyfillScope)
+- (void)wk_performBlock:(void (^)(void))block
+{
+    CFRunLoopRef runLoop = [self getCFRunLoop];
+    CFRunLoopPerformBlock(runLoop, kCFRunLoopCommonModes, block);
+    CFRunLoopWakeUp(runLoop);
+}
+@end
+WK_POLYFILL_SEL("performBlock:", "wk_performBlock:");
+
 #pragma clang diagnostic pop
