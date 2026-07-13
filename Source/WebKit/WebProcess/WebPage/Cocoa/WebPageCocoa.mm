@@ -1606,19 +1606,7 @@ static void drawPDFPage(PDFDocument *pdfDocument, CFIndex pageIndex, CGContextRe
         CGContextTranslateCTM(context, 0, -cropBox.size.width);
     }
 
-    // MAVERICKS_BACKPORT: -[PDFPage drawWithBox:toContext:] is a 10.12+ PDFKit API and an unrecognized
-    // selector on 10.9 (it throws and aborts the print/PDF operation). The pre-10.12 -[PDFPage drawWithBox:]
-    // renders into the current NSGraphicsContext, so wrap this raw CGContext (set up with the page CTM above)
-    // as the current context for the duration of the draw. graphicsContextWithGraphicsPort:flipped: is the
-    // 10.9 constructor (graphicsContextWithCGContext: is 10.10+).
-    if ([pdfPage respondsToSelector:@selector(drawWithBox:toContext:)])
-        [pdfPage drawWithBox:kPDFDisplayBoxCropBox toContext:context];
-    else {
-        NSGraphicsContext *priorContext = [NSGraphicsContext currentContext];
-        [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithGraphicsPort:context flipped:NO]];
-        [pdfPage drawWithBox:kPDFDisplayBoxCropBox];
-        [NSGraphicsContext setCurrentContext:priorContext];
-    }
+    [pdfPage drawWithBox:kPDFDisplayBoxCropBox toContext:context];
 
     CGAffineTransform transform = CGContextGetCTM(context);
 
