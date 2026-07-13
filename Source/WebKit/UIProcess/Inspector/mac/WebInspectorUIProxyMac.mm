@@ -422,9 +422,7 @@ RetainPtr<NSWindow> WebInspectorUIProxy::createFrontendWindow(NSRect savedWindow
     [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenAllowsTiling | NSWindowCollectionBehaviorAuxiliary)];
 #endif
 
-    // MAVERICKS_BACKPORT: -setTitlebarAppearsTransparent: is 10.10+; guard with respondsToSelector on 10.9.
-    if ([window respondsToSelector:@selector(setTitlebarAppearsTransparent:)])
-        [window setTitlebarAppearsTransparent:YES];
+    [window setTitlebarAppearsTransparent:YES];
 
     // Center the window if the saved frame was empty.
     if (NSIsEmptyRect(savedWindowFrame))

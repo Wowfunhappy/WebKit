@@ -502,9 +502,7 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 
 #if USE(APPKIT)
     // We don't need to talk to the Dock.
-    // MAVERICKS_BACKPORT: _preventDockConnections is 10.10+; skip if not present.
-    if ([NSApplication respondsToSelector:@selector(_preventDockConnections)])
-        [NSApplication performSelector:@selector(_preventDockConnections)];
+    [NSApplication _preventDockConnections];
 
     [[NSUserDefaults standardUserDefaults] registerDefaults:@{
         @"NSApplicationCrashOnExceptions": @YES,
@@ -1013,10 +1011,7 @@ void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationP
 #endif
 
 #if HAVE(APP_SSO) || PLATFORM(MACCATALYST)
-    // MAVERICKS_BACKPORT: App SSO is 10.13+; +[NSURLSession _disableAppSSO] is absent on 10.9.
-    // Guard with respondsToSelector so the call is skipped (instead of throwing) on this build.
-    if ([NSURLSession respondsToSelector:@selector(_disableAppSSO)])
-        [NSURLSession _disableAppSSO];
+    [NSURLSession _disableAppSSO];
 #endif
 
 #if HAVE(CSCHECKFIXDISABLE)

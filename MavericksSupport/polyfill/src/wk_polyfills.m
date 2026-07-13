@@ -306,4 +306,40 @@ WK_POLYFILL_SEL("_setExpirationDate:", "wk__setExpirationDate:");
 @end
 WK_POLYFILL_SEL("drawWithBox:toContext:", "wk_drawWithBox:toContext:");
 
+// ---------------------------------------------------------------------------------------------------
+// Post-10.9 side-effect-only SPIs with no 10.9 equivalent — faithful no-ops (identical to the current
+// guarded skip). NSURLSession +_disableAppSSO (10.13), NSApplication +_preventDockConnections (10.10) /
+// -_setAccentColor: (10.14), NSWindow -setTitlebarAppearsTransparent: (10.10) / -setTitleVisibility:
+// (10.10) — 10.9 has no App-SSO, no dock-connection control, no window accent, no transparent titlebar,
+// and the window title is always shown.
+@interface NSURLSession (WKPolyfillScope)
++ (void)wk__disableAppSSO;
+@end
+@implementation NSURLSession (WKPolyfillScope)
++ (void)wk__disableAppSSO { }
+@end
+WK_POLYFILL_SEL("_disableAppSSO", "wk__disableAppSSO");
+
+@interface NSApplication (WKPolyfillScope)
++ (void)wk__preventDockConnections;
+- (void)wk__setAccentColor:(NSColor *)color;
+@end
+@implementation NSApplication (WKPolyfillScope)
++ (void)wk__preventDockConnections { }
+- (void)wk__setAccentColor:(NSColor *)color { (void)color; }
+@end
+WK_POLYFILL_SEL("_preventDockConnections", "wk__preventDockConnections");
+WK_POLYFILL_SEL("_setAccentColor:", "wk__setAccentColor:");
+
+@interface NSWindow (WKPolyfillScopeChrome)
+- (void)wk_setTitlebarAppearsTransparent:(BOOL)flag;
+- (void)wk_setTitleVisibility:(NSInteger)visibility;
+@end
+@implementation NSWindow (WKPolyfillScopeChrome)
+- (void)wk_setTitlebarAppearsTransparent:(BOOL)flag { (void)flag; }
+- (void)wk_setTitleVisibility:(NSInteger)visibility { (void)visibility; }
+@end
+WK_POLYFILL_SEL("setTitlebarAppearsTransparent:", "wk_setTitlebarAppearsTransparent:");
+WK_POLYFILL_SEL("setTitleVisibility:", "wk_setTitleVisibility:");
+
 #pragma clang diagnostic pop

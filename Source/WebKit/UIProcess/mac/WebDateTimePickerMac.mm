@@ -124,13 +124,8 @@ void WebDateTimePickerMac::didChooseDate(StringView date)
 
     self.hasShadow = YES;
     self.releasedWhenClosed = NO;
-    // MAVERICKS_BACKPORT: -[NSWindow setTitleVisibility:]/setTitlebarAppearsTransparent: are 10.10+; guard before sending.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
-    if ([self respondsToSelector:@selector(setTitleVisibility:)])
-        self.titleVisibility = NSWindowTitleHidden;
-    if ([self respondsToSelector:@selector(setTitlebarAppearsTransparent:)])
-        self.titlebarAppearsTransparent = YES;
-#endif
+    self.titleVisibility = NSWindowTitleHidden;
+    self.titlebarAppearsTransparent = YES;
     self.movable = NO;
     self.backgroundColor = [NSColor clearColor];
     self.opaque = NO;
