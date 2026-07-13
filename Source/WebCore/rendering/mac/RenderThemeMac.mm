@@ -112,12 +112,12 @@
         return nil;
 
     RetainPtr systemColorsChangedNotification = NSSystemColorsDidChangeNotification;
-    // MAVERICKS_BACKPORT: no accessibility-display-options notification RetainPtr — that symbol is 10.10+ (see below).
+    RetainPtr accessibilityDisplayOptionsChangedNotification = NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification;
 
     [[NSNotificationCenter defaultCenter] addObserver:self
         selector:@selector(systemColorsDidChange:) name:systemColorsChangedNotification.get() object:nil];
-    // MAVERICKS_BACKPORT: runtime-absent symbol — NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
-    // is 10.10+; skip the accessibility-display-options observer (those derived colors aren't available on 10.9).
+    [retainPtr([[NSWorkspace sharedWorkspace] notificationCenter]) addObserver:self
+        selector:@selector(accessibilityDisplayOptionsDidChange:) name:accessibilityDisplayOptionsChangedNotification.get() object:nil];
 
     return self;
 }

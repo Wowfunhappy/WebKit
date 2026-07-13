@@ -862,15 +862,9 @@ void WebProcessPool::registerNotificationObservers()
         textCheckerStateChanged();
     }];
 
-    // MAVERICKS_BACKPORT: NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification is 10.10+ (absent on
-    // 10.9, weak-imported -> NULL). With a NULL name, addObserverForName: observes EVERY workspace
-    // notification and spams screenPropertiesChanged(). Gate on the DEPLOYMENT TARGET (the #97 model); 10.9
-    // never posts this notification (its a11y display options are static), so no observer is needed.
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101000
     m_accessibilityDisplayOptionsNotificationObserver = [retainPtr([NSWorkspace.sharedWorkspace notificationCenter]) addObserverForName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         screenPropertiesChanged();
     }];
-#endif // MAVERICKS_BACKPORT: a11y-display-options observer only built on 10.10+ (see above).
 
     m_scrollerStyleNotificationObserver = [[NSNotificationCenter defaultCenter] addObserverForName:NSPreferredScrollerStyleDidChangeNotification object:nil queue:[NSOperationQueue currentQueue] usingBlock:^(NSNotification *notification) {
         auto scrollbarStyle = [NSScroller preferredScrollerStyle];
