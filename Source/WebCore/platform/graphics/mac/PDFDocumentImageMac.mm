@@ -72,19 +72,7 @@ void PDFDocumentImage::drawPDFPage(GraphicsContext& context)
     // on the context's state stack. (<rdar://35738181>)
     bool allowsSubpixelPositioning = CGContextGetAllowsFontSubpixelPositioning(context.platformContext());
 
-    // MAVERICKS_BACKPORT: -[PDFPage drawWithBox:toContext:] is 10.13+. On 10.9 only -[PDFPage
-    // drawWithBox:] exists (uses the current NSGraphicsContext). Bridge by setting up an
-    // NSGraphicsContext temporarily, or — much simpler and crash-free — drop down to the raw
-    // CGPDFPage and use CGContextDrawPDFPage (which we proved works for inspector toolbar
-    // icons in profiling).
-    PDFPage *page = [m_document pageAtIndex:0];
-    if ([page respondsToSelector:@selector(drawWithBox:toContext:)]) {
-        [page drawWithBox:kPDFDisplayBoxCropBox toContext:context.platformContext()];
-    } else if ([page respondsToSelector:@selector(pageRef)]) {
-        CGPDFPageRef cgPage = [page pageRef];
-        if (cgPage)
-            CGContextDrawPDFPage(context.platformContext(), cgPage);
-    }
+    [[m_document pageAtIndex:0] drawWithBox:kPDFDisplayBoxCropBox toContext:context.platformContext()];
 
     CGContextSetAllowsFontSubpixelPositioning(context.platformContext(), allowsSubpixelPositioning);
 }

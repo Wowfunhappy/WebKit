@@ -19,6 +19,7 @@
 
 #import "wk_selref_scope.h"
 #import <AppKit/AppKit.h>
+#import <PDFKit/PDFKit.h>
 
 #define SRGB(r, g, b, a) [NSColor colorWithSRGBRed:(r)/255.0 green:(g)/255.0 blue:(b)/255.0 alpha:(a)/255.0]
 
@@ -286,5 +287,23 @@ WK_POLYFILL_SEL("menuTypeForEvent:", "wk_menuTypeForEvent:");
 - (void)wk__setExpirationDate:(NSDate *)date { (void)date; }
 @end
 WK_POLYFILL_SEL("_setExpirationDate:", "wk__setExpirationDate:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[PDFPage drawWithBox:toContext:] (10.12+) via the classic -[PDFPage drawWithBox:] (10.4+), which
+// renders into the CURRENT NSGraphicsContext. Wrap the passed CGContext as current for the duration of
+// the draw, restoring the prior context after — the CTM the caller applied to `context` is honored.
+@interface PDFPage (WKPolyfillScope)
+- (void)wk_drawWithBox:(PDFDisplayBox)box toContext:(CGContextRef)context;
+@end
+@implementation PDFPage (WKPolyfillScope)
+- (void)wk_drawWithBox:(PDFDisplayBox)box toContext:(CGContextRef)context
+{
+    NSGraphicsContext *priorContext = [NSGraphicsContext currentContext];
+    [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithGraphicsPort:(void *)context flipped:NO]];
+    [self drawWithBox:box];
+    [NSGraphicsContext setCurrentContext:priorContext];
+}
+@end
+WK_POLYFILL_SEL("drawWithBox:toContext:", "wk_drawWithBox:toContext:");
 
 #pragma clang diagnostic pop
