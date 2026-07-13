@@ -1093,10 +1093,7 @@ static String scrollbarState(Scrollbar* scrollbar)
     if ([scrollerImp knobAlpha] > 0)
         result.append(",visible_thumb"_s);
 
-    // MAVERICKS_BACKPORT: -[NSScrollerImp userInterfaceLayoutDirection] is 10.10+; on 10.9
-    // scrollbars are always LTR, so the RTL flag is simply never appended.
-    if ([scrollerImp respondsToSelector:@selector(userInterfaceLayoutDirection)]
-        && [scrollerImp userInterfaceLayoutDirection] == NSUserInterfaceLayoutDirectionRightToLeft)
+    if ([scrollerImp userInterfaceLayoutDirection] == NSUserInterfaceLayoutDirectionRightToLeft)
         result.append(",RTL"_s);
 
     if ([scrollerImp controlSize] != NSControlSizeRegular)

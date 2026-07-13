@@ -145,12 +145,7 @@ void ScrollbarThemeMac::didCreateScrollerImp(Scrollbar& scrollbar)
 #if PLATFORM(MAC)
     RetainPtr scrollerImp = scrollerImpForScrollbar(scrollbar);
     ASSERT(scrollerImp);
-    // MAVERICKS_BACKPORT: -[NSScrollerImp setUserInterfaceLayoutDirection:] is 10.10+.
-    // Without this guard, a doesNotRecognizeSelector: SIGILL takes down WebContent
-    // the moment a scrollable area is laid out (i.e. as soon as github's nav menu
-    // appears).
-    if ([scrollerImp.get() respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
-        scrollerImp.get().userInterfaceLayoutDirection = protect(scrollbar.scrollableArea())->shouldPlaceVerticalScrollbarOnLeft() ? NSUserInterfaceLayoutDirectionRightToLeft : NSUserInterfaceLayoutDirectionLeftToRight;
+    scrollerImp.get().userInterfaceLayoutDirection = protect(scrollbar.scrollableArea())->shouldPlaceVerticalScrollbarOnLeft() ? NSUserInterfaceLayoutDirectionRightToLeft : NSUserInterfaceLayoutDirectionLeftToRight;
 #else
     UNUSED_PARAM(scrollbar);
 #endif
@@ -185,10 +180,6 @@ bool ScrollbarThemeMac::isLayoutDirectionRTL(Scrollbar& scrollbar)
             return protect(scrollbar.scrollableArea())->shouldPlaceVerticalScrollbarOnLeft() ? NSUserInterfaceLayoutDirectionRightToLeft : NSUserInterfaceLayoutDirectionLeftToRight;
         return false;
     }
-    // MAVERICKS_BACKPORT: -[NSScrollerImp userInterfaceLayoutDirection] is 10.10+; treat
-    // its absence as LTR (10.9 overlay scrollers have no RTL layout support).
-    if (![scrollerImp.get() respondsToSelector:@selector(userInterfaceLayoutDirection)])
-        return false;
     return scrollerImp.get().userInterfaceLayoutDirection == NSUserInterfaceLayoutDirectionRightToLeft;
 #else
     UNUSED_PARAM(scrollbar);

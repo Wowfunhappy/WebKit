@@ -3539,10 +3539,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     }
 
     AVAssetTrack *track = [tracks objectAtIndex:0];
-    // MAVERICKS_BACKPORT: AVTrackPrivateAVFObjCImpl is stubbed on 10.9; derive language directly from the track.
-    // Backport: AVTrackPrivateAVFObjCImpl is stubbed on 10.9; derive language directly from track.
-    if (id locale = [track respondsToSelector:@selector(languageCode)] ? [track languageCode] : nil)
-        m_languageOfPrimaryAudioTrack = String((NSString *)locale);
+    m_languageOfPrimaryAudioTrack = AVTrackPrivateAVFObjCImpl::languageForAVAssetTrack(track);
 
     INFO_LOG(LOGIDENTIFIER, "single audio track has language \"", m_languageOfPrimaryAudioTrack, "\"");
 
