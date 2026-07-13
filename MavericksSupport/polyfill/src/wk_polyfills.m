@@ -51,6 +51,7 @@ WK_POLYFILL_SEL("graphicsContextWithCGContext:flipped:", "wk_graphicsContextWith
 + (NSColor *)wk_labelColor; + (NSColor *)wk_secondaryLabelColor; + (NSColor *)wk_tertiaryLabelColor;
 + (NSColor *)wk_quaternaryLabelColor; + (NSColor *)wk_quinaryLabelColor; + (NSColor *)wk_placeholderTextColor;
 + (NSColor *)wk_selectedContentBackgroundColor; + (NSColor *)wk_unemphasizedSelectedTextColor;
++ (NSColor *)wk_alternateSelectedControlTextColor;
 + (NSColor *)wk_unemphasizedSelectedContentBackgroundColor; + (NSColor *)wk_unemphasizedSelectedTextBackgroundColor;
 + (NSColor *)wk_selectedTextBackgroundColor;
 + (NSColor *)wk_controlAccentColor; + (NSColor *)wk_separatorColor; + (NSColor *)wk_containerBorderColor;
@@ -67,9 +68,10 @@ WK_POLYFILL_SEL("graphicsContextWithCGContext:flipped:", "wk_graphicsContextWith
 + (NSColor *)wk_quaternaryLabelColor                    { return [NSColor gridColor]; }
 + (NSColor *)wk_quinaryLabelColor                       { return [NSColor gridColor]; }
 + (NSColor *)wk_placeholderTextColor                    { return [NSColor disabledControlTextColor]; }
-+ (NSColor *)wk_selectedContentBackgroundColor          { return [NSColor alternateSelectedControlColor]; }
++ (NSColor *)wk_selectedContentBackgroundColor          { return SRGB(56, 117, 215, 255); } // list-box active selection (sRGB; see note)
++ (NSColor *)wk_alternateSelectedControlTextColor       { return SRGB(255, 255, 255, 255); } // list-box active selection text
 + (NSColor *)wk_unemphasizedSelectedTextColor           { return [NSColor textColor]; }
-+ (NSColor *)wk_unemphasizedSelectedContentBackgroundColor { return [NSColor secondarySelectedControlColor]; }
++ (NSColor *)wk_unemphasizedSelectedContentBackgroundColor { return SRGB(220, 220, 220, 255); }
 + (NSColor *)wk_selectedTextBackgroundColor            { return SRGB(166, 207, 252, 255); } // 10.9 active text-selection (see note)
 + (NSColor *)wk_unemphasizedSelectedTextBackgroundColor { return SRGB(220, 220, 220, 255); }
 + (NSColor *)wk_controlAccentColor                      { return [NSColor alternateSelectedControlColor]; } // 10.9 system blue
@@ -96,6 +98,7 @@ WK_POLYFILL_SEL("quaternaryLabelColor", "wk_quaternaryLabelColor");
 WK_POLYFILL_SEL("quinaryLabelColor", "wk_quinaryLabelColor");
 WK_POLYFILL_SEL("placeholderTextColor", "wk_placeholderTextColor");
 WK_POLYFILL_SEL("selectedContentBackgroundColor", "wk_selectedContentBackgroundColor");
+WK_POLYFILL_SEL("alternateSelectedControlTextColor", "wk_alternateSelectedControlTextColor");
 WK_POLYFILL_SEL("unemphasizedSelectedTextColor", "wk_unemphasizedSelectedTextColor");
 WK_POLYFILL_SEL("unemphasizedSelectedContentBackgroundColor", "wk_unemphasizedSelectedContentBackgroundColor");
 WK_POLYFILL_SEL("unemphasizedSelectedTextBackgroundColor", "wk_unemphasizedSelectedTextBackgroundColor");
@@ -271,5 +274,17 @@ typedef NS_ENUM(NSInteger, NSMenuType) {
 }
 @end
 WK_POLYFILL_SEL("menuTypeForEvent:", "wk_menuTypeForEvent:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSPasteboard _setExpirationDate:] (11.0+ private SPI): auto-clears ephemeral pasteboard data after a
+// delay. 10.9 has no such pasteboard-server mechanism, so the faithful 10.9 behavior is a no-op (the data
+// simply persists, exactly as when the guard skipped the call).
+@interface NSPasteboard (WKPolyfillScope)
+- (void)wk__setExpirationDate:(NSDate *)date;
+@end
+@implementation NSPasteboard (WKPolyfillScope)
+- (void)wk__setExpirationDate:(NSDate *)date { (void)date; }
+@end
+WK_POLYFILL_SEL("_setExpirationDate:", "wk__setExpirationDate:");
 
 #pragma clang diagnostic pop
