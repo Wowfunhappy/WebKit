@@ -42,13 +42,10 @@ ResourceResponse LegacyWebArchive::createResourceResponseFromMacArchivedData(CFD
         return ResourceResponse();
     
     RetainPtr<NSURLResponse> response;
-    // MAVERICKS_BACKPORT: runtime-absent-on-10.9 (#76). -[NSKeyedUnarchiver initForReadingFromData:error:],
-    // -decodingFailurePolicy and -decodeObjectOfClass:forKey: are 10.13+; fall back to the legacy
-    // initForReadingWithData:/decodeObjectForKey: pair available on 10.9.
-    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:(__bridge NSData *)responseData]);
+    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingFromData:(__bridge NSData *)responseData error:nullptr]);
+    unarchiver.get().decodingFailurePolicy = NSDecodingFailurePolicyRaiseException;
     @try {
-        // MAVERICKS_BACKPORT: -decodeObjectOfClass:forKey: is 10.13+; use the legacy decodeObjectForKey: on 10.9.
-        response = [unarchiver decodeObjectForKey:LegacyWebArchiveResourceResponseKey];
+        response = [unarchiver decodeObjectOfClass:NSURLResponse.class forKey:LegacyWebArchiveResourceResponseKey];
         [unarchiver finishDecoding];
     } @catch (NSException *exception) {
         LOG_ERROR("Failed to decode NS(HTTP)URLResponse: %@", exception);
@@ -65,12 +62,15 @@ RetainPtr<CFDataRef> LegacyWebArchive::createPropertyListRepresentation(const Re
     if (!nsResponse)
         return nullptr;
 
-    // MAVERICKS_BACKPORT: runtime-absent-on-10.9 (#76). -[NSKeyedArchiver initRequiringSecureCoding:] and
-    // -encodedData are 10.13+; fall back to initForWritingWithMutableData:/finishEncoding on 10.9.
+    // MAVERICKS_BACKPORT: pristine uses -[NSKeyedArchiver initRequiringSecureCoding:]/-encodedData (10.13+),
+    // which cannot be faithfully polyfilled (encodedData conflicts with finishEncoding ordering across
+    // callers). Use the classic initForWritingWithMutableData:/finishEncoding pair, but keep pristine's
+    // secure-coding posture via -setRequiresSecureCoding:YES (matches the secure decode above).
     RetainPtr data = adoptNS([[NSMutableData alloc] init]);
     auto archiver = adoptNS([[NSKeyedArchiver alloc] initForWritingWithMutableData:data.get()]);
+    [archiver setRequiresSecureCoding:YES];
     [archiver encodeObject:nsResponse.get() forKey:LegacyWebArchiveResourceResponseKey];
-    // MAVERICKS_BACKPORT: legacy archiver finalize/read-back — -encodedData is 10.13+; finishEncoding into the backing data on 10.9.
+    // MAVERICKS_BACKPORT: finish into the backing NSMutableData (pristine reads -encodedData, 10.13+).
     [archiver finishEncoding];
     return (__bridge CFDataRef)data.get();
 }

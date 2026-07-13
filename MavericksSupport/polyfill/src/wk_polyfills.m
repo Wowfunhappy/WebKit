@@ -514,4 +514,106 @@ WK_POLYFILL_SEL("underlyingQueue", "wk_underlyingQueue");
 @end
 WK_POLYFILL_SEL("_saveCookies:", "wk__saveCookies:");
 
+// ---------------------------------------------------------------------------------------------------
+// Secure-coding archiver convenience API (10.11+/10.13+) built on the classic secure-coding primitives
+// present since 10.8. EVERY polyfill enforces requiresSecureCoding:YES (or honors the caller's BOOL) — never
+// a secure->insecure downgrade. The modern convenience methods return nil + *error on a malformed archive
+// rather than raising; the classic primitives RAISE (NSInvalidUnarchiveOperationException etc.). The
+// @try/@catch here is therefore REQUIRED to implement the modern non-throwing contract faithfully — it
+// converts the classic exception into the nil+error the caller expects (it is not a blanket swallow: the
+// callers explicitly branch on nil/error). -[NSKeyedUnarchiver initForReadingWithData:] and
+// -[NSKeyedArchiver initForWritingWithMutableData:] are deprecated (hence the -Wdeprecated push above).
+@interface NSKeyedUnarchiver (WKPolyfillScope)
+- (instancetype)wk_initForReadingFromData:(NSData *)data error:(NSError **)error;
+- (void)wk_setDecodingFailurePolicy:(NSInteger)policy;
++ (id)wk_unarchivedObjectOfClass:(Class)cls fromData:(NSData *)data error:(NSError **)error;
++ (id)wk_unarchivedObjectOfClasses:(NSSet *)classes fromData:(NSData *)data error:(NSError **)error;
+@end
+@implementation NSKeyedUnarchiver (WKPolyfillScope)
+- (instancetype)wk_initForReadingFromData:(NSData *)data error:(NSError **)error
+{
+    if (error)
+        *error = nil;
+    @try {
+        self = [self initForReadingWithData:data];
+        [self setRequiresSecureCoding:YES];   // initForReadingFromData:error: defaults to secure — never downgrade
+    } @catch (NSException *exception) {
+        // Modern initForReadingFromData:error: is NON-throwing (returns nil + *error). The classic
+        // initForReadingWithData: RAISES "incomprehensible archive" on malformed/truncated input, so it must
+        // be inside the @try or an untrusted-IPC/.webarchive decode would crash instead of failing cleanly.
+        // (self was consumed by the throwing initializer; releasing a half-initialized archiver is unsafe, so
+        // return nil directly — the rare-error-path leak of the alloc'd shell is preferable to a crash.)
+        if (error)
+            *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderReadCorruptError userInfo:@{ NSLocalizedDescriptionKey: [exception reason] ?: @"incomprehensible archive" }];
+        return nil;
+    }
+    return self;
+}
+- (void)wk_setDecodingFailurePolicy:(NSInteger)policy
+{
+    // 10.9's sole decoding-failure behavior is NSDecodingFailurePolicyRaiseException — exactly what every
+    // WebKit caller requests; the decode polyfills @catch that raise. Nothing to configure.
+    (void)policy;
+}
++ (id)wk_unarchivedObjectOfClasses:(NSSet *)classes fromData:(NSData *)data error:(NSError **)error
+{
+    if (error)
+        *error = nil;
+    NSKeyedUnarchiver *unarchiver = nil;
+    id object = nil;
+    @try {
+        // Modern +unarchivedObjectOfClasses:fromData:error: is NON-throwing (nil + *error). Both the classic
+        // initForReadingWithData: (RAISES "incomprehensible archive" on malformed/truncated input) and
+        // decodeObjectOfClasses: (raises on a class/format violation) are inside the @try, or an untrusted
+        // IPC/on-disk decode would crash instead of failing cleanly.
+        unarchiver = [[NSKeyedUnarchiver alloc] initForReadingWithData:data];
+        [unarchiver setRequiresSecureCoding:YES];   // secure + class-restricted, matching the modern convenience
+        object = [unarchiver decodeObjectOfClasses:classes forKey:NSKeyedArchiveRootObjectKey];
+    } @catch (NSException *exception) {
+        object = nil;
+        if (error)
+            *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderReadCorruptError userInfo:@{ NSLocalizedDescriptionKey: [exception reason] ?: @"decode failed" }];
+    } @finally {
+        [unarchiver finishDecoding];   // send-to-nil no-op if the init raised (unarchiver stays nil)
+        [unarchiver release];
+    }
+    return object;
+}
++ (id)wk_unarchivedObjectOfClass:(Class)cls fromData:(NSData *)data error:(NSError **)error
+{
+    return [self wk_unarchivedObjectOfClasses:(cls ? [NSSet setWithObject:cls] : nil) fromData:data error:error];
+}
+@end
+WK_POLYFILL_SEL("initForReadingFromData:error:", "wk_initForReadingFromData:error:");
+WK_POLYFILL_SEL("setDecodingFailurePolicy:", "wk_setDecodingFailurePolicy:");
+WK_POLYFILL_SEL("unarchivedObjectOfClass:fromData:error:", "wk_unarchivedObjectOfClass:fromData:error:");
+WK_POLYFILL_SEL("unarchivedObjectOfClasses:fromData:error:", "wk_unarchivedObjectOfClasses:fromData:error:");
+
+@interface NSKeyedArchiver (WKPolyfillScope)
++ (NSData *)wk_archivedDataWithRootObject:(id)root requiringSecureCoding:(BOOL)requireSecure error:(NSError **)error;
+@end
+@implementation NSKeyedArchiver (WKPolyfillScope)
++ (NSData *)wk_archivedDataWithRootObject:(id)root requiringSecureCoding:(BOOL)requireSecure error:(NSError **)error
+{
+    if (error)
+        *error = nil;
+    NSMutableData *data = [NSMutableData data];
+    NSKeyedArchiver *archiver = [[NSKeyedArchiver alloc] initForWritingWithMutableData:data];
+    [archiver setRequiresSecureCoding:requireSecure];   // honor the caller's flag; never silently downgrade
+    NSData *result = nil;
+    @try {
+        [archiver encodeObject:root forKey:NSKeyedArchiveRootObjectKey];
+        [archiver finishEncoding];
+        result = data;
+    } @catch (NSException *exception) {
+        result = nil;
+        if (error)
+            *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderInvalidValueError userInfo:@{ NSLocalizedDescriptionKey: [exception reason] ?: @"archive failed" }];
+    }
+    [archiver release];
+    return result;
+}
+@end
+WK_POLYFILL_SEL("archivedDataWithRootObject:requiringSecureCoding:error:", "wk_archivedDataWithRootObject:requiringSecureCoding:error:");
+
 #pragma clang diagnostic pop

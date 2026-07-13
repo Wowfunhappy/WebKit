@@ -636,19 +636,8 @@ template<> std::optional<RetainPtr<id>> decodeObjectDirectlyRequiringAllowedClas
     if (!data)
         return std::nullopt;
 
-    // MAVERICKS_BACKPORT: initForReadingFromData:error: and decodingFailurePolicy
-    // are 10.13+. Use deprecated initForReadingWithData: (10.5+).
-    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:(__bridge NSData *)data->get()]);
-    // MAVERICKS_BACKPORT: on modern Foundation -decodeObjectOfClasses: implies secure
-    // coding, but on 10.9 it does not — without this the secure archive routes
-    // through the non-secure -[NSURLRequest initWithCoder:] path
-    // (_CFURLRequestCreateFromArchiveList → URLRequest::initialize SIGSEGV).
-    [unarchiver setRequiresSecureCoding:YES];
-    // MAVERICKS_BACKPORT: -setDecodingFailurePolicy: is 10.13+ and absent on 10.9, so
-    // set it by KVC behind a respondsToSelector: guard (on 10.9 the policy already
-    // defaults to RaiseException). Diverges from upstream's direct property set.
-    if ([unarchiver respondsToSelector:@selector(setDecodingFailurePolicy:)])
-        [unarchiver setValue:@(NSDecodingFailurePolicyRaiseException) forKey:@"decodingFailurePolicy"];
+    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingFromData:bridge_cast(data->get()) error:nullptr]);
+    unarchiver.get().decodingFailurePolicy = NSDecodingFailurePolicyRaiseException;
 
     auto delegate = adoptNS([[WKSecureCodingArchivingDelegate alloc] init]);
     unarchiver.get().delegate = delegate.get();
