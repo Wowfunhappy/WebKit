@@ -40,6 +40,16 @@ echo "### compiling polyfill/src"
     -Wno-deprecated-declarations -Wno-unused-command-line-argument \
     -o "$OBJ/objc_inject.o" "$SRC/objc_inject.m"
 
+# wk_selref_scope.m: WebKit-scoped ObjC-method polyfills via per-image __objc_selrefs rewriting
+# (the registry + selref patcher + the polyfill methods; ships in libpolyfill_classes.a next to
+# objc_inject.o, force-loaded into WebCore only).
+"$CLANG" -c --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 \
+    -Wno-deprecated-declarations -Wno-unused-command-line-argument \
+    -o "$OBJ/wk_selref_scope.o" "$SRC/wk_selref_scope.m"
+# wk_image_marker.c: the __DATA,__wk_marker tag. Force-loaded into EVERY WebKit framework
+# (WEBKIT_FRAMEWORK) so the patcher rewrites each framework's selrefs. Pure data — no initializer.
+"$CLANG" -c $CF -o "$OBJ/wk_image_marker.o" "$SRC/wk_image_marker.c"
+
 echo "### compiling legacy-support (macports-legacy-support: POSIX/libc gap-fills)"
 bash "$HERE/build-legacy-polyfills.sh" "$CLANG" "$OBJ/legacy.a" "$OBJ/legacy-obj"
 ( cd "$OBJ" && "$AR" x legacy.a )    # unpack the legacy objects next to ours
@@ -80,7 +90,12 @@ echo "### libpolyfill_classes.a (force-loaded into JSC: method injection only)"
 # once — in JSC, before WebCore/WebKit use the injected AppKit/Foundation methods. The class stubs themselves
 # now live in libpolyfill_classes.dylib (above), not here.
 rm -f "$OUT/libpolyfill_classes.a"
-"$AR" rcs "$OUT/libpolyfill_classes.a" "$OBJ/objc_inject.o"
+"$AR" rcs "$OUT/libpolyfill_classes.a" "$OBJ/objc_inject.o" "$OBJ/wk_selref_scope.o"
+
+echo "### libwk_marker.a (the __wk_marker tag — force-loaded into every WebKit framework)"
+# Marks each framework binary as a WebKit image so wk_selref_scope's patcher rewrites its selrefs.
+rm -f "$OUT/libwk_marker.a"
+"$AR" rcs "$OUT/libwk_marker.a" "$OBJ/wk_image_marker.o"
 
 echo "### libwtf_compat.a"
 "$TC/bin/clang++" -c --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 -fblocks -std=c++17 \

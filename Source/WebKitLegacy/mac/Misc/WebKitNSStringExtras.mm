@@ -77,23 +77,19 @@ static bool canUseFastRenderer(std::span<const UniChar> buffer)
         point.y = CGCeiling(point.y);
 
         NSGraphicsContext *nsContext = [NSGraphicsContext currentContext];
-        // MAVERICKS_BACKPORT: -[NSGraphicsContext CGContext] is 10.10+; on 10.9 reach the
-        // CGContextRef through the -graphicsPort SPI (subsequent uses pass the raw ref, not a RetainPtr).
-        CGContextRef cgContext = (CGContextRef)[nsContext graphicsPort];
-        GraphicsContextCG graphicsContext { cgContext };
+        RetainPtr cgContext = [nsContext CGContext];
+        GraphicsContextCG graphicsContext { cgContext.get() };
 
         // WebCore requires a flipped graphics context.
         bool flipped = [nsContext isFlipped];
         if (!flipped)
-            // MAVERICKS_BACKPORT: cgContext is a raw CGContextRef (-graphicsPort SPI), not a RetainPtr.
-            CGContextScaleCTM(cgContext, 1, -1);
+            CGContextScaleCTM(cgContext.get(), 1, -1);
 
         graphicsContext.setFillColor(colorFromCocoaColor(textColor));
         webCoreFont.drawText(graphicsContext, run, FloatPoint(point.x, flipped ? point.y : -point.y));
 
         if (!flipped)
-            // MAVERICKS_BACKPORT: cgContext is a raw CGContextRef (-graphicsPort SPI), not a RetainPtr.
-            CGContextScaleCTM(cgContext, 1, -1);
+            CGContextScaleCTM(cgContext.get(), 1, -1);
     } else {
         // The given point is on the baseline.
         if ([[NSView focusView] isFlipped])

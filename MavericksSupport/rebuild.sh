@@ -18,18 +18,23 @@ export CCACHE_DIR="$ROOT/WebKitBuild/ccache"
 # archive, ninja won't relink the consuming framework. So: rebuild the polyfill here, then, if an
 # archive's CONTENT changed (llvm-ar is deterministic — unchanged source yields identical bytes), rm
 # the binaries that consume it so ninja relinks them against the new archive.
-#   libpolyfill.a         -> linked into ALL four frameworks
-#   libpolyfill_classes.a -> force-loaded into JavaScriptCore only
+#   libpolyfill.a         -> linked into ALL four frameworks (global link_libraries; NO ninja edge — this hash-hack is the only relink trigger)
+#   libwk_marker.a        -> force-loaded into ALL four frameworks (WEBKIT_FRAMEWORK; also has a LINK_DEPENDS edge — hash-hack is belt-and-suspenders)
+#   libpolyfill_classes.a -> force-loaded into WebCore only (also has a LINK_DEPENDS edge in Source/WebCore/CMakeLists.txt)
 #   libwtf_compat.a       -> force-loaded into JavaScriptCore only
 POLY_OUT="$ROOT/MavericksSupport/polyfill/build"
 poly_hash() { shasum -a 256 "$POLY_OUT/$1" 2>/dev/null | awk '{print $1}'; }
-PRE_ALL="$(poly_hash libpolyfill.a)"
-PRE_JSC="$(poly_hash libpolyfill_classes.a)$(poly_hash libwtf_compat.a)"
+PRE_ALL="$(poly_hash libpolyfill.a)$(poly_hash libwk_marker.a)"   # both span all four frameworks
+PRE_WEBCORE="$(poly_hash libpolyfill_classes.a)"
+PRE_JSC="$(poly_hash libwtf_compat.a)"
 echo "### building polyfill archives (MavericksSupport/polyfill/scripts/build-polyfill.sh)"
 if bash "$ROOT/MavericksSupport/polyfill/scripts/build-polyfill.sh" > /tmp/wk_polyfill.log 2>&1; then
     RELINK=""
-    [ "$PRE_ALL" != "$(poly_hash libpolyfill.a)" ] && RELINK="JavaScriptCore WebCore WebKit WebKitLegacy"
-    [ -z "$RELINK" ] && [ "$PRE_JSC" != "$(poly_hash libpolyfill_classes.a)$(poly_hash libwtf_compat.a)" ] && RELINK="JavaScriptCore"
+    [ "$PRE_ALL" != "$(poly_hash libpolyfill.a)$(poly_hash libwk_marker.a)" ] && RELINK="JavaScriptCore WebCore WebKit WebKitLegacy"
+    if [ -z "$RELINK" ]; then
+        [ "$PRE_WEBCORE" != "$(poly_hash libpolyfill_classes.a)" ] && RELINK="$RELINK WebCore"
+        [ "$PRE_JSC" != "$(poly_hash libwtf_compat.a)" ] && RELINK="$RELINK JavaScriptCore"
+    fi
     if [ -n "$RELINK" ]; then
         echo "###   polyfill archives changed -> forcing relink:$RELINK"
         for fw in $RELINK; do rm -f "$BUILD/lib/$fw.framework/Versions/A/$fw"; done

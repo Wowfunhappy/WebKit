@@ -1,0 +1,146 @@
+// wk_selref_scope.m — WebKit-scoped ObjC-method polyfills via per-image selector rewriting.
+//
+// A category method added to a system class is process-global: a host app embedding WebKit that
+// version-probes the method (respondsToSelector:/instancesRespondToSelector:) is told the API exists,
+// assumes a newer OS, and then uses other modern APIs it can't have -> crash. Two-level namespacing
+// scopes symbols (C functions, whole absent classes) but not a method added to a shared class, because
+// dispatch keys on the selector, not a linker symbol.
+//
+// This registers each polyfilled method under a PRIVATE selector (wk_<name>) on the real class, and at
+// load time rewrites the matching entries in each WebKit image's __objc_selrefs from the public selector
+// to the private one. WebKit's own call sites (`[ctx CGContext]`) then dispatch `wk_CGContext` to the
+// polyfill via ordinary objc_msgSend, while the public selector genuinely does not exist on the class —
+// so a host app's respondsToSelector: returns NO for the correct reason. No interposition, no gating; the
+// only cost is a one-time selref scan per WebKit image at load. Runs in every process WebKit loads into.
+//
+// A "WebKit image" is any binary carrying __DATA,__wk_marker, injected by wk_image_marker.c which is
+// force-loaded into every WebKit framework (WEBKIT_FRAMEWORK). This object (the patcher + registry +
+// the polyfill methods) is force-loaded into WebCore only — it loads early in every rendering process
+// and keeps the AppKit categories out of the setuid-JSC path. Polyfilled selectors register into
+// __DATA,__wk_selmap via WK_POLYFILL_SEL(publicName, privateName); keep every registration in this one
+// file so all entries are collected before any WebKit framework that calls them is patched.
+
+#import <AppKit/AppKit.h>
+#import <objc/runtime.h>
+#import <mach-o/dyld.h>
+#import <mach-o/getsect.h>
+#import <mach/mach.h>
+#import <string.h>
+#import <stdint.h>
+
+// A registry entry: public selector name -> private (wk_) selector name.
+struct wk_selmap_entry { const char *pub; const char *priv; };
+
+// Register a polyfilled selector for WebKit-scoped rewriting.
+#define WK_SELMAP_CAT_(a, b) a##b
+#define WK_SELMAP_CAT(a, b) WK_SELMAP_CAT_(a, b)
+#define WK_POLYFILL_SEL(PUB, PRIV) \
+    __attribute__((used, section("__DATA,__wk_selmap"))) \
+    static const struct wk_selmap_entry WK_SELMAP_CAT(wk_selmap_reg_, __LINE__) = { PUB, PRIV }
+
+// Resolved public->private SEL map, built once from all __wk_selmap sections.
+enum { WK_MAX_SEL = 256 };
+static SEL wk_pub[WK_MAX_SEL];          // canonical public SEL (fast-path pointer match)
+static const char *wk_pubname[WK_MAX_SEL]; // public selector NAME (content match — see wk_patch)
+static SEL wk_priv[WK_MAX_SEL];
+static int wk_count;
+
+static void wk_collect(const struct mach_header *mh)
+{
+    unsigned long size = 0;
+    const struct wk_selmap_entry *e =
+        (const struct wk_selmap_entry *)getsectiondata((const struct mach_header_64 *)mh,
+                                                        "__DATA", "__wk_selmap", &size);
+    if (!e)
+        return;
+    int n = (int)(size / sizeof(struct wk_selmap_entry));
+    for (int i = 0; i < n; i++) {
+        SEL p = sel_registerName(e[i].pub);
+        int dup = 0;
+        for (int j = 0; j < wk_count; j++)
+            if (wk_pub[j] == p) { dup = 1; break; }
+        if (dup || wk_count >= WK_MAX_SEL)
+            continue;
+        wk_pub[wk_count] = p;
+        wk_pubname[wk_count] = e[i].pub; // stable string literal in the image's __wk_selmap owner
+        wk_priv[wk_count] = sel_registerName(e[i].priv);
+        wk_count++;
+    }
+}
+
+static void wk_patch(const struct mach_header *mh)
+{
+    unsigned long msz = 0;
+    if (!getsectiondata((const struct mach_header_64 *)mh, "__DATA", "__wk_marker", &msz))
+        return; // not a WebKit image
+    unsigned long size = 0;
+    SEL *refs = (SEL *)getsectiondata((const struct mach_header_64 *)mh, "__DATA", "__objc_selrefs", &size);
+    if (!refs)
+        refs = (SEL *)getsectiondata((const struct mach_header_64 *)mh, "__DATA_CONST", "__objc_selrefs", &size);
+    if (!refs || !size || wk_count == 0)
+        return;
+    // selrefs may live in read-only __DATA_CONST; make the range writable (no SIP on 10.9).
+    vm_protect(mach_task_self(), (vm_address_t)refs, size, false,
+               VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
+    int n = (int)(size / sizeof(SEL));
+    for (int i = 0; i < n; i++) {
+        // Match by NAME, not just pointer: for an image dlopen'd AFTER launch, dyld runs this add-image
+        // callback BEFORE objc uniques the image's selrefs, so refs[i] still points to the image's local
+        // methname string (not the canonical SEL) — a pointer compare would miss it. strcmp catches both
+        // states; a selref always points to a valid C string (methname before uniquing, SEL after). After
+        // we rewrite to wk_priv, objc's later uniquing reads "wk_<name>" and re-derives the same private
+        // SEL, so the rewrite sticks.
+        const char *s = (const char *)refs[i];
+        for (int j = 0; j < wk_count; j++)
+            if (refs[i] == wk_pub[j] || strcmp(s, wk_pubname[j]) == 0) { refs[i] = wk_priv[j]; break; }
+    }
+}
+
+static void wk_add_image(const struct mach_header *mh, intptr_t slide)
+{
+    (void)slide;
+    wk_collect(mh);
+    wk_patch(mh);
+}
+
+__attribute__((constructor)) static void wk_selref_scope_init(void)
+{
+    uint32_t c = _dyld_image_count();
+    for (uint32_t i = 0; i < c; i++)
+        wk_collect(_dyld_get_image_header(i));
+    for (uint32_t i = 0; i < c; i++)
+        wk_patch(_dyld_get_image_header(i));
+    // Also covers images dlopen'd later (fires immediately for already-loaded ones; collect dedups,
+    // patch is idempotent since a rewritten wk_ selref no longer matches any public selector).
+    _dyld_register_func_for_add_image(wk_add_image);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// NSGraphicsContext CGContext accessors (10.10+), implemented via the classic 10.9 graphics-port SPI.
+// -[NSGraphicsContext CGContext] and +[NSGraphicsContext graphicsContextWithCGContext:flipped:] are the
+// 10.10 renames of -graphicsPort and +graphicsContextWithGraphicsPort:flipped:; each polyfill forwards
+// to the still-present classic call.
+@interface NSGraphicsContext (WKPolyfillScope)
+- (CGContextRef)wk_CGContext;
++ (NSGraphicsContext *)wk_graphicsContextWithCGContext:(CGContextRef)context flipped:(BOOL)flipped;
+@end
+
+@implementation NSGraphicsContext (WKPolyfillScope)
+- (CGContextRef)wk_CGContext
+{
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    return (CGContextRef)[self graphicsPort];
+#pragma clang diagnostic pop
+}
++ (NSGraphicsContext *)wk_graphicsContextWithCGContext:(CGContextRef)context flipped:(BOOL)flipped
+{
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    return [NSGraphicsContext graphicsContextWithGraphicsPort:(void *)context flipped:flipped];
+#pragma clang diagnostic pop
+}
+@end
+
+WK_POLYFILL_SEL("CGContext", "wk_CGContext");
+WK_POLYFILL_SEL("graphicsContextWithCGContext:flipped:", "wk_graphicsContextWithCGContext:flipped:");

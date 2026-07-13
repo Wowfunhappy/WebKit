@@ -341,53 +341,41 @@ static BOOL _PDFSelectionsAreEqual(PDFSelection *selectionA, PDFSelection *selec
 
 - (void)_recursiveDisplayRectIfNeededIgnoringOpacity:(NSRect)rect isVisibleRect:(BOOL)isVisibleRect rectIsVisibleRectForView:(NSView *)visibleView topView:(BOOL)topView
 {
-    // MAVERICKS_BACKPORT: -[NSGraphicsContext CGContext] is 10.10+; reach the CGContextRef via the
-    // -graphicsPort SPI. context (a RetainPtr) is passed to the font-smoothing C calls directly.
-    RetainPtr context = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];
+    RetainPtr context = [[NSGraphicsContext currentContext] CGContext];
 
-    // MAVERICKS_BACKPORT: context (a RetainPtr) is passed to the font-smoothing C calls directly.
-    bool allowsSmoothing = CGContextGetAllowsFontSmoothing(context);
-    bool allowsSubpixelQuantization = CGContextGetAllowsFontSubpixelQuantization(context);
+    bool allowsSmoothing = CGContextGetAllowsFontSmoothing(context.get());
+    bool allowsSubpixelQuantization = CGContextGetAllowsFontSubpixelQuantization(context.get());
 
     [super _recursiveDisplayRectIfNeededIgnoringOpacity:rect isVisibleRect:isVisibleRect rectIsVisibleRectForView:visibleView topView:topView];
 
-    // MAVERICKS_BACKPORT: context (a RetainPtr) is passed to the font-smoothing C calls directly.
-    CGContextSetAllowsFontSmoothing(context, allowsSmoothing);
-    CGContextSetAllowsFontSubpixelQuantization(context, allowsSubpixelQuantization);
+    CGContextSetAllowsFontSmoothing(context.get(), allowsSmoothing);
+    CGContextSetAllowsFontSubpixelQuantization(context.get(), allowsSubpixelQuantization);
 }
 
 - (void)_recursiveDisplayAllDirtyWithLockFocus:(BOOL)needsLockFocus visRect:(NSRect)visRect
 {
-    // MAVERICKS_BACKPORT: -[NSGraphicsContext CGContext] is 10.10+; reach the CGContextRef via the
-    // -graphicsPort SPI. context (a RetainPtr) is passed to the font-smoothing C calls directly.
-    RetainPtr context = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];
+    RetainPtr context = [[NSGraphicsContext currentContext] CGContext];
 
-    // MAVERICKS_BACKPORT: context (a RetainPtr) is passed to the font-smoothing C calls directly.
-    bool allowsSmoothing = CGContextGetAllowsFontSmoothing(context);
-    bool allowsSubpixelQuantization = CGContextGetAllowsFontSubpixelQuantization(context);
+    bool allowsSmoothing = CGContextGetAllowsFontSmoothing(context.get());
+    bool allowsSubpixelQuantization = CGContextGetAllowsFontSubpixelQuantization(context.get());
 
     [super _recursiveDisplayAllDirtyWithLockFocus:needsLockFocus visRect:visRect];
 
-    // MAVERICKS_BACKPORT: context (a RetainPtr) is passed to the font-smoothing C calls directly.
-    CGContextSetAllowsFontSmoothing(context, allowsSmoothing);
-    CGContextSetAllowsFontSubpixelQuantization(context, allowsSubpixelQuantization);
+    CGContextSetAllowsFontSmoothing(context.get(), allowsSmoothing);
+    CGContextSetAllowsFontSubpixelQuantization(context.get(), allowsSubpixelQuantization);
 }
 
 - (void)_recursive:(BOOL)recurse displayRectIgnoringOpacity:(NSRect)displayRect inContext:(NSGraphicsContext *)graphicsContext topView:(BOOL)topView
 {
-    // MAVERICKS_BACKPORT: -[NSGraphicsContext CGContext] is 10.10+; reach the CGContextRef via the
-    // -graphicsPort SPI. context (a RetainPtr) is passed to the font-smoothing C calls directly.
-    RetainPtr<CGContextRef> context = (CGContextRef)[graphicsContext graphicsPort];
+    RetainPtr<CGContextRef> context = [graphicsContext CGContext];
 
-    // MAVERICKS_BACKPORT: context (a RetainPtr) is passed to the font-smoothing C calls directly.
-    bool allowsSmoothing = CGContextGetAllowsFontSmoothing(context);
-    bool allowsSubpixelQuantization = CGContextGetAllowsFontSubpixelQuantization(context);
+    bool allowsSmoothing = CGContextGetAllowsFontSmoothing(context.get());
+    bool allowsSubpixelQuantization = CGContextGetAllowsFontSubpixelQuantization(context.get());
 
     [super _recursive:recurse displayRectIgnoringOpacity:displayRect inContext:graphicsContext topView:topView];
 
-    // MAVERICKS_BACKPORT: context (a RetainPtr) is passed to the font-smoothing C calls directly.
-    CGContextSetAllowsFontSmoothing(context, allowsSmoothing);
-    CGContextSetAllowsFontSubpixelQuantization(context, allowsSubpixelQuantization);
+    CGContextSetAllowsFontSmoothing(context.get(), allowsSmoothing);
+    CGContextSetAllowsFontSubpixelQuantization(context.get(), allowsSubpixelQuantization);
 }
 
 - (void)_recursive:(BOOL)recurseX displayRectIgnoringOpacity:(NSRect)displayRect inGraphicsContext:(NSGraphicsContext *)graphicsContext CGContext:(CGContextRef)context topView:(BOOL)isTopView shouldChangeFontReferenceColor:(BOOL)shouldChangeFontReferenceColor

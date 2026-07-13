@@ -86,10 +86,7 @@ static std::optional<SRGBA<uint8_t>> makeSimpleColorFromNSColor(NSColor *color)
         RetainPtr<NSBitmapImageRep> offscreenRep = adoptNS([[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nil pixelsWide:1 pixelsHigh:1
             bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:4 bitsPerPixel:32]);
         {
-            // MAVERICKS_BACKPORT: -[NSGraphicsContext CGContext] is 10.10+; -graphicsPort is the 10.9 CGContextRef.
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-            LocalCurrentCGContext localContext { static_cast<CGContextRef>([NSGraphicsContext graphicsContextWithBitmapImageRep:offscreenRep.get()].graphicsPort) };
-ALLOW_DEPRECATED_DECLARATIONS_END
+            LocalCurrentCGContext localContext { [NSGraphicsContext graphicsContextWithBitmapImageRep:offscreenRep.get()].CGContext };
             [color drawSwatchInRect:NSMakeRect(0, 0, 1, 1)];
         }
         std::array<NSUInteger, 4> pixel;
