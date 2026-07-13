@@ -926,8 +926,11 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
     // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated, task #6 loader-wedge probe family): delegate
     // delivery trace — pairs with [NSD-COMPLETE]; a response CFNetwork surfaced that WebKit then lost.
     if (!access("/tmp/wk-debug-on", F_OK)) {
+        // dynamic_objc_cast: -statusCode is NSHTTPURLResponse-only; a plain NSURLResponse (e.g. a WebSocket
+        // handshake / data: response) would doesNotRecognizeSelector and crash the NetworkProcess.
+        RetainPtr httpResponse = dynamic_objc_cast<NSHTTPURLResponse>(response);
         fprintf(stderr, "[NSD-RESPONSE] task=%lu status=%ld url=%s\n", (unsigned long)taskIdentifier,
-            (long)[(NSHTTPURLResponse *)response statusCode], response.URL.absoluteString.UTF8String ?: "(null)");
+            httpResponse ? (long)[httpResponse statusCode] : -1L, response.URL.absoluteString.UTF8String ?: "(null)");
         fflush(stderr);
     }
     // MAVERICKS_BACKPORT: use the hoisted lookup result.

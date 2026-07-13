@@ -806,6 +806,12 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
 {
     if (_state == WKWSStateClosed)
         return;
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated, like handshakeFailed:): surface the transport-level
+    // failure reason + state in the per-pid stderr log while debugging WebSocket connectivity.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[WSPOLYFILL] failWithReason state=%d reason=%s url=%s\n", (int)_state, reason.UTF8String, _request.URL.absoluteString.UTF8String);
+        fflush(stderr);
+    }
     _state = WKWSStateClosed;
     [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost userInfo:@{ NSLocalizedDescriptionKey: reason }]];
     [self teardownStreams];
