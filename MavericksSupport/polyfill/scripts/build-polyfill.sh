@@ -69,6 +69,21 @@ ar_stable() {  # $1 = output .a, remaining args = object files
     fi
 }
 
+# tmp_stable: same mtime-preservation as ar_stable, but for an output produced by an external builder that
+# already wrote "$1.tmp". Needed for libpolyfill_classes.dylib: it too is an explicit link input of
+# LLIntSettingsExtractor/LLIntOffsetsExtractor, so relinking it with a fresh mtime every build re-triggers the
+# slow offlineasm LLIntAssembly.h regeneration ar_stable was added to avoid. The dylib is built from
+# polyfill_classes.o (the ObjC class stubs), which changes rarely, and clang -dynamiclib emits a
+# content-hashed LC_UUID, so unchanged inputs yield byte-identical output and the swap is skipped.
+tmp_stable() {  # $1 = final path; builder already wrote "$1.tmp"
+    local out="$1"
+    if [ -f "$out" ] && cmp -s "$out" "$out.tmp"; then
+        rm -f "$out.tmp"
+    else
+        mv -f "$out.tmp" "$out"
+    fi
+}
+
 echo "### libpolyfill.a (C function/constant stubs only — NO ObjC classes)"
 ar_stable "$OUT/libpolyfill.a" "$OBJ/polyfill_stubs.o" \
     "$OBJ/const_polyfill.o" "$OBJ/graphics_shims.o" "$OBJ/system_spi_polyfill.o" "$OBJ/legacy-obj"/*.o
@@ -92,12 +107,13 @@ echo "### libpolyfill_classes.dylib (the ObjC class stubs — ONE shared definit
 # other WebKit dylib): the build resolves it from WebKitBuild/Release/lib via each binary's @rpath, and
 # install-safari7.sh maps that @rpath dep to the absolute in-bundle copy it deploys (no /usr/local anywhere).
 source "$REPO/MavericksSupport/reexport-shim.sh"
-build_reexport_shim --clang "$CLANG" --out "$OUT/libpolyfill_classes.dylib" \
+build_reexport_shim --clang "$CLANG" --out "$OUT/libpolyfill_classes.dylib.tmp" \
     --install-name @rpath/libpolyfill_classes.dylib --compat 9999.0.0 --current 9999.0.0 \
     --framework Foundation --framework AppKit --framework CoreFoundation \
     --reexport-framework QuartzCore --reexport-framework CoreServices \
     --reexport-framework Security --reexport-framework CFNetwork \
     "$OBJ/polyfill_classes.o"
+tmp_stable "$OUT/libpolyfill_classes.dylib"   # preserve mtime when unchanged (see ar_stable / tmp_stable)
 
 echo "### libpolyfill_classes.a (force-loaded into WebCore: selref-scope mechanism + polyfill list)"
 # The selref-scope patcher (wk_selref_scope.o) + the polyfill methods (wk_polyfills.o) ship here and are
