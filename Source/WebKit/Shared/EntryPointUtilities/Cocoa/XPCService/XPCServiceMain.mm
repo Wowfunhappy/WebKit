@@ -177,10 +177,9 @@ void XPCServiceEventHandler(xpc_connection_t peer)
                         return;
                     // MAVERICKS_BACKPORT: the upstream #if ENABLE(CLOSE_WEBCONTENT_XPC_CONNECTION_POST_LAUNCH)/#endif guard is dropped here.
                     // FIXME: Handle this case more gracefully.
-                    // MAVERICKS_BACKPORT: 10.9 doesn't have -[NSRunLoop performBlock:] (10.13+); use main queue dispatch.
-                    dispatch_async(dispatch_get_main_queue(), ^{
+                    [[NSRunLoop mainRunLoop] performBlock:^{
                         exitProcess(EXIT_FAILURE);
-                    });
+                    }];
                 }
             }
             return;
@@ -269,10 +268,9 @@ void XPCServiceEventHandler(xpc_connection_t peer)
             }
             if (!initializerFunctionPtr) {
                 RELEASE_LOG_FAULT(IPC, "Exiting: Unable to find entry point in WebKit.framework with name: %s", [bridge_cast(entryPointFunctionName) UTF8String]);
-                // MAVERICKS_BACKPORT: 10.9 doesn't have -[NSRunLoop performBlock:] (10.13+); use main queue dispatch.
-                dispatch_async(dispatch_get_main_queue(), ^{
+                [[NSRunLoop mainRunLoop] performBlock:^{
                     exitProcess(EXIT_FAILURE);
-                });
+                }];
                 return;
             }
 
