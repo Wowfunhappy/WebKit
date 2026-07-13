@@ -28,8 +28,6 @@
 
 #if PLATFORM(MAC)
 
-// MAVERICKS_BACKPORT: the 10.9 commit-phase helper declared here; registerForPlatformRenderingUpdateCallback uses it because +[CATransaction addCommitHandler:forPhase:] is 10.10+.
-#import "CATransactionCommitHandlers.h"
 #import "Logging.h"
 #import "PlatformCALayer.h"
 #import "PlatformCALayerContentsDelayedReleaser.h"
@@ -251,18 +249,13 @@ void ScrollingTreeMac::applyLayerPositionsInternal()
 
 void ScrollingTreeMac::registerForPlatformRenderingUpdateCallback()
 {
-    // MAVERICKS_BACKPORT: routed through the shared commit-phase helper because
-    // +[CATransaction addCommitHandler:forPhase:] is 10.10+; on 10.9 the helper straddles the
-    // scrolling thread's drain-time commit with run-loop observers instead. Same semantics as
-    // upstream: the PlatformCALayerContentsDelayedReleaser bracket covers the commit itself,
-    // committed at the scrolling thread's run-loop drain with m_treeLock released.
-    addCATransactionCommitHandlersForCurrentThread([] {
+    [CATransaction addCommitHandler:[] {
         PlatformCALayerContentsDelayedReleaser::singleton().scrollingThreadCommitWillStart();
-    // MAVERICKS_BACKPORT: second (post-commit) handler passed to the 10.9 commit-phase helper above.
-    }, [] {
+    } forPhase:kCATransactionPhasePreLayout];
+
+    [CATransaction addCommitHandler:[] {
         PlatformCALayerContentsDelayedReleaser::singleton().scrollingThreadCommitDidEnd();
-    // MAVERICKS_BACKPORT: closes the addCATransactionCommitHandlersForCurrentThread call (10.9 commit-phase helper).
-    });
+    } forPhase:kCATransactionPhasePostCommit];
 }
 
 #endif // PLATFORM(MAC)

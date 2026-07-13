@@ -50,8 +50,6 @@
 #import <QuartzCore/CATextLayer.h>
 #import <QuartzCore/QuartzCore.h>
 #import <WebCore/AnimationFrameRate.h>
-// MAVERICKS_BACKPORT: shared 10.9-compatible CATransaction commit-phase helper.
-#import <WebCore/CATransactionCommitHandlers.h>
 #import <WebCore/GraphicsContextCG.h>
 #import <WebCore/IOSurfacePool.h>
 #import <WebCore/ScrollTypes.h>
@@ -420,15 +418,8 @@ void RemoteLayerTreeDrawingAreaProxy::commitLayerTree(IPC::Connection& connectio
 
     // Keep IOSurface send rights alive until the transaction is commited, otherwise we will
     // prematurely drop the only reference to them, and `inUse` will be wrong for a brief window.
-    // MAVERICKS_BACKPORT: routed through the shared commit-phase helper because
-    // +[CATransaction addCommitHandler:forPhase:] is 10.10+; on 10.9 the helper's PostCommit
-    // observer releases the rights immediately after CA's drain-time commit, preserving the
-    // ordering guarantee this comment describes.
-    if (!sendRights.isEmpty()) {
-        WebCore::addCATransactionCommitHandlersForCurrentThread([] { }, [rightsToRelease = WTF::move(sendRights)]() mutable {
-            rightsToRelease.clear();
-        });
-    }
+    if (!sendRights.isEmpty())
+        [CATransaction addCommitHandler:^{ sendRights.clear(); } forPhase:kCATransactionPhasePostCommit];
 
     auto duration = MonotonicTime::now() - bundle.startTime;
     if (duration.value() > (1.0 / displayNominalFramesPerSecond().value_or(FullSpeedFramesPerSecond)))

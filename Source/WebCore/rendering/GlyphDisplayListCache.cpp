@@ -97,14 +97,6 @@ unsigned GlyphDisplayListCache::size() const
 template<typename LayoutRun>
 RefPtr<const DisplayList::DisplayList> GlyphDisplayListCache::getDisplayList(const LayoutRun& run, const FontCascade& font, GraphicsContext& context, const TextRun& textRun, const PaintInfo& paintInfo)
 {
-    // MAVERICKS_BACKPORT: runtime-absent symbol. DrawGlyphsRecorder (the recorder that
-    // populates this cache) calls CGContextDelegateCreate/CGContextDelegateSetCallback, a
-    // private CoreGraphics API that weak-links to NULL on 10.9 (10.10+), so building a glyph
-    // display list crashes. Disable glyph display-list caching entirely; painting falls back
-    // to direct CTFontDrawGlyphs. CONVERT-candidate: a CGContextDelegate polyfill would let
-    // this revert to upstream (human review).
-    return nullptr;
-
     if (MemoryPressureHandler::singleton().isUnderMemoryPressure()) {
         if (!m_entries.isEmpty()) {
             LOG(MemoryPressure, "GlyphDisplayListCache::%s - Under memory pressure - size: %d", __FUNCTION__, size());

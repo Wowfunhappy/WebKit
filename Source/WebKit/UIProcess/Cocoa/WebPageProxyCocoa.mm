@@ -821,12 +821,18 @@ bool WebPageProxy::updateIconForDirectory(NSFileWrapper *fileWrapper, const Stri
 
 void WebPageProxy::scheduleActivityStateUpdate()
 {
-    // MAVERICKS_BACKPORT: -[CATransaction addCommitHandler:forPhase:] is 10.10+.
-    // Skip the CA transaction integration and dispatch via runloop observer.
+    bool hasScheduledObserver = m_activityStateChangeDispatcher->isScheduled();
+    bool hasActiveCATransaction = [CATransaction currentState];
+
+    if (hasScheduledObserver && hasActiveCATransaction) {
+        ASSERT(m_hasScheduledActivityStateUpdate);
+        m_hasScheduledActivityStateUpdate = false;
+        m_activityStateChangeDispatcher->invalidate();
+    }
+
     if (m_hasScheduledActivityStateUpdate)
         return;
     m_hasScheduledActivityStateUpdate = true;
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
 
     // If there is an active transaction, we need to dispatch the update after the transaction is committed,
     // to avoid flash caused by web process setting root layer too early.
@@ -848,7 +854,6 @@ void WebPageProxy::scheduleActivityStateUpdate()
         return;
     }
 
-MAVERICKS_BACKPORT */
     m_activityStateChangeDispatcher->schedule();
 }
 

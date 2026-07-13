@@ -20,6 +20,8 @@
 #import "wk_selref_scope.h"
 #import <AppKit/AppKit.h>
 #import <PDFKit/PDFKit.h>
+#import <QuartzCore/QuartzCore.h>
+#import <Block.h>
 #import <mach/mach.h>
 #import <objc/runtime.h>
 
@@ -708,8 +710,13 @@ WK_POLYFILL_ALIAS("AVAssetTrack", "languageCode", "wk_languageCode");
 // _OBJC_CLASS_$_NSURLSessionTask classref would bind to libpolyfill_classes.dylib's CFNetwork reexport and
 // fail dyld load on 10.9. 10.9's URL loading has no per-task scheduling priority, so the value can't affect
 // scheduling; store it in an associated object so the property round-trips for its only reader (the Web
-// Inspector task metrics), defaulting to NSURLSessionTaskPriorityDefault (0.5). Concrete task subclasses
-// inherit these from NSURLSessionTask.
+// Inspector task metrics), defaulting to NSURLSessionTaskPriorityDefault (0.5). On 10.9 the concrete task
+// instances do NOT subclass the public NSURLSessionTask class — their hierarchy is
+// __NSCFLocalDataTask : __NSCFLocalSessionTask : __NSCFURLSessionTask : NSObject (CFNetwork) — so the
+// methods must be added to __NSCFURLSessionTask, the root of the concrete hierarchy, to reach real
+// instances (adding only to NSURLSessionTask leaves them unrecognized -> NetworkProcess crash in the
+// NetworkDataTaskCocoa constructor). NSURLSessionTask keeps the registration too, for the abstract class
+// itself and for any OS variant whose concrete tasks do inherit from it.
 static const void *const wk_taskPriorityKey = &wk_taskPriorityKey;
 static float wk_urlSessionTask_priority(id self, SEL _cmd)
 {
@@ -724,6 +731,8 @@ static void wk_urlSessionTask_setPriority(id self, SEL _cmd, float priority)
 }
 WK_POLYFILL_ADD("NSURLSessionTask", "wk_priority", wk_urlSessionTask_priority, "f@:");
 WK_POLYFILL_ADD("NSURLSessionTask", "wk_setPriority:", wk_urlSessionTask_setPriority, "v@:f");
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_priority", wk_urlSessionTask_priority, "f@:");
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_setPriority:", wk_urlSessionTask_setPriority, "v@:f");
 WK_POLYFILL_SEL("priority", "wk_priority");
 WK_POLYFILL_SEL("setPriority:", "wk_setPriority:");
 // `priority` is a GENERIC name: _WKWebExtensionDeclarativeNetRequestRule (an NSObject subclass with its own
@@ -732,5 +741,52 @@ WK_POLYFILL_SEL("setPriority:", "wk_setPriority:");
 // Alias wk_priority to the rule's OWN -priority IMP: a no-op when the class is absent (objc_getClass->nil),
 // class-correct when present. (No setPriority: send exists to the rule — its priority is readonly.)
 WK_POLYFILL_ALIAS("_WKWebExtensionDeclarativeNetRequestRule", "priority", "wk_priority");
+
+// ---------------------------------------------------------------------------------------------------
+// +[CATransaction addCommitHandler:forPhase:] (10.10+, absent on 10.9's CATransaction — sending it
+// throws NSInvalidArgumentException, which aborted Safari from TiledCoreAnimationDrawingAreaProxy::
+// createFence and permanently wedged window-resize propagation). Contract: run the block once around
+// the calling thread's next CoreAnimation commit, at the given phase (kCATransactionPhasePreLayout=0,
+// PreCommit=1, PostCommit=2). On 10.9, CA flushes the thread's implicit transaction from a run-loop
+// observer at kCFRunLoopBeforeWaiting/kCFRunLoopExit with order 2000000; a one-shot observer ordered
+// just below straddles the commit on the pre side (PreLayout/PreCommit — PreLayout one lower so the
+// relative order of the two pre phases holds), just above on the post side. One-shot lifetime: CF
+// invalidates a non-repeating observer right after the callout returns; the handler must not
+// invalidate itself (it holds the only reference to the executing block).
+//
+// CONTRACT GAPS vs the real 10.10+ API — acceptable for run-loop-driven callers, disqualifying for
+// explicit-flush ones:
+// - Handlers fire when the run loop reaches BeforeWaiting/Exit, NOT when the transaction actually
+//   commits: a commit driven by an explicit [CATransaction flush]/[CATransaction commit] mid-cycle
+//   is NOT bracketed (the handlers fire later, at the run-loop drain), and a thread whose run loop
+//   never drains never fires them. This is why TiledCoreAnimationDrawingArea (WebContent), whose
+//   rendering commit is an explicit synchronous flush, keeps its own manual willStart/didComplete
+//   bracket instead of registering handlers through this polyfill.
+// - If the drain has no pending transaction, the pre/post handlers still fire back-to-back as a
+//   balanced no-op, and no CA layout runs between the two pre phases.
+// - A handler added while a commit is in progress fires at the NEXT cycle's drain instead of
+//   throwing ("prohibited by CA" upstream), which is strictly more permissive.
+@interface CATransaction (WKPolyfillScope)
++ (void)wk_addCommitHandler:(void (^)(void))handler forPhase:(NSInteger)phase;
+@end
+@implementation CATransaction (WKPolyfillScope)
++ (void)wk_addCommitHandler:(void (^)(void))handler forPhase:(NSInteger)phase
+{
+    if (!handler)
+        return;
+    static const CFIndex caCommitOrder = 2000000;
+    CFIndex order = phase == 2 ? caCommitOrder + 1 : (phase == 1 ? caCommitOrder - 1 : caCommitOrder - 2);
+    void (^handlerCopy)(void) = Block_copy(handler);
+    CFRunLoopObserverRef observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, kCFRunLoopBeforeWaiting | kCFRunLoopExit, false, order, ^(CFRunLoopObserverRef unusedObserver, CFRunLoopActivity unusedActivity) {
+        (void)unusedObserver;
+        (void)unusedActivity;
+        handlerCopy();
+        Block_release(handlerCopy);
+    });
+    CFRunLoopAddObserver(CFRunLoopGetCurrent(), observer, kCFRunLoopCommonModes);
+    CFRelease(observer);
+}
+@end
+WK_POLYFILL_SEL("addCommitHandler:forPhase:", "wk_addCommitHandler:forPhase:");
 
 #pragma clang diagnostic pop
