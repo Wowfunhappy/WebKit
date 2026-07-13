@@ -43,4 +43,22 @@ struct wk_aliasmap_entry { const char *cls; const char *pub; const char *priv; i
 #define WK_POLYFILL_ALIAS(CLS, PUB, PRIV)       WK_POLYFILL_ALIAS_(CLS, PUB, PRIV, 0)
 #define WK_POLYFILL_ALIAS_CLASS(CLS, PUB, PRIV) WK_POLYFILL_ALIAS_(CLS, PUB, PRIV, 1)
 
+// Add a NEW wk_ method to a RUNTIME-resolved class via a C-function IMP (no ObjC category).
+//
+// Needed for a class that MOVED frameworks between the build SDK and 10.9 (e.g. NSURLSessionTask:
+// CFNetwork on the modern SDK, Foundation at 10.9 runtime). A compile-time `@interface C (…)` category in
+// wk_polyfills.m emits an `_OBJC_CLASS_$_C` classref that binds to libpolyfill_classes.dylib via its
+// framework reexport; if the class isn't actually in the reexported framework at runtime, dyld fails to
+// load ("Symbol not found: _OBJC_CLASS_$_C") and the whole framework won't load. WK_POLYFILL_ADD sidesteps
+// that: it stores (class NAME, sel, C-function IMP, type-encoding) in __DATA,__wk_addmap; at load
+// `wk_install_added` does `class_addMethod(objc_getClass(NAME), sel_registerName(SEL), IMP, TYPES)` — the
+// class is resolved by string at RUNTIME, so no compile-time classref exists. The IMP is a C function
+// `RET fn(id self, SEL _cmd, ARGS…)`; TYPES is its ObjC type encoding (e.g. "f@:" / "v@:f"). Pair with a
+// WK_POLYFILL_SEL so the public selector is rewritten to this wk_ one. (For a class that IS in the linked
+// SDK framework, a plain category is simpler — use this only for the moved-framework case.)
+struct wk_addmap_entry { const char *cls; const char *sel; void *imp; const char *types; };
+#define WK_POLYFILL_ADD(CLS, SEL, IMP, TYPES) \
+    __attribute__((used, section("__DATA,__wk_addmap"))) \
+    static const struct wk_addmap_entry WK_SELMAP_CAT(wk_addmap_reg_, __LINE__) = { CLS, SEL, (void *)(IMP), TYPES }
+
 #endif // WK_SELREF_SCOPE_H

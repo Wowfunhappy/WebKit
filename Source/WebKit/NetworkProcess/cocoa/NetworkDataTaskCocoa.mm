@@ -571,9 +571,7 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
     }
 
     if (WebCore::ResourceRequest::resourcePrioritiesEnabled())
-    // MAVERICKS_BACKPORT: NSURLSessionTask.priority property is 10.10+; set it via KVC and guard the selector.
-        if ([m_task.get() respondsToSelector:@selector(setPriority:)])
-            [m_task.get() setValue:@(toNSURLSessionTaskPriority(request.priority())) forKey:@"priority"];
+        m_task.get().priority = toNSURLSessionTaskPriority(request.priority());
 
     updateTaskWithFirstPartyForSameSiteCookies(m_task.get(), request);
 
@@ -1011,9 +1009,7 @@ void NetworkDataTaskCocoa::setPriority(WebCore::ResourceLoadPriority priority)
 {
     if (!WebCore::ResourceRequest::resourcePrioritiesEnabled())
         return;
-    // MAVERICKS_BACKPORT: NSURLSessionTask.priority property is 10.10+; set it via KVC and guard the selector.
-    if ([m_task.get() respondsToSelector:@selector(setPriority:)])
-        [m_task.get() setValue:@(toNSURLSessionTaskPriority(priority)) forKey:@"priority"];
+    m_task.get().priority = toNSURLSessionTaskPriority(priority);
 }
 
 #if ENABLE(INSPECTOR_NETWORK_THROTTLING)

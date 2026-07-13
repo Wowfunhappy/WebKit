@@ -113,11 +113,32 @@ static void wk_install_aliases(const struct mach_header *mh)
     }
 }
 
+// Install the wk_ methods registered by WK_POLYFILL_ADD in this image: add each C-function IMP to the
+// runtime-resolved class (no compile-time classref — safe for moved-framework classes). See the header.
+static void wk_install_added(const struct mach_header *mh)
+{
+    unsigned long size = 0;
+    const struct wk_addmap_entry *e =
+        (const struct wk_addmap_entry *)getsectiondata((const struct mach_header_64 *)mh,
+                                                       "__DATA", "__wk_addmap", &size);
+    if (!e)
+        return;
+    int n = (int)(size / sizeof(struct wk_addmap_entry));
+    for (int i = 0; i < n; i++) {
+        Class c = objc_getClass(e[i].cls);
+        if (!c)
+            continue;
+        // Idempotent: class_addMethod is a no-op (returns NO) if the wk_ method already exists.
+        class_addMethod(c, sel_registerName(e[i].sel), (IMP)e[i].imp, e[i].types);
+    }
+}
+
 static void wk_add_image(const struct mach_header *mh, intptr_t slide)
 {
     (void)slide;
     wk_collect(mh);
     wk_install_aliases(mh);
+    wk_install_added(mh);
     wk_patch(mh);
 }
 
@@ -130,6 +151,8 @@ __attribute__((constructor)) static void wk_selref_scope_init(void)
     // loaded here), so wk_<name> exists on them before any WebKit call site dispatches the rewritten selref.
     for (uint32_t i = 0; i < c; i++)
         wk_install_aliases(_dyld_get_image_header(i));
+    for (uint32_t i = 0; i < c; i++)
+        wk_install_added(_dyld_get_image_header(i));
     for (uint32_t i = 0; i < c; i++)
         wk_patch(_dyld_get_image_header(i));
     // Also covers images dlopen'd later (fires immediately for already-loaded ones; collect dedups,
