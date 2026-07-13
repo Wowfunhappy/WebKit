@@ -188,14 +188,8 @@ static CFDictionaryRef animationPropertiesFromProperties(CFDictionaryRef propert
 
     if (auto animationProperties = (CFDictionaryRef)CFDictionaryGetValue(properties, kCGImagePropertyGIFDictionary))
         return animationProperties;
-    // MAVERICKS_BACKPORT: kCGImagePropertyWebPDictionary is a 10.13+ CFStringRef constant that
-    // weak-links to NULL at RUNTIME on 10.9 (passing a NULL key to CFDictionaryGetValue crashes).
-    // Gate on the deployment target (MIN_REQUIRED=1090), NOT MAX_ALLOWED (always-true on the 26.1 SDK).
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300
     if (auto animationProperties = (CFDictionaryRef)CFDictionaryGetValue(properties, kCGImagePropertyWebPDictionary))
         return animationProperties;
-// MAVERICKS_BACKPORT: closes the 10.13+ gate around kCGImagePropertyWebPDictionary (NULL on 10.9).
-#endif
     if (auto animationProperties = (CFDictionaryRef)CFDictionaryGetValue(properties, kCGImagePropertyPNGDictionary))
         return animationProperties;
 

@@ -26,6 +26,14 @@ const CFStringRef kCGGradientInterpolatesPremultiplied = CFSTR("kCGGradientInter
 // dimensions, TIFF resolution unit, thumbnail/cache/skip-metadata/subsample options) are
 // NOT defined here: the name-string copies shadowed ImageIO's real values ("PixelXDimension"
 // et al.), so EXIF dimension lookups silently missed. The SDK links them; 10.9 provides them.
+// kCGImagePropertyWebPDictionary (ImageIO, macOS 11.0; absent on 10.9) is a key WebKit passes to
+// CFDictionaryGetValue on a *system-provided* CGImageSource properties dict — so unlike the
+// round-tripped token keys above, its value must be ImageIO's REAL value, not the symbol name
+// (the same lesson as the EXIF note above). ImageIO's per-format dictionary keys are "{TYPE}" with
+// the format's canonical mixed casing (verified on-host across 20 sibling keys: {GIF} {PNG} {Exif}
+// {ExifAux} {MakerApple} …), so WebP is "{WebP}". Behavior-neutral on 10.9 (that ImageIO has no WebP
+// animation dict, so the lookup returns NULL and the caller falls through to the PNG dict either way).
+const CFStringRef kCGImagePropertyWebPDictionary = CFSTR("{WebP}");
 const CFStringRef kCGImageSourceUseHardwareAcceleration = CFSTR("kCGImageSourceUseHardwareAcceleration");
 const CFStringRef kCTFontCSSFamilyCursive = CFSTR("kCTFontCSSFamilyCursive");
 const CFStringRef kCTFontCSSFamilyFantasy = CFSTR("kCTFontCSSFamilyFantasy");
@@ -49,6 +57,13 @@ const CFStringRef kCTFontUIFontDesignMonospaced = CFSTR("kCTFontUIFontDesignMono
 const CFStringRef kCTFontUIFontDesignRounded = CFSTR("kCTFontUIFontDesignRounded");
 const CFStringRef kCTFontUIFontDesignSerif = CFSTR("kCTFontUIFontDesignSerif");
 const CFStringRef kCTFontUIFontDesignTrait = CFSTR("kCTFontUIFontDesignTrait");
+// kCTFontVariationAxesAttribute (CoreText, macOS 10.13; absent on 10.9) is a key WebKit passes to
+// CTFontDescriptorCopyAttribute on a *system* descriptor, so it needs CoreText's REAL value, not the
+// symbol-name token. CoreText-native descriptor keys are "NSCT" + (name minus "kCT") — verified
+// on-host across 15 sibling keys incl. the directly-analogous kCTFontVariationAttribute="NSCTFont
+// VariationAttribute" — hence "NSCTFontVariationAxesAttribute". Behavior-neutral on 10.9 (an unknown
+// key yields NULL, exactly the deployment-gated nullptr the call site previously returned).
+const CFStringRef kCTFontVariationAxesAttribute = CFSTR("NSCTFontVariationAxesAttribute");
 const CFStringRef kCTFontUnscaledTrackingAttribute = CFSTR("kCTFontUnscaledTrackingAttribute");
 const CFStringRef kCTFontUserInstalledAttribute = CFSTR("kCTFontUserInstalledAttribute");
 const CFStringRef kCTFontWeightBlack = CFSTR("kCTFontWeightBlack");
