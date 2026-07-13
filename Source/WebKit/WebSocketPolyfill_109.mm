@@ -135,22 +135,6 @@ typedef NS_ENUM(NSInteger, WKWSState) {
 
 static id wsWebSocketTaskWithRequest(NSURLSession *, SEL, NSURLRequest *);
 
-// MAVERICKS_BACKPORT: -[NSHTTPURLResponse valueForHTTPHeaderField:] is macOS 10.15+ and absent on 10.9
-// (WebSocketTaskCocoa::didConnect calls it on the handshake response → doesNotRecognizeSelector crash).
-// Inject it, backed by the 10.9-available allHeaderFields with a case-insensitive lookup.
-static id wsHTTPResponseValueForHeaderField(NSHTTPURLResponse *self, SEL, NSString *field)
-{
-    NSDictionary *headers = self.allHeaderFields;
-    id direct = headers[field];
-    if (direct)
-        return direct;
-    for (NSString *key in headers) {
-        if ([key isKindOfClass:[NSString class]] && [key caseInsensitiveCompare:field] == NSOrderedSame)
-            return headers[key];
-    }
-    return nil;
-}
-
 @implementation WKWebSocketStream
 
 // Inject -[NSURLSession webSocketTaskWithRequest:] via class_addMethod: a plain category on a Foundation
@@ -169,11 +153,8 @@ static id wsHTTPResponseValueForHeaderField(NSHTTPURLResponse *self, SEL, NSStri
             if (cls && !class_getInstanceMethod(cls, sel))
                 class_addMethod(cls, sel, (IMP)wsWebSocketTaskWithRequest, "@@:@");
         }
-
-        Class respCls = [NSHTTPURLResponse class];
-        SEL headerSel = @selector(valueForHTTPHeaderField:);
-        if (respCls && !class_getInstanceMethod(respCls, headerSel))
-            class_addMethod(respCls, headerSel, (IMP)wsHTTPResponseValueForHeaderField, "@@:@");
+        // NSHTTPURLResponse -valueForHTTPHeaderField: (10.13+) is polyfilled host-safely via the selref-scope
+        // mechanism (wk_valueForHTTPHeaderField: in wk_polyfills.m); no class_addMethod injection needed here.
     }
 }
 

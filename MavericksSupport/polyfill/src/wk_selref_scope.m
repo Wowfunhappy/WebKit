@@ -85,10 +85,39 @@ static void wk_patch(const struct mach_header *mh)
     }
 }
 
+// Install the wk_<name> aliases registered by WK_POLYFILL_ALIAS in this image: add wk_<name> to the named
+// class as an alias of the class's own real <name> IMP (so a selref rewritten to wk_<name> reaches the real
+// method on classes that already implement <name>). See wk_aliasmap_entry in the header.
+static void wk_install_aliases(const struct mach_header *mh)
+{
+    unsigned long size = 0;
+    const struct wk_aliasmap_entry *e =
+        (const struct wk_aliasmap_entry *)getsectiondata((const struct mach_header_64 *)mh,
+                                                         "__DATA", "__wk_aliasmap", &size);
+    if (!e)
+        return;
+    int n = (int)(size / sizeof(struct wk_aliasmap_entry));
+    for (int i = 0; i < n; i++) {
+        Class c = objc_getClass(e[i].cls);
+        if (!c)
+            continue;
+        SEL pub = sel_registerName(e[i].pub);
+        SEL priv = sel_registerName(e[i].priv);
+        Method m = e[i].is_class_method ? class_getClassMethod(c, pub) : class_getInstanceMethod(c, pub);
+        if (!m)
+            continue;
+        // Metaclass for + methods. class_addMethod is a no-op (returns NO) if wk_<name> already exists, so
+        // firing this again for a post-launch dlopen is harmless.
+        Class target = e[i].is_class_method ? object_getClass(c) : c;
+        class_addMethod(target, priv, method_getImplementation(m), method_getTypeEncoding(m));
+    }
+}
+
 static void wk_add_image(const struct mach_header *mh, intptr_t slide)
 {
     (void)slide;
     wk_collect(mh);
+    wk_install_aliases(mh);
     wk_patch(mh);
 }
 
@@ -97,6 +126,10 @@ __attribute__((constructor)) static void wk_selref_scope_init(void)
     uint32_t c = _dyld_image_count();
     for (uint32_t i = 0; i < c; i++)
         wk_collect(_dyld_get_image_header(i));
+    // Install aliases before patching: the classes they target are launch-time system classes (already
+    // loaded here), so wk_<name> exists on them before any WebKit call site dispatches the rewritten selref.
+    for (uint32_t i = 0; i < c; i++)
+        wk_install_aliases(_dyld_get_image_header(i));
     for (uint32_t i = 0; i < c; i++)
         wk_patch(_dyld_get_image_header(i));
     // Also covers images dlopen'd later (fires immediately for already-loaded ones; collect dedups,
