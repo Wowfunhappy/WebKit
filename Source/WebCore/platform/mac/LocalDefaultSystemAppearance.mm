@@ -38,11 +38,13 @@ LocalDefaultSystemAppearance::LocalDefaultSystemAppearance(bool useDarkAppearanc
 {
     // MAVERICKS_BACKPORT: the NSAppearance appearance-swapping system is 10.10+ (currentDrawingAppearance/
     // setCurrentAppearance: 10.14+, appearanceByApplyingTintColor: 11.0+) and absent on 10.9 — there is no
-    // appearance to swap in or restore. Gate on the DEPLOYMENT TARGET (__MAC_OS_X_VERSION_MIN_REQUIRED),
-    // NOT a respondsToSelector(currentDrawingAppearance) runtime check: that check is DEFEATED by the
-    // objc_inject currentDrawingAppearance shim (it returns YES on 10.9), which would let the 11.0+
-    // appearanceByApplyingTintColor: path run and crash (unrecognized selector when amazon paints a
-    // tinted scrollbar corner: ScrollbarThemeMac::paintScrollCorner -> AppKitControlSystemImage::draw).
+    // appearance to swap in or restore. Gate on the DEPLOYMENT TARGET (__MAC_OS_X_VERSION_MIN_REQUIRED) so
+    // the 10.14+ calls below are never even compiled for 10.9. The selref-scope polyfill deliberately does
+    // NOT supply currentDrawingAppearance (see wk_polyfills.m): it is exactly the selector whose absence
+    // must be preserved so the respondsToSelector(currentDrawingAppearance) guards elsewhere in the control
+    // draw path (ControlMac, Switch*Mac, ProgressBarMac, ScrollbarTrackCornerSystemImageMac, …) keep taking
+    // their nil branch instead of running the 11.0+ appearanceByApplyingTintColor: path and crashing (e.g.
+    // ScrollbarThemeMac::paintScrollCorner -> AppKitControlSystemImage::draw on a tinted scrollbar corner).
     UNUSED_PARAM(tintColor);
     m_usingDarkAppearance = useDarkAppearance;
     // MAVERICKS_BACKPORT: deployment-target gate — the appearance-swap APIs below are 10.14+; skip on 10.9.

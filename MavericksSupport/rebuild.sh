@@ -14,7 +14,7 @@ export CCACHE_DIR="$ROOT/WebKitBuild/ccache"
 # MavericksSupport/polyfill/scripts/build-polyfill.sh compiles polyfill/src into the libpolyfill*.a
 # archives, which are force-loaded / statically linked into the frameworks via raw -Wl,-force_load
 # flags that ninja does NOT track as dependency edges. Without this step, editing a polyfill source
-# (e.g. objc_inject.m) is SILENTLY ignored by an incremental rebuild — and even after rebuilding the
+# (e.g. wk_polyfills.m) is SILENTLY ignored by an incremental rebuild — and even after rebuilding the
 # archive, ninja won't relink the consuming framework. So: rebuild the polyfill here, then, if an
 # archive's CONTENT changed (llvm-ar is deterministic — unchanged source yields identical bytes), rm
 # the binaries that consume it so ninja relinks them against the new archive.

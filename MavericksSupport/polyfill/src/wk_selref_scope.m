@@ -1,4 +1,4 @@
-// wk_selref_scope.m — WebKit-scoped ObjC-method polyfills via per-image selector rewriting.
+// wk_selref_scope.m — WebKit-scoped ObjC-method polyfills via per-image selector rewriting (THE MECHANISM).
 //
 // A category method added to a system class is process-global: a host app embedding WebKit that
 // version-probes the method (respondsToSelector:/instancesRespondToSelector:) is told the API exists,
@@ -14,29 +14,18 @@
 // only cost is a one-time selref scan per WebKit image at load. Runs in every process WebKit loads into.
 //
 // A "WebKit image" is any binary carrying __DATA,__wk_marker, injected by wk_image_marker.c which is
-// force-loaded into every WebKit framework (WEBKIT_FRAMEWORK). This object (the patcher + registry +
-// the polyfill methods) is force-loaded into WebCore only — it loads early in every rendering process
-// and keeps the AppKit categories out of the setuid-JSC path. Polyfilled selectors register into
-// __DATA,__wk_selmap via WK_POLYFILL_SEL(publicName, privateName); keep every registration in this one
-// file so all entries are collected before any WebKit framework that calls them is patched.
+// force-loaded into every WebKit framework (WEBKIT_FRAMEWORK). This object (the patcher + registry) and
+// wk_polyfills.m (the polyfill methods + WK_POLYFILL_SEL registrations) are force-loaded into WebCore only
+// — they load early in every rendering process and keep the AppKit categories out of the setuid-JSC path.
+// THE POLYFILLS THEMSELVES LIVE IN wk_polyfills.m; add new ones there.
 
-#import <AppKit/AppKit.h>
+#import "wk_selref_scope.h"
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
 #import <mach-o/getsect.h>
 #import <mach/mach.h>
 #import <string.h>
 #import <stdint.h>
-
-// A registry entry: public selector name -> private (wk_) selector name.
-struct wk_selmap_entry { const char *pub; const char *priv; };
-
-// Register a polyfilled selector for WebKit-scoped rewriting.
-#define WK_SELMAP_CAT_(a, b) a##b
-#define WK_SELMAP_CAT(a, b) WK_SELMAP_CAT_(a, b)
-#define WK_POLYFILL_SEL(PUB, PRIV) \
-    __attribute__((used, section("__DATA,__wk_selmap"))) \
-    static const struct wk_selmap_entry WK_SELMAP_CAT(wk_selmap_reg_, __LINE__) = { PUB, PRIV }
 
 // Resolved public->private SEL map, built once from all __wk_selmap sections.
 enum { WK_MAX_SEL = 256 };
@@ -114,33 +103,3 @@ __attribute__((constructor)) static void wk_selref_scope_init(void)
     // patch is idempotent since a rewritten wk_ selref no longer matches any public selector).
     _dyld_register_func_for_add_image(wk_add_image);
 }
-
-// ---------------------------------------------------------------------------------------------------
-// NSGraphicsContext CGContext accessors (10.10+), implemented via the classic 10.9 graphics-port SPI.
-// -[NSGraphicsContext CGContext] and +[NSGraphicsContext graphicsContextWithCGContext:flipped:] are the
-// 10.10 renames of -graphicsPort and +graphicsContextWithGraphicsPort:flipped:; each polyfill forwards
-// to the still-present classic call.
-@interface NSGraphicsContext (WKPolyfillScope)
-- (CGContextRef)wk_CGContext;
-+ (NSGraphicsContext *)wk_graphicsContextWithCGContext:(CGContextRef)context flipped:(BOOL)flipped;
-@end
-
-@implementation NSGraphicsContext (WKPolyfillScope)
-- (CGContextRef)wk_CGContext
-{
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    return (CGContextRef)[self graphicsPort];
-#pragma clang diagnostic pop
-}
-+ (NSGraphicsContext *)wk_graphicsContextWithCGContext:(CGContextRef)context flipped:(BOOL)flipped
-{
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    return [NSGraphicsContext graphicsContextWithGraphicsPort:(void *)context flipped:flipped];
-#pragma clang diagnostic pop
-}
-@end
-
-WK_POLYFILL_SEL("CGContext", "wk_CGContext");
-WK_POLYFILL_SEL("graphicsContextWithCGContext:flipped:", "wk_graphicsContextWithCGContext:flipped:");
