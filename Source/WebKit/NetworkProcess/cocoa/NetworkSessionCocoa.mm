@@ -848,8 +848,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 
         if (networkDataTask->shouldCaptureExtraNetworkLoadMetrics()) {
             auto additionalMetrics = WebCore::AdditionalNetworkLoadMetricsForWebInspector::create();
-            // MAVERICKS_BACKPORT: read task.priority via KVC so it binds at runtime on 10.9.
-            additionalMetrics->priority = toNetworkLoadPriority([[task valueForKey:@"priority"] floatValue]);
+            additionalMetrics->priority = toNetworkLoadPriority(task.priority);
 
             if (auto port = [m.get().remotePort unsignedIntValue])
                 additionalMetrics->remoteAddress = makeString(String(m.get().remoteAddress), ':', port);

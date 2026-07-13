@@ -701,4 +701,36 @@ WK_POLYFILL_SEL("scriptCode", "wk_scriptCode");
 WK_POLYFILL_SEL("countryCode", "wk_countryCode");
 WK_POLYFILL_ALIAS("AVAssetTrack", "languageCode", "wk_languageCode");
 
+// ---------------------------------------------------------------------------------------------------
+// -[NSURLSessionTask priority]/-setPriority: (10.10+, absent on 10.9's NSURLSessionTask). Registered via
+// WK_POLYFILL_ADD (runtime class_addMethod, NOT a compile-time category): NSURLSessionTask is a
+// MOVED-FRAMEWORK class (CFNetwork on the 26.1 SDK, Foundation at 10.9 runtime), and a category's
+// _OBJC_CLASS_$_NSURLSessionTask classref would bind to libpolyfill_classes.dylib's CFNetwork reexport and
+// fail dyld load on 10.9. 10.9's URL loading has no per-task scheduling priority, so the value can't affect
+// scheduling; store it in an associated object so the property round-trips for its only reader (the Web
+// Inspector task metrics), defaulting to NSURLSessionTaskPriorityDefault (0.5). Concrete task subclasses
+// inherit these from NSURLSessionTask.
+static const void *const wk_taskPriorityKey = &wk_taskPriorityKey;
+static float wk_urlSessionTask_priority(id self, SEL _cmd)
+{
+    (void)_cmd;
+    NSNumber *v = objc_getAssociatedObject(self, wk_taskPriorityKey);
+    return v ? [v floatValue] : 0.5f;
+}
+static void wk_urlSessionTask_setPriority(id self, SEL _cmd, float priority)
+{
+    (void)_cmd;
+    objc_setAssociatedObject(self, wk_taskPriorityKey, @(priority), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+WK_POLYFILL_ADD("NSURLSessionTask", "wk_priority", wk_urlSessionTask_priority, "f@:");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk_setPriority:", wk_urlSessionTask_setPriority, "v@:f");
+WK_POLYFILL_SEL("priority", "wk_priority");
+WK_POLYFILL_SEL("setPriority:", "wk_setPriority:");
+// `priority` is a GENERIC name: _WKWebExtensionDeclarativeNetRequestRule (an NSObject subclass with its own
+// -priority) sends it in -compare:. That subsystem is currently flag-off (ENABLE(WK_WEB_EXTENSIONS)=0), but
+// the by-name rewrite must be class-correct INDEPENDENT of the flag — otherwise a build with it on crashes.
+// Alias wk_priority to the rule's OWN -priority IMP: a no-op when the class is absent (objc_getClass->nil),
+// class-correct when present. (No setPriority: send exists to the rule — its priority is readonly.)
+WK_POLYFILL_ALIAS("_WKWebExtensionDeclarativeNetRequestRule", "priority", "wk_priority");
+
 #pragma clang diagnostic pop
