@@ -616,4 +616,31 @@ WK_POLYFILL_SEL("unarchivedObjectOfClasses:fromData:error:", "wk_unarchivedObjec
 @end
 WK_POLYFILL_SEL("archivedDataWithRootObject:requiringSecureCoding:error:", "wk_archivedDataWithRootObject:requiringSecureCoding:error:");
 
+// ---------------------------------------------------------------------------------------------------
+// -[NSHTTPURLResponse valueForHTTPHeaderField:] (10.13+): 10.9 lacks it, but -allHeaderFields is present;
+// look the field up there case-insensitively (HTTP header names are case-insensitive), matching the modern
+// method's contract. This is a GENERIC name: WebKit also sends valueForHTTPHeaderField: to NSURLRequest
+// (present since 10.9). The selref rewrite is by-name, so it would rewrite those NSURLRequest sends to
+// wk_valueForHTTPHeaderField: too — the WK_POLYFILL_ALIAS below makes that correct by pointing NSURLRequest's
+// wk_ selector at its OWN real valueForHTTPHeaderField: IMP. Result: NSHTTPURLResponse dispatches this
+// polyfill; NSURLRequest (and NSMutableURLRequest, which inherits the getter) dispatches its real method.
+@interface NSHTTPURLResponse (WKPolyfillScope)
+- (NSString *)wk_valueForHTTPHeaderField:(NSString *)field;
+@end
+@implementation NSHTTPURLResponse (WKPolyfillScope)
+- (NSString *)wk_valueForHTTPHeaderField:(NSString *)field
+{
+    NSDictionary *headers = [self allHeaderFields];
+    NSString *direct = [headers objectForKey:field];
+    if (direct)
+        return direct;
+    for (NSString *key in headers)
+        if ([key isKindOfClass:[NSString class]] && [key caseInsensitiveCompare:field] == NSOrderedSame)
+            return [headers objectForKey:key];
+    return nil;
+}
+@end
+WK_POLYFILL_SEL("valueForHTTPHeaderField:", "wk_valueForHTTPHeaderField:");
+WK_POLYFILL_ALIAS("NSURLRequest", "valueForHTTPHeaderField:", "wk_valueForHTTPHeaderField:");
+
 #pragma clang diagnostic pop

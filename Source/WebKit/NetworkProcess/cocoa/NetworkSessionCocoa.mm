@@ -965,8 +965,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         // Avoid MIME type sniffing if the response comes back as 304 Not Modified.
         RetainPtr httpResponse = dynamic_objc_cast<NSHTTPURLResponse>(response);
         int statusCode = httpResponse ? [httpResponse statusCode] : 0;
-        // MAVERICKS_BACKPORT: NSHTTPURLResponse -valueForHTTPHeaderField: is 10.13+. Use allHeaderFields.
-        RetainPtr xContentTypeOptions = httpResponse ? [[httpResponse allHeaderFields] objectForKey:@"X-Content-Type-Options"] : nil;
+        RetainPtr xContentTypeOptions = httpResponse ? [httpResponse valueForHTTPHeaderField:@"X-Content-Type-Options"] : nil;
         bool isNoSniff = xContentTypeOptions && [xContentTypeOptions caseInsensitiveCompare:@"nosniff"] == NSOrderedSame;
         if (statusCode != httpStatus304NotModified) {
             bool isMainResourceLoad = networkDataTask->firstRequest().requester() == WebCore::ResourceRequestRequester::Main;
