@@ -466,6 +466,8 @@ UIProcess/API/ios/WKWebViewTestingIOS.mm @nonARC
 
 // MAVERICKS_BACKPORT: @no-unify — WKView.mm is built standalone (legacy WKView reinstated for this backport).
 UIProcess/API/mac/WKView.mm @nonARC @no-unify
+// MAVERICKS_BACKPORT: WKView title-attribute tooltip category (see WKViewToolTip.mm).
+UIProcess/API/mac/WKViewToolTip.mm @nonARC @no-unify
 UIProcess/API/mac/WKWebViewMac.mm @nonARC
 UIProcess/API/mac/WKWebViewTestingMac.mm @nonARC
 

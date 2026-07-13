@@ -98,6 +98,12 @@
 - (void)_mavericksResendUnhandledKeyDownEvent:(NSEvent *)event;
 @end
 
+// MAVERICKS_BACKPORT: WKView's title-attribute tooltip setter (classic -addToolTipRect:/
+// -view:stringForToolTip: mechanism), invoked from toolTipChanged so hover tooltips appear.
+@interface NSView (WKViewToolTip)
+- (void)_wkSetToolTip:(NSString *)string;
+@end
+
 namespace WebKit {
 
 #if ENABLE(FULLSCREEN_API)
@@ -955,12 +961,13 @@ void MinimalPageClient::didRelaunchProcess()
 }
 void MinimalPageClient::preferencesDidChange()
 { }
-void MinimalPageClient::toolTipChanged(const String&, const String&)
+void MinimalPageClient::toolTipChanged(const String&, const String& newToolTip)
 {
-    // MAVERICKS_BACKPORT: tooltips (the `title` attribute) are NOT wired up. Wiring them via
-    // NSToolTipManager would need a tracking area / owner; left as a no-op deliberately —
-    // a marginal feature, out of scope. (Mouse events now reach WKView through AppKit's
-    // normal responder chain, so this is no longer entangled with the cursor path.)
+    // MAVERICKS_BACKPORT: wire the title-attribute tooltip to WKView's classic -addToolTipRect:/
+    // -view:stringForToolTip: mechanism (see -[WKView _wkSetToolTip:]). WebViewImpl's NSToolTipManager
+    // path is not used by the reimplemented WKView.
+    if (m_view)
+        [m_view _wkSetToolTip:newToolTip.createNSString().get()];
 }
 #if PLATFORM(IOS_FAMILY)
 void MinimalPageClient::decidePolicyForGeolocationPermissionRequest(WebFrameProxy&, const FrameInfoData&, Function<void(bool)>&)
