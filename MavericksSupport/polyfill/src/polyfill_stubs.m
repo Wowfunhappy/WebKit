@@ -482,7 +482,12 @@ NSString * const NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification = @
 NSString * const NSHTTPCookieSameSiteLax = @"lax";
 NSString * const NSHTTPCookieSameSiteStrict = @"strict";
 
-// --- NSURLSessionTask priority constants (float) -------------------------
+// --- NSURLSessionTask priority constants (float, macos(10.10)) -----------
+// Absent on 10.9's Foundation/CFNetwork. The 26.1 SDK declares them
+// FOUNDATION_EXPORT API_AVAILABLE(macos(10.10)), i.e. a weak import, so
+// WebKit's references (NetworkSessionCocoa/NetworkDataTaskCocoa, used as
+// plain KVC float values) bind here on 10.9. Values are the documented
+// modern defaults (correct for any caller).
 const float NSURLSessionTaskPriorityDefault = 0.5f;
 const float NSURLSessionTaskPriorityLow = 0.0f;
 const float NSURLSessionTaskPriorityHigh = 1.0f;
