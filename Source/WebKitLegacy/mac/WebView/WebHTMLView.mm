@@ -5710,13 +5710,7 @@ static BOOL writingDirectionKeyBindingsEnabled()
 
 - (void)otherMouseDown:(NSEvent *)event
 {
-    // MAVERICKS_BACKPORT: +[NSMenu menuTypeForEvent:] is a 10.10+ API that raises unrecognized-selector
-    // on 10.9. A middle-click (buttonNumber 2) is never a context-menu gesture there, so guard the
-    // call instead of letting it throw and abort the event.
-    BOOL isContextMenuEvent = NO;
-    if ([NSMenu respondsToSelector:@selector(menuTypeForEvent:)])
-        isContextMenuEvent = ([NSMenu menuTypeForEvent:event] == NSMenuTypeContextMenu);
-    if (event.buttonNumber != 2 || isContextMenuEvent) {
+    if (event.buttonNumber != 2 || [NSMenu menuTypeForEvent:event] == NSMenuTypeContextMenu) {
         [super otherMouseDown:event];
         return;
     }

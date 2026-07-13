@@ -230,4 +230,39 @@ WK_POLYFILL_SEL("convertPointFromScreen:", "wk_convertPointFromScreen:");
 @end
 WK_POLYFILL_SEL("_lp_simplifiedDisplayString", "wk__lp_simplifiedDisplayString");
 
+// ---------------------------------------------------------------------------------------------------
+// -[NSString containsString:] (10.10+) via the classic -rangeOfString:.
+@interface NSString (WKPolyfillScope)
+- (BOOL)wk_containsString:(NSString *)str;
+@end
+@implementation NSString (WKPolyfillScope)
+- (BOOL)wk_containsString:(NSString *)str { return [self rangeOfString:str].location != NSNotFound; }
+@end
+WK_POLYFILL_SEL("containsString:", "wk_containsString:");
+
+// ---------------------------------------------------------------------------------------------------
+// +[NSMenu menuTypeForEvent:] (10.10+): classify a mouse event into a menu type. On 10.9, reproduce the
+// documented mapping — right-click or control+left-click opens a context menu, otherwise none.
+// NSMenuType is not in the public AppKit headers (WebKit declares it in pal/spi/mac/NSMenuSPI.h); this
+// polyfill lives outside WebKit's include paths, so forward-declare the enum to match.
+typedef NS_ENUM(NSInteger, NSMenuType) {
+    NSMenuTypeNone = 0,
+    NSMenuTypeContextMenu = 1,
+};
+@interface NSMenu (WKPolyfillScope)
++ (NSMenuType)wk_menuTypeForEvent:(NSEvent *)event;
+@end
+@implementation NSMenu (WKPolyfillScope)
++ (NSMenuType)wk_menuTypeForEvent:(NSEvent *)event
+{
+    if (event.type == NSEventTypeRightMouseDown || event.type == NSEventTypeRightMouseUp)
+        return NSMenuTypeContextMenu;
+    if ((event.type == NSEventTypeLeftMouseDown || event.type == NSEventTypeLeftMouseUp)
+        && (event.modifierFlags & NSEventModifierFlagControl))
+        return NSMenuTypeContextMenu;
+    return NSMenuTypeNone;
+}
+@end
+WK_POLYFILL_SEL("menuTypeForEvent:", "wk_menuTypeForEvent:");
+
 #pragma clang diagnostic pop
