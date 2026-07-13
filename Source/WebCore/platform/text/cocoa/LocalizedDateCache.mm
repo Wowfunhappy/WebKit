@@ -227,7 +227,7 @@ float LocalizedDateCache::estimateMaximumWidth(DateComponentsType type, const Me
         // Find the widest hour. Our strategy for this will differ depending on how time is displayed for the user's locale.
         unsigned hourCandidate;
         RetainPtr timeFormat = [NSDateFormatter dateFormatFromTemplate:@"j" options:0 locale:[dateFormatter locale]];
-        if ([timeFormat rangeOfString:@"a"].location != NSNotFound) { // MAVERICKS_BACKPORT: -[NSString containsString:] is 10.10+ (crashes on 10.9)
+        if ([timeFormat containsString:@"a"]) {
             // Using 12 hour time.
             unsigned widestNumZeroThroughTwo = std::distance(numeralLengthsSpan.begin(), std::ranges::max_element(numeralLengthsSpan.subspan(0, 2)));
             hourCandidate = 10 + widestNumZeroThroughTwo;
@@ -239,7 +239,7 @@ float LocalizedDateCache::estimateMaximumWidth(DateComponentsType type, const Me
             // If the symbols used for PM are wider than AM, shift the hour forward by 12.
             if (measurer.measureText(String([dateFormatter AMSymbol])) < measurer.measureText(String([dateFormatter PMSymbol])))
                 hourCandidate += 12;
-        } else if ([timeFormat rangeOfString:@"HH"].location != NSNotFound) { // MAVERICKS_BACKPORT: containsString: is 10.10+
+        } else if ([timeFormat containsString:@"HH"]) {
             // Using 24 hour time with leading zero for single-digit hours.
             unsigned widestNumZeroThroughOne = std::distance(numeralLengthsSpan.begin(), std::ranges::max_element(numeralLengthsSpan.subspan(0, 1)));
             unsigned widestNumZeroThroughThree = std::distance(numeralLengthsSpan.begin(), std::ranges::max_element(numeralLengthsSpan.subspan(0, 3)));

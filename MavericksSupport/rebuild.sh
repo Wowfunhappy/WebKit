@@ -42,8 +42,15 @@ if bash "$ROOT/MavericksSupport/polyfill/scripts/build-polyfill.sh" > /tmp/wk_po
         echo "###   polyfill unchanged"
     fi
 else
-    echo "### POLYFILL BUILD FAILED (see /tmp/wk_polyfill.log) — frameworks may link a STALE polyfill"
-    tail -8 /tmp/wk_polyfill.log
+    # ABORT: do NOT fall through to ninja. A failed polyfill build leaves libpolyfill_classes.a stale, so
+    # any call site just reverted to a pristine post-10.9 selector (whose wk_ polyfill + __wk_selmap entry
+    # exist ONLY in the new archive) would link against the old archive and crash on the un-rewritten public
+    # selector at runtime — a silently-broken install. Fail loudly instead.
+    echo "==================== POLYFILL BUILD FAILED — ABORTING (would link a STALE polyfill) ===================="
+    echo "### see /tmp/wk_polyfill.log:"
+    grep -nE "error:|warning:.*wk_|undefined" /tmp/wk_polyfill.log | head -20
+    tail -20 /tmp/wk_polyfill.log
+    exit 1
 fi
 
 cd "$BUILD"

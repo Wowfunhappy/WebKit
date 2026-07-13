@@ -100,18 +100,7 @@ static WebWheelEvent::Phase momentumPhaseForEvent(NSEvent *event)
 
 static int typeForEvent(NSEvent *event)
 {
-    // MAVERICKS_BACKPORT: +[NSMenu menuTypeForEvent:] was added in 10.10. On 10.9 it throws
-    // unrecognized selector. Guard with respondsToSelector and fall back to checking the
-    // event type directly (right-click → context menu, otherwise none).
-    static BOOL menuRespondsToTypeForEvent = [NSMenu respondsToSelector:@selector(menuTypeForEvent:)];
-    if (menuRespondsToTypeForEvent)
-        return static_cast<int>([NSMenu menuTypeForEvent:event]);
-    if ([event type] == NSEventTypeRightMouseDown || [event type] == NSEventTypeRightMouseUp)
-        return 1; // NSMenuTypeContextMenu
-    if (([event type] == NSEventTypeLeftMouseDown || [event type] == NSEventTypeLeftMouseUp)
-        && ([event modifierFlags] & NSEventModifierFlagControl))
-        return 1; // Control-click also opens context menu
-    return 0; // NSMenuTypeNone
+    return static_cast<int>([NSMenu menuTypeForEvent:event]);
 }
 
 bool WebEventFactory::shouldBeHandledAsContextClick(const WebCore::PlatformMouseEvent& event)
