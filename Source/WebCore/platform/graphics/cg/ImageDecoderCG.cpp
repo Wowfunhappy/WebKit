@@ -76,17 +76,22 @@ constexpr float panoramicImageAspectRatioThreshold = 2.0;
 static RetainPtr<CFMutableDictionaryRef> createImageSourceOptions()
 {
     RetainPtr<CFMutableDictionaryRef> options = adoptCF(CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
-    // MAVERICKS_BACKPORT: kCGImageSourceShouldCache / kCGImageSourceSkipMetadata /
-    // kCGImageSourceUseHardwareAcceleration / etc. are stubbed in libpolyfill.a
-    // with `xorl %eax,%eax; ret`, which leaves the returned CFStringRef key
-    // with a corrupted class pointer. Passing those into CFDictionarySetValue
-    // triggers __forwarding__ → getAtomTarget SIGTRAP. Use literal CFSTR()
-    // keys whose contents match the real ImageIO constants (CG looks up
-    // options by string value, not pointer identity).
-    // MAVERICKS_BACKPORT: literal CFSTR() keys instead of the libpolyfill-stubbed kCGImageSource* constants (see above).
-    CFDictionarySetValue(options.get(), CFSTR("kCGImageSourceShouldCache"), kCFBooleanTrue);
-    CFDictionarySetValue(options.get(), CFSTR("kCGImageSourceShouldPreferRGB32"), kCFBooleanTrue);
-    CFDictionarySetValue(options.get(), CFSTR("kCGImageSourceSkipMetadata"), kCFBooleanTrue);
+    CFDictionarySetValue(options.get(), kCGImageSourceShouldCache, kCFBooleanTrue);
+    CFDictionarySetValue(options.get(), kCGImageSourceShouldPreferRGB32, kCFBooleanTrue);
+    CFDictionarySetValue(options.get(), kCGImageSourceSkipMetadata, kCFBooleanTrue);
+
+    if (ProcessCapabilities::isHardwareAcceleratedDecodingDisabled())
+        CFDictionarySetValue(options.get(), kCGImageSourceUseHardwareAcceleration, kCFBooleanFalse);
+
+#if HAVE(IMAGE_RESTRICTED_DECODING) && USE(APPLE_INTERNAL_SDK)
+    if (ProcessCapabilities::isHEICDecodingEnabled() || ProcessCapabilities::isAVIFDecodingEnabled())
+        CFDictionarySetValue(options.get(), kCGImageSourceEnableRestrictedDecoding, kCFBooleanTrue);
+#endif
+
+#if HAVE(IMAGEIO_CREATE_UNPREMULTIPLIED_PNG)
+    CFDictionarySetValue(options.get(), kCGImageSourceCreateUnpremultipliedPNG, kCFBooleanTrue);
+#endif
+
     return options;
 }
 

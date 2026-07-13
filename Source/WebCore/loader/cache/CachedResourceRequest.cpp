@@ -174,10 +174,9 @@ static String acceptHeaderValueForImageResource(bool usingSecureProtocol)
 #endif
 
     StringBuilder builder;
-    // MAVERICKS_BACKPORT: braces on both arms of this if/else are a 10.9-build formatting divergence; behavior is unchanged.
-    if (limitToLockdownModeSet) {
+    if (limitToLockdownModeSet)
         builder.append("image/webp,"_s);
-    } else {
+    else {
         builder.append(staticPrefix.get());
         appendAdditionalSupportedImageMIMETypes(builder);
     }

@@ -62,8 +62,9 @@ AudioSampleDataSource::AudioSampleDataSource(size_t maximumSampleCount, LoggerHe
 #endif
 }
 
-// MAVERICKS_BACKPORT: defaulted destructor (restored-from-stub implementation; trivial divergence).
-AudioSampleDataSource::~AudioSampleDataSource() = default;
+AudioSampleDataSource::~AudioSampleDataSource()
+{
+}
 
 OSStatus AudioSampleDataSource::setupConverter()
 {

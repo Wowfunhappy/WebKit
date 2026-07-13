@@ -814,10 +814,7 @@ void Font::determinePitch()
     auto familyName = adoptCF(CTFontCopyFamilyName(ctFont.get()));
 
     int fixedPitch = extractNumber(adoptCF(static_cast<CFNumberRef>(CTFontCopyAttribute(ctFont.get(), kCTFontFixedAdvanceAttribute))).get());
-    // MAVERICKS_BACKPORT: kCTFontUserInstalledAttribute (CTFontCopyAttribute) is stubbed in
-    // libpolyfill.a and returns garbage on 10.9; treat every font as not user-installed (the only
-    // use below restricts a fixed-pitch fast path, which is safe to leave on for system fonts).
-    bool userInstalled = false;
+    bool userInstalled = extractBoolean(adoptCF(static_cast<CFBooleanRef>(CTFontCopyAttribute(ctFont.get(), kCTFontUserInstalledAttribute))).get());
     m_treatAsFixedPitch = (CTFontGetSymbolicTraits(ctFont.get()) & kCTFontMonoSpaceTrait) || fixedPitch || (caseInsensitiveCompare(fullName.get(), CFSTR("Osaka-Mono")) || caseInsensitiveCompare(fullName.get(), CFSTR("MS-PGothic")) || caseInsensitiveCompare(fullName.get(), CFSTR("MonotypeCorsiva")));
     if (familyName && caseInsensitiveCompare(familyName.get(), CFSTR("Courier New"))) {
 #if PLATFORM(IOS_FAMILY)

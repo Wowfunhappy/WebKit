@@ -33,11 +33,7 @@
 #define CocoaEdgeInsetsEqual UIEdgeInsetsEqualToEdgeInsets
 #else
 #define CocoaEdgeInsets NSEdgeInsets
-// MAVERICKS_BACKPORT: NSEdgeInsetsEqual() is 10.10+ and absent on 10.9; provide an inline field-wise equality polyfill.
-static inline bool _NSEdgeInsetsEqual(NSEdgeInsets a, NSEdgeInsets b) {
-    return a.top == b.top && a.left == b.left && a.bottom == b.bottom && a.right == b.right;
-}
-#define CocoaEdgeInsetsEqual _NSEdgeInsetsEqual
+#define CocoaEdgeInsetsEqual NSEdgeInsetsEqual
 #endif
 
 @implementation WKScrollGeometry

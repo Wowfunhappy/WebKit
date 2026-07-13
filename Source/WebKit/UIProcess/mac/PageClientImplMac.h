@@ -65,7 +65,7 @@ public:
     virtual ~PageClientImpl();
 
     // FIXME: Eventually WebViewImpl should become the PageClient.
-    void setImpl(WebViewImpl&); // MAVERICKS_BACKPORT: no NODELETE attribute on this port.
+    void NODELETE setImpl(WebViewImpl&);
 
     void viewWillMoveToAnotherWindow();
 

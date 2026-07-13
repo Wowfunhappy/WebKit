@@ -180,8 +180,6 @@ if (ATOMICS_REQUIRE_LIBATOMIC)
     list(APPEND JavaScriptCore_LIBRARIES atomic)
 endif ()
 
-# MAVERICKS_BACKPORT: incidental blank-line divergence from upstream (no functional change).
-
 set(JavaScriptCore_SCRIPTS_SOURCES_DIR "${JAVASCRIPTCORE_DIR}/Scripts")
 
 # Globbing relies on the fact that generator-specific file names are prefixed with their directory.

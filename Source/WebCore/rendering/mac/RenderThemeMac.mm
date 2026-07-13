@@ -798,8 +798,7 @@ bool RenderThemeMac::isControlStyled(const RenderStyle& style) const
     return RenderTheme::isControlStyled(style);
 }
 
-// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
-static FloatRect inflateRect(const FloatRect& rect, const IntSize& size, std::span<const int, 4> margins, float zoomLevel)
+static FloatRect NODELETE inflateRect(const FloatRect& rect, const IntSize& size, std::span<const int, 4> margins, float zoomLevel)
 {
     // Only do the inflation if the available width/height are too small. Otherwise try to
     // fit the glow/check space into the available box's width/height.
@@ -870,8 +869,7 @@ static Style::PreferredSizePair sizeFromFont(const FontCascade& font, const Styl
 
 // Popup button
 
-// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
-static std::span<const int, 4> popupButtonMargins(NSControlSize size)
+static std::span<const int, 4> NODELETE popupButtonMargins(NSControlSize size)
 {
     static constexpr std::array margins {
         std::array { 0, 3, 1, 3 },
@@ -882,8 +880,7 @@ static std::span<const int, 4> popupButtonMargins(NSControlSize size)
     return margins[size];
 }
 
-// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
-static std::span<const IntSize, 4> popupButtonSizes()
+static std::span<const IntSize, 4> NODELETE popupButtonSizes()
 {
     static constexpr std::array sizes {
         IntSize { 0, 21 },
@@ -894,8 +891,7 @@ static std::span<const IntSize, 4> popupButtonSizes()
     return sizes;
 }
 
-// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
-static std::span<const int, 4> popupButtonPadding(NSControlSize size, bool isRTL)
+static std::span<const int, 4> NODELETE popupButtonPadding(NSControlSize size, bool isRTL)
 {
     static constexpr std::array paddingLTR {
         std::array { 2, 26, 3, 8 },
@@ -914,8 +910,7 @@ static std::span<const int, 4> popupButtonPadding(NSControlSize size, bool isRTL
 
 // Checkboxes and radio buttons
 
-// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
-static const std::span<const IntSize, 4> checkboxSizes()
+static const std::span<const IntSize, 4> NODELETE checkboxSizes()
 {
     static constexpr std::array sizes = {
         IntSize { 14, 14 },
@@ -926,8 +921,7 @@ static const std::span<const IntSize, 4> checkboxSizes()
     return sizes;
 }
 
-// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
-static std::span<const int, 4> checkboxMargins(NSControlSize controlSize)
+static std::span<const int, 4> NODELETE checkboxMargins(NSControlSize controlSize)
 {
     static constexpr std::array margins {
         // top right bottom left
@@ -960,8 +954,7 @@ static const std::span<const IntSize, 4> radioSizes()
     return sizes;
 }
 
-// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
-static std::span<const int, 4> radioMargins(NSControlSize controlSize)
+static std::span<const int, 4> NODELETE radioMargins(NSControlSize controlSize)
 {
     static constexpr std::array margins {
         // top right bottom left
@@ -985,8 +978,7 @@ static Style::PreferredSizePair radioSize(const Style::PreferredSizePair& zoomed
 // Buttons
 
 // Buttons really only constrain height. They respect width.
-// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
-static const std::span<const IntSize, 4> buttonSizes()
+static const std::span<const IntSize, 4> NODELETE buttonSizes()
 {
     static constexpr std::array sizes = {
         IntSize { 0, 20 },
@@ -997,8 +989,7 @@ static const std::span<const IntSize, 4> buttonSizes()
     return sizes;
 }
 
-// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
-static std::span<const int, 4> buttonMargins(NSControlSize controlSize)
+static std::span<const int, 4> NODELETE buttonMargins(NSControlSize controlSize)
 {
     // FIXME: These values may need to be reevaluated. They appear to have been originally chosen
     // to reflect the size of shadows around native form controls on macOS, but as of macOS 10.15,
@@ -1014,8 +1005,7 @@ static std::span<const int, 4> buttonMargins(NSControlSize controlSize)
 
 // Stepper
 
-// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
-static const std::span<const IntSize, 4> stepperSizes()
+static const std::span<const IntSize, 4> NODELETE stepperSizes()
 {
     static constexpr std::array sizes = {
         IntSize { 19, 27 },
@@ -1042,8 +1032,7 @@ static NSControlSize stepperControlSizeForFont(const FontCascade& font)
 
 // Switch
 
-// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
-static const std::span<const IntSize, 4> switchSizes()
+static const std::span<const IntSize, 4> NODELETE switchSizes()
 {
     static constexpr std::array sizes = {
         IntSize { 38, 22 },
@@ -1054,8 +1043,7 @@ static const std::span<const IntSize, 4> switchSizes()
     return sizes;
 }
 
-// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
-static std::span<const int, 4> visualSwitchMargins(NSControlSize controlSize, bool isVertical)
+static std::span<const int, 4> NODELETE visualSwitchMargins(NSControlSize controlSize, bool isVertical)
 {
     static constexpr std::array switchMarginsNonMini { 2, 2, 1, 2 };
     static constexpr std::array switchMarginsMini { 1, 1, 0, 1 };
@@ -1342,8 +1330,7 @@ const int styledPopupPaddingLeft = 8;
 const int styledPopupPaddingTop = 1;
 const int styledPopupPaddingBottom = 2;
 
-// MAVERICKS_BACKPORT: NODELETE attribute dropped (this build's clang rejects the webkit.nodelete annotate_type).
-static std::span<const IntSize, 4> menuListButtonSizes()
+static std::span<const IntSize, 4> NODELETE menuListButtonSizes()
 {
     static constexpr std::array sizes { IntSize(0, 21), IntSize(0, 18), IntSize(0, 15), IntSize(0, 28) };
     return sizes;
