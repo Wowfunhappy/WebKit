@@ -280,13 +280,6 @@
 #import <pal/spi/mac/NSViewSPI.h>
 #endif
 
-// MAVERICKS_BACKPORT: NSEdgeInsetsEqual is a 10.10 Foundation function; provide an inline definition so the macOS 10.9 build links.
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101000
-static inline BOOL NSEdgeInsetsEqual(NSEdgeInsets a, NSEdgeInsets b) {
-    return a.top == b.top && a.left == b.left && a.bottom == b.bottom && a.right == b.right;
-}
-#endif
-
 #import "WebKitSwiftSoftLink.h"
 
 #if PLATFORM(WATCHOS)

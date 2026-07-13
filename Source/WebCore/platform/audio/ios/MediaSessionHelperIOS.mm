@@ -489,8 +489,7 @@ void MediaSessionHelperIOS::externalOutputDeviceAvailableDidChange()
             BEGIN_BLOCK_OBJC_EXCEPTIONS
             _routeDetector = adoptNS([PAL::allocAVRouteDetectorInstance() init]);
             [_routeDetector setRouteDetectionEnabled:_monitoringAirPlayRoutes];
-            // MAVERICKS_BACKPORT: reference the AVFoundation notification constant by bare name (no PAL:: soft-link wrapper); links directly here.
-            [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(wirelessRoutesAvailableDidChange:) name:AVRouteDetectorMultipleRoutesDetectedDidChangeNotification object:_routeDetector.get()];
+            [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(wirelessRoutesAvailableDidChange:) name:PAL::AVRouteDetectorMultipleRoutesDetectedDidChangeNotification object:_routeDetector.get()];
 
             callback->externalOutputDeviceAvailableDidChange();
             END_BLOCK_OBJC_EXCEPTIONS

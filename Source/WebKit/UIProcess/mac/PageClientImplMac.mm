@@ -752,8 +752,7 @@ String PageClientImpl::dismissCorrectionPanelSoon(WebCore::ReasonForDismissingAl
 #endif
 }
 
-// MAVERICKS_BACKPORT: drop the NODELETE attribute macro (unavailable here); plain static inline.
-static inline NSCorrectionResponse toCorrectionResponse(AutocorrectionResponse response)
+static inline NSCorrectionResponse NODELETE toCorrectionResponse(AutocorrectionResponse response)
 {
     switch (response) {
     case WebCore::AutocorrectionResponse::Reverted:
