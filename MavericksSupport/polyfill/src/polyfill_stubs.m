@@ -487,6 +487,19 @@ const float NSURLSessionTaskPriorityDefault = 0.5f;
 const float NSURLSessionTaskPriorityLow = 0.0f;
 const float NSURLSessionTaskPriorityHigh = 1.0f;
 
+// --- NSViewNoIntrinsicMetric (correct spelling, macos(10.11)) ------------
+// AppKit ships two symbols: NSViewNoInstrinsicMetric (the historical typo,
+// macos(10.7) — PRESENT on 10.9, so we must NOT shadow it) and the
+// correctly-spelled NSViewNoIntrinsicMetric (macos(10.11) — ABSENT on 10.9,
+// value -1). WebKit references the correct-spelling symbol directly in
+// several places (WKView, WebViewImpl, _WKWarningView's intrinsicContentSize).
+// Against the 26.1 SDK that is a weak DATA import: on 10.9 the symbol's
+// ADDRESS resolves to NULL, so reading the const dereferences NULL and
+// crashes (EXC_BAD_ACCESS) — not merely a wrong value. Defining it here
+// (pulled into every framework alongside the other stubs) satisfies the
+// reference with the correct -1.
+const CGFloat NSViewNoIntrinsicMetric = -1;
+
 // --- NSEdgeInsetsEqual (10.10+) ------------------------------------------
 // WebKit has an undefined ref, so the SDK exposes it as an extern function
 // (not static inline) — define the real symbol with the SDK signature.

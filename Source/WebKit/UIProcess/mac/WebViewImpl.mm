@@ -126,9 +126,6 @@
 #import <WebCore/NowPlayingInfo.h>
 #import <WebCore/Pasteboard.h>
 // #import <WebCore/PlatformDynamicRangeLimitCocoa.h>  // MAVERICKS_BACKPORT: not in PrivateHeaders
-#ifndef NSViewNoIntrinsicMetric
-#define NSViewNoIntrinsicMetric NSViewNoInstrinsicMetric
-#endif
 // MAVERICKS_BACKPORT: NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification is macOS 10.10+;
 // it is weak-imported and null at runtime on 10.9. The 26.1 SDK declares it as an extern, so the
 // fallback value lives under a WebKit-local name — passing the SDK symbol (nil on 10.9) as the
