@@ -128,12 +128,6 @@ bool WebEditorClient::canApplyCaseTransformations(const String& selection)
 bool WebEditorClient::canConvertToTraditionalChinese(const String& selection)
 {
     RetainPtr untransformed = selection.createNSString();
-    // MAVERICKS_BACKPORT: -[NSString stringByApplyingTransform:reverse:] is 10.11+. Without it the
-    // Simplified/Traditional Chinese context-menu conversion is unavailable — report false rather
-    // than crash with an unrecognized selector (this is invoked while building the menu for EVERY
-    // right-click on an editable field).
-    if (![untransformed respondsToSelector:@selector(stringByApplyingTransform:reverse:)])
-        return false;
     RetainPtr transformed = [untransformed stringByApplyingTransform:@"Hans-Hant" reverse:NO];
     if ([transformed isEqualToString:untransformed.get()])
         return false;
@@ -144,9 +138,6 @@ bool WebEditorClient::canConvertToTraditionalChinese(const String& selection)
 bool WebEditorClient::canConvertToSimplifiedChinese(const String& selection)
 {
     RetainPtr untransformed = selection.createNSString();
-    // MAVERICKS_BACKPORT: -[NSString stringByApplyingTransform:reverse:] is 10.11+; report the conversion unavailable rather than crash on an unrecognized selector while building the context menu.
-    if (![untransformed respondsToSelector:@selector(stringByApplyingTransform:reverse:)])
-        return false;
     RetainPtr transformed = [untransformed stringByApplyingTransform:@"Hant-Hans" reverse:NO];
     if ([transformed isEqualToString:untransformed.get()])
         return false;
@@ -159,10 +150,7 @@ void WebEditorClient::convertToTraditionalChinese()
     RefPtr page = m_page.get();
     if (!page)
         return;
-    // MAVERICKS_BACKPORT: -[NSString stringByApplyingTransform:reverse:] is 10.11+; pass the string through unchanged when absent rather than crash on an unrecognized selector.
-    applyTextTransformation(*page, [] (NSString *string) -> NSString * {
-        if (![string respondsToSelector:@selector(stringByApplyingTransform:reverse:)])
-            return string;
+    applyTextTransformation(*page, [] (NSString *string) {
         return [string stringByApplyingTransform:@"Hans-Hant" reverse:NO];
     });
 }
@@ -172,10 +160,7 @@ void WebEditorClient::convertToSimplifiedChinese()
     RefPtr page = m_page.get();
     if (!page)
         return;
-    // MAVERICKS_BACKPORT: -[NSString stringByApplyingTransform:reverse:] is 10.11+; pass the string through unchanged when absent rather than crash on an unrecognized selector.
-    applyTextTransformation(*page, [] (NSString *string) -> NSString * {
-        if (![string respondsToSelector:@selector(stringByApplyingTransform:reverse:)])
-            return string;
+    applyTextTransformation(*page, [] (NSString *string) {
         return [string stringByApplyingTransform:@"Hant-Hans" reverse:NO];
     });
 }

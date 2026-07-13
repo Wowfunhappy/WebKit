@@ -342,4 +342,24 @@ WK_POLYFILL_SEL("_setAccentColor:", "wk__setAccentColor:");
 WK_POLYFILL_SEL("setTitlebarAppearsTransparent:", "wk_setTitlebarAppearsTransparent:");
 WK_POLYFILL_SEL("setTitleVisibility:", "wk_setTitleVisibility:");
 
+// ---------------------------------------------------------------------------------------------------
+// -[NSString stringByApplyingTransform:reverse:] (10.11+) via CFStringTransform (10.4+), which accepts
+// the same ICU transform IDs (e.g. @"Hans-Hant"). Returns the transformed string, or nil if the
+// transform fails — matching the modern method's contract. (Verified CFStringTransform(@"Hans-Hant")
+// works on 10.9.)
+@interface NSString (WKPolyfillScopeTransform)
+- (NSString *)wk_stringByApplyingTransform:(NSString *)transform reverse:(BOOL)reverse;
+@end
+@implementation NSString (WKPolyfillScopeTransform)
+- (NSString *)wk_stringByApplyingTransform:(NSString *)transform reverse:(BOOL)reverse
+{
+    NSMutableString *result = [[self mutableCopy] autorelease];
+    CFRange range = CFRangeMake(0, result.length);
+    if (CFStringTransform((CFMutableStringRef)result, &range, (CFStringRef)transform, reverse))
+        return result;
+    return nil;
+}
+@end
+WK_POLYFILL_SEL("stringByApplyingTransform:reverse:", "wk_stringByApplyingTransform:reverse:");
+
 #pragma clang diagnostic pop
