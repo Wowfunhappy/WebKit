@@ -126,13 +126,7 @@ using namespace WebCore;
 
     NSRect windowFrame;
     NSPoint wordStart = topLeft;
-    // MAVERICKS_BACKPORT: -[NSWindow convertPointToScreen:] is 10.12+; on 10.9 convert a zero-size rect
-    // via -convertRectToScreen: (available since 10.7) and take its origin instead.
-    {
-        NSPoint pt = [_htmlView convertPoint:wordStart toView:nil];
-        NSRect r = [[_view window] convertRectToScreen:NSMakeRect(pt.x, pt.y, 0, 0)];
-        windowFrame.origin = r.origin;
-    }
+    windowFrame.origin = [[_view window] convertPointToScreen:[_htmlView convertPoint:wordStart toView:nil]];
     windowFrame.size.height = numberToShow * [_tableView rowHeight] + (numberToShow + 1) * [_tableView intercellSpacing].height;
     windowFrame.origin.y -= windowFrame.size.height;
     NSDictionary *attributes = @{ NSFontAttributeName: [NSFont systemFontOfSize:12.0f] };

@@ -180,10 +180,16 @@ WK_POLYFILL_SEL("stage", "wk_stage");
 // NSWindow -performWindowDragWithEvent: (10.11+). 10.9 has no native window drag from web content, so
 // WebViewImpl::startWindowDrag() (Web Inspector unified toolbar, -webkit-app-region:drag) never moved
 // the window. Provide the classic pre-10.11 manual drag loop: follow the mouse until mouse-up.
+// -[NSWindow convertPointToScreen:] / -convertPointFromScreen: (10.12+) are the point-based renames of
+// the classic -convertBaseToScreen: / -convertScreenToBase: (present, deprecated, on 10.9).
 @interface NSWindow (WKPolyfillScope)
+- (NSPoint)wk_convertPointToScreen:(NSPoint)point;
+- (NSPoint)wk_convertPointFromScreen:(NSPoint)point;
 - (void)wk_performWindowDragWithEvent:(NSEvent *)event;
 @end
 @implementation NSWindow (WKPolyfillScope)
+- (NSPoint)wk_convertPointToScreen:(NSPoint)point { return [self convertBaseToScreen:point]; }
+- (NSPoint)wk_convertPointFromScreen:(NSPoint)point { return [self convertScreenToBase:point]; }
 - (void)wk_performWindowDragWithEvent:(NSEvent *)event
 {
     (void)event;
@@ -205,6 +211,8 @@ WK_POLYFILL_SEL("stage", "wk_stage");
 }
 @end
 WK_POLYFILL_SEL("performWindowDragWithEvent:", "wk_performWindowDragWithEvent:");
+WK_POLYFILL_SEL("convertPointToScreen:", "wk_convertPointToScreen:");
+WK_POLYFILL_SEL("convertPointFromScreen:", "wk_convertPointFromScreen:");
 
 // ---------------------------------------------------------------------------------------------------
 // NSURL -_lp_simplifiedDisplayString (LinkPresentation, 10.15+). LinkPresentation is absent on 10.9, so

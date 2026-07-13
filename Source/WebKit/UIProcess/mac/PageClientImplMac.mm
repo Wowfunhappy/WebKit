@@ -493,31 +493,22 @@ void PageClientImpl::drawPageBorderForPrinting(WebCore::FloatSize&& size)
 IntPoint PageClientImpl::screenToRootView(const IntPoint& point)
 {
     RetainPtr view = m_view.get();
-    // MAVERICKS_BACKPORT: use -[NSWindow convertScreenToBase:] (convertPointFromScreen: is 10.12+), guarded for a nil window.
-    RetainPtr<NSWindow> window = [view window];
-    NSPoint windowCoord = window ? [window.get() convertScreenToBase:NSMakePoint(point.x(), point.y())] : NSMakePoint(point.x(), point.y());
+    NSPoint windowCoord = [retainPtr([view window]) convertPointFromScreen:point];
     return IntPoint([view convertPoint:windowCoord fromView:nil]);
 }
 
 IntPoint PageClientImpl::rootViewToScreen(const IntPoint& point)
 {
     RetainPtr view = m_view.get();
-    // MAVERICKS_BACKPORT: use -[NSWindow convertBaseToScreen:] (convertPointToScreen: is 10.12+), guarded for a nil window.
-    RetainPtr<NSWindow> window = [view window];
-    NSPoint viewPoint = [view convertPoint:NSMakePoint(point.x(), point.y()) toView:nil];
-    NSPoint screenPoint = window ? [window.get() convertBaseToScreen:viewPoint] : viewPoint;
-    return IntPoint(screenPoint);
+    return IntPoint([retainPtr([view window]) convertPointToScreen:[view convertPoint:point toView:nil]]);
 }
 
 IntRect PageClientImpl::rootViewToScreen(const IntRect& rect)
 {
     NSRect tempRect = rect;
     RetainPtr view = m_view.get();
-    // MAVERICKS_BACKPORT: use -[NSWindow convertBaseToScreen:] (convertPointToScreen: is 10.12+), guarded for a nil window.
-    RetainPtr<NSWindow> window = [view window];
     tempRect = [view convertRect:tempRect toView:nil];
-    if (window)
-        tempRect.origin = [window.get() convertBaseToScreen:tempRect.origin];
+    tempRect.origin = [retainPtr([view window]) convertPointToScreen:tempRect.origin];
     return enclosingIntRect(tempRect);
 }
 

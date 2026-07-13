@@ -4435,9 +4435,7 @@ void WebViewImpl::draggedImage(NSImage *, CGPoint endPoint, NSDragOperation oper
 
 void WebViewImpl::sendDragEndToPage(CGPoint endPoint, NSDragOperation dragOperationMask)
 {
-    // MAVERICKS_BACKPORT: -[NSWindow convertPointFromScreen:] is 10.12+; convert via the classic convertScreenToBase: (window-guarded) on 10.9.
-    RetainPtr<NSWindow> win = protect(window());
-    NSPoint windowImageLoc = win ? [win.get() convertScreenToBase:NSPointFromCGPoint(endPoint)] : NSPointFromCGPoint(endPoint);
+    NSPoint windowImageLoc = [protect(window()) convertPointFromScreen:NSPointFromCGPoint(endPoint)];
     NSPoint windowMouseLoc = windowImageLoc;
 
     // Prevent queued mouseDragged events from coming after the drag and fake mouseUp event.
@@ -4979,9 +4977,7 @@ void WebViewImpl::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory pasteAcc
     [pasteMenuItem setTarget:m_domPasteMenuDelegate.get()];
 
     RetainPtr window = [m_view.get() window];
-    // MAVERICKS_BACKPORT: -[NSWindow convertPointFromScreen:] is 10.12+; convert via the classic convertScreenToBase: on 10.9.
-    NSPoint loc = window ? [window.get() convertScreenToBase:[NSEvent mouseLocation]] : [NSEvent mouseLocation];
-    RetainPtr event = m_page->createSyntheticEventForContextMenu(WebCore::FloatPoint(loc.x, loc.y));
+    RetainPtr event = m_page->createSyntheticEventForContextMenu([window convertPointFromScreen:NSEvent.mouseLocation]);
     [NSMenu popUpContextMenu:m_domPasteMenu.get() withEvent:event.get() forView:retainPtr(window.get().contentView).get()];
 }
 
@@ -5716,10 +5712,9 @@ void WebViewImpl::characterIndexForPoint(NSPoint point, void(^completionHandler)
 {
     LOG(TextInput, "characterIndexForPoint:(%f, %f)", point.x, point.y);
 
-    // MAVERICKS_BACKPORT: -[NSWindow convertPointFromScreen:] is 10.12+; use the classic convertScreenToBase: on 10.9.
-    RetainPtr<NSWindow> window = [m_view.get() window];
+    RetainPtr window = [m_view.get() window];
     if (window)
-        point = [window.get() convertScreenToBase:point];
+        point = [window convertPointFromScreen:point];
     point = [m_view.get() convertPoint:point fromView:nil]; // the point is relative to the main frame
 
     m_page->characterIndexForPointAsync(WebCore::IntPoint(point), [completionHandler = makeBlockPtr(completionHandler)](uint64_t result) {
