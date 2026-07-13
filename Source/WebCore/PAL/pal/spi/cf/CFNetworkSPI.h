@@ -139,14 +139,6 @@ typedef enum {
 } tls_protocol_version_t;
 #endif
 
-// MAVERICKS_BACKPORT: NSURLSessionTaskPriority* float constants are 10.10+. Used as plain
-// float values (set via KVC), so the documented defaults are runtime-equivalent.
-#if !HAVE(NSURLSESSION_TASK_PRIORITY)
-#define NSURLSessionTaskPriorityDefault 0.5f
-#define NSURLSessionTaskPriorityLow 0.0f
-#define NSURLSessionTaskPriorityHigh 1.0f
-#endif
-
 #if HAVE(NW_PROXY_CONFIG) || HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
 typedef void (^nw_context_tracker_lookup_callback_t)(nw_endpoint_t endpoint, const char **tracker_name, const char **tracker_owner, bool *can_block);
 
