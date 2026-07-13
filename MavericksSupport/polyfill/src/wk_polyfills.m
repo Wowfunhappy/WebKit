@@ -52,6 +52,7 @@ WK_POLYFILL_SEL("graphicsContextWithCGContext:flipped:", "wk_graphicsContextWith
 + (NSColor *)wk_quaternaryLabelColor; + (NSColor *)wk_quinaryLabelColor; + (NSColor *)wk_placeholderTextColor;
 + (NSColor *)wk_selectedContentBackgroundColor; + (NSColor *)wk_unemphasizedSelectedTextColor;
 + (NSColor *)wk_unemphasizedSelectedContentBackgroundColor; + (NSColor *)wk_unemphasizedSelectedTextBackgroundColor;
++ (NSColor *)wk_selectedTextBackgroundColor;
 + (NSColor *)wk_controlAccentColor; + (NSColor *)wk_separatorColor; + (NSColor *)wk_containerBorderColor;
 + (NSColor *)wk_findHighlightColor;
 + (NSColor *)wk_systemBlueColor; + (NSColor *)wk_systemBrownColor; + (NSColor *)wk_systemGrayColor;
@@ -69,11 +70,12 @@ WK_POLYFILL_SEL("graphicsContextWithCGContext:flipped:", "wk_graphicsContextWith
 + (NSColor *)wk_selectedContentBackgroundColor          { return [NSColor alternateSelectedControlColor]; }
 + (NSColor *)wk_unemphasizedSelectedTextColor           { return [NSColor textColor]; }
 + (NSColor *)wk_unemphasizedSelectedContentBackgroundColor { return [NSColor secondarySelectedControlColor]; }
-+ (NSColor *)wk_unemphasizedSelectedTextBackgroundColor { return [NSColor secondarySelectedControlColor]; }
++ (NSColor *)wk_selectedTextBackgroundColor            { return SRGB(166, 207, 252, 255); } // 10.9 active text-selection (see note)
++ (NSColor *)wk_unemphasizedSelectedTextBackgroundColor { return SRGB(220, 220, 220, 255); }
 + (NSColor *)wk_controlAccentColor                      { return [NSColor alternateSelectedControlColor]; } // 10.9 system blue
 + (NSColor *)wk_separatorColor                          { return [NSColor gridColor]; }
 + (NSColor *)wk_containerBorderColor                    { return [NSColor gridColor]; }
-+ (NSColor *)wk_findHighlightColor                      { return [NSColor yellowColor]; }
++ (NSColor *)wk_findHighlightColor                      { return SRGB(255, 237, 102, 255); } // real find-highlight yellow
 + (NSColor *)wk_systemBlueColor   { return SRGB(0, 122, 255, 255); }
 + (NSColor *)wk_systemBrownColor  { return SRGB(162, 132, 94, 255); }
 + (NSColor *)wk_systemGrayColor   { return SRGB(142, 142, 147, 255); }
@@ -97,6 +99,11 @@ WK_POLYFILL_SEL("selectedContentBackgroundColor", "wk_selectedContentBackgroundC
 WK_POLYFILL_SEL("unemphasizedSelectedTextColor", "wk_unemphasizedSelectedTextColor");
 WK_POLYFILL_SEL("unemphasizedSelectedContentBackgroundColor", "wk_unemphasizedSelectedContentBackgroundColor");
 WK_POLYFILL_SEL("unemphasizedSelectedTextBackgroundColor", "wk_unemphasizedSelectedTextBackgroundColor");
+// selectedTextBackgroundColor EXISTS on 10.9, but WebKit's colorFromCocoaColor() conversion of it (and the
+// other selection/highlight catalog colors) yields BLACK on 10.9 (a colorspace-conversion gap). Returning
+// an explicit sRGB color converts cleanly — so these behavior overrides are given fixed sRGB values that
+// match the classic OS X 10.9 selection palette, letting RenderThemeMac revert to its pristine calls.
+WK_POLYFILL_SEL("selectedTextBackgroundColor", "wk_selectedTextBackgroundColor");
 WK_POLYFILL_SEL("controlAccentColor", "wk_controlAccentColor");
 WK_POLYFILL_SEL("separatorColor", "wk_separatorColor");
 WK_POLYFILL_SEL("containerBorderColor", "wk_containerBorderColor");
