@@ -356,10 +356,11 @@ void TiledCoreAnimationDrawingArea::addCommitHandlers()
     if (m_haveRegisteredHandlersForNextCommit)
         return;
 
-    // MAVERICKS_BACKPORT: +[CATransaction addCommitHandler:forPhase:] is 10.10+.
-    // Skip registration entirely; the runloop observers in updateRendering
-    // still drive the rendering cycle. willStart/didComplete callbacks won't
-    // fire from CA's perspective.
+    // MAVERICKS_BACKPORT: addCommitHandler:forPhase: resolves in WebKit images (the libpolyfill
+    // wk_ category), but the polyfill brackets the RUN-LOOP drain, not a commit — and this
+    // process's rendering commit is the explicit synchronous [CATransaction flush] in
+    // updateRendering(), which the polyfill's observers cannot bracket. Skip registration;
+    // updateRendering() drives willStart/didComplete manually around its flush instead.
     m_haveRegisteredHandlersForNextCommit = true;
 }
 
@@ -462,8 +463,9 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
         invalidateRenderingUpdateRunLoopObserver();
 
         // MAVERICKS_BACKPORT: on 10.10+ addCommitHandlers() registers a kCATransactionPhasePreLayout
-        // handler that drives willStartRenderingUpdateDisplay() when CA starts committing. That API
-        // doesn't exist on 10.9, but the commit below is the synchronous [CATransaction flush], so
+        // handler that drives willStartRenderingUpdateDisplay() when CA starts committing. On 10.9
+        // the polyfilled handler would fire at the run-loop drain, not at the synchronous
+        // [CATransaction flush] below that IS this process's commit, so
         // drive the pre-commit side here. This brackets the commit for
         // PlatformCALayerContentsDelayedReleaser (mainThreadCommitWillStart) — without it,
         // didCompleteRenderingUpdateDisplay() below underflowed the releaser's main-thread commit
@@ -478,9 +480,10 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
 
         // MAVERICKS_BACKPORT: normally +[CATransaction addCommitHandler:forPhase:]
         // hooks the kCATransactionPhasePostCommit phase to drive
-        // didCompleteRenderingUpdateDisplay() once CA has flushed. On 10.9
-        // that API doesn't exist (addCommitHandlers is a no-op in this build),
-        // so the completion never fires — schedulePostRenderingUpdateRunLoopObserver()
+        // didCompleteRenderingUpdateDisplay() once CA has flushed. On 10.9 the
+        // polyfilled handler fires at the run-loop drain, not at the synchronous
+        // [CATransaction flush] above (addCommitHandlers deliberately skips registration),
+        // so without this the completion never fires — schedulePostRenderingUpdateRunLoopObserver()
         // never runs, the WebPage never learns the frame committed, and pages
         // that depend on the post-commit callback chain (notably GitHub and
         // other JS-heavy SPAs that scheduleRenderingUpdate from within React's
@@ -522,8 +525,12 @@ void TiledCoreAnimationDrawingArea::handleActivityStateChangeCallbacksIfNeeded()
     if (!m_shouldHandleActivityStateChangeCallbacks)
         return;
 
-    // MAVERICKS_BACKPORT: +currentState and +addCommitHandler:forPhase: are 10.10+.
-    // Fall back to immediate execution (slightly less precise but works).
+    // MAVERICKS_BACKPORT: +currentState is present on 10.9 and addCommitHandler:forPhase: is
+    // polyfilled, but the polyfilled handler fires at the run-loop drain — after this process's
+    // actual commit (the synchronous [CATransaction flush] in updateRendering), so deferring the
+    // callbacks to it would add a cycle of latency for nothing. Execute immediately instead:
+    // on this code path updateRendering()'s flush runs right after, so "after the commit that
+    // reflects this activity state" is satisfied by the caller's ordering.
     handleActivityStateChangeCallbacks();
 }
 

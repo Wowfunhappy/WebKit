@@ -27,8 +27,6 @@
 #import "WebViewRenderingUpdateScheduler.h"
 
 #import "WebViewInternal.h"
-// MAVERICKS_BACKPORT: shared 10.9-compatible CATransaction commit-phase helper.
-#import <WebCore/CATransactionCommitHandlers.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/TZoneMallocInlines.h>
 
@@ -104,26 +102,14 @@ void WebViewRenderingUpdateScheduler::registerCACommitHandlers()
         return;
 
     RetainPtr webView = m_webView;
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
     [CATransaction addCommitHandler:^{
         [webView.get() _willStartRenderingUpdateDisplay];
     } forPhase:kCATransactionPhasePreLayout];
-MAVERICKS_BACKPORT */
 
-    // MAVERICKS_BACKPORT: +[CATransaction addCommitHandler:forPhase:] is 10.10+. Calling it
-    // unconditionally throws "unrecognized selector sent to class", which aborts this
-    // callback before m_haveRegisteredCommitHandlers is set and — crucially — before the
-    // postCommit handler that drives -_didCompleteRenderingUpdateDisplay is registered. That
-    // wedges the WK1 rendering-update cycle and leaves layer-backed WebViews (e.g. Safari's
-    // Extensions preference pane) blank. WebCore's shared helper registers via the real API
-    // when available and reproduces the two commit phases with run-loop observers on 10.9.
-    WebCore::addCATransactionCommitHandlersForCurrentThread([webView] {
-        [webView.get() _willStartRenderingUpdateDisplay];
-    }, [webView] {
+    [CATransaction addCommitHandler:^{
         [webView.get() _didCompleteRenderingUpdateDisplay];
-        // MAVERICKS_BACKPORT: closes the addCATransactionCommitHandlersForCurrentThread call above (10.9 two-phase commit shim).
-    });
-
+    } forPhase:kCATransactionPhasePostCommit];
+    
     m_haveRegisteredCommitHandlers = true;
 }
 

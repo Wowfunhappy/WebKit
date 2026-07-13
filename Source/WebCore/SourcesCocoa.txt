@@ -441,8 +441,6 @@ platform/graphics/ca/TileController.cpp
 platform/graphics/ca/TileCoverageMap.cpp
 platform/graphics/ca/TileGrid.cpp
 platform/graphics/ca/TransformationMatrixCA.cpp
-// MAVERICKS_BACKPORT: compile CATransactionCommitHandlers.mm — the 10.9 commit-phase helper (+[CATransaction addCommitHandler:forPhase:] is 10.10+).
-platform/graphics/ca/cocoa/CATransactionCommitHandlers.mm @nonARC
 platform/graphics/ca/cocoa/GraphicsLayerAsyncContentsDisplayDelegateCocoa.mm @nonARC
 platform/graphics/ca/cocoa/PlatformCAAnimationCocoa.mm @nonARC
 platform/graphics/ca/cocoa/PlatformCAFiltersCocoa.mm @nonARC

@@ -94,7 +94,14 @@ UniqueRef<GraphicsContext> DrawGlyphsRecorder::createInternalContext()
     CGContextDelegateSetCallback(contextDelegate.get(), deDrawGlyphs, reinterpret_cast<CGContextDelegateCallback>(&WebCore::drawGlyphs));
     CGContextDelegateSetCallback(contextDelegate.get(), deDrawImage, reinterpret_cast<CGContextDelegateCallback>(&drawImage));
     CGContextDelegateSetCallback(contextDelegate.get(), deDrawPath, reinterpret_cast<CGContextDelegateCallback>(&drawPath));
-    CGContextDelegateSetCallback(contextDelegate.get(), deGetColorSpace, reinterpret_cast<CGContextDelegateCallback>(&getColorSpace));
+    // MAVERICKS_BACKPORT: 10.9's private CGContextDelegate only accepts callback names 0-23 (its
+    // get_callback_address abort()s on any higher name). deGetColorSpace=30 postdates 10.9, so
+    // registering it crashes WebContent; skip it on 10.9 (CG then uses the context's default color
+    // space). The other five callbacks (drawPath=6, drawImage=7, drawGlyphs=8, beginLayer=17,
+    // endLayer=18) are all <=23 and valid on 10.9. See [[webkit-mavericks-false-absent-premise-leads]].
+    static const bool delegateSupportsGetColorSpace = deGetColorSpace <= 23;
+    if (delegateSupportsGetColorSpace)
+        CGContextDelegateSetCallback(contextDelegate.get(), deGetColorSpace, reinterpret_cast<CGContextDelegateCallback>(&getColorSpace));
 
     auto contextType = kCGContextTypeUnknown;
     auto context = adoptCF(CGContextCreateWithDelegate(contextDelegate.get(), contextType, nullptr, nullptr));
