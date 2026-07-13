@@ -360,8 +360,7 @@ int64_t PlatformPasteboard::write(const PasteboardCustomData& data, PasteboardDa
         [types addObject:RetainPtr { @(PasteboardCustomData::cocoaType().characters()) }.get()];
 
     [m_pasteboard declareTypes:types owner:nil];
-    // MAVERICKS_BACKPORT: NSPasteboard _setExpirationDate: is 11.0+ private SPI.
-    if (pasteboardDataLifetime == PasteboardDataLifetime::Ephemeral && [m_pasteboard respondsToSelector:@selector(_setExpirationDate:)])
+    if (pasteboardDataLifetime == PasteboardDataLifetime::Ephemeral)
         [m_pasteboard _setExpirationDate:[NSDate dateWithTimeIntervalSinceNow:pasteboardExpirationDelay.seconds()]];
     data.forEachPlatformStringOrBuffer([&] (auto& type, auto& stringOrBuffer) {
         auto platformType = platformPasteboardTypeForSafeTypeForDOMToReadAndWrite(type, IncludeImageTypes::Yes);
@@ -443,8 +442,7 @@ int64_t PlatformPasteboard::setTypes(const Vector<String>& pasteboardTypes, Past
 {
     auto didClearContents = [m_pasteboard clearContents];
 
-    // MAVERICKS_BACKPORT: NSPasteboard _setExpirationDate: is 11.0+ private SPI.
-    if (pasteboardDataLifetime == PasteboardDataLifetime::Ephemeral && [m_pasteboard respondsToSelector:@selector(_setExpirationDate:)])
+    if (pasteboardDataLifetime == PasteboardDataLifetime::Ephemeral)
         [m_pasteboard _setExpirationDate:[NSDate dateWithTimeIntervalSinceNow:pasteboardExpirationDelay.seconds()]];
     if (!canWriteAllPasteboardTypes(pasteboardTypes))
         return didClearContents;
@@ -638,8 +636,7 @@ int64_t PlatformPasteboard::write(const Vector<PasteboardCustomData>& itemData, 
         return write(itemData.first(), pasteboardDataLifetime);
 
     [m_pasteboard clearContents];
-    // MAVERICKS_BACKPORT: NSPasteboard _setExpirationDate: is 11.0+ private SPI.
-    if (pasteboardDataLifetime == PasteboardDataLifetime::Ephemeral && [m_pasteboard respondsToSelector:@selector(_setExpirationDate:)])
+    if (pasteboardDataLifetime == PasteboardDataLifetime::Ephemeral)
         [m_pasteboard _setExpirationDate:[NSDate dateWithTimeIntervalSinceNow:pasteboardExpirationDelay.seconds()]];
     [m_pasteboard writeObjects:createNSArray(itemData, [] (auto& data) {
         return createPasteboardItem(data);

@@ -185,8 +185,7 @@ void WebPageProxy::searchTheWeb(const String& string)
 {
     RetainPtr pasteboard = [NSPasteboard pasteboardWithUniqueName];
     [pasteboard clearContents];
-    // MAVERICKS_BACKPORT: NSPasteboard _setExpirationDate: is 11.0+ private SPI.
-    if (sessionID().isEphemeral() && [pasteboard respondsToSelector:@selector(_setExpirationDate:)])
+    if (sessionID().isEphemeral())
         [pasteboard _setExpirationDate:[NSDate dateWithTimeIntervalSinceNow:pasteboardExpirationDelay.seconds()]];
     [pasteboard addTypes:@[legacyStringPasteboardTypeSingleton()] owner:nil];
     [pasteboard setString:string.createNSString().get() forType:legacyStringPasteboardTypeSingleton()];
@@ -1034,8 +1033,7 @@ void WebPageProxy::handleContextMenuCopySubject(const String& preferredMIMEType)
     RetainPtr<NSPasteboard> pasteboard = NSPasteboard.generalPasteboard;
     RetainPtr pasteboardType = bridge_cast(type.get());
     [pasteboard clearContents];
-    // MAVERICKS_BACKPORT: NSPasteboard _setExpirationDate: is 11.0+ private SPI.
-    if (sessionID().isEphemeral() && [pasteboard respondsToSelector:@selector(_setExpirationDate:)])
+    if (sessionID().isEphemeral())
         [pasteboard _setExpirationDate:[NSDate dateWithTimeIntervalSinceNow:pasteboardExpirationDelay.seconds()]];
     [pasteboard addTypes:@[pasteboardType.get()] owner:nil];
     [pasteboard setData:data.get() forType:pasteboardType.get()];

@@ -352,33 +352,29 @@ Color RenderThemeMac::platformInactiveSelectionForegroundColor(OptionSet<StyleCo
     return { };
 }
 
-// MAVERICKS_BACKPORT: behavior fix — hard-code the list-box selection colors (the NSColor paths return
-// black on 10.9, same as the text-selection colors above).
-Color RenderThemeMac::platformActiveListBoxSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
+Color RenderThemeMac::platformActiveListBoxSelectionBackgroundColor(OptionSet<StyleColorOptions> options) const
 {
-    // MAVERICKS_BACKPORT: hard-code list-box selection background (NSColor path returns black on 10.9).
-    return SRGBA<uint8_t> { 56, 117, 215, 255 };
+    LocalDefaultSystemAppearance localAppearance(options.contains(StyleColorOptions::UseDarkAppearance));
+    return colorFromCocoaColor([NSColor selectedContentBackgroundColor]);
 }
 
-// MAVERICKS_BACKPORT: hard-code list-box selection colors; options param unused (NSColor paths return black on 10.9).
-Color RenderThemeMac::platformInactiveListBoxSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
+Color RenderThemeMac::platformInactiveListBoxSelectionBackgroundColor(OptionSet<StyleColorOptions> options) const
 {
-    // MAVERICKS_BACKPORT: hard-code list-box selection background (NSColor path returns black on 10.9).
-    return SRGBA<uint8_t> { 220, 220, 220, 255 };
+    LocalDefaultSystemAppearance localAppearance(options.contains(StyleColorOptions::UseDarkAppearance));
+    return colorFromCocoaColor([NSColor unemphasizedSelectedContentBackgroundColor]);
+
 }
 
-// MAVERICKS_BACKPORT: hard-code list-box selection colors; options param unused (NSColor paths return black on 10.9).
-Color RenderThemeMac::platformActiveListBoxSelectionForegroundColor(OptionSet<StyleColorOptions>) const
+Color RenderThemeMac::platformActiveListBoxSelectionForegroundColor(OptionSet<StyleColorOptions> options) const
 {
-    // MAVERICKS_BACKPORT: hard-code list-box selection foreground (NSColor path returns black on 10.9).
-    return Color::white;
+    LocalDefaultSystemAppearance localAppearance(options.contains(StyleColorOptions::UseDarkAppearance));
+    return colorFromCocoaColor([NSColor alternateSelectedControlTextColor]);
 }
 
-// MAVERICKS_BACKPORT: hard-code list-box selection colors; options param unused (NSColor paths return black on 10.9).
-Color RenderThemeMac::platformInactiveListBoxSelectionForegroundColor(OptionSet<StyleColorOptions>) const
+Color RenderThemeMac::platformInactiveListBoxSelectionForegroundColor(OptionSet<StyleColorOptions> options) const
 {
-    // MAVERICKS_BACKPORT: hard-code list-box selection foreground (NSColor path returns black on 10.9).
-    return Color::black;
+    LocalDefaultSystemAppearance localAppearance(options.contains(StyleColorOptions::UseDarkAppearance));
+    return colorFromCocoaColor([NSColor unemphasizedSelectedTextColor]);
 }
 
 inline static Color defaultFocusRingColor(OptionSet<StyleColorOptions> options)
