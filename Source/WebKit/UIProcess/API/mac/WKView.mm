@@ -68,12 +68,6 @@
 // MAVERICKS_BACKPORT: this WKView reimplementation uses WebKit:: types unqualified throughout.
 using namespace WebKit;
 
-// MAVERICKS_BACKPORT: NSViewNoIntrinsicMetric is an APPKIT_EXTERN const symbol available
-// only on macOS 10.11+ — it is NOT exported by 10.9's AppKit, so referencing it
-// null-binds and dereferencing it crashes (EXC_BAD_ACCESS). Use its documented
-// value (-1) directly. See [[webkit-mavericks-moved-framework-symbols]].
-static const CGFloat kWKViewNoIntrinsicMetric = -1;
-
 // MAVERICKS_BACKPORT: minimal page-client factory/accessors declared in PageClientImplMac.mm.
 namespace WebKit {
 std::unique_ptr<PageClient> createMinimalPageClient(NSView *view);
@@ -154,7 +148,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     self.layer.backgroundColor = CGColorGetConstantColor(kCGColorWhite);
 
     // MAVERICKS_BACKPORT: start with a flexible intrinsic size until the web process reports a laid-out one.
-    _intrinsicContentSize = NSMakeSize(kWKViewNoIntrinsicMetric, kWKViewNoIntrinsicMetric);
+    _intrinsicContentSize = NSMakeSize(NSViewNoIntrinsicMetric, NSViewNoIntrinsicMetric);
 
     // MAVERICKS_BACKPORT: ensure WebKit2 globals are initialized before creating the page proxy.
     WebKit::InitializeWebKit2();
@@ -284,7 +278,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     // otherwise report it so auto-layout reserves space. Matches WebViewImpl.
     NSSize size = intrinsicContentSize;
     if (_wkState && _wkState->page && intrinsicContentSize.width < _wkState->page->minimumSizeForAutoLayout().width())
-        size.width = kWKViewNoIntrinsicMetric;
+        size.width = NSViewNoIntrinsicMetric;
     _intrinsicContentSize = size;
     [self invalidateIntrinsicContentSize];
 }
