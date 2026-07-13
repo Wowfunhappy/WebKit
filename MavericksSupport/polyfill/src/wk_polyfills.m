@@ -20,6 +20,7 @@
 #import "wk_selref_scope.h"
 #import <AppKit/AppKit.h>
 #import <PDFKit/PDFKit.h>
+#import <mach/mach.h>
 
 #define SRGB(r, g, b, a) [NSColor colorWithSRGBRed:(r)/255.0 green:(g)/255.0 blue:(b)/255.0 alpha:(a)/255.0]
 
@@ -379,5 +380,138 @@ WK_POLYFILL_SEL("stringByApplyingTransform:reverse:", "wk_stringByApplyingTransf
 }
 @end
 WK_POLYFILL_SEL("performBlock:", "wk_performBlock:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSColorWell setSupportsAlpha:] (14.0+): 10.9 honors alpha through the shared color panel's alpha slider
+// (NSPopoverColorWell, the receiver, is backed by +[NSColorPanel sharedColorPanel]).
+@interface NSColorWell (WKPolyfillScope)
+- (void)wk_setSupportsAlpha:(BOOL)flag;
+@end
+@implementation NSColorWell (WKPolyfillScope)
+- (void)wk_setSupportsAlpha:(BOOL)flag { [[NSColorPanel sharedColorPanel] setShowsAlpha:flag]; }
+@end
+WK_POLYFILL_SEL("setSupportsAlpha:", "wk_setSupportsAlpha:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSApplication _effectiveAccentColor] (10.14+ SPI): the default macOS accent/control-tint blue. Must be an
+// EXPLICIT sRGB color, NOT a catalog color like alternateSelectedControlColor: PageClientImpl::accentColor()
+// feeds this through colorFromCocoaColor() -> [color colorUsingColorSpace:], which resolves 10.9 catalog
+// colors to BLACK (same trap as the text-selection colors above). colorWithSRGBRed: is already concrete, so
+// the downstream space conversion is a no-op and the accent stays blue.
+@interface NSApplication (WKPolyfillScopeAccent)
+- (NSColor *)wk__effectiveAccentColor;
+@end
+@implementation NSApplication (WKPolyfillScopeAccent)
+- (NSColor *)wk__effectiveAccentColor { return SRGB(0, 122, 255, 255); }
+@end
+WK_POLYFILL_SEL("_effectiveAccentColor", "wk__effectiveAccentColor");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSTextInputContext handleEvent:completionHandler:] (10.10+ SPI): delegate to the synchronous 10.6
+// -handleEvent: and report its result — routing the event through the input context first, as upstream does.
+// ("handleEvent:" is intentionally NOT registered, so the inner call is not itself rewritten.)
+@interface NSTextInputContext (WKPolyfillScope)
+- (void)wk_handleEvent:(NSEvent *)event completionHandler:(void (^)(BOOL))completionHandler;
+@end
+@implementation NSTextInputContext (WKPolyfillScope)
+- (void)wk_handleEvent:(NSEvent *)event completionHandler:(void (^)(BOOL))completionHandler
+{
+    BOOL handled = [self handleEvent:event];
+    if (completionHandler)
+        completionHandler(handled);
+}
+@end
+WK_POLYFILL_SEL("handleEvent:completionHandler:", "wk_handleEvent:completionHandler:");
+
+// ---------------------------------------------------------------------------------------------------
+// SF Symbols (11.0+): no system symbols exist on 10.9, so +imageWithSystemSymbolName: (and the private
+// variant) return nil for every name — matching the real API's unknown-symbol contract. Callers that pass the
+// result to -setImage:/-_setActionImage:/+imageViewWithImage: tolerate nil; the one caller that dereferences
+// the image (RenderThemeMac's attachment-progress placeholder) carries its own MAVERICKS_BACKPORT nil-guard.
+// +[NSImageView imageViewWithImage:] (10.12+) builds the view the classic way; -setSymbolConfiguration: and
+// -setContentTintColor: are cosmetic template-image properties with nothing to configure for a nil image.
+@interface NSImage (WKPolyfillScope)
++ (NSImage *)wk_imageWithSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc;
++ (NSImage *)wk_imageWithPrivateSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc;
+@end
+@implementation NSImage (WKPolyfillScope)
++ (NSImage *)wk_imageWithSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc { return nil; }
++ (NSImage *)wk_imageWithPrivateSystemSymbolName:(NSString *)name accessibilityDescription:(NSString *)desc { return nil; }
+@end
+WK_POLYFILL_SEL("imageWithSystemSymbolName:accessibilityDescription:", "wk_imageWithSystemSymbolName:accessibilityDescription:");
+WK_POLYFILL_SEL("imageWithPrivateSystemSymbolName:accessibilityDescription:", "wk_imageWithPrivateSystemSymbolName:accessibilityDescription:");
+
+@interface NSImageView (WKPolyfillScope)
++ (NSImageView *)wk_imageViewWithImage:(NSImage *)image;
+- (void)wk_setSymbolConfiguration:(id)configuration;
+- (void)wk_setContentTintColor:(NSColor *)color;
+@end
+@implementation NSImageView (WKPolyfillScope)
++ (NSImageView *)wk_imageViewWithImage:(NSImage *)image
+{
+    NSImageView *view = [[[NSImageView alloc] initWithFrame:NSZeroRect] autorelease];
+    [view setImage:image];
+    return view;
+}
+- (void)wk_setSymbolConfiguration:(id)configuration { (void)configuration; }
+- (void)wk_setContentTintColor:(NSColor *)color { (void)color; }
+@end
+WK_POLYFILL_SEL("imageViewWithImage:", "wk_imageViewWithImage:");
+WK_POLYFILL_SEL("setSymbolConfiguration:", "wk_setSymbolConfiguration:");
+WK_POLYFILL_SEL("setContentTintColor:", "wk_setContentTintColor:");
+
+// ---------------------------------------------------------------------------------------------------
+// CAContext cross-process fence ports (createFencePort/setFencePort:/invalidateFences, ~10.10+): 10.9's
+// QuartzCore has no cross-process CA fencing. A null port end-to-end (producer's createFencePort plus every
+// consumer's setFencePort:/invalidateFences) is behavior-identical to the pre-fence path: no live-resize
+// flicker suppression, correct eventual rendering, and — because nobody waits on a real port — no hang.
+// CAContext is SPI (absent from the public QuartzCore headers), so it is declared here.
+@interface CAContext : NSObject
+@end
+@interface CAContext (WKPolyfillScope)
+- (mach_port_t)wk_createFencePort;
+- (void)wk_setFencePort:(mach_port_t)port;
+- (void)wk_invalidateFences;
+@end
+@implementation CAContext (WKPolyfillScope)
+- (mach_port_t)wk_createFencePort { return MACH_PORT_NULL; }
+- (void)wk_setFencePort:(mach_port_t)port { (void)port; }
+- (void)wk_invalidateFences { }
+@end
+WK_POLYFILL_SEL("createFencePort", "wk_createFencePort");
+WK_POLYFILL_SEL("setFencePort:", "wk_setFencePort:");
+WK_POLYFILL_SEL("invalidateFences", "wk_invalidateFences");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSOperationQueue underlyingQueue] (10.10+): the main operation queue is backed by the main dispatch
+// queue on 10.9; any other queue has no underlying dispatch queue (nil) — the honest 10.9 answer.
+@interface NSOperationQueue (WKPolyfillScope)
+- (dispatch_queue_t)wk_underlyingQueue;
+@end
+@implementation NSOperationQueue (WKPolyfillScope)
+- (dispatch_queue_t)wk_underlyingQueue
+{
+    return self == [NSOperationQueue mainQueue] ? dispatch_get_main_queue() : nil;
+}
+@end
+WK_POLYFILL_SEL("underlyingQueue", "wk_underlyingQueue");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSHTTPCookieStorage _saveCookies:] (block variant, ~10.13+): 10.9 has the argument-less -_saveCookies,
+// which hands the cookies to nsurlstoraged for the on-disk write. Call it, then run the completion (the
+// caller's block redispatches to the main run loop itself).
+@interface NSHTTPCookieStorage (WKPolyfillScope)
+- (void)_saveCookies;   // 10.9 argument-less private SPI (not registered, so this send is not rewritten)
+- (void)wk__saveCookies:(dispatch_block_t)completionHandler;
+@end
+@implementation NSHTTPCookieStorage (WKPolyfillScope)
+- (void)wk__saveCookies:(dispatch_block_t)completionHandler
+{
+    [self _saveCookies];
+    if (completionHandler)
+        completionHandler();
+}
+@end
+WK_POLYFILL_SEL("_saveCookies:", "wk__saveCookies:");
 
 #pragma clang diagnostic pop

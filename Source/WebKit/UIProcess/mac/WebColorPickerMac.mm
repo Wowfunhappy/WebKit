@@ -248,11 +248,7 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color)
     [_popoverWell setWebDelegate:self];
     [_popoverWell setAction:@selector(didChooseColor:)];
     [_popoverWell setColor:color];
-    // MAVERICKS_BACKPORT: -[NSColorWell setSupportsAlpha:] is a newer AppKit SPI absent on 10.9, so
-    // sending it raises an unrecognized-selector exception that terminates the UIProcess. Alpha
-    // configurability is non-essential (the picker still edits RGB), so apply it only when supported.
-    if ([_popoverWell respondsToSelector:@selector(setSupportsAlpha:)])
-        [_popoverWell setSupportsAlpha:supportsAlpha == WebKit::ColorControlSupportsAlpha::Yes];
+    [_popoverWell setSupportsAlpha:supportsAlpha == WebKit::ColorControlSupportsAlpha::Yes];
 
     RetainPtr<NSColorList> suggestedColors;
     if (suggestions.size()) {

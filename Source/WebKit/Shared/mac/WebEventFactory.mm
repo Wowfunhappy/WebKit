@@ -117,17 +117,11 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(NSEvent *event, NSEvent *last
     if ([event type] == NSEventTypePressure) {
         // Since AppKit doesn't send mouse events for force down or force up, we have to use the current pressure
         // event and lastPressureEvent to detect if this is MouseForceDown, MouseForceUp, or just MouseForceChanged.
-        // MAVERICKS_BACKPORT: NSEvent.stage (Force Touch) is 10.10.3+; on an older SDK there are no force events, only MouseForceChanged.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101003
-        if ([event respondsToSelector:@selector(stage)]) {
-            if (lastPressureEvent.stage == 1 && event.stage == 2)
-                type = WebEventType::MouseForceDown;
-            else if (lastPressureEvent.stage == 2 && event.stage == 1)
-                type = WebEventType::MouseForceUp;
-            else
-                type = WebEventType::MouseForceChanged;
-        } else
-#endif
+        if (lastPressureEvent.stage == 1 && event.stage == 2)
+            type = WebEventType::MouseForceDown;
+        else if (lastPressureEvent.stage == 2 && event.stage == 1)
+            type = WebEventType::MouseForceUp;
+        else
             type = WebEventType::MouseForceChanged;
     }
 
@@ -142,12 +136,7 @@ WebMouseEvent WebEventFactory::createWebMouseEvent(NSEvent *event, NSEvent *last
     int eventNumber = [event eventNumber];
     int menuTypeForEvent = typeForEvent(event);
 
-    // MAVERICKS_BACKPORT: NSEvent.stage (Force Touch) is 10.10.3+; on an older SDK there is no stage, so it is 0.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101003
-    int stage = ([event respondsToSelector:@selector(stage)]) ? ([event type] == NSEventTypePressure ? event.stage : lastPressureEvent.stage) : 0;
-#else
-    int stage = 0;
-#endif
+    int stage = [event type] == NSEventTypePressure ? event.stage : lastPressureEvent.stage;
     double pressure = [event type] == NSEventTypePressure ? event.pressure : lastPressureEvent.pressure;
     double force = pressure + stage;
 

@@ -65,15 +65,6 @@
 
 #import <pal/spi/cocoa/NetworkSPI.h>
 
-// MAVERICKS_BACKPORT: NSHTTPCookieStorage on 10.9 exposes only the argument-less -_saveCookies (selector
-// "_saveCookies", type encoding v16@0:8); modern macOS replaced it with the completion-block -_saveCookies:. Declare
-// the legacy selector at global scope (ObjC categories may not appear inside a C++ namespace) so we
-// can message it without a -Wundeclared-selector / performSelector-leak warning. saveCookies() still
-// guards the call with class_getInstanceMethod before messaging.
-@interface NSHTTPCookieStorage (WebKitMavericksLegacyCookieFlush)
-- (void)_saveCookies;
-@end
-
 namespace WebKit {
 
 static void initializeNetworkSettings()
@@ -257,42 +248,11 @@ void NetworkProcess::flushCookies(PAL::SessionID sessionID, CompletionHandler<vo
 void saveCookies(NSHTTPCookieStorage *cookieStorage, CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(RunLoop::isMain());
-    // MAVERICKS_BACKPORT: NetworkProcess shutdown can invoke this on a freed/stale
-    // cookieStorage (objc_msgSend_corrupt_cache_error on the save selector). Verify
-    // the receiver's class table actually advertises a save selector WITHOUT
-    // dispatching to the receiver itself (class_getInstanceMethod walks the
-    // class struct, doesn't objc_msgSend). If the object is freed, [obj class]
-    // could still crash, so wrap that too.
-    if (!cookieStorage)
-        return completionHandler();
-    Class cls = Nil;
-    @try { cls = object_getClass((id)cookieStorage); } @catch (...) { }
-    if (!cls)
-        return completionHandler();
-
-    // Modern macOS: -_saveCookies: takes a completion block and may invoke it on a background queue.
-    if (class_getInstanceMethod(cls, @selector(_saveCookies:))) {
-        @try {
-            [cookieStorage _saveCookies:makeBlockPtr([completionHandler = WTF::move(completionHandler)]() mutable {
-                // CFNetwork may call the completion block on a background queue, so we need to redispatch to the main thread.
-                RunLoop::mainSingleton().dispatch(WTF::move(completionHandler));
-            }).get()];
-        } @catch (NSException *) {
-            completionHandler();
-        }
-        return;
-    }
-
-    // macOS 10.9: only the argument-less -_saveCookies exists. It hands the cookies to the storage
-    // daemon (nsurlstoraged), which completes the on-disk write even after this process exits, so it
-    // is safe to invoke synchronously and complete immediately. Without this, cookies set during the
-    // session are never persisted (the old code only knew -_saveCookies: and silently skipped here).
-    if (class_getInstanceMethod(cls, @selector(_saveCookies))) {
-        @try {
-            [cookieStorage _saveCookies];
-        } @catch (NSException *) { }
-    }
-    completionHandler();
+    ASSERT(cookieStorage);
+    [cookieStorage _saveCookies:makeBlockPtr([completionHandler = WTF::move(completionHandler)]() mutable {
+        // CFNetwork may call the completion block on a background queue, so we need to redispatch to the main thread.
+        RunLoop::mainSingleton().dispatch(WTF::move(completionHandler));
+    }).get()];
 }
 
 void NetworkProcess::platformFlushCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
@@ -305,7 +265,7 @@ void NetworkProcess::platformFlushCookies(PAL::SessionID sessionID, CompletionHa
     // is why the explicit flush was previously skipped. But on 10.9 every network session's cookie
     // jar IS +[NSHTTPCookieStorage sharedHTTPCookieStorage] (see the session setup in
     // NetworkSessionCocoa), and that singleton is never freed — so flush THAT instead. saveCookies()
-    // walks the class table before messaging and uses 10.9's argument-less -_saveCookies.
+    // then runs upstream unchanged; -_saveCookies: routes to 10.9's -_saveCookies via the wk_ polyfill.
     //
     // The earlier "skipping is safe, NSHTTPCookieStorage persists on its own" assumption was FALSE:
     // verified that a JS-set persistent cookie was absent from Cookies.binarycookies after a graceful
