@@ -222,8 +222,7 @@ void WebPopupMenuProxyMac::showPopupMenu(const IntRect& rect, TextDirection text
 
     [NSApp postEvent:fakeEvent.get() atStart:YES];
     fakeEvent = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
-    // MAVERICKS_BACKPORT: -[NSWindow convertPointFromScreen:] is 10.12+; convert via the 10.7+ -convertRectFromScreen: and take its origin.
-                                   location:[(NSWindow *)[m_webView.get() window] convertRectFromScreen:NSMakeRect([NSEvent mouseLocation].x, [NSEvent mouseLocation].y, 0, 0)].origin
+                                   location:[retainPtr([m_webView.get() window]) convertPointFromScreen:[NSEvent mouseLocation]]
                               modifierFlags:[initiatingNSEvent modifierFlags]
                                   timestamp:[initiatingNSEvent timestamp]
                                windowNumber:[initiatingNSEvent windowNumber]

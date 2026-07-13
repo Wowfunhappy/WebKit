@@ -46,9 +46,7 @@ namespace WebCore {
 
 NSPoint globalPoint(const NSPoint& windowPoint, NSWindow *window)
 {
-    // MAVERICKS_BACKPORT: -[NSWindow convertPointToScreen:] is 10.12+ (absent at runtime on 10.9);
-    // use the classic -convertBaseToScreen: which is present on 10.9.
-    return flipScreenPoint([window convertBaseToScreen:windowPoint], (NSScreen *)screen(window));
+    return flipScreenPoint([window convertPointToScreen:windowPoint], protect(screen(window)).get());
 }
 
 NSPoint globalPointForEvent(NSEvent *event)

@@ -1525,8 +1525,7 @@ static NSControlStateValue NODELETE kit(TriState state)
 {
     NSEvent *fakeEvent = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
         location:[[self window]
-        // MAVERICKS_BACKPORT: -convertPointFromScreen: is 10.12+; use -convertScreenToBase:.
-        convertScreenToBase:[NSEvent mouseLocation]]
+        convertPointFromScreen:[NSEvent mouseLocation]]
         modifierFlags:[[NSApp currentEvent] modifierFlags]
         timestamp:[NSDate timeIntervalSinceReferenceDate]
         windowNumber:[[self window] windowNumber]
@@ -2142,8 +2141,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
     NSEvent *fakeEvent = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDragged
         location:[[self window]
-        // MAVERICKS_BACKPORT: -convertPointFromScreen: is 10.12+; use -convertScreenToBase:.
-        convertScreenToBase:[NSEvent mouseLocation]]
+        convertPointFromScreen:[NSEvent mouseLocation]]
         modifierFlags:[[NSApp currentEvent] modifierFlags]
         timestamp:[NSDate timeIntervalSinceReferenceDate]
         windowNumber:[[self window] windowNumber]
@@ -5090,9 +5088,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 #if PLATFORM(IOS_FAMILY)
         return [accTree accessibilityHitTest:point];
 #else
-        // MAVERICKS_BACKPORT: -[NSWindow convertPointFromScreen:] is 10.12+; use the
-        // long-standing -convertScreenToBase: to map the screen point into window coords.
-        NSPoint windowCoord = [[self window] convertScreenToBase:point];
+        NSPoint windowCoord = [[self window] convertPointFromScreen:point];
         return [accTree accessibilityHitTest:[self convertPoint:windowCoord fromView:nil]];
 #endif
     }
