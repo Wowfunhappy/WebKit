@@ -561,9 +561,7 @@ RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemT
     } else
         [shareMenuItem setRepresentedObject:sharingServicePicker.get()];
 
-    // MAVERICKS_BACKPORT: -[NSMenuItem setIdentifier:] is 10.12+; send only when supported.
-    if ([shareMenuItem respondsToSelector:@selector(setIdentifier:)])
-        [shareMenuItem setIdentifier:_WKMenuItemIdentifierShareMenu];
+    [shareMenuItem setIdentifier:_WKMenuItemIdentifierShareMenu];
     return shareMenuItem;
 }
 #endif
@@ -784,9 +782,7 @@ static RetainPtr<NSMenuItem> createMenuActionItem(const WebContextMenuItemData& 
     [menuItem setState:item.checked() ? NSControlStateValueOn : NSControlStateValueOff];
     [menuItem setIndentationLevel:item.indentationLevel()];
     [menuItem setTarget:[WKMenuTarget sharedMenuTarget]];
-    // MAVERICKS_BACKPORT: -[NSMenuItem setIdentifier:] is 10.12+; send only when supported.
-    if ([menuItem respondsToSelector:@selector(setIdentifier:)])
-        [menuItem setIdentifier:menuItemIdentifier(item.action()).get()];
+    [menuItem setIdentifier:menuItemIdentifier(item.action()).get()];
 
     if (item.userData())
         [menuItem setRepresentedObject:adoptNS([[WKUserDataWrapper alloc] initWithUserData:protect(item.userData()).get()]).get()];
@@ -994,9 +990,7 @@ void WebContextMenuProxyMac::getContextMenuItem(const WebContextMenuItemData& it
         RetainPtr menuItem = adoptNS([[NSMenuItem alloc] initWithTitle:item.title().createNSString().get() action:nullptr keyEquivalent:@""]);
         [menuItem setEnabled:item.enabled()];
         [menuItem setIndentationLevel:item.indentationLevel()];
-        // MAVERICKS_BACKPORT: -[NSMenuItem setIdentifier:] is 10.12+; send only when supported.
-        if ([menuItem respondsToSelector:@selector(setIdentifier:)])
-            [menuItem setIdentifier:menuItemIdentifier(item.action()).get()];
+        [menuItem setIdentifier:menuItemIdentifier(item.action()).get()];
 #if ENABLE(CONTEXT_MENU_IMAGES_ON_MAC)
         updateMenuItemImage(menuItem.get(), item.action(), item.title());
 #endif

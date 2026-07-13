@@ -135,14 +135,10 @@ void WebPopupMenuProxyMac::showPopupMenu(const IntRect& rect, TextDirection text
 
     [m_popup attachPopUpWithFrame:rect inView:m_webView.get().get()];
     [m_popup selectItemAtIndex:selectedIndex];
-    // MAVERICKS_BACKPORT: setUserInterfaceLayoutDirection: on NSMenu is 10.11+. NSPopUpButtonCell + NSView are 10.8+.
-    if ([m_popup respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
-        [m_popup setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
+    [m_popup setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
 
     RetainPtr menu = [m_popup menu];
-    // MAVERICKS_BACKPORT: -[NSMenu setUserInterfaceLayoutDirection:] is 10.11+; send only when supported.
-    if ([menu respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
-        [menu setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
+    [menu setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
 
     // These values were borrowed from AppKit to match their placement of the menu.
     const int popOverHorizontalAdjust = -13;

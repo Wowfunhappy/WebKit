@@ -148,24 +148,12 @@ void PopupMenuMac::show(const IntRect& r, LocalFrameView& frameView, int selecte
 
     TextDirection textDirection = protect(m_client)->menuStyle().textDirection();
 
-    // MAVERICKS_BACKPORT: -[NSMenu setUserInterfaceLayoutDirection:] is 10.11+ and
-    // -[NSView setUserInterfaceLayoutDirection:] is 10.10+; both are absent on 10.9 and raise an
-    // unrecognized-selector NSInvalidArgumentException that aborts -show before the menu is presented,
-    // so the <select> pop-up silently never opens. Guard each call with respondsToSelector:. 10.9 lays
-    // these widgets out left-to-right by default — the value used here — so skipping the setter when the
-    // receiver predates the selector is behaviourally correct.
-    NSUserInterfaceLayoutDirection layoutDirection = textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft;
-
     [m_popup attachPopUpWithFrame:r inView:view.get()];
     [m_popup selectItemAtIndex:selectedIndex];
-    // MAVERICKS_BACKPORT: setUserInterfaceLayoutDirection: is 10.10+/10.11+ and absent on 10.9; guard with respondsToSelector: so an unrecognized-selector exception doesn't abort -show (see note above).
-    if ([m_popup respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
-        [m_popup setUserInterfaceLayoutDirection:layoutDirection];
+    [m_popup setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
 
     NSMenu *menu = [m_popup menu];
-    // MAVERICKS_BACKPORT: -[NSMenu setUserInterfaceLayoutDirection:] is 10.11+ and absent on 10.9; guard with respondsToSelector: so an unrecognized-selector exception doesn't abort -show (see note above).
-    if ([menu respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
-        [menu setUserInterfaceLayoutDirection:layoutDirection];
+    [menu setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
 
     NSPoint location;
 
@@ -202,9 +190,7 @@ void PopupMenuMac::show(const IntRect& r, LocalFrameView& frameView, int selecte
     Ref<PopupMenuMac> protector(*this);
 
     RetainPtr<NSView> dummyView = adoptNS([[NSView alloc] initWithFrame:r]);
-    // MAVERICKS_BACKPORT: -[NSView setUserInterfaceLayoutDirection:] is 10.10+ and absent on 10.9; guard with respondsToSelector: so an unrecognized-selector exception doesn't abort -show (see note above).
-    if ([dummyView respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
-        [dummyView.get() setUserInterfaceLayoutDirection:layoutDirection];
+    [dummyView.get() setUserInterfaceLayoutDirection:textDirection == TextDirection::LTR ? NSUserInterfaceLayoutDirectionLeftToRight : NSUserInterfaceLayoutDirectionRightToLeft];
     [view.get() addSubview:dummyView.get()];
     location = [dummyView convertPoint:location fromView:view.get()];
     

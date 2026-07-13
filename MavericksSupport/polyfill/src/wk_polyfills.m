@@ -21,6 +21,7 @@
 #import <AppKit/AppKit.h>
 #import <PDFKit/PDFKit.h>
 #import <mach/mach.h>
+#import <objc/runtime.h>
 
 #define SRGB(r, g, b, a) [NSColor colorWithSRGBRed:(r)/255.0 green:(g)/255.0 blue:(b)/255.0 alpha:(a)/255.0]
 
@@ -642,5 +643,62 @@ WK_POLYFILL_SEL("archivedDataWithRootObject:requiringSecureCoding:error:", "wk_a
 @end
 WK_POLYFILL_SEL("valueForHTTPHeaderField:", "wk_valueForHTTPHeaderField:");
 WK_POLYFILL_ALIAS("NSURLRequest", "valueForHTTPHeaderField:", "wk_valueForHTTPHeaderField:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSScrollerImp/NSMenu setUserInterfaceLayoutDirection:] + getter (10.10+/10.11+, absent on these two
+// classes on 10.9). WebKit ALSO sends this to NSView/NSCell (present since 10.7/10.8) — a generic name, so
+// each present class gets a WK_POLYFILL_ALIAS below and the absent classes get this polyfill. 10.9 has no
+// RTL platform scroller/menu layout, so the value has no visual effect here; store it via an associated
+// object so WebKit's own read-back (ScrollerMac/ScrollbarThemeMac/ScrollbarsControllerMac/PopupMenu) is
+// faithful, defaulting to LeftToRight when unset. (Vertical-scrollbar-on-left is positioned by WebCore
+// geometry independently.) NSScrollerImp is SPI (absent from public AppKit headers), so declare it here.
+@interface NSScrollerImp : NSObject @end
+static const void *const wk_uildScrollerKey = &wk_uildScrollerKey;
+static const void *const wk_uildMenuKey = &wk_uildMenuKey;
+@interface NSScrollerImp (WKPolyfillScope)
+- (void)wk_setUserInterfaceLayoutDirection:(NSInteger)direction;
+- (NSInteger)wk_userInterfaceLayoutDirection;
+@end
+@implementation NSScrollerImp (WKPolyfillScope)
+- (void)wk_setUserInterfaceLayoutDirection:(NSInteger)direction
+{ objc_setAssociatedObject(self, wk_uildScrollerKey, @(direction), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+- (NSInteger)wk_userInterfaceLayoutDirection
+{ NSNumber *v = objc_getAssociatedObject(self, wk_uildScrollerKey); return v ? [v integerValue] : NSUserInterfaceLayoutDirectionLeftToRight; }
+@end
+@interface NSMenu (WKPolyfillScopeUILD)
+- (void)wk_setUserInterfaceLayoutDirection:(NSInteger)direction;
+- (NSInteger)wk_userInterfaceLayoutDirection;
+@end
+@implementation NSMenu (WKPolyfillScopeUILD)
+- (void)wk_setUserInterfaceLayoutDirection:(NSInteger)direction
+{ objc_setAssociatedObject(self, wk_uildMenuKey, @(direction), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+- (NSInteger)wk_userInterfaceLayoutDirection
+{ NSNumber *v = objc_getAssociatedObject(self, wk_uildMenuKey); return v ? [v integerValue] : NSUserInterfaceLayoutDirectionLeftToRight; }
+@end
+WK_POLYFILL_SEL("setUserInterfaceLayoutDirection:", "wk_setUserInterfaceLayoutDirection:");
+WK_POLYFILL_SEL("userInterfaceLayoutDirection", "wk_userInterfaceLayoutDirection");
+WK_POLYFILL_ALIAS("NSView", "setUserInterfaceLayoutDirection:", "wk_setUserInterfaceLayoutDirection:");
+WK_POLYFILL_ALIAS("NSCell", "setUserInterfaceLayoutDirection:", "wk_setUserInterfaceLayoutDirection:");
+WK_POLYFILL_ALIAS("NSView", "userInterfaceLayoutDirection", "wk_userInterfaceLayoutDirection");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSLocale languageCode]/scriptCode/countryCode (10.12+) via the classic component keys (10.4+). Also
+// sent to AVAssetTrack (languageCode present on 10.9) → WK_POLYFILL_ALIAS below (reliable: WebCore hard-
+// links AVFoundation, so AVAssetTrack is realized before this constructor runs). objectForKey: is not
+// registered, so the inner call is not itself rewritten (no recursion).
+@interface NSLocale (WKPolyfillScope)
+- (NSString *)wk_languageCode;
+- (NSString *)wk_scriptCode;
+- (NSString *)wk_countryCode;
+@end
+@implementation NSLocale (WKPolyfillScope)
+- (NSString *)wk_languageCode { return [self objectForKey:NSLocaleLanguageCode]; }
+- (NSString *)wk_scriptCode   { return [self objectForKey:NSLocaleScriptCode]; }
+- (NSString *)wk_countryCode  { return [self objectForKey:NSLocaleCountryCode]; }
+@end
+WK_POLYFILL_SEL("languageCode", "wk_languageCode");
+WK_POLYFILL_SEL("scriptCode", "wk_scriptCode");
+WK_POLYFILL_SEL("countryCode", "wk_countryCode");
+WK_POLYFILL_ALIAS("AVAssetTrack", "languageCode", "wk_languageCode");
 
 #pragma clang diagnostic pop

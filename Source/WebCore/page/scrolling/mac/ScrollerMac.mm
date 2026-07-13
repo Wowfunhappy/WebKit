@@ -389,11 +389,7 @@ void ScrollerMac::updateValues()
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_scrollerImp setEnabled:m_isEnabled];
-    // MAVERICKS_BACKPORT: -[NSScrollerImp setUserInterfaceLayoutDirection:] is 10.10+ (same
-    // guard as ScrollbarThemeMac). Unguarded, every scroller update raised (and WebKit
-    // discarded) an NSInvalidArgumentException — flooding ASL past its message quota.
-    if ([m_scrollerImp respondsToSelector:@selector(setUserInterfaceLayoutDirection:)])
-        [m_scrollerImp setUserInterfaceLayoutDirection: m_scrollbarLayoutDirection == UserInterfaceLayoutDirection::RTL ? NSUserInterfaceLayoutDirectionRightToLeft : NSUserInterfaceLayoutDirectionLeftToRight];
+    [m_scrollerImp setUserInterfaceLayoutDirection: m_scrollbarLayoutDirection == UserInterfaceLayoutDirection::RTL ? NSUserInterfaceLayoutDirectionRightToLeft : NSUserInterfaceLayoutDirectionLeftToRight];
     [m_scrollerImp setBoundsSize:NSSizeFromCGSize([m_hostLayer bounds].size)];
     [m_scrollerImp setDoubleValue:values.value];
     [m_scrollerImp setPresentationValue:values.value];
@@ -632,8 +628,7 @@ String ScrollerMac::scrollbarState() const
     if ([m_scrollerImp knobAlpha] > 0)
         result.append(",visible_thumb"_s);
 
-    // MAVERICKS_BACKPORT: -[NSScrollerImp userInterfaceLayoutDirection] is 10.10+; guard like the setter.
-    if ([m_scrollerImp respondsToSelector:@selector(userInterfaceLayoutDirection)] && [m_scrollerImp userInterfaceLayoutDirection] == NSUserInterfaceLayoutDirectionRightToLeft)
+    if ([m_scrollerImp userInterfaceLayoutDirection] == NSUserInterfaceLayoutDirectionRightToLeft)
         result.append(",RTL"_s);
 
     if ([m_scrollerImp controlSize] != NSControlSizeRegular)
