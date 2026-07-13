@@ -6223,23 +6223,19 @@ void WebViewImpl::nativeMouseEventHandler(NSEvent *event, WebMouseEventInputSour
     }
 
     if (RetainPtr context = [m_view.get() inputContext]) {
-    // MAVERICKS_BACKPORT: -[NSTextInputContext handleEvent:completionHandler:] is 10.10+. Skip
-    // the inputContext path entirely on 10.9; mouse events go straight to WebPageProxy.
-        if ([context respondsToSelector:@selector(handleEvent:completionHandler:)]) {
-            WeakPtr weakThis { *this };
-            RetainPtr<NSEvent> retainedEvent = event;
-            [context handleEvent:event completionHandler:[weakThis, retainedEvent, inputSource] (BOOL handled) {
-                if (!weakThis)
-                    return;
-                if (handled)
-                    LOG_WITH_STREAM(TextInput, stream << "Event " << [retainedEvent type] << " was handled by text input context");
-                else {
-                    NativeWebMouseEvent webEvent(retainedEvent.get(), weakThis->m_lastPressureEvent.get(), weakThis->m_view.getAutoreleased(), inputSource);
-                    weakThis->m_page->handleMouseEvent(webEvent);
-                }
-            }];
-            return;
-        }
+        WeakPtr weakThis { *this };
+        RetainPtr<NSEvent> retainedEvent = event;
+        [context handleEvent:event completionHandler:[weakThis, retainedEvent, inputSource] (BOOL handled) {
+            if (!weakThis)
+                return;
+            if (handled)
+                LOG_WITH_STREAM(TextInput, stream << "Event " << [retainedEvent type] << " was handled by text input context");
+            else {
+                NativeWebMouseEvent webEvent(retainedEvent.get(), weakThis->m_lastPressureEvent.get(), weakThis->m_view.getAutoreleased(), inputSource);
+                weakThis->m_page->handleMouseEvent(webEvent);
+            }
+        }];
+        return;
     }
     NativeWebMouseEvent webEvent(event, m_lastPressureEvent.get(), m_view.get().get(), inputSource);
     m_page->handleMouseEvent(webEvent);

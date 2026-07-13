@@ -416,9 +416,7 @@ void WebContextMenuProxyMac::appendRemoveBackgroundItemToControlledImageMenuIfNe
                 return;
 
             auto removeBackgroundItem = adoptNS([[NSMenuItem alloc] initWithTitle:contextMenuItemTitleRemoveBackground().createNSString().get() action:@selector(removeBackground) keyEquivalent:@""]);
-            // MAVERICKS_BACKPORT: +[NSImage imageWithSystemSymbolName:accessibilityDescription:] is 11.0+ (SF Symbols). Skip silently — menu item just won't have an icon.
-            if ([NSImage respondsToSelector:@selector(imageWithSystemSymbolName:accessibilityDescription:)])
-                [removeBackgroundItem setImage:[NSImage imageWithSystemSymbolName:@"person.fill.viewfinder" accessibilityDescription:contextMenuItemTitleRemoveBackground().createNSString().get()]];
+            [removeBackgroundItem setImage:[NSImage imageWithSystemSymbolName:@"person.fill.viewfinder" accessibilityDescription:contextMenuItemTitleRemoveBackground().createNSString().get()]];
             [removeBackgroundItem setTarget:WKSharingServicePickerDelegate.sharedSharingServicePickerDelegate];
             [removeBackgroundItem setAction:@selector(removeBackground)];
             [removeBackgroundItem setIndentationLevel:[strongMenu itemArray].lastObject.indentationLevel];

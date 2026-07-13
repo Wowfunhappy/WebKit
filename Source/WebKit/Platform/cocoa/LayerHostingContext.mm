@@ -183,9 +183,7 @@ void LayerHostingContext::setFencePort(mach_port_t fencePort)
 #if USE(EXTENSIONKIT)
     ASSERT(!m_hostable);
 #endif
-    // MAVERICKS_BACKPORT: -[CAContext setFencePort:] is 10.10+.
-    if ([m_context respondsToSelector:@selector(setFencePort:)])
-        [m_context setFencePort:fencePort];
+    [m_context setFencePort:fencePort];
 }
 
 MachSendRight LayerHostingContext::createFencePort()

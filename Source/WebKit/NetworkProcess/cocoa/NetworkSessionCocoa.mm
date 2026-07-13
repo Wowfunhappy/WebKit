@@ -660,8 +660,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
                 }
                 processServerTrustEvaluation(*session, CheckedRef { *strongSelf->_sessionWrapper }, challenge, negotiatedLegacyTLS, taskIdentifier, task.get(), WTF::move(completionHandler));
             });
-            // MAVERICKS_BACKPORT: -[NSOperationQueue underlyingQueue] is 10.10+; read it via KVC so it binds at runtime.
-            [NSURLSession _strictTrustEvaluate:challenge queue:retainPtr((dispatch_queue_t)[[NSOperationQueue mainQueue] valueForKey:@"underlyingQueue"]).get() completionHandler:decisionHandler.get()];
+            [NSURLSession _strictTrustEvaluate:challenge queue:retainPtr([NSOperationQueue mainQueue].underlyingQueue).get() completionHandler:decisionHandler.get()];
             return;
         }
     }

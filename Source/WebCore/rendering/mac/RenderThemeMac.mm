@@ -1927,6 +1927,12 @@ static void paintAttachmentIconPlaceholder(const RenderAttachment& attachment, G
 {
     auto [placeholderImage, imageScale] = createAttachmentPlaceholderImage(protect(attachment.document())->deviceScaleFactor(), layout);
 
+    // MAVERICKS_BACKPORT: the "arrow.down.circle" SF Symbol does not exist on 10.9, so
+    // createAttachmentPlaceholderImage yields a null image; skip the placeholder glyph rather than
+    // dereferencing it (the attachment still renders, just without the download-progress icon).
+    if (!placeholderImage)
+        return;
+
     // Center the placeholder image where the icon would usually be.
     FloatRect placeholderRect(0, 0, placeholderImage->width() / imageScale, placeholderImage->height() / imageScale);
     placeholderRect.setX(layout.iconRect.x() + (layout.iconRect.width() - placeholderRect.width()) / 2);

@@ -654,9 +654,7 @@ MachSendRight RemoteLayerTreeDrawingAreaProxyMac::createFence()
     if (connection->hasIncomingSyncMessage())
         return MachSendRight();
 
-    // MAVERICKS_BACKPORT: cast the createFencePort return through uintptr_t to a
-    // mach_port_t for MachSendRight::adopt, since the older SDK types it differently.
-    MachSendRight fencePort = MachSendRight::adopt((mach_port_t)(uintptr_t)[rootLayerContext createFencePort]);
+    MachSendRight fencePort = MachSendRight::adopt([rootLayerContext createFencePort]);
 
     // Invalidate the fence if a synchronous message arrives while it's installed,
     // because we won't be able to reply during the fence-wait.

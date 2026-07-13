@@ -219,10 +219,7 @@ MachSendRight TiledCoreAnimationDrawingAreaProxy::createFence()
     if (connection->hasIncomingSyncMessage())
         return MachSendRight();
 
-    // MAVERICKS_BACKPORT: -[CAContext createFencePort] is 10.10+.
-    if (![rootLayerContext respondsToSelector:@selector(createFencePort)])
-        return MachSendRight();
-    MachSendRight fencePort = MachSendRight::adopt((mach_port_t)(uintptr_t)[rootLayerContext createFencePort]);
+    MachSendRight fencePort = MachSendRight::adopt([rootLayerContext createFencePort]);
 
     // Invalidate the fence if a synchronous message arrives while it's installed,
     // because we won't be able to reply during the fence-wait.
