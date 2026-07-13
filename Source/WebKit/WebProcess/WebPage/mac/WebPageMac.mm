@@ -1038,12 +1038,7 @@ void WebPage::setAccentColor(WebCore::Color color)
 {
     if (!color.isValid())
         return;
-    // MAVERICKS_BACKPORT: -[NSApplication _setAccentColor:] is 10.14+. The Web
-    // Inspector frontend's WebPageCreationParameters carry an accent color, so
-    // without this guard the inspector's WebContent process throws
-    // unrecognized-selector and terminates the moment the inspector opens.
-    if ([NSApplication.sharedApplication respondsToSelector:@selector(_setAccentColor:)])
-        [NSApplication.sharedApplication _setAccentColor:cocoaColorOrNil(color).get()];
+    [NSApplication.sharedApplication _setAccentColor:cocoaColorOrNil(color).get()];
 }
 
 #if PLATFORM(MAC)

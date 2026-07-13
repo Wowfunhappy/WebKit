@@ -357,14 +357,8 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
     _enclosingWindow = adoptNS([[WKDataListSuggestionWindow alloc] initWithContentRect:NSZeroRect styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskFullSizeContentView) backing:NSBackingStoreBuffered defer:NO]);
     [_enclosingWindow setReleasedWhenClosed:NO];
     [_enclosingWindow setFrame:[self dropdownRectForElementRect:information.elementRect] display:YES];
-    // MAVERICKS_BACKPORT: -[NSWindow setTitleVisibility:] / setTitlebarAppearsTransparent:
-    // are 10.10+. Datalist popup uses NSWindowStyleMaskFullSizeContentView (also
-    // 10.10+) so the popup looks weird without these, but skipping them avoids
-    // doesNotRecognizeSelector aborts.
-    if ([_enclosingWindow respondsToSelector:@selector(setTitleVisibility:)])
-        [_enclosingWindow setTitleVisibility:NSWindowTitleHidden];
-    if ([_enclosingWindow respondsToSelector:@selector(setTitlebarAppearsTransparent:)])
-        [_enclosingWindow setTitlebarAppearsTransparent:YES];
+    [_enclosingWindow setTitleVisibility:NSWindowTitleHidden];
+    [_enclosingWindow setTitlebarAppearsTransparent:YES];
     [_enclosingWindow setMovable:NO];
     [_enclosingWindow setBackgroundColor:[NSColor clearColor]];
     [_enclosingWindow setOpaque:NO];
