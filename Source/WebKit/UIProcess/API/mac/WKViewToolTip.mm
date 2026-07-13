@@ -7,8 +7,12 @@
 // -addToolTipRect: owned by self (answered by -view:stringForToolTip:) and sends synthetic
 // mouseEntered:/mouseExited: to the NSToolTipManager tracking-rect owner it intercepted — the rect is so
 // wide the mouse never physically crosses an edge to fire a real enter/exit, so the tooltip would otherwise
-// never arm. State lives in associated objects (a category cannot add ivars). Kept in its own file so the
-// heavily-reimplemented WKView.mm diff is not perturbed.
+// never arm. The synthetic mouseEntered: MUST echo back the userData pointer NSToolTipManager passed to the
+// -addTrackingRect: it made under the hood (captured in -addTrackingRect:): NSToolTipManager reads that
+// userData in -mouseEntered: to identify which tooltip region was entered, and without it silently declines
+// to show anything (it still calls -view:stringForToolTip: but never displays). State lives in associated
+// objects (a category cannot add ivars). Kept in its own file so the heavily-reimplemented WKView.mm diff is
+// not perturbed.
 
 #import "config.h"
 #import "WKViewPrivate.h"
@@ -22,6 +26,7 @@ enum { WKToolTipTrackingRectTag = 0xBADFACE };
 
 static const void* const wkToolTipKey = &wkToolTipKey;
 static const void* const wkTrackingOwnerKey = &wkTrackingOwnerKey;
+static const void* const wkTrackingUserDataKey = &wkTrackingUserDataKey;
 static const void* const wkLastToolTipTagKey = &wkLastToolTipTagKey;
 
 @implementation WKView (MavericksToolTip)
@@ -40,11 +45,15 @@ static const void* const wkLastToolTipTagKey = &wkLastToolTipTagKey;
 
 - (void)_wkSendToolTipEnterExit:(NSEventType)type
 {
-    // Nothing matters except window, trackingNumber, and userData (always NULL here).
+    // Nothing matters except window, trackingNumber, and userData. The userData is the pointer
+    // NSToolTipManager passed to -addTrackingRect: (captured below): NSToolTipManager reads it in
+    // -mouseEntered: to identify which tooltip region was entered, so it MUST be echoed back or no
+    // tooltip is shown. Mirrors -[WebHTMLView _sendToolTipMouseEntered].
+    void *trackingUserData = [objc_getAssociatedObject(self, wkTrackingUserDataKey) pointerValue];
     NSEvent *fakeEvent = [NSEvent enterExitEventWithType:type
         location:NSMakePoint(0, 0) modifierFlags:0 timestamp:0
         windowNumber:[[self window] windowNumber] context:NULL eventNumber:0
-        trackingNumber:WKToolTipTrackingRectTag userData:NULL];
+        trackingNumber:WKToolTipTrackingRectTag userData:trackingUserData];
     id owner = [self _wkToolTipOwnerForSendingMouseEvents];
     if (type == NSEventTypeMouseEntered)
         [owner mouseEntered:fakeEvent];
@@ -77,12 +86,14 @@ static const void* const wkLastToolTipTagKey = &wkLastToolTipTagKey;
 - (NSTrackingRectTag)addTrackingRect:(NSRect)rect owner:(id)owner userData:(void *)data assumeInside:(BOOL)assumeInside
 {
     objc_setAssociatedObject(self, wkTrackingOwnerKey, owner, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(self, wkTrackingUserDataKey, [NSValue valueWithPointer:data], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return WKToolTipTrackingRectTag;
 }
 
 - (NSTrackingRectTag)_addTrackingRect:(NSRect)rect owner:(id)owner userData:(void *)data assumeInside:(BOOL)assumeInside useTrackingNum:(int)tag
 {
     objc_setAssociatedObject(self, wkTrackingOwnerKey, owner, OBJC_ASSOCIATION_ASSIGN);
+    objc_setAssociatedObject(self, wkTrackingUserDataKey, [NSValue valueWithPointer:data], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return WKToolTipTrackingRectTag;
 }
 
@@ -90,6 +101,7 @@ static const void* const wkLastToolTipTagKey = &wkLastToolTipTagKey;
 {
     if (count > 0) {
         objc_setAssociatedObject(self, wkTrackingOwnerKey, owner, OBJC_ASSOCIATION_ASSIGN);
+        objc_setAssociatedObject(self, wkTrackingUserDataKey, [NSValue valueWithPointer:userDataList[0]], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         trackingNums[0] = WKToolTipTrackingRectTag;
     }
 }
