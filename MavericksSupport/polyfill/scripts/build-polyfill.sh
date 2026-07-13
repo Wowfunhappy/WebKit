@@ -53,9 +53,24 @@ echo "### compiling legacy-support (macports-legacy-support: POSIX/libc gap-fill
 bash "$HERE/build-legacy-polyfills.sh" "$CLANG" "$OBJ/legacy.a" "$OBJ/legacy-obj"
 ( cd "$OBJ" && "$AR" x legacy.a )    # unpack the legacy objects next to ours
 
+# ar_stable: write an archive only when its content actually changes, preserving the old file's mtime
+# otherwise. build-polyfill.sh runs on every incremental build; regenerating an archive with a fresh mtime
+# makes ninja relink every binary that links it — and libpolyfill.a is link_libraries'd into ALL binaries
+# including LLIntOffsetsExtractor, whose relink forces the very slow offlineasm LLIntAssembly.h regeneration
+# on every build. Keeping the mtime stable when the bytes are identical skips that cascade (llvm-ar is
+# deterministic, so unchanged inputs yield byte-identical archives).
+ar_stable() {  # $1 = output .a, remaining args = object files
+    local out="$1"; shift
+    "$AR" rcs "$out.tmp" "$@"
+    if [ -f "$out" ] && cmp -s "$out" "$out.tmp"; then
+        rm -f "$out.tmp"
+    else
+        mv -f "$out.tmp" "$out"
+    fi
+}
+
 echo "### libpolyfill.a (C function/constant stubs only — NO ObjC classes)"
-rm -f "$OUT/libpolyfill.a"
-"$AR" rcs "$OUT/libpolyfill.a" "$OBJ/polyfill_stubs.o" \
+ar_stable "$OUT/libpolyfill.a" "$OBJ/polyfill_stubs.o" \
     "$OBJ/const_polyfill.o" "$OBJ/graphics_shims.o" "$OBJ/system_spi_polyfill.o" "$OBJ/legacy-obj"/*.o
 
 echo "### libpolyfill_classes.dylib (the ObjC class stubs — ONE shared definition)"
@@ -89,21 +104,18 @@ echo "### libpolyfill_classes.a (force-loaded into WebCore: selref-scope mechani
 # force-loaded into WebCore (see Source/WebCore/CMakeLists.txt), so they load early in every rendering
 # process and keep the AppKit categories off the setuid-JSC-only path. The class stubs live in
 # libpolyfill_classes.dylib (above), not here.
-rm -f "$OUT/libpolyfill_classes.a"
-"$AR" rcs "$OUT/libpolyfill_classes.a" "$OBJ/wk_selref_scope.o" "$OBJ/wk_polyfills.o"
+ar_stable "$OUT/libpolyfill_classes.a" "$OBJ/wk_selref_scope.o" "$OBJ/wk_polyfills.o"
 
 echo "### libwk_marker.a (the __wk_marker tag — force-loaded into every WebKit framework)"
 # Marks each framework binary as a WebKit image so wk_selref_scope's patcher rewrites its selrefs.
-rm -f "$OUT/libwk_marker.a"
-"$AR" rcs "$OUT/libwk_marker.a" "$OBJ/wk_image_marker.o"
+ar_stable "$OUT/libwk_marker.a" "$OBJ/wk_image_marker.o"
 
 echo "### libwtf_compat.a"
 "$TC/bin/clang++" -c --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 -fblocks -std=c++17 \
     -Wno-unused-command-line-argument -o "$OBJ/wtf_compat.o" "$SRC/wtf_compat.cpp"
 "$CLANG" -c --no-default-config -mmacosx-version-min=10.9 \
     -o "$OBJ/wtf_compat_asm.o" "$SRC/wtf_compat_asm.s"
-rm -f "$OUT/libwtf_compat.a"
-"$AR" rcs "$OUT/libwtf_compat.a" "$OBJ/wtf_compat.o" "$OBJ/wtf_compat_asm.o"
+ar_stable "$OUT/libwtf_compat.a" "$OBJ/wtf_compat.o" "$OBJ/wtf_compat_asm.o"
 
 echo "### libcg_polyfill.dylib"
 # -compatibility_version 1.0.0 matches the global dylib versioning OptionsMac.cmake stamps on every
