@@ -126,11 +126,6 @@
 #import <WebCore/NowPlayingInfo.h>
 #import <WebCore/Pasteboard.h>
 // #import <WebCore/PlatformDynamicRangeLimitCocoa.h>  // MAVERICKS_BACKPORT: not in PrivateHeaders
-// MAVERICKS_BACKPORT: NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification is macOS 10.10+;
-// it is weak-imported and null at runtime on 10.9. The 26.1 SDK declares it as an extern, so the
-// fallback value lives under a WebKit-local name — passing the SDK symbol (nil on 10.9) as the
-// notification name to -addObserver:…name:… would instead match EVERY notification.
-static NSString * const webkitNSWorkspaceAccessibilityDisplayOptionsDidChangeNotification = @"NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification";
 #import <WebCore/PlatformEventFactoryMac.h>
 #import <WebCore/PlatformPlaybackSessionInterface.h>
 #import <WebCore/PlatformScreen.h>
@@ -293,8 +288,7 @@ static NSString * const WKMediaExitFullScreenItem = @"WKMediaExitFullScreenItem"
     _impl = &impl;
 
     RetainPtr workspaceNotificationCenter = [[NSWorkspace sharedWorkspace] notificationCenter];
-    // MAVERICKS_BACKPORT: use the WebKit-local notification-name constant (the SDK symbol is nil on 10.9, which would match every notification).
-    [workspaceNotificationCenter addObserver:self selector:@selector(_settingsDidChange:) name:webkitNSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
+    [workspaceNotificationCenter addObserver:self selector:@selector(_settingsDidChange:) name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
 
     return self;
 }
@@ -302,8 +296,7 @@ static NSString * const WKMediaExitFullScreenItem = @"WKMediaExitFullScreenItem"
 - (void)dealloc
 {
     RetainPtr workspaceNotificationCenter = [[NSWorkspace sharedWorkspace] notificationCenter];
-    // MAVERICKS_BACKPORT: use the WebKit-local notification-name constant (the SDK symbol is nil on 10.9, which would match every notification).
-    [workspaceNotificationCenter removeObserver:self name:webkitNSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
+    [workspaceNotificationCenter removeObserver:self name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
 
     [super dealloc];
 }

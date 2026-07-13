@@ -1439,8 +1439,7 @@ void WebProcess::dispatchSimulatedNotificationsForPreferenceChange(const String&
         [notificationCenter postNotificationName:NSSystemColorsDidChangeNotification object:nil];
     } else if (key == increaseContrastPreferenceKey()) {
         RetainPtr notificationCenter = [[NSWorkspace sharedWorkspace] notificationCenter];
-        // MAVERICKS_BACKPORT: NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification is a 10.10+ symbol absent on 10.9; use its string value directly.
-        [notificationCenter postNotificationName:@"NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification" object:nil];
+        [notificationCenter postNotificationName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
     }
 #endif
     if (key == captionProfilePreferenceKey())
