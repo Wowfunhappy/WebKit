@@ -3174,18 +3174,18 @@ if (APPLE)
     # fail to link with "not an allowed client".
     set_target_properties(WebCore PROPERTIES LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle")
 
-    # MAVERICKS_BACKPORT: force-load the polyfill ObjC method-injector (libpolyfill_classes.a =
-    # objc_inject.o). +[MavericksObjCInjection load] adds absent-on-10.9 methods to AppKit classes
-    # (NSColor/NSScreen/NSWindow/NSWorkspace/NSEvent/NSAppearance) that WebCore's rendering code calls.
-    # It lives here, in WebCore, rather than in JavaScriptCore: WebCore links AppKit and loads in every
-    # WebKit rendering process, so the injections happen everywhere they are needed — but a dyld-restricted
-    # setuid program that loads ONLY JavaScriptCore (e.g. the macOS Installer's privileged `runner`, which
-    # loads JSC via Install.framework/DistributionKit to run a package's Distribution scripts) then never
-    # pulls AppKit in. Loading-and-initializing AppKit inside such a setugid process trips AppKit's
-    # "running setugid(), which is not allowed" abort, which killed the runner before it connected back to
-    # the Installer and hung it on the "Install" step. -force_load (not plain link) keeps the +load member
-    # even though nothing references it; LINK_DEPENDS makes the raw -Wl input a real ninja dependency so
-    # WebCore relinks when build-polyfill.sh regenerates the archive.
+    # MAVERICKS_BACKPORT: force-load the selref-scope polyfill (libpolyfill_classes.a = wk_selref_scope.o
+    # the mechanism + wk_polyfills.o the wk_ category methods on NSColor/NSScreen/NSWindow/NSWorkspace/
+    # NSEvent/NSAppearance/NSGraphicsContext that WebCore's rendering code calls). It lives here, in WebCore,
+    # rather than in JavaScriptCore: WebCore links AppKit and loads in every WebKit rendering process, so the
+    # polyfills are present everywhere they are needed — but a dyld-restricted setuid program that loads ONLY
+    # JavaScriptCore (e.g. the macOS Installer's privileged `runner`, which loads JSC via Install.framework/
+    # DistributionKit to run a package's Distribution scripts) then never pulls AppKit in. Loading-and-
+    # initializing AppKit inside such a setugid process trips AppKit's "running setugid(), which is not
+    # allowed" abort, which killed the runner before it connected back to the Installer and hung it on the
+    # "Install" step. -force_load (not plain link) keeps the members even though nothing references them (the
+    # load-time constructor + the categories); LINK_DEPENDS makes the raw -Wl input a real ninja dependency
+    # so WebCore relinks when build-polyfill.sh regenerates the archive.
     target_link_options(WebCore PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_classes.a")
     set_property(TARGET WebCore APPEND PROPERTY LINK_DEPENDS
         "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_classes.a")

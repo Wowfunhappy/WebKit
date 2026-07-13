@@ -153,9 +153,10 @@ static id wsHTTPResponseValueForHeaderField(NSHTTPURLResponse *self, SEL, NSStri
 
 @implementation WKWebSocketStream
 
-// Inject -[NSURLSession webSocketTaskWithRequest:] (categories on Foundation classes do not reliably
-// attach in this backport — same reason objc_inject.m uses class_addMethod). NetworkSessionCocoa::
-// createWebSocketTask already calls it, guarded by respondsToSelector:.
+// Inject -[NSURLSession webSocketTaskWithRequest:] via class_addMethod: a plain category on a Foundation
+// class in this normally-linked WebKit2 file can be dead-stripped (unlike the force-loaded wk_polyfills.o
+// categories, whose __objc_catlist is always included). NetworkSessionCocoa::createWebSocketTask already
+// calls it, guarded by respondsToSelector:.
 + (void)load
 {
     @autoreleasepool {

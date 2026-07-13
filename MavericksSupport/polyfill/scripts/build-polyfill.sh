@@ -5,7 +5,7 @@
 # relink surfaces them.
 #
 #   libpolyfill.a          linked into every binary (OptionsMac.cmake)
-#   libpolyfill_classes.a  force-loaded into JavaScriptCore (polyfill_classes.o ObjC class stubs + objc_inject)
+#   libpolyfill_classes.a  force-loaded into WebCore (wk_selref_scope.o mechanism + wk_polyfills.o polyfill list)
 #   libwtf_compat.a        force-loaded into JavaScriptCore
 #   libcg_polyfill.dylib   embedded into WebCore.framework by install-safari7.sh
 #   libtcc_polyfill.dylib  embedded into WebKit2.framework; loaded by WebKit::TCCLibrary() in place of
@@ -35,17 +35,16 @@ echo "### compiling polyfill/src"
 "$CLANG" -c --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 \
     -Wno-unused-command-line-argument -Wno-deprecated-declarations \
     -o "$OBJ/system_spi_polyfill.o" "$SRC/system_spi_polyfill.c"
-# objc_inject.m references post-10.9 selectors (declared only in the SDK) + deprecated 10.9 colors.
-"$CLANG" -c --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 \
-    -Wno-deprecated-declarations -Wno-unused-command-line-argument \
-    -o "$OBJ/objc_inject.o" "$SRC/objc_inject.m"
-
-# wk_selref_scope.m: WebKit-scoped ObjC-method polyfills via per-image __objc_selrefs rewriting
-# (the registry + selref patcher + the polyfill methods; ships in libpolyfill_classes.a next to
-# objc_inject.o, force-loaded into WebCore only).
+# wk_selref_scope.m: the mechanism — registry + per-image __objc_selrefs patcher.
+# wk_polyfills.m: the polyfill list — wk_ category methods + WK_POLYFILL_SEL registrations (references
+# post-10.9 selectors declared only in the SDK + deprecated 10.9 colors). Both ship in
+# libpolyfill_classes.a, force-loaded into WebCore only.
 "$CLANG" -c --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 \
     -Wno-deprecated-declarations -Wno-unused-command-line-argument \
     -o "$OBJ/wk_selref_scope.o" "$SRC/wk_selref_scope.m"
+"$CLANG" -c --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 \
+    -Wno-deprecated-declarations -Wno-unused-command-line-argument \
+    -o "$OBJ/wk_polyfills.o" "$SRC/wk_polyfills.m"
 # wk_image_marker.c: the __DATA,__wk_marker tag. Force-loaded into EVERY WebKit framework
 # (WEBKIT_FRAMEWORK) so the patcher rewrites each framework's selrefs. Pure data — no initializer.
 "$CLANG" -c $CF -o "$OBJ/wk_image_marker.o" "$SRC/wk_image_marker.c"
@@ -85,12 +84,13 @@ build_reexport_shim --clang "$CLANG" --out "$OUT/libpolyfill_classes.dylib" \
     --reexport-framework Security --reexport-framework CFNetwork \
     "$OBJ/polyfill_classes.o"
 
-echo "### libpolyfill_classes.a (force-loaded into JSC: method injection only)"
-# objc_inject.o's method-injection +load ships ONLY here and is force-loaded into JavaScriptCore so it runs
-# once — in JSC, before WebCore/WebKit use the injected AppKit/Foundation methods. The class stubs themselves
-# now live in libpolyfill_classes.dylib (above), not here.
+echo "### libpolyfill_classes.a (force-loaded into WebCore: selref-scope mechanism + polyfill list)"
+# The selref-scope patcher (wk_selref_scope.o) + the polyfill methods (wk_polyfills.o) ship here and are
+# force-loaded into WebCore (see Source/WebCore/CMakeLists.txt), so they load early in every rendering
+# process and keep the AppKit categories off the setuid-JSC-only path. The class stubs live in
+# libpolyfill_classes.dylib (above), not here.
 rm -f "$OUT/libpolyfill_classes.a"
-"$AR" rcs "$OUT/libpolyfill_classes.a" "$OBJ/objc_inject.o" "$OBJ/wk_selref_scope.o"
+"$AR" rcs "$OUT/libpolyfill_classes.a" "$OBJ/wk_selref_scope.o" "$OBJ/wk_polyfills.o"
 
 echo "### libwk_marker.a (the __wk_marker tag — force-loaded into every WebKit framework)"
 # Marks each framework binary as a WebKit image so wk_selref_scope's patcher rewrites its selrefs.
