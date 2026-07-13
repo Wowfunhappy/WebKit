@@ -8,7 +8,7 @@ This backport is still experimental, and installing it has the potential to impa
 
 Most websites do work, including complex webapps like Slack and Figma. Issues remain with video conferencing apps such as Google Meet. Performance and stability are okay, but not great.
 
-For the most reliable web browsing experience on Mavericks, use the Firefox-based [Momiji](https://mavericksforever.com/downloads/Momiji%20Downloader.dmg). If you want the classic Safari UI, are okay with some performance hiccups, and don't mind closing and reopening tabs they do something weird, try this WebKit backport.
+For the most reliable web browsing experience on Mavericks, use the Firefox-based [Momiji](https://mavericksforever.com/downloads/Momiji%20Downloader.dmg). If you want the classic Safari UI, are okay with some performance hiccups, and don't mind closing and reopening tabs when they do something weird, try this WebKit backport.
 
 If you previously deleted Safari, you can find a working copy of Safari 7 in the Applications folder of the Mavericks installer DMG (no special extraction necessary). If you previously upgraded to Safari 9, you will need to downgrade to Safari 7; doing this properly is currently beyond the scope of this documentation (TODO), but simply replacing Safari.app should basically work.
 
@@ -34,11 +34,11 @@ On a Mac or Virtual Machine running Mavericks with Apple's Command Line Tools in
 2. Place a copy of the MacOSX26.1.sdk adjacent to your cloned repository.
    - For example, if you cloned to `~/Developer/webkit`, you would want to place the SDK at `~/Developer/MacOSX26.1.sdk`.
    - Alternately, place the SDK wherever you want and remember to set the `MAVERICKS_SDK` environment variable in a later step.
-   - Officially, the SDK must be extracted from a recent copy of Xcode. Unnofficially, just download it [here](https://github.com/phracker/MacOSX-SDKs/releases).
+   - Officially, the SDK must be extracted from a recent copy of Xcode. Unofficially, just download it [here](https://github.com/phracker/MacOSX-SDKs/releases).
 3. Run MavericksSupport/bootstrap.sh to extract/build the toolchain.
 4. Run MavericksSupport/rebuild.sh to build WebKit.
    - On a reasonably fast machine, this will take hours, but not days. Consider letting it run over night.
-   - Ccache is enabled and included in the toolchain. After you've built the project once, future rebuilds should be be much faster.
+   - Ccache is enabled and included in the toolchain. After you've built the project once, future rebuilds should be much faster.
 5. If desired, run MavericksSupport/install-safari7.sh to install the Frameworks on your system.
 
 ## Contributing
