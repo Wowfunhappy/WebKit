@@ -306,20 +306,16 @@ bool RenderThemeMac::supportsLargeFormControls() const
     return WebCore::supportsLargeFormControls();
 }
 
-// MAVERICKS_BACKPORT: behavior fix — the NSColor selection/highlight semantic colors route through AppKit
-// paths that return BLACK on 10.9 (selecting text in a field or list box painted the whole control black).
-// 10.9 is always light, non-system-appearance — hard-code the standard OS X 10.9 selection colors.
-Color RenderThemeMac::platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
+Color RenderThemeMac::platformActiveSelectionBackgroundColor(OptionSet<StyleColorOptions> options) const
 {
-    // MAVERICKS_BACKPORT: hard-code text-selection background (NSColor path returns black on 10.9).
-    return SRGBA<uint8_t> { 166, 207, 252, 255 };
+    LocalDefaultSystemAppearance localAppearance(options.contains(StyleColorOptions::UseDarkAppearance));
+    return colorFromCocoaColor([NSColor selectedTextBackgroundColor]);
 }
 
-// MAVERICKS_BACKPORT: hard-code inactive text-selection background (NSColor path returns black on 10.9).
-Color RenderThemeMac::platformInactiveSelectionBackgroundColor(OptionSet<StyleColorOptions>) const
+Color RenderThemeMac::platformInactiveSelectionBackgroundColor(OptionSet<StyleColorOptions> options) const
 {
-    // MAVERICKS_BACKPORT: hard-code inactive text-selection background (NSColor path returns black on 10.9).
-    return SRGBA<uint8_t> { 220, 220, 220, 255 };
+    LocalDefaultSystemAppearance localAppearance(options.contains(StyleColorOptions::UseDarkAppearance));
+    return colorFromCocoaColor([NSColor unemphasizedSelectedTextBackgroundColor]);
 }
 
 Color RenderThemeMac::transformSelectionBackgroundColor(const Color& color, OptionSet<StyleColorOptions> options) const
@@ -406,11 +402,10 @@ Color RenderThemeMac::platformFocusRingColor(OptionSet<StyleColorOptions> option
 }
 
 // MAVERICKS_BACKPORT: behavior fix — -[NSColor findHighlightColor] returns black on 10.9; hard-code yellow (options unused).
-Color RenderThemeMac::platformTextSearchHighlightColor(OptionSet<StyleColorOptions>) const
+Color RenderThemeMac::platformTextSearchHighlightColor(OptionSet<StyleColorOptions> options) const
 {
-    // MAVERICKS_BACKPORT: behavior fix — -[NSColor findHighlightColor] returns black on 10.9; use the
-    // standard yellow.
-    return SRGBA<uint8_t> { 255, 237, 102, 255 };
+    LocalDefaultSystemAppearance localAppearance(options.contains(StyleColorOptions::UseDarkAppearance));
+    return colorFromCocoaColor([NSColor findHighlightColor]);
 }
 
 Color RenderThemeMac::platformAnnotationHighlightBackgroundColor(OptionSet<StyleColorOptions>) const
