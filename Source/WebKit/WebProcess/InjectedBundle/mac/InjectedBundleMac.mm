@@ -76,13 +76,8 @@ static NSEventModifierFlags currentModifierFlags(id self, SEL _cmd)
 static RetainPtr<NSKeyedUnarchiver> createUnarchiver(std::span<const uint8_t> span)
 {
     RetainPtr data = toNSDataNoCopy(span, FreeWhenDone::No);
-    // MAVERICKS_BACKPORT: initForReadingFromData:error: + decodingFailurePolicy are 10.11+.
-    // Use the classic (deprecated) NSKeyedUnarchiver initializer, the only one on 10.9.
-    // Malformed data raises an NSException, caught by the @try/@catch around every
-    // decode call below.
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    RetainPtr unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:data.get()]);
-ALLOW_DEPRECATED_DECLARATIONS_END
+    RetainPtr unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingFromData:data.get() error:nullptr]);
+    unarchiver.get().decodingFailurePolicy = NSDecodingFailurePolicyRaiseException;
     return unarchiver;
 }
 
@@ -100,8 +95,7 @@ bool InjectedBundle::decodeBundleParameters(API::Data* bundleParameterDataPtr)
 
     RetainPtr<NSDictionary> dictionary;
     @try {
-        // MAVERICKS_BACKPORT: decodeObjectOfClasses:forKey: (secure coding) is 10.11+; use the classic decodeObjectForKey:, guarded by the @try/@catch.
-        dictionary = [unarchiver.get() decodeObjectForKey:@"parameters"];
+        dictionary = [unarchiver.get() decodeObjectOfClasses:classesForCoder().get() forKey:@"parameters"];
         if (![dictionary isKindOfClass:[NSDictionary class]]) {
             WTFLogAlways("InjectedBundle::decodeBundleParameters failed - Resulting object was not an NSDictionary.\n");
             return false;
@@ -260,8 +254,7 @@ void InjectedBundle::setBundleParameter(const String& key, std::span<const uint8
     RetainPtr<id> parameter;
     auto unarchiver = createUnarchiver(value);
     @try {
-        // MAVERICKS_BACKPORT: decodeObjectOfClasses:forKey: (secure coding) is 10.11+; use the classic decodeObjectForKey:, guarded by the @try/@catch.
-        parameter = [unarchiver decodeObjectForKey:@"parameter"];
+        parameter = [unarchiver decodeObjectOfClasses:classesForCoder().get() forKey:@"parameter"];
     } @catch (NSException *exception) {
         LOG_ERROR("Failed to decode bundle parameter: %@", exception);
         return;
@@ -278,8 +271,7 @@ void InjectedBundle::setBundleParameters(std::span<const uint8_t> value)
     RetainPtr<NSDictionary> parameters;
     auto unarchiver = createUnarchiver(value);
     @try {
-        // MAVERICKS_BACKPORT: decodeObjectOfClasses:forKey: (secure coding) is 10.11+; use the classic decodeObjectForKey:, guarded by the @try/@catch.
-        parameters = [unarchiver decodeObjectForKey:@"parameters"];
+        parameters = [unarchiver decodeObjectOfClasses:classesForCoder().get() forKey:@"parameters"];
     } @catch (NSException *exception) {
         LOG_ERROR("Failed to decode bundle parameter: %@", exception);
     }

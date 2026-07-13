@@ -1148,9 +1148,8 @@ static void addBrowsingContextControllerMethodStubsIfNeeded()
 - (void)resumeDownloadFromResumeData:(NSData *)resumeData completionHandler:(void(^)(WKDownload *))completionHandler
 {
     THROW_IF_SUSPENDED;
-    // MAVERICKS_BACKPORT: use the 10.9-available -initForReadingWithData: + -setRequiresSecureCoding: pair; -initForReadingFromData:error: and -setDecodingFailurePolicy: are 10.13+.
-    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:resumeData]);
-    [unarchiver setRequiresSecureCoding:YES];
+    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingFromData:resumeData error:nil]);
+    [unarchiver setDecodingFailurePolicy:NSDecodingFailurePolicyRaiseException];
     RetainPtr dictionary = [unarchiver decodeObjectOfClasses:[NSSet setWithObjects:[NSDictionary class], [NSArray class], [NSString class], [NSNumber class], [NSData class], [NSURL class], [NSURLRequest class], nil] forKey:@"NSKeyedArchiveRootObjectKey"];
     [unarchiver finishDecoding];
     RetainPtr path = [dictionary objectForKey:@"NSURLSessionResumeInfoLocalPath"];

@@ -43,15 +43,8 @@ namespace WebCoreTestSupport {
 static RetainPtr<CFURLResponseRef> createCFURLResponseFromResponseData(CFDataRef responseData)
 {
     NSURLResponse *response;
-    // MAVERICKS_BACKPORT: initForReadingFromData:error: and decodingFailurePolicy are
-    // 10.12+; on 10.9 fall back to the classic initForReadingWithData: initializer.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
     auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingFromData:(__bridge NSData *)responseData error:nullptr]);
     unarchiver.get().decodingFailurePolicy = NSDecodingFailurePolicyRaiseException;
-#else
-    // MAVERICKS_BACKPORT: 10.9 path uses the classic initForReadingWithData: (no error:/decodingFailurePolicy).
-    auto unarchiver = adoptNS([[NSKeyedUnarchiver alloc] initForReadingWithData:(__bridge NSData *)responseData]);
-#endif
     @try {
         response = [unarchiver decodeObjectOfClass:[NSURLResponse class] forKey:@"WebResourceResponse"]; // WebResourceResponseKey in WebResource.m
         [unarchiver finishDecoding];
