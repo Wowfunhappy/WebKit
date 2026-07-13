@@ -477,6 +477,12 @@ void xpc_transaction_exit_clean(void) { exit(0); }
 NSString * const NSAppearanceNameDarkAqua = @"NSAppearanceNameDarkAqua";
 NSString * const NSPresentationIntentAttributeName = @"NSPresentationIntent";
 NSString * const NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification = @"NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification";
+// NSLanguageIdentifierAttributeName (Foundation, macos(12.0); absent on 10.9) is Foundation's public
+// name for the long-standing NSAttributedString/CoreText language attribute. Its runtime value is
+// PROVABLY @"NSLanguage": on 10.9, kCTLanguageAttributeName (present, the single CoreText language
+// key) reads as "NSLanguage" (verified on-host), and Foundation's constant must resolve to the same
+// key to influence CoreText layout. WebKit already uses kCTLanguageAttributeName directly elsewhere.
+NSString * const NSLanguageIdentifierAttributeName = @"NSLanguage";
 
 // --- NSHTTPCookie SameSite policy constants (10.15+) ----------------------
 NSString * const NSHTTPCookieSameSiteLax = @"lax";
