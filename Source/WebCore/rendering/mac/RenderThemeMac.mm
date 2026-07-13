@@ -467,9 +467,7 @@ static SRGBA<uint8_t> menuBackgroundColor()
         bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:4 bitsPerPixel:32]);
 
     {
-        // MAVERICKS_BACKPORT: runtime-absent property — NSGraphicsContext.CGContext is 10.10+; use the
-        // classic -graphicsPort (cast to CGContextRef) on 10.9.
-        LocalCurrentCGContext localContext { static_cast<CGContextRef>([NSGraphicsContext graphicsContextWithBitmapImageRep:offscreenRep.get()].graphicsPort) };
+        LocalCurrentCGContext localContext { [NSGraphicsContext graphicsContextWithBitmapImageRep:offscreenRep.get()].CGContext };
 
         [[NSColor clearColor] set];
 

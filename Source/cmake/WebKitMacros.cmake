@@ -377,6 +377,17 @@ macro(WEBKIT_FRAMEWORK _target)
     _WEBKIT_TARGET(${_target})
     _WEBKIT_TARGET_ANALYZE(${_target})
 
+    # MAVERICKS_BACKPORT: tag every WebKit framework with __DATA,__wk_marker (libwk_marker.a). The
+    # selref patcher (wk_selref_scope.o, force-loaded into WebCore) rewrites __objc_selrefs only in
+    # marked images, so private-selector polyfills (WK_POLYFILL_SEL) are scoped to WebKit's own
+    # binaries — a host app embedding WebKit is never patched and never sees the modern public
+    # selectors. Pure data (no initializer), so it is safe even in frameworks like JavaScriptCore.
+    if (MAVERICKS_SUPPORT)
+        target_link_options(${_target} PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libwk_marker.a")
+        set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
+            "${MAVERICKS_SUPPORT}/polyfill/build/libwk_marker.a")
+    endif ()
+
     if (${_target}_OUTPUT_NAME)
         set_target_properties(${_target} PROPERTIES OUTPUT_NAME ${${_target}_OUTPUT_NAME})
     endif ()

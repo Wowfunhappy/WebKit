@@ -243,13 +243,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     {
-        // MAVERICKS_BACKPORT: +[NSGraphicsContext graphicsContextWithCGContext:flipped:] is 10.10+. On 10.9 it
-        // throws an "unrecognized selector" NSInvalidArgumentException, which BEGIN/END_BLOCK_OBJC_EXCEPTIONS
-        // silently swallows — so -displayRectIgnoringOpacity:inContext: never runs and the widget renders
-        // BLANK. This breaks NSView-backed widgets, notably Dashboard web clips drawn by DashboardClient
-        // (they appear empty until a full reload). Use the pre-10.10 graphicsContextWithGraphicsPort: (the
-        // graphics port IS the CGContextRef), matching LocalCurrentGraphicsContextMac.mm.
-        NSGraphicsContext *nsContext = [NSGraphicsContext graphicsContextWithGraphicsPort:cgContext.get() flipped:NO];
+        NSGraphicsContext *nsContext = [NSGraphicsContext graphicsContextWithCGContext:cgContext.get() flipped:NO];
         [view displayRectIgnoringOpacity:[view convertRect:r fromView:retainPtr([view superview]).get()] inContext:nsContext];
     }
     END_BLOCK_OBJC_EXCEPTIONS

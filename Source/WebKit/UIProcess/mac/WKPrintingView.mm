@@ -476,30 +476,29 @@ static RetainPtr<NSString> linkDestinationName(PDFDocument *document, PDFDestina
         return;
     }
 
-    CGContextRef context = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];
+    RetainPtr context = [[NSGraphicsContext currentContext] CGContext];
 
-    CGContextSaveGState(context);
-    CGContextTranslateCTM(context, point.x, point.y);
-    CGContextScaleCTM(context, _totalScaleFactorForPrinting, -_totalScaleFactorForPrinting);
-    CGContextTranslateCTM(context, 0, -[pdfPage boundsForBox:kPDFDisplayBoxMediaBox].size.height);
+    CGContextSaveGState(context.get());
+    CGContextTranslateCTM(context.get(), point.x, point.y);
+    CGContextScaleCTM(context.get(), _totalScaleFactorForPrinting, -_totalScaleFactorForPrinting);
+    CGContextTranslateCTM(context.get(), 0, -[pdfPage boundsForBox:kPDFDisplayBoxMediaBox].size.height);
 
     // MAVERICKS_BACKPORT: -[PDFPage drawWithBox:toContext:] is a 10.12+ PDFKit API; on 10.9 it is an
     // unrecognized selector, which throws mid-print and aborts the operation (PMSessionEndDocumentNoDialog
     // returns -30871) — the symptom for "Open PDF in Preview" / Save-as-PDF / printing. The pre-10.12 API
-    // -[PDFPage drawWithBox:] renders into the *current* NSGraphicsContext; `context` above IS that
-    // context's graphicsPort and our CTM is applied directly to it, so -drawWithBox: honors the same
-    // transform and produces identical output.
+    // -[PDFPage drawWithBox:] renders into the *current* NSGraphicsContext, whose CGContext is `context`
+    // above; our CTM is applied directly to it, so -drawWithBox: honors the same transform and produces
+    // identical output.
     if ([pdfPage respondsToSelector:@selector(drawWithBox:toContext:)])
-        [pdfPage drawWithBox:kPDFDisplayBoxMediaBox toContext:context];
+        [pdfPage drawWithBox:kPDFDisplayBoxMediaBox toContext:context.get()];
     else
         [pdfPage drawWithBox:kPDFDisplayBoxMediaBox];
 
-    CGAffineTransform transform = CGContextGetCTM(context);
+    CGAffineTransform transform = CGContextGetCTM(context.get());
 
     for (const auto& destination : _linkDestinationsPerPage[page]) {
         CGPoint destinationPoint = CGPointApplyAffineTransform(NSPointToCGPoint([destination point]), transform);
-        // MAVERICKS_BACKPORT: `context` is a raw CGContextRef (from -graphicsPort), not a RetainPtr, so no .get().
-        CGPDFContextAddDestinationAtPoint(context, bridge_cast(linkDestinationName(pdfDocument, destination.get())).get(), destinationPoint);
+        CGPDFContextAddDestinationAtPoint(context.get(), bridge_cast(linkDestinationName(pdfDocument, destination.get())).get(), destinationPoint);
     }
 
     for (PDFAnnotation *annotation in [pdfPage annotations]) {
@@ -515,17 +514,14 @@ static RetainPtr<NSString> linkDestinationName(PDFDocument *document, PDFDestina
             RetainPtr<PDFDestination> destination = [annotation respondsToSelector:@selector(destination)] ? (PDFDestination *)[annotation valueForKey:@"destination"] : nil;
             if (!destination)
                 continue;
-            // MAVERICKS_BACKPORT: `context` is a raw CGContextRef (from -graphicsPort), not a RetainPtr, so no .get().
-            CGPDFContextSetDestinationForRect(context, bridge_cast(linkDestinationName(pdfDocument, destination.get())).get(), transformedRect);
+            CGPDFContextSetDestinationForRect(context.get(), bridge_cast(linkDestinationName(pdfDocument, destination.get())).get(), transformedRect);
             continue;
         }
 
-        // MAVERICKS_BACKPORT: `context` is a raw CGContextRef (from -graphicsPort), not a RetainPtr, so no .get().
-        CGPDFContextSetURLForRect(context, bridge_cast(url.get()), transformedRect);
+        CGPDFContextSetURLForRect(context.get(), bridge_cast(url.get()), transformedRect);
     }
 
-    // MAVERICKS_BACKPORT: `context` is a raw CGContextRef (from -graphicsPort), not a RetainPtr, so no .get().
-    CGContextRestoreGState(context);
+    CGContextRestoreGState(context.get());
 }
 
 - (void)_drawPreview:(NSRect)nsRect
@@ -578,8 +574,7 @@ static RetainPtr<NSString> linkDestinationName(PDFDocument *document, PDFDestina
         return;
     }
 
-    // MAVERICKS_BACKPORT: use -[NSGraphicsContext graphicsPort] (-CGContext is 10.10+) to get the CGContextRef.
-    WebCore::GraphicsContextCG context((CGContextRef)[[NSGraphicsContext currentContext] graphicsPort]);
+    WebCore::GraphicsContextCG context([[NSGraphicsContext currentContext] CGContext]);
     WebCore::GraphicsContextStateSaver stateSaver(context);
 
     bitmap->paint(context, _webFrame->page()->deviceScaleFactor(), WebCore::IntPoint(nsRect.origin), bitmap->bounds());
