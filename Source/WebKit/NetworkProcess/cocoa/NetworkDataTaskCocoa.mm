@@ -549,11 +549,18 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
 
     if (parameters.shouldPreconnectOnly == PreconnectOnly::Yes) {
 #if ENABLE(SERVER_PRECONNECT)
-        // MAVERICKS_BACKPORT: -_preconnect is 10.11+. Without it, the task simply
-        // executes as a regular request — acceptable since preconnect is just
-        // an optimization.
+        // MAVERICKS_BACKPORT: -_preconnect (connection-only, no request sent) is 10.11+.
+        // When it exists, use it. When it does NOT (10.9), the task would otherwise run as
+        // a full GET of the target URL — which is not a harmless "optimization": for a
+        // server that rotates a Set-Cookie session on every response (e.g. any Rails app),
+        // that extra GET rotates the session out from under the just-rendered page, so the
+        // page's CSRF-protected forms (its login form's token no longer matches the stored
+        // session) fail with HTTP 422. It also double-requests every main resource. Since a
+        // preconnect is only a latency hint, mark it to be skipped in resume() instead.
         if ([m_task respondsToSelector:@selector(set_preconnect:)])
             m_task.get()._preconnect = true;
+        else
+            m_isUnsupportedPreconnect = true;
 #else
         ASSERT_NOT_REACHED();
 #endif
@@ -720,8 +727,12 @@ void NetworkDataTaskCocoa::didReceiveResponse(WebCore::ResourceResponse&& respon
             NSHTTPCookieStorage *cookieStorage = m_sessionWrapper->session.get().configuration.HTTPCookieStorage;
             if (cookieStorage) {
                 NSArray<NSHTTPCookie *> *cookies = [NSHTTPCookie cookiesWithResponseHeaderFields:[httpResponse allHeaderFields] forURL:[httpResponse URL]];
-                if (cookies.count > 0)
-                    [cookieStorage setCookies:cookies forURL:[httpResponse URL] mainDocumentURL:nil];
+                if (cookies.count > 0) {
+                    // Store with the real main-document URL so the storage's accept policy can do
+                    // the third-party check on 10.9 (our own blockCookies() is a no-op there).
+                    RetainPtr<NSURL> mainDocumentURL = isTopLevelNavigation() ? retainPtr([httpResponse URL]) : firstRequest().firstPartyForCookies().createNSURL();
+                    [cookieStorage setCookies:cookies forURL:[httpResponse URL] mainDocumentURL:mainDocumentURL.get()];
+                }
             }
         }
     }
@@ -739,6 +750,51 @@ void NetworkDataTaskCocoa::didReceiveResponse(WebCore::ResourceResponse&& respon
 void NetworkDataTaskCocoa::willPerformHTTPRedirection(WebCore::ResourceResponse&& redirectResponse, WebCore::ResourceRequest&& request, RedirectCompletionHandler&& completionHandler)
 {
     WTFEmitSignpost(m_task.get(), DataTask, "redirect");
+
+    // MAVERICKS_BACKPORT: 10.9's NSURLSession does not persist Set-Cookie headers from a 3xx
+    // redirect response — the same gap this file already works around for the initial request
+    // (manual Cookie injection above) and the final response (manual Set-Cookie storage in
+    // didReceiveResponse). NSURLSession only surfaces the redirect's cookies here, and it has
+    // ALREADY built the followed request's Cookie header from the pre-redirect storage state.
+    // Without this, a cookie set on a redirect — e.g. a login POST that 302s and sets the
+    // session cookie — is dropped: the followed request carries the stale pre-redirect cookie
+    // and the server treats the user as logged out. Persist the redirect response's cookies,
+    // then rebuild the followed request's Cookie header so they are actually sent.
+    if (RetainPtr<NSHTTPCookieStorage> cookieStorage = m_sessionWrapper->session.get().configuration.HTTPCookieStorage) {
+        RetainPtr<NSURLResponse> nsRedirectResponse = redirectResponse.nsURLResponse();
+        if ([nsRedirectResponse isKindOfClass:[NSHTTPURLResponse class]]) {
+            NSHTTPURLResponse *httpRedirect = (NSHTTPURLResponse *)nsRedirectResponse.get();
+            NSArray<NSHTTPCookie *> *setCookies = [NSHTTPCookie cookiesWithResponseHeaderFields:[httpRedirect allHeaderFields] forURL:[httpRedirect URL]];
+            if (setCookies.count) {
+                // Store with the real main-document URL so the storage's accept policy (which
+                // does the third-party check on 10.9, where our own blockCookies() is a no-op)
+                // can decide, exactly as the initial request and final response do. For a
+                // top-level navigation the main document IS the redirecting hop that set these
+                // cookies ([httpRedirect URL], as in didReceiveResponse) — NOT the redirect
+                // target, which would wrongly reject a cross-domain top-level handoff (idp →
+                // 302 Set-Cookie → app) under OnlyFromMainDocumentDomain.
+                RetainPtr<NSURL> mainDocumentURL = isTopLevelNavigation() ? retainPtr([httpRedirect URL]) : request.firstPartyForCookies().createNSURL();
+                [cookieStorage setCookies:setCookies forURL:[httpRedirect URL] mainDocumentURL:mainDocumentURL.get()];
+            }
+        }
+
+        // The followed request's Cookie header was built from the pre-redirect storage state, and
+        // 10.9 CFNetwork can carry a Cookie header over from the previous — possibly cross-site —
+        // request. Neither is correct for the target after the redirect. Drop it unconditionally
+        // (so no source-site cookies survive an origin hop, mirroring the Authorization/Origin
+        // stripping below), then rebuild from storage for the target URL when this load is allowed
+        // cookies (same gate as the initial-request injection above).
+        request.removeHTTPHeaderField(WebCore::HTTPHeaderName::Cookie);
+        if (m_storedCredentialsPolicy != WebCore::StoredCredentialsPolicy::DoNotUse && request.allowCookies()) {
+            RetainPtr<NSURL> nsRequestURL = request.url().createNSURL();
+            NSArray<NSHTTPCookie *> *cookies = [cookieStorage cookiesForURL:nsRequestURL.get()];
+            if (cookies.count) {
+                NSString *cookieHeader = [[NSHTTPCookie requestHeaderFieldsWithCookies:cookies] objectForKey:@"Cookie"];
+                if (cookieHeader.length)
+                    request.setHTTPHeaderField(WebCore::HTTPHeaderName::Cookie, String(cookieHeader));
+            }
+        }
+    }
 
     networkLoadMetrics().hasCrossOriginRedirect = networkLoadMetrics().hasCrossOriginRedirect || !WebCore::SecurityOrigin::create(request.url())->canRequest(redirectResponse.url(), WebCore::EmptyOriginAccessPatterns::singleton());
 
@@ -908,6 +964,14 @@ void NetworkDataTaskCocoa::resume()
 
     if (m_failureScheduled)
         return;
+
+    // MAVERICKS_BACKPORT: a preconnect-only task with no connection-only SPI (10.9) must not be
+    // sent as a real request (see the preconnect handling in the constructor). Cancel it instead;
+    // the cancellation completes the PreconnectTask benignly (its timeout is a backstop).
+    if (m_isUnsupportedPreconnect) {
+        [m_task cancel];
+        return;
+    }
 
     if (!m_session || m_session->isInvalidated())
         return;
