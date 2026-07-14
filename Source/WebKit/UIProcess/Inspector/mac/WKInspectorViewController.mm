@@ -164,6 +164,13 @@ MAVERICKS_BACKPORT */
     } else if (![configuration processPool])
         [configuration setProcessPool:adoptNS([[WKProcessPool alloc] init]).get()];
     configuration.get()->_pageConfiguration->setDelaysWebProcessLaunchUntilFirstLoad(true);
+    // MAVERICKS_BACKPORT (#52): the frontend page draws no background, so the injected unified-
+    // toolbar CSS's rounded top corners are genuinely transparent and the NSThemeFrame's own
+    // rounded titlebar corners show through — the web view covers the whole window (frame-view
+    // hosting in WebInspectorUIProxy::platformCreateFrontendWindow) and would otherwise paint
+    // square corners over them. The page content stays opaque (body paints the gradient, #main
+    // is white). Must be set at configuration time: the page reads drawsBackground once at init.
+    configuration.get()->_pageConfiguration->setDrawsBackground(false);
     RetainPtr<WKInspectorResourceURLSchemeHandler> inspectorSchemeHandler = adoptNS([WKInspectorResourceURLSchemeHandler new]);
     RetainPtr<NSMutableSet<NSString *>> allowedURLSchemes = adoptNS([[NSMutableSet alloc] initWithObjects:WKInspectorResourceScheme, nil]);
     for (auto& pair : _configuration->_configuration->urlSchemeHandlers())

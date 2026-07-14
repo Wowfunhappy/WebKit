@@ -154,10 +154,53 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
     return [super conformsToProtocol:protocol];
 }
 
+// MAVERICKS_BACKPORT: give the page first crack at Cmd-key equivalents (mirrors the WKView.mm
+// override; upstream WKWebView routes performKeyEquivalent through WebViewImpl the same way).
+// Without this, every key equivalent went straight to the app menus, so frontend editors that
+// implement their own shortcuts never saw the key-down — in the Web Inspector console the menu's
+// Select All ran against WebCore's editor (selecting CodeMirror's hidden textarea, visually
+// nothing) instead of CodeMirror's own Cmd+A handler. Events the page leaves unhandled come back
+// through PageClientImpl::doneWithKeyEvent -> WebViewImpl::doneWithKeyEvent and are re-dispatched
+// to AppKit, so app menu shortcuts (and the Edit-menu actions above) still fire.
+- (BOOL)performKeyEquivalent:(NSEvent *)event
+{
+    WebKit::WebViewImpl *impl = self._impl;
+    if (!impl || [event type] != NSEventTypeKeyDown)
+        return [super performKeyEquivalent:event];
+
+    // A nested event loop during dispatch can release the current event; keep it alive.
+    retainPtr(event).autorelease();
+
+    // We get Esc here after Esc or Cmd+period gets transformed to a cancelOperation: command;
+    // don't interpret it again (avoids re-entrancy / infinite loops), matching WebViewImpl.
+    if ([[event charactersIgnoringModifiers] isEqualToString:@"\e"] && !([event modifierFlags] & NSEventModifierFlagDeviceIndependentFlagsMask))
+        return [super performKeyEquivalent:event];
+
+    // The page already saw this event; it is being re-dispatched to AppKit for the menus.
+    if (impl->keyDownEventBeingResent())
+        return [super performKeyEquivalent:event];
+
+    // Only Cmd-modified keys are menu key equivalents on this path; anything else keeps
+    // flowing through keyDown:.
+    if (!([event modifierFlags] & NSCommandKeyMask))
+        return [super performKeyEquivalent:event];
+
+    if ([[self window] firstResponder] == self) {
+        WTF::Vector<WebCore::KeypressCommand> commands;
+        WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
+        impl->page().handleKeyboardEvent(webEvent);
+        return YES;
+    }
+
+    return [super performKeyEquivalent:event];
+}
+
 - (void)keyDown:(NSEvent *)event
 {
     WebKit::WebViewImpl *impl = self._impl;
     if (!impl) { [super keyDown:event]; return; }
+    // The page already saw this event; it is being re-dispatched to AppKit (no menu claimed it).
+    if (impl->keyDownEventBeingResent() == event) { [super keyDown:event]; return; }
     @try {
         WTF::Vector<WebCore::KeypressCommand> commands;
         // MAVERICKS_BACKPORT: skip interpretKeyEvents for Cmd-modified keys — those are menu
@@ -211,6 +254,37 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
         WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
         impl->page().handleKeyboardEvent(webEvent);
     } @catch (NSException *) { }
+}
+
+// MAVERICKS_BACKPORT: standard Edit-menu responder actions. Upstream's full WKWebViewMac.mm
+// implements copy/cut/paste/pasteAsPlainText/selectAll as WEBCORE_COMMANDs; this backfilled
+// category lacked them, so in WKWebView-hosted UI (the Web Inspector frontend) the Edit menu's
+// copy:/cut:/paste: actions found no responder in the chain and every item stayed disabled —
+// no copy/paste in the WK2 inspector console while the WK1 inspector (WebHTMLView implements
+// them) worked. undo:/redo: are backport-only forwarders (upstream has no WKWebView undo:/redo:
+// and relies on NSUndoManager first-responder resolution): they mirror WKView.mm's
+// WKV_EDIT_ACTION pair and round-trip to the same UI-process NSUndoManager via
+// WebPageProxy::executeUndoRedo.
+#define WKWV_EDIT_ACTION(SEL_NAME, COMMAND) \
+- (void)SEL_NAME:(id)sender \
+{ \
+    if (WebKit::WebViewImpl *impl = self._impl) \
+        impl->page().executeEditCommand(WTF::String(COMMAND ## _s), WTF::String()); \
+}
+WKWV_EDIT_ACTION(copy,             "Copy")
+WKWV_EDIT_ACTION(cut,              "Cut")
+WKWV_EDIT_ACTION(paste,            "Paste")
+WKWV_EDIT_ACTION(pasteAsPlainText, "PasteAsPlainText")
+WKWV_EDIT_ACTION(undo,             "Undo")
+WKWV_EDIT_ACTION(redo,             "Redo")
+#undef WKWV_EDIT_ACTION
+
+// MAVERICKS_BACKPORT: Select All routes through WebPageProxy::selectAll like WKView's -selectAll:
+// (upstream's full WKWebViewMac.mm exposes it the same way).
+- (void)selectAll:(id)sender
+{
+    if (WebKit::WebViewImpl *impl = self._impl)
+        impl->page().selectAll();
 }
 
 // MAVERICKS_BACKPORT: Declared in WKWebViewMac.h and called from -[WKWebView dealloc]; upstream's

@@ -224,11 +224,7 @@ void WebInspectorFrontendClient::frontendLoaded()
 
 void WebInspectorFrontendClient::startWindowDrag()
 {
-    // MAVERICKS_BACKPORT: -[NSWindow performWindowDragWithEvent:] is 10.11+; on 10.9 the frontend
-    // toolbar drag simply no-ops (the window still moves by its titlebar) rather than killing the host.
-    NSWindow *window = [m_frontendWindowController window];
-    if ([window respondsToSelector:@selector(performWindowDragWithEvent:)])
-        [window performWindowDragWithEvent:[NSApp currentEvent]];
+    [[m_frontendWindowController window] performWindowDragWithEvent:[NSApp currentEvent]];
 }
 
 // MAVERICKS_BACKPORT: [NSBundle bundleWithIdentifier:] only finds an already-loaded bundle, and
@@ -543,10 +539,11 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 // bare per-domain commands in the modern Target domain (the Target-protocol bridge below): the
 // WebKit 615 WK1 local backend routes every command through Target, so without the bridge the DOM
 // and Resources trees stay empty and console eval returns nothing. Every bridge is typeof-guarded,
-// so a modern frontend (the built-tree Test.html) passes through untouched. The WK2 toolbar-CSS and
-// toolbar-mousedown window-drag shims are NOT ported: the 10.9 inspector window keeps its native
-// titlebar (see -[WebInspectorWindowController window]), so AppKit handles window dragging and the
-// unified-toolbar emulation those shims compensate for does not exist here.
+// so a modern frontend (the built-tree Test.html) passes through untouched. The WK2 unified-toolbar
+// CSS and toolbar-mousedown window-drag shims are ported too (#52): the undocked WK1 inspector
+// window hosts the frontend WebView in its frame view so the HTML toolbar fills the titlebar region
+// (see -[WebInspectorWindowController showWindow:]), which needs the same painted gradient,
+// traffic-light inset, and whole-toolbar drag handle the WK2 inspector window uses.
 static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
 {
     NSData *htmlData = [NSData dataWithContentsOfFile:pagePath options:NSDataReadingMappedIfSafe error:nullptr];
@@ -567,6 +564,28 @@ static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
 
     NSRange firstScript = [html rangeOfString:@"<script"];
     if (firstScript.location != NSNotFound) {
+        // Unified titlebar+toolbar CSS (same rules WebInspectorUIProxy::platformInspectorPageLoadOverride
+        // injects for WK2, #52): a 22px #wk-titlebar strip (inserted by the shim below) holds the
+        // floating traffic lights and the centered window title, the stock toolbar below keeps its
+        // untouched 56px layout (its fixed border-box height means padding would squish the icons),
+        // and ONE continuous gradient painted on body spans strip+toolbar (78px). The stock undocked
+        // .toolbar is transparent (it expected a native textured window), so the gradient shows
+        // through it.
+        // Gradient endpoints measured off a native Mavericks unified titlebar+toolbar (Finder
+        // window, lossless screen samples, frontmost-app-verified in each state): ACTIVE = 1px
+        // rgb(242) top bevel, rgb(234) -> rgb(176), 1px rgb(105) bottom border; INACTIVE =
+        // rgb(240) -> rgb(223), 1px rgb(166) bottom border. The 4px top-corner radius + the
+        // transparent WebView (drawsBackground NO in the undocked branch of -showWindow:) let the
+        // NSThemeFrame's own rounded titlebar corners show through instead of the WebView painting
+        // square over them.
+        NSString *unifiedToolbarCSS = @"<style>"
+            @"body:not(.docked){background-image:-webkit-linear-gradient(top,rgb(242,242,242),rgb(234,234,234) 1px,rgb(176,176,176) 77px,rgb(105,105,105) 77px,rgb(105,105,105) 78px);background-repeat:no-repeat;background-size:100% 78px;border-top-left-radius:4px;border-top-right-radius:4px;}"
+            @"body:not(.docked).window-inactive{background-image:-webkit-linear-gradient(top,rgb(240,240,240),rgb(223,223,223) 77px,rgb(166,166,166) 77px,rgb(166,166,166) 78px);}"
+            @"body.docked{background-color:white;}"
+            @"#wk-titlebar{height:22px;-webkit-flex:none;text-align:center;font-family:'Lucida Grande';font-size:13px;line-height:22px;color:rgba(0,0,0,0.85);text-shadow:rgba(255,255,255,0.5) 0 1px 0;padding:0 80px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:default;}"
+            @"body.window-inactive #wk-titlebar{color:rgba(0,0,0,0.5);}"
+            @"body.docked #wk-titlebar{display:none;}"
+            @"</style>";
         NSString *shim = @"<script>(function(){"
                           "var IFH=window.InspectorFrontendHost;if(!IFH)return;"
                           "function asMethod(name){var val=IFH[name];Object.defineProperty(IFH,name,{value:function(){return val;},writable:true,configurable:true});}"
@@ -587,16 +606,50 @@ static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
                           "try{(function(){var origSend=IFH.sendMessageToBackend.bind(IFH);var currentTargetId=null;var pendingQueue=[];var wrapperIdBase=1000000;var wrapperIds=Object.create(null);"
                           "function wrap(ms){var wid=wrapperIdBase++;wrapperIds[wid]=true;return JSON.stringify({id:wid,method:'Target.sendMessageToTarget',params:{targetId:currentTargetId,message:ms}});}"
                           "function flushQueue(){if(!currentTargetId||!pendingQueue.length)return;var q=pendingQueue;pendingQueue=[];for(var i=0;i<q.length;i++){try{origSend(wrap(q[i]));}catch(e){}}}"
+                          // Two CSS-protocol shapes drifted since this classic frontend (#52):
+                          // (1) CSS.SelectorList.selectors are CSSSelector OBJECTS ({text, specificity});
+                          // the frontend expects plain strings and renders the section headers by joining
+                          // them — giving "[object Object], [object Object]" for every rule. Flatten each
+                          // selector object to its .text. (2) the author stylesheet origin was renamed
+                          // "regular" -> "author"; the frontend's origin switch leaves the rule type
+                          // undefined for the unknown value and the Rules sidebar drops every author rule
+                          // (only Style Attribute + User Agent Stylesheet entries survived). Map it back,
+                          // gated to CSS payload shapes (selectorList/style/styleSheetId present).
+                          "function fixSel(o){if(!o||typeof o!=='object')return;var sl=o.selectorList;if(sl&&sl.selectors instanceof Array&&sl.selectors.length&&typeof sl.selectors[0]==='object'){sl.selectors=sl.selectors.map(function(s){return s&&typeof s==='object'?String(s.text||''):s;});}if(o.origin==='author'&&(o.selectorList||o.style||o.styleSheetId))o.origin='regular';for(var k in o){var v=o[k];if(v&&typeof v==='object')fixSel(v);}}"
                           "IFH.sendMessageToBackend=function(messageStr){"
                           "try{var msg=JSON.parse(messageStr);var dom=msg.method&&msg.method.split('.')[0];"
                           "if(dom==='Target'||dom==='Browser')return origSend(messageStr);"
                           "if(!currentTargetId){pendingQueue.push(messageStr);return;}"
                           "return origSend(wrap(messageStr));"
                           "}catch(e){}return origSend(messageStr);};"
-                          "var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){return origDisp(obj.params.message);}}catch(e){}return origDisp(message);};}}});"
+                          "var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){var im=obj.params.message;if(typeof im==='string'&&(im.indexOf('selectorList')!==-1||im.indexOf('\"origin\":\"author\"')!==-1)){try{var po=JSON.parse(im);fixSel(po);return origDisp(po);}catch(e2){}}return origDisp(im);}}catch(e){}return origDisp(message);};}}});"
                           "})();}catch(e){}"
+                          // The 22px unified-titlebar strip (ported from the WK2 shim, #52; see the injected
+                          // CSS above). The title text comes from the frontend's
+                          // InspectorFrontendHost.inspectedURLChanged(host) — the same source the native
+                          // (hidden) window title is formatted from.
+                          "try{var wkTitle='Web Inspector';"
+                          "document.addEventListener('DOMContentLoaded',function(){try{"
+                          "if(document.getElementById('wk-titlebar'))return;"
+                          "var bar=document.createElement('div');bar.id='wk-titlebar';bar.textContent=wkTitle;"
+                          "document.body.insertBefore(bar,document.body.firstChild);"
+                          "}catch(e){}});"
+                          "if(typeof IFH.inspectedURLChanged==='function'){var origIUC=IFH.inspectedURLChanged.bind(IFH);Object.defineProperty(IFH,'inspectedURLChanged',{value:function(t){try{wkTitle='Web Inspector \\u2014 '+t;var b=document.getElementById('wk-titlebar');if(b)b.textContent=wkTitle;}catch(e){}return origIUC(t);},writable:true,configurable:true});}"
+                          "}catch(e){}"
+                          // Titlebar-strip + whole-toolbar window-drag handle (ported from the WK2 shim, #52):
+                          // the frontend WebView covers the native titlebar in the undocked unified-toolbar
+                          // window, so route background mousedowns (off interactive items, undocked only) to
+                          // InspectorFrontendHost.startWindowDrag() — backed by the wk_ manual drag loop
+                          // polyfill for -[NSWindow performWindowDragWithEvent:] on 10.9.
+                          "try{document.addEventListener('mousedown',function(ev){"
+                          "if(ev.button!==0||!ev.target||!ev.target.closest)return;"
+                          "if(document.body&&document.body.classList.contains('docked'))return;"
+                          "if(!ev.target.closest('#wk-titlebar, #toolbar, .toolbar'))return;"
+                          "if(ev.target.closest('button,input,select,textarea,a,.item,.toolbar-item,.dashboard-container,.navigation-bar,.search-bar,[role=button]'))return;"
+                          "if(IFH.startWindowDrag){IFH.startWindowDrag();ev.preventDefault();ev.stopPropagation();}"
+                          "},true);}catch(e){}"
                           "})();</script>";
-        html = [html stringByReplacingCharactersInRange:NSMakeRange(firstScript.location, 0) withString:shim];
+        html = [html stringByReplacingCharactersInRange:NSMakeRange(firstScript.location, 0) withString:[unifiedToolbarCSS stringByAppendingString:shim]];
     }
     return [html dataUsingEncoding:NSUTF8StringEncoding];
 }
@@ -677,7 +730,9 @@ static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
     // MAVERICKS_BACKPORT: NSWindowStyleMaskFullSizeContentView + -setTitlebarAppearsTransparent:
     // (below) are the 10.10+ "content fills the titlebar region" combo. On 10.9 the style bit is
     // inert but -setTitlebarAppearsTransparent: is an unrecognized selector that kills the host app,
-    // so both are dropped here for a normal titled inspector window.
+    // so both are dropped here; the full-size-content-view appearance is instead emulated by the
+    // undocked branch of -showWindow:, which hosts the frontend WebView in the window's frame view
+    // sized to the full window (the HTML #toolbar fills the titlebar region).
     NSUInteger styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
     if ([NSWindow instancesRespondToSelector:@selector(setTitlebarAppearsTransparent:)])
         styleMask |= NSWindowStyleMaskFullSizeContentView;
@@ -719,6 +774,21 @@ static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
     [self destroyInspectorView];
 
     return YES;
+}
+
+// MAVERICKS_BACKPORT (#52): the undocked frontend WebView is hosted in the window's frame view
+// (NSThemeFrame) for the unified toolbar, and 10.9's NSThemeFrame does its own layout and does
+// not honor the autoresizing mask on a manually-added subview — the same reason
+// WebInspectorUIProxy::inspectedViewFrameDidChange resizes the WK2 inspector webView explicitly.
+// Track window resizes by hand; the classic WebView reflows itself from setFrame:.
+- (void)windowDidResize:(NSNotification *)notification
+{
+    if (_attachedToInspectedWebView || !_visible)
+        return;
+    NSView *contentView = [[self window] contentView];
+    NSView *frameView = [contentView superview] ?: contentView;
+    if ([_frontendWebView superview] == frameView)
+        [_frontendWebView setFrame:[frameView bounds]];
 }
 
 - (void)windowDidEnterFullScreen:(NSNotification *)notification
@@ -787,15 +857,37 @@ static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
         [_frontendWebView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable | NSViewMaxYMargin)];
         [frameView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable | NSViewMinYMargin)];
 
+        // MAVERICKS_BACKPORT (#52): docked, the frontend WebView sits inside the inspected
+        // WebView and must paint its own background again (the undocked branch makes it
+        // transparent for the rounded window corners).
+        [_frontendWebView setDrawsBackground:YES];
+
         _attachedToInspectedWebView = YES;
     } else {
         _attachedToInspectedWebView = NO;
 
+        // MAVERICKS_BACKPORT (#52, unified inspector toolbar): NSWindowStyleMaskFullSizeContentView +
+        // -setTitlebarAppearsTransparent: are 10.10+ (see -window), so on 10.9 the frontend WebView
+        // is hosted directly in the window's FRAME VIEW (the content view's superview / NSThemeFrame)
+        // sized to the FULL window — the HTML #toolbar fills the titlebar region and merges with it,
+        // and the standard window buttons are then raised above it so the traffic lights float over
+        // the toolbar. Mirror of WebInspectorUIProxy::platformCreateFrontendWindow (WK2); the toolbar
+        // gradient/inset comes from the CSS wkTransformedClassicFrontendPage injects.
         NSView *contentView = [[self window] contentView];
-        [_frontendWebView setFrame:[contentView frame]];
+        NSView *frameView = [contentView superview] ?: contentView;
+        [_frontendWebView setFrame:[frameView bounds]];
         [_frontendWebView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+        // MAVERICKS_BACKPORT (#52): transparent WebView so the injected CSS's rounded top corners
+        // reveal the NSThemeFrame's own rounded titlebar corners (the page content itself stays
+        // opaque — body paints the unified gradient, #main is white).
+        [_frontendWebView setDrawsBackground:NO];
         [_frontendWebView removeFromSuperview];
-        [contentView addSubview:_frontendWebView.get()];
+        [frameView addSubview:_frontendWebView.get() positioned:NSWindowAbove relativeTo:contentView];
+
+        for (NSInteger buttonType = NSWindowCloseButton; buttonType <= NSWindowZoomButton; ++buttonType) {
+            if (NSButton *windowButton = [[self window] standardWindowButton:(NSWindowButton)buttonType])
+                [[windowButton superview] addSubview:windowButton positioned:NSWindowAbove relativeTo:nil];
+        }
 
         [super showWindow:nil];
     }

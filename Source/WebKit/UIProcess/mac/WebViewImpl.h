@@ -693,6 +693,11 @@ public:
     void keyUp(NSEvent *);
     void keyDown(NSEvent *);
     void flagsChanged(NSEvent *);
+    // MAVERICKS_BACKPORT: exposes the doneWithKeyEvent resend guard to the WKWebView
+    // Mac10_9EventForwarding category's performKeyEquivalent:/keyDown: overrides — upstream keeps
+    // this flow inside WebViewImpl::keyDown/performKeyEquivalent, which that category bypasses
+    // (their interpretKeyEvent path needs the 10.10+ NSTextInputContext completion-handler SPI).
+    NSEvent *keyDownEventBeingResent() const { return m_keyDownEventBeingResent.get(); }
 
     // Override this so that AppKit will send us arrow keys as key down events so we can
     // support them via the key bindings mechanism.
