@@ -29,7 +29,6 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <dispatch/dispatch.h>
 #include <wtf/AutodrainedPool.h>
-#include <wtf/BlockPtr.h>
 #include <wtf/SchedulePair.h>
 
 namespace WTF {
@@ -112,31 +111,17 @@ void RunLoop::stop()
 
 void RunLoop::dispatch(const SchedulePairHashSet& schedulePairs, Function<void()>&& function)
 {
-    // Deliver the work into the caller's scheduled run-loop modes (a one-shot CFRunLoopTimer added
-    // to each pair's runLoop+mode), so it runs in whatever mode is being pumped — including a
-    // *private* mode an app spins to advance a load. Messages defers its initial substitute-data
-    // main resource through here (DocumentLoader::tryLoadingSubstituteData) and pumps
-    // @"iChatWebKitLoadingRunLoopMode" in -_windowDidLoad waiting for it; without per-mode delivery
-    // the continuation never runs in that mode and the app wedges at 100% CPU.
-    //
-    // MAVERICKS_BACKPORT: WK2 XPC services register no schedule pairs; the CFRunLoopTimer below is
-    // added only to schedule-pair run loops, so with zero pairs it would never fire. Fall back to
-    // dispatching on the main RunLoop for that case.
-    if (schedulePairs.isEmpty()) {
-        RunLoop::mainSingleton().dispatch(WTF::move(function));
-        return;
-    }
-
-    // MAVERICKS_BACKPORT: one-shot CFRunLoopTimer for the per-mode SchedulePair delivery above; the handler block owns the moved Function.
-    RetainPtr<CFRunLoopTimerRef> timer = adoptCF(CFRunLoopTimerCreateWithHandler(kCFAllocatorDefault, CFAbsoluteTimeGetCurrent(), 0, 0, 0, makeBlockPtr([function = WTF::move(function)](CFRunLoopTimerRef timer) mutable {
+    auto timer = createTimer(0_s, false, [] (CFRunLoopTimerRef timer, void* context) {
         AutodrainedPool pool;
-        function();
-        // MAVERICKS_BACKPORT: the one-shot timer self-invalidates after running the work (per-mode SchedulePair delivery).
+
         CFRunLoopTimerInvalidate(timer);
-    }).get()));
-    // MAVERICKS_BACKPORT: add the timer to each scheduled pair's run loop+mode so work runs in the app-pumped (private) mode.
+
+        auto function = adopt(static_cast<Function<void()>::Impl*>(context));
+        function();
+    }, function.leak());
+
     for (auto& schedulePair : schedulePairs)
-        CFRunLoopAddTimer(schedulePair->runLoop(), timer.get(), schedulePair->mode());
+        CFRunLoopAddTimer(protect(schedulePair->runLoop()).get(), timer.get(), protect(schedulePair->mode()).get());
 }
 
 // RunLoop::Timer
