@@ -1600,6 +1600,21 @@ void NetworkConnectionToWebProcess::establishSWContextConnection(WebPageProxyIde
         Ref swServer = session->ensureSWServer();
         auto allowCookieAccess = session->networkProcess().allowsFirstPartyForCookies(webProcessIdentifier(), site.domain());
         MESSAGE_CHECK_COMPLETION(allowCookieAccess != NetworkProcess::AllowCookieAccess::Terminate, completionHandler());
+        // MAVERICKS_BACKPORT: behavior fix (SW dangling-WeakRef family, root cause of the 2026-07-14
+        // rapid-navigation NetworkProcess crashes). Upstream assigns over m_swContextConnection raw
+        // because process-per-site makes re-establishment on a live connection unreachable; on this
+        // port the service-worker host process is the reused, never-site-committed page process (see
+        // WebProcessPool::establishRemoteWorkerContextConnectionToNetworkProcess), so rapid navigation
+        // re-establishes this connection for successive different domains. Dropping the previous
+        // connection without stop() destroys it while still in SWServer::m_contextConnections; the
+        // dangling WeakRef then blocks every later addContextConnection() for that domain
+        // (HashMap::add() no-ops on an existing key) and get() resolves null — crashing the
+        // run-request drain and permanently unmapping the domain's service workers. Run the same
+        // exchange+stop() teardown every sibling path in this file uses (didClose,
+        // closeSWContextConnection, serviceWorkerServerToContextConnectionNoLongerNeeded), which
+        // removes the map entry and re-creates a connection for the old domain if still needed.
+        if (RefPtr previous = std::exchange(m_swContextConnection, nullptr))
+            previous->stop();
         m_swContextConnection = WebSWServerToContextConnection::create(*this, webPageProxyID, WTF::move(site), serviceWorkerPageIdentifier, swServer);
     }
     completionHandler();
