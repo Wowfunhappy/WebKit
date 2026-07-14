@@ -1077,15 +1077,32 @@ bool WebInspectorUIProxy::platformInspectorPageLoadOverride(WebPageProxy& inspec
         // exposes them as attribute getters under different names).
         NSRange firstScript = [html rangeOfString:@"<script"];
         if (firstScript.location != NSNotFound) {
-            // MAVERICKS_BACKPORT (#69): paint the unified-toolbar gradient + traffic-light inset here at
-            // frontend-load time instead of patching the system WebInspectorUI Main.css — keeps the
-            // stock bundle pristine (no system-file edit). The undocked inspector window has no
-            // native textured titlebar, and _WKInspectorWindow makes #toolbar fill the titlebar
-            // region (full-size-content-view emulation), so paint the docked gradient on the
-            // undocked toolbar and reserve 78px for the floating window buttons.
+            // MAVERICKS_BACKPORT (#69/#52): build the unified titlebar+toolbar here at frontend-load
+            // time instead of patching the system WebInspectorUI Main.css — keeps the stock bundle
+            // pristine (no system-file edit). The web view covers the whole window (full-size-
+            // content-view emulation), so the shim inserts a 22px #wk-titlebar strip as body's first
+            // flex child: the traffic lights (raised above the web view in
+            // platformCreateFrontendWindow, at their standard titlebar position) and the centered
+            // window title live in the strip, the stock toolbar below keeps its untouched 56px
+            // layout (its fixed border-box height means padding would squish the icons), and ONE
+            // continuous gradient painted on body spans strip+toolbar (78px) — the real
+            // NSUnifiedTitleAndToolbar proportions from Apple's Web Inspector documentation shot.
+            // The stock undocked .toolbar is transparent (it expected a native textured window),
+            // so the body gradient shows through it.
+            // Gradient endpoints measured off a native Mavericks unified titlebar+toolbar (Finder
+            // window, lossless screen samples, frontmost-app-verified in each state): ACTIVE = 1px
+            // rgb(242) top bevel, rgb(234) -> rgb(176), 1px rgb(105) bottom border; INACTIVE =
+            // rgb(240) -> rgb(223), 1px rgb(166) bottom border. The 4px top-corner radius + the
+            // transparent web view (drawsBackground false on the page configuration) let the
+            // NSThemeFrame's own rounded titlebar corners show through instead of the web view
+            // painting square over them.
             NSString *unifiedToolbarCSS = @"<style>"
-                @"body:not(.docked) #toolbar, body:not(.docked) .toolbar{background-image:-webkit-linear-gradient(top,rgb(216,216,216),rgb(190,190,190)) !important;box-shadow:inset rgba(255,255,255,0.1) 0 1px 0,inset rgba(0,0,0,0.02) 0 -1px 0 !important;}"
-                @"body:not(.docked) #toolbar{padding-left:78px !important;}"
+                @"body:not(.docked){background-image:-webkit-linear-gradient(top,rgb(242,242,242),rgb(234,234,234) 1px,rgb(176,176,176) 77px,rgb(105,105,105) 77px,rgb(105,105,105) 78px);background-repeat:no-repeat;background-size:100% 78px;border-top-left-radius:4px;border-top-right-radius:4px;}"
+                @"body:not(.docked).window-inactive{background-image:-webkit-linear-gradient(top,rgb(240,240,240),rgb(223,223,223) 77px,rgb(166,166,166) 77px,rgb(166,166,166) 78px);}"
+                @"body.docked{background-color:white;}"
+                @"#wk-titlebar{height:22px;-webkit-flex:none;text-align:center;font-family:'Lucida Grande';font-size:13px;line-height:22px;color:rgba(0,0,0,0.85);text-shadow:rgba(255,255,255,0.5) 0 1px 0;padding:0 80px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:default;}"
+                @"body.window-inactive #wk-titlebar{color:rgba(0,0,0,0.5);}"
+                @"body.docked #wk-titlebar{display:none;}"
                 @"</style>";
             NSString *shim = @"<script>(function(){"
                               "window.__inspErrors=[];window.addEventListener('error',function(e){window.__inspErrors.push((e.message||'?')+' @ '+(e.filename||'?').replace(/.*\\//,'')+':'+(e.lineno||'?'));});"
@@ -1108,22 +1125,48 @@ bool WebInspectorUIProxy::platformInspectorPageLoadOverride(WebPageProxy& inspec
                               "try{(function(){var origSend=IFH.sendMessageToBackend.bind(IFH);var currentTargetId=null;var pendingQueue=[];var wrapperIdBase=1000000;var wrapperIds=Object.create(null);"
                               "function wrap(ms){var wid=wrapperIdBase++;wrapperIds[wid]=true;return JSON.stringify({id:wid,method:'Target.sendMessageToTarget',params:{targetId:currentTargetId,message:ms}});}"
                               "function flushQueue(){if(!currentTargetId||!pendingQueue.length)return;var q=pendingQueue;pendingQueue=[];for(var i=0;i<q.length;i++){try{origSend(wrap(q[i]));}catch(e){}}}"
+                              // Two CSS-protocol shapes drifted since this classic frontend (#52):
+                              // (1) CSS.SelectorList.selectors are CSSSelector OBJECTS ({text, specificity});
+                              // the frontend expects plain strings and renders the section headers by joining
+                              // them — giving "[object Object], [object Object]" for every rule. Flatten each
+                              // selector object to its .text. (2) the author stylesheet origin was renamed
+                              // "regular" -> "author"; the frontend's origin switch leaves the rule type
+                              // undefined for the unknown value and the Rules sidebar drops every author rule
+                              // (only Style Attribute + User Agent Stylesheet entries survived). Map it back,
+                              // gated to CSS payload shapes (selectorList/style/styleSheetId present).
+                              "function fixSel(o){if(!o||typeof o!=='object')return;var sl=o.selectorList;if(sl&&sl.selectors instanceof Array&&sl.selectors.length&&typeof sl.selectors[0]==='object'){sl.selectors=sl.selectors.map(function(s){return s&&typeof s==='object'?String(s.text||''):s;});}if(o.origin==='author'&&(o.selectorList||o.style||o.styleSheetId))o.origin='regular';for(var k in o){var v=o[k];if(v&&typeof v==='object')fixSel(v);}}"
                               "IFH.sendMessageToBackend=function(messageStr){"
                               "try{var msg=JSON.parse(messageStr);var dom=msg.method&&msg.method.split('.')[0];"
                               "if(dom==='Target'||dom==='Browser')return origSend(messageStr);"
                               "if(!currentTargetId){pendingQueue.push(messageStr);return;}"
                               "return origSend(wrap(messageStr));"
                               "}catch(e){}return origSend(messageStr);};"
-                              "var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){return origDisp(obj.params.message);}}catch(e){}return origDisp(message);};}}});"
+                              "var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){var im=obj.params.message;if(typeof im==='string'&&(im.indexOf('selectorList')!==-1||im.indexOf('\"origin\":\"author\"')!==-1)){try{var po=JSON.parse(im);fixSel(po);return origDisp(po);}catch(e2){}}return origDisp(im);}}catch(e){}return origDisp(message);};}}});"
                               "})();}catch(e){console.log('[shim] THREW '+e);}"
-                              // MAVERICKS_BACKPORT (#69): make the WHOLE inspector toolbar background a native window-drag
-                              // handle. The web view covers the native titlebar (unified-toolbar emulation) so
-                              // AppKit titlebar-dragging is gone, and the stock frontend only arms a narrow
-                              // moveWindowBy region. Route toolbar-background mousedowns (off interactive items)
-                              // to startWindowDrag(), now backed by a 10.9 manual drag loop in WebViewImpl.
+                              // MAVERICKS_BACKPORT (#52): the 22px unified-titlebar strip (see the injected CSS
+                              // above). The window title text comes from the frontend's
+                              // InspectorFrontendHost.inspectedURLChanged(host) — the same source the native
+                              // (hidden) window title is formatted from.
+                              "try{var wkTitle='Web Inspector';"
+                              "document.addEventListener('DOMContentLoaded',function(){try{"
+                              "if(document.getElementById('wk-titlebar'))return;"
+                              "var bar=document.createElement('div');bar.id='wk-titlebar';bar.textContent=wkTitle;"
+                              "document.body.insertBefore(bar,document.body.firstChild);"
+                              "}catch(e){}});"
+                              "if(typeof IFH.inspectedURLChanged==='function'){var origIUC=IFH.inspectedURLChanged.bind(IFH);Object.defineProperty(IFH,'inspectedURLChanged',{value:function(t){try{wkTitle='Web Inspector \\u2014 '+t;var b=document.getElementById('wk-titlebar');if(b)b.textContent=wkTitle;}catch(e){}return origIUC(t);},writable:true,configurable:true});}"
+                              "}catch(e){}"
+                              // MAVERICKS_BACKPORT (#69): make the titlebar strip + WHOLE inspector toolbar
+                              // background a native window-drag handle. The web view covers the native titlebar
+                              // (unified-toolbar emulation) so AppKit titlebar-dragging is gone, and the stock
+                              // frontend only arms a narrow moveWindowBy region. Route background mousedowns
+                              // (off interactive items) to startWindowDrag(), backed by a 10.9 manual drag loop
+                              // in WebViewImpl.
                               "try{document.addEventListener('mousedown',function(ev){"
                               "if(ev.button!==0||!ev.target||!ev.target.closest)return;"
-                              "if(!ev.target.closest('#toolbar, .toolbar'))return;"
+                              // Undocked only: when docked the toolbar lives inside the inspected browser
+                              // window, and a window drag from there would move the whole browser window.
+                              "if(document.body&&document.body.classList.contains('docked'))return;"
+                              "if(!ev.target.closest('#wk-titlebar, #toolbar, .toolbar'))return;"
                               "if(ev.target.closest('button,input,select,textarea,a,.item,.toolbar-item,.dashboard-container,.navigation-bar,.search-bar,[role=button]'))return;"
                               "if(IFH.startWindowDrag){IFH.startWindowDrag();ev.preventDefault();ev.stopPropagation();}"
                               "},true);}catch(e){}"
