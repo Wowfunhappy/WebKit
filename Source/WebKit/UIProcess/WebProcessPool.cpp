@@ -755,15 +755,7 @@ void WebProcessPool::establishRemoteWorkerContextConnectionToNetworkProcess(Remo
 
     // Prioritize the requesting WebProcess for running the service worker.
     if (!remoteWorkerProcessProxy && !s_useSeparateServiceWorkerProcess && requestingProcess && requestingProcess->state() != WebProcessProxy::State::Terminated) {
-        // MAVERICKS_BACKPORT: WebProcesses launched by Safari are never committed to a Site
-        // (site() stays an uninitialized Expected), so the strict site-equality check below
-        // never matches; we then fall through to creating a standalone service-worker context
-        // process, which never finishes launching on this OS. The result is that EVERY
-        // service-worker-controlled navigation hangs for the full 70s serviceWorkerFetchTimeout
-        // before falling back to the network. Reuse the requesting page process (already
-        // launched, same data store, same registrable-domain family that triggered the worker)
-        // whenever it has no committed site of its own.
-        if (requestingProcess->websiteDataStore() == websiteDataStore && (requestingProcess->site() == site || !requestingProcess->site().has_value()) && !requestingProcess->isInProcessCache())
+        if (requestingProcess->websiteDataStore() == websiteDataStore && requestingProcess->site() == site && !requestingProcess->isInProcessCache())
             useProcessForRemoteWorkers(*requestingProcess);
     }
 
