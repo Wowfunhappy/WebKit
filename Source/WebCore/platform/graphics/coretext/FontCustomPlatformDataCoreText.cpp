@@ -28,12 +28,12 @@
 #include "FontCreationContext.h"
 #include "FontDescription.h"
 #include "FontPlatformData.h"
-// MAVERICKS_BACKPORT: extra includes for the sfnt variation-table stripper / CGFont font-load path below.
+// MAVERICKS_BACKPORT: extra includes for the software variable-font instancer wiring
+// below — <algorithm> for the axis-value clamps, StringBuilder for the instance-cache key.
+#include "LegacyCoreTextVariableFontInstancer.h"
 #include <algorithm>
-#include <cstring>
-#include <wtf/NeverDestroyed.h>
-#include <wtf/Vector.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/text/StringBuilder.h>
 #include "SharedBuffer.h"
 #include "StyleFontSizeFunctions.h"
 #include "UnrealizedCoreTextFont.h"
@@ -46,10 +46,99 @@ namespace WebCore {
 
 FontCustomPlatformData::~FontCustomPlatformData() = default;
 
+// MAVERICKS_BACKPORT: the pinned axis values for one realization of a variable font,
+// mirroring UnrealizedCoreTextFont::modifyFromContext's variation selection: the
+// wght/wdth/slnt (or ital) axes track the font-selection request clamped to the
+// @font-face capabilities, any other axis stays at its default, and CSS
+// font-variation-settings override per the css-fonts-4 precedence.
+static std::vector<std::pair<uint32_t, float>> pinnedAxisValuesForDescription(const std::vector<LegacyVariableFontAxis>& axes, const FontDescription& fontDescription, const FontCreationContext& fontCreationContext)
+{
+    auto request = fontDescription.fontSelectionRequest();
+    float weight = request.weight;
+    float width = request.width;
+    float slope = request.slope.value_or(normalItalicValue());
+    if (auto weightValue = fontCreationContext.fontFaceCapabilities().weight)
+        weight = std::max(std::min(weight, static_cast<float>(weightValue->maximum)), static_cast<float>(weightValue->minimum));
+    if (auto widthValue = fontCreationContext.fontFaceCapabilities().width)
+        width = std::max(std::min(width, static_cast<float>(widthValue->maximum)), static_cast<float>(widthValue->minimum));
+    if (auto slopeValue = fontCreationContext.fontFaceCapabilities().slope)
+        slope = std::max(std::min(slope, static_cast<float>(slopeValue->maximum)), static_cast<float>(slopeValue->minimum));
+
+    constexpr uint32_t wghtTag = 0x77676874;
+    constexpr uint32_t wdthTag = 0x77647468;
+    constexpr uint32_t slntTag = 0x736C6E74;
+    constexpr uint32_t italTag = 0x6974616C;
+    // An 'opsz' axis stays at its fvar default (upstream applies automatic optical
+    // sizing from the font size; a per-size static instance per element size would
+    // defeat the instance cache). Explicit font-variation-settings 'opsz' still pins.
+
+    std::vector<std::pair<uint32_t, float>> pins;
+    pins.reserve(axes.size());
+    for (const auto& axis : axes) {
+        float value = axis.defaultValue;
+        if (axis.tag == wghtTag)
+            value = weight;
+        else if (axis.tag == wdthTag)
+            value = width;
+        else if (axis.tag == slntTag && fontDescription.fontStyleAxis() != FontStyleAxis::ital)
+            value = slope;
+        else if (axis.tag == italTag && fontDescription.fontStyleAxis() == FontStyleAxis::ital)
+            value = 1;
+        for (auto& variationSetting : fontDescription.variationSettings()) {
+            auto tag = variationSetting.tag();
+            uint32_t rawTag = (uint32_t(uint8_t(tag[0])) << 24) | (uint32_t(uint8_t(tag[1])) << 16) | (uint32_t(uint8_t(tag[2])) << 8) | uint8_t(tag[3]);
+            if (rawTag == axis.tag)
+                value = variationSetting.value();
+        }
+        value = std::min(axis.maximumValue, std::max(axis.minimumValue, value));
+        pins.emplace_back(axis.tag, value);
+    }
+    return pins;
+}
+
 FontPlatformData FontCustomPlatformData::fontPlatformData(const FontDescription& fontDescription, bool bold, bool italic, const FontCreationContext& fontCreationContext)
 {
     auto size = fontDescription.adjustedSizeForFontFace(fontCreationContext.sizeAdjust());
-    UnrealizedCoreTextFont unrealizedFont = { RetainPtr { fontDescriptor } };
+    // MAVERICKS_BACKPORT: for variable fonts, realize from a software-cut static
+    // instance at the requested axis values (cached per pinned-value set); the member
+    // fontDescriptor is the stripped default master and serves as the fallback.
+    RetainPtr<CTFontDescriptorRef> descriptor = fontDescriptor;
+    if (!m_legacyVariableFontAxes.empty()) {
+        auto pins = pinnedAxisValuesForDescription(m_legacyVariableFontAxes, fontDescription, fontCreationContext);
+        bool allDefault = true;
+        for (size_t i = 0; i < pins.size(); ++i)
+            allDefault &= pins[i].second == m_legacyVariableFontAxes[i].defaultValue;
+        if (!allDefault) {
+            StringBuilder keyBuilder;
+            for (const auto& [tag, value] : pins) {
+                keyBuilder.append(tag);
+                keyBuilder.append('=');
+                keyBuilder.append(static_cast<int>(std::lround(value * 100)));
+                keyBuilder.append(';');
+            }
+            String key = keyBuilder.toString();
+            Locker locker { m_legacyInstanceCacheLock };
+            auto iterator = m_legacyInstanceCache.find(key);
+            if (iterator != m_legacyInstanceCache.end())
+                descriptor = iterator->value;
+            else {
+                RetainPtr<CTFontDescriptorRef> instancedDescriptor;
+                if (RetainPtr instanced = adoptCF(createLegacyVariableFontInstance(creationData.fontFaceData->createCFData().get(), pins)))
+                    instancedDescriptor = adoptCF(CTFontManagerCreateFontDescriptorFromData(instanced.get()));
+                if (!instancedDescriptor)
+                    instancedDescriptor = fontDescriptor;
+                // font-variation-settings is animatable, so pinned-value sets can be
+                // minted per frame; the cache is capped, and past the cap instances are
+                // realized uncached (bounded memory — a pathological animated axis pays
+                // CPU, not RSS). Each entry holds a full static sfnt via its descriptor.
+                static constexpr unsigned maximumCachedInstances = 128;
+                if (m_legacyInstanceCache.size() < maximumCachedInstances)
+                    m_legacyInstanceCache.add(key, instancedDescriptor);
+                descriptor = WTF::move(instancedDescriptor);
+            }
+        }
+    }
+    UnrealizedCoreTextFont unrealizedFont = { RetainPtr { descriptor } };
     unrealizedFont.setSize(size);
     unrealizedFont.modify([&](CFMutableDictionaryRef attributes) {
         addAttributesForWebFonts(attributes, fontDescription.shouldAllowUserInstalledFonts());
@@ -114,183 +203,48 @@ static RetainPtr<CFDataRef> extractFontCustomPlatformDataMemorySafe(const Shared
 }
 #endif
 
-// MAVERICKS_BACKPORT: big-endian sfnt byte helpers + checksum for the legacy-CoreText
-// variation-table stripper and CGFont-based font loader below.
-static inline uint32_t readBE32(const uint8_t* p) { return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3]; }
-static inline uint16_t readBE16(const uint8_t* p) { return (uint16_t(p[0]) << 8) | p[1]; }
-static inline void writeBE32(uint8_t* p, uint32_t v) { p[0] = v >> 24; p[1] = v >> 16; p[2] = v >> 8; p[3] = v; }
-static inline void writeBE16(uint8_t* p, uint16_t v) { p[0] = v >> 8; p[1] = v; }
-
-static uint32_t sfntTableChecksum(const uint8_t* data, uint32_t length)
-{
-    uint32_t sum = 0;
-    uint32_t nLongs = (length + 3) / 4;
-    for (uint32_t i = 0; i < nLongs; ++i) {
-        uint32_t word = 0;
-        for (unsigned b = 0; b < 4; ++b) {
-            uint32_t idx = i * 4 + b;
-            word = (word << 8) | (idx < length ? data[idx] : 0);
-        }
-        sum += word;
-    }
-    return sum;
-}
-
-// MAVERICKS_BACKPORT: macOS 10.9's CoreText predates OpenType 1.8 variable fonts and instances them via its
-// legacy TrueType-GX path. A single-axis font (lone 'wght' — Inter, Open Sans) instances correctly, but
-// the moment a font carries a SECOND axis ('wdth'/'opsz'/… — Mona Sans / GitHub's UI font, Roboto Flex)
-// the CGFont we build from it (CGFontCreateWithDataProvider, below) produces collapsed/empty glyph
-// outlines, so the text renders as a handful of stray glyphs or nothing at all. Pinning fewer axes or
-// dropping the kCTFontVariationAttribute at realize() time does NOT help — the CGFont itself is broken.
-// The static (non-variable) build of the very same typeface renders perfectly through this same code
-// path, so for multi-axis fonts we rewrite the sfnt to drop the variation tables (fvar/gvar/avar/…),
-// turning it into its default (Regular) master. Glyphs then render correctly; width/optical-size/weight
-// axis selection is lost and WebKit synthesizes bold/oblique as needed. Single-axis fonts are left
-// untouched so they keep real weight interpolation.
-static RetainPtr<CFDataRef> stripVariationTablesForLegacyCoreText(CFDataRef input)
-{
-    if (!input)
-        return input;
-    const uint8_t* data = CFDataGetBytePtr(input);
-    CFIndex size = CFDataGetLength(input);
-    if (size < 12)
-        return input;
-
-    uint32_t sfntVersion = readBE32(data);
-    // Only single TrueType-outline sfnts (0x00010000 / 'true'). Skip collections ('ttcf') and CFF ('OTTO').
-    if (sfntVersion != 0x00010000 && sfntVersion != 0x74727565)
-        return input;
-
-    uint16_t numTables = readBE16(data + 4);
-    if (size < 12 + CFIndex(numTables) * 16)
-        return input;
-
-    struct Record { uint32_t tag, checksum, offset, length; };
-    Vector<Record> records;
-    records.reserveInitialCapacity(numTables);
-    int fvarIndex = -1;
-    for (uint16_t i = 0; i < numTables; ++i) {
-        const uint8_t* r = data + 12 + i * 16;
-        Record rec { readBE32(r), readBE32(r + 4), readBE32(r + 8), readBE32(r + 12) };
-        if (rec.tag == 0x66766172 /* 'fvar' */)
-            fvarIndex = records.size();
-        records.append(rec);
-    }
-
-    if (fvarIndex < 0)
-        return input; // Not a variable font.
-
-    // Read the axis count from the fvar header (axisCount is a uint16 at byte 8 of the table).
-    const Record& fvar = records[fvarIndex];
-    if (fvar.offset + 10 > uint32_t(size))
-        return input;
-    uint16_t axisCount = readBE16(data + fvar.offset + 8);
-    if (axisCount <= 1)
-        return input; // Single-axis variable fonts instance correctly on 10.9 — leave them alone.
-
-    auto isVariationTable = [](uint32_t tag) {
-        switch (tag) {
-        case 0x66766172: /* fvar */
-        case 0x67766172: /* gvar */
-        case 0x61766172: /* avar */
-        case 0x63766172: /* cvar */
-        case 0x48564152: /* HVAR */
-        case 0x56564152: /* VVAR */
-        case 0x4D564152: /* MVAR */
-        case 0x53544154: /* STAT */
-            return true;
-        default:
-            return false;
-        }
-    };
-
-    Vector<Record> kept;
-    for (const auto& rec : records) {
-        if (!isVariationTable(rec.tag) && rec.offset && rec.length && rec.offset + rec.length <= uint32_t(size))
-            kept.append(rec);
-    }
-    if (kept.size() == records.size() || kept.isEmpty())
-        return input; // Nothing to strip, or the font is too corrupt to safely rewrite — leave it alone.
-    // sfnt requires table records sorted ascending by tag.
-    std::sort(kept.begin(), kept.end(), [](const Record& a, const Record& b) { return a.tag < b.tag; });
-
-    uint16_t newNumTables = kept.size();
-    uint32_t headerSize = 12 + uint32_t(newNumTables) * 16;
-    uint32_t total = headerSize;
-    for (const auto& rec : kept)
-        total += (rec.length + 3) & ~3u;
-
-    Vector<uint8_t> out(total, 0);
-    uint8_t* o = out.mutableSpan().data();
-    // Offset table.
-    writeBE32(o, sfntVersion);
-    writeBE16(o + 4, newNumTables);
-    uint16_t entrySelector = 0;
-    while ((1u << (entrySelector + 1)) <= newNumTables)
-        ++entrySelector;
-    uint16_t searchRange = (1u << entrySelector) * 16;
-    writeBE16(o + 6, searchRange);
-    writeBE16(o + 8, entrySelector);
-    writeBE16(o + 10, uint16_t(newNumTables * 16 - searchRange));
-
-    uint32_t dataOffset = headerSize;
-    int headOutputOffset = -1;
-    for (uint16_t i = 0; i < newNumTables; ++i) {
-        const Record& rec = kept[i];
-        memcpy(o + dataOffset, data + rec.offset, rec.length);
-        if (rec.tag == 0x68656164 /* 'head' */ && rec.length >= 12) {
-            headOutputOffset = dataOffset;
-            // checkSumAdjustment (bytes 8..12) must be zero while checksums are computed.
-            writeBE32(o + dataOffset + 8, 0);
-        }
-        uint32_t checksum = sfntTableChecksum(o + dataOffset, rec.length);
-        uint8_t* recOut = o + 12 + i * 16;
-        writeBE32(recOut, rec.tag);
-        writeBE32(recOut + 4, checksum);
-        writeBE32(recOut + 8, dataOffset);
-        writeBE32(recOut + 12, rec.length);
-        dataOffset += (rec.length + 3) & ~3u;
-    }
-
-    // head.checkSumAdjustment = 0xB1B0AFBA - checksum(whole file with the field still zero).
-    if (headOutputOffset >= 0)
-        writeBE32(o + headOutputOffset + 8, 0xB1B0AFBAu - sfntTableChecksum(o, total));
-
-    return adoptCF(CFDataCreate(kCFAllocatorDefault, o, total));
-}
-
 RefPtr<FontCustomPlatformData> FontCustomPlatformData::create(SharedBuffer& buffer, const String& itemInCollection)
 {
-    // MAVERICKS_BACKPORT: CoreText 10.9's TFontFeatures pipeline crashes on many
-    // downloaded fonts (DDG and others) — TBaseFont::CopyFeatures calls
-    // CreateFontWithFontURL which message-sends to a freed object.
-    //
-    // Try the CGFont path first: load via CGDataProviderCreateWithCFData +
-    // CGFontCreateWithDataProvider, then create a CTFontDescriptor from the
-    // CGFont. The CGFont path avoids triggering TFontFeatures loading because
-    // CT skips feature setup when given a CGFont-backed descriptor.
-    RetainPtr<CFDataRef> bufferData = buffer.createCFData();
-    if (!bufferData)
+// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text;
+// 10.9's libFontParser does not export the FPFont system-parser API (FPFontCreateFontsFromData /
+// FPFontCopySFNTData), so the already-decompressed buffer is used directly.
+//     RetainPtr extractedData = extractFontCustomPlatformDataSystemParser(buffer, itemInCollection);
+//     if (!extractedData) {
+//         // Something is wrong with the font.
+//         return nullptr;
+//     }
+    RetainPtr<CFDataRef> extractedData = buffer.createCFData();
+    if (!extractedData) {
+        // Something is wrong with the font.
         return nullptr;
-    // MAVERICKS_BACKPORT: neutralize multi-axis variable fonts (see stripVariationTablesForLegacyCoreText).
-    bufferData = stripVariationTablesForLegacyCoreText(bufferData.get());
-    RetainPtr provider = adoptCF(CGDataProviderCreateWithCFData(bufferData.get()));
-    if (!provider)
-        return nullptr;
-    RetainPtr cgFont = adoptCF(CGFontCreateWithDataProvider(provider.get()));
-    if (!cgFont)
-        return nullptr;
-    // Get a CTFontDescriptor from the CGFont via a CTFont round-trip.
-    auto ctFont = adoptCF(CTFontCreateWithGraphicsFont(cgFont.get(), 12.0, nullptr, nullptr));
-    if (!ctFont)
-        return nullptr;
-    RetainPtr fontDescriptor = adoptCF(CTFontCopyFontDescriptor(ctFont.get()));
+    }
+// (end MAVERICKS_BACKPORT restored block)
+
+    // MAVERICKS_BACKPORT: 10.9 cannot instance variable fonts (CT variation attributes are
+    // ignored; CGFontCreateCopyWithVariations collapses outlines), so the member descriptor
+    // is built from a static strip of the fvar default master, the ORIGINAL variable bytes
+    // stay in creationData, and fontPlatformData() below cuts real static instances at the
+    // requested axis values (see LegacyCoreTextVariableFontInstancer.h). Note the descriptor
+    // call below binds to libpolyfill's CGFont-backed CTFontManagerCreateFontDescriptorFromData
+    // (graphics_shims.c): 10.9's own returns descriptors that crash in TFontFeatures at
+    // realize time.
+    // KNOWN GAP: consumers that rebuild a font straight from creationData's bytes with the
+    // member descriptor (Font::fromIPCData / FontPlatformData::fromIPCData — the GPU-process
+    // font IPC round trip) render the DEFAULT master, not a pinned instance. Dormant here:
+    // this port draws with the TiledCoreAnimation drawing area, so fonts never take that path.
+    RetainPtr<CFDataRef> strippedData = adoptCF(createFontDataWithVariationTablesStripped(extractedData.get()));
+
+    RetainPtr fontDescriptor = adoptCF(CTFontManagerCreateFontDescriptorFromData(strippedData.get()));
+    // MAVERICKS_BACKPORT: reject fonts even the CGFont-backed descriptor path cannot parse.
     if (!fontDescriptor)
         return nullptr;
-    Ref bufferRef = SharedBuffer::create(bufferData.get());
+    Ref bufferRef = SharedBuffer::create(extractedData.get());
 
     FontPlatformData::CreationData creationData = { WTF::move(bufferRef), itemInCollection };
-    return adoptRef(new FontCustomPlatformData(fontDescriptor.get(), WTF::move(creationData)));
+    RefPtr result = adoptRef(new FontCustomPlatformData(fontDescriptor.get(), WTF::move(creationData)));
+    // MAVERICKS_BACKPORT: record the variable axes for the software instancer.
+    result->m_legacyVariableFontAxes = legacyVariableFontAxes(extractedData.get());
+    return result;
 }
 
 RefPtr<FontCustomPlatformData> FontCustomPlatformData::createMemorySafe(SharedBuffer& buffer, const String& itemInCollection)

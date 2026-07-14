@@ -79,4 +79,44 @@ int sqlite3_bind_blob64(sqlite3_stmt *statement, int index, const void *data, sq
 // SecTrustCopyCertificateChain lives in const_polyfill.c (the canonical definition — it must be in
 // an object that every target's link already pulls, because the callers' references are WEAK
 // imports, which do not pull archive members on their own).
+
+// CTFontManagerCreateFontDescriptorFromData — DELIBERATE OVERRIDE of a present-but-broken 10.9
+// function (allow-listed in check-polyfill-shadows.sh). The 10.9 implementation returns
+// descriptors that crash when realized: TFontFeatures loading (TBaseFont::CopyFeatures →
+// CreateFontWithFontURL) message-sends a freed object for many downloaded fonts (DDG and
+// others). Descriptors built from a CGFont avoid TFontFeatures setup entirely, so the
+// replacement round-trips the data through CGFontCreateWithDataProvider →
+// CTFontCreateWithGraphicsFont → CTFontCopyFontDescriptor. Costs on this path (accepted):
+// CTFontCopyVariationAxes returns null and font-feature-settings are skipped — WebCore
+// compensates for variations with its software instancer (LegacyCoreTextVariableFontInstancer).
+// Data a CGFont cannot parse falls through to the real CoreText implementation so exotic
+// inputs keep exact system behavior.
+#include <dlfcn.h>
+CTFontDescriptorRef CTFontManagerCreateFontDescriptorFromData(CFDataRef data) {
+    if (data) {
+        CGDataProviderRef provider = CGDataProviderCreateWithCFData(data);
+        if (provider) {
+            CGFontRef cgFont = CGFontCreateWithDataProvider(provider);
+            CGDataProviderRelease(provider);
+            if (cgFont) {
+                CTFontRef ctFont = CTFontCreateWithGraphicsFont(cgFont, 12.0, NULL, NULL);
+                CGFontRelease(cgFont);
+                if (ctFont) {
+                    CTFontDescriptorRef descriptor = CTFontCopyFontDescriptor(ctFont);
+                    CFRelease(ctFont);
+                    if (descriptor)
+                        return descriptor;
+                }
+            }
+        }
+    }
+    // dlsym on the framework handle bypasses this image-local definition.
+    static CTFontDescriptorRef (*realImplementation)(CFDataRef);
+    if (!realImplementation) {
+        void *coreText = dlopen("/System/Library/Frameworks/CoreText.framework/CoreText", RTLD_LAZY | RTLD_NOLOAD);
+        if (coreText)
+            realImplementation = (CTFontDescriptorRef (*)(CFDataRef))dlsym(coreText, "CTFontManagerCreateFontDescriptorFromData");
+    }
+    return realImplementation ? realImplementation(data) : NULL;
+}
 #pragma clang diagnostic pop

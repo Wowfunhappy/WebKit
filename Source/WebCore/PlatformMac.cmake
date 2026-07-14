@@ -381,6 +381,9 @@ list(APPEND WebCore_SOURCES
     platform/graphics/coretext/FontCustomPlatformDataCoreText.cpp
     platform/graphics/coretext/FontPlatformDataCoreText.cpp
     platform/graphics/coretext/GlyphPageCoreText.cpp
+    # MAVERICKS_BACKPORT: software variable-font instancer (10.9 CoreText cannot
+    # instance variable fonts; see LegacyCoreTextVariableFontInstancer.h).
+    platform/graphics/coretext/LegacyCoreTextVariableFontInstancer.cpp
     platform/graphics/coretext/SimpleFontDataCoreText.cpp
 
     platform/graphics/cv/CVUtilities.mm
