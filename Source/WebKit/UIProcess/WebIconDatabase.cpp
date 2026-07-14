@@ -62,6 +62,11 @@ void WebIconDatabase::setIconDataForPageURL(const String& pageURL, const String&
 
 RefPtr<API::Data> WebIconDatabase::iconDataForPageURL(const String& pageURL)
 {
+    // Safari queries with a null URL for pages that have no URL yet (e.g. a fresh new tab), and a
+    // null String must not reach HashMap::get (hashing it dereferences a null StringImpl).
+    if (pageURL.isEmpty())
+        return nullptr;
+
     auto iconURL = m_pageURLToIconURL.get(pageURL);
     if (iconURL.isEmpty())
         return nullptr;
@@ -70,6 +75,9 @@ RefPtr<API::Data> WebIconDatabase::iconDataForPageURL(const String& pageURL)
 
 String WebIconDatabase::iconURLForPageURL(const String& pageURL)
 {
+    if (pageURL.isEmpty())
+        return String();
+
     return m_pageURLToIconURL.get(pageURL);
 }
 
