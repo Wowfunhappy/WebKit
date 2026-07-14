@@ -29,8 +29,10 @@
 #include "APIArray.h"
 #include "APIAutomationClient.h"
 #include "APICustomProtocolManagerClient.h"
+#include "APIData.h"
 #include "APIDownloadClient.h"
 #include "APIHTTPCookieStore.h"
+#include "APIIconLoadingClient.h"
 #include "APIInjectedBundleClient.h"
 #include "APILegacyContextHistoryClient.h"
 #include "APINavigation.h"
@@ -78,6 +80,7 @@
 #include "WebContextSupplement.h"
 #include "WebFrameProxy.h"
 #include "WebGeolocationManagerProxy.h"
+#include "WebIconDatabase.h"
 #include "WebInspectorUtilities.h"
 #include "WebKit2Initialize.h"
 #include "WebKitServiceNames.h"
@@ -99,6 +102,7 @@
 #include "WebsiteDataStoreParameters.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <WebCore/GamepadProvider.h>
+#include <WebCore/LinkIcon.h>
 #include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/NotImplemented.h>
@@ -120,6 +124,7 @@
 #include <wtf/ProcessPrivilege.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Scope.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/URLParser.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/MakeString.h>
@@ -178,6 +183,41 @@
 
 namespace WebKit {
 using namespace WebCore;
+
+// MAVERICKS_BACKPORT: per-page icon-loading client for Safari 7's C-API pages. When WebCore finds a
+// favicon it asks for a load decision; we approve http(s) icons, let the WebProcess fetch the bytes,
+// then hand them to the revived WebIconDatabase, which notifies Safari via the legacy C client (#49).
+class PageIconLoadingClient final : public API::IconLoadingClient {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(PageIconLoadingClient);
+public:
+    PageIconLoadingClient(WebPageProxy& page, WebIconDatabase& iconDatabase)
+        : m_page(page)
+        , m_iconDatabase(&iconDatabase)
+    {
+    }
+
+    void getLoadDecisionForIcon(const WebCore::LinkIcon& icon, CompletionHandler<void(CompletionHandler<void(API::Data*)>&&)>&& completionHandler) override
+    {
+        if (!icon.url.protocolIsInHTTPFamily()) {
+            completionHandler(nullptr);
+            return;
+        }
+
+        RefPtr page = m_page.get();
+        String pageURL = page ? page->pageLoadState().activeURL() : String();
+        String iconURL = icon.url.string();
+        RefPtr iconDatabase = m_iconDatabase;
+        completionHandler([iconDatabase, pageURL, iconURL](API::Data* iconData) {
+            if (!iconDatabase || !iconData || pageURL.isEmpty())
+                return;
+            iconDatabase->setIconDataForPageURL(pageURL, iconURL, *iconData);
+        });
+    }
+
+private:
+    WeakPtr<WebPageProxy> m_page;
+    RefPtr<WebIconDatabase> m_iconDatabase;
+};
 
 #if ENABLE(GPU_PROCESS)
 constexpr Seconds resetGPUProcessCrashCountDelay { 30_s };
@@ -1341,6 +1381,24 @@ Ref<WebUserContentControllerProxy> WebProcessPool::userContentControllerForRemot
     return *m_userContentControllerForRemoteWorkers;
 }
 
+// MAVERICKS_BACKPORT: lazily create the revived per-pool icon database Safari 7 asks for (#49).
+WebIconDatabase& WebProcessPool::iconDatabase()
+{
+    if (!m_iconDatabase)
+        m_iconDatabase = WebIconDatabase::create();
+    return *m_iconDatabase;
+}
+
+// MAVERICKS_BACKPORT: Safari 7 enables favicons by setting the icon-database path; treat a
+// non-empty path as "enabled" and materialize the database so createWebPage attaches a real
+// icon-loading client (#49).
+void WebProcessPool::setIconDatabasePath(const String& path)
+{
+    m_iconDatabaseEnabled = !path.isEmpty();
+    if (m_iconDatabaseEnabled)
+        iconDatabase();
+}
+
 Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API::PageConfiguration>&& pageConfiguration)
 {
     if (!pageConfiguration->pageGroup())
@@ -1417,6 +1475,10 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
 #if ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
     NetworkProcessProxy::ensureDefaultNetworkProcess();
 #endif
+
+    // MAVERICKS_BACKPORT: attach a real icon-loading client so favicons load for Safari 7's C-API pages (#49).
+    if (m_iconDatabaseEnabled && m_iconDatabase)
+        page->setIconLoadingClient(makeUnique<PageIconLoadingClient>(page.get(), *m_iconDatabase));
 
     return page;
 }

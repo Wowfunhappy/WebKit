@@ -25,11 +25,46 @@
 
 #pragma once
 
+// MAVERICKS_BACKPORT: Upstream reduced WebIconDatabase to an empty shell after removing the
+// WK2 IconDatabase. Safari 7 still drives favicons through the legacy WK2 C API
+// (WKContextGetIconDatabase / WKIconDatabaseSetIconDatabaseClient / WKIconDatabaseTryGetCGImageForURL),
+// so we revive it as a minimal in-memory store: pageURL->iconURL and iconURL->icon bytes,
+// populated by the icon-loading client and read back by the C API (#49).
+
 #include "APIObject.h"
+#include <wtf/HashMap.h>
+#include <wtf/text/WTFString.h>
+
+namespace API {
+class Data;
+class IconDatabaseClient;
+}
 
 namespace WebKit {
 
 class WebIconDatabase : public API::ObjectImpl<API::Object::Type::IconDatabase> {
+public:
+    static Ref<WebIconDatabase> create();
+    ~WebIconDatabase();
+
+    void setClient(std::unique_ptr<API::IconDatabaseClient>&&);
+
+    void setIconDataForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Ref<API::Data>&&);
+    RefPtr<API::Data> iconDataForPageURL(const WTF::String& pageURL);
+    WTF::String iconURLForPageURL(const WTF::String& pageURL);
+    void removeAllIcons();
+
+private:
+    WebIconDatabase();
+
+    std::unique_ptr<API::IconDatabaseClient> m_client;
+    HashMap<String, String> m_pageURLToIconURL;
+    HashMap<String, RefPtr<API::Data>> m_iconURLToData;
 };
 
 } // namespace WebKit
+
+// MAVERICKS_BACKPORT: needed so toImpl(WKIconDatabaseRef) can downcast API::Object -> WebIconDatabase (#49).
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebIconDatabase)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::IconDatabase; }
+SPECIALIZE_TYPE_TRAITS_END()

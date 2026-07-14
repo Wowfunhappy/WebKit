@@ -45,6 +45,7 @@
 #include "WKWebsiteDataStoreRef.h"
 #include "WebContextInjectedBundleClient.h"
 #include "WebFrameProxy.h"
+#include "WebIconDatabase.h"
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
 #include <WebCore/GamepadProvider.h>
@@ -402,9 +403,10 @@ WKGeolocationManagerRef WKContextGetGeolocationManager(WKContextRef contextRef)
     return WebKit::toAPI(protect(protect(WebKit::toImpl(contextRef))->supplement<WebKit::WebGeolocationManagerProxy>()).get());
 }
 
-WKIconDatabaseRef WKContextGetIconDatabase(WKContextRef)
+// MAVERICKS_BACKPORT: hand Safari 7 the revived per-pool icon database (#49).
+WKIconDatabaseRef WKContextGetIconDatabase(WKContextRef contextRef)
 {
-    return nullptr;
+    return WebKit::toAPI(&WebKit::toImpl(contextRef)->iconDatabase());
 }
 
 WKKeyValueStorageManagerRef WKContextGetKeyValueStorageManager(WKContextRef context)
@@ -457,8 +459,11 @@ void WKContextStopMemorySampler(WKContextRef contextRef)
     protect(WebKit::toImpl(contextRef))->stopMemorySampler();
 }
 
-void WKContextSetIconDatabasePath(WKContextRef, WKStringRef)
+// MAVERICKS_BACKPORT: enabling the icon database is what makes the pool attach a real
+// icon-loading client to its pages, so favicons actually load for Safari 7 (#49).
+void WKContextSetIconDatabasePath(WKContextRef contextRef, WKStringRef pathRef)
 {
+    WebKit::toImpl(contextRef)->setIconDatabasePath(WebKit::toWTFString(pathRef));
 }
 
 void WKContextAllowSpecificHTTPSCertificateForHost(WKContextRef, WKCertificateInfoRef, WKStringRef)

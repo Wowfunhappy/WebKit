@@ -128,6 +128,7 @@ class WebAutomationSession;
 class WebBackForwardCache;
 class WebCompiledContentRuleList;
 class WebContextSupplement;
+class WebIconDatabase;
 class WebPageGroup;
 class WebPageProxy;
 class WebProcessCache;
@@ -299,6 +300,10 @@ public:
     void registerURLSchemeAsCanDisplayOnlyIfCanRequest(const String&);
 
     VisitedLinkStore& visitedLinkStore() { return m_visitedLinkStore.get(); }
+
+    // MAVERICKS_BACKPORT: revived legacy WK2 icon database that Safari 7 drives through the C API (#49).
+    WebIconDatabase& iconDatabase();
+    void setIconDatabasePath(const WTF::String&);
 
     void setCacheModel(CacheModel);
     void setCacheModelSynchronouslyForTesting(CacheModel);
@@ -813,6 +818,10 @@ private:
 
     const Ref<VisitedLinkStore> m_visitedLinkStore;
     bool m_visitedLinksPopulated { false };
+
+    // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49).
+    RefPtr<WebIconDatabase> m_iconDatabase;
+    bool m_iconDatabaseEnabled { false };
 
     HashSet<String> m_schemesToRegisterAsEmptyDocument;
     HashSet<String> m_schemesToSetDomainRelaxationForbiddenFor;
