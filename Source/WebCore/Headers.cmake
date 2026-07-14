@@ -2665,6 +2665,8 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/controls/ToggleButtonPart.h
 
     platform/graphics/coretext/DrawGlyphsRecorder.h
+    # MAVERICKS_BACKPORT: software variable-font instancer for legacy CoreText.
+    platform/graphics/coretext/LegacyCoreTextVariableFontInstancer.h
 
     platform/graphics/cv/CVUtilities.h
     platform/graphics/cv/GraphicsContextGLCV.h

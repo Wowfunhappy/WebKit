@@ -33,6 +33,7 @@ sysconf                               adds _SC_PHYS_PAGES et al. that 10.9 sysco
 pthread_get_stacksize_np              reports the real main-thread stack size 10.9 under-reports (pthread_get_stacksize_np.c)
 TCCAccessPreflight                    dlopen-redirect shim: TCCLibrary() loads libtcc_polyfill by explicit path over the misbehaving 10.9 TCC (tcc_polyfill.c)
 kTCCServiceAccessibility              dlopen-redirect shim constant, same mechanism (tcc_polyfill.c)
+CTFontManagerCreateFontDescriptorFromData  10.9's returns descriptors that crash in TFontFeatures at realize; replacement builds CGFont-backed descriptors, real impl via dlsym fallback (graphics_shims.c)
 "
 allowed_set() { echo "$ALLOWED" | awk 'NF{print $1}' | sort -u; }
 
