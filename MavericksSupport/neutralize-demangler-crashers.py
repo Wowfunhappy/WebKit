@@ -34,6 +34,18 @@
 # 42), and a worker range that fails without attributable crashers (UNATTRIBUTED)
 # forces a retry and ultimately an abort, never a silent pass.
 #
+# Even so, the scan is only as good as this host's memory layout: a family in
+# which NO member happens to misbehave here ships unpatched and can still crash
+# a differently-laid-out symbolication host (a spindump on other hardware died
+# in exactly this way, expanding a Style::CSSValueConversion local this scan
+# had certified). So in addition to the empirical scan, every local symbol
+# whose mangling matches the crash-prone STRUCTURAL shape itself -- an
+# operator() instantiated with an empty parameter pack ("clIJEE"), a
+# pack-expansion parameter ("DpOT_"), and a generic lambda ("Ul...E_") -- is
+# neutralized unconditionally, no confirmation needed. That predicate is
+# layout-independent, and over-matching is harmless: only local symbols are
+# patched, and the sole cost is that reports show those locals mangled.
+#
 # The scan is empirical rather than a hardcoded symbol list because the set of
 # offending symbols drifts with every rebuild (new template instantiations).
 # Re-running on an already-patched binary is a no-op ("_z" names are skipped).
@@ -174,6 +186,17 @@ def scan_names(tools, workdir, names):
     return crashers
 
 
+# The mangling components of the demangler-crashing shape (see header): an
+# empty-pack operator() instantiation, a pack-expansion parameter, and a
+# generic lambda. All three must appear. Substring matching can over-match
+# (e.g. "Ul" inside an identifier), which only neutralizes extra locals.
+STRUCTURAL_MARKERS = (b"clIJEE", b"DpOT_", b"Ul")
+
+
+def structurally_crash_prone(mangled):
+    return all(m in mangled for m in STRUCTURAL_MARKERS)
+
+
 def family_head(mangled):
     """Everything up to and including the first 'I' byte. This approximates
     the start of the first template-argument list; the 'I' can also land
@@ -247,6 +270,7 @@ def process(path, tools, workdir):
     total_scanned = 0
     confirmed = 0
     patched_names = 0
+    structural_only = 0   # patched by shape alone, no scan-confirmed family
     patches = []          # absolute file offsets of 'Z' bytes to flip
     prepatch_names = {}   # (base, strx) -> stored name before patching
     intended = set()      # (base, strx) keys we mean to change
@@ -286,16 +310,22 @@ def process(path, tools, workdir):
 
         heads = set(family_head(m) for m in crashers)
         for mangled in names:
-            if family_head(mangled) not in heads:
+            in_family = family_head(mangled) in heads
+            if not in_family and not structurally_crash_prone(mangled):
                 continue
             strx_zrel, all_local = by_mangled[mangled]
             if not all_local:
-                # family closure over-approximates; never touch exports
+                # family/structural closure over-approximates; never touch
+                # exports
                 sys.stderr.write("  demangler-guard: WARNING: leaving exported "
-                                 "family member unpatched: %s\n"
-                                 % mangled.decode("ascii", "replace"))
+                                 "%s unpatched: %s\n"
+                                 % ("family member" if in_family
+                                    else "structural match",
+                                    mangled.decode("ascii", "replace")))
                 continue
             patched_names += 1
+            if not in_family:
+                structural_only += 1
             for strx, zrel in strx_zrel.items():
                 zoff = str_abs + strx + zrel
                 assert data[zoff:zoff + 1] == b"Z"
@@ -330,8 +360,10 @@ def process(path, tools, workdir):
                 f.seek(off)
                 f.write(b"z")
     print("  demangler-guard: %s: %d mangled symbols scanned, %d confirmed "
-          "crasher(s), %d symbol name(s) neutralized (family closure)"
-          % (os.path.basename(path), total_scanned, confirmed, patched_names))
+          "crasher(s), %d symbol name(s) neutralized (family closure; "
+          "%d by structural shape alone)"
+          % (os.path.basename(path), total_scanned, confirmed, patched_names,
+             structural_only))
 
 
 def main(argv):
