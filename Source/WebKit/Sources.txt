@@ -466,6 +466,7 @@ UIProcess/WebFrameProxy.cpp
 UIProcess/WebFullScreenManagerProxy.cpp
 UIProcess/WebGeolocationManagerProxy.cpp
 UIProcess/WebGeolocationProvider.cpp
+UIProcess/WebIconDatabase.cpp
 UIProcess/WebLockRegistryProxy.cpp
 UIProcess/WebNavigationState.cpp
 UIProcess/WebOpenPanelResultListenerProxy.cpp

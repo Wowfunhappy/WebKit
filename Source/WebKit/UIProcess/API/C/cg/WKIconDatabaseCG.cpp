@@ -26,17 +26,44 @@
 #include "config.h"
 #include "WKIconDatabaseCG.h"
 
+#include "APIData.h"
 #include "WKAPICast.h"
 #include "WKSharedAPICast.h"
+#include "WebIconDatabase.h"
+#include <CoreGraphics/CoreGraphics.h>
+#include <ImageIO/ImageIO.h>
 #include <WebCore/Image.h>
+#include <wtf/RetainPtr.h>
 
 using namespace WebKit;
 
-CGImageRef WKIconDatabaseTryGetCGImageForURL(WKIconDatabaseRef, WKURLRef, WKSize)
+// MAVERICKS_BACKPORT: decode the favicon bytes held in the revived in-memory icon store into a
+// CGImage for Safari 7. "TryGet" semantics mean the caller does not own the returned image, so
+// it is autoreleased (#49).
+CGImageRef WKIconDatabaseTryGetCGImageForURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL, WKSize)
 {
-    return nullptr;
+    RefPtr data = toImpl(iconDatabaseRef)->iconDataForPageURL(toWTFString(pageURL));
+    if (!data)
+        return nullptr;
+
+    auto span = data->span();
+    RetainPtr<CFDataRef> cfData = adoptCF(CFDataCreate(kCFAllocatorDefault, span.data(), span.size()));
+    if (!cfData)
+        return nullptr;
+
+    RetainPtr<CGImageSourceRef> source = adoptCF(CGImageSourceCreateWithData(cfData.get(), nullptr));
+    if (!source)
+        return nullptr;
+
+    CGImageRef cgImage = CGImageSourceCreateImageAtIndex(source.get(), 0, nullptr);
+    if (!cgImage)
+        return nullptr;
+
+    return (CGImageRef)CFAutorelease(cgImage);
 }
 
+// MAVERICKS_BACKPORT: single-icon lookup is sufficient for Safari 7; the multi-representation
+// array path stays inert (#49).
 CFArrayRef WKIconDatabaseTryCopyCGImageArrayForURL(WKIconDatabaseRef, WKURLRef)
 {
     return nullptr;

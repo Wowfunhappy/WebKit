@@ -29,6 +29,7 @@
 #include "APIData.h"
 #include "WKAPICast.h"
 #include "WebIconDatabase.h"
+#include "WebIconDatabaseClient.h"
 
 using namespace WebKit;
 
@@ -37,10 +38,16 @@ WKTypeID WKIconDatabaseGetTypeID()
     return toAPI(WebIconDatabase::APIType);
 }
 
-void WKIconDatabaseSetIconDatabaseClient(WKIconDatabaseRef, const WKIconDatabaseClientBase*)
+// MAVERICKS_BACKPORT: attach Safari 7's legacy C icon-database client so favicon change
+// notifications are delivered again (#49).
+void WKIconDatabaseSetIconDatabaseClient(WKIconDatabaseRef iconDatabaseRef, const WKIconDatabaseClientBase* client)
 {
+    toImpl(iconDatabaseRef)->setClient(client ? makeUnique<WebIconDatabaseClient>(client) : nullptr);
 }
 
+// MAVERICKS_BACKPORT: intentionally inert. Safari 7 calls these on the legacy icon database,
+// but the revived in-memory store is populated by the icon-loading client and needs no
+// explicit retain/release/eviction bookkeeping (#49).
 void WKIconDatabaseRetainIconForURL(WKIconDatabaseRef, WKURLRef)
 {
 }
@@ -57,22 +64,31 @@ void WKIconDatabaseSetIconURLForPageURL(WKIconDatabaseRef, WKURLRef, WKURLRef)
 {
 }
 
-WKURLRef WKIconDatabaseCopyIconURLForPageURL(WKIconDatabaseRef, WKURLRef)
+// MAVERICKS_BACKPORT: answer favicon URL/data queries from the revived in-memory store (#49).
+WKURLRef WKIconDatabaseCopyIconURLForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
-    return nullptr;
+    String iconURL = toImpl(iconDatabaseRef)->iconURLForPageURL(toWTFString(pageURL));
+    if (iconURL.isEmpty())
+        return nullptr;
+    return toCopiedURLAPI(iconURL);
 }
 
-WKDataRef WKIconDatabaseCopyIconDataForPageURL(WKIconDatabaseRef, WKURLRef)
+WKDataRef WKIconDatabaseCopyIconDataForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
-    return nullptr;
+    RefPtr data = toImpl(iconDatabaseRef)->iconDataForPageURL(toWTFString(pageURL));
+    if (!data)
+        return nullptr;
+    return toAPILeakingRef(data.releaseNonNull());
 }
 
 void WKIconDatabaseEnableDatabaseCleanup(WKIconDatabaseRef)
 {
 }
 
-void WKIconDatabaseRemoveAllIcons(WKIconDatabaseRef)
+// MAVERICKS_BACKPORT: clear the revived in-memory store (#49).
+void WKIconDatabaseRemoveAllIcons(WKIconDatabaseRef iconDatabaseRef)
 {
+    toImpl(iconDatabaseRef)->removeAllIcons();
 }
 
 void WKIconDatabaseCheckIntegrityBeforeOpening(WKIconDatabaseRef)
