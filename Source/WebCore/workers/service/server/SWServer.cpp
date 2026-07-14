@@ -1048,12 +1048,7 @@ void SWServer::installContextData(const ServiceWorkerContextData& data)
     Ref worker = SWServerWorker::create(*this, *registration, data.scriptURL, data.script, data.certificateInfo, data.contentSecurityPolicy, data.crossOriginEmbedderPolicy, String { data.referrerPolicy }, data.workerType, data.serviceWorkerIdentifier, MemoryCompactRobinHoodHashMap<URL, ServiceWorkerContextData::ImportedScript> { data.scriptResourceMap });
 
     RefPtr connection = worker->contextConnection();
-    // MAVERICKS_BACKPORT: behavior fix — likewise guard the context connection (was a debug-only
-    // ASSERT). If the context process for this worker's domain was torn down in the same race, bail
-    // before mutating any worker state rather than calling installServiceWorkerContext() through a
-    // null connection.
-    if (!connection)
-        return;
+    ASSERT(connection);
 
     registration->setPreInstallationWorker(worker.ptr());
     worker->setState(SWServerWorker::State::Running);
@@ -1943,23 +1938,8 @@ void SWServer::setInspectable(ServiceWorkerIsInspectable inspectable)
 
     m_isInspectable = inspectable;
 
-    // MAVERICKS_BACKPORT: behavior fix (SW dangling-WeakRef NetworkProcess crash).
-    // m_contextConnections stores WeakRefs. A context connection destroyed via an abnormal
-    // teardown (without stop()) leaves a DANGLING WeakRef in the map — ~WebSWServerToContextConnection
-    // doesn't remove it (removal lives in stop()), and removeContextConnection() has side effects
-    // (re-creating connections / terminating workers) that make dtor-time removal unsafe. Iterating
-    // .values() and calling WeakRef::get()->setInspectable() on a dead ref SIGTRAP'd the NetworkProcess
-    // when the Web Inspector enabled service-worker inspection. Collect the LIVE connections via the
-    // null-safe HashMap::get(domain) accessor (the same one contextConnectionForRegistrableDomain()
-    // relies on — it returns null for a dead weak ref) so dead entries are skipped.
-    Vector<Ref<SWServerToContextConnection>> liveConnections;
-    liveConnections.reserveInitialCapacity(m_contextConnections.size());
-    for (auto& domain : m_contextConnections.keys()) {
-        if (RefPtr connection = m_contextConnections.get(domain))
-            liveConnections.append(connection.releaseNonNull());
-    }
-    for (auto& connection : liveConnections)
-        connection->setInspectable(inspectable);
+    for (auto& connection : m_contextConnections.values())
+        Ref { connection.get() }->setInspectable(inspectable);
 }
 
 SWServerRegistration* SWServer::getRegistration(ServiceWorkerRegistrationIdentifier identifier)
