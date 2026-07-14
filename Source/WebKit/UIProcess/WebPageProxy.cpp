@@ -4234,7 +4234,7 @@ void WebPageProxy::dispatchMouseDidMoveOverElementAsynchronously(const NativeWeb
 {
     sendWithAsyncReply(Messages::WebPage::PerformHitTestForMouseEvent { event }, [this, protectedThis = Ref { *this }] (WebHitTestResultData&& hitTestResult, OptionSet<WebEventModifier> modifiers) {
         if (!isClosed())
-            mouseDidMoveOverElement(WTF::move(hitTestResult), modifiers);
+            dispatchMouseDidMoveOverElement(WTF::move(hitTestResult), modifiers, nullptr);
     });
 }
 
@@ -5204,6 +5204,40 @@ Expected<WebPageProxy::DataStoreUpdateResult, WebCore::ResourceError> WebPagePro
 }
 #endif
 
+// MAVERICKS_BACKPORT: a single ephemeral (in-memory) session shared by every private-browsing page, matching
+// Safari 7's app-global Private Browsing where all private windows share one session. Never written to disk.
+// The slot is reset each time Private Browsing is turned on (see resetSharedPrivateBrowsingDataStore), so a new
+// private session never resurrects the in-memory cookies/logins of a prior one. (#55)
+static RefPtr<WebsiteDataStore>& privateBrowsingDataStoreSlot()
+{
+    static NeverDestroyed<RefPtr<WebsiteDataStore>> slot;
+    return slot.get();
+}
+
+static WebsiteDataStore& sharedPrivateBrowsingDataStore()
+{
+    auto& slot = privateBrowsingDataStoreSlot();
+    if (!slot)
+        slot = WebsiteDataStore::createNonPersistent();
+    return *slot;
+}
+
+void WebPageProxy::resetSharedPrivateBrowsingDataStore()
+{
+    // Drop the shared ephemeral store so the next Private Browsing session starts fresh. Safe to call on the
+    // off->on transition: no page is on the shared store while Private Browsing is off.
+    privateBrowsingDataStoreSlot() = nullptr;
+}
+
+void WebPageProxy::privateBrowsingEnabledDidChange()
+{
+    // Reload so the navigation-policy path (receivedNavigationActionPolicyDecision) moves this page onto or off
+    // the shared ephemeral store. Without a reload the toggle would only affect future navigations, leaving the
+    // current page on its old session (the "still logged in everywhere" symptom in #55).
+    if (!currentURL().isEmpty())
+        reload({ });
+}
+
 Ref<BrowsingContextGroup> WebPageProxy::browsingContextGroupForNavigation(WebFrameProxy& frame, API::Navigation& navigation, WebsiteDataStore& websiteDataStore, ProcessSwapRequestedByClient processSwapRequestedByClient)
 {
     // Browsing context group can only be changed for main frame navigation.
@@ -5313,6 +5347,31 @@ void WebPageProxy::receivedNavigationActionPolicyDecision(WebProcessProxy& proce
         }
     }
 #endif
+
+    // MAVERICKS_BACKPORT: honor Safari 7's global Private Browsing toggle by moving this navigation onto (or off
+    // of) the shared ephemeral WebsiteDataStore. This mirrors the eager store swap in updateDataStoreForWebArchiveLoad
+    // above (pageEnd the old store -> reassign m_websiteDataStore -> pageBegin the new store) and forces a process
+    // swap the same way (processSwapRequestedByClient = Yes). Only touches the default persistent store and our own
+    // shared private store, so it composes with the web-archive and website-policy store overrides. Note: the local
+    // `websiteDataStore` shadows the websiteDataStore() member accessor, so we operate on the local directly. Only
+    // acts when the navigation will actually proceed (policyAction == Use), matching updateDataStoreForWebArchiveLoad,
+    // so an Ignore/Download decision never swaps the store. (#55)
+    if (policyAction == PolicyAction::Use && m_websiteDataStore.ptr() == websiteDataStore.ptr()) {
+        bool wantPrivate = preferences->privateBrowsingEnabled();
+        bool onSharedPrivateStore = websiteDataStore.ptr() == &sharedPrivateBrowsingDataStore();
+        RefPtr<WebsiteDataStore> targetStore;
+        if (wantPrivate && !onSharedPrivateStore && websiteDataStore->isPersistent())
+            targetStore = &sharedPrivateBrowsingDataStore();
+        else if (!wantPrivate && onSharedPrivateStore)
+            targetStore = &WebsiteDataStore::defaultDataStore();
+        if (targetStore) {
+            protect(m_configuration->processPool())->pageEndUsingWebsiteDataStore(*this, websiteDataStore);
+            m_websiteDataStore = *targetStore;
+            websiteDataStore = m_websiteDataStore;
+            protect(m_configuration->processPool())->pageBeginUsingWebsiteDataStore(*this, websiteDataStore);
+            processSwapRequestedByClient = ProcessSwapRequestedByClient::Yes;
+        }
+    }
 
     URL sourceURL { pageLoadState().url() };
     if (RefPtr provisionalPage = provisionalPageProxy()) {
@@ -8374,7 +8433,13 @@ void WebPageProxy::didSameDocumentNavigationForFrame(IPC::Connection& connection
 
     if (isMainFrame) {
         Ref process = WebProcessProxy::fromConnection(connection);
-        m_navigationClient->didSameDocumentNavigation(*this, navigation.get(), navigationType, process->transformHandlesToObjects(protect(userData.object()).get()).get());
+        auto apiUserData = process->transformHandlesToObjects(protect(userData.object()).get());
+        m_navigationClient->didSameDocumentNavigation(*this, navigation.get(), navigationType, apiUserData.get());
+        // MAVERICKS_BACKPORT: Safari registers the legacy loader client (WKPageSetPageLoaderClient),
+        // not a navigation client, so same-document navigations must also reach the loader client (mirrors
+        // didChangeBackForwardList). Without this the address bar never updates on pushState/replaceState.
+        if (m_loaderClient)
+            m_loaderClient->didSameDocumentNavigationForFrame(*this, *frame, navigationType, apiUserData.get());
     }
 
     if (isMainFrame)
@@ -8423,8 +8488,14 @@ void WebPageProxy::didSameDocumentNavigationForFrameViaJS(IPC::Connection& conne
         automationSession->fragmentNavigatedForFrame(*frame, navigation ? std::optional(navigation->navigationID()) : std::nullopt);
 #endif
 
-    if (isMainFrame)
-        m_navigationClient->didSameDocumentNavigation(*this, navigation.get(), navigationType, process->transformHandlesToObjects(protect(userData.object()).get()).get());
+    if (isMainFrame) {
+        auto apiUserData = process->transformHandlesToObjects(protect(userData.object()).get());
+        m_navigationClient->didSameDocumentNavigation(*this, navigation.get(), navigationType, apiUserData.get());
+        // MAVERICKS_BACKPORT: bridge same-document navigations to the legacy loader client too, so the
+        // address bar updates on history.pushState/replaceState (see didSameDocumentNavigationForFrame).
+        if (m_loaderClient)
+            m_loaderClient->didSameDocumentNavigationForFrame(*this, *frame, navigationType, apiUserData.get());
+    }
 
     if (isMainFrame)
         protectedPageClient->didSameDocumentNavigationForMainFrame(navigationType);
@@ -9981,13 +10052,20 @@ void WebPageProxy::setStatusText(const String& text)
     m_uiClient->setStatusText(this, text);
 }
 
-void WebPageProxy::mouseDidMoveOverElement(WebHitTestResultData&& hitTestResultData, OptionSet<WebEventModifier> modifiers)
+void WebPageProxy::mouseDidMoveOverElement(IPC::Connection& connection, WebHitTestResultData&& hitTestResultData, OptionSet<WebEventModifier> modifiers, const UserData& userData)
+{
+    // MAVERICKS_BACKPORT: pass the injected-bundle userData (hovered link URL) through to
+    // WKPageUIClient.mouseDidMoveOverElement so Safari 7 can populate the status bar (#58).
+    dispatchMouseDidMoveOverElement(WTF::move(hitTestResultData), modifiers, WebProcessProxy::fromConnection(connection)->transformHandlesToObjects(protect(userData.object()).get()).get());
+}
+
+void WebPageProxy::dispatchMouseDidMoveOverElement(WebHitTestResultData&& hitTestResultData, OptionSet<WebEventModifier> modifiers, API::Object* userData)
 {
 #if PLATFORM(MAC)
     m_lastMouseMoveHitTestResult = API::HitTestResult::create(hitTestResultData, this);
 #endif
 
-    m_uiClient->mouseDidMoveOverElement(*this, hitTestResultData, modifiers);
+    m_uiClient->mouseDidMoveOverElement(*this, hitTestResultData, modifiers, userData);
     setToolTip(hitTestResultData.tooltipText);
 }
 

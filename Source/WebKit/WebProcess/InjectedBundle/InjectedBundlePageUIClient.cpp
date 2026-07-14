@@ -57,4 +57,18 @@ void InjectedBundlePageUIClient::didClickAutoFillButton(WebPage& page, InjectedB
     userData = adoptRef(toImpl(userDataToPass));
 }
 
+// MAVERICKS_BACKPORT: re-added so Safari 7's WebProcess plug-in can produce the hovered-element userData
+// (link URL) that the UI process forwards to WKPageUIClient for the status bar (#58).
+void InjectedBundlePageUIClient::mouseDidMoveOverElement(WebPage& page, const HitTestResult& coreHitTestResult, OptionSet<WebEventModifier> modifiers, RefPtr<API::Object>& userData)
+{
+    if (!m_client.mouseDidMoveOverElement)
+        return;
+
+    Ref hitTestResult = InjectedBundleHitTestResult::create(coreHitTestResult);
+
+    WKTypeRef userDataToPass = nullptr;
+    m_client.mouseDidMoveOverElement(toAPI(&page), toAPI(hitTestResult.ptr()), toAPI(modifiers), &userDataToPass, m_client.base.clientInfo);
+    userData = adoptRef(toImpl(userDataToPass));
+}
+
 } // namespace WebKit

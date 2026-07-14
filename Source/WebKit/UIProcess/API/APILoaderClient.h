@@ -26,6 +26,7 @@
 #pragma once
 
 #include "APIData.h"
+#include "SameDocumentNavigationType.h"
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/LayoutMilestone.h>
 #include <wtf/Forward.h>
@@ -66,6 +67,7 @@ public:
     virtual void didChangeBackForwardList(WebKit::WebPageProxy&, WebKit::WebBackForwardListItem*, Vector<Ref<WebKit::WebBackForwardListItem>>&&) { }
     virtual void didCommitLoadForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Navigation*, API::Object*) { }
     // MAVERICKS_BACKPORT: Safari 9.1.3 needs these legacy callbacks.
+    virtual void didSameDocumentNavigationForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, WebKit::SameDocumentNavigationType, API::Object*) { }
     virtual void didFinishDocumentLoadForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Navigation*, API::Object*) { }
     virtual void didReceiveTitleForFrame(WebKit::WebPageProxy&, const WTF::String&, WebKit::WebFrameProxy&, API::Object*) { }
     virtual void didFirstVisuallyNonEmptyLayoutForFrameLegacy(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Object*) { }

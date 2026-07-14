@@ -65,6 +65,12 @@ public:
     void addPage(WebPageProxy&);
     void removePage(WebPageProxy&);
 
+    // MAVERICKS_BACKPORT: Safari 7's global Private Browsing toggle (WKPreferencesSet/GetPrivateBrowsingEnabled).
+    // Upstream removed the runtime preference in favor of per-page ephemeral data stores, so back it with a real
+    // flag here and drive each page onto a shared ephemeral WebsiteDataStore. (#55)
+    void setPrivateBrowsingEnabled(bool);
+    bool privateBrowsingEnabled() const { return m_privateBrowsingEnabled; }
+
     const WebPreferencesStore& store() const LIFETIME_BOUND { return m_store; }
 
     // Implemented in generated file WebPreferencesGetterSetters.cpp.
@@ -149,6 +155,7 @@ private:
     WebPreferencesStore m_store;
 
     WeakHashSet<WebPageProxy> m_pages;
+    bool m_privateBrowsingEnabled { false }; // MAVERICKS_BACKPORT: see setPrivateBrowsingEnabled (#55).
     unsigned m_updateBatchCount { 0 };
     bool m_needUpdateAfterBatch { false };
 

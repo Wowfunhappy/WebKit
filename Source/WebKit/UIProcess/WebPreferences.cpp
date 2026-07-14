@@ -153,6 +153,24 @@ void WebPreferences::update()
         page->preferencesDidChange();
 }
 
+// MAVERICKS_BACKPORT: reload each page so the navigation-policy path moves it onto (or off of) the shared
+// ephemeral WebsiteDataStore. Reloading is what makes Private Browsing take effect on already-open pages
+// (the user's complaint in #55 was that toggling it left them logged in everywhere).
+void WebPreferences::setPrivateBrowsingEnabled(bool enabled)
+{
+    if (m_privateBrowsingEnabled == enabled)
+        return;
+    m_privateBrowsingEnabled = enabled;
+
+    // Start each Private Browsing session fresh so re-enabling it does not resurrect the prior session's
+    // in-memory cookies/logins (the shared store is never persisted to disk, but should still be clean).
+    if (enabled)
+        WebPageProxy::resetSharedPrivateBrowsingDataStore();
+
+    for (Ref page : m_pages)
+        page->privateBrowsingEnabledDidChange();
+}
+
 void WebPreferences::startBatchingUpdates()
 {
     if (!m_updateBatchCount)

@@ -326,7 +326,8 @@ id<WKUIDelegatePrivate> UIDelegate::UIClient::uiDelegatePrivate()
 }
 
 #if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
-void UIDelegate::UIClient::mouseDidMoveOverElement(WebPageProxy& page, const WebHitTestResultData& data, OptionSet<WebEventModifier> modifiers)
+// MAVERICKS_BACKPORT: trailing userData param synced to the API::UIClient signature (#58); Cocoa doesn't use it.
+void UIDelegate::UIClient::mouseDidMoveOverElement(WebPageProxy& page, const WebHitTestResultData& data, OptionSet<WebEventModifier> modifiers, API::Object*)
 {
     RefPtr uiDelegate = m_uiDelegate.get();
     if (!uiDelegate)
