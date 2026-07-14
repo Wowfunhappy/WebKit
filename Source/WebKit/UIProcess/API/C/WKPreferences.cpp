@@ -1881,13 +1881,16 @@ bool WKPreferencesGetStorageAccessAPIEnabled(WKPreferencesRef)
     return true;
 }
 
-void WKPreferencesSetPrivateBrowsingEnabled(WKPreferencesRef, bool)
+void WKPreferencesSetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef, bool enabled)
 {
+    // MAVERICKS_BACKPORT: Safari 7's global Private Browsing toggle. Backed by a real flag that drives each
+    // page onto a shared ephemeral WebsiteDataStore (#55).
+    protect(toImpl(preferencesRef))->setPrivateBrowsingEnabled(enabled);
 }
 
-bool WKPreferencesGetPrivateBrowsingEnabled(WKPreferencesRef)
+bool WKPreferencesGetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef)
 {
-    return false;
+    return toImpl(preferencesRef)->privateBrowsingEnabled();
 }
 
 void WKPreferencesSetIgnoreViewportScalingConstraints(WKPreferencesRef, bool)

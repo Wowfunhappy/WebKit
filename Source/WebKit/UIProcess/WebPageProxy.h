@@ -1019,6 +1019,12 @@ public:
     void stopLoading();
     RefPtr<API::Navigation> reload(OptionSet<WebCore::ReloadOption>);
 
+    // MAVERICKS_BACKPORT: invoked by WebPreferences when Safari 7's global Private Browsing toggle flips;
+    // reloads so the navigation-policy path moves the page onto/off the shared ephemeral store (#55).
+    void privateBrowsingEnabledDidChange();
+    // MAVERICKS_BACKPORT: discards the shared ephemeral session so re-enabling Private Browsing starts fresh (#55).
+    static void resetSharedPrivateBrowsingDataStore();
+
     RefPtr<API::Navigation> goForward();
     RefPtr<API::Navigation> goBack();
 
@@ -3111,7 +3117,11 @@ private:
     void runJavaScriptConfirm(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, String&&, CompletionHandler<void(bool)>&&);
     void runJavaScriptPrompt(IPC::Connection&, WebCore::FrameIdentifier, FrameInfoData&&, String&&, String&&, CompletionHandler<void(const String&)>&&);
     void setStatusText(const String&);
-    void mouseDidMoveOverElement(WebHitTestResultData&&, OptionSet<WebEventModifier>);
+    // MAVERICKS_BACKPORT: gains IPC::Connection& + UserData to carry the injected-bundle hovered-URL for #58.
+    void mouseDidMoveOverElement(IPC::Connection&, WebHitTestResultData&&, OptionSet<WebEventModifier>, const UserData&);
+    // MAVERICKS_BACKPORT: shared delivery for both the IPC hover path (with injected-bundle userData) and the
+    // async hit-test path (dispatchMouseDidMoveOverElementAsynchronously, which has no userData) (#58).
+    void dispatchMouseDidMoveOverElement(WebHitTestResultData&&, OptionSet<WebEventModifier>, API::Object* userData);
 
     void NODELETE getIsViewVisible(bool&);
     void setIsResizable(bool isResizable);
