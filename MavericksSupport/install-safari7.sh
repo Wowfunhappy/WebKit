@@ -385,6 +385,27 @@ ln -sfh Versions/Current/Frameworks "$FRAMEWORKS_DIR/WebKit.framework/Frameworks
     ln -sf Versions/Current/Frameworks "$FRAMEWORKS_DIR/WebKit.framework/Frameworks" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
+# Demangler guard, pass 1 of 2: the 10.9 libc++abi __cxa_demangle heap-corrupts
+# on some modern-C++ mangled names (WebCore's Style CSSValueCreation/ToCSS
+# lambda locals). ReportCrash demangles every symbol of every mapped image
+# while writing a crash report, so ONE such symbol makes ReportCrash itself
+# crash and no .crash is ever produced for a WebKit process (sample/spindump
+# break the same way). The guard scans binaries and renames the offending
+# LOCAL symbols _Z -> _z in the string table so symbolication skips demangling
+# them. See MavericksSupport/neutralize-demangler-crashers.py.
+# This pass covers only the two real XPC service executables, BEFORE the
+# XPC-variant cloning below so every clone inherits a patched table; the full
+# pass over frameworks and all in-bundle dylibs runs after the runtime/
+# GStreamer deploys near the end of this script (those deploys re-copy fresh
+# binaries, so scanning them any earlier would certify files that then get
+# replaced).
+echo "### Demangler guard (pass 1/2): XPC service executables"
+/usr/bin/python "$HERE/neutralize-demangler-crashers.py" \
+    "$PRIVATE_DIR/WebKit2.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking" \
+    "$PRIVATE_DIR/WebKit2.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent" || {
+        echo "ERROR: demangler guard (pass 1) failed" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
 # QuickLook web previews (.webloc from a Dock stack): restore the FULL stock WK2
 # XPC service set.
 #
@@ -580,6 +601,29 @@ if [ -d "$OLD_PRIVRT" ]; then
     rm -rf "$OLD_PRIVRT"
     echo "  removed legacy $OLD_PRIVRT"
 fi
+
+# ---------------------------------------------------------------------------
+# Demangler guard, pass 2 of 2 (see pass 1 above for the why): the full scan
+# over every Mach-O this install placed. Runs HERE, after the i386 grafts and
+# the private-runtime/polyfill/GStreamer deploys above, because those deploys
+# copy fresh (unscanned) binaries into the bundles -- every dylib that can map
+# into a WebKit process must be covered or one drifted symbol silently
+# re-breaks ReportCrash. The guard handles fat binaries (patches x86_64
+# slices; stock i386 slices untouched) and is idempotent on the pass-1 files.
+echo "### Demangler guard (pass 2/2): frameworks + all in-bundle dylibs"
+DEMANGLER_GUARD_BINS="$FRAMEWORKS_DIR/JavaScriptCore.framework/Versions/A/JavaScriptCore
+$FRAMEWORKS_DIR/WebKit.framework/Versions/A/WebKit
+$WEBCORE_BUNDLE/Versions/A/WebCore
+$PRIVATE_DIR/WebKit2.framework/Versions/A/WebKit2
+$(find "$PRIVATE_DIR/WebKit2.framework/Versions/A/XPCServices" -type f -path '*/Contents/MacOS/*' 2>/dev/null || true)
+$(find "$FRAMEWORKS_DIR/JavaScriptCore.framework/Versions/A/Frameworks" \
+       "$FRAMEWORKS_DIR/WebKit.framework/Versions/A/Frameworks" \
+       "$WEBCORE_BUNDLE/Versions/A/Frameworks" \
+       "$PRIVATE_DIR/WebKit2.framework/Versions/A/Frameworks" \
+       -name '*.dylib' -type f 2>/dev/null || true)"
+echo "$DEMANGLER_GUARD_BINS" | grep -v '^$' | sort -u | \
+    xargs /usr/bin/python "$HERE/neutralize-demangler-crashers.py" || {
+        echo "ERROR: demangler guard (pass 2) failed" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # #66/#69: the unified undocked Web Inspector toolbar (gradient + 78px traffic-light inset)

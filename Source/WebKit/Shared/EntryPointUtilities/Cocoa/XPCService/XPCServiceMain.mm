@@ -311,11 +311,13 @@ void XPCServiceEventHandler(xpc_connection_t peer)
     xpc_connection_resume(peer);
 }
 
-// MAVERICKS_BACKPORT DIAGNOSTIC (opt-in via WEBKIT_MAVERICKS_DEBUG): ReportCrash/sample/spindump all crash on
-// this VM, so fatal signals never produce a usable backtrace. When the handler is installed, it dumps
-// backtrace_symbols to stderr (which XPCServiceMain redirects to /tmp/wc-stderr-<pid>.log) before
-// re-raising the default action. This is how we capture the NetworkProcess SIGSEGV stack. backtrace()/write()
-// are the standard crash-dump primitives, and the handler re-raises with SIG_DFL so crashes are never swallowed.
+// MAVERICKS_BACKPORT DIAGNOSTIC (opt-in via WEBKIT_MAVERICKS_DEBUG): ReportCrash works against the installed
+// binaries (install-safari7.sh's demangler guard renames the local symbols whose demangling crashes the 10.9
+// demangler), but this in-process handler is still valuable when enabled: it captures backtraces for builds
+// ReportCrash has not been guarded against (e.g. raw build-tree frameworks under WKTR), and its output lands
+// in /tmp/wc-stderr-<pid>.log where it interleaves with WTFLogAlways/GStreamer markers -- something a .crash
+// file cannot do. backtrace()/write() are the standard crash-dump primitives, and the handler re-raises with
+// SIG_DFL so the default action still runs: ReportCrash writes its report as well, never suppressed.
 static void webkitMavericksCrashBacktrace(int sig)
 {
     void* frames[256];
