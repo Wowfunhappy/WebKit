@@ -1179,19 +1179,7 @@ bool SourceBufferPrivate::processMediaSample(SourceBufferPrivateClient& client, 
             // 1.6.3 Unset the last frame duration on all track buffers.
             // 1.6.4 Unset the highest presentation timestamp on all track buffers.
             // 1.6.5 Set the need random access point flag on all track buffers to true.
-            // MAVERICKS_BACKPORT fix (serious long-run stall): reset the track buffers SYNCHRONOUSLY here.
-            // Step 1.6.6 below `continue`s to restart processing of THIS coded frame, which re-evaluates
-            // this same discontinuity condition — so the reset MUST take effect before the loop restarts.
-            // resetTrackBuffers() marshals through ensureWeakOnDispatcher→ensureOnDispatcher, and on this
-            // port m_dispatcher->isCurrent() returns false here, so the marshal degrades to an async
-            // dispatch_barrier_async that never runs before the restart → infinite loop: 100% CPU,
-            // runaway dispatch-continuation allocation (~GBs RSS), video frozen after a few minutes
-            // (sample-confirmed: processMediaSample→resetTrackBuffers→dispatch_barrier_async, 1586/1599).
-            // We're already on the append/dispatcher thread that owns the track buffers — exactly how the
-            // rest of this loop accesses them — so do the reset inline (matches resetTrackBuffers's body).
-            iterateTrackBuffers([](auto& trackBuffer) {
-                trackBuffer.reset();
-            });
+            resetTrackBuffers();
 
             // 1.6.6 Jump to the Loop Top step above to restart processing of the current coded frame.
             continue;
@@ -1217,6 +1205,25 @@ bool SourceBufferPrivate::processMediaSample(SourceBufferPrivateClient& client, 
         // point flag to true, drop the coded frame, and jump to the top of the loop to start processing
         // the next coded frame.
         auto [appendWindowStart, appendWindowEnd] = appendWindow();
+
+        // MAVERICKS_BACKPORT(upstreamable): a presentation timestamp that lands within a microsecond
+        // below appendWindowStart is timestampOffset rounding noise, not an out-of-window frame.
+        // This port's samples carry microsecond timescales (GStreamer), on which the media's original
+        // timescale grid is not exactly representable: the parser truncates sample timestamps to the
+        // sample timescale while roundTowardsTimeScaleWithRoundingMargin() rounds the offset to
+        // nearest, so a frame the client aligned exactly to appendWindowStart can come out one tick
+        // short (observed: pts=-1/1000000). The spec drop would then also discard every frame up to
+        // the next random access point — for video, the entire leading GOP (hls.js >= 1.6 hits this
+        // on every stream: it appends 33-bit-wrapped 90kHz timestamps with a compensating negative
+        // timestampOffset). Snap such frames to appendWindowStart; the tolerance matches the margin
+        // the offset rounding above already accepts (inclusive, as truncation + rounding can combine
+        // to exactly one microsecond-timescale tick).
+        if (presentationTimestamp.isValid() && presentationTimestamp < appendWindowStart && appendWindowStart - presentationTimestamp <= microsecond) {
+            frameEndTimestamp += appendWindowStart - presentationTimestamp;
+            presentationTimestamp = appendWindowStart;
+            sample->setTimestamps(presentationTimestamp, decodeTimestamp);
+        }
+
         if (presentationTimestamp.isInvalid() || presentationTimestamp < appendWindowStart || frameEndTimestamp > appendWindowEnd) {
             // 1.8 Note.
             // Some implementations MAY choose to collect some of these coded frames with presentation

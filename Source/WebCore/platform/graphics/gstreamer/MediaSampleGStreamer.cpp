@@ -100,13 +100,20 @@ void MediaSampleGStreamer::extendToTheBeginning()
     m_pts = MediaTime::zeroTime();
 }
 
+// MAVERICKS_BACKPORT(upstreamable): a negative timestamp is unrepresentable in a GstBuffer, and
+// the int64→uint64 wrap poisoned downstream position arithmetic (observed: an MSE first fragment
+// with decode timestamps starting at -66ms, the reorder delay hls.js >= 1.6 leaves in place with
+// its wrap-normalizing timestampOffset, wedged playback with the element clock stuck at the
+// wrapped value). toValidGstClockTime() encodes such timestamps as GST_CLOCK_TIME_NONE; a frame's
+// decode timestamp is only a hint to demuxers/queues, and negative presentation timestamps are
+// dropped or snapped by the coded-frame algorithm before enqueue.
 void MediaSampleGStreamer::setTimestamps(const MediaTime& presentationTime, const MediaTime& decodeTime)
 {
     m_pts = presentationTime;
     m_dts = decodeTime;
     if (auto* buffer = gst_sample_get_buffer(m_sample.get())) {
-        GST_BUFFER_PTS(buffer) = toGstClockTime(m_pts);
-        GST_BUFFER_DTS(buffer) = toGstClockTime(m_dts);
+        GST_BUFFER_PTS(buffer) = toValidGstClockTime(m_pts);
+        GST_BUFFER_DTS(buffer) = toValidGstClockTime(m_dts);
     }
 }
 
@@ -117,8 +124,8 @@ void MediaSampleGStreamer::offsetTimestampsBy(const MediaTime& timestampOffset)
     m_pts += timestampOffset;
     m_dts += timestampOffset;
     if (auto* buffer = gst_sample_get_buffer(m_sample.get())) {
-        GST_BUFFER_PTS(buffer) = toGstClockTime(m_pts);
-        GST_BUFFER_DTS(buffer) = toGstClockTime(m_dts);
+        GST_BUFFER_PTS(buffer) = toValidGstClockTime(m_pts);
+        GST_BUFFER_DTS(buffer) = toValidGstClockTime(m_dts);
     }
 }
 

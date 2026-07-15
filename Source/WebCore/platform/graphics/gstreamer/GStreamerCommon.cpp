@@ -817,6 +817,14 @@ GstClockTime toGstClockTime(const Seconds& seconds)
     return toGstClockTime(MediaTime::createWithDouble(seconds.seconds()));
 }
 
+// MAVERICKS_BACKPORT(upstreamable): see GStreamerCommon.h.
+GstClockTime toValidGstClockTime(const MediaTime& mediaTime)
+{
+    if (mediaTime < MediaTime::zeroTime())
+        return GST_CLOCK_TIME_NONE;
+    return toGstClockTime(mediaTime);
+}
+
 MediaTime fromGstClockTime(GstClockTime time)
 {
     if (!GST_CLOCK_TIME_IS_VALID(time))

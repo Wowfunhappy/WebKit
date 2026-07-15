@@ -43,7 +43,19 @@ using namespace WebCore;
 
 // CAIRO_FORMAT_RGB24 used to render the video buffers is little/big endian dependant.
 #if G_BYTE_ORDER == G_LITTLE_ENDIAN
+#if PLATFORM(COCOA) && !USE(COORDINATED_GRAPHICS)
+// MAVERICKS_BACKPORT: also accept the decoders' native 4:2:0 layouts. With only RGB accepted,
+// playsink's videoconvertscale runs a full software YUV->BGRA conversion on every frame — the
+// single largest CPU cost of video playback on this port (measured ~1/3 core for 720p30). With
+// I420/NV12 accepted the converter negotiates passthrough and the Cocoa video layer composites
+// the frame through a YUV IOSurface, so the colorspace conversion happens on the GPU
+// (VideoLayerGStreamerCocoa.mm). RGB stays accepted for sources that already produce it, and
+// non-layer consumers (canvas, paint, snapshots) convert on demand via
+// GStreamerVideoFrameConverter, which accepts any format.
+#define GST_CAPS_FORMAT "{ I420, NV12, BGRx, BGRA }"
+#else
 #define GST_CAPS_FORMAT "{ BGRx, BGRA }"
+#endif
 #else
 #define GST_CAPS_FORMAT "{ xRGB, ARGB }"
 #endif
