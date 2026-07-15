@@ -1055,12 +1055,16 @@
 #define ENABLE_WEB_AUDIO 1
 #endif
 
-// MAVERICKS_BACKPORT: WebAuthn (navigator.credentials passkeys) relies on AuthenticationServices /
-// LocalAuthentication / CryptoTokenKit SPI absent on 10.9, so the whole WebAuthentication subsystem
-// (LocalAuthenticator, the Ccid/Hid/Nfc connections and services, the ASC presenter) is off. Every
-// reference is ENABLE(WEB_AUTHN)-guarded upstream, so forcing it off compiles those files out.
-#define ENABLE_WEB_AUTHN 0
-
+// MAVERICKS_BACKPORT: WebAuthn is ENABLED (default upstream value). Its AuthenticationServices /
+// LocalAuthentication / CryptoTokenKit backends are all SOFT_LINK'd, so their absence at runtime on
+// 10.9 does not break dyld load — it degrades naturally to "no authenticator available":
+// PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable() resolves false: the soft-linked
+// ASCWebKitSPISupport class is nil, so getCanCurrentProcessAccessPasskeyForRelyingParty's
+// [nil respondsToSelector:@selector(getCanCurrentProcessAccessPasskeysForRelyingParty:withCompletionHandler:)]
+// is NO and it calls handler(false) before any later gate runs. getClientCapabilities
+// is empty, and navigator.credentials create/get reject. This is exactly what real Safari reports on a Mac
+// with no platform authenticator, and it is required for web compatibility: sites (e.g. target.com login)
+// read window.PublicKeyCredential unguarded, so it must exist. Do NOT force this off.
 #if !defined(ENABLE_WEB_AUTHN) && !PLATFORM(MACCATALYST) && !PLATFORM(WATCHOS)
 #define ENABLE_WEB_AUTHN 1
 #endif

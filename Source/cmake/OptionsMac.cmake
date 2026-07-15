@@ -85,7 +85,11 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_MOUSE_INTERACTIONS PRIVATE OFF
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_WHEEL_INTERACTIONS PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBXR PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_API_STATISTICS PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_AUTHN PRIVATE OFF)
+# MAVERICKS_BACKPORT: ON — the WebAuthn JS API surface (window.PublicKeyCredential, navigator.credentials)
+# is required for web compatibility. The AuthenticationServices/LocalAuthentication/CryptoTokenKit backends
+# are all soft-linked, so their runtime absence on 10.9 degrades to "no authenticator available" rather than
+# breaking. See the matching note in Source/WTF/wtf/PlatformEnableCocoa.h.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_AUTHN PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_RTC PRIVATE ON)
 # MAVERICKS_BACKPORT: OFF — AirPlay wireless-playback-target routing depends on 10.10+ AVFoundation/MediaToolbox SPI absent on 10.9.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WIRELESS_PLAYBACK_TARGET PRIVATE OFF)

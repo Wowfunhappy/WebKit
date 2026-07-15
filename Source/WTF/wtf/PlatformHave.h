@@ -1481,8 +1481,17 @@
 #define HAVE_WEB_AUTHN_PRF_API 1
 #endif
 
+// MAVERICKS_BACKPORT: ASAuthorizationWebBrowserPublicKeyCredentialManager (browser passkey management,
+// -isDeviceConfiguredForPasskeys) is a macOS 14+ AuthenticationServices class, absent on 10.9. Upstream
+// leaves this HAVE ungated on Mac (assuming a modern SDK/OS), which — with WEB_AUTHN now enabled and
+// HAVE(WEB_AUTHN_AS_MODERN) off (deploy < 14.0) — leaves its one use in WebAuthenticatorCoordinatorProxy's
+// isUVPAA path referencing a soft-link getter whose header is only imported under WEB_AUTHN_AS_MODERN.
+// Gate it on the deploy target so the whole feature (forward-decl + soft-link + use) compiles out
+// consistently. It is unreachable on 10.9 anyway: isUVPAA returns false earlier via the nil
+// ASCWebKitSPISupport path.
 #if !defined(HAVE_WEB_AUTHN_PUBLIC_KEY_CREDENTIAL_MANAGER) \
-    && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS))
+    && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) \
+    || PLATFORM(MACCATALYST) || PLATFORM(IOS))
 #define HAVE_WEB_AUTHN_PUBLIC_KEY_CREDENTIAL_MANAGER 1
 #endif
 

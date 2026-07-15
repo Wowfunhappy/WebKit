@@ -659,6 +659,9 @@ UIProcess/Notifications/WebNotificationProvider.cpp
 UIProcess/UserContent/WebScriptMessageHandler.cpp
 UIProcess/UserContent/WebUserContentControllerProxy.cpp
 
+UIProcess/WebAuthentication/fido/CtapAuthenticator.cpp
+UIProcess/WebAuthentication/fido/CtapCcidDriver.cpp
+UIProcess/WebAuthentication/fido/CtapHidDriver.cpp
 UIProcess/WebAuthentication/fido/CtapNfcDriver.cpp
 UIProcess/WebAuthentication/fido/FidoAuthenticator.cpp
 UIProcess/WebAuthentication/fido/FidoService.cpp
@@ -668,10 +671,13 @@ UIProcess/WebAuthentication/Mock/MockAuthenticatorManager.cpp
 UIProcess/WebAuthentication/Mock/MockHidConnection.cpp
 UIProcess/WebAuthentication/Mock/MockHidService.cpp
 
+UIProcess/WebAuthentication/AuthenticatorManager.cpp
 UIProcess/WebAuthentication/AuthenticatorTransportService.cpp
 UIProcess/WebAuthentication/Authenticator.cpp
 UIProcess/WebAuthentication/WebAuthenticatorCoordinatorProxy.cpp
 UIProcess/WebAuthentication/WebAuthenticationRequestData.cpp
+UIProcess/WebAuthentication/Virtual/VirtualAuthenticatorManager.cpp
+UIProcess/WebAuthentication/Virtual/VirtualHidConnection.cpp
 
 UIProcess/WebsiteData/EnhancedSecuritySitesHolder.cpp
 UIProcess/WebsiteData/EnhancedSecuritySitesPersistence.cpp

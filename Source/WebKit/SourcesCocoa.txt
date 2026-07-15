@@ -772,9 +772,12 @@ UIProcess/RemoteLayerTree/RemoteProgressBasedTimeline.cpp
 UIProcess/RemoteLayerTree/RemoteProgressBasedTimelineRegistry.cpp
 
 UIProcess/WebAuthentication/Cocoa/AuthenticationServicesCoreSoftLink.mm @nonARC @no-unify
+UIProcess/WebAuthentication/Cocoa/AuthenticationServicesSoftLink.mm @nonARC @no-unify
 UIProcess/WebAuthentication/Cocoa/AuthenticatorPresenterCoordinator.mm @nonARC
 UIProcess/WebAuthentication/Cocoa/CcidConnection.mm @nonARC
 UIProcess/WebAuthentication/Cocoa/CcidService.mm @nonARC
+UIProcess/WebAuthentication/Cocoa/HidConnection.mm @nonARC
+UIProcess/WebAuthentication/Cocoa/HidService.mm @nonARC
 UIProcess/WebAuthentication/Cocoa/LocalAuthenticationSoftLink.mm @nonARC @no-unify
 UIProcess/WebAuthentication/Cocoa/LocalAuthenticator.mm @nonARC
 UIProcess/WebAuthentication/Cocoa/LocalConnection.mm @nonARC
@@ -785,11 +788,16 @@ UIProcess/WebAuthentication/Cocoa/NfcService.mm @nonARC
 UIProcess/WebAuthentication/Cocoa/WKASCAuthorizationPresenterDelegate.mm @nonARC
 UIProcess/WebAuthentication/Cocoa/WKNFReaderSessionDelegate.mm @nonARC
 UIProcess/WebAuthentication/Cocoa/WebAuthenticationPanelClient.mm @nonARC
+UIProcess/WebAuthentication/Cocoa/WebAuthenticatorCoordinatorProxy.mm @nonARC
 
 UIProcess/WebAuthentication/Mock/MockLocalConnection.mm @nonARC
 UIProcess/WebAuthentication/Mock/MockLocalService.mm @nonARC
 UIProcess/WebAuthentication/Mock/MockNfcService.mm @nonARC
 UIProcess/WebAuthentication/Mock/MockCcidService.mm @nonARC
+
+UIProcess/WebAuthentication/Virtual/VirtualAuthenticatorUtils.mm @nonARC
+UIProcess/WebAuthentication/Virtual/VirtualLocalConnection.mm @nonARC
+UIProcess/WebAuthentication/Virtual/VirtualService.mm @nonARC
 
 UIProcess/WebsiteData/Cocoa/ScreenTimeWebsiteDataSupport.mm @nonARC
 UIProcess/WebsiteData/Cocoa/WebsiteDataStoreCocoa.mm @nonARC
