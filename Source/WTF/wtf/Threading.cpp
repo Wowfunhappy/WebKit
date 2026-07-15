@@ -136,7 +136,9 @@ static std::optional<size_t> NODELETE stackSize(ThreadType threadType)
 #endif
 }
 
-std::atomic<uint32_t> ThreadLike::s_uid;
+// MAVERICKS_BACKPORT(upstreamable): starts at mainThreadID so ++s_uid can never hand the reserved
+// main-thread identity (1) to an arbitrary thread or work queue — see currentSequence().
+std::atomic<uint32_t> ThreadLike::s_uid { ThreadLike::mainThreadID };
 
 uint32_t ThreadLike::currentSequence()
 {
@@ -144,6 +146,19 @@ uint32_t ThreadLike::currentSequence()
     if (uint32_t uid = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(dispatch_get_specific(&s_uid))))
         return uid;
 #endif
+    // MAVERICKS_BACKPORT(upstreamable): the main thread must always identify as mainThreadID.
+    // Falling through to Thread::currentSingleton().uid() only matches WorkQueue::mainSingleton()'s
+    // m_threadID (mainThreadID == 1) if the main thread happened to claim the FIRST uid from the
+    // shared s_uid counter — an ordering accident, not an invariant. In this port's XPC bootstrap
+    // another thread wins that race, so WorkQueue::mainSingleton().isCurrent() returned false ON
+    // the main thread and every ensureOnDispatcher() marshal silently degraded to an async
+    // dispatch (observed: SourceBufferPrivate::processMediaSample's discontinuity branch spun
+    // forever waiting for a reset that could never run before the loop restarted). Mirror
+    // ThreadLikeAssertion's own construction rule (isMainThread() ? mainThreadLike : ...): the
+    // main thread's identity is structural, not first-come-first-served. s_uid starts at
+    // mainThreadID so no thread or work queue can collide with the reserved value.
+    if (isMainThread())
+        return mainThreadID;
     return Thread::currentSingleton().uid();
 }
 

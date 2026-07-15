@@ -170,7 +170,9 @@ static RefPtr<ImageGStreamer> convertSampleToImage(const GRefPtr<GstSample>& sam
 static inline void setBufferFields(GstBuffer* buffer, const MediaTime& presentationTime, double frameRate)
 {
     GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_LIVE);
-    GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer) = toGstClockTime(presentationTime);
+    // MAVERICKS_BACKPORT(upstreamable): WebCodecs timestamps are signed and may be negative;
+    // toValidGstClockTime() avoids the int64→uint64 wrap (see GStreamerCommon.h).
+    GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer) = toValidGstClockTime(presentationTime);
     GST_BUFFER_DURATION(buffer) = toGstClockTime(1_s / frameRate);
 }
 static MediaTime presentationTimeFromSample(const GRefPtr<GstSample>& sample)
@@ -621,7 +623,9 @@ void VideoFrameGStreamer::setPresentationTime(const MediaTime& presentationTime)
 {
     updateTimestamp(presentationTime, VideoFrame::ShouldCloneWithDifferentTimestamp::No);
     auto buffer = gst_sample_get_buffer(m_sample.get());
-    GST_BUFFER_PTS(buffer) = GST_BUFFER_DTS(buffer) = toGstClockTime(presentationTime);
+    // MAVERICKS_BACKPORT(upstreamable): WebCodecs timestamps are signed and may be negative;
+    // toValidGstClockTime() avoids the int64→uint64 wrap (see GStreamerCommon.h).
+    GST_BUFFER_PTS(buffer) = GST_BUFFER_DTS(buffer) = toValidGstClockTime(presentationTime);
 }
 
 void VideoFrameGStreamer::setMetadataAndContentHint(std::optional<VideoFrameTimeMetadata> metadata, VideoFrameContentHint hint)

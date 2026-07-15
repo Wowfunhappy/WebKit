@@ -26,13 +26,10 @@
 #include "config.h"
 #include <wtf/RunLoop.h>
 
-// MAVERICKS_BACKPORT: extra includes for the 10.9 main-GCD-queue RunLoop equivalence logic below.
-#include <dispatch/dispatch.h>
+// MAVERICKS_BACKPORT: explicit includes for Locker/Vector uses below (this build is -fno-modules,
+// so transitive Darwin-module includes upstream relies on are not provided).
 #include <wtf/Lock.h>
 #include <wtf/Vector.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
 #include <wtf/StdLibExtras.h>
@@ -80,18 +77,6 @@ auto RunLoop::runLoopHolder() -> ThreadSpecific<Holder>&
 
 RunLoop& RunLoop::currentSingleton()
 {
-    // MAVERICKS_BACKPORT: dispatch_main() pthread_exits the real main thread, so
-    // blocks on dispatch_get_main_queue() run on transient dispatch workers
-    // (each with its own per-thread RunLoop holder). When code constructs an
-    // object on the "main" thread (e.g. JSC's VM caches RunLoop::currentSingleton()
-    // in m_runLoop), it gets the worker's per-thread RunLoop instead of the
-    // real main RunLoop. That breaks RunLoop::TimerBase::start's mainSingleton()
-    // guard in RunLoopCF.cpp, falling into the non-pumped CFRunLoopAddTimer
-    // path — JSC's DeferredWorkTimer (async WebAssembly.compile / instantiate)
-    // never fires. Treat "running on the main GCD queue" as equivalent to the
-    // main RunLoop, symmetric to isCurrent()'s existing 10.9 logic.
-    if (s_mainRunLoop && dispatch_get_current_queue() == dispatch_get_main_queue())
-        return *s_mainRunLoop;
     return runLoopHolder()->runLoop();
 }
 
@@ -137,18 +122,7 @@ Ref<RunLoop> RunLoop::create(ASCIILiteral threadName, ThreadType threadType, Thr
 bool RunLoop::isCurrent() const
 {
     // Avoid constructing the RunLoop for the current thread if it has not been created yet.
-    // MAVERICKS_BACKPORT: also treat the main GCD queue as the main RunLoop (see 10.9 note below).
-    if (runLoopHolder().isSet() && this == &RunLoop::currentSingleton())
-        return true;
-    // 10.9: dispatch_main() calls pthread_exit on the main thread, so blocks
-    // dispatched to dispatch_get_main_queue() actually execute on dispatch worker
-    // threads (each with its own per-thread RunLoop). When the main RunLoop's
-    // wakeUp dispatches performWork to the main queue, the lambda runs on a
-    // worker — `currentSingleton()` returns that worker's RunLoop, not us.
-    // Treat "running on the main GCD queue" as equivalent to "on main RunLoop".
-    if (this == s_mainRunLoop && dispatch_get_current_queue() == dispatch_get_main_queue())
-        return true;
-    return false;
+    return runLoopHolder().isSet() && this == &RunLoop::currentSingleton();
 }
 
 void RunLoop::performWork()
