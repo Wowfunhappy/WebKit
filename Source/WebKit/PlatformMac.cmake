@@ -181,6 +181,11 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/WebProcess/DigitalCredentials"
     "${WEBKIT_DIR}/WebProcess/WebAuthentication"
     "${WEBKIT_DIR}/WebProcess/cocoa"
+    # MAVERICKS_BACKPORT: needed once ENABLE(WEB_AUTHN) is on — the Digital Credentials bridge and the
+    # WebKitSwift ObjC interop headers (all soft-linked at runtime, inert on 10.9) are reached via quoted
+    # includes from the DigitalCredentials coordinator/bridge and WKDigitalCredentialsPicker.
+    "${WEBKIT_DIR}/WebProcess/cocoa/IdentityDocumentServices"
+    "${WEBKIT_DIR}/WebKitSwift/IdentityDocumentServices"
     "${WEBKIT_DIR}/WebProcess/mac"
     "${WEBKIT_DIR}/WebProcess/GPU/graphics/cocoa"
     "${WEBKIT_DIR}/WebProcess/Inspector/mac"
@@ -526,6 +531,15 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     UIProcess/API/Cocoa/WKWebViewPrivate.h
     UIProcess/API/Cocoa/WKWebViewPrivateForTesting.h
     UIProcess/API/Cocoa/WKWebpagePreferences.h
+    # MAVERICKS_BACKPORT: reached via <WebKit/WK...h> once ENABLE(WEB_AUTHN) is on — the Digital
+    # Credentials picker and the WebKitSwift IdentityDocument interop headers cross-include each other
+    # through the <WebKit/...> framework path (all soft-linked, inert on 10.9).
+    UIProcess/DigitalCredentials/WKDigitalCredentialsPicker.h
+    WebKitSwift/IdentityDocumentServices/WKIdentityDocumentPresentmentController.h
+    WebKitSwift/IdentityDocumentServices/WKIdentityDocumentPresentmentError.h
+    WebKitSwift/IdentityDocumentServices/WKIdentityDocumentPresentmentMobileDocumentRequest.h
+    WebKitSwift/IdentityDocumentServices/WKIdentityDocumentPresentmentRawRequest.h
+    WebKitSwift/IdentityDocumentServices/WKIdentityDocumentPresentmentRequest.h
     # MAVERICKS_BACKPORT: headers referenced via <WebKit/X.h> by generated serializers
     # and cross-including API headers, but missing from the forwarding list.
     UIProcess/API/Cocoa/WKJSHandle.h
@@ -931,6 +945,11 @@ set(ObjCForwardingHeaders
 # MAVERICKS_BACKPORT: quote the linker-flags append (preserve prior flags) and drop -framework AuthKit (AuthKit absent on 10.9).
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_version 1 -current_version ${WEBKIT_MAC_VERSION}")
 target_link_options(WebKit PRIVATE -lsandbox)
+# MAVERICKS_BACKPORT: the CCID (smart-card) WebAuthn transport hard-references TKSmartCardSlotManager from
+# CryptoTokenKit, which is 10.10+. Weak-link it so WebKit still loads on 10.9 — the class resolves to nil and
+# CcidService finds no smart-card slots (graceful "no CCID authenticator" degradation, like the other
+# soft-linked WebAuthn backends).
+target_link_options(WebKit PRIVATE -weak_framework CryptoTokenKit)
 
 set(WebKit_OUTPUT_NAME WebKit)
 

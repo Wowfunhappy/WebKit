@@ -78,6 +78,9 @@ set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/UIProcess/UserContent"
     "${WEBKIT_DIR}/UIProcess/WebAuthentication"
     "${WEBKIT_DIR}/UIProcess/WebAuthentication/Mock"
+    # MAVERICKS_BACKPORT: needed once ENABLE(WEB_AUTHN) is on — the Virtual authenticator (WebDriver
+    # automation) headers are reached via quoted include from WebAutomationSession/WebsiteDataStore.
+    "${WEBKIT_DIR}/UIProcess/WebAuthentication/Virtual"
     "${WEBKIT_DIR}/UIProcess/WebsiteData"
     "${WEBKIT_DIR}/UIProcess/XR"
     "${WEBKIT_DIR}/WebProcess"

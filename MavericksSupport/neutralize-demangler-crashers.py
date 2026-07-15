@@ -70,6 +70,35 @@ N_EXT = 0x01
 GMALLOC = "/usr/lib/libgmalloc.dylib"
 SUPPORT_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# MAVERICKS_BACKPORT: resolve a working compiler WITHOUT routing through the
+# /usr/bin/cc xcrun shim. That shim asks `xcodebuild -find <tool>`, and this guard
+# runs mid-install while the WebKit stack is transiently absent (install_framework
+# rm -rf's the destination bundle before the runtime dylibs are staged) -- xcodebuild
+# links WebKit, so it SIGTRAPs and the shim can't locate the compiler. The real
+# toolchain binaries are directly invocable, so prefer them (env override, then the
+# Xcode default toolchain, then the /usr/bin shim as a last resort).
+_XCODE_TC_BIN = ("/Applications/Xcode.app/Contents/Developer/Toolchains/"
+                 "XcodeDefault.xctoolchain/usr/bin")
+
+def resolve_compiler(basename, env_key):
+    candidates = [os.environ.get(env_key),
+                  os.path.join(_XCODE_TC_BIN, basename),
+                  os.path.join("/usr/bin", basename)]
+    for cc in candidates:
+        if not cc or not os.path.exists(cc):
+            continue
+        try:
+            devnull = open(os.devnull, "wb")
+            rc = subprocess.call([cc, "--version"], stdout=devnull, stderr=devnull)
+            devnull.close()
+        except OSError:
+            continue
+        if rc == 0:
+            return cc
+    sys.stderr.write("ERROR: no working compiler found for %s (tried %s)\n"
+                     % (basename, ", ".join(c for c in candidates if c)))
+    sys.exit(1)
+
 # (environment-padding size, worker batch size, detector): varied to shift
 # the stack garbage and heap state the demangler bug is sensitive to.
 # "gmalloc" (Guard Malloc, catches heap-overrun-class corruption) is ~10x
@@ -90,10 +119,12 @@ UNATTRIBUTED_RETRIES = 3
 def build_scan_tools(workdir):
     worker = os.path.join(workdir, "demangler-crash-scan")
     freecheck = os.path.join(workdir, "freecheck.dylib")
-    subprocess.check_call(["/usr/bin/clang++", "-O2",
+    cxx = resolve_compiler("clang++", "WK_DEMANGLER_CXX")
+    cc = resolve_compiler("clang", "WK_DEMANGLER_CC")
+    subprocess.check_call([cxx, "-O2",
                            "-mmacosx-version-min=10.9", "-o", worker,
                            os.path.join(SUPPORT_DIR, "demangler-crash-scan.cpp")])
-    subprocess.check_call(["/usr/bin/clang", "-dynamiclib",
+    subprocess.check_call([cc, "-dynamiclib",
                            "-mmacosx-version-min=10.9", "-o", freecheck,
                            os.path.join(SUPPORT_DIR,
                                         "demangler-crash-scan-freecheck.c")])
