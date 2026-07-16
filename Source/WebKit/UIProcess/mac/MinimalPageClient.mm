@@ -63,6 +63,18 @@
 #import <wtf/RetainPtr.h>
 #import <wtf/SortedArrayMap.h>
 
+// MAVERICKS_BACKPORT: layer-HOSTING subview for the WebContent render layer (the Safari-537
+// WKView "_layerHostingView"/WKFlippedView design; see the m_layerHostingView member comment).
+// Flipped to match WKView's coordinate system. Event-transparent: hit-testing returns nil so
+// mouse events keep landing on the WKView itself, exactly as before this subview existed.
+@interface WKMinimalLayerHostingView : NSView
+@end
+
+@implementation WKMinimalLayerHostingView
+- (BOOL)isFlipped { return YES; }
+- (NSView *)hitTest:(NSPoint)point { return nil; }
+@end
+
 #if ENABLE(FULLSCREEN_API)
 // MAVERICKS_BACKPORT: a borderless content window must opt in to becoming key
 // and main, otherwise the web view it hosts never receives keyboard events
@@ -244,6 +256,7 @@ public:
     }
 
     void setPage(WebPageProxy* page) { m_page = page; }
+    void viewDidMoveToWindow(); // MAVERICKS_BACKPORT: re-mint the CALayerHost on window attach (see impl).
     // MAVERICKS_BACKPORT: when true, a view with no NSWindow still reports itself
     // visible/in-window/active. Set for offscreen render views (Safari's Top Sites
     // snapshot fetcher allocs a WKView at the snapshot size and never adds it to a
@@ -274,6 +287,7 @@ private:
     bool isViewVisibleOrOccluded() final;
     bool isVisuallyIdle() final;
     void didFirstLayerFlush(const LayerTreeContext&) final;
+    void installRenderLayer(CALayer *); // MAVERICKS_BACKPORT: see the m_layerHostingView member comment.
     void processDidExit() final;
     void didRelaunchProcess() final;
     void preferencesDidChange() final;
@@ -701,6 +715,16 @@ private:
     WebPageProxy *m_page { nullptr };
     bool m_forceVisibleWhenWindowless { false };
     RetainPtr<CALayer> m_rootLayer;
+    // MAVERICKS_BACKPORT: dedicated layer-HOSTING subview carrying the WebContent render layer
+    // (the Safari-537 WKView _layerHostingView design). The render layer must NOT live in the
+    // WKView's own layer-BACKED backing layer: AppKit owns that layer and recreates it when the
+    // view moves into a window, orphaning any manually-added sublayer — iBooks composites its
+    // reader views before attaching them to the reader window, so its pages stayed blank. A
+    // -setLayer:-hosted layer is owned by the view and survives window moves.
+    RetainPtr<NSView> m_layerHostingView;
+    // MAVERICKS_BACKPORT: last context received in enterAcceleratedCompositingMode, so the
+    // CALayerHost can be re-minted when the view moves into a window (see viewDidMoveToWindow()).
+    LayerTreeContext m_layerTreeContext;
     RetainPtr<WKEditorUndoTarget> m_undoTarget;
     bool m_inSecureInputState { false };
 #if ENABLE(FULLSCREEN_API)
@@ -883,15 +907,49 @@ void MinimalPageClient::derefView()
     [m_view release];
 }
 
-void MinimalPageClient::enterAcceleratedCompositingMode(const LayerTreeContext& context)
+// MAVERICKS_BACKPORT: install `renderLayer` as the sole sublayer of a dedicated layer-HOSTING
+// subview of the WKView (the Safari-537 _layerHostingView design). The subview owns its layer
+// via -setLayer:, so the hosted content survives the view moving into a window — attaching to
+// the WKView's AppKit-owned backing layer does not (AppKit recreates that layer at window
+// attach, orphaning the sublayer; iBooks composites its reader views pre-window and showed
+// blank pages). Like 537, the render layer gets no frame: its (0,0) anchors the remote layer
+// tree to the hosting view's top-left, and the web-process side sizes the content.
+void MinimalPageClient::installRenderLayer(CALayer *renderLayer)
 {
-    RetainPtr<CALayer> renderLayer = [CALayer _web_renderLayerWithContextID:context.contextID shouldPreserveFlip:NO];
     if (m_rootLayer)
         [m_rootLayer removeFromSuperlayer];
     m_rootLayer = renderLayer;
-    if (m_view && renderLayer) {
-        [renderLayer setFrame:[m_view bounds]];
-        [[m_view layer] addSublayer:renderLayer.get()];
+
+    if (!m_view || !renderLayer) {
+        if (m_layerHostingView) {
+            [m_layerHostingView removeFromSuperview];
+            [m_layerHostingView setLayer:nil];
+            [m_layerHostingView setWantsLayer:NO];
+            m_layerHostingView = nullptr;
+        }
+        return;
+    }
+
+    if (!m_layerHostingView) {
+        m_layerHostingView = adoptNS([[WKMinimalLayerHostingView alloc] initWithFrame:[m_view bounds]]);
+        [m_layerHostingView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+        RetainPtr<CALayer> hostingRootLayer = adoptNS([[CALayer alloc] init]);
+        [m_layerHostingView setLayer:hostingRootLayer.get()];
+        [m_layerHostingView setWantsLayer:YES];
+        [m_view addSubview:m_layerHostingView.get() positioned:NSWindowBelow relativeTo:nil];
+    }
+    [m_layerHostingView layer].sublayers = @[ renderLayer ];
+}
+
+void MinimalPageClient::enterAcceleratedCompositingMode(const LayerTreeContext& context)
+{
+    m_layerTreeContext = context;
+    RetainPtr<CALayer> renderLayer = [CALayer _web_renderLayerWithContextID:context.contextID shouldPreserveFlip:NO];
+    installRenderLayer(renderLayer.get());
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace hosted-layer attach while debugging.
+    if (!access("/tmp/wk-debug-on", F_OK)) {
+        fprintf(stderr, "[EACM] view=%p ctxID=%u layer=%p hostingView=%p bounds=%.0fx%.0f window=%p\n", (void*)m_view, context.contextID, (void*)renderLayer.get(), (void*)m_layerHostingView.get(), [m_view bounds].size.width, [m_view bounds].size.height, (void*)[m_view window]);
+        fflush(stderr);
     }
 }
 
@@ -902,9 +960,23 @@ void MinimalPageClient::updateAcceleratedCompositingMode(const LayerTreeContext&
 
 void MinimalPageClient::exitAcceleratedCompositingMode()
 {
-    if (m_rootLayer)
-        [m_rootLayer removeFromSuperlayer];
-    m_rootLayer = nullptr;
+    m_layerTreeContext = LayerTreeContext();
+    installRenderLayer(nil);
+}
+
+// MAVERICKS_BACKPORT: a CALayerHost minted while its view is OUTSIDE any window never connects
+// to the remote CAContext when the view later joins one — the hosted content stays permanently
+// empty even though the web process flushes (iBooks composites its reader views pre-window;
+// their pages showed the hosting layer but no content). Re-mint the CALayerHost from the stored
+// LayerTreeContext when the view enters a window. Called from -[WKView viewDidMoveToWindow].
+void MinimalPageClient::viewDidMoveToWindow()
+{
+    if (!m_view || ![m_view window])
+        return;
+    if (m_layerTreeContext.isEmpty())
+        return;
+    RetainPtr<CALayer> renderLayer = [CALayer _web_renderLayerWithContextID:m_layerTreeContext.contextID shouldPreserveFlip:NO];
+    installRenderLayer(renderLayer.get());
 }
 
 void MinimalPageClient::didFirstLayerFlush(const LayerTreeContext& context)
@@ -915,14 +987,7 @@ void MinimalPageClient::didFirstLayerFlush(const LayerTreeContext& context)
 
 void MinimalPageClient::setRemoteLayerTreeRootNode(RemoteLayerTreeNode* rootNode)
 {
-    RetainPtr<CALayer> layer = rootNode ? rootNode->layer() : nil;
-    if (m_rootLayer)
-        [m_rootLayer removeFromSuperlayer];
-    m_rootLayer = layer;
-    if (m_view && layer) {
-        [layer setFrame:[m_view bounds]];
-        [[m_view layer] addSublayer:layer.get()];
-    }
+    installRenderLayer(rootNode ? rootNode->layer() : nil);
 }
 
 CALayer *MinimalPageClient::acceleratedCompositingRootLayer() const
@@ -1785,6 +1850,11 @@ void setMinimalPageClientPage(PageClient& client, WebPageProxy* page)
 void setMinimalPageClientForceVisibleWhenWindowless(PageClient& client, bool force)
 {
     static_cast<MinimalPageClient&>(client).setForceVisibleWhenWindowless(force);
+}
+
+void minimalPageClientViewDidMoveToWindow(PageClient& client)
+{
+    static_cast<MinimalPageClient&>(client).viewDidMoveToWindow();
 }
 
 } // namespace WebKit

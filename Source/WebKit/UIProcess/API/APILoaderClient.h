@@ -61,6 +61,10 @@ public:
     virtual void didFinishLoadForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Navigation*, API::Object*) { }
     virtual void didFailLoadWithErrorForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Navigation*, const WebCore::ResourceError&, API::Object*) { }
     virtual void didFirstVisuallyNonEmptyLayoutForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Object*) { }
+    // MAVERICKS_BACKPORT: legacy first-layout loader-client callback — restored dispatch (the
+    // WebProcess still sends DidFirstLayoutForFrame); iBooks' loader client sequences its
+    // chapter transitions on it.
+    virtual void didFirstLayoutForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Object*) { }
     virtual void didReachLayoutMilestone(WebKit::WebPageProxy&, OptionSet<WebCore::LayoutMilestone>) { }
     virtual bool shouldKeepCurrentBackForwardListItemInList(WebKit::WebPageProxy&, WebKit::WebBackForwardListItem&) { return true; }
     virtual bool processDidCrash(WebKit::WebPageProxy&) { return false; }

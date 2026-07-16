@@ -38,6 +38,9 @@
 #import "WKErrorCF.h"
 #import "WKFrame.h"
 #import "WKPage.h"
+// MAVERICKS_BACKPORT: pagination C SPI (WKPageSet/GetPaginationMode etc.) backing the restored
+// -[WKBrowsingContextController(Private)] pagination accessors iBooks' BKAssetEpub drives.
+#import "WKPagePrivate.h"
 #import "WKPageLoaderClient.h"
 #import "WKString.h"
 #import "WKStringCF.h"
@@ -57,6 +60,18 @@
 }
 - (id)loadDelegate;
 @end
+
+// MAVERICKS_BACKPORT: the original WKBrowsingContextController(Private) pagination SPI enum,
+// restored so BKAssetEpub's -setPaginationMode: argument type matches (NSInteger-backed). Its
+// values line up 1:1 with the C SPI's WKPaginationMode (kWKPaginationMode*), so the accessors
+// below map by a direct cast.
+typedef NS_ENUM(NSInteger, WKBrowsingContextPaginationMode) {
+    WKPaginationModeUnpaginated,
+    WKPaginationModeLeftToRight,
+    WKPaginationModeRightToLeft,
+    WKPaginationModeTopToBottom,
+    WKPaginationModeBottomToTop,
+};
 
 // MAVERICKS_BACKPORT: bridge the WebKit2 C-SPI page loader client to the legacy
 // -[<loadDelegate> browsingContextControllerDid...] callbacks that Web2.qldisplay
@@ -160,6 +175,25 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 @implementation WKBrowsingContextController
 ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
+// MAVERICKS_BACKPORT: installed once at controller creation (matching the original
+// setUpPageLoaderClient called from -_initWithPageRef:); the callbacks read -loadDelegate
+// dynamically, and an embedder that later sets its own loader client through
+// WKPageSetPageLoaderClient replaces this one, as on stock (see -setLoadDelegate:).
+static void installControllerPageLoaderClient(WKBrowsingContextController *controller, WKPageRef pageRef)
+{
+    WKPageLoaderClientV0 client;
+    memset(&client, 0, sizeof(client));
+    client.base.version = 0;
+    client.base.clientInfo = (__bridge const void *)controller;
+    client.didStartProvisionalLoadForFrame = didStartProvisionalLoadForFrame;
+    client.didReceiveServerRedirectForProvisionalLoadForFrame = didReceiveServerRedirectForProvisionalLoadForFrame;
+    client.didFailProvisionalLoadWithErrorForFrame = didFailProvisionalLoadWithErrorForFrame;
+    client.didCommitLoadForFrame = didCommitLoadForFrame;
+    client.didFinishLoadForFrame = didFinishLoadForFrame;
+    client.didFailLoadWithErrorForFrame = didFailLoadWithErrorForFrame;
+    WKPageSetPageLoaderClient(pageRef, &client.base);
+}
+
 - (instancetype)_initWithPageRef:(WKPageRef)pageRef
 {
     self = [super init];
@@ -171,6 +205,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         // MAVERICKS_BACKPORT (#137): register so a controller referenced in a WKConnection message body
         // (Mail keys its DidLayout/DidPaintContent and MessageContents by it) round-trips to this object.
         WKConnectionRegisterController(WebKit::toImpl(_pageRef)->identifier().toUInt64(), self);
+        installControllerPageLoaderClient(self, _pageRef);
     }
     return self;
 }
@@ -178,10 +213,9 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 - (void)dealloc
 {
     if (_pageRef) {
-        // Drop the loader client first so its clientInfo (self) can't be used
-        // after we're gone.
-        if (_loadDelegate)
-            WKPageSetPageLoaderClient(_pageRef, nullptr);
+        // Drop the loader client first so its clientInfo (self) can't be used after we're
+        // gone (installed unconditionally at -_initWithPageRef: time).
+        WKPageSetPageLoaderClient(_pageRef, nullptr);
         WKRelease(_pageRef);
     }
     [super dealloc];
@@ -201,27 +235,18 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 // Web2.qldisplay installs its observer via -setLoadDelegate:; -setDelegate: is
 // kept as an alias for any caller compiled against the older spelling. The
 // delegate is unretained (the delegate owns the controller).
+// MAVERICKS_BACKPORT: like the original controller, this ONLY stores the delegate — the page
+// loader client is installed unconditionally at -_initWithPageRef: time (see
+// installControllerPageLoaderClient) and its callbacks read the current delegate dynamically.
+// Installing a client HERE instead would clobber whatever loader client the embedder set
+// directly through WKPageSetPageLoaderClient in the meantime: a WKPage has one loader client,
+// and iBooks installs its own (carrying the didLayout layout-milestone callbacks its chapter
+// transitions wait on) after creating the view but before its worker calls -setLoadDelegate:
+// from the process-group connection handler — with the original ordering iBooks' client wins,
+// exactly as on stock.
 - (void)setLoadDelegate:(id)loadDelegate
 {
     _loadDelegate = loadDelegate;
-
-    if (!_pageRef)
-        return;
-
-    if (loadDelegate) {
-        WKPageLoaderClientV0 client;
-        memset(&client, 0, sizeof(client));
-        client.base.version = 0;
-        client.base.clientInfo = (__bridge const void *)self;
-        client.didStartProvisionalLoadForFrame = didStartProvisionalLoadForFrame;
-        client.didReceiveServerRedirectForProvisionalLoadForFrame = didReceiveServerRedirectForProvisionalLoadForFrame;
-        client.didFailProvisionalLoadWithErrorForFrame = didFailProvisionalLoadWithErrorForFrame;
-        client.didCommitLoadForFrame = didCommitLoadForFrame;
-        client.didFinishLoadForFrame = didFinishLoadForFrame;
-        client.didFailLoadWithErrorForFrame = didFailLoadWithErrorForFrame;
-        WKPageSetPageLoaderClient(_pageRef, &client.base);
-    } else
-        WKPageSetPageLoaderClient(_pageRef, nullptr);
 }
 
 - (id)loadDelegate
@@ -308,6 +333,76 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 {
     if (_pageRef)
         WKPageSetPageZoomFactor(_pageRef, pageZoom);
+}
+
+// MAVERICKS_BACKPORT: pagination SPI, restored from the original WKBrowsingContextController(Private).
+// iBooks' BKAssetEpub lays a book out as columns by sending -setPaginationMode:/-setPaginationBehavesLikeColumns:/
+// -setPageLength:/-setGapBetweenPages: on the controller and reading back -pageCount to drive its page turner.
+// Our restored controller only had the loader/URL API, so these were unrecognized selectors: -setPaginationMode:
+// logged an NSInvalidArgumentException (iBooks catches it) and the book never paginated — it opened stuck on the
+// cover with page turns dead. Route through the still-present WKPageSet/Get pagination C SPI on the wrapped page,
+// exactly as the original controller did.
+- (WKBrowsingContextPaginationMode)paginationMode
+{
+    return _pageRef ? (WKBrowsingContextPaginationMode)WKPageGetPaginationMode(_pageRef) : WKPaginationModeUnpaginated;
+}
+
+- (void)setPaginationMode:(WKBrowsingContextPaginationMode)paginationMode
+{
+    if (_pageRef)
+        WKPageSetPaginationMode(_pageRef, (WKPaginationMode)paginationMode);
+}
+
+- (BOOL)paginationBehavesLikeColumns
+{
+    return _pageRef ? WKPageGetPaginationBehavesLikeColumns(_pageRef) : NO;
+}
+
+- (void)setPaginationBehavesLikeColumns:(BOOL)behavesLikeColumns
+{
+    if (_pageRef)
+        WKPageSetPaginationBehavesLikeColumns(_pageRef, behavesLikeColumns);
+}
+
+- (CGFloat)pageLength
+{
+    return _pageRef ? WKPageGetPageLength(_pageRef) : 0;
+}
+
+- (void)setPageLength:(CGFloat)pageLength
+{
+    if (_pageRef)
+        WKPageSetPageLength(_pageRef, pageLength);
+}
+
+- (CGFloat)gapBetweenPages
+{
+    return _pageRef ? WKPageGetGapBetweenPages(_pageRef) : 0;
+}
+
+- (void)setGapBetweenPages:(CGFloat)gapBetweenPages
+{
+    if (_pageRef)
+        WKPageSetGapBetweenPages(_pageRef, gapBetweenPages);
+}
+
+- (NSUInteger)pageCount
+{
+    return _pageRef ? WKPageGetPageCount(_pageRef) : 0;
+}
+
+// MAVERICKS_BACKPORT: text-zoom SPI, restored from the original WKBrowsingContextController(Private).
+// iBooks sends -setTextZoom: to scale the book's font size independently of page zoom; without it the
+// send is an unrecognized selector (iBooks catches it, but the reader's font-size control no-ops).
+- (CGFloat)textZoom
+{
+    return _pageRef ? WKPageGetTextZoomFactor(_pageRef) : 1;
+}
+
+- (void)setTextZoom:(CGFloat)textZoom
+{
+    if (_pageRef)
+        WKPageSetTextZoomFactor(_pageRef, textZoom);
 }
 
 // MAVERICKS_BACKPORT (#137): Mail's load-delegate handlers (browsingContextControllerDidStartProvisionalLoad:

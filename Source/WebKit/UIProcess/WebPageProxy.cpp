@@ -8640,8 +8640,19 @@ void WebPageProxy::processDidUpdateThrottleState()
 }
 
 
-void WebPageProxy::didFirstLayoutForFrame(FrameIdentifier, const UserData& userData)
+void WebPageProxy::didFirstLayoutForFrame(FrameIdentifier frameID, const UserData& userData)
 {
+    // MAVERICKS_BACKPORT: dispatch the legacy first-layout signal to the deprecated loader
+    // client (this was an empty stub upstream). WKPageSetPageLoaderClient registers for the
+    // DidFirstLayout milestone whenever the client sets didFirstLayoutForFrame, and legacy
+    // embedders sequence on the callback — iBooks will not swap a freshly loaded chapter's
+    // view into its reader window until its loader client hears first layout.
+    RefPtr frame = WebFrameProxy::webFrame(frameID);
+    if (!frame)
+        return;
+
+    if (m_loaderClient)
+        m_loaderClient->didFirstLayoutForFrame(*this, *frame, protect(legacyMainFrameProcess())->transformHandlesToObjects(protect(userData.object()).get()).get());
 }
 
 void WebPageProxy::didFirstVisuallyNonEmptyLayoutForFrame(IPC::Connection& connection, FrameIdentifier frameID, const UserData& userData, WallTime timestamp)

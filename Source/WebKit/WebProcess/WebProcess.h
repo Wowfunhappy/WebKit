@@ -382,6 +382,13 @@ public:
 
     const String& uiProcessBundleIdentifier() const LIFETIME_BOUND { return m_uiProcessBundleIdentifier; }
 
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: the UI process's CARemoteLayerServer port (Safari-537
+    // acceleratedCompositingPort arrangement); LayerHostingContext creates hosted CAContexts
+    // against it so sandboxed host apps can display them. MACH_PORT_NULL when not supplied.
+    const WTF::MachSendRight& compositingRenderServerPort() const LIFETIME_BOUND { return m_compositingRenderServerPort; }
+#endif
+
     void updateActivePages(const String& overrideDisplayName);
     void getActivePagesOriginsForTesting(CompletionHandler<void(Vector<String>&&)>&&);
     void pageActivityStateDidChange(WebCore::PageIdentifier, OptionSet<WebCore::ActivityState> changed);
@@ -829,6 +836,10 @@ private:
     OptionSet<TextCheckerState> m_textCheckerState;
 
     String m_uiProcessBundleIdentifier;
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: see compositingRenderServerPort().
+    WTF::MachSendRight m_compositingRenderServerPort;
+#endif
     RefPtr<NetworkProcessConnection> m_networkProcessConnection;
     bool m_needsIDBConnectionRefreshForWorkers { false };
     const UniqueRef<WebLoaderStrategy> m_webLoaderStrategy;

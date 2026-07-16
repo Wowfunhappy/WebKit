@@ -39,6 +39,7 @@
 #import <WebCore/ActivityState.h>
 #import <WebCore/ColorCocoa.h>
 #import <WebCore/FloatPoint.h>
+#import <WebCore/FloatRect.h>
 #import <WebCore/IntSize.h>
 #import <WebCore/KeypressCommand.h>
 // MAVERICKS_BACKPORT: WebCoreFullScreenWindow backs the restored -createFullScreenWindow SPI.
@@ -73,6 +74,7 @@ namespace WebKit {
 std::unique_ptr<PageClient> createMinimalPageClient(NSView *view);
 void setMinimalPageClientPage(PageClient&, WebPageProxy *);
 void setMinimalPageClientForceVisibleWhenWindowless(PageClient&, bool);
+void minimalPageClientViewDidMoveToWindow(PageClient&);
 }
 
 // Per-WKView state. RefPtr<WebPageProxy> keeps the page alive for the
@@ -103,6 +105,11 @@ struct WKViewState {
     // -endDeferringViewInWindowChanges[Sync] pushes the coalesced change.
     bool shouldDeferViewInWindowChanges { false };
     bool viewInWindowChangeWasDeferred { false };
+    // MAVERICKS_BACKPORT: Safari-7 -[WKView setShouldClipToVisibleRect:] state (mirrors
+    // WebViewImpl::m_clipsToVisibleRect). When set, the page's view-exposed-rect is pinned to
+    // the view's visible rect so the tiled drawing area only backs visible content. iBooks'
+    // BKWKViewTiling sends -setShouldClipToVisibleRect:YES right after creating the view.
+    bool shouldClipToVisibleRect { false };
 };
 
 // MAVERICKS_BACKPORT: WKContentAnchor corner tests, restored from the Safari-537-era WKView.mm.
@@ -130,6 +137,8 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     // MinimalPageClient::intrinsicContentSizeDidChange -> -_setIntrinsicContentSize:).
     NSSize _intrinsicContentSize;
 }
+// MAVERICKS_BACKPORT: private helper backing the clip-to-visible-rect SPI (see -setShouldClipToVisibleRect:).
+- (void)_updateViewExposedRect;
 @end // MAVERICKS_BACKPORT: WKView class extension holding the backported per-view state ivars
 
 // MAVERICKS_BACKPORT: WKView is reimplemented for the 10.9 backport (the upstream WebViewImpl-backed body is stubbed).
@@ -171,6 +180,17 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 
     // MAVERICKS_BACKPORT: bring up the WebPage now that the page proxy + client are wired (no Site/sandbox yet).
     _wkState->page->initializeWebPage(WebCore::Site(WTF::HashTableEmptyValue), WebCore::SandboxFlags {}, WebCore::ReferrerPolicy::Default);
+
+    // MAVERICKS_BACKPORT: legacy WebKit2 launched the context's web process as soon as a page
+    // existed, and embedders sequence on the resulting connection callback — WKProcessGroup's
+    // -processGroup:didCreateConnectionToWebProcessPlugIn: fires at web-process launch, and
+    // iBooks won't load anything into a fresh document worker's view until that callback hands
+    // it the connection. Modern WebKit defers the launch to the first load, which deadlocks that
+    // pattern (no load -> no launch -> no callback -> iBooks' 60s watchdog). Launch eagerly, as
+    // 537 did via ensureSharedWebProcess at page creation (no-op if a real process already runs;
+    // launchProcess re-runs initializeWebPage against the launched process via
+    // finishAttachingToWebProcess, replacing the drawing area created above).
+    _wkState->page->launchInitialProcessIfNecessary();
 
     // MAVERICKS_BACKPORT: tell AppKit which pasteboard types this view can supply from / accept into the
     // selection, so the Services machinery offers services for the web selection (app-menu Services submenu
@@ -374,37 +394,31 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     [super setFrameSize:newSize];
 
     if (frameSizeUpdatesEnabled && _wkState && _wkState->page) {
-        // MAVERICKS_BACKPORT: if drawingArea is null, the WKView was created before WebContent
-        // was running. Re-attempt initializeWebPage now that the process should be alive.
-        if (!_wkState->page->drawingArea())
-            _wkState->page->initializeWebPage(WebCore::Site(WTF::HashTableEmptyValue), WebCore::SandboxFlags {}, WebCore::ReferrerPolicy::Default);
         if (RefPtr drawingArea = _wkState->page->drawingArea())
             drawingArea->setSize(WebCore::IntSize(newSize.width, newSize.height));
+        // MAVERICKS_BACKPORT: keep the clipped view-exposed-rect matched to the new visible rect.
+        if (_wkState->shouldClipToVisibleRect)
+            [self _updateViewExposedRect];
     }
-    // MAVERICKS_BACKPORT: the WebContent's hosted layer is added as a sublayer of our backing
-    // layer by MinimalPageClient::enterAcceleratedCompositingMode, framed to the view's
-    // bounds AT THAT TIME. It is not re-framed on resize, so a view that composites while
-    // small (e.g. Mail's message view before its auto-layout height arrives) stays clipped
-    // to that initial size and shows blank. Keep the hosted sublayer matched to our bounds —
-    // except while frame-size updates are disabled: then the sublayer keeps its size (the web
-    // process is still laid out at the old size) and only its origin moves, so the painted
-    // content stays pinned to the anchored corner. This view is flipped, so the top-left-origin
-    // math of the 537 anchor shift (rootLayer.position = -newFrameOrigin) carries over directly.
+    // MAVERICKS_BACKPORT: the WebContent's render layer lives in MinimalPageClient's dedicated
+    // layer-hosting subview (autoresized with us), unframed — so plain resizes need no layer
+    // fix-up. Only the 537 content-anchor shift is applied here: while frame-size updates are
+    // disabled the render layer's position moves by the accumulated size delta so the painted
+    // content stays pinned to the anchored corner, and the outermost re-enable (or the next
+    // enabled-state resize) puts it back. This view is flipped, so the top-left-origin math of
+    // the 537 shift (rootLayer.position = -newFrameOrigin) carries over directly.
+    CALayer *renderLayer = (_wkState && _wkState->pageClient) ? _wkState->pageClient->acceleratedCompositingRootLayer() : nil;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     if (frameSizeUpdatesEnabled) {
-        if (_wkState)
+        if (_wkState && !NSEqualPoints(_wkState->frameOrigin, NSZeroPoint)) {
             _wkState->frameOrigin = NSZeroPoint;
-        for (CALayer *sublayer in [[self layer] sublayers])
-            [sublayer setFrame:[self bounds]];
+            [renderLayer setPosition:CGPointZero];
+        }
     } else {
         if (_wkState)
             _wkState->frameOrigin = newFrameOrigin;
-        for (CALayer *sublayer in [[self layer] sublayers]) {
-            CGRect sublayerFrame = [sublayer frame];
-            sublayerFrame.origin = CGPointMake(-newFrameOrigin.x, -newFrameOrigin.y);
-            [sublayer setFrame:sublayerFrame];
-        }
+        [renderLayer setPosition:CGPointMake(-newFrameOrigin.x, -newFrameOrigin.y)];
     }
     [CATransaction commit];
 }
@@ -419,6 +433,66 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
         if (RefPtr drawingArea = _wkState->page->drawingArea())
             drawingArea->setSize(WebCore::IntSize(frame.size.width, frame.size.height));
     }
+    [self _updateViewExposedRect];
+}
+
+// MAVERICKS_BACKPORT: moving this view within its superview changes which part of it is visible
+// but fires no other geometry hook (layer-backed views rarely get -renewGState). iBooks' reader
+// turns pages by SLIDING its wide paginated strip view via frame-origin changes, so the clipped
+// view-exposed rect must follow here or the newly exposed page region is never painted.
+- (void)setFrameOrigin:(NSPoint)origin
+{
+    [super setFrameOrigin:origin];
+    [self _updateViewExposedRect];
+}
+
+// MAVERICKS_BACKPORT: the display pass that follows any layout/attach reaches -viewWillDraw with
+// FINAL geometry. Refresh the clipped view-exposed rect here: a view swapped into a window at
+// its final position (iBooks installs each chapter's strip view this way) gets no
+// frame/origin/gstate hook afterwards, and the empty visibleRect latched at -viewDidMoveToWindow
+// time would otherwise persist — the web process then paints nothing for the visible page.
+- (void)viewWillDraw
+{
+    [self _updateViewExposedRect];
+    [super viewWillDraw];
+}
+
+// MAVERICKS_BACKPORT: Safari-7 clip-to-visible-rect SPI, declared in WKViewPrivate.h.
+// Ported from WebViewImpl::{setClipsToVisibleRect,clipsToVisibleRect,updateViewExposedRect}
+// (which this WKView reimplementation does not use). iBooks' BKWKViewTiling sends
+// -setShouldClipToVisibleRect:YES unguarded when wiring up its page; without the method the
+// send hit ObjC forwarding -> uncaught NSInvalidArgumentException -> the app terminated.
+- (BOOL)shouldClipToVisibleRect
+{
+    return _wkState ? _wkState->shouldClipToVisibleRect : NO;
+}
+
+- (void)setShouldClipToVisibleRect:(BOOL)clipsToVisibleRect
+{
+    if (!_wkState)
+        return;
+    _wkState->shouldClipToVisibleRect = clipsToVisibleRect;
+    [self _updateViewExposedRect];
+}
+
+// MAVERICKS_BACKPORT: pin the page's view-exposed-rect to the view's visible rect while clipping
+// is on (nullopt = no restriction). Mirrors WebViewImpl::updateViewExposedRect; refreshed from the
+// geometry hooks below so a view that turned clipping on while zero-sized/out-of-window (iBooks
+// enables it before attaching the view to a window) does not stay clipped to an empty rect.
+- (void)_updateViewExposedRect
+{
+    if (!_wkState || !_wkState->page)
+        return;
+    CGRect exposedRect = NSRectToCGRect([self visibleRect]);
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace clip-to-visible geometry while
+    // debugging. Latched once — this runs per frame during scrolls/animations, so no per-call
+    // access(2) syscall.
+    static bool wkDebugOn = !access("/tmp/wk-debug-on", F_OK);
+    if (wkDebugOn) {
+        fprintf(stderr, "[EXPOSED-UI] view=%p clip=%d visibleRect=%.0f,%.0f %.0fx%.0f bounds=%.0fx%.0f window=%p\n", self, (int)_wkState->shouldClipToVisibleRect, exposedRect.origin.x, exposedRect.origin.y, exposedRect.size.width, exposedRect.size.height, [self bounds].size.width, [self bounds].size.height, [self window]);
+        fflush(stderr);
+    }
+    _wkState->page->setViewExposedRect(_wkState->shouldClipToVisibleRect ? std::optional<WebCore::FloatRect>(exposedRect) : std::nullopt);
 }
 
 // MAVERICKS_BACKPORT: content-anchor SPI, declared in WKViewPrivate.h (with the restored
@@ -641,11 +715,12 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
             drawingArea->setSize(WebCore::IntSize([self frame].size.width, [self frame].size.height));
     }
     _wkState->frameOrigin = NSZeroPoint;
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    for (CALayer *sublayer in [[self layer] sublayers])
-        [sublayer setFrame:[self bounds]];
-    [CATransaction commit];
+    if (CALayer *renderLayer = _wkState->pageClient ? _wkState->pageClient->acceleratedCompositingRootLayer() : nil) {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        [renderLayer setPosition:CGPointZero];
+        [CATransaction commit];
+    }
 }
 
 // MAVERICKS_BACKPORT: gate query (537-verbatim semantics); pageless WKViews report the default enabled state.
@@ -755,9 +830,30 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // activity-state and the visible content blank. Calling activityStateDidChange
 // triggers a WebPage::SetActivityState IPC which kicks WebContent to send a
 // fresh layer-tree commit, restoring the visible content.
+// MAVERICKS_BACKPORT: ported from the Safari-537 WKView (which refreshed its window/view frames
+// here). AppKit invalidates the gstate whenever this view's geometry RELATIVE TO THE WINDOW
+// changes — window resize, ancestor moves, scrolling — none of which touch the view's own frame,
+// so they reach no other geometry hook. The clipped view-exposed rect must be refreshed on this
+// signal: iBooks attaches its reader views while the reader window is still animating open at a
+// tiny size, so at -viewDidMoveToWindow time the views' -visibleRect is EMPTY, and the empty
+// exposed rect latched then would otherwise persist after the window reaches full size — the
+// web process then paints nothing and every page shows blank.
+- (void)renewGState
+{
+    if ([self window])
+        [self _updateViewExposedRect];
+    [super renewGState];
+}
+
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
     if (!_wkState || !_wkState->page) return;
+
+    // MAVERICKS_BACKPORT: a CALayerHost minted while this view was windowless never connects to
+    // the remote CAContext once the view joins a window; re-mint it now (no-op when there is no
+    // stored layer-tree context or no window). iBooks composites its reader views pre-window.
+    if (_wkState->pageClient)
+        WebKit::minimalPageClientViewDidMoveToWindow(*_wkState->pageClient);
 
     // MAVERICKS_BACKPORT: propagate the window's backing scale to the page so it renders at the display's
     // device pixel ratio (Retina = 2x). The MinimalPageClient/WKView path replaces WebViewImpl and dropped
@@ -798,6 +894,12 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     flags.add(WebCore::ActivityState::WindowIsActive);
     flags.add(WebCore::ActivityState::IsFocused);
     _wkState->page->activityStateDidChange(flags);
+
+    // MAVERICKS_BACKPORT: refresh the clipped view-exposed-rect now that the view is in a window
+    // (its visible rect only becomes meaningful once attached), mirroring WebViewImpl's
+    // updateWindowAndViewFrames -> updateViewExposedRect trigger.
+    if (_wkState->shouldClipToVisibleRect)
+        [self _updateViewExposedRect];
 }
 
 // MAVERICKS_BACKPORT: view-in-window-change deferral SPI, declared in WKViewPrivate.h and sent
@@ -933,17 +1035,12 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     [self _wk_updateIntrinsicDeviceScaleFactor];
 }
 
-// MAVERICKS_BACKPORT: the WebContent layer tree is hosted as a plain CALayer SUBLAYER of
-// WKView's own backing layer (see MinimalPageClient::enterAcceleratedCompositingMode /
-// setRemoteLayerTreeRootNode — [[m_view layer] addSublayer:]). CALayers do NOT participate
-// in NSView -hitTest:, and WKView mounts no NSView subviews of its own, so AppKit's normal
-// hit-testing already lands directly on the WKView and the mouse/scroll/key NSResponder
-// overrides below fire naturally via -[NSWindow sendEvent:]. This is the same arrangement
-// upstream uses on macOS, except upstream hosts the remote layer on a dedicated WKFlippedView
-// subview and so must redirect a hit on that subview back to the main view
-// (WebViewImpl::hitTest). We have no such subview, but keep that redirect as cheap, upstream-
-// equivalent insurance in case any descendant view is ever inserted: a hit on self or a
-// descendant resolves to self so the responder-chain forwarding stays correct.
+// MAVERICKS_BACKPORT: the WebContent layer tree is hosted on a dedicated layer-hosting subview
+// (MinimalPageClient's WKMinimalLayerHostingView — the 537 _layerHostingView arrangement). That
+// subview's -hitTest: returns nil, so AppKit's hit-testing lands on the WKView itself and the
+// mouse/scroll/key NSResponder overrides below fire naturally via -[NSWindow sendEvent:]. The
+// redirect here is the upstream-equivalent insurance (WebViewImpl::hitTest): a hit on self or
+// any descendant resolves to self so the responder-chain forwarding stays correct.
 - (NSView *)hitTest:(NSPoint)point
 {
     // MAVERICKS_BACKPORT: resolve a hit on self or any descendant back to self so responder-chain forwarding stays correct.

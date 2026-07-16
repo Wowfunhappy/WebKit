@@ -26,6 +26,7 @@
  */
 
 #include "config.h"
+#include <syslog.h> // MAVERICKS_BACKPORT DIAGNOSTIC
 #include "WebPage.h"
 
 #include "APIArray.h"
@@ -3590,6 +3591,9 @@ void WebPage::freezeLayerTree(LayerTreeFreezeReason reason)
     UNUSED_PARAM(oldReasons);
     m_layerTreeFreezeReasons.add(reason);
     WEBPAGE_RELEASE_LOG_FORWARDABLE(ProcessSuspension, WEBPAGE_FREEZE_LAYER_TREE, static_cast<unsigned>(reason), m_layerTreeFreezeReasons.toRaw(), oldReasons);
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace layer-tree freezes while debugging.
+    if (!access("/tmp/wk-debug-on", F_OK))
+        syslog(LOG_ERR, "[FREEZE-WP pid=%d] +reason=%u mask=%u", getpid(), static_cast<unsigned>(reason), m_layerTreeFreezeReasons.toRaw());
     updateDrawingAreaLayerTreeFreezeState();
 }
 
@@ -3599,6 +3603,9 @@ void WebPage::unfreezeLayerTree(LayerTreeFreezeReason reason)
     UNUSED_PARAM(oldReasons);
     m_layerTreeFreezeReasons.remove(reason);
     WEBPAGE_RELEASE_LOG_FORWARDABLE(ProcessSuspension, WEBPAGE_UNFREEZE_LAYER_TREE, static_cast<unsigned>(reason), m_layerTreeFreezeReasons.toRaw(), oldReasons);
+    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace layer-tree freezes while debugging.
+    if (!access("/tmp/wk-debug-on", F_OK))
+        syslog(LOG_ERR, "[FREEZE-WP pid=%d] -reason=%u mask=%u", getpid(), static_cast<unsigned>(reason), m_layerTreeFreezeReasons.toRaw());
     updateDrawingAreaLayerTreeFreezeState();
 }
 

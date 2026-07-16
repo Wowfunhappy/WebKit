@@ -1200,6 +1200,11 @@ void WebProcessPool::processDidFinishLaunching(WebProcessProxy& process)
 {
     ASSERT(m_processes.containsIf([&](auto& item) { return item.ptr() == &process; }));
 
+    // MAVERICKS_BACKPORT: legacy WKContextConnectionClient emulation for the ObjC WKProcessGroup
+    // (see setWebProcessDidFinishLaunchingHandler in the header).
+    if (m_webProcessDidFinishLaunchingHandler)
+        m_webProcessDidFinishLaunchingHandler();
+
     if (!m_visitedLinksPopulated) {
         populateVisitedLinks();
         m_visitedLinksPopulated = true;

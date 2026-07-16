@@ -24,6 +24,7 @@
  */
 
 #import "config.h"
+#import <syslog.h> // MAVERICKS_BACKPORT DIAGNOSTIC
 #import "TiledCoreAnimationDrawingArea.h"
 
 #if ENABLE(TILED_CA_DRAWING_AREA)
@@ -407,12 +408,26 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
     // and we re-queue the loop at the end if so. See the comment there.
     m_renderingUpdatePending = false;
 
-    if (layerTreeStateIsFrozen())
+    if (layerTreeStateIsFrozen()) {
+        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace flush bail-outs while debugging.
+        static int frozenBailCount;
+        if (frozenBailCount < 10 && !access("/tmp/wk-debug-on", F_OK)) {
+            frozenBailCount++;
+            syslog(LOG_ERR, "[TCA-WP pid=%d] updateRendering bail: layer tree frozen", getpid());
+        }
         return;
+    }
 
     Ref webPage = m_webPage.get();
-    if (!webPage->hasRootFrames()) [[unlikely]]
+    if (!webPage->hasRootFrames()) [[unlikely]] {
+        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace flush bail-outs while debugging.
+        static int noRootBailCount;
+        if (noRootBailCount < 10 && !access("/tmp/wk-debug-on", F_OK)) {
+            noRootBailCount++;
+            syslog(LOG_ERR, "[TCA-WP pid=%d] updateRendering bail: no root frames", getpid());
+        }
         return;
+    }
 
     @autoreleasepool {
         scaleViewToFitDocumentIfNeeded();
@@ -433,6 +448,12 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
         if (RefPtr localMainFrameView = webPage->localMainFrameView()) {
             if (auto exposedRect = localMainFrameView->viewExposedRect())
                 visibleRect.intersect(*exposedRect);
+        }
+        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace web-process flush geometry while debugging.
+        static int flushCount;
+        if (flushCount < 40 && !access("/tmp/wk-debug-on", F_OK)) {
+            flushCount++;
+                syslog(LOG_ERR, "[TCA-WP pid=%d] flush #%d hosting=%.0fx%.0f visible=%.0f,%.0f %.0fx%.0f root=%p url=%s", getpid(), flushCount, [m_hostingLayer frame].size.width, [m_hostingLayer frame].size.height, visibleRect.x(), visibleRect.y(), visibleRect.width(), visibleRect.height(), (void*)m_rootLayer.get(), webPage->mainWebFrame().url().string().left(96).utf8().data());
         }
 
         // Because our view-relative overlay root layer is not attached to the main GraphicsLayer tree, we need to flush it manually.
@@ -668,7 +689,12 @@ void TiledCoreAnimationDrawingArea::updateLayerHostingContext()
         m_layerHostingContext = nullptr;
     }
 
-    m_layerHostingContext = LayerHostingContext::create();
+    // MAVERICKS_BACKPORT: create the hosted context against the UI process's render server when
+    // it supplied one (sandboxed host apps can only display host-server contexts; see
+    // LayerHostingContext::create).
+    LayerHostingContextOptions options;
+    options.serverPort = WebProcess::singleton().compositingRenderServerPort().sendRight();
+    m_layerHostingContext = LayerHostingContext::create(options);
 
     if (m_rootLayer)
         m_layerHostingContext->setRootLayer(m_hostingLayer.get());

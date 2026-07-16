@@ -90,11 +90,21 @@ std::unique_ptr<LayerHostingContext> LayerHostingContext::create(const LayerHost
 #endif
     layerHostingContext->m_context = [CAContext remoteContextWithOptions:contextOptions];
 #elif !PLATFORM(MACCATALYST)
-    // MAVERICKS_BACKPORT: prefer the explicit CGSConnection variant (more reliable
-    // on older systems than +remoteContextWithOptions:).
-    layerHostingContext->m_context = [CAContext contextWithCGSConnection:CGSMainConnectionID() options:@{
-        kCAContextCIFilterBehavior : @"ignore",
-    }];
+    // MAVERICKS_BACKPORT: when the UI process supplied its CARemoteLayerServer port
+    // (WebProcessCreationParameters.acceleratedCompositingPort), create the context against IT:
+    // contexts registered on the host's render server are displayable by SANDBOXED host apps
+    // (iBooks' reader pages stayed blank without this, while unsandboxed Safari and Mail could
+    // host our CGS-connection contexts). Otherwise prefer the explicit CGSConnection variant
+    // (more reliable on older systems than +remoteContextWithOptions:).
+    if (options.serverPort != MACH_PORT_NULL) {
+        layerHostingContext->m_context = [CAContext remoteContextWithOptions:@{
+            kCAContextPortNumber : @(options.serverPort),
+            kCAContextCIFilterBehavior : @"ignore",
+        }];
+    } else
+        layerHostingContext->m_context = [CAContext contextWithCGSConnection:CGSMainConnectionID() options:@{
+            kCAContextCIFilterBehavior : @"ignore",
+        }];
 #else
     layerHostingContext->m_context = [CAContext contextWithCGSConnection:CGSMainConnectionID() options:@{
         kCAContextCIFilterBehavior : @"ignore",
