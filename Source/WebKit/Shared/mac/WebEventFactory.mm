@@ -196,14 +196,6 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(NSEvent *event, NSView *windo
     std::optional<WebCore::FloatSize> rawPlatformDelta;
     auto momentumEndType = WebWheelEvent::MomentumEndType::Unknown;
     
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: IOHIDEvent* APIs are stubbed in our polyfill as `xorl %eax,%eax;retq`.
-    // That's correct for void/int/pointer returns but BROKEN for floats: IOHIDEventGetFloatValue
-    // returns IOHIDFloat (double via XMM0) — the stub leaves XMM0 with garbage from prior calls,
-    // so rawPlatformDelta would carry random values that downstream wheel-event logic uses to
-    // decide acceleration/momentum. Skip the IOHIDEvent path entirely on Mac; downstream uses
-    // unacceleratedScrollingDelta computed above (real values from NSEvent).
-#else
     ([&] {
         RetainPtr<CGEventRef> cgEvent = event.CGEvent;
         if (!cgEvent)
@@ -216,7 +208,6 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(NSEvent *event, NSView *windo
         auto ioHIDEventTimestampMachAbsoluteTime = IOHIDEventGetTimeStamp(ioHIDEvent.get());
         ioHIDEventTimestamp = MonotonicTime::fromMachAbsoluteTime(ioHIDEventTimestampMachAbsoluteTime);
 
-        // MAVERICKS_BACKPORT: this IOHIDEventGetFloatValue read is the non-Mac-only path (compiled out on 10.9).
         rawPlatformDelta = { WebCore::FloatSize(-IOHIDEventGetFloatValue(ioHIDEvent.get(), kIOHIDEventFieldScrollX), -IOHIDEventGetFloatValue(ioHIDEvent.get(), kIOHIDEventFieldScrollY)) };
 
         if (IOHIDEventGetScrollMomentum(ioHIDEvent.get()) & kIOHIDEventScrollMomentumWillBegin) {
@@ -227,7 +218,6 @@ WebWheelEvent WebEventFactory::createWebWheelEvent(NSEvent *event, NSView *windo
         bool momentumWasInterrupted = IOHIDEventGetScrollMomentum(ioHIDEvent.get()) & kIOHIDEventScrollMomentumInterrupted;
         momentumEndType = momentumWasInterrupted ? WebWheelEvent::MomentumEndType::Interrupted : WebWheelEvent::MomentumEndType::Natural;
     })();
-#endif // MAVERICKS_BACKPORT: IOHIDEvent path skipped on Mac (float-return polyfill stubs corrupt XMM0).
 
     if (phase == WebWheelEvent::Phase::Cancelled) {
         deltaX = 0;

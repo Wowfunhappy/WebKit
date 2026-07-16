@@ -62,11 +62,6 @@ static void didReceiveMessageFromInjectedBundle(WKContextRef, WKStringRef messag
     WKProcessGroup *processGroup = (__bridge WKProcessGroup *)clientInfo;
     WKConnection *connection = processGroup->_connection;
     RetainPtr<CFStringRef> cfName = adoptCF(WKStringCopyCFString(kCFAllocatorDefault, messageName));
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace bundle->app messages while debugging.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[BUNDLE-MSG-APP] name=%s connection=%p delegate=%p\n", [(__bridge NSString *)cfName.get() UTF8String], connection, connection ? (void*)connection.delegate : nullptr);
-        fflush(stderr);
-    }
     if (!connection)
         return;
     [connection _dispatchDidReceiveMessageWithName:(__bridge NSString *)cfName.get() serializedBody:messageBody];

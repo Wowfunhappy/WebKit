@@ -27,8 +27,6 @@
 
 #include "GraphicsContext.h"
 #include "HitTestResult.h"
-// MAVERICKS_BACKPORT: ImageBuffer needed for the keystone #56 rasterize-to-bitmap SVG icon fix in paint().
-#include "ImageBuffer.h"
 #include "LayoutRepainter.h"
 #include "LocalFrame.h"
 #include "Page.h"
@@ -284,43 +282,6 @@ void RenderSVGRoot::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
     // An empty viewport disables rendering.
     if (borderBoxRect().isEmpty())
         return;
-
-    // MAVERICKS_BACKPORT: keystone band-aid #56 (CALayer/IOSurface compositing broken). When the
-    // destination context is NOT a bitmap (i.e. an IOSurface-backed CALayer context), CGContextFillPath
-    // silently fails on 10.9 — inline SVG icons (octicons, HN Y logo + upvote arrows, github folder +
-    // sidebar icons) draw zero pixels. Mirror the SVGImage::draw fix: rasterize this SVG into a bitmap
-    // ImageBuffer, then drawImageBuffer back into the IOSurface context. PaintPhase::Foreground is the
-    // icon-drawing phase; only redirect that one (background and outline are flat fills).
-    static thread_local int s_svgRootRasterizeDepth = 0;
-    if (s_svgRootRasterizeDepth == 0 && paintInfo.phase == PaintPhase::Foreground) {
-        // MAVERICKS_BACKPORT: keystone #56 — prefer renderingMode() over CGBitmapContextGetData (the latter
-        // prints a "serious error" to syslog for every non-bitmap context, called per inline-SVG per frame).
-        bool isBitmap = paintInfo.context().renderingMode() == RenderingMode::Unaccelerated;
-        if (!isBitmap) {
-            auto adjustedOffset = paintOffset + location();
-            LayoutRect overflowBox = visualOverflowRect();
-            flipForWritingMode(overflowBox);
-            overflowBox.moveBy(adjustedOffset);
-            IntRect bufferRect = enclosingIntRect(overflowBox);
-            if (!bufferRect.isEmpty() && bufferRect.width() <= 4096 && bufferRect.height() <= 4096) {
-                auto colorSpace = DestinationColorSpace::SRGB();
-                if (auto buffer = ImageBuffer::create(bufferRect.size(), RenderingMode::Unaccelerated, RenderingPurpose::DOM, 1, colorSpace, PixelFormat::BGRA8)) {
-                    s_svgRootRasterizeDepth++;
-                    GraphicsContext& bufferContext = buffer->context();
-                    GraphicsContextStateSaver bufferSaver(bufferContext);
-                    // Translate so paint coords land at (0,0) in the buffer.
-                    bufferContext.translate(-bufferRect.x(), -bufferRect.y());
-                    PaintInfo bufferPaintInfo(paintInfo);
-                    bufferPaintInfo.setContext(bufferContext);
-                    paint(bufferPaintInfo, paintOffset);
-                    s_svgRootRasterizeDepth--;
-                    GraphicsContextStateSaver outerSaver(paintInfo.context());
-                    paintInfo.context().drawImageBuffer(*buffer, bufferRect);
-                    return;
-                }
-            }
-        }
-    }
 
     auto adjustedPaintOffset = paintOffset + location();
 

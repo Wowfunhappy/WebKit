@@ -777,16 +777,6 @@ bool MinimalPageClient::isActiveViewVisible()
     if (!m_view)
         return false;
     NSWindow *window = [m_view window];
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): record what each visibility recompute saw.
-    // Armed for the intermittent reader first-activation stall (events flow but timers throttle
-    // and paint freezes = the page latched IsVisible=0 at dispatch time); the suspected culprit
-    // is a transiently hidden ancestor during Safari's reader activation animation.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[VIS-UI] view=%p window=%p winVisible=%d ancestorHidden=%d forceWindowless=%d\n",
-            (void*)m_view, (void*)window, window ? (int)[window isVisible] : -1,
-            (int)[[m_view superview] isHiddenOrHasHiddenAncestor], (int)m_forceVisibleWhenWindowless);
-        fflush(stderr);
-    }
     if (!window)
         return m_forceVisibleWhenWindowless;
     if (![window isVisible])
@@ -946,11 +936,6 @@ void MinimalPageClient::enterAcceleratedCompositingMode(const LayerTreeContext& 
     m_layerTreeContext = context;
     RetainPtr<CALayer> renderLayer = [CALayer _web_renderLayerWithContextID:context.contextID shouldPreserveFlip:NO];
     installRenderLayer(renderLayer.get());
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace hosted-layer attach while debugging.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[EACM] view=%p ctxID=%u layer=%p hostingView=%p bounds=%.0fx%.0f window=%p\n", (void*)m_view, context.contextID, (void*)renderLayer.get(), (void*)m_layerHostingView.get(), [m_view bounds].size.width, [m_view bounds].size.height, (void*)[m_view window]);
-        fflush(stderr);
-    }
 }
 
 void MinimalPageClient::updateAcceleratedCompositingMode(const LayerTreeContext& context)

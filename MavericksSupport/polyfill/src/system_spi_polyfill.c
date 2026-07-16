@@ -134,6 +134,29 @@ bool CGColorSpaceUsesExtendedRange(CGColorSpaceRef space) { (void)space; return 
 bool CGColorSpaceUsesITUR_2100TF(CGColorSpaceRef space) { (void)space; return false; }
 
 // ---------------------------------------------------------------------------------------------------
+// CoreText
+// ---------------------------------------------------------------------------------------------------
+
+// CTFontShapeGlyphs (the unified glyph-shaping entry point) is 10.13+ and absent on 10.9. It is called
+// from Font::applyTransforms (the SimpleShaper path) to fill per-glyph horizontal advances (and, for
+// complex cases, reorder glyphs via the handler). On 10.9 that path historically used the still-present
+// CTFontGetAdvancesForGlyphs to fill base horizontal advances, and complex-script reshaping/reordering
+// went through WebCore's ComplexTextController (CTLine/CTTypesetter), NOT this simple path. So the
+// faithful 10.9 behavior here is: fill base horizontal advances from CTFontGetAdvancesForGlyphs, keep
+// the caller's glyphs/origins/indexes (horizontal simple text has zero origins and no reordering), and
+// return a zero initial advance (LTR). This is a real implementation over the present 10.9 API, not a
+// value stub. CTFontShapeOptions is a CFOptionFlags; the reorder handler is unused on this OS path.
+extern CGSize CTFontShapeGlyphs(CTFontRef, CGGlyph[], CGSize[], CGPoint[], CFIndex[], const UniChar[], CFIndex, CFOptionFlags, CFStringRef, void (^)(CFRange, CGGlyph**, CGSize**, CGPoint**, CFIndex**));
+CGSize CTFontShapeGlyphs(CTFontRef font, CGGlyph glyphs[], CGSize advances[], CGPoint origins[], CFIndex indexes[], const UniChar chars[], CFIndex count, CFOptionFlags options, CFStringRef language, void (^handler)(CFRange, CGGlyph**, CGSize**, CGPoint**, CFIndex**))
+{
+    (void)origins; (void)indexes; (void)chars; (void)options; (void)language; (void)handler;
+    if (count > 0 && advances && glyphs)
+        CTFontGetAdvancesForGlyphs(font, kCTFontOrientationHorizontal, glyphs, advances, count);
+    CGSize zero = { 0, 0 };
+    return zero;
+}
+
+// ---------------------------------------------------------------------------------------------------
 // CoreServices / LaunchServices — called before LS check-in in auxiliary processes; no-op on 10.9.
 // ---------------------------------------------------------------------------------------------------
 
@@ -283,6 +306,12 @@ void *IOHIDEventSystemClientCopyServiceForRegistryID(void *client, uint64_t regi
     return NULL;
 }
 void IOHIDEventSystemClientSetDispatchQueue(void *client, void *queue) { (void)client; (void)queue; }
+
+// IOHIDEventGetScrollMomentum (10.9's IOKit lacks this one; the sibling IOHIDEvent accessors
+// IOHIDEventGetFloatValue/GetTimeStamp/GetSenderID/GetType ARE present and link to the real
+// symbols). Momentum-phase bits aren't reported through this API on 10.9; returning 0 (no bits)
+// is the honest answer — scroll deltas still come through the present IOHIDEventGetFloatValue path.
+unsigned char IOHIDEventGetScrollMomentum(void *event) { (void)event; return 0; }
 
 // ---------------------------------------------------------------------------------------------------
 // ImageIO decode-policy controls (newer, security hardening). No-op on 10.9: images decode normally.

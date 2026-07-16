@@ -36,6 +36,7 @@
 // stream outlives any in-flight socket callbacks until teardown clears the client.
 
 #include "config.h"
+#import "wk_selref_scope.h" // MAVERICKS_BACKPORT: WK_POLYFILL_SEL/WK_POLYFILL_ADD host-safe polyfill registry.
 #import <CFNetwork/CFNetwork.h>
 #import <CommonCrypto/CommonDigest.h>
 #import <Foundation/Foundation.h>
@@ -135,28 +136,20 @@ typedef NS_ENUM(NSInteger, WKWSState) {
 
 static id wsWebSocketTaskWithRequest(NSURLSession *, SEL, NSURLRequest *);
 
-@implementation WKWebSocketStream
+// MAVERICKS_BACKPORT: expose -[NSURLSession webSocketTaskWithRequest:] (10.15+) host-safely via the
+// WebKit-scoped selref mechanism, exactly like its valueForHTTPHeaderField: sibling. WK_POLYFILL_SEL
+// rewrites WebKit images' `webSocketTaskWithRequest:` selrefs to the PRIVATE `wk_webSocketTaskWithRequest:`,
+// and WK_POLYFILL_ADD installs that private method (backed by wsWebSocketTaskWithRequest) on each concrete
+// NSURLSession class-cluster class at runtime (the cluster's instances are __NSCFURLSession, NOT an
+// NSURLSession subclass, so every concrete class needs it). The PUBLIC selector stays absent on the class,
+// so an embedder's -respondsToSelector:@selector(webSocketTaskWithRequest:) still returns NO on 10.9 — no
+// 10.15+ misdetection (the meta-crash family the old process-global class_addMethod injection risked).
+WK_POLYFILL_SEL("webSocketTaskWithRequest:", "wk_webSocketTaskWithRequest:");
+WK_POLYFILL_ADD("NSURLSession", "wk_webSocketTaskWithRequest:", wsWebSocketTaskWithRequest, "@@:@");
+WK_POLYFILL_ADD("__NSCFURLSession", "wk_webSocketTaskWithRequest:", wsWebSocketTaskWithRequest, "@@:@");
+WK_POLYFILL_ADD("__NSURLSessionLocal", "wk_webSocketTaskWithRequest:", wsWebSocketTaskWithRequest, "@@:@");
 
-// Inject -[NSURLSession webSocketTaskWithRequest:] via class_addMethod: a plain category on a Foundation
-// class in this normally-linked WebKit2 file can be dead-stripped (unlike the force-loaded wk_polyfills.o
-// categories, whose __objc_catlist is always included). NetworkSessionCocoa::createWebSocketTask already
-// calls it, guarded by respondsToSelector:.
-+ (void)load
-{
-    @autoreleasepool {
-        SEL sel = @selector(webSocketTaskWithRequest:);
-        // NSURLSession is a class cluster: instances are __NSCFURLSession, which is NOT a subclass of
-        // the public NSURLSession, so the method must be injected onto the concrete class(es) too.
-        const char *names[] = { "NSURLSession", "__NSCFURLSession", "__NSURLSessionLocal" };
-        for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
-            Class cls = objc_getClass(names[i]);
-            if (cls && !class_getInstanceMethod(cls, sel))
-                class_addMethod(cls, sel, (IMP)wsWebSocketTaskWithRequest, "@@:@");
-        }
-        // NSHTTPURLResponse -valueForHTTPHeaderField: (10.13+) is polyfilled host-safely via the selref-scope
-        // mechanism (wk_valueForHTTPHeaderField: in wk_polyfills.m); no class_addMethod injection needed here.
-    }
-}
+@implementation WKWebSocketStream
 
 - (instancetype)initWithRequest:(NSURLRequest *)request protocol:(NSString *)protocol session:(NSURLSession *)session taskIdentifier:(NSUInteger)identifier
 {
@@ -256,11 +249,6 @@ static id wsWebSocketTaskWithRequest(NSURLSession *, SEL, NSURLRequest *);
 
 - (void)deliverError:(NSError *)error
 {
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace WebSocket failures while debugging.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[WSPOLYFILL] error %s url=%s\n", error.description.UTF8String, _request.URL.absoluteString.UTF8String);
-        fflush(stderr);
-    }
     [_lock lock];
     void (^handler)(NSURLSessionWebSocketMessage *, NSError *) = _pendingReceive;
     _pendingReceive = nil;
@@ -273,11 +261,6 @@ static id wsWebSocketTaskWithRequest(NSURLSession *, SEL, NSURLRequest *);
 
 - (void)deliverDidOpenWithProtocol:(NSString *)protocol
 {
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace WebSocket opens while debugging.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[WSPOLYFILL] open url=%s\n", _request.URL.absoluteString.UTF8String);
-        fflush(stderr);
-    }
     __weak id delegate = _delegate;
     __weak NSURLSession *session = _session;
     WKWebSocketStream *taskSelf = self;
@@ -632,12 +615,6 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
 
 - (BOOL)handshakeFailed:(NSInteger)statusCode
 {
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated like the XPCServiceMain stderr redirect):
-    // surface failed WebSocket handshakes in the per-pid stderr log while debugging.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[WSPOLYFILL] handshake failed HTTP %ld url=%s\n", (long)statusCode, _request.URL.absoluteString.UTF8String);
-        fflush(stderr);
-    }
     _state = WKWSStateClosed;
     NSString *desc = [NSString stringWithFormat:@"WebSocket handshake failed (HTTP %ld)", (long)statusCode];
     [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorBadServerResponse userInfo:@{ NSLocalizedDescriptionKey: desc }]];
@@ -806,12 +783,6 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
 {
     if (_state == WKWSStateClosed)
         return;
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated, like handshakeFailed:): surface the transport-level
-    // failure reason + state in the per-pid stderr log while debugging WebSocket connectivity.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[WSPOLYFILL] failWithReason state=%d reason=%s url=%s\n", (int)_state, reason.UTF8String, _request.URL.absoluteString.UTF8String);
-        fflush(stderr);
-    }
     _state = WKWSStateClosed;
     [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost userInfo:@{ NSLocalizedDescriptionKey: reason }]];
     [self teardownStreams];

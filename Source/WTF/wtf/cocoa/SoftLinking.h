@@ -24,7 +24,6 @@
 
 #pragma once
 
-#import <dispatch/dispatch.h> // MAVERICKS_BACKPORT: explicit dispatch include for the dispatch_once-based loaders below.
 #import <dlfcn.h>
 #import <objc/runtime.h>
 #import <wtf/Assertions.h>
@@ -48,8 +47,7 @@
     { \
         static void* dylib = ^{ \
             void *result = dlopen("/usr/lib/" #lib ".dylib", RTLD_NOW); \
-            if (!result) \
-                WTFLogAlways("MAVERICKS_BACKPORT: optional library " #lib " not loaded: %s", dlerror()); \
+            RELEASE_ASSERT_WITH_MESSAGE(result, "%s", dlerror()); \
             return result; \
         }(); \
         return dylib; \
@@ -60,8 +58,7 @@
     { \
         static void* dylib = ^{ \
             void *result = dlopen("/usr/lib/system/" #lib ".dylib", RTLD_NOW); \
-            if (!result) \
-                WTFLogAlways("MAVERICKS_BACKPORT: optional system library " #lib " not loaded: %s", dlerror()); \
+            RELEASE_ASSERT_WITH_MESSAGE(result, "%s", dlerror()); \
             return result; \
         }(); \
         return dylib; \
@@ -72,6 +69,21 @@ static void* lib##Library() \
 { \
     static void* dylib = ^{ \
         void *result = dlopen("/usr/lib/" #lib ".dylib", RTLD_NOW); \
+        return result; \
+    }(); \
+    return dylib; \
+}
+
+// MAVERICKS_BACKPORT: optional variant of SOFT_LINK_SYSTEM_LIBRARY for /usr/lib/system libraries that
+// are genuinely absent on 10.9 (e.g. libsystem_networkextension, 10.10+). Mirrors upstream's own
+// SOFT_LINK_LIBRARY_OPTIONAL: returns nullptr instead of RELEASE_ASSERTing, for a library whose call
+// sites are all SOFT_LINK_OPTIONAL (nullptr-tolerant). Non-optional SOFT_LINK_SYSTEM_LIBRARY keeps its
+// assert so a should-be-present system library that fails to load still crashes loudly.
+#define SOFT_LINK_SYSTEM_LIBRARY_OPTIONAL(lib) \
+static void* lib##Library() \
+{ \
+    static void* dylib = ^{ \
+        void *result = dlopen("/usr/lib/system/" #lib ".dylib", RTLD_NOW); \
         return result; \
     }(); \
     return dylib; \
@@ -93,8 +105,7 @@ static void* lib##Library() \
     { \
         static void* frameworkLibrary = ^{ \
             void* result = dlopen("/System/Library/Frameworks/" #framework ".framework/" #framework, RTLD_NOW); \
-            if (!result) \
-                WTFLogAlways("MAVERICKS_BACKPORT: optional framework " #framework " not loaded: %s", dlerror()); \
+            RELEASE_ASSERT_WITH_MESSAGE(result, "%s", dlerror()); \
             return result; \
         }(); \
         return frameworkLibrary; \
@@ -105,8 +116,7 @@ static void* lib##Library() \
     { \
         static void* frameworkLibrary = ^{ \
             void* result = dlopen("/System/Library/PrivateFrameworks/" #framework ".framework/" #framework, RTLD_NOW); \
-            if (!result) \
-                WTFLogAlways("MAVERICKS_BACKPORT: optional private framework " #framework " not loaded: %s", dlerror()); \
+            RELEASE_ASSERT_WITH_MESSAGE(result, "%s", dlerror()); \
             return result; \
         }(); \
         return frameworkLibrary; \
@@ -174,21 +184,11 @@ static void* lib##Library() \
     static resultType init##functionName parameterDeclarations; \
     static resultType (*softLink##functionName) parameterDeclarations = init##functionName; \
     \
-    /* MAVERICKS_BACKPORT: macOS 10.9 lacks many newer symbols. When dlsym fails, softLink \
-       points here permanently so the always-inline fast path stays callable on \
-       every subsequent call (a null softLink would crash). Callers handle nil/zero. */ \
-    static resultType stub##functionName parameterDeclarations \
-    { \
-        return resultType(); \
-    } \
-    \
     static resultType init##functionName parameterDeclarations \
     { \
         _STORE_IN_DLSYM_SECTION static char const auditedName[] = #functionName; \
         softLink##functionName = (resultType (*) parameterDeclarations) dlsym(framework##Library(), auditedName); \
-        /* MAVERICKS_BACKPORT: dlsym fails for 10.10+ symbols on 10.9 → point at the stub above instead of aborting. */ \
-        if (!softLink##functionName) \
-            softLink##functionName = stub##functionName; \
+        RELEASE_ASSERT_WITH_MESSAGE(softLink##functionName, "%s", dlerror()); \
         return softLink##functionName parameterNames; \
     } \
     \
@@ -322,11 +322,7 @@ static void* lib##Library() \
     { \
         _STORE_IN_DLSYM_SECTION static char const auditedName[] = #name; \
         void** pointer = static_cast<void**>(dlsym(framework##Library(), auditedName)); \
-        /* MAVERICKS_BACKPORT: missing symbols on 10.9 → return default-constructed pointer. */ \
-        if (!pointer) { \
-            get##name = name##Function; \
-            return pointer##name; \
-        } \
+        RELEASE_ASSERT_WITH_MESSAGE(pointer, "%s", dlerror()); \
         pointer##name = static_cast<type>(*pointer); \
         get##name = name##Function; \
         SUPPRESS_UNRETAINED_ARG return pointer##name; \
@@ -367,9 +363,8 @@ static void* lib##Library() \
     { \
         _STORE_IN_DLSYM_SECTION static char const auditedName[] = #name; \
         void* constant = dlsym(framework##Library(), auditedName); \
-        /* MAVERICKS_BACKPORT: missing constants on 10.9 → leave default-constructed. */ \
-        if (constant) \
-            constant##name.constant = *static_cast<type const *>(constant); \
+        RELEASE_ASSERT_WITH_MESSAGE(constant, "%s", dlerror()); \
+        constant##name.constant = *static_cast<type const *>(constant); \
         get##name##Singleton = name##Function; \
         return constant##name.constant; \
     }
@@ -426,8 +421,8 @@ static void* lib##Library() \
         static dispatch_once_t once; \
         dispatch_once(&once, ^{ \
             library = dlopen("/usr/lib/" #lib ".dylib", RTLD_NOW); \
-            if (!library) /* MAVERICKS_BACKPORT: tolerate absent-on-10.9 libraries (see loaders above) */ \
-                WTFLogAlways("MAVERICKS_BACKPORT: optional library " #lib " not loaded: %s", dlerror()); \
+            if (!isOptional) \
+                RELEASE_ASSERT_WITH_MESSAGE(library, "%s", dlerror()); \
         }); \
         return library; \
     } \
@@ -451,8 +446,8 @@ static void* lib##Library() \
         static dispatch_once_t once; \
         dispatch_once(&once, ^{ \
             frameworkLibrary = dlopen("/System/Library/Frameworks/" #framework ".framework/" #framework, flags); \
-            if (!frameworkLibrary) /* MAVERICKS_BACKPORT: tolerate absent-on-10.9 frameworks (see loaders above) */ \
-                WTFLogAlways("MAVERICKS_BACKPORT: optional framework " #framework " not loaded: %s", dlerror()); \
+            if (!isOptional) \
+                RELEASE_ASSERT_WITH_MESSAGE(frameworkLibrary, "%s", dlerror()); \
         }); \
         return frameworkLibrary; \
     } \
@@ -476,8 +471,8 @@ static void* lib##Library() \
         static dispatch_once_t once; \
         dispatch_once(&once, ^{ \
             frameworkLibrary = dlopen("/System/Library/PrivateFrameworks/" #framework ".framework/" #framework, RTLD_NOW); \
-            if (!frameworkLibrary) /* MAVERICKS_BACKPORT: tolerate absent-on-10.9 frameworks (see loaders above) */ \
-                WTFLogAlways("MAVERICKS_BACKPORT: optional private framework " #framework " not loaded: %s", dlerror()); \
+            if (!isOptional) \
+                RELEASE_ASSERT_WITH_MESSAGE(frameworkLibrary, "%s", dlerror()); \
         }); \
         return frameworkLibrary; \
     } \
@@ -520,11 +515,11 @@ static void* lib##Library() \
     { \
         static dispatch_once_t once; \
         dispatch_once(&once, ^{ \
-            framework##Library(true /* MAVERICKS_BACKPORT: always treat as optional on 10.9 */); \
+            framework##Library(isOptional); \
             _STORE_IN_GETCLASS_SECTION static char const auditedClassName[] = #className; \
             class##className = objc_getClass(auditedClassName); \
-            /* MAVERICKS_BACKPORT: never assert on missing class so 10.9 build doesn't abort \
-               when alloc'ing 10.10+ classes; callers get nil and should handle it. */ \
+            if (!isOptional) \
+                RELEASE_ASSERT(class##className); \
             get##className##ClassSingleton = className##Function; \
         }); \
         return class##className; \
@@ -575,10 +570,7 @@ static void* lib##Library() \
         dispatch_once(&once, ^{ \
             _STORE_IN_DLSYM_SECTION static char const auditedName[] = #variableName; \
             void* constant = dlsym(framework##Library(), auditedName); \
-            /* MAVERICKS_BACKPORT: macOS 10.9 lacks many newer constants; return default-constructed \
-               value instead of aborting. Callers must handle nil/zero. */ \
-            if (!constant) \
-                return; \
+            RELEASE_ASSERT_WITH_MESSAGE(constant, "%s", dlerror()); \
             constant##framework##variableName = *static_cast<variableType const *>(constant); \
         }); \
         return constant##framework##variableName; \

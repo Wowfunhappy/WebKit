@@ -1,7 +1,7 @@
 # Safari-7 install plan (name-shift + runtime deps)
 
 Derived from inspecting the built frameworks and the stock 10.9 layout. This
-records decisions so the install script (`install-safari7.sh`, TBD) is auditable.
+records decisions so the install script (`install-safari7.sh`) is auditable.
 
 ## Framework name shift
 
@@ -48,19 +48,18 @@ our libc++ distinct from the system one in any shared process; our C++ world is
 closed and exposes only ObjC/C across the framework ABI, so two libc++ coexist
 safely.
 
-Mechanism (per Source/cmake/OptionsMac.cmake:115-121): the build links
+Mechanism (per Source/cmake/OptionsMac.cmake:177-184): the build links
 `${MAVERICKS_TC}/lib/libc++.1.dylib` + `libc++abi.1.dylib` *dynamically* — they
 carry `install_name @rpath/libc++.1.dylib` (resp. abi), and each framework's
 LC_RPATH currently lists the toolchain lib dir and the build lib dir (that is how
-`@rpath/libc++.1.dylib` resolves at build/test time). NOTE: the cmake comment
-references a "postbuild [that] deploys a private copy next to the frameworks and
-points an LC_RPATH at it" — that postbuild is **not implemented in-tree** (lost
-in the VM reset). The install script must therefore, for each installed
-framework: (1) copy `libc++.1.dylib`/`libc++abi.1.dylib` to a fixed location
-(e.g. the framework's `Versions/A/` dir or `/usr/local/lib`), and (2) either add
-an LC_RPATH pointing there, or rewrite `@rpath/libc++*.dylib` to that absolute
-path with `install_name_tool -change`. Do NOT rely on the toolchain/build dirs in
-LC_RPATH — those are developer paths absent on a clean target.
+`@rpath/libc++.1.dylib` resolves at build/test time). The private deployment the
+cmake comment refers to is done by `install-safari7.sh` (not a CMake postbuild):
+for each installed framework it (1) copies `libc++.1.dylib`/`libc++abi.1.dylib`
+into the base framework bundle (`JavaScriptCore.framework`, which every WebKit
+framework links), and (2) rewrites `@rpath/libc++*.dylib` to that absolute
+in-bundle path with `install_name_tool -change`. It does NOT rely on the
+toolchain/build dirs in LC_RPATH — those are developer paths absent on a clean
+target.
 
 ## ABI gap (see check-abi-gap.sh)
 

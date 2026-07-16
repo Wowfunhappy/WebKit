@@ -1770,12 +1770,6 @@ void Element::setScrollTop(int newTop)
     if (document->scrollingElement() == this || shouldAliasBodyScrollToDocumentScrollForSafariReader(document, *this)) {
         if (RefPtr frame = documentFrameWithNonNullView()) {
             IntPoint position(frame->view()->scrollX(), static_cast<int>(newTop * frame->pageZoomFactor() * frame->frameScaleFactor()));
-            // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): reader-scroll geometry (first-activation race).
-            if (document->url().protocolIs("safari-reader"_s) && !access("/tmp/wk-debug-on", F_OK)) {
-                auto* view = frame->view();
-                fprintf(stderr, "[READER-GEOM] setScrollTop=%d contents=%dx%d visible=%dx%d maxY=%d\n", newTop, view->contentsSize().width(), view->contentsSize().height(), view->visibleWidth(), view->visibleHeight(), view->maximumScrollPosition().y());
-                fflush(stderr);
-            }
             protect(frame->view())->setScrollPosition(position, options);
         }
         return;

@@ -63,9 +63,6 @@
 #include <wtf/Ref.h>
 #include <wtf/text/MakeString.h>
 
-// MAVERICKS_BACKPORT DIAGNOSTIC: backtrace_symbols_fd for the sentinel-gated [RL-CANCEL] probe.
-#include <execinfo.h>
-
 #if ENABLE(CONTENT_EXTENSIONS)
 #include "UserContentController.h"
 #endif
@@ -141,11 +138,6 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
             RESOURCELOADER_RELEASE_LOG("init: Cancelling because there is no document loader.");
         else
             RESOURCELOADER_RELEASE_LOG("init: Cancelling because the document loader has no frame.");
-        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): RELEASE_LOG is compiled out on 10.9.
-        if (!access("/tmp/wk-debug-on", F_OK)) {
-            fprintf(stderr, "[RL-INIT-FAIL] reason=%s url=%s\n", m_documentLoader ? "docloader-no-frame" : "no-docloader", clientRequest.url().string().utf8().data());
-            fflush(stderr);
-        }
         cancel();
         return completionHandler(false);
     }
@@ -158,24 +150,12 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
     m_loadTiming.markStartTime();
 
     RefPtr frame = m_frame.get();
-    if (!frame) {
-        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated).
-        if (!access("/tmp/wk-debug-on", F_OK)) {
-            fprintf(stderr, "[RL-INIT-FAIL] reason=no-frame url=%s\n", clientRequest.url().string().utf8().data());
-            fflush(stderr);
-        }
+    if (!frame)
         return completionHandler(false);
-        // MAVERICKS_BACKPORT DIAGNOSTIC: closes the sentinel-gated no-frame init-fail block above.
-    }
     m_defersLoading = m_options.defersLoadingPolicy == DefersLoadingPolicy::AllowDefersLoading && frame->page()->defersLoading();
 
     if (m_options.securityCheck == SecurityCheckPolicy::DoSecurityCheck && !protect(protect(frame->document())->securityOrigin())->canDisplay(clientRequest.url(), OriginAccessPatternsForWebProcess::singleton())) {
         RESOURCELOADER_RELEASE_LOG("init: Cancelling load because it violates security policy.");
-        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated).
-        if (!access("/tmp/wk-debug-on", F_OK)) {
-            fprintf(stderr, "[RL-INIT-FAIL] reason=canDisplay url=%s\n", clientRequest.url().string().utf8().data());
-            fflush(stderr);
-        }
         FrameLoader::reportLocalLoadFailed(frame.get(), clientRequest.url().string());
         releaseResources();
         return completionHandler(false);
@@ -183,11 +163,6 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
 
     if (!isPortAllowed(clientRequest.url())) {
         RESOURCELOADER_RELEASE_LOG("init: Cancelling load to a blocked port.");
-        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated).
-        if (!access("/tmp/wk-debug-on", F_OK)) {
-            fprintf(stderr, "[RL-INIT-FAIL] reason=blocked-port url=%s\n", clientRequest.url().string().utf8().data());
-            fflush(stderr);
-        }
         FrameLoader::reportBlockedLoadFailed(*frame, clientRequest.url());
         releaseResources();
         return completionHandler(false);
@@ -195,11 +170,6 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
 
     if (isIPAddressDisallowed(clientRequest.url())) {
         RESOURCELOADER_RELEASE_LOG("init: Cancelling load to disallowed IP address.");
-        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated).
-        if (!access("/tmp/wk-debug-on", F_OK)) {
-            fprintf(stderr, "[RL-INIT-FAIL] reason=disallowed-ip url=%s\n", clientRequest.url().string().utf8().data());
-            fflush(stderr);
-        }
         FrameLoader::reportBlockedLoadFailed(*frame, clientRequest.url());
         releaseResources();
         return completionHandler(false);
@@ -228,12 +198,6 @@ void ResourceLoader::init(ResourceRequest&& clientRequest, CompletionHandler<voi
 
         if (request.isNull()) {
             RESOURCELOADER_RELEASE_LOG("init: Cancelling load because the request is null.");
-            // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): the request was nulled during
-            // willSendRequest dispatch (e.g. by the injected bundle client).
-            if (!access("/tmp/wk-debug-on", F_OK)) {
-                fprintf(stderr, "[RL-INIT-FAIL] reason=request-nulled-by-willSendRequest\n");
-                fflush(stderr);
-            }
             cancel();
             return completionHandler(false);
         }
@@ -737,18 +701,6 @@ void ResourceLoader::cancel(const ResourceError& error, LoadWillContinueInAnothe
     if (m_reachedTerminalState)
         return;
 
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): name the canceller of in-flight subresource
-    // loads. The nytimes stall family leaves ~12 loads/page cancelled MID-DATA-DELIVERY without
-    // their CachedResource clients noticing (WrlRoute signature: DidReceiveData found=1…1 then
-    // found=0, finish dropped); the backtrace here identifies which path cancels them.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[RL-CANCEL] url=%s errCode=%d errDomain=%s\n", m_request.url().string().utf8().data(), error.errorCode(), error.domain().utf8().data());
-        void* frames[48];
-        int frameCount = backtrace(frames, 48);
-        backtrace_symbols_fd(frames, frameCount, 2);
-        fflush(stderr);
-    }
-       
     ResourceError nonNullError = error.isNull() ? cancelledError() : error;
     
     // willCancel() and didFailToLoad() both call out to clients that might do 

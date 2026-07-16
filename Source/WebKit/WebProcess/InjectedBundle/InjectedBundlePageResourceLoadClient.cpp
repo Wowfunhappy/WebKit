@@ -74,15 +74,8 @@ void InjectedBundlePageResourceLoadClient::willSendRequestForFrame(WebPage& page
         request.updateFromDelegatePreservingOldProperties(returnedResourceRequest);
         if (returnedHTTPBody)
             request.setHTTPBody(WTF::move(returnedHTTPBody));
-    } else {
-        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): the bundle client blocked this request.
-        if (!access("/tmp/wk-debug-on", F_OK)) {
-            fprintf(stderr, "[BUNDLE-WSR-NULL] url=%s\n", request.url().string().utf8().data());
-            fflush(stderr);
-        }
+    } else
         request = { };
-        // MAVERICKS_BACKPORT DIAGNOSTIC: closes the sentinel-gated request-blocked else branch above.
-    }
 }
 
 void InjectedBundlePageResourceLoadClient::didReceiveResponseForResource(WebPage& page, WebFrame& frame, WebCore::ResourceLoaderIdentifier identifier, const ResourceResponse& response)

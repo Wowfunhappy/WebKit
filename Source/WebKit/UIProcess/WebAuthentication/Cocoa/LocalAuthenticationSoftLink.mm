@@ -29,4 +29,4 @@
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE(WebKit, LocalAuthentication);
 
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, LocalAuthentication, LAContext);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, LocalAuthentication, LAContext);

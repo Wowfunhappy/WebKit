@@ -249,10 +249,6 @@ private:
     void platformBringInspectedPageToFront();
     void platformHide();
     bool platformIsFront();
-    // MAVERICKS_BACKPORT: load inspector frontend via loadData (substituteData) to bypass
-    // the hung decidePolicyForNavigationAction round-trip on file:// URLs. Returns true if
-    // the platform handled the load; false to fall through to inspectorPage->loadRequest.
-    bool platformInspectorPageLoadOverride(WebPageProxy& inspectorPage, const String& url);
     void NODELETE platformAttachAvailabilityChanged(bool);
     void platformSetForcedAppearance(WebCore::InspectorFrontendClient::Appearance);
     void platformOpenURLExternally(const String&);

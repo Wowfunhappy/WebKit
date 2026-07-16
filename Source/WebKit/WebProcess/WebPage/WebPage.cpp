@@ -26,7 +26,6 @@
  */
 
 #include "config.h"
-#include <syslog.h> // MAVERICKS_BACKPORT DIAGNOSTIC
 #include "WebPage.h"
 
 #include "APIArray.h"
@@ -1669,43 +1668,25 @@ EditorState WebPage::editorState(ShouldPerformLayout shouldPerformLayout) const
         return result;
 #endif
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     const VisibleSelection& selection = frame->selection().selection();
-// (end MAVERICKS_BACKPORT restored block)
+    const VisibleSelection& selection = frame->selection().selection();
     Ref editor = frame->editor();
 
-    // MAVERICKS_BACKPORT: the NODE-dereferencing parts of selection access (hasEditableStyle
-    // etc.) can crash on a stale VisibleSelection::m_anchorNode, so isContentEditable is
-    // computed safely from the focused element below. BUT selectionType() only reads an
-    // enum member (no node deref), so report the REAL selection type — without it the
-    // UIProcess thinks there is never a caret/range selection (broken caret/selection UI,
-    // IME positioning). (Restored + verified stable.)
-    result.selectionType = frame->selection().selection().type();
-    result.isContentEditable = false;
-    result.isContentRichlyEditable = false;
-    result.isInPasswordField = false;
-    if (RefPtr document = frame->document()) {
-        if (RefPtr focused = document->focusedElement()) {
-            result.isContentEditable = focused->isContentEditable();
-            result.isContentRichlyEditable = focused->isContentEditable() && !is<HTMLInputElement>(*focused) && !is<HTMLTextAreaElement>(*focused);
-            if (auto* input = dynamicDowncast<HTMLInputElement>(focused.get()))
-                result.isInPasswordField = input->isPasswordField();
-        }
-    }
+    result.selectionType = selection.type();
+    result.isContentEditable = selection.hasEditableStyle();
+    result.isContentRichlyEditable = selection.isContentRichlyEditable();
+    result.isInPasswordField = selection.isInPasswordField();
     result.hasComposition = editor->hasComposition();
     result.shouldIgnoreSelectionChanges = editor->ignoreSelectionChanges() || (editor->client() && !protect(editor->client())->shouldRevealCurrentSelectionAfterInsertion());
     result.triggeredByAccessibilitySelectionChange = m_pendingEditorStateUpdateStatus == PendingEditorStateUpdateStatus::ScheduledDuringAccessibilitySelectionChange || m_isChangingSelectionForAccessibility;
 
     Ref<Document> document = *frame->document();
 
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
     if (result.selectionType == WebCore::SelectionType::Range) {
         auto selectionRange = selection.range();
         result.selectionIsRangeInsideImageOverlay = selectionRange && ImageOverlay::isInsideOverlay(*selectionRange);
         result.selectionIsRangeInAutoFilledAndViewableField = selection.isInAutoFilledAndViewableField();
     }
 
-MAVERICKS_BACKPORT */
     m_lastEditorStateWasContentEditable = result.isContentEditable ? EditorStateIsContentEditable::Yes : EditorStateIsContentEditable::No;
 
     if (shouldAvoidComputingPostLayoutDataForEditorState()) {
@@ -1846,15 +1827,7 @@ void WebPage::updateEditorStateAfterLayoutIfEditabilityChanged()
     if (!frame)
         return;
 
-    // MAVERICKS_BACKPORT: avoid frame->selection().selection() (stale m_anchorNode
-    // can SEGV). Use Document::focusedElement-based isContentEditable instead.
-    EditorStateIsContentEditable isEditable = EditorStateIsContentEditable::No;
-    if (RefPtr document = frame->document()) {
-        if (RefPtr focused = document->focusedElement()) {
-            if (focused->isContentEditable())
-                isEditable = EditorStateIsContentEditable::Yes;
-        }
-    }
+    auto isEditable = frame->selection().selection().hasEditableStyle() ? EditorStateIsContentEditable::Yes : EditorStateIsContentEditable::No;
     if (m_lastEditorStateWasContentEditable != isEditable)
         scheduleFullEditorStateUpdate();
 }
@@ -2252,11 +2225,6 @@ void WebPage::loadRequest(LoadParameters&& loadParameters)
         return;
     }
 
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): map pageID -> pid + URL while debugging.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[PAGE-WP] pid=%d pageID=%llu load url=%s\n", getpid(), m_identifier.toUInt64(), loadParameters.request.url().string().utf8().data());
-        fflush(stderr);
-    }
     RefPtr localFrame = frame->coreLocalFrame() ? frame->coreLocalFrame() : frame->provisionalFrame();
     if (!localFrame) {
         ASSERT_NOT_REACHED();
@@ -2535,12 +2503,6 @@ WebPage* WebPage::fromCorePage(Page& page)
 
 void WebPage::setSize(const WebCore::IntSize& viewSize)
 {
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace the view-size sequence per page.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[SIZE-WP] pid=%d pageID=%llu %dx%d (was %dx%d)\n", getpid(), m_identifier.toUInt64(), viewSize.width(), viewSize.height(), m_viewSize.width(), m_viewSize.height());
-        fflush(stderr);
-    }
-
     if (m_viewSize == viewSize)
         return;
 
@@ -3116,12 +3078,6 @@ void WebPage::postInjectedBundleMessage(const String& messageName, const UserDat
     if (!injectedBundle)
         return;
 
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace page-targeted injected-bundle messages.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[BUNDLE-MSG-PAGE] pid=%d pageID=%llu name=%s\n", getpid(), m_identifier.toUInt64(), messageName.utf8().data());
-        fflush(stderr);
-    }
-
     // MAVERICKS_BACKPORT: Safari's Safe Browsing is non-functional here (Google's Safe Browsing
     // service/integration is gone), and its bundle handler crashes WebContent — an
     // intermittent SIGSEGV in -[BrowserBundlePageController urlPassedSafeBrowsingCheck] →
@@ -3591,9 +3547,6 @@ void WebPage::freezeLayerTree(LayerTreeFreezeReason reason)
     UNUSED_PARAM(oldReasons);
     m_layerTreeFreezeReasons.add(reason);
     WEBPAGE_RELEASE_LOG_FORWARDABLE(ProcessSuspension, WEBPAGE_FREEZE_LAYER_TREE, static_cast<unsigned>(reason), m_layerTreeFreezeReasons.toRaw(), oldReasons);
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace layer-tree freezes while debugging.
-    if (!access("/tmp/wk-debug-on", F_OK))
-        syslog(LOG_ERR, "[FREEZE-WP pid=%d] +reason=%u mask=%u", getpid(), static_cast<unsigned>(reason), m_layerTreeFreezeReasons.toRaw());
     updateDrawingAreaLayerTreeFreezeState();
 }
 
@@ -3603,9 +3556,6 @@ void WebPage::unfreezeLayerTree(LayerTreeFreezeReason reason)
     UNUSED_PARAM(oldReasons);
     m_layerTreeFreezeReasons.remove(reason);
     WEBPAGE_RELEASE_LOG_FORWARDABLE(ProcessSuspension, WEBPAGE_UNFREEZE_LAYER_TREE, static_cast<unsigned>(reason), m_layerTreeFreezeReasons.toRaw(), oldReasons);
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace layer-tree freezes while debugging.
-    if (!access("/tmp/wk-debug-on", F_OK))
-        syslog(LOG_ERR, "[FREEZE-WP pid=%d] -reason=%u mask=%u", getpid(), static_cast<unsigned>(reason), m_layerTreeFreezeReasons.toRaw());
     updateDrawingAreaLayerTreeFreezeState();
 }
 
@@ -3990,12 +3940,6 @@ void WebPage::dispatchWheelEventWithoutScrolling(FrameIdentifier frameID, const 
 
 void WebPage::keyEvent(FrameIdentifier frameID, const WebKeyboardEvent& keyboardEvent)
 {
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): map key events -> pageID while debugging.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[KEY-WP] pid=%d pageID=%llu type=%d key=%s\n", getpid(), m_identifier.toUInt64(), (int)keyboardEvent.type(), keyboardEvent.key().utf8().data());
-        fflush(stderr);
-    }
-
     SetForScope userIsInteractingChange { m_userIsInteracting, true };
 
     m_internals->userActivity.impulse();

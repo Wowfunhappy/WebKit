@@ -58,8 +58,6 @@
 #include <WebCore/SubresourceLoader.h>
 #include <WebCore/SubstituteData.h>
 #include <wtf/CheckedArithmetic.h>
-// MAVERICKS_BACKPORT DIAGNOSTIC: access() for the sentinel-gated [WRL-*] handshake probes.
-#include <unistd.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/text/MakeString.h>
 
@@ -198,16 +196,6 @@ void WebResourceLoader::didReceiveResponse(ResourceResponse&& response, PrivateR
 
     Ref<WebResourceLoader> protectedThis(*this);
 
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): response-handshake tracing for the nytimes
-    // stuck-load family — pair [WRL-RESP] with [WRL-CONT]/[WRL-NOCONT]; a RESP without either means
-    // the response callout parked without cancelling or continuing.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[WRL-RESP] id=%llu needsContinue=%d status=%d url=%s\n",
-            static_cast<unsigned long long>(coreLoader && coreLoader->identifier() ? coreLoader->identifier()->toUInt64() : 0),
-            needsContinueDidReceiveResponseMessage, response.httpStatusCode(), response.url().string().left(140).utf8().data());
-        fflush(stderr);
-    }
-
     if (metrics) {
         updateNetworkLoadMetrics(*metrics);
         response.setDeprecatedNetworkLoadMetrics(Box<NetworkLoadMetrics>::create(WTF::move(*metrics)));
@@ -227,22 +215,10 @@ void WebResourceLoader::didReceiveResponse(ResourceResponse&& response, PrivateR
             m_isProcessingNetworkResponse = false;
 #endif
             // If coreLoader becomes null as a result of the didReceiveResponse callback, we can't use the send function().
-            if (m_coreLoader && coreLoader->identifier()) {
-                // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): see [WRL-RESP].
-                if (!access("/tmp/wk-debug-on", F_OK)) {
-                    fprintf(stderr, "[WRL-CONT] id=%llu\n", static_cast<unsigned long long>(coreLoader->identifier()->toUInt64()));
-                    fflush(stderr);
-                }
+            if (m_coreLoader && coreLoader->identifier())
                 send(Messages::NetworkResourceLoader::ContinueDidReceiveResponse());
-            } else {
-                // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): see [WRL-RESP].
-                if (!access("/tmp/wk-debug-on", F_OK)) {
-                    fprintf(stderr, "[WRL-NOCONT] loader=%p\n", this);
-                    fflush(stderr);
-                }
+            else
                 WEBRESOURCELOADER_RELEASE_LOG(WEBRESOURCELOADER_DIDRECEIVERESPONSE_NOT_CONTINUING_LOAD);
-                // MAVERICKS_BACKPORT DIAGNOSTIC: closes the sentinel-gated not-continuing else branch above.
-            }
         };
     }
 

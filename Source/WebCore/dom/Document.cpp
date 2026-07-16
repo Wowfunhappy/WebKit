@@ -12105,29 +12105,6 @@ void Document::updateCachedSetInnerHTML(const String& sourceString, ContainerNod
     container.clearDidMutateSubtreeAfterSetInnerHTML();
 }
 
-// MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-triggered, see WebProcess.cpp): dump every live document's
-// load-completion blockers plus its still-loading CachedResources to stderr. Used to autopsy the
-// nytimes "load event never fires" wedge — names WHICH resources hold the load event and whether
-// each still has a SubresourceLoader (a Pending resource with no loader is a zombie nothing will
-// ever complete).
-void mavericksDumpLoadStateForDebug()
-{
-    for (auto& document : Document::allDocuments()) {
-        auto& cachedResourceLoader = document->cachedResourceLoader();
-        fprintf(stderr, "[LOADDUMP-DOC] doc=%p url=%s readyState=%d parsing=%d delayingLoadEvent=%d requestCount=%d\n",
-            document.ptr(), document->url().string().left(120).utf8().data(), static_cast<int>(document->readyState()),
-            document->parsing(), document->isDelayingLoadEvent(), cachedResourceLoader.requestCount());
-        for (auto& resource : cachedResourceLoader.allCachedResources().values()) {
-            if (!resource->isLoading())
-                continue;
-            fprintf(stderr, "[LOADDUMP-RES] doc=%p status=%d type=%d hasLoader=%d url=%s\n",
-                document.ptr(), static_cast<int>(resource->status()), static_cast<int>(resource->type()),
-                !!resource->loader(), resource->url().string().left(160).utf8().data());
-        }
-    }
-    fflush(stderr);
-}
-
 } // namespace WebCore
 
 #undef DOCUMENT_RELEASE_LOG

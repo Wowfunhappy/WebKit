@@ -503,16 +503,6 @@ void WebChromeClient::addMessageToConsole(MessageSource source, MessageLevel lev
     if (!page)
         return;
 
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated like the XPCServiceMain stderr redirect):
-    // when /tmp/wk-debug-on exists, mirror every console message to stderr (which the sentinel
-    // redirects to /tmp/wc-stderr-<pid>.log) so page-JS errors are capturable from t=0 without
-    // racing the Web Inspector onto a short-lived page.
-    static bool consoleDumpEnabled = !access("/tmp/wk-debug-on", F_OK);
-    if (consoleDumpEnabled) {
-        fprintf(stderr, "[CONSOLE] src=%d lvl=%d %s (%s:%u)\n", (int)source, (int)level, message.utf8().data(), sourceID.utf8().data(), lineNumber);
-        fflush(stderr);
-    }
-
     // MAVERICKS_BACKPORT: 10.9 build divergence in this console path (the injected-bundle UI client forwarding stays gated behind !PLATFORM(COCOA)).
 #if !PLATFORM(COCOA)
     page->injectedBundleUIClient().willAddMessageToConsole(page.get(), source, level, message, lineNumber, columnNumber, sourceID);
