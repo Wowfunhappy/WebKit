@@ -232,6 +232,12 @@ public:
 
     void processDidFinishLaunching(WebProcessProxy&);
 
+    // MAVERICKS_BACKPORT: per-pool observer fired from processDidFinishLaunching(). The legacy
+    // ObjC WKProcessGroup uses it to emulate the removed WKContextConnectionClient, whose
+    // didCreateConnection fired when a web process's injected bundle connected back to the UI
+    // process (embedders like iBooks sequence their bundle messaging on that callback).
+    void setWebProcessDidFinishLaunchingHandler(Function<void()>&& handler) { m_webProcessDidFinishLaunchingHandler = WTF::move(handler); }
+
     WebProcessCache& webProcessCache() { return m_webProcessCache.get(); }
 
     // Disconnect the process from the context.
@@ -818,6 +824,9 @@ private:
 
     const Ref<VisitedLinkStore> m_visitedLinkStore;
     bool m_visitedLinksPopulated { false };
+
+    // MAVERICKS_BACKPORT: see setWebProcessDidFinishLaunchingHandler().
+    Function<void()> m_webProcessDidFinishLaunchingHandler;
 
     // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49).
     RefPtr<WebIconDatabase> m_iconDatabase;

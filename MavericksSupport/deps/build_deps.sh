@@ -553,10 +553,14 @@ done
 
 # The C++ media libraries (webrtcdsp plugin + libwebrtc-audio-processing) link the
 # toolchain's modern C++ runtime via clang++.cfg (@rpath/libc++.1.dylib and friends;
-# the system libc++ on 10.9 predates the C++17 symbols they need). The trio stages
+# the system libc++ on 10.9 predates the C++17 symbols they need). The pair stages
 # here so the collect loop deploys it next to them and the runtime is self-contained
-# -- the deployed set loads with the toolchain directory absent.
-for cxxlib in libc++.1.dylib libc++abi.1.dylib libunwind.1.dylib; do
+# -- the deployed set loads with the toolchain directory absent. The UNWINDER is not
+# vendored: a process must have exactly one _Unwind_* implementation and system frames
+# always drive /usr/lib/system/libunwind.dylib, so every @rpath/libunwind.1.dylib
+# reference is bound to the system unwinder instead (fixed up in the collect loop;
+# install-safari7.sh enforces the same rule at deploy time).
+for cxxlib in libc++.1.dylib libc++abi.1.dylib; do
   [ -f "$TC/lib/$cxxlib" ] || { echo "  FATAL: $TC/lib/$cxxlib not found"; exit 1; }
   cp "$TC/lib/$cxxlib" "$STAGE/lib/$cxxlib"
 done
@@ -583,6 +587,11 @@ normalize() {  # normalize <file> <rpath-to-libdir>: @rpath deps, strip abs rpat
   fi
   if otool -L "$f" | grep '/usr/lib/libc++abi\.dylib' > /dev/null; then
     "$INT" -change /usr/lib/libc++abi.dylib "@rpath/libc++abi.1.dylib" "$f" || exit 1
+  fi
+  # single-unwinder rule (see the C++ runtime staging comment above): the toolchain's
+  # clang++.cfg links @rpath/libunwind.1.dylib; bind it to the system unwinder.
+  if otool -L "$f" | grep '@rpath/libunwind\.1\.dylib' > /dev/null; then
+    "$INT" -change @rpath/libunwind.1.dylib /usr/lib/system/libunwind.dylib "$f" || exit 1
   fi
   # drop every absolute LC_RPATH (staged libdir, toolchain libdir) so nothing points
   # off-tree; the gate below fails if any survives.
@@ -671,7 +680,10 @@ require_glob "$DEST/lib/libxml2.*.dylib"
 require_glob "$DEST/lib/libdav1d.*.dylib"
 require_glob "$DEST/lib/libc++.1.dylib"
 require_glob "$DEST/lib/libc++abi.1.dylib"
-require_glob "$DEST/lib/libunwind.1.dylib"
+# single-unwinder rule: a vendored libunwind must NOT exist in the deployed set.
+if [ -e "$DEST/lib/libunwind.1.dylib" ]; then
+  echo "  FAIL: $DEST/lib/libunwind.1.dylib exists (mixed-unwinder hazard; must bind /usr/lib/system/libunwind.dylib)"; REQFAIL=1
+fi
 for p in libgstcoreelements libgstlibav libgstwebrtc libgstnice libgstdtls libgstsrtp \
          libgstsctp libgstvpx libgstwebrtcdsp libgstopus libgstapplemedia libgstosxaudio; do
   require_glob "$DEST/lib/gstreamer-1.0/$p.dylib"

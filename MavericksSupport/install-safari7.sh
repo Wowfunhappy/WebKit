@@ -72,9 +72,15 @@ PRIVATE_DIR=/System/Library/PrivateFrameworks
 # which the sandbox grants read to (the #18 reason these can't live in /usr/local: sandboxd
 # "deny file-read-data /usr/local/lib/webkit-private/..."); we reference them by ABSOLUTE
 # in-bundle path (never @rpath) so they can't shadow the system libc++ via DYLD_FALLBACK.
-# libc++/libc++abi/libunwind go in the base framework (JavaScriptCore — every WebKit framework
-# links the C++ runtime, and clang's libc++abi unwinds via clang's own libunwind); libcg_polyfill
-# in WebCore (its only consumers are WebCore/WebKit/WebKit2).
+# libc++/libc++abi go in the base framework (JavaScriptCore — every WebKit framework links the
+# C++ runtime); libcg_polyfill in WebCore (its only consumers are WebCore/WebKit/WebKit2).
+# The unwinder is NOT vendored: a process must have exactly one _Unwind_* implementation, and
+# system frames (Foundation, libobjc, app plug-ins like iBooks' BKEpubWebProcessPlugIn) always
+# drive /usr/lib/system/libunwind.dylib. An exception crossing system and backport frames with a
+# second, newer libunwind loaded hands the system unwinder's opaque _Unwind_Context to the modern
+# accessors (different UnwindCursor layout) and crashes mid-unwind, so every @rpath/libunwind
+# reference is bound to the system unwinder instead (its exports cover all symbols we import:
+# _Unwind_Resume plus libc++abi's eight classic _Unwind_* entry points).
 PRIVLIBCXX=/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks
 # WebCore is nested INSIDE the public WebKit umbrella, matching the stock 10.9 layout: stock has NO
 # top-level /System/Library/PrivateFrameworks/WebCore.framework — its WebKit2/WebKit binaries link
@@ -129,7 +135,8 @@ absolute_for_rpath_dep() {
         @rpath/WebKit.framework/*)         id_path WebKit2;;
         @rpath/libc++.1.dylib)             echo "$PRIVLIBCXX/libc++.1.dylib";;
         @rpath/libc++abi.1.dylib)          echo "$PRIVLIBCXX/libc++abi.1.dylib";;
-        @rpath/libunwind.1.dylib)          echo "$PRIVLIBCXX/libunwind.1.dylib";;
+        # Single-unwinder rule (see PRIVLIBCXX comment above): bind to the system unwinder.
+        @rpath/libunwind.1.dylib)          echo "/usr/lib/system/libunwind.dylib";;
         # The two polyfill dylibs carry an @rpath install_name (build-polyfill.sh), so every binary that links
         # them — and the WK2 layout-test harness, which also redirects the post-10.9 frameworks onto the
         # reexporting libpolyfill_classes — records @rpath/<leaf>. Map both to their deployed in-bundle homes.
@@ -536,18 +543,19 @@ fi
 # install_framework via id_path/rewrite_*); we just place the files + fix their own ids.
 echo "### Deploying private C++ runtime into JavaScriptCore.framework ($PRIVLIBCXX)"
 mkdir -p "$PRIVLIBCXX"
-# The clang-22 libc++/libc++abi unwind via clang's own libunwind.1.dylib (referenced @rpath), so it
-# is deployed here too — without it the frameworks fail to load (unmapped @rpath/libunwind.1.dylib).
-for lib in libc++.1.dylib libc++abi.1.dylib libunwind.1.dylib; do
+for lib in libc++.1.dylib libc++abi.1.dylib; do
     cp -f "$TC/lib/$lib" "$PRIVLIBCXX/$lib"
     "$INT" -id "$PRIVLIBCXX/$lib" "$PRIVLIBCXX/$lib" 2>/dev/null || true
 done
+# Single-unwinder rule: no private libunwind is deployed (remove one left by an older install);
+# the C++ runtime's @rpath/libunwind.1.dylib loads are bound to the system unwinder below.
+rm -f "$PRIVLIBCXX/libunwind.1.dylib"
 # libc++ loads libc++abi via @rpath (and libc++abi has a self-referential @rpath load too); both also
 # load @rpath/libunwind.1.dylib. Pin all absolute so dyld resolves them in processes with no rpath set.
 "$INT" -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$PRIVLIBCXX/libc++.1.dylib" 2>/dev/null || true
 "$INT" -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$PRIVLIBCXX/libc++abi.1.dylib" 2>/dev/null || true
-"$INT" -change @rpath/libunwind.1.dylib "$PRIVLIBCXX/libunwind.1.dylib" "$PRIVLIBCXX/libc++.1.dylib" 2>/dev/null || true
-"$INT" -change @rpath/libunwind.1.dylib "$PRIVLIBCXX/libunwind.1.dylib" "$PRIVLIBCXX/libc++abi.1.dylib" 2>/dev/null || true
+"$INT" -change @rpath/libunwind.1.dylib /usr/lib/system/libunwind.dylib "$PRIVLIBCXX/libc++.1.dylib" 2>/dev/null || true
+"$INT" -change @rpath/libunwind.1.dylib /usr/lib/system/libunwind.dylib "$PRIVLIBCXX/libc++abi.1.dylib" 2>/dev/null || true
 echo "### Deploying CG polyfill into WebCore.framework ($PRIVLIB)"
 mkdir -p "$PRIVLIB"
 if [ -f "$HERE/polyfill/build/libcg_polyfill.dylib" ]; then
@@ -586,6 +594,15 @@ if [ -d "$GST_SRC" ]; then
     rm -rf "$GST_DEPLOY"
     mkdir -p "$GST_DEPLOY"
     cp -Rp "$GST_SRC/." "$GST_DEPLOY/"
+    # Single-unwinder rule (see PRIVLIBCXX comment above): the vendored tree carries the toolchain's
+    # libunwind and @rpath references to it (resolved via the libs' @loader_path/../lib LC_RPATH).
+    # Bind every reference to the system unwinder and drop the vendored copy.
+    find "$GST_DEPLOY" -type f -name '*.dylib' | while read -r gstlib; do
+        if "$OTOOL" -L "$gstlib" 2>/dev/null | grep -q '@rpath/libunwind.1.dylib'; then
+            "$INT" -change @rpath/libunwind.1.dylib /usr/lib/system/libunwind.dylib "$gstlib"
+        fi
+    done
+    rm -f "$GST_DEPLOY/libunwind.1.dylib"
 else
     echo "  warning: GStreamer source tree $GST_SRC missing — media will not load"
 fi
@@ -638,6 +655,25 @@ if [ -f "$INSPECTOR_CSS" ] && grep -q 'WK66-UNIFIED' "$INSPECTOR_CSS"; then
     # Marker-only match — never line-matches the giant minified stylesheet (line 1).
     grep -v 'WK66-UNIFIED' "$INSPECTOR_CSS" > "$INSPECTOR_CSS.tmp66" && mv "$INSPECTOR_CSS.tmp66" "$INSPECTOR_CSS"
     echo "  stripped legacy WK66-UNIFIED rules from $INSPECTOR_CSS (now pristine)"
+fi
+
+# ---------------------------------------------------------------------------
+# Single-unwinder gate: no deployed binary may load a private libunwind (see the PRIVLIBCXX
+# comment). A leftover reference means some deploy path above missed the rewrite; fail loudly
+# rather than ship a process that mixes two _Unwind_* implementations.
+echo "### Verifying single-unwinder rule (no libunwind.1.dylib references)"
+UNWIND_VIOLATIONS=0
+for root in "$FRAMEWORKS_DIR/JavaScriptCore.framework" "$FRAMEWORKS_DIR/WebKit.framework" "$PRIVATE_DIR/WebKit2.framework"; do
+    while read -r bin; do
+        if "$OTOOL" -L "$bin" 2>/dev/null | grep -q 'libunwind\.1\.dylib'; then
+            echo "  VIOLATION: $bin still references a private libunwind.1.dylib" >&2
+            UNWIND_VIOLATIONS=$((UNWIND_VIOLATIONS + 1))
+        fi
+    done < <(find "$root" \( -type f -perm +111 \) -o \( -type f -name '*.dylib' \) 2>/dev/null)
+done
+if [ "$UNWIND_VIOLATIONS" -ne 0 ]; then
+    echo "### FAILED: $UNWIND_VIOLATIONS binaries reference a private libunwind (mixed-unwinder hazard)" >&2
+    exit 1
 fi
 
 echo "### Done. Verify with: MavericksSupport/safari7-abi/check-abi-gap.sh and 'otool -L' on each installed binary."

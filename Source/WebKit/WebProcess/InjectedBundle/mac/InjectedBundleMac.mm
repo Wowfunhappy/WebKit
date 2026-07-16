@@ -199,8 +199,34 @@ bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, 
     if (!decodeBundleParameters(parameters.bundleParameterData.get()))
         return false;
 
-    if ([instance respondsToSelector:@selector(webProcessPlugIn:initializeWithObject:)])
-        [instance webProcessPlugIn:plugInController.get() initializeWithObject:nil];
+    if ([instance respondsToSelector:@selector(webProcessPlugIn:initializeWithObject:)]) {
+        // MAVERICKS_BACKPORT: the injected-bundle initialization user data — the object the
+        // UIProcess's WKContextInjectedBundleClient getInjectedBundleInitializationUserData
+        // callback returned (WKProcessGroup asks its delegate's
+        // processGroupWillCreateConnectionToWebProcessPlugIn:) — historically arrived as an
+        // ObjCObjectGraph, which upstream removed. It now travels NSKeyedArchiver-coded in an
+        // API::Data (same transport as WKConnection message bodies). Decode it back to the ObjC
+        // object graph the plug-in expects: iBooks' BKEpubWebProcessPlugIn reads its book
+        // configuration (bookContentsPath, sinf/resource data, sandbox-extension tokens,
+        // pagination mode) out of this dictionary, and its BKURLProtocol throws on the first
+        // load's +canInitWithRequest: if the book info is missing.
+        // NOTE: unlike the removed ObjCObjectGraph, this transport carries plist-style object
+        // graphs only (NSKeyedArchiver-codable classes). An unarchive failure — e.g. a class
+        // encoded by the app that is not linked into this web process — must fail LOUDLY, not
+        // silently hand the plug-in a nil object (the resulting misconfiguration is otherwise
+        // undebuggable: iBooks' BKURLProtocol, for one, throws on its first policy check).
+        RetainPtr<id> objCInitializationUserData;
+        if (initializationUserData && initializationUserData->type() == API::Object::Type::Data) {
+            Ref data = downcast<API::Data>(initializationUserData.releaseNonNull());
+            @try {
+                objCInitializationUserData = [NSKeyedUnarchiver unarchiveObjectWithData:toNSData(data->span()).get()];
+            } @catch (NSException *exception) {
+                WTFLogAlways("InjectedBundle: FAILED to unarchive the initialization user data (%s: %s) — the plug-in will be initialized with a nil object.", exception.name.UTF8String, exception.reason.UTF8String);
+                objCInitializationUserData = nil;
+            }
+        }
+        [instance webProcessPlugIn:plugInController.get() initializeWithObject:objCInitializationUserData.get()];
+    }
 
     return true;
 }

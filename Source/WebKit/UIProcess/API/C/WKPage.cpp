@@ -1393,6 +1393,17 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             m_client.didFirstVisuallyNonEmptyLayoutForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
         }
 
+        // MAVERICKS_BACKPORT: forward the legacy first-layout callback (registration below already
+        // listens for the DidFirstLayout milestone when the client sets it, but the forwarding had
+        // been dropped); iBooks' loader client waits on it before showing a loaded chapter.
+        void didFirstLayoutForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Object* userData) override
+        {
+            if (!m_client.didFirstLayoutForFrame)
+                return;
+
+            m_client.didFirstLayoutForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+        }
+
         void didReachLayoutMilestone(WebPageProxy& page, OptionSet<WebCore::LayoutMilestone> milestones) override
         {
             if (!m_client.didLayout)
