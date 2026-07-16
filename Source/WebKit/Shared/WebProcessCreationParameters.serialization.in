@@ -28,10 +28,6 @@
 
     WebKit::UserData initializationUserData;
 
-#if PLATFORM(COCOA)
-    WTF::MachSendRight acceleratedCompositingPort;
-#endif
-
 #if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
     Vector<WebKit::SandboxExtensionHandle> enableRemoteWebInspectorExtensionHandles;
 #endif

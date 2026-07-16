@@ -84,14 +84,6 @@ struct WebProcessCreationParameters {
 
     UserData initializationUserData;
 
-#if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: the UI process's CARemoteLayerServer port. Hosted CAContexts created
-    // against the HOST's render server are displayable by sandboxed host apps (iBooks); contexts
-    // on the web process's own CGS connection are not (Safari and Mail are unsandboxed and can
-    // host those). Restores the Safari-537 acceleratedCompositingPort arrangement.
-    WTF::MachSendRight acceleratedCompositingPort;
-#endif
-
 #if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
     Vector<SandboxExtension::Handle> enableRemoteWebInspectorExtensionHandles;
 #endif

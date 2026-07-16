@@ -90,21 +90,18 @@ std::unique_ptr<LayerHostingContext> LayerHostingContext::create(const LayerHost
 #endif
     layerHostingContext->m_context = [CAContext remoteContextWithOptions:contextOptions];
 #elif !PLATFORM(MACCATALYST)
-    // MAVERICKS_BACKPORT: when the UI process supplied its CARemoteLayerServer port
-    // (WebProcessCreationParameters.acceleratedCompositingPort), create the context against IT:
-    // contexts registered on the host's render server are displayable by SANDBOXED host apps
-    // (iBooks' reader pages stayed blank without this, while unsandboxed Safari and Mail could
-    // host our CGS-connection contexts). Otherwise prefer the explicit CGSConnection variant
-    // (more reliable on older systems than +remoteContextWithOptions:).
-    if (options.serverPort != MACH_PORT_NULL) {
-        layerHostingContext->m_context = [CAContext remoteContextWithOptions:@{
-            kCAContextPortNumber : @(options.serverPort),
-            kCAContextCIFilterBehavior : @"ignore",
-        }];
-    } else
-        layerHostingContext->m_context = [CAContext contextWithCGSConnection:CGSMainConnectionID() options:@{
-            kCAContextCIFilterBehavior : @"ignore",
-        }];
+    // MAVERICKS_BACKPORT: use the explicit CGSConnection variant (more reliable on 10.9 than
+    // +remoteContextWithOptions:, which returns nil there). Contexts created against a
+    // CARemoteLayerServer port (the removed acceleratedCompositingPort arrangement) are not
+    // displayable via CALayerHost in Safari or Mail on this backport — WebContent composited
+    // fine but both apps' windows stayed blank; CGS-connection contexts display in both
+    // (verified). KNOWN GAP: iBooks' layer-backed reader window does not composite our
+    // layer-hosting subview's CGS-hosted content (10.9 layer-backing adoption orphans the
+    // subview's layer); why stock 537's serverport arrangement worked there while ours does
+    // not is unresolved (suspect the process-launch divergence) — see the iBooks memory notes.
+    layerHostingContext->m_context = [CAContext contextWithCGSConnection:CGSMainConnectionID() options:@{
+        kCAContextCIFilterBehavior : @"ignore",
+    }];
 #else
     layerHostingContext->m_context = [CAContext contextWithCGSConnection:CGSMainConnectionID() options:@{
         kCAContextCIFilterBehavior : @"ignore",

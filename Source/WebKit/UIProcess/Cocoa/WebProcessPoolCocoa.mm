@@ -26,8 +26,6 @@
 #import "config.h"
 #import "WebProcessPool.h"
 
-#import <QuartzCore/CARemoteLayerServer.h> // MAVERICKS_BACKPORT: acceleratedCompositingPort (see platformInitializeWebProcess)
-
 #import "APINavigation.h"
 #import "AccessibilityPreferences.h"
 #import "AccessibilitySupportSPI.h"
@@ -385,14 +383,6 @@ void WebProcessPool::platformResolvePathsForSandboxExtensions()
 void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process, WebProcessCreationParameters& parameters)
 {
     parameters.mediaMIMETypes = process.mediaMIMETypes();
-
-    // MAVERICKS_BACKPORT: hand the web process this UI process's CARemoteLayerServer port so it
-    // creates its hosted CAContexts against OUR render server (the Safari-537
-    // acceleratedCompositingPort arrangement). Contexts on the web process's own CGS connection
-    // are not displayable by SANDBOXED host apps — iBooks' reader pages stayed blank while
-    // unsandboxed Safari and Mail rendered fine. See LayerHostingContext::create.
-    if (mach_port_t renderServerPort = [[CARemoteLayerServer sharedServer] serverPort]; renderServerPort != MACH_PORT_NULL)
-        parameters.acceleratedCompositingPort = MachSendRight::create(renderServerPort);
 
 #if PLATFORM(MAC)
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN

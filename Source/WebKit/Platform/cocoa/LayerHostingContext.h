@@ -66,13 +66,6 @@ struct LayerHostingContextOptions {
 #if USE(EXTENSIONKIT)
     bool useHostable { false };
 #endif
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: when non-null, create the CAContext against this render-server port
-    // (the HOST process's CARemoteLayerServer — the Safari-537 acceleratedCompositingPort
-    // arrangement) instead of this process's own CGS connection; only host-server contexts are
-    // displayable by sandboxed host apps. Non-owning: the caller keeps the send right alive.
-    mach_port_t serverPort { MACH_PORT_NULL };
-#endif
 };
 
 class LayerHostingContext {

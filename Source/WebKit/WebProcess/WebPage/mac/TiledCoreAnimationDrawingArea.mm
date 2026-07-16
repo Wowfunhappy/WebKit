@@ -689,12 +689,7 @@ void TiledCoreAnimationDrawingArea::updateLayerHostingContext()
         m_layerHostingContext = nullptr;
     }
 
-    // MAVERICKS_BACKPORT: create the hosted context against the UI process's render server when
-    // it supplied one (sandboxed host apps can only display host-server contexts; see
-    // LayerHostingContext::create).
-    LayerHostingContextOptions options;
-    options.serverPort = WebProcess::singleton().compositingRenderServerPort().sendRight();
-    m_layerHostingContext = LayerHostingContext::create(options);
+    m_layerHostingContext = LayerHostingContext::create();
 
     if (m_rootLayer)
         m_layerHostingContext->setRootLayer(m_hostingLayer.get());
