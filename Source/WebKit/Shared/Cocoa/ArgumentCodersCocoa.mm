@@ -281,7 +281,7 @@ template<> Class getClass<WKDDActionContext>()
 }
 #endif
 #endif
-#if USE(AVFOUNDATION) && 0  // MAVERICKS_BACKPORT: getAVOutputContextClassSingleton not available
+#if USE(AVFOUNDATION)
 template<> Class getClass<AVOutputContext>()
 {
     return PAL::getAVOutputContextClassSingleton();
@@ -457,8 +457,7 @@ template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder,
 
     auto delegate = adoptNS([[WKSecureCodingArchivingDelegate alloc] init]);
 
-// MAVERICKS_BACKPORT: DataDetectors classes return invalid pointers; isKindOfClass crashes
-#if 0 && ENABLE(DATA_DETECTION)
+#if ENABLE(DATA_DETECTION)
     if (PAL::isDataDetectorsCoreFrameworkAvailable() && [object isKindOfClass:PAL::getDDScannerResultClassSingleton()])
         [delegate setRewriteMutableString:YES];
 #if PLATFORM(MAC)
@@ -471,23 +470,17 @@ template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder,
         [delegate setRewriteMutableString:YES];
 #endif // ENABLE(REVEAL)
 
-    // MAVERICKS_BACKPORT: NSTextAttachment isKindOfClass crashes on encoded NSURLRequest
-    // (object pointer is somehow invalid). Skip the check.
-    // if ([object isKindOfClass:NSTextAttachment.class]) {
-    //     [delegate setRewriteMutableData:YES];
-    //     [delegate setRewriteMutableArray:YES];
-    // }
+    if ([object isKindOfClass:NSTextAttachment.class]) {
+        [delegate setRewriteMutableData:YES];
+        [delegate setRewriteMutableArray:YES];
+    }
 
 #if ENABLE(REVEAL)
     // FIXME: This can be removed for RVItem on operating systems that have rdar://109237983.
     if (PAL::isRevealCoreFrameworkAvailable() && [object isKindOfClass:PAL::getRVItemClassSingleton()])
         [delegate setTransformURLs:NO];
 #endif
-    // MAVERICKS_BACKPORT: do NOT transform/wrap an NSURLRequest's URLs through the
-    // CoreIPCSecureCoding path; encode them directly so the real URL survives.
-    if ([object isKindOfClass:[NSURLRequest class]])
-        [delegate setTransformURLs:NO];
-#if 0 && ENABLE(DATA_DETECTION)
+#if ENABLE(DATA_DETECTION)
     if (PAL::isDataDetectorsCoreFrameworkAvailable() && [object isKindOfClass:PAL::getDDScannerResultClassSingleton()])
         [delegate setTransformURLs:NO];
 #if PLATFORM(MAC)
@@ -534,9 +527,7 @@ static constexpr bool haveSecureActionContext = true;
 static constexpr bool haveSecureActionContext = false;
 #endif
 
-// MAVERICKS_BACKPORT: DataDetectors classes return invalid pointers on 10.9; this block is
-// disabled via `#if 0 &&` so the secure-action-context check is skipped.
-#if 0 && ENABLE(DATA_DETECTION)
+#if ENABLE(DATA_DETECTION)
     // rdar://107553330 - don't re-introduce rdar://107676726
     if (PAL::isDataDetectorsCoreFrameworkAvailable()
         && PAL::getDDScannerResultClassSingleton()

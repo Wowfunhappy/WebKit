@@ -141,15 +141,6 @@ void ThreadableLoader::loadResourceSynchronously(ScriptExecutionContext& context
 
 void ThreadableLoader::logError(ScriptExecutionContext& context, const ResourceError& error, const String& initiatorType)
 {
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): log every failure, including the
-    // cancellations and foreign-domain errors the console filtering below hides.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[THREADABLE-FAIL] url=%s domain=%s code=%d accessControl=%d cancel=%d timeout=%d desc=%s\n",
-            error.failingURL().string().utf8().data(), error.domain().utf8().data(), error.errorCode(),
-            error.isAccessControl(), error.isCancellation(), error.isTimeout(), error.localizedDescription().utf8().data());
-        fflush(stderr);
-    }
-
     if (error.isCancellation())
         return;
 

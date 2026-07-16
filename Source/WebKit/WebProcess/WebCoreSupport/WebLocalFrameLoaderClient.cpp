@@ -86,10 +86,6 @@
 #include <WebCore/HistoryItem.h>
 #include <WebCore/HitTestResult.h>
 #include <WebCore/LocalFrame.h>
-// MAVERICKS_BACKPORT DIAGNOSTIC: document-start script injection (see dispatchDidClearWindowObjectInWorld).
-#include <WebCore/ScriptController.h>
-#include <JavaScriptCore/SourceTaintedOrigin.h>
-#include <cstdio>
 #include <WebCore/LocalFrameView.h>
 #include <WebCore/MIMETypeRegistry.h>
 #include <WebCore/MediaDocument.h>
@@ -1878,29 +1874,6 @@ void WebLocalFrameLoaderClient::dispatchDidClearWindowObjectInWorld(DOMWrapperWo
     RefPtr webPage = m_frame->page();
     if (!webPage)
         return;
-
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): inject /tmp/meet-inject.js at document-start into
-    // meet.google.com main-world frames, so instrumentation runs BEFORE Meet's own scripts (its media
-    // session is set up in the first ~1s, before external `do JavaScript` can hook it). The script is read
-    // from a file each time, so it can be iterated without rebuilding. No effect unless /tmp/wk-debug-on exists.
-    if (world.isNormal() && !access("/tmp/wk-debug-on", F_OK)) {
-        if (RefPtr coreFrame = m_frame->coreLocalFrame()) {
-            RefPtr document = coreFrame->document();
-            if (document && document->url().string().contains("meet.google.com"_s)) {
-                if (FILE* injectFile = fopen("/tmp/meet-inject.js", "rb")) {
-                    fseek(injectFile, 0, SEEK_END);
-                    long injectSize = ftell(injectFile);
-                    fseek(injectFile, 0, SEEK_SET);
-                    if (injectSize > 0 && injectSize < 500000) {
-                        Vector<char> injectBuffer(injectSize);
-                        if (fread(injectBuffer.mutableSpan().data(), 1, injectSize, injectFile) == static_cast<size_t>(injectSize))
-                            coreFrame->script().executeScriptInWorldIgnoringException(world, String::fromUTF8(injectBuffer.span()), JSC::SourceTaintedOrigin::Untainted);
-                    }
-                    fclose(injectFile);
-                }
-            }
-        }
-    }
 
 #if ENABLE(IPC_TESTING_API)
     if (world.isNormal() && webPage->ipcTestingAPIEnabled())

@@ -126,6 +126,9 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${ICU_INCLUDE_DIRS}"
     # MAVERICKS_BACKPORT: WebKit Cocoa init now calls PAL::GCrypt::initialize().
     "${MAVERICKS_DEPS}/include"
+    # MAVERICKS_BACKPORT: wk_selref_scope.h (WK_POLYFILL_SEL/WK_POLYFILL_ADD registry macros) for
+    # the host-safe NSURLSession webSocketTaskWithRequest: polyfill in WebSocketPolyfill_109.mm.
+    "${CMAKE_SOURCE_DIR}/MavericksSupport/polyfill/src"
     "${WEBKIT_DIR}/GPUProcess/mac"
     "${WEBKIT_DIR}/NetworkProcess/cocoa"
     "${WEBKIT_DIR}/NetworkProcess/mac"

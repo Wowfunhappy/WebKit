@@ -6781,22 +6781,7 @@ ResourceLoadSchedulingEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT: off by default (task #6, re-measured 2026-07-11 AFTER the
-      # infinite-request-timeout root cause was fixed in ResourceRequestCocoa.mm).
-      # NetworkLoadScheduler's Prioritized mode holds low-priority loads while >=2 loads
-      # are active per host and frees a slot only on completion. On this 10.9+MITM-proxy
-      # setup, a proxied keepalive-reuse race can swallow a response (the proxy holds the
-      # tunnel open, so no EOF reaches CFNetwork); the swallowed load now fails at the
-      # 60s idle timeout instead of hanging forever, but with the scheduler ON every
-      # queued same-host load is held behind it for that full minute — head-of-line
-      # amplification of a single raced connection into a whole-page stall. Post-fix A/B
-      # (fresh-Safari apple.com rounds, clamp installed in both arms): scheduler ON =
-      # 2/6 rounds complete only after 64-68s; scheduler OFF = 13/14 rounds complete in
-      # 3s (1 outlier >110s), matching the earlier larger A/B (3/6 degraded ON, 6/6
-      # clean OFF). Stock Safari 7 predates this scheduler entirely; CFNetwork's own
-      # per-host connection limit still serializes, so only the prioritization
-      # optimization is lost.
-      default: false
+      default: true
     WebCore:
       default: true
 

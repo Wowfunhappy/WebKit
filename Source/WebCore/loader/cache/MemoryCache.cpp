@@ -55,12 +55,7 @@ static const float cTargetPrunePercentage = .95f; // Percentage of capacity towa
 
 MemoryCache& MemoryCache::singleton()
 {
-    // MAVERICKS_BACKPORT (#54): tolerate resolving the singleton off the main thread. On this
-    // backport isMainThread() is unreliable under dispatch_main(), so the upstream
-    // RELEASE_ASSERT(isMainThread()) here would abort when a worker resolves the singleton during
-    // CachedResource teardown. Only the singleton lookup is relaxed; every mutator/accessor below
-    // keeps its RELEASE_ASSERT(isMainThread()) — production worker resource loads marshal to the
-    // main thread (WorkerThreadableLoader), so they never reach those methods off the main thread.
+    RELEASE_ASSERT(isMainThread());
     static NeverDestroyed<MemoryCache> memoryCache;
     return memoryCache;
 }

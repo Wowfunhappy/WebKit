@@ -31,6 +31,6 @@
 #import <wtf/SoftLinking.h>
 
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE(WebKit, DeviceManagement);
-SOFT_LINK_CLASS_FOR_SOURCE(WebKit, DeviceManagement, DMFWebsitePolicyMonitor);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, DeviceManagement, DMFWebsitePolicyMonitor);
 
 #endif // HAVE(DEVICE_MANAGEMENT)

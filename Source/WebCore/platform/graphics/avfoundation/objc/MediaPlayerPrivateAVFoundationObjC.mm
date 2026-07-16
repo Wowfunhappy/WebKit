@@ -475,41 +475,21 @@ MediaPlayerPrivateAVFoundationObjC::MediaPlayerPrivateAVFoundationObjC(MediaPlay
 
 MediaPlayerPrivateAVFoundationObjC::~MediaPlayerPrivateAVFoundationObjC()
 {
-    // MAVERICKS_BACKPORT: AVFoundation calls in our cut-down build can throw ObjC
-    // exceptions (e.g. -[AVAsset cancelLoading] on a partially-initialised
-    // asset). A C++ destructor is implicitly noexcept, so an ObjC exception
-    // escaping here would std::terminate the WebContent process during GC
-    // sweep of a discarded HTMLVideoElement — that's the BBC News crash.
-    // Catch any ObjC exception locally so destruction completes cleanly.
-    @try {
-        [[m_avAsset resourceLoader] setDelegate:nil queue:0];
+    [[m_avAsset resourceLoader] setDelegate:nil queue:0];
 
-        // MAVERICKS_BACKPORT: wrap the destructor body in @try: AVFoundation teardown can throw an ObjC exception, which would std::terminate the noexcept dtor (BBC News crash).
-        forEachResourceLoader([&] (auto& loader) {
-            m_targetDispatcher->dispatch([loader = Ref { loader }] () mutable {
-                loader->stopLoading();
-            });
+    forEachResourceLoader([&] (auto& loader) {
+        m_targetDispatcher->dispatch([loader = Ref { loader }] () mutable {
+            loader->stopLoading();
         });
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     });
-// (end MAVERICKS_BACKPORT restored block)
+    });
 
-        // MAVERICKS_BACKPORT: reindented into the @try wrapper above.
-        if (RefPtr videoOutput = m_videoOutput)
-            videoOutput->invalidate();
+    if (RefPtr videoOutput = m_videoOutput)
+        videoOutput->invalidate();
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     if (m_videoLayer)
-//         destroyVideoLayer();
-// (end MAVERICKS_BACKPORT restored block)
+    if (m_videoLayer)
+        destroyVideoLayer();
 
-        if (m_videoLayer)
-            destroyVideoLayer();
-
-        cancelLoad();
-    } @catch (NSException *exception) {
-        NSLog(@"[MAVERICKS_BACKPORT] ~MediaPlayerPrivateAVFoundationObjC swallowed exception: %@", exception);
-    }
+    cancelLoad();
 }
 
 void MediaPlayerPrivateAVFoundationObjC::cancelLoad()
@@ -1095,17 +1075,13 @@ void MediaPlayerPrivateAVFoundationObjC::createAVAssetForURL(const URL& url, Ret
         [options setObject:nsTypes.get() forKey:AVURLAssetAllowableCaptionFormatsKey];
     }
 
-    // MAVERICKS_BACKPORT: 10.9 AVFoundation media-engine divergence.
-    URL assetURL = url;
-
-    RetainPtr nsURL = canonicalURL(assetURL);
+    RetainPtr nsURL = canonicalURL(url);
 
     @try {
         m_avAsset = adoptNS([PAL::allocAVURLAssetInstance() initWithURL:nsURL.get() options:options.get()]);
     } @catch(NSException *exception) {
         ERROR_LOG(LOGIDENTIFIER, "-[AVURLAssetInstance initWithURL:nsURL.get() options:] threw an exception: ", exception.name, ", reason : ", exception.reason);
-        // MAVERICKS_BACKPORT: catch the AVURLAsset init ObjC exception thrown on 10.9 and retry with a canonicalised URL.
-        nsURL = canonicalURL(conformFragmentIdentifierForURL(assetURL));
+        nsURL = canonicalURL(conformFragmentIdentifierForURL(url));
 
         @try {
             m_avAsset = adoptNS([PAL::allocAVURLAssetInstance() initWithURL:nsURL.get() options:options.get()]);

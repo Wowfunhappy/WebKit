@@ -268,17 +268,6 @@ bool CrossOriginAccessControlCheckDisabler::crossOriginAccessControlCheckEnabled
 
 Expected<void, String> passesAccessControlCheck(const ResourceResponse& response, StoredCredentialsPolicy storedCredentialsPolicy, const SecurityOrigin& securityOrigin, const CrossOriginAccessControlCheckDisabler* checkDisabler)
 {
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated like the XPCServiceMain stderr redirect):
-    // dump what the CORS response check actually sees while debugging.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[CORS-CHECK] url=%s status=%d acao='%s' acac='%s' origin=%s credPolicy=%d\n",
-            response.url().string().utf8().data(), response.httpStatusCode(),
-            response.httpHeaderField(HTTPHeaderName::AccessControlAllowOrigin).utf8().data(),
-            response.httpHeaderField(HTTPHeaderName::AccessControlAllowCredentials).utf8().data(),
-            securityOrigin.toString().utf8().data(), (int)storedCredentialsPolicy);
-        fflush(stderr);
-    }
-
     // A wildcard Access-Control-Allow-Origin can not be used if credentials are to be sent,
     // even with Access-Control-Allow-Credentials set to true.
     const String& accessControlOriginString = response.httpHeaderField(HTTPHeaderName::AccessControlAllowOrigin);

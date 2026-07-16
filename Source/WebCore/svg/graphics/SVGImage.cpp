@@ -295,36 +295,6 @@ ImageDrawResult SVGImage::draw(GraphicsContext& context, const FloatRect& dstRec
     RefPtr view = frameView();
     ASSERT(view);
 
-    // MAVERICKS_BACKPORT: keystone band-aid #56 (CALayer/IOSurface compositing broken). When the
-    // destination context is NOT a bitmap (i.e. an IOSurface-backed CALayer context), CGContextFillPath
-    // silently produces no visible pixels on 10.9. Rasterize the SVG to a bitmap ImageBuffer first
-    // (where path-fill works), then drawImageBuffer the result. Restores <img src=".svg"> and CSS
-    // background-image:url(data:svg|file.svg). The thread_local depth guard prevents infinite recursion
-    // when a non-bitmap context wraps another non-bitmap context.
-    static thread_local int s_recursionDepth = 0;
-    if (s_recursionDepth == 0) {
-        // MAVERICKS_BACKPORT: keystone #56 — detect the non-bitmap (IOSurface-backed) context via
-        // renderingMode() instead of CGBitmapContextGetData (the latter prints a "serious error" to
-        // syslog for every non-bitmap context, called once per <img src=".svg"> per frame).
-        if (context.renderingMode() == RenderingMode::Accelerated) {
-            FloatSize bufferSize = enclosingIntRect(dstRect).size();
-            if (bufferSize.width() > 0 && bufferSize.height() > 0
-                && bufferSize.width() <= 4096 && bufferSize.height() <= 4096) {
-                auto colorSpace = DestinationColorSpace::SRGB();
-                if (auto buffer = ImageBuffer::create(bufferSize, RenderingMode::Unaccelerated, RenderingPurpose::DOM, 1, colorSpace, PixelFormat::BGRA8)) {
-                    FloatRect bufferDst(FloatPoint(), bufferSize);
-                    s_recursionDepth++;
-                    draw(buffer->context(), bufferDst, srcRect, options);
-                    s_recursionDepth--;
-                    GraphicsContextStateSaver outerSaver(context);
-                    context.setCompositeOperation(options.compositeOperator(), options.blendMode());
-                    context.drawImageBuffer(*buffer, dstRect, bufferDst, ImagePaintingOptions { options.compositeOperator(), options.blendMode() });
-                    return ImageDrawResult::DidDraw;
-                }
-            }
-        }
-    }
-
     GraphicsContextStateSaver stateSaver(context);
     context.setCompositeOperation(options.compositeOperator(), options.blendMode());
     context.clip(enclosingIntRect(dstRect));
@@ -551,43 +521,10 @@ EncodedDataStatus SVGImage::dataChanged(bool allDataReceived)
         RefPtr activeDocumentLoader = loader->activeDocumentLoader();
         ASSERT(activeDocumentLoader); // DocumentLoader should have been created by frame->init().
         activeDocumentLoader->writer().setMIMEType("image/svg+xml"_s);
-        // MAVERICKS_BACKPORT: keystone #56 / behavior fix — force the encoding (avoids the 10.9 libxml2
-        // encoding-detection failure described below).
-        activeDocumentLoader->writer().setEncoding("UTF-8"_s, DocumentWriter::IsEncodingUserChosen::Yes);
         activeDocumentLoader->writer().begin(URL()); // create the empty document
-        // MAVERICKS_BACKPORT: keystone #56 / behavior fix — feed the SVG content as a single concatenated
-        // buffer, optionally prefixed with an explicit `<?xml encoding="UTF-8"?>` decl if the source lacks
-        // one. libxml2's incremental chunked parsing on 10.9 falls into a crashing path (xmlCurrentChar →
-        // xmlErrEncodingInt → __xmlRaiseError +1294). The single-buffer feed avoids the chunked path and
-        // the explicit decl avoids the encoding-detection failure; a duplicate decl would crash xmlParsePI,
-        // so the prefix is skipped when one is already present.
-        Vector<uint8_t> combined;
-        bool hasXmlDecl = false;
-        if (data() && data()->size() >= 5) {
-            uint8_t first5[5];
-            data()->copyTo(std::span<uint8_t>(first5, 5), 0);
-            size_t skip = 0;
-            if (data()->size() >= 3 && first5[0] == 0xEF && first5[1] == 0xBB && first5[2] == 0xBF)
-                skip = 3;
-            if (skip == 0)
-                hasXmlDecl = (first5[0] == '<' && first5[1] == '?' && first5[2] == 'x' && first5[3] == 'm' && first5[4] == 'l');
-            else if (data()->size() >= skip + 5) {
-                uint8_t buf[5];
-                data()->copyTo(std::span<uint8_t>(buf, 5), skip);
-                hasXmlDecl = (buf[0] == '<' && buf[1] == '?' && buf[2] == 'x' && buf[3] == 'm' && buf[4] == 'l');
-            }
-        }
-        if (!hasXmlDecl) {
-            const char* xmlDecl = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-            combined.append(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(xmlDecl), strlen(xmlDecl)));
-        }
-        if (data()) {
-            size_t offset = combined.size();
-            combined.grow(offset + data()->size());
-            data()->copyTo(std::span<uint8_t>(combined.mutableSpan().subspan(offset).data(), data()->size()), 0);
-        }
-        auto combinedBuffer = SharedBuffer::create(WTF::move(combined));
-        activeDocumentLoader->writer().addData(combinedBuffer.get());
+        data()->forEachSegmentAsSharedBuffer([&](auto&& buffer) {
+            activeDocumentLoader->writer().addData(buffer);
+        });
         activeDocumentLoader->writer().end();
 
         protect(localMainFrame->document())->updateLayoutIgnorePendingStylesheets();

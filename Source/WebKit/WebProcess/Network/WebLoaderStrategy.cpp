@@ -160,15 +160,8 @@ void WebLoaderStrategy::loadResource(LocalFrame& frame, CachedResource& resource
     SubresourceLoader::create(frame, resource, WTF::move(request), options, [this, protectedThis = Ref { *this }, referrerPolicy = options.referrerPolicy, completionHandler = WTF::move(completionHandler), resource = Ref { resource }, frame = Ref { frame }] (RefPtr<SubresourceLoader>&& loader) mutable {
         if (loader)
             scheduleLoad(*loader, resource.ptr(), referrerPolicy == ReferrerPolicy::NoReferrerWhenDowngrade);
-        // MAVERICKS_BACKPORT DIAGNOSTIC: braces wrap the sentinel-gated no-loader trace below.
-        else {
+        else
             RELEASE_LOG(Network, "%p - [webPageID=%" PRIu64 ", frameID=%" PRIu64 "] WebLoaderStrategy::loadResource: Unable to create SubresourceLoader", this, frame->pageID() ? frame->pageID()->toUInt64() : 0, frame->frameID().toUInt64());
-            // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): RELEASE_LOG is compiled out on 10.9.
-            if (!access("/tmp/wk-debug-on", F_OK)) {
-                fprintf(stderr, "[WLS-NO-LOADER] url=%s\n", resource->url().string().utf8().data());
-                fflush(stderr);
-            }
-        }
         completionHandler(WTF::move(loader));
     });
 }
@@ -685,16 +678,7 @@ void WebLoaderStrategy::scheduleLoadFromNetworkProcess(ResourceLoader& resourceL
             loadParameters.openerURL = openerDocument->url();
     }
 
-    // MAVERICKS_BACKPORT (#172): only enforce Cross-Origin-Resource-Policy for loads initiated by a
-    // document that can run content JavaScript. CORP exists to keep a cross-origin resource out of a
-    // process where script could read it through a Spectre side-channel; a document with content
-    // JavaScript disabled (e.g. an Apple Mail message, which sets scriptMarkupEnabled=false →
-    // allowsContentJavaScript()==false) has no script to mount that attack, so enforcing CORP there
-    // only blocks legitimate cross-origin email images (which stock 10.9 WebKit, predating CORP,
-    // rendered) while buying no security. The response is still delivered Tainting::Opaque (see
-    // NetworkLoadChecker), so CORS, canvas-tainting and opaque-response confidentiality are
-    // unaffected. Normal web content runs script (allowsContentJavaScript()==true) → full CORP.
-    loadParameters.shouldEnableCrossOriginResourcePolicy = !loadParameters.isMainFrameNavigation && (!document || document->allowsContentJavaScript());
+    loadParameters.shouldEnableCrossOriginResourcePolicy = !loadParameters.isMainFrameNavigation;
 
     if (resourceLoader.options().mode == FetchOptions::Mode::Navigate) {
         Vector<Ref<SecurityOrigin>> frameAncestorOrigins;
@@ -799,21 +783,6 @@ void WebLoaderStrategy::remove(ResourceLoader* resourceLoader)
     // It's possible that this WebResourceLoader might be just about to message back to the NetworkProcess (e.g. ContinueWillSendRequest)
     // but there's no point in doing so anymore.
     loader->detachFromCoreLoader();
-}
-
-// MAVERICKS_BACKPORT DIAGNOSTIC: see the header declaration; pairs with [LOADDUMP-DOC]/[LOADDUMP-RES].
-void WebLoaderStrategy::dumpOutstandingLoadsForDebug()
-{
-    fprintf(stderr, "[LOADDUMP-WK] outstanding=%u internallyFailed=%u schemeTasks=%u\n",
-        m_webResourceLoaders.size(), m_internallyFailedResourceLoaders.size(), m_urlSchemeTasks.size());
-    for (auto& keyValue : m_webResourceLoaders) {
-        RefPtr coreLoader = keyValue.value->resourceLoader();
-        fprintf(stderr, "[LOADDUMP-WK] id=%llu hasCoreLoader=%d terminal=%d url=%s\n",
-            static_cast<unsigned long long>(keyValue.key.toUInt64()), !!coreLoader,
-            coreLoader ? coreLoader->reachedTerminalState() : -1,
-            coreLoader ? coreLoader->url().string().left(160).utf8().data() : "");
-    }
-    fflush(stderr);
 }
 
 void WebLoaderStrategy::setDefersLoading(ResourceLoader&, bool)

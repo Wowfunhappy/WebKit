@@ -32,7 +32,7 @@
 
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE(PAL, ManagedConfiguration)
 
-SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, ManagedConfiguration, MCProfileConnection, PAL_EXPORT);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, ManagedConfiguration, MCProfileConnection, PAL_EXPORT);
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, ManagedConfiguration, MCFeatureDefinitionLookupAllowed, NSString *, PAL_EXPORT)
 
 #endif

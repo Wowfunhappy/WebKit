@@ -2358,21 +2358,6 @@ void FrameLoader::setState(FrameState newState)
     FrameState oldState = m_state;
     m_state = newState;
 
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace main-frame provisional windows.
-    // A subresource load requested while the main frame is Provisional is failed by
-    // CachedResource::load's security check (Meet's signaler XHR dies there). Log every
-    // main-frame transition with the pending navigation URL + load type to find the culprit.
-    if (m_frame->isMainFrame() && oldState != newState && !access("/tmp/wk-debug-on", F_OK)) {
-        static const char* names[] = { "Provisional", "CommittedPage", "Complete" };
-        RefPtr pdl = m_provisionalDocumentLoader;
-        fprintf(stderr, "[FL-STATE] page=%p %s->%s loadType=%d provURL=%s docURL=%s\n",
-            (void*)m_frame->page(),
-            names[(int)oldState], names[(int)newState], (int)m_loadType,
-            pdl ? pdl->url().string().utf8().data() : "(none)",
-            m_documentLoader ? m_documentLoader->url().string().utf8().data() : "(none)");
-        fflush(stderr);
-    }
-
     if (newState == FrameState::Provisional)
         provisionalLoadStarted();
     else if (newState == FrameState::Complete) {
@@ -2922,17 +2907,6 @@ CachePolicy FrameLoader::subresourceCachePolicy(const URL& url) const
 
 void FrameLoader::dispatchDidFailProvisionalLoad(DocumentLoader& provisionalDocumentLoader, const ResourceError& error, WillInternallyHandleFailure willInternallyHandleFailure)
 {
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): every main-frame navigation on this backport
-    // exhibits an abandon-then-retry; the abandoned attempt's transient Provisional window is where
-    // Meet's signaler XHR is rejected. Log WHY the provisional load fails (the cancelling error).
-    if (m_frame->isMainFrame() && !access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[FL-PROVFAIL] cancel=%d timeout=%d ac=%d code=%d domain=%s desc=%s provURL=%s\n",
-            error.isCancellation(), error.isTimeout(), error.isAccessControl(), error.errorCode(),
-            error.domain().utf8().data(), error.localizedDescription().utf8().data(),
-            provisionalDocumentLoader.url().string().utf8().data());
-        fflush(stderr);
-    }
-
     m_provisionalLoadErrorBeingHandledURL = provisionalDocumentLoader.url();
     m_errorOccurredInLoading = true;
 
@@ -4161,15 +4135,6 @@ void FrameLoader::continueLoadAfterNavigationPolicy(const ResourceRequest& reque
     bool isTargetItem = frame->loader().history().provisionalItem() ? frame->loader().history().provisionalItem()->isTargetItem() : false;
 
     if (!canContinue) {
-        // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): a main-frame navigation abandoned here
-        // reverts the frame to its old document, leaving it transiently Provisional and rejecting
-        // the old document's subresource loads (Meet call-setup failure). Log why it was abandoned.
-        if (m_frame->isMainFrame() && !access("/tmp/wk-debug-on", F_OK)) {
-            fprintf(stderr, "[FL-ABANDON] policyDecision=%d shouldClose=%d navEventAborted=%d urlDisallowed=%d quickRedirect=%d url=%s\n",
-                (int)navigationPolicyDecision, shouldCloseResult, navigateEventAborted, urlIsDisallowed, m_quickRedirectComing,
-                request.url().string().utf8().data());
-            fflush(stderr);
-        }
         FRAMELOADER_RELEASE_LOG_FORWARDABLE(FRAMELOADER_CONTINUELOADAFTERNAVIGATIONPOLICY_CANNOT_CONTINUE, static_cast<int>(allowNavigationToInvalidURL), request.url().isValid(), static_cast<int>(navigationPolicyDecision));
 
         // If we were waiting for a quick redirect, but the policy delegate decided to ignore it, then we 

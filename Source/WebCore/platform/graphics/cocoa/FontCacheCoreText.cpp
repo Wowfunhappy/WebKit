@@ -850,41 +850,6 @@ RefPtr<Font> FontCache::systemFallbackForCharacterCluster(const FontDescription&
         customPlatformData = platformData.customPlatformData();
     FontPlatformData alternateFont(substituteFont.get(), platformData.size(), syntheticBold, syntheticOblique, platformData.orientation(), platformData.widthVariant(), platformData.textRenderingMode(), customPlatformData.get());
 
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: when a system fallback font is first created (typically because the page
-    // contains an em-dash, en-dash, or other punctuation not in the primary font), the very first
-    // CTFontDrawGlyphs call on that fallback font causes the surrounding line to render with the
-    // bottom half of every glyph clipped. Subsequent uses of the same fallback font render fine.
-    // We absorb that bad first draw by drawing the substitute font's glyph for the requested
-    // character cluster into a throwaway CGContext here, before returning. The fallback font then
-    // behaves correctly when the page paints.
-    {
-        std::array<UniChar, 4> codeUnits;
-        std::array<CGGlyph, 4> probeGlyphs { 0, 0, 0, 0 };
-        CFIndex codeUnitCount = 0;
-        for (auto ch : characterCluster.codeUnits()) {
-            if (codeUnitCount >= 4)
-                break;
-            codeUnits[codeUnitCount++] = ch;
-        }
-        if (codeUnitCount > 0) {
-            CTFontGetGlyphsForCharacters(substituteFont.get(), codeUnits.data(), probeGlyphs.data(), codeUnitCount);
-            auto cs = adoptCF(CGColorSpaceCreateDeviceRGB());
-            auto warmCtx = adoptCF(CGBitmapContextCreate(nullptr, 32, 32, 8, 32 * 4, cs.get(),
-                static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
-            if (warmCtx) {
-                CGContextSetTextMatrix(warmCtx.get(), CGAffineTransformMake(1, 0, 0, -1, 0, 0));
-                for (CFIndex i = 0; i < codeUnitCount; ++i) {
-                    if (probeGlyphs[i]) {
-                        CGPoint pos = { 0, 16 };
-                        CTFontDrawGlyphs(substituteFont.get(), &probeGlyphs[i], &pos, 1, warmCtx.get());
-                    }
-                }
-            }
-        }
-    }
-#endif
-
     return fontForPlatformData(alternateFont);
 }
 

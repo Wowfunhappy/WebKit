@@ -484,14 +484,6 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     if (!_wkState || !_wkState->page)
         return;
     CGRect exposedRect = NSRectToCGRect([self visibleRect]);
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace clip-to-visible geometry while
-    // debugging. Latched once — this runs per frame during scrolls/animations, so no per-call
-    // access(2) syscall.
-    static bool wkDebugOn = !access("/tmp/wk-debug-on", F_OK);
-    if (wkDebugOn) {
-        fprintf(stderr, "[EXPOSED-UI] view=%p clip=%d visibleRect=%.0f,%.0f %.0fx%.0f bounds=%.0fx%.0f window=%p\n", self, (int)_wkState->shouldClipToVisibleRect, exposedRect.origin.x, exposedRect.origin.y, exposedRect.size.width, exposedRect.size.height, [self bounds].size.width, [self bounds].size.height, [self window]);
-        fflush(stderr);
-    }
     _wkState->page->setViewExposedRect(_wkState->shouldClipToVisibleRect ? std::optional<WebCore::FloatRect>(exposedRect) : std::nullopt);
 }
 

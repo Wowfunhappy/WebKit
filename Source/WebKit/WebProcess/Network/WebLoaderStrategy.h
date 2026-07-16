@@ -67,10 +67,6 @@ public:
     void browsingContextRemoved(WebCore::LocalFrame&) final;
 
     void remove(WebCore::ResourceLoader*) final;
-    // MAVERICKS_BACKPORT DIAGNOSTIC: dump every outstanding WebResourceLoader (id, url, state) to
-    // stderr; triggered with WebCore::mavericksDumpLoadStateForDebug() by the /tmp/wk-dump-loads
-    // sentinel (see WebProcess.cpp).
-    void dumpOutstandingLoadsForDebug();
     void setDefersLoading(WebCore::ResourceLoader&, bool) final;
     void crossOriginRedirectReceived(WebCore::ResourceLoader*, const URL& redirectURL) final;
     

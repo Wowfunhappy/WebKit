@@ -1342,13 +1342,6 @@ ResourceErrorOr<Ref<CachedResource>> CachedResourceLoader::requestResource(Cache
                 memoryCache->remove(*resource);
 
             auto resourceError = resource->resourceError();
-            // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated).
-            if (!access("/tmp/wk-debug-on", F_OK)) {
-                fprintf(stderr, "[SYNC-LOAD-FAIL] url=%s errNull=%d cancellation=%d domain=%s code=%d desc=%s\n",
-                    url.string().utf8().data(), resourceError.isNull(), resourceError.isCancellation(),
-                    resourceError.domain().utf8().data(), resourceError.errorCode(), resourceError.localizedDescription().utf8().data());
-                fflush(stderr);
-            }
             // Synchronous cancellations are likely due to access control.
             if (resourceError.isNull() || resourceError.isCancellation())
                 return makeUnexpected(ResourceError { String(), 0, url, String(), ResourceError::Type::AccessControl });

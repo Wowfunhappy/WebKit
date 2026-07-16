@@ -33,7 +33,10 @@
 #import <wtf/TZoneMallocInlines.h>
 #import <wtf/URL.h>
 
-SOFT_LINK_SYSTEM_LIBRARY(libsystem_networkextension)
+// MAVERICKS_BACKPORT: libsystem_networkextension is 10.10+ (absent on 10.9); load it optionally so the
+// loader returns nullptr instead of RELEASE_ASSERTing. All uses below are SOFT_LINK_OPTIONAL, which
+// nullptr-check, so NetworkIssueReporter cleanly reports disabled on 10.9.
+SOFT_LINK_SYSTEM_LIBRARY_OPTIONAL(libsystem_networkextension)
 SOFT_LINK_OPTIONAL(libsystem_networkextension, ne_tracker_create_xcode_issue, void, __cdecl, (const char*, const void*, size_t))
 SOFT_LINK_OPTIONAL(libsystem_networkextension, ne_tracker_copy_current_stacktrace, void*, __cdecl, (size_t*))
 SOFT_LINK_OPTIONAL(libsystem_networkextension, ne_tracker_should_save_stacktrace, bool, __cdecl, (void))

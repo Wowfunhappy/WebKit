@@ -32,6 +32,6 @@
 
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE(PAL, SystemStatus)
 
-SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, SystemStatus, STDynamicActivityAttributionPublisher, PAL_EXPORT);
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, SystemStatus, STDynamicActivityAttributionPublisher, PAL_EXPORT);
 
 #endif

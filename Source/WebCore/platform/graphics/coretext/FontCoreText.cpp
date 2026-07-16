@@ -227,29 +227,6 @@ void Font::platformInit()
     m_fontMetrics.setXHeight(xHeight);
     m_fontMetrics.setLineSpacing(lineSpacing);
 
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: actually DRAW a glyph to a throwaway CGContext during font init. Without this,
-    // the FIRST em-dash (or similar fallback) glyph drawn into a real layer causes the entire
-    // surrounding line to render with bottom half clipped. We absorb that bad first-draw into the
-    // throwaway context. Subsequent uses of this font draw cleanly.
-    if (m_platformData.size()) {
-        UniChar probeChars[] = { 0x2014, 0x2013, 0x002D };
-        CGGlyph probeGlyphs[3] = { 0, 0, 0 };
-        CTFontGetGlyphsForCharacters(ctFont.get(), probeChars, probeGlyphs, 3);
-        auto cs = adoptCF(CGColorSpaceCreateDeviceRGB());
-        auto warmCtx = adoptCF(CGBitmapContextCreate(nullptr, 32, 32, 8, 32 * 4, cs.get(),
-            static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
-        if (warmCtx) {
-            CGPoint pos[3] = { {0,16}, {0,16}, {0,16} };
-            for (int i = 0; i < 3; ++i) {
-                if (probeGlyphs[i])
-                    CTFontDrawGlyphs(ctFont.get(), &probeGlyphs[i], &pos[i], 1, warmCtx.get());
-            }
-        }
-        CGRect warmupRects[3] = { };
-        CTFontGetBoundingRectsForGlyphs(ctFont.get(), kCTFontOrientationHorizontal, probeGlyphs, warmupRects, 3);
-    }
-#endif
     m_fontMetrics.setUnderlinePosition(-CTFontGetUnderlinePosition(ctFont.get()));
     m_fontMetrics.setUnderlineThickness(CTFontGetUnderlineThickness(ctFont.get()));
 }
@@ -713,21 +690,6 @@ GlyphBufferAdvance Font::applyTransforms(GlyphBuffer& glyphBuffer, unsigned begi
             stream << " U+" << hex(codeUnits[i], 4);
     );
 
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: CTFontShapeGlyphs is a 10.13+ API. Our polyfill stub for it is
-    // `xorl %eax,%eax; retq` which zeros only the low 32 bits of EAX — but the function
-    // returns a CGSize (two 64-bit doubles in XMM0/XMM1). The high register state from
-    // whatever was last computed leaks back as initialAdvance, randomly shifting glyph
-    // baselines down by up to ~8px. Symptom: rows containing em-dash / en-dash / ellipsis
-    // (any text the SimpleShaper actually invokes shaping for) paint with their text
-    // shifted down into the next row. WidthIterator already does the basic glyph layout
-    // we need (advances per glyph), so skip the call and return CGSizeZero.
-    auto initialAdvance = CGSizeZero;
-    UNUSED_VARIABLE(handler);
-    UNUSED_VARIABLE(options);
-    UNUSED_VARIABLE(localeString);
-    UNUSED_VARIABLE(numberOfInputGlyphs);
-#else
     auto initialAdvance = CTFontShapeGlyphs(
         ctFont.get(),
         glyphBuffer.glyphs(beginningGlyphIndex).data(),
@@ -739,7 +701,6 @@ GlyphBufferAdvance Font::applyTransforms(GlyphBuffer& glyphBuffer, unsigned begi
         options,
         localeString.get(),
         handler);
-#endif // MAVERICKS_BACKPORT: end PLATFORM(MAC) guard skipping the 10.13+ CTFontShapeGlyphs (stub leaks XMM)
 
     LOG_WITH_STREAM(TextShaping,
         stream << "Shaping result: " << glyphBuffer.size() - beginningGlyphIndex << " glyphs.\n";

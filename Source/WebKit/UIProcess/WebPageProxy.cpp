@@ -1793,11 +1793,8 @@ void WebPageProxy::setDrawingArea(RefPtr<DrawingAreaProxy>&& newDrawingArea)
 
 void WebPageProxy::initializeWebPage(const Site& site, WebCore::SandboxFlags effectiveSandboxFlags, WebCore::ReferrerPolicy effectiveReferrerPolicy)
 {
-    // MAVERICKS_BACKPORT: hasRunningProcess() returns false when WebPageProxy thinks the WebContent
-    // process is Terminated. Safari closes the XPC bootstrap connection after init completes,
-    // which makes WebPageProxy think the process died — but the mach port IPC remains alive.
-    // Skip the gate: even if WebPageProxy thinks the process is dead, we still want a drawing
-    // area for size propagation.
+    // MAVERICKS_BACKPORT DIAGNOSTIC A/B: temporarily re-disable the hasRunningProcess() gate to test
+    // whether restoring it is what skips drawing-area creation → blank render.
     // if (!hasRunningProcess())
     //     return;
 

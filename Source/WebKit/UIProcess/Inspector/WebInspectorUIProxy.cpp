@@ -553,14 +553,7 @@ void WebInspectorUIProxy::openLocalInspectorFrontend()
     if (!inspectorPage)
         return;
 
-    {
-        auto url = m_underTest ? WebInspectorUIProxy::inspectorTestPageURL() : WebInspectorUIProxy::inspectorPageURL();
-        // MAVERICKS_BACKPORT: platformInspectorPageLoadOverride reads the file in UI process and
-        // calls loadData on the inspector page (bypassing the hung decidePolicy round-trip).
-        if (platformInspectorPageLoadOverride(*inspectorPage, url))
-            return;
-        inspectorPage->loadRequest(URL { url });
-    }
+    inspectorPage->loadRequest(URL { m_underTest ? WebInspectorUIProxy::inspectorTestPageURL() : WebInspectorUIProxy::inspectorPageURL() });
 }
 
 void WebInspectorUIProxy::open()

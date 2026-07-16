@@ -1542,11 +1542,6 @@ Ref<DownloadProxy> WebProcessPool::resumeDownload(WebsiteDataStore& dataStore, W
 
 void WebProcessPool::postMessageToInjectedBundle(const String& messageName, API::Object* messageBody)
 {
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace bundle broadcasts while debugging.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[BUNDLE-MSG-UI] name=%s processes=%u\n", messageName.utf8().data(), (unsigned)m_processes.size());
-        fflush(stderr);
-    }
     for (Ref process : m_processes) {
         // FIXME: Return early if the message body contains any references to WKPageRefs/WKFrameRefs etc. since they're local to a process.
         process->send(Messages::WebProcess::HandleInjectedBundleMessage(messageName, UserData(process->transformObjectsToHandles(messageBody).get())), 0);

@@ -30,8 +30,8 @@
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE(WebCore, CoreHaptics)
 
-SOFT_LINK_CLASS_FOR_SOURCE(WebCore, CoreHaptics, CHHapticEngine)
-SOFT_LINK_CLASS_FOR_SOURCE(WebCore, CoreHaptics, CHHapticPattern)
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebCore, CoreHaptics, CHHapticEngine)
+SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebCore, CoreHaptics, CHHapticPattern)
 
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, CoreHaptics, CHHapticPatternKeyEvent, NSString *)
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, CoreHaptics, CHHapticPatternKeyEventType, NSString *)

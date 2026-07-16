@@ -32,70 +32,70 @@
 {
     // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super mouseDown:event]; return; }
-    @try { self._impl->mouseDown(event, WebKit::WebMouseEventInputSource::UserDriven); } @catch (NSException *e) {}
+    self._impl->mouseDown(event, WebKit::WebMouseEventInputSource::UserDriven);
 }
 // MAVERICKS_BACKPORT: forward mouse-up into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)mouseUp:(NSEvent *)event
 {
     // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super mouseUp:event]; return; }
-    @try { self._impl->mouseUp(event, WebKit::WebMouseEventInputSource::UserDriven); } @catch (NSException *e) {}
+    self._impl->mouseUp(event, WebKit::WebMouseEventInputSource::UserDriven);
 }
 // MAVERICKS_BACKPORT: forward mouse-moved into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)mouseMoved:(NSEvent *)event
 {
     // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super mouseMoved:event]; return; }
-    @try { self._impl->mouseMoved(event); } @catch (NSException *e) {}
+    self._impl->mouseMoved(event);
 }
 // MAVERICKS_BACKPORT: forward mouse-dragged into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)mouseDragged:(NSEvent *)event
 {
     // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super mouseDragged:event]; return; }
-    @try { self._impl->mouseDragged(event, WebKit::WebMouseEventInputSource::UserDriven); } @catch (NSException *e) {}
+    self._impl->mouseDragged(event, WebKit::WebMouseEventInputSource::UserDriven);
 }
 // MAVERICKS_BACKPORT: forward right-mouse-down into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)rightMouseDown:(NSEvent *)event
 {
     // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super rightMouseDown:event]; return; }
-    @try { self._impl->rightMouseDown(event); } @catch (NSException *e) {}
+    self._impl->rightMouseDown(event);
 }
 // MAVERICKS_BACKPORT: forward right-mouse-up into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)rightMouseUp:(NSEvent *)event
 {
     // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super rightMouseUp:event]; return; }
-    @try { self._impl->rightMouseUp(event); } @catch (NSException *e) {}
+    self._impl->rightMouseUp(event);
 }
 // MAVERICKS_BACKPORT: forward other-mouse-down into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)otherMouseDown:(NSEvent *)event
 {
     // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super otherMouseDown:event]; return; }
-    @try { self._impl->otherMouseDown(event); } @catch (NSException *e) {}
+    self._impl->otherMouseDown(event);
 }
 // MAVERICKS_BACKPORT: forward other-mouse-up into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)otherMouseUp:(NSEvent *)event
 {
     // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super otherMouseUp:event]; return; }
-    @try { self._impl->otherMouseUp(event); } @catch (NSException *e) {}
+    self._impl->otherMouseUp(event);
 }
 // MAVERICKS_BACKPORT: forward mouse-entered into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)mouseEntered:(NSEvent *)event
 {
     // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super mouseEntered:event]; return; }
-    @try { self._impl->mouseEntered(event); } @catch (NSException *e) {}
+    self._impl->mouseEntered(event);
 }
 // MAVERICKS_BACKPORT: forward mouse-exited into WebViewImpl (missing from upstream WKWebView Mac impl here).
 - (void)mouseExited:(NSEvent *)event
 {
     // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
     if (!self._impl) { [super mouseExited:event]; return; }
-    @try { self._impl->mouseExited(event); } @catch (NSException *e) {}
+    self._impl->mouseExited(event);
 }
 
 // MAVERICKS_BACKPORT: forward scroll-wheel into the page (missing from upstream WKWebView Mac impl here).
@@ -103,10 +103,8 @@
 {
     WebKit::WebViewImpl *impl = self._impl;
     if (!impl) { [super scrollWheel:event]; return; }
-    @try {
-        WebKit::NativeWebWheelEvent webEvent(event, self);
-        impl->page().handleNativeWheelEvent(webEvent);
-    } @catch (NSException *) { }
+    WebKit::NativeWebWheelEvent webEvent(event, self);
+    impl->page().handleNativeWheelEvent(webEvent);
 }
 
 // MAVERICKS_BACKPORT: WKWebView ships no NSTextInputClient implementation, so AppKit's
@@ -201,7 +199,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
     if (!impl) { [super keyDown:event]; return; }
     // The page already saw this event; it is being re-dispatched to AppKit (no menu claimed it).
     if (impl->keyDownEventBeingResent() == event) { [super keyDown:event]; return; }
-    @try {
+    {
         WTF::Vector<WebCore::KeypressCommand> commands;
         // MAVERICKS_BACKPORT: skip interpretKeyEvents for Cmd-modified keys — those are menu
         // shortcuts dispatched via sendAction:; running interpretKeyEvents would double-
@@ -209,7 +207,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
         BOOL hasCmd = ([event modifierFlags] & NSCommandKeyMask) != 0;
         if (!hasCmd) {
             tlsWKWVCommands = &commands;
-            @try { [self interpretKeyEvents:@[event]]; } @catch (NSException *) { }
+            [self interpretKeyEvents:@[event]];
             tlsWKWVCommands = nullptr;
         }
         // MAVERICKS_BACKPORT: register every collected command name so
@@ -222,7 +220,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
             impl->page().registerKeypressCommandName(command.commandName);
         WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
         impl->page().handleKeyboardEvent(webEvent);
-    } @catch (NSException *) { }
+    }
 }
 
 // MAVERICKS_BACKPORT: forward key-up into the page (missing from upstream WKWebView Mac impl here).
@@ -231,11 +229,9 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
     // MAVERICKS_BACKPORT: build a NativeWebKeyboardEvent and hand it to the page proxy.
     WebKit::WebViewImpl *impl = self._impl;
     if (!impl) { [super keyUp:event]; return; }
-    @try {
-        WTF::Vector<WebCore::KeypressCommand> commands;
-        WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
-        impl->page().handleKeyboardEvent(webEvent);
-    } @catch (NSException *) { }
+    WTF::Vector<WebCore::KeypressCommand> commands;
+    WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
+    impl->page().handleKeyboardEvent(webEvent);
 }
 
 // MAVERICKS_BACKPORT: forward modifier-key changes into the page (missing from upstream WKWebView Mac impl here).
@@ -249,11 +245,9 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
     // the page as a key-down with windows keyCode 65 ('A') — a spurious Cmd+A.
     unsigned short keyCode = [event keyCode];
     if (!keyCode || keyCode == 10 || keyCode == 63) { [super flagsChanged:event]; return; }
-    @try {
-        WTF::Vector<WebCore::KeypressCommand> commands;
-        WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
-        impl->page().handleKeyboardEvent(webEvent);
-    } @catch (NSException *) { }
+    WTF::Vector<WebCore::KeypressCommand> commands;
+    WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
+    impl->page().handleKeyboardEvent(webEvent);
 }
 
 // MAVERICKS_BACKPORT: standard Edit-menu responder actions. Upstream's full WKWebViewMac.mm

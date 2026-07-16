@@ -33,11 +33,8 @@
 #import "XPCServiceEntryPoint.h"
 #import "XPCUtilities.h"
 #import <CoreFoundation/CoreFoundation.h>
-// MAVERICKS_BACKPORT: dlsym entry-point fallback + opt-in crash-backtrace/stderr-redirect diagnostics below.
+// MAVERICKS_BACKPORT: dlsym entry-point fallback below.
 #import <dlfcn.h>
-#import <execinfo.h>
-#import <fcntl.h>
-#import <signal.h>
 #import <unistd.h>
 #import <mach/mach.h>
 #import <pal/spi/cf/CFUtilitiesSPI.h>
@@ -311,65 +308,8 @@ void XPCServiceEventHandler(xpc_connection_t peer)
     xpc_connection_resume(peer);
 }
 
-// MAVERICKS_BACKPORT DIAGNOSTIC (opt-in via WEBKIT_MAVERICKS_DEBUG): ReportCrash works against the installed
-// binaries (install-safari7.sh's demangler guard renames the local symbols whose demangling crashes the 10.9
-// demangler), but this in-process handler is still valuable when enabled: it captures backtraces for builds
-// ReportCrash has not been guarded against (e.g. raw build-tree frameworks under WKTR), and its output lands
-// in /tmp/wc-stderr-<pid>.log where it interleaves with WTFLogAlways/GStreamer markers -- something a .crash
-// file cannot do. backtrace()/write() are the standard crash-dump primitives, and the handler re-raises with
-// SIG_DFL so the default action still runs: ReportCrash writes its report as well, never suppressed.
-static void webkitMavericksCrashBacktrace(int sig)
-{
-    void* frames[256];
-    int n = backtrace(frames, 256);
-    char hdr[96];
-    int len = snprintf(hdr, sizeof(hdr), "\n[CRASH-BT] fatal signal %d pid=%d frames=%d\n", sig, getpid(), n);
-    if (len > 0)
-        write(2, hdr, len);
-    backtrace_symbols_fd(frames, n, 2);
-    fsync(2);
-    signal(sig, SIG_DFL);
-    raise(sig);
-}
-
 int XPCServiceMain(int, const char**)
 {
-    // MAVERICKS_BACKPORT DIAGNOSTIC (opt-in via WEBKIT_MAVERICKS_DEBUG, default OFF): redirect stderr to a
-    // per-pid file so WebContent fprintfs are visible, and install the in-process crash-backtrace handler.
-    // Both are gated off by default so production launches do not write world-readable /tmp logs or alter
-    // signal disposition; export WEBKIT_MAVERICKS_DEBUG to enable while debugging.
-    // MAVERICKS_BACKPORT DIAGNOSTIC: also enable when the sentinel file /tmp/wk-debug-on exists, because
-    // env vars do not propagate to XPC-launched service processes on 10.9 (a file check does).
-    if (getenv("WEBKIT_MAVERICKS_DEBUG") || access("/tmp/wk-debug-on", F_OK) == 0) {
-        char path[128];
-        snprintf(path, sizeof(path), "/tmp/wc-stderr-%d.log", getpid());
-        int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0666);
-        if (fd >= 0) { dup2(fd, 2); close(fd); }
-        fprintf(stderr, "[XPCServiceMain] stderr redirect active pid=%d\n", getpid()); fflush(stderr);
-
-        for (int sig : { SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGFPE, SIGTRAP })
-            signal(sig, webkitMavericksCrashBacktrace);
-
-        // MAVERICKS_BACKPORT DIAGNOSTIC: env vars don't propagate to XPC services on 10.9, so
-        // GStreamer debug logging is file-driven too: /tmp/wk-gst-debug's first line becomes
-        // GST_DEBUG (e.g. "3" or "mse*:6,qtdemux:5"), output to /tmp/wk-gst-<pid>.log.
-        if (FILE* gstDebugFile = fopen("/tmp/wk-gst-debug", "r")) {
-            char level[128] = { 0 };
-            if (fgets(level, sizeof(level), gstDebugFile)) {
-                if (char* newline = strchr(level, '\n'))
-                    *newline = '\0';
-                if (level[0]) {
-                    setenv("GST_DEBUG", level, 1);
-                    char gstLogPath[128];
-                    snprintf(gstLogPath, sizeof(gstLogPath), "/tmp/wk-gst-%d.log", getpid());
-                    setenv("GST_DEBUG_FILE", gstLogPath, 1);
-                    setenv("GST_DEBUG_NO_COLOR", "1", 1);
-                }
-            }
-            fclose(gstDebugFile);
-        }
-    }
-
     // Initialize WTF and main thread on the ACTUAL main thread (before xpc_main).
     // This is critical because xpc_main's event handlers run on background threads,
     // but RunLoop::mainSingleton() must reference the main thread's run loop

@@ -138,19 +138,13 @@ bool ImageBufferIOSurfaceBackend::flushContextDraws()
     if (!contextNeedsFlush && !m_needsFirstFlush)
         return false;
     m_needsFirstFlush = false;
-    // MAVERICKS_BACKPORT: ensurePlatformContext() can return null on this build; only flush a valid context.
-    if (auto* ctx = ensurePlatformContext())
-        CGContextFlush(ctx);
+    CGContextFlush(ensurePlatformContext());
     return true;
 }
 
 CGContextRef ImageBufferIOSurfaceBackend::ensurePlatformContext()
 {
     if (!m_platformContext) {
-        // MAVERICKS_BACKPORT: m_surface may be null/freed by the time the renderer
-        // calls back to flush. CNN crashes here. Skip if no surface.
-        if (!m_surface)
-            return nullptr;
         m_platformContext = m_surface->createPlatformContext(m_displayID);
         RELEASE_ASSERT(m_platformContext);
     }
@@ -187,10 +181,6 @@ bool ImageBufferIOSurfaceBackend::invalidateCachedNativeImage()
 
 RefPtr<NativeImage> ImageBufferIOSurfaceBackend::copyNativeImage()
 {
-    // MAVERICKS_BACKPORT: null-guard only (CNN-family teardown races leave m_surface null); the
-    // upstream createImage() path works again now that IOSurface contexts are real CGIOSurfaceContexts.
-    if (!m_surface)
-        return nullptr;
     return NativeImage::create(createImage());
 }
 
@@ -204,19 +194,12 @@ RefPtr<NativeImage> ImageBufferIOSurfaceBackend::createNativeImageReference()
 
 RefPtr<NativeImage> ImageBufferIOSurfaceBackend::sinkIntoNativeImage()
 {
-    // MAVERICKS_BACKPORT: null-guard only (see copyNativeImage); upstream sink path restored.
-    if (!m_surface)
-        return nullptr;
     ensurePlatformContext();
     return NativeImage::create(IOSurface::sinkIntoImage(WTF::move(m_surface), WTF::move(m_platformContext)));
 }
 
 void ImageBufferIOSurfaceBackend::getPixelBuffer(const IntRect& srcRect, PixelBuffer& destination)
 {
-    // MAVERICKS_BACKPORT: twitter.com calls canvas getImageData; m_surface can be
-    // null on this build, crashing in m_surface->lock(). Bail silently.
-    if (!m_surface)
-        return;
     const_cast<ImageBufferIOSurfaceBackend*>(this)->prepareForExternalRead();
     if (auto lock = m_surface->lock<IOSurface::AccessMode::ReadOnly>())
         ImageBufferBackend::getPixelBuffer(srcRect, lock->surfaceSpan(), destination);
@@ -224,9 +207,6 @@ void ImageBufferIOSurfaceBackend::getPixelBuffer(const IntRect& srcRect, PixelBu
 
 void ImageBufferIOSurfaceBackend::putPixelBuffer(const PixelBufferSourceView& pixelBuffer, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat)
 {
-    // MAVERICKS_BACKPORT: m_surface can be null on this build; guard before m_surface->lock() (same as getPixelBuffer).
-    if (!m_surface)
-        return;
     prepareForExternalWrite();
     if (auto lock = m_surface->lock<IOSurface::AccessMode::ReadWrite>())
         ImageBufferBackend::putPixelBuffer(pixelBuffer, srcRect, destPoint, destFormat, lock->surfaceSpan());
@@ -346,16 +326,11 @@ RetainPtr<CGImageRef> ImageBufferIOSurfaceBackend::createImageReference()
     // The reference is used only in synchronized manner, so after the use ends, we can update
     // externally without invalidation marker. Thus we do not set m_mayHaveOutstandingBackingStoreReferences.
     auto image = adoptCF(CGIOSurfaceContextCreateImageReference(ensurePlatformContext()));
-    // MAVERICKS_BACKPORT: on 10.9 CGIOSurfaceContextCreateImageReference resolves from libpolyfill as
-    // an alias of CGIOSurfaceContextCreateImage (copy instead of live-reference semantics).
-    // MAVERICKS_BACKPORT: null guard (upstream assumes success; a torn-down surface returns null here).
-    if (image) {
-        // CG has internal caches for some operations related to software bitmap draw.
-        // One of these caches are per-image color matching cache. Since these will not get any hits
-        // from an image that is recreated every time, mark the image transient to skip these caches.
-        // This also skips WebKit GraphicsContext subimage cache.
-        CGImageSetCachingFlags(image.get(), kCGImageCachingTransient);
-    }
+    // CG has internal caches for some operations related to software bitmap draw.
+    // One of these caches are per-image color matching cache. Since these will not get any hits
+    // from an image that is recreated every time, mark the image transient to skip these caches.
+    // This also skips WebKit GraphicsContext subimage cache.
+    CGImageSetCachingFlags(image.get(), kCGImageCachingTransient);
     return image;
 }
 

@@ -103,7 +103,6 @@
 #include "WebsiteDataType.h"
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/MemoryStatistics.h>
-// MAVERICKS_BACKPORT: <JavaScriptCore/Options.h> for the /tmp/wk-jsc-options JSC::Options::setOption loader in initializeWebProcess.
 #include <JavaScriptCore/Options.h>
 #include <JavaScriptCore/WasmFaultSignalHandler.h>
 #include <WebCore/AXObjectCache.h>
@@ -116,7 +115,6 @@
 #include <WebCore/DNS.h>
 #include <WebCore/DatabaseTracker.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
-// MAVERICKS_BACKPORT DIAGNOSTIC: for mavericksDumpLoadStateForDebug (the /tmp/wk-dump-loads dump).
 #include <WebCore/Document.h>
 #include <WebCore/DiagnosticLoggingClient.h>
 #include <WebCore/DiagnosticLoggingKeys.h>
@@ -519,30 +517,6 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
 
     platformInitializeWebProcess(parameters);
 
-    // MAVERICKS_BACKPORT DIAGNOSTIC: env vars do not propagate to XPC-launched service processes on
-    // 10.9, so JSC options (which JSC reads from JSC_-prefixed env at startup) cannot be set the
-    // normal way while debugging WebContent. When the sentinel file /tmp/wk-jsc-options exists, apply
-    // each of its "optionName=value" lines via JSC::Options before any VM is created (page JS runs
-    // well after this point). Off by default (no file → no effect); it only alters option state while
-    // a developer is actively bisecting a JSC/Wasm issue on this VM. (Used to root-cause the
-    // equinox.space heap-corruption crash to JSC's concurrent/parallel GC marking under
-    // USE(SYSTEM_MALLOC); see webkit-mavericks-equinox-gc-crash memory. Serializing GC marking
-    // reduces but does NOT reliably eliminate that corruption — it is the #43 systemic family — so it
-    // is intentionally NOT forced on here; the reliable fix needs the deeper AtomStringImpl root.)
-    if (FILE* jscOptionsFile = fopen("/tmp/wk-jsc-options", "r")) {
-        char line[256];
-        while (fgets(line, sizeof(line), jscOptionsFile)) {
-            if (char* newline = strchr(line, '\n'))
-                *newline = '\0';
-            // JSC::Options::setOption self-calls notifyOptionsChanged() on a successful match, so no
-            // trailing notify is needed. It returns false on an unrecognized option name — surface that
-            // to stderr (→ /tmp/wc-stderr-<pid>.log) so a typo'd option can't silently skew a bisect.
-            if (line[0] && line[0] != '#' && !JSC::Options::setOption(line))
-                fprintf(stderr, "[wk-jsc-options] unrecognized JSC option ignored: %s\n", line);
-        }
-        fclose(jscOptionsFile);
-    }
-
     // Match the QoS of the UIProcess and the scrolling thread but use a slightly lower priority.
     WTF::Thread::setCurrentThreadIsUserInteractive(-1);
 
@@ -658,20 +632,6 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
                 while (true) {
                     WTF::sleep(3_s);
                     WTF::releaseFastMallocFreeMemory();
-
-                    // MAVERICKS_BACKPORT DIAGNOSTIC: on-demand load-state dump. `touch
-                    // /tmp/wk-dump-loads` makes the main thread print every live document's
-                    // load-event blockers + still-loading CachedResources ([LOADDUMP-DOC]/
-                    // [LOADDUMP-RES], Document.cpp) and the outstanding WebResourceLoader map
-                    // ([LOADDUMP-WK], WebLoaderStrategy.cpp) to stderr. This thread only hosts the
-                    // 3 s poll; the dump itself runs on the main thread.
-                    if (!access("/tmp/wk-dump-loads", F_OK)) {
-                        unlink("/tmp/wk-dump-loads");
-                        callOnMainThread([] {
-                            WebCore::mavericksDumpLoadStateForDebug();
-                            WebProcess::singleton().webLoaderStrategy().dumpOutstandingLoadsForDebug();
-                        });
-                    }
                 }
             }, ThreadType::Unknown, Thread::QOS::Utility)->detach();
 
@@ -1458,12 +1418,6 @@ void WebProcess::handleInjectedBundleMessage(const String& messageName, const Us
     if (!injectedBundle)
         return;
 
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace injected-bundle messages while debugging.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[BUNDLE-MSG-WP] pid=%d name=%s\n", getpid(), messageName.utf8().data());
-        fflush(stderr);
-    }
-
     injectedBundle->didReceiveMessage(messageName, transformHandlesToObjects(protect(messageBody.object()).get()));
 }
 
@@ -1530,34 +1484,7 @@ static NetworkProcessConnectionInfo getNetworkProcessConnection(IPC::Connection&
 
 NetworkProcessConnection& WebProcess::ensureNetworkProcessConnection()
 {
-    // MAVERICKS_BACKPORT: this used to RELEASE_ASSERT(isMain). theverge.com Service
-    // Workers call this from a WebCore::WorkerDedicatedRunLoop thread to load
-    // fonts. On 10.9, libdispatch worker threads serving main queue make
-    // RunLoop::isMain() ambiguously return true, so the assert no longer fires
-    // — but the subsequent sendSync to UIProcess corrupts the stack canary on
-    // a worker stack, crashing at the function epilogue. Defensive fix: if
-    // not actually on the main pthread AND we already have a connection,
-    // return the existing one without re-running setup. If we don't have one
-    // yet, bounce to main thread sync to do the IPC there.
-    if (!RunLoop::isMain() || !isMainThread()) {
-        if (m_networkProcessConnection)
-            return *m_networkProcessConnection;
-        // Need a connection but we're on a worker; dispatch to main and wait.
-        Lock lock;
-        Condition condition;
-        bool done = false;
-        callOnMainThread([this, &lock, &condition, &done] {
-            ensureNetworkProcessConnection();
-            Locker locker { lock };
-            done = true;
-            condition.notifyOne();
-        });
-        Locker locker { lock };
-        condition.wait(lock, [&] { return done; });
-        RELEASE_ASSERT(m_networkProcessConnection);
-        return *m_networkProcessConnection;
-    }
-
+    RELEASE_ASSERT(RunLoop::isMain());
     ASSERT(m_sessionID);
 
     // If we've lost our connection to the network process (e.g. it crashed) try to re-establish it.
@@ -2294,17 +2221,8 @@ RefPtr<API::Object> WebProcess::transformHandlesToObjects(API::Object* object)
                 auto frameID = downcast<const API::FrameHandle>(object).frameID();
                 return frameID ? WebProcess::singleton().webFrame(*frameID) : nullptr;
             }
-            case API::Object::Type::PageHandle: {
-                auto webPageID = downcast<const API::PageHandle>(object).webPageID();
-                RefPtr page = WebProcess::singleton().webPage(webPageID);
-                // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): a page handle that does not resolve
-                // in this process silently becomes null in the transformed message body.
-                if (!access("/tmp/wk-debug-on", F_OK)) {
-                    fprintf(stderr, "[XFORM-PAGE] pid=%d pageID=%llu -> %s\n", getpid(), webPageID.toUInt64(), page ? "resolved" : "NULL");
-                    fflush(stderr);
-                }
-                return page;
-            }
+            case API::Object::Type::PageHandle:
+                return WebProcess::singleton().webPage(downcast<const API::PageHandle>(object).webPageID());
 
             // MAVERICKS_BACKPORT: resolve page-group handles to this process's WebPageGroupProxy (Safari 7).
             case API::Object::Type::PageGroupHandle:

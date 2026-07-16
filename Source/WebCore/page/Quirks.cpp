@@ -181,13 +181,7 @@ bool Quirks::shouldIgnoreInvalidSignal() const
 // paging or horizontal-scroll bug ever appears, look there first.
 bool Quirks::shouldAliasBodyScrollToDocumentScroll() const
 {
-    bool aliased = m_document && m_document->url().protocolIs("safari-reader"_s);
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated): trace reader body-scroll alias hits while debugging.
-    if (aliased && !access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[READER-BODYSCROLL] pid=%d hit\n", getpid());
-        fflush(stderr);
-    }
-    return aliased;
+    return m_document && m_document->url().protocolIs("safari-reader"_s);
 }
 
 // MAVERICKS_BACKPORT: Safari 7's ReaderJS (compiled into the Safari binary and thus unfixable)

@@ -553,32 +553,6 @@ void WebInspectorUIProxy::platformCreateFrontendWindow()
 
     updateInspectorWindowTitle();
     applyForcedAppearance();
-
-    // MAVERICKS_BACKPORT: force the inspector page to be in-window+visible so its DrawingArea
-    // sends layer-tree commits to the UI process. Without this, the inspector WebPage exists
-    // and loads its frontend HTML but never paints (no ui-commit transactions for its pageID).
-    [m_inspectorWindow makeKeyAndOrderFront:nil];
-    if (RefPtr page = m_inspectorPage.get())
-        page->activityStateDidChange(WebCore::allActivityStates(), WebPageProxy::ActivityStateChangeDispatchMode::Immediate);
-
-    // MAVERICKS_BACKPORT: force wantsLayer on inspectorView so the RemoteLayerTree rootLayer
-    // attached inside m_layerHostingView actually composites.
-    [inspectorView.get() setWantsLayer:YES];
-    [contentView.get() setWantsLayer:YES];
-
-    // MAVERICKS_BACKPORT: explicitly push the inspector view size to the inspector WebPage's
-    // DrawingAreaProxy. Without this the rootLayer stays 0x0 and the inspector frontend
-    // renders into nothing (10.9 WKWebView layout strategy doesn't auto-propagate size).
-    NSSize newSize = contentView.get().bounds.size;
-    if (RefPtr page = m_inspectorPage.get()) {
-        RefPtr da = page->drawingArea();
-        if (da) {
-            WebCore::IntSize sz(static_cast<int>(newSize.width), static_cast<int>(newSize.height));
-            // Force size to differ by re-setting smaller first then real size so sizeDidChange fires.
-            da->setSize(WebCore::IntSize(1, 1));
-            da->setSize(sz);
-        }
-    }
 }
 
 void WebInspectorUIProxy::closeFrontendPage()
@@ -1047,159 +1021,14 @@ void WebInspectorUIProxy::platformStartWindowDrag()
     }
 }
 
-bool WebInspectorUIProxy::platformInspectorPageLoadOverride(WebPageProxy& inspectorPage, const String& url)
-{
-    // MAVERICKS_BACKPORT: force the inspector page into a visible/in-window state so WebContent's
-    // FrameLoader actually executes the load. Without this, hostWindow is null and the load
-    // queues forever inside WebCore::Page.
-    inspectorPage.activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsInWindow, WebCore::ActivityState::WindowIsActive, WebCore::ActivityState::IsFocused }, WebPageProxy::ActivityStateChangeDispatchMode::Immediate);
-    RetainPtr<NSURL> nsURL = adoptNS([[NSURL alloc] initWithString:url.createNSString().get()]);
-    if (!nsURL || ![nsURL isFileURL])
-        return false;
-    NSData *htmlData = [NSData dataWithContentsOfFile:nsURL.get().path options:NSDataReadingMappedIfSafe error:nullptr];
-    if (!htmlData)
-        return false;
-    NSString *html = [[[NSString alloc] initWithData:htmlData encoding:NSUTF8StringEncoding] autorelease];
-    if (html) {
-        // MAVERICKS_BACKPORT: strip CSP meta — classic frontend's `default-src 'self'; script-src
-        // 'self' 'unsafe-inline'` blocks under file:// because 'self' has the null origin.
-        NSRange metaStart = [html rangeOfString:@"<meta http-equiv=\"Content-Security-Policy\""];
-        if (metaStart.location != NSNotFound) {
-            NSRange metaEnd = [html rangeOfString:@">" options:0 range:NSMakeRange(metaStart.location, html.length - metaStart.location)];
-            if (metaEnd.location != NSNotFound) {
-                NSRange whole = NSMakeRange(metaStart.location, metaEnd.location - metaStart.location + 1);
-                html = [html stringByReplacingCharactersInRange:whole withString:@"<!-- CSP stripped by MAVERICKS_BACKPORT -->"];
-            }
-        }
-        // MAVERICKS_BACKPORT: inject a shim BEFORE Main.js that bridges the classic Safari 9-era
-        // InspectorFrontendHost API (which expects platform(), localizedStringsURL(),
-        // inspectorBackendCommandsURLs() as methods) to the modern WebKit 615.1.1 IDL (which
-        // exposes them as attribute getters under different names).
-        NSRange firstScript = [html rangeOfString:@"<script"];
-        if (firstScript.location != NSNotFound) {
-            // MAVERICKS_BACKPORT (#69/#52): build the unified titlebar+toolbar here at frontend-load
-            // time instead of patching the system WebInspectorUI Main.css — keeps the stock bundle
-            // pristine (no system-file edit). The web view covers the whole window (full-size-
-            // content-view emulation), so the shim inserts a 22px #wk-titlebar strip as body's first
-            // flex child: the traffic lights (raised above the web view in
-            // platformCreateFrontendWindow, at their standard titlebar position) and the centered
-            // window title live in the strip, the stock toolbar below keeps its untouched 56px
-            // layout (its fixed border-box height means padding would squish the icons), and ONE
-            // continuous gradient painted on body spans strip+toolbar (78px) — the real
-            // NSUnifiedTitleAndToolbar proportions from Apple's Web Inspector documentation shot.
-            // The stock undocked .toolbar is transparent (it expected a native textured window),
-            // so the body gradient shows through it.
-            // Gradient endpoints measured off a native Mavericks unified titlebar+toolbar (Finder
-            // window, lossless screen samples, frontmost-app-verified in each state): ACTIVE = 1px
-            // rgb(242) top bevel, rgb(234) -> rgb(176), 1px rgb(105) bottom border; INACTIVE =
-            // rgb(240) -> rgb(223), 1px rgb(166) bottom border. The 4px top-corner radius + the
-            // transparent web view (drawsBackground false on the page configuration) let the
-            // NSThemeFrame's own rounded titlebar corners show through instead of the web view
-            // painting square over them.
-            NSString *unifiedToolbarCSS = @"<style>"
-                @"body:not(.docked){background-image:-webkit-linear-gradient(top,rgb(242,242,242),rgb(234,234,234) 1px,rgb(176,176,176) 77px,rgb(105,105,105) 77px,rgb(105,105,105) 78px);background-repeat:no-repeat;background-size:100% 78px;border-top-left-radius:4px;border-top-right-radius:4px;}"
-                @"body:not(.docked).window-inactive{background-image:-webkit-linear-gradient(top,rgb(240,240,240),rgb(223,223,223) 77px,rgb(166,166,166) 77px,rgb(166,166,166) 78px);}"
-                @"body.docked{background-color:white;}"
-                @"#wk-titlebar{height:22px;-webkit-flex:none;text-align:center;font-family:'Lucida Grande';font-size:13px;line-height:22px;color:rgba(0,0,0,0.85);text-shadow:rgba(255,255,255,0.5) 0 1px 0;padding:0 80px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:default;}"
-                @"body.window-inactive #wk-titlebar{color:rgba(0,0,0,0.5);}"
-                @"body.docked #wk-titlebar{display:none;}"
-                @"</style>";
-            NSString *shim = @"<script>(function(){"
-                              "window.__inspErrors=[];window.addEventListener('error',function(e){window.__inspErrors.push((e.message||'?')+' @ '+(e.filename||'?').replace(/.*\\//,'')+':'+(e.lineno||'?'));});"
-                              "var IFH=window.InspectorFrontendHost;if(!IFH){window.__inspErrors.push('no IFH');return;}"
-                              "function asMethod(name,attrName){var val=IFH[attrName!==undefined?attrName:name];Object.defineProperty(IFH,name,{value:function(){return val;},writable:true,configurable:true});}"
-                              "if(typeof IFH.platform!=='function')asMethod('platform');"
-                              "if(typeof IFH.localizedStringsURL!=='function')asMethod('localizedStringsURL');"
-                              "if(typeof IFH.inspectorBackendCommandsURL!=='function')Object.defineProperty(IFH,'inspectorBackendCommandsURL',{value:function(){return 'InspectorBackendCommands.js';},writable:true,configurable:true});"
-                              "if(typeof IFH.inspectorBackendCommandsURLs!=='function')Object.defineProperty(IFH,'inspectorBackendCommandsURLs',{value:function(){return ['InspectorBackendCommands.js'];},writable:true,configurable:true});"
-                              "if(typeof IFH.debuggableType!=='function'&&'debuggableInfo' in IFH){var di=IFH.debuggableInfo;Object.defineProperty(IFH,'debuggableType',{value:function(){return di&&di.debuggableType||'web';},writable:true,configurable:true});}"
-                              // Stub out classic-only IFH methods that the modern host doesn't ship.
-                              "if(typeof IFH.setToolbarHeight!=='function')Object.defineProperty(IFH,'setToolbarHeight',{value:function(){},writable:true,configurable:true});"
-                              "if(typeof IFH.setAttachedWindowHeight!=='function')Object.defineProperty(IFH,'setAttachedWindowHeight',{value:function(){},writable:true,configurable:true});"
-                              "if(typeof IFH.setAttachedWindowWidth!=='function')Object.defineProperty(IFH,'setAttachedWindowWidth',{value:function(){},writable:true,configurable:true});"
-                              // Protocol bridge: classic frontend sends bare {method:'Inspector.enable',id:N};
-                              // modern backend routes per-target via {method:'Target.sendMessageToTarget',params:{targetId,message}}.
-                              // Wrap outgoing non-Target/Browser commands; intercept incoming Target.dispatchMessageFromTarget.
-                              // Protocol bridge: classic frontend sends bare per-domain commands;
-                              // modern backend routes through Target.sendMessageToTarget.
-                              "try{(function(){var origSend=IFH.sendMessageToBackend.bind(IFH);var currentTargetId=null;var pendingQueue=[];var wrapperIdBase=1000000;var wrapperIds=Object.create(null);"
-                              "function wrap(ms){var wid=wrapperIdBase++;wrapperIds[wid]=true;return JSON.stringify({id:wid,method:'Target.sendMessageToTarget',params:{targetId:currentTargetId,message:ms}});}"
-                              "function flushQueue(){if(!currentTargetId||!pendingQueue.length)return;var q=pendingQueue;pendingQueue=[];for(var i=0;i<q.length;i++){try{origSend(wrap(q[i]));}catch(e){}}}"
-                              // Two CSS-protocol shapes drifted since this classic frontend (#52):
-                              // (1) CSS.SelectorList.selectors are CSSSelector OBJECTS ({text, specificity});
-                              // the frontend expects plain strings and renders the section headers by joining
-                              // them — giving "[object Object], [object Object]" for every rule. Flatten each
-                              // selector object to its .text. (2) the author stylesheet origin was renamed
-                              // "regular" -> "author"; the frontend's origin switch leaves the rule type
-                              // undefined for the unknown value and the Rules sidebar drops every author rule
-                              // (only Style Attribute + User Agent Stylesheet entries survived). Map it back,
-                              // gated to CSS payload shapes (selectorList/style/styleSheetId present).
-                              "function fixSel(o){if(!o||typeof o!=='object')return;var sl=o.selectorList;if(sl&&sl.selectors instanceof Array&&sl.selectors.length&&typeof sl.selectors[0]==='object'){sl.selectors=sl.selectors.map(function(s){return s&&typeof s==='object'?String(s.text||''):s;});}if(o.origin==='author'&&(o.selectorList||o.style||o.styleSheetId))o.origin='regular';for(var k in o){var v=o[k];if(v&&typeof v==='object')fixSel(v);}}"
-                              "IFH.sendMessageToBackend=function(messageStr){"
-                              "try{var msg=JSON.parse(messageStr);var dom=msg.method&&msg.method.split('.')[0];"
-                              "if(dom==='Target'||dom==='Browser')return origSend(messageStr);"
-                              "if(!currentTargetId){pendingQueue.push(messageStr);return;}"
-                              "return origSend(wrap(messageStr));"
-                              "}catch(e){}return origSend(messageStr);};"
-                              "var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){var im=obj.params.message;if(typeof im==='string'&&(im.indexOf('selectorList')!==-1||im.indexOf('\"origin\":\"author\"')!==-1)){try{var po=JSON.parse(im);fixSel(po);return origDisp(po);}catch(e2){}}return origDisp(im);}}catch(e){}return origDisp(message);};}}});"
-                              "})();}catch(e){console.log('[shim] THREW '+e);}"
-                              // MAVERICKS_BACKPORT (#52): the 22px unified-titlebar strip (see the injected CSS
-                              // above). The window title text comes from the frontend's
-                              // InspectorFrontendHost.inspectedURLChanged(host) — the same source the native
-                              // (hidden) window title is formatted from.
-                              "try{var wkTitle='Web Inspector';"
-                              "document.addEventListener('DOMContentLoaded',function(){try{"
-                              "if(document.getElementById('wk-titlebar'))return;"
-                              "var bar=document.createElement('div');bar.id='wk-titlebar';bar.textContent=wkTitle;"
-                              "document.body.insertBefore(bar,document.body.firstChild);"
-                              "}catch(e){}});"
-                              "if(typeof IFH.inspectedURLChanged==='function'){var origIUC=IFH.inspectedURLChanged.bind(IFH);Object.defineProperty(IFH,'inspectedURLChanged',{value:function(t){try{wkTitle='Web Inspector \\u2014 '+t;var b=document.getElementById('wk-titlebar');if(b)b.textContent=wkTitle;}catch(e){}return origIUC(t);},writable:true,configurable:true});}"
-                              "}catch(e){}"
-                              // MAVERICKS_BACKPORT (#69): make the titlebar strip + WHOLE inspector toolbar
-                              // background a native window-drag handle. The web view covers the native titlebar
-                              // (unified-toolbar emulation) so AppKit titlebar-dragging is gone, and the stock
-                              // frontend only arms a narrow moveWindowBy region. Route background mousedowns
-                              // (off interactive items) to startWindowDrag(), backed by a 10.9 manual drag loop
-                              // in WebViewImpl.
-                              "try{document.addEventListener('mousedown',function(ev){"
-                              "if(ev.button!==0||!ev.target||!ev.target.closest)return;"
-                              // Undocked only: when docked the toolbar lives inside the inspected browser
-                              // window, and a window drag from there would move the whole browser window.
-                              "if(document.body&&document.body.classList.contains('docked'))return;"
-                              "if(!ev.target.closest('#wk-titlebar, #toolbar, .toolbar'))return;"
-                              "if(ev.target.closest('button,input,select,textarea,a,.item,.toolbar-item,.dashboard-container,.navigation-bar,.search-bar,[role=button]'))return;"
-                              "if(IFH.startWindowDrag){IFH.startWindowDrag();ev.preventDefault();ev.stopPropagation();}"
-                              "},true);}catch(e){}"
-                              "})();</script>";
-            html = [html stringByReplacingCharactersInRange:NSMakeRange(firstScript.location, 0) withString:[unifiedToolbarCSS stringByAppendingString:shim]];
-        }
-        htmlData = [html dataUsingEncoding:NSUTF8StringEncoding];
-    }
-    auto sb = WebCore::SharedBuffer::create(unsafeMakeSpan(static_cast<const uint8_t *>(htmlData.bytes), htmlData.length));
-    String baseURL = String([nsURL.get().URLByDeletingLastPathComponent absoluteString]);
-    inspectorPage.loadData(WTF::move(sb), "text/html"_s, "UTF-8"_s, baseURL);
-    return true;
-}
-
 String WebInspectorUIProxy::inspectorPageURL()
 {
-    // MAVERICKS_BACKPORT: bypass the inspector-resource:// scheme handler (IPC encoding of
-    // SharedBuffer over WebPage::URLSchemeTaskDidReceiveData crashes the UI process).
-    // Use file:// directly so WebContent can read the bundle resources itself.
-    // Prefer the Safari 8-era WebInspectorUI at /System/Library/PrivateFrameworks/ — its
-    // tab styling (big colored pill icons for Resources/Timelines/Debugger/Console) matches
-    // what the user wants. The Safari 9 StagedFrameworks bundle (Resources/Main.html) is the
-    // fallback.
-    NSString *path = @"/System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/Resources/Main.html";
-    if (![[NSFileManager defaultManager] fileExistsAtPath:path])
-        path = [[NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"] pathForResource:@"Main" ofType:@"html"];
-    return [[NSURL fileURLWithPath:path] absoluteString];
+    return [WKInspectorViewController URLForInspectorResource:@"Main.html"].absoluteString;
 }
 
 String WebInspectorUIProxy::inspectorTestPageURL()
 {
-    // MAVERICKS_BACKPORT: use the bundle file:// URL directly (the inspector-resource:// scheme handler's IPC SharedBuffer encoding crashes the UI process).
-    return [[NSURL fileURLWithPath:[[NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"] pathForResource:@"Test" ofType:@"html"]] absoluteString];
+    return [WKInspectorViewController URLForInspectorResource:@"Test.html"].absoluteString;
 }
 
 DebuggableInfoData WebInspectorUIProxy::infoForLocalDebuggable()

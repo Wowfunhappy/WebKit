@@ -29,8 +29,6 @@
 // MAVERICKS_BACKPORT: pull in the ObjC runtime headers for the respondsToSelector / KVC runtime checks used below.
 #import <objc/runtime.h>
 #import <objc/message.h>
-// MAVERICKS_BACKPORT DIAGNOSTIC: access() for the sentinel-gated task #6 loader-wedge probes below.
-#import <unistd.h>
 
 #import "AppStoreDaemonSPI.h"
 #import "AuthenticationChallengeDisposition.h"
@@ -742,13 +740,6 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error
 {
     LOG(NetworkSession, "%zu didCompleteWithError %@", task.taskIdentifier, error);
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated, task #6 loader-wedge probe family): delegate
-    // delivery trace — proves whether CFNetwork surfaced a completion that WebKit then lost.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        fprintf(stderr, "[NSD-COMPLETE] task=%lu err=%ld url=%s\n", (unsigned long)task.taskIdentifier,
-            error ? (long)error.code : 0L, task.currentRequest.URL.absoluteString.UTF8String ?: "(null)");
-        fflush(stderr);
-    }
 
     RetainPtr updatedError = error;
     if (updatedError) {
@@ -919,21 +910,8 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition disposition))completionHandler
 {
     auto taskIdentifier = dataTask.taskIdentifier;
-    // MAVERICKS_BACKPORT: hoist the existingTask lookup out of the if-init so it isn't re-resolved through the weak fallback stub.
-    auto _existing = [self existingTask:dataTask];
     LOG(NetworkSession, "%zu didReceiveResponse", taskIdentifier);
-    // MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated, task #6 loader-wedge probe family): delegate
-    // delivery trace — pairs with [NSD-COMPLETE]; a response CFNetwork surfaced that WebKit then lost.
-    if (!access("/tmp/wk-debug-on", F_OK)) {
-        // dynamic_objc_cast: -statusCode is NSHTTPURLResponse-only; a plain NSURLResponse (e.g. a WebSocket
-        // handshake / data: response) would doesNotRecognizeSelector and crash the NetworkProcess.
-        RetainPtr httpResponse = dynamic_objc_cast<NSHTTPURLResponse>(response);
-        fprintf(stderr, "[NSD-RESPONSE] task=%lu status=%ld url=%s\n", (unsigned long)taskIdentifier,
-            httpResponse ? (long)[httpResponse statusCode] : -1L, response.URL.absoluteString.UTF8String ?: "(null)");
-        fflush(stderr);
-    }
-    // MAVERICKS_BACKPORT: use the hoisted lookup result.
-    if (auto networkDataTask = _existing) {
+    if (auto networkDataTask = [self existingTask:dataTask]) {
         ASSERT(RunLoop::isMain());
 
         NegotiatedLegacyTLS negotiatedLegacyTLS = NegotiatedLegacyTLS::No;
@@ -1187,59 +1165,6 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
-// MAVERICKS_BACKPORT DIAGNOSTIC (sentinel-gated, remove with the task #6 loader-wedge probe family):
-// on-demand task-state dump: touch /tmp/wk-dump-nettasks while /tmp/wk-debug-on exists and every
-// live NetworkDataTaskCocoa's NSURLSessionTask state/timeoutInterval/byte-counts is logged as [NTD]
-// lines on this process's stderr. Iterates WebKit's own SessionWrapper::dataTaskMap on the main
-// thread; 10.9's -getTasksWithCompletionHandler: crashed when tried here, do not reintroduce it.
-// Discriminates never-resumed vs suspended vs running-without-timeout for wedged loads.
-static Vector<WeakPtr<SessionWrapper>>& webkitMavericksTaskDumpWrappers()
-{
-    static NeverDestroyed<Vector<WeakPtr<SessionWrapper>>> wrappers;
-    return wrappers.get();
-}
-
-static void webkitMavericksRegisterSessionForTaskDump(SessionWrapper& sessionWrapper)
-{
-    if (access("/tmp/wk-debug-on", F_OK))
-        return;
-    webkitMavericksTaskDumpWrappers().append(WeakPtr { sessionWrapper });
-    static dispatch_source_t timer; // static + leaked so the armed source stays alive under ARC
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-        dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), 2 * NSEC_PER_SEC, NSEC_PER_SEC / 4);
-        dispatch_source_set_event_handler(timer, ^{
-            if (access("/tmp/wk-dump-nettasks", F_OK))
-                return;
-            unlink("/tmp/wk-dump-nettasks");
-            for (auto& weakWrapper : webkitMavericksTaskDumpWrappers()) {
-                CheckedPtr wrapper = weakWrapper.get();
-                if (!wrapper)
-                    continue;
-                fprintf(stderr, "[NTD-SESSION] session=%p configTimeout=%.1f tasks=%u\n",
-                    (void*)wrapper->session.get(), [[wrapper->session configuration] timeoutIntervalForRequest],
-                    wrapper->dataTaskMap.size());
-                for (auto& pair : wrapper->dataTaskMap) {
-                    RefPtr dataTask = pair.value.get();
-                    NSURLSessionTask *task = dataTask ? dataTask->taskForMavericksDump() : nil;
-                    if (!task) {
-                        fprintf(stderr, "[NTD] id=%llu (task gone)\n", static_cast<unsigned long long>(pair.key));
-                        continue;
-                    }
-                    NSURLRequest *current = task.currentRequest;
-                    fprintf(stderr, "[NTD] id=%llu state=%ld timeout=%.1f sent=%lld recv=%lld url=%s\n",
-                        static_cast<unsigned long long>(pair.key), (long)task.state, current.timeoutInterval,
-                        task.countOfBytesSent, task.countOfBytesReceived,
-                        current.URL.absoluteString.UTF8String ?: "(null)");
-                }
-            }
-            fflush(stderr);
-        });
-        dispatch_resume(timer);
-    });
-}
-
 void SessionWrapper::recreateSessionWithUpdatedProxyConfigurations(NetworkSessionCocoa& networkSession)
 {
     RELEASE_ASSERT(session);
@@ -1256,8 +1181,6 @@ void SessionWrapper::recreateSessionWithUpdatedProxyConfigurations(NetworkSessio
     [delegate sessionInvalidated];
     delegate = adoptNS([[WKNetworkSessionDelegate alloc] initWithNetworkSession:networkSession wrapper:*this withCredentials:withCredentials]);
     session = [NSURLSession sessionWithConfiguration:configuration.get() delegate:delegate.get() delegateQueue:[NSOperationQueue mainQueue]];
-    // MAVERICKS_BACKPORT DIAGNOSTIC: task #6 loader-wedge task-state dump (see webkitMavericksRegisterSessionForTaskDump).
-    webkitMavericksRegisterSessionForTaskDump(*this);
 
     dataTaskMap.clear();
     downloadMap.clear();
@@ -1290,8 +1213,6 @@ void SessionWrapper::initialize(NSURLSessionConfiguration *configuration, Networ
 
     delegate = adoptNS([[WKNetworkSessionDelegate alloc] initWithNetworkSession:networkSession wrapper:*this withCredentials:storedCredentialsPolicy == WebCore::StoredCredentialsPolicy::Use]);
     session = [NSURLSession sessionWithConfiguration:configuration delegate:delegate.get() delegateQueue:[NSOperationQueue mainQueue]];
-    // MAVERICKS_BACKPORT DIAGNOSTIC: task #6 loader-wedge task-state dump (see webkitMavericksRegisterSessionForTaskDump).
-    webkitMavericksRegisterSessionForTaskDump(*this);
 }
 
 NetworkSessionCocoa::NetworkSessionCocoa(NetworkProcess& networkProcess, const NetworkSessionCreationParameters& parameters)
@@ -1930,20 +1851,15 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
     enableAdvancedPrivacyProtections(ensureMutableRequest().get(), advancedPrivacyProtections);
 
     Ref sessionSet = sessionSetForPage(webPageProxyID);
-    // MAVERICKS_BACKPORT: NSURLSession does not respond to webSocketTaskWithRequest:
-    // until 10.15. Sending it on 10.9 crashes NetworkProcess via
-    // doesNotRecognizeSelector. Return nullptr so sites that try WebSockets
-    // see a clean failure (handshake fails) instead of a process crash.
-    NSURLSession *session = sessionSet->sessionWithCredentialStorage->session.get();
-    if (![session respondsToSelector:@selector(webSocketTaskWithRequest:)])
-        return nullptr;
-    RetainPtr task = [session webSocketTaskWithRequest:nsRequest.get()];
+    // MAVERICKS_BACKPORT: -[NSURLSession webSocketTaskWithRequest:] (10.15+) is absent on 10.9; the
+    // WebKit-scoped selref mechanism rewrites this send to the host-safe -wk_webSocketTaskWithRequest:
+    // installed on the NSURLSession class cluster by WebSocketPolyfill_109.mm (WK_POLYFILL_SEL/_ADD),
+    // which returns a WKWebSocketStream. Upstream call site is otherwise unchanged.
+    RetainPtr task = [sessionSet->sessionWithCredentialStorage->session webSocketTaskWithRequest:nsRequest.get()];
 
     // Although the WebSocket protocol allows full 64-bit lengths, Chrome and Firefox limit the length to 2^63 - 1.
     // Use NSIntegerMax instead of 2^63 - 1 for 32-bit systems.
-    // MAVERICKS_BACKPORT: -setMaximumMessageSize: is part of the 10.15+ NSURLSessionWebSocketTask API; guard it.
-    if ([task respondsToSelector:@selector(setMaximumMessageSize:)])
-        [(NSURLSessionWebSocketTask *)task.get() setMaximumMessageSize:NSIntegerMax];
+    task.get().maximumMessageSize = NSIntegerMax;
 
     return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSet, request, clientOrigin, WTF::move(task), storedCredentialsPolicy);
 }

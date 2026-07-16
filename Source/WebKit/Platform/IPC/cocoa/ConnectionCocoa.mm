@@ -144,11 +144,6 @@ void Connection::cancelReceiveSource()
 {
     dispatch_source_cancel(m_receiveSource.get());
     m_receiveSource = nullptr;
-    // MAVERICKS_BACKPORT: also tear down the receive-poll safety-net timer (the 10.9 MACH_RECV re-fire fallback).
-    if (m_receivePollTimer) {
-        dispatch_source_cancel(m_receivePollTimer.get());
-        m_receivePollTimer = nullptr;
-    }
     m_receivePort = MACH_PORT_NULL;
 }
 
@@ -225,40 +220,8 @@ void Connection::platformOpen()
         mach_port_mod_refs(mach_task_self(), receivePort, MACH_PORT_RIGHT_RECEIVE, -1);
     });
 
-    // MAVERICKS_BACKPORT: DISPATCH_SOURCE_TYPE_MACH_RECV does not reliably re-fire after handling
-    // a batch of messages on this OS. Add a periodic timer that polls the receive port as a
-    // fallback. Both fire on the same serial connection queue, so handlers don't race.
-    // 2026-05-19: Reduced from 50ms to 2ms. The 50ms poll meant every IPC roundtrip
-    // could wait up to 50ms when MACH_RECV was missing edges, and a single page-load
-    // fires dozens of state-change IPCs (DidStart/Commit/Finish/LayoutMilestone/etc.),
-    // accumulating multi-second user-visible delay in first paint + URL bar updates.
-    m_receivePollTimer = adoptOSObject(dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, protect(m_connectionQueue->dispatchQueue()).get()));
-    // 10.9: the MACH_RECV dispatch source above is the primary, immediate receive path. This timer
-    // is only a SAFETY-NET poll for the occasional missed re-fire edge. It was previously 2ms, which
-    // generated ~500 wakeups/sec PER PROCESS — that drove the WebContent service over the kernel
-    // wakeups EXC_RESOURCE limit (150/sec) and got it killed ("a problem occurred ... reloaded")
-    // during heavy/rapid browsing. The 2ms rate was a workaround for the IPC queue being stalled by
-    // the (now-removed) per-send /tmp debug logging; with that gone the source re-fires reliably, so
-    // a slow safety-net poll suffices and keeps wakeups far under the limit. Coarse leeway lets the
-    // kernel coalesce these wakeups to near-zero when idle.
-    dispatch_source_set_timer(m_receivePollTimer.get(), dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC), 200 * NSEC_PER_MSEC, 100 * NSEC_PER_MSEC);
-    dispatch_source_set_event_handler(m_receivePollTimer.get(), [this, protectedThis = Ref { *this }] {
-        // 10.9: also drain any send stashed by a MACH_SEND_TIMED_OUT. The stash is normally
-        // retried off the DISPATCH_MACH_SEND_POSSIBLE source edge, which is unreliable on this
-        // OS, so the poll timer is the dependable flush. resumeSendSource() is a no-op when
-        // nothing is pending. Both this and the send source run on the serial connection queue,
-        // so the send path and receive path never race.
-        if (m_pendingOutgoingMachMessage && MACH_PORT_VALID(m_sendPort))
-            resumeSendSource();
-        if (!MACH_PORT_VALID(m_receivePort))
-            return;
-        receiveSourceEventHandler();
-    });
-
     m_connectionQueue->dispatch([strongRef = Ref { *this }, this] {
         dispatch_resume(m_receiveSource.get());
-        // MAVERICKS_BACKPORT: also resume the 10.9 receive-poll safety-net timer set up above.
-        dispatch_resume(m_receivePollTimer.get());
     });
 
     // Cache the audit token in case the XPC connection will be closed.
@@ -270,15 +233,11 @@ Connection::SendMessageResult Connection::sendMessage(std::unique_ptr<MachMessag
     ASSERT(message);
     ASSERT(!m_pendingOutgoingMachMessage);
     // Send the message.
-    // MAVERICKS_BACKPORT: MACH_SEND_NOTIFY with MACH_PORT_NULL notify port returns
-    // MACH_SEND_INVALID_NOTIFY (0x1000000A) on this OS for messages with port descriptors
-    // (e.g. layer-tree IPC carrying IOSurface mach send rights). Drop the NOTIFY flag.
-    // The destination port's queue can fill up during init bursts (default queue limit on
-    // 10.9 may be as low as 16 despite setMachPortQueueLength). On MACH_SEND_TIMED_OUT the
-    // message is stashed in m_pendingOutgoingMachMessage (case below) and re-sent later. This
-    // send runs on m_connectionQueue, which also dispatches receives, so it must NOT block —
-    // the stash is drained by resumeSendSource(), driven both by DISPATCH_MACH_SEND_POSSIBLE
-    // and (since that source edge is unreliable on 10.9) by the receive poll timer.
+    // MAVERICKS_BACKPORT: MACH_SEND_NOTIFY with a MACH_PORT_NULL notify port returns
+    // MACH_SEND_INVALID_NOTIFY (0x1000000A) on 10.9 for messages with port descriptors
+    // (e.g. layer-tree IPC carrying IOSurface mach send rights); on modern kernels the
+    // flag is ignored when the notify port is null, so dropping it here matches upstream
+    // behavior exactly.
     kern_return_t kr = mach_msg(message->header(), MACH_SEND_MSG | MACH_SEND_TIMEOUT, message->size(), 0, MACH_PORT_NULL, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
     switch (kr) {
     case MACH_MSG_SUCCESS:
@@ -318,14 +277,10 @@ Connection::SendMessageResult Connection::sendMessage(std::unique_ptr<MachMessag
 #endif
 
     default:
-        // MAVERICKS_BACKPORT: an unexpected mach_msg send error (historically INVALID_RIGHT 0x1000000A from an
-        // invalid IOSurface send right, tied to compositing #56) would otherwise abort WebContent. Fail the
-        // individual send gracefully instead of killing the whole process — but SURFACE it (WTFLogAlways),
-        // do NOT hide it. Verified 0 occurrences across heavy browsing (8+ sites, video, scroll) 2026-06-16.
-        WTFLogAlways("Connection::sendOutgoingMessage: dropping message %s on unexpected mach_msg kr=0x%x", description(message->messageName()).characters(), (unsigned)kr);
-        message->leakDescriptors();
-        message.reset();
-        return SendMessageResult::Failure;
+        auto messageName = message->messageName();
+        auto errorMessage = makeString("Unhandled error code 0x"_s, hex(kr), ", message '"_s, description(messageName), "' ("_s, messageName, ')');
+        WebKit::logAndSetCrashLogMessage(errorMessage.utf8().data());
+        CRASH_WITH_INFO(kr, std::to_underlying(messageName));
     }
 }
 
@@ -695,28 +650,12 @@ static bool shouldLogIncomingMessageHandling()
 
 void Connection::receiveSourceEventHandler()
 {
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     ReceiveBuffer buffer;
-// (end MAVERICKS_BACKPORT restored block)
+    ReceiveBuffer buffer;
 
-    // MAVERICKS_BACKPORT: drain ALL queued mach messages on each fire. dispatch_source_t
-    // MACH_RECV sometimes fails to re-fire on 10.9 after handling one message, so
-    // we keep reading until the port is empty. Earlier this function would also
-    // retry-with-1ms-usleep after the port reported empty (to catch messages
-    // arriving slightly after the fire). That cost up to 3 ms of usleep per fire
-    // — multiplied by hundreds of fires/sec on a busy connection that's a huge
-    // wall-time penalty that backs up the IPC queue and the main GCD queue.
-    // If we miss a message because of a tiny scheduling race, the kernel re-fires
-    // the dispatch source as soon as the next mach msg arrives, so no message is
-    // lost — only marginally delayed.
-    int drainCount = 0;
-    while (true) {
-        ReceiveBuffer buffer;
-        ASSERT(MACH_PORT_VALID(m_receivePort));
-        mach_msg_header_t* header = readFromMachPort(m_receivePort, buffer);
-        if (!header)
-            return;
-        ++drainCount;
+    ASSERT(MACH_PORT_VALID(m_receivePort));
+    mach_msg_header_t* header = readFromMachPort(m_receivePort, buffer);
+    if (!header)
+        return;
 
     switch (header->msgh_id) {
     case MACH_NOTIFY_NO_SENDERS:
@@ -730,14 +669,12 @@ void Connection::receiveSourceEventHandler()
 
     case MACH_NOTIFY_SEND_ONCE:
     default:
-        // MAVERICKS_BACKPORT: continue draining the receive port (was return) for the 10.9 drain loop.
-        continue;
+        return;
     }
 
     std::unique_ptr<Decoder> decoder = createMessageDecoder(header, buffer.mutableSpan());
     if (!decoder)
-    // MAVERICKS_BACKPORT: continue draining the receive port (was return) for the 10.9 drain loop.
-        continue;
+        return;
 
 #if PLATFORM(MAC)
     decoder->setImportanceAssertion(ImportanceAssertion { header });
@@ -768,20 +705,17 @@ void Connection::receiveSourceEventHandler()
             // Do not initialize the send source, as there is nobody to send to.
             // Keep the receive source, so that we receive the sent messages and then
             // the NO_SENDERS notification.
-            // MAVERICKS_BACKPORT: continue draining the receive port (was return) for the 10.9 drain loop.
-            continue;
+            return;
         }
         m_sendPort = sendRight->leakSendRight();
         initializeSendSource();
-        // MAVERICKS_BACKPORT: continue draining the receive port (was return) for the 10.9 drain loop.
-        continue;
+        return;
     }
 
     if (shouldLogIncomingMessageHandling()) [[unlikely]]
         RELEASE_LOG(IPCMessages, "Connection::processIncomingMessage(%p) received %" PUBLIC_LOG_STRING " from port 0x%08x", this, description(decoder->messageName()).characters(), m_receivePort);
 
     processIncomingMessage(makeUniqueRefFromNonNullUniquePtr(WTF::move(decoder)));
-    } // end while(true) loop — MAVERICKS_BACKPORT drain
 }
 
 IPC::Connection::Identifier Connection::identifier() const

@@ -30,16 +30,16 @@ MavericksSupport/
 │   ├── vendor/                   COMMITTED binaries we can't rebuild:
 │   │                             clang-22 + lld (bzip2-compressed), llvm-ar/nm/objcopy,
 │   │                             clang.cfg/clang++.cfg, resource headers, libc++/abi/unwind
-│   ├── scripts/                  COMMITTED source: build_{python3,nasm,ninja,cmake}.sh
+│   ├── scripts/                  COMMITTED source: build_{python3,nasm,ninja,cmake,ccache}.sh
 │   ├── bootstrap.sh              reconstructs build/ from vendor/ + scripts/
 │   └── build/                    ARTIFACTS (gitignored): unpacked clang + built tools
 │
 ├── polyfill/                   genuinely-missing-on-10.9 symbols, from source
-│   ├── src/                      polyfill_stubs.m, vector_stubs.c, wtf_compat.{cpp,s}
+│   ├── src/                      polyfill_stubs.m, system_spi_polyfill.c, wk_polyfills.m, wtf_compat.cpp
 │   ├── legacy-support/           vendored macports-legacy-support (libc/POSIX gap-fills)
 │   ├── headers/                  framework header overlays (declarations modern WebKit calls)
-│   ├── scripts/                  build-legacy-polyfills.sh, rebuild_wtf_compat.sh
-│   └── prebuilt/                 static/dynamic archives the link consumes (see below)
+│   ├── scripts/                  build-polyfill.sh, build-legacy-polyfills.sh
+│   └── build/                    ARTIFACTS (gitignored): archives the link consumes (see below)
 │
 ├── sdk/                        SDK patches: patch-sdk-rehome.sh (symbol re-home) + patch-sdk-availability.sh (make iOS-only soft-linked classes macOS-declarable)
 ├── deps/                       third-party libraries WebKit links (see deps/README.md)
@@ -58,7 +58,7 @@ MavericksSupport/
    `MAVERICKS_SDK`). The toolchain file errors clearly if it's missing.
 
 2. **Bootstrap the toolchain** (once): `bash MavericksSupport/toolchain/bootstrap.sh`
-   — unpacks the in-tree clang and builds python3/nasm/ninja/cmake from source into
+   — unpacks the in-tree clang and builds python3/nasm/ninja/cmake/ccache from source into
    `toolchain/build/` (gitignored).
 
 3. **Configure + build** with the bootstrapped cmake/ninja and the toolchain file
@@ -66,17 +66,19 @@ MavericksSupport/
 
 4. **Install** onto the 10.9 target: `sudo bash MavericksSupport/install-safari7.sh`.
 
-## `polyfill/prebuilt/` contents
+## `polyfill/build/` contents
 
 - `libpolyfill.a` — the 10.9-missing symbols WebKit links: the macports-legacy libc
   base, a CFString-constant table, two small CG/vImage forwarding shims, and
   `return 0` stubs for framework SPI that 10.9 lacks. Linked globally by
   `OptionsMac.cmake`.
-- `libpolyfill_classes.a` / `libwtf_compat.a` — force-loaded into JavaScriptCore
+- `libwtf_compat.a` — force-loaded into JavaScriptCore
   (`Source/JavaScriptCore/CMakeLists.txt`).
+- `libpolyfill_classes.a` — force-loaded into WebCore
+  (`Source/WebCore/CMakeLists.txt`).
 - `libcg_polyfill.dylib` — CoreGraphics shims, embedded into WebCore.framework by
   `install-safari7.sh`.
 
 The reproducible source for these lives in `src/` (WebKit-specific stubs) and
-`legacy-support/` (the libc base); `scripts/rebuild_wtf_compat.sh` and
+`legacy-support/` (the libc base); `scripts/build-polyfill.sh` and
 `scripts/build-legacy-polyfills.sh` build their objects.
