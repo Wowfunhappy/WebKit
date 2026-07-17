@@ -25,23 +25,22 @@ void dispatch_set_qos_class_floor(dispatch_object_t object, int qos_class, int r
 }
 
 /*
- * dispatch_queue_create_with_target (10.12) — drop the target, create a
- * regular queue.  The real ABI symbol carries a '$V2' suffix; we expose it
- * via an asm label on a real function (assembler-independent, unlike a
- * '.set' absolute alias, which the 10.9 assembler leaves undefined).  We also
- * keep the plain '_V2' symbol for completeness.
+ * dispatch_queue_create_with_target (10.12) is provided once by
+ * polyfill_stubs.m (which preserves the target via dispatch_set_target_queue);
+ * it is intentionally NOT redefined here.
  */
-static dispatch_queue_t mpls_dqcwt(const char *label, dispatch_queue_attr_t attr,
-                                   dispatch_queue_t target) {
-	(void)target;
-	return dispatch_queue_create(label, attr);
-}
-dispatch_queue_t dispatch_queue_create_with_target_V2(const char *label, dispatch_queue_attr_t attr, dispatch_queue_t target) {
-	return mpls_dqcwt(label, attr, target);
-}
-extern dispatch_queue_t dispatch_queue_create_with_target_dollarV2(const char *label, dispatch_queue_attr_t attr, dispatch_queue_t target) __asm__("_dispatch_queue_create_with_target$V2");
-dispatch_queue_t dispatch_queue_create_with_target_dollarV2(const char *label, dispatch_queue_attr_t attr, dispatch_queue_t target) {
-	return mpls_dqcwt(label, attr, target);
+
+/*
+ * dispatch_assert_queue (public 10.12; the real ABI symbol is versioned
+ * '$V2').  10.9's libdispatch already exports the unversioned real function
+ * _dispatch_assert_queue, so forward the '$V2' import straight to it (declared
+ * with an asm label so the compiler doesn't re-map our call back to '$V2' and
+ * recurse).  Preserves the assertion semantics exactly rather than stubbing it.
+ */
+extern void mpls_dispatch_assert_queue_stock(dispatch_queue_t queue) __asm__("_dispatch_assert_queue");
+extern void dispatch_assert_queue_dollarV2(dispatch_queue_t queue) __asm__("_dispatch_assert_queue$V2");
+void dispatch_assert_queue_dollarV2(dispatch_queue_t queue) {
+	mpls_dispatch_assert_queue_stock(queue);
 }
 
 /* dispatch_workloop_* (10.14) — workloops don't exist; emulate with a serial queue. */
