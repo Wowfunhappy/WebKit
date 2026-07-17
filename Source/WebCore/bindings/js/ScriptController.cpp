@@ -826,20 +826,8 @@ void ScriptController::executeAsynchronousUserAgentScriptInWorld(DOMWrapperWorld
 
 bool ScriptController::canExecuteScripts(ReasonForCallingCanExecuteScripts reason, DOMWrapperWorld* world)
 {
-    // MAVERICKS_BACKPORT: keystone #54-adjacent (broken main-thread identity under dispatch_main).
-    // Bail if our LocalFrame's WeakRef has been cleared (frame destroyed).
-    // archlinux's Web Worker calls Node.appendChild on a script element after the parent
-    // frame has torn down; m_frame->X then asserts in WeakRef<LocalFrame>::ptr().
-    if (!m_frame.ptrAllowingHashTableEmptyValue())
-        return false;
-
     if (reason == ReasonForCallingCanExecuteScripts::AboutToExecuteScript) {
-        // MAVERICKS_BACKPORT: keystone #54-adjacent. Silently reject instead of RELEASE_ASSERT. theverge.com
-        // hits this during DocumentLoader::finishedLoading → parser flush → paused
-        // tree builder runs synchronous scripts while a ScriptDisallowedScope is
-        // active. Crashing the WebContent process is worse than skipping the script.
-        if (!ScriptDisallowedScope::InMainThread::isScriptAllowed())
-            return false;
+        RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(ScriptDisallowedScope::InMainThread::isScriptAllowed());
         s_scriptExecutionCount++;
     }
 

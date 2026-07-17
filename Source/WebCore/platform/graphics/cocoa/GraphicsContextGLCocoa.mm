@@ -57,8 +57,6 @@
 #if WK_WEBGL_METAL_BACKEND
 #import <pal/spi/cocoa/MetalSPI.h>
 #endif
-// MAVERICKS_BACKPORT: pthread is used to pin ANGLE's CGL context to the OS thread that bound it (see currentContextThread below).
-#import <pthread.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/RuntimeApplicationChecks.h>
 #import <wtf/StdLibExtras.h>
@@ -91,15 +89,6 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(GraphicsContextGLCocoa);
 // This variable is accessed in single-threaded manner.
 // For WK1, this variable is accessed from multiple threads but always sequentially.
 static GraphicsContextGLANGLE* currentContext;
-// MAVERICKS_BACKPORT: WebKit's "main thread" here is serviced by a rotating pool of libdispatch
-// worker threads (see MainThreadSharedTimerCF / ThreadTimers). ANGLE's CGL backend binds the
-// EGL/CGL context to the *calling* OS thread's TLS, so the process-wide `currentContext` cache
-// above is not sufficient: if a GL call (e.g. WebGL context teardown on navigation) lands on a
-// different worker thread than the one that last made the context current, the cache short-circuit
-// would skip EGL_MakeCurrent, leaving ANGLE's per-thread egl::Thread unbound -> GL_GetError()
-// dereferences a null thread context and crashes. Track the OS thread alongside currentContext so
-// the shortcut only fires when we are genuinely still current on this thread.
-static pthread_t currentContextThread;
 
 #if WK_WEBGL_METAL_BACKEND
 static const char* const enabledANGLEMetalFeatures[] = {
@@ -438,16 +427,11 @@ bool GraphicsContextGLANGLE::makeContextCurrent()
 {
     if (!m_contextObj)
         return false;
-    // MAVERICKS_BACKPORT: only trust the cache if we are still on the same OS thread that actually bound the
-    // context (see currentContextThread note above). On the 10.9 rotating-worker main thread
-    // the same logical "main thread" can be a different pthread, so re-bind when it differs.
-    if (currentContext == this && pthread_equal(currentContextThread, pthread_self()))
+    if (currentContext == this)
         return true;
     if (!EGL_MakeCurrent(m_displayObj, EGL_NO_SURFACE, EGL_NO_SURFACE, m_contextObj))
         return false;
     currentContext = this;
-    // MAVERICKS_BACKPORT: record the binding OS thread so the cache shortcut above only fires when still current on this pthread (10.9 rotating-worker main thread).
-    currentContextThread = pthread_self();
     return true;
 }
 
