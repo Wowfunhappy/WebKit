@@ -1793,10 +1793,8 @@ void WebPageProxy::setDrawingArea(RefPtr<DrawingAreaProxy>&& newDrawingArea)
 
 void WebPageProxy::initializeWebPage(const Site& site, WebCore::SandboxFlags effectiveSandboxFlags, WebCore::ReferrerPolicy effectiveReferrerPolicy)
 {
-    // MAVERICKS_BACKPORT DIAGNOSTIC A/B: temporarily re-disable the hasRunningProcess() gate to test
-    // whether restoring it is what skips drawing-area creation → blank render.
-    // if (!hasRunningProcess())
-    //     return;
+    if (!hasRunningProcess())
+        return;
 
     RefPtr pageClient = this->pageClient();
     if (!pageClient)
@@ -8920,9 +8918,9 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
     if (!protect(preferences())->safeBrowsingEnabled())
         shouldExpectSafeBrowsingResult = ShouldExpectSafeBrowsingResult::No;
 
-    // MAVERICKS_BACKPORT: NetworkProcess is fake and never replies to hasLocalStorageOrCookies,
-    // so skip the wait — the policy decision would otherwise stall forever.
-    ShouldWaitForSiteHasStorageCheck shouldWaitForSiteHasStorageCheck = ShouldWaitForSiteHasStorageCheck::No;
+    ShouldWaitForSiteHasStorageCheck shouldWaitForSiteHasStorageCheck = ShouldWaitForSiteHasStorageCheck::Yes;
+    if (!frame.isMainFrame() || !protect(preferences())->enhancedSecurityHeuristicsEnabled())
+        shouldWaitForSiteHasStorageCheck = ShouldWaitForSiteHasStorageCheck::No;
 
     ShouldWaitForEnhancedSecurityLinkCheck shouldWaitForEnhancedSecurityLink = ShouldWaitForEnhancedSecurityLinkCheck::No;
 #if HAVE(ENHANCED_SECURITY_LINKS)
@@ -15943,9 +15941,7 @@ void WebPageProxy::setURLSchemeHandlerForScheme(Ref<WebURLSchemeHandler>&& handl
     ASSERT_UNUSED(handlerIdentifierResult, handlerIdentifierResult.isNewEntry);
 
     WebCore::LegacySchemeRegistry::registerURLSchemeAsHandledBySchemeHandler(scheme);
-    // MAVERICKS_BACKPORT: hoist hasRunningProcess() into a local (see process-liveness handling on this port).
-    bool running = hasRunningProcess();
-    if (running)
+    if (hasRunningProcess())
         send(Messages::WebPage::RegisterURLSchemeHandler(handlerIdentifier, canonicalizedScheme.value()));
 }
 
