@@ -38,9 +38,6 @@
 
 #if PLATFORM(MAC)
 #include <WebCore/CoreVideoExtras.h>
-// MAVERICKS_BACKPORT: headers for the dispatch-timer refresh fallback (CVDisplayLink fires at <1Hz in the VM).
-#include <dispatch/dispatch.h>
-#include <wtf/OSObjectPtr.h>
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
@@ -94,7 +91,6 @@ private:
 #if PLATFORM(MAC)
     static CVReturn displayLinkCallback(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeStamp*, CVOptionFlags, CVOptionFlags*, void* data);
     static WebCore::FramesPerSecond nominalFramesPerSecondFromDisplayLink(CVDisplayLinkRef);
-    static void displayLinkTimerFired(void* context); // MAVERICKS_BACKPORT: dispatch-timer event handler
 #endif
     void notifyObserversDisplayDidRefresh();
 
@@ -118,12 +114,6 @@ private:
 
 #if PLATFORM(MAC)
     RefPtr<__CVDisplayLink> m_displayLink;
-    // MAVERICKS_BACKPORT: CVDisplayLink does not deliver callbacks in this VM (CoreVideo logs
-    // "didn't find a valid display - falling back to 60Hz" and then fires at <1Hz), which
-    // throttles the whole rendering-update pipeline. Drive the refresh from this dispatch
-    // timer at the nominal rate instead. m_timerRunning mirrors platformIsRunning().
-    OSObjectPtr<dispatch_source_t> m_timer;
-    bool m_timerRunning { false };
 #endif
 #if PLATFORM(GTK) || PLATFORM(WPE)
     std::unique_ptr<DisplayVBlankMonitor> m_vblankMonitor;
