@@ -1524,7 +1524,7 @@ __ZN18WebInspectorClient21openInspectorFrontendEPN7WebCore19InspectorControllerE
 -[WebInspectorWindowController initWithInspectedWebView:]
 -[WebInspectorWindowController init]
 -[WebPreferences init]
--[WebInspectorWindowController inspectorPagePath]
+-[WebInspectorWindowController inspectorPageURL]
 __ZL21useWebKitWebInspectorv
 -[WebInspectorWindowController webView:decidePolicyForNavigationAction:request:frame:decisionListener:]
 -[WebInspectorWindowController setInspectorClient:]

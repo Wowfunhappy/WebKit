@@ -41,13 +41,18 @@
 #import "WebPolicyDelegate.h"
 #import "WebQuotaManager.h"
 #import "WebSecurityOriginPrivate.h"
+#import "WebScriptWorld.h"
 #import "WebUIDelegatePrivate.h"
 #import "WebViewInternal.h"
+#import "WebViewPrivate.h"
 #import <JavaScriptCore/InspectorAgentBase.h>
 #import <SecurityInterface/SFCertificatePanel.h>
 #import <SecurityInterface/SFCertificateView.h>
 #import <WebCore/CertificateInfo.h>
+#import <WebCore/InspectorFrontendClassicBridge.h>
 #import <WebCore/InspectorFrontendClient.h>
+#import <WebCore/LegacySchemeRegistry.h>
+#import <WebCore/MIMETypeRegistry.h>
 #import <WebCore/LocalFrame.h>
 #import <WebCore/Page.h>
 #import <WebCore/PageInspectorController.h>
@@ -67,6 +72,113 @@ static const CGFloat minimumWindowHeight = 400;
 static const CGFloat initialWindowWidth = 1000;
 static const CGFloat initialWindowHeight = 650;
 
+// MAVERICKS_BACKPORT: this backport deliberately ships the system stock (Safari 8-era)
+// WebInspectorUI frontend for its Aqua toolbar + pill tab look, run against the modern backend. It
+// is served to the undocked WK1 inspector WebView under a real-origin custom scheme (not file://),
+// so the frontend's own `default-src 'self'` CSP resolves against a real tuple origin and its
+// scripts/styles load with the shipped policy left untouched — the WebKitLegacy analogue of WK2's
+// inspector-resource:// WKURLSchemeHandler (WKInspectorResourceURLSchemeHandler). WebKitLegacy has
+// no URL-scheme-handler API, so an NSURLProtocol serves the com.apple.WebInspectorUI bundle and the
+// scheme is registered as handled-by-scheme-handler, which is what makes SecurityOrigin treat it as
+// a real (non-opaque) origin (SecurityOriginData::shouldTreatAsOpaqueOrigin).
+static NSString * const WebInspectorResourceScheme = @"inspector-resource";
+
+// The classic frontend runs against the modern backend, so a document-start user script — shared
+// verbatim with WK2 in WebCore/inspector/InspectorFrontendClassicBridge.h — bridges the protocol/IDL
+// drift and paints the #52/#66/#69 unified titlebar. It is injected only into this WebView group so
+// it reaches the classic production frontend and NOT the modern built-tree test frontend, whose
+// Target protocol already matches the backend and would be broken by the bridge's wrap/unwrap.
+static NSString * const WebInspectorFrontendGroupName = @"WebInspectorClassicFrontend";
+
+// MAVERICKS_BACKPORT: NSURLProtocol serving inspector-resource:// from the WebInspectorUI bundle.
+@interface WebInspectorResourceProtocol : NSURLProtocol
+@end
+
+@implementation WebInspectorResourceProtocol
+
++ (BOOL)canInitWithRequest:(NSURLRequest *)request
+{
+    return [request.URL.scheme caseInsensitiveCompare:WebInspectorResourceScheme] == NSOrderedSame;
+}
+
++ (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request
+{
+    return request;
+}
+
++ (BOOL)requestIsCacheEquivalent:(NSURLRequest *)a toRequest:(NSURLRequest *)b
+{
+    return NO;
+}
+
+- (void)startLoading
+{
+    RetainPtr<NSURL> requestURL = self.request.URL;
+    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    // Map inspector-resource:///<path> to <bundle>/Resources/<path> (Main.html/Main.js at the root,
+    // Images/* and *.lproj/localizedStrings.js in subdirs), contained within the resource root.
+    NSString *resourceRoot = bundle.resourcePath.stringByStandardizingPath;
+    NSString *filePath = [[resourceRoot stringByAppendingPathComponent:requestURL.get().relativePath] stringByStandardizingPath];
+    if (![filePath isEqualToString:resourceRoot] && ![filePath hasPrefix:[resourceRoot stringByAppendingString:@"/"]]) {
+        [self.client URLProtocol:self didFailWithError:[NSError errorWithDomain:NSCocoaErrorDomain code:NSURLErrorFileDoesNotExist userInfo:nil]];
+        return;
+    }
+
+    NSError *readError = nil;
+    NSData *fileData = [NSData dataWithContentsOfFile:filePath options:0 error:&readError];
+    if (!fileData) {
+        [self.client URLProtocol:self didFailWithError:(readError ?: [NSError errorWithDomain:NSCocoaErrorDomain code:NSURLErrorFileDoesNotExist userInfo:nil])];
+        return;
+    }
+
+    RetainPtr<NSString> mimeType = MIMETypeRegistry::mimeTypeForExtension(String(filePath.pathExtension)).createNSString();
+    if (!mimeType)
+        mimeType = @"application/octet-stream";
+
+    RetainPtr<NSMutableDictionary> headerFields = adoptNS([@{
+        @"Access-Control-Allow-Origin": @"*",
+        @"Content-Length": [NSString stringWithFormat:@"%zu", (size_t)fileData.length],
+        @"Content-Type": mimeType.get(),
+    } mutableCopy]);
+
+    // Mirror WK2's WKInspectorResourceURLSchemeHandler: loosen connect-src/img-src for the frontend
+    // page itself so its feature fetches aren't blocked by the shipped default-src 'self'.
+    if ([requestURL.get().relativePath isEqualToString:@"/Main.html"])
+        [headerFields setObject:@"connect-src *; img-src * file: blob: resource:" forKey:@"Content-Security-Policy"];
+
+    RetainPtr<NSHTTPURLResponse> response = adoptNS([[NSHTTPURLResponse alloc] initWithURL:requestURL.get() statusCode:200 HTTPVersion:@"HTTP/1.1" headerFields:headerFields.get()]);
+    [self.client URLProtocol:self didReceiveResponse:response.get() cacheStoragePolicy:NSURLCacheStorageNotAllowed];
+    [self.client URLProtocol:self didLoadData:fileData];
+    [self.client URLProtocolDidFinishLoading:self];
+}
+
+- (void)stopLoading
+{
+}
+
+@end
+
+// MAVERICKS_BACKPORT: register the inspector-resource scheme + its NSURLProtocol and install the
+// shared classic-frontend bridge user script, once per process.
+static void ensureWebInspectorClassicFrontendRegistered()
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        LegacySchemeRegistry::registerURLSchemeAsHandledBySchemeHandler("inspector-resource"_s);
+        [NSURLProtocol registerClass:[WebInspectorResourceProtocol class]];
+        // Native user scripts are exempt from the page CSP, so injecting the bridge here (main world,
+        // document start) leaves the frontend's own script-src untouched.
+        [WebView _addUserScriptToGroup:WebInspectorFrontendGroupName
+                                 world:[WebScriptWorld standardWorld]
+                                source:[NSString stringWithUTF8String:classicInspectorFrontendBridgeScriptUTF8()]
+                                   url:nil
+            includeMatchPatternStrings:nil
+            excludeMatchPatternStrings:nil
+                         injectionTime:WebInjectAtDocumentStart
+                        injectedFrames:WebInjectInAllFrames];
+    });
+}
+
 @interface WebInspectorWindowController : NSWindowController <NSWindowDelegate, WebPolicyDelegate, WebUIDelegate> {
 @private
     RetainPtr<WebView> _inspectedWebView;
@@ -79,7 +191,7 @@ static const CGFloat initialWindowHeight = 650;
     BOOL _destroyingInspectorView;
 }
 - (id)initWithInspectedWebView:(WebView *)inspectedWebView isUnderTest:(BOOL)isUnderTest;
-- (NSString *)inspectorPagePath;
+- (NSURL *)inspectorPageURL;
 - (NSString *)inspectorTestPagePath;
 - (WebView *)frontendWebView;
 - (void)attach;
@@ -236,11 +348,16 @@ String WebInspectorFrontendClient::localizedStringsURL() const
     NSString *path = [bundle pathForResource:@"localizedStrings" ofType:@"js"];
     if (!path.length)
         return String();
-    
-    // MAVERICKS_BACKPORT: +[NSURL fileURLWithPath:isDirectory:] returns id on the 10.9 SDK, so the
-    // result is cast to NSURL * and -absoluteString is sent explicitly (dot-property syntax on id
-    // does not resolve here).
-    return [(NSURL *)[NSURL fileURLWithPath:path isDirectory:NO] absoluteString];
+
+    // MAVERICKS_BACKPORT: the classic frontend loads this URL directly, so return it under the same
+    // real-origin inspector-resource:// scheme the frontend page is served from (a file:// URL would
+    // be blocked by the frontend's default-src 'self'). Map the absolute localized bundle path back
+    // to its inspector-resource:///<lproj>/localizedStrings.js form (WebInspectorResourceProtocol
+    // resolves it against the bundle's resource root).
+    NSString *resourceRoot = bundle.resourcePath;
+    if (![path hasPrefix:resourceRoot])
+        return String();
+    return [@"inspector-resource://" stringByAppendingString:[path substringFromIndex:resourceRoot.length]];
 }
 
 void WebInspectorFrontendClient::bringToFront()
@@ -485,6 +602,8 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     if (!(self = [super initWithWindow:nil]))
         return nil;
 
+    ensureWebInspectorClassicFrontendRegistered();
+
     // Keep preferences separate from the rest of the client, making sure we are using expected preference values.
 
     auto preferences = adoptNS([[WebPreferences alloc] init]);
@@ -514,130 +633,6 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     return self;
 }
 
-// MAVERICKS_BACKPORT: the classic Safari-8-era frontend needs the same load-time adaptations WK1-side
-// that WK2 applies in WebInspectorUIProxy::platformInspectorPageLoadOverride: strip the CSP meta
-// (under file:// the frontend's `default-src 'self'` blocks everything because 'self' is the null
-// origin) and bridge the classic InspectorFrontendHost API shapes (platform()/localizedStringsURL()/
-// inspectorBackendCommandsURL() as METHODS, setToolbarHeight/setAttachedWindow* present) to the
-// modern WebKit 615 IDL (attribute getters / removed methods), and — like WK2 — wrap the frontend's
-// bare per-domain commands in the modern Target domain (the Target-protocol bridge below): the
-// WebKit 615 WK1 local backend routes every command through Target, so without the bridge the DOM
-// and Resources trees stay empty and console eval returns nothing. Every bridge is typeof-guarded,
-// so a modern frontend (the built-tree Test.html) passes through untouched. The WK2 unified-toolbar
-// CSS and toolbar-mousedown window-drag shims are ported too (#52): the undocked WK1 inspector
-// window hosts the frontend WebView in its frame view so the HTML toolbar fills the titlebar region
-// (see -[WebInspectorWindowController showWindow:]), which needs the same painted gradient,
-// traffic-light inset, and whole-toolbar drag handle the WK2 inspector window uses.
-static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
-{
-    NSData *htmlData = [NSData dataWithContentsOfFile:pagePath options:NSDataReadingMappedIfSafe error:nullptr];
-    if (!htmlData)
-        return nil;
-    NSString *html = adoptNS([[NSString alloc] initWithData:htmlData encoding:NSUTF8StringEncoding]).autorelease();
-    if (!html)
-        return htmlData;
-
-    NSRange metaStart = [html rangeOfString:@"<meta http-equiv=\"Content-Security-Policy\""];
-    if (metaStart.location != NSNotFound) {
-        NSRange metaEnd = [html rangeOfString:@">" options:0 range:NSMakeRange(metaStart.location, html.length - metaStart.location)];
-        if (metaEnd.location != NSNotFound) {
-            NSRange whole = NSMakeRange(metaStart.location, metaEnd.location - metaStart.location + 1);
-            html = [html stringByReplacingCharactersInRange:whole withString:@"<!-- CSP stripped by MAVERICKS_BACKPORT -->"];
-        }
-    }
-
-    NSRange firstScript = [html rangeOfString:@"<script"];
-    if (firstScript.location != NSNotFound) {
-        // Unified titlebar+toolbar CSS (same rules WebInspectorUIProxy::platformInspectorPageLoadOverride
-        // injects for WK2, #52): a 22px #wk-titlebar strip (inserted by the shim below) holds the
-        // floating traffic lights and the centered window title, the stock toolbar below keeps its
-        // untouched 56px layout (its fixed border-box height means padding would squish the icons),
-        // and ONE continuous gradient painted on body spans strip+toolbar (78px). The stock undocked
-        // .toolbar is transparent (it expected a native textured window), so the gradient shows
-        // through it.
-        // Gradient endpoints measured off a native Mavericks unified titlebar+toolbar (Finder
-        // window, lossless screen samples, frontmost-app-verified in each state): ACTIVE = 1px
-        // rgb(242) top bevel, rgb(234) -> rgb(176), 1px rgb(105) bottom border; INACTIVE =
-        // rgb(240) -> rgb(223), 1px rgb(166) bottom border. The 4px top-corner radius + the
-        // transparent WebView (drawsBackground NO in the undocked branch of -showWindow:) let the
-        // NSThemeFrame's own rounded titlebar corners show through instead of the WebView painting
-        // square over them.
-        NSString *unifiedToolbarCSS = @"<style>"
-            @"body:not(.docked){background-image:-webkit-linear-gradient(top,rgb(242,242,242),rgb(234,234,234) 1px,rgb(176,176,176) 77px,rgb(105,105,105) 77px,rgb(105,105,105) 78px);background-repeat:no-repeat;background-size:100% 78px;border-top-left-radius:4px;border-top-right-radius:4px;}"
-            @"body:not(.docked).window-inactive{background-image:-webkit-linear-gradient(top,rgb(240,240,240),rgb(223,223,223) 77px,rgb(166,166,166) 77px,rgb(166,166,166) 78px);}"
-            @"body.docked{background-color:white;}"
-            @"#wk-titlebar{height:22px;-webkit-flex:none;text-align:center;font-family:'Lucida Grande';font-size:13px;line-height:22px;color:rgba(0,0,0,0.85);text-shadow:rgba(255,255,255,0.5) 0 1px 0;padding:0 80px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:default;}"
-            @"body.window-inactive #wk-titlebar{color:rgba(0,0,0,0.5);}"
-            @"body.docked #wk-titlebar{display:none;}"
-            @"</style>";
-        NSString *shim = @"<script>(function(){"
-                          "var IFH=window.InspectorFrontendHost;if(!IFH)return;"
-                          "function asMethod(name){var val=IFH[name];Object.defineProperty(IFH,name,{value:function(){return val;},writable:true,configurable:true});}"
-                          "if(typeof IFH.platform!=='function')asMethod('platform');"
-                          "if(typeof IFH.localizedStringsURL!=='function')asMethod('localizedStringsURL');"
-                          "if(typeof IFH.inspectorBackendCommandsURL!=='function')Object.defineProperty(IFH,'inspectorBackendCommandsURL',{value:function(){return 'InspectorBackendCommands.js';},writable:true,configurable:true});"
-                          "if(typeof IFH.inspectorBackendCommandsURLs!=='function')Object.defineProperty(IFH,'inspectorBackendCommandsURLs',{value:function(){return ['InspectorBackendCommands.js'];},writable:true,configurable:true});"
-                          "if(typeof IFH.debuggableType!=='function'&&'debuggableInfo' in IFH){var di=IFH.debuggableInfo;Object.defineProperty(IFH,'debuggableType',{value:function(){return di&&di.debuggableType||'web';},writable:true,configurable:true});}"
-                          "if(typeof IFH.setToolbarHeight!=='function')Object.defineProperty(IFH,'setToolbarHeight',{value:function(){},writable:true,configurable:true});"
-                          "if(typeof IFH.setAttachedWindowHeight!=='function')Object.defineProperty(IFH,'setAttachedWindowHeight',{value:function(){},writable:true,configurable:true});"
-                          "if(typeof IFH.setAttachedWindowWidth!=='function')Object.defineProperty(IFH,'setAttachedWindowWidth',{value:function(){},writable:true,configurable:true});"
-                          // Protocol bridge (ported from WebInspectorUIProxyMac.mm platformInspectorPageLoadOverride):
-                          // the WebKit 615 backend routes every command through the modern Target domain, but the
-                          // Safari-8-era frontend emits bare per-domain commands ({method:'DOM.getDocument',id:N}).
-                          // Wrap outgoing non-Target/Browser commands in Target.sendMessageToTarget once the target
-                          // exists (queue until then), and unwrap incoming Target.dispatchMessageFromTarget. Without
-                          // this the console never returns a result and the Resources/Elements trees stay empty.
-                          "try{(function(){var origSend=IFH.sendMessageToBackend.bind(IFH);var currentTargetId=null;var pendingQueue=[];var wrapperIdBase=1000000;var wrapperIds=Object.create(null);"
-                          "function wrap(ms){var wid=wrapperIdBase++;wrapperIds[wid]=true;return JSON.stringify({id:wid,method:'Target.sendMessageToTarget',params:{targetId:currentTargetId,message:ms}});}"
-                          "function flushQueue(){if(!currentTargetId||!pendingQueue.length)return;var q=pendingQueue;pendingQueue=[];for(var i=0;i<q.length;i++){try{origSend(wrap(q[i]));}catch(e){}}}"
-                          // Two CSS-protocol shapes drifted since this classic frontend (#52):
-                          // (1) CSS.SelectorList.selectors are CSSSelector OBJECTS ({text, specificity});
-                          // the frontend expects plain strings and renders the section headers by joining
-                          // them — giving "[object Object], [object Object]" for every rule. Flatten each
-                          // selector object to its .text. (2) the author stylesheet origin was renamed
-                          // "regular" -> "author"; the frontend's origin switch leaves the rule type
-                          // undefined for the unknown value and the Rules sidebar drops every author rule
-                          // (only Style Attribute + User Agent Stylesheet entries survived). Map it back,
-                          // gated to CSS payload shapes (selectorList/style/styleSheetId present).
-                          "function fixSel(o){if(!o||typeof o!=='object')return;var sl=o.selectorList;if(sl&&sl.selectors instanceof Array&&sl.selectors.length&&typeof sl.selectors[0]==='object'){sl.selectors=sl.selectors.map(function(s){return s&&typeof s==='object'?String(s.text||''):s;});}if(o.origin==='author'&&(o.selectorList||o.style||o.styleSheetId))o.origin='regular';for(var k in o){var v=o[k];if(v&&typeof v==='object')fixSel(v);}}"
-                          "IFH.sendMessageToBackend=function(messageStr){"
-                          "try{var msg=JSON.parse(messageStr);var dom=msg.method&&msg.method.split('.')[0];"
-                          "if(dom==='Target'||dom==='Browser')return origSend(messageStr);"
-                          "if(!currentTargetId){pendingQueue.push(messageStr);return;}"
-                          "return origSend(wrap(messageStr));"
-                          "}catch(e){}return origSend(messageStr);};"
-                          "var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){var im=obj.params.message;if(typeof im==='string'&&(im.indexOf('selectorList')!==-1||im.indexOf('\"origin\":\"author\"')!==-1)){try{var po=JSON.parse(im);fixSel(po);return origDisp(po);}catch(e2){}}return origDisp(im);}}catch(e){}return origDisp(message);};}}});"
-                          "})();}catch(e){}"
-                          // The 22px unified-titlebar strip (ported from the WK2 shim, #52; see the injected
-                          // CSS above). The title text comes from the frontend's
-                          // InspectorFrontendHost.inspectedURLChanged(host) — the same source the native
-                          // (hidden) window title is formatted from.
-                          "try{var wkTitle='Web Inspector';"
-                          "document.addEventListener('DOMContentLoaded',function(){try{"
-                          "if(document.getElementById('wk-titlebar'))return;"
-                          "var bar=document.createElement('div');bar.id='wk-titlebar';bar.textContent=wkTitle;"
-                          "document.body.insertBefore(bar,document.body.firstChild);"
-                          "}catch(e){}});"
-                          "if(typeof IFH.inspectedURLChanged==='function'){var origIUC=IFH.inspectedURLChanged.bind(IFH);Object.defineProperty(IFH,'inspectedURLChanged',{value:function(t){try{wkTitle='Web Inspector \\u2014 '+t;var b=document.getElementById('wk-titlebar');if(b)b.textContent=wkTitle;}catch(e){}return origIUC(t);},writable:true,configurable:true});}"
-                          "}catch(e){}"
-                          // Titlebar-strip + whole-toolbar window-drag handle (ported from the WK2 shim, #52):
-                          // the frontend WebView covers the native titlebar in the undocked unified-toolbar
-                          // window, so route background mousedowns (off interactive items, undocked only) to
-                          // InspectorFrontendHost.startWindowDrag() — backed by the wk_ manual drag loop
-                          // polyfill for -[NSWindow performWindowDragWithEvent:] on 10.9.
-                          "try{document.addEventListener('mousedown',function(ev){"
-                          "if(ev.button!==0||!ev.target||!ev.target.closest)return;"
-                          "if(document.body&&document.body.classList.contains('docked'))return;"
-                          "if(!ev.target.closest('#wk-titlebar, #toolbar, .toolbar'))return;"
-                          "if(ev.target.closest('button,input,select,textarea,a,.item,.toolbar-item,.dashboard-container,.navigation-bar,.search-bar,[role=button]'))return;"
-                          "if(IFH.startWindowDrag){IFH.startWindowDrag();ev.preventDefault();ev.stopPropagation();}"
-                          "},true);}catch(e){}"
-                          "})();</script>";
-        html = [html stringByReplacingCharactersInRange:NSMakeRange(firstScript.location, 0) withString:[unifiedToolbarCSS stringByAppendingString:shim]];
-    }
-    return [html dataUsingEncoding:NSUTF8StringEncoding];
-}
-
 - (id)initWithInspectedWebView:(WebView *)webView isUnderTest:(BOOL)isUnderTest
 {
     if (!(self = [self init]))
@@ -645,24 +640,23 @@ static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
 
     _inspectedWebView = webView;
 
-    NSString *pagePath = isUnderTest ? [self inspectorTestPagePath] : [self inspectorPagePath];
-    // MAVERICKS_BACKPORT: never hand a nil path to +[NSURL fileURLWithPath:] — the uncaught
-    // NSInvalidArgumentException kills the whole host app. With no frontend page on disk the
-    // inspector window opens empty instead.
-    if (!pagePath)
-        return self;
-
-    NSURL *pageURL = [NSURL fileURLWithPath:pagePath isDirectory:NO];
-    if (NSData *transformed = wkTransformedClassicFrontendPage(pagePath)) {
-        // The page file URL itself is the base: relative subresources resolve identically to a
-        // regular load, and the frontend policy delegate (-webView:decidePolicyForNavigationAction:...)
-        // path-matches the navigation URL against inspectorPagePath/inspectorTestPagePath — a
-        // directory base would be refused there and kicked to the INSPECTED web view instead.
-        [[_frontendWebView mainFrame] loadData:transformed MIMEType:@"text/html" textEncodingName:@"UTF-8" baseURL:pageURL];
+    if (isUnderTest) {
+        // The build-tree test frontend is the modern WebInspectorUI that matches the backend, so it
+        // needs no classic-frontend bridge and loads directly (upstream shape). Its WebView is left
+        // out of WebInspectorFrontendGroupName so the bridge never reaches it (it would break the
+        // modern frontend's already-correct Target protocol).
+        NSString *testPagePath = [self inspectorTestPagePath];
+        RELEASE_ASSERT(testPagePath);
+        auto request = adoptNS([[NSURLRequest alloc] initWithURL:[NSURL fileURLWithPath:testPagePath isDirectory:NO]]);
+        [[_frontendWebView mainFrame] loadRequest:request.get()];
         return self;
     }
 
-    auto request = adoptNS([[NSURLRequest alloc] initWithURL:pageURL]);
+    // Production: serve the classic frontend from the real-origin inspector-resource:// scheme (see
+    // WebInspectorResourceProtocol above) so its shipped CSP resolves untouched, and join the group
+    // carrying the document-start bridge user script.
+    [_frontendWebView setGroupName:WebInspectorFrontendGroupName];
+    auto request = adoptNS([[NSURLRequest alloc] initWithURL:[self inspectorPageURL]]);
     [[_frontendWebView mainFrame] loadRequest:request.get()];
 
     return self;
@@ -670,13 +664,9 @@ static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
 
 // MARK: -
 
-- (NSString *)inspectorPagePath
+- (NSURL *)inspectorPageURL
 {
-    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
-    if (!bundle)
-        return nil;
-
-    return [bundle pathForResource:@"Main" ofType:@"html"];
+    return [NSURL URLWithString:@"inspector-resource:///Main.html"];
 }
 
 - (NSString *)inspectorTestPagePath
@@ -854,7 +844,8 @@ static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
         // sized to the FULL window — the HTML #toolbar fills the titlebar region and merges with it,
         // and the standard window buttons are then raised above it so the traffic lights float over
         // the toolbar. Mirror of WebInspectorUIProxy::platformCreateFrontendWindow (WK2); the toolbar
-        // gradient/inset comes from the CSS wkTransformedClassicFrontendPage injects.
+        // gradient/inset comes from the CSS the shared bridge user script injects (see
+        // WebCore/inspector/InspectorFrontendClassicBridge.h).
         NSView *contentView = [[self window] contentView];
         NSView *frameView = [contentView superview] ?: contentView;
         [_frontendWebView setFrame:[frameView bounds]];
@@ -1046,8 +1037,8 @@ static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
         return;
     }
 
-    // Allow loading of the main inspector file.
-    if ([[request URL] isFileURL] && [[[request URL] path] isEqualToString:[self inspectorPagePath]]) {
+    // Allow loading of the classic frontend served from the inspector-resource:// scheme.
+    if ([[request URL].scheme caseInsensitiveCompare:WebInspectorResourceScheme] == NSOrderedSame && [[[request URL] relativePath] isEqualToString:@"/Main.html"]) {
         [listener use];
         return;
     }
