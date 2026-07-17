@@ -2205,33 +2205,7 @@ void WebViewImpl::windowDidBecomeKey(NSWindow *keyWindow)
         UIGamepadProvider::singleton().viewBecameActive(m_page.get());
 #endif
         updateSecureInputState();
-        // MAVERICKS_BACKPORT: also recompute IsVisible — 10.9 AppKit does not post the private
-        // NSWindowDidOrderOnScreenNotification, so a window shown with makeKeyAndOrderFront:
-        // (e.g. WebKitTestRunner's un-hide) would otherwise keep the hidden state that the
-        // preceding orderOut:'s windowDidOrderOffScreen() recorded.
-        m_page->activityStateDidChange({ WebCore::ActivityState::WindowIsActive, WebCore::ActivityState::IsVisible });
-
-        // MAVERICKS_BACKPORT: re-establish the hover state and cursor under the pointer when the window
-        // regains key focus. The cursor shape and CSS :hover only update when WebContent receives a
-        // mouseMoved to hit-test under the pointer, and on this port those are delivered by an
-        // app-wide NSEvent monitor (see WKView installEventMonitorOnce) that fires only on real
-        // pointer motion. So after the window is de-focused and re-focused — which happens constantly
-        // here because crash-looping background daemons keep stealing focus — the cursor and :hover
-        // stay stale until the user next moves the mouse. Stock WKWebView avoids this via an
-        // NSTrackingArea whose cursorUpdate re-fires on key changes; emulate it by synthesizing a
-        // mouseMoved at the current pointer location when it is over the view.
-        if (NSView *view = m_view.getAutoreleased()) {
-            if (NSWindow *win = window()) {
-                NSPoint screenLocation = [NSEvent mouseLocation];
-                NSPoint windowLocation = [win convertRectFromScreen:NSMakeRect(screenLocation.x, screenLocation.y, 0, 0)].origin;
-                NSPoint viewLocation = [view convertPoint:windowLocation fromView:nil];
-                if ([view mouse:viewLocation inRect:[view bounds]]) {
-                    NSEvent *synthetic = [NSEvent mouseEventWithType:NSEventTypeMouseMoved location:windowLocation modifierFlags:[NSEvent modifierFlags] timestamp:[[NSProcessInfo processInfo] systemUptime] windowNumber:[win windowNumber] context:nil eventNumber:0 clickCount:0 pressure:0];
-                    if (synthetic)
-                        mouseMoved(synthetic);
-                }
-            }
-        }
+        m_page->activityStateDidChange(WebCore::ActivityState::WindowIsActive);
     }
 }
 
