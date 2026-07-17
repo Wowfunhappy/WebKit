@@ -89,6 +89,14 @@ void TiledCoreAnimationDrawingAreaProxy::colorSpaceDidChange()
         send(Messages::DrawingArea::SetColorSpace(page->colorSpace()));
 }
 
+// MAVERICKS_BACKPORT: WebKit-537 parity — tell the web process to recreate its hosted context in
+// the flavor the page's current window can display (see LayerHostingMode in DrawingAreaInfo.h).
+void TiledCoreAnimationDrawingAreaProxy::layerHostingModeDidChange()
+{
+    if (RefPtr page = this->page())
+        send(Messages::DrawingArea::SetLayerHostingMode(page->layerHostingMode()));
+}
+
 void TiledCoreAnimationDrawingAreaProxy::minimumSizeForAutoLayoutDidChange()
 {
     RefPtr page = this->page();

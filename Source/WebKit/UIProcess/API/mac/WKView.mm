@@ -74,7 +74,6 @@ using namespace WebKit;
 namespace WebKit {
 std::unique_ptr<PageClient> createMinimalPageClient(NSView *view);
 void setMinimalPageClientPage(PageClient&, WebPageProxy *);
-void minimalPageClientViewDidMoveToWindow(PageClient&);
 }
 
 // Per-WKView state. RefPtr<WebPageProxy> keeps the page alive for the
@@ -837,12 +836,6 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
     if (!_wkState || !_wkState->page) return;
-
-    // MAVERICKS_BACKPORT: a CALayerHost minted while this view was windowless never connects to
-    // the remote CAContext once the view joins a window; re-mint it now (no-op when there is no
-    // stored layer-tree context or no window). iBooks composites its reader views pre-window.
-    if (_wkState->pageClient)
-        WebKit::minimalPageClientViewDidMoveToWindow(*_wkState->pageClient);
 
     // MAVERICKS_BACKPORT: propagate the window's backing scale to the page so it renders at the display's
     // device pixel ratio (Retina = 2x). The MinimalPageClient/WKView path replaces WebViewImpl and dropped

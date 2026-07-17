@@ -26,6 +26,8 @@
 #import "config.h"
 #import "WebProcessPool.h"
 
+#import <QuartzCore/CARemoteLayerServer.h> // MAVERICKS_BACKPORT: acceleratedCompositingPort (see platformInitializeWebProcess)
+
 #import "APINavigation.h"
 #import "AccessibilityPreferences.h"
 #import "AccessibilitySupportSPI.h"
@@ -383,6 +385,15 @@ void WebProcessPool::platformResolvePathsForSandboxExtensions()
 void WebProcessPool::platformInitializeWebProcess(const WebProcessProxy& process, WebProcessCreationParameters& parameters)
 {
     parameters.mediaMIMETypes = process.mediaMIMETypes();
+
+    // MAVERICKS_BACKPORT: hand the web process this UI process's CARemoteLayerServer port (the
+    // WebKit-537 acceleratedCompositingPort arrangement). The web process creates its hosted
+    // CAContext against it when the page's window composites layers in-process
+    // (LayerHostingMode::InProcess — iBooks' reader window); every other window displays only
+    // CGS-connection contexts. See LayerHostingContext and TiledCoreAnimationDrawingArea
+    // ::updateLayerHostingContext.
+    if (mach_port_t renderServerPort = [[CARemoteLayerServer sharedServer] serverPort]; renderServerPort != MACH_PORT_NULL)
+        parameters.acceleratedCompositingPort = MachSendRight::create(renderServerPort);
 
 #if PLATFORM(MAC)
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN

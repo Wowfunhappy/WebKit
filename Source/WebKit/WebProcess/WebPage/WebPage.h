@@ -487,6 +487,7 @@ enum class ContentAsStringIncludesChildFrames : bool;
 enum class DragControllerAction : uint8_t;
 #if ENABLE(TILED_CA_DRAWING_AREA)
 enum class DrawingAreaType : bool;
+enum class LayerHostingMode : uint8_t; // MAVERICKS_BACKPORT (DrawingAreaInfo.h)
 #endif
 enum class FindOptions : uint16_t;
 enum class FindDecorationStyle : uint8_t;
@@ -633,6 +634,11 @@ public:
     inline WebCore::IntRect bounds() const;
 
     DrawingArea* drawingArea() const { return m_drawingArea.get(); }
+#if ENABLE(TILED_CA_DRAWING_AREA)
+    // MAVERICKS_BACKPORT: 537-parity per-window layer hosting mode (see DrawingAreaInfo.h).
+    LayerHostingMode layerHostingMode() const { return m_layerHostingMode; }
+    void setLayerHostingMode(LayerHostingMode layerHostingMode) { m_layerHostingMode = layerHostingMode; }
+#endif
 
 #if ENABLE(ASYNC_SCROLLING)
     WebCore::ScrollingCoordinator* scrollingCoordinator() const;
@@ -2787,6 +2793,9 @@ private:
 
 #if ENABLE(TILED_CA_DRAWING_AREA)
     DrawingAreaType m_drawingAreaType;
+    // MAVERICKS_BACKPORT: 537-parity per-window layer hosting mode (see DrawingAreaInfo.h);
+    // updated by TiledCoreAnimationDrawingArea::setLayerHostingMode.
+    LayerHostingMode m_layerHostingMode;
 #endif
 
     HashMap<TextCheckerRequestID, Ref<WebCore::TextCheckingRequest>> m_pendingTextCheckingRequestMap;

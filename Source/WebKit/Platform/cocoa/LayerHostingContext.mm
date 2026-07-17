@@ -91,14 +91,12 @@ std::unique_ptr<LayerHostingContext> LayerHostingContext::create(const LayerHost
     layerHostingContext->m_context = [CAContext remoteContextWithOptions:contextOptions];
 #elif !PLATFORM(MACCATALYST)
     // MAVERICKS_BACKPORT: use the explicit CGSConnection variant (more reliable on 10.9 than
-    // +remoteContextWithOptions:, which returns nil there). Contexts created against a
-    // CARemoteLayerServer port (the removed acceleratedCompositingPort arrangement) are not
-    // displayable via CALayerHost in Safari or Mail on this backport — WebContent composited
-    // fine but both apps' windows stayed blank; CGS-connection contexts display in both
-    // (verified). KNOWN GAP: iBooks' layer-backed reader window does not composite our
-    // layer-hosting subview's CGS-hosted content (10.9 layer-backing adoption orphans the
-    // subview's layer); why stock 537's serverport arrangement worked there while ours does
-    // not is unresolved (suspect the process-launch divergence) — see the iBooks memory notes.
+    // +remoteContextWithOptions:, which returns nil there). This is the WindowServer-hosted
+    // context flavor (stock 537's WKCAContextMakeRemoteForWindowServer was this exact call) —
+    // displayable in every window that hosts its layer tree in the WindowServer. Windows that
+    // composite in-process instead (iBooks' reader window) can only display contexts created
+    // by createForPort() below; TiledCoreAnimationDrawingArea picks per the page's
+    // LayerHostingMode.
     layerHostingContext->m_context = [CAContext contextWithCGSConnection:CGSMainConnectionID() options:@{
         kCAContextCIFilterBehavior : @"ignore",
     }];
@@ -110,6 +108,21 @@ std::unique_ptr<LayerHostingContext> LayerHostingContext::create(const LayerHost
     layerHostingContext->m_cachedContextID = layerHostingContext->contextID();
     return layerHostingContext;
 }
+
+#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: restored from WebKit-537 (LayerHostingContext::createForPort /
+// WKCAContextMakeRemoteWithServerPort). See the header comment.
+std::unique_ptr<LayerHostingContext> LayerHostingContext::createForPort(mach_port_t serverPort)
+{
+    auto layerHostingContext = makeUnique<LayerHostingContext>();
+    layerHostingContext->m_context = [CAContext remoteContextWithOptions:@{
+        kCAContextCIFilterBehavior : @"ignore",
+        kCAContextPortNumber : @(serverPort),
+    }];
+    layerHostingContext->m_cachedContextID = layerHostingContext->contextID();
+    return layerHostingContext;
+}
+#endif
 
 std::unique_ptr<LayerHostingContext> LayerHostingContext::createTransportLayerForRemoteHosting(LayerHostingContextID contextID)
 {

@@ -32,6 +32,7 @@ enum class WebCore::UserInterfaceLayoutDirection : bool;
     WebKit::WebPreferencesStore store;
 #if ENABLE(TILED_CA_DRAWING_AREA)
     WebKit::DrawingAreaType drawingAreaType;
+    WebKit::LayerHostingMode layerHostingMode;
 #endif
     WebKit::DrawingAreaIdentifier drawingAreaIdentifier;
     WebKit::WebPageProxyIdentifier webPageProxyIdentifier;

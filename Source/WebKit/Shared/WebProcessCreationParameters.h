@@ -84,6 +84,15 @@ struct WebProcessCreationParameters {
 
     UserData initializationUserData;
 
+#if PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: the UI process's CARemoteLayerServer port (the WebKit-537
+    // acceleratedCompositingPort arrangement). Hosted CAContexts created against it are the only
+    // flavor displayable in windows that composite their layer tree in-process
+    // ([NSWindow _hostsLayersInWindowServer] == NO; iBooks' reader window). See
+    // LayerHostingContext::createForPort and LayerHostingMode in DrawingAreaInfo.h.
+    WTF::MachSendRight acceleratedCompositingPort;
+#endif
+
 #if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
     Vector<SandboxExtension::Handle> enableRemoteWebInspectorExtensionHandles;
 #endif

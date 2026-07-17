@@ -612,6 +612,7 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     , m_pageGroup(WebProcess::singleton().webPageGroup(WTF::move(parameters.pageGroupData)))
 #if ENABLE(TILED_CA_DRAWING_AREA)
     , m_drawingAreaType(parameters.drawingAreaType)
+    , m_layerHostingMode(parameters.layerHostingMode)
 #endif
     , m_alwaysShowsHorizontalScroller { parameters.alwaysShowsHorizontalScroller }
     , m_alwaysShowsVerticalScroller { parameters.alwaysShowsVerticalScroller }
