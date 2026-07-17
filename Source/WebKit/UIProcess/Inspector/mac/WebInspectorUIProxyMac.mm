@@ -549,6 +549,16 @@ void WebInspectorUIProxy::platformCreateFrontendWindow()
             [[windowButton superview] addSubview:windowButton positioned:NSWindowAbove relativeTo:nil];
     }
 
+    // MAVERICKS_BACKPORT: on 10.9 the layer-backed webView is otherwise a standalone layer
+    // island whose surface composites ABOVE every non-layer view in the window regardless of
+    // subview order — the raised traffic lights stay invisible under it and its square-edged
+    // surface paints over NSThemeFrame's rounded titlebar corners. Layer-backing the content
+    // view makes AppKit promote the overlapping views ordered above it (the window buttons)
+    // into one layer tree with the webView, so subview z-order holds again (buttons over
+    // toolbar) and the transparent page corners (drawsBackground=false + the bridge CSS's 4px
+    // radius) reveal the native rounded corners beneath.
+    [contentView setWantsLayer:YES];
+
     updateInspectorWindowTitle();
     applyForcedAppearance();
 }

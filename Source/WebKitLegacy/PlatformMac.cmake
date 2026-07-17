@@ -665,3 +665,12 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-reexport_librar
 # WebKit.framework reached it via the WebCore re-export above; we match that exactly by re-exporting
 # libobjc in Source/WebCore/PlatformMac.cmake, so the symbols resolve here transitively. No flag is needed
 # on WebKitLegacy itself.
+
+# MAVERICKS_BACKPORT: upstream's WK_WEBINSPECTORUI_LDFLAGS (WebKitLegacy.xcconfig: -weak_framework
+# WebInspectorUI) — the load command dyld needs so [NSBundle bundleWithIdentifier:
+# @"com.apple.WebInspectorUI"] finds the frontend bundle in WK1 host processes
+# (WebInspectorFrontendClient/WebInspectorWindowController resolve Main.html and
+# localizedStrings.js through it). The xcconfig flag never made it into this CMake build.
+# Linked by exact dylib path because the stock 10.9 framework is not in the modern SDK's
+# search paths.
+target_link_options(WebKitLegacy PRIVATE -weak_library /System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/WebInspectorUI)

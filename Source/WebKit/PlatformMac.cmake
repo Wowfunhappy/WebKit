@@ -953,6 +953,13 @@ target_link_options(WebKit PRIVATE -lsandbox)
 # CcidService finds no smart-card slots (graceful "no CCID authenticator" degradation, like the other
 # soft-linked WebAuthn backends).
 target_link_options(WebKit PRIVATE -weak_framework CryptoTokenKit)
+# MAVERICKS_BACKPORT: upstream's WK_WEBINSPECTORUI_LDFLAGS (WebKit.xcconfig: -weak_framework
+# WebInspectorUI) — the load command dyld needs so [NSBundle bundleWithIdentifier:
+# @"com.apple.WebInspectorUI"] finds the frontend bundle in every host process
+# (WKInspectorResourceURLSchemeHandler RELEASE_ASSERTs on a nil bundle; iBooks crashed there).
+# The xcconfig flag never made it into this CMake build. Linked by exact dylib path because the
+# stock 10.9 framework is not in the modern SDK's search paths.
+target_link_options(WebKit PRIVATE -weak_library /System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/WebInspectorUI)
 
 set(WebKit_OUTPUT_NAME WebKit)
 
