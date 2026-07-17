@@ -202,16 +202,6 @@ void TextDecorationPainter::paintBackgroundDecorations(const RenderStyle& style,
         if (underlineStyle == TextDecorationStyle::Wavy)
             strokeWavyTextDecoration(m_context, paintRect, m_isPrinting, decorationGeometry.wavyStrokeParameters, strokeStyle);
         else if (decoration == Style::TextDecorationLine::Flag::Underline || decoration == Style::TextDecorationLine::Flag::Overline) {
-#if PLATFORM(MAC)
-            // MAVERICKS_BACKPORT: behavior fix — skip the SkipInk underline path entirely.
-            // lineSegmentsForIntersectionsWithRect calls Font::pathForGlyph for every glyph in the run via
-            // CTFontCreatePathForGlyph; on the 10.9 CoreText build that call for fallback-font glyphs
-            // (em-dash, en-dash, etc.) leaves residual state in CT that makes the very next CTFontDrawGlyphs
-            // render glyphs with their bottom half clipped (HN headlines containing em/en-dash showed only
-            // the top half of every letter). The simple drawLineForText path (no per-glyph path
-            // computation) sidesteps it. Cosmetic loss: underlines no longer skip-ink around descenders.
-            m_context.drawLineForText(paintRect, m_isPrinting, underlineStyle == TextDecorationStyle::Double, strokeStyle);
-#else
             if ((style.textDecorationSkipInk() == TextDecorationSkipInk::Auto
                 || style.textDecorationSkipInk() == TextDecorationSkipInk::All)
                 && !m_writingMode.isVerticalTypographic()) {
@@ -230,7 +220,6 @@ void TextDecorationPainter::paintBackgroundDecorations(const RenderStyle& style,
                 // FIXME: Need to support text-decoration-skip: none.
                 m_context.drawLineForText(paintRect, m_isPrinting, underlineStyle == TextDecorationStyle::Double, strokeStyle);
             }
-#endif // MAVERICKS_BACKPORT: PLATFORM(MAC) skip-ink-underline workaround (10.9 CoreText per-glyph-path state corruption); see #if PLATFORM(MAC) above.
         } else
             ASSERT_NOT_REACHED();
     };
