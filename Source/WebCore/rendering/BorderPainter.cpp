@@ -716,9 +716,7 @@ void BorderPainter::paintOneBorderSide(const BorderShape& borderShape, const Sid
         bool clipAdjacentSide2 = colorNeedsAntiAliasAtCorner(side, adjacentSide2, sides.edges) && mitreAdjacentSide2;
         bool shouldClip = clipForStyle || clipAdjacentSide1 || clipAdjacentSide2;
 
-        // MAVERICKS_BACKPORT: behavior fix (#25-adjacent) — always save/restore context state because
-        // the non-mitred branch below now always installs a clip (see the else block).
-        GraphicsContextStateSaver clipStateSaver(graphicsContext, true);
+        GraphicsContextStateSaver clipStateSaver(graphicsContext, shouldClip);
         if (shouldClip) {
             bool aliasAdjacentSide1 = clipAdjacentSide1 || (clipForStyle && mitreAdjacentSide1);
             bool aliasAdjacentSide2 = clipAdjacentSide2 || (clipForStyle && mitreAdjacentSide2);
@@ -726,14 +724,6 @@ void BorderPainter::paintOneBorderSide(const BorderShape& borderShape, const Sid
             // Since we clipped, no need to draw with a mitre.
             mitreAdjacentSide1 = false;
             mitreAdjacentSide2 = false;
-        } else {
-            // MAVERICKS_BACKPORT: behavior fix (#25-adjacent). Without an explicit clip, the bare
-            // CGContextFillRect on 10.9 intermittently drops certain small axis-aligned border strips
-            // (the inline-start edge of a shrink-to-fit <button> with uniform solid borders). The mitred
-            // path above never hits this because it sets a clip first. Clipping to the side rect here
-            // resets that CG fill state; it's visually identical (clip a rect then fill it) and fixes
-            // ALL such borders.
-            graphicsContext.clip(snapRectToDevicePixels(sideRect, document().deviceScaleFactor()));
         }
         drawLineForBoxSide(graphicsContext, document(), sideRect, side, colorToPaint, edgeToRender.style(), mitreAdjacentSide1 ? adjacentEdge1.widthForPainting() : 0, mitreAdjacentSide2 ? adjacentEdge2.widthForPainting() : 0, antialias);
     }

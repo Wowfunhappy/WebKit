@@ -257,14 +257,6 @@ public:
 
     void setPage(WebPageProxy* page) { m_page = page; }
     void viewDidMoveToWindow(); // MAVERICKS_BACKPORT: re-mint the CALayerHost on window attach (see impl).
-    // MAVERICKS_BACKPORT: when true, a view with no NSWindow still reports itself
-    // visible/in-window/active. Set for offscreen render views (Safari's Top Sites
-    // snapshot fetcher allocs a WKView at the snapshot size and never adds it to a
-    // window) so their WebContent takes a foreground assertion and actually loads,
-    // lays out, and paints — otherwise the page is treated as a hidden background
-    // tab and never renders, so no snapshot is ever produced. See WKView.mm.
-    void setForceVisibleWhenWindowless(bool f) { m_forceVisibleWhenWindowless = f; }
-
 private:
     Ref<DrawingAreaProxy> createDrawingAreaProxy(WebProcessProxy&) final;
     void setViewNeedsDisplay(const WebCore::Region&) final;
@@ -282,7 +274,6 @@ private:
     bool canTakeForegroundAssertions() final;
 #endif
     bool isViewInWindow() final;
-    bool isOffscreenRenderClient() const final { return m_forceVisibleWhenWindowless; }
     bool isMainViewVisible() final;
     bool isViewVisibleOrOccluded() final;
     bool isVisuallyIdle() final;
@@ -713,7 +704,6 @@ private:
 
     NSView *m_view { nullptr };
     WebPageProxy *m_page { nullptr };
-    bool m_forceVisibleWhenWindowless { false };
     RetainPtr<CALayer> m_rootLayer;
     // MAVERICKS_BACKPORT: dedicated layer-HOSTING subview carrying the WebContent render layer
     // (the Safari-537 WKView _layerHostingView design). The render layer must NOT live in the
@@ -747,17 +737,13 @@ WebCore::IntSize MinimalPageClient::viewSize()
 bool MinimalPageClient::isViewWindowActive()
 {
     NSWindow *window = [m_view window];
-    if (window)
-        return [window isKeyWindow] || [window isMainWindow];
-    return m_forceVisibleWhenWindowless;
+    return window && ([window isKeyWindow] || [window isMainWindow]);
 }
 
 bool MinimalPageClient::isViewFocused()
 {
     NSWindow *window = [m_view window];
-    if (window)
-        return [window firstResponder] == m_view;
-    return m_forceVisibleWhenWindowless;
+    return window && [window firstResponder] == m_view;
 }
 
 // MAVERICKS_BACKPORT: see the declaration comment; the WKView's window hosts permission sheets.
@@ -778,7 +764,7 @@ bool MinimalPageClient::isActiveViewVisible()
         return false;
     NSWindow *window = [m_view window];
     if (!window)
-        return m_forceVisibleWhenWindowless;
+        return false;
     if (![window isVisible])
         return false;
     if ([[m_view superview] isHiddenOrHasHiddenAncestor])
@@ -798,7 +784,7 @@ bool MinimalPageClient::isViewVisibleOrOccluded()
 
 bool MinimalPageClient::isViewInWindow()
 {
-    return m_view && ([m_view window] || m_forceVisibleWhenWindowless);
+    return m_view && [m_view window];
 }
 
 bool MinimalPageClient::isVisuallyIdle()
@@ -814,7 +800,7 @@ bool MinimalPageClient::isVisuallyIdle()
         return true;
     NSWindow *window = [m_view window];
     if (!window)
-        return !m_forceVisibleWhenWindowless;
+        return true;
     // Deliberately NOT consulting window.occlusionState: on 10.9 its Visible bit lags (0x2000 -> 0x2002)
     // and the change does not reliably post NSWindowDidChangeOcclusionStateNotification, so an early
     // "occluded" reading gets latched and never recomputed — re-pinning timers to the 1s alignment
@@ -991,24 +977,7 @@ WebCore::FloatPoint MinimalPageClient::viewScrollPosition()
 void MinimalPageClient::processDidExit()
 { }
 void MinimalPageClient::didRelaunchProcess()
-{
-    // MAVERICKS_BACKPORT: hasRunningProcess() returns false after Safari closes the XPC
-    // bootstrap, so WebPageProxy::loadRequest() relaunches the process on essentially
-    // every load. launchProcess() -> finishAttachingToWebProcess() -> initializeWebPage()
-    // installs a FRESH drawing area sized 0x0. Visible WKViews recover because Safari
-    // later sends -setFrameSize: (which sizes the drawing area), but a windowless
-    // offscreen render view (Top Sites snapshot fetcher) never gets that call, so its
-    // page would stay 0x0 and never lay out or paint. Re-apply the view's own size to
-    // the new drawing area here so the page renders across relaunches regardless of the
-    // external resize lifecycle.
-    if (!m_page || !m_view)
-        return;
-    if (RefPtr drawingArea = m_page->drawingArea()) {
-        WebCore::IntSize size([m_view bounds].size);
-        if (!size.isEmpty())
-            drawingArea->setSize(size);
-    }
-}
+{ }
 void MinimalPageClient::preferencesDidChange()
 { }
 void MinimalPageClient::toolTipChanged(const String&, const String& newToolTip)
@@ -1830,11 +1799,6 @@ std::unique_ptr<PageClient> createMinimalPageClient(NSView *view)
 void setMinimalPageClientPage(PageClient& client, WebPageProxy* page)
 {
     static_cast<MinimalPageClient&>(client).setPage(page);
-}
-
-void setMinimalPageClientForceVisibleWhenWindowless(PageClient& client, bool force)
-{
-    static_cast<MinimalPageClient&>(client).setForceVisibleWhenWindowless(force);
 }
 
 void minimalPageClientViewDidMoveToWindow(PageClient& client)

@@ -74,7 +74,6 @@ using namespace WebKit;
 namespace WebKit {
 std::unique_ptr<PageClient> createMinimalPageClient(NSView *view);
 void setMinimalPageClientPage(PageClient&, WebPageProxy *);
-void setMinimalPageClientForceVisibleWhenWindowless(PageClient&, bool);
 void minimalPageClientViewDidMoveToWindow(PageClient&);
 }
 
@@ -168,16 +167,6 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     _wkState->pageClient = createMinimalPageClient(self);
     _wkState->page = processPool.get().createWebPage(*_wkState->pageClient, WTF::move(configuration));
     setMinimalPageClientPage(*_wkState->pageClient, _wkState->page.get());
-    // MAVERICKS_BACKPORT: a WKView born with a real (non-zero) frame is an offscreen render
-    // view — Safari's Top Sites snapshot fetcher allocs a WKView at the snapshot size,
-    // loads a URL into it, and snapshots it WITHOUT ever adding it to a window or
-    // resizing it. Normal browser tab WKViews are created at 0x0 and later attached to
-    // a window + resized, which is what drives visibility and drawing-area sizing. Mark
-    // this windowless view as force-visible so its WebContent takes a foreground
-    // assertion and actually loads/lays-out/paints; without this the page is treated as
-    // an offscreen hidden tab and never renders, so the snapshot stays a dark placeholder.
-    if (frame.size.width > 0 && frame.size.height > 0)
-        setMinimalPageClientForceVisibleWhenWindowless(*_wkState->pageClient, true);
 
     // MAVERICKS_BACKPORT: bring up the WebPage now that the page proxy + client are wired (no Site/sandbox yet).
     _wkState->page->initializeWebPage(WebCore::Site(WTF::HashTableEmptyValue), WebCore::SandboxFlags {}, WebCore::ReferrerPolicy::Default);
@@ -348,7 +337,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     return [self initWithFrame:frame processPool:*WebKit::toImpl(contextRef) configuration:WTF::move(configuration)];
 }
 
-- (id)initWithFrame:(NSRect)frame configurationRef:(WKPageConfigurationRef)configurationRef { return nil; }
+- (id)initWithFrame:(NSRect)frame configurationRef:(WKPageConfigurationRef)configurationRef { [self release]; return nil; }
 - (WKPageRef)pageRef { return _wkState ? WebKit::toAPI(_wkState->page.get()) : nullptr; }
 
 // MAVERICKS_BACKPORT: legacy initializer used by QuickLook's Web2.qldisplay. It hands
@@ -741,7 +730,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 - (id)validRequestorForSendType:(NSString *)sendType returnType:(NSString *)returnType
 {
     // MAVERICKS_BACKPORT: a pageless WKView forwards Services validation up the responder chain.
-    if (!_wkState->page)
+    if (!_wkState || !_wkState->page)
         return [[self nextResponder] validRequestorForSendType:sendType returnType:returnType];
 
     // MAVERICKS_BACKPORT: consult the page's EditorState to decide which send types the current selection offers to Services.
@@ -771,7 +760,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 - (BOOL)writeSelectionToPasteboard:(NSPasteboard *)pasteboard types:(NSArray *)types
 {
     // MAVERICKS_BACKPORT: write the web selection to the Services pasteboard via WebPageProxy.
-    if (!_wkState->page)
+    if (!_wkState || !_wkState->page)
         return NO;
     [pasteboard clearContents];
     [pasteboard addTypes:types owner:nil];
@@ -790,7 +779,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 - (BOOL)readSelectionFromPasteboard:(NSPasteboard *)pasteboard
 {
     // MAVERICKS_BACKPORT: hand the Services replacement pasteboard to WebPageProxy.
-    if (!_wkState->page)
+    if (!_wkState || !_wkState->page)
         return NO;
     return _wkState->page->readSelectionFromPasteboard([pasteboard name]);
 }
@@ -1264,15 +1253,9 @@ static WebCore::DragData wkDragDataFromInfo(NSView *view, id<NSDraggingInfo> inf
         return NSDragOperationNone;
     auto dragData = wkDragDataFromInfo(self, info, *_wkState->page);
     _wkState->page->dragUpdated(dragData, info.draggingPasteboard.name);
-    // MAVERICKS_BACKPORT: currentDragOperation is set by an async IPC reply to
-    // PerformDragControllerAction. Returning None until it arrives makes AppKit
-    // reject the drop on quick drags; fall back to Copy while it is still pending
-    // so AppKit proceeds to performDragOperation, where WebCore makes the final
-    // accept/reject decision (a non-drop-target there fires no DOM drop event).
-    auto op = _wkState->page->currentDragOperation();
-    if (!op)
-        return NSDragOperationCopy;
-    return wkKitDragOperation(op);
+    // MAVERICKS_BACKPORT: mirror WebViewImpl::draggingUpdated — report the page's current drag
+    // operation, None while the async PerformDragControllerAction reply is still pending.
+    return wkKitDragOperation(_wkState->page->currentDragOperation());
 }
 
 - (void)draggingExited:(id<NSDraggingInfo>)info
@@ -1467,11 +1450,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     _wkState->keyDownEventBeingResent = nil;
 }
 
-// MAVERICKS_BACKPORT: Edit menu items dispatch action selectors to first responder.
-// We forward to WebPageProxy. For Copy/Cut/Paste/Undo/Redo, only forward when
-// an editable element is focused (per WebPage::getPlatformEditorState now-safe
-// computation via Document::focusedElement). When focus isn't on editable
-// content, we don't override — Safari's URL-bar fallback handles it.
+// MAVERICKS_BACKPORT: Edit menu items dispatch action selectors to the first responder.
+// Forward them to WebPageProxy::executeEditCommand, mirroring WebViewImpl's
+// WEBCORE_COMMAND forwarding for the same selectors.
 - (void)selectAll:(id)sender
 {
     if (!_wkState || !_wkState->page) return;
@@ -1484,11 +1465,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!_wkState || !_wkState->page) return; \
     _wkState->page->executeEditCommand(WTF::String(COMMAND ## _s), WTF::String()); \
 }
-// MAVERICKS_BACKPORT: implementing copy:/cut: PROTECTS against Safari's default
-// fallback navigation. Without our handlers, even bare Cmd+C (no selection)
-// navigates to "Untitled" (URL goes empty). With our handlers, Cmd+C alone
-// is safe; only Cmd+A→Cmd+C combo still triggers navigation (selection
-// state in WebContent's Editor::copy → pasteboard write → some side effect).
 WKV_EDIT_ACTION(copy,            "Copy")
 WKV_EDIT_ACTION(cut,             "Cut")
 WKV_EDIT_ACTION(paste,           "Paste")
