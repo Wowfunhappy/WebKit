@@ -346,8 +346,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (!task)
         return nullptr;
 
-    // MAVERICKS_BACKPORT: see taskIdentifierKey in NetworkDataTaskCocoa.mm.
-    return _sessionWrapper->dataTaskMap.get(static_cast<uint64_t>(task.taskIdentifier) + 1).get();
+    return _sessionWrapper->dataTaskMap.get(task.taskIdentifier).get();
 }
 
 - (void)URLSession:(NSURLSession *)session didBecomeInvalidWithError:(NSError *)error

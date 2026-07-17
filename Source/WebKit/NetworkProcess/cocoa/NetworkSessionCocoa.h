@@ -72,9 +72,17 @@ struct SessionWrapper : public CanMakeWeakPtr<SessionWrapper>, public CanMakeChe
 
     RetainPtr<NSURLSession> session;
     RetainPtr<WKNetworkSessionDelegate> delegate;
-    HashMap<NetworkDataTaskCocoa::TaskIdentifier, ThreadSafeWeakPtr<NetworkDataTaskCocoa>> dataTaskMap;
-    HashMap<NetworkDataTaskCocoa::TaskIdentifier, DownloadID> downloadMap;
-    HashMap<NetworkDataTaskCocoa::TaskIdentifier, ThreadSafeWeakPtr<WebSocketTask>> webSocketDataTaskMap;
+    // MAVERICKS_BACKPORT: 10.9's NSURLSessionTask.taskIdentifier is 0-based (the first task in a session is
+    // identifier 0), but WTF::HashMap's default integer traits reserve 0 as the empty-slot sentinel and
+    // UINT64_MAX as the deleted sentinel — so an identifier-0 task cannot be stored. Upstream relies on
+    // modern taskIdentifier starting at 1. Use zero-key-permitting traits (empty=UINT64_MAX, deleted=
+    // UINT64_MAX-1, both unreachable by a real session's task count) so identifier 0 is a valid key. This
+    // localizes the 10.9 divergence to the map type and lets every access site match upstream verbatim —
+    // and it fixes downloadMap/webSocketDataTaskMap, which were never covered by the prior +1-shift approach
+    // and would silently lose a download or WebSocket that landed identifier 0.
+    HashMap<NetworkDataTaskCocoa::TaskIdentifier, ThreadSafeWeakPtr<NetworkDataTaskCocoa>, DefaultHash<NetworkDataTaskCocoa::TaskIdentifier>, WTF::UnsignedWithZeroKeyHashTraits<NetworkDataTaskCocoa::TaskIdentifier>> dataTaskMap;
+    HashMap<NetworkDataTaskCocoa::TaskIdentifier, DownloadID, DefaultHash<NetworkDataTaskCocoa::TaskIdentifier>, WTF::UnsignedWithZeroKeyHashTraits<NetworkDataTaskCocoa::TaskIdentifier>> downloadMap;
+    HashMap<NetworkDataTaskCocoa::TaskIdentifier, ThreadSafeWeakPtr<WebSocketTask>, DefaultHash<NetworkDataTaskCocoa::TaskIdentifier>, WTF::UnsignedWithZeroKeyHashTraits<NetworkDataTaskCocoa::TaskIdentifier>> webSocketDataTaskMap;
 };
 
 struct IsolatedSession {
