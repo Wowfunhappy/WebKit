@@ -86,15 +86,30 @@ const RemoteLayerTreeHost* RemoteScrollingCoordinatorProxy::layerTreeHost() cons
 
 ScrollRequestData RemoteScrollingCoordinatorProxy::commitScrollingTreeState(IPC::Connection& connection, const RemoteScrollingCoordinatorTransaction& transaction, std::optional<LayerHostingContextIdentifier> identifier)
 {
-    // MAVERICKS_BACKPORT: scrolling tree commit crashes in ThreadSafeRefCounted::deref
-    // for ScrollingTreeNode. The scrolling subsystem isn't required for basic
-    // rendering, so skip it.
-    UNUSED_PARAM(connection);
-    UNUSED_PARAM(transaction);
-    UNUSED_PARAM(identifier);
-    // MAVERICKS_BACKPORT: skip the scrolling-tree commit (see above) and return empty scroll-request data.
     m_scrollRequestData.clear();
-    return { };
+
+    auto stateTree = WTF::move(const_cast<RemoteScrollingCoordinatorTransaction&>(transaction).scrollingStateTree());
+
+    auto* layerTreeHost = this->layerTreeHost();
+    if (!layerTreeHost) {
+        ASSERT_NOT_REACHED();
+        return { };
+    }
+
+    stateTree->setRootFrameIdentifier(transaction.rootFrameIdentifier());
+
+    ASSERT(stateTree);
+    connectStateNodeLayers(*stateTree, *layerTreeHost);
+    bool succeeded = m_scrollingTree->commitTreeState(WTF::move(stateTree), identifier);
+
+    MESSAGE_CHECK_WITH_RETURN_VALUE(succeeded, ScrollRequestData());
+
+    establishLayerTreeScrollingRelations(*layerTreeHost);
+    
+    if (transaction.clearScrollLatching())
+        m_scrollingTree->clearLatchedNode();
+
+    return std::exchange(m_scrollRequestData, { });
 }
 
 void RemoteScrollingCoordinatorProxy::adjustMainFrameDelegatedScrollPosition(ScrollRequestData&& requestData)

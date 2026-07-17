@@ -4437,12 +4437,7 @@ void WebPageProxy::handleWheelEvent(const WebWheelEvent& wheelEvent)
 
         scrollingCoordinatorProxy->handleWheelEvent(wheelEvent, rubberBandingBehavior);
         // continueWheelEventHandling() will get called after the event has been handled by the scrolling thread.
-        // MAVERICKS_BACKPORT: return here so only the no-scrolling-coordinator (TCA) path falls through to the synchronous handler below.
-        return;
     }
-    // MAVERICKS_BACKPORT: TCA path doesn't have a scrolling coordinator proxy.
-    // Fall through to synchronous main-thread scrolling.
-    continueWheelEventHandling(wheelEvent, { WheelEventProcessingSteps::SynchronousScrolling, false }, { });
 #endif
 }
 
