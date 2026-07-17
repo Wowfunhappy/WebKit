@@ -26,8 +26,6 @@
 #include "config.h"
 #include "AuxiliaryProcess.h"
 
-// MAVERICKS_BACKPORT: pthread.h for 10.9 thread handling in the reworked initialize() path.
-#include <pthread.h>
 #include "AuxiliaryProcessCreationParameters.h"
 #include "Connection.h"
 #include "ContentWorldShared.h"
@@ -64,8 +62,7 @@ using namespace WebCore;
 
 AuxiliaryProcess::AuxiliaryProcess()
     : m_terminationCounter(0)
-    // MAVERICKS_BACKPORT, 10.9: m_processSuppressionDisabled (UserActivity) crashes during
-    // construction in HashTable<TimerBase*>::add. Leave nullopt; we don't need it for the basic test.
+    , m_processSuppressionDisabled("Process Suppression Disabled by UIProcess"_s)
 {
 }
 
@@ -137,15 +134,10 @@ void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& par
 
 void AuxiliaryProcess::setProcessSuppressionEnabled(bool enabled)
 {
-    // MAVERICKS_BACKPORT: m_processSuppressionDisabled is left nullopt on 10.9 (see ctor);
-    // bail out when it was never constructed.
-    if (!m_processSuppressionDisabled)
-        return;
     if (enabled)
-        // MAVERICKS_BACKPORT: m_processSuppressionDisabled is now optional; dereference it.
-        m_processSuppressionDisabled->stop();
+        m_processSuppressionDisabled.stop();
     else
-        m_processSuppressionDisabled->start();
+        m_processSuppressionDisabled.start();
 }
 
 void AuxiliaryProcess::initializeProcess(const AuxiliaryProcessInitializationParameters&)

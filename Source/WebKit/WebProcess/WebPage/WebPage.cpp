@@ -4422,11 +4422,7 @@ void WebPage::setActivityState(OptionSet<ActivityState> activityState, ActivityS
 
 void WebPage::didStartPageTransition()
 {
-    // MAVERICKS_BACKPORT: skip the page-transition freeze. The page transition is supposed to be
-    // unfrozen via dispatchDidReachVisuallyNonEmptyState (or frameLoadCompleted), but on 10.9
-    // the visually-non-empty milestone doesn't fire reliably, leaving the layer tree frozen
-    // forever and the rendered page never paints. Just skip the freeze entirely.
-    // freezeLayerTree(LayerTreeFreezeReason::PageTransition);
+    freezeLayerTree(LayerTreeFreezeReason::PageTransition);
 
 #if HAVE(TOUCH_BAR)
     bool hasPreviouslyFocusedDueToUserInteraction = m_userInteractionsSincePageTransition.contains(UserInteractionFlag::FocusedElement);

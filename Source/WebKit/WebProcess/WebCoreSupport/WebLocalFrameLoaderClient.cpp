@@ -757,12 +757,6 @@ void WebLocalFrameLoaderClient::dispatchDidFinishDocumentLoad()
         UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get()), WallTime::now()));
 
     webPage->didFinishDocumentLoad(m_frame);
-
-    // MAVERICKS_BACKPORT: complete page transition early so the layer tree unfreezes and the
-    // page actually paints. The normal trigger (dispatchDidReachVisuallyNonEmptyState)
-    // depends on rendering happening, which won't happen while frozen.
-    if (m_frame->isMainFrame())
-        completePageTransitionIfNeeded();
 }
 
 void WebLocalFrameLoaderClient::dispatchDidFinishLoad()
