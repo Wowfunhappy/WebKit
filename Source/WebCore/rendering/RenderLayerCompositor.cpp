@@ -2901,34 +2901,15 @@ void RenderLayerCompositor::frameViewDidScroll()
     if (!m_scrolledContentsLayer)
         return;
 
-    // MAVERICKS_BACKPORT: keystone #55/#56 (IPC/render cadence + IOSurface compositing).
-    // ALSO call updateScrollLayerPosition when coordinated scrolling is in play. The async
-    // scrolling-coordinator path on this build doesn't reliably propagate scroll position to
-    // the scrolled-contents GraphicsLayer, so the visual viewport stays at top after wheel
-    // events even though scrollPosition() updates correctly. Calling updateScrollLayerPosition
-    // directly translates m_scrolledContentsLayer.
-    if (hasCoordinatedScrolling())
+    // If there's a scrolling coordinator that manages scrolling for this frame view,
+    // it will also manage updating the scroll layer position.
+    if (hasCoordinatedScrolling()) {
+        // We have to schedule a flush in order for the main TiledBacking to update its tile coverage.
         scheduleRenderingUpdate();
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//         return;
-//     }
-//
-// (end MAVERICKS_BACKPORT restored block)
-    updateScrollLayerPosition();
+        return;
+    }
 
-    // MAVERICKS_BACKPORT: keystone #55/#56. The same broken coordinated-scrolling path that makes
-    // the contents layer stay put (worked around just above) ALSO never moves the scrollbar thumbs
-    // during the scroll —
-    // Scrollbar::offsetDidChange() is not reached, so the thumb only snaps to the correct place on a
-    // later main-thread pass (the user-visible "scrollbar lags behind / only updates afterwards" bug,
-    // very visible because the scrollbar is always shown when a mouse is attached). Push the current
-    // scroll offset into the frame's scrollbars here, frame-for-frame, mirroring the contents-layer
-    // translation above so the thumb tracks the content in real time.
-    Ref frameViewForScrollbars = m_renderView.frameView();
-    if (RefPtr horizontalScrollbar = frameViewForScrollbars->horizontalScrollbar())
-        horizontalScrollbar->offsetDidChange();
-    if (RefPtr verticalScrollbar = frameViewForScrollbars->verticalScrollbar())
-        verticalScrollbar->offsetDidChange();
+    updateScrollLayerPosition();
 }
 
 void RenderLayerCompositor::frameViewDidAddOrRemoveScrollbars()
