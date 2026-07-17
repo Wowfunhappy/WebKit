@@ -78,30 +78,10 @@ RemoteLayerTreeHost::RemoteLayerTreeHost(RemoteLayerTreeDrawingAreaProxy& drawin
 
 RemoteLayerTreeHost::~RemoteLayerTreeHost()
 {
-    // MAVERICKS_BACKPORT: Safari quit crashes via std::terminate from this dtor.
-    // The previous @try only wrapped the explicit body; the IMPLICIT member
-    // destructors (m_nodes Ref<>, m_destroyedLayerGraveyard CALayer release,
-    // m_animationDelegates WKAnimationDelegate release) ran AFTER the @try
-    // returned and could throw NSException from CALayer dealloc → std::terminate.
-    // Explicitly clear every container that releases ObjC/Ref objects inside
-    // the @try so any thrown NSException is caught.
-    try {
-        @try {
-            for (auto& delegate : m_animationDelegates.values())
-                [delegate.get() invalidate];
+    for (auto& delegate : m_animationDelegates.values())
+        [delegate.get() invalidate];
 
-            clearLayers();
-            m_animationDelegates.clear();
-            m_destroyedLayerGraveyard.clear();
-            m_hostingLayers.clear();
-            m_hostedLayers.clear();
-            m_hostedLayersInProcess.clear();
-            m_nodes.clear();
-#if HAVE(AVKIT)
-            m_videoLayers.clear();
-#endif
-        } @catch (NSException *) { }
-    } catch (...) { }
+    clearLayers();
 }
 
 RemoteLayerTreeDrawingAreaProxy& RemoteLayerTreeHost::drawingArea() const
