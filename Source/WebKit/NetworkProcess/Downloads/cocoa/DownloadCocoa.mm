@@ -74,7 +74,12 @@ void Download::resume(std::span<const uint8_t> resumeData, const String& path, S
     }
     ASSERT(!cocoaSession->sessionWrapperForDownloadResume().downloadMap.contains(taskIdentifier));
     cocoaSession->sessionWrapperForDownloadResume().downloadMap.add(taskIdentifier, m_downloadID);
-    m_downloadTask.get()._pathToDownloadTaskFile = path.createNSString().get();
+    // MAVERICKS_BACKPORT: NSURLSessionTask on 10.9 lacks the private _pathToDownloadTaskFile property;
+    // record the destination on the Download so didFinishDownloadingToURL can move the temp file there
+    // (didCreateDestination does not fire on the resume path).
+    if ([m_downloadTask respondsToSelector:@selector(set_pathToDownloadTaskFile:)])
+        m_downloadTask.get()._pathToDownloadTaskFile = path.createNSString().get();
+    m_destinationPath = path;
 
     [m_downloadTask resume];
 
