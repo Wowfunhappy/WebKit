@@ -876,7 +876,11 @@ void NetworkDataTaskCocoa::setPendingDownloadLocation(const WTF::String& filenam
     if (RefPtr extention = m_sandboxExtension)
         extention->consume();
 
-    m_task.get()._pathToDownloadTaskFile = m_pendingDownloadLocation.createNSString().get();
+    // MAVERICKS_BACKPORT: NSURLSessionTask on 10.9 lacks the private _pathToDownloadTaskFile property
+    // (CFNetwork writing the download directly to its destination); downloads instead land in a temp
+    // file that the didFinishDownloadingToURL delegate moves to Download::destinationPath().
+    if ([m_task.get() respondsToSelector:@selector(set_pathToDownloadTaskFile:)])
+        m_task.get()._pathToDownloadTaskFile = m_pendingDownloadLocation.createNSString().get();
 
     if (allowOverwrite && FileSystem::fileExists(m_pendingDownloadLocation))
         FileSystem::deleteFile(filename);
