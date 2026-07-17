@@ -83,14 +83,6 @@
 #import <pal/cocoa/AVFoundationSoftLink.h>
 #import <pal/cocoa/MediaToolboxSoftLink.h>
 
-// MAVERICKS_BACKPORT: MSE bring-up bisect-logging scaffold (headers + no-op MSE_BISECT macro).
-#import <asl.h>
-#import <unistd.h>
-// 10.9 MSE bisect: granular ASL logs at every entry point so when MEDIA_SOURCE=ON
-// is enabled and WebContent crashes, the LAST "MSE-bisect" line in syslog names
-// the failing step. Grep with: syslog | grep MSE-bisect | tail
-#define MSE_BISECT(fmt, ...) ((void)0) // 10.9: MSE bring-up logging disabled (verified working)
-
 @interface AVSampleBufferDisplayLayer (Staging_100128644)
 @property (assign, nonatomic) BOOL preventsAutomaticBackgroundingDuringVideoPlayback;
 @end
@@ -164,21 +156,13 @@ private:
 
 void MediaPlayerPrivateMediaSourceAVFObjC::registerMediaEngine(MediaEngineRegistrar registrar)
 {
-    // MAVERICKS_BACKPORT: MSE bring-up bisect logs (compiled out via MSE_BISECT no-op).
-    MSE_BISECT("registerMediaEngine ENTRY");
     if (!isAvailable()) {
-        MSE_BISECT("registerMediaEngine: isAvailable=false, bailing (no MSE engine on 10.9)");
         return;
-    // MAVERICKS_BACKPORT: MSE bring-up bisect logs (compiled out via MSE_BISECT no-op).
     }
-    MSE_BISECT("registerMediaEngine: isAvailable=true, about to check MIMETypeCache");
 
     ASSERT(AVAssetMIMETypeCache::singleton().isAvailable());
 
-    // MAVERICKS_BACKPORT: MSE bring-up bisect logs (compiled out via MSE_BISECT no-op).
-    MSE_BISECT("registerMediaEngine: about to register factory");
     registrar(makeUnique<MediaPlayerFactoryMediaSourceAVFObjC>());
-    MSE_BISECT("registerMediaEngine: registered factory OK");
 }
 
 bool MediaPlayerPrivateMediaSourceAVFObjC::isAvailable()
@@ -189,15 +173,11 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::isAvailable()
     // AVStreamDataParser, and AudioVideoRendererAVFObjC drives AVSampleBufferDisplayLayer (PRESENT
     // on 10.9) with a manual CMTimebase instead of AVSampleBufferRenderSynchronizer. So gate ONLY on
     // what that pipeline actually needs: AVFoundation + CoreMedia frameworks + AVSampleBufferDisplayLayer.
-    MSE_BISECT("isAvailable: ENTRY");
     bool avf = PAL::isAVFoundationFrameworkAvailable();
-    MSE_BISECT("isAvailable: isAVFoundationFrameworkAvailable=%d", avf);
     if (!avf) return false;
     bool cm = PAL::isCoreMediaFrameworkAvailable();
-    MSE_BISECT("isAvailable: isCoreMediaFrameworkAvailable=%d", cm);
     if (!cm) return false;
     Class avsbdl = PAL::getAVSampleBufferDisplayLayerClassSingleton();
-    MSE_BISECT("isAvailable: AVSampleBufferDisplayLayer class=%p, RETURN %d", avsbdl, avsbdl != nullptr);
     return avsbdl != nullptr;
 }
 
@@ -369,22 +349,15 @@ void MediaPlayerPrivateMediaSourceAVFObjC::playInternal(std::optional<MonotonicT
 {
     assertIsMainThread();
     RefPtr mediaSourcePrivate = m_mediaSourcePrivate;
-    // MAVERICKS_BACKPORT: MSE bring-up bisect log (compiled out via MSE_BISECT no-op).
-    MSE_BISECT("playInternal ENTRY hasMSP=%d curTime=%.3f duration=%.3f", !!mediaSourcePrivate, currentTime().toFloat(), mediaSourcePrivate ? mediaSourcePrivate->duration().toFloat() : -1.0f);
     if (!mediaSourcePrivate)
         return;
 
-    // MAVERICKS_BACKPORT: do NOT bail when currentTime>=duration if duration is invalid/zero — for a
-    // freshly-appended MSE buffer the duration may not be set yet, and bailing here leaves the timebase
-    // stopped (frozen first frame). Only honor the end-of-media guard when we have a valid positive duration.
-    MediaTime dur = mediaSourcePrivate->duration();
-    if (dur.isValid() && dur > MediaTime::zeroTime() && currentTime() >= dur) {
-        MSE_BISECT("playInternal: bailing, curTime>=duration (%.3f>=%.3f)", currentTime().toFloat(), dur.toFloat());
+    if (currentTime() >= mediaSourcePrivate->duration()) {
+        ALWAYS_LOG(LOGIDENTIFIER, "bailing, current time: ", currentTime(), " greater than duration ", mediaSourcePrivate->duration());
         return;
     }
 
-    // MAVERICKS_BACKPORT: MSE bring-up bisect log (compiled out via MSE_BISECT no-op).
-    MSE_BISECT("playInternal: calling renderer->play()");
+    ALWAYS_LOG(LOGIDENTIFIER);
     flushVideoIfNeeded();
 
     m_renderer->play(hostTime);
@@ -951,8 +924,6 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::shouldBePlaying() const
 void MediaPlayerPrivateMediaSourceAVFObjC::setHasAvailableVideoFrame(bool flag)
 {
     assertIsMainThread();
-    // MAVERICKS_BACKPORT: MSE bring-up bisect log (compiled out via MSE_BISECT no-op).
-    MSE_BISECT("setHasAvailableVideoFrame: flag=%d cur=%d waiting=%d", flag, m_hasAvailableVideoFrame, m_readyStateIsWaitingForAvailableFrame);
     if (m_hasAvailableVideoFrame == flag)
         return;
 
@@ -1002,8 +973,6 @@ void MediaPlayerPrivateMediaSourceAVFObjC::effectiveRateChanged()
 void MediaPlayerPrivateMediaSourceAVFObjC::setNaturalSize(const FloatSize& size)
 {
     assertIsMainThread();
-    // MAVERICKS_BACKPORT: MSE bring-up bisect log (compiled out via MSE_BISECT no-op).
-    MSE_BISECT("setNaturalSize: %gx%g (cur %gx%g) hasPlayer=%d", size.width(), size.height(), m_naturalSize.width(), m_naturalSize.height(), !!m_player.get());
     if (size == m_naturalSize)
         return;
 
