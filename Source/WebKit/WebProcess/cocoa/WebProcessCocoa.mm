@@ -537,10 +537,8 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 #endif
 
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: WEB_UI_NSSTRING / CFBundleCopyLocalizedString crashes here
-    // because the standalone WK2 driver lacks the localization bundle. Skip
-    // process-name update for now.
-    // updateProcessName(IsInProcessInitialization::Yes);
+    // Update process name while holding the Launch Services sandbox extension
+    updateProcessName(IsInProcessInitialization::Yes);
 
 #if !ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
     // Disable relaunch on login. This is also done from -[NSApplication init] by dispatching -[NSApplication disableRelaunchOnLogin] on a non-main thread.
@@ -711,10 +709,6 @@ std::optional<audit_token_t> WebProcess::auditTokenForSelf()
 
 void WebProcess::updateProcessName(IsInProcessInitialization isInProcessInitialization)
 {
-    // MAVERICKS_BACKPORT: WEB_UI_NSSTRING calls WebCore::copyLocalizedString which calls
-    // CFBundleCopyLocalizedString. Our bundle's localized strings table is missing or
-    // unreachable on 10.9 (the keys come back NULL), causing a crash. Skip the rename.
-    return;
 #if PLATFORM(MAC)
     RetainPtr<NSString> applicationName;
     switch (m_processType) {
