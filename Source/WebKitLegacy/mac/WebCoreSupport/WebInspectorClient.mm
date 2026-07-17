@@ -227,25 +227,9 @@ void WebInspectorFrontendClient::startWindowDrag()
     [[m_frontendWindowController window] performWindowDragWithEvent:[NSApp currentEvent]];
 }
 
-// MAVERICKS_BACKPORT: [NSBundle bundleWithIdentifier:] only finds an already-loaded bundle, and
-// nothing in a WK1 host process loads WebInspectorUI.framework (upstream force-loads it through a
-// StagedFrameworks soft-link this port does not have), so the lookup returns nil in every WK1 host
-// and the nil resource paths crash -initWithInspectedWebView: inside +[NSURL fileURLWithPath:nil].
-// Mirror WebInspectorUIProxy::inspectorPageURL (WK2): prefer the on-disk Safari-8-era stock
-// frontend bundle at its fixed PrivateFrameworks path (its tab styling is the user-preferred one),
-// falling back to the loaded-bundle lookup.
-static NSBundle *webInspectorUIBundle()
-{
-    NSBundle *bundle = [NSBundle bundleWithPath:@"/System/Library/PrivateFrameworks/WebInspectorUI.framework"];
-    if (bundle && [bundle pathForResource:@"Main" ofType:@"html"])
-        return bundle;
-    return [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
-}
-
 String WebInspectorFrontendClient::localizedStringsURL() const
 {
-    // MAVERICKS_BACKPORT: resolve via webInspectorUIBundle(); the plain bundleWithIdentifier: lookup returns nil in every WK1 host and the nil path crashes fileURLWithPath:.
-    NSBundle *bundle = webInspectorUIBundle();
+    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
     if (!bundle)
         return String();
 
@@ -688,9 +672,7 @@ static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
 
 - (NSString *)inspectorPagePath
 {
-    // MAVERICKS_BACKPORT: see webInspectorUIBundle() — the plain bundleWithIdentifier: lookup
-    // returns nil in every WK1 host and the nil path kills the host app in fileURLWithPath:.
-    NSBundle *bundle = webInspectorUIBundle();
+    NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
     if (!bundle)
         return nil;
 
