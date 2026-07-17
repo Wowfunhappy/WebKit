@@ -963,17 +963,6 @@ bool FrameLoader::allAncestorsAreComplete() const
 
 void FrameLoader::checkCompleted()
 {
-    // MAVERICKS_BACKPORT: keystone #54 (broken main-thread identity under dispatch_main).
-    // Shared ThreadTimers means worker threads can fire timers that reach
-    // FrameLoader::checkCompleted via DocumentLoader::finishedLoading.
-    // Bounce to main thread instead of asserting.
-    if (!isMainThread()) {
-        callOnMainThread([weakFrame = WeakPtr<LocalFrame> { m_frame.get() }] {
-            if (RefPtr frame = weakFrame.get())
-                frame->loader().checkCompleted();
-        });
-        return;
-    }
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(ScriptDisallowedScope::InMainThread::isScriptAllowed());
     m_shouldCallCheckCompleted = false;
 

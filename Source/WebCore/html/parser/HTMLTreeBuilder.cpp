@@ -351,14 +351,8 @@ void HTMLTreeBuilder::constructTree(AtomHTMLToken&& token)
         && !HTMLElementStack::isHTMLIntegrationPoint(m_tree.currentStackItem())
         && !HTMLElementStack::isMathMLTextIntegrationPoint(m_tree.currentStackItem());
 
-    // MAVERICKS_BACKPORT: keystone band-aid (#54-adjacent main-thread/lifetime). processToken(EOF) can
-    // finalize the document and destroy our owning
-    // HTMLDocumentParser, leaving m_parser (a WeakRef) dangling. RELEASE_ASSERT on ptr()
-    // would crash. Guard against that.
-    if (auto* parser = m_parser.ptrAllowingHashTableEmptyValue()) {
-        parser->tokenizer().setForceNullCharacterReplacement(m_insertionMode == InsertionMode::Text || inForeignContent);
-        parser->tokenizer().setShouldAllowCDATA(inForeignContent);
-    }
+    m_parser->tokenizer().setForceNullCharacterReplacement(m_insertionMode == InsertionMode::Text || inForeignContent);
+    m_parser->tokenizer().setShouldAllowCDATA(inForeignContent);
 
 #if ASSERT_ENABLED
     m_destructionProhibited = false;
