@@ -193,17 +193,7 @@ void WebPage::getPlatformEditorState(LocalFrame& frame, EditorState& result) con
     if (!result.hasPostLayoutAndVisualData())
         return;
 
-    // MAVERICKS_BACKPORT: VisibleSelection::toNormalizedRange crashes on a non-content-editable
-    // initial document. The selection-related editor state isn't required for non-editable
-    // pages — skip it.
-    if (!result.isContentEditable)
-        return;
-
     auto& selection = frame.selection().selection();
-    // MAVERICKS_BACKPORT: defensive guard before toNormalizedRange — crash on DDG
-    // when selection's anchor nodes are stale/orphaned across page navigation.
-    if (selection.isNoneOrOrphaned())
-        return;
     auto selectedRange = selection.toNormalizedRange();
     if (!selectedRange)
         return;
