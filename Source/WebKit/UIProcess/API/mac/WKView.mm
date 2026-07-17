@@ -63,6 +63,7 @@
 #import <WebCore/PlatformEventFactoryMac.h>
 // MAVERICKS_BACKPORT: _NSRecommendedScrollerStyle(), used to pick the mouse-tracking-area options.
 #import <pal/spi/mac/NSScrollerImpSPI.h>
+#import <pal/spi/mac/NSWindowSPI.h> // MAVERICKS_BACKPORT: NSWindowDidOrderOn/OffScreenNotification for the visibility observers.
 #import <wtf/Compiler.h>
 #endif
 
@@ -232,6 +233,13 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidChangeBackingPropertiesNotification object:nil];
     // MAVERICKS_BACKPORT: stop observing screen changes (registered in -viewDidMoveToWindow for the display-link wiring).
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidChangeScreenNotification object:nil];
+    // MAVERICKS_BACKPORT: stop observing window visibility/key-state changes (registered in -viewDidMoveToWindow).
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidOrderOnScreenNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidOrderOffScreenNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidMiniaturizeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidDeminiaturizeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidBecomeKeyNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidResignKeyNotification object:nil];
     // MAVERICKS_BACKPORT: release the lazily-created browsing-context controller and delete the WKViewState.
     [_browsingContextController release];
     _browsingContextController = nil;
@@ -872,6 +880,34 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
         [self _wk_windowDidChangeScreen:nil];
     }
 
+    // MAVERICKS_BACKPORT: window visibility / key-state observers, mirroring upstream
+    // WebViewImpl's WKWindowVisibilityObserver registrations. Without these, a page whose view
+    // was attached to a not-yet-shown window (Safari attaches restored windows' views before
+    // ordering the window front at launch) latches IsVisible=0 forever: nothing recomputes
+    // visibility when the window later orders on screen, so the WebCore page stays "hidden" —
+    // rAF is suspended, DOM timers are alignment-throttled, and rendering updates never run.
+    // The order-on/off-screen notifications are the private-SPI pair upstream observes
+    // (NSWindowSPI.h; posted on 10.9 — runtime-verified via a symbol-registered observer on
+    // orderFront:/makeKeyAndOrderFront:/deminiaturize: and orderOut:/miniaturize:). Observed with
+    // _wk_-prefixed selectors because NSView itself observes these notifications (upstream's
+    // WKWindowVisibilityObserver exists for the same reason).
+    [backingCenter removeObserver:self name:NSWindowDidOrderOnScreenNotification object:nil];
+    [backingCenter removeObserver:self name:NSWindowDidOrderOffScreenNotification object:nil];
+    [backingCenter removeObserver:self name:NSWindowDidMiniaturizeNotification object:nil];
+    [backingCenter removeObserver:self name:NSWindowDidDeminiaturizeNotification object:nil];
+    if (NSWindow *window = [self window]) {
+        [backingCenter addObserver:self selector:@selector(_wk_windowDidOrderOnScreen:) name:NSWindowDidOrderOnScreenNotification object:window];
+        [backingCenter addObserver:self selector:@selector(_wk_windowDidOrderOffScreen:) name:NSWindowDidOrderOffScreenNotification object:window];
+        [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeMiniaturization:) name:NSWindowDidMiniaturizeNotification object:window];
+        [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeMiniaturization:) name:NSWindowDidDeminiaturizeNotification object:window];
+    }
+    // Key notifications are observed with object:nil like upstream (the key window may be this
+    // window's attached sheet); remove-then-add so re-entering a window never double-registers.
+    [backingCenter removeObserver:self name:NSWindowDidBecomeKeyNotification object:nil];
+    [backingCenter removeObserver:self name:NSWindowDidResignKeyNotification object:nil];
+    [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeKeyState:) name:NSWindowDidBecomeKeyNotification object:nil];
+    [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeKeyState:) name:NSWindowDidResignKeyNotification object:nil];
+
     OptionSet<WebCore::ActivityState> flags;
     // MAVERICKS_BACKPORT: while Safari is deferring view-in-window changes
     // (-beginDeferringViewInWindowChanges), the IsInWindow push is suppressed and recorded so
@@ -1018,6 +1054,51 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     if (!displayID)
         displayID = CGMainDisplayID();
     _wkState->page->windowScreenDidChange(displayID);
+}
+
+// MAVERICKS_BACKPORT: the hosting window ordered on screen — recompute visibility, mirroring
+// WebViewImpl::windowDidOrderOnScreen.
+- (void)_wk_windowDidOrderOnScreen:(NSNotification *)notification
+{
+    UNUSED_PARAM(notification);
+    if (!_wkState || !_wkState->page)
+        return;
+    _wkState->page->activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::WindowIsActive });
+}
+
+// MAVERICKS_BACKPORT: the hosting window ordered off screen — recompute visibility, mirroring
+// WebViewImpl::windowDidOrderOffScreen.
+- (void)_wk_windowDidOrderOffScreen:(NSNotification *)notification
+{
+    UNUSED_PARAM(notification);
+    if (!_wkState || !_wkState->page)
+        return;
+    _wkState->page->activityStateDidChange({ WebCore::ActivityState::IsVisible, WebCore::ActivityState::WindowIsActive });
+}
+
+// MAVERICKS_BACKPORT: the hosting window miniaturized or deminiaturized — recompute visibility,
+// mirroring WebViewImpl::windowDidMiniaturize/windowDidDeminiaturize.
+- (void)_wk_windowDidChangeMiniaturization:(NSNotification *)notification
+{
+    UNUSED_PARAM(notification);
+    if (!_wkState || !_wkState->page)
+        return;
+    _wkState->page->activityStateDidChange(WebCore::ActivityState::IsVisible);
+}
+
+// MAVERICKS_BACKPORT: a window became or resigned key — recompute WindowIsActive, mirroring
+// WebViewImpl::windowDidBecomeKey/windowDidResignKey.
+- (void)_wk_windowDidChangeKeyState:(NSNotification *)notification
+{
+    if (!_wkState || !_wkState->page)
+        return;
+    NSWindow *window = [self window];
+    if (!window)
+        return;
+    id changedWindow = [notification object];
+    if (changedWindow != window && changedWindow != [window attachedSheet])
+        return;
+    _wkState->page->activityStateDidChange(WebCore::ActivityState::WindowIsActive);
 }
 
 // MAVERICKS_BACKPORT: AppKit also delivers this directly to the view when its backing scale changes.

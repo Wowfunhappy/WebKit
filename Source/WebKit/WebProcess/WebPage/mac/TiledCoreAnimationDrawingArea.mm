@@ -44,11 +44,8 @@
 #import "WebPreferencesKeys.h"
 #import "WebPreferencesStore.h"
 #import "WebProcess.h"
-#import "WebProcessProxyMessages.h" // MAVERICKS_BACKPORT: StartDisplayLink/StopDisplayLink
-#import <WebCore/AnimationFrameRate.h> // MAVERICKS_BACKPORT: FullSpeedFramesPerSecond
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <QuartzCore/QuartzCore.h>
-#import <CoreGraphics/CoreGraphics.h> // 10.9: CGMainDisplayID / CGDisplayCopyDisplayMode / CGDisplayModeGetRefreshRate for adaptive refresh-rate pacing
 #import <WebCore/AsyncScrollingCoordinator.h>
 #import <WebCore/ColorSpaceCG.h>
 #import <WebCore/DebugPageOverlays.h>
@@ -123,20 +120,15 @@ void TiledCoreAnimationDrawingArea::sendDidFirstLayerFlushIfNeeded()
         return;
     m_needsSendDidFirstLayerFlush = false;
 
-    if (!m_layerHostingContext)
-        return;
-
-    // MAVERICKS_BACKPORT: send the IPC SYNCHRONOUSLY here rather than going through
-    // dispatch_async(main_queue). The original code used CATransaction commit
-    // handlers (10.10+) to defer until commit; without them we used main_queue
-    // dispatch as a stand-in. But main_queue is often jammed by the same
-    // updateRendering pass that produced this flush, so the message could wait
-    // a full second or more — that's the user-visible "5 sec white screen"
-    // before any pixels appear, because UIProcess attaches CALayerHost only
-    // upon receiving this message.
-    LayerTreeContext layerTreeContext;
-    layerTreeContext.contextID = m_layerHostingContext->cachedContextID();
-    send(Messages::DrawingAreaProxy::DidFirstLayerFlush(0, layerTreeContext));
+    // Let the first commit complete before sending.
+    [CATransaction addCommitHandler:[weakThis = WeakPtr { *this }] {
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis || !protectedThis->m_layerHostingContext)
+            return;
+        LayerTreeContext layerTreeContext;
+        layerTreeContext.contextID = protectedThis->m_layerHostingContext->cachedContextID();
+        protectedThis->send(Messages::DrawingAreaProxy::DidFirstLayerFlush(0, layerTreeContext));
+    } forPhase:kCATransactionPhasePostCommit];
 }
 
 void TiledCoreAnimationDrawingArea::sendEnterAcceleratedCompositingModeIfNeeded()
@@ -237,18 +229,6 @@ void TiledCoreAnimationDrawingArea::triggerRenderingUpdate()
     if (m_layerTreeStateIsFrozen)
         return;
 
-    // MAVERICKS_BACKPORT: always schedule the observer immediately. Previously a
-    // dispatch_after-based 60Hz throttle here meant that during link
-    // navigation — when the OLD page was firing rAFs up to the moment of
-    // click — the FIRST render of the new page was deferred via
-    // dispatch_after on main_queue. main_queue is then jammed by the new
-    // page's script execution, so the deferred render waits seconds behind
-    // it, producing the user-visible "click link → white screen for ages"
-    // pattern. CFRunLoopObserver's isScheduled() naturally dedups within a
-    // single runloop tick, which is a tighter throttle than the dispatch_after
-    // anyway, and the observer-driven path doesn't depend on main_queue
-    // draining. Keep the rate-limit only as a recency record for diagnostics.
-    m_lastRenderingTriggerTime = MonotonicTime::now();
     scheduleRenderingUpdateRunLoopObserver();
 }
 
@@ -356,57 +336,21 @@ void TiledCoreAnimationDrawingArea::addCommitHandlers()
     if (m_haveRegisteredHandlersForNextCommit)
         return;
 
-    // MAVERICKS_BACKPORT: addCommitHandler:forPhase: resolves in WebKit images (the libpolyfill
-    // wk_ category), but the polyfill brackets the RUN-LOOP drain, not a commit — and this
-    // process's rendering commit is the explicit synchronous [CATransaction flush] in
-    // updateRendering(), which the polyfill's observers cannot bracket. Skip registration;
-    // updateRendering() drives willStart/didComplete manually around its flush instead.
+    [CATransaction addCommitHandler:[retainedPage = Ref { m_webPage.get() }] {
+        if (RefPtr drawingArea = dynamicDowncast<TiledCoreAnimationDrawingArea>(retainedPage->drawingArea()))
+            drawingArea->willStartRenderingUpdateDisplay();
+    } forPhase:kCATransactionPhasePreLayout];
+
+    [CATransaction addCommitHandler:[retainedPage = Ref { m_webPage.get() }] {
+        if (RefPtr drawingArea = dynamicDowncast<TiledCoreAnimationDrawingArea>(retainedPage->drawingArea()))
+            drawingArea->didCompleteRenderingUpdateDisplay();
+    } forPhase:kCATransactionPhasePostCommit];
+    
     m_haveRegisteredHandlersForNextCommit = true;
 }
 
 void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushType)
 {
-    // 10.9 CPU throttle (THE single choke point): clamp the rendering loop to the display refresh
-    // rate. updateRendering() is reached from several drivers — the kCFRunLoopBeforeWaiting
-    // RunLoopObserver (renderingUpdateRunLoopCallback), the UIProcess display-link heartbeat, and the
-    // dispatch_after fallback in scheduleRenderingUpdateRunLoopObserver(). The observer + CFRunLoopWakeUp()
-    // pair re-enters this every runloop cycle (~1000Hz), so the dispatch_after's self-throttle was
-    // bypassed and ANY page with a continuous requestAnimationFrame / CSS animation pinned ~2 cores
-    // (a trivial moving-box rAF measured ~200% CPU). Throttling here caps EVERY path: if we ran less
-    // than one frame ago, defer to the frame boundary via a single outstanding timer and bail; the
-    // BeforeWaiting observer is invalidated so it stops spinning the runloop until that timer fires.
-    // The first update after an idle gap (sinceLastRun >= one frame, incl. the initial run where
-    // m_lastRenderingUpdateRunTime is the epoch) runs immediately, so first paint and resumed
-    // animation are never deferred. Forced/transient updates (non-Normal) always run now.
-    if (flushType == UpdateRenderingType::Normal) {
-        Seconds frameInterval = displayUpdateInterval();
-        Seconds sinceLastRun = MonotonicTime::now() - m_lastRenderingUpdateRunTime;
-        if (m_renderingThrottleScheduled || sinceLastRun < frameInterval) {
-            m_renderingUpdatePending = true;
-            invalidateRenderingUpdateRunLoopObserver();
-            if (!m_renderingThrottleScheduled) {
-                m_renderingThrottleScheduled = true;
-                int64_t delayNs = std::max<int64_t>(0, static_cast<int64_t>((frameInterval - sinceLastRun).nanoseconds()));
-                WeakPtr<TiledCoreAnimationDrawingArea> weakThis { *this };
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayNs), dispatch_get_main_queue(), ^{
-                    if (RefPtr strong = weakThis.get()) {
-                        strong->m_renderingThrottleScheduled = false;
-                        strong->updateRendering();
-                    }
-                });
-            }
-            return;
-        }
-    }
-    m_renderingThrottleScheduled = false;
-
-    m_lastRenderingUpdateRunTime = MonotonicTime::now(); // 10.9: record for the ~60Hz dispatch_async throttle in scheduleRenderingUpdateRunLoopObserver().
-
-    // MAVERICKS_BACKPORT: clear the "update wanted" flag now; a callback during this update
-    // (rAF/CSS animation/IntersectionObserver) will set it again via scheduleRenderingUpdateRunLoopObserver(),
-    // and we re-queue the loop at the end if so. See the comment there.
-    m_renderingUpdatePending = false;
-
     if (layerTreeStateIsFrozen())
         return;
 
@@ -434,6 +378,7 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
             if (auto exposedRect = localMainFrameView->viewExposedRect())
                 visibleRect.intersect(*exposedRect);
         }
+
         // Because our view-relative overlay root layer is not attached to the main GraphicsLayer tree, we need to flush it manually.
         if (RefPtr layer = m_viewOverlayRootLayer)
             layer->flushCompositingState(visibleRect);
@@ -460,48 +405,7 @@ void TiledCoreAnimationDrawingArea::updateRendering(UpdateRenderingType flushTyp
         webPage->didUpdateRendering();
         handleActivityStateChangeCallbacksIfNeeded();
         invalidateRenderingUpdateRunLoopObserver();
-
-        // MAVERICKS_BACKPORT: on 10.10+ addCommitHandlers() registers a kCATransactionPhasePreLayout
-        // handler that drives willStartRenderingUpdateDisplay() when CA starts committing. On 10.9
-        // the polyfilled handler would fire at the run-loop drain, not at the synchronous
-        // [CATransaction flush] below that IS this process's commit, so
-        // drive the pre-commit side here. This brackets the commit for
-        // PlatformCALayerContentsDelayedReleaser (mainThreadCommitWillStart) — without it,
-        // didCompleteRenderingUpdateDisplay() below underflowed the releaser's main-thread commit
-        // count and m_retainedContents (every dropped tile's backing store) was NEVER released.
-        willStartRenderingUpdateDisplay();
-
-        // MAVERICKS_BACKPORT: explicitly flush CATransaction so layer changes
-        // (especially scroll position deltas) propagate to the CAContext.
-        // Normally CA auto-commits when CFRunLoop drains, but on Mavericks
-        // the WebContent "main thread" doesn't run a true CFRunLoop.
-        [CATransaction flush];
-
-        // MAVERICKS_BACKPORT: normally +[CATransaction addCommitHandler:forPhase:]
-        // hooks the kCATransactionPhasePostCommit phase to drive
-        // didCompleteRenderingUpdateDisplay() once CA has flushed. On 10.9 the
-        // polyfilled handler fires at the run-loop drain, not at the synchronous
-        // [CATransaction flush] above (addCommitHandlers deliberately skips registration),
-        // so without this the completion never fires — schedulePostRenderingUpdateRunLoopObserver()
-        // never runs, the WebPage never learns the frame committed, and pages
-        // that depend on the post-commit callback chain (notably GitHub and
-        // other JS-heavy SPAs that scheduleRenderingUpdate from within React's
-        // commit phase) just sit there with a white viewport. Since the
-        // [CATransaction flush] above is synchronous on this code path, the
-        // commit IS already done by the time we get here, so it's safe to
-        // drive the completion directly.
-        didCompleteRenderingUpdateDisplay();
     }
-
-    // MAVERICKS_BACKPORT: if a callback re-scheduled a rendering update during this one (continuous
-    // rAF, CSS animations, IntersectionObserver, lazy-loading reveal), re-queue the loop. This
-    // is the fix for animation freezing after one frame. scheduleRenderingUpdateRunLoopObserver()
-    // also (re)starts the display-link heartbeat so the loop actually runs near 60Hz rather than
-    // at the ~6Hz the throttled main-GCD-queue drain otherwise allows.
-    if (m_renderingUpdatePending)
-        scheduleRenderingUpdateRunLoopObserver();
-    else
-        stopRenderingDisplayLink();
 }
 
 void TiledCoreAnimationDrawingArea::handleActivityStateChangeCallbacks()
@@ -524,13 +428,25 @@ void TiledCoreAnimationDrawingArea::handleActivityStateChangeCallbacksIfNeeded()
     if (!m_shouldHandleActivityStateChangeCallbacks)
         return;
 
-    // MAVERICKS_BACKPORT: +currentState is present on 10.9 and addCommitHandler:forPhase: is
-    // polyfilled, but the polyfilled handler fires at the run-loop drain — after this process's
-    // actual commit (the synchronous [CATransaction flush] in updateRendering), so deferring the
-    // callbacks to it would add a cycle of latency for nothing. Execute immediately instead:
-    // on this code path updateRendering()'s flush runs right after, so "after the commit that
-    // reflects this activity state" is satisfied by the caller's ordering.
-    handleActivityStateChangeCallbacks();
+    // If there is no active transaction, likely there is no layer change or change is committed,
+    // perform the callbacks immediately, which may unblock UI process.
+    if (![CATransaction currentState]) {
+        handleActivityStateChangeCallbacks();
+        return;
+    }
+
+    [CATransaction addCommitHandler:[weakThis = WeakPtr { *this }] {
+        if (!weakThis)
+            return;
+
+        Ref protectedPage = weakThis->m_webPage.get();
+        RefPtr drawingArea = downcast<TiledCoreAnimationDrawingArea>(protectedPage->drawingArea());
+        ASSERT(weakThis.get() == drawingArea.get());
+        if (drawingArea != weakThis.get())
+            return;
+
+        drawingArea->handleActivityStateChangeCallbacks();
+    } forPhase:kCATransactionPhasePostCommit];
 }
 
 void TiledCoreAnimationDrawingArea::activityStateDidChange(OptionSet<ActivityState> changed, ActivityStateChangeID activityStateChangeID, CompletionHandler<void()>&& nextActivityStateChangeCallback)
@@ -917,99 +833,14 @@ void TiledCoreAnimationDrawingArea::addFence(const MachSendRight& fencePort)
     m_layerHostingContext->setFencePort(fencePort.sendRight());
 }
 
-// MAVERICKS_BACKPORT: new helper — one frame at the DISPLAY'S ACTUAL refresh rate, not a hardcoded 60Hz,
-// so a 120Hz/144Hz panel animates at full rate (was capped to 60 = choppy) and unusual rates aren't
-// mismatched. Prefer the page's plumbed per-window nominal FPS (multi-monitor aware); fall back to the
-// main display's CoreGraphics-reported rate (cached ~2s to avoid per-frame CG allocation); finally 60Hz
-// if nothing reports a usable value (e.g. VMs report 0). Drives the 10.9 render-rate throttle.
-Seconds TiledCoreAnimationDrawingArea::displayUpdateInterval()
-{
-    double displayHz = 0;
-    if (RefPtr corePage = Ref { m_webPage.get() }->corePage()) {
-        if (auto fps = corePage->displayNominalFramesPerSecond())
-            displayHz = *fps;
-    }
-    if (displayHz < 1.0) {
-        static double cachedCGHz = 0;
-        static MonotonicTime lastCGQuery;
-        if (MonotonicTime::now() - lastCGQuery >= 2_s) {
-            lastCGQuery = MonotonicTime::now();
-            cachedCGHz = 0;
-            if (RetainPtr<CGDisplayModeRef> mode = adoptCF(CGDisplayCopyDisplayMode(CGMainDisplayID())))
-                cachedCGHz = CGDisplayModeGetRefreshRate(mode.get());
-        }
-        displayHz = cachedCGHz;
-    }
-    if (displayHz < 1.0 || displayHz > 360.0)
-        displayHz = 60.0;
-    return 1_s / displayHz;
-}
-
 void TiledCoreAnimationDrawingArea::scheduleRenderingUpdateRunLoopObserver()
 {
-    // MAVERICKS_BACKPORT: mark that a rendering update is wanted. updateRendering() clears this at
-    // its start and re-checks it at the end: if a rAF/CSS-animation/IntersectionObserver callback
-    // re-scheduled an update DURING the update, this stays true and the loop is re-queued. Without
-    // this, continuous animation froze after a single frame — a reschedule that arrived while the
-    // run-loop observer was still scheduled hit the early-return below, then the observer was
-    // invalidated at the end of updateRendering(), so the next frame was silently dropped.
-    m_renderingUpdatePending = true;
-
-    // MAVERICKS_BACKPORT: request a 60Hz display-link heartbeat from the UIProcess. On this port the
-    // WebContent main thread (xpc_main→dispatch_main) drains its GCD queue only ~6Hz on its own,
-    // so the dispatch_async render fallback below crawls. But inbound IPC wakes the main thread
-    // promptly, and the UIProcess (a normal app with a working run loop) drives the DisplayLink at
-    // the real rate, sending DisplayDidRefresh at ~60Hz — each one wakes us to drain the pending
-    // render. stopRenderingDisplayLink() is called from updateRendering() once animation settles.
-    startRenderingDisplayLink();
-
-    // MAVERICKS_BACKPORT: always wake the main runloop so the observer (which only
-    // fires on BeforeWaiting ticks) actually runs. On Mavericks the main thread
-    // is dispatch-driven and the CFRunLoop doesn't tick on its own, so without
-    // this every kick after the first one is silent.
-    CFRunLoopWakeUp(CFRunLoopGetMain());
-
     if (m_renderingUpdateRunLoopObserver->isScheduled())
         return;
 
     tracePoint(RenderingUpdateRunLoopObserverStart);
     
     m_renderingUpdateRunLoopObserver->schedule();
-
-    // MAVERICKS_BACKPORT: CFRunLoopObserver BeforeWaiting events don't reliably fire
-    // on Mavericks because the WebContent "main thread" is served by libdispatch
-    // workers that don't run a true CFRunLoop. Fallback: dispatch updateRendering
-    // to the main queue so it runs from a place that does work.
-    //
-    // THROTTLE (10.9): this fallback was previously an unconditional dispatch_async.
-    // Pages with requestAnimationFrame / CSS animations / IntersectionObservers
-    // re-schedule a rendering update every iteration, so the unthrottled fallback
-    // ran updateRendering as fast as the main queue could drain — pinning a
-    // WebContent thread at ~100% CPU (see cpu_resource EXC_RESOURCE: >50% CPU over
-    // 180s). That sustained CPU made the WebContent service unresponsive and it
-    // got SIGKILLed mid-browsing ("A problem occurred with this webpage so it was
-    // reloaded"), especially across many complex sites in succession.
-    //
-    // We rate-limit to ~60Hz, but ONLY when updates are arriving faster than one
-    // frame. The first/idle/post-navigation update (>= one frame since the last
-    // run) still dispatches IMMEDIATELY, so first paint is never deferred — that
-    // was the reason the old blanket dispatch_after throttle was removed (it put
-    // the new page's first render behind a script-jammed main queue -> white
-    // screen). Here, a runaway is the only thing that gets deferred, and only to
-    // the next frame boundary.
-    WeakPtr<TiledCoreAnimationDrawingArea> weakThis { *this };
-    auto runRenderingUpdate = ^{
-        if (RefPtr strong = weakThis.get())
-            strong->updateRendering();
-    };
-    Seconds frameInterval = displayUpdateInterval();
-    Seconds sinceLastRun = MonotonicTime::now() - m_lastRenderingUpdateRunTime;
-    if (sinceLastRun >= frameInterval)
-        dispatch_async(dispatch_get_main_queue(), runRenderingUpdate);
-    else {
-        int64_t delayNs = static_cast<int64_t>((frameInterval - sinceLastRun).nanoseconds());
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delayNs), dispatch_get_main_queue(), runRenderingUpdate);
-    }
 
     // Avoid running any more tasks before the runloop observer fires.
     WebCore::WindowEventLoop::breakToAllowRenderingUpdate();
@@ -1023,30 +854,6 @@ void TiledCoreAnimationDrawingArea::invalidateRenderingUpdateRunLoopObserver()
     tracePoint(RenderingUpdateRunLoopObserverEnd, 1);
 
     m_renderingUpdateRunLoopObserver->invalidate();
-}
-
-// MAVERICKS_BACKPORT: drive the rendering loop from a UIProcess display-link heartbeat (see
-// scheduleRenderingUpdateRunLoopObserver). Reuses the existing StartDisplayLink/StopDisplayLink IPC;
-// the UIProcess DisplayLink sends DisplayDidRefresh back at the display rate, each waking the
-// throttled WebContent main thread to drain the next render.
-void TiledCoreAnimationDrawingArea::startRenderingDisplayLink()
-{
-    if (m_renderingDisplayLinkActive)
-        return;
-    RefPtr connection = WebProcess::singleton().parentProcessConnection();
-    if (!connection)
-        return;
-    m_renderingDisplayLinkActive = true;
-    connection->send(Messages::WebProcessProxy::StartDisplayLink(m_renderingDisplayLinkObserverID, CGMainDisplayID(), WebCore::FullSpeedFramesPerSecond), 0);
-}
-
-void TiledCoreAnimationDrawingArea::stopRenderingDisplayLink()
-{
-    if (!m_renderingDisplayLinkActive)
-        return;
-    m_renderingDisplayLinkActive = false;
-    if (RefPtr connection = WebProcess::singleton().parentProcessConnection())
-        connection->send(Messages::WebProcessProxy::StopDisplayLink(m_renderingDisplayLinkObserverID, CGMainDisplayID()), 0);
 }
 
 void TiledCoreAnimationDrawingArea::renderingUpdateRunLoopCallback()

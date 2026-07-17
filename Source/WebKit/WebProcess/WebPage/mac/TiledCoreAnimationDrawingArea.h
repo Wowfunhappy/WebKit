@@ -28,13 +28,11 @@
 #if ENABLE(TILED_CA_DRAWING_AREA)
 
 #include "CallbackID.h"
-#include "DisplayLinkObserverID.h" // MAVERICKS_BACKPORT: UIProcess display-link heartbeat that un-throttles the 10.9 render loop
 #include "DrawingArea.h"
 #include "LayerTreeContext.h"
 #include <WebCore/FloatRect.h>
 #include <WebCore/TransformationMatrix.h>
 #include <wtf/HashMap.h>
-#include <wtf/MonotonicTime.h> // MAVERICKS_BACKPORT: timestamps for the 10.9 render-rate throttle members
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/TZoneMalloc.h>
@@ -92,11 +90,6 @@ private:
 
     bool supportsAsyncScrolling() const override { return true; }
 
-    // MAVERICKS_BACKPORT: explicit override to ensure Page::scheduleRenderingUpdateInternal
-    // gets a true return, avoiding the fallback to RenderingUpdateScheduler
-    // (CVDisplayLink, broken on 10.9).
-    bool scheduleRenderingUpdate() override { triggerRenderingUpdate(); return true; }
-
     void registerScrollingTree() override;
     void unregisterScrollingTree() override;
 
@@ -153,9 +146,6 @@ private:
 
     void scheduleRenderingUpdateRunLoopObserver();
     void invalidateRenderingUpdateRunLoopObserver();
-    WTF::Seconds displayUpdateInterval(); // 10.9: one frame at the display's refresh rate (used to throttle updateRendering()).
-    void startRenderingDisplayLink(); // MAVERICKS_BACKPORT: UIProcess display-link heartbeat to un-throttle the render loop
-    void stopRenderingDisplayLink();
     void renderingUpdateRunLoopCallback();
 
     void schedulePostRenderingUpdateRunLoopObserver();
@@ -187,12 +177,6 @@ private:
 
     std::unique_ptr<WebCore::RunLoopObserver> m_renderingUpdateRunLoopObserver;
     std::unique_ptr<WebCore::RunLoopObserver> m_postRenderingUpdateRunLoopObserver;
-    MonotonicTime m_lastRenderingTriggerTime;
-    MonotonicTime m_lastRenderingUpdateRunTime; // 10.9: throttle the dispatch_async render fallback to ~60Hz (stop runaway-CPU kills).
-    bool m_renderingUpdatePending { false };
-    bool m_renderingThrottleScheduled { false }; // 10.9: a deferred (frame-boundary) updateRendering() dispatch_after is outstanding.
-    DisplayLinkObserverID m_renderingDisplayLinkObserverID { DisplayLinkObserverID::generate() }; // MAVERICKS_BACKPORT
-    bool m_renderingDisplayLinkActive { false }; // MAVERICKS_BACKPORT
 
     bool m_isPaintingSuspended { false };
     bool m_inUpdateGeometry { false };

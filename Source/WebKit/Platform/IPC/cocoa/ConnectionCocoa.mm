@@ -183,7 +183,7 @@ void Connection::platformOpen()
 #endif
 
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: MACH_PORT_DENAP_RECEIVER is unavailable on 10.9, so no de-nap attribute is set on the receive port.
+        mach_port_set_attributes(mach_task_self(), m_receivePort, MACH_PORT_DENAP_RECEIVER, (mach_port_info_t)0, 0);
 #endif
 
         m_isConnected = true;
