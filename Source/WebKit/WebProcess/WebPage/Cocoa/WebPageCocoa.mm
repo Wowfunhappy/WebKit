@@ -1025,12 +1025,6 @@ void WebPage::getPlatformEditorStateCommon(LocalFrame& frame, EditorState& resul
         endNodeIsInsideFixedPosition = startNodeIsInsideFixedPosition;
         visualData.caretRectAtEnd = visualData.caretRectAtStart;
     } else if (selection.isRange()) {
-        // MAVERICKS_BACKPORT: defensively skip selection geometry extraction if the
-        // selection's anchor nodes are detached/orphaned. DDG load triggered
-        // a SIGSEGV in toNormalizedRange when a stale Position pointed at a
-        // freed Node from a previous page.
-        if (selection.isNoneOrOrphaned())
-            return;
         visualData.caretRectAtStart = view->contentsToRootView(VisiblePosition(selection.start()).absoluteCaretBounds(&startNodeIsInsideFixedPosition));
         visualData.caretRectAtEnd = view->contentsToRootView(VisiblePosition(selection.end()).absoluteCaretBounds(&endNodeIsInsideFixedPosition));
 

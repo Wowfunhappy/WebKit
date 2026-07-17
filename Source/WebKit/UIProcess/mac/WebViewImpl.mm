@@ -2291,11 +2291,7 @@ bool WebViewImpl::mightBeginDragWhileInactive()
     if ([m_view.get() window].isKeyWindow)
         return false;
 
-    // MAVERICKS_BACKPORT: expand the Range check to also bail on a None selection (matches the 10.9 editor-state enum semantics).
-    if (m_page->editorState().selectionType == WebCore::SelectionType::None || m_page->editorState().selectionType != WebCore::SelectionType::Range)
-        return false;
-
-    return true;
+    return m_page->editorState().selectionType == WebCore::SelectionType::Range;
 }
 
 bool WebViewImpl::mightBeginScrollWhileInactive()
