@@ -57,19 +57,11 @@ bool WebInspectorUI::canPickColorFromScreen()
 
 String WebInspectorUI::localizedStringsURL() const
 {
-    // MAVERICKS_BACKPORT: serve localizedStrings.js directly as file:// from whichever
-    // WebInspectorUI bundle is in use. Prefer Safari 8-era (PrivateFrameworks) en.lproj,
-    // fall back to bundleWithIdentifier lookup, fall back to scheme handler URL.
-    NSString *path = @"/System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/Resources/en.lproj/localizedStrings.js";
-    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
-        NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
-        path = [bundle pathForResource:@"localizedStrings" ofType:@"js"];
-        if (!path)
-            path = [bundle.resourcePath stringByAppendingPathComponent:@"Localizations/en.lproj/localizedStrings.js"];
-    }
-    if (path && [[NSFileManager defaultManager] fileExistsAtPath:path])
-        return [[NSURL fileURLWithPath:path] absoluteString];
-    return [WKInspectorViewController URLForInspectorResource:@"localizedStrings.js"].absoluteString;
+    // MAVERICKS_BACKPORT: the frontend page is served from the inspector-resource:// scheme and
+    // the classic (Safari 8-era) frontend's CSP only allows 'self' scripts, so the strings file
+    // must come through the same scheme (a file:// URL — upstream's choice — is blocked by that
+    // CSP). The scheme handler resolves bundle subpaths, as it already does for Images/*.
+    return [WKInspectorViewController URLForInspectorResource:@"en.lproj/localizedStrings.js"].absoluteString;
 }
 
 void WebInspectorUI::didEstablishConnection()
