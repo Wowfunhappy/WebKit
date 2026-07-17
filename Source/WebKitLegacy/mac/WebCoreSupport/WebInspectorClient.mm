@@ -871,6 +871,16 @@ static NSData *wkTransformedClassicFrontendPage(NSString *pagePath)
                 [[windowButton superview] addSubview:windowButton positioned:NSWindowAbove relativeTo:nil];
         }
 
+        // MAVERICKS_BACKPORT: on 10.9 the layer-backed frontend WebView is otherwise a standalone
+        // layer island whose surface composites ABOVE every non-layer view in the window regardless
+        // of subview order, and its square-edged surface paints over NSThemeFrame's rounded titlebar
+        // corners (the raised traffic lights above are equally at risk). Layer-backing the content
+        // view makes AppKit promote the frame view's overlapping subviews (the WebView and the
+        // window buttons) into one layer tree, so subview z-order holds again and the transparent
+        // page corners (drawsBackground=NO + the injected CSS's 4px radius) reveal the native rounded
+        // corners beneath. Mirror of WebInspectorUIProxy::platformCreateFrontendWindow (WK2).
+        [contentView setWantsLayer:YES];
+
         [super showWindow:nil];
     }
 }
