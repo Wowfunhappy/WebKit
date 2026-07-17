@@ -49,15 +49,7 @@ using namespace WebCore;
 RefPtr<ShareableBitmap> createShareableBitmap(RenderImage& renderImage, CreateShareableBitmapFromImageOptions&& options)
 {
     Ref frame = renderImage.frame();
-    // MAVERICKS_BACKPORT: WebCore::screenColorSpace(Widget*) is provided by the
-    // polyfill stubs as `xorl %eax;ret` (see [[feedback_polyfill_stub_returns]]).
-    // DestinationColorSpace is a struct-by-value return — the polyfill leaves
-    // RDI uninitialised, so the returned struct contains garbage CGColorSpaceRef
-    // bytes that crash on CFRetain in this function's downstream m_colorSpace
-    // copy. Use plain SRGB instead; sufficient for save-image / drag-image use
-    // and crashed Safari right-click on every image on 10.9.
-    auto colorSpaceForBitmap = WebCore::DestinationColorSpace::SRGB();
-    (void)frame;
+    auto colorSpaceForBitmap = screenColorSpace(protect(protect(frame->mainFrame())->virtualView()).get());
     if (!renderImage.isRenderMedia() && !renderImage.opacity() && options.useSnapshotForTransparentImages == UseSnapshotForTransparentImages::Yes) {
         auto snapshotRect = renderImage.absoluteBoundingBoxRect();
         if (snapshotRect.isEmpty())
