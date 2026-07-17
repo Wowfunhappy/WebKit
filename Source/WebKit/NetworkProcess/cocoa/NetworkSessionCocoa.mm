@@ -1118,6 +1118,21 @@ static RetainPtr<NSURLSessionConfiguration> configurationForSessionID(PAL::Sessi
         configuration.get()._connectionCacheNumFastLanes = 1;
     }
 
+    // MAVERICKS_BACKPORT: this port cannot reach the modern web without its MITM proxy — 10.9 cannot
+    // validate current HTTPS chains, so EVERY request is routed through one local proxy (AquaProxy). That
+    // makes the proxy the single "host" CFNetwork coalesces all connections onto, so the default
+    // HTTPMaximumConnectionsPerHost of 6 stops being "per real host" and becomes a hard ceiling on the
+    // WHOLE browser's concurrency. A modern page fans out ~15-40 render-critical subresources at once;
+    // capped at 6 proxy connections the excess must reuse keep-alive connections, and 10.9's CFNetwork
+    // deterministically wedges some reused connections — the resumed task receives no response until the
+    // 60s timeout fires and the load retries on a fresh connection (the ~60s first-paint stall; measured
+    // apple.com 65s -> 4s). Raise the ceiling to ~6 * a typical page's distinct-host count, restoring the
+    // concurrency the browser would have with those hosts spread across real connections. Set here on the
+    // base configuration (before any session or proxy-config IPC) rather than gated on a proxy handle,
+    // because the proxy is a hard invariant of this port and its config can arrive asynchronously after a
+    // session is already built — a proxy-gated set races that delivery and stalls intermittently.
+    configuration.get().HTTPMaximumConnectionsPerHost = 30;
+
 #if ENABLE(NETWORK_ISSUE_REPORTING)
     if ([configuration respondsToSelector:@selector(set_skipsStackTraceCapture:)])
         configuration.get()._skipsStackTraceCapture = YES;
