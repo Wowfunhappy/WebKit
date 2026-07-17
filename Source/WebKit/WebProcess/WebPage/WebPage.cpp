@@ -3379,10 +3379,14 @@ static DestinationColorSpace snapshotColorSpace(SnapshotOptions options, WebPage
 {
 #if USE(CG)
     if (options.contains(SnapshotOption::UseScreenColorSpace)) {
-        // MAVERICKS_BACKPORT: screenColorSpace() polyfill stub returns garbage struct
-        // (see [[project_image_rightclick_crash_fixed_may20]]). Use plain SRGB
-        // for snapshots instead — image quality is fine, no crash.
-        return DestinationColorSpace::SRGB();
+        auto screenColorSpace = WebCore::screenColorSpace(protect(protect(protect(page.corePage())->mainFrame())->virtualView()).get());
+#if HAVE(SUPPORT_HDR_DISPLAY)
+        if (options.contains(SnapshotOption::AllowHDR) && protect(page.corePage())->drawsHDRContent()) {
+            if (auto extendedScreenColorSpace = screenColorSpace.asExtended())
+                return *extendedScreenColorSpace;
+        }
+#endif
+        return screenColorSpace;
     }
 #endif
 
