@@ -43,8 +43,6 @@
 #import "WebInspectorUIMessages.h"
 #import "WebPageGroup.h"
 #import "WebPageProxy.h"
-// MAVERICKS_BACKPORT: for the page->drawingArea()->setSize force-push divergences that drive the inspector frontend to paint.
-#import "DrawingAreaProxy.h"
 #import "_WKInspectorConfigurationInternal.h"
 #import "_WKInspectorInternal.h"
 #import "_WKInspectorWindowInternal.h"
@@ -794,21 +792,13 @@ void WebInspectorUIProxy::windowFrameDidChange()
     RetainPtr frameString = NSStringFromRect([m_inspectorWindow frame]);
     inspectedPage->pageGroup().preferences().setInspectorWindowFrame(frameString.get());
 
-    // MAVERICKS_BACKPORT (#66/#69): the inspector webView is hosted in the window's NSThemeFrame for the
-    // unified toolbar. NSThemeFrame does its own layout and does NOT honor the autoresizing mask on
-    // our manually-added subview, and 10.9 WKWebView doesn't auto-propagate its size to its
-    // DrawingArea (same reason platformCreateFrontendPage force-pushes the initial size). So on every
-    // window resize, explicitly resize the webView to fill the frame view and push the new size to
-    // the inspector page's DrawingArea — otherwise the frontend never reflows to the new size.
+    // MAVERICKS_BACKPORT (#66/#69, unified inspector toolbar): NSWindowStyleMaskFullSizeContentView is 10.10+.
+    // NSThemeFrame does its own layout and does not honor the autoresizing mask on our manually-added
+    // subview, so resize the webView to fill the frame view on every window resize.
     RetainPtr<NSView> contentView = [m_inspectorWindow contentView];
     NSView *frameView = [contentView superview] ?: contentView.get();
-    NSRect frameBounds = [frameView bounds];
     if (RetainPtr<WKWebView> inspectorView = [m_inspectorViewController webView])
-        inspectorView.get().frame = frameBounds;
-    if (RefPtr page = m_inspectorPage.get()) {
-        if (RefPtr da = page->drawingArea())
-            da->setSize(WebCore::IntSize(static_cast<int>(frameBounds.size.width), static_cast<int>(frameBounds.size.height)));
-    }
+        inspectorView.get().frame = [frameView bounds];
 }
 
 void WebInspectorUIProxy::windowFullScreenDidChange()
