@@ -976,12 +976,8 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
 
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data
 {
-    auto _ndt = [self existingTask:dataTask];
-    if (auto networkDataTask = _ndt) {
-        // MAVERICKS_BACKPORT: bypass SharedBuffer::create(NSData*), which dyld binds
-        // to a return-zero weak fallback stub instead of WebCore's real impl.
-        networkDataTask->didReceiveData(WebCore::SharedBuffer::create((__bridge CFDataRef)data));
-    }
+    if (auto networkDataTask = [self existingTask:dataTask])
+        networkDataTask->didReceiveData(WebCore::SharedBuffer::create(data));
 }
 
 - (void)URLSession:(NSURLSession *)nsSession downloadTask:(NSURLSessionDownloadTask *)downloadTask didFinishDownloadingToURL:(NSURL *)location
@@ -1375,17 +1371,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         cookieStorage = adoptNS([[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:storage.get()]);
         configuration.get().HTTPCookieStorage = cookieStorage.get();
     } else {
-        // MAVERICKS_BACKPORT: bypass NetworkStorageSession::nsCookieStorage() which
-        // is resolved via a weak fallback stub that returns uninitialized sret.
-        cookieStorage = [NSHTTPCookieStorage sharedHTTPCookieStorage];
-        // MAVERICKS_BACKPORT: also set the configuration's HTTPCookieStorage so NSURLSession
-        // actually uses this storage for outgoing requests. Previously this line was
-        // missing in the else branch, causing all outgoing github requests to lack
-        // Cookie headers, which made tree-commit-info, latest-commit, refs, etc fail
-        // with HTTP 400.
+        cookieStorage = storageSession->nsCookieStorage();
+        // MAVERICKS_BACKPORT: on 10.9, NSURLSession does not pick up the session's cookie storage for
+        // outgoing requests unless it is set explicitly on the configuration — without this the else
+        // branch (the 10.9 path, since -_initWithCFHTTPCookieStorage: is 10.10+) sent no Cookie headers
+        // and github's tree-commit-info / latest-commit / refs XHRs failed with HTTP 400.
         configuration.get().HTTPCookieStorage = cookieStorage.get();
         configuration.get().HTTPShouldSetCookies = YES;
-        configuration.get().HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
     }
 
     // MAVERICKS_BACKPORT: -_overrideSessionCookieAcceptPolicy is 10.10+.
