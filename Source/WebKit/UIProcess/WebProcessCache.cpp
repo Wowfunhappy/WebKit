@@ -92,50 +92,38 @@ void WebProcessCache::deref() const
 
 bool WebProcessCache::canCacheProcess(WebProcessProxy& process) const
 {
-    // MAVERICKS_BACKPORT: same eligibility checks as upstream, with the per-reason WEBPROCESSCACHE_RELEASE_LOG diagnostics dropped.
-    if (!process.isEligibleForWebProcessCache())
+    if (!process.isEligibleForWebProcessCache()) {
+        WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because WebProcessProxy does not allow it", process.processID());
         return false;
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     }
-// (end MAVERICKS_BACKPORT restored block)
+    }
 
-    // MAVERICKS_BACKPORT: release-log dropped (see note above).
-    if (!capacity())
+    if (!capacity()) {
+        WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because the cache has no capacity", process.processID());
         return false;
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     }
-// (end MAVERICKS_BACKPORT restored block)
+    }
 
-    // MAVERICKS_BACKPORT: release-log dropped (see note above).
-    if (!process.isSharedProcess() && (!process.site() || process.site()->domain().isEmpty()))
+    if (!process.isSharedProcess() && (!process.site() || process.site()->domain().isEmpty())) {
+        WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because it does not have an associated registrable domain", process.processID());
         return false;
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     }
-// (end MAVERICKS_BACKPORT restored block)
+    }
 
     if (RefPtr websiteDataStore = process.websiteDataStore()) {
         // Network process might wait for this web process to exit before clearing data.
-        // MAVERICKS_BACKPORT: release-log dropped (see note above).
-        if (websiteDataStore->isRemovingData())
+        if (websiteDataStore->isRemovingData()) {
+            WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because its website data store is removing data", process.processID());
             return false;
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//         }
-// (end MAVERICKS_BACKPORT restored block)
+        }
     }
 
-    // MAVERICKS_BACKPORT: release-log dropped (see note above).
-    if (MemoryPressureHandler::singleton().isUnderMemoryPressure())
+    if (MemoryPressureHandler::singleton().isUnderMemoryPressure()) {
+        WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because we are under memory pressure", process.processID());
         return false;
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     }
-// (end MAVERICKS_BACKPORT restored block)
+    }
 
-    // MAVERICKS_BACKPORT: release-log dropped (see note above).
-    if (!process.websiteDataStore())
+    if (!process.websiteDataStore()) {
+        WEBPROCESSCACHE_RELEASE_LOG("canCacheProcess: Not caching process because this session has been destroyed", process.processID());
         return false;
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     }
-// (end MAVERICKS_BACKPORT restored block)
+    }
 
     return true;
 }
@@ -333,17 +321,15 @@ RefPtr<WebProcessProxy> WebProcessCache::takeSharedProcess(const WebCore::Site& 
 void WebProcessCache::updateCapacity(WebProcessPool& processPool)
 {
 #if ENABLE(WEBPROCESS_CACHE)
-    // MAVERICKS_BACKPORT: force-enable the WebProcessCache whenever process-swap-on-navigation can occur.
-    // On this port the client (Safari 9) leaves usesWebProcessCache() at its default (false) and the
-    // cache model may not be PrimaryWebBrowser, so the upstream guard set m_capacity = 0. A 0-capacity
-    // cache means a process swapped out on navigation cannot be cached/suspended and is TERMINATED
-    // immediately. Combined with this port's PSON timing, the old (still-needed) process is torn down
-    // before the new navigation commits, which the UIProcess reports as a crash of the displayed page
-    // -> "A problem occurred with this webpage so it was reloaded" when moving between heavy sites.
-    // Keeping the swapped-out process in the cache (alive) avoids the spurious termination. We only
-    // genuinely disable the cache when swaps can't happen anyway (PSON off / single-process).
-    if (!processPool.configuration().processSwapsOnNavigation() || processPool.configuration().usesSingleWebProcess()) {
-        WEBPROCESSCACHE_RELEASE_LOG("updateCapacity: Cache is disabled (no process swapping)", 0);
+    if (!processPool.configuration().processSwapsOnNavigation() || !processPool.configuration().usesWebProcessCache() || LegacyGlobalSettings::singleton().cacheModel() != CacheModel::PrimaryWebBrowser || processPool.configuration().usesSingleWebProcess()) {
+        if (!processPool.configuration().processSwapsOnNavigation())
+            WEBPROCESSCACHE_RELEASE_LOG("updateCapacity: Cache is disabled because process swap on navigation is disabled", 0);
+        else if (!processPool.configuration().usesWebProcessCache())
+            WEBPROCESSCACHE_RELEASE_LOG("updateCapacity: Cache is disabled by client", 0);
+        else if (processPool.configuration().usesSingleWebProcess())
+            WEBPROCESSCACHE_RELEASE_LOG("updateCapacity: Cache is disabled because process-per-tab was disabled", 0);
+        else
+            WEBPROCESSCACHE_RELEASE_LOG("updateCapacity: Cache is disabled because cache model is not PrimaryWebBrowser", 0);
         m_capacity = 0;
     } else if (capacityOverride >= 0) {
         m_capacity = capacityOverride;
