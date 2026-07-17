@@ -73,6 +73,15 @@ class LayerHostingContext {
     WTF_MAKE_NONCOPYABLE(LayerHostingContext);
 public:
     static std::unique_ptr<LayerHostingContext> create(const LayerHostingContextOptions& = { });
+
+#if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: restored from WebKit-537. Creates the hosted context against the UI
+    // process's CARemoteLayerServer port (WebProcessCreationParameters.acceleratedCompositingPort)
+    // — the only context flavor displayable in windows that composite their layer tree in-process
+    // (LayerHostingMode::InProcess; iBooks' reader window). Non-owning: the caller keeps the send
+    // right alive (WebProcess holds it for the process lifetime).
+    static std::unique_ptr<LayerHostingContext> createForPort(mach_port_t serverPort);
+#endif
     
     static std::unique_ptr<LayerHostingContext> createTransportLayerForRemoteHosting(LayerHostingContextID);
 

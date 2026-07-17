@@ -54,6 +54,8 @@ private:
     void deviceScaleFactorDidChange(CompletionHandler<void()>&&) override;
     void sizeDidChange() override;
     void colorSpaceDidChange() override;
+    // MAVERICKS_BACKPORT: forward the window's new hosted-context flavor to the web process (537 parity).
+    void layerHostingModeDidChange() override;
     void minimumSizeForAutoLayoutDidChange() override;
     void sizeToContentAutoSizeMaximumSizeDidChange() override;
 

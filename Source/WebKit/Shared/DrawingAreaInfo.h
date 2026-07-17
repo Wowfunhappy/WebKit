@@ -34,6 +34,17 @@ enum class DrawingAreaType : bool {
     TiledCoreAnimation,
     RemoteLayerTree,
 };
+
+// MAVERICKS_BACKPORT: restored from WebKit-537 (upstream removed layer hosting modes when Mac
+// compositing went RemoteLayerTree-only). On 10.9 a hosted CAContext is displayable only when
+// its flavor matches how the host window composites its layer tree: windows that host layers in
+// the WindowServer (every normal window) display CGS-connection contexts, while windows that
+// composite in-process ([NSWindow _hostsLayersInWindowServer] == NO; iBooks' reader window)
+// display only contexts created against the UI process's CARemoteLayerServer port.
+enum class LayerHostingMode : uint8_t {
+    InWindowServer,
+    InProcess,
+};
 #endif
     
 enum {

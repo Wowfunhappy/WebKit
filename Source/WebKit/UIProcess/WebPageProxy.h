@@ -28,6 +28,7 @@
 // Including more headers here slows down build times a lot.
 // Use forward declarations and WebPageProxyInternals.h instead.
 #include "APIObject.h"
+#include "DrawingAreaInfo.h" // MAVERICKS_BACKPORT: LayerHostingMode (m_layerHostingMode)
 #include "MessageReceiver.h"
 #include <wtf/ApproximateTime.h>
 #include <wtf/CheckedRef.h>
@@ -766,6 +767,11 @@ public:
 
     DrawingAreaProxy* drawingArea() const { return m_drawingArea.get(); }
     DrawingAreaProxy* NODELETE provisionalDrawingArea() const;
+
+#if ENABLE(TILED_CA_DRAWING_AREA)
+    // MAVERICKS_BACKPORT: 537-parity per-window layer hosting mode (see DrawingAreaInfo.h).
+    LayerHostingMode layerHostingMode() const { return m_layerHostingMode; }
+#endif
 
     WebNavigationState& navigationState() LIFETIME_BOUND { return m_navigationState; }
 
@@ -3727,6 +3733,10 @@ private:
 #endif
 
     RefPtr<DrawingAreaProxy> m_drawingArea;
+#if ENABLE(TILED_CA_DRAWING_AREA)
+    // MAVERICKS_BACKPORT: see layerHostingMode(); recomputed in viewDidEnterWindow().
+    LayerHostingMode m_layerHostingMode { LayerHostingMode::InWindowServer };
+#endif
 #if PLATFORM(COCOA)
     std::unique_ptr<RemoteLayerTreeHost> m_frozenRemoteLayerTreeHost;
     std::unique_ptr<RemoteScrollingCoordinatorProxy> m_scrollingCoordinatorProxy;

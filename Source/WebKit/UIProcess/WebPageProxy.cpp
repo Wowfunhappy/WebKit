@@ -3280,6 +3280,22 @@ void WebPageProxy::viewDidLeaveWindow()
 
 void WebPageProxy::viewDidEnterWindow()
 {
+#if PLATFORM(MAC) && ENABLE(TILED_CA_DRAWING_AREA)
+    // MAVERICKS_BACKPORT: recompute the layer hosting mode for the window just joined (WebKit-537
+    // WebPageProxy::viewInWindowStateDidChange parity). On 10.9 the hosted-context flavor the
+    // window can display depends on whether it composites its layer tree in the WindowServer or
+    // in-process (iBooks' reader window); on a change the drawing area tells the web process to
+    // recreate its context (DrawingArea::SetLayerHostingMode).
+    if (RefPtr pageClient = this->pageClient()) {
+        LayerHostingMode layerHostingMode = pageClient->viewLayerHostingMode();
+        if (m_layerHostingMode != layerHostingMode) {
+            m_layerHostingMode = layerHostingMode;
+            if (RefPtr drawingArea = m_drawingArea)
+                drawingArea->layerHostingModeDidChange();
+        }
+    }
+#endif
+
 #if HAVE(SPATIAL_TRACKING_LABEL)
     updateDefaultSpatialTrackingLabel();
 #endif
@@ -12942,6 +12958,12 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
     parameters.activityState = internals().activityState;
 #if ENABLE(TILED_CA_DRAWING_AREA)
     parameters.drawingAreaType = drawingArea.type();
+    // MAVERICKS_BACKPORT: recompute from the page client so a page created for a view that is
+    // already in a window starts with the right hosted-context flavor (537 parity; the value is
+    // otherwise refreshed in viewDidEnterWindow()).
+    if (pageClient)
+        m_layerHostingMode = pageClient->viewLayerHostingMode();
+    parameters.layerHostingMode = m_layerHostingMode;
 #endif
     parameters.store = preferencesStore();
     parameters.isEditable = m_isEditable;

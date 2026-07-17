@@ -25,3 +25,10 @@ using WebKit::ActivityStateChangeID = uint64_t;
 #if ENABLE(TILED_CA_DRAWING_AREA)
 enum class WebKit::DrawingAreaType : bool
 #endif
+
+#if ENABLE(TILED_CA_DRAWING_AREA)
+enum class WebKit::LayerHostingMode : uint8_t {
+    InWindowServer,
+    InProcess
+};
+#endif

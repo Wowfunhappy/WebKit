@@ -1515,6 +1515,7 @@ def headers_for_type(type, for_implementation_file=False):
         'WebKit::DragEventForwardingData': ['"DragEventForwardingData.h"'],
         'WebKit::DragOperationResult': ['"DragEventForwardingData.h"'],
         'WebKit::DrawingAreaIdentifier': ['"DrawingAreaInfo.h"'],
+        'WebKit::LayerHostingMode': ['"DrawingAreaInfo.h"'],  # MAVERICKS_BACKPORT: 537-parity layer hosting mode lives in DrawingAreaInfo.h
         'WebKit::FindDecorationStyle': ['"WebFindOptions.h"'],
         'WebKit::FindOptions': ['"WebFindOptions.h"'],
         'WebKit::FrameState': ['"SessionState.h"'],

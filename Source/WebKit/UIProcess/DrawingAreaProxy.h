@@ -75,6 +75,10 @@ public:
 
 #if ENABLE(TILED_CA_DRAWING_AREA)
     virtual DrawingAreaType type() const = 0;
+    // MAVERICKS_BACKPORT: the page's window changed which hosted-context flavor it can display
+    // (WebKit-537 parity); TiledCoreAnimationDrawingAreaProxy forwards the new mode to the web
+    // process.
+    virtual void layerHostingModeDidChange() { }
 #endif
 
     virtual bool isRemoteLayerTreeDrawingAreaProxyMac() const { return false; }

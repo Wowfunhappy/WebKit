@@ -109,6 +109,11 @@ public:
 
 #if PLATFORM(COCOA)
     virtual void setViewExposedRect(std::optional<WebCore::FloatRect>) = 0;
+#if ENABLE(TILED_CA_DRAWING_AREA)
+    // MAVERICKS_BACKPORT: WebKit-537 parity — recreate the hosted context in the flavor the
+    // page's window can display (see LayerHostingMode in DrawingAreaInfo.h).
+    virtual void setLayerHostingMode(LayerHostingMode) { }
+#endif
     virtual std::optional<WebCore::FloatRect> viewExposedRect() const = 0;
 
     virtual void acceleratedAnimationDidStart(WebCore::PlatformLayerIdentifier, const String& /*key*/, MonotonicTime /*startTime*/) { }
