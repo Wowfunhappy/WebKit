@@ -249,6 +249,23 @@ Connection::SendMessageResult Connection::sendMessage(std::unique_ptr<MachMessag
     case MACH_SEND_TIMED_OUT:
         // We timed out, stash away the message for later.
         m_pendingOutgoingMachMessage = WTF::move(message);
+        // MAVERICKS_BACKPORT: 10.9's libdispatch loses DISPATCH_MACH_SEND_POSSIBLE events from
+        // m_sendSource (manager-thread portset race), which strands m_pendingOutgoingMachMessage —
+        // and every message queued behind it — forever once the destination queue fills (proven
+        // live 2026-07-17: NetworkProcess held 151 undelivered messages, including a sync reply
+        // the WebContent was blocked on, while the destination port sat empty). Request the
+        // kernel's one-shot MACH_NOTIFY_SEND_POSSIBLE directly onto m_receivePort, whose
+        // MACH_RECV source delivers reliably; receiveSourceEventHandler resumes the send. The
+        // sync=1 argument makes the kernel notify immediately if the queue already has room,
+        // closing the drain-before-arm race.
+        if (MACH_PORT_VALID(m_receivePort) && MACH_PORT_VALID(m_sendPort)) {
+            mach_port_t previousNotify = MACH_PORT_NULL;
+            kern_return_t notifyResult = mach_port_request_notification(mach_task_self(), m_sendPort, MACH_NOTIFY_SEND_POSSIBLE, 1, m_receivePort, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previousNotify);
+            if (notifyResult != KERN_SUCCESS)
+                RELEASE_LOG_ERROR(IPC, "sendMessage: mach_port_request_notification(MACH_NOTIFY_SEND_POSSIBLE) failed: 0x%x", notifyResult);
+            if (previousNotify != MACH_PORT_NULL)
+                mach_port_deallocate(mach_task_self(), previousNotify);
+        }
         return SendMessageResult::Failure;
 
     case MACH_SEND_INVALID_DEST:
@@ -660,6 +677,14 @@ void Connection::receiveSourceEventHandler()
     switch (header->msgh_id) {
     case MACH_NOTIFY_NO_SENDERS:
         connectionDidClose();
+        return;
+
+    // MAVERICKS_BACKPORT: kernel send-possible notification requested in sendMessage's
+    // MACH_SEND_TIMED_OUT path (10.9 libdispatch drops DISPATCH_MACH_SEND_POSSIBLE events).
+    // We are on m_connectionQueue here — the same serialization the m_sendSource handler
+    // uses — so resuming the send path directly is safe; resumeSendSource is idempotent.
+    case MACH_NOTIFY_SEND_POSSIBLE:
+        resumeSendSource();
         return;
 
     case inlineBodyMessageID:
