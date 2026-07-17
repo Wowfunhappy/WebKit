@@ -435,16 +435,12 @@ void WebProcess::initializeProcess(const AuxiliaryProcessInitializationParameter
     m_isLockdownModeEnabled = parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("enable-lockdown-mode"_s) == "1"_s;
     m_isEnhancedSecurityEnabled = parameters.extraInitializationData.get<HashTranslatorASCIILiteral>("enable-enhanced-security"_s) == "1"_s;
 
-    // MAVERICKS_BACKPORT: skip setProcessPrivileges({ }) — dropping privileges here interferes with the
-    // 10.9 in-process service model (no GPU/sandboxed split for these capabilities on this port).
-    // WTF::setProcessPrivileges({ });
+    WTF::setProcessPrivileges({ });
 
     {
-        // MAVERICKS_BACKPORT: leave JSC non-SP-tagging / pointer-tagging options at their defaults; the
-        // disable path here is not needed and the AllowUnfinalizedAccessScope dance is unnecessary on 10.9.
-        // JSC::Options::AllowUnfinalizedAccessScope scope;
-        // JSC::Options::allowNonSPTagging() = false;
-        // JSC::Options::notifyOptionsChanged();
+        JSC::Options::AllowUnfinalizedAccessScope scope;
+        JSC::Options::allowNonSPTagging() = false;
+        JSC::Options::notifyOptionsChanged();
     }
 
     // MAVERICKS_BACKPORT: routes MessageChannel/MessagePort ops through the
