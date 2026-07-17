@@ -4962,62 +4962,9 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
     }
 #endif
 
-#if ENABLE(MEDIA_SOURCE)
-    // MAVERICKS_BACKPORT: guarantee window.MediaSource is exposed to JavaScript. The MediaSource IDL is
-    // EnabledBySetting=MediaSourceEnabled, and Safari 9's UIProcess predates the modern preference key
-    // (it either omits MediaSourceEnabled — so a stale/false value can win — or sends the legacy key),
-    // which left window.MediaSource undefined and broke YouTube/MSE playback entirely. Force the setting
-    // on here, after the store is applied, so the custom 10.9 MSE pipeline (SourceBufferParserISOBMFF +
-    // AudioVideoRendererAVFObjC + AVSampleBufferDisplayLayer) is actually reachable from script.
-    settings.setMediaSourceEnabled(true);
-#endif
-
-    // MAVERICKS_BACKPORT: same root cause as MediaSource above — Safari 9's UIProcess predates these modern
-    // preference keys, so the value applied from the store can be stale/false and the feature never
-    // gets exposed to JavaScript even though the WebKit default is true. Force-enable the safe, mature
-    // modern features Safari 9 doesn't know to turn on.
-    settings.setAsyncClipboardAPIEnabled(true);
-    // requestIdleCallback: was disabled after it "broke complex sites" on May 19, but that predated the
-    // SharedTimer / RunLoop::TimerBase / dispatch_after fixes (wasm-async, shared-timer-dedup) that
-    // repaired 10.9 timer scheduling — and the idle-period timer (WindowEventLoop::m_idleTimer
-    // startOneShot) rides exactly that path, so those fixes resolved the root cause. Re-verified Jun 2:
-    // 200 idle callbacks run with correct deadlines (timeRemaining up to ~49ms, 0 spurious timeouts),
-    // idle CPU stays ~0.6-0.9% (no runaway), heavy sites settle, 0 crashes across a soak. Safe to enable.
-    settings.setRequestIdleCallbackEnabled(true);
-    // More modern features Safari 9's store leaves false (same stale-pref issue). All are pure
-    // WebKit/WebCore features with no hard 10.9 platform dependency:
-    //   - LazyImageLoading: <img loading=lazy> — perf win, defers offscreen image loads.
-    //   - BroadcastChannel: cross-tab messaging used by SPAs.
-    //   - PermissionsAPI: navigator.permissions.query() (PermissionController backend).
-    settings.setLazyImageLoadingEnabled(true);
-    settings.setBroadcastChannelEnabled(true);
-    settings.setPermissionsAPIEnabled(true);
-#if ENABLE(MEDIA_STREAM)
-    // MAVERICKS_BACKPORT: MEDIA_STREAM is compiled in (ENABLE_MEDIA_STREAM=1) but WEB_RTC is NOT. The
-    // MediaDevices interface (navigator.mediaDevices + getUserMedia/enumerateDevices) is gated by
-    // EnabledBySetting=MediaDevicesEnabled, which arrives false from Safari's store (it predates the API),
-    // so navigator.mediaDevices stayed undefined even with capture compiled in. Force it on so camera/mic
-    // capture is reachable from script. getUserMedia is additionally gated by the auto-grant permission
-    // path (WKPage.cpp) and the AVCapture device backend. NOTE: this must live under ENABLE(MEDIA_STREAM),
-    // not ENABLE(WEB_RTC) — the previous gating left it compiled out on the MediaStream-without-WebRTC build.
-    settings.setMediaDevicesEnabled(true);
-#endif
-#if ENABLE(WEB_RTC)
-    // MAVERICKS_BACKPORT: when WebRTC is compiled in (ENABLE_WEB_RTC=1, USE_LIBWEBRTC=1, libwebrtc.a), also
-    // expose RTCPeerConnection (data channels work without a camera). Same Safari-store-stale-pref issue.
-    settings.setPeerConnectionEnabled(true);
-#endif
-
     bool requiresUserGestureForMedia = store.getBoolValueForKey(WebPreferencesKey::requiresUserGestureForMediaPlaybackKey());
     settings.setRequiresUserGestureForVideoPlayback(requiresUserGestureForMedia || store.getBoolValueForKey(WebPreferencesKey::requiresUserGestureForVideoPlaybackKey()));
     settings.setRequiresUserGestureForAudioPlayback(requiresUserGestureForMedia || store.getBoolValueForKey(WebPreferencesKey::requiresUserGestureForAudioPlaybackKey()));
-#if ENABLE(MEDIA_SOURCE)
-    // MAVERICKS_BACKPORT: allow programmatic/auto play without a user gesture so MSE sites (YouTube et al.)
-    // that call video.play() from script actually start the custom pipeline's CMTimebase. Without this,
-    // play() is rejected NotAllowedError, the timebase never runs, and only the first decoded frame shows.
-    settings.setRequiresUserGestureForVideoPlayback(false);
-    settings.setRequiresUserGestureForAudioPlayback(false);
-#endif
     settings.setUserInterfaceDirectionPolicy(static_cast<WebCore::UserInterfaceDirectionPolicy>(store.getUInt32ValueForKey(WebPreferencesKey::userInterfaceDirectionPolicyKey())));
     settings.setSystemLayoutDirection(static_cast<TextDirection>(store.getUInt32ValueForKey(WebPreferencesKey::systemLayoutDirectionKey())));
     settings.setJavaScriptRuntimeFlags(static_cast<RuntimeFlags>(store.getUInt32ValueForKey(WebPreferencesKey::javaScriptRuntimeFlagsKey())));
