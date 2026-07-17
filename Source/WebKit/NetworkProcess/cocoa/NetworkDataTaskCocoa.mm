@@ -86,16 +86,6 @@ struct NetworkDataTaskCocoa::BrotliStream {
     bool failed { false };
 };
 
-// MAVERICKS_BACKPORT: NSURLSessionTask.taskIdentifier on 10.9 starts from 0, but the
-// WTF::HashMap<uint64_t, ...> used as dataTaskMap treats key 0 as the empty-slot
-// sentinel and key UINT64_MAX as the deleted sentinel. Shift by 1 so keys start
-// at 1 (and UINT64_MAX - 1 -> UINT64_MAX never happens since NSURLSession does not
-// produce that many tasks per session).
-static inline uint64_t taskIdentifierKey(NSURLSessionTask *task)
-{
-    return static_cast<uint64_t>([task taskIdentifier]) + 1;
-}
-
 #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
 
 inline static bool shouldBlockTrackersForThirdPartyCloaking(NSURLRequest *request)
@@ -542,9 +532,8 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         break;
     };
 
-    // MAVERICKS_BACKPORT: taskIdentifierKey() shifts the 0-based 10.9 taskIdentifier off the HashMap empty-key sentinel.
-    RELEASE_ASSERT(!m_sessionWrapper->dataTaskMap.contains(taskIdentifierKey(m_task.get())));
-    m_sessionWrapper->dataTaskMap.add(taskIdentifierKey(m_task.get()), this);
+    RELEASE_ASSERT(!m_sessionWrapper->dataTaskMap.contains([m_task taskIdentifier]));
+    m_sessionWrapper->dataTaskMap.add([m_task taskIdentifier], this);
     LOG(NetworkSession, "%lu Creating NetworkDataTask with URL %s", (unsigned long)[m_task taskIdentifier], [nsRequest URL].absoluteString.UTF8String);
 
     if (parameters.shouldPreconnectOnly == PreconnectOnly::Yes) {
@@ -595,8 +584,7 @@ NetworkDataTaskCocoa::~NetworkDataTaskCocoa()
 
     if (m_task && m_sessionWrapper) {
         auto& map = m_sessionWrapper->dataTaskMap;
-        // MAVERICKS_BACKPORT: taskIdentifierKey() shifts the 0-based 10.9 taskIdentifier off the HashMap empty-key sentinel.
-        auto iterator = map.find(taskIdentifierKey(m_task.get()));
+        auto iterator = map.find([m_task taskIdentifier]);
         RELEASE_ASSERT(iterator != map.end());
         ASSERT(!iterator->value.get());
         map.remove(iterator);
