@@ -1543,19 +1543,6 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
                 return;
             }
 
-            // MAVERICKS_BACKPORT: Safari 7's legacy V0 nav-action policy client for the Top Sites snapshot
-            // fetcher's offscreen pages blanket-ignore()s every navigation — in the original WebKit the
-            // app's own programmatic WKPageLoadURL did NOT pass through the client's nav-action policy;
-            // the ignore() was only meant to lock the page against content-initiated navigations after
-            // it loaded. Modern WebKit routes the initial API load through the client too, so ignore()
-            // blocks the snapshot page from ever loading and Top Sites thumbnails stay blank. For these
-            // offscreen render pages (identified by the page client), bypass the legacy client and use()
-            // so the page loads, renders, and can be snapshotted.
-            if (RefPtr pageClient = page.pageClient(); pageClient && pageClient->isOffscreenRenderClient()) {
-                listener->use();
-                return;
-            }
-
             // MAVERICKS_BACKPORT (#137): the app's OWN programmatic load (WKPageLoadData / WKPageLoadURL /
             // WKPageLoadRequest) must not be vetoed by a legacy V0/V1 nav-action policy callback. In
             // original WebKit2 the embedder-initiated API loads bypassed the nav-action policy client
@@ -1568,7 +1555,8 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
             // not expecting to see its own load, returns without calling use()/ignore()/download().
             // An app/API-initiated load is flagged isRequestFromClientOrUserInput WITHOUT a web-content
             // user gesture (a real link click carries a user gesture and still reaches the callback so the
-            // app can route it externally). Same family as the Top Sites offscreen bypass above and #60.
+            // app can route it externally). This also covers the Top Sites snapshot fetcher's own
+            // WKPageLoadURL loads, whose V0 client blanket-ignore()s everything it is consulted for.
             // MAVERICKS_BACKPORT (#137): bypass the legacy V0/V1 callback for the app's own programmatic load.
             if ((m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0 || m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1)
                 && !m_client.decidePolicyForNavigationAction

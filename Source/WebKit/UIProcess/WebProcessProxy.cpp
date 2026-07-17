@@ -1139,23 +1139,9 @@ void WebProcessProxy::getNetworkProcessConnection(CompletionHandler<void(Network
 {
     RefPtr dataStore = websiteDataStore();
     if (!dataStore) {
-        // MAVERICKS_BACKPORT: Safari's URL-bar Enter dispatches WebPage::create to a
-        // freshly prewarmed WebProcessProxy before WebKit-internal code paths
-        // bind a WebsiteDataStore to it. Empty replies smash WebContent's stack
-        // canary downstream. Use the data store from any existing page in this
-        // process (Safari's actual data store), or fall back to default — but
-        // do NOT call setWebsiteDataStore (which sends SetWebsiteDataStoreParameters
-        // out of order with WebPage::create and breaks layer hosting).
-        for (auto& page : m_pageMap.values()) {
-            if (RefPtr pageDataStore = &page->websiteDataStore()) {
-                dataStore = pageDataStore;
-                break;
-            }
-        }
-        if (!dataStore)
-            dataStore = &WebsiteDataStore::defaultDataStore();
-        m_websiteDataStore = *dataStore; // bind the field directly without IPC
-        RELEASE_LOG(Process, "WebProcessProxy: silently bound WebsiteDataStore for network connection request");
+        ASSERT_NOT_REACHED();
+        RELEASE_LOG_FAULT(Process, "WebProcessProxy should always have a WebsiteDataStore when used by a web process requesting a network process connection");
+        return reply({ });
     }
     dataStore->getNetworkProcessConnection(*this, WTF::move(reply));
 }

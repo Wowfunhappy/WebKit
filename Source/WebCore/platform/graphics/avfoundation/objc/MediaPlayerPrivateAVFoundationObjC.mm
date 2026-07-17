@@ -700,24 +700,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayerLayer()
     updateVideoLayerGravity();
     [m_videoLayer setContentsScale:player->playerContentsScale()];
     setPlatformDynamicRangeLimit(player->platformDynamicRangeLimit());
-    // Backport: presentationSize is uninitialized on 10.9 because RenderVideo layout hooks
-    // don't reliably propagate m_size to MediaPlayer. Fall back to AVAssetTrack.naturalSize.
-    FloatSize sz = player->presentationSize();
-    if (!std::isfinite(sz.width()) || !std::isfinite(sz.height()) || sz.width() < 1 || sz.height() < 1 || sz.width() > 32000 || sz.height() > 32000) {
-        sz = FloatSize();
-        NSArray *videoTracks = [m_avAsset tracksWithMediaType:AVMediaTypeVideo];
-        if (videoTracks.count) {
-            CGSize natural = [videoTracks[0] naturalSize];
-            sz = FloatSize(natural.width, natural.height);
-        } else
-            sz = FloatSize(400, 300); // last-resort fallback
-    }
-    m_videoLayerManager->setVideoLayer(m_videoLayer.get(), sz);
-    // MAVERICKS_BACKPORT: per-second NSLog poll for 6s used to debug video readyForDisplay.
-    // Removed — Discord (and any page with many <video> tags) creates dozens of
-    // layers, blasting syslog with hundreds of lines per page load. The video
-    // pipeline state machine reaches "playing" reliably; visual frames are a
-    // separate deferred task (see project_html5_video_scope_may18).
+    m_videoLayerManager->setVideoLayer(m_videoLayer.get(), player->presentationSize());
 
 #if PLATFORM(IOS_FAMILY) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
     [m_videoLayer setPIPModeEnabled:(player->fullscreenMode() & MediaPlayer::VideoFullscreenModePictureInPicture)];

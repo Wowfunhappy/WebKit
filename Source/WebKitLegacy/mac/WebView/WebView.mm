@@ -1331,25 +1331,6 @@ static RetainPtr<CFMutableSetRef>& NODELETE allWebViewsSet()
 
 @end
 
-// MAVERICKS_BACKPORT: LegacyHistoryItemClient::singleton() returns NULL in the Safari/WebKitLegacy process
-// (WebCore::HistoryItemClient's TZone operator new yields null there), so constructing the page's
-// Ref<HistoryItemClient> ref()'d null → Safari SIGSEGV whenever a legacy WebView is created (e.g. the
-// Preferences NIB). Use this fastMalloc/placement-new-allocated fallback client instead at the WebView
-// page-config call sites (defined here in WebView.mm, which compiles reliably, rather than the singleton).
-namespace {
-class WK109FallbackHistoryItemClient final : public WebCore::HistoryItemClient {
-public:
-    static WebCore::HistoryItemClient& shared()
-    {
-        static WebCore::HistoryItemClient* instance = new (WTF::fastMalloc(sizeof(WK109FallbackHistoryItemClient))) WK109FallbackHistoryItemClient();
-        return *instance;
-    }
-private:
-    void historyItemChanged(const WebCore::HistoryItem&) final { }
-    void clearChildren(const WebCore::HistoryItem&) const final { }
-};
-}
-
 @implementation WebView (WebPrivate)
 
 // MAVERICKS_BACKPORT: restore the legacy WebDashboard SPI removed upstream in
@@ -1730,7 +1711,7 @@ static void WebKitInitializeGamepadProviderIfNecessary()
         makeUniqueRef<WebCore::DummyStorageProvider>(),
         WebCore::DummyModelPlayerProvider::create(),
         WebCore::EmptyBadgeClient::create(),
-        WK109FallbackHistoryItemClient::shared(), // MAVERICKS_BACKPORT: was LegacyHistoryItemClient::singleton() (null → SIGSEGV)
+        LegacyHistoryItemClient::singleton(),
 #if ENABLE(CONTEXT_MENUS)
         makeUniqueRef<WebContextMenuClient>(self),
 #endif
@@ -2003,8 +1984,7 @@ static void WebKitInitializeGamepadProviderIfNecessary()
         makeUniqueRef<WebCore::DummyStorageProvider>(),
         WebCore::DummyModelPlayerProvider::create(),
         WebCore::EmptyBadgeClient::create(),
-        // MAVERICKS_BACKPORT: was LegacyHistoryItemClient::singleton() (null in this process → SIGSEGV); use the fallback client.
-        WK109FallbackHistoryItemClient::shared(),
+        LegacyHistoryItemClient::singleton(),
 #if ENABLE(APPLE_PAY)
         WebPaymentCoordinatorClient::create(),
 #endif

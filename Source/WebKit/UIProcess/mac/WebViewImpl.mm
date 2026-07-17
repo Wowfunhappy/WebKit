@@ -4265,18 +4265,6 @@ void WebViewImpl::setAcceleratedCompositingRootLayer(CALayer *rootLayer)
 
     m_rootLayer = rootLayer;
     rootLayer.hidden = NO;
-    // MAVERICKS_BACKPORT: force rootLayer frame to match m_layerHostingView frame since the
-    // wrapper rootLayer's frame stays 0,0 even after transactions arrive (sublayers have
-    // the real content). Without this, even though sublayers[0] has proper content,
-    // the wrapper layer's 0-size frame clips it to nothing.
-    if (m_layerHostingView) {
-        NSRect hostFrame = m_layerHostingView.getAutoreleased().frame;
-        rootLayer.frame = hostFrame;
-        for (CALayer *sub in rootLayer.sublayers) {
-            if (CGRectIsEmpty(sub.frame))
-                sub.frame = hostFrame;
-        }
-    }
 
     if (m_thumbnailView && updateThumbnailViewLayer())
         return;
@@ -4399,8 +4387,10 @@ void WebViewImpl::sendDragEndToPage(CGPoint endPoint, NSDragOperation dragOperat
     // Prevent queued mouseDragged events from coming after the drag and fake mouseUp event.
     m_ignoresMouseDraggedEvents = true;
 
-    // MAVERICKS_BACKPORT: pass the window-space drag end point directly as the client location (no separate view-convert step on 10.9).
-    m_page->dragEnded(WebCore::IntPoint(windowMouseLoc), WebCore::IntPoint(WebCore::globalPoint(windowMouseLoc, protect(window()).get())), coreDragOperationMask(dragOperationMask));
+    RetainPtr view = m_view.get();
+    WebCore::IntPoint clientLocation([view convertPoint:windowImageLoc fromView:nil]);
+
+    m_page->dragEnded(clientLocation, WebCore::IntPoint(WebCore::globalPoint(windowMouseLoc, protect(window()).get())), coreDragOperationMask(dragOperationMask));
 }
 
 static OptionSet<WebCore::DragApplicationFlags> applicationFlagsForDrag(NSView *view, id<NSDraggingInfo> draggingInfo)
