@@ -1,6 +1,6 @@
 // MAVERICKS_BACKPORT: custom AudioVideoRendererAVFObjC (see header).
 // Video plays through AVSampleBufferDisplayLayer driven by a manually-managed CMTimebase.
-// Audio is not yet wired (stage 1); audio samples are accepted and dropped so the append loop runs.
+// Audio plays through an AudioToolbox AudioQueue fed from the appended audio samples.
 #include "config.h"
 #import "AudioVideoRendererAVFObjC.h"
 
