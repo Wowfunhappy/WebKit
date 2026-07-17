@@ -313,7 +313,7 @@
 #define HAVE_PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER 1
 #endif
 
-// MAVERICKS_BACKPORT: CAFrameRateRange is 10.15+; gate on the SDK so it is off on the 10.9 build.
+// MAVERICKS_BACKPORT: CAFrameRateRange needs the 10.15+ SDK headers; the 26.1-SDK build satisfies this, so the flag is ON here (10.9 runtime tolerates the calls).
 #if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
 #define HAVE_CORE_ANIMATION_FRAME_RATE_RANGE 1
 #endif
@@ -897,7 +897,7 @@
 #if PLATFORM(MAC) \
     || PLATFORM(IOS_FAMILY)
 #define HAVE_CFNETWORK_NSURLSESSION_HSTS_WITH_UNTRUSTED_ROOT 1
-// MAVERICKS_BACKPORT: NSURLSession task-delegate API is 10.15+; gate on the SDK so it is off on the 10.9 deployment.
+// MAVERICKS_BACKPORT: the NSURLSession task-delegate API needs the 10.15+ SDK headers; the 26.1-SDK build satisfies this, so the flag is ON here.
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500 || PLATFORM(IOS_FAMILY)
 #define HAVE_NSURLSESSION_TASK_DELEGATE 1
 #endif

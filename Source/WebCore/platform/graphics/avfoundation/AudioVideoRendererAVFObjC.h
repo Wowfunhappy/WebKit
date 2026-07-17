@@ -4,10 +4,9 @@
 // (both 10.10+, ABSENT on 10.9). This reimplementation drives video through a VideoToolbox
 // VTDecompressionSession (AVSampleBufferDisplayLayer accepts samples but never decodes/displays on
 // 10.9) and pushes each decoded frame's IOSurface to a plain CALayer's contents, with a
-// manually-managed CMTimebase for play/pause/rate/currentTime. Audio is not yet wired (stage 1 is
-// video-only); audio samples are accepted and dropped so the MediaSource append loop keeps
-// progressing. It implements the WebCore::AudioVideoRenderer interface so
-// MediaPlayerPrivateMediaSourceAVFObjC works unchanged.
+// manually-managed CMTimebase for play/pause/rate/currentTime. Audio plays through an
+// AudioToolbox AudioQueue fed from the appended audio samples. It implements the
+// WebCore::AudioVideoRenderer interface so MediaPlayerPrivateMediaSourceAVFObjC works unchanged.
 // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
 #pragma once
 
