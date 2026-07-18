@@ -15,6 +15,7 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <ImageIO/ImageIO.h>
 #include <Security/Security.h>
+#include <CommonCrypto/CommonCrypto.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -322,6 +323,13 @@ int CGImageSourceEnableRestrictedDecoding(void) { return 0; /* noErr */ }
 // Restricts which image UTIs may be decoded (newer hardening). No-op on 10.9: all types decode.
 OSStatus CGImageSourceSetAllowableTypes(CFArrayRef allowableTypes) { (void)allowableTypes; return 0; }
 
+// CGImageSourceGetPrimaryImageIndex (10.14+): the primary-image concept (a HEIF/HEIC container's
+// primary item) postdates 10.9, and 10.9's ImageIO exports no such symbol. On 10.9 the primary frame
+// is always index 0 (single-frame images have only frame 0; animated GIF/APNG treat frame 0 as
+// primary). Declared in the 26.1 SDK's ImageIO headers, so ImageDecoderCG.cpp calls the upstream name
+// unchanged.
+size_t CGImageSourceGetPrimaryImageIndex(CGImageSourceRef source) { (void)source; return 0; }
+
 // ---------------------------------------------------------------------------------------------------
 // Security
 // ---------------------------------------------------------------------------------------------------
@@ -440,4 +448,143 @@ bool sandbox_enable_state_flag(const char *name, mav_audit_token_t token)
 {
     (void)name; (void)token;
     return false;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// CommonCrypto — KDF + one-shot AES-GCM SPI absent on 10.9.
+//
+// The CCKDFParameters/CCDeriveKey key-derivation API and the one-shot CCCryptorGCMOneshotDecrypt are
+// 10.10+ and have no symbol in 10.9's libcommonCrypto (verified: absent; CCHmac and the deprecated
+// one-shot CCCryptorGCM ARE present). WebCore reaches them through PAL's CommonCryptoSPI.h — WebCrypto
+// HKDF (deriveBits/deriveKey) via CCKDFParametersCreateHkdf + CCDeriveKey, and the Push API's aes128gcm
+// payload decryption via CCCryptorGCMOneshotDecrypt. Reimplement each over the 10.9-present primitives
+// so the upstream call sites revert to pristine. CCStatus/CCDigestAlgorithm/CCKDFParametersRef are SPI
+// (not in the public SDK headers); use their underlying ABI types (int32_t / uint32_t /
+// struct CCKDFParameters *) here to avoid redeclaring them. The CCDigestAlgorithm values are the
+// CommonDigestSPI enum: kCCDigestSHA1=8, DeprecatedCCDigestSHA224=9, kCCDigestSHA256=10, SHA384=11,
+// SHA512=12.
+// ---------------------------------------------------------------------------------------------------
+
+// CCCryptorGCM (the deprecated but 10.9-present one-shot GCM) is SPI; forward-declare it.
+extern CCCryptorStatus CCCryptorGCM(CCOperation op, CCAlgorithm alg, const void *key, size_t keyLength, const void *iv, size_t ivLen, const void *aData, size_t aDataLen, const void *dataIn, size_t dataInLength, void *dataOut, void *tag, size_t *tagLength);
+
+// One-shot AES-GCM decrypt-and-verify. CCCryptorGCM decrypts and computes the authentication tag over
+// the data; compare it to the caller's expected tag in constant time and report kCCDecodeError on
+// mismatch (the authenticated-decrypt contract: a forged/wrong tag fails rather than returning
+// plaintext — the caller treats any non-success as decryption failure).
+CCCryptorStatus CCCryptorGCMOneshotDecrypt(CCAlgorithm alg, const void *key, size_t keyLength, const void *iv, size_t ivLen, const void *aData, size_t aDataLen, const void *dataIn, size_t dataInLength, void *dataOut, const void *tagIn, size_t tagLength)
+{
+    unsigned char computedTag[16];
+    if (tagLength > sizeof(computedTag))
+        return kCCParamError;
+    size_t computedTagLen = tagLength;
+    CCCryptorStatus rv = CCCryptorGCM(kCCDecrypt, alg, key, keyLength, iv, ivLen, aData, aDataLen, dataIn, dataInLength, dataOut, computedTag, &computedTagLen);
+    if (rv != kCCSuccess)
+        return rv;
+    const unsigned char *expected = (const unsigned char *)tagIn;
+    unsigned char diff = 0;
+    for (size_t i = 0; i < tagLength; ++i)
+        diff |= (unsigned char)(computedTag[i] ^ expected[i]);
+    return diff ? kCCDecodeError : kCCSuccess;
+}
+
+// CCKDFParametersRef is `struct CCKDFParameters *` (opaque to callers); complete it here to carry the
+// HKDF salt + info(context). CreateHkdf copies them, CCDeriveKey runs extract+expand, Destroy frees.
+struct CCKDFParameters {
+    void *salt;    size_t saltLen;
+    void *context; size_t contextLen;
+};
+
+int32_t CCKDFParametersCreateHkdf(struct CCKDFParameters **params, const void *salt, size_t saltLen, const void *context, size_t contextLen)
+{
+    if (!params)
+        return kCCParamError;
+    struct CCKDFParameters *p = (struct CCKDFParameters *)calloc(1, sizeof(*p));
+    if (!p)
+        return kCCMemoryFailure;
+    if (saltLen) {
+        p->salt = malloc(saltLen);
+        if (!p->salt) { free(p); return kCCMemoryFailure; }
+        memcpy(p->salt, salt, saltLen);
+        p->saltLen = saltLen;
+    }
+    if (contextLen) {
+        p->context = malloc(contextLen);
+        if (!p->context) { free(p->salt); free(p); return kCCMemoryFailure; }
+        memcpy(p->context, context, contextLen);
+        p->contextLen = contextLen;
+    }
+    *params = p;
+    return kCCSuccess;
+}
+
+void CCKDFParametersDestroy(struct CCKDFParameters *params)
+{
+    if (!params)
+        return;
+    free(params->salt);
+    free(params->context);
+    free(params);
+}
+
+// Map a CCDigestAlgorithm (8..12) to its HMAC algorithm + output length.
+static int mav_hkdfDigestInfo(uint32_t digest, CCHmacAlgorithm *hmacAlg, unsigned *hashLen)
+{
+    switch (digest) {
+    case 8:  *hmacAlg = kCCHmacAlgSHA1;   *hashLen = CC_SHA1_DIGEST_LENGTH;   return 1; // kCCDigestSHA1
+    case 9:  *hmacAlg = kCCHmacAlgSHA224; *hashLen = CC_SHA224_DIGEST_LENGTH; return 1; // DeprecatedCCDigestSHA224
+    case 10: *hmacAlg = kCCHmacAlgSHA256; *hashLen = CC_SHA256_DIGEST_LENGTH; return 1; // kCCDigestSHA256
+    case 11: *hmacAlg = kCCHmacAlgSHA384; *hashLen = CC_SHA384_DIGEST_LENGTH; return 1; // kCCDigestSHA384
+    case 12: *hmacAlg = kCCHmacAlgSHA512; *hashLen = CC_SHA512_DIGEST_LENGTH; return 1; // kCCDigestSHA512
+    default: return 0;
+    }
+}
+
+// HKDF (RFC 5869): extract PRK = HMAC(salt, IKM), then expand OKM = T(1..N) where
+// T(i) = HMAC(PRK, T(i-1) || info || i), truncated to derivedKeyLen.
+int32_t CCDeriveKey(const struct CCKDFParameters *params, uint32_t digest, const void *keyDerivationKey, size_t keyDerivationKeyLen, void *derivedKey, size_t derivedKeyLen)
+{
+    if (!params || (!derivedKey && derivedKeyLen))
+        return kCCParamError;
+
+    CCHmacAlgorithm hmacAlg;
+    unsigned hashLen;
+    if (!mav_hkdfDigestInfo(digest, &hmacAlg, &hashLen))
+        return kCCParamError;
+
+    // HKDF-Extract (RFC 5869 §2.2): empty salt -> HashLen zero bytes.
+    unsigned char prk[CC_SHA512_DIGEST_LENGTH];
+    if (params->saltLen)
+        CCHmac(hmacAlg, params->salt, params->saltLen, keyDerivationKey, keyDerivationKeyLen, prk);
+    else {
+        unsigned char zeroSalt[CC_SHA512_DIGEST_LENGTH];
+        memset(zeroSalt, 0, hashLen);
+        CCHmac(hmacAlg, zeroSalt, hashLen, keyDerivationKey, keyDerivationKeyLen, prk);
+    }
+
+    // HKDF-Expand (RFC 5869 §2.3).
+    size_t N = (derivedKeyLen + hashLen - 1) / hashLen;
+    if (N > 255)
+        return kCCParamError;
+
+    unsigned char *input = (unsigned char *)malloc(hashLen + params->contextLen + 1);
+    if (!input)
+        return kCCMemoryFailure;
+
+    unsigned char T[CC_SHA512_DIGEST_LENGTH];
+    size_t Tlen = 0, outOffset = 0;
+    for (size_t i = 1; i <= N; ++i) {
+        size_t pos = 0;
+        if (Tlen) { memcpy(input + pos, T, Tlen); pos += Tlen; }
+        if (params->contextLen) { memcpy(input + pos, params->context, params->contextLen); pos += params->contextLen; }
+        input[pos++] = (unsigned char)i;
+        CCHmac(hmacAlg, prk, hashLen, input, pos, T);
+        Tlen = hashLen;
+        size_t remain = derivedKeyLen - outOffset;
+        size_t copyLen = hashLen < remain ? hashLen : remain;
+        memcpy((unsigned char *)derivedKey + outOffset, T, copyLen);
+        outOffset += copyLen;
+    }
+    free(input);
+    return kCCSuccess;
 }
