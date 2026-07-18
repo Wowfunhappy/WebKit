@@ -380,15 +380,53 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
 #endif
 
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: 10.9 launchd spawns XPC services with a clean environment, while modern
-    // macOS forwards the host app's; forward TZ over the ContainerEnvironmentVariables channel so
-    // the child processes render dates in the host's zone (the layout-test harness pins
-    // TZ=US/Pacific and the date-formatting expectations depend on the web process seeing it).
-    if (const char* environmentTZ = getenv("TZ")) {
-        auto containerEnvironmentVariables = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
-        xpc_dictionary_set_string(containerEnvironmentVariables.get(), "TZ", environmentTZ);
-        xpc_dictionary_set_value(bootstrapMessage.get(), "ContainerEnvironmentVariables", containerEnvironmentVariables.get());
+    // MAVERICKS_BACKPORT: modern macOS forwards the host application's environment to the XPC
+    // services it spawns; 10.9 launchd hands them a clean environment instead. Bridge that for a
+    // curated allowlist over libxpc's ContainerEnvironmentVariables channel, which the service
+    // applies via setenv at check-in (before CoreAnimation / CFNetwork / Foundation initialize,
+    // so lazily-read debug vars still take effect).
+    //
+    // TZ is functional: the child renders dates in the host's zone, and the layout-test harness
+    // pins TZ=US/Pacific. The rest are opt-in diagnostics — unset in normal use, so nothing is
+    // forwarded unless someone runs e.g. `launchctl setenv CA_DEBUG_TRANSACTIONS 1` and relaunches
+    // Safari. All were verified present in 10.9's QuartzCore/CFNetwork/Foundation binaries.
+    //
+    // Deliberately NOT forwarded: MallocStackLogging (corrupts this configuration's heap-allocator
+    // bookkeeping) and CA_ASSERT_MAIN_THREAD_TRANSACTIONS (absent from 10.9 QuartzCore). Note the
+    // key may only be set on the bootstrap message once — a second xpc_dictionary_set_value would
+    // clobber the first — so everything goes into a single dict. Extend the list as needed.
+    static constexpr const char* const forwardedHostEnvironmentVariables[] = {
+        "TZ",                              // time zone — functional, not diagnostic
+        "CA_DEBUG_TRANSACTIONS",           // backtrace CATransaction anomalies (uncommitted-on-thread-delete)
+        "CA_LOG_IMPLICIT_TRANSACTIONS",    // trace implicit transaction begin/commit
+        "CA_PRINT_TREE",                   // dump the CoreAnimation layer tree
+        // CoreAnimation visual-debug tinting — colorizes composited regions to expose overdraw,
+        // non-opaque layers, offscreen passes, and caching/copy behavior. All verified in 10.9 QuartzCore.
+        "CA_COLOR_OPAQUE",
+        "CA_COLOR_FLUSH",
+        "CA_COLOR_OFFSCREEN",
+        "CA_COLOR_CACHED",
+        "CA_COLOR_COPY",
+        "CA_COLOR_DETACHED",
+        "CA_COLOR_MATCHED",
+        "CA_COLOR_NO_WAIT",
+        "CA_COLOR_SUBPIXEL",
+        "NSZombieEnabled",                 // trap messages sent to freed objects
+        "NSDeallocateZombies",             // free zombies rather than leak them (bounds NSZombie growth)
+        "CFNETWORK_DIAGNOSTICS",           // CFNetwork request/response logging
+        "CFNETWORK_DIAGNOSTICS_LOG_FILE",  // redirect that logging to a file (avoids flooding syslog)
+        "CFNETWORK_DIAGNOSTICS_NO_SYSLOG", // and drop the syslog copy
+    };
+    auto containerEnvironmentVariables = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
+    bool forwardedAnyEnvironmentVariable = false;
+    for (auto* name : forwardedHostEnvironmentVariables) {
+        if (const char* value = getenv(name)) {
+            xpc_dictionary_set_string(containerEnvironmentVariables.get(), name, value);
+            forwardedAnyEnvironmentVariable = true;
+        }
     }
+    if (forwardedAnyEnvironmentVariable)
+        xpc_dictionary_set_value(bootstrapMessage.get(), "ContainerEnvironmentVariables", containerEnvironmentVariables.get());
 #endif
 
     CheckedPtr client = m_client;
