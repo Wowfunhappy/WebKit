@@ -112,6 +112,7 @@ void MediaSampleGStreamer::setTimestamps(const MediaTime& presentationTime, cons
     m_pts = presentationTime;
     m_dts = decodeTime;
     if (auto* buffer = gst_sample_get_buffer(m_sample.get())) {
+        // MAVERICKS_BACKPORT: toValidGstClockTime() (not upstream toGstClockTime) maps negative/out-of-range MediaTimes to GST_CLOCK_TIME_NONE — see the note above setTimestamps().
         GST_BUFFER_PTS(buffer) = toValidGstClockTime(m_pts);
         GST_BUFFER_DTS(buffer) = toValidGstClockTime(m_dts);
     }
@@ -124,6 +125,7 @@ void MediaSampleGStreamer::offsetTimestampsBy(const MediaTime& timestampOffset)
     m_pts += timestampOffset;
     m_dts += timestampOffset;
     if (auto* buffer = gst_sample_get_buffer(m_sample.get())) {
+        // MAVERICKS_BACKPORT: toValidGstClockTime() (not upstream toGstClockTime) maps negative/out-of-range MediaTimes to GST_CLOCK_TIME_NONE — see the note above setTimestamps().
         GST_BUFFER_PTS(buffer) = toValidGstClockTime(m_pts);
         GST_BUFFER_DTS(buffer) = toValidGstClockTime(m_dts);
     }

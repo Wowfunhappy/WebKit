@@ -612,6 +612,7 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     , m_pageGroup(WebProcess::singleton().webPageGroup(WTF::move(parameters.pageGroupData)))
 #if ENABLE(TILED_CA_DRAWING_AREA)
     , m_drawingAreaType(parameters.drawingAreaType)
+    // MAVERICKS_BACKPORT: restore LayerHostingMode plumbing so the WebProcess honors the UI process's compositing mode (iBooks 537 dual-LayerHostingMode fix).
     , m_layerHostingMode(parameters.layerHostingMode)
 #endif
     , m_alwaysShowsHorizontalScroller { parameters.alwaysShowsHorizontalScroller }
@@ -2225,7 +2226,6 @@ void WebPage::loadRequest(LoadParameters&& loadParameters)
         ASSERT_NOT_REACHED();
         return;
     }
-
     RefPtr localFrame = frame->coreLocalFrame() ? frame->coreLocalFrame() : frame->provisionalFrame();
     if (!localFrame) {
         ASSERT_NOT_REACHED();

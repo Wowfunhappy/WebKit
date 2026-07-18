@@ -4244,6 +4244,7 @@ void WebPageProxy::handleMouseEvent(const NativeWebMouseEvent& event)
 void WebPageProxy::dispatchMouseDidMoveOverElementAsynchronously(const NativeWebMouseEvent& event)
 {
     sendWithAsyncReply(Messages::WebPage::PerformHitTestForMouseEvent { event }, [this, protectedThis = Ref { *this }] (WebHitTestResultData&& hitTestResult, OptionSet<WebEventModifier> modifiers) {
+        // MAVERICKS_BACKPORT: renamed to the split dispatch helper; nullptr userData since this async hover path carries no injected-bundle data (#58).
         if (!isClosed())
             dispatchMouseDidMoveOverElement(WTF::move(hitTestResult), modifiers, nullptr);
     });
@@ -8646,6 +8647,7 @@ void WebPageProxy::processDidUpdateThrottleState()
 }
 
 
+// MAVERICKS_BACKPORT: frameID/userData params are now named (were anonymous in the upstream empty stub) because the body below dispatches the legacy first-layout signal to the deprecated loader client (iBooks reader-window sequencing).
 void WebPageProxy::didFirstLayoutForFrame(FrameIdentifier frameID, const UserData& userData)
 {
     // MAVERICKS_BACKPORT: dispatch the legacy first-layout signal to the deprecated loader
@@ -10082,6 +10084,7 @@ void WebPageProxy::dispatchMouseDidMoveOverElement(WebHitTestResultData&& hitTes
     m_lastMouseMoveHitTestResult = API::HitTestResult::create(hitTestResultData, this);
 #endif
 
+    // MAVERICKS_BACKPORT: forward the injected-bundle userData (hovered link URL) to the restored 4-arg WKPageUIClient.mouseDidMoveOverElement for Safari 7's status bar (#58).
     m_uiClient->mouseDidMoveOverElement(*this, hitTestResultData, modifiers, userData);
     setToolTip(hitTestResultData.tooltipText);
 }

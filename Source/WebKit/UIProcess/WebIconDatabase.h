@@ -32,6 +32,8 @@
 // populated by the icon-loading client and read back by the C API (#49).
 
 #include "APIObject.h"
+// MAVERICKS_BACKPORT: extra includes/forward-decls for the revived in-memory icon store's data
+// members (pageURL->iconURL and iconURL->bytes maps) and its API::Data / IconDatabaseClient uses (#49).
 #include <wtf/HashMap.h>
 #include <wtf/text/WTFString.h>
 
@@ -43,6 +45,8 @@ class IconDatabaseClient;
 namespace WebKit {
 
 class WebIconDatabase : public API::ObjectImpl<API::Object::Type::IconDatabase> {
+    // MAVERICKS_BACKPORT: revived member surface (upstream left this class an empty shell) — the
+    // minimal in-memory favicon store the legacy WK2 icon-database C API drives for Safari 7 (#49).
 public:
     static Ref<WebIconDatabase> create();
     ~WebIconDatabase();

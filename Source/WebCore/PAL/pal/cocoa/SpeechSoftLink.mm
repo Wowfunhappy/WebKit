@@ -32,6 +32,7 @@
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE(PAL, Speech)
 
+// MAVERICKS_BACKPORT: the Speech framework (SFSpeechRecognition* / SFTranscription* classes) is absent on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, Speech, SFSpeechRecognitionResult, PAL_EXPORT);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, Speech, SFSpeechRecognitionRequest, PAL_EXPORT);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, Speech, SFSpeechAudioBufferRecognitionRequest, PAL_EXPORT);

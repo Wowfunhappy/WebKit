@@ -28,6 +28,7 @@
 
     WebKit::UserData initializationUserData;
 
+    # MAVERICKS_BACKPORT: restored accelerated-compositing mach port serialization for Safari 7 layer hosting (field absent at base); the WebProcess uses it to set up its compositing connection.
 #if PLATFORM(COCOA)
     WTF::MachSendRight acceleratedCompositingPort;
 #endif

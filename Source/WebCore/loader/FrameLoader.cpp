@@ -2346,7 +2346,7 @@ void FrameLoader::setState(FrameState newState)
 {
     FrameState oldState = m_state;
     m_state = newState;
-
+    
     if (newState == FrameState::Provisional)
         provisionalLoadStarted();
     else if (newState == FrameState::Complete) {

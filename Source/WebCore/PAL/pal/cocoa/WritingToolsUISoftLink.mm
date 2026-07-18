@@ -32,9 +32,11 @@
 
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, WritingToolsUI, PAL_EXPORT)
 
+// MAVERICKS_BACKPORT: the WritingToolsUI framework (WTWritingTools/WTWritingToolsViewController) postdates macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, WritingToolsUI, WTWritingTools, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, WritingToolsUI, WTWritingToolsViewController, PAL_EXPORT)
 
+// MAVERICKS_BACKPORT: these WritingToolsUI text-effect classes postdate macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, WritingToolsUI, _WTTextEffectView, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, WritingToolsUI, _WTSweepTextEffect, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, WritingToolsUI, _WTReplaceTextEffect, PAL_EXPORT)

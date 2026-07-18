@@ -32,6 +32,7 @@
 
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, CoreMaterial, PAL_EXPORT)
 
+// MAVERICKS_BACKPORT: the CoreMaterial framework MTMaterialLayer is absent on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, CoreMaterial, MTMaterialLayer, PAL_EXPORT)
 
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, CoreMaterial, MTCoreMaterialRecipeNone, NSString *, PAL_EXPORT)

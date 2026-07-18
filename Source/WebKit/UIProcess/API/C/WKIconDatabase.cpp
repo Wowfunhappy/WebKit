@@ -29,6 +29,7 @@
 #include "APIData.h"
 #include "WKAPICast.h"
 #include "WebIconDatabase.h"
+// MAVERICKS_BACKPORT: revived icon-database client wrapper used by WKIconDatabaseSetIconDatabaseClient below (#49).
 #include "WebIconDatabaseClient.h"
 
 using namespace WebKit;
@@ -42,6 +43,7 @@ WKTypeID WKIconDatabaseGetTypeID()
 // notifications are delivered again (#49).
 void WKIconDatabaseSetIconDatabaseClient(WKIconDatabaseRef iconDatabaseRef, const WKIconDatabaseClientBase* client)
 {
+    // MAVERICKS_BACKPORT: forward the legacy client to the revived in-memory icon store (upstream stub did nothing) (#49).
     toImpl(iconDatabaseRef)->setClient(client ? makeUnique<WebIconDatabaseClient>(client) : nullptr);
 }
 
@@ -73,6 +75,7 @@ WKURLRef WKIconDatabaseCopyIconURLForPageURL(WKIconDatabaseRef iconDatabaseRef, 
     return toCopiedURLAPI(iconURL);
 }
 
+// MAVERICKS_BACKPORT: return raw favicon bytes from the revived in-memory store instead of the upstream nullptr stub (#49).
 WKDataRef WKIconDatabaseCopyIconDataForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
     RefPtr data = toImpl(iconDatabaseRef)->iconDataForPageURL(toWTFString(pageURL));

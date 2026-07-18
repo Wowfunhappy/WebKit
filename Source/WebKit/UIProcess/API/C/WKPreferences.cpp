@@ -1881,6 +1881,7 @@ bool WKPreferencesGetStorageAccessAPIEnabled(WKPreferencesRef)
     return true;
 }
 
+// MAVERICKS_BACKPORT: params are named (the upstream stub ignored them) because the toggle now wires through to a real preference flag (#55).
 void WKPreferencesSetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef, bool enabled)
 {
     // MAVERICKS_BACKPORT: Safari 7's global Private Browsing toggle. Backed by a real flag that drives each
@@ -1888,6 +1889,7 @@ void WKPreferencesSetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef, boo
     protect(toImpl(preferencesRef))->setPrivateBrowsingEnabled(enabled);
 }
 
+// MAVERICKS_BACKPORT: named param + real return value (the upstream stub returned false); reports Safari 7's Private Browsing flag (#55).
 bool WKPreferencesGetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef)
 {
     return toImpl(preferencesRef)->privateBrowsingEnabled();

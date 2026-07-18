@@ -1187,7 +1187,6 @@ void NetworkResourceLoader::didFailLoading(const ResourceError& error)
     bool wasServiceWorkerLoad = false;
     wasServiceWorkerLoad = !!m_serviceWorkerFetchTask;
     LOADER_RELEASE_LOG_ERROR("didFailLoading: (wasServiceWorkerLoad=%d, isTimeout=%d, isCancellation=%d, isAccessControl=%d, errorCode=%d)", wasServiceWorkerLoad, error.isTimeout(), error.isCancellation(), error.isAccessControl(), error.errorCode());
-
     UNUSED_VARIABLE(wasServiceWorkerLoad);
 
     Ref connection = m_connection;
@@ -1553,7 +1552,6 @@ void NetworkResourceLoader::continueWillSendRequest(ResourceRequest&& newRequest
 void NetworkResourceLoader::continueDidReceiveResponse()
 {
     LOADER_RELEASE_LOG("continueDidReceiveResponse: (hasCacheEntryWaitingForContinueDidReceiveResponse=%d, hasResponseCompletionHandler=%d)", !!m_cacheEntryWaitingForContinueDidReceiveResponse, !!m_responseCompletionHandler);
-
     if (m_serviceWorkerFetchTask) {
         LOADER_RELEASE_LOG("continueDidReceiveResponse: continuing with ServiceWorkerFetchTask (fetchIdentifier=%" PRIu64 ")", m_serviceWorkerFetchTask->fetchIdentifier().toUInt64());
         protect(m_serviceWorkerFetchTask)->continueDidReceiveFetchResponse();

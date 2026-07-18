@@ -32,6 +32,7 @@
 
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE(PAL, SystemStatus)
 
+// MAVERICKS_BACKPORT: the SystemStatus framework STDynamicActivityAttributionPublisher is absent on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, SystemStatus, STDynamicActivityAttributionPublisher, PAL_EXPORT);
 
 #endif

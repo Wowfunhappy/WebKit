@@ -45,9 +45,11 @@ SOFT_LINK_CONSTANT_FOR_SOURCE(PAL, UIKit, UIFontTextStyleCallout, UIFontTextStyl
 SOFT_LINK_CONSTANT_FOR_SOURCE(PAL, UIKit, UIPasteboardNameGeneral, UIPasteboardName)
 SOFT_LINK_CONSTANT_FOR_SOURCE(PAL, UIKit, UITextEffectsBeneathStatusBarWindowLevel, UIWindowLevel)
 SOFT_LINK_CLASS_FOR_SOURCE(PAL, UIKit, NSParagraphStyle)
+// MAVERICKS_BACKPORT: NSPresentationIntent (UIKit) is newer than macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(PAL, UIKit, NSPresentationIntent)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, UIKit, NSShadow, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE(PAL, UIKit, NSTextList)
+// MAVERICKS_BACKPORT: these UIKit classes are absent/newer on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(PAL, UIKit, UIAccessibilityElement)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(PAL, UIKit, UIApplication)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, UIKit, UIColor, PAL_EXPORT)

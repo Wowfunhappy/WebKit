@@ -32,6 +32,7 @@
 
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, CryptoKitPrivate, PAL_EXPORT);
 
+// MAVERICKS_BACKPORT: the CryptoKitPrivate framework RSABSSATokenBlinder is absent on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, CryptoKitPrivate, RSABSSATokenBlinder, PAL_EXPORT);
 
 #endif

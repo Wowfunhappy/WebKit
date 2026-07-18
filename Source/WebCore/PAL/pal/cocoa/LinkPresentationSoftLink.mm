@@ -30,9 +30,11 @@
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE(PAL, LinkPresentation)
 
+// MAVERICKS_BACKPORT: the LinkPresentation framework (LPLinkMetadata/LPFileMetadata) postdates macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, LinkPresentation, LPLinkMetadata, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, LinkPresentation, LPFileMetadata, PAL_EXPORT)
 
 #if !PLATFORM(APPLETV)
+// MAVERICKS_BACKPORT: LinkPresentation LPMetadataProvider postdates macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, LinkPresentation, LPMetadataProvider, PAL_EXPORT)
 #endif

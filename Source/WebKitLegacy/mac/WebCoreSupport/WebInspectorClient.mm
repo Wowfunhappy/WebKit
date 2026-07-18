@@ -41,16 +41,20 @@
 #import "WebPolicyDelegate.h"
 #import "WebQuotaManager.h"
 #import "WebSecurityOriginPrivate.h"
+// MAVERICKS_BACKPORT: WebScriptWorld standardWorld for the classic-frontend bridge user script injected below (#52/#66/#69).
 #import "WebScriptWorld.h"
 #import "WebUIDelegatePrivate.h"
 #import "WebViewInternal.h"
+// MAVERICKS_BACKPORT: WebViewPrivate declares +[WebView _addUserScriptToGroup:...] used to inject the classic-frontend bridge below.
 #import "WebViewPrivate.h"
 #import <JavaScriptCore/InspectorAgentBase.h>
 #import <SecurityInterface/SFCertificatePanel.h>
 #import <SecurityInterface/SFCertificateView.h>
 #import <WebCore/CertificateInfo.h>
+// MAVERICKS_BACKPORT: InspectorFrontendClassicBridge provides classicInspectorFrontendBridgeScriptUTF8() (classic-frontend bridge, #52/#66/#69).
 #import <WebCore/InspectorFrontendClassicBridge.h>
 #import <WebCore/InspectorFrontendClient.h>
+// MAVERICKS_BACKPORT: LegacySchemeRegistry registers inspector-resource:// as a scheme-handler (real) origin; MIMETypeRegistry types the bundle resources served by the NSURLProtocol below (#52).
 #import <WebCore/LegacySchemeRegistry.h>
 #import <WebCore/MIMETypeRegistry.h>
 #import <WebCore/LocalFrame.h>
@@ -191,6 +195,7 @@ static void ensureWebInspectorClassicFrontendRegistered()
     BOOL _destroyingInspectorView;
 }
 - (id)initWithInspectedWebView:(WebView *)inspectedWebView isUnderTest:(BOOL)isUnderTest;
+// MAVERICKS_BACKPORT: renamed from -inspectorPagePath (NSString file path) to -inspectorPageURL (NSURL) — the classic frontend now loads from the inspector-resource:// scheme, not a bundle file path.
 - (NSURL *)inspectorPageURL;
 - (NSString *)inspectorTestPagePath;
 - (WebView *)frontendWebView;
@@ -602,6 +607,7 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     if (!(self = [super initWithWindow:nil]))
         return nil;
 
+    // MAVERICKS_BACKPORT: register the inspector-resource:// NSURLProtocol + scheme (once) before the frontend WebView loads (classic-frontend backport).
     ensureWebInspectorClassicFrontendRegistered();
 
     // Keep preferences separate from the rest of the client, making sure we are using expected preference values.
@@ -640,6 +646,9 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
     _inspectedWebView = webView;
 
+    // MAVERICKS_BACKPORT: replace upstream's single file:// load with a test-vs-production split —
+    // production serves the classic frontend from the real-origin inspector-resource:// scheme
+    // (see WebInspectorResourceProtocol above); the build-tree test frontend keeps the file:// load.
     if (isUnderTest) {
         // The build-tree test frontend is the modern WebInspectorUI that matches the backend, so it
         // needs no classic-frontend bridge and loads directly (upstream shape). Its WebView is left
@@ -664,6 +673,7 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
 // MARK: -
 
+// MAVERICKS_BACKPORT: return the inspector-resource:// URL (was -inspectorPagePath returning Main.html's bundle file path) so the classic frontend loads from a real origin, not file://.
 - (NSURL *)inspectorPageURL
 {
     return [NSURL URLWithString:@"inspector-resource:///Main.html"];
@@ -847,6 +857,7 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
         // gradient/inset comes from the CSS the shared bridge user script injects (see
         // WebCore/inspector/InspectorFrontendClassicBridge.h).
         NSView *contentView = [[self window] contentView];
+        // MAVERICKS_BACKPORT (#52): host the frontend WebView in the window's frame view (NSThemeFrame) at full size instead of the content view — see the block comment above.
         NSView *frameView = [contentView superview] ?: contentView;
         [_frontendWebView setFrame:[frameView bounds]];
         [_frontendWebView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
@@ -1037,7 +1048,7 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
         return;
     }
 
-    // Allow loading of the classic frontend served from the inspector-resource:// scheme.
+    // MAVERICKS_BACKPORT: Allow loading of the classic frontend served from the inspector-resource:// scheme (was file:// + -inspectorPagePath).
     if ([[request URL].scheme caseInsensitiveCompare:WebInspectorResourceScheme] == NSOrderedSame && [[[request URL] relativePath] isEqualToString:@"/Main.html"]) {
         [listener use];
         return;

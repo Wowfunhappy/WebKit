@@ -33,15 +33,20 @@
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectors, PAL_EXPORT)
 
 #if HAVE(SECURE_ACTION_CONTEXT)
+// MAVERICKS_BACKPORT: DataDetectors DDSecureActionContext postdates macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, DataDetectors, DDSecureActionContext, PAL_EXPORT)
 #else
+// MAVERICKS_BACKPORT: DataDetectors DDActionContext postdates macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, DataDetectors, DDActionContext, PAL_EXPORT)
 #endif
+// MAVERICKS_BACKPORT: DataDetectors DDActionsManager postdates macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, DataDetectors, DDActionsManager, PAL_EXPORT)
 
 #if HAVE(DATA_DETECTORS_MAC_ACTION)
+// MAVERICKS_BACKPORT: DataDetectors DDMacAction postdates macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, DataDetectors, DDMacAction, PAL_EXPORT)
 #else
+// MAVERICKS_BACKPORT: DataDetectors DDAction postdates macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, DataDetectors, DDAction, PAL_EXPORT)
 #endif
 

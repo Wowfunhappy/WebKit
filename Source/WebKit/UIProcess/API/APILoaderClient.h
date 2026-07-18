@@ -26,6 +26,7 @@
 #pragma once
 
 #include "APIData.h"
+// MAVERICKS_BACKPORT: SameDocumentNavigationType is needed by the restored legacy didSameDocumentNavigationForFrame loader-client callback below (upstream dropped both from this client).
 #include "SameDocumentNavigationType.h"
 #include <WebCore/FrameLoaderTypes.h>
 #include <WebCore/LayoutMilestone.h>

@@ -457,6 +457,7 @@ Modules/webaudio/StereoPannerNode.cpp
 Modules/webaudio/WaveShaperDSPKernel.cpp
 Modules/webaudio/WaveShaperNode.cpp
 Modules/webaudio/WaveShaperProcessor.cpp
+// MAVERICKS_BACKPORT: build the WebAuthn AuthenticationExtensionsClientInputs/Outputs sources — WEB_AUTHN is re-enabled on this 10.9 backport (PublicKeyCredential exposed); these were not in upstream's build set.
 Modules/webauthn/AuthenticationExtensionsClientInputs.cpp
 Modules/webauthn/AuthenticationExtensionsClientOutputs.cpp
 Modules/webauthn/AuthenticatorAssertionResponse.cpp

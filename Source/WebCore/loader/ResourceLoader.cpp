@@ -700,7 +700,7 @@ void ResourceLoader::cancel(const ResourceError& error, LoadWillContinueInAnothe
     // If the load has already completed - succeeded, failed, or previously cancelled - do nothing.
     if (m_reachedTerminalState)
         return;
-
+       
     ResourceError nonNullError = error.isNull() ? cancelledError() : error;
     
     // willCancel() and didFailToLoad() both call out to clients that might do 

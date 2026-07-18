@@ -55,7 +55,7 @@ using namespace WebCore;
 #define GST_CAPS_FORMAT "{ I420, NV12, BGRx, BGRA }"
 #else
 #define GST_CAPS_FORMAT "{ BGRx, BGRA }"
-#endif
+#endif // MAVERICKS_BACKPORT: close the PLATFORM(COCOA) 4:2:0-caps override (I420/NV12 added above); upstream had a single unconditional little-endian #define here.
 #else
 #define GST_CAPS_FORMAT "{ xRGB, ARGB }"
 #endif

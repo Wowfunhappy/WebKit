@@ -68,6 +68,7 @@ SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(WebCore, GameController, GCEvent
 #endif
 
 #if HAVE(UIKIT_WITH_MOUSE_SUPPORT) && ENABLE(POINTER_LOCK)
+// MAVERICKS_BACKPORT: GameController GCMouse postdates macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(WebCore, GameController, GCMouse, WEBCORE_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(WebCore, GameController, GCMouseDidStopBeingCurrentNotification, NSString *, WEBCORE_EXPORT)
 #endif
