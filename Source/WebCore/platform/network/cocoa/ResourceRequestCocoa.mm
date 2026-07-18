@@ -74,6 +74,10 @@ ResourceRequest::ResourceRequest(ResourceRequestPlatformData&& platformData, con
         // NSURLRequest regenerates from the exact URL on next use, keeping its other fields.
         if (!platformData.m_exactURL.isNull() && platformData.m_exactURL != URL { [m_nsRequest URL] })
             setURL(URL { platformData.m_exactURL });
+        // MAVERICKS_BACKPORT: re-apply the HTTPShouldHandleCookies rider dropped by 10.9's archiver
+        // (see getResourceRequestPlatformData() and ResourceRequest.h). Without this every POST — which
+        // serializes via this platform path — decodes with allowCookies=false and loses its cookies.
+        setAllowCookies(platformData.m_shouldHandleCookies);
 #endif
         if (platformData.m_isAppInitiated)
             setIsAppInitiated(*platformData.m_isAppInitiated);
@@ -121,10 +125,12 @@ ResourceRequestPlatformData ResourceRequest::getResourceRequestPlatformData() co
     }
     ASSERT([requestToSerialize class] == [NSURLRequest class] || [requestToSerialize class] == [NSMutableURLRequest class]);
 
-    // MAVERICKS_BACKPORT: 10.9's ResourceRequestPlatformData carries an extra byte-exact URL field (see ResourceRequest.h), so the null-request early return uses the 4-arg form under !HAVE(WK_SECURE_CODING_NSURLREQUEST).
+    // MAVERICKS_BACKPORT: 10.9's ResourceRequestPlatformData carries extra byte-exact URL and
+    // HTTPShouldHandleCookies rider fields (see ResourceRequest.h), so the null-request early return
+    // fills them under !HAVE(WK_SECURE_CODING_NSURLREQUEST).
     if (!requestToSerialize) {
 #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-        return ResourceRequestPlatformData { NULL, { }, std::nullopt, std::nullopt };
+        return ResourceRequestPlatformData { NULL, { }, true, std::nullopt, std::nullopt };
 #else
         return ResourceRequestPlatformData { NULL, std::nullopt, std::nullopt };
     // MAVERICKS_BACKPORT: closes the !HAVE(WK_SECURE_CODING_NSURLREQUEST) split and the null-request early-return block above.
@@ -144,6 +150,12 @@ ResourceRequestPlatformData ResourceRequest::getResourceRequestPlatformData() co
 #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
         // MAVERICKS_BACKPORT: byte-exact URL rider for the escaping 10.9 archiver (see ResourceRequest.h).
         url(),
+        // MAVERICKS_BACKPORT: HTTPShouldHandleCookies rider — 10.9's NSURLRequest NSSecureCoding does
+        // not round-trip that flag (it decodes as NO), so carry it alongside the archived request and
+        // re-apply it on decode (see the decode ctor + ResourceRequest.h). This platform path is taken
+        // for every body-bearing request (all POSTs), so without the rider every POST reached the
+        // NetworkProcess with allowCookies=false and had its cookies stripped by the injection gate.
+        allowCookies(),
 #endif
         isAppInitiated(),
         requester(),
