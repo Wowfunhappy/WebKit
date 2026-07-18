@@ -9,6 +9,11 @@ LOG=/tmp/wk_build.log
 # Pin ccache to the in-tree cache so incremental builds share one cache regardless of the caller's
 # environment (without this, ccache falls back to ~/.ccache and the cache is split / cold).
 export CCACHE_DIR="$ROOT/WebKitBuild/ccache"
+# Enable ccache direct mode: WebKit regenerates DerivedSources headers every build with fresh
+# timestamps, tripping ccache's too-new guard and forcing the slower preprocessed path on every TU.
+# Trusting the include content-hash over mtime/ctime (and ignoring time/PCH-define macros) lets
+# direct hits engage, skipping the -E preprocess step.
+export CCACHE_SLOPPINESS="include_file_mtime,include_file_ctime,time_macros,pch_defines"
 
 # --- Polyfill (NOT in the ninja graph) -------------------------------------------------------
 # MavericksSupport/polyfill/scripts/build-polyfill.sh compiles polyfill/src into the libpolyfill*.a
