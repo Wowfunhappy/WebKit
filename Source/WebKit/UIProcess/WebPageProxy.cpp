@@ -855,6 +855,30 @@ static std::optional<API::PageConfiguration::OpenerInfo>& NODELETE openerInfoOfP
 }
 #endif
 
+// MAVERICKS_BACKPORT: Safari 7 opens auxiliary browsing contexts (window.open) through the legacy
+// V0/V1 WKPageUIClient createNewPage callback. Unlike the modern configuration-based callback, that
+// path never hands our PageConfiguration — the one createNewPage() populated with openerInfo — to the
+// client, so Safari constructs the popup's WebPageProxy from its own configuration, which carries no
+// openerInfo and therefore gives the popup no opener frame. The popup's initial about:blank document
+// then receives a fresh opaque origin instead of inheriting the opener's, so the opener is cross-origin
+// to the popup: window.opener is null and any later `popupWindow.location = url` (or DOM access) throws
+// a SecurityError. Sites that open a blank tab and then redirect it to the real target — e.g. itch.io's
+// "No thanks, just take me to the downloads" — never navigate, so their download never starts.
+//
+// createNewPage() stashes the correct openerInfo in openerInfoOfPageBeingOpened() for the synchronous
+// span in which the client constructs the popup; recover it here whenever the configuration itself
+// carries none. The modern/Cocoa path is unaffected because its configuration already carries openerInfo
+// (so the stash is never consulted), and outside a createNewPage() the stash is empty (so an ordinary
+// new page is unaffected too).
+static const std::optional<API::PageConfiguration::OpenerInfo>& openerInfoForNewPage(const API::PageConfiguration& configuration)
+{
+#if PLATFORM(MAC)
+    if (!configuration.openerInfo() && openerInfoOfPageBeingOpened())
+        return openerInfoOfPageBeingOpened();
+#endif
+    return configuration.openerInfo();
+}
+
 static HashMap<WebPageProxyIdentifier, WeakPtr<WebPageProxy>>& NODELETE webPageProxyMap()
 {
     static MainRunLoopNeverDestroyed<HashMap<WebPageProxyIdentifier, WeakPtr<WebPageProxy>>> map;
@@ -885,7 +909,9 @@ static Ref<BrowsingContextGroup> getOrCreateBrowsingContextGroup(const API::Page
 }
 
 WebPageProxy::WebPageProxy(PageClient& pageClient, WebProcessProxy& process, Ref<API::PageConfiguration>&& configuration)
-    : m_internals(makeUniqueRefWithoutRefCountedCheck<Internals>(*this, configuration->openerInfo().transform([](API::PageConfiguration::OpenerInfo info) { return info.securityOrigin; } )))
+    // MAVERICKS_BACKPORT: openerInfoForNewPage() (vs upstream's direct configuration->openerInfo()) recovers the
+    // opener for Safari 7's legacy createNewPage path — see openerInfoForNewPage's definition for the full rationale.
+    : m_internals(makeUniqueRefWithoutRefCountedCheck<Internals>(*this, openerInfoForNewPage(configuration.get()).transform([](API::PageConfiguration::OpenerInfo info) { return info.securityOrigin; } )))
     , m_identifier(Identifier::generate())
     , m_webPageID(PageIdentifier::generate())
     , m_pageClient(pageClient)
@@ -940,7 +966,7 @@ WebPageProxy::WebPageProxy(PageClient& pageClient, WebProcessProxy& process, Ref
     , m_limitsNavigationsToAppBoundDomains(m_configuration->limitsNavigationsToAppBoundDomains())
 #endif
     , m_browsingContextGroup(getOrCreateBrowsingContextGroup(m_configuration))
-    , m_openerFrameIdentifier(configuration->openerInfo() ? std::optional(configuration->openerInfo()->frameID) : std::nullopt)
+    , m_openerFrameIdentifier(openerInfoForNewPage(configuration.get()) ? std::optional(openerInfoForNewPage(configuration.get())->frameID) : std::nullopt) // MAVERICKS_BACKPORT: recover opener for Safari 7's legacy createNewPage path (see openerInfoForNewPage)
 #if HAVE(AUDIT_TOKEN)
     , m_presentingApplicationAuditToken(process.processPool().configuration().presentingApplicationProcessToken())
 #endif
@@ -953,6 +979,12 @@ WebPageProxy::WebPageProxy(PageClient& pageClient, WebProcessProxy& process, Ref
     webPageProxyMap().set(m_identifier, this);
 
 #if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: when we recovered the opener from the stash above (Safari 7's legacy
+    // createNewPage path, see openerInfoForNewPage), mirror it onto m_configuration so the state is
+    // coherent: the diagnostic below does not misfire and consumeOpenerInfo() clears the right thing.
+    if (!m_configuration->openerInfo() && openerInfoOfPageBeingOpened())
+        m_configuration->setOpenerInfo(std::optional<API::PageConfiguration::OpenerInfo> { *openerInfoOfPageBeingOpened() });
+
     if (openerInfoOfPageBeingOpened() && openerInfoOfPageBeingOpened() != m_configuration->openerInfo())
         RELEASE_LOG_FAULT(Process, "Created WebPageProxy with wrong configuration");
 #endif

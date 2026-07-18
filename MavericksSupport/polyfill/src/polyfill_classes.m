@@ -67,6 +67,17 @@ WK_PRIV_ALIAS(NSPresentationIntent);
 WK_PRIV_CLASS(SecKeyProxy) @interface SecKeyProxy : NSObject @end
 @implementation SecKeyProxy @end
 WK_PRIV_ALIAS(SecKeyProxy);
+// AuthKit's AKAuthorizationController is absent on 10.9. WebKit's SOAuthorizationCoordinator uses it
+// as a class literal (to gate Apple-first-party subframe AppSSO), so supply _OBJC_CLASS_$_ via the
+// alias. isURLFromAppleOwnedDomain: answers NO — the conservative 10.9 answer (the AppSSO path is
+// itself inert here, since AppSSO.framework is absent), matching WebKit's own no-Apple-domain branch.
+WK_PRIV_CLASS(AKAuthorizationController) @interface AKAuthorizationController : NSObject
++ (BOOL)isURLFromAppleOwnedDomain:(NSURL *)url;
+@end
+@implementation AKAuthorizationController
++ (BOOL)isURLFromAppleOwnedDomain:(NSURL *)url { return NO; }
+@end
+WK_PRIV_ALIAS(AKAuthorizationController);
 WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
     NSString *_identifier;
 }
