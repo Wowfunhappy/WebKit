@@ -2611,15 +2611,31 @@ private:
 #endif
 
 #if PLATFORM(COCOA)
-        // MAVERICKS_BACKPORT: both colorspace-serialization paths reconstruct on the
-        // read side via APIs absent on 10.9 (CGColorSpaceCreateWithName is 10.10+ for
-        // the named branch; CGColorSpaceCreateWithPropertyList is 10.12+ for the
-        // property-list branch). Emitting either tag here would produce a message the
-        // reader cannot decode, aborting the entire structured-clone deserialize. Any
-        // non-predefined colorspace therefore degrades to sRGB so the message stays
-        // decodable.
-        write(DestinationColorSpaceSRGBTag);
-        return;
+        RetainPtr colorSpace = destinationColorSpace.platformColorSpace();
+
+        if (RetainPtr name = CGColorSpaceGetName(colorSpace.get())) {
+            auto data = adoptCF(CFStringCreateExternalRepresentation(nullptr, name.get(), kCFStringEncodingUTF8, 0));
+            if (!data) {
+                write(DestinationColorSpaceSRGBTag);
+                return;
+            }
+
+            write(DestinationColorSpaceCGColorSpaceNameTag);
+            write(data);
+            return;
+        }
+
+        if (auto propertyList = adoptCF(CGColorSpaceCopyPropertyList(colorSpace.get()))) {
+            auto data = adoptCF(CFPropertyListCreateData(nullptr, propertyList.get(), kCFPropertyListBinaryFormat_v1_0, 0, nullptr));
+            if (!data) {
+                write(DestinationColorSpaceSRGBTag);
+                return;
+            }
+
+            write(DestinationColorSpaceCGColorSpacePropertyListTag);
+            write(data);
+            return;
+        }
 #endif
 
         ASSERT_NOT_REACHED();
@@ -4131,10 +4147,16 @@ private:
             if (!read(data))
                 return false;
 
-            // MAVERICKS_BACKPORT: CGColorSpaceCreateWithPropertyList is runtime-absent
-            // on 10.9 (10.12+), so a serialized property-list colorspace cannot be
-            // reconstructed; fail the read (the value degrades to sRGB upstream).
-            return false;
+            auto propertyList = adoptCF(CFPropertyListCreateWithData(nullptr, data.get(), kCFPropertyListImmutable, nullptr, nullptr));
+            if (!propertyList)
+                return false;
+
+            auto colorSpace = adoptCF(CGColorSpaceCreateWithPropertyList(propertyList.get()));
+            if (!colorSpace)
+                return false;
+
+            destinationColorSpace = DestinationColorSpace(colorSpace.get());
+            return true;
         }
 #endif
         }

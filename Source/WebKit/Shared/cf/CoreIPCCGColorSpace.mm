@@ -37,37 +37,42 @@ CGColorSpaceSerialization CoreIPCCGColorSpace::serializableColorSpace(CGColorSpa
     if (auto colorSpace = WebCore::colorSpaceForCGColorSpace(cgColorSpace))
         return *colorSpace;
 
-    // MAVERICKS_BACKPORT: on 10.9, colorSpaceForCGColorSpace handles the common cases (sRGB etc.)
-    // and the extended color space APIs (CGColorSpaceGetName, extended property list
-    // keys) don't exist. Just match known spaces and fall back to sRGB.
-    // MAVERICKS_BACKPORT: CGColorSpaceGetName is 10.12+ (absent on 10.9, weak-imported -> calling it
-    // crashes). Gate on the DEPLOYMENT TARGET (the #97 model), not the SDK; on 10.9 fall through to the
-    // CGColorSpaceCopyPropertyList (ICC) path below, which preserves the color space (better than sRGB).
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200
     if (RetainPtr<CFStringRef> name = CGColorSpaceGetName(cgColorSpace))
         return WTF::move(name);
-#endif // MAVERICKS_BACKPORT: CGColorSpaceGetName is 10.12+; absent on 10.9.
 
     if (auto propertyList = adoptCF(CGColorSpaceCopyPropertyList(cgColorSpace))) {
         if (auto data = dynamic_cf_cast<CFDataRef>(propertyList.get()))
             return ICCData { makeVector(data), ExtendedRangeDerivative::kNone };
-        // MAVERICKS_BACKPORT: the CFDictionary property-list cases (extended-range ICC derivatives, indexed
-        // color tables) use 10.12+ keys/derivative property lists; omitted on 10.9, falling through to sRGB.
-    }
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     // FIXME: This should be removed once we can prove only non-null cgColorSpaces.
-// (end MAVERICKS_BACKPORT restored block)
+        if (RetainPtr dictionary = dynamic_cf_cast<CFDictionaryRef>(propertyList.get())) {
+            if (RetainPtr data = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(dictionary.get(), kCGColorSpaceICCData))) {
+                ICCData iccdata;
+                iccdata.data = makeVector(data.get());
+                iccdata.derivative = ExtendedRangeDerivative::kExtendedRange;
+                if (CFDictionaryContainsKey(dictionary.get(), kCGColorSpaceDisplayReferredDerivative))
+                    iccdata.derivative = ExtendedRangeDerivative::kExtendedRangeDisplayReferredDerivative;
+                if (CFDictionaryContainsKey(dictionary.get(), kCGColorSpaceSceneReferredDerivative))
+                    iccdata.derivative = ExtendedRangeDerivative::kExtendedRangeSceneReferredDerivative;
+                return iccdata;
+            }
+
+            if (RetainPtr table = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(dictionary.get(), kCGIndexedColorTableKey))) {
+                int8_t value;
+                RetainPtr lastIndex = dynamic_cf_cast<CFNumberRef>(CFDictionaryGetValue(dictionary.get(), kCGLastIndexKey));
+                if (lastIndex) {
+                    CFNumberGetValue(lastIndex.get(), kCFNumberSInt8Type, &value);
+                    RetainPtr colorSpace = CGColorSpaceGetBaseColorSpace(cgColorSpace);
+                    return IndexedColorSpace { value, makeVector(table.get()), Box<CoreIPCCGColorSpace>::create(serializableColorSpace(colorSpace.get())) };
+                }
+            }
+        }
+    }
+    // FIXME: This should be removed once we can prove only non-null cgColorSpaces.
     return WebCore::ColorSpace::SRGB;
 }
 
 CoreIPCCGColorSpace::CoreIPCCGColorSpace(CGColorSpaceRef cgColorSpace)
-// MAVERICKS_BACKPORT: when built against a pre-10.12 SDK the serialization types are unavailable; default to sRGB.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
     : m_cgColorSpace(serializableColorSpace(cgColorSpace))
-#else // MAVERICKS_BACKPORT: pre-10.12 SDK has no serializable color space path; use sRGB.
-    : m_cgColorSpace(WebCore::ColorSpace::SRGB)
-#endif
 {
 }
 
@@ -85,14 +90,35 @@ RetainPtr<CGColorSpaceRef> CoreIPCCGColorSpace::toCF() const
     [](RetainPtr<CFStringRef> name) -> RetainPtr<CGColorSpaceRef> {
         return adoptCF(CGColorSpaceCreateWithName(name.get()));
     },
-    // MAVERICKS_BACKPORT: ICC property-list color spaces are never serialized on 10.9 (CGColorSpaceCreateWithPropertyList absent); fall back to sRGB.
-    [](const ICCData&) -> RetainPtr<CGColorSpaceRef> {
-        // CGColorSpaceCreateWithPropertyList not available on 10.9
-        return adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
+    [](const ICCData& iccdata) -> RetainPtr<CGColorSpaceRef> {
+        if (iccdata.derivative == ExtendedRangeDerivative::kNone)
+            return adoptCF(CGColorSpaceCreateWithPropertyList(toCFData(iccdata.data).get()));
+
+        const void* keys[] = { kCGColorSpaceICCData, kCGColorSpaceExtendedRange, iccdata.derivative == ExtendedRangeDerivative::kExtendedRangeDisplayReferredDerivative ? kCGColorSpaceDisplayReferredDerivative : kCGColorSpaceSceneReferredDerivative };
+        RetainPtr data = toCFData(iccdata.data);
+        const void* vals[] = { data.get(), kCFBooleanTrue, kCFBooleanTrue };
+        RetainPtr propertyList = adoptCF(CFDictionaryCreate(NULL,
+            (const void **)keys,
+            (const void **)vals,
+            iccdata.derivative == ExtendedRangeDerivative::kExtendedRange ? 2 : 3,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks));
+        return adoptCF(CGColorSpaceCreateWithPropertyList(propertyList.get()));
     },
-    // MAVERICKS_BACKPORT: indexed color spaces are never serialized on 10.9 (CGColorSpaceCreateWithPropertyList absent); fall back to sRGB.
-    [](const IndexedColorSpace&) -> RetainPtr<CGColorSpaceRef> {
-        return adoptCF(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
+    [](const IndexedColorSpace& colorSpace) -> RetainPtr<CGColorSpaceRef> {
+        RetainPtr innerColorSpace = colorSpace.colorSpace->toCF();
+        RetainPtr innerPropertyList = adoptCF(CGColorSpaceCopyPropertyList(innerColorSpace.get()));
+        RetainPtr lastIndex = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt8Type, &colorSpace.index));
+        RetainPtr table = adoptCF(CGColorSpaceCreateWithPropertyList(toCFData(colorSpace.table).get()));
+        const void* keys[] = { kCGIndexedBaseColorSpaceKey, kCGLastIndexKey, kCGIndexedColorTableKey };
+        const void* vals[] = { innerPropertyList.get(), lastIndex.get(), table.get() };
+        RetainPtr propertyList = adoptCF(CFDictionaryCreate(NULL,
+            (const void **)keys,
+            (const void **)vals,
+            3,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks));
+        return adoptCF(CGColorSpaceCreateWithPropertyList(propertyList.get()));
     });
     if (!colorSpace) [[unlikely]]
         return nullptr;

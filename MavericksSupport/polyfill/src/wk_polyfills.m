@@ -789,4 +789,22 @@ WK_POLYFILL_ALIAS("_WKWebExtensionDeclarativeNetRequestRule", "priority", "wk_pr
 @end
 WK_POLYFILL_SEL("addCommitHandler:forPhase:", "wk_addCommitHandler:forPhase:");
 
+// -[CASpringAnimation setInitialVelocity:] (the property is public 10.11+, absent on 10.9). 10.9 ships a
+// fully-functional private CASpringAnimation (mass/stiffness/damping/velocity settable + the internal
+// _copyRenderAnimationForLayer:/_timeFunction: spring machinery) whose pre-10.11 name for the same
+// concept is -velocity/-setVelocity:. Forward the modern setter to it (via KVC on "velocity", verified
+// settable on-host) so PlatformCAAnimation*'s upstream `.initialVelocity = ...` works and those sources
+// revert to pristine. Scoped to WebKit call sites via selref-scope, so a host app's
+// respondsToSelector:@selector(setInitialVelocity:) still reflects 10.9's real (absent) answer.
+@interface CASpringAnimation (WKPolyfillScope)
+- (void)wk_setInitialVelocity:(CGFloat)velocity;
+@end
+@implementation CASpringAnimation (WKPolyfillScope)
+- (void)wk_setInitialVelocity:(CGFloat)velocity
+{
+    [self setValue:@(velocity) forKey:@"velocity"];
+}
+@end
+WK_POLYFILL_SEL("setInitialVelocity:", "wk_setInitialVelocity:");
+
 #pragma clang diagnostic pop

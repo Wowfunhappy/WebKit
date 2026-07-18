@@ -48,12 +48,6 @@ static MonotonicTime mediaTimeToCurrentTime(CFTimeInterval t)
 
 static NSString * const WKExplicitBeginTimeFlag = @"WKPlatformCAAnimationExplicitBeginTimeFlag";
 
-// MAVERICKS_BACKPORT: the CAAnimationDelegate formal protocol is 10.12+; forward-declare it on older SDKs so WKAnimationDelegate can declare conformance.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED < 101200
-@protocol CAAnimationDelegate <NSObject>
-@end
-#endif
-
 @interface WKAnimationDelegate () <CAAnimationDelegate>
 @end
 
@@ -560,10 +554,6 @@ static RetainPtr<CAAnimation> createAnimation(CALayer *layer, RemoteLayerTreeHos
         break;
     }
     case PlatformCAAnimation::AnimationType::Spring: {
-// MAVERICKS_BACKPORT: CASpringAnimation is 10.11+. Gate on the DEPLOYMENT TARGET, not the SDK — with the
-// modern SDK __MAC_OS_X_VERSION_MAX_ALLOWED is always true, so on 10.9 the CASpringAnimation class is nil
-// and the animation is silently dropped; the CABasicAnimation #else keeps the animation working.
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101100
         RetainPtr springAnimation = [CASpringAnimation animationWithKeyPath:properties.keyPath.createNSString().get()];
 
         if (properties.keyValues.size() > 1) {
@@ -582,15 +572,6 @@ static RetainPtr<CAAnimation> createAnimation(CALayer *layer, RemoteLayerTreeHos
             }
         }
         caAnimation = WTF::move(springAnimation);
-// MAVERICKS_BACKPORT: deployment-target < 10.11 has no CASpringAnimation; fall back to CABasicAnimation.
-#else
-        // CASpringAnimation is not available before macOS 10.11; fall back to basic animation.
-        caAnimation = [CABasicAnimation animationWithKeyPath:properties.keyPath.createNSString().get()];
-        if (properties.keyValues.size() > 1) {
-            [caAnimation setFromValue:animationValueFromKeyframeValue(properties.keyValues[0]).get()];
-            [caAnimation setToValue:animationValueFromKeyframeValue(properties.keyValues[1]).get()];
-        }
-#endif
         break;
     }
     }

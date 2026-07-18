@@ -328,9 +328,13 @@ NSString * const NSTouchBarWillEnterCustomization = @"NSTouchBarWillEnterCustomi
 
 #pragma mark - CGColorSpace polyfills
 
-/* CGColorSpaceGetName (10.12+) */
+/* CGColorSpaceGetName (10.12+): no 10.9 symbol, but CGColorSpaceCopyName IS present on 10.9 and
+   returns the same name (verified on-host: sRGB -> "kCGColorSpaceSRGB"). Forward to it + autorelease
+   to match the +0 "get" ownership. (The old return-NULL was a false-absent premise.) */
+extern CFStringRef CGColorSpaceCopyName(CGColorSpaceRef);
 CFStringRef CGColorSpaceGetName(CGColorSpaceRef cs) {
-    return NULL;
+    CFStringRef name = CGColorSpaceCopyName(cs);
+    return name ? (CFStringRef)CFAutorelease(name) : NULL;
 }
 
 
