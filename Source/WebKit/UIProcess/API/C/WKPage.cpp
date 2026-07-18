@@ -2369,8 +2369,21 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
 #if ENABLE(POINTER_LOCK)
         void requestPointerLock(WebPageProxy* page, CompletionHandler<void(bool)>&& completionHandler) final
         {
-            if (!m_client.requestPointerLock)
+            if (!m_client.requestPointerLock) {
+                // MAVERICKS_BACKPORT: Pointer Lock's UI-client opt-in is a real app-level permission
+                // decision — upstream (and modern Safari's WKUIDelegate) deny when the embedder does
+                // not implement it, so the generic default below stays deny. But Safari 7's frozen
+                // WKPageUIClient predates this callback and cannot be recompiled to wire it up, so on
+                // that specific host Pointer Lock (WebGL games, 3D viewers) is permanently unusable
+                // (WrongDocumentError "requires the window to have focus"). Grant it on behalf of the
+                // frozen Safari host ONLY — every other non-opting C-API embedder keeps upstream's
+                // deny. The grant is still bounded by WebPageProxy::requestPointerLock's visible +
+                // focused gates and WebCore PointerLockController's user-gesture/sandbox checks (plus
+                // Esc-to-exit), which limit the abuse surface the opt-in otherwise guards.
+                if (WTF::MacApplication::isSafari())
+                    return completionHandler(true);
                 return completionHandler(false);
+            }
 
             Ref listener = API::CompletionListener::create([completionHandler = WTF::move(completionHandler)] (WKTypeRef) mutable { completionHandler(true); });
             m_client.requestPointerLock(toAPI(page), toAPI(listener.ptr()), m_client.base.clientInfo);
