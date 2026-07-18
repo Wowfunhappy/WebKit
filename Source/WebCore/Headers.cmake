@@ -1688,6 +1688,7 @@ set(WebCore_PRIVATE_FRAMEWORK_HEADERS
     inspector/InspectorBackendClient.h
     inspector/InspectorDebuggableType.h
     inspector/InspectorFrontendAPIDispatcher.h
+    # MAVERICKS_BACKPORT: private framework header for the classic (legacy) inspector frontend bridge added on this backport.
     inspector/InspectorFrontendClassicBridge.h
     inspector/InspectorFrontendClient.h
     inspector/InspectorFrontendClientLocal.h

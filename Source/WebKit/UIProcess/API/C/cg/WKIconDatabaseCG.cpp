@@ -12,7 +12,7 @@
  *
  * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * THE IMPLIED WARRANTIES OF MERCHANTAwBILITY AND FITNESS FOR A PARTICULAR
  * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
  * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
@@ -26,13 +26,16 @@
 #include "config.h"
 #include "WKIconDatabaseCG.h"
 
+// MAVERICKS_BACKPORT: APIData for the raw favicon bytes read out of the revived in-memory icon store (#49).
 #include "APIData.h"
 #include "WKAPICast.h"
 #include "WKSharedAPICast.h"
+// MAVERICKS_BACKPORT: WebIconDatabase + CoreGraphics/ImageIO for decoding the stored favicon bytes to a CGImage (#49).
 #include "WebIconDatabase.h"
 #include <CoreGraphics/CoreGraphics.h>
 #include <ImageIO/ImageIO.h>
 #include <WebCore/Image.h>
+// MAVERICKS_BACKPORT: RetainPtr for the CFData/CGImageSource handles used in the CGImage decode path below (#49).
 #include <wtf/RetainPtr.h>
 
 using namespace WebKit;
@@ -42,6 +45,7 @@ using namespace WebKit;
 // it is autoreleased (#49).
 CGImageRef WKIconDatabaseTryGetCGImageForURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL, WKSize)
 {
+    // MAVERICKS_BACKPORT: decode the stored favicon bytes into a CGImage instead of the upstream nullptr stub (#49).
     RefPtr data = toImpl(iconDatabaseRef)->iconDataForPageURL(toWTFString(pageURL));
     if (!data)
         return nullptr;

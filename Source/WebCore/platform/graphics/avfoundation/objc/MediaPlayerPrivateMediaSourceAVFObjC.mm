@@ -156,9 +156,8 @@ private:
 
 void MediaPlayerPrivateMediaSourceAVFObjC::registerMediaEngine(MediaEngineRegistrar registrar)
 {
-    if (!isAvailable()) {
+    if (!isAvailable())
         return;
-    }
 
     ASSERT(AVAssetMIMETypeCache::singleton().isAvailable());
 

@@ -33,10 +33,12 @@
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectorsUI, PAL_EXPORT)
 
 #if HAVE(LINK_PREVIEW) && USE(UICONTEXTMENU)
+// MAVERICKS_BACKPORT: DataDetectorsUI DDContextMenuAction/DDContextMenuConfiguration are absent on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, DataDetectorsUI, DDContextMenuAction, PAL_EXPORT);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, DataDetectorsUI, DDContextMenuConfiguration, PAL_EXPORT);
 #endif
 
+// MAVERICKS_BACKPORT: DataDetectorsUI DDDetectionController is absent on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, DataDetectorsUI, DDDetectionController, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectorsUI, kDataDetectorsLeadingText, const NSString *, PAL_EXPORT)
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, DataDetectorsUI, kDataDetectorsReferenceDateKey, const NSString *, PAL_EXPORT)

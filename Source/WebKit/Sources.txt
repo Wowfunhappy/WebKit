@@ -466,6 +466,7 @@ UIProcess/WebFrameProxy.cpp
 UIProcess/WebFullScreenManagerProxy.cpp
 UIProcess/WebGeolocationManagerProxy.cpp
 UIProcess/WebGeolocationProvider.cpp
+// MAVERICKS_BACKPORT: revived legacy WK2 icon-database source for Safari 7 favicons (#49); removed upstream.
 UIProcess/WebIconDatabase.cpp
 UIProcess/WebLockRegistryProxy.cpp
 UIProcess/WebNavigationState.cpp
@@ -659,6 +660,7 @@ UIProcess/Notifications/WebNotificationProvider.cpp
 UIProcess/UserContent/WebScriptMessageHandler.cpp
 UIProcess/UserContent/WebUserContentControllerProxy.cpp
 
+// MAVERICKS_BACKPORT: re-added WebAuthentication/FIDO CTAP driver sources (WebAuthn re-enabled for this backport); trimmed from upstream's list.
 UIProcess/WebAuthentication/fido/CtapAuthenticator.cpp
 UIProcess/WebAuthentication/fido/CtapCcidDriver.cpp
 UIProcess/WebAuthentication/fido/CtapHidDriver.cpp
@@ -671,11 +673,13 @@ UIProcess/WebAuthentication/Mock/MockAuthenticatorManager.cpp
 UIProcess/WebAuthentication/Mock/MockHidConnection.cpp
 UIProcess/WebAuthentication/Mock/MockHidService.cpp
 
+// MAVERICKS_BACKPORT: re-added WebAuthentication AuthenticatorManager source (WebAuthn re-enabled for this backport); trimmed from upstream's list.
 UIProcess/WebAuthentication/AuthenticatorManager.cpp
 UIProcess/WebAuthentication/AuthenticatorTransportService.cpp
 UIProcess/WebAuthentication/Authenticator.cpp
 UIProcess/WebAuthentication/WebAuthenticatorCoordinatorProxy.cpp
 UIProcess/WebAuthentication/WebAuthenticationRequestData.cpp
+// MAVERICKS_BACKPORT: re-added WebAuthentication Virtual-authenticator sources (WebAuthn re-enabled for this backport); trimmed from upstream's list.
 UIProcess/WebAuthentication/Virtual/VirtualAuthenticatorManager.cpp
 UIProcess/WebAuthentication/Virtual/VirtualHidConnection.cpp
 

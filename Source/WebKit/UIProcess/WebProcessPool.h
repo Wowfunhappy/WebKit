@@ -128,7 +128,7 @@ class WebAutomationSession;
 class WebBackForwardCache;
 class WebCompiledContentRuleList;
 class WebContextSupplement;
-class WebIconDatabase;
+class WebIconDatabase; // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49)
 class WebPageGroup;
 class WebPageProxy;
 class WebProcessCache;

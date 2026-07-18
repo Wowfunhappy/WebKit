@@ -143,11 +143,12 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
         return;
     tlsWKWVCommands->append(WebCore::KeypressCommand(String::fromLatin1(sel_getName(selector))));
 }
-// NSView only vends an NSTextInputContext (needed by interpretKeyEvents:) when the view
+// MAVERICKS_BACKPORT: NSView only vends an NSTextInputContext (needed by interpretKeyEvents:) when the view
 // conforms to NSTextInputClient. Without this, -inputContext is nil and typing collects no
-// commands. WKView does the same (WKView.mm).
+// commands. WKView does the same (WKView.mm). Upstream WKWebView has no such override.
 - (BOOL)conformsToProtocol:(Protocol *)protocol
 {
+    // MAVERICKS_BACKPORT: report NSTextInputClient conformance so AppKit provides an input context.
     if (protocol == @protocol(NSTextInputClient)) return YES;
     return [super conformsToProtocol:protocol];
 }
@@ -162,27 +163,29 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
 // to AppKit, so app menu shortcuts (and the Edit-menu actions above) still fire.
 - (BOOL)performKeyEquivalent:(NSEvent *)event
 {
+    // MAVERICKS_BACKPORT: page-first key-equivalent handling (see method comment above); upstream WKWebView has no such override.
     WebKit::WebViewImpl *impl = self._impl;
     if (!impl || [event type] != NSEventTypeKeyDown)
         return [super performKeyEquivalent:event];
 
-    // A nested event loop during dispatch can release the current event; keep it alive.
+    // MAVERICKS_BACKPORT: A nested event loop during dispatch can release the current event; keep it alive.
     retainPtr(event).autorelease();
 
-    // We get Esc here after Esc or Cmd+period gets transformed to a cancelOperation: command;
+    // MAVERICKS_BACKPORT: We get Esc here after Esc or Cmd+period gets transformed to a cancelOperation: command;
     // don't interpret it again (avoids re-entrancy / infinite loops), matching WebViewImpl.
     if ([[event charactersIgnoringModifiers] isEqualToString:@"\e"] && !([event modifierFlags] & NSEventModifierFlagDeviceIndependentFlagsMask))
         return [super performKeyEquivalent:event];
 
-    // The page already saw this event; it is being re-dispatched to AppKit for the menus.
+    // MAVERICKS_BACKPORT: The page already saw this event; it is being re-dispatched to AppKit for the menus.
     if (impl->keyDownEventBeingResent())
         return [super performKeyEquivalent:event];
 
-    // Only Cmd-modified keys are menu key equivalents on this path; anything else keeps
+    // MAVERICKS_BACKPORT: Only Cmd-modified keys are menu key equivalents on this path; anything else keeps
     // flowing through keyDown:.
     if (!([event modifierFlags] & NSCommandKeyMask))
         return [super performKeyEquivalent:event];
 
+    // MAVERICKS_BACKPORT: deliver the key equivalent to the page when the web view is first responder.
     if ([[self window] firstResponder] == self) {
         WTF::Vector<WebCore::KeypressCommand> commands;
         WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
@@ -190,6 +193,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr
         return YES;
     }
 
+    // MAVERICKS_BACKPORT: unhandled key equivalents fall back to AppKit menu dispatch.
     return [super performKeyEquivalent:event];
 }
 

@@ -2106,6 +2106,7 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
             m_client.setStatusText(toAPI(page), toAPI(text.impl()), m_client.base.clientInfo);
         }
 
+        // MAVERICKS_BACKPORT: restored 4-arg signature (added API::Object* userData) so the WKPageUIClient hover callback receives the injected-bundle data Safari 7's status bar needs (#58).
         void mouseDidMoveOverElement(WebPageProxy& page, const WebHitTestResultData& data, OptionSet<WebKit::WebEventModifier> modifiers, API::Object* userData) final
         {
             if (!m_client.mouseDidMoveOverElement && !m_client.mouseDidMoveOverElement_deprecatedForUseWithV0)
@@ -2122,6 +2123,7 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
             }
 
             Ref apiHitTestResult = API::HitTestResult::create(data, &page);
+            // MAVERICKS_BACKPORT: pass userData (hovered link URL) to the V1+ WKPageUIClient callback too (was nullptr upstream) (#58).
             m_client.mouseDidMoveOverElement(toAPI(&page), toAPI(apiHitTestResult.ptr()), toAPI(modifiers), toAPI(userData), m_client.base.clientInfo);
         }
 
@@ -2383,7 +2385,7 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
                 if (WTF::MacApplication::isSafari())
                     return completionHandler(true);
                 return completionHandler(false);
-            }
+            } // MAVERICKS_BACKPORT: closes the Safari-7 pointer-lock grant block above (#64).
 
             Ref listener = API::CompletionListener::create([completionHandler = WTF::move(completionHandler)] (WKTypeRef) mutable { completionHandler(true); });
             m_client.requestPointerLock(toAPI(page), toAPI(listener.ptr()), m_client.base.clientInfo);

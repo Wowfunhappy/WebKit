@@ -40,6 +40,7 @@ SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AppSSO, SOAuthorization, PA
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AppSSO, SOAuthorization, PAL_EXPORT);
 #endif
 
+// MAVERICKS_BACKPORT: AppSSO SOAuthorizationHints postdates macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AppSSO, SOAuthorizationHints, PAL_EXPORT);
 
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, AppSSO, SOAuthorizationOptionUserActionInitiated, NSString*, PAL_EXPORT);
@@ -52,6 +53,7 @@ SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, AppSSO, SOErrorDomain, NSErrorDom
 
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, AppSSOCore, PAL_EXPORT);
 
+// MAVERICKS_BACKPORT: the AppSSOCore framework SOAuthorizationHintsCore postdates macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AppSSOCore, SOAuthorizationHintsCore, PAL_EXPORT);
 
 #endif

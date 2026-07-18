@@ -30,6 +30,7 @@
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE(WebCore, CoreHaptics)
 
+// MAVERICKS_BACKPORT: the CoreHaptics framework (CHHapticEngine/CHHapticPattern) is absent on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebCore, CoreHaptics, CHHapticEngine)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebCore, CoreHaptics, CHHapticPattern)
 

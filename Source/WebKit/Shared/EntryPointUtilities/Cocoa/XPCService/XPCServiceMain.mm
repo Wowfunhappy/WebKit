@@ -310,6 +310,10 @@ void XPCServiceEventHandler(xpc_connection_t peer)
 
 int XPCServiceMain(int, const char**)
 {
+    // MAVERICKS_BACKPORT: initialize WTF/main-thread here (see below) and skip the 10.12+ xpc_copy_bootstrap.
+    // Upstream instead started with:
+    //     // FIXME: This is a false positive. <rdar://164843889>
+    //     SUPPRESS_RETAINPTR_CTOR_ADOPT auto bootstrap = adoptOSObject(xpc_copy_bootstrap());
     // Initialize WTF and main thread on the ACTUAL main thread (before xpc_main).
     // This is critical because xpc_main's event handlers run on background threads,
     // but RunLoop::mainSingleton() must reference the main thread's run loop

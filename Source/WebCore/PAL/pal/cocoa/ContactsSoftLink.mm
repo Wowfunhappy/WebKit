@@ -31,6 +31,7 @@
 #import <wtf/SoftLinking.h>
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, Contacts, PAL_EXPORT)
+// MAVERICKS_BACKPORT: the Contacts framework (CNContact/CNLabeledValue/CNPhoneNumber/CNPostalAddress/CNMutableContact/CNMutablePostalAddress) is absent on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, Contacts, CNContact, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, Contacts, CNLabeledValue, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, Contacts, CNPhoneNumber, PAL_EXPORT)

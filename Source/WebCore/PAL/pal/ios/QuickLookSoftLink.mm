@@ -31,6 +31,7 @@
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE(PAL, QuickLook)
 
+// MAVERICKS_BACKPORT: QuickLook QLItem/QLPreviewController/QLPreviewConverter postdate macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, QuickLook, QLItem, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, QuickLook, QLPreviewController, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(PAL, QuickLook, QLPreviewConverter)

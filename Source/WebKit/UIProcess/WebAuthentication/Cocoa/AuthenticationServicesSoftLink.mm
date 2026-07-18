@@ -29,12 +29,15 @@
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE(WebKit, AuthenticationServices);
 
+// MAVERICKS_BACKPORT: these AuthenticationServices web-authn classes are absent/newer on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServices, ASAuthorizationController);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServices, ASAuthorizationPlatformPublicKeyCredentialProvider);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServices, ASAuthorizationSecurityKeyPublicKeyCredentialProvider);
 #if HAVE(WEB_AUTHN_PUBLIC_KEY_CREDENTIAL_MANAGER)
+// MAVERICKS_BACKPORT: AuthenticationServices ASAuthorizationWebBrowserPublicKeyCredentialManager is absent/newer on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServices, ASAuthorizationWebBrowserPublicKeyCredentialManager);
 #endif
+// MAVERICKS_BACKPORT: these AuthenticationServices web-authn classes are absent/newer on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServices, ASPublicKeyCredentialClientData);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServices, ASAuthorizationPlatformPublicKeyCredentialRegistration);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServices, ASAuthorizationSecurityKeyPublicKeyCredentialRegistration);
@@ -47,6 +50,7 @@ SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServices, ASAuthorizat
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServices, ASAuthorizationPublicKeyCredentialLargeBlobRegistrationInput);
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, AuthenticationServices, ASAuthorizationErrorDomain, NSErrorDomain);
 #if HAVE(WEB_AUTHN_PRF_API)
+// MAVERICKS_BACKPORT: these AuthenticationServices PRF web-authn classes are absent/newer on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServices, ASAuthorizationPublicKeyCredentialPRFRegistrationInput);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServices, ASAuthorizationPublicKeyCredentialPRFAssertionInputValues);
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, AuthenticationServices, ASAuthorizationPublicKeyCredentialPRFAssertionInput);

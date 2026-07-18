@@ -1370,7 +1370,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         // use it to bridge the CFHTTPCookieStorage we already have.
         cookieStorage = adoptNS([[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:storage.get()]);
         configuration.get().HTTPCookieStorage = cookieStorage.get();
-    } else {
+    } else { // MAVERICKS_BACKPORT: braced to hold the 10.9 explicit-cookie-storage lines below (github XHR HTTP 400 fix)
         cookieStorage = storageSession->nsCookieStorage();
         // MAVERICKS_BACKPORT: on 10.9, NSURLSession does not pick up the session's cookie storage for
         // outgoing requests unless it is set explicitly on the configuration — without this the else
@@ -1862,7 +1862,7 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
     // installed on the NSURLSession class cluster by WebSocketPolyfill_109.mm (WK_POLYFILL_SEL/_ADD),
     // which returns a WKWebSocketStream. Upstream call site is otherwise unchanged.
     RetainPtr task = [sessionSet->sessionWithCredentialStorage->session webSocketTaskWithRequest:nsRequest.get()];
-
+    
     // Although the WebSocket protocol allows full 64-bit lengths, Chrome and Firefox limit the length to 2^63 - 1.
     // Use NSIntegerMax instead of 2^63 - 1 for 32-bit systems.
     task.get().maximumMessageSize = NSIntegerMax;

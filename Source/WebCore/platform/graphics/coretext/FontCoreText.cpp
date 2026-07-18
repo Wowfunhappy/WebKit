@@ -226,7 +226,6 @@ void Font::platformInit()
     m_fontMetrics.setLineGap(lineGap);
     m_fontMetrics.setXHeight(xHeight);
     m_fontMetrics.setLineSpacing(lineSpacing);
-
     m_fontMetrics.setUnderlinePosition(-CTFontGetUnderlinePosition(ctFont.get()));
     m_fontMetrics.setUnderlineThickness(CTFontGetUnderlineThickness(ctFont.get()));
 }

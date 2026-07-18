@@ -45,7 +45,7 @@
 #include "WKWebsiteDataStoreRef.h"
 #include "WebContextInjectedBundleClient.h"
 #include "WebFrameProxy.h"
-#include "WebIconDatabase.h"
+#include "WebIconDatabase.h" // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49)
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
 #include <WebCore/GamepadProvider.h>
@@ -463,7 +463,7 @@ void WKContextStopMemorySampler(WKContextRef contextRef)
 // icon-loading client to its pages, so favicons actually load for Safari 7 (#49).
 void WKContextSetIconDatabasePath(WKContextRef contextRef, WKStringRef pathRef)
 {
-    WebKit::toImpl(contextRef)->setIconDatabasePath(WebKit::toWTFString(pathRef));
+    WebKit::toImpl(contextRef)->setIconDatabasePath(WebKit::toWTFString(pathRef)); // MAVERICKS_BACKPORT: real body (was an empty stub upstream) enabling Safari 7 favicons (#49)
 }
 
 void WKContextAllowSpecificHTTPSCertificateForHost(WKContextRef, WKCertificateInfoRef, WKStringRef)

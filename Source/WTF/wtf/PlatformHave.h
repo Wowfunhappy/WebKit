@@ -1489,6 +1489,7 @@
 // Gate it on the deploy target so the whole feature (forward-decl + soft-link + use) compiles out
 // consistently. It is unreachable on 10.9 anyway: isUVPAA returns false earlier via the nil
 // ASCWebKitSPISupport path.
+// MAVERICKS_BACKPORT: Mac case gated on __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000 (deploy >= 14.0), not the bare PLATFORM(MAC) — see comment above; off on 10.9.
 #if !defined(HAVE_WEB_AUTHN_PUBLIC_KEY_CREDENTIAL_MANAGER) \
     && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) \
     || PLATFORM(MACCATALYST) || PLATFORM(IOS))

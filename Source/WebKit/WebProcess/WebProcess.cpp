@@ -103,7 +103,7 @@
 #include "WebsiteDataType.h"
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/MemoryStatistics.h>
-#include <JavaScriptCore/Options.h>
+#include <JavaScriptCore/Options.h> // MAVERICKS_BACKPORT: explicit include for JSC::Options (not transitively available with -fno-modules)
 #include <JavaScriptCore/WasmFaultSignalHandler.h>
 #include <WebCore/AXObjectCache.h>
 #include <WebCore/AuthenticationChallenge.h>
@@ -115,7 +115,7 @@
 #include <WebCore/DNS.h>
 #include <WebCore/DatabaseTracker.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
-#include <WebCore/Document.h>
+#include <WebCore/Document.h> // MAVERICKS_BACKPORT: explicit include for WebCore::Document::allDocuments (not transitively available with -fno-modules)
 #include <WebCore/DiagnosticLoggingClient.h>
 #include <WebCore/DiagnosticLoggingKeys.h>
 #include <WebCore/FontCache.h>

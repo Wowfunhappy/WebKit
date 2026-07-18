@@ -46,6 +46,7 @@
 #import "APIPageConfiguration.h"
 #import "WebsiteDataStore.h"
 #import "_WKInspectorConfigurationInternal.h"
+// MAVERICKS_BACKPORT: classic-frontend bridge header — provides classicInspectorFrontendBridgeScriptUTF8() used by _mavericksClassicFrontendBridgeScript below.
 #import <WebCore/InspectorFrontendClassicBridge.h>
 #import <WebKit/WKFrameInfo.h>
 #import <WebKit/WKNavigationAction.h>

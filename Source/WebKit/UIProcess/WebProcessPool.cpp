@@ -29,10 +29,10 @@
 #include "APIArray.h"
 #include "APIAutomationClient.h"
 #include "APICustomProtocolManagerClient.h"
-#include "APIData.h"
+#include "APIData.h" // MAVERICKS_BACKPORT: API::Data payload for revived WebIconDatabase favicons (#49)
 #include "APIDownloadClient.h"
 #include "APIHTTPCookieStore.h"
-#include "APIIconLoadingClient.h"
+#include "APIIconLoadingClient.h" // MAVERICKS_BACKPORT: base class for revived-favicon PageIconLoadingClient (#49)
 #include "APIInjectedBundleClient.h"
 #include "APILegacyContextHistoryClient.h"
 #include "APINavigation.h"
@@ -80,7 +80,7 @@
 #include "WebContextSupplement.h"
 #include "WebFrameProxy.h"
 #include "WebGeolocationManagerProxy.h"
-#include "WebIconDatabase.h"
+#include "WebIconDatabase.h" // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49)
 #include "WebInspectorUtilities.h"
 #include "WebKit2Initialize.h"
 #include "WebKitServiceNames.h"
@@ -102,7 +102,7 @@
 #include "WebsiteDataStoreParameters.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <WebCore/GamepadProvider.h>
-#include <WebCore/LinkIcon.h>
+#include <WebCore/LinkIcon.h> // MAVERICKS_BACKPORT: LinkIcon param of PageIconLoadingClient::getLoadDecisionForIcon (#49)
 #include <WebCore/MockRealtimeMediaSourceCenter.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <WebCore/NotImplemented.h>
@@ -124,7 +124,7 @@
 #include <wtf/ProcessPrivilege.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Scope.h>
-#include <wtf/TZoneMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h> // MAVERICKS_BACKPORT: WTF_MAKE_TZONE_ALLOCATED_INLINE for PageIconLoadingClient (#49)
 #include <wtf/URLParser.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/MakeString.h>
