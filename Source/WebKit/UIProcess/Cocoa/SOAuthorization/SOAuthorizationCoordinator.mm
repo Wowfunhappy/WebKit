@@ -98,12 +98,7 @@ void SOAuthorizationCoordinator::tryAuthorize(Ref<API::NavigationAction>&& navig
         // SubFrameSOAuthorizationSession should only be allowed for Apple first parties.
         RefPtr targetFrame = navigationAction->targetFrame();
         bool subframeNavigation = targetFrame && !targetFrame->isMainFrame();
-        // MAVERICKS_BACKPORT: AKAuthorizationController (AuthKit) does not exist on 10.9, and a direct
-        // class reference would leave OBJC_CLASS_$_AKAuthorizationController undefined at link. Resolve it
-        // at runtime; when absent, treat the URL as non-Apple (deny subframe SSO — the conservative path).
-        Class akAuthorizationControllerClass = NSClassFromString(@"AKAuthorizationController");
-        bool isAppleOwnedDomain = akAuthorizationControllerClass && page->mainFrame() && [akAuthorizationControllerClass isURLFromAppleOwnedDomain:page->mainFrame()->url().createNSURL().get()];
-        if (subframeNavigation && !isAppleOwnedDomain) {
+        if (subframeNavigation && (!page->mainFrame() || ![AKAuthorizationController isURLFromAppleOwnedDomain:page->mainFrame()->url().createNSURL().get()])) {
             AUTHORIZATIONCOORDINATOR_RELEASE_LOG_ERROR_STATIC("tryAuthorize: Attempting to perform subframe navigation for non-Apple authorization URL.");
             completionHandler(false);
             return;
