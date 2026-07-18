@@ -118,7 +118,7 @@
 
 namespace WebCore {
 
-void collectDescendantLayersAtPoint(Vector<LayerAndPoint, 16>& layersAtPoint, CALayer *parent, CGPoint point, const std::function<bool(CALayer *, CGPoint)>& pointInLayerFunction)
+static void collectDescendantLayersAtPointRecursive(Vector<LayerAndPoint, 16>& layersAtPoint, CALayer *parent, CGPoint point, const std::function<bool(CALayer *, CGPoint)>& pointInLayerFunction)
 {
     if (parent.masksToBounds && ![parent containsPoint:point])
         return;
@@ -156,8 +156,27 @@ void collectDescendantLayersAtPoint(Vector<LayerAndPoint, 16>& layersAtPoint, CA
             layersAtPoint.append(std::make_pair(layer, subviewPoint));
 
         if ([layer sublayers])
-            collectDescendantLayersAtPoint(layersAtPoint, layer, subviewPoint, pointInLayerFunction);
+            collectDescendantLayersAtPointRecursive(layersAtPoint, layer, subviewPoint, pointInLayerFunction);
     };
+}
+
+// MAVERICKS_BACKPORT: bracket the whole layer-tree hit-test in an explicit CATransaction at this
+// shared choke point. The traversal reads -[CALayer presentationLayer] for animated layers, which
+// lazily begins an implicit CATransaction on the calling thread. WebKit runs this hit-test off the
+// main thread — the EventDispatcher / scrolling thread, via ScrollingTreeMac and (UI-side
+// compositing) RemoteScrollingTreeMac — where there is no run loop or CA commit observer, so on
+// 10.9 the implicit transaction is never committed: it lingers holding CA's transaction lock,
+// deadlocks against the main thread's render commit (intermittent scroll freeze), and logs
+// "deleted thread with uncommitted CATransaction" when the thread is torn down. Modern CA cleans up
+// secondary-thread transactions itself; 10.9 does not. Scoping one explicit transaction here
+// commits it on the calling thread instead of orphaning it, and covers every off-main caller by
+// construction. The hit-test only reads layer geometry, so the commit has nothing to flush (and the
+// lone main-thread caller merely nests a no-op commit).
+void collectDescendantLayersAtPoint(Vector<LayerAndPoint, 16>& layersAtPoint, CALayer *parent, CGPoint point, const std::function<bool(CALayer *, CGPoint)>& pointInLayerFunction)
+{
+    [CATransaction begin];
+    collectDescendantLayersAtPointRecursive(layersAtPoint, parent, point, pointInLayerFunction);
+    [CATransaction commit];
 }
 
 Vector<LayerAndPoint, 16> layersAtPointToCheckForScrolling(std::function<bool(CALayer*, CGPoint)> layerEventRegionContainsPoint, std::function<std::optional<ScrollingNodeID>(CALayer*)> scrollingNodeIDForLayer, CALayer* layer, const FloatPoint& point, bool& hasAnyNonInteractiveScrollingLayers)
