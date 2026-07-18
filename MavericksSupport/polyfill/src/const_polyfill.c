@@ -21,6 +21,15 @@ const CFStringRef kAXSEnhanceTextLegibilityChangedNotification = CFSTR("kAXSEnha
 // (local-file cookie domain and proxy stream keys never matched CFNetwork's).
 const CFStringRef kCFURLRequestContentDecoderSkipURLCheck = CFSTR("kCFURLRequestContentDecoderSkipURLCheck");
 const CFStringRef kCGColorSpaceGenericXYZ = CFSTR("kCGColorSpaceGenericXYZ");
+// kCGColorSpaceExtendedRange (SDK-declared, macOS 10.12+; ABSENT on the 10.9 runtime CoreGraphics).
+// WebKit2's CoreIPCCGColorSpace::toCF() references it (upstream, in the extended-range-ICC deserialize
+// branch). It is a DATA constant, which does NOT auto-weak-link, so a bare reference makes WebKit2
+// fail to load on 10.9 (dyld: Symbol not found: _kCGColorSpaceExtendedRange). Define it here so the
+// reference binds to the polyfill. The value is immaterial: that branch is DEAD on 10.9 (the serialize
+// side never emits an extended-range derivative — CopyPropertyList returns CFData/NULL, never a dict).
+// The sibling keys (kCGColorSpaceICCData/kCGIndexed* etc.) are NOT here — upstream defines those
+// `static` in CoreIPCCGColorSpace.h, so they carry no dyld reference.
+const CFStringRef kCGColorSpaceExtendedRange = CFSTR("kCGColorSpaceExtendedRange");
 const CFStringRef kCGGradientInterpolatesPremultiplied = CFSTR("kCGGradientInterpolatesPremultiplied");
 // The ImageIO kCGImageProperty*/kCGImageSource* keys 10.9 already exports (Exif pixel
 // dimensions, TIFF resolution unit, thumbnail/cache/skip-metadata/subsample options) are

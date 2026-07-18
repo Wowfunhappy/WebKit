@@ -3,10 +3,13 @@
 #include <CoreGraphics/CoreGraphics.h>
 
 
-// 10.9 has no API to recover a colour space's name, so this returns NULL; callers
-// (CoreIPCCGColorSpace) detect NULL and encode by colour-space model instead.
+// CGColorSpaceGetName (10.12+) has no 10.9 symbol, but CGColorSpaceCopyName IS present on 10.9 and
+// recovers the same name (verified on-host: sRGB -> "kCGColorSpaceSRGB"). Forward to it and
+// autorelease to match CGColorSpaceGetName's +0 "get" ownership. (The prior "10.9 has no API to
+// recover a colour space's name" premise was false — CoreIPCCGColorSpace's name branch works now.)
+extern CFStringRef CGColorSpaceCopyName(CGColorSpaceRef);
 CFStringRef CGColorSpaceGetName(CGColorSpaceRef space) {
-    (void)space;
-    return NULL;
+    CFStringRef name = CGColorSpaceCopyName(space);
+    return name ? (CFStringRef)CFAutorelease(name) : NULL;
 }
 

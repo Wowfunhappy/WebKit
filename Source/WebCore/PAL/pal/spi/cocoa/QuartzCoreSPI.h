@@ -259,15 +259,6 @@ typedef enum {
 @property BOOL preservesFlip;
 @end
 
-// MAVERICKS_BACKPORT: CASpringAnimation is a 10.11+ CoreAnimation class. With implicit modules
-// disabled this SPI category is parsed textually and needs a base @interface when the SDK lacks the
-// class. Gate on the SDK version (the modern SDK declares CASpringAnimation, so defining it here too
-// would duplicate it); usage is behind runtime guards. Absent on 10.9 at runtime.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED < 101100
-@interface CASpringAnimation : CABasicAnimation
-@end
-#endif
-
 @interface CASpringAnimation (Private)
 @property CGFloat velocity;
 @end

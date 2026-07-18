@@ -174,12 +174,7 @@ PlatformCAAnimationCocoa::PlatformCAAnimationCocoa(AnimationType type, const Str
         m_animation = [CAKeyframeAnimation animationWithKeyPath:keyPath.createNSString().get()];
         break;
     case AnimationType::Spring:
-        // MAVERICKS_BACKPORT: CASpringAnimation is 10.11+ and absent on 10.9; look the class up at runtime via NSClassFromString and fall back to CABasicAnimation when it is unavailable, instead of referencing CASpringAnimation directly.
-        // CASpringAnimation is 10.11+; fall back to CABasicAnimation
-        if (NSClassFromString(@"CASpringAnimation"))
-            m_animation = [NSClassFromString(@"CASpringAnimation") animationWithKeyPath:keyPath.createNSString().get()];
-        else
-            m_animation = [CABasicAnimation animationWithKeyPath:keyPath.createNSString().get()];
+        m_animation = [CASpringAnimation animationWithKeyPath:keyPath.createNSString().get()];
         break;
     }
 }
@@ -188,8 +183,7 @@ PlatformCAAnimationCocoa::PlatformCAAnimationCocoa(PlatformAnimationRef animatio
 {
     auto caAnimation = static_cast<CAAnimation *>(animation);
     if ([caAnimation isKindOfClass:[CABasicAnimation class]]) {
-        // MAVERICKS_BACKPORT: CASpringAnimation is 10.11+ and absent on 10.9; resolve the class at runtime via NSClassFromString before the isKindOfClass: test instead of referencing [CASpringAnimation class] directly.
-        if (NSClassFromString(@"CASpringAnimation") && [caAnimation isKindOfClass:NSClassFromString(@"CASpringAnimation")])
+        if ([caAnimation isKindOfClass:[CASpringAnimation class]])
             setType(AnimationType::Spring);
         else
             setType(AnimationType::Basic);
@@ -341,15 +335,12 @@ void PlatformCAAnimationCocoa::setTimingFunction(const TimingFunction* timingFun
         break;
     case AnimationType::Spring:
         if (auto* function = dynamicDowncast<SpringTimingFunction>(timingFunction)) {
-            // MAVERICKS_BACKPORT: CASpringAnimation and its mass/stiffness/damping/initialVelocity properties are 10.11+; set them via KVC (guarded by respondsToSelector:) instead of the typed CASpringAnimation accessors, which do not exist on 10.9.
-            // CASpringAnimation is 10.11+; set properties via KVC for compatibility
-            id springAnimation = (id)m_animation.get();
-            if ([springAnimation respondsToSelector:@selector(setMass:)]) {
-                [springAnimation setValue:@(function->mass()) forKey:@"mass"];
-                [springAnimation setValue:@(function->stiffness()) forKey:@"stiffness"];
-                [springAnimation setValue:@(function->damping()) forKey:@"damping"];
-                [springAnimation setValue:@(function->initialVelocity()) forKey:@"initialVelocity"];
-            }
+            // FIXME: Handle reverse.
+            RetainPtr springAnimation = (CASpringAnimation *)m_animation.get();
+            springAnimation.get().mass = function->mass();
+            springAnimation.get().stiffness = function->stiffness();
+            springAnimation.get().damping = function->damping();
+            springAnimation.get().initialVelocity = function->initialVelocity();
         }
         break;
     case AnimationType::Group:
