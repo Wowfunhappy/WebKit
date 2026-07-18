@@ -446,15 +446,7 @@ size_t ImageDecoderCG::frameCount() const
 
 size_t ImageDecoderCG::primaryFrameIndex() const
 {
-    // MAVERICKS_BACKPORT: CGImageSourceGetPrimaryImageIndex is 10.14+ and weak-links to NULL at
-    // RUNTIME on 10.9. Gate on the deployment target (MIN_REQUIRED=1090), NOT MAX_ALLOWED (always-true
-    // on the 26.1 SDK); on 10.9 the primary frame is always index 0 (no HEIF primary-image concept).
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
     return CGImageSourceGetPrimaryImageIndex(m_nativeDecoder.get());
-#else
-    // MAVERICKS_BACKPORT: CGImageSourceGetPrimaryImageIndex is 10.14+ (NULL on 10.9); primary frame is index 0.
-    return 0;
-#endif
 }
 
 RepetitionCount ImageDecoderCG::repetitionCount() const
