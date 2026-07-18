@@ -394,8 +394,22 @@ StyleAppearance RenderTheme::autoAppearanceForElement(RenderStyle& style, const 
     Ref element = *elementPtr;
 
     if (RefPtr input = dynamicDowncast<HTMLInputElement>(element)) {
-        if (input->isTextButton())
+        if (input->isTextButton()) {
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101000
+            // MAVERICKS_BACKPORT (#40): Safari 7 / legacy WebKit mapped
+            // <input type=button|submit|reset> to -webkit-appearance:push-button -- a native
+            // Aqua gel whose font is coerced to the system control font (see
+            // RenderThemeMac::controlFont). Modern WebKit switched these to StyleAppearance::Button,
+            // which honors the author font-size instead. Safari's own fixed-width error-page chrome
+            // (the WebProcess-crash "Reload Webpage" button: width:132px; font-size:16px) was sized
+            // for the push-button font, so under StyleAppearance::Button the 16px text overflows the
+            // 132px box and the button renders flat with clipped text. Restore the legacy mapping to
+            // match Safari 7. (<button> stays StyleAppearance::Button, exactly as legacy WebKit had it.)
+            return StyleAppearance::PushButton;
+#else
             return StyleAppearance::Button;
+#endif
+        }
 
         if (input->isSwitch())
             return StyleAppearance::Switch;
