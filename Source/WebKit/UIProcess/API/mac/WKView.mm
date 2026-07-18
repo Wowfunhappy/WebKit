@@ -42,6 +42,13 @@
 #import <WebCore/FloatRect.h>
 #import <WebCore/IntSize.h>
 #import <WebCore/KeypressCommand.h>
+// MAVERICKS_BACKPORT: needed so the WKView NSTextInputClient implementation can insert text, drive
+// inline-IME composition, and answer the synchronous text-input queries 10.9 AppKit makes (#63).
+#import "EditingRange.h"
+#import "EditorState.h"
+#import "InsertTextOptions.h"
+#import <WebCore/CompositionUnderline.h>
+#import <wtf/text/MakeString.h>
 // MAVERICKS_BACKPORT: WebCoreFullScreenWindow backs the restored -createFullScreenWindow SPI.
 #import <WebCore/WebCoreFullScreenWindow.h>
 #import <QuartzCore/QuartzCore.h>
@@ -570,10 +577,57 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 // so the keyDown handler can forward them to WebPage as KeypressCommands.
 static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = nullptr;
 - (NSArray *)validAttributesForMarkedText { return @[]; }
-- (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)range actualRange:(NSRangePointer)actualRange { return nil; }
-- (NSUInteger)characterIndexForPoint:(NSPoint)point { return NSNotFound; }
-- (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange { return NSZeroRect; }
-- (BOOL)hasMarkedText { return NO; }
+// MAVERICKS_BACKPORT: real NSTextInputClient queries. These were sentinel stubs that broke inline IME.
+// 10.9 AppKit uses the SYNCHRONOUS NSTextInputClient protocol (the async -...:completionHandler:
+// variants WKWebView/WebViewImpl use are 10.11+), and the WebProcess text-input IPC is async-only.
+// Bridging the round-trip queries by spinning the run loop reenters AppKit's event handling and
+// corrupts input (verified: it broke the Character Viewer), so the IME-critical answers are served
+// synchronously from the live editor state (which the WebProcess already pushes on every selection /
+// composition change), and the queries that genuinely require a synchronous round-trip fall back to
+// the same values upstream's synchronous WebViewImpl path returns (WebViewImpl.mm:6011-6045).
+- (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)range actualRange:(NSRangePointer)actualRange
+{
+    // Reconversion substring needs a synchronous round-trip the async-only IPC can't answer without
+    // reentrancy; upstream's synchronous path returns nil here too.
+    if (actualRange)
+        *actualRange = NSMakeRange(NSNotFound, 0);
+    return nil;
+}
+- (NSUInteger)characterIndexForPoint:(NSPoint)point
+{
+    // Needs a synchronous hit-test the async-only IPC can't answer without reentrancy; upstream's
+    // synchronous path returns NSNotFound.
+    return NSNotFound;
+}
+- (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange
+{
+    if (actualRange)
+        *actualRange = range;
+    if (!(_wkState && _wkState->page))
+        return NSZeroRect;
+    const WebKit::EditorState& state = _wkState->page->editorState();
+    if (!state.hasVisualData())
+        return NSZeroRect;
+    // Position the IME candidate window at the caret — the live layout rect the WebProcess last
+    // reported for the selection/composition start (the marked-text-specific caret rects are iOS-only).
+    WebCore::IntRect caretRect = state.visualData->caretRectAtStart;
+    NSRect rectInView = NSMakeRect(caretRect.x(), caretRect.y(), caretRect.width(), caretRect.height());
+    NSRect rectInWindow = [self convertRect:rectInView toView:nil];
+    if (NSWindow *window = [self window])
+        return [window convertRectToScreen:rectInWindow];
+    return rectInView;
+}
+- (BOOL)hasMarkedText
+{
+    // The composition state is carried synchronously in the editor state, so no round-trip is needed.
+    return _wkState && _wkState->page && _wkState->page->editorState().hasComposition;
+}
+- (void)insertText:(id)string
+{
+    // MAVERICKS_BACKPORT: forward the deprecated single-argument NSTextInput -insertText: (which some
+    // legacy callers still use) to the NSTextInputClient two-argument form.
+    [self insertText:string replacementRange:NSMakeRange(NSNotFound, 0)];
+}
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange
 {
     // MAVERICKS_BACKPORT: capture inserted text as a KeypressCommand during interpretKeyEvents so keyDown can forward it to WebPage.
@@ -588,12 +642,53 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
         // mirroring WebViewImpl's WKWebView path.
         if (_wkState && _wkState->page)
             _wkState->page->registerKeypressCommandName(command.commandName);
+        return;
+    }
+    // MAVERICKS_BACKPORT: insertText: sent OUTSIDE interpretKeyEvents — the Character Viewer / emoji
+    // picker, an input method confirming a candidate, dictation, etc. There is no keyDown to forward
+    // it through, so insert it now (mirroring the non-keypress branch of WebViewImpl::insertText).
+    // Without this the minimal NSTextInputClient stub silently dropped every such insertion
+    // (github #63: double-clicking an emoji in the picker did nothing).
+    if (_wkState && _wkState->page) {
+        // Same NSBackTabCharacter->NSTabCharacter normalization WebViewImpl::insertText applies.
+        String eventText = makeStringByReplacingAll(String(s), NSBackTabCharacter, NSTabCharacter);
+        _wkState->page->insertTextAsync(eventText, replacementRange, InsertTextOptions { });
     }
 }
-- (NSRange)markedRange { return NSMakeRange(NSNotFound, 0); }
-- (NSRange)selectedRange { return NSMakeRange(NSNotFound, 0); }
-- (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {}
-- (void)unmarkText {}
+- (NSRange)markedRange
+{
+    // The absolute character offsets of the marked range require a synchronous round-trip the
+    // async-only IPC can't answer without reentrancy; upstream's synchronous path returns NSNotFound.
+    // hasMarkedText (served from the editor state) still tells the input method a composition exists.
+    return NSMakeRange(NSNotFound, 0);
+}
+- (NSRange)selectedRange
+{
+    // As markedRange: needs a synchronous round-trip; upstream's synchronous path also returns
+    // NSNotFound (WebViewImpl.mm:6011).
+    return NSMakeRange(NSNotFound, 0);
+}
+- (void)setMarkedText:(id)string selectedRange:(NSRange)newSelectedRange replacementRange:(NSRange)replacementRange
+{
+    // MAVERICKS_BACKPORT: drive real inline-IME composition (was a no-op, so nothing composed inline).
+    if (!(_wkState && _wkState->page))
+        return;
+    BOOL isAttributed = [string isKindOfClass:[NSAttributedString class]];
+    NSString *text = isAttributed ? [(NSAttributedString *)string string] : (NSString *)string;
+    if (!text)
+        text = @"";
+    // Underline the whole composition (WebViewImpl's plain-string default). Per-attribute styling from
+    // the input method is not mirrored — a feature gap, not a correctness issue.
+    Vector<WebCore::CompositionUnderline> underlines;
+    underlines.append(WebCore::CompositionUnderline(0, [text length], WebCore::CompositionUnderlineColor::TextColor, WebCore::Color::black, false));
+    _wkState->page->setCompositionAsync(String(text), underlines, { }, { }, newSelectedRange, replacementRange);
+}
+- (void)unmarkText
+{
+    // MAVERICKS_BACKPORT: confirm the active composition (was a no-op).
+    if (_wkState && _wkState->page)
+        _wkState->page->confirmCompositionAsync();
+}
 - (void)doCommandBySelector:(SEL)selector
 {
     if (!tlsCollectingCommands)
