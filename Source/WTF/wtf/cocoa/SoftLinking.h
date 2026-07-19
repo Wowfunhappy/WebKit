@@ -569,7 +569,24 @@ static void* lib##Library() \
         static dispatch_once_t once; \
         dispatch_once(&once, ^{ \
             _STORE_IN_DLSYM_SECTION static char const auditedName[] = #variableName; \
-            void* constant = dlsym(framework##Library(), auditedName); \
+            /* MAVERICKS_BACKPORT: resolve process-wide first, so the polyfill layer governs these */ \
+            /* constants the same way it governs every other symbol in this port. Many framework */ \
+            /* constants modern WebKit soft-links postdate 10.9 (60 of CoreMedia's 111, the whole */ \
+            /* kCMFormatDescription{ColorPrimaries,TransferFunction,YCbCrMatrix}_* family among them), */ \
+            /* and SOFT_LINK_CONSTANT is unconditional: the RELEASE_ASSERT below turns "this OS */ \
+            /* predates the constant" into a process kill the moment it is first touched. Values */ \
+            /* supplied by MavericksSupport/polyfill/src/const_polyfill.c link into our own images, */ \
+            /* which dlsym on the framework handle can never see. Searching RTLD_DEFAULT before the */ \
+            /* handle makes a polyfill definition WIN, exactly as it does for an ordinary link-time */ \
+            /* reference -- a polyfill exists precisely to be the value this port uses, whether the */ \
+            /* 10.9 symbol is missing or present-but-wrong. Adding a definition that shadows a */ \
+            /* working 10.9 symbol by accident is what polyfill/scripts/check-polyfill-shadows.sh */ \
+            /* exists to catch (it hard-fails the build unless the override is allowlisted). The */ \
+            /* framework handle stays as the fallback so an un-polyfilled constant still resolves */ \
+            /* from its own framework, and so the framework is loaded on that path as before. */ \
+            void* constant = dlsym(RTLD_DEFAULT, auditedName); \
+            if (!constant) \
+                constant = dlsym(framework##Library(), auditedName); \
             RELEASE_ASSERT_WITH_MESSAGE(constant, "%s", dlerror()); \
             constant##framework##variableName = *static_cast<variableType const *>(constant); \
         }); \

@@ -127,6 +127,78 @@ const CFStringRef NSHTTPCookieSameSitePolicy = CFSTR("SameSitePolicy");
 // interpreted by -[NSError localizedDescription] on OSes that know it, and both IPC sides must agree.
 const CFStringRef NSLocalizedFailureErrorKey = CFSTR("NSLocalizedFailure");
 
+// ---------------------------------------------------------------------------------------------
+// CoreMedia format-description constants (below).
+//
+// 10.9's CoreMedia exports exactly ONE of the colour-description constants modern WebKit uses
+// (kCMFormatDescriptionColorPrimaries_P22); the other 60 CFStringRefs PAL soft-links are absent —
+// runtime-verified by dlopen'ing CoreMedia and dlsym'ing all 111 names PAL declares, which is
+// precisely what SOFT_LINK_CONSTANT does. That macro is unconditional: it RELEASE_ASSERTs the
+// moment a missing constant is first read, so e.g. Google Meet killed the WebContent process
+// within seconds of enabling the camera (canvas.captureStream -> WebGL surfaceBufferToVideoFrame
+// -> VideoFrameCV::create -> computeVideoFrameColorSpace -> ...ColorPrimaries_DCI_P3). Defining
+// them here, plus the RTLD_DEFAULT fallback in wtf/cocoa/SoftLinking.h, makes the soft-link resolve
+// instead of trapping. Unlike the constants above these are NOT link-time references, so they must
+// stay exported for the fallback dlsym to see them.
+//
+// Two value regimes, same rule as the CoreText/ImageIO keys above — a value the SYSTEM interprets
+// must be the real one; a value only round-tripped through our own code may be a unique token.
+//
+// (1) REAL values. Every constant in this group is a documented synonym of a CoreVideo constant
+// that 10.9 DOES export, and the value was read off this host rather than assumed
+// (kCVImageBufferColorPrimaries_ITU_R_709_2 == "ITU_R_709_2", ...PixelAspectRatioKey ==
+// "CVPixelAspectRatio", and so on). They are load-bearing in both directions: WebCore compares
+// them against attachments 10.9's CoreVideo/VideoToolbox put on pixel buffers, and
+// setVideoFrameColorSpace() writes them back as attachment values that 10.9 then interprets.
+const CFStringRef kCMFormatDescriptionExtension_ColorPrimaries = CFSTR("CVImageBufferColorPrimaries");
+const CFStringRef kCMFormatDescriptionExtension_TransferFunction = CFSTR("CVImageBufferTransferFunction");
+const CFStringRef kCMFormatDescriptionExtension_YCbCrMatrix = CFSTR("CVImageBufferYCbCrMatrix");
+const CFStringRef kCMFormatDescriptionExtension_PixelAspectRatio = CFSTR("CVPixelAspectRatio");
+const CFStringRef kCMFormatDescriptionKey_PixelAspectRatioHorizontalSpacing = CFSTR("HorizontalSpacing");
+const CFStringRef kCMFormatDescriptionKey_PixelAspectRatioVerticalSpacing = CFSTR("VerticalSpacing");
+const CFStringRef kCMFormatDescriptionColorPrimaries_ITU_R_709_2 = CFSTR("ITU_R_709_2");
+const CFStringRef kCMFormatDescriptionColorPrimaries_EBU_3213 = CFSTR("EBU_3213");
+const CFStringRef kCMFormatDescriptionColorPrimaries_SMPTE_C = CFSTR("SMPTE_C");
+const CFStringRef kCMFormatDescriptionTransferFunction_ITU_R_709_2 = CFSTR("ITU_R_709_2");
+const CFStringRef kCMFormatDescriptionYCbCrMatrix_SMPTE_240M_1995 = CFSTR("SMPTE_240M_1995");
+
+// (2) Colour identifiers whose CoreVideo twins are ALSO absent on 10.9 (wide gamut, HDR, and the
+// bit-depth key). Nothing on this OS emits or understands them, so the value cannot round-trip
+// through the system either way — but they follow the identical, fully regular naming the group
+// above was verified against (the identifier is the name's suffix: "ITU_R_709_2", "SMPTE_C",
+// "P22", "SMPTE_240M_1995", "UseGamma" ...), so the real values are used rather than tokens. That
+// keeps the classification in computeVideoFrameColorSpace() correct if a frame ever does arrive
+// tagged by non-system code, and costs nothing if none does.
+const CFStringRef kCMFormatDescriptionColorPrimaries_DCI_P3 = CFSTR("DCI_P3");
+const CFStringRef kCMFormatDescriptionColorPrimaries_P3_D65 = CFSTR("P3_D65");
+const CFStringRef kCMFormatDescriptionColorPrimaries_ITU_R_2020 = CFSTR("ITU_R_2020");
+const CFStringRef kCMFormatDescriptionTransferFunction_ITU_R_2020 = CFSTR("ITU_R_2020");
+const CFStringRef kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ = CFSTR("SMPTE_ST_2084_PQ");
+const CFStringRef kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG = CFSTR("ITU_R_2100_HLG");
+const CFStringRef kCMFormatDescriptionTransferFunction_Linear = CFSTR("Linear");
+const CFStringRef kCMFormatDescriptionTransferFunction_SMPTE_ST_428_1 = CFSTR("SMPTE_ST_428_1");
+const CFStringRef kCMFormatDescriptionYCbCrMatrix_ITU_R_2020 = CFSTR("ITU_R_2020");
+const CFStringRef kCMFormatDescriptionExtension_BitsPerComponent = CFSTR("BitsPerComponent");
+
+// (3) The two sample-attachment keys that are genuinely LIVE on this build. WebCore WRITES both
+// into a CMSampleBuffer's attachments dictionary that it then hands to the system
+// (CMUtilities.mm:561 and :598), so a name-string token would be a fabricated value inside a
+// system-interpreted structure -- these need the real ones. The kCMSampleAttachmentKey_* naming
+// rule was verified on this host across eight siblings that 10.9 DOES export (NotSync ==
+// "NotSync", DoNotDisplay == "DoNotDisplay", IsDependedOnByOthers == "IsDependedOnByOthers",
+// DependsOnOthers, HasRedundantCoding, DisplayImmediately, and the CMSampleBufferAttachmentKey_
+// pair TrimDurationAtStart / EmptyMedia): the value is the name's suffix, verbatim.
+const CFStringRef kCMSampleAttachmentKey_HDR10PlusPerFrameData = CFSTR("HDR10PlusPerFrameData");
+const CFStringRef kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData = CFSTR("CryptorSubsampleAuxiliaryData");
+
+// NOT defined here, deliberately: the stereoscopic / immersive-video / per-lens camera-calibration
+// keys. Every reference to them in FormatDescriptionUtilities.cpp sits inside
+// #if HAVE(IMMERSIVE_VIDEO_METADATA_SUPPORT), which requires a 16.0 deployment target and is OFF on
+// this 10.9 build (verified by walking the guard regions), so they can never be dlsym'd -- exactly
+// the reasoning that keeps the four absent kCMTag* constants out too. Defining them with invented
+// values would be worse than omitting them: FormatDescriptionUtilities.cpp bare-references those
+// names, so enabling the flag would silently bind live code to fake keys with no diagnostic.
+
 // SecTrustCopyCertificateChain (Security, 12.0+): rebuild the evaluated chain via the per-index
 // accessors 10.9 ships. CANONICAL definition (was duplicated in graphics_shims.c and
 // legacy-support/security.c). It must live in THIS object: callers reference the symbol as a WEAK

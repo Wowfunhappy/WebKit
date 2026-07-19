@@ -594,8 +594,7 @@ Expected<RetainPtr<CMSampleBufferRef>, CString> toCMSampleBuffer(const MediaSamp
         if (RefPtr cryptorIV = sample.cryptorIV)
             CFDictionarySetValue(attachmentsDictionary.get(), CFSTR("CryptorIV") /* PAL::kCMSampleAttachmentKey_CryptorInitializationVector */, cryptorIV->createCFData().get());
         if (RefPtr cryptorSubsampleAuxiliaryData = sample.cryptorSubsampleAuxiliaryData)
-        // MAVERICKS_BACKPORT: use the bare CoreMedia kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData constant; it is exported natively by the 10.9 CoreMedia framework so the PAL soft-link wrapper is unnecessary.
-            CFDictionarySetValue(attachmentsDictionary.get(), kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData, cryptorSubsampleAuxiliaryData->createCFData().get());
+            CFDictionarySetValue(attachmentsDictionary.get(), PAL::kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData, cryptorSubsampleAuxiliaryData->createCFData().get());
     }
 #endif
     return adoptCF(rawSampleBuffer);
@@ -639,8 +638,7 @@ UniqueRef<MediaSamplesBlock> samplesBlockFromCMSampleBuffer(CMSampleBufferRef cm
                     CFNumberGetValue(number.get(), kCFNumberSInt32Type, &bytesOfClearDataCount);
                 if (RetainPtr data = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(attachmentsDictionary.get(), CFSTR("CryptorIV") /* PAL::kCMSampleAttachmentKey_CryptorInitializationVector */)))
                     cryptorIV = SharedBuffer::create(data.get());
-                // MAVERICKS_BACKPORT: use the bare CoreMedia kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData constant; it is exported natively by the 10.9 CoreMedia framework so the PAL soft-link wrapper is unnecessary.
-                if (RetainPtr data = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(attachmentsDictionary.get(), kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData)))
+                if (RetainPtr data = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(attachmentsDictionary.get(), PAL::kCMSampleAttachmentKey_CryptorSubsampleAuxiliaryData)))
                     cryptorSubsampleAuxiliaryData = SharedBuffer::create(data.get());
             }
         }
