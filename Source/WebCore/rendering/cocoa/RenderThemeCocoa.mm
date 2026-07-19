@@ -660,6 +660,16 @@ static const String& macOSFullscreenMediaControlsStyleSheet()
 
 Vector<String, 2> RenderThemeCocoa::mediaControlsStyleSheets(const HTMLMediaElement& mediaElement)
 {
+#if __MAC_OS_X_VERSION_MIN_REQUIRED < 101000
+    // MAVERICKS_BACKPORT (#68): Safari 7 / Mavericks shipped the classic Aqua HTML5 media controls
+    // (mediaControlsApple.css/.js), not the flat modern-media-controls WebKit adopted later. Those
+    // controls are styled by a DOCUMENT-scope user-agent stylesheet (added in Style::UserAgentStyle for
+    // <video>/<audio>) because the classic sheet uses shadow-crossing `video::-internal-media-controls-*`
+    // selectors that only resolve at document scope — not the shadow-root injection the modern controls
+    // rely on. So there is nothing to inject into the shadow root here.
+    UNUSED_PARAM(mediaElement);
+    return { };
+#else
     if (m_mediaControlsStyleSheet.isEmpty())
         m_mediaControlsStyleSheet = StringImpl::createWithoutCopying(ModernMediaControlsUserAgentStyleSheet);
 
@@ -680,10 +690,20 @@ Vector<String, 2> RenderThemeCocoa::mediaControlsStyleSheets(const HTMLMediaElem
 #endif
 
     return mediaControlsStyleSheets;
+#endif // __MAC_OS_X_VERSION_MIN_REQUIRED < 101000
 }
 
 Vector<String, 2> RenderThemeCocoa::mediaControlsScripts()
 {
+#if __MAC_OS_X_VERSION_MIN_REQUIRED < 101000
+    // MAVERICKS_BACKPORT (#68): the classic Safari 7 controls script carries its own localizedStrings
+    // table, so unlike the modern controls it needs no separate localized-strings script. See
+    // mediaControlsStyleSheets() above for the deployment-target rationale.
+    if (m_mediaControlsScript.isEmpty())
+        m_mediaControlsScript = StringImpl::createWithoutCopying(mediaControlsAppleJavaScript);
+
+    return { m_mediaControlsScript };
+#else
     // FIXME: Localized strings are not worth having a script. We should make it JSON data etc. instead.
     if (m_mediaControlsLocalizedStringsScript.isEmpty()) {
         NSBundle *bundle = [NSBundle bundleForClass:[WebCoreRenderThemeBundle class]];
@@ -697,6 +717,7 @@ Vector<String, 2> RenderThemeCocoa::mediaControlsScripts()
         m_mediaControlsLocalizedStringsScript,
         m_mediaControlsScript,
     };
+#endif // __MAC_OS_X_VERSION_MIN_REQUIRED < 101000
 }
 
 RefPtr<FragmentedSharedBuffer> RenderThemeCocoa::mediaControlsImageDataForIconNameAndType(const String& iconName, const String& iconType)
