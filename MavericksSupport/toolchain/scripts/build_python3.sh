@@ -19,20 +19,14 @@ mkdir -p "$SCRATCH/bin"
 printf '#!/bin/sh\nexec "%s/bin/clang" --no-default-config -Wno-implicit-function-declaration -Wno-implicit-int "$@"\n' "$CLANG" > "$SCRATCH/bin/cc"
 chmod +x "$SCRATCH/bin/cc"
 
-# Availability shim: clang emits __isPlatformVersionAtLeast for __builtin_available,
-# which the 10.9 runtime does not provide. This defines it. We build for 10.9, so it
-# reports nothing newer than 10.9 as available.
-cat > "$SCRATCH/availability_shim.c" <<'EOF'
-#include <stdint.h>
-int32_t __isPlatformVersionAtLeast(uint32_t platform, uint32_t major,
-                                   uint32_t minor, uint32_t subminor) {
-    (void)platform; (void)subminor;
-    if (major != 10) return major < 10;   /* <10 => yes, >10 => no */
-    return minor <= 9;                     /* 10.x available iff x <= 9 */
-}
-EOF
-"$SCRATCH/bin/cc" -c -mmacosx-version-min=10.9 -o "$SCRATCH/availability_shim.o" "$SCRATCH/availability_shim.c"
-"$CLANG/bin/llvm-ar" rcs "$SCRATCH/libavailshim.a" "$SCRATCH/availability_shim.o"
+# Availability shim: clang lowers __builtin_available to compiler-rt's
+# __isPlatformVersionAtLeast, which calls libSystem's _availability_version_check -- 10.15+, so
+# absent here. compiler-rt supplies the comparison itself; the only gap is that one symbol, so
+# link the polyfill source that defines it (the same one WebKit itself links).
+LEGACY="$TOOLCHAIN/../polyfill/legacy-support"
+"$SCRATCH/bin/cc" -c -mmacosx-version-min=10.9 -I"$LEGACY/include" \
+    -o "$SCRATCH/os_version.o" "$LEGACY/src/os_version.c"
+"$CLANG/bin/llvm-ar" rcs "$SCRATCH/libavailshim.a" "$SCRATCH/os_version.o"
 
 cd "$SCRATCH"
 echo "### Downloading CPython $VER"
