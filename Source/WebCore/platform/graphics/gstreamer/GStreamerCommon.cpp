@@ -292,7 +292,11 @@ std::optional<WebCore::IntSize> getDisplaySize(WebCore::IntSize originalSize, in
 
 bool isProtocolAllowed(const WTF::URL& url)
 {
-    HashSet<String> allowedProtocols = { "blob"_s, "data"_s, "file"_s, "http"_s, "https"_s };
+    // MAVERICKS_BACKPORT: "cid" (Content-ID, RFC 2392) is a legitimate media source on this port —
+    // GStreamer is the sole media engine and Apple Mail renders inline audio/video attachments as
+    // <video>/<audio src="cid:...">. WebKitWebSrc loads it through WebCore's CachedResourceLoader (the
+    // same path that already resolves cid: for inline <img>), which performs its own origin checks. (#69)
+    HashSet<String> allowedProtocols = { "blob"_s, "data"_s, "file"_s, "http"_s, "https"_s, "cid"_s };
 #if ENABLE(MEDIA_SOURCE)
     allowedProtocols.add("mediasourceblob"_s);
 #endif
