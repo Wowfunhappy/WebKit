@@ -489,6 +489,12 @@ list(APPEND WebCore_SOURCES
 list(APPEND WebCore_USER_AGENT_STYLE_SHEETS
     ${WebCore_DERIVED_SOURCES_DIR}/ModernMediaControls.css
 
+    # MAVERICKS_BACKPORT (#68): classic Safari 7 / Mavericks media-controls stylesheet.
+    # make-css-file-arrays.pl derives the array name from the basename, so this emits
+    # mediaControlsAppleUserAgentStyleSheet, which RenderThemeCocoa serves on the 10.9
+    # deployment target instead of ModernMediaControlsUserAgentStyleSheet.
+    ${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsApple.css
+
     ${WEBCORE_DIR}/html/shadow/mac/imageControlsMac.css
 )
 
@@ -1032,7 +1038,13 @@ set(ADDITIONAL_BINDINGS_DEPENDENCIES
 # MAVERICKS_BACKPORT: pass bare macro names (no =1) to the CSS value preprocessor; the value-1 form trips the in-tree makeprop/CSS preprocessor here.
 set(CSS_VALUE_PLATFORM_DEFINES "WTF_PLATFORM_MAC WTF_PLATFORM_COCOA ENABLE_APPLE_PAY_NEW_BUTTON_TYPES")
 
-set(WebCore_USER_AGENT_SCRIPTS ${WebCore_DERIVED_SOURCES_DIR}/ModernMediaControls.js)
+# MAVERICKS_BACKPORT (#68): also build the classic Safari 7 / Mavericks media-controls script.
+# make-js-file-arrays.py names the array from the basename, emitting mediaControlsAppleJavaScript,
+# which RenderThemeCocoa serves on the 10.9 deployment target instead of ModernMediaControlsJavaScript.
+set(WebCore_USER_AGENT_SCRIPTS
+    ${WebCore_DERIVED_SOURCES_DIR}/ModernMediaControls.js
+    ${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsApple.js
+)
 
 list(APPEND WebCoreTestSupport_LIBRARIES PRIVATE WebCore)
 list(APPEND WebCoreTestSupport_PRIVATE_HEADERS testing/cocoa/WebArchiveDumpSupport.h)

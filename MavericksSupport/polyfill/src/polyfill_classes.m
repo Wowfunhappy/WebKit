@@ -331,6 +331,62 @@ WK_PRIV_ALIAS(_WKWebPushSubscriptionData);
     return @[];
 }
 @end
+// MAVERICKS_BACKPORT (#68): +[NSLocale matchedLanguagesFromAvailableLanguages:forPreferredLanguages:] is
+// 10.12+. WTF::indexOfBestMatchingLanguageInList (Source/WTF/wtf/cocoa/LanguageCocoa.mm) calls it
+// UNCONDITIONALLY to pick the best caption/subtitle-track language, so on 10.9 the absent selector throws
+// (unrecognized selector -> SIGILL) the instant any media element's caption menu is built
+// (CaptionUserPreferencesMediaAF::sortedTrackListForMenu).
+//
+// We reproduce the 10.12+ contract faithfully: return the availableLanguages that GENUINELY match a
+// preferred language (BCP-47 primary language subtag, canonicalized), in preference order, and an EMPTY
+// array when none match. The empty-on-no-match behaviour is load-bearing: callers such as
+// CaptionUserPreferencesMediaAF (matchesDefaultLanguage / sortedTrackListForMenu),
+// AccessibilitySVGObject and WebExtension test `if (![matched count]) return notFound;` (or negate the
+// index) and would otherwise treat a non-matching language as a match. +[NSBundle
+// preferredLocalizationsFromArray:forPreferences:] (10.0+) does the same BCP-47 best-match and returns
+// entries verbatim from availableLanguages, BUT it falls back to the development region (the first
+// available language) when nothing matches, so its result must be filtered down to real language matches.
+@interface NSLocale (Polyfill10_9)
++ (NSArray *)matchedLanguagesFromAvailableLanguages:(NSArray *)availableLanguages forPreferredLanguages:(NSArray *)preferredLanguages;
+@end
+static NSString *wk_primaryLanguageSubtag(NSString *languageTag) {
+    if (![languageTag isKindOfClass:[NSString class]] || !languageTag.length)
+        return nil;
+    // Canonicalize (e.g. iw->he, EN-us->en-US) then take the primary subtag before the first "-"/"_".
+    NSString *canonical = [NSLocale canonicalLanguageIdentifierFromString:languageTag];
+    if (!canonical.length)
+        canonical = languageTag;
+    NSRange sep = [canonical rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"-_"]];
+    NSString *code = (sep.location == NSNotFound) ? canonical : [canonical substringToIndex:sep.location];
+    return code.lowercaseString;
+}
+@implementation NSLocale (Polyfill10_9)
++ (NSArray *)matchedLanguagesFromAvailableLanguages:(NSArray *)availableLanguages forPreferredLanguages:(NSArray *)preferredLanguages {
+    NSArray *ordered = [NSBundle preferredLocalizationsFromArray:availableLanguages forPreferences:preferredLanguages];
+    if (!ordered.count)
+        return @[];
+    NSMutableSet *preferredCodes = [NSMutableSet set];
+    for (NSString *preferred in preferredLanguages) {
+        NSString *code = wk_primaryLanguageSubtag(preferred);
+        if (code)
+            [preferredCodes addObject:code];
+    }
+    // Keep only entries that are (a) genuine members of availableLanguages and (b) whose primary language
+    // subtag is actually among the preferred languages. (a) drops the value preferredLocalizationsFromArray:
+    // echoes back when availableLanguages is empty (it returns the preferred string itself, which is NOT a
+    // member); (b) drops the development-region fallback it adds on a non-empty total no-match. Together they
+    // reproduce +matchedLanguagesFromAvailableLanguages:'s empty-on-no-match result and guarantee every
+    // returned entry is a member of availableLanguages (WTF::indexOfBestMatchingLanguageInList relies on
+    // languageList.find(firstObject) resolving).
+    NSMutableArray *matched = [NSMutableArray array];
+    for (NSString *available in ordered) {
+        NSString *code = wk_primaryLanguageSubtag(available);
+        if (code && [preferredCodes containsObject:code] && [availableLanguages containsObject:available])
+            [matched addObject:available];
+    }
+    return matched;
+}
+@end
 @interface NSView (Polyfill_10_11_DeferViewInWindow)
 - (void)beginDeferringViewInWindowChanges;
 - (void)endDeferringViewInWindowChanges;

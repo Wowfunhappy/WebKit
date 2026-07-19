@@ -370,6 +370,79 @@
             "status": "non-standard",
             "user-agent-part": true
         },
+        "-internal-media-controls-closed-captions-container": {
+            "comment": "MAVERICKS_BACKPORT (#68): the classic Safari 7 / Mavericks media controls (mediaControlsApple.css/.js) style every shadow element through a per-part pseudo-element. Upstream removed these parts when it switched to class-based modern-media-controls; re-add them so the restored Aqua stylesheet parses. They keep the classic structure but use the `-internal-` prefix (the classic sheet used `-webkit-media-controls-*`) because these are UA-stylesheet-only and modern WebKit caps the number of `-webkit-` pseudo-elements.",
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-current-time-display": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-fullscreen-button": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-mute-button": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-panel": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-play-button": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-return-to-realtime-button": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-rewind-button": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-seek-back-button": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-seek-forward-button": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-status-display": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-time-remaining-display": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-timeline": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-timeline-container": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-toggle-closed-captions-button": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-volume-max-button": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-volume-min-button": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
+        "-internal-media-controls-volume-slider": {
+            "status": "non-standard",
+            "user-agent-part": true
+        },
         "-webkit-media-text-track-container": {
             "status": "non-standard",
             "user-agent-part": true
