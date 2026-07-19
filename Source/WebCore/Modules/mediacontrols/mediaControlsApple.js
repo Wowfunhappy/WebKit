@@ -40,6 +40,7 @@ function Controller(root, video, host)
     this.updatePlaying();
     this.updateThumbnail();
     this.updateCaptionButton();
+    this.updateFullscreenButton();
     this.updateCaptionContainer();
     this.updateVolume();
     this.updateHasAudio();
@@ -526,6 +527,7 @@ Controller.prototype = {
     {
         this.updateReadyState();
         this.updateCaptionButton();
+        this.updateFullscreenButton();
         this.updateCaptionContainer();
         this.updateProgress();
     },
@@ -1055,6 +1057,20 @@ Controller.prototype = {
             this.controls.captionButton.classList.remove(this.ClassNames.hidden);
         else
             this.controls.captionButton.classList.add(this.ClassNames.hidden);
+    },
+
+    // MAVERICKS_BACKPORT (#68): the fullscreen button drives the Element Fullscreen API
+    // (video.webkitRequestFullscreen), which the page must enable. Safari enables it,
+    // but embedders such as Mail leave it off, so the request silently does nothing
+    // there. Hide the button unless fullscreen is genuinely available:
+    // video.webkitSupportsFullscreen reflects Page::isDocumentFullscreenEnabled(), the
+    // same gate the request path checks, and it is how the modern controls decide too.
+    updateFullscreenButton: function()
+    {
+        if (!this.isAudio() && this.video.webkitSupportsFullscreen)
+            this.controls.fullscreenButton.classList.remove(this.ClassNames.hidden);
+        else
+            this.controls.fullscreenButton.classList.add(this.ClassNames.hidden);
     },
 
     updateCaptionContainer: function()
