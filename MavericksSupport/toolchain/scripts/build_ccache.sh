@@ -14,13 +14,15 @@ PREFIX="${CCACHE_PREFIX_DIR:-$TOOLCHAIN/build/ccache}"
 VERSION=3.7.12
 REPO="$(cd "$TOOLCHAIN/../.." && pwd)"
 SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
-export SDKROOT="$SDK"
 export MACOSX_DEPLOYMENT_TARGET=10.9
 # The in-tree clang's default config adds a WebKit link set that confuses autotools probes, so
 # use --no-default-config (a plain 10.9 compiler), like the deps build. clang defaults to C23,
-# under which ccache's pre-C99 C trips; pin gnu17. Build against the SDK's system zlib (the
-# ancient zlib bundled in the tarball doesn't parse against the modern SDK headers).
-PLAIN='--no-default-config -Wno-implicit-function-declaration -Wno-implicit-int'
+# under which ccache's pre-C99 C trips; pin gnu17. The SDK goes in via -isysroot, not SDKROOT:
+# the /usr/bin/{make,ar} xcrun shims read SDKROOT too, and where Xcode is the selected
+# developer dir they refuse to run when it names an SDK Xcode has no record of ("unable to
+# find utility make"). Command-Line-Tools-only hosts tolerate it, so this only breaks on some
+# machines; -isysroot reaches the compiler that needs it either way.
+PLAIN="--no-default-config -isysroot $SDK -Wno-implicit-function-declaration -Wno-implicit-int"
 export CC="$CLANG/bin/clang $PLAIN -std=gnu17"
 export CXX="$CLANG/bin/clang++ $PLAIN"
 export CFLAGS="-O2 -mmacosx-version-min=10.9"
@@ -33,24 +35,41 @@ curl -fsSL -o "$WORK/ccache.tar.gz" "https://github.com/ccache/ccache/releases/d
 tar xzf "$WORK/ccache.tar.gz" -C "$WORK"
 cd "$WORK/ccache-${VERSION}"
 
-echo "### Configuring (system zlib from the SDK)"
-./configure
+# ccache must use its own zlib, not the host's. The SDK's zlib.h is 1.2.12 and 10.9's
+# libz.1.dylib is 1.2.5; zlib.h's gzgetc() is a macro that reaches into struct gzFile_s, which
+# only became public in 1.2.6, so that header against that runtime reads the wrong offsets and
+# ccache cannot read back the manifests direct mode depends on. The bundled copy compiles from
+# the sources its own header describes, so the macro is correct by construction.
+# Building it needs the same patch build_cmake.sh applies to cmake's vendored zlib: zlib <= 1.2.11
+# #defines fdopen to NULL under TARGET_OS_MAC, which modern TargetConditionals.h also sets, and
+# that breaks the SDK's real fdopen declaration.
+sed -i '' '/define fdopen(fd,mode) NULL/d' src/zlib/zutil.h
+
+echo "### Configuring (bundled zlib)"
+./configure --with-bundled-zlib
 
 echo "### Building"
 make -j4
 
-echo "### Validate: compiling the same input twice yields a cache hit"
+echo "### Validate: no dependency on the host's libz"
+linked="$(otool -L ./ccache)"   # capture first, so a failing otool can't read as a pass
+echo "$linked" | grep -q libz && { echo "### FAIL: links host libz"; exit 1; } || echo "### no libz"
+
+echo "### Validate: compiling the same input twice yields a DIRECT cache hit"
 export CCACHE_DIR="$WORK/cachedir"
-printf 'int f(void){return 41;}\n' > probe.c
-./ccache "$CLANG/bin/clang" --no-default-config -c probe.c -o p1.o
-./ccache "$CLANG/bin/clang" --no-default-config -c probe.c -o p2.o
+# The probe includes a header so there is an include set to hash into a manifest -- the path
+# direct mode takes, and the one worth checking.
+printf '#include <stdio.h>\nint f(void){return 41;}\n' > probe.c
+for o in p1.o p2.o; do ./ccache "$CLANG/bin/clang" $PLAIN -c probe.c -o "$o"; done
 ./ccache -s | grep -iE "cache hit|cache miss" || true
-# ccache prints two "cache hit" lines (direct + preprocessed) — sum both, don't read just the first.
-hits=$(./ccache -s | awk '/cache hit/{for(i=1;i<=NF;i++)if($i ~ /^[0-9]+$/)s+=$i} END{print s+0}')
-[ "${hits:-0}" -ge 1 ] && echo "### cache works ($hits hit)" || { echo "### FAIL: no cache hit"; exit 1; }
+# Read the direct counter alone. ccache falls back to preprocessed mode whenever direct mode
+# fails, so a total that lumps the two together stays healthy with direct mode dead.
+direct=$(./ccache -s | awk '/cache hit \(direct\)/{print $NF}')
+[ "${direct:-0}" -ge 1 ] && echo "### direct mode works ($direct hit)" || { echo "### FAIL: no direct cache hit"; exit 1; }
 
 echo "### 10.9-self-sufficient? (no post-10.9 imports)"
-nm -u ./ccache 2>/dev/null | grep -iE "getentropy|getrandom|clock_gettime|arc4random" \
+undefined="$(nm -u ./ccache)"   # capture first, so a failing nm can't read as a pass
+echo "$undefined" | grep -iE "getentropy|getrandom|clock_gettime|arc4random" \
     && { echo "### FAIL: post-10.9 symbol"; exit 1; } || echo "### 10.9-clean"
 
 mkdir -p "$PREFIX/bin"

@@ -7,12 +7,14 @@ TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 CLANG="$TOOLCHAIN/build/clang"
 PREFIX="${NINJA_PREFIX:-$TOOLCHAIN/build/ninja}"
 VERSION=1.12.1
-# Host tools are C++: clang must find libc++ headers, which live in the SDK. The
-# build system invokes clang++ without -isysroot, so point clang at the SDK via
-# SDKROOT and pin the 10.9 deploy target so the result still runs on the host.
+# Host tools are C++: clang must find libc++ headers, which live in the SDK. configure.py
+# forwards CXXFLAGS to both compiles and links, so the sysroot goes in there rather than in
+# SDKROOT -- the /usr/bin/ar xcrun shim reads SDKROOT too, and on a host where Xcode is the
+# selected developer dir it refuses to run when it names an SDK Xcode has no record of, which
+# kills the post-bootstrap rebuild's libninja.a step (Command-Line-Tools-only hosts tolerate
+# it). MACOSX_DEPLOYMENT_TARGET pins the 10.9 deploy target so the result still runs on host.
 REPO="$(cd "$TOOLCHAIN/../.." && pwd)"
 SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
-export SDKROOT="$SDK"
 export MACOSX_DEPLOYMENT_TARGET=10.9
 # ninja's configure.py needs python3 (its ninja_syntax.py uses py3 annotations).
 # Prefer the in-tree python3 (bootstrap.sh builds it before ninja); else a python3
@@ -32,7 +34,7 @@ curl -fsSL -o "$WORK/ninja.tar.gz" "https://github.com/ninja-build/ninja/archive
 tar xzf "$WORK/ninja.tar.gz" -C "$WORK"
 cd "$WORK/ninja-${VERSION}"
 echo "### Bootstrapping ninja with the in-tree clang++"
-CXX="$CLANG/bin/clang++" "$PY" configure.py --bootstrap
+CXX="$CLANG/bin/clang++" CXXFLAGS="-isysroot $SDK" "$PY" configure.py --bootstrap
 mkdir -p "$PREFIX/bin"
 cp ninja "$PREFIX/bin/ninja"
 "$PREFIX/bin/ninja" --version
