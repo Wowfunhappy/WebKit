@@ -6934,9 +6934,14 @@ static RetainPtr<_WKTextExtractionResult> createEmptyTextExtractionResult()
             if (hasRules)
                 return [strongSelf _extractDebugTextWithConfigurationWithoutUpdatingFilterRules:configuration.get() assertionScope:WTF::move(assertionScope) completionHandler:completionHandler.get()];
 
-            // MAVERICKS_BACKPORT: requestTextExtractionFilterRuleData()/updateTextExtractionFilterRules() depend on Apple Intelligence APIs absent on 10.9; extract directly without fetching/applying filter-rule data.
-            // Text extraction filter rules require Apple Intelligence APIs not available on 10.9
-            [strongSelf _extractDebugTextWithConfigurationWithoutUpdatingFilterRules:configuration.get() assertionScope:WTF::move(assertionScope) completionHandler:completionHandler.get()];
+            WebKit::requestTextExtractionFilterRuleData([assertionScope = WTF::move(assertionScope), configuration = WTF::move(configuration), completionHandler = WTF::move(completionHandler), weakSelf](auto&& data) mutable {
+                RetainPtr strongSelf = weakSelf.get();
+                if (!strongSelf)
+                    return completionHandler(createEmptyTextExtractionResult().get());
+
+                strongSelf->_page->updateTextExtractionFilterRules(WTF::move(data));
+                [strongSelf _extractDebugTextWithConfigurationWithoutUpdatingFilterRules:configuration.get() assertionScope:WTF::move(assertionScope) completionHandler:completionHandler.get()];
+            });
         });
         return;
     }
@@ -7546,9 +7551,14 @@ static OptionSet<WebCore::DataDetectorType> NODELETE coreDataDetectorTypes(_WKTe
         if (!result)
             return completionHandler(nil);
 
-        // MAVERICKS_BACKPORT: return no extracted item on 10.9 instead of building the WKTextExtractionItem tree via WebKit::createItem; the root-view-to-web-view conversion path is only exercised by iOS callers here.
-        // Text extraction item creation - simplified for 10.9
-        completionHandler(nil);
+        RetainPtr rootItem = WebKit::createItem(WTF::move(result->rootItem), [strongSelf](auto& rectInRootView) -> WebCore::FloatRect {
+#if PLATFORM(IOS_FAMILY)
+            if (RetainPtr contentView = strongSelf ? strongSelf->_contentView : nil)
+                return { [strongSelf convertRect:rectInRootView fromView:contentView.get()] };
+#endif
+            return rectInRootView;
+        });
+        completionHandler(rootItem.get());
     }];
 #endif // USE(APPLE_INTERNAL_SDK) || (!PLATFORM(WATCHOS) && !PLATFORM(APPLETV))
 }

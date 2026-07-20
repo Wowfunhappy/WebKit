@@ -2,12 +2,11 @@
 #
 # Builds the vendored 10.9 polyfill archive from source.
 #
-# These are the POSIX/libc/Security implementations that 10.9's system libraries
-# lack (clock_gettime, getentropy, os_unfair_lock, the *at() family, SecTrust/
-# SecKey modern entry points, ...). They are copied verbatim from
-# MavericksLegacySupport (a stripped MacPorts macports-legacy-support) into
-# legacy-polyfills/ so WebKit is self-contained and does not depend on the
-# toolchain auto-linking that library.
+# These are the POSIX/libc implementations that 10.9's system libraries lack
+# (clock_gettime, getentropy, os_unfair_lock, the *at() family, ...). They are
+# copied verbatim from MavericksLegacySupport (a stripped MacPorts
+# macports-legacy-support), so this directory holds vendored code only -- the
+# port's own polyfills live in polyfill/polyfills/.
 #
 # They are compiled against the 10.9 SDK (the host's own headers) because their
 # wrapper headers assume it; the resulting objects are SDK-agnostic and link
@@ -27,7 +26,11 @@ AR="$(dirname "$CLANG")/llvm-ar"
 mkdir -p "$OBJDIR"
 # --no-default-config: skip clang.cfg (frameworks/link flags meant for WebKit).
 # -isysroot /: build against the 10.9 host SDK these sources were written for.
-CFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -O2 -I$INC"
+# -fvisibility=hidden: these land in libpolyfill.a, which is force-loaded into WebKit's binaries, so
+# the definitions only need to satisfy references inside the image that pulled them in. Keeping them
+# unexported is what stops the layer leaking outside WebKit (deps/build_deps.sh compiles the same
+# sources into the vendored dylibs with this flag for the same reason).
+CFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$INC"
 
 objs=()
 for c in "$SRC"/*.c; do

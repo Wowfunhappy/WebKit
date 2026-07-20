@@ -122,7 +122,10 @@ void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, 
     m_livePlatformLayers.add(layerID, &layer);
 }
 
-#if HAVE(AVKIT)
+// MAVERICKS_BACKPORT: WebPage::videoPresentationManager() belongs to the video-presentation stack,
+// which this port does not build (ENABLE(VIDEO_PRESENTATION_MODE) is off — 10.9 lacks the AVKit
+// presentation SPI). Upstream ships HAVE(AVKIT) only alongside that stack; spell out both.
+#if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
 void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, PlatformCALayer::LayerType type, WebCore::HTMLVideoElement& videoElement)
 {
     PlatformLayerIdentifier layerID = layer.layerID();
@@ -140,8 +143,7 @@ void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, 
         videoElement.naturalSize()
     };
 
-    // MAVERICKS_BACKPORT: videoPresentationManager not available
-    // protect(protect(webPage())->videoPresentationManager())->setupRemoteLayerHosting(videoElement);
+    protect(protect(webPage())->videoPresentationManager())->setupRemoteLayerHosting(videoElement);
     m_videoLayers.add(layerID, videoElement.identifier());
 
     m_createdLayers.add(layerID, WTF::move(creationProperties));
@@ -158,11 +160,13 @@ void RemoteLayerTreeContext::layerWillLeaveContext(PlatformCALayerRemote& layer)
 {
     auto layerID = layer.layerID();
 
-#if HAVE(AVKIT)
+// MAVERICKS_BACKPORT: WebPage::videoPresentationManager() belongs to the video-presentation stack,
+// which this port does not build (ENABLE(VIDEO_PRESENTATION_MODE) is off — 10.9 lacks the AVKit
+// presentation SPI). Upstream ships HAVE(AVKIT) only alongside that stack; spell out both.
+#if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
     auto videoLayerIter = m_videoLayers.find(layerID);
     if (videoLayerIter != m_videoLayers.end()) {
-        // MAVERICKS_BACKPORT: videoPresentationManager not available
-        // protect(protect(webPage())->videoPresentationManager())->willRemoveLayerForID(videoLayerIter->value);
+        protect(protect(webPage())->videoPresentationManager())->willRemoveLayerForID(videoLayerIter->value);
         m_videoLayers.remove(videoLayerIter);
     }
 #endif

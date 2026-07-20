@@ -416,6 +416,7 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
         "CFNETWORK_DIAGNOSTICS",           // CFNetwork request/response logging
         "CFNETWORK_DIAGNOSTICS_LOG_FILE",  // redirect that logging to a file (avoids flooding syslog)
         "CFNETWORK_DIAGNOSTICS_NO_SYSLOG", // and drop the syslog copy
+        "WK_POLYFILL_REPORT",              // dump this port's polyfill table (MavericksSupport/polyfill)
     };
     auto containerEnvironmentVariables = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
     bool forwardedAnyEnvironmentVariable = false;

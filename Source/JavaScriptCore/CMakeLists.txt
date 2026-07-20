@@ -1752,7 +1752,7 @@ WEBKIT_FRAMEWORK(JavaScriptCore)
 # Force-load WTF API compat shims for Safari 9.1.3 on 10.9
 if (APPLE)
     target_link_options(JavaScriptCore PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libwtf_compat.a")
-    # MAVERICKS_BACKPORT: the selref-scope polyfill (libpolyfill_classes.a = wk_selref_scope.o + wk_polyfills.o)
+    # MAVERICKS_BACKPORT: the selref-scope polyfill (libpolyfill_classes.a = wk_selref_scope.o + methods.o)
     # is force-loaded into WebCore, NOT JavaScriptCore (see Source/WebCore/CMakeLists.txt). Its wk_ category
     # methods on AppKit classes (NSColor/NSScreen/NSWindow/NSWorkspace/NSEvent/NSAppearance/NSGraphicsContext)
     # supply absent-on-10.9 methods for the rendering code. Keeping AppKit out of JavaScriptCore lets a

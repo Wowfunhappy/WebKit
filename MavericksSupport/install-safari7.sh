@@ -1,114 +1,31 @@
 #!/bin/bash
-# install-safari7.sh — install the backported WebKit frameworks where stock
-# Safari 7.0.6 (WebKit 9537.78.2) on macOS 10.9.5 loads them, performing the
-# 10.9 name shift and rewriting @rpath install names to the absolute paths the
-# system expects. See MavericksSupport/safari7-abi/INSTALL-PLAN.md for rationale.
+# install-safari7.sh — deploy the built product where stock Safari 7.0.6 (WebKit 9537.78.2) on
+# macOS 10.9.5 loads it. The build already shaped the artifacts: MavericksSupport/scripts/
+# stage-frameworks.sh produces WebKitBuild/Release/staged/, a tree laid out exactly as it lands
+# on disk (10.9 name shift, bundle resources, private C++ runtime / polyfill / GStreamer deploys,
+# absolute install names, demangler guard, full XPC service set, stock i386 slices). Installing is
+# therefore a copy plus the few things that live in host files nobody builds.
 #
-# Name shift (built framework -> install location, binary rename):
-#   JavaScriptCore -> /System/Library/Frameworks/JavaScriptCore.framework
-#   WebKitLegacy   -> /System/Library/Frameworks/WebKit.framework        (bin: WebKit)
-#   WebKit (WK2)   -> /System/Library/PrivateFrameworks/WebKit2.framework (bin: WebKit2)
-#   WebCore        -> /System/Library/Frameworks/WebKit.framework/Versions/A/Frameworks/WebCore.framework  (nested, matches stock 10.9)
+# See scripts/framework-layout.sh for the layout and MavericksSupport/safari7-abi/INSTALL-PLAN.md
+# for the rationale.
 #
-# Private C++ runtime (libc++/libc++abi from the clang-22 toolchain) and the
-# CoreGraphics polyfill dylib are embedded INSIDE the framework bundles (#68:
-# self-contained, nothing in /usr/local), referenced by absolute in-bundle path so
-# the system's old 10.9 libc++ is never used by us and never overwritten (it is not
-# a strict superset — see INSTALL-PLAN.md).
-#
-# SAFETY: the factory (stock) frameworks are preserved ONCE in $STOCK_BACKUP (the
-# flat *.framework dirs in stock-webkit-backup). Installs do NOT snapshot each build —
-# a re-run only replaces our own previous build, and backing that up every time is pure
-# disk churn (~670MB/run, which once filled the startup disk). backup() captures stock
-# at most once and is skipped entirely whenever the stock backup already exists.
+# SAFETY: the factory (stock) frameworks are preserved ONCE in $STOCK_BACKUP (the flat *.framework
+# dirs in stock-webkit-backup), captured at build time by scripts/backup-stock-frameworks.sh.
+# Installs do NOT snapshot each build — a re-run only replaces our own previous build, and backing
+# that up every time is pure disk churn (~670MB/run, which once filled the startup disk). backup()
+# below captures stock at most once and is skipped entirely whenever the stock backup already exists.
 # Run with: sudo bash install-safari7.sh   (writes to /System only — fully self-contained, no /usr/local)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-REPO="$(cd "$HERE/.." && pwd)"
-LIBDIR="$REPO/WebKitBuild/Release/lib"
-TC="${MAVERICKS_CLANG:-$REPO/MavericksSupport/toolchain/build/clang}"
-# cctools resolution. /usr/bin/{install_name_tool,lipo,otool} can be xcrun-style shims that
-# exec Xcode's xcodebuild — which crashes on 10.9 when a modern Xcode.app is present, and
-# errors out when no Xcode/CLT is installed at all. Never trust a candidate by name: probe
-# each one with a real invocation and take the first that actually works. Candidate order:
-# explicit env override, bare name from PATH (healthy CLT installs), MacPorts cctools
-# (mp-<name>), Xcode toolchain binary by absolute path (bypasses the broken shim).
-XCTC=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
-probe_lipo()  { "$1" -info /usr/lib/dyld >/dev/null 2>&1; }
-probe_otool() { "$1" -h /usr/lib/dyld >/dev/null 2>&1; }
-probe_int()   {
-    _t="$(mktemp -t int_probe)" || return 1
-    cp /usr/lib/libz.1.dylib "$_t" 2>/dev/null || { rm -f "$_t"; return 1; }
-    "$1" -id /tmp/int_probe.dylib "$_t" >/dev/null 2>&1; _rc=$?
-    rm -f "$_t"; return $_rc
-}
-resolve_tool() { # $1 = probe fn, $2 = friendly name, $3.. = candidates
-    _probe="$1"; _name="$2"; shift 2
-    for _cand in "$@"; do
-        [ -n "$_cand" ] || continue
-        _path="$(command -v "$_cand" 2>/dev/null || true)"
-        [ -n "$_path" ] || continue
-        if "$_probe" "$_path" 2>/dev/null; then echo "$_path"; return 0; fi
-    done
-    echo "install-safari7.sh: no working $_name found (tried: $*)" >&2
-    return 1
-}
-INT="$(resolve_tool probe_int install_name_tool "${INSTALL_NAME_TOOL:-}" install_name_tool mp-install_name_tool "$XCTC/install_name_tool")"
-OTOOL="$(resolve_tool probe_otool otool "${OTOOL:-}" otool mp-otool "$XCTC/otool")"
-LIPO="$(resolve_tool probe_lipo lipo "${LIPO:-}" lipo mp-lipo "$XCTC/lipo")"
-echo "### Tools: install_name_tool=$INT otool=$OTOOL lipo=$LIPO"
-# Canonical stock backup (flat *.framework dirs), preserved once. BACKUP_ROOT is a
-# single fixed dir — NOT a per-run timestamped one — so backup() never accumulates a
-# new ~670MB snapshot on every install.
-STOCK_BACKUP="${STOCK_BACKUP:-$(dirname "$REPO")/stock-webkit-backup}"
+. "$HERE/scripts/framework-layout.sh"
+OTOOL="$(wk_find_otool)"
+LIPO="$(wk_find_lipo)"
+
+# BACKUP_ROOT is a single fixed dir — NOT a per-run timestamped one — so backup() never
+# accumulates a new ~670MB snapshot on every install.
 BACKUP_ROOT="${BACKUP_ROOT:-$STOCK_BACKUP/replaced-original}"
-
-FRAMEWORKS_DIR=/System/Library/Frameworks
-PRIVATE_DIR=/System/Library/PrivateFrameworks
-# #68: the private C++ runtime (libc++/libc++abi) AND libcg_polyfill.dylib live INSIDE the
-# framework bundles, so the install is fully self-contained — nothing in /usr/local and no
-# separate top-level runtime dir. Both homes are under /System/Library/[Private]Frameworks,
-# which the sandbox grants read to (the #18 reason these can't live in /usr/local: sandboxd
-# "deny file-read-data /usr/local/lib/webkit-private/..."); we reference them by ABSOLUTE
-# in-bundle path (never @rpath) so they can't shadow the system libc++ via DYLD_FALLBACK.
-# libc++/libc++abi go in the base framework (JavaScriptCore — every WebKit framework links the
-# C++ runtime); libcg_polyfill in WebCore (its only consumers are WebCore/WebKit/WebKit2).
-# The unwinder is NOT vendored: a process must have exactly one _Unwind_* implementation, and
-# system frames (Foundation, libobjc, app plug-ins like iBooks' BKEpubWebProcessPlugIn) always
-# drive /usr/lib/system/libunwind.dylib. An exception crossing system and backport frames with a
-# second, newer libunwind loaded hands the system unwinder's opaque _Unwind_Context to the modern
-# accessors (different UnwindCursor layout) and crashes mid-unwind, so every @rpath/libunwind
-# reference is bound to the system unwinder instead (its exports cover all symbols we import:
-# _Unwind_Resume plus libc++abi's eight classic _Unwind_* entry points).
-PRIVLIBCXX=/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Frameworks
-# WebCore is nested INSIDE the public WebKit umbrella, matching the stock 10.9 layout: stock has NO
-# top-level /System/Library/PrivateFrameworks/WebCore.framework — its WebKit2/WebKit binaries link
-# WebCore at this nested path. The CG polyfill + GStreamer tree live in WebCore's own Frameworks dir.
-WEBCORE_BUNDLE=$FRAMEWORKS_DIR/WebKit.framework/Versions/A/Frameworks/WebCore.framework
-PRIVLIB=$WEBCORE_BUNDLE/Versions/A/Frameworks
 OLD_PRIVRT=/System/Library/WebKitPrivateRuntime   # pre-#68 standalone location; removed at the end
-
-# GStreamer (#90): the vendored lib tree is deployed inside WebCore.framework (self-contained, beside
-# libcg_polyfill). The libs are self-contained via their own LC_RPATH @loader_path/../lib, so they ship
-# as-is; only the WebKit frameworks' @rpath/libg*/libgst*/etc. deps are rewritten to these absolute paths.
-# GST_SRC overridable so a freshly-built deps/build (e.g. a GStreamer version bump under
-# test) can be deployed without first refreshing the committed deps/gstreamer snapshot.
-GST_SRC="${GST_SRC:-$REPO/MavericksSupport/deps/gstreamer/lib}"
-GST_DEPLOY="$PRIVLIB/gstreamer/lib"
-
-# Absolute install_name each framework binary must advertise (matches Safari's
-# LC_LOAD_DYLIB). macOS 10.9 ships bash 3.2 (no associative arrays), so this is a
-# function keyed by the installed binary name rather than a `declare -A` map.
-id_path() {
-    case "$1" in
-        JavaScriptCore) echo "$FRAMEWORKS_DIR/JavaScriptCore.framework/Versions/A/JavaScriptCore";;
-        WebKit)         echo "$FRAMEWORKS_DIR/WebKit.framework/Versions/A/WebKit";;        # our WebKitLegacy
-        WebKit2)        echo "$PRIVATE_DIR/WebKit2.framework/Versions/A/WebKit2";;          # our WebKit (WK2)
-        WebCore)        echo "$WEBCORE_BUNDLE/Versions/A/WebCore";;                          # nested in WebKit.framework (stock layout)
-        *) echo "";;
-    esac
-}
 
 backup() {
     local path="$1"
@@ -124,395 +41,47 @@ backup() {
     cp -Rp "$path" "$dest"
 }
 
-# Map an @rpath/X.framework/... or @rpath/libY.dylib dependency to its absolute target.
-absolute_for_rpath_dep() {
-    local dep="$1"   # e.g. @rpath/WebCore.framework/Versions/A/WebCore
-    case "$dep" in
-        @rpath/JavaScriptCore.framework/*) id_path JavaScriptCore;;
-        @rpath/WebCore.framework/*)        id_path WebCore;;
-        # NOTE: our build's WebKitLegacy is named "WebKitLegacy" and WK2 "WebKit".
-        @rpath/WebKitLegacy.framework/*)   id_path WebKit;;
-        @rpath/WebKit.framework/*)         id_path WebKit2;;
-        @rpath/libc++.1.dylib)             echo "$PRIVLIBCXX/libc++.1.dylib";;
-        @rpath/libc++abi.1.dylib)          echo "$PRIVLIBCXX/libc++abi.1.dylib";;
-        # Single-unwinder rule (see PRIVLIBCXX comment above): bind to the system unwinder.
-        @rpath/libunwind.1.dylib)          echo "/usr/lib/system/libunwind.dylib";;
-        # The two polyfill dylibs carry an @rpath install_name (build-polyfill.sh), so every binary that links
-        # them — and the WK2 layout-test harness, which also redirects the post-10.9 frameworks onto the
-        # reexporting libpolyfill_classes — records @rpath/<leaf>. Map both to their deployed in-bundle homes.
-        @rpath/libpolyfill_classes.dylib)  echo "$PRIVLIBCXX/libpolyfill_classes.dylib";;
-        @rpath/libcg_polyfill.dylib)       echo "$PRIVLIB/libcg_polyfill.dylib";;
-        # GStreamer (#90): any remaining @rpath/libX.dylib present in the vendored GStreamer tree maps
-        # to its deployed copy inside WebCore.framework. The -e guard avoids mis-mapping a stray dep.
-        @rpath/*.dylib)
-            local base="${dep#@rpath/}"
-            if [ -e "$GST_SRC/$base" ]; then echo "$GST_DEPLOY/$base"; else echo ""; fi
-            ;;
-        *) echo "";;
-    esac
-}
+# ---------------------------------------------------------------------------
+# PREFLIGHT: refuse to touch /System unless the staged product is present and complete. The copy
+# loop below rm -rf's each destination bundle before writing it, so a defect noticed at the third
+# bundle would leave /System half-new and half-stale — a mismatched, possibly-unbootable install.
+# Verifying the whole staged tree up front puts every check that can fail BEFORE the first write.
+echo "### Preflight"
+if [ "$(id -u)" != 0 ]; then
+    echo "ERROR: this writes to /System — run it as root: sudo bash $0" >&2
+    exit 1
+fi
+if [ ! -d "$WK_STAGE_ROOT" ]; then
+    echo "ERROR: no staged product at $WK_STAGE_ROOT." >&2
+    echo "       Build it first: bash MavericksSupport/rebuild.sh" >&2
+    exit 1
+fi
+wk_verify_tree "$WK_STAGE_ROOT" "the staged tree ($WK_STAGE_ROOT)" || {
+    echo "       Rebuild it: bash MavericksSupport/rebuild.sh" >&2
+    exit 1; }
 
-# Rewrite every @rpath dependency in one Mach-O binary to its absolute target.
-rewrite_rpath_deps() {
-    local bin="$1"
-    local dep abs
-    while read -r dep; do
-        [ -z "$dep" ] && continue
-        case "$dep" in @rpath/*) ;; *) continue;; esac
-        abs="$(absolute_for_rpath_dep "$dep")"
-        if [ -n "$abs" ]; then
-            "$INT" -change "$dep" "$abs" "$bin"
-        else
-            echo "  WARNING: unmapped @rpath dependency in $(basename "$bin"): $dep" >&2
-        fi
-    done < <("$OTOOL" -L "$bin" | awk 'NR>1{print $1}')
-}
-
-# Repoint one of $bin's LC_LOAD_DYLIB load commands — the one whose recorded path CONTAINS <match> — to
-# <new>. The match-by-substring form locates a load command by a stable fragment of its path — used here for
-# the system frameworks (pass "/<Name>.framework/"). The install-side counterpart of the build-side reexport
-# shims (the vendored GStreamer dylibs are pre-repointed at vendor time; these are the WebKit ones).
-repoint_framework_dep() {
-    local bin="$1" match="$2" new="$3" cur
-    cur=$("$OTOOL" -L "$bin" 2>/dev/null | awk -v m="$match" 'index($1, m){print $1; exit}')
-    [ -n "$cur" ] && "$INT" -change "$cur" "$new" "$bin" 2>/dev/null || true
-}
-
-# The two polyfill dylibs now carry an @rpath install_name, so rewrite_rpath_deps already remapped them to
-# their in-bundle homes (CG polyfill in WebCore.framework $PRIVLIB; the classes dylib in JavaScriptCore.framework
-# $PRIVLIBCXX, the universal dependency every WebKit binary already loads) via absolute_for_rpath_dep. This pass
-# only handles the absolute SYSTEM-framework deps the build links directly, which have no @rpath form.
-rewrite_abs_deps() {
-    local bin="$1"
-    # Redirect Security/CoreServices/CFNetwork/QuartzCore to libpolyfill_classes.dylib, which REEXPORTS each of
-    # them and ADDS the absent-on-10.9 ObjC classes the build SDK declares in them (SecKeyProxy,
-    # _NSHTTPAlternativeServices*/_NSHSTSStorage, LSBundleProxy, CABackdropLayer, ...). WebKit's two-level
-    # reference to those classes is stamped "from <that framework>"; redirecting the framework's load command
-    # to this dylib makes the class resolve from the single shared definition here (no "Class X is implemented
-    # in both ..." warning, no "Symbol not found" crash), while the framework's real symbols pass straight
-    # through the reexport. Safe + uniform: a binary that only uses the framework's real API is unaffected.
-    # (Never applied to libpolyfill_classes.dylib itself — it is deployed after this per-binary pass, so it is
-    # not iterated here, and a self-redirect can't occur.)
-    local _fw
-    for _fw in Security CoreServices CFNetwork QuartzCore; do
-        repoint_framework_dep "$bin" "/${_fw}.framework/" "$PRIVLIBCXX/libpolyfill_classes.dylib"
-    done
-}
-
-# Remove every LC_RPATH from one Mach-O binary. After rewrite_rpath_deps no
-# @rpath dependency remains, so the rpaths (which point back into the build
-# tree / toolchain) are not just stale but actively dangerous: a leftover
-# @rpath dep would silently resolve into WebKitBuild and load a SECOND copy
-# of a framework into the process (this happened with WebCore -> build-dir
-# JavaScriptCore: two JSC images, two VMs, SIGTRAP on the WK1 JS bridge).
-strip_rpaths() {
-    local bin="$1"
-    local rp
-    while read -r rp; do
-        [ -z "$rp" ] && continue
-        "$INT" -delete_rpath "$rp" "$bin" 2>/dev/null || true
-    done < <("$OTOOL" -l "$bin" | awk '/cmd LC_RPATH/{f=1} f && /path /{print $2; f=0}')
-}
-
-# Hard verification: no @rpath dependency and no LC_RPATH may survive in an
-# installed binary. A miss here means a process will mix installed + build-tree
-# images; fail the install loudly instead.
-verify_no_rpath() {
-    local bin="$1"
-    if "$OTOOL" -L "$bin" | awk 'NR>1{print $1}' | grep -q '^@rpath/'; then
-        echo "ERROR: $bin still has @rpath dependencies after rewrite:" >&2
-        "$OTOOL" -L "$bin" | awk 'NR>1{print $1}' | grep '^@rpath/' >&2
-        return 1
-    fi
-    if "$OTOOL" -l "$bin" | grep -q 'cmd LC_RPATH'; then
-        echo "ERROR: $bin still has LC_RPATH entries after strip" >&2
-        return 1
-    fi
-}
-
-# Install one framework: copy bundle, rename binary if needed, set LC_ID, rewrite @rpath deps
-# in the main binary AND every nested Mach-O (XPCServices, helpers).
-install_framework() {
-    local builtName="$1" destBundle="$2" destBinName="$3"
-    local src="$LIBDIR/$builtName.framework"
-    [ -d "$src" ] || { echo "ERROR: missing built framework $src" >&2; return 1; }
-
-    echo "== $builtName -> $destBundle (binary: $destBinName) =="
-    backup "$destBundle"
-    rm -rf "$destBundle"
-    mkdir -p "$(dirname "$destBundle")"
-    cp -RP "$src" "$destBundle"
-
-    # The CMake Mac build compiles the modern-media-controls CSS/JS into the WebCore
-    # binary but does NOT copy the two resources RenderThemeCocoa loads from the
-    # framework bundle at runtime: the localized-strings script (defines the UIStrings
-    # table that UIString() reads — without it the controls JS throws at load and NO
-    # control bar renders) and the SVG/PDF/PNG control icons. Stage them here so
-    # <video controls> shows a working control bar.
-    if [ "$builtName" = "WebCore" ]; then
-        local res="$destBundle/Versions/A/Resources"
-        mkdir -p "$res/modern-media-controls/images"
-        cp -f "$REPO/Source/WebCore/en.lproj/modern-media-controls-localized-strings.js" "$res/" 2>/dev/null || \
-            echo "  WARN: modern-media-controls-localized-strings.js not found"
-        # Flat icon dir: RenderThemeCocoa looks up <name>.<type> in modern-media-controls/images.
-        cp -f "$REPO"/Source/WebCore/Modules/modern-media-controls/images/macOS/* "$res/modern-media-controls/images/" 2>/dev/null || \
-            echo "  WARN: macOS media-control icons not found"
-        echo "  staged modern-media-controls resources ($(ls "$res/modern-media-controls/images" 2>/dev/null | wc -l | tr -d ' ') icons)"
-
-        # Likewise, the CMake Mac build does not copy the Web Audio HRTF impulse-response database that
-        # AudioBus::loadPlatformResource() reads from the bundle (audio/Composite.wav, the concatenated
-        # database used when USE(CONCATENATED_IMPULSE_RESPONSES); subject name "Composite"). Without it,
-        # any HRTF PannerNode (positional audio) makes +[NSData dataWithContentsOfURL:] throw on a nil URL
-        # and the whole WebContent process aborts (e.g. the 5-million-devs.netlify.com 3D game reload loop).
-        mkdir -p "$res/audio"
-        cp -f "$REPO/Source/WebCore/platform/audio/resources/Composite.wav" "$res/audio/" 2>/dev/null \
-            && echo "  staged HRTF database (audio/Composite.wav)" \
-            || echo "  WARN: HRTF Composite.wav not found"
-
-        # linearSRGB.icc: 10.9 CG has no kCGColorSpaceLinearSRGB, so WebCore's
-        # linearSRGBColorSpaceSingleton() builds the linear sRGB space from this
-        # profile (the classic pre-10.12 mechanism; stock 10.9 WebCore shipped the
-        # same file). Without it, SVG filters fall back to gamma-space sRGB.
-        cp -f "$REPO/Source/WebCore/Resources/linearSRGB.icc" "$res/" 2>/dev/null \
-            && echo "  staged linearSRGB.icc" \
-            || echo "  WARN: linearSRGB.icc not found"
-
-        # Localizable.strings: WEB_UI_STRING looks localized UI strings up in the WebCore
-        # bundle (copyLocalizedString → CFBundleCopyLocalizedString). Without the table every
-        # string renders as its localization KEY (e.g. "Allow (usermedia)" on the getUserMedia
-        # consent sheet). The bundle identifier side is stamped at build time (WebKitMacros.cmake).
-        mkdir -p "$res/en.lproj"
-        cp -f "$REPO/Source/WebCore/en.lproj/Localizable.strings" "$res/en.lproj/" 2>/dev/null \
-            && echo "  staged en.lproj/Localizable.strings" \
-            || echo "  WARN: Localizable.strings not found"
-    fi
-
-    # Rename the binary (Versions/A/<old> -> Versions/A/<new>) + Current symlink + top symlink.
-    local va="$destBundle/Versions/A"
-    if [ "$builtName" != "$destBinName" ] && [ -f "$va/$builtName" ]; then
-        mv "$va/$builtName" "$va/$destBinName"
-        ln -sf "A" "$destBundle/Versions/Current"
-        rm -f "$destBundle/$builtName"
-        ln -sf "Versions/Current/$destBinName" "$destBundle/$destBinName"
-        # Fix Info.plist CFBundleExecutable.
-        /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $destBinName" "$va/Resources/Info.plist" 2>/dev/null || true
-        # MAVERICKS_BACKPORT: keep the STOCK bundle identifier for the name-shifted frameworks
-        # (WebKitLegacy installs as WebKit.framework = com.apple.WebKit; WK2 installs as
-        # WebKit2.framework = com.apple.WebKit2). The build stamps com.apple.<target-name>
-        # (see WebKitMacros.cmake), which is right for WebCore/JavaScriptCore but not these two.
-        /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.apple.$destBinName" "$va/Resources/Info.plist" 2>/dev/null || true
-    fi
-
-    # The build emits some top-level symlinks (notably XPCServices) as ABSOLUTE
-    # paths back into the build tree; rewrite them to the standard relative form so
-    # the installed bundle is self-contained.
-    if [ -L "$destBundle/XPCServices" ]; then
-        rm -f "$destBundle/XPCServices"
-        ln -s "Versions/Current/XPCServices" "$destBundle/XPCServices"
-    fi
-
-    local bin="$va/$destBinName"
-    # Set this framework's own id, then rewrite its @rpath deps, then drop the
-    # now-useless (and dangerous) build-tree rpaths and verify nothing remains.
-    "$INT" -id "$(id_path "$destBinName")" "$bin"
-    rewrite_rpath_deps "$bin"
-    rewrite_abs_deps "$bin"
-    strip_rpaths "$bin"
-    verify_no_rpath "$bin"
-
-    # Rewrite @rpath deps in every nested Mach-O (XPC services, helper tools). These
-    # reference @rpath/WebKit.framework etc. and must be remapped just like the main
-    # binary, or the WebContent/Networking processes fail to launch and pages never
-    # render. Detect Mach-O by `file`, skip the main binary already handled.
-    local f
-    while IFS= read -r f; do
-        [ "$f" = "$bin" ] && continue
-        if file "$f" 2>/dev/null | grep -q "Mach-O"; then
-            rewrite_rpath_deps "$f"
-            rewrite_abs_deps "$f"
-            strip_rpaths "$f"
-            verify_no_rpath "$f"
-        fi
-    done < <(find "$destBundle" -type f -perm +111)
+# ---------------------------------------------------------------------------
+# Copy the staged bundles into place. WebCore rides inside WebKit.framework (nested, as on stock
+# 10.9), so three copies place all four frameworks. The staged tree already carries the modes the
+# sandbox needs (world-readable dylibs under traversable dirs), and `cp -p` carries them across
+# verbatim — without it cp applies root's umask instead, which can drop the world-read bit a
+# sandboxed WebContent needs. `cp -p` also copies the staged tree's ownership, so chown follows to
+# put the installed files under root:wheel like every other framework in /System.
+echo "### Installing frameworks from $WK_STAGE_ROOT"
+for bundle in $WK_INSTALL_ROOTS; do
+    echo "== $bundle =="
+    backup "$bundle"
+    rm -rf "$bundle"
+    mkdir -p "$(dirname "$bundle")"
+    cp -RPp "$WK_STAGE_ROOT$bundle" "$bundle"
+    chown -R root:wheel "$bundle"
     echo "  installed."
-}
-
-# #68: the private runtime libs are deployed INTO the framework bundles AFTER the frameworks
-# are installed (install_framework rm -rf's each bundle first, which would wipe a pre-placed
-# lib). The frameworks' load commands are already rewritten to these absolute in-bundle paths
-# during install_framework, so recording them before the files exist is fine (paths resolve at
-# runtime). See the deploy block after the 32-bit graft below.
-# PREFLIGHT (#168 fallout): refuse to touch /System if any source binary carries an @rpath dependency we
-# cannot resolve. install_framework rewrites frameworks one at a time and rm -rf's each destination first, so
-# an unmappable dep discovered on the 4th framework would already have left /System with 3 new + 1 stale
-# framework — a mismatched, possibly-unbootable install. absolute_for_rpath_dep maps every @rpath dep the build
-# produces (the WebKit frameworks, the two polyfill leaves, the C++ runtime, the vendored GStreamer dylibs), so
-# the only way to trip this is a genuinely unknown @rpath dylib (a newly vendored lib, a typo); the preflight
-# catches it BEFORE the first /System write rather than partway through. Scan all four
-# source bundles up front; abort cleanly with the remediation if anything is unmappable.
-preflight_check_rpaths() {
-    local bad=0 fw src f dep abs
-    for fw in JavaScriptCore WebKitLegacy WebCore WebKit; do
-        src="$LIBDIR/$fw.framework"
-        [ -d "$src" ] || continue
-        while IFS= read -r f; do
-            file "$f" 2>/dev/null | grep -q "Mach-O" || continue
-            while read -r dep; do
-                case "$dep" in @rpath/*) ;; *) continue;; esac
-                abs="$(absolute_for_rpath_dep "$dep")"
-                if [ -z "$abs" ]; then
-                    echo "  UNMAPPABLE @rpath dep in ${f#$LIBDIR/}: $dep" >&2
-                    bad=1
-                fi
-            done < <("$OTOOL" -L "$f" | awk 'NR>1{print $1}')
-        done < <(find "$src" -type f -perm +111)
-    done
-    if [ "$bad" != 0 ]; then
-        echo "ERROR: build tree has unmappable @rpath deps — refusing to install (no /System writes made)." >&2
-        echo "       A binary references an @rpath dylib absolute_for_rpath_dep doesn't know how to relocate" >&2
-        echo "       into the bundle (e.g. a newly vendored dylib). Add a case for it there, or relink the" >&2
-        echo "       offending binary; for the XPC-service execs, 'ninja -C WebKitBuild/Release NetworkProcess" >&2
-        echo "       WebProcess' (or a full rebuild.sh) relinks them." >&2
-        exit 1
-    fi
-}
-preflight_check_rpaths
-
-echo "### Installing frameworks (name shift)"
-# Order matters: install_framework rm -rf's its destination bundle. WebCore now nests inside
-# WebKit.framework, so WebKitLegacy (-> WebKit.framework) MUST run first, then WebCore is laid into it.
-install_framework JavaScriptCore "$FRAMEWORKS_DIR/JavaScriptCore.framework" JavaScriptCore
-install_framework WebKitLegacy   "$FRAMEWORKS_DIR/WebKit.framework"         WebKit
-install_framework WebCore        "$WEBCORE_BUNDLE"                          WebCore
-install_framework WebKit         "$PRIVATE_DIR/WebKit2.framework"           WebKit2
-# Match stock: the public WebKit umbrella exposes its nested frameworks via a top-level symlink
-# (WebKit.framework/Frameworks -> Versions/Current/Frameworks). Loads use the full Versions/A path,
-# but recreate the symlink so the on-disk layout is identical to stock 10.9.
-ln -sfh Versions/Current/Frameworks "$FRAMEWORKS_DIR/WebKit.framework/Frameworks" 2>/dev/null || \
-    ln -sf Versions/Current/Frameworks "$FRAMEWORKS_DIR/WebKit.framework/Frameworks" 2>/dev/null || true
-
-# ---------------------------------------------------------------------------
-# Demangler guard, pass 1 of 2: the 10.9 libc++abi __cxa_demangle heap-corrupts
-# on some modern-C++ mangled names (WebCore's Style CSSValueCreation/ToCSS
-# lambda locals). ReportCrash demangles every symbol of every mapped image
-# while writing a crash report, so ONE such symbol makes ReportCrash itself
-# crash and no .crash is ever produced for a WebKit process (sample/spindump
-# break the same way). The guard scans binaries and renames the offending
-# LOCAL symbols _Z -> _z in the string table so symbolication skips demangling
-# them. See MavericksSupport/neutralize-demangler-crashers.py.
-# This pass covers only the two real XPC service executables, BEFORE the
-# XPC-variant cloning below so every clone inherits a patched table; the full
-# pass over frameworks and all in-bundle dylibs runs after the runtime/
-# GStreamer deploys near the end of this script (those deploys re-copy fresh
-# binaries, so scanning them any earlier would certify files that then get
-# replaced).
-echo "### Demangler guard (pass 1/2): XPC service executables"
-/usr/bin/python "$HERE/neutralize-demangler-crashers.py" \
-    "$PRIVATE_DIR/WebKit2.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking" \
-    "$PRIVATE_DIR/WebKit2.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent" || {
-        echo "ERROR: demangler guard (pass 1) failed" >&2; exit 1; }
-
-# ---------------------------------------------------------------------------
-# QuickLook web previews (.webloc from a Dock stack): restore the FULL stock WK2
-# XPC service set.
-#
-# macOS 10.9's QuickLook (QuickLookUIHelper, sandboxed) renders a web preview by
-# loading our WebKit2 and launching the SAME fixed set of helper services the 2014
-# stock WebKit shipped: production AND ".Development" variants of every service,
-# plus OfflineStorage and Plugin.{32,64}. xpcd resolves the sandboxed host's
-# connection to each service through the on-disk .xpc bundles; when a requested
-# bundle is MISSING the domain-extension fails the sandbox check and the preview
-# hangs (spins forever). Modern WebKit only builds Networking.xpc + WebContent.xpc
-# (it folded OfflineStorage into NetworkProcess and dropped the NPAPI Plugin
-# process), so the other seven bundles stock ships are absent and QuickLook stalls.
-# (Safari is unaffected: ProcessLauncherCocoa requests only the two production
-# services, and Safari's own host is not sandboxed the way QuickLook's is.)
-#
-# Recreate the missing bundles as identity-renamed clones of the two real services:
-# the .Development network/web variants clone their production counterpart; the
-# storage/plugin bundles clone WebContent — they only need to EXIST and be
-# launchable so xpcd's domain check passes (the actual rendering is done by
-# WebContent + Networking, and QuickLook launches this set for every web preview
-# regardless of page content). Clone the ALREADY-INSTALLED services so the dyld
-# load commands install_framework rewrote to absolute in-bundle paths are inherited
-# intact. The clone differs from its base ONLY in the three identity keys + the
-# renamed executable file.
-XPCSERVICES="$PRIVATE_DIR/WebKit2.framework/Versions/A/XPCServices"
-make_xpc_variant() {
-    local base="$1" newname="$2"
-    local src="$XPCSERVICES/com.apple.WebKit.$base.xpc"
-    local dst="$XPCSERVICES/com.apple.WebKit.$newname.xpc"
-    [ -d "$src" ] || { echo "  xpc-variant: missing base $src" >&2; return 1; }
-    rm -rf "$dst"
-    cp -RP "$src" "$dst"
-    mv "$dst/Contents/MacOS/com.apple.WebKit.$base" "$dst/Contents/MacOS/com.apple.WebKit.$newname"
-    local pl="$dst/Contents/Info.plist"
-    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.apple.WebKit.$newname" "$pl"
-    /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable com.apple.WebKit.$newname" "$pl"
-    /usr/libexec/PlistBuddy -c "Set :CFBundleName       com.apple.WebKit.$newname" "$pl"
-    echo "  created $newname.xpc (clone of $base)"
-}
-echo "### Restoring full stock WK2 XPC service set (QuickLook web previews)"
-make_xpc_variant Networking Networking.Development
-make_xpc_variant WebContent WebContent.Development
-make_xpc_variant WebContent OfflineStorage
-make_xpc_variant WebContent OfflineStorage.Development
-make_xpc_variant WebContent Plugin.32
-make_xpc_variant WebContent Plugin.64
-make_xpc_variant WebContent Plugin.Development
-
-# ---------------------------------------------------------------------------
-# 32-bit (i386) compatibility — graft the STOCK 10.9 i386 slices back in.
-#
-# Our backport builds x86_64 only, but macOS 10.9 still runs 32-bit apps and the
-# stock WebKit shipped fat (x86_64 + i386). A 32-bit app that loads WebKit against
-# our x86_64-only binaries hits "dyld: no compatible architecture" and CRASHES.
-# Keep our modern x86_64 slice for 64-bit clients (Safari) and fatten each
-# installed binary with the ORIGINAL stock i386 slice, so 32-bit WebView apps load
-# the stock legacy WebKit1. dyld selects the slice by process arch and each slice
-# keeps its OWN load commands, so the two dependency graphs stay fully independent:
-#   x86_64 (us):    WebKit -> WebKit.framework/.../Frameworks/WebCore + JavaScriptCore
-#   i386  (stock):  WebKit -> WebKit.framework/.../Frameworks/WebCore + JavaScriptCore
-# Both arches resolve WebCore at the SAME nested path (the stock 10.9 layout); the nested
-# WebCore binary is itself fattened with the stock i386 slice (graft_i386 below), so dyld
-# picks our modern x86_64 WebCore for 64-bit Safari and the stock i386 WebCore for 32-bit apps.
-# The stock i386 slices reference only 10.9 system libs by absolute path (no
-# @rpath, no private runtime), so no install-name rewriting is needed for them.
-STOCK_BACKUP="${STOCK_BACKUP:-$(dirname "$REPO")/stock-webkit-backup}"
-
-# Replace a binary's bytes in place (preserves inode/owner/mode of the dest).
-replace_inplace() { cat "$1" > "$2"; }
-
-# Fatten an installed x86_64 binary with the i386 slice of a stock fat binary.
-graft_i386() {
-    local dest="$1" stock="$2"
-    [ -f "$dest" ]  || { echo "  graft: missing installed $dest" >&2; return 1; }
-    [ -f "$stock" ] || { echo "  graft: missing stock $stock" >&2; return 1; }
-    case "$("$LIPO" -info "$stock" 2>/dev/null)" in
-        *i386*) ;;
-        *) echo "  graft: stock $stock has no i386 slice — skip" >&2; return 1;;
-    esac
-    case "$("$LIPO" -info "$dest" 2>/dev/null)" in
-        *i386*) echo "  graft: $dest already fat with i386 — skip"; return 0;;
-    esac
-    local ti tf
-    ti="$(mktemp -t graft_i386)"; tf="$(mktemp -t graft_fat)"
-    "$LIPO" -thin i386 "$stock" -output "$ti"
-    "$LIPO" -create "$dest" "$ti" -output "$tf"
-    replace_inplace "$tf" "$dest"
-    rm -f "$ti" "$tf"
-    echo "  grafted i386 into $(basename "$dest") -> $("$LIPO" -info "$dest" 2>/dev/null | sed 's/.*are: //')"
-}
-
-echo "### Grafting stock i386 slices for 32-bit app compatibility"
-graft_i386 "$FRAMEWORKS_DIR/JavaScriptCore.framework/Versions/A/JavaScriptCore" \
-           "$STOCK_BACKUP/JavaScriptCore.framework/Versions/A/JavaScriptCore"
-graft_i386 "$FRAMEWORKS_DIR/WebKit.framework/Versions/A/WebKit" \
-           "$STOCK_BACKUP/WebKit.framework/Versions/A/WebKit"
-graft_i386 "$PRIVATE_DIR/WebKit2.framework/Versions/A/WebKit2" \
-           "$STOCK_BACKUP/WebKit2.framework/Versions/A/WebKit2"
-graft_i386 "$WEBCORE_BUNDLE/Versions/A/WebCore" \
-           "$STOCK_BACKUP/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/WebCore"
+done
+# Remove the pre-#68 standalone runtime dir now that nothing references it (self-contained).
+if [ -d "$OLD_PRIVRT" ]; then
+    rm -rf "$OLD_PRIVRT"
+    echo "  removed legacy $OLD_PRIVRT"
+fi
 
 # ---------------------------------------------------------------------------
 # #38: Dashboard "Web Clip" widgets must launch the 64-bit DashboardClient to load our x86_64-only
@@ -536,120 +105,13 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# #68: deploy the private runtime libs INSIDE the framework bundles. Done here, AFTER every
-# install_framework (each rm -rf's its bundle) and after the 32-bit graft (which only lipo's
-# binaries and recreates the nested i386 WebCore subdir — neither touches these lib dirs).
-# The frameworks/XPC binaries already record these absolute in-bundle paths (set during
-# install_framework via id_path/rewrite_*); we just place the files + fix their own ids.
-echo "### Deploying private C++ runtime into JavaScriptCore.framework ($PRIVLIBCXX)"
-mkdir -p "$PRIVLIBCXX"
-for lib in libc++.1.dylib libc++abi.1.dylib; do
-    cp -f "$TC/lib/$lib" "$PRIVLIBCXX/$lib"
-    "$INT" -id "$PRIVLIBCXX/$lib" "$PRIVLIBCXX/$lib" 2>/dev/null || true
-done
-# Single-unwinder rule: no private libunwind is deployed (remove one left by an older install);
-# the C++ runtime's @rpath/libunwind.1.dylib loads are bound to the system unwinder below.
-rm -f "$PRIVLIBCXX/libunwind.1.dylib"
-# libc++ loads libc++abi via @rpath (and libc++abi has a self-referential @rpath load too); both also
-# load @rpath/libunwind.1.dylib. Pin all absolute so dyld resolves them in processes with no rpath set.
-"$INT" -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$PRIVLIBCXX/libc++.1.dylib" 2>/dev/null || true
-"$INT" -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$PRIVLIBCXX/libc++abi.1.dylib" 2>/dev/null || true
-"$INT" -change @rpath/libunwind.1.dylib /usr/lib/system/libunwind.dylib "$PRIVLIBCXX/libc++.1.dylib" 2>/dev/null || true
-"$INT" -change @rpath/libunwind.1.dylib /usr/lib/system/libunwind.dylib "$PRIVLIBCXX/libc++abi.1.dylib" 2>/dev/null || true
-echo "### Deploying CG polyfill into WebCore.framework ($PRIVLIB)"
-mkdir -p "$PRIVLIB"
-if [ -f "$HERE/polyfill/build/libcg_polyfill.dylib" ]; then
-    cp -f "$HERE/polyfill/build/libcg_polyfill.dylib" "$PRIVLIB/libcg_polyfill.dylib"
-    # -id cosmetic (loaded by absolute path); polyfill dylibs lack headerpad, so tolerate a too-long id.
-    "$INT" -id "$PRIVLIB/libcg_polyfill.dylib" "$PRIVLIB/libcg_polyfill.dylib" 2>/dev/null || true
-fi
-echo "### Deploying polyfill ObjC classes dylib into JavaScriptCore.framework ($PRIVLIBCXX)"
-mkdir -p "$PRIVLIBCXX"
-if [ -f "$HERE/polyfill/build/libpolyfill_classes.dylib" ]; then
-    cp -f "$HERE/polyfill/build/libpolyfill_classes.dylib" "$PRIVLIBCXX/libpolyfill_classes.dylib"
-    "$INT" -id "$PRIVLIBCXX/libpolyfill_classes.dylib" "$PRIVLIBCXX/libpolyfill_classes.dylib" 2>/dev/null || true
-else
-    echo "  WARNING: libpolyfill_classes.dylib missing — WebKit apps will fail to load (polyfill ObjC classes)" >&2
-fi
-# TCC polyfill: WebKit::TCCLibrary() dlopens this in place of the system TCC framework on 10.9 (which
-# lacks the camera/microphone privacy services). It sits beside the WebKit2 binary under Frameworks/
-# so the dlopen "@loader_path/Frameworks/libtcc_polyfill.dylib" resolves to it.
-WK2_FRAMEWORKS="$PRIVATE_DIR/WebKit2.framework/Versions/A/Frameworks"
-if [ -f "$HERE/polyfill/build/libtcc_polyfill.dylib" ]; then
-    mkdir -p "$WK2_FRAMEWORKS"
-    cp -f "$HERE/polyfill/build/libtcc_polyfill.dylib" "$WK2_FRAMEWORKS/libtcc_polyfill.dylib"
-fi
-# GStreamer (#90): deploy the vendored lib tree (libs + plugins) into WebCore.framework. The libs are
-# self-contained via their own LC_RPATH @loader_path/../lib; the frameworks' @rpath/libg* deps were
-# rewritten to $GST_DEPLOY during install_framework, so they resolve to these copies at runtime.
-echo "### Deploying GStreamer libs into WebCore.framework ($GST_DEPLOY)"
-if [ -d "$GST_SRC" ]; then
-    # The runtime is built from source for 10.9 (MavericksSupport/deps/build_deps.sh)
-    # and proved self-contained by that script's resolution gate: every strong undefined symbol in
-    # every dylib/plugin resolves on this host, no NULL-binding weak imports beyond the documented
-    # allow-list, no compat/reexport shims, and the C++17 runtime is vendored in-tree
-    # (libc++.1.dylib / libc++abi.1.dylib). Deploying is a plain copy into a CLEARED
-    # directory — a copy over a previous install would leave stale dylibs/plugins behind
-    # for the GStreamer registry scan to pick up.
-    rm -rf "$GST_DEPLOY"
-    mkdir -p "$GST_DEPLOY"
-    cp -Rp "$GST_SRC/." "$GST_DEPLOY/"
-    # Single-unwinder rule (see PRIVLIBCXX comment above): the vendored tree carries the toolchain's
-    # libunwind and @rpath references to it (resolved via the libs' @loader_path/../lib LC_RPATH).
-    # Bind every reference to the system unwinder and drop the vendored copy.
-    find "$GST_DEPLOY" -type f -name '*.dylib' | while read -r gstlib; do
-        if "$OTOOL" -L "$gstlib" 2>/dev/null | grep -q '@rpath/libunwind.1.dylib'; then
-            "$INT" -change @rpath/libunwind.1.dylib /usr/lib/system/libunwind.dylib "$gstlib"
-        fi
-    done
-    rm -f "$GST_DEPLOY/libunwind.1.dylib"
-else
-    echo "  warning: GStreamer source tree $GST_SRC missing — media will not load"
-fi
-# Sandbox grants read only to world-readable files under /System with traversable parents.
-# Make the in-bundle lib dirs traversable and the dylibs world-readable.
-chmod 755 "$PRIVLIBCXX" "$PRIVLIB" 2>/dev/null || true
-chmod 644 "$PRIVLIBCXX"/*.dylib "$PRIVLIB"/*.dylib 2>/dev/null || true
-# GStreamer tree: every dir traversable, every dylib world-readable (sandboxed WebContent loads them).
-find "$GST_DEPLOY" -type d -exec chmod 755 {} + 2>/dev/null || true
-find "$GST_DEPLOY" -type f -name '*.dylib' -exec chmod 644 {} + 2>/dev/null || true
-# Remove the pre-#68 standalone runtime dir now that nothing references it (self-contained).
-if [ -d "$OLD_PRIVRT" ]; then
-    rm -rf "$OLD_PRIVRT"
-    echo "  removed legacy $OLD_PRIVRT"
-fi
-
-# ---------------------------------------------------------------------------
-# Demangler guard, pass 2 of 2 (see pass 1 above for the why): the full scan
-# over every Mach-O this install placed. Runs HERE, after the i386 grafts and
-# the private-runtime/polyfill/GStreamer deploys above, because those deploys
-# copy fresh (unscanned) binaries into the bundles -- every dylib that can map
-# into a WebKit process must be covered or one drifted symbol silently
-# re-breaks ReportCrash. The guard handles fat binaries (patches x86_64
-# slices; stock i386 slices untouched) and is idempotent on the pass-1 files.
-echo "### Demangler guard (pass 2/2): frameworks + all in-bundle dylibs"
-DEMANGLER_GUARD_BINS="$FRAMEWORKS_DIR/JavaScriptCore.framework/Versions/A/JavaScriptCore
-$FRAMEWORKS_DIR/WebKit.framework/Versions/A/WebKit
-$WEBCORE_BUNDLE/Versions/A/WebCore
-$PRIVATE_DIR/WebKit2.framework/Versions/A/WebKit2
-$(find "$PRIVATE_DIR/WebKit2.framework/Versions/A/XPCServices" -type f -path '*/Contents/MacOS/*' 2>/dev/null || true)
-$(find "$FRAMEWORKS_DIR/JavaScriptCore.framework/Versions/A/Frameworks" \
-       "$FRAMEWORKS_DIR/WebKit.framework/Versions/A/Frameworks" \
-       "$WEBCORE_BUNDLE/Versions/A/Frameworks" \
-       "$PRIVATE_DIR/WebKit2.framework/Versions/A/Frameworks" \
-       -name '*.dylib' -type f 2>/dev/null || true)"
-echo "$DEMANGLER_GUARD_BINS" | grep -v '^$' | sort -u | \
-    xargs /usr/bin/python "$HERE/neutralize-demangler-crashers.py" || {
-        echo "ERROR: demangler guard (pass 2) failed" >&2; exit 1; }
-
-# ---------------------------------------------------------------------------
 # #66/#69: the unified undocked Web Inspector toolbar (gradient + 78px traffic-light inset)
-# is now injected by WebInspectorUIProxyMac.mm into the inspector frontend HTML at load time,
-# so the stock system WebInspectorUI Main.css is left PRISTINE (no system-file edit). The
+# is injected by WebInspectorUIProxyMac.mm into the inspector frontend HTML at load time,
+# so the stock system WebInspectorUI Main.css stays PRISTINE (no system-file edit). The
 # native half (_WKInspectorWindow emulating NSWindowStyleMaskFullSizeContentView so #toolbar
 # fills the titlebar region) lives in WebKit. Here we only restore the stock Main.css by
 # stripping any WK66-UNIFIED rules a previous install appended to it.
-echo "### Restoring stock Web Inspector Main.css (#69: toolbar CSS now injected at load time)"
+echo "### Restoring stock Web Inspector Main.css (#69: toolbar CSS injected at load time)"
 INSPECTOR_CSS=/System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/Resources/Main.css
 if [ -f "$INSPECTOR_CSS" ] && grep -q 'WK66-UNIFIED' "$INSPECTOR_CSS"; then
     # Marker-only match — never line-matches the giant minified stylesheet (line 1).
@@ -658,23 +120,34 @@ if [ -f "$INSPECTOR_CSS" ] && grep -q 'WK66-UNIFIED' "$INSPECTOR_CSS"; then
 fi
 
 # ---------------------------------------------------------------------------
-# Single-unwinder gate: no deployed binary may load a private libunwind (see the PRIVLIBCXX
-# comment). A leftover reference means some deploy path above missed the rewrite; fail loudly
-# rather than ship a process that mixes two _Unwind_* implementations.
-echo "### Verifying single-unwinder rule (no libunwind.1.dylib references)"
-UNWIND_VIOLATIONS=0
-for root in "$FRAMEWORKS_DIR/JavaScriptCore.framework" "$FRAMEWORKS_DIR/WebKit.framework" "$PRIVATE_DIR/WebKit2.framework"; do
-    while read -r bin; do
-        if "$OTOOL" -L "$bin" 2>/dev/null | grep -q 'libunwind\.1\.dylib'; then
-            echo "  VIOLATION: $bin still references a private libunwind.1.dylib" >&2
-            UNWIND_VIOLATIONS=$((UNWIND_VIOLATIONS + 1))
-        fi
-    done < <(find "$root" \( -type f -perm +111 \) -o \( -type f -name '*.dylib' \) 2>/dev/null)
-done
-if [ "$UNWIND_VIOLATIONS" -ne 0 ]; then
-    echo "### FAILED: $UNWIND_VIOLATIONS binaries reference a private libunwind (mixed-unwinder hazard)" >&2
-    exit 1
+# #40: Safari 7's page-load error chrome is a frozen resource inside Safari.app that nothing here
+# builds, and it is the one place that still asks for the Aqua "gel" push button by implication
+# rather than by name. Its WebProcess-crash page cages the "Reload Webpage" button at width:132px
+# while .suggestion-form input sets font-size:16px — metrics that fit only because Safari-7-era
+# WebKit gave <input type=submit> -webkit-appearance:push-button, whose native gel coerces the
+# label to the system control font (13px). Upstream WebKit gives it -webkit-appearance:button,
+# which honours the author font-size, so the 16px label overflows its 132px box and draws clipped
+# inside a flat square. The page wants the gel; say so in the page's own stylesheet. That keeps the
+# fix inside Safari's chrome, where the metrics live, instead of changing how every
+# <input type=button|submit|reset> on the web renders. Safari reads this file directly, so there is
+# no in-framework lever: WebKit never sees the stylesheet, only its parsed result.
+echo "### Pinning the Safari 7 error-page buttons to the Aqua push-button look (#40)"
+ERRORPAGE_CSS=/Applications/Safari.app/Contents/Resources/page-load-errors.css
+if [ -f "$ERRORPAGE_CSS" ]; then
+    # Marker-only match, so a re-run replaces the previous rule instead of stacking copies. The
+    # file opens with a UTF-8 BOM that lets it be linked from a UTF-16 page; appending keeps it.
+    if grep -q 'WK40-PUSHBUTTON' "$ERRORPAGE_CSS"; then
+        grep -v 'WK40-PUSHBUTTON' "$ERRORPAGE_CSS" > "$ERRORPAGE_CSS.tmp40" && mv "$ERRORPAGE_CSS.tmp40" "$ERRORPAGE_CSS"
+    fi
+    printf '%s\n' '/* WK40-PUSHBUTTON */ .suggestion-form input[type=submit] { -webkit-appearance: push-button; }' >> "$ERRORPAGE_CSS"
+    chown root:wheel "$ERRORPAGE_CSS"
+    chmod 644 "$ERRORPAGE_CSS"
+    echo "  $ERRORPAGE_CSS carries the WK40-PUSHBUTTON rule"
+else
+    echo "  $ERRORPAGE_CSS not found — skipping (Safari's error-page buttons keep the modern flat look)"
 fi
 
-echo "### Done. Verify with: MavericksSupport/safari7-abi/check-abi-gap.sh and 'otool -L' on each installed binary."
-echo "### (Nested XPCServices binaries' @rpath deps are rewritten automatically by install_framework.)"
+# ---------------------------------------------------------------------------
+echo "### Verifying the installed product"
+wk_verify_tree "" "the installed system"
+echo "### Done. Verify further with: MavericksSupport/safari7-abi/check-abi-gap.sh"

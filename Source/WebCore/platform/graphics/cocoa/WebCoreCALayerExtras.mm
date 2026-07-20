@@ -1,72 +1,95 @@
-// MAVERICKS_BACKPORT: minimal implementation of WebCoreCALayerExtras category.
-#include "config.h"
-#include "WebCoreCALayerExtras.h"
+/*
+ * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ */
 
+#import "config.h"
+#import "WebCoreCALayerExtras.h"
+
+#import "DynamicContentScalingTypes.h"
 #import "TransformationMatrix.h"
-// MAVERICKS_BACKPORT: include the public QuartzCore umbrella directly; the upstream
-// PAL QuartzCoreSPI.h header pulls in newer-SDK-only CA SPI not present on 10.9.
-#import <QuartzCore/QuartzCore.h>
+#import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 
 @implementation CALayer (WebCoreCALayerExtras)
 
-// MAVERICKS_BACKPORT: explanatory note for the CALayerHost-based remote-layer hosting below.
-// CALayerHost (private CoreAnimation class, declared in the force-included compat
-// header / CA SPI) displays a layer tree rendered in another process: the
-// WebContent process renders into a CAContext and sends its 32-bit contextId
-// across; a CALayerHost with that contextId shows it here in the UI process.
-
-+ (CALayer *)_web_renderLayerWithContextID:(uint32_t)contextID shouldPreserveFlip:(BOOL)preservesFlip
-{
-    // MAVERICKS_BACKPORT: the previous stub returned an empty [CALayer layer], ignoring
-    // the contextID — so the WebContent process's rendered content was never shown
-    // and the WKView painted blank. Host the remote CAContext for real.
-    CALayerHost *layer = [CALayerHost layer];
-    layer.contextId = contextID;
-    UNUSED_PARAM(preservesFlip);
-    return layer;
-}
-
 - (void)web_disableAllActions
 {
-    // MAVERICKS_BACKPORT: disable implicit animations via the layer's -actions map (10.9-native)
-    // rather than the upstream -style/@"actions" nested dictionary; sets only properties
-    // this build actually animates.
-    self.actions = @{
-        @"anchorPoint": [NSNull null],
-        @"backgroundColor": [NSNull null],
-        @"bounds": [NSNull null],
-        @"contents": [NSNull null],
-        @"contentsRect": [NSNull null],
-        @"contentsScale": [NSNull null],
-        @"hidden": [NSNull null],
-        @"masksToBounds": [NSNull null],
-        @"opacity": [NSNull null],
-        @"position": [NSNull null],
-        @"shadowColor": [NSNull null],
-        @"sublayerTransform": [NSNull null],
-        @"sublayers": [NSNull null],
-        @"transform": [NSNull null],
-        @"zPosition": [NSNull null],
+    NSNull *nullValue = [NSNull null];
+    self.style = @{
+        @"actions" : @{
+            @"anchorPoint" : nullValue,
+            @"anchorPointZ" : nullValue,
+            @"backgroundColor" : nullValue,
+            @"borderColor" : nullValue,
+            @"borderWidth" : nullValue,
+            @"bounds" : nullValue,
+            @"contents" : nullValue,
+            @"contentsRect" : nullValue,
+            @"contentsScale" : nullValue,
+            @"cornerRadius" : nullValue,
+            @"opacity" : nullValue,
+            @"position" : nullValue,
+            @"shadowColor" : nullValue,
+            @"sublayerTransform" : nullValue,
+            @"sublayers" : nullValue,
+            @"transform" : nullValue,
+            @"zPosition" : nullValue
+        }
     };
 }
 
 - (void)_web_setLayerBoundsOrigin:(CGPoint)origin
 {
-    // MAVERICKS_BACKPORT: bounds origin set via dot-syntax accessors (10.9-native CALayer geometry).
-    CGRect bounds = self.bounds;
+    CGRect bounds = [self bounds];
     bounds.origin = origin;
-    self.bounds = bounds;
+    [self setBounds:bounds];
 }
 
 - (void)_web_setLayerTopLeftPosition:(CGPoint)position
 {
-    // MAVERICKS_BACKPORT: top-left position computed via dot-syntax accessors (no NaN
-    // logging/assert path); all CALayer geometry properties used here are 10.9-native.
-    CGRect bounds = self.bounds;
-    CGPoint anchor = self.anchorPoint;
-    self.position = CGPointMake(position.x + anchor.x * bounds.size.width,
-                                position.y + anchor.y * bounds.size.height);
+    CGSize layerSize = [self bounds].size;
+    CGPoint anchorPoint = [self anchorPoint];
+    CGPoint newPosition = CGPointMake(position.x + anchorPoint.x * layerSize.width, position.y + anchorPoint.y * layerSize.height);
+    if (isnan(newPosition.x) || isnan(newPosition.y)) {
+        WTFLogAlways("Attempt to call [CALayer setPosition] with NaN: newPosition=(%f, %f) position=(%f, %f) anchorPoint=(%f, %f)",
+            newPosition.x, newPosition.y, position.x, position.y, anchorPoint.x, anchorPoint.y);
+        ASSERT_NOT_REACHED();
+        return;
+    }
+    
+    [self setPosition:newPosition];
+}
+
++ (CALayer *)_web_renderLayerWithContextID:(uint32_t)contextID shouldPreserveFlip:(BOOL)preservesFlip
+{
+    CALayerHost *layerHost = [CALayerHost layer];
+#ifndef NDEBUG
+    [layerHost setName:@"Hosting layer"];
+#endif
+    layerHost.contextId = contextID;
+    layerHost.preservesFlip = preservesFlip;
+    return layerHost;
 }
 
 - (BOOL)_web_maskContainsPoint:(CGPoint)point
@@ -100,17 +123,26 @@
 - (void)_web_clearContents
 {
     self.contents = nil;
-    // MAVERICKS_BACKPORT: just drop the contents; the upstream contentsOpaque reset, the
-    // RE_DYNAMIC_CONTENT_SCALING display-list clear, and the SUPPORT_HDR_DISPLAY_APIS
-    // contentsHeadroom reset all rely on newer-SDK CALayer surface not present on 10.9.
-    // MAVERICKS_BACKPORT: end _web_clearContents (the newer-SDK resets above are intentionally dropped).
+    self.contentsOpaque = NO;
+
+#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+    [self _web_clearDynamicContentScalingDisplayListIfNeeded];
+#endif
+
+#if HAVE(SUPPORT_HDR_DISPLAY_APIS)
+    self.contentsHeadroom = 0;
+#endif
 }
 
 #if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
 - (void)_web_clearDynamicContentScalingDisplayListIfNeeded
 {
-    // MAVERICKS_BACKPORT: no-op; the WKDynamicContentScaling* CALayer key paths it would
-    // clear do not exist on 10.9 (dynamic content scaling is unsupported on this build).
+    if (![self valueForKeyPath:WKDynamicContentScalingContentsKey])
+        return;
+    [self setValue:nil forKeyPath:WKDynamicContentScalingContentsKey];
+    [self setValue:nil forKeyPath:WKDynamicContentScalingPortsKey];
+    [self setValue:@NO forKeyPath:WKDynamicContentScalingEnabledKey];
+    [self setValue:@NO forKeyPath:WKDynamicContentScalingBifurcationEnabledKey];
 }
 #endif
 
@@ -118,7 +150,7 @@
 
 namespace WebCore {
 
-static void collectDescendantLayersAtPointRecursive(Vector<LayerAndPoint, 16>& layersAtPoint, CALayer *parent, CGPoint point, const std::function<bool(CALayer *, CGPoint)>& pointInLayerFunction)
+void collectDescendantLayersAtPoint(Vector<LayerAndPoint, 16>& layersAtPoint, CALayer *parent, CGPoint point, const std::function<bool(CALayer *, CGPoint)>& pointInLayerFunction)
 {
     if (parent.masksToBounds && ![parent containsPoint:point])
         return;
@@ -156,27 +188,8 @@ static void collectDescendantLayersAtPointRecursive(Vector<LayerAndPoint, 16>& l
             layersAtPoint.append(std::make_pair(layer, subviewPoint));
 
         if ([layer sublayers])
-            collectDescendantLayersAtPointRecursive(layersAtPoint, layer, subviewPoint, pointInLayerFunction);
+            collectDescendantLayersAtPoint(layersAtPoint, layer, subviewPoint, pointInLayerFunction);
     };
-}
-
-// MAVERICKS_BACKPORT: bracket the whole layer-tree hit-test in an explicit CATransaction at this
-// shared choke point. The traversal reads -[CALayer presentationLayer] for animated layers, which
-// lazily begins an implicit CATransaction on the calling thread. WebKit runs this hit-test off the
-// main thread — the EventDispatcher / scrolling thread, via ScrollingTreeMac and (UI-side
-// compositing) RemoteScrollingTreeMac — where there is no run loop or CA commit observer, so on
-// 10.9 the implicit transaction is never committed: it lingers holding CA's transaction lock,
-// deadlocks against the main thread's render commit (intermittent scroll freeze), and logs
-// "deleted thread with uncommitted CATransaction" when the thread is torn down. Modern CA cleans up
-// secondary-thread transactions itself; 10.9 does not. Scoping one explicit transaction here
-// commits it on the calling thread instead of orphaning it, and covers every off-main caller by
-// construction. The hit-test only reads layer geometry, so the commit has nothing to flush (and the
-// lone main-thread caller merely nests a no-op commit).
-void collectDescendantLayersAtPoint(Vector<LayerAndPoint, 16>& layersAtPoint, CALayer *parent, CGPoint point, const std::function<bool(CALayer *, CGPoint)>& pointInLayerFunction)
-{
-    [CATransaction begin];
-    collectDescendantLayersAtPointRecursive(layersAtPoint, parent, point, pointInLayerFunction);
-    [CATransaction commit];
 }
 
 Vector<LayerAndPoint, 16> layersAtPointToCheckForScrolling(std::function<bool(CALayer*, CGPoint)> layerEventRegionContainsPoint, std::function<std::optional<ScrollingNodeID>(CALayer*)> scrollingNodeIDForLayer, CALayer* layer, const FloatPoint& point, bool& hasAnyNonInteractiveScrollingLayers)

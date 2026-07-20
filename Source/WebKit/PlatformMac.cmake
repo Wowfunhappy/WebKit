@@ -78,9 +78,7 @@ list(APPEND WebKit_SOURCES
     # NetworkProcess/webrtc/NetworkRTCUDPSocketCocoa.mm
     # NetworkProcess/webrtc/NetworkRTCUtilitiesCocoa.mm
 
-    # MAVERICKS_BACKPORT: WKDownloadProgress source disabled (NSProgress/NSKeyValueChangeKey are 10.10+, absent on 10.9).
-    # WKDownloadProgress requires NSProgress/NSKeyValueChangeKey (10.10+)
-    # NetworkProcess/Downloads/cocoa/WKDownloadProgress.mm
+    NetworkProcess/Downloads/cocoa/WKDownloadProgress.mm
 
     Platform/IPC/cocoa/SharedFileHandleCocoa.cpp
 
@@ -128,7 +126,7 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${MAVERICKS_DEPS}/include"
     # MAVERICKS_BACKPORT: wk_selref_scope.h (WK_POLYFILL_SEL/WK_POLYFILL_ADD registry macros) for
     # the host-safe NSURLSession webSocketTaskWithRequest: polyfill in WebSocketPolyfill_109.mm.
-    "${CMAKE_SOURCE_DIR}/MavericksSupport/polyfill/src"
+    "${CMAKE_SOURCE_DIR}/MavericksSupport/polyfill/mechanism"
     "${WEBKIT_DIR}/GPUProcess/mac"
     "${WEBKIT_DIR}/NetworkProcess/cocoa"
     "${WEBKIT_DIR}/NetworkProcess/mac"
@@ -144,6 +142,11 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/UIProcess/ios"
     "${WEBKIT_DIR}/UIProcess/Cocoa"
     "${WEBKIT_DIR}/UIProcess/Cocoa/SOAuthorization"
+    # MAVERICKS_BACKPORT: WKWebView.mm, WKPreferences.mm and WebPageProxy.cpp import
+    # "WKTextExtractionUtilities.h" by name; the Xcode build resolves project headers by name, so the
+    # CMake port needs this dir on the include path for parity (otherwise the include silently
+    # resolved to an empty placeholder and WebKit::createItem/computeSimilarity went undeclared).
+    "${WEBKIT_DIR}/UIProcess/Cocoa/TextExtraction"
     "${WEBKIT_DIR}/UIProcess/Inspector/Cocoa"
     "${WEBKIT_DIR}/UIProcess/Inspector/mac"
     "${WEBKIT_DIR}/UIProcess/Launcher/mac"
@@ -1050,11 +1053,6 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
 endfunction()
 
 set(WebKit_GENERATED_SERIALIZERS_SUFFIX mm)
-# MAVERICKS_BACKPORT: link the classic-CoreGraphics-API forwarding shim (libcg_polyfill) for symbols absent on 10.9.
-# From the build tree (NOT a stale /usr/local copy); its @rpath/libcg_polyfill.dylib install_name is resolved
-# at install time to the absolute in-bundle copy, keeping the build self-contained (no /usr/local dependency).
-list(APPEND WebKit_LIBRARIES ${MAVERICKS_SUPPORT}/polyfill/build/libcg_polyfill.dylib)
-
 # MAVERICKS_BACKPORT: brotli decoder for NetworkDataTaskCocoa's response decoding — modern CFNetwork
 # advertises and decodes "br" transparently; 10.9 CFNetwork passes br bodies through raw, so the
 # NetworkProcess decodes them itself (same vendored static brotli WebCore's WOFF2 decoder uses).

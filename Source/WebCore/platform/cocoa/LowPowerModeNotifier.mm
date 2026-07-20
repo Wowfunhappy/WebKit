@@ -47,10 +47,8 @@
         return nil;
 
     _notifier = &notifier;
-    // MAVERICKS_BACKPORT: -[NSProcessInfo isLowPowerModeEnabled] and NSProcessInfoPowerStateDidChangeNotification
-    // are 10.12+, so guard the query with respondsToSelector: and report not-enabled on 10.9 (no Low Power Mode);
-    // the change-notification observer registration is also dropped here.
-    _isLowPowerModeEnabled = [[NSProcessInfo processInfo] respondsToSelector:@selector(isLowPowerModeEnabled)] ? [(id)[NSProcessInfo processInfo] isLowPowerModeEnabled] : NO;
+    _isLowPowerModeEnabled = [NSProcessInfo processInfo].lowPowerModeEnabled;
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_didReceiveLowPowerModeChange) name:NSProcessInfoPowerStateDidChangeNotification object:nil];
     return self;
 }
 
@@ -64,19 +62,14 @@
 - (void)detach
 {
     ASSERT(isMainThread());
-    // MAVERICKS_BACKPORT: NSProcessInfoPowerStateDidChangeNotification is 10.12+, so remove this object as an
-    // observer of all notifications rather than naming that unavailable notification.
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSProcessInfoPowerStateDidChangeNotification object:nil];
     _notifier = nullptr;
 }
 
 - (void)_didReceiveLowPowerModeChange
 {
     // We need to make sure we notify the client on the main thread.
-    // MAVERICKS_BACKPORT: -[NSProcessInfo isLowPowerModeEnabled] is 10.12+, so guard the query with
-    // respondsToSelector: and report not-enabled on 10.9 instead of reading the property directly.
-    BOOL currentLPM = [[NSProcessInfo processInfo] respondsToSelector:@selector(isLowPowerModeEnabled)] ? [(id)[NSProcessInfo processInfo] isLowPowerModeEnabled] : NO;
-    ensureOnMainRunLoop([self, protectedSelf = RetainPtr<WebLowPowerModeObserver>(self), lowPowerModeEnabled = currentLPM] {
+    ensureOnMainRunLoop([self, protectedSelf = RetainPtr<WebLowPowerModeObserver>(self), lowPowerModeEnabled = [NSProcessInfo processInfo].lowPowerModeEnabled] {
         if (!_notifier)
             return;
         _isLowPowerModeEnabled = lowPowerModeEnabled;

@@ -98,6 +98,8 @@ StyleSheetContents* UserAgentStyle::imageControlsStyleSheet;
 #if ENABLE(ATTACHMENT_ELEMENT)
 StyleSheetContents* UserAgentStyle::attachmentStyleSheet;
 #endif
+// MAVERICKS_BACKPORT (#68): storage for the document-scope classic-media-controls sheet added by
+// ensureDefaultStyleSheetsForElement below.
 #if ENABLE(VIDEO) && PLATFORM(MAC)
 StyleSheetContents* UserAgentStyle::mediaControlsStyleSheet;
 #endif

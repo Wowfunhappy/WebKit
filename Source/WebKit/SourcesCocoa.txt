@@ -362,6 +362,8 @@ UIProcess/API/Cocoa/_WKSystemPreferences.mm @nonARC
 UIProcess/API/Cocoa/_WKTargetedElementInfo.mm @nonARC
 UIProcess/API/Cocoa/_WKTargetedElementRequest.mm @nonARC
 UIProcess/API/Cocoa/_WKTextExtraction.mm @nonARC
+// MAVERICKS_BACKPORT: Objective-C stand-in for _WKTextExtraction.swift, which needs Swift 6 (unavailable at this deployment target).
+UIProcess/API/Cocoa/_WKTextExtractionItems.mm @nonARC
 UIProcess/API/Cocoa/_WKTextInputContext.mm @nonARC
 UIProcess/API/Cocoa/_WKTextManipulationConfiguration.mm @nonARC
 UIProcess/API/Cocoa/_WKTextManipulationExclusionRule.mm @nonARC
@@ -380,10 +382,9 @@ UIProcess/API/Cocoa/_WKUserStyleSheet.mm @nonARC
 UIProcess/API/Cocoa/_WKVisitedLinkStore.mm @nonARC
 UIProcess/API/Cocoa/_WKWebAuthenticationAssertionResponse.mm @nonARC
 UIProcess/API/Cocoa/_WKWebAuthenticationPanel.mm @nonARC
-// MAVERICKS_BACKPORT: excluded — Web Push is not available on 10.9.
-// UIProcess/API/Cocoa/_WKWebPushDaemonConnection.mm @nonARC
-// UIProcess/API/Cocoa/_WKWebPushMessage.mm @nonARC
-// UIProcess/API/Cocoa/_WKWebPushSubscriptionData.mm @nonARC
+UIProcess/API/Cocoa/_WKWebPushDaemonConnection.mm @nonARC
+UIProcess/API/Cocoa/_WKWebPushMessage.mm @nonARC
+UIProcess/API/Cocoa/_WKWebPushSubscriptionData.mm @nonARC
 UIProcess/API/Cocoa/_WKWebExtension.mm @nonARC
 UIProcess/API/Cocoa/_WKWebExtensionSidebar.mm
 UIProcess/API/Cocoa/_WKWebPushAction.mm @nonARC
@@ -554,6 +555,9 @@ UIProcess/Cocoa/WKScreenTimeConfigurationObserver.mm @nonARC
 UIProcess/Cocoa/WKTextPlaceholder.mm @nonARC
 UIProcess/Cocoa/WKTextSelectionRect.mm @nonARC
 UIProcess/Cocoa/WKWebViewContentProviderRegistry.mm @nonARC
+// MAVERICKS_BACKPORT: absent from upstream's cmake list (built from the Xcode project only); defines
+// _WKWarningView, the Safe-Browsing/HTTPS warning NSView that WebViewImpl and WKWebView instantiate.
+UIProcess/Cocoa/_WKWarningView.mm @nonARC
 
 UIProcess/DigitalCredentials/WKDigitalCredentialsPicker.mm @nonARC
 
@@ -689,6 +693,9 @@ UIProcess/ios/WKWebGeolocationPolicyDeciderIOS.mm @nonARC
 
 UIProcess/Launcher/cocoa/ProcessLauncherCocoa.mm @nonARC
 
+// MAVERICKS_BACKPORT: absent from upstream's cmake list (built from the Xcode project only); defines
+// WKCaptionStyleMenuController, which WebContextMenuProxyMac instantiates for the caption-style submenu.
+UIProcess/mac/_WKCaptionStyleMenuControllerMac.mm @nonARC
 UIProcess/mac/CorrectionPanel.mm @nonARC
 UIProcess/mac/DisplayCaptureSessionManager.mm @nonARC
 UIProcess/mac/DisplayLinkMac.cpp

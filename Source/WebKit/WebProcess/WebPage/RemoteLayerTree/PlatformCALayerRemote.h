@@ -67,7 +67,11 @@ public:
 #if ENABLE(MODEL_ELEMENT)
     static Ref<PlatformCALayerRemote> create(Ref<WebCore::Model>, WebCore::PlatformCALayerClient*, RemoteLayerTreeContext&);
 #endif
-#if HAVE(AVKIT)
+// MAVERICKS_BACKPORT: this overload is part of the video-layer hosting chain, which ends at
+// WebPage::videoPresentationManager() — the video-presentation stack this port does not build
+// (ENABLE(VIDEO_PRESENTATION_MODE) is off; 10.9 lacks the AVKit presentation SPI). Upstream
+// ships HAVE(AVKIT) only alongside that stack, so both conditions are written out here.
+#if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
     static Ref<PlatformCALayerRemote> create(WebCore::HTMLVideoElement&, WebCore::PlatformCALayerClient*, RemoteLayerTreeContext&);
 #endif
     static Ref<PlatformCALayerRemote> create(const PlatformCALayerRemote&, WebCore::PlatformCALayerClient*, RemoteLayerTreeContext&);

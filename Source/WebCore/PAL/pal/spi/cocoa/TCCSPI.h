@@ -1,4 +1,28 @@
-// MAVERICKS_BACKPORT: TCC framework not available. Stubbed.
+/*
+ * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #pragma once
 
 #include <wtf/Compiler.h>
@@ -6,19 +30,25 @@
 
 DECLARE_SYSTEM_HEADER
 
-// MAVERICKS_BACKPORT: these constants MUST equal real TCC's TCCAccessPreflightResult enum (and the
-// libtcc_polyfill shim that supplies TCCAccessPreflight on 10.9): Granted=0, Denied=1, Unknown=2.
-// The shim (MavericksSupport/polyfill/src/tcc_polyfill.c) returns 0 to mean Granted for
-// camera/microphone; MediaPermissionUtilities.mm compares the result against kTCCAccessPreflightGranted,
-// so the value here must be 0 or the grant short-circuit never fires.
-typedef int TCCAccessPreflightResult;
-#define kTCCAccessPreflightGranted 0
-#define kTCCAccessPreflightDenied 1
-#define kTCCAccessPreflightUnknown 2
+#if USE(APPLE_INTERNAL_SDK)
 
-// tcc_identity_t / tcc_identity_type_t are part of TCC's newer identity API (absent on 10.9).
-// These appear only in soft-linked signatures (TCCSoftLink.h); the function is never resolved on
-// 10.9, so the declared types only need to exist for compilation.
-typedef struct __TCCIdentity *tcc_identity_t;
-typedef uint32_t tcc_identity_type_t;
-#define TCC_IDENTITY_CODE_BUNDLE_ID ((tcc_identity_type_t)0)
+#import <TCC/TCC.h>
+
+#else
+
+#include <os/object.h>
+
+typedef enum {
+    kTCCAccessPreflightGranted,
+    kTCCAccessPreflightDenied,
+} TCCAccessPreflightResult;
+
+#if HAVE(TCC_IOS_14_BIG_SUR_SPI)
+typedef uint64_t tcc_identity_type_t;
+#ifdef __cplusplus
+constexpr tcc_identity_type_t TCC_IDENTITY_CODE_BUNDLE_ID = 0;
+#endif
+OS_OBJECT_DECL_CLASS(tcc_identity);
+#endif // HAVE(TCC_IOS_14_BIG_SUR_SPI)
+
+#endif

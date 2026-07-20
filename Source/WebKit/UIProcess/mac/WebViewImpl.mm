@@ -1673,13 +1673,6 @@ void WebViewImpl::showWarningView(const BrowsingWarning& warning, CompletionHand
     if (!m_view)
         return completionHandler(ContinueUnsafeLoad::Yes);
 
-    // MAVERICKS_BACKPORT: The Safe-Browsing / HTTPS-warning UI (_WKWarningView) is
-    // unsupported on macOS 10.9 — its implementation is not linked into this build and
-    // relies on AppKit APIs absent on 10.9. If the class is unavailable, degrade the
-    // warning to "continue the unsafe load" rather than messaging a non-existent class.
-    if (![_WKWarningView class])
-        return completionHandler(ContinueUnsafeLoad::Yes);
-
     WebCore::DiagnosticLoggingClient::ValueDictionary showedWarningDictionary;
     showedWarningDictionary.set("source"_s, "service"_s);
 
@@ -2544,10 +2537,11 @@ bool WebViewImpl::hasScrolledContentsUnderTitlebar()
 
 void WebViewImpl::updateTitlebarAdjacencyState()
 {
-    // MAVERICKS_BACKPORT: the NSScrollViewSeparatorTrackingAdapter titlebar-separator feature, plus
-    // -[NSView effectiveAppearance] (10.10+) and -[NSAppearance _usesMetricsAppearance] (10.14+), do not
-    // exist on 10.9. The whole method no-ops there (no separator tracking adapter is registered), which
-    // matches the >=10.14 behavior on a 10.9 window (shouldRegister would be false). Compile-time gate
+    // MAVERICKS_BACKPORT: the NSScrollViewSeparatorTrackingAdapter titlebar-separator feature — the
+    // protocol itself and -[NSWindow register/unregisterScrollViewSeparatorTrackingAdapter:] — is 10.14+
+    // and has no 10.9 equivalent. The whole method no-ops there (no separator tracking adapter is
+    // registered), which matches the >=10.14 behavior on a 10.9 window (shouldRegister would be false,
+    // since _usesMetricsAppearance answers NO for every appearance this OS has). Compile-time gate
     // (the #97 model) so it is immune to any runtime selector injection.
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
     RetainPtr window = WebViewImpl::window();
@@ -6498,11 +6492,7 @@ void WebViewImpl::effectiveAppearanceDidChange()
 
 bool WebViewImpl::effectiveAppearanceIsDark()
 {
-    // MAVERICKS_BACKPORT: -[NSAppearance bestMatchFromAppearancesWithNames:] is 10.14+ (absent, not polyfilled) → unrecognized-selector crash on appearance change. 10.9 has no dark mode, so guard and report not-dark. (Mirrors WebControlView.mm's nil-guard of this same selector.)
-    RetainPtr effectiveAppearance = retainPtr([m_view.get() effectiveAppearance]);
-    if (![effectiveAppearance.get() respondsToSelector:@selector(bestMatchFromAppearancesWithNames:)])
-        return false;
-    RetainPtr appearance = [effectiveAppearance.get() bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+    RetainPtr appearance = [retainPtr([m_view.get() effectiveAppearance]) bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
     return [appearance isEqualToString:NSAppearanceNameDarkAqua];
 }
 

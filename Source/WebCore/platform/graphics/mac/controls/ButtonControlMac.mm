@@ -54,13 +54,8 @@ void ButtonControlMac::updateCellStates(const FloatRect& rect, const ControlStyl
     updateEnabledState(m_buttonCell.get(), style);
     updateCheckedState(m_buttonCell.get(), style);
     
-    // MAVERICKS_BACKPORT: -_setHighlighted:animated: is 10.10+ NSButtonCell SPI.
-    if (states.contains(ControlStyle::State::Presenting)) {
-        if ([m_buttonCell respondsToSelector:@selector(_setHighlighted:animated:)])
-            [m_buttonCell _setHighlighted:YES animated:NO];
-        else
-            [m_buttonCell setHighlighted:YES];
-    }
+    if (states.contains(ControlStyle::State::Presenting))
+        [m_buttonCell _setHighlighted:YES animated:NO];
 
     // Window inactive state does not need to be checked explicitly, since we paint parented to
     // a view in a window whose key state can be detected.

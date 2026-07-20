@@ -43,10 +43,7 @@ AppKitControlSystemImage::AppKitControlSystemImage(AppKitControlSystemImageType 
     : SystemImage(SystemImageType::AppKitControl)
     , m_controlType(controlType)
 {
-    // MAVERICKS_BACKPORT: +[NSAppearance currentDrawingAppearance] is 10.14+; guard like the sibling
-    // control system-images (ControlFactoryMac.mm / ScrollbarTrackCornerSystemImageMac.mm). On 10.9 the
-    // nil receiver yields no tint + light appearance, which is correct (10.9 has no dark mode / tint).
-    NSAppearance *appearance = [NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil;
+    NSAppearance *appearance = [NSAppearance currentDrawingAppearance];
     m_tintColor = colorFromCocoaColor(retainPtr(appearance.tintColor).get());
     m_useDarkAppearance = [appearance.name isEqualToString:NSAppearanceNameDarkAqua];
 }

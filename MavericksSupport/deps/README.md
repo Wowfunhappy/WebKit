@@ -16,7 +16,7 @@ Libraries WebKit links that the 10.9 system doesn't provide. Two kinds live here
   script's runtime output (`lib/` dylibs + plugins, `include/` build-time headers,
   `bin/` gst-inspect/gst-launch for debugging) including libxml2 2.13
   (`lib/libxml2.2.dylib`, `include/libxml2`), which WebCore links in place of the
-  crash-prone 10.9 system libxml2 2.9. `install-safari7.sh` deploys `gstreamer/lib`
+  crash-prone 10.9 system libxml2 2.9. `scripts/stage-frameworks.sh` deploys `gstreamer/lib`
   into WebCore.framework as-is — the dylibs are self-contained (own `@rpath` +
   `LC_RPATH @loader_path/../lib`, C++17 runtime vendored in-tree), so there is no
   repointing, shimming, or overlay step.

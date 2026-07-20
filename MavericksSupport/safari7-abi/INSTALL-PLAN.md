@@ -1,7 +1,9 @@
 # Safari-7 install plan (name-shift + runtime deps)
 
 Derived from inspecting the built frameworks and the stock 10.9 layout. This
-records decisions so the install script (`install-safari7.sh`) is auditable.
+records decisions so the staging script that shapes the product
+(`scripts/stage-frameworks.sh`) and the installer that copies it into place
+(`install-safari7.sh`) are auditable.
 
 ## Framework name shift
 
@@ -53,8 +55,8 @@ Mechanism (per Source/cmake/OptionsMac.cmake:177-184): the build links
 carry `install_name @rpath/libc++.1.dylib` (resp. abi), and each framework's
 LC_RPATH currently lists the toolchain lib dir and the build lib dir (that is how
 `@rpath/libc++.1.dylib` resolves at build/test time). The private deployment the
-cmake comment refers to is done by `install-safari7.sh` (not a CMake postbuild):
-for each installed framework it (1) copies `libc++.1.dylib`/`libc++abi.1.dylib`
+cmake comment refers to is done by `scripts/stage-frameworks.sh` (not a CMake postbuild):
+for each staged framework it (1) copies `libc++.1.dylib`/`libc++abi.1.dylib`
 into the base framework bundle (`JavaScriptCore.framework`, which every WebKit
 framework links), and (2) rewrites `@rpath/libc++*.dylib` to that absolute
 in-bundle path with `install_name_tool -change`. It does NOT rely on the
@@ -78,6 +80,8 @@ target.
 ## Backups
 
 Stock frameworks backed up in a `stock-webkit-backup` directory beside the
-checkout (verified byte-identical). The install script must back up any existing
-target at the install path before overwriting (including /usr/lib/libc++ if ever
-touched).
+checkout (verified byte-identical), captured at build time by
+`scripts/backup-stock-frameworks.sh` while the system still has them — the build
+needs the stock i386 slices, and stock is unrecoverable once an install has
+happened. The install script must back up any existing target at the install path
+before overwriting (including /usr/lib/libc++ if ever touched).

@@ -373,6 +373,10 @@ platform/cocoa/UserAgentCocoa.mm @nonARC
 platform/cocoa/VideoPresentationModelVideoElement.mm @nonARC
 platform/cocoa/VideoPresentationLayerProvider.mm @nonARC
 platform/cocoa/VideoToolboxSoftLink.cpp
+// MAVERICKS_BACKPORT: excluded — WebAVPlayerLayer.mm drives WebCore::VideoPresentationModel, whose
+// header is empty unless ENABLE(VIDEO_PRESENTATION_MODE), which this port turns off (same reason
+// VideoPresentationManager[Proxy].mm are excluded). It is absent from upstream's cmake list too.
+// platform/cocoa/WebAVPlayerLayer.mm @nonARC
 platform/cocoa/WebCoreAdditions.mm @nonARC @no-unify
 platform/cocoa/WebCoreNSErrorExtras.mm @nonARC
 platform/cocoa/WebNSAttributedStringExtras.mm @nonARC
@@ -790,8 +794,7 @@ rendering/TextAutoSizing.cpp
 rendering/cocoa/RenderThemeCocoa.mm @nonARC @no-unify
 rendering/ios/RenderThemeIOS.mm @nonARC @no-unify
 rendering/mac/RenderThemeMac.mm @nonARC @no-unify
-// MAVERICKS_BACKPORT: WebViewVisualIdentificationOverlay.mm is not compiled — libpolyfill.a already provides the class stub (compiling the real .mm too is a duplicate-symbol link error).
-// testing/cocoa/WebViewVisualIdentificationOverlay.mm @nonARC -- 10.9: the class is provided as a stub by libpolyfill.a (polyfill_stubs.o); compiling the real .mm too caused a duplicate-symbol link error. (testing/inspector visual overlay; stub suffices.)
+testing/cocoa/WebViewVisualIdentificationOverlay.mm @nonARC
 
 // The following files aren't unified with others to prevent them from being merged
 // with files that include system headers that include system OpenGL headers.

@@ -381,9 +381,6 @@ list(APPEND WebCore_SOURCES
     platform/graphics/coretext/FontCustomPlatformDataCoreText.cpp
     platform/graphics/coretext/FontPlatformDataCoreText.cpp
     platform/graphics/coretext/GlyphPageCoreText.cpp
-    # MAVERICKS_BACKPORT: software variable-font instancer (10.9 CoreText cannot
-    # instance variable fonts; see LegacyCoreTextVariableFontInstancer.h).
-    platform/graphics/coretext/LegacyCoreTextVariableFontInstancer.cpp
     platform/graphics/coretext/SimpleFontDataCoreText.cpp
 
     platform/graphics/cv/CVUtilities.mm
@@ -1077,11 +1074,6 @@ list(APPEND WebCoreTestSupport_IDL_FILES
 if (NOT EXISTS ${CMAKE_BINARY_DIR}/WebCore/WebKitAvailability.h)
     file(COPY platform/cocoa/WebKitAvailability.h DESTINATION ${CMAKE_BINARY_DIR}/WebCore)
 endif ()
-# MAVERICKS_BACKPORT: link the freshly-built classic-CoreGraphics forwarding shim from the build tree (NOT a
-# stale /usr/local copy). Its install_name is @rpath/libcg_polyfill.dylib, resolved at install time to the
-# absolute in-bundle copy — keeping the build self-contained (no /usr/local dependency at build or runtime).
-list(APPEND WebCore_LIBRARIES ${MAVERICKS_SUPPORT}/polyfill/build/libcg_polyfill.dylib)
-
 # MAVERICKS_BACKPORT: vendored libwebp for the WEBPImageDecoder fallback (ImageIO on
 # this build can't decode WebP). Static libs at MavericksSupport/deps/libwebp/lib.
 # IMPORTANT: changing this section invalidates WebCore IPC structs — must rebuild

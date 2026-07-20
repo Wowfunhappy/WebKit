@@ -35,10 +35,6 @@
 #import <pal/spi/mac/CoreUISPI.h>
 #import <pal/spi/mac/NSAppearanceSPI.h>
 
-// MAVERICKS_BACKPORT: Carbon HITheme (HIThemeDrawTrack) draws the classic Aqua progress bar on 10.9,
-// where the modern CoreUI path (-[NSAppearance _drawInRect:context:options:], 10.14+) is unavailable.
-#import <Carbon/Carbon.h>
-
 namespace WebCore {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(ProgressBarMac);
@@ -139,42 +135,17 @@ void ProgressBarMac::draw(GraphicsContext& context, const FloatRoundedRect& bord
         return nullptr;
     };
 
-    NSAppearance *progressDrawingAppearance = [NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : nil;
-    if (progressDrawingAppearance) {
-        [progressDrawingAppearance _drawInRect:NSMakeRect(0, 0, inflatedRect.width(), inflatedRect.height()) context:cgContext options:@{
-            (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)(isIndeterminate ? kCUIWidgetProgressIndeterminateBar : kCUIWidgetProgressBar),
-            (__bridge NSString *)kCUIValueKey: @(isIndeterminate ? 1 : std::min(nextafter(1.0, -1), progressBarPart->position())),
-            (__bridge NSString *)kCUISizeKey: (__bridge NSString *)coreUISizeForProgressBarSize(controlSize),
-            (__bridge NSString *)kCUIUserInterfaceLayoutDirectionKey: (__bridge NSString *)kCUIUserInterfaceLayoutDirectionLeftToRight,
-            (__bridge NSString *)kCUIScaleKey: @(deviceScaleFactor),
-            (__bridge NSString *)kCUIPresentationStateKey: (__bridge NSString *)(isActive ? kCUIPresentationStateActiveKey : kCUIPresentationStateInactive),
-            (__bridge NSString *)kCUIOrientationKey: (__bridge NSString *)kCUIOrientHorizontal,
-            (__bridge NSString *)kCUIAnimationStartTimeKey: @(progressBarPart->animationStartTime().seconds()),
-            (__bridge NSString *)kCUIAnimationTimeKey: @(MonotonicTime::now().secondsSinceEpoch().seconds())
-        }];
-    } else {
-        // MAVERICKS_BACKPORT: the CoreUI path above (-[NSAppearance _drawInRect:context:options:]) is 10.14+.
-        // Draw the real classic Aqua progress bar via Carbon HITheme (HIThemeDrawTrack) — the exact path
-        // Mavericks-era WebKit's RenderThemeMac::paintProgressBar used — so the track + fill get the
-        // glossy Aqua look instead of a flat approximation.
-        HIThemeTrackDrawInfo trackInfo = { };
-        trackInfo.version = 0;
-        bool regular = controlSize == NSControlSizeRegular || controlSize == NSControlSizeLarge;
-        if (regular)
-            trackInfo.kind = isIndeterminate ? kThemeLargeIndeterminateBar : kThemeLargeProgressBar;
-        else
-            trackInfo.kind = isIndeterminate ? kThemeMediumIndeterminateBar : kThemeMediumProgressBar;
-        trackInfo.bounds = CGRectMake(0, 0, inflatedRect.width(), inflatedRect.height());
-        trackInfo.min = 0;
-        trackInfo.max = std::numeric_limits<SInt32>::max();
-        double clampedPosition = std::max<double>(0, std::min<double>(1, progressBarPart->position()));
-        trackInfo.value = std::lround(clampedPosition * nextafter(static_cast<double>(trackInfo.max), 0));
-        double elapsed = MonotonicTime::now().secondsSinceEpoch().seconds() - progressBarPart->animationStartTime().seconds();
-        trackInfo.trackInfo.progress.phase = std::lround(elapsed * 30); // barber-pole phase for the indeterminate bar
-        trackInfo.attributes = kThemeTrackHorizontal;
-        trackInfo.enableState = isActive ? kThemeTrackActive : kThemeTrackInactive;
-        HIThemeDrawTrack(&trackInfo, 0, cgContext, kHIThemeOrientationNormal);
-    }
+    [[NSAppearance currentDrawingAppearance] _drawInRect:NSMakeRect(0, 0, inflatedRect.width(), inflatedRect.height()) context:cgContext options:@{
+        (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)(isIndeterminate ? kCUIWidgetProgressIndeterminateBar : kCUIWidgetProgressBar),
+        (__bridge NSString *)kCUIValueKey: @(isIndeterminate ? 1 : std::min(nextafter(1.0, -1), progressBarPart->position())),
+        (__bridge NSString *)kCUISizeKey: (__bridge NSString *)coreUISizeForProgressBarSize(controlSize),
+        (__bridge NSString *)kCUIUserInterfaceLayoutDirectionKey: (__bridge NSString *)kCUIUserInterfaceLayoutDirectionLeftToRight,
+        (__bridge NSString *)kCUIScaleKey: @(deviceScaleFactor),
+        (__bridge NSString *)kCUIPresentationStateKey: (__bridge NSString *)(isActive ? kCUIPresentationStateActiveKey : kCUIPresentationStateInactive),
+        (__bridge NSString *)kCUIOrientationKey: (__bridge NSString *)kCUIOrientHorizontal,
+        (__bridge NSString *)kCUIAnimationStartTimeKey: @(progressBarPart->animationStartTime().seconds()),
+        (__bridge NSString *)kCUIAnimationTimeKey: @(MonotonicTime::now().secondsSinceEpoch().seconds())
+    }];
 
     GraphicsContextStateSaver stateSaver(context);
 

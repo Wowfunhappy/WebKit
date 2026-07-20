@@ -295,9 +295,7 @@ int RenderThemeMac::baselinePosition(const RenderBox& renderer) const
 
 static bool supportsLargeFormControls()
 {
-    // MAVERICKS_BACKPORT: runtime-absent selector — +[NSAppearance currentDrawingAppearance] is 10.14+
-    // (throws on 10.9); respondsToSelector-guard it (#77).
-    static bool hasSupport = ([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] && [[NSAppearance currentDrawingAppearance] _usesMetricsAppearance]);
+    static bool hasSupport = [[NSAppearance currentDrawingAppearance] _usesMetricsAppearance];
     return hasSupport;
 }
 

@@ -37,13 +37,6 @@
 #elif USE(CORE_TEXT)
 #include <CoreFoundation/CFBase.h>
 #include <wtf/RetainPtr.h>
-// MAVERICKS_BACKPORT: state for the software variable-font instancer (10.9 CoreText
-// cannot instance variable fonts; see LegacyCoreTextVariableFontInstancer.h).
-#include <WebCore/LegacyCoreTextVariableFontInstancer.h>
-#include <wtf/HashMap.h>
-#include <wtf/Lock.h>
-#include <wtf/text/StringHash.h>
-#include <wtf/text/WTFString.h>
 
 typedef struct CGFont* CGFontRef;
 typedef const struct __CTFontDescriptor* CTFontDescriptorRef;
@@ -106,13 +99,6 @@ public:
     String name;
 #elif USE(CORE_TEXT)
     RetainPtr<CTFontDescriptorRef> fontDescriptor;
-    // MAVERICKS_BACKPORT: axes of a variable font this platform data wraps (empty for
-    // non-variable fonts), plus a cache of software-instanced static descriptors keyed
-    // by the pinned axis values. 10.9 CoreText cannot instance variable fonts, so
-    // fontPlatformData() cuts a static instance per requested weight/width/slope.
-    std::vector<LegacyVariableFontAxis> m_legacyVariableFontAxes;
-    Lock m_legacyInstanceCacheLock;
-    HashMap<String, RetainPtr<CTFontDescriptorRef>> m_legacyInstanceCache WTF_GUARDED_BY_LOCK(m_legacyInstanceCacheLock);
 #elif USE(CAIRO)
     RefPtr<cairo_font_face_t> m_fontFace;
 #elif USE(SKIA)

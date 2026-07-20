@@ -23,9 +23,9 @@ chmod +x "$SCRATCH/bin/cc"
 # __isPlatformVersionAtLeast, which calls libSystem's _availability_version_check -- 10.15+, so
 # absent here. compiler-rt supplies the comparison itself; the only gap is that one symbol, so
 # link the polyfill source that defines it (the same one WebKit itself links).
-LEGACY="$TOOLCHAIN/../polyfill/legacy-support"
-"$SCRATCH/bin/cc" -c -mmacosx-version-min=10.9 -I"$LEGACY/include" \
-    -o "$SCRATCH/os_version.o" "$LEGACY/src/os_version.c"
+POLYFILL="$TOOLCHAIN/../polyfill"
+"$SCRATCH/bin/cc" -c -mmacosx-version-min=10.9 -I"$POLYFILL/legacy-support/include" \
+    -o "$SCRATCH/os_version.o" "$POLYFILL/polyfills/shared/os_version.c"
 "$CLANG/bin/llvm-ar" rcs "$SCRATCH/libavailshim.a" "$SCRATCH/os_version.o"
 
 cd "$SCRATCH"

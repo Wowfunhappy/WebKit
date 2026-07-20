@@ -23,7 +23,7 @@ export CCACHE_SLOPPINESS="include_file_mtime,include_file_ctime,time_macros,pch_
 # archive, ninja won't relink the consuming framework. So: rebuild the polyfill here, then, if an
 # archive's CONTENT changed (llvm-ar is deterministic — unchanged source yields identical bytes), rm
 # the binaries that consume it so ninja relinks them against the new archive.
-#   libpolyfill.a         -> linked into ALL four frameworks (global link_libraries; NO ninja edge — this hash-hack is the only relink trigger)
+#   libpolyfill.a         -> force-loaded into every shipped binary: the four frameworks (WEBKIT_FRAMEWORK) and the WebProcess/NetworkProcess/GPUProcess executables (explicit _WEBKIT_FORCE_LOAD_POLYFILL calls in Source/WebKit/CMakeLists.txt). Build-time tools get it as a plain archive instead (link_libraries in OptionsMac.cmake). Also has a LINK_DEPENDS edge — hash-hack is belt-and-suspenders
 #   libwk_marker.a        -> force-loaded into ALL four frameworks (WEBKIT_FRAMEWORK; also has a LINK_DEPENDS edge — hash-hack is belt-and-suspenders)
 #   libpolyfill_classes.a -> force-loaded into WebCore only (also has a LINK_DEPENDS edge in Source/WebCore/CMakeLists.txt)
 #   libwtf_compat.a       -> force-loaded into JavaScriptCore only
@@ -83,5 +83,17 @@ grep -E 'error:|file not found|FAILED:' "$LOG" | grep -vE 'warning:' | sed -E 's
 
 echo "--- failed targets ---"
 grep -A1 '^FAILED:' "$LOG" | grep -oE '[A-Za-z0-9_]+\.framework|WebKitLegacy|WebCore|JavaScriptCore|WebKit' | sort -u | head
+
+# --- Staging: the last phase of the build ----------------------------------------------------
+# ninja links the frameworks; stage-frameworks.sh turns them into the complete, installable
+# product under WebKitBuild/Release/staged (name shift, bundle resources, in-bundle runtime +
+# GStreamer, absolute install names, demangler guard, full XPC service set, stock i386 slices).
+# install-safari7.sh then just copies that tree onto the system.
+if [ "$RC" = 0 ]; then
+    echo "==================== STAGING ===================="
+    bash "$ROOT/MavericksSupport/scripts/stage-frameworks.sh" || RC=$?
+else
+    echo "### staging skipped: the link failed, so there is nothing complete to stage"
+fi
 
 exit $RC

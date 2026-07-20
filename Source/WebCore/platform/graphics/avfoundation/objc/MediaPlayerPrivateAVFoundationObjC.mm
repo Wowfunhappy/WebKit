@@ -1150,10 +1150,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
 
     setShouldObserveTimeControlStatus(true);
 
-    // MAVERICKS_BACKPORT: appliesMediaSelectionCriteriaAutomatically is 10.10+; guarded.
-    // Backport: appliesMediaSelectionCriteriaAutomatically is 10.10+
-    if ([m_avPlayer respondsToSelector:@selector(setAppliesMediaSelectionCriteriaAutomatically:)])
-        m_avPlayer.get().appliesMediaSelectionCriteriaAutomatically = NO;
+    m_avPlayer.get().appliesMediaSelectionCriteriaAutomatically = NO;
 #if HAVE(AVPLAYER_VIDEORANGEOVERRIDE)
     m_avPlayer.get().videoRangeOverride = convertDynamicRangeModeEnumToAVVideoRange(player->preferredDynamicRangeMode());
 #endif
@@ -1199,8 +1196,7 @@ void MediaPlayerPrivateAVFoundationObjC::createAVPlayer()
     updateSpatialTrackingLabel();
 #endif
 
-    // MAVERICKS_BACKPORT: replaceCurrentItemWithPlayerItem: guarded via respondsToSelector on 10.9.
-    if (m_avPlayerItem && [m_avPlayer respondsToSelector:@selector(replaceCurrentItemWithPlayerItem:)])
+    if (m_avPlayerItem)
         setAVPlayerItem(m_avPlayerItem.get());
 
 #if HAVE(AUDIO_OUTPUT_DEVICE_UNIQUE_ID)
@@ -1297,10 +1293,8 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
         m_legibleOutput = adoptNS([PAL::allocAVPlayerItemLegibleOutputInstance() initWithMediaSubtypesForNativeRepresentation:subtypes.get()]);
         [m_legibleOutput setSuppressesPlayerRendering:YES];
         [m_legibleOutput setDelegate:m_objcObserver queue:mainDispatchQueueSingleton()];
-        if ([m_legibleOutput respondsToSelector:@selector(setAdvanceIntervalForDelegateInvocation:)])
-            [m_legibleOutput setAdvanceIntervalForDelegateInvocation:avPlayerOutputAdvanceInterval];
-        if ([m_legibleOutput respondsToSelector:@selector(setTextStylingResolution:)])
-            [m_legibleOutput setTextStylingResolution:AVPlayerItemLegibleOutputTextStylingResolutionSourceAndRulesOnly];
+        [m_legibleOutput setAdvanceIntervalForDelegateInvocation:avPlayerOutputAdvanceInterval];
+        [m_legibleOutput setTextStylingResolution:AVPlayerItemLegibleOutputTextStylingResolutionSourceAndRulesOnly];
         [m_avPlayerItem addOutput:m_legibleOutput];
 
         m_metadataCollector = adoptNS([PAL::allocAVPlayerItemMetadataCollectorInstance() initWithIdentifiers:nil classifyingLabels:nil]);
@@ -1313,8 +1307,7 @@ ALLOW_NEW_API_WITHOUT_GUARDS_END
         m_metadataOutput = adoptNS([PAL::allocAVPlayerItemMetadataOutputInstance() initWithIdentifiers:nil]);
         if (m_metadataOutput) {
             [m_metadataOutput setDelegate:m_objcObserver queue:mainDispatchQueueSingleton()];
-            if ([m_metadataOutput respondsToSelector:@selector(setAdvanceIntervalForDelegateInvocation:)])
-                [m_metadataOutput setAdvanceIntervalForDelegateInvocation:avPlayerOutputAdvanceInterval];
+            [m_metadataOutput setAdvanceIntervalForDelegateInvocation:avPlayerOutputAdvanceInterval];
             [m_avPlayerItem addOutput:m_metadataOutput];
         }
     }

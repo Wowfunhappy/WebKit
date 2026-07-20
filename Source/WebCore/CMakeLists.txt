@@ -177,6 +177,11 @@ set(WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/platform/graphics/controls"
     "${WEBCORE_DIR}/platform/graphics/iso"
     "${WEBCORE_DIR}/platform/graphics/opentype"
+    # MAVERICKS_BACKPORT: WebCoreCALayerExtras.mm reaches DynamicContentScalingTypes.h by its bare
+    # name, which the Xcode Mac build resolves from its own source-wide header search. This CMake
+    # Mac build searches only the directories listed here, so name the one that holds it and let
+    # the source keep upstream's include.
+    "${WEBCORE_DIR}/platform/graphics/re"
     "${WEBCORE_DIR}/platform/graphics/transforms"
     "${WEBCORE_DIR}/platform/mediacapabilities"
     "${WEBCORE_DIR}/platform/mediarecorder"
@@ -3175,7 +3180,7 @@ if (APPLE)
     set_target_properties(WebCore PROPERTIES LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle")
 
     # MAVERICKS_BACKPORT: force-load the selref-scope polyfill (libpolyfill_classes.a = wk_selref_scope.o
-    # the mechanism + wk_polyfills.o the wk_ category methods on NSColor/NSScreen/NSWindow/NSWorkspace/
+    # the mechanism + methods.o the wk_ category methods on NSColor/NSScreen/NSWindow/NSWorkspace/
     # NSEvent/NSAppearance/NSGraphicsContext that WebCore's rendering code calls). It lives here, in WebCore,
     # rather than in JavaScriptCore: WebCore links AppKit and loads in every WebKit rendering process, so the
     # polyfills are present everywhere they are needed — but a dyld-restricted setuid program that loads ONLY

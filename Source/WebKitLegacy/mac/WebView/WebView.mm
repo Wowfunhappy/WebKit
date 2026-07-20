@@ -5079,8 +5079,8 @@ IGNORE_WARNINGS_END
 #if PLATFORM(MAC)
 - (bool)_effectiveAppearanceIsDark
 {
-    // MAVERICKS_BACKPORT: NSAppearanceNameDarkAqua and -bestMatchFromAppearancesWithNames: are 10.14+; no dark mode on 10.9.
-    return false;
+    NSAppearanceName appearance = [[self effectiveAppearance] bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+    return [appearance isEqualToString:NSAppearanceNameDarkAqua];
 }
 
 - (bool)_effectiveUserInterfaceLevelIsElevated

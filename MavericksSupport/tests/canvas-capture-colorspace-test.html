@@ -1,0 +1,41 @@
+<!doctype html><meta charset=utf-8><title>captureStream colour-space test</title>
+<!-- Regression test for the soft-linked CoreMedia colour constants.
+
+     A captured canvas frame becomes a VideoFrame, and computeVideoFrameColorSpace() reads constants
+     PAL soft-links from CoreMedia. 10.9 exports only one of them, and SOFT_LINK_CONSTANT is
+     unconditional: it RELEASE_ASSERTs the moment dlsym fails, killing WebContent on first touch.
+     The polyfill layer supplies the absent ones and answers dlsym for them.
+
+     Use this rather than Google Meet: it reaches the same code path with no camera, account or
+     network, and Meet has separate unresolved crashes that make it an unreliable signal.
+
+     PASS = "SURVIVED 60 captured frames" with no WebContent crash. -->
+<body style="font:14px -apple-system,sans-serif;padding:16px">
+<canvas id=c width=320 height=240 style="border:1px solid #999"></canvas>
+<video id=v autoplay muted playsinline width=320 height=240 style="border:1px solid #999"></video>
+<pre id=out>starting…</pre>
+<script>
+// Same path 409b95b crashed on: a captured canvas frame is converted to a VideoFrame,
+// and computeVideoFrameColorSpace() reads the soft-linked CoreMedia colour constants.
+// Before the fix SOFT_LINK_CONSTANT's RELEASE_ASSERT killed WebContent on first touch.
+var log = [], out = document.getElementById('out');
+function say(s){ log.push(s); out.textContent = log.join('\n'); }
+try {
+  var c = document.getElementById('c');
+  var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+  say('webgl context: ' + (gl ? 'yes' : 'NO'));
+  if (gl) { gl.clearColor(0.1, 0.6, 0.9, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.finish(); }
+  var stream = c.captureStream ? c.captureStream(30) : null;
+  say('captureStream: ' + (stream ? 'ok, ' + stream.getVideoTracks().length + ' video track(s)' : 'UNSUPPORTED'));
+  if (stream) {
+    document.getElementById('v').srcObject = stream;
+    var n = 0;
+    var t = setInterval(function () {
+      // keep producing frames so the conversion path runs repeatedly
+      if (gl) { gl.clearColor(Math.random(), 0.5, 0.8, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.finish(); }
+      if (++n >= 60) { clearInterval(t); say('SURVIVED ' + n + ' captured frames — no RELEASE_ASSERT'); }
+      else if (n % 20 === 0) say('frames: ' + n);
+    }, 50);
+  }
+} catch (e) { say('EXCEPTION: ' + e); }
+</script>

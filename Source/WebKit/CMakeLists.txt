@@ -1188,15 +1188,24 @@ ADD_WEBKIT_PREFIX_HEADER(WebKit)
 list(APPEND WebProcess_PRIVATE_INCLUDE_DIRECTORIES $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>)
 WEBKIT_EXECUTABLE(WebProcess)
 ADD_WEBKIT_PREFIX_HEADER(WebProcess)
+# MAVERICKS_BACKPORT: these three are the only SHIPPED binaries WEBKIT_EXECUTABLE produces, so the
+# polyfill force-load is applied here rather than inside that macro -- which also builds the
+# build-time tools, where dragging the whole archive in would only add link-line requirements for
+# polyfills they never call. See _WEBKIT_FORCE_LOAD_POLYFILL in Source/cmake/WebKitMacros.cmake.
+_WEBKIT_FORCE_LOAD_POLYFILL(WebProcess)
 
 list(APPEND NetworkProcess_PRIVATE_INCLUDE_DIRECTORIES $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>)
 WEBKIT_EXECUTABLE(NetworkProcess)
 ADD_WEBKIT_PREFIX_HEADER(NetworkProcess)
+# MAVERICKS_BACKPORT: shipped binary, so it force-loads the polyfill too (see WebProcess above).
+_WEBKIT_FORCE_LOAD_POLYFILL(NetworkProcess)
 
 if (ENABLE_GPU_PROCESS)
     list(APPEND GPUProcess_PRIVATE_INCLUDE_DIRECTORIES $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>)
     WEBKIT_EXECUTABLE(GPUProcess)
     ADD_WEBKIT_PREFIX_HEADER(GPUProcess)
+    # MAVERICKS_BACKPORT: shipped binary, so it force-loads the polyfill too (see WebProcess above).
+    _WEBKIT_FORCE_LOAD_POLYFILL(GPUProcess)
 endif ()
 
 if (COMPILER_IS_GCC_OR_CLANG)

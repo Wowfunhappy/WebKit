@@ -45,6 +45,11 @@
 #import "WebProcessMessages.h"
 #import "WebProcessPool.h"
 #import <WebCore/ActivityState.h>
+// MAVERICKS_BACKPORT: registerNotifyObservers() calls PAL::registerNotifyCallback, declared in
+// <pal/Logging.h>; "Logging.h" above is WebKit's own Platform/Logging.h. Upstream compiles because a
+// neighbour in the same unified bundle happens to include it — which changes whenever the Cocoa source
+// list does. Include it directly (an upstream non-unified-build fix, not a 10.9 divergence).
+#import <pal/Logging.h>
 #import <pal/spi/ios/MobileGestaltSPI.h>
 #import <sys/sysctl.h>
 #import <wtf/NeverDestroyed.h>

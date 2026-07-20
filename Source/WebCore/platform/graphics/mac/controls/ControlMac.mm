@@ -96,13 +96,9 @@ void ControlMac::updateCheckedState(NSCell *cell, const ControlStyle& style)
 
     auto newState = indeterminate ? NSControlStateValueMixed : (checked ? NSControlStateValueOn : NSControlStateValueOff);
 
-    if (auto *buttonCell = dynamic_objc_cast<NSButtonCell>(cell)) {
-        // MAVERICKS_BACKPORT: -_setState:animated: is 10.10+ NSButtonCell SPI.
-        if ([buttonCell respondsToSelector:@selector(_setState:animated:)])
-            [buttonCell _setState:newState animated:false];
-        else
-            [buttonCell setState:newState];
-    } else
+    if (auto *buttonCell = dynamic_objc_cast<NSButtonCell>(cell))
+        [buttonCell _setState:newState animated:false];
+    else
         [cell setState:newState];
 }
 
@@ -134,13 +130,9 @@ void ControlMac::updatePressedState(NSCell *cell, const ControlStyle& style)
     if (pressed == oldPressed)
         return;
 
-    if (auto *buttonCell = dynamic_objc_cast<NSButtonCell>(cell)) {
-        // MAVERICKS_BACKPORT: -_setHighlighted:animated: is 10.10+ NSButtonCell SPI.
-        if ([buttonCell respondsToSelector:@selector(_setHighlighted:animated:)])
-            [buttonCell _setHighlighted:pressed animated:false];
-        else
-            [buttonCell setHighlighted:pressed];
-    } else
+    if (auto *buttonCell = dynamic_objc_cast<NSButtonCell>(cell))
+        [buttonCell _setHighlighted:pressed animated:false];
+    else
         [cell setHighlighted:pressed];
 }
 
@@ -422,8 +414,7 @@ void ControlMac::drawListButton(GraphicsContext& context, const FloatRect& rect,
         coreUIState = (__bridge NSString *)kCUIStatePressed;
     else
         coreUIState = (__bridge NSString *)kCUIStateActive;
-    // MAVERICKS_BACKPORT: +[NSAppearance currentDrawingAppearance] is 10.14+; guard it (nil here, so CoreUI draws against the default appearance).
-    [([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil) _drawInRect:NSMakeRect(0, 0, comboBoxSize.width(), comboBoxSize.height()) context:cgContext.get() options:@{
+    [[NSAppearance currentDrawingAppearance] _drawInRect:NSMakeRect(0, 0, comboBoxSize.width(), comboBoxSize.height()) context:cgContext.get() options:@{
         (__bridge NSString *)kCUIWidgetKey : (__bridge NSString *)kCUIWidgetButtonComboBox,
         (__bridge NSString *)kCUISizeKey : (__bridge NSString *)kCUISizeRegular,
         (__bridge NSString *)kCUIStateKey : coreUIState,

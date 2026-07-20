@@ -307,13 +307,10 @@ bool ResourceError::blockedKnownTracker() const
     RetainPtr error = nsError();
     if (id blockedTrackerFailure = error.get().userInfo[@"_NSURLErrorBlockedTrackerFailureKey"])
         return [blockedTrackerFailure boolValue];
-    // MAVERICKS_BACKPORT: -[NSError underlyingErrors] is macOS 10.14+; guard with respondsToSelector: so 10.9 skips the loop instead of throwing an unrecognized-selector exception.
-    // underlyingErrors is macOS 10.14+
-    if ([error.get() respondsToSelector:@selector(underlyingErrors)]) {
-        for (NSError *underlyingError in [(id)error.get() underlyingErrors]) {
-            if ([underlyingError.userInfo[@"_NSURLErrorBlockedTrackerFailureKey"] boolValue])
-                return true;
-        }
+    // This loop can be removed when the CFNetwork loader is no longer in use
+    for (NSError *underlyingError in error.get().underlyingErrors) {
+        if ([underlyingError.userInfo[@"_NSURLErrorBlockedTrackerFailureKey"] boolValue])
+            return true;
     }
     return false;
 }
@@ -321,9 +318,22 @@ bool ResourceError::blockedKnownTracker() const
 String ResourceError::blockedTrackerHostName() const
 {
     ASSERT(blockedKnownTracker());
-    // MAVERICKS_BACKPORT: the upstream body uses nw_path_copy_effective_remote_endpoint / nw_endpoint_get_known_tracker_name (Network.framework, 10.14+), which is absent on 10.9; return an empty host name instead.
-    // nw_path_copy_effective_remote_endpoint requires Network.framework (10.14+)
-    // not available on macOS 10.9
+
+    RetainPtr error = nsError();
+    if (RetainPtr<id> failingPath = error.get().userInfo[@"_NSURLErrorNWPathKey"]) {
+        auto failingEndpoint = adoptNS(nw_path_copy_effective_remote_endpoint(failingPath.get()));
+        if (auto* hostName = nw_endpoint_get_known_tracker_name(failingEndpoint.get()))
+            return String::fromUTF8(hostName);
+        return { };
+    }
+    // This loop can be removed when the CFNetwork loader is no longer in use
+    for (NSError *underlyingError in error.get().underlyingErrors) {
+        if (RetainPtr<id> failingPath = underlyingError.userInfo[@"_NSURLErrorNWPathKey"]) {
+            auto failingEndpoint = adoptNS(nw_path_copy_effective_remote_endpoint(failingPath.get()));
+            if (auto* hostName = nw_endpoint_get_known_tracker_name(failingEndpoint.get()))
+                return String::fromUTF8(hostName);
+        }
+    }
     return { };
 }
 

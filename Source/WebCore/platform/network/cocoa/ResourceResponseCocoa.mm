@@ -105,18 +105,8 @@ CertificateInfo ResourceResponse::platformCertificateInfo(std::span<const std::b
         return { };
 
     if (trustResultType == kSecTrustResultInvalid) {
-#if defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 101400
-        // MAVERICKS_BACKPORT: SecTrustEvaluateWithError() is macOS 10.14+. Fall back to the older
-        // SecTrustEvaluate() and accept only Proceed/Unspecified results.
-        SecTrustResultType reEvaluatedResult = kSecTrustResultInvalid;
-        if (SecTrustEvaluate(trust.get(), &reEvaluatedResult) != errSecSuccess
-            || (reEvaluatedResult != kSecTrustResultProceed && reEvaluatedResult != kSecTrustResultUnspecified))
-            return { };
-#else
         if (!SecTrustEvaluateWithError(trust.get(), nullptr))
             return { };
-// MAVERICKS_BACKPORT: closes the SecTrustEvaluate-vs-SecTrustEvaluateWithError (10.14+) deploy-target gate above.
-#endif
     }
 
     return CertificateInfo(trust.get());

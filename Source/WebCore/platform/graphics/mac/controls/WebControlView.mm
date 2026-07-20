@@ -151,8 +151,7 @@ static NSRect _clipBounds;
 {
     // Dark mode controls don't have borders, just a semi-transparent background of shadows.
     // In the dark mode case we can't disable borders, or we will not paint anything for the control.
-    // MAVERICKS_BACKPORT: +[NSAppearance currentDrawingAppearance] is 10.14+; guard with respondsToSelector and fall back to nil (Aqua) on 10.9 so the bestMatch call resolves to Aqua instead of sending an unrecognized selector.
-    RetainPtr appearance = [([NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : (NSAppearance *)nil) bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
+    RetainPtr appearance = [[NSAppearance currentDrawingAppearance] bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]];
     if ([appearance isEqualToString:NSAppearanceNameDarkAqua])
         return defaultOptions;
 

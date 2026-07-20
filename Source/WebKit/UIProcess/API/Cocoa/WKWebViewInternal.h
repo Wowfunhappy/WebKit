@@ -725,9 +725,8 @@ struct PerWebProcessState {
 
 #endif // !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP
 
-// MAVERICKS_BACKPORT: _WKTextExtractionConfiguration / _WKTextExtractionInteraction not available.
-// - (void)_requestTextExtraction:...
-// - (void)_describeInteraction:...
+- (void)_requestTextExtraction:(nullable _WKTextExtractionConfiguration *)configuration completionHandler:(NS_SWIFT_UI_ACTOR void (^)(WKTextExtractionItem * _Nullable))completionHandler;
+- (void)_describeInteraction:(nullable _WKTextExtractionInteraction *)interaction completionHandler:(NS_SWIFT_UI_ACTOR void (^)(NSString * _Nullable_result, NSError * _Nullable))completionHandler;
 
 @end
 

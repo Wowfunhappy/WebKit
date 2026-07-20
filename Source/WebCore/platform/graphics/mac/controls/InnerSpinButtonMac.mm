@@ -30,19 +30,12 @@
 
 #import "FloatRoundedRect.h"
 #import "GraphicsContext.h"
-// MAVERICKS_BACKPORT: ImageBuffer is needed for the offscreen buffer the Carbon HITheme stepper fallback draws into.
-#import "ImageBuffer.h"
 #import "InnerSpinButtonPart.h"
 #import "LocalDefaultSystemAppearance.h"
 #import <pal/spi/mac/CoreUISPI.h>
 #import <pal/spi/mac/NSAppearanceSPI.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/TZoneMallocInlines.h>
-
-// MAVERICKS_BACKPORT: Carbon HITheme (HIThemeDrawButton, kThemeIncDecButton) draws the classic Aqua
-// little-arrows stepper on 10.9, where the modern CoreUI path (-[NSAppearance _drawInRect:...], 10.14+)
-// is nil and would otherwise draw nothing.
-#import <Carbon/Carbon.h>
 
 namespace WebCore {
 
@@ -66,8 +59,7 @@ IntSize InnerSpinButtonMac::cellSize(NSControlSize controlSize, const ControlSty
     return sizes[controlSize];
 }
 
-// MAVERICKS_BACKPORT: name the deviceScaleFactor param (unused upstream) so the Carbon HITheme fallback below can size its offscreen buffer.
-void InnerSpinButtonMac::draw(GraphicsContext& context, const FloatRoundedRect& borderRect, float deviceScaleFactor, const ControlStyle& style)
+void InnerSpinButtonMac::draw(GraphicsContext& context, const FloatRoundedRect& borderRect, float, const ControlStyle& style)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
@@ -102,38 +94,15 @@ void InnerSpinButtonMac::draw(GraphicsContext& context, const FloatRoundedRect& 
         context.scale(style.zoomFactor);
     }
 
-    NSAppearance *drawingAppearance = [NSAppearance respondsToSelector:@selector(currentDrawingAppearance)] ? [NSAppearance currentDrawingAppearance] : nil;
-    if (drawingAppearance) {
-        [drawingAppearance _drawInRect:logicalRect context:context.platformContext() options:@{
-            (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)kCUIWidgetButtonLittleArrows,
-            (__bridge NSString *)kCUISizeKey: coreUISize,
-            (__bridge NSString *)kCUIStateKey: coreUIState,
-            (__bridge NSString *)kCUIValueKey: states.contains(ControlStyle::State::SpinUp) ? @1 : @0,
-            (__bridge NSString *)kCUIIsFlippedKey: @NO,
-            (__bridge NSString *)kCUIScaleKey: @1,
-            (__bridge NSString *)kCUIMaskOnlyKey: @NO
-        }];
-    } else {
-        // MAVERICKS_BACKPORT: the CoreUI path above is 10.14+ and nil here, so the stepper would draw
-        // nothing. Draw the classic Aqua increment/decrement arrows via Carbon HITheme
-        // (kThemeIncDecButton) into an offscreen buffer, then composite — same approach as ProgressBarMac.
-        if (auto imageBuffer = context.createImageBuffer(FloatSize(logicalRect.width(), logicalRect.height()), deviceScaleFactor)) {
-            HIThemeButtonDrawInfo info = { };
-            info.version = 0;
-            if (!states.contains(ControlStyle::State::Enabled))
-                info.state = kThemeStateUnavailable;
-            else if (states.contains(ControlStyle::State::Pressed))
-                info.state = states.contains(ControlStyle::State::SpinUp) ? kThemeStatePressedUp : kThemeStatePressedDown;
-            else
-                info.state = kThemeStateActive;
-            info.kind = controlSize == NSControlSizeMini ? kThemeIncDecButtonMini : (controlSize == NSControlSizeSmall ? kThemeIncDecButtonSmall : kThemeIncDecButton);
-            info.value = kThemeButtonOff;
-            info.adornment = kThemeAdornmentNone;
-            CGRect r = CGRectMake(0, 0, logicalRect.width(), logicalRect.height());
-            HIThemeDrawButton(&r, &info, imageBuffer->context().platformContext(), kHIThemeOrientationNormal, nullptr);
-            context.drawConsumingImageBuffer(WTF::move(imageBuffer), logicalRect.location());
-        }
-    }
+    [[NSAppearance currentDrawingAppearance] _drawInRect:logicalRect context:context.platformContext() options:@{
+        (__bridge NSString *)kCUIWidgetKey: (__bridge NSString *)kCUIWidgetButtonLittleArrows,
+        (__bridge NSString *)kCUISizeKey: coreUISize,
+        (__bridge NSString *)kCUIStateKey: coreUIState,
+        (__bridge NSString *)kCUIValueKey: states.contains(ControlStyle::State::SpinUp) ? @1 : @0,
+        (__bridge NSString *)kCUIIsFlippedKey: @NO,
+        (__bridge NSString *)kCUIScaleKey: @1,
+        (__bridge NSString *)kCUIMaskOnlyKey: @NO
+    }];
 
     END_BLOCK_OBJC_EXCEPTIONS
 }

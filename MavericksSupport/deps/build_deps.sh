@@ -227,31 +227,41 @@ echo "==== 10.9 gap archive ===="
 #
 # Source inventory (each is a pure gap on 10.9 -- no symbol here exists in the 10.9
 # runtime, except jit.c's mmap wrapper, a transparent forward that only strips the
-# 10.14+ MAP_JIT flag):
+# 10.14+ MAP_JIT flag).
+#
+# From polyfill/legacy-support/src (vendored macports-legacy-support):
 #   time            clock_gettime/clock_gettime_nsec_np/timespec_get, mach_*_time
 #   atcalls         openat + the *at() family (via per-thread chdir emulation)
 #   utimensat       utimensat/futimens
 #   fdopendir       fdopendir$INODE64 and friends
 #   dirfuncs_compat internal opendir/readdir helpers for fdopendir
 #   clonefile       clonefile/clonefileat/fclonefileat
-#   jit             pthread_jit_write_protect[_supported]_np + MAP_JIT-stripping mmap
 #   statxx          fstatat/fstatat$INODE64/fstatat64
 #   getentropy      getentropy
-#   mkostemp        mkostemp/mkostemps
 #   pthread_chdir   __mpls_best_fchdir closure for atcalls (private helpers)
+#   os_unfair_lock  os_unfair_lock_lock/trylock/unlock (10.12+)
+#
+# From polyfill/polyfills/shared (this port's own, kept as plain C precisely so these
+# non-WebKit binaries and WebKit share one definition of each):
+#   jit             pthread_jit_write_protect[_supported]_np + MAP_JIT-stripping mmap
+#   mkostemp        mkostemp/mkostemps
 #   os_version      _availability_version_check (@available lowering; lld requires a
 #                   definition for compiler-rt's weak-import reference)
-#   os_unfair_lock  os_unfair_lock_lock/trylock/unlock (10.12+)
 #   os_unfair_lock_ext  os_unfair_lock_lock_with_flags/_with_options
 #   aligned_alloc   C11 aligned_alloc (10.15+)
 #   ccrandom        CCRandomGenerateBytes (10.10+)
 LEGACY="$REPO/MavericksSupport/polyfill/legacy-support"
+SHARED="$REPO/MavericksSupport/polyfill/polyfills/shared"
 GAPDIR="$SCRATCH/gap"
 mkdir -p "$GAPDIR"
-GAP_SOURCES="time atcalls utimensat fdopendir dirfuncs_compat clonefile jit statxx getentropy mkostemp pthread_chdir os_version os_unfair_lock os_unfair_lock_ext aligned_alloc ccrandom"
+GAP_VENDORED="time atcalls utimensat fdopendir dirfuncs_compat clonefile statxx getentropy pthread_chdir os_unfair_lock"
+GAP_SHARED="jit mkostemp os_version os_unfair_lock_ext aligned_alloc ccrandom"
 GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$LEGACY/include"
-( for s in $GAP_SOURCES; do
+( for s in $GAP_VENDORED; do
     "$TC/bin/clang" $GAPCFLAGS -c "$LEGACY/src/$s.c" -o "$GAPDIR/$s.o" || exit 1
+  done
+  for s in $GAP_SHARED; do
+    "$TC/bin/clang" $GAPCFLAGS -c "$SHARED/$s.c" -o "$GAPDIR/$s.o" || exit 1
   done ) || exit 1
 # GLib's macOS GAppInfo/content-type backend (gosxappinfo) calls two 10.10+
 # LaunchServices functions. Returning NULL makes GAppInfo report "no default
@@ -559,7 +569,7 @@ done
 # vendored: a process must have exactly one _Unwind_* implementation and system frames
 # always drive /usr/lib/system/libunwind.dylib, so every @rpath/libunwind.1.dylib
 # reference is bound to the system unwinder instead (fixed up in the collect loop;
-# install-safari7.sh enforces the same rule at deploy time).
+# MavericksSupport/scripts/stage-frameworks.sh enforces the same rule when it stages the tree).
 for cxxlib in libc++.1.dylib libc++abi.1.dylib; do
   [ -f "$TC/lib/$cxxlib" ] || { echo "  FATAL: $TC/lib/$cxxlib not found"; exit 1; }
   cp "$TC/lib/$cxxlib" "$STAGE/lib/$cxxlib"

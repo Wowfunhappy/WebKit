@@ -33,8 +33,7 @@
 #import "RemoteLayerTreeDrawingAreaProxy.h"
 #import "RemoteLayerTreePropertyApplier.h"
 #import "RemoteLayerTreeTransaction.h"
-// MAVERICKS_BACKPORT: VideoPresentationManagerProxy is disabled on 10.9, so its header is not imported.
-// [10.9] #import "VideoPresentationManagerProxy.h"
+#import "VideoPresentationManagerProxy.h"
 #import "WKAnimationDelegate.h"
 #import "WebPageProxy.h"
 #import "WebProcessProxy.h"
@@ -325,13 +324,15 @@ void RemoteLayerTreeHost::layerWillBeRemoved(WebCore::ProcessIdentifier processI
         }
     }
 
-#if HAVE(AVKIT)
+// MAVERICKS_BACKPORT: WebPageProxy::videoPresentationManager() belongs to the video-presentation
+// stack, which this port does not build (ENABLE(VIDEO_PRESENTATION_MODE) is off — 10.9 lacks the
+// AVKit presentation SPI). Upstream ships HAVE(AVKIT) only alongside that stack; spell out both.
+#if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
     auto videoLayerIter = m_videoLayers.find(layerID);
     if (videoLayerIter != m_videoLayers.end()) {
         RefPtr page = drawingArea().page();
-        // MAVERICKS_BACKPORT: VideoPresentationManagerProxy is disabled on 10.9; just drop the tracked video layer without notifying it.
-// [10.9]         if (RefPtr videoManager = page ? (WebKit::VideoPresentationManagerProxy*)nullptr : nullptr)
-// [10.9]             videoManager->willRemoveLayerForID(videoLayerIter->value);
+        if (RefPtr videoManager = page ? page->videoPresentationManager() : nullptr)
+            videoManager->willRemoveLayerForID(videoLayerIter->value);
         m_videoLayers.remove(videoLayerIter);
     }
 #endif
@@ -503,14 +504,17 @@ RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeT
         if (m_isDebugLayerTreeHost)
             return RemoteLayerTreeNode::createWithPlainLayer(*properties.layerID);
 
-#if HAVE(AVKIT)
+// MAVERICKS_BACKPORT: WebPageProxy::videoPresentationManager() belongs to the video-presentation
+// stack, which this port does not build (ENABLE(VIDEO_PRESENTATION_MODE) is off — 10.9 lacks the
+// AVKit presentation SPI). Upstream ships HAVE(AVKIT) only alongside that stack; spell out both.
+// A video layer therefore takes the plain remote-hosting path below, as any other custom layer does.
+#if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
         if (properties.videoElementData) {
             RefPtr page = drawingArea().page();
-            // MAVERICKS_BACKPORT: VideoPresentationManagerProxy-backed video layer creation is disabled on 10.9; fall through to a plain hosted render layer below.
-// [10.9]             if (RefPtr videoManager = page ? (WebKit::VideoPresentationManagerProxy*)nullptr : nullptr) {
-// [10.9]                 m_videoLayers.add(*properties.layerID, properties.videoElementData->playerIdentifier);
-// [10.9]                 return makeWithLayer(videoManager->createLayerWithID(properties.videoElementData->playerIdentifier, { properties.hostingContextID() }, properties.videoElementData->initialSize, properties.videoElementData->naturalSize, properties.hostingDeviceScaleFactor()));
-// [10.9]             }
+            if (RefPtr videoManager = page ? page->videoPresentationManager() : nullptr) {
+                m_videoLayers.add(*properties.layerID, properties.videoElementData->playerIdentifier);
+                return makeWithLayer(videoManager->createLayerWithID(properties.videoElementData->playerIdentifier, { properties.hostingContextID() }, properties.videoElementData->initialSize, properties.videoElementData->naturalSize, properties.hostingDeviceScaleFactor()));
+            }
         }
 #endif
 

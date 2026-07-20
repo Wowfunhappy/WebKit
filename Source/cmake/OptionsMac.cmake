@@ -182,14 +182,22 @@ set(MAVERICKS_DEPS "${MAVERICKS_SUPPORT}/deps/build" CACHE INTERNAL "third-party
 # frameworks and points an LC_RPATH at it so the system's old 10.9 libc++ is NOT used.
 link_libraries(${MAVERICKS_TC}/lib/libc++.1.dylib)
 link_libraries(${MAVERICKS_TC}/lib/libc++abi.1.dylib)
-# libpolyfill.a supplies every symbol WebKit references that the 10.9 runtime lacks:
-# the POSIX/libc base plus the WebKit-specific framework-SPI stubs. Linked into every
-# binary.
+# libpolyfill.a supplies the symbols this port provides in place of the 10.9 runtime's: the
+# POSIX/libc base, the framework-SPI gap-fills, and the handful of deliberate replacements for 10.9
+# functions that misbehave. Linked into every binary.
+#
+# This plain listing is what the BUILD-TIME TOOLS get (LLIntOffsetsExtractor and friends), and
+# ordinary archive semantics are fine for them: they just need the libc gap-fills to resolve, and
+# they never ship. Anything that DOES ship additionally force-loads the archive, because for shipped
+# code it matters which definition wins rather than merely that the link succeeds -- see
+# _WEBKIT_FORCE_LOAD_POLYFILL in WebKitMacros.cmake. Force-loading it here instead would drag the
+# whole archive into every build tool, which then needs every framework the polyfill references on
+# its link line.
 link_libraries(${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a)
 # libpolyfill_classes.dylib (the polyfill ObjC class stubs) is NOT link_libraries'd here: it is linked
 # per-framework in WEBKIT_FRAMEWORK (WebKitMacros.cmake) so it covers the framework targets without also
 # being dragged into build tools, and the classes its owning framework is linked earlier than are handled by
-# the reexport+repoint in install-safari7.sh (see the WEBKIT_FRAMEWORK note).
+# the reexport+repoint in MavericksSupport/scripts/stage-frameworks.sh (see the WEBKIT_FRAMEWORK note).
 # QuartzCore's CALayer is the superclass of the CABackdropLayer stub; linking it everywhere (it is a 10.9
 # system framework) is harmless and also covers any binary that uses CALayer directly.
 link_libraries("-framework QuartzCore")

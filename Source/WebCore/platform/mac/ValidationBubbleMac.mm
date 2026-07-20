@@ -66,16 +66,10 @@ ValidationBubble::ValidationBubble(NSView* view, String&& message, const Setting
     [label setStringValue:m_message.createNSString().get()];
     m_fontSize = std::max(settings.minimumFontSize, 13.0);
     [label setFont:[NSFont systemFontOfSize:m_fontSize]];
-    // MAVERICKS_BACKPORT: -[NSTextField setMaximumNumberOfLines:] is 10.11+; guard with respondsToSelector: so it is skipped on 10.9 instead of throwing.
-    // setMaximumNumberOfLines: is 10.11+, sizeThatFits: is 10.10+
-    if ([label respondsToSelector:@selector(setMaximumNumberOfLines:)])
-        [(id)label setMaximumNumberOfLines:4];
+    [label setMaximumNumberOfLines:4];
     [[label cell] setTruncatesLastVisibleLine:YES];
     [popoverView addSubview:label.get()];
-    // MAVERICKS_BACKPORT: -[NSTextField sizeThatFits:] is 10.10+; size the label to a max width and use the classic -sizeToFit (available on 10.9) to measure it.
-    [label setFrameSize:NSMakeSize(maxLabelWidth, CGFLOAT_MAX)];
-    [label sizeToFit];
-    NSSize labelSize = [label frame].size;
+    NSSize labelSize = [label sizeThatFits:NSMakeSize(maxLabelWidth, CGFLOAT_MAX)];
     [label setFrame:NSMakeRect(horizontalPadding, verticalPadding, labelSize.width, labelSize.height)];
     [popoverView setFrame:NSMakeRect(0, 0, labelSize.width + horizontalPadding * 2, labelSize.height + verticalPadding * 2)];
 
@@ -98,23 +92,7 @@ void ValidationBubble::showRelativeTo(const IntRect& anchorRect)
         return;
 
     NSRect rect = NSMakeRect(anchorRect.x(), anchorRect.y(), anchorRect.width(), anchorRect.height());
-
-    // MAVERICKS_BACKPORT: on 10.9, -[NSPopover showRelativeToRect:ofView:preferredEdge:] runs
-    // -[NSWindow _makeParentWindowHaveFirstResponder:], forcibly making the popover's content view
-    // the ANCHOR window's first responder. Modern AppKit popovers keep their own responder state,
-    // which is the contract this file is written against. Left alone, the web view resigns first
-    // responder, the page's IsFocused activity state drops, the focused form control receives a
-    // blur event, and the control's blur handling hides the validation message — destroying the
-    // bubble milliseconds after it was shown. Restore the anchor window's first responder
-    // synchronously; the resign path only schedules a coalesced end-of-runloop activity-state
-    // recompute, so restoring within the same turn means no state change is ever sent. The bubble
-    // label takes no key input and transient/ESC dismissal don't rely on popover focus.
-    NSWindow *anchorWindow = [view window];
-    NSResponder *responderBeforeShowing = [anchorWindow firstResponder];
     [m_popover showRelativeToRect:rect ofView:view.get() preferredEdge:NSMinYEdge];
-    // MAVERICKS_BACKPORT: undo the 10.9 popover's forced first-responder change (see block above) so the focused control keeps focus and the bubble isn't blurred away.
-    if ([anchorWindow firstResponder] != responderBeforeShowing)
-        [anchorWindow makeFirstResponder:responderBeforeShowing];
 }
 
 } // namespace WebCore

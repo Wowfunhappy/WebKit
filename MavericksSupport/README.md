@@ -22,9 +22,26 @@ source, `build/` = regenerable artifact).
 
 ```
 MavericksSupport/
-├── README.md                  this file
+│  (top level = the things you invoke, plus the file CMake needs)
+├── README.md                   this file
+├── bootstrap.sh                fresh-clone setup (toolchain + deps + polyfill)
+├── rebuild.sh                  build: link, then stage the complete product
+├── install-safari7.sh          installer: copy the staged product into the 10.9 system
 ├── mac10.9-toolchain.cmake     CMake toolchain entry (all paths relative)
-├── install-safari7.sh          installer: name-shift + deploy into the 10.9 system
+│
+├── scripts/                    supporting scripts (not entry points for a normal build)
+│   ├── stage-frameworks.sh                the build's last phase: assemble WebKitBuild/Release/staged
+│   ├── backup-stock-frameworks.sh         keep stock 10.9 WebKit in ../stock-webkit-backup (i386 slices)
+│   ├── framework-layout.sh                sourced helper: the installed layout, shared by stage + install
+│   ├── run-layout-tests.sh                layout tests: --wk1 (DumpRenderTree) | --wk2 (WebKitTestRunner)
+│   ├── make-build-frameworks-runnable.sh  make the in-place build frameworks loadable, no system writes
+│   ├── check-backport-markers.sh          audits divergences for MAVERICKS_BACKPORT markers
+│   └── reexport-shim.sh                   sourced helper: build a reexport shim dylib
+│
+├── demangler/                  the demangler guard (_Z -> _z rename so symbolication can't crash)
+│   ├── neutralize-demangler-crashers.py   the guard, run by scripts/stage-frameworks.sh
+│   ├── demangler-crash-scan.cpp           fork-isolated crash-scan worker
+│   └── demangler-crash-scan-freecheck.c   the second (double-free) detector
 │
 ├── toolchain/                  the in-tree compiler + helper build tools
 │   ├── vendor/                   COMMITTED binaries we can't rebuild:
@@ -34,10 +51,12 @@ MavericksSupport/
 │   ├── bootstrap.sh              reconstructs build/ from vendor/ + scripts/
 │   └── build/                    ARTIFACTS (gitignored): unpacked clang + built tools
 │
-├── polyfill/                   genuinely-missing-on-10.9 symbols, from source
-│   ├── src/                      polyfill_stubs.m, system_spi_polyfill.c, wk_polyfills.m, wtf_compat.cpp
+├── polyfill/                   the polyfill layer -- see polyfill/README.md
+│   ├── polyfills/                THE POLYFILLS, by what the symbol is (constants, runtime, graphics, ...)
+│   ├── mechanism/                how the layer loads (not needed to add a polyfill)
 │   ├── legacy-support/           vendored macports-legacy-support (libc/POSIX gap-fills)
 │   ├── headers/                  framework header overlays (declarations modern WebKit calls)
+│   ├── tests/                    checks the layer's guarantees on this OS
 │   ├── scripts/                  build-polyfill.sh, build-legacy-polyfills.sh
 │   └── build/                    ARTIFACTS (gitignored): archives the link consumes (see below)
 │
@@ -65,20 +84,28 @@ MavericksSupport/
    (`bootstrap.sh` prints the exact command).
 
 4. **Install** onto the 10.9 target: `sudo bash MavericksSupport/install-safari7.sh`.
+   The build's last phase (`scripts/stage-frameworks.sh`, run by `rebuild.sh`) already
+   assembled the complete product in `WebKitBuild/Release/staged/`, laid out exactly as it
+   lands on disk; installing copies that tree into `/System` and edits the host files
+   nobody builds (the Dashboard Web Clip widget plist, the Web Inspector's `Main.css`, and
+   Safari's `page-load-errors.css`).
+
+To run layout tests against the build tree (never the installed system), use
+`bash MavericksSupport/scripts/run-layout-tests.sh --wk1|--wk2 <tests...>` — the port
+flag is mandatory, and the script's header lists the one-time driver-build prereqs.
 
 ## `polyfill/build/` contents
 
-- `libpolyfill.a` — the 10.9-missing symbols WebKit links: the macports-legacy libc
-  base, a CFString-constant table, two small CG/vImage forwarding shims, and
-  `return 0` stubs for framework SPI that 10.9 lacks. Linked globally by
-  `OptionsMac.cmake`.
+- `libpolyfill.a` — the C functions and data constants: the macports-legacy libc base plus the
+  framework entry points 10.9 lacks or gets wrong. Force-loaded into every shipped framework
+  (`WEBKIT_FRAMEWORK` in `Source/cmake/WebKitMacros.cmake`), which is what makes a polyfill win
+  deterministically; also listed plainly by `OptionsMac.cmake` for the build-time tools.
 - `libwtf_compat.a` — force-loaded into JavaScriptCore
   (`Source/JavaScriptCore/CMakeLists.txt`).
-- `libpolyfill_classes.a` — force-loaded into WebCore
+- `libpolyfill_classes.a` — the ObjC method polyfills, force-loaded into WebCore
   (`Source/WebCore/CMakeLists.txt`).
-- `libcg_polyfill.dylib` — CoreGraphics shims, embedded into WebCore.framework by
-  `install-safari7.sh`.
+- `libpolyfill_classes.dylib` — the ObjC class polyfills, one shared definition each.
+- `libwk_marker.a` — tags a binary as ours, so method polyfills apply to it and not to a host app.
 
-The reproducible source for these lives in `src/` (WebKit-specific stubs) and
-`legacy-support/` (the libc base); `scripts/build-polyfill.sh` and
-`scripts/build-legacy-polyfills.sh` build their objects.
+The reproducible source lives in `polyfills/` (what we polyfill), `mechanism/` (how it loads) and
+`legacy-support/` (the libc base). See `polyfill/README.md` before adding a polyfill.

@@ -29,35 +29,7 @@
 
 #import <wtf/SoftLinking.h>
 
-#if __MAC_OS_X_VERSION_MIN_REQUIRED < 101400
-#import <dlfcn.h>
-// MAVERICKS_BACKPORT: macOS before 10.14 has no camera/microphone TCC services — the system TCC
-// framework lacks the kTCCServiceCamera/kTCCServiceMicrophone identifiers, so the soft-links below
-// would hand TCCAccessPreflight a NULL service (CFStringGetLength(NULL) crash at startup), and it
-// fails closed (Denied) for those services, silently disabling getUserMedia. Load the libtcc_polyfill
-// shim (grants the ungated-on-10.9 media services, forwards everything else to the real TCC, and
-// supplies the missing constants) in place of the system framework, so the soft-links resolve their
-// symbols from it. The shim ships beside the WebKit2 binary under Frameworks/.
-namespace WebKit {
-void* TCCLibrary(bool isOptional = false);
-void* TCCLibrary(bool isOptional)
-{
-    static void* frameworkLibrary;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        frameworkLibrary = dlopen("@loader_path/Frameworks/libtcc_polyfill.dylib", RTLD_NOW);
-        if (!frameworkLibrary)
-            frameworkLibrary = dlopen("/System/Library/PrivateFrameworks/TCC.framework/TCC", RTLD_NOW);
-        if (!isOptional)
-            RELEASE_ASSERT_WITH_MESSAGE(frameworkLibrary, "%s", dlerror());
-    });
-    return frameworkLibrary;
-}
-}
-#else
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE(WebKit, TCC)
-// MAVERICKS_BACKPORT: 10.14+ uses the real TCC framework directly; the libtcc_polyfill path above is only for <10.14.
-#endif
 
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, TCC, kTCCServiceAccessibility, CFStringRef)
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebKit, TCC, kTCCServiceCamera, CFStringRef)
