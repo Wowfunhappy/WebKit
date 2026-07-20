@@ -7412,11 +7412,7 @@ SharedWorkerEnabled:
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT: the SharedWorker context-process path is not functional on this 10.9
-      # port, so expose the constructor nowhere (matching WebCore/WebKitLegacy) — this lets
-      # `if (window.SharedWorker)` feature-detection take the fallback path instead of
-      # constructing into a broken path.
-      default: false
+      default: true
   sharedPreferenceForWebProcess: true
   richJavaScript: true
 
