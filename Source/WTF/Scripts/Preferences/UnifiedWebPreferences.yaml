@@ -8057,14 +8057,17 @@ SwitchControlEnabled:
   humanReadableName: "HTML switch control"
   humanReadableDescription: "Enable HTML switch control"
   defaultValue:
+    # MAVERICKS_BACKPORT: 10.9's AppKit/CoreUI has no switch widget — the one control family this OS
+    # cannot draw natively — and a switch is functionally a checkbox. Rather than approximate one, keep
+    # the feature off port-wide (as it ships off everywhere but Cocoa): the `switch` attribute is then
+    # ignored, so `<input type="checkbox" switch>` builds no shadow subtree and renders/behaves as the
+    # native checkbox it is, and `'switch' in HTMLInputElement.prototype` reports false so pages take
+    # their own fallback path (same shape as the SharedWorker disable above).
     WebKitLegacy:
-      "PLATFORM(COCOA)": true
       default: false
     WebKit:
-      "PLATFORM(COCOA)": true
       default: false
     WebCore:
-      "PLATFORM(COCOA)": true
       default: false
 
 # FIXME: There is no custom binding implemented for WebKitLegacy.

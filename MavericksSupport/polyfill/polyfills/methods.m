@@ -246,9 +246,11 @@ WK_POLYFILL_SEL("tertiarySystemFillColor", "wk_tertiarySystemFillColor");
 // With them supplied, 10.9's CoreUI draws the real widgets — measured on 10.9.5 (13F34) via
 // -_drawInRect:context:options:inView:, kCUIWidgetScrollBarTrackCorner fills 900/1024 bytes of a 16x16
 // bitmap, kCUIWidgetProgressBar 7600/8000 of a 100x20, kCUIWidgetButtonLittleArrows 935/1536 of a 16x24.
-// A widget key this CoreUI does not know draws nothing and throws nothing, so the 12.0+
-// kCUIWidgetSwitch* family — the one widget family this CoreUI has never heard of — is drawn below with
-// Core Graphics instead, and every other key goes through to CoreUI untouched.
+// A widget key this CoreUI does not know draws nothing and throws nothing. The only such key WebCore
+// would ever pass is the 12.0+ kCUIWidgetSwitch* family — the one widget family this CoreUI has never
+// heard of — and that never arrives, because the switch control is disabled at the WebCore layer on
+// this port (see SwitchControlEnabled) and renders as the checkbox it is. Every other key is a real
+// 10.9 widget and goes through to CoreUI untouched.
 //
 // BEHAVIOURAL DIVERGENCE, from two capabilities 10.9's AppKit genuinely does not have:
 //   - Dark Aqua. 10.9 ships no dark appearance. +appearanceNamed:NSAppearanceNameDarkAqua returns a
@@ -266,368 +268,17 @@ WK_POLYFILL_SEL("tertiarySystemFillColor", "wk_tertiarySystemFillColor");
 @end
 
 // ---------------------------------------------------------------------------------------------------
-// The CoreUI switch widgets, drawn here in Core Graphics.
-//
-// Each of the five is a widget in its own right: it is handed a rect and draws its own part of a
-// switch inside it, sized from that rect alone. kCUIWidgetSwitchFillMask is the capsule a caller
-// clips the track to, kCUIWidgetSwitchFill and kCUIWidgetSwitchBorder paint that capsule,
-// kCUIWidgetSwitchOnOffLabel adds the shape cues, and kCUIWidgetSwitchKnob draws a knob in whatever
-// rect it is given — sliding that rect along the track is the caller's business, not the widget's.
-//
-// GEOMETRY. Every measurement is a fraction of the rect's short side, so one rect is all a widget
-// needs: the same switch comes out of a rect of any size, the capsule follows the rect's own long
-// axis, and a caller drawing through a rotated CTM gets a rotated switch with nothing said about it.
-// The rect is used as given — a widget knows nothing about the margins its caller chose to leave
-// around it — and the context carries the device scale in its CTM, so the numbers here are points.
-//
-// kCUIValueKey is read as a fraction. WebCore renders each end of an on↔off animation as a whole
-// image and crossfades the pair, so the value it passes is 0 or 1; a value between the two ends
-// interpolates the fill and crossfades the labels.
-//
-// The palette is 10.9's: the accent is -alternateSelectedControlColor, the same colour -wk_tintColor
-// above hands out, and it steps down to -secondarySelectedControlColor — 10.9's inactive-selection
-// grey — for kCUIPresentationStateInactive. These are semantic colours that convert to sRGB cleanly,
-// which the catalog colours (-controlColor, -windowBackgroundColor) do not.
-
-// Supplied by constants.m, which is where this layer defines the CFStringRefs 10.9's CoreUI omits.
-extern const CFStringRef kCUIWidgetSwitchFill;
-extern const CFStringRef kCUIWidgetSwitchFillMask;
-extern const CFStringRef kCUIWidgetSwitchBorder;
-extern const CFStringRef kCUIWidgetSwitchKnob;
-extern const CFStringRef kCUIWidgetSwitchOnOffLabel;
-
-// The option keys, and the option values 10.9 does have, read out of CoreUI rather than spelled out
-// here, so this looks the dictionary up by the very strings WebCore keyed it with.
-typedef enum {
-    WKCoreUIWidgetKey, WKCoreUIStateKey, WKCoreUIValueKey,
-    WKCoreUIPresentationStateKey, WKCoreUIDirectionKey, WKCoreUIIsFlippedKey,
-    WKCoreUIStateDisabled, WKCoreUIStatePressed, WKCoreUIPresentationStateInactive,
-    WKCoreUIDirectionRightToLeft,
-    WKCoreUINameCount
-} WKCoreUIName;
-
-static NSString *wkCoreUIName(WKCoreUIName which)
+// kCUIIsFlippedKey, resolved from CoreUI itself so the option dictionary is keyed by the very string
+// CoreUI uses. It is the one CoreUI option this layer supplies; every widget key WebCore passes names a
+// real 10.9 CoreUI widget that the real -_drawInRect: below draws. (The switch — the one control family
+// 10.9's CoreUI has never heard of — is disabled at the WebCore layer on this port and renders as the
+// checkbox it is, so no switch key ever reaches here.)
+static NSString *wkCoreUIIsFlippedKey(void)
 {
-    static const char * const symbols[WKCoreUINameCount] = {
-        "kCUIWidgetKey", "kCUIStateKey", "kCUIValueKey",
-        "kCUIPresentationStateKey", "kCUIUserInterfaceLayoutDirectionKey", "kCUIIsFlippedKey",
-        "kCUIStateDisabled", "kCUIStatePressed", "kCUIPresentationStateInactive",
-        "kCUIUserInterfaceLayoutDirectionRightToLeft",
-    };
-    static void *cache[WKCoreUINameCount];
+    static void *cache;
     CFStringRef *slot = (CFStringRef *)wk_polyfill_system_symbol(
-        "/System/Library/PrivateFrameworks/CoreUI.framework/CoreUI", symbols[which], &cache[which]);
+        "/System/Library/PrivateFrameworks/CoreUI.framework/CoreUI", "kCUIIsFlippedKey", &cache);
     return slot ? (__bridge NSString *)*slot : nil;
-}
-
-static id wkCoreUIOption(NSDictionary *options, WKCoreUIName key)
-{
-    NSString *name = wkCoreUIName(key);
-    return name ? [options objectForKey:name] : nil;
-}
-
-static BOOL wkCoreUIOptionIs(NSDictionary *options, WKCoreUIName key, WKCoreUIName value)
-{
-    id option = wkCoreUIOption(options, key);
-    NSString *name = wkCoreUIName(value);
-    return name && [option isKindOfClass:[NSString class]] && [(NSString *)option isEqualToString:name];
-}
-
-// The switch is drawn a sixteenth of the rect's short side inside it, all round: the room the
-// capsule's border stroke and the knob's shadow need to land whole instead of against the rect's own
-// edge. Every widget in the family takes the same margin, so a knob rect and a track rect of the same
-// height stay concentric whatever size the caller works at.
-static CGRect wkSwitchContentRect(CGRect rect)
-{
-    CGFloat margin = MIN(CGRectGetWidth(rect), CGRectGetHeight(rect)) / 16.0;
-    return CGRectInset(rect, margin, margin);
-}
-
-// A capsule: semicircular caps at the two ends of the longer axis, so the track and the on label are
-// each rounded along their own length and a square rect — the knob, the off label — comes out a circle.
-static CGPathRef wkSwitchCreateCapsulePath(CGRect rect)
-{
-    CGFloat width = CGRectGetWidth(rect), height = CGRectGetHeight(rect);
-    CGFloat radius = MIN(width, height) / 2.0;
-    CGMutablePathRef path = CGPathCreateMutable();
-    if (width >= height) {
-        CGFloat middle = CGRectGetMidY(rect);
-        CGPathAddArc(path, NULL, CGRectGetMinX(rect) + radius, middle, radius, M_PI_2, 3 * M_PI_2, false);
-        CGPathAddArc(path, NULL, CGRectGetMaxX(rect) - radius, middle, radius, -M_PI_2, M_PI_2, false);
-    } else {
-        CGFloat middle = CGRectGetMidX(rect);
-        CGPathAddArc(path, NULL, middle, CGRectGetMinY(rect) + radius, radius, M_PI, 2 * M_PI, false);
-        CGPathAddArc(path, NULL, middle, CGRectGetMaxY(rect) - radius, radius, 0, M_PI, false);
-    }
-    CGPathCloseSubpath(path);
-    return path;
-}
-
-static CGColorRef wkSwitchCGColor(NSColor *color, CGFloat alpha)
-{
-    NSColor *converted = [color colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-    if (!converted)
-        return NULL;
-    if (alpha < 1.0)
-        converted = [converted colorWithAlphaComponent:[converted alphaComponent] * alpha];
-    return [converted CGColor];
-}
-
-static NSColor *wkSwitchBlend(NSColor *from, NSColor *to, CGFloat fraction)
-{
-    NSColor *start = [from colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-    NSColor *end = [to colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-    return (start && end) ? [start blendedColorWithFraction:fraction ofColor:end] : from;
-}
-
-static void wkSwitchFillPath(CGContextRef context, CGPathRef path, NSColor *color, CGFloat alpha)
-{
-    CGColorRef fillColor = wkSwitchCGColor(color, alpha);
-    if (!fillColor)
-        return;
-    CGContextSetFillColorWithColor(context, fillColor);
-    CGContextAddPath(context, path);
-    CGContextFillPath(context);
-}
-
-static void wkSwitchStrokePath(CGContextRef context, CGPathRef path, NSColor *color, CGFloat alpha, CGFloat lineWidth)
-{
-    CGColorRef strokeColor = wkSwitchCGColor(color, alpha);
-    if (!strokeColor)
-        return;
-    CGContextSetStrokeColorWithColor(context, strokeColor);
-    CGContextSetLineWidth(context, lineWidth);
-    CGContextAddPath(context, path);
-    CGContextStrokePath(context);
-}
-
-// Defined below next to wk__drawInRect, which is its other caller; the switch gloss needs it too.
-static BOOL wkContextYGrowsDown(CGContextRef context);
-
-// A top-to-bottom gradient clipped to a path. "Top" is the switch's visual top edge whichever way up
-// the caller's context is, so the gloss always reads as lit from above — the same base-space reasoning
-// the knob shadow uses.
-static void wkSwitchFillGradient(CGContextRef context, CGPathRef path, CGRect bounds,
-    NSColor *topColor, NSColor *bottomColor, CGFloat alpha)
-{
-    CGColorRef top = wkSwitchCGColor(topColor, alpha);
-    CGColorRef bottom = wkSwitchCGColor(bottomColor, alpha);
-    if (!top || !bottom)
-        return;
-    CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-    const void *colorValues[2] = { top, bottom };
-    CFArrayRef colors = CFArrayCreate(NULL, colorValues, 2, &kCFTypeArrayCallBacks);
-    CGFloat locations[2] = { 0.0, 1.0 };
-    CGGradientRef gradient = colors ? CGGradientCreateWithColors(space, colors, locations) : NULL;
-    if (colors)
-        CFRelease(colors);
-    CGColorSpaceRelease(space);
-    if (!gradient)
-        return;
-
-    BOOL down = wkContextYGrowsDown(context);
-    CGFloat midX = CGRectGetMidX(bounds);
-    CGPoint start = CGPointMake(midX, down ? CGRectGetMinY(bounds) : CGRectGetMaxY(bounds));
-    CGPoint end = CGPointMake(midX, down ? CGRectGetMaxY(bounds) : CGRectGetMinY(bounds));
-
-    CGContextSaveGState(context);
-    CGContextAddPath(context, path);
-    CGContextClip(context);
-    CGContextDrawLinearGradient(context, gradient, start, end, 0);
-    CGContextRestoreGState(context);
-    CGGradientRelease(gradient);
-}
-
-// A glossy sheen over the top half of a capsule: white grading to clear, clipped so it hugs the top
-// edge. This is the highlight that reads as a curved, lit surface at the small sizes a switch draws at.
-static void wkSwitchAddSheen(CGContextRef context, CGRect bounds, CGFloat alpha)
-{
-    BOOL down = wkContextYGrowsDown(context);
-    CGFloat height = CGRectGetHeight(bounds);
-    CGFloat topY = down ? CGRectGetMinY(bounds) : CGRectGetMaxY(bounds);
-    CGFloat sheenBottom = down ? topY + height * 0.55 : topY - height * 0.55;
-    CGRect sheenRect = CGRectMake(CGRectGetMinX(bounds), MIN(topY, sheenBottom),
-        CGRectGetWidth(bounds), height * 0.55);
-    CGPathRef sheen = wkSwitchCreateCapsulePath(CGRectInset(sheenRect, height * 0.08, 0));
-    wkSwitchFillGradient(context, sheen, sheenRect,
-        [[NSColor whiteColor] colorWithAlphaComponent:0.45],
-        [[NSColor whiteColor] colorWithAlphaComponent:0.0], alpha);
-    CGPathRelease(sheen);
-}
-
-// kCUIStateDisabled draws the whole switch at half contrast, which is what an unavailable control
-// looks like on this OS.
-static CGFloat wkSwitchAlpha(NSDictionary *options)
-{
-    return wkCoreUIOptionIs(options, WKCoreUIStateKey, WKCoreUIStateDisabled) ? 0.5 : 1.0;
-}
-
-static CGFloat wkSwitchValue(NSDictionary *options)
-{
-    id value = wkCoreUIOption(options, WKCoreUIValueKey);
-    if (![value isKindOfClass:[NSNumber class]])
-        return 0.0;
-    return MAX(0.0, MIN(1.0, [(NSNumber *)value doubleValue]));
-}
-
-// The mask the caller clips the whole track to: opaque inside the capsule, empty outside.
-static void wkDrawSwitchFillMask(CGRect rect, CGContextRef context, NSDictionary *options)
-{
-    (void)options;
-    CGPathRef path = wkSwitchCreateCapsulePath(wkSwitchContentRect(rect));
-    wkSwitchFillPath(context, path, [NSColor whiteColor], 1.0);
-    CGPathRelease(path);
-}
-
-static void wkDrawSwitchFill(CGRect rect, CGContextRef context, NSDictionary *options)
-{
-    NSColor *offColor = [NSColor controlHighlightColor];
-    NSColor *onColor = wkCoreUIOptionIs(options, WKCoreUIPresentationStateKey, WKCoreUIPresentationStateInactive)
-        ? [NSColor secondarySelectedControlColor] : [NSColor alternateSelectedControlColor];
-    NSColor *base = wkSwitchBlend(offColor, onColor, wkSwitchValue(options));
-    if (wkCoreUIOptionIs(options, WKCoreUIStateKey, WKCoreUIStatePressed))
-        base = wkSwitchBlend(base, [NSColor controlShadowColor], 0.15);
-
-    CGFloat alpha = wkSwitchAlpha(options);
-    CGRect content = wkSwitchContentRect(rect);
-    CGPathRef path = wkSwitchCreateCapsulePath(content);
-
-    // A glossy convex capsule, lit from above: the fill lightens toward the top edge and deepens toward
-    // the bottom, and a white sheen rides the top half — the era's toggle look.
-    NSColor *top = wkSwitchBlend(base, [NSColor whiteColor], 0.24);
-    NSColor *bottom = wkSwitchBlend(base, [NSColor blackColor], 0.10);
-    wkSwitchFillGradient(context, path, content, top, bottom, alpha);
-    wkSwitchAddSheen(context, content, alpha);
-    CGPathRelease(path);
-}
-
-// The border carries neither state nor value, so it is the one hairline both ends of the switch share.
-// It sits half a point inside the capsule, which keeps the whole stroke inside the fill mask.
-static void wkDrawSwitchBorder(CGRect rect, CGContextRef context, NSDictionary *options)
-{
-    (void)options;
-    CGRect content = CGRectInset(wkSwitchContentRect(rect), 0.5, 0.5);
-    if (CGRectIsEmpty(content))
-        return;
-    CGPathRef path = wkSwitchCreateCapsulePath(content);
-    wkSwitchStrokePath(context, path, [NSColor controlShadowColor], 0.5, 1.0);
-    CGPathRelease(path);
-}
-
-// The shape cues for people who ask not to be told things by colour alone: a bar for on, a ring for
-// off. Each sits in the end cap the knob leaves free — the knob is at the trailing end when the switch
-// is on, so the bar takes the leading end and the ring the trailing one, both following the layout
-// direction.
-static void wkDrawSwitchOnOffLabel(CGRect rect, CGContextRef context, NSDictionary *options)
-{
-    CGRect content = wkSwitchContentRect(rect);
-    if (CGRectIsEmpty(content))
-        return;
-
-    CGFloat value = wkSwitchValue(options);
-    CGFloat alpha = wkSwitchAlpha(options);
-    BOOL isRTL = wkCoreUIOptionIs(options, WKCoreUIDirectionKey, WKCoreUIDirectionRightToLeft);
-    CGFloat height = CGRectGetHeight(content);
-    CGFloat capCenter = height / 2.0;
-    CGFloat leading = isRTL ? CGRectGetMaxX(content) - capCenter : CGRectGetMinX(content) + capCenter;
-    CGFloat trailing = isRTL ? CGRectGetMinX(content) + capCenter : CGRectGetMaxX(content) - capCenter;
-    CGFloat middle = CGRectGetMidY(content);
-
-    if (value > 0.0) {
-        CGFloat barWidth = height / 11.0;
-        CGFloat barHeight = height * 0.42;
-        CGPathRef path = wkSwitchCreateCapsulePath(CGRectMake(leading - barWidth / 2.0,
-            middle - barHeight / 2.0, barWidth, barHeight));
-        wkSwitchFillPath(context, path, [NSColor controlBackgroundColor], alpha * value);
-        CGPathRelease(path);
-    }
-    if (value < 1.0) {
-        CGFloat radius = height * 0.19;
-        CGPathRef path = wkSwitchCreateCapsulePath(CGRectMake(trailing - radius, middle - radius,
-            radius * 2.0, radius * 2.0));
-        wkSwitchStrokePath(context, path, [NSColor controlShadowColor], alpha * (1.0 - value), height / 12.0);
-        CGPathRelease(path);
-    }
-}
-
-// Core Graphics measures a shadow's offset and blur in the context's BASE space: measured on 10.9.5, a
-// dy of -6 reaches exactly 6 device pixels towards the image's bottom row at every CTM scale and in
-// either orientation, so neither number is transformed. Everything else here is in points because the
-// CTM carries the device scale — the number kCUIScaleKey also carries — so this is the one place that
-// scale has to be applied by hand, and the drop is negative whichever way up the caller is, because
-// base space always grows upwards.
-static void wkSwitchSetKnobShadow(CGContextRef context, CGFloat diameter, CGFloat alpha)
-{
-    CGColorRef shadowColor = wkSwitchCGColor([NSColor blackColor], 0.25 * alpha);
-    if (!shadowColor)
-        return;
-    CGAffineTransform ctm = CGContextGetCTM(context);
-    CGFloat scale = hypot(ctm.a, ctm.b);
-    CGContextSetShadowWithColor(context, CGSizeMake(0, -diameter * scale / 30.0),
-        diameter * scale / 14.0, shadowColor);
-}
-
-// A white disc set a twentieth of its rect's short side further in, so it rides inside the track's
-// capsule rather than flush against it, under a soft shadow. Its position along the track — including
-// the right-to-left mirroring and every frame of the on↔off animation — is already in the rect.
-static void wkDrawSwitchKnob(CGRect rect, CGContextRef context, NSDictionary *options)
-{
-    CGRect content = wkSwitchContentRect(rect);
-    CGFloat inset = MIN(CGRectGetWidth(content), CGRectGetHeight(content)) / 20.0;
-    CGRect knob = CGRectInset(content, inset, inset);
-    if (CGRectIsEmpty(knob))
-        return;
-
-    CGFloat alpha = wkSwitchAlpha(options);
-    BOOL pressed = wkCoreUIOptionIs(options, WKCoreUIStateKey, WKCoreUIStatePressed);
-    CGPathRef path = wkSwitchCreateCapsulePath(knob);
-
-    // An opaque disc under a soft drop shadow, so the knob sits above the track.
-    CGContextSaveGState(context);
-    wkSwitchSetKnobShadow(context, CGRectGetHeight(knob), alpha);
-    wkSwitchFillPath(context, path, [NSColor whiteColor], alpha);
-    CGContextRestoreGState(context);
-
-    // A glossy white face: near-white at the top grading to a light grey at the bottom, dimmed a touch
-    // while pressed.
-    NSColor *top = pressed ? wkSwitchBlend([NSColor whiteColor], [NSColor controlShadowColor], 0.12) : [NSColor whiteColor];
-    NSColor *bottom = wkSwitchBlend([NSColor whiteColor], [NSColor controlShadowColor], pressed ? 0.30 : 0.16);
-    wkSwitchFillGradient(context, path, knob, top, bottom, alpha);
-
-    // A hairline rim so the white knob reads against a light track.
-    CGPathRef rim = wkSwitchCreateCapsulePath(CGRectInset(knob, 0.5, 0.5));
-    wkSwitchStrokePath(context, rim, [NSColor controlShadowColor], alpha * 0.6, 1.0);
-    CGPathRelease(rim);
-    CGPathRelease(path);
-}
-
-// YES once the widget key names one of the five, so the caller knows to stop.
-static BOOL wkDrawSwitchWidget(CGRect rect, CGContextRef context, NSDictionary *options)
-{
-    if (!context)
-        return NO;
-    id widget = wkCoreUIOption(options, WKCoreUIWidgetKey);
-    if (![widget isKindOfClass:[NSString class]])
-        return NO;
-
-    void (*draw)(CGRect, CGContextRef, NSDictionary *) = NULL;
-    if ([(NSString *)widget isEqualToString:(__bridge NSString *)kCUIWidgetSwitchFillMask])
-        draw = wkDrawSwitchFillMask;
-    else if ([(NSString *)widget isEqualToString:(__bridge NSString *)kCUIWidgetSwitchFill])
-        draw = wkDrawSwitchFill;
-    else if ([(NSString *)widget isEqualToString:(__bridge NSString *)kCUIWidgetSwitchBorder])
-        draw = wkDrawSwitchBorder;
-    else if ([(NSString *)widget isEqualToString:(__bridge NSString *)kCUIWidgetSwitchOnOffLabel])
-        draw = wkDrawSwitchOnOffLabel;
-    else if ([(NSString *)widget isEqualToString:(__bridge NSString *)kCUIWidgetSwitchKnob])
-        draw = wkDrawSwitchKnob;
-    if (!draw)
-        return NO;
-
-    CGContextSaveGState(context);
-    draw(rect, context, options);
-    CGContextRestoreGState(context);
-    return YES;
 }
 
 // A negative determinant means the caller's context puts the origin at the top left and grows y
@@ -658,8 +309,9 @@ static BOOL wkContextYGrowsDown(CGContextRef context)
 }
 - (NSColor *)wk_tintColor { return [NSColor alternateSelectedControlColor]; } // 10.9 accent
 // 10.9's name for the same CoreUI draw. The view argument only supplies a backing-scale/geometry context
-// the callers here do not have either (they pass a bare CGContext), so nil is the faithful mapping.
-// The switch widgets are drawn above, since this CoreUI has no such widget; every other key is CoreUI's.
+// the callers here do not have either (they pass a bare CGContext), so nil is the faithful mapping. Every
+// widget key WebCore passes is one this CoreUI knows (the switch is disabled at the WebCore layer, so it
+// never reaches here — see the section note above).
 //
 // ORIENTATION. kCUIIsFlippedKey is how CoreUI is told which way up the destination runs, and it composes
 // with the CTM exactly: measured on 10.9.5, a y-down context drawing kCUIWidgetProgressBar with
@@ -670,9 +322,7 @@ static BOOL wkContextYGrowsDown(CGContextRef context)
 // passes NO, and overriding either would mirror a widget CoreUI has already landed correctly.
 - (void)wk__drawInRect:(NSRect)rect context:(CGContextRef)context options:(NSDictionary *)options
 {
-    if (wkDrawSwitchWidget(rect, context, options))
-        return;
-    NSString *isFlippedKey = wkCoreUIName(WKCoreUIIsFlippedKey);
+    NSString *isFlippedKey = wkCoreUIIsFlippedKey();
     if (context && isFlippedKey && ![options objectForKey:isFlippedKey]) {
         NSMutableDictionary *oriented = [options mutableCopy] ?: [NSMutableDictionary dictionary];
         oriented[isFlippedKey] = @(wkContextYGrowsDown(context));
