@@ -27,9 +27,11 @@
 // in the same process: many 10.9-era apps polyfill these very classes themselves (e.g. Meta creates
 // its own NSVisualEffectView via objc_allocateClassPair); without the private name our stub occupied
 // the global name and objc_allocateClassPair returned nil -> objc_registerClassPair(nil) crashed the
-// app at launch. For the three classes WebKit probes with NSClassFromString (NSVisualEffectView,
-// CABackdropLayer, _NSScrollingMomentumCalculator) the nil result is the correct 10.9 answer: WebKit
-// falls back to its pre-class code path instead of using a non-functional stub.
+// app at launch. For the two classes WebKit probes with NSClassFromString (NSVisualEffectView,
+// _NSScrollingMomentumCalculator) the nil result is the correct 10.9 answer: WebKit falls back to its
+// pre-class code path instead of using a non-functional stub. Every other stub (UTType, CABackdropLayer,
+// NSPresentationIntent, ...) is reached through a compile-time [Name class] / _OBJC_CLASS_$_ classref,
+// which binds to the alias, so those ARE used.
 
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
@@ -66,8 +68,18 @@
 WK_PRIV_CLASS(LSDatabaseContext) @interface LSDatabaseContext : NSObject @end
 @implementation LSDatabaseContext @end
 WK_PRIV_ALIAS(LSDatabaseContext);
-WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CALayer @end
-@implementation CABackdropLayer @end
+// CABackdropLayer (absent on 10.9): a CALayer-backed backdrop/blur layer. 10.9 has no backdrop
+// compositing, so this shadow is a plain CALayer subclass — visually identical to a bare CALayer — but a
+// real distinct class, so PlatformCALayerCocoa / RemoteLayerTreeHost keep upstream's [CABackdropLayer class]
+// and the isKindOfClass: / (CABackdropLayer *) casts behave as upstream. -setWindowServerAware: is the one
+// method WebKit sends it (backdrop layers are marked not-window-server-aware); 10.9 has no such concept, so
+// it is a faithful no-op.
+WK_PRIV_CLASS(CABackdropLayer) @interface CABackdropLayer : CALayer
+- (void)setWindowServerAware:(BOOL)aware;
+@end
+@implementation CABackdropLayer
+- (void)setWindowServerAware:(BOOL)aware { (void)aware; }
+@end
 WK_PRIV_ALIAS(CABackdropLayer);
 WK_PRIV_CLASS(CAPresentationModifier) @interface CAPresentationModifier : NSObject @end
 @implementation CAPresentationModifier @end

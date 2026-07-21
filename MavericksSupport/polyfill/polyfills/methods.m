@@ -1064,19 +1064,33 @@ WK_POLYFILL_SEL("valueForHTTPHeaderField:", "wk_valueForHTTPHeaderField:");
 // (ScrollerMac/ScrollbarThemeMac/ScrollbarsControllerMac/PopupMenu) is faithful, defaulting to
 // LeftToRight when unset. (Vertical-scrollbar-on-left is positioned by WebCore geometry independently.)
 // NSScrollerImp is SPI (absent from public AppKit headers), so declare it here.
-@interface NSScrollerImp : NSObject @end
+@interface NSScrollerImp : NSObject
+- (CALayer *)layer;   // real 10.9 NSScrollerImp accessor (the layer WebKit assigns it via -setLayer:)
+@end
 static const void *const wk_uildScrollerKey = &wk_uildScrollerKey;
 static const void *const wk_uildMenuKey = &wk_uildMenuKey;
 @interface NSScrollerImp (WKPolyfillScope)
 - (void)wk_setUserInterfaceLayoutDirection:(NSInteger)direction;
 - (NSInteger)wk_userInterfaceLayoutDirection;
+// -[NSScrollerImp setNeedsDisplay:] (a later-macOS addition). On 10.9 the scroller imp WebKit uses (e.g.
+// NSRegularOverlayScrollerImp) does not respond to it, so an unconditional send would raise
+// doesNotRecognizeSelector (ScrollbarsControllerMac::invalidateScrollbarPartLayers and
+// ScrollerMac::setNeedsDisplay both send it; the latter killed WebContent in a loop on Slack's dark
+// theme). The modern method marks the imp's backing for redraw; on 10.9 the imp draws into the layer
+// WebKit assigns it (-[NSScrollerImp setLayer:], present here), so marking THAT layer dirty is the
+// faithful 10.9 equivalent — exactly what ScrollerMac's fallback did by hand. -layer is nil in the WK1
+// path (no imp layer set), where [nil setNeedsDisplay] is a harmless no-op and the repaint comes from
+// ScrollbarThemeMac::paint. (GAP_FILL: if a 10.9.x NSScrollerImp has the method, the patcher forwards.)
+- (void)wk_setNeedsDisplay:(BOOL)flag;
 @end
 @implementation NSScrollerImp (WKPolyfillScope)
 - (void)wk_setUserInterfaceLayoutDirection:(NSInteger)direction
 { objc_setAssociatedObject(self, wk_uildScrollerKey, @(direction), OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
 - (NSInteger)wk_userInterfaceLayoutDirection
 { NSNumber *v = objc_getAssociatedObject(self, wk_uildScrollerKey); return v ? [v integerValue] : NSUserInterfaceLayoutDirectionLeftToRight; }
+- (void)wk_setNeedsDisplay:(BOOL)flag { if (flag) [[self layer] setNeedsDisplay]; }
 @end
+WK_POLYFILL_SEL("setNeedsDisplay:", "wk_setNeedsDisplay:");
 @interface NSMenu (WKPolyfillScopeUILD)
 - (void)wk_setUserInterfaceLayoutDirection:(NSInteger)direction;
 - (NSInteger)wk_userInterfaceLayoutDirection;
@@ -1228,8 +1242,20 @@ enum { wkNoTransaction = 0, wkImplicitTransaction = 1 };
 
 @interface CALayer (WKPolyfillScope)
 - (CALayer *)wk_presentationLayer;
+// -[CALayer setCornerCurve:] (10.13+, a CACornerCurve) and -[CALayer setContentsFormat:] (10.12+, a
+// CAContentsFormat NSString). 10.9's CALayer has neither. Corners on 10.9 are always the classic circular
+// curve, which is exactly the value PlatformCALayerCocoa requests (kCACornerCurveCircular, supplied in
+// constants.m), so honoring the curve is a no-op. The contents format selects a layer's backing pixel
+// format (wide-gamut / 16-bit); 10.9's compositor has only the fixed sRGB 8-bit backing, so there is
+// nothing to opt into and the set is a no-op. (Per-class GAP_FILLs: WebKit's own WebTiledBackingLayer
+// -setContentsFormat:(ContentsFormat) keeps its real method via the patcher's class-correct aliasing;
+// only a plain CALayer, which lacks the selector on 10.9, gets this body.)
+- (void)wk_setCornerCurve:(NSString *)curve;
+- (void)wk_setContentsFormat:(NSString *)format;
 @end
 @implementation CALayer (WKPolyfillScope)
+- (void)wk_setCornerCurve:(NSString *)curve { (void)curve; }
+- (void)wk_setContentsFormat:(NSString *)format { (void)format; }
 - (CALayer *)wk_presentationLayer
 {
     // sel_registerName rather than @selector: this file is compiled into WebCore, whose __objc_selrefs
@@ -1255,6 +1281,8 @@ enum { wkNoTransaction = 0, wkImplicitTransaction = 1 };
 @end
 // 10.9 HAS -presentationLayer and it answers correctly; what it leaves behind is the transaction above.
 WK_POLYFILL_SEL_REPLACES("presentationLayer", "wk_presentationLayer");
+WK_POLYFILL_SEL("setCornerCurve:", "wk_setCornerCurve:");
+WK_POLYFILL_SEL("setContentsFormat:", "wk_setContentsFormat:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSPopover showRelativeToRect:ofView:preferredEdge:] and the anchor window's first responder.

@@ -208,8 +208,7 @@ static NSString *NODELETE toCAFilterType(PlatformCALayer::FilterType type)
 
 PlatformCALayer::LayerType PlatformCALayerCocoa::layerTypeForPlatformLayer(PlatformLayer* layer)
 {
-    // MAVERICKS_BACKPORT: resolve AVPlayerLayer via NSClassFromString (PAL soft-link helpers not set up on 10.9).
-    if (NSClassFromString(@"AVPlayerLayer") && [layer isKindOfClass:NSClassFromString(@"AVPlayerLayer")])
+    if (PAL::isAVFoundationFrameworkAvailable() && [layer isKindOfClass:PAL::getAVPlayerLayerClassSingleton()])
         return LayerType::LayerTypeAVPlayerLayer;
 
     if ([layer isKindOfClass:WebVideoContainerLayer.class]
@@ -243,8 +242,7 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
         layerClass = [CATransformLayer class];
         break;
     case LayerType::LayerTypeBackdropLayer:
-        // MAVERICKS_BACKPORT: CABackdropLayer may be absent on 10.9; fall back to plain CALayer.
-        layerClass = NSClassFromString(@"CABackdropLayer") ?: [CALayer class];
+        layerClass = [CABackdropLayer class];
         break;
 #if HAVE(CORE_MATERIAL)
     case LayerType::LayerTypeMaterialLayer:
@@ -261,8 +259,8 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
         layerClass = [WebTiledBackingLayer class];
         break;
     case LayerType::LayerTypeAVPlayerLayer:
-        // MAVERICKS_BACKPORT: AVPlayer support deferred
-        layerClass = [CALayer class];
+        if (PAL::isAVFoundationFrameworkAvailable())
+            layerClass = PAL::getAVPlayerLayerClassSingleton();
         break;
 #if ENABLE(MODEL_ELEMENT)
     case LayerType::LayerTypeModelLayer:
@@ -294,9 +292,7 @@ PlatformCALayerCocoa::PlatformCALayerCocoa(LayerType layerType, PlatformCALayerC
     isBackdropLayer |= layerType == LayerType::LayerTypeMaterialLayer;
 #endif
     if (isBackdropLayer)
-        // MAVERICKS_BACKPORT: guard setWindowServerAware: with respondsToSelector (backdrop layer may be a plain CALayer on 10.9).
-        if ([m_layer.get() respondsToSelector:@selector(setWindowServerAware:)])
-            [(id)m_layer.get() setWindowServerAware:NO];
+        [(CABackdropLayer *)m_layer.get() setWindowServerAware:NO];
 #endif
 
     commonInit();
@@ -1003,7 +999,8 @@ void PlatformCALayerCocoa::setCornerRadius(float value)
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [m_layer setCornerRadius:value];
-    // MAVERICKS_BACKPORT: kCACornerCurveCircular is 10.13+; skip
+    if (value)
+        [m_layer setCornerCurve:kCACornerCurveCircular];
     END_BLOCK_OBJC_EXCEPTIONS
 }
 
@@ -1196,9 +1193,9 @@ void PlatformCALayerCocoa::updateContentsFormat()
     if (m_layerType == PlatformCALayer::LayerType::LayerTypeWebLayer || m_layerType == PlatformCALayer::LayerType::LayerTypeTiledBackingTileLayer) {
         BEGIN_BLOCK_OBJC_EXCEPTIONS
         auto contentsFormat = this->contentsFormat();
-        (void)contentsFormat;
-        // MAVERICKS_BACKPORT: WebTiledBackingLayer's setContentsFormat takes ContentsFormat,
-        // but CALayer's takes NSString. The branches got tangled; skip this set on 10.9.
+
+        if (RetainPtr formatString = contentsFormatString(contentsFormat))
+            [m_layer setContentsFormat:formatString.get()];
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
         if (contentsFormat == ContentsFormat::RGBA16F) {
             ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -1378,7 +1375,19 @@ unsigned PlatformCALayerCocoa::backingStoreBytesPerPixel() const
 
 AVPlayerLayer *PlatformCALayerCocoa::avPlayerLayer() const
 {
-    // MAVERICKS_BACKPORT: stubbed out
+    if (!PAL::isAVFoundationFrameworkAvailable())
+        return nil;
+
+    if (layerType() != PlatformCALayer::LayerType::LayerTypeAVPlayerLayer)
+        return nil;
+
+    if ([platformLayer() isKindOfClass:PAL::getAVPlayerLayerClassSingleton()])
+        return static_cast<AVPlayerLayer *>(platformLayer());
+
+    if (RetainPtr layer = dynamic_objc_cast<WebVideoContainerLayer>(platformLayer()))
+        return layer.get().playerLayer;
+
+    ASSERT_NOT_REACHED();
     return nil;
 }
 

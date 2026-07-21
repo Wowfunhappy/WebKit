@@ -27,17 +27,35 @@ export CCACHE_SLOPPINESS="include_file_mtime,include_file_ctime,time_macros,pch_
 # incremental builds skip it entirely. A deliberate `-D<OPT>=` override is re-derived from the source
 # default too; for this port the feature config lives in Options*.cmake, not in ad-hoc -D flags.
 CACHE_FILE="$BUILD/CMakeCache.txt"
+# Gate on the option files' CONTENT, not their mtime. The old test (`Options*.cmake -nt CMakeCache.txt`)
+# fired a full `cmake -U <~200 opts> $BUILD` reconfigure (~1-3 min, plus it regenerates the 48 MB
+# build.ninja) whenever an option file's mtime was merely bumped — which, in this repo's revert-heavy
+# git workflow, happens constantly WITHOUT any net content change (git checkout / revert / stash all
+# rewrite files to `now`; so does re-saving in an editor). That is a pure waste: the re-derived option
+# values are byte-identical, so the reconfigure changes nothing. Hashing the option files instead makes
+# the re-derive fire exactly when their bytes change, and never on a spurious touch. Marking on CONTENT
+# is also strictly more correct than mtime: it can't be fooled by clock skew or an out-of-order touch.
+OPT_HASH_FILE="$BUILD/.wk-option-defaults.sha256"
 if [ -f "$CACHE_FILE" ]; then
-    _opt_changed=""
-    for _f in "$ROOT"/Source/cmake/Options*.cmake "$ROOT"/Source/cmake/WebKitFeatures.cmake; do
-        [ -f "$_f" ] && [ "$_f" -nt "$CACHE_FILE" ] && _opt_changed=1
-    done
-    if [ -n "$_opt_changed" ]; then
+    # Hash the per-file digests (captures both the file set and every file's contents).
+    _opt_files=$(ls "$ROOT"/Source/cmake/Options*.cmake "$ROOT"/Source/cmake/WebKitFeatures.cmake 2>/dev/null | sort)
+    _opt_hash=$(shasum -a 256 $_opt_files 2>/dev/null | shasum -a 256 | awk '{print $1}')
+    _fire=""
+    if [ -f "$OPT_HASH_FILE" ]; then
+        # Steady state: fire only when the option files' CONTENT differs from what we last re-derived.
+        [ "$_opt_hash" != "$(cat "$OPT_HASH_FILE" 2>/dev/null)" ] && _fire=1
+    else
+        # Transition build (no marker yet): fall back to the original mtime test so behaviour is
+        # byte-identical this once (fires iff an option file is newer than CMakeCache — which a normal
+        # incremental build is NOT), then seed the marker below. Avoids a spurious one-time reconfigure.
+        for _f in $_opt_files; do [ "$_f" -nt "$CACHE_FILE" ] && _fire=1; done
+    fi
+    if [ -n "$_fire" ]; then
         _names=$(grep -rhoE 'WEBKIT_OPTION_(DEFINE|DEFAULT_PORT_VALUE)\([[:space:]]*[A-Z0-9_]+' \
             "$ROOT"/Source/cmake/WebKitFeatures.cmake "$ROOT"/Source/cmake/Options*.cmake 2>/dev/null \
             | grep -oE '[A-Z0-9_]+$' | sort -u)
         if [ -n "$_names" ]; then
-            echo "### option file changed -> re-deriving $(echo $_names | wc -w | tr -d ' ') feature options from port defaults"
+            echo "### option file content changed -> re-deriving $(echo $_names | wc -w | tr -d ' ') feature options from port defaults"
             # `cmake -U` unsets each option's cache entry (value AND its //helpstring) so the next
             # configure re-applies the WEBKIT_OPTION_DEFAULT_PORT_VALUE default; everything else in the
             # cache (toolchain, generator, paths) is preserved, so no configure flags need re-passing.
@@ -48,6 +66,12 @@ if [ -f "$CACHE_FILE" ]; then
                 tail -20 "$LOG"; exit 1
             fi
         fi
+    fi
+    # Persist the content hash so the next build compares against it. Reached only on success (a failed
+    # reconfigure exits above, so it retries next time). Also seeds the marker on the first post-fix
+    # build. Guarded so we write at most once per actual content change, never on a plain rebuild.
+    if [ "$_opt_hash" != "$(cat "$OPT_HASH_FILE" 2>/dev/null)" ]; then
+        echo "$_opt_hash" > "$OPT_HASH_FILE"
     fi
 fi
 

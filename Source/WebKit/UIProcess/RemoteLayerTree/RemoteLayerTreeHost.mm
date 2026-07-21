@@ -467,8 +467,7 @@ RefPtr<RemoteLayerTreeNode> RemoteLayerTreeHost::makeNode(const RemoteLayerTreeT
         return makeWithLayer(adoptNS([[CATransformLayer alloc] init]));
 
     case PlatformCALayer::LayerType::LayerTypeBackdropLayer:
-        // MAVERICKS_BACKPORT: CABackdropLayer may be unavailable on 10.9; look it up by name and fall back to a plain CALayer.
-        return makeWithLayer(adoptNS([(NSClassFromString(@"CABackdropLayer") ?: [CALayer class]) new]));
+        return makeWithLayer(adoptNS([[CABackdropLayer alloc] init]));
 
 #if HAVE(CORE_MATERIAL)
     case PlatformCALayer::LayerType::LayerTypeMaterialLayer:

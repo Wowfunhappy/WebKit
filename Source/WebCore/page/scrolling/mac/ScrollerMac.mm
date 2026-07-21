@@ -518,15 +518,7 @@ void ScrollerMac::setNeedsDisplay()
 {
     Locker locker { m_scrollerImpLock };
 
-    // MAVERICKS_BACKPORT: -[NSScrollerImp setNeedsDisplay:] doesn't exist on 10.9. Unguarded,
-    // the unrecognized selector raised an uncaught NSException that killed WebContent in a loop
-    // on any page toggling scrollbar appearance (Slack's dark theme hit it via
-    // ScrollerPairMac::setUseDarkAppearance). The imp draws into m_hostLayer ([m_scrollerImp
-    // setLayer:]), so marking that layer dirty is the 10.9 equivalent.
-    if ([m_scrollerImp respondsToSelector:@selector(setNeedsDisplay:)])
-        [m_scrollerImp setNeedsDisplay:YES];
-    else
-        [m_hostLayer setNeedsDisplay];
+    [m_scrollerImp setNeedsDisplay:YES];
 }
 
 void ScrollerMac::scrollbarColorChanged(const std::optional<ScrollbarColor>& scrollbarColor)

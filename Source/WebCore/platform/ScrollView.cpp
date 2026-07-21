@@ -495,28 +495,16 @@ void ScrollView::scrollTo(const ScrollPosition& newPosition)
 {
     LOG_WITH_STREAM(Scrolling, stream << "ScrollView::scrollTo " << newPosition << " min: " << minimumScrollPosition() << " max: " << maximumScrollPosition());
 
-    // MAVERICKS_BACKPORT: callers (wheel-event paths via the synchronous scroll
-    // fallback) don't always clamp before reaching here. Without clamping,
-    // m_scrollPosition can exceed maximumScrollPosition and our visual-scroll
-    // fix in frameViewDidScroll → updateScrollLayerPosition translates the
-    // contents layer past the bottom of the page, leaving white. Clamp here.
-    ScrollPosition clampedPosition = (scrollClamping() == ScrollClamping::Clamped)
-        ? newPosition.constrainedBetween(minimumScrollPosition(), maximumScrollPosition())
-        : newPosition;
-    IntSize scrollDelta = clampedPosition - m_scrollPosition;
+    IntSize scrollDelta = newPosition - m_scrollPosition;
     if (scrollDelta.isZero())
         return;
 
     if (platformWidget()) {
-        // MAVERICKS_BACKPORT: push the clamped position to the platform widget so it
-        // matches the clamping applied above.
-        platformSetScrollPosition(clampedPosition);
+        platformSetScrollPosition(newPosition);
         return;
     }
 
-    // MAVERICKS_BACKPORT: store the clamped position so the contents layer never
-    // translates past the page bottom (synchronous-scroll visual-scroll fix).
-    m_scrollPosition = clampedPosition;
+    m_scrollPosition = newPosition;
 
     if (scrollbarsSuppressed())
         return;
