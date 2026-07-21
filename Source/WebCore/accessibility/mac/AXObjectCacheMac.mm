@@ -27,11 +27,14 @@
 #import "AXObjectCache.h"
 
 // MAVERICKS_BACKPORT: restored to upstream from the prior no-op-stub gut. Two on-host (10.9.5) dlsym facts drive the divergences below:
-//   (1) _AXGetClientForCurrentRequestUntrusted() is ABSENT from 10.9 HIServices (a direct extern, NOT soft-linked) — calling it would
-//       dyld-halt WebContent on the spell-check/text-input path (shouldSpellCheck runs on every text insert). So clientIsInTestMode() and
-//       shouldSpellCheck() keep constant-return stub bodies instead of consulting the AX client type.
+//   (1) _AXGetClientForCurrentRequestUntrusted() is ABSENT from 10.9 HIServices (a direct extern, NOT soft-linked) — an unmediated call would
+//       dyld-halt WebContent on the spell-check/text-input path (shouldSpellCheck runs on every text insert). It is now polyfilled in the polyfill
+//       layer (MavericksSupport/.../system-spi.m: WK_POLYFILL_ABSENT returning kAXClientTypeNoActiveRequestFound = 0, the neutral "no active AX
+//       request" answer), so clientIsInTestMode() and shouldSpellCheck() are restored BYTE-UPSTREAM and consult the (polyfilled) extern for real.
 //   (2) The isolated-tree SPI (_AXSIsolatedTreeMode via libAccessibility, _AXUIElement*SecondaryAXThread) is ABSENT on 10.9; ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 //       is 0 on this port, so all isolated-tree-only code (declared #if-gated in AXObjectCache.h) is gated out with the same flag, matching the sibling wrapper.
+//       The one residual constant is shouldSpellCheck()'s final `return true`: upstream returns !isIsolatedTreeEnabled(), which does not compile with the
+//       flag off, and reduces to `true` on any flag-off build — so this is byte-equivalent to upstream, not a masked symptom.
 // AXTextMarker*/NSAccessibilityPostNotificationWithUserInfo/NSAccessibilityHandleFocusChanged were verified PRESENT on 10.9, so those paths are restored verbatim.
 
 #if PLATFORM(MAC)
@@ -756,18 +759,17 @@ void AXObjectCache::platformPerformDeferredCacheUpdate()
     m_deferredUnsortedObjects.clear();
 }
 
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; the stubbed clientIsInTestMode/shouldSpellCheck no longer call this, and its only remaining caller (clientSupportsIsolatedTree) is itself #if-gated
 static bool NODELETE isTestAXClientType(AXClientType client)
 {
     return client == kAXClientTypeWebKitTesting || client == kAXClientTypeXCTest;
 }
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
 
 // FIXME: We should inline this function, otherwise we probably aren't
 // benefiting much from the unlikely annotation.
 bool AXObjectCache::clientIsInTestMode()
 {
-    // MAVERICKS_BACKPORT: upstream calls _AXGetClientForCurrentRequestUntrusted() — ABSENT from 10.9 HIServices (verified via dlsym; a direct extern, not soft-linked, so a reference would dyld-halt WebContent). No WebKitTesting/XCTest AX client exists in the shipping 10.9 browser, so report not-in-test-mode.
+    if (isTestAXClientType(_AXGetClientForCurrentRequestUntrusted())) [[unlikely]]
+        return true;
     return false;
 }
 
@@ -827,10 +829,24 @@ bool AXObjectCache::isAXThreadInitialized()
 
 bool AXObjectCache::shouldSpellCheck()
 {
-    // MAVERICKS_BACKPORT: this runs on EVERY text insert (via TextCheckingHelper), regardless of AX state — the exact path whose prior gut dyld-halted WebContent.
-    // Upstream consults _AXGetClientForCurrentRequestUntrusted() (ABSENT on 10.9 — verified via dlsym) and isIsolatedTreeEnabled() (isolated tree is off on this port).
-    // With no VoiceOver web client (the wrapper's isolated-tree coupling is disabled) and isolated tree unavailable, spell-checking is never deferred: always spell-check.
-    return true;
+    // This method can be called from non-accessibility contexts, so we need to allow spellchecking if accessibility is disabled.
+    if (!accessibilityEnabled())
+        return true;
+
+    if (forceDeferredSpellChecking()) [[unlikely]]
+        return false;
+
+    auto client = _AXGetClientForCurrentRequestUntrusted();
+    // The only AT that we know can handle deferred spellchecking is VoiceOver.
+    if (client == kAXClientTypeVoiceOver)
+        return false;
+    if (isTestAXClientType(client)) [[unlikely]]
+        return true;
+    // MAVERICKS_BACKPORT: upstream returns !isIsolatedTreeEnabled(), but isIsolatedTreeEnabled() compiles only
+    // with ACCESSIBILITY_ISOLATED_TREE (off on this port — the isolated-tree / secondary-AX-thread SPI is
+    // absent on 10.9). Deferred spellcheck (ITM) is only ever enabled for VoiceOver, which requires the
+    // isolated tree, so it is never deferred here: always spell-check.
+    return true; // upstream: return !isIsolatedTreeEnabled();
 }
 
 AXCoreObject::AccessibilityChildrenVector AXObjectCache::sortedLiveRegions()

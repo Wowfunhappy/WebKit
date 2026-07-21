@@ -45,6 +45,16 @@ WK_POLYFILL_ABSENT("ApplicationServices", void, _AXSetClientIdentificationOverri
     (void)clientType;
 }
 
+// _AXGetClientForCurrentRequestUntrusted reports which assistive client (VoiceOver, a test harness, ...) is
+// servicing the current accessibility request. Absent on 10.9 (postdates this OS) and referenced as a direct
+// extern (not soft-linked), so a call would dyld-halt WebContent on the text-input path
+// (AXObjectCache::shouldSpellCheck / clientIsInTestMode). 10.9 has no AX client-type registry, so the neutral
+// answer is kAXClientTypeNoActiveRequestFound (0) — no active request, hence no test/VoiceOver client.
+WK_POLYFILL_ABSENT("ApplicationServices", int, _AXGetClientForCurrentRequestUntrusted, (void))
+{
+    return 0; // kAXClientTypeNoActiveRequestFound
+}
+
 // LaunchServices UTType predicates added after 10.9 (10.9's LaunchServices has the rest of the UTType
 // API — UTTypeConformsTo/UTTypeCopyPreferredTagWithClass/UTTypeCopyDeclaration/etc. — but not these
 // two). Both questions ARE answerable on 10.9, so ask LaunchServices rather than guessing:
