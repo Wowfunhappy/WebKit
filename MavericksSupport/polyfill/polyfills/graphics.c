@@ -17,7 +17,7 @@
 // (verified on-host: sRGB -> "kCGColorSpaceSRGB"). Forward to it and autorelease to match
 // CGColorSpaceGetName's +0 "get" ownership.
 WK_SYSTEM_FN("CoreGraphics", CFStringRef, CGColorSpaceCopyName, (CGColorSpaceRef));
-WK_POLYFILL_ABSENT("CoreGraphics", CFStringRef, CGColorSpaceGetName, (CGColorSpaceRef space), (space))
+WK_POLYFILL_ABSENT("CoreGraphics", CFStringRef, CGColorSpaceGetName, (CGColorSpaceRef space))
 {
     if (!WK_SYSTEM(CGColorSpaceCopyName))
         return NULL;
@@ -27,7 +27,7 @@ WK_POLYFILL_ABSENT("CoreGraphics", CFStringRef, CGColorSpaceGetName, (CGColorSpa
 
 // CGIOSurfaceContextCreateImageReference (newer name) == CGIOSurfaceContextCreateImage.
 extern CGImageRef CGIOSurfaceContextCreateImage(CGContextRef);
-WK_POLYFILL_ABSENT("CoreGraphics", CGImageRef, CGIOSurfaceContextCreateImageReference, (CGContextRef context), (context))
+WK_POLYFILL_ABSENT("CoreGraphics", CGImageRef, CGIOSurfaceContextCreateImageReference, (CGContextRef context))
 {
     return CGIOSurfaceContextCreateImage(context);
 }
@@ -45,14 +45,14 @@ WK_SYSTEM_FN("Accelerate", vImage_Error, vImageUnpremultiplyData_RGBA8888,
     (const struct vImage_Buffer *, const struct vImage_Buffer *, vImage_Flags));
 
 WK_POLYFILL_ABSENT("Accelerate", vImage_Error, vImagePremultiplyData_BGRA8888,
-    (const struct vImage_Buffer *src, const struct vImage_Buffer *dst, vImage_Flags flags), (src, dst, flags))
+    (const struct vImage_Buffer *src, const struct vImage_Buffer *dst, vImage_Flags flags))
 {
     if (!WK_SYSTEM(vImagePremultiplyData_RGBA8888))
         return kvImageInternalError;
     return WK_SYSTEM(vImagePremultiplyData_RGBA8888)(src, dst, flags);
 }
 WK_POLYFILL_ABSENT("Accelerate", vImage_Error, vImageUnpremultiplyData_BGRA8888,
-    (const struct vImage_Buffer *src, const struct vImage_Buffer *dst, vImage_Flags flags), (src, dst, flags))
+    (const struct vImage_Buffer *src, const struct vImage_Buffer *dst, vImage_Flags flags))
 {
     if (!WK_SYSTEM(vImageUnpremultiplyData_RGBA8888))
         return kvImageInternalError;
@@ -65,7 +65,7 @@ WK_POLYFILL_ABSENT("Accelerate", vImage_Error, vImageUnpremultiplyData_BGRA8888,
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 WK_SYSTEM_FN("IOKit", kern_return_t, IOMasterPort, (mach_port_t, mach_port_t *));
-WK_POLYFILL_ABSENT("IOKit", kern_return_t, IOMainPort, (mach_port_t bootstrapPort, mach_port_t *mainPort), (bootstrapPort, mainPort))
+WK_POLYFILL_ABSENT("IOKit", kern_return_t, IOMainPort, (mach_port_t bootstrapPort, mach_port_t *mainPort))
 {
     if (!WK_SYSTEM(IOMasterPort))
         return KERN_FAILURE;
@@ -87,8 +87,7 @@ extern CTFontRef CTFontCreateForCharactersWithLanguage(CTFontRef currentFont, co
 
 // CGContextDrawPathDirect (10.13+): add the path and draw it (upstream passes a null bounding box).
 WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextDrawPathDirect,
-    (CGContextRef context, CGPathDrawingMode mode, CGPathRef path, const CGRect *boundingBox),
-    (context, mode, path, boundingBox))
+    (CGContextRef context, CGPathDrawingMode mode, CGPathRef path, const CGRect *boundingBox))
 {
     (void)boundingBox;
     CGContextAddPath(context, path);
@@ -99,8 +98,7 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextDrawPathDirect,
 // premultiplied-alpha interpolation (a nicety for stops fading to transparency). The classic
 // CGGradientCreateWithColorComponents, which 10.9 does export, is identical for opaque stops.
 WK_POLYFILL_ABSENT("CoreGraphics", CGGradientRef, CGGradientCreateWithColorComponentsAndOptions,
-    (CGColorSpaceRef space, const CGFloat *components, const CGFloat *locations, size_t count, CFDictionaryRef options),
-    (space, components, locations, count, options))
+    (CGColorSpaceRef space, const CGFloat *components, const CGFloat *locations, size_t count, CFDictionaryRef options))
 {
     (void)options;
     return CGGradientCreateWithColorComponents(space, components, locations, count);
@@ -110,8 +108,7 @@ WK_POLYFILL_ABSENT("CoreGraphics", CGGradientRef, CGGradientCreateWithColorCompo
 // system (non-user-installed) fonts. The classic CTFontCreateForCharactersWithLanguage returns the
 // same fallback font on 10.9 and is present there.
 WK_POLYFILL_ABSENT("CoreText", CTFontRef, CTFontCreateForCharactersWithLanguageAndOption,
-    (CTFontRef currentFont, const UTF16Char *characters, CFIndex length, CFStringRef language, unsigned long option, CFIndex *coveredLength),
-    (currentFont, characters, length, language, option, coveredLength))
+    (CTFontRef currentFont, const UTF16Char *characters, CFIndex length, CFStringRef language, unsigned long option, CFIndex *coveredLength))
 {
     (void)option;
     return CTFontCreateForCharactersWithLanguage(currentFont, characters, length, language, coveredLength);
@@ -300,7 +297,7 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptorAndOpt
 // and hands anything it does not recognise back to the system implementation.
 typedef const struct __FPFont* FPFontRef;
 
-WK_POLYFILL_ABSENT("CoreText", CFArrayRef, FPFontCreateFontsFromData, (CFDataRef data), (data))
+WK_POLYFILL_ABSENT("CoreText", CFArrayRef, FPFontCreateFontsFromData, (CFDataRef data))
 {
     if (!data)
         return NULL;
@@ -331,7 +328,7 @@ WK_POLYFILL_ABSENT("CoreText", CFArrayRef, FPFontCreateFontsFromData, (CFDataRef
     return CFArrayCreate(kCFAllocatorDefault, values, 1, &kCFTypeArrayCallBacks);
 }
 
-WK_POLYFILL_ABSENT("CoreText", CFDataRef, FPFontCopySFNTData, (FPFontRef font), (font))
+WK_POLYFILL_ABSENT("CoreText", CFDataRef, FPFontCopySFNTData, (FPFontRef font))
 {
     if (font && CFGetTypeID((CFTypeRef)font) == CFDataGetTypeID())
         return (CFDataRef)CFRetain((CFTypeRef)font);
@@ -373,39 +370,39 @@ WK_POLYFILL_REPLACES("CoreText", CFStringRef, FPFontCopyPostScriptName, (FPFontR
 // CGContextCopyDeviceColorSpace exists in 10.9's CoreGraphics but the modern SDK we build against
 // dropped its header declaration, so forward-declare it.
 extern CGColorSpaceRef CGContextCopyDeviceColorSpace(CGContextRef);
-WK_POLYFILL_ABSENT("CoreGraphics", CGColorSpaceRef, CGContextGetColorSpace, (CGContextRef context), (context))
+WK_POLYFILL_ABSENT("CoreGraphics", CGColorSpaceRef, CGContextGetColorSpace, (CGContextRef context))
 {
     CGColorSpaceRef colorSpace = CGContextCopyDeviceColorSpace(context);
     return colorSpace ? (CGColorSpaceRef)CFAutorelease(colorSpace) : NULL;
 }
 
 // Lockdown Mode for PDF (macOS 13+). No Lockdown Mode on 10.9.
-WK_POLYFILL_ABSENT("CoreGraphics", void, CGEnterLockdownModeForPDF, (void), ())
+WK_POLYFILL_ABSENT("CoreGraphics", void, CGEnterLockdownModeForPDF, (void))
 {
 }
 
 // Wide-gamut / extended-range / HDR transfer-function color-space predicates (10.12+/10.14+). 10.9 is
 // sRGB-only with no extended range or ITU-R BT.2100 transfer function: report false for all.
-WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceIsWideGamutRGB, (CGColorSpaceRef space), (space))
+WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceIsWideGamutRGB, (CGColorSpaceRef space))
 {
     (void)space;
     return false;
 }
 
-WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceUsesExtendedRange, (CGColorSpaceRef space), (space))
+WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceUsesExtendedRange, (CGColorSpaceRef space))
 {
     (void)space;
     return false;
 }
 
-WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceUsesITUR_2100TF, (CGColorSpaceRef space), (space))
+WK_POLYFILL_ABSENT("CoreGraphics", bool, CGColorSpaceUsesITUR_2100TF, (CGColorSpaceRef space))
 {
     (void)space;
     return false;
 }
 
 // CGColorCreateSRGB (10.15+) — build the color through the named sRGB color space (available since 10.5).
-WK_POLYFILL_ABSENT("CoreGraphics", CGColorRef, CGColorCreateSRGB, (CGFloat r, CGFloat g, CGFloat b, CGFloat a), (r, g, b, a)) {
+WK_POLYFILL_ABSENT("CoreGraphics", CGColorRef, CGColorCreateSRGB, (CGFloat r, CGFloat g, CGFloat b, CGFloat a)) {
     CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
     CGFloat comps[4] = { r, g, b, a };
     CGColorRef color = CGColorCreate(cs, comps);
@@ -414,18 +411,18 @@ WK_POLYFILL_ABSENT("CoreGraphics", CGColorRef, CGColorCreateSRGB, (CGFloat r, CG
 }
 
 // ---------------------------------------------------------------------------------------------------
-// CoreText — text rendering hits these live, so the live ones forward to 10.9-available CoreText.
+// CoreText — text rendering hits these live; where 10.9 ships an equivalent, the body calls through to it.
 // ---------------------------------------------------------------------------------------------------
 
 // Color-glyph coverage bit vectors (color emoji / feature coverage). 10.9 lacks both; callers guard
 // the null return (FontCoreText only proceeds "if (bitVector)").
-WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyColorGlyphCoverage, (CTFontRef font), (font))
+WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyColorGlyphCoverage, (CTFontRef font))
 {
     (void)font;
     return NULL;
 }
 
-WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyGlyphCoverageForFeature, (CTFontRef font, CFDictionaryRef feature), (font, feature))
+WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyGlyphCoverageForFeature, (CTFontRef font, CFDictionaryRef feature))
 {
     (void)font; (void)feature;
     return NULL;
@@ -434,7 +431,7 @@ WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyGlyphCoverageForFeature
 // CSS generic family -> concrete 10.9 font descriptor. The cssFamily argument is one of the
 // kCTFontCSSFamily* constants supplied by constants.m (its value is its own name). Map each to a
 // font that ships on 10.9 so generic families (serif/sans-serif/monospace/cursive/fantasy) resolve.
-WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateForCSSFamily, (CFStringRef cssFamily, CFStringRef language), (cssFamily, language))
+WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateForCSSFamily, (CFStringRef cssFamily, CFStringRef language))
 {
     (void)language;
     if (!cssFamily)
@@ -456,14 +453,14 @@ WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateForCSS
 }
 
 // "Last Resort" tofu fallback font descriptor. The LastResort font ships on 10.9.
-WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateLastResort, (void), ())
+WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateLastResort, (void))
 {
     return CTFontDescriptorCreateWithNameAndSize(CFSTR("LastResort"), 0.0);
 }
 
 // Dynamic-Type text-style descriptor (style/size/language). 10.9 has no Dynamic Type; return the
 // system UI font's descriptor so system/caption text resolves to a real font.
-WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateWithTextStyle, (CFStringRef style, CFStringRef size, CFStringRef language), (style, size, language))
+WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateWithTextStyle, (CFStringRef style, CFStringRef size, CFStringRef language))
 {
     (void)style; (void)size; (void)language;
     CTFontRef system = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 0.0, NULL);
@@ -475,7 +472,7 @@ WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateWithTe
 }
 
 // Descriptor option flags (newer). 10.9 descriptors carry none; report none.
-WK_POLYFILL_ABSENT("CoreText", uint64_t, CTFontDescriptorGetOptions, (CTFontDescriptorRef descriptor), (descriptor))
+WK_POLYFILL_ABSENT("CoreText", uint64_t, CTFontDescriptorGetOptions, (CTFontDescriptorRef descriptor))
 {
     (void)descriptor;
     return 0;
@@ -484,7 +481,7 @@ WK_POLYFILL_ABSENT("CoreText", uint64_t, CTFontDescriptorGetOptions, (CTFontDesc
 // Glyphs for a run of consecutive BMP characters. The modern convenience over CTFontGetGlyphsFor
 // Characters (which 10.9 has): the caller passes a CFRange of UniChar code points and a glyph buffer
 // sized to the range length.
-WK_POLYFILL_ABSENT("CoreText", bool, CTFontGetGlyphsForCharacterRange, (CTFontRef font, CGGlyph glyphs[], CFRange range), (font, glyphs, range))
+WK_POLYFILL_ABSENT("CoreText", bool, CTFontGetGlyphsForCharacterRange, (CTFontRef font, CGGlyph glyphs[], CFRange range))
 {
     if (!font || range.length <= 0)
         return false;
@@ -500,20 +497,20 @@ WK_POLYFILL_ABSENT("CoreText", bool, CTFontGetGlyphsForCharacterRange, (CTFontRe
 
 // "Physical" (non-synthesized) symbolic traits. 10.9 exposes only CTFontGetSymbolicTraits; the
 // physical traits are the same set for a real (non-synthesized) font.
-WK_POLYFILL_ABSENT("CoreText", CTFontSymbolicTraits, CTFontGetPhysicalSymbolicTraits, (CTFontRef font), (font))
+WK_POLYFILL_ABSENT("CoreText", CTFontSymbolicTraits, CTFontGetPhysicalSymbolicTraits, (CTFontRef font))
 {
     return CTFontGetSymbolicTraits(font);
 }
 
 // UI-font-type classification (newer). 10.9 cannot classify an arbitrary font; report "no type".
-WK_POLYFILL_ABSENT("CoreText", uint32_t, CTFontGetUIFontType, (CTFontRef font), (font))
+WK_POLYFILL_ABSENT("CoreText", uint32_t, CTFontGetUIFontType, (CTFontRef font))
 {
     (void)font;
     return (uint32_t)-1; /* kCTFontNoFontType */
 }
 
 // Is this the Apple Color Emoji font? Compare the PostScript name (the emoji font ships on 10.9).
-WK_POLYFILL_ABSENT("CoreText", bool, CTFontIsAppleColorEmoji, (CTFontRef font), (font))
+WK_POLYFILL_ABSENT("CoreText", bool, CTFontIsAppleColorEmoji, (CTFontRef font))
 {
     if (!font)
         return false;
@@ -526,27 +523,27 @@ WK_POLYFILL_ABSENT("CoreText", bool, CTFontIsAppleColorEmoji, (CTFontRef font), 
 
 // Is this the system UI font? 10.9 has no such predicate; WebKit only uses it to take a fast path,
 // so reporting false (treat as an ordinary font) is correct, just not the fast path.
-WK_POLYFILL_ABSENT("CoreText", bool, CTFontIsSystemUIFont, (CTFontRef font), (font))
+WK_POLYFILL_ABSENT("CoreText", bool, CTFontIsSystemUIFont, (CTFontRef font))
 {
     (void)font;
     return false;
 }
 
 // Enable user-installed fonts process-wide (newer). User fonts are already enabled on 10.9.
-WK_POLYFILL_ABSENT("CoreText", bool, CTFontManagerEnableAllUserFonts, (bool postFontChangeNotification), (postFontChangeNotification))
+WK_POLYFILL_ABSENT("CoreText", bool, CTFontManagerEnableAllUserFonts, (bool postFontChangeNotification))
 {
     (void)postFontChangeNotification;
     return true;
 }
 
 // Composition language hint on a paragraph style (newer). No effect on 10.9 line layout.
-WK_POLYFILL_ABSENT("CoreText", void, CTParagraphStyleSetCompositionLanguage, (CTParagraphStyleRef style, int language), (style, language))
+WK_POLYFILL_ABSENT("CoreText", void, CTParagraphStyleSetCompositionLanguage, (CTParagraphStyleRef style, int language))
 {
     (void)style; (void)language;
 }
 
 // Does the font contain a given sfnt table? 10.9 lacks the predicate but has the underlying copy.
-WK_POLYFILL_ABSENT("CoreText", bool, CTFontHasTable, (CTFontRef font, CTFontTableTag tag), (font, tag))
+WK_POLYFILL_ABSENT("CoreText", bool, CTFontHasTable, (CTFontRef font, CTFontTableTag tag))
 {
     CFDataRef table = CTFontCopyTable(font, tag, 0);
     bool present = table != NULL;
@@ -565,8 +562,7 @@ WK_POLYFILL_ABSENT("CoreText", bool, CTFontHasTable, (CTFontRef font, CTFontTabl
 // return a zero initial advance (LTR). This is a real implementation over the present 10.9 API, not a
 // value stub. CTFontShapeOptions is a CFOptionFlags; the reorder handler is unused on this OS path.
 WK_POLYFILL_ABSENT("CoreText", CGSize, CTFontShapeGlyphs,
-    (CTFontRef font, CGGlyph glyphs[], CGSize advances[], CGPoint origins[], CFIndex indexes[], const UniChar chars[], CFIndex count, CFOptionFlags options, CFStringRef language, void (^handler)(CFRange, CGGlyph**, CGSize**, CGPoint**, CFIndex**)),
-    (font, glyphs, advances, origins, indexes, chars, count, options, language, handler))
+    (CTFontRef font, CGGlyph glyphs[], CGSize advances[], CGPoint origins[], CFIndex indexes[], const UniChar chars[], CFIndex count, CFOptionFlags options, CFStringRef language, void (^handler)(CFRange, CGGlyph**, CGSize**, CGPoint**, CFIndex**)))
 {
     (void)origins; (void)indexes; (void)chars; (void)options; (void)language; (void)handler;
     if (count > 0 && advances && glyphs)
@@ -582,7 +578,7 @@ WK_POLYFILL_ABSENT("CoreText", CGSize, CTFontShapeGlyphs,
 // CTRunGetAdvances and leave the origins zero (10.9 CoreText has no per-glyph origin offsets for the
 // scripts WebKit shapes here).
 WK_POLYFILL_ABSENT("CoreText", void, CTRunGetBaseAdvancesAndOrigins,
-    (CTRunRef run, CFRange range, CGSize *advances, CGPoint *origins), (run, range, advances, origins))
+    (CTRunRef run, CFRange range, CGSize *advances, CGPoint *origins))
 {
     if (!run)
         return;
@@ -606,7 +602,7 @@ WK_POLYFILL_ABSENT("CoreText", void, CTRunGetBaseAdvancesAndOrigins,
 // ABI-identical (three floats), so the returned value is passed back exactly as callers expect.
 typedef struct { float minimum; float maximum; float preferred; } PolyCAFrameRateRange;
 WK_POLYFILL_ABSENT("QuartzCore", PolyCAFrameRateRange, CAFrameRateRangeMake,
-    (float minimum, float maximum, float preferred), (minimum, maximum, preferred)) {
+    (float minimum, float maximum, float preferred)) {
     PolyCAFrameRateRange r = { minimum, maximum, preferred };
     return r;
 }
@@ -615,18 +611,18 @@ WK_POLYFILL_ABSENT("QuartzCore", PolyCAFrameRateRange, CAFrameRateRangeMake,
 // ImageIO decode-policy controls (newer, security hardening). No-op on 10.9: images decode normally.
 // ---------------------------------------------------------------------------------------------------
 
-WK_POLYFILL_ABSENT("ImageIO", int, CGImageSourceDisableHardwareDecoding, (void), ())
+WK_POLYFILL_ABSENT("ImageIO", int, CGImageSourceDisableHardwareDecoding, (void))
 {
     return 0; /* noErr */
 }
 
-WK_POLYFILL_ABSENT("ImageIO", int, CGImageSourceEnableRestrictedDecoding, (void), ())
+WK_POLYFILL_ABSENT("ImageIO", int, CGImageSourceEnableRestrictedDecoding, (void))
 {
     return 0; /* noErr */
 }
 
 // Restricts which image UTIs may be decoded (newer hardening). No-op on 10.9: all types decode.
-WK_POLYFILL_ABSENT("ImageIO", OSStatus, CGImageSourceSetAllowableTypes, (CFArrayRef allowableTypes), (allowableTypes))
+WK_POLYFILL_ABSENT("ImageIO", OSStatus, CGImageSourceSetAllowableTypes, (CFArrayRef allowableTypes))
 {
     (void)allowableTypes;
     return 0;
@@ -637,7 +633,7 @@ WK_POLYFILL_ABSENT("ImageIO", OSStatus, CGImageSourceSetAllowableTypes, (CFArray
 // is always index 0 (single-frame images have only frame 0; animated GIF/APNG treat frame 0 as
 // primary). Declared in the 26.1 SDK's ImageIO headers, so ImageDecoderCG.cpp calls the upstream name
 // unchanged.
-WK_POLYFILL_ABSENT("ImageIO", size_t, CGImageSourceGetPrimaryImageIndex, (CGImageSourceRef source), (source))
+WK_POLYFILL_ABSENT("ImageIO", size_t, CGImageSourceGetPrimaryImageIndex, (CGImageSourceRef source))
 {
     (void)source;
     return 0;
@@ -648,18 +644,18 @@ WK_POLYFILL_ABSENT("ImageIO", size_t, CGImageSourceGetPrimaryImageIndex, (CGImag
 // Absent on 10.9; returning null/no-op leaves WebKit on the default acceleration curve.
 // ---------------------------------------------------------------------------------------------------
 
-WK_POLYFILL_ABSENT("IOKit", void, IOHIDEventSystemClientActivate, (void *client), (client))
+WK_POLYFILL_ABSENT("IOKit", void, IOHIDEventSystemClientActivate, (void *client))
 {
     (void)client;
 }
 
-WK_POLYFILL_ABSENT("IOKit", void *, IOHIDEventSystemClientCopyServiceForRegistryID, (void *client, uint64_t registryID), (client, registryID))
+WK_POLYFILL_ABSENT("IOKit", void *, IOHIDEventSystemClientCopyServiceForRegistryID, (void *client, uint64_t registryID))
 {
     (void)client; (void)registryID;
     return NULL;
 }
 
-WK_POLYFILL_ABSENT("IOKit", void, IOHIDEventSystemClientSetDispatchQueue, (void *client, void *queue), (client, queue))
+WK_POLYFILL_ABSENT("IOKit", void, IOHIDEventSystemClientSetDispatchQueue, (void *client, void *queue))
 {
     (void)client; (void)queue;
 }
@@ -668,7 +664,7 @@ WK_POLYFILL_ABSENT("IOKit", void, IOHIDEventSystemClientSetDispatchQueue, (void 
 // IOHIDEventGetFloatValue/GetTimeStamp/GetSenderID/GetType ARE present and link to the real
 // symbols). Momentum-phase bits aren't reported through this API on 10.9; returning 0 (no bits)
 // is the honest answer — scroll deltas still come through the present IOHIDEventGetFloatValue path.
-WK_POLYFILL_ABSENT("IOKit", unsigned char, IOHIDEventGetScrollMomentum, (void *event), (event))
+WK_POLYFILL_ABSENT("IOKit", unsigned char, IOHIDEventGetScrollMomentum, (void *event))
 {
     (void)event;
     return 0;

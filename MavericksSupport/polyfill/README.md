@@ -3,10 +3,11 @@
 This port's approach to a 10.9 incompatibility is to polyfill it, so that WebKit's own source stays
 byte-identical to upstream. This directory is where those polyfills live.
 
-**Writing one should require no knowledge of how any of this loads.** Declare the polyfill; the layer
-guarantees it is what WebKit uses, whether or not 10.9 has the symbol, and that nothing outside
-WebKit is affected. If you find yourself reasoning about archives, link order or export tables while
-adding a polyfill, something here has failed and should be fixed rather than worked around.
+**Writing one should require no knowledge of how any of this loads.** Declare the polyfill for a
+symbol 10.9 lacks; the layer guarantees it is what WebKit uses, and that nothing outside WebKit is
+affected. Verify the symbol really is absent on 10.9 — the build gate (below) fails if it is not — but
+you never have to reason about archives, link order or export tables. If you find yourself doing that,
+something here has failed and should be fixed rather than worked around.
 
 ## Where things go
 
@@ -43,15 +44,14 @@ everything else belongs in the files above.
 
 ### A C function or data constant
 
-Include `wk_polyfill.h` and pick one of three forms. The first argument names whichever framework
-owns the symbol on 10.9 (`"CoreText"`, an absolute path for a non-framework library, or `NULL` for
-libSystem).
+Include `wk_polyfill.h`. The first argument names whichever framework owns the symbol on 10.9
+(`"CoreText"`, an absolute path for a non-framework library, or `NULL` for libSystem).
 
 ```c
-// Use this by default. If 10.9 turns out to have the symbol, this forwards to it and the body never
-// runs -- so you do NOT need to know whether 10.9 has it before writing the polyfill.
+// The default, for a symbol 10.9 LACKS. The body runs. If 10.9 turns out to have the symbol, the
+// build gate rejects it -- so verify absence on-host rather than guessing.
 WK_POLYFILL_ABSENT("CoreGraphics", CGImageRef, CGIOSurfaceContextCreateImageReference,
-                   (CGContextRef context), (context))
+                   (CGContextRef context))
 {
     return CGIOSurfaceContextCreateImage(context);
 }
@@ -67,15 +67,14 @@ WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontManagerCreateFontDes
     return NULL;
 }
 
-// A data constant. If 10.9 exports it, its real value is copied over this storage before anything
-// reads it, so a placeholder can never shadow a value the system actually interprets.
+// A data constant 10.9 LACKS. The declared value is the value; there is no mirroring. As with a
+// function, the gate rejects a gap-fill constant 10.9 actually exports.
 WK_POLYFILL_CONST("CoreGraphics", CFStringRef, kCGColorSpaceExtendedRange,
                   CFSTR("kCGColorSpaceExtendedRange"));
 ```
 
-The parameter list is written twice for `WK_POLYFILL_ABSENT` (types, then names) because the
-forward-to-10.9 call is generated for you. Do not use it for a variadic function — see the note in
-`wk_polyfill.h`.
+`WK_POLYFILL_ABSENT` and `WK_POLYFILL_REPLACES` are one mechanism, differing only in the intent the
+gate reads; both take a single parameter list and run the body directly (a variadic function is fine).
 
 If the body needs to call some *other* 10.9 function that WebKit's frameworks may not all link,
 declare it with `WK_SYSTEM_FN` and call it through `WK_SYSTEM(name)` instead of calling it directly.
@@ -95,10 +94,9 @@ WebKit's call sites keep saying `[ctx CGContext]`; only WebKit's own binaries ar
 private name. You do not need to work out which other classes might share the selector — a class
 that has the real method gets its own implementation automatically.
 
-Like a C gap-fill, this is presence-agnostic: if 10.9 turns out to have `CGContext`, WebKit is
-forwarded to 10.9's method and the body goes unused, so you do not need to know whether 10.9 has it.
-When *replacing* 10.9's method is the point, so the body wins even where 10.9 has it, use the
-counterpart of `WK_POLYFILL_REPLACES`:
+Like a C gap-fill, this is for a method 10.9 LACKS: the body runs, and the build gate rejects a
+`WK_POLYFILL_SEL` whose method 10.9 actually implements. When *deliberately shadowing* a method 10.9
+HAS is the point, use the counterpart of `WK_POLYFILL_REPLACES`:
 
 ```objc
 WK_POLYFILL_SEL_REPLACES("foo", "wk_foo");
@@ -119,20 +117,19 @@ a replacement ("10.9 has this but it is broken") is wrong.
 guarantees against real system symbols on both sides of the present/absent line.
 
 It then runs `scripts/check-polyfill-shadows.sh`, which asks the running 10.9 (via `dlopen`/`dlsym`,
-not the build SDK) whether any symbol the built archives define is one 10.9 already provides. The
-guarantees above make that harmless for anything declared through the macros, but `legacy-support/`,
-`polyfills/shared/` and the mechanism itself are plain C with no registry entry, and force_load
-simply makes those win. So a symbol on that list has to be declared
-`WK_POLYFILL_REPLACES`, or the build fails. There is no allowlist: every symbol the layer knowingly
-shadows says so in the registry, where the loader and `WK_POLYFILL_REPORT` can see it.
+not the build SDK) whether any symbol the built archives define is one 10.9 already provides. Because
+every polyfill body now runs unconditionally, a defined symbol 10.9 also has is a silent shadow, so it
+must be declared `WK_POLYFILL_REPLACES` or the build fails — for registry symbols and for the plain-C
+`legacy-support/`, `polyfills/shared/` and mechanism units alike. There is no allowlist: every symbol
+the layer knowingly shadows says so in the registry, where the loader and `WK_POLYFILL_REPORT` see it.
 
 The same script asks the ObjC runtime the same question about every `WK_POLYFILL_SEL`: it reads the
 registry out of the built `methods.o`, works out which class each `wk_` method lands on, and then —
 in a second program with none of the layer linked in, so what it sees is the system's own — walks
-that class and its superclasses for the public selector. A `WK_POLYFILL_SEL` hit is only reported (the
-patcher forwards to 10.9's method, so the body is unused but nothing breaks); what fails the build is
-a registration whose `wk_` method exists on no class at all, since the rewrite would then send WebKit
-at a selector nothing implements.
+that class and its superclasses for the public selector. A `WK_POLYFILL_SEL` whose method 10.9 already
+implements fails the build (the rewrite makes WebKit run the body in place of 10.9's) unless it is
+declared `WK_POLYFILL_SEL_REPLACES`; so does a registration whose `wk_` method exists on no class at
+all, since the rewrite would then send WebKit at a selector nothing implements.
 
 ## How it works, in brief
 
@@ -148,10 +145,9 @@ Read this only if you are changing the mechanism itself.
 - The polyfills are compiled `-fvisibility=hidden`, so they satisfy references inside WebKit's own
   binaries and are invisible to everything else in the process.
 - A registry emitted alongside each declaration lets the loader (`mechanism/wk_polyfill_runtime.c`)
-  copy 10.9's real value over a polyfilled constant when 10.9 has one, resolve `WK_ORIGINAL` on first
-  use, and answer `dlsym` for polyfilled names — the last so that WebKit's soft-linking
-  (`SOFT_LINK_CONSTANT`, `SOFT_LINK_FUNCTION`), which looks symbols up on a framework handle, sees the
-  same answer the linker would.
+  resolve `WK_ORIGINAL` on first use and answer `dlsym` for polyfilled names — the latter so that
+  WebKit's soft-linking (`SOFT_LINK_CONSTANT`, `SOFT_LINK_FUNCTION`), which looks symbols up on a
+  framework handle, sees the same answer the linker would.
 - **Objective-C methods** cannot be scoped by the linker, since dispatch keys on the selector. They are
   registered under a private `wk_` selector and each of our own binaries has its `__objc_selrefs`
   rewritten to match, so a host app embedding WebKit still sees the unmodified class and its

@@ -182,10 +182,10 @@ echo "### libwtf_compat.a"
 ar_stable "$OUT/libwtf_compat.a" "$OBJ/wtf_compat.o" "$OBJ/wtf_compat_asm.o"
 
 echo "### polyfill mechanism self-test"
-# The two guarantees a polyfill author is told to rely on: force_load makes our definition win
-# deterministically, and a gap-fill declared for a symbol 10.9 turns out to have forwards to it (or,
-# for a constant, is overwritten with 10.9's value). Tested on both sides of the present/absent line,
-# against this runtime.
+# The guarantee a polyfill author relies on: force_load makes our definition win deterministically, and
+# the declared body/value then runs unconditionally -- no runtime forwarding to 10.9, no value-mirroring
+# (a gap-fill mistakenly declared for a symbol 10.9 has is caught by the shadow check below, not
+# silently corrected). Tested on both sides of the present/absent line, against this runtime.
 "$CLANG" --no-default-config -mmacosx-version-min=10.9 -Wall -Wextra -I"$MECH" \
     -o "$OBJ/wk_polyfill_test" "$POLY/tests/wk_polyfill_test.c" "$MECH/wk_polyfill_runtime.c" \
     -framework CoreFoundation -framework CoreGraphics

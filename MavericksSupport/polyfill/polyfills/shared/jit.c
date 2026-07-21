@@ -49,7 +49,7 @@ void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset) {
  * via WK_POLYFILL_REPLACES because the body above has to keep compiling with no
  * wk_polyfill.h for the vendored builds. Provider NULL: libSystem, found process-wide.
  */
-WK_PF_ENTRY(mmap, NULL, &mmap, WK_POLYFILL_FUNCTION, WK_POLYFILL_REPLACES, 0);
+WK_PF_ENTRY(mmap, NULL, &mmap, WK_POLYFILL_FUNCTION, WK_POLYFILL_REPLACES);
 #endif
 
 /*

@@ -33,8 +33,7 @@ typedef struct {
 } WKBrotliCompressionState;
 
 WK_POLYFILL_ABSENT("/usr/lib/libcompression.dylib", compression_status, compression_stream_init,
-                   (compression_stream* stream, compression_stream_operation operation, compression_algorithm algorithm),
-                   (stream, operation, algorithm))
+                   (compression_stream* stream, compression_stream_operation operation, compression_algorithm algorithm))
 {
     if (!stream || algorithm != COMPRESSION_BROTLI)
         return COMPRESSION_STATUS_ERROR;
@@ -63,8 +62,7 @@ WK_POLYFILL_ABSENT("/usr/lib/libcompression.dylib", compression_status, compress
 }
 
 WK_POLYFILL_ABSENT("/usr/lib/libcompression.dylib", compression_status, compression_stream_process,
-                   (compression_stream* stream, int flags),
-                   (stream, flags))
+                   (compression_stream* stream, int flags))
 {
     if (!stream || !stream->state)
         return COMPRESSION_STATUS_ERROR;
@@ -110,8 +108,7 @@ WK_POLYFILL_ABSENT("/usr/lib/libcompression.dylib", compression_status, compress
 }
 
 WK_POLYFILL_ABSENT("/usr/lib/libcompression.dylib", compression_status, compression_stream_destroy,
-                   (compression_stream* stream),
-                   (stream))
+                   (compression_stream* stream))
 {
     if (!stream || !stream->state)
         return COMPRESSION_STATUS_ERROR;

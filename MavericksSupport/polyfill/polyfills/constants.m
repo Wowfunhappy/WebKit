@@ -4,10 +4,11 @@
 // the 10.9 frameworks predate and never interpret, so the exact string is immaterial. Where a value
 // IS interpreted by the system, the comment says so and gives the real one.
 //
-// Declaring a constant here does NOT assert that 10.9 lacks it. If 10.9 exports the symbol, its real
-// value is copied over the storage at load and the token below is never seen. So a placeholder can
-// never shadow a value the system actually interprets, and a key may be listed without first proving
-// its absence.
+// Declaring a constant here asserts 10.9 LACKS the symbol; the declared value is what WebKit gets, with
+// no mirroring. If 10.9 turns out to export it, the build gate (check-polyfill-shadows.sh) rejects the
+// declaration — delete it, or use WK_POLYFILL_CONST_REPLACES to override a present one on purpose. So a
+// placeholder can never silently shadow a value the system interprets, and absence is proven at build
+// rather than assumed.
 //
 // Two functions live here too, at the end: TCCAccessPreflight and its audit-token spelling, kept
 // beside the TCC service identifiers, whose value-is-their-own-name invariant is what they answer by.
@@ -555,8 +556,7 @@ WK_POLYFILL_REPLACES("/System/Library/PrivateFrameworks/TCC.framework/TCC", TCCA
 // in the second, the 32-byte audit token in memory either way.
 WK_POLYFILL_ABSENT("/System/Library/PrivateFrameworks/TCC.framework/TCC", TCCAccessPreflightResult,
                    TCCAccessPreflightWithAuditToken,
-                   (CFStringRef service, audit_token_t token, CFDictionaryRef options),
-                   (service, token, options))
+                   (CFStringRef service, audit_token_t token, CFDictionaryRef options))
 {
     if (!mav_tccImplementsService(service))
         return kTCCAccessPreflightGranted;

@@ -59,7 +59,6 @@ enum { WK_MAX_SEL = 256 };
 static SEL wk_pub[WK_MAX_SEL];          // canonical public SEL (fast-path pointer match)
 static const char *wk_pubname[WK_MAX_SEL]; // public selector NAME (content match — see wk_patch)
 static SEL wk_priv[WK_MAX_SEL];
-static int wk_selintent[WK_MAX_SEL];    // WK_SELMAP_GAP_FILL or WK_SELMAP_REPLACES — see wk_alias_class
 static int wk_count;                    // PUBLICATION POINT — see the synchronisation note below
 
 // Synchronisation.
@@ -129,20 +128,17 @@ static pthread_mutex_t wk_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 // +resolveInstanceMethod: to every class in the process for every selector the class does not have.
 // Pass a metaclass to alias class methods.
 //
-// A class that implements the real public selector ITSELF gets wk_<name> bound to that real IMP. How
-// that binding treats a wk_<name> already installed by this layer's own category is the whole
-// presence-agnostic guarantee, and it splits on intent:
+// A class that implements the real public selector ITSELF gets wk_<name> bound to that real IMP, via
+// class_addMethod. On the polyfill's own TARGET class this layer's category already installed
+// wk_<name> (the body), so class_addMethod is a no-op there and the body keeps serving WebKit's
+// rewritten call — the runtime does what the polyfill declared, with no forwarding to 10.9. A
+// DIFFERENT class that merely shares the selector name has no wk_<name> of its own, so it gets one
+// bound to its real method (the by-name selref rewrite must not hijack another class's method).
 //
-//   GAP_FILL (the default): class_replaceMethod, so the real 10.9 method WINS over the polyfill body.
-//   A polyfill is written believing 10.9 lacks the method; if 10.9 turns out to have it, WebKit gets
-//   10.9's and the body is simply unused. So being wrong about absence costs nothing and there is
-//   nothing to know before writing the polyfill — exactly what WK_POLYFILL_ABSENT gives a C symbol.
-//   For a class that genuinely lacks the method this never matches, so the body stays.
-//
-//   REPLACES: class_addMethod, which leaves an existing method alone, so the polyfill body this layer
-//   installed on the target class keeps winning — replacing 10.9's is the declared point. WK_ORIGINAL
-//   reaches 10.9's version. A different class that merely shares the selector name keeps its own real
-//   method (the body was written for one class; the by-name rewrite must not hijack another's).
+// If the target class turns out to implement the public selector after all, the body shadows 10.9's —
+// a mistake the build gate rejects (check-polyfill-shadows.sh), exactly as it rejects a shadowing C
+// gap-fill. Intent (GAP_FILL vs REPLACES) is therefore a build-gate concern only; both install the
+// body, and WK_POLYFILL_SEL_REPLACES simply asserts that shadowing a present method is the point.
 static void wk_alias_class(Class cls, int from, int to)
 {
     unsigned int n = 0;
@@ -156,10 +152,7 @@ static void wk_alias_class(Class cls, int from, int to)
                 continue;
             IMP realIMP = method_getImplementation(methods[i]);
             const char *types = method_getTypeEncoding(methods[i]);
-            if (wk_selintent[j] == WK_SELMAP_GAP_FILL)
-                class_replaceMethod(cls, wk_priv[j], realIMP, types);
-            else
-                class_addMethod(cls, wk_priv[j], realIMP, types);
+            class_addMethod(cls, wk_priv[j], realIMP, types);
             break;
         }
     }
@@ -222,8 +215,7 @@ static void wk_collect(const struct mach_header *mh)
         wk_pub[slot] = p;
         wk_pubname[slot] = e[i].pub; // stable string literal in the image's __wk_selmap owner
         wk_priv[slot] = sel_registerName(e[i].priv);
-        wk_selintent[slot] = e[i].intent;
-        // Publishes the four stores above to every reader that acquire-loads wk_count.
+        // Publishes the three stores above to every reader that acquire-loads wk_count.
         __atomic_store_n(&wk_count, slot + 1, __ATOMIC_RELEASE);
     }
     // The selectors just registered have never been looked for in the classes already loaded. Classes

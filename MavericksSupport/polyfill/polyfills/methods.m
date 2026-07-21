@@ -1080,7 +1080,8 @@ static const void *const wk_uildMenuKey = &wk_uildMenuKey;
 // WebKit assigns it (-[NSScrollerImp setLayer:], present here), so marking THAT layer dirty is the
 // faithful 10.9 equivalent — exactly what ScrollerMac's fallback did by hand. -layer is nil in the WK1
 // path (no imp layer set), where [nil setNeedsDisplay] is a harmless no-op and the repaint comes from
-// ScrollbarThemeMac::paint. (GAP_FILL: if a 10.9.x NSScrollerImp has the method, the patcher forwards.)
+// ScrollbarThemeMac::paint. (GAP_FILL: 10.9 lacks -setNeedsDisplay: on NSScrollerImp — the build gate
+// confirms the absence — and the body always runs.)
 - (void)wk_setNeedsDisplay:(BOOL)flag;
 @end
 @implementation NSScrollerImp (WKPolyfillScope)

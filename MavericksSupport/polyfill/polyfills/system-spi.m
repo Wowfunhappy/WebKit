@@ -22,7 +22,7 @@
 // ---------------------------------------------------------------------------------------------------
 
 // Notifies AX of a process suspend/resume. No AX process-suspend tracking on 10.9; return success.
-WK_POLYFILL_ABSENT("ApplicationServices", int, _AXUIElementNotifyProcessSuspendStatus, (int status), (status))
+WK_POLYFILL_ABSENT("ApplicationServices", int, _AXUIElementNotifyProcessSuspendStatus, (int status))
 {
     (void)status;
     return 0; // kAXErrorSuccess
@@ -31,7 +31,7 @@ WK_POLYFILL_ABSENT("ApplicationServices", int, _AXUIElementNotifyProcessSuspendS
 // AccessibilitySupport: "Increase Contrast > Enhance text legibility" accessibility setting (absent on
 // 10.9 — the framework that vends it postdates this OS). FontCache::platformInvalidate reads it during
 // WebProcess init (a flat-namespace bind, so it must resolve). The setting is off by default.
-WK_POLYFILL_ABSENT("ApplicationServices", unsigned char, _AXSEnhanceTextLegibilityEnabled, (void), ())
+WK_POLYFILL_ABSENT("ApplicationServices", unsigned char, _AXSEnhanceTextLegibilityEnabled, (void))
 {
     return 0;
 }
@@ -40,7 +40,7 @@ WK_POLYFILL_ABSENT("ApplicationServices", unsigned char, _AXSEnhanceTextLegibili
 // runtime can special-case test harnesses. Absent on 10.9 (postdates this OS). The layout-test drivers
 // (DumpRenderTree/WebKitTestRunner) call it during accessibility-controller setup; on 10.9 there is no AX
 // client-type registry, so a no-op is the correct behavior (the AX tests that depend on it are skipped).
-WK_POLYFILL_ABSENT("ApplicationServices", void, _AXSetClientIdentificationOverride, (int clientType), (clientType))
+WK_POLYFILL_ABSENT("ApplicationServices", void, _AXSetClientIdentificationOverride, (int clientType))
 {
     (void)clientType;
 }
@@ -60,12 +60,12 @@ WK_POLYFILL_ABSENT("ApplicationServices", void, _AXSetClientIdentificationOverri
 // the same two answers; they are implemented the same way there.
 WK_SYSTEM_FN("CoreServices", CFDictionaryRef, UTTypeCopyDeclaration, (CFStringRef));
 
-WK_POLYFILL_ABSENT("CoreServices", Boolean, UTTypeIsDynamic, (CFStringRef inUTI), (inUTI))
+WK_POLYFILL_ABSENT("CoreServices", Boolean, UTTypeIsDynamic, (CFStringRef inUTI))
 {
     return inUTI && CFStringHasPrefix(inUTI, CFSTR("dyn."));
 }
 
-WK_POLYFILL_ABSENT("CoreServices", Boolean, UTTypeIsDeclared, (CFStringRef inUTI), (inUTI))
+WK_POLYFILL_ABSENT("CoreServices", Boolean, UTTypeIsDeclared, (CFStringRef inUTI))
 {
     if (!inUTI || !WK_SYSTEM(UTTypeCopyDeclaration))
         return false;
@@ -82,25 +82,25 @@ WK_POLYFILL_ABSENT("CoreServices", Boolean, UTTypeIsDeclared, (CFStringRef inUTI
 
 // Cross-process handoff of an identified cookie store. 10.9 has no identifying-data API; returning
 // null makes CookieStorageUtilsCF fall back to the default shared storage (its own comment notes this).
-WK_POLYFILL_ABSENT("CFNetwork", void *, CFHTTPCookieStorageCreateIdentifyingData, (CFAllocatorRef allocator, void *storage), (allocator, storage))
+WK_POLYFILL_ABSENT("CFNetwork", void *, CFHTTPCookieStorageCreateIdentifyingData, (CFAllocatorRef allocator, void *storage))
 {
     (void)allocator; (void)storage;
     return NULL;
 }
 
-WK_POLYFILL_ABSENT("CFNetwork", void *, CFHTTPCookieStorageCreateFromIdentifyingData, (CFAllocatorRef allocator, CFDataRef data), (allocator, data))
+WK_POLYFILL_ABSENT("CFNetwork", void *, CFHTTPCookieStorageCreateFromIdentifyingData, (CFAllocatorRef allocator, CFDataRef data))
 {
     (void)allocator; (void)data;
     return NULL;
 }
 
 // App Transport Security context (10.11+). No ATS on 10.9: nothing to copy, nothing to set.
-WK_POLYFILL_ABSENT("CFNetwork", CFDataRef, _CFNetworkCopyATSContext, (void), ())
+WK_POLYFILL_ABSENT("CFNetwork", CFDataRef, _CFNetworkCopyATSContext, (void))
 {
     return NULL;
 }
 
-WK_POLYFILL_ABSENT("CFNetwork", Boolean, _CFNetworkSetATSContext, (CFDataRef context), (context))
+WK_POLYFILL_ABSENT("CFNetwork", Boolean, _CFNetworkSetATSContext, (CFDataRef context))
 {
     (void)context;
     return false;
@@ -108,7 +108,7 @@ WK_POLYFILL_ABSENT("CFNetwork", Boolean, _CFNetworkSetATSContext, (CFDataRef con
 
 // Per-storage-session cache disable (newer API). The caller guards the call; on 10.9 it is a no-op
 // (cache policy is handled through the storage session that is created without an on-disk cache).
-WK_POLYFILL_ABSENT("CFNetwork", void, _CFURLStorageSessionDisableCache, (void *storageSession), (storageSession))
+WK_POLYFILL_ABSENT("CFNetwork", void, _CFURLStorageSessionDisableCache, (void *storageSession))
 {
     (void)storageSession;
 }
@@ -122,7 +122,7 @@ WK_POLYFILL_ABSENT("CFNetwork", void, _CFURLStorageSessionDisableCache, (void *s
 
 // Copies the effective remote endpoint from a network path. No such path object is ever produced on
 // 10.9, so this returns null.
-WK_POLYFILL_ABSENT("Network", const void *, nw_path_copy_effective_remote_endpoint, (const void *path), (path))
+WK_POLYFILL_ABSENT("Network", const void *, nw_path_copy_effective_remote_endpoint, (const void *path))
 {
     (void)path;
     return NULL;
@@ -130,7 +130,7 @@ WK_POLYFILL_ABSENT("Network", const void *, nw_path_copy_effective_remote_endpoi
 
 // Returns the known-tracker host name an endpoint resolved to, or null when it is not a known tracker.
 // On 10.9 there is no tracker-classification engine, so this returns null.
-WK_POLYFILL_ABSENT("Network", const char *, nw_endpoint_get_known_tracker_name, (const void *endpoint), (endpoint))
+WK_POLYFILL_ABSENT("Network", const char *, nw_endpoint_get_known_tracker_name, (const void *endpoint))
 {
     (void)endpoint;
     return NULL;
@@ -140,12 +140,12 @@ WK_POLYFILL_ABSENT("Network", const char *, nw_endpoint_get_known_tracker_name, 
 // CoreFoundation prefs daemon tuning — optimizations for sandboxed XPC services; no-ops on 10.9.
 // ---------------------------------------------------------------------------------------------------
 
-WK_POLYFILL_ABSENT("CoreFoundation", void, _CFPrefsSetDirectModeEnabled, (int enabled), (enabled))
+WK_POLYFILL_ABSENT("CoreFoundation", void, _CFPrefsSetDirectModeEnabled, (int enabled))
 {
     (void)enabled;
 }
 
-WK_POLYFILL_ABSENT("CoreFoundation", void, _CFPrefsSetReadOnly, (Boolean flag), (flag))
+WK_POLYFILL_ABSENT("CoreFoundation", void, _CFPrefsSetReadOnly, (Boolean flag))
 {
     (void)flag;
 }
@@ -154,7 +154,7 @@ WK_POLYFILL_ABSENT("CoreFoundation", void, _CFPrefsSetReadOnly, (Boolean flag), 
 // CoreServices / LaunchServices — called before LS check-in in auxiliary processes; no-op on 10.9.
 // ---------------------------------------------------------------------------------------------------
 
-WK_POLYFILL_ABSENT("CoreServices", void, _CSCheckFixDisable, (void), ())
+WK_POLYFILL_ABSENT("CoreServices", void, _CSCheckFixDisable, (void))
 {
 }
 
@@ -170,7 +170,7 @@ WK_POLYFILL_ABSENT("CoreServices", void, _CSCheckFixDisable, (void), ())
 WK_SYSTEM_FN("/System/Library/PrivateFrameworks/DataDetectorsCore.framework/DataDetectorsCore",
              CFTypeRef, DDResultCreateEmpty, (void));
 
-WK_POLYFILL_ABSENT("/System/Library/PrivateFrameworks/DataDetectorsCore.framework/DataDetectorsCore", CFTypeID, DDResultGetCFTypeID, (void), ())
+WK_POLYFILL_ABSENT("/System/Library/PrivateFrameworks/DataDetectorsCore.framework/DataDetectorsCore", CFTypeID, DDResultGetCFTypeID, (void))
 {
     static CFTypeID typeID;
     static dispatch_once_t once;
@@ -212,18 +212,18 @@ static void mav_reportUnimplemented(CFErrorRef *error)
 
 // Keychain access-control objects (passkeys / SE-backed keys). Absent on 10.9; callers tolerate null.
 // The type id is used in CFGetTypeID comparisons; 0 never matches, so such objects are never seen.
-WK_POLYFILL_ABSENT("Security", CFTypeID, SecAccessControlGetTypeID, (void), ())
+WK_POLYFILL_ABSENT("Security", CFTypeID, SecAccessControlGetTypeID, (void))
 {
     return 0;
 }
 
-WK_POLYFILL_ABSENT("Security", CFDataRef, SecAccessControlCopyData, (void *accessControl), (accessControl))
+WK_POLYFILL_ABSENT("Security", CFDataRef, SecAccessControlCopyData, (void *accessControl))
 {
     (void)accessControl;
     return NULL;
 }
 
-WK_POLYFILL_ABSENT("Security", void *, SecAccessControlCreateFromData, (CFAllocatorRef allocator, CFDataRef data, CFErrorRef *error), (allocator, data, error))
+WK_POLYFILL_ABSENT("Security", void *, SecAccessControlCreateFromData, (CFAllocatorRef allocator, CFDataRef data, CFErrorRef *error))
 {
     (void)allocator; (void)data;
     mav_reportUnimplemented(error);
@@ -341,7 +341,7 @@ static CFStringRef mav_copySignatureAlgorithmOID(CFDictionaryRef values, CFStrin
     return NULL;
 }
 
-WK_POLYFILL_ABSENT("Security", int, SecCertificateGetSignatureHashAlgorithm, (SecCertificateRef certificate), (certificate))
+WK_POLYFILL_ABSENT("Security", int, SecCertificateGetSignatureHashAlgorithm, (SecCertificateRef certificate))
 {
     static void *signatureAlgorithmKeyCache;
     CFStringRef signatureAlgorithmKey = mav_securityConstant("kSecOIDX509V1SignatureAlgorithm", &signatureAlgorithmKeyCache);
@@ -364,7 +364,7 @@ WK_POLYFILL_ABSENT("Security", int, SecCertificateGetSignatureHashAlgorithm, (Se
 }
 
 // Process signing identifier. Absent on 10.9; callers use it for telemetry/diagnostics and accept null.
-WK_POLYFILL_ABSENT("Security", CFStringRef, SecTaskCopySigningIdentifier, (SecTaskRef task, CFErrorRef *error), (task, error))
+WK_POLYFILL_ABSENT("Security", CFStringRef, SecTaskCopySigningIdentifier, (SecTaskRef task, CFErrorRef *error))
 {
     (void)task;
     mav_reportUnimplemented(error);
@@ -379,7 +379,7 @@ WK_POLYFILL_ABSENT("Security", CFStringRef, SecTaskCopySigningIdentifier, (SecTa
 #pragma clang diagnostic ignored "-Wavailability"
 __attribute__((availability(macos, introduced=10.0))) uint32_t SecTaskGetCodeSignStatus(SecTaskRef task);
 #pragma clang diagnostic pop
-WK_POLYFILL_ABSENT("Security", uint32_t, SecTaskGetCodeSignStatus, (SecTaskRef task), (task))
+WK_POLYFILL_ABSENT("Security", uint32_t, SecTaskGetCodeSignStatus, (SecTaskRef task))
 {
     (void)task;
     return 0;
@@ -389,7 +389,7 @@ WK_POLYFILL_ABSENT("Security", uint32_t, SecTaskGetCodeSignStatus, (SecTaskRef t
 // to round-trip with each other: carry the certificate chain (a binary plist of DER datas); the
 // receiver rebuilds a SecTrust and re-evaluates with a basic X.509 policy. (Custom anchors/policies
 // degrade to the default, but the chain — the part used for display and validation — survives.)
-WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust, CFErrorRef *error), (trust, error))
+WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust, CFErrorRef *error))
 {
     if (error)
         *error = NULL;
@@ -414,7 +414,7 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust,
     return data;
 }
 
-WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef serializedTrust, CFErrorRef *error), (serializedTrust, error))
+WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef serializedTrust, CFErrorRef *error))
 {
     if (error)
         *error = NULL;
@@ -449,7 +449,7 @@ WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef seri
 }
 
 // Attribution of a cross-process trust evaluation to the client. Single-system on 10.9: accept it.
-WK_POLYFILL_ABSENT("Security", int, SecTrustSetClientAuditToken, (SecTrustRef trust, CFDataRef auditToken), (trust, auditToken))
+WK_POLYFILL_ABSENT("Security", int, SecTrustSetClientAuditToken, (SecTrustRef trust, CFDataRef auditToken))
 {
     (void)trust; (void)auditToken;
     return 0; // errSecSuccess
@@ -459,7 +459,7 @@ WK_POLYFILL_ABSENT("Security", int, SecTrustSetClientAuditToken, (SecTrustRef tr
 // accessors 10.9 ships.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-WK_POLYFILL_ABSENT("Security", CFArrayRef, SecTrustCopyCertificateChain, (SecTrustRef trust), (trust))
+WK_POLYFILL_ABSENT("Security", CFArrayRef, SecTrustCopyCertificateChain, (SecTrustRef trust))
 {
     if (!trust)
         return NULL;
@@ -485,7 +485,7 @@ WK_POLYFILL_ABSENT("Security", CFArrayRef, SecTrustCopyCertificateChain, (SecTru
 // --- NSEdgeInsetsEqual (10.10+) ------------------------------------------
 // WebKit has an undefined ref, so the SDK exposes it as an extern function
 // (not static inline) — define the real symbol with the SDK signature.
-WK_POLYFILL_ABSENT("Foundation", BOOL, NSEdgeInsetsEqual, (NSEdgeInsets a, NSEdgeInsets b), (a, b))
+WK_POLYFILL_ABSENT("Foundation", BOOL, NSEdgeInsetsEqual, (NSEdgeInsets a, NSEdgeInsets b))
 {
     return a.top == b.top && a.left == b.left
         && a.bottom == b.bottom && a.right == b.right;
@@ -497,7 +497,7 @@ WK_POLYFILL_ABSENT("Foundation", BOOL, NSEdgeInsetsEqual, (NSEdgeInsets a, NSEdg
 
 // sqlite3_errstr (SQLite 3.7.15) — 10.9 ships an older SQLite. Map the primary result codes to the same
 // strings SQLite uses, so WebCore's diagnostic logging stays meaningful. Used only for error messages.
-WK_POLYFILL_ABSENT("/usr/lib/libsqlite3.dylib", const char *, sqlite3_errstr, (int rc), (rc)) {
+WK_POLYFILL_ABSENT("/usr/lib/libsqlite3.dylib", const char *, sqlite3_errstr, (int rc)) {
     switch (rc & 0xff) {
         case 0:  return "not an error";
         case 1:  return "SQL logic error";
@@ -534,8 +534,7 @@ WK_POLYFILL_ABSENT("/usr/lib/libsqlite3.dylib", const char *, sqlite3_errstr, (i
 WK_SYSTEM_FN("/usr/lib/libsqlite3.dylib", int, sqlite3_bind_blob,
     (sqlite3_stmt *, int, const void *, int, void (*)(void *)));
 WK_POLYFILL_ABSENT("/usr/lib/libsqlite3.dylib", int, sqlite3_bind_blob64,
-    (sqlite3_stmt *statement, int index, const void *data, sqlite3_uint64 length, void (*destructor)(void *)),
-    (statement, index, data, length, destructor))
+    (sqlite3_stmt *statement, int index, const void *data, sqlite3_uint64 length, void (*destructor)(void *)))
 {
     if (!WK_SYSTEM(sqlite3_bind_blob))
         return SQLITE_ERROR;
@@ -549,7 +548,7 @@ WK_POLYFILL_ABSENT("/usr/lib/libsqlite3.dylib", int, sqlite3_bind_blob64,
 typedef struct { unsigned int val[8]; } mav_audit_token_t;
 
 // State-dump (sysdiagnose) handler registration. None on 10.9; return a null handle.
-WK_POLYFILL_ABSENT(NULL, unsigned long, os_state_add_handler, (void *queue, void *handler), (queue, handler))
+WK_POLYFILL_ABSENT(NULL, unsigned long, os_state_add_handler, (void *queue, void *handler))
 {
     (void)queue; (void)handler;
     return 0;
@@ -558,13 +557,13 @@ WK_POLYFILL_ABSENT(NULL, unsigned long, os_state_add_handler, (void *queue, void
 // Audit-token sandbox checks (newer than the pid-based sandbox_check on 10.9). WebKit child processes
 // run without the fine-grained profile on this backport, so report "permitted/not-restricted" (0),
 // matching the pid-based path's behavior for an unsandboxed process.
-WK_POLYFILL_ABSENT(NULL, int, sandbox_check_by_audit_token, (mav_audit_token_t token, const char *operation, int type, ...), (token, operation, type))
+WK_POLYFILL_ABSENT(NULL, int, sandbox_check_by_audit_token, (mav_audit_token_t token, const char *operation, int type, ...))
 {
     (void)token; (void)operation; (void)type;
     return 0;
 }
 
-WK_POLYFILL_ABSENT(NULL, bool, sandbox_enable_state_flag, (const char *name, mav_audit_token_t token), (name, token))
+WK_POLYFILL_ABSENT(NULL, bool, sandbox_enable_state_flag, (const char *name, mav_audit_token_t token))
 {
     (void)name; (void)token;
     return false;
@@ -593,8 +592,7 @@ extern CCCryptorStatus CCCryptorGCM(CCOperation op, CCAlgorithm alg, const void 
 // mismatch (the authenticated-decrypt contract: a forged/wrong tag fails rather than returning
 // plaintext — the caller treats any non-success as decryption failure).
 WK_POLYFILL_ABSENT(NULL, CCCryptorStatus, CCCryptorGCMOneshotDecrypt,
-    (CCAlgorithm alg, const void *key, size_t keyLength, const void *iv, size_t ivLen, const void *aData, size_t aDataLen, const void *dataIn, size_t dataInLength, void *dataOut, const void *tagIn, size_t tagLength),
-    (alg, key, keyLength, iv, ivLen, aData, aDataLen, dataIn, dataInLength, dataOut, tagIn, tagLength))
+    (CCAlgorithm alg, const void *key, size_t keyLength, const void *iv, size_t ivLen, const void *aData, size_t aDataLen, const void *dataIn, size_t dataInLength, void *dataOut, const void *tagIn, size_t tagLength))
 {
     unsigned char computedTag[16];
     if (tagLength > sizeof(computedTag))
@@ -618,8 +616,7 @@ struct CCKDFParameters {
 };
 
 WK_POLYFILL_ABSENT(NULL, int32_t, CCKDFParametersCreateHkdf,
-    (struct CCKDFParameters **params, const void *salt, size_t saltLen, const void *context, size_t contextLen),
-    (params, salt, saltLen, context, contextLen))
+    (struct CCKDFParameters **params, const void *salt, size_t saltLen, const void *context, size_t contextLen))
 {
     if (!params)
         return kCCParamError;
@@ -642,7 +639,7 @@ WK_POLYFILL_ABSENT(NULL, int32_t, CCKDFParametersCreateHkdf,
     return kCCSuccess;
 }
 
-WK_POLYFILL_ABSENT(NULL, void, CCKDFParametersDestroy, (struct CCKDFParameters *params), (params))
+WK_POLYFILL_ABSENT(NULL, void, CCKDFParametersDestroy, (struct CCKDFParameters *params))
 {
     if (!params)
         return;
@@ -667,8 +664,7 @@ static int mav_hkdfDigestInfo(uint32_t digest, CCHmacAlgorithm *hmacAlg, unsigne
 // HKDF (RFC 5869): extract PRK = HMAC(salt, IKM), then expand OKM = T(1..N) where
 // T(i) = HMAC(PRK, T(i-1) || info || i), truncated to derivedKeyLen.
 WK_POLYFILL_ABSENT(NULL, int32_t, CCDeriveKey,
-    (const struct CCKDFParameters *params, uint32_t digest, const void *keyDerivationKey, size_t keyDerivationKeyLen, void *derivedKey, size_t derivedKeyLen),
-    (params, digest, keyDerivationKey, keyDerivationKeyLen, derivedKey, derivedKeyLen))
+    (const struct CCKDFParameters *params, uint32_t digest, const void *keyDerivationKey, size_t keyDerivationKeyLen, void *derivedKey, size_t derivedKeyLen))
 {
     if (!params || (!derivedKey && derivedKeyLen))
         return kCCParamError;
@@ -742,7 +738,7 @@ static CFStringRef mav_trustResultDescription(SecTrustResultType resultType)
     }
 }
 
-WK_POLYFILL_ABSENT("Security", bool, SecTrustEvaluateWithError, (SecTrustRef trust, CFErrorRef *error), (trust, error))
+WK_POLYFILL_ABSENT("Security", bool, SecTrustEvaluateWithError, (SecTrustRef trust, CFErrorRef *error))
 {
     SecTrustResultType trustResult = kSecTrustResultInvalid;
     OSStatus status = SecTrustEvaluate(trust, &trustResult);
@@ -778,77 +774,76 @@ WK_POLYFILL_ABSENT("Security", bool, SecTrustEvaluateWithError, (SecTrustRef tru
 // ---------------------------------------------------------------------------------------------------
 
 // SecCertificateCopyKey (10.14+): extracting a SecKeyRef public key from a certificate.
-WK_POLYFILL_ABSENT("Security", SecKeyRef, SecCertificateCopyKey, (SecCertificateRef certificate), (certificate))
+WK_POLYFILL_ABSENT("Security", SecKeyRef, SecCertificateCopyKey, (SecCertificateRef certificate))
 {
     (void)certificate;
     return NULL;
 }
 
 
-WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCopyExternalRepresentation, (SecKeyRef key, CFErrorRef *error), (key, error))
+WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCopyExternalRepresentation, (SecKeyRef key, CFErrorRef *error))
 {
     (void)key;
     mav_reportUnimplemented(error);
     return NULL;
 }
 
-WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateWithData, (CFDataRef keyData, CFDictionaryRef attributes, CFErrorRef *error), (keyData, attributes, error))
+WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateWithData, (CFDataRef keyData, CFDictionaryRef attributes, CFErrorRef *error))
 {
     (void)keyData; (void)attributes;
     mav_reportUnimplemented(error);
     return NULL;
 }
 
-WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateRandomKey, (CFDictionaryRef parameters, CFErrorRef *error), (parameters, error))
+WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCreateRandomKey, (CFDictionaryRef parameters, CFErrorRef *error))
 {
     (void)parameters;
     mav_reportUnimplemented(error);
     return NULL;
 }
 
-WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCreateSignature, (SecKeyRef key, SecKeyAlgorithm algorithm, CFDataRef dataToSign, CFErrorRef *error), (key, algorithm, dataToSign, error))
+WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCreateSignature, (SecKeyRef key, SecKeyAlgorithm algorithm, CFDataRef dataToSign, CFErrorRef *error))
 {
     (void)key; (void)algorithm; (void)dataToSign;
     mav_reportUnimplemented(error);
     return NULL;
 }
 
-WK_POLYFILL_ABSENT("Security", Boolean, SecKeyVerifySignature, (SecKeyRef key, SecKeyAlgorithm algorithm, CFDataRef signedData, CFDataRef signature, CFErrorRef *error), (key, algorithm, signedData, signature, error))
+WK_POLYFILL_ABSENT("Security", Boolean, SecKeyVerifySignature, (SecKeyRef key, SecKeyAlgorithm algorithm, CFDataRef signedData, CFDataRef signature, CFErrorRef *error))
 {
     (void)key; (void)algorithm; (void)signedData; (void)signature;
     mav_reportUnimplemented(error);
     return false;
 }
 
-WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCreateEncryptedData, (SecKeyRef key, SecKeyAlgorithm algorithm, CFDataRef plaintext, CFErrorRef *error), (key, algorithm, plaintext, error))
+WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCreateEncryptedData, (SecKeyRef key, SecKeyAlgorithm algorithm, CFDataRef plaintext, CFErrorRef *error))
 {
     (void)key; (void)algorithm; (void)plaintext;
     mav_reportUnimplemented(error);
     return NULL;
 }
 
-WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCreateDecryptedData, (SecKeyRef key, SecKeyAlgorithm algorithm, CFDataRef ciphertext, CFErrorRef *error), (key, algorithm, ciphertext, error))
+WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCreateDecryptedData, (SecKeyRef key, SecKeyAlgorithm algorithm, CFDataRef ciphertext, CFErrorRef *error))
 {
     (void)key; (void)algorithm; (void)ciphertext;
     mav_reportUnimplemented(error);
     return NULL;
 }
 
-WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCopyPublicKey, (SecKeyRef key), (key))
+WK_POLYFILL_ABSENT("Security", SecKeyRef, SecKeyCopyPublicKey, (SecKeyRef key))
 {
     (void)key;
     return NULL;
 }
 
-WK_POLYFILL_ABSENT("Security", CFDictionaryRef, SecKeyCopyAttributes, (SecKeyRef key), (key))
+WK_POLYFILL_ABSENT("Security", CFDictionaryRef, SecKeyCopyAttributes, (SecKeyRef key))
 {
     (void)key;
     return NULL;
 }
 
 WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCopyKeyExchangeResult,
-    (SecKeyRef publicKey, SecKeyAlgorithm algorithm, SecKeyRef parameters, CFDictionaryRef requestedSize, CFErrorRef *error),
-    (publicKey, algorithm, parameters, requestedSize, error))
+    (SecKeyRef publicKey, SecKeyAlgorithm algorithm, SecKeyRef parameters, CFDictionaryRef requestedSize, CFErrorRef *error))
 {
     (void)publicKey; (void)algorithm; (void)parameters; (void)requestedSize;
     mav_reportUnimplemented(error);
@@ -863,14 +858,14 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecKeyCopyKeyExchangeResult,
 // callers proceed without ALPN — i.e. the protocol is negotiated the pre-ALPN way.
 // ---------------------------------------------------------------------------------------------------
 
-WK_POLYFILL_ABSENT("Security", OSStatus, SSLCopyALPNProtocols, (SSLContextRef context, CFArrayRef *protocols), (context, protocols))
+WK_POLYFILL_ABSENT("Security", OSStatus, SSLCopyALPNProtocols, (SSLContextRef context, CFArrayRef *protocols))
 {
     (void)context;
     if (protocols) *protocols = NULL;
     return errSecUnimplemented;
 }
 
-WK_POLYFILL_ABSENT("Security", OSStatus, SSLSetALPNProtocols, (SSLContextRef context, CFArrayRef protocols), (context, protocols))
+WK_POLYFILL_ABSENT("Security", OSStatus, SSLSetALPNProtocols, (SSLContextRef context, CFArrayRef protocols))
 {
     (void)context; (void)protocols;
     return errSecUnimplemented;
@@ -898,7 +893,7 @@ WK_SYSTEM_FN("CoreServices", CFStringRef, LSCopyDefaultHandlerForURLScheme, (CFS
 WK_SYSTEM_FN("CoreServices", OSStatus, LSFindApplicationForInfo, (OSType, CFStringRef, CFStringRef, void *, CFURLRef *));
 
 WK_POLYFILL_ABSENT("CoreServices", CFURLRef, LSCopyDefaultApplicationURLForURL,
-    (CFURLRef inURL, MavLSRolesMask inRoleMask, CFErrorRef *outError), (inURL, inRoleMask, outError))
+    (CFURLRef inURL, MavLSRolesMask inRoleMask, CFErrorRef *outError))
 {
     (void)inRoleMask;
     OSStatus status = MavLSApplicationNotFoundErr;
@@ -937,7 +932,7 @@ WK_POLYFILL_ABSENT("CoreServices", CFURLRef, LSCopyDefaultApplicationURLForURL,
 // NULL and the SOFT_LINK RELEASE_ASSERTs. 10.9 has no "prefer descriptive video" accessibility
 // preference, so return NULL: CaptionUserPreferencesMediaAF::userPrefersTextDescriptions() then reads
 // `preferDescriptiveVideo && CFBooleanGetValue(...)` as false and falls back to the base preference.
-WK_POLYFILL_ABSENT("MediaAccessibility", CFBooleanRef, MAAudibleMediaPrefCopyPreferDescriptiveVideo, (void), ())
+WK_POLYFILL_ABSENT("MediaAccessibility", CFBooleanRef, MAAudibleMediaPrefCopyPreferDescriptiveVideo, (void))
 {
     return NULL;
 }

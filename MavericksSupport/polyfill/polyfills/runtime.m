@@ -27,8 +27,8 @@
 
 #pragma mark - C function stubs
 
-WK_POLYFILL_ABSENT(NULL, void, abort_with_reason, (uint32_t a, uint64_t b, const char *c, uint64_t d), (a, b, c, d)) { abort(); }
-WK_POLYFILL_ABSENT(NULL, void, os_fault_with_payload, (uint32_t a, uint64_t b, const void *c, uint32_t d, const char *e, uint64_t f), (a, b, c, d, e, f)) { }
+WK_POLYFILL_ABSENT(NULL, void, abort_with_reason, (uint32_t a, uint64_t b, const char *c, uint64_t d)) { abort(); }
+WK_POLYFILL_ABSENT(NULL, void, os_fault_with_payload, (uint32_t a, uint64_t b, const void *c, uint32_t d, const char *e, uint64_t f)) { }
 
 #pragma mark - dyld version queries (10.10+)
 
@@ -180,19 +180,19 @@ static uint32_t wk_program_version(uint32_t (*accessor)(void), bool wantSDK)
     return wantSDK ? sdk : minos;
 }
 
-WK_POLYFILL_ABSENT(NULL, bool, dyld_program_sdk_at_least, (dyld_build_version_t version), (version))
+WK_POLYFILL_ABSENT(NULL, bool, dyld_program_sdk_at_least, (dyld_build_version_t version))
 {
     return wk_version_at_least(WK_PLATFORM_MACOS,
         wk_program_version(WK_SYSTEM(dyld_get_program_sdk_version), true), version);
 }
 
-WK_POLYFILL_ABSENT(NULL, bool, dyld_program_minos_at_least, (dyld_build_version_t version), (version))
+WK_POLYFILL_ABSENT(NULL, bool, dyld_program_minos_at_least, (dyld_build_version_t version))
 {
     return wk_version_at_least(WK_PLATFORM_MACOS,
         wk_program_version(WK_SYSTEM(dyld_get_program_min_os_version), false), version);
 }
 
-WK_POLYFILL_ABSENT(NULL, bool, dyld_sdk_at_least, (const struct mach_header *header, dyld_build_version_t version), (header, version))
+WK_POLYFILL_ABSENT(NULL, bool, dyld_sdk_at_least, (const struct mach_header *header, dyld_build_version_t version))
 {
     uint32_t platform = 0, minos = 0, sdk = 0;
     if (!wk_image_build_versions(header, &platform, &minos, &sdk))
@@ -202,22 +202,22 @@ WK_POLYFILL_ABSENT(NULL, bool, dyld_sdk_at_least, (const struct mach_header *hea
 }
 
 // cache/simulator stubs
-WK_POLYFILL_ABSENT(NULL, void, cache_simulate_size_response, (uint64_t a, uint64_t b, uint64_t c), (a, b, c)) { }
+WK_POLYFILL_ABSENT(NULL, void, cache_simulate_size_response, (uint64_t a, uint64_t b, uint64_t c)) { }
 
 // os_variant stubs
-WK_POLYFILL_ABSENT(NULL, bool, os_variant_allows_internal_security_policies, (const char *s), (s)) { return false; }
-WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_content, (const char *s), (s)) { return false; }
-WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_diagnostics, (const char *s), (s)) { return false; }
+WK_POLYFILL_ABSENT(NULL, bool, os_variant_allows_internal_security_policies, (const char *s)) { return false; }
+WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_content, (const char *s)) { return false; }
+WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_diagnostics, (const char *s)) { return false; }
 
 // pthread
-WK_POLYFILL_ABSENT(NULL, bool, pthread_self_is_exiting_np, (void), ()) { return false; }
+WK_POLYFILL_ABSENT(NULL, bool, pthread_self_is_exiting_np, (void)) { return false; }
 
 // os_unfair_lock_assert_owner / _assert_not_owner (10.12+) are the lock-ownership debug assertions WTF::Lock
 // emits under the modern SDK. The lock primitive itself is polyfilled separately; only these assert
 // helpers are absent on 10.9. No-op them -- without a definition the first use aborts fatally, during
 // IPC message handling on page load.
-WK_POLYFILL_ABSENT(NULL, void, os_unfair_lock_assert_owner, (void *lock), (lock)) { (void)lock; }
-WK_POLYFILL_ABSENT(NULL, void, os_unfair_lock_assert_not_owner, (void *lock), (lock)) { (void)lock; }
+WK_POLYFILL_ABSENT(NULL, void, os_unfair_lock_assert_owner, (void *lock)) { (void)lock; }
+WK_POLYFILL_ABSENT(NULL, void, os_unfair_lock_assert_not_owner, (void *lock)) { (void)lock; }
 
 // os_log unified logging is 10.12+; _os_log_internal is the macro-emitted backing for every os_log()
 // call site and is absent from 10.9's libSystem (it links as the Mach-O symbol __os_log_internal).
@@ -227,8 +227,7 @@ WK_POLYFILL_ABSENT(NULL, void, os_unfair_lock_assert_not_owner, (void *lock), (l
 // Signature uses plain types (os_log_t/os_log_type_t aren't visible under --no-default-config);
 // ABI-equivalent: os_log_t==pointer, os_log_type_t==uint8_t, buf==uint8_t*, size==uint32_t.
 WK_POLYFILL_ABSENT(NULL, void, _os_log_internal,
-    (void *dso, void *log, uint8_t type, const char *format, uint8_t *buf, uint32_t size),
-    (dso, log, type, format, buf, size)) {
+    (void *dso, void *log, uint8_t type, const char *format, uint8_t *buf, uint32_t size)) {
     (void)dso; (void)log; (void)type; (void)format; (void)buf; (void)size;
 }
 
@@ -237,25 +236,24 @@ WK_POLYFILL_ABSENT(NULL, void, _os_log_internal,
 // Therefore the returned handle MUST be a real, retainable Objective-C object (a bare pointer crashes in
 // objc_msgSend on [obj retain]). Return a fresh +1 NSObject (matching os_log_create's create semantics);
 // _os_log_internal ignores the log, so the object's only role is to be a valid refcounted handle.
-WK_POLYFILL_ABSENT(NULL, void *, _os_log_create, (const char *subsystem, const char *category), (subsystem, category)) {
+WK_POLYFILL_ABSENT(NULL, void *, _os_log_create, (const char *subsystem, const char *category)) {
     (void)subsystem; (void)category;
     return (void *)[[NSObject alloc] init];
 }
 
 // os_signpost performance tracing is 10.14+; absent on 10.9. No-op so signpost call sites link and the
 // "is signposting enabled" guard always reports disabled (no emit happens).
-WK_POLYFILL_ABSENT(NULL, bool, os_signpost_enabled, (void *log), (log)) { (void)log; return false; }
-WK_POLYFILL_ABSENT(NULL, uint64_t, os_signpost_id_make_with_pointer, (void *log, const void *ptr), (log, ptr)) { (void)log; return (uint64_t)(uintptr_t)ptr; }
+WK_POLYFILL_ABSENT(NULL, bool, os_signpost_enabled, (void *log)) { (void)log; return false; }
+WK_POLYFILL_ABSENT(NULL, uint64_t, os_signpost_id_make_with_pointer, (void *log, const void *ptr)) { (void)log; return (uint64_t)(uintptr_t)ptr; }
 WK_POLYFILL_ABSENT(NULL, void, _os_signpost_emit_with_name_impl,
-    (void *dso, void *log, uint8_t type, uint64_t spid, const char *name, const char *format, uint8_t *buf, uint32_t size),
-    (dso, log, type, spid, name, format, buf, size)) {
+    (void *dso, void *log, uint8_t type, uint64_t spid, const char *name, const char *format, uint8_t *buf, uint32_t size)) {
     (void)dso; (void)log; (void)type; (void)spid; (void)name; (void)format; (void)buf; (void)size;
 }
 
 // os_feature_enabled(domain, feature) — libSystem feature-flag query (10.13+). Every WebKit call site
 // gates a feature that postdates 10.9 (VisualIntelligence/Translate/TextComposer post-editing/the
 // redesigned text cursor), so the faithful answer on this OS is "not enabled".
-WK_POLYFILL_ABSENT(NULL, bool, _os_feature_enabled_impl, (const char *domain, const char *feature), (domain, feature))
+WK_POLYFILL_ABSENT(NULL, bool, _os_feature_enabled_impl, (const char *domain, const char *feature))
 {
     (void)domain;
     (void)feature;
@@ -265,7 +263,7 @@ WK_POLYFILL_ABSENT(NULL, bool, _os_feature_enabled_impl, (const char *domain, co
 
 // timingsafe_bcmp (constant-time compare, used by crypto) is absent on 10.9. Provide a constant-time
 // implementation (no early-out) so timing characteristics match the real function.
-WK_POLYFILL_ABSENT(NULL, int, timingsafe_bcmp, (const void *a, const void *b, size_t n), (a, b, n)) {
+WK_POLYFILL_ABSENT(NULL, int, timingsafe_bcmp, (const void *a, const void *b, size_t n)) {
     const unsigned char *x = (const unsigned char *)a, *y = (const unsigned char *)b;
     unsigned char r = 0;
     for (size_t i = 0; i < n; i++) r |= x[i] ^ y[i];
@@ -274,14 +272,13 @@ WK_POLYFILL_ABSENT(NULL, int, timingsafe_bcmp, (const void *a, const void *b, si
 
 // voucher_mach_msg_set (libdispatch QoS voucher propagation) is 10.10+. Vouchers don't exist on 10.9;
 // report "no voucher set" (FALSE). Vouchers are only a QoS-propagation optimization, so this is benign.
-WK_POLYFILL_ABSENT(NULL, int, voucher_mach_msg_set, (void *msg), (msg)) { (void)msg; return 0; }
+WK_POLYFILL_ABSENT(NULL, int, voucher_mach_msg_set, (void *msg)) { (void)msg; return 0; }
 
 // mach_memory_entry_ownership (footprint-ledger attribution of shared memory) is ~10.13+. 10.9 has no
 // phys_footprint ledger, so there is genuinely nothing to attribute; report success (the sole caller,
 // SharedMemoryHandle, only RELEASE_LOG_ERRORs on failure and is otherwise a no-op).
 WK_POLYFILL_ABSENT(NULL, int, mach_memory_entry_ownership,
-    (unsigned int mem_entry, unsigned int owner, int ledger_tag, int ledger_flags),
-    (mem_entry, owner, ledger_tag, ledger_flags)) {
+    (unsigned int mem_entry, unsigned int owner, int ledger_tag, int ledger_flags)) {
     (void)mem_entry; (void)owner; (void)ledger_tag; (void)ledger_flags;
     return 0; // KERN_SUCCESS
 }
@@ -294,10 +291,10 @@ WK_POLYFILL_ABSENT(NULL, int, mach_memory_entry_ownership,
 // (both 10.6). The asm label is what puts the "$V2" suffix on the emitted symbol; the C identifier
 // stays the plain name.
 // REPLACES, not a gap-fill: 10.9's libdispatch does export the UNSUFFIXED
-// dispatch_queue_create_with_target (verified by dlsym on this host — it is the pre-10.10 "legacy"
-// V1 entry point), so a gap-fill would forward every $V2 call to V1's semantics. Callers here are
-// compiled against $V2, so ours always wins; the registry entry records that 10.9's same-named
-// symbol is deliberately not used.
+// dispatch_queue_create_with_target (verified by dlsym on this host — the pre-10.10 "legacy" V1 entry
+// point), so the registry name collides with a symbol 10.9 has. REPLACES records that we deliberately
+// supply our own $V2 body — rebuilt from the primitives above — rather than 10.9's same-named V1. The
+// body always runs; nothing forwards.
 dispatch_queue_t dispatch_queue_create_with_target(const char *label, dispatch_queue_attr_t attr, dispatch_queue_t target)
     __asm__("_dispatch_queue_create_with_target$V2");
 WK_POLYFILL_REPLACES(NULL, dispatch_queue_t, dispatch_queue_create_with_target,
@@ -308,20 +305,20 @@ WK_POLYFILL_REPLACES(NULL, dispatch_queue_t, dispatch_queue_create_with_target,
 }
 
 // xpc_type_get_name (newer XPC introspection) — used only for diagnostic strings; return a generic label.
-WK_POLYFILL_ABSENT(NULL, const char *, xpc_type_get_name, (void *type), (type)) { (void)type; return "xpc-object"; }
+WK_POLYFILL_ABSENT(NULL, const char *, xpc_type_get_name, (void *type)) { (void)type; return "xpc-object"; }
 
 // xpc_dictionary_get_array (10.10+): the typed array accessor. 10.9 has xpc_dictionary_get_value, which
 // returns the same borrowed object when the key holds an array — exactly what callers (e.g. the auth
 // client-certificate chain in AuthenticationManagerCocoa) expect.
-WK_POLYFILL_ABSENT(NULL, xpc_object_t, xpc_dictionary_get_array, (xpc_object_t xdict, const char *key), (xdict, key)) { return xpc_dictionary_get_value(xdict, key); }
+WK_POLYFILL_ABSENT(NULL, xpc_object_t, xpc_dictionary_get_array, (xpc_object_t xdict, const char *key)) { return xpc_dictionary_get_value(xdict, key); }
 
 // xpc_connection_copy_invalidation_reason (10.10+): no per-connection reason string on 10.9; return a
 // caller-freeable generic reason (used only for diagnostic logging).
-WK_POLYFILL_ABSENT(NULL, char *, xpc_connection_copy_invalidation_reason, (xpc_connection_t connection), (connection)) { (void)connection; return strdup("connection invalidated"); }
+WK_POLYFILL_ABSENT(NULL, char *, xpc_connection_copy_invalidation_reason, (xpc_connection_t connection)) { (void)connection; return strdup("connection invalidated"); }
 
 // xpc_transaction_exit_clean (10.10+): exit once outstanding transactions drain. It is called from the
 // XPC service entry point's shutdown path (after the OS transaction is cleared), so a clean exit matches.
-WK_POLYFILL_ABSENT(NULL, void, xpc_transaction_exit_clean, (void), ()) { exit(0); }
+WK_POLYFILL_ABSENT(NULL, void, xpc_transaction_exit_clean, (void)) { exit(0); }
 
 #pragma mark - newer-than-10.9 C / CoreFoundation symbols WebKit references
 // A few plain C / CoreFoundation symbols WebKit (and the bundled libwebrtc) reference are absent from
@@ -331,7 +328,7 @@ WK_POLYFILL_ABSENT(NULL, void, xpc_transaction_exit_clean, (void), ()) { exit(0)
 // __darwin_check_fd_set_overflow (the fortified FD_SET bounds check) is newer; on 10.9 reproduce its
 // semantics: a descriptor is valid if non-negative and (when not unlimited) within FD_SETSIZE. The
 // FD_SET macro the modern SDK emits calls it.
-WK_POLYFILL_ABSENT(NULL, int, __darwin_check_fd_set_overflow, (int n, const void *fdset, int unlimited), (n, fdset, unlimited)) {
+WK_POLYFILL_ABSENT(NULL, int, __darwin_check_fd_set_overflow, (int n, const void *fdset, int unlimited)) {
     (void)fdset;
     return (n >= 0 && (unlimited || n < FD_SETSIZE)) ? 1 : 0;
 }
@@ -393,7 +390,7 @@ WK_POLYFILL_ABSENT(NULL, int, __darwin_check_fd_set_overflow, (int n, const void
 
 // The image an address belongs to. dladdr already answers exactly this question -- dli_fbase is the
 // mach header of the image containing the address -- and is 10.9 API.
-WK_POLYFILL_ABSENT(NULL, const struct mach_header *, dyld_image_header_containing_address, (const void *address), (address))
+WK_POLYFILL_ABSENT(NULL, const struct mach_header *, dyld_image_header_containing_address, (const void *address))
 {
     Dl_info info;
     if (!dladdr(address, &info))
@@ -406,7 +403,7 @@ WK_POLYFILL_ABSENT(NULL, const struct mach_header *, dyld_image_header_containin
 // RTLD_NOLOAD hands back the very same handle. So ask each loaded image for its handle and match.
 // RTLD_NOLOAD loads nothing, and the matching dlclose gives back the reference the reopen took, so
 // the process is left exactly as it was found.
-WK_POLYFILL_ABSENT(NULL, const struct mach_header *, _dyld_get_dlopen_image_header, (void *handle), (handle))
+WK_POLYFILL_ABSENT(NULL, const struct mach_header *, _dyld_get_dlopen_image_header, (void *handle))
 {
     if (!handle)
         return NULL;
@@ -429,7 +426,7 @@ WK_POLYFILL_ABSENT(NULL, const struct mach_header *, _dyld_get_dlopen_image_head
 // decide whether a cached bytecode file was produced by this very JavaScriptCore. Every Mach-O the
 // linker produces carries one; an image without one gets the zeroed UUID and a false return, which is
 // how the caller is told there is no identity to hash (dyld does the same).
-WK_POLYFILL_ABSENT(NULL, bool, _dyld_get_image_uuid, (const struct mach_header *header, uuid_t uuid), (header, uuid))
+WK_POLYFILL_ABSENT(NULL, bool, _dyld_get_image_uuid, (const struct mach_header *header, uuid_t uuid))
 {
     if (!uuid)
         return false;
@@ -468,7 +465,7 @@ WK_SYSTEM_FN(NULL, const struct dyld_all_image_infos *, _dyld_get_all_image_info
 // dyld_all_image_infos.sharedCacheUUID, a field present from version 13 (10.9) onward -- so this is
 // the running cache's own answer, not an inference. A process detached from the shared region has no
 // cache and leaves the field zeroed, which is reported as the honest "there is none" (false).
-WK_POLYFILL_ABSENT(NULL, bool, _dyld_get_shared_cache_uuid, (uuid_t uuid), (uuid))
+WK_POLYFILL_ABSENT(NULL, bool, _dyld_get_shared_cache_uuid, (uuid_t uuid))
 {
     if (!uuid)
         return false;
@@ -490,7 +487,7 @@ WK_POLYFILL_ABSENT(NULL, bool, _dyld_get_shared_cache_uuid, (uuid_t uuid), (uuid
 // on this host rather than assumed -- the UUID stored at offset 0x58 of
 // /private/var/db/dyld/dyld_shared_cache_x86_64 is byte-for-byte the sharedCacheUUID dyld reports for
 // the running process (a998f590-4df9-3cf1-9bda-97d3bb2875cf).
-WK_POLYFILL_ABSENT(NULL, const char *, dyld_shared_cache_file_path, (void), ())
+WK_POLYFILL_ABSENT(NULL, const char *, dyld_shared_cache_file_path, (void))
 {
 #if defined(__x86_64__)
     return "/private/var/db/dyld/dyld_shared_cache_x86_64";
@@ -501,29 +498,27 @@ WK_POLYFILL_ABSENT(NULL, const char *, dyld_shared_cache_file_path, (void), ())
 #endif
 }
 
-WK_POLYFILL_ABSENT(NULL, void, cache_simulate_memory_warning_event, (uint64_t a), (a)) { }
+WK_POLYFILL_ABSENT(NULL, void, cache_simulate_memory_warning_event, (uint64_t a)) { }
 
 #pragma mark - os_log emit points (10.12+)
 
 // The other two macro-emitted os_log() backings, and the "would this level be logged?" query the
 // os_log macros consult first. Unified logging does not exist on 10.9: report every level disabled
 // and drop what is emitted anyway. (_os_log_internal above is the third backing.)
-WK_POLYFILL_ABSENT(NULL, int, os_log_type_enabled, (void *log, int type), (log, type))
+WK_POLYFILL_ABSENT(NULL, int, os_log_type_enabled, (void *log, int type))
 {
     (void)log; (void)type;
     return 0; // logging disabled
 }
 
 WK_POLYFILL_ABSENT(NULL, void, _os_log_impl,
-    (void *dso, void *log, int type, const char *format, void *buf, unsigned int size),
-    (dso, log, type, format, buf, size))
+    (void *dso, void *log, int type, const char *format, void *buf, unsigned int size))
 {
     (void)dso; (void)log; (void)type; (void)format; (void)buf; (void)size;
 }
 
 WK_POLYFILL_ABSENT(NULL, void, _os_log_error_impl,
-    (void *dso, void *log, int type, const char *format, void *buf, unsigned int size),
-    (dso, log, type, format, buf, size))
+    (void *dso, void *log, int type, const char *format, void *buf, unsigned int size))
 {
     (void)dso; (void)log; (void)type; (void)format; (void)buf; (void)size;
 }
@@ -533,8 +528,8 @@ WK_POLYFILL_ABSENT(NULL, void, _os_log_error_impl,
 // syslog$DARWIN_EXTSN is the DARWIN_EXTSN ABI variant of syslog(); 10.9's libc exports only the
 // plain spelling, which is the one this forwards to (through vsyslog, the va_list form of the same
 // call), so the message reaches syslogd exactly as it would have. The asm label is what puts the
-// "$DARWIN_EXTSN" suffix on the emitted symbol. Variadic, so it is declared with
-// WK_POLYFILL_REPLACES — WK_POLYFILL_ABSENT's generated forward-to-10.9 call cannot pass varargs.
+// "$DARWIN_EXTSN" suffix on the emitted symbol. Declared WK_POLYFILL_REPLACES because the registry
+// name (plain syslog) is a symbol 10.9 exports; the body always runs and forwards through vsyslog by hand.
 void syslog(int priority, const char *message, ...) __asm__("_syslog$DARWIN_EXTSN");
 WK_POLYFILL_REPLACES(NULL, void, syslog, (int priority, const char *message, ...))
 {
@@ -550,39 +545,39 @@ WK_POLYFILL_REPLACES(NULL, void, syslog, (int priority, const char *message, ...
 // only in which thread the block may run on (they may be moved to the queue's own thread rather
 // than executed on the caller's); the completion contract — enqueue, then block until done — is the
 // same, so dispatch_sync satisfies every caller.
-WK_POLYFILL_ABSENT(NULL, void, dispatch_async_and_wait, (dispatch_queue_t queue, dispatch_block_t block), (queue, block))
+WK_POLYFILL_ABSENT(NULL, void, dispatch_async_and_wait, (dispatch_queue_t queue, dispatch_block_t block))
 {
     dispatch_sync(queue, block);
 }
 
-WK_POLYFILL_ABSENT(NULL, void, dispatch_async_and_wait_f, (dispatch_queue_t queue, void *ctx, void (*work)(void *)), (queue, ctx, work))
+WK_POLYFILL_ABSENT(NULL, void, dispatch_async_and_wait_f, (dispatch_queue_t queue, void *ctx, void (*work)(void *)))
 {
     dispatch_sync_f(queue, ctx, work);
 }
 
-WK_POLYFILL_ABSENT(NULL, void, dispatch_barrier_async_and_wait, (dispatch_queue_t queue, dispatch_block_t block), (queue, block))
+WK_POLYFILL_ABSENT(NULL, void, dispatch_barrier_async_and_wait, (dispatch_queue_t queue, dispatch_block_t block))
 {
     dispatch_barrier_sync(queue, block);
 }
 
-WK_POLYFILL_ABSENT(NULL, void, dispatch_barrier_async_and_wait_f, (dispatch_queue_t queue, void *ctx, void (*work)(void *)), (queue, ctx, work))
+WK_POLYFILL_ABSENT(NULL, void, dispatch_barrier_async_and_wait_f, (dispatch_queue_t queue, void *ctx, void (*work)(void *)))
 {
     dispatch_barrier_sync_f(queue, ctx, work);
 }
 
 // dispatch_set_qos_class_floor (10.14) raises the floor of a queue's QoS class. 10.9 has no QoS
 // scheduling classes at all (see the pthread QoS group below), so there is no floor to raise.
-WK_POLYFILL_ABSENT(NULL, void, dispatch_set_qos_class_floor, (dispatch_object_t object, int qos_class, int relpri), (object, qos_class, relpri))
+WK_POLYFILL_ABSENT(NULL, void, dispatch_set_qos_class_floor, (dispatch_object_t object, int qos_class, int relpri))
 {
     (void)object; (void)qos_class; (void)relpri;
 }
 
 // dispatch_assert_queue (public in 10.12; the modern SDK emits the ABI-tagged "$V2" spelling, which
 // 10.9 has no symbol for). 10.9's libdispatch DOES export the unsuffixed dispatch_assert_queue — the
-// pre-10.12 entry point with the same semantics — so forward the $V2 call to it and the assertion
-// keeps its real teeth rather than being stubbed out. REPLACES, not a gap-fill, for the same reason
-// as dispatch_queue_create_with_target above: ours must win for the $V2 spelling while the registry
-// records that the same-named 10.9 symbol is what we forward to.
+// pre-10.12 entry point with the same semantics — so the body forwards the $V2 call to it by hand and
+// the assertion keeps its real teeth rather than being stubbed out. REPLACES, not a gap-fill, for the
+// same reason as dispatch_queue_create_with_target above: the registry name collides with a symbol
+// 10.9 exports. The body always runs and calls through explicitly (not the removed auto-forward).
 void dispatch_assert_queue(dispatch_queue_t queue) __asm__("_dispatch_assert_queue$V2");
 WK_POLYFILL_REPLACES(NULL, void, dispatch_assert_queue, (dispatch_queue_t queue))
 {
@@ -596,12 +591,12 @@ WK_POLYFILL_REPLACES(NULL, void, dispatch_assert_queue, (dispatch_queue_t queue)
 // declared by the 10.9 headers; it is an os_object like every other dispatch object.
 typedef struct dispatch_object_s *dispatch_workloop_t;
 
-WK_POLYFILL_ABSENT(NULL, dispatch_workloop_t, dispatch_workloop_create, (const char *label), (label))
+WK_POLYFILL_ABSENT(NULL, dispatch_workloop_t, dispatch_workloop_create, (const char *label))
 {
     return (dispatch_workloop_t)(void *)dispatch_queue_create(label, DISPATCH_QUEUE_SERIAL);
 }
 
-WK_POLYFILL_ABSENT(NULL, dispatch_workloop_t, dispatch_workloop_create_inactive, (const char *label), (label))
+WK_POLYFILL_ABSENT(NULL, dispatch_workloop_t, dispatch_workloop_create_inactive, (const char *label))
 {
     return (dispatch_workloop_t)(void *)dispatch_queue_create(label, DISPATCH_QUEUE_SERIAL);
 }
@@ -612,13 +607,13 @@ WK_POLYFILL_ABSENT(NULL, dispatch_workloop_t, dispatch_workloop_create_inactive,
 // answer to a query is QOS_CLASS_UNSPECIFIED (0) at relative priority 0 — which is exactly what a
 // thread on this OS is. Overrides likewise have nothing to override; start returns a non-NULL token
 // so the caller's paired _end() call is well-formed.
-WK_POLYFILL_ABSENT(NULL, int, pthread_set_qos_class_self_np, (int qos_class, int relative_priority), (qos_class, relative_priority))
+WK_POLYFILL_ABSENT(NULL, int, pthread_set_qos_class_self_np, (int qos_class, int relative_priority))
 {
     (void)qos_class; (void)relative_priority;
     return 0;
 }
 
-WK_POLYFILL_ABSENT(NULL, int, pthread_get_qos_class_np, (pthread_t thread, int *qos_class, int *relative_priority), (thread, qos_class, relative_priority))
+WK_POLYFILL_ABSENT(NULL, int, pthread_get_qos_class_np, (pthread_t thread, int *qos_class, int *relative_priority))
 {
     (void)thread;
     if (qos_class) *qos_class = 0; // QOS_CLASS_UNSPECIFIED
@@ -626,13 +621,13 @@ WK_POLYFILL_ABSENT(NULL, int, pthread_get_qos_class_np, (pthread_t thread, int *
     return 0;
 }
 
-WK_POLYFILL_ABSENT(NULL, int, pthread_attr_set_qos_class_np, (pthread_attr_t *attr, int qos_class, int relative_priority), (attr, qos_class, relative_priority))
+WK_POLYFILL_ABSENT(NULL, int, pthread_attr_set_qos_class_np, (pthread_attr_t *attr, int qos_class, int relative_priority))
 {
     (void)attr; (void)qos_class; (void)relative_priority;
     return 0;
 }
 
-WK_POLYFILL_ABSENT(NULL, int, pthread_attr_get_qos_class_np, (pthread_attr_t *attr, int *qos_class, int *relative_priority), (attr, qos_class, relative_priority))
+WK_POLYFILL_ABSENT(NULL, int, pthread_attr_get_qos_class_np, (pthread_attr_t *attr, int *qos_class, int *relative_priority))
 {
     (void)attr;
     if (qos_class) *qos_class = 0;
@@ -640,13 +635,13 @@ WK_POLYFILL_ABSENT(NULL, int, pthread_attr_get_qos_class_np, (pthread_attr_t *at
     return 0;
 }
 
-WK_POLYFILL_ABSENT(NULL, void *, pthread_override_qos_class_start_np, (pthread_t thread, int qos_class, int relative_priority), (thread, qos_class, relative_priority))
+WK_POLYFILL_ABSENT(NULL, void *, pthread_override_qos_class_start_np, (pthread_t thread, int qos_class, int relative_priority))
 {
     (void)thread; (void)qos_class; (void)relative_priority;
     return (void *)1;
 }
 
-WK_POLYFILL_ABSENT(NULL, int, pthread_override_qos_class_end_np, (void *override), (override))
+WK_POLYFILL_ABSENT(NULL, int, pthread_override_qos_class_end_np, (void *override))
 {
     (void)override;
     return 0;
@@ -712,7 +707,7 @@ long macports_legacy_sysconf(int name) { return sysconf(name); }
 // notify_is_valid_token (10.10+) asks whether a notify token is still live. 10.9's notify has no
 // token registry to consult, so the call cannot be answered: report "not valid" and set ENOSYS,
 // which is how a caller distinguishes "no" from "unsupported".
-WK_POLYFILL_ABSENT(NULL, bool, notify_is_valid_token, (int token), (token))
+WK_POLYFILL_ABSENT(NULL, bool, notify_is_valid_token, (int token))
 {
     (void)token;
     errno = ENOSYS;
@@ -724,7 +719,7 @@ WK_POLYFILL_ABSENT(NULL, bool, notify_is_valid_token, (int token), (token))
 // dyld_shared_cache_iterate_text (10.10+) walks the text ranges of the images in the shared cache.
 // Returning non-zero is the "no shared cache to iterate" answer, which leaves callers on the path
 // they take on a machine whose cache is unavailable.
-WK_POLYFILL_ABSENT(NULL, int, dyld_shared_cache_iterate_text, (const void *uuid, void (*callback)(const void *info)), (uuid, callback))
+WK_POLYFILL_ABSENT(NULL, int, dyld_shared_cache_iterate_text, (const void *uuid, void (*callback)(const void *info)))
 {
     (void)uuid; (void)callback;
     return -1;
@@ -738,27 +733,27 @@ WK_POLYFILL_ABSENT(NULL, int, dyld_shared_cache_iterate_text, (const void *uuid,
 //
 // objc_alloc is deliberately NOT polyfilled: 10.9's libobjc already exports it.
 
-WK_POLYFILL_ABSENT(NULL, id, objc_alloc_init, (Class cls), (cls))
+WK_POLYFILL_ABSENT(NULL, id, objc_alloc_init, (Class cls))
 {
     id object = ((id (*)(Class, SEL))objc_msgSend)(cls, sel_getUid("alloc"));
     return ((id (*)(id, SEL))objc_msgSend)(object, sel_getUid("init"));
 }
 
-WK_POLYFILL_ABSENT(NULL, Class, objc_opt_class, (id object), (object))
+WK_POLYFILL_ABSENT(NULL, Class, objc_opt_class, (id object))
 {
     if (!object)
         return Nil;
     return ((Class (*)(id, SEL))objc_msgSend)(object, sel_getUid("class"));
 }
 
-WK_POLYFILL_ABSENT(NULL, BOOL, objc_opt_isKindOfClass, (id object, Class cls), (object, cls))
+WK_POLYFILL_ABSENT(NULL, BOOL, objc_opt_isKindOfClass, (id object, Class cls))
 {
     if (!object)
         return NO;
     return ((BOOL (*)(id, SEL, Class))objc_msgSend)(object, sel_getUid("isKindOfClass:"), cls);
 }
 
-WK_POLYFILL_ABSENT(NULL, BOOL, objc_opt_respondsToSelector, (id object, SEL selector), (object, selector))
+WK_POLYFILL_ABSENT(NULL, BOOL, objc_opt_respondsToSelector, (id object, SEL selector))
 {
     if (!object)
         return NO;
@@ -769,7 +764,7 @@ WK_POLYFILL_ABSENT(NULL, BOOL, objc_opt_respondsToSelector, (id object, SEL sele
 // retaining it. 10.9 has only the retaining form; claiming with a retain is the conservative
 // direction (the object stays alive at least as long), and ARC balances it at the call site.
 extern id objc_retainAutoreleasedReturnValue(id object);
-WK_POLYFILL_ABSENT(NULL, id, objc_unsafeClaimAutoreleasedReturnValue, (id object), (object))
+WK_POLYFILL_ABSENT(NULL, id, objc_unsafeClaimAutoreleasedReturnValue, (id object))
 {
     return objc_retainAutoreleasedReturnValue(object);
 }
@@ -781,8 +776,7 @@ WK_POLYFILL_ABSENT(NULL, id, objc_unsafeClaimAutoreleasedReturnValue, (id object
 // has no such call, but it does have thread_get_state, from which the same values come directly:
 // %rsp plus the 15 general-purpose registers and %rip.
 WK_POLYFILL_ABSENT(NULL, kern_return_t, thread_get_register_pointer_values,
-    (thread_t thread, uintptr_t *sp, size_t *count, uintptr_t *register_values),
-    (thread, sp, count, register_values))
+    (thread_t thread, uintptr_t *sp, size_t *count, uintptr_t *register_values))
 {
     x86_thread_state64_t state;
     mach_msg_type_number_t stateCount = x86_THREAD_STATE64_COUNT;

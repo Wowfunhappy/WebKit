@@ -1,16 +1,11 @@
 // wk_polyfill_runtime.c — the machinery behind wk_polyfill.h. Add polyfills there, not here.
 //
-// Three jobs, all driven by the __DATA,__wk_pfmap registry the macros emit:
+// Two jobs, both driven by the __DATA,__wk_pfmap registry the macros emit:
 //
-//  1. Copy 10.9's real value over a polyfilled CONSTANT when 10.9 turns out to export it. This is
-//     what makes a gap-fill safe to declare without first checking presence: a constant whose value
-//     the system actually interprets keeps the system's value, and only a genuinely absent one keeps
-//     ours. Runs from a constructor, before the rest of the image initializes.
-//
-//  2. Hand out 10.9's version of a symbol to a polyfill that wants it (WK_ORIGINAL), resolved on
+//  1. Hand out 10.9's version of a symbol to a polyfill that wants it (WK_ORIGINAL), resolved on
 //     first use so nothing is dlopen'd at launch that the process never touches.
 //
-//  3. Answer dlsym() for polyfilled names. WebKit's soft-linking (Source/WTF/wtf/cocoa/SoftLinking.h)
+//  2. Answer dlsym() for polyfilled names. WebKit's soft-linking (Source/WTF/wtf/cocoa/SoftLinking.h)
 //     resolves framework constants and functions by dlsym on a framework handle, which by
 //     construction cannot see a definition that lives in WebKit's own image. Without this, a
 //     soft-linked symbol would ignore the polyfill layer and SOFT_LINK_CONSTANT would kill the
@@ -95,9 +90,10 @@ static void resolveSystemDlsym(void)
 // CoreUI, CoreMedia, VideoToolbox and more -- so loading them here would pull the whole UI stack
 // into JavaScriptCore, the NetworkProcess and every host app that links WebKit. JavaScriptCore in
 // particular is kept clear of AppKit on purpose, for the dyld-restricted setuid program that loads
-// only it (see Source/JavaScriptCore/CMakeLists.txt). Constant mirroring therefore runs with
-// mayLoad=0 and is retried as images arrive; only a polyfill body that is actually executing may
-// load its provider, and by then the process is already using that API.
+// only it (see Source/JavaScriptCore/CMakeLists.txt). So the presence probes (handleCanSeeProvider and
+// the WK_POLYFILL_REPORT diagnostic) pass mayLoad=0 and see only providers already loaded; only a
+// polyfill body that is actually executing may load its provider, and by then the process is already
+// using that API.
 static void *providerHandle(const char *provider, int mayLoad)
 {
     if (!provider)
@@ -121,8 +117,9 @@ static void *providerHandle(const char *provider, int mayLoad)
 // This matters because each shipped framework force-loads the archive and so has its OWN copy of
 // every polyfill. A lookup for a symbol 10.9 genuinely lacks can therefore land on a SIBLING
 // framework's copy of the very same polyfill -- at a different address, so comparing against this
-// entry alone does not catch it. Left unchecked, a gap-fill would report itself "present on 10.9",
-// defer to that sibling copy, and the two images would forward to each other.
+// entry alone does not catch it. Left unchecked, WK_ORIGINAL (and the WK_POLYFILL_REPORT probe) would
+// take that sibling copy for 10.9's real symbol -- a REPLACES body calling through would re-enter a
+// sibling's copy of itself instead of reaching 10.9.
 static int addressIsOurs(void *address)
 {
     Dl_info info;
@@ -211,23 +208,22 @@ static int handleCanSeeProvider(void *handle, struct wk_polyfill_entry *entry)
 
 // dlsym for WebKit's own binaries (see the header comment: the archive is linked nowhere else).
 //
-// The system's answer always comes first, and always wins when there is one. A gap-fill exists for
-// the case where 10.9 has nothing; if 10.9 does export the name, deferring is what makes declaring
-// the polyfill safe without checking presence -- and it gives a soft-linked symbol the same answer
-// the link-time reference gets, which is the whole point of this override. Only a REPLACES entry,
-// whose entire premise is that 10.9's version is there and wrong, keeps winning here; anything else
-// would mean the same name resolved to the polyfill when linked and to 10.9 when soft-linked.
+// A registered name resolves to OUR definition -- the same one a link-time reference binds under
+// force_load -- so soft-linking (SOFT_LINK_CONSTANT/FUNCTION) and link-time references give the same
+// answer, which is the whole point of this override. Gap-fill vs replacement makes no difference here:
+// the body always runs either way, and the build gate guarantees a gap-fill's symbol is one 10.9
+// lacks, so there is nothing on 10.9 for it to shadow. (Were a gap-fill to defer to 10.9 here while
+// the link-time reference bound ours, the same name would resolve two ways.)
 //
-// And an answer comes out of the registry only where a real dlsym could plausibly have produced one:
-// the handle has to be able to see the provider (above), and for a gap-fill the lookup on that very
-// handle has to have come back empty.
+// An answer comes out of the registry only where a real dlsym could plausibly have produced one: the
+// handle has to be able to see the provider (above). The system's answer is taken first, so a
+// non-registered name passes straight through.
 //
-// Declared through the registry like any other deliberate override of a working 10.9 symbol, so that
-// WK_POLYFILL_REPORT names it and the shadow check sees a stated intent rather than an exemption.
-// Registering it recurses nowhere: lookup() is a scan over this image's own __wk_pfmap section, and the
-// real dlsym is reached through systemDlsym, which comes from NSLookupSymbolInImage. (Which is also why
-// the body uses systemDlsym rather than WK_ORIGINAL: it has to work before anything has read the
-// registry, and wk_polyfill_original resolves through systemDlsym in the end anyway.)
+// Declared through the registry like any other polyfill, so WK_POLYFILL_REPORT names it and the shadow
+// check sees a stated intent. Registering it recurses nowhere: lookup() is a scan over this image's own
+// __wk_pfmap section, and the real dlsym is reached through systemDlsym (from NSLookupSymbolInImage) --
+// which is also why the body uses systemDlsym rather than WK_ORIGINAL: it must work before anything has
+// read the registry.
 WK_POLYFILL_REPLACES(NULL, void *, dlsym, (void *handle, const char *symbol))
 {
     resolveSystemDlsym();   // no-op once resolved; fatal if the real dlsym is unreachable
@@ -237,9 +233,7 @@ WK_POLYFILL_REPLACES(NULL, void *, dlsym, (void *handle, const char *symbol))
         return systemAnswer;
 
     struct wk_polyfill_entry *entry = lookup(symbol);
-    if (!entry || (systemAnswer && entry->intent != WK_POLYFILL_REPLACES))
-        return systemAnswer;
-    if (!handleCanSeeProvider(handle, entry))
+    if (!entry || !handleCanSeeProvider(handle, entry))
         return systemAnswer;
 
     // The failed lookup above left an error pending; from the caller's side this call succeeded, so
@@ -251,7 +245,7 @@ WK_POLYFILL_REPLACES(NULL, void *, dlsym, (void *handle, const char *symbol))
 
 static void report(void);
 
-// Exposed for the self-test, which checks that reporting leaves constant mirroring alone.
+// Exposed so the self-test can drive report(), which is otherwise static.
 void wk_polyfill_report_for_testing(void);
 void wk_polyfill_report_for_testing(void) { report(); }
 
@@ -265,13 +259,10 @@ static void report(void)
     fprintf(stderr, "[wk_polyfill] %zu entries\n", entryCount);
     for (size_t i = 0; i < entryCount; i++) {
         struct wk_polyfill_entry *entry = &entries[i];
-        // Reporting must not change what the process does. wk_polyfill_original() marks an entry
-        // resolved, and mirrorConstants() skips resolved entries -- so asking it about a constant
-        // whose provider is not loaded yet would retire that constant from mirroring for the life of
-        // the process, leaving the placeholder token in place. Read the mirrored state instead, and
-        // probe read-only when there is none yet.
+        // Probe presence read-only for a constant (mayLoad=0, no caching, no side effects); a function
+        // may load its provider to answer, which for a REPLACES is the point of asking.
         int present = entry->kind == WK_POLYFILL_CONSTANT
-            ? (entry->resolved ? entry->original != NULL : resolveOriginal(entry, 0) != NULL)
+            ? resolveOriginal(entry, 0) != NULL
             : wk_polyfill_original(entry) != NULL;
         int replaces = entry->intent == WK_POLYFILL_REPLACES;
 
@@ -292,46 +283,8 @@ static void report(void)
         abort();
 }
 
-// Copy 10.9's real value over every gap-fill constant whose provider is already loaded. Entries stay
-// unresolved until their provider shows up, so this is safe to run repeatedly.
-static void mirrorConstants(void)
-{
-    for (size_t i = 0; i < entryCount; i++) {
-        struct wk_polyfill_entry *entry = &entries[i];
-        if (entry->kind != WK_POLYFILL_CONSTANT || entry->intent == WK_POLYFILL_REPLACES
-            || entry->resolved)
-            continue;
-
-        // The ONLY retryable state is "the provider is not loaded, so we cannot look yet". Once it
-        // is loaded its answer is final: a symbol that is not in it never will be.
-        //
-        // Distinguishing those two is what keeps this cheap. This runs from every image load, and
-        // the vast majority of entries are constants 10.9 genuinely lacks -- so treating "absent"
-        // as retryable meant re-probing ~190 symbols on every dlopen for the life of the process,
-        // each probe taking dyld's lock and then scanning every loaded image. That is a launch that
-        // crawls until image loading quiesces and then appears to heal itself.
-        void *handle = providerHandle(entry->provider, 0);
-        if (!handle)
-            continue;   // provider not loaded yet -- the one case worth revisiting
-
-        void *original = systemDlsym(handle, entry->name);
-        if (original && (original == entry->address || addressIsOurs(original)))
-            original = NULL;   // only our own definition answered; see resolveOriginal
-        if (original)
-            memcpy(entry->address, original, entry->size);
-        entry->original = original;
-        entry->resolved = 1;   // answered either way; never probe this entry again
-    }
-}
-
-static void imageAdded(const struct mach_header *header, intptr_t slide)
-{
-    (void)header; (void)slide;
-    mirrorConstants();
-}
-
-// Ahead of the image's other initializers, so a constant is never read before it is mirrored.
-// (Numbers below 101 are reserved for the implementation.)
+// Ahead of the image's other initializers, so the registry is populated before any soft-link lookup
+// reaches the dlsym override above. (Numbers below 101 are reserved for the implementation.)
 __attribute__((constructor(101)))
 static void wk_polyfill_init(void)
 {
@@ -349,11 +302,6 @@ static void wk_polyfill_init(void)
 
     entries = (struct wk_polyfill_entry *)section;
     entryCount = size / sizeof(struct wk_polyfill_entry);
-
-    mirrorConstants();
-    // A provider that is not loaded yet cannot be read now, and we will not load it just to look.
-    // Retry as images arrive, which covers every provider this process ever actually uses.
-    _dyld_register_func_for_add_image(imageAdded);
 
     report();
 }

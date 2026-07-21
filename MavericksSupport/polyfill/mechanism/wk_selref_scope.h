@@ -8,11 +8,11 @@
 #ifndef WK_SELREF_SCOPE_H
 #define WK_SELREF_SCOPE_H
 
-// GAP_FILL is what WK_POLYFILL_SEL means: supply the method, and if 10.9 turns out to have it after all,
-// forward to 10.9's and leave the body unused. REPLACES says this polyfill deliberately wins over 10.9's
-// method — the same distinction WK_POLYFILL_ABSENT vs WK_POLYFILL_REPLACES draws for a C symbol. The
-// forwarding happens in the patcher (wk_alias_class in wk_selref_scope.m), so a GAP_FILL declaration is
-// presence-agnostic: writing one for a method 10.9 already has is harmless, and you never have to know.
+// GAP_FILL is what WK_POLYFILL_SEL means: supply a method 10.9 LACKS; the body runs unconditionally,
+// like WK_POLYFILL_ABSENT for a C symbol. REPLACES says this polyfill deliberately shadows a method
+// 10.9 HAS. Both install the body (wk_alias_class in wk_selref_scope.m); the distinction is a
+// build-gate concern — a GAP_FILL whose method 10.9 turns out to have fails check-polyfill-shadows.sh,
+// so verify absence on-host rather than declaring one blindly.
 enum { WK_SELMAP_GAP_FILL = 0, WK_SELMAP_REPLACES = 1 };
 
 // A registry entry: public selector name -> private (wk_) selector name, plus which of the two above it
@@ -26,11 +26,11 @@ struct wk_selmap_entry { const char *pub; const char *priv; int intent; };
     __attribute__((used, section("__DATA,__wk_selmap"))) \
     static const struct wk_selmap_entry WK_SELMAP_CAT(wk_selmap_reg_, __LINE__) = { PUB, PRIV, INTENT }
 
-// The default. Declaring one for a method 10.9 turns out to have is harmless: the patcher forwards to
-// 10.9's method and the body goes unused, so you do not need to know whether 10.9 has it.
+// The default, for a method 10.9 LACKS: the body runs. If 10.9 turns out to have the method, the build
+// gate rejects it (delete it, or switch to WK_POLYFILL_SEL_REPLACES).
 #define WK_POLYFILL_SEL(PUB, PRIV) WK_POLYFILL_SEL_(PUB, PRIV, WK_SELMAP_GAP_FILL)
 
-// Use this when replacing 10.9's method is the point, so the body wins even where 10.9 has the method.
+// Use this to deliberately shadow a method 10.9 HAS, so the body wins by intent and the gate expects it.
 #define WK_POLYFILL_SEL_REPLACES(PUB, PRIV) WK_POLYFILL_SEL_(PUB, PRIV, WK_SELMAP_REPLACES)
 
 

@@ -2,31 +2,26 @@
 # Fail the build if the layer defines a symbol OR an Objective-C method the 10.9 runtime ALREADY
 # provides without saying so.
 #
-# Most of this layer is safe by construction: a symbol declared through the wk_polyfill.h macros
-# carries a registry entry, so a gap-fill function forwards to 10.9 when 10.9 turns out to have the
-# symbol, and a gap-fill constant has 10.9's real value copied over it at load. Being wrong about
-# presence there costs nothing, which is why the README tells you not to check.
-#
-# But the archives ship plenty of code that carries no registry entry and gets none of that:
-# legacy-support/src/*.c and polyfills/shared/*.c are plain C by design (the vendored GStreamer and
-# python3 builds compile the shared ones with no wk_polyfill.h), and the mechanism's own units are
-# plain C. For those, force_load simply makes our
-# definition win -- silently, with no forwarding and no mirroring. That is the trap this gate exists
-# for: a subtly-different stub over a working system function, with nothing at the call site to say
-# so -- the kind of substitution that surfaces as a wrong colour or a wrong fill, far from its cause.
+# Every polyfill's body runs unconditionally: force_load makes our definition win at link time, the
+# selref rewrite sends WebKit's `foo` to `wk_foo`, and there is NO runtime forwarding to 10.9 and no
+# value-mirroring. So a polyfill written for a symbol 10.9 actually HAS silently replaces the working
+# system one -- a subtly-different stub over a real function, nothing at the call site to say so, the
+# kind of substitution that surfaces as a wrong colour or a wrong fill far from its cause. This gate is
+# the guarantee against that: it, not any runtime fallback, is what lets a polyfill be declared and then
+# trusted. (It matters just as much for legacy-support/src/*.c and polyfills/shared/*.c, which carry no
+# registry entry at all -- plain C the vendored GStreamer/python3 builds also compile -- and for the
+# mechanism's own units.)
 #
 # So: for every strong defined symbol the layer ships, ask this machine's runtime (dlopen + dlsym,
 # not nm of the modern SDK's stubs) whether 10.9 has it. If it does, the shadow has to be declared --
 # as a WK_POLYFILL_REPLACES entry in the registry, which is self-describing and states the provider.
-# Anything else is an accident: delete it and let WebKit bind 10.9's symbol.
+# Anything else is a mistake: delete it and let WebKit bind 10.9's symbol.
 #
-# The layer's OTHER half is method polyfills, and they are in the same position: the selref rewrite
-# sends WebKit's `foo` to `wk_foo` unconditionally, with no forwarding to the class's real `foo` and
-# nothing at runtime that notices one exists. A WK_POLYFILL_SEL written for a method 10.9 does have
-# therefore replaces working system behaviour silently, and a wrong premise about what 10.9's AppKit
-# implements looks identical at every call site to a real gap. So the second half of this script asks
-# the ObjC runtime the same question about every registered selector, with the same two answers
-# available: WK_POLYFILL_SEL_REPLACES, or delete it.
+# The layer's OTHER half is method polyfills, in exactly the same position: a WK_POLYFILL_SEL written
+# for a method 10.9 does have replaces working system behaviour silently, and a wrong premise about
+# what 10.9's AppKit implements looks identical at every call site to a real gap. So the second half of
+# this script asks the ObjC runtime the same question about every registered selector, with the same
+# two answers: WK_POLYFILL_SEL_REPLACES, or delete it.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"           # polyfill/scripts
@@ -68,6 +63,11 @@ SYSTEM_LIBS="
 /System/Library/Frameworks/CoreVideo.framework/CoreVideo
 /System/Library/Frameworks/ApplicationServices.framework/ApplicationServices
 /System/Library/Frameworks/Accelerate.framework/Accelerate
+/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox
+/System/Library/Frameworks/MediaAccessibility.framework/MediaAccessibility
+/System/Library/PrivateFrameworks/TCC.framework/TCC
+/System/Library/PrivateFrameworks/CoreUI.framework/CoreUI
+/System/Library/PrivateFrameworks/DataDetectorsCore.framework/DataDetectorsCore
 /usr/lib/libSystem.B.dylib
 /usr/lib/libobjc.A.dylib
 /usr/lib/libsqlite3.dylib
@@ -428,13 +428,14 @@ awk -F'\t' '$4 != "-" { print $4 "\t" $5 "\t" $1 "\t" $6 }' "$WORK/selregistry.t
     | "$WORK/selpresent" $LINK_LIBS | sort -u > "$WORK/selon109"
 
 # ---------------------------------------------------------------- the ObjC verdict
-# A GAP_FILL whose public selector 10.9 already implements is not a defect: the patcher forwards to
-# 10.9's method (wk_alias_class's class_replaceMethod), so the body simply goes unused, the same way a
-# C WK_POLYFILL_ABSENT forwards. It is reported so the unused body is visible, but it does not fail the
-# build -- writing a GAP_FILL without knowing whether 10.9 has the method is exactly what the layer is
-# for. A registration that landed on no class at all IS a hard failure: the rewrite still happens, so
-# WebKit sends a selector nothing implements.
-: > "$WORK/selforwarded"
+# A GAP_FILL whose public selector 10.9 already implements is a defect, exactly like a shadowing C
+# gap-fill: both intents install the body (wk_alias_class's class_addMethod), so the selref rewrite
+# sends WebKit's `foo` to `wk_foo` and the body runs in place of 10.9's working method. It fails the
+# build. The fixes are the same as for a C symbol: delete the polyfill and let WebKit bind 10.9's
+# method, or declare WK_POLYFILL_SEL_REPLACES if shadowing 10.9 is the point. A registration that
+# landed on no class at all is also a hard failure: the rewrite still happens, so WebKit sends a
+# selector nothing implements.
+: > "$WORK/seloffenders"
 : > "$WORK/seldead"
 while IFS=$'\t' read -r pub priv intent cls side image; do
     if [ "$cls" = "-" ]; then
@@ -447,19 +448,24 @@ while IFS=$'\t' read -r pub priv intent cls side image; do
     state=${verdict%%$'\t'*}; owner=${verdict#*$'\t'}
     [ "$state" = "PRESENT" ] || continue
     [ "$intent" = "REPLACES" ] && continue
-    printf '%s\t%s\t%s\t%s\n' "$sigil[$cls $pub]" "$priv" "$cls" "$owner" >> "$WORK/selforwarded"
+    printf '%s\t%s\t%s\t%s\n' "$sigil[$cls $pub]" "$priv" "$cls" "$owner" >> "$WORK/seloffenders"
 done < "$WORK/selregistry.tsv"
 
-if [ -s "$WORK/selforwarded" ]; then
+if [ -s "$WORK/seloffenders" ]; then
     {
         echo
-        echo "NOTE: these WK_POLYFILL_SEL gap-fills name a method 10.9 already implements, so the patcher"
-        echo "forwards to 10.9's and the polyfill body is unused. This is harmless; if the override is the"
-        echo "point, declare WK_POLYFILL_SEL_REPLACES so the body wins and the intent is on the record:"
+        echo "ERROR: these WK_POLYFILL_SEL gap-fills name a method 10.9 ALREADY implements. Both intents"
+        echo "install the body, so the selref rewrite makes WebKit run ours in place of 10.9's working"
+        echo "method -- a silent shadow, the same defect as the C symbols above:"
+        echo
         while IFS=$'\t' read -r sent priv cls owner; do
             printf '  %-42s -> %-38s 10.9 defines it on %s, in %s\n' "$sent" "$priv" "$cls" "$owner"
-        done < "$WORK/selforwarded"
-    }
+        done < "$WORK/seloffenders"
+        echo
+        echo "Either delete the polyfill and let WebKit bind 10.9's method, or, if shadowing 10.9 is the"
+        echo "point, declare WK_POLYFILL_SEL_REPLACES so the intent is on the record."
+    } >&2
+    exit 1
 fi
 
 if [ -s "$WORK/seldead" ]; then
