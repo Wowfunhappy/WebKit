@@ -99,39 +99,98 @@ ImageDrawResult GraphicsContext::drawMultiRepresentationHEIC(Image& image, const
 
 #endif
 
-// MAVERICKS_BACKPORT: name the focus-ring width parameter (upstream leaves it unnamed) so the < 10.10 stroked-ring fallback below can size its glow to the requested outline width.
-void GraphicsContextCG::drawFocusRing(const Path& path, float width, const Color& color)
+#if USE(APPKIT)
+// MAVERICKS_BACKPORT: keyboard focus ring. Upstream draws it with CoreGraphics' CGStyle focus ring
+// (NSInitializeCGFocusRingStyleForTime -> CGStyleCreateFocusRingWithColor -> CGContextSetStyle -> fill).
+// That path is unusable on 10.9, verified on-device: the CGStyle focus ring does NOT composite into
+// WebKit's offscreen (WK2 / layer-backed) drawing context at all — it renders nothing there, while
+// ordinary drawing in the SAME context renders normally (10.9's focus-ring accumulation is a
+// window-server-composited effect that never reaches WebKit's offscreen surface; modern macOS draws it
+// directly into any context, which is why upstream needs no special handling). And where the CGStyle
+// ring DOES render (a standalone bitmap) it draws the flat MODERN ring, not the classic Mavericks Aqua
+// glow. The authentic Mavericks ring is AppKit's classic NSSetFocusRingStyle; it also does not composite
+// offscreen but DOES render into a standalone bitmap. So draw the native ring into a scratch bitmap and
+// composite it back. NSSetFocusRingStyle's ring is produced only by native AppKit drawing (a raw
+// CGContext fill is not honored), so `drawShape` draws with NSBezierPath / the control's own mask.
+
+// 10.9 AppKit has no bezierPathWithCGPath:; build the NSBezierPath by walking the CGPath (quads->cubics).
+static void addCGPathElementToBezierPath(void* info, const CGPathElement* element)
+{
+    NSBezierPath *bezierPath = (__bridge NSBezierPath *)info;
+    const CGPoint* points = element->points;
+    switch (element->type) {
+    case kCGPathElementMoveToPoint:
+        [bezierPath moveToPoint:NSPointFromCGPoint(points[0])];
+        break;
+    case kCGPathElementAddLineToPoint:
+        [bezierPath lineToPoint:NSPointFromCGPoint(points[0])];
+        break;
+    case kCGPathElementAddQuadCurveToPoint: {
+        NSPoint current = bezierPath.elementCount ? [bezierPath currentPoint] : NSPointFromCGPoint(points[0]);
+        NSPoint control = NSPointFromCGPoint(points[0]);
+        NSPoint end = NSPointFromCGPoint(points[1]);
+        [bezierPath curveToPoint:end
+                   controlPoint1:NSMakePoint(current.x + (2.0 / 3.0) * (control.x - current.x), current.y + (2.0 / 3.0) * (control.y - current.y))
+                   controlPoint2:NSMakePoint(end.x + (2.0 / 3.0) * (control.x - end.x), end.y + (2.0 / 3.0) * (control.y - end.y))];
+        break;
+    }
+    case kCGPathElementAddCurveToPoint:
+        [bezierPath curveToPoint:NSPointFromCGPoint(points[2]) controlPoint1:NSPointFromCGPoint(points[0]) controlPoint2:NSPointFromCGPoint(points[1])];
+        break;
+    case kCGPathElementCloseSubpath:
+        [bezierPath closePath];
+        break;
+    }
+}
+
+// Render the native AppKit focus ring around drawShape's silhouette into a scratch bitmap sized to
+// `bounds` (in `destination` user space) plus a glow margin, then composite the result into `destination`.
+void wkCompositeNativeFocusRing(CGContextRef destination, CGRect bounds, void (^drawShape)(void))
+{
+    if (CGRectIsEmpty(bounds))
+        return;
+    constexpr CGFloat glowMargin = 8; // room for the ~4px soft-blue Aqua bleed outside the shape
+    CGRect tile = CGRectInset(bounds, -glowMargin, -glowMargin);
+    size_t width = static_cast<size_t>(std::ceil(tile.size.width));
+    size_t height = static_cast<size_t>(std::ceil(tile.size.height));
+    if (!width || !height)
+        return;
+    RetainPtr colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
+    RetainPtr bitmap = adoptCF(CGBitmapContextCreate(nullptr, width, height, 8, 0, colorSpace.get(),
+        static_cast<uint32_t>(kCGImageAlphaPremultipliedLast) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
+    if (!bitmap)
+        return;
+    CGContextTranslateCTM(bitmap.get(), -tile.origin.x, -tile.origin.y); // draw in the destination's space
+    RetainPtr nsContext = [NSGraphicsContext graphicsContextWithGraphicsPort:bitmap.get() flipped:NO];
+    [NSGraphicsContext saveGraphicsState];
+    [NSGraphicsContext setCurrentContext:nsContext.get()];
+    NSSetFocusRingStyle(NSFocusRingOnly);
+    drawShape();
+    [NSGraphicsContext restoreGraphicsState];
+    RetainPtr image = adoptCF(CGBitmapContextCreateImage(bitmap.get()));
+    if (image)
+        CGContextDrawImage(destination, tile, image.get());
+}
+#endif
+
+void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& color)
 {
     if (path.isEmpty())
         return;
 
 #if USE(APPKIT)
-    // MAVERICKS_BACKPORT: NSInitializeCGFocusRingStyleForTime is absent from 10.9 AppKit and is supplied
-    // by libpolyfill, whose CGFocusRingStyle layout doesn't match 10.9 CoreGraphics. The resulting
-    // CGStyle from CGStyleCreateFocusRingWithColor does NOT constrain the fill to a ring, so the
-    // CGContextFillPath below floods the element's whole shape SOLID — turning any focused control,
-    // link, or text field into an opaque black box. (Same mechanism guarded in ControlMac for the
-    // theme focus ring; this is WebCore's own focus-ring path, used when the theme reports it doesn't
-    // draw the ring — e.g. text fields.) On < 10.10 draw a plain stroked ring in the focus color.
-    if (NSAppKitVersionNumber < 1343 /* NSAppKitVersionNumber10_10 */) {
-        // Classic Aqua's keyboard-focus ring is a soft blue GLOW, not a hard solid line. Approximate
-        // it with a thin core stroke plus a CG blur shadow in the focus color — a plain solid stroke
-        // at the full outline width reads as much heavier than the real Aqua focus ring.
-        CGContextRef ctx = platformContext();
-        CGContextStateSaver legacySaver(ctx);
-        CGFloat glowRadius = width > 0 ? width : 3;
-        RetainPtr<CGColorRef> ringColor = cachedCGColor(color);
-        CGContextSetShadowWithColor(ctx, CGSizeZero, glowRadius, ringColor.get());
-        CGContextSetStrokeColorWithColor(ctx, ringColor.get());
-        CGContextSetLineWidth(ctx, 1.5);
-        CGContextSetAlpha(ctx, 0.85);
-        CGContextBeginPath(ctx);
-        CGContextAddPath(ctx, path.platformPath());
-        CGContextStrokePath(ctx);
-        return;
-    }
-#endif
-
+    // MAVERICKS_BACKPORT: draw the authentic native 10.9 focus ring via a scratch bitmap and return; the
+    // upstream CGStyle focus-ring path (kept intact in the #else below for the non-APPKIT build) does not
+    // render in WebKit's offscreen context on 10.9, and draws the flat modern ring rather than the Aqua
+    // glow where it does. See wkCompositeNativeFocusRing.
+    UNUSED_PARAM(color); // NSSetFocusRingStyle draws in the system focus color (the Aqua blue).
+    RetainPtr<NSBezierPath> bezierPath = [NSBezierPath bezierPath];
+    CGPathApply(path.platformPath(), (__bridge void*)bezierPath.get(), addCGPathElementToBezierPath);
+    NSBezierPath *shape = bezierPath.get();
+    wkCompositeNativeFocusRing(platformContext(), CGPathGetPathBoundingBox(path.platformPath()), ^{
+        [shape fill];
+    });
+#else
     CGFocusRingStyle focusRingStyle;
 #if USE(APPKIT)
     NSInitializeCGFocusRingStyleForTime(NSFocusRingOnly, &focusRingStyle, std::numeric_limits<double>::max());
@@ -161,6 +220,7 @@ void GraphicsContextCG::drawFocusRing(const Path& path, float width, const Color
     CGContextAddPath(platformContext, path.platformPath());
 
     CGContextFillPath(platformContext);
+#endif // MAVERICKS_BACKPORT: end of the APPKIT native-focus-ring override
 }
 
 void GraphicsContextCG::drawFocusRing(const Vector<FloatRect>& rects, float outlineOffset, float outlineWidth, const Color& color)

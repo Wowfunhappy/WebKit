@@ -21,15 +21,6 @@
 // AppKit / AX — runtime-gated; never executed on 10.9.
 // ---------------------------------------------------------------------------------------------------
 
-// drawFocusRing()/ControlMac take a < 10.10 path that draws a plain stroked ring; this is compiled in
-// for the >= 10.10 branch only. Definition exists solely to satisfy the bind. (NSFocusRingPlacement,
-// CGFocusRingStyle elided to void*/int — never called here.)
-WK_POLYFILL_ABSENT("AppKit", int, NSInitializeCGFocusRingStyleForTime, (int placement, void *style, double time), (placement, style, time))
-{
-    (void)placement; (void)style; (void)time;
-    return 0;
-}
-
 // Notifies AX of a process suspend/resume. No AX process-suspend tracking on 10.9; return success.
 WK_POLYFILL_ABSENT("ApplicationServices", int, _AXUIElementNotifyProcessSuspendStatus, (int status), (status))
 {

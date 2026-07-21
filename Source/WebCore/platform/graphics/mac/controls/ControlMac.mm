@@ -113,14 +113,11 @@ void ControlMac::updateEnabledState(NSCell *cell, const ControlStyle& style)
 
 void ControlMac::updateFocusedState(NSCell *cell, const ControlStyle& style)
 {
-    // MAVERICKS_BACKPORT: when showsFirstResponder is YES the NSCell draws its own first-responder focus
-    // ring, but in WebKit's viewless/fake-view drawing on 10.9 that renders as a SOLID BLACK fill
-    // over the whole control (e.g. a focused text field becomes an unreadable black box). Never set
-    // it; the keyboard-focus indicator is a cosmetic nicety and a black control is far worse. (WebKit's
-    // separate CGStyle focus ring is likewise skipped on < 10.10 in drawCellOrFocusRing.)
-    UNUSED_PARAM(style);
-    if ([cell showsFirstResponder])
-        [cell setShowsFirstResponder:NO];
+    bool oldFocused = [cell showsFirstResponder];
+    bool focused = style.states.contains(ControlStyle::State::Focused);
+    if (focused == oldFocused)
+        return;
+    [cell setShowsFirstResponder:focused];
 }
 
 void ControlMac::updatePressedState(NSCell *cell, const ControlStyle& style)
@@ -317,29 +314,23 @@ void ControlMac::drawCellFocusRingInternal(GraphicsContext& context, const Float
     drawCellFocusRingInView(context, rect, cell, view.get());
 }
 
+// MAVERICKS_BACKPORT: defined in GraphicsContextCocoa.mm — renders the authentic native 10.9 focus ring
+// (NSSetFocusRingStyle) around a shape via a scratch bitmap, because the CGStyle focus ring does not
+// composite into WebKit's offscreen context on this OS.
+void wkCompositeNativeFocusRing(CGContextRef, CGRect, void (^)(void));
+
 void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& rect, float deviceScaleFactor, const ControlStyle& style, NSCell *cell)
 {
-    RetainPtr cgContext = context.platformContext();
-    CGContextStateSaver stateSaver(cgContext.get());
-
-    CGFocusRingStyle focusRingStyle;
-    NSInitializeCGFocusRingStyleForTime(NSFocusRingOnly, &focusRingStyle, std::numeric_limits<double>::max());
-
-    // We want to respect the CGContext clipping and also not overpaint any
-    // existing focus ring. The way to do this is set accumulate to
-    // -1. According to CoreGraphics, the reasoning for this behavior has been
-    // lost in time.
-    focusRingStyle.accumulate = -1;
-
-    // FIXME: This color should be shared with RenderThemeMac. For now just use the same NSColor color.
-    // The color is expected to be opaque, since CoreGraphics will apply opacity when drawing (because opacity is normally animated).
-    auto color = colorFromCocoaColor([NSColor keyboardFocusIndicatorColor]).opaqueColor();
-    auto cgStyle = adoptCF(CGStyleCreateFocusRingWithColor(&focusRingStyle, cachedCGColor(color).get()));
-    CGContextSetStyle(cgContext.get(), cgStyle.get());
-
-    CGContextBeginTransparencyLayerWithRect(cgContext.get(), rect, nullptr);
-    drawCellFocusRingInternal(context, rect, deviceScaleFactor, style, cell);
-    CGContextEndTransparencyLayer(cgContext.get());
+    // MAVERICKS_BACKPORT: upstream draws the control focus ring by setting a CGStyle focus ring and
+    // drawing the cell's focus-ring mask inside a transparency layer. On 10.9 that CGStyle ring does not
+    // render in WebKit's offscreen context (see wkCompositeNativeFocusRing) and looks modern rather than
+    // Aqua. Instead draw the cell's mask into a scratch bitmap under NSSetFocusRingStyle — which turns the
+    // mask into the authentic native ring around the exact control shape — and composite it.
+    UNUSED_PARAM(deviceScaleFactor);
+    wkCompositeNativeFocusRing(context.platformContext(), rect, ^{
+        RetainPtr view = m_controlFactory->drawingView(rect, style);
+        [cell drawFocusRingMaskWithFrame:rect inView:view.get()];
+    });
 }
 
 void ControlMac::drawCellOrFocusRing(GraphicsContext& context, const FloatRect& rect, float deviceScaleFactor, const ControlStyle& style, NSCell *cell, bool drawCell)
@@ -349,16 +340,8 @@ void ControlMac::drawCellOrFocusRing(GraphicsContext& context, const FloatRect& 
     if (drawCell)
         drawCellInternal(context, rect, deviceScaleFactor, style, cell);
 
-    if (style.states.contains(ControlStyle::State::Focused)) {
-        // MAVERICKS_BACKPORT: the CGStyle-based focus-ring path (CGStyleCreateFocusRingWithColor +
-        // -[NSCell drawFocusRingMaskWithFrame:inView:], with NSInitializeCGFocusRingStyleForTime
-        // coming from a libpolyfill whose CGFocusRingStyle struct layout doesn't match 10.9's
-        // CoreGraphics) does not apply the focus-ring style, so the mask fills the control's whole
-        // shape SOLID BLACK — making any focused text field / control unreadable. Skip the focus
-        // ring on < 10.10; losing the blue keyboard-focus glow is far preferable to a black control.
-        if (NSAppKitVersionNumber >= 1343 /* NSAppKitVersionNumber10_10 */)
-            drawCellFocusRing(context, rect, deviceScaleFactor, style, cell);
-    }
+    if (style.states.contains(ControlStyle::State::Focused))
+        drawCellFocusRing(context, rect, deviceScaleFactor, style, cell);
 
     END_BLOCK_OBJC_EXCEPTIONS
 }
