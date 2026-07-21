@@ -36,7 +36,12 @@ static bool gEnablePlatformMomentumScrollingPrediction = true;
 
 std::unique_ptr<ScrollingMomentumCalculator> ScrollingMomentumCalculator::create(const ScrollExtents& scrollExtents, const FloatPoint& initialOffset, const FloatSize& initialDelta, const FloatSize& initialVelocity)
 {
-    return makeUnique<ScrollingMomentumCalculatorMac>(scrollExtents, initialOffset, initialDelta, initialVelocity);
+    // MAVERICKS_BACKPORT: _NSScrollingMomentumCalculator (the engine behind ScrollingMomentumCalculatorMac)
+    // is 10.10+ and absent on 10.9, where messaging the nil platform calculator left CSS scroll-snap with no
+    // momentum physics (it snapped to the origin). Use the cross-platform BasicScrollingMomentumCalculator —
+    // the same cubic-bezier snap physics every non-Mac port and pre-10.10 Mac shipped. The dead Mac calculator
+    // below stays byte-upstream (its ensurePlatformMomentumCalculator() no longer runs).
+    return makeUnique<BasicScrollingMomentumCalculator>(scrollExtents, initialOffset, initialDelta, initialVelocity);
 }
 
 void ScrollingMomentumCalculator::setPlatformMomentumScrollingPredictionEnabled(bool enabled)
@@ -110,17 +115,8 @@ _NSScrollingMomentumCalculator *ScrollingMomentumCalculatorMac::ensurePlatformMo
     NSPoint origin = m_initialScrollOffset;
     NSRect contentFrame = NSMakeRect(0, 0, m_scrollExtents.contentsSize.width(), m_scrollExtents.contentsSize.height());
     NSPoint velocity = NSMakePoint(m_initialVelocity.width(), m_initialVelocity.height());
-    // MAVERICKS_BACKPORT: _NSScrollingMomentumCalculator is 10.10+. Guard the alloc
-    // and the long initWithInitialOrigin: selector send so trackpad-fling
-    // momentum scrolling doesn't crash WebContent on this build.
-    Class cls = NSClassFromString(@"_NSScrollingMomentumCalculator");
-    static const SEL initSel = @selector(initWithInitialOrigin:velocity:documentFrame:constrainedClippingOrigin:clippingSize:tolerance:);
-    if (cls && [cls instancesRespondToSelector:initSel])
-        m_platformMomentumCalculator = adoptNS([[_NSScrollingMomentumCalculator alloc] initWithInitialOrigin:origin velocity:velocity documentFrame:contentFrame constrainedClippingOrigin:NSZeroPoint clippingSize:m_scrollExtents.viewportSize tolerance:NSMakeSize(1, 1)]);
-    if (m_platformMomentumCalculator && [m_platformMomentumCalculator respondsToSelector:@selector(destinationOrigin)])
-        m_initialDestinationOffset = [m_platformMomentumCalculator destinationOrigin];
-    else
-        m_initialDestinationOffset = origin;
+    m_platformMomentumCalculator = adoptNS([[_NSScrollingMomentumCalculator alloc] initWithInitialOrigin:origin velocity:velocity documentFrame:contentFrame constrainedClippingOrigin:NSZeroPoint clippingSize:m_scrollExtents.viewportSize tolerance:NSMakeSize(1, 1)]);
+    m_initialDestinationOffset = [m_platformMomentumCalculator destinationOrigin];
     return m_platformMomentumCalculator.get();
 }
 

@@ -26,8 +26,6 @@
 #include "config.h"
 #include "ImageUtilities.h"
 
-// MAVERICKS_BACKPORT: for sRGBColorSpaceSingleton(), the fallback when platformColorSpace() is NULL.
-#include "ColorSpaceCG.h"
 #include "FloatRect.h"
 #include "GraphicsContext.h"
 #include "ImageBuffer.h"
@@ -486,11 +484,7 @@ static bool encode(const PixelBuffer& source, const String& mimeType, std::optio
         return false;
 
     auto imageSize = source.size();
-    // MAVERICKS_BACKPORT: source.format().colorSpace.platformColorSpace() can be NULL; fall back to sRGB.
-    RetainPtr<CGColorSpaceRef> cs = source.format().colorSpace.platformColorSpace();
-    if (!cs)
-        cs = sRGBColorSpaceSingleton();
-    auto image = adoptCF(CGImageCreate(imageSize.width(), imageSize.height(), 8, 32, 4 * imageSize.width(), cs.get(), static_cast<uint32_t>(kCGBitmapByteOrderDefault) | static_cast<uint32_t>(dataAlphaInfo), dataProvider.get(), 0, false, kCGRenderingIntentDefault));
+    auto image = adoptCF(CGImageCreate(imageSize.width(), imageSize.height(), 8, 32, 4 * imageSize.width(), protect(source.format().colorSpace.platformColorSpace()).get(), static_cast<uint32_t>(kCGBitmapByteOrderDefault) | static_cast<uint32_t>(dataAlphaInfo), dataProvider.get(), 0, false, kCGRenderingIntentDefault));
 
     return encode(image.get(), mimeType, quality, function);
 }

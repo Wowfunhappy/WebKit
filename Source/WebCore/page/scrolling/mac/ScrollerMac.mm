@@ -295,8 +295,7 @@ enum class FeatureToAnimate {
 
 - (void)invalidate
 {
-    // MAVERICKS_BACKPORT: _scroller is a CheckedPtr<ScrollerMac> (C++ smart pointer); clear with nullptr, not nil.
-    _scroller = nullptr;
+    _scroller = nil;
     BEGIN_BLOCK_OBJC_EXCEPTIONS
     [_knobAlphaAnimation invalidate];
     [_trackAlphaAnimation invalidate];

@@ -28,8 +28,6 @@
 
 #if USE(CG)
 
-// MAVERICKS_BACKPORT: for sRGBColorSpaceSingleton(), the fallback when platformColorSpace() is NULL.
-#include "ColorSpaceCG.h"
 #include "GraphicsContext.h"
 #include "GraphicsContextCG.h"
 #include "ImageUtilities.h"
@@ -73,12 +71,7 @@ std::unique_ptr<ImageBufferCGBitmapBackend> ImageBufferCGBitmapBackend::create(c
 
     verifyImageBufferIsBigEnough(data.span());
 
-    // MAVERICKS_BACKPORT: parameters.colorSpace.platformColorSpace() can return NULL on this build,
-    // making CG infer "0-component color space; 8 bits/pixel" and fail. Fall back to sRGB.
-    RetainPtr<CGColorSpaceRef> cs = parameters.colorSpace.platformColorSpace();
-    if (!cs)
-        cs = sRGBColorSpaceSingleton();
-    RetainPtr cgContext = adoptCF(CGBitmapContextCreate(data.mutableSpan().data(), backendSize.width(), backendSize.height(), 8, bytesPerRow, cs.get(), static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
+    RetainPtr cgContext = adoptCF(CGBitmapContextCreate(data.mutableSpan().data(), backendSize.width(), backendSize.height(), 8, bytesPerRow, parameters.colorSpace.platformColorSpace(), static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
     if (!cgContext)
         return nullptr;
 
@@ -127,15 +120,9 @@ RefPtr<NativeImage> ImageBufferCGBitmapBackend::copyNativeImage()
 RefPtr<NativeImage> ImageBufferCGBitmapBackend::createNativeImageReference()
 {
     auto backendSize = size();
-    // MAVERICKS_BACKPORT: colorSpace().platformColorSpace() can be NULL on this build,
-    // and CGImageCreate logs "invalid image colorspace: NULL" + returns NULL. Fall back to sRGB.
-    RetainPtr<CGColorSpaceRef> cs = colorSpace().platformColorSpace();
-    if (!cs)
-        cs = sRGBColorSpaceSingleton();
     return NativeImage::create(adoptCF(CGImageCreate(
         backendSize.width(), backendSize.height(), 8, 32, bytesPerRow(),
-        // MAVERICKS_BACKPORT: sRGB fallback for a NULL platformColorSpace() (see above).
-        cs.get(), static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Host), m_dataProvider.get(),
+        colorSpace().platformColorSpace(), static_cast<uint32_t>(kCGImageAlphaPremultipliedFirst) | static_cast<uint32_t>(kCGBitmapByteOrder32Host), m_dataProvider.get(),
         0, true, kCGRenderingIntentDefault)));
 }
 
