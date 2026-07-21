@@ -28,9 +28,6 @@
 
 #if PLATFORM(MAC)
 
-// MAVERICKS_BACKPORT: runtime-absent API #76 — UTTypeWebArchive.identifier is 11.0+; this header
-// provides utTypeWebArchiveId() routed to the legacy kUTType helper used below.
-#import "../platform/mac/UTTypeIdentifiers.h"
 #import "Blob.h"
 #import "CSSPrimitiveValueMappings.h"
 #import "CSSValuePool.h"
@@ -184,9 +181,7 @@ RefPtr<SharedBuffer> Editor::dataSelectionForPasteboard(const String& pasteboard
     if (!canCopy())
         return nullptr;
 
-    // MAVERICKS_BACKPORT: runtime-absent API #76 — UTTypeWebArchive.identifier is 11.0+; use utTypeWebArchiveId()
-    // routed to the legacy kUTTypeWebArchive constant.
-    if (pasteboardType == WebArchivePboardType || pasteboardType == String(utTypeWebArchiveId()))
+    if (pasteboardType == WebArchivePboardType || pasteboardType == String(UTTypeWebArchive.identifier))
         return selectionInWebArchiveFormat();
 
     if (pasteboardType == String(legacyRTFDPasteboardTypeSingleton()))

@@ -26,11 +26,6 @@
 #import "config.h"
 #import "WebContentReader.h"
 
-// MAVERICKS_BACKPORT: runtime-absent API #76 — UTType class accessors (UTTypeVCard/UTTypeDirectory/
-// UTTypeData) are 11.0+; this header provides utType*Id() helpers routed to legacy kUTType* constants.
-#if PLATFORM(MAC)
-#import "../platform/mac/UTTypeIdentifiers.h"
-#endif
 #import "ArchiveResource.h"
 #import "Blob.h"
 #import "BlobURL.h"
@@ -266,9 +261,7 @@ static bool shouldReplaceRichContentWithAttachments()
 
 static String mimeTypeFromContentType(const String& contentType)
 {
-    // MAVERICKS_BACKPORT: runtime-absent API #76 — UTTypeVCard.identifier is 11.0+; use the utTypeVCardId()
-    // helper routed to the legacy kUTTypeVCard constant.
-    if (contentType == String(utTypeVCardId())) {
+    if (contentType == String(UTTypeVCard.identifier)) {
         // CoreServices erroneously reports that "public.vcard" maps to "text/directory", rather
         // than either "text/vcard" or "text/x-vcard". Work around this by special casing the
         // "public.vcard" UTI type. See <rdar://problem/49478229> for more detail.
@@ -870,15 +863,11 @@ static Ref<HTMLElement> attachmentForFilePath(LocalFrame& frame, const String& p
     String contentType = typeForAttachmentElement(explicitContentType);
     if (contentType.isEmpty()) {
         if (isDirectory)
-        // MAVERICKS_BACKPORT: runtime-absent API #76 — UTType.identifier accessors are 11.0+; route to the
-        // legacy kUTType* constants via the utType*Id() helpers.
-            contentType = utTypeDirectoryId();
+            contentType = UTTypeDirectory.identifier;
         else {
             contentType = File::contentTypeForFile(path);
             if (contentType.isEmpty())
-            // MAVERICKS_BACKPORT: runtime-absent API #76 — UTTypeData.identifier is 11.0+; use utTypeDataId()
-            // routed to the legacy kUTTypeData constant.
-                contentType = utTypeDataId();
+                contentType = UTTypeData.identifier;
         }
     }
 

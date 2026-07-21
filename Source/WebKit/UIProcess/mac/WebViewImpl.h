@@ -634,8 +634,6 @@ public:
 
     ViewGestureController* gestureController() const { return m_gestureController.get(); }
     ViewGestureController& ensureGestureController();
-    // MAVERICKS_BACKPORT: ref-returning gesture-controller accessor for the WKView call sites.
-    Ref<ViewGestureController> ensureProtectedGestureController();
 #if HAVE(APPKIT_GESTURES_SUPPORT)
     WKAppKitGestureController *appKitGestureController() const LIFETIME_BOUND { return m_appKitGestureController.get(); }
 #endif

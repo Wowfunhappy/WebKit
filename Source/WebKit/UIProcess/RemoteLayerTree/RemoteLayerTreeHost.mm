@@ -236,20 +236,8 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
         }
     }
     
-
-    // MAVERICKS_BACKPORT: CATransformLayer on Mavericks doesn't implement
-    // -[CALayer contents] / -setContents:. Sending either raises
-    // NSInvalidArgumentException and crashes UIProcess. Skip the contents
-    // copy/clear when either layer is a CATransformLayer (they don't have
-    // contents to begin with — they only composite sublayers' transforms).
-    for (const auto& layerAndClone : clonesToUpdate) {
-        RetainPtr destL = protect(layerForID(layerAndClone.layerID));
-        RetainPtr srcL = protect(layerForID(layerAndClone.cloneLayerID));
-        if ([destL respondsToSelector:@selector(setContents:)]
-            && [srcL respondsToSelector:@selector(contents)]) {
-            destL.get().contents = srcL.get().contents;
-        }
-    }
+    for (const auto& layerAndClone : clonesToUpdate)
+        protect(layerForID(layerAndClone.layerID)).get().contents = protect(layerForID(layerAndClone.cloneLayerID)).get().contents;
 
     for (auto& destroyedLayer : transaction.destroyedLayers())
         layerWillBeRemoved(processIdentifier, destroyedLayer);
@@ -260,10 +248,7 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
         RefPtr node = nodeForID(newlyUnreachableLayerID);
         ASSERT(node);
         if (node) {
-            // MAVERICKS_BACKPORT: CATransformLayer has no -setContents: on 10.9; guard so clearing contents doesn't raise an unrecognized-selector exception.
-            RetainPtr l = protect(node->layer());
-            if ([l respondsToSelector:@selector(setContents:)])
-                l.get().contents = nullptr;
+            protect(node->layer()).get().contents = nullptr;
             node->setAsyncContentsIdentifier(std::nullopt);
         }
     }

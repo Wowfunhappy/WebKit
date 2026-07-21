@@ -31,13 +31,7 @@
 #import "PlatformStrategies.h"
 #import "SharedBuffer.h"
 #import <ImageIO/ImageIO.h>
-#if PLATFORM(MAC)
-// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTType* constants) is macOS 11+ and absent on
-// 10.9; on Mac the utType*Id() helpers return the legacy CoreServices kUTType* identifiers instead.
-#import "../mac/UTTypeIdentifiers.h"
-#else
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#endif // MAVERICKS_BACKPORT: UTType header used only off-Mac; Mac uses the legacy CoreServices identifiers.
 #import <wtf/ListHashSet.h>
 #import <wtf/text/StringHash.h>
 
@@ -68,20 +62,17 @@ static ImageType cocoaTypeToImageType(const String& cocoaType)
     if (cocoaType == String(legacyTIFFPasteboardTypeSingleton()))
         return ImageType::TIFF;
 #endif
-    // MAVERICKS_BACKPORT: utType*Id() return legacy CoreServices kUTType* identifiers (UTType* are macOS 11+).
-    if (cocoaType == String(utTypeTIFFId()))
+    if (cocoaType == String(UTTypeTIFF.identifier))
         return ImageType::TIFF;
 #if PLATFORM(MAC)
     if (cocoaType == String(legacyPNGPasteboardTypeSingleton())) // NSPNGPboardType
         return ImageType::PNG;
 #endif
-    // MAVERICKS_BACKPORT: utType*Id() return legacy CoreServices kUTType* identifiers (UTType* are macOS 11+).
-    if (cocoaType == String(utTypePNGId()))
+    if (cocoaType == String(UTTypePNG.identifier))
         return ImageType::PNG;
-    // MAVERICKS_BACKPORT: utType*Id() return legacy CoreServices kUTType* identifiers (UTType* are macOS 11+).
-    if (cocoaType == String(utTypeJPEGId()))
+    if (cocoaType == String(UTTypeJPEG.identifier))
         return ImageType::JPEG;
-    if (cocoaType == String(utTypeGIFId()))
+    if (cocoaType == String(UTTypeGIF.identifier))
         return ImageType::GIF;
 
     return ImageType::Invalid;
@@ -171,8 +162,7 @@ Pasteboard::FileContentState Pasteboard::fileContentState()
             if (cocoaType == String(legacyURLPasteboardTypeSingleton()))
                 return true;
 #endif
-            // MAVERICKS_BACKPORT: utTypeURLId() returns the legacy CoreServices kUTTypeURL identifier (UTTypeURL is macOS 11+).
-            return cocoaType == String(utTypeURLId());
+            return cocoaType == String(UTTypeURL.identifier);
         });
         mayContainFilePaths = indexOfURL != notFound && !platformStrategies()->pasteboardStrategy()->containsStringSafeForDOMToReadForType(cocoaTypes[indexOfURL], m_pasteboardName, context());
     }

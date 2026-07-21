@@ -420,8 +420,7 @@ static void* keyValueObservingContext = &keyValueObservingContext;
         [[NSFontPanel sharedFontPanel] removeObserver:self forKeyPath:@"visible" context:keyValueObservingContext];
     }
 
-    // MAVERICKS_BACKPORT: explicit (NSWindow *)nil so std::exchange deduces the pointer type (nil/nullptr_t would be ambiguous here).
-    RetainPtr<NSWindow> window = std::exchange(_window, (NSWindow *)nil).get();
+    RetainPtr<NSWindow> window = std::exchange(_window, nil).get();
     if (!window)
         return;
 
@@ -844,8 +843,7 @@ static const NSUInteger orderedListSegment = 2;
     [insertListControl setWidth:listControlSegmentWidth forSegment:noListSegment];
     [insertListControl setWidth:listControlSegmentWidth forSegment:unorderedListSegment];
     [insertListControl setWidth:listControlSegmentWidth forSegment:orderedListSegment];
-    // MAVERICKS_BACKPORT: set the segmented-control font with -setFont: (the .font property accessor is unavailable on 10.9).
-    [insertListControl setFont:[NSFont systemFontOfSize:15]];
+    insertListControl.get().font = [NSFont systemFontOfSize:15];
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     RetainPtr<id> segmentElement = NSAccessibilityUnignoredDescendant(insertListControl.get());
@@ -3087,8 +3085,7 @@ void WebViewImpl::didBecomeEditable()
 
 void WebViewImpl::updateFontManagerIfNeeded()
 {
-    // MAVERICKS_BACKPORT: query the font panel with -isVisible (the .visible property accessor is unavailable on 10.9).
-    BOOL fontPanelIsVisible = NSFontPanel.sharedFontPanelExists && [NSFontPanel.sharedFontPanel isVisible];
+    BOOL fontPanelIsVisible = NSFontPanel.sharedFontPanelExists && NSFontPanel.sharedFontPanel.visible;
     if (!fontPanelIsVisible && !(m_page->isEditable() && m_page->editorState().isContentRichlyEditable))
         return;
 
@@ -3188,12 +3185,6 @@ static NSMenuItem *menuItem(id<NSValidatedUserInterfaceItem> item)
     return (NSMenuItem *)item;
 }
 
-// MAVERICKS_BACKPORT: RetainPtr-returning menu-item helper (NSMenuItem * isn't a ref-counted type upstream's protect() accepts).
-static RetainPtr<NSMenuItem> protectedMenuItem(id<NSValidatedUserInterfaceItem> item)
-{
-    return menuItem(item);
-}
-
 static NSToolbarItem *toolbarItem(id<NSValidatedUserInterfaceItem> item)
 {
     if (![(NSObject *)item isKindOfClass:[NSToolbarItem class]])
@@ -3218,22 +3209,19 @@ bool WebViewImpl::validateUserInterfaceItem(id<NSValidatedUserInterfaceItem> ite
     if (action == @selector(toggleContinuousSpellChecking:)) {
         bool enabled = TextChecker::isContinuousSpellCheckingAllowed();
         bool checked = enabled && TextChecker::state().contains(TextCheckerState::ContinuousSpellCheckingEnabled);
-        // MAVERICKS_BACKPORT: use the local protectedMenuItem() RetainPtr helper (NSMenuItem * isn't a ref-counted type upstream's protect() accepts).
-        [protectedMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        [protect(menuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
         return enabled;
     }
 
     if (action == @selector(toggleGrammarChecking:)) {
         bool checked = TextChecker::state().contains(TextCheckerState::GrammarCheckingEnabled);
-        // MAVERICKS_BACKPORT: use the local protectedMenuItem() RetainPtr helper (NSMenuItem * isn't a ref-counted type upstream's protect() accepts).
-        [protectedMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        [protect(menuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
         return true;
     }
 
     if (action == @selector(toggleAutomaticSpellingCorrection:)) {
         bool enable = m_page->editorState().canEnableAutomaticSpellingCorrection;
-        // MAVERICKS_BACKPORT: use the local protectedMenuItem() RetainPtr helper (NSMenuItem * isn't a ref-counted type upstream's protect() accepts).
-        protectedMenuItem(item).get().state = TextChecker::state().contains(TextCheckerState::AutomaticSpellingCorrectionEnabled) && enable ? NSControlStateValueOn : NSControlStateValueOff;
+        protect(menuItem(item)).get().state = TextChecker::state().contains(TextCheckerState::AutomaticSpellingCorrectionEnabled) && enable ? NSControlStateValueOn : NSControlStateValueOff;
         return enable;
     }
 
@@ -3245,36 +3233,31 @@ bool WebViewImpl::validateUserInterfaceItem(id<NSValidatedUserInterfaceItem> ite
 
     if (action == @selector(toggleSmartInsertDelete:)) {
         bool checked = m_page->isSmartInsertDeleteEnabled();
-        // MAVERICKS_BACKPORT: use the local protectedMenuItem() RetainPtr helper (NSMenuItem * isn't a ref-counted type upstream's protect() accepts).
-        [protectedMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        [protect(menuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
         return m_page->editorState().isContentEditable;
     }
 
     if (action == @selector(toggleAutomaticQuoteSubstitution:)) {
         bool checked = TextChecker::state().contains(TextCheckerState::AutomaticQuoteSubstitutionEnabled);
-        // MAVERICKS_BACKPORT: use the local protectedMenuItem() RetainPtr helper (NSMenuItem * isn't a ref-counted type upstream's protect() accepts).
-        [protectedMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        [protect(menuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
         return m_page->editorState().isContentEditable;
     }
 
     if (action == @selector(toggleAutomaticDashSubstitution:)) {
         bool checked = TextChecker::state().contains(TextCheckerState::AutomaticDashSubstitutionEnabled);
-        // MAVERICKS_BACKPORT: use the local protectedMenuItem() RetainPtr helper (NSMenuItem * isn't a ref-counted type upstream's protect() accepts).
-        [protectedMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        [protect(menuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
         return m_page->editorState().isContentEditable;
     }
 
     if (action == @selector(toggleAutomaticLinkDetection:)) {
         bool checked = TextChecker::state().contains(TextCheckerState::AutomaticLinkDetectionEnabled);
-        // MAVERICKS_BACKPORT: use the local protectedMenuItem() RetainPtr helper (NSMenuItem * isn't a ref-counted type upstream's protect() accepts).
-        [protectedMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        [protect(menuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
         return m_page->editorState().isContentEditable;
     }
 
     if (action == @selector(toggleAutomaticTextReplacement:)) {
         bool checked = TextChecker::state().contains(TextCheckerState::AutomaticTextReplacementEnabled);
-        // MAVERICKS_BACKPORT: use the local protectedMenuItem() RetainPtr helper (NSMenuItem * isn't a ref-counted type upstream's protect() accepts).
-        [protectedMenuItem(item) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
+        [protect(menuItem(item)) setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
         return m_page->editorState().isContentEditable;
     }
 
@@ -3765,8 +3748,7 @@ void WebViewImpl::dismissContentRelativeChildWindowsFromViewOnly()
     m_pageClient->dismissCorrectionPanel(WebCore::ReasonForDismissingAlternativeText::Ignored);
 
 #if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
-    // MAVERICKS_BACKPORT: explicit (NSPopover *)nil so std::exchange deduces the pointer type (nullptr_t would be ambiguous here).
-    [std::exchange(m_lastContextMenuTranslationPopover, (NSPopover *)nil).get() close];
+    [std::exchange(m_lastContextMenuTranslationPopover, nil).get() close];
 #endif
 }
 
@@ -4507,8 +4489,7 @@ static bool handleLegacyFilesPromisePasteboard(id<NSDraggingInfo> draggingInfo, 
     // FIXME: legacyFilesPromisePasteboardTypeSingleton() contains UTIs, not path names. Also, it's not
     // guaranteed that the count of UTIs equals the count of files, since some clients only write
     // unique UTIs.
-    // MAVERICKS_BACKPORT: wrap the pasteboard in a RetainPtr via retainPtr() (the NSPasteboard isn't a ref-counted type that upstream's protect() accepts here).
-    RetainPtr files = dynamic_objc_cast<NSArray>([retainPtr(draggingInfo.draggingPasteboard) propertyListForType:WebCore::legacyFilesPromisePasteboardTypeSingleton()]);
+    RetainPtr files = dynamic_objc_cast<NSArray>([protect(draggingInfo.draggingPasteboard) propertyListForType:WebCore::legacyFilesPromisePasteboardTypeSingleton()]);
     if (!files)
         return false;
 
@@ -4994,8 +4975,7 @@ RefPtr<ViewSnapshot> WebViewImpl::takeViewSnapshot(ForceSoftwareCapturingViewpor
         return nullptr;
 
     NSRect windowCaptureRect;
-    // MAVERICKS_BACKPORT: use the Ref-returning gesture-controller accessor.
-    WebCore::FloatRect boundsForCustomSwipeViews = ensureProtectedGestureController()->windowRelativeBoundsForCustomSwipeViews();
+    WebCore::FloatRect boundsForCustomSwipeViews = protect(ensureGestureController())->windowRelativeBoundsForCustomSwipeViews();
     if (!boundsForCustomSwipeViews.isEmpty())
         windowCaptureRect = boundsForCustomSwipeViews;
     else {
@@ -5100,12 +5080,6 @@ ViewGestureController& WebViewImpl::ensureGestureController()
     return *m_gestureController;
 }
 
-// MAVERICKS_BACKPORT: Ref-returning gesture-controller accessor used by the WKView call sites.
-Ref<ViewGestureController> WebViewImpl::ensureProtectedGestureController()
-{
-    return ensureGestureController();
-}
-
 void WebViewImpl::setAllowsBackForwardNavigationGestures(bool allowsBackForwardNavigationGestures)
 {
     m_allowsBackForwardNavigationGestures = allowsBackForwardNavigationGestures;
@@ -5159,8 +5133,7 @@ void WebViewImpl::setCustomSwipeViews(NSArray *customSwipeViews)
     for (NSView *view in customSwipeViews)
         views.append(view);
 
-    // MAVERICKS_BACKPORT: use the Ref-returning gesture-controller accessor.
-    ensureProtectedGestureController()->setCustomSwipeViews(views);
+    protect(ensureGestureController())->setCustomSwipeViews(views);
 }
 
 FloatRect WebViewImpl::windowRelativeBoundsForCustomSwipeViews() const
@@ -5181,8 +5154,7 @@ FloatBoxExtent WebViewImpl::customSwipeViewsObscuredContentInsets() const
 
 void WebViewImpl::setCustomSwipeViewsObscuredContentInsets(FloatBoxExtent&& insets)
 {
-    // MAVERICKS_BACKPORT: use the Ref-returning gesture-controller accessor.
-    ensureProtectedGestureController()->setCustomSwipeViewsObscuredContentInsets(WTF::move(insets));
+    ensureGestureController().setCustomSwipeViewsObscuredContentInsets(WTF::move(insets));
 }
 
 bool WebViewImpl::tryToSwipeWithEvent(NSEvent *event, bool ignoringPinnedState)
@@ -5209,8 +5181,7 @@ void WebViewImpl::setDidMoveSwipeSnapshotCallback(BlockPtr<void (CGRect)>&& call
     if (!m_allowsBackForwardNavigationGestures)
         return;
 
-    // MAVERICKS_BACKPORT: use the Ref-returning gesture-controller accessor.
-    ensureProtectedGestureController()->setDidMoveSwipeSnapshotCallback(WTF::move(callback));
+    protect(ensureGestureController())->setDidMoveSwipeSnapshotCallback(WTF::move(callback));
 }
 
 void WebViewImpl::scrollWheel(NSEvent *event)
@@ -5229,7 +5200,7 @@ void WebViewImpl::scrollWheel(NSEvent *event)
 
     // MAVERICKS_BACKPORT: construct the wheel event via the explicit (event, view) constructor; use the Ref-returning gesture-controller accessor.
     NativeWebWheelEvent wrappedWheel(event, m_view.get().get());
-    if (m_allowsBackForwardNavigationGestures && ensureProtectedGestureController()->handleScrollWheelEvent(wrappedWheel)) {
+    if (m_allowsBackForwardNavigationGestures && protect(ensureGestureController())->handleScrollWheelEvent(wrappedWheel)) {
         RELEASE_LOG(MouseHandling, "[pageProxyID=%lld] WebViewImpl::scrollWheel: Gesture controller handled wheel event", m_page->identifier().toUInt64());
         return;
     }
@@ -5294,8 +5265,7 @@ void WebViewImpl::smartMagnifyWithEvent(NSEvent *event)
 
     dismissContentRelativeChildWindowsWithAnimation(false);
 
-    // MAVERICKS_BACKPORT: use the Ref-returning gesture-controller accessor.
-    ensureProtectedGestureController()->handleSmartMagnificationGesture([m_view.get() convertPoint:event.locationInWindow fromView:nil]);
+    protect(ensureGestureController())->handleSmartMagnificationGesture([m_view.get() convertPoint:event.locationInWindow fromView:nil]);
 }
 
 RetainPtr<NSEvent> WebViewImpl::setLastMouseDownEvent(NSEvent *event)
@@ -5396,8 +5366,7 @@ Vector<WebCore::KeypressCommand> WebViewImpl::collectKeyboardLayoutCommandsForEv
     auto commands = WTF::move(*m_collectedKeypressCommands);
     m_collectedKeypressCommands = std::nullopt;
 
-    // MAVERICKS_BACKPORT: use -[NSApp mainMenu] message syntax (the NSApp.mainMenu property accessor is unavailable on 10.9).
-    if (RetainPtr<NSMenu> menu = [NSApp mainMenu]; event.modifierFlags & NSEventModifierFlagFunction
+    if (RetainPtr<NSMenu> menu = NSApp.mainMenu; event.modifierFlags & NSEventModifierFlagFunction
         && [menu respondsToSelector:@selector(_containsItemMatchingEvent:includingDisabledItems:)] && [menu _containsItemMatchingEvent:event includingDisabledItems:YES]) {
         commands.removeAllMatching([](auto& command) {
             return command.commandName == "insertText:"_s;
@@ -6464,8 +6433,7 @@ bool WebViewImpl::beginBackSwipeForTesting()
     if (!m_allowsBackForwardNavigationGestures)
         return false;
 
-    // MAVERICKS_BACKPORT: use the Ref-returning gesture-controller accessor.
-    return ensureProtectedGestureController()->beginSimulatedSwipeInDirectionForTesting(ViewGestureController::SwipeDirection::Back);
+    return protect(ensureGestureController())->beginSimulatedSwipeInDirectionForTesting(ViewGestureController::SwipeDirection::Back);
 }
 
 bool WebViewImpl::completeBackSwipeForTesting()

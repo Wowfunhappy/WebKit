@@ -28,11 +28,6 @@
 
 #if ENABLE(DRAG_SUPPORT)
 
-// MAVERICKS_BACKPORT: runtime-absent API — UTType class accessors (UTTypeURL/UTTypePlainText/…) are
-// 11.0+; this header provides utType*Id() helpers routed to the legacy kUTType* constants so the
-// drag-type-identifier list below builds and works on 10.9.
-#import "../platform/mac/UTTypeIdentifiers.h"
-
 #import "DataTransfer.h"
 #import "DeprecatedGlobalSettings.h"
 #import "Document.h"
@@ -128,20 +123,17 @@ void DragController::updateSupportedTypeIdentifiersForDragHandlingMethod(DragHan
     Vector<String> supportedTypes;
     switch (dragHandlingMethod) {
     case DragHandlingMethod::PageLoad:
-        // MAVERICKS_BACKPORT: UTType class accessors are 11.0+; utTypeURLId() routes to legacy kUTTypeURL on 10.9.
-        supportedTypes.append(utTypeURLId());
+        supportedTypes.append(UTTypeURL.identifier);
         break;
     case DragHandlingMethod::EditPlainText:
-        // MAVERICKS_BACKPORT: UTType class accessors are 11.0+; utType*Id() route to legacy kUTType* on 10.9.
-        supportedTypes.append(utTypeURLId());
-        supportedTypes.append(utTypePlainTextId());
+        supportedTypes.append(UTTypeURL.identifier);
+        supportedTypes.append(UTTypePlainText.identifier);
         break;
     case DragHandlingMethod::EditRichText:
         if (DeprecatedGlobalSettings::attachmentElementEnabled()) {
             supportedTypes.append(WebArchivePboardType);
-            // MAVERICKS_BACKPORT: UTType class accessors are 11.0+; utType*Id() route to legacy kUTType* on 10.9.
-            supportedTypes.append(utTypeContentId());
-            supportedTypes.append(utTypeItemId());
+            supportedTypes.append(UTTypeContent.identifier);
+            supportedTypes.append(UTTypeItem.identifier);
         } else {
             for (NSString *type in Pasteboard::supportedWebContentPasteboardTypes())
                 supportedTypes.append(type);

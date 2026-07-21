@@ -78,9 +78,7 @@
 #import <Carbon/Carbon.h>
 #import <Cocoa/Cocoa.h>
 #import <CoreServices/CoreServices.h>
-// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTTypeFolder) is macOS 11+ and absent on 10.9;
-// utTypeFolderId() returns the legacy CoreServices kUTTypeFolder identifier used on 10.9.
-#import "../../platform/mac/UTTypeIdentifiers.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <math.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/mac/CoreUISPI.h>
@@ -1792,13 +1790,11 @@ static RefPtr<Icon> iconForAttachment(const String& fileName, const String& atta
 
     if (!attachmentType.isEmpty() && !equalLettersIgnoringASCIICase(attachmentType, "public.data"_s)) {
         if (equalLettersIgnoringASCIICase(attachmentType, "public.directory"_s) || equalLettersIgnoringASCIICase(attachmentType, "multipart/x-folder"_s) || equalLettersIgnoringASCIICase(attachmentType, "application/vnd.apple.folder"_s)) {
-            // MAVERICKS_BACKPORT: UTTypeFolder.identifier is macOS 11+; utTypeFolderId() returns the legacy CoreServices folder UTI on 10.9.
-            if (auto icon = Icon::createIconForUTI(utTypeFolderId())) {
-                LOG_ATTACHMENT("-> Got icon for folder UTI");
+            if (auto icon = Icon::createIconForUTI(UTTypeFolder.identifier)) {
+                LOG_ATTACHMENT("-> Got icon for UTTypeFolder");
                 return icon;
             }
-            // MAVERICKS_BACKPORT: log message refers to the legacy folder UTI (no UTTypeFolder constant on 10.9).
-            LOG_ATTACHMENT("-> No icon for folder UTI! Will fallback to filename or title...");
+            LOG_ATTACHMENT("-> No icon for UTTypeFolder! Will fallback to filename or title...");
         } else {
             String type;
             if (isDeclaredUTI(attachmentType))

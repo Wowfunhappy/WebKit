@@ -30,21 +30,13 @@
 #import "FloatRect.h"
 #import "GraphicsContext.h"
 #import "SharedBuffer.h"
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-// (end MAVERICKS_BACKPORT restored block)
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <wtf/cocoa/SpanCocoa.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #import <wtf/text/WTFString.h>
 
 #if ENABLE(MULTI_REPRESENTATION_HEIC)
 #import "PlatformNSAdaptiveImageGlyph.h"
-#endif
-
-// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTTypeTIFF) is macOS 11+ and absent on 10.9;
-// utTypeTIFFId() returns the legacy CoreServices kUTTypeTIFF identifier used on 10.9.
-#if PLATFORM(MAC)
-#import "../../mac/UTTypeIdentifiers.h"
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -90,8 +82,7 @@ RetainPtr<CFDataRef> ImageAdapter::tiffRepresentation(const Vector<Ref<NativeIma
 
     RetainPtr<CFMutableDataRef> data = adoptCF(CFDataCreateMutable(0, 0));
 
-    // MAVERICKS_BACKPORT: UTType.identifier (UTTypeTIFF) is macOS 11+; use utTypeTIFFId(), which returns the legacy CoreServices kUTTypeTIFF identifier available on 10.9.
-    RetainPtr<CGImageDestinationRef> destination = adoptCF(CGImageDestinationCreateWithData(data.get(), (__bridge CFStringRef)utTypeTIFFId(), nativeImages.size(), 0));
+    RetainPtr<CGImageDestinationRef> destination = adoptCF(CGImageDestinationCreateWithData(data.get(), bridge_cast(UTTypeTIFF.identifier), nativeImages.size(), 0));
     if (!destination)
         return nullptr;
 

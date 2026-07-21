@@ -37,14 +37,7 @@
 #import "PlatformPasteboard.h"
 #import "PlatformStrategies.h"
 #import "WebCoreNSURLExtras.h"
-#if PLATFORM(MAC)
-// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTType* constants) is macOS 11+ and absent on
-// 10.9; on Mac the utType*Id() helpers return the legacy CoreServices kUTType* identifiers instead.
-#import "../mac/UTTypeIdentifiers.h"
-#else
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-// MAVERICKS_BACKPORT: end of the Mac legacy-UTType include fork (UniformTypeIdentifiers is macOS 11+).
-#endif
 #import <wtf/cocoa/NSURLExtras.h>
 
 #if PLATFORM(IOS_FAMILY)
@@ -289,7 +282,7 @@ bool DragData::containsCompatibleContent(DraggingPurpose purpose) const
     platformStrategies()->pasteboardStrategy()->getTypes(types, m_pasteboardName, context.get());
     return types.contains(String(WebArchivePboardType))
         || types.contains(htmlPasteboardType())
-        || types.contains(String(utTypeWebArchiveId())) // MAVERICKS_BACKPORT: legacy kUTType* id helper (UTType constants are macOS 11+).
+        || types.contains(String(UTTypeWebArchive.identifier))
 #if PLATFORM(MAC)
         || (!m_disallowFileAccess && types.contains(String(legacyFilenamesPasteboardTypeSingleton())))
         || (!m_disallowFileAccess && types.contains(String(legacyFilesPromisePasteboardTypeSingleton())))
@@ -299,11 +292,11 @@ bool DragData::containsCompatibleContent(DraggingPurpose purpose) const
         || types.contains(urlPasteboardType())
         || types.contains(rtfdPasteboardType())
         || types.contains(rtfPasteboardType())
-        || types.contains(String(utTypeUTF8PlainTextId())) // MAVERICKS_BACKPORT: legacy kUTType* id helper (UTType constants are macOS 11+).
+        || types.contains(String(UTTypeUTF8PlainText.identifier))
         || types.contains(stringPasteboardType())
         || types.contains(colorPasteboardType())
-        || types.contains(String(utTypeJPEGId())) // MAVERICKS_BACKPORT: legacy kUTType* id helper (UTType constants are macOS 11+).
-        || types.contains(String(utTypePNGId())); // MAVERICKS_BACKPORT: legacy kUTType* id helper (UTType constants are macOS 11+).
+        || types.contains(String(UTTypeJPEG.identifier))
+        || types.contains(String(UTTypePNG.identifier));
 }
 
 bool DragData::containsPromise() const
