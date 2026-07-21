@@ -82,13 +82,19 @@ NSBezelStyle ButtonMac::bezelStyle(const FloatRect& rect, const ControlStyle& st
     auto size = cellSize(controlSize, style);
 
     float heightLimit = size.height() * style.zoomFactor;
-    // MAVERICKS_BACKPORT: on 10.9 the classic Aqua gel (NSBezelStyleRounded) is the correct look for
-    // ordinary unstyled push buttons even when they are a little taller than the exact standard cell
-    // height -- it renders at its natural height, centered, via rectForBounds(). The default check flips
-    // to the flat shadowless-square bezel for anything over the cell height (20px), so typical buttons
-    // (~22-26px) all draw flat. Reserve the flat bezel for genuinely tall buttons on 10.9.
-    if (NSAppKitVersionNumber < 1343 /* NSAppKitVersionNumber10_10 */)
-        heightLimit *= 1.6;
+    // MAVERICKS_BACKPORT: 10.9's rounded (Aqua gel) bezel draws at a FIXED intrinsic height, centered, and
+    // never stretches to fill a taller frame -- measured on this 10.9 host via -drawBezelWithFrame:: the
+    // drawn bezel is 22pt (regular/large) / 19pt (small/mini) at every frame >= ~24pt, with the extra space
+    // split as symmetric top/bottom gaps. Modern macOS instead STRETCHES the bezel, which is why upstream
+    // flips to the flat shadowless-square bezel once the frame exceeds the preferred cell height. That
+    // stretch never happens here, and WebKit's cell height (20pt) is actually SMALLER than the real gel, so
+    // the upstream cutover would reject the gel even at its own natural size. Keep the gel while the frame
+    // holds the intrinsic bezel plus total vertical padding up to the bezel's corner radius (half its
+    // height); past that the centered pill reads as lost and the flat bezel is preferable.
+    if (NSAppKitVersionNumber < 1343 /* NSAppKitVersionNumber10_10 */) {
+        float intrinsicBezelHeight = (controlSize == NSControlSizeSmall || controlSize == NSControlSizeMini) ? 19 : 22;
+        heightLimit = std::max<float>(heightLimit, (intrinsicBezelHeight + intrinsicBezelHeight / 2) * style.zoomFactor);
+    }
 
     if (rect.height() > heightLimit)
         return NSBezelStyleShadowlessSquare;

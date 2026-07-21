@@ -151,8 +151,13 @@ void wkCompositeNativeFocusRing(CGContextRef destination, CGRect bounds, void (^
         return;
     constexpr CGFloat glowMargin = 8; // room for the ~4px soft-blue Aqua bleed outside the shape
     CGRect tile = CGRectInset(bounds, -glowMargin, -glowMargin);
-    size_t width = static_cast<size_t>(std::ceil(tile.size.width));
-    size_t height = static_cast<size_t>(std::ceil(tile.size.height));
+    // MAVERICKS_BACKPORT: render the scratch bitmap at the destination's device scale so the ring is crisp
+    // on HiDPI/Retina — a 1x bitmap would be upsampled by the composite below and read blurry. Derive the
+    // scale from the destination CTM (covers both callers without threading deviceScaleFactor through).
+    CGSize deviceUnit = CGContextConvertSizeToDeviceSpace(destination, CGSizeMake(1, 1));
+    CGFloat scale = std::max<CGFloat>(1, std::max(std::abs(deviceUnit.width), std::abs(deviceUnit.height)));
+    size_t width = static_cast<size_t>(std::ceil(tile.size.width * scale));
+    size_t height = static_cast<size_t>(std::ceil(tile.size.height * scale));
     if (!width || !height)
         return;
     RetainPtr colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
@@ -160,6 +165,7 @@ void wkCompositeNativeFocusRing(CGContextRef destination, CGRect bounds, void (^
         static_cast<uint32_t>(kCGImageAlphaPremultipliedLast) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
     if (!bitmap)
         return;
+    CGContextScaleCTM(bitmap.get(), scale, scale); // draw in points; the bitmap is `scale`x device pixels
     CGContextTranslateCTM(bitmap.get(), -tile.origin.x, -tile.origin.y); // draw in the destination's space
     RetainPtr nsContext = [NSGraphicsContext graphicsContextWithGraphicsPort:bitmap.get() flipped:NO];
     [NSGraphicsContext saveGraphicsState];

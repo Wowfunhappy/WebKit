@@ -331,6 +331,29 @@ void ControlMac::drawCellFocusRing(GraphicsContext& context, const FloatRect& re
         RetainPtr view = m_controlFactory->drawingView(rect, style);
         [cell drawFocusRingMaskWithFrame:rect inView:view.get()];
     });
+/* MAVERICKS_BACKPORT: upstream implementation kept commented so upstream merges see the original text; not built on this 10.9 backport (the CGStyle focus ring does not composite into WebKit's offscreen context here — see above).
+    RetainPtr cgContext = context.platformContext();
+    CGContextStateSaver stateSaver(cgContext.get());
+
+    CGFocusRingStyle focusRingStyle;
+    NSInitializeCGFocusRingStyleForTime(NSFocusRingOnly, &focusRingStyle, std::numeric_limits<double>::max());
+
+    // We want to respect the CGContext clipping and also not overpaint any
+    // existing focus ring. The way to do this is set accumulate to
+    // -1. According to CoreGraphics, the reasoning for this behavior has been
+    // lost in time.
+    focusRingStyle.accumulate = -1;
+
+    // FIXME: This color should be shared with RenderThemeMac. For now just use the same NSColor color.
+    // The color is expected to be opaque, since CoreGraphics will apply opacity when drawing (because opacity is normally animated).
+    auto color = colorFromCocoaColor([NSColor keyboardFocusIndicatorColor]).opaqueColor();
+    auto cgStyle = adoptCF(CGStyleCreateFocusRingWithColor(&focusRingStyle, cachedCGColor(color).get()));
+    CGContextSetStyle(cgContext.get(), cgStyle.get());
+
+    CGContextBeginTransparencyLayerWithRect(cgContext.get(), rect, nullptr);
+    drawCellFocusRingInternal(context, rect, deviceScaleFactor, style, cell);
+    CGContextEndTransparencyLayer(cgContext.get());
+MAVERICKS_BACKPORT */
 }
 
 void ControlMac::drawCellOrFocusRing(GraphicsContext& context, const FloatRect& rect, float deviceScaleFactor, const ControlStyle& style, NSCell *cell, bool drawCell)
