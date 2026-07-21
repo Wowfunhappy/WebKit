@@ -343,12 +343,8 @@ void PlatformCALayerRemote::updateBackingStore()
     ASSERT(m_properties.backingStoreAttached);
 
     RemoteLayerBackingStore::Parameters parameters;
-    // MAVERICKS_BACKPORT: IOSurfaceCreateMachPort returns garbage (looks like a high stack address
-    // truncated to 32 bits) so the resulting mach send right in the layer commit IPC fails
-    // with MACH_SEND_INVALID_RIGHT. Force Bitmap backend (ShareableBitmap via shared memory)
-    // which doesn't transfer mach ports per layer.
-    parameters.type = RemoteLayerBackingStore::Type::Bitmap;
-    parameters.size = WebCore::IntSize(m_properties.bounds.size());
+    parameters.type = m_acceleratesDrawing ? RemoteLayerBackingStore::Type::IOSurface : RemoteLayerBackingStore::Type::Bitmap;
+    parameters.size = m_properties.bounds.size();
 
     parameters.colorSpace = displayColorSpace();
     parameters.contentsFormat = contentsFormat();
