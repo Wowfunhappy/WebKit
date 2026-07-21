@@ -121,8 +121,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 {
     [super updateLayer];
 
-    // MAVERICKS_BACKPORT: quaternaryLabelColor is 10.14+; use lightGrayColor on 10.9. -[NSColor CGColor] is available (since 10.8).
-    RetainPtr backgroundColor = self.overrideBackgroundColor ?: [NSColor lightGrayColor];
+    RetainPtr backgroundColor = self.overrideBackgroundColor ?: [NSColor quaternaryLabelColor];
     self.layer.backgroundColor = RetainPtr { backgroundColor.get().CGColor }.get();
 }
 

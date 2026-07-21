@@ -37,10 +37,9 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 ALLOW_DEPRECATED_DECLARATIONS_END
         return true;
     case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-        // MAVERICKS_BACKPORT: SHA-224 graceful-fail. Upstream deliberately traps
-        // (RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE) — this is a policy choice to fail
-        // the JS operation instead of crashing WebContent when a site requests SHA-224.
-        return false;
+        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
+        algorithm = kCCDigestSHA256;
+        return true;
     case CryptoAlgorithmIdentifier::SHA_256:
         algorithm = kCCDigestSHA256;
         return true;

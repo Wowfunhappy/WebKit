@@ -43,27 +43,9 @@ String MIMETypeForImageType(const String& uti)
 
 String preferredExtensionForImageType(const String& uti)
 {
-    // MAVERICKS_BACKPORT: UTTypeCopyPreferredTagWithClass may go through a registry
-    // that's not fully initialized in WebContent, raising unrecognized-selector
-    // on UTType class. Hardcoded fallbacks for common image UTIs avoid the crash.
-    if (uti == "public.png"_s) return "png"_s;
-    if (uti == "public.jpeg"_s) return "jpg"_s;
-    if (uti == "public.tiff"_s) return "tiff"_s;
-    if (uti == "com.compuserve.gif"_s) return "gif"_s;
-    if (uti == "public.heic"_s) return "heic"_s;
-    if (uti == "public.heif"_s) return "heif"_s;
-    if (uti == "public.webp"_s) return "webp"_s;
-    if (uti == "public.svg-image"_s || uti == "public.svg+xml"_s) return "svg"_s;
-    if (uti == "com.microsoft.bmp"_s) return "bmp"_s;
-    if (uti == "com.microsoft.ico"_s) return "ico"_s;
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    // MAVERICKS_BACKPORT: capture the CF result so a NULL return can be handled (see fallbacks above).
-    auto cfExt = adoptCF(UTTypeCopyPreferredTagWithClass(uti.createCFString().get(), kUTTagClassFilenameExtension));
+    return adoptCF(UTTypeCopyPreferredTagWithClass(uti.createCFString().get(), kUTTagClassFilenameExtension)).get();
 ALLOW_DEPRECATED_DECLARATIONS_END
-    // MAVERICKS_BACKPORT: tolerate a NULL result from UTTypeCopyPreferredTagWithClass (see fallbacks above).
-    if (!cfExt)
-        return { };
-    return String { cfExt.get() };
 }
 
 } // namespace WebCore

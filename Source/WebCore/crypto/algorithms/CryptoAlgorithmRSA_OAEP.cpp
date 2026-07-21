@@ -137,8 +137,7 @@ void CryptoAlgorithmRSA_OAEP::importKey(CryptoKeyFormat format, KeyData&& data, 
             isMatched = key.alg.isNull() || key.alg == ALG1;
             break;
         case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-            // MAVERICKS_BACKPORT: SHA-224 graceful-fail (policy choice). Upstream traps;
-            // leave isMatched unset so importKey fails instead of crashing the tab.
+            RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
             break;
         case CryptoAlgorithmIdentifier::SHA_256:
             isMatched = key.alg.isNull() || key.alg == ALG256;
@@ -209,8 +208,7 @@ void CryptoAlgorithmRSA_OAEP::exportKey(CryptoKeyFormat format, Ref<CryptoKey>&&
             jwk.alg = String(ALG1);
             break;
         case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-            // MAVERICKS_BACKPORT: SHA-224 graceful-fail (policy choice). Upstream traps;
-            // leave jwk.alg unset instead of crashing the tab.
+            RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
             break;
         case CryptoAlgorithmIdentifier::SHA_256:
             jwk.alg = String(ALG256);

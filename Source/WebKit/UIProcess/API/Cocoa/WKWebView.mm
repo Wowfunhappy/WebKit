@@ -3774,8 +3774,7 @@ struct WKWebViewData {
         return;
     }
 
-    // MAVERICKS_BACKPORT: construct the Box with an explicit empty RetainPtr<NSError>; the older toolchain does not deduce the RetainPtr<NSError> element type from a bare nil here.
-    auto error = Box<RetainPtr<NSError>>::create(RetainPtr<NSError> { });
+    auto error = Box<RetainPtr<NSError>>::create(nil);
 
     Ref callbackAggregator = CallbackAggregator::create([completionHandler = makeBlockPtr(completionHandler), error] {
         if (*error)
@@ -4847,8 +4846,7 @@ static void convertAndAddHighlight(Vector<Ref<WebCore::SharedMemory>>& buffers, 
 - (void)_loadAlternateHTMLString:(NSString *)string baseURL:(NSURL *)baseURL forUnreachableURL:(NSURL *)unreachableURL withWebpagePreferences:(WKWebpagePreferences *)preferences
 {
     THROW_IF_SUSPENDED;
-    // MAVERICKS_BACKPORT: spell out -[NSData data] and cast the ?: result to NSData *; the 10.9 SDK lacks the NSData.data class-property shorthand and needs the explicit common type for bridge_cast.
-    RetainPtr data = bridge_cast((NSData *)([string dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data]));
+    RetainPtr data = bridge_cast([string dataUsingEncoding:NSUTF8StringEncoding] ?: NSData.data);
     _page->loadAlternateHTML(WebCore::DataSegment::create(WTF::move(data)), "UTF-8"_s, baseURL, unreachableURL, preferences ? preferences->_websitePolicies.get() : nullptr);
 }
 
@@ -6836,8 +6834,7 @@ static Vector<Ref<API::TargetedElementInfo>> elementsFromWKElements(NSArray<_WKT
     Vector<String> itemTitles;
     itemTitles.reserveInitialCapacity([allItems count]);
     for (NSMenuItem *item in allItems.get()) {
-        // MAVERICKS_BACKPORT: send -isEnabled explicitly; the 10.9 NSMenuItem SDK does not expose the `enabled` dot-syntax property used upstream.
-        if (![item isEnabled])
+        if (!item.enabled)
             continue;
 
         if (RetainPtr title = [item title]; [title length])

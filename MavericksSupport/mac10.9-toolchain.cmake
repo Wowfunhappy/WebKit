@@ -32,6 +32,25 @@ endif ()
 set(CMAKE_C_COMPILER   ${_TC}/bin/clang)
 set(CMAKE_CXX_COMPILER ${_TC}/bin/clang++)
 
+# --- ccache (in-tree) ---------------------------------------------------------
+# Launch the compiler through the in-tree ccache so incremental AND reconfigured
+# builds reuse the object cache. Wiring this in the TOOLCHAIN (not just leaving it
+# as a CMakeCache launcher var) is deliberate: a `cmake --fresh` or fresh clone
+# wipes cache-only launchers, after which the build silently compiles with raw
+# clang and caches NOTHING (0 hits, cache never grows) until someone notices. The
+# compiler stays the real clang above; ccache masquerades via CMAKE_*_LAUNCHER.
+# rebuild.sh pins CCACHE_DIR to WebKitBuild/ccache; ccache reads it from the env at
+# compile time. Override _CCACHE with MAVERICKS_CCACHE (set it empty to disable).
+if (DEFINED ENV{MAVERICKS_CCACHE})
+    set(_CCACHE "$ENV{MAVERICKS_CCACHE}")
+else ()
+    get_filename_component(_CCACHE "${CMAKE_CURRENT_LIST_DIR}/toolchain/build/ccache/bin/ccache" ABSOLUTE)
+endif ()
+if (_CCACHE AND EXISTS "${_CCACHE}")
+    set(CMAKE_C_COMPILER_LAUNCHER   "${_CCACHE}" CACHE FILEPATH "ccache compiler launcher")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${_CCACHE}" CACHE FILEPATH "ccache compiler launcher")
+endif ()
+
 set(CMAKE_AR      ${_TC}/bin/llvm-ar      CACHE FILEPATH "")
 set(CMAKE_RANLIB  ${_TC}/bin/llvm-ranlib  CACHE FILEPATH "")
 set(CMAKE_LINKER  ${_TC}/bin/ld64.lld     CACHE FILEPATH "")

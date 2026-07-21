@@ -75,20 +75,14 @@ void MainThreadSharedTimer::invalidate()
 
 void MainThreadSharedTimer::setFiredFunction(Function<void()>&& firedFunction)
 {
-    // MAVERICKS_BACKPORT: ThreadGlobalData can get re-constructed on the same main
-    // thread when its TLS slot is clobbered by JSC's GC overwriting adjacent
-    // memory. The release assert here would crash; instead, allow overwrite.
+    RELEASE_ASSERT(!m_firedFunction || !firedFunction);
     m_firedFunction = WTF::move(firedFunction);
 }
 
 void MainThreadSharedTimer::fired()
 {
     ASSERT(m_firedFunction);
-    // MAVERICKS_BACKPORT: debug fopen logging removed for 10.9 perf.
-    // MAVERICKS_BACKPORT: ThreadGlobalData/TLS clobbering by JSC GC can leave
-    // m_firedFunction null on the main thread; null-guard instead of crashing.
-    if (m_firedFunction)
-        m_firedFunction();
+    m_firedFunction();
 }
 
 } // namespace WebCore

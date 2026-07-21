@@ -155,14 +155,9 @@ static PixelRange NODELETE pixelRangeFromPixelFormat(OSType pixelFormat)
     case kCVPixelFormatType_4444AYpCbCr16:
     case kCVPixelFormatType_422YpCbCr_4A_8BiPlanar:
     case kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:
-// MAVERICKS_BACKPORT: 10-bit HDR YpCbCr pixel formats are 10.13+ (not produced on 10.9). These are
-// compile-time fourcc constants present in the 26.1 SDK, so gate on the deployment target
-// (MIN_REQUIRED=1090), NOT MAX_ALLOWED (always-true on this SDK), to keep the guard truthful.
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300
     case kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange:
     case kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange:
     case kCVPixelFormatType_444YpCbCr10BiPlanarVideoRange:
-#endif // MAVERICKS_BACKPORT: end 10.13+ guard around 10-bit HDR video-range formats
 #if HAVE(COREVIDEO_COMPRESSED_PIXEL_FORMAT_TYPES)
     case kCVPixelFormatType_AGX_420YpCbCr8BiPlanarVideoRange:
 #endif
@@ -170,15 +165,10 @@ static PixelRange NODELETE pixelRangeFromPixelFormat(OSType pixelFormat)
     case kCVPixelFormatType_420YpCbCr8PlanarFullRange:
     case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange:
     case kCVPixelFormatType_422YpCbCr8FullRange:
-// MAVERICKS_BACKPORT: 10-bit / 2101010 HDR pixel formats are 10.13+ (not produced on 10.9). Compile-time
-// fourcc constants present in the 26.1 SDK; gate on the deployment target (MIN_REQUIRED=1090), NOT
-// MAX_ALLOWED (always-true on this SDK), to keep the guard truthful.
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101300
     case kCVPixelFormatType_ARGB2101010LEPacked:
     case kCVPixelFormatType_420YpCbCr10BiPlanarFullRange:
     case kCVPixelFormatType_422YpCbCr10BiPlanarFullRange:
     case kCVPixelFormatType_444YpCbCr10BiPlanarFullRange:
-#endif // MAVERICKS_BACKPORT: end 10.13+ guard around 10-bit/2101010 HDR full-range formats
 #if HAVE(COREVIDEO_COMPRESSED_PIXEL_FORMAT_TYPES)
     case kCVPixelFormatType_AGX_420YpCbCr8BiPlanarFullRange:
 #endif

@@ -208,8 +208,7 @@ MachSendRight TiledCoreAnimationDrawingAreaProxy::createFence()
     if (!page)
         return MachSendRight();
 
-    // MAVERICKS_BACKPORT: explicit (CAContext *) cast — -[CALayer context] returns id on the 10.9 SDK, so the RetainPtr<CAContext> assignment needs the cast.
-    RetainPtr<CAContext> rootLayerContext = (CAContext *)[protect(page->acceleratedCompositingRootLayer()) context];
+    RetainPtr<CAContext> rootLayerContext = [protect(page->acceleratedCompositingRootLayer()) context];
     if (!rootLayerContext)
         return MachSendRight();
 

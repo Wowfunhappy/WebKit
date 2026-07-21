@@ -72,8 +72,227 @@ WK_PRIV_ALIAS(CABackdropLayer);
 WK_PRIV_CLASS(CAPresentationModifier) @interface CAPresentationModifier : NSObject @end
 @implementation CAPresentationModifier @end
 WK_PRIV_ALIAS(CAPresentationModifier);
-WK_PRIV_CLASS(NSPresentationIntent) @interface NSPresentationIntent : NSObject @end
-@implementation NSPresentationIntent @end
+// NSPresentationIntent (Foundation, 12.0+): the semantic-structure metadata an attributed string
+// carries alongside its visual attributes (this block is a quote / a header of level N / table cell
+// (r,c) ...). It is a pure immutable data holder — Foundation attaches no behavior to it — so the
+// class is reimplementable in full. WebKit's uses: HTMLConverter builds a blockquote intent chain
+// (+blockQuoteIntentWithIdentity:nestedInsideIntent:, -parentIntent) and stores it under
+// NSPresentationIntentAttributeName (see constants.m); WebKit IPC (CoreIPCPresentationIntent) reads
+// every property below and rebuilds the intent on the other side through the same factory methods.
+// The kind values mirror the modern SDK's NSPresentationIntentKind declaration order (this file
+// compiles against the 10.9 headers, which lack the enum).
+typedef NS_ENUM(NSInteger, WKPolyfillNSPresentationIntentKind) {
+    WKPolyfillNSPresentationIntentKindParagraph,
+    WKPolyfillNSPresentationIntentKindHeader,
+    WKPolyfillNSPresentationIntentKindOrderedList,
+    WKPolyfillNSPresentationIntentKindUnorderedList,
+    WKPolyfillNSPresentationIntentKindListItem,
+    WKPolyfillNSPresentationIntentKindCodeBlock,
+    WKPolyfillNSPresentationIntentKindBlockQuote,
+    WKPolyfillNSPresentationIntentKindThematicBreak,
+    WKPolyfillNSPresentationIntentKindTable,
+    WKPolyfillNSPresentationIntentKindTableHeaderRow,
+    WKPolyfillNSPresentationIntentKindTableRow,
+    WKPolyfillNSPresentationIntentKindTableCell,
+};
+WK_PRIV_CLASS(NSPresentationIntent) @interface NSPresentationIntent : NSObject <NSCopying, NSSecureCoding> {
+    NSInteger _intentKind;
+    NSInteger _identity;
+    NSPresentationIntent *_parentIntent;
+    NSInteger _headerLevel;
+    NSInteger _ordinal;
+    NSString *_languageHint;
+    NSArray *_columnAlignments;
+    NSInteger _columnCount;
+    NSInteger _row;
+    NSInteger _column;
+}
+@property (readonly) NSInteger intentKind;
+@property (readonly) NSInteger identity;
+@property (readonly, retain) NSPresentationIntent *parentIntent;
+@property (readonly) NSInteger headerLevel;
+@property (readonly) NSInteger ordinal;
+@property (readonly, copy) NSString *languageHint;
+@property (readonly, copy) NSArray *columnAlignments;
+@property (readonly) NSInteger columnCount;
+@property (readonly) NSInteger row;
+@property (readonly) NSInteger column;
+@end
+@implementation NSPresentationIntent
+@synthesize intentKind = _intentKind;
+@synthesize identity = _identity;
+@synthesize parentIntent = _parentIntent;
+@synthesize headerLevel = _headerLevel;
+@synthesize ordinal = _ordinal;
+@synthesize languageHint = _languageHint;
+@synthesize columnAlignments = _columnAlignments;
+@synthesize columnCount = _columnCount;
+@synthesize row = _row;
+@synthesize column = _column;
+- (instancetype)_initWithKind:(NSInteger)kind identity:(NSInteger)identity parent:(NSPresentationIntent *)parent
+{
+    if ((self = [super init])) {
+        _intentKind = kind;
+        _identity = identity;
+        _parentIntent = [parent retain];
+    }
+    return self;
+}
+- (void)dealloc
+{
+    [_parentIntent release];
+    [_languageHint release];
+    [_columnAlignments release];
+    [super dealloc];
+}
++ (NSPresentationIntent *)paragraphIntentWithIdentity:(NSInteger)identity nestedInsideIntent:(NSPresentationIntent *)parent
+{
+    return [[[self alloc] _initWithKind:WKPolyfillNSPresentationIntentKindParagraph identity:identity parent:parent] autorelease];
+}
++ (NSPresentationIntent *)headerIntentWithIdentity:(NSInteger)identity level:(NSInteger)level nestedInsideIntent:(NSPresentationIntent *)parent
+{
+    NSPresentationIntent *intent = [[[self alloc] _initWithKind:WKPolyfillNSPresentationIntentKindHeader identity:identity parent:parent] autorelease];
+    intent->_headerLevel = level;
+    return intent;
+}
++ (NSPresentationIntent *)codeBlockIntentWithIdentity:(NSInteger)identity languageHint:(NSString *)languageHint nestedInsideIntent:(NSPresentationIntent *)parent
+{
+    NSPresentationIntent *intent = [[[self alloc] _initWithKind:WKPolyfillNSPresentationIntentKindCodeBlock identity:identity parent:parent] autorelease];
+    intent->_languageHint = [languageHint copy];
+    return intent;
+}
++ (NSPresentationIntent *)thematicBreakIntentWithIdentity:(NSInteger)identity nestedInsideIntent:(NSPresentationIntent *)parent
+{
+    return [[[self alloc] _initWithKind:WKPolyfillNSPresentationIntentKindThematicBreak identity:identity parent:parent] autorelease];
+}
++ (NSPresentationIntent *)orderedListIntentWithIdentity:(NSInteger)identity nestedInsideIntent:(NSPresentationIntent *)parent
+{
+    return [[[self alloc] _initWithKind:WKPolyfillNSPresentationIntentKindOrderedList identity:identity parent:parent] autorelease];
+}
++ (NSPresentationIntent *)unorderedListIntentWithIdentity:(NSInteger)identity nestedInsideIntent:(NSPresentationIntent *)parent
+{
+    return [[[self alloc] _initWithKind:WKPolyfillNSPresentationIntentKindUnorderedList identity:identity parent:parent] autorelease];
+}
++ (NSPresentationIntent *)listItemIntentWithIdentity:(NSInteger)identity ordinal:(NSInteger)ordinal nestedInsideIntent:(NSPresentationIntent *)parent
+{
+    NSPresentationIntent *intent = [[[self alloc] _initWithKind:WKPolyfillNSPresentationIntentKindListItem identity:identity parent:parent] autorelease];
+    intent->_ordinal = ordinal;
+    return intent;
+}
++ (NSPresentationIntent *)blockQuoteIntentWithIdentity:(NSInteger)identity nestedInsideIntent:(NSPresentationIntent *)parent
+{
+    return [[[self alloc] _initWithKind:WKPolyfillNSPresentationIntentKindBlockQuote identity:identity parent:parent] autorelease];
+}
++ (NSPresentationIntent *)tableIntentWithIdentity:(NSInteger)identity columnCount:(NSInteger)columnCount alignments:(NSArray *)alignments nestedInsideIntent:(NSPresentationIntent *)parent
+{
+    NSPresentationIntent *intent = [[[self alloc] _initWithKind:WKPolyfillNSPresentationIntentKindTable identity:identity parent:parent] autorelease];
+    intent->_columnCount = columnCount;
+    intent->_columnAlignments = [alignments copy];
+    return intent;
+}
++ (NSPresentationIntent *)tableHeaderRowIntentWithIdentity:(NSInteger)identity nestedInsideIntent:(NSPresentationIntent *)parent
+{
+    return [[[self alloc] _initWithKind:WKPolyfillNSPresentationIntentKindTableHeaderRow identity:identity parent:parent] autorelease];
+}
++ (NSPresentationIntent *)tableRowIntentWithIdentity:(NSInteger)identity row:(NSInteger)row nestedInsideIntent:(NSPresentationIntent *)parent
+{
+    NSPresentationIntent *intent = [[[self alloc] _initWithKind:WKPolyfillNSPresentationIntentKindTableRow identity:identity parent:parent] autorelease];
+    intent->_row = row;
+    return intent;
+}
++ (NSPresentationIntent *)tableCellIntentWithIdentity:(NSInteger)identity column:(NSInteger)column nestedInsideIntent:(NSPresentationIntent *)parent
+{
+    NSPresentationIntent *intent = [[[self alloc] _initWithKind:WKPolyfillNSPresentationIntentKindTableCell identity:identity parent:parent] autorelease];
+    intent->_column = column;
+    return intent;
+}
+- (id)copyWithZone:(NSZone *)zone
+{
+    (void)zone;
+    return [self retain]; // Immutable.
+}
++ (BOOL)supportsSecureCoding { return YES; }
+- (void)encodeWithCoder:(NSCoder *)coder
+{
+    [coder encodeInteger:_intentKind forKey:@"intentKind"];
+    [coder encodeInteger:_identity forKey:@"identity"];
+    [coder encodeObject:_parentIntent forKey:@"parentIntent"];
+    [coder encodeInteger:_headerLevel forKey:@"headerLevel"];
+    [coder encodeInteger:_ordinal forKey:@"ordinal"];
+    [coder encodeObject:_languageHint forKey:@"languageHint"];
+    [coder encodeObject:_columnAlignments forKey:@"columnAlignments"];
+    [coder encodeInteger:_columnCount forKey:@"columnCount"];
+    [coder encodeInteger:_row forKey:@"row"];
+    [coder encodeInteger:_column forKey:@"column"];
+}
+- (instancetype)initWithCoder:(NSCoder *)coder
+{
+    if ((self = [super init])) {
+        _intentKind = [coder decodeIntegerForKey:@"intentKind"];
+        _identity = [coder decodeIntegerForKey:@"identity"];
+        _parentIntent = [[coder decodeObjectOfClass:[NSPresentationIntent class] forKey:@"parentIntent"] retain];
+        _headerLevel = [coder decodeIntegerForKey:@"headerLevel"];
+        _ordinal = [coder decodeIntegerForKey:@"ordinal"];
+        _languageHint = [[coder decodeObjectOfClass:[NSString class] forKey:@"languageHint"] copy];
+        _columnAlignments = [[coder decodeObjectOfClasses:[NSSet setWithObjects:[NSArray class], [NSNumber class], nil] forKey:@"columnAlignments"] copy];
+        _columnCount = [coder decodeIntegerForKey:@"columnCount"];
+        _row = [coder decodeIntegerForKey:@"row"];
+        _column = [coder decodeIntegerForKey:@"column"];
+    }
+    return self;
+}
+// requireIdentity distinguishes -isEqual: (identity counts, recursively) from
+// -isEquivalentToPresentationIntent: ("the same as equality except that identity is not taken
+// into account"); the parent chain is compared under the same rule as the receiver.
+static BOOL wkPresentationIntentsEqual(NSPresentationIntent *a, NSPresentationIntent *b, BOOL requireIdentity)
+{
+    if (a == b)
+        return YES;
+    if (!a || !b)
+        return NO;
+    if (requireIdentity && a->_identity != b->_identity)
+        return NO;
+    return a->_intentKind == b->_intentKind
+        && a->_headerLevel == b->_headerLevel
+        && a->_ordinal == b->_ordinal
+        && (a->_languageHint == b->_languageHint || [a->_languageHint isEqualToString:b->_languageHint])
+        && (a->_columnAlignments == b->_columnAlignments || [a->_columnAlignments isEqualToArray:b->_columnAlignments])
+        && a->_columnCount == b->_columnCount
+        && a->_row == b->_row
+        && a->_column == b->_column
+        && wkPresentationIntentsEqual(a->_parentIntent, b->_parentIntent, requireIdentity);
+}
+- (BOOL)isEqual:(id)other
+{
+    if (other == self)
+        return YES;
+    if (![other isKindOfClass:[NSPresentationIntent class]])
+        return NO;
+    return wkPresentationIntentsEqual(self, other, YES);
+}
+- (BOOL)isEquivalentToPresentationIntent:(NSPresentationIntent *)other
+{
+    if (![other isKindOfClass:[NSPresentationIntent class]])
+        return NO;
+    return wkPresentationIntentsEqual(self, other, NO);
+}
+// "Each nested list increases the indentation level by one; all elements within the same list
+// have the same indentation level. Text outside list intents has an indentation level of 0."
+- (NSInteger)indentationLevel
+{
+    NSInteger level = 0;
+    for (NSPresentationIntent *intent = self; intent; intent = intent->_parentIntent) {
+        if (intent->_intentKind == WKPolyfillNSPresentationIntentKindOrderedList
+            || intent->_intentKind == WKPolyfillNSPresentationIntentKindUnorderedList)
+            level++;
+    }
+    return level;
+}
+- (NSUInteger)hash
+{
+    return (NSUInteger)_intentKind ^ ((NSUInteger)_identity << 4);
+}
+@end
 WK_PRIV_ALIAS(NSPresentationIntent);
 WK_PRIV_CLASS(SecKeyProxy) @interface SecKeyProxy : NSObject @end
 @implementation SecKeyProxy @end
@@ -250,8 +469,122 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
     if (!_identifier) return NO;
     return [_identifier hasPrefix:@"dyn."];
 }
+// _parentTypes (11.0+ SPI, pal/spi/cocoa/UniformTypeIdentifiersSPI.h): the types this type directly
+// conforms to. UTIUtilities' mimeTypeFromUTITree walks it when a type is neither declared nor dynamic.
+// Answered from the LaunchServices declaration's kUTTypeConformsToKey (a single identifier or an array
+// of them) — the same registry the modern framework reads. No declaration means no known parents, and
+// nil is what the caller's walk expects then.
+- (NSOrderedSet *)_parentTypes
+{
+    if (!_identifier) return nil;
+    CFDictionaryRef declaration = UTTypeCopyDeclaration((__bridge CFStringRef)_identifier);
+    if (!declaration) return nil;
+    CFTypeRef conformsTo = CFDictionaryGetValue(declaration, kUTTypeConformsToKey);
+    NSMutableOrderedSet *parents = [NSMutableOrderedSet orderedSet];
+    NSArray *identifiers = nil;
+    if (conformsTo && CFGetTypeID(conformsTo) == CFStringGetTypeID())
+        identifiers = [NSArray arrayWithObject:(__bridge NSString *)conformsTo];
+    else if (conformsTo && CFGetTypeID(conformsTo) == CFArrayGetTypeID())
+        identifiers = (__bridge NSArray *)conformsTo;
+    for (id identifier in identifiers) {
+        if (![identifier isKindOfClass:[NSString class]])
+            continue;
+        UTType *parent = [UTType typeWithIdentifier:identifier];
+        if (parent)
+            [parents addObject:parent];
+    }
+    CFRelease(declaration);
+    return parents;
+}
 @end
 WK_PRIV_ALIAS(UTType);
+// UniformTypeIdentifiers (11.0+) also EXPORTS each standard type as an object constant (UTTypePNG,
+// UTTypePackage, ...), which upstream references directly (`UTTypePNG.identifier`,
+// `[uti conformsToType:UTTypePackage]`). The framework is absent on 10.9, so the data symbols are
+// supplied here as retained instances of the class above, built from the classic CoreServices
+// identifiers. Initialized in a C constructor: the ObjC runtime realizes this image's classes before
+// its initializers run, and alloc/init avoids autorelease (no pool exists this early).
+UTType *UTTypeItem;
+UTType *UTTypeContent;
+UTType *UTTypeCompositeContent;
+UTType *UTTypeData;
+UTType *UTTypeDirectory;
+UTType *UTTypeFolder;
+UTType *UTTypePackage;
+UTType *UTTypeApplication;
+UTType *UTTypeApplicationBundle;
+UTType *UTTypeText;
+UTType *UTTypePlainText;
+UTType *UTTypeUTF8PlainText;
+UTType *UTTypeUTF16PlainText;
+UTType *UTTypeRTF;
+UTType *UTTypeRTFD;
+UTType *UTTypeFlatRTFD;
+UTType *UTTypeHTML;
+UTType *UTTypeXML;
+UTType *UTTypeURL;
+UTType *UTTypeFileURL;
+UTType *UTTypeImage;
+UTType *UTTypePNG;
+UTType *UTTypeJPEG;
+UTType *UTTypeTIFF;
+UTType *UTTypeGIF;
+UTType *UTTypeBMP;
+UTType *UTTypeICO;
+UTType *UTTypePDF;
+UTType *UTTypeMovie;
+UTType *UTTypeVideo;
+UTType *UTTypeAudio;
+UTType *UTTypeMP3;
+UTType *UTTypeMPEG;
+UTType *UTTypeMPEG4Movie;
+UTType *UTTypeMPEG4Audio;
+UTType *UTTypeQuickTimeMovie;
+UTType *UTTypeVCard;
+UTType *UTTypeWebArchive;
+__attribute__((constructor)) static void wk_uttype_constants_init(void)
+{
+#define WK_UTTYPE_CONST(NAME, IDENTIFIER) NAME = [[UTType alloc] initWithIdentifier:(__bridge NSString *)(IDENTIFIER)]
+    WK_UTTYPE_CONST(UTTypeItem, kUTTypeItem);
+    WK_UTTYPE_CONST(UTTypeContent, kUTTypeContent);
+    WK_UTTYPE_CONST(UTTypeCompositeContent, kUTTypeCompositeContent);
+    WK_UTTYPE_CONST(UTTypeData, kUTTypeData);
+    WK_UTTYPE_CONST(UTTypeDirectory, kUTTypeDirectory);
+    WK_UTTYPE_CONST(UTTypeFolder, kUTTypeFolder);
+    WK_UTTYPE_CONST(UTTypePackage, kUTTypePackage);
+    WK_UTTYPE_CONST(UTTypeApplication, kUTTypeApplication);
+    WK_UTTYPE_CONST(UTTypeApplicationBundle, kUTTypeApplicationBundle);
+    WK_UTTYPE_CONST(UTTypeText, kUTTypeText);
+    WK_UTTYPE_CONST(UTTypePlainText, kUTTypePlainText);
+    WK_UTTYPE_CONST(UTTypeUTF8PlainText, kUTTypeUTF8PlainText);
+    WK_UTTYPE_CONST(UTTypeUTF16PlainText, kUTTypeUTF16PlainText);
+    WK_UTTYPE_CONST(UTTypeRTF, kUTTypeRTF);
+    WK_UTTYPE_CONST(UTTypeRTFD, kUTTypeRTFD);
+    WK_UTTYPE_CONST(UTTypeFlatRTFD, kUTTypeFlatRTFD);
+    WK_UTTYPE_CONST(UTTypeHTML, kUTTypeHTML);
+    WK_UTTYPE_CONST(UTTypeXML, kUTTypeXML);
+    WK_UTTYPE_CONST(UTTypeURL, kUTTypeURL);
+    WK_UTTYPE_CONST(UTTypeFileURL, kUTTypeFileURL);
+    WK_UTTYPE_CONST(UTTypeImage, kUTTypeImage);
+    WK_UTTYPE_CONST(UTTypePNG, kUTTypePNG);
+    WK_UTTYPE_CONST(UTTypeJPEG, kUTTypeJPEG);
+    WK_UTTYPE_CONST(UTTypeTIFF, kUTTypeTIFF);
+    WK_UTTYPE_CONST(UTTypeGIF, kUTTypeGIF);
+    WK_UTTYPE_CONST(UTTypeBMP, kUTTypeBMP);
+    WK_UTTYPE_CONST(UTTypeICO, kUTTypeICO);
+    WK_UTTYPE_CONST(UTTypePDF, kUTTypePDF);
+    WK_UTTYPE_CONST(UTTypeMovie, kUTTypeMovie);
+    WK_UTTYPE_CONST(UTTypeVideo, kUTTypeVideo);
+    WK_UTTYPE_CONST(UTTypeAudio, kUTTypeAudio);
+    WK_UTTYPE_CONST(UTTypeMP3, kUTTypeMP3);
+    WK_UTTYPE_CONST(UTTypeMPEG, kUTTypeMPEG);
+    WK_UTTYPE_CONST(UTTypeMPEG4Movie, kUTTypeMPEG4);
+    WK_UTTYPE_CONST(UTTypeMPEG4Audio, kUTTypeMPEG4Audio);
+    WK_UTTYPE_CONST(UTTypeQuickTimeMovie, kUTTypeQuickTimeMovie);
+    WK_UTTYPE_CONST(UTTypeVCard, kUTTypeVCard);
+    UTTypeWebArchive = [[UTType alloc] initWithIdentifier:@"com.apple.webarchive"];
+#undef WK_UTTYPE_CONST
+}
 WK_PRIV_CLASS(NSFilePromiseReceiver) @interface NSFilePromiseReceiver : NSObject @end
 @implementation NSFilePromiseReceiver @end
 WK_PRIV_ALIAS(NSFilePromiseReceiver);
@@ -267,6 +600,25 @@ WK_PRIV_ALIAS(_NSScrollingMomentumCalculator);
 WK_PRIV_CLASS(_NSScrollingPredominantAxisFilter) @interface _NSScrollingPredominantAxisFilter : NSObject @end
 @implementation _NSScrollingPredominantAxisFilter @end
 WK_PRIV_ALIAS(_NSScrollingPredominantAxisFilter);
+// NSHapticFeedbackManager is 10.11+; on 10.9 the class is absent, so upstream's
+// [[NSHapticFeedbackManager defaultPerformer] performFeedbackPattern:performanceTime:] would fail to
+// bind _OBJC_CLASS_$_NSHapticFeedbackManager. Provide a no-op stub: defaultPerformer returns a shared
+// instance whose performFeedbackPattern:performanceTime: does nothing (10.9 has no haptic hardware).
+WK_PRIV_CLASS(NSHapticFeedbackManager) @interface NSHapticFeedbackManager : NSObject
++ (id)defaultPerformer;
+- (void)performFeedbackPattern:(NSInteger)pattern performanceTime:(NSInteger)performanceTime;
+@end
+@implementation NSHapticFeedbackManager
++ (id)defaultPerformer
+{
+    static NSHapticFeedbackManager *performer;
+    if (!performer)
+        performer = [[self alloc] init];
+    return performer;
+}
+- (void)performFeedbackPattern:(NSInteger)pattern performanceTime:(NSInteger)performanceTime { }
+@end
+WK_PRIV_ALIAS(NSHapticFeedbackManager);
 // NOTE: WebFullScreenController is intentionally NOT stubbed here — it is a REAL class implemented by
 // WebKitLegacy (Source/WebKitLegacy/mac/WebView/WebFullScreenController.mm). No other framework references
 // it, so a polyfill stub would only duplicate the real class. Leave it to WebKitLegacy.

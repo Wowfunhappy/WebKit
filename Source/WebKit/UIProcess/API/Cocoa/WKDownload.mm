@@ -40,13 +40,6 @@
 #import <WebCore/WebCoreObjCExtras.h>
 #import <wtf/WeakObjCPtr.h>
 
-// MAVERICKS_BACKPORT: forward-declare WKDownload's progress property in a category so the
-// DownloadClient C++ code below (which precedes @implementation) can reference it.
-// Ensure WKDownload's progress property is visible to the DownloadClient code above @implementation.
-@interface WKDownload (ProgressAccessor)
-@property (nonatomic, readonly) NSProgress *progress;
-@end
-
 class DownloadClient final : public API::DownloadClient {
 public:
     explicit DownloadClient(id<WKDownloadDelegatePrivate> delegate)
@@ -146,10 +139,7 @@ private:
             if ([fileManager fileExistsAtPath:retainPtr(destination.path).get()])
                 return completionHandler(WebKit::AllowOverwrite::No, { });
 
-            // MAVERICKS_BACKPORT: NSProgress.fileURL is unavailable on 10.9, so set it via KVC guarded by
-            // a respondsToSelector: check instead of the direct property assignment.
-            if ([protect(wrapper(download.get())).get().progress respondsToSelector:@selector(setFileURL:)])
-                [protect(wrapper(download.get())).get().progress setValue:destination forKey:@"fileURL"];
+            protect(wrapper(download.get())).get().progress.fileURL = destination;
 
             completionHandler(WebKit::AllowOverwrite::No, destination.path);
         }).get()];
@@ -346,9 +336,7 @@ WK_OBJECT_DISABLE_DISABLE_KVC_IVAR_ACCESS;
         downloadProgress = [NSProgress progressWithTotalUnitCount:indeterminateUnitCount];
 
         downloadProgress.get().kind = NSProgressKindFile;
-        // MAVERICKS_BACKPORT: NSProgress.fileOperationKind is unavailable on 10.9, so set it via KVC
-        // instead of the direct property assignment.
-        [downloadProgress.get() setValue:NSProgressFileOperationKindDownloading forKey:@"fileOperationKind"];
+        downloadProgress.get().fileOperationKind = NSProgressFileOperationKindDownloading;
 
         downloadProgress.get().cancellable = YES;
         downloadProgress.get().cancellationHandler = makeBlockPtr([weakSelf = WeakObjCPtr<WKDownload> { self }] () mutable {

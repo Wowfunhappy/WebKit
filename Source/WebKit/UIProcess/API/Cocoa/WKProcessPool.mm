@@ -72,11 +72,6 @@
 #import "WKGeolocationProviderIOS.h"
 #endif
 
-// MAVERICKS_BACKPORT: the -encodedData property is declared public only in the 10.12 SDK; it exists at runtime on 10.9, so re-declare it in a category to make it callable when building against an older SDK surface.
-@interface NSKeyedArchiver (WKEncodedData)
-@property (readonly, copy) NSData *encodedData;
-@end
-
 @interface _WKProcessInfo()
 - (instancetype)initWithTaskInfo:(const WebKit::AuxiliaryProcessProxy::TaskInfo&)info;
 @end
@@ -278,8 +273,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     else
         [protect(processPool->ensureBundleParameters()) removeObjectForKey:parameter];
 
-    // MAVERICKS_BACKPORT: call -encodedData via message syntax (the property isn't declared on 10.9's SDK surface), backed by the category above.
-    RetainPtr<NSData> data = [keyedArchiver.get() encodedData];
+    RetainPtr<NSData> data = keyedArchiver.get().encodedData;
     processPool->sendToAllProcesses(Messages::WebProcess::SetInjectedBundleParameter(parameter, span(data.get())));
 }
 
@@ -298,8 +292,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     Ref processPool = *_processPool;
     [protect(processPool->ensureBundleParameters()) setValuesForKeysWithDictionary:copy.get()];
 
-    // MAVERICKS_BACKPORT: call -encodedData via message syntax (the property isn't declared on 10.9's SDK surface), backed by the category above.
-    RetainPtr<NSData> data = [keyedArchiver.get() encodedData];
+    RetainPtr<NSData> data = keyedArchiver.get().encodedData;
     processPool->sendToAllProcesses(Messages::WebProcess::SetInjectedBundleParameters(span(data.get())));
 }
 

@@ -234,9 +234,7 @@ static ExceptionOr<std::unique_ptr<CryptoAlgorithmParameters>> normalizeCryptoAl
         case CryptoAlgorithmIdentifier::SHA_512:
             return makeParameters<CryptoAlgorithmParameters>(*identifier, params.releaseReturnValue());
         case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-            // MAVERICKS_BACKPORT: SHA-224 graceful-fail (policy choice). Upstream traps;
-            // return NotSupportedError so the JS operation fails instead of crashing the tab.
-            return Exception { ExceptionCode::NotSupportedError };
+            RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
         default:
             return Exception { ExceptionCode::NotSupportedError };
         }

@@ -51,19 +51,9 @@ bool CompressionStream::initializeIfNecessary(Algorithm algorithm, Operation ope
 #if PLATFORM(COCOA)
     switch (algorithm) {
     case Algorithm::Brotli:
-        // MAVERICKS_BACKPORT: runtime-absent symbol — Brotli (libcompression COMPRESSION_BROTLI) is 10.11+.
-        // On this build <compression.h> resolves to the 10.9 polyfill header, where COMPRESSION_BROTLI is
-        // entirely UNDECLARED (neither a macro nor an enum value). The #ifdef therefore evaluates false and
-        // the #else (return false; Brotli unsupported) is always taken; this guard is load-bearing —
-        // without it the reference to the undeclared COMPRESSION_BROTLI identifier fails to compile.
-#ifdef COMPRESSION_BROTLI
         auto result = compression_stream_init(&m_stream, operation == Operation::Compression ? COMPRESSION_STREAM_ENCODE : COMPRESSION_STREAM_DECODE, COMPRESSION_BROTLI);
         if (result != COMPRESSION_STATUS_OK)
             return false;
-        // MAVERICKS_BACKPORT: COMPRESSION_BROTLI undeclared in the 10.9 polyfill header; take this branch (Brotli unsupported).
-#else
-        return false;
-#endif
         break;
     }
 #else

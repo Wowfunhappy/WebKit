@@ -82,15 +82,6 @@ void MemoryPressureHandler::install()
     if (m_installed || timerEventSource())
         return;
 
-    // MAVERICKS_BACKPORT: dispatch queue is initialized by the constructor via
-    // setDispatchQueue(mainDispatchQueueSingleton()), so it should be valid.
-    // Null-guard anyway to avoid the dispatch_async crash that motivated the
-    // original stub.
-    if (!m_dispatchQueue.get()) {
-        m_installed = true;
-        return;
-    }
-
     dispatch_async(m_dispatchQueue.get(), ^{
         // MAVERICKS_BACKPORT: DISPATCH_MEMORYPRESSURE_PROC_LIMIT_{WARN,CRITICAL}
         // are 10.10+. The base NORMAL/WARN/CRITICAL flags exist on 10.9 — those

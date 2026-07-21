@@ -54,6 +54,9 @@ echo "### compiling polyfills"
     $HIDDEN -Wno-unused-command-line-argument \
     -o "$OBJ/variable-font-instancer.o" "$PF/LegacyCoreTextVariableFontInstancer.cpp"
 "$CLANG" -c $SDKCF $HIDDEN    -o "$OBJ/system-spi.o"   "$PF/system-spi.m"
+# compression.c decodes/encodes Brotli through the vendored codec headers (the WOFF2 dependency tree).
+"$CLANG" -c $SDKCF $HIDDEN -I"$REPO/MavericksSupport/deps/build/include" \
+                              -o "$OBJ/compression.o"  "$PF/compression.c"
 "$CLANG" -c $CF $INC          -o "$OBJ/classes.o"      "$PF/classes.m"
 "$CLANG" -c $SDKCF            -o "$OBJ/methods.o"      "$PF/methods.m"
 
@@ -114,7 +117,7 @@ tmp_stable() {  # $1 = final path; builder already wrote "$1.tmp"
 echo "### libpolyfill.a (C function/constant stubs only — NO ObjC classes)"
 ar_stable "$OUT/libpolyfill.a" "$OBJ/runtime.o" "$OBJ/wk_polyfill_runtime.o" \
     "$OBJ/constants.o" "$OBJ/graphics.o" "$OBJ/variable-font-instancer.o" "$OBJ/system-spi.o" \
-    "$OBJ/shared-obj"/*.o "$OBJ/legacy-obj"/*.o
+    "$OBJ/compression.o" "$OBJ/shared-obj"/*.o "$OBJ/legacy-obj"/*.o
 
 # Two definitions of one symbol used to be invisible: whichever archive member the linker happened
 # to pull decided the winner. Force-loading makes them a hard link error instead, so catch them here

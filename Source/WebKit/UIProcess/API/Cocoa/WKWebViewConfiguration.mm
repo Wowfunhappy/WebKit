@@ -843,10 +843,9 @@ SUPPRESS_NODELETE static NSString *NODELETE defaultApplicationNameForUserAgent()
 
 - (void)_setPortsForUpgradingInsecureSchemeForTesting:(NSArray<NSNumber *> *)ports
 {
-    // MAVERICKS_BACKPORT: cast each NSArray element to NSNumber * before sending -unsignedIntegerValue; the 10.9 SDK's id-typed subscript result does not resolve the property dot-syntax used upstream.
-    if (ports.count != 2 || ((NSNumber *)ports[0]).unsignedIntegerValue > std::numeric_limits<uint16_t>::max() || ((NSNumber *)ports[1]).unsignedIntegerValue > std::numeric_limits<uint16_t>::max())
+    if (ports.count != 2 || ports[0].unsignedIntegerValue > std::numeric_limits<uint16_t>::max() || ports[1].unsignedIntegerValue > std::numeric_limits<uint16_t>::max())
         return;
-    _pageConfiguration->setPortsForUpgradingInsecureSchemeForTesting((uint16_t)((NSNumber *)ports[0]).unsignedIntegerValue, (uint16_t)((NSNumber *)ports[1]).unsignedIntegerValue);
+    _pageConfiguration->setPortsForUpgradingInsecureSchemeForTesting((uint16_t)ports[0].unsignedIntegerValue, (uint16_t)ports[1].unsignedIntegerValue);
 }
 
 #if PLATFORM(IOS_FAMILY)

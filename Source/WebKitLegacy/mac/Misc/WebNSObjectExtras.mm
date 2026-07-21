@@ -63,9 +63,7 @@ static bool returnTypeIsObject(NSInvocation *invocation)
     [invocation setTarget:target];
     [invocation performSelectorOnMainThread:@selector(_webkit_invokeAndHandleException:) withObject:self waitUntilDone:YES];
     if (exception) {
-        // MAVERICKS_BACKPORT: exception is a RetainPtr<id>; std::exchange needs a RetainPtr-typed new
-        // value here, so reset it with an empty RetainPtr rather than the bare nil the base passes.
-        auto exceptionToThrow = std::exchange(exception, RetainPtr<id> { });
+        auto exceptionToThrow = std::exchange(exception, nil);
         @throw exceptionToThrow.autorelease();
     } else if (returnTypeIsObject(invocation)) {
         // _webkit_invokeAndHandleException retained the return value on the main thread.

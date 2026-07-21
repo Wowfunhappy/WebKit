@@ -1048,8 +1048,7 @@ static const NSUInteger orderedListSegment = 2;
     [insertListControl setWidth:listControlSegmentWidth forSegment:noListSegment];
     [insertListControl setWidth:listControlSegmentWidth forSegment:unorderedListSegment];
     [insertListControl setWidth:listControlSegmentWidth forSegment:orderedListSegment];
-    // MAVERICKS_BACKPORT: cast to NSSegmentedControl * for the .font setter; the 10.9 SDK's NSSegmentedControl has no font property on the RetainPtr's id type.
-    ((NSSegmentedControl *)insertListControl.get()).font = [NSFont systemFontOfSize:15];
+    insertListControl.get().font = [NSFont systemFontOfSize:15];
 
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     RetainPtr<id> segmentElement = NSAccessibilityUnignoredDescendant(insertListControl.get());
@@ -2724,8 +2723,7 @@ static bool fastDocumentTeardownEnabled()
 
     [WebPreferences _removeReferenceForIdentifier:[self preferencesIdentifier]];
 
-    // MAVERICKS_BACKPORT: std::exchange with an explicit empty RetainPtr (the 10.9 toolchain rejects the nil literal here).
-    auto preferences = std::exchange(_private->preferences, RetainPtr<WebPreferences> { });
+    auto preferences = std::exchange(_private->preferences, nil);
     [preferences didRemoveFromWebView];
 
     [self _closePluginDatabases];
@@ -5136,8 +5134,7 @@ IGNORE_WARNINGS_END
 
 #if HAVE(TOUCH_BAR)
 
-// MAVERICKS_BACKPORT: drop the lightweight generic parameter type (NSArray<NSTextCheckingResult *> *); unsupported by the 10.9 SDK.
-- (void)showCandidates:(NSArray *)candidates forString:(NSString *)string inRect:(NSRect)rectOfTypedString forSelectedRange:(NSRange)range view:(NSView *)view completionHandler:(void (^)(NSTextCheckingResult *acceptedCandidate))completionBlock
+- (void)showCandidates:(NSArray<NSTextCheckingResult *> *)candidates forString:(NSString *)string inRect:(NSRect)rectOfTypedString forSelectedRange:(NSRange)range view:(NSView *)view completionHandler:(void (^)(NSTextCheckingResult *acceptedCandidate))completionBlock
 {
     [self.candidateList setCandidates:candidates forSelectedRange:range inString:string rect:rectOfTypedString view:view completionHandler:completionBlock];
 }
@@ -5804,14 +5801,14 @@ static bool needsWebViewInitThreadWorkaround()
 {
     // Set asside the subviews before we archive. We don't want to archive any subviews.
     // The subviews will always be created in _commonInitializationFrameName:groupName:.
-    // MAVERICKS_BACKPORT: skip the _subviewsIvar set-aside/restore (NSView private ivar accessor differs on 10.9); not critical for our use.
+    id originalSubviews = self._subviewsIvar;
+    self._subviewsIvar = nil;
+
     [super encodeWithCoder:encoder];
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     // Restore the subviews we set aside.
-//     self._subviewsIvar = originalSubviews;
-//
-// (end MAVERICKS_BACKPORT restored block)
+    // Restore the subviews we set aside.
+    self._subviewsIvar = originalSubviews;
+
     BOOL useBackForwardList = _private->page && static_cast<BackForwardList&>(_private->page->backForward().client()).enabled();
     if ([encoder allowsKeyedCoding]) {
         [encoder encodeObject:[[self mainFrame] name] forKey:@"FrameName"];
@@ -7197,7 +7194,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 #if HAVE(TOUCH_BAR)
 
-// MAVERICKS_BACKPORT: macOS 10.9 NSResponder has no touchBar property to be @dynamic for.
+@dynamic touchBar;
 
 - (NSTouchBar *)makeTouchBar
 {
@@ -9313,8 +9310,7 @@ FORWARD(toggleUnderline)
 
         // First exit Fullscreen for the old videoElement.
         [_private->fullscreenController videoElement]->exitFullscreen();
-        // MAVERICKS_BACKPORT: std::exchange with an explicit empty RetainPtr (the 10.9 toolchain rejects the nil literal here).
-        _private->fullscreenControllersExiting.append(std::exchange(_private->fullscreenController, RetainPtr<WebVideoFullscreenController> { }));
+        _private->fullscreenControllersExiting.append(std::exchange(_private->fullscreenController, nil));
     }
 
     if (!_private->fullscreenController) {
@@ -9692,26 +9688,22 @@ FORWARD(toggleUnderline)
         [touchBarItem.get() dismissPopover:nil];
 }
 
-// MAVERICKS_BACKPORT: drop the lightweight generic return type (NSArray<NSString *> *); unsupported by the 10.9 SDK.
-- (NSArray *)_textTouchBarCustomizationAllowedIdentifiers
+- (NSArray<NSString *> *)_textTouchBarCustomizationAllowedIdentifiers
 {
     return @[ NSTouchBarItemIdentifierCharacterPicker, NSTouchBarItemIdentifierTextColorPicker, NSTouchBarItemIdentifierTextStyle, NSTouchBarItemIdentifierTextAlignment, NSTouchBarItemIdentifierTextList, NSTouchBarItemIdentifierFlexibleSpace ];
 }
 
-// MAVERICKS_BACKPORT: drop the lightweight generic return type (NSArray<NSString *> *); unsupported by the 10.9 SDK.
-- (NSArray *)_plainTextTouchBarDefaultItemIdentifiers
+- (NSArray<NSString *> *)_plainTextTouchBarDefaultItemIdentifiers
 {
     return @[ NSTouchBarItemIdentifierCharacterPicker, NSTouchBarItemIdentifierCandidateList ];
 }
 
-// MAVERICKS_BACKPORT: drop the lightweight generic return type (NSArray<NSString *> *); unsupported by the 10.9 SDK.
-- (NSArray *)_richTextTouchBarDefaultItemIdentifiers
+- (NSArray<NSString *> *)_richTextTouchBarDefaultItemIdentifiers
 {
     return @[ NSTouchBarItemIdentifierCharacterPicker, NSTouchBarItemIdentifierTextFormat, NSTouchBarItemIdentifierCandidateList ];
 }
 
-// MAVERICKS_BACKPORT: drop the lightweight generic return type (NSArray<NSString *> *); unsupported by the 10.9 SDK.
-- (NSArray *)_passwordTextTouchBarDefaultItemIdentifiers
+- (NSArray<NSString *> *)_passwordTextTouchBarDefaultItemIdentifiers
 {
     return @[ NSTouchBarItemIdentifierCandidateList ];
 }
@@ -9743,10 +9735,9 @@ FORWARD(toggleUnderline)
 
 - (void)setUpTextTouchBar:(NSTouchBar *)textTouchBar
 {
-    // MAVERICKS_BACKPORT: drop lightweight generics (NSSet<NSTouchBarItem *> */NSArray<NSTouchBarItemIdentifier> *); unsupported by the 10.9 SDK.
-    NSSet *templateItems = nil;
-    NSArray *defaultItemIdentifiers = nil;
-    NSArray *customizationAllowedItemIdentifiers = nil;
+    NSSet<NSTouchBarItem *> *templateItems = nil;
+    NSArray<NSTouchBarItemIdentifier> *defaultItemIdentifiers = nil;
+    NSArray<NSTouchBarItemIdentifier> *customizationAllowedItemIdentifiers = nil;
 
     if (textTouchBar == _private->_passwordTextTouchBar) {
         templateItems = [NSMutableSet setWithObject:_private->_passwordTextCandidateListTouchBarItem.get()];
@@ -9897,8 +9888,7 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
     }
 
     NSTouchBar *textTouchBar = self.textTouchBar;
-    // MAVERICKS_BACKPORT: drop the lightweight generic (NSArray<NSString *> *); unsupported by the 10.9 SDK headers.
-    NSArray *itemIdentifiers = textTouchBar.defaultItemIdentifiers;
+    NSArray<NSString *> *itemIdentifiers = textTouchBar.defaultItemIdentifiers;
     BOOL isShowingCombinedTextFormatItem = [itemIdentifiers containsObject:NSTouchBarItemIdentifierTextFormat];
     [textTouchBar setPrincipalItemIdentifier:isShowingCombinedTextFormatItem ? NSTouchBarItemIdentifierTextFormat : nil];
 
@@ -10078,8 +10068,7 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
         [translationViewController setIsSourceEditable:YES];
         [translationViewController setReplacementHandler:[weakSelf = WeakObjCPtr<WebView>(self)](NSAttributedString *string) {
             auto strongSelf = weakSelf.get();
-            // MAVERICKS_BACKPORT: cast WTF::String's NSString * conversion explicitly for the 10.9 SDK.
-            [strongSelf insertText:(NSString *)string.string];
+            [strongSelf insertText:string.string];
         }];
     }
 
@@ -10088,7 +10077,11 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
 
     auto popover = adoptNS([[NSPopover alloc] init]);
     [popover setBehavior:NSPopoverBehaviorTransient];
-    // MAVERICKS_BACKPORT: macOS 10.9: NSPopover.appearance is an enum, not NSAppearance *. Skip.
+    // MAVERICKS_BACKPORT: on a 10.9 deployment target the SDK declares -[NSPopover setAppearance:]
+    // as taking the deprecated NSPopoverAppearance enum (the NSAppearance* setter is gated on a
+    // 10.10+ target), so upstream's `setAppearance:self.effectiveAppearance` does not type-check.
+    // effectiveAppearance is always Aqua on 10.9, which upstream maps to the Minimal popover default.
+    [popover setAppearance:NSPopoverAppearanceMinimal];
     [popover setAnimates:YES];
     // MAVERICKS_BACKPORT: LTUITranslationViewController is unavailable on 10.9; cast the stand-in and use a fixed content size.
     [popover setContentViewController:(NSViewController *)translationViewController.get()];
@@ -10277,8 +10270,7 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
 
 @implementation WebView (WebViewIOSAdditions)
 
-// MAVERICKS_BACKPORT: drop the lightweight-generic return type (NSArray<DOMElement *> *); the 10.9 SDK headers lack it.
-- (NSArray *)_editableElementsInRect:(CGRect)rect
+- (NSArray<DOMElement *> *)_editableElementsInRect:(CGRect)rect
 {
     auto* page = core(self);
     if (!page)

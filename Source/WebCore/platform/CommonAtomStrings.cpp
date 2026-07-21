@@ -42,9 +42,7 @@ void initializeCommonAtomStrings()
 
     static std::once_flag initializeKey;
     std::call_once(initializeKey, [] {
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//         RELEASE_ASSERT(isUIThread());
-// (end MAVERICKS_BACKPORT restored block)
+        RELEASE_ASSERT(isUIThread());
         WEBCORE_COMMON_ATOM_STRINGS_FOR_EACH_KEYWORD(INITIALIZE_COMMON_ATOM)
     });
 }

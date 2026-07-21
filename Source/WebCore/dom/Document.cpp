@@ -9802,15 +9802,7 @@ void Document::updateHoverActiveState(const HitTestRequest& request, Element* in
 
 bool Document::haveStylesheetsLoaded() const
 {
-    // MAVERICKS_BACKPORT: keystone #50, now DE-HACKED — this is behaviorally identical
-    // to upstream (return true iff pending sheets ignored OR none pending). The old hack
-    // unconditionally returned true to dodge "pending sheets never drain on github", which
-    // was really the NetworkProcess NSURLSession-KVO swizzle orphaning stylesheet loads;
-    // that swizzle is gone and sheets now drain correctly. Kept in expanded form to preserve
-    // the keystone annotation. (Human review: safe to collapse to the upstream one-liner.)
-    if (m_ignorePendingStylesheets || !styleScope().hasPendingSheets())
-        return true;
-    return false;
+    return !styleScope().hasPendingSheets() || m_ignorePendingStylesheets;
 }
 
 Locale& Document::getCachedLocale(const AtomString& locale)

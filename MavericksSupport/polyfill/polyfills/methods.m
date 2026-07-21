@@ -15,6 +15,7 @@
 #import <AppKit/AppKit.h>
 #import <CoreServices/CoreServices.h>
 #import <PDFKit/PDFKit.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <QuartzCore/QuartzCore.h>
 #import <mach/mach.h>
 #import <objc/message.h>
@@ -413,10 +414,15 @@ WK_POLYFILL_SEL("stage", "wk_stage");
 - (NSPoint)wk_convertPointToScreen:(NSPoint)point;
 - (NSPoint)wk_convertPointFromScreen:(NSPoint)point;
 - (void)wk_performWindowDragWithEvent:(NSEvent *)event;
+- (NSRect)wk_contentLayoutRect;
 @end
 @implementation NSWindow (WKPolyfillScope)
 - (NSPoint)wk_convertPointToScreen:(NSPoint)point { return [self convertBaseToScreen:point]; }
 - (NSPoint)wk_convertPointFromScreen:(NSPoint)point { return [self convertScreenToBase:point]; }
+// -[NSWindow contentLayoutRect] is 10.10+: the content region not obscured by a full-size-content-view
+// title bar, in window coordinates. 10.9 has no full-size content view, so that region is exactly the
+// content view's frame -- which is also the fallback the WebKit call sites used before this polyfill.
+- (NSRect)wk_contentLayoutRect { return [[self contentView] frame]; }
 - (void)wk_performWindowDragWithEvent:(NSEvent *)event
 {
     (void)event;
@@ -440,13 +446,21 @@ WK_POLYFILL_SEL("stage", "wk_stage");
 WK_POLYFILL_SEL("performWindowDragWithEvent:", "wk_performWindowDragWithEvent:");
 WK_POLYFILL_SEL("convertPointToScreen:", "wk_convertPointToScreen:");
 WK_POLYFILL_SEL("convertPointFromScreen:", "wk_convertPointFromScreen:");
+WK_POLYFILL_SEL("contentLayoutRect", "wk_contentLayoutRect");
 
 // ---------------------------------------------------------------------------------------------------
 // NSURL -_lp_simplifiedDisplayString (LinkPresentation, 10.15+). LinkPresentation is absent on 10.9, so
 // createDragImageForLink (DragImageCocoa) would send an unrecognized selector to NSURL. Return the host
 // (nearest 10.9 meaning of a "simplified" display URL), falling back to the absolute string.
+//
+// +URLByResolvingAliasFileAtURL:options:error: (10.10+). A Finder alias file has been a bookmark file
+// since 10.6, so resolve it with the bookmark API 10.9 has; the NSURLBookmarkResolutionOptions bits are
+// the same ones the modern method takes. Per the modern contract, a URL that is not an alias file
+// (NSURLIsAliasFileKey, which also covers symlinks) comes back unchanged, and symlinks — which carry no
+// bookmark data — resolve to their destination.
 @interface NSURL (WKPolyfillScope)
 - (NSString *)wk__lp_simplifiedDisplayString;
++ (NSURL *)wk_URLByResolvingAliasFileAtURL:(NSURL *)url options:(NSURLBookmarkResolutionOptions)options error:(NSError **)error;
 @end
 @implementation NSURL (WKPolyfillScope)
 - (NSString *)wk__lp_simplifiedDisplayString
@@ -454,8 +468,169 @@ WK_POLYFILL_SEL("convertPointFromScreen:", "wk_convertPointFromScreen:");
     NSString *host = [self host];
     return host.length ? host : [self absoluteString];
 }
++ (NSURL *)wk_URLByResolvingAliasFileAtURL:(NSURL *)url options:(NSURLBookmarkResolutionOptions)options error:(NSError **)error
+{
+    NSNumber *isAlias = nil;
+    [url getResourceValue:&isAlias forKey:NSURLIsAliasFileKey error:NULL];
+    if (![isAlias boolValue])
+        return url;
+    NSError *bookmarkError = nil;
+    NSData *bookmarkData = [NSURL bookmarkDataWithContentsOfURL:url error:&bookmarkError];
+    if (!bookmarkData) {
+        NSNumber *isSymlink = nil;
+        if ([url getResourceValue:&isSymlink forKey:NSURLIsSymbolicLinkKey error:NULL] && [isSymlink boolValue])
+            return [url URLByResolvingSymlinksInPath];
+        if (error)
+            *error = bookmarkError;
+        return nil;
+    }
+    BOOL stale = NO;
+    return [NSURL URLByResolvingBookmarkData:bookmarkData options:options relativeToURL:nil bookmarkDataIsStale:&stale error:error];
+}
+// -getResourceValue:forKey:error: exists on 10.9 but does not know the modern NSURLContentTypeKey
+// (11.0+, answered with a UTType). REPLACE it for WebKit's callers: that one key is answered from the
+// classic NSURLTypeIdentifierKey wrapped in the UTType polyfill class; every other key forwards to
+// 10.9's implementation (reached through a runtime-built selector, which the selref rewrite cannot
+// touch, so this cannot recurse into itself).
+- (BOOL)wk_getResourceValue:(id *)value forKey:(NSString *)key error:(NSError **)error
+{
+    typedef BOOL (*WKGetResourceValueFn)(id, SEL, id *, NSString *, NSError **);
+    WKGetResourceValueFn original = (WKGetResourceValueFn)objc_msgSend;
+    SEL originalSelector = sel_registerName("getResourceValue:forKey:error:");
+    if ([key isEqualToString:NSURLContentTypeKey]) {
+        NSString *typeIdentifier = nil;
+        if (!original(self, originalSelector, (id *)&typeIdentifier, NSURLTypeIdentifierKey, error))
+            return NO;
+        if (value)
+            *value = typeIdentifier ? [UTType typeWithIdentifier:typeIdentifier] : nil;
+        return YES;
+    }
+    return original(self, originalSelector, value, key, error);
+}
 @end
 WK_POLYFILL_SEL("_lp_simplifiedDisplayString", "wk__lp_simplifiedDisplayString");
+WK_POLYFILL_SEL("URLByResolvingAliasFileAtURL:options:error:", "wk_URLByResolvingAliasFileAtURL:options:error:");
+WK_POLYFILL_SEL_REPLACES("getResourceValue:forKey:error:", "wk_getResourceValue:forKey:error:");
+
+// ---------------------------------------------------------------------------------------------------
+// NSView -_subviewsIvar / -_setSubviewsIvar: (10.12+ SPI): raw accessors for the _subviews ivar, used
+// by WebHTMLView's set-aside/restore dance during drawing. The ivar itself exists on 10.9's NSView;
+// the SPI is only the accessor pair, with raw-assign semantics (no retain/release, no layout side
+// effects) — which is exactly what object_getIvar/object_setIvar do under MRR.
+@interface NSView (WKPolyfillScope)
+- (NSMutableArray *)wk__subviewsIvar;
+- (void)wk__setSubviewsIvar:(NSMutableArray *)subviews;
+@end
+@implementation NSView (WKPolyfillScope)
+- (NSMutableArray *)wk__subviewsIvar
+{
+    Ivar ivar = class_getInstanceVariable([NSView class], "_subviews");
+    return ivar ? object_getIvar(self, ivar) : nil;
+}
+- (void)wk__setSubviewsIvar:(NSMutableArray *)subviews
+{
+    Ivar ivar = class_getInstanceVariable([NSView class], "_subviews");
+    if (ivar)
+        object_setIvar(self, ivar, subviews);
+}
+@end
+WK_POLYFILL_SEL("_subviewsIvar", "wk__subviewsIvar");
+WK_POLYFILL_SEL("_setSubviewsIvar:", "wk__setSubviewsIvar:");
+
+// ---------------------------------------------------------------------------------------------------
+// NSTextAttachment modern accessors: -initWithData:ofType: and the image property are 10.11+ on Mac;
+// -accessibilityLabel / -setAccessibilityLabel: are 10.10+ (NSTextAttachment adopts NSAccessibility
+// then). 10.9 stores the same ideas elsewhere: contents live in the attachment's NSFileWrapper, and a
+// displayed image lives in an NSTextAttachmentCell. The polyfills store through those, so an attachment
+// built here renders identically in 10.9's own text system; the explicitly-set image object and the
+// accessibility label — values 10.9 has no storage for — ride along as associated objects, so the
+// getters answer exactly what was set, like the modern properties.
+static char kWKTextAttachmentImageKey;
+static char kWKTextAttachmentAccessibilityLabelKey;
+static char kWKTextAttachmentContentsKey;
+static char kWKTextAttachmentFileTypeKey;
+@interface NSTextAttachment (WKPolyfillScope)
+- (id)wk_initWithData:(NSData *)contentData ofType:(NSString *)uti;
+- (NSData *)wk_contents;
+- (void)wk_setContents:(NSData *)contents;
+- (NSString *)wk_fileType;
+- (void)wk_setFileType:(NSString *)fileType;
+- (NSImage *)wk_image;
+- (void)wk_setImage:(NSImage *)image;
+- (NSString *)wk_accessibilityLabel;
+- (void)wk_setAccessibilityLabel:(NSString *)label;
+@end
+@implementation NSTextAttachment (WKPolyfillScope)
+- (id)wk_initWithData:(NSData *)contentData ofType:(NSString *)uti
+{
+    // Modern AppKit keeps (data, type) directly, answerable back through the contents/fileType
+    // properties; 10.9 renders from a file wrapper. Store both ways: the pair as associated objects
+    // (the modern properties' storage) and the data in a wrapper so 10.9's own text system draws it.
+    // nil data makes an attachment with no contents yet (the caller sets an image or a wrapper after).
+    NSFileWrapper *wrapper = nil;
+    if (contentData) {
+        wrapper = [[[NSFileWrapper alloc] initRegularFileWithContents:contentData] autorelease];
+        CFStringRef extension = uti ? UTTypeCopyPreferredTagWithClass((CFStringRef)uti, kUTTagClassFilenameExtension) : NULL;
+        if (extension) {
+            [wrapper setPreferredFilename:[@"attachment" stringByAppendingPathExtension:(NSString *)extension]];
+            CFRelease(extension);
+        }
+    }
+    self = [self initWithFileWrapper:wrapper];
+    if (self) {
+        objc_setAssociatedObject(self, &kWKTextAttachmentContentsKey, contentData, OBJC_ASSOCIATION_COPY_NONATOMIC);
+        objc_setAssociatedObject(self, &kWKTextAttachmentFileTypeKey, uti, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    }
+    return self;
+}
+- (NSData *)wk_contents
+{
+    return objc_getAssociatedObject(self, &kWKTextAttachmentContentsKey);
+}
+- (void)wk_setContents:(NSData *)contents
+{
+    objc_setAssociatedObject(self, &kWKTextAttachmentContentsKey, contents, OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+- (NSString *)wk_fileType
+{
+    return objc_getAssociatedObject(self, &kWKTextAttachmentFileTypeKey);
+}
+- (void)wk_setFileType:(NSString *)fileType
+{
+    objc_setAssociatedObject(self, &kWKTextAttachmentFileTypeKey, fileType, OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+- (NSImage *)wk_image
+{
+    return objc_getAssociatedObject(self, &kWKTextAttachmentImageKey);
+}
+- (void)wk_setImage:(NSImage *)image
+{
+    objc_setAssociatedObject(self, &kWKTextAttachmentImageKey, image, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    // Also store it where 10.9's text system actually draws from.
+    if (image) {
+        NSTextAttachmentCell *cell = [[[NSTextAttachmentCell alloc] initImageCell:image] autorelease];
+        [self setAttachmentCell:cell];
+    } else
+        [self setAttachmentCell:nil];
+}
+- (NSString *)wk_accessibilityLabel
+{
+    return objc_getAssociatedObject(self, &kWKTextAttachmentAccessibilityLabelKey);
+}
+- (void)wk_setAccessibilityLabel:(NSString *)label
+{
+    objc_setAssociatedObject(self, &kWKTextAttachmentAccessibilityLabelKey, label, OBJC_ASSOCIATION_COPY_NONATOMIC);
+}
+@end
+WK_POLYFILL_SEL("initWithData:ofType:", "wk_initWithData:ofType:");
+WK_POLYFILL_SEL("contents", "wk_contents");
+WK_POLYFILL_SEL("setContents:", "wk_setContents:");
+WK_POLYFILL_SEL("fileType", "wk_fileType");
+WK_POLYFILL_SEL("setFileType:", "wk_setFileType:");
+WK_POLYFILL_SEL("image", "wk_image");
+WK_POLYFILL_SEL("setImage:", "wk_setImage:");
+WK_POLYFILL_SEL("accessibilityLabel", "wk_accessibilityLabel");
+WK_POLYFILL_SEL("setAccessibilityLabel:", "wk_setAccessibilityLabel:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSString containsString:] (10.10+) via the classic -rangeOfString:.
@@ -804,10 +979,37 @@ WK_POLYFILL_SEL("setDecodingFailurePolicy:", "wk_setDecodingFailurePolicy:");
 WK_POLYFILL_SEL("unarchivedObjectOfClass:fromData:error:", "wk_unarchivedObjectOfClass:fromData:error:");
 WK_POLYFILL_SEL("unarchivedObjectOfClasses:fromData:error:", "wk_unarchivedObjectOfClasses:fromData:error:");
 
+static char kWKKeyedArchiverDataKey;
+static char kWKKeyedArchiverFinishedKey;
 @interface NSKeyedArchiver (WKPolyfillScope)
 + (NSData *)wk_archivedDataWithRootObject:(id)root requiringSecureCoding:(BOOL)requireSecure error:(NSError **)error;
+- (instancetype)wk_initRequiringSecureCoding:(BOOL)requireSecure;
+- (NSData *)wk_encodedData;
 @end
 @implementation NSKeyedArchiver (WKPolyfillScope)
+// -initRequiringSecureCoding: / -encodedData (10.13+): the classic pairing is an explicit mutable
+// data buffer plus finishEncoding. The buffer rides along as an associated object so encodedData can
+// answer it; encodedData finishes encoding on first read, exactly the modern property's contract.
+- (instancetype)wk_initRequiringSecureCoding:(BOOL)requireSecure
+{
+    NSMutableData *data = [NSMutableData data];
+    self = [self initForWritingWithMutableData:data];
+    if (self) {
+        [self setRequiresSecureCoding:requireSecure];   // honor the caller's flag; never silently downgrade
+        objc_setAssociatedObject(self, &kWKKeyedArchiverDataKey, data, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return self;
+}
+- (NSData *)wk_encodedData
+{
+    if (!objc_getAssociatedObject(self, &kWKKeyedArchiverFinishedKey)) {
+        [self finishEncoding];
+        objc_setAssociatedObject(self, &kWKKeyedArchiverFinishedKey, (id)kCFBooleanTrue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    // nil for an archiver built through some other initializer: only the paired init above records a
+    // buffer, and that pairing is the modern API's own (initRequiringSecureCoding: -> encodedData).
+    return objc_getAssociatedObject(self, &kWKKeyedArchiverDataKey);
+}
 + (NSData *)wk_archivedDataWithRootObject:(id)root requiringSecureCoding:(BOOL)requireSecure error:(NSError **)error
 {
     if (error)
@@ -830,6 +1032,8 @@ WK_POLYFILL_SEL("unarchivedObjectOfClasses:fromData:error:", "wk_unarchivedObjec
 }
 @end
 WK_POLYFILL_SEL("archivedDataWithRootObject:requiringSecureCoding:error:", "wk_archivedDataWithRootObject:requiringSecureCoding:error:");
+WK_POLYFILL_SEL("initRequiringSecureCoding:", "wk_initRequiringSecureCoding:");
+WK_POLYFILL_SEL("encodedData", "wk_encodedData");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSHTTPURLResponse valueForHTTPHeaderField:] (10.13+): 10.9 lacks it, but -allHeaderFields is present;

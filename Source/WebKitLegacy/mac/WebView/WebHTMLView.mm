@@ -152,8 +152,6 @@
 #import <pal/spi/mac/NSSpellCheckerSPI.h>
 #import <pal/spi/mac/NSViewSPI.h>
 #import <pal/spi/mac/NSWindowSPI.h>
-// MAVERICKS_BACKPORT: <objc/runtime.h> for the Ivar / object_getIvar / object_setIvar subviews-storage swap used below.
-#import <objc/runtime.h>
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/MainThread.h>
 #import <wtf/MathExtras.h>
@@ -1221,8 +1219,7 @@ static NSControlStateValue NODELETE kit(TriState state)
     if ([types containsObject:WebCore::legacyPDFPasteboardTypeSingleton()] && (fragment = [self _documentFragmentFromPasteboard:pasteboard forType:WebCore::legacyPDFPasteboardTypeSingleton() inContext:context subresources:0]))
         return fragment;
 
-    // MAVERICKS_BACKPORT: UTType (UTTypePNG.identifier) is 11.0+; use the classic kUTTypePNG constant.
-    if ([types containsObject:(NSString *)kUTTypePNG] && (fragment = [self _documentFragmentFromPasteboard:pasteboard forType:(NSString *)kUTTypePNG inContext:context subresources:0]))
+    if ([types containsObject:UTTypePNG.identifier] && (fragment = [self _documentFragmentFromPasteboard:pasteboard forType:UTTypePNG.identifier inContext:context subresources:0]))
         return fragment;
 
     if ([types containsObject:WebCore::legacyURLPasteboardTypeSingleton()] && (fragment = [self _documentFragmentFromPasteboard:pasteboard forType:WebCore::legacyURLPasteboardTypeSingleton() inContext:context subresources:0]))
@@ -1561,45 +1558,18 @@ static NSControlStateValue NODELETE kit(TriState state)
     _private->lastScrollPosition = origin;
 }
 
-// MAVERICKS_BACKPORT: upstream reaches the subviews storage through the 10.12+
-// _subviewsIvar/_setSubviewsIvar: AppKit SPI, which is absent on 10.9. Going through the public
-// -setSubviews: API instead is NOT equivalent: it runs the full view-hierarchy machinery —
-// willRemoveSubview:, autoresizing-constraint regeneration, and NSISEngine constraint work that
-// re-enters -[WebHTMLView setNeedsLayout:] — on EVERY draw. In a constraint-based window whose
-// WebHTMLView has plug-in subviews (a Mail compose with an attachment), that re-dirtied WebCore
-// layout and re-armed the window's constraint pass each cycle, an endless layout/display spin
-// during which WebCore refuses to paint (content frozen at its first paint, pegged CPU).
-// 10.9 AppKit still stores subviews in NSView's _subviews ivar — the same storage the 10.12+ SPI
-// wraps — so swap it directly with no side effects, exactly like the WebKit that shipped with
-// Safari 7 on this OS.
-static Ivar webHTMLViewSubviewsIvar()
-{
-    static Ivar ivar = class_getInstanceVariable([NSView class], "_subviews");
-    return ivar;
-}
-
 - (void)_setAsideSubviews
 {
 #if PLATFORM(MAC)
     ASSERT(!_private->subviewsSetAside);
     ASSERT(_private->savedSubviews == nil);
-    // MAVERICKS_BACKPORT: set aside the subviews by swapping NSView's _subviews ivar directly (webHTMLViewSubviewsIvar), avoiding the 10.12+ _subviewsIvar SPI and -setSubviews: side effects.
-    Ivar subviewsIvar = webHTMLViewSubviewsIvar();
-    if (subviewsIvar) {
-        // Take over the reference the view holds; hand the view a replacement array it owns.
-        _private->savedSubviews = object_getIvar(self, subviewsIvar);
-        if (_private->layerHostingView) {
-            // We keep the layer-hosting view in the subviews, otherwise the layers flash.
-            object_setIvar(self, subviewsIvar, [[NSMutableArray alloc] initWithObjects:_private->layerHostingView, nil]);
-        } else
-            object_setIvar(self, subviewsIvar, nil);
-    } else {
-        _private->savedSubviews = [[self subviews] copy];
-        if (_private->layerHostingView)
-            [self setSubviews:@[_private->layerHostingView]];
-        else
-            [self setSubviews:@[]];
-    }
+    _private->savedSubviews = self._subviewsIvar;
+    // We need to keep the layer-hosting view in the subviews, otherwise the layers flash.
+    if (_private->layerHostingView) {
+        NSMutableArray* newSubviews = [[NSMutableArray alloc] initWithObjects:_private->layerHostingView, nil];
+        self._subviewsIvar = newSubviews;
+    } else
+        self._subviewsIvar = nil;
     _private->subviewsSetAside = YES;
 #endif
  }
@@ -1608,16 +1578,12 @@ static Ivar webHTMLViewSubviewsIvar()
  {
 #if PLATFORM(MAC)
     ASSERT(_private->subviewsSetAside);
-    // MAVERICKS_BACKPORT: restore the subviews by swapping NSView's _subviews ivar directly (webHTMLViewSubviewsIvar), avoiding the 10.12+ _subviewsIvar SPI.
-    Ivar subviewsIvar = webHTMLViewSubviewsIvar();
-    if (subviewsIvar) {
-        // Drop the replacement array and hand the saved reference back to the view.
-        [object_getIvar(self, subviewsIvar) release];
-        object_setIvar(self, subviewsIvar, _private->savedSubviews);
+    if (_private->layerHostingView) {
+        [self._subviewsIvar release];
+        self._subviewsIvar = _private->savedSubviews;
     } else {
-        // MAVERICKS_BACKPORT: fallback when the _subviews ivar is unavailable — restore the saved subviews through public -setSubviews:.
-        [self setSubviews:(_private->savedSubviews ?: @[])];
-        [_private->savedSubviews release];
+        ASSERT(self._subviewsIvar == nil);
+        self._subviewsIvar = _private->savedSubviews;
     }
     _private->savedSubviews = nil;
     _private->subviewsSetAside = NO;
@@ -2022,8 +1988,7 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     static NeverDestroyed<RetainPtr<NSArray>> types = @[
         WebArchivePboardType, WebCore::legacyHTMLPasteboardTypeSingleton(), WebCore::legacyFilenamesPasteboardTypeSingleton(), WebCore::legacyTIFFPasteboardTypeSingleton(),
         WebCore::legacyPDFPasteboardTypeSingleton(), WebCore::legacyURLPasteboardTypeSingleton(), WebCore::legacyRTFDPasteboardTypeSingleton(), WebCore::legacyRTFPasteboardTypeSingleton(),
-        // MAVERICKS_BACKPORT: UTType (UTTypePNG.identifier) is 11.0+; use the classic kUTTypePNG constant.
-        WebCore::legacyStringPasteboardTypeSingleton(), WebCore::legacyColorPasteboardTypeSingleton(), (NSString *)kUTTypePNG,
+        WebCore::legacyStringPasteboardTypeSingleton(), WebCore::legacyColorPasteboardTypeSingleton(), UTTypePNG.identifier,
     ];
 ALLOW_DEPRECATED_DECLARATIONS_END
     return types.get().get();
@@ -2408,9 +2373,8 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
         return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:WebCore::legacyTIFFPasteboardTypeSingleton() imageMIMEType:@"image/tiff"];
     if ([pboardType isEqualToString:WebCore::legacyPDFPasteboardTypeSingleton()])
         return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:WebCore::legacyPDFPasteboardTypeSingleton() imageMIMEType:@"application/pdf"];
-    // MAVERICKS_BACKPORT: UTType (UTTypePNG.identifier) is 11.0+; use the classic kUTTypePNG constant.
-    if ([pboardType isEqualToString:(NSString *)kUTTypePNG])
-        return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:(NSString *)kUTTypePNG imageMIMEType:@"image/png"];
+    if ([pboardType isEqualToString:UTTypePNG.identifier])
+        return [self _web_documentFragmentFromPasteboard:pasteboard pasteboardType:UTTypePNG.identifier imageMIMEType:@"image/png"];
 
     if ([pboardType isEqualToString:WebCore::legacyURLPasteboardTypeSingleton()]) {
         NSURL *URL = [NSURL URLFromPasteboard:pasteboard];
@@ -6758,9 +6722,7 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
     if (event && shouldSaveCommand && !isFromInputMethod) {
         auto isFunctionKeyCommandWithMatchingMenuItem = ([&] {
 #if PLATFORM(MAC)
-            // MAVERICKS_BACKPORT: NSApp is typed id here; send -mainMenu via an explicit
-            // (NSApplication *) cast rather than the upstream NSApp.mainMenu dot syntax.
-            auto menu = [(NSApplication *)NSApp mainMenu];
+            auto menu = NSApp.mainMenu;
             auto* platformKeyEvent = event->underlyingPlatformEvent();
             if (!platformKeyEvent)
                 return NO;

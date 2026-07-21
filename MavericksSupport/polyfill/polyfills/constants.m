@@ -332,6 +332,10 @@ WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSAppearanceNameVibrantDark, @"NS
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSAppearanceNameAccessibilityHighContrastDarkAqua, @"NSAppearanceNameAccessibilityHighContrastDarkAqua");
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSAppearanceNameAccessibilityHighContrastVibrantDark, @"NSAppearanceNameAccessibilityHighContrastVibrantDark");
 WK_POLYFILL_CONST("Foundation", PolyNSStringConst, NSPresentationIntentAttributeName, @"NSPresentationIntent");
+// NSURLContentTypeKey (Foundation, 11.0+): the resource key answered with a UTType. 10.9's Foundation
+// does not interpret it; the NSURL getResourceValue:forKey:error: polyfill (methods.m) recognizes this
+// key and answers it from the classic NSURLTypeIdentifierKey.
+WK_POLYFILL_CONST("Foundation", PolyNSStringConst, NSURLContentTypeKey, @"NSURLContentTypeKey");
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification, @"NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification");
 // NSProcessInfoPowerStateDidChangeNotification (Foundation, 10.12+): the Low Power Mode change
 // notification. A unique name used only to register and match an observer; nothing on 10.9 posts it,

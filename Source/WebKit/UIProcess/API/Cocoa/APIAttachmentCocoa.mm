@@ -111,19 +111,13 @@ void Attachment::setFileWrapperAndUpdateContentType(NSFileWrapper *fileWrapper, 
 {
     RetainPtr updatedContentType = contentType;
     if (!updatedContentType.get().length) {
-        // MAVERICKS_BACKPORT: UTTypeDirectory / UTTypeData are macOS 11+ and absent on 10.9; use the
-        // legacy CoreServices kUTTypeDirectory / kUTTypeData CFString constants instead.
-        NSString *dirType = (__bridge NSString *)kUTTypeDirectory;
-        NSString *dataType = (__bridge NSString *)kUTTypeData;
         if (fileWrapper.directory)
-            // MAVERICKS_BACKPORT: legacy kUTTypeDirectory constant in place of UTTypeDirectory.identifier (macOS 11+).
-            updatedContentType = dirType;
+            updatedContentType = UTTypeDirectory.identifier;
         else if (fileWrapper.regularFile) {
             if (RetainPtr<NSString> pathExtension = (fileWrapper.filename.length ? fileWrapper.filename : fileWrapper.preferredFilename).pathExtension)
                 updatedContentType = WebCore::MIMETypeRegistry::mimeTypeForExtension(WTF::String(pathExtension.get())).createNSString();
             if (!updatedContentType.get().length)
-                // MAVERICKS_BACKPORT: legacy kUTTypeData constant in place of UTTypeData.identifier (macOS 11+).
-                updatedContentType = dataType;
+                updatedContentType = UTTypeData.identifier;
         }
     }
 

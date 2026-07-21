@@ -4,6 +4,8 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NINJA="$ROOT/MavericksSupport/toolchain/build/ninja/bin/ninja"
+CMAKE="$ROOT/MavericksSupport/toolchain/build/cmake/bin/cmake"
+[ -x "$CMAKE" ] || CMAKE="$ROOT/Compilers/toolchains/cmake-new/bin/cmake"
 BUILD="$ROOT/WebKitBuild/Release"
 LOG=/tmp/wk_build.log
 # Pin ccache to the in-tree cache so incremental builds share one cache regardless of the caller's
@@ -14,6 +16,40 @@ export CCACHE_DIR="$ROOT/WebKitBuild/ccache"
 # Trusting the include content-hash over mtime/ctime (and ignoring time/PCH-define macros) lets
 # direct hits engage, skipping the -E preprocess step.
 export CCACHE_SLOPPINESS="include_file_mtime,include_file_ctime,time_macros,pch_defines"
+
+# --- Re-derive feature options when their defaults change -------------------------------------
+# CMake's option() HONORS an existing cache entry, so editing a WEBKIT_OPTION_DEFAULT_PORT_VALUE
+# default in Source/cmake/Options*.cmake is SILENTLY IGNORED on an incremental build: ninja re-runs
+# cmake, but option() keeps whatever value is already in CMakeCache.txt from the first configure.
+# (This is exactly why flipping ENABLE_GAMEPAD ON in OptionsMac.cmake left it compiled OUT.) When an
+# option-defining file has changed, drop every WebKit option's cache entry and reconfigure so the
+# edited port defaults actually take effect. Only fires when such a file is edited — normal
+# incremental builds skip it entirely. A deliberate `-D<OPT>=` override is re-derived from the source
+# default too; for this port the feature config lives in Options*.cmake, not in ad-hoc -D flags.
+CACHE_FILE="$BUILD/CMakeCache.txt"
+if [ -f "$CACHE_FILE" ]; then
+    _opt_changed=""
+    for _f in "$ROOT"/Source/cmake/Options*.cmake "$ROOT"/Source/cmake/WebKitFeatures.cmake; do
+        [ -f "$_f" ] && [ "$_f" -nt "$CACHE_FILE" ] && _opt_changed=1
+    done
+    if [ -n "$_opt_changed" ]; then
+        _names=$(grep -rhoE 'WEBKIT_OPTION_(DEFINE|DEFAULT_PORT_VALUE)\([[:space:]]*[A-Z0-9_]+' \
+            "$ROOT"/Source/cmake/WebKitFeatures.cmake "$ROOT"/Source/cmake/Options*.cmake 2>/dev/null \
+            | grep -oE '[A-Z0-9_]+$' | sort -u)
+        if [ -n "$_names" ]; then
+            echo "### option file changed -> re-deriving $(echo $_names | wc -w | tr -d ' ') feature options from port defaults"
+            # `cmake -U` unsets each option's cache entry (value AND its //helpstring) so the next
+            # configure re-applies the WEBKIT_OPTION_DEFAULT_PORT_VALUE default; everything else in the
+            # cache (toolchain, generator, paths) is preserved, so no configure flags need re-passing.
+            _uargs=""
+            for _n in $_names; do _uargs="$_uargs -U $_n"; done
+            if ! "$CMAKE" $_uargs "$BUILD" >> "$LOG" 2>&1; then
+                echo "==================== RECONFIGURE FAILED — ABORTING ===================="
+                tail -20 "$LOG"; exit 1
+            fi
+        fi
+    fi
+fi
 
 # --- Polyfill (NOT in the ninja graph) -------------------------------------------------------
 # MavericksSupport/polyfill/scripts/build-polyfill.sh compiles polyfill/src into the libpolyfill*.a

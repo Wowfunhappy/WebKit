@@ -590,22 +590,9 @@
 #define ENABLE_VIDEO 1
 #endif
 
-// MAVERICKS_BACKPORT: keep ENABLE_MEDIA_SOURCE driven by the cmake flag (ENABLE_MEDIA_SOURCE=OFF in
-// OptionsMac.cmake → FEATURE_DEFINES_WITH_SPACE_SEPARATOR doesn't include it → IDL preprocessor
-// generates JSHTMLMediaElement.cpp's MediaProvider as Variant<Blob> only). If we also default
-// ENABLE_MEDIA_SOURCE=1 here, the C++ side (HTMLMediaElement.h MediaProvider) becomes
-// Variant<Ref<MediaSource>, Ref<Blob>> and the bindings/impl types diverge → compile error in
-// JSHTMLMediaElement.cpp setJSHTMLMediaElement_srcObjectSetter. Force OFF on 10.9 to match the
-// cmake intent (browser stability — MSE re-enable is task #286 and must flip BOTH sides).
-#if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101000
-#if !defined(ENABLE_MEDIA_SOURCE)
-#define ENABLE_MEDIA_SOURCE 0
-#endif
-#else
 #if !defined(ENABLE_MEDIA_SOURCE) && !PLATFORM(MACCATALYST) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
 #define ENABLE_MEDIA_SOURCE 1
 #endif
-#endif // MAVERICKS_BACKPORT: closes the < 101000 vs newer-OS MEDIA_SOURCE guard added above.
 
 #if !defined(ENABLE_MEDIA_SOURCE_IN_WORKERS) && ENABLE(MEDIA_SOURCE) && ENABLE(GPU_PROCESS)
 #define ENABLE_MEDIA_SOURCE_IN_WORKERS 1

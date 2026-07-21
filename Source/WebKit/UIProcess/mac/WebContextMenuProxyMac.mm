@@ -1132,8 +1132,7 @@ static RetainPtr<NSDictionary> contentsOfContextMenuItem(NSMenuItem *item)
 
     if (item.isSeparatorItem)
         result.get()[@"separator"] = @YES;
-    // MAVERICKS_BACKPORT: use the -isEnabled message; the `enabled` dot-property accessor is unavailable on 10.9 NSMenuItem.
-    else if (![item isEnabled])
+    else if (!item.enabled)
         result.get()[@"enabled"] = @NO;
 
     if (NSInteger indentationLevel = item.indentationLevel)

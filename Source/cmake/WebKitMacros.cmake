@@ -416,6 +416,13 @@ macro(_WEBKIT_FORCE_LOAD_POLYFILL _target)
         # Make it a real link input, so regenerating the archive (build-polyfill.sh) relinks.
         set_property(TARGET ${_target} APPEND PROPERTY LINK_DEPENDS
             "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill.a")
+        # The libcompression polyfill (polyfills/compression.c) codes Brotli through the vendored
+        # codec, so every force-load consumer needs the brotli archives (plain, not force-loaded:
+        # only the members the polyfill references are pulled).
+        target_link_libraries(${_target} PRIVATE
+            "${MAVERICKS_DEPS}/lib/libbrotlienc.a"
+            "${MAVERICKS_DEPS}/lib/libbrotlidec.a"
+            "${MAVERICKS_DEPS}/lib/libbrotlicommon.a")
         get_target_property(_wkPolyfillTargetType ${_target} TYPE)
         if (_wkPolyfillTargetType STREQUAL "EXECUTABLE")
             target_link_libraries(${_target} PRIVATE

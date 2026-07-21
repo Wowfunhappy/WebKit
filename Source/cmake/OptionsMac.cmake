@@ -3,6 +3,12 @@
 set(WEBKIT_MAC_VERSION 615.1.1)
 set(MACOSX_FRAMEWORK_BUNDLE_VERSION 615.1.1+)
 
+# MAVERICKS_BACKPORT: upstream injects WEBKIT_BUNDLE_VERSION from Version.xcconfig via the Xcode
+# build; the CMake port never defines it, so the UI-process/child version handshake in
+# ProcessLauncherCocoa.mm and XPCServiceMain.mm has no macro to reference. Define it here from the
+# single WEBKIT_MAC_VERSION source of truth so both sites agree and neither hardcodes a literal.
+add_compile_definitions(WEBKIT_BUNDLE_VERSION="${WEBKIT_MAC_VERSION}")
+
 WEBKIT_OPTION_BEGIN()
 # Private options shared with other WebKit ports. Add options here only if
 # we need a value different from the default defined in WebKitFeatures.cmake.
@@ -38,8 +44,9 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DRAG_SUPPORT PRIVATE ON)
 # MAVERICKS_BACKPORT: OFF — Encrypted Media Extensions (CDM/AVContentKeySession) is unavailable on 10.9.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ENCRYPTED_MEDIA PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_EXPERIMENTAL_FEATURES PRIVATE ON)
-# MAVERICKS_BACKPORT: OFF — Gamepad uses the 10.9-absent GameController framework / newer IOKit HID SPI.
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GAMEPAD PRIVATE OFF)
+# MAVERICKS_BACKPORT: ON — Gamepad works on 10.9 (GameController.framework is present; the "absent"
+# premise was false, same class as the SharedWorker disable). See [[webkit-mavericks-gamepad]].
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GAMEPAD PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GPU_PROCESS PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_ALTERNATE_DISPATCHERS PRIVATE ON)
 # MAVERICKS_BACKPORT: OFF — Web Inspector extensions are not part of the 10.9 drop-in scope.

@@ -980,15 +980,13 @@ void MediaPlayerPrivateWebM::enqueueSample(Ref<MediaSample>&& sample, TrackID tr
 
     PlatformSample platformSample = sample->platformSample();
 
-    // MAVERICKS_BACKPORT: Call CoreMedia directly instead of through the PAL CoreMedia soft-link wrappers (here and CMFormatDescriptionGetMediaType below); these symbols are present in the 10.9 CoreMedia framework, so the soft-link indirection is bypassed.
-    CMFormatDescriptionRef formatDescription = CMSampleBufferGetFormatDescription(platformSample.cmSampleBuffer());
+    CMFormatDescriptionRef formatDescription = PAL::CMSampleBufferGetFormatDescription(platformSample.cmSampleBuffer());
     ASSERT(formatDescription);
     if (!formatDescription) {
         ERROR_LOG(logSiteIdentifier, "Received sample with a null formatDescription. Bailing.");
         return;
     }
-    // MAVERICKS_BACKPORT: call CoreMedia's CMFormatDescriptionGetMediaType directly; the symbol is present in the 10.9 CoreMedia framework so the PAL soft-link wrapper is bypassed.
-    auto mediaType = CMFormatDescriptionGetMediaType(formatDescription);
+    auto mediaType = PAL::CMFormatDescriptionGetMediaType(formatDescription);
 
     if (isEnabledVideoTrackID(trackId)) {
         // AVSampleBufferDisplayLayer will throw an un-documented exception if passed a sample

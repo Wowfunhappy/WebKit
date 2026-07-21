@@ -42,9 +42,8 @@ static int getGCryptDigestAlgorithm(CryptoAlgorithmIdentifier hashFunction)
     case CryptoAlgorithmIdentifier::SHA_1:
         return GCRY_MAC_HMAC_SHA1;
     case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
-        // MAVERICKS_BACKPORT: SHA-224 graceful-fail (policy choice, gcrypt path).
-        // Upstream traps; return GCRY_MAC_NONE so the JS operation fails instead of crashing.
-        return GCRY_MAC_NONE;
+        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
+        return GCRY_MAC_HMAC_SHA256;
     case CryptoAlgorithmIdentifier::SHA_256:
         return GCRY_MAC_HMAC_SHA256;
     case CryptoAlgorithmIdentifier::SHA_384:

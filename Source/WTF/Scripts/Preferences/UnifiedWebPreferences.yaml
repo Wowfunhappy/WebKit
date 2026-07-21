@@ -8060,10 +8060,13 @@ SwitchControlEnabled:
     # native checkbox it is, and `'switch' in HTMLInputElement.prototype` reports false so pages take
     # their own fallback path (same shape as the SharedWorker disable above).
     WebKitLegacy:
+      # MAVERICKS_BACKPORT (see above): # "PLATFORM(COCOA)": true
       default: false
     WebKit:
+      # MAVERICKS_BACKPORT (see above): # "PLATFORM(COCOA)": true
       default: false
     WebCore:
+      # MAVERICKS_BACKPORT (see above): # "PLATFORM(COCOA)": true
       default: false
 
 # FIXME: There is no custom binding implemented for WebKitLegacy.

@@ -286,14 +286,7 @@ std::optional<Vector<SandboxExtension::Handle>> WebProcessProxy::fontdMachExtens
 {
     if (std::exchange(m_sentFontdMachExtensionHandles, true))
         return std::nullopt;
-    // MAVERICKS_BACKPORT: SANDBOX_EXTENSIONS is OFF on 10.9; gate the real createHandlesForMachLookup call (see #else below).
-#if ENABLE(SANDBOX_EXTENSIONS)
     return SandboxExtension::createHandlesForMachLookup({ "com.apple.fonts"_s }, auditToken(), SandboxExtension::MachBootstrapOptions::EnableMachBootstrap);
-#else
-    // 10.9: SANDBOX_EXTENSIONS is OFF; calling the stubbed createHandlesForMachLookup
-    // (in libpolyfill final_stubs.o) returns garbage that crashes the Vector destructor.
-    return std::nullopt;
-#endif
 }
 
 #if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/WebProcessProxyCocoaAdditions.mm>)

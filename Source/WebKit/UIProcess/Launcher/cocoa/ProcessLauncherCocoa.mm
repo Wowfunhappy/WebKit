@@ -347,8 +347,7 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
     SUPPRESS_RETAINPTR_CTOR_ADOPT auto bootstrapMessage = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-    // MAVERICKS_BACKPORT: hardcode the WebKit bundle version; the WEBKIT_BUNDLE_VERSION macro is not defined in this 10.9 build configuration.
-    xpc_dictionary_set_string(bootstrapMessage.get(), "WebKitBundleVersion", "615.1.1");
+    xpc_dictionary_set_string(bootstrapMessage.get(), "WebKitBundleVersion", WEBKIT_BUNDLE_VERSION);
 #endif
 
     auto languagesIterator = m_launchOptions.extraInitializationData.find<HashTranslatorASCIILiteral>("OverrideLanguages"_s);

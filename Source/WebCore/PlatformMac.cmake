@@ -706,6 +706,10 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/cocoa/WebKitAvailability.h
 
     platform/gamepad/cocoa/GameControllerGamepadProvider.h
+    # MAVERICKS_BACKPORT: GameControllerSPI.h is a Private framework header in the Xcode project
+    # (so <WebCore/GameControllerSPI.h> resolves there) but the CMake port omits it from the copy
+    # list; ENABLE(GAMEPAD) is ON for this port, so it must be forwarded like the other SPI headers.
+    platform/gamepad/cocoa/GameControllerSPI.h
 
     platform/gamepad/mac/HIDGamepad.h
     platform/gamepad/mac/HIDGamepadElement.h

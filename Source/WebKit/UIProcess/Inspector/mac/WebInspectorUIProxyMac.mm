@@ -859,17 +859,7 @@ void WebInspectorUIProxy::inspectedViewFrameDidChange(CGFloat currentDimension)
         if (!inspectorWindow)
             return frameIgnoringContentLayoutRect;
 
-        // MAVERICKS_BACKPORT: -[NSWindow contentLayoutRect] is 10.10+; call it via respondsToSelector/NSInvocation and fall back to the contentView frame on 10.9.
-        NSRect windowContentLayoutRect;
-        if ([inspectorWindow.get() respondsToSelector:@selector(contentLayoutRect)]) {
-            NSMethodSignature *sig = [inspectorWindow.get() methodSignatureForSelector:@selector(contentLayoutRect)];
-            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-            [inv setSelector:@selector(contentLayoutRect)];
-            [inv invokeWithTarget:inspectorWindow.get()];
-            [inv getReturnValue:&windowContentLayoutRect];
-        } else
-            windowContentLayoutRect = [[inspectorWindow.get() contentView] frame];
-        auto contentLayoutRect = [retainPtr([inspectedView superview]) convertRect:windowContentLayoutRect fromView:nil];
+        auto contentLayoutRect = [retainPtr([inspectedView superview]) convertRect:[inspectorWindow contentLayoutRect] fromView:nil];
         return NSIntersectionRect(frameIgnoringContentLayoutRect, contentLayoutRect);
     };
 

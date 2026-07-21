@@ -122,8 +122,7 @@ NEVER_INLINE NO_RETURN_DUE_TO_CRASH static void crashDueWebKitFrameworkVersionMi
 static void checkFrameworkVersion(xpc_object_t message)
 {
     auto uiProcessWebKitBundleVersion = xpcDictionaryGetString(message, "WebKitBundleVersion"_s);
-    // MAVERICKS_BACKPORT: hardcode the bundle version (the WEBKIT_BUNDLE_VERSION build macro is not threaded into this build).
-    auto webkitBundleVersion = ASCIILiteral::fromLiteralUnsafe("615.1.1");
+    auto webkitBundleVersion = ASCIILiteral::fromLiteralUnsafe(WEBKIT_BUNDLE_VERSION);
     if (!uiProcessWebKitBundleVersion.isNull() && uiProcessWebKitBundleVersion != webkitBundleVersion) {
         auto errorMessage = makeString("WebKit framework version mismatch: "_s, uiProcessWebKitBundleVersion, " != "_s, webkitBundleVersion);
         logAndSetCrashLogMessage(errorMessage.utf8().data());

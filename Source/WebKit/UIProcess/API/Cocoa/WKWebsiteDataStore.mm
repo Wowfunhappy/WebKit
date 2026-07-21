@@ -690,8 +690,7 @@ struct WKWebsiteData {
         return;
     }
 
-    // MAVERICKS_BACKPORT: construct the Box with an explicit empty RetainPtr<NSError> rather than nil; the older compiler/SDK doesn't deduce RetainPtr<NSError> from a bare nil here.
-    auto error = Box<RetainPtr<NSError>>::create(RetainPtr<NSError> { });
+    auto error = Box<RetainPtr<NSError>>::create(nil);
 
     Ref callbackAggregator = CallbackAggregator::create([completionHandler = makeBlockPtr(completionHandler), error] {
         if (*error)

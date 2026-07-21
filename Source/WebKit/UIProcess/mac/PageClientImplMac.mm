@@ -1085,19 +1085,9 @@ std::optional<float> PageClientImpl::computeAutomaticTopObscuredInset()
 {
     RetainPtr view = m_view.get();
     RetainPtr window = [view window];
-    // MAVERICKS_BACKPORT: -[NSWindow contentLayoutRect] is 10.10+; bail out when absent (and use literal 1<<15 for NSWindowStyleMaskFullSizeContentView).
-    if (![window respondsToSelector:@selector(contentLayoutRect)])
-        return std::nullopt;
-    if (([window styleMask] & (1ULL << 15)) && ![window titlebarAppearsTransparent] && ![view enclosingScrollView]) {
+    if (([window styleMask] & NSWindowStyleMaskFullSizeContentView) && ![window titlebarAppearsTransparent] && ![view enclosingScrollView]) {
         [window updateConstraintsIfNeeded];
-        // MAVERICKS_BACKPORT: call contentLayoutRect via NSInvocation since the selector is unavailable at compile time on the 10.9 SDK.
-        NSRect contentLayoutRect;
-        NSMethodSignature *sig = [window methodSignatureForSelector:@selector(contentLayoutRect)];
-        NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-        [inv setSelector:@selector(contentLayoutRect)];
-        [inv invokeWithTarget:window.get()];
-        [inv getReturnValue:&contentLayoutRect];
-        NSRect contentLayoutRectInWebViewCoordinates = [view convertRect:contentLayoutRect fromView:nil];
+        NSRect contentLayoutRectInWebViewCoordinates = [view convertRect:[window contentLayoutRect] fromView:nil];
         return std::max<float>(contentLayoutRectInWebViewCoordinates.origin.y, 0);
     }
 
@@ -1135,13 +1125,7 @@ void PageClientImpl::takeFocus(WebCore::FocusDirection direction)
 
 void PageClientImpl::performSwitchHapticFeedback()
 {
-    // MAVERICKS_BACKPORT: NSHapticFeedbackManager is 10.11+; look it up dynamically and no-op when absent on 10.9.
-    Class cls = NSClassFromString(@"NSHapticFeedbackManager");
-    if (!cls)
-        return;
-    id performer = [cls performSelector:@selector(defaultPerformer)];
-    if (performer)
-        [performer performSelector:@selector(performFeedbackPattern:performanceTime:) withObject:@(1) withObject:@(0)];
+    [[NSHapticFeedbackManager defaultPerformer] performFeedbackPattern:NSHapticFeedbackPatternLevelChange performanceTime:NSHapticFeedbackPerformanceTimeDefault];
 }
 
 void PageClientImpl::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory pasteAccessCategory, WebCore::DOMPasteRequiresInteraction requiresInteraction, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&& completion)

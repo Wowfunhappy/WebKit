@@ -28,10 +28,7 @@
 
 #if ENABLE(FILE_REPLACEMENT)
 
-// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTTypePackage) is macOS 11+ and absent on 10.9.
-// Resolve the file's UTI via the legacy NSURLTypeIdentifierKey (an NSString) and test conformance with
-// the legacy CoreServices UTTypeConformsTo + kUTTypePackage, both present and declared on 10.9.
-#import <CoreServices/CoreServices.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <wtf/FileSystem.h>
 #include <wtf/text/MakeString.h>
 
@@ -46,31 +43,20 @@ bool File::shouldReplaceFile(const String& path)
     if (path.isEmpty())
         return false;
 
-    NSError *error = nil;
-    RetainPtr fileURL = [NSURL fileURLWithPath:path.createNSString().get() isDirectory:NO];
-    // MAVERICKS_BACKPORT: +[NSURL URLByResolvingAliasFileAtURL:options:error:] is 10.10+ (absent on 10.9 ->
-    // unrecognized-selector crash in the NetworkProcess). On 10.9 skip alias resolution and use the file URL
-    // directly — an alias-file pointing at a package is a rare edge case; the common direct-package path
-    // (getResourceValue: NSURLTypeIdentifierKey below) is unaffected.
-    RetainPtr<NSURL> pathURL = fileURL;
-    if ([NSURL respondsToSelector:@selector(URLByResolvingAliasFileAtURL:options:error:)])
-        pathURL = [NSURL URLByResolvingAliasFileAtURL:fileURL.get() options:NSURLBookmarkResolutionWithoutUI error:&error];
+    NSError *error;
+    RetainPtr pathURL = [NSURL URLByResolvingAliasFileAtURL:[NSURL fileURLWithPath:path.createNSString().get() isDirectory:NO] options:NSURLBookmarkResolutionWithoutUI error:&error];
     if (!pathURL) {
         LOG_ERROR("Failed to resolve alias at path %s with error %@.\n", path.utf8().data(), error);
         return false;
     }
 
-    // MAVERICKS_BACKPORT: UTType (macOS 11+) is absent on 10.9; resolve the file's UTI as an NSString via the
-    // legacy NSURLTypeIdentifierKey resource value instead of NSURLContentTypeKey / UTType.
-    NSString *uti;
-    if (![pathURL getResourceValue:&uti forKey:NSURLTypeIdentifierKey error:&error]) {
+    UTType *uti;
+    if (![pathURL getResourceValue:&uti forKey:NSURLContentTypeKey error:&error]) {
         LOG_ERROR("Failed to get type identifier of resource at URL %@ with error %@.\n", pathURL.get(), error);
         return false;
     }
 
-    // MAVERICKS_BACKPORT: UTType (macOS 11+) is absent on 10.9; test package-conformance with the legacy
-    // CoreServices UTTypeConformsTo + kUTTypePackage instead of UTType.conforms(to: .package).
-    return UTTypeConformsTo((__bridge CFStringRef)uti, kUTTypePackage);
+    return [uti conformsToType:UTTypePackage];
 }
 
 void File::computeNameAndContentTypeForReplacedFile(const String& path, const String& nameOverride, String& effectiveName, String& effectiveContentType)

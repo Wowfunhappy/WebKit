@@ -991,11 +991,7 @@ GuaranteedSerialFunctionDispatcher& ScriptExecutionContext::nativePromiseDispatc
 
 bool ScriptExecutionContext::requiresScriptTrackingPrivacyProtection(ScriptTrackingPrivacyCategory category, IncludeConsoleLog includeConsoleLog)
 {
-    // MAVERICKS_BACKPORT: behavior fix — access the VM by raw JSC::VM* rather than RefPtr.
-    // The common VM is leakRef()'d for the life of the process (CommonVM.cpp), so it never
-    // needs (or wants) a transient ref here, and a stray VM ref/deref while JS is executing
-    // was the media-controls crash (forced media controls to be disabled entirely).
-    auto* vm = vmIfExists();
+    RefPtr vm = vmIfExists();
     if (!vm)
         return false;
 
