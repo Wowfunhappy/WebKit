@@ -525,6 +525,18 @@ WK_POLYFILL_ABSENT("CoreText", CGFloat, CTFontDescriptorGetTextStyleSize, (CFStr
     return size;
 }
 
+// CTFontGetAccessibilityBoldWeightOfWeight (10.13+): the weight a system font should use when the
+// "Bold Text" accessibility setting is on, given its normal weight (CTFontWeight, -1..1). 10.9 has no
+// Bold Text accessibility feature — the whole AccessibilitySupport legibility subsystem is absent (see
+// _AXSEnhanceTextLegibilityEnabled -> 0) — so there is no enhancement to apply: return the weight
+// unchanged. WebKit only calls this under `shouldEnhanceTextLegibility`, which is driven by that same
+// absent setting and is therefore false on 10.9, so this identity result is never actually consumed; it
+// exists so the byte-upstream caller links and behaves correctly if the gate ever opens.
+WK_POLYFILL_ABSENT("CoreText", CGFloat, CTFontGetAccessibilityBoldWeightOfWeight, (CGFloat weight))
+{
+    return weight;
+}
+
 // Descriptor option flags (newer). 10.9 descriptors carry none; report none.
 WK_POLYFILL_ABSENT("CoreText", uint64_t, CTFontDescriptorGetOptions, (CTFontDescriptorRef descriptor))
 {

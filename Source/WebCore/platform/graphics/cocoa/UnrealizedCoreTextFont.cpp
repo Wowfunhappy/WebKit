@@ -295,16 +295,9 @@ void UnrealizedCoreTextFont::modifyFromContext(const FontDescription& fontDescri
         if (auto slopeValue = fontCreationContext.fontFaceCapabilities().weight)
             m_slope = std::max(std::min(m_slope, static_cast<float>(slopeValue->maximum)), static_cast<float>(slopeValue->minimum));
         if (shouldEnhanceTextLegibility && fontTypeForPreparation == FontTypeForPreparation::SystemFont) {
-#if !PLATFORM(MAC)
-            // MAVERICKS_BACKPORT: CTFontGetAccessibilityBoldWeightOfWeight is 10.13+. Polyfill stub
-            // returns garbage CGFloat (only zeros RAX, leaves XMM0 dirty). Skip the bold-weight
-            // adjustment for accessibility on Mac. Pages don't expect this on 10.9 anyway.
             auto ctWeight = denormalizeCTWeight(m_weight);
             ctWeight = CTFontGetAccessibilityBoldWeightOfWeight(ctWeight);
             m_weight = normalizeCTWeight(ctWeight);
-// MAVERICKS_BACKPORT: end of the !PLATFORM(MAC) guard skipping the 10.13+
-// CTFontGetAccessibilityBoldWeightOfWeight accessibility bold-weight adjustment.
-#endif
         }
     }
 
