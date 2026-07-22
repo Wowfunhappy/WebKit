@@ -110,38 +110,11 @@ ImageDrawResult GraphicsContext::drawMultiRepresentationHEIC(Image& image, const
 // ring DOES render (a standalone bitmap) it draws the flat MODERN ring, not the classic Mavericks Aqua
 // glow. The authentic Mavericks ring is AppKit's classic NSSetFocusRingStyle; it also does not composite
 // offscreen but DOES render into a standalone bitmap. So draw the native ring into a scratch bitmap and
-// composite it back. NSSetFocusRingStyle's ring is produced only by native AppKit drawing (a raw
-// CGContext fill is not honored), so `drawShape` draws with NSBezierPath / the control's own mask.
-
-// 10.9 AppKit has no bezierPathWithCGPath:; build the NSBezierPath by walking the CGPath (quads->cubics).
-static void addCGPathElementToBezierPath(void* info, const CGPathElement* element)
-{
-    NSBezierPath *bezierPath = (__bridge NSBezierPath *)info;
-    const CGPoint* points = element->points;
-    switch (element->type) {
-    case kCGPathElementMoveToPoint:
-        [bezierPath moveToPoint:NSPointFromCGPoint(points[0])];
-        break;
-    case kCGPathElementAddLineToPoint:
-        [bezierPath lineToPoint:NSPointFromCGPoint(points[0])];
-        break;
-    case kCGPathElementAddQuadCurveToPoint: {
-        NSPoint current = bezierPath.elementCount ? [bezierPath currentPoint] : NSPointFromCGPoint(points[0]);
-        NSPoint control = NSPointFromCGPoint(points[0]);
-        NSPoint end = NSPointFromCGPoint(points[1]);
-        [bezierPath curveToPoint:end
-                   controlPoint1:NSMakePoint(current.x + (2.0 / 3.0) * (control.x - current.x), current.y + (2.0 / 3.0) * (control.y - current.y))
-                   controlPoint2:NSMakePoint(end.x + (2.0 / 3.0) * (control.x - end.x), end.y + (2.0 / 3.0) * (control.y - end.y))];
-        break;
-    }
-    case kCGPathElementAddCurveToPoint:
-        [bezierPath curveToPoint:NSPointFromCGPoint(points[2]) controlPoint1:NSPointFromCGPoint(points[0]) controlPoint2:NSPointFromCGPoint(points[1])];
-        break;
-    case kCGPathElementCloseSubpath:
-        [bezierPath closePath];
-        break;
-    }
-}
+// composite it back. The scratch bitmap is filled in TWO passes (see wkCompositeNativeFocusRing): a plain
+// coverage pass that unions the shape/mask into one silhouette (a raw CGContext fill IS honored there,
+// since no focus-ring style is set yet), then a ring pass that draws that silhouette under
+// NSSetFocusRingStyle. So a caller holding a CGPath fills it straight into the coverage context — no
+// NSBezierPath conversion is needed (10.9 AppKit has no bezierPathWithCGPath: anyway).
 
 // Render the native AppKit focus ring around drawShape's silhouette into a scratch bitmap sized to
 // `bounds` (in `destination` user space) plus a glow margin, then composite the result into `destination`.
@@ -151,7 +124,7 @@ void wkCompositeNativeFocusRing(CGContextRef destination, CGRect bounds, void (^
         return;
     constexpr CGFloat glowMargin = 8; // room for the ~4px soft-blue Aqua bleed outside the shape
     CGRect tile = CGRectInset(bounds, -glowMargin, -glowMargin);
-    // MAVERICKS_BACKPORT: render the scratch bitmap at the destination's device scale so the ring is crisp
+    // MAVERICKS_BACKPORT: render the scratch bitmaps at the destination's device scale so the ring is crisp
     // on HiDPI/Retina — a 1x bitmap would be upsampled by the composite below and read blurry. Derive the
     // scale from the destination CTM (covers both callers without threading deviceScaleFactor through).
     CGSize deviceUnit = CGContextConvertSizeToDeviceSpace(destination, CGSizeMake(1, 1));
@@ -161,17 +134,47 @@ void wkCompositeNativeFocusRing(CGContextRef destination, CGRect bounds, void (^
     if (!width || !height)
         return;
     RetainPtr colorSpace = adoptCF(CGColorSpaceCreateDeviceRGB());
-    RetainPtr bitmap = adoptCF(CGBitmapContextCreate(nullptr, width, height, 8, 0, colorSpace.get(),
-        static_cast<uint32_t>(kCGImageAlphaPremultipliedLast) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
+    auto makeTileBitmap = [&]() -> RetainPtr<CGContextRef> {
+        RetainPtr ctx = adoptCF(CGBitmapContextCreate(nullptr, width, height, 8, 0, colorSpace.get(),
+            static_cast<uint32_t>(kCGImageAlphaPremultipliedLast) | static_cast<uint32_t>(kCGBitmapByteOrder32Host)));
+        if (ctx) {
+            CGContextScaleCTM(ctx.get(), scale, scale); // draw in points; the bitmap is `scale`x device pixels
+            CGContextTranslateCTM(ctx.get(), -tile.origin.x, -tile.origin.y); // draw in the destination's space
+        }
+        return ctx;
+    };
+
+    // Pass 1: flatten the shape to a plain opaque coverage silhouette. A themed control can draw its
+    // focus-ring mask as SEVERAL sub-regions (NSPopUpButtonCell draws the button body and the arrow well
+    // separately); running that straight through NSSetFocusRingStyle rings each sub-region, so a popup gets a
+    // spurious inner rectangle inside the correct outer rounded ring. Unioning the sub-regions into one
+    // coverage bitmap first collapses them to a single outline. (A plain single-path caller is unaffected —
+    // its coverage is just that one shape.)
+    RetainPtr coverage = makeTileBitmap();
+    if (!coverage)
+        return;
+    RetainPtr coverageContext = [NSGraphicsContext graphicsContextWithGraphicsPort:coverage.get() flipped:NO];
+    [NSGraphicsContext saveGraphicsState];
+    [NSGraphicsContext setCurrentContext:coverageContext.get()];
+    [[NSColor blackColor] set];
+    drawShape();
+    [NSGraphicsContext restoreGraphicsState];
+    RetainPtr coverageImage = adoptCF(CGBitmapContextCreateImage(coverage.get()));
+    if (!coverageImage)
+        return;
+
+    // Pass 2: draw that single silhouette under NSSetFocusRingStyle so the authentic Aqua ring traces the
+    // union outline exactly once. The image must be drawn through AppKit (-[NSImage drawInRect:]) — a raw
+    // CGContextDrawImage bypasses the focus-ring state and would emit nothing.
+    RetainPtr bitmap = makeTileBitmap();
     if (!bitmap)
         return;
-    CGContextScaleCTM(bitmap.get(), scale, scale); // draw in points; the bitmap is `scale`x device pixels
-    CGContextTranslateCTM(bitmap.get(), -tile.origin.x, -tile.origin.y); // draw in the destination's space
     RetainPtr nsContext = [NSGraphicsContext graphicsContextWithGraphicsPort:bitmap.get() flipped:NO];
     [NSGraphicsContext saveGraphicsState];
     [NSGraphicsContext setCurrentContext:nsContext.get()];
     NSSetFocusRingStyle(NSFocusRingOnly);
-    drawShape();
+    RetainPtr silhouette = adoptNS([[NSImage alloc] initWithCGImage:coverageImage.get() size:NSMakeSize(tile.size.width, tile.size.height)]);
+    [silhouette drawInRect:NSMakeRect(tile.origin.x, tile.origin.y, tile.size.width, tile.size.height)];
     [NSGraphicsContext restoreGraphicsState];
     RetainPtr image = adoptCF(CGBitmapContextCreateImage(bitmap.get()));
     if (image)
@@ -190,11 +193,14 @@ void GraphicsContextCG::drawFocusRing(const Path& path, float, const Color& colo
     // render in WebKit's offscreen context on 10.9, and draws the flat modern ring rather than the Aqua
     // glow where it does. See wkCompositeNativeFocusRing.
     UNUSED_PARAM(color); // NSSetFocusRingStyle draws in the system focus color (the Aqua blue).
-    RetainPtr<NSBezierPath> bezierPath = [NSBezierPath bezierPath];
-    CGPathApply(path.platformPath(), (__bridge void*)bezierPath.get(), addCGPathElementToBezierPath);
-    NSBezierPath *shape = bezierPath.get();
-    wkCompositeNativeFocusRing(platformContext(), CGPathGetPathBoundingBox(path.platformPath()), ^{
-        [shape fill];
+    CGPathRef cgPath = path.platformPath();
+    wkCompositeNativeFocusRing(platformContext(), CGPathGetPathBoundingBox(cgPath), ^{
+        // The coverage pass runs in a plain (non-focus-ring) context, so fill the CGPath straight into it —
+        // no NSBezierPath needed; wkCompositeNativeFocusRing then rings the filled silhouette once.
+        CGContextRef coverageContext = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];
+        CGContextSetGrayFillColor(coverageContext, 0, 1);
+        CGContextAddPath(coverageContext, cgPath);
+        CGContextFillPath(coverageContext);
     });
 #else
     CGFocusRingStyle focusRingStyle;
