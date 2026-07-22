@@ -788,13 +788,19 @@ WK_POLYFILL_SEL("_setAccentColor:", "wk__setAccentColor:");
 
 @interface NSWindow (WKPolyfillScopeChrome)
 - (void)wk_setTitlebarAppearsTransparent:(BOOL)flag;
+- (BOOL)wk_titlebarAppearsTransparent;
 - (void)wk_setTitleVisibility:(NSInteger)visibility;
 @end
 @implementation NSWindow (WKPolyfillScopeChrome)
 - (void)wk_setTitlebarAppearsTransparent:(BOOL)flag { (void)flag; }
+// The getter pairs with the no-op setter above: WebKit reads it (e.g. PageClientImpl::
+// computeAutomaticTopObscuredInset) and on 10.9 the titlebar is never transparent, so answer NO. Without
+// this, the call is an unrecognized selector that throws (caught by ObjC forwarding, but logged).
+- (BOOL)wk_titlebarAppearsTransparent { return NO; }
 - (void)wk_setTitleVisibility:(NSInteger)visibility { (void)visibility; }
 @end
 WK_POLYFILL_SEL("setTitlebarAppearsTransparent:", "wk_setTitlebarAppearsTransparent:");
+WK_POLYFILL_SEL("titlebarAppearsTransparent", "wk_titlebarAppearsTransparent");
 WK_POLYFILL_SEL("setTitleVisibility:", "wk_setTitleVisibility:");
 
 // ---------------------------------------------------------------------------------------------------
