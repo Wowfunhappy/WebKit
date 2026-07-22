@@ -34,6 +34,9 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <optional>
 #include <pal/spi/cf/CoreTextSPI.h>
+// MAVERICKS_BACKPORT: AAT feature-type/selector constants for the OpenType->AAT translation in
+// appendOpenTypeFeature (see the comment there). Present on 10.9.
+#include <CoreText/SFNTLayoutTypes.h>
 
 namespace WebCore {
 
@@ -94,16 +97,122 @@ void UnrealizedCoreTextFont::addAttributesForOpticalSizing(CFMutableDictionaryRe
     });
 }
 
+// MAVERICKS_BACKPORT: translate an OpenType feature tag to its pre-10.10 AAT (feature type, on-selector,
+// off-selector) triple per Apple's Font Feature Registry. Returns false for tags with no AAT feature
+// equivalent. This is the COMPLETE OpenType->AAT mapping as shipped by CoreText/HarfBuzz (every OpenType
+// tag whose AAT feature-type and selector constants exist in SFNTLayoutTypes.h, all present on 10.9),
+// including the CJK / vertical / kana / character-shape / transliteration families — 10.9 CoreText honors
+// those AAT feature types on fonts that carry the tables, so they must be translated too, not dropped. A
+// few disable selectors that have no named SFNTLayoutTypes constant are the registry's documented numeric
+// values (kCharacterShapeType default 16, kTextSpacingType default 7, kNumberCaseType default 2,
+// kNumberSpacingType default 4, kLetterCaseType default 15).
+static bool aatFeatureForOpenTypeTag(FontTag tag, int& type, int& onSelector, int& offSelector)
+{
+    // Stylistic sets ss01..ss20 -> kStylisticAlternativesType, on/off = base + 2*(n-1).
+    if (tag[0] == 's' && tag[1] == 's' && tag[2] >= '0' && tag[2] <= '9' && tag[3] >= '0' && tag[3] <= '9') {
+        int n = (tag[2] - '0') * 10 + (tag[3] - '0');
+        if (n >= 1 && n <= 20) {
+            type = kStylisticAlternativesType;
+            onSelector = kStylisticAltOneOnSelector + 2 * (n - 1);
+            offSelector = kStylisticAltOneOffSelector + 2 * (n - 1);
+            return true;
+        }
+    }
+
+    struct Mapping { char tag[5]; int type; int on; int off; };
+    static const Mapping mappings[] = {
+        { "afrc", kFractionsType, kVerticalFractionsSelector, kNoFractionsSelector },
+        { "c2pc", kUpperCaseType, kUpperCasePetiteCapsSelector, kDefaultUpperCaseSelector },
+        { "c2sc", kUpperCaseType, kUpperCaseSmallCapsSelector, kDefaultUpperCaseSelector },
+        { "calt", kContextualAlternatesType, kContextualAlternatesOnSelector, kContextualAlternatesOffSelector },
+        { "case", kCaseSensitiveLayoutType, kCaseSensitiveLayoutOnSelector, kCaseSensitiveLayoutOffSelector },
+        { "clig", kLigaturesType, kContextualLigaturesOnSelector, kContextualLigaturesOffSelector },
+        { "cpsp", kCaseSensitiveLayoutType, kCaseSensitiveSpacingOnSelector, kCaseSensitiveSpacingOffSelector },
+        { "cswh", kContextualAlternatesType, kContextualSwashAlternatesOnSelector, kContextualSwashAlternatesOffSelector },
+        { "dlig", kLigaturesType, kRareLigaturesOnSelector, kRareLigaturesOffSelector },
+        { "expt", kCharacterShapeType, kExpertCharactersSelector, 16 },
+        { "frac", kFractionsType, kDiagonalFractionsSelector, kNoFractionsSelector },
+        { "fwid", kTextSpacingType, kMonospacedTextSelector, 7 },
+        { "halt", kTextSpacingType, kAltHalfWidthTextSelector, 7 },
+        { "hist", kLigaturesType, kHistoricalLigaturesOnSelector, kHistoricalLigaturesOffSelector },
+        { "hkna", kAlternateKanaType, kAlternateHorizKanaOnSelector, kAlternateHorizKanaOffSelector },
+        { "hlig", kLigaturesType, kHistoricalLigaturesOnSelector, kHistoricalLigaturesOffSelector },
+        { "hngl", kTransliterationType, kHanjaToHangulSelector, kNoTransliterationSelector },
+        { "hojo", kCharacterShapeType, kHojoCharactersSelector, 16 },
+        { "hwid", kTextSpacingType, kHalfWidthTextSelector, 7 },
+        { "ital", kItalicCJKRomanType, kCJKItalicRomanOnSelector, kCJKItalicRomanOffSelector },
+        { "jp04", kCharacterShapeType, kJIS2004CharactersSelector, 16 },
+        { "jp78", kCharacterShapeType, kJIS1978CharactersSelector, 16 },
+        { "jp83", kCharacterShapeType, kJIS1983CharactersSelector, 16 },
+        { "jp90", kCharacterShapeType, kJIS1990CharactersSelector, 16 },
+        { "liga", kLigaturesType, kCommonLigaturesOnSelector, kCommonLigaturesOffSelector },
+        { "lnum", kNumberCaseType, kUpperCaseNumbersSelector, 2 },
+        { "mgrk", kMathematicalExtrasType, kMathematicalGreekOnSelector, kMathematicalGreekOffSelector },
+        { "nlck", kCharacterShapeType, kNLCCharactersSelector, 16 },
+        { "onum", kNumberCaseType, kLowerCaseNumbersSelector, 2 },
+        { "ordn", kVerticalPositionType, kOrdinalsSelector, kNormalPositionSelector },
+        { "palt", kTextSpacingType, kAltProportionalTextSelector, 7 },
+        { "pcap", kLowerCaseType, kLowerCasePetiteCapsSelector, kDefaultLowerCaseSelector },
+        { "pkna", kTextSpacingType, kProportionalTextSelector, 7 },
+        { "pnum", kNumberSpacingType, kProportionalNumbersSelector, 4 },
+        { "pwid", kTextSpacingType, kProportionalTextSelector, 7 },
+        { "qwid", kTextSpacingType, kQuarterWidthTextSelector, 7 },
+        { "ruby", kRubyKanaType, kRubyKanaOnSelector, kRubyKanaOffSelector },
+        { "sinf", kVerticalPositionType, kScientificInferiorsSelector, kNormalPositionSelector },
+        { "smcp", kLowerCaseType, kLowerCaseSmallCapsSelector, kDefaultLowerCaseSelector },
+        { "smpl", kCharacterShapeType, kSimplifiedCharactersSelector, 16 },
+        { "subs", kVerticalPositionType, kInferiorsSelector, kNormalPositionSelector },
+        { "sups", kVerticalPositionType, kSuperiorsSelector, kNormalPositionSelector },
+        { "swsh", kContextualAlternatesType, kSwashAlternatesOnSelector, kSwashAlternatesOffSelector },
+        { "titl", kStyleOptionsType, kTitlingCapsSelector, kNoStyleOptionsSelector },
+        { "tnam", kCharacterShapeType, kTraditionalNamesCharactersSelector, 16 },
+        { "tnum", kNumberSpacingType, kMonospacedNumbersSelector, 4 },
+        { "trad", kCharacterShapeType, kTraditionalCharactersSelector, 16 },
+        { "twid", kTextSpacingType, kThirdWidthTextSelector, 7 },
+        { "unic", kLetterCaseType, 14, 15 },
+        { "valt", kTextSpacingType, kAltProportionalTextSelector, 7 },
+        { "vhal", kTextSpacingType, kAltHalfWidthTextSelector, 7 },
+        { "vkna", kAlternateKanaType, kAlternateVertKanaOnSelector, kAlternateVertKanaOffSelector },
+        { "vpal", kTextSpacingType, kAltProportionalTextSelector, 7 },
+        { "vrt2", kVerticalSubstitutionType, kSubstituteVerticalFormsOnSelector, kSubstituteVerticalFormsOffSelector },
+        { "vrtr", kVerticalSubstitutionType, kSubstituteVerticalFormsOnSelector, kSubstituteVerticalFormsOffSelector },
+        { "zero", kTypographicExtrasType, kSlashedZeroOnSelector, kSlashedZeroOffSelector },
+    };
+    for (auto& m : mappings) {
+        if (tag[0] == m.tag[0] && tag[1] == m.tag[1] && tag[2] == m.tag[2] && tag[3] == m.tag[3]) {
+            type = m.type;
+            onSelector = m.on;
+            offSelector = m.off;
+            return true;
+        }
+    }
+    return false;
+}
+
 static inline void appendOpenTypeFeature(CFMutableArrayRef features, const FontFeature& feature)
 {
-    // MAVERICKS_BACKPORT: kCTFontOpenTypeFeatureTag/kCTFontOpenTypeFeatureValue are 10.10+
-    // CoreText constants. Our polyfill exposes them as stub function symbols, so
-    // reading them as CFStringRef returns garbage. Building a feature dictionary with
-    // those keys then crashes inside CTFontCreateWithFontDescriptor when CT processes
-    // the feature settings (CFNumberGetValue on a non-CFNumber). Skip feature
-    // application entirely; CSS font-feature-settings will be ignored.
-    (void)features;
-    (void)feature;
+    // MAVERICKS_BACKPORT: upstream builds a 10.10+ OpenType-tag feature dictionary
+    // (kCTFontOpenTypeFeatureTag/kCTFontOpenTypeFeatureValue). 10.9's CoreText feature processor
+    // (TFontFeatures::CopyNonDefaultFeatureSettings, reached from CTFontCreateWithFontDescriptor)
+    // understands ONLY the pre-10.10 AAT dictionary format (kCTFontFeatureTypeIdentifierKey /
+    // kCTFontFeatureSelectorIdentifierKey, both CFNumbers) and CFNumberGetValue(NULL)-SIGSEGVs when handed
+    // the OpenType-tag format. So translate the tag to its AAT feature type+selector and emit the AAT dict,
+    // which 10.9 CoreText consumes for real (verified on-host) -- font-feature-settings works rather than
+    // crashing. (This lives in-tree rather than as a polyfill interposing CTFontDescriptorCreateWithAttributes
+    // because that symbol is PRESENT on 10.9 and the polyfill layer may not shadow a present C function.)
+    // A CSS value of 0 selects the AAT "off" selector, non-zero the "on" selector. Only a tag with no AAT
+    // feature-registry equivalent at all (e.g. character variants cvNN, or OpenType-only features outside
+    // the AAT model) has no 10.9 representation and is dropped.
+    int type = 0, onSelector = 0, offSelector = 0;
+    if (!aatFeatureForOpenTypeTag(feature.tag(), type, onSelector, offSelector))
+        return;
+    int selector = feature.value() ? onSelector : offSelector;
+    auto typeNumber = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &type));
+    auto selectorNumber = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &selector));
+    CFTypeRef featureDictionaryKeys[] = { kCTFontFeatureTypeIdentifierKey, kCTFontFeatureSelectorIdentifierKey };
+    CFTypeRef featureDictionaryValues[] = { typeNumber.get(), selectorNumber.get() };
+    auto featureDictionary = adoptCF(CFDictionaryCreate(kCFAllocatorDefault, featureDictionaryKeys, featureDictionaryValues, std::size(featureDictionaryValues), &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
+    CFArrayAppendValue(features, featureDictionary.get());
 }
 
 static void addLightPalette(CFMutableDictionaryRef attributes)
