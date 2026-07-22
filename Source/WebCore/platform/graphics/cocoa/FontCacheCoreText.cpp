@@ -178,19 +178,21 @@ static void fontCacheRegisteredFontsChangedNotificationCallback(CFNotificationCe
 
 void FontCache::platformInit()
 {
-    // MAVERICKS_BACKPORT: kCTFontManagerRegisteredFontsChangedNotification and
-    // kAXSEnhanceTextLegibilityChangedNotification don't exist on 10.9 — our
-    // polyfill stubs them as functions, and CFNotificationCenterAddObserver
-    // treats the function address as a CFStringRef and crashes. The locale
-    // change observer below is real, keep that.
+    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenterSingleton(), this, &fontCacheRegisteredFontsChangedNotificationCallback, kCTFontManagerRegisteredFontsChangedNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+
+#if PLATFORM(IOS_FAMILY)
+    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenterSingleton(), this, &fontCacheRegisteredFontsChangedNotificationCallback, protect(getUIContentSizeCategoryDidChangeNotificationName()).get(), nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+#endif
+
+    CFNotificationCenterAddObserver(CFNotificationCenterGetLocalCenterSingleton(), this, &fontCacheRegisteredFontsChangedNotificationCallback, kAXSEnhanceTextLegibilityChangedNotification, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
+
+#if PLATFORM(MAC)
     CFNotificationCenterRef center = CFNotificationCenterGetLocalCenterSingleton();
     const CFStringRef notificationName = kCFLocaleCurrentLocaleDidChangeNotification;
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// #else
-//     CFNotificationCenterRef center = CFNotificationCenterGetDarwinNotifyCenterSingleton();
-//     const CFStringRef notificationName = CFSTR("com.apple.language.changed");
-// #endif
-// (end MAVERICKS_BACKPORT restored block)
+#else
+    CFNotificationCenterRef center = CFNotificationCenterGetDarwinNotifyCenterSingleton();
+    const CFStringRef notificationName = CFSTR("com.apple.language.changed");
+#endif
     CFNotificationCenterAddObserver(center, this, &fontCacheRegisteredFontsChangedNotificationCallback, notificationName, nullptr, CFNotificationSuspensionBehaviorDeliverImmediately);
 }
 
@@ -904,11 +906,12 @@ ASCIILiteral FontCache::platformAlternateFamilyName(const String& familyName)
 
 void addAttributesForInstalledFonts(CFMutableDictionaryRef attributes, AllowUserInstalledFonts allowUserInstalledFonts)
 {
-    // MAVERICKS_BACKPORT: kCTFontUserInstalledAttribute and kCTFontFallbackOptionAttribute
-    // are 10.10+ and stubbed as functions in our polyfill — using them as CFStringRef
-    // dictionary keys crashes inside CFDictionary's hash callout.
-    UNUSED_PARAM(attributes);
-    UNUSED_PARAM(allowUserInstalledFonts);
+    if (allowUserInstalledFonts == AllowUserInstalledFonts::No) {
+        CFDictionaryAddValue(attributes, kCTFontUserInstalledAttribute, kCFBooleanFalse);
+        CTFontFallbackOption fallbackOption = kCTFontFallbackOptionSystem;
+        auto fallbackOptionNumber = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &fallbackOption));
+        CFDictionaryAddValue(attributes, kCTFontFallbackOptionAttribute, fallbackOptionNumber.get());
+    }
 }
 
 RetainPtr<CTFontRef> createFontForInstalledFonts(CTFontDescriptorRef fontDescriptor, CGFloat size, AllowUserInstalledFonts allowUserInstalledFonts)
@@ -924,11 +927,15 @@ RetainPtr<CTFontRef> createFontForInstalledFonts(CTFontDescriptorRef fontDescrip
 
 static inline bool isFontMatchingUserInstalledFontFallback(CTFontRef font, AllowUserInstalledFonts allowUserInstalledFonts)
 {
-    // MAVERICKS_BACKPORT: kCTFontFallbackOptionAttribute is stubbed as a function in our polyfill;
-    // passing it to CTFontCopyAttribute crashes. Assume the font already matches the request.
-    UNUSED_PARAM(font);
-    UNUSED_PARAM(allowUserInstalledFonts);
-    return true;
+    bool willFallbackToSystemOnly = false;
+    if (auto fontFallbackOptionAttributeRef = adoptCF(static_cast<CFNumberRef>(CTFontCopyAttribute(font, kCTFontFallbackOptionAttribute)))) {
+        int64_t fontFallbackOptionAttribute;
+        CFNumberGetValue(fontFallbackOptionAttributeRef.get(), kCFNumberSInt64Type, &fontFallbackOptionAttribute);
+        willFallbackToSystemOnly = fontFallbackOptionAttribute == kCTFontFallbackOptionSystem;
+    }
+
+    bool shouldFallbackToSystemOnly = allowUserInstalledFonts == AllowUserInstalledFonts::No;
+    return willFallbackToSystemOnly == shouldFallbackToSystemOnly;
 }
 
 RetainPtr<CTFontRef> createFontForInstalledFonts(CTFontRef font, AllowUserInstalledFonts allowUserInstalledFonts)
@@ -947,17 +954,19 @@ RetainPtr<CTFontRef> createFontForInstalledFonts(CTFontRef font, AllowUserInstal
 
 void addAttributesForWebFonts(CFMutableDictionaryRef attributes, AllowUserInstalledFonts allowUserInstalledFonts)
 {
-    // MAVERICKS_BACKPORT: kCTFontFallbackOptionAttribute is stubbed as a function; skip.
-    UNUSED_PARAM(attributes);
-    UNUSED_PARAM(allowUserInstalledFonts);
+    if (allowUserInstalledFonts == AllowUserInstalledFonts::No) {
+        CTFontFallbackOption fallbackOption = kCTFontFallbackOptionSystem;
+        auto fallbackOptionNumber = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &fallbackOption));
+        CFDictionaryAddValue(attributes, kCTFontFallbackOptionAttribute, fallbackOptionNumber.get());
+    }
 }
 
 RetainPtr<CFSetRef> installedFontMandatoryAttributes(AllowUserInstalledFonts allowUserInstalledFonts)
 {
-    // MAVERICKS_BACKPORT: kCTFontUserInstalledAttribute / kCTFontFallbackOptionAttribute
-    // are stubbed as functions in our polyfill — adding them to a CFSet calls
-    // the (function-pointer-as-CFStringRef)'s hash callout and crashes.
-    UNUSED_PARAM(allowUserInstalledFonts);
+    if (allowUserInstalledFonts == AllowUserInstalledFonts::No) {
+        CFTypeRef mandatoryAttributesValues[] = { kCTFontFamilyNameAttribute, kCTFontPostScriptNameAttribute, kCTFontEnabledAttribute, kCTFontUserInstalledAttribute, kCTFontFallbackOptionAttribute };
+        return adoptCF(CFSetCreate(kCFAllocatorDefault, mandatoryAttributesValues, std::size(mandatoryAttributesValues), &kCFTypeSetCallBacks));
+    }
     return nullptr;
 }
 
