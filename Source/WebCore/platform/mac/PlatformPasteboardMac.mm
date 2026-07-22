@@ -60,10 +60,6 @@ static bool canWritePasteboardType(const String& type)
         return false;
 
     RetainPtr nsString = type.createNSString();
-    // MAVERICKS_BACKPORT: +[UTType typeWithIdentifier:] is 11.0+. Fall back to
-    // accepting the type without UTType validation.
-    if (![UTType respondsToSelector:@selector(typeWithIdentifier:)])
-        return [nsString lengthOfBytesUsingEncoding:NSString.defaultCStringEncoding];
     RetainPtr utType = [UTType typeWithIdentifier:nsString.get()];
     if ([utType isDeclared] || [utType isDynamic])
         return true;
@@ -177,16 +173,7 @@ String PlatformPasteboard::stringForType(const String& pasteboardType) const
 {
     if (pasteboardType == String { legacyURLPasteboardTypeSingleton() }) {
         RetainPtr url = [NSURL URLFromPasteboard:m_pasteboard.get()];
-        if (!url) {
-            // MAVERICKS_BACKPORT: -[NSURL initWithString:nil] throws NSInvalidArgumentException
-            // and crashes Safari. Pasteboard may not have a URL-type string at all
-            // (e.g. plain-text-only clipboard), in which case [NSPasteboard stringForType:]
-            // returns nil. Skip the URL constructor when there's nothing to parse.
-            RetainPtr urlString = [m_pasteboard stringForType:legacyURLPasteboardTypeSingleton()];
-            if (urlString)
-                url = adoptNS([[NSURL alloc] initWithString:urlString.get()]);
-        }
-        String urlString = [url absoluteString];
+        String urlString = (url ?: RetainPtr { [NSURL URLWithString:retainPtr([m_pasteboard stringForType:legacyURLPasteboardTypeSingleton()]).get()] }).get().absoluteString;
         if (pasteboardMayContainFilePaths(m_pasteboard.get()) && !Pasteboard::canExposeURLToDOMWhenPasteboardContainsFiles(urlString))
             return { };
         return urlString;
@@ -449,9 +436,7 @@ int64_t PlatformPasteboard::setStringForType(const String& string, const String&
 
     if (pasteboardType == String(legacyURLPasteboardTypeSingleton())) {
         // We cannot just use -NSPasteboard writeObjects:], because -declareTypes has been already called, implicitly creating an item.
-        // MAVERICKS_BACKPORT: -[NSURL initWithString:nil] throws; guard for empty/null string.
-        RetainPtr nsString = string.createNSString();
-        RetainPtr<NSURL> url = nsString ? adoptNS([[NSURL alloc] initWithString:nsString.get()]) : RetainPtr<NSURL> { };
+        RetainPtr url = adoptNS([[NSURL alloc] initWithString:string.createNSString().get()]);
         if ([retainPtr([m_pasteboard types]) containsObject:legacyURLPasteboardTypeSingleton()]) {
             RetainPtr<NSURL> base = [url baseURL];
             if (base)

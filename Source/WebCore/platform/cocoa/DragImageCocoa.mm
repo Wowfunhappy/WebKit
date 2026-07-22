@@ -230,8 +230,7 @@ LinkImageLayout::LinkImageLayout(URL& url, const String& titleString)
             (id)kCTFrameMaximumNumberOfLinesAttributeName: @(maximumLines)
         };
 
-        // MAVERICKS_BACKPORT: -[NSAttributedString initWithString:nil] throws.
-        RetainPtr<NSAttributedString> attributedText = adoptNS([[NSAttributedString alloc] initWithString:(text ?: @"") attributes:textAttributes]);
+        RetainPtr<NSAttributedString> attributedText = adoptNS([[NSAttributedString alloc] initWithString:text attributes:textAttributes]);
         RetainPtr<CTFramesetterRef> textFramesetter = adoptCF(CTFramesetterCreateWithAttributedString((CFAttributedStringRef)attributedText.get()));
 
         CFRange fitRange;

@@ -91,11 +91,7 @@ void WebPopupMenuProxyMac::populate(const Vector<WebPopupItem>& items, NSFont *f
             }
             if (!items[i].m_language.isEmpty())
                 [attributes setObject:items[i].m_language.createNSString().get() forKey:NSLanguageIdentifierAttributeName];
-            // MAVERICKS_BACKPORT: -[NSAttributedString initWithString:nil] throws.
-            // <select><option></option></select> has empty text. createNSString
-            // returns nil for null/empty WTF::String, so substitute @"".
-            RetainPtr itemTextNSString = items[i].m_text.createNSString();
-            RetainPtr<NSAttributedString> string = adoptNS([[NSAttributedString alloc] initWithString:(itemTextNSString ? itemTextNSString.get() : @"") attributes:attributes.get()]);
+            RetainPtr<NSAttributedString> string = adoptNS([[NSAttributedString alloc] initWithString:items[i].m_text.createNSString().get() attributes:attributes.get()]);
 
             [menuItem setAttributedTitle:string.get()];
             // We set the title as well as the attributed title here. The attributed title will be displayed in the menu,

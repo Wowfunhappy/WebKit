@@ -1091,11 +1091,7 @@ NSDictionary *WebPageProxy::contentsOfUserInterfaceItem(NSString *userInterfaceI
 #if PLATFORM(MAC)
 bool WebPageProxy::isQuarantinedAndNotUserApproved(const String& fileURLString)
 {
-    // MAVERICKS_BACKPORT: -[NSURL initWithString:nil] throws; nil-check.
-    RetainPtr nsString = fileURLString.createNSString();
-    if (!nsString)
-        return false;
-    RetainPtr fileURL = adoptNS([[NSURL alloc] initWithString:nsString.get()]);
+    RetainPtr fileURL = adoptNS([[NSURL alloc] initWithString:fileURLString.createNSString().get()]);
     if ([retainPtr(fileURL.get().pathExtension) caseInsensitiveCompare:@"webarchive"] != NSOrderedSame)
         return false;
 

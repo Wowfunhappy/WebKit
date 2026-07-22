@@ -461,6 +461,8 @@ WK_POLYFILL_SEL("contentLayoutRect", "wk_contentLayoutRect");
 @interface NSURL (WKPolyfillScope)
 - (NSString *)wk__lp_simplifiedDisplayString;
 + (NSURL *)wk_URLByResolvingAliasFileAtURL:(NSURL *)url options:(NSURLBookmarkResolutionOptions)options error:(NSError **)error;
+- (instancetype)wk_initWithString:(NSString *)string;
++ (instancetype)wk_URLWithString:(NSString *)string;
 @end
 @implementation NSURL (WKPolyfillScope)
 - (NSString *)wk__lp_simplifiedDisplayString
@@ -507,10 +509,72 @@ WK_POLYFILL_SEL("contentLayoutRect", "wk_contentLayoutRect");
     }
     return original(self, originalSelector, value, key, error);
 }
+// -[NSURL initWithString:] and +[NSURL URLWithString:] throw NSInvalidArgumentException on a nil string
+// on 10.9 (modern Foundation returns nil). REPLACE both for WebKit's callers with the modern contract:
+// nil in -> nil out; any non-nil string forwards to 10.9's real implementation, reached through a
+// runtime-built selector the selref rewrite cannot touch (so this cannot recurse into itself). The init
+// consumes its already-alloc'd receiver on the nil path to keep the alloc/init ownership contract (methods.m
+// is MRR). +URLWithString: is not an init-family selector, so it just returns nil/the autoreleased URL.
+- (instancetype)wk_initWithString:(NSString *)string
+{
+    if (!string) {
+        [self release];
+        return nil;
+    }
+    typedef id (*WKURLInitFn)(id, SEL, NSString *);
+    WKURLInitFn original = (WKURLInitFn)objc_msgSend;
+    return original(self, sel_registerName("initWithString:"), string);
+}
++ (instancetype)wk_URLWithString:(NSString *)string
+{
+    if (!string)
+        return nil;
+    typedef id (*WKURLWithStringFn)(id, SEL, NSString *);
+    WKURLWithStringFn original = (WKURLWithStringFn)objc_msgSend;
+    return original(self, sel_registerName("URLWithString:"), string);
+}
 @end
 WK_POLYFILL_SEL("_lp_simplifiedDisplayString", "wk__lp_simplifiedDisplayString");
 WK_POLYFILL_SEL("URLByResolvingAliasFileAtURL:options:error:", "wk_URLByResolvingAliasFileAtURL:options:error:");
 WK_POLYFILL_SEL_REPLACES("getResourceValue:forKey:error:", "wk_getResourceValue:forKey:error:");
+WK_POLYFILL_SEL_REPLACES("initWithString:", "wk_initWithString:");
+WK_POLYFILL_SEL_REPLACES("URLWithString:", "wk_URLWithString:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSAttributedString _htmlDocumentFragmentString:documentAttributes:subresources:] (returns interchange
+// HTML fragment markup + collects WebArchive subresources) is ABSENT on 10.9 (verified on-host:
+// instancesRespondToSelector == NO; the older -_documentFromRange:document:documentAttributes:subresources:
+// exists but yields a WebKit1 DOMDocumentFragment, not a string). WebContentReaderCocoa's
+// createFragmentInternal(NSAttributedString*) needs the STRING form when pasting RTF / attributed-string
+// content from a native app (TextEdit, Mail, Notes) that puts NO html on the pasteboard; without it rich
+// paste is silently stripped to plain text. Reimplement from the PUBLIC exporter
+// -dataFromRange:documentAttributes:error: (present on 10.9): NSHTMLTextDocumentType output honors the
+// caller's NSExcludedElementsDocumentAttribute, which already excludes doctype/html/head/body/style/xml, so
+// the result is fragment markup rather than a full document. Subresources (embedded images) are not
+// collected by the public path — return an empty array; inline text formatting (bold/italic/color/underline/
+// lists/links) is preserved, which is the overwhelming majority of native-app rich paste.
+@interface NSAttributedString (WKPolyfillScope)
+- (NSString *)wk__htmlDocumentFragmentString:(NSRange)range documentAttributes:(NSDictionary *)dict subresources:(NSArray **)subresources;
+@end
+@implementation NSAttributedString (WKPolyfillScope)
+- (NSString *)wk__htmlDocumentFragmentString:(NSRange)range documentAttributes:(NSDictionary *)dict subresources:(NSArray **)subresources
+{
+    if (subresources)
+        *subresources = @[];
+    NSMutableDictionary *docAttributes = [NSMutableDictionary dictionary];
+    [docAttributes setObject:NSHTMLTextDocumentType forKey:NSDocumentTypeDocumentAttribute];
+    // Carry over only the public exclusion list; drop the private WebResourceHandler/OutputBaseURL/
+    // InterchangeNewline/CoalesceTabSpans keys the public exporter does not understand.
+    id excluded = [dict objectForKey:NSExcludedElementsDocumentAttribute];
+    if (excluded)
+        [docAttributes setObject:excluded forKey:NSExcludedElementsDocumentAttribute];
+    NSData *data = [self dataFromRange:range documentAttributes:docAttributes error:NULL];
+    if (!data)
+        return @"";
+    return [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
+}
+@end
+WK_POLYFILL_SEL("_htmlDocumentFragmentString:documentAttributes:subresources:", "wk__htmlDocumentFragmentString:documentAttributes:subresources:");
 
 // ---------------------------------------------------------------------------------------------------
 // NSView -_subviewsIvar / -_setSubviewsIvar: (10.12+ SPI): raw accessors for the _subviews ivar, used

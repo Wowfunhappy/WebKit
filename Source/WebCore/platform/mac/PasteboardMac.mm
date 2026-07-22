@@ -697,9 +697,7 @@ void Pasteboard::writeString(const String& type, const String& data)
     String cocoaData = data;
 
     if (cocoaType == String(legacyURLPasteboardTypeSingleton()) || cocoaType == String(UTTypeFileURL.identifier)) {
-        // MAVERICKS_BACKPORT: -[NSURL initWithString:nil] throws; nil-check before constructing.
-        RetainPtr cocoaNSString = cocoaData.createNSString();
-        RetainPtr<NSURL> url = cocoaNSString ? adoptNS([[NSURL alloc] initWithString:cocoaNSString.get()]) : RetainPtr<NSURL> { };
+        RetainPtr url = adoptNS([[NSURL alloc] initWithString:cocoaData.createNSString().get()]);
         if ([url isFileURL])
             return;
         platformStrategies()->pasteboardStrategy()->setTypes({ cocoaType }, m_pasteboardName, context());

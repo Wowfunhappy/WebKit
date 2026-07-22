@@ -68,10 +68,7 @@ private:
         if (!delegate || !m_respondsToInspectorOpenURLExternally)
             return;
 
-        // MAVERICKS_BACKPORT: -[NSURL initWithString:nil] throws; nil-check.
-        RetainPtr urlNSString = url.createNSString();
-        RetainPtr<NSURL> nsURL = urlNSString ? adoptNS([[NSURL alloc] initWithString:urlNSString.get()]) : RetainPtr<NSURL> { };
-        [delegate inspector:protect(wrapper(inspector)).get() openURLExternally:nsURL.get()];
+        [delegate inspector:protect(wrapper(inspector)).get() openURLExternally:adoptNS([[NSURL alloc] initWithString:url.createNSString().get()]).get()];
     }
 
     void frontendLoaded(WebKit::WebInspectorUIProxy& inspector) final
