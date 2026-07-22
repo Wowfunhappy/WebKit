@@ -205,16 +205,11 @@ void Resolver::initialize()
 
     if (RefPtr documentElement = document().documentElement()) {
         m_rootDefaultStyle = styleForElement(*documentElement, { document().initialContainingBlockStyle() }, RuleMatchingBehavior::MatchOnlyUserAgentRules).style;
-        // MAVERICKS_BACKPORT: KEEP (uncertain — possibly revertible). Skips the root
-        // fontCascade().primaryFont() init: when this was added the font subsystem
-        // (FontCacheCoreText etc) crashed if primaryFont() ran at style-resolver init.
-        // Media queries depending on font metrics get fallback values instead.
-        // NOTE: #31/#34 have since fixed font fallback / variable fonts, so this may
-        // now be revertible — verifying needs runtime font testing (out of scope here).
-        // document().fontSelector().incrementIsComputingRootStyleFont();
-        // m_rootDefaultStyle->fontCascade().update(&document().fontSelector());
-        // m_rootDefaultStyle->fontCascade().primaryFont();
-        // document().fontSelector().decrementIsComputingRootStyleFont();
+        // Turn off assertion against font lookups during style resolver initialization. We may need root style font for media queries.
+        document().fontSelector().incrementIsComputingRootStyleFont();
+        m_rootDefaultStyle->fontCascade().update(&document().fontSelector());
+        m_rootDefaultStyle->fontCascade().primaryFont();
+        document().fontSelector().decrementIsComputingRootStyleFont();
     }
 
     if (m_rootDefaultStyle && view)
