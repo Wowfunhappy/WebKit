@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 // CGColorSpaceGetName (10.12+): CGColorSpaceCopyName IS present on 10.9 and recovers the same name
 // (verified on-host: sRGB -> "kCGColorSpaceSRGB"). Forward to it and autorelease to match
@@ -469,6 +470,59 @@ WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateWithTe
     CTFontDescriptorRef descriptor = CTFontCopyFontDescriptor(system);
     CFRelease(system);
     return descriptor;
+}
+
+// CTFontDescriptorGetTextStyleSize (10.10+): the default point size (return value) and weight (out-param,
+// on the CTFontWeight -1..1 scale) for a Dynamic-Type text style at a content-size category. 10.9 has no
+// Dynamic Type — a single, non-scaling size class — so return the documented default ("Large" category)
+// metrics for each -apple-system-* text style; the family itself resolves to the plain system font via
+// CTFontDescriptorCreateWithTextStyle above. The style keys arrive as the polyfilled kCTUIFontTextStyle*
+// CFStrings (constants.m), whose values are their own token names, so match on that text. sizeCategory and
+// platform are irrelevant on 10.9 (fontPlatform() is kCTFontTextStylePlatformDefault here). Only Headline /
+// ShortHeadline are semibold (0.3); every other style is regular (0.0). Sizes are the standard Dynamic-Type
+// point sizes (Body/Headline 17, Subhead 15, Footnote 13, Caption1 12, Caption2 11, Title1 28, Title2 22,
+// Title3 20); the short/tall variants share their base style's point size (they differ only in leading),
+// and the non-standard Title0 (largest) / Title4 (a step below Title3) take 34 / 18.
+// (platform is the CTFontTextStylePlatform enum — WebKit SPI, not in the system SDK header — typed here as
+// its underlying int so this TU needs no SPI header; it is unused, and C linkage is by name.)
+WK_POLYFILL_ABSENT("CoreText", CGFloat, CTFontDescriptorGetTextStyleSize, (CFStringRef style, CFTypeRef sizeCategory, int platform, CGFloat* weight, CGFloat* lineSpacing))
+{
+    (void)sizeCategory; (void)platform;
+    static const struct { const char* token; CGFloat size; CGFloat weight; } table[] = {
+        { "kCTUIFontTextStyleTitle0",        34, 0.0 },
+        { "kCTUIFontTextStyleTitle1",        28, 0.0 },
+        { "kCTUIFontTextStyleTitle2",        22, 0.0 },
+        { "kCTUIFontTextStyleTitle3",        20, 0.0 },
+        { "kCTUIFontTextStyleTitle4",        18, 0.0 },
+        { "kCTUIFontTextStyleHeadline",      17, 0.3 },
+        { "kCTUIFontTextStyleBody",          17, 0.0 },
+        { "kCTUIFontTextStyleSubhead",       15, 0.0 },
+        { "kCTUIFontTextStyleFootnote",      13, 0.0 },
+        { "kCTUIFontTextStyleCaption1",      12, 0.0 },
+        { "kCTUIFontTextStyleCaption2",      11, 0.0 },
+        { "kCTUIFontTextStyleShortHeadline", 17, 0.3 },
+        { "kCTUIFontTextStyleShortBody",     17, 0.0 },
+        { "kCTUIFontTextStyleShortSubhead",  15, 0.0 },
+        { "kCTUIFontTextStyleShortFootnote", 13, 0.0 },
+        { "kCTUIFontTextStyleShortCaption1", 12, 0.0 },
+        { "kCTUIFontTextStyleTallBody",      17, 0.0 },
+    };
+    char buf[64];
+    if (!style || !CFStringGetCString(style, buf, sizeof(buf), kCFStringEncodingUTF8))
+        buf[0] = '\0';
+    CGFloat size = 17.0, w = 0.0; // default: Body
+    for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); ++i) {
+        if (!strcmp(buf, table[i].token)) {
+            size = table[i].size;
+            w = table[i].weight;
+            break;
+        }
+    }
+    if (weight)
+        *weight = w;
+    if (lineSpacing)
+        *lineSpacing = 0.0;
+    return size;
 }
 
 // Descriptor option flags (newer). 10.9 descriptors carry none; report none.
