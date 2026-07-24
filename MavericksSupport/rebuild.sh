@@ -6,6 +6,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NINJA="$ROOT/MavericksSupport/toolchain/build/ninja/bin/ninja"
 CMAKE="$ROOT/MavericksSupport/toolchain/build/cmake/bin/cmake"
 [ -x "$CMAKE" ] || CMAKE="$ROOT/Compilers/toolchains/cmake-new/bin/cmake"
+# Same resolution as _CCACHE in mac10.9-toolchain.cmake (MAVERICKS_CCACHE override, else the
+# in-tree toolchain build) so the binary we reset stats on is the one that actually launches
+# the compiler.
+CCACHE="${MAVERICKS_CCACHE:-$ROOT/MavericksSupport/toolchain/build/ccache/bin/ccache}"
 BUILD="$ROOT/WebKitBuild/Release"
 LOG=/tmp/wk_build.log
 # Pin ccache to the in-tree cache so incremental builds share one cache regardless of the caller's
@@ -138,6 +142,10 @@ if [ -f build.ninja ] && ! "$NINJA" -t targets >/dev/null 2>&1; then
         tail -20 "$LOG"; exit 1
     fi
 fi
+
+# Reset ccache stats so the counters below reflect this build only, not the cumulative total
+# since the cache was created.
+[ -x "$CCACHE" ] && "$CCACHE" -z >/dev/null
 
 # -k 0 : keep going after the first failure so a link stage surfaces ALL undefined symbols at once.
 "$NINJA" -k 0 2>&1 | tee "$LOG"
