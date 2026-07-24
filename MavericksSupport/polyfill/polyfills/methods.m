@@ -2060,6 +2060,46 @@ WK_POLYFILL_SEL("systemPreferredCamera", "wk_systemPreferredCamera");
 // OFFER a services menu, and the menu itself is built by NSSharingServicePicker, which does its own
 // filtering. The completion is delivered asynchronously because that is the shape of the API being
 // replaced; a caller that leaves a dispatch group in it must not be called back before it returns.
+//
+// The enumeration runs on a dedicated, persistent, OFF-MAIN thread that owns a CoreFoundation run loop —
+// NOT a global dispatch worker, and NOT the main thread. +sharingServicesForItems: brings up a ShareKit
+// helper over XPC (SHKHelperController), and on 10.9 that xpc_connection_resume requires the calling
+// thread to have a run loop: on a runloop-less global worker it hits _xpc_api_misuse and SIGILLs the
+// process. The main thread has a run loop, but the real 10.10 async SPI does not run its XPC round-trip on
+// the caller's main thread, and neither should this — a main-queue hop would block the UI thread and be
+// correct only for the current, happens-to-be-non-blocking caller. A dedicated run-loop thread meets both
+// constraints for any caller.
+static CFRunLoopRef wkSharingEnumerationRunLoopRef; // published by the thread once it is up
+static dispatch_semaphore_t wkSharingEnumerationReady;
+
+static void *wkSharingEnumerationThreadMain(void *unused)
+{
+    (void)unused;
+    wkSharingEnumerationRunLoopRef = CFRunLoopGetCurrent();
+    // A source that is never signaled keeps CFRunLoopRun() from returning while the thread is idle.
+    CFRunLoopSourceContext context = { 0 };
+    CFRunLoopSourceRef keepAlive = CFRunLoopSourceCreate(NULL, 0, &context);
+    CFRunLoopAddSource(wkSharingEnumerationRunLoopRef, keepAlive, kCFRunLoopCommonModes);
+    CFRelease(keepAlive);
+    dispatch_semaphore_signal(wkSharingEnumerationReady);
+    CFRunLoopRun();
+    return NULL;
+}
+
+static CFRunLoopRef wkSharingEnumerationRunLoop(void)
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        wkSharingEnumerationReady = dispatch_semaphore_create(0);
+        pthread_t thread;
+        if (!pthread_create(&thread, NULL, wkSharingEnumerationThreadMain, NULL)) {
+            pthread_detach(thread);
+            dispatch_semaphore_wait(wkSharingEnumerationReady, DISPATCH_TIME_FOREVER);
+        }
+    });
+    return wkSharingEnumerationRunLoopRef;
+}
+
 @interface NSSharingService (WKPolyfillScopeSharingServices)
 + (void)wk_getSharingServicesForItems:(NSArray *)items mask:(NSUInteger)mask completion:(void (^)(NSArray *))completion;
 @end
@@ -2071,12 +2111,18 @@ WK_POLYFILL_SEL("systemPreferredCamera", "wk_systemPreferredCamera");
     (void)mask;
     if (!completion)
         return;
-    // `items` needs no explicit retain: copying a block retains the ObjC pointers it captures, under MRR
-    // as under ARC, and dispatch_async copies. (RetainPtr is unavailable here — this file is ObjC, not ObjC++.)
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    CFRunLoopRef runLoop = wkSharingEnumerationRunLoop();
+    if (!runLoop) {
+        // Thread could not be created; fail closed by reporting no services rather than never calling back.
+        completion(@[]);
+        return;
+    }
+    // items/completion are retained by the block copy CFRunLoopPerformBlock makes, and released after it runs.
+    CFRunLoopPerformBlock(runLoop, kCFRunLoopCommonModes, ^{
         NSArray *services = [NSSharingService sharingServicesForItems:items];
         completion(services ?: @[]);
     });
+    CFRunLoopWakeUp(runLoop);
 }
 
 @end

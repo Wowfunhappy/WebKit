@@ -546,6 +546,33 @@ RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemT
         return nil;
 
     RetainPtr sharingServicePicker = adoptNS([[NSSharingServicePicker alloc] initWithItems:items.get()]);
+
+    // MAVERICKS_BACKPORT: -[NSSharingServicePicker standardShareMenuItemRelativeToRect:ofView:preferredEdge:]
+    // is 10.10+. On 10.9 it is an unrecognized selector; the raised NSException unwinds through the
+    // context-menu build (getContextMenuFromItems) and is swallowed by AppKit's event loop, so EVERY
+    // right-click in an editable field produces no menu at all (the reported "freeze"). 10.9 presents Share
+    // as an inline SUBMENU of services (Email/Messages/…), exactly as TextEdit and every native 10.9 app do
+    // — not the flat-item-plus-popover that upstream's placeholder/performShare path builds. Reconstruct
+    // that native form directly: a "Share" parent whose submenu is the picker's own services menu
+    // ([picker menu] — declared in NSSharingServicePickerSPI.h, already wired by AppKit with a per-service
+    // target/action). representedObject keeps the picker alive so those actions fire. The title is the
+    // system's localized "Share" (ShareKit's strings table) so the menu reads correctly in every language.
+    // Returns nil when there are no services, which the caller already treats as "no Share item"; the
+    // placeholder/performShare indirection below is not reached on 10.9.
+    if (![sharingServicePicker respondsToSelector:@selector(standardShareMenuItemRelativeToRect:ofView:preferredEdge:)]) {
+        RetainPtr<NSMenu> servicesMenu = [sharingServicePicker menu];
+        if (![servicesMenu numberOfItems])
+            return nil;
+        RetainPtr<NSBundle> shareKitBundle = [NSBundle bundleWithPath:@"/System/Library/PrivateFrameworks/ShareKit.framework"];
+        RetainPtr<NSString> shareTitle = [shareKitBundle localizedStringForKey:@"Share" value:@"Share" table:@"ShareKit"];
+        RetainPtr<NSMenuItem> shareItem = adoptNS([[NSMenuItem alloc] initWithTitle:([shareTitle length] ? shareTitle.get() : @"Share") action:nil keyEquivalent:@""]);
+        [shareItem setEnabled:YES];
+        [shareItem setSubmenu:servicesMenu.get()];
+        [shareItem setRepresentedObject:sharingServicePicker.get()];
+        [shareItem setIdentifier:_WKMenuItemIdentifierShareMenu];
+        return shareItem;
+    }
+
     RetainPtr shareMenuItem = [sharingServicePicker standardShareMenuItemRelativeToRect:hitTestData.elementBoundingBox ofView:m_webView.get().get() preferredEdge:NSMinYEdge];
 
     if (!shareMenuItem)
