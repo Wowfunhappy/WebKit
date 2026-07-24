@@ -63,6 +63,10 @@
 // modern CFNetwork decodes br itself, 10.9 CFNetwork delivers the raw compressed bytes).
 #import <brotli/decode.h>
 
+// MAVERICKS_BACKPORT: system zlib for the "gzip" content-decoder (see GzipStream below); 10.9
+// CFNetwork suppresses its transparent gzip decode for .gz/.tgz URLs and delivers the raw body.
+#import <zlib.h>
+
 #if HAVE(NW_ACTIVITY)
 #import <pal/spi/cocoa/NSURLConnectionSPI.h>
 #endif
@@ -83,6 +87,40 @@ struct NetworkDataTaskCocoa::BrotliStream {
     }
     BrotliDecoderState* state { nullptr };
     bool sawInput { false };
+    bool failed { false };
+};
+
+// MAVERICKS_BACKPORT: per-task streaming zlib decode state. CFNetwork transparently decodes
+// Content-Encoding: gzip EXCEPT when the request URL's last path component ends in .gz/.tgz — its
+// long-standing heuristic to avoid clobbering gzip-archive downloads that a misconfigured server
+// double-gzips. For those URLs it delivers the still-compressed body with the Content-Encoding
+// header intact (exactly the br situation above), so a fetch()/XHR of, say, a .tgz that a CDN
+// gzip-encodes over the wire sees raw compressed bytes. Created in didReceiveResponse when that
+// condition holds; didReceiveData feeds each chunk through inflate(). Downloads bypass
+// didReceiveData, so real .gz/.tgz downloads still reach disk intact — matching CFNetwork's intent.
+struct NetworkDataTaskCocoa::GzipStream {
+    GzipStream()
+    {
+        stream.zalloc = Z_NULL;
+        stream.zfree = Z_NULL;
+        stream.opaque = Z_NULL;
+        stream.next_in = Z_NULL;
+        stream.avail_in = 0;
+        // 15 window bits + 32 enables automatic gzip/zlib header detection.
+        initialized = inflateInit2(&stream, 15 + 32) == Z_OK;
+    }
+    ~GzipStream()
+    {
+        if (initialized)
+            inflateEnd(&stream);
+    }
+    z_stream stream;
+    bool initialized { false };
+    bool sawInput { false };
+    // True while partway through a gzip member (fed bytes that have not yet reached Z_STREAM_END).
+    // A body that ends here is truncated. Cleared at each member boundary; gzip permits multiple
+    // concatenated members (RFC 1952), so this is NOT a terminal "done" flag.
+    bool inMember { false };
     bool failed { false };
 };
 
@@ -639,6 +677,16 @@ void NetworkDataTaskCocoa::didCompleteWithError(const WebCore::ResourceError& er
         return;
     }
 
+    // MAVERICKS_BACKPORT: same guard for the gzip decoder — a decode error, or a body that ended
+    // partway through a member (inMember, i.e. never reached the member's Z_STREAM_END), must fail
+    // the load rather than surface truncated. A body ending exactly at a member boundary is clean.
+    if (m_gzipStream
+        && (m_gzipStream->failed || (error.isNull() && m_gzipStream->sawInput && m_gzipStream->inMember))) {
+        if (RefPtr client = m_client.get())
+            client->didCompleteWithError(WebCore::ResourceError(String(NSURLErrorDomain), NSURLErrorCannotDecodeContentData, firstRequest().url(), "cannot decode gzip response body"_s), networkLoadMetrics);
+        return;
+    }
+
     if (RefPtr client = m_client.get())
         client->didCompleteWithError(error, networkLoadMetrics);
 }
@@ -686,8 +734,86 @@ void NetworkDataTaskCocoa::didReceiveData(const WebCore::SharedBuffer& data)
         return;
     }
 
+    // MAVERICKS_BACKPORT: decode gzip bodies CFNetwork suppressed for .gz/.tgz URLs (see didReceiveResponse).
+    if (m_gzipStream) {
+        if (m_gzipStream->failed)
+            return;
+        if (!m_gzipStream->initialized) {
+            m_gzipStream->failed = true;
+            [m_task cancel]; // stop the transfer; didCompleteWithError converts to a decode error
+            return;
+        }
+        m_gzipStream->sawInput = true;
+        auto span = data.span();
+        m_gzipStream->stream.next_in = const_cast<Bytef*>(span.data());
+        m_gzipStream->stream.avail_in = span.size();
+        Vector<uint8_t> decoded;
+        uint8_t outputChunk[16384];
+        while (m_gzipStream->stream.avail_in) {
+            m_gzipStream->stream.next_out = outputChunk;
+            m_gzipStream->stream.avail_out = sizeof(outputChunk);
+            int result = inflate(&m_gzipStream->stream, Z_NO_FLUSH);
+            if (size_t produced = sizeof(outputChunk) - m_gzipStream->stream.avail_out)
+                decoded.append(std::span<const uint8_t> { outputChunk, produced });
+            if (result == Z_STREAM_END) {
+                // This member is complete. gzip streams may concatenate more members; reset and keep
+                // draining so we decode ALL of them (a plain break would silently drop the rest).
+                m_gzipStream->inMember = false;
+                if (inflateReset(&m_gzipStream->stream) != Z_OK) {
+                    m_gzipStream->failed = true;
+                    [m_task cancel];
+                    return;
+                }
+                continue;
+            }
+            // Z_BUF_ERROR here means the stream needs more input than this chunk carries; we are
+            // still inside a member, so wait for the next didReceiveData (zlib keeps its state).
+            if (result == Z_BUF_ERROR) {
+                m_gzipStream->inMember = true;
+                break;
+            }
+            if (result != Z_OK) {
+                m_gzipStream->failed = true;
+                [m_task cancel]; // stop the transfer; didCompleteWithError converts to a decode error
+                return;
+            }
+            m_gzipStream->inMember = true; // consumed input within a member that has not yet ended
+        }
+        if (!decoded.isEmpty()) {
+            Ref buffer = WebCore::SharedBuffer::create(WTF::move(decoded));
+            if (RefPtr client = m_client.get())
+                client->didReceiveData(buffer.get());
+        }
+        return;
+    }
+
     if (RefPtr client = m_client.get())
         client->didReceiveData(data);
+}
+
+// MAVERICKS_BACKPORT: true when CFNetwork will have delivered this response's body still
+// gzip-compressed. CFNetwork auto-decodes Content-Encoding: gzip transparently, but suppresses that
+// for URLs whose last path component ends in .gz or .tgz (case-insensitive) — its long-standing
+// heuristic to keep gzip-archive downloads intact when a server double-gzips them. Reversing it for
+// a fetch()/XHR *load* matches the Fetch spec and every other browser (Chrome/Firefox decode
+// Content-Encoding regardless of extension), which is what a site like marciot.com's icon catalog
+// relies on; downloads bypass didReceiveData so archive downloads still reach disk raw. This is the
+// same spirit as the br decoder above — reverse a CFNetwork content-decoding gap so the real web
+// works — not a claim of parity with any particular Safari.
+//
+// The trigger was pinned empirically on this 10.9 host (byte-length probes on a double-gzipped body:
+// 4746 = CFNetwork decoded, 4769 = raw): .gz/.tgz/.tar.gz/.GZ are delivered raw; .svgz/.gzip/.z and
+// non-archive extensions are decoded. Because the Content-Encoding header is present in BOTH cases,
+// the extension is the only available signal, so this must key on the SAME URL CFNetwork does. A
+// redirect probe (orig .tgz -> final no-ext, and orig no-ext -> final .tgz) showed CFNetwork keys the
+// FINAL, post-redirect URL — response.url() here — with zero double-decode in either direction.
+static bool responseIsCFNetworkSuppressedGzip(const WebCore::ResourceResponse& response)
+{
+    auto contentEncoding = response.httpHeaderField(WebCore::HTTPHeaderName::ContentEncoding);
+    if (!equalLettersIgnoringASCIICase(contentEncoding, "gzip"_s) && !equalLettersIgnoringASCIICase(contentEncoding, "x-gzip"_s))
+        return false;
+    auto lastPathComponent = response.url().lastPathComponent();
+    return lastPathComponent.endsWithIgnoringASCIICase(".gz"_s) || lastPathComponent.endsWithIgnoringASCIICase(".tgz"_s);
 }
 
 void NetworkDataTaskCocoa::didReceiveResponse(WebCore::ResourceResponse&& response, NegotiatedLegacyTLS negotiatedLegacyTLS, PrivateRelayed privateRelayed, WebKit::ResponseCompletionHandler&& completionHandler)
@@ -731,6 +857,12 @@ void NetworkDataTaskCocoa::didReceiveResponse(WebCore::ResourceResponse&& respon
     // if the server compresses a file transfer — same truncated result stock 10.9 would produce.
     if (equalLettersIgnoringASCIICase(response.httpHeaderField(WebCore::HTTPHeaderName::ContentEncoding), "br"_s))
         m_brotliStream = std::unique_ptr<BrotliStream>(new BrotliStream);
+    // MAVERICKS_BACKPORT: reverse CFNetwork's .gz/.tgz gzip-decode suppression for non-download loads
+    // so fetch()/XHR of a gzip-encoded archive sees decoded bytes, matching every other browser and
+    // the Fetch spec. Gated on the exact condition CFNetwork suppresses (Content-Encoding: gzip AND a
+    // .gz/.tgz URL extension), so it never double-decodes a body CFNetwork already handled.
+    else if (responseIsCFNetworkSuppressedGzip(response))
+        m_gzipStream = std::unique_ptr<GzipStream>(new GzipStream);
 
     NetworkDataTask::didReceiveResponse(WTF::move(response), negotiatedLegacyTLS, privateRelayed, WebCore::IPAddress::fromString(lastRemoteIPAddress(m_task.get())), WTF::move(completionHandler));
 }

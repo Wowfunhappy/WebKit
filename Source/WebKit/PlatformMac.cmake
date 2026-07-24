@@ -27,9 +27,16 @@ add_definitions(-iframework ${CORESERVICES_LIBRARY}/Versions/Current/Frameworks)
 
 include(Headers.cmake)
 
+# MAVERICKS_BACKPORT: system zlib for the NetworkProcess gzip content-decoder (NetworkDataTaskCocoa.mm).
+# 10.9 CFNetwork suppresses its transparent Content-Encoding: gzip decode for .gz/.tgz URLs and hands
+# the raw compressed body to WebKit; we un-do that with inflate(). WebCore already links ZLIB::ZLIB
+# (WebCore/PlatformMac.cmake), but that framework's symbols are not re-exported to WebKit.
+find_package(ZLIB REQUIRED)
+
 list(APPEND WebKit_PRIVATE_LIBRARIES
     Accessibility
     WebKitLegacy
+    ZLIB::ZLIB
     ${APPLICATIONSERVICES_LIBRARY}
     ${CORESERVICES_LIBRARY}
     ${DEVICEIDENTITY_LIBRARY}
