@@ -36,6 +36,7 @@ find_package(ZLIB REQUIRED)
 list(APPEND WebKit_PRIVATE_LIBRARIES
     Accessibility
     WebKitLegacy
+    # MAVERICKS_BACKPORT: link zlib for the NetworkProcess gzip content-decoder (see find_package(ZLIB) above).
     ZLIB::ZLIB
     ${APPLICATIONSERVICES_LIBRARY}
     ${CORESERVICES_LIBRARY}
