@@ -25,18 +25,7 @@
 
 #pragma once
 
-// MAVERICKS_BACKPORT: forward-declare / typedef SDK types absent on macOS 10.9 (NSFilePromiseProvider is 10.12+; the image-analysis Cocoa types are gated off here).
-// Forward declarations for types not available on macOS 10.9
-#if __MAC_OS_X_VERSION_MAX_ALLOWED < 101200
-@class NSFilePromiseProvider;
-#endif
-#if !ENABLE(IMAGE_ANALYSIS)
-typedef void* CocoaImageAnalyzer;
-typedef void* CocoaImageAnalyzerRequest;
-typedef void* CocoaImageAnalysis;
-#endif
-
-#if 1 // backport: #if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+#if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 #include <wtf/Platform.h>
 
@@ -289,14 +278,11 @@ public:
     void viewWillStartLiveResize();
     void viewDidEndLiveResize();
 
-    // MAVERICKS_BACKPORT: gate to match the ENABLE(PDF_HUD)-off base (PDFs download on 10.9).
-#if ENABLE(PDF_HUD)
     void createPDFHUD(PDFPluginIdentifier, WebCore::FrameIdentifier, const WebCore::IntRect&);
     void updatePDFHUDLocation(PDFPluginIdentifier, const WebCore::IntRect&);
     void removePDFHUD(PDFPluginIdentifier);
     void removeAllPDFHUDs();
     RetainPtr<NSSet> pdfHUDs();
-#endif // MAVERICKS_BACKPORT: ENABLE(PDF_HUD)
 
     void renewGState();
     void setFrameSize(CGSize);
@@ -606,9 +592,8 @@ public:
     NSDragOperation dragSourceOperationMask(NSDraggingSession *, NSDraggingContext);
     void draggingSessionEnded(NSDraggingSession *, NSPoint, NSDragOperation);
 
-    // MAVERICKS_BACKPORT: NSFilePromiseProvider is 10.12+; take it as id so the signatures compile on 10.9.
-    NSString *fileNameForFilePromiseProvider(id /*NSFilePromiseProvider* */, NSString *fileType);
-    void writeToURLForFilePromiseProvider(id /*NSFilePromiseProvider* */, NSURL *, void(^)(NSError *));
+    NSString *fileNameForFilePromiseProvider(NSFilePromiseProvider *, NSString *fileType);
+    void writeToURLForFilePromiseProvider(NSFilePromiseProvider *, NSURL *, void(^)(NSError *));
 
     void didPerformDragOperation(bool handled);
 #endif
@@ -677,8 +662,6 @@ public:
     void insertText(id string, NSRange replacementRange);
     NSTextInputContext *inputContext();
     NSTextInputContext *inputContextForSelectionUpdates();
-    // MAVERICKS_BACKPORT: text-input context accessor used by the WKView responder path.
-    NSTextInputContext *inputContextIncludingNonEditable();
     void unmarkText();
     void setMarkedText(id string, NSRange selectedRange, NSRange replacementRange);
     NSRange NODELETE selectedRange();
@@ -691,11 +674,6 @@ public:
     void keyUp(NSEvent *);
     void keyDown(NSEvent *);
     void flagsChanged(NSEvent *);
-    // MAVERICKS_BACKPORT: exposes the doneWithKeyEvent resend guard to the WKWebView
-    // Mac10_9EventForwarding category's performKeyEquivalent:/keyDown: overrides — upstream keeps
-    // this flow inside WebViewImpl::keyDown/performKeyEquivalent, which that category bypasses
-    // (their interpretKeyEvent path needs the 10.10+ NSTextInputContext completion-handler SPI).
-    NSEvent *keyDownEventBeingResent() const { return m_keyDownEventBeingResent.get(); }
 
     // Override this so that AppKit will send us arrow keys as key down events so we can
     // support them via the key bindings mechanism.
@@ -916,7 +894,7 @@ private:
     void suppressContentRelativeChildViews();
     void restoreContentRelativeChildViews();
 
-    // MAVERICKS_BACKPORT: re-open the HAVE(TOUCH_BAR) gate so the Touch Bar member state below stays gated (the methods above were lifted out of it).
+    // MAVERICKS_BACKPORT: reopen HAVE(TOUCH_BAR) for the touch-bar members below (matching HEAD's structure).
 #if HAVE(TOUCH_BAR)
     bool m_clientWantsMediaPlaybackControlsView { false };
     bool m_canCreateTouchBars { false };

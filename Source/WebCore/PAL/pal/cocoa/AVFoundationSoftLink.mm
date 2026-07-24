@@ -68,30 +68,26 @@ SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVAssetImageGenerator,
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVAssetReader, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVAssetWriter, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVAssetWriterInput, PAL_EXPORT)
-// MAVERICKS_BACKPORT: AVAudioConverter/AVAudioFormat/AVAudioCompressedBuffer/AVAudioPCMBuffer postdate AVFoundation on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVAudioConverter, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVAudioFormat, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVAudioCompressedBuffer, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVAudioPCMBuffer, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVAudioConverter, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVAudioFormat, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVAudioCompressedBuffer, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVAudioPCMBuffer, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVMediaSelectionGroup, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVMediaSelectionOption, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVMetadataItem, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVMutableAudioMix, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVMutableAudioMixInputParameters, PAL_EXPORT)
-// MAVERICKS_BACKPORT: AVOutputContext postdates AVFoundation on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVOutputContext, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVOutputContext, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVPlayer, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVPlayerItem, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVPlayerItemLegibleOutput, PAL_EXPORT)
-// MAVERICKS_BACKPORT: AVPlayerItemMetadataCollector/AVPlayerItemMetadataOutput postdate AVFoundation on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVPlayerItemMetadataCollector, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVPlayerItemMetadataOutput, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVPlayerItemMetadataCollector, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVPlayerItemMetadataOutput, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVPlayerItemVideoOutput, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVPlayerLayer, PAL_EXPORT)
-// MAVERICKS_BACKPORT: AVSpeechSynthesisVoice/AVSpeechSynthesizer/AVSpeechUtterance postdate AVFoundation on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVSpeechSynthesisVoice, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVSpeechSynthesizer, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVSpeechUtterance, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVSpeechSynthesisVoice, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVSpeechSynthesizer, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVSpeechUtterance, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVURLAsset, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVAssetCollection, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVAssetReaderSampleReferenceOutput, PAL_EXPORT)
@@ -111,18 +107,15 @@ SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVStreamDataP
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVAudioSession, PAL_EXPORT)
 
 #if PLATFORM(IOS_FAMILY)
-// MAVERICKS_BACKPORT: AVPersistableContentKeyRequest postdates AVFoundation on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVPersistableContentKeyRequest, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVPersistableContentKeyRequest, PAL_EXPORT)
 #endif
 
 #if HAVE(AVAUDIO_ROUTING_ARBITER)
-// MAVERICKS_BACKPORT: AVAudioRoutingArbiter postdates AVFoundation on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVAudioRoutingArbiter, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVAudioRoutingArbiter, PAL_EXPORT)
 #endif
 
 #if !PLATFORM(WATCHOS)
-// MAVERICKS_BACKPORT: AVRouteDetector postdates AVFoundation on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVRouteDetector, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVRouteDetector, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVVideoPerformanceMetrics, PAL_EXPORT)
 #endif
 
@@ -132,18 +125,15 @@ SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVCaptureDevice, PAL_E
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVCaptureDeviceFormat, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVCaptureDeviceInput, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVCaptureOutput, PAL_EXPORT)
-// MAVERICKS_BACKPORT: AVCapturePhotoSettings postdates AVFoundation on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVCapturePhotoSettings, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVCapturePhotoSettings, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVCaptureSession, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVCaptureVideoDataOutput, PAL_EXPORT)
 SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVFrameRateRange, PAL_EXPORT)
-// MAVERICKS_BACKPORT: AVCaptureDeviceDiscoverySession/AVCapturePhotoOutput postdate AVFoundation on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVCaptureDeviceDiscoverySession, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVCapturePhotoOutput, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVCaptureDeviceDiscoverySession, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVCapturePhotoOutput, PAL_EXPORT)
 
 #if HAVE(AVCAPTUREDEVICEROTATIONCOORDINATOR)
-// MAVERICKS_BACKPORT: AVCaptureDeviceRotationCoordinator postdates AVFoundation on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, AVFoundation, AVCaptureDeviceRotationCoordinator, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, AVFoundation, AVCaptureDeviceRotationCoordinator, PAL_EXPORT)
 #endif
 #endif // HAVE(AVCAPTUREDEVICE)
 

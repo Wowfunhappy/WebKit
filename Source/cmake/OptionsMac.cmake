@@ -16,6 +16,12 @@ WEBKIT_OPTION_BEGIN()
 # FIXME: https://bugs.webkit.org/show_bug.cgi?id=231776
 # WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_API_TESTS PRIVATE ON)
 
+# MAVERICKS_BACKPORT: OFF -- Apple Pay does not exist on 10.9. PassKit.framework here is the Passbook
+# pass viewer (PKPass is present; PKPaymentRequest, PKPayment, PKPaymentMethod, PKContact and
+# PKPaymentAuthorizationViewController are all absent -- verified with nm against the 10.9 binary).
+# Apple Pay on the Mac arrived in 10.12. Left OFF rather than stubbed: exposing window.ApplePaySession
+# to content would advertise a payment method that can never authorize, which breaks checkout flows
+# that feature-detect it -- a wrong answer, not an inert one.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLE_PAY PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_LCMS PRIVATE OFF)
 # MAVERICKS_BACKPORT: ENABLE WOFF2 web fonts. Our modern UA makes servers (Google Fonts, Material
@@ -27,9 +33,8 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_APPLICATION_MANIFEST PRIVATE ON)
 # MAVERICKS_BACKPORT: ON — use the system malloc instead of bmalloc to avoid bmalloc's reliance on newer VM/madvise behavior on 10.9.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_SYSTEM_MALLOC PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ASYNC_SCROLLING PRIVATE ON)
-# MAVERICKS_BACKPORT: OFF — <attachment> element depends on newer NSTextAttachment/QuickLookThumbnailing SPI absent on 10.9.
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ATTACHMENT_ELEMENT PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_AVF_CAPTIONS PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ATTACHMENT_ELEMENT PRIVATE ON)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_AVF_CAPTIONS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_CACHE_PARTITIONING PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_CONTENT_EXTENSIONS PRIVATE ON)
 # MAVERICKS_BACKPORT: OFF — parental-controls content filtering uses the 10.9-absent WebFilterEvaluator/NEFilter SPI.
@@ -39,7 +44,7 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DARK_MODE_CSS PRIVATE ON)
 # MAVERICKS_BACKPORT: ON — 10.9 Dashboard widgets need -apple-dashboard-region control regions
 # (subsystem removed upstream in 2d364c6; restored for the backport).
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DASHBOARD_SUPPORT PRIVATE ON)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DATACUE_VALUE PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DATACUE_VALUE PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DRAG_SUPPORT PRIVATE ON)
 # MAVERICKS_BACKPORT: OFF — Encrypted Media Extensions (CDM/AVContentKeySession) is unavailable on 10.9.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ENCRYPTED_MEDIA PRIVATE OFF)
@@ -47,15 +52,65 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_EXPERIMENTAL_FEATURES PRIVATE ON)
 # MAVERICKS_BACKPORT: ON — Gamepad works on 10.9 (GameController.framework is present; the "absent"
 # premise was false, same class as the SharedWorker disable). See [[webkit-mavericks-gamepad]].
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GAMEPAD PRIVATE ON)
+# MAVERICKS_BACKPORT: OFF -- this backport renders in the web process. The GPU process moves media and
+# canvas across an IPC boundary that assumes IOSurface sharing and XPC behavior 10.9 does not provide,
+# and the port already routes media through GStreamer in-process. See [[webkit-mavericks-multiprocess]].
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GPU_PROCESS PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_ALTERNATE_DISPATCHERS PRIVATE ON)
 # MAVERICKS_BACKPORT: OFF — Web Inspector extensions are not part of the 10.9 drop-in scope.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_EXTENSIONS PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_TELEMETRY PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_TELEMETRY PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_CUSTOM_PROTOCOL_MANAGER PRIVATE ON)
 # MAVERICKS_BACKPORT: OFF — EME/CDM (AVContentKeySession etc.) is unavailable on 10.9.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_ENCRYPTED_MEDIA PRIVATE OFF)
+# MAVERICKS_BACKPORT: ON — this is the value Apple's Mac build actually uses. PlatformEnableCocoa.h:598
+# turns MEDIA_RECORDER on for every Cocoa port with MEDIA_STREAM + VIDEO (both ON here), but that only
+# fires `#if !defined(ENABLE_MEDIA_RECORDER)`, and WebKitFeatures.cmake already defines it as 0 for ports
+# that do not opt in — so the CMake Mac port silently ends up with it OFF. Same shape as the
+# ENABLE_VIDEO_PRESENTATION_MODE problem. Two consequences of leaving it off: MediaRecorder (a real web
+# API, and one this port can serve — MediaRecorderPrivateGStreamer.cpp is already in SourcesGStreamer.txt
+# and merely compiles to nothing) is missing, and ENABLE_MEDIA_RECORDER_WEBM stays off with it, which
+# removes MediaSourceConfiguration::supportsLimitedMatroska — a member upstream's own byte-upstream
+# SourceBufferPrivateAVFObjC.mm:795 reads unguarded, so that TU cannot compile without this.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_RECORDER PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SOURCE PRIVATE ON)
+# MAVERICKS_BACKPORT: the block below names features Apple's Mac build enables that the CMake port
+# otherwise loses. PlatformEnableCocoa.h turns each on for Cocoa via `#if !defined(ENABLE_X)`, but
+# WebKitFeatures.cmake has already defined X as 0 (its default for ports that do not opt in), so the
+# Cocoa block never fires and upstream's OptionsMac.cmake never names them. These are ON for parity
+# with Apple's Mac build; nothing about 10.9 is involved. The deliberate-OFF Cocoa features
+# (APPLE_PAY, PAYMENT_REQUEST, CONTENT_FILTERING, ENCRYPTED_MEDIA, LEGACY_ENCRYPTED_MEDIA, GPU_PROCESS,
+# INSPECTOR_EXTENSIONS, MEMORY_SAMPLER, RESOURCE_USAGE, the PDF pair) carry their own markers above;
+# ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3 is left as PlatformEnableCocoa.h:843 sets it (0 below a
+# 10.12 deployment target).
+
+# MAVERICKS_BACKPORT: OFF — on a USE(GLIB) port, which this is because it uses GStreamer,
+# ENABLE(MEDIA_SESSION) selects MediaSessionManagerGLib as the platform manager (Internals.cpp:421,
+# `#if ENABLE(MEDIA_SESSION) && USE(GLIB)`). That class is an MPRIS implementation over D-Bus
+# (GDBusNodeInfo, mprisInterface, dbusNotificationsEnabled — platform/audio/glib/
+# MediaSessionManagerGLib.h). MPRIS is the Linux desktop media-controls protocol; macOS has no session
+# D-Bus bus for it to talk to, and there is no Cocoa MediaSession manager to select instead. ON would
+# mean either a manager that cannot function or the API with no platform backend — the same
+# advertises-what-it-cannot-deliver problem as ENABLE_APPLE_PAY above.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SESSION PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SESSION_COORDINATOR PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_SESSION_PLAYLIST PRIVATE OFF)
+# Right-click menu on <video>/<audio>. Complements the restored classic Aqua media controls (#68).
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_CONTROLS_CONTEXT_MENUS PRIVATE ON)
+# DeviceOrientation/DeviceMotion. A Mac has no sensors, so the events simply never fire — which is
+# exactly what they do on Apple's Mac build, where this is on. Sites feature-detect the API.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DEVICE_ORIENTATION PRIVATE ON)
+# navigator.standalone — a one-property shim; on for every Cocoa port upstream.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_NAVIGATOR_STANDALONE PRIVATE ON)
+# WebDriver, for parity with the three WEBDRIVER_*_INTERACTIONS options already restored above.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_BIDI PRIVATE ON)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_KEYBOARD_GRAPHEME_CLUSTERS PRIVATE ON)
+# MAVERICKS_BACKPORT: OFF — the one hit from that sweep deliberately left off. WK_WEB_EXTENSIONS is the
+# modern WebExtensions API (WebExtensionController and a large UIProcess surface). Safari 7 predates it
+# and ships its own .safariextz extension model, which this port already supports
+# ([[webkit-mavericks-extensions]]); enabling a second, unreachable extension system would add a large
+# amount of code no browser on this OS can drive.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WK_WEB_EXTENSIONS PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MEDIA_STREAM PRIVATE ON)
 # MAVERICKS_BACKPORT: ON — WebCodecs, matching what Apple ships (PlatformEnableCocoa.h defaults it
 # to 1 on Mac; the cmake feature default is OFF only because non-Apple ports opt in per-port).
@@ -69,37 +124,52 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_MOUSE_CURSOR_SCALE PRIVATE ON)
 # MAVERICKS_BACKPORT: ON — enable OffscreenCanvas (incl. in workers) for modern sites; backed by the ANGLE/CG canvas path.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_OFFSCREEN_CANVAS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_OFFSCREEN_CANVAS_IN_WORKERS PRIVATE ON)
+# MAVERICKS_BACKPORT: OFF -- the Payment Request API is backed on Cocoa by the same Apple Pay machinery
+# 10.9 lacks (see ENABLE_APPLE_PAY above); with no payment handler it would expose a PaymentRequest that
+# can only ever reject.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PAYMENT_REQUEST PRIVATE OFF)
+# MAVERICKS_BACKPORT: OFF -- a product decision, not an availability gap: 10.9 PDFKit is present and
+# complete (PDFDocument/PDFPage/PDFAnnotation/PDFSelection/PDFThumbnailView all verified present).
+# Safari 7 hands PDFs to its own viewer, and inlining WebKit's instead regresses that; see
+# [[webkit-mavericks-inline-pdf]].
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PDFKIT_PLUGIN PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PERIODIC_MEMORY_MONITOR PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PERIODIC_MEMORY_MONITOR PRIVATE ON)
+# MAVERICKS_BACKPORT: OFF — Picture-in-Picture is a video-presentation mode implemented on
+# VideoPresentationInterfaceMac, which needs VIDEO_PRESENTATION_MODE (off; see below).
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_PICTURE_IN_PICTURE_API PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_POINTER_LOCK PRIVATE ON)
 # MAVERICKS_BACKPORT: OFF — resource-usage overlay relies on newer task/memory introspection SPI not present on 10.9.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_RESOURCE_USAGE PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_SANDBOX_EXTENSIONS PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_SERVICE_CONTROLS PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_SANDBOX_EXTENSIONS PRIVATE ON)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_SERVICE_CONTROLS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_SHAREABLE_RESOURCE PRIVATE ON)
-# MAVERICKS_BACKPORT: Web Speech API synthesis, backed by a 10.9 NSSpeechSynthesizer
-# polyfill of AVSpeechSynthesizer (SpeechSynthesisAVFoundationPolyfill_109.mm).
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_SPEECH_SYNTHESIS PRIVATE ON)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_TELEPHONE_NUMBER_DETECTION PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_TELEPHONE_NUMBER_DETECTION PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_TEXT_AUTOSIZING PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_VARIATION_FONTS PRIVATE ON)
-# MAVERICKS_BACKPORT: OFF — fullscreen/PiP video presentation needs 10.10+ AVKit/fullscreen SPI absent on 10.9.
+# MAVERICKS_BACKPORT: OFF — native AVKit video fullscreen / PiP (VideoPresentationInterfaceMac,
+# VideoPresentationManager). The upstream implementation assumes ENABLE(GPU_PROCESS), which this port
+# runs without: VideoPresentationManager.mm reads Settings::blockMediaLayerRehostingInWebContentProcess(),
+# a setting defined only under #if ENABLE(GPU_PROCESS), so the mode does not compile with the GPU process
+# off. Element fullscreen for <video> is unaffected. Setting the option OFF here lets cmakeconfig.h
+# preempt PlatformEnableCocoa.h's block, so that header stays byte-upstream (no hard override). The
+# VideoPresentation/PlaybackSession interface files are withheld from the build lists rather than edited.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_VIDEO_PRESENTATION_MODE PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_KEYBOARD_INTERACTIONS PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_MOUSE_INTERACTIONS PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_WHEEL_INTERACTIONS PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_KEYBOARD_INTERACTIONS PRIVATE ON)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_MOUSE_INTERACTIONS PRIVATE ON)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_WHEEL_INTERACTIONS PRIVATE ON)
+# MAVERICKS_BACKPORT: OFF -- WebXR needs an OpenXR runtime to bind against, and there is no OpenXR
+# framework on 10.9 (verified absent from both /System/Library/Frameworks and PrivateFrameworks) nor any
+# VR/AR device support in this OS for one to sit on.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBXR PRIVATE OFF)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_API_STATISTICS PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_API_STATISTICS PRIVATE ON)
 # MAVERICKS_BACKPORT: ON — the WebAuthn JS API surface (window.PublicKeyCredential, navigator.credentials)
 # is required for web compatibility. The AuthenticationServices/LocalAuthentication/CryptoTokenKit backends
 # are all soft-linked, so their runtime absence on 10.9 degrades to "no authenticator available" rather than
 # breaking. See the matching note in Source/WTF/wtf/PlatformEnableCocoa.h.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_AUTHN PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_RTC PRIVATE ON)
-# MAVERICKS_BACKPORT: OFF — AirPlay wireless-playback-target routing depends on 10.10+ AVFoundation/MediaToolbox SPI absent on 10.9.
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WIRELESS_PLAYBACK_TARGET PRIVATE OFF)
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WIRELESS_PLAYBACK_TARGET PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_AVIF PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_JPEGXL PRIVATE OFF)
 

@@ -35,10 +35,7 @@
 #include <wtf/TZoneMalloc.h>
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: include PAL's NetworkSPI.h instead of <Network/Network.h>; it forward-declares
-// the nw_* types this header needs without pulling in the public Network.framework umbrella, whose
-// declarations are 10.14+ and unavailable in the 10.9 deployment SDK.
-#include <pal/spi/cocoa/NetworkSPI.h>
+#include <Network/Network.h>
 #include <wtf/RetainPtr.h>
 #endif
 

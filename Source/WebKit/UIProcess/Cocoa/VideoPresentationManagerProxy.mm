@@ -39,10 +39,7 @@
 #import "PlaybackSessionInterfaceAVKit.h"
 #import "PlaybackSessionInterfaceLMK.h"
 #import "PlaybackSessionManagerProxy.h"
-// MAVERICKS_BACKPORT: the AVKit video-presentation interface is iOS-only and needs VIDEO_PRESENTATION_MODE (off on 10.9); gate the import so the Mac build doesn't pull in the unbuilt interface.
-#if ENABLE(VIDEO_PRESENTATION_MODE) && PLATFORM(IOS_FAMILY)
 #import "VideoPresentationInterfaceAVKit.h"
-#endif
 #import "VideoPresentationInterfaceLMK.h"
 #import "VideoPresentationManagerMessages.h"
 #import "VideoPresentationManagerProxyMessages.h"

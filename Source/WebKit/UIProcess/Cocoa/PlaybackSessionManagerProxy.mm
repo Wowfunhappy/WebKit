@@ -40,13 +40,10 @@
 #import "WebProcessPool.h"
 #import "WebProcessProxy.h"
 #import <Foundation/Foundation.h>
-// MAVERICKS_BACKPORT: VIDEO_PRESENTATION_MODE is off on 10.9, so these PlaybackSessionInterface headers aren't built; gate the imports to avoid pulling in unbuilt interfaces.
-#if ENABLE(VIDEO_PRESENTATION_MODE) || PLATFORM(IOS_FAMILY)
 #import <WebCore/NullPlaybackSessionInterface.h>
 #import <WebCore/PlaybackSessionInterfaceAVKitLegacy.h>
 #import <WebCore/PlaybackSessionInterfaceMac.h>
 #import <WebCore/PlaybackSessionInterfaceTVOS.h>
-#endif // MAVERICKS_BACKPORT: end of VIDEO_PRESENTATION_MODE-gated PlaybackSessionInterface imports (unbuilt on 10.9).
 #if HAVE(PIP_SKIP_PREROLL)
 #import <WebCore/VideoPresentationInterfaceMac.h>
 #endif

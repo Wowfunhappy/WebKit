@@ -31,8 +31,10 @@
 #include "ContentType.h"
 #include "MediaSourceConfiguration.h"
 #include "SharedBuffer.h"
-// MAVERICKS_BACKPORT: include the software ISO-BMFF parser instead of SourceBufferParserAVFObjC/SourceBufferParserWebM — AVStreamDataParser and the WebM parser are unavailable on 10.9.
-#include "SourceBufferParserISOBMFF.h"
+// MAVERICKS_BACKPORT: SourceBufferParserAVFObjC is not built -- it is implemented on
+// AVStreamDataParser, which 10.9 does not have. See the two call sites below.
+// #include "SourceBufferParserAVFObjC.h"
+#include "SourceBufferParserWebM.h"
 #include <pal/spi/cocoa/MediaToolboxSPI.h>
 #include <wtf/text/WTFString.h>
 
@@ -42,16 +44,29 @@ namespace WebCore {
 
 MediaPlayerEnums::SupportsType SourceBufferParser::isContentTypeSupported(const ContentType& type)
 {
-    // MAVERICKS_BACKPORT: route content-type support through the software ISO-BMFF parser only — the WebM and AVFObjC (AVStreamDataParser) parsers are unavailable on 10.9.
-    return SourceBufferParserISOBMFF::isContentTypeSupported(type);
+    MediaPlayerEnums::SupportsType supports = MediaPlayerEnums::SupportsType::IsNotSupported;
+    supports = std::max(supports, SourceBufferParserWebM::isContentTypeSupported(type));
+    // MAVERICKS_BACKPORT: SourceBufferParserAVFObjC is not built (no AVStreamDataParser on 10.9):
+    //     supports = std::max(supports, SourceBufferParserAVFObjC::isContentTypeSupported(type));
+    return supports;
 }
 
 RefPtr<SourceBufferParser> SourceBufferParser::create(const ContentType& type, const MediaSourceConfiguration& configuration)
 {
-    // MAVERICKS_BACKPORT: only the software ISO-BMFF parser is constructible on 10.9 (no WebM/AVStreamDataParser parsers); configuration is unused on this path.
+    if (SourceBufferParserWebM::isContentTypeSupported(type) != MediaPlayerEnums::SupportsType::IsNotSupported)
+        return SourceBufferParserWebM::create();
+
+    // MAVERICKS_BACKPORT: SourceBufferParserAVFObjC is not built (no AVStreamDataParser on 10.9):
+    //     if (SourceBufferParserAVFObjC::isContentTypeSupported(type) != MediaPlayerEnums::SupportsType::IsNotSupported)
+    //         return adoptRef(new SourceBufferParserAVFObjC(configuration));
+    // Only the caller below is affected, and it is unreachable on this port: the sole callers of
+    // SourceBufferParser::create()/isContentTypeSupported() are MediaSourcePrivateAVFObjC,
+    // SourceBufferPrivateAVFObjC and MediaPlayerPrivateMediaSourceAVFObjC, and MediaPlayer.cpp
+    // registers that whole engine family inside #if !USE(GSTREAMER) -- this port uses GStreamer, so
+    // MSE runs through MediaPlayerPrivateGStreamerMSE. SourceBufferParserWebM above is still built
+    // and is genuinely used: AudioFileReaderCocoa.mm calls SourceBufferParserWebM::create()
+    // directly for Web Audio decodeAudioData.
     UNUSED_PARAM(configuration);
-    if (SourceBufferParserISOBMFF::isContentTypeSupported(type) != MediaPlayerEnums::SupportsType::IsNotSupported)
-        return SourceBufferParserISOBMFF::create();
 
     return nullptr;
 }

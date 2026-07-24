@@ -38,16 +38,17 @@ namespace WebCore {
 
 RefPtr<MediaSample> MediaSamplesBlock::toMediaSample(const MediaSample* referenceSample) const
 {
-    // MAVERICKS_BACKPORT: the USE(AVFOUNDATION) CMSampleBuffer path is dropped because the CoreMedia
-    // PAL soft-link is unavailable on macOS 10.9; return nullptr instead of asserting.
+#if USE(AVFOUNDATION)
+    RetainPtr cmSample = referenceSample ? referenceSample->platformSample().cmSampleBuffer() : nullptr;
+    RetainPtr description = cmSample ? PAL::CMSampleBufferGetFormatDescription(cmSample.get()) : nullptr;
+    auto result = toCMSampleBuffer(*this, description.get());
+    ASSERT(!!result);
+    return result ? RefPtr { MediaSampleAVFObjC::create(result->get(), trackID()) } : nullptr;
+#else
     UNUSED_PARAM(referenceSample);
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     ASSERT_NOT_REACHED();
-// (end MAVERICKS_BACKPORT restored block)
+    ASSERT_NOT_REACHED();
     return nullptr;
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// #endif
-// (end MAVERICKS_BACKPORT restored block)
+#endif
 }
 
 UniqueRef<MediaSamplesBlock> MediaSamplesBlock::fromMediaSample(const MediaSample& sample, const TrackInfo* trackInfo)

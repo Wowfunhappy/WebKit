@@ -157,8 +157,8 @@ source "$REPO/MavericksSupport/scripts/reexport-shim.sh"
 build_reexport_shim --clang "$CLANG" --out "$OUT/libpolyfill_classes.dylib.tmp" \
     --install-name @rpath/libpolyfill_classes.dylib --compat 9999.0.0 --current 9999.0.0 \
     --cflags "-licucore" \
-    --framework Foundation --framework AppKit --framework CoreFoundation \
-    --reexport-framework QuartzCore --reexport-framework CoreServices \
+    --framework CoreFoundation \
+    --reexport-framework Foundation --reexport-framework AppKit --reexport-framework QuartzCore --reexport-framework CoreServices \
     --reexport-framework Security --reexport-framework CFNetwork \
     "$OBJ/classes.o"
 tmp_stable "$OUT/libpolyfill_classes.dylib"   # preserve mtime when unchanged (see ar_stable / tmp_stable)

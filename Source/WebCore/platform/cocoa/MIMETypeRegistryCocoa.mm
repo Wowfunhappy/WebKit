@@ -1,81 +1,196 @@
-// MAVERICKS_BACKPORT: real Cocoa MIMETypeRegistry implementations.
-//
-// The libpolyfill.a stubs for these four functions returned garbage Strings on 10.9 (corrupt
-// StringImpl -> SIGSEGV 0x100000004 in commonMimeTypesMap() during YouTube's media load). Provide
-// correct implementations using the LaunchServices UTType C APIs (available since 10.3) instead of
-// the 11.0+ UTType class. Defining all four here means the linker resolves them from this object
-// and never pulls the broken libpolyfill member.
-#include "config.h"
+/*
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
+ * Copyright (C) 2008 Nokia Corporation and/or its subsidiary(-ies)
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#import "config.h"
 #import "MIMETypeRegistry.h"
 
-// MAVERICKS_BACKPORT: include the classic CoreServices UTType C APIs (10.3+) instead of the 11.0+
-// UniformTypeIdentifiers / NSURLFileTypeMappings SPI used upstream.
-#import <CoreServices/CoreServices.h>
-#import <wtf/RetainPtr.h>
-#import <wtf/Vector.h>
-#import <wtf/text/StringView.h>
-#import <wtf/text/WTFString.h>
-
-// MAVERICKS_BACKPORT: the classic UTType C APIs are deprecated on the modern SDK; wrap the file.
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <pal/spi/cocoa/CoreServicesSPI.h>
+#import <pal/spi/cocoa/NSURLFileTypeMappingsSPI.h>
+#import <pal/spi/cocoa/UniformTypeIdentifiersSPI.h>
+#import <wtf/RobinHoodHashMap.h>
+#import <wtf/RobinHoodHashSet.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/cocoa/VectorCocoa.h>
+#import <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: real implementation replacing the broken libpolyfill stub (see file header).
-String MIMETypeRegistry::mimeTypeForExtension(StringView extension)
+static MemoryCompactLookupOnlyRobinHoodHashMap<String, MemoryCompactLookupOnlyRobinHoodHashSet<String>>& extensionsForMIMETypeMap()
 {
-    if (extension.isEmpty())
-        return String();
-    RetainPtr<CFStringRef> ext = extension.toString().createCFString();
-    if (!ext)
-        return String();
-    RetainPtr<CFStringRef> uti = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, ext.get(), nullptr));
-    if (!uti)
-        return String();
-    RetainPtr<CFStringRef> mimeType = adoptCF(UTTypeCopyPreferredTagWithClass(uti.get(), kUTTagClassMIMEType));
-    return mimeType ? String(mimeType.get()) : String();
+    static NeverDestroyed extensionsForMIMETypeMap = [] {
+        MemoryCompactLookupOnlyRobinHoodHashMap<String, MemoryCompactLookupOnlyRobinHoodHashSet<String>> map;
+
+        auto addExtension = [&](const String& type, const String& extension) {
+            map.add(type, MemoryCompactLookupOnlyRobinHoodHashSet<String>()).iterator->value.add(extension);
+        };
+
+        auto addExtensions = [&](const String& type, NSArray<NSString *> *extensions) {
+            size_t pos = type.reverseFind('/');
+
+            ASSERT(pos != notFound);
+            auto wildcardMIMEType = makeString(StringView(type).left(pos), "/*"_s);
+
+            for (NSString *extension in extensions) {
+                // Add extension to wildcardMIMEType, for example add "png" to "image/*"
+                addExtension(wildcardMIMEType, extension);
+                // Add extension to its mimeType, for example add "png" to "image/png"
+                addExtension(type, extension);
+            }
+        };
+
+        [UTType _enumerateAllDeclaredTypesUsingBlock:^(UTType *utType, BOOL *) {
+            RetainPtr<NSString> type = utType.preferredMIMEType;
+            if (!type)
+                return;
+            RetainPtr extensions = dynamic_objc_cast<NSArray<NSString *>>(utType.tags[UTTagClassFilenameExtension]);
+            if (!extensions || ![extensions count])
+                return;
+            addExtensions(type.get(), extensions.get());
+        }];
+
+        return map;
+    }();
+
+    return extensionsForMIMETypeMap;
 }
 
-// MAVERICKS_BACKPORT: real implementation replacing the broken libpolyfill stub (see file header).
-String MIMETypeRegistry::preferredExtensionForMIMEType(const String& type)
+// Specify MIME type <-> extension mappings for type identifiers recognized by the system that are missing MIME type values.
+static const HashMap<String, String, ASCIICaseInsensitiveHash>& additionalMimeTypesMap()
 {
-    if (type.isEmpty())
-        return String();
-    RetainPtr<CFStringRef> mime = type.createCFString();
-    if (!mime)
-        return String();
-    RetainPtr<CFStringRef> uti = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, mime.get(), nullptr));
-    if (!uti)
-        return String();
-    RetainPtr<CFStringRef> extension = adoptCF(UTTypeCopyPreferredTagWithClass(uti.get(), kUTTagClassFilenameExtension));
-    return extension ? String(extension.get()) : String();
+    static NeverDestroyed<HashMap<String, String, ASCIICaseInsensitiveHash>> mimeTypesMap = [] {
+        HashMap<String, String, ASCIICaseInsensitiveHash> map;
+        static constexpr auto additionalTypes = std::to_array<TypeExtensionPair>({
+            // FIXME: Remove this list once rdar://112044000 (Many camera RAW image type identifiers are missing MIME types) is resolved.
+            { "image/x-canon-cr2"_s, "cr2"_s },
+            { "image/x-canon-cr3"_s, "cr3"_s },
+            { "image/x-epson-erf"_s, "erf"_s },
+            { "image/x-fuji-raf"_s, "raf"_s },
+            { "image/x-hasselblad-3fr"_s, "3fr"_s },
+            { "image/x-hasselblad-fff"_s, "fff"_s },
+            { "image/x-leaf-mos"_s, "mos"_s },
+            { "image/x-leica-rwl"_s, "rwl"_s },
+            { "image/x-minolta-mrw"_s, "mrw"_s },
+            { "image/x-nikon-nef"_s, "nef"_s },
+            { "image/x-olympus-orf"_s, "orf"_s },
+            { "image/x-panasonic-raw"_s, "raw"_s },
+            { "image/x-panasonic-rw2"_s, "rw2"_s },
+            { "image/x-pentax-pef"_s, "pef"_s },
+            { "image/x-phaseone-iiq"_s, "iiq"_s },
+            { "image/x-samsung-srw"_s, "srw"_s },
+            { "image/x-sony-arw"_s, "arw"_s },
+            { "image/x-sony-srf"_s, "srf"_s },
+        });
+        for (auto& [type, extension] : additionalTypes)
+            map.add(extension, type);
+        return map;
+    }();
+    return mimeTypesMap;
 }
 
-// MAVERICKS_BACKPORT: real implementation replacing the broken libpolyfill stub (see file header).
-Vector<String> MIMETypeRegistry::extensionsForMIMEType(const String& type)
+static const HashMap<String, Vector<String>, ASCIICaseInsensitiveHash>& additionalExtensionsMap()
+{
+    static NeverDestroyed<HashMap<String, Vector<String>, ASCIICaseInsensitiveHash>> extensionsMap = [] {
+        HashMap<String, Vector<String>, ASCIICaseInsensitiveHash> map;
+        for (auto& [extension, type] : additionalMimeTypesMap()) {
+            map.ensure(type, [] {
+                return Vector<String>();
+            }).iterator->value.append(extension);
+        }
+        return map;
+    }();
+    return extensionsMap;
+}
+
+static Vector<String> extensionsForWildcardMIMEType(const String& type)
 {
     Vector<String> extensions;
-    // MAVERICKS_BACKPORT: the full tag list (UTTypeCopyAllTagsWithClass) is not used here; the preferred
-    // extension is sufficient for WebCore's callers on 10.9.
-    String preferred = preferredExtensionForMIMEType(type);
-    if (!preferred.isEmpty())
-        extensions.append(preferred);
+
+    auto iterator = extensionsForMIMETypeMap().find(type);
+    if (iterator != extensionsForMIMETypeMap().end())
+        extensions.appendRange(iterator->value.begin(), iterator->value.end());
+
     return extensions;
 }
 
-// MAVERICKS_BACKPORT: real implementation replacing the broken libpolyfill stub (see file header).
-bool MIMETypeRegistry::isApplicationPluginMIMEType(const String& mimeType)
+String MIMETypeRegistry::mimeTypeForExtension(StringView extension)
 {
-    // MAVERICKS_BACKPORT: "application plug-ins" are user-agent-provided plug-ins (the legacy
-    // WebKit-ObjC WebPlugin protocol), as opposed to third-party NPAPI — only these are
-    // permitted by SubframeLoader. Safari Web Clips render the clipped page through one such
-    // plug-in: application/x-apple-webclip-plug-in (the WebClip.plugin bundled in the
-    // Dashboard widget, loaded via WebKitLegacy's WebPluginDatabase). Allow it so the widget's
-    // <embed> is treated as a loadable plug-in. (No NPAPI/third-party plug-ins are enabled.)
-    return equalLettersIgnoringASCIICase(mimeType, "application/x-apple-webclip-plug-in"_s);
+    auto string = extension.createNSStringWithoutCopying();
+
+    RetainPtr<NSString> mimeType = [[NSURLFileTypeMappings sharedMappings] MIMETypeForExtension:string.get()];
+    if (mimeType.get().length)
+        return mimeType.get();
+
+    auto mapEntry = additionalMimeTypesMap().find<ASCIICaseInsensitiveStringViewHashTranslator>(extension);
+    if (mapEntry != additionalMimeTypesMap().end())
+        return mapEntry->value;
+
+    return nullString();
 }
 
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+Vector<String> MIMETypeRegistry::extensionsForMIMEType(const String& type)
+{
+    if (type.isNull())
+        return { };
+
+    if (type.endsWith('*'))
+        return extensionsForWildcardMIMEType(type);
+
+    RetainPtr<NSArray> extensions = [[NSURLFileTypeMappings sharedMappings] extensionsForMIMEType:type.createNSString().get()];
+    if (extensions.get().count)
+        return makeVector<String>(extensions.get());
+
+    auto mapEntry = additionalExtensionsMap().find(type);
+    if (mapEntry != additionalExtensionsMap().end())
+        return mapEntry->value;
+
+    return { };
+}
+
+String MIMETypeRegistry::preferredExtensionForMIMEType(const String& type)
+{
+    if (type.isNull())
+        return nullString();
+
+    // We accept some non-standard USD MIMETypes, so we can't rely on
+    // the file type mappings.
+    if (isUSDMIMEType(type))
+        return "usdz"_s;
+
+    RetainPtr preferredExtension = [[NSURLFileTypeMappings sharedMappings] preferredExtensionForMIMEType:type.createNSString().get()];
+    if ([preferredExtension length])
+        return preferredExtension.get();
+
+    auto mapEntry = additionalExtensionsMap().find(type);
+    if (mapEntry != additionalExtensionsMap().end())
+        return mapEntry->value.first();
+
+    return nullString();
+}
+
 bool MIMETypeRegistry::isApplicationPluginMIMEType(const String& MIMEType)
 {
 #if ENABLE(PDF_PLUGIN)
@@ -90,8 +205,6 @@ bool MIMETypeRegistry::isApplicationPluginMIMEType(const String& MIMEType)
 #endif
 
     return false;
-MAVERICKS_BACKPORT */
 }
 
-// MAVERICKS_BACKPORT: the legacy CoreServices UTType C APIs used above are deprecated on the modern SDK.
-ALLOW_DEPRECATED_DECLARATIONS_END
+}

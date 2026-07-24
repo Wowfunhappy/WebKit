@@ -673,9 +673,17 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
 // MARK: -
 
-// MAVERICKS_BACKPORT: return the inspector-resource:// URL (was -inspectorPagePath returning Main.html's bundle file path) so the classic frontend loads from a real origin, not file://.
+// MAVERICKS_BACKPORT: this is upstream's -inspectorPagePath, returning an inspector-resource:// URL
+// instead of Main.html's path inside WebInspectorUI.framework, so the classic frontend loads from a
+// real origin rather than file://.
 - (NSURL *)inspectorPageURL
 {
+    // MAVERICKS_BACKPORT: upstream's body was:
+    //     NSBundle *bundle = [NSBundle bundleWithIdentifier:@"com.apple.WebInspectorUI"];
+    //     if (!bundle)
+    //         return nil;
+    //
+    //     return [bundle pathForResource:@"Main" ofType:@"html"];
     return [NSURL URLWithString:@"inspector-resource:///Main.html"];
 }
 

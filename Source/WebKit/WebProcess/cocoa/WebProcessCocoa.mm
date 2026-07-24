@@ -1207,8 +1207,7 @@ void WebProcess::destroyRenderingResources()
 #if !RELEASE_LOG_DISABLED
     MonotonicTime startTime = MonotonicTime::now();
 #endif
-    // MAVERICKS_BACKPORT: CABackingStoreCollectBlocking() is a 10.10+ QuartzCore SPI absent on 10.9; no-op the backing-store reclaim.
-    (void)0;
+    CABackingStoreCollectBlocking();
 #if !RELEASE_LOG_DISABLED
     MonotonicTime endTime = MonotonicTime::now();
 #endif

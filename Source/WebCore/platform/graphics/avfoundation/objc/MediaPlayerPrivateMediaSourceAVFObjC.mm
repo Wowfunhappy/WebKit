@@ -94,11 +94,10 @@ namespace WebCore {
 
 Ref<AudioVideoRenderer> MediaPlayerPrivateMediaSourceAVFObjC::createRenderer(LoggerHelper& loggerHelper, HTMLMediaElementIdentifier mediaElementIdentifier, MediaPlayerIdentifier playerIdentifier)
 {
-    // MAVERICKS_BACKPORT: GPU process is disabled, so there is no remote AudioVideoRenderer. The
-    // MediaStrategy createAudioVideoRenderer() hook is a libpolyfill stub that returns garbage via sret
-    // (it would be mistaken for a non-null renderer), so bypass it and always create the local AVFObjC renderer.
-    UNUSED_PARAM(mediaElementIdentifier);
-    UNUSED_PARAM(playerIdentifier);
+    if (hasPlatformStrategies()) {
+        if (RefPtr renderer = platformStrategies()->mediaStrategy()->createAudioVideoRenderer(&loggerHelper, mediaElementIdentifier, playerIdentifier))
+            return renderer.releaseNonNull();
+    }
     return AudioVideoRendererAVFObjC::create(Ref { loggerHelper.logger() }, loggerHelper.logIdentifier());
 }
 
@@ -166,27 +165,17 @@ void MediaPlayerPrivateMediaSourceAVFObjC::registerMediaEngine(MediaEngineRegist
 
 bool MediaPlayerPrivateMediaSourceAVFObjC::isAvailable()
 {
-    // MAVERICKS_BACKPORT: the modern engine normally requires AVStreamDataParser,
-    // AVSampleBufferAudioRenderer and AVSampleBufferRenderSynchronizer — all ABSENT on 10.9.
-    // The custom pipeline replaces them: SourceBufferParserISOBMFF (software fMP4 demux) instead of
-    // AVStreamDataParser, and AudioVideoRendererAVFObjC drives AVSampleBufferDisplayLayer (PRESENT
-    // on 10.9) with a manual CMTimebase instead of AVSampleBufferRenderSynchronizer. So gate ONLY on
-    // what that pipeline actually needs: AVFoundation + CoreMedia frameworks + AVSampleBufferDisplayLayer.
-    bool avf = PAL::isAVFoundationFrameworkAvailable();
-    if (!avf) return false;
-    bool cm = PAL::isCoreMediaFrameworkAvailable();
-    if (!cm) return false;
-    Class avsbdl = PAL::getAVSampleBufferDisplayLayerClassSingleton();
-    return avsbdl != nullptr;
+    return PAL::isAVFoundationFrameworkAvailable()
+        && PAL::isCoreMediaFrameworkAvailable()
+        && PAL::getAVStreamDataParserClassSingleton()
+        && PAL::getAVSampleBufferAudioRendererClassSingleton()
+        && PAL::getAVSampleBufferRenderSynchronizerClassSingleton()
+        && class_getInstanceMethod(PAL::getAVSampleBufferAudioRendererClassSingleton(), @selector(setMuted:));
 }
 
 void MediaPlayerPrivateMediaSourceAVFObjC::getSupportedTypes(HashSet<String>& types)
 {
-    // MAVERICKS_BACKPORT: AVStreamDataParser and its MIME cache are unavailable. The software
-    // SourceBufferParser (SourceBufferParserISOBMFF) performs the real per-type check in
-    // supportsTypeAndCodecs; here we just advertise the MP4 containers it can demux.
-    types.add("video/mp4"_s);
-    types.add("audio/mp4"_s);
+    types = AVStreamDataParserMIMETypeCache::singleton().supportedTypes();
 }
 
 MediaPlayer::SupportsType MediaPlayerPrivateMediaSourceAVFObjC::supportsTypeAndCodecs(const MediaEngineSupportParameters& parameters)
@@ -1164,8 +1153,9 @@ void MediaPlayerPrivateMediaSourceAVFObjC::characteristicsFromMediaSourceChanged
         player->characteristicChanged();
 }
 
-// MAVERICKS_BACKPORT: fullscreen-layer methods gated behind VIDEO_PRESENTATION_MODE (off on 10.9).
 #if ENABLE(VIDEO_PRESENTATION_MODE)
+// MAVERICKS_BACKPORT: these definitions match decls guarded by ENABLE(VIDEO_PRESENTATION_MODE) in the header
+// (off on this port), and call base AudioVideoRenderer members that only exist under the same guard.
 RetainPtr<PlatformLayer> MediaPlayerPrivateMediaSourceAVFObjC::createVideoFullscreenLayer()
 {
     return adoptNS([[CALayer alloc] init]);
@@ -1180,8 +1170,7 @@ void MediaPlayerPrivateMediaSourceAVFObjC::setVideoFullscreenFrame(const FloatRe
 {
     m_renderer->setVideoFullscreenFrame(frame);
 }
-// MAVERICKS_BACKPORT: end of VIDEO_PRESENTATION_MODE-gated fullscreen-layer block (off on 10.9).
-#endif // ENABLE(VIDEO_PRESENTATION_MODE)
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on the fullscreen-layer defs (see above).
 
 void MediaPlayerPrivateMediaSourceAVFObjC::syncTextTrackBounds()
 {
@@ -1415,18 +1404,14 @@ bool MediaPlayerPrivateMediaSourceAVFObjC::supportsLimitedMatroska() const
     return m_loadOptions.supportsLimitedMatroska;
 }
 
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+// MAVERICKS_BACKPORT: guarded to match the header decl and the base AudioVideoRenderer member, both
+// ENABLE(VIDEO_PRESENTATION_MODE)-only (off on this port).
 void MediaPlayerPrivateMediaSourceAVFObjC::isInFullscreenOrPictureInPictureChanged(bool isInFullscreenOrPictureInPicture)
 {
-// MAVERICKS_BACKPORT: declared unconditionally in the header (a `final` override → vtable slot), so it
-// must be defined even when VIDEO_PRESENTATION_MODE is off (otherwise WebCore has an undefined symbol →
-// dyld load crash). The renderer's method only exists under VIDEO_PRESENTATION_MODE, so guard only the body.
-// MAVERICKS_BACKPORT: renderer's fullscreen/PiP method only exists under VIDEO_PRESENTATION_MODE (off on 10.9); guard the body.
-#if ENABLE(VIDEO_PRESENTATION_MODE)
     m_renderer->isInFullscreenOrPictureInPictureChanged(isInFullscreenOrPictureInPicture);
-#else
-    UNUSED_PARAM(isInFullscreenOrPictureInPicture);
-#endif
 }
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on isInFullscreenOrPictureInPictureChanged (see above).
 
 WebCore::HostingContext MediaPlayerPrivateMediaSourceAVFObjC::hostingContext() const
 {

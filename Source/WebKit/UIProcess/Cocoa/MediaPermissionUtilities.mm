@@ -26,7 +26,6 @@
 #import "config.h"
 #import "MediaPermissionUtilities.h"
 
-#import "PageClient.h" // MAVERICKS_BACKPORT: for the platformWindow() fallback in alertForPermission
 #import "SandboxUtilities.h"
 #import "WKWebViewInternal.h"
 #import "WebPageProxy.h"
@@ -191,27 +190,11 @@ void alertForPermission(WebPageProxy& page, MediaPermissionReason reason, const 
 #endif
 
     auto webView = page.cocoaView();
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: under Safari 7 the page is hosted by a WKView, not a WKWebView, so
-    // cocoaView() is nil. The sheet only needs the hosting window; get it from the PageClient
-    // (MinimalPageClient overrides platformWindow() to return the WKView's window).
-    RetainPtr<NSWindow> hostWindow = [webView window];
-    if (!hostWindow) {
-        if (auto* pageClient = page.pageClient())
-            hostWindow = pageClient->platformWindow();
-    }
-    if (!hostWindow) {
-        completionHandler(false);
-        return;
-    }
-#else
     if (!webView) {
         completionHandler(false);
         return;
     }
-    // MAVERICKS_BACKPORT: closes the PLATFORM(MAC) WKView-aware hostWindow conditional above.
-#endif
-
+    
     RetainPtr alertTitle = alertMessageText(reason, origin);
     if (!alertTitle) {
         completionHandler(false);
@@ -229,8 +212,7 @@ void alertForPermission(WebPageProxy& page, MediaPermissionReason reason, const 
     button.get().keyEquivalent = @"";
     button = [alert addButtonWithTitle:doNotAllowButtonString.get()];
     button.get().keyEquivalent = @"\E";
-    // MAVERICKS_BACKPORT: host the sheet on hostWindow (WKView-aware; see above) instead of [webView window].
-    [alert beginSheetModalForWindow:hostWindow.get() completionHandler:[completionBlock](NSModalResponse returnCode) {
+    [alert beginSheetModalForWindow:retainPtr([webView window]).get() completionHandler:[completionBlock](NSModalResponse returnCode) {
         auto shouldAllow = returnCode == NSAlertFirstButtonReturn;
         completionBlock(shouldAllow);
     }];
@@ -260,23 +242,34 @@ void requestAVCaptureAccessForType(MediaPermissionType type, CompletionHandler<v
 {
     ASSERT(isMainRunLoop());
 
-    // MAVERICKS_BACKPORT: 10.9 has no TCC privacy layer, so OS-level camera/mic access is unrestricted. The
-    // 10.14+ -[AVCaptureDevice requestAccessForMediaType:completionHandler:] gate is not meaningful here
-    // (and on this VM resolves to a denying status), so report access as granted; per-origin consent is
-    // the alertForPermission sheet (doDefaultAction path).
+#if HAVE(AVCAPTUREDEVICE)
+    RetainPtr mediaType = type == MediaPermissionType::Audio ? AVMediaTypeAudio : AVMediaTypeVideo;
+    auto decisionHandler = makeBlockPtr([completionHandler = WTF::move(completionHandler)](BOOL authorized) mutable {
+        callOnMainRunLoop([completionHandler = WTF::move(completionHandler), authorized]() mutable {
+            completionHandler(authorized);
+        });
+    });
+    [PAL::getAVCaptureDeviceClassSingleton() requestAccessForMediaType:mediaType.get() completionHandler:decisionHandler.get()];
+#else
     UNUSED_PARAM(type);
-    completionHandler(true); // MAVERICKS_BACKPORT: no TCC on 10.9; report capture access granted.
+    completionHandler(false);
+#endif
 }
 
 MediaPermissionResult checkAVCaptureAccessForType(MediaPermissionType type)
 {
-    // MAVERICKS_BACKPORT: 10.9 has no TCC privacy layer, so OS-level camera/mic access is unrestricted (per-origin
-    // consent is the alertForPermission sheet via doDefaultAction). The 10.14+ authorizationStatusForMediaType: gate
-    // resolves at runtime on this VM and returns a non-Authorized status, which denied getUserMedia with
-    // NotAllowedError (reason=PermissionDenied at requestSystemValidation). Report Granted unconditionally so
-    // capture is reachable and the request proceeds to the consent prompt.
+#if HAVE(AVCAPTUREDEVICE)
+    RetainPtr mediaType = type == MediaPermissionType::Audio ? AVMediaTypeAudio : AVMediaTypeVideo;
+    auto authorizationStatus = [PAL::getAVCaptureDeviceClassSingleton() authorizationStatusForMediaType:mediaType.get()];
+    if (authorizationStatus == AVAuthorizationStatusDenied || authorizationStatus == AVAuthorizationStatusRestricted)
+        return MediaPermissionResult::Denied;
+    if (authorizationStatus == AVAuthorizationStatusNotDetermined)
+        return MediaPermissionResult::Unknown;
+    return MediaPermissionResult::Granted;
+#else
     UNUSED_PARAM(type);
-    return MediaPermissionResult::Granted; // MAVERICKS_BACKPORT: no TCC on 10.9; report capture access granted.
+    return MediaPermissionResult::Denied;
+#endif
 }
 
 #if HAVE(SPEECHRECOGNIZER)

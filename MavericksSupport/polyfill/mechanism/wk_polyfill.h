@@ -149,6 +149,56 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 #define WK_POLYFILL_CONST_REPLACES(PROVIDER, TYPE, NAME, VALUE) \
     WK_POLYFILL_CONST_(PROVIDER, TYPE, NAME, VALUE, WK_POLYFILL_REPLACES)
 
+// An absent ObjC CLASS, stubbed in polyfills/classes.m, that WebKit reaches by NAME.
+//
+// A stub is registered in the runtime under a private name and the system name is exported as an
+// alias to it (WK_PRIV_CLASS / WK_PRIV_ALIAS in classes.m), so a compiled `[UTType ...]` classref
+// binds to the stub while objc_getClass("UTType") still answers NULL — which is what keeps the stub
+// out of the host app's way. But SoftLinking.h resolves a soft-linked class with
+// objc_getClass(auditedClassName) (SOFT_LINK_CLASS_FOR_SOURCE_INTERNAL), by name and not by
+// classref, so for those classes the private name is the whole problem: a required soft-link
+// RELEASE_ASSERTs and an optional one hands WebKit nil, with the stub sitting right there.
+//
+// Registering the stub here fixes that the same way the registry already fixes soft-linked constants
+// and functions: the objc_getClass override in wk_polyfill_runtime.c answers registered names out of
+// this section. It is opt-in per class, because for some stubs a NULL answer IS the right one —
+// NSVisualEffectView and _NSScrollingMomentumCalculator are probed so WebKit can take its
+// pre-10.10 path, and a stub that cannot do the job would be the wrong answer. Register a class only
+// where WebKit soft-links it and the stub can actually serve the caller.
+//
+// Scope is the same as every other override here: libpolyfill.a goes only into WebKit's own
+// binaries, so a host app's objc_getClass is untouched and keeps seeing the system name as free.
+struct wk_polyfill_class_entry {
+    const char *name;       // the system class name WebKit asks objc_getClass for
+    const char *provider;   // framework that owns it on a modern OS; the build gate asks 10.9 there
+    void *cls;              // the privately-named stub in classes.m
+    void *(*resolve)(void); // ... or, when cls is NULL, builds it on first ask
+};
+
+// Emitted into its own section rather than __wk_pfmap: the class stubs live in
+// libpolyfill_classes.dylib, a DIFFERENT image from the libpolyfill.a copy that runs the override,
+// so unlike a function entry this one has to be found by scanning loaded images (see
+// lookupPolyfillClass). Keeping them in separate sections keeps that scan off the hot registry.
+#define WK_POLYFILL_CLASS(PROVIDER, NAME)                                     \
+    extern char OBJC_CLASS_$_WKMavPolyfillPriv_##NAME;                        \
+    __attribute__((used, section("__DATA,__wk_clsmap")))                      \
+    static struct wk_polyfill_class_entry wk_pf_class_##NAME =                \
+        { #NAME, PROVIDER, &OBJC_CLASS_$_WKMavPolyfillPriv_##NAME, NULL };    \
+    struct wk_pf_swallow_semicolon_class_##NAME
+
+// A stub that cannot be written as an @implementation because its superclass lives in a framework
+// classes.m deliberately does not link -- linking it would put that framework on the load commands of
+// a dylib every WebKit binary carries, dragging it into JavaScriptCore, the NetworkProcess and every
+// host app. Such a stub is built with objc_allocateClassPair at the moment WebKit asks for it, which
+// is also the moment its superclass's framework is guaranteed loaded: PAL soft-links the FRAMEWORK
+// before it soft-links the class. RESOLVER returns the Class and must be idempotent.
+#define WK_POLYFILL_CLASS_RESOLVED(PROVIDER, NAME, RESOLVER)                  \
+    static void *RESOLVER(void);                                              \
+    __attribute__((used, section("__DATA,__wk_clsmap")))                      \
+    static struct wk_polyfill_class_entry wk_pf_class_##NAME =                \
+        { #NAME, PROVIDER, NULL, RESOLVER };                                  \
+    struct wk_pf_swallow_semicolon_class_##NAME
+
 #ifdef __cplusplus
 }
 #endif

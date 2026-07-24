@@ -61,10 +61,20 @@ public:
             initializeCachedResourceRequestInitiatorTypes();
         return *m_cachedResourceRequestInitiatorTypes;
     }
-    // MAVERICKS_BACKPORT: declared out-of-line and WEBCORE_EXPORT'd (bodies live in ThreadGlobalData.cpp)
-    // so these accessors are linkable symbols across the framework boundary on the 10.9 build.
-    WEBCORE_EXPORT EventNames& eventNames();
-    WEBCORE_EXPORT QualifiedNameCache& qualifiedNameCache();
+    EventNames& eventNames()
+    {
+        ASSERT(!m_destroyed);
+        if (!m_eventNames) [[unlikely]]
+            initializeEventNames();
+        return *m_eventNames;
+    }
+    QualifiedNameCache& qualifiedNameCache()
+    {
+        ASSERT(!m_destroyed);
+        if (!m_qualifiedNameCache) [[unlikely]]
+            initializeQualifiedNameCache();
+        return *m_qualifiedNameCache;
+    }
     const MIMETypeRegistryThreadGlobalData& mimeTypeRegistryThreadGlobalData()
     {
         ASSERT(!m_destroyed);
@@ -73,9 +83,7 @@ public:
         return *m_MIMETypeRegistryThreadGlobalData;
     }
 
-    // MAVERICKS_BACKPORT: declared out-of-line and WEBCORE_EXPORT'd (body in ThreadGlobalData.cpp)
-    // so the accessor is a linkable cross-framework symbol on the 10.9 build.
-    WEBCORE_EXPORT ThreadTimers& threadTimers() LIFETIME_BOUND;
+    ThreadTimers& threadTimers() LIFETIME_BOUND { return m_threadTimers; }
 
     JSC::JSGlobalObject* currentState() const { return m_currentState; }
     void setCurrentState(JSC::JSGlobalObject* state) { m_currentState = state; }

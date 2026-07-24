@@ -1,48 +1,88 @@
-// MAVERICKS_BACKPORT: this file was stubbed empty during the backport (its upstream form is
-// MediaUtilities.mm, which the backport excluded), which left WebCore::createVideoSampleBuffer()
-// UNDEFINED. getUserMedia camera capture then crashed the WebContent process with a dyld
-// "Symbol not found: WebCore::createVideoSampleBuffer(CVPixelBufferRef, CMTime)" the moment
-// LocalSampleBufferDisplayLayer::enqueueVideoFrame() tried to wrap an incoming camera frame.
-//
-// The CoreMedia routines needed to build a CMSampleBuffer from a CVPixelBuffer ARE available on 10.9
-// (CMVideoFormatDescriptionCreateForImageBuffer and CMSampleBufferCreateForImageBuffer are 10.7+), and
-// WebCore already soft-links them through PAL, so reimplement createVideoSampleBuffer() here using those.
-//
-// (createAudioFormatDescription / createAudioSampleBuffer are part of the audio-capture path and are not
-// reimplemented here; the video-only getUserMedia path does not reference them.)
+/*
+ * Copyright (C) 2020 Apple Inc. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include "config.h"
 #include "MediaUtilities.h"
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// #include "AudioStreamDescription.h"
-// #include "WebAudioBufferList.h"
-// #include <wtf/SoftLinking.h>
-// (end MAVERICKS_BACKPORT restored block)
+#include "AudioStreamDescription.h"
+#include "WebAudioBufferList.h"
+#include <wtf/SoftLinking.h>
 #include <pal/cf/CoreMediaSoftLink.h>
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: reimplemented for 10.9 (see file header) — the only routine the video getUserMedia path needs.
-RetainPtr<CMSampleBufferRef> createVideoSampleBuffer(CVPixelBufferRef pixelBuffer, CMTime sampleTime)
+RetainPtr<CMFormatDescriptionRef> createAudioFormatDescription(const AudioStreamDescription& description, std::span<const uint8_t> magicCookie)
 {
-    if (!pixelBuffer)
+    auto basicDescription = std::get<const AudioStreamBasicDescription*>(description.platformDescription().description);
+    CMFormatDescriptionRef format = nullptr;
+    auto error = PAL::CMAudioFormatDescriptionCreate(kCFAllocatorDefault, basicDescription, 0, nullptr, magicCookie.size(), magicCookie.data(), nullptr, &format);
+    if (error) {
+        LOG_ERROR("createAudioFormatDescription failed with %d", static_cast<int>(error));
+        return nullptr;
+    }
+    return adoptCF(format);
+}
+
+RetainPtr<CMSampleBufferRef> createAudioSampleBuffer(const PlatformAudioData& data, const AudioStreamDescription& description, CMTime time, size_t sampleCount)
+{
+    // FIXME: check if we can reuse the format for multiple sample buffers.
+    auto format = createAudioFormatDescription(description);
+    if (!format)
         return nullptr;
 
-    // MAVERICKS_BACKPORT: derive the format via CMVideoFormatDescriptionCreateForImageBuffer (10.7+), soft-linked through PAL.
-    CMVideoFormatDescriptionRef rawFormatDescription = nullptr;
-    if (PAL::CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, &rawFormatDescription) != noErr || !rawFormatDescription)
+    CMSampleBufferRef sampleBuffer = nullptr;
+    auto error = PAL::CMAudioSampleBufferCreateWithPacketDescriptions(kCFAllocatorDefault, nullptr, false, nullptr, nullptr, format.get(), sampleCount, time, nullptr, &sampleBuffer);
+    if (error) {
+        LOG_ERROR("createAudioSampleBuffer with packet descriptions failed - %d", static_cast<int>(error));
         return nullptr;
-    // MAVERICKS_BACKPORT: adopt the 10.9-soft-linked format description.
-    auto formatDescription = adoptCF(rawFormatDescription);
+    }
+    auto buffer = adoptCF(sampleBuffer);
 
-    // MAVERICKS_BACKPORT: build the CMSampleBuffer via CMSampleBufferCreateForImageBuffer (10.7+), soft-linked through PAL.
-    CMSampleTimingInfo timing = { PAL::kCMTimeInvalid, sampleTime, PAL::kCMTimeInvalid };
-    CMSampleBufferRef rawSampleBuffer = nullptr;
-    if (PAL::CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, true, nullptr, nullptr, formatDescription.get(), &timing, &rawSampleBuffer) != noErr || !rawSampleBuffer)
+    error = PAL::CMSampleBufferSetDataBufferFromAudioBufferList(buffer.get(), kCFAllocatorDefault, kCFAllocatorDefault, 0, downcast<WebAudioBufferList>(data).list());
+    if (error) {
+        LOG_ERROR("createAudioSampleBuffer from audio buffer list failed - %d", static_cast<int>(error));
+        return nullptr;
+    }
+    return buffer;
+}
+
+RetainPtr<CMSampleBufferRef> createVideoSampleBuffer(CVPixelBufferRef pixelBuffer, CMTime presentationTime)
+{
+    CMVideoFormatDescriptionRef formatDescription = nullptr;
+    auto status = PAL::CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, pixelBuffer, &formatDescription);
+    if (status)
+        return nullptr;
+    auto retainedFormatDescription = adoptCF(formatDescription);
+
+    CMSampleTimingInfo timingInfo { PAL::kCMTimeInvalid, presentationTime, PAL::kCMTimeInvalid };
+    CMSampleBufferRef sampleBuffer;
+    status = PAL::CMSampleBufferCreateReadyWithImageBuffer(kCFAllocatorDefault, pixelBuffer, formatDescription, &timingInfo, &sampleBuffer);
+    if (status)
         return nullptr;
 
-    // MAVERICKS_BACKPORT: see file header — reimplemented createVideoSampleBuffer for 10.9.
-    return adoptCF(rawSampleBuffer);
+    return adoptCF(sampleBuffer);
 }
 
 } // namespace WebCore

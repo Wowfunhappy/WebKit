@@ -34,6 +34,13 @@
 #import "UndoOrRedo.h"
 #import "EditorState.h"
 #import "WKEditCommand.h"
+
+// MAVERICKS_BACKPORT: WKView's promised-file drag entry point, implemented in WKViewMavericks.mm.
+// Declared here rather than in WKViewPrivate.h because it is an internal bridge between this page
+// client and its view, not restored Safari-7 SPI. setPromisedDataForImage below is the only caller.
+@interface NSView (WKViewPromisedImageData)
+- (void)_wkSetPromisedImageData:(NSData *)imageData uti:(NSString *)uti filename:(NSString *)filename url:(NSString *)url archiveBuffer:(NSData *)archiveData pasteboardName:(NSString *)pasteboardName;
+@end
 #import <WebCore/CGWindowUtilities.h>
 #import <WebCore/DictionaryPopupInfo.h>
 // MAVERICKS_BACKPORT: WebCore::ScrollbarStyle, consumed by recommendedScrollbarStyleDidChange.
@@ -1297,7 +1304,35 @@ RefPtr<ViewSnapshot> MinimalPageClient::takeViewSnapshot(std::optional<WebCore::
 #endif
 #if USE(APPKIT)
 void MinimalPageClient::setPromisedDataForImage(const String& pasteboardName, Ref<WebCore::FragmentedSharedBuffer>&& imageBuffer, const String& filename, const String& extension, const String& title, const String& url, const String& visibleURL, RefPtr<WebCore::FragmentedSharedBuffer>&& archiveBuffer, const String& originIdentifier)
-{ }
+{
+    // MAVERICKS_BACKPORT: was an empty stub, which silently disabled promised-file drags -- dragging an
+    // image out of a page to the Finder produced nothing, because the promise type never reached the
+    // drag pasteboard. Hand the promise to WKView, which owns the pasteboard and serves
+    // -pasteboard:provideDataForType: / -namesOfPromisedFilesDroppedAtDestination: (see the
+    // promised-file section of WKViewMavericks.mm). PageClientImpl routes this to WebViewImpl the same
+    // way; WKView just is not backed by one.
+    UNUSED_PARAM(title);
+    UNUSED_PARAM(visibleURL);
+    UNUSED_PARAM(originIdentifier);
+
+    if (!m_view || ![m_view respondsToSelector:@selector(_wkSetPromisedImageData:uti:filename:url:archiveBuffer:pasteboardName:)])
+        return;
+
+    RetainPtr imageData = imageBuffer->makeContiguous()->createNSData();
+    RetainPtr archiveData = archiveBuffer ? archiveBuffer->makeContiguous()->createNSData() : RetainPtr<NSData> { };
+
+    // The UTI the destination will ask for. WebCore gives us the filename extension; map it here rather
+    // than carrying a WebCore::Image across, which is all WebViewImpl uses its copy for.
+    RetainPtr uti = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension,
+        extension.createCFString().get(), nullptr));
+
+    [m_view _wkSetPromisedImageData:imageData.get()
+                                uti:(__bridge NSString *)uti.get()
+                           filename:filename.createNSString().get()
+                                url:url.createNSString().get()
+                      archiveBuffer:archiveData.get()
+                     pasteboardName:pasteboardName.createNSString().get()];
+}
 #endif
 WebCore::IntPoint MinimalPageClient::accessibilityScreenToRootView(const WebCore::IntPoint&)
 { return { }; }

@@ -70,6 +70,14 @@ IGNORE_WARNINGS_END
 NS_ASSUME_NONNULL_BEGIN
 @interface AVAudioSession (AVAudioSessionWebKitPrivate)
 - (BOOL)setAuditTokensForProcessAssertion:(NSArray<NSData *>*)inAuditTokens error:(NSError **)outError;
+// MAVERICKS_BACKPORT: the public SDK marks these two API_UNAVAILABLE(macos) even though AVAudioSession
+// itself is API_AVAILABLE(macos(10.9)) — it is the MEMBERS that are withheld, not the class. Apple's
+// internal SDK declares them, which is how upstream compiles AudioSessionCocoa.mm (`#if USE(AUDIO_SESSION)
+// && PLATFORM(COCOA)`) for Mac. Declaring them asserts nothing about 10.9 HAVING them: upstream gates both
+// call sites on its own runtime probes (-respondsToSelector:/-instancesRespondToSelector:), which answer NO
+// here, so they never execute. They only have to compile.
++ (AVAudioSession *)sharedInstance;
+- (BOOL)setActive:(BOOL)active withOptions:(NSUInteger)options error:(NSError **)outError;
 @end
 NS_ASSUME_NONNULL_END
 #endif
@@ -425,11 +433,7 @@ NS_ASSUME_NONNULL_END
 @property (nonatomic, readonly) double totalFrameDelay;
 @end
 
-// MAVERICKS_BACKPORT: AVAudioSession is API_UNAVAILABLE(macos) in the macOS 26.1 SDK, so this SPI
-// category cannot be declared on a macOS build. The class is iOS-only; gate the block on
-// PLATFORM(IOS_FAMILY) (upstream reaches the equivalent declarations through the internal-SDK
-// header on macOS, which is not available here).
-#if !USE(APPLE_INTERNAL_SDK) && !PLATFORM(MACCATALYST) && PLATFORM(IOS_FAMILY)
+#if !USE(APPLE_INTERNAL_SDK) && !PLATFORM(MACCATALYST)
 #import <AVFoundation/AVAudioSession.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -442,6 +446,14 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)setEligibleForBTSmartRoutingConsideration:(BOOL)inValue error:(NSError **)outError;
 - (BOOL)setHostProcessAttribution:(NSArray<NSString *>*)inHostProcessInfo error:(NSError **)outError SPI_AVAILABLE(ios(15.0), watchos(8.0), tvos(15.0)) API_UNAVAILABLE(macCatalyst, macos);
 - (BOOL)setAuditTokensForProcessAssertion:(NSArray<NSData *>*)inAuditTokens error:(NSError **)outError;
+// MAVERICKS_BACKPORT: AVFAudio declares -setActive:withOptions:error: API_UNAVAILABLE(macos), so
+// AudioSessionCocoa.mm -- which upstream builds on Mac from WebCore.xcodeproj, and which this port
+// builds too -- does not compile against the public SDK. This is a MEMBER-level availability gap, not a
+// missing class: AVAudioSession itself is declared for macOS, and PAL reaches it by soft link
+// (getAVAudioSessionClassSingleton), so on 10.9, where the class is genuinely absent, the call site is
+// never reached. Only the declaration is missing, and a runtime polyfill cannot supply a declaration --
+// hence a re-declaration here rather than in MavericksSupport/polyfill.
+- (BOOL)setActive:(BOOL)active withOptions:(AVAudioSessionSetActiveOptions)options error:(NSError **)outError;
 @end
 
 NS_ASSUME_NONNULL_END
@@ -490,6 +502,25 @@ NS_ASSUME_NONNULL_END
 NS_ASSUME_NONNULL_BEGIN
 @interface AVURLAsset (IsPlayableExtendedMIMETypeWithOptions)
 + (BOOL)isPlayableExtendedMIMEType:(NSString *)extendedMIMEType options:(nullable NSDictionary<NSString *, id> *)options;
+@end
+NS_ASSUME_NONNULL_END
+#endif
+
+// MAVERICKS_BACKPORT: the public SDK declares AVCaptureDevice.videoZoomFactor
+// API_UNAVAILABLE(macos) — in the 26.1 SDK, not just an old one — so upstream's unguarded
+// -[AVCaptureDevice setVideoZoomFactor:] in AVVideoCaptureSource::applyFrameRateAndZoomWithPreset
+// does not compile against it. Apple's internal SDK declares it, which is how upstream builds that
+// call on macOS; redeclare the setter here, the same job the AVURLAsset category above does.
+//
+// This is NOT a 10.9 gap and must not become a polyfill: macOS has no camera zoom on any version, so
+// there is nothing absent-here-but-present-there to supply, and a no-op WK_POLYFILL_SEL would make
+// the call SUCCEED on 10.9 where it fails everywhere else — leaving m_currentZoom recording a zoom
+// that was never applied. Upstream already handles the real outcome: the call sits inside its own
+// @try/@catch, which logs the unrecognized selector and leaves m_currentZoom alone.
+#if !USE(APPLE_INTERNAL_SDK) && PLATFORM(MAC)
+NS_ASSUME_NONNULL_BEGIN
+@interface AVCaptureDevice (WebKitVideoZoomFactor)
+- (void)setVideoZoomFactor:(CGFloat)videoZoomFactor;
 @end
 NS_ASSUME_NONNULL_END
 #endif

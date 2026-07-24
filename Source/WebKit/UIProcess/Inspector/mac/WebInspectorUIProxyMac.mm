@@ -82,8 +82,7 @@ static void* kWindowContentLayoutObserverContext = &kWindowContentLayoutObserver
 
 - (WKInspectorRef)inspectorRef
 {
-    // MAVERICKS_BACKPORT: route through the _protectedInspector helper (inline protect(_inspectorProxy) doesn't resolve here).
-    return toAPI(self._protectedInspector.get());
+    return toAPI(protect(_inspectorProxy).get());
 }
 
 - (_WKInspector *)inspector
@@ -93,11 +92,6 @@ static void* kWindowContentLayoutObserverContext = &kWindowContentLayoutObserver
     return nil;
 }
 
-// MAVERICKS_BACKPORT: helper that materializes a RefPtr from the WeakObjCPtr/WeakPtr (the inline protect() form doesn't resolve here).
-- (RefPtr<WebKit::WebInspectorUIProxy>)_protectedInspector
-{
-    return _inspectorProxy.get();
-}
 
 - (instancetype)initWithWebInspectorUIProxy:(WebKit::WebInspectorUIProxy*)inspectorProxy
 {
@@ -154,14 +148,12 @@ static void* kWindowContentLayoutObserverContext = &kWindowContentLayoutObserver
         proxy->windowFullScreenDidChange();
 }
 
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
 - (void)_systemColorsDidChange:(NSNotification *)notification
 {
     if (RefPtr proxy = _inspectorProxy.get())
         proxy->systemAppearanceDidChange();
 }
 
-MAVERICKS_BACKPORT */
 - (void)inspectedViewFrameDidChange:(NSNotification *)notification
 {
     // Resizing the views while inside this notification can lead to bad results when entering
@@ -209,8 +201,7 @@ MAVERICKS_BACKPORT */
 
 - (BOOL)inspectorViewControllerInspectorIsUnderTest:(WKInspectorViewController *)inspectorViewController
 {
-    // MAVERICKS_BACKPORT: explicit ternary so the WeakPtr-to-BOOL conversion compiles cleanly on this toolchain.
-    return _inspectorProxy ? _inspectorProxy->isUnderTest() : false;
+    return _inspectorProxy && _inspectorProxy->isUnderTest();
 }
 
 - (BOOL)inspectorViewControllerInspectorIsHorizontallyAttached:(WKInspectorViewController *)inspectorViewController
@@ -276,7 +267,6 @@ MAVERICKS_BACKPORT */
     _savePanel = savePanel;
 
     self.view = adoptNS([[NSView alloc] init]).get();
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
 
     RetainPtr label = [NSTextField labelWithString:WEB_UI_STRING("Format:", "Label for the save data format selector when saving data in Web Inspector").createNSString().get()];
     label.get().textColor = NSColor.secondaryLabelColor;
@@ -315,7 +305,6 @@ MAVERICKS_BACKPORT */
 
     [self _updateSavePanel];
 
-MAVERICKS_BACKPORT */
     return self;
 }
 
@@ -409,16 +398,10 @@ RetainPtr<NSWindow> WebInspectorUIProxy::createFrontendWindow(NSRect savedWindow
     if (inspectedPage)
         [window setInspectedWebView:inspectedPage->cocoaView().get()];
 
-    // MAVERICKS_BACKPORT: NSWindow lacks setMinFullScreenContentSize / FullScreenAllowsTiling / Auxiliary / titlebarAppearsTransparent.
-    if ([window respondsToSelector:@selector(setMinFullScreenContentSize:)]) {
-        CGFloat approximatelyHalfScreenSize = ([window screen].frame.size.width / 2) - 4;
-        CGFloat minimumFullScreenWidth = std::max<CGFloat>(636, approximatelyHalfScreenSize);
-        [window setMinFullScreenContentSize:NSMakeSize(minimumFullScreenWidth, minimumWindowHeight)];
-    }
-    // MAVERICKS_BACKPORT: FullScreenAllowsTiling / Auxiliary collection behaviors are 10.11+; only apply them when the SDK defines them.
-#if defined(NSWindowCollectionBehaviorFullScreenAllowsTiling)
+    CGFloat approximatelyHalfScreenSize = ([window screen].frame.size.width / 2) - 4;
+    CGFloat minimumFullScreenWidth = std::max<CGFloat>(636, approximatelyHalfScreenSize);
+    [window setMinFullScreenContentSize:NSMakeSize(minimumFullScreenWidth, minimumWindowHeight)];
     [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenAllowsTiling | NSWindowCollectionBehaviorAuxiliary)];
-#endif
 
     [window setTitlebarAppearsTransparent:YES];
 
@@ -497,9 +480,7 @@ RefPtr<WebPageProxy> WebInspectorUIProxy::platformCreateFrontendPage()
     m_objCAdapter = adoptNS([[WKWebInspectorUIProxyObjCAdapter alloc] initWithWebInspectorUIProxy:this]);
     RetainPtr inspectedView = inspectedPage->inspectorAttachmentView();
     [[NSNotificationCenter defaultCenter] addObserver:m_objCAdapter.get() selector:@selector(inspectedViewFrameDidChange:) name:NSViewFrameDidChangeNotification object:inspectedView.get()];
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     [[NSNotificationCenter defaultCenter] addObserver:m_objCAdapter.get() selector:@selector(_systemColorsDidChange:) name:NSSystemColorsDidChangeNotification object:nil];
-// (end MAVERICKS_BACKPORT restored block)
+    [[NSNotificationCenter defaultCenter] addObserver:m_objCAdapter.get() selector:@selector(_systemColorsDidChange:) name:NSSystemColorsDidChangeNotification object:nil];
 
     Ref configuration = inspectedPage->uiClient().configurationForLocalInspector(*inspectedPage, *this);
     m_inspectorViewController = adoptNS([[WKInspectorViewController alloc] initWithConfiguration:protect(WebKit::wrapper(configuration.get())).get() inspectedPage:inspectedPage.get()]);
@@ -525,39 +506,8 @@ void WebInspectorUIProxy::platformCreateFrontendWindow()
 
     RetainPtr<WKWebView> inspectorView = [m_inspectorViewController webView];
     RetainPtr<NSView> contentView = [m_inspectorWindow contentView];
-
-    // MAVERICKS_BACKPORT (#66/#69, unified inspector toolbar): NSWindowStyleMaskFullSizeContentView and
-    // -setTitlebarAppearsTransparent: are 10.10+ and silently ignored on 10.9, and overriding the
-    // window's public contentRectForFrameRect: doesn't move the content view either (10.9's
-    // NSThemeFrame lays it out below the titlebar regardless). So host the inspector webView
-    // directly in the window's FRAME VIEW (the content view's superview / NSThemeFrame), sized to
-    // the FULL window, so the HTML #toolbar fills the titlebar region and merges with it — the real
-    // unified-titlebar appearance. The webView is added above the content view but the standard
-    // window buttons are then raised above it, so the traffic lights float over the toolbar.
-    // (The toolbar gradient is supplied by the WK66-UNIFIED CSS; making the webView non-opaque to
-    // show the native titlebar through it instead — #69 — needs the configuration's _drawsBackground
-    // set before the inspector webView is built, since WKWebView has no _setDrawsBackground: setter.)
-    NSView *frameView = [contentView superview] ?: contentView.get();
-    inspectorView.get().frame = [frameView bounds];
-    [inspectorView.get() setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
-    [frameView addSubview:inspectorView.get() positioned:NSWindowAbove relativeTo:contentView.get()];
-
-    // Keep the standard window buttons above the full-size content so close/minimize/zoom float
-    // over the toolbar like the real unified titlebar.
-    for (NSInteger buttonType = NSWindowCloseButton; buttonType <= NSWindowZoomButton; ++buttonType) {
-        if (NSButton *windowButton = [m_inspectorWindow standardWindowButton:(NSWindowButton)buttonType])
-            [[windowButton superview] addSubview:windowButton positioned:NSWindowAbove relativeTo:nil];
-    }
-
-    // MAVERICKS_BACKPORT: on 10.9 the layer-backed webView is otherwise a standalone layer
-    // island whose surface composites ABOVE every non-layer view in the window regardless of
-    // subview order — the raised traffic lights stay invisible under it and its square-edged
-    // surface paints over NSThemeFrame's rounded titlebar corners. Layer-backing the content
-    // view makes AppKit promote the overlapping views ordered above it (the window buttons)
-    // into one layer tree with the webView, so subview z-order holds again (buttons over
-    // toolbar) and the transparent page corners (drawsBackground=false + the bridge CSS's 4px
-    // radius) reveal the native rounded corners beneath.
-    [contentView setWantsLayer:YES];
+    inspectorView.get().frame = [contentView bounds];
+    [contentView addSubview:inspectorView.get()];
 
     updateInspectorWindowTitle();
     applyForcedAppearance();
@@ -678,8 +628,7 @@ bool WebInspectorUIProxy::platformCanAttach(bool webProcessCanAttach)
     if ([WKInspectorViewController viewIsInspectorWebView:inspectedView.get()])
         return webProcessCanAttach;
 
-    // MAVERICKS_BACKPORT: use the -isHidden message (the .hidden dot-property accessor isn't available here on the 10.9 SDK).
-    if ([inspectedView.get() isHidden])
+    if (inspectedView.get().hidden)
         return false;
 
     static const float minimumAttachedHeight = 250;
@@ -775,10 +724,7 @@ void WebInspectorUIProxy::platformLoad(const String& path, CompletionHandler<voi
 
 void WebInspectorUIProxy::platformPickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&& completionHandler)
 {
-    // MAVERICKS_BACKPORT: NSColorSampler is 10.14+; resolve via NSClassFromString and bail (no-op) when absent on 10.9.
-    Class samplerCls = NSClassFromString(@"NSColorSampler");
-    if (!samplerCls) { completionHandler(std::nullopt); return; }
-    auto sampler = adoptNS([[samplerCls alloc] init]);
+    auto sampler = adoptNS([[NSColorSampler alloc] init]);
     [sampler.get() showSamplerWithSelectionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler)](NSColor *selectedColor) mutable {
         if (!selectedColor) {
             completionHandler(std::nullopt);
@@ -801,14 +747,6 @@ void WebInspectorUIProxy::windowFrameDidChange()
 
     RetainPtr frameString = NSStringFromRect([m_inspectorWindow frame]);
     inspectedPage->pageGroup().preferences().setInspectorWindowFrame(frameString.get());
-
-    // MAVERICKS_BACKPORT (#66/#69, unified inspector toolbar): NSWindowStyleMaskFullSizeContentView is 10.10+.
-    // NSThemeFrame does its own layout and does not honor the autoresizing mask on our manually-added
-    // subview, so resize the webView to fill the frame view on every window resize.
-    RetainPtr<NSView> contentView = [m_inspectorWindow contentView];
-    NSView *frameView = [contentView superview] ?: contentView.get();
-    if (RetainPtr<WKWebView> inspectorView = [m_inspectorViewController webView])
-        inspectorView.get().frame = [frameView bounds];
 }
 
 void WebInspectorUIProxy::windowFullScreenDidChange()
@@ -985,8 +923,8 @@ void WebInspectorUIProxy::platformSetAttachedWindowHeight(unsigned height)
     if (!m_isAttached)
         return;
 
-    // MAVERICKS_BACKPORT: no safeAreaInsets on 10.9; pass the raw height (upstream adds top/bottom insets).
-    inspectedViewFrameDidChange(height);
+    NSEdgeInsets webViewInsets = [m_inspectorViewController webView].safeAreaInsets;
+    inspectedViewFrameDidChange(height + webViewInsets.top + webViewInsets.bottom);
 }
 
 void WebInspectorUIProxy::platformSetAttachedWindowWidth(unsigned width)
@@ -994,8 +932,8 @@ void WebInspectorUIProxy::platformSetAttachedWindowWidth(unsigned width)
     if (!m_isAttached)
         return;
 
-    // MAVERICKS_BACKPORT: no safeAreaInsets on 10.9; pass the raw width (upstream adds left/right insets).
-    inspectedViewFrameDidChange(width);
+    NSEdgeInsets webViewInsets = [m_inspectorViewController webView].safeAreaInsets;
+    inspectedViewFrameDidChange(width + webViewInsets.left + webViewInsets.right);
 }
 
 void WebInspectorUIProxy::platformSetSheetRect(const FloatRect& rect)

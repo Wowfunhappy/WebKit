@@ -201,10 +201,6 @@ private:
     void createAVPlayer() final;
     void createAVPlayerItem() final;
     void createAVPlayerLayer();
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: AVPlayer playback pipeline is non-functional in WebContent; drive video
-    // frames manually via AVAssetReader. See project_video_decode_works_assetreader_may23.
-#endif
     void createAVAssetForURL(const URL&) final;
     void createAVAssetForURL(const URL&, RetainPtr<NSMutableDictionary>);
     MediaPlayerPrivateAVFoundation::ItemStatus playerItemStatus() const final;
@@ -413,10 +409,6 @@ private:
     RetainPtr<AVPlayer> m_avPlayer;
     RetainPtr<AVPlayerItem> m_avPlayerItem;
     RetainPtr<AVPlayerLayer> m_videoLayer WTF_GUARDED_BY_CAPABILITY(mainThread);
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT (#67): path to the concatenated local .ts built from an HLS (.m3u8) source, so it
-    // can be removed on teardown. nil for non-HLS sources.
-#endif
     const UniqueRef<VideoLayerManagerObjC> m_videoLayerManager;
     MediaPlayer::VideoGravity m_videoFullscreenGravity { MediaPlayer::VideoGravity::ResizeAspect };
     const RetainPtr<WebCoreAVFMovieObserver> m_objcObserver;

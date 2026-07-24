@@ -1,119 +1,205 @@
-// MAVERICKS_BACKPORT: minimal but functional IOSurface wrapper. Modern WebKit's
-// version is heavily integrated with newer IOKit features (volatility,
-// EDR/HDR, lossless compression, sharing primitives) that don't all exist on
-// 10.9. We implement just enough for layer backing-store allocation +
-// CGBitmapContext wrapping so the compositor pipeline can paint into surfaces.
-#include "config.h"
-#include "IOSurface.h"
+/*
+ * Copyright (C) 2014-2018 Apple Inc. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#import "config.h"
+#import "IOSurface.h"
 
 #import "ColorSpaceCG.h"
 #import "DestinationColorSpace.h"
-// MAVERICKS_BACKPORT: pull in the CG context helpers and IOSurface pool this minimal wrapper uses (upstream's heavier media/SPI includes are dropped on 10.9).
-#import "GraphicsContextCG.h"
+#import "HostWindow.h"
 #import "IOSurfacePool.h"
-// MAVERICKS_BACKPORT: ImageBufferBackend.h supplies the full SetNonVolatileResult enum used by the
-// restored purgeability accessors (isVolatile/setVolatile/state); it was dropped when they were stubbed.
 #import "ImageBufferBackend.h"
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// #import "Logging.h"
-// (end MAVERICKS_BACKPORT restored block)
+#import "Logging.h"
 #import "PlatformScreen.h"
-// MAVERICKS_BACKPORT: minimal CoreGraphics + WTF includes for the 10.9 wrapper.
-#import <CoreGraphics/CoreGraphics.h>
-// MAVERICKS_BACKPORT: CGIOSurfaceContext* SPI declarations (all but CreateImageReference exist in
-// 10.9's CoreGraphics; CreateImageReference resolves from libpolyfill as a CreateImage alias).
+#import "ProcessCapabilities.h"
+#import "ProcessIdentity.h"
+#import "SharedMemory.h"
+#import <pal/spi/cf/CoreVideoSPI.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
-#import <wtf/FastMalloc.h>
+#import <wtf/Assertions.h>
+#import <wtf/EnumTraits.h>
 #import <wtf/MachSendRight.h>
-// MAVERICKS_BACKPORT: minimal WTF includes for the 10.9 wrapper.
-#import <wtf/RetainPtr.h>
+#import <wtf/MathExtras.h>
+#import <wtf/TZoneMallocInlines.h>
+#import <wtf/cf/TypeCastsCF.h>
 #import <wtf/cocoa/TypeCastsCocoa.h>
-// MAVERICKS_BACKPORT: use the WTF IOSurface SPI header (the classic 10.9 IOSurface symbols), not PAL's newer CoreVideo/CG SPI surface headers.
-#import <wtf/spi/cocoa/IOSurfaceSPI.h>
+#import <wtf/text/TextStream.h>
+
+#import "CoreVideoSoftLink.h"
+#import <pal/cg/CoreGraphicsSoftLink.h>
+#import <pal/cocoa/QuartzCoreSoftLink.h>
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: cache the max surface size; query the REAL device/CA limit via
-// IOSurfaceGetPropertyMaximum (present on 10.9), clamped to upstream's Core Animation fallback
-// (32K on Mac). Replaces a hardcoded 8192, which can be wrong for the actual device/GPU CA limit.
-std::optional<IntSize> IOSurface::s_maximumSize;
+WTF_MAKE_TZONE_ALLOCATED_IMPL(IOSurface);
 
-// MAVERICKS_BACKPORT: real IOSurfaceGetPropertyMaximum query (present on 10.9), CA-fallback-clamped; not 8192.
-IntSize IOSurface::maximumSize()
+static RetainPtr<NSString> surfaceNameToNSString(IOSurface::Name name)
 {
-    if (s_maximumSize)
-        return *s_maximumSize;
-    constexpr int fallbackDimension = 32 * 1024; // upstream fallbackMaxSurfaceDimension() on Mac
-    IntSize maxSize { clampToInteger(IOSurfaceGetPropertyMaximum(kIOSurfaceWidth)), clampToInteger(IOSurfaceGetPropertyMaximum(kIOSurfaceHeight)) };
-    maxSize.clampToMaximumSize({ fallbackDimension, fallbackDimension });
-    if (maxSize.isZero())
-        maxSize = { fallbackDimension, fallbackDimension };
-    s_maximumSize = maxSize;
-    return maxSize;
-}
-
-// MAVERICKS_BACKPORT: store an explicit max-size override in the cache.
-void IOSurface::setMaximumSize(IntSize size)
-{
-    s_maximumSize = size;
-}
-
-// MAVERICKS_BACKPORT: shared atomic cache for the row alignment (queried once, overridable via the setter).
-static WTF::Atomic<size_t>& NODELETE surfaceBytesPerRowAlignment()
-{
-    static WTF::Atomic<size_t> alignment = 0;
-    return alignment;
-}
-
-// MAVERICKS_BACKPORT: query the REAL row alignment via IOSurfaceGetPropertyAlignment (present on 10.9), fallback 64; not hardcoded 16.
-size_t IOSurface::bytesPerRowAlignment()
-{
-    auto alignment = surfaceBytesPerRowAlignment().load();
-    if (!alignment) {
-        alignment = IOSurfaceGetPropertyAlignment(kIOSurfaceBytesPerRow);
-        // A return value of 1 is invalid (sandbox blocking IOKit access); fall back to 64 (all platforms).
-        if (alignment <= 1)
-            alignment = 64;
-        surfaceBytesPerRowAlignment().store(alignment);
+    switch (name) {
+    case IOSurface::Name::Default:
+        return @"WebKit";
+    case IOSurface::Name::DOM:
+        return @"WebKit DOM";
+    case IOSurface::Name::Canvas:
+        return @"WebKit Canvas";
+    case IOSurface::Name::GraphicsContextGL:
+        return @"WebKit GraphicsContextGL";
+    case IOSurface::Name::ImageBuffer:
+        return @"WebKit ImageBuffer";
+    case IOSurface::Name::ImageBufferShareableMapped:
+        return @"WebKit ImageBufferShareableMapped";
+    case IOSurface::Name::LayerBacking:
+        return @"WebKit LayerBacking";
+    case IOSurface::Name::MediaPainting:
+        return @"WebKit MediaPainting";
+    case IOSurface::Name::Snapshot:
+        return @"WKWebView Snapshot";
+    case IOSurface::Name::ShareableSnapshot:
+        return @"WKWebView Snapshot (shareable)";
+    case IOSurface::Name::ShareableLocalSnapshot:
+        return @"WKWebView Snapshot (shareable local)";
+    case IOSurface::Name::WebGPU:
+        return @"WebKit WebGPU";
     }
-    return alignment;
 }
 
-// MAVERICKS_BACKPORT: store an explicit alignment override in the shared cache.
-void IOSurface::setBytesPerRowAlignment(size_t bytesPerRowAlignment)
+std::unique_ptr<IOSurface> IOSurface::create(IOSurfacePool* pool, IntSize size, const DestinationColorSpace& colorSpace, IOSurface::Name name, Format pixelFormat, UseLosslessCompression useLosslessCompression)
 {
-    surfaceBytesPerRowAlignment().store(bytesPerRowAlignment);
+    ASSERT(ProcessCapabilities::canUseAcceleratedBuffers());
+
+    if (pool) {
+        if (auto cachedSurface = pool->takeSurface(size, colorSpace, pixelFormat, useLosslessCompression)) {
+            LOG_WITH_STREAM(IOSurface, stream << "IOSurface::create took from pool: " << *cachedSurface);
+            if (cachedSurface->name() != name) {
+                IOSurfaceSetValue(protect(cachedSurface->surface()).get(), kIOSurfaceName, surfaceNameToNSString(name).get());
+                cachedSurface->setName(name);
+            }
+            return cachedSurface;
+        }
+    }
+
+    bool success = false;
+    auto surface = std::unique_ptr<IOSurface>(new IOSurface(size, colorSpace, name, pixelFormat, useLosslessCompression, success));
+    if (!success) {
+        LOG(IOSurface, "IOSurface::create failed to create %dx%d surface", size.width(), size.height());
+        return nullptr;
+    }
+
+    LOG_WITH_STREAM(IOSurface, stream << "IOSurface::create created " << *surface);
+    return surface;
 }
 
-// MAVERICKS_BACKPORT: bytes-per-pixel per IOSurface format, computed locally (upstream derives this from CoreVideo format descriptors that are unavailable on 10.9).
-static unsigned bytesPerPixelForFormat(IOSurface::Format format)
+std::unique_ptr<IOSurface> IOSurface::createFromSendRight(const MachSendRight&& sendRight)
+{
+    ASSERT(ProcessCapabilities::canUseAcceleratedBuffers());
+
+    auto surface = adoptCF(IOSurfaceLookupFromMachPort(sendRight.sendRight()));
+    return IOSurface::createFromSurface(surface.get(), { });
+}
+
+std::unique_ptr<IOSurface> IOSurface::createFromSurface(IOSurfaceRef surface, std::optional<DestinationColorSpace>&& colorSpace)
+{
+    if (!surface)
+        return nullptr;
+
+    return std::unique_ptr<IOSurface>(new IOSurface(surface, WTF::move(colorSpace)));
+}
+
+std::unique_ptr<IOSurface> IOSurface::createFromImage(IOSurfacePool* pool, CGImageRef image)
+{
+    if (!image)
+        return nullptr;
+
+    size_t width = CGImageGetWidth(image);
+    size_t height = CGImageGetHeight(image);
+
+    auto surface = IOSurface::create(pool, IntSize(width, height), DestinationColorSpace { CGImageGetColorSpace(image) }, Name::ImageBuffer);
+    if (!surface)
+        return nullptr;
+    auto context = surface->createPlatformContext();
+    CGContextDrawImage(context.get(), CGRectMake(0, 0, width, height), image);
+    return surface;
+}
+
+void IOSurface::moveToPool(std::unique_ptr<IOSurface>&& surface, IOSurfacePool* pool)
+{
+    if (pool)
+        pool->addSurface(WTF::move(surface));
+}
+
+// MARK: -
+
+static OSType NODELETE coreVideoFormatFromIOSurfaceFormat(IOSurface::Format format, UseLosslessCompression useLosslessCompression)
 {
     switch (format) {
-    // MAVERICKS_BACKPORT: 32-bit RGBA/BGRA variants are 4 bytes per pixel.
-    case IOSurface::Format::BGRA:
     case IOSurface::Format::BGRX:
+    case IOSurface::Format::BGRA:
+        return useLosslessCompression == UseLosslessCompression::Yes ? static_cast<OSType>(kCVPixelFormatType_Lossless_32BGRA) : static_cast<OSType>(kCVPixelFormatType_32BGRA);
+    case IOSurface::Format::YUV422:
+        return static_cast<OSType>(kCVPixelFormatType_422YpCbCr8BiPlanarFullRange);
     case IOSurface::Format::RGBA:
     case IOSurface::Format::RGBX:
-        // MAVERICKS_BACKPORT: 4 bytes per pixel for the 32-bit RGBA/BGRA variants.
-        return 4;
-    case IOSurface::Format::YUV422:
-        return 2;
+        // CoreVideo does not support allocation of RGBA surfaces: rdar://156609776.
+        ASSERT_NOT_REACHED();
+        return kCVPixelFormatType_32RGBA;
 #if ENABLE(PIXEL_FORMAT_RGB10)
     case IOSurface::Format::RGB10:
-    // MAVERICKS_BACKPORT: packed 10-bit RGB occupies one 32-bit word per pixel.
-        return 4;
+        return useLosslessCompression == UseLosslessCompression::Yes ? static_cast<OSType>(kCVPixelFormatType_AGX_30RGBLEPackedWideGamut) : static_cast<OSType>(kCVPixelFormatType_30RGBLEPackedWideGamut);
 #endif
 #if ENABLE(PIXEL_FORMAT_RGB10A8)
     case IOSurface::Format::RGB10A8:
-    // MAVERICKS_BACKPORT: 10-bit RGB + 8-bit alpha biplanar approximated as 5 bytes per pixel.
-        return 5;
+        return useLosslessCompression == UseLosslessCompression::Yes ? static_cast<OSType>(kCVPixelFormatType_AGX_30RGBLE_8A_BiPlanar) : static_cast<OSType>(kCVPixelFormatType_30RGBLE_8A_BiPlanar);
 #endif
 #if ENABLE(PIXEL_FORMAT_RGBA16F)
     case IOSurface::Format::RGBA16F:
-    // MAVERICKS_BACKPORT: half-float RGBA is 8 bytes per pixel.
-        return 8;
+        return useLosslessCompression == UseLosslessCompression::Yes ? static_cast<OSType>(kCVPixelFormatType_Lossless_64RGBAHalf) : static_cast<OSType>(kCVPixelFormatType_64RGBAHalf);
 #endif
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    }
+
+    ASSERT_NOT_REACHED();
+    return 0;
+}
+
+static RetainPtr<IOSurfaceRef> createSurfaceViaCoreVideo(IntSize size, IOSurface::Name name, IOSurface::Format format, UseLosslessCompression useLosslessCompression)
+{
+    ASSERT(useLosslessCompression == UseLosslessCompression::Yes);
+
+    // FIXME: WebKit shouldn't have to know about size limits: rdar://156866095.
+    if (size.width() < 32 || size.height() < 32)
+        return nullptr;
+
+    auto coreVideoFormat = coreVideoFormatFromIOSurfaceFormat(format, useLosslessCompression);
+    if (!CVIsCompressedPixelFormatAvailable(coreVideoFormat))
+        return nullptr;
+
+    RetainPtr<NSDictionary> additionalProperties = @{
+        (id)kCVPixelBufferIOSurfacePropertiesKey: @{
+#if PLATFORM(IOS_FAMILY)
+            // FIXME: Determine what hardware/platforms this should be used on.
+            (id)kIOSurfaceCacheMode: @(kIOMapWriteCombineCache),
+#endif
             (id)kIOSurfaceName: surfaceNameToNSString(name).get()
         },
         @"IOSurfacePurgeable" : @YES, // FIXME: Use kCVPixelBufferIOSurfacePurgeableKey: rdar://156450702.
@@ -124,16 +210,87 @@ static unsigned bytesPerPixelForFormat(IOSurface::Format format)
     if (status != kCVReturnSuccess) {
         RELEASE_LOG_ERROR(Layers, "IOSurface creation via CVPixelBufferCreate failed for size: (%d %d) and format: (%d) - error %d", size.width(), size.height(), std::to_underlying(format), status);
         return nullptr;
-MAVERICKS_BACKPORT */
     }
-    // MAVERICKS_BACKPORT: default to 4 bytes per pixel for unhandled formats.
-    return 4;
+
+    RetainPtr cvBuffer = adoptCF(rawPixelBuffer);
+    return CVPixelBufferGetIOSurface(cvBuffer.get());
 }
 
-// MAVERICKS_BACKPORT: map WebCore IOSurface formats to the classic 10.9 IOSurface pixel-format four-char codes (upstream's CoreVideo format helpers are unavailable here).
-static OSType pixelFormatTypeForFormat(IOSurface::Format format)
+static NSDictionary *optionsForBiplanarSurface(IntSize size, unsigned pixelFormat, size_t firstPlaneBytesPerPixel, size_t secondPlaneBytesPerPixel, IOSurface::Name name)
 {
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    int width = size.width();
+    int height = size.height();
+
+    size_t firstPlaneBytesPerRow = IOSurfaceAlignProperty(kIOSurfaceBytesPerRow, width * firstPlaneBytesPerPixel);
+    size_t firstPlaneTotalBytes = IOSurfaceAlignProperty(kIOSurfaceAllocSize, height * firstPlaneBytesPerRow);
+
+    size_t secondPlaneBytesPerRow = IOSurfaceAlignProperty(kIOSurfaceBytesPerRow, width * secondPlaneBytesPerPixel);
+    size_t secondPlaneTotalBytes = IOSurfaceAlignProperty(kIOSurfaceAllocSize, height * secondPlaneBytesPerRow);
+    
+    size_t totalBytes = firstPlaneTotalBytes + secondPlaneTotalBytes;
+    ASSERT(totalBytes);
+
+    NSArray *planeInfo = @[
+        @{
+            (id)kIOSurfacePlaneWidth: @(width),
+            (id)kIOSurfacePlaneHeight: @(height),
+            (id)kIOSurfacePlaneBytesPerRow: @(firstPlaneBytesPerRow),
+            (id)kIOSurfacePlaneOffset: @(0),
+            (id)kIOSurfacePlaneSize: @(firstPlaneTotalBytes)
+        },
+        @{
+            (id)kIOSurfacePlaneWidth: @(width),
+            (id)kIOSurfacePlaneHeight: @(height),
+            (id)kIOSurfacePlaneBytesPerRow: @(secondPlaneBytesPerRow),
+            (id)kIOSurfacePlaneOffset: @(firstPlaneTotalBytes),
+            (id)kIOSurfacePlaneSize: @(secondPlaneTotalBytes)
+        }
+    ];
+
+    return @{
+        (id)kIOSurfaceWidth: @(width),
+        (id)kIOSurfaceHeight: @(height),
+        (id)kIOSurfacePixelFormat: @(pixelFormat),
+        (id)kIOSurfaceAllocSize: @(totalBytes),
+#if PLATFORM(IOS_FAMILY)
+        (id)kIOSurfaceCacheMode: @(kIOMapWriteCombineCache),
+#endif
+        (id)kIOSurfacePlaneInfo: planeInfo,
+        (id)kIOSurfaceName: surfaceNameToNSString(name).get()
+    };
+}
+
+static NSDictionary *optionsForSurface(IntSize size, unsigned bitsPerPixel, unsigned pixelFormat, IOSurface::Name name)
+{
+    int width = size.width();
+    int height = size.height();
+
+    unsigned bytesPerElement = 4 * (bitsPerPixel / 32);
+    unsigned bytesPerPixel = bytesPerElement;
+
+    size_t bytesPerRow = IOSurfaceAlignProperty(kIOSurfaceBytesPerRow, width * bytesPerPixel);
+    ASSERT(bytesPerRow);
+
+    size_t totalBytes = IOSurfaceAlignProperty(kIOSurfaceAllocSize, height * bytesPerRow);
+    ASSERT(totalBytes);
+
+    return @{
+        (id)kIOSurfaceWidth: @(width),
+        (id)kIOSurfaceHeight: @(height),
+        (id)kIOSurfacePixelFormat: @(pixelFormat),
+        (id)kIOSurfaceBytesPerElement: @(bytesPerElement),
+        (id)kIOSurfaceBytesPerRow: @(bytesPerRow),
+        (id)kIOSurfaceAllocSize: @(totalBytes),
+#if PLATFORM(IOS_FAMILY)
+        (id)kIOSurfaceCacheMode: @(kIOMapWriteCombineCache),
+#endif
+        (id)kIOSurfaceElementHeight: @(1),
+        (id)kIOSurfaceName: surfaceNameToNSString(name).get()
+    };
+}
+
+static NSDictionary *optionsFor32BitSurface(IntSize size, unsigned pixelFormat, IOSurface::Name name)
+{
     return optionsForSurface(size, 32, pixelFormat, name);
 }
 
@@ -148,317 +305,540 @@ static RetainPtr<IOSurfaceRef> createSurface(IntSize size, IOSurface::Name name,
 {
     RetainPtr<NSDictionary> options;
 
-MAVERICKS_BACKPORT */
     switch (format) {
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     case IOSurface::Format::BGRX:
-// (end MAVERICKS_BACKPORT restored block)
-    case IOSurface::Format::BGRA:
     case IOSurface::Format::BGRX:
-        return 'BGRA';
-    // MAVERICKS_BACKPORT: classic 10.9 IOSurface four-char pixel-format codes.
-    case IOSurface::Format::RGBA:
-    case IOSurface::Format::RGBX:
-        return 'RGBA';
+    case IOSurface::Format::BGRA:
+        options = optionsFor32BitSurface(size, kCVPixelFormatType_32BGRA, name);
+        break;
     case IOSurface::Format::YUV422:
-        return '2vuy';
-    default:
-        return 'BGRA';
+        options = optionsForBiplanarSurface(size, kCVPixelFormatType_422YpCbCr8BiPlanarFullRange, 1, 1, name);
+        break;
+    case IOSurface::Format::RGBX:
+    case IOSurface::Format::RGBA:
+        options = optionsFor32BitSurface(size, kCVPixelFormatType_32RGBA, name);
+        break;
+#if ENABLE(PIXEL_FORMAT_RGB10)
+    case IOSurface::Format::RGB10:
+        options = optionsFor32BitSurface(size, kCVPixelFormatType_30RGBLEPackedWideGamut, name);
+        break;
+#endif
+#if ENABLE(PIXEL_FORMAT_RGB10A8)
+    case IOSurface::Format::RGB10A8:
+        options = optionsForBiplanarSurface(size, kCVPixelFormatType_30RGBLE_8A_BiPlanar, 4, 1, name);
+        break;
+#endif
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
+    case IOSurface::Format::RGBA16F:
+        options = optionsFor64BitSurface(size, kCVPixelFormatType_64RGBAHalf, name);
+        break;
+#endif
     }
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//
-//     return adoptCF(IOSurfaceCreate((CFDictionaryRef)options.get()));
-// (end MAVERICKS_BACKPORT restored block)
+
+    return adoptCF(IOSurfaceCreate((CFDictionaryRef)options.get()));
 }
 
-// MAVERICKS_BACKPORT: allocating constructor — build the surface directly from a property dictionary (CoreVideo / lossless-compression allocation paths upstream uses are unavailable on 10.9).
-IOSurface::IOSurface(IntSize size, const DestinationColorSpace& colorSpace, Name name, Format format, UseLosslessCompression, bool& success)
-    : m_colorSpace(colorSpace)
+// MARK: -
+
+IOSurface::IOSurface(IntSize size, const DestinationColorSpace& colorSpace, IOSurface::Name name, Format format, UseLosslessCompression useLosslessCompression, bool& success)
+    : m_format({ format, useLosslessCompression })
+    , m_colorSpace(colorSpace)
     , m_size(size)
     , m_name(name)
 {
-    // MAVERICKS_BACKPORT: pessimistic init; flipped true only after IOSurfaceCreate succeeds.
-    success = false;
-    if (size.isEmpty())
-        return;
+    ASSERT(!success);
+    ASSERT(!size.isEmpty());
 
-    // MAVERICKS_BACKPORT: compute row stride from the per-format bytes-per-pixel and alignment.
-    unsigned bpp = bytesPerPixelForFormat(format);
-    size_t alignedBytesPerRow = (size.width() * bpp + bytesPerRowAlignment() - 1) & ~(bytesPerRowAlignment() - 1);
-    m_totalBytes = alignedBytesPerRow * size.height();
+#if !HAVE(COREVIDEO_COMPRESSED_PIXEL_FORMAT_TYPES)
+    useLosslessCompression = UseLosslessCompression::No;
+#endif
 
-    // MAVERICKS_BACKPORT: populate the IOSurfaceCreate property dictionary directly (10.9 IOKit allocation path).
-    auto properties = adoptCF(CFDictionaryCreateMutable(kCFAllocatorDefault, 8, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
-    auto setNumber = [&](CFStringRef key, int64_t value) {
-        auto num = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &value));
-        CFDictionaryAddValue(properties.get(), key, num.get());
-    };
-    setNumber(kIOSurfaceWidth, size.width());
-    setNumber(kIOSurfaceHeight, size.height());
-    setNumber(kIOSurfaceBytesPerElement, bpp);
-    setNumber(kIOSurfaceBytesPerRow, alignedBytesPerRow);
-    setNumber(kIOSurfaceAllocSize, m_totalBytes);
-    setNumber(kIOSurfacePixelFormat, pixelFormatTypeForFormat(format));
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
+    // FIXME: Remove when rdar://156761787 is resolved.
+    if (format == IOSurface::Format::RGBA16F)
+        useLosslessCompression = UseLosslessCompression::No;
+#endif
 
-    m_surface = adoptCF(IOSurfaceCreate(properties.get()));
-    // MAVERICKS_BACKPORT: leave success=false if the 10.9 IOSurfaceCreate failed.
+    if (useLosslessCompression == UseLosslessCompression::Yes) {
+        // We could allocate more formats via CoreVideo in future.
+        m_surface = createSurfaceViaCoreVideo(size, name, format, useLosslessCompression);
+        if (!m_surface)
+            m_format = { format, UseLosslessCompression::No };
+    }
+
     if (!m_surface)
-        return;
+        m_surface = createSurface(size, name, format);
 
-    // MAVERICKS_BACKPORT: lossless compression is unavailable on 10.9; always record the uncompressed format.
-    m_format = UsedFormat { format, UseLosslessCompression::No };
-    success = true;
+    success = !!m_surface;
+    if (success) {
+        setColorSpaceProperty();
+        m_totalBytes = IOSurfaceGetAllocSize(m_surface.get());
+    } else
+        RELEASE_LOG_ERROR(Layers, "IOSurface creation failed for size: (%d %d) and format: (%d)", size.width(), size.height(), std::to_underlying(format));
+}
+
+static std::optional<IOSurface::UsedFormat> formatFromSurface(IOSurfaceRef surface)
+{
+    unsigned pixelFormat = IOSurfaceGetPixelFormat(surface);
+    if (pixelFormat == kCVPixelFormatType_32BGRA)
+        return IOSurface::UsedFormat { IOSurface::Format::BGRA, UseLosslessCompression::No };
+
+    if (pixelFormat == kCVPixelFormatType_Lossless_32BGRA)
+        return IOSurface::UsedFormat { IOSurface::Format::BGRA, UseLosslessCompression::Yes };
+
+    if (pixelFormat == kCVPixelFormatType_422YpCbCr8BiPlanarFullRange)
+        return IOSurface::UsedFormat { IOSurface::Format::YUV422, UseLosslessCompression::No };
+
+    if (pixelFormat == kCVPixelFormatType_32RGBA)
+        return IOSurface::UsedFormat { IOSurface::Format::RGBA, UseLosslessCompression::No };
+
+#if ENABLE(PIXEL_FORMAT_RGB10)
+    if (pixelFormat == kCVPixelFormatType_30RGBLEPackedWideGamut)
+        return IOSurface::UsedFormat { IOSurface::Format::RGB10, UseLosslessCompression::No };
+
+    if (pixelFormat == kCVPixelFormatType_AGX_30RGBLEPackedWideGamut)
+        return IOSurface::UsedFormat { IOSurface::Format::RGB10, UseLosslessCompression::Yes };
+#endif
+
+#if ENABLE(PIXEL_FORMAT_RGB10A8)
+    if (pixelFormat == kCVPixelFormatType_30RGBLE_8A_BiPlanar)
+        return IOSurface::UsedFormat { IOSurface::Format::RGB10A8, UseLosslessCompression::No };
+
+    if (pixelFormat == kCVPixelFormatType_AGX_30RGBLE_8A_BiPlanar)
+        return IOSurface::UsedFormat { IOSurface::Format::RGB10A8, UseLosslessCompression::Yes };
+#endif
+
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
+    if (pixelFormat == kCVPixelFormatType_64RGBAHalf)
+        return IOSurface::UsedFormat { IOSurface::Format::RGBA16F, UseLosslessCompression::No };
+
+    if (pixelFormat == kCVPixelFormatType_Lossless_64RGBAHalf)
+        return IOSurface::UsedFormat { IOSurface::Format::RGBA16F, UseLosslessCompression::Yes };
+#endif
+
+    return { };
 }
 
 IOSurface::IOSurface(IOSurfaceRef surface, std::optional<DestinationColorSpace>&& colorSpace)
-// MAVERICKS_BACKPORT: adopt an existing IOSurfaceRef; derive size/alloc-size via the 10.9 IOKit getters.
-    : m_colorSpace(WTF::move(colorSpace))
-    , m_size(IntSize(IOSurfaceGetWidth(surface), IOSurfaceGetHeight(surface)))
-    , m_totalBytes(IOSurfaceGetAllocSize(surface))
+    : m_format(formatFromSurface(surface))
+    , m_colorSpace(WTF::move(colorSpace))
     , m_surface(surface)
-    // MAVERICKS_BACKPORT: this wrapper does not carry the per-purpose surface name; default it.
-    , m_name(Name::Default)
 {
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     m_size = IntSize(IOSurfaceGetWidth(surface), IOSurfaceGetHeight(surface));
-//     m_totalBytes = IOSurfaceGetAllocSize(surface);
-//
-//     if (m_colorSpace)
-//         setColorSpaceProperty();
-// (end MAVERICKS_BACKPORT restored block)
+    m_size = IntSize(IOSurfaceGetWidth(surface), IOSurfaceGetHeight(surface));
+    m_totalBytes = IOSurfaceGetAllocSize(surface);
+
+    if (m_colorSpace)
+        setColorSpaceProperty();
 }
 
 IOSurface::~IOSurface() = default;
 
-// MAVERICKS_BACKPORT: pool-less create — construct directly from the 10.9 IOSurface allocation path (no IOSurfacePool recycling).
-std::unique_ptr<IOSurface> IOSurface::create(IOSurfacePool*, IntSize size, const DestinationColorSpace& colorSpace, Name name, Format format, UseLosslessCompression compression)
+static constexpr IntSize NODELETE fallbackMaxSurfaceDimension()
 {
-    bool success = false;
-    auto surface = std::unique_ptr<IOSurface>(new IOSurface(size, colorSpace, name, format, compression, success));
-    if (!success)
-        return nullptr;
-    return surface;
+    // Match limits imposed by Core Animation. FIXME: should have API for this <rdar://problem/25454148>
+#if PLATFORM(WATCHOS)
+    constexpr int maxSurfaceDimension = 4 * 1024;
+#elif PLATFORM(MAC)
+    constexpr int maxSurfaceDimension = 32 * 1024;
+#else
+    constexpr int maxSurfaceDimension = 8 * 1024;
+#endif
+    return { maxSurfaceDimension, maxSurfaceDimension };
 }
 
-// MAVERICKS_BACKPORT: look up the surface from a mach send right via the 10.9 IOKit API.
-std::unique_ptr<IOSurface> IOSurface::createFromSendRight(const WTF::MachSendRight&& sendRight)
+static IntSize computeMaximumSurfaceSize()
 {
-    auto surfaceRef = adoptCF(IOSurfaceLookupFromMachPort(sendRight.sendRight()));
-    if (!surfaceRef)
-        return nullptr;
-    return createFromSurface(surfaceRef.get(), std::nullopt);
+    auto maxSize = IntSize { clampToInteger(IOSurfaceGetPropertyMaximum(kIOSurfaceWidth)), clampToInteger(IOSurfaceGetPropertyMaximum(kIOSurfaceHeight)) };
+
+    // On iOS, there's an additional 8K clamp in CA (rdar://101936907).
+    // On some macOS VMs, IOSurfaceGetPropertyMaximum() returns INT_MAX (rdar://113661708).
+    maxSize.clampToMaximumSize(fallbackMaxSurfaceDimension());
+
+    if (maxSize.isZero())
+        maxSize = fallbackMaxSurfaceDimension();
+
+    return maxSize;
 }
 
-// MAVERICKS_BACKPORT: wrap an existing IOSurfaceRef in this minimal 10.9 wrapper.
-std::unique_ptr<IOSurface> IOSurface::createFromSurface(IOSurfaceRef surface, std::optional<DestinationColorSpace>&& colorSpace)
+static WTF::Atomic<IntSize>& NODELETE surfaceMaximumSize()
 {
-    if (!surface)
-        return nullptr;
-    return std::unique_ptr<IOSurface>(new IOSurface(surface, WTF::move(colorSpace)));
+    static WTF::Atomic<IntSize> maximumSize;
+    return maximumSize;
 }
 
-// MAVERICKS_BACKPORT: createFromImage was dropped from this tree but is still called by
-// WebViewImpl (swipe-navigation snapshots) and RemoteMediaPlayerProxy. Recreate the
-// upstream behavior: allocate an sRGB IOSurface the size of the image and paint the
-// CGImage into it through the surface's CG context.
-std::unique_ptr<IOSurface> IOSurface::createFromImage(IOSurfacePool* pool, CGImageRef image)
+void IOSurface::setMaximumSize(IntSize size)
 {
-    // MAVERICKS_BACKPORT: restored createFromImage (see note above) — allocate an sRGB surface and paint the CGImage into it.
-    if (!image)
-        return nullptr;
-
-    // MAVERICKS_BACKPORT: restored createFromImage — derive the surface size from the source image.
-    size_t width = CGImageGetWidth(image);
-    size_t height = CGImageGetHeight(image);
-    if (!width || !height)
-        return nullptr;
-
-    // MAVERICKS_BACKPORT: restored createFromImage — allocate the backing sRGB IOSurface.
-    auto surface = IOSurface::create(pool, IntSize(static_cast<int>(width), static_cast<int>(height)), DestinationColorSpace::SRGB());
-    if (!surface)
-        return nullptr;
-
-    // MAVERICKS_BACKPORT: restored createFromImage — paint through the surface's CG context.
-    auto surfaceContext = surface->createPlatformContext();
-    if (!surfaceContext)
-        return nullptr;
-
-    // MAVERICKS_BACKPORT: restored createFromImage — draw and flush the image into the surface.
-    CGContextDrawImage(surfaceContext.get(), CGRectMake(0, 0, width, height), image);
-    CGContextFlush(surfaceContext.get());
-
-    // MAVERICKS_BACKPORT: return the freshly-painted surface (restored createFromImage).
-    return surface;
+    ASSERT(!size.isEmpty());
+    surfaceMaximumSize().store(size);
 }
 
-// MAVERICKS_BACKPORT: IOSurfacePool recycling is not used on 10.9; drop the surface (no pooling).
-void IOSurface::moveToPool(std::unique_ptr<IOSurface>&&, IOSurfacePool*)
+IntSize IOSurface::maximumSize()
 {
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     return MachSendRight::adopt(IOSurfaceCreateMachPort(m_surface.get()));
-// (end MAVERICKS_BACKPORT restored block)
+    auto size = surfaceMaximumSize().load();
+    if (size.isEmpty()) {
+        auto computedSize = computeMaximumSurfaceSize();
+        surfaceMaximumSize().store(computedSize);
+        return computedSize;
+    }
+    return size;
 }
 
-// MAVERICKS_BACKPORT: wrap the 10.9 IOSurfaceCreateMachPort directly; null-guarded.
-WTF::MachSendRight IOSurface::createSendRight() const
+static WTF::Atomic<size_t>& NODELETE surfaceBytesPerRowAlignment()
 {
-    if (!m_surface)
-        return { };
-    mach_port_t p = IOSurfaceCreateMachPort(m_surface.get());
-    return WTF::MachSendRight::adopt(p);
+    static WTF::Atomic<size_t> alignment = 0;
+    return alignment;
+}
+
+size_t IOSurface::bytesPerRowAlignment()
+{
+    auto alignment = surfaceBytesPerRowAlignment().load();
+    if (!alignment) {
+        alignment = IOSurfaceGetPropertyAlignment(kIOSurfaceBytesPerRow);
+
+        // A return value for IOSurfaceGetPropertyAlignment(kIOSurfaceBytesPerRow) of 1 is invalid.
+        // See https://developer.apple.com/documentation/iosurface/1419453-iosurfacegetpropertyalignment?language=objc
+        // This likely means that the sandbox is blocking access to the IOSurface IOKit class,
+        // and that IOSurface::bytesPerRowAlignment() has been called before IOSurface::setBytesPerRowAlignment.
+        if (alignment <= 1) {
+            RELEASE_LOG_ERROR(Layers, "Sandbox does not allow IOSurface IOKit access.");
+            // 64 bytes is currently the alignment on all platforms.
+            alignment = 64;
+        }
+
+        surfaceBytesPerRowAlignment().store(alignment);
+    }
+    return alignment;
+}
+
+void IOSurface::setBytesPerRowAlignment(size_t bytesPerRowAlignment)
+{
+    surfaceBytesPerRowAlignment().store(bytesPerRowAlignment);
+}
+
+MachSendRight IOSurface::createSendRight() const
+{
+    return MachSendRight::adopt(IOSurfaceCreateMachPort(m_surface.get()));
+}
+
+RetainPtr<id> IOSurface::asCAIOSurfaceLayerContents() const
+{
+    // CAIOSurface keeps most of the server-side rendering ojects alive,
+    // but doesn't mark the IOSurface as in-use. We can retain it for efficiency
+    // without breaking use-counting.
+    if (PAL::canLoad_QuartzCore_CAIOSurfaceCreate()) {
+        auto result = adoptCF(CAIOSurfaceCreate(m_surface.get()));
+#if HAVE(SUPPORT_HDR_DISPLAY)
+        // Force CA to reload the headroom, since this doesn't happen automatically.
+        if (m_contentEDRHeadroom && *m_contentEDRHeadroom != 1 && PAL::canLoad_QuartzCore_CAIOSurfaceReloadColorAttributes())
+            CAIOSurfaceReloadColorAttributes(result.get());
+#endif
+        return bridge_id_cast(WTF::move(result));
+    }
+    return asLayerContents();
 }
 
 RetainPtr<CGImageRef> IOSurface::createImage(CGContextRef context)
 {
-// MAVERICKS_BACKPORT: upstream body plus a null-context guard. Works because createPlatformContext
-// below produces a real CGIOSurfaceContext again.
-    // MAVERICKS_BACKPORT: null-guard the incoming CG context before querying it.
-    if (!context)
-        return { };
     ASSERT(CGIOSurfaceContextGetSurface(context) == m_surface);
     return adoptCF(CGIOSurfaceContextCreateImage(context));
 }
 
 RetainPtr<CGImageRef> IOSurface::sinkIntoImage(std::unique_ptr<IOSurface> surface, RetainPtr<CGContextRef> context)
 {
-// MAVERICKS_BACKPORT: upstream body plus null guards. CGIOSurfaceContextCreateImageReference does
-// not exist in 10.9's CoreGraphics; libpolyfill supplies it as an alias of
-// CGIOSurfaceContextCreateImage (copy instead of live-reference semantics — safe for a sunk surface).
-    // MAVERICKS_BACKPORT: null-guard the surface being sunk.
-    if (!surface)
-        return { };
     if (!context)
         context = surface->createPlatformContext();
-    // MAVERICKS_BACKPORT: bail if the surface still yields no CG context.
-    if (!context)
-        return { };
     ASSERT(CGIOSurfaceContextGetSurface(context.get()) == surface->m_surface);
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     UNUSED_PARAM(surface);
-// (end MAVERICKS_BACKPORT restored block)
+    UNUSED_PARAM(surface);
     return adoptCF(CGIOSurfaceContextCreateImageReference(context.get()));
 }
 
-// MAVERICKS_BACKPORT: upstream bitmapConfiguration(), scoped to the 8-bit-per-component formats this
-// wrapper allocates (see pixelFormatTypeForFormat above).
-static CGBitmapInfo bitmapInfoForFormat(IOSurface::Format format)
+IOSurface::BitmapConfiguration IOSurface::bitmapConfiguration() const
 {
-    // MAVERICKS_BACKPORT: BGRX/RGBX map to skip-alpha, all other 8-bit formats to premultiplied-first.
-    switch (format) {
-    case IOSurface::Format::BGRX:
-    case IOSurface::Format::RGBX:
-        return static_cast<CGBitmapInfo>(kCGImageAlphaNoneSkipFirst) | static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Host);
-    default:
-        return static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) | static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Host);
+    auto bitmapInfo = static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst) | static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Host);
+
+    size_t bitsPerComponent = 8;
+
+    ASSERT(m_format);
+
+    switch (m_format ? m_format->format : Format::BGRA) {
+    case Format::BGRX:
+        bitmapInfo = static_cast<CGBitmapInfo>(kCGImageAlphaNoneSkipFirst) | static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Host);
+        break;
+    case Format::BGRA:
+        break;
+    case Format::YUV422:
+        ASSERT_NOT_REACHED();
+        break;
+    case Format::RGBX:
+        bitmapInfo = static_cast<CGBitmapInfo>(kCGImageAlphaNoneSkipFirst) | static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Host);
+        break;
+    case Format::RGBA:
+        break;
+#if ENABLE(PIXEL_FORMAT_RGB10)
+    case Format::RGB10:
+        // A half-float format will be used if CG needs to read back the IOSurface contents,
+        // but for an IOSurface-to-IOSurface copy, there should be no conversion.
+        bitsPerComponent = 16;
+        bitmapInfo = static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedLast) | static_cast<CGBitmapInfo>(kCGBitmapByteOrder16Host) | static_cast<CGBitmapInfo>(kCGBitmapFloatComponents);
+        break;
+#endif
+#if ENABLE(PIXEL_FORMAT_RGB10A8)
+    case Format::RGB10A8:
+        // A half-float format will be used if CG needs to read back the IOSurface contents,
+        // but for an IOSurface-to-IOSurface copy, there should be no conversion.
+        bitsPerComponent = 16;
+        bitmapInfo = static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedLast) | static_cast<CGBitmapInfo>(kCGBitmapByteOrder16Host) | static_cast<CGBitmapInfo>(kCGBitmapFloatComponents);
+        break;
+#endif
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
+    case Format::RGBA16F:
+        bitsPerComponent = 16;
+        bitmapInfo = static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedLast) | static_cast<CGBitmapInfo>(kCGBitmapByteOrder16Host) | static_cast<CGBitmapInfo>(kCGBitmapFloatComponents);
+        break;
+#endif
     }
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//
-//     return { bitmapInfo, bitsPerComponent };
-// (end MAVERICKS_BACKPORT restored block)
+
+    return { bitmapInfo, bitsPerComponent };
 }
 
-// MAVERICKS_BACKPORT: upstream body (CGIOSurfaceContextCreate — present and functional in 10.9's
-// CoreGraphics; the previous CGBitmapContext-over-locked-base-address fallback here was based on the
-// false premise that the SPI is unavailable, and it forced every IOSurface consumer onto bitmap-context
-// workarounds and permanent surface locks). Omitted relative to upstream: OpenGL display-mask
-// targeting (single-GPU 10.9) and CGContextSetOwnerIdentity resource tagging (no m_resourceOwner in
-// this wrapper; the API is 12.0+ anyway).
-RetainPtr<CGContextRef> IOSurface::createPlatformContext(PlatformDisplayID, std::optional<CGImageAlphaInfo> overrideAlphaInfo)
+RetainPtr<CGContextRef> IOSurface::createCompatibleBitmap(unsigned width, unsigned height)
 {
-    // MAVERICKS_BACKPORT: guard against a null surface (10.9 IOSurfaceCreate can fail).
-    if (!m_surface)
-        return nullptr;
+    auto configuration = bitmapConfiguration();
+    auto bitsPerPixel = configuration.bitsPerComponent * 4;
+    auto bytesPerRow = roundUpToMultipleOfNonPowerOfTwo(bytesPerRowAlignment(), width * (bitsPerPixel / 8));
 
-    // MAVERICKS_BACKPORT: derive the CGBitmapInfo from the surface format via the local helper.
-    CGBitmapInfo bitmapInfo = bitmapInfoForFormat(m_format ? m_format->format : Format::BGRA);
+    ensureColorSpace();
+    return adoptCF(CGBitmapContextCreate(NULL, width, height, configuration.bitsPerComponent, bytesPerRow, protect(m_colorSpace->platformColorSpace()).get(), configuration.bitmapInfo));
+}
+
+RetainPtr<CGContextRef> IOSurface::createPlatformContext(PlatformDisplayID displayID, std::optional<CGImageAlphaInfo> overrideAlphaInfo)
+{
+    auto configuration = bitmapConfiguration();
     if (overrideAlphaInfo)
-        // MAVERICKS_BACKPORT: fold the optional alpha-info override into the local bitmapInfo.
-        bitmapInfo = (bitmapInfo & ~kCGBitmapAlphaInfoMask) | *overrideAlphaInfo;
+        configuration.bitmapInfo = (configuration.bitmapInfo & ~kCGBitmapAlphaInfoMask) | *overrideAlphaInfo;
+    auto bitsPerPixel = configuration.bitsPerComponent * 4;
 
-    // MAVERICKS_BACKPORT: this wrapper stores the surface's CG color space directly, defaulting to sRGB
-    // when unset. (The old NULL fallback assumed CG can't construct named sRGB on 10.9 — false, verified;
-    // the real NULL producer was NativeImage::colorSpace(), fixed there, so platformColorSpace() is total.)
-    auto cs = m_colorSpace.value_or(DestinationColorSpace::SRGB());
-    RetainPtr<CGColorSpaceRef> csRef = cs.platformColorSpace();
+    ensureColorSpace();
+    auto cgContext = adoptCF(CGIOSurfaceContextCreate(m_surface.get(), m_size.width(), m_size.height(), configuration.bitsPerComponent, bitsPerPixel, protect(m_colorSpace->platformColorSpace()).get(), configuration.bitmapInfo));
 
-    // MAVERICKS_BACKPORT: build the CG context directly over the IOSurface with 10.9's CGIOSurfaceContextCreate.
-    return adoptCF(CGIOSurfaceContextCreate(m_surface.get(), m_size.width(), m_size.height(), 8, 32, csRef.get(), bitmapInfo));
+#if PLATFORM(MAC)
+    if (auto displayMask = primaryOpenGLDisplayMask()) {
+        if (displayID)
+            displayMask = displayMaskForDisplay(displayID);
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+        CGIOSurfaceContextSetDisplayMask(cgContext.get(), displayMask); // NOLINT
+ALLOW_DEPRECATED_DECLARATIONS_END
+    }
+#else
+    UNUSED_PARAM(displayID);
+#endif
+#if HAVE(CG_CONTEXT_SET_OWNER_IDENTITY)
+    if (m_resourceOwner && CGContextSetOwnerIdentity)
+        CGContextSetOwnerIdentity(cgContext.get(), m_resourceOwner.taskIdToken());
+#endif
+    return cgContext;
 }
 
-// MAVERICKS_BACKPORT: this wrapper stores the color space directly; default to sRGB when unset.
-DestinationColorSpace IOSurface::colorSpace()
+std::optional<IOSurface::LockAndContext> IOSurface::createBitmapPlatformContext()
 {
-    return m_colorSpace.value_or(DestinationColorSpace::SRGB());
+    auto locker = lock<AccessMode::ReadWrite>();
+    if (!locker)
+        return std::nullopt;
+    auto configuration = bitmapConfiguration();
+    auto size = this->size();
+
+    auto context = adoptCF(CGBitmapContextCreate(locker->surfaceBaseAddress(), size.width(), size.height(), configuration.bitsPerComponent, bytesPerRow(), protect(colorSpace().platformColorSpace()).get(), configuration.bitmapInfo));
+    if (!context) {
+        RELEASE_LOG_ERROR(IOSurface, "IOSurface::createBitmapPlatformContext: Failed to create bitmap context for IOSurface %x (size %d x %d), bitsPerComponent %lu, bytesPerRow %lu", surfaceID(), size.width(), size.height(), configuration.bitsPerComponent, bytesPerRow());
+        return std::nullopt;
+    }
+    return LockAndContext { WTF::move(*locker), WTF::move(context) };
 }
 
-// MAVERICKS_BACKPORT: minimal IOSurface accessor over the 10.9 IOKit API, null-guarded.
-IOSurfaceID IOSurface::surfaceID() const
-{
-    return m_surface ? IOSurfaceGetID(m_surface.get()) : 0;
-}
-
-// MAVERICKS_BACKPORT: minimal IOSurface accessor over the 10.9 IOKit API, null-guarded.
-size_t IOSurface::bytesPerRow() const
-{
-    return m_surface ? IOSurfaceGetBytesPerRow(m_surface.get()) : 0;
-}
-
-// MAVERICKS_BACKPORT: minimal IOSurface accessor over the 10.9 IOKit API, null-guarded.
-IOSurfaceSeed IOSurface::seed() const
-{
-    return m_surface ? IOSurfaceGetSeed(m_surface.get()) : 0;
-}
-
-// MAVERICKS_BACKPORT: minimal IOSurface accessor over the 10.9 IOKit API, null-guarded.
-bool IOSurface::isInUse() const
-{
-    return m_surface ? IOSurfaceIsInUse(m_surface.get()) : false;
-}
-
-// MAVERICKS_BACKPORT: 10.9 purgeability via IOSurfaceSetPurgeable (present); helper keeps the accessors one-liners and replaces the hardcoded sentinels.
-static uint32_t wkIOSurfacePurgeableState(IOSurfaceRef surface, uint32_t newState)
-{
-    uint32_t previous = kIOSurfacePurgeableNonVolatile;
-    return IOSurfaceSetPurgeable(surface, newState, &previous) == kIOReturnSuccess ? previous : kIOSurfacePurgeableNonVolatile;
-}
-
-// MAVERICKS_BACKPORT: real purgeability query instead of a hardcoded non-volatile sentinel.
-bool IOSurface::isVolatile() const
-{
-    return wkIOSurfacePurgeableState(m_surface.get(), kIOSurfacePurgeableKeepCurrent) != kIOSurfacePurgeableNonVolatile;
-}
-
-// MAVERICKS_BACKPORT: real purgeability set instead of a no-op, so surfaces can become purgeable.
-SetNonVolatileResult IOSurface::setVolatile(bool isVolatile)
-{
-    uint32_t previous = wkIOSurfacePurgeableState(m_surface.get(), isVolatile ? kIOSurfacePurgeableVolatile : kIOSurfacePurgeableNonVolatile);
-    return previous == kIOSurfacePurgeableEmpty ? SetNonVolatileResult::Empty : SetNonVolatileResult::Valid;
-}
-
-// MAVERICKS_BACKPORT: real purgeability state instead of a hardcoded valid sentinel.
 SetNonVolatileResult IOSurface::state() const
 {
-    uint32_t previous = wkIOSurfacePurgeableState(m_surface.get(), kIOSurfacePurgeableKeepCurrent);
-    return previous == kIOSurfacePurgeableEmpty ? SetNonVolatileResult::Empty : SetNonVolatileResult::Valid;
+    uint32_t previousState = 0;
+    IOReturn ret = IOSurfaceSetPurgeable(m_surface.get(), kIOSurfacePurgeableKeepCurrent, &previousState);
+    ASSERT_UNUSED(ret, ret == kIOReturnSuccess);
+    return previousState == kIOSurfacePurgeableEmpty ? SetNonVolatileResult::Empty : SetNonVolatileResult::Valid;
 }
 
-// MAVERICKS_BACKPORT: task-identity-token ownership tagging is unavailable on 10.9; no-op.
-void IOSurface::setOwnershipIdentity(const ProcessIdentity&)
+IOSurfaceSeed IOSurface::seed() const
 {
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     m_contentEDRHeadroom = 1;
-//     if (auto valueNumber = dynamic_cf_cast<CFNumberRef>(adoptCF(IOSurfaceCopyValue(m_surface.get(), kIOSurfaceContentHeadroom))))
-//         CFNumberGetValue(valueNumber.get(), kCFNumberFloat32Type, &m_contentEDRHeadroom.value());
-// (end MAVERICKS_BACKPORT restored block)
+    return IOSurfaceGetSeed(m_surface.get());
 }
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// #endif
-// (end MAVERICKS_BACKPORT restored block)
 
-// MAVERICKS_BACKPORT: task-identity-token ownership tagging is unavailable on 10.9; no-op.
-void IOSurface::setOwnershipIdentity(IOSurfaceRef, const ProcessIdentity&)
+bool IOSurface::isVolatile() const
 {
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    uint32_t previousState = 0;
+    IOReturn ret = IOSurfaceSetPurgeable(m_surface.get(), kIOSurfacePurgeableKeepCurrent, &previousState);
+    ASSERT_UNUSED(ret, ret == kIOReturnSuccess);
+    return previousState != kIOSurfacePurgeableNonVolatile;
+}
+
+SetNonVolatileResult IOSurface::setVolatile(bool isVolatile)
+{
+    uint32_t previousState = 0;
+    IOReturn ret = IOSurfaceSetPurgeable(m_surface.get(), isVolatile ? kIOSurfacePurgeableVolatile : kIOSurfacePurgeableNonVolatile, &previousState);
+    ASSERT_UNUSED(ret, ret == kIOReturnSuccess);
+
+    if (previousState == kIOSurfacePurgeableEmpty)
+        return SetNonVolatileResult::Empty;
+
+    return SetNonVolatileResult::Valid;
+}
+
+DestinationColorSpace IOSurface::colorSpace()
+{
+    ensureColorSpace();
+    return *m_colorSpace;
+}
+
+IOSurfaceID IOSurface::surfaceID() const
+{
+    return IOSurfaceGetID(m_surface.get());
+}
+
+size_t IOSurface::bytesPerRow() const
+{
+    return IOSurfaceGetBytesPerRow(m_surface.get());
+}
+
+bool IOSurface::isInUse() const
+{
+    return IOSurfaceIsInUse(m_surface.get());
+}
+
+#if HAVE(IOSURFACE_ACCELERATOR)
+
+bool IOSurface::allowConversionFromFormatToFormat(Format sourceFormat, Format destFormat)
+{
+#if ENABLE(PIXEL_FORMAT_RGB10)
+    if (sourceFormat == Format::RGB10 && destFormat == Format::YUV422)
+        return false;
+#endif
+#if ENABLE(PIXEL_FORMAT_RGB10A8)
+    if (sourceFormat == Format::RGB10A8 && destFormat == Format::YUV422)
+        return false;
+#endif
+
+    return true;
+}
+
+void IOSurface::convertToFormat(IOSurfacePool* pool, std::unique_ptr<IOSurface>&& inSurface, Name name, Format format, WTF::Function<void(std::unique_ptr<IOSurface>)>&& callback)
+{
+    static IOSurfaceAcceleratorRef accelerator;
+    if (!accelerator) {
+        IOSurfaceAcceleratorCreate(nullptr, nullptr, &accelerator);
+
+        if (!accelerator) {
+            callback(nullptr);
+            return;
+        }
+
+        auto runLoopSource = IOSurfaceAcceleratorGetRunLoopSource(accelerator);
+        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, kCFRunLoopDefaultMode);
+    }
+
+    if (inSurface->pixelFormat() == format) {
+        callback(WTF::move(inSurface));
+        return;
+    }
+
+    auto destinationSurface = IOSurface::create(pool, inSurface->size(), inSurface->colorSpace(), name, format);
+    if (!destinationSurface) {
+        callback(nullptr);
+        return;
+    }
+
+    IOSurfaceRef destinationIOSurfaceRef = destinationSurface->surface();
+    IOSurfaceAcceleratorCompletion completion;
+    completion.completionRefCon = new WTF::Function<void(std::unique_ptr<IOSurface>)> (WTF::move(callback));
+    completion.completionRefCon2 = destinationSurface.release();
+    completion.completionCallback = [](void *completionRefCon, IOReturn, void * completionRefCon2) {
+        auto* callback = static_cast<WTF::Function<void(std::unique_ptr<IOSurface>)>*>(completionRefCon);
+        auto destinationSurface = std::unique_ptr<IOSurface>(static_cast<IOSurface*>(completionRefCon2));
+        
+        (*callback)(WTF::move(destinationSurface));
+        delete callback;
+    };
+
+    NSDictionary *options = @{ (id)kIOSurfaceAcceleratorUnwireSurfaceKey : @YES };
+
+    IOReturn ret = IOSurfaceAcceleratorTransformSurface(accelerator, inSurface->surface(), destinationIOSurfaceRef, (CFDictionaryRef)options, nullptr, &completion, nullptr, nullptr);
+    ASSERT_UNUSED(ret, ret == kIOReturnSuccess);
+}
+
+#endif // HAVE(IOSURFACE_ACCELERATOR)
+
+void IOSurface::setOwnershipIdentity(const ProcessIdentity& resourceOwner)
+{
+    ASSERT(resourceOwner);
+    m_resourceOwner = resourceOwner;
+    setOwnershipIdentity(m_surface.get(), resourceOwner);
+}
+
+void IOSurface::setOwnershipIdentity(IOSurfaceRef surface, const ProcessIdentity& resourceOwner)
+{
+#if HAVE(IOSURFACE_SET_OWNERSHIP_IDENTITY) && HAVE(TASK_IDENTITY_TOKEN)
+#if ASSERT_ENABLED
+    ASSERT(surface);
+    if (!isMemoryAttributionDisabled())
+        ASSERT(resourceOwner);
+#endif
+
+    if (!resourceOwner)
+        return;
+    task_id_token_t ownerTaskIdToken = resourceOwner.taskIdToken();
+    auto result = IOSurfaceSetOwnershipIdentity(surface, ownerTaskIdToken, kIOSurfaceMemoryLedgerTagGraphics, 0);
+    if (result != kIOReturnSuccess)
+        RELEASE_LOG_ERROR(IOSurface, "IOSurface::setOwnershipIdentity: Failed to claim ownership of IOSurface %x, task id token: %d, error: %d", IOSurfaceGetID(surface), (int)ownerTaskIdToken, result);
+#else
+    UNUSED_PARAM(surface);
+    UNUSED_PARAM(resourceOwner);
+#endif
+}
+
+void IOSurface::setColorSpaceProperty()
+{
+    ASSERT(m_colorSpace);
+    auto colorSpaceProperties = adoptCF(CGColorSpaceCopyPropertyList(protect(m_colorSpace->platformColorSpace()).get()));
+    IOSurfaceSetValue(m_surface.get(), kIOSurfaceColorSpace, colorSpaceProperties.get());
+}
+
+void IOSurface::ensureColorSpace()
+{
+    if (m_colorSpace)
+        return;
+
+    m_colorSpace = surfaceColorSpace().value_or(DestinationColorSpace::SRGB());
+}
+
+#if HAVE(SUPPORT_HDR_DISPLAY)
+void IOSurface::setContentEDRHeadroom(float headroom)
+{
+    if (m_contentEDRHeadroom && headroom == m_contentEDRHeadroom)
+        return;
+
+    LOG_WITH_STREAM(HDR, stream << "IOSurface::setContentEDRHeadroom " << this << " " << headroom);
+    m_contentEDRHeadroom = headroom;
+    IOSurfaceSetValue(m_surface.get(), kIOSurfaceContentHeadroom, @(headroom));
+}
+
+std::optional<float> IOSurface::contentEDRHeadroom() const
+{
+    return m_contentEDRHeadroom;
+}
+
+void IOSurface::loadContentEDRHeadroom()
+{
+    m_contentEDRHeadroom = 1;
+    if (auto valueNumber = dynamic_cf_cast<CFNumberRef>(adoptCF(IOSurfaceCopyValue(m_surface.get(), kIOSurfaceContentHeadroom))))
+        CFNumberGetValue(valueNumber.get(), kCFNumberFloat32Type, &m_contentEDRHeadroom.value());
+}
+#endif
+
+std::optional<DestinationColorSpace> IOSurface::surfaceColorSpace() const
+{
     auto propertyList = adoptCF(IOSurfaceCopyValue(m_surface.get(), kIOSurfaceColorSpace));
     if (!propertyList)
         return { };
@@ -468,13 +848,10 @@ void IOSurface::setOwnershipIdentity(IOSurfaceRef, const ProcessIdentity&)
         return { };
     
     return DestinationColorSpace { colorSpaceCF };
-MAVERICKS_BACKPORT */
 }
 
-// MAVERICKS_BACKPORT: the per-rendering-purpose IOSurface naming is not used on 10.9; return the default name.
-IOSurface::Name IOSurface::nameForRenderingPurpose(RenderingPurpose)
+IOSurface::Name IOSurface::nameForRenderingPurpose(RenderingPurpose purpose)
 {
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
     switch (purpose) {
     case RenderingPurpose::Unspecified:
         return Name::ImageBufferShareableMapped;
@@ -501,19 +878,42 @@ IOSurface::Name IOSurface::nameForRenderingPurpose(RenderingPurpose)
         return Name::MediaPainting;
     }
 
-MAVERICKS_BACKPORT */
     return Name::Default;
 }
 
-// MAVERICKS_BACKPORT: 10.9 lacks CAIOSurfaceCreate, so upstream's asCAIOSurfaceLayerContents() falls back
-// to asLayerContents() — handing the IOSurface directly to CALayer.contents. Verified on 10.9 that an
-// IOSurface assigned as layer contents composites correctly through the WK2 RemoteLayerTree path (the same
-// path re-enabled by the IOSurface-backed-compositing restore), so no per-composite CGImage snapshot is
-// needed; the live surface (not a static memcpy copy) is also correct for a layer whose contents update.
-RetainPtr<id> IOSurface::asCAIOSurfaceLayerContents() const
+TextStream& operator<<(TextStream& ts, IOSurface::Format format)
 {
-    return asLayerContents();
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    switch (format) {
+    case IOSurface::Format::BGRX:
+        ts << "BGRX"_s;
+        break;
+    case IOSurface::Format::BGRA:
+        ts << "BGRA"_s;
+        break;
+    case IOSurface::Format::YUV422:
+        ts << "YUV422"_s;
+        break;
+    case IOSurface::Format::RGBX:
+        ts << "RGBX"_s;
+        break;
+    case IOSurface::Format::RGBA:
+        ts << "RGBA"_s;
+        break;
+#if ENABLE(PIXEL_FORMAT_RGB10)
+    case IOSurface::Format::RGB10:
+        ts << "RGB10"_s;
+        break;
+#endif
+#if ENABLE(PIXEL_FORMAT_RGB10A8)
+    case IOSurface::Format::RGB10A8:
+        ts << "RGB10A8"_s;
+        break;
+#endif
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
+    case IOSurface::Format::RGBA16F:
+        ts << "RGBA16F"_s;
+        break;
+#endif
     }
     return ts;
 }
@@ -535,7 +935,6 @@ TextStream& operator<<(TextStream& ts, const IOSurface& surface)
 {
     return ts << "IOSurface "_s << surface.surfaceID() << " name "_s << [surfaceNameToNSString(surface.name()) UTF8String] << " size "_s << surface.size() << " format "_s << (surface.m_format ? surface.m_format->format : IOSurface::Format::BGRX)
         << " compressed " << (surface.m_format ? (surface.m_format->useLosslessCompression == UseLosslessCompression::Yes) : false) << " state "_s << surface.state();
-MAVERICKS_BACKPORT */
 }
 
 } // namespace WebCore

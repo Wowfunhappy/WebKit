@@ -1,27 +1,71 @@
-// Stubbed for MAVERICKS_BACKPORT
-#include "config.h"
+/*
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#pragma once
+
+#import "config.h"
 #import "WKRevealItemPresenter.h"
 
 #if PLATFORM(MAC) && ENABLE(REVEAL)
 
-// MAVERICKS_BACKPORT: Reveal.framework is unavailable on 10.9; provide a no-op WKRevealItemPresenter so
-// WebViewImpl's ENABLE(REVEAL) data-detection code links. The "reveal" hover UI is simply inert on this OS.
-@implementation WKRevealItemPresenter
+#import "WKWebView.h"
+#import "WebViewImpl.h"
+#import <wtf/RetainPtr.h>
+#import <wtf/WeakPtr.h>
+#import <pal/cocoa/RevealSoftLink.h>
 
-// MAVERICKS_BACKPORT: stubbed initializer — ignores all params and just chains to -[NSObject init].
-- (instancetype)initWithWebViewImpl:(const WebKit::WebViewImpl&)webViewImpl item:(RVItem *)item frame:(CGRect)frameInView menuLocation:(CGPoint)menuLocationInView
+@interface WKRevealItemPresenter () <RVPresenterHighlightDelegate>
+@end
+
+@implementation WKRevealItemPresenter {
+    WeakPtr<WebKit::WebViewImpl> _impl;
+    RetainPtr<RVPresenter> _presenter;
+    RetainPtr<RVPresentingContext> _presentingContext;
+    RetainPtr<RVItem> _item;
+    CGRect _frameInView;
+    CGPoint _menuLocationInView;
+    BOOL _isHighlightingItem;
+}
+
+- (instancetype)initWithWebViewImpl:(const WebKit::WebViewImpl&)impl item:(RVItem *)item frame:(CGRect)frameInView menuLocation:(CGPoint)menuLocationInView
 {
-    // MAVERICKS_BACKPORT: no-op body — Reveal.framework is unavailable on 10.9, so the presenter does nothing.
-    UNUSED_PARAM(webViewImpl);
-    UNUSED_PARAM(item);
-    UNUSED_PARAM(frameInView);
-    UNUSED_PARAM(menuLocationInView);
-    return [super init];
+    if (!(self = [super init]))
+        return nil;
+
+    _impl = impl;
+    _presenter = adoptNS([PAL::allocRVPresenterInstance() init]);
+    RetainPtr view = impl.view();
+    _presentingContext = adoptNS([PAL::allocRVPresentingContextInstance() initWithPointerLocationInView:menuLocationInView inView:view.get() highlightDelegate:self]);
+    _item = item;
+    _frameInView = frameInView;
+    _menuLocationInView = menuLocationInView;
+    return self;
 }
 
 - (void)showContextMenu
 {
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
     CheckedPtr impl = _impl.get();
     if (!impl)
         return;
@@ -76,7 +120,6 @@
     _isHighlightingItem = NO;
 
     [self _callDidFinishPresentationIfNeeded];
-MAVERICKS_BACKPORT */
 }
 
 @end

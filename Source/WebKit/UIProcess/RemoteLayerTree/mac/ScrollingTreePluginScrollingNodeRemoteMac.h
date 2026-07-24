@@ -25,8 +25,7 @@
 
 #pragma once
 
-#if 0 // Disabled for MAVERICKS_BACKPORT — PDF scrolling nodes not needed.
-#if PLATFORM(MAC) && ENABLE(PDF_PLUGIN) && __has_include(<WebCore/ScrollingTreePluginScrollingNodeMac.h>)
+#if PLATFORM(MAC)
 
 #include <WebCore/ScrollingTreePluginScrollingNodeMac.h>
 
@@ -49,6 +48,4 @@ private:
 
 }
 
-#endif // PLATFORM(MAC) && ENABLE(PDF_PLUGIN)
-// MAVERICKS_BACKPORT: close the #if 0 that disables this PDF-plugin scrolling node.
-#endif // #if 0
+#endif // PLATFORM(MAC)

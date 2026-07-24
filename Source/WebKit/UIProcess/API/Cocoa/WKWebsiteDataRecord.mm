@@ -29,6 +29,11 @@
 #import "_WKWebsiteDataSizeInternal.h"
 #import <WebCore/SecurityOriginData.h>
 #import <WebCore/WebCoreObjCExtras.h>
+// MAVERICKS_BACKPORT: this TU calls createNSArray() but never included the header that declares it —
+// upstream gets it transitively from a sibling in the same unified-source bundle. This port's
+// SourcesCocoa.txt differs (files added/removed), so the bundles group differently and the transitive
+// include is not there. Include what we use; correct regardless of bundling.
+#import <wtf/cocoa/VectorCocoa.h>
 
 NSString * const WKWebsiteDataTypeFetchCache = @"WKWebsiteDataTypeFetchCache";
 NSString * const WKWebsiteDataTypeDiskCache = @"WKWebsiteDataTypeDiskCache";

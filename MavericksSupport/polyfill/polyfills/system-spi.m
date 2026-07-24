@@ -580,6 +580,56 @@ WK_POLYFILL_ABSENT(NULL, bool, sandbox_enable_state_flag, (const char *name, mav
 }
 
 // ---------------------------------------------------------------------------------------------------
+// libSystem — sandbox extension issuing and profile compilation absent on 10.9.
+//
+// 10.9 has the process-agnostic issuers (sandbox_extension_issue_file / _mach / _generic, plus
+// _consume and _release) and the full compile/apply profile API (sandbox_create_params, _set_param,
+// _free_params, sandbox_compile_file / _string, sandbox_apply, _free_profile, SANDBOX_BUILD_ID) in
+// /usr/lib/libsandbox.1.dylib, reached via the -lsandbox the WebKit link already passes. Absent are
+// only the audit-token variants: the "_to_process" issuers, the IOKit registry-entry-class issuers,
+// sandbox_check_by_audit_token, sandbox_enable_state_flag, and the SANDBOX_EXTENSION_NO_REPORT /
+// SANDBOX_EXTENSION_USER_INTENT flags. Only those are polyfilled here.
+// ---------------------------------------------------------------------------------------------------
+
+extern char *sandbox_extension_issue_file(const char *extension_class, const char *path, uint32_t flags);
+extern char *sandbox_extension_issue_mach(const char *extension_class, const char *name, uint32_t flags);
+
+// The "_to_process" issuers bind an extension to one target process by audit token; 10.9 only has the
+// process-agnostic form, which yields an extension token any process can consume. The token still
+// travels over the same trusted IPC channel to the same child, so the grant reaching its intended
+// consumer is unchanged -- it simply is not additionally scoped to that process by the kernel.
+WK_POLYFILL_ABSENT(NULL, char *, sandbox_extension_issue_file_to_process, (const char *extension_class, const char *path, uint32_t flags, mav_audit_token_t token))
+{
+    (void)token;
+    return sandbox_extension_issue_file(extension_class, path, flags);
+}
+
+WK_POLYFILL_ABSENT(NULL, char *, sandbox_extension_issue_mach_to_process, (const char *extension_class, const char *name, uint32_t flags, mav_audit_token_t token))
+{
+    (void)token;
+    return sandbox_extension_issue_mach(extension_class, name, flags);
+}
+
+// 10.9's sandbox has no IOKit registry-entry-class extension class, and no other extension class stands
+// in for it (a generic or file extension is not consumable as an IOKit one). Report "could not issue"
+// -- the honest answer -- which is the same NULL upstream handles when the sandbox declines.
+WK_POLYFILL_ABSENT(NULL, char *, sandbox_extension_issue_iokit_registry_entry_class, (const char *extension_class, const char *registry_entry_class, uint32_t flags))
+{
+    (void)extension_class; (void)registry_entry_class; (void)flags;
+    return NULL;
+}
+
+WK_POLYFILL_ABSENT(NULL, char *, sandbox_extension_issue_iokit_registry_entry_class_to_process, (const char *extension_class, const char *registry_entry_class, uint32_t flags, mav_audit_token_t token))
+{
+    (void)extension_class; (void)registry_entry_class; (void)flags; (void)token;
+    return NULL;
+}
+
+// sandbox_create_params / _set_param / _free_params / sandbox_compile_file / _string / sandbox_apply /
+// _free_profile are all present in /usr/lib/libsandbox.1.dylib on 10.9 and bind directly; they are not
+// polyfilled.
+
+// ---------------------------------------------------------------------------------------------------
 // CommonCrypto — KDF + one-shot AES-GCM SPI absent on 10.9.
 //
 // The CCKDFParameters/CCDeriveKey key-derivation API and the one-shot CCCryptorGCMOneshotDecrypt are
@@ -945,4 +995,201 @@ WK_POLYFILL_ABSENT("CoreServices", CFURLRef, LSCopyDefaultApplicationURLForURL,
 WK_POLYFILL_ABSENT("MediaAccessibility", CFBooleanRef, MAAudibleMediaPrefCopyPreferDescriptiveVideo, (void))
 {
     return NULL;
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// Mach: two kernel routines whose MIG subsystems 10.9 predates.
+
+#include <mach/mach.h>
+
+// mach_voucher_deallocate (10.10+). A voucher is a port name in the task's IPC space, and
+// deallocating one is releasing that name -- which is what mach_port_deallocate does, and what this
+// routine is defined as. 10.9's kernel has no voucher subsystem at all, so no message it delivers
+// ever carries one (MACH_MSGH_BITS_HAS_VOUCHER is never set) and IPC::ImportanceAssertion never gets
+// as far as calling this; it is implemented properly regardless, so it is right for a caller that
+// does hold a name.
+WK_POLYFILL_ABSENT(NULL, kern_return_t, mach_voucher_deallocate, (mach_port_name_t voucher))
+{
+    if (voucher == MACH_PORT_NULL)
+        return KERN_SUCCESS;
+    return mach_port_deallocate(mach_task_self(), voucher);
+}
+
+// task_create_identity_token (12+) mints the token that lets a process attribute memory (IOSurfaces,
+// CG backing stores) to another process's ledger. 10.9's kernel has no identity-token subsystem and
+// no per-process memory ledger to attribute to, so there is no token to hand back and the honest
+// answer is the one a kernel without the routine gives: KERN_NOT_SUPPORTED. That is a case upstream
+// already handles -- ProcessIdentity's constructor logs the failure and leaves itself empty, which
+// makes `operator bool()` false, which is how every attribution call site is gated. So restoring
+// HAVE(TASK_IDENTITY_TOKEN) to upstream costs nothing at runtime: the attribution simply does not
+// happen, exactly as when the flag was off.
+WK_POLYFILL_ABSENT(NULL, kern_return_t, task_create_identity_token, (task_t task, task_id_token_t *token))
+{
+    (void)task;
+    if (token)
+        *token = MACH_PORT_NULL;
+    return KERN_NOT_SUPPORTED;
+}
+
+// ---------------------------------------------------------------------------------------------
+// CoreMedia tagged buffer groups / CMTag (macOS 14+).
+//
+// This is the stereoscopic-video vocabulary: a "tagged buffer group" carries several pixel buffers
+// for one sample (a left-eye and a right-eye image, say), and CMTags label which is which. 10.9 has
+// none of it, and nothing on this OS can produce it -- a sample's media type is never
+// kCMMediaType_TaggedBufferGroup, which is the runtime test every one of these calls sits behind in
+// VideoMediaSampleRenderer::imageForSample(). So the honest implementation is the empty group: no
+// buffers, no tags, nothing contained. That is also exactly what upstream's own code does with a
+// monoscopic sample, so it takes the plain CMSampleBufferGetImageBuffer path unchanged.
+//
+// These live here rather than in graphics.c beside the other CoreMedia polyfills because CMTag is
+// passed and returned BY VALUE, so getting the ABI right requires the modern SDK's declaration --
+// and graphics.c compiles against the 10.9 headers, which have no CMTag at all.
+#import <CoreMedia/CoreMedia.h>
+
+WK_POLYFILL_ABSENT("CoreMedia", CMTaggedBufferGroupRef, CMSampleBufferGetTaggedBufferGroup,
+    (CMSampleBufferRef sampleBuffer))
+{
+    (void)sampleBuffer;
+    return NULL;
+}
+
+WK_POLYFILL_ABSENT("CoreMedia", CMItemCount, CMTaggedBufferGroupGetCount, (CMTaggedBufferGroupRef group))
+{
+    (void)group;
+    return 0;
+}
+
+WK_POLYFILL_ABSENT("CoreMedia", CMTagCollectionRef, CMTaggedBufferGroupGetTagCollectionAtIndex,
+    (CMTaggedBufferGroupRef group, CFIndex index))
+{
+    (void)group; (void)index;
+    return NULL;   // consistent with a count of 0: there is no index to be at
+}
+
+WK_POLYFILL_ABSENT("CoreMedia", CVPixelBufferRef, CMTaggedBufferGroupGetCVPixelBufferAtIndex,
+    (CMTaggedBufferGroupRef group, CFIndex index))
+{
+    (void)group; (void)index;
+    return NULL;
+}
+
+WK_POLYFILL_ABSENT("CoreMedia", Boolean, CMTagCollectionContainsTag,
+    (CMTagCollectionRef tagCollection, CMTag tag))
+{
+    (void)tagCollection; (void)tag;
+    return false;   // an empty collection contains nothing
+}
+
+WK_POLYFILL_ABSENT("CoreMedia", OSStatus, CMTagCollectionGetTagsWithCategory,
+    (CMTagCollectionRef tagCollection, CMTagCategory category, CMTag *tagBuffer,
+     CMItemCount tagBufferCount, CMItemCount *numberOfTagsCopied))
+{
+    (void)tagCollection; (void)category; (void)tagBuffer; (void)tagBufferCount;
+    // Succeeding with nothing copied is how the real routine reports "no tags of that category",
+    // and it is what the caller checks: upstream requires numberOfTagsCopied == 1 to use the tag.
+    if (numberOfTagsCopied)
+        *numberOfTagsCopied = 0;
+    return noErr;
+}
+
+WK_POLYFILL_ABSENT("CoreMedia", int64_t, CMTagGetSInt64Value, (CMTag tag))
+{
+    (void)tag;
+    return 0;
+}
+
+// The tag constants, composed exactly as CMTag.h documents them: kCMTagInvalid is the sentinel whose
+// dataType is kCMTagDataType_Invalid (what CMTAG_IS_VALID tests), and the two stereo tags are
+// category kCMTagCategory_StereoView carrying the matching kCMStereoView_* flag. So these are the
+// real values, not placeholders -- though nothing on 10.9 can produce a tag to compare them against.
+WK_POLYFILL_CONST("CoreMedia", CMTag, kCMTagInvalid,
+                  ((CMTag){ kCMTagCategory_Undefined, kCMTagDataType_Invalid, 0 }));
+WK_POLYFILL_CONST("CoreMedia", CMTag, kCMTagStereoLeftEye,
+                  ((CMTag){ kCMTagCategory_StereoView, kCMTagDataType_Flags, kCMStereoView_LeftEye }));
+WK_POLYFILL_CONST("CoreMedia", CMTag, kCMTagStereoRightEye,
+                  ((CMTag){ kCMTagCategory_StereoView, kCMTagDataType_Flags, kCMStereoView_RightEye }));
+
+// The hero-eye format-description extension: which eye to show when a stereo pair is presented
+// monoscopically. 10.9 writes no format-description extensions of this kind and reads none, so this
+// key is only ever looked up in dictionaries that cannot contain it -- CMFormatDescriptionGetExtension
+// returns NULL and upstream falls through to its LayerID=0 path. The spellings match the constants'
+// names, so a log or a debugger shows something meaningful.
+WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionExtension_HeroEye, CFSTR("HeroEye"));
+WK_POLYFILL_CONST("CoreMedia", CFStringRef, kCMFormatDescriptionHeroEye_Left, CFSTR("LeftEye"));
+
+// os_retain / os_release (10.10+). WHY THIS EXISTS, since it is easy to conclude it does not need to:
+// <os/object.h> defines these as MACROS (`[object retain]`) when OS_OBJECT_USE_OBJC is 1, which it is in
+// any ObjC or ObjC++ translation unit — so probing them from a .mm file says "macro, no linker symbol,
+// nothing to polyfill". That probe is misleading. In a plain C++ TU, which is most of JavaScriptCore,
+// OS_OBJECT_USE_OBJC is 0 and they are ORDINARY FUNCTIONS — absent from 10.9's libSystem, so
+// JavaScriptCore fails to load with "Symbol not found: _os_retain". (Measured, after I removed an in-tree
+// #ifndef os_retain shim from wtf/OSObjectPtr.h believing it was dead code.)
+//
+// Every os_object_t 10.9 knows is a libdispatch object, and dispatch_retain/dispatch_release are present
+// here (nm-verified) and already do the right thing whichever way libdispatch was built: with
+// OS_OBJECT_USE_OBJC they forward to the ObjC retain/release the object actually uses, without it they run
+// the plain refcount. So these forward rather than reimplement, which also keeps them correct for any
+// os_object_t that is not a dispatch object.
+//
+// The #undefs are needed because THIS file is ObjC, so the macros above are in scope here.
+#undef os_retain
+#undef os_release
+
+WK_SYSTEM_FN(NULL, void, dispatch_retain, (void *));
+WK_SYSTEM_FN(NULL, void, dispatch_release, (void *));
+
+WK_POLYFILL_ABSENT(NULL, void *, os_retain, (void *object))
+{
+    if (object && WK_SYSTEM(dispatch_retain))
+        WK_SYSTEM(dispatch_retain)(object);
+    return object;
+}
+
+WK_POLYFILL_ABSENT(NULL, void, os_release, (void *object))
+{
+    if (object && WK_SYSTEM(dispatch_release))
+        WK_SYSTEM(dispatch_release)(object);
+}
+
+// os_transaction_create (10.10+). The XPC service entry point (Shared/EntryPointUtilities/Cocoa/
+// XPCService/XPCServiceEntryPoint) creates one os_transaction to keep the child process alive across
+// its initializer; on 10.9 that symbol is absent from libSystem, so every WebContent/Networking/GPU
+// child crashed at launch on a lazy bind of _os_transaction_create (EXC_BREAKPOINT in
+// dyld::fastBindLazySymbol from NetworkServiceInitializer / WebContentServiceInitializer).
+//
+// os_transaction is purely a process-lifecycle assertion introduced with the os_object refactor; 10.9
+// has no equivalent, and the child's real lifecycle is held by xpc_transaction (xpc_transaction_exit_clean
+// is used in the same file). Returning NULL means "no transaction": adoptOSObject(NULL) yields an empty
+// OSObjectPtr, and the os_retain/os_release polyfills above are NULL-safe, so nothing dereferences it.
+WK_POLYFILL_ABSENT(NULL, void *, os_transaction_create, (const char *description))
+{
+    (void)description;
+    return NULL;
+}
+
+// voucher_replace_default_voucher (10.10+). The same XPC service entry point calls this right after
+// InitializeWebKit2() to adopt the mach voucher XPC propagated to the child; on 10.9 the voucher API
+// does not exist, so the child crashed at launch on a lazy bind of _voucher_replace_default_voucher
+// (same fastBindLazySymbol path as os_transaction_create above). 10.9 has no voucher propagation, so
+// leaving the task default voucher untouched is the correct behaviour — a no-op.
+WK_POLYFILL_ABSENT(NULL, void, voucher_replace_default_voucher, (void))
+{
+}
+
+// dispatch_activate (10.11+). A dispatch source/queue created suspended is started with either
+// dispatch_activate (one-way, idempotent "make active") or dispatch_resume; on a freshly-created object
+// that the caller has not otherwise suspended they are equivalent, and dispatch_resume is present on
+// 10.9. WebKit's callers activate once, immediately after configuring a source — e.g.
+// VideoMediaSampleRenderer.mm creates a DISPATCH_SOURCE_TYPE_TIMER and calls dispatch_activate on it —
+// so forwarding to dispatch_resume reproduces the real behaviour. (Not idempotent the way activate is,
+// but WebKit never activates the same object twice.) Without this, the absent symbol lazy-bind-crashed
+// the process on the renderer's timer setup. The signature must match <dispatch/dispatch.h>'s
+// declaration (dispatch_object_t, not void*), which is present in the SDK even though the symbol is not
+// on 10.9; dispatch_resume IS on 10.9 and lives in always-linked libdispatch, so a direct call is safe.
+WK_POLYFILL_ABSENT(NULL, void, dispatch_activate, (dispatch_object_t object))
+{
+    if (object)
+        dispatch_resume(object);
 }

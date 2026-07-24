@@ -36,16 +36,42 @@ namespace IPC {
 class ImportanceAssertion {
 public:
     ImportanceAssertion() = default;
-// MAVERICKS_BACKPORT: mach voucher APIs (10.10+) are stubbed out as no-ops.
-// IPC importance inheritance just doesn't happen on this OS.
-    // MAVERICKS_BACKPORT: mach voucher APIs (10.10+) absent; this ctor ignores the header (no-op).
-    explicit ImportanceAssertion(mach_msg_header_t*) { }
-    ImportanceAssertion(ImportanceAssertion&&) = default;
-    ImportanceAssertion& operator=(ImportanceAssertion&&) = default;
+
+    explicit ImportanceAssertion(mach_msg_header_t* header)
+    {
+        if (MACH_MSGH_BITS_HAS_VOUCHER(header->msgh_bits)) {
+            m_voucher = std::exchange(header->msgh_voucher_port, MACH_VOUCHER_NULL);
+            header->msgh_bits &= ~(MACH_MSGH_BITS_VOUCHER_MASK | MACH_MSGH_BITS_RAISEIMP);
+        }
+    }
+
+    ImportanceAssertion(ImportanceAssertion&& other)
+        : m_voucher(std::exchange(other.m_voucher, MACH_VOUCHER_NULL))
+    {
+    }
+
+    ImportanceAssertion& operator=(ImportanceAssertion&& other)
+    {
+        if (&other != this)
+            std::swap(m_voucher, other.m_voucher);
+        return *this;
+    }
+
     ImportanceAssertion(const ImportanceAssertion&) = delete;
     ImportanceAssertion& operator=(const ImportanceAssertion&) = delete;
-    // MAVERICKS_BACKPORT: no mach voucher held, so the destructor is a trivial default (no deallocate).
-    ~ImportanceAssertion() = default;
+
+    ~ImportanceAssertion()
+    {
+        if (!m_voucher)
+            return;
+
+        kern_return_t kr = mach_voucher_deallocate(m_voucher);
+        ASSERT_UNUSED(kr, !kr);
+        m_voucher = MACH_VOUCHER_NULL;
+    }
+
+private:
+    mach_voucher_t m_voucher { MACH_VOUCHER_NULL };
 };
 
 }

@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
- * MAVERICKS_BACKPORT: inert force-touch controller stub; original copyright span narrowed accordingly.
+ * Copyright (C) 2014-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,27 +23,20 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT status: minimal implementation. NSImmediateActionGestureRecognizer
-// (force-touch) is a 10.10+ trackpad feature that does not exist on 10.9 hardware,
-// so this controller is inert here: it owns its members and answers queries safely
-// but performs no force-touch UI. The class keeps real ObjC metadata in
-// WebKit.framework so WebViewImpl links and runs. Full force-touch behavior can be
-// restored from upstream if a 10.10+ host ever runs these frameworks.
-
 #import "config.h"
 #import "WKImmediateActionController.h"
 
 #if PLATFORM(MAC)
 
-// MAVERICKS_BACKPORT: stub pulls only these headers; the Lookup/DataDetectors/NSMenu/QuickLookUI SPI imports are dropped with the inert force-touch UI.
-#import "APIObject.h"
+#import "APIHitTestResult.h"
+#import "MessageSenderInlines.h"
+#import "WKNSURLExtras.h"
+#import "WebFrameProxy.h"
+#import "WebPageMessages.h"
 #import "WebPageProxy.h"
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// #import "WebPageProxyMessages.h"
-// #import "WebProcessProxy.h"
-// (end MAVERICKS_BACKPORT restored block)
+#import "WebPageProxyMessages.h"
+#import "WebProcessProxy.h"
 #import "WebViewImpl.h"
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
 #import <WebCore/DictionaryLookup.h>
 #import <WebCore/GeometryUtilities.h>
 #import <pal/spi/mac/LookupSPI.h>
@@ -64,23 +56,20 @@
 
 @implementation WKAnimationController
 @end
-MAVERICKS_BACKPORT */
 
 @implementation WKImmediateActionController
 
-// MAVERICKS_BACKPORT: stub init only captures page/view/viewImpl/recognizer; no force-touch wiring.
 - (instancetype)initWithPage:(std::reference_wrapper<WebKit::WebPageProxy>)page view:(NSView *)view viewImpl:(std::reference_wrapper<WebKit::WebViewImpl>)viewImpl recognizer:(NSImmediateActionGestureRecognizer *)immediateActionRecognizer
 {
     self = [super init];
-    // MAVERICKS_BACKPORT: stub init (no force-touch wiring; blank line after super init dropped).
+
     if (!self)
         return nil;
 
     _page = page.get();
     _view = view;
     _viewImpl = viewImpl.get();
-    // MAVERICKS_BACKPORT: initialize to ImmediateActionState::None (upstream init set the legacy _type ivar).
-    _state = WebKit::ImmediateActionState::None;
+    _type = kWKImmediateActionNone;
     _immediateActionRecognizer = immediateActionRecognizer;
     _hasActiveImmediateAction = NO;
 
@@ -89,17 +78,19 @@ MAVERICKS_BACKPORT */
 
 - (void)willDestroyView:(NSView *)view
 {
-// MAVERICKS_BACKPORT: stub teardown; `view` is unused since no animation/Data Detectors state is held.
-    UNUSED_PARAM(view);
     _page = nullptr;
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     _view = nil;
-// (end MAVERICKS_BACKPORT restored block)
-    _viewImpl = nullptr;
-    // MAVERICKS_BACKPORT: stub teardown only nils ivars; no Data Detectors / QLPreview / action-context cleanup.
     _view = nil;
+    _viewImpl = nullptr;
+    _hitTestResultData = WebKit::WebHitTestResultData();
+    _contentPreventsDefault = NO;
+    
+    RetainPtr<id> animationController = [_immediateActionRecognizer animationController];
+    if (PAL::isQuickLookUIFrameworkAvailable() && [animationController isKindOfClass:PAL::getQLPreviewMenuItemClassSingleton()]) {
+        RetainPtr menuItem = (QLPreviewMenuItem *)animationController.get();
+        menuItem.get().delegate = nil;
+    }
+
     _immediateActionRecognizer = nil;
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
     _currentActionContext = nil;
     _hasActiveImmediateAction = NO;
 }
@@ -138,12 +129,10 @@ MAVERICKS_BACKPORT */
     _userData = nil;
     _currentQLPreviewMenuItem = nil;
     _hasActiveImmediateAction = NO;
-MAVERICKS_BACKPORT */
 }
 
 - (void)didPerformImmediateActionHitTest:(const WebKit::WebHitTestResultData&)hitTestResult contentPreventsDefault:(BOOL)contentPreventsDefault userData:(API::Object*)userData
 {
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
     // If we've already given up on this gesture (either because it was canceled or the
     // willBeginAnimation timeout expired), we shouldn't build a new animationController for it.
     if (_state != WebKit::ImmediateActionState::Pending)
@@ -151,23 +140,18 @@ MAVERICKS_BACKPORT */
 
     // FIXME: This needs to use the WebKit2 callback mechanism to avoid out-of-order replies.
     _state = WebKit::ImmediateActionState::Ready;
-MAVERICKS_BACKPORT */
     _hitTestResultData = hitTestResult;
     _contentPreventsDefault = contentPreventsDefault;
     _userData = userData;
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//
-//     [self _updateImmediateActionItem];
-//     [self _cancelImmediateActionIfNeeded];
-// (end MAVERICKS_BACKPORT restored block)
+
+    [self _updateImmediateActionItem];
+    [self _cancelImmediateActionIfNeeded];
 }
 
 - (void)dismissContentRelativeChildWindows
 {
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     _page->setMaintainsInactiveSelection(false);
-//     [_currentQLPreviewMenuItem close];
-// (end MAVERICKS_BACKPORT restored block)
+    _page->setMaintainsInactiveSelection(false);
+    [_currentQLPreviewMenuItem close];
 }
 
 - (BOOL)hasActiveImmediateAction
@@ -175,7 +159,6 @@ MAVERICKS_BACKPORT */
     return _hasActiveImmediateAction;
 }
 
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
 #pragma mark NSImmediateActionGestureRecognizerDelegate
 
 - (void)immediateActionRecognizerWillPrepare:(NSImmediateActionGestureRecognizer *)immediateActionRecognizer
@@ -530,7 +513,6 @@ MAVERICKS_BACKPORT */
     });
 }
 
-MAVERICKS_BACKPORT */
 @end
 
 #endif // PLATFORM(MAC)

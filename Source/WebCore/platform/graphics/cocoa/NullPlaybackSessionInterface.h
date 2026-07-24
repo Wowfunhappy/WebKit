@@ -26,7 +26,12 @@
 #pragma once
 
 #include <wtf/Platform.h>
-#if PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: this null-object derives from PlaybackSessionModelClient, which PlaybackSessionModel.h
+// only defines under PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE)) — off on this
+// Mac/VPM-off port. Match that guard so the header compiles to empty here; every real consumer (WebPageProxy*)
+// uses it only under ENABLE(VIDEO_PRESENTATION_MODE), and WebPageProxyCocoa.mm's unconditional #import then
+// resolves to nothing rather than an incomplete-base-class error.
+#if PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))
 
 #include <WebCore/HTMLMediaElementEnums.h>
 #include <WebCore/PlaybackSessionModel.h>

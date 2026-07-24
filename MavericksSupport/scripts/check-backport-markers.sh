@@ -19,9 +19,13 @@
 #
 # Report sections:
 #   (a) UNMARKED    - modified hunk with no marker in it or just above it
-#   (b) DELETED     - pure-deletion hunk (restore the lines, commented out)
+#   (b) DELETED     - upstream code removed with nothing but comments (or nothing at all) in
+#                     its place; restore the lines, commented out. A marker does not excuse it.
 #   (c) NEW FILE    - backport-added file without a marker
 #   (d) WHITESPACE  - hunk identical to upstream except whitespace (revert it)
+#   (e) FILE DELETED- an upstream file this tree no longer has. Restore it and withhold it from
+#                     the build list instead; deleting the bytes hides the divergence from every
+#                     other check here (a deleted EMPTY file produces no hunks at all).
 # Marked, rule-conforming hunks are silent.
 #
 # Exit status:
@@ -119,10 +123,11 @@ OUT_UNMARKED="$TMPDIR_RUN/unmarked"
 OUT_DELETED="$TMPDIR_RUN/deleted"
 OUT_NEWFILE="$TMPDIR_RUN/newfile"
 OUT_WS="$TMPDIR_RUN/whitespace"
-: > "$OUT_UNMARKED"; : > "$OUT_DELETED"; : > "$OUT_NEWFILE"; : > "$OUT_WS"
+OUT_DELFILE="$TMPDIR_RUN/deletedfile"
+: > "$OUT_UNMARKED"; : > "$OUT_DELETED"; : > "$OUT_NEWFILE"; : > "$OUT_WS"; : > "$OUT_DELFILE"
 trap 'rm -rf "$TMPDIR_RUN"' EXIT
 
-n_unmarked=0; n_deleted=0; n_marked=0; n_newfile_bad=0; n_ws=0
+n_unmarked=0; n_deleted=0; n_marked=0; n_newfile_bad=0; n_ws=0; n_delfile=0
 
 # --- generated (non-source) files committed under Source/ ---------------------
 # Build artifacts with a "do not edit" banner are not hand-edited divergences
@@ -140,6 +145,23 @@ done
 is_generated_file() {
     grep -Fxq "$1" "$GENERATED_TXT" 2>/dev/null
 }
+
+# --- files deleted wholesale --------------------------------------------------
+# A file upstream ships that this tree no longer has. This needs its own check,
+# because the per-hunk audit below cannot see it: `git diff -U0` of a deleted
+# EMPTY file produces no hunks at all, so nothing fires. Deleting an upstream
+# file outright is never the right move -- withhold it from the build list
+# instead, which leaves the bytes in place for the next upstream merge.
+# (Found 2026-07-23: Source/WebCore/accessibility/AXIsolatedTree.h, a 0-byte
+# upstream file dropped by the foundational backport commit, invisible to every
+# other check here for exactly that reason.)
+git diff --diff-filter=D --name-only -z "$BASE" -- Source/ 2>/dev/null | \
+while IFS= read -r -d '' file; do
+    [ -n "$file" ] || continue
+    is_excluded_path "$file" && continue
+    printf '%s:0: FILE DELETED wholesale (restore it; withhold from the build list instead)\n' "$file" >> "$OUT_DELFILE"
+done
+n_delfile="$(grep -c ': FILE DELETED ' "$OUT_DELFILE" 2>/dev/null)" || true
 
 # --- new files: require >=1 marker anywhere in the file -----------------------
 git diff --diff-filter=A --name-only -z "$BASE" -- Source/ 2>/dev/null | \
@@ -201,7 +223,15 @@ function first_nonblank(s,   a, n, i, t) {
     return ""
 }
 
-function flush(   added_strip, removed_strip, ctx, snip) {
+# Non-blank lines on one side of a hunk.
+function count_lines(s,   a, n, i, t, c) {
+    n = split(s, a, "\n")
+    c = 0
+    for (i = 1; i <= n; i++) { t = a[i]; gsub(/[ \t\r]/, "", t); if (t != "") c++ }
+    return c
+}
+
+function flush(   added_strip, removed_strip, ctx, snip, n_removed) {
     if (!have) return
     added_strip = strip_ws(added)
     removed_strip = strip_ws(removed)
@@ -215,13 +245,19 @@ function flush(   added_strip, removed_strip, ctx, snip) {
         return
     }
 
-    # Pure deletion: always a violation — the divergence rules keep upstream
-    # text in place, commented out, so a marker cannot excuse it.
-    if (added_strip == "" && removed_strip != "") {
+    # DELETION: the hunk LOSES upstream text. Measured by volume, not by kind -- a divergence is a
+    # divergence, and this gate has no business ruling that a comment "counts" less than a statement.
+    # What it can measure is survival: rule 2 says disabled code is kept in place, commented out, and
+    # doing that preserves the line count. So a hunk that takes out substantially more than it puts
+    # back has removed upstream code outright, whether it left nothing behind or left only a
+    # "// MAVERICKS_BACKPORT: stubbed for 10.9" note -- and a marker excuses neither. An ordinary
+    # divergence substitutes line for line and is unaffected.
+    n_removed = count_lines(removed)
+    if (n_removed >= 4 && count_lines(added) * 2 < n_removed) {
         deleted++
         snip = trim(first_nonblank(removed))
         if (length(snip) > 120) snip = substr(snip, 1, 120)
-        printf "DELETED\t%s\t%s\t-%s\n", curfile, newstart, snip
+        printf "DELETED\t%s\t%s\t%d lines lost; first: -%s\n", curfile, newstart, n_removed, snip
         return
     }
 
@@ -341,6 +377,7 @@ print_section "(a) UNMARKED hunks" "$OUT_UNMARKED"
 print_section "(b) DELETED hunks (comment out instead of deleting)" "$OUT_DELETED"
 print_section "(c) NEW files lacking a $MARKER marker" "$OUT_NEWFILE"
 print_section "(d) WHITESPACE-only divergences (restore upstream bytes)" "$OUT_WS"
+print_section "(e) FILES DELETED wholesale vs upstream (restore the file)" "$OUT_DELFILE"
 
 echo "==================================================================="
 echo "TOTALS"
@@ -350,9 +387,10 @@ echo "  UNMARKED hunks                  : $n_unmarked"
 echo "  DELETED hunks                   : $n_deleted"
 echo "  NEW files missing marker        : $n_newfile_bad"
 echo "  WHITESPACE-only hunks           : $n_ws"
+echo "  FILES deleted wholesale         : $n_delfile"
 echo
 
-violations=$((n_unmarked + n_deleted + n_newfile_bad + n_ws))
+violations=$((n_unmarked + n_deleted + n_newfile_bad + n_ws + n_delfile))
 if [ "$violations" -gt 0 ]; then
     echo "RESULT: FAIL - $violations violation(s) of the divergence rules."
     exit 1

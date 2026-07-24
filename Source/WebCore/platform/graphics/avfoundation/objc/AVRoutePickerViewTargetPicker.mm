@@ -91,8 +91,7 @@ AVOutputContext * AVRoutePickerViewTargetPicker::outputContextInternal()
         m_outputContext = [PAL::getAVOutputContextClassSingleton() iTunesAudioContext];
         ASSERT(m_outputContext);
         if (m_outputContext)
-            // MAVERICKS_BACKPORT: reference the AVFoundation notification-name constant directly (unqualified), since on 10.9 it is provided as a plain extern symbol rather than via the PAL:: soft-link wrapper.
-            [[NSNotificationCenter defaultCenter] addObserver:m_routePickerViewDelegate.get() selector:@selector(notificationHandler:) name:AVOutputContextOutputDevicesDidChangeNotification object:m_outputContext.get()];
+            [[NSNotificationCenter defaultCenter] addObserver:m_routePickerViewDelegate.get() selector:@selector(notificationHandler:) name:PAL::AVOutputContextOutputDevicesDidChangeNotification object:m_outputContext.get()];
     }
 
     return m_outputContext.get();
@@ -112,8 +111,7 @@ AVRouteDetector *AVRoutePickerViewTargetPicker::routeDetector()
 {
     if (!m_routeDetector) {
         m_routeDetector = adoptNS([PAL::allocAVRouteDetectorInstance() init]);
-        // MAVERICKS_BACKPORT: reference the AVFoundation notification-name constant directly (unqualified), since on 10.9 it is provided as a plain extern symbol rather than via the PAL:: soft-link wrapper.
-        [[NSNotificationCenter defaultCenter] addObserver:m_routePickerViewDelegate.get() selector:@selector(notificationHandler:) name:AVRouteDetectorMultipleRoutesDetectedDidChangeNotification object:m_routeDetector.get()];
+        [[NSNotificationCenter defaultCenter] addObserver:m_routePickerViewDelegate.get() selector:@selector(notificationHandler:) name:PAL::AVRouteDetectorMultipleRoutesDetectedDidChangeNotification object:m_routeDetector.get()];
         if ([m_routeDetector multipleRoutesDetected])
             availableDevicesDidChange();
     }
@@ -172,15 +170,13 @@ AVOutputContext * AVRoutePickerViewTargetPicker::outputContext()
 void AVRoutePickerViewTargetPicker::invalidatePlaybackTargets()
 {
     if (m_routeDetector) {
-        // MAVERICKS_BACKPORT: reference the AVFoundation notification-name constant directly (unqualified), since on 10.9 it is provided as a plain extern symbol rather than via the PAL:: soft-link wrapper.
-        [[NSNotificationCenter defaultCenter] removeObserver:m_routePickerViewDelegate.get() name:AVRouteDetectorMultipleRoutesDetectedDidChangeNotification object:m_routeDetector.get()];
+        [[NSNotificationCenter defaultCenter] removeObserver:m_routePickerViewDelegate.get() name:PAL::AVRouteDetectorMultipleRoutesDetectedDidChangeNotification object:m_routeDetector.get()];
         [m_routeDetector setRouteDetectionEnabled:NO];
         m_routePickerView = nullptr;
     }
 
     if (m_outputContext) {
-        // MAVERICKS_BACKPORT: reference the AVFoundation notification-name constant directly (unqualified), since on 10.9 it is provided as a plain extern symbol rather than via the PAL:: soft-link wrapper.
-        [[NSNotificationCenter defaultCenter] removeObserver:m_routePickerViewDelegate.get() name:AVOutputContextOutputDevicesDidChangeNotification object:m_outputContext.get()];
+        [[NSNotificationCenter defaultCenter] removeObserver:m_routePickerViewDelegate.get() name:PAL::AVOutputContextOutputDevicesDidChangeNotification object:m_outputContext.get()];
         m_outputContext = nullptr;
     }
 
@@ -287,10 +283,9 @@ void AVRoutePickerViewTargetPicker::devicePickerWasDismissed()
         if (!callback)
             return;
 
-        // MAVERICKS_BACKPORT: compare against the AVFoundation notification-name constants directly (unqualified), since on 10.9 they are provided as plain extern symbols rather than via the PAL:: soft-link wrappers.
-        if ([[notification name] isEqualToString:AVOutputContextOutputDevicesDidChangeNotification])
+        if ([[notification name] isEqualToString:PAL::AVOutputContextOutputDevicesDidChangeNotification])
             callback->currentDeviceDidChange();
-        else if ([[notification name] isEqualToString:AVRouteDetectorMultipleRoutesDetectedDidChangeNotification])
+        else if ([[notification name] isEqualToString:PAL::AVRouteDetectorMultipleRoutesDetectedDidChangeNotification])
             callback->availableDevicesDidChange();
     });
 }

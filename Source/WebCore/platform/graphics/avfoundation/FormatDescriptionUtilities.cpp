@@ -40,27 +40,6 @@
 #include <pal/cf/CoreMediaSoftLink.h>
 #include <pal/cf/VideoToolboxSoftLink.h>
 
-// MAVERICKS_BACKPORT: codec/audio-format FourCC constants added after macOS 10.9; defined locally so they resolve. (This file also calls CoreMedia format-description symbols directly rather than via the PAL:: soft-link wrappers, which aren't usable on the 10.9 build.)
-// Backport: codec constants added after macOS 10.9.
-#ifndef kCMVideoCodecType_HEVCWithAlpha
-#define kCMVideoCodecType_HEVCWithAlpha 'muxa'
-#endif
-#ifndef kCMVideoCodecType_DolbyVisionHEVC
-#define kCMVideoCodecType_DolbyVisionHEVC 'dvh1'
-#endif
-#ifndef kCMVideoCodecType_VP9
-#define kCMVideoCodecType_VP9 'vp09'
-#endif
-#ifndef kAudioFormatFLAC
-#define kAudioFormatFLAC 'flac'
-#endif
-#ifndef kAudioFormatOpus
-#define kAudioFormatOpus 'opus'
-#endif
-#ifndef kAudioFormatEnhancedAC3
-#define kAudioFormatEnhancedAC3 'ec-3'
-#endif
-
 #if HAVE(IMMERSIVE_VIDEO_METADATA_SUPPORT)
 namespace WTF {
 
@@ -240,8 +219,7 @@ String codecFromFormatDescription(CMFormatDescriptionRef formatDescription)
         return "dts"_s;
 #if ENABLE(AV1)
     case kCMVideoCodecType_AV1: {
-        // MAVERICKS_BACKPORT: call CoreMedia directly (CMFormatDescriptionGetExtension + kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms) instead of the PAL:: soft-link wrappers, which aren't usable on the 10.9 build.
-        RetainPtr sampleExtensionsDict = dynamic_cf_cast<CFDictionaryRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
+        RetainPtr sampleExtensionsDict = dynamic_cf_cast<CFDictionaryRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms));
         if (!sampleExtensionsDict)
             return "av01"_s;
         RetainPtr sampleExtensions = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(sampleExtensionsDict.get(), CFSTR("av1C")));
@@ -280,12 +258,10 @@ static std::optional<HeroEye> toHeroEye(CFStringRef eye)
     if (!eye)
         return { };
 
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (CFStringCompare(eye, kCMFormatDescriptionHeroEye_Left, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(eye, PAL::kCMFormatDescriptionHeroEye_Left, 0) == kCFCompareEqualTo)
         return HeroEye::Left;
 
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (CFStringCompare(eye, kCMFormatDescriptionHeroEye_Right, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(eye, PAL::kCMFormatDescriptionHeroEye_Right, 0) == kCFCompareEqualTo)
         return HeroEye::Right;
 
     return { };
@@ -296,12 +272,10 @@ static std::optional<ViewPackingKind> toViewPackingKind(CFStringRef kind)
     if (!kind)
         return { };
 
-    // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionViewPackingKind_* constants (no PAL:: soft-link) for the 10.9 build.
-    if (CFStringCompare(kind, kCMFormatDescriptionViewPackingKind_SideBySide, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(kind, PAL::kCMFormatDescriptionViewPackingKind_SideBySide, 0) == kCFCompareEqualTo)
         return ViewPackingKind::SideBySide;
 
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (CFStringCompare(kind, kCMFormatDescriptionViewPackingKind_OverUnder, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(kind, PAL::kCMFormatDescriptionViewPackingKind_OverUnder, 0) == kCFCompareEqualTo)
         return ViewPackingKind::OverUnder;
 
     return { };
@@ -311,8 +285,7 @@ static std::optional<LensAlgorithmKind> toLensAlgorithmKind(CFStringRef kind)
 {
     if (!kind)
         return { };
-    // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionCameraCalibrationLensAlgorithmKind_* constant (no PAL:: soft-link) for the 10.9 build.
-    if (CFStringCompare(kind, kCMFormatDescriptionCameraCalibrationLensAlgorithmKind_ParametricLens, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(kind, PAL::kCMFormatDescriptionCameraCalibrationLensAlgorithmKind_ParametricLens, 0) == kCFCompareEqualTo)
         return LensAlgorithmKind::ParametricLens;
     return { };
 }
@@ -321,8 +294,7 @@ static std::optional<LensDomain> toLensDomain(CFStringRef domain)
 {
     if (!domain)
         return { };
-    // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionCameraCalibrationLensDomain_* constant (no PAL:: soft-link) for the 10.9 build.
-    if (CFStringCompare(domain, kCMFormatDescriptionCameraCalibrationLensDomain_Color, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(domain, PAL::kCMFormatDescriptionCameraCalibrationLensDomain_Color, 0) == kCFCompareEqualTo)
         return LensDomain::Color;
     return { };
 }
@@ -331,13 +303,11 @@ static std::optional<LensRole> toLensRole(CFStringRef role)
 {
     if (!role)
         return { };
-    // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionCameraCalibrationLensRole_* constants (no PAL:: soft-link) for the 10.9 build.
-    if (CFStringCompare(role, kCMFormatDescriptionCameraCalibrationLensRole_Mono, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(role, PAL::kCMFormatDescriptionCameraCalibrationLensRole_Mono, 0) == kCFCompareEqualTo)
         return LensRole::Mono;
-    if (CFStringCompare(role, kCMFormatDescriptionCameraCalibrationLensRole_Left, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(role, PAL::kCMFormatDescriptionCameraCalibrationLensRole_Left, 0) == kCFCompareEqualTo)
         return LensRole::Left;
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (CFStringCompare(role, kCMFormatDescriptionCameraCalibrationLensRole_Right, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(role, PAL::kCMFormatDescriptionCameraCalibrationLensRole_Right, 0) == kCFCompareEqualTo)
         return LensRole::Right;
     return { };
 }
@@ -346,8 +316,7 @@ static std::optional<ExtrinsicOriginSource> toExtrinsicOriginSource(CFStringRef 
 {
     if (!source)
         return { };
-    // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionCameraCalibrationExtrinsicOriginSource_* constant (no PAL:: soft-link) for the 10.9 build.
-    if (CFStringCompare(source, kCMFormatDescriptionCameraCalibrationExtrinsicOriginSource_StereoCameraSystemBaseline, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(source, PAL::kCMFormatDescriptionCameraCalibrationExtrinsicOriginSource_StereoCameraSystemBaseline, 0) == kCFCompareEqualTo)
         return ExtrinsicOriginSource::StereoCameraSystemBaseline;
     return { };
 }
@@ -358,20 +327,19 @@ static Vector<CameraCalibration> toCameraCalibrationDataLensCollection(CFArrayRe
     collection.reserveInitialCapacity(CFArrayGetCount(array));
 
     for (RetainPtr dictionary : makeVector<RetainPtr<CFDictionaryRef>, CFDictionaryRef>(array)) {
-        // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionCameraCalibration_* keys (no PAL:: soft-link) for the 10.9 build.
-        auto lensAlgorithmKind = dynamic_cf_cast<CFStringRef>(CFDictionaryGetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensAlgorithmKind));
-        auto lensDomain = dynamic_cf_cast<CFStringRef>(CFDictionaryGetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensDomain));
-        auto lensIdentifier = dynamic_cf_cast<CFNumberRef>(CFDictionaryGetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensIdentifier));
-        auto lensRole = dynamic_cf_cast<CFStringRef>(CFDictionaryGetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensRole));
-        auto lensDistortions = dynamic_cf_cast<CFArrayRef>(CFDictionaryGetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensDistortions));
-        auto intrinsicMatrix = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_IntrinsicMatrix));
-        auto lensFrameAdjustmentsPolynomialX = dynamic_cf_cast<CFArrayRef>(CFDictionaryGetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensFrameAdjustmentsPolynomialX));
-        auto lensFrameAdjustmentsPolynomialY = dynamic_cf_cast<CFArrayRef>(CFDictionaryGetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensFrameAdjustmentsPolynomialY));
-        auto radialAngleLimit = dynamic_cf_cast<CFNumberRef>(CFDictionaryGetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_RadialAngleLimit));
-        auto intrinsicMatrixProjectionOffset = dynamic_cf_cast<CFNumberRef>(CFDictionaryGetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_IntrinsicMatrixProjectionOffset));
-        auto intrinsicMatrixReferenceDimensions = dynamic_cf_cast<CFDictionaryRef>(CFDictionaryGetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_IntrinsicMatrixReferenceDimensions));
-        auto extrinsicOriginSource = dynamic_cf_cast<CFStringRef>(CFDictionaryGetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_ExtrinsicOriginSource));
-        auto extrinsicOrientationQuaternion = dynamic_cf_cast<CFArrayRef>(CFDictionaryGetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_ExtrinsicOrientationQuaternion));
+        auto lensAlgorithmKind = dynamic_cf_cast<CFStringRef>(CFDictionaryGetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensAlgorithmKind));
+        auto lensDomain = dynamic_cf_cast<CFStringRef>(CFDictionaryGetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensDomain));
+        auto lensIdentifier = dynamic_cf_cast<CFNumberRef>(CFDictionaryGetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensIdentifier));
+        auto lensRole = dynamic_cf_cast<CFStringRef>(CFDictionaryGetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensRole));
+        auto lensDistortions = dynamic_cf_cast<CFArrayRef>(CFDictionaryGetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensDistortions));
+        auto intrinsicMatrix = dynamic_cf_cast<CFDataRef>(CFDictionaryGetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_IntrinsicMatrix));
+        auto lensFrameAdjustmentsPolynomialX = dynamic_cf_cast<CFArrayRef>(CFDictionaryGetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensFrameAdjustmentsPolynomialX));
+        auto lensFrameAdjustmentsPolynomialY = dynamic_cf_cast<CFArrayRef>(CFDictionaryGetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensFrameAdjustmentsPolynomialY));
+        auto radialAngleLimit = dynamic_cf_cast<CFNumberRef>(CFDictionaryGetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_RadialAngleLimit));
+        auto intrinsicMatrixProjectionOffset = dynamic_cf_cast<CFNumberRef>(CFDictionaryGetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_IntrinsicMatrixProjectionOffset));
+        auto intrinsicMatrixReferenceDimensions = dynamic_cf_cast<CFDictionaryRef>(CFDictionaryGetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_IntrinsicMatrixReferenceDimensions));
+        auto extrinsicOriginSource = dynamic_cf_cast<CFStringRef>(CFDictionaryGetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_ExtrinsicOriginSource));
+        auto extrinsicOrientationQuaternion = dynamic_cf_cast<CFArrayRef>(CFDictionaryGetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_ExtrinsicOrientationQuaternion));
 
         if (!lensAlgorithmKind || !lensDomain || !lensIdentifier || !lensDistortions || !intrinsicMatrix || !intrinsicMatrixProjectionOffset || !intrinsicMatrixReferenceDimensions || !extrinsicOriginSource || !extrinsicOrientationQuaternion) {
             RELEASE_LOG_ERROR(Media, "Invalid CameraCalibrationDataLens, compulsory fields missing");
@@ -430,24 +398,19 @@ static std::optional<VideoProjectionMetadataKind> toVideoProjectionMetadataKind(
     if (!kind)
         return { };
 
-    // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionProjectionKind_* constants (no PAL:: soft-link) for the 10.9 build.
-    if (CFStringCompare(kind, kCMFormatDescriptionProjectionKind_Rectilinear, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(kind, PAL::kCMFormatDescriptionProjectionKind_Rectilinear, 0) == kCFCompareEqualTo)
         return ImmersiveVideoMetadata::Kind::Rectilinear;
 
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (CFStringCompare(kind, kCMFormatDescriptionProjectionKind_Equirectangular, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(kind, PAL::kCMFormatDescriptionProjectionKind_Equirectangular, 0) == kCFCompareEqualTo)
         return ImmersiveVideoMetadata::Kind::Equirectangular;
 
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (CFStringCompare(kind, kCMFormatDescriptionProjectionKind_HalfEquirectangular, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(kind, PAL::kCMFormatDescriptionProjectionKind_HalfEquirectangular, 0) == kCFCompareEqualTo)
         return ImmersiveVideoMetadata::Kind::HalfEquirectangular;
 
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (CFStringCompare(kind, kCMFormatDescriptionProjectionKind_ParametricImmersive, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(kind, PAL::kCMFormatDescriptionProjectionKind_ParametricImmersive, 0) == kCFCompareEqualTo)
         return ImmersiveVideoMetadata::Kind::Parametric;
 
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (CFStringCompare(kind, kCMFormatDescriptionProjectionKind_AppleImmersiveVideo, 0) == kCFCompareEqualTo)
+    if (CFStringCompare(kind, PAL::kCMFormatDescriptionProjectionKind_AppleImmersiveVideo, 0) == kCFCompareEqualTo)
         return ImmersiveVideoMetadata::Kind::AppleImmersiveVideo;
 
     return { };
@@ -462,54 +425,43 @@ std::optional<ImmersiveVideoMetadata> immersiveVideoMetadataFromFormatDescriptio
 
 #if HAVE(IMMERSIVE_VIDEO_METADATA_SUPPORT)
     // Note: this assumes that the spatial metadata is in the first section of the format description.
-    // MAVERICKS_BACKPORT: this block calls CoreMedia (CMFormatDescriptionGetMediaType/GetExtension/CMVideoFormatDescriptionGetDimensions) and its kCMFormatDescriptionExtension_* keys directly rather than via the PAL:: soft-link wrappers, which aren't usable on the 10.9 build.
-    if (CMFormatDescriptionGetMediaType(formatDescription) != kCMMediaType_Video)
+    if (PAL::CMFormatDescriptionGetMediaType(formatDescription) != kCMMediaType_Video)
         return { };
 
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    auto projectionKind = toVideoProjectionMetadataKind(dynamic_cf_cast<CFStringRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_ProjectionKind)));
+    auto projectionKind = toVideoProjectionMetadataKind(dynamic_cf_cast<CFStringRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_ProjectionKind)));
     if (!projectionKind)
         return { };
 
     ImmersiveVideoMetadata metadata;
     metadata.kind = *projectionKind;
 
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (auto horizontalFieldOfView = dynamic_cf_cast<CFNumberRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_HorizontalFieldOfView))) {
+    if (auto horizontalFieldOfView = dynamic_cf_cast<CFNumberRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_HorizontalFieldOfView))) {
         metadata.horizontalFieldOfView.emplace(0);
         CFNumberGetValue(horizontalFieldOfView, kCFNumberSInt32Type, &*metadata.horizontalFieldOfView);
     }
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (auto baselineField = dynamic_cf_cast<CFNumberRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_StereoCameraBaseline))) {
+    if (auto baselineField = dynamic_cf_cast<CFNumberRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_StereoCameraBaseline))) {
         metadata.stereoCameraBaseline.emplace(0);
         CFNumberGetValue(baselineField, kCFNumberSInt32Type, &*metadata.stereoCameraBaseline);
     }
 
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (auto disparityAdjustmentField = dynamic_cf_cast<CFNumberRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_HorizontalDisparityAdjustment))) {
+    if (auto disparityAdjustmentField = dynamic_cf_cast<CFNumberRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_HorizontalDisparityAdjustment))) {
         metadata.horizontalDisparityAdjustment.emplace(0);
         CFNumberGetValue(disparityAdjustmentField, kCFNumberSInt32Type, &*metadata.horizontalDisparityAdjustment);
     }
 
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(formatDescription);
+    CMVideoDimensions dimensions = PAL::CMVideoFormatDescriptionGetDimensions(formatDescription);
     metadata.size = { dimensions.width, dimensions.height };
 
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (auto hasLeftStereoEyeView = dynamic_cf_cast<CFBooleanRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_HasLeftStereoEyeView)))
+    if (auto hasLeftStereoEyeView = dynamic_cf_cast<CFBooleanRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_HasLeftStereoEyeView)))
         metadata.hasLeftStereoEyeView = CFBooleanGetValue(hasLeftStereoEyeView);
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (auto hasRightStereoEyeView = dynamic_cf_cast<CFBooleanRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_HasRightStereoEyeView)))
+    if (auto hasRightStereoEyeView = dynamic_cf_cast<CFBooleanRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_HasRightStereoEyeView)))
         metadata.hasRightStereoEyeView = CFBooleanGetValue(hasRightStereoEyeView);
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (auto heroEye = dynamic_cf_cast<CFStringRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_HeroEye)))
+    if (auto heroEye = dynamic_cf_cast<CFStringRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_HeroEye)))
         metadata.heroEye = toHeroEye(heroEye);
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (auto viewPackingKind = dynamic_cf_cast<CFStringRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_ViewPackingKind)))
+    if (auto viewPackingKind = dynamic_cf_cast<CFStringRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_ViewPackingKind)))
         metadata.viewPackingKind = toViewPackingKind(viewPackingKind);
 
-    // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-    if (auto collection = dynamic_cf_cast<CFArrayRef>(CMFormatDescriptionGetExtension(formatDescription, kCMFormatDescriptionExtension_CameraCalibrationDataLensCollection)))
+    if (auto collection = dynamic_cf_cast<CFArrayRef>(PAL::CMFormatDescriptionGetExtension(formatDescription, PAL::kCMFormatDescriptionExtension_CameraCalibrationDataLensCollection)))
         metadata.cameraCalibrationDataLensCollection = toCameraCalibrationDataLensCollection(collection);
 
     return metadata;
@@ -522,24 +474,22 @@ std::optional<ImmersiveVideoMetadata> immersiveVideoMetadataFromFormatDescriptio
 RetainPtr<CFDictionaryRef> extractImmersiveVideoMetadata(CMFormatDescriptionRef description)
 {
     static CFStringRef keys[] = {
-    // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionExtension_* keys and a direct CMFormatDescriptionGetExtension call (no PAL:: soft-link) for the 10.9 build.
-        kCMFormatDescriptionExtension_CameraCalibrationDataLensCollection,
-        kCMFormatDescriptionExtension_HasLeftStereoEyeView,
-        kCMFormatDescriptionExtension_HasRightStereoEyeView,
-        kCMFormatDescriptionExtension_HeroEye,
-        kCMFormatDescriptionExtension_HorizontalFieldOfView,
-        kCMFormatDescriptionExtension_HorizontalDisparityAdjustment,
-        kCMFormatDescriptionExtension_StereoCameraBaseline,
-        kCMFormatDescriptionExtension_ProjectionKind,
-        kCMFormatDescriptionExtension_ViewPackingKind
+        PAL::kCMFormatDescriptionExtension_CameraCalibrationDataLensCollection,
+        PAL::kCMFormatDescriptionExtension_HasLeftStereoEyeView,
+        PAL::kCMFormatDescriptionExtension_HasRightStereoEyeView,
+        PAL::kCMFormatDescriptionExtension_HeroEye,
+        PAL::kCMFormatDescriptionExtension_HorizontalFieldOfView,
+        PAL::kCMFormatDescriptionExtension_HorizontalDisparityAdjustment,
+        PAL::kCMFormatDescriptionExtension_StereoCameraBaseline,
+        PAL::kCMFormatDescriptionExtension_ProjectionKind,
+        PAL::kCMFormatDescriptionExtension_ViewPackingKind
     };
 
     static constexpr size_t numberOfKeys = sizeof(keys) / sizeof(keys[0]);
     auto keysSpan = unsafeMakeSpan(keys, numberOfKeys);
     size_t keysSet = 0;
     Vector<RetainPtr<CFPropertyListRef>, numberOfKeys> values(numberOfKeys, [&](size_t index) -> RetainPtr<CFPropertyListRef> {
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        RetainPtr value = CMFormatDescriptionGetExtension(description, RetainPtr { keysSpan[index] }.get());
+        RetainPtr value = PAL::CMFormatDescriptionGetExtension(description, RetainPtr { keysSpan[index] }.get());
         if (!value)
             return nullptr;
         keysSet++;
@@ -564,73 +514,56 @@ RetainPtr<CFDictionaryRef> formatDescriptionDictionaryFromImmersiveVideoMetadata
     auto kind = [](auto kind) -> CFStringRef {
         switch (kind) {
         case ImmersiveVideoMetadata::Kind::Rectilinear:
-        // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionProjectionKind_* constants (no PAL:: soft-link) for the 10.9 build.
-            return kCMFormatDescriptionProjectionKind_Rectilinear;
+            return PAL::kCMFormatDescriptionProjectionKind_Rectilinear;
         case ImmersiveVideoMetadata::Kind::Equirectangular:
-            // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-            return kCMFormatDescriptionProjectionKind_Equirectangular;
+            return PAL::kCMFormatDescriptionProjectionKind_Equirectangular;
         case ImmersiveVideoMetadata::Kind::HalfEquirectangular:
-            // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-            return kCMFormatDescriptionProjectionKind_HalfEquirectangular;
+            return PAL::kCMFormatDescriptionProjectionKind_HalfEquirectangular;
         case ImmersiveVideoMetadata::Kind::Parametric:
-            // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-            return kCMFormatDescriptionProjectionKind_ParametricImmersive;
+            return PAL::kCMFormatDescriptionProjectionKind_ParametricImmersive;
         case ImmersiveVideoMetadata::Kind::AppleImmersiveVideo:
-            // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-            return kCMFormatDescriptionProjectionKind_AppleImmersiveVideo;
+            return PAL::kCMFormatDescriptionProjectionKind_AppleImmersiveVideo;
         default:
             return nil;
         }
     }(metadata.kind);
     if (kind)
-    // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionExtension_* keys (no PAL:: soft-link) for the 10.9 build.
-        CFDictionaryAddValue(extensions.get(), kCMFormatDescriptionExtension_ProjectionKind, kind);
+        CFDictionaryAddValue(extensions.get(), PAL::kCMFormatDescriptionExtension_ProjectionKind, kind);
 
     if (metadata.horizontalFieldOfView)
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionaryAddValue(extensions.get(), kCMFormatDescriptionExtension_HorizontalFieldOfView, adoptCF(CFNumberCreate(nullptr, kCFNumberSInt32Type, &*metadata.horizontalFieldOfView)).get());
+        CFDictionaryAddValue(extensions.get(), PAL::kCMFormatDescriptionExtension_HorizontalFieldOfView, adoptCF(CFNumberCreate(nullptr, kCFNumberSInt32Type, &*metadata.horizontalFieldOfView)).get());
     if (metadata.stereoCameraBaseline)
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionaryAddValue(extensions.get(), kCMFormatDescriptionExtension_StereoCameraBaseline, adoptCF(CFNumberCreate(nullptr, kCFNumberSInt32Type, &*metadata.stereoCameraBaseline)).get());
+        CFDictionaryAddValue(extensions.get(), PAL::kCMFormatDescriptionExtension_StereoCameraBaseline, adoptCF(CFNumberCreate(nullptr, kCFNumberSInt32Type, &*metadata.stereoCameraBaseline)).get());
     if (metadata.horizontalDisparityAdjustment)
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionaryAddValue(extensions.get(), kCMFormatDescriptionExtension_HorizontalDisparityAdjustment, adoptCF(CFNumberCreate(nullptr, kCFNumberSInt32Type, &*metadata.horizontalDisparityAdjustment)).get());
+        CFDictionaryAddValue(extensions.get(), PAL::kCMFormatDescriptionExtension_HorizontalDisparityAdjustment, adoptCF(CFNumberCreate(nullptr, kCFNumberSInt32Type, &*metadata.horizontalDisparityAdjustment)).get());
 
     if (metadata.hasLeftStereoEyeView)
-    // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionExtension_Has*StereoEyeView keys (no PAL:: soft-link) for the 10.9 build.
-        CFDictionaryAddValue(extensions.get(), kCMFormatDescriptionExtension_HasLeftStereoEyeView, *metadata.hasLeftStereoEyeView ? kCFBooleanTrue : kCFBooleanFalse);
+        CFDictionaryAddValue(extensions.get(), PAL::kCMFormatDescriptionExtension_HasLeftStereoEyeView, *metadata.hasLeftStereoEyeView ? kCFBooleanTrue : kCFBooleanFalse);
     if (metadata.hasRightStereoEyeView)
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionaryAddValue(extensions.get(), kCMFormatDescriptionExtension_HasRightStereoEyeView, *metadata.hasRightStereoEyeView ? kCFBooleanTrue : kCFBooleanFalse);
+        CFDictionaryAddValue(extensions.get(), PAL::kCMFormatDescriptionExtension_HasRightStereoEyeView, *metadata.hasRightStereoEyeView ? kCFBooleanTrue : kCFBooleanFalse);
 
     if (metadata.heroEye) {
         CFStringRef heroEye = [](auto eye) {
             switch (eye) {
             case HeroEye::Left:
-            // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionHeroEye_* constants (no PAL:: soft-link) for the 10.9 build.
-                return kCMFormatDescriptionHeroEye_Left;
+                return PAL::kCMFormatDescriptionHeroEye_Left;
             case HeroEye::Right:
-                // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-                return kCMFormatDescriptionHeroEye_Right;
+                return PAL::kCMFormatDescriptionHeroEye_Right;
             }
         }(*metadata.heroEye);
-        // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionExtension_HeroEye key (no PAL:: soft-link) for the 10.9 build.
-        CFDictionaryAddValue(extensions.get(), kCMFormatDescriptionExtension_HeroEye, heroEye);
+        CFDictionaryAddValue(extensions.get(), PAL::kCMFormatDescriptionExtension_HeroEye, heroEye);
     }
 
     if (metadata.viewPackingKind) {
         CFStringRef viewPackingKind = [](auto viewPackingKind) {
             switch (viewPackingKind) {
             case ViewPackingKind::SideBySide:
-            // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionViewPackingKind_* constants (no PAL:: soft-link) for the 10.9 build.
-                return kCMFormatDescriptionViewPackingKind_SideBySide;
+                return PAL::kCMFormatDescriptionViewPackingKind_SideBySide;
             case ViewPackingKind::OverUnder:
-                // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-                return kCMFormatDescriptionViewPackingKind_OverUnder;
+                return PAL::kCMFormatDescriptionViewPackingKind_OverUnder;
             }
         }(*metadata.viewPackingKind);
-        // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionExtension_ViewPackingKind key (no PAL:: soft-link) for the 10.9 build.
-        CFDictionaryAddValue(extensions.get(), kCMFormatDescriptionExtension_ViewPackingKind, viewPackingKind);
+        CFDictionaryAddValue(extensions.get(), PAL::kCMFormatDescriptionExtension_ViewPackingKind, viewPackingKind);
     }
 
     RetainPtr array = adoptCF(CFArrayCreateMutable(nullptr, metadata.cameraCalibrationDataLensCollection.size(), &kCFTypeArrayCallBacks));
@@ -640,96 +573,72 @@ RetainPtr<CFDictionaryRef> formatDescriptionDictionaryFromImmersiveVideoMetadata
         auto lensAlgorithmKind = [](auto lensAlgorithmKind) {
             switch (lensAlgorithmKind) {
             case LensAlgorithmKind::ParametricLens:
-        // MAVERICKS_BACKPORT: the per-lens dictionary below is built with the bare CoreMedia kCMFormatDescriptionCameraCalibration* keys and constants (no PAL:: soft-link), which aren't usable on the 10.9 build.
-                // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-                return kCMFormatDescriptionCameraCalibrationLensAlgorithmKind_ParametricLens;
+                return PAL::kCMFormatDescriptionCameraCalibrationLensAlgorithmKind_ParametricLens;
             }
         }(cameraCalibration.lensAlgorithmKind);
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionarySetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensAlgorithmKind, lensAlgorithmKind);
+        CFDictionarySetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensAlgorithmKind, lensAlgorithmKind);
 
         auto lensDomain = [](auto lensDomain) {
             switch (lensDomain) {
             case LensDomain::Color:
-        // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionCameraCalibration*LensDomain* keys/constants (no PAL:: soft-link) for the 10.9 build.
-                // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-                return kCMFormatDescriptionCameraCalibrationLensDomain_Color;
+                return PAL::kCMFormatDescriptionCameraCalibrationLensDomain_Color;
             }
         }(cameraCalibration.lensDomain);
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionarySetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensDomain, lensDomain);
+        CFDictionarySetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensDomain, lensDomain);
 
         RetainPtr lensIdentifier = adoptCF(CFNumberCreate(nullptr, kCFNumberSInt32Type, &cameraCalibration.lensIdentifier));
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionarySetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensIdentifier, lensIdentifier.get());
+        CFDictionarySetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensIdentifier, lensIdentifier.get());
 
         auto lensRole = [](auto lensRole) {
             switch (lensRole) {
             case LensRole::Mono:
-        // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionCameraCalibration*LensRole* keys/constants (no PAL:: soft-link) for the 10.9 build.
-                // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-                return kCMFormatDescriptionCameraCalibrationLensRole_Mono;
+                return PAL::kCMFormatDescriptionCameraCalibrationLensRole_Mono;
             case LensRole::Left:
-                // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-                return kCMFormatDescriptionCameraCalibrationLensRole_Left;
+                return PAL::kCMFormatDescriptionCameraCalibrationLensRole_Left;
             case LensRole::Right:
-                // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-                return kCMFormatDescriptionCameraCalibrationLensRole_Right;
+                return PAL::kCMFormatDescriptionCameraCalibrationLensRole_Right;
             }
         }(cameraCalibration.lensRole);
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionarySetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensRole, lensRole);
+        CFDictionarySetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensRole, lensRole);
 
         RetainPtr lensDistortions = createCFArray(cameraCalibration.lensDistortions);
-        // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionCameraCalibration_LensDistortions / _LensFrameAdjustmentsPolynomial* keys (no PAL:: soft-link) for the 10.9 build.
-        CFDictionarySetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensDistortions, lensDistortions.get());
+        CFDictionarySetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensDistortions, lensDistortions.get());
 
         RetainPtr lensFrameAdjustmentsPolynomialX = createCFArray(cameraCalibration.lensFrameAdjustmentsPolynomialX);
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionarySetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensFrameAdjustmentsPolynomialX, lensFrameAdjustmentsPolynomialX.get());
+        CFDictionarySetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensFrameAdjustmentsPolynomialX, lensFrameAdjustmentsPolynomialX.get());
 
         RetainPtr lensFrameAdjustmentsPolynomialY = createCFArray(cameraCalibration.lensFrameAdjustmentsPolynomialY);
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionarySetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_LensFrameAdjustmentsPolynomialY, lensFrameAdjustmentsPolynomialY.get());
+        CFDictionarySetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_LensFrameAdjustmentsPolynomialY, lensFrameAdjustmentsPolynomialY.get());
 
         RetainPtr radialAngleLimit = adoptCF(CFNumberCreate(nullptr, kCFNumberFloat32Type, &cameraCalibration.radialAngleLimit));
-        // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionCameraCalibration_RadialAngleLimit / _IntrinsicMatrix* keys (no PAL:: soft-link) for the 10.9 build.
-        CFDictionarySetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_RadialAngleLimit, radialAngleLimit.get());
+        CFDictionarySetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_RadialAngleLimit, radialAngleLimit.get());
 
         RetainPtr intrinsicMatrix = adoptCF(CFDataCreate(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(&cameraCalibration.intrinsicMatrix), sizeof(cameraCalibration.intrinsicMatrix)));
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionarySetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_IntrinsicMatrix, intrinsicMatrix.get());
+        CFDictionarySetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_IntrinsicMatrix, intrinsicMatrix.get());
 
         RetainPtr intrinsicMatrixProjectionOffset = adoptCF(CFNumberCreate(nullptr, kCFNumberFloat32Type, &cameraCalibration.intrinsicMatrixProjectionOffset));
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionarySetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_IntrinsicMatrixProjectionOffset, intrinsicMatrixProjectionOffset.get());
+        CFDictionarySetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_IntrinsicMatrixProjectionOffset, intrinsicMatrixProjectionOffset.get());
 
         RetainPtr intrinsicMatrixReferenceDimensions = adoptCF(CGSizeCreateDictionaryRepresentation({
             .width = CGFloat(cameraCalibration.intrinsicMatrixReferenceDimensions.width()),
             .height = CGFloat(cameraCalibration.intrinsicMatrixReferenceDimensions.height())
         }));
-        // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionCameraCalibration_IntrinsicMatrixReferenceDimensions key (no PAL:: soft-link) for the 10.9 build.
-        CFDictionarySetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_IntrinsicMatrixReferenceDimensions, intrinsicMatrixReferenceDimensions.get());
+        CFDictionarySetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_IntrinsicMatrixReferenceDimensions, intrinsicMatrixReferenceDimensions.get());
 
         auto extrinsicOriginSource = [](auto extrinsicOriginSource) {
             switch (extrinsicOriginSource) {
             case ExtrinsicOriginSource::StereoCameraSystemBaseline:
-        // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionCameraCalibration*ExtrinsicOriginSource* / _ExtrinsicOrientationQuaternion keys/constants (no PAL:: soft-link) for the 10.9 build.
-                // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-                return kCMFormatDescriptionCameraCalibrationExtrinsicOriginSource_StereoCameraSystemBaseline;
+                return PAL::kCMFormatDescriptionCameraCalibrationExtrinsicOriginSource_StereoCameraSystemBaseline;
             }
         }(cameraCalibration.extrinsicOriginSource);
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionarySetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_ExtrinsicOriginSource, extrinsicOriginSource);
+        CFDictionarySetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_ExtrinsicOriginSource, extrinsicOriginSource);
 
         RetainPtr extrinsicOrientationQuaternion = createCFArray(cameraCalibration.extrinsicOrientationQuaternion);
-        // MAVERICKS_BACKPORT: call CoreMedia directly; the PAL:: soft-link wrappers are not usable on the 10.9 build.
-        CFDictionarySetValue(dictionary.get(), kCMFormatDescriptionCameraCalibration_ExtrinsicOrientationQuaternion, extrinsicOrientationQuaternion.get());
+        CFDictionarySetValue(dictionary.get(), PAL::kCMFormatDescriptionCameraCalibration_ExtrinsicOrientationQuaternion, extrinsicOrientationQuaternion.get());
 
         CFArrayAppendValue(array.get(), dictionary.get());
     }
-    // MAVERICKS_BACKPORT: bare CoreMedia kCMFormatDescriptionExtension_CameraCalibrationDataLensCollection key (no PAL:: soft-link) for the 10.9 build.
-    CFDictionarySetValue(extensions.get(), kCMFormatDescriptionExtension_CameraCalibrationDataLensCollection, array.get());
+    CFDictionarySetValue(extensions.get(), PAL::kCMFormatDescriptionExtension_CameraCalibrationDataLensCollection, array.get());
 
     return extensions;
 }

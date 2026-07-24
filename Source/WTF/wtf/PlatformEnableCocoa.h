@@ -67,8 +67,7 @@
 #define ENABLE_AIRPLAY_PICKER 1
 #endif
 
-// MAVERICKS_BACKPORT: gate the WebM player on ENABLE(MEDIA_SOURCE) (forced OFF on 10.9), since it depends on MSE.
-#if !defined(ENABLE_COCOA_WEBM_PLAYER) && !PLATFORM(MACCATALYST) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV) && ENABLE(MEDIA_SOURCE)
+#if !defined(ENABLE_COCOA_WEBM_PLAYER) && !PLATFORM(MACCATALYST) && !PLATFORM(WATCHOS) && !PLATFORM(APPLETV)
 #define ENABLE_COCOA_WEBM_PLAYER 1
 #endif
 
@@ -350,13 +349,6 @@
 // spaces are genuinely unsupported on this deployment target. With the flags left on,
 // DestinationColorSpace::DisplayP3()/ExtendedSRGB()/ExtendedRec2020() wrap a NULL
 // CGColorSpaceRef at runtime (reachable via canvas {colorSpace:'display-p3'} et al).
-// Matches the empty CGColorSpaceMapping gating in ColorSpaceCG.h.
-#if !defined(ENABLE_DESTINATION_COLOR_SPACE_DISPLAY_P3) && PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200
-#define ENABLE_DESTINATION_COLOR_SPACE_DISPLAY_P3 0
-#define ENABLE_DESTINATION_COLOR_SPACE_EXTENDED_SRGB 0
-#define ENABLE_DESTINATION_COLOR_SPACE_EXTENDED_REC_2020 0
-#endif
-
 #if !defined(ENABLE_DESTINATION_COLOR_SPACE_DISPLAY_P3)
 #define ENABLE_DESTINATION_COLOR_SPACE_DISPLAY_P3 1
 #endif
@@ -1005,13 +997,12 @@
 #define ENABLE_VARIATION_FONTS 1
 #endif
 
-// MAVERICKS_BACKPORT: native AVKit video fullscreen / picture-in-picture (VideoPresentationInterfaceMac /
-// PlaybackSessionInterfaceMac) needs AVKit SPI absent on 10.9; force it off. Element fullscreen for
-// <video> is unaffected (ENABLE_VIDEO_USES_ELEMENT_FULLSCREEN below). Every reference is
-// ENABLE(VIDEO_PRESENTATION_MODE)-guarded upstream, so those interface files compile out and stay pristine.
-#define ENABLE_VIDEO_PRESENTATION_MODE 0
-
-// MAVERICKS_BACKPORT: parenthesize the OR — without it `... || PLATFORM(MAC)` (|| binds looser than &&) is always true on Mac and redefines this macro back to 1, overriding the forced-0 above.
+// MAVERICKS_BACKPORT: parenthesize the OR so ENABLE_VIDEO_PRESENTATION_MODE respects the value
+// cmakeconfig.h sets (0 on this port). As written, `&& (...) || PLATFORM(MAC)` parses as
+// `(!defined(X) && (...)) || PLATFORM(MAC)` — the `|| PLATFORM(MAC)` escapes the `!defined` guard, so on
+// Mac it redefines the macro to 1 unconditionally, overriding the cmakeconfig 0 (with a redefinition
+// warning). Wrapping the OR makes the whole block honour "define only if not already defined".
+// MAVERICKS_BACKPORT: the added parens on the continuation line below scope the OR (see note above).
 #if !defined(ENABLE_VIDEO_PRESENTATION_MODE) \
     && ((PLATFORM(IOS_FAMILY) && HAVE(AVKIT)) \
     || PLATFORM(MAC))

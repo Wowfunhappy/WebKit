@@ -119,6 +119,26 @@ else
 fi
 
 cd "$BUILD"
+
+# --- Recover a wedged build.ninja ------------------------------------------------------------
+# ninja normally regenerates build.ninja itself: the RERUN_CMAKE rule lists every CMakeLists/*.cmake
+# as a dependency — INCLUDING the MavericksSupport overlays (WebCore/WebKitPlatformMavericks.cmake) —
+# so a plain edit to any of them is picked up automatically on the next build. But that self-reconfigure
+# rule lives INSIDE build.ninja. If a configure ever writes a manifest ninja can't parse (e.g. a
+# duplicate build output — "ninja: error: build.ninja:N: ... defined as an output multiple times"),
+# ninja can no longer load the manifest to reach RERUN_CMAKE, so it is wedged: every subsequent run
+# dies at the identical parse error even after the offending .cmake is fixed, until someone runs
+# `cmake $BUILD` by hand. Detect the unparseable manifest with a cheap read-only load and heal it with
+# a plain reconfigure. No -U here: this is manifest recovery, not an option-default change (the feature
+# re-derive above owns that, and -U would needlessly reset every option).
+if [ -f build.ninja ] && ! "$NINJA" -t targets >/dev/null 2>&1; then
+    echo "### build.ninja does not parse (a prior configure wrote a bad manifest) -> reconfiguring to recover"
+    if ! "$CMAKE" "$BUILD" >> "$LOG" 2>&1; then
+        echo "==================== RECOVERY RECONFIGURE FAILED — ABORTING ===================="
+        tail -20 "$LOG"; exit 1
+    fi
+fi
+
 # -k 0 : keep going after the first failure so a link stage surfaces ALL undefined symbols at once.
 "$NINJA" -k 0 2>&1 | tee "$LOG"
 RC=${PIPESTATUS[0]}

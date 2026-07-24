@@ -2460,6 +2460,17 @@ if (USE_XDGMIME)
     list(APPEND WebCore_LIBRARIES xdgmime)
 endif ()
 
+# MAVERICKS_BACKPORT: WebCore's OWN libwebrtc directory holds LibWebRTCProvider.h, which
+# platform/graphics/cocoa/VP9UtilitiesCocoa.mm includes by bare name regardless of USE_LIBWEBRTC — the
+# file is about VP9 codec configuration, not about libwebrtc being the WebRTC backend. Upstream never
+# notices because its Mac port builds with USE_LIBWEBRTC ON, so the directory is always on the path.
+# Hoist this one out of the guard (the ThirdParty/libwebrtc paths stay inside it, since those really do
+# require the vendored library). This replaces a flat-path COPY of LibWebRTCProvider.h that used to sit in
+# Source/WebCore/ for the same reason; the copy is deleted.
+list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
+    "${WEBCORE_DIR}/platform/mediastream/libwebrtc"
+)
+
 if (USE_LIBWEBRTC)
     add_definitions(-DWEBRTC_ALLOW_DEPRECATED_NAMESPACES)
     list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
@@ -2471,7 +2482,9 @@ if (USE_LIBWEBRTC)
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
         "${WEBCORE_DIR}/Modules/mediastream/libwebrtc"
         "${WEBCORE_DIR}/platform/libwebrtc"
-        "${WEBCORE_DIR}/platform/mediastream/libwebrtc"
+        # MAVERICKS_BACKPORT: "${WEBCORE_DIR}/platform/mediastream/libwebrtc" was here; it is now
+        # appended unconditionally above the guard, because VP9UtilitiesCocoa.mm needs it even when
+        # USE_LIBWEBRTC is OFF. See the marker on that hoist for the full reason.
     )
     # MAVERICKS_BACKPORT: the libwebrtc WebKit ObjC SDK is full of category-only
     # translation units (RTCVideoCodecInfo+Private, NSString+StdString, etc.) whose
@@ -3177,7 +3190,13 @@ if (APPLE)
     # MAVERICKS_BACKPORT: also allow the layout-test drivers to link WebCore directly (they pull in the
     # WebCoreTestSupport/Internals code that calls into WebCore); without this, DumpRenderTree/WebKitTestRunner
     # fail to link with "not an allowed client".
-    set_target_properties(WebCore PROPERTIES LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle")
+    # MAVERICKS_BACKPORT: weak-link Metal. It is absent on 10.9, so the hard framework link was dropped
+    # (WebCore_LIBRARIES REMOVE_ITEM in the overlay), but the WebGL/ANGLE EGL-image path still compiles hard
+    # ObjC class references (MTLSharedTextureHandle, MTLTextureDescriptor, ...). Those bind eagerly at dyld
+    # load regardless of -undefined dynamic_lookup, so without a weak reference every WebKit client aborts at
+    # launch. -weak_framework makes the class refs nil when Metal is absent; the Metal code path is unreachable
+    # on 10.9's OpenGL backend, so nil is never dereferenced.
+    set_target_properties(WebCore PROPERTIES LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -weak_framework Metal -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle")
 
     # MAVERICKS_BACKPORT: force-load the selref-scope polyfill (libpolyfill_classes.a = wk_selref_scope.o
     # the mechanism + methods.o the wk_ category methods on NSColor/NSScreen/NSWindow/NSWorkspace/

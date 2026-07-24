@@ -54,12 +54,6 @@ ThreadGlobalData::ThreadGlobalData()
 
 ThreadGlobalData::~ThreadGlobalData() = default;
 
-// MAVERICKS_BACKPORT: out-of-line body of the WEBCORE_EXPORT'd accessor declared in ThreadGlobalData.h, so it is a linkable cross-framework symbol on the 10.9 build.
-ThreadTimers& ThreadGlobalData::threadTimers()
-{
-    return m_threadTimers;
-}
-
 void ThreadGlobalData::destroy()
 {
     if (CheckedPtr fontCache = m_fontCache.get())
@@ -133,28 +127,10 @@ void ThreadGlobalData::initializeEventNames()
     m_eventNames = EventNames::create();
 }
 
-// MAVERICKS_BACKPORT: out-of-line body of the WEBCORE_EXPORT'd accessor declared in ThreadGlobalData.h, so it is a linkable cross-framework symbol on the 10.9 build.
-EventNames& ThreadGlobalData::eventNames()
-{
-    ASSERT(!m_destroyed);
-    if (!m_eventNames) [[unlikely]]
-        initializeEventNames();
-    return *m_eventNames;
-}
-
 void ThreadGlobalData::initializeQualifiedNameCache()
 {
     ASSERT(!m_qualifiedNameCache);
     m_qualifiedNameCache = makeUnique<QualifiedNameCache>();
-}
-
-// MAVERICKS_BACKPORT: out-of-line body of the WEBCORE_EXPORT'd accessor declared in ThreadGlobalData.h, so it is a linkable cross-framework symbol on the 10.9 build.
-QualifiedNameCache& ThreadGlobalData::qualifiedNameCache()
-{
-    ASSERT(!m_destroyed);
-    if (!m_qualifiedNameCache) [[unlikely]]
-        initializeQualifiedNameCache();
-    return *m_qualifiedNameCache;
 }
 
 void ThreadGlobalData::initializeMimeTypeRegistryThreadGlobalData()

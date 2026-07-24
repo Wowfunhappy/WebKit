@@ -13100,8 +13100,7 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
     parameters.smartInsertDeleteEnabled = m_isSmartInsertDeleteEnabled;
     parameters.additionalSupportedImageTypes = m_configuration->additionalSupportedImageTypes().value_or(Vector<String>());
 
-    // MAVERICKS_BACKPORT: also gate the GPU sandbox-extension handles on ENABLE(SANDBOX_EXTENSIONS) (OFF on this port).
-#if !ENABLE(WEBCONTENT_GPU_SANDBOX_EXTENSIONS_BLOCKING) && ENABLE(SANDBOX_EXTENSIONS)
+#if !ENABLE(WEBCONTENT_GPU_SANDBOX_EXTENSIONS_BLOCKING)
 #if ENABLE(TILED_CA_DRAWING_AREA)
     if (!shouldBlockIOKit(preferences) || drawingArea.type() == DrawingAreaType::TiledCoreAnimation)
 #else
@@ -13111,8 +13110,7 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
         parameters.gpuIOKitExtensionHandles = SandboxExtension::createHandlesForIOKitClassExtensions(gpuIOKitClasses(), std::nullopt);
         parameters.gpuMachExtensionHandles = SandboxExtension::createHandlesForMachLookup(gpuMachServices(), std::nullopt);
     }
-// MAVERICKS_BACKPORT: matching close of the ENABLE(SANDBOX_EXTENSIONS) gate above.
-#endif // !ENABLE(WEBCONTENT_GPU_SANDBOX_EXTENSIONS_BLOCKING) && ENABLE(SANDBOX_EXTENSIONS)
+#endif // !ENABLE(WEBCONTENT_GPU_SANDBOX_EXTENSIONS_BLOCKING)
 #endif // PLATFORM(COCOA)
 
 #if ENABLE(TILED_CA_DRAWING_AREA)

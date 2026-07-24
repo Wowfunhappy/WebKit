@@ -1333,14 +1333,15 @@ static bool validateArgument(id argument)
     });
 
 #if ENABLE(FULLSCREEN_API)
-    // MAVERICKS_BACKPORT: gate the video-presentation-manager path on ENABLE(VIDEO_PRESENTATION_MODE); that mode is disabled on 10.9, so WebPageProxy has no videoPresentationManager().
+    // MAVERICKS_BACKPORT: WebPageProxy::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only
+    // (off on this port); upstream reaches it under FULLSCREEN_API because their Mac ships VPM on.
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr videoPresentationManager = _page->videoPresentationManager()) {
         videoPresentationManager->forEachSession([callbackAggregator] (auto& model, auto& interface) mutable {
             model.requestCloseAllMediaPresentations(false, [callbackAggregator] { });
         });
     }
-#endif // ENABLE(VIDEO_PRESENTATION_MODE) — MAVERICKS_BACKPORT: that mode is off on 10.9, so the videoPresentationManager path above is guarded out
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on videoPresentationManager() (see above).
 
     if (RefPtr fullScreenManager = _page->fullScreenManager(); fullScreenManager && fullScreenManager->isFullScreen())
         fullScreenManager->closeWithCallback([callbackAggregator] { });
@@ -4465,7 +4466,7 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 
 - (BOOL)_canEnterFullscreen
 {
-    // MAVERICKS_BACKPORT: gate on ENABLE(VIDEO_PRESENTATION_MODE); that mode is off on 10.9, so WebPageProxy::canEnterFullscreen() is unavailable — report not-enterable.
+    // MAVERICKS_BACKPORT: WebPageProxy::canEnterFullscreen() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off here).
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     return _page->canEnterFullscreen();
 #else
@@ -4603,11 +4604,11 @@ static RetainPtr<NSArray> wkTextManipulationErrors(NSArray<_WKTextManipulationIt
 
 - (void)_enterFullscreen
 {
-    // MAVERICKS_BACKPORT: gate on ENABLE(VIDEO_PRESENTATION_MODE); that mode is off on 10.9, so WebPageProxy::enterFullscreen() is unavailable — the call is a no-op there.
+    // MAVERICKS_BACKPORT: WebPageProxy::enterFullscreen() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off here).
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr page = _page)
         page->enterFullscreen();
-#endif // ENABLE(VIDEO_PRESENTATION_MODE) — MAVERICKS_BACKPORT: off on 10.9, so enterFullscreen() above is a no-op (guarded out)
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on enterFullscreen() (see above).
 }
 
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
@@ -5443,13 +5444,14 @@ static void convertAndAddHighlight(Vector<Ref<WebCore::SharedMemory>>& buffers, 
 {
 #if ENABLE(FULLSCREEN_API)
     bool hasOpenMediaPresentations = false;
-    // MAVERICKS_BACKPORT: gate the video-presentation-manager probe on ENABLE(VIDEO_PRESENTATION_MODE); that mode is off on 10.9 so only element-fullscreen below is considered.
+    // MAVERICKS_BACKPORT: WebPageProxy::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off
+    // here); with it absent there are no open video presentations, so hasOpenMediaPresentations stays false.
 #if ENABLE(VIDEO_PRESENTATION_MODE)
     if (RefPtr videoPresentationManager = _page->videoPresentationManager()) {
         hasOpenMediaPresentations = videoPresentationManager->hasMode(WebCore::HTMLMediaElementEnums::VideoFullscreenModePictureInPicture)
             || videoPresentationManager->hasMode(WebCore::HTMLMediaElementEnums::VideoFullscreenModeStandard);
     }
-#endif // ENABLE(VIDEO_PRESENTATION_MODE) — MAVERICKS_BACKPORT: off on 10.9, so the video-presentation probe above is guarded out
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on videoPresentationManager() (see above).
 
     if (!hasOpenMediaPresentations) {
         RefPtr fullScreenManager = _page->fullScreenManager();

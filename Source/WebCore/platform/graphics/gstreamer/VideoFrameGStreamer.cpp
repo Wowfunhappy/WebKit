@@ -150,6 +150,16 @@ VideoFrameGStreamer::Info VideoFrameGStreamer::infoFromCaps(const GRefPtr<GstCap
     return { videoInfo, dmabufFormat };
 }
 
+// MAVERICKS_BACKPORT: VideoFrame::createFromPixelBuffer was defined here upstream:
+//
+//     RefPtr<VideoFrame> VideoFrame::createFromPixelBuffer(Ref<PixelBuffer>&& pixelBuffer, PlatformVideoColorSpace&& colorSpace)
+//     {
+//         return VideoFrameGStreamer::createFromPixelBuffer(WTF::move(pixelBuffer), { }, 1, { }, WTF::move(colorSpace));
+//     }
+//
+// It has moved below, into the #if !PLATFORM(COCOA) block: on Cocoa the shared VideoFrame:: factories
+// come from VideoFrameCV, so defining them here too is a duplicate symbol. The move is what lets the
+// rest of this file (VideoFrameGStreamer::*, used by the GStreamer media player) stay compiled on Cocoa.
 // MAVERICKS_BACKPORT: file-local helpers used by VideoFrameGStreamer::* (outside the COCOA guard); kept compiled.
 static RefPtr<ImageGStreamer> convertSampleToImage(const GRefPtr<GstSample>& sample, const GstVideoInfo& videoInfo)
 {

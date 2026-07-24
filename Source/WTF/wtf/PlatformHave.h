@@ -435,16 +435,11 @@
 #define HAVE_IOSURFACE_SET_OWNERSHIP_IDENTITY 1
 #endif
 
-// MAVERICKS_BACKPORT: task_create_identity_token is unavailable on macOS 10.9.
-// __MAC_10_9 == 1090, __MAC_10_10 == 101000 (newer SDKs use 6-digit form),
-// so use a guard that excludes 1090 specifically.
-#if PLATFORM(COCOA) && !PLATFORM(IOS_FAMILY_SIMULATOR) && (!defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101000)
+#if PLATFORM(COCOA) && !PLATFORM(IOS_FAMILY_SIMULATOR)
 #define HAVE_TASK_IDENTITY_TOKEN 1
 #endif
 
-// MAVERICKS_BACKPORT: CGContextSetOwnerIdentity takes a task_id_token_t, which (like HAVE_TASK_IDENTITY_TOKEN above)
-// does not exist before macOS 10.10; gate it the same way so a 10.9 build doesn't reference the type.
-#if (PLATFORM(MAC) || (PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR))) && (!defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101000)
+#if PLATFORM(MAC) || (PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR))
 #define HAVE_CG_CONTEXT_SET_OWNER_IDENTITY 1
 #endif
 
@@ -1232,7 +1227,10 @@
 #endif
 #endif
 
-#if PLATFORM(IOS) || PLATFORM(VISION) || PLATFORM(MAC)
+// MAVERICKS_BACKPORT: TranslationUIServices.framework is macOS 12+ and absent on 10.9; gate it off. (On a
+// 10.9 deployment target the AppKit SDK also exposes NSPopover's pre-10.10 NSPopoverAppearance property, which
+// the translation-popover code cannot use.) Element translation UI is simply unavailable on this OS.
+#if PLATFORM(IOS) || PLATFORM(VISION) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000)
 #define HAVE_TRANSLATION_UI_SERVICES 1
 #endif
 

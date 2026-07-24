@@ -1,468 +1,1334 @@
-// MAVERICKS_BACKPORT: add mouse/keyboard event forwarders missing from upstream
-// WKWebView (modern API) — the inspector uses WKInspectorWKWebView which extends
-// WKWebView and without these methods AppKit's mouseDown: hits NSResponder's no-op,
-// so the inspector window swallowed every click.
-#include "config.h"
+/*
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
+ */
 
-// MAVERICKS_BACKPORT: the WKWebView Mac event-forwarding category below compiles only on Mac.
+#import "config.h"
+#import "WKWebViewMac.h"
+
+// FIXME: https://bugs.webkit.org/show_bug.cgi?id=306415
+#if ENABLE(BACK_FORWARD_LIST_SWIFT)
+#include "WebKit-Swift.h"
+#endif
+
 #if PLATFORM(MAC)
 
-// MAVERICKS_BACKPORT: includes for the event-forwarding category that backfills WKWebView's input handling.
-#import "WKWebViewInternal.h"
-#import "WebViewImpl.h"
-// MAVERICKS_BACKPORT: native event + keypress types used to marshal NSEvents to the page proxy.
-#import "NativeWebMouseEvent.h"
-#import "NativeWebWheelEvent.h"
-#import "NativeWebKeyboardEvent.h"
+#import "AppKitSPI.h"
+#import "WKAPICast.h"
+#import "WKIntelligenceTextEffectCoordinator.h"
+#import "WKTextFinderClient.h"
+#import "WKWebViewConfigurationPrivate.h"
+#import "WebBackForwardList.h"
+#import "WebFrameProxy.h"
 #import "WebPageProxy.h"
+#import "WebPreferences.h"
+#import "WebProcessProxy.h"
+#import "WebViewImpl.h"
+#import "_WKFrameHandleInternal.h"
+#import "_WKHitTestResultInternal.h"
+#import "_WKWarningView.h"
 #import <WebCore/CGWindowUtilities.h>
-#import <WebCore/KeypressCommand.h>
-#import <pal/spi/cg/CoreGraphicsSPI.h>
+#import <WebCore/CornerRadii.h>
+#import <WebCore/LegacyNSPasteboardTypes.h>
+#import <WebKit/WKUIDelegatePrivate.h>
+#import <pal/spi/mac/NSTextFinderSPI.h>
+#import <pal/spi/mac/NSTextInputContextSPI.h>
+#import <pal/spi/mac/NSViewSPI.h>
+#import <wtf/StdLibExtras.h>
+#import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 
-// MAVERICKS_BACKPORT: category adding the NSEvent forwarders/NSTextInputClient stubs absent from upstream WKWebView on Mac.
-@implementation WKWebView (Mac10_9EventForwarding)
+#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/WKWebViewMacAdditionsBefore.mm>)
+#import <WebKitAdditions/WKWebViewMacAdditionsBefore.mm>
+#endif
 
-// MAVERICKS_BACKPORT: WKView returns YES; WKWebView's upstream Mac impl also returns YES (set elsewhere). On this
-// backport WKWebView inherits NSView's default NO, so window→view convertPoint never flips Y
-// and clicks land in the wrong DOM element. Override to YES so positions arrive top-left.
-- (BOOL)isFlipped { return YES; }
-
-// MAVERICKS_BACKPORT: forward mouse-down into WebViewImpl (missing from upstream WKWebView Mac impl here).
-- (void)mouseDown:(NSEvent *)event
+_WKOverlayScrollbarStyle toAPIScrollbarStyle(std::optional<WebCore::ScrollbarOverlayStyle> coreScrollbarStyle)
 {
-    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
-    if (!self._impl) { [super mouseDown:event]; return; }
-    self._impl->mouseDown(event, WebKit::WebMouseEventInputSource::UserDriven);
-}
-// MAVERICKS_BACKPORT: forward mouse-up into WebViewImpl (missing from upstream WKWebView Mac impl here).
-- (void)mouseUp:(NSEvent *)event
-{
-    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
-    if (!self._impl) { [super mouseUp:event]; return; }
-    self._impl->mouseUp(event, WebKit::WebMouseEventInputSource::UserDriven);
-}
-// MAVERICKS_BACKPORT: forward mouse-moved into WebViewImpl (missing from upstream WKWebView Mac impl here).
-- (void)mouseMoved:(NSEvent *)event
-{
-    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
-    if (!self._impl) { [super mouseMoved:event]; return; }
-    self._impl->mouseMoved(event);
-}
-// MAVERICKS_BACKPORT: forward mouse-dragged into WebViewImpl (missing from upstream WKWebView Mac impl here).
-- (void)mouseDragged:(NSEvent *)event
-{
-    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
-    if (!self._impl) { [super mouseDragged:event]; return; }
-    self._impl->mouseDragged(event, WebKit::WebMouseEventInputSource::UserDriven);
-}
-// MAVERICKS_BACKPORT: forward right-mouse-down into WebViewImpl (missing from upstream WKWebView Mac impl here).
-- (void)rightMouseDown:(NSEvent *)event
-{
-    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
-    if (!self._impl) { [super rightMouseDown:event]; return; }
-    self._impl->rightMouseDown(event);
-}
-// MAVERICKS_BACKPORT: forward right-mouse-up into WebViewImpl (missing from upstream WKWebView Mac impl here).
-- (void)rightMouseUp:(NSEvent *)event
-{
-    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
-    if (!self._impl) { [super rightMouseUp:event]; return; }
-    self._impl->rightMouseUp(event);
-}
-// MAVERICKS_BACKPORT: forward other-mouse-down into WebViewImpl (missing from upstream WKWebView Mac impl here).
-- (void)otherMouseDown:(NSEvent *)event
-{
-    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
-    if (!self._impl) { [super otherMouseDown:event]; return; }
-    self._impl->otherMouseDown(event);
-}
-// MAVERICKS_BACKPORT: forward other-mouse-up into WebViewImpl (missing from upstream WKWebView Mac impl here).
-- (void)otherMouseUp:(NSEvent *)event
-{
-    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
-    if (!self._impl) { [super otherMouseUp:event]; return; }
-    self._impl->otherMouseUp(event);
-}
-// MAVERICKS_BACKPORT: forward mouse-entered into WebViewImpl (missing from upstream WKWebView Mac impl here).
-- (void)mouseEntered:(NSEvent *)event
-{
-    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
-    if (!self._impl) { [super mouseEntered:event]; return; }
-    self._impl->mouseEntered(event);
-}
-// MAVERICKS_BACKPORT: forward mouse-exited into WebViewImpl (missing from upstream WKWebView Mac impl here).
-- (void)mouseExited:(NSEvent *)event
-{
-    // MAVERICKS_BACKPORT: hand the event to WebViewImpl.
-    if (!self._impl) { [super mouseExited:event]; return; }
-    self._impl->mouseExited(event);
-}
-
-// MAVERICKS_BACKPORT: forward scroll-wheel into the page (missing from upstream WKWebView Mac impl here).
-- (void)scrollWheel:(NSEvent *)event
-{
-    WebKit::WebViewImpl *impl = self._impl;
-    if (!impl) { [super scrollWheel:event]; return; }
-    WebKit::NativeWebWheelEvent webEvent(event, self);
-    impl->page().handleNativeWheelEvent(webEvent);
-}
-
-// MAVERICKS_BACKPORT: WKWebView ships no NSTextInputClient implementation, so AppKit's
-// interpretKeyEvents: had no client to translate keystrokes into insertText:/command
-// callbacks — typing into the inspector (console, filter fields) produced nothing.
-// Mirror the proven WKView path: a thread-local command collector + minimal
-// NSTextInputClient stubs that append to it, and a keyDown: that runs interpretKeyEvents:
-// then forwards the collected KeypressCommands to WebContent. This avoids the 10.10+
-// -[NSTextInputContext handleEventByInputMethod:completionHandler:] used by
-// WebViewImpl::interpretKeyEvent (which is unavailable on 10.9).
-static __thread WTF::Vector<WebCore::KeypressCommand> *tlsWKWVCommands = nullptr;
-
-- (NSArray *)validAttributesForMarkedText { return @[]; }
-- (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)range actualRange:(NSRangePointer)actualRange { return nil; }
-- (NSUInteger)characterIndexForPoint:(NSPoint)point { return NSNotFound; }
-- (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange { return NSZeroRect; }
-- (BOOL)hasMarkedText { return NO; }
-- (void)insertText:(id)string replacementRange:(NSRange)replacementRange
-{
-    // MAVERICKS_BACKPORT: capture inserted text into the thread-local KeypressCommand collector for keyDown: to forward.
-    NSString *s = [string isKindOfClass:[NSAttributedString class]] ? [(NSAttributedString *)string string] : (NSString *)string;
-    if (!s)
-        return;
-    if (tlsWKWVCommands)
-        tlsWKWVCommands->append(WebCore::KeypressCommand("insertText:"_s, String(s)));
-}
-// MAVERICKS_BACKPORT: remaining minimal NSTextInputClient stubs so AppKit vends an input context for interpretKeyEvents:.
-- (NSRange)markedRange { return NSMakeRange(NSNotFound, 0); }
-- (NSRange)selectedRange { return NSMakeRange(NSNotFound, 0); }
-- (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {}
-- (void)unmarkText {}
-- (void)doCommandBySelector:(SEL)selector
-{
-    // MAVERICKS_BACKPORT: record the command selector into the thread-local KeypressCommand collector (no-op when not collecting).
-    if (!tlsWKWVCommands)
-        return;
-    tlsWKWVCommands->append(WebCore::KeypressCommand(String::fromLatin1(sel_getName(selector))));
-}
-// MAVERICKS_BACKPORT: NSView only vends an NSTextInputContext (needed by interpretKeyEvents:) when the view
-// conforms to NSTextInputClient. Without this, -inputContext is nil and typing collects no
-// commands. WKView does the same (WKView.mm). Upstream WKWebView has no such override.
-- (BOOL)conformsToProtocol:(Protocol *)protocol
-{
-    // MAVERICKS_BACKPORT: report NSTextInputClient conformance so AppKit provides an input context.
-    if (protocol == @protocol(NSTextInputClient)) return YES;
-    return [super conformsToProtocol:protocol];
-}
-
-// MAVERICKS_BACKPORT: give the page first crack at Cmd-key equivalents (mirrors the WKView.mm
-// override; upstream WKWebView routes performKeyEquivalent through WebViewImpl the same way).
-// Without this, every key equivalent went straight to the app menus, so frontend editors that
-// implement their own shortcuts never saw the key-down — in the Web Inspector console the menu's
-// Select All ran against WebCore's editor (selecting CodeMirror's hidden textarea, visually
-// nothing) instead of CodeMirror's own Cmd+A handler. Events the page leaves unhandled come back
-// through PageClientImpl::doneWithKeyEvent -> WebViewImpl::doneWithKeyEvent and are re-dispatched
-// to AppKit, so app menu shortcuts (and the Edit-menu actions above) still fire.
-- (BOOL)performKeyEquivalent:(NSEvent *)event
-{
-    // MAVERICKS_BACKPORT: page-first key-equivalent handling (see method comment above); upstream WKWebView has no such override.
-    WebKit::WebViewImpl *impl = self._impl;
-    if (!impl || [event type] != NSEventTypeKeyDown)
-        return [super performKeyEquivalent:event];
-
-    // MAVERICKS_BACKPORT: A nested event loop during dispatch can release the current event; keep it alive.
-    retainPtr(event).autorelease();
-
-    // MAVERICKS_BACKPORT: We get Esc here after Esc or Cmd+period gets transformed to a cancelOperation: command;
-    // don't interpret it again (avoids re-entrancy / infinite loops), matching WebViewImpl.
-    if ([[event charactersIgnoringModifiers] isEqualToString:@"\e"] && !([event modifierFlags] & NSEventModifierFlagDeviceIndependentFlagsMask))
-        return [super performKeyEquivalent:event];
-
-    // MAVERICKS_BACKPORT: The page already saw this event; it is being re-dispatched to AppKit for the menus.
-    if (impl->keyDownEventBeingResent())
-        return [super performKeyEquivalent:event];
-
-    // MAVERICKS_BACKPORT: Only Cmd-modified keys are menu key equivalents on this path; anything else keeps
-    // flowing through keyDown:.
-    if (!([event modifierFlags] & NSCommandKeyMask))
-        return [super performKeyEquivalent:event];
-
-    // MAVERICKS_BACKPORT: deliver the key equivalent to the page when the web view is first responder.
-    if ([[self window] firstResponder] == self) {
-        WTF::Vector<WebCore::KeypressCommand> commands;
-        WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
-        impl->page().handleKeyboardEvent(webEvent);
-        return YES;
+    if (!coreScrollbarStyle)
+        return _WKOverlayScrollbarStyleAutomatic;
+    
+    switch (coreScrollbarStyle.value()) {
+    case WebCore::ScrollbarOverlayStyle::Dark:
+        return _WKOverlayScrollbarStyleDark;
+    case WebCore::ScrollbarOverlayStyle::Light:
+        return _WKOverlayScrollbarStyleLight;
+    case WebCore::ScrollbarOverlayStyle::Default:
+        return _WKOverlayScrollbarStyleDefault;
     }
-
-    // MAVERICKS_BACKPORT: unhandled key equivalents fall back to AppKit menu dispatch.
-    return [super performKeyEquivalent:event];
+    ASSERT_NOT_REACHED();
+    return _WKOverlayScrollbarStyleAutomatic;
 }
 
-- (void)keyDown:(NSEvent *)event
+std::optional<WebCore::ScrollbarOverlayStyle> toCoreScrollbarStyle(_WKOverlayScrollbarStyle scrollbarStyle)
 {
-    WebKit::WebViewImpl *impl = self._impl;
-    if (!impl) { [super keyDown:event]; return; }
-    // The page already saw this event; it is being re-dispatched to AppKit (no menu claimed it).
-    if (impl->keyDownEventBeingResent() == event) { [super keyDown:event]; return; }
-    {
-        WTF::Vector<WebCore::KeypressCommand> commands;
-        // MAVERICKS_BACKPORT: skip interpretKeyEvents for Cmd-modified keys — those are menu
-        // shortcuts dispatched via sendAction:; running interpretKeyEvents would double-
-        // dispatch via doCommandBySelector.
-        BOOL hasCmd = ([event modifierFlags] & NSCommandKeyMask) != 0;
-        if (!hasCmd) {
-            tlsWKWVCommands = &commands;
-            [self interpretKeyEvents:@[event]];
-            tlsWKWVCommands = nullptr;
-        }
-        // MAVERICKS_BACKPORT: register every collected command name so
-        // WebPageProxy::executeSavedCommandBySelector's MESSAGE_CHECK(isValidKeypressCommandName)
-        // accepts the selector WebContent echoes back when the DOM leaves it unhandled (e.g. Esc
-        // -> cancelOperation:). The sibling collectors (WKView.mm, WebViewImpl) register at
-        // collection time; this one previously omitted it, so the unhandled-key round-trip
-        // tripped the security check and SIGTRAPed the UI process.
-        for (auto& command : commands)
-            impl->page().registerKeypressCommandName(command.commandName);
-        WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
-        impl->page().handleKeyboardEvent(webEvent);
+    switch (scrollbarStyle) {
+    case _WKOverlayScrollbarStyleDark:
+        return WebCore::ScrollbarOverlayStyle::Dark;
+    case _WKOverlayScrollbarStyleLight:
+        return WebCore::ScrollbarOverlayStyle::Light;
+    case _WKOverlayScrollbarStyleDefault:
+        return WebCore::ScrollbarOverlayStyle::Default;
+    case _WKOverlayScrollbarStyleAutomatic:
+        break;
     }
+    return std::nullopt;
 }
 
-// MAVERICKS_BACKPORT: forward key-up into the page (missing from upstream WKWebView Mac impl here).
-- (void)keyUp:(NSEvent *)event
+static WebCore::FloatBoxExtent NODELETE coreBoxExtentsFromEdgeInsets(NSEdgeInsets insets)
 {
-    // MAVERICKS_BACKPORT: build a NativeWebKeyboardEvent and hand it to the page proxy.
-    WebKit::WebViewImpl *impl = self._impl;
-    if (!impl) { [super keyUp:event]; return; }
-    WTF::Vector<WebCore::KeypressCommand> commands;
-    WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
-    impl->page().handleKeyboardEvent(webEvent);
+    return {
+        static_cast<float>(insets.top),
+        static_cast<float>(insets.right),
+        static_cast<float>(insets.bottom),
+        static_cast<float>(insets.left)
+    };
 }
 
-// MAVERICKS_BACKPORT: forward modifier-key changes into the page (missing from upstream WKWebView Mac impl here).
-- (void)flagsChanged:(NSEvent *)event
-{
-    // MAVERICKS_BACKPORT: build a NativeWebKeyboardEvent and hand it to the page proxy.
-    WebKit::WebViewImpl *impl = self._impl;
-    if (!impl) { [super flagsChanged:event]; return; }
-    // Don't make an event from the num lock and function keys (mirrors
-    // WebViewImpl::eventKeyCodeIsZeroOrNumLockOrFn); a keyCode-0 flagsChanged would reach
-    // the page as a key-down with windows keyCode 65 ('A') — a spurious Cmd+A.
-    unsigned short keyCode = [event keyCode];
-    if (!keyCode || keyCode == 10 || keyCode == 63) { [super flagsChanged:event]; return; }
-    WTF::Vector<WebCore::KeypressCommand> commands;
-    WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
-    impl->page().handleKeyboardEvent(webEvent);
-}
+@interface WKWebView (WKImplementationMac) <NSTextInputClient
+    , NSTextInputClient_Async
+#if HAVE(TOUCH_BAR)
+    , NSTouchBarProvider
+#endif
+#if ENABLE(DRAG_SUPPORT)
+    , NSFilePromiseProviderDelegate
+    , NSDraggingSource
+#endif
+    , NSScrollViewSeparatorTrackingAdapter
+    >
+@end
 
-// MAVERICKS_BACKPORT: standard Edit-menu responder actions. Upstream's full WKWebViewMac.mm
-// implements copy/cut/paste/pasteAsPlainText/selectAll as WEBCORE_COMMANDs; this backfilled
-// category lacked them, so in WKWebView-hosted UI (the Web Inspector frontend) the Edit menu's
-// copy:/cut:/paste: actions found no responder in the chain and every item stayed disabled —
-// no copy/paste in the WK2 inspector console while the WK1 inspector (WebHTMLView implements
-// them) worked. undo:/redo: are backport-only forwarders (upstream has no WKWebView undo:/redo:
-// and relies on NSUndoManager first-responder resolution): they mirror WKView.mm's
-// WKV_EDIT_ACTION pair and round-trip to the same UI-process NSUndoManager via
-// WebPageProxy::executeUndoRedo.
-#define WKWV_EDIT_ACTION(SEL_NAME, COMMAND) \
-- (void)SEL_NAME:(id)sender \
-{ \
-    if (WebKit::WebViewImpl *impl = self._impl) \
-        impl->page().executeEditCommand(WTF::String(COMMAND ## _s), WTF::String()); \
-}
-WKWV_EDIT_ACTION(copy,             "Copy")
-WKWV_EDIT_ACTION(cut,              "Cut")
-WKWV_EDIT_ACTION(paste,            "Paste")
-WKWV_EDIT_ACTION(pasteAsPlainText, "PasteAsPlainText")
-WKWV_EDIT_ACTION(undo,             "Undo")
-WKWV_EDIT_ACTION(redo,             "Redo")
-#undef WKWV_EDIT_ACTION
+@implementation WKWebView (WKImplementationMac)
 
-// MAVERICKS_BACKPORT: Select All routes through WebPageProxy::selectAll like WKView's -selectAll:
-// (upstream's full WKWebViewMac.mm exposes it the same way).
-- (void)selectAll:(id)sender
-{
-    if (WebKit::WebViewImpl *impl = self._impl)
-        impl->page().selectAll();
-}
+#pragma mark - NSView overrides
 
-// MAVERICKS_BACKPORT: Declared in WKWebViewMac.h and called from -[WKWebView dealloc]; upstream's
-// Mac WKWebView category (not built here) implemented it. Without it, EVERY
-// Mac WKWebView teardown raised unrecognized-selector and terminated Safari —
-// the Web Inspector frontend (WKInspectorWKWebView) crashed Safari on
-// open/close because of this.
-- (void)_resetSecureInputState
-{
-    // MAVERICKS_BACKPORT: forward to WebViewImpl::resetSecureInputState.
-    if (WebKit::WebViewImpl *impl = self._impl)
-        impl->resetSecureInputState();
-}
-
-// MAVERICKS_BACKPORT: Declared in WKWebViewMac.h, called from -[WKWebView _takeFindStringFromSelection:]
-// (Edit ▸ Find ▸ Use Selection for Find). Same unrecognized-selector hazard as
-// _resetSecureInputState. The WebCore edit command writes the find pasteboard.
-- (void)_takeFindStringFromSelectionInternal:(id)sender
-{
-    // MAVERICKS_BACKPORT: route Use-Selection-for-Find through the page proxy's edit command.
-    if (WebKit::WebViewImpl *impl = self._impl)
-        impl->page().executeEditCommand("TakeFindStringFromSelection"_s);
-}
-
-// MAVERICKS_BACKPORT: declared in WKWebViewMac.h, called from WebViewImpl's drag handling; upstream's unbuilt Mac category provided it.
-- (Vector<String>)_promisedFileMIMETypes:(id<NSDraggingInfo>)info
-{
-    // MAVERICKS_BACKPORT: no promised file types on this backport; return empty.
-    return { };
-}
-
-// MAVERICKS_BACKPORT: upstream's NSView geometry/window/responder plumbing (one-line WebViewImpl
-// forwards from the full WKWebViewMac.mm). Without setFrameSize:, programmatic view resizes never
-// reach the web process (window.open feature sizes, window-resize tests); without the
-// viewWillMoveToWindow:/viewDidMoveToWindow pair, WebViewImpl never observes its window, so
-// key-window / visibility / backing-scale state never updates (window focus events).
 - (BOOL)acceptsFirstResponder
 {
-    // MAVERICKS_BACKPORT: forward -acceptsFirstResponder to WebViewImpl.
-    return self._impl && self._impl->acceptsFirstResponder();
+    return _impl->acceptsFirstResponder();
 }
 
-// MAVERICKS_BACKPORT: forward -becomeFirstResponder to WebViewImpl (WebViewImpl forward from the full WKWebViewMac.mm not built here).
 - (BOOL)becomeFirstResponder
 {
-    return self._impl && self._impl->becomeFirstResponder();
+    return _impl->becomeFirstResponder();
 }
 
-// MAVERICKS_BACKPORT: forward -resignFirstResponder to WebViewImpl, else NSView's default.
 - (BOOL)resignFirstResponder
 {
-    return self._impl ? self._impl->resignFirstResponder() : [super resignFirstResponder];
+    return _impl->resignFirstResponder();
 }
 
-// MAVERICKS_BACKPORT: forward -viewWillStartLiveResize to WebViewImpl.
 - (void)viewWillStartLiveResize
 {
-    if (self._impl)
-        self._impl->viewWillStartLiveResize();
+    _impl->viewWillStartLiveResize();
 }
 
-// MAVERICKS_BACKPORT: forward -viewDidEndLiveResize to WebViewImpl.
 - (void)viewDidEndLiveResize
 {
-    if (self._impl)
-        self._impl->viewDidEndLiveResize();
+    _impl->viewDidEndLiveResize();
 }
 
-// MAVERICKS_BACKPORT: forward -setFrameSize: to WebViewImpl so programmatic resizes reach the web process.
+- (BOOL)isFlipped
+{
+    return YES;
+}
+
+- (NSSize)intrinsicContentSize
+{
+    return NSSizeFromCGSize(_impl->intrinsicContentSize());
+}
+
+- (void)prepareContentInRect:(NSRect)rect
+{
+    _impl->prepareContentInRect(NSRectToCGRect(rect));
+}
+
+- (BOOL)_holdWindowResizeSnapshotIfNeeded
+{
+#if HAVE(NSWINDOW_SNAPSHOT_READINESS_HANDLER)
+    if (_windowSnapshotReadinessHandler)
+        return NO;
+
+    if (!self.window)
+        return NO;
+
+    RefPtr page = _page;
+    if (!page)
+        return NO;
+
+    if (!page->legacyMainFrameProcess().isResponsive())
+        return NO;
+
+    if (page->isSuspended())
+        return NO;
+
+    if (self.hidden)
+        return NO;
+
+    _windowSnapshotReadinessHandler = makeBlockPtr([retainPtr(self.window) _holdResizeSnapshotWithReason:@"full screen"]);
+    if (!_windowSnapshotReadinessHandler)
+        return NO;
+
+    RELEASE_LOG(ViewState, "%p - [pageProxyID=%" PRIu64 ", webPageID=%" PRIu64 ", PID=%i] Began holding window resize snapshot for window full screen",
+        self, page->identifier().toUInt64(), page->webPageIDInMainFrameProcess().toUInt64(), page->legacyMainFrameProcessID());
+    return YES;
+#else
+    return NO;
+#endif
+}
+
+- (void)_doWindowSnapshotReadinessUpdate
+{
+#if HAVE(NSWINDOW_SNAPSHOT_READINESS_HANDLER)
+    [self performSelector:@selector(_invalidateWindowSnapshotReadinessHandler) withObject:nil afterDelay:1];
+    [self _doAfterNextPresentationUpdate:makeBlockPtr([weakSelf = WeakObjCPtr<WKWebView>(self)] {
+        auto strongSelf = weakSelf.get();
+        if (!strongSelf)
+            return;
+
+        [NSObject cancelPreviousPerformRequestsWithTarget:strongSelf.get() selector:@selector(_invalidateWindowSnapshotReadinessHandler) object:nil];
+        [strongSelf _invalidateWindowSnapshotReadinessHandler];
+    }).get()];
+#endif // HAVE(NSWINDOW_SNAPSHOT_READINESS_HANDLER)
+}
+
 - (void)setFrameSize:(NSSize)size
 {
+    BOOL didCreateWindowSnapshotReadinessHandler = [self _holdWindowResizeSnapshotIfNeeded];
+
     [super setFrameSize:size];
-    if (self._impl)
-        self._impl->setFrameSize(NSSizeToCGSize(size));
+    [_warningView setFrame:self.bounds];
+    if (_impl)
+        _impl->setFrameSize(NSSizeToCGSize(size));
+
+    [self _recalculateViewportSizesWithMinimumViewportInset:_minimumViewportInset maximumViewportInset:_maximumViewportInset throwOnInvalidInput:NO];
+
+    if (didCreateWindowSnapshotReadinessHandler)
+        [self _doWindowSnapshotReadinessUpdate];
 }
 
-// MAVERICKS_BACKPORT: forward -renewGState to WebViewImpl before super.
-- (void)renewGState
+- (void)setUserInterfaceLayoutDirection:(NSUserInterfaceLayoutDirection)userInterfaceLayoutDirection
 {
-    if (self._impl)
-        self._impl->renewGState();
+    [super setUserInterfaceLayoutDirection:userInterfaceLayoutDirection];
+    if (_impl)
+        _impl->setUserInterfaceLayoutDirection(userInterfaceLayoutDirection);
+}
+
+- (void)_setSemanticContext:(NSViewSemanticContext)semanticContext
+{
+    auto wasUsingFormSemanticContext = _impl && _impl->useFormSemanticContext();
+
+    [super _setSemanticContext:semanticContext];
+
+    if (!_impl)
+        return;
+
+    if (wasUsingFormSemanticContext != _impl->useFormSemanticContext())
+        _impl->semanticContextDidChange();
+}
+
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+- (void)renewGState
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+{
+#if ENABLE(SCREEN_TIME)
+    [self _updateScreenTimeViewGeometry];
+#endif
+
+    if (_impl)
+        _impl->renewGState();
     [super renewGState];
 }
 
-// MAVERICKS_BACKPORT: forward -viewWillMoveToWindow: to WebViewImpl so it observes its window.
+#pragma mark - macOS IBAction/NSResponder
+
+#define WEBCORE_COMMAND(command) - (void)command:(id)sender { _impl->executeEditCommandForSelector(_cmd); }
+
+WEBCORE_COMMAND(alignCenter)
+WEBCORE_COMMAND(alignJustified)
+WEBCORE_COMMAND(alignLeft)
+WEBCORE_COMMAND(alignRight)
+WEBCORE_COMMAND(copy)
+WEBCORE_COMMAND(copyFont)
+WEBCORE_COMMAND(cut)
+WEBCORE_COMMAND(delete)
+WEBCORE_COMMAND(deleteBackward)
+WEBCORE_COMMAND(deleteBackwardByDecomposingPreviousCharacter)
+WEBCORE_COMMAND(deleteForward)
+WEBCORE_COMMAND(deleteToBeginningOfLine)
+WEBCORE_COMMAND(deleteToBeginningOfParagraph)
+WEBCORE_COMMAND(deleteToEndOfLine)
+WEBCORE_COMMAND(deleteToEndOfParagraph)
+WEBCORE_COMMAND(deleteToMark)
+WEBCORE_COMMAND(deleteWordBackward)
+WEBCORE_COMMAND(deleteWordForward)
+WEBCORE_COMMAND(ignoreSpelling)
+WEBCORE_COMMAND(indent)
+WEBCORE_COMMAND(insertBacktab)
+WEBCORE_COMMAND(insertLineBreak)
+WEBCORE_COMMAND(insertNewline)
+WEBCORE_COMMAND(insertNewlineIgnoringFieldEditor)
+WEBCORE_COMMAND(insertParagraphSeparator)
+WEBCORE_COMMAND(insertTab)
+WEBCORE_COMMAND(insertTabIgnoringFieldEditor)
+WEBCORE_COMMAND(makeTextWritingDirectionLeftToRight)
+WEBCORE_COMMAND(makeTextWritingDirectionNatural)
+WEBCORE_COMMAND(makeTextWritingDirectionRightToLeft)
+WEBCORE_COMMAND(moveBackward)
+WEBCORE_COMMAND(moveBackwardAndModifySelection)
+WEBCORE_COMMAND(moveDown)
+WEBCORE_COMMAND(moveDownAndModifySelection)
+WEBCORE_COMMAND(moveForward)
+WEBCORE_COMMAND(moveForwardAndModifySelection)
+WEBCORE_COMMAND(moveLeft)
+WEBCORE_COMMAND(moveLeftAndModifySelection)
+WEBCORE_COMMAND(moveParagraphBackwardAndModifySelection)
+WEBCORE_COMMAND(moveParagraphForwardAndModifySelection)
+WEBCORE_COMMAND(moveRight)
+WEBCORE_COMMAND(moveRightAndModifySelection)
+WEBCORE_COMMAND(moveToBeginningOfDocument)
+WEBCORE_COMMAND(moveToBeginningOfDocumentAndModifySelection)
+WEBCORE_COMMAND(moveToBeginningOfLine)
+WEBCORE_COMMAND(moveToBeginningOfLineAndModifySelection)
+WEBCORE_COMMAND(moveToBeginningOfParagraph)
+WEBCORE_COMMAND(moveToBeginningOfParagraphAndModifySelection)
+WEBCORE_COMMAND(moveToBeginningOfSentence)
+WEBCORE_COMMAND(moveToBeginningOfSentenceAndModifySelection)
+WEBCORE_COMMAND(moveToEndOfDocument)
+WEBCORE_COMMAND(moveToEndOfDocumentAndModifySelection)
+WEBCORE_COMMAND(moveToEndOfLine)
+WEBCORE_COMMAND(moveToEndOfLineAndModifySelection)
+WEBCORE_COMMAND(moveToEndOfParagraph)
+WEBCORE_COMMAND(moveToEndOfParagraphAndModifySelection)
+WEBCORE_COMMAND(moveToEndOfSentence)
+WEBCORE_COMMAND(moveToEndOfSentenceAndModifySelection)
+WEBCORE_COMMAND(moveToLeftEndOfLine)
+WEBCORE_COMMAND(moveToLeftEndOfLineAndModifySelection)
+WEBCORE_COMMAND(moveToRightEndOfLine)
+WEBCORE_COMMAND(moveToRightEndOfLineAndModifySelection)
+WEBCORE_COMMAND(moveUp)
+WEBCORE_COMMAND(moveUpAndModifySelection)
+WEBCORE_COMMAND(moveWordBackward)
+WEBCORE_COMMAND(moveWordBackwardAndModifySelection)
+WEBCORE_COMMAND(moveWordForward)
+WEBCORE_COMMAND(moveWordForwardAndModifySelection)
+WEBCORE_COMMAND(moveWordLeft)
+WEBCORE_COMMAND(moveWordLeftAndModifySelection)
+WEBCORE_COMMAND(moveWordRight)
+WEBCORE_COMMAND(moveWordRightAndModifySelection)
+WEBCORE_COMMAND(outdent)
+WEBCORE_COMMAND(pageDown)
+WEBCORE_COMMAND(pageDownAndModifySelection)
+WEBCORE_COMMAND(pageUp)
+WEBCORE_COMMAND(pageUpAndModifySelection)
+WEBCORE_COMMAND(paste)
+WEBCORE_COMMAND(pasteAsPlainText)
+WEBCORE_COMMAND(scrollPageDown)
+WEBCORE_COMMAND(scrollPageUp)
+WEBCORE_COMMAND(pasteFont)
+WEBCORE_COMMAND(scrollLineDown)
+WEBCORE_COMMAND(scrollLineUp)
+WEBCORE_COMMAND(scrollToBeginningOfDocument)
+WEBCORE_COMMAND(scrollToEndOfDocument)
+WEBCORE_COMMAND(selectAll)
+WEBCORE_COMMAND(selectLine)
+WEBCORE_COMMAND(selectParagraph)
+WEBCORE_COMMAND(selectSentence)
+WEBCORE_COMMAND(selectToMark)
+WEBCORE_COMMAND(selectWord)
+WEBCORE_COMMAND(setMark)
+WEBCORE_COMMAND(subscript)
+WEBCORE_COMMAND(superscript)
+WEBCORE_COMMAND(swapWithMark)
+WEBCORE_COMMAND(takeFindStringFromSelection)
+WEBCORE_COMMAND(transpose)
+WEBCORE_COMMAND(underline)
+WEBCORE_COMMAND(unscript)
+WEBCORE_COMMAND(yank)
+WEBCORE_COMMAND(yankAndSelect)
+
+#undef WEBCORE_COMMAND
+
+- (BOOL)writeSelectionToPasteboard:(NSPasteboard *)pasteboard types:(NSArray *)types
+{
+    return _impl->writeSelectionToPasteboard(pasteboard, types);
+}
+
+- (void)centerSelectionInVisibleArea:(id)sender
+{
+    _impl->centerSelectionInVisibleArea();
+}
+
+- (id)validRequestorForSendType:(NSString *)sendType returnType:(NSString *)returnType
+{
+    return _impl->validRequestorForSendAndReturnTypes(sendType, returnType);
+}
+
+- (BOOL)readSelectionFromPasteboard:(NSPasteboard *)pasteboard
+{
+    return _impl->readSelectionFromPasteboard(pasteboard);
+}
+
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+- (void)changeFont:(id)sender
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+{
+    _impl->changeFontFromFontManager();
+}
+
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+- (void)changeColor:(id)sender
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+{
+    _impl->changeFontColorFromSender(sender);
+}
+
+- (void)changeAttributes:(id)sender
+{
+    _impl->changeFontAttributesFromSender(sender);
+}
+
+- (IBAction)startSpeaking:(id)sender
+{
+    _impl->startSpeaking();
+}
+
+- (IBAction)stopSpeaking:(id)sender
+{
+    _impl->stopSpeaking(sender);
+}
+
+- (IBAction)showGuessPanel:(id)sender
+{
+    _impl->showGuessPanel(sender);
+}
+
+- (IBAction)checkSpelling:(id)sender
+{
+    _impl->checkSpelling();
+}
+
+- (void)changeSpelling:(id)sender
+{
+    _impl->changeSpelling(sender);
+}
+
+- (IBAction)toggleContinuousSpellChecking:(id)sender
+{
+    _impl->toggleContinuousSpellChecking();
+}
+
+- (BOOL)isGrammarCheckingEnabled
+{
+    return _impl->isGrammarCheckingEnabled();
+}
+
+- (void)setGrammarCheckingEnabled:(BOOL)flag
+{
+    _impl->setGrammarCheckingEnabled(flag);
+}
+
+- (IBAction)toggleGrammarChecking:(id)sender
+{
+    _impl->toggleGrammarChecking();
+}
+
+- (IBAction)toggleAutomaticSpellingCorrection:(id)sender
+{
+    _impl->toggleAutomaticSpellingCorrection();
+}
+
+- (void)orderFrontSubstitutionsPanel:(id)sender
+{
+    _impl->orderFrontSubstitutionsPanel(sender);
+}
+
+- (IBAction)toggleSmartInsertDelete:(id)sender
+{
+    _impl->toggleSmartInsertDelete();
+}
+
+- (BOOL)isAutomaticQuoteSubstitutionEnabled
+{
+    return _impl->isAutomaticQuoteSubstitutionEnabled();
+}
+
+- (void)setAutomaticQuoteSubstitutionEnabled:(BOOL)flag
+{
+    _impl->setAutomaticQuoteSubstitutionEnabled(flag);
+}
+
+- (void)toggleAutomaticQuoteSubstitution:(id)sender
+{
+    _impl->toggleAutomaticQuoteSubstitution();
+}
+
+- (BOOL)isAutomaticDashSubstitutionEnabled
+{
+    return _impl->isAutomaticDashSubstitutionEnabled();
+}
+
+- (void)setAutomaticDashSubstitutionEnabled:(BOOL)flag
+{
+    _impl->setAutomaticDashSubstitutionEnabled(flag);
+}
+
+- (void)toggleAutomaticDashSubstitution:(id)sender
+{
+    _impl->toggleAutomaticDashSubstitution();
+}
+
+- (BOOL)isAutomaticLinkDetectionEnabled
+{
+    return _impl->isAutomaticLinkDetectionEnabled();
+}
+
+- (void)setAutomaticLinkDetectionEnabled:(BOOL)flag
+{
+    _impl->setAutomaticLinkDetectionEnabled(flag);
+}
+
+- (void)toggleAutomaticLinkDetection:(id)sender
+{
+    _impl->toggleAutomaticLinkDetection();
+}
+
+- (BOOL)isAutomaticTextReplacementEnabled
+{
+    return _impl->isAutomaticTextReplacementEnabled();
+}
+
+- (void)setAutomaticTextReplacementEnabled:(BOOL)flag
+{
+    _impl->setAutomaticTextReplacementEnabled(flag);
+}
+
+- (void)toggleAutomaticTextReplacement:(id)sender
+{
+    _impl->toggleAutomaticTextReplacement();
+}
+
+- (void)uppercaseWord:(id)sender
+{
+    _impl->uppercaseWord();
+}
+
+- (void)lowercaseWord:(id)sender
+{
+    _impl->lowercaseWord();
+}
+
+- (void)capitalizeWord:(id)sender
+{
+    _impl->capitalizeWord();
+}
+
+- (BOOL)_wantsKeyDownForEvent:(NSEvent *)event
+{
+    return _impl->wantsKeyDownForEvent(event);
+}
+
+- (void)scrollWheel:(NSEvent *)event
+{
+    _impl->scrollWheel(event);
+}
+
+- (void)swipeWithEvent:(NSEvent *)event
+{
+    _impl->swipeWithEvent(event);
+}
+
+- (void)mouseDown:(NSEvent *)event
+{
+    _impl->mouseDown(event, WebKit::WebMouseEventInputSource::UserDriven);
+}
+
+- (void)mouseUp:(NSEvent *)event
+{
+    _impl->mouseUp(event, WebKit::WebMouseEventInputSource::UserDriven);
+}
+
+- (void)mouseDragged:(NSEvent *)event
+{
+    _impl->mouseDragged(event, WebKit::WebMouseEventInputSource::UserDriven);
+}
+
+- (void)otherMouseDown:(NSEvent *)event
+{
+    _impl->otherMouseDown(event);
+}
+
+- (void)otherMouseDragged:(NSEvent *)event
+{
+    _impl->otherMouseDragged(event);
+}
+
+- (void)otherMouseUp:(NSEvent *)event
+{
+    _impl->otherMouseUp(event);
+}
+
+- (void)rightMouseDown:(NSEvent *)event
+{
+    _impl->rightMouseDown(event);
+}
+
+- (void)rightMouseDragged:(NSEvent *)event
+{
+    _impl->rightMouseDragged(event);
+}
+
+- (void)rightMouseUp:(NSEvent *)event
+{
+    _impl->rightMouseUp(event);
+}
+
+- (void)pressureChangeWithEvent:(NSEvent *)event
+{
+    _impl->pressureChangeWithEvent(event);
+}
+
+- (BOOL)acceptsFirstMouse:(NSEvent *)event
+{
+    return _impl->acceptsFirstMouse(event);
+}
+
+- (BOOL)shouldDelayWindowOrderingForEvent:(NSEvent *)event
+{
+    return _impl->shouldDelayWindowOrderingForEvent(event);
+}
+
+- (void)doCommandBySelector:(SEL)selector
+{
+    _impl->doCommandBySelector(selector);
+}
+
+- (NSTextInputContext *)inputContext
+{
+    if (!_impl)
+        return nil;
+    return _impl->inputContext();
+}
+
+- (BOOL)performKeyEquivalent:(NSEvent *)event
+{
+    return _impl->performKeyEquivalent(event);
+}
+
+- (void)keyUp:(NSEvent *)theEvent
+{
+    _impl->keyUp(theEvent);
+}
+
+- (void)keyDown:(NSEvent *)theEvent
+{
+    _impl->keyDown(theEvent);
+}
+
+- (void)flagsChanged:(NSEvent *)theEvent
+{
+    _impl->flagsChanged(theEvent);
+}
+
+- (void)setMarkedText:(id)string selectedRange:(NSRange)newSelectedRange replacementRange:(NSRange)replacementRange
+{
+    _impl->setMarkedText(string, newSelectedRange, replacementRange);
+}
+
+- (void)unmarkText
+{
+    _impl->unmarkText();
+}
+
+- (NSRange)selectedRange
+{
+    return _impl->selectedRange();
+}
+
+- (BOOL)hasMarkedText
+{
+    return _impl->hasMarkedText();
+}
+
+- (NSRange)markedRange
+{
+    return _impl->markedRange();
+}
+
+- (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)nsRange actualRange:(NSRangePointer)actualRange
+{
+    return _impl->attributedSubstringForProposedRange(nsRange, actualRange);
+}
+
+- (NSUInteger)characterIndexForPoint:(NSPoint)thePoint
+{
+    return _impl->characterIndexForPoint(thePoint);
+}
+
+- (void)typingAttributesWithCompletionHandler:(void(^)(NSDictionary<NSString *, id> *))completion
+{
+    _impl->typingAttributesWithCompletionHandler(completion);
+}
+
+- (NSRect)firstRectForCharacterRange:(NSRange)theRange actualRange:(NSRangePointer)actualRange
+{
+    return _impl->firstRectForCharacterRange(theRange, actualRange);
+}
+
+- (void)selectedRangeWithCompletionHandler:(void(^)(NSRange selectedRange))completionHandlerPtr
+{
+    _impl->selectedRangeWithCompletionHandler(completionHandlerPtr);
+}
+
+- (void)markedRangeWithCompletionHandler:(void(^)(NSRange markedRange))completionHandlerPtr
+{
+    _impl->markedRangeWithCompletionHandler(completionHandlerPtr);
+}
+
+- (void)hasMarkedTextWithCompletionHandler:(void(^)(BOOL hasMarkedText))completionHandlerPtr
+{
+    _impl->hasMarkedTextWithCompletionHandler(completionHandlerPtr);
+}
+
+- (void)attributedSubstringForProposedRange:(NSRange)nsRange completionHandler:(void(^)(NSAttributedString *attrString, NSRange actualRange))completionHandlerPtr
+{
+    _impl->attributedSubstringForProposedRange(nsRange, completionHandlerPtr);
+}
+
+// FIXME: actually return valid information.
+// rdar://130702677
+- (void)unionRectForCharacterRange:(NSRange)range completionHandler:(void(^)(NSRect rect))completionHandler
+{
+    completionHandler(NSZeroRect);
+}
+
+- (void)firstRectForCharacterRange:(NSRange)theRange completionHandler:(void(^)(NSRect firstRect, NSRange actualRange))completionHandlerPtr
+{
+    _impl->firstRectForCharacterRange(theRange, completionHandlerPtr);
+}
+
+- (void)characterIndexForPoint:(NSPoint)thePoint completionHandler:(void(^)(NSUInteger))completionHandlerPtr
+{
+    _impl->characterIndexForPoint(thePoint, completionHandlerPtr);
+}
+
+- (NSArray *)validAttributesForMarkedText
+{
+    return _impl->validAttributesForMarkedTextSingleton();
+}
+
+- (void)insertTextPlaceholderWithSize:(CGSize)size completionHandler:(void (^)(NSTextPlaceholder *))completionHandler
+{
+    _impl->insertTextPlaceholderWithSize(size, completionHandler);
+}
+
+- (void)removeTextPlaceholder:(NSTextPlaceholder *)placeholder willInsertText:(BOOL)willInsertText completionHandler:(void (^)(void))completionHandler
+{
+    _impl->removeTextPlaceholder(placeholder, willInsertText, completionHandler);
+}
+
+- (NSRect)unionRectInVisibleSelectedRange
+{
+    return _impl->unionRectInVisibleSelectedRangeInScreen();
+}
+
+- (NSRect)documentVisibleRect
+{
+    return _impl->documentVisibleRectInScreen();
+}
+
+- (void)showContextMenuForSelection:(id)sender
+{
+    _page->handleContextMenuKeyEvent();
+}
+
+#if ENABLE(WRITING_TOOLS)
+
+- (void)showWritingTools:(id)sender
+{
+    WTRequestedTool tool = (WTRequestedTool)[sender tag];
+    if (tool == -1)
+        tool = WTRequestedToolIndex;
+
+    _impl->showWritingTools(tool);
+}
+
+#endif
+
+#if ENABLE(DRAG_SUPPORT)
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+- (void)draggedImage:(NSImage *)image endedAt:(NSPoint)endPoint operation:(NSDragOperation)operation
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+{
+    _impl->draggedImage(image, NSPointToCGPoint(endPoint), operation);
+}
+
+- (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)draggingInfo
+{
+    return _impl->draggingEntered(draggingInfo);
+}
+
+- (NSDragOperation)draggingUpdated:(id <NSDraggingInfo>)draggingInfo
+{
+    return _impl->draggingUpdated(draggingInfo);
+}
+
+- (void)draggingExited:(id <NSDraggingInfo>)draggingInfo
+{
+    _impl->draggingExited(draggingInfo);
+}
+
+- (BOOL)prepareForDragOperation:(id <NSDraggingInfo>)draggingInfo
+{
+    return _impl->prepareForDragOperation(draggingInfo);
+}
+
+- (BOOL)performDragOperation:(id <NSDraggingInfo>)draggingInfo
+{
+    return _impl->performDragOperation(draggingInfo);
+}
+
+- (NSView *)_hitTest:(NSPoint *)point dragTypes:(NSSet *)types
+{
+    return _impl->hitTestForDragTypes(NSPointToCGPoint(*point), types);
+}
+#endif // ENABLE(DRAG_SUPPORT)
+
+- (BOOL)_windowResizeMouseLocationIsInVisibleScrollerThumb:(NSPoint)point
+{
+    return _impl->windowResizeMouseLocationIsInVisibleScrollerThumb(NSPointToCGPoint(point));
+}
+
 - (void)viewWillMoveToWindow:(NSWindow *)window
 {
-    if (self._impl)
-        self._impl->viewWillMoveToWindow(window);
+    _impl->viewWillMoveToWindow(window);
 }
 
-// MAVERICKS_BACKPORT: forward -viewDidMoveToWindow to WebViewImpl.
 - (void)viewDidMoveToWindow
 {
-    if (self._impl)
-        self._impl->viewDidMoveToWindow();
+    _impl->viewDidMoveToWindow();
 }
 
-// MAVERICKS_BACKPORT: forward -viewDidHide to WebViewImpl.
+- (void)drawRect:(NSRect)rect
+{
+    _impl->drawRect(NSRectToCGRect(rect));
+}
+
+- (BOOL)isOpaque
+{
+    return _impl->isOpaque();
+}
+
+- (BOOL)mouseDownCanMoveWindow
+{
+    return WebKit::WebViewImpl::mouseDownCanMoveWindow();
+}
+
 - (void)viewDidHide
 {
-    if (self._impl)
-        self._impl->viewDidHide();
+    _impl->viewDidHide();
 }
 
-// MAVERICKS_BACKPORT: forward -viewDidUnhide to WebViewImpl.
 - (void)viewDidUnhide
 {
-    if (self._impl)
-        self._impl->viewDidUnhide();
+    _impl->viewDidUnhide();
 }
 
-// MAVERICKS_BACKPORT: forward -viewDidChangeBackingProperties to WebViewImpl.
 - (void)viewDidChangeBackingProperties
 {
-    if (self._impl)
-        self._impl->viewDidChangeBackingProperties();
+    _impl->viewDidChangeBackingProperties();
 }
 
-// MAVERICKS_BACKPORT: upstream WKWebViewPrivate SPI (from the full WKWebViewMac.mm).
-// WebKitTestRunner turns occlusion detection off so its offscreen test windows count as
-// visible; 10.9 never reports offscreen windows as occlusion-visible, so without this the
-// page's activity state is pinned by the occlusion check.
-- (void)_setWindowOcclusionDetectionEnabled:(BOOL)enabled
+#if HAVE(NSVIEW_CORNER_CONFIGURATION)
+
+- (void)_viewDidChangeEffectiveCornerRadii
 {
-    // MAVERICKS_BACKPORT: forward the window-occlusion-detection toggle to WebViewImpl.
-    if (self._impl)
-        self._impl->setWindowOcclusionDetectionEnabled(enabled);
+    if (!_impl)
+        return;
+
+    WebCore::CornerRadii newRadii;
+    if (RetainPtr<NSViewCornerRadii> radii = self._effectiveCornerRadii) {
+        newRadii = WebCore::CornerRadii {
+            static_cast<float>([radii topLeft]),
+            static_cast<float>([radii topRight]),
+            static_cast<float>([radii bottomLeft]),
+            static_cast<float>([radii bottomRight])
+        };
+    }
+
+    if (_lastViewCornerRadii == newRadii)
+        return;
+
+    _lastViewCornerRadii = newRadii;
+    _page->setScrollbarAvoidanceCornerRadii(WTF::move(newRadii));
 }
 
-// MAVERICKS_BACKPORT: forward -_windowOcclusionDetectionEnabled to WebViewImpl (WKWebViewPrivate SPI from the full WKWebViewMac.mm).
-- (BOOL)_windowOcclusionDetectionEnabled
+- (NSViewCornerConfiguration *)_cornerConfiguration
 {
-    return self._impl && self._impl->windowOcclusionDetectionEnabled();
+    if (self.enclosingScrollView)
+        return [super _cornerConfiguration];
+
+    return [NSViewCornerConfiguration configurationWithRadius:_NSCornerRadius.containerConcentricRadius];
 }
 
-// MAVERICKS_BACKPORT: upstream's WKWebView (WKInternalMac) supercall methods (from the full
-// WKWebViewMac.mm). WebViewImpl invokes these on its view; without them, any WebViewImpl
-// path reaching one throws unrecognized-selector. In release builds an ObjC exception
-// unwinding through an IPC dispatch destroys the reply CompletionHandler uncalled —
-// WebPageProxy::executeSavedCommandBySelector's reply never gets sent and WebContent hangs
-// forever inside its synchronous ExecuteSavedCommandBySelector wait (every unhandled
-// keypress command, e.g. Esc -> cancelOperation:).
+#endif
+
+- (void)_activeSpaceDidChange:(NSNotification *)notification
+{
+    _impl->activeSpaceDidChange();
+}
+
+- (id)accessibilityFocusedUIElement
+{
+    return _impl->accessibilityFocusedUIElement();
+}
+
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+- (BOOL)accessibilityIsIgnored
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+{
+    return _impl->accessibilityIsIgnored();
+}
+
+- (id)accessibilityHitTest:(NSPoint)point
+{
+    return _impl->accessibilityHitTest(NSPointToCGPoint(point));
+}
+
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+- (id)accessibilityAttributeValue:(NSString *)attribute
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+{
+    return _impl->accessibilityAttributeValue(attribute);
+}
+
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+- (id)accessibilityAttributeValue:(NSString *)attribute forParameter:(id)parameter
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+{
+    return _impl->accessibilityAttributeValue(attribute, parameter);
+}
+
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+- (NSArray<NSString *> *)accessibilityParameterizedAttributeNames
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+{
+    RetainPtr<NSArray<NSString *>> names = [super accessibilityParameterizedAttributeNames];
+    return [names arrayByAddingObject:@"AXConvertRelativeFrame"];
+}
+
+- (NSView *)hitTest:(NSPoint)point
+{
+    if (!_impl)
+        return [super hitTest:point];
+    return _impl->hitTest(NSPointToCGPoint(point)).autorelease();
+}
+
+- (NSInteger)conversationIdentifier
+{
+    return (NSInteger)self;
+}
+
+- (void)quickLookWithEvent:(NSEvent *)event
+{
+    _impl->quickLookWithEvent(event);
+}
+
+- (NSTrackingRectTag)addTrackingRect:(NSRect)rect owner:(id)owner userData:(void *)data assumeInside:(BOOL)assumeInside
+{
+    return _impl->addTrackingRect(NSRectToCGRect(rect), owner, data, assumeInside);
+}
+
+- (NSTrackingRectTag)_addTrackingRect:(NSRect)rect owner:(id)owner userData:(void *)data assumeInside:(BOOL)assumeInside useTrackingNum:(int)tag
+{
+    return _impl->addTrackingRectWithTrackingNum(NSRectToCGRect(rect), owner, data, assumeInside, tag);
+}
+
+- (void)_addTrackingRects:(NSRect *)rawRects owner:(id)owner userDataList:(void **)userDataList assumeInsideList:(BOOL *)assumeInsideList trackingNums:(NSTrackingRectTag *)trackingNums count:(int)count
+{
+    auto nsRects = unsafeMakeSpan(rawRects, count);
+    auto cgRects = WTF::map(nsRects, [](auto& nsRect) {
+        return NSRectToCGRect(nsRect);
+    });
+    _impl->addTrackingRectsWithTrackingNums(cgRects, owner, userDataList, assumeInsideList, trackingNums);
+}
+
+- (void)removeTrackingRect:(NSTrackingRectTag)tag
+{
+    if (!_impl)
+        return;
+    _impl->removeTrackingRect(tag);
+}
+
+- (void)_removeTrackingRects:(NSTrackingRectTag *)tags count:(int)count
+{
+    if (!_impl)
+        return;
+    _impl->removeTrackingRects(unsafeMakeSpan(tags, count));
+}
+
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+- (NSString *)view:(NSView *)view stringForToolTip:(NSToolTipTag)tag point:(NSPoint)point userData:(void *)data
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+{
+    return _impl->stringForToolTip(tag);
+}
+
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+- (void)pasteboardChangedOwner:(NSPasteboard *)pasteboard
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+{
+    _impl->pasteboardChangedOwner(pasteboard);
+}
+
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+- (void)pasteboard:(NSPasteboard *)pasteboard provideDataForType:(NSString *)type
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+{
+    _impl->provideDataForPasteboard(pasteboard, type);
+}
+
+ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
+- (NSArray *)namesOfPromisedFilesDroppedAtDestination:(NSURL *)dropDestination
+ALLOW_DEPRECATED_IMPLEMENTATIONS_END
+{
+    return _impl->namesOfPromisedFilesDroppedAtDestination(dropDestination);
+}
+
+- (BOOL)wantsUpdateLayer
+{
+    return WebKit::WebViewImpl::wantsUpdateLayer();
+}
+
+- (void)updateLayer
+{
+    _impl->updateLayer();
+}
+
+- (void)smartMagnifyWithEvent:(NSEvent *)event
+{
+    _impl->smartMagnifyWithEvent(event);
+}
+
+- (void)magnifyWithEvent:(NSEvent *)event
+{
+    _impl->magnifyWithEvent(event);
+}
+
+#if ENABLE(MAC_GESTURE_EVENTS)
+- (void)rotateWithEvent:(NSEvent *)event
+{
+    _impl->rotateWithEvent(event);
+}
+#endif // ENABLE(MAC_GESTURE_EVENTS)
+
+- (WKTextFinderClient *)_ensureTextFinderClient
+{
+    if (!_textFinderClient)
+        _textFinderClient = adoptNS([[WKTextFinderClient alloc] initWithPage:*_page view:self usePlatformFindUI:_usePlatformFindUI]);
+    return _textFinderClient.get();
+}
+
+
+- (void)findMatchesForString:(NSString *)targetString relativeToMatch:(id <NSTextFinderAsynchronousDocumentFindMatch>)relativeMatch findOptions:(NSTextFinderAsynchronousDocumentFindOptions)findOptions maxResults:(NSUInteger)maxResults resultCollector:(void (^)(NSArray *matches, BOOL didWrap))resultCollector
+{
+    [protect([self _ensureTextFinderClient]) findMatchesForString:targetString relativeToMatch:relativeMatch findOptions:findOptions maxResults:maxResults resultCollector:resultCollector];
+}
+
+- (void)replaceMatches:(NSArray *)matches withString:(NSString *)replacementString inSelectionOnly:(BOOL)selectionOnly resultCollector:(void (^)(NSUInteger replacementCount))resultCollector
+{
+    [protect([self _ensureTextFinderClient]) replaceMatches:matches withString:replacementString inSelectionOnly:selectionOnly resultCollector:resultCollector];
+}
+
+- (void)scrollFindMatchToVisible:(id<NSTextFinderAsynchronousDocumentFindMatch>)match
+{
+    [protect([self _ensureTextFinderClient]) scrollFindMatchToVisible:match];
+}
+
+- (NSView *)documentContainerView
+{
+    return self;
+}
+
+- (void)getSelectedText:(void (^)(NSString *selectedTextString))completionHandler
+{
+    [protect([self _ensureTextFinderClient]) getSelectedText:completionHandler];
+}
+
+- (void)selectFindMatch:(id <NSTextFinderAsynchronousDocumentFindMatch>)findMatch completionHandler:(void (^)(void))completionHandler
+{
+    [protect([self _ensureTextFinderClient]) selectFindMatch:findMatch completionHandler:completionHandler];
+}
+
+#if ENABLE(DRAG_SUPPORT)
+
+- (NSString *)filePromiseProvider:(NSFilePromiseProvider *)filePromiseProvider fileNameForType:(NSString *)fileType
+{
+    return _impl->fileNameForFilePromiseProvider(filePromiseProvider, fileType);
+}
+
+- (void)filePromiseProvider:(NSFilePromiseProvider *)filePromiseProvider writePromiseToURL:(NSURL *)url completionHandler:(void (^)(NSError *error))completionHandler
+{
+    _impl->writeToURLForFilePromiseProvider(filePromiseProvider, url, completionHandler);
+}
+
+- (NSDragOperation)draggingSession:(NSDraggingSession *)session sourceOperationMaskForDraggingContext:(NSDraggingContext)context
+{
+    return _impl->dragSourceOperationMask(session, context);
+}
+
+- (void)draggingSession:(NSDraggingSession *)session endedAtPoint:(NSPoint)screenPoint operation:(NSDragOperation)operation
+{
+    _impl->draggingSessionEnded(session, screenPoint, operation);
+}
+
+#endif // ENABLE(DRAG_SUPPORT)
+
+- (void)_prepareForImmediateActionAnimation
+{
+}
+
+- (void)_cancelImmediateActionAnimation
+{
+}
+
+- (void)_completeImmediateActionAnimation
+{
+}
+
+- (void)_setDrawsTransparentBackground:(BOOL)drawsTransparentBackground
+{
+    static BOOL hasLoggedDeprecationWarning;
+    if (!hasLoggedDeprecationWarning) {
+        // See bug 155550 for details.
+        NSLog(@"-[WKWebView _setDrawsTransparentBackground:] is deprecated and should not be used.");
+        hasLoggedDeprecationWarning = YES;
+    }
+    [self _setDrawsBackground:!drawsTransparentBackground];
+}
+
+- (void)shareSheetDidDismiss:(WKShareSheet *)shareSheet
+{
+    _impl->shareSheetDidDismiss(shareSheet);
+}
+
+#pragma mark - Touch Bar
+
+#if HAVE(TOUCH_BAR)
+
+@dynamic touchBar;
+
+- (NSTouchBar *)makeTouchBar
+{
+    return _impl->makeTouchBar();
+}
+
+- (NSCandidateListTouchBarItem *)candidateListTouchBarItem
+{
+    return _impl->candidateListTouchBarItem();
+}
+
+- (void)_web_didAddMediaControlsManager:(id)controlsManager
+{
+    [self _addMediaPlaybackControlsView:controlsManager];
+}
+
+- (void)_web_didRemoveMediaControlsManager
+{
+    [self _removeMediaPlaybackControlsView];
+}
+
+- (void)_interactWithMediaControlsForTesting
+{
+    [self _setWantsMediaPlaybackControlsView:YES];
+    [self makeTouchBar];
+}
+
+#endif // HAVE(TOUCH_BAR)
+
+#pragma mark - NSScrollViewSeparatorTrackingAdapter
+
+- (NSRect)scrollViewFrame
+{
+    if (!_impl)
+        return NSZeroRect;
+    return _impl->scrollViewFrame();
+}
+
+- (BOOL)hasScrolledContentsUnderTitlebar
+{
+    if (!_impl)
+        return NO;
+    return _impl->hasScrolledContentsUnderTitlebar();
+}
+
+#pragma mark – NSAdaptiveImageGlyph
+
+#if ENABLE(MULTI_REPRESENTATION_HEIC)
+
+- (BOOL)supportsAdaptiveImageGlyph
+{
+    if ([self _isEditable] || [_configuration _multiRepresentationHEICInsertionEnabled])
+        return _impl->isContentRichlyEditable();
+
+    return NO;
+}
+
+- (void)insertAdaptiveImageGlyph:(NSAdaptiveImageGlyph *)adaptiveImageGlyph replacementRange:(NSRange)replacementRange
+{
+    _impl->insertMultiRepresentationHEIC(adaptiveImageGlyph.imageContent, adaptiveImageGlyph.contentDescription);
+}
+
+#endif
+
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+
+- (BOOL)scrollViewDrawsMagicPocket
+{
+    if (!_page)
+        return NO;
+
+    if (!_page->preferences().contentInsetBackgroundFillEnabled())
+        return NO;
+
+    return _page->obscuredContentInsets().top() > 0 || _page->overflowHeightForTopScrollEdgeEffect() > 0;
+}
+
+- (void)registerPocketContainer:(NSView *)container onEdge:(NSScrollPocketEdge)edge
+{
+    if (edge == NSScrollPocketEdgeTop)
+        _impl->registerViewAboveScrollPocket(container);
+}
+
+- (void)unregisterPocketContainer:(NSView *)container onEdge:(NSScrollPocketEdge)edge
+{
+    if (edge == NSScrollPocketEdgeTop)
+        _impl->unregisterViewAboveScrollPocket(container);
+}
+
+#endif // ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+
+- (void)viewDidChangeEffectiveAppearance
+{
+    // This can be called during [super initWithCoder:] and [super initWithFrame:].
+    // That is before _impl is ready to be used, so check. <rdar://problem/39611236>
+    if (!_impl)
+        return;
+
+    _impl->effectiveAppearanceDidChange();
+}
+
+@end
+
+#if USE(APPLE_INTERNAL_SDK) && __has_include(<WebKitAdditions/WKWebViewMacAdditionsAfter.mm>)
+#import <WebKitAdditions/WKWebViewMacAdditionsAfter.mm>
+#endif
+
+#pragma mark -
+
+@implementation WKWebView (WKIBActions)
+
+- (BOOL)validateUserInterfaceItem:(id <NSValidatedUserInterfaceItem>)item
+{
+    SEL action = item.action;
+
+    if (action == @selector(goBack:))
+        return !!_page->backForwardList().backItem();
+
+    if (action == @selector(goForward:))
+        return !!_page->backForwardList().forwardItem();
+
+    if (action == @selector(stopLoading:)) {
+        // FIXME: Return no if we're stopped.
+        return YES;
+    }
+
+    if (action == @selector(reload:) || action == @selector(reloadFromOrigin:)) {
+        // FIXME: Return no if we're loading.
+        return YES;
+    }
+
+    return _impl->validateUserInterfaceItem(item);
+}
+
+- (IBAction)goBack:(id)sender
+{
+    [self goBack];
+}
+
+- (IBAction)goForward:(id)sender
+{
+    [self goForward];
+}
+
+- (IBAction)reload:(id)sender
+{
+    [self reload];
+}
+
+- (IBAction)reloadFromOrigin:(id)sender
+{
+    [self reloadFromOrigin];
+}
+
+- (IBAction)stopLoading:(id)sender
+{
+    _page->stopLoading();
+}
+
+@end
+
+#pragma mark -
+
+@implementation WKWebView (WKInternalMac)
+
 - (NSTextInputContext *)_web_superInputContext
 {
-    // MAVERICKS_BACKPORT: return NSView's -inputContext for the WebViewImpl super-call forwarder.
     return [super inputContext];
 }
 
-// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -quickLookWithEvent: for WebViewImpl.
 - (void)_web_superQuickLookWithEvent:(NSEvent *)event
 {
     [super quickLookWithEvent:event];
 }
 
-// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -swipeWithEvent: for WebViewImpl.
 - (void)_web_superSwipeWithEvent:(NSEvent *)event
 {
     [super swipeWithEvent:event];
 }
 
-// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -magnifyWithEvent: for WebViewImpl.
 - (void)_web_superMagnifyWithEvent:(NSEvent *)event
 {
     [super magnifyWithEvent:event];
 }
 
-// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -smartMagnifyWithEvent: for WebViewImpl.
 - (void)_web_superSmartMagnifyWithEvent:(NSEvent *)event
 {
     [super smartMagnifyWithEvent:event];
 }
 
-// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -removeTrackingRect: for WebViewImpl.
 - (void)_web_superRemoveTrackingRect:(NSTrackingRectTag)tag
 {
     [super removeTrackingRect:tag];
 }
 
-// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -accessibilityAttributeValue: for WebViewImpl.
 - (id)_web_superAccessibilityAttributeValue:(NSString *)attribute
 {
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -470,61 +1336,846 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
 ALLOW_DEPRECATED_DECLARATIONS_END
 }
 
-// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -doCommandBySelector: for WebViewImpl.
 - (void)_web_superDoCommandBySelector:(SEL)selector
 {
     [super doCommandBySelector:selector];
 }
 
-// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -performKeyEquivalent: for WebViewImpl.
 - (BOOL)_web_superPerformKeyEquivalent:(NSEvent *)event
 {
     return [super performKeyEquivalent:event];
 }
 
-// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -keyDown: for WebViewImpl.
 - (void)_web_superKeyDown:(NSEvent *)event
 {
     [super keyDown:event];
 }
 
-// MAVERICKS_BACKPORT: super-call forwarder invoking NSView -hitTest: for WebViewImpl.
 - (NSView *)_web_superHitTest:(NSPoint)point
 {
     return [super hitTest:point];
 }
 
-// MAVERICKS_BACKPORT: closes the Mac10_9EventForwarding category above.
+- (id)_web_immediateActionAnimationControllerForHitTestResultInternal:(API::HitTestResult*)hitTestResult withType:(uint32_t)type userData:(API::Object*)userData
+{
+    RetainPtr data = userData ? static_cast<id<NSSecureCoding>>(userData->wrapper()) : nil;
+    return [self _immediateActionAnimationControllerForHitTestResult:protect(wrapper(*hitTestResult)).get() withType:(_WKImmediateActionType)type userData:data.get()];
+}
+
+- (void)_web_prepareForImmediateActionAnimation
+{
+    RetainPtr<id <WKUIDelegatePrivate>> uiDelegate = (id <WKUIDelegatePrivate>)[self UIDelegate];
+    if ([uiDelegate respondsToSelector:@selector(_prepareForImmediateActionAnimationForWebView:)])
+        [uiDelegate _prepareForImmediateActionAnimationForWebView:self];
+    else
+        [self _prepareForImmediateActionAnimation];
+}
+
+- (void)_web_cancelImmediateActionAnimation
+{
+    RetainPtr<id <WKUIDelegatePrivate>> uiDelegate = (id <WKUIDelegatePrivate>)[self UIDelegate];
+    if ([uiDelegate respondsToSelector:@selector(_cancelImmediateActionAnimationForWebView:)])
+        [uiDelegate _cancelImmediateActionAnimationForWebView:self];
+    else
+        [self _cancelImmediateActionAnimation];
+}
+
+- (void)_web_completeImmediateActionAnimation
+{
+    RetainPtr<id <WKUIDelegatePrivate>> uiDelegate = (id <WKUIDelegatePrivate>)[self UIDelegate];
+    if ([uiDelegate respondsToSelector:@selector(_completeImmediateActionAnimationForWebView:)])
+        [uiDelegate _completeImmediateActionAnimationForWebView:self];
+    else
+        [self _completeImmediateActionAnimation];
+}
+
+- (void)_web_didChangeContentSize:(NSSize)newSize
+{
+    _lastContentSize = newSize;
+}
+
+- (BOOL)_web_hasActiveIntelligenceTextEffects
+{
+#if ENABLE(WRITING_TOOLS)
+    return [_intelligenceTextEffectCoordinator hasActiveEffects];
+#else
+    return NO;
+#endif
+}
+
+- (void)_web_suppressContentRelativeChildViews
+{
+#if ENABLE(WRITING_TOOLS)
+    [_intelligenceTextEffectCoordinator hideEffectsWithCompletionHandler:^{ }];
+#endif
+}
+
+- (void)_web_restoreContentRelativeChildViews
+{
+#if ENABLE(WRITING_TOOLS)
+    [_intelligenceTextEffectCoordinator showEffectsWithCompletionHandler:^{ }];
+#endif
+}
+
+#if ENABLE(DRAG_SUPPORT)
+
+- (WKDragDestinationAction)_web_dragDestinationActionForDraggingInfo:(id <NSDraggingInfo>)draggingInfo
+{
+    RetainPtr<id <WKUIDelegatePrivate>> uiDelegate = (id <WKUIDelegatePrivate>)[self UIDelegate];
+    if ([uiDelegate respondsToSelector:@selector(_webView:dragDestinationActionMaskForDraggingInfo:)])
+        return [uiDelegate _webView:self dragDestinationActionMaskForDraggingInfo:draggingInfo];
+
+    if (!linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::DropToNavigateDisallowedByDefault))
+        return WKDragDestinationActionAny;
+
+    return WKDragDestinationActionAny & ~WKDragDestinationActionLoad;
+}
+
+- (void)_web_didPerformDragOperation:(BOOL)handled
+{
+    RetainPtr<id <WKUIDelegatePrivate>> uiDelegate = (id <WKUIDelegatePrivate>)self.UIDelegate;
+    if ([uiDelegate respondsToSelector:@selector(_webView:didPerformDragOperation:)])
+        [uiDelegate _webView:self didPerformDragOperation:handled];
+}
+
+#endif // ENABLE(DRAG_SUPPORT)
+
+- (void)_web_dismissContentRelativeChildWindows
+{
+    _impl->dismissContentRelativeChildWindowsFromViewOnly();
+}
+
+- (void)_web_dismissContentRelativeChildWindowsWithAnimation:(BOOL)withAnimation
+{
+    _page->clearTextIndicatorWithAnimation(withAnimation ? WebCore::TextIndicatorDismissalAnimation::FadeOut : WebCore::TextIndicatorDismissalAnimation::None);
+    _impl->dismissContentRelativeChildWindowsWithAnimationFromViewOnly(withAnimation);
+}
+
+- (void)_web_editorStateDidChange
+{
+    [self _didChangeEditorState];
+}
+
+- (void)_web_gestureEventWasNotHandledByWebCore:(NSEvent *)event
+{
+    [self _gestureEventWasNotHandledByWebCore:event];
+}
+
+- (void)_takeFindStringFromSelectionInternal:(id)sender
+{
+    [self takeFindStringFromSelection:sender];
+}
+
+- (void)insertText:(id)string
+{
+    _impl->insertText(string);
+}
+
+- (void)insertText:(id)string replacementRange:(NSRange)replacementRange
+{
+    _impl->insertText(string, replacementRange);
+}
+
+- (void)_resetSecureInputState
+{
+    if (_impl)
+        _impl->resetSecureInputState();
+}
+
+#pragma mark - QLPreviewPanelController
+
+- (BOOL)acceptsPreviewPanelControl:(QLPreviewPanel *)panel
+{
+    return _impl->acceptsPreviewPanelControl(panel);
+}
+
+- (void)beginPreviewPanelControl:(QLPreviewPanel *)panel
+{
+    _impl->beginPreviewPanelControl(panel);
+}
+
+- (void)endPreviewPanelControl:(QLPreviewPanel *)panel
+{
+    _impl->endPreviewPanelControl(panel);
+}
+
+- (Vector<String>)_promisedFileMIMETypes:(id<NSDraggingInfo>)info
+{
+    __block Vector<String> mimeTypes;
+    [info enumerateDraggingItemsWithOptions:0 forView:self classes:@[NSFilePromiseReceiver.class] searchOptions:@{ } usingBlock:^(NSDraggingItem *item, NSInteger, BOOL *) {
+        RetainPtr receiver = dynamic_objc_cast<NSFilePromiseReceiver>(item.item);
+        if (!receiver)
+            return;
+
+        for (NSString *typeIdentifier in [receiver fileTypes]) {
+            RetainPtr type = [UTType typeWithIdentifier:typeIdentifier];
+            if (!type)
+                continue;
+
+            if (RetainPtr mimeType = [type preferredMIMEType])
+                mimeTypes.append({ mimeType.get() });
+        }
+    }];
+
+    if (mimeTypes.isEmpty()) {
+        RetainPtr filenames = dynamic_objc_cast<NSArray>([info.draggingPasteboard propertyListForType:WebCore::legacyFilenamesPasteboardTypeSingleton()]);
+        if (!filenames)
+            return { };
+
+        for (id name in filenames.get()) {
+            RetainPtr pathExtension = [dynamic_objc_cast<NSString>(name) pathExtension];
+            if (![pathExtension length])
+                continue;
+
+            RetainPtr type = [UTType typeWithFilenameExtension:pathExtension.get()];
+            if (!type)
+                continue;
+
+            if (RetainPtr mimeType = [type preferredMIMEType])
+                mimeTypes.append({ mimeType.get() });
+        }
+    }
+
+    return mimeTypes;
+}
+
+#pragma mark - NSTextCheckingClient_WritingTools
+
+- (BOOL)providesWritingToolsContextMenu
+{
+    return YES;
+}
+
 @end
 
-// MAVERICKS_BACKPORT: upstream's mouse-simulation testing SPI, restored for WebKitTestRunner's
-// EventSenderProxy (upstream keeps these in its full WKWebViewMac.mm).
-@implementation WKWebView (WKMouseSimulation)
+#pragma mark -
+
+@implementation WKWebView (WKPrivateMac)
+
+- (WKPageRef)_pageRefForTransitionToWKWebView
+{
+    return toAPI(_page.get());
+}
+
+- (BOOL)_hasActiveVideoForControlsManager
+{
+    return _page && _page->hasActiveVideoForControlsManager();
+}
+
+- (BOOL)_ignoresNonWheelEvents
+{
+    return _impl->ignoresNonWheelEvents();
+}
+
+- (void)_setIgnoresNonWheelEvents:(BOOL)ignoresNonWheelEvents
+{
+    RELEASE_LOG(MouseHandling, "[pageProxyID=%lld] [WKWebView _setIgnoresNonWheelEvents:%d]", _page->identifier().toUInt64(), ignoresNonWheelEvents);
+    _impl->setIgnoresNonWheelEvents(ignoresNonWheelEvents);
+}
+
+- (BOOL)_ignoresMouseMoveEvents
+{
+    return _impl->ignoresMouseMoveEvents();
+}
+
+- (void)_setIgnoresMouseMoveEvents:(BOOL)ignoresMouseMoveEvents
+{
+    _impl->setIgnoresMouseMoveEvents(ignoresMouseMoveEvents);
+}
+
+- (NSView *)_safeBrowsingWarning
+{
+    return _impl->warningView();
+}
+
+- (_WKRectEdge)_pinnedState
+{
+    return _impl->pinnedState();
+}
+
+- (_WKRectEdge)_rubberBandingEnabled
+{
+    return _impl->rubberBandingEnabled();
+}
+
+- (void)_setRubberBandingEnabled:(_WKRectEdge)state
+{
+    _impl->setRubberBandingEnabled(state);
+}
+
+- (NSColor *)_backgroundColor
+{
+    return _impl->backgroundColor();
+}
+
+- (void)_setBackgroundColor:(NSColor *)backgroundColor
+{
+    _impl->setBackgroundColor(backgroundColor);
+}
+
+- (NSColor *)_underlayColor
+{
+    return _impl->underlayColor().autorelease();
+}
+
+- (void)_setUnderlayColor:(NSColor *)underlayColor
+{
+    _impl->setUnderlayColor(underlayColor);
+}
+
+- (void)_setTotalHeightOfBanners:(CGFloat)totalHeightOfBanners
+{
+    _impl->setTotalHeightOfBanners(totalHeightOfBanners);
+}
+
+- (CGFloat)_totalHeightOfBanners
+{
+    return _impl->totalHeightOfBanners();
+}
+
+- (BOOL)_drawsBackground
+{
+    return _impl->drawsBackground();
+}
+
+- (void)_setDrawsBackground:(BOOL)drawsBackground
+{
+    _impl->setDrawsBackground(drawsBackground);
+}
+
+- (void)_setTopContentInset:(CGFloat)inset
+{
+    [self _setTopContentInset:inset immediate:NO];
+}
+
+- (CGFloat)_topContentInset
+{
+    return _impl->obscuredContentInsets().top();
+}
+
+- (void)_setTopContentInset:(CGFloat)inset immediate:(BOOL)immediate
+{
+    auto insets = _impl->obscuredContentInsets();
+    insets.setTop(static_cast<float>(inset));
+    _impl->setObscuredContentInsets(insets);
+    if (immediate)
+        _impl->flushPendingObscuredContentInsetChanges();
+}
+
+- (void)_setObscuredContentInsets:(NSEdgeInsets)insets immediate:(BOOL)immediate
+{
+    if (insets.top < 0 || insets.left < 0 || insets.bottom < 0 || insets.right < 0) {
+        [NSException raise:NSInvalidArgumentException format:@"Obscured insets cannot be negative: {%f, %f, %f, %f}", insets.top, insets.left, insets.bottom, insets.right];
+        return;
+    }
+
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->setClientImplicitlyRequestedTopScrollPocket();
+#endif
+
+    _impl->setObscuredContentInsets(coreBoxExtentsFromEdgeInsets(insets));
+
+    if (immediate)
+        _impl->flushPendingObscuredContentInsetChanges();
+}
+
+- (NSEdgeInsets)_obscuredContentInsets
+{
+    auto insets = _impl->obscuredContentInsets();
+    return NSEdgeInsetsMake(
+        static_cast<CGFloat>(insets.top()),
+        static_cast<CGFloat>(insets.left()),
+        static_cast<CGFloat>(insets.bottom()),
+        static_cast<CGFloat>(insets.right())
+    );
+}
+
+- (CGFloat)_overflowHeightForTopScrollEdgeEffect
+{
+    return _page->overflowHeightForTopScrollEdgeEffect();
+}
+
+- (void)_setOverflowHeightForTopScrollEdgeEffect:(CGFloat)height
+{
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->setClientImplicitlyRequestedTopScrollPocket();
+#endif
+
+    if (_page->overflowHeightForTopScrollEdgeEffect() == height)
+        return;
+
+    _page->setOverflowHeightForTopScrollEdgeEffect(height);
+
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->updateScrollPocket();
+#endif
+
+    if (RetainPtr attachedInspectorWebView = [self _horizontallyAttachedInspectorWebView])
+        [attachedInspectorWebView _setOverflowHeightForTopScrollEdgeEffect:height];
+}
+
+- (NSColor *)_overrideTopScrollEdgeEffectColor
+{
+    return _overrideTopScrollEdgeEffectColor.get();
+}
+
+- (void)_setOverrideTopScrollEdgeEffectColor:(NSColor *)color
+{
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->setClientImplicitlyRequestedTopScrollPocket();
+#endif
+
+    if (_overrideTopScrollEdgeEffectColor == color || [_overrideTopScrollEdgeEffectColor isEqual:color])
+        return;
+
+    _overrideTopScrollEdgeEffectColor = adoptNS(color.copy);
+
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    [self _doAfterAdjustingColorForTopContentInsetFromUIDelegate:[strongSelf = RetainPtr { self }] {
+        [strongSelf _updateTopScrollPocketCaptureColor];
+    }];
+#endif
+}
+
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+
+- (NSScrollPocket *)_topScrollPocket
+{
+    return _impl->topScrollPocket();
+}
+
+- (BOOL)_prefersSolidColorHardScrollPocket
+{
+    return _preferSolidColorHardPocketReasons.contains(WebKit::PreferSolidColorHardPocketReason::RequestedByClient);
+}
+
+- (void)_setPrefersSolidColorHardScrollPocket:(BOOL)value
+{
+    if (value)
+        [self _addReasonToPreferSolidColorHardPocket:WebKit::PreferSolidColorHardPocketReason::RequestedByClient];
+    else
+        [self _removeReasonToPreferSolidColorHardPocket:WebKit::PreferSolidColorHardPocketReason::RequestedByClient];
+}
+
+#endif // ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+
+- (void)_setUsesAutomaticContentInsetBackgroundFill:(BOOL)value
+{
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->setClientImplicitlyRequestedTopScrollPocket();
+#endif
+
+    if (_usesAutomaticContentInsetBackgroundFill == value)
+        return;
+
+    _usesAutomaticContentInsetBackgroundFill = value;
+
+#if ENABLE(CONTENT_INSET_BACKGROUND_FILL)
+    _impl->updateTopScrollPocketStyle();
+    _impl->updateScrollPocketVisibilityWhenScrolledToTop();
+    _impl->updateTopScrollPocketCaptureColor();
+#endif
+}
+
+- (BOOL)_usesAutomaticContentInsetBackgroundFill
+{
+    return _usesAutomaticContentInsetBackgroundFill;
+}
+
+- (void)_setAutomaticallyAdjustsContentInsets:(BOOL)automaticallyAdjustsContentInsets
+{
+    _impl->setAutomaticallyAdjustsContentInsets(automaticallyAdjustsContentInsets);
+}
+
+- (BOOL)_automaticallyAdjustsContentInsets
+{
+    return _impl->automaticallyAdjustsContentInsets();
+}
+
+- (BOOL)_windowOcclusionDetectionEnabled
+{
+    return _impl->windowOcclusionDetectionEnabled();
+}
+
+- (void)_setWindowOcclusionDetectionEnabled:(BOOL)enabled
+{
+    _impl->setWindowOcclusionDetectionEnabled(enabled);
+}
+
+- (NSInteger)_spellCheckerDocumentTag
+{
+    return _impl->spellCheckerDocumentTag();
+}
+
+- (BOOL)_shouldExpandContentToViewHeightForAutoLayout
+{
+    return _impl->shouldExpandToViewHeightForAutoLayout();
+}
+
+- (void)_setShouldExpandContentToViewHeightForAutoLayout:(BOOL)shouldExpand
+{
+    return _impl->setShouldExpandToViewHeightForAutoLayout(shouldExpand);
+}
+
+- (CGFloat)_minimumLayoutWidth
+{
+    return _page->minimumSizeForAutoLayout().width();
+}
+
+- (void)_setMinimumLayoutWidth:(CGFloat)width
+{
+    BOOL expandsToFit = width > 0;
+
+    _page->setMinimumSizeForAutoLayout(WebCore::IntSize(width, 0));
+    _page->setMainFrameIsScrollable(!expandsToFit);
+
+    _impl->setClipsToVisibleRect(expandsToFit);
+}
+
+- (CGSize)_sizeToContentAutoSizeMaximumSize
+{
+    return _page->minimumSizeForAutoLayout();
+}
+
+- (void)_setSizeToContentAutoSizeMaximumSize:(CGSize)size
+{
+    BOOL expandsToFit = size.width > 0 && size.height > 0;
+
+    _page->setSizeToContentAutoSizeMaximumSize(WebCore::IntSize(size.width, size.height));
+    _page->setMainFrameIsScrollable(!expandsToFit);
+
+    _impl->setClipsToVisibleRect(expandsToFit);
+}
+
+- (BOOL)_clipsToVisibleRect
+{
+    return _impl->clipsToVisibleRect();
+}
+
+- (void)_setClipsToVisibleRect:(BOOL)clipsToVisibleRect
+{
+    _impl->setClipsToVisibleRect(clipsToVisibleRect);
+}
+
+- (BOOL)_alwaysShowsHorizontalScroller
+{
+    return _page->alwaysShowsHorizontalScroller();
+}
+
+- (void)_setAlwaysShowsHorizontalScroller:(BOOL)alwaysShowsHorizontalScroller
+{
+    _page->setAlwaysShowsHorizontalScroller(alwaysShowsHorizontalScroller);
+}
+
+- (BOOL)_alwaysShowsVerticalScroller
+{
+    return _page->alwaysShowsVerticalScroller();
+}
+
+- (void)_setAlwaysShowsVerticalScroller:(BOOL)alwaysShowsVerticalScroller
+{
+    _page->setAlwaysShowsVerticalScroller(alwaysShowsVerticalScroller);
+}
+
+- (void)_setOverlayScrollbarStyle:(_WKOverlayScrollbarStyle)scrollbarStyle
+{
+    _impl->setOverlayScrollbarStyle(toCoreScrollbarStyle(scrollbarStyle));
+}
+
+- (_WKOverlayScrollbarStyle)_overlayScrollbarStyle
+{
+    return toAPIScrollbarStyle(_impl->overlayScrollbarStyle());
+}
+
+- (NSView *)_inspectorAttachmentView
+{
+    return _impl->inspectorAttachmentView().autorelease();
+}
+
+- (void)_setInspectorAttachmentView:(NSView *)newView
+{
+    _impl->setInspectorAttachmentView(newView);
+}
+
+- (void)_setHeaderBannerLayer:(CALayer *)headerBannerLayer
+{
+    if (headerBannerLayer)
+        [headerBannerLayer setContentsScale:_page->pageScaleFactor()];
+
+    _impl->setHeaderBannerLayer(headerBannerLayer);
+}
+
+- (CALayer *)_headerBannerLayer
+{
+    return _impl->headerBannerLayer();
+}
+
+- (void)_setFooterBannerLayer:(CALayer *)footerBannerLayer
+{
+    if (footerBannerLayer)
+        [footerBannerLayer setContentsScale:_page->pageScaleFactor()];
+
+    _impl->setFooterBannerLayer(footerBannerLayer);
+}
+
+- (CALayer *)_footerBannerLayer
+{
+    return _impl->footerBannerLayer();
+}
+
+- (void)_setThumbnailView:(_WKThumbnailView *)thumbnailView
+{
+    _impl->setThumbnailView(thumbnailView);
+}
+
+- (_WKThumbnailView *)_thumbnailView
+{
+    if (!_impl)
+        return nil;
+    return _impl->thumbnailView().autorelease();
+}
+
+- (void)_setIgnoresAllEvents:(BOOL)ignoresAllEvents
+{
+    RELEASE_LOG(MouseHandling, "[pageProxyID=%lld] [WKWebView _setIgnoresAllEvents:%d]", _page->identifier().toUInt64(), ignoresAllEvents);
+    _impl->setIgnoresAllEvents(ignoresAllEvents);
+}
+
+- (BOOL)_ignoresAllEvents
+{
+    return _impl->ignoresAllEvents();
+}
+
+- (BOOL)_usePlatformFindUI
+{
+    return _usePlatformFindUI;
+}
+
+- (void)_setUsePlatformFindUI:(BOOL)usePlatformFindUI
+{
+    _usePlatformFindUI = usePlatformFindUI;
+
+    if (_textFinderClient)
+        [self _hideFindUI];
+    _textFinderClient = nil;
+}
+
+- (void)_setShouldSuppressFirstResponderChanges:(BOOL)shouldSuppress
+{
+    _impl->setShouldSuppressFirstResponderChanges(shouldSuppress);
+}
+
+- (BOOL)_canChangeFrameLayout:(_WKFrameHandle *)frameHandle
+{
+    if (RefPtr webFrameProxy = WebKit::WebFrameProxy::webFrame(frameHandle->_frameHandle->frameID()))
+        return _impl->canChangeFrameLayout(*webFrameProxy);
+    return false;
+}
+
+- (BOOL)_tryToSwipeWithEvent:(NSEvent *)event ignoringPinnedState:(BOOL)ignoringPinnedState
+{
+    return _impl->tryToSwipeWithEvent(event, ignoringPinnedState);
+}
+
+- (void)_dismissContentRelativeChildWindows
+{
+    _impl->dismissContentRelativeChildWindowsFromViewOnly();
+}
+
+- (void)_setFrame:(NSRect)rect andScrollBy:(NSSize)offset
+{
+    _impl->setFrameAndScrollBy(NSRectToCGRect(rect), NSSizeToCGSize(offset));
+}
+
+- (void)_gestureEventWasNotHandledByWebCore:(NSEvent *)event
+{
+    _impl->gestureEventWasNotHandledByWebCoreFromViewOnly(event);
+}
+
+- (double)minimumMagnification
+{
+    return _page->minPageZoomFactor();
+}
+
+- (void)_disableFrameSizeUpdates
+{
+    _impl->disableFrameSizeUpdates();
+}
+
+- (void)_enableFrameSizeUpdates
+{
+    _impl->enableFrameSizeUpdates();
+}
+
+- (void)_beginDeferringViewInWindowChanges
+{
+    _impl->beginDeferringViewInWindowChanges();
+}
+
+- (void)_endDeferringViewInWindowChanges
+{
+    _impl->endDeferringViewInWindowChanges();
+}
+
+- (void)_endDeferringViewInWindowChangesSync
+{
+    _impl->endDeferringViewInWindowChangesSync();
+}
+
+- (void)_setCustomSwipeViews:(NSArray *)customSwipeViews
+{
+    _impl->setCustomSwipeViews(customSwipeViews);
+}
+
+- (void)_setCustomSwipeViewsTopContentInset:(float)topContentInset
+{
+    auto insets = _impl->customSwipeViewsObscuredContentInsets();
+    insets.setTop(topContentInset);
+    _impl->setCustomSwipeViewsObscuredContentInsets(WTF::move(insets));
+}
+
+- (void)_setCustomSwipeViewsObscuredContentInsets:(NSEdgeInsets)insets
+{
+    _impl->setCustomSwipeViewsObscuredContentInsets(coreBoxExtentsFromEdgeInsets(insets));
+}
+
+- (void)_setDidMoveSwipeSnapshotCallback:(void(^)(CGRect))callback
+{
+    _impl->setDidMoveSwipeSnapshotCallback(callback);
+}
+
+- (NSView *)_fullScreenPlaceholderView
+{
+    return _impl->fullScreenPlaceholderView();
+}
+
+- (NSWindow *)_fullScreenWindow
+{
+    return _impl->fullScreenWindow();
+}
+
+- (id)_immediateActionAnimationControllerForHitTestResult:(_WKHitTestResult *)hitTestResult withType:(_WKImmediateActionType)type userData:(id<NSSecureCoding>)userData
+{
+    return nil;
+}
+
+- (NSPrintOperation *)_printOperationWithPrintInfo:(NSPrintInfo *)printInfo
+{
+    return [self printOperationWithPrintInfo:printInfo];
+}
+
+- (NSPrintOperation *)_printOperationWithPrintInfo:(NSPrintInfo *)printInfo forFrame:(_WKFrameHandle *)frameHandle
+{
+    if (RefPtr webFrameProxy = WebKit::WebFrameProxy::webFrame(frameHandle->_frameHandle->frameID()))
+        return _impl->printOperationWithPrintInfo(printInfo, *webFrameProxy).autorelease();
+    return nil;
+}
+
+- (BOOL)_wantsMediaPlaybackControlsView
+{
+#if HAVE(TOUCH_BAR)
+    return _impl->clientWantsMediaPlaybackControlsView();
+#else
+    return NO;
+#endif
+}
+
+- (void)_setWantsMediaPlaybackControlsView:(BOOL)wantsMediaPlaybackControlsView
+{
+#if HAVE(TOUCH_BAR)
+    _impl->setClientWantsMediaPlaybackControlsView(wantsMediaPlaybackControlsView);
+#endif
+}
+
+- (id)_mediaPlaybackControlsView
+{
+#if HAVE(TOUCH_BAR)
+    return _impl->clientWantsMediaPlaybackControlsView() ? _impl->mediaPlaybackControlsView() : nil;
+#else
+    return nil;
+#endif
+}
+
+// This method is for subclasses to override.
+- (void)_addMediaPlaybackControlsView:(id)mediaPlaybackControlsView
+{
+}
+
+// This method is for subclasses to override.
+- (void)_removeMediaPlaybackControlsView
+{
+}
+
+- (void)_prepareForMoveToWindow:(NSWindow *)targetWindow completionHandler:(void(^)(void))completionHandler
+{
+    auto completionHandlerCopy = makeBlockPtr(completionHandler);
+    _impl->prepareForMoveToWindow(targetWindow, [completionHandlerCopy] {
+        completionHandlerCopy();
+    });
+}
+
 - (void)_simulateMouseMove:(NSEvent *)event
 {
-    // MAVERICKS_BACKPORT: drive a synthesized mouse-move through WebViewImpl for WebKitTestRunner's EventSenderProxy.
-    if (self._impl)
-        self._impl->mouseMoved(event);
+    return _impl->mouseMoved(event);
 }
 
 - (void)_simulateMouseEnter:(NSEvent *)event
 {
-    // MAVERICKS_BACKPORT: drive a synthesized mouse-enter through WebViewImpl for WebKitTestRunner's EventSenderProxy.
-    if (self._impl)
-        self._impl->mouseEntered(event);
+    _impl->mouseEntered(event);
 }
 
 - (void)_simulateMouseExit:(NSEvent *)event
 {
-    // MAVERICKS_BACKPORT: drive a synthesized mouse-exit through WebViewImpl for WebKitTestRunner's EventSenderProxy.
-    if (self._impl)
-        self._impl->mouseExited(event);
+    _impl->mouseExited(event);
 }
-// MAVERICKS_BACKPORT: closes the WKMouseSimulation category above.
-@end
 
-// MAVERICKS_BACKPORT: upstream's WKWindowSnapshot category, restored for WebKitTestRunner's
-// windowSnapshotImage() pixel-dump path (upstream keeps it in its full WKWebViewMac.mm).
+- (void)_setFont:(NSFont *)font sender:(id)sender
+{
+    _impl->setFontForWebView(font, sender);
+}
+
+- (void)_showWritingTools
+{
+#if ENABLE(WRITING_TOOLS)
+    _impl->showWritingTools();
+#endif
+}
+
+- (BOOL)_isSmartListsEnabled
+{
+    return _impl->isSmartListsEnabled();
+}
+
+- (void)_setSmartListsEnabled:(BOOL)flag
+{
+    _impl->setSmartListsEnabled(flag);
+}
+
+- (void)_toggleSmartLists:(id)sender
+{
+    _impl->toggleSmartLists();
+}
+
+- (void)_storePrivateClickMeasurementWithSourceID:(uint8_t)sourceID destinationURL:(NSURL *)destinationURL reportEndpoint:(NSURL *)reportEndpoint
+{
+    WebCore::PrivateClickMeasurement measurement(
+        WebCore::PrivateClickMeasurement::SourceID(sourceID),
+        WebCore::PCM::SourceSite(reportEndpoint),
+        WebCore::PCM::AttributionDestinationSite(destinationURL),
+        applicationBundleIdentifier(),
+        WallTime::now(),
+        WebCore::PCM::AttributionEphemeral::No
+    );
+    _page->setPrivateClickMeasurementImmediately(WTF::move(measurement));
+}
+
+- (void)_storeSimulatedPrivateClickMeasurementConversionWithPriority:(uint8_t)priority triggerData:(uint8_t)triggerData sourceURL:(NSURL *)sourceURL destinationURL:(NSURL *)destinationURL
+{
+    _page->simulatePrivateClickMeasurementConversion(priority, triggerData, sourceURL, destinationURL);
+}
+
+@end // WKWebView (WKPrivateMac)
+
 @implementation WKWebView (WKWindowSnapshot)
 - (NSImage *)_windowSnapshotInRect:(CGRect)rect withOptions:(CGWindowImageOption)options
 {

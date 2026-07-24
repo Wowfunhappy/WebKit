@@ -325,8 +325,7 @@ UIProcess/API/Cocoa/_WKAppHighlight.mm @nonARC
 UIProcess/API/Cocoa/_WKApplicationManifest.mm @nonARC
 UIProcess/API/Cocoa/_WKArchiveConfiguration.mm @nonARC
 UIProcess/API/Cocoa/_WKArchiveExclusionRule.mm @nonARC
-// MAVERICKS_BACKPORT: excluded — _WKAttachment requires ENABLE_ATTACHMENT_ELEMENT.
-// UIProcess/API/Cocoa/_WKAttachment.mm @nonARC
+UIProcess/API/Cocoa/_WKAttachment.mm @nonARC
 UIProcess/API/Cocoa/_WKAutomationSession.mm @nonARC
 UIProcess/API/Cocoa/_WKAutomationSessionConfiguration.mm @nonARC
 UIProcess/API/Cocoa/_WKContentRuleListAction.mm @nonARC
@@ -390,8 +389,7 @@ UIProcess/API/Cocoa/_WKWebExtensionSidebar.mm
 UIProcess/API/Cocoa/_WKWebPushAction.mm @nonARC
 UIProcess/API/Cocoa/_WKWebsiteDataSize.mm @nonARC
 UIProcess/API/Cocoa/_WKWebsiteDataStoreConfiguration.mm @nonARC
-// MAVERICKS_BACKPORT: excluded — APIAttachmentCocoa requires ENABLE_ATTACHMENT_ELEMENT.
-// UIProcess/API/Cocoa/APIAttachmentCocoa.mm @nonARC
+UIProcess/API/Cocoa/APIAttachmentCocoa.mm @nonARC
 UIProcess/API/Cocoa/APIContentRuleListStoreCocoa.mm @nonARC
 UIProcess/API/Cocoa/APIPageConfigurationCocoa.mm @nonARC
 UIProcess/API/Cocoa/LegacyBundleForClass.mm @nonARC
@@ -466,7 +464,12 @@ UIProcess/API/ios/WKWebViewIOS.mm @nonARC
 UIProcess/API/ios/WKWebViewTestingIOS.mm @nonARC
 
 // MAVERICKS_BACKPORT: @no-unify — WKView.mm is built standalone (legacy WKView reinstated for this backport).
-UIProcess/API/mac/WKView.mm @nonARC @no-unify
+// MAVERICKS_BACKPORT: WKView is reimplemented for 10.9 in WKViewMavericks.mm (see that file's
+// header for why upstream's WebViewImpl-backed WKView cannot work here). Building both would
+// define @implementation WKView twice, so the upstream entry is withheld and the backport one
+// built in its place; UIProcess/API/mac/WKView.mm itself stays byte-upstream.
+// UIProcess/API/mac/WKView.mm @nonARC @no-unify
+UIProcess/API/mac/WKViewMavericks.mm @nonARC @no-unify
 // MAVERICKS_BACKPORT: WKView title-attribute tooltip category (see WKViewToolTip.mm).
 UIProcess/API/mac/WKViewToolTip.mm @nonARC @no-unify
 UIProcess/API/mac/WKWebViewMac.mm @nonARC

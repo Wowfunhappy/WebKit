@@ -25,133 +25,433 @@
 
 #import "config.h"
 #import "ModelElementController.h"
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
 #import <wtf/BlockPtr.h>
 #import <wtf/SoftLinking.h>
 
 #if ENABLE(ARKIT_INLINE_PREVIEW)
-MAVERICKS_BACKPORT */
 
-// MAVERICKS_BACKPORT: reduced include set for the no-op ModelElementController impls (no ASVInlinePreview/AssetViewer, SoftLinking, or SIMD on 10.9).
-#import <WebCore/HTMLModelElementCamera.h>
+#import "Logging.h"
+#import "WebPageProxy.h"
+#import "WebPreferences.h"
 #import <WebCore/LayoutPoint.h>
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
 #import <WebCore/LayoutUnit.h>
-MAVERICKS_BACKPORT */
 #import <WebCore/ResourceError.h>
-// MAVERICKS_BACKPORT: wtf includes the no-op impls need (no BlockPtr/SoftLinking/SIMD/QuartzCore on 10.9).
-#import <wtf/CompletionHandler.h>
-#import <wtf/Expected.h>
+#import <pal/spi/cocoa/QuartzCoreSPI.h>
+#import <simd/simd.h>
 #import <wtf/MachSendRight.h>
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
 #import <wtf/MainThread.h>
-MAVERICKS_BACKPORT */
 #import <wtf/MonotonicTime.h>
-// MAVERICKS_BACKPORT: Seconds/URL used by the inert no-op signatures below.
-#import <wtf/Seconds.h>
-#import <wtf/URL.h>
+#import <wtf/darwin/DispatchExtras.h>
 
-// MAVERICKS_BACKPORT: ARKit/RealityKit inline preview is unsupportable on 10.9; the bodies below are inert no-ops.
-#if ENABLE(ARKIT_INLINE_PREVIEW)
+#if ENABLE(ARKIT_INLINE_PREVIEW_IOS)
+#import "APIUIClient.h"
+#import "RemoteLayerTreeDrawingAreaProxy.h"
+#import "RemoteLayerTreeHost.h"
+#import "RemoteLayerTreeViews.h"
+#import "WKModelView.h"
+#import <pal/spi/ios/SystemPreviewSPI.h>
+#endif
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_MAC)
+#import <pal/spi/mac/SystemPreviewSPI.h>
+#endif
+
+SOFT_LINK_PRIVATE_FRAMEWORK(AssetViewer);
+SOFT_LINK_CLASS(AssetViewer, ASVInlinePreview);
 
 namespace WebKit {
 
-// MAVERICKS_BACKPORT: no-op camera getter (no ASVInlinePreview on 10.9); report general failure.
-void ModelElementController::getCameraForModelElement(ModelIdentifier, CompletionHandler<void(Expected<WebCore::HTMLModelElementCamera, WebCore::ResourceError>)>&& completionHandler)
+#if ENABLE(ARKIT_INLINE_PREVIEW_IOS)
+
+WKModelView * ModelElementController::modelViewForModelIdentifier(ModelIdentifier modelIdentifier)
 {
-    completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+    RefPtr webPageProxy = m_webPageProxy.get();
+    if (!webPageProxy || !protect(webPageProxy->preferences())->modelElementEnabled())
+        return nil;
+
+    auto* proxy = dynamicDowncast<RemoteLayerTreeDrawingAreaProxy>(webPageProxy->drawingArea());
+    if (!proxy)
+        return nil;
+
+    auto* node = proxy->remoteLayerTreeHost().nodeForID(modelIdentifier.layerIdentifier);
+    if (!node)
+        return nil;
+
+    return dynamic_objc_cast<WKModelView>(node->uiView());
 }
 
-// MAVERICKS_BACKPORT: no-op camera setter (no ASVInlinePreview on 10.9); report failure.
-void ModelElementController::setCameraForModelElement(ModelIdentifier, WebCore::HTMLModelElementCamera, CompletionHandler<void(bool)>&& completionHandler)
+ASVInlinePreview * ModelElementController::previewForModelIdentifier(ModelIdentifier modelIdentifier)
 {
-    completionHandler(false);
+    return [modelViewForModelIdentifier(modelIdentifier) preview];
 }
 
-// MAVERICKS_BACKPORT: no-op animation-playing query (inline preview inert on 10.9); report general failure.
-void ModelElementController::isPlayingAnimationForModelElement(ModelIdentifier, CompletionHandler<void(Expected<bool, WebCore::ResourceError>)>&& completionHandler)
+void ModelElementController::takeModelElementFullscreen(ModelIdentifier modelIdentifier, const URL& originatingPageURL)
 {
-    completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+    // FIXME: When in element fullscreen, UIClient::presentingViewController() may not return the
+    // WKFullScreenViewController even though that is the presenting view controller of the WKWebView.
+    // We should call PageClientImpl::presentingViewController() instead.
+    auto *presentingViewController = protect(*m_webPageProxy)->uiClient().presentingViewController();
+    if (!presentingViewController)
+        return;
+
+    auto modelView = modelViewForModelIdentifier(modelIdentifier);
+    if (!modelView)
+        return;
+
+    CGRect initialFrame = [modelView convertRect:modelView.frame toView:nil];
+
+    ASVInlinePreview *preview = [modelView preview];
+    [preview setCanonicalWebPageURL:originatingPageURL.createNSURL().get()];
+    [preview setUrlFragment:originatingPageURL.fragmentIdentifier().createNSString().get()];
+    NSDictionary *previewOptions = @{@"WebKit": @"Model element fullscreen"};
+    [preview createFullscreenInstanceWithInitialFrame:initialFrame previewOptions:previewOptions completionHandler:^(UIViewController *remoteViewController, CAFenceHandle *fenceHandle, NSError *creationError) {
+        if (creationError) {
+            LOG(ModelElement, "Unable to create fullscreen instance: %@", [creationError localizedDescription]);
+            [fenceHandle invalidate];
+            return;
+        }
+
+        dispatch_async(mainDispatchQueueSingleton(), ^{
+            remoteViewController.modalPresentationStyle = UIModalPresentationOverFullScreen;
+            remoteViewController.view.backgroundColor = UIColor.clearColor;
+
+            [presentingViewController presentViewController:remoteViewController animated:NO completion:^(void) {
+                [CATransaction begin];
+                [modelView.layer.superlayer.context addFence:fenceHandle];
+                [CATransaction commit];
+                [fenceHandle invalidate];
+            }];
+
+            [preview observeDismissFullscreenWithCompletionHandler:^(CAFenceHandle *dismissFenceHandle, NSDictionary *payload, NSError *dismissError) {
+                dispatch_async(mainDispatchQueueSingleton(), ^{
+                    if (dismissError || !dismissFenceHandle) {
+                        LOG(ModelElement, "Unable to get fence handle when dismissing fullscreen instance: %@", [dismissError localizedDescription]);
+                        [dismissFenceHandle invalidate];
+                        return;
+                    }
+
+                    [CATransaction begin];
+                    [modelView.layer.superlayer.context addFence:dismissFenceHandle];
+                    [CATransaction setCompletionBlock:^{
+                        [remoteViewController dismissViewControllerAnimated:NO completion:nil];
+                    }];
+                    [CATransaction commit];
+                    [dismissFenceHandle invalidate];
+                });
+            }];
+        });
+    }];
 }
 
-// MAVERICKS_BACKPORT: no-op set-animation-playing (inline preview inert on 10.9); report failure.
-void ModelElementController::setAnimationIsPlayingForModelElement(ModelIdentifier, bool, CompletionHandler<void(bool)>&& completionHandler)
+void ModelElementController::setInteractionEnabledForModelElement(ModelIdentifier modelIdentifier, bool isInteractionEnabled)
 {
-    completionHandler(false);
+    if (auto *modelView = modelViewForModelIdentifier(modelIdentifier))
+        modelView.userInteractionEnabled = isInteractionEnabled;
 }
 
-// MAVERICKS_BACKPORT: no-op animation-looping query (inline preview inert on 10.9); report general failure.
-void ModelElementController::isLoopingAnimationForModelElement(ModelIdentifier, CompletionHandler<void(Expected<bool, WebCore::ResourceError>)>&& completionHandler)
+#endif // ENABLE(ARKIT_INLINE_PREVIEW_IOS)
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_MAC)
+
+ASVInlinePreview * ModelElementController::previewForModelIdentifier(ModelIdentifier modelIdentifier)
 {
-    completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+    RefPtr webPageProxy = m_webPageProxy.get();
+    if (!webPageProxy || !protect(webPageProxy->preferences())->modelElementEnabled())
+        return nullptr;
+
+    return m_inlinePreviews.get(modelIdentifier.uuid);
 }
 
-// MAVERICKS_BACKPORT: no-op set-animation-looping (inline preview inert on 10.9); report failure.
-void ModelElementController::setIsLoopingAnimationForModelElement(ModelIdentifier, bool, CompletionHandler<void(bool)>&& completionHandler)
+void ModelElementController::modelElementCreateRemotePreview(String uuid, WebCore::FloatSize size, CompletionHandler<void(Expected<std::pair<String, uint32_t>, WebCore::ResourceError>)>&& completionHandler)
 {
-    completionHandler(false);
+    RefPtr webPageProxy = m_webPageProxy.get();
+    if (!webPageProxy || !protect(webPageProxy->preferences())->modelElementEnabled()) {
+        completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::errorDomainWebKitInternal, 0, { }, "Model element disabled"_s }));
+        return;
+    }
+
+    auto nsUUID = adoptNS([[NSUUID alloc] initWithUUIDString:uuid.createNSString().get()]);
+    auto preview = adoptNS([allocASVInlinePreviewInstance() initWithFrame:CGRectMake(0, 0, size.width(), size.height()) UUID:nsUUID.get()]);
+
+    LOG(ModelElement, "Created remote preview with UUID %s.", uuid.utf8().data());
+
+    auto iterator = m_inlinePreviews.find(uuid);
+    if (iterator == m_inlinePreviews.end())
+        m_inlinePreviews.set(uuid, preview);
+    else
+        iterator->value = preview;
+
+    auto handler = CompletionHandlerWithFinalizer<void(Expected<std::pair<String, uint32_t>, WebCore::ResourceError>)>(WTF::move(completionHandler), [] (Function<void(Expected<std::pair<String, uint32_t>, WebCore::ResourceError>)>& completionHandler) {
+        completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+    });
+
+    RELEASE_ASSERT(isMainRunLoop());
+    [preview setupRemoteConnectionWithCompletionHandler:makeBlockPtr([weakThis = WeakPtr { *this }, preview, uuid = WTF::move(uuid), handler = WTF::move(handler)] (NSError *contextError) mutable {
+        if (contextError) {
+            LOG(ModelElement, "Unable to create remote connection for uuid %s: %@.", uuid.utf8().data(), contextError.localizedDescription);
+
+            callOnMainRunLoop([weakThis = WTF::move(weakThis), handler = WTF::move(handler), error = WebCore::ResourceError { contextError }] () mutable {
+                if (!weakThis)
+                    return;
+
+                handler(makeUnexpected(error));
+            });
+            return;
+        }
+
+        LOG(ModelElement, "Established remote connection with UUID %s.", uuid.utf8().data());
+
+        auto contextId = [preview contextId];
+        callOnMainRunLoop([weakThis = WTF::move(weakThis), uuid = WTF::move(uuid), handler = WTF::move(handler), contextId] () mutable {
+            if (!weakThis)
+                return;
+
+            handler(std::make_pair(uuid, contextId));
+        });
+    }).get()];
 }
 
-// MAVERICKS_BACKPORT: no-op animation-duration query (inline preview inert on 10.9); report general failure.
-void ModelElementController::animationDurationForModelElement(ModelIdentifier, CompletionHandler<void(Expected<Seconds, WebCore::ResourceError>)>&& completionHandler)
+void ModelElementController::modelElementLoadRemotePreview(String uuid, URL fileURL, CompletionHandler<void(std::optional<WebCore::ResourceError>&&)>&& completionHandler)
 {
-    completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+    RefPtr webPageProxy = m_webPageProxy.get();
+    if (!webPageProxy || !protect(webPageProxy->preferences())->modelElementEnabled()) {
+        completionHandler(WebCore::ResourceError { WebCore::errorDomainWebKitInternal, 0, { }, "Model element disabled"_s });
+        return;
+    }
+
+    auto preview = previewForUUID(uuid);
+    if (!preview) {
+        completionHandler(WebCore::ResourceError { WebCore::errorDomainWebKitInternal, 0, { }, "Could not find a preview for the provided UUID"_s });
+        return;
+    }
+
+    auto handler = CompletionHandlerWithFinalizer<void(std::optional<WebCore::ResourceError>&&)>(WTF::move(completionHandler), [](Function<void(std::optional<WebCore::ResourceError>&&)>& completionHandler) {
+        completionHandler(WebCore::ResourceError { WebCore::ResourceError::Type::General });
+    });
+
+    RELEASE_ASSERT(isMainRunLoop());
+    [preview preparePreviewOfFileAtURL:adoptNS([[NSURL alloc] initFileURLWithPath:fileURL.fileSystemPath().createNSString().get()]).get() completionHandler:makeBlockPtr([
+        weakThis = WeakPtr { *this },
+#if PLATFORM(MAC)
+        preview, // FIXME: Remove when rdar://143993062 is fixed.
+#endif
+        uuid = WTF::move(uuid),
+        handler = WTF::move(handler)
+    ] (NSError *loadError) mutable {
+        if (loadError) {
+            LOG(ModelElement, "Unable to load file for uuid %s: %@.", uuid.utf8().data(), loadError.localizedDescription);
+
+            callOnMainRunLoop([weakThis = WTF::move(weakThis), handler = WTF::move(handler), error = WebCore::ResourceError { loadError }] () mutable {
+                if (!weakThis)
+                    return;
+
+                handler(error);
+            });
+            return;
+        }
+
+        LOG(ModelElement, "Loaded file with UUID %s.", uuid.utf8().data());
+
+        callOnMainRunLoop([weakThis = WTF::move(weakThis), handler = WTF::move(handler)] () mutable {
+            if (!weakThis)
+                return;
+
+            handler({ });
+        });
+    }).get()];
 }
 
-// MAVERICKS_BACKPORT: no-op animation-current-time query (inline preview inert on 10.9); report general failure.
-void ModelElementController::animationCurrentTimeForModelElement(ModelIdentifier, CompletionHandler<void(Expected<Seconds, WebCore::ResourceError>)>&& completionHandler)
+void ModelElementController::modelElementDestroyRemotePreview(String uuid)
 {
-    completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+    m_inlinePreviews.remove(uuid);
 }
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+
+RetainPtr<ASVInlinePreview> ModelElementController::previewForUUID(const String& uuid)
+{
+    return m_inlinePreviews.get(uuid);
+}
+
+void ModelElementController::handleMouseDownForModelElement(const String& uuid, const WebCore::LayoutPoint& flippedLocationInElement, MonotonicTime timestamp)
+{
+    if (auto preview = previewForUUID(uuid))
+        [preview mouseDownAtLocation:CGPointMake(flippedLocationInElement.x().toFloat(), flippedLocationInElement.y().toFloat()) timestamp:timestamp.secondsSinceEpoch().value()];
+}
+
+void ModelElementController::handleMouseMoveForModelElement(const String& uuid, const WebCore::LayoutPoint& flippedLocationInElement, MonotonicTime timestamp)
+{
+    if (auto preview = previewForUUID(uuid))
+        [preview mouseDraggedAtLocation:CGPointMake(flippedLocationInElement.x().toFloat(), flippedLocationInElement.y().toFloat()) timestamp:timestamp.secondsSinceEpoch().value()];
+}
+
+void ModelElementController::handleMouseUpForModelElement(const String& uuid, const WebCore::LayoutPoint& flippedLocationInElement, MonotonicTime timestamp)
+{
+    if (auto preview = previewForUUID(uuid))
+        [preview mouseUpAtLocation:CGPointMake(flippedLocationInElement.x().toFloat(), flippedLocationInElement.y().toFloat()) timestamp:timestamp.secondsSinceEpoch().value()];
+}
+
+void ModelElementController::modelElementSizeDidChange(const String& uuid, WebCore::FloatSize size, CompletionHandler<void(Expected<MachSendRight, WebCore::ResourceError>)>&& completionHandler)
+{
+    auto preview = previewForUUID(uuid);
+    if (!preview) {
+        completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::errorDomainWebKitInternal, 0, { }, "Could not find model"_s }));
+        return;
+    }
+
+    auto handler = CompletionHandlerWithFinalizer<void(Expected<MachSendRight, WebCore::ResourceError>)>(WTF::move(completionHandler), [] (Function<void(Expected<MachSendRight, WebCore::ResourceError>)>& completionHandler) {
+        completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+    });
+
+    [preview updateFrame:CGRectMake(0, 0, size.width(), size.height()) completionHandler:makeBlockPtr([weakThis = WeakPtr { *this }, handler = WTF::move(handler), uuid] (CAFenceHandle *fenceHandle, NSError *error) mutable {
+        if (error) {
+            LOG(ModelElement, "Unable to update frame: %@.", error.localizedDescription);
+            callOnMainRunLoop([weakThis = WTF::move(weakThis), handler = WTF::move(handler), error = WebCore::ResourceError { error }] () mutable {
+                if (!weakThis)
+                    return;
+                handler(makeUnexpected(error));
+            });
+            [fenceHandle invalidate];
+            return;
+        }
+
+        RetainPtr strongFenceHandle = fenceHandle;
+        callOnMainRunLoop([weakThis = WTF::move(weakThis), handler = WTF::move(handler), uuid, strongFenceHandle = WTF::move(strongFenceHandle)] () mutable {
+            if (!weakThis) {
+                [strongFenceHandle invalidate];
+                return;
+            }
+
+            // FIXME: This is a safer cpp false positive.
+            SUPPRESS_RETAINPTR_CTOR_ADOPT auto fenceSendRight = MachSendRight::adopt([strongFenceHandle copyPort]);
+            [strongFenceHandle invalidate];
+            handler(WTF::move(fenceSendRight));
+        });
+    }).get()];
+}
+
+void ModelElementController::inlinePreviewUUIDs(CompletionHandler<void(Vector<String>&&)>&& completionHandler)
+{
+    completionHandler(WTF::map(m_inlinePreviews, [](auto& entry) {
+        return entry.key;
+    }));
+}
 #endif // ENABLE(ARKIT_INLINE_PREVIEW_MAC)
 
 #if ENABLE(ARKIT_INLINE_PREVIEW)
-MAVERICKS_BACKPORT */
 
-// MAVERICKS_BACKPORT: no-op set-animation-current-time (inline preview inert on 10.9); report failure.
-void ModelElementController::setAnimationCurrentTimeForModelElement(ModelIdentifier, Seconds, CompletionHandler<void(bool)>&& completionHandler)
+static bool previewHasCameraSupport(ASVInlinePreview *preview)
 {
-    completionHandler(false);
+#if ENABLE(ARKIT_INLINE_PREVIEW_CAMERA_TRANSFORM)
+    return [preview respondsToSelector:@selector(getCameraTransform:)];
+#else
+    return false;
+#endif
 }
 
-// MAVERICKS_BACKPORT: no-op has-audio query (inline preview inert on 10.9); report general failure.
-void ModelElementController::hasAudioForModelElement(ModelIdentifier, CompletionHandler<void(Expected<bool, WebCore::ResourceError>)>&& completionHandler)
+void ModelElementController::getCameraForModelElement(ModelIdentifier modelIdentifier, CompletionHandler<void(Expected<WebCore::HTMLModelElementCamera, WebCore::ResourceError>)>&& completionHandler)
 {
-    completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+    RetainPtr preview = previewForModelIdentifier(modelIdentifier);
+    if (!previewHasCameraSupport(preview.get())) {
+        completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+        return;
+    }
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_CAMERA_TRANSFORM)
+    [preview getCameraTransform:makeBlockPtr([weakThis = WeakPtr { *this }, completionHandler = WTF::move(completionHandler)] (simd_float3 cameraTransform, NSError *error) mutable {
+        if (error) {
+            callOnMainRunLoop([weakThis = WTF::move(weakThis), completionHandler = WTF::move(completionHandler)] () mutable {
+                if (weakThis)
+                    completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+            });
+            return;
+        }
+
+        callOnMainRunLoop([cameraTransform, weakThis = WTF::move(weakThis), completionHandler = WTF::move(completionHandler)] () mutable {
+            if (weakThis)
+                completionHandler(WebCore::HTMLModelElementCamera { cameraTransform.x, cameraTransform.y, cameraTransform.z });
+        });
+    }).get()];
+#else
+    ASSERT_NOT_REACHED();
+#endif
 }
 
-// MAVERICKS_BACKPORT: no-op is-muted query (inline preview inert on 10.9); report general failure.
-void ModelElementController::isMutedForModelElement(ModelIdentifier, CompletionHandler<void(Expected<bool, WebCore::ResourceError>)>&& completionHandler)
+void ModelElementController::setCameraForModelElement(ModelIdentifier modelIdentifier, WebCore::HTMLModelElementCamera camera, CompletionHandler<void(bool)>&& completionHandler)
 {
-    completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+    RetainPtr preview = previewForModelIdentifier(modelIdentifier);
+    if (!previewHasCameraSupport(preview.get())) {
+        completionHandler(false);
+        return;
+    }
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_CAMERA_TRANSFORM)
+    [preview setCameraTransform:simd_make_float3(camera.pitch, camera.yaw, camera.scale)];
+    completionHandler(true);
+#else
+    ASSERT_NOT_REACHED();
+#endif
 }
 
-// MAVERICKS_BACKPORT: no-op set-is-muted (inline preview inert on 10.9); report failure.
-void ModelElementController::setIsMutedForModelElement(ModelIdentifier, bool, CompletionHandler<void(bool)>&& completionHandler)
+static bool previewHasAnimationSupport(ASVInlinePreview *preview)
 {
-    completionHandler(false);
+#if ENABLE(ARKIT_INLINE_PREVIEW_ANIMATIONS_CONTROL)
+    return [preview respondsToSelector:@selector(isPlaying)];
+#else
+    return false;
+#endif
 }
 
-#if ENABLE(ARKIT_INLINE_PREVIEW_MAC)
-// MAVERICKS_BACKPORT: ARKit/RealityKit remote-preview (the Mac inline-preview path) is unsupportable on
-// 10.9; provide no-op impls so WebPageProxy's model message handlers link. The feature is inert.
-void ModelElementController::modelElementCreateRemotePreview(String, WebCore::FloatSize, CompletionHandler<void(Expected<std::pair<String, uint32_t>, WebCore::ResourceError>)>&& completionHandler)
+void ModelElementController::isPlayingAnimationForModelElement(ModelIdentifier modelIdentifier, CompletionHandler<void(Expected<bool, WebCore::ResourceError>)>&& completionHandler)
 {
-    // MAVERICKS_BACKPORT: no-op remote-preview create (no AssetViewer remote connection on 10.9); report general failure.
-    completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+    RetainPtr preview = previewForModelIdentifier(modelIdentifier);
+    if (!previewHasAnimationSupport(preview.get())) {
+        completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+        return;
+    }
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_ANIMATIONS_CONTROL)
+    completionHandler([preview isPlaying]);
+#else
+    ASSERT_NOT_REACHED();
+#endif
 }
 
-// MAVERICKS_BACKPORT: no-op remote-preview load (no AssetViewer remote connection on 10.9); report general failure.
-void ModelElementController::modelElementLoadRemotePreview(String, URL, CompletionHandler<void(std::optional<WebCore::ResourceError>&&)>&& completionHandler)
+void ModelElementController::setAnimationIsPlayingForModelElement(ModelIdentifier modelIdentifier, bool isPlaying, CompletionHandler<void(bool)>&& completionHandler)
 {
-    completionHandler(WebCore::ResourceError { WebCore::ResourceError::Type::General });
+    RetainPtr preview = previewForModelIdentifier(modelIdentifier);
+    if (!previewHasAnimationSupport(preview.get())) {
+        completionHandler(false);
+        return;
+    }
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_ANIMATIONS_CONTROL)
+    [preview setIsPlaying:isPlaying reply:makeBlockPtr([weakThis = WeakPtr { *this }, completionHandler = WTF::move(completionHandler)] (BOOL, NSError *error) mutable {
+        callOnMainRunLoop([success = !error, weakThis = WTF::move(weakThis), completionHandler = WTF::move(completionHandler)] () mutable {
+            if (weakThis)
+                completionHandler(success);
+        });
+    }).get()];
+#else
+    ASSERT_NOT_REACHED();
+#endif
 }
 
-// MAVERICKS_BACKPORT: no-op remote-preview destroy (no AssetViewer remote connection on 10.9).
-void ModelElementController::modelElementDestroyRemotePreview(String)
+void ModelElementController::isLoopingAnimationForModelElement(ModelIdentifier modelIdentifier, CompletionHandler<void(Expected<bool, WebCore::ResourceError>)>&& completionHandler)
 {
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+    RetainPtr preview = previewForModelIdentifier(modelIdentifier);
+    if (!previewHasAnimationSupport(preview.get())) {
+        completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+        return;
+    }
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_ANIMATIONS_CONTROL)
+    completionHandler([preview isLooping]);
+#else
+    ASSERT_NOT_REACHED();
+#endif
+}
+
+void ModelElementController::setIsLoopingAnimationForModelElement(ModelIdentifier modelIdentifier, bool isLooping, CompletionHandler<void(bool)>&& completionHandler)
+{
     RetainPtr preview = previewForModelIdentifier(modelIdentifier);
     if (!previewHasAnimationSupport(preview.get())) {
         completionHandler(false);
@@ -164,19 +464,25 @@ void ModelElementController::modelElementDestroyRemotePreview(String)
 #else
     ASSERT_NOT_REACHED();
 #endif
-MAVERICKS_BACKPORT */
 }
 
-// MAVERICKS_BACKPORT: no-op size-change (no AssetViewer remote connection on 10.9); report general failure.
-void ModelElementController::modelElementSizeDidChange(const String&, WebCore::FloatSize, CompletionHandler<void(Expected<MachSendRight, WebCore::ResourceError>)>&& completionHandler)
+void ModelElementController::animationDurationForModelElement(ModelIdentifier modelIdentifier, CompletionHandler<void(Expected<Seconds, WebCore::ResourceError>)>&& completionHandler)
 {
-    completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+    RetainPtr preview = previewForModelIdentifier(modelIdentifier);
+    if (!previewHasAnimationSupport(preview.get())) {
+        completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+        return;
+    }
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_ANIMATIONS_CONTROL)
+    completionHandler(Seconds([preview duration]));
+#else
+    ASSERT_NOT_REACHED();
+#endif
 }
 
-// MAVERICKS_BACKPORT: no-op mouse-down forwarding (inline preview inert on 10.9).
-void ModelElementController::handleMouseDownForModelElement(const String&, const WebCore::LayoutPoint&, MonotonicTime)
+void ModelElementController::animationCurrentTimeForModelElement(ModelIdentifier modelIdentifier, CompletionHandler<void(Expected<Seconds, WebCore::ResourceError>)>&& completionHandler)
 {
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
     RetainPtr preview = previewForModelIdentifier(modelIdentifier);
     if (!previewHasAnimationSupport(preview.get())) {
         completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
@@ -188,13 +494,10 @@ void ModelElementController::handleMouseDownForModelElement(const String&, const
 #else
     ASSERT_NOT_REACHED();
 #endif
-MAVERICKS_BACKPORT */
 }
 
-// MAVERICKS_BACKPORT: no-op mouse-move forwarding (inline preview inert on 10.9).
-void ModelElementController::handleMouseMoveForModelElement(const String&, const WebCore::LayoutPoint&, MonotonicTime)
+void ModelElementController::setAnimationCurrentTimeForModelElement(ModelIdentifier modelIdentifier, Seconds currentTime, CompletionHandler<void(bool)>&& completionHandler)
 {
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
     RetainPtr preview = previewForModelIdentifier(modelIdentifier);
     if (!previewHasAnimationSupport(preview.get())) {
         completionHandler(false);
@@ -207,28 +510,64 @@ void ModelElementController::handleMouseMoveForModelElement(const String&, const
 #else
     ASSERT_NOT_REACHED();
 #endif
-MAVERICKS_BACKPORT */
 }
 
-// MAVERICKS_BACKPORT: no-op mouse-up forwarding (inline preview inert on 10.9).
-void ModelElementController::handleMouseUpForModelElement(const String&, const WebCore::LayoutPoint&, MonotonicTime)
+static bool previewHasAudioSupport(ASVInlinePreview *preview)
 {
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
 #if ENABLE(ARKIT_INLINE_PREVIEW_AUDIO_CONTROL)
     return [preview respondsToSelector:@selector(hasAudio)];
 #else
     return false;
 #endif
-MAVERICKS_BACKPORT */
 }
 
-// MAVERICKS_BACKPORT: no-op preview-UUID enumeration (no inline previews exist on 10.9); report empty.
-void ModelElementController::inlinePreviewUUIDs(CompletionHandler<void(Vector<String>&&)>&& completionHandler)
+void ModelElementController::hasAudioForModelElement(ModelIdentifier modelIdentifier, CompletionHandler<void(Expected<bool, WebCore::ResourceError>)>&& completionHandler)
 {
-    completionHandler({ });
+    RetainPtr preview = previewForModelIdentifier(modelIdentifier);
+    if (!previewHasAudioSupport(preview.get())) {
+        completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+        return;
+    }
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_AUDIO_CONTROL)
+    completionHandler([preview hasAudio]);
+#else
+    ASSERT_NOT_REACHED();
+#endif
 }
-// MAVERICKS_BACKPORT: end of the inert no-op Mac inline-preview impls (ARKit/RealityKit absent on 10.9).
-#endif // ENABLE(ARKIT_INLINE_PREVIEW_MAC)
+
+void ModelElementController::isMutedForModelElement(ModelIdentifier modelIdentifier, CompletionHandler<void(Expected<bool, WebCore::ResourceError>)>&& completionHandler)
+{
+    RetainPtr preview = previewForModelIdentifier(modelIdentifier);
+    if (!previewHasAudioSupport(preview.get())) {
+        completionHandler(makeUnexpected(WebCore::ResourceError { WebCore::ResourceError::Type::General }));
+        return;
+    }
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_AUDIO_CONTROL)
+    completionHandler([preview isMuted]);
+#else
+    ASSERT_NOT_REACHED();
+#endif
+}
+
+void ModelElementController::setIsMutedForModelElement(ModelIdentifier modelIdentifier, bool isMuted, CompletionHandler<void(bool)>&& completionHandler)
+{
+    RetainPtr preview = previewForModelIdentifier(modelIdentifier);
+    if (!previewHasAudioSupport(preview.get())) {
+        completionHandler(false);
+        return;
+    }
+
+#if ENABLE(ARKIT_INLINE_PREVIEW_AUDIO_CONTROL)
+    preview.get().isMuted = isMuted;
+    completionHandler(true);
+#else
+    ASSERT_NOT_REACHED();
+#endif
+}
+
+#endif // ENABLE(ARKIT_INLINE_PREVIEW)
 
 } // namespace WebKit
 

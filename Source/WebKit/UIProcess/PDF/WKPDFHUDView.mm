@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
- * MAVERICKS_BACKPORT: this file is a minimal stub of the upstream PDF HUD (see status note below).
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,20 +23,13 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT status: minimal implementation. The PDF HUD is the floating
-// zoom/save overlay shown over inline PDFs by the PDF plugin. This inert view
-// is created and laid out by WebViewImpl but draws nothing and handles no
-// clicks (handleMouse* return NO so events fall through to the page). Real ObjC
-// metadata lives in WebKit.framework; the full HUD can be restored from upstream.
-
 #import "config.h"
 #import "WKPDFHUDView.h"
 
 #if ENABLE(PDF_HUD)
 
-// MAVERICKS_BACKPORT: inert HUD stub — the upstream QuartzCore/PAL SPI imports, layout constants, control-name strings, and isInRecoveryOS/controlArray helpers are all dropped.
+#import "WKWebViewInternal.h"
 #import "WebPageProxy.h"
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
 #import <QuartzCore/CATransaction.h>
 #import <WebCore/Color.h>
 #import <pal/spi/cf/CoreTextSPI.h>
@@ -89,43 +81,311 @@ static bool isInRecoveryOS()
 static NSArray<NSString *> *controlArray()
 {
     NSArray<NSString *> *controls = @[ PDFHUDZoomOutControl, PDFHUDZoomInControl ];
-MAVERICKS_BACKPORT */
 
-// MAVERICKS_BACKPORT: inert HUD stub — the upstream private ivars (layers, cached icons, visibility flags) are dropped along with their machinery.
-@implementation WKPDFHUDView
+    if (isInRecoveryOS())
+        return controls;
+
+    return [controls arrayByAddingObjectsFromArray:@[ PDFHUDSeparatorControl, PDFHUDLaunchPreviewControl, PDFHUDSavePDFControl ]];
+}
+
+@implementation WKPDFHUDView {
+@private
+    WeakPtr<WebKit::WebPageProxy> _page;
+    RetainPtr<NSString> _activeControl;
+    Markable<WebKit::PDFPluginIdentifier> _pluginIdentifier;
+    Markable<WebCore::FrameIdentifier> _frameID;
+    CGFloat _deviceScaleFactor;
+    RetainPtr<CALayer> _layer;
+    RetainPtr<CALayer> _activeLayer;
+    RetainPtr<NSMutableDictionary<NSString *, NSImage *>> _cachedIcons;
+    BOOL _visible;
+    BOOL _mouseMovedToHUD;
+    BOOL _initialHideTimerFired;
+}
 
 - (instancetype)initWithFrame:(NSRect)frame pluginIdentifier:(WebKit::PDFPluginIdentifier)pluginIdentifier frameIdentifier:(WebCore::FrameIdentifier)frameID page:(WebKit::WebPageProxy&)page
 {
-    // MAVERICKS_BACKPORT: inert HUD stub — construct a bare NSView; the upstream layer setup, icon loading, and hide-timer are omitted.
-    self = [super initWithFrame:frame];
-    if (!self)
+    if (!(self = [super initWithFrame:frame]))
         return nil;
-    // MAVERICKS_BACKPORT: inert HUD stub — identifiers/page are unused since no controls are wired up.
-    UNUSED_PARAM(pluginIdentifier);
-    UNUSED_PARAM(frameID);
-    UNUSED_PARAM(page);
+    
+    self.wantsLayer = YES;
+    _cachedIcons = adoptNS([[NSMutableDictionary alloc] init]);
+    _pluginIdentifier = pluginIdentifier;
+    _frameID = frameID;
+    _page = page;
+    _deviceScaleFactor = page.deviceScaleFactor();
+    _visible = YES;
+    [self _setupLayer:retainPtr(self.layer).get()];
+    [self setFrame:frame];
+
+    WeakObjCPtr<WKPDFHUDView> weakSelf = self;
+    WorkQueue::mainSingleton().dispatchAfter(Seconds { initialHideTimeInterval }, [weakSelf] {
+        if (RetainPtr protectedSelf = weakSelf.get())
+            [protectedSelf _hideTimerFired];
+    });
     return self;
 }
 
-// MAVERICKS_BACKPORT: inert HUD stub — the upstream dealloc, layout, hitTest, mouseMoved, visibility/timer, icon-loading, and control-action methods are all dropped.
+- (void)dealloc
+{
+    [_layer removeFromSuperlayer];
+    [super dealloc];
+}
+
+- (void)layout
+{
+    [super layout];
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    CGRect layerBounds = [_layer bounds];
+    [_layer setFrame:CGRectMake(self.frame.size.width / 2.0 - layerBounds.size.width / 2.0, layerVerticalOffset, layerBounds.size.width, layerBounds.size.height)];
+    [CATransaction commit];
+}
+
 - (void)setDeviceScaleFactor:(CGFloat)deviceScaleFactor
 {
-    // MAVERICKS_BACKPORT: inert HUD stub — no layer to rescale.
-    UNUSED_PARAM(deviceScaleFactor);
+    if (_deviceScaleFactor == deviceScaleFactor)
+        return;
+    
+    _deviceScaleFactor = deviceScaleFactor;
+    
+    [self _redrawLayer];
+}
+
+- (void)_hideTimerFired
+{
+    _initialHideTimerFired = YES;
+    if (!_mouseMovedToHUD)
+        [self _setVisible:false];
+}
+
+- (void)_setVisible:(bool)isVisible
+{
+    if (_visible == isVisible)
+        return;
+    _visible = isVisible;
+    [CATransaction begin];
+    [CATransaction setAnimationDuration:isVisible ? layerFadeInTimeInterval : layerFadeOutTimeInterval];
+    [self _setLayerOpacity:isVisible ? layerAlpha : 0.0];
+    [CATransaction commit];
+}
+
+- (NSView *)hitTest:(NSPoint)point
+{
+    ASSERT(_page);
+    RefPtr page = _page.get();
+    return page ? page->cocoaView().autorelease() : self;
+}
+
+- (void)mouseMoved:(NSEvent *)event
+{
+    if (CGRectContainsPoint([self convertRect:CGRectInset([_layer frame], -16.0, -16.0) toView:nil], NSPointToCGPoint(event.locationInWindow))) {
+        [self _setVisible:true];
+        _mouseMovedToHUD = YES;
+    } else if (_initialHideTimerFired)
+        [self _setVisible:false];
 }
 
 - (BOOL)handleMouseDown:(NSEvent *)event
 {
-    // MAVERICKS_BACKPORT: inert HUD stub — return NO so the mouse-down falls through to the page.
-    UNUSED_PARAM(event);
-    return NO;
+    _activeControl = [self _controlForEvent:event];
+    if ([_activeControl isEqualToString:PDFHUDSeparatorControl])
+        _activeControl = nil;
+    if (!_activeControl)
+        return false;
+
+    // Update rendering to highlight it..
+    _activeLayer = [self _layerForEvent:event];
+
+    // Update layer image; do not animate
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+
+    [_activeLayer setOpacity:controlLayerDownAlpha];
+
+    [CATransaction commit];
+    return true;
 }
 
 - (BOOL)handleMouseUp:(NSEvent *)event
 {
-    // MAVERICKS_BACKPORT: inert HUD stub — return NO so the mouse-up falls through to the page.
-    UNUSED_PARAM(event);
-    return NO;
+    if (!_activeControl)
+        return false;
+    
+    RetainPtr mouseUpControl = [self _controlForEvent:event];
+    if ([_activeControl isEqualToString:mouseUpControl.get()])
+        [self _performActionForControl:_activeControl.get()];
+    
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    [_activeLayer setOpacity:controlLayerNormalAlpha];
+    [CATransaction commit];
+
+    _activeLayer = nil;
+    _activeControl = nil;
+
+    return true;
+}
+
+- (std::optional<NSUInteger>)_controlIndexForEvent:(NSEvent *)event
+{
+    CGPoint initialPoint = NSPointToCGPoint(event.locationInWindow);
+    initialPoint.x -= [_layer frame].origin.x;
+    initialPoint.y -= [_layer frame].origin.y;
+    for (NSUInteger index = 0; index < [_layer sublayers].count; index++) {
+        RetainPtr<CALayer> subLayer = [_layer sublayers][index];
+        NSRect windowSpaceRect = [self convertRect:[subLayer frame] toView:nil];
+        if (CGRectContainsPoint(windowSpaceRect, initialPoint))
+            return index;
+    }
+    return std::nullopt;
+}
+
+- (NSString *)_controlForEvent:(NSEvent *)event
+{
+    if (auto index = [self _controlIndexForEvent:event]) {
+        RetainPtr array = controlArray();
+        return array.get()[*index];
+    }
+    return nil;
+}
+
+- (CALayer *)_layerForEvent:(NSEvent *)event
+{
+    if (auto index = [self _controlIndexForEvent:event])
+        return [_layer sublayers][*index];
+    return nil;
+}
+
+- (void)_performActionForControl:(NSString *)control
+{
+    if (!_visible)
+        return;
+    RefPtr page = _page.get();
+    if (!page)
+        return;
+    if ([control isEqualToString:PDFHUDZoomInControl])
+        page->pdfZoomIn(*_pluginIdentifier, *_frameID);
+    else if ([control isEqualToString:PDFHUDZoomOutControl])
+        page->pdfZoomOut(*_pluginIdentifier, *_frameID);
+    else if ([control isEqualToString:PDFHUDSavePDFControl])
+        page->pdfSaveToPDF(*_pluginIdentifier, *_frameID);
+    else if ([control isEqualToString:PDFHUDLaunchPreviewControl])
+        page->pdfOpenWithPreview(*_pluginIdentifier, *_frameID);
+}
+
+- (void)_loadIconImages
+{
+    WebCore::FloatSize maxIconImageSize;
+    for (NSString *controlName in controlArray()) {
+        WebCore::FloatSize iconImageSize { [self _imageForControlName:controlName].size };
+        maxIconImageSize = maxIconImageSize.expandedTo(iconImageSize);
+    }
+    [self _pinIconImagesToSize:maxIconImageSize];
+}
+
+// FIXME: <rdar://160812053> This can be removed once symbol images with the same configuration are better aligned.
+- (void)_pinIconImagesToSize:(NSSize)pinnedSize
+{
+    NSRect pinnedRect = NSMakeRect(0, 0, pinnedSize.width, pinnedSize.height);
+    for (NSString *controlName in controlArray()) {
+        RetainPtr iconImage = [_cachedIcons valueForKey:controlName];
+        if (!iconImage)
+            continue;
+        RetainPtr iconImageRep = [iconImage bestRepresentationForRect:pinnedRect context:nil hints:nil];
+        iconImage = [NSImage imageWithImageRep:iconImageRep.get()];
+        _cachedIcons.get()[controlName] = iconImage.get();
+    }
+}
+
+- (void)_setupLayer:(CALayer *)parentLayer
+{
+    _layer = adoptNS([[CALayer alloc] init]);
+    [_layer setCornerRadius:layerCornerRadius];
+    [_layer setCornerCurve:kCACornerCurveCircular];
+    [_layer setBackgroundColor:WebCore::cachedCGColor({ WebCore::SRGBA<float>(layerGrayComponent, layerGrayComponent, layerGrayComponent) }).get()];
+    [self _setLayerOpacity:layerAlpha];
+    [self setNeedsLayout:YES];
+    
+    [self _loadIconImages];
+    CGFloat minIconImageHeight = std::numeric_limits<CGFloat>::max();
+    for (NSImage *image in [_cachedIcons allValues])
+        minIconImageHeight = std::min(minIconImageHeight, (image.size.height / _deviceScaleFactor));
+    
+    CGFloat dx = layerControllerHorizontalMargin;
+    for (NSString *controlName in controlArray()) {
+        auto controlLayer = adoptNS([[CALayer alloc] init]);
+        CGFloat dy = 0.0;
+        CGFloat controllerWidth = 0.0;
+        CGFloat controllerHeight = 0.0;
+
+        if ([controlName isEqualToString:PDFHUDSeparatorControl]) {
+            dy = layerSeparatorVerticalMargin;
+            controllerWidth = layerSeparatorControllerSize;
+            controllerHeight = minIconImageHeight + (2.0 * layerImageVerticalMargin) - (2.0 * layerSeparatorVerticalMargin);
+            
+            [controlLayer setBackgroundColor:RetainPtr { [[NSColor lightGrayColor] CGColor] }.get()];
+        } else {
+            RetainPtr controlImage = [self _imageForControlName:controlName];
+            [controlLayer setContents:controlImage.get()];
+            [controlLayer setOpacity:controlLayerNormalAlpha];
+
+            dy = layerImageVerticalMargin;
+            controllerWidth = [controlImage size].width / _deviceScaleFactor;
+            controllerHeight = [controlImage size].height / _deviceScaleFactor;
+            
+            dy -= (controllerHeight - minIconImageHeight) / 2.0;
+            
+            [controlLayer setFilters:@[[CAFilter filterWithType:kCAFilterColorInvert]]];
+        }
+        
+        [controlLayer setFrame:CGRectMake(dx, dy, controllerWidth, controllerHeight)];
+        [_layer addSublayer:controlLayer.get()];
+        
+        dx += controllerWidth + layerControllerHorizontalMargin;
+    }
+    
+    [_layer setFrame:CGRectMake(0, layerVerticalOffset, dx, minIconImageHeight + 2.0 * layerImageVerticalMargin)];
+    [parentLayer addSublayer:_layer.get()];
+}
+
+- (void)_redrawLayer
+{
+    [_cachedIcons removeAllObjects];
+    RetainPtr parentLayer = [_layer superlayer];
+    [_layer removeFromSuperlayer];
+    [self _setupLayer:parentLayer.get()];
+}
+
+- (NSImage *)_imageForControlName:(NSString *)control
+{
+    RetainPtr<NSImage> iconImage = _cachedIcons.get()[control];
+    if (iconImage)
+        return iconImage.autorelease();
+
+    if ([control isEqualToString:PDFHUDLaunchPreviewControl])
+        iconImage = [NSImage imageWithPrivateSystemSymbolName:control accessibilityDescription:nil];
+    else
+        iconImage = [NSImage imageWithSystemSymbolName:control accessibilityDescription:nil];
+
+    if (!iconImage)
+        return nil;
+
+    NSFontWeight weight = 0;
+    CGFloat pointSize = CTFontDescriptorGetTextStyleSize(checked_cf_cast<CFStringRef>(NSFontTextStyleTitle2), kCTFontContentSizeCategoryL, kCTFontTextStylePlatformDefault, &weight, NULL);
+    pointSize *= layerImageScale * _deviceScaleFactor;
+    iconImage = [iconImage imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:pointSize weight:weight scale:NSImageSymbolScaleLarge]];
+    
+    _cachedIcons.get()[control] = iconImage.get();
+    return iconImage.autorelease();
+}
+
+- (void)_setLayerOpacity:(CGFloat)alpha
+{
+    [_layer setOpacity:alpha];
+    for (CALayer *subLayer in [_layer sublayers])
+        [subLayer setOpacity:alpha];
 }
 
 @end

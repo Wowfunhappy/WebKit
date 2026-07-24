@@ -96,9 +96,7 @@
 #import "_WKWarningView.h"
 #import "_WKWebViewTextInputNotifications.h"
 #import <Carbon/Carbon.h>
-// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTTypeWebArchive) is macOS 11+ and absent on
-// 10.9; the legacy CoreServices kUTTypeWebArchive identifier is used for the pasteboard type instead.
-#import <CoreServices/CoreServices.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/AXObjectCache.h>
 #import <WebCore/ActivityState.h>
 #import <WebCore/AttributedString.h>
@@ -125,7 +123,7 @@
 #import <WebCore/LocalizedStrings.h>
 #import <WebCore/NowPlayingInfo.h>
 #import <WebCore/Pasteboard.h>
-// #import <WebCore/PlatformDynamicRangeLimitCocoa.h>  // MAVERICKS_BACKPORT: not in PrivateHeaders
+#import <WebCore/PlatformDynamicRangeLimitCocoa.h>
 #import <WebCore/PlatformEventFactoryMac.h>
 #import <WebCore/PlatformPlaybackSessionInterface.h>
 #import <WebCore/PlatformScreen.h>
@@ -133,9 +131,7 @@
 #import <WebCore/PromisedAttachmentInfo.h>
 #import <WebCore/ReferrerPolicy.h>
 #import <WebCore/ResolvedCaptionDisplaySettingsOptions.h>
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// #import <WebCore/SelectionType.h>
-// (end MAVERICKS_BACKPORT restored block)
+#import <WebCore/SelectionType.h>
 #import <WebCore/ShareableBitmap.h>
 #import <WebCore/Site.h>
 #import <WebCore/TextAlternativeWithRange.h>
@@ -151,7 +147,7 @@
 #import <WebCore/WebTextIndicatorLayer.h>
 #import <WebKit/WKShareSheet.h>
 #import <WebKit/WKWebViewPrivate.h>
-// #import <WebKit/WebBackForwardList.h>  // MAVERICKS_BACKPORT: already imported as "WebBackForwardList.h"
+#import <WebKit/WebBackForwardList.h>
 #import <pal/HysteresisActivity.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/AVKitSPI.h>
@@ -210,15 +206,6 @@ SOFT_LINK_CLASS(AVKit, AVTouchBarScrubber)
 
 static NSString * const WKMediaExitFullScreenItem = @"WKMediaExitFullScreenItem";
 #endif // HAVE(TOUCH_BAR) && ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
-
-// MAVERICKS_BACKPORT: NSFilePromiseReceiver (file-promise drag receiving) is 10.12+. Stub the
-// class so the drop handler compiles; on 10.9 +[NSFilePromiseReceiver class] is nil at runtime, so
-// the file-promise dragging-item branch is simply never entered.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED < 101200
-@interface NSFilePromiseReceiver : NSObject
-- (void)receivePromisedFilesAtDestination:(NSURL *)destinationDir options:(NSDictionary *)options operationQueue:(NSOperationQueue *)operationQueue reader:(void (^)(NSURL *fileURL, NSError *errorOrNil))reader;
-@end
-#endif
 
 @interface NSApplication ()
 - (BOOL)isSpeaking;
@@ -985,9 +972,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         colorPickerItem.get().target = self;
         colorPickerItem.get().action = @selector(_wkChangeColor:);
         colorPickerItem.get().showsAlpha = NO;
-        // MAVERICKS_BACKPORT: -[NSColorPickerTouchBarItem setAllowedColorSpaces:] is 10.12.2+; guard with respondsToSelector and call via performSelector so it links on 10.9.
-        if ([colorPickerItem.get() respondsToSelector:@selector(setAllowedColorSpaces:)])
-            [colorPickerItem.get() performSelector:@selector(setAllowedColorSpaces:) withObject:@[ [NSColorSpace sRGBColorSpace] ]];
+        colorPickerItem.get().allowedColorSpaces = @[ [NSColorSpace sRGBColorSpace] ];
     }
 
     return item.autorelease();
@@ -1477,11 +1462,9 @@ void WebViewImpl::handleProcessSwapOrExit()
 
     notifyInputContextAboutDiscardedComposition();
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     if (std::exchange(m_lastEditorStateWasEditableOrRanged, false))
-//         [protect(inputContextForSelectionUpdates()) textInputClientDidUpdateSelection];
-//
-// (end MAVERICKS_BACKPORT restored block)
+    if (std::exchange(m_lastEditorStateWasEditableOrRanged, false))
+        [protect(inputContextForSelectionUpdates()) textInputClientDidUpdateSelection];
+
     updateRemoteAccessibilityRegistration(false);
 
     hideDOMPasteMenuWithResult(WebCore::DOMPasteAccessResponse::DeniedForGesture);
@@ -1750,7 +1733,8 @@ void WebViewImpl::viewDidEndLiveResize()
     [m_layoutStrategy didEndLiveResize];
 }
 
-// MAVERICKS_BACKPORT: gate to match the ENABLE(PDF_HUD)-off base (PDFs download on 10.9).
+// MAVERICKS_BACKPORT: gate to match the ENABLE(PDF_HUD)-off base (PDFs download on 10.9). WKPDFHUDView is
+// only a complete type under ENABLE(PDF_HUD); the uncommitted restore dropped this guard.
 #if ENABLE(PDF_HUD)
 void WebViewImpl::createPDFHUD(PDFPluginIdentifier identifier, WebCore::FrameIdentifier frameID, const WebCore::IntRect& rect)
 {
@@ -2332,8 +2316,7 @@ bool WebViewImpl::shouldDelayWindowOrderingForEvent(NSEvent *event)
     if (![m_view.get() hitTest:event.locationInWindow])
         return false;
 
-    // MAVERICKS_BACKPORT: hold the main-frame process via protect() before querying isResponsive().
-    if (!protect(page().legacyMainFrameProcess())->isResponsive())
+    if (!page().legacyMainFrameProcess().isResponsive())
         return false;
 
     if (page().editorState().hasPostLayoutData()) {
@@ -2535,26 +2518,9 @@ bool WebViewImpl::hasScrolledContentsUnderTitlebar()
 
 void WebViewImpl::updateTitlebarAdjacencyState()
 {
-    // MAVERICKS_BACKPORT: the NSScrollViewSeparatorTrackingAdapter titlebar-separator feature — the
-    // protocol itself and -[NSWindow register/unregisterScrollViewSeparatorTrackingAdapter:] — is 10.14+
-    // and has no 10.9 equivalent. The whole method no-ops there (no separator tracking adapter is
-    // registered), which matches the >=10.14 behavior on a 10.9 window (shouldRegister would be false,
-    // since _usesMetricsAppearance answers NO for every appearance this OS has). Compile-time gate
-    // (the #97 model) so it is immune to any runtime selector injection.
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
     RetainPtr window = WebViewImpl::window();
     bool visible = ![m_view.get() isHiddenOrHasHiddenAncestor];
-    // MAVERICKS_BACKPORT: read -[NSWindow contentLayoutRect] via NSInvocation behind a respondsToSelector check (it's 10.10+), falling back to the content view's frame on 10.9.
-    NSRect contentLayoutRect = NSZeroRect;
-    if ([window.get() respondsToSelector:@selector(contentLayoutRect)]) {
-        NSMethodSignature *sig = [window.get() methodSignatureForSelector:@selector(contentLayoutRect)];
-        NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-        [inv setSelector:@selector(contentLayoutRect)];
-        [inv invokeWithTarget:window.get()];
-        [inv getReturnValue:&contentLayoutRect];
-    } else
-        contentLayoutRect = [[window.get() contentView] frame];
-    CGFloat topOfWindowContentLayoutRectInSelf = NSMinY([m_view.get() convertRect:contentLayoutRect fromView:nil]);
+    CGFloat topOfWindowContentLayoutRectInSelf = NSMinY([m_view.get() convertRect:[window contentLayoutRect] fromView:nil]);
     bool topOfWindowContentLayoutRectAdjacent = NSMinY([m_view.get() bounds]) <= topOfWindowContentLayoutRectInSelf;
 
     bool shouldRegister = topOfWindowContentLayoutRectAdjacent && visible && [retainPtr([m_view.get() effectiveAppearance]) _usesMetricsAppearance];
@@ -2565,7 +2531,6 @@ void WebViewImpl::updateTitlebarAdjacencyState()
         [window unregisterScrollViewSeparatorTrackingAdapter:(NSObject<NSScrollViewSeparatorTrackingAdapter> *)m_view.get().get()];
         m_isRegisteredScrollViewSeparatorTrackingAdapter = false;
     }
-#endif // MAVERICKS_BACKPORT: __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400 (separator-tracking adapter no-ops on 10.9)
 }
 
 void WebViewImpl::scrollToRect(const WebCore::FloatRect& targetRect, const WebCore::FloatPoint& origin)
@@ -2728,8 +2693,7 @@ void WebViewImpl::updateSecureInputState()
         return;
     }
     // WKView has a single input context for all editable areas (except for plug-ins).
-    // MAVERICKS_BACKPORT: WKInspectorWKWebView doesn't implement _web_superInputContext.
-    RetainPtr context = [m_view.get() respondsToSelector:@selector(_web_superInputContext)] ? [m_view.get() _web_superInputContext] : nil;
+    RetainPtr context = [m_view.get() _web_superInputContext];
     bool isInPasswordField = m_page->editorState().isInPasswordField;
 
     if (isInPasswordField) {
@@ -2765,9 +2729,7 @@ void WebViewImpl::notifyInputContextAboutDiscardedComposition()
 
     LOG(TextInput, "-> discardMarkedText");
 
-    // MAVERICKS_BACKPORT: WKInspectorWKWebView doesn't implement _web_superInputContext.
-    if ([m_view.get() respondsToSelector:@selector(_web_superInputContext)])
-        [retainPtr([m_view.get() _web_superInputContext]) discardMarkedText]; // Inform the input method that we won't have an inline input area despite having been asked to.
+    [retainPtr([m_view.get() _web_superInputContext]) discardMarkedText]; // Inform the input method that we won't have an inline input area despite having been asked to.
 }
 
 void WebViewImpl::handleAcceptedAlternativeText(const String& acceptedAlternative)
@@ -3001,8 +2963,7 @@ void WebViewImpl::selectionDidChange()
 #endif
         if (protect(page->preferences())->textInputClientSelectionUpdatesEnabled()) {
             alreadyNotifiedClient = true;
-            // MAVERICKS_BACKPORT: inputContextForSelectionUpdates is renamed inputContextIncludingNonEditable here.
-            [protect(inputContextIncludingNonEditable()) textInputClientDidUpdateSelection];
+            [protect(inputContextForSelectionUpdates()) textInputClientDidUpdateSelection];
         }
     }
 
@@ -3028,9 +2989,9 @@ void WebViewImpl::selectionDidChange()
             [inspectorBar _update];
     }
 
-    // MAVERICKS_BACKPORT: WKInspectorWKWebView doesn't implement _web_editorStateDidChange.
-    if ([m_view.get() respondsToSelector:@selector(_web_editorStateDidChange)])
-        [m_view.get() _web_editorStateDidChange];
+    [m_view.get() _web_editorStateDidChange];
+
+    m_lastEditorStateWasEditableOrRanged = page->editorState().isEditableOrRanged();
 }
 
 void WebViewImpl::showShareSheet(WebCore::ShareDataWithParsedURL&& data, WTF::CompletionHandler<void(bool)>&& completionHandler, WKWebView *view)
@@ -3269,8 +3230,7 @@ bool WebViewImpl::validateUserInterfaceItem(id<NSValidatedUserInterfaceItem> ite
 
     // The centerSelectionInVisibleArea: selector is enabled if there's a selection range or if there's an insertion point in an editable area.
     if (action == @selector(centerSelectionInVisibleArea:))
-        // MAVERICKS_BACKPORT: test selectionType != None for the editable-caret case (the upstream Caret-only check is widened to match the 10.9 editor-state enum).
-        return m_page->editorState().selectionType == WebCore::SelectionType::Range || (m_page->editorState().isContentEditable && m_page->editorState().selectionType != WebCore::SelectionType::None);
+        return m_page->editorState().selectionType == WebCore::SelectionType::Range || (m_page->editorState().isContentEditable && m_page->editorState().selectionType == WebCore::SelectionType::Caret);
 
 #if ENABLE(WRITING_TOOLS) && HAVE(NSRESPONDER_WRITING_TOOLS_SUPPORT)
     if (action == @selector(showWritingTools:))
@@ -3586,9 +3546,13 @@ void WebViewImpl::requestCandidatesForSelectionIfNeeded()
     NSTextCheckingTypes checkingTypes = getTextCheckingTypes();
 
     WeakPtr weakThis { *this };
-    // MAVERICKS_BACKPORT: requestCandidatesForSelectedRange:...completionHandler: is 10.12.2+. Skip.
-    (void)selectedRange; (void)checkingTypes; (void)weakThis;
-    return;
+    m_lastCandidateRequestSequenceNumber = [[NSSpellChecker sharedSpellChecker] requestCandidatesForSelectedRange:selectedRange inString:postLayoutData->paragraphContextForCandidateRequest.createNSString().get() types:checkingTypes options:nil inSpellDocumentWithTag:spellCheckerDocumentTag() completionHandler:[weakThis](NSInteger sequenceNumber, NSArray<NSTextCheckingResult *> *candidates) {
+        RunLoop::mainSingleton().dispatch([weakThis, sequenceNumber, candidates = retainPtr(candidates)] {
+            if (!weakThis)
+                return;
+            weakThis->handleRequestedCandidates(sequenceNumber, candidates.get());
+        });
+    }];
 }
 
 std::optional<EditorState::PostLayoutData> WebViewImpl::postLayoutDataForContentEditable()
@@ -3715,9 +3679,7 @@ CALayer* WebViewImpl::textIndicatorInstallationLayer()
 
 void WebViewImpl::dismissContentRelativeChildWindowsWithAnimation(bool animate)
 {
-    // MAVERICKS_BACKPORT: WKInspectorWKWebView doesn't implement _web_dismissContentRelativeChildWindowsWithAnimation:.
-    if ([m_view.get() respondsToSelector:@selector(_web_dismissContentRelativeChildWindowsWithAnimation:)])
-        [m_view.get() _web_dismissContentRelativeChildWindowsWithAnimation:animate];
+    [m_view.get() _web_dismissContentRelativeChildWindowsWithAnimation:animate];
 }
 
 void WebViewImpl::dismissContentRelativeChildWindowsWithAnimationFromViewOnly(bool animate)
@@ -3885,9 +3847,7 @@ void WebViewImpl::completeImmediateActionAnimation()
 
 void WebViewImpl::didChangeContentSize(CGSize newSize)
 {
-    // MAVERICKS_BACKPORT: WKInspectorWKWebView doesn't implement _web_didChangeContentSize.
-    if ([m_view.get() respondsToSelector:@selector(_web_didChangeContentSize:)])
-        [m_view.get() _web_didChangeContentSize:NSSizeFromCGSize(newSize)];
+    [m_view.get() _web_didChangeContentSize:NSSizeFromCGSize(newSize)];
 }
 
 void WebViewImpl::videoControlsManagerDidChange()
@@ -4473,8 +4433,7 @@ static void performDragWithLegacyFiles(WebPageProxy& page, Box<Vector<String>>&&
     RefPtr networkProcess = page.websiteDataStore().networkProcessIfExists();
     if (!networkProcess)
         return;
-    // MAVERICKS_BACKPORT: hold the main-frame process via protect() before reading its coreProcessIdentifier().
-    networkProcess->sendWithAsyncReply(Messages::NetworkProcess::AllowFilesAccessFromWebProcess(protect(page.legacyMainFrameProcess())->coreProcessIdentifier(), *fileNames), [page = protect(page), fileNames, dragData, pasteboardName]() mutable {
+    networkProcess->sendWithAsyncReply(Messages::NetworkProcess::AllowFilesAccessFromWebProcess(page.legacyMainFrameProcess().coreProcessIdentifier(), *fileNames), [page = protect(page), fileNames, dragData, pasteboardName]() mutable {
         SandboxExtension::Handle sandboxExtensionHandle;
         Vector<SandboxExtension::Handle> sandboxExtensionForUpload;
 
@@ -4501,24 +4460,28 @@ static bool handleLegacyFilesPromisePasteboard(id<NSDraggingInfo> draggingInfo, 
     auto fileNames = Box<Vector<String>>::create();
     RetainPtr dropDestination = [NSURL fileURLWithPath:dropDestinationPath.get() isDirectory:YES];
     String pasteboardName = draggingInfo.draggingPasteboard.name;
-    // MAVERICKS_BACKPORT: drive the file-promise receiver directly via -receivePromisedFilesAtDestination:... on each dragging item (the upstream makeBlockPtr/readerBlock plumbing is restructured for the 10.9 receiver shim).
-    Ref protectedPage { page };
-    [draggingInfo enumerateDraggingItemsWithOptions:0 forView:view.get() classes:@[NSFilePromiseReceiver.class] searchOptions:@{ } usingBlock:[&](NSDraggingItem *draggingItem, NSInteger idx, BOOL *stop) {
-        auto queue = adoptNS([NSOperationQueue new]);
-        [retainPtr(draggingItem.item) receivePromisedFilesAtDestination:dropDestination.get() options:@{ } operationQueue:queue.get() reader:[protectedPage, fileNames, fileCount, dragData, pasteboardName](NSURL *fileURL, NSError *errorOrNil) mutable {
+    [draggingInfo enumerateDraggingItemsWithOptions:0 forView:view.get() classes:@[NSFilePromiseReceiver.class] searchOptions:@{ } usingBlock:makeBlockPtr([
+        pasteboardName,
+        dropDestination,
+        fileNames,
+        fileCount,
+        dragData,
+        protectedPage = protect(page)
+    ](NSDraggingItem *draggingItem, NSInteger idx, BOOL *stop) {
+        RetainPtr queue = adoptNS([NSOperationQueue new]);
+        BlockPtr readerBlock = makeBlockPtr([protectedPage, fileNames, fileCount, dragData, pasteboardName = pasteboardName.isolatedCopy()](NSURL *fileURL, NSError *errorOrNil) mutable {
             if (errorOrNil)
                 return;
 
-            // MAVERICKS_BACKPORT: hop to the main thread with the moved page ref and a RetainPtr-wrapped path (part of the 10.9 file-promise receiver path).
-            RunLoop::mainSingleton().dispatch([protectedPage = WTF::move(protectedPage), path = RetainPtr { fileURL.path }, fileNames, fileCount, dragData, pasteboardName] () mutable {
+            RunLoop::mainSingleton().dispatch([protectedPage, path = protect(fileURL.path), fileNames, fileCount, dragData, pasteboardName] mutable {
                 fileNames->append(path.get());
                 if (fileNames->size() != fileCount)
                     return;
                 performDragWithLegacyFiles(protectedPage, WTF::move(fileNames), WTF::move(dragData), pasteboardName);
             });
-                // MAVERICKS_BACKPORT: pass the moved page Ref into the legacy-files drop (10.9 file-promise receiver path).
-        }];
-    }];
+        });
+        [protect(draggingItem.item) receivePromisedFilesAtDestination:dropDestination.get() options:@{ } operationQueue:queue.get() reader:readerBlock.get()];
+    }).get()];
 
     return true;
 }
@@ -4606,8 +4569,14 @@ void WebViewImpl::registerDraggedTypes()
     [m_view.get() registerForDraggedTypes:retainPtr([types allObjects]).get()];
 }
 
-// MAVERICKS_BACKPORT: NSFilePromiseProvider is 10.12+; stub (file-promise drag source is never created on 10.9).
-NSString *WebViewImpl::fileNameForFilePromiseProvider(id /*NSFilePromiseProvider* */, NSString *) { return nil; }
+NSString *WebViewImpl::fileNameForFilePromiseProvider(NSFilePromiseProvider *provider, NSString *)
+{
+    RetainPtr userInfo = dynamic_objc_cast<WKPromisedAttachmentContext>(provider.userInfo);
+    if (!userInfo)
+        return nil;
+
+    return [userInfo fileName];
+}
 
 static NSError *webKitUnknownError()
 {
@@ -4619,8 +4588,27 @@ void WebViewImpl::didPerformDragOperation(bool handled)
     [m_view.get() _web_didPerformDragOperation:handled];
 }
 
-// MAVERICKS_BACKPORT: NSFilePromiseProvider is 10.12+; stub (file-promise drag source is never created on 10.9).
-void WebViewImpl::writeToURLForFilePromiseProvider(id /*NSFilePromiseProvider* */, NSURL *, void(^completionHandler)(NSError *)) { completionHandler(webKitUnknownError()); }
+void WebViewImpl::writeToURLForFilePromiseProvider(NSFilePromiseProvider *provider, NSURL *fileURL, void(^completionHandler)(NSError *))
+{
+    RetainPtr userInfo = dynamic_objc_cast<WKPromisedAttachmentContext>(provider.userInfo);
+    if (!userInfo) {
+        completionHandler(webKitUnknownError());
+        return;
+    }
+
+    if (auto attachment = m_page->attachmentForIdentifier(userInfo.get().attachmentIdentifier)) {
+        NSError *attachmentWritingError = nil;
+        attachment->doWithFileWrapper([&](NSFileWrapper *fileWrapper) {
+            if ([fileWrapper writeToURL:fileURL options:0 originalContentsURL:nil error:&attachmentWritingError])
+                completionHandler(nil);
+            else
+                completionHandler(attachmentWritingError);
+        });
+        return;
+    }
+
+    completionHandler(webKitUnknownError());
+}
 
 NSDragOperation WebViewImpl::dragSourceOperationMask(NSDraggingSession *, NSDraggingContext context)
 {
@@ -4641,8 +4629,7 @@ void WebViewImpl::startWindowDrag()
     [protect(window()) performWindowDragWithEvent:m_lastMouseDownEvent.get()];
 }
 
-// MAVERICKS_BACKPORT: frameID parameter unnamed (didStartDrag() takes no frameID on 10.9).
-void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Handle&& dragImageHandle, const std::optional<WebCore::FrameIdentifier>&)
+void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Handle&& dragImageHandle, const std::optional<WebCore::FrameIdentifier>& frameID)
 {
     auto dragImageAsBitmap = ShareableBitmap::create(WTF::move(dragImageHandle));
     if (!dragImageAsBitmap) {
@@ -4663,8 +4650,7 @@ void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Hand
     if (RefPtr frame = WebFrameProxy::webFrame(item.rootFrameID)) {
         // FIXME: The `dragLocationInWindowCoordinates` is in window coordinates (equivalent to root view), but `convertPointToMainFrameCoordinates`
         // expects the input to be in content coordinates of the frame corresponding to the given frame ID.
-        // MAVERICKS_BACKPORT: frameID is not captured (didStartDrag() takes no frameID on 10.9).
-        m_page->convertPointToMainFrameCoordinates(item.dragLocationInWindowCoordinates, item.rootFrameID, [weakThis = WeakPtr { *this }, promisedAttachmentInfo = item.promisedAttachmentInfo, dragNSImage = WTF::move(dragNSImage), size, lastMouseDownEvent = m_lastMouseDownEvent] (std::optional<FloatPoint> dragLocationInMainFrameCoordinates) mutable {
+        m_page->convertPointToMainFrameCoordinates(item.dragLocationInWindowCoordinates, item.rootFrameID, [weakThis = WeakPtr { *this }, promisedAttachmentInfo = item.promisedAttachmentInfo, dragNSImage = WTF::move(dragNSImage), size, lastMouseDownEvent = m_lastMouseDownEvent, frameID] (std::optional<FloatPoint> dragLocationInMainFrameCoordinates) mutable {
             CheckedPtr protectedThis = weakThis.get();
             if (!protectedThis || !dragLocationInMainFrameCoordinates)
                 return;
@@ -4673,16 +4659,44 @@ void WebViewImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Hand
 
             auto clientDragLocation = IntPoint(dragLocationInMainFrameCoordinates.value());
 
-            // MAVERICKS_BACKPORT: NSPasteboardNameDrag is 10.13+; use the classic NSDragPboard name on 10.9.
-            RetainPtr pasteboard = [NSPasteboard pasteboardWithName:NSDragPboard];
+            RetainPtr pasteboard = [NSPasteboard pasteboardWithName:NSPasteboardNameDrag];
 
             if (promisedAttachmentInfo) {
-                // MAVERICKS_BACKPORT: NSFilePromiseProvider drag is 10.12+.
-                page->dragCancelled();
+                RefPtr attachment = page->attachmentForIdentifier(promisedAttachmentInfo.attachmentIdentifier);
+                if (!attachment) {
+                    page->dragCancelled();
+                    return;
+                }
+
+                RetainPtr utiType = attachment->utiType().createNSString();
+                if (![utiType length]) {
+                    page->dragCancelled();
+                    return;
+                }
+
+                RetainPtr fileName = attachment->fileName().createNSString();
+                RetainPtr provider = adoptNS([[NSFilePromiseProvider alloc] initWithFileType:utiType.get() delegate:(id<NSFilePromiseProviderDelegate>)view.get()]);
+                RetainPtr context = adoptNS([[WKPromisedAttachmentContext alloc] initWithIdentifier:promisedAttachmentInfo.attachmentIdentifier.createNSString().get() fileName:fileName.get()]);
+                [provider setUserInfo:context.get()];
+
+                RetainPtr draggingItem = adoptNS([[NSDraggingItem alloc] initWithPasteboardWriter:provider.get()]);
+                [draggingItem setDraggingFrame:NSMakeRect(clientDragLocation.x(), clientDragLocation.y() - size.height(), size.width(), size.height()) contents:dragNSImage.get()];
+
+                if (!lastMouseDownEvent) {
+                    page->dragCancelled();
+                    return;
+                }
+
+                [view beginDraggingSessionWithItems:@[draggingItem.get()] event:lastMouseDownEvent.get() source:(id<NSDraggingSource>)view.get()];
+
+                for (size_t index = 0; index < promisedAttachmentInfo.additionalTypesAndData.size(); ++index) {
+                    RetainPtr nsData = protect(*promisedAttachmentInfo.additionalTypesAndData[index].second)->createNSData();
+                    [pasteboard setData:nsData.get() forType:promisedAttachmentInfo.additionalTypesAndData[index].first.createNSString().get()];
+                }
+                page->didStartDrag();
                 return;
             }
-            // MAVERICKS_BACKPORT: didStartDrag() takes no frameID here (the frameID parameter is dropped on 10.9).
-            page->didStartDrag();
+            page->didStartDrag(frameID);
 
             [pasteboard setString:@"" forType:PasteboardTypes::WebDummyPboardType];
         ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -4742,8 +4756,7 @@ void WebViewImpl::setPromisedDataForImage(WebCore::Image& image, NSString *filen
 
     if (archiveBuffer) {
         auto nsData = archiveBuffer->makeContiguous()->createNSData();
-        // MAVERICKS_BACKPORT: UTTypeWebArchive (UniformTypeIdentifiers) is 11+; use the legacy kUTTypeWebArchive identifier on 10.9.
-        [pasteboard setData:nsData.get() forType:(__bridge NSString *)kUTTypeWebArchive];
+        [pasteboard setData:nsData.get() forType:UTTypeWebArchive.identifier];
         [pasteboard setData:nsData.get() forType:PasteboardTypes::WebArchivePboardType];
     }
 
@@ -4849,16 +4862,14 @@ NSArray *WebViewImpl::namesOfPromisedFilesDroppedAtDestination(NSURL *dropDestin
     return @[[path lastPathComponent]];
 }
 
-// MAVERICKS_BACKPORT: return plain NSString * (the NSPasteboardName type and NODELETE are unavailable here).
-static NSString *pasteboardNameForAccessCategory(WebCore::DOMPasteAccessCategory pasteAccessCategory)
+static NSPasteboardName NODELETE pasteboardNameForAccessCategory(WebCore::DOMPasteAccessCategory pasteAccessCategory)
 {
     switch (pasteAccessCategory) {
     case WebCore::DOMPasteAccessCategory::General:
-        // MAVERICKS_BACKPORT: NSPasteboardNameGeneral is 10.13+; use the classic NSGeneralPboard name on 10.9.
-        return NSGeneralPboard;
+        return NSPasteboardNameGeneral;
+
     case WebCore::DOMPasteAccessCategory::Fonts:
-        // MAVERICKS_BACKPORT: NSPasteboardNameFont is 10.13+; use the classic NSFontPboard name on 10.9.
-        return NSFontPboard;
+        return NSPasteboardNameFont;
     }
 }
 
@@ -4869,8 +4880,7 @@ static RetainPtr<NSPasteboard> pasteboardForAccessCategory(WebCore::DOMPasteAcce
         return NSPasteboard.generalPasteboard;
 
     case WebCore::DOMPasteAccessCategory::Fonts:
-        // MAVERICKS_BACKPORT: NSPasteboardNameFont is 10.13+; use the classic NSFontPboard name on 10.9.
-        return [NSPasteboard pasteboardWithName:NSFontPboard];
+        return [NSPasteboard pasteboardWithName:NSPasteboardNameFont];
     }
 }
 
@@ -5167,9 +5177,8 @@ bool WebViewImpl::tryToSwipeWithEvent(NSEvent *event, bool ignoringPinnedState)
     bool wasIgnoringPinnedState = gestureController->shouldIgnorePinnedState();
     gestureController->setShouldIgnorePinnedState(ignoringPinnedState);
 
-    // MAVERICKS_BACKPORT: construct the wheel event via the explicit (event, view) constructor.
-    NativeWebWheelEvent wheel(event, m_view.get().get());
-    bool handledEvent = gestureController->handleScrollWheelEvent(wheel);
+    NativeWebWheelEvent webEvent { event, m_view.getAutoreleased() };
+    bool handledEvent = gestureController->handleScrollWheelEvent(webEvent);
 
     gestureController->setShouldIgnorePinnedState(wasIgnoringPinnedState);
 
@@ -5198,15 +5207,13 @@ void WebViewImpl::scrollWheel(NSEvent *event)
     updateBannerViewForWheelEvent(event);
 #endif
 
-    // MAVERICKS_BACKPORT: construct the wheel event via the explicit (event, view) constructor; use the Ref-returning gesture-controller accessor.
-    NativeWebWheelEvent wrappedWheel(event, m_view.get().get());
-    if (m_allowsBackForwardNavigationGestures && protect(ensureGestureController())->handleScrollWheelEvent(wrappedWheel)) {
+    NativeWebWheelEvent webEvent { event, m_view.getAutoreleased() };
+
+    if (m_allowsBackForwardNavigationGestures && protect(ensureGestureController())->handleScrollWheelEvent(webEvent)) {
         RELEASE_LOG(MouseHandling, "[pageProxyID=%lld] WebViewImpl::scrollWheel: Gesture controller handled wheel event", m_page->identifier().toUInt64());
         return;
     }
 
-    // MAVERICKS_BACKPORT: construct the wheel event via the explicit (event, view) constructor.
-    auto webEvent = NativeWebWheelEvent(event, m_view.getAutoreleased());
     m_page->handleNativeWheelEvent(webEvent);
 }
 
@@ -5644,14 +5651,12 @@ NSTextInputContext *WebViewImpl::inputContext()
     return [protect(m_view) _web_superInputContext];
 }
 
-// MAVERICKS_BACKPORT: renamed from inputContextForSelectionUpdates; the m_lastEditorStateWasEditableOrRanged tracking is dropped here.
-NSTextInputContext *WebViewImpl::inputContextIncludingNonEditable()
+NSTextInputContext *WebViewImpl::inputContextForSelectionUpdates()
 {
     if (!protect(m_page->preferences())->textInputClientSelectionUpdatesEnabled())
         return inputContext();
 
-    // MAVERICKS_BACKPORT: editor-state predicate without the dropped m_lastEditorStateWasEditableOrRanged term.
-    if (!m_page->editorState().isContentEditable && m_page->editorState().selectionType != WebCore::SelectionType::Range)
+    if (!m_page->editorState().isEditableOrRanged() && !m_lastEditorStateWasEditableOrRanged)
         return nil;
 
     return [protect(m_view) _web_superInputContext];
@@ -6156,8 +6161,7 @@ void WebViewImpl::nativeMouseEventHandlerInternal(NSEvent *event, WebMouseEventI
     if (m_warningView)
         return;
 #if ENABLE(SCREEN_TIME)
-    // MAVERICKS_BACKPORT: message the screen-time controller through the view directly (the upstream RetainPtr-view local is unnecessary here).
-    if ([[m_view _screenTimeWebpageController] URLIsBlocked])
+    if (RetainPtr view = m_view.get(); view && [view->_screenTimeWebpageController URLIsBlocked])
         return;
 #endif
 
@@ -6263,10 +6267,9 @@ void WebViewImpl::mouseUpInternal(NSEvent *event, WebMouseEventInputSource input
     nativeMouseEventHandlerInternal(event, inputSource);
 }
 
-// MAVERICKS_BACKPORT: inputSource parameter unnamed; forward as UserDriven (the arg is unused on 10.9).
-void WebViewImpl::mouseDraggedInternal(NSEvent *event, WebMouseEventInputSource)
+void WebViewImpl::mouseDraggedInternal(NSEvent *event, WebMouseEventInputSource inputSource)
 {
-    nativeMouseEventHandlerInternal(event, WebMouseEventInputSource::UserDriven);
+    nativeMouseEventHandlerInternal(event, inputSource);
 }
 
 void WebViewImpl::mouseMoved(NSEvent *event)
@@ -6384,16 +6387,14 @@ void WebViewImpl::mouseUp(NSEvent *event, WebMouseEventInputSource inputSource)
     mouseUpInternal(event, inputSource);
 }
 
-// MAVERICKS_BACKPORT: inputSource parameter unnamed (forced to UserDriven in the body).
-void WebViewImpl::mouseDragged(NSEvent *event, WebMouseEventInputSource)
+void WebViewImpl::mouseDragged(NSEvent *event, WebMouseEventInputSource inputSource)
 {
     if (m_ignoresNonWheelEvents)
         return;
     if (ignoresMouseDraggedEvents())
         return;
 
-    // MAVERICKS_BACKPORT: force UserDriven input source (the incoming inputSource arg is unused on 10.9).
-    mouseDraggedInternal(event, WebMouseEventInputSource::UserDriven);
+    mouseDraggedInternal(event, inputSource);
 }
 
 bool WebViewImpl::windowIsFrontWindowUnderMouse(NSEvent *event)
@@ -6444,8 +6445,7 @@ bool WebViewImpl::completeBackSwipeForTesting()
 
 bool WebViewImpl::didCallEndSwipeGestureForTesting() const
 {
-    // MAVERICKS_BACKPORT: hold the gesture controller via RefPtr across the call.
-    RefPtr gestureController = m_gestureController;
+    auto* gestureController = m_gestureController.get();
     return gestureController && gestureController->didCallEndSwipeGesture();
 }
 
@@ -6765,12 +6765,50 @@ void WebViewImpl::togglePictureInPicture()
 }
 
 
-// MAVERICKS_BACKPORT: playbackSessionManager / in-window-fullscreen are 10.13+. Stub.
-PlatformPlaybackSessionInterface* WebViewImpl::playbackSessionInterface() const { return nullptr; }
-bool WebViewImpl::isInWindowFullscreenActive() const { return false; }
-void WebViewImpl::enterInWindowFullscreen() { }
-void WebViewImpl::exitInWindowFullscreen() { }
-void WebViewImpl::updateMediaPlaybackControlsManager() { }
+PlatformPlaybackSessionInterface* WebViewImpl::playbackSessionInterface() const
+{
+    if (RefPtr manager = m_page->playbackSessionManager())
+        return manager->controlsManagerInterface();
+
+    return nullptr;
+}
+
+bool WebViewImpl::isInWindowFullscreenActive() const
+{
+    if (RefPtr interface = playbackSessionInterface())
+        return interface->isInWindowFullscreenActive();
+
+    return false;
+}
+
+void WebViewImpl::enterInWindowFullscreen()
+{
+    if (RefPtr interface = playbackSessionInterface())
+        return interface->enterInWindowFullscreen();
+}
+
+void WebViewImpl::exitInWindowFullscreen()
+{
+    if (RefPtr interface = playbackSessionInterface())
+        return interface->exitInWindowFullscreen();
+}
+
+void WebViewImpl::updateMediaPlaybackControlsManager()
+{
+    if (!m_page->hasActiveVideoForControlsManager())
+        return;
+
+    if (!m_playbackControlsManager) {
+        m_playbackControlsManager = adoptNS([[WebPlaybackControlsManager alloc] init]);
+        [m_playbackControlsManager setAllowsPictureInPicturePlayback:protect(m_page->preferences())->allowsPictureInPictureMediaPlayback()];
+        [m_playbackControlsManager setCanTogglePictureInPicture:NO];
+    }
+
+    if (RefPtr interface = playbackSessionInterface()) {
+        [m_playbackControlsManager setPlaybackSessionInterfaceMac:interface.get()];
+        interface->updatePlaybackControlsManagerCanTogglePictureInPicture();
+    }
+}
 
 #endif // ENABLE(WEB_PLAYBACK_CONTROLS_MANAGER)
 
@@ -6948,8 +6986,7 @@ void WebViewImpl::setMediaSessionCoordinatorForTesting(MediaSessionCoordinatorPr
 }
 #endif
 
-// MAVERICKS_BACKPORT: TRANSLATION_UI_SERVICES is 10.15+. Stubs added at end of file.
-#if 0 && HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
+#if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
 
 bool WebViewImpl::canHandleContextMenuTranslation() const
 {
@@ -7069,16 +7106,9 @@ CocoaImageAnalyzer* WebViewImpl::ensureImageAnalyzer()
     return m_imageAnalyzer.get();
 }
 
-// MAVERICKS_BACKPORT: RetainPtr-returning analyzer accessor (CocoaImageAnalyzer is a void* typedef here, not a ref-counted type, so upstream's protect() can't wrap it).
-RetainPtr<CocoaImageAnalyzer> WebViewImpl::ensureProtectedImageAnalyzer()
-{
-    return ensureImageAnalyzer();
-}
-
 int32_t WebViewImpl::processImageAnalyzerRequest(CocoaImageAnalyzerRequest *request, CompletionHandler<void(RetainPtr<CocoaImageAnalysis>&&, NSError *)>&& completion)
 {
-    // MAVERICKS_BACKPORT: use the RetainPtr-returning analyzer accessor (CocoaImageAnalyzer is a void* typedef here, not a ref-counted type).
-    return [ensureProtectedImageAnalyzer() processRequest:request progressHandler:nil completionHandler:makeBlockPtr([completion = WTF::move(completion)](CocoaImageAnalysis *result, NSError *error) mutable {
+    return [protect(ensureImageAnalyzer()) processRequest:request progressHandler:nil completionHandler:makeBlockPtr([completion = WTF::move(completion)](CocoaImageAnalysis *result, NSError *error) mutable {
         callOnMainRunLoop([completion = WTF::move(completion), result = RetainPtr { result }, error = RetainPtr { error }] mutable {
             completion(WTF::move(result), error.get());
         });
@@ -7110,8 +7140,7 @@ void WebViewImpl::requestTextRecognition(const URL& imageURL, ShareableBitmap::H
 
 #if ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
     if (!targetLanguageIdentifier.isEmpty())
-        // MAVERICKS_BACKPORT: use the RetainPtr-returning analyzer accessor (CocoaImageAnalyzer is a void* typedef here, not a ref-counted type).
-        return requestVisualTranslation(ensureProtectedImageAnalyzer().get(), imageURL.createNSURL().get(), sourceLanguageIdentifier, targetLanguageIdentifier, cgImage.get(), WTF::move(completion));
+        return requestVisualTranslation(protect(ensureImageAnalyzer()).get(), imageURL.createNSURL().get(), sourceLanguageIdentifier, targetLanguageIdentifier, cgImage.get(), WTF::move(completion));
 #else
     UNUSED_PARAM(sourceLanguageIdentifier);
     UNUSED_PARAM(targetLanguageIdentifier);
@@ -7136,8 +7165,7 @@ void WebViewImpl::computeHasVisualSearchResults(const URL& imageURL, ShareableBi
     RetainPtr cgImage = imageBitmap.createPlatformImage(DontCopyBackingStore);
     auto request = createImageAnalyzerRequest(cgImage.get(), imageURL, [NSURL _web_URLWithWTFString:m_page->currentURL()], VKAnalysisTypeVisualSearch);
     auto startTime = MonotonicTime::now();
-    // MAVERICKS_BACKPORT: use the RetainPtr-returning analyzer accessor (CocoaImageAnalyzer is a void* typedef here, not a ref-counted type).
-    [ensureProtectedImageAnalyzer() processRequest:request.get() progressHandler:nil completionHandler:makeBlockPtr([completion = WTF::move(completion), startTime] (CocoaImageAnalysis *analysis, NSError *) mutable {
+    [protect(ensureImageAnalyzer()) processRequest:request.get() progressHandler:nil completionHandler:makeBlockPtr([completion = WTF::move(completion), startTime] (CocoaImageAnalysis *analysis, NSError *) mutable {
         BOOL result = [analysis hasResultsForAnalysisTypes:VKAnalysisTypeVisualSearch];
         RetainPtr loop = CFRunLoopGetMain();
         CFRunLoopPerformBlock(loop.get(), RetainPtr { bridge_cast(NSEventTrackingRunLoopMode) }.get(), makeBlockPtr([completion = WTF::move(completion), result, startTime] () mutable {
@@ -7448,10 +7476,6 @@ void WebViewImpl::addTextSelectionManager()
     [m_textSelectionController addTextSelectionManager];
 }
 #endif // HAVE(APPKIT_GESTURES_SUPPORT)
-
-// MAVERICKS_BACKPORT: stubs for 10.10+ APIs.
-bool WebViewImpl::canHandleContextMenuTranslation() const { return false; }
-void WebViewImpl::handleContextMenuTranslation(const WebCore::TranslationContextMenuInfo&) { }
 
 } // namespace WebKit
 

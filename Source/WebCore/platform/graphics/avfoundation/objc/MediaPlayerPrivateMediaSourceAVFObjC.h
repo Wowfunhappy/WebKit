@@ -302,7 +302,10 @@ private:
     void updateSpatialTrackingLabel();
 #endif
 
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+    // MAVERICKS_BACKPORT: base VideoFullscreenInterface declares this only under VIDEO_PRESENTATION_MODE (off here).
     void isInFullscreenOrPictureInPictureChanged(bool) final;
+#endif
 
     void readyStateFromMediaSourceChanged() final;
     void updateStateFromReadyState();

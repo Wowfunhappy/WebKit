@@ -1,102 +1,140 @@
-// MAVERICKS_BACKPORT: minimal Cocoa SharedBuffer overloads.
-// SharedBuffer::create(NSData*), createCFData, createNSData are declared as
-// WEBCORE_EXPORT but the upstream implementations live in a code path that
-// doesn't build cleanly here. Without these, callers bind to the return-zero
-// weak fallback stub, which yields a CFData/NSData with a corrupted class
-// pointer (xorl-zeros only the low 32 bits of the 8-byte pointer return).
-// CG / ImageIO / CoreText then crash deep inside objc_msgSend when sending
-// `retain` / `bytes` to that bogus object.
+/*
+ * Copyright (C) 2006-2021 Apple Inc. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ */
 
 #import "config.h"
 #import "SharedBuffer.h"
 
-// MAVERICKS_BACKPORT: CoreFoundation/CoreMedia are the only dependencies of this minimal reimplementation.
-#import <CoreFoundation/CoreFoundation.h>
+#import "WebCoreJITOperations.h"
+#import "WebCoreObjCExtras.h"
+#import <JavaScriptCore/InitializeThreading.h>
+#import <string.h>
+#import <wtf/MainThread.h>
+#import <wtf/StdLibExtras.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/cocoa/VectorCocoa.h>
+
 #import <pal/cf/CoreMediaSoftLink.h>
 
-// MAVERICKS_BACKPORT: minimal Cocoa SharedBuffer reimplementation (see file header) lives in this namespace.
+@interface WebCoreSharedBufferData : NSData
+- (instancetype)initWithDataSegment:(const WebCore::DataSegment&)dataSegment position:(NSUInteger)position size:(NSUInteger)size;
+@end
+
+@implementation WebCoreSharedBufferData {
+    RefPtr<const WebCore::DataSegment> _dataSegment;
+    NSUInteger _position;
+    NSUInteger _size;
+}
+
++ (void)initialize
+{
+#if !USE(WEB_THREAD)
+    JSC::initialize();
+    WTF::initializeMainThread();
+    WebCore::populateJITOperations();
+#endif // !USE(WEB_THREAD)
+}
+
+- (void)dealloc
+{
+    if (WebCoreObjCScheduleDeallocateOnMainThread([WebCoreSharedBufferData class], self))
+        return;
+
+    [super dealloc];
+}
+
+- (instancetype)initWithDataSegment:(const WebCore::DataSegment&)dataSegment position:(NSUInteger)position size:(NSUInteger)size
+{
+    if (!(self = [super init]))
+        return nil;
+
+    RELEASE_ASSERT(position <= dataSegment.size());
+    RELEASE_ASSERT(size <= dataSegment.size() - position);
+    _dataSegment = dataSegment;
+    _position = position;
+    _size = size;
+    return self;
+}
+
+- (NSUInteger)length
+{
+    return _size;
+}
+
+- (const void *)bytes
+{
+    return Ref { *_dataSegment }->span().subspan(_position).data();
+}
+
+@end
+
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: minimal Cocoa overload replacing the return-zero fallback stub (see file header).
-Ref<SharedBuffer> SharedBuffer::create(NSData* data)
+Ref<SharedBuffer> SharedBuffer::create(NSData *data)
 {
-    return SharedBuffer::create(reinterpret_cast<CFDataRef>(data));
-}
-
-// MAVERICKS_BACKPORT: CFData-based segment iteration replacing the upstream NSData enumerateByteRanges path.
-void SharedBuffer::DataSegment::iterate(CFDataRef data, NOESCAPE const Function<void(std::span<const uint8_t>)>& apply) const
-{
-    // MAVERICKS_BACKPORT: simple, single-region iteration. CFDataGetBytePtr returns a contiguous pointer
-    // to the data, and CFDataGetLength returns its size. This is sufficient for the
-    // CFData instances created from NSData on 10.9.
     if (!data)
-        return;
-    // MAVERICKS_BACKPORT: read the contiguous CFData region directly on 10.9.
-    CFIndex length = CFDataGetLength(data);
-    const UInt8* bytes = CFDataGetBytePtr(data);
-    if (!bytes || length <= 0)
-        return;
-    apply(std::span<const uint8_t> { bytes, static_cast<size_t>(length) });
+        return SharedBuffer::create();
+    return adoptRef(*new SharedBuffer(bridge_cast(data)));
 }
 
-// MAVERICKS_BACKPORT: minimal Cocoa overload replacing the return-zero fallback stub (see file header).
-RetainPtr<CFDataRef> SharedBuffer::createCFData() const
+void SharedBufferBuilder::append(NSData *data)
 {
-    auto contig = span();
-    return adoptCF(CFDataCreate(kCFAllocatorDefault, contig.data(), contig.size()));
+    return append(bridge_cast(data));
 }
 
-// MAVERICKS_BACKPORT: minimal Cocoa overload replacing the return-zero fallback stub (see file header).
-RetainPtr<NSData> SharedBuffer::createNSData() const
+static void NODELETE FreeDataSegment(void* refcon, void*, size_t)
 {
-    return (__bridge_transfer NSData *)createCFData().leakRef();
-}
-
-// MAVERICKS_BACKPORT: by-reference NSData segment wrapping (see comment below) replacing the upstream copy-per-segment path.
-RetainPtr<NSArray> FragmentedSharedBuffer::createNSDataArray() const
-{
-    // MAVERICKS_BACKPORT: wrap each existing segment's bytes BY REFERENCE (no copy), keeping the segment
-    // alive for the NSData's lifetime via the deallocator block.
-    //
-    // The previous implementation returned `makeContiguous()->createNSData()`, i.e. a fresh contiguous
-    // *copy of the entire buffer* on every call. The AVFoundation media loader calls this on each
-    // received network chunk of a continuously-growing buffer (see
-    // WebCoreAVFResourceLoader::newDataStoredInSharedBuffer), so that copied O(n^2) bytes and -- because
-    // AVFoundation's -[AVAssetResourceLoadingDataRequest respondWithData:] retains what it is handed --
-    // accumulated gigabytes of ~1MB CFData copies for a streamed/looping <video> (e.g. the many
-    // auto-playing previews on a news front page rendered full-height inside a Web Clip). Wrapping the
-    // segments by reference both removes the per-call copy and lets the data be released normally.
-    RetainPtr<NSMutableArray> array = adoptNS([[NSMutableArray alloc] initWithCapacity:m_segments.size()]);
-    for (auto& entry : m_segments) {
-        RefPtr<const DataSegment> protectedSegment = entry.segment.ptr();
-        auto bytes = protectedSegment->span();
-        if (bytes.empty())
-            continue;
-        RetainPtr<NSData> data = adoptNS([[NSData alloc] initWithBytesNoCopy:const_cast<uint8_t*>(bytes.data())
-            length:bytes.size()
-            deallocator:^(void*, NSUInteger) { (void)protectedSegment; /* keeps the segment alive */ }]);
-        [array addObject:data.get()];
-    }
-    return array;
+    auto* buffer = reinterpret_cast<const DataSegment*>(refcon);
+    buffer->deref();
 }
 
 RetainPtr<CMBlockBufferRef> FragmentedSharedBuffer::createCMBlockBuffer() const
 {
-// MAVERICKS_BACKPORT: wrap the buffer's bytes in a CMBlockBuffer (used by toCMSampleBuffer to build
-// CMSampleBuffers for the MSE pipeline). The block buffer owns a copy of the data, so its lifetime is
-// independent of this SharedBuffer. CMBlockBuffer* are CoreMedia (10.7+), available on 10.9.
-    // MAVERICKS_BACKPORT: contiguous-copy CMBlockBuffer (see comment above) replacing the upstream segment-wrapping path.
-    auto contiguousBuffer = makeContiguous();
-    auto contiguous = contiguousBuffer->span();
-    if (contiguous.empty())
+    auto segmentToCMBlockBuffer = [] (const DataSegment& segment) -> RetainPtr<CMBlockBufferRef> {
+        // From CMBlockBufferCustomBlockSource documentation:
+        // Note that for 64-bit architectures, this struct contains misaligned function pointers.
+        // To avoid link-time issues, it is recommended that clients fill CMBlockBufferCustomBlockSource's function pointer fields
+        // by using assignment statements, rather than declaring them as global or static structs.
+        CMBlockBufferCustomBlockSource allocator;
+        allocator.version = 0;
+        allocator.AllocateBlock = nullptr;
+        allocator.FreeBlock = FreeDataSegment;
+        allocator.refCon = const_cast<DataSegment*>(&segment);
+        segment.ref();
+        CMBlockBufferRef partialBuffer = nullptr;
+        if (PAL::CMBlockBufferCreateWithMemoryBlock(nullptr, const_cast<uint8_t*>(segment.span().data()), segment.size(), nullptr, &allocator, 0, segment.size(), 0, &partialBuffer) != kCMBlockBufferNoErr)
+            return nullptr;
+        return adoptCF(partialBuffer);
+    };
+
+    if (isContiguous() && !isEmpty())
+        return segmentToCMBlockBuffer(m_segments[0].segment);
+
+    CMBlockBufferRef rawBlockBuffer = nullptr;
+    auto err = PAL::CMBlockBufferCreateEmpty(kCFAllocatorDefault, isEmpty() ? 0 : m_segments.size(), 0, &rawBlockBuffer);
+    if (err != kCMBlockBufferNoErr || !rawBlockBuffer)
         return nullptr;
-    CMBlockBufferRef blockBuffer = nullptr;
-    if (PAL::CMBlockBufferCreateWithMemoryBlock(kCFAllocatorDefault, nullptr, contiguous.size(), kCFAllocatorDefault, nullptr, 0, contiguous.size(), kCMBlockBufferAssureMemoryNowFlag, &blockBuffer) != noErr || !blockBuffer)
-        return nullptr;
-    if (PAL::CMBlockBufferReplaceDataBytes(contiguous.data(), blockBuffer, 0, contiguous.size()) != noErr) {
-        CFRelease(blockBuffer);
-        return nullptr;
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
     auto blockBuffer = adoptCF(rawBlockBuffer);
 
     if (isEmpty())
@@ -110,21 +148,28 @@ RetainPtr<CMBlockBufferRef> FragmentedSharedBuffer::createCMBlockBuffer() const
             return nullptr;
         if (PAL::CMBlockBufferAppendBufferReference(rawBlockBuffer, partialBuffer.get(), 0, 0, 0) != kCMBlockBufferNoErr)
             return nullptr;
-MAVERICKS_BACKPORT */
     }
-    // MAVERICKS_BACKPORT: CMBlockBuffer built from a contiguous copy (see comment above) for 10.9.
-    return adoptCF(blockBuffer);
+    return blockBuffer;
 }
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// RetainPtr<NSArray> FragmentedSharedBuffer::createNSDataArray() const
-// {
-//     return createNSArray(segments(), [] (auto& segment) {
-//         return segment.segment->createNSData();
-//     });
-// (end MAVERICKS_BACKPORT restored block)
+RetainPtr<NSData> SharedBuffer::createNSData() const
+{
+    return bridge_cast(createCFData());
 }
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+
+RetainPtr<CFDataRef> SharedBuffer::createCFData() const
+{
+    if (!size())
+        return adoptCF(CFDataCreate(nullptr, nullptr, 0));
+    return bridge_cast(segments()[0].segment->createNSData());
+}
+
+RetainPtr<NSArray> FragmentedSharedBuffer::createNSDataArray() const
+{
+    return createNSArray(segments(), [] (auto& segment) {
+        return segment.segment->createNSData();
+    });
+}
 
 RetainPtr<NSData> DataSegment::createNSData() const
 {
@@ -144,4 +189,3 @@ RetainPtr<NSData> SharedBufferDataView::createNSData() const
 }
 
 } // namespace WebCore
-MAVERICKS_BACKPORT */

@@ -85,14 +85,11 @@
 #import <WebCore/NetworkExtensionContentFilter.h>
 #import <WebCore/NotImplemented.h>
 #import <WebCore/NowPlayingInfo.h>
-// MAVERICKS_BACKPORT: VIDEO_PRESENTATION_MODE is off on 10.9, so these PlaybackSessionInterface headers aren't built; gate the imports to avoid pulling in unbuilt interfaces.
-#if ENABLE(VIDEO_PRESENTATION_MODE) || PLATFORM(IOS_FAMILY)
 #import <WebCore/NullPlaybackSessionInterface.h>
 #import <WebCore/PlatformPlaybackSessionInterface.h>
 #import <WebCore/PlaybackSessionInterfaceAVKitLegacy.h>
 #import <WebCore/PlaybackSessionInterfaceMac.h>
 #import <WebCore/PlaybackSessionInterfaceTVOS.h>
-#endif // MAVERICKS_BACKPORT: end VIDEO_PRESENTATION_MODE-gated PlaybackSessionInterface imports.
 #import <WebCore/RenderTheme.h>
 #import <WebCore/RunLoopObserver.h>
 #import <WebCore/SearchPopupMenuCocoa.h>
@@ -870,9 +867,13 @@ void WebPageProxy::addActivityStateUpdateCompletionHandler(CompletionHandler<voi
 void WebPageProxy::createTextFragmentDirectiveFromSelection(CompletionHandler<void(URL&&)>&& completionHandler)
 {
     if (!hasRunningProcess()) {
-        completionHandler({ }); // MAVERICKS_BACKPORT: always invoke the async completion handler on the no-process early return.
+        // MAVERICKS_BACKPORT(upstreamable): upstream returns here without invoking the handler, so it
+        // is destroyed uncalled -- ~CompletionHandler asserts "Completion handler should always be
+        // called", and in release the caller's continuation simply never runs. getTextFragmentRanges()
+        // immediately below is upstream's own example of the correct shape.
+        completionHandler({ });
         return;
-    }
+    } // MAVERICKS_BACKPORT(upstreamable): brace added with the completionHandler call above.
 
     protect(legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::CreateTextFragmentDirectiveFromSelection(), WTF::move(completionHandler), webPageIDInMainFrameProcess());
 }
@@ -1168,7 +1169,7 @@ bool WebPageProxy::useGPUProcessForDOMRenderingEnabled() const
 
     HashSet<Ref<const WebPageProxy>> visitedPages;
     visitedPages.add(*this);
-    // MAVERICKS_BACKPORT: fetch the next related page before releaseNonNull() empties |page|. When
+    // MAVERICKS_BACKPORT(upstreamable): fetch the next related page before releaseNonNull() empties |page|. When
     // useGPUProcessForDOMRenderingEnabled() is false for every page in the chain (the case on 10.9,
     // which runs without a GPU process), a loop increment of page->configuration().relatedPage()
     // dereferences the emptied RefPtr and crashes on any page opened with a relatedPage.
@@ -1635,7 +1636,7 @@ void WebPageProxy::proofreadingSessionUpdateStateForSuggestionWithID(IPC::Connec
 void WebPageProxy::createTextIndicatorForElementWithID(const String& elementID, CompletionHandler<void(RefPtr<WebCore::TextIndicator>&&)>&& completionHandler)
 {
     if (!hasRunningProcess()) {
-        completionHandler(nullptr); // MAVERICKS_BACKPORT: pass nullptr (not nil) to the typed RefPtr async completion handler.
+        completionHandler(nil);
         return;
     }
 

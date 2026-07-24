@@ -122,9 +122,8 @@ void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, 
     m_livePlatformLayers.add(layerID, &layer);
 }
 
-// MAVERICKS_BACKPORT: WebPage::videoPresentationManager() belongs to the video-presentation stack,
-// which this port does not build (ENABLE(VIDEO_PRESENTATION_MODE) is off — 10.9 lacks the AVKit
-// presentation SPI). Upstream ships HAVE(AVKIT) only alongside that stack; spell out both.
+// MAVERICKS_BACKPORT: WebPage::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off on
+// this port); narrow this AVKit-gated video-layer-hosting block to also require it.
 #if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
 void RemoteLayerTreeContext::layerDidEnterContext(PlatformCALayerRemote& layer, PlatformCALayer::LayerType type, WebCore::HTMLVideoElement& videoElement)
 {
@@ -160,9 +159,8 @@ void RemoteLayerTreeContext::layerWillLeaveContext(PlatformCALayerRemote& layer)
 {
     auto layerID = layer.layerID();
 
-// MAVERICKS_BACKPORT: WebPage::videoPresentationManager() belongs to the video-presentation stack,
-// which this port does not build (ENABLE(VIDEO_PRESENTATION_MODE) is off — 10.9 lacks the AVKit
-// presentation SPI). Upstream ships HAVE(AVKIT) only alongside that stack; spell out both.
+// MAVERICKS_BACKPORT: WebPage::videoPresentationManager() is ENABLE(VIDEO_PRESENTATION_MODE)-only (off on
+// this port); narrow this AVKit-gated video-layer-hosting block to also require it.
 #if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
     auto videoLayerIter = m_videoLayers.find(layerID);
     if (videoLayerIter != m_videoLayers.end()) {
@@ -240,7 +238,18 @@ void RemoteLayerTreeContext::animationDidEnd(WebCore::PlatformLayerIdentifier la
         RefPtr { it->value.get() }->animationEnded(key);
 }
 
-// MAVERICKS_BACKPORT: ensureRemoteRenderingBackendProxy / gpuProcessConnectionWasDestroyed
-// not available in this build (no GPU process); definitions removed.
+// MAVERICKS_BACKPORT: these GPU-process accessors are ENABLE(GPU_PROCESS)-only (WebPage::ensureRemoteRendering-
+// BackendProxy() does not exist with it off); the restore dropped HEAD's guard.
+#if ENABLE(GPU_PROCESS)
+RemoteRenderingBackendProxy& RemoteLayerTreeContext::ensureRemoteRenderingBackendProxy()
+{
+    return protect(webPage())->ensureRemoteRenderingBackendProxy();
+}
+
+void RemoteLayerTreeContext::gpuProcessConnectionWasDestroyed()
+{
+    m_backingStoreCollection->gpuProcessConnectionWasDestroyed();
+}
+#endif // MAVERICKS_BACKPORT: close the GPU_PROCESS guard on these GPU-process accessors (see above).
 
 } // namespace WebKit

@@ -90,6 +90,104 @@ WK_POLYFILL_SEL("underlyingErrors", "wk_underlyingErrors");
 WK_POLYFILL_SEL("isLowPowerModeEnabled", "wk_isLowPowerModeEnabled");
 
 // ---------------------------------------------------------------------------------------------------
+// Private NSHTTPCookieStorage / NSHTTPCookie cookie SPI (10.10+) that WebCore's NetworkStorageSession
+// (Source/WebCore/platform/network/cocoa/NetworkStorageSessionCocoa.mm) uses for the modern
+// partition-/SameSite-aware cookie jar. None of these selectors exist on 10.9, so the NetworkProcess
+// aborted with an "unrecognized selector" NSInvalidArgumentException the moment a page read or wrote a
+// cookie or subscribed to cookie changes. 10.9 has no cookie partitioning, and on this build cookie
+// partitioning is off in every sense (NetworkStorageSession::m_isOptInCookiePartitioningEnabled is
+// false and CFN_COOKIE_ACCEPTS_POLICY_PARTITION is undefined, so the _getCookiesForPartition: path is
+// compiled out), which means the partition/policyProperties arguments carry no information here. Each
+// modern selector therefore reduces to the classic 10.9 public API — exactly the mapping the previous
+// in-tree minimal rewrite of this file used before it was folded back to upstream.
+
+// -[NSHTTPCookieStorage _getCookiesForURL:…completionHandler:] is the async-shaped successor to
+// -cookiesForURL:; it invokes the handler synchronously (the caller RELEASE_ASSERTs this). With a nil
+// partition, -cookiesForURL: is the whole answer.
+// _setCookies:forURL:mainDocumentURL:policyProperties: is -setCookies:forURL:mainDocumentURL: plus a
+// policy dictionary 10.9 cannot honour. _getCookiesForDomain: returns every unpartitioned cookie whose
+// domain attribute domain-matches the host (RFC 6265). _saveCookies: flushes the store to disk; 10.9's
+// shared store persists itself, so the flush is a synchronous no-op that just invokes the completion.
+// _setCookiesChangedHandler:/_setCookiesRemovedHandler:/_setSubscribedDomainsForCookieChanges: are the
+// HAVE(COOKIE_CHANGE_LISTENER_API) observer hooks (CookieStore API / document.cookie change events);
+// 10.9 has no cookie-change machinery, so registering them as no-ops lets the observer path run and
+// simply never fire — the same graceful degradation the isLowPowerModeEnabled pair above uses.
+@interface NSHTTPCookieStorage (WKPolyfillScope)
+- (void)wk__getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler;
+- (void)wk__setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL policyProperties:(NSDictionary *)policyProperties;
+- (NSArray<NSHTTPCookie *> *)wk__getCookiesForDomain:(NSString *)domain;
+- (void)wk__saveCookies:(void (^)(void))completionHandler;
+- (void)wk__setCookiesChangedHandler:(void (^)(NSArray<NSHTTPCookie *> *addedCookies, NSString *domainForChangedCookie))handler onQueue:(dispatch_queue_t)queue;
+- (void)wk__setCookiesRemovedHandler:(void (^)(NSArray<NSHTTPCookie *> *removedCookies, NSString *domainForRemovedCookies, BOOL removeAllCookies))handler onQueue:(dispatch_queue_t)queue;
+- (void)wk__setSubscribedDomainsForCookieChanges:(NSSet<NSString *> *)domains;
+@end
+@implementation NSHTTPCookieStorage (WKPolyfillScope)
+- (void)wk__getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler
+{
+    (void)mainDocumentURL; (void)partition; (void)policyProperties;
+    completionHandler([self cookiesForURL:url]);
+}
+- (void)wk__setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL policyProperties:(NSDictionary *)policyProperties
+{
+    (void)policyProperties;
+    [self setCookies:cookies forURL:url mainDocumentURL:mainDocumentURL];
+}
+- (NSArray<NSHTTPCookie *> *)wk__getCookiesForDomain:(NSString *)domain
+{
+    NSMutableArray<NSHTTPCookie *> *result = [NSMutableArray array];
+    for (NSHTTPCookie *cookie in [self cookies]) {
+        NSString *cookieDomain = cookie.domain;
+        if (!cookieDomain.length)
+            continue;
+        if ([cookieDomain hasPrefix:@"."])
+            cookieDomain = [cookieDomain substringFromIndex:1];
+        if ([domain isEqualToString:cookieDomain] || [domain hasSuffix:[@"." stringByAppendingString:cookieDomain]])
+            [result addObject:cookie];
+    }
+    return result;
+}
+- (void)wk__saveCookies:(void (^)(void))completionHandler { if (completionHandler) completionHandler(); }
+- (void)wk__setCookiesChangedHandler:(void (^)(NSArray<NSHTTPCookie *> *, NSString *))handler onQueue:(dispatch_queue_t)queue { (void)handler; (void)queue; }
+- (void)wk__setCookiesRemovedHandler:(void (^)(NSArray<NSHTTPCookie *> *, NSString *, BOOL))handler onQueue:(dispatch_queue_t)queue { (void)handler; (void)queue; }
+- (void)wk__setSubscribedDomainsForCookieChanges:(NSSet<NSString *> *)domains { (void)domains; }
+@end
+WK_POLYFILL_SEL("_getCookiesForURL:mainDocumentURL:partition:policyProperties:completionHandler:", "wk__getCookiesForURL:mainDocumentURL:partition:policyProperties:completionHandler:");
+WK_POLYFILL_SEL("_setCookies:forURL:mainDocumentURL:policyProperties:", "wk__setCookies:forURL:mainDocumentURL:policyProperties:");
+WK_POLYFILL_SEL("_getCookiesForDomain:", "wk__getCookiesForDomain:");
+WK_POLYFILL_SEL("_saveCookies:", "wk__saveCookies:");
+WK_POLYFILL_SEL("_setCookiesChangedHandler:onQueue:", "wk__setCookiesChangedHandler:onQueue:");
+WK_POLYFILL_SEL("_setCookiesRemovedHandler:onQueue:", "wk__setCookiesRemovedHandler:onQueue:");
+WK_POLYFILL_SEL("_setSubscribedDomainsForCookieChanges:", "wk__setSubscribedDomainsForCookieChanges:");
+
+// -[NSHTTPCookie _storagePartition] is the per-cookie partition key; 10.9 stores everything
+// unpartitioned, so nil (the "no partition" value the callers already treat as the default) is honest.
+// +[NSHTTPCookie _cookieForSetCookieString:forURL:partition:] parses a single Set-Cookie header field
+// into a cookie — -cookiesWithResponseHeaderFields:forURL: is 10.9's parser for exactly that.
+// -[NSHTTPCookie sameSitePolicy] (10.13+) reports a cookie's stored SameSite attribute (paired with the
+// NSHTTPCookieSameSiteLax/Strict constants polyfilled in constants.m). 10.9's cookie store keeps no
+// SameSite attribute, so nil ("None"/unspecified, which coreSameSitePolicy maps to SameSitePolicy::None)
+// is the honest answer — WebCore's own SameSite enforcement lives above the platform cookie jar.
+@interface NSHTTPCookie (WKPolyfillScope)
+- (NSString *)wk_sameSitePolicy;
+- (NSString *)wk__storagePartition;
++ (NSHTTPCookie *)wk__cookieForSetCookieString:(NSString *)setCookieString forURL:(NSURL *)url partition:(NSString *)partition;
+@end
+@implementation NSHTTPCookie (WKPolyfillScope)
+- (NSString *)wk_sameSitePolicy { return nil; }
+- (NSString *)wk__storagePartition { return nil; }
++ (NSHTTPCookie *)wk__cookieForSetCookieString:(NSString *)setCookieString forURL:(NSURL *)url partition:(NSString *)partition
+{
+    (void)partition;
+    if (!setCookieString.length || !url)
+        return nil;
+    return [[NSHTTPCookie cookiesWithResponseHeaderFields:@{ @"Set-Cookie": setCookieString } forURL:url] firstObject];
+}
+@end
+WK_POLYFILL_SEL("sameSitePolicy", "wk_sameSitePolicy");
+WK_POLYFILL_SEL("_storagePartition", "wk__storagePartition");
+WK_POLYFILL_SEL("_cookieForSetCookieString:forURL:partition:", "wk__cookieForSetCookieString:forURL:partition:");
+
+// ---------------------------------------------------------------------------------------------------
 // -[NSControl setMaximumNumberOfLines:] (10.11+) and -[NSView sizeThatFits:] (10.10+). maximumNumberOfLines
 // caps how many wrapped lines a label lays out; sizeThatFits: measures the label at a target width.
 // 10.9's -sizeToFit already does the wrapped measurement, so sizeThatFits: reuses it (saving and
@@ -786,18 +884,122 @@ WK_POLYFILL_SEL("_disableAppSSO", "wk__disableAppSSO");
 WK_POLYFILL_SEL("_preventDockConnections", "wk__preventDockConnections");
 WK_POLYFILL_SEL("_setAccentColor:", "wk__setAccentColor:");
 
+// NSWindowStyleMaskFullSizeContentView + -setTitlebarAppearsTransparent: (both 10.10+), implemented for
+// real rather than stubbed.
+//
+// The 10.10 behaviour is: the content view is laid out over the FULL window frame, extending up behind the
+// titlebar, and the titlebar stops drawing its own background so the content shows through. 10.9 ignores
+// the style-mask bit and lacks the setter, so a window asking for it gets an ordinary titled window with
+// its content pushed below the titlebar.
+//
+// Measured on this host, which rules out the easy implementations:
+//   * overriding -contentRectForFrameRect: (and the class version) does NOT move the content view --
+//     it stays 400pt tall inside a 422pt frame view; and
+//   * placing the content view over the frame view by hand DOES work, but NSThemeFrame re-lays-it-out on
+//     the very next resize (600x422 full-size -> 800x578 back under the titlebar).
+// So the behaviour is reproducible only by placing the content view AND re-placing it whenever the window
+// resizes. That is what the adapter below does, keeping the standard window buttons above the content view
+// so the traffic lights stay visible and clickable, exactly as they float over a full-size content view on
+// 10.10+.
+//
+// Trigger: -setTitlebarAppearsTransparent: with the style mask's full-size-content bit set. 10.9 offers no
+// hook at window-creation time (the content view is installed before any public setter runs), and these
+// two are a matched pair in AppKit's own API -- a full-size content view without a transparent titlebar
+// would just be content hidden behind an opaque bar. A window that sets the bit and never calls the
+// companion setter keeps 10.9's default layout.
+enum { WKFullSizeContentViewStyleMask = 1 << 15 };   // NSWindowStyleMaskFullSizeContentView
+static const char wkTitlebarAppearsTransparentKey;
+static const char wkFullSizeContentAdapterKey;
+
+@interface WKPolyfillFullSizeContentAdapter : NSObject {
+    NSWindow *_window;   // unretained: the window owns this adapter through an associated object
+}
+- (instancetype)initWithWindow:(NSWindow *)window;
+- (void)apply;
+@end
+
+@implementation WKPolyfillFullSizeContentAdapter
+
+- (instancetype)initWithWindow:(NSWindow *)window
+{
+    if (!(self = [super init]))
+        return nil;
+    _window = window;
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(wkWindowDidResize:)
+                                                 name:NSWindowDidResizeNotification object:window];
+    return self;
+}
+
+- (void)dealloc
+{
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [super dealloc];
+}
+
+- (void)apply
+{
+    NSView *contentView = [_window contentView];
+    NSView *frameView = [contentView superview];
+    if (!contentView || !frameView)
+        return;
+
+    [contentView setFrame:[frameView bounds]];
+
+    // The traffic lights are siblings of the content view inside the frame view. A full-size content view
+    // covers the whole frame, so without this they would be painted over.
+    NSWindowButton buttons[] = { NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton,
+                                 NSWindowFullScreenButton };
+    for (size_t i = 0; i < sizeof(buttons) / sizeof(buttons[0]); i++) {
+        NSButton *button = [_window standardWindowButton:buttons[i]];
+        if (button && [button superview] == frameView)
+            [frameView addSubview:button positioned:NSWindowAbove relativeTo:contentView];
+    }
+}
+
+- (void)wkWindowDidResize:(NSNotification *)notification
+{
+    (void)notification;
+    [self apply];   // NSThemeFrame has just re-laid-out the content view under the titlebar; undo that
+}
+
+@end
+
 @interface NSWindow (WKPolyfillScopeChrome)
 - (void)wk_setTitlebarAppearsTransparent:(BOOL)flag;
 - (BOOL)wk_titlebarAppearsTransparent;
 - (void)wk_setTitleVisibility:(NSInteger)visibility;
 @end
 @implementation NSWindow (WKPolyfillScopeChrome)
-- (void)wk_setTitlebarAppearsTransparent:(BOOL)flag { (void)flag; }
-// The getter pairs with the no-op setter above: WebKit reads it (e.g. PageClientImpl::
-// computeAutomaticTopObscuredInset) and on 10.9 the titlebar is never transparent, so answer NO. Without
-// this, the call is an unrecognized selector that throws (caught by ObjC forwarding, but logged).
-- (BOOL)wk_titlebarAppearsTransparent { return NO; }
+
+- (void)wk_setTitlebarAppearsTransparent:(BOOL)flag
+{
+    objc_setAssociatedObject(self, (const void *)&wkTitlebarAppearsTransparentKey,
+                             flag ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    if (!flag || !([self styleMask] & WKFullSizeContentViewStyleMask))
+        return;
+    if (objc_getAssociatedObject(self, (const void *)&wkFullSizeContentAdapterKey))
+        return;
+
+    WKPolyfillFullSizeContentAdapter *adapter = [[[WKPolyfillFullSizeContentAdapter alloc] initWithWindow:self] autorelease];
+    objc_setAssociatedObject(self, (const void *)&wkFullSizeContentAdapterKey, adapter,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [adapter apply];
+}
+
+// Reports what the setter stored. It used to answer a fixed NO, which contradicted its own setter: a
+// caller that set the property and read it back was told its request had been ignored. WebKit reads this
+// (PageClientImpl::computeAutomaticTopObscuredInset) to lay content out under the titlebar, so a wrong
+// answer here is what leaves a window drawing its own title bar underneath the real one.
+- (BOOL)wk_titlebarAppearsTransparent
+{
+    return objc_getAssociatedObject(self, (const void *)&wkTitlebarAppearsTransparentKey) != nil;
+}
+
+// -setTitleVisibility: (10.10+) hides the title STRING while keeping the titlebar. 10.9 draws the title
+// as part of NSThemeFrame's titlebar with no separate control over it.
 - (void)wk_setTitleVisibility:(NSInteger)visibility { (void)visibility; }
+
 @end
 WK_POLYFILL_SEL("setTitlebarAppearsTransparent:", "wk_setTitlebarAppearsTransparent:");
 WK_POLYFILL_SEL("titlebarAppearsTransparent", "wk_titlebarAppearsTransparent");
@@ -1779,3 +1981,161 @@ WK_POLYFILL_SEL("setFileOperationKind:", "wk_setFileOperationKind:");
 WK_POLYFILL_SEL("fileOperationKind", "wk_fileOperationKind");
 WK_POLYFILL_SEL("setFileURL:", "wk_setFileURL:");
 WK_POLYFILL_SEL("fileURL", "wk_fileURL");
+
+// -[AVCaptureDevice deviceType] (10.15+), -portraitEffectActive (12+) and +systemPreferredCamera
+// (13+): three accessors added to a class 10.9 HAS, so they are method polyfills rather than a class
+// stub. AVCaptureDALDevice, the concrete class 10.9's AVFoundation hands out, raises
+// unrecognized-selector for all three.
+//
+// deviceType names the camera's hardware kind. 10.9 has no AVCaptureDeviceType vocabulary at all --
+// neither the constants nor the property -- so the distinction it can still draw is the one
+// -transportType draws: a camera wired into the machine ('bltn') versus anything attached to it. That
+// is exactly the built-in-wide-angle / external split, which is what the two constants below name.
+// Since 10.9 has no other producer OR consumer of an AVCaptureDeviceType, the constants and this
+// method are a closed system: what matters is that they are the same objects on both sides, which
+// polyfilling the constants (rather than returning a literal) is what guarantees -- WebKit compares
+// device types by pointer. Their values are the constants' own spelling, so a log or a debugger
+// shows something meaningful.
+#import <AVFoundation/AVFoundation.h>
+
+// These two live here rather than in constants.m, next to their only producer and because
+// constants.m compiles against the 10.9 headers, which have no AVCaptureDeviceType to declare them
+// with.
+WK_POLYFILL_CONST("AVFoundation", AVCaptureDeviceType, AVCaptureDeviceTypeBuiltInWideAngleCamera,
+                  @"AVCaptureDeviceTypeBuiltInWideAngleCamera");
+WK_POLYFILL_CONST("AVFoundation", AVCaptureDeviceType, AVCaptureDeviceTypeExternalUnknown,
+                  @"AVCaptureDeviceTypeExternalUnknown");
+
+// kIOAudioDeviceTransportTypeBuiltIn, the transport a camera on the logic board reports.
+enum { WKAVCaptureTransportTypeBuiltIn = 'bltn' };
+
+@interface AVCaptureDevice (WKPolyfillScopeCaptureDevice)
+- (AVCaptureDeviceType)wk_deviceType;
+- (BOOL)wk_isPortraitEffectActive;
++ (AVCaptureDevice *)wk_systemPreferredCamera;
+@end
+
+@implementation AVCaptureDevice (WKPolyfillScopeCaptureDevice)
+
+- (AVCaptureDeviceType)wk_deviceType
+{
+    return [self transportType] == WKAVCaptureTransportTypeBuiltIn
+        ? AVCaptureDeviceTypeBuiltInWideAngleCamera : AVCaptureDeviceTypeExternalUnknown;
+}
+
+// The portrait/background-blur effect is a macOS 12 Continuity Camera feature with no 10.9
+// counterpart, so no device here has it active -- which is also what the real property reports on a
+// modern machine whose camera does not support it.
+- (BOOL)wk_isPortraitEffectActive
+{
+    return NO;
+}
+
+// systemPreferredCamera is "the camera the system would choose", which on 10.9 is precisely what
+// +defaultDeviceWithMediaType: answers. The modern property additionally reflects a user override
+// set through +setUserPreferredCamera:, which 10.9 has no store for; a machine where the user has
+// never expressed a preference is the case the two definitions agree on.
++ (AVCaptureDevice *)wk_systemPreferredCamera
+{
+    return [self defaultDeviceWithMediaType:AVMediaTypeVideo];
+}
+
+@end
+WK_POLYFILL_SEL("deviceType", "wk_deviceType");
+WK_POLYFILL_SEL("isPortraitEffectActive", "wk_isPortraitEffectActive");
+WK_POLYFILL_SEL("systemPreferredCamera", "wk_systemPreferredCamera");
+
+// +[NSSharingService getSharingServicesForItems:mask:completion:] — the asynchronous, mask-filtered SPI
+// form, absent on 10.9 (probed on-host). The class is present, and so is the PUBLIC 10.8 API that answers
+// the same question synchronously, +sharingServicesForItems:, so this is a translation rather than a stub.
+//
+// Getting this wrong is not a quiet degradation: ServicesController::hasCompatibleServicesForItems does
+// dispatch_group_enter, calls this, and leaves the group in the completion. With the selector absent the
+// completion never runs, the group is entered three times and never left, and destroying it aborts the
+// process in _dispatch_semaphore_dispose (SIGILL) — which is exactly how Safari died once
+// ENABLE(SERVICE_CONTROLS) was restored.
+//
+// The mask (viewer/editor) cannot be applied here: 10.8's API takes no mask and returns everything that
+// can handle the items. Over-reporting is the safe direction — callers use the result to decide whether to
+// OFFER a services menu, and the menu itself is built by NSSharingServicePicker, which does its own
+// filtering. The completion is delivered asynchronously because that is the shape of the API being
+// replaced; a caller that leaves a dispatch group in it must not be called back before it returns.
+@interface NSSharingService (WKPolyfillScopeSharingServices)
++ (void)wk_getSharingServicesForItems:(NSArray *)items mask:(NSUInteger)mask completion:(void (^)(NSArray *))completion;
+@end
+
+@implementation NSSharingService (WKPolyfillScopeSharingServices)
+
++ (void)wk_getSharingServicesForItems:(NSArray *)items mask:(NSUInteger)mask completion:(void (^)(NSArray *))completion
+{
+    (void)mask;
+    if (!completion)
+        return;
+    // `items` needs no explicit retain: copying a block retains the ObjC pointers it captures, under MRR
+    // as under ARC, and dispatch_async copies. (RetainPtr is unavailable here — this file is ObjC, not ObjC++.)
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSArray *services = [NSSharingService sharingServicesForItems:items];
+        completion(services ?: @[]);
+    });
+}
+
+@end
+WK_POLYFILL_SEL("getSharingServicesForItems:mask:completion:", "wk_getSharingServicesForItems:mask:completion:");
+
+// ---------------------------------------------------------------------------------------------
+// AppKit pieces the Web Inspector's window/panel code needs, all absent on 10.9 (probed on-host).
+
+// +[NSTextField labelWithString:] (10.12+) is a convenience constructor for a non-editable,
+// non-bezeled, non-drawing label. That IS its implementation — the modern one configures exactly these
+// properties on a plain NSTextField — so this is the real thing, not an approximation.
+@interface NSTextField (WKPolyfillScopeLabel)
++ (NSTextField *)wk_labelWithString:(NSString *)stringValue;
+@end
+@implementation NSTextField (WKPolyfillScopeLabel)
++ (NSTextField *)wk_labelWithString:(NSString *)stringValue
+{
+    NSTextField *label = [[[self alloc] initWithFrame:NSZeroRect] autorelease];
+    [label setStringValue:stringValue ?: @""];
+    [label setBezeled:NO];
+    [label setDrawsBackground:NO];
+    [label setEditable:NO];
+    [label setSelectable:NO];
+    [label setLineBreakMode:NSLineBreakByClipping];
+    [label sizeToFit];
+    return label;
+}
+@end
+WK_POLYFILL_SEL("labelWithString:", "wk_labelWithString:");
+
+// +[NSColor secondaryLabelColor] (10.10+): the de-emphasised label colour. 10.9's semantic equivalent is
+// +disabledControlTextColor, the system's own "less prominent text" colour, so the value tracks the user's
+// appearance settings rather than being a hardcoded grey.
+@interface NSColor (WKPolyfillScopeSecondaryLabel)
++ (NSColor *)wk_secondaryLabelColor;
+@end
+@implementation NSColor (WKPolyfillScopeSecondaryLabel)
++ (NSColor *)wk_secondaryLabelColor { return [NSColor disabledControlTextColor]; }
+@end
+WK_POLYFILL_SEL("secondaryLabelColor", "wk_secondaryLabelColor");
+
+// -[NSView safeAreaInsets] (11.0+). A safe-area inset describes screen furniture (notch, home indicator)
+// intruding on a view. 10.9 has none, and NSEdgeInsetsZero is exactly what modern AppKit returns for a
+// view with nothing intruding — so this is the correct answer here, not a placeholder.
+@interface NSView (WKPolyfillScopeSafeArea)
+- (NSEdgeInsets)wk_safeAreaInsets;
+@end
+@implementation NSView (WKPolyfillScopeSafeArea)
+- (NSEdgeInsets)wk_safeAreaInsets { return NSEdgeInsetsMake(0, 0, 0, 0); }
+@end
+WK_POLYFILL_SEL("safeAreaInsets", "wk_safeAreaInsets");
+
+// -[NSWindow setMinFullScreenContentSize:] (10.11+) constrains a window's size in a tiled full-screen
+// split. 10.9 has no tiling — NSWindowCollectionBehaviorFullScreenAllowsTiling is 10.11 too — so there is
+// no split for a minimum to apply to, and storing nothing is the whole behaviour on this OS.
+@interface NSWindow (WKPolyfillScopeFullScreenContentSize)
+- (void)wk_setMinFullScreenContentSize:(NSSize)size;
+@end
+@implementation NSWindow (WKPolyfillScopeFullScreenContentSize)
+- (void)wk_setMinFullScreenContentSize:(NSSize)size { (void)size; }
+@end
+WK_POLYFILL_SEL("setMinFullScreenContentSize:", "wk_setMinFullScreenContentSize:");

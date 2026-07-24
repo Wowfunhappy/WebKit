@@ -56,12 +56,6 @@
 
 @implementation WKRemoteWebInspectorUIProxyObjCAdapter
 
-// MAVERICKS_BACKPORT: provide a protectedInspectorProxy accessor returning a RefPtr; the call sites below use it instead of the upstream free-function protect(_inspectorProxy) ref-protecting helper, which is unavailable in this build.
-- (RefPtr<WebKit::RemoteWebInspectorUIProxy>)protectedInspectorProxy
-{
-    return _inspectorProxy.get();
-}
-
 - (NSRect)window:(NSWindow *)window willPositionSheet:(NSWindow *)sheet usingRect:(NSRect)rect
 {
     if (_inspectorProxy)
@@ -81,20 +75,17 @@
 
 - (void)inspectorWKWebViewDidBecomeActive:(WKInspectorViewController *)inspectorViewController
 {
-    // MAVERICKS_BACKPORT: ref-protect via the protectedInspectorProxy accessor instead of upstream's protect(_inspectorProxy) free function.
-    self.protectedInspectorProxy->didBecomeActive();
+    protect(_inspectorProxy)->didBecomeActive();
 }
 
 - (void)inspectorViewControllerInspectorDidCrash:(WKInspectorViewController *)inspectorViewController
 {
-    // MAVERICKS_BACKPORT: ref-protect via the protectedInspectorProxy accessor instead of upstream's protect(_inspectorProxy) free function.
-    self.protectedInspectorProxy->closeFromCrash();
+    protect(_inspectorProxy)->closeFromCrash();
 }
 
 - (BOOL)inspectorViewControllerInspectorIsUnderTest:(WKInspectorViewController *)inspectorViewController
 {
-    // MAVERICKS_BACKPORT: ref-protect via the protectedInspectorProxy accessor instead of dereferencing the bare _inspectorProxy.
-    return self.protectedInspectorProxy->isUnderTest();
+    return _inspectorProxy->isUnderTest();
 }
 
 - (BOOL)inspectorViewControllerInspectorIsHorizontallyAttached:(WKInspectorViewController *)inspectorViewController
@@ -199,10 +190,7 @@ void RemoteWebInspectorUIProxy::platformLoad(const String& path, CompletionHandl
 
 void RemoteWebInspectorUIProxy::platformPickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&& completionHandler)
 {
-    // MAVERICKS_BACKPORT: NSColorSampler is 10.14+ and absent on 10.9; resolve it dynamically via NSClassFromString and report no color rather than linking the class directly.
-    Class samplerCls = NSClassFromString(@"NSColorSampler");
-    if (!samplerCls) { completionHandler(std::nullopt); return; }
-    auto sampler = adoptNS([[samplerCls alloc] init]);
+    auto sampler = adoptNS([[NSColorSampler alloc] init]);
     [sampler.get() showSamplerWithSelectionHandler:makeBlockPtr([completionHandler = WTF::move(completionHandler)](NSColor *selectedColor) mutable {
         if (!selectedColor) {
             completionHandler(std::nullopt);
@@ -244,8 +232,7 @@ void RemoteWebInspectorUIProxy::platformSetForcedAppearance(InspectorFrontendCli
 
 void RemoteWebInspectorUIProxy::platformStartWindowDrag()
 {
-    // MAVERICKS_BACKPORT: ref-protect the page through WKWebView's _protectedPage accessor instead of upstream's protect(*...._page) form.
-    protect(webView()).get()._protectedPage->startWindowDrag();
+    protect(*protect(webView()).get()._page)->startWindowDrag();
 }
 
 void RemoteWebInspectorUIProxy::platformOpenURLExternally(const String& url)

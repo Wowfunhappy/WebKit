@@ -34,19 +34,20 @@
 #import "ModelPlayerGraphicsLayerConfiguration.h"
 #import "SceneKitModel.h"
 #import "SceneKitModelLoader.h"
-// MAVERICKS_BACKPORT: SceneKitModel.h / SceneKitModelLoader.h are pure C++ interface headers
-// (no SceneKit/Metal import); including them only completes the RefPtr<SceneKitModel> /
-// RefPtr<SceneKitModelLoader> member types so this TU can generate their destructors. Neither
-// loadSceneKitModel() nor SceneKitModel is ever instantiated, so no 10.11+ framework is touched.
-// MAVERICKS_BACKPORT: no <pal/spi/cocoa/SceneKitSPI.h> / <wtf/cocoa/VectorCocoa.h> imports — the SceneKit
-// SPI is absent on 10.9 and the VectorCocoa makeVectorElement helper is unused once the scene path is inert.
+#import <pal/spi/cocoa/SceneKitSPI.h>
+#import <wtf/cocoa/SoftLinking.h> // MAVERICKS_BACKPORT: added for the SOFT_LINK of SceneKit classes below (no LC_LOAD_DYLIB for SceneKit on this port).
+#import <wtf/cocoa/VectorCocoa.h>
 
-// MAVERICKS_BACKPORT: SceneKit + SCNMetalLayer require Metal (10.11+) and the SceneKit
-// model-loading SPI, all absent on macOS 10.9. We keep SceneKitModelPlayer::create
-// linkable (it returns a non-null Ref) but make it inert: the constructor never allocates
-// an SCNMetalLayer or a SceneKit scene, no model is ever loaded, and every ModelPlayer /
-// SceneKitModelLoaderClient override is a safe no-op. Nothing in this translation unit
-// touches SceneKit, Metal, or the SceneKitModelLoader pipeline at runtime.
+// MAVERICKS_BACKPORT: soft-link SCNMetalLayer rather than hard-referencing the class — this port records no
+// LC_LOAD_DYLIB for SceneKit (see the WebCore overlay), so a hard class reference is unresolved at dyld load
+// and aborts every WebKit client at launch. The <model> element is off here, so this is never invoked.
+SOFT_LINK_FRAMEWORK_OPTIONAL(SceneKit)
+SOFT_LINK_CLASS_OPTIONAL(SceneKit, SCNMetalLayer)
+
+static std::optional<RetainPtr<id>> makeVectorElement(const RetainPtr<id>*, id arrayElement)
+{
+    return { retainPtr(arrayElement) };
+}
 
 namespace WebCore {
 
@@ -57,15 +58,20 @@ Ref<SceneKitModelPlayer> SceneKitModelPlayer::create(ModelPlayerClient& client)
 
 SceneKitModelPlayer::SceneKitModelPlayer(ModelPlayerClient& client)
     : m_client { client }
-    // MAVERICKS_BACKPORT: no m_layer { [[SCNMetalLayer alloc] init] } initializer — Metal is 10.11+; m_layer stays null.
+    , m_layer { adoptNS([allocSCNMetalLayerInstance() init]) } // MAVERICKS_BACKPORT: allocSCNMetalLayerInstance() is the soft-linked SCNMetalLayer (see file top).
     , m_id { ModelPlayerIdentifier::generate() }
 {
-    // MAVERICKS_BACKPORT: do NOT create an SCNMetalLayer here (Metal, 10.11+); leave m_layer null.
+    m_layer.get().autoenablesDefaultLighting = YES;
+
+    // FIXME: This should be done by the caller.
+    m_layer.get().contentsScale = 2.0;
 }
 
 SceneKitModelPlayer::~SceneKitModelPlayer()
 {
-    // MAVERICKS_BACKPORT: no loader is ever started, so there is nothing to cancel.
+    // If there is an outstanding load, as indicated by a non-null m_loader, cancel it.
+    if (m_loader)
+        m_loader->cancel();
 }
 
 // MARK: - ModelPlayer overrides.
@@ -75,20 +81,21 @@ ModelPlayerIdentifier SceneKitModelPlayer::identifier() const
     return m_id;
 }
 
-// MAVERICKS_BACKPORT: params unnamed — SceneKit model loading is unavailable on 10.9, so load() is a no-op.
-void SceneKitModelPlayer::load(Model&, LayoutSize)
+void SceneKitModelPlayer::load(Model& modelSource, LayoutSize)
 {
-    // MAVERICKS_BACKPORT: SceneKit model loading is unavailable on 10.9; no-op.
+    if (m_loader)
+        m_loader->cancel();
+
+    m_loader = loadSceneKitModel(modelSource, *this);
 }
 
 void SceneKitModelPlayer::sizeDidChange(LayoutSize)
 {
 }
 
-// MAVERICKS_BACKPORT: params unnamed — m_layer is null (no SCNMetalLayer), so nothing is attached.
-void SceneKitModelPlayer::configureGraphicsLayer(GraphicsLayer&, ModelPlayerGraphicsLayerConfiguration&&)
+void SceneKitModelPlayer::configureGraphicsLayer(GraphicsLayer& graphicsLayer, ModelPlayerGraphicsLayerConfiguration&&)
 {
-    // MAVERICKS_BACKPORT: m_layer is null (no SCNMetalLayer); nothing to attach to the GraphicsLayer.
+    graphicsLayer.setContentsToPlatformLayer(m_layer.get(), GraphicsLayer::ContentsLayerPurpose::Model);
 }
 
 void SceneKitModelPlayer::enterFullscreen()
@@ -157,26 +164,48 @@ void SceneKitModelPlayer::setIsMuted(bool, CompletionHandler<void(bool success)>
 
 ModelPlayerAccessibilityChildren SceneKitModelPlayer::accessibilityChildren()
 {
-    // MAVERICKS_BACKPORT: no SceneKit scene exists; return no accessibility children.
-    return { };
+#if PLATFORM(IOS_FAMILY)
+    RetainPtr<NSArray> children = [m_model->defaultScene() accessibilityElements];
+#else
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    RetainPtr<NSArray> children = [m_model->defaultScene() accessibilityAttributeValue:NSAccessibilityChildrenAttribute];
+ALLOW_DEPRECATED_DECLARATIONS_END
+#endif
+    return { makeVector<RetainPtr<id>>(children.get()) };
 }
 
 // MARK: - SceneKitModelLoaderClient overrides.
 
-// MAVERICKS_BACKPORT: params unnamed — no loader is ever started, so this callback is unreachable/inert.
-void SceneKitModelPlayer::didFinishLoading(SceneKitModelLoader&, Ref<SceneKitModel>)
+void SceneKitModelPlayer::didFinishLoading(SceneKitModelLoader& loader, Ref<SceneKitModel> model)
 {
-    // MAVERICKS_BACKPORT: no loader is ever started; this is unreachable. Keep it inert.
+    dispatch_assert_queue(mainDispatchQueueSingleton());
+    ASSERT_UNUSED(loader, &loader == m_loader.get());
+
+    m_loader = nullptr;
+    m_model = WTF::move(model);
+
+    updateScene();
+
+    if (RefPtr client = m_client.get())
+        client->didFinishLoading(*this);
 }
 
-void SceneKitModelPlayer::didFailLoading(SceneKitModelLoader&, const ResourceError&)
+void SceneKitModelPlayer::didFailLoading(SceneKitModelLoader& loader, const ResourceError& error)
 {
-    // MAVERICKS_BACKPORT: no loader is ever started; this is unreachable. Keep it inert.
+    dispatch_assert_queue(mainDispatchQueueSingleton());
+    ASSERT_UNUSED(loader, &loader == m_loader.get());
+
+    m_loader = nullptr;
+
+    if (RefPtr client = m_client.get())
+        client->didFailLoading(*this, error);
 }
 
 void SceneKitModelPlayer::updateScene()
 {
-    // MAVERICKS_BACKPORT: no SCNMetalLayer / SceneKit scene to update.
+    if (m_layer.get().scene == m_model->defaultScene())
+        return;
+    m_layer.get().scene = m_model->defaultScene();
 }
 
 } // namespace WebCore

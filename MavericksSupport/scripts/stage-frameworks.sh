@@ -103,7 +103,7 @@ repoint_framework_dep() {
 # directly, which have no @rpath form.
 rewrite_abs_deps() {
     local bin="$1"
-    # Redirect Security/CoreServices/CFNetwork/QuartzCore to libpolyfill_classes.dylib, which REEXPORTS each of
+    # Redirect Security/CoreServices/CFNetwork/QuartzCore/AppKit to libpolyfill_classes.dylib, which REEXPORTS each of
     # them and ADDS the absent-on-10.9 ObjC classes the build SDK declares in them (SecKeyProxy,
     # _NSHTTPAlternativeServices*/_NSHSTSStorage, LSBundleProxy, CABackdropLayer, ...). WebKit's two-level
     # reference to those classes is stamped "from <that framework>"; redirecting the framework's load command
@@ -113,7 +113,7 @@ rewrite_abs_deps() {
     # (Never applied to libpolyfill_classes.dylib itself — it is not in the WebKit Mach-O list this pass walks,
     # so a self-redirect can't occur.)
     local _fw
-    for _fw in Security CoreServices CFNetwork QuartzCore; do
+    for _fw in Security CoreServices CFNetwork QuartzCore AppKit Foundation; do
         repoint_framework_dep "$bin" "/${_fw}.framework/" "$PRIVLIBCXX/libpolyfill_classes.dylib"
     done
 }

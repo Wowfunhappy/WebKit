@@ -1201,20 +1201,14 @@ void WebContextMenuProxyMac::captionStyleMenuSetPreviewProfileID(const String& p
 
 void WebContextMenuProxyMac::captionStyleMenuWillOpen()
 {
-    // MAVERICKS_BACKPORT: showCaptionDisplaySettingsPreview only exists with MEDIA_CONTROLS_CONTEXT_MENUS, which is off on 10.9; guard the body.
-#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
     if (auto identifier = m_context.mediaElementIdentifier())
         protect(page())->showCaptionDisplaySettingsPreview(m_frameInfo, *identifier);
-#endif // MAVERICKS_BACKPORT ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
 }
 
 void WebContextMenuProxyMac::captionStyleMenuDidClose()
 {
-    // MAVERICKS_BACKPORT: hideCaptionDisplaySettingsPreview only exists with MEDIA_CONTROLS_CONTEXT_MENUS, which is off on 10.9; guard the body.
-#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
     if (auto identifier = m_context.mediaElementIdentifier())
         protect(page())->hideCaptionDisplaySettingsPreview(m_frameInfo, *identifier);
-#endif // MAVERICKS_BACKPORT ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
 }
 
 } // namespace WebKit

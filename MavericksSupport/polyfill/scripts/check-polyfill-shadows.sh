@@ -72,6 +72,8 @@ SYSTEM_LIBS="
 /usr/lib/libobjc.A.dylib
 /usr/lib/libsqlite3.dylib
 /usr/lib/libz.dylib
+/usr/lib/libsandbox.1.dylib
+/usr/lib/system/libsystem_sandbox.dylib
 "
 
 WORK="$(mktemp -d -t polyshadow)"; trap 'rm -rf "$WORK"' EXIT
@@ -239,10 +241,11 @@ fi
 mkdir -p "$WORK/members"
 ( cd "$WORK/members" && "$(dirname "$CLANG")/llvm-ar" x "$BUILD/libpolyfill_classes.a" methods.o )
 
-# PDFKit and QuartzCore own classes methods.m extends (PDFPage, CAContext, CATransaction), so they join
-# the list the C half already uses.
+# PDFKit and QuartzCore own classes methods.m extends (PDFPage, CAContext, CATransaction), and
+# AVFoundation owns AVCaptureDevice, so they join the list the C half already uses.
 OBJC_LIBS="$SYSTEM_LIBS
 /System/Library/Frameworks/Quartz.framework/Frameworks/PDFKit.framework/PDFKit
+/System/Library/Frameworks/AVFoundation.framework/AVFoundation
 "
 
 cat > "$WORK/selregistry.m" <<'EOF'
@@ -484,8 +487,82 @@ if [ -s "$WORK/seldead" ]; then
     exit 1
 fi
 
+# ---------------------------------------------------------------- the class verdict
+# The layer's third half: the absent-CLASS stubs in polyfills/classes.m that WK_POLYFILL_CLASS
+# registers so WebKit's objc_getClass can find them (mechanism/wk_polyfill.h). Same question, same
+# stakes -- a stub registered for a class 10.9 HAS would answer WebKit's soft-link with a shape that
+# implements a handful of methods in place of the real class, and every message the real one would
+# have answered raises unrecognized-selector instead. There is no REPLACES form for a class: a class
+# 10.9 has is not a gap, so the only fix is to delete the stub.
+#
+# One program does both halves: it dlopens the class dylib to read its __wk_clsmap, but does NOT link
+# libpolyfill.a, so it has no objc_getClass override and its lookups get 10.9's own answer. Each
+# entry names the framework that owns the class on a modern OS, which is what gets loaded before
+# asking -- a class cannot be reported absent merely because nothing had loaded its framework yet.
+cat > "$WORK/clspresent.m" <<'EOF'
+#include <dlfcn.h>
+#include <mach-o/dyld.h>
+#include <mach-o/getsect.h>
+#include <objc/runtime.h>
+#include <stdio.h>
+#include <string.h>
+#if __LP64__
+typedef struct mach_header_64 wk_mach_header;
+#else
+typedef struct mach_header wk_mach_header;
+#endif
+
+// Must match struct wk_polyfill_class_entry in mechanism/wk_polyfill.h.
+struct entry { const char *name; const char *provider; void *cls; void *(*resolve)(void); };
+
+int main(int argc, char **argv)
+{
+    if (argc < 2 || !dlopen(argv[1], RTLD_LAZY)) {
+        fprintf(stderr, "cannot load %s: %s\n", argc > 1 ? argv[1] : "(none)", dlerror());
+        return 2;
+    }
+
+    for (uint32_t i = 0; i < _dyld_image_count(); i++) {
+        const wk_mach_header *header = (const wk_mach_header *)_dyld_get_image_header(i);
+        unsigned long size = 0;
+        uint8_t *section = header ? getsectiondata(header, "__DATA", "__wk_clsmap", &size) : NULL;
+        if (!section)
+            continue;
+        struct entry *entries = (struct entry *)section;
+        for (size_t j = 0; j < size / sizeof(*entries); j++) {
+            char path[512];
+            snprintf(path, sizeof path, "/System/Library/Frameworks/%s.framework/%s",
+                     entries[j].provider, entries[j].provider);
+            dlopen(path, RTLD_LAZY);
+            Class cls = objc_getClass(entries[j].name);
+            printf("%s\t%s\t%s\n", entries[j].name, entries[j].provider,
+                   cls ? "PRESENT" : "absent");
+        }
+    }
+    return 0;
+}
+EOF
+"$CLANG" --no-default-config -mmacosx-version-min=10.9 -Wall -o "$WORK/clspresent" "$WORK/clspresent.m" -lobjc
+"$WORK/clspresent" "$BUILD/libpolyfill_classes.dylib" | sort -u > "$WORK/clson109"
+
+if awk -F'\t' '$3 == "PRESENT"' "$WORK/clson109" | grep -q .; then
+    {
+        echo
+        echo "ERROR: these WK_POLYFILL_CLASS registrations name a class 10.9 ALREADY has. The"
+        echo "objc_getClass override answers WebKit's soft-link with the stub, so WebKit would use a"
+        echo "few hand-written methods in place of the real class and raise unrecognized-selector on"
+        echo "everything else:"
+        echo
+        awk -F'\t' '$3 == "PRESENT" { printf "  %-46s present in %s\n", $1, $2 }' "$WORK/clson109"
+        echo
+        echo "Delete the stub and let WebKit soft-link 10.9's own class."
+    } >&2
+    exit 1
+fi
+
 scanned=$(wc -l < "$WORK/names" | tr -d ' ')
 registered=$(wc -l < "$WORK/registry.tsv" | tr -d ' ')
+classes=$(wc -l < "$WORK/clson109" | tr -d ' ')
 shadows=$(wc -l < "$WORK/present_names" | tr -d ' ')
 selectors=$(wc -l < "$WORK/selregistry.tsv" | tr -d ' ')
 selshadows=$(awk -F'\t' '$4 == "PRESENT"' "$WORK/selon109" | wc -l | tr -d ' ')
@@ -493,3 +570,4 @@ echo "  polyfill shadow check: clean -- $scanned defined symbols, $registered re
 echo "    $shadows are present on 10.9, each declared WK_POLYFILL_REPLACES"
 echo "    $selectors ObjC method polyfills, each landing on a class; $selshadows are present"
 echo "    on 10.9, each declared WK_POLYFILL_SEL_REPLACES"
+echo "    $classes ObjC class polyfills, none of which 10.9 has"

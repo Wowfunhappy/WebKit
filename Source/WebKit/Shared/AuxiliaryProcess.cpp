@@ -86,7 +86,10 @@ void AuxiliaryProcess::didClose(IPC::Connection&)
 void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& parameters)
 {
 // MAVERICKS_BACKPORT: initialize() is reworked for 10.9 multi-instance bring-up (see markers below):
-// re-entry guard, optional process identifier, sandbox skipped, main-RunLoop connection open.
+// re-entry guard, optional process identifier, sandbox skipped (with evidence), main-RunLoop connection
+// open.
+    TraceScope traceScope(ProcessInitializeStart, ProcessInitializeEnd);
+
     // MAVERICKS_BACKPORT: Safari sends a second XPC bootstrap message after the first
     // initialize completes. Calling initialize twice re-lazyInitializes the already-set
     // m_connection (RELEASE_ASSERT — SIGTRAP). Guard via the m_connection check (the
@@ -107,6 +110,23 @@ void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& par
     // multi-instance bring-up can initialize without one, so set it only when present.
     if (parameters.processIdentifier)
         Process::setIdentifier(*parameters.processIdentifier);
+
+    platformInitialize(parameters);
+
+    // MAVERICKS_BACKPORT: upstream follows platformInitialize() with
+    //
+    //     SandboxInitializationParameters sandboxParameters;
+    //     initializeSandbox(parameters, sandboxParameters);
+    //
+    // which is skipped here: 10.9's sandbox cannot compile the WebContent profile WebKit ships. This is a
+    // profile-language gap, not an absent-API one -- 10.9 has the full, working compiler
+    // (sandbox_compile_file / _string / sandbox_apply, present in /usr/lib/libsandbox.1.dylib). Feeding
+    // the generated com.apple.WebProcess.sb to the real sandbox_compile_string() fails at
+    // "line 47: unbound variable: nvram*": operations the 63 KB profile names (nvram*, system-privilege,
+    // and more) postdate this OS's sandbox operation vocabulary. Rewriting the profile against 10.9's
+    // vocabulary would be a large permanent divergence, and upstream's initializeSandbox() CRASH()es
+    // rather than continue when a profile will not apply. Child processes therefore run unsandboxed on
+    // this port.
 
     initializeProcess(parameters);
 

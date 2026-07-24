@@ -1,4 +1,4 @@
-// CoreGraphics, CoreText, QuartzCore, Accelerate, ImageIO and IOKit entry points modern WebKit calls
+// CoreGraphics, CoreText, QuartzCore, Accelerate, ImageIO, CoreMedia and IOKit entry points modern WebKit calls
 // that 10.9 lacks or names differently. Each is implemented over the equivalent API 10.9 does ship,
 // or reports the honest "this OS has no such feature" answer where the feature itself postdates 10.9.
 #include "wk_polyfill.h"
@@ -8,6 +8,7 @@
 #include <CoreGraphics/CoreGraphics.h>
 #include <CoreText/CoreText.h>
 #include <ImageIO/ImageIO.h>
+#include <CoreMedia/CoreMedia.h>
 #include <IOKit/IOKitLib.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -734,4 +735,142 @@ WK_POLYFILL_ABSENT("IOKit", unsigned char, IOHIDEventGetScrollMomentum, (void *e
 {
     (void)event;
     return 0;
+}
+
+// ---------------------------------------------------------------------------------------------
+// CoreMedia
+//
+// Both of these are 10.10 conveniences over a 10.9 entry point that is still there and still does
+// the work; each is defined in terms of the one it wraps, so the behaviour is the OS's own.
+
+// Both bodies reach 10.9's CoreMedia through WK_SYSTEM_FN rather than by calling it directly: a
+// direct call emits an undefined symbol that EVERY image force-loading this archive has to satisfy,
+// including JavaScriptCore and the NetworkProcess, which have no reason to link CoreMedia. (Observed:
+// a direct call here failed the JavaScriptCore link on CMSampleBufferCreate and
+// CMSampleBufferCallForEachSample.) See the WK_SYSTEM_FN note in mechanism/wk_polyfill.h.
+WK_SYSTEM_FN("CoreMedia", OSStatus, CMSampleBufferCreate,
+    (CFAllocatorRef, CMBlockBufferRef, Boolean, CMSampleBufferMakeDataReadyCallback, void *,
+     CMFormatDescriptionRef, CMItemCount, CMItemCount, const CMSampleTimingInfo *, CMItemCount,
+     const size_t *, CMSampleBufferRef *));
+
+WK_SYSTEM_FN("CoreMedia", OSStatus, CMSampleBufferCallForEachSample,
+    (CMSampleBufferRef, OSStatus (*)(CMSampleBufferRef, CMItemCount, void *), void *));
+
+// CMSampleBufferCreateReady is CMSampleBufferCreate with dataReady=true and no make-data-ready
+// callback -- that is its definition, not an approximation of it. The two argument lists are
+// identical apart from those three parameters.
+WK_POLYFILL_ABSENT("CoreMedia", OSStatus, CMSampleBufferCreateReady,
+    (CFAllocatorRef allocator, CMBlockBufferRef dataBuffer, CMFormatDescriptionRef formatDescription,
+     CMItemCount numSamples, CMItemCount numSampleTimingEntries,
+     const CMSampleTimingInfo *sampleTimingArray, CMItemCount numSampleSizeEntries,
+     const size_t *sampleSizeArray, CMSampleBufferRef *sampleBufferOut))
+{
+    if (!WK_SYSTEM(CMSampleBufferCreate))
+        return kCMSampleBufferError_AllocationFailed;
+    return WK_SYSTEM(CMSampleBufferCreate)(allocator, dataBuffer, true, NULL, NULL, formatDescription,
+                                           numSamples, numSampleTimingEntries, sampleTimingArray,
+                                           numSampleSizeEntries, sampleSizeArray, sampleBufferOut);
+}
+
+// CMSampleBufferCallBlockForEachSample is the block-taking form of CMSampleBufferCallForEachSample,
+// which 10.9 has. The function-pointer form already carries a refcon, so the block travels in it and
+// this trampoline hands each sample to it; the handler's OSStatus is returned unchanged, so an
+// early-out (a non-zero status) stops the iteration exactly as it does on the block form.
+static OSStatus wkCallBlockForEachSampleTrampoline(CMSampleBufferRef sampleBuffer, CMItemCount index,
+                                                   void *refcon)
+{
+    OSStatus (^handler)(CMSampleBufferRef, CMItemCount) = (OSStatus (^)(CMSampleBufferRef, CMItemCount))refcon;
+    return handler(sampleBuffer, index);
+}
+
+WK_POLYFILL_ABSENT("CoreMedia", OSStatus, CMSampleBufferCallBlockForEachSample,
+    (CMSampleBufferRef sampleBuffer, OSStatus (^handler)(CMSampleBufferRef, CMItemCount)))
+{
+    if (!handler)
+        return kCMSampleBufferError_RequiredParameterMissing;
+    if (!WK_SYSTEM(CMSampleBufferCallForEachSample))
+        return kCMSampleBufferError_AllocationFailed;
+    return WK_SYSTEM(CMSampleBufferCallForEachSample)(sampleBuffer, wkCallBlockForEachSampleTrampoline,
+                                                      (void *)handler);
+}
+
+// CGContextSetOwnerIdentity (12+): tags a context's backing store to another process's memory
+// ledger, using a task identity token. 10.9 has neither -- see task_create_identity_token in
+// system-spi.m -- so there is no ledger to move the pages to and no token that could name one. The
+// faithful answer on this OS is that the pages stay attributed to the process that allocated them,
+// which is what doing nothing means here. Unreachable in practice for the same reason the token is:
+// every caller gates on a valid ProcessIdentity, which 10.9 never produces. WebCore soft-links this
+// one (PAL/pal/cg/CoreGraphicsSoftLink.cpp) with the required form, so without an entry here the
+// lookup would RELEASE_ASSERT rather than reach any of that.
+WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextSetOwnerIdentity, (CGContextRef context, unsigned int owner))
+{
+    (void)context;
+    (void)owner;
+}
+
+// VideoToolbox VP9 support probes (macOS 11+ / 12+), both absent on 10.9 (nm-verified).
+//
+// VTIsHardwareDecodeSupported asks whether the GPU can decode a codec. 10.9 has no VP9 decoder of any
+// kind, so `false` is the true answer, and it is the answer upstream is written to handle -- WebCore
+// falls back to its software/GStreamer path on false, which is what actually decodes VP9 here.
+WK_POLYFILL_ABSENT("VideoToolbox", Boolean, VTIsHardwareDecodeSupported, (int32_t codecType))
+{
+    (void)codecType;
+    return false;
+}
+
+// VTRegisterSupplementalVideoDecoderIfAvailable asks VideoToolbox to load an out-of-band decoder plugin
+// for a codec. 10.9's VideoToolbox has no supplemental-decoder registry to load one into, so there is
+// nothing to register and nothing to report -- the routine returns void, and the caller discovers the
+// outcome by asking whether the codec is supported afterwards, which is answered above.
+WK_POLYFILL_ABSENT("VideoToolbox", void, VTRegisterSupplementalVideoDecoderIfAvailable, (int32_t codecType))
+{
+    (void)codecType;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Wide-gamut / extended-range colour space names (10.11-10.12+), all ABSENT on 10.9 (probed: only
+// kCGColorSpaceSRGB exists; even kCGColorSpaceLinearSRGB is missing, and
+// CGColorSpaceCreateWithName(CFSTR("kCGColorSpaceExtendedSRGB")) returns NULL).
+//
+// Supplying the NAMES alone would be worse than useless: DestinationColorSpace would hold a NULL
+// CGColorSpaceRef and trip its own ASSERT. So the names come with a CGColorSpaceCreateWithName that
+// knows what to do with them.
+// Only Rec2020 is new here; the other five extended/wide-gamut names are already supplied in
+// polyfills/constants.m (the build gate's duplicate-symbol check caught the overlap).
+WK_POLYFILL_CONST("CoreGraphics", CFStringRef, kCGColorSpaceExtendedRec2020, CFSTR("kCGColorSpaceExtendedRec2020"));
+
+// CGColorSpaceCreateWithName IS present on 10.9 and works for the names 10.9 knows; it returns NULL for
+// the ones above. REPLACES rather than ABSENT for exactly that reason: the real function is asked first
+// and its answer is returned untouched, so every colour space 10.9 understands behaves identically. Only a
+// NULL answer for one of the names 10.9 lacks is substituted.
+//
+// The substitute is sRGB. 10.9's colour pipeline has no extended-range or wide-gamut representation at all
+// -- there is no display path that could show a colour outside sRGB -- so sRGB is both the closest space
+// available and the one whose rendering matches what the screen actually produces. Colours outside the
+// sRGB gamut clamp, which is what happens on this hardware regardless of how they were tagged. The
+// alternative, a NULL colour space, is not a lesser answer but a broken one: it fails the caller's ASSERT
+// and leaves CGBitmapContext creation without a colour space.
+WK_SYSTEM_FN("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName, (CFStringRef));
+
+WK_POLYFILL_REPLACES("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName, (CFStringRef name))
+{
+    if (!WK_SYSTEM(CGColorSpaceCreateWithName))
+        return NULL;
+
+    CGColorSpaceRef space = WK_SYSTEM(CGColorSpaceCreateWithName)(name);
+    if (space || !name)
+        return space;   // 10.9 knew this name (or there is no name): its answer stands
+
+    static const CFStringRef substituted[] = {
+        CFSTR("kCGColorSpaceExtendedSRGB"), CFSTR("kCGColorSpaceLinearSRGB"),
+        CFSTR("kCGColorSpaceExtendedLinearSRGB"), CFSTR("kCGColorSpaceDisplayP3"),
+        CFSTR("kCGColorSpaceExtendedLinearDisplayP3"), CFSTR("kCGColorSpaceExtendedRec2020"),
+        CFSTR("kCGColorSpaceExtendedDisplayP3"), CFSTR("kCGColorSpaceITUR_2020"),
+    };
+    for (size_t i = 0; i < sizeof(substituted) / sizeof(substituted[0]); i++) {
+        if (CFStringCompare(name, substituted[i], 0) == kCFCompareEqualTo)
+            return WK_SYSTEM(CGColorSpaceCreateWithName)(kCGColorSpaceSRGB);
+    }
+    return NULL;   // some other unknown name: 10.9's own answer, unchanged
 }

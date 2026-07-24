@@ -168,21 +168,6 @@ inline auto SandboxExtension::createHandleWithoutResolvingPath(StringView, Type)
 inline auto SandboxExtension::createHandleForReadWriteDirectory(StringView) -> std::optional<Handle> { return Handle { }; }
 inline auto SandboxExtension::createHandleForTemporaryFile(StringView, Type) -> std::optional<std::pair<Handle, String>> { return std::pair<Handle, String> { }; }
 inline auto SandboxExtension::createHandleForGenericExtension(ASCIILiteral) -> std::optional<Handle> { return Handle { }; }
-// MAVERICKS_BACKPORT: createHandleForMachBootstrapExtension is referenced unconditionally but omitted from
-// upstream's disabled-feature stub block (Mac was never built with ENABLE(SANDBOX_EXTENSIONS) off).
-inline auto SandboxExtension::createHandleForMachBootstrapExtension() -> Handle { return Handle { }; }
-// MAVERICKS_BACKPORT: this port builds with ENABLE(SANDBOX_EXTENSIONS) OFF while HAVE(AUDIT_TOKEN) is
-// ON and these audit-token handle factories are referenced unconditionally from UIProcess process-launch
-// code; upstream's disabled-feature stub block omits them (Mac was never built with the feature off).
-// Add the matching no-op stubs.
-#if HAVE(AUDIT_TOKEN)
-inline auto SandboxExtension::createHandleForReadByAuditToken(StringView, audit_token_t) -> std::optional<Handle> { return Handle { }; }
-inline auto SandboxExtension::createHandleForMachLookup(ASCIILiteral, std::optional<audit_token_t>, OptionSet<Flags>) -> std::optional<Handle> { return Handle { }; }
-inline auto SandboxExtension::createHandlesForMachLookup(std::span<const ASCIILiteral>, std::optional<audit_token_t>, MachBootstrapOptions, OptionSet<Flags>) -> Vector<Handle> { return { }; }
-inline auto SandboxExtension::createHandlesForMachLookup(std::initializer_list<const ASCIILiteral>, std::optional<audit_token_t>, MachBootstrapOptions, OptionSet<Flags>) -> Vector<Handle> { return { }; }
-inline auto SandboxExtension::createHandleForIOKitClassExtension(ASCIILiteral, std::optional<audit_token_t>, OptionSet<Flags>) -> std::optional<Handle> { return Handle { }; }
-inline auto SandboxExtension::createHandlesForIOKitClassExtensions(std::span<const ASCIILiteral>, std::optional<audit_token_t>, OptionSet<Flags>) -> Vector<Handle> { return { }; }
-#endif
 inline SandboxExtension::~SandboxExtension() { }
 inline bool SandboxExtension::revoke() { return true; }
 inline bool SandboxExtension::consume() { return true; }

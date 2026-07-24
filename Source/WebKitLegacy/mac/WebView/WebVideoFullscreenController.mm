@@ -1,20 +1,41 @@
 /*
  * Copyright (C) 2009-2018 Apple Inc. All rights reserved.
- * MAVERICKS_BACKPORT: macOS 10.9 minimal stub. The upstream controller drives fullscreen through AVKit
- * (AVPlayerView / WebAVPlayerView / PlaybackSessionInterfaceAVKitLegacy / WebCoreFullScreenWindow), none of
- * which are usable on 10.9, so the whole implementation is reduced to inert no-op methods here.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #import "WebVideoFullscreenController.h"
 
-// MAVERICKS_BACKPORT: PLATFORM(MAC)-first guard ordering for the 10.9 stub build (no behavior change).
-#if PLATFORM(MAC) && ENABLE(VIDEO)
+// MAVERICKS_BACKPORT: this WK1 AVKit fullscreen controller unconditionally calls
+// PlaybackSessionInterfaceAVKitLegacy::create(), whose class (and PlaybackSessionModel) only exist under
+// ENABLE(VIDEO_PRESENTATION_MODE) on Mac (off on this port). Every consumer of the controller is already
+// ENABLE(VIDEO_PRESENTATION_MODE)-guarded (WebView.mm's _enterVideoFullscreenForVideoElement; WebViewData.h
+// holds only a RetainPtr to the @class-forward-declared type), so gating the whole TU on VPM is safe and
+// matches the dependency the file actually has. Element fullscreen (ENABLE_VIDEO_USES_ELEMENT_FULLSCREEN)
+// serves <video> fullscreen on this port.
+#if ENABLE(VIDEO) && PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE)
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// #import <AVFoundation/AVPlayer.h>
-// (end MAVERICKS_BACKPORT restored block)
+#import <AVFoundation/AVPlayer.h>
 #import <WebCore/HTMLVideoElement.h>
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
 #import <WebCore/PlaybackSessionInterfaceAVKitLegacy.h>
 #import <WebCore/PlaybackSessionModelMediaElement.h>
 #import <WebCore/WebAVPlayerController.h>
@@ -120,14 +141,65 @@ static WebAVPlayerView *allocWebAVPlayerViewInstance()
 }
 @property (readonly) WebCoreFullScreenWindow* fullscreenWindow;
 @end
-MAVERICKS_BACKPORT */
 
 @implementation WebVideoFullscreenController
 
-// MAVERICKS_BACKPORT: stub body just records the element; the upstream AVKit playback-model/interface setup is dropped on 10.9.
-- (void)setVideoElement:(NakedPtr<WebCore::HTMLVideoElement>)videoElement
+- (id)init
 {
-    _videoElement = videoElement.get();
+    // Do not defer window creation, to make sure -windowNumber is created (needed by WebWindowScaleAnimation).
+    auto window = adoptNS([[WebCoreFullScreenWindow alloc] initWithContentRect:NSZeroRect styleMask:(NSWindowStyleMaskFullSizeContentView | NSWindowStyleMaskResizable) backing:NSBackingStoreBuffered defer:NO]);
+    [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenPrimary)];
+    [window setDelegate: self];
+    self = [super initWithWindow:window.get()];
+    if (!self)
+        return nil;
+    _playbackModel = WebCore::PlaybackSessionModelMediaElement::create();
+    _playbackInterface = WebCore::PlaybackSessionInterfaceAVKitLegacy::create(*_playbackModel);
+    _contentOverlay = adoptNS([[NSView alloc] initWithFrame:NSZeroRect]);
+    _contentOverlay.get().layerContentsRedrawPolicy = NSViewLayerContentsRedrawNever;
+    _contentOverlay.get().layer = adoptNS([[WebVideoFullscreenOverlayLayer alloc] init]).get();
+    [_contentOverlay setWantsLayer:YES];
+    [_contentOverlay setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+    [self windowDidLoad];
+
+    return self;
+}
+- (void)dealloc
+{
+    ASSERT(!_backgroundFullscreenWindow);
+    ASSERT(!_fadeAnimation);
+    _playerView.get().webDelegate = nil;
+    _playbackModel = nil;
+    [super dealloc];
+}
+
+- (WebAVPlayerView *)playerView
+{
+    return _playerView.get();
+}
+
+- (WebCoreFullScreenWindow *)fullscreenWindow
+{
+    return (WebCoreFullScreenWindow *)[super window];
+}
+
+- (void)windowDidLoad
+{
+    auto window = [self fullscreenWindow];
+
+    [window setHasShadow:YES]; // This is nicer with a shadow.
+    [window setLevel:NSPopUpMenuWindowLevel-1];
+
+    _playerView = adoptNS([allocWebAVPlayerViewInstance() initWithFrame:window.contentLayoutRect]);
+    _playerView.get().controlsStyle = AVPlayerViewControlsStyleNone;
+    _playerView.get().showsFullScreenToggleButton = YES;
+    _playerView.get().showsAudioOnlyIndicatorView = NO;
+    _playerView.get().webDelegate = self;
+    window.contentView = _playerView.get();
+    [_contentOverlay setFrame:_playerView.get().contentOverlayView.bounds];
+    [_playerView.get().contentOverlayView addSubview:_contentOverlay.get()];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applicationDidResignActive:) name:NSApplicationDidResignActiveNotification object:NSApp];
 }
 
 - (NakedPtr<WebCore::HTMLVideoElement>)videoElement
@@ -135,10 +207,22 @@ MAVERICKS_BACKPORT */
     return _videoElement.get();
 }
 
-// MAVERICKS_BACKPORT: no-op fullscreen enter/exit on 10.9 (the AVKit fullscreen window/animation path is unavailable).
+// FIXME: This method is not really a setter. The caller relies on its side effects, and it's
+// called once each time we enter full screen. So it should have a different name.
+- (void)setVideoElement:(NakedPtr<WebCore::HTMLVideoElement>)videoElement
+{
+    ASSERT(videoElement);
+    _videoElement = videoElement;
+
+    if (![self isWindowLoaded])
+        return;
+
+    _playbackModel->setMediaElement(videoElement);
+    self.playerView.playerController = (AVPlayerController*)_playbackInterface->playerController();
+}
+
 - (void)enterFullscreen:(NSScreen *)screen
 {
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
     if (!_videoElement)
         return;
     [NSAnimationContext beginGrouping];
@@ -148,12 +232,10 @@ MAVERICKS_BACKPORT */
         [self.fullscreenWindow enterFullScreenMode:self];
         [NSAnimationContext endGrouping];
     });
-MAVERICKS_BACKPORT */
 }
 
 - (void)exitFullscreen
 {
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
     [self.fullscreenWindow exitFullScreenMode:self];
 }
 
@@ -268,13 +350,10 @@ MAVERICKS_BACKPORT */
 
     if (_videoElement->isFullscreen())
         _videoElement->exitFullscreen();
-MAVERICKS_BACKPORT */
 }
 
 @end
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// ALLOW_DEPRECATED_DECLARATIONS_END
-//
-// (end MAVERICKS_BACKPORT restored block)
+ALLOW_DEPRECATED_DECLARATIONS_END
+
 #endif

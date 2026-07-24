@@ -65,11 +65,7 @@ public:
     ~RemoteLayerTreeContext();
 
     void layerDidEnterContext(PlatformCALayerRemote&, WebCore::PlatformCALayer::LayerType);
-// MAVERICKS_BACKPORT: this overload is part of the video-layer hosting chain, which ends at
-// WebPage::videoPresentationManager() — the video-presentation stack this port does not build
-// (ENABLE(VIDEO_PRESENTATION_MODE) is off; 10.9 lacks the AVKit presentation SPI). Upstream
-// ships HAVE(AVKIT) only alongside that stack, so both conditions are written out here.
-#if HAVE(AVKIT) && ENABLE(VIDEO_PRESENTATION_MODE)
+#if HAVE(AVKIT)
     void layerDidEnterContext(PlatformCALayerRemote&, WebCore::PlatformCALayer::LayerType, WebCore::HTMLVideoElement&);
 #endif
     void layerWillLeaveContext(PlatformCALayerRemote&);
@@ -101,19 +97,20 @@ public:
 
     void adoptLayersFromContext(RemoteLayerTreeContext&);
 
-    // MAVERICKS_BACKPORT: these GPU-process accessors are wrapped in ENABLE(GPU_PROCESS) so they only compile when the GPU process is built; the 10.9 backport keeps the guard to match its conditional GPU-process support.
+    // MAVERICKS_BACKPORT: WebPage::ensureRemoteRenderingBackendProxy()/gpuProcessConnectionWasDestroyed() exist
+    // only under ENABLE(GPU_PROCESS) (off on this in-process port); the restore dropped HEAD's guard.
 #if ENABLE(GPU_PROCESS)
     RemoteRenderingBackendProxy& ensureRemoteRenderingBackendProxy();
-    void gpuProcessConnectionWasDestroyed();
-#endif
+#endif // MAVERICKS_BACKPORT: close the GPU_PROCESS guard on ensureRemoteRenderingBackendProxy() (see above).
 
     bool useDynamicContentScalingDisplayListsForDOMRendering() const { return m_useDynamicContentScalingDisplayListsForDOMRendering; }
     void setUseDynamicContentScalingDisplayListsForDOMRendering(bool useDynamicContentScalingDisplayLists) { m_useDynamicContentScalingDisplayListsForDOMRendering = useDynamicContentScalingDisplayLists; }
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     void gpuProcessConnectionWasDestroyed();
-//
-// (end MAVERICKS_BACKPORT restored block)
+    // MAVERICKS_BACKPORT: gpuProcessConnectionWasDestroyed() exists only under ENABLE(GPU_PROCESS) (off on this in-process port).
+#if ENABLE(GPU_PROCESS)
+    void gpuProcessConnectionWasDestroyed();
+#endif // MAVERICKS_BACKPORT: close the GPU_PROCESS guard on gpuProcessConnectionWasDestroyed() (see above).
+
 #if PLATFORM(IOS_FAMILY)
     bool canShowWhileLocked() const;
 #endif

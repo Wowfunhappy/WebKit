@@ -1,186 +1,278 @@
-// MAVERICKS_BACKPORT: custom AudioVideoRendererAVFObjC.
-//
-// The upstream renderer is built on AVSampleBufferRenderSynchronizer + AVSampleBufferAudioRenderer
-// (both 10.10+, ABSENT on 10.9). This reimplementation drives video through a VideoToolbox
-// VTDecompressionSession (AVSampleBufferDisplayLayer accepts samples but never decodes/displays on
-// 10.9) and pushes each decoded frame's IOSurface to a plain CALayer's contents, with a
-// manually-managed CMTimebase for play/pause/rate/currentTime. Audio plays through an
-// AudioToolbox AudioQueue fed from the appended audio samples. It implements the
-// WebCore::AudioVideoRenderer interface so MediaPlayerPrivateMediaSourceAVFObjC works unchanged.
-// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
+/*
+ * Copyright (C) 2025 Apple Inc. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #pragma once
 
-#if ENABLE(MEDIA_SOURCE)
-
-#include "AudioVideoRenderer.h"
-#include "FloatSize.h"
-#include "IntSize.h"
-#include <dispatch/dispatch.h>
+#include <WebCore/AudioVideoRenderer.h>
+#include <WebCore/PlatformDynamicRangeLimit.h>
+#include <WebCore/ProcessIdentity.h>
+#include <WebCore/TrackInfo.h>
+#include <WebCore/WebAVSampleBufferListener.h>
+#include <wtf/Forward.h>
+#include <wtf/Function.h>
 #include <wtf/HashMap.h>
-// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-#include <wtf/Lock.h>
-#include <wtf/MediaTime.h>
-#include <wtf/OSObjectPtr.h>
-#include <wtf/RetainPtr.h>
+#include <wtf/LoggerHelper.h>
+#include <wtf/StdUnorderedMap.h>
 #include <wtf/ThreadSafeWeakPtr.h>
-// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-#include <wtf/Vector.h>
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// OBJC_CLASS AVSampleBufferAudioRenderer;
-// (end MAVERICKS_BACKPORT restored block)
+OBJC_CLASS AVSampleBufferAudioRenderer;
 OBJC_CLASS AVSampleBufferDisplayLayer;
-// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-OBJC_CLASS CALayer;
-typedef struct OpaqueCMTimebase* CMTimebaseRef;
-typedef struct opaqueCMSampleBuffer* CMSampleBufferRef;
-typedef const struct opaqueCMFormatDescription* CMFormatDescriptionRef;
-typedef struct __CVBuffer* CVPixelBufferRef;
-typedef struct OpaqueVTDecompressionSession* VTDecompressionSessionRef;
-typedef struct OpaqueAudioQueue* AudioQueueRef;
-typedef struct AudioQueueBuffer* AudioQueueBufferRef;
+OBJC_CLASS AVSampleBufferRenderSynchronizer;
+OBJC_CLASS AVSampleBufferVideoRenderer;
+OBJC_PROTOCOL(WebSampleBufferVideoRendering);
+typedef struct CF_BRIDGED_TYPE(id) __CVBuffer *CVPixelBufferRef;
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-class AudioVideoRendererAVFObjC final
+class CDMInstanceFairPlayStreamingAVFObjC;
+class CDMSessionAVContentKeySession;
+class EffectiveRateChangedListener;
+class MediaSample;
+class NativeImage;
+class PixelBufferConformerCV;
+class VideoLayerManagerObjC;
+class VideoMediaSampleRenderer;
+
+class AudioVideoRendererAVFObjC
     : public AudioVideoRenderer
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<AudioVideoRendererAVFObjC> {
+    , public WebAVSampleBufferListenerClient
+    , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<AudioVideoRendererAVFObjC>
+    , private LoggerHelper {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(AudioVideoRendererAVFObjC, WEBCORE_EXPORT);
 public:
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     static Ref<AudioVideoRendererAVFObjC> create(const Logger& logger, uint64_t logIdentifier) { return adoptRef(*new AudioVideoRendererAVFObjC(logger, logIdentifier)); }
-//
-//     ~AudioVideoRendererAVFObjC();
-// (end MAVERICKS_BACKPORT restored block)
+    static Ref<AudioVideoRendererAVFObjC> create(const Logger& logger, uint64_t logIdentifier) { return adoptRef(*new AudioVideoRendererAVFObjC(logger, logIdentifier)); }
+
+    ~AudioVideoRendererAVFObjC();
     WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
 
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    static Ref<AudioVideoRendererAVFObjC> create(Ref<const Logger>&&, uint64_t logIdentifier);
-    virtual ~AudioVideoRendererAVFObjC();
+    void setPreferences(VideoRendererPreferences) final;
+    void setHasProtectedVideoContent(bool) final;
 
-    // AudioInterface
-    void setVolume(float) final;
-    void setMuted(bool) final;
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-    void setPreservesPitchAndCorrectionAlgorithm(bool, std::optional<PitchCorrectionAlgorithm>) final;
-    void setAudioTimePitchAlgorithm(AVSampleBufferAudioRenderer *, NSString *) const;
-#if HAVE(AUDIO_OUTPUT_DEVICE_UNIQUE_ID)
-    void setOutputDeviceId(const String&) final;
-    void setOutputDeviceIdOnRenderer(AVSampleBufferAudioRenderer *);
-#endif
-MAVERICKS_BACKPORT */
+    // TracksRendererInterface
+    std::optional<TrackIdentifier> addTrack(TrackType) final;
+    void removeTrack(TrackIdentifier) final;
 
-    // VideoInterface
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    void setIsVisible(bool) final;
-    void setPresentationSize(const IntSize&) final;
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    RefPtr<VideoFrame> currentVideoFrame() const final;
-    std::optional<VideoPlaybackQualityMetrics> videoPlaybackQualityMetrics() final;
-    PlatformLayer* platformVideoLayer() const final;
-    void notifyFirstFrameAvailable(Function<void()>&&) final;
-    void notifyWhenHasAvailableVideoFrame(Function<void(const MediaTime&, double)>&&) final;
-    void notifyWhenRequiresFlushToResume(Function<void()>&&) final;
-    void notifyRenderingModeChanged(Function<void()>&&) final;
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     void expectMinimumUpcomingPresentationTime(const MediaTime&) final;
-// (end MAVERICKS_BACKPORT restored block)
-    void notifySizeChanged(Function<void(const MediaTime&, FloatSize)>&&) final;
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    void flushAndRemoveImage() final;
-    FloatSize videoLayerSize() const final;
-    void setVideoLayerSize(const FloatSize&) final;
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    void notifyVideoLayerSizeChanged(Function<void(const MediaTime&, FloatSize)>&&) final;
+    void enqueueSample(TrackIdentifier, Ref<MediaSample>&&, std::optional<MediaTime>) final;
+    bool isReadyForMoreSamples(TrackIdentifier) final;
+    Ref<RequestPromise> requestMediaDataWhenReady(TrackIdentifier) final;
+    void notifyTrackNeedsReenqueuing(TrackIdentifier, Function<void(TrackIdentifier, const MediaTime&)>&&) final;
 
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
+    bool timeIsProgressing() const final;
+    MediaTime currentTime() const final;
+    void notifyTimeReachedAndStall(const MediaTime&, Function<void(const MediaTime&)>&&) final;
+    void cancelTimeReachedAction() final;
+    void performTaskAtTime(const MediaTime&, Function<void(const MediaTime&)>&&) final;
+    void setTimeObserver(Seconds, Function<void(const MediaTime&)>&&) final;
+    void cancelTimeObserver();
+
+    void flush() final;
+    void flushTrack(TrackIdentifier) final;
+
+    void applicationWillResignActive() final;
+
+    void notifyWhenErrorOccurs(Function<void(PlatformMediaError)>&&) final;
+
     // SynchronizerInterface
     void play(std::optional<MonotonicTime>) final;
     void pause(std::optional<MonotonicTime>) final;
     bool paused() const final;
     void setRate(double) final;
     double effectiveRate() const final;
-    void notifyEffectiveRateChanged(Function<void(double)>&&) final;
+    void stall() final;
+    void prepareToSeek() final;
     Ref<MediaTimePromise> seekTo(const MediaTime&) final;
+    void notifyEffectiveRateChanged(Function<void(double)>&&) final;
     bool seeking() const final;
 
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    // TracksRendererManager
-    std::optional<TrackIdentifier> addTrack(TrackType) final;
-    void removeTrack(TrackIdentifier) final;
-    void enqueueSample(TrackIdentifier, Ref<MediaSample>&&, std::optional<MediaTime>) final;
-    bool isReadyForMoreSamples(TrackIdentifier) final;
-    Ref<RequestPromise> requestMediaDataWhenReady(TrackIdentifier) final;
-    void notifyTrackNeedsReenqueuing(TrackIdentifier, Function<void(TrackIdentifier, const MediaTime&)>&&) final;
-    bool timeIsProgressing() const final;
-    MediaTime currentTime() const final;
-    void flush() final;
-    void flushTrack(TrackIdentifier) final;
-    void notifyWhenErrorOccurs(Function<void(PlatformMediaError)>&&) final;
+    // AudioInterface
+    void setVolume(float) final;
+    void setMuted(bool) final;
+    void setPreservesPitchAndCorrectionAlgorithm(bool, std::optional<PitchCorrectionAlgorithm>) final;
+    void setAudioTimePitchAlgorithm(AVSampleBufferAudioRenderer *, NSString *) const;
+#if HAVE(AUDIO_OUTPUT_DEVICE_UNIQUE_ID)
+    void setOutputDeviceId(const String&) final;
+    void setOutputDeviceIdOnRenderer(AVSampleBufferAudioRenderer *);
+#endif
 
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    // Called from the VTDecompressionSession output callback (static C function) — must be public.
-    void onDecodedFrame(CVPixelBufferRef, const MediaTime& pts);
+    // VideoInterface
+    void setIsVisible(bool);
+    void setPresentationSize(const IntSize&) final;
+    void setShouldMaintainAspectRatio(bool) final;
+    void renderingCanBeAcceleratedChanged(bool) final;
+    void contentBoxRectChanged(const LayoutRect&) final;
+    void notifyFirstFrameAvailable(Function<void()>&&) final;
+    void notifyWhenHasAvailableVideoFrame(Function<void(const MediaTime&, double)>&&) final;
+    void notifyWhenRequiresFlushToResume(Function<void()>&&) final;
+    void notifyRenderingModeChanged(Function<void()>&&) final;
+    void expectMinimumUpcomingPresentationTime(const MediaTime&) final;
+    void notifySizeChanged(Function<void(const MediaTime&, FloatSize)>&&) final;
+    void setShouldDisableHDR(bool) final;
+    void setPlatformDynamicRangeLimit(const PlatformDynamicRangeLimit&) final;
+    void setResourceOwner(const ProcessIdentity& resourceOwner) final { m_resourceOwner = resourceOwner; }
+    RefPtr<VideoFrame> currentVideoFrame() const final;
+    void paintCurrentVideoFrameInContext(GraphicsContext&, const FloatRect&) final;
+    RefPtr<NativeImage> currentNativeImage() const final;
+    Ref<BitmapImagePromise> currentBitmapImage() const final;
+    std::optional<VideoPlaybackQualityMetrics> videoPlaybackQualityMetrics() final;
+    PlatformLayer* platformVideoLayer() const final;
+    void setVideoLayerSize(const FloatSize&) final;
+    void setVideoLayerSizeFenced(const FloatSize&, WTF::MachSendRightAnnotated&&) final;
 
-// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
+    // VideoFullscreenInterface
+    // MAVERICKS_BACKPORT: guard the VIDEO_PRESENTATION_MODE overrides to match the base
+    // VideoFullscreenInterface (AudioVideoRenderer.h), which declares setVideoFullscreenLayer/Frame,
+    // setVideoTarget and isInFullscreenOrPictureInPictureChanged only under ENABLE(VIDEO_PRESENTATION_MODE)
+    // (off on this port). An unguarded `final` override of a compiled-out virtual is "only virtual member
+    // functions can be marked 'final'". setTextTrackRepresentation/syncTextTrackBounds are unguarded in the
+    // base, so they stay unguarded here.
+#if ENABLE(VIDEO_PRESENTATION_MODE)
+    void setVideoFullscreenLayer(PlatformLayer*, Function<void()>&&) final;
+    void setVideoFullscreenFrame(const FloatRect&) final;
+    // MAVERICKS_BACKPORT: setTextTrackRepresentation/syncTextTrackBounds are relocated below the guard (they
+    // stay unguarded to match the base); see the note above.
+    Ref<GenericPromise> setVideoTarget(const PlatformVideoTarget&) final;
+    void isInFullscreenOrPictureInPictureChanged(bool) final;
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on the fullscreen overrides (see above).
+    void setTextTrackRepresentation(TextTrackRepresentation*) final;
+    void syncTextTrackBounds() final;
+
 private:
-    AudioVideoRendererAVFObjC(Ref<const Logger>&&, uint64_t);
+    WEBCORE_EXPORT AudioVideoRendererAVFObjC(const Logger&, uint64_t);
 
-    void ensureDisplayLayer();
-    void maybeReportSizeAndFirstFrame(CMSampleBufferRef);
-    void updateTimebaseRate();
+    MediaTime clampTimeToLastSeekTime(const MediaTime&) const;
+    void maybeCompleteSeek();
+    bool shouldBePlaying() const;
+    bool allRenderersHaveAvailableSamples() const { return m_allRenderersHaveAvailableSamples; }
+    void updateAllRenderersHaveAvailableSamples();
+    void setHasAvailableVideoFrame(bool);
+    void setHasAvailableAudioSample(TrackIdentifier, bool);
 
-    // 10.9: AVSampleBufferDisplayLayer accepts samples but never decodes/displays on this OS. Decode
-    // each H.264 sample with VideoToolbox (VTDecompressionSession) and push the resulting frame's
-    // IOSurface to a plain CALayer's contents — the proven 10.9 display path (see
-    // project_video_decode_works_assetreader_may23 / MediaPlayerPrivateAVFoundationObjC AVAssetReader pump).
-    void decodeAndQueue(CMSampleBufferRef);
-    void ensureDecompressionSession(CMSampleBufferRef);
-    void teardownDecompressionSession();
-    void startDisplayTimer();
-    void displayTick();
+    std::optional<TrackType> NODELETE typeOf(TrackIdentifier) const;
 
-    // 10.9: AVSampleBufferAudioRenderer is absent. Play the demuxed AAC through an AudioQueue
-    // (compressed-AAC output queue; ASBD + magic cookie come straight from the sample's
-    // CMAudioFormatDescription). Fail-safe: any failure sets m_audioQueueFailed and audio is silently
-    // dropped (video keeps working).
-    void enqueueAudioSample(CMSampleBufferRef);
-    void ensureAudioQueue(CMSampleBufferRef);
-    void teardownAudioQueue();
-    void flushAudio(); // drop enqueued audio buffers (used on seek/track flush)
+    void addAudioRenderer(TrackIdentifier);
+    void removeAudioRenderer(TrackIdentifier);
+    void destroyAudioRenderers();
+    void destroyAudioRenderer(RetainPtr<AVSampleBufferAudioRenderer>);
+    RetainPtr<AVSampleBufferAudioRenderer> audioRendererFor(TrackIdentifier) const;
+    void applyOnAudioRenderers(NOESCAPE Function<void(AVSampleBufferAudioRenderer *)>&&) const;
 
-    struct TrackState {
-        TrackType type;
+    Ref<GenericPromise> updateDisplayLayerIfNeeded();
+    bool NODELETE shouldEnsureLayerOrVideoRenderer() const;
+    WebSampleBufferVideoRendering *NODELETE layerOrVideoRenderer() const;
+    Ref<GenericPromise> ensureLayerOrVideoRenderer();
+    void ensureLayer();
+    void destroyLayer();
+    void NODELETE ensureVideoRenderer();
+    void NODELETE destroyVideoRenderer();
+    void NODELETE destroyExpiringVideoRenderersIfNeeded();
+    Ref<GenericPromise> setVideoRenderer(WebSampleBufferVideoRendering *);
+    void configureHasAvailableVideoFrameCallbackIfNeeded();
+    void configureLayerOrVideoRenderer(WebSampleBufferVideoRendering *);
+    Ref<GenericPromise> stageVideoRenderer(WebSampleBufferVideoRendering *);
+    void destroyVideoTrack();
+    void removeRendererFromSynchronizerIfNeeded(id);
+
+    enum class AcceleratedVideoMode: uint8_t {
+        Layer = 0,
+        VideoRenderer,
     };
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     AudioTrackProperties& NODELETE audioTrackPropertiesFor(TrackIdentifier);
-// (end MAVERICKS_BACKPORT restored block)
+    AcceleratedVideoMode NODELETE acceleratedVideoMode() const;
 
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    RetainPtr<AVSampleBufferDisplayLayer> m_displayLayer;
-    RetainPtr<CALayer> m_videoLayer;            // host layer returned as platformVideoLayer()
-    RetainPtr<VTDecompressionSessionRef> m_decompressionSession;
-    RetainPtr<CMFormatDescriptionRef> m_decompressionFormat;  // format the session was created for
-    // Stable refcon for the VT output callback (points back to us); lives as long as this object.
-    ThreadSafeWeakPtr<AudioVideoRendererAVFObjC> m_decompressionRefcon;
-    RetainPtr<CMTimebaseRef> m_timebase;
-    OSObjectPtr<dispatch_source_t> m_displayTimer;
-    Lock m_frameLock;
-    Vector<std::pair<MediaTime, RetainPtr<CVPixelBufferRef>>> m_decodedFrames; // PTS-ordered, guarded by m_frameLock
-    RetainPtr<CVPixelBufferRef> m_displayedPixelBuffer;
-    MediaTime m_displayedPTS { MediaTime::invalidTime() };
-    AudioQueueRef m_audioQueue { nullptr };
-    bool m_audioQueueFailed { false };
-    bool m_audioQueueStarted { false };
-    std::optional<MediaTime> m_seekFlushedFor; // seek target we've already flushed+requested reenqueue for
-    HashMap<TrackIdentifier, TrackState> m_tracks;
-    std::optional<TrackIdentifier> m_videoTrack;
-    std::optional<TrackIdentifier> m_audioTrack;
+    void notifyError(PlatformMediaError);
+    // WebAVSampleBufferListenerClient
+    void audioRendererDidReceiveError(AVSampleBufferAudioRenderer *, NSError *) final;
+    void audioRendererWasAutomaticallyFlushed(AVSampleBufferAudioRenderer *, const CMTime&) final;
 
-    std::optional<RequestPromise::AutoRejectProducer> m_videoDataRequest;
+#if HAVE(SPATIAL_TRACKING_LABEL)
+    void setSpatialTrackingInfo(bool prefersSpatialAudioExperience, SoundStageSize, const String& sceneIdentifier, const String& defaultLabel, const String& label) final;
+    void updateSpatialTrackingLabel();
+#endif
 
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+#if HAVE(AVCONTENTKEYSESSION)
+#if ENABLE(ENCRYPTED_MEDIA)
+    void setCDMInstance(CDMInstance*) final;
+    Ref<MediaPromise> setInitData(Ref<SharedBuffer>) final;
+    void attemptToDecrypt() final;
+#endif
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+    RefPtr<SharedBuffer> initData() const final { return m_initData; }
+    void setCDMSession(LegacyCDMSession*) final;
+#endif
+#endif
+
+    void setSynchronizerRate(float, std::optional<MonotonicTime>);
+    bool updateLastPixelBuffer();
+    void maybePurgeLastPixelBuffer();
+    void setNeedsPlaceholderImage(bool);
+
+    bool NODELETE isEnabledVideoTrackId(TrackIdentifier) const;
+    bool NODELETE hasSelectedVideo() const;
+    void flushVideo();
+    void flushAudio();
+    void flushAudioTrack(TrackIdentifier);
+    void notifyRequiresFlushToResume();
+
+    void cancelSeekingPromiseIfNeeded();
+    void cancelPerformTaskAtTimeObserverIfNeeded();
+
+    bool NODELETE canUseDecompressionSession() const;
+    bool NODELETE isUsingDecompressionSession() const;
+    bool NODELETE willUseDecompressionSessionIfNeeded() const;
+
+    void sizeWillChangeAtTime(const MediaTime&, const FloatSize&);
+    void flushPendingSizeChanges();
+
+#if ENABLE(ENCRYPTED_MEDIA) && HAVE(AVCONTENTKEYSESSION)
+    void tryToEnqueueBlockedSamples();
+    bool canEnqueueSample(TrackIdentifier, const MediaSample&);
+    void attachContentKeyToSampleIfNeeded(const MediaSample&);
+#endif
+
+    // Logger
+    const Logger& logger() const final { return m_logger.get(); }
+    ASCIILiteral logClassName() const final { return "AudioVideoRendererAVFObjC"_s; }
+    uint64_t logIdentifier() const final { return m_logIdentifier; }
+    WTFLogChannel& logChannel() const final;
+
+    enum SeekState {
+        Preparing,
+        RequiresFlush,
+        Seeking,
+        WaitingForAvailableFame,
+        SeekCompleted,
+    };
+    struct AudioTrackProperties {
+        bool hasAudibleSample { false };
+        std::unique_ptr<RequestPromise::AutoRejectProducer> requestPromise;
+        Function<void(TrackIdentifier, const MediaTime&)> callbackForReenqueuing;
+    };
+    AudioTrackProperties& NODELETE audioTrackPropertiesFor(TrackIdentifier);
+
+    String toString(TrackIdentifier) const;
+    String toString(SeekState) const;
+
     const Ref<const Logger> m_logger;
     const uint64_t m_logIdentifier;
     const UniqueRef<VideoLayerManagerObjC> m_videoLayerManager;
@@ -188,37 +280,110 @@ private:
     const Ref<WebAVSampleBufferListener> m_listener;
 
     Function<void(PlatformMediaError)> m_errorCallback;
-MAVERICKS_BACKPORT */
     Function<void()> m_firstFrameAvailableCallback;
     Function<void(const MediaTime&, double)> m_hasAvailableVideoFrameCallback;
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    Function<void()> m_requiresFlushToResumeCallback;
+    Function<void()> m_notifyWhenRequiresFlushToResume;
     Function<void()> m_renderingModeChangedCallback;
     Function<void(const MediaTime&, FloatSize)> m_sizeChangedCallback;
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    Function<void(const MediaTime&, FloatSize)> m_videoLayerSizeChangedCallback;
-    Function<void(double)> m_effectiveRateChangedCallback;
-    Function<void(PlatformMediaError)> m_errorCallback;
-    HashMap<TrackIdentifier, Function<void(TrackIdentifier, const MediaTime&)>> m_reenqueueCallbacks;
 
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    FloatSize m_naturalSize;
-    FloatSize m_videoLayerSize;
-    IntSize m_presentationSize;
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    bool m_hasReportedFirstFrame { false };
-    bool m_paused { true };
-    bool m_visible { true };
-    double m_rate { 1.0 };
-    float m_volume { 1.0 };
+    RetainPtr<id> m_currentTimeObserver;
+    RetainPtr<id> m_performTaskObserver;
+    RetainPtr<id> m_timeChangedObserver;
+    Function<void(const MediaTime&)> m_currentTimeDidChangeCallback;
+
+    bool m_isPlaying { false };
+    double m_rate { 1 };
+    RetainPtr<CVPixelBufferRef> m_lastPixelBuffer;
+    bool m_needsPlaceholderImage { false };
+
+    float m_volume { 1 };
     bool m_muted { false };
+    bool m_preservesPitch { true };
+    std::optional<PitchCorrectionAlgorithm> m_pitchCorrectionAlgorithm;
+#if HAVE(AUDIO_OUTPUT_DEVICE_UNIQUE_ID)
+    String m_audioOutputDeviceId;
+#endif
 
-    // MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-    Ref<const Logger> m_logger;
-    uint64_t m_logIdentifier { 0 };
+    // Seek Logic
+    MediaTime m_lastSeekTime;
+    SeekState m_seekState { SeekCompleted };
+    std::optional<MediaTimePromise::Producer> m_seekPromise;
+    RetainPtr<id> m_timeJumpedObserver;
+    bool m_isSynchronizerSeeking { false };
+    bool m_hasAvailableVideoFrame { false };
+    bool m_allRenderersHaveAvailableSamples { false };
+
+    HashMap<TrackIdentifier, AudioTrackProperties> m_audioTracksMap;
+    std::optional<RequestPromise::AutoRejectProducer> m_requestVideoPromise;
+    bool m_readyToRequestVideoData { true };
+    bool m_readyToRequestAudioData { true };
+
+    HashMap<TrackIdentifier, TrackType> m_trackTypes;
+    HashMap<TrackIdentifier, RetainPtr<AVSampleBufferAudioRenderer>> m_audioRenderers;
+    RetainPtr<AVSampleBufferDisplayLayer> m_sampleBufferDisplayLayer;
+    RetainPtr<AVSampleBufferVideoRenderer> m_sampleBufferVideoRenderer;
+    RefPtr<VideoMediaSampleRenderer> m_videoRenderer;
+    Vector<RetainPtr<AVSampleBufferVideoRenderer>> m_expiringSampleBufferVideoRenderers;
+    enum class SampleBufferLayerState : uint8_t {
+        AddedToSynchronizer,
+        PendingRemovalFromSynchronizer,
+        RemovedFromSynchronizer
+    };
+    SampleBufferLayerState m_sampleBufferDisplayLayerState { SampleBufferLayerState::RemovedFromSynchronizer };
+    bool m_renderingCanBeAccelerated { false };
+    bool m_visible { false };
+    IntSize m_presentationSize;
+    bool m_shouldMaintainAspectRatio { true };
+    std::optional<TrackIdentifier> m_enabledVideoTrackId;
+    std::optional<FloatSize> m_cachedSize;
+    Deque<RetainPtr<id>> m_sizeChangeObservers;
+    bool m_shouldDisableHDR { false };
+    PlatformDynamicRangeLimit m_dynamicRangeLimit { PlatformDynamicRangeLimit::initialValueForVideos() };
+    ProcessIdentity m_resourceOwner;
+    VideoRendererPreferences m_preferences;
+    bool m_hasProtectedVideoContent { false };
+    struct RendererConfiguration {
+        bool canUseDecompressionSession { false };
+        bool isProtected { false };
+        bool hasVideoTrack { false };
+        bool operator==(const RendererConfiguration&) const = default;
+    };
+    RendererConfiguration m_previousRendererConfiguration;
+
+    // Video Frame metadata gathering
+    RetainPtr<id> m_videoFrameMetadataGatheringObserver;
+    MonotonicTime m_startupTime;
+
+    RefPtr<EffectiveRateChangedListener> m_effectiveRateChangedListener;
+
+    mutable std::unique_ptr<PixelBufferConformerCV> m_rgbConformer;
+
+#if HAVE(SPATIAL_TRACKING_LABEL)
+    bool m_prefersSpatialAudioExperience { false };
+    SoundStageSize m_soundStage { SoundStageSize::Auto };
+    String m_sceneIdentifier;
+    String m_defaultSpatialTrackingLabel;
+    String m_spatialTrackingLabel;
+#endif
+
+#if ENABLE(LINEAR_MEDIA_PLAYER)
+    RetainPtr<FigVideoTargetRef> m_videoTarget;
+#endif
+#if HAVE(AVCONTENTKEYSESSION)
+#if ENABLE(ENCRYPTED_MEDIA)
+    RefPtr<CDMInstanceFairPlayStreamingAVFObjC> m_cdmInstance;
+    const Ref<Observer<void()>> m_keyStatusesChangedObserver;
+    using KeyIDs = Vector<Ref<SharedBuffer>>;
+    KeyIDs m_keyIDs;
+    using TrackKeyIdsMap = HashMap<TrackIdentifier, KeyIDs>;
+    TrackKeyIdsMap m_currentTrackIds;
+    Deque<std::pair<TrackIdentifier, Ref<MediaSample>>> m_blockedSamples;
+#endif
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
+    RefPtr<SharedBuffer> m_initData;
+    ThreadSafeWeakPtr<CDMSessionAVContentKeySession> m_session;
+#endif
+#endif
 };
 
 } // namespace WebCore
-// MAVERICKS_BACKPORT: custom 10.9 AudioVideoRenderer (upstream AVSampleBufferRenderSynchronizer/AudioRenderer are 10.10+).
-
-#endif // ENABLE(MEDIA_SOURCE)

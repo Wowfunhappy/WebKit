@@ -45,7 +45,6 @@ NetworkTransportStream::NetworkTransportStream()
 {
 }
 
-MAVERICKS_BACKPORT */
 void NetworkTransportStream::sendBytes(std::span<const uint8_t>, bool, CompletionHandler<void(std::optional<WebCore::Exception>&&)>&& completionHandler)
 {
     completionHandler(std::nullopt);
@@ -73,8 +72,8 @@ WebCore::WebTransportReceiveStreamStats NetworkTransportStream::getReceiveStream
     return { };
 }
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// #endif
-//
-// (end MAVERICKS_BACKPORT restored block)
+#endif
+MAVERICKS_BACKPORT */
+// (end MAVERICKS_BACKPORT restored block: the whole #if !PLATFORM(COCOA) stub block is now commented out —
+//  on Cocoa NetworkTransportStreamCocoa.mm provides these definitions, so building the .cpp's too duplicated them)
 }

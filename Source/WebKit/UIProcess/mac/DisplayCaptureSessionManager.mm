@@ -1,42 +1,182 @@
-// MAVERICKS_BACKPORT: the full screen-capture (getDisplayMedia) session manager needs
-// ScreenCaptureKit (12.3+), so provide a minimal DisplayCaptureSessionManager — a real singleton with
-// no-op display capture (screen sharing is unavailable on 10.9; isAvailable() returns false) — so the
-// ENABLE(MEDIA_STREAM) getUserMedia path links. checkSandboxRequirementForType() and the other
-// permission helpers come from the real MediaPermissionUtilities.mm.
-#include "config.h"
+/*
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#import "config.h"
+#import "DisplayCaptureSessionManager.h"
 
 #if PLATFORM(COCOA) && ENABLE(MEDIA_STREAM)
 
-// MAVERICKS_BACKPORT: minimal include set for the no-op display-capture manager (no ScreenCaptureKit/WebCore capture headers; see file header).
-#include "DisplayCaptureSessionManager.h"
-#include "MediaPermissionUtilities.h"
-#include "SandboxUtilities.h"
-#include <wtf/NeverDestroyed.h>
-#include <wtf/spi/darwin/SandboxSPI.h>
-#include <wtf/text/ASCIILiteral.h>
+#import "APIPageConfiguration.h"
+#import "Logging.h"
+#import "MediaPermissionUtilities.h"
+#import "WKWebViewInternal.h"
+#import "WebPageProxy.h"
+#import "WebProcess.h"
+#import "WebProcessPool.h"
+#import <WebCore/CaptureDeviceManager.h>
+#import <WebCore/LocalizedStrings.h>
+#import <WebCore/MockRealtimeMediaSourceCenter.h>
+#import <WebCore/ScreenCaptureKitCaptureSource.h>
+#import <WebCore/ScreenCaptureKitSharingSessionManager.h>
+#import <WebCore/SecurityOriginData.h>
+#import <wtf/BlockPtr.h>
+#import <wtf/MainThread.h>
+#import <wtf/NeverDestroyed.h>
+#import <wtf/URLHelpers.h>
+#import <wtf/cocoa/TypeCastsCocoa.h>
+#import <wtf/text/StringToIntegerConversion.h>
 
 namespace WebKit {
 
-// MAVERICKS_BACKPORT: trivial ctor/dtor for the no-op display-capture manager (see file header).
-DisplayCaptureSessionManager::DisplayCaptureSessionManager() = default;
-DisplayCaptureSessionManager::~DisplayCaptureSessionManager() = default;
+#if HAVE(SCREEN_CAPTURE_KIT)
+void DisplayCaptureSessionManager::alertForGetDisplayMedia(WebPageProxy& page, const WebCore::SecurityOriginData& origin, CompletionHandler<void(DisplayCaptureSessionManager::CaptureSessionType)>&& completionHandler)
+{
+#if HAVE(WINDOW_CAPTURE)
+    auto webView = page.cocoaView();
+    if (!webView) {
+        completionHandler(DisplayCaptureSessionManager::CaptureSessionType::None);
+        return;
+    }
+
+    RetainPtr visibleOrigin = applicationVisibleNameFromOrigin(origin);
+    if (!visibleOrigin)
+        visibleOrigin = applicationVisibleName();
+
+    SUPPRESS_UNRETAINED_ARG RetainPtr alertTitle = adoptNS([[NSString alloc] initWithFormat:WEB_UI_NSSTRING(@"Allow “%@” to observe one of your windows or screens?", "Message for window and screen sharing prompt"), visibleOrigin.get()]);
+    RetainPtr<NSString> allowWindowButtonString = WEB_UI_NSSTRING(@"Allow to Share Window", "Allow window button title in window and screen sharing prompt");
+    RetainPtr<NSString> allowScreenButtonString = WEB_UI_NSSTRING(@"Allow to Share Screen", "Allow screen button title in window and screen sharing prompt");
+    RetainPtr<NSString> doNotAllowButtonString = WEB_UI_NSSTRING_KEY(@"Don’t Allow", @"Don’t Allow (window and screen sharing)", "Disallow button title in window and screen sharing prompt");
+
+    RetainPtr alert = adoptNS([[NSAlert alloc] init]);
+    [alert setMessageText:alertTitle.get()];
+
+    RetainPtr button = [alert addButtonWithTitle:allowWindowButtonString.get()];
+    button.get().keyEquivalent = @"";
+
+    button = [alert addButtonWithTitle:allowScreenButtonString.get()];
+    button.get().keyEquivalent = @"";
+
+    button = [alert addButtonWithTitle:doNotAllowButtonString.get()];
+    button.get().keyEquivalent = @"\E";
+
+    [alert beginSheetModalForWindow:retainPtr([webView window]).get() completionHandler:[completionBlock = makeBlockPtr(WTF::move(completionHandler))](NSModalResponse returnCode) {
+        DisplayCaptureSessionManager::CaptureSessionType result = DisplayCaptureSessionManager::CaptureSessionType::None;
+        switch (returnCode) {
+        case NSAlertFirstButtonReturn:
+            result = DisplayCaptureSessionManager::CaptureSessionType::Window;
+            break;
+        case NSAlertSecondButtonReturn:
+            result = DisplayCaptureSessionManager::CaptureSessionType::Screen;
+            break;
+        case NSAlertThirdButtonReturn:
+            result = DisplayCaptureSessionManager::CaptureSessionType::None;
+            break;
+        }
+
+        completionBlock(result);
+    }];
+#else
+    UNUSED_PARAM(page);
+    UNUSED_PARAM(origin);
+    UNUSED_PARAM(completionHandler);
+#endif // HAVE(WINDOW_CAPTURE)
+}
+#endif
+
+std::optional<WebCore::CaptureDevice> DisplayCaptureSessionManager::deviceSelectedForTesting(WebCore::CaptureDevice::DeviceType deviceType, unsigned indexOfDeviceSelectedForTesting)
+{
+    unsigned index = 0;
+    for (auto& device : WebCore::RealtimeMediaSourceCenter::singleton().displayCaptureFactory().displayCaptureDeviceManager().captureDevices()) {
+        if (device.enabled() && device.type() == deviceType) {
+            if (index == indexOfDeviceSelectedForTesting)
+                return { device };
+            ++index;
+        }
+    }
+
+    return std::nullopt;
+}
+
+bool DisplayCaptureSessionManager::useMockCaptureDevices() const
+{
+    return m_indexOfDeviceSelectedForTesting || WebCore::MockRealtimeMediaSourceCenter::mockRealtimeMediaSourceCenterEnabled();
+}
+
+void DisplayCaptureSessionManager::showWindowPicker(const WebCore::SecurityOriginData& origin, CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&& completionHandler)
+{
+    if (useMockCaptureDevices()) {
+        completionHandler(deviceSelectedForTesting(WebCore::CaptureDevice::DeviceType::Window, m_indexOfDeviceSelectedForTesting.value_or(0)));
+        return;
+    }
+
+    completionHandler(std::nullopt);
+}
+
+void DisplayCaptureSessionManager::showScreenPicker(const WebCore::SecurityOriginData&, CompletionHandler<void(std::optional<WebCore::CaptureDevice>)>&& completionHandler)
+{
+    if (useMockCaptureDevices()) {
+        completionHandler(deviceSelectedForTesting(WebCore::CaptureDevice::DeviceType::Screen, m_indexOfDeviceSelectedForTesting.value_or(0)));
+        return;
+    }
+
+    completionHandler(std::nullopt);
+}
+
+bool DisplayCaptureSessionManager::isAvailable()
+{
+#if HAVE(SCREEN_CAPTURE_KIT)
+    return WebCore::ScreenCaptureKitCaptureSource::isAvailable();
+#else
+    return false;
+#endif
+}
 
 DisplayCaptureSessionManager& DisplayCaptureSessionManager::singleton()
 {
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-//     ASSERT(isMainRunLoop());
-// (end MAVERICKS_BACKPORT restored block)
+    ASSERT(isMainRunLoop());
     static NeverDestroyed<DisplayCaptureSessionManager> manager;
-    // MAVERICKS_BACKPORT: return the held instance (no main-run-loop assert / ScreenCaptureKit deps).
-    return manager.get();
+    return manager;
 }
 
-// MAVERICKS_BACKPORT: screen capture (getDisplayMedia) requires ScreenCaptureKit (macOS 12.3+); always unavailable on 10.9.
-bool DisplayCaptureSessionManager::isAvailable()
+DisplayCaptureSessionManager::DisplayCaptureSessionManager()
 {
-    // MAVERICKS_BACKPORT: Screen capture (getDisplayMedia) requires ScreenCaptureKit (macOS 12.3+); unavailable on 10.9.
+}
+
+DisplayCaptureSessionManager::~DisplayCaptureSessionManager()
+{
+}
+
+bool DisplayCaptureSessionManager::canRequestDisplayCapturePermission()
+{
+    if (useMockCaptureDevices())
+        return m_systemCanPromptForTesting == PromptOverride::CanPrompt;
+
+#if HAVE(SCREEN_CAPTURE_KIT)
+    return true;
+#else
     return false;
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
 #endif
 }
 
@@ -133,7 +273,6 @@ void DisplayCaptureSessionManager::cancelGetDisplayMediaPrompt(WebPageProxy& pag
 
     gpuProcess->cancelGetDisplayMediaPrompt();
 #endif
-MAVERICKS_BACKPORT */
 }
 
 } // namespace WebKit

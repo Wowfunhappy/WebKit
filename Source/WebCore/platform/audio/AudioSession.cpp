@@ -65,23 +65,9 @@ static RefPtr<AudioSession>& NODELETE sharedAudioSession()
     return session.get();
 }
 
-// MAVERICKS_BACKPORT: dummy AudioSession concrete subclass; mirrors AudioSessionCocoa's
-// approach for diamond inheritance with TZone allocator and ref-counted weak ptr.
-namespace {
-class AudioSessionDummy : public AudioSession, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<AudioSessionDummy> {
-    WTF_MAKE_TZONE_ALLOCATED(AudioSessionDummy);
-public:
-    AudioSessionDummy() : AudioSession() { }
-    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
-};
-}
-WTF_MAKE_TZONE_ALLOCATED_IMPL(AudioSessionDummy);
-
 static Ref<AudioSession>& dummyAudioSession()
 {
-    // MAVERICKS_BACKPORT: construct the concrete AudioSessionDummy (AudioSessionMac is
-    // stubbed empty on this build, so AudioSession::create() can't be used here).
-    static NeverDestroyed<Ref<AudioSession>> dummySession = adoptRef<AudioSession>(*new AudioSessionDummy);
+    static NeverDestroyed<Ref<AudioSession>> dummySession = AudioSession::create();
     return dummySession.get();
 }
 
@@ -102,11 +88,13 @@ bool AudioSession::enableMediaPlayback()
 
 Ref<AudioSession> AudioSession::create()
 {
-    // MAVERICKS_BACKPORT: AudioSessionMac.mm is stubbed empty on this build, so
-    // AudioSessionMac::create() resolves to a polyfill stub that returns
-    // garbage. Use the dummy session unconditionally; we don't need media
-    // playback to be controllable on this OS.
-    return dummyAudioSession();
+#if PLATFORM(MAC)
+    return AudioSessionMac::create();
+#elif PLATFORM(IOS_FAMILY)
+    return AudioSessionIOS::create();
+#else
+    return AudioSession::create();
+#endif
 }
 
 AudioSession::AudioSession() = default;
@@ -247,56 +235,26 @@ AudioSession::Mode AudioSession::mode() const
 
 float AudioSession::sampleRate() const
 {
-#if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: AudioSessionDummy uses this base impl. Returning 0 makes Web Audio
-    // sampleRate=0 which breaks everything that does sample-rate math. Return the
-    // standard hardware default (44100 Hz) so apps get sensible numbers. Real audio
-    // pipeline uses the actual device sample rate via AudioOutputUnitAdaptor.
-    return 44100;
-#else
     notImplemented();
     return 0;
-    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) 44100 Hz default above.
-#endif
 }
 
 size_t AudioSession::bufferSize() const
 {
-    // MAVERICKS_BACKPORT: AudioSessionDummy uses this base impl; return a sensible
-    // default buffer size on Mac instead of notImplemented()/0.
-#if PLATFORM(MAC)
-    return 512;
-#else
     notImplemented();
     return 0;
-    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) default above.
-#endif
 }
 
 size_t AudioSession::numberOfOutputChannels() const
 {
-    // MAVERICKS_BACKPORT: AudioSessionDummy uses this base impl; return a sensible
-    // stereo default on Mac instead of notImplemented()/0.
-#if PLATFORM(MAC)
-    return 2;
-#else
     notImplemented();
     return 0;
-    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) default above.
-#endif
 }
 
 size_t AudioSession::maximumNumberOfOutputChannels() const
 {
-    // MAVERICKS_BACKPORT: AudioSessionDummy uses this base impl; return a sensible
-    // stereo default on Mac instead of notImplemented()/0.
-#if PLATFORM(MAC)
-    return 2;
-#else
     notImplemented();
     return 0;
-    // MAVERICKS_BACKPORT: see the PLATFORM(MAC) default above.
-#endif
 }
 
 bool AudioSession::tryToSetActiveInternal(bool)

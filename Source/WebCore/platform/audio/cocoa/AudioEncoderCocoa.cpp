@@ -225,10 +225,9 @@ void InternalAudioEncoderCocoa::compressedAudioOutputBufferCallback(void* object
 
 Vector<uint8_t> InternalAudioEncoderCocoa::generateDecoderDescriptionFromSample(CMSampleBufferRef sample) const
 {
-    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
-    RetainPtr formatDescription = CMSampleBufferGetFormatDescription(sample);
+    RetainPtr formatDescription = PAL::CMSampleBufferGetFormatDescription(sample);
     ASSERT(formatDescription);
-    const AudioStreamBasicDescription* const asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription.get());
+    const AudioStreamBasicDescription* const asbd = PAL::CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription.get());
     if (!asbd)
         return { };
 
@@ -236,8 +235,7 @@ Vector<uint8_t> InternalAudioEncoderCocoa::generateDecoderDescriptionFromSample(
         return createOpusPrivateData(*asbd, m_converter->preSkip());
 
     size_t cookieSize = 0;
-    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); this CM symbol links directly on 10.9.
-    auto* cookie = CMAudioFormatDescriptionGetMagicCookie(formatDescription.get(), &cookieSize);
+    auto* cookie = PAL::CMAudioFormatDescriptionGetMagicCookie(formatDescription.get(), &cookieSize);
     if (!cookieSize)
         return { };
     return unsafeMakeSpan(static_cast<const uint8_t*>(cookie), cookieSize);
@@ -248,10 +246,9 @@ AudioEncoder::ActiveConfiguration InternalAudioEncoderCocoa::activeConfiguration
     assertIsCurrent(queueSingleton());
     ASSERT(!m_isClosed && m_converter);
 
-    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
-    RetainPtr formatDescription = CMSampleBufferGetFormatDescription(sample);
+    RetainPtr formatDescription = PAL::CMSampleBufferGetFormatDescription(sample);
     ASSERT(formatDescription);
-    const AudioStreamBasicDescription* const asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription.get());
+    const AudioStreamBasicDescription* const asbd = PAL::CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription.get());
     if (!asbd)
         return { };
 
@@ -272,24 +269,21 @@ void InternalAudioEncoderCocoa::processEncodedOutputs()
 
     while (RetainPtr cmSample = converter()->takeOutputSampleBuffer()) {
         Ref sample = MediaSampleAVFObjC::create(cmSample.get(), 0);
-        // MAVERICKS_BACKPORT: call CoreMedia (CMSampleBuffer/CMBlockBuffer) by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
-        RetainPtr rawBuffer = CMSampleBufferGetDataBuffer(cmSample.get());
+        RetainPtr rawBuffer = PAL::CMSampleBufferGetDataBuffer(cmSample.get());
         ASSERT(rawBuffer);
         // Make sure block buffer is contiguous.
-        // MAVERICKS_BACKPORT: call CoreMedia (CMBlockBuffer) by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
-        if (!CMBlockBufferIsRangeContiguous(rawBuffer.get(), 0, 0)) {
+        if (!PAL::CMBlockBufferIsRangeContiguous(rawBuffer.get(), 0, 0)) {
             CMBlockBufferRef contiguousBuffer;
-            if (auto error = CMBlockBufferCreateContiguous(nullptr, rawBuffer.get(), nullptr, nullptr, 0, 0, 0, &contiguousBuffer)) {
+            if (auto error = PAL::CMBlockBufferCreateContiguous(nullptr, rawBuffer.get(), nullptr, nullptr, 0, 0, 0, &contiguousBuffer)) {
                 RELEASE_LOG_ERROR(MediaStream, "Couldn't create buffer with error %d", error);
                 m_lastError = error;
                 continue;
             }
             rawBuffer = adoptCF(contiguousBuffer);
         }
-        // MAVERICKS_BACKPORT: call CoreMedia (CMBlockBuffer) by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
-        auto size = CMBlockBufferGetDataLength(rawBuffer.get());
+        auto size = PAL::CMBlockBufferGetDataLength(rawBuffer.get());
         char* data = nullptr;
-        if (auto error = CMBlockBufferGetDataPointer(rawBuffer.get(), 0, nullptr, nullptr, &data)) {
+        if (auto error = PAL::CMBlockBufferGetDataPointer(rawBuffer.get(), 0, nullptr, nullptr, &data)) {
             RELEASE_LOG_ERROR(MediaStream, "Couldn't create buffer with error %d", error);
             m_lastError = error;
             continue;
@@ -320,16 +314,13 @@ Ref<AudioEncoder::EncodePromise> InternalAudioEncoderCocoa::encode(AudioEncoder:
 
     RetainPtr cmSample = downcast<PlatformRawAudioDataCocoa>(rawFrame.frame)->sampleBuffer();
     ASSERT(cmSample);
-    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
-    if (auto error = CMSampleBufferSetOutputPresentationTimeStamp(cmSample.get(), CMTimeMake(rawFrame.timestamp, 1000000)))
+    if (auto error = PAL::CMSampleBufferSetOutputPresentationTimeStamp(cmSample.get(), PAL::CMTimeMake(rawFrame.timestamp, 1000000)))
         RELEASE_LOG_ERROR(MediaStream, "AudioSampleBufferConverter CMSampleBufferSetOutputPresentationTimeStamp failed with %d", error);
 
-    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); these CM symbols link directly on 10.9.
-    RetainPtr formatDescription = CMSampleBufferGetFormatDescription(cmSample.get());
+    RetainPtr formatDescription = PAL::CMSampleBufferGetFormatDescription(cmSample.get());
     if (!formatDescription)
         return EncodePromise::createAndReject("Couldn't retrieve AudioData's format description"_s);
-    // MAVERICKS_BACKPORT: call CoreMedia by bare name (no PAL:: soft-link wrapper); this CM symbol links directly on 10.9.
-    const AudioStreamBasicDescription* const asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription.get());
+    const AudioStreamBasicDescription* const asbd = PAL::CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription.get());
     if (!asbd)
         return EncodePromise::createAndReject("Couldn't retrieve AudioData's basic description"_s);
 

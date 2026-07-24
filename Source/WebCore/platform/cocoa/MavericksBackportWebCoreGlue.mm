@@ -31,8 +31,20 @@
 #import <wtf/text/StringView.h>
 
 #import "ServiceWorkerRoute.h"
+// MAVERICKS_BACKPORT (#137): GPUCanvasContext::create() for Cocoa. WebGPU is off on this port
+// (ENABLE_WEBGPU / GPU_PROCESS off), so html/canvas/GPUCanvasContextCocoa.mm — the WebGPU backend that
+// normally defines this — is withheld from the build and kept byte-upstream. GPUCanvasContext.cpp only
+// defines create() for !PLATFORM(COCOA), so without this the symbol is undefined: Safari binds it lazily
+// and never notices, but a flat-namespace/eager dlopen of a WebKit plug-in (Mail's MailUIWebBundle,
+// Spotlight's Mail.mdimporter) fails to load and renders blank. Same nullptr the non-Cocoa fallback returns.
+#import "GPUCanvasContext.h"
 
 namespace WebCore {
+
+std::unique_ptr<GPUCanvasContext> GPUCanvasContext::create(CanvasBase&, GPU&, Document*)
+{
+    return nullptr;
+}
 
 bool isRegexpMatching(const String& pattern, StringView value, bool shouldIgnoreCase)
 {

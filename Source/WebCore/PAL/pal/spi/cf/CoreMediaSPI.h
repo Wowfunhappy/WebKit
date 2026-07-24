@@ -36,21 +36,10 @@ DECLARE_SYSTEM_HEADER
 #include <CoreMedia/CoreMedia.h>
 
 #if PLATFORM(MAC)
-// MAVERICKS_BACKPORT: the libwebrtc include path is only on WebRTC-enabled targets;
-// WK2 framework TUs that include this header don't have it. Use the real header
-// when available, else forward-declare the CMBase types it provides.
-#if __has_include(<webrtc/webkit_sdk/WebKit/CMBaseObjectSPI.h>)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnon-modular-include-in-module"
 #include <webrtc/webkit_sdk/WebKit/CMBaseObjectSPI.h>
 #pragma clang diagnostic pop
-// MAVERICKS_BACKPORT: forward-declare CMBase types when the libwebrtc CMBaseObjectSPI.h header isn't on the include path.
-#else
-typedef struct OpaqueCMBaseObject *CMBaseObjectRef;
-typedef struct OpaqueCMBaseClass *CMBaseClassID;
-typedef struct OpaqueCMBaseProtocol *CMBaseProtocolID;
-typedef struct CMBaseVTable CMBaseVTable; // used only as const CMBaseVTable* in soft-link decls
-#endif
 #endif
 
 #if PLATFORM(COCOA)

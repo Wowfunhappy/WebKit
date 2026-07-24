@@ -40,10 +40,8 @@ typedef struct __IOSurface *IOSurfaceRef;
 #ifdef __OBJC__
 
 #include <Foundation/Foundation.h>
-// MAVERICKS_BACKPORT: Metal not available, but ENABLE_GPU_PROCESS=OFF
-// means this header should never be reached at compile time. Stub include.
-// #include <Metal/Metal.h>
-// #include <simd/simd.h>
+#include <Metal/Metal.h>
+#include <simd/simd.h>
 
 NS_HEADER_AUDIT_BEGIN(nullability, sendability)
 

@@ -1,9 +1,3 @@
-# MAVERICKS_BACKPORT: compile the upstream GStreamer media player (software/appsink path) for the
-# Mac/CG port. GStreamer.cmake consumes the GSTREAMER_*/GLib targets set by OptionsMacGStreamer.cmake.
-if (USE_GSTREAMER)
-    include(platform/GStreamer.cmake)
-endif ()
-
 find_library(ACCELERATE_LIBRARY Accelerate)
 find_library(APPLICATIONSERVICES_LIBRARY ApplicationServices)
 find_library(AVFOUNDATION_LIBRARY AVFoundation)
@@ -12,26 +6,19 @@ find_library(AUDIOUNIT_LIBRARY AudioUnit)
 find_library(CARBON_LIBRARY Carbon)
 find_library(CFNETWORK_LIBRARY CFNetwork)
 find_library(COCOA_LIBRARY Cocoa)
-# MAVERICKS_BACKPORT: no Compression.framework link (Compression API is 10.11+; absent on 10.9).
+find_library(COMPRESSION_LIBRARY Compression)
 find_library(COREAUDIO_LIBRARY CoreAudio)
 find_library(COREMEDIA_LIBRARY CoreMedia)
 find_library(CORESERVICES_LIBRARY CoreServices)
 find_library(DISKARBITRATION_LIBRARY DiskArbitration)
 find_library(IOKIT_LIBRARY IOKit)
 find_library(IOSURFACE_LIBRARY IOSurface)
-# MAVERICKS_BACKPORT: no Metal.framework link (Metal is 10.11+; absent on 10.9).
-# MAVERICKS_BACKPORT: no NetworkExtension.framework link (absent on 10.9).
+find_library(METAL_LIBRARY Metal)
+find_library(NETWORKEXTENSION_LIBRARY NetworkExtension)
 find_library(OPENGL_LIBRARY OpenGL)
 find_library(QUARTZ_LIBRARY Quartz)
 find_library(QUARTZCORE_LIBRARY QuartzCore)
-# MAVERICKS_BACKPORT: no SceneKit.framework link. WebCore binds no SceneKit symbols on this
-# port (the <model> element's SceneKit backing TUs are stubbed and its runtime pref defaults
-# off on Mac), but a hard link records an LC_LOAD_DYLIB that loads the 10.9 system SceneKit
-# into every WebKit client at launch. Apps that bundle a newer SceneKit — Xcode 6's editor
-# plug-ins reference @rpath/SceneKit and ship v186 in Contents/SharedFrameworks — then get
-# the already-loaded 10.9 image (dyld matches the framework's partial path
-# SceneKit.framework/Versions/A/SceneKit to the loaded /System copy) instead of their bundled
-# one, which lacks 10.10+ classes such as SCNParticlePropertyController, and abort at launch.
+find_library(SCENEKIT_LIBRARY SceneKit)
 find_library(SECURITY_LIBRARY Security)
 find_library(SYSTEMCONFIGURATION_LIBRARY SystemConfiguration)
 find_library(VIDEOTOOLBOX_LIBRARY VideoToolbox)
@@ -52,36 +39,28 @@ list(APPEND WebCore_LIBRARIES
     ${CARBON_LIBRARY}
     ${CFNETWORK_LIBRARY}
     ${COCOA_LIBRARY}
-# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-#     ${COMPRESSION_LIBRARY}
-# (end MAVERICKS_BACKPORT restored block)
+    ${COMPRESSION_LIBRARY}
     ${COREAUDIO_LIBRARY}
     ${COREMEDIA_LIBRARY}
     ${CORESERVICES_LIBRARY}
     ${DISKARBITRATION_LIBRARY}
     ${IOKIT_LIBRARY}
     ${IOSURFACE_LIBRARY}
-# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-#     ${METAL_LIBRARY}
-#     ${NETWORKEXTENSION_LIBRARY}
-# (end MAVERICKS_BACKPORT restored block)
+    ${METAL_LIBRARY}
+    ${NETWORKEXTENSION_LIBRARY}
     ${OPENGL_LIBRARY}
     ${QUARTZ_LIBRARY}
     ${QUARTZCORE_LIBRARY}
-# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-#     ${SCENEKIT_LIBRARY}
-# (end MAVERICKS_BACKPORT restored block)
+    ${SCENEKIT_LIBRARY}
     ${SECURITY_LIBRARY}
     ${SQLITE3_LIBRARIES}
     ${SYSTEMCONFIGURATION_LIBRARY}
     ${VIDEOTOOLBOX_LIBRARY}
     ${XML2_LIBRARY}
-# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-#     opus
-#     vpx
-#     webm
-#     yuv
-# (end MAVERICKS_BACKPORT restored block)
+    opus
+    vpx
+    webm
+    yuv
 )
 
 add_definitions(-iframework ${APPLICATIONSERVICES_LIBRARY}/Versions/Current/Frameworks)
@@ -100,12 +79,10 @@ if (NOT DATADETECTORSCORE_FRAMEWORK-NOTFOUND)
     list(APPEND WebCore_LIBRARIES ${DATADETECTORSCORE_FRAMEWORK})
 endif ()
 
-# MAVERICKS_BACKPORT: Lookup.framework depends on WebKit.framework, creating a circular dep chain:
-# WebCore -> Lookup -> WebKit -> WebKitLegacy -> WebCore
-# This causes all frameworks to load simultaneously and crashes the ObjC runtime.
-# Do not link Lookup directly; its symbols resolve via -undefined dynamic_lookup.
-# find_library(LOOKUP_FRAMEWORK Lookup HINTS ${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks)
-# list(APPEND WebCore_LIBRARIES ${LOOKUP_FRAMEWORK})
+find_library(LOOKUP_FRAMEWORK Lookup HINTS ${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks)
+if (NOT LOOKUP_FRAMEWORK-NOTFOUND)
+    list(APPEND WebCore_LIBRARIES ${LOOKUP_FRAMEWORK})
+endif ()
 
 list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_BINARY_DIR}/libwebrtc/PrivateHeaders"
@@ -115,14 +92,6 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBCORE_DIR}/accessibility/mac"
     "${WEBCORE_DIR}/bridge/objc"
     "${WEBCORE_DIR}/crypto/mac"
-    "${WEBCORE_DIR}/crypto/gcrypt"
-    # MAVERICKS_BACKPORT: crypto/cocoa header dir for CryptoUtilitiesCocoa.h — still needed by the WebRTC
-    # SFrame transformer (CommonCrypto AES-CTR helper), distinct from the libgcrypt WebCrypto impl.
-    "${WEBCORE_DIR}/crypto/cocoa"
-    # MAVERICKS_BACKPORT: libgcrypt/libtasn1/libgpg-error built in-tree by
-    # MavericksSupport/deps/build_deps.sh; see [[project_webcrypto_cc_stubs_stripped]]
-    # for the prior CommonCrypto approach that's now retired.
-    "${MAVERICKS_DEPS}/include"
     "${WEBCORE_DIR}/dom/mac"
     "${WEBCORE_DIR}/editing/cocoa"
     "${WEBCORE_DIR}/editing/mac"
@@ -184,26 +153,16 @@ list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES
 )
 
 list(APPEND WebCore_SOURCES
-    # MAVERICKS_BACKPORT: AVSpeechSynthesizer polyfill (NSSpeechSynthesizer-backed)
-    # so the Web Speech API synthesis path resolves on 10.9. -fobjc-arc + non-unified
-    # (must not be bundled with files that import AVFoundation's AVSpeech* headers).
-    platform/cocoa/SpeechSynthesisAVFoundationPolyfill_109.mm
-
     Modules/geolocation/cocoa/GeolocationPositionDataCocoa.mm
 
     Modules/paymentrequest/MerchantValidationEvent.cpp
 
-    # MAVERICKS_BACKPORT: MediaStreamAudioSourceCocoa.cpp is intentionally NOT built — its consumeAudio
-    # delivers a WebAudioBufferList, but this build's MediaStream/WebRTC consumers are GStreamer and
-    # static_cast the PlatformAudioData to GStreamerAudioData (LiveKit #115 crash). The GStreamer variant
-    # (Modules/webaudio/MediaStreamAudioSourceGStreamer.cpp, via SourcesGStreamer.txt) is compiled instead.
+    Modules/webaudio/MediaStreamAudioSourceCocoa.cpp
 
     accessibility/isolatedtree/mac/AXIsolatedObjectMac.mm
     accessibility/mac/AXObjectCacheMac.mm
     accessibility/mac/AccessibilityObjectMac.mm
-# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-#     accessibility/mac/WebAccessibilityObjectWrapperMac.mm
-# (end MAVERICKS_BACKPORT restored block)
+    accessibility/mac/WebAccessibilityObjectWrapperMac.mm
 
     dom/DataTransferMac.mm
     dom/SlotAssignment.cpp
@@ -235,8 +194,8 @@ list(APPEND WebCore_SOURCES
 
     platform/audio/AudioSession.cpp
 
-    # MAVERICKS_BACKPORT: AudioDecoderCocoa.cpp / AudioEncoderCocoa.cpp are not compiled —
-    # WebCodecs audio runs on the GStreamer backend (see the SourcesCocoa.txt note).
+    platform/audio/cocoa/AudioDecoderCocoa.cpp
+    platform/audio/cocoa/AudioEncoderCocoa.cpp
     platform/audio/cocoa/WebAudioBufferList.cpp
 
     platform/audio/mac/AudioBusMac.mm
@@ -278,9 +237,7 @@ list(APPEND WebCore_SOURCES
     platform/graphics/DisplayRefreshMonitorManager.cpp
     platform/graphics/FourCC.cpp
 
-# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-#     platform/graphics/avfoundation/AVTrackPrivateAVFObjCImpl.mm
-# (end MAVERICKS_BACKPORT restored block)
+    platform/graphics/avfoundation/AVTrackPrivateAVFObjCImpl.mm
     platform/graphics/avfoundation/AudioSourceProviderAVFObjC.mm
     platform/graphics/avfoundation/CDMFairPlayStreaming.cpp
     platform/graphics/avfoundation/InbandMetadataTextTrackPrivateAVF.cpp
@@ -436,9 +393,7 @@ list(APPEND WebCore_SOURCES
 
     platform/mediastream/mac/MockRealtimeVideoSourceMac.mm
     platform/mediastream/mac/RealtimeOutgoingVideoSourceCocoa.cpp
-# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-#     platform/mediastream/mac/RealtimeOutgoingVideoSourceCocoa.mm
-# (end MAVERICKS_BACKPORT restored block)
+    platform/mediastream/mac/RealtimeOutgoingVideoSourceCocoa.mm
 
     platform/network/cf/CertificateInfoCFNet.cpp
     platform/network/cf/DNSResolveQueueCFNet.cpp
@@ -485,12 +440,6 @@ list(APPEND WebCore_SOURCES
 
 list(APPEND WebCore_USER_AGENT_STYLE_SHEETS
     ${WebCore_DERIVED_SOURCES_DIR}/ModernMediaControls.css
-
-    # MAVERICKS_BACKPORT (#68): classic Safari 7 / Mavericks media-controls stylesheet.
-    # make-css-file-arrays.pl derives the array name from the basename, so this emits
-    # mediaControlsAppleUserAgentStyleSheet, which RenderThemeCocoa serves on the 10.9
-    # deployment target instead of ModernMediaControlsUserAgentStyleSheet.
-    ${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsApple.css
 
     ${WEBCORE_DIR}/html/shadow/mac/imageControlsMac.css
 )
@@ -570,8 +519,6 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     crypto/keys/CryptoKeyEC.h
 
     dom/EventLoop.h
-    # MAVERICKS_BACKPORT: export TouchEvent.h (touch-event interface header).
-    dom/TouchEvent.h
     dom/WindowEventLoop.h
 
     editing/cocoa/AlternativeTextContextController.h
@@ -580,12 +527,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     editing/cocoa/AutofillElements.h
     editing/cocoa/DataDetection.h
     editing/cocoa/DataDetectorType.h
-    # MAVERICKS_BACKPORT: export EditingHTMLConverter.h (HTML serialization helper).
-    editing/cocoa/EditingHTMLConverter.h
     editing/cocoa/HTMLConverter.h
-    # MAVERICKS_BACKPORT: export NodeHTMLConverter.h and TextAttachmentForSerialization.h (HTML/attachment serialization).
-    editing/cocoa/NodeHTMLConverter.h
-    editing/cocoa/TextAttachmentForSerialization.h
 
     editing/mac/DictionaryLookup.h
     editing/mac/TextAlternativeWithRange.h
@@ -607,17 +549,10 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     page/CaptionUserPreferencesMediaAF.h
 
-    # MAVERICKS_BACKPORT: export ContentChangeObserver.h and DOMTimerHoldingTank.h (page/cocoa observers).
-    page/cocoa/ContentChangeObserver.h
-    page/cocoa/DOMTimerHoldingTank.h
     page/cocoa/DataDetectionResultsStorage.h
     page/cocoa/DataDetectorElementInfo.h
     page/cocoa/ImageOverlayDataDetectionResultIdentifier.h
-    # MAVERICKS_BACKPORT: export WebTextIndicatorLayer.h (text-indicator layer).
-    page/cocoa/WebTextIndicatorLayer.h
 
-    # MAVERICKS_BACKPORT: export CorrectionIndicator.h (autocorrection indicator UI).
-    page/mac/CorrectionIndicator.h
     page/mac/TextIndicatorWindow.h
     page/mac/WebCoreFrameView.h
 
@@ -628,18 +563,11 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     page/scrolling/cocoa/ScrollingTreePositionedNodeCocoa.h
     page/scrolling/cocoa/ScrollingTreeStickyNodeCocoa.h
 
-    # MAVERICKS_BACKPORT: export ScrollerMac.h/ScrollerPairMac.h (mac overlay-scroller painting).
-    page/scrolling/mac/ScrollerMac.h
-    page/scrolling/mac/ScrollerPairMac.h
     page/scrolling/mac/ScrollingCoordinatorMac.h
     page/scrolling/mac/ScrollingTreeFrameScrollingNodeMac.h
     page/scrolling/mac/ScrollingTreeOverflowScrollingNodeMac.h
-    # MAVERICKS_BACKPORT: export ScrollingTreePluginScrollingNodeMac.h.
-    page/scrolling/mac/ScrollingTreePluginScrollingNodeMac.h
     page/scrolling/mac/ScrollingTreeScrollingNodeDelegateMac.h
 
-    # MAVERICKS_BACKPORT: export WebCoreMainThread.h (main-thread helper) ahead of the platform headers.
-    platform/WebCoreMainThread.h
     platform/CaptionPreferencesDelegate.h
     platform/FrameRateMonitor.h
     platform/MainThreadSharedTimer.h
@@ -665,27 +593,13 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/audio/cocoa/MediaSessionManagerCocoa.h
     platform/audio/cocoa/WebAudioBufferList.h
 
-    # MAVERICKS_BACKPORT: export AudioUtilitiesCocoa.h and SpatialAudioExperienceHelper.h (audio helpers).
-    platform/audio/cocoa/AudioUtilitiesCocoa.h
-    platform/audio/cocoa/SpatialAudioExperienceHelper.h
     platform/audio/mac/SharedRoutingArbitrator.h
 
     platform/cf/MediaAccessibilitySoftLink.h
 
-    # MAVERICKS_BACKPORT: export additional platform/cocoa headers (visual-effect/view/geolocation/CoreVideo) the WK build references.
-    platform/cocoa/AppleVisualEffect.h
-    platform/cocoa/CocoaView.h
-    platform/cocoa/CocoaWritingToolsTypes.h
-    platform/cocoa/CoreLocationGeolocationProvider.h
-    platform/cocoa/CoreVideoExtras.h
     platform/cocoa/CoreVideoSoftLink.h
     platform/cocoa/LocalCurrentGraphicsContext.h
     platform/cocoa/NetworkExtensionContentFilter.h
-    # MAVERICKS_BACKPORT: export the ParentalControls content/URL-filter headers + PlatformTextAlternatives.h.
-    platform/cocoa/ParentalControlsContentFilter.h
-    platform/cocoa/ParentalControlsURLFilter.h
-    platform/cocoa/ParentalControlsURLFilterParameters.h
-    platform/cocoa/PlatformTextAlternatives.h
     platform/cocoa/PlatformView.h
     platform/cocoa/PlatformViewController.h
     platform/cocoa/PlaybackSessionModel.h
@@ -696,20 +610,8 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/cocoa/SharedVideoFrameInfo.h
     platform/cocoa/SystemBattery.h
     platform/cocoa/SystemVersion.h
-    # MAVERICKS_BACKPORT: export the video-presentation/fullscreen + WebKitAvailability cocoa headers the WK build references.
-    platform/cocoa/VideoFullscreenCaptions.h
-    platform/cocoa/VideoPresentationLayerProvider.h
-    platform/cocoa/VideoPresentationModel.h
-    platform/cocoa/VideoPresentationModelVideoElement.h
-    platform/cocoa/WebAVPlayerLayer.h
-    platform/cocoa/WebAVPlayerLayerView.h
-    platform/cocoa/WebKitAvailability.h
 
     platform/gamepad/cocoa/GameControllerGamepadProvider.h
-    # MAVERICKS_BACKPORT: GameControllerSPI.h is a Private framework header in the Xcode project
-    # (so <WebCore/GameControllerSPI.h> resolves there) but the CMake port omits it from the copy
-    # list; ENABLE(GAMEPAD) is ON for this port, so it must be forwarded like the other SPI headers.
-    platform/gamepad/cocoa/GameControllerSPI.h
 
     platform/gamepad/mac/HIDGamepad.h
     platform/gamepad/mac/HIDGamepadElement.h
@@ -724,11 +626,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     platform/graphics/angle/ANGLEUtilities.h
 
-    # MAVERICKS_BACKPORT: export MediaPlaybackTargetWirelessPlayback.h (wireless playback target type).
-    platform/graphics/MediaPlaybackTargetWirelessPlayback.h
     platform/graphics/avfoundation/AudioSourceProviderAVFObjC.h
-    # MAVERICKS_BACKPORT: export MediaPlayerPrivateAVFoundation.h (base AVFoundation media player).
-    platform/graphics/avfoundation/MediaPlayerPrivateAVFoundation.h
     platform/graphics/avfoundation/AudioVideoRendererAVFObjC.h
     platform/graphics/avfoundation/MediaPlaybackTargetCocoa.h
     platform/graphics/avfoundation/SampleBufferDisplayLayer.h
@@ -753,38 +651,20 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/ca/cocoa/PlatformCALayerCocoa.h
     platform/graphics/ca/cocoa/WebVideoContainerLayer.h
 
-    # MAVERICKS_BACKPORT: export PlatformCALayerDelegatedContents.h and ContentsFormatCocoa.h (CA layer contents/format).
-    platform/graphics/ca/PlatformCALayerDelegatedContents.h
-    platform/graphics/ca/cocoa/ContentsFormatCocoa.h
-
     platform/graphics/cg/CGContextStateSaver.h
     platform/graphics/cg/CGUtilities.h
-    # MAVERICKS_BACKPORT: export CGWindowUtilities.h (CGS window helpers).
-    platform/graphics/cg/CGWindowUtilities.h
     platform/graphics/cg/ColorSpaceCG.h
     platform/graphics/cg/GradientRendererCG.h
     platform/graphics/cg/GraphicsContextCG.h
     platform/graphics/cg/IOSurfacePool.h
-    # MAVERICKS_BACKPORT: export IOSurfacePoolIdentifier.h.
-    platform/graphics/cg/IOSurfacePoolIdentifier.h
     platform/graphics/cg/ImageBufferCGBackend.h
     platform/graphics/cg/ImageBufferCGBitmapBackend.h
-    # MAVERICKS_BACKPORT: export ImageBufferCGPDFDocumentBackend.h (CG PDF-document image buffer backend).
-    platform/graphics/cg/ImageBufferCGPDFDocumentBackend.h
     platform/graphics/cg/ImageBufferIOSurfaceBackend.h
-    # MAVERICKS_BACKPORT: export ImageDecoderCG.h (CG image decoder).
-    platform/graphics/cg/ImageDecoderCG.h
     platform/graphics/cg/PDFDocumentImage.h
-    # MAVERICKS_BACKPORT: export PathCG.h (CG path helpers).
-    platform/graphics/cg/PathCG.h
     platform/graphics/cg/UTIRegistry.h
 
-    # MAVERICKS_BACKPORT: export AV1UtilitiesCocoa.h (AV1 codec utility helpers).
-    platform/graphics/cocoa/AV1UtilitiesCocoa.h
     platform/graphics/cocoa/CMUtilities.h
     platform/graphics/cocoa/ColorCocoa.h
-    # MAVERICKS_BACKPORT: export DynamicContentScalingDisplayList.h.
-    platform/graphics/cocoa/DynamicContentScalingDisplayList.h
     platform/graphics/cocoa/FontCacheCoreText.h
     platform/graphics/cocoa/FontCocoa.h
     platform/graphics/cocoa/FontDatabase.h
@@ -796,18 +676,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/cocoa/MediaPlayerPrivateWebM.h
     platform/graphics/cocoa/SourceBufferParser.h
     platform/graphics/cocoa/SourceBufferParserWebM.h
-    # MAVERICKS_BACKPORT: export additional graphics/cocoa headers (font/HEVC/media-enum/presentation) the WK build references.
-    platform/graphics/cocoa/FontCascadeCocoaInlines.h
-    platform/graphics/cocoa/HEVCUtilitiesCocoa.h
-    platform/graphics/cocoa/IOSurfaceDrawingBuffer.h
-    platform/graphics/cocoa/MediaPlayerEnumsCocoa.h
-    platform/graphics/cocoa/NullPlaybackSessionInterface.h
-    platform/graphics/cocoa/NullVideoPresentationInterface.h
-    platform/graphics/cocoa/SystemFontDatabaseCoreText.h
-    platform/graphics/cocoa/TextTrackRepresentationCocoa.h
     platform/graphics/cocoa/VP9UtilitiesCocoa.h
-    # MAVERICKS_BACKPORT: export VideoTargetFactory.h (video presentation target creation).
-    platform/graphics/cocoa/VideoTargetFactory.h
     platform/graphics/cocoa/WebActionDisablingCALayerDelegate.h
     platform/graphics/cocoa/WebCoreCALayerExtras.h
     platform/graphics/cocoa/WebLayer.h
@@ -819,63 +688,15 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/graphics/cv/PixelBufferConformerCV.h
     platform/graphics/cv/VideoFrameCV.h
 
-    # MAVERICKS_BACKPORT: export AppKitControlSystemImage.h (AppKit control system-image drawing).
-    platform/graphics/mac/AppKitControlSystemImage.h
     platform/graphics/mac/ColorMac.h
     platform/graphics/mac/GraphicsChecksMac.h
-    # MAVERICKS_BACKPORT: export ScrollbarTrackCornerSystemImageMac.h (scrollbar corner system image).
-    platform/graphics/mac/ScrollbarTrackCornerSystemImageMac.h
     platform/graphics/mac/SwitchingGPUClient.h
 
-    # MAVERICKS_BACKPORT: export the platform/ios headers the WK build references (shared iOS-named types/stubs).
-    platform/ios/AbstractPasteboard.h
-    platform/ios/DeviceOrientationUpdateProvider.h
-    platform/ios/KeyEventCodesIOS.h
-    platform/ios/LegacyTileCache.h
-    platform/ios/LocalCurrentTraitCollection.h
-    platform/ios/LocalizedDeviceModel.h
-    platform/ios/PlatformEventFactoryIOS.h
     platform/ios/PlaybackSessionInterfaceAVKit.h
-    # MAVERICKS_BACKPORT: export additional playback-session/video-presentation interface headers.
-    platform/ios/PlaybackSessionInterfaceAVKitLegacy.h
-    platform/ios/PlaybackSessionInterfaceIOS.h
-    platform/ios/PlaybackSessionInterfaceTVOS.h
-    platform/ios/QuickLook.h
-    platform/ios/TileControllerMemoryHandlerIOS.h
-    platform/ios/UIViewControllerUtilities.h
-    platform/ios/VideoPresentationInterfaceAVKitLegacy.h
-    platform/ios/VideoPresentationInterfaceIOS.h
-    platform/ios/VideoPresentationInterfaceTVOS.h
     platform/ios/WebAVPlayerController.h
-    # MAVERICKS_BACKPORT: export the remaining platform/ios shared headers referenced by the WK build.
-    platform/ios/WebBackgroundTaskController.h
-    platform/ios/WebCoreMotionManager.h
-    platform/ios/WebEvent.h
-    platform/ios/WebEventPrivate.h
-    platform/ios/WebItemProviderPasteboard.h
-    platform/ios/WebSQLiteDatabaseTrackerClient.h
-    platform/ios/WebVideoFullscreenControllerAVKit.h
 
     platform/ios/wak/FloatingPointEnvironment.h
-    # MAVERICKS_BACKPORT: export the full WAK/WebThread header set (WAK*/WK*/WebCoreThread*) the WK build needs.
-    platform/ios/wak/WAKAppKitStubs.h
-    platform/ios/wak/WAKClipView.h
-    platform/ios/wak/WAKResponder.h
-    platform/ios/wak/WAKScrollView.h
-    platform/ios/wak/WAKView.h
-    platform/ios/wak/WAKWindow.h
-    platform/ios/wak/WKContentObservation.h
-    platform/ios/wak/WKGraphics.h
-    platform/ios/wak/WKTypes.h
-    platform/ios/wak/WKUtilities.h
-    platform/ios/wak/WKView.h
-    platform/ios/wak/WKViewPrivate.h
-    platform/ios/wak/WebCoreThread.h
-    platform/ios/wak/WebCoreThreadInternal.h
-    platform/ios/wak/WebCoreThreadMessage.h
     platform/ios/wak/WebCoreThreadRun.h
-    # MAVERICKS_BACKPORT: export WebCoreThreadSystemInterface.h (part of the WAK/WebThread headers built here).
-    platform/ios/wak/WebCoreThreadSystemInterface.h
 
     platform/mac/HIDDevice.h
     platform/mac/HIDElement.h
@@ -890,8 +711,6 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/mac/SerializedPlatformDataCueMac.h
     platform/mac/ScrollbarThemeMac.h
     platform/mac/StringUtilities.h
-    # MAVERICKS_BACKPORT: export VideoPresentationInterfaceMac.h (video presentation/fullscreen path).
-    platform/mac/VideoPresentationInterfaceMac.h
     platform/mac/VideoFullscreenInterfaceMac.h
     platform/mac/WebCoreFullScreenPlaceholderView.h
     platform/mac/WebCoreFullScreenWindow.h
@@ -899,8 +718,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/mac/WebCoreNSURLExtras.h
     platform/mac/WebCoreObjCExtras.h
     platform/mac/WebCoreView.h
-    # MAVERICKS_BACKPORT: WebNSAttributedStringExtras.h lives under platform/cocoa here (upstream path is platform/mac).
-    platform/cocoa/WebNSAttributedStringExtras.h
+    platform/mac/WebNSAttributedStringExtras.h
     platform/mac/WebPlaybackControlsManager.h
 
     platform/mediarecorder/MediaRecorderPrivateEncoder.h
@@ -915,20 +733,9 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
 
     platform/mediastream/cocoa/AudioMediaStreamTrackRendererInternalUnit.h
     platform/mediastream/cocoa/AudioMediaStreamTrackRendererUnit.h
-    # MAVERICKS_BACKPORT: export BaseAudioMediaStreamTrackRendererUnit.h (shared base for the audio renderer unit).
-    platform/mediastream/cocoa/BaseAudioMediaStreamTrackRendererUnit.h
 
-    # MAVERICKS_BACKPORT: export the mac capture-source headers (getUserMedia camera/audio/screen capture).
-    platform/mediastream/mac/AVVideoCaptureSource.h
-    platform/mediastream/mac/BaseAudioCaptureUnit.h
-    platform/mediastream/mac/CoreAudioCaptureDeviceManager.h
-    platform/mediastream/mac/CoreAudioCaptureSource.h
-    platform/mediastream/mac/CoreAudioCaptureUnit.h
     platform/mediastream/mac/RealtimeIncomingVideoSourceCocoa.h
     platform/mediastream/mac/RealtimeVideoUtilities.h
-    # MAVERICKS_BACKPORT: export the ScreenCaptureKit capture headers.
-    platform/mediastream/mac/ScreenCaptureKitCaptureSource.h
-    platform/mediastream/mac/ScreenCaptureKitSharingSessionManager.h
     platform/mediastream/mac/WebAudioSourceProviderCocoa.h
 
     platform/mediastream/libwebrtc/LibWebRTCProviderCocoa.h
@@ -945,8 +752,6 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/network/cocoa/CredentialCocoa.h
     platform/network/cocoa/HTTPCookieAcceptPolicyCocoa.h
     platform/network/cocoa/ProtectionSpaceCocoa.h
-    # MAVERICKS_BACKPORT: export RangeResponseGenerator.h (byte-range media response handling).
-    platform/network/cocoa/RangeResponseGenerator.h
     platform/network/cocoa/WebCoreNSURLSession.h
 
     platform/network/mac/AuthenticationMac.h
@@ -954,12 +759,7 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     platform/network/mac/UTIUtilities.h
     platform/network/mac/WebCoreURLResponse.h
 
-    # MAVERICKS_BACKPORT: export WebRTCVideoDecoder.h (GStreamer/WebRTC video-codecs path).
-    platform/video-codecs/cocoa/WebRTCVideoDecoder.h
-
     rendering/cocoa/RenderThemeCocoa.h
-    # MAVERICKS_BACKPORT: export RenderThemeMac.h (restored Aqua form-control theme; needed by the WK build).
-    rendering/mac/RenderThemeMac.h
 
     rendering/ios/RenderThemeIOS.h
 
@@ -978,8 +778,6 @@ list(APPEND WebCore_IDL_FILES
     Modules/applepay/ApplePayDateComponents.idl
     Modules/applepay/ApplePayDateComponentsRange.idl
     Modules/applepay/ApplePayDeferredPaymentRequest.idl
-    # MAVERICKS_BACKPORT: also generate the ApplePayDisbursementRequest IDL binding.
-Modules/applepay/ApplePayDisbursementRequest.idl
     Modules/applepay/ApplePayDetailsUpdateBase.idl
     Modules/applepay/ApplePayError.idl
     Modules/applepay/ApplePayErrorCode.idl
@@ -1036,16 +834,9 @@ set(ADDITIONAL_BINDINGS_DEPENDENCIES
     ${WORKERGLOBALSCOPE_CONSTRUCTORS_FILE}
     ${DEDICATEDWORKERGLOBALSCOPE_CONSTRUCTORS_FILE}
 )
-# MAVERICKS_BACKPORT: pass bare macro names (no =1) to the CSS value preprocessor; the value-1 form trips the in-tree makeprop/CSS preprocessor here.
-set(CSS_VALUE_PLATFORM_DEFINES "WTF_PLATFORM_MAC WTF_PLATFORM_COCOA ENABLE_APPLE_PAY_NEW_BUTTON_TYPES")
+set(CSS_VALUE_PLATFORM_DEFINES "WTF_PLATFORM_MAC=1 WTF_PLATFORM_COCOA=1 ENABLE_APPLE_PAY_NEW_BUTTON_TYPES=1")
 
-# MAVERICKS_BACKPORT (#68): also build the classic Safari 7 / Mavericks media-controls script.
-# make-js-file-arrays.py names the array from the basename, emitting mediaControlsAppleJavaScript,
-# which RenderThemeCocoa serves on the 10.9 deployment target instead of ModernMediaControlsJavaScript.
-set(WebCore_USER_AGENT_SCRIPTS
-    ${WebCore_DERIVED_SOURCES_DIR}/ModernMediaControls.js
-    ${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsApple.js
-)
+set(WebCore_USER_AGENT_SCRIPTS ${WebCore_DERIVED_SOURCES_DIR}/ModernMediaControls.js)
 
 list(APPEND WebCoreTestSupport_LIBRARIES PRIVATE WebCore)
 list(APPEND WebCoreTestSupport_PRIVATE_HEADERS testing/cocoa/WebArchiveDumpSupport.h)
@@ -1060,78 +851,19 @@ list(APPEND WebCoreTestSupport_SOURCES
     testing/ServiceWorkerInternals.mm
 
     testing/cocoa/WebArchiveDumpSupport.mm
-    # MAVERICKS_BACKPORT: WebKitTestRunner's UIScriptController and AccessibilityUIElementMac call
-    # WebCoreTestSupport::serializationForCSS(NSColor *), but this source was missing from the Mac
-    # WebCoreTestSupport build, leaving the symbol undefined when linking WebKitTestRunner.
-    testing/cocoa/CocoaColorSerialization.mm
 )
 list(APPEND WebCoreTestSupport_IDL_FILES
     testing/MockPaymentAddress.idl
     testing/MockPaymentContactFields.idl
     testing/MockPaymentCoordinator.idl
     testing/MockPaymentError.idl
-# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-#     testing/MockWebAuthenticationConfiguration.idl
-# (end MAVERICKS_BACKPORT restored block)
+    testing/MockWebAuthenticationConfiguration.idl
 )
 
 if (NOT EXISTS ${CMAKE_BINARY_DIR}/WebCore/WebKitAvailability.h)
     file(COPY platform/cocoa/WebKitAvailability.h DESTINATION ${CMAKE_BINARY_DIR}/WebCore)
 endif ()
-# MAVERICKS_BACKPORT: vendored libwebp for the WEBPImageDecoder fallback (ImageIO on
-# this build can't decode WebP). Static libs at MavericksSupport/deps/libwebp/lib.
-# IMPORTANT: changing this section invalidates WebCore IPC structs — must rebuild
-# WebKit too (`ninja WebKit`) or Safari crashes in IPC::ArgumentCoder decode.
-list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-    "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/include"
-    "${WEBCORE_DIR}/platform/image-decoders"
-    "${WEBCORE_DIR}/platform/image-decoders/webp"
-)
-list(APPEND WebCore_LIBRARIES
-    "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/lib/libwebpdemux.a"
-    "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/lib/libwebp.a"
-    "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/lib/libsharpyuv.a"
-)
 
-# MAVERICKS_BACKPORT: libgcrypt powers WebCrypto (replaces the cocoa CommonCrypto path).
-# libtasn1 handles SPKI/PKCS8 ASN.1 parsing for the gcrypt EC/RSA importers.
-# All built in-tree by MavericksSupport/deps/build_deps.sh; static link.
-list(APPEND WebCore_LIBRARIES
-    "${MAVERICKS_DEPS}/lib/libgcrypt.a"
-    "${MAVERICKS_DEPS}/lib/libtasn1.a"
-    "${MAVERICKS_DEPS}/lib/libgpg-error.a"
-)
-
-# MAVERICKS_BACKPORT: WOFF2 web-font decoder (USE_WOFF2=ON). Our modern UA makes Google Fonts/Material
-# Icons serve WOFF2; WOFFFileFormat.cpp::convertWOFFToSfntIfNecessary then calls woff2::ConvertWOFF2ToTTF
-# (Brotli-decompress + table reconstruction). Built locally from google/woff2 + google/brotli (static).
-# WebCore/CMakeLists.txt does `list(APPEND WebCore_LIBRARIES WOFF2::dec)` when USE_WOFF2 is ON, so we
-# define that imported target here (instead of via find_package) and carry brotli as interface deps.
-if (NOT TARGET WOFF2::dec)
-    add_library(WOFF2::dec UNKNOWN IMPORTED GLOBAL)
-    set_target_properties(WOFF2::dec PROPERTIES
-        IMPORTED_LOCATION "${MAVERICKS_DEPS}/lib/libwoff2dec.a"
-        INTERFACE_INCLUDE_DIRECTORIES "${MAVERICKS_DEPS}/include"
-        INTERFACE_LINK_LIBRARIES "${MAVERICKS_DEPS}/lib/libbrotlidec.a;${MAVERICKS_DEPS}/lib/libbrotlicommon.a"
-    )
-endif ()
-list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
-    "${MAVERICKS_DEPS}/include"
-)
-
-# MAVERICKS_BACKPORT: the AVSpeechSynthesizer polyfill is written for ARC.
-set_source_files_properties(platform/cocoa/SpeechSynthesisAVFoundationPolyfill_109.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
-
-# MAVERICKS_BACKPORT: re-export /usr/lib/libobjc.A.dylib through WebCore, exactly as stock 10.9 did.
-# (Verified against the stock framework: stock WebCore.framework/WebCore carries an LC_REEXPORT_DYLIB for
-# /usr/lib/libobjc.A.dylib, and stock WebKit.framework/WebKit re-exports WebCore — so plug-ins resolve the
-# old ObjC "fixup" dispatch symbols via a WebKit -> WebCore -> libobjc chain.) Legacy native plug-ins —
-# Safari Web Clips' WebClip.plugin and Dashboard widget Plugin bundles such as Sol.wdgt's
-# TimeZoneHelper.bundle and the Dictionary widget — two-level-bind __objc_empty_cache / __objc_empty_vtable
-# / _objc_msgSend_fixup / _objc_msgSendSuper2_fixup "from WebKit" and reach them through that chain. The
-# modern build SDK's libobjc.tbd dropped those symbols, but the re-export binds dynamically against the
-# running 10.9 /usr/lib/libobjc.A.dylib (install_name /usr/lib/libobjc.A.dylib), which still vends all four.
-# WebKitLegacy already re-exports this WebCore, so WebKit.framework reaches libobjc transitively, matching
-# stock; nothing else needs the flag.
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-reexport-lobjc")
-
+# MAVERICKS_BACKPORT: single seam. Every change this port makes to WebCore's Mac CMake configuration
+# lives in the file below, so this one stays byte-upstream and never conflicts on an upstream merge.
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WebCorePlatformMavericks.cmake)

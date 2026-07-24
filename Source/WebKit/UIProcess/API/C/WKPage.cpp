@@ -1309,11 +1309,49 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
         explicit LoaderClient(const WKPageLoaderClientBase* client)
         {
             initialize(client);
-            // MAVERICKS_BACKPORT: Safari 9.1.3 still calls the deprecated WKPageSetPageLoaderClient
-            // with the old callbacks set. The asserts here intentionally forbid that to
-            // force migration to WKPageNavigationClient. To let Safari launch, we instead
-            // ignore those callbacks silently — Safari will not get those events but it
-            // will at least be runnable for compositor testing.
+            // MAVERICKS_BACKPORT: upstream RELEASE_ASSERTs that none of the legacy loader callbacks
+            // are set, to force callers onto WKPageNavigationClient. The Safari this port targets
+            // still uses WKPageSetPageLoaderClient with those callbacks, so every assert below would
+            // fire before the browser could open a window. They are dropped rather than satisfied;
+            // the callbacks Safari actually depends on are forwarded individually further down (see
+            // the legacy first-layout and legacy-callback markers). Upstream's asserts were:
+            // // WKPageSetPageLoaderClient is deprecated. Use WKPageSetPageNavigationClient instead.
+            // RELEASE_ASSERT(!m_client.didFinishDocumentLoadForFrame);
+            // RELEASE_ASSERT(!m_client.didSameDocumentNavigationForFrame);
+            // RELEASE_ASSERT(!m_client.didReceiveTitleForFrame);
+            // RELEASE_ASSERT(!m_client.didFirstLayoutForFrame);
+            // RELEASE_ASSERT(!m_client.didRemoveFrameFromHierarchy);
+            // RELEASE_ASSERT(!m_client.didDisplayInsecureContentForFrame);
+            // RELEASE_ASSERT(!m_client.didRunInsecureContentForFrame);
+            // RELEASE_ASSERT(!m_client.canAuthenticateAgainstProtectionSpaceInFrame);
+            // RELEASE_ASSERT(!m_client.didReceiveAuthenticationChallengeInFrame);
+            // RELEASE_ASSERT(!m_client.didStartProgress);
+            // RELEASE_ASSERT(!m_client.didChangeProgress);
+            // RELEASE_ASSERT(!m_client.didFinishProgress);
+            // RELEASE_ASSERT(!m_client.processDidBecomeUnresponsive);
+            // RELEASE_ASSERT(!m_client.processDidBecomeResponsive);
+            // RELEASE_ASSERT(!m_client.shouldGoToBackForwardListItem);
+            // RELEASE_ASSERT(!m_client.didFailToInitializePlugin_deprecatedForUseWithV0);
+            // RELEASE_ASSERT(!m_client.didDetectXSSForFrame);
+            // RELEASE_ASSERT(!m_client.didNewFirstVisuallyNonEmptyLayout_unavailable);
+            // RELEASE_ASSERT(!m_client.willGoToBackForwardListItem);
+            // RELEASE_ASSERT(!m_client.interactionOccurredWhileProcessUnresponsive);
+            // RELEASE_ASSERT(!m_client.pluginDidFail_deprecatedForUseWithV1);
+            // RELEASE_ASSERT(!m_client.didReceiveIntentForFrame_unavailable);
+            // RELEASE_ASSERT(!m_client.registerIntentServiceForFrame_unavailable);
+            // RELEASE_ASSERT(!m_client.pluginLoadPolicy_deprecatedForUseWithV2);
+            // RELEASE_ASSERT(!m_client.pluginDidFail);
+            // RELEASE_ASSERT(!m_client.pluginLoadPolicy);
+            // RELEASE_ASSERT(!m_client.navigationGestureDidBegin);
+            // RELEASE_ASSERT(!m_client.navigationGestureWillEnd);
+            // RELEASE_ASSERT(!m_client.navigationGestureDidEnd);
+            // m_client.didCommitLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
+            // m_client.didStartProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
+            // m_client.didReceiveServerRedirectForProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
+            // m_client.didFailProvisionalLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(userData), m_client.base.clientInfo);
+            // m_client.didFinishLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
+            // m_client.didFailLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(userData), m_client.base.clientInfo);
+            // m_client.didFirstVisuallyNonEmptyLayoutForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
         }
 
     private:

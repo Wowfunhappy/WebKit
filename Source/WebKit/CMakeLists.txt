@@ -35,6 +35,37 @@ set(WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/NetworkProcess/webtransport"
     "${WEBKIT_DIR}/Platform"
     "${WEBKIT_DIR}/Platform/IPC"
+    # MAVERICKS_BACKPORT: upstream's CMake lists Platform/IPC but not its darwin/ subdirectory, nor any of
+    # the directories below, so bare-name imports of headers living there do not resolve on the CMake port.
+    # Apple builds this tree with Xcode, whose header maps find any header by basename regardless of
+    # directory; the CMake port lists these directories as SOURCES but never as include paths. Nothing here
+    # is 10.9-specific.
+    #
+    # This replaces TWO workarounds that were in the tree, both now deleted:
+    #   * verbatim COPIES of MachPort.h in Platform/IPC/ and Platform/IPC/cocoa/ -- two extra copies of one
+    #     header, each needing to be kept in sync by hand.
+    #   * EMPTY STUB headers (19 of them: PlaybackSessionInterfaceAVKit.h, UIKitUtilities.h, WKVideoView.h,
+    #     VideoReceiverEndpointMessage.h, ...) placed wherever an includer would find them, so a bare-name
+    #     import would hit an empty file instead of the iOS header. That was unnecessary: EVERY one of those
+    #     real headers already guards its whole body -- ENABLE(LINEAR_MEDIA_PLAYER), HAVE(AVEXPERIENCECONTROLLER),
+    #     PLATFORM(IOS_FAMILY) -- all false on this build, so including the REAL header yields nothing, which
+    #     is exactly what upstream's Mac build does. The stubs hand-reimplemented that no-op by fiat, and
+    #     would have gone on silently discarding declarations if a guard ever became true.
+    # Verified before adding: no header basename in these directories collides with one already reachable.
+    "${WEBKIT_DIR}/Platform/IPC/darwin"
+    "${WEBKIT_DIR}/Platform/ios"
+    "${WEBKIT_DIR}/Platform/spi/ios"
+    "${WEBKIT_DIR}/UIProcess/ios"
+    "${WEBKIT_DIR}/UIProcess/WebsiteData/Cocoa"
+    "${WEBKIT_DIR}/GPUProcess/media/cocoa"
+    "${WEBKIT_DIR}/WebProcess/Plugins/PDF/UnifiedPDF"
+    # Feature-gated API sources whose bodies are #if'd out on this build (WK_WEB_EXTENSIONS, WEB_PUSH,
+    # WRITING_TOOLS all off) but whose imports sit above the guard and reference a sibling header by bare
+    # name. Listed as SOURCES but not include paths by upstream's CMake port.
+    "${WEBKIT_DIR}/WebProcess/Extensions/Cocoa"
+    "${WEBKIT_DIR}/UIProcess/Extensions/Cocoa"
+    "${WEBKIT_DIR}/webpushd/webpushtool"
+    "${WEBKIT_DIR}/WebKitSwift/WritingTools"
     "${WEBKIT_DIR}/Shared"
     "${WEBKIT_DIR}/Shared/API"
     "${WEBKIT_DIR}/Shared/API/c"
@@ -302,9 +333,6 @@ set(WebKit_MESSAGES_IN_FILES
 
     UIProcess/Media/RemoteMediaSessionCoordinatorProxy
     UIProcess/Media/RemoteMediaSessionManagerProxy
-    # MAVERICKS_BACKPORT: WebPageProxy.cpp includes VideoPresentationManagerProxyMessages.h
-    # unconditionally; generate it so the WK2 framework compiles.
-    UIProcess/Cocoa/VideoPresentationManagerProxy
 
     UIProcess/SpeechRecognitionRemoteRealtimeMediaSourceManager
     UIProcess/SpeechRecognitionServer
@@ -798,10 +826,20 @@ else ()
     add_definitions(${EGL_DEFINITIONS})
 endif ()
 
+# MAVERICKS_BACKPORT: the libwebrtc source include dirs are needed even when USE_LIBWEBRTC is OFF, because
+# PAL/pal/spi/cf/CoreMediaSPI.h includes <webrtc/webkit_sdk/WebKit/CMBaseObjectSPI.h> for the CMBase types.
+# WebCore and PAL already add this path unconditionally (WebCore/PlatformMac.cmake, PAL/pal/PlatformMac.cmake);
+# leaving it out for WebKit made that header take a fallback forward-declaration path, so WebCore and WebKit
+# TUs declared CMBaseVTable as two different types (anonymous-struct typedef vs named incomplete struct) --
+# an ODR violation that only linked because Itanium mangling omits return types. Hoist the include dirs out
+# of the guard; only the actual webrtc library link stays conditional.
+list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES "${THIRDPARTY_DIR}/libwebrtc/Source/"
+    "${THIRDPARTY_DIR}/libwebrtc/Source/webrtc")
+
 if (USE_LIBWEBRTC)
-    list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES "${THIRDPARTY_DIR}/libwebrtc/Source/"
-        "${THIRDPARTY_DIR}/libwebrtc/Source/webrtc"
-        "${THIRDPARTY_DIR}/libwebrtc/Source/third_party/abseil-cpp")
+    # MAVERICKS_BACKPORT: the other two paths of this list moved above the guard (see the note there);
+    # abseil-cpp is only needed by libwebrtc's own headers, so it stays conditional.
+    list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES "${THIRDPARTY_DIR}/libwebrtc/Source/third_party/abseil-cpp")
     list(APPEND WebKit_LIBRARIES webrtc)
 endif ()
 

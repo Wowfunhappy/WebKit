@@ -164,9 +164,22 @@ void NetworkTransportSession::datagramOutgoingHighWaterMarkUpdated(double)
     // FIXME: Use this value.
 }
 
-// MAVERICKS_BACKPORT: upstream guards these with #if !PLATFORM(COCOA); compiled unconditionally
-// here because the Cocoa stub omits them (no nw_connection_group_t on 10.9). create()/initialize()
-// remain in NetworkTransportSessionCocoa.mm.
+#if !PLATFORM(COCOA)
+RefPtr<NetworkTransportSession> NetworkTransportSession::create(NetworkConnectionToWebProcess&, WebTransportSessionIdentifier, URL&&, WebCore::WebTransportOptions&&, WebKit::WebPageProxyIdentifier&&, WebCore::ClientOrigin&&)
+{
+    return nullptr;
+}
+
+void NetworkTransportSession::initialize(CompletionHandler<void(std::optional<WebCore::WebTransportConnectionInfo>&&)>&& completionHandler)
+{
+    completionHandler(std::nullopt);
+}
+
+NetworkTransportSession::NetworkTransportSession()
+    : m_identifier(WebTransportSessionIdentifier::generate())
+{
+}
+
 void NetworkTransportSession::sendDatagram(std::optional<WebCore::WebTransportSendGroupIdentifier>, std::span<const uint8_t>, CompletionHandler<void(std::optional<WebCore::Exception>&&)>&& completionHandler)
 {
     completionHandler(std::nullopt);
@@ -195,8 +208,6 @@ bool NetworkTransportSession::isSessionClosed() const
 {
     return false;
 }
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
-// #endif
-// (end MAVERICKS_BACKPORT restored block)
+#endif
 
 }

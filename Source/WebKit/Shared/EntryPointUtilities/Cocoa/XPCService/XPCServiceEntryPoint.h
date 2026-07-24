@@ -32,8 +32,6 @@
 #import <JavaScriptCore/ExecutableAllocator.h>
 #import <wtf/CompletionHandler.h>
 #import <wtf/OSObjectPtr.h>
-// MAVERICKS_BACKPORT: pull in RunLoop.h so translation units that include this header (WKWebProcess.cpp et al.) resolve RunLoop on the 10.9 build.
-#import <wtf/RunLoop.h>
 #import <wtf/WTFProcess.h>
 #import <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 
@@ -100,9 +98,14 @@ void XPCServiceInitializer(OSObjectPtr<xpc_connection_t> connection, xpc_object_
 {
     XPCServiceInitializerDelegateType delegate(WTF::move(connection), initializerMessage);
 
-    // MAVERICKS_BACKPORT: keep the XPC service alive by starting a transaction; os_transaction_create
-    // (and the !USE(RUNNINGBOARD) setOSTransaction path upstream uses) is 10.10+, so use xpc_transaction_begin on 10.9.
-    xpc_transaction_begin();
+    // We don't want XPC to be in charge of whether the process should be terminated or not,
+    // so ensure that we have an outstanding transaction here. This is not needed when using
+    // RunningBoard because the UIProcess takes process assertions on behalf of its child processes.
+#if !USE(RUNNINGBOARD)
+    // Supress this warning for when this header file is included in WKWebProcess.cpp
+    // since os_transaction_create's annotation is only effective in Objective-C files.
+    SUPPRESS_RETAINPTR_CTOR_ADOPT setOSTransaction(adoptOSObject(os_transaction_create("WebKit XPC Service")));
+#endif
 
     AuxiliaryProcessInitializationParameters parameters;
 
@@ -132,35 +135,28 @@ void XPCServiceInitializer(OSObjectPtr<xpc_connection_t> connection, xpc_object_
 
     InitializeWebKit2();
 
-    if (!delegate.checkEntitlements()) { // MAVERICKS_BACKPORT: braced (vs upstream's brace-less single statement) for the 10.9 build.
+    if (!delegate.checkEntitlements())
         exitProcess(EXIT_FAILURE);
-    }
 
-    if (!delegate.getConnectionIdentifier(parameters.connectionIdentifier)) { // MAVERICKS_BACKPORT: braced (vs upstream's brace-less single statement) for the 10.9 build.
+    if (!delegate.getConnectionIdentifier(parameters.connectionIdentifier))
         exitProcess(EXIT_FAILURE);
-    }
 
-    if (!delegate.getClientIdentifier(parameters.clientIdentifier)) { // MAVERICKS_BACKPORT: braced (vs upstream's brace-less single statement) for the 10.9 build.
+    if (!delegate.getClientIdentifier(parameters.clientIdentifier))
         exitProcess(EXIT_FAILURE);
-    }
 
     // The host process may not have a bundle identifier (e.g. a command line app), so don't require one.
     delegate.getClientBundleIdentifier(parameters.clientBundleIdentifier);
 
     std::optional<WebCore::ProcessIdentifier> processIdentifier;
-    // MAVERICKS_BACKPORT: braced delegate-failure guard (vs upstream's brace-less single statement) for the 10.9 build.
-    if (!delegate.getProcessIdentifier(processIdentifier)) {
+    if (!delegate.getProcessIdentifier(processIdentifier))
         exitProcess(EXIT_FAILURE);
-    }
     parameters.processIdentifier = *processIdentifier;
 
-    // MAVERICKS_BACKPORT: braced delegate-failure guard (vs upstream's brace-less single statement) for the 10.9 build.
-    if (!delegate.getClientProcessName(parameters.uiProcessName)) {
+    if (!delegate.getClientProcessName(parameters.uiProcessName))
         exitProcess(EXIT_FAILURE);
-    }
 
     // Set the task default voucher to the current value (as propagated by XPC).
-    // MAVERICKS_BACKPORT: voucher_replace_default_voucher is 10.10+, so the default-voucher replacement is omitted on 10.9.
+    voucher_replace_default_voucher();
 
 #if HAVE(QOS_CLASSES)
     if (parameters.extraInitializationData.contains("always-runs-at-background-priority"_s))

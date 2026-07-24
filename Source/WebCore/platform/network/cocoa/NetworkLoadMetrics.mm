@@ -67,20 +67,29 @@ static Box<NetworkLoadMetrics> packageTimingData(MonotonicTime redirectStart, NS
 
 Box<NetworkLoadMetrics> copyTimingData(NSURLSessionTaskMetrics *incompleteMetrics, const NetworkLoadMetrics& metricsFromTask)
 {
-    // MAVERICKS_BACKPORT: NSURLSessionTaskTransactionMetrics is macOS 10.12+; return empty metrics on older macOS
-    UNUSED_PARAM(incompleteMetrics);
-    auto timing = Box<NetworkLoadMetrics>::create();
-    timing->failsTAOCheck = metricsFromTask.failsTAOCheck;
-    timing->hasCrossOriginRedirect = metricsFromTask.hasCrossOriginRedirect;
-    return timing;
+    RetainPtr<NSArray<NSURLSessionTaskTransactionMetrics *>> transactionMetrics = incompleteMetrics.transactionMetrics;
+    RetainPtr<NSURLSessionTaskTransactionMetrics> metrics = transactionMetrics.get().lastObject;
+    return packageTimingData(
+        dateToMonotonicTime(retainPtr(transactionMetrics.get().firstObject.fetchStartDate).get()),
+        retainPtr(metrics.get().fetchStartDate).get(),
+        retainPtr(metrics.get().domainLookupStartDate).get(),
+        retainPtr(metrics.get().domainLookupEndDate).get(),
+        retainPtr(metrics.get().connectStartDate).get(),
+        retainPtr(metrics.get().secureConnectionStartDate).get(),
+        retainPtr(metrics.get().connectEndDate).get(),
+        retainPtr(metrics.get().requestStartDate).get(),
+        retainPtr(metrics.get().responseStartDate).get(),
+        metrics.get().reusedConnection,
+        retainPtr(metrics.get().response.URL.scheme).get(),
+        incompleteMetrics.redirectCount,
+        metricsFromTask.failsTAOCheck,
+        metricsFromTask.hasCrossOriginRedirect
+    );
 }
 
 Box<NetworkLoadMetrics> copyTimingData(NSURLConnection *connection, const ResourceHandle& handle)
 {
-    // MAVERICKS_BACKPORT: -[NSURLConnection _timingData] is a newer CFNetwork SPI absent on 10.9 —
-    // calling it unguarded throws unrecognized-selector → std::terminate. Guard it; nil timing
-    // data yields empty best-effort metrics (all timing keys resolve to nil).
-    RetainPtr<NSDictionary> timingData = [connection respondsToSelector:@selector(_timingData)] ? [connection _timingData] : nil;
+    RetainPtr<NSDictionary> timingData = [connection _timingData];
 
     auto timingValue = [&](NSString *key) -> RetainPtr<NSDate> {
         if (RetainPtr<NSNumber> number = [timingData objectForKey:key]) {

@@ -1,6 +1,6 @@
 // wk_polyfill_runtime.c — the machinery behind wk_polyfill.h. Add polyfills there, not here.
 //
-// Two jobs, both driven by the __DATA,__wk_pfmap registry the macros emit:
+// Three jobs. The first two are driven by the __DATA,__wk_pfmap registry the macros emit:
 //
 //  1. Hand out 10.9's version of a symbol to a polyfill that wants it (WK_ORIGINAL), resolved on
 //     first use so nothing is dlopen'd at launch that the process never touches.
@@ -13,14 +13,20 @@
 //     registry-aware gives soft-linked symbols the same answer as link-time ones and keeps
 //     SoftLinking.h byte-identical to upstream.
 //
+//  3. Answer objc_getClass() for the class stubs in polyfills/classes.m, which SoftLinking.h
+//     resolves by name and would otherwise never see, since each stub is registered under a private
+//     runtime name to keep it out of the host app's way. Driven by the separate __DATA,__wk_clsmap
+//     registry, because those stubs live in a different image -- see lookupPolyfillClass.
+//
 // Scope: this file ships in libpolyfill.a, which is linked only into WebKit's own binaries, so the
-// dlsym override applies to WebKit's lookups alone. A host app loading WebKit is unaffected.
+// overrides apply to WebKit's lookups alone. A host app loading WebKit is unaffected.
 
 #include "wk_polyfill.h"
 
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <mach-o/getsect.h>
+#include <objc/runtime.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -241,6 +247,70 @@ WK_POLYFILL_REPLACES(NULL, void *, dlsym, (void *handle, const char *symbol))
     if (!systemAnswer)
         dlerror();
     return entry->address;
+}
+
+// The class stubs live in libpolyfill_classes.dylib, not in this image, so their registry cannot be
+// read out of our own __wk_pfmap the way wk_polyfill_init reads the function/constant one. Walk the
+// loaded images for the __wk_clsmap section instead. This runs only when the system has no class of
+// that name -- a soft-link's one-shot dispatch_once for a class 10.9 lacks -- so a linear walk costs
+// nothing measurable and, like lookup(), it allocates nothing and touches only mapped memory.
+//
+// No caching: an image carrying stubs can arrive at any time (libpolyfill_classes.dylib is loaded
+// with the framework that pulled it in, and the frameworks load in whatever order the host app
+// causes), so a cache built on the first miss could be built before the answer exists.
+static void *lookupPolyfillClass(const char *name)
+{
+    uint32_t imageCount = _dyld_image_count();
+    for (uint32_t i = 0; i < imageCount; i++) {
+        const wk_mach_header *header = (const wk_mach_header *)_dyld_get_image_header(i);
+        if (!header)
+            continue;
+        unsigned long size = 0;
+        uint8_t *section = getsectiondata(header, "__DATA", "__wk_clsmap", &size);
+        if (!section)
+            continue;
+        struct wk_polyfill_class_entry *classEntries = (struct wk_polyfill_class_entry *)section;
+        size_t count = size / sizeof(*classEntries);
+        for (size_t j = 0; j < count; j++) {
+            if (strcmp(classEntries[j].name, name))
+                continue;
+            if (classEntries[j].cls)
+                return classEntries[j].cls;
+            return classEntries[j].resolve ? classEntries[j].resolve() : NULL;
+        }
+    }
+    return NULL;
+}
+
+// objc_getClass for WebKit's own binaries, the class-shaped counterpart of the dlsym override above.
+//
+// SoftLinking.h resolves a soft-linked class by name through objc_getClass, so a class the polyfill
+// layer supplies is invisible to it: classes.m registers each stub under a private runtime name on
+// purpose, which is what keeps the system name free for the host app. Without this, a required
+// soft-link of an absent class RELEASE_ASSERTs and an optional one yields nil -- in both cases
+// ignoring a stub that is loaded and able to answer, which is the same failure the dlsym override
+// exists to prevent for constants and functions.
+//
+// The system is asked first, so this can only ever answer where 10.9 has no such class, and only for
+// a name classes.m explicitly registered. A host app is unaffected: it calls libobjc's objc_getClass,
+// not this one.
+WK_POLYFILL_REPLACES("/usr/lib/libobjc.A.dylib", Class, objc_getClass, (const char *name))
+{
+    wk_pf_fn_objc_getClass systemGetClass = WK_ORIGINAL(objc_getClass);
+    if (!systemGetClass) {
+        // Same reasoning as resolveSystemDlsym: every objc_getClass call in this image comes here,
+        // and there is nothing to answer with but libobjc's. Silently returning NULL would surface
+        // far away as classes that exist appearing not to.
+        fprintf(stderr, "[wk_polyfill] FATAL: libobjc.A.dylib does not export objc_getClass, so this "
+                        "image cannot look up any class by name.\n");
+        fflush(stderr);
+        abort();
+    }
+
+    Class systemAnswer = systemGetClass(name);
+    if (systemAnswer || !name)
+        return systemAnswer;
+    return (Class)lookupPolyfillClass(name);
 }
 
 static void report(void);

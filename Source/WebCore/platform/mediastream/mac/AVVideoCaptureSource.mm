@@ -62,8 +62,7 @@
 using namespace WebCore;
 
 @interface AVCaptureDeviceFormat (AVCaptureDeviceFormat_New_API)
-// MAVERICKS_BACKPORT: untyped NSArray * (lightweight generic dropped for the 10.9 SDK/clang).
-@property (nonatomic, readonly) NSArray *supportedMaxPhotoDimensions;
+@property (nonatomic, readonly) NSArray<NSValue *> *supportedMaxPhotoDimensions;
 @end
 
 @interface AVCapturePhotoSettings (AVCapturePhotoSettings_New_API)
@@ -258,34 +257,15 @@ static double cameraZoomScaleFactor(AVCaptureDeviceType deviceType)
 #endif
 }
 
-// MAVERICKS_BACKPORT: -[AVCaptureDevice deviceType] is macOS 10.15+ and -[AVCaptureDevice portraitEffectActive]
-// is macOS 12+. Neither exists on 10.9 — the VM's AVCaptureDALDevice throws unrecognized-selector and
-// crashes the whole capture path (this was the getUserMedia crash). Guard both behind respondsToSelector.
-// nil is a safe AVCaptureDeviceType sentinel: it equals no AVCaptureDeviceType constant, indexOfObject:
-// returns NSNotFound, and cameraZoomScaleFactor() falls through to 1.0.
-static AVCaptureDeviceType deviceTypeOrNil(AVCaptureDevice *device)
-{
-    return [device respondsToSelector:@selector(deviceType)] ? [device deviceType] : nil;
-}
-
-static BOOL devicePortraitEffectActive(AVCaptureDevice *device)
-{
-    return [device respondsToSelector:@selector(portraitEffectActive)] ? device.portraitEffectActive : NO;
-}
-
 AVVideoCaptureSource::AVVideoCaptureSource(AVCaptureDevice* avDevice, const CaptureDevice& device, MediaDeviceHashSalts&& hashSalts, std::optional<PageIdentifier> pageIdentifier)
     : RealtimeVideoCaptureSource(device, WTF::move(hashSalts), pageIdentifier)
     , m_objcObserver(adoptNS([[WebCoreAVVideoCaptureSourceObserver alloc] initWithCaptureSource:this]))
     , m_device(avDevice)
-    // MAVERICKS_BACKPORT: deviceTypeOrNil() guards -[AVCaptureDevice deviceType] (10.15+) absent on 10.9.
-    , m_zoomScaleFactor(cameraZoomScaleFactor(deviceTypeOrNil(avDevice)))
+    , m_zoomScaleFactor(cameraZoomScaleFactor([avDevice deviceType]))
     , m_defaultTorchMode((int64_t)[m_device torchMode])
 {
     [m_device addObserver:m_objcObserver.get() forKeyPath:@"suspended" options:NSKeyValueObservingOptionNew context:(void *)nil];
-    // MAVERICKS_BACKPORT: only observe portraitEffectActive where it exists (macOS 12+); KVO on a key the
-    // device doesn't implement is unsafe on 10.9.
-    if ([m_device respondsToSelector:@selector(portraitEffectActive)])
-        [m_device addObserver:m_objcObserver.get() forKeyPath:@"portraitEffectActive" options:NSKeyValueObservingOptionNew context:(void *)nil];
+    [m_device addObserver:m_objcObserver.get() forKeyPath:@"portraitEffectActive" options:NSKeyValueObservingOptionNew context:(void *)nil];
 }
 
 AVVideoCaptureSource::~AVVideoCaptureSource()
@@ -294,9 +274,7 @@ AVVideoCaptureSource::~AVVideoCaptureSource()
 
     [m_objcObserver disconnect];
     [m_device removeObserver:m_objcObserver.get() forKeyPath:@"suspended"];
-    // MAVERICKS_BACKPORT: only remove the portraitEffectActive observer if it was registered (key is 12+, absent on 10.9).
-    if ([m_device respondsToSelector:@selector(portraitEffectActive)])
-        [m_device removeObserver:m_objcObserver.get() forKeyPath:@"portraitEffectActive"];
+    [m_device removeObserver:m_objcObserver.get() forKeyPath:@"portraitEffectActive"];
 
     if (!m_session)
         return;
@@ -528,8 +506,7 @@ const RealtimeMediaSourceSettings& AVVideoCaptureSource::settings()
     settings.setHeight(size.height());
     settings.setDeviceId(hashedId());
     settings.setGroupId(hashedGroupId());
-    // MAVERICKS_BACKPORT: devicePortraitEffectActive() guards portraitEffectActive (12+) absent on 10.9.
-    settings.setBackgroundBlur(!!devicePortraitEffectActive(device()));
+    settings.setBackgroundBlur(!!device().portraitEffectActive);
 
     RealtimeMediaSourceSupportedConstraints supportedConstraints;
     supportedConstraints.setSupportsDeviceId(true);
@@ -607,8 +584,7 @@ const RealtimeMediaSourceCapabilities& AVVideoCaptureSource::capabilities()
         capabilities.setTorch(true);
     }
 
-    // MAVERICKS_BACKPORT: devicePortraitEffectActive() guards portraitEffectActive (12+) absent on 10.9.
-    capabilities.setBackgroundBlur(devicePortraitEffectActive(device()) ? RealtimeMediaSourceCapabilities::BackgroundBlur::On : RealtimeMediaSourceCapabilities::BackgroundBlur::Off);
+    capabilities.setBackgroundBlur(device().portraitEffectActive ? RealtimeMediaSourceCapabilities::BackgroundBlur::On : RealtimeMediaSourceCapabilities::BackgroundBlur::Off);
 
 #if PLATFORM(IOS_FAMILY)
     supportedConstraints.setSupportsPowerEfficient(true);
@@ -688,13 +664,11 @@ IntSize AVVideoCaptureSource::maxPhotoSizeForActiveFormat(AVCaptureDeviceFormat 
 {
     ASSERT([format respondsToSelector:@selector(supportedMaxPhotoDimensions)]);
 
-    // MAVERICKS_BACKPORT: untyped NSArray * (the AVCaptureDeviceFormat category drops the lightweight generic).
-    NSArray *maxPhotoDimensions = format.supportedMaxPhotoDimensions;
+    NSArray<NSValue*> *maxPhotoDimensions = format.supportedMaxPhotoDimensions;
     if (!maxPhotoDimensions.count)
         return { };
 
-    // MAVERICKS_BACKPORT: cast firstObject to NSValue * since maxPhotoDimensions is an untyped NSArray * here.
-    auto bestMaxPhotoSize = ((NSValue *)maxPhotoDimensions.firstObject).CMVideoDimensionsValue;
+    auto bestMaxPhotoSize = maxPhotoDimensions.firstObject.CMVideoDimensionsValue;
     for (NSValue *value in maxPhotoDimensions) {
         CMVideoDimensions dimensions = value.CMVideoDimensionsValue;
         if (dimensions.width >= requestedSize.width() && dimensions.height >= requestedSize.height()) {
@@ -856,8 +830,7 @@ double AVVideoCaptureSource::facingModeFitnessScoreAdjustment() const
     if ([device() position] != AVCaptureDevicePositionBack)
         return 0;
 
-    // MAVERICKS_BACKPORT: deviceTypeOrNil() guards -[AVCaptureDevice deviceType] (10.15+) absent on 10.9.
-    auto relativePriority = [cameraCaptureDeviceTypes() indexOfObject:deviceTypeOrNil(device())];
+    auto relativePriority = [cameraCaptureDeviceTypes() indexOfObject:[device() deviceType]];
     if (relativePriority == NSNotFound)
         relativePriority = cameraCaptureDeviceTypes().count;
 
@@ -880,11 +853,7 @@ void AVVideoCaptureSource::applyFrameRateAndZoomWithPreset(double requestedFrame
             return;
 
         @try {
-            // MAVERICKS_BACKPORT: -[AVCaptureDevice setVideoZoomFactor:] is iOS-only (Macs have no
-            // camera zoom; the modern SDK marks it API_UNAVAILABLE(macos)). Skip it off iOS.
-#if PLATFORM(IOS_FAMILY)
             [device() setVideoZoomFactor:requestedZoom];
-#endif // MAVERICKS_BACKPORT: setVideoZoomFactor: is API_UNAVAILABLE(macos)
             m_currentZoom = requestedZoom;
         } @catch(NSException *exception) {
             ERROR_LOG_IF_POSSIBLE(LOGIDENTIFIER, "error applying zoom ", exception.name, ", reason : ", exception.reason);
@@ -1102,16 +1071,11 @@ void AVVideoCaptureSource::updateTorch()
     auto* device = this->device();
     @try {
         if (torch()) {
-            // MAVERICKS_BACKPORT: torch-on path is iOS-only (see comment below).
-#if PLATFORM(IOS_FAMILY)
-            // -[AVCaptureDevice setTorchModeOnWithLevel:error:] is API_UNAVAILABLE(macos); torch() is
-            // always false on macOS, so the torch-on path is iOS-only.
             NSError *error = nil;
             if (![device setTorchModeOnWithLevel:AVCaptureMaxAvailableTorchLevel error:&error]) {
                 ERROR_LOG_IF(loggerPtr() && error, LOGIDENTIFIER, "error turning on torch ", error);
                 ERROR_LOG_IF(loggerPtr() && !error, LOGIDENTIFIER, "unknown error on torch");
             }
-#endif // MAVERICKS_BACKPORT: PLATFORM(IOS_FAMILY) torch-on guard
         } else
             [device setTorchMode:(AVCaptureTorchMode)m_defaultTorchMode];
 
@@ -1125,8 +1089,7 @@ void AVVideoCaptureSource::updateTorch()
 
 IntDegrees AVVideoCaptureSource::sensorOrientationFromVideoOutput()
 {
-    // MAVERICKS_BACKPORT: deviceTypeOrNil() guards -[AVCaptureDevice deviceType] (10.15+) absent on 10.9.
-    if (PAL::canLoad_AVFoundation_AVCaptureDeviceTypeExternalUnknown() && deviceTypeOrNil(device()) == AVCaptureDeviceTypeExternalUnknown)
+    if (PAL::canLoad_AVFoundation_AVCaptureDeviceTypeExternalUnknown() && [device() deviceType] == AVCaptureDeviceTypeExternalUnknown)
         return 0;
 
     AVCaptureConnection* connection = [m_videoOutput connectionWithMediaType:AVMediaTypeVideo];
@@ -1176,8 +1139,7 @@ bool AVVideoCaptureSource::setupSession()
 #if PLATFORM(APPLETV)
     [m_session setMultitaskingCameraAccessEnabled:YES];
 #elif PLATFORM(IOS_FAMILY)
-    // MAVERICKS_BACKPORT: call the unprefixed AVFoundation function (the PAL:: soft-link wrapper isn't generated here).
-    AVCaptureSessionSetAuthorizedToUseCameraInMultipleForegroundAppLayout(m_session.get());
+    PAL::AVCaptureSessionSetAuthorizedToUseCameraInMultipleForegroundAppLayout(m_session.get());
 #endif
     [m_session addObserver:m_objcObserver.get() forKeyPath:@"running" options:NSKeyValueObservingOptionNew context:(void *)nil];
 
@@ -1269,8 +1231,7 @@ void AVVideoCaptureSource::shutdownCaptureSession()
 void AVVideoCaptureSource::monitorOrientation(OrientationNotifier& notifier)
 {
 #if PLATFORM(IOS_FAMILY)
-    // MAVERICKS_BACKPORT: deviceTypeOrNil() guards -[AVCaptureDevice deviceType] (10.15+) absent on 10.9.
-    if (PAL::canLoad_AVFoundation_AVCaptureDeviceTypeExternalUnknown() && deviceTypeOrNil(device()) == AVCaptureDeviceTypeExternalUnknown)
+    if (PAL::canLoad_AVFoundation_AVCaptureDeviceTypeExternalUnknown() && [device() deviceType] == AVCaptureDeviceTypeExternalUnknown)
         m_useSensorAndDeviceOrientation = false;
 #endif
 

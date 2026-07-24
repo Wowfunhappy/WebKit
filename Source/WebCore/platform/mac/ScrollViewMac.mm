@@ -36,8 +36,10 @@
 #import "WebCoreFrameView.h"
 #import <wtf/BlockObjCExceptions.h>
 
-// MAVERICKS_BACKPORT: the NSScrollView -contentInsets forward-declaration is dropped — content insets are
-// 10.10+ and the platform code below never calls them on 10.9.
+@interface NSScrollView ()
+- (NSEdgeInsets)contentInsets;
+@end
+
 @interface NSWindow (WebWindowDetails)
 - (BOOL)_needsToResetDragMargins;
 - (void)_setNeedsToResetDragMargins:(BOOL)needs;
@@ -114,20 +116,44 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 FloatBoxExtent ScrollView::platformContentInsets() const
 {
-    // MAVERICKS_BACKPORT: NSScrollView content insets (10.10+) are unavailable on 10.9; they are always zero.
-    return { };
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+    auto insets = [protect(scrollView()) contentInsets];
+    return {
+        static_cast<float>(insets.top),
+        static_cast<float>(insets.right),
+        static_cast<float>(insets.bottom),
+        static_cast<float>(insets.left)
+    };
+    END_BLOCK_OBJC_EXCEPTIONS
+
+    return 0;
 }
 
-// MAVERICKS_BACKPORT: NSScrollView -contentInsets / -automaticallyAdjustsContentInsets (10.10+) are unavailable on 10.9; the parameter is unused.
-void ScrollView::platformSetContentInsets(const FloatBoxExtent&)
+void ScrollView::platformSetContentInsets(const FloatBoxExtent& insets)
 {
-    // MAVERICKS_BACKPORT: NSScrollView -contentInsets / -automaticallyAdjustsContentInsets (10.10+) are unavailable on 10.9.
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+    RetainPtr scrollView = this->scrollView();
+    if (insets.top() || insets.left() || insets.right() || insets.bottom())
+        scrollView.get().automaticallyAdjustsContentInsets = NO;
+    else
+        scrollView.get().automaticallyAdjustsContentInsets = YES;
+    scrollView.get().contentInsets = NSEdgeInsetsMake(insets.top(), insets.left(), insets.bottom(), insets.right());
+    END_BLOCK_OBJC_EXCEPTIONS
 }
 
 IntRect ScrollView::platformVisibleContentRect(bool includeScrollbars) const
 {
-    // MAVERICKS_BACKPORT: content insets (10.10+) are always zero on 10.9, so this is just the obscured-area rect.
-    return platformVisibleContentRectIncludingObscuredArea(includeScrollbars);
+    BEGIN_BLOCK_OBJC_EXCEPTIONS
+    IntRect visibleContentRect = platformVisibleContentRectIncludingObscuredArea(includeScrollbars);
+
+    RetainPtr scrollView = this->scrollView();
+    visibleContentRect.move([scrollView contentInsets].left, [scrollView contentInsets].top);
+    visibleContentRect.contract([scrollView contentInsets].left + [scrollView contentInsets].right, [scrollView contentInsets].top + [scrollView contentInsets].bottom);
+
+    return visibleContentRect;
+    END_BLOCK_OBJC_EXCEPTIONS
+
+    return IntRect();
 }
 
 IntSize ScrollView::platformVisibleContentSize(bool includeScrollbars) const
@@ -187,7 +213,11 @@ void ScrollView::platformSetScrollPosition(const IntPoint& scrollPoint)
     NSPoint floatPoint = scrollPoint;
     NSPoint tempPoint = { std::max(-[scrollView scrollOrigin].x, floatPoint.x), std::max(-[scrollView scrollOrigin].y, floatPoint.y) };  // Don't use NSMakePoint to work around 4213314.
 
-    // MAVERICKS_BACKPORT: no content insets (10.10+) to factor out of the scroll position on 10.9.
+    // AppKit has the inset factored into all of its scroll positions. In WebCore, we use positions that ignore
+    // the insets so that they are equivalent whether or not there is an inset.
+    tempPoint.x = tempPoint.x - [scrollView contentInsets].left;
+    tempPoint.y = tempPoint.y - [scrollView contentInsets].top;
+
     [protect(documentView()) scrollPoint:tempPoint];
     END_BLOCK_OBJC_EXCEPTIONS
 }
