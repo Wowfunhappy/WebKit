@@ -141,13 +141,15 @@ static id wsWebSocketTaskWithRequest(NSURLSession *, SEL, NSURLRequest *);
 // rewrites WebKit images' `webSocketTaskWithRequest:` selrefs to the PRIVATE `wk_webSocketTaskWithRequest:`,
 // and WK_POLYFILL_ADD installs that private method (backed by wsWebSocketTaskWithRequest) on each concrete
 // NSURLSession class-cluster class at runtime (the cluster's instances are __NSCFURLSession, NOT an
-// NSURLSession subclass, so every concrete class needs it). The PUBLIC selector stays absent on the class,
-// so an embedder's -respondsToSelector:@selector(webSocketTaskWithRequest:) still returns NO on 10.9 — no
-// 10.15+ misdetection (the meta-crash family the old process-global class_addMethod injection risked).
+// NSURLSession subclass, so every concrete class needs it). On 10.9 the cluster has exactly one concrete
+// class, __NSCFURLSession — probed on-host; __NSURLSessionLocal is a later OS's name and does not exist
+// here, and an entry no class can ever satisfy sits in the installer's retry list for the life of the
+// process. The PUBLIC selector stays absent on the class, so an embedder's
+// -respondsToSelector:@selector(webSocketTaskWithRequest:) still returns NO on 10.9 — no 10.15+
+// misdetection (the meta-crash family the old process-global class_addMethod injection risked).
 WK_POLYFILL_SEL("webSocketTaskWithRequest:", "wk_webSocketTaskWithRequest:");
 WK_POLYFILL_ADD("NSURLSession", "wk_webSocketTaskWithRequest:", wsWebSocketTaskWithRequest, "@@:@");
 WK_POLYFILL_ADD("__NSCFURLSession", "wk_webSocketTaskWithRequest:", wsWebSocketTaskWithRequest, "@@:@");
-WK_POLYFILL_ADD("__NSURLSessionLocal", "wk_webSocketTaskWithRequest:", wsWebSocketTaskWithRequest, "@@:@");
 
 @implementation WKWebSocketStream
 

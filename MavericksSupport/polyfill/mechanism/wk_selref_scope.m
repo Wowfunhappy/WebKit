@@ -29,6 +29,7 @@
 #import <mach-o/dyld_images.h>
 #import <mach-o/getsect.h>
 #import <mach/mach.h>
+#import <mach/mach_time.h>
 #import <pthread.h>
 #import <stdbool.h>
 #import <stdint.h>
@@ -61,6 +62,44 @@ static const char *wk_pubname[WK_MAX_SEL]; // public selector NAME (content matc
 static SEL wk_priv[WK_MAX_SEL];
 static int wk_count;                    // PUBLICATION POINT — see the synchronisation note below
 
+// Prefilters over the registry, so the two hot loops (every selref of every WebKit image in wk_patch,
+// every method of every class in wk_alias_class) pay one bit test for the overwhelmingly common case
+// of a name that is not registered, instead of a linear scan of the registry. Measured in Safari's UI
+// process at launch: 267,740 methods and 28,656 selrefs (the latter twice — the add-image registration
+// replays the constructor's sweep) against 144 entries, ~70 ms of which the filters remove all but a
+// few ms.
+//
+// The guarantee is one-sided: a clear bit means NO entry has this name/SEL, so skipping is safe; a set
+// bit means only "scan the registry", which stays the sole authority. Bits are set before the entry is
+// published through wk_count (release-store), so any reader that can reach an entry can also see its
+// bits — the same happens-before edge the arrays rely on. The reverse order would be a correctness
+// bug: a reachable entry whose bit is not yet visible would be skipped. A bit set for an entry the
+// reader cannot reach yet merely sends it into a scan that finds nothing, which is what no filter
+// would have done anyway. Bits are only ever set, never cleared, matching the append-only registry.
+enum { WK_FILTER_BITS = 16384 };
+static unsigned char wk_name_filter[WK_FILTER_BITS / 8];   // keyed on the selector NAME (wk_patch)
+static unsigned char wk_sel_filter[WK_FILTER_BITS / 8];    // keyed on the canonical SEL (wk_alias_class)
+
+static unsigned wk_name_hash(const char *s)
+{
+    unsigned h = 5381;   // djb2
+    while (*s)
+        h = h * 33 ^ (unsigned char)*s++;
+    return h & (WK_FILTER_BITS - 1);
+}
+
+// SELs are canonical pointers (sel_registerName on the writer side, method_getName of a realized
+// class's method on the reader side), so hashing the pointer is sound. The low 4 bits carry no
+// entropy (allocation alignment); fold in higher bits instead.
+static unsigned wk_sel_hash(SEL sel)
+{
+    uintptr_t p = (uintptr_t)(const void *)sel;
+    return (unsigned)((p >> 4) ^ (p >> 15)) & (WK_FILTER_BITS - 1);
+}
+
+#define WK_FILTER_SET(f, h)  ((f)[(h) >> 3] |= (unsigned char)(1u << ((h) & 7)))
+#define WK_FILTER_TEST(f, h) ((f)[(h) >> 3] & (1u << ((h) & 7)))
+
 // Synchronisation.
 //
 // Writers (wk_collect, wk_install_added) run from the constructor AND from the dyld add-image callback,
@@ -79,6 +118,13 @@ static int wk_count;                    // PUBLICATION POINT — see the synchro
 // entries that could be rewritten or freed a reader would additionally need reclamation (RCU/refcount),
 // but nothing here ever unpublishes.
 //
+// Startup-cost accounting, printed by the constructor when WK_POLYFILL_REPORT is set (the same switch
+// wk_polyfill_runtime.c's report() reads). This work runs in every process that loads WebKit, so what
+// it costs is worth being able to see. The patch counters are relaxed atomics because wk_patch runs
+// without the lock; the numbers are diagnostics, not part of any protocol.
+static long wk_stat_classes, wk_stat_methods;
+static long wk_stat_refs, wk_stat_rewritten;
+
 // Writers additionally take wk_reg_lock, so two concurrent dlopens cannot claim the same slot or race
 // each other's duplicate scan. wk_image_initializing takes it too — not for the registry, which it only
 // reads, but so that an arriving image cannot be aliased against a half-grown registry at the same
@@ -145,8 +191,11 @@ static void wk_alias_class(Class cls, int from, int to)
     Method *methods = class_copyMethodList(cls, &n);
     if (!methods)
         return;
+    wk_stat_methods += n;
     for (unsigned int i = 0; i < n; i++) {
         SEL sel = method_getName(methods[i]);
+        if (!WK_FILTER_TEST(wk_sel_filter, wk_sel_hash(sel)))
+            continue;   // definitely not a registered selector — see the prefilter note
         for (int j = from; j < to; j++) {
             if (wk_pub[j] != sel)
                 continue;
@@ -174,6 +223,7 @@ static void wk_alias_image(const char *path, int from, int to)
         Class cls = objc_getClass(names[i]);
         if (!cls)
             continue;
+        wk_stat_classes++;
         wk_alias_class(cls, from, to);                  // instance methods
         wk_alias_class(object_getClass(cls), from, to); // class methods, which live on the metaclass
     }
@@ -215,7 +265,10 @@ static void wk_collect(const struct mach_header *mh)
         wk_pub[slot] = p;
         wk_pubname[slot] = e[i].pub; // stable string literal in the image's __wk_selmap owner
         wk_priv[slot] = sel_registerName(e[i].priv);
-        // Publishes the three stores above to every reader that acquire-loads wk_count.
+        // The entry's filter bits, before the entry is reachable (see the prefilter note).
+        WK_FILTER_SET(wk_name_filter, wk_name_hash(e[i].pub));
+        WK_FILTER_SET(wk_sel_filter, wk_sel_hash(p));
+        // Publishes the stores above to every reader that acquire-loads wk_count.
         __atomic_store_n(&wk_count, slot + 1, __ATOMIC_RELEASE);
     }
     // The selectors just registered have never been looked for in the classes already loaded. Classes
@@ -240,6 +293,7 @@ static void wk_patch(const struct mach_header *mh)
     vm_protect(mach_task_self(), (vm_address_t)refs, size, false,
                VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
     int n = (int)(size / sizeof(SEL));
+    __atomic_fetch_add(&wk_stat_refs, n, __ATOMIC_RELAXED);
     for (int i = 0; i < n; i++) {
         // Match by NAME, not just pointer: for an image dlopen'd AFTER launch, dyld runs this add-image
         // callback BEFORE objc uniques the image's selrefs, so refs[i] still points to the image's local
@@ -248,8 +302,16 @@ static void wk_patch(const struct mach_header *mh)
         // we rewrite to wk_priv, objc's later uniquing reads "wk_<name>" and re-derives the same private
         // SEL, so the rewrite sticks.
         const char *s = (const char *)refs[i];
+        if (!WK_FILTER_TEST(wk_name_filter, wk_name_hash(s)))
+            continue;   // definitely not a registered name — see the prefilter note. This also makes
+                        // the add-image replay of an already-patched image cheap: a rewritten ref
+                        // reads "wk_<name>", whose bit is not set.
         for (int j = 0; j < count; j++)
-            if (refs[i] == wk_pub[j] || strcmp(s, wk_pubname[j]) == 0) { refs[i] = wk_priv[j]; break; }
+            if (refs[i] == wk_pub[j] || strcmp(s, wk_pubname[j]) == 0) {
+                refs[i] = wk_priv[j];
+                __atomic_fetch_add(&wk_stat_rewritten, 1, __ATOMIC_RELAXED);
+                break;
+            }
     }
 }
 
@@ -379,6 +441,15 @@ static void wk_watch_for_images(void)
     reg(WK_DYLD_STATE_DEPENDENTS_INITIALIZED, false, wk_image_initializing);
 }
 
+// Milliseconds between two mach_absolute_time readings.
+static double wk_ms(uint64_t from, uint64_t to)
+{
+    static mach_timebase_info_data_t timebase;
+    if (!timebase.denom)
+        mach_timebase_info(&timebase);
+    return (double)(to - from) * timebase.numer / timebase.denom / 1e6;
+}
+
 __attribute__((constructor)) static void wk_selref_scope_init(void)
 {
     // Registered before the first sweep rather than after it: an image arriving while the sweep runs is
@@ -389,18 +460,30 @@ __attribute__((constructor)) static void wk_selref_scope_init(void)
     // retroactively) — the loop below is what covers those.
     wk_watch_for_images();
 
+    uint64_t t0 = mach_absolute_time();
     uint32_t c = _dyld_image_count();
     // Also aliases each newly registered selector across every image loaded so far, before any patching,
     // so a rewritten selref that reaches a class this layer did not polyfill finds that class's own
     // method instead of dying.
     for (uint32_t i = 0; i < c; i++)
         wk_collect(_dyld_get_image_header(i));
+    uint64_t t1 = mach_absolute_time();
     for (uint32_t i = 0; i < c; i++)
         wk_install_added(_dyld_get_image_header(i));
+    uint64_t t2 = mach_absolute_time();
     for (uint32_t i = 0; i < c; i++)
         wk_patch(_dyld_get_image_header(i));
+    uint64_t t3 = mach_absolute_time();
     // Also covers images dlopen'd later (fires immediately for already-loaded ones; collect dedups,
     // install_added retries whatever is still waiting for its class, and patch is idempotent since a
     // rewritten wk_ selref no longer matches any public selector).
     _dyld_register_func_for_add_image(wk_add_image);
+    uint64_t t4 = mach_absolute_time();
+
+    if (getenv("WK_POLYFILL_REPORT"))
+        fprintf(stderr, "[wk_selref_scope] startup %.2f ms (%u images): collect+alias %.2f (%d sels, "
+                        "%ld classes, %ld methods), install %.2f, patch %.2f (%ld refs, %ld rewritten), "
+                        "add-image refire %.2f\n",
+                wk_ms(t0, t4), c, wk_ms(t0, t1), wk_count, wk_stat_classes, wk_stat_methods,
+                wk_ms(t1, t2), wk_ms(t2, t3), wk_stat_refs, wk_stat_rewritten, wk_ms(t3, t4));
 }

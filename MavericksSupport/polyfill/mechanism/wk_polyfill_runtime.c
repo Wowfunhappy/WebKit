@@ -250,27 +250,61 @@ WK_POLYFILL_REPLACES(NULL, void *, dlsym, (void *handle, const char *symbol))
 }
 
 // The class stubs live in libpolyfill_classes.dylib, not in this image, so their registry cannot be
-// read out of our own __wk_pfmap the way wk_polyfill_init reads the function/constant one. Walk the
-// loaded images for the __wk_clsmap section instead. This runs only when the system has no class of
-// that name -- a soft-link's one-shot dispatch_once for a class 10.9 lacks -- so a linear walk costs
-// nothing measurable and, like lookup(), it allocates nothing and touches only mapped memory.
+// read out of our own __wk_pfmap the way wk_polyfill_init reads the function/constant one. The
+// __wk_clsmap sections are found as images load (below) rather than by walking every loaded image on
+// each miss: this path runs for EVERY objc_getClass the system cannot answer, and a per-miss walk of
+// a few hundred images was the single largest cost of a WK_POLYFILL_ADD entry waiting for its class —
+// each of its per-image-load retries is such a miss, so the retry itself walked all images (measured
+// ~21 ms of a Safari launch before this cache).
 //
-// No caching: an image carrying stubs can arrive at any time (libpolyfill_classes.dylib is loaded
-// with the framework that pulled it in, and the frameworks load in whatever order the host app
-// causes), so a cache built on the first miss could be built before the answer exists.
+// An image carrying stubs can arrive at any time (libpolyfill_classes.dylib is loaded with the
+// framework that pulled it in, and the frameworks load in whatever order the host app causes), which
+// is why a cache built lazily on the first miss would be wrong: it could be built before the answer
+// exists. Registering for image loads has no such window — the registration replays every image
+// already loaded, and each later arrival appends before its initializers run. Entries never go stale:
+// an image with ObjC classes is never unloaded (libobjc pins it), and every clsmap-carrying image is
+// one of this layer's own class-stub dylibs.
+//
+// Same publication pattern as the selref registry: append-only, fields stored before the count is
+// release-stored, readers acquire-load the count. Writers (dyld add-image callbacks) are serialized
+// by dyld's own lock.
+enum { WK_MAX_CLSMAP_IMAGES = 8 };
+static struct { const struct wk_polyfill_class_entry *entries; size_t count; }
+    clsmapSections[WK_MAX_CLSMAP_IMAGES];
+static int clsmapSectionCount;
+
+static void noteClassStubImage(const struct mach_header *mh, intptr_t slide)
+{
+    (void)slide;
+    unsigned long size = 0;
+    uint8_t *section = getsectiondata((const wk_mach_header *)mh, "__DATA", "__wk_clsmap", &size);
+    if (!section)
+        return;
+    int n = __atomic_load_n(&clsmapSectionCount, __ATOMIC_ACQUIRE);
+    for (int i = 0; i < n; i++)
+        if (clsmapSections[i].entries == (const struct wk_polyfill_class_entry *)section)
+            return;   // already noted (the registration's replay overlaps our own first sweep)
+    if (n >= WK_MAX_CLSMAP_IMAGES) {
+        // Nothing degrades gracefully past the cap: a stub image that cannot be recorded is a class
+        // registry the lookup below will never consult, and the failure would surface far away as a
+        // soft-linked class inexplicably resolving to nil. Say what happened here instead.
+        fprintf(stderr, "[wk_polyfill] FATAL: more than %d images carry __wk_clsmap; raise "
+                        "WK_MAX_CLSMAP_IMAGES in MavericksSupport/polyfill/mechanism/"
+                        "wk_polyfill_runtime.c.\n", WK_MAX_CLSMAP_IMAGES);
+        fflush(stderr);
+        abort();
+    }
+    clsmapSections[n].entries = (const struct wk_polyfill_class_entry *)section;
+    clsmapSections[n].count = size / sizeof(struct wk_polyfill_class_entry);
+    __atomic_store_n(&clsmapSectionCount, n + 1, __ATOMIC_RELEASE);
+}
+
 static void *lookupPolyfillClass(const char *name)
 {
-    uint32_t imageCount = _dyld_image_count();
-    for (uint32_t i = 0; i < imageCount; i++) {
-        const wk_mach_header *header = (const wk_mach_header *)_dyld_get_image_header(i);
-        if (!header)
-            continue;
-        unsigned long size = 0;
-        uint8_t *section = getsectiondata(header, "__DATA", "__wk_clsmap", &size);
-        if (!section)
-            continue;
-        struct wk_polyfill_class_entry *classEntries = (struct wk_polyfill_class_entry *)section;
-        size_t count = size / sizeof(*classEntries);
+    int n = __atomic_load_n(&clsmapSectionCount, __ATOMIC_ACQUIRE);
+    for (int i = 0; i < n; i++) {
+        const struct wk_polyfill_class_entry *classEntries = clsmapSections[i].entries;
+        size_t count = clsmapSections[i].count;
         for (size_t j = 0; j < count; j++) {
             if (strcmp(classEntries[j].name, name))
                 continue;
@@ -359,6 +393,10 @@ __attribute__((constructor(101)))
 static void wk_polyfill_init(void)
 {
     resolveSystemDlsym();
+
+    // Fires immediately for every image already loaded, then for each later arrival before its
+    // initializers run — see the note above noteClassStubImage.
+    _dyld_register_func_for_add_image(noteClassStubImage);
 
     Dl_info info;
     if (!dladdr((void *)&wk_polyfill_init, &info) || !info.dli_fbase)
