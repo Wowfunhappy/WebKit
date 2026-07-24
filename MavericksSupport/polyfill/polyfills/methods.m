@@ -188,6 +188,25 @@ WK_POLYFILL_SEL("_storagePartition", "wk__storagePartition");
 WK_POLYFILL_SEL("_cookieForSetCookieString:forURL:partition:", "wk__cookieForSetCookieString:forURL:partition:");
 
 // ---------------------------------------------------------------------------------------------------
+// -[NSURLConnection _timingData] is a newer CFNetwork/Foundation SPI absent on 10.9 (verified: 10.9's
+// NSURLConnection does not respond to it). WebCore's synchronous WebKitLegacy loader reads it in two
+// upstream places — copyTimingData() in NetworkLoadMetrics.mm (didReceiveResponse:) and
+// connectionDidFinishLoading: — to populate NetworkLoadMetrics (Resource Timing / Inspector network
+// timings). Unguarded it throws an unrecognized-selector NSInvalidArgumentException → std::terminate,
+// which aborts the whole app; this is what crashes Messages on launch as it loads its iMessage
+// transcript over WK1. 10.9's NSURLConnection collects no such timing dictionary, so nil is the honest
+// answer: every _kCFNTimingData* key then resolves to nil and the metrics stay empty (best-effort, the
+// same result the classic 10.9 loader gave). Polyfilling it keeps both WebCore call sites byte-identical
+// to upstream.
+@interface NSURLConnection (WKPolyfillScope)
+- (NSDictionary *)wk__timingData;
+@end
+@implementation NSURLConnection (WKPolyfillScope)
+- (NSDictionary *)wk__timingData { return nil; }
+@end
+WK_POLYFILL_SEL("_timingData", "wk__timingData");
+
+// ---------------------------------------------------------------------------------------------------
 // -[NSControl setMaximumNumberOfLines:] (10.11+) and -[NSView sizeThatFits:] (10.10+). maximumNumberOfLines
 // caps how many wrapped lines a label lays out; sizeThatFits: measures the label at a target width.
 // 10.9's -sizeToFit already does the wrapped measurement, so sizeThatFits: reuses it (saving and
