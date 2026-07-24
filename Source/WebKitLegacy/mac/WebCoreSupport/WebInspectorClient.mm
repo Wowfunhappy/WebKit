@@ -717,15 +717,7 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     if (auto *window = [super window])
         return window;
 
-    // MAVERICKS_BACKPORT: NSWindowStyleMaskFullSizeContentView + -setTitlebarAppearsTransparent:
-    // (below) are the 10.10+ "content fills the titlebar region" combo. On 10.9 the style bit is
-    // inert but -setTitlebarAppearsTransparent: is an unrecognized selector that kills the host app,
-    // so both are dropped here; the full-size-content-view appearance is instead emulated by the
-    // undocked branch of -showWindow:, which hosts the frontend WebView in the window's frame view
-    // sized to the full window (the HTML #toolbar fills the titlebar region).
-    NSUInteger styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
-    if ([NSWindow instancesRespondToSelector:@selector(setTitlebarAppearsTransparent:)])
-        styleMask |= NSWindowStyleMaskFullSizeContentView;
+    NSUInteger styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable | NSWindowStyleMaskFullSizeContentView;
     auto window = adoptNS([[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, initialWindowWidth, initialWindowHeight) styleMask:styleMask backing:NSBackingStoreBuffered defer:NO]);
     [window setDelegate:self];
     [window setMinSize:NSMakeSize(minimumWindowWidth, minimumWindowHeight)];
@@ -733,15 +725,10 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
 
     CGFloat approximatelyHalfScreenSize = ([window screen].frame.size.width / 2) - 4;
     CGFloat minimumFullScreenWidth = std::max<CGFloat>(636, approximatelyHalfScreenSize);
-    // MAVERICKS_BACKPORT: -[NSWindow setMinFullScreenContentSize:] and the
-    // NSWindowCollectionBehaviorFullScreenAllowsTiling / ...Auxiliary tiling behaviors are 10.11+ and
-    // absent on 10.9, so the inspector window skips them; minimumFullScreenWidth is voided to avoid an
-    // unused-variable warning.
-    (void)minimumFullScreenWidth;
+    [window setMinFullScreenContentSize:NSMakeSize(minimumFullScreenWidth, minimumWindowHeight)];
+    [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenAllowsTiling | NSWindowCollectionBehaviorAuxiliary)];
 
-    // MAVERICKS_BACKPORT: -setTitlebarAppearsTransparent: is 10.10+; guard it (see styleMask above).
-    if ([window respondsToSelector:@selector(setTitlebarAppearsTransparent:)])
-        [window setTitlebarAppearsTransparent:YES];
+    [window setTitlebarAppearsTransparent:YES];
 
     [self setWindow:window.get()];
     return window.unsafeGet();
@@ -764,21 +751,6 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     [self destroyInspectorView];
 
     return YES;
-}
-
-// MAVERICKS_BACKPORT (#52): the undocked frontend WebView is hosted in the window's frame view
-// (NSThemeFrame) for the unified toolbar, and 10.9's NSThemeFrame does its own layout and does
-// not honor the autoresizing mask on a manually-added subview — the same reason
-// WebInspectorUIProxy::inspectedViewFrameDidChange resizes the WK2 inspector webView explicitly.
-// Track window resizes by hand; the classic WebView reflows itself from setFrame:.
-- (void)windowDidResize:(NSNotification *)notification
-{
-    if (_attachedToInspectedWebView || !_visible)
-        return;
-    NSView *contentView = [[self window] contentView];
-    NSView *frameView = [contentView superview] ?: contentView;
-    if ([_frontendWebView superview] == frameView)
-        [_frontendWebView setFrame:[frameView bounds]];
 }
 
 - (void)windowDidEnterFullScreen:(NSNotification *)notification
@@ -856,40 +828,19 @@ void WebInspectorFrontendClient::sendMessageToBackend(const String& message)
     } else {
         _attachedToInspectedWebView = NO;
 
-        // MAVERICKS_BACKPORT (#52, unified inspector toolbar): NSWindowStyleMaskFullSizeContentView +
-        // -setTitlebarAppearsTransparent: are 10.10+ (see -window), so on 10.9 the frontend WebView
-        // is hosted directly in the window's FRAME VIEW (the content view's superview / NSThemeFrame)
-        // sized to the FULL window — the HTML #toolbar fills the titlebar region and merges with it,
-        // and the standard window buttons are then raised above it so the traffic lights float over
-        // the toolbar. Mirror of WebInspectorUIProxy::platformCreateFrontendWindow (WK2); the toolbar
-        // gradient/inset comes from the CSS the shared bridge user script injects (see
-        // WebCore/inspector/InspectorFrontendClassicBridge.h).
         NSView *contentView = [[self window] contentView];
-        // MAVERICKS_BACKPORT (#52): host the frontend WebView in the window's frame view (NSThemeFrame) at full size instead of the content view — see the block comment above.
-        NSView *frameView = [contentView superview] ?: contentView;
-        [_frontendWebView setFrame:[frameView bounds]];
+        [_frontendWebView setFrame:[contentView frame]];
         [_frontendWebView setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
-        // MAVERICKS_BACKPORT (#52): transparent WebView so the injected CSS's rounded top corners
-        // reveal the NSThemeFrame's own rounded titlebar corners (the page content itself stays
-        // opaque — body paints the unified gradient, #main is white).
+        // MAVERICKS_BACKPORT (#52): transparent WebView so the classic-bridge CSS's rounded top
+        // corners (4px radius on body) reveal NSThemeFrame's rounded titlebar corners; the page
+        // content stays opaque (body paints the unified gradient, #main is white). The docked branch
+        // restores YES. The full-size-content-view layout itself (content view over the titlebar,
+        // traffic lights raised and layer-promoted) is the polyfill layer's emulation of the
+        // 10.10+ NSWindowStyleMaskFullSizeContentView + -setTitlebarAppearsTransparent: contract
+        // this window requests in -window (WKPolyfillFullSizeContentAdapter).
         [_frontendWebView setDrawsBackground:NO];
         [_frontendWebView removeFromSuperview];
-        [frameView addSubview:_frontendWebView.get() positioned:NSWindowAbove relativeTo:contentView];
-
-        for (NSInteger buttonType = NSWindowCloseButton; buttonType <= NSWindowZoomButton; ++buttonType) {
-            if (NSButton *windowButton = [[self window] standardWindowButton:(NSWindowButton)buttonType])
-                [[windowButton superview] addSubview:windowButton positioned:NSWindowAbove relativeTo:nil];
-        }
-
-        // MAVERICKS_BACKPORT: on 10.9 the layer-backed frontend WebView is otherwise a standalone
-        // layer island whose surface composites ABOVE every non-layer view in the window regardless
-        // of subview order, and its square-edged surface paints over NSThemeFrame's rounded titlebar
-        // corners (the raised traffic lights above are equally at risk). Layer-backing the content
-        // view makes AppKit promote the frame view's overlapping subviews (the WebView and the
-        // window buttons) into one layer tree, so subview z-order holds again and the transparent
-        // page corners (drawsBackground=NO + the injected CSS's 4px radius) reveal the native rounded
-        // corners beneath. Mirror of WebInspectorUIProxy::platformCreateFrontendWindow (WK2).
-        [contentView setWantsLayer:YES];
+        [contentView addSubview:_frontendWebView.get()];
 
         [super showWindow:nil];
     }

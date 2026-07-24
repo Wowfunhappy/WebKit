@@ -1008,13 +1008,41 @@ static const char wkFullSizeContentAdapterKey;
 
     // The traffic lights are siblings of the content view inside the frame view. A full-size content view
     // covers the whole frame, so without this they would be painted over.
+    //
+    // Reorder with remove + append, NOT -addSubview:positioned:relativeTo:. 10.9's move path for an
+    // already-parented view computes the insertion index and mutates the subviews array inside one call;
+    // when NSThemeFrame's own button management mutates that array mid-call (seen on real hardware opening
+    // the Web Inspector), the insert lands out of bounds and throws NSRangeException. That throw happens
+    // after the button has been pulled out of the array but before -removeFromSuperview bookkeeping, so it
+    // strands the button with a dangling _window; the exception then unwinds window creation, the window is
+    // freed, and the button's later dealloc messages the freed window (crash in -[NSControl currentEditor]
+    // under fieldEditor:forObject:). Two separate whole calls each keep AppKit's invariants and cannot
+    // leave a stale index. Appending puts the button after the content view in the subview order, which is
+    // exactly the "drawn above the full-size content view" placement being restored.
     NSWindowButton buttons[] = { NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton,
                                  NSWindowFullScreenButton };
+    BOOL raisedAnyButton = NO;
     for (size_t i = 0; i < sizeof(buttons) / sizeof(buttons[0]); i++) {
         NSButton *button = [_window standardWindowButton:buttons[i]];
-        if (button && [button superview] == frameView)
-            [frameView addSubview:button positioned:NSWindowAbove relativeTo:contentView];
+        if (!button || [button superview] != frameView)
+            continue;
+        [[button retain] autorelease];   // keep the button alive across its removal
+        [button removeFromSuperview];
+        [frameView addSubview:button];
+        raisedAnyButton = YES;
     }
+
+    // On 10.9 a layer-backed subview (the Web Inspector's frontend web view is one) is a standalone
+    // layer ISLAND whose surface composites above every non-layer view in the window regardless of
+    // subview order, so the buttons raised above are covered anyway, and the island's square-edged
+    // surface paints over NSThemeFrame's rounded titlebar corners. Layer-backing the content view makes
+    // AppKit promote the overlapping frame-view subviews (the buttons) into one layer tree with it, so
+    // subview z-order holds and transparent content corners reveal the native rounded corners — which is
+    // how a full-size content view composites on 10.10+. Verified load-bearing by live view-tree dump
+    // (buttons present but covered without it); scoped to windows with raised buttons so buttonless
+    // full-size-content windows (e.g. the datalist dropdown) keep non-layer-backed text rendering.
+    if (raisedAnyButton && ![contentView wantsLayer])
+        [contentView setWantsLayer:YES];
 }
 
 - (void)wkWindowDidResize:(NSNotification *)notification
