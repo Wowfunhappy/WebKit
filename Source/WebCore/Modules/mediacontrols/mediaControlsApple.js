@@ -346,7 +346,14 @@ Controller.prototype = {
         timeline.setAttribute('aria-label', this.UIString('Duration'));
         timeline.style.backgroundImage = '-webkit-canvas(timeline-' + this.timelineID + ')';
         timeline.type = 'range';
-        this.listenFor(timeline, 'change', this.handleTimelineChange);
+        // MAVERICKS_BACKPORT: 'input', not 'change' (github #75). These controls date from a WebCore
+        // whose range input dispatched change events continuously while the thumb was dragged, which is
+        // what handleTimelineChange's fastSeek and handleTimelineMouseUp's "precise seek when we lift
+        // the mouse" are built around. Today HTMLInputElement::setValueFromRenderer dispatches only
+        // 'input' during a drag and the control fires 'change' when the drag COMMITS, so a 'change'
+        // listener never runs while dragging. 'input' also covers keyboard adjustment, which dispatches
+        // both.
+        this.listenFor(timeline, 'input', this.handleTimelineChange);
         this.listenFor(timeline, 'mouseover', this.handleTimelineMouseOver);
         this.listenFor(timeline, 'mouseout', this.handleTimelineMouseOut);
         this.listenFor(timeline, 'mousemove', this.handleTimelineMouseMove);
@@ -396,7 +403,9 @@ Controller.prototype = {
         volume.min = 0;
         volume.max = 1;
         volume.step = .01;
-        this.listenFor(volume, 'change', this.handleVolumeSliderChange);
+        // MAVERICKS_BACKPORT: 'input', not 'change' (github #75) - see the timeline slider above; with
+        // 'change' the volume did not move until the drag was released.
+        this.listenFor(volume, 'input', this.handleVolumeSliderChange);
 
         var captionButton = this.controls.captionButton = document.createElement('button');
         captionButton.setAttribute('useragentpart', '-internal-media-controls-toggle-closed-captions-button');
