@@ -182,8 +182,20 @@ RefPtr<ImageBuffer> WebWorkerClient::createImageBuffer(const FloatSize& size, Re
 RefPtr<GraphicsContextGL> WebWorkerClient::createGraphicsContextGL(const GraphicsContextGLAttributes& attributes) const
 {
     assertIsCurrent(*dispatcher().get());
-    // ANGLE does not support multithreading, so we cannot create in-process contexts in worker threads.
-    return nullptr;
+    // MAVERICKS_BACKPORT: create the context in-process on the worker thread (github #71).
+    // Upstream returns nullptr here — "ANGLE does not support multithreading, so we cannot create
+    // in-process contexts in worker threads" — because upstream serves worker WebGL from the GPU
+    // process (GPUProcessWebWorkerClient above), which this port does not have (ENABLE_GPU_PROCESS is
+    // OFF for the Mac port here). The result was that WebGL in a Worker was impossible: every
+    // OffscreenCanvas.getContext('webgl'|'webgl2') off the main thread returned null, so any site that
+    // renders from a worker (Desmos' 3D calculator, three.js with an offscreen canvas) drew nothing at
+    // all. Everything else about worker canvases already works in-process here — an OffscreenCanvas 2D
+    // context and its commit to the placeholder canvas were verified painting on this OS.
+    //
+    // ANGLE serialises its entry points on a global mutex and tracks the current context per thread
+    // (egl::Thread), so one context per thread is safe; GraphicsContextGLANGLE's own cache of "which
+    // context is current" is thread-local for the same reason (see GraphicsContextGLCocoa.mm).
+    return WebCore::createWebProcessGraphicsContextGL(attributes);
 }
 #endif
 

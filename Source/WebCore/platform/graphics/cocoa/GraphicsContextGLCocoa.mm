@@ -88,7 +88,11 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(GraphicsContextGLCocoa);
 
 // This variable is accessed in single-threaded manner.
 // For WK1, this variable is accessed from multiple threads but always sequentially.
-static GraphicsContextGLANGLE* currentContext;
+// MAVERICKS_BACKPORT: thread-local (github #71). EGL's current context is per-thread, and this port
+// runs worker WebGL in-process (WebWorkerClient::createGraphicsContextGL), so contexts on different
+// threads are live at the same time and NOT accessed sequentially — one process-wide slot would let
+// one thread's makeContextCurrent() answer for another's, and would be a data race besides.
+static thread_local GraphicsContextGLANGLE* currentContext;
 
 // MAVERICKS_BACKPORT: the ANGLE Metal feature-name tables and the platformSupportsMetal() Metal-device gate are Metal-backend only; compiled out on 10.9 (ANGLE OpenGL/CGL backend, WK_WEBGL_METAL_BACKEND==0).
 #if WK_WEBGL_METAL_BACKEND
