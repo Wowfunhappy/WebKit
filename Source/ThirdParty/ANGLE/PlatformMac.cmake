@@ -29,6 +29,24 @@ list(APPEND ANGLE_DEFINITIONS
     # desktop GL entry points load and the FunctionsGL pointers stay null — caps
     # generation then calls a null genTextures/genFramebuffers and crashes WebContent.
     ANGLE_ENABLE_GL_DESKTOP_BACKEND
+    # MAVERICKS_BACKPORT: this port runs WebGL in Workers in-process (there is no GPU process here,
+    # see WebWorkerClient::createGraphicsContextGL), so GL entry points ARE called from more than one
+    # thread. The CGL backend virtualizes ONE real context per EGLDisplay — DisplayCGL::initialize
+    # creates a single CGLContextObj and hands every ContextCGL the same RendererGL (so one
+    # StateManagerGL, one dispatch table, and a DisplayCGL::mThreadsWithCurrentContext set mutated
+    # from each calling thread) — and without ANGLE_ENABLE_SHARE_CONTEXT_LOCK,
+    # SCOPED_SHARE_CONTEXT_LOCK() expands to NOTHING (libGLESv2/global_state.h), leaving every GL
+    # entry point unlocked. The global mutex ANGLE always takes covers EGL entry points only.
+    #
+    # These two defines are ANGLE's own configuration for exactly this case: the share-context lock
+    # serialises GL entry points, and FORCE_CONTEXT_CHECK_EVERY_CALL dirties all state whenever the
+    # calling context differs from the last one used, which is what makes a virtualized shared
+    # context correct across threads. Note the alternative — a separate EGLDisplay per thread via
+    # EGL_PLATFORM_ANGLE_DISPLAY_KEY_ANGLE — is NOT available here: that attribute is validated
+    # against EGL_ANGLE_platform_angle_device_id, which Display.cpp advertises for D3D11/Vulkan/Metal
+    # only, so passing it on this backend fails validation and returns EGL_NO_DISPLAY.
+    ANGLE_ENABLE_SHARE_CONTEXT_LOCK
+    ANGLE_FORCE_CONTEXT_CHECK_EVERY_CALL
 )
 
 list(APPEND ANGLEGLESv2_LIBRARIES

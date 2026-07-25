@@ -435,6 +435,12 @@ protected:
     GCGLuint m_preserveDrawingBufferFBO { 0 };
     // Queried at display startup.
     GCGLint m_drawingBufferTextureTarget { -1 };
+    // MAVERICKS_BACKPORT: identifies this context in the per-thread "which context is current" cache
+    // in GraphicsContextGLCocoa.mm. That cache cannot be cleared for a thread other than the one
+    // destroying the context, so it matches on (pointer, serial): serials are never reused, so an
+    // address the allocator hands to a new context can never satisfy a stale entry. Needed because
+    // this port runs worker WebGL in-process, i.e. contexts live on several threads at once.
+    uint64_t m_currentContextSerial { 0 };
     GCGLErrorCodeSet m_errors;
     bool m_isForWebGL2 { false };
     bool m_failNextStatusCheck { false };

@@ -58,6 +58,8 @@
 #import <pal/spi/cocoa/MetalSPI.h>
 #endif
 #import <wtf/BlockObjCExceptions.h>
+// MAVERICKS_BACKPORT: isMainThread() for the per-thread EGLDisplay in initializeEGLDisplay.
+#import <wtf/MainThread.h>
 #import <wtf/RuntimeApplicationChecks.h>
 #import <wtf/StdLibExtras.h>
 #import <wtf/darwin/WeakLinking.h>
@@ -88,11 +90,25 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(GraphicsContextGLCocoa);
 
 // This variable is accessed in single-threaded manner.
 // For WK1, this variable is accessed from multiple threads but always sequentially.
-// MAVERICKS_BACKPORT: thread-local (github #71). EGL's current context is per-thread, and this port
-// runs worker WebGL in-process (WebWorkerClient::createGraphicsContextGL), so contexts on different
-// threads are live at the same time and NOT accessed sequentially — one process-wide slot would let
-// one thread's makeContextCurrent() answer for another's, and would be a data race besides.
-static thread_local GraphicsContextGLANGLE* currentContext;
+// MAVERICKS_BACKPORT: per-thread, and identified by SERIAL rather than by address (github #71). EGL's
+// current context is per-thread, and this port runs worker WebGL in-process
+// (WebWorkerClient::createGraphicsContextGL), so contexts on different threads are live at the same
+// time and NOT accessed sequentially: one process-wide slot would let one thread's
+// makeContextCurrent() answer for another's, and would be a data race besides. The serial closes the
+// remaining hole in a bare pointer cache — a context destroyed on a thread OTHER than the one that
+// made it current cannot clear that thread's slot (a destructor cannot touch another thread's
+// thread_local), so the address could later be matched by a NEW context the allocator puts there.
+// Serials are never reused, so a stale slot simply misses and a real EGL_MakeCurrent happens.
+struct CurrentContextForThread {
+    GraphicsContextGLANGLE* context { nullptr };
+    uint64_t serial { 0 };
+};
+static thread_local CurrentContextForThread currentContext;
+static uint64_t nextGraphicsContextGLSerial()
+{
+    static std::atomic<uint64_t> serial;
+    return ++serial;
+}
 
 // MAVERICKS_BACKPORT: the ANGLE Metal feature-name tables and the platformSupportsMetal() Metal-device gate are Metal-backend only; compiled out on 10.9 (ANGLE OpenGL/CGL backend, WK_WEBGL_METAL_BACKEND==0).
 #if WK_WEBGL_METAL_BACKEND
@@ -204,7 +220,33 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
 #endif
     displayAttributes.append(EGL_NONE);
 
-    EGLDisplay display = EGL_GetPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE, reinterpret_cast<void*>(EGL_DEFAULT_DISPLAY), displayAttributes.span().data());
+    // MAVERICKS_BACKPORT: one EGLDisplay per thread, because this port runs WebGL in Workers
+    // in-process (there is no GPU process here) and ANGLE's CGL backend virtualizes ONE real context
+    // per display: DisplayCGL::initialize creates a single CGLContextObj, createContext hands every
+    // ContextCGL the same RendererGL, and DisplayCGL::prepareForCall makes that one CGL context
+    // current on each calling thread and leaves it current there. CGL forbids a context being current
+    // on two threads at once, and no amount of locking inside ANGLE repairs that — measured: with the
+    // share-context lock enabled but a shared display, concurrent main-thread + worker WebGL still
+    // aborts in Apple's GLEngine ("double free" in gleGenHashNames from glGenBuffers).
+    //
+    // ANGLE keys its display map on (native display, platform type, attributes...), so passing a
+    // distinct native display per thread yields a distinct egl::Display, hence a distinct CGL context
+    // and RendererGL touched by that thread alone. This is safe to do here: the CGL backend never
+    // reads the native display value, and Display::isValidNativeDisplay accepts any value off Windows.
+    // (EGL_PLATFORM_ANGLE_DISPLAY_KEY_ANGLE would say this more explicitly, but validationEGL gates it
+    // on EGL_ANGLE_platform_angle_device_id, which Display.cpp advertises for D3D11/Vulkan/Metal only.)
+    auto nativeDisplayForThisThread = [] () -> void* {
+        if (isMainThread())
+            return reinterpret_cast<void*>(EGL_DEFAULT_DISPLAY);
+        static std::atomic<uintptr_t> nextToken { 0 };
+        // Stable for the life of the thread, so a thread's contexts share one display (and one CGL
+        // context), which is what ANGLE expects of contexts that may share objects.
+        static thread_local uintptr_t token = 0;
+        if (!token)
+            token = 0x1000 + ++nextToken;
+        return reinterpret_cast<void*>(token);
+    };
+    EGLDisplay display = EGL_GetPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE, nativeDisplayForThisThread(), displayAttributes.span().data());
     EGLint majorVersion = 0;
     EGLint minorVersion = 0;
     if (EGL_Initialize(display, &majorVersion, &minorVersion) == EGL_FALSE) {
@@ -424,7 +466,12 @@ GraphicsContextGLANGLE::~GraphicsContextGLANGLE()
         makeCurrent(m_displayObj, EGL_NO_CONTEXT);
         EGL_DestroyContext(m_displayObj, m_contextObj);
     }
-    ASSERT(currentContext != this);
+    // MAVERICKS_BACKPORT: clear THIS thread's slot; another thread's slot cannot be reached from here,
+    // which is why the slot carries a serial (see its declaration) — a stale entry can no longer be
+    // matched by a later context that reuses this address.
+    if (currentContext.context == this)
+        currentContext = { };
+    ASSERT(currentContext.context != this);
     m_drawingBufferTextureTarget = -1;
 }
 
@@ -432,11 +479,15 @@ bool GraphicsContextGLANGLE::makeContextCurrent()
 {
     if (!m_contextObj)
         return false;
-    if (currentContext == this)
+    // MAVERICKS_BACKPORT: the (context, serial) pair identifies this exact context on this thread.
+    // The serial is minted lazily here so no cross-platform constructor has to know about it.
+    if (!m_currentContextSerial)
+        m_currentContextSerial = nextGraphicsContextGLSerial();
+    if (currentContext.context == this && currentContext.serial == m_currentContextSerial)
         return true;
     if (!EGL_MakeCurrent(m_displayObj, EGL_NO_SURFACE, EGL_NO_SURFACE, m_contextObj))
         return false;
-    currentContext = this;
+    currentContext = { this, m_currentContextSerial }; // MAVERICKS_BACKPORT
     return true;
 }
 
@@ -558,7 +609,7 @@ void GraphicsContextGLCocoa::freeDrawingBuffers()
 
 bool GraphicsContextGLANGLE::makeCurrent(GCGLDisplay display, GCGLContext context)
 {
-    currentContext = nullptr;
+    currentContext = { }; // MAVERICKS_BACKPORT: see the currentContext declaration.
     return EGL_MakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, context);
 }
 
@@ -915,7 +966,7 @@ RefPtr<VideoFrame> GraphicsContextGLCocoa::surfaceBufferToVideoFrame(SurfaceBuff
 
 void GraphicsContextGLANGLE::platformReleaseThreadResources()
 {
-    currentContext = nullptr;
+    currentContext = { }; // MAVERICKS_BACKPORT: see the currentContext declaration.
 }
 
 RefPtr<GraphicsLayerContentsDisplayDelegate> GraphicsContextGLCocoa::layerContentsDisplayDelegate()
