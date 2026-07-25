@@ -623,9 +623,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]) {
         sessionCocoa->setClientAuditToken(challenge);
 
-        // MAVERICKS_BACKPORT: -_incompleteTaskMetrics is 10.12+; guard before reading legacy-TLS metrics.
-        if ([task respondsToSelector:@selector(_incompleteTaskMetrics)])
-            negotiatedLegacyTLS = checkForLegacyTLS(task._incompleteTaskMetrics.transactionMetrics.lastObject);
+        negotiatedLegacyTLS = checkForLegacyTLS(task._incompleteTaskMetrics.transactionMetrics.lastObject);
         if (negotiatedLegacyTLS == NegotiatedLegacyTLS::Yes && task._preconnect)
             return completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
 
@@ -914,10 +912,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         ASSERT(RunLoop::isMain());
 
         NegotiatedLegacyTLS negotiatedLegacyTLS = NegotiatedLegacyTLS::No;
-        // MAVERICKS_BACKPORT: -_incompleteTaskMetrics is 10.12+; guard it and tolerate a nil metrics result below.
-        RetainPtr<NSURLSessionTaskMetrics> taskMetrics;
-        if ([dataTask respondsToSelector:@selector(_incompleteTaskMetrics)])
-            taskMetrics = dataTask._incompleteTaskMetrics;
+        RetainPtr<NSURLSessionTaskMetrics> taskMetrics = dataTask._incompleteTaskMetrics;
 
         // MAVERICKS_BACKPORT: taskMetrics may be nil on 10.9 (no _incompleteTaskMetrics); fall back to nil metrics.
         RetainPtr<NSURLSessionTaskTransactionMetrics> metrics = taskMetrics ? taskMetrics.get().transactionMetrics.lastObject : nil;
@@ -1018,13 +1013,6 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         return;
 
     auto downloadID = *networkDataTask->pendingDownloadID();
-    // MAVERICKS_BACKPORT: carry the destination onto the download task. setPendingDownloadLocation set
-    // _pathToDownloadTaskFile on the DATA task, and 10.9 builds the download task's output file inside
-    // its own initializer (-[__NSCFLocalDownloadTask initWithTask:suspendedConnection:] ->
-    // -setupForNewDownload), which no client can reach, so the path has to be re-applied to the task
-    // that will actually do the writing. This is the earliest moment WebKit holds it. See the
-    // _pathToDownloadTaskFile polyfill in MavericksSupport/polyfill/polyfills/methods.m.
-    downloadTask._pathToDownloadTaskFile = networkDataTask->pendingDownloadLocation().createNSString().get();
     CheckedRef downloadManager = sessionCocoa->networkProcess().downloadManager();
     Ref download = WebKit::Download::create(downloadManager, downloadID, downloadTask, *sessionCocoa, networkDataTask->suggestedFilename());
     networkDataTask->transferSandboxExtensionToDownload(download);
@@ -1090,9 +1078,7 @@ static RetainPtr<NSURLSessionConfiguration> configurationForSessionID(PAL::Sessi
 #else
     bool preventCFNetworkClientCertificateLookup = true;
 #endif
-    // MAVERICKS_BACKPORT: -_shouldSkipPreferredClientCertificateLookup is 10.11+.
-    if ([configuration respondsToSelector:@selector(set_shouldSkipPreferredClientCertificateLookup:)])
-        configuration.get()._shouldSkipPreferredClientCertificateLookup = preventCFNetworkClientCertificateLookup;
+    configuration.get()._shouldSkipPreferredClientCertificateLookup = preventCFNetworkClientCertificateLookup;
 
     auto setLoggingPrivacyLevel = NSSelectorFromString(@"set_loggingPrivacyLevel:");
     if ([configuration respondsToSelector:setLoggingPrivacyLevel]) {
@@ -1100,8 +1086,7 @@ static RetainPtr<NSURLSessionConfiguration> configurationForSessionID(PAL::Sessi
         RELEASE_LOG(NetworkSession, "Setting logging level for %{public}s session %" PRIu64 " to %{public}s", session.isEphemeral() ? "Ephemeral" : "Regular", session.toUInt64(), loggingPrivacyLevel == nw_context_privacy_level_silent ? "silent" : "sensitive");
     }
 
-    // MAVERICKS_BACKPORT: _connectionCache* properties are 10.10+ NSURLSessionConfiguration SPI.
-    if (WebCore::ResourceRequest::resourcePrioritiesEnabled() && [configuration respondsToSelector:@selector(set_connectionCacheNumPriorityLevels:)]) {
+    if (WebCore::ResourceRequest::resourcePrioritiesEnabled()) {
         configuration.get()._connectionCacheNumPriorityLevels = WebCore::resourceLoadPriorityCount;
         configuration.get()._connectionCacheMinimumFastLanePriority = toPlatformRequestPriority(WebCore::ResourceLoadPriority::Medium);
         configuration.get()._connectionCacheNumFastLanes = 1;
@@ -1205,9 +1190,7 @@ void SessionWrapper::initialize(NSURLSessionConfiguration *configuration, Networ
 #if PLATFORM(MAC)
     isFullBrowser = WTF::MacApplication::isSafari();
 #endif
-    // MAVERICKS_BACKPORT: _sourceApplicationSecondaryIdentifier is 10.11+.
-    if ([configuration respondsToSelector:@selector(_sourceApplicationSecondaryIdentifier)]
-        && !configuration._sourceApplicationSecondaryIdentifier && isFullBrowser)
+    if (!configuration._sourceApplicationSecondaryIdentifier && isFullBrowser)
         configuration._sourceApplicationSecondaryIdentifier = @"com.apple.WebKit.InAppBrowser";
 
 #if HAVE(NW_PROXY_CONFIG)
@@ -1271,15 +1254,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         configuration.get()._allowsHSTSWithUntrustedRootCertificate = YES;
     
 #if HAVE(APP_SSO) || PLATFORM(MACCATALYST)
-    // MAVERICKS_BACKPORT: -_preventsAppSSO is a newer SPI; guard the setter.
-    if ([configuration respondsToSelector:@selector(set_preventsAppSSO:)])
-        configuration.get()._preventsAppSSO = true;
+    configuration.get()._preventsAppSSO = true;
 #endif
 
     // Without this, CFNetwork would sometimes add a Content-Type header to our requests (rdar://problem/34748470).
-    // MAVERICKS_BACKPORT: -_suppressedAutoAddedHTTPHeaders is 10.11+.
-    if ([configuration respondsToSelector:@selector(set_suppressedAutoAddedHTTPHeaders:)])
-        configuration.get()._suppressedAutoAddedHTTPHeaders = [NSSet setWithObject:@"Content-Type"];
+    configuration.get()._suppressedAutoAddedHTTPHeaders = [NSSet setWithObject:@"Content-Type"];
 
     if (parameters.allowsCellularAccess == AllowsCellularAccess::No)
         configuration.get().allowsCellularAccess = NO;
@@ -1287,21 +1266,15 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // The WebKit network cache was already queried.
     configuration.get().URLCache = nil;
 
-    // MAVERICKS_BACKPORT: _sourceApplicationAuditTokenData is 10.10+; the bundle/secondary identifier
-    // setters are 10.11+. Guard each setter individually.
-    if (auto data = networkProcess.sourceApplicationAuditData(); data && [configuration respondsToSelector:@selector(set_sourceApplicationAuditTokenData:)])
+    if (auto data = networkProcess.sourceApplicationAuditData())
         configuration.get()._sourceApplicationAuditTokenData = (__bridge NSData *)data.get();
 
-    // MAVERICKS_BACKPORT: -_sourceApplicationBundleIdentifier is 10.11+; guard the setter.
-    if (!m_sourceApplicationBundleIdentifier.isEmpty() && [configuration respondsToSelector:@selector(set_sourceApplicationBundleIdentifier:)]) {
+    if (!m_sourceApplicationBundleIdentifier.isEmpty()) {
         configuration.get()._sourceApplicationBundleIdentifier = m_sourceApplicationBundleIdentifier.createNSString().get();
-        // MAVERICKS_BACKPORT: -_sourceApplicationAuditTokenData is 10.10+; guard the setter.
-        if ([configuration respondsToSelector:@selector(set_sourceApplicationAuditTokenData:)])
-            configuration.get()._sourceApplicationAuditTokenData = nil;
+        configuration.get()._sourceApplicationAuditTokenData = nil;
     }
 
-    // MAVERICKS_BACKPORT: -_sourceApplicationSecondaryIdentifier is 10.11+; guard the setter.
-    if (!m_sourceApplicationSecondaryIdentifier.isEmpty() && [configuration respondsToSelector:@selector(set_sourceApplicationSecondaryIdentifier:)])
+    if (!m_sourceApplicationSecondaryIdentifier.isEmpty())
         configuration.get()._sourceApplicationSecondaryIdentifier = m_sourceApplicationSecondaryIdentifier.createNSString().get();
 
 #if HAVE(ALTERNATIVE_SERVICE)
@@ -1318,12 +1291,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     }
 #endif
 
-    // MAVERICKS_BACKPORT: _preventsSystemHTTPProxyAuthentication is 10.11+.
-    if ([configuration respondsToSelector:@selector(set_preventsSystemHTTPProxyAuthentication:)])
-        configuration.get()._preventsSystemHTTPProxyAuthentication = parameters.preventsSystemHTTPProxyAuthentication;
-    // MAVERICKS_BACKPORT: _requiresSecureHTTPSProxyConnection is 10.11+.
-    if ([configuration respondsToSelector:@selector(set_requiresSecureHTTPSProxyConnection:)])
-        configuration.get()._requiresSecureHTTPSProxyConnection = parameters.requiresSecureHTTPSProxyConnection;
+    configuration.get()._preventsSystemHTTPProxyAuthentication = parameters.preventsSystemHTTPProxyAuthentication;
+    configuration.get()._requiresSecureHTTPSProxyConnection = parameters.requiresSecureHTTPSProxyConnection;
     // MAVERICKS_BACKPORT: only override the session's proxy dictionary when an explicit
     // proxy was passed in. The upstream code always sets it (clobbering with nil),
     // which silently disables the system proxy that `defaultSessionConfiguration`
@@ -1340,13 +1309,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     protect(networkProcess.supplement<LegacyCustomProtocolManager>())->registerProtocolClass(configuration.get());
 #endif
 
-    // MAVERICKS_BACKPORT: _timingDataOptions is 10.11+.
-    if ([configuration respondsToSelector:@selector(set_timingDataOptions:)])
-        configuration.get()._timingDataOptions = _TimingDataOptionsEnableW3CNavigationTiming;
+    configuration.get()._timingDataOptions = _TimingDataOptionsEnableW3CNavigationTiming;
 
     // FIXME: Replace @"kCFStreamPropertyAutoErrorOnSystemChange" with a constant from the SDK once rdar://problem/40650244 is in a build.
-    // MAVERICKS_BACKPORT: -_socketStreamProperties is 10.11+; guard the setter.
-    if (parameters.suppressesConnectionTerminationOnSystemChange && [configuration respondsToSelector:@selector(set_socketStreamProperties:)])
+    if (parameters.suppressesConnectionTerminationOnSystemChange)
         configuration.get()._socketStreamProperties = @{ @"kCFStreamPropertyAutoErrorOnSystemChange" : @NO };
 
 #if PLATFORM(WATCHOS)
@@ -1373,9 +1339,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         configuration.get().HTTPShouldSetCookies = YES;
     }
 
-    // MAVERICKS_BACKPORT: -_overrideSessionCookieAcceptPolicy is 10.10+.
-    if (cookieStorage && [cookieStorage respondsToSelector:@selector(set_overrideSessionCookieAcceptPolicy:)])
-        cookieStorage.get()._overrideSessionCookieAcceptPolicy = YES;
+    cookieStorage.get()._overrideSessionCookieAcceptPolicy = YES;
 
 #if ENABLE(TLS_1_2_DEFAULT_MINIMUM)
     if (m_isLegacyTLSAllowed) {
@@ -1477,13 +1441,9 @@ SessionWrapper& SessionSet::initializeEphemeralStatelessSessionIfNeeded(Navigati
         configuration.get().TLSMinimumSupportedProtocolVersion = tls_protocol_version_TLSv12;
 #endif
 
-    // MAVERICKS_BACKPORT: -_shouldSkipPreferredClientCertificateLookup is 10.11+.
-    if ([configuration respondsToSelector:@selector(set_shouldSkipPreferredClientCertificateLookup:)])
-        configuration.get()._shouldSkipPreferredClientCertificateLookup = YES;
-    if ([configuration respondsToSelector:@selector(set_sourceApplicationAuditTokenData:)])
-        configuration.get()._sourceApplicationAuditTokenData = existingConfiguration.get()._sourceApplicationAuditTokenData;
-    if ([configuration respondsToSelector:@selector(set_sourceApplicationSecondaryIdentifier:)])
-        configuration.get()._sourceApplicationSecondaryIdentifier = existingConfiguration.get()._sourceApplicationSecondaryIdentifier;
+    configuration.get()._shouldSkipPreferredClientCertificateLookup = YES;
+    configuration.get()._sourceApplicationAuditTokenData = existingConfiguration.get()._sourceApplicationAuditTokenData;
+    configuration.get()._sourceApplicationSecondaryIdentifier = existingConfiguration.get()._sourceApplicationSecondaryIdentifier;
 #if PLATFORM(IOS_FAMILY)
     configuration.get()._CTDataConnectionServiceType = existingConfiguration.get()._CTDataConnectionServiceType;
 #endif

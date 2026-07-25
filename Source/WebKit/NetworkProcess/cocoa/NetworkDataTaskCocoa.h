@@ -138,7 +138,6 @@ private:
     String m_uploadBodyTemporaryPath;
     // MAVERICKS_BACKPORT: set when this is a preconnect-only task but the connection-only
     // -_preconnect SPI is absent (10.9). resume() must not send it as a real request.
-    bool m_isUnsupportedPreconnect { false };
 };
 
 WebCore::Credential serverTrustCredential(const WebCore::AuthenticationChallenge&);

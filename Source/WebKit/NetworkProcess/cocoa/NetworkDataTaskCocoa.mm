@@ -147,15 +147,10 @@ inline static bool shouldBlockTrackersForThirdPartyCloaking(NSURLRequest *reques
 void enableAdvancedPrivacyProtections(NSMutableURLRequest *request, OptionSet<WebCore::AdvancedPrivacyProtections> policy)
 {
 #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
-    // MAVERICKS_BACKPORT: _setUseEnhancedPrivacyMode: / _setBlockTrackers: are 10.15+ SPI.
-    if (policy.contains(WebCore::AdvancedPrivacyProtections::EnhancedNetworkPrivacy)
-        && [request respondsToSelector:@selector(_setUseEnhancedPrivacyMode:)])
+    if (policy.contains(WebCore::AdvancedPrivacyProtections::EnhancedNetworkPrivacy))
         request._useEnhancedPrivacyMode = YES;
 
-    // MAVERICKS_BACKPORT: _setBlockTrackers: is 10.15+ SPI; guard before calling.
-    if (policy.contains(WebCore::AdvancedPrivacyProtections::BaselineProtections)
-        && [request respondsToSelector:@selector(_setBlockTrackers:)]
-        && shouldBlockTrackersForThirdPartyCloaking(request))
+    if (policy.contains(WebCore::AdvancedPrivacyProtections::BaselineProtections) && shouldBlockTrackersForThirdPartyCloaking(request))
         request._blockTrackers = YES;
 #else
     UNUSED_PARAM(request);
@@ -166,12 +161,6 @@ void enableAdvancedPrivacyProtections(NSMutableURLRequest *request, OptionSet<We
 void setPCMDataCarriedOnRequest(WebCore::PrivateClickMeasurement::PcmDataCarried pcmDataCarried, NSMutableURLRequest *request)
 {
 #if ENABLE(TRACKER_DISPOSITION)
-    // MAVERICKS_BACKPORT: _needsNetworkTrackingPrevention is 10.15+ SPI.
-    if (![request respondsToSelector:@selector(_needsNetworkTrackingPrevention)]
-        || ![request respondsToSelector:@selector(_setNeedsNetworkTrackingPrevention:)]) {
-        UNUSED_PARAM(pcmDataCarried);
-        return;
-    }
     if (request._needsNetworkTrackingPrevention || pcmDataCarried == WebCore::PrivateClickMeasurement::PcmDataCarried::PersonallyIdentifiable)
         return;
 
@@ -248,9 +237,6 @@ void NetworkDataTaskCocoa::updateFirstPartyInfoForSession(const URL& requestURL)
 
     CheckedPtr session = networkSession();
     auto cnameDomain = [this]() {
-    // MAVERICKS_BACKPORT: -_resolvedCNAMEChain is 10.13+ SPI.
-        if (![m_task respondsToSelector:@selector(_resolvedCNAMEChain)])
-            return WebCore::RegistrableDomain { };
         if (RetainPtr lastResolvedCNAMEInChain = [[m_task _resolvedCNAMEChain] lastObject])
             return lastCNAMEDomain(lastResolvedCNAMEInChain.get());
         return WebCore::RegistrableDomain { };
@@ -398,16 +384,13 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
     ASSERT(nsRequest);
     RetainPtr<NSMutableURLRequest> mutableRequest = adoptNS([nsRequest.get() mutableCopy]);
 
-    // MAVERICKS_BACKPORT: _setPrivacyProxy* are 10.15+ SPI on NSMutableURLRequest.
-    if ((parameters.isMainFrameNavigation
-            || parameters.hadMainFrameMainResourcePrivateRelayed
-            || request.url().host() == request.firstPartyForCookies().host())
-        && [mutableRequest respondsToSelector:@selector(_setPrivacyProxyFailClosedForUnreachableNonMainHosts:)]) {
+    if (parameters.isMainFrameNavigation
+        || parameters.hadMainFrameMainResourcePrivateRelayed
+        || request.url().host() == request.firstPartyForCookies().host()) {
         [mutableRequest _setPrivacyProxyFailClosedForUnreachableNonMainHosts:YES];
     }
 
-    // MAVERICKS_BACKPORT: _setProhibitPrivacyProxy: is 10.15+ SPI; guard before calling.
-    if (!parameters.allowPrivacyProxy && [mutableRequest respondsToSelector:@selector(_setProhibitPrivacyProxy:)])
+    if (!parameters.allowPrivacyProxy)
         [mutableRequest _setProhibitPrivacyProxy:YES];
 
     auto advancedPrivacyProtections = parameters.advancedPrivacyProtections;
@@ -419,31 +402,20 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
 #endif
 
 #if HAVE(STRICT_FAIL_CLOSED)
-    // MAVERICKS_BACKPORT: _setPrivacyProxyStrictFailClosed: is 10.15+ SPI.
-    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::StrictFailClosed)
-        && [mutableRequest respondsToSelector:@selector(_setPrivacyProxyStrictFailClosed:)])
+    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::StrictFailClosed))
         [mutableRequest _setPrivacyProxyStrictFailClosed:YES];
 #endif
 
-    // MAVERICKS_BACKPORT: the _setPrivacyProxy* / _setWebSearchContent / _setAllowPrivateAccessTokensForThirdParty
-    // SPIs are all 10.15+. Guard each call.
-    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::FailClosedForUnreachableHosts)
-        && [mutableRequest respondsToSelector:@selector(_setPrivacyProxyFailClosedForUnreachableHosts:)])
+    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::FailClosedForUnreachableHosts))
         [mutableRequest _setPrivacyProxyFailClosedForUnreachableHosts:YES];
 
-    // MAVERICKS_BACKPORT: _setPrivacyProxyFailClosed: is 10.15+ SPI; guard before calling.
-    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::FailClosedForAllHosts)
-        && [mutableRequest respondsToSelector:@selector(_setPrivacyProxyFailClosed:)])
+    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::FailClosedForAllHosts))
         [mutableRequest _setPrivacyProxyFailClosed:YES];
 
-    // MAVERICKS_BACKPORT: _setWebSearchContent: is 10.15+ SPI; guard before calling.
-    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::WebSearchContent)
-        && [mutableRequest respondsToSelector:@selector(_setWebSearchContent:)])
+    if (advancedPrivacyProtections.contains(WebCore::AdvancedPrivacyProtections::WebSearchContent))
         [mutableRequest _setWebSearchContent:YES];
 
-    // MAVERICKS_BACKPORT: _setAllowPrivateAccessTokensForThirdParty: is 10.15+ SPI; guard before calling.
-    if (parameters.request.isPrivateTokenUsageByThirdPartyAllowed()
-        && [mutableRequest respondsToSelector:@selector(_setAllowPrivateAccessTokensForThirdParty:)])
+    if (parameters.request.isPrivateTokenUsageByThirdPartyAllowed())
         [mutableRequest _setAllowPrivateAccessTokensForThirdParty:YES];
 
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES) && defined(CFN_COOKIE_ACCEPTS_POLICY_PARTITION) && CFN_COOKIE_ACCEPTS_POLICY_PARTITION
@@ -557,16 +529,9 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         ASSERT(!m_sessionWrapper->session.get().configuration.URLCredentialStorage);
         break;
     case WebCore::StoredCredentialsPolicy::DoNotUse:
-        // MAVERICKS_BACKPORT: -[NSURLSessionDataTask _adoptEffectiveConfiguration:] is a 10.10+
-        // SPI. On 10.9 it raises NSInvalidArgumentException and tears down NetworkProcess
-        // (taking out subresource loads — every CDN asset request fails, which is what
-        // makes pages like github render blank). Skip the per-task config override; we
-        // lose per-request URLCredentialStorage=nil isolation, which is acceptable.
-        if ([m_task respondsToSelector:@selector(_adoptEffectiveConfiguration:)]) {
-            RetainPtr<NSURLSessionConfiguration> effectiveConfiguration = m_sessionWrapper->session.get().configuration;
-            effectiveConfiguration.get().URLCredentialStorage = nil;
-            [m_task _adoptEffectiveConfiguration:effectiveConfiguration.get()];
-        }
+        RetainPtr<NSURLSessionConfiguration> effectiveConfiguration = m_sessionWrapper->session.get().configuration;
+        effectiveConfiguration.get().URLCredentialStorage = nil;
+        [m_task _adoptEffectiveConfiguration:effectiveConfiguration.get()];
         break;
     };
 
@@ -576,18 +541,7 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
 
     if (parameters.shouldPreconnectOnly == PreconnectOnly::Yes) {
 #if ENABLE(SERVER_PRECONNECT)
-        // MAVERICKS_BACKPORT: -_preconnect (connection-only, no request sent) is 10.11+.
-        // When it exists, use it. When it does NOT (10.9), the task would otherwise run as
-        // a full GET of the target URL — which is not a harmless "optimization": for a
-        // server that rotates a Set-Cookie session on every response (e.g. any Rails app),
-        // that extra GET rotates the session out from under the just-rendered page, so the
-        // page's CSRF-protected forms (its login form's token no longer matches the stored
-        // session) fail with HTTP 422. It also double-requests every main resource. Since a
-        // preconnect is only a latency hint, mark it to be skipped in resume() instead.
-        if ([m_task respondsToSelector:@selector(set_preconnect:)])
-            m_task.get()._preconnect = true;
-        else
-            m_isUnsupportedPreconnect = true;
+        m_task.get()._preconnect = true;
 #else
         ASSERT_NOT_REACHED();
 #endif
@@ -695,11 +649,7 @@ void NetworkDataTaskCocoa::didReceiveData(const WebCore::SharedBuffer& data)
 {
     WTFEmitSignpost(m_task.get(), DataTask, "received %zd bytes", data.size());
 
-    // MAVERICKS_BACKPORT: -_countOfBytesReceivedEncoded is 10.13+.
-    if ([m_task respondsToSelector:@selector(_countOfBytesReceivedEncoded)])
-        setBytesTransferredOverNetwork([m_task _countOfBytesReceivedEncoded]);
-    else
-        setBytesTransferredOverNetwork(data.size());
+    setBytesTransferredOverNetwork([m_task _countOfBytesReceivedEncoded]);
 
     // MAVERICKS_BACKPORT: decode br bodies (10.9 CFNetwork delivers the raw compressed bytes).
     if (m_brotliStream) {
@@ -822,9 +772,7 @@ void NetworkDataTaskCocoa::didReceiveResponse(WebCore::ResourceResponse&& respon
     if (isTopLevelNavigation())
         updateFirstPartyInfoForSession(response.url());
 #if ENABLE(NETWORK_ISSUE_REPORTING)
-    // MAVERICKS_BACKPORT: -_incompleteTaskMetrics is 10.12+.
-    else if ([m_task respondsToSelector:@selector(_incompleteTaskMetrics)]
-        && NetworkIssueReporter::shouldReport(retainPtr([m_task _incompleteTaskMetrics]).get())) {
+    else if (NetworkIssueReporter::shouldReport(retainPtr([m_task _incompleteTaskMetrics]).get())) {
         if (CheckedPtr session = networkSession())
             session->reportNetworkIssue(*m_webPageProxyID, firstRequest().url());
     }
@@ -1084,14 +1032,6 @@ void NetworkDataTaskCocoa::resume()
 
     if (m_failureScheduled)
         return;
-
-    // MAVERICKS_BACKPORT: a preconnect-only task with no connection-only SPI (10.9) must not be
-    // sent as a real request (see the preconnect handling in the constructor). Cancel it instead;
-    // the cancellation completes the PreconnectTask benignly (its timeout is a backstop).
-    if (m_isUnsupportedPreconnect) {
-        [m_task cancel];
-        return;
-    }
 
     if (!m_session || m_session->isInvalidated())
         return;

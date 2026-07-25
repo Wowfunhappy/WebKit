@@ -22,6 +22,7 @@
 #import <mach/mach.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
+#import <libkern/OSAtomic.h>
 #import <pthread.h>
 #import <unistd.h>
 
@@ -1653,6 +1654,157 @@ WK_POLYFILL_ADD_REPLACES("__NSCFURLSessionDownloadTask", "wk_cancelByProducingRe
 WK_POLYFILL_SEL_REPLACES("cancelByProducingResumeData:", "wk_cancelByProducingResumeData:");
 
 // ---------------------------------------------------------------------------------------------------
+// NSURLSession SPI that arrived after 10.9, on NSURLSessionConfiguration, NSMutableURLRequest, the
+// session tasks and NSHTTPCookieStorage.
+//
+// Every selector below was probed on this 10.9 host and is absent. They configure behaviour 10.9 has no
+// notion of -- App SSO, tracker blocking and enhanced privacy mode, the privacy proxy, W3C timing data,
+// source-application attribution, per-task metrics, CNAME cloaking resolution -- so the honest 10.9
+// answer to each is "nothing happens", which is exactly what these do: the setters accept and discard,
+// and the getters report the absence (nil, NO, 0) that the caller already has to handle. That is correct
+// for any caller, not just for WebKit's, which is why it belongs here rather than in a pile of
+// respondsToSelector: checks at the call sites -- those were removed with this.
+//
+// Deliberately NOT stubbed: +[NSURLSession _strictTrustEvaluate:queue:completionHandler:], because
+// "nothing happens" is not a safe answer for a trust evaluation. NetworkSessionCocoa keeps its check
+// there and falls back to evaluating the trust itself.
+
+static void wk_noopSetObject(id self, SEL _cmd, id value) { (void)self; (void)_cmd; (void)value; }
+static void wk_noopSetBool(id self, SEL _cmd, BOOL value) { (void)self; (void)_cmd; (void)value; }
+static void wk_noopSetUnsigned(id self, SEL _cmd, NSUInteger value) { (void)self; (void)_cmd; (void)value; }
+static id wk_absentObject(id self, SEL _cmd) { (void)self; (void)_cmd; return nil; }
+static BOOL wk_absentFlag(id self, SEL _cmd) { (void)self; (void)_cmd; return NO; }
+
+#if __LP64__
+#define WK_UNSIGNED_SETTER_TYPES "v@:Q"
+#else
+#define WK_UNSIGNED_SETTER_TYPES "v@:I"
+#endif
+
+#define WK_POLYFILL_NOOP_SETTER(CLS, SEL_NAME, IMP, TYPES) \
+    WK_POLYFILL_ADD(CLS, "wk_" SEL_NAME, IMP, TYPES); \
+    WK_POLYFILL_SEL(SEL_NAME, "wk_" SEL_NAME)
+
+// NSURLSessionConfiguration.
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_shouldSkipPreferredClientCertificateLookup:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_shouldSkipPreferredClientCertificateLookup:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_connectionCacheNumPriorityLevels:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_connectionCacheNumPriorityLevels:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_connectionCacheMinimumFastLanePriority:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_connectionCacheMinimumFastLanePriority:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_connectionCacheNumFastLanes:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_connectionCacheNumFastLanes:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_preventsAppSSO:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_preventsAppSSO:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_suppressedAutoAddedHTTPHeaders:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_suppressedAutoAddedHTTPHeaders:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_sourceApplicationAuditTokenData:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_sourceApplicationAuditTokenData:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_sourceApplicationBundleIdentifier:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_sourceApplicationBundleIdentifier:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_sourceApplicationSecondaryIdentifier:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_sourceApplicationSecondaryIdentifier:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_preventsSystemHTTPProxyAuthentication:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_preventsSystemHTTPProxyAuthentication:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_requiresSecureHTTPSProxyConnection:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_requiresSecureHTTPSProxyConnection:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_timingDataOptions:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_timingDataOptions:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_skipsStackTraceCapture:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_skipsStackTraceCapture:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "_sourceApplicationSecondaryIdentifier", wk_absentObject, "@@:");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "_sourceApplicationSecondaryIdentifier", wk_absentObject, "@@:");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "_allowsHSTSWithUntrustedRootCertificate", wk_absentFlag, "c@:");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "_allowsHSTSWithUntrustedRootCertificate", wk_absentFlag, "c@:");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_allowsHSTSWithUntrustedRootCertificate:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_allowsHSTSWithUntrustedRootCertificate:", wk_noopSetBool, "v@:c");
+
+// _NSHTTPAlternativeServicesStorage: 10.9 has the class but not the suspend-locking control.
+WK_POLYFILL_NOOP_SETTER("_NSHTTPAlternativeServicesStorage", "setCanSuspendLocked:", wk_noopSetBool, "v@:c");
+
+// NSMutableURLRequest.
+WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setUseEnhancedPrivacyMode:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setBlockTrackers:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setNeedsNetworkTrackingPrevention:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_needsNetworkTrackingPrevention", wk_absentFlag, "c@:");
+WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setPrivacyProxyFailClosedForUnreachableNonMainHosts:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setProhibitPrivacyProxy:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setPrivacyProxyStrictFailClosed:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setPrivacyProxyFailClosedForUnreachableHosts:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setPrivacyProxyFailClosed:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setWebSearchContent:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setAllowPrivateAccessTokensForThirdParty:", wk_noopSetBool, "v@:c");
+
+// The session tasks. Registered on the shared root of the concrete classes for the same reason
+// -_pathToDownloadTaskFile is, and on the public class WebKit compiles against.
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__incompleteTaskMetrics", wk_absentObject, "@@:");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk__incompleteTaskMetrics", wk_absentObject, "@@:");
+WK_POLYFILL_SEL("_incompleteTaskMetrics", "wk__incompleteTaskMetrics");
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__resolvedCNAMEChain", wk_absentObject, "@@:");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk__resolvedCNAMEChain", wk_absentObject, "@@:");
+WK_POLYFILL_SEL("_resolvedCNAMEChain", "wk__resolvedCNAMEChain");
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__adoptEffectiveConfiguration:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk__adoptEffectiveConfiguration:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_SEL("_adoptEffectiveConfiguration:", "wk__adoptEffectiveConfiguration:");
+// -_preconnect is the one that cannot be a no-op. Accepting it and doing nothing else would leave a task
+// that is only supposed to warm a connection running as an ordinary request, i.e. a full GET of the target
+// URL -- not a harmless extra fetch: against a server that rotates a Set-Cookie session on every response
+// it rotates the session out from under the page that was just rendered, whose CSRF-protected forms then
+// fail with HTTP 422, and it double-requests every main resource. 10.9 cannot warm a connection without
+// transferring, so the honest emulation of "preconnect" here is to perform NO transfer: the flag is
+// recorded and the task is cancelled instead of ever being sent. A hint that does nothing is what a
+// preconnect is allowed to be; a hint that fetches the whole resource is not.
+static const void *wk_taskIsPreconnectKey = &wk_taskIsPreconnectKey;
+
+static void wk_urlSessionTask_setPreconnect(id self, SEL _cmd, BOOL preconnect)
+{
+    (void)_cmd;
+    objc_setAssociatedObject(self, wk_taskIsPreconnectKey, preconnect ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (!preconnect)
+        return;
+    // Cancel it here rather than hooking -resume, which would put this on the path of every task in the
+    // process for one flag. The task is still suspended at this point -- the property is set before it is
+    // ever resumed -- so cancelling it now is what "this task only warms a connection" amounts to on a
+    // system that cannot warm one: no request is sent, and the client is completed with a cancellation.
+    static SEL cancelSelector;
+    if (!cancelSelector)
+        cancelSelector = sel_registerName("cancel");
+    ((void (*)(id, SEL))objc_msgSend)(self, cancelSelector);
+}
+
+static BOOL wk_urlSessionTask_preconnect(id self, SEL _cmd)
+{
+    (void)_cmd;
+    return objc_getAssociatedObject(self, wk_taskIsPreconnectKey) != nil;
+}
+
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_preconnect:", wk_urlSessionTask_setPreconnect, "v@:c");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_preconnect:", wk_urlSessionTask_setPreconnect, "v@:c");
+WK_POLYFILL_SEL("set_preconnect:", "wk_set_preconnect:");
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__preconnect", wk_urlSessionTask_preconnect, "c@:");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk__preconnect", wk_urlSessionTask_preconnect, "c@:");
+WK_POLYFILL_SEL("_preconnect", "wk__preconnect");
+
+// Bytes as they arrived on the wire. 10.9 counts only the decoded body, which is the same number for a
+// response that is not content-encoded and the closest true value for one that is -- far closer than the
+// zero an "absent" answer would report into the transfer-size accounting.
+static int64_t wk_urlSessionTask_countOfBytesReceivedEncoded(id self, SEL _cmd)
+{
+    (void)_cmd;
+    static SEL countSelector;
+    if (!countSelector)
+        countSelector = sel_registerName("countOfBytesReceived");
+    return ((int64_t (*)(id, SEL))objc_msgSend)(self, countSelector);
+}
+
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__countOfBytesReceivedEncoded", wk_urlSessionTask_countOfBytesReceivedEncoded, "q@:");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk__countOfBytesReceivedEncoded", wk_urlSessionTask_countOfBytesReceivedEncoded, "q@:");
+WK_POLYFILL_SEL("_countOfBytesReceivedEncoded", "wk__countOfBytesReceivedEncoded");
+
+// NSHTTPCookieStorage.
+WK_POLYFILL_NOOP_SETTER("NSHTTPCookieStorage", "set_overrideSessionCookieAcceptPolicy:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
+
+// ---------------------------------------------------------------------------------------------------
 // -[NSURLSessionTask _pathToDownloadTaskFile] / -set_pathToDownloadTaskFile: (github #11 / resume).
 //
 // This is the property with which CFNetwork streams a download STRAIGHT INTO the file the client
@@ -1678,6 +1830,100 @@ WK_POLYFILL_SEL_REPLACES("cancelByProducingResumeData:", "wk_cancelByProducingRe
 // a temp file invisible and would otherwise delete the client's file, so the replacement sets it.
 
 static NSString *wk_downloadTaskFilePathKey = @"wk_pathToDownloadTaskFile";
+
+#if __LP64__
+#define WK_TASK_IDENTIFIER_TYPES "Q@:"
+#else
+#define WK_TASK_IDENTIFIER_TYPES "I@:"
+#endif
+
+// Destinations set on a task that has no output file yet, keyed by the CFURLConnection the download task
+// it becomes inherits from it. Read on every -taskIdentifier, so the count is checked without the lock:
+// it only ever goes non-zero between a data task being given a destination and the download task claiming
+// it, and a stale read costs one lock acquisition that finds nothing.
+static pthread_mutex_t wk_pendingDownloadPathsLock = PTHREAD_MUTEX_INITIALIZER;
+static CFMutableDictionaryRef wk_pendingDownloadPaths;
+static volatile int32_t wk_pendingDownloadPathCount;
+
+// The CFURLConnection a local task is running on. Read straight out of the ivar rather than through
+// object_getIvar, which is for object-typed ivars and this one is not.
+static void *wk_taskConnection(id task)
+{
+    Ivar connectionIvar = class_getInstanceVariable(object_getClass(task), "_cfConn");
+    if (!connectionIvar)
+        return NULL;
+    return *(void **)((char *)task + ivar_getOffset(connectionIvar));
+}
+
+static void wk_forgetPendingDownloadPath(void *connection)
+{
+    pthread_mutex_lock(&wk_pendingDownloadPathsLock);
+    if (wk_pendingDownloadPaths && CFDictionaryContainsKey(wk_pendingDownloadPaths, connection)) {
+        CFDictionaryRemoveValue(wk_pendingDownloadPaths, connection);
+        OSAtomicDecrement32(&wk_pendingDownloadPathCount);
+    }
+    pthread_mutex_unlock(&wk_pendingDownloadPathsLock);
+}
+
+// Drops the entry if the data task dies without ever becoming a download task, so a transfer that is
+// cancelled between the two cannot leave the key behind for a later connection to collide with.
+@interface WKMavericksPendingDownloadDestination : NSObject {
+@public
+    void *connection;
+}
+@end
+
+@implementation WKMavericksPendingDownloadDestination
+- (void)dealloc
+{
+    wk_forgetPendingDownloadPath(connection);
+    [super dealloc];
+}
+@end
+
+static const void *wk_pendingDownloadDestinationKey = &wk_pendingDownloadDestinationKey;
+
+static void wk_rememberPendingDownloadPath(id task, NSString *path)
+{
+    void *connection = wk_taskConnection(task);
+    if (!connection)
+        return;
+
+    pthread_mutex_lock(&wk_pendingDownloadPathsLock);
+    if (!wk_pendingDownloadPaths)
+        wk_pendingDownloadPaths = CFDictionaryCreateMutable(NULL, 0, NULL, &kCFTypeDictionaryValueCallBacks);
+    if (!CFDictionaryContainsKey(wk_pendingDownloadPaths, connection))
+        OSAtomicIncrement32(&wk_pendingDownloadPathCount);
+    CFDictionarySetValue(wk_pendingDownloadPaths, connection, path);
+    pthread_mutex_unlock(&wk_pendingDownloadPathsLock);
+
+    WKMavericksPendingDownloadDestination *lifetime = [[WKMavericksPendingDownloadDestination alloc] init];
+    lifetime->connection = connection;
+    objc_setAssociatedObject(task, wk_pendingDownloadDestinationKey, lifetime, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [lifetime release];
+}
+
+// Returns a retained path, or nil if this task is not a converted download task with one waiting.
+static NSString *wk_takePendingDownloadPath(id task)
+{
+    if (!class_getInstanceVariable(object_getClass(task), "_downloadFile"))
+        return nil;
+    void *connection = wk_taskConnection(task);
+    if (!connection)
+        return nil;
+
+    NSString *path = nil;
+    pthread_mutex_lock(&wk_pendingDownloadPathsLock);
+    if (wk_pendingDownloadPaths) {
+        path = [(NSString *)CFDictionaryGetValue(wk_pendingDownloadPaths, connection) retain];
+        if (path) {
+            CFDictionaryRemoveValue(wk_pendingDownloadPaths, connection);
+            OSAtomicDecrement32(&wk_pendingDownloadPathCount);
+        }
+    }
+    pthread_mutex_unlock(&wk_pendingDownloadPathsLock);
+    return path;
+}
 
 // Marks the download files whose path belongs to a CLIENT rather than to CFNetwork, so that replacing one
 // never unlinks the file the client is downloading into.
@@ -1827,7 +2073,10 @@ static void wk_bindDownloadTaskToFile(id task, NSString *path)
     id previous = getObject(task, downloadFileSelector);
     if (!previous)
         return; // -setupForNewDownload has not made one yet; it will, and the path is re-applied then.
-    NSString *previousPath = getObject(previous, pathSelector);
+    // Retained for the whole function: -path hands back the _path ivar itself, with no retain or
+    // autorelease (measured), and the branches below reassign that ivar (-setPath:) or release the object
+    // holding it (-setDownloadFile:) while still needing the old path to unlink it.
+    NSString *previousPath = [getObject(previous, pathSelector) retain];
 
     // stat() rather than -attributesOfItemAtPath:, which reported a non-empty destination on a path that
     // did not exist yet and sent this down the copy path (observed: link() never called, the file created
@@ -1849,6 +2098,7 @@ static void wk_bindDownloadTaskToFile(id task, NSString *path)
     if (previousExists && destinationExists && previousInfo.st_dev == destinationInfo.st_dev
         && previousInfo.st_ino == destinationInfo.st_ino) {
         wk_claimDownloadFileForClient(previous);
+        [previousPath release];
         return;
     }
 
@@ -1881,6 +2131,7 @@ static void wk_bindDownloadTaskToFile(id task, NSString *path)
             setObject(previous, setPathSelector, path);
             wk_claimDownloadFileForClient(previous);
             unlink([previousPath fileSystemRepresentation]);
+            [previousPath release];
             return;
         }
         // link() fails with EXDEV when the client's directory is on another volume, which Safari's "Save
@@ -1924,6 +2175,7 @@ static void wk_bindDownloadTaskToFile(id task, NSString *path)
     // +alloc, leaving the task as the only owner.
     setObject(task, setDownloadFileSelector, replacement);
     [replacement release];
+    [previousPath release];
 }
 
 static NSString *wk_urlSessionTask_pathToDownloadTaskFile(id self, SEL _cmd)
@@ -1936,10 +2188,53 @@ static void wk_urlSessionTask_setPathToDownloadTaskFile(id self, SEL _cmd, NSStr
 {
     (void)_cmd;
     objc_setAssociatedObject(self, (const void *)&wk_downloadTaskFilePathKey, path, OBJC_ASSOCIATION_COPY_NONATOMIC);
-    // Download::resume sets this on a task that already exists (downloadTaskWithResumeData:), so bind
-    // now when there is something to bind; a data task has no _downloadFile and is handled at the
-    // moment it becomes a download task, below.
-    wk_bindDownloadTaskToFile(self, path);
+
+    // A task that already owns an output file (a download task, including one built from resume data) can
+    // be bound right away.
+    if (class_getInstanceVariable(object_getClass(self), "_downloadFile")) {
+        wk_bindDownloadTaskToFile(self, path);
+        return;
+    }
+
+    // Otherwise this is a DATA task, and the destination has to survive the conversion into a download
+    // task -- which CFNetwork performs inside -[__NSCFLocalDownloadTask initWithTask:suspendedConnection:]
+    // -> -setupForNewDownload, producing a different object that no client is given a chance to configure.
+    // The two are the same transfer and they say so: the download task is initialised FROM the data task
+    // and inherits its _cfConn (measured on 10.9: the identical CFURLConnection pointer appears on both,
+    // and the data task's is cleared once the conversion is done), so the destination is recorded under
+    // that pointer and claimed below by whichever task turns up holding it.
+    wk_rememberPendingDownloadPath(self, path);
+}
+
+// Claim a destination recorded before the conversion, then answer the question actually asked.
+//
+// This is the seam because -taskIdentifier is the first thing any client can send a download task it has
+// just been handed: it is how a task is identified at all, and WebKit sends it to the new task inside
+// -URLSession:dataTask:didBecomeDownloadTask: (upstream's own RELEASE_ASSERT and downloadMap.add do), which
+// is the earliest moment the download task exists outside CFNetwork. Binding here rather than from WebKit
+// keeps the property's whole contract -- "set this on a task, and its body lands in that file" -- inside
+// the polyfill, so it holds for any caller instead of only for the call sequence WebKit happens to use.
+//
+// Cost on the hot path is a pointer comparison and a load: only the one class that owns a download file
+// can have a pending destination, and the count is zero except during a conversion.
+static NSUInteger wk_urlSessionTask_taskIdentifier(id self, SEL _cmd)
+{
+    (void)_cmd;
+    if (wk_pendingDownloadPathCount) {
+        NSString *pending = wk_takePendingDownloadPath(self);
+        if (pending) {
+            objc_setAssociatedObject(self, (const void *)&wk_downloadTaskFilePathKey, pending, OBJC_ASSOCIATION_COPY_NONATOMIC);
+            wk_bindDownloadTaskToFile(self, pending);
+            [pending release];
+        }
+    }
+
+    // The public selector is untouched on the class (only WebKit's own selrefs are rewritten), so this
+    // reaches 10.9's implementation.
+    static SEL publicSelector;
+    if (!publicSelector)
+        publicSelector = sel_registerName("taskIdentifier");
+    return ((NSUInteger (*)(id, SEL))objc_msgSend)(self, publicSelector);
 }
 
 // The property is declared on NSURLSessionTask (CFNetworkSPI.h) and WebKit sets it through that type,
@@ -1954,6 +2249,14 @@ WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__pathToDownloadTaskFile", wk_urlSess
 WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_pathToDownloadTaskFile:", wk_urlSessionTask_setPathToDownloadTaskFile, "v@:@");
 WK_POLYFILL_SEL("_pathToDownloadTaskFile", "wk__pathToDownloadTaskFile");
 WK_POLYFILL_SEL("set_pathToDownloadTaskFile:", "wk_set_pathToDownloadTaskFile:");
+
+// -taskIdentifier itself is 10.9's, and stays 10.9's for everyone else: REPLACES only installs this body
+// under the wk_ name, so the public selector still resolves to CFNetwork's implementation and only
+// WebKit's own sends are rewritten. Registered on the two classes that implement it (measured: no
+// subclass overrides -taskIdentifier, so the concrete download task inherits this one).
+WK_POLYFILL_ADD_REPLACES("__NSCFURLSessionTask", "wk_taskIdentifier", wk_urlSessionTask_taskIdentifier, WK_TASK_IDENTIFIER_TYPES);
+WK_POLYFILL_ADD_REPLACES("NSURLSessionTask", "wk_taskIdentifier", wk_urlSessionTask_taskIdentifier, WK_TASK_IDENTIFIER_TYPES);
+WK_POLYFILL_SEL_REPLACES("taskIdentifier", "wk_taskIdentifier");
 
 // ---------------------------------------------------------------------------------------------------
 // -[CALayer presentationLayer] and the implicit CATransaction it begins.
