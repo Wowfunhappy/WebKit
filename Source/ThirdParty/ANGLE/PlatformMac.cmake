@@ -31,22 +31,23 @@ list(APPEND ANGLE_DEFINITIONS
     ANGLE_ENABLE_GL_DESKTOP_BACKEND
     # MAVERICKS_BACKPORT: this port runs WebGL in Workers in-process (there is no GPU process here,
     # see WebWorkerClient::createGraphicsContextGL), so GL entry points ARE called from more than one
-    # thread. The CGL backend virtualizes ONE real context per EGLDisplay — DisplayCGL::initialize
-    # creates a single CGLContextObj and hands every ContextCGL the same RendererGL (so one
-    # StateManagerGL, one dispatch table, and a DisplayCGL::mThreadsWithCurrentContext set mutated
-    # from each calling thread) — and without ANGLE_ENABLE_SHARE_CONTEXT_LOCK,
-    # SCOPED_SHARE_CONTEXT_LOCK() expands to NOTHING (libGLESv2/global_state.h), leaving every GL
-    # entry point unlocked. The global mutex ANGLE always takes covers EGL entry points only.
+    # thread. ANGLE's contract for that is explicit: without ANGLE_ENABLE_SHARE_CONTEXT_LOCK,
+    # SCOPED_SHARE_CONTEXT_LOCK() expands to NOTHING (libGLESv2/global_state.h) and "the client needs
+    # to use gl calls in a threadsafe way" — the global mutex ANGLE always takes covers EGL entry
+    # points only. This client cannot make that promise, so the lock is enabled.
     #
-    # These two defines are ANGLE's own configuration for exactly this case: the share-context lock
-    # serialises GL entry points, and FORCE_CONTEXT_CHECK_EVERY_CALL dirties all state whenever the
-    # calling context differs from the last one used, which is what makes a virtualized shared
-    # context correct across threads. Note the alternative — a separate EGLDisplay per thread via
-    # EGL_PLATFORM_ANGLE_DISPLAY_KEY_ANGLE — is NOT available here: that attribute is validated
-    # against EGL_ANGLE_platform_angle_device_id, which Display.cpp advertises for D3D11/Vulkan/Metal
-    # only, so passing it on this backend fails validation and returns EGL_NO_DISPLAY.
+    # Note this is NOT what keeps two threads off one real GL context: the CGL backend virtualizes one
+    # CGLContextObj + RendererGL per EGLDisplay, and CGL forbids a context being current on two
+    # threads at once, which no lock inside ANGLE repairs (measured: with only this lock, concurrent
+    # main-thread + worker WebGL still aborted in Apple's GLEngine). That is solved by giving each
+    # thread its own EGLDisplay — see initializeEGLDisplay in GraphicsContextGLCocoa.mm.
+    #
+    # ANGLE_FORCE_CONTEXT_CHECK_EVERY_CALL is deliberately NOT set. It exists for contexts that share
+    # a RendererGL, which per-thread displays never do, and it compares against the process-global
+    # g_LastContext (global_state.cpp), so with two threads drawing it would call
+    # Context::dirtyAllState() on effectively every GL entry point — a full state re-sync per call,
+    # degrading the very concurrency this configuration exists to provide.
     ANGLE_ENABLE_SHARE_CONTEXT_LOCK
-    ANGLE_FORCE_CONTEXT_CHECK_EVERY_CALL
 )
 
 list(APPEND ANGLEGLESv2_LIBRARIES
