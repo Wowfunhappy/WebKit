@@ -72,7 +72,7 @@ static WKStringRef decideDestinationWithSuggestedFilename(WKDownloadRef download
     // Make sure the suggested filename is provided and matches the value of the download attribute in the HTML.
     EXPECT_WK_STREQ("downloadAttributeValue.txt", suggestedFilename);
 
-    WKDownloadCancel(download, nullptr, nullptr);
+    WKDownloadCancel(download);
     didDecideDownloadDestination = true;
 
     EXPECT_EQ(expectedOriginatingPage, WKDownloadGetOriginatingPage(download));
@@ -135,7 +135,7 @@ static WKStringRef decideDestinationWithSuggestedFilenameContainingSlashes(WKDow
     // Make sure the suggested filename is provided and matches the value of the download attribute in the HTML, after sanitization.
     EXPECT_WK_STREQ("test1_test2_downloadAttributeValue.txt", suggestedFilename);
 
-    WKDownloadCancel(download, nullptr, nullptr);
+    WKDownloadCancel(download);
     didDecideDownloadDestination = true;
 
     return Util::toWK("/tmp/WebKitAPITest/ContextMenuDownload").leakRef();

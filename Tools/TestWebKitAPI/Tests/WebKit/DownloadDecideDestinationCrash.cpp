@@ -44,7 +44,7 @@ static void decidePolicyForNavigationResponse(WKPageRef, WKNavigationResponseRef
 static WKStringRef decideDestinationWithSuggestedFilename(WKDownloadRef download, WKURLResponseRef, WKStringRef, const void*)
 {
     didDecideDestination = true;
-    WKDownloadCancel(download, nullptr, nullptr);
+    WKDownloadCancel(download);
     return Util::toWK("/tmp/WebKitAPITest/DownloadDecideDestinationCrash").leakRef();
 }
 
