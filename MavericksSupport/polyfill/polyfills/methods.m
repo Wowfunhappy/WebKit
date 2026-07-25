@@ -1837,94 +1837,6 @@ static NSString *wk_downloadTaskFilePathKey = @"wk_pathToDownloadTaskFile";
 #define WK_TASK_IDENTIFIER_TYPES "I@:"
 #endif
 
-// Destinations set on a task that has no output file yet, keyed by the CFURLConnection the download task
-// it becomes inherits from it. Read on every -taskIdentifier, so the count is checked without the lock:
-// it only ever goes non-zero between a data task being given a destination and the download task claiming
-// it, and a stale read costs one lock acquisition that finds nothing.
-static pthread_mutex_t wk_pendingDownloadPathsLock = PTHREAD_MUTEX_INITIALIZER;
-static CFMutableDictionaryRef wk_pendingDownloadPaths;
-static volatile int32_t wk_pendingDownloadPathCount;
-
-// The CFURLConnection a local task is running on. Read straight out of the ivar rather than through
-// object_getIvar, which is for object-typed ivars and this one is not.
-static void *wk_taskConnection(id task)
-{
-    Ivar connectionIvar = class_getInstanceVariable(object_getClass(task), "_cfConn");
-    if (!connectionIvar)
-        return NULL;
-    return *(void **)((char *)task + ivar_getOffset(connectionIvar));
-}
-
-static void wk_forgetPendingDownloadPath(void *connection)
-{
-    pthread_mutex_lock(&wk_pendingDownloadPathsLock);
-    if (wk_pendingDownloadPaths && CFDictionaryContainsKey(wk_pendingDownloadPaths, connection)) {
-        CFDictionaryRemoveValue(wk_pendingDownloadPaths, connection);
-        OSAtomicDecrement32(&wk_pendingDownloadPathCount);
-    }
-    pthread_mutex_unlock(&wk_pendingDownloadPathsLock);
-}
-
-// Drops the entry if the data task dies without ever becoming a download task, so a transfer that is
-// cancelled between the two cannot leave the key behind for a later connection to collide with.
-@interface WKMavericksPendingDownloadDestination : NSObject {
-@public
-    void *connection;
-}
-@end
-
-@implementation WKMavericksPendingDownloadDestination
-- (void)dealloc
-{
-    wk_forgetPendingDownloadPath(connection);
-    [super dealloc];
-}
-@end
-
-static const void *wk_pendingDownloadDestinationKey = &wk_pendingDownloadDestinationKey;
-
-static void wk_rememberPendingDownloadPath(id task, NSString *path)
-{
-    void *connection = wk_taskConnection(task);
-    if (!connection)
-        return;
-
-    pthread_mutex_lock(&wk_pendingDownloadPathsLock);
-    if (!wk_pendingDownloadPaths)
-        wk_pendingDownloadPaths = CFDictionaryCreateMutable(NULL, 0, NULL, &kCFTypeDictionaryValueCallBacks);
-    if (!CFDictionaryContainsKey(wk_pendingDownloadPaths, connection))
-        OSAtomicIncrement32(&wk_pendingDownloadPathCount);
-    CFDictionarySetValue(wk_pendingDownloadPaths, connection, path);
-    pthread_mutex_unlock(&wk_pendingDownloadPathsLock);
-
-    WKMavericksPendingDownloadDestination *lifetime = [[WKMavericksPendingDownloadDestination alloc] init];
-    lifetime->connection = connection;
-    objc_setAssociatedObject(task, wk_pendingDownloadDestinationKey, lifetime, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [lifetime release];
-}
-
-// Returns a retained path, or nil if this task is not a converted download task with one waiting.
-static NSString *wk_takePendingDownloadPath(id task)
-{
-    if (!class_getInstanceVariable(object_getClass(task), "_downloadFile"))
-        return nil;
-    void *connection = wk_taskConnection(task);
-    if (!connection)
-        return nil;
-
-    NSString *path = nil;
-    pthread_mutex_lock(&wk_pendingDownloadPathsLock);
-    if (wk_pendingDownloadPaths) {
-        path = [(NSString *)CFDictionaryGetValue(wk_pendingDownloadPaths, connection) retain];
-        if (path) {
-            CFDictionaryRemoveValue(wk_pendingDownloadPaths, connection);
-            OSAtomicDecrement32(&wk_pendingDownloadPathCount);
-        }
-    }
-    pthread_mutex_unlock(&wk_pendingDownloadPathsLock);
-    return path;
-}
-
 // Marks the download files whose path belongs to a CLIENT rather than to CFNetwork, so that replacing one
 // never unlinks the file the client is downloading into.
 static const void *wk_downloadFileIsClientOwnedKey = &wk_downloadFileIsClientOwnedKey;
@@ -2189,52 +2101,10 @@ static void wk_urlSessionTask_setPathToDownloadTaskFile(id self, SEL _cmd, NSStr
     (void)_cmd;
     objc_setAssociatedObject(self, (const void *)&wk_downloadTaskFilePathKey, path, OBJC_ASSOCIATION_COPY_NONATOMIC);
 
-    // A task that already owns an output file (a download task, including one built from resume data) can
-    // be bound right away.
-    if (class_getInstanceVariable(object_getClass(self), "_downloadFile")) {
-        wk_bindDownloadTaskToFile(self, path);
-        return;
-    }
-
-    // Otherwise this is a DATA task, and the destination has to survive the conversion into a download
-    // task -- which CFNetwork performs inside -[__NSCFLocalDownloadTask initWithTask:suspendedConnection:]
-    // -> -setupForNewDownload, producing a different object that no client is given a chance to configure.
-    // The two are the same transfer and they say so: the download task is initialised FROM the data task
-    // and inherits its _cfConn (measured on 10.9: the identical CFURLConnection pointer appears on both,
-    // and the data task's is cleared once the conversion is done), so the destination is recorded under
-    // that pointer and claimed below by whichever task turns up holding it.
-    wk_rememberPendingDownloadPath(self, path);
-}
-
-// Claim a destination recorded before the conversion, then answer the question actually asked.
-//
-// This is the seam because -taskIdentifier is the first thing any client can send a download task it has
-// just been handed: it is how a task is identified at all, and WebKit sends it to the new task inside
-// -URLSession:dataTask:didBecomeDownloadTask: (upstream's own RELEASE_ASSERT and downloadMap.add do), which
-// is the earliest moment the download task exists outside CFNetwork. Binding here rather than from WebKit
-// keeps the property's whole contract -- "set this on a task, and its body lands in that file" -- inside
-// the polyfill, so it holds for any caller instead of only for the call sequence WebKit happens to use.
-//
-// Cost on the hot path is a pointer comparison and a load: only the one class that owns a download file
-// can have a pending destination, and the count is zero except during a conversion.
-static NSUInteger wk_urlSessionTask_taskIdentifier(id self, SEL _cmd)
-{
-    (void)_cmd;
-    if (wk_pendingDownloadPathCount) {
-        NSString *pending = wk_takePendingDownloadPath(self);
-        if (pending) {
-            objc_setAssociatedObject(self, (const void *)&wk_downloadTaskFilePathKey, pending, OBJC_ASSOCIATION_COPY_NONATOMIC);
-            wk_bindDownloadTaskToFile(self, pending);
-            [pending release];
-        }
-    }
-
-    // The public selector is untouched on the class (only WebKit's own selrefs are rewritten), so this
-    // reaches 10.9's implementation.
-    static SEL publicSelector;
-    if (!publicSelector)
-        publicSelector = sel_registerName("taskIdentifier");
-    return ((NSUInteger (*)(id, SEL))objc_msgSend)(self, publicSelector);
+    // A data task has no output file to bind; wk_bindDownloadTaskToFile returns without doing anything,
+    // and the path is re-applied to the download task it becomes (see the comment on that call in
+    // NetworkSessionCocoa's -URLSession:dataTask:didBecomeDownloadTask:).
+    wk_bindDownloadTaskToFile(self, path);
 }
 
 // The property is declared on NSURLSessionTask (CFNetworkSPI.h) and WebKit sets it through that type,
@@ -2250,13 +2120,6 @@ WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_pathToDownloadTaskFile:", wk_url
 WK_POLYFILL_SEL("_pathToDownloadTaskFile", "wk__pathToDownloadTaskFile");
 WK_POLYFILL_SEL("set_pathToDownloadTaskFile:", "wk_set_pathToDownloadTaskFile:");
 
-// -taskIdentifier itself is 10.9's, and stays 10.9's for everyone else: REPLACES only installs this body
-// under the wk_ name, so the public selector still resolves to CFNetwork's implementation and only
-// WebKit's own sends are rewritten. Registered on the two classes that implement it (measured: no
-// subclass overrides -taskIdentifier, so the concrete download task inherits this one).
-WK_POLYFILL_ADD_REPLACES("__NSCFURLSessionTask", "wk_taskIdentifier", wk_urlSessionTask_taskIdentifier, WK_TASK_IDENTIFIER_TYPES);
-WK_POLYFILL_ADD_REPLACES("NSURLSessionTask", "wk_taskIdentifier", wk_urlSessionTask_taskIdentifier, WK_TASK_IDENTIFIER_TYPES);
-WK_POLYFILL_SEL_REPLACES("taskIdentifier", "wk_taskIdentifier");
 
 // ---------------------------------------------------------------------------------------------------
 // -[CALayer presentationLayer] and the implicit CATransaction it begins.

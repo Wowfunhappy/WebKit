@@ -1013,6 +1013,19 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         return;
 
     auto downloadID = *networkDataTask->pendingDownloadID();
+    // MAVERICKS_BACKPORT: re-apply the destination to the task that will actually write it.
+    // setPendingDownloadLocation set _pathToDownloadTaskFile on the DATA task, and 10.9 builds the
+    // download task's output file inside its own initializer
+    // (-[__NSCFLocalDownloadTask initWithTask:suspendedConnection:] -> -setupForNewDownload), so the
+    // property has to be set again on the new object. This line lives here, and not in the polyfill,
+    // because no polyfill shape can reach that moment: the conversion is a send made INSIDE CFNetwork,
+    // and the selref-scope mechanism rewrites __objc_selrefs in WebKit's own images only
+    // (MavericksSupport/polyfill/mechanism/wk_selref_scope.m), so it never sees a system framework's
+    // internal sends. Carrying the destination across the conversion in the polyfill instead would mean
+    // correlating the two task objects out of band and hanging the work off some accessor a client
+    // happens to call -- correct only for callers that call it. See the _pathToDownloadTaskFile polyfill
+    // in MavericksSupport/polyfill/polyfills/methods.m.
+    downloadTask._pathToDownloadTaskFile = networkDataTask->pendingDownloadLocation().createNSString().get();
     CheckedRef downloadManager = sessionCocoa->networkProcess().downloadManager();
     Ref download = WebKit::Download::create(downloadManager, downloadID, downloadTask, *sessionCocoa, networkDataTask->suggestedFilename());
     networkDataTask->transferSandboxExtensionToDownload(download);
