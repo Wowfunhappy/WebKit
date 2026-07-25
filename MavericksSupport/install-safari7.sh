@@ -120,31 +120,52 @@ if [ -f "$INSPECTOR_CSS" ] && grep -q 'WK66-UNIFIED' "$INSPECTOR_CSS"; then
 fi
 
 # ---------------------------------------------------------------------------
-# #40: Safari 7's page-load error chrome is a frozen resource inside Safari.app that nothing here
-# builds, and it is the one place that still asks for the Aqua "gel" push button by implication
-# rather than by name. Its WebProcess-crash page cages the "Reload Webpage" button at width:132px
-# while .suggestion-form input sets font-size:16px — metrics that fit only because Safari-7-era
-# WebKit gave <input type=submit> -webkit-appearance:push-button, whose native gel coerces the
-# label to the system control font (13px). Upstream WebKit gives it -webkit-appearance:button,
-# which honours the author font-size, so the 16px label overflows its 132px box and draws clipped
-# inside a flat square. The page wants the gel; say so in the page's own stylesheet. That keeps the
-# fix inside Safari's chrome, where the metrics live, instead of changing how every
-# <input type=button|submit|reset> on the web renders. Safari reads this file directly, so there is
-# no in-framework lever: WebKit never sees the stylesheet, only its parsed result.
-echo "### Pinning the Safari 7 error-page buttons to the Aqua push-button look (#40)"
+# #40: a previous install appended a WK40-PUSHBUTTON rule
+#   .suggestion-form input[type=submit] { -webkit-appearance: push-button; }
+# to Safari's own page-load-errors.css, meaning to restore the Safari-7-era gel whose native
+# drawing coerced a button label to the 13px system control font -- .suggestion-form input sets
+# font-size:16px, which overflows the 132px-wide button and clips. Measured on 10.9 against this
+# build, the rule does NOTHING: an input[type=submit] renders identically with and without it
+# (both 24.00px tall, both the flat square bezel, both keeping the 16px author font). Modern
+# WebKit applies setFontFromControlSize() only to menulists and search fields
+# (RenderThemeMac.mm), never to buttons, so no appearance keyword brings the coercion back.
+# The rule was therefore only ever an edit to a third-party app's resources with no effect, and
+# it is removed rather than kept. Strip it so an already-patched Safari goes back to pristine.
+# (The genuine bezel bug it was aimed at -- ordinary buttons losing the Aqua gel -- is fixed at
+# its root in ButtonMac::bezelStyle, which now measures against the height 10.9 actually draws
+# the gel at. The remaining 16px-label clipping is upstream behaviour: honouring the author's
+# font-size is correct modern CSS, and re-coercing it would change every native-appearance
+# button on the web.)
+# The fix is the font size the coercion would have produced, stated directly. Measured on 10.9
+# against this build, with the page's own metrics (.suggestion-form input font-size:16px,
+# .action-container .suggestion-form input width:132px) and the "Reload Webpage" label:
+#   16px -> 23.67px tall, scrollWidth 130 vs clientWidth 128  == label clipped, flat square bezel
+#   13px -> 20.33px tall, scrollWidth 128 vs clientWidth 128  == label fits exactly
+# 13px is the system control font size, i.e. what the old native drawing coerced the label to, so
+# this restores the metric the page was authored against rather than inventing one. It also drops
+# the button under the height at which 10.9 draws the Aqua gel (22pt, see ButtonMac::bezelStyle),
+# so the button regains the gel as well -- both halves of #40 from one declaration.
+#
+# Scoped to Safari's own error-page stylesheet on purpose: the alternative, restoring
+# setFontFromControlSize() for buttons in RenderThemeMac, would override the author's font-size on
+# every native-appearance button on the web, which upstream deliberately stopped doing. Safari reads
+# this file directly, so there is no in-framework lever; WebKit only ever sees its parsed result.
+echo "### Fitting the Safari 7 error-page button labels (#40)"
 ERRORPAGE_CSS=/Applications/Safari.app/Contents/Resources/page-load-errors.css
 if [ -f "$ERRORPAGE_CSS" ]; then
-    # Marker-only match, so a re-run replaces the previous rule instead of stacking copies. The
-    # file opens with a UTF-8 BOM that lets it be linked from a UTF-16 page; appending keeps it.
-    if grep -q 'WK40-PUSHBUTTON' "$ERRORPAGE_CSS"; then
-        grep -v 'WK40-PUSHBUTTON' "$ERRORPAGE_CSS" > "$ERRORPAGE_CSS.tmp40" && mv "$ERRORPAGE_CSS.tmp40" "$ERRORPAGE_CSS"
+    # Marker-only match, so a re-run replaces the rule instead of stacking copies, and a Safari
+    # still carrying the retired WK40-PUSHBUTTON no-op is cleaned up in the same pass. The file
+    # opens with a UTF-8 BOM that lets it be linked from a UTF-16 page; appending whole lines
+    # keeps it.
+    if grep -qE 'WK40-PUSHBUTTON|MAVERICKS_BACKPORT' "$ERRORPAGE_CSS"; then
+        grep -vE 'WK40-PUSHBUTTON|MAVERICKS_BACKPORT' "$ERRORPAGE_CSS" > "$ERRORPAGE_CSS.tmp40" && mv "$ERRORPAGE_CSS.tmp40" "$ERRORPAGE_CSS"
     fi
-    printf '%s\n' '/* WK40-PUSHBUTTON */ .suggestion-form input[type=submit] { -webkit-appearance: push-button; }' >> "$ERRORPAGE_CSS"
+    printf '%s\n' '/* MAVERICKS_BACKPORT: 13px is the system control font size Safari-7-era WebKit coerced button labels to; upstream honours the author 16px, which clips "Reload Webpage" inside this page fixed 132px button. */ .suggestion-form input[type=submit] { font-size: 13px; }' >> "$ERRORPAGE_CSS"
     chown root:wheel "$ERRORPAGE_CSS"
     chmod 644 "$ERRORPAGE_CSS"
-    echo "  $ERRORPAGE_CSS carries the WK40-PUSHBUTTON rule"
+    echo "  $ERRORPAGE_CSS carries the MAVERICKS_BACKPORT error-page button rule"
 else
-    echo "  $ERRORPAGE_CSS not found — skipping (Safari's error-page buttons keep the modern flat look)"
+    echo "  $ERRORPAGE_CSS not found - skipping (Safari's error-page button labels keep the clipped 16px look)"
 fi
 
 # ---------------------------------------------------------------------------

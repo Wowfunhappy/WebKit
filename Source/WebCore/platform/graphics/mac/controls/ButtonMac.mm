@@ -78,10 +78,17 @@ NSBezelStyle ButtonMac::bezelStyle(const FloatRect& rect, const ControlStyle& st
     if (m_owningPart.get()->type() == StyleAppearance::SquareButton)
         return NSBezelStyleShadowlessSquare;
 
-    auto controlSize = style.states.contains(ControlStyle::State::LargeControls) ? NSControlSizeLarge : NSControlSizeRegular;
-    auto size = cellSize(controlSize, style);
-
-    if (rect.height() > size.height() * style.zoomFactor)
+    // MAVERICKS_BACKPORT: limit against the height the rounded (Aqua gel) bezel is actually DRAWN at, not
+    // cellSize(). Upstream's rule is "use the flat bezel once the frame is taller than the rounded bezel
+    // can occupy" and it approximates that height with cellSize(); on 10.9 the gel does not stretch, so
+    // the two differ. -drawBezelWithFrame: paints a fixed-height pill centred in whatever frame it gets:
+    // measured on this host across frame heights 14-44pt, the painted height plateaus at 22pt and stays
+    // there, the surplus splitting into symmetric top/bottom gaps. That is taller than cellSize() (20pt),
+    // so upstream's limit rejects the gel at heights 10.9 renders perfectly -- Safari's own error-page
+    // buttons ("Reload Webpage" on the repeated-crash page) lay out at 21px and so drew as flat squares.
+    // Buttons taller than the gel still go flat, since a fixed pill in a tall frame reads as wrong.
+    // Only Regular and Large reach here, and Large post-dates 10.9 (AppKit draws it as regular).
+    if (rect.height() > 22 * style.zoomFactor)
         return NSBezelStyleShadowlessSquare;
 
     return NSBezelStyleRounded;
