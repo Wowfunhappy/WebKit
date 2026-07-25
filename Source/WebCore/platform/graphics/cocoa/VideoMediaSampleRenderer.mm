@@ -195,6 +195,54 @@ Ref<GenericPromise> VideoMediaSampleRenderer::changeRenderer(WebSampleBufferVide
         return GenericPromise::createAndResolve();
     });
 }
+#else // MAVERICKS_BACKPORT: !HAVE(AVSAMPLEBUFFERVIDEORENDERER) twin of changeRenderer, below.
+// MAVERICKS_BACKPORT: upstream declares changeRenderer only under HAVE(AVSAMPLEBUFFERVIDEORENDERER) but calls
+// it unguarded from AudioVideoRendererAVFObjC::stageVideoRenderer, so that translation unit cannot build in
+// the !HAVE configuration the rest of this class still supports (see the #else branches in renderer() and
+// rendererOrDisplayLayer()). This is the same function with the AVSampleBufferVideoRenderer handles removed:
+// without them the display layer *is* the renderer, so m_displayLayer carries the swap that m_mainRenderer /
+// m_renderer carry above, and the dispatcher-side flush of the outgoing renderer moves onto the captured
+// previous layer.
+Ref<GenericPromise> VideoMediaSampleRenderer::changeRenderer(WebSampleBufferVideoRendering *renderer)
+{
+    ALWAYS_LOG(LOGIDENTIFIER);
+
+    assertIsMainThread();
+
+    RetainPtr previousRenderer = this->renderer();
+
+    RetainPtr displayLayer = dynamic_objc_cast<AVSampleBufferDisplayLayer>(renderer);
+    if (std::exchange(m_displayLayer, displayLayer) == displayLayer)
+        return GenericPromise::createAndResolve();
+
+    if (previousRenderer)
+        m_listener->stopObservingVideoRenderer(previousRenderer.get());
+    if (renderer)
+        m_listener->beginObservingVideoRenderer(renderer);
+
+    if (!isUsingDecompressionSession() && previousRenderer) {
+        [previousRenderer flush];
+        [previousRenderer stopRequestingMediaData];
+    }
+
+    return invokeAsync(dispatcher(), [weakThis = ThreadSafeWeakPtr { *this }, previousRenderer = WTF::move(previousRenderer), renderer = WTF::move(displayLayer)] {
+        if (RefPtr protectedThis = weakThis.get()) {
+            assertIsCurrent(protectedThis->dispatcher().get());
+            if (!protectedThis->isUsingDecompressionSession())
+                return GenericPromise::createAndResolve();
+
+            if (previousRenderer) {
+                [previousRenderer flush];
+                [previousRenderer stopRequestingMediaData];
+            }
+
+            protectedThis->purgeDecodedSampleQueue(protectedThis->m_flushId);
+            for (Ref sample : protectedThis->m_decodedSampleQueue)
+                [renderer enqueueSampleBuffer:sample->platformSample().cmSampleBuffer()];
+        }
+        return GenericPromise::createAndResolve();
+    });
+}
 #endif
 
 RefPtr<WebCoreDecompressionSession> VideoMediaSampleRenderer::decompressionSession() const

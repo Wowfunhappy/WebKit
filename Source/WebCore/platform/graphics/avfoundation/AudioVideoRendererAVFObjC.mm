@@ -866,6 +866,11 @@ void AudioVideoRendererAVFObjC::setVideoLayerSizeFenced(const FloatSize& newSize
     setVideoLayerSize(newSize);
 }
 
+// MAVERICKS_BACKPORT: guard the VIDEO_PRESENTATION_MODE definitions to match their declarations, which
+// AudioVideoRendererAVFObjC.h already guards (see the note there). VideoLayerManagerObjC declares
+// setVideoFullscreenLayer/setVideoFullscreenFrame under the same ENABLE(VIDEO_PRESENTATION_MODE), so with
+// the mode off these bodies have neither a declaration to define nor a callee to call.
+#if ENABLE(VIDEO_PRESENTATION_MODE)
 void AudioVideoRendererAVFObjC::setVideoFullscreenLayer(PlatformLayer *videoFullscreenLayer, WTF::Function<void()>&& completionHandler)
 {
     RefPtr currentImage = currentNativeImage();
@@ -876,6 +881,7 @@ void AudioVideoRendererAVFObjC::setVideoFullscreenFrame(const FloatRect& frame)
 {
     m_videoLayerManager->setVideoFullscreenFrame(frame);
 }
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard (see above).
 
 void AudioVideoRendererAVFObjC::setTextTrackRepresentation(TextTrackRepresentation* representation)
 {
@@ -888,6 +894,9 @@ void AudioVideoRendererAVFObjC::syncTextTrackBounds()
     m_videoLayerManager->syncTextTrackBounds();
 }
 
+// MAVERICKS_BACKPORT: same VIDEO_PRESENTATION_MODE guard as above — setVideoTarget and
+// isInFullscreenOrPictureInPictureChanged are declared only under that mode.
+#if ENABLE(VIDEO_PRESENTATION_MODE)
 Ref<GenericPromise> AudioVideoRendererAVFObjC::setVideoTarget(const PlatformVideoTarget& videoTarget)
 {
 #if !ENABLE(LINEAR_MEDIA_PLAYER)
@@ -908,6 +917,7 @@ void AudioVideoRendererAVFObjC::isInFullscreenOrPictureInPictureChanged(bool isI
     UNUSED_PARAM(isInFullscreenOrPictureInPicture);
 #endif
 }
+#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard (see above).
 
 RetainPtr<AVSampleBufferAudioRenderer> AudioVideoRendererAVFObjC::audioRendererFor(TrackIdentifier trackId) const
 {
@@ -1456,8 +1466,16 @@ Ref<GenericPromise> AudioVideoRendererAVFObjC::stageVideoRenderer(WebSampleBuffe
     if (renderer) {
         switch (acceleratedVideoMode()) {
         case AcceleratedVideoMode::Layer:
+            // MAVERICKS_BACKPORT: retiring the video renderer is HAVE(AVSAMPLEBUFFERVIDEORENDERER)-only. Without
+            // it AVSampleBufferVideoRenderer does not adopt WebSampleBufferVideoRendering (the conformance in
+            // WebSampleBufferVideoRendering.h carries the same guard), so RetainPtr cannot convert. Guarding is
+            // behaviour-preserving here: m_sampleBufferVideoRenderer is only ever assigned by ensureVideoRenderer(),
+            // which acceleratedVideoMode() reaches solely under ENABLE(LINEAR_MEDIA_PLAYER), so both statements
+            // operate on nil in this configuration.
+#if HAVE(AVSAMPLEBUFFERVIDEORENDERER)
             m_expiringSampleBufferVideoRenderers.append(m_sampleBufferVideoRenderer);
             rendererToExpire = std::exchange(m_sampleBufferVideoRenderer, { });
+#endif // MAVERICKS_BACKPORT: close the HAVE(AVSAMPLEBUFFERVIDEORENDERER) guard (see above).
             break;
         case AcceleratedVideoMode::VideoRenderer:
             // We only need to remove the AVSampleBufferDisplayLayer from the synchronizer.

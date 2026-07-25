@@ -218,6 +218,33 @@ list(APPEND WebCore_IDL_FILES
     Modules/applepay/ApplePayDisbursementRequest.idl
 )
 
+# MAVERICKS_BACKPORT: definitions upstream compiles only from WebCore.xcodeproj and never added to a CMake
+# source list, so the CMake Mac port compiles their callers but not the definitions. WebCore links with
+# "-undefined dynamic_lookup" (Source/WebCore/CMakeLists.txt), which lets those references survive the link
+# as flat-namespace undefined symbols instead of failing it -- and every one of them then aborts any client
+# that binds WebCore eagerly (dlopen RTLD_NOW, or a hard-bound framework), because dyld must resolve them up
+# front and nothing defines them. Listed here rather than in Sources*.txt to keep the in-tree diff off
+# upstream's lists; entries added this way compile as their own TU, exactly as upstream's own PlatformMac.cmake
+# entries (e.g. platform/gamepad/cocoa/GameControllerSoftLink.mm) do. Non-ARC like their SourcesCocoa.txt
+# siblings, which is this build's default (WebKitMacros.cmake only adds -fobjc-arc for -ARC.mm sources).
+list(APPEND WebCore_SOURCES
+    # Plain X.690 DER length arithmetic over a Vector<uint8_t> -- despite the directory it pulls in no
+    # CommonCrypto, and WebAuthn's Modules/webauthn/fido/U2fResponseConverter.cpp calls
+    # bytesUsedToEncodedLength() whichever WebCrypto backend is built. SourcesCocoa.txt comments the whole
+    # crypto/cocoa directory out for the libgcrypt swap, which took this file with it.
+    crypto/cocoa/CommonCryptoDERUtilities.cpp
+    # The MediaRecorderPrivateWriter base: create/close/writeFrames plus its ctor and dtor, all called from
+    # platform/mediarecorder/MediaRecorderPrivateEncoder.cpp (which SourcesCocoa.txt does build).
+    platform/mediarecorder/MediaRecorderPrivateWriter.cpp
+    # Gamepad haptics: GameControllerGamepad.mm calls GameControllerHapticEngines::create/playEffect/
+    # stopEffects/stop and its dtor. GameControllerHapticEffect.mm and CoreHapticsSoftLink.mm come along as
+    # the engines' own dependencies. CoreHaptics is absent on 10.9 and soft-linked optionally
+    # (CoreHapticsSoftLink.mm), so this adds no load-time dependency on it.
+    platform/gamepad/cocoa/CoreHapticsSoftLink.mm
+    platform/gamepad/cocoa/GameControllerHapticEffect.mm
+    platform/gamepad/cocoa/GameControllerHapticEngines.mm
+)
+
 list(APPEND WebCore_LIBRARIES
     "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/lib/libwebpdemux.a"
     "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/lib/libwebp.a"

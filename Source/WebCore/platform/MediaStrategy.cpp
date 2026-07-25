@@ -90,10 +90,7 @@ void MediaStrategy::addMockMediaSourceEngine()
 #if ENABLE(VIDEO)
 RefPtr<AudioVideoRenderer> MediaStrategy::createAudioVideoRenderer(WTF::LoggerHelper* loggerHelper, HTMLMediaElementIdentifier, MediaPlayerIdentifier) const
 {
-    // MAVERICKS_BACKPORT: guard narrowed to also require ENABLE(MEDIA_SOURCE) because
-    // AudioVideoRendererAVFObjC (the MSE renderer) is only built when MEDIA_SOURCE is on in this build.
-#if USE(AVFOUNDATION) && ENABLE(MEDIA_SOURCE)
-    // AudioVideoRendererAVFObjC is the MSE renderer; only exists when MEDIA_SOURCE is on.
+#if USE(AVFOUNDATION)
     ASSERT(loggerHelper);
     return AudioVideoRendererAVFObjC::create(Ref { loggerHelper->logger() }, loggerHelper->logIdentifier());
 #else

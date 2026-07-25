@@ -46,15 +46,24 @@ target_link_options(WebKit PRIVATE -weak_framework CryptoTokenKit)
 # stock 10.9 framework is not in the modern SDK's search paths.
 target_link_options(WebKit PRIVATE -weak_library /System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/WebInspectorUI)
 
-# MAVERICKS_BACKPORT: WebKit.framework references a handful of symbols that do not exist on 10.9 — Metal
-# (MTLCopyAllDevices, in the GPU-process resource-purge path), Network.framework's nw_* WebTransport API
-# (10.14+), and WebPushDaemonMain/WebPushToolMain (defined in the separate webpushd/webpushtool targets,
-# not in the framework). Upstream applies "-undefined dynamic_lookup" to WebCore.framework only (base
-# CMakeLists.txt:3193, "-umbrella WebKit"); WebKit.framework never needed it because Apple's builds target
-# an OS where those symbols exist. On this port it does: bind them lazily so absence surfaces at call time
-# (and those code paths are unreachable at runtime on 10.9 — no GPU process, no Network.framework, and the
-# push mains only run inside the webpushd executable, which provides them). Matches WebCore's treatment.
-target_link_options(WebKit PRIVATE "SHELL:-undefined dynamic_lookup")
+# MAVERICKS_BACKPORT: weak-link the two frameworks 10.9 does not ship whose symbols WebKit references
+# through @available/weak_import: Metal (10.11+; MTLCopyAllDevices etc. on the GPU-process resource-purge
+# path) and Network (10.14+; the nw_* WebTransport API). Weak-linking is what makes those references
+# resolve to null at load and stay bindable up front, which is what an eagerly-bound client needs.
+#
+# This replaces a "-undefined dynamic_lookup" that used to be applied to WebKit.framework here. Upstream
+# applies that flag to WebCore only (Source/WebCore/CMakeLists.txt, "-umbrella WebKit"); WebKit never
+# needed it because Apple builds target an OS where these symbols exist. Adding it hid real defects rather
+# than adapting to 10.9: it let genuinely undefined WebKit-INTERNAL symbols survive the link as
+# flat-namespace lookups, and its stated rationale -- "bind them lazily so absence surfaces at call time"
+# -- does not hold for a client that binds eagerly (dlopen RTLD_NOW, or a hard-bound framework), where
+# dyld must resolve every undefined symbol up front and aborts on the first one nothing defines. Those
+# internal symbols are now defined instead of masked: NetworkSoftLink.mm and MediaRecorderPrivateWriter et
+# al. are compiled (see the WebCore/WebKit source-list additions), BidiBrowserAgent's non-GLib fallback is
+# gated on the ports that actually build the GLib one, and ENABLE_WEB_PUSH_NOTIFICATIONS is off, which is
+# what removes the WebPushDaemonMain/WebPushToolMain references. Keep this target free of the flag: with
+# it gone, the linker is the gate that catches the next such omission at build time.
+target_link_options(WebKit PRIVATE "SHELL:-weak_framework Metal" "SHELL:-weak_framework Network")
 
     # MAVERICKS_BACKPORT: the modern "_WebKit" RunLoopType is unknown to 10.9's libxpc, which then falls
     # back to dispatch_main() — that parks the main thread, so the main GCD queue is drained by a
@@ -99,6 +108,17 @@ list(REMOVE_ITEM WebKit_SOURCES
 # --------------------------------------------------------------------------
 # Entries added to upstream's lists.
 # --------------------------------------------------------------------------
+# MAVERICKS_BACKPORT: upstream compiles NetworkSoftLink.mm only from WebKit.xcodeproj and never added it to
+# a CMake source list, so the CMake Mac port builds its caller -- NetworkTransportSessionCocoa.mm, which
+# SourcesCocoa.txt does list -- but not the soft-link thunks it calls, leaving ~45 canLoad_Network_nw_* /
+# softLink_Network_nw_* symbols undefined in WebKit.framework. The file is nothing but
+# SOFT_LINK_FUNCTION_MAY_FAIL_FOR_SOURCE declarations, so it is also the correct answer for 10.9 rather than
+# merely a link fix: Network.framework's WebTransport entry points arrived long after 10.9, MAY_FAIL makes
+# each canLoad_* return false instead of asserting, and the object needs nothing but dlopen/dlsym.
+list(APPEND WebKit_SOURCES
+    NetworkProcess/cocoa/NetworkSoftLink.mm
+)
+
 list(APPEND WebKit_LIBRARIES
     "${MAVERICKS_DEPS}/lib/libbrotlidec.a"
     "${MAVERICKS_DEPS}/lib/libbrotlicommon.a"

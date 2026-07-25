@@ -163,6 +163,26 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_WHEEL_INTERACTIONS PRIVATE ON)
 # VR/AR device support in this OS for one to sit on.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBXR PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_API_STATISTICS PRIVATE ON)
+# MAVERICKS_BACKPORT: OFF -- Web Push is serviced by the webpushd daemon, and the CMake Mac port defines no
+# webpushd/webpushtool target at all (upstream builds them only from WebKit.xcodeproj), so nothing here can
+# ever build, install, or launch one. Everything behind the flag therefore terminates at an XPC connection to
+# a com.apple.webkit.webpushd that does not exist. It could not work on 10.9 even if that target were added:
+# APSConnection ships no -requestURLTokenForInfo:completion: / -invalidateURLTokenForInfo:completion: (both
+# verified absent from 10.9's ApplePushService), which ApplePushServiceConnection::subscribe/unsubscribe send
+# unguarded, and both APSURLTokenInfo and OSLaunchdJob are absent classes. Leaving it ON only advertised a
+# PushManager that always fails, and left WKMain.mm's WKWebPushDaemonMain/WKWebPushToolMain referencing
+# WebKit::WebPushDaemonMain/WebPushToolMain -- definitions that live in sources no CMake list compiles -- so
+# WebKit.framework shipped them as undefined symbols. This is not a WebKitFeatures.cmake option, so set it
+# directly: cmakeconfig.h then preempts PlatformEnableCocoa.h:266, which turns it on for every PLATFORM(MAC)
+# behind `#if !defined(ENABLE_WEB_PUSH_NOTIFICATIONS)`, and that header stays byte-upstream.
+SET_AND_EXPOSE_TO_BUILD(ENABLE_WEB_PUSH_NOTIFICATIONS FALSE)
+# MAVERICKS_BACKPORT: OFF for the same reason, and it cannot be left on by itself. Declarative Web Push is
+# a layer over that same push infrastructure: NetworkConnectionToWebProcess's navigatorSubscribeToPushService
+# and friends are guarded by ENABLE(DECLARATIVE_WEB_PUSH) but call NetworkSession::notificationManager(),
+# which is declared under ENABLE(WEB_PUSH_NOTIFICATIONS), so the pair does not compile split apart. Upstream
+# never meets that because Cocoa turns both on together, from the identical PlatformEnableCocoa.h pattern
+# (line 343); this preempts it the same way.
+SET_AND_EXPOSE_TO_BUILD(ENABLE_DECLARATIVE_WEB_PUSH FALSE)
 # MAVERICKS_BACKPORT: ON — the WebAuthn JS API surface (window.PublicKeyCredential, navigator.credentials)
 # is required for web compatibility. The AuthenticationServices/LocalAuthentication/CryptoTokenKit backends
 # are all soft-linked, so their runtime absence on 10.9 degrades to "no authenticator available" rather than

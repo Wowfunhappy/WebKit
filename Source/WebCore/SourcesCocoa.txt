@@ -419,12 +419,7 @@ platform/gamepad/mac/StadiaHIDGamepad.cpp
 platform/graphics/MediaPlaybackTargetPicker.cpp
 platform/graphics/avfoundation/AVTrackPrivateAVFObjCImpl.mm @nonARC @no-unify
 platform/graphics/avfoundation/AudioSourceProviderAVFObjC.mm @nonARC @no-unify
-// MAVERICKS_BACKPORT: calls VideoMediaSampleRenderer::changeRenderer and VideoLayerManagerObjC's
-// setVideoFullscreenLayer/Frame WITHOUT guarding them, but those members exist only under
-// HAVE(AVSAMPLEBUFFERVIDEORENDERER) (upstream's own gate, macOS 14+ -- verified 0 diff from upstream in
-// PlatformHave.h) and ENABLE(VIDEO_PRESENTATION_MODE). So this TU does not compile at ANY deployment
-// target below macOS 14, upstream or not; it is not a 10.9-specific gap. Source stays byte-upstream.
-// platform/graphics/avfoundation/AudioVideoRendererAVFObjC.mm @nonARC
+platform/graphics/avfoundation/AudioVideoRendererAVFObjC.mm @nonARC
 platform/graphics/avfoundation/FormatDescriptionUtilities.cpp
 platform/graphics/avfoundation/ISOFairPlayStreamingPsshBox.cpp
 platform/graphics/avfoundation/InbandMetadataTextTrackPrivateAVF.cpp
