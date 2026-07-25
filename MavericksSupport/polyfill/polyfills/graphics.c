@@ -146,8 +146,20 @@ WK_POLYFILL_ABSENT("CoreGraphics", CGGradientRef, CGGradientCreateWithColorCompo
     size_t colorComponents = space ? CGColorSpaceGetNumberOfComponents(space) : 0;
     size_t stride = colorComponents + 1;
 
-    if (!interpolatesPremultiplied || !components || !locations || count < 2 || !colorComponents)
+    if (!interpolatesPremultiplied || !components || count < 2 || !colorComponents)
         return CGGradientCreateWithColorComponents(space, components, locations, count);
+
+    // A NULL locations array means evenly spaced stops (CGGradient accepts that, and any caller may
+    // rely on it), so synthesize the spacing rather than dropping the premultiplied contract.
+    CGFloat *evenLocations = NULL;
+    if (!locations) {
+        evenLocations = (CGFloat *)malloc(count * sizeof(CGFloat));
+        if (!evenLocations)
+            return CGGradientCreateWithColorComponents(space, components, NULL, count);
+        for (size_t stop = 0; stop < count; stop++)
+            evenLocations[stop] = (CGFloat)stop / (CGFloat)(count - 1);
+        locations = evenLocations;
+    }
 
     size_t samples = wkGradientPremultipliedSamples(count);
     // Worst case per segment: its start stop, (samples - 1) intermediates, and a second copy of its
@@ -158,7 +170,9 @@ WK_POLYFILL_ABSENT("CoreGraphics", CGGradientRef, CGGradientCreateWithColorCompo
     if (!newComponents || !newLocations) {
         free(newComponents);
         free(newLocations);
-        return CGGradientCreateWithColorComponents(space, components, locations, count);
+        CGGradientRef fallback = CGGradientCreateWithColorComponents(space, components, locations, count);
+        free(evenLocations);
+        return fallback;
     }
 
     // Emitted per SEGMENT: each segment contributes its start stop (carrying the colour that segment
@@ -236,6 +250,7 @@ WK_POLYFILL_ABSENT("CoreGraphics", CGGradientRef, CGGradientCreateWithColorCompo
     CGGradientRef gradient = CGGradientCreateWithColorComponents(space, newComponents, newLocations, newCount);
     free(newComponents);
     free(newLocations);
+    free(evenLocations);
     return gradient;
 }
 
