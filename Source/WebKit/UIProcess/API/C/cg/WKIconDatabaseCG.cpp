@@ -40,13 +40,11 @@
 
 using namespace WebKit;
 
-// MAVERICKS_BACKPORT: decode the favicon bytes held in the revived in-memory icon store into a
-// CGImage for Safari 7. "TryGet" semantics mean the caller does not own the returned image, so
-// it is autoreleased (#49).
-CGImageRef WKIconDatabaseTryGetCGImageForURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL, WKSize)
+// MAVERICKS_BACKPORT: the stored favicon bytes as a decodable ImageIO source, or null — shared by the
+// single-image and the array lookup below (#49, github #76).
+static RetainPtr<CGImageSourceRef> imageSourceForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
-    // MAVERICKS_BACKPORT: decode the stored favicon bytes into a CGImage instead of the upstream nullptr stub (#49).
-    RefPtr data = toImpl(iconDatabaseRef)->iconDataForPageURL(toWTFString(pageURL));
+    RefPtr data = toImpl(iconDatabaseRef)->iconDataForPageURL(toWTFString(pageURL)); // MAVERICKS_BACKPORT
     if (!data)
         return nullptr;
 
@@ -55,7 +53,15 @@ CGImageRef WKIconDatabaseTryGetCGImageForURL(WKIconDatabaseRef iconDatabaseRef, 
     if (!cfData)
         return nullptr;
 
-    RetainPtr<CGImageSourceRef> source = adoptCF(CGImageSourceCreateWithData(cfData.get(), nullptr));
+    return adoptCF(CGImageSourceCreateWithData(cfData.get(), nullptr));
+}
+
+// MAVERICKS_BACKPORT: decode the favicon bytes held in the revived in-memory icon store into a
+// CGImage for Safari 7, instead of the upstream nullptr stub. "TryGet" semantics mean the caller does
+// not own the returned image, so it is autoreleased (#49).
+CGImageRef WKIconDatabaseTryGetCGImageForURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL, WKSize)
+{
+    RetainPtr<CGImageSourceRef> source = imageSourceForPageURL(iconDatabaseRef, pageURL); // MAVERICKS_BACKPORT
     if (!source)
         return nullptr;
 
@@ -66,10 +72,32 @@ CGImageRef WKIconDatabaseTryGetCGImageForURL(WKIconDatabaseRef iconDatabaseRef, 
     return (CGImageRef)CFAutorelease(cgImage);
 }
 
-// MAVERICKS_BACKPORT: single-icon lookup is sufficient for Safari 7; the multi-representation
-// array path stays inert (#49).
-CFArrayRef WKIconDatabaseTryCopyCGImageArrayForURL(WKIconDatabaseRef, WKURLRef)
+// MAVERICKS_BACKPORT: every image a stored favicon contains, largest first (github #76). This is the
+// other half of the C API Safari 7 asks favicons through: Safari::IconController::bestSiteIconForURLString
+// and ::bestFallbackCandidate read the array and pick the representation closest to the size they need
+// (that is what backs a Reading List row's icon, among others), and when it comes back empty they fall
+// straight through to the generic globe. A .ico commonly carries several sizes, hence an array; a
+// single-image format yields a one-element one.
+CFArrayRef WKIconDatabaseTryCopyCGImageArrayForURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
-    return nullptr;
+    RetainPtr<CGImageSourceRef> source = imageSourceForPageURL(iconDatabaseRef, pageURL);
+    if (!source)
+        return nullptr;
+
+    size_t count = CGImageSourceGetCount(source.get());
+    if (!count)
+        return nullptr;
+
+    RetainPtr<CFMutableArrayRef> images = adoptCF(CFArrayCreateMutable(kCFAllocatorDefault, count, &kCFTypeArrayCallBacks));
+    for (size_t index = 0; index < count; ++index) {
+        RetainPtr<CGImageRef> image = adoptCF(CGImageSourceCreateImageAtIndex(source.get(), index, nullptr));
+        if (image)
+            CFArrayAppendValue(images.get(), image.get());
+    }
+
+    if (!CFArrayGetCount(images.get()))
+        return nullptr;
+
+    return images.leakRef();
 }
 

@@ -196,9 +196,49 @@ public:
     {
     }
 
+    // MAVERICKS_BACKPORT: whether this OS can turn the icon into a CGImage (github #76). 10.9's ImageIO
+    // decodes the classic raster formats (PNG/JPEG/GIF/TIFF/ICO/BMP/ICNS, plus camera raw) and nothing
+    // newer — measured with CGImageSourceCopyTypeIdentifiers, which lists no SVG and no WebP. An icon it
+    // cannot decode is worse than no icon here: the store below holds ONE icon per page, so an
+    // undecodable icon that lands last leaves Safari drawing the generic globe.
+    static bool canDecodeIconFormat(const WebCore::LinkIcon& icon)
+    {
+        auto isUndecodable = [](StringView format) {
+            return equalIgnoringASCIICase(format, "svg"_s)
+                || equalIgnoringASCIICase(format, "svg+xml"_s)
+                || equalIgnoringASCIICase(format, "webp"_s)
+                || equalIgnoringASCIICase(format, "avif"_s)
+                || equalIgnoringASCIICase(format, "heic"_s)
+                || equalIgnoringASCIICase(format, "heif"_s)
+                || equalIgnoringASCIICase(format, "jxl"_s);
+        };
+
+        // The declared type when there is one ("image/svg+xml" -> "svg+xml"), else the URL's extension
+        // (a bare <link rel=icon href=".../icon.svg"> is common enough to be worth catching).
+        auto mimeType = StringView { icon.mimeType };
+        if (auto slash = mimeType.find('/'); slash != notFound)
+            return !isUndecodable(mimeType.substring(slash + 1));
+        auto path = icon.url.path();
+        if (auto dot = path.reverseFind('.'); dot != notFound)
+            return !isUndecodable(path.substring(dot + 1));
+        return true;
+    }
+
     void getLoadDecisionForIcon(const WebCore::LinkIcon& icon, CompletionHandler<void(CompletionHandler<void(API::Data*)>&&)>&& completionHandler) override
     {
         if (!icon.url.protocolIsInHTTPFamily()) {
+            completionHandler(nullptr);
+            return;
+        }
+
+        // MAVERICKS_BACKPORT: be selective, because this store keeps one icon per page (github #76).
+        // Upstream offers EVERY icon a page declares and leaves the choice to its client (the default
+        // client declines all of them); approving all of them made the stored icon a race between
+        // concurrent loads, won by whichever finished last. github.com declares favicon.png AND
+        // favicon.svg, so its icon was a coin toss and reverted to the generic globe whenever the SVG —
+        // which cannot be decoded here — won. Touch icons are declined for the same reason: they are
+        // 180x180 home-screen artwork, not the small site icon Safari asks this store for.
+        if (icon.type != WebCore::LinkIconType::Favicon || !canDecodeIconFormat(icon)) {
             completionHandler(nullptr);
             return;
         }
