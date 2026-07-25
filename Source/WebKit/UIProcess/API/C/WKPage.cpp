@@ -1519,6 +1519,23 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (m_client.didFinishProgress)
                 m_client.didFinishProgress(toAPI(&page), m_client.base.clientInfo);
         }
+
+        // MAVERICKS_BACKPORT: restored authentication forwarding (github #95), the implementation
+        // upstream deleted along with most of this client. Safari 7 registers no navigation client,
+        // so this is the only client that can put an authentication panel on screen. Returns false
+        // when the embedder set neither callback, leaving the challenge to the navigation client
+        // (whose default is PerformDefaultHandling — upstream's behaviour for such embedders).
+        bool didReceiveAuthenticationChallengeInFrame(WebPageProxy& page, WebFrameProxy& frame, AuthenticationChallengeProxy& authenticationChallenge) override
+        {
+            if (m_client.canAuthenticateAgainstProtectionSpaceInFrame && !m_client.canAuthenticateAgainstProtectionSpaceInFrame(toAPI(&page), toAPI(&frame), toAPI(protect(authenticationChallenge.protectionSpace()).get()), m_client.base.clientInfo)) {
+                authenticationChallenge.listener().completeChallenge(WebKit::AuthenticationChallengeDisposition::RejectProtectionSpaceAndContinue);
+                return true;
+            }
+            if (!m_client.didReceiveAuthenticationChallengeInFrame)
+                return false;
+            m_client.didReceiveAuthenticationChallengeInFrame(toAPI(&page), toAPI(&frame), toAPI(&authenticationChallenge), m_client.base.clientInfo);
+            return true;
+        }
     };
 
     RefPtr webPageProxy = toImpl(pageRef);

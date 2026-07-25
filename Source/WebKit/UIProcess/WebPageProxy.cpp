@@ -13415,8 +13415,37 @@ void WebPageProxy::allowGamepadAccess()
 
 #endif // ENABLE(GAMEPAD)
 
+// MAVERICKS_BACKPORT: offer the challenge to the legacy loader client first (github #95). Safari 7
+// authenticates through WKPageSetPageLoaderClient's didReceiveAuthenticationChallengeInFrame and
+// registers no navigation client at all, so without this every challenge reached the default
+// navigation client and was answered PerformDefaultHandling — no panel, and the site just returned
+// its 401 body. The loader client reports whether it took the challenge; embedders that use the
+// navigation client (which is every modern one) are unaffected because their loader client has
+// neither callback set. The frame is the main frame: a challenge no longer carries the frame it came
+// from (upstream dropped the frameID from the message), and the callback's frame argument is only
+// used by clients to find the window to attach the panel to.
 void WebPageProxy::didReceiveAuthenticationChallengeProxy(Ref<AuthenticationChallengeProxy>&& authenticationChallenge, NegotiatedLegacyTLS negotiatedLegacyTLS)
 {
+    // MAVERICKS_BACKPORT: loader client first, navigation client second (see above).
+    auto dispatchToClient = [this](AuthenticationChallengeProxy& challenge) {
+        RefPtr frame = mainFrame();
+        if (m_loaderClient && frame && m_loaderClient->didReceiveAuthenticationChallengeInFrame(*this, *frame, challenge))
+            return;
+        m_navigationClient->didReceiveAuthenticationChallenge(*this, challenge);
+    };
+
+    if (negotiatedLegacyTLS == NegotiatedLegacyTLS::Yes) {
+        // MAVERICKS_BACKPORT: dispatchToClient replaces the direct m_navigationClient call here too.
+        m_navigationClient->shouldAllowLegacyTLS(*this, authenticationChallenge.get(), [protectedThis = Ref { *this }, authenticationChallenge, dispatchToClient] (bool shouldAllowLegacyTLS) {
+            if (shouldAllowLegacyTLS)
+                dispatchToClient(authenticationChallenge.get()); // MAVERICKS_BACKPORT
+            else
+                authenticationChallenge->listener().completeChallenge(AuthenticationChallengeDisposition::Cancel);
+        });
+        return;
+    }
+    dispatchToClient(authenticationChallenge.get()); // MAVERICKS_BACKPORT
+/* MAVERICKS_BACKPORT: upstream's navigation-client-only dispatch, kept so upstream merges see the original text; not built on this backport (see above).
     if (negotiatedLegacyTLS == NegotiatedLegacyTLS::Yes) {
         m_navigationClient->shouldAllowLegacyTLS(*this, authenticationChallenge.get(), [this, protectedThis = Ref { *this }, authenticationChallenge] (bool shouldAllowLegacyTLS) {
             if (shouldAllowLegacyTLS)
@@ -13427,6 +13456,7 @@ void WebPageProxy::didReceiveAuthenticationChallengeProxy(Ref<AuthenticationChal
         return;
     }
     m_navigationClient->didReceiveAuthenticationChallenge(*this, authenticationChallenge.get());
+MAVERICKS_BACKPORT */
 }
 
 void WebPageProxy::negotiatedLegacyTLS()

@@ -79,6 +79,14 @@ public:
     virtual void didStartProgress(WebKit::WebPageProxy&) { }
     virtual void didChangeProgress(WebKit::WebPageProxy&) { }
     virtual void didFinishProgress(WebKit::WebPageProxy&) { }
+    // MAVERICKS_BACKPORT: restored legacy authentication callback (github #95). Safari 7 drives
+    // authentication entirely through WKPageSetPageLoaderClient's
+    // canAuthenticateAgainstProtectionSpaceInFrame / didReceiveAuthenticationChallengeInFrame — it
+    // predates WKPageSetPageNavigationClient, which is the only client upstream still routes
+    // challenges to, so every HTTP/HTTPS auth challenge fell through to PerformDefaultHandling and
+    // the user was never prompted. Returns whether the loader client took the challenge, so
+    // WebPageProxy can fall back to the navigation client for embedders that use it.
+    virtual bool didReceiveAuthenticationChallengeInFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, WebKit::AuthenticationChallengeProxy&) { return false; }
 };
 
 } // namespace API
