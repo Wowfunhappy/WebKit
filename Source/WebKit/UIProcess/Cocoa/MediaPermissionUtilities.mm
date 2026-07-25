@@ -26,6 +26,7 @@
 #import "config.h"
 #import "MediaPermissionUtilities.h"
 
+#import "PageClient.h" // MAVERICKS_BACKPORT: for the platformWindow() fallback in alertForPermission
 #import "SandboxUtilities.h"
 #import "WKWebViewInternal.h"
 #import "WebPageProxy.h"
@@ -190,11 +191,29 @@ void alertForPermission(WebPageProxy& page, MediaPermissionReason reason, const 
 #endif
 
     auto webView = page.cocoaView();
+#if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: the Safari this port targets hosts the page in a WKView, not a WKWebView, so
+    // cocoaView() is nil and upstream's check denies every camera/microphone request before it can be
+    // put to the user. Only the hosting window is actually needed here, and the PageClient knows it
+    // whichever view is in use (MinimalPageClient::platformWindow() returns the WKView's window).
+    RetainPtr<NSWindow> hostWindow = [webView window];
+    if (!hostWindow) {
+        if (auto* pageClient = page.pageClient())
+            hostWindow = pageClient->platformWindow();
+    }
+    if (!hostWindow) {
+        completionHandler(false);
+        return;
+    }
+#else
     if (!webView) {
         completionHandler(false);
         return;
     }
-    
+    // MAVERICKS_BACKPORT: closes the PLATFORM(MAC) WKView-aware hostWindow conditional above.
+#endif
+
+
     RetainPtr alertTitle = alertMessageText(reason, origin);
     if (!alertTitle) {
         completionHandler(false);
@@ -212,7 +231,8 @@ void alertForPermission(WebPageProxy& page, MediaPermissionReason reason, const 
     button.get().keyEquivalent = @"";
     button = [alert addButtonWithTitle:doNotAllowButtonString.get()];
     button.get().keyEquivalent = @"\E";
-    [alert beginSheetModalForWindow:retainPtr([webView window]).get() completionHandler:[completionBlock](NSModalResponse returnCode) {
+    // MAVERICKS_BACKPORT: host the sheet on hostWindow (WKView-aware; see above) instead of [webView window].
+    [alert beginSheetModalForWindow:hostWindow.get() completionHandler:[completionBlock](NSModalResponse returnCode) {
         auto shouldAllow = returnCode == NSAlertFirstButtonReturn;
         completionBlock(shouldAllow);
     }];

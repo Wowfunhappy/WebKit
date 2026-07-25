@@ -2102,6 +2102,8 @@ enum { WKAVCaptureTransportTypeBuiltIn = 'bltn' };
 - (AVCaptureDeviceType)wk_deviceType;
 - (BOOL)wk_isPortraitEffectActive;
 + (AVCaptureDevice *)wk_systemPreferredCamera;
++ (AVAuthorizationStatus)wk_authorizationStatusForMediaType:(AVMediaType)mediaType;
++ (void)wk_requestAccessForMediaType:(AVMediaType)mediaType completionHandler:(void (^)(BOOL granted))handler;
 @end
 
 @implementation AVCaptureDevice (WKPolyfillScopeCaptureDevice)
@@ -2129,10 +2131,42 @@ enum { WKAVCaptureTransportTypeBuiltIn = 'bltn' };
     return [self defaultDeviceWithMediaType:AVMediaTypeVideo];
 }
 
+// +authorizationStatusForMediaType: and +requestAccessForMediaType:completionHandler: are macOS 10.14,
+// added with the TCC camera/microphone gating they report on. 10.9 predates that gating entirely: there
+// is no per-app camera or microphone authorization on this OS, so there is no state for these to read
+// and nothing for them to ask the user. Authorized is the answer for the same reason TCCAccessPreflight
+// answers Granted for kTCCServiceCamera in constants.m -- not "permission was given", but "the question
+// does not exist here". Denied would be wrong in a way that matters: UserMediaPermissionRequestManagerProxy
+// ::requestSystemValidation treats it as a hard refusal and never reaches WebKit's own consent sheet, so
+// getUserMedia would fail before ever asking the user.
+//
+// Absent BOTH selectors, the plain upstream call is worse than a wrong answer: AVCaptureDevice exists on
+// 10.9 but does not respond, so +authorizationStatusForMediaType: raises unrecognized-selector. AppKit's
+// run loop swallows that exception, requestSystemValidation's completion handler never runs, and the
+// getUserMedia promise neither resolves nor rejects -- the request hangs with no prompt and no error.
++ (AVAuthorizationStatus)wk_authorizationStatusForMediaType:(AVMediaType)mediaType
+{
+    (void)mediaType;
+    return AVAuthorizationStatusAuthorized;
+}
+
+// Unreachable while the status above reports Authorized (requestSystemValidation only requests access for
+// a NotDetermined status), but it is the same absent 10.14 pair and callers may reach it by another route,
+// so it answers consistently instead of leaving a second unrecognized selector behind. Answering
+// synchronously is safe: upstream's requestAVCaptureAccessForType hops to the main run loop itself.
++ (void)wk_requestAccessForMediaType:(AVMediaType)mediaType completionHandler:(void (^)(BOOL granted))handler
+{
+    (void)mediaType;
+    if (handler)
+        handler(YES);
+}
+
 @end
 WK_POLYFILL_SEL("deviceType", "wk_deviceType");
 WK_POLYFILL_SEL("isPortraitEffectActive", "wk_isPortraitEffectActive");
 WK_POLYFILL_SEL("systemPreferredCamera", "wk_systemPreferredCamera");
+WK_POLYFILL_SEL("authorizationStatusForMediaType:", "wk_authorizationStatusForMediaType:");
+WK_POLYFILL_SEL("requestAccessForMediaType:completionHandler:", "wk_requestAccessForMediaType:completionHandler:");
 
 // +[NSSharingService getSharingServicesForItems:mask:completion:] — the asynchronous, mask-filtered SPI
 // form, absent on 10.9 (probed on-host). The class is present, and so is the PUBLIC 10.8 API that answers
