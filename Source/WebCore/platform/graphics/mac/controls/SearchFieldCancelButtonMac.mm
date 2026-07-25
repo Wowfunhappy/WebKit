@@ -90,11 +90,6 @@ void SearchFieldCancelButtonMac::draw(GraphicsContext& context, const FloatRound
         context.scale(style.zoomFactor);
     }
 
-    // MAVERICKS_BACKPORT: 10.9's NSSearchFieldCell cancelButtonCell draws its glyph a couple px below the
-    // center of the frame it is handed (it expects to live inside a full search-field cell, not an isolated
-    // decoration box), so the × sits too low. Nudge the draw rect up to vertically center it in the field.
-    logicalRect.move(0, -2);
-
     // Never draw a focus ring for the cancel button.
     auto styleForDrawing = style;
     styleForDrawing.states.remove(ControlStyle::State::Focused);

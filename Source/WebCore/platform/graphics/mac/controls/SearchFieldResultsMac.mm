@@ -66,10 +66,6 @@ void SearchFieldResultsMac::draw(GraphicsContext& context, const FloatRoundedRec
         context.scale(style.zoomFactor);
     }
 
-    // MAVERICKS_BACKPORT: as with the cancel button, 10.9's NSSearchFieldCell searchButtonCell draws the
-    // magnifier glyph a couple px below center of the frame it is handed; nudge the draw rect up to center it.
-    logicalRect.move(0, -2);
-
     drawCell(context, logicalRect, deviceScaleFactor, style, retainPtr([m_searchFieldCell searchButtonCell]).get(), true);
 }
 
