@@ -186,6 +186,8 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 }
 // MAVERICKS_BACKPORT: private helper backing the clip-to-visible-rect SPI (see -setShouldClipToVisibleRect:).
 - (void)_updateViewExposedRect;
+// MAVERICKS_BACKPORT: runs AppKit's key-binding translation for one event (see the definition).
+- (void)_mavericksCollectKeypressCommands:(NSEvent *)event into:(WTF::Vector<WebCore::KeypressCommand>&)commands;
 @end // MAVERICKS_BACKPORT: WKView class extension holding the backported per-view state ivars
 
 // MAVERICKS_BACKPORT: WKView is reimplemented for the 10.9 backport (the upstream WebViewImpl-backed body is stubbed).
@@ -1527,18 +1529,28 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // Run AppKit's interpretKeyEvents to translate the NSEvent into NSTextInputClient
     // calls (insertText:/doCommandBySelector:); collect them in a thread-local that
     // our NSTextInputClient stubs append to.
-    // MAVERICKS_BACKPORT: skip interpretKeyEvents for Cmd-modified keys. Those are
-    // menu shortcuts dispatched via sendAction: (already handled by my copy:/
-    // paste:/etc. action methods). Running interpretKeyEvents would double-
-    // dispatch the action via doCommandBySelector → KeypressCommand path.
-    BOOL hasCmd = ([event modifierFlags] & NSCommandKeyMask) != 0;
-    if (!hasCmd) {
-        tlsCollectingCommands = &commands;
-        [self interpretKeyEvents:@[event]];
-        tlsCollectingCommands = nullptr;
-    }
+    [self _mavericksCollectKeypressCommands:event into:commands];
     WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
     _wkState->page->handleKeyboardEvent(webEvent);
+}
+
+// MAVERICKS_BACKPORT: run AppKit's key-binding translation for an event and collect what it
+// produces, mirroring WebViewImpl::interpretKeyEvent on the WKWebView path (github #90).
+//
+// This runs for Cmd-modified events too. An earlier version skipped them, on the theory that a
+// Cmd-key is always a menu equivalent that Safari dispatches as an action method (copy:/paste:/…)
+// and that interpreting it as well would dispatch the edit twice. That premise is wrong:
+// AppKit's StandardKeyBinding.dict deliberately contains no Cmd+X/C/V/Z — those are menu key
+// equivalents, not key bindings — while it DOES bind Cmd+Delete to deleteToBeginningOfLine:,
+// Cmd+Up/Down to moveToBeginningOfDocument:/moveToEndOfDocument:, Cmd+Left/Right to
+// moveToLeftEndOfLine:/moveToRightEndOfLine: and their AndModifySelection: variants. Skipping
+// Cmd meant WebCore received those key-downs with an empty command list and nothing happened
+// (nor did any user binding from ~/Library/KeyBindings/DefaultKeyBinding.dict apply).
+- (void)_mavericksCollectKeypressCommands:(NSEvent *)event into:(WTF::Vector<WebCore::KeypressCommand>&)commands
+{
+    tlsCollectingCommands = &commands;
+    [self interpretKeyEvents:@[event]];
+    tlsCollectingCommands = nullptr;
 }
 
 - (void)keyUp:(NSEvent *)event
@@ -1596,7 +1608,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     // Pass key combos through WebCore so pages can intercept key-modified keypresses, but
     // only when the web view has focus (not, e.g., while the URL bar field editor does).
     if ([[self window] firstResponder] == self) {
+        // MAVERICKS_BACKPORT: collect the event's key-binding commands here too (github #90).
+        // AppKit sends performKeyEquivalent: before keyDown:, and this returns YES, so this is the
+        // ONLY chance a Cmd-modified event gets to be translated — Cmd+Delete
+        // (deleteToBeginningOfLine:) and the Cmd+arrow document/line movers are real key bindings.
+        // Upstream's WebViewImpl::performKeyEquivalent likewise goes through interpretKeyEvent.
         WTF::Vector<WebCore::KeypressCommand> commands;
+        [self _mavericksCollectKeypressCommands:event into:commands];
         WebKit::NativeWebKeyboardEvent webEvent(event, false, false, commands);
         _wkState->page->handleKeyboardEvent(webEvent);
         return YES;
