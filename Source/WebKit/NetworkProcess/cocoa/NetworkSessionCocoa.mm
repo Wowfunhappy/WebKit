@@ -988,22 +988,8 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
     if (!downloadID)
         return;
     if (CheckedPtr session = _session.get()) {
-        if (RefPtr download = protect(session->networkProcess().downloadManager())->download(*downloadID)) {
-            // MAVERICKS_BACKPORT: NSURLSession here lacks the _pathToDownloadTaskFile mechanism that writes
-            // the download straight to its destination, so it downloads to a temporary file and hands
-            // it to us as `location` — which it deletes as soon as this delegate returns. Move it to the
-            // real destination synchronously, otherwise the download "completes" as a 0-byte/absent file.
-            String destination = download->destinationPath();
-            String tempPath { [location path] };
-            if (!destination.isEmpty() && !tempPath.isEmpty()) {
-                if (FileSystem::fileExists(destination))
-                    FileSystem::deleteFile(destination);
-                if (!FileSystem::moveFile(tempPath, destination))
-                    RELEASE_LOG_ERROR(NetworkSession, "didFinishDownloadingToURL: failed to move temp download into place for id %" PRIu64, downloadID->toUInt64());
-            }
+        if (RefPtr download = protect(session->networkProcess().downloadManager())->download(*downloadID))
             download->didFinish();
-        // MAVERICKS_BACKPORT: end of the manual temp-file-to-destination move (no _pathToDownloadTaskFile on 10.9).
-        }
     }
 }
 
@@ -1032,6 +1018,14 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         return;
 
     auto downloadID = *networkDataTask->pendingDownloadID();
+    // MAVERICKS_BACKPORT: carry the destination onto the download task. setPendingDownloadLocation set
+    // _pathToDownloadTaskFile on the DATA task, and 10.9 builds the download task's output file inside
+    // its own initializer (-[__NSCFLocalDownloadTask initWithTask:suspendedConnection:] ->
+    // -setupForNewDownload), which no client can reach, so the path has to be re-applied to the task
+    // that will actually do the writing. This is the earliest moment WebKit holds it, and the
+    // connection is still suspended for the conversion, so no body byte has been written yet. See the
+    // _pathToDownloadTaskFile polyfill in MavericksSupport/polyfill/polyfills/methods.m.
+    downloadTask._pathToDownloadTaskFile = networkDataTask->pendingDownloadLocation().createNSString().get();
     CheckedRef downloadManager = sessionCocoa->networkProcess().downloadManager();
     Ref download = WebKit::Download::create(downloadManager, downloadID, downloadTask, *sessionCocoa, networkDataTask->suggestedFilename());
     networkDataTask->transferSandboxExtensionToDownload(download);

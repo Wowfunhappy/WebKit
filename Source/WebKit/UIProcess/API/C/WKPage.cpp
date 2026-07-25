@@ -3937,11 +3937,20 @@ void WKInspectorToggleJavaScriptProfiling(WKInspectorRef) {}
 // "-[NSURL initFileURLWithPath:]: nil string parameter" from its file-presenter registration. Upstream
 // deleted this function but kept DownloadProxy::legacyResumeData() for exactly this client;
 // DownloadProxy::cancel populates it before completing. "Get" is +0, which toAPI() gives.
+//
+// It is deliberately NOT m_legacyResumeData as-is: this caller feeds the dictionary to NSURLDownload,
+// not to WK2, so it gets the CFURLDownload spelling of the same facts. See
+// DownloadProxy::legacyResumeDataForNSURLDownload(). WK2's own resume path
+// (-[WKWebView resumeDownloadFromResumeData:]) still gets the untranslated NSURLSession data.
 WKDataRef WKDownloadGetResumeData(WKDownloadRef download)
 {
     if (!download)
         return nullptr;
+#if PLATFORM(COCOA)
+    return toAPI(toImpl(download)->legacyResumeDataForNSURLDownload().get());
+#else
     return toAPI(toImpl(download)->legacyResumeData());
+#endif
 }
 void* WKGraphicsContextGetCGContext(void*) { return nullptr; }
 void* WKContextGetApplicationCacheManager(WKContextRef) { return nullptr; }

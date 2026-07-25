@@ -135,7 +135,6 @@ void Download::didReceiveChallenge(const WebCore::AuthenticationChallenge& chall
 
 void Download::didCreateDestination(const String& path)
 {
-    m_destinationPath = path; // MAVERICKS_BACKPORT: remembered so didFinishDownloadingToURL can move the temp file here.
     send(Messages::DownloadProxy::DidCreateDestination(path));
 }
 

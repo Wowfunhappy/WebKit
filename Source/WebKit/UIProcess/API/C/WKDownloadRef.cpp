@@ -63,9 +63,20 @@ WKURLRequestRef WKDownloadCopyRequest(WKDownloadRef download)
 // the resume data is left on the download and the client reads it afterwards with
 // WKDownloadGetResumeData, which DownloadProxy::cancel already populates (m_legacyResumeData) before
 // invoking this completion handler.
+//
+// It must also report the cancellation to the download client, because that is where the legacy
+// contract delivers it: DownloadProxy::didFail early-returns once m_downloadIsCancelled is set, and the
+// modern C function tells the caller through the callback it grew instead. Safari 7 has no such
+// callback and drives everything off its WKContextDownloadClient, whose didCancel is what marks the
+// entry stopped and then builds its resume information
+// (-[DownloadProgressEntry _startPostProcessingIfDone] -> _initializeResumeInformationForDownload ->
+// WKDownloadGetResumeData). Without this the ↻ button never appeared on a stopped download. The other
+// surviving legacy surface does exactly the same thing from the same place -- see -[_WKDownload cancel].
 void WKDownloadCancel(WKDownloadRef download)
 {
-    return protect(toImpl(download))->cancel([](API::Data*) { });
+    return protect(toImpl(download))->cancel([downloadProxy = Ref { *toImpl(download) }](API::Data*) {
+        protect(downloadProxy->client())->legacyDidCancel(downloadProxy.get());
+    });
 /* MAVERICKS_BACKPORT: upstream's 3-argument body kept here so upstream merges see the original text; not built on this backport (see above).
 void WKDownloadCancel(WKDownloadRef download, const void* functionContext, WKDownloadCancelCallback callback)
 {

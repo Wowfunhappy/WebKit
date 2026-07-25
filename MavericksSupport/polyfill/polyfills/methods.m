@@ -17,10 +17,12 @@
 #import <PDFKit/PDFKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <QuartzCore/QuartzCore.h>
+#import <fcntl.h>
 #import <mach/mach.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <pthread.h>
+#import <unistd.h>
 
 #define SRGB(r, g, b, a) [NSColor colorWithSRGBRed:(r)/255.0 green:(g)/255.0 blue:(b)/255.0 alpha:(a)/255.0]
 
@@ -1648,6 +1650,158 @@ static void wk_downloadTask_cancelByProducingResumeData(id self, SEL _cmd, void 
 WK_POLYFILL_ADD_REPLACES("__NSCFLocalDownloadTask", "wk_cancelByProducingResumeData:", wk_downloadTask_cancelByProducingResumeData, "v@:@?");
 WK_POLYFILL_ADD_REPLACES("__NSCFURLSessionDownloadTask", "wk_cancelByProducingResumeData:", wk_downloadTask_cancelByProducingResumeData, "v@:@?");
 WK_POLYFILL_SEL_REPLACES("cancelByProducingResumeData:", "wk_cancelByProducingResumeData:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSURLSessionTask _pathToDownloadTaskFile] / -set_pathToDownloadTaskFile: (github #11 / resume).
+//
+// This is the property with which CFNetwork streams a download STRAIGHT INTO the file the client
+// nominated, instead of into a private temp file it only reveals at completion. WebKit sets it in
+// NetworkDataTaskCocoa::setPendingDownloadLocation and Download::resume; 10.9's NSURLSession has no
+// such property, so the bytes went to /var/folders/.../CFNetworkDownload_XXXXXX.tmp and only arrived
+// at the destination once the download finished.
+//
+// That is not cosmetic on this port, because Safari 7 requires the partial file to exist WHILE the
+// download runs. It nominates <name>.download/<name> inside a bundle directory it creates itself
+// (its persisted DownloadEntryPath, e.g. ~/Downloads/bigfile.bin.download/bigfile.bin), and
+// -[DownloadProgressEntry resume] takes [[self downloadFile] path], requires -fileExistsAtPath: on
+// it, and hands that same path to -[WebDownload _initWithResumeInformation:delegate:path:] so
+// CFNetwork can append the rest. With the bytes in CFNetwork's temp file the bundle held nothing but
+// Info.plist, so resume was never even offered and "Show in Finder" reported the file had moved.
+//
+// 10.9 has the pieces to do exactly what the property does, and CFNetwork's own NSURLSession resume
+// path (-[__NSCFLocalDownloadTask initWithSession:resumeData:ident:bridge:]) uses them: a download
+// task holds its output in a _downloadFile, and __NSCFLocalDownloadFile can be built around a file
+// that already exists. -initWithExistingFile:expectedSize: open()s it O_WRONLY|O_APPEND (0x9, mode
+// 0666) and does NOT pass O_CREAT, so the file must be created first; expectedSize is only logged.
+// -[__NSCFLocalDownloadFile dealloc] unlink()s its path unless skipUnlink is set, which is what keeps
+// a temp file invisible and would otherwise delete the client's file, so the replacement sets it.
+
+static NSString *wk_downloadTaskFilePathKey = @"wk_pathToDownloadTaskFile";
+
+static id wk_localDownloadFileForPath(NSString *path)
+{
+    if (![path length])
+        return nil;
+
+    // -initWithExistingFile: cannot create, and the client's directory may not hold the file yet.
+    int fd = open([path fileSystemRepresentation], O_WRONLY | O_CREAT | O_APPEND, 0666);
+    if (fd < 0)
+        return nil;
+    close(fd);
+
+    Class downloadFileClass = objc_getClass("__NSCFLocalDownloadFile");
+    if (!downloadFileClass)
+        return nil;
+    static SEL initWithExistingFileSelector;
+    if (!initWithExistingFileSelector)
+        initWithExistingFileSelector = sel_registerName("initWithExistingFile:expectedSize:");
+    if (!class_getInstanceMethod(downloadFileClass, initWithExistingFileSelector))
+        return nil;
+
+    id (*initWithExistingFile)(id, SEL, NSString *, long long) = (id (*)(id, SEL, NSString *, long long))objc_msgSend;
+    id file = initWithExistingFile([downloadFileClass alloc], initWithExistingFileSelector, path, 0);
+    if (!file)
+        return nil;
+
+    // Without this, dealloc unlinks the path — i.e. deletes the file the client asked us to write.
+    static SEL setSkipUnlinkSelector;
+    if (!setSkipUnlinkSelector)
+        setSkipUnlinkSelector = sel_registerName("setSkipUnlink:");
+    if (class_getInstanceMethod(downloadFileClass, setSkipUnlinkSelector)) {
+        void (*setSkipUnlink)(id, SEL, BOOL) = (void (*)(id, SEL, BOOL))objc_msgSend;
+        setSkipUnlink(file, setSkipUnlinkSelector, YES);
+    }
+    return file;
+}
+
+// Point an existing download task's output at `path`, moving anything already written across.
+//
+// The earliest a client can reach a download task is after its initializer has run, and by then
+// CFNetwork has already replayed into its temp file whatever response body arrived while the
+// destination was being decided (measured: one 32 KB chunk, and the destination began at absolute
+// offset 32768 when those bytes were dropped). Those bytes belong at the START of the client's file,
+// so they are copied over when the destination is empty — and only then, because on the resume path
+// the destination already holds the partial download and must not have anything prepended to it.
+static void wk_bindDownloadTaskToFile(id task, NSString *path)
+{
+    Ivar downloadFileIvar = class_getInstanceVariable(object_getClass(task), "_downloadFile");
+    if (!downloadFileIvar)
+        return;
+    id previous = object_getIvar(task, downloadFileIvar);
+    if (!previous)
+        return;
+
+    static SEL pathSelector;
+    if (!pathSelector)
+        pathSelector = sel_registerName("path");
+    NSString *(*filePath)(id, SEL) = (NSString *(*)(id, SEL))objc_msgSend;
+    NSString *previousPath = [previous respondsToSelector:pathSelector] ? filePath(previous, pathSelector) : nil;
+
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    unsigned long long destinationSize = [[[fileManager attributesOfItemAtPath:path error:NULL] objectForKey:NSFileSize] unsignedLongLongValue];
+    NSData *alreadyWritten = nil;
+    if (!destinationSize && [previousPath length])
+        alreadyWritten = [NSData dataWithContentsOfFile:previousPath];
+
+    id replacement = wk_localDownloadFileForPath(path);
+    if (!replacement)
+        return; // Leave CFNetwork's own temp file in place rather than break the download.
+
+    if ([alreadyWritten length]) {
+        // Appending through a second descriptor is safe here: the replacement has only just been
+        // opened and CFNetwork writes to the file it is told about, which is still `previous`.
+        int fd = open([path fileSystemRepresentation], O_WRONLY | O_APPEND);
+        if (fd >= 0) {
+            const uint8_t *bytes = (const uint8_t *)[alreadyWritten bytes];
+            size_t remaining = [alreadyWritten length];
+            while (remaining) {
+                ssize_t written = write(fd, bytes, remaining);
+                if (written <= 0)
+                    break;
+                bytes += written;
+                remaining -= (size_t)written;
+            }
+            close(fd);
+        }
+    }
+
+    object_setIvar(task, downloadFileIvar, replacement);
+    // The temp file is CFNetwork's, and nothing reads it once the task writes elsewhere; its owner
+    // unlinks it on dealloc, but that is not guaranteed to be soon (its dispatch_io channel can outlive
+    // this call), so drop it now rather than leave one stale temp file behind per download.
+    if ([previousPath length])
+        unlink([previousPath fileSystemRepresentation]);
+    [previous release];
+}
+
+static NSString *wk_urlSessionTask_pathToDownloadTaskFile(id self, SEL _cmd)
+{
+    (void)_cmd;
+    return objc_getAssociatedObject(self, (const void *)&wk_downloadTaskFilePathKey);
+}
+
+static void wk_urlSessionTask_setPathToDownloadTaskFile(id self, SEL _cmd, NSString *path)
+{
+    (void)_cmd;
+    objc_setAssociatedObject(self, (const void *)&wk_downloadTaskFilePathKey, path, OBJC_ASSOCIATION_COPY_NONATOMIC);
+    // Download::resume sets this on a task that already exists (downloadTaskWithResumeData:), so bind
+    // now when there is something to bind; a data task has no _downloadFile and is handled at the
+    // moment it becomes a download task, below.
+    wk_bindDownloadTaskToFile(self, path);
+}
+
+// The property is declared on NSURLSessionTask (CFNetworkSPI.h) and WebKit sets it through that type,
+// but 10.9 vends concrete subclasses that are NOT descendants of the public class
+// (__NSCFLocalDataTask : __NSCFLocalSessionTask : __NSCFURLSessionTask : NSObject), so registering it
+// only on NSURLSessionTask would reach no instance. Same reasoning as
+// wk_cancelByProducingResumeData: above. Registered on the shared root of the concrete classes, so a
+// data task can carry the path before it becomes a download task and a download task can bind it.
+WK_POLYFILL_ADD("NSURLSessionTask", "wk__pathToDownloadTaskFile", wk_urlSessionTask_pathToDownloadTaskFile, "@@:");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_pathToDownloadTaskFile:", wk_urlSessionTask_setPathToDownloadTaskFile, "v@:@");
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__pathToDownloadTaskFile", wk_urlSessionTask_pathToDownloadTaskFile, "@@:");
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_pathToDownloadTaskFile:", wk_urlSessionTask_setPathToDownloadTaskFile, "v@:@");
+WK_POLYFILL_SEL("_pathToDownloadTaskFile", "wk__pathToDownloadTaskFile");
+WK_POLYFILL_SEL("set_pathToDownloadTaskFile:", "wk_set_pathToDownloadTaskFile:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[CALayer presentationLayer] and the implicit CATransaction it begins.
