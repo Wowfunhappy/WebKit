@@ -96,14 +96,147 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextDrawPathDirect,
     CGContextDrawPath(context, mode);
 }
 
-// CGGradientCreateWithColorComponentsAndOptions (10.12+): the options dictionary only selects
-// premultiplied-alpha interpolation (a nicety for stops fading to transparency). The classic
-// CGGradientCreateWithColorComponents, which 10.9 does export, is identical for opaque stops.
+// CGGradientCreateWithColorComponentsAndOptions (10.12+). The only option is
+// kCGGradientInterpolatesPremultiplied, and it is not a nicety: CSS requires gradient stops to be
+// interpolated with premultiplied alpha, which is what makes `linear-gradient(transparent, #fff)`
+// fade cleanly instead of through the transparent black the `transparent` keyword literally means.
+// 10.9's CGGradientCreateWithColorComponents interpolates the components as given, so honouring the
+// option means reshaping the stop list.
+//
+// Between two stops, premultiplied interpolation moves the PREMULTIPLIED colour linearly:
+//
+//     a(t) = lerp(a0, a1, t)                       (alpha is linear either way)
+//     c(t) = lerp(c0*a0, c1*a1, t) / a(t)          (unpremultiplied colour, a rational curve)
+//
+// Unpremultiplied interpolation instead moves c linearly, which for `transparent -> white` walks the
+// colour from black to white and shows as a grey smear. Two cases need no work, and they are the
+// common ones: if a0 == a1 the two interpolations are identical (a constant factor), and if the
+// colours are equal c(t) is constant, which linear interpolation reproduces exactly. Only a segment
+// that changes BOTH colour and alpha is resampled: intermediate stops are emitted along it holding
+// the exact c(t) above, so 10.9's linear walk between them tracks the true curve. c(t) is a smooth
+// monotone Möbius curve, so the residual error falls off as the square of the sample spacing; at the
+// spacing below it is far under one 8-bit level. (`transparent -> #fff` is exact even at one sample:
+// c(t) collapses to constant white, being (t,t,t)/t.)
+static size_t wkGradientPremultipliedSamples(size_t stopCount)
+{
+    // Keep the rebuilt list bounded for pathological stop counts (CSS permits hundreds of stops);
+    // long lists are made of short segments, where fewer samples already track the curve closely.
+    if (stopCount <= 64)
+        return 32;
+    if (stopCount <= 256)
+        return 8;
+    return 4;
+}
+
+// The option key itself is one of this layer's constants (polyfills/constants.m); 10.9's SDK, which this
+// file compiles against, does not declare it.
+extern const CFStringRef kCGGradientInterpolatesPremultiplied;
+
 WK_POLYFILL_ABSENT("CoreGraphics", CGGradientRef, CGGradientCreateWithColorComponentsAndOptions,
     (CGColorSpaceRef space, const CGFloat *components, const CGFloat *locations, size_t count, CFDictionaryRef options))
 {
-    (void)options;
-    return CGGradientCreateWithColorComponents(space, components, locations, count);
+    bool interpolatesPremultiplied = false;
+    if (options) {
+        CFTypeRef value = CFDictionaryGetValue(options, kCGGradientInterpolatesPremultiplied);
+        interpolatesPremultiplied = value && CFGetTypeID(value) == CFBooleanGetTypeID() && CFBooleanGetValue((CFBooleanRef)value);
+    }
+
+    // Number of colour components per stop, plus the trailing alpha, exactly as
+    // CGGradientCreateWithColorComponents reads them.
+    size_t colorComponents = space ? CGColorSpaceGetNumberOfComponents(space) : 0;
+    size_t stride = colorComponents + 1;
+
+    if (!interpolatesPremultiplied || !components || !locations || count < 2 || !colorComponents)
+        return CGGradientCreateWithColorComponents(space, components, locations, count);
+
+    size_t samples = wkGradientPremultipliedSamples(count);
+    // Worst case per segment: its start stop, (samples - 1) intermediates, and a second copy of its
+    // end stop; plus the trailing stop appended after the loop.
+    size_t maxStops = (count - 1) * (samples + 1) + 1;
+    CGFloat *newComponents = (CGFloat *)malloc(maxStops * stride * sizeof(CGFloat));
+    CGFloat *newLocations = (CGFloat *)malloc(maxStops * sizeof(CGFloat));
+    if (!newComponents || !newLocations) {
+        free(newComponents);
+        free(newLocations);
+        return CGGradientCreateWithColorComponents(space, components, locations, count);
+    }
+
+    // Emitted per SEGMENT: each segment contributes its start stop (carrying the colour that segment
+    // needs) and any intermediates, and the final stop is appended at the end. A stop with alpha 0
+    // can end up emitted twice at the same location, once per neighbouring segment, when the two want
+    // different colours for it — a zero-width step between two fully transparent colours, i.e.
+    // invisible, and the only way to give each side its own exact curve.
+    size_t newCount = 0;
+    for (size_t segment = 0; segment + 1 < count; segment++) {
+        const CGFloat *from = &components[segment * stride];
+        const CGFloat *to = &components[(segment + 1) * stride];
+        CGFloat alphaFrom = from[colorComponents];
+        CGFloat alphaTo = to[colorComponents];
+
+        bool colorChanges = false;
+        for (size_t component = 0; component < colorComponents; component++) {
+            if (from[component] != to[component]) {
+                colorChanges = true;
+                break;
+            }
+        }
+        // Nothing to do when the two interpolations agree: equal alpha (a constant factor), an
+        // unchanging colour (c(t) constant), or a hard stop where no interpolation happens.
+        bool needsResampling = colorChanges && alphaFrom != alphaTo && locations[segment + 1] > locations[segment];
+
+        // A transparent endpoint has no recoverable colour of its own: as t leaves it, c(t) is
+        // exactly the opposite endpoint's colour. Writing that colour in makes the whole segment
+        // constant-coloured, so it needs no intermediates at all -- the `transparent -> #fff` case.
+        const CGFloat *startColor = (needsResampling && alphaFrom == 0) ? to : from;
+        const CGFloat *endColor = (needsResampling && alphaTo == 0) ? from : to;
+        bool constantColor = needsResampling && (alphaFrom == 0 || alphaTo == 0);
+
+        CGFloat *out = &newComponents[newCount * stride];
+        memcpy(out, startColor, colorComponents * sizeof(CGFloat));
+        out[colorComponents] = alphaFrom;
+        newLocations[newCount] = locations[segment];
+        newCount++;
+
+        if (needsResampling && !constantColor) {
+            for (size_t sample = 1; sample < samples; sample++) {
+                CGFloat t = (CGFloat)sample / (CGFloat)samples;
+                CGFloat alpha = alphaFrom + t * (alphaTo - alphaFrom);
+                out = &newComponents[newCount * stride];
+                for (size_t component = 0; component < colorComponents; component++) {
+                    CGFloat premultiplied = from[component] * alphaFrom + t * (to[component] * alphaTo - from[component] * alphaFrom);
+                    out[component] = premultiplied / alpha;
+                }
+                out[colorComponents] = alpha;
+                newLocations[newCount] = locations[segment] + t * (locations[segment + 1] - locations[segment]);
+                newCount++;
+            }
+        }
+
+        // Give this segment its own end stop when the next segment would disagree about the colour of
+        // the shared stop (only possible around a transparent stop, per above).
+        if (endColor != to) {
+            out = &newComponents[newCount * stride];
+            memcpy(out, endColor, colorComponents * sizeof(CGFloat));
+            out[colorComponents] = alphaTo;
+            newLocations[newCount] = locations[segment + 1];
+            newCount++;
+        }
+    }
+    // The last stop, which no segment emitted as a start stop.
+    {
+        const CGFloat *last = &components[(count - 1) * stride];
+        const CGFloat *previous = &components[(count - 2) * stride];
+        CGFloat *out = &newComponents[newCount * stride];
+        memcpy(out, last[colorComponents] == 0 ? previous : last, colorComponents * sizeof(CGFloat));
+        out[colorComponents] = last[colorComponents];
+        newLocations[newCount] = locations[count - 1];
+        newCount++;
+    }
+
+    CGGradientRef gradient = CGGradientCreateWithColorComponents(space, newComponents, newLocations, newCount);
+    free(newComponents);
+    free(newLocations);
+    return gradient;
 }
 
 // CTFontCreateForCharactersWithLanguageAndOption (10.13+): the option only restricts fallback to
