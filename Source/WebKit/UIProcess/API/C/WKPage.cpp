@@ -3930,7 +3930,19 @@ void WKPageLoadWebArchiveData(WKPageRef pageRef, WKDataRef dataRef)
 }
 bool WKInspectorIsProfilingJavaScript(WKInspectorRef) { return false; }
 void WKInspectorToggleJavaScriptProfiling(WKInspectorRef) {}
-WKDataRef WKDownloadGetResumeData(WKDownloadRef) { return nullptr; }
+// MAVERICKS_BACKPORT: return the download's real resume data instead of null (github #94 follow-up).
+// Safari 7 reads this in -[DownloadProgressEntry _initializeResumeInformationForDownload] to build the
+// state behind the ↻ button on a stopped download. With the stub returning null it had no resume
+// information at all, and clicking ↻ aborted the UI process with
+// "-[NSURL initFileURLWithPath:]: nil string parameter" from its file-presenter registration. Upstream
+// deleted this function but kept DownloadProxy::legacyResumeData() for exactly this client;
+// DownloadProxy::cancel populates it before completing. "Get" is +0, which toAPI() gives.
+WKDataRef WKDownloadGetResumeData(WKDownloadRef download)
+{
+    if (!download)
+        return nullptr;
+    return toAPI(toImpl(download)->legacyResumeData());
+}
 void* WKGraphicsContextGetCGContext(void*) { return nullptr; }
 void* WKContextGetApplicationCacheManager(WKContextRef) { return nullptr; }
 void* WKContextGetDatabaseManager(WKContextRef) { return nullptr; }
