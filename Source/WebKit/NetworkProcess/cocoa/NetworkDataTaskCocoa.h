@@ -67,9 +67,6 @@ public:
     void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&);
     void didReceiveData(const WebCore::SharedBuffer&);
 
-    // MAVERICKS_BACKPORT: streaming brotli decode of "br" response bodies — modern CFNetwork
-    // decodes br transparently; 10.9 CFNetwork delivers the raw compressed bytes.
-    struct BrotliStream;
 
     // MAVERICKS_BACKPORT: streaming zlib decode of "gzip" response bodies that CFNetwork hands
     // back raw. CFNetwork decodes Content-Encoding: gzip transparently EXCEPT for URLs whose last
@@ -129,15 +126,11 @@ private:
     bool m_isForMainResourceNavigationForAnyFrame { false };
     RefPtr<WebCore::SecurityOrigin> m_sourceOrigin;
     uint64_t m_requiredCookiesVersion { 0 };
-    // MAVERICKS_BACKPORT: non-null while decoding a "br" response body (see BrotliStream above).
-    std::unique_ptr<BrotliStream> m_brotliStream;
     // MAVERICKS_BACKPORT: non-null while decoding a CFNetwork-suppressed "gzip" body (see GzipStream).
     std::unique_ptr<GzipStream> m_gzipStream;
     // MAVERICKS_BACKPORT: temporary file holding a materialized file-backed request body
     // (see materializeFileBackedRequestBody in NetworkDataTaskCocoa.mm); deleted with the task.
     String m_uploadBodyTemporaryPath;
-    // MAVERICKS_BACKPORT: set when this is a preconnect-only task but the connection-only
-    // -_preconnect SPI is absent (10.9). resume() must not send it as a real request.
 };
 
 WebCore::Credential serverTrustCredential(const WebCore::AuthenticationChallenge&);
