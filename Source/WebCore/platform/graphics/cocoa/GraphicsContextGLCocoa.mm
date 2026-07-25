@@ -66,6 +66,9 @@
 #import <wtf/NeverDestroyed.h>
 #import <wtf/RuntimeApplicationChecks.h>
 #import <wtf/StdLibExtras.h>
+// MAVERICKS_BACKPORT: thread-specific storage lets a thread's EGLDisplay be terminated BY that thread
+// (see the bookkeeping below willDestroyContextOnDisplay).
+#import <wtf/ThreadSpecific.h>
 #import <wtf/darwin/WeakLinking.h>
 #import <wtf/text/CString.h>
 
@@ -186,8 +189,58 @@ static HashMap<EGLDisplay, unsigned>& displayLiveContextCounts() WTF_REQUIRES_LO
 }
 static EGLDisplay mainThreadDisplay WTF_GUARDED_BY_LOCK(displayLiveContextCountLock) = EGL_NO_DISPLAY;
 
+// The display this thread created, while it is still initialized. This is thread-specific because
+// EGL_Terminate MUST be issued by the display's owning thread: DisplayCGL::terminate() calls
+// CGLSetCurrentContext(nullptr), which unsets the CALLING thread's current CGL context. Terminating a
+// worker's display from, say, the main thread would therefore unset the main thread's context — which
+// belongs to a DIFFERENT display, whose mThreadsWithCurrentContext still lists the main thread, so
+// DisplayCGL::prepareForCall() would not make it current again and later main-thread GL calls would run
+// with no current CGL context — and would CGLDestroyContext a context that may still be current on the
+// owning thread. ThreadSpecific's destructor runs on thread exit (pthread key destructor), which
+// guarantees the display cannot outlive its thread even if the last context is dropped elsewhere.
+class ThreadEGLDisplay {
+    WTF_MAKE_NONCOPYABLE(ThreadEGLDisplay);
+public:
+    ThreadEGLDisplay() = default;
+    ~ThreadEGLDisplay();
+    EGLDisplay display { EGL_NO_DISPLAY };
+};
+
+static ThreadSpecific<ThreadEGLDisplay>& threadEGLDisplay()
+{
+    static NeverDestroyed<ThreadSpecific<ThreadEGLDisplay>> display;
+    return display.get();
+}
+
+// Only ever called on the thread that created the display.
+static void terminateOwnDisplay(EGLDisplay display)
+{
+    {
+        Locker locker { displayLiveContextCountLock };
+        ASSERT(!displayLiveContextCounts().get(display));
+        displayLiveContextCounts().remove(display);
+    }
+    EGL_Terminate(display);
+}
+
+ThreadEGLDisplay::~ThreadEGLDisplay()
+{
+    if (display == EGL_NO_DISPLAY)
+        return;
+    // Backstop: reached only if this thread's last context was destroyed on some other thread, which
+    // WebCore does not do — a worker's WebGL context is destroyed with its global scope on the worker
+    // thread itself (WorkerOrWorkletThread::destroyWorkerGlobalScope), and upstream already depends on
+    // that because WebGLRenderingContextBase's active-context set is itself ThreadSpecific.
+    terminateOwnDisplay(std::exchange(display, EGL_NO_DISPLAY));
+}
+
 static void didCreateContextOnDisplay(EGLDisplay display)
 {
+    if (!isMainThread()) {
+        auto& owned = *threadEGLDisplay();
+        ASSERT(owned.display == EGL_NO_DISPLAY || owned.display == display);
+        owned.display = display;
+    }
     Locker locker { displayLiveContextCountLock };
     if (isMainThread())
         mainThreadDisplay = display;
@@ -203,14 +256,24 @@ static void willDestroyContextOnDisplay(EGLDisplay display)
         auto it = displayLiveContextCounts().find(display);
         if (it == displayLiveContextCounts().end())
             return;
+        ASSERT(it->value);
         if (--it->value)
             return;
-        displayLiveContextCounts().remove(it);
         // Upstream keeps its single process-wide display forever; leave that behaviour alone.
         if (display == mainThreadDisplay)
             return;
     }
-    EGL_Terminate(display);
+    // Terminate only if this thread owns the display; otherwise leave it to ~ThreadEGLDisplay on the
+    // owning thread (see there for why the owner must be the one to do it). Do not materialize the
+    // thread-specific value here: ThreadSpecific::set() has a RELEASE_ASSERT against GC threads, and
+    // this runs on whichever thread released the last reference.
+    auto& threadDisplay = threadEGLDisplay();
+    if (!threadDisplay.isSet() || threadDisplay->display != display) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+    threadDisplay->display = EGL_NO_DISPLAY;
+    terminateOwnDisplay(display);
 }
 
 static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
@@ -340,8 +403,6 @@ GraphicsContextGLCocoa::~GraphicsContextGLCocoa()
 {
     if (makeContextCurrent())
         freeDrawingBuffers();
-    // MAVERICKS_BACKPORT: terminates a worker thread's EGLDisplay once its last context goes away.
-    willDestroyContextOnDisplay(m_displayObj);
 }
 
 IOSurface* GraphicsContextGLCocoa::displayBufferSurface()
@@ -534,6 +595,14 @@ GraphicsContextGLANGLE::~GraphicsContextGLANGLE()
         currentContext = { };
     ASSERT(currentContext.context != this);
     m_drawingBufferTextureTarget = -1;
+    // MAVERICKS_BACKPORT: terminates a worker thread's EGLDisplay once its last context goes away. This
+    // must come LAST, after the EGL images, syncs and the context above have been destroyed on it: this
+    // is the derived class's base destructor, so ~GraphicsContextGLCocoa has already run, and doing it
+    // there would EGL_Terminate the display before its objects are freed. (It happened to work only
+    // because Display::terminate defers while a context is current and the makeCurrent above completed
+    // it — but a lost context makes nothing current, so the terminate would run for real and the EGL
+    // teardown above would then fail with EGL_NOT_INITIALIZED.)
+    willDestroyContextOnDisplay(m_displayObj);
 }
 
 bool GraphicsContextGLANGLE::makeContextCurrent()
