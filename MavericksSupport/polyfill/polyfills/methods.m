@@ -1158,11 +1158,29 @@ WK_POLYFILL_SEL("setSupportsAlpha:", "wk_setSupportsAlpha:");
 WK_POLYFILL_SEL("_effectiveAccentColor", "wk__effectiveAccentColor");
 
 // ---------------------------------------------------------------------------------------------------
-// -[NSTextInputContext handleEvent:completionHandler:] (10.10+ SPI): delegate to the synchronous 10.6
-// -handleEvent: and report its result — routing the event through the input context first, as upstream does.
-// (Do not polyfill "handleEvent:" itself: this body calls it.)
+// -[NSTextInputContext handleEvent:completionHandler:] and
+// -[NSTextInputContext handleEventByInputMethod:completionHandler:] (10.10+ SPI): delegate to the
+// synchronous 10.6 -handleEvent: and report its result — routing the event through the input context
+// first, as upstream does. (Do not polyfill "handleEvent:" itself: this body calls it.)
+//
+// The KEY-EVENT pair, -handleEventByInputMethod:completionHandler: and -handleEventByKeyboardLayout:
+// (both 10.10+), split what 10.6's -handleEvent: does in one step: first offer the event to the input
+// method alone, then, if the input method did not consume it, translate it through the keyboard layout
+// and key bindings. 10.9 has no entry point for the first half on its own. Emulating it with
+// -handleEvent: is WRONG — that performs the whole translation, and WebKit then runs the
+// keyboard-layout half as well, so every keystroke was inserted TWICE (typing 1234 in the Web
+// Inspector console produced 11223344).
+//
+// So: report that the input method did not consume the event (translating nothing), and do the single
+// translation in the keyboard-layout half, where -handleEvent: belongs. Composition still works,
+// because -handleEvent: consults the input method itself — this is exactly the pre-10.10 flow, which
+// is what WebKit did on this OS before the SPI existed. Without these two, the sends raised
+// unrecognized-selector exceptions and no completion handler ever ran, so key input on every
+// WKWebView-backed surface in the process — the Web Inspector front end above all — went nowhere.
 @interface NSTextInputContext (WKPolyfillScope)
 - (void)wk_handleEvent:(NSEvent *)event completionHandler:(void (^)(BOOL))completionHandler;
+- (void)wk_handleEventByInputMethod:(NSEvent *)event completionHandler:(void (^)(BOOL))completionHandler;
+- (BOOL)wk_handleEventByKeyboardLayout:(NSEvent *)event;
 @end
 @implementation NSTextInputContext (WKPolyfillScope)
 - (void)wk_handleEvent:(NSEvent *)event completionHandler:(void (^)(BOOL))completionHandler
@@ -1171,8 +1189,20 @@ WK_POLYFILL_SEL("_effectiveAccentColor", "wk__effectiveAccentColor");
     if (completionHandler)
         completionHandler(handled);
 }
+- (void)wk_handleEventByInputMethod:(NSEvent *)event completionHandler:(void (^)(BOOL))completionHandler
+{
+    (void)event;
+    if (completionHandler)
+        completionHandler(NO);
+}
+- (BOOL)wk_handleEventByKeyboardLayout:(NSEvent *)event
+{
+    return [self handleEvent:event];
+}
 @end
 WK_POLYFILL_SEL("handleEvent:completionHandler:", "wk_handleEvent:completionHandler:");
+WK_POLYFILL_SEL("handleEventByInputMethod:completionHandler:", "wk_handleEventByInputMethod:completionHandler:");
+WK_POLYFILL_SEL("handleEventByKeyboardLayout:", "wk_handleEventByKeyboardLayout:");
 
 // ---------------------------------------------------------------------------------------------------
 // SF Symbols (11.0+): no system symbols exist on 10.9, so +imageWithSystemSymbolName: (and the private
