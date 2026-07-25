@@ -81,6 +81,8 @@
 #include <WebCore/DocumentWindow.h>
 #include <WebCore/Editor.h>
 #include <WebCore/ElementChildIteratorInlines.h>
+// MAVERICKS_BACKPORT: descendantsOfType() for containsAnyFormElements/Controls (github #98).
+#include <WebCore/TypedElementDescendantIteratorInlines.h>
 #include <WebCore/ElementTargetingController.h>
 #include <WebCore/EventHandler.h>
 #include <WebCore/File.h>
@@ -1094,7 +1096,15 @@ bool WebFrame::containsAnyFormElements() const
         return false;
 
     auto* document = localFrame->document();
-    return document && childrenOfType<HTMLFormElement>(*document).first();
+    // MAVERICKS_BACKPORT: DESCENDANTS, not children (github #98). childrenOfType(Document) iterates the
+    // document node's direct children -- the doctype and <html> -- so a <form>, which the parser always
+    // puts inside <body>, was never found and this returned false for every page. That killed AutoFill
+    // outright: Safari's -[WBSFormMetadataController recursivelyCollectMetadataInFrame:...] calls
+    // -[BundleAutoFillFrame containsAnyFormElements] (WKBundleFrameContainsAnyFormElements) and skips
+    // FrameMetadata::metadataForAllForms when it is false, so no field was ever a fill candidate.
+    // Upstream cannot see this: nothing but this legacy bundle C API calls it.
+    // return document && childrenOfType<HTMLFormElement>(*document).first();
+    return document && descendantsOfType<HTMLFormElement>(*document).first();
 }
 
 bool WebFrame::containsAnyFormControls() const
@@ -1107,7 +1117,11 @@ bool WebFrame::containsAnyFormControls() const
     if (!document)
         return false;
 
-    for (auto& child : childrenOfType<Element>(*document)) {
+    // MAVERICKS_BACKPORT: DESCENDANTS, not children (github #98) - same defect as
+    // containsAnyFormElements above; the document node's only element child is <html>, so no control
+    // was ever reachable and this returned false for every page.
+    // for (auto& child : childrenOfType<Element>(*document)) {
+    for (auto& child : descendantsOfType<Element>(*document)) {
         if (is<HTMLTextFormControlElement>(child) || is<HTMLSelectElement>(child))
             return true;
     }
