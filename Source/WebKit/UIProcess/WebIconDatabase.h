@@ -34,7 +34,10 @@
 #include "APIObject.h"
 // MAVERICKS_BACKPORT: extra includes/forward-decls for the revived in-memory icon store's data
 // members (pageURL->iconURL and iconURL->bytes maps) and its API::Data / IconDatabaseClient uses (#49).
+#include <CoreGraphics/CoreGraphics.h>
 #include <wtf/HashMap.h>
+#include <wtf/RetainPtr.h>
+#include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
 namespace API {
@@ -43,6 +46,13 @@ class IconDatabaseClient;
 }
 
 namespace WebKit {
+
+// MAVERICKS_BACKPORT: decodes stored favicon bytes into their frames, defined next to the C API that
+// hands them to Safari (UIProcess/API/C/cg/WKIconDatabaseCG.cpp) because that is where the platform
+// image machinery lives. The store uses it to admit only icons this build can actually turn into an
+// image (github #76): with one icon slot per page, accepting undecodable bytes would let them replace
+// a good icon and leave Safari drawing the generic globe.
+Vector<RetainPtr<CGImageRef>> decodeIconData(API::Data&);
 
 class WebIconDatabase : public API::ObjectImpl<API::Object::Type::IconDatabase> {
     // MAVERICKS_BACKPORT: revived member surface (upstream left this class an empty shell) — the
@@ -53,7 +63,9 @@ public:
 
     void setClient(std::unique_ptr<API::IconDatabaseClient>&&);
 
-    void setIconDataForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Ref<API::Data>&&);
+    // MAVERICKS_BACKPORT: returns whether the icon was stored — it is rejected when this build cannot
+    // decode it (github #76).
+    bool setIconDataForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Ref<API::Data>&&);
     RefPtr<API::Data> iconDataForPageURL(const WTF::String& pageURL);
     WTF::String iconURLForPageURL(const WTF::String& pageURL);
     void removeAllIcons();

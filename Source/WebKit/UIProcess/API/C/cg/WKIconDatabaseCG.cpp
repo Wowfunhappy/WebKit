@@ -30,74 +30,96 @@
 #include "APIData.h"
 #include "WKAPICast.h"
 #include "WKSharedAPICast.h"
-// MAVERICKS_BACKPORT: WebIconDatabase + CoreGraphics/ImageIO for decoding the stored favicon bytes to a CGImage (#49).
+// MAVERICKS_BACKPORT: the store, plus WebCore's image decoding — used rather than ImageIO directly so a
+// favicon in a format only WebCore can decode (WebP, via the in-tree WEBPImageDecoder that
+// ScalableImageDecoder tries ahead of ImageDecoderCG) is a usable icon here too (#49, github #76).
 #include "WebIconDatabase.h"
-#include <CoreGraphics/CoreGraphics.h>
-#include <ImageIO/ImageIO.h>
-#include <WebCore/Image.h>
-// MAVERICKS_BACKPORT: RetainPtr for the CFData/CGImageSource handles used in the CGImage decode path below (#49).
+#include <WebCore/ImageDecoder.h>
+#include <WebCore/SharedBuffer.h>
 #include <wtf/RetainPtr.h>
 
 using namespace WebKit;
 
-// MAVERICKS_BACKPORT: the stored favicon bytes as a decodable ImageIO source, or null — shared by the
-// single-image and the array lookup below (#49, github #76).
-static RetainPtr<CGImageSourceRef> imageSourceForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
+// MAVERICKS_BACKPORT: every frame a stored favicon decodes to, in file order — shared by the
+// single-image and the array lookup below, and by the store's admission test (#49, github #76).
+Vector<RetainPtr<CGImageRef>> WebKit::decodeIconData(API::Data& data)
+{
+    // ImageDecoder directly rather than BitmapImage: decoding here must be synchronous (the answer is
+    // the return value), and this is the same decoder selection WebCore uses for page images — on CG
+    // ports ScalableImageDecoder first (which is where this port's vendored WEBPImageDecoder lives),
+    // then ImageDecoderCG. The MIME type is left empty on purpose: both decoders sniff the bytes, and
+    // the store keeps no type — the honest test is whether the bytes decode, not what a server called them.
+    Ref buffer = WebCore::SharedBuffer::create(data.span());
+    RefPtr decoder = WebCore::ImageDecoder::create(buffer, String(), WebCore::AlphaOption::Premultiplied, WebCore::GammaAndColorProfileOption::Applied);
+    if (!decoder)
+        return { };
+    // ImageDecoderCG's constructor makes an INCREMENTAL CGImageSource and ingests nothing; the data
+    // arrives here. (Missing this rejected every icon, since the status stays Unknown.)
+    decoder->setData(buffer, true);
+    if (decoder->encodedDataStatus() != WebCore::EncodedDataStatus::Complete)
+        return { };
+
+    Vector<RetainPtr<CGImageRef>> frames;
+    size_t count = decoder->frameCount();
+    frames.reserveInitialCapacity(count);
+    for (size_t index = 0; index < count; ++index) {
+        if (auto frame = decoder->createFrameImageAtIndex(index))
+            frames.append(WTF::move(frame));
+    }
+    return frames;
+}
+
+static Vector<RetainPtr<CGImageRef>> iconFramesForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
     RefPtr data = toImpl(iconDatabaseRef)->iconDataForPageURL(toWTFString(pageURL)); // MAVERICKS_BACKPORT
     if (!data)
-        return nullptr;
-
-    auto span = data->span();
-    RetainPtr<CFDataRef> cfData = adoptCF(CFDataCreate(kCFAllocatorDefault, span.data(), span.size()));
-    if (!cfData)
-        return nullptr;
-
-    return adoptCF(CGImageSourceCreateWithData(cfData.get(), nullptr));
+        return { };
+    return WebKit::decodeIconData(*data);
 }
 
 // MAVERICKS_BACKPORT: decode the favicon bytes held in the revived in-memory icon store into a
-// CGImage for Safari 7, instead of the upstream nullptr stub. "TryGet" semantics mean the caller does
-// not own the returned image, so it is autoreleased (#49).
-CGImageRef WKIconDatabaseTryGetCGImageForURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL, WKSize)
+// CGImage for Safari 7, instead of the upstream nullptr stub. Honour the requested size the way the
+// pre-deletion upstream did (BitmapImage::getFirstCGImageRefOfSize, 2013): a .ico carries several
+// sizes, so return the frame whose pixel size matches the request and fall back to the first frame
+// when none does — a caller asking for 16x16 must not silently get a 512x512 image. "TryGet" semantics
+// mean the caller does not own the returned image, so it is autoreleased (#49, github #76).
+CGImageRef WKIconDatabaseTryGetCGImageForURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL, WKSize size)
 {
-    RetainPtr<CGImageSourceRef> source = imageSourceForPageURL(iconDatabaseRef, pageURL); // MAVERICKS_BACKPORT
-    if (!source)
+    auto frames = iconFramesForPageURL(iconDatabaseRef, pageURL); // MAVERICKS_BACKPORT
+    if (frames.isEmpty())
         return nullptr;
 
-    CGImageRef cgImage = CGImageSourceCreateImageAtIndex(source.get(), 0, nullptr);
-    if (!cgImage)
-        return nullptr;
+    RetainPtr<CGImageRef> chosen = frames[0];
+    if (size.width && size.height) {
+        for (auto& frame : frames) {
+            if (CGImageGetWidth(frame.get()) == static_cast<size_t>(size.width) && CGImageGetHeight(frame.get()) == static_cast<size_t>(size.height)) {
+                chosen = frame;
+                break;
+            }
+        }
+    }
 
-    return (CGImageRef)CFAutorelease(cgImage);
+    return (CGImageRef)CFAutorelease(chosen.leakRef());
 }
 
-// MAVERICKS_BACKPORT: every image a stored favicon contains, largest first (github #76). This is the
-// other half of the C API Safari 7 asks favicons through: Safari::IconController::bestSiteIconForURLString
-// and ::bestFallbackCandidate read the array and pick the representation closest to the size they need
+// MAVERICKS_BACKPORT: every image a stored favicon contains (github #76). This is the other half of
+// the C API Safari 7 asks favicons through: Safari::IconController::bestSiteIconForURLString and
+// ::bestFallbackCandidate read the array and pick the representation closest to the size they need
 // (that is what backs a Reading List row's icon, among others), and when it comes back empty they fall
-// straight through to the generic globe. A .ico commonly carries several sizes, hence an array; a
+// straight through to the generic globe. Frame order is the file's own, matching pre-deletion upstream
+// (BitmapImage::getCGImageArray); a .ico commonly carries several sizes, hence an array, and a
 // single-image format yields a one-element one.
 CFArrayRef WKIconDatabaseTryCopyCGImageArrayForURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
-    RetainPtr<CGImageSourceRef> source = imageSourceForPageURL(iconDatabaseRef, pageURL);
-    if (!source)
+    auto frames = iconFramesForPageURL(iconDatabaseRef, pageURL); // MAVERICKS_BACKPORT
+    if (frames.isEmpty())
         return nullptr;
 
-    size_t count = CGImageSourceGetCount(source.get());
-    if (!count)
-        return nullptr;
-
-    RetainPtr<CFMutableArrayRef> images = adoptCF(CFArrayCreateMutable(kCFAllocatorDefault, count, &kCFTypeArrayCallBacks));
-    for (size_t index = 0; index < count; ++index) {
-        RetainPtr<CGImageRef> image = adoptCF(CGImageSourceCreateImageAtIndex(source.get(), index, nullptr));
-        if (image)
-            CFArrayAppendValue(images.get(), image.get());
-    }
-
-    if (!CFArrayGetCount(images.get()))
-        return nullptr;
-
-    return images.leakRef();
+    // MAVERICKS_BACKPORT: one CFArray element per decoded frame.
+    RetainPtr<CFMutableArrayRef> images = adoptCF(CFArrayCreateMutable(kCFAllocatorDefault, frames.size(), &kCFTypeArrayCallBacks));
+    for (auto& frame : frames)
+        CFArrayAppendValue(images.get(), frame.get());
+    return images.leakRef(); // MAVERICKS_BACKPORT: "TryCopy" is +1, which the caller releases.
 }
+
 

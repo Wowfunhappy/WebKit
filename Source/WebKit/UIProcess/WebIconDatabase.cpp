@@ -49,8 +49,16 @@ void WebIconDatabase::setClient(std::unique_ptr<API::IconDatabaseClient>&& clien
     m_client = WTF::move(client);
 }
 
-void WebIconDatabase::setIconDataForPageURL(const String& pageURL, const String& iconURL, Ref<API::Data>&& data)
+bool WebIconDatabase::setIconDataForPageURL(const String& pageURL, const String& iconURL, Ref<API::Data>&& data)
 {
+    // MAVERICKS_BACKPORT: admit only bytes this build can decode (github #76). There is ONE icon slot
+    // per page here, so undecodable bytes are not merely useless — accepting them REPLACES a decodable
+    // icon and leaves Safari drawing the generic globe. Which formats those are is not guessed from a
+    // MIME type or a file extension: the test is the decode itself, through the same path the C API
+    // will use to hand the icon to Safari.
+    if (decodeIconData(data.get()).isEmpty())
+        return false;
+
     m_pageURLToIconURL.set(pageURL, iconURL);
     m_iconURLToData.set(iconURL, data.ptr());
 
@@ -58,6 +66,7 @@ void WebIconDatabase::setIconDataForPageURL(const String& pageURL, const String&
         m_client->didChangeIconForPageURL(*this, pageURL);
         m_client->iconDataReadyForPageURL(*this, pageURL);
     }
+    return true;
 }
 
 RefPtr<API::Data> WebIconDatabase::iconDataForPageURL(const String& pageURL)
