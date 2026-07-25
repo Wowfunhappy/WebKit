@@ -1022,8 +1022,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
     // _pathToDownloadTaskFile on the DATA task, and 10.9 builds the download task's output file inside
     // its own initializer (-[__NSCFLocalDownloadTask initWithTask:suspendedConnection:] ->
     // -setupForNewDownload), which no client can reach, so the path has to be re-applied to the task
-    // that will actually do the writing. This is the earliest moment WebKit holds it, and the
-    // connection is still suspended for the conversion, so no body byte has been written yet. See the
+    // that will actually do the writing. This is the earliest moment WebKit holds it. See the
     // _pathToDownloadTaskFile polyfill in MavericksSupport/polyfill/polyfills/methods.m.
     downloadTask._pathToDownloadTaskFile = networkDataTask->pendingDownloadLocation().createNSString().get();
     CheckedRef downloadManager = sessionCocoa->networkProcess().downloadManager();

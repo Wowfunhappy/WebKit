@@ -18,6 +18,7 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <QuartzCore/QuartzCore.h>
 #import <fcntl.h>
+#import <sys/stat.h>
 #import <mach/mach.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
@@ -1678,100 +1679,251 @@ WK_POLYFILL_SEL_REPLACES("cancelByProducingResumeData:", "wk_cancelByProducingRe
 
 static NSString *wk_downloadTaskFilePathKey = @"wk_pathToDownloadTaskFile";
 
-static id wk_localDownloadFileForPath(NSString *path)
+// Marks the download files whose path belongs to a CLIENT rather than to CFNetwork, so that replacing one
+// never unlinks the file the client is downloading into.
+static const void *wk_downloadFileIsClientOwnedKey = &wk_downloadFileIsClientOwnedKey;
+
+// Take a download file out of CFNetwork's ownership: its -dealloc unlinks its own path, which is what keeps
+// a temp file invisible and would otherwise DELETE the file the client asked us to write. Measured: without
+// this, a resumed download completed at full size and then vanished, unlinked from
+// -[__NSCFLocalDownloadFile dealloc] as the last reference went away.
+static void wk_claimDownloadFileForClient(id file)
 {
-    if (![path length])
-        return nil;
-
-    // -initWithExistingFile: cannot create, and the client's directory may not hold the file yet.
-    int fd = open([path fileSystemRepresentation], O_WRONLY | O_CREAT | O_APPEND, 0666);
-    if (fd < 0)
-        return nil;
-    close(fd);
-
-    Class downloadFileClass = objc_getClass("__NSCFLocalDownloadFile");
-    if (!downloadFileClass)
-        return nil;
-    static SEL initWithExistingFileSelector;
-    if (!initWithExistingFileSelector)
-        initWithExistingFileSelector = sel_registerName("initWithExistingFile:expectedSize:");
-    if (!class_getInstanceMethod(downloadFileClass, initWithExistingFileSelector))
-        return nil;
-
-    id (*initWithExistingFile)(id, SEL, NSString *, long long) = (id (*)(id, SEL, NSString *, long long))objc_msgSend;
-    id file = initWithExistingFile([downloadFileClass alloc], initWithExistingFileSelector, path, 0);
-    if (!file)
-        return nil;
-
-    // Without this, dealloc unlinks the path — i.e. deletes the file the client asked us to write.
     static SEL setSkipUnlinkSelector;
     if (!setSkipUnlinkSelector)
         setSkipUnlinkSelector = sel_registerName("setSkipUnlink:");
-    if (class_getInstanceMethod(downloadFileClass, setSkipUnlinkSelector)) {
-        void (*setSkipUnlink)(id, SEL, BOOL) = (void (*)(id, SEL, BOOL))objc_msgSend;
-        setSkipUnlink(file, setSkipUnlinkSelector, YES);
-    }
+    void (*setSkipUnlink)(id, SEL, BOOL) = (void (*)(id, SEL, BOOL))objc_msgSend;
+    setSkipUnlink(file, setSkipUnlinkSelector, YES);
+    objc_setAssociatedObject(file, wk_downloadFileIsClientOwnedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+// Build a __NSCFLocalDownloadFile that appends to a file the client owns.
+//
+// -initWithExistingFile:expectedSize: is open(path, 0x9 = O_WRONLY|O_APPEND, 0666) with no O_CREAT, so the
+// file has to exist first; it close()s that descriptor again immediately (the writing channel is opened
+// lazily by -ioChannel) and stores errno into _error whether or not the open succeeded, so errno is cleared
+// beforehand to keep a stale value from reading as a failed destination. expectedSize is only logged.
+//
+// A destination that cannot be opened is REPORTED, not swallowed, and by CFNetwork's own mechanism: the
+// object comes back with _path unset, -ioChannel then makes no channel ("Not creating a write channel
+// because we don't have a path already set up"), and -writeBytes:completionQueue:completion: invokes its
+// completion with _error, which -[__NSCFLocalDownloadTask checkWrite] turns into -_private_posixError:. So
+// binding this object makes the download fail with the real errno instead of quietly diverting the bytes to
+// a temp file the client never hears about -- which is what the real property does too.
+static id wk_localDownloadFileForPath(NSString *path)
+{
+    // -initWithExistingFile: cannot create, and the client's directory may not hold the file yet. A failure
+    // here needs no handling of its own: the init below opens the same path with the same flags, so it
+    // records that errno itself.
+    int fd = open([path fileSystemRepresentation], O_WRONLY | O_CREAT | O_APPEND, 0666);
+    if (fd >= 0)
+        close(fd);
+
+    errno = 0;
+    static SEL initWithExistingFileSelector;
+    if (!initWithExistingFileSelector)
+        initWithExistingFileSelector = sel_registerName("initWithExistingFile:expectedSize:");
+    id (*initWithExistingFile)(id, SEL, NSString *, long long) = (id (*)(id, SEL, NSString *, long long))objc_msgSend;
+    id file = initWithExistingFile([objc_getClass("__NSCFLocalDownloadFile") alloc], initWithExistingFileSelector, path, 0);
+
+    wk_claimDownloadFileForClient(file);
     return file;
 }
 
-// Point an existing download task's output at `path`, moving anything already written across.
+// Close a download file's dispatch_io channel and WAIT for the close to complete, so that everything
+// CFNetwork wrote through it is on disk and can be read back.
 //
-// The earliest a client can reach a download task is after its initializer has run, and by then
-// CFNetwork has already replayed into its temp file whatever response body arrived while the
-// destination was being decided (measured: one 32 KB chunk, and the destination began at absolute
-// offset 32768 when those bytes were dropped). Those bytes belong at the START of the client's file,
-// so they are copied over when the destination is empty — and only then, because on the resume path
-// the destination already holds the partial download and must not have anything prepended to it.
-static void wk_bindDownloadTaskToFile(id task, NSString *path)
+// -finishOnQueue:completion: is dispatch_io_close(channel, 0) followed by dispatch_io_barrier, and a barrier
+// block runs only once the operations submitted before it have completed -- so the completion firing IS the
+// ordering guarantee, and there is nothing left to race. The queue passed in is a concurrent global queue,
+// so this cannot deadlock against it.
+static void wk_finishDownloadFile(id file)
 {
-    Ivar downloadFileIvar = class_getInstanceVariable(object_getClass(task), "_downloadFile");
-    if (!downloadFileIvar)
-        return;
-    id previous = object_getIvar(task, downloadFileIvar);
-    if (!previous)
-        return;
+    static SEL finishOnQueueSelector;
+    if (!finishOnQueueSelector)
+        finishOnQueueSelector = sel_registerName("finishOnQueue:completion:");
+    dispatch_semaphore_t finished = dispatch_semaphore_create(0);
+    void (*finishOnQueue)(id, SEL, dispatch_queue_t, void (^)(void)) = (void (*)(id, SEL, dispatch_queue_t, void (^)(void)))objc_msgSend;
+    finishOnQueue(file, finishOnQueueSelector, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        dispatch_semaphore_signal(finished);
+    });
+    dispatch_semaphore_wait(finished, DISPATCH_TIME_FOREVER);
+    dispatch_release(finished);
+}
 
-    static SEL pathSelector;
-    if (!pathSelector)
-        pathSelector = sel_registerName("path");
-    NSString *(*filePath)(id, SEL) = (NSString *(*)(id, SEL))objc_msgSend;
-    NSString *previousPath = [previous respondsToSelector:pathSelector] ? filePath(previous, pathSelector) : nil;
-
-    NSFileManager *fileManager = [NSFileManager defaultManager];
-    unsigned long long destinationSize = [[[fileManager attributesOfItemAtPath:path error:NULL] objectForKey:NSFileSize] unsignedLongLongValue];
-    NSData *alreadyWritten = nil;
-    if (!destinationSize && [previousPath length])
-        alreadyWritten = [NSData dataWithContentsOfFile:previousPath];
-
-    id replacement = wk_localDownloadFileForPath(path);
-    if (!replacement)
-        return; // Leave CFNetwork's own temp file in place rather than break the download.
-
-    if ([alreadyWritten length]) {
-        // Appending through a second descriptor is safe here: the replacement has only just been
-        // opened and CFNetwork writes to the file it is told about, which is still `previous`.
-        int fd = open([path fileSystemRepresentation], O_WRONLY | O_APPEND);
-        if (fd >= 0) {
-            const uint8_t *bytes = (const uint8_t *)[alreadyWritten bytes];
-            size_t remaining = [alreadyWritten length];
-            while (remaining) {
-                ssize_t written = write(fd, bytes, remaining);
-                if (written <= 0)
-                    break;
-                bytes += written;
-                remaining -= (size_t)written;
-            }
-            close(fd);
-        }
+// Append everything in `fromPath` to `toPath`. Returns 0, or the errno that stopped it -- every failure has
+// one, which is why this reads and writes itself instead of going through -[NSData dataWithContentsOfFile:].
+static int wk_appendFileContents(NSString *fromPath, NSString *toPath)
+{
+    int source = open([fromPath fileSystemRepresentation], O_RDONLY);
+    if (source < 0)
+        return errno;
+    int destination = open([toPath fileSystemRepresentation], O_WRONLY | O_APPEND);
+    if (destination < 0) {
+        int failure = errno;
+        close(source);
+        return failure;
     }
 
-    object_setIvar(task, downloadFileIvar, replacement);
-    // The temp file is CFNetwork's, and nothing reads it once the task writes elsewhere; its owner
-    // unlinks it on dealloc, but that is not guaranteed to be soon (its dispatch_io channel can outlive
-    // this call), so drop it now rather than leave one stale temp file behind per download.
-    if ([previousPath length])
+    int failure = 0;
+    uint8_t buffer[65536];
+    for (;;) {
+        ssize_t got = read(source, buffer, sizeof(buffer));
+        if (!got)
+            break;
+        if (got < 0) {
+            failure = errno;
+            break;
+        }
+        const uint8_t *remaining = buffer;
+        size_t left = (size_t)got;
+        while (left) {
+            ssize_t wrote = write(destination, remaining, left);
+            if (wrote <= 0) {
+                failure = errno ? errno : EIO;
+                break;
+            }
+            remaining += wrote;
+            left -= (size_t)wrote;
+        }
+        if (failure)
+            break;
+    }
+    close(source);
+    close(destination);
+    return failure;
+}
+
+// Point a download task's output at `path`.
+//
+// The earliest a client can reach a download task is after its initializer has run, and by then CFNetwork
+// has already replayed into its temp file whatever response body arrived while the destination was being
+// decided (measured: one 32 KB chunk). Those bytes belong at the START of the client's file.
+static void wk_bindDownloadTaskToFile(id task, NSString *path)
+{
+    if (![path length])
+        return; // Setting the property to nil means "no destination override", so there is nothing to bind.
+
+    // Only a download task keeps an output file. A data task that has not been converted yet has none, and
+    // the path is re-applied from -URLSession:dataTask:didBecomeDownloadTask: once it has one. The ivar is
+    // the discriminator because it exists on exactly the class that owns a download file
+    // (__NSCFLocalDownloadTask, which also vends -downloadFile/-setDownloadFile:).
+    if (!class_getInstanceVariable(object_getClass(task), "_downloadFile"))
+        return;
+
+    static SEL downloadFileSelector, setDownloadFileSelector, pathSelector, setPathSelector, setErrorSelector;
+    static SEL originalResumeInfoSelector, initialResumeSizeSelector;
+    if (!downloadFileSelector) {
+        downloadFileSelector = sel_registerName("downloadFile");
+        setDownloadFileSelector = sel_registerName("setDownloadFile:");
+        pathSelector = sel_registerName("path");
+        setPathSelector = sel_registerName("setPath:");
+        setErrorSelector = sel_registerName("setError:");
+        originalResumeInfoSelector = sel_registerName("originalResumeInfo");
+        initialResumeSizeSelector = sel_registerName("initialResumeSize");
+    }
+    id (*getObject)(id, SEL) = (id (*)(id, SEL))objc_msgSend;
+    void (*setObject)(id, SEL, id) = (void (*)(id, SEL, id))objc_msgSend;
+    id previous = getObject(task, downloadFileSelector);
+    if (!previous)
+        return; // -setupForNewDownload has not made one yet; it will, and the path is re-applied then.
+    NSString *previousPath = getObject(previous, pathSelector);
+
+    // stat() rather than -attributesOfItemAtPath:, which reported a non-empty destination on a path that
+    // did not exist yet and sent this down the copy path (observed: link() never called, the file created
+    // with O_CREAT by the fallback, and one chunk lost).
+    struct stat previousInfo, destinationInfo;
+    bool previousExists = [previousPath length] && !stat([previousPath fileSystemRepresentation], &previousInfo);
+    bool destinationExists = !stat([path fileSystemRepresentation], &destinationInfo);
+
+    // ALREADY writing into the client's file, so there is nothing to REBIND -- and rebinding would destroy
+    // the download, because everything below treats the previous file as CFNetwork's disposable temp file.
+    // Download::resume arrives here: -[__NSCFLocalDownloadTask createResumeInformation:] records
+    // [[self downloadFile] path] as NSURLSessionResumeInfoLocalPath, which with this property in place IS
+    // the client's path, and -initWithSession:resumeData:ident:bridge: hands that path straight back to
+    // -initWithExistingFile:expectedSize:. Compared by identity rather than by string, since what must not
+    // happen is unlinking the file that holds the partial download.
+    //
+    // The file still has to be CLAIMED, though: CFNetwork built it, so it would unlink the client's file
+    // when it goes away (measured: the resumed download completed at the full size and then vanished).
+    if (previousExists && destinationExists && previousInfo.st_dev == destinationInfo.st_dev
+        && previousInfo.st_ino == destinationInfo.st_ino) {
+        wk_claimDownloadFileForClient(previous);
+        return;
+    }
+
+    // Fresh download or resumed one? Ask the TASK, which knows: -initWithSession:resumeData:ident:bridge:
+    // fills in _initialResumeSize and -setOriginalResumeInfo: before any client can set this property.
+    // Inferring it from the destination's size instead would splice an existing file's contents in front of
+    // a fresh download that happened to be pointed at a non-empty path.
+    bool resuming = getObject(task, originalResumeInfoSelector)
+        || ((long long (*)(id, SEL))objc_msgSend)(task, initialResumeSizeSelector) > 0;
+
+    if (!resuming) {
+        // A fresh download starts from an empty destination, whatever happened to be sitting there.
+        unlink([path fileSystemRepresentation]);
+        destinationExists = false;
+
+        // Now the destination can simply become a second NAME for the file CFNetwork is already writing,
+        // which is better than copying the replayed chunk across: that copy went through the temp file's
+        // dispatch_io channel and is not necessarily on disk when we look, so reading it raced the flush and
+        // silently dropped the chunk (measured: identical downloads landed either byte-exact or exactly
+        // 32,768 bytes short, the short ones starting at absolute offset 32768, 6 of 10 bad). With a hard
+        // link both names refer to the one growing file: the prefix is already there and CFNetwork keeps
+        // writing through the channel it owns.
+        if (previousExists && !link([previousPath fileSystemRepresentation], [path fileSystemRepresentation])) {
+            // Exactly ONE name must survive, or the download would keep a second full-size link alive in
+            // /var/folders for good: -createResumeInformation: sets skipUnlink, so after a stop CFNetwork
+            // never unlinks its own name again, and deleting the download in the Finder would free nothing.
+            // Hand the file over to the client's name instead -- the descriptor already open keeps writing to
+            // the same inode, a channel not opened yet opens the client's path, and [downloadFile path] then
+            // reports the client's file, which is what the resume information and -fileURL must name.
+            setObject(previous, setPathSelector, path);
+            wk_claimDownloadFileForClient(previous);
+            unlink([previousPath fileSystemRepresentation]);
+            return;
+        }
+        // link() fails with EXDEV when the client's directory is on another volume, which Safari's "Save
+        // downloaded files to" setting allows and which then applies to EVERY download there. Fall through
+        // and bind a separate file object instead.
+    }
+
+    // Binding a replacement means reading the previous file back, so close its channel FIRST and wait for
+    // the close: after that, every byte CFNetwork wrote through it is on disk (see wk_finishDownloadFile),
+    // so the carry below is ordered after those writes rather than racing them.
+    if (previousExists)
+        wk_finishDownloadFile(previous);
+
+    id replacement = wk_localDownloadFileForPath(path);
+
+    // Carry over whatever the previous file holds. CFNetwork opens the replacement O_APPEND, which is right
+    // in both directions: for a fresh download the replayed chunk lands at offset 0, and for a resume onto a
+    // file that is not the one named in the resume data, anything already received lands after the bytes the
+    // destination already holds.
+    int carryFailure = previousExists ? wk_appendFileContents(previousPath, path) : 0;
+    if (carryFailure) {
+        // The destination is now missing bytes it must never be missing, so the download has to FAIL rather
+        // than run to completion and be reported finished with a hole in it. Put the file into the same
+        // state CFNetwork produces for a destination it cannot open -- no path, _error set: -ioChannel makes
+        // no channel without a path, -writeBytes:completionQueue:completion: then completes with _error, and
+        // -[__NSCFLocalDownloadTask writeAndResume]'s completion turns any non-zero into -posixError: ->
+        // cancel_with_error:. The temp file is deliberately left where it is, since it holds the only copy
+        // of the bytes that did not make it across.
+        setObject(replacement, setPathSelector, nil);
+        ((void (*)(id, SEL, int))objc_msgSend)(replacement, setErrorSelector, carryFailure);
+    } else if (previousExists && !objc_getAssociatedObject(previous, wk_downloadFileIsClientOwnedKey)) {
+        // Remove the temp file now that its contents are safely across: its channel is closed, and -dealloc
+        // would unlink it anyway, but the object outlives this call whenever something else still retains
+        // it. Never for a file this polyfill bound -- that path belongs to a client. Done before the swap,
+        // because the swap releases `previous` and previousPath is its string.
         unlink([previousPath fileSystemRepresentation]);
-    [previous release];
+    }
+
+    // -setDownloadFile: is objc_setProperty, i.e. it retains the new file and releases the one it replaces,
+    // so the ivar's reference is handed over correctly without touching it by hand. Then drop the +1 from
+    // +alloc, leaving the task as the only owner.
+    setObject(task, setDownloadFileSelector, replacement);
+    [replacement release];
 }
 
 static NSString *wk_urlSessionTask_pathToDownloadTaskFile(id self, SEL _cmd)
