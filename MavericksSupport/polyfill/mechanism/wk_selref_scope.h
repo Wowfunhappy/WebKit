@@ -47,9 +47,19 @@ struct wk_selmap_entry { const char *pub; const char *priv; int intent; };
 // `RET fn(id self, SEL _cmd, ARGS…)`; TYPES is its ObjC type encoding (e.g. "f@:" / "v@:f"). Pair with a
 // WK_POLYFILL_SEL so the public selector is rewritten to this wk_ one. (For a class that IS in the linked
 // SDK framework, a plain category is simpler — use this only for the moved-framework case.)
-struct wk_addmap_entry { const char *cls; const char *sel; void *imp; const char *types; };
-#define WK_POLYFILL_ADD(CLS, SEL, IMP, TYPES) \
+// The intent field mirrors WK_POLYFILL_SEL / WK_POLYFILL_SEL_REPLACES, and for the same reason it
+// exists there: a class that HAS the real method also gets its own implementation aliased under the
+// wk_ name (wk_alias_class), and that aliasing runs BEFORE these entries are installed. class_addMethod
+// then does nothing, so a GAP_FILL correctly leaves 10.9's real method in place — and a deliberate
+// REPLACES would silently lose. WK_POLYFILL_ADD_REPLACES uses class_replaceMethod so the body wins,
+// which is what "deliberately shadow a method 10.9 HAS" has to mean for a runtime-resolved class.
+// (A REPLACES body reaches 10.9's implementation the same way a category-based one does: send the
+// PUBLIC selector via sel_registerName, which is untouched on the class.)
+struct wk_addmap_entry { const char *cls; const char *sel; void *imp; const char *types; int intent; };
+#define WK_POLYFILL_ADD_(CLS, SEL, IMP, TYPES, INTENT) \
     __attribute__((used, section("__DATA,__wk_addmap"))) \
-    static const struct wk_addmap_entry WK_SELMAP_CAT(wk_addmap_reg_, __LINE__) = { CLS, SEL, (void *)(IMP), TYPES }
+    static const struct wk_addmap_entry WK_SELMAP_CAT(wk_addmap_reg_, __LINE__) = { CLS, SEL, (void *)(IMP), TYPES, INTENT }
+#define WK_POLYFILL_ADD(CLS, SEL, IMP, TYPES) WK_POLYFILL_ADD_(CLS, SEL, IMP, TYPES, WK_SELMAP_GAP_FILL)
+#define WK_POLYFILL_ADD_REPLACES(CLS, SEL, IMP, TYPES) WK_POLYFILL_ADD_(CLS, SEL, IMP, TYPES, WK_SELMAP_REPLACES)
 
 #endif // WK_SELREF_SCOPE_H

@@ -1541,6 +1541,85 @@ WK_POLYFILL_SEL("priority", "wk_priority");
 WK_POLYFILL_SEL("setPriority:", "wk_setPriority:");
 
 // ---------------------------------------------------------------------------------------------------
+// -[NSURLSessionDownloadTask cancelByProducingResumeData:] — 10.9's implementation ABORTS the process
+// when the download cannot produce resume information (github #94: cancelling any such download killed
+// the NetworkProcess, and with it Safari).
+//
+// What 10.9 does, read off CFNetwork 673.3: -[__NSCFLocalDownloadTask _private_fileCompletion] asks
+// -createResumeInformation: for the resume dictionary and stuffs the result into the cancellation
+// error's userInfo under NSURLSessionDownloadTaskResumeData — with no nil check.
+// createResumeInformation: returns nil whenever resuming is impossible, and for a plain HTTP download
+// that is the ordinary case: it requires an http/https GET whose response carries an ETag or a
+// Last-Modified (a validator, without which no server can be asked to continue), or, for a non-HTTP
+// response, a task that was itself created from resume data (_originalResumeInfo). nil then reaches
+// -[NSMutableDictionary setObject:forKey:] -> NSInvalidArgumentException -> abort(). Later OS versions
+// fixed this by reporting no resume data; this restores that behaviour by not entering the broken path:
+// when 10.9 cannot produce resume information, cancel plainly and report no resume data, which is
+// exactly what the API's callers already handle (WebKit's Download::platformCancelNetworkLoad passes an
+// empty span on). When it CAN, 10.9's own implementation runs, so resuming a download still works.
+//
+// The gate replicates createResumeInformation:'s preconditions rather than calling it, because calling
+// it is not side-effect-free on the path that succeeds (it captures the partial file and sets
+// skipUnlink, which the real cancel would then redo). Note allHeaderFields is a CASE-INSENSITIVE
+// dictionary on 10.9 (verified: a server's "ETag:" is listed as "Etag" and both spellings look it up),
+// so these lookups see the same headers CFNetwork's own do.
+static BOOL wk_downloadTaskCanProduceResumeInformation(id task)
+{
+    NSURLRequest *request = [task currentRequest];
+    NSString *scheme = [[request URL] scheme];
+    BOOL isHTTPFamily = [scheme caseInsensitiveCompare:@"http"] == NSOrderedSame || [scheme caseInsensitiveCompare:@"https"] == NSOrderedSame;
+    if (!isHTTPFamily)
+        return NO;
+    // A nil HTTPMethod compares equal here, matching CFNetwork's own nil-receiver comparison.
+    NSString *method = [request HTTPMethod];
+    if (method && [method caseInsensitiveCompare:@"GET"] != NSOrderedSame)
+        return NO;
+
+    id response = [task response];
+    if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+        NSDictionary *headers = [(NSHTTPURLResponse *)response allHeaderFields];
+        return [headers objectForKey:@"Etag"] != nil || [headers objectForKey:@"Last-Modified"] != nil;
+    }
+
+    // Non-HTTP response: 10.9 can only re-emit the resume information the task was created from.
+    Ivar originalResumeInfo = class_getInstanceVariable(object_getClass(task), "_originalResumeInfo");
+    return originalResumeInfo && object_getIvar(task, originalResumeInfo) != nil;
+}
+
+static void wk_downloadTask_cancelByProducingResumeData(id self, SEL _cmd, void (^completionHandler)(NSData *resumeData))
+{
+    (void)_cmd;
+    if (wk_downloadTaskCanProduceResumeInformation(self)) {
+        // sel_registerName rather than @selector: this file is compiled into WebCore, whose
+        // __objc_selrefs are rewritten, so a compiled `cancelByProducingResumeData:` selref arrives
+        // here as the wk_ name and would recurse. Idempotent — see the other users of this pattern.
+        static SEL cancelByProducingResumeDataSelector;
+        if (!cancelByProducingResumeDataSelector)
+            cancelByProducingResumeDataSelector = sel_registerName("cancelByProducingResumeData:");
+        void (*cancelByProducingResumeData)(id, SEL, void (^)(NSData *)) = (void (*)(id, SEL, void (^)(NSData *)))objc_msgSend;
+        cancelByProducingResumeData(self, cancelByProducingResumeDataSelector, completionHandler);
+        return;
+    }
+
+    static SEL cancelSelector;
+    if (!cancelSelector)
+        cancelSelector = sel_registerName("cancel");
+    void (*cancel)(id, SEL) = (void (*)(id, SEL))objc_msgSend;
+    cancel(self, cancelSelector);
+    if (completionHandler)
+        completionHandler(nil);
+}
+
+// Both concrete download-task classes 10.9 vends (a local session and a background/URL session), each
+// of which implements the real selector itself — hence _REPLACES, so the body wins over the aliased
+// real method. The public NSURLSessionDownloadTask does NOT implement it on 10.9 and is not in the
+// concrete classes' superclass chain (__NSCFLocalDownloadTask : __NSCFLocalSessionTask :
+// __NSCFURLSessionTask : NSObject), so registering it there would reach no instance.
+WK_POLYFILL_ADD_REPLACES("__NSCFLocalDownloadTask", "wk_cancelByProducingResumeData:", wk_downloadTask_cancelByProducingResumeData, "v@:@?");
+WK_POLYFILL_ADD_REPLACES("__NSCFURLSessionDownloadTask", "wk_cancelByProducingResumeData:", wk_downloadTask_cancelByProducingResumeData, "v@:@?");
+WK_POLYFILL_SEL_REPLACES("cancelByProducingResumeData:", "wk_cancelByProducingResumeData:");
+
+// ---------------------------------------------------------------------------------------------------
 // -[CALayer presentationLayer] and the implicit CATransaction it begins.
 //
 // Reading presentation state is the one CALayer accessor that needs a transaction. Measured on 10.9.5

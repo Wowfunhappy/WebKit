@@ -330,6 +330,13 @@ static BOOL wk_install_add_entry(const struct wk_addmap_entry *e)
     Class c = objc_getClass(e->cls);
     if (!c)
         return NO;
+    if (e->intent == WK_SELMAP_REPLACES) {
+        // Deliberate override: the class-correct aliasing has already run for the classes loaded so
+        // far, so the wk_ name may already be bound to 10.9's real method -- replace it. Idempotent
+        // too: installing the same IMP again changes nothing.
+        class_replaceMethod(c, sel_registerName(e->sel), (IMP)e->imp, e->types);
+        return YES;
+    }
     // Idempotent: class_addMethod is a no-op (returns NO) if the wk_ method already exists.
     class_addMethod(c, sel_registerName(e->sel), (IMP)e->imp, e->types);
     return YES;
