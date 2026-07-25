@@ -181,9 +181,22 @@ using namespace WebCore;
 
 - (void)download:(NSURLDownload *)download decideDestinationWithSuggestedFilename:(NSString *)filename
 {
-    callOnDelegateThread([realDelegate = realDelegate, download = retainPtr(download), filename = retainPtr(filename)] {
-        [realDelegate download:download.get() decideDestinationWithSuggestedFilename:filename.get()];
-    });
+    // MAVERICKS_BACKPORT: answer this one synchronously, like the other two callbacks that have to
+    // produce an answer before returning (-willSendRequest: and -shouldDecodeSourceDataOfMIMEType:).
+    // The delegate replies to it by calling -setDestination:allowOverwrite:, and 10.9's CFURLDownload
+    // does not wait for that: measured, it creates its own temp destination (/var/folders/.../4x2x14b7,
+    // O_WRONLY|O_CREAT|O_APPEND) 22 ms BEFORE a hop through the main run loop delivers this, then reports
+    // that temp path to -download:didCreateDestination:. A client that keeps its partial download in a
+    // .download bundle -- Safari 7 does, and it is the only caller left on this path -- then has a
+    // download file that is not in its bundle: -[DownloadProgressEntry setDownloadFileWithPath:] caches a
+    // nil bundle path and hands it to +[NSFileCoordinator addFilePresenter:], whose arbiter queue calls
+    // +[NSURL fileURLWithPath:nil] and aborts the process. Resuming is unaffected either way, since
+    // -_initWithResumeInformation:delegate:path: gives CFURLDownload the path up front and this is never
+    // called; reloading a stopped download is what reaches it.
+    auto work = [&] {
+        [realDelegate download:download decideDestinationWithSuggestedFilename:filename];
+    };
+    callOnDelegateThreadAndWait(WTF::move(work));
 }
 
 - (void)download:(NSURLDownload *)download didCreateDestination:(NSString *)path
