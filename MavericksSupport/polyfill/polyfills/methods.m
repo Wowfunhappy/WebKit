@@ -1790,33 +1790,16 @@ WK_POLYFILL_SEL("_resolvedCNAMEChain", "wk__resolvedCNAMEChain");
 WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__adoptEffectiveConfiguration:", wk_noopSetObject, "v@:@");
 WK_POLYFILL_ADD("NSURLSessionTask", "wk__adoptEffectiveConfiguration:", wk_noopSetObject, "v@:@");
 WK_POLYFILL_SEL("_adoptEffectiveConfiguration:", "wk__adoptEffectiveConfiguration:");
-// MAVERICKS_BACKPORT: -_preconnect is the one that cannot be a no-op. Accepting it and doing nothing else would leave a task
-// that is only supposed to warm a connection running as an ordinary request, i.e. a full GET of the target
-// URL -- not a harmless extra fetch: against a server that rotates a Set-Cookie session on every response
-// it rotates the session out from under the page that was just rendered, whose CSRF-protected forms then
-// fail with HTTP 422, and it double-requests every main resource. 10.9 cannot warm a connection without
-// transferring, so the honest emulation of "preconnect" here is to perform NO transfer: the flag is
-// recorded and the task is cancelled instead of ever being sent. A hint that does nothing is what a
-// preconnect is allowed to be; a hint that fetches the whole resource is not.
-//
-// Turning ENABLE(SERVER_PRECONNECT) off so no such task exists is not available in this tree: with it off
-// PreconnectTask.cpp compiles to nothing while six unguarded call sites still reference it
-// (NetworkCacheSpeculativeLoadManager.cpp:488, EarlyHintsResourceLoader.cpp:148,
-// NetworkConnectionToWebProcess.cpp:725 and :755, NetworkProcess.cpp:1651 and :1658), so the link fails on
-// PreconnectTask::create/start/setH2PingCallback, and the flag also gates away the _preconnect property
-// declaration that NetworkSessionCocoa:586 reads outside any guard.
+// MAVERICKS_BACKPORT: -_preconnect records what it is told and nothing more. With
+// ENABLE(SERVER_PRECONNECT) off for this port (PlatformEnableCocoa.h) WebKit never creates a preconnect
+// task, so there is no transfer to suppress here; the getter exists because NetworkSessionCocoa reads it
+// outside any SERVER_PRECONNECT guard, and NO is the true answer on a system that has no preconnect.
 static const void *wk_taskIsPreconnectKey = &wk_taskIsPreconnectKey;
 
 static void wk_urlSessionTask_setPreconnect(id self, SEL _cmd, BOOL preconnect)
 {
     (void)_cmd;
     objc_setAssociatedObject(self, wk_taskIsPreconnectKey, preconnect ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    if (!preconnect)
-        return;
-    static SEL cancelSelector;
-    if (!cancelSelector)
-        cancelSelector = sel_registerName("cancel");
-    ((void (*)(id, SEL))objc_msgSend)(self, cancelSelector);
 }
 
 static BOOL wk_urlSessionTask_preconnect(id self, SEL _cmd)
@@ -1864,8 +1847,50 @@ WK_POLYFILL_SEL("set_cookieTransformCallback:", "wk_set_cookieTransformCallback:
 WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__cookieTransformCallback", wk_absentBlock, "@?@:");
 WK_POLYFILL_ADD("NSURLSessionTask", "wk__cookieTransformCallback", wk_absentBlock, "@?@:");
 WK_POLYFILL_SEL("_cookieTransformCallback", "wk__cookieTransformCallback");
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__setExplicitCookieStorage:", wk_noopSetObject, "v@:@");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk__setExplicitCookieStorage:", wk_noopSetObject, "v@:@");
+// MAVERICKS_BACKPORT: -_setExplicitCookieStorage: puts THIS task on a cookie jar of its own, which is how
+// third-party cookie blocking swaps a task onto the stateless jar. The task-level ObjC SPI is absent on
+// 10.9, but the capability is not: CFNetwork exports CFURLRequestSetHTTPCookieStorage (bare name, no
+// leading underscore; two arguments read off the disassembly -- rdi request, rsi storage), and the caller
+// hands over exactly the CFHTTPCookieStorageRef it wants used. WebKit calls this before -resume, so the
+// task's pending request is still the one that will be sent and attaching the jar there is what the modern
+// setter amounts to. A no-op here would let blockCookies() record success while the task kept using the
+// shared jar, i.e. third-party cookies would still be sent.
+typedef void (*wk_requestSetCookieStorage)(void *, void *);
+
+static wk_requestSetCookieStorage wk_cfRequestSetCookieStorage(void)
+{
+    static wk_requestSetCookieStorage function;
+    static bool resolved;
+    if (!resolved) {
+        function = (wk_requestSetCookieStorage)dlsym(RTLD_DEFAULT, "CFURLRequestSetHTTPCookieStorage");
+        resolved = true;
+    }
+    return function;
+}
+
+static void wk_urlSessionTask_setExplicitCookieStorage(id self, SEL _cmd, void *cookieStorage)
+{
+    (void)_cmd;
+    wk_requestSetCookieStorage setStorage = wk_cfRequestSetCookieStorage();
+    if (!setStorage || !cookieStorage)
+        return;
+    static SEL currentRequestSelector;
+    static SEL cfRequestSelector;
+    if (!currentRequestSelector) {
+        currentRequestSelector = sel_registerName("currentRequest");
+        cfRequestSelector = sel_registerName("_CFURLRequest");
+    }
+    id request = ((id (*)(id, SEL))objc_msgSend)(self, currentRequestSelector);
+    if (!request)
+        return;
+    void *cfRequest = ((void *(*)(id, SEL))objc_msgSend)(request, cfRequestSelector);
+    if (!cfRequest)
+        return;
+    setStorage(cfRequest, cookieStorage);
+}
+
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__setExplicitCookieStorage:", wk_urlSessionTask_setExplicitCookieStorage, "v@:^v");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk__setExplicitCookieStorage:", wk_urlSessionTask_setExplicitCookieStorage, "v@:^v");
 WK_POLYFILL_SEL("_setExplicitCookieStorage:", "wk__setExplicitCookieStorage:");
 WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_siteForCookies:", wk_noopSetObject, "v@:@");
 WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_siteForCookies:", wk_noopSetObject, "v@:@");
@@ -3213,11 +3238,22 @@ static id wk_urlSession_taskForStreamedRequest(id self, SEL realSelector, NSURLR
 
     NSString *path = nil;
     NSURL *fileURL = wk_spoolStreamBodyToFile(request, &path);
+
+    // Reading the stream consumed it, so once that has happened there is no way back to the unsubstituted
+    // request: handing the drained stream to the real selector would upload a truncated body. A failed
+    // spool therefore has to become a FAILED LOAD, and it has to fail the way any other load fails -- a
+    // real task carried through the delegate with an error -- so the caller's bookkeeping still works.
+    // Returning nil instead is not available: NetworkDataTaskCocoa assigns the result unconditionally and
+    // then keys dataTaskMap on [m_task taskIdentifier], which is 0 for nil and is also the identifier of
+    // the first real task in a session; the entry is never removed (the destructor requires m_task), so the
+    // load hangs with no error and the next identifier-0 task in that session trips a RELEASE_ASSERT.
     if (!fileURL) {
-        // The spool failed with the stream partially consumed. Handing that stream to the real selector
-        // would upload a truncated body, so report the failure instead: nil is what NSURLSession's task
-        // creators return when they cannot make a task, and the loader treats it as a failed load.
-        return nil;
+        id failedTask = ((id (*)(id, SEL, id))objc_msgSend)(self, realSelector, request);
+        // -cancel is the ordinary way to make a created task end in an error its delegate sees; nothing is
+        // sent because the task has not been resumed.
+        if (failedTask)
+            ((void (*)(id, SEL))objc_msgSend)(failedTask, sel_registerName("cancel"));
+        return failedTask;
     }
 
     NSMutableURLRequest *uploadRequest = [[request mutableCopy] autorelease];
@@ -3227,8 +3263,12 @@ static id wk_urlSession_taskForStreamedRequest(id self, SEL realSelector, NSURLR
 
     id task = ((id (*)(id, SEL, id, id))objc_msgSend)(self, sel_registerName("uploadTaskWithRequest:fromFile:"), uploadRequest, fileURL);
     if (!task) {
+        // Same reasoning as above: the stream is gone, so this cannot fall back to it.
         [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
-        return ((id (*)(id, SEL, id))objc_msgSend)(self, realSelector, request);
+        id failedTask = ((id (*)(id, SEL, id))objc_msgSend)(self, realSelector, request);
+        if (failedTask)
+            ((void (*)(id, SEL))objc_msgSend)(failedTask, sel_registerName("cancel"));
+        return failedTask;
     }
     // The spool outlives this call and must die with the task that reads it.
     WKPolyfillScopeUploadSpoolOwner *owner = [[WKPolyfillScopeUploadSpoolOwner alloc] init];

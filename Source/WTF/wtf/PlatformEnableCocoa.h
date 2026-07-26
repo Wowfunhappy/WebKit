@@ -896,8 +896,13 @@
 #define ENABLE_SEC_ITEM_SHIM 1
 #endif
 
+// MAVERICKS_BACKPORT: 10.9 has no way to warm a connection without transferring — a task flagged
+// _preconnect performs an ordinary full GET when resumed, which requests every main resource twice and,
+// against a server that rotates a Set-Cookie session per response, rotates it out from under the page just
+// rendered so its CSRF-protected forms fail with HTTP 422. Upstream gates every preconnect site on this
+// switch for exactly a platform without the capability, so no preconnect task is created here at all.
 #if !defined(ENABLE_SERVER_PRECONNECT)
-#define ENABLE_SERVER_PRECONNECT 1
+#define ENABLE_SERVER_PRECONNECT 0 // MAVERICKS_BACKPORT: no preconnect on 10.9, see above.
 #endif
 
 #if !defined(ENABLE_SERVICE_CONTROLS) && PLATFORM(MAC)

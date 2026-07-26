@@ -244,10 +244,25 @@ WK_POLYFILL_ADD("__NSCFURLSession", "wk_webSocketTaskWithRequest:", wsWebSocketT
     int opcode = message.type == NSURLSessionWebSocketMessageTypeString ? 0x1 : 0x2;
     NSData *payload = message.type == NSURLSessionWebSocketMessageTypeString
         ? [message.string dataUsingEncoding:NSUTF8StringEncoding] : message.data;
+    // A string that will not encode as UTF-8 cannot be sent as a text frame; saying nothing and reporting
+    // success would lose the message silently.
+    if (message.type == NSURLSessionWebSocketMessageTypeString && !payload) {
+        if (completionHandler) {
+            NSError *encodingError = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCannotDecodeContentData
+                userInfo:@{ NSLocalizedDescriptionKey: @"WebSocket text message is not valid UTF-8" }];
+            wsDispatchToCallbackQueue(_session, ^{ completionHandler(encodingError); });
+        }
+        return;
+    }
     dispatch_async(_ioQueue, ^{
-        [self enqueueFrameWithOpcode:opcode payload:payload];
-        if (completionHandler)
-            wsDispatchToCallbackQueue(_session, ^{ completionHandler(nil); });
+        // The completion handler reports what actually happened to the frame: a socket already closed drops
+        // it, and telling the caller nil there would claim a send that never occurred.
+        BOOL queued = [self enqueueFrameWithOpcode:opcode payload:payload];
+        if (completionHandler) {
+            NSError *sendError = queued ? nil : [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost
+                userInfo:@{ NSLocalizedDescriptionKey: @"WebSocket is closed; message was not sent" }];
+            wsDispatchToCallbackQueue(_session, ^{ completionHandler(sendError); });
+        }
     });
 }
 
@@ -454,7 +469,7 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     }
     case kCFStreamEventErrorOccurred: {
         NSError *e = (__bridge_transfer NSError *)CFReadStreamCopyError(_readStream);
-        [self failWithReason:@"WebSocket socket read error"];
+        [self failWithError:e reason:@"WebSocket socket read error"];
         break;
     }
     case kCFStreamEventEndEncountered:
@@ -480,7 +495,7 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
         break;
     case kCFStreamEventErrorOccurred: {
         NSError *e = (__bridge_transfer NSError *)CFWriteStreamCopyError(_writeStream);
-        [self failWithReason:@"WebSocket socket write error"];
+        [self failWithError:e reason:@"WebSocket socket write error"];
         break;
     }
     default:
@@ -704,7 +719,17 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
             [_messageBuffer appendBytes:payload length:length];
         if (fin) {
             if (_messageOpcode == 0x1) {
-                NSString *text = [[NSString alloc] initWithData:_messageBuffer encoding:NSUTF8StringEncoding] ?: @"";
+                // RFC 6455 makes an undecodable text frame a protocol failure (close 1007). Substituting an
+                // empty string would hand JS a message the peer never sent and hide the fault.
+                NSString *text = [[NSString alloc] initWithData:_messageBuffer encoding:NSUTF8StringEncoding];
+                if (!text) {
+                    [_messageBuffer setLength:0];
+                    _messageOpcode = -1;
+                    [self failWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCannotDecodeContentData
+                        userInfo:@{ NSLocalizedDescriptionKey: @"WebSocket text frame is not valid UTF-8" }]
+                        reason:@"WebSocket text frame is not valid UTF-8"];
+                    return;
+                }
                 [self deliverMessage:[[NSURLSessionWebSocketMessage alloc] initWithString:text]];
             } else
                 [self deliverMessage:[[NSURLSessionWebSocketMessage alloc] initWithData:[_messageBuffer copy]]];
@@ -742,10 +767,12 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
 
 // ----- frame generation (client frames MUST be masked) -----
 
-- (void)enqueueFrameWithOpcode:(int)opcode payload:(NSData *)payload
+// Returns NO when the frame was not queued, so a caller's completion handler can report that rather than
+// being told the send succeeded.
+- (BOOL)enqueueFrameWithOpcode:(int)opcode payload:(NSData *)payload
 {
     if (_state == WKWSStateClosed)
-        return;
+        return NO;
     NSUInteger len = payload.length;
     NSMutableData *frame = [NSMutableData data];
     uint8_t b0 = 0x80 | (uint8_t)opcode;
@@ -797,13 +824,24 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
 
 // ----- teardown / failure -----
 
-- (void)failWithReason:(NSString *)reason
+// A transport failure carries CFNetwork's own NSError; delivering a hand-written
+// NSURLErrorNetworkConnectionLost in its place would report one invented cause for every distinct failure
+// (refused, reset, TLS, unreachable) and make a real fault indistinguishable from any other. The
+// synthesised error is used only where there IS no underlying one -- an unexpected close, a protocol
+// violation -- and then says so.
+- (void)failWithError:(NSError *)error reason:(NSString *)reason
 {
     if (_state == WKWSStateClosed)
         return;
     _state = WKWSStateClosed;
-    [self deliverError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost userInfo:@{ NSLocalizedDescriptionKey: reason }]];
+    NSError *delivered = error ?: [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNetworkConnectionLost userInfo:@{ NSLocalizedDescriptionKey: reason }];
+    [self deliverError:delivered];
     [self teardownStreams];
+}
+
+- (void)failWithReason:(NSString *)reason
+{
+    [self failWithError:nil reason:reason];
 }
 
 - (void)teardownStreams
