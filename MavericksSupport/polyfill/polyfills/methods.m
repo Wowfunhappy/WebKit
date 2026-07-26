@@ -20,10 +20,20 @@
 #import <fcntl.h>
 #import <sys/stat.h>
 #import <mach/mach.h>
+#import <Security/Security.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <libkern/OSAtomic.h>
 #import <pthread.h>
+
+// CFNetwork SPI, exported on 10.9 but not declared in any public header.
+typedef struct OpaqueCFHTTPCookieStorage *CFHTTPCookieStorageRef;
+// TWO parameters, read off the 10.9 disassembly: the second is an existing storage to seed the new one
+// from (NULL for an empty jar), passed straight through to
+// HTTPCookieStorage::initialize(PrivateHTTPCookieStorage*, int, OpaqueCFHTTPCookieStorage*). Declaring it
+// with one parameter left %rsi holding whatever the caller happened to leave there and initialize
+// dereferenced it -- SIGSEGV in objc_msgSend on every task that blocks cookies.
+extern CFHTTPCookieStorageRef _CFHTTPCookieStorageCreateInMemory(CFAllocatorRef, CFHTTPCookieStorageRef);
 #import <unistd.h>
 
 #define SRGB(r, g, b, a) [NSColor colorWithSRGBRed:(r)/255.0 green:(g)/255.0 blue:(b)/255.0 alpha:(a)/255.0]
@@ -1717,10 +1727,19 @@ WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "_sourceApplicationSecond
 WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "_allowsHSTSWithUntrustedRootCertificate", wk_absentFlag, "c@:");
 WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "_allowsHSTSWithUntrustedRootCertificate", wk_absentFlag, "c@:");
 WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_allowsHSTSWithUntrustedRootCertificate:", wk_noopSetBool, "v@:c");
+// The two storage handles the session configuration can be given. 10.9's configuration has no slot for
+// either (probed absent on both the public and the concrete class), and the stub storages themselves keep
+// nothing, so accepting and discarding is consistent: no HSTS state and no known alternative services.
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_hstsStorage:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_hstsStorage:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "_hstsStorage", wk_absentObject, "@@:");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "_hstsStorage", wk_absentObject, "@@:");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "set_alternativeServicesStorage:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_alternativeServicesStorage:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_NOOP_SETTER("NSURLSessionConfiguration", "_alternativeServicesStorage", wk_absentObject, "@@:");
+WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "_alternativeServicesStorage", wk_absentObject, "@@:");
 WK_POLYFILL_ADD("__NSCFURLSessionConfiguration", "wk_" "set_allowsHSTSWithUntrustedRootCertificate:", wk_noopSetBool, "v@:c");
 
-// _NSHTTPAlternativeServicesStorage: 10.9 has the class but not the suspend-locking control.
-WK_POLYFILL_NOOP_SETTER("_NSHTTPAlternativeServicesStorage", "setCanSuspendLocked:", wk_noopSetBool, "v@:c");
 
 // NSMutableURLRequest.
 WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setUseEnhancedPrivacyMode:", wk_noopSetBool, "v@:c");
@@ -1803,6 +1822,126 @@ WK_POLYFILL_SEL("_countOfBytesReceivedEncoded", "wk__countOfBytesReceivedEncoded
 
 // NSHTTPCookieStorage.
 WK_POLYFILL_NOOP_SETTER("NSHTTPCookieStorage", "set_overrideSessionCookieAcceptPolicy:", wk_noopSetUnsigned, WK_UNSIGNED_SETTER_TYPES);
+
+// Per-task cookie controls (10.13+). 10.9's CFNetwork has no per-task cookie storage, no SameSite
+// notion, and no cookie-transform hook, so each of these accepts and discards -- the same thing the
+// real API does on a system without the feature behind it. The visible consequence is that tracking
+// prevention cannot swap a task onto a stateless jar and SameSite attributes are not enforced at the
+// network layer; both are honest statements about 10.9 rather than something hidden from the caller.
+static id wk_absentBlock(id self, SEL _cmd) { (void)self; (void)_cmd; return nil; }
+
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_cookieTransformCallback:", wk_noopSetObject, "v@:@?");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_cookieTransformCallback:", wk_noopSetObject, "v@:@?");
+WK_POLYFILL_SEL("set_cookieTransformCallback:", "wk_set_cookieTransformCallback:");
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__cookieTransformCallback", wk_absentBlock, "@?@:");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk__cookieTransformCallback", wk_absentBlock, "@?@:");
+WK_POLYFILL_SEL("_cookieTransformCallback", "wk__cookieTransformCallback");
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__setExplicitCookieStorage:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk__setExplicitCookieStorage:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_SEL("_setExplicitCookieStorage:", "wk__setExplicitCookieStorage:");
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_siteForCookies:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_siteForCookies:", wk_noopSetObject, "v@:@");
+WK_POLYFILL_SEL("set_siteForCookies:", "wk_set_siteForCookies:");
+WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_isTopLevelNavigation:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_isTopLevelNavigation:", wk_noopSetBool, "v@:c");
+WK_POLYFILL_SEL("set_isTopLevelNavigation:", "wk_set_isTopLevelNavigation:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSURLSession invalidateAndCancel] called twice.
+//
+// Modern CFNetwork treats invalidating an already-invalidated session as a no-op. 10.9's does not: the
+// second call re-runs __NSCFLocalSessionBridge's _onqueue_completeInvalidation against a work queue the
+// first invalidation already released, and the network process dies in dispatch_group_notify_f
+// (intermittent, seen tearing down ephemeral data stores). Since a client that owns a session and its
+// wrappers can legitimately invalidate through either, the second call has to be harmless -- so make it
+// so, once, here, instead of teaching every caller to remember whether it has already invalidated.
+static const void *wk_urlSessionInvalidatedKey = &wk_urlSessionInvalidatedKey;
+
+static void wk_urlSession_invalidateAndCancel(id self, SEL _cmd)
+{
+    (void)_cmd;
+    if (objc_getAssociatedObject(self, wk_urlSessionInvalidatedKey))
+        return;
+    objc_setAssociatedObject(self, wk_urlSessionInvalidatedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    // The public selector is untouched on the class, so this reaches 10.9's own implementation.
+    static SEL publicSelector;
+    if (!publicSelector)
+        publicSelector = sel_registerName("invalidateAndCancel");
+    ((void (*)(id, SEL))objc_msgSend)(self, publicSelector);
+}
+
+WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_invalidateAndCancel", wk_urlSession_invalidateAndCancel, "v@:");
+WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_invalidateAndCancel", wk_urlSession_invalidateAndCancel, "v@:");
+WK_POLYFILL_SEL_REPLACES("invalidateAndCancel", "wk_invalidateAndCancel");
+
+// ---------------------------------------------------------------------------------------------------
+// +[NSURLSession _strictTrustEvaluate:queue:completionHandler:] (10.10+).
+//
+// Evaluates a server-trust challenge off the calling thread and reports the result as an OSStatus, so a
+// client can decide the challenge itself instead of leaving it to CFNetwork's default handling. 10.9 has
+// everything that needs: the challenge carries the SecTrustRef, and SecTrustEvaluate is the same
+// evaluation the system performs. So this runs it -- on the queue the caller supplied, as the name says
+// -- rather than answering "cannot evaluate", which for a trust decision would be the one wrong answer
+// to give.
+//
+// noErr means trusted, which is how the caller reads it. kSecTrustResultProceed is an explicit user/admin
+// trust decision and kSecTrustResultUnspecified is "valid chain, no explicit decision"; every other
+// result (recoverable failure, fatal failure, deny, invalid setup) is not trusted, and errSecNotTrusted
+// is what the modern SPI reports for those.
+static void wk_urlSession_strictTrustEvaluate(id self, SEL _cmd, NSURLAuthenticationChallenge *challenge, dispatch_queue_t queue, void (^completionHandler)(NSURLAuthenticationChallenge *, OSStatus))
+{
+    (void)self;
+    (void)_cmd;
+    // challenge is captured by the block, which retains it; the SecTrustRef is owned by the challenge, so
+    // it is retained across the hop explicitly.
+    SecTrustRef trust = [[challenge protectionSpace] serverTrust];
+    if (trust)
+        CFRetain(trust);
+    dispatch_async(queue ?: dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        OSStatus status = errSecNotTrusted;
+        SecTrustResultType trustResult = kSecTrustResultInvalid;
+        if (trust && SecTrustEvaluate(trust, &trustResult) == errSecSuccess
+            && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified))
+            status = noErr;
+        completionHandler(challenge, status);
+        if (trust)
+            CFRelease(trust);
+    });
+}
+
+WK_POLYFILL_ADD_CLASS_METHOD("NSURLSession", "wk__strictTrustEvaluate:queue:completionHandler:", wk_urlSession_strictTrustEvaluate, "v@:@@?@?");
+WK_POLYFILL_SEL("_strictTrustEvaluate:queue:completionHandler:", "wk__strictTrustEvaluate:queue:completionHandler:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSHTTPCookieStorage _initWithIdentifier:private:] (10.13+).
+//
+// A private, in-memory cookie storage: the caller gets a jar that starts empty, is not the shared one,
+// and never persists. 10.9 has every piece needed to build exactly that -- CFNetwork exports
+// _CFHTTPCookieStorageCreateInMemory, and -[NSHTTPCookieStorage _initWithCFHTTPCookieStorage:] wraps a
+// CFHTTPCookieStorageRef in the ObjC class (both probed present) -- so this is a real implementation of
+// the contract rather than an approximation of it. The identifier names a persistent store, which is
+// meaningless for an in-memory jar and is ignored, exactly as passing private:YES implies.
+//
+// NetworkTaskCocoa::statelessCookieStorage is the caller that matters here: it needs a storage whose
+// cookies are never sent with a redirected request. Without this it fell back to the SHARED storage and
+// set NSHTTPCookieAcceptPolicyNever on it -- turning cookie acceptance off for the whole NetworkProcess.
+static id wk_httpCookieStorage_initWithIdentifierPrivate(id self, SEL _cmd, NSString *identifier, BOOL isPrivate)
+{
+    (void)_cmd;
+    (void)identifier;
+    (void)isPrivate;
+    static SEL initWithCFStorageSelector;
+    if (!initWithCFStorageSelector)
+        initWithCFStorageSelector = sel_registerName("_initWithCFHTTPCookieStorage:");
+    CFHTTPCookieStorageRef storage = _CFHTTPCookieStorageCreateInMemory(kCFAllocatorDefault, NULL);
+    id result = ((id (*)(id, SEL, CFHTTPCookieStorageRef))objc_msgSend)(self, initWithCFStorageSelector, storage);
+    if (storage)
+        CFRelease(storage);
+    return result;
+}
+
+WK_POLYFILL_ADD("NSHTTPCookieStorage", "wk__initWithIdentifier:private:", wk_httpCookieStorage_initWithIdentifierPrivate, "@@:@c");
+WK_POLYFILL_SEL("_initWithIdentifier:private:", "wk__initWithIdentifier:private:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSURLSessionTask _pathToDownloadTaskFile] / -set_pathToDownloadTaskFile: (github #11 / resume).
@@ -2119,7 +2258,6 @@ WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__pathToDownloadTaskFile", wk_urlSess
 WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_pathToDownloadTaskFile:", wk_urlSessionTask_setPathToDownloadTaskFile, "v@:@");
 WK_POLYFILL_SEL("_pathToDownloadTaskFile", "wk__pathToDownloadTaskFile");
 WK_POLYFILL_SEL("set_pathToDownloadTaskFile:", "wk_set_pathToDownloadTaskFile:");
-
 
 // ---------------------------------------------------------------------------------------------------
 // -[CALayer presentationLayer] and the implicit CATransaction it begins.

@@ -433,7 +433,7 @@ RefPtr<VideoFrame> VideoFrame::createI420A(std::span<const uint8_t> span, size_t
     return VideoFrameGStreamer::create(WTF::move(sample), { { static_cast<int>(width), static_cast<int>(height) }, { { info } } }, WTF::move(colorSpace));
 }
 
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+/* MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
 static inline void setBufferFields(GstBuffer* buffer, const MediaTime& presentationTime, double frameRate)
 {
     GST_BUFFER_FLAG_SET(buffer, GST_BUFFER_FLAG_LIVE);
@@ -448,7 +448,7 @@ static MediaTime presentationTimeFromSample(const GRefPtr<GstSample>& sample)
         return MediaTime::invalidTime();
 MAVERICKS_BACKPORT */
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
 //     if (GST_BUFFER_PTS_IS_VALID(buffer))
 //         return fromGstClockTime(GST_BUFFER_PTS(buffer));
 //

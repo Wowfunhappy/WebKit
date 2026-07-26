@@ -13201,7 +13201,7 @@ WebPageCreationParameters WebPageProxy::creationParameters(WebProcessProxy& proc
     // MAVERICKS_BACKPORT: gate the GPU-process capture flags on ENABLE(GPU_PROCESS) (OFF on this port).
 #if ENABLE(GPU_PROCESS)
     parameters.shouldCaptureAudioInGPUProcess = preferences->captureAudioInGPUProcessEnabled();
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
 //     // FIXME: This is also being passed over the to WebProcess via the PreferencesStore.
 // (end MAVERICKS_BACKPORT restored block)
     parameters.shouldCaptureVideoInGPUProcess = preferences->captureVideoInGPUProcessEnabled();

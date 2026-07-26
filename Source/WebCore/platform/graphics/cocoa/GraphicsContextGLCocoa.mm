@@ -325,7 +325,7 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
 #if PLATFORM(MAC)
     else if (attrs.windowGPUID) {
         ASSERT(WTF::contains(clientExtensions, "EGL_ANGLE_platform_angle_device_id"_span));
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's GPU-selection block, which picks an adapter by IOKit registry id through EGL_PLATFORM_ANGLE_DEVICE_ID_*_ANGLE. Kept commented, not deleted: that is a Metal-backend ANGLE path, and this port runs ANGLE on CGL where there is one context per display and no adapter to choose.
 //         // If the power preference is default, use the GPU the context window is on.
 //         // If the power preference is low power, and we know which GPU the context window is on,
 //         // most likely the lowest power is the GPU that drives the context window, as that GPU

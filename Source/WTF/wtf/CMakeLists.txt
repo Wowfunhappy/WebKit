@@ -758,7 +758,7 @@ elseif (APPLE)
         spi/cocoa/XTSPI.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
         spi/cocoa/objcSPI.h
 
-# MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+# MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
 #         spi/darwin/ReasonSPI.h
 # (end MAVERICKS_BACKPORT restored block)
         spi/darwin/CodeSignSPI.h

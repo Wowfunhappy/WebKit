@@ -62,7 +62,7 @@ public:
     void handleContextMenuWritingTools(WebCore::WritingTools::RequestedTool);
 #endif
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
 //     void handleShareMenuItem();
 //
 // (end MAVERICKS_BACKPORT restored block)

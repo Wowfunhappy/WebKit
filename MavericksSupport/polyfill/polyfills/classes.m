@@ -644,14 +644,28 @@ WK_PRIV_ALIAS(NSHapticFeedbackManager);
 WK_PRIV_CLASS(LSBundleProxy) @interface LSBundleProxy : NSObject @end
 @implementation LSBundleProxy @end
 WK_PRIV_ALIAS(LSBundleProxy);
-WK_PRIV_CLASS(_NSHSTSStorage) @interface _NSHSTSStorage : NSObject @end
-@implementation _NSHSTSStorage @end
+// The store these two take is a persistent one. 10.9 has neither an HSTS store nor an alternative-service
+// store to persist into, so the initializer accepts the URL and keeps nothing: the object is a working
+// store that is simply always empty, which is what "no HSTS state" and "no alternative services known"
+// mean. Nothing is dropped silently -- there is no state to drop.
+WK_PRIV_CLASS(_NSHSTSStorage) @interface _NSHSTSStorage : NSObject
+- (instancetype)initPersistentStoreWithURL:(NSURL *)url;
+@end
+@implementation _NSHSTSStorage
+- (instancetype)initPersistentStoreWithURL:(NSURL *)url { (void)url; return [self init]; }
+@end
 WK_PRIV_ALIAS(_NSHSTSStorage);
 WK_PRIV_CLASS(_NSHTTPAlternativeServicesFilter) @interface _NSHTTPAlternativeServicesFilter : NSObject @end
 @implementation _NSHTTPAlternativeServicesFilter @end
 WK_PRIV_ALIAS(_NSHTTPAlternativeServicesFilter);
-WK_PRIV_CLASS(_NSHTTPAlternativeServicesStorage) @interface _NSHTTPAlternativeServicesStorage : NSObject @end
-@implementation _NSHTTPAlternativeServicesStorage @end
+WK_PRIV_CLASS(_NSHTTPAlternativeServicesStorage) @interface _NSHTTPAlternativeServicesStorage : NSObject
+- (instancetype)initPersistentStoreWithURL:(NSURL *)url;
+- (void)setCanSuspendLocked:(BOOL)canSuspendLocked;
+@end
+@implementation _NSHTTPAlternativeServicesStorage
+- (instancetype)initPersistentStoreWithURL:(NSURL *)url { (void)url; return [self init]; }
+- (void)setCanSuspendLocked:(BOOL)canSuspendLocked { (void)canSuspendLocked; }
+@end
 WK_PRIV_ALIAS(_NSHTTPAlternativeServicesStorage);
 WK_PRIV_CLASS(NSVisualEffectView) @interface NSVisualEffectView : NSView @end
 @implementation NSVisualEffectView @end

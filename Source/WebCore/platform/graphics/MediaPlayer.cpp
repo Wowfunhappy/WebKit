@@ -341,7 +341,7 @@ static void buildMediaEnginesVector() WTF_REQUIRES_LOCK(mediaEngineVectorLock)
         if (!hasPlatformStrategies() || platformStrategies()->mediaStrategy()->enableWebMMediaPlayer()) {
             if (registerRemoteEngine && !useRemoteRenderer)
                 registerRemoteEngine(addMediaEngine, MediaPlayerEnums::MediaEngineIdentifier::CocoaWebM);
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's fallback to the in-process WebM player. Kept commented, not deleted: MediaPlayerPrivateWebM is not built here — GStreamer is the sole media engine on this port.
 //             else
 //                 MediaPlayerPrivateWebM::registerMediaEngine(addMediaEngine);
 // (end MAVERICKS_BACKPORT restored block)

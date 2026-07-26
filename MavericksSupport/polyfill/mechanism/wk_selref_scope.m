@@ -327,7 +327,12 @@ static int wk_addmap_deferred_count;
 // YES once the entry's class exists — the method is now installed, or was already there.
 static BOOL wk_install_add_entry(const struct wk_addmap_entry *e)
 {
-    Class c = objc_getClass(e->cls);
+    // A leading '+' on the class name means the entry is a CLASS method: install it on the metaclass,
+    // which is where the runtime looks when the receiver is the class object itself. Spelled this way so
+    // the entry stays a plain (name, sel, imp, types) record resolved by string at runtime, which is the
+    // whole reason WK_POLYFILL_ADD exists.
+    BOOL isClassMethod = e->cls[0] == '+';
+    Class c = isClassMethod ? objc_getMetaClass(e->cls + 1) : objc_getClass(e->cls);
     if (!c)
         return NO;
     if (e->intent == WK_SELMAP_REPLACES) {

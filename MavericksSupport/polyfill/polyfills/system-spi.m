@@ -147,6 +147,24 @@ WK_POLYFILL_ABSENT("Network", const char *, nw_endpoint_get_known_tracker_name, 
     return NULL;
 }
 
+// Copies the proxy endpoint a connection was established through. NetworkSessionCocoa reads this to
+// report a proxy's host name to Web Inspector; it comes off an NSURLSessionTaskTransactionMetrics
+// _establishmentReport, and 10.9 has no such metrics object at all, so there is never a report to
+// describe and null is the accurate answer. The caller already treats null as "no proxy name".
+WK_POLYFILL_ABSENT("Network", const void *, nw_establishment_report_copy_proxy_endpoint, (const void *report))
+{
+    (void)report;
+    return NULL;
+}
+
+// Returns an endpoint's host name. Reachable only with an endpoint from the call above, which 10.9
+// never produces.
+WK_POLYFILL_ABSENT("Network", const char *, nw_endpoint_get_hostname, (const void *endpoint))
+{
+    (void)endpoint;
+    return NULL;
+}
+
 // ---------------------------------------------------------------------------------------------------
 // CoreFoundation prefs daemon tuning — optimizations for sandboxed XPC services; no-ops on 10.9.
 // ---------------------------------------------------------------------------------------------------

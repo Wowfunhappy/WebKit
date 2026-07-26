@@ -1064,7 +1064,7 @@ void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuI
         return;
     }
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's assertion that the item list is empty here. Kept commented, not deleted: this port fills the share menu itself further down (10.9 has no NSSharingServicePicker menu API), so the list is legitimately non-empty by this point.
 //     ASSERT(items.isEmpty());
 // (end MAVERICKS_BACKPORT restored block)
     if (!m_menu)

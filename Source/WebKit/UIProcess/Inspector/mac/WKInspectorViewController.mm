@@ -67,7 +67,7 @@
 
 static NSString * const WKInspectorResourceScheme = @"inspector-resource";
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
 // static NSString * const safeAreaInsetsKVOKey = @"safeAreaInsets";
 // static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
 //
@@ -139,7 +139,7 @@ static NSString * const WKInspectorResourceScheme = @"inspector-resource";
     return _webView.get();
 }
 
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+/* MAVERICKS_BACKPORT: upstream's safeAreaInsets KVO. Kept commented, not deleted: -[NSView safeAreaInsets] is 11.0+, so there is no key to observe on 10.9.
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey, id> *)change context:(void*)context
 {
     if (context == safeAreaInsetsKVOContext)
@@ -386,7 +386,7 @@ MAVERICKS_BACKPORT */
 
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView
 {
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's safeAreaInsets KVO. Kept commented, not deleted: -[NSView safeAreaInsets] is 11.0+, so there is no key to observe on 10.9.
 //     [_webView removeObserver:self forKeyPath:safeAreaInsetsKVOKey];
 //
 // (end MAVERICKS_BACKPORT restored block)

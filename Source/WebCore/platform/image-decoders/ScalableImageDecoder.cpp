@@ -33,7 +33,7 @@
 #include "ICOImageDecoder.h"
 #include "JPEGImageDecoder.h"
 #include "PNGImageDecoder.h"
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
 // #include "WEBPImageDecoder.h"
 // (end MAVERICKS_BACKPORT restored block)
 #endif
@@ -105,7 +105,7 @@ static bool matchesWebPSignature(std::span<const uint8_t> contents)
 {
     return spanHasPrefix(contents, "RIFF"_span) && spanHasPrefix(contents.subspan(8), "WEBPVP"_span);
 }
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
 // #endif
 // (end MAVERICKS_BACKPORT restored block)
 

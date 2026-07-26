@@ -310,7 +310,7 @@ void ResourceRequest::doUpdatePlatformRequest()
 
     configureRequestWithData(nsRequest.get(), m_requestData);
 
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+/* MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
     if (ResourceRequest::httpPipeliningEnabled())
         CFURLRequestSetShouldPipelineHTTP([nsRequest _CFURLRequest], true, true);
 
@@ -324,7 +324,7 @@ void ResourceRequest::doUpdatePlatformRequest()
 
 MAVERICKS_BACKPORT */
     [nsRequest setCachePolicy:toPlatformRequestCachePolicy(cachePolicy())];
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
 //     _CFURLRequestSetProtocolProperty([nsRequest _CFURLRequest], kCFURLRequestAllowAllPOSTCaching, kCFBooleanTrue);
 // (end MAVERICKS_BACKPORT restored block)
 
@@ -353,7 +353,7 @@ MAVERICKS_BACKPORT */
         [nsRequest setHTTPMethod:httpMethod().createNSString().get()];
     [nsRequest setHTTPShouldHandleCookies:allowCookies()];
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's SameSite cookie-policy request properties. Kept commented, not deleted: _kCFHTTPCookiePolicyPropertySiteForCookies and _kCFHTTPCookiePolicyPropertyIsTopLevelNavigation do not exist in 10.9's CFNetwork, which has no SameSite notion at all.
 //     [nsRequest _setProperty:RetainPtr { siteForCookies(m_requestData.m_sameSiteDisposition, retainPtr([nsRequest URL]).get()) }.get() forKey:@"_kCFHTTPCookiePolicyPropertySiteForCookies"];
 //     // FIXME: This is a safer cpp false positive (rdar://160851489).
 //     SUPPRESS_UNRETAINED_ARG [nsRequest _setProperty:m_requestData.m_isTopSite ? @YES : @NO forKey:@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"];

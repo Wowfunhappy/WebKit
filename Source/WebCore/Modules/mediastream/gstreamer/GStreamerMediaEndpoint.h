@@ -228,7 +228,7 @@ private:
 
     bool m_shouldIgnoreNegotiationNeededSignal { false };
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's member for the GStreamer WebRTC endpoint's pending incoming tracks. Kept commented, not deleted: this port does not build the GStreamer PeerConnection backend (see SourcesGStreamer.txt), so nothing populates it.
 //     Vector<RefPtr<MediaStreamTrackPrivate>> m_pendingIncomingTracks;
 //
 // (end MAVERICKS_BACKPORT restored block)

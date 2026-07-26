@@ -31,7 +31,7 @@ JSApplePayCouponCodeUpdate.cpp
 JSApplePayDateComponents.cpp
 JSApplePayDateComponentsRange.cpp
 JSApplePayDeferredPaymentRequest.cpp
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream source entries for features this port does not build. Kept commented, not deleted, so the divergence from upstream's source list stays visible in place.
 // JSApplePayDisbursementRequest.cpp
 // (end MAVERICKS_BACKPORT restored block)
 JSApplePayDetailsUpdateBase.cpp
@@ -249,7 +249,7 @@ history/mac/HistoryItemMac.mm @nonARC
 // with WebGPU/GPU-process off on 10.9. Source stays byte-upstream; GPUCanvasContext::create() is provided
 // as a nullptr stub in platform/cocoa/MavericksBackportWebCoreGlue.mm (#137).
 // html/canvas/GPUCanvasContextCocoa.mm @nonARC
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
 // html/canvas/UsdModelLoader.swift
 // (end MAVERICKS_BACKPORT restored block)
 html/shadow/YouTubeEmbedShadowElement.cpp

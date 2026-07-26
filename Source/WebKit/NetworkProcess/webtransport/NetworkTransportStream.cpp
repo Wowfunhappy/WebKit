@@ -36,7 +36,7 @@ namespace WebKit {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkTransportStream);
 
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+/* MAVERICKS_BACKPORT: upstream's !PLATFORM(COCOA) stub implementations. Kept commented, not deleted: WebTransport is gated off on this port, and these definitions would collide with the Cocoa ones that are built.
 #if !PLATFORM(COCOA)
 NetworkTransportStream::NetworkTransportStream()
     : m_identifier(WebCore::WebTransportStreamIdentifier::generate())

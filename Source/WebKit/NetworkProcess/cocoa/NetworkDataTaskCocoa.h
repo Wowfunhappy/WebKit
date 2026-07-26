@@ -70,10 +70,7 @@ public:
 
     // MAVERICKS_BACKPORT: streaming zlib decode of "gzip" response bodies that CFNetwork hands
     // back raw. CFNetwork decodes Content-Encoding: gzip transparently EXCEPT for URLs whose last
-    // path component ends in .gz/.tgz (its heuristic to keep gzip-archive downloads intact).
-    struct GzipStream;
-
-    void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, RedirectCompletionHandler&&);
+ void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, RedirectCompletionHandler&&);
     void transferSandboxExtensionToDownload(Download&);
 
     void cancel() override;
@@ -126,8 +123,6 @@ private:
     bool m_isForMainResourceNavigationForAnyFrame { false };
     RefPtr<WebCore::SecurityOrigin> m_sourceOrigin;
     uint64_t m_requiredCookiesVersion { 0 };
-    // MAVERICKS_BACKPORT: non-null while decoding a CFNetwork-suppressed "gzip" body (see GzipStream).
-    std::unique_ptr<GzipStream> m_gzipStream;
     // MAVERICKS_BACKPORT: temporary file holding a materialized file-backed request body
     // (see materializeFileBackedRequestBody in NetworkDataTaskCocoa.mm); deleted with the task.
     String m_uploadBodyTemporaryPath;

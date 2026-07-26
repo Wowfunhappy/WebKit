@@ -44,12 +44,12 @@
 // this build needs them even with GPU_PROCESS disabled.
 namespace WebKit {
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
 // class RemoteImageBufferSetProxyFlushFence;
 // (end MAVERICKS_BACKPORT restored block)
 struct BufferSetBackendHandle;
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
 // // FIXME: We should have a generic 'ImageBufferSet' class that contains
 // // the code that isn't specific to being remote, and this helper belongs
 // // there.
@@ -65,7 +65,7 @@ public:
 
     ThreadSafeImageBufferSetFlusher() = default;
     virtual ~ThreadSafeImageBufferSetFlusher() = default;
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's comment on the flush return value. Kept commented, not deleted: the GPU process is not built on this port, so the declaration it documents is not present.
 //     // Returns true if flush succeeded, false if it failed.
 // (end MAVERICKS_BACKPORT restored block)
     virtual bool flushAndCollectHandles(HashMap<ImageBufferSetIdentifier, std::unique_ptr<BufferSetBackendHandle>>&) = 0;

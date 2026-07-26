@@ -243,7 +243,7 @@
 #elif OS(WINDOWS)
 /* Use Windows message pump abstraction. */
 #define USE_WINDOWS_EVENT_LOOP 1
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's Cocoa event-loop selection. Kept commented, not deleted: this port selects its event loop earlier in this file, and leaving upstream's #elif in place would override that choice.
 // #elif PLATFORM(COCOA)
 // /* OS X and IOS. Use CoreFoundation & GCD abstraction. */
 // #define USE_COCOA_EVENT_LOOP 1

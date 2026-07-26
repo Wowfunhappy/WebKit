@@ -2175,7 +2175,7 @@ static NSMenuItem *wkMenuItem(id <NSValidatedUserInterfaceItem> item)
 }
 
 @end
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
 // ALLOW_DEPRECATED_DECLARATIONS_END
 //
 // #endif // PLATFORM(MAC)

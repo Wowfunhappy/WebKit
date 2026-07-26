@@ -257,7 +257,7 @@ std::optional<SimpleRange> DictionaryLookup::rangeForSelection(const VisibleSele
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
 //     if (!canCreateRevealItems())
 //         return std::nullopt;
 //
@@ -297,7 +297,7 @@ std::optional<SimpleRange> DictionaryLookup::rangeAtHitTestResult(const HitTestR
 {
     BEGIN_BLOCK_OBJC_EXCEPTIONS
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's Reveal-framework guard. Kept commented, not deleted: RVItem/RVPresenter do not exist on 10.9, so this port takes the pre-Reveal DictionaryLookup path and the guard has nothing to test.
 //
 //     if (!canCreateRevealItems())
 //         return std::nullopt;

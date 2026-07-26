@@ -21,7 +21,7 @@ namespace WebCore {
 // MAVERICKS_BACKPORT: no SFSpeechRecognizer on 10.9 — drop captured audio (no recognition task to feed).
 void SpeechRecognizer::dataCaptured(const MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t)
 {
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
 //     auto buffer = createAudioSampleBuffer(data, description, m_currentAudioSampleTime, sampleCount);
 //     [m_task audioSamplesAvailable:buffer.get()];
 //     m_currentAudioSampleTime = PAL::CMTimeAdd(m_currentAudioSampleTime, PAL::toCMTime(MediaTime(sampleCount, description.sampleRate())));

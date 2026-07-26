@@ -277,7 +277,7 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     }
 ALLOW_DEPRECATED_DECLARATIONS_END
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
 //     return { };
 //
 // (end MAVERICKS_BACKPORT restored block)
@@ -627,15 +627,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         if (negotiatedLegacyTLS == NegotiatedLegacyTLS::Yes && task._preconnect)
             return completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
 
-        // MAVERICKS_BACKPORT: NSURLSession's +_strictTrustEvaluate:queue:completionHandler:
-        // is a 10.10+ SPI. On 10.9 it's a no-op weak stub whose completion handler
-        // is never called, so every HTTPS request silently hangs. When the SPI is
-        // missing, just defer to CFNetwork's default trust evaluation (PerformDefaultHandling
-        // — same disposition the fast path returns when its evaluation succeeds).
-        if (![NSURLSession respondsToSelector:@selector(_strictTrustEvaluate:queue:completionHandler:)]) {
-            completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
-            return;
-        }
         // Handle server trust evaluation at platform-level if requested, for performance reasons and to use ATS defaults.
         if (sessionCocoa->fastServerTrustEvaluationEnabled() && negotiatedLegacyTLS == NegotiatedLegacyTLS::No) {
             auto networkDataTask = [self existingTask:task];
@@ -865,14 +856,12 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
             additionalMetrics->requestBodyBytesSent = task.countOfBytesSent;
             additionalMetrics->responseHeaderBytesReceived = responseHeaderBytesReceived;
 
-            // MAVERICKS_BACKPORT: -isProxyConnection is newer metrics API; guard it and default to NO when absent.
-            additionalMetrics->isProxyConnection = [m respondsToSelector:@selector(isProxyConnection)] ? (BOOL)(uintptr_t)[(id)m.get() proxyConnection] : NO;
+            additionalMetrics->isProxyConnection = m.get().proxyConnection;
 
             networkLoadMetrics.additionalNetworkLoadMetricsForWebInspector = WTF::move(additionalMetrics);
         }
-        // MAVERICKS_BACKPORT: countOfResponseBody* properties are newer API; read via KVC so they bind at runtime.
-        networkLoadMetrics.responseBodyBytesReceived = [[m.get() valueForKey:@"countOfResponseBodyBytesReceived"] longLongValue];
-        networkLoadMetrics.responseBodyDecodedSize = [[m.get() valueForKey:@"countOfResponseBodyBytesAfterDecoding"] longLongValue];
+        networkLoadMetrics.responseBodyBytesReceived = m.get().countOfResponseBodyBytesReceived;
+        networkLoadMetrics.responseBodyDecodedSize = m.get().countOfResponseBodyBytesAfterDecoding;
 
         // Sometimes the encoded body bytes received contains a few (3 or so) bytes from the header when there is no body.
         // When this happens, trim our metrics to make more sense.
@@ -914,25 +903,17 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         NegotiatedLegacyTLS negotiatedLegacyTLS = NegotiatedLegacyTLS::No;
         RetainPtr<NSURLSessionTaskMetrics> taskMetrics = dataTask._incompleteTaskMetrics;
 
-        // MAVERICKS_BACKPORT: taskMetrics may be nil on 10.9 (no _incompleteTaskMetrics); fall back to nil metrics.
-        RetainPtr<NSURLSessionTaskTransactionMetrics> metrics = taskMetrics ? taskMetrics.get().transactionMetrics.lastObject : nil;
+        RetainPtr<NSURLSessionTaskTransactionMetrics> metrics = taskMetrics.get().transactionMetrics.lastObject;
         auto privateRelayed = metrics.get()._privacyStance == nw_connection_privacy_stance_direct
             || metrics.get()._privacyStance == nw_connection_privacy_stance_not_eligible
             ? PrivateRelayed::No : PrivateRelayed::Yes;
         String proxyName;
-        // MAVERICKS_BACKPORT: nw_establishment_report_copy_proxy_endpoint / nw_endpoint_get_hostname
-        // are Network.framework (macOS 10.14+), absent at runtime on 10.9. Gate on the deployment
-        // target (__MAC_OS_X_VERSION_MIN_REQUIRED) rather than the SDK so the proxy-name telemetry
-        // is compiled out on 10.9.
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
         if (metrics.get()._establishmentReport) {
             if (RetainPtr endpoint = adoptNS(nw_establishment_report_copy_proxy_endpoint(retainPtr(metrics.get()._establishmentReport).get()))) {
                 if (const char *hostname = nw_endpoint_get_hostname(endpoint.get()))
                     proxyName = String::fromUTF8(unsafeSpan(hostname));
             }
         }
-// MAVERICKS_BACKPORT: end of the 10.14+-only proxy-name telemetry (compiled out on 10.9).
-#endif
 
         negotiatedLegacyTLS = checkForLegacyTLS(metrics.get());
 
@@ -1105,19 +1086,29 @@ static RetainPtr<NSURLSessionConfiguration> configurationForSessionID(PAL::Sessi
         configuration.get()._connectionCacheNumFastLanes = 1;
     }
 
-    // MAVERICKS_BACKPORT: this port cannot reach the modern web without its MITM proxy — 10.9 cannot
-    // validate current HTTPS chains, so EVERY request is routed through one local proxy (AquaProxy). That
-    // makes the proxy the single "host" CFNetwork coalesces all connections onto, so the default
-    // HTTPMaximumConnectionsPerHost of 6 stops being "per real host" and becomes a hard ceiling on the
-    // WHOLE browser's concurrency. A modern page fans out ~15-40 render-critical subresources at once;
-    // capped at 6 proxy connections the excess must reuse keep-alive connections, and 10.9's CFNetwork
-    // deterministically wedges some reused connections — the resumed task receives no response until the
-    // 60s timeout fires and the load retries on a fresh connection (the ~60s first-paint stall; measured
-    // apple.com 65s -> 4s). Raise the ceiling to ~6 * a typical page's distinct-host count, restoring the
-    // concurrency the browser would have with those hosts spread across real connections. Set here on the
-    // base configuration (before any session or proxy-config IPC) rather than gated on a proxy handle,
-    // because the proxy is a hard invariant of this port and its config can arrive asynchronously after a
-    // session is already built — a proxy-gated set races that delivery and stalls intermittently.
+    // MAVERICKS_BACKPORT: restore the request concurrency this stack's connection pool takes away.
+    //
+    // Stock Safari 7 never used this code path: its WebKit loaded through NSURLConnection and threw its
+    // resource loads per SITE HOST at the WebCore scheduler. The backport loads through NSURLSession
+    // instead, and 10.9's first-generation NSURLSession keys its pool on the endpoint it actually
+    // connects to. Every HTTPS request on this port goes through one local proxy, so every site collapses
+    // onto ONE host key and the 6-per-host default becomes ~6 connections for the whole browser, HTTP/1.1,
+    // one request at a time. Modern CFNetwork does not have this problem: it keys proxied connections per
+    // destination origin, and HTTP/2 multiplexes besides.
+    //
+    // Measured on this host with a plain NSURLSession through the same proxy, 20 distinct hosts at the
+    // default of 6: the requests complete in waves of about six (1.3-1.8s, then 2.1-2.9s, then trailing to
+    // 6.5s) rather than in parallel, which is the collapse above. In 2 of 4 runs one request also received
+    // no response at all for ~60s and then failed with NSURLErrorNetworkConnectionLost; a tcpdump of the
+    // wedged flow shows the connection ESTABLISHED and the request ACKed the whole time, so that is a
+    // response lost under pool pressure rather than a reused-dead-socket race. It is intermittent, not
+    // deterministic, and it is NOT what this setting is for -- raising the ceiling reduces how often the
+    // pool is under that pressure but would not fix it, and it is tracked separately.
+    //
+    // What this setting IS for is the accounting: ~6 x a typical page's distinct-host count, restoring the
+    // concurrency the same page would get if those hosts were spread over real connections. Set on the base
+    // configuration rather than gated on a proxy handle, because the proxy config can arrive asynchronously
+    // after a session is already built and a proxy-gated set races that delivery.
     configuration.get().HTTPMaximumConnectionsPerHost = 30;
 
 #if ENABLE(NETWORK_ISSUE_REPORTING)
@@ -1238,10 +1229,7 @@ NetworkSessionCocoa::NetworkSessionCocoa(NetworkProcess& networkProcess, const N
     if (!m_sessionID.isEphemeral())
         m_blobRegistry.setFileDirectory(FileSystem::createTemporaryDirectory(@"BlobRegistryFiles"));
 
-    // MAVERICKS_BACKPORT: _NSHSTSStorage's initPersistentStoreWithURL: is 10.11+. Skip — HSTS
-    // is not supported in this build; HTTP loads still work.
-    if (!!parameters.hstsStorageDirectory && !m_sessionID.isEphemeral()
-        && [_NSHSTSStorage instancesRespondToSelector:@selector(initPersistentStoreWithURL:)]) {
+    if (!!parameters.hstsStorageDirectory && !m_sessionID.isEphemeral()) {
         SandboxExtension::consumePermanently(parameters.hstsStorageDirectoryExtensionHandle);
         configuration.get()._hstsStorage = adoptNS([[_NSHSTSStorage alloc] initPersistentStoreWithURL:adoptNS([[NSURL alloc] initFileURLWithPath:parameters.hstsStorageDirectory.createNSString().get() isDirectory:YES]).get()]).get();
     }
@@ -1291,9 +1279,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         configuration.get()._sourceApplicationSecondaryIdentifier = m_sourceApplicationSecondaryIdentifier.createNSString().get();
 
 #if HAVE(ALTERNATIVE_SERVICE)
-    // MAVERICKS_BACKPORT: _NSHTTPAlternativeServicesStorage initPersistentStoreWithURL: is 10.13+.
-    if (!parameters.alternativeServiceDirectory.isEmpty()
-        && [_NSHTTPAlternativeServicesStorage instancesRespondToSelector:@selector(initPersistentStoreWithURL:)]) {
+    if (!parameters.alternativeServiceDirectory.isEmpty()) {
         SandboxExtension::consumePermanently(parameters.alternativeServiceDirectoryExtensionHandle);
         RetainPtr alternativeServicePath = adoptNS([[NSURL alloc] initFileURLWithPath:parameters.alternativeServiceDirectory.createNSString().get() isDirectory:YES]);
         RetainPtr sqlitePath = [alternativeServicePath URLByAppendingPathComponent:@"AlternativeService.sqlite" isDirectory:NO];
@@ -1336,10 +1322,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     RELEASE_ASSERT(storageSession);
 
     RetainPtr<NSHTTPCookieStorage> cookieStorage;
-    if (RetainPtr storage = storageSession->cookieStorage();
-        storage && [NSHTTPCookieStorage instancesRespondToSelector:@selector(_initWithCFHTTPCookieStorage:)]) {
-        // MAVERICKS_BACKPORT: -_initWithCFHTTPCookieStorage: is 10.10+ SPI. When available,
-        // use it to bridge the CFHTTPCookieStorage we already have.
+    if (RetainPtr storage = storageSession->cookieStorage()) {
         cookieStorage = adoptNS([[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:storage.get()]);
         configuration.get().HTTPCookieStorage = cookieStorage.get();
     } else { // MAVERICKS_BACKPORT: braced to hold the 10.9 explicit-cookie-storage lines below (github XHR HTTP 400 fix)
@@ -1610,25 +1593,13 @@ void NetworkSessionCocoa::invalidateAndCancelSessionSet(SessionSet& sessionSet)
     for (auto& session : sessionSet.isolatedSessions.values()) {
         [session->sessionWithCredentialStorage->session invalidateAndCancel];
         [session->sessionWithCredentialStorage->delegate sessionInvalidated];
-        // MAVERICKS_BACKPORT: see below.
-        session->sessionWithCredentialStorage->session = nil;
     }
     sessionSet.isolatedSessions.clear();
 
     if (sessionSet.appBoundSession) {
         [sessionSet.appBoundSession->sessionWithCredentialStorage->session invalidateAndCancel];
         [sessionSet.appBoundSession->sessionWithCredentialStorage->delegate sessionInvalidated];
-        // MAVERICKS_BACKPORT: see below.
-        sessionSet.appBoundSession->sessionWithCredentialStorage->session = nil;
     }
-
-    // MAVERICKS_BACKPORT: clear the wrapper sessions so ~SessionWrapper does not invalidate them a
-    // second time. Modern CFNetwork treats re-invalidating an invalidated NSURLSession as a no-op;
-    // 10.9's __NSCFLocalSessionBridge re-runs _onqueue_completeInvalidation against a work queue the
-    // first invalidation already released, crashing the network process in dispatch_group_notify_f
-    // (intermittent, seen tearing down ephemeral (-private browsing) data stores between tests).
-    sessionSet.sessionWithCredentialStorage->session = nil;
-    sessionSet.ephemeralStatelessSession->session = nil;
 }
 
 void NetworkSessionCocoa::invalidateAndCancel()

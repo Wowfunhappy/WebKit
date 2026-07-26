@@ -82,7 +82,7 @@ extern "C" bool CGContextGetAllowsFontSubpixelQuantization(CGContextRef);
 #import <wtf/text/cf/StringConcatenateCF.h>
 
 extern "C" {
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's declarations of the CGContext font-smoothing getters. Kept commented, not deleted: those two are absent on 10.9, so this file cannot ask a context for that state.
 //     bool CGContextGetAllowsFontSmoothing(CGContextRef context);
 //     bool CGContextGetAllowsFontSubpixelQuantization(CGContextRef context);
 // (end MAVERICKS_BACKPORT restored block)

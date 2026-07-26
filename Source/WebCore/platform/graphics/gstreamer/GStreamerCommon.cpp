@@ -1204,7 +1204,7 @@ static void busMessagePollFDCallback(CFFileDescriptorRef fileDescriptor, CFOptio
 void connectSimpleBusMessageCallback(GstElement* pipeline, Function<void(GstMessage*)>&& customHandler, AsynchronousPipelineDumping asynchronousPipelineDumping)
 {
     auto bus = adoptGRef(gst_pipeline_get_bus(GST_PIPELINE(pipeline)));
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's signal-watch registration at RunLoopDispatcher priority. Kept commented, not deleted: this port attaches the bus watch itself with its own priority (see below), so registering upstream's as well would deliver every message twice.
 //     gst_bus_add_signal_watch_full(bus.get(), RunLoopSourcePriority::RunLoopDispatcher);
 // (end MAVERICKS_BACKPORT restored block)
 
@@ -1212,7 +1212,7 @@ void connectSimpleBusMessageCallback(GstElement* pipeline, Function<void(GstMess
     data->pipeline.reset(pipeline);
     data->handler = WTF::move(customHandler);
     data->asynchronousPipelineDumping = asynchronousPipelineDumping;
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+/* MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
     auto handler = g_signal_connect_data(bus.get(), "message", G_CALLBACK(+[](GstBus*, GstMessage* message, gpointer userData) {
         auto data = reinterpret_cast<MessageBusData*>(userData);
         auto pipeline = data->pipeline.get();

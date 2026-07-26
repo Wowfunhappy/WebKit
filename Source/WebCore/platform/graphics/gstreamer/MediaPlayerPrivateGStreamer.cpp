@@ -67,7 +67,7 @@
 #include "WebKitWebSourceGStreamer.h"
 
 #if ENABLE(MEDIA_STREAM)
-/* MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+/* MAVERICKS_BACKPORT: upstream's unconditional include of the GStreamer MediaStream source. Kept commented, not deleted: this build gates that header on USE(GSTREAMER_MEDIA_STREAM) just below, and including it unconditionally would not compile without that backend
 #include "GStreamerMediaStreamSource.h"
 MAVERICKS_BACKPORT */
 #include "MediaStreamPrivate.h"

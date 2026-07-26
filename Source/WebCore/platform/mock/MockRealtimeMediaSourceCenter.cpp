@@ -284,7 +284,7 @@ public:
                 m_capturer = capturer.get();
                 return capturer;
             }, device, WTF::move(hashSalts), constraints, pageIdentifier);
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's GStreamer mock display-capture source. Kept commented, not deleted: MockDisplayCaptureSourceGStreamer is part of the GStreamer mediastream backend this port does not build.
 // #elif USE(GSTREAMER)
 //             return MockDisplayCaptureSourceGStreamer::create(device, WTF::move(hashSalts), constraints, pageIdentifier);
 // (end MAVERICKS_BACKPORT restored block)

@@ -29,7 +29,7 @@
 #import "Pasteboard.h"
 #import "PasteboardItemInfo.h"
 #import "WebCoreNSURLExtras.h"
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's UniformTypeIdentifiers import. Kept commented, not deleted: UTType is 11.0+; this file uses the 10.9 UTI functions instead.
 // #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 // (end MAVERICKS_BACKPORT restored block)
 
@@ -82,7 +82,7 @@ String PlatformPasteboard::urlStringSuitableForLoading(String& title)
     // NSPasteboard type singletons on all platforms here on 10.9.
     String urlPasteboardType = legacyURLPasteboardTypeSingleton();
     String stringPasteboardType = legacyStringPasteboardTypeSingleton();
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
 // #endif
 // (end MAVERICKS_BACKPORT restored block)
 

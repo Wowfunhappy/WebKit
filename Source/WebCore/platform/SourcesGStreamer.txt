@@ -21,7 +21,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's GStreamer WebRTC and libwebrtc source list. Kept commented, not deleted: this port builds GStreamer for media playback and capture only; the PeerConnection backend is not built.
 // Modules/mediastream/gstreamer/GStreamerDataChannelHandler.cpp
 // Modules/mediastream/gstreamer/GStreamerDtlsTransportBackend.cpp
 // Modules/mediastream/gstreamer/GStreamerIceAgent.cpp
@@ -135,7 +135,7 @@ platform/gstreamer/WebKitFliteSourceGStreamer.cpp
 
 platform/mediarecorder/MediaRecorderPrivateGStreamer.cpp
 
-// MAVERICKS_BACKPORT: upstream code kept commented so upstream merges see the original text; not built on this 10.9 backport
+// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
 // platform/mediastream/libwebrtc/gstreamer/GStreamerVideoCommon.cpp
 // platform/mediastream/libwebrtc/gstreamer/GStreamerVideoDecoderFactory.cpp
 // platform/mediastream/libwebrtc/gstreamer/GStreamerVideoEncoderFactory.cpp
