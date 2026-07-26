@@ -1790,7 +1790,7 @@ WK_POLYFILL_SEL("_resolvedCNAMEChain", "wk__resolvedCNAMEChain");
 WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__adoptEffectiveConfiguration:", wk_noopSetObject, "v@:@");
 WK_POLYFILL_ADD("NSURLSessionTask", "wk__adoptEffectiveConfiguration:", wk_noopSetObject, "v@:@");
 WK_POLYFILL_SEL("_adoptEffectiveConfiguration:", "wk__adoptEffectiveConfiguration:");
-// -_preconnect is the one that cannot be a no-op. Accepting it and doing nothing else would leave a task
+// MAVERICKS_BACKPORT: -_preconnect is the one that cannot be a no-op. Accepting it and doing nothing else would leave a task
 // that is only supposed to warm a connection running as an ordinary request, i.e. a full GET of the target
 // URL -- not a harmless extra fetch: against a server that rotates a Set-Cookie session on every response
 // it rotates the session out from under the page that was just rendered, whose CSRF-protected forms then
@@ -1798,6 +1798,13 @@ WK_POLYFILL_SEL("_adoptEffectiveConfiguration:", "wk__adoptEffectiveConfiguratio
 // transferring, so the honest emulation of "preconnect" here is to perform NO transfer: the flag is
 // recorded and the task is cancelled instead of ever being sent. A hint that does nothing is what a
 // preconnect is allowed to be; a hint that fetches the whole resource is not.
+//
+// Turning ENABLE(SERVER_PRECONNECT) off so no such task exists is not available in this tree: with it off
+// PreconnectTask.cpp compiles to nothing while six unguarded call sites still reference it
+// (NetworkCacheSpeculativeLoadManager.cpp:488, EarlyHintsResourceLoader.cpp:148,
+// NetworkConnectionToWebProcess.cpp:725 and :755, NetworkProcess.cpp:1651 and :1658), so the link fails on
+// PreconnectTask::create/start/setH2PingCallback, and the flag also gates away the _preconnect property
+// declaration that NetworkSessionCocoa:586 reads outside any guard.
 static const void *wk_taskIsPreconnectKey = &wk_taskIsPreconnectKey;
 
 static void wk_urlSessionTask_setPreconnect(id self, SEL _cmd, BOOL preconnect)
@@ -1806,10 +1813,6 @@ static void wk_urlSessionTask_setPreconnect(id self, SEL _cmd, BOOL preconnect)
     objc_setAssociatedObject(self, wk_taskIsPreconnectKey, preconnect ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     if (!preconnect)
         return;
-    // Cancel it here rather than hooking -resume, which would put this on the path of every task in the
-    // process for one flag. The task is still suspended at this point -- the property is set before it is
-    // ever resumed -- so cancelling it now is what "this task only warms a connection" amounts to on a
-    // system that cannot warm one: no request is sent, and the client is completed with a cancellation.
     static SEL cancelSelector;
     if (!cancelSelector)
         cancelSelector = sel_registerName("cancel");
@@ -3250,9 +3253,9 @@ static id wk_urlSession_uploadTaskWithStreamedRequest(id self, SEL _cmd, NSURLRe
 // Registered on the public class AND on the concrete one: NSURLSession is a class cluster whose
 // __NSCFURLSession is NOT a subclass of NSURLSession (measured: __NSCFURLSession -> NSObject), so a
 // method added only to the public class reaches no instance.
-WK_POLYFILL_ADD("NSURLSession", "wk_dataTaskWithRequest:", wk_urlSession_dataTaskWithRequest, "@@:@");
-WK_POLYFILL_ADD("__NSCFURLSession", "wk_dataTaskWithRequest:", wk_urlSession_dataTaskWithRequest, "@@:@");
+WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_dataTaskWithRequest:", wk_urlSession_dataTaskWithRequest, "@@:@");
+WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_dataTaskWithRequest:", wk_urlSession_dataTaskWithRequest, "@@:@");
 WK_POLYFILL_SEL_REPLACES("dataTaskWithRequest:", "wk_dataTaskWithRequest:");
-WK_POLYFILL_ADD("NSURLSession", "wk_uploadTaskWithStreamedRequest:", wk_urlSession_uploadTaskWithStreamedRequest, "@@:@");
-WK_POLYFILL_ADD("__NSCFURLSession", "wk_uploadTaskWithStreamedRequest:", wk_urlSession_uploadTaskWithStreamedRequest, "@@:@");
+WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_uploadTaskWithStreamedRequest:", wk_urlSession_uploadTaskWithStreamedRequest, "@@:@");
+WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_uploadTaskWithStreamedRequest:", wk_urlSession_uploadTaskWithStreamedRequest, "@@:@");
 WK_POLYFILL_SEL_REPLACES("uploadTaskWithStreamedRequest:", "wk_uploadTaskWithStreamedRequest:");
