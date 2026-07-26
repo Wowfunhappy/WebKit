@@ -325,12 +325,18 @@ int main(void)
     unsigned long addSize = 0;
     const struct wk_addmap_entry *added =
         (const struct wk_addmap_entry *)getsectiondata(header, "__DATA", "__wk_addmap", &addSize);
-    for (size_t a = 0; added && a < addSize / sizeof(*added); a++)
+    for (size_t a = 0; added && a < addSize / sizeof(*added); a++) {
+        // The raw record with the ADD's OWN intent, for the dead-gap-fill check: the selmap's intent
+        // says what the rewrite means, but whether the body actually installs is decided by the ADD's
+        // (class_addMethod vs class_replaceMethod -- see wk_install_add_entry).
+        printf("ADDMAP\t%s\t%s\t%s\n", added[a].cls, added[a].sel,
+               added[a].intent == WK_SELMAP_REPLACES ? "REPLACES" : "GAP_FILL");
         for (size_t j = 0; j < count; j++)
             if (!strcmp(added[a].sel, entries[j].priv)) {
                 emit(&entries[j], added[a].cls, "instance");
                 found[j] = 1;
             }
+    }
 
     unsigned int classCount = 0;
     Class *classes = objc_copyClassList(&classCount);
@@ -358,7 +364,9 @@ LINK_LIBS=$(printf '%s\n' "$OBJC_LIBS" | awk 'NF { print $1 }')
     -o "$WORK/selregistry" "$WORK/selregistry.m" \
     -Wl,-force_load,"$WORK/members/methods.o" "$BUILD/libpolyfill.a" \
     -Wl,-undefined,dynamic_lookup -lobjc $LINK_LIBS
-"$WORK/selregistry" | sort -u > "$WORK/selregistry.tsv"
+"$WORK/selregistry" > "$WORK/selregistry.raw"
+grep '^ADDMAP' "$WORK/selregistry.raw" | cut -f2- | sort -u > "$WORK/addmap.tsv" || true
+grep -v '^ADDMAP' "$WORK/selregistry.raw" | sort -u > "$WORK/selregistry.tsv"
 
 cat > "$WORK/selpresent.m" <<'EOF'
 // Does this machine's 10.9 already implement the public selector on that class? Ground truth: nothing
@@ -487,6 +495,95 @@ if [ -s "$WORK/seldead" ]; then
     exit 1
 fi
 
+# ---------------------------------------------------------------- dead gap-fill ADDs
+# A WK_POLYFILL_SEL_REPLACES declares that the body MUST win over 10.9's method -- but whether it
+# actually installs is decided by the ADD that carries it. wk_alias_class runs before wk_install_added
+# and binds wk_<pub> to the REAL method on every class that itself defines <pub>; a plain
+# WK_POLYFILL_ADD then class_addMethod()s, which no-ops because wk_<pub> already resolves. The body
+# never installs on that class, the rewrite sends WebKit to 10.9's original, and the REPLACES intent
+# is silently defeated -- no build error, no runtime error, just the old behaviour. This shipped: the
+# upload-spool substitution was registered with plain ADD on __NSCFURLSession, which owns
+# dataTaskWithRequest:, so the spool was dead code while every check reported green.
+#
+# Only the class's OWN method list matters (matching wk_alias_class): a class that merely inherits the
+# public selector gets no alias of its own, so class_addMethod succeeds there and the ADD is live.
+cat > "$WORK/ownprobe.m" <<'EOF'
+// Does the class ITSELF define the selector? Nothing of the polyfill layer is linked in, so every
+// method seen is the system's own. A leading '+' on the class name asks the metaclass.
+#include <dlfcn.h>
+#include <objc/runtime.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+static int ownsSelector(Class cls, SEL sel)
+{
+    unsigned int n = 0;
+    Method *methods = class_copyMethodList(cls, &n);
+    if (!methods)
+        return 0;
+    int hit = 0;
+    for (unsigned int i = 0; i < n; i++)
+        if (method_getName(methods[i]) == sel) { hit = 1; break; }
+    free(methods);
+    return hit;
+}
+int main(int argc, char **argv)
+{
+    for (int i = 1; i < argc; i++)
+        dlopen(argv[i], RTLD_LAZY | RTLD_LOCAL);
+    char line[1024];
+    while (fgets(line, sizeof line, stdin)) {
+        line[strcspn(line, "\n")] = 0;
+        char *className = strtok(line, "\t");
+        char *pub = className ? strtok(NULL, "\t") : NULL;
+        if (!pub)
+            continue;
+        int isMeta = className[0] == '+';
+        Class cls = objc_getClass(isMeta ? className + 1 : className);
+        if (!cls) {
+            printf("%s\t%s\tNOCLASS\n", className, pub);
+            continue;
+        }
+        Class where = isMeta ? object_getClass(cls) : cls;
+        printf("%s\t%s\t%s\n", className, pub, ownsSelector(where, sel_getUid(pub)) ? "OWNS" : "not-own");
+    }
+    return 0;
+}
+EOF
+"$CLANG" --no-default-config -mmacosx-version-min=10.9 -Wall -o "$WORK/ownprobe" "$WORK/ownprobe.m" -lobjc
+
+# Every (class, pub) pair whose priv a GAP_FILL ADD installs while a SEL_REPLACES relies on it.
+: > "$WORK/gapadds"
+while IFS=$'\t' read -r cls sel addintent; do
+    [ "$addintent" = "GAP_FILL" ] || continue
+    awk -F'\t' -v p="$sel" -v c="$cls" \
+        '$2 == p && $3 == "REPLACES" { print c "\t" $1 "\t" p; exit }' \
+        "$WORK/selregistry.tsv" >> "$WORK/gapadds"
+done < "$WORK/addmap.tsv"
+# shellcheck disable=SC2086
+cut -f1,2 "$WORK/gapadds" | sort -u | "$WORK/ownprobe" $LINK_LIBS \
+    | awk -F'\t' '$3 == "OWNS"' > "$WORK/deadadds"
+
+if [ -s "$WORK/deadadds" ]; then
+    {
+        echo
+        echo "ERROR: these WK_POLYFILL_ADD gap-fills install the private selector of a"
+        echo "WK_POLYFILL_SEL_REPLACES on a class that itself defines the public selector. The aliasing"
+        echo "pass binds the wk_ name to 10.9's real method first, so class_addMethod no-ops and the"
+        echo "replacement body NEVER installs there -- WebKit's rewritten sends silently reach the very"
+        echo "method the REPLACES declared it must win over:"
+        echo
+        while IFS=$'\t' read -r cls pub state; do
+            priv=$(awk -F'\t' -v c="$cls" -v p="$pub" '$1 == c && $2 == p { print $3; exit }' "$WORK/gapadds")
+            printf '  WK_POLYFILL_ADD(%s, %s)  is dead: %s owns %s\n' "$cls" "$priv" "$cls" "$pub"
+        done < "$WORK/deadadds"
+        echo
+        echo "Declare each WK_POLYFILL_ADD_REPLACES (class_replaceMethod installs regardless), or drop"
+        echo "the SEL_REPLACES if 10.9's own method is actually the right one."
+    } >&2
+    exit 1
+fi
+
 # ---------------------------------------------------------------- the class verdict
 # The layer's third half: the absent-CLASS stubs in polyfills/classes.m that WK_POLYFILL_CLASS
 # registers so WebKit's objc_getClass can find them (mechanism/wk_polyfill.h). Same question, same
@@ -587,8 +684,10 @@ classes=$(wc -l < "$WORK/clson109" | tr -d ' ')
 shadows=$(wc -l < "$WORK/present_names" | tr -d ' ')
 selectors=$(wc -l < "$WORK/selregistry.tsv" | tr -d ' ')
 selshadows=$(awk -F'\t' '$4 == "PRESENT"' "$WORK/selon109" | wc -l | tr -d ' ')
+gapadds=$(wc -l < "$WORK/gapadds" | tr -d ' ')
 echo "  polyfill shadow check: clean -- $scanned defined symbols, $registered registered;"
 echo "    $shadows are present on 10.9, each declared WK_POLYFILL_REPLACES"
 echo "    $selectors ObjC method polyfills, each landing on a class; $selshadows are present"
 echo "    on 10.9, each declared WK_POLYFILL_SEL_REPLACES"
 echo "    $classes ObjC class polyfills, none of which 10.9 has"
+echo "    $gapadds gap-fill ADDs back a SEL_REPLACES; none dead on a class owning the public selector"
