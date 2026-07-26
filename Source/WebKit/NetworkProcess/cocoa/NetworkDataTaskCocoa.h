@@ -67,10 +67,7 @@ public:
     void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&);
     void didReceiveData(const WebCore::SharedBuffer&);
 
-
-    // MAVERICKS_BACKPORT: streaming zlib decode of "gzip" response bodies that CFNetwork hands
-    // back raw. CFNetwork decodes Content-Encoding: gzip transparently EXCEPT for URLs whose last
- void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, RedirectCompletionHandler&&);
+    void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, RedirectCompletionHandler&&);
     void transferSandboxExtensionToDownload(Download&);
 
     void cancel() override;

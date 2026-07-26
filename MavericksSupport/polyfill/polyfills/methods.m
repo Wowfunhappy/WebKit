@@ -1847,34 +1847,6 @@ WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_isTopLevelNavigation:", wk_noopSetBo
 WK_POLYFILL_SEL("set_isTopLevelNavigation:", "wk_set_isTopLevelNavigation:");
 
 // ---------------------------------------------------------------------------------------------------
-// -[NSURLSession invalidateAndCancel] called twice.
-//
-// Modern CFNetwork treats invalidating an already-invalidated session as a no-op. 10.9's does not: the
-// second call re-runs __NSCFLocalSessionBridge's _onqueue_completeInvalidation against a work queue the
-// first invalidation already released, and the network process dies in dispatch_group_notify_f
-// (intermittent, seen tearing down ephemeral data stores). Since a client that owns a session and its
-// wrappers can legitimately invalidate through either, the second call has to be harmless -- so make it
-// so, once, here, instead of teaching every caller to remember whether it has already invalidated.
-static const void *wk_urlSessionInvalidatedKey = &wk_urlSessionInvalidatedKey;
-
-static void wk_urlSession_invalidateAndCancel(id self, SEL _cmd)
-{
-    (void)_cmd;
-    if (objc_getAssociatedObject(self, wk_urlSessionInvalidatedKey))
-        return;
-    objc_setAssociatedObject(self, wk_urlSessionInvalidatedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    // The public selector is untouched on the class, so this reaches 10.9's own implementation.
-    static SEL publicSelector;
-    if (!publicSelector)
-        publicSelector = sel_registerName("invalidateAndCancel");
-    ((void (*)(id, SEL))objc_msgSend)(self, publicSelector);
-}
-
-WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_invalidateAndCancel", wk_urlSession_invalidateAndCancel, "v@:");
-WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_invalidateAndCancel", wk_urlSession_invalidateAndCancel, "v@:");
-WK_POLYFILL_SEL_REPLACES("invalidateAndCancel", "wk_invalidateAndCancel");
-
-// ---------------------------------------------------------------------------------------------------
 // +[NSURLSession _strictTrustEvaluate:queue:completionHandler:] (10.10+).
 //
 // Evaluates a server-trust challenge off the calling thread and reports the result as an OSStatus, so a
@@ -1909,7 +1881,7 @@ static void wk_urlSession_strictTrustEvaluate(id self, SEL _cmd, NSURLAuthentica
     });
 }
 
-WK_POLYFILL_ADD_CLASS_METHOD("NSURLSession", "wk__strictTrustEvaluate:queue:completionHandler:", wk_urlSession_strictTrustEvaluate, "v@:@@?@?");
+WK_POLYFILL_ADD_CLASS_METHOD("NSURLSession", "wk__strictTrustEvaluate:queue:completionHandler:", wk_urlSession_strictTrustEvaluate, "v@:@@@?");
 WK_POLYFILL_SEL("_strictTrustEvaluate:queue:completionHandler:", "wk__strictTrustEvaluate:queue:completionHandler:");
 
 // ---------------------------------------------------------------------------------------------------
@@ -1942,6 +1914,41 @@ static id wk_httpCookieStorage_initWithIdentifierPrivate(id self, SEL _cmd, NSSt
 
 WK_POLYFILL_ADD("NSHTTPCookieStorage", "wk__initWithIdentifier:private:", wk_httpCookieStorage_initWithIdentifierPrivate, "@@:@c");
 WK_POLYFILL_SEL("_initWithIdentifier:private:", "wk__initWithIdentifier:private:");
+
+// -[NSURLCredentialStorage _initWithIdentifier:private:] (10.13+), the same contract one layer over:
+// credentials that belong to this data store alone and are not the process-wide set. Built the same way,
+// from primitives 10.9 exports: _CFURLStorageSessionCreate makes a storage session of its own,
+// _CFURLStorageSessionCopyCredentialStorage takes that session's credential storage, and
+// -[NSURLCredentialStorage _initWithCFURLCredentialStorage:] (probed present) wraps it.
+//
+// NOT CFURLCredentialStorageCreate, which looks like the obvious call and is the wrong one: read off the
+// disassembly it fetches _CFURLStorageSessionGetDefault and copies THAT session's storage, i.e. it hands
+// back the shared credentials — the opposite of private. Arities also read off the disassembly rather
+// than guessed: _CFURLStorageSessionCreate uses rdi/rsi/rdx (three), the copy uses rdi/rsi (two).
+typedef struct OpaqueCFURLStorageSession *CFURLStorageSessionRef;
+typedef struct OpaqueCFURLCredentialStorage *CFURLCredentialStorageRef;
+extern CFURLStorageSessionRef _CFURLStorageSessionCreate(CFAllocatorRef, CFStringRef, CFDictionaryRef);
+extern CFURLCredentialStorageRef _CFURLStorageSessionCopyCredentialStorage(CFAllocatorRef, CFURLStorageSessionRef);
+
+static id wk_credentialStorage_initWithIdentifierPrivate(id self, SEL _cmd, NSString *identifier, BOOL isPrivate)
+{
+    (void)_cmd;
+    (void)isPrivate;
+    static SEL initWithCFStorageSelector;
+    if (!initWithCFStorageSelector)
+        initWithCFStorageSelector = sel_registerName("_initWithCFURLCredentialStorage:");
+
+    CFURLStorageSessionRef session = _CFURLStorageSessionCreate(kCFAllocatorDefault, (CFStringRef)identifier, NULL);
+    CFURLCredentialStorageRef storage = session ? _CFURLStorageSessionCopyCredentialStorage(kCFAllocatorDefault, session) : NULL;
+    id result = ((id (*)(id, SEL, CFURLCredentialStorageRef))objc_msgSend)(self, initWithCFStorageSelector, storage);
+    if (storage)
+        CFRelease(storage);
+    if (session)
+        CFRelease(session);
+    return result;
+}
+
+WK_POLYFILL_ADD("NSURLCredentialStorage", "wk__initWithIdentifier:private:", wk_credentialStorage_initWithIdentifierPrivate, "@@:@c");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSURLSessionTask _pathToDownloadTaskFile] / -set_pathToDownloadTaskFile: (github #11 / resume).

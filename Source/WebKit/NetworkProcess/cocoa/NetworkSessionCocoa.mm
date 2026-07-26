@@ -206,14 +206,6 @@ static NSString* privacyStanceToString(WebCore::PrivacyStance stance)
     return @"Unknown";
 }
 
-// MAVERICKS_BACKPORT: tls_protocol_version_DTLSv10/DTLSv12 are absent in older SDKs; define them locally.
-#ifndef tls_protocol_version_DTLSv10
-#define tls_protocol_version_DTLSv10 0xFEFF
-#endif
-#ifndef tls_protocol_version_DTLSv12
-#define tls_protocol_version_DTLSv12 0xFEFD
-#endif
-
 static String stringForTLSProtocolVersion(tls_protocol_version_t protocol)
 {
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
@@ -237,10 +229,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 static String stringForTLSCipherSuite(tls_ciphersuite_t suite)
 {
-// MAVERICKS_BACKPORT: extra blank-line formatting divergence (the two blank lines around this comment).
-
-// MAVERICKS_BACKPORT: the tls_ciphersuite_* enumerators only exist in the 10.15+ SDK; gate the name table on it.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
 #define STRINGIFY_CIPHER(cipher) \
     case tls_ciphersuite_##cipher: \
         return "" #cipher ""_s
@@ -277,22 +265,12 @@ ALLOW_DEPRECATED_DECLARATIONS_BEGIN
     }
 ALLOW_DEPRECATED_DECLARATIONS_END
 
-// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
-//     return { };
-//
-// (end MAVERICKS_BACKPORT restored block)
-#undef STRINGIFY_CIPHER
-// MAVERICKS_BACKPORT: tls_ciphersuite_t enumerators are 10.15+; on older SDKs there is no cipher name to return.
-#else
-    UNUSED_PARAM(suite);
-#endif // __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
-
     return { };
+
+#undef STRINGIFY_CIPHER
 }
 
-// MAVERICKS_BACKPORT: NSURLSessionWebSocketDelegate is 10.15+; conform to it conditionally, and document
-// that the removed NSOperation-KVO swizzle (a crash mask) must not be reintroduced.
-// NOTE (2026-06-14): a swizzle of NSObject's `_changeValueForKey:key:key:usingBlock:`
+// MAVERICKS_BACKPORT: NOTE (2026-06-14): a swizzle of NSObject's `_changeValueForKey:key:key:usingBlock:`
 // used to live here to keep the NetworkProcess alive through a crash in NSURLSession's
 // NSOperation KVO. It was a MASK (it converted the crash into a silent delegate-queue
 // stall -> blank pages) and has been REMOVED. The crash is a symptom of the systemic
@@ -301,12 +279,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 // allocation in the NetworkProcess). The process must crash loudly on that bug until
 // the real root cause is fixed -- do NOT reintroduce a mask here.
 
-@interface WKNetworkSessionDelegate : NSObject <NSURLSessionDataDelegate
-// MAVERICKS_BACKPORT: only conform to NSURLSessionWebSocketDelegate when the SDK provides it (10.15+).
-#if defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
-    , NSURLSessionWebSocketDelegate
-#endif
-> {
+@interface WKNetworkSessionDelegate : NSObject <NSURLSessionDataDelegate, NSURLSessionWebSocketDelegate> {
     WeakPtr<WebKit::NetworkSessionCocoa> _session;
     WeakPtr<WebKit::SessionWrapper> _sessionWrapper;
 @public
@@ -1086,31 +1059,6 @@ static RetainPtr<NSURLSessionConfiguration> configurationForSessionID(PAL::Sessi
         configuration.get()._connectionCacheNumFastLanes = 1;
     }
 
-    // MAVERICKS_BACKPORT: restore the request concurrency this stack's connection pool takes away.
-    //
-    // Stock Safari 7 never used this code path: its WebKit loaded through NSURLConnection and threw its
-    // resource loads per SITE HOST at the WebCore scheduler. The backport loads through NSURLSession
-    // instead, and 10.9's first-generation NSURLSession keys its pool on the endpoint it actually
-    // connects to. Every HTTPS request on this port goes through one local proxy, so every site collapses
-    // onto ONE host key and the 6-per-host default becomes ~6 connections for the whole browser, HTTP/1.1,
-    // one request at a time. Modern CFNetwork does not have this problem: it keys proxied connections per
-    // destination origin, and HTTP/2 multiplexes besides.
-    //
-    // Measured on this host with a plain NSURLSession through the same proxy, 20 distinct hosts at the
-    // default of 6: the requests complete in waves of about six (1.3-1.8s, then 2.1-2.9s, then trailing to
-    // 6.5s) rather than in parallel, which is the collapse above. In 2 of 4 runs one request also received
-    // no response at all for ~60s and then failed with NSURLErrorNetworkConnectionLost; a tcpdump of the
-    // wedged flow shows the connection ESTABLISHED and the request ACKed the whole time, so that is a
-    // response lost under pool pressure rather than a reused-dead-socket race. It is intermittent, not
-    // deterministic, and it is NOT what this setting is for -- raising the ceiling reduces how often the
-    // pool is under that pressure but would not fix it, and it is tracked separately.
-    //
-    // What this setting IS for is the accounting: ~6 x a typical page's distinct-host count, restoring the
-    // concurrency the same page would get if those hosts were spread over real connections. Set on the base
-    // configuration rather than gated on a proxy handle, because the proxy config can arrive asynchronously
-    // after a session is already built and a proxy-gated set races that delivery.
-    configuration.get().HTTPMaximumConnectionsPerHost = 30;
-
 #if ENABLE(NETWORK_ISSUE_REPORTING)
     if ([configuration respondsToSelector:@selector(set_skipsStackTraceCapture:)])
         configuration.get()._skipsStackTraceCapture = YES;
@@ -1235,9 +1183,7 @@ NetworkSessionCocoa::NetworkSessionCocoa(NetworkProcess& networkProcess, const N
     }
 
 #if HAVE(CFNETWORK_SEPARATE_CREDENTIAL_STORAGE)
-    // MAVERICKS_BACKPORT: -[NSURLCredentialStorage _initWithIdentifier:private:] is 10.13+ SPI.
-    if (parameters.dataStoreIdentifier && !m_sessionID.isEphemeral()
-        && [NSURLCredentialStorage instancesRespondToSelector:@selector(_initWithIdentifier:private:)])
+    if (parameters.dataStoreIdentifier && !m_sessionID.isEphemeral())
         configuration.get().URLCredentialStorage = adoptNS([[NSURLCredentialStorage alloc] _initWithIdentifier:parameters.dataStoreIdentifier->toString().createNSString().get() private:NO]).get();
 #endif
 
@@ -1292,11 +1238,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     configuration.get()._preventsSystemHTTPProxyAuthentication = parameters.preventsSystemHTTPProxyAuthentication;
     configuration.get()._requiresSecureHTTPSProxyConnection = parameters.requiresSecureHTTPSProxyConnection;
-    // MAVERICKS_BACKPORT: only override the session's proxy dictionary when an explicit
-    // proxy was passed in. The upstream code always sets it (clobbering with nil),
-    // which silently disables the system proxy that `defaultSessionConfiguration`
-    // would otherwise honor — making it impossible to reach HTTPS endpoints whose
-    // TLS chains 10.9 can't validate without a MITM proxy.
     configuration.get().connectionProxyDictionary = parameters.proxyConfiguration ? RetainPtr { (NSDictionary *)parameters.proxyConfiguration.get() }.get() : proxyDictionary(parameters.httpProxy, parameters.httpsProxy).get();
 
 #if PLATFORM(IOS_FAMILY)
@@ -1325,15 +1266,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     if (RetainPtr storage = storageSession->cookieStorage()) {
         cookieStorage = adoptNS([[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:storage.get()]);
         configuration.get().HTTPCookieStorage = cookieStorage.get();
-    } else { // MAVERICKS_BACKPORT: braced to hold the 10.9 explicit-cookie-storage lines below (github XHR HTTP 400 fix)
+    } else
         cookieStorage = storageSession->nsCookieStorage();
-        // MAVERICKS_BACKPORT: on 10.9, NSURLSession does not pick up the session's cookie storage for
-        // outgoing requests unless it is set explicitly on the configuration — without this the else
-        // branch (the 10.9 path, since -_initWithCFHTTPCookieStorage: is 10.10+) sent no Cookie headers
-        // and github's tree-commit-info / latest-commit / refs XHRs failed with HTTP 400.
-        configuration.get().HTTPCookieStorage = cookieStorage.get();
-        configuration.get().HTTPShouldSetCookies = YES;
-    }
 
     cookieStorage.get()._overrideSessionCookieAcceptPolicy = YES;
 
@@ -1773,13 +1707,10 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
     appPrivacyReportTestingData().didLoadAppInitiatedRequest(nsRequest.get().attribution == NSURLRequestAttributionDeveloper);
 #endif
 
-    // MAVERICKS_BACKPORT: _prohibitPrivacyProxy / _privacyProxyFailClosedForUnreachableNonMainHosts are 10.15+ SPI.
-    if (!allowPrivacyProxy && [ensureMutableRequest() respondsToSelector:@selector(_setProhibitPrivacyProxy:)])
+    if (!allowPrivacyProxy)
         ensureMutableRequest().get()._prohibitPrivacyProxy = YES;
 
-    // MAVERICKS_BACKPORT: _privacyProxyFailClosedForUnreachableNonMainHosts is 10.15+ SPI; guard the setter.
-    if ((hadMainFrameMainResourcePrivateRelayed || request.url().host() == clientOrigin.topOrigin.host())
-        && [ensureMutableRequest() respondsToSelector:@selector(_setPrivacyProxyFailClosedForUnreachableNonMainHosts:)])
+    if (hadMainFrameMainResourcePrivateRelayed || request.url().host() == clientOrigin.topOrigin.host())
         ensureMutableRequest().get()._privacyProxyFailClosedForUnreachableNonMainHosts = YES;
 
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES) && defined(CFN_COOKIE_ACCEPTS_POLICY_PARTITION) && CFN_COOKIE_ACCEPTS_POLICY_PARTITION
