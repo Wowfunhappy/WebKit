@@ -14987,7 +14987,22 @@ void WebPageProxy::getWebCryptoMasterKey(CompletionHandler<void(std::optional<Ve
     m_websiteDataStore->client().webCryptoMasterKey([completionHandler = WTF::move(completionHandler), protectedThis = Ref { *this }](std::optional<Vector<uint8_t>>&& key) mutable {
         if (key)
             return completionHandler(WTF::move(key));
-        protectedThis->m_navigationClient->legacyWebCryptoMasterKey(protectedThis, WTF::move(completionHandler));
+        protectedThis->m_navigationClient->legacyWebCryptoMasterKey(protectedThis, [protectedThis, completionHandler = WTF::move(completionHandler)](std::optional<Vector<uint8_t>>&& key) mutable {
+            if (key)
+                return completionHandler(WTF::move(key));
+            // MAVERICKS_BACKPORT: Safari 7 registers only a WKPageLoaderClient (WKPageSetPageNavigationClient
+            // postdates it), so m_navigationClient is the default API::NavigationClient, which completes
+            // without a key — on Cocoa wrapCryptoKey() then refuses to wrap and every CryptoKey structured
+            // clone (e.g. an IndexedDB put) throws DataCloneError. For pages driven by the legacy loader
+            // client, fall back to the platform default master key, the same fallback every modern
+            // navigation client performs (NavigationState.mm, WKPage.cpp's PageNavigationClient) and
+            // WebProcessProxy::getWebCryptoMasterKey performs for pageless contexts. Gated on m_loaderClient
+            // so an embedder whose navigation client deliberately answers without a key keeps upstream
+            // behavior. Lives in-tree because this is WebKit's own C-API surface for the Safari 7 host.
+            if (protectedThis->m_loaderClient)
+                return WebCore::getDefaultWebCryptoMasterKey(WTF::move(completionHandler));
+            completionHandler(std::nullopt);
+        });
     });
 
 }

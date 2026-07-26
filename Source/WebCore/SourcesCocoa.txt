@@ -188,7 +188,14 @@ crypto/cocoa/CryptoKeyCocoa.cpp
 // MAVERICKS_BACKPORT: WebCrypto uses libgcrypt, but the CommonCrypto-based CryptoUtilitiesCocoa (AES-CTR
 // transform helpers) is still required by the WebRTC SFrame transformer (RTCRtpSFrameTransformerCocoa).
 crypto/cocoa/CryptoUtilitiesCocoa.cpp
-// crypto/cocoa/SerializedCryptoKeyWrapCocoa.mm @nonARC
+// MAVERICKS_BACKPORT: the wrap-for-storage layer stays on the Cocoa implementation even though the
+// algorithm backends above use libgcrypt. The Cocoa UI process (WebPageProxy/WebProcessProxy
+// wrapCryptoKey, WK1 WebCryptoClient) requires a real master key on PLATFORM(COCOA), which only this
+// file provides (Keychain-backed defaultWebCryptoMasterKey); the GCrypt SerializedCryptoKeyWrap's
+// notImplemented() master key makes every CryptoKey structured-clone (e.g. IndexedDB put) fail with
+// DataCloneError. Its CommonCrypto needs (CCSymmetricKeyWrap, one-shot CCCryptorGCM) are present on
+// 10.9; CCRandomGenerateBytes comes from the polyfill layer.
+crypto/cocoa/SerializedCryptoKeyWrapCocoa.mm @nonARC
 // crypto/CommonCryptoUtilities.cpp
 crypto/gcrypt/CryptoAlgorithmAESCBCGCrypt.cpp
 crypto/gcrypt/CryptoAlgorithmAESCFBGCrypt.cpp
@@ -212,7 +219,9 @@ crypto/gcrypt/CryptoKeyRSAGCrypt.cpp
 crypto/gcrypt/GCryptRFC7748.cpp
 crypto/gcrypt/GCryptRFC8032.cpp
 crypto/gcrypt/GCryptUtilities.cpp
-crypto/gcrypt/SerializedCryptoKeyWrapGCrypt.cpp
+// MAVERICKS_BACKPORT: excluded — crypto/cocoa/SerializedCryptoKeyWrapCocoa.mm provides these
+// symbols (see the comment there); compiling both would duplicate them.
+// crypto/gcrypt/SerializedCryptoKeyWrapGCrypt.cpp
 dom/DataTransferMac.mm @nonARC
 dom/ios/MouseEventIOS.cpp
 dom/ios/PointerEventIOS.cpp
