@@ -62,17 +62,9 @@ RetainPtr<CFDataRef> LegacyWebArchive::createPropertyListRepresentation(const Re
     if (!nsResponse)
         return nullptr;
 
-    // MAVERICKS_BACKPORT: pristine uses -[NSKeyedArchiver initRequiringSecureCoding:]/-encodedData (10.13+),
-    // which cannot be faithfully polyfilled (encodedData conflicts with finishEncoding ordering across
-    // callers). Use the classic initForWritingWithMutableData:/finishEncoding pair, but keep pristine's
-    // secure-coding posture via -setRequiresSecureCoding:YES (matches the secure decode above).
-    RetainPtr data = adoptNS([[NSMutableData alloc] init]);
-    auto archiver = adoptNS([[NSKeyedArchiver alloc] initForWritingWithMutableData:data.get()]);
-    [archiver setRequiresSecureCoding:YES];
+    auto archiver = adoptNS([[NSKeyedArchiver alloc] initRequiringSecureCoding:YES]);
     [archiver encodeObject:nsResponse.get() forKey:LegacyWebArchiveResourceResponseKey];
-    // MAVERICKS_BACKPORT: finish into the backing NSMutableData (pristine reads -encodedData, 10.13+).
-    [archiver finishEncoding];
-    return (__bridge CFDataRef)data.get();
+    return (__bridge CFDataRef)archiver.get().encodedData;
 }
 
 }

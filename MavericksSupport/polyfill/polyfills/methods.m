@@ -17,6 +17,7 @@
 #import <PDFKit/PDFKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <QuartzCore/QuartzCore.h>
+#import <dlfcn.h>
 #import <fcntl.h>
 #import <sys/stat.h>
 #import <mach/mach.h>
@@ -693,6 +694,24 @@ WK_POLYFILL_SEL("contentLayoutRect", "wk_contentLayoutRect");
     if (!string) {
         [self release];
         return nil;
+    }
+    // The same modern-vs-10.9 contract gap, one case over: modern -initWithString:@"" returns a non-nil
+    // URL whose relativeString is empty, and does so for an NSURL SUBCLASS too. 10.9 returns nil for the
+    // empty string on a subclass, though it answers correctly for NSURL itself -- measured on this host:
+    //   [[NSURL alloc]         initWithString:@""] -> object
+    //   [[NSURLSubclass alloc] initWithString:@""] -> nil
+    //   [[NSURLSubclass alloc] initWithString:@"" relativeToURL:[NSURL URLWithString:@""]]
+    //                                              -> object, relativeString "", subclass preserved
+    // so the relative form is 10.9's way to spell what the modern initializer means, and it is applied
+    // only where 10.9 would otherwise hand back nil. Decided BEFORE calling the real initializer, never
+    // after: a failed init has already released the receiver, so a second init on it is a use-after-free.
+    if (![string length] && ![self isMemberOfClass:[NSURL class]]) {
+        typedef id (*WKURLInitRelativeFn)(id, SEL, NSString *, NSURL *);
+        WKURLInitRelativeFn originalRelative = (WKURLInitRelativeFn)objc_msgSend;
+        typedef id (*WKURLWithStringFn)(id, SEL, NSString *);
+        WKURLWithStringFn urlWithString = (WKURLWithStringFn)objc_msgSend;
+        NSURL *emptyBase = urlWithString([NSURL class], sel_registerName("URLWithString:"), @"");
+        return originalRelative(self, sel_registerName("initWithString:relativeToURL:"), string, emptyBase);
     }
     typedef id (*WKURLInitFn)(id, SEL, NSString *);
     WKURLInitFn original = (WKURLInitFn)objc_msgSend;
@@ -1747,6 +1766,11 @@ WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setBlockTrackers:", wk_noopSetB
 WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setNeedsNetworkTrackingPrevention:", wk_noopSetBool, "v@:c");
 WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_needsNetworkTrackingPrevention", wk_absentFlag, "c@:");
 WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setPrivacyProxyFailClosedForUnreachableNonMainHosts:", wk_noopSetBool, "v@:c");
+// The read side of the same flag. NSURLRequest, not NSMutableURLRequest: the getter is read off immutable
+// requests too. NO is the honest answer -- there is no Private Relay on 10.9 to have failed closed.
+WK_POLYFILL_ADD("NSURLRequest", "wk__privacyProxyFailClosedForUnreachableNonMainHosts", wk_absentFlag, "c@:");
+WK_POLYFILL_ADD("NSMutableURLRequest", "wk__privacyProxyFailClosedForUnreachableNonMainHosts", wk_absentFlag, "c@:");
+WK_POLYFILL_SEL("_privacyProxyFailClosedForUnreachableNonMainHosts", "wk__privacyProxyFailClosedForUnreachableNonMainHosts");
 WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setProhibitPrivacyProxy:", wk_noopSetBool, "v@:c");
 WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setPrivacyProxyStrictFailClosed:", wk_noopSetBool, "v@:c");
 WK_POLYFILL_NOOP_SETTER("NSMutableURLRequest", "_setPrivacyProxyFailClosedForUnreachableHosts:", wk_noopSetBool, "v@:c");
@@ -1887,28 +1911,90 @@ WK_POLYFILL_SEL("_strictTrustEvaluate:queue:completionHandler:", "wk__strictTrus
 // ---------------------------------------------------------------------------------------------------
 // -[NSHTTPCookieStorage _initWithIdentifier:private:] (10.13+).
 //
-// A private, in-memory cookie storage: the caller gets a jar that starts empty, is not the shared one,
-// and never persists. 10.9 has every piece needed to build exactly that -- CFNetwork exports
-// _CFHTTPCookieStorageCreateInMemory, and -[NSHTTPCookieStorage _initWithCFHTTPCookieStorage:] wraps a
-// CFHTTPCookieStorageRef in the ObjC class (both probed present) -- so this is a real implementation of
-// the contract rather than an approximation of it. The identifier names a persistent store, which is
-// meaningless for an in-memory jar and is ignored, exactly as passing private:YES implies.
+// Arities read off the disassembly rather than guessed: _CFURLStorageSessionCreate uses rdi/rsi/rdx
+// (three), each Copy*Storage uses rdi/rsi (two). Shared by the cookie and credential initializers below.
+// The properties dictionary a storage session is created with. CFNetwork keys privacy off the literal
+// _kCFURLStorageSessionIsPrivate value, so build the dictionary the API actually reads -- the same key
+// upstream WebCore uses in NetworkStorageSessionCocoa. Resolved through the soft-link path because the
+// SDK stub is not a reliable guide to what 10.9's CFNetwork exports.
+static CFStringRef wk_storageSessionIsPrivateKey(void)
+{
+    static CFStringRef key;
+    static bool resolved;
+    if (!resolved) {
+        CFStringRef *slot = (CFStringRef *)dlsym(RTLD_DEFAULT, "_kCFURLStorageSessionIsPrivate");
+        key = slot ? *slot : NULL;
+        resolved = true;
+    }
+    return key;
+}
+
+static CFDictionaryRef wk_storageSessionProperties(BOOL isPrivate)
+{
+    CFStringRef key = wk_storageSessionIsPrivateKey();
+    if (!key)
+        return NULL;
+    const void *keys[] = { key };
+    const void *values[] = { isPrivate ? kCFBooleanTrue : kCFBooleanFalse };
+    return CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+}
+
+typedef struct OpaqueCFURLStorageSession *CFURLStorageSessionRef;
+typedef struct OpaqueCFURLCredentialStorage *CFURLCredentialStorageRef;
+extern CFURLStorageSessionRef _CFURLStorageSessionCreate(CFAllocatorRef, CFStringRef, CFDictionaryRef);
+extern CFURLCredentialStorageRef _CFURLStorageSessionCopyCredentialStorage(CFAllocatorRef, CFURLStorageSessionRef);
+extern CFHTTPCookieStorageRef _CFURLStorageSessionCopyCookieStorage(CFAllocatorRef, CFURLStorageSessionRef);
+
+// Both parameters mean something and both are honoured, the same way the credential-storage twin below
+// honours them -- the identifier names a CFNetwork STORAGE SESSION (not a file), and private selects
+// whether that session is backed by the process's persistent state. 10.9 exports the whole pair:
+// _CFURLStorageSessionCreate makes a session of its own and _CFURLStorageSessionCopyCookieStorage takes
+// that session's cookie storage (both probed present), which is the identical mapping upstream WebKit
+// uses for identified sessions in NetworkStorageSessionCocoa. -[NSHTTPCookieStorage
+// _initWithCFHTTPCookieStorage:] then wraps the result in the ObjC class.
 //
-// NetworkTaskCocoa::statelessCookieStorage is the caller that matters here: it needs a storage whose
-// cookies are never sent with a redirected request. Without this it fell back to the SHARED storage and
-// set NSHTTPCookieAcceptPolicyNever on it -- turning cookie acceptance off for the whole NetworkProcess.
+// Doing it this way is what makes the identifier MEAN the same thing here as everywhere else: a component
+// that names a store through _CFURLStorageSessionCreate and one that names it through this initializer
+// land on the same jar. Ignoring the arguments -- which this used to do -- was correct only for the
+// private:YES caller WebKit happens to have, and inventing a per-identifier file path instead would have
+// created a second, private naming scheme that agrees with nothing else in the system.
+//
+// NetworkTaskCocoa::statelessCookieStorage is the private:YES caller that matters: it needs a storage
+// whose cookies are never sent with a redirected request. Without this it fell back to the SHARED storage
+// and set NSHTTPCookieAcceptPolicyNever on it -- turning cookie acceptance off process-wide.
+
 static id wk_httpCookieStorage_initWithIdentifierPrivate(id self, SEL _cmd, NSString *identifier, BOOL isPrivate)
 {
     (void)_cmd;
-    (void)identifier;
-    (void)isPrivate;
     static SEL initWithCFStorageSelector;
     if (!initWithCFStorageSelector)
         initWithCFStorageSelector = sel_registerName("_initWithCFHTTPCookieStorage:");
-    CFHTTPCookieStorageRef storage = _CFHTTPCookieStorageCreateInMemory(kCFAllocatorDefault, NULL);
+
+    // The session properties must carry the REAL key, not merely be non-NULL: CFNetwork's
+    // StorageSession::copyCookieStorage tests GetValue(props, _kCFURLStorageSessionIsPrivate) ==
+    // kCFBooleanTrue and takes the PERSISTENT branch otherwise, so an empty dictionary produced an
+    // on-disk, app-identifier-keyed jar that outlived the process -- the opposite of private, and
+    // measured surviving across two runs before this was corrected.
+    CFDictionaryRef privateProperties = wk_storageSessionProperties(isPrivate);
+    CFURLStorageSessionRef session = _CFURLStorageSessionCreate(kCFAllocatorDefault, (CFStringRef)identifier, privateProperties);
+    if (privateProperties)
+        CFRelease(privateProperties);
+
+    CFHTTPCookieStorageRef storage = session ? _CFURLStorageSessionCopyCookieStorage(kCFAllocatorDefault, session) : NULL;
+    if (session)
+        CFRelease(session);
+
+    // A session that could not be created or has no cookie storage still has to yield a usable jar rather
+    // than a nil the caller cannot distinguish; an in-memory one is the honest fallback.
+    if (!storage)
+        storage = _CFHTTPCookieStorageCreateInMemory(kCFAllocatorDefault, NULL);
+    if (!storage) {
+        [self release];
+        return nil;
+    }
+
     id result = ((id (*)(id, SEL, CFHTTPCookieStorageRef))objc_msgSend)(self, initWithCFStorageSelector, storage);
-    if (storage)
-        CFRelease(storage);
+    CFRelease(storage);
     return result;
 }
 
@@ -1925,30 +2011,69 @@ WK_POLYFILL_SEL("_initWithIdentifier:private:", "wk__initWithIdentifier:private:
 // disassembly it fetches _CFURLStorageSessionGetDefault and copies THAT session's storage, i.e. it hands
 // back the shared credentials — the opposite of private. Arities also read off the disassembly rather
 // than guessed: _CFURLStorageSessionCreate uses rdi/rsi/rdx (three), the copy uses rdi/rsi (two).
-typedef struct OpaqueCFURLStorageSession *CFURLStorageSessionRef;
-typedef struct OpaqueCFURLCredentialStorage *CFURLCredentialStorageRef;
-extern CFURLStorageSessionRef _CFURLStorageSessionCreate(CFAllocatorRef, CFStringRef, CFDictionaryRef);
-extern CFURLCredentialStorageRef _CFURLStorageSessionCopyCredentialStorage(CFAllocatorRef, CFURLStorageSessionRef);
 
 static id wk_credentialStorage_initWithIdentifierPrivate(id self, SEL _cmd, NSString *identifier, BOOL isPrivate)
 {
     (void)_cmd;
-    (void)isPrivate;
     static SEL initWithCFStorageSelector;
     if (!initWithCFStorageSelector)
         initWithCFStorageSelector = sel_registerName("_initWithCFURLCredentialStorage:");
 
-    CFURLStorageSessionRef session = _CFURLStorageSessionCreate(kCFAllocatorDefault, (CFStringRef)identifier, NULL);
+    // private:YES has to mean the caller does not see the process's persistent credentials, and 10.9 can
+    // express that: measured on this host, a session created with a non-NULL properties dictionary yields
+    // a credential storage reporting ZERO protection spaces, while the same call with NULL properties
+    // reports the keychain-backed set the shared storage shows. So the flag selects the properties
+    // argument -- it is not decoration, and ignoring it would have made this correct only for the
+    // private:NO caller WebKit happens to be.
+    // Same real key as the cookie twin above. The credential path happens to read any non-NULL dict as
+    // private (it tests == kCFBooleanFalse for persistent), but spelling the contract out is what makes
+    // both correct for the same reason instead of by opposite accident.
+    CFDictionaryRef privateProperties = wk_storageSessionProperties(isPrivate);
+    CFURLStorageSessionRef session = _CFURLStorageSessionCreate(kCFAllocatorDefault, (CFStringRef)identifier, privateProperties);
+    if (privateProperties)
+        CFRelease(privateProperties);
     CFURLCredentialStorageRef storage = session ? _CFURLStorageSessionCopyCredentialStorage(kCFAllocatorDefault, session) : NULL;
-    id result = ((id (*)(id, SEL, CFURLCredentialStorageRef))objc_msgSend)(self, initWithCFStorageSelector, storage);
-    if (storage)
-        CFRelease(storage);
     if (session)
         CFRelease(session);
+    if (!storage) {
+        // -_initWithCFURLCredentialStorage: TRAPS on NULL (measured: SIGTRAP, exit 133), so a failure to
+        // build the storage has to come back as nil -- the ordinary "this initializer failed" answer --
+        // rather than as a dead NetworkProcess.
+        [self release];
+        return nil;
+    }
+    id result = ((id (*)(id, SEL, CFURLCredentialStorageRef))objc_msgSend)(self, initWithCFStorageSelector, storage);
+    CFRelease(storage);
     return result;
 }
 
 WK_POLYFILL_ADD("NSURLCredentialStorage", "wk__initWithIdentifier:private:", wk_credentialStorage_initWithIdentifierPrivate, "@@:@c");
+
+// +[NSHTTPCookieStorage _setSharedHTTPCookieStorage:] (10.10+): point the process at a cookie jar of its
+// own. 10.9 has no way to replace the process's cookie store, and -- measured on this host -- it does not
+// need one, because the storage WebKit passes here is already a HANDLE ON THAT STORE:
+//
+//   NetworkProcess::setSharedHTTPCookieStorage installs cookieStorageFromIdentifyingData(...), and the
+//   identifying data 10.9 produces is an archive naming "com.apple.CFNetwork.defaultStorageSession".
+//   Restoring it yields a different CFHTTPCookieStorageRef POINTER but the same store: same cookie count
+//   (2148 == 2148), and a cookie set through the restored handle is immediately visible through
+//   +sharedHTTPCookieStorage. Two handles, one jar.
+//
+// So accepting and discarding leaves every consumer -- WebKit's cookie API and the NSURLSession that
+// performs the loads -- on that one jar. The rejected alternative was to keep an override that
+// +sharedHTTPCookieStorage returned: because the selref rewrite only reaches WebKit-marked images, that
+// would have redirected WebKit's reads while CFNetwork's own internal default went untouched, i.e. an
+// illusion of a swap that is correct only for callers the rewrite happens to cover. No override is kept
+// and +sharedHTTPCookieStorage is left alone, so there is exactly one jar and no way for the two to drift.
+static void wk_httpCookieStorage_setSharedHTTPCookieStorage(id self, SEL _cmd, id storage)
+{
+    (void)self;
+    (void)_cmd;
+    (void)storage;
+}
+
+WK_POLYFILL_ADD_CLASS_METHOD("NSHTTPCookieStorage", "wk__setSharedHTTPCookieStorage:", wk_httpCookieStorage_setSharedHTTPCookieStorage, "v@:@");
+WK_POLYFILL_SEL("_setSharedHTTPCookieStorage:", "wk__setSharedHTTPCookieStorage:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSURLSessionTask _pathToDownloadTaskFile] / -set_pathToDownloadTaskFile: (github #11 / resume).
@@ -3034,3 +3159,196 @@ WK_POLYFILL_SEL("safeAreaInsets", "wk_safeAreaInsets");
 - (void)wk_setMinFullScreenContentSize:(NSSize)size { (void)size; }
 @end
 WK_POLYFILL_SEL("setMinFullScreenContentSize:", "wk_setMinFullScreenContentSize:");
+
+// -[NSKeyedArchiver initRequiringSecureCoding:] and -encodedData (both 10.13+), and
+// -[NSKeyedUnarchiver _enableStrictSecureDecodingMode] (10.13+). All three probed absent on this host.
+//
+// The modern pair replaced the deprecated -initForWritingWithMutableData:/-finishEncoding shape, which
+// 10.9 does have: the caller no longer supplies the backing buffer, so the archiver owns one and hands
+// it back from -encodedData. That is the whole contract, and 10.9 can express it exactly -- allocate the
+// buffer here, keep it on the archiver, and return it once encoding is finished. Correct for any caller,
+// not just WebKit's: a caller that never calls -encodedData just gets an archiver that writes into a
+// buffer it cannot see, which is what the modern initializer does too.
+static const void *wkArchiverBackingDataKey = &wkArchiverBackingDataKey;
+
+static id wk_keyedArchiver_initRequiringSecureCoding(id self, SEL _cmd, BOOL requiresSecureCoding)
+{
+    (void)_cmd;
+    static SEL initWithMutableDataSelector;
+    if (!initWithMutableDataSelector)
+        initWithMutableDataSelector = sel_registerName("initForWritingWithMutableData:");
+
+    NSMutableData *backing = [NSMutableData data];
+    id archiver = ((id (*)(id, SEL, id))objc_msgSend)(self, initWithMutableDataSelector, backing);
+    if (!archiver)
+        return nil;
+    [archiver setRequiresSecureCoding:requiresSecureCoding];
+    objc_setAssociatedObject(archiver, wkArchiverBackingDataKey, backing, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return archiver;
+}
+
+static id wk_keyedArchiver_encodedData(id self, SEL _cmd)
+{
+    (void)_cmd;
+    NSMutableData *backing = objc_getAssociatedObject(self, wkArchiverBackingDataKey);
+    if (!backing)
+        return nil;
+    // -encodedData implies the archive is complete; 10.9 needs the explicit -finishEncoding the modern
+    // accessor performs internally. Measured on this host, 10.9's -finishEncoding is idempotent (three
+    // consecutive calls all succeed and leave the archive intact), so no guard is needed and the present
+    // system method is left alone.
+    typedef void (*WKFinishFn)(id, SEL);
+    ((WKFinishFn)objc_msgSend)(self, sel_registerName("finishEncoding"));
+    // Modern -encodedData vends an immutable NSData. Handing back the live NSMutableData would let a
+    // caller mutate the archive it just asked for, so copy.
+    return [[backing copy] autorelease];
+}
+
+WK_POLYFILL_ADD("NSKeyedArchiver", "wk_initRequiringSecureCoding:", wk_keyedArchiver_initRequiringSecureCoding, "@@:c");
+WK_POLYFILL_SEL("initRequiringSecureCoding:", "wk_initRequiringSecureCoding:");
+WK_POLYFILL_ADD("NSKeyedArchiver", "wk_encodedData", wk_keyedArchiver_encodedData, "@@:");
+WK_POLYFILL_SEL("encodedData", "wk_encodedData");
+
+// -[NSKeyedUnarchiver _enableStrictSecureDecodingMode] (10.13+) opts an unarchiver into rejecting the
+// looser decodes that older secure coding tolerated. 10.9 has no such mode to enable, so doing nothing
+// IS this OS's behaviour -- the decode simply runs under the secure-coding rules 10.9 does implement.
+@interface NSKeyedUnarchiver (WKPolyfillScopeStrictDecoding)
+- (void)wk_enableStrictSecureDecodingMode;
+@end
+@implementation NSKeyedUnarchiver (WKPolyfillScopeStrictDecoding)
+- (void)wk_enableStrictSecureDecodingMode { }
+@end
+WK_POLYFILL_SEL("_enableStrictSecureDecodingMode", "wk_enableStrictSecureDecodingMode");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSURLSession dataTaskWithRequest:] / -uploadTaskWithStreamedRequest: with a STREAM body.
+//
+// 10.9 CFNetwork sends every NSInputStream-bodied task with Transfer-Encoding: chunked and DISCARDS an
+// explicitly-set Content-Length. Measured on the wire against a local server:
+//   dataTaskWithRequest:        + stream + "Content-Length: N"  ->  Chunked, no Content-Length
+//   uploadTaskWithStreamedRequest: + "Content-Length: N"        ->  Chunked, no Content-Length
+//   uploadTaskWithRequest:fromFile:                             ->  Content-Length: N
+// Modern CFNetwork honours the header; many endpoints reject a length-less chunked upload, which broke
+// every <input type=file> upload. The contract being restored is therefore the modern one -- "a request
+// whose caller set Content-Length on a stream body goes out with that Content-Length" -- and it is stated
+// entirely in NSURLRequest terms, so it is correct for any caller, not only WebKit's. Upstream already
+// sets that header on stream bodies (ResourceRequestCocoa: "For streams, provide a Content-Length to
+// avoid using chunked encoding"), which is what makes the length known here without any WebCore type.
+//
+// Spool exactly Content-Length bytes, then hand the file to the one 10.9 body form that carries a length
+// and also replays safely across redirects and auth retries. Anything unexpected -- no header, a short
+// or unreadable stream, a write failure -- falls through to the real selector so upstream's own failure
+// semantics survive rather than being replaced by ours.
+@interface WKPolyfillScopeUploadSpoolOwner : NSObject {
+@public
+    NSString *m_path;
+}
+@end
+@implementation WKPolyfillScopeUploadSpoolOwner
+- (void)dealloc
+{
+    if (m_path)
+        [[NSFileManager defaultManager] removeItemAtPath:m_path error:NULL];
+    [m_path release];
+    [super dealloc];
+}
+@end
+
+static NSURL *wk_spoolStreamBodyToFile(NSURLRequest *request, NSString **pathOut)
+{
+    NSInputStream *stream = [request HTTPBodyStream];
+    NSString *lengthHeader = [request valueForHTTPHeaderField:@"Content-Length"];
+    if (!stream || ![lengthHeader length])
+        return nil;
+    long long expected = [lengthHeader longLongValue];
+    if (expected <= 0)
+        return nil;
+
+    NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"wk-upload-%u-%p", (unsigned)getpid(), request]];
+    if (![[NSFileManager defaultManager] createFileAtPath:path contents:nil attributes:nil])
+        return nil;
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!handle) {
+        [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
+        return nil;
+    }
+
+    [stream open];
+    long long written = 0;
+    uint8_t buffer[64 * 1024];
+    BOOL ok = YES;
+    while (written < expected) {
+        NSInteger wanted = (NSInteger)MIN((long long)sizeof(buffer), expected - written);
+        NSInteger got = [stream read:buffer maxLength:wanted];
+        if (got <= 0) {
+            ok = NO;
+            break;
+        }
+        @try {
+            [handle writeData:[NSData dataWithBytesNoCopy:buffer length:got freeWhenDone:NO]];
+        } @catch (NSException *) {
+            ok = NO;
+            break;
+        }
+        written += got;
+    }
+    [stream close];
+    [handle closeFile];
+
+    // Only a byte-exact spool may be substituted: a short read would ship a different body.
+    if (!ok || written != expected) {
+        [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
+        return nil;
+    }
+    *pathOut = path;
+    return [NSURL fileURLWithPath:path];
+}
+
+static const void *wkUploadSpoolOwnerKey = &wkUploadSpoolOwnerKey;
+
+static id wk_urlSession_taskForStreamedRequest(id self, SEL realSelector, NSURLRequest *request)
+{
+    NSString *path = nil;
+    NSURL *fileURL = wk_spoolStreamBodyToFile(request, &path);
+    if (!fileURL)
+        return ((id (*)(id, SEL, id))objc_msgSend)(self, realSelector, request);
+
+    NSMutableURLRequest *uploadRequest = [[request mutableCopy] autorelease];
+    [uploadRequest setHTTPBodyStream:nil];
+    // Let CFNetwork recompute the length from the file it is about to send.
+    [uploadRequest setValue:nil forHTTPHeaderField:@"Content-Length"];
+
+    id task = ((id (*)(id, SEL, id, id))objc_msgSend)(self, sel_registerName("uploadTaskWithRequest:fromFile:"), uploadRequest, fileURL);
+    if (!task) {
+        [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
+        return ((id (*)(id, SEL, id))objc_msgSend)(self, realSelector, request);
+    }
+    // The spool outlives this call and must die with the task that reads it.
+    WKPolyfillScopeUploadSpoolOwner *owner = [[WKPolyfillScopeUploadSpoolOwner alloc] init];
+    owner->m_path = [path retain];
+    objc_setAssociatedObject(task, wkUploadSpoolOwnerKey, owner, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [owner release];
+    return task;
+}
+
+static id wk_urlSession_dataTaskWithRequest(id self, SEL _cmd, NSURLRequest *request)
+{
+    (void)_cmd;
+    return wk_urlSession_taskForStreamedRequest(self, sel_registerName("dataTaskWithRequest:"), request);
+}
+
+static id wk_urlSession_uploadTaskWithStreamedRequest(id self, SEL _cmd, NSURLRequest *request)
+{
+    (void)_cmd;
+    return wk_urlSession_taskForStreamedRequest(self, sel_registerName("uploadTaskWithStreamedRequest:"), request);
+}
+
+// Registered on the public class AND on the concrete one: NSURLSession is a class cluster whose
+// __NSCFURLSession is NOT a subclass of NSURLSession (measured: __NSCFURLSession -> NSObject), so a
+// method added only to the public class reaches no instance.
+WK_POLYFILL_ADD("NSURLSession", "wk_dataTaskWithRequest:", wk_urlSession_dataTaskWithRequest, "@@:@");
+WK_POLYFILL_ADD("__NSCFURLSession", "wk_dataTaskWithRequest:", wk_urlSession_dataTaskWithRequest, "@@:@");
+WK_POLYFILL_SEL_REPLACES("dataTaskWithRequest:", "wk_dataTaskWithRequest:");
+WK_POLYFILL_ADD("NSURLSession", "wk_uploadTaskWithStreamedRequest:", wk_urlSession_uploadTaskWithStreamedRequest, "@@:@");
+WK_POLYFILL_ADD("__NSCFURLSession", "wk_uploadTaskWithStreamedRequest:", wk_urlSession_uploadTaskWithStreamedRequest, "@@:@");
+WK_POLYFILL_SEL_REPLACES("uploadTaskWithStreamedRequest:", "wk_uploadTaskWithStreamedRequest:");

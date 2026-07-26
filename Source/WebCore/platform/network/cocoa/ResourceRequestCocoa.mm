@@ -54,9 +54,7 @@ ResourceRequest::ResourceRequest(NSURLRequest *nsRequest)
 #if ENABLE(APP_PRIVACY_REPORT)
     setIsAppInitiated(nsRequest.attribution == NSURLRequestAttributionDeveloper);
 #endif
-    // MAVERICKS_BACKPORT: _privacyProxyFailClosedForUnreachableNonMainHosts is 10.10+ private API.
-    if ([nsRequest respondsToSelector:@selector(_privacyProxyFailClosedForUnreachableNonMainHosts)])
-        setPrivacyProxyFailClosedForUnreachableNonMainHosts(nsRequest._privacyProxyFailClosedForUnreachableNonMainHosts);
+    setPrivacyProxyFailClosedForUnreachableNonMainHosts(nsRequest._privacyProxyFailClosedForUnreachableNonMainHosts);
 #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
     setUseAdvancedPrivacyProtections(nsRequest._useEnhancedPrivacyMode);
 #endif
@@ -68,17 +66,6 @@ ResourceRequest::ResourceRequest(ResourceRequestPlatformData&& platformData, con
         if (platformData.m_requester)
             setRequester(*platformData.m_requester);
         m_nsRequest = platformData.m_urlRequest;
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-        // MAVERICKS_BACKPORT: restore the byte-exact URL that the 10.9 NSKeyedArchiver escaped in
-        // transit (see ResourceRequest.h). setURL() marks the platform request dirty, so the
-        // NSURLRequest regenerates from the exact URL on next use, keeping its other fields.
-        if (!platformData.m_exactURL.isNull() && platformData.m_exactURL != URL { [m_nsRequest URL] })
-            setURL(URL { platformData.m_exactURL });
-        // MAVERICKS_BACKPORT: re-apply the HTTPShouldHandleCookies rider dropped by 10.9's archiver
-        // (see getResourceRequestPlatformData() and ResourceRequest.h). Without this every POST — which
-        // serializes via this platform path — decodes with allowCookies=false and loses its cookies.
-        setAllowCookies(platformData.m_shouldHandleCookies);
-#endif
         if (platformData.m_isAppInitiated)
             setIsAppInitiated(*platformData.m_isAppInitiated);
         setPrivacyProxyFailClosedForUnreachableNonMainHosts(platformData.m_privacyProxyFailClosedForUnreachableNonMainHosts);
@@ -125,17 +112,8 @@ ResourceRequestPlatformData ResourceRequest::getResourceRequestPlatformData() co
     }
     ASSERT([requestToSerialize class] == [NSURLRequest class] || [requestToSerialize class] == [NSMutableURLRequest class]);
 
-    // MAVERICKS_BACKPORT: 10.9's ResourceRequestPlatformData carries extra byte-exact URL and
-    // HTTPShouldHandleCookies rider fields (see ResourceRequest.h), so the null-request early return
-    // fills them under !HAVE(WK_SECURE_CODING_NSURLREQUEST).
-    if (!requestToSerialize) {
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-        return ResourceRequestPlatformData { NULL, { }, true, std::nullopt, std::nullopt };
-#else
+    if (!requestToSerialize)
         return ResourceRequestPlatformData { NULL, std::nullopt, std::nullopt };
-    // MAVERICKS_BACKPORT: closes the !HAVE(WK_SECURE_CODING_NSURLREQUEST) split and the null-request early-return block above.
-#endif
-    }
 
     // We don't send HTTP body over IPC for better performance.
     // Also, it's not always possible to do, as streams can only be created in process that does networking.
@@ -147,16 +125,6 @@ ResourceRequestPlatformData ResourceRequest::getResourceRequestPlatformData() co
     }
     return {
         WTF::move(requestToSerialize),
-#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
-        // MAVERICKS_BACKPORT: byte-exact URL rider for the escaping 10.9 archiver (see ResourceRequest.h).
-        url(),
-        // MAVERICKS_BACKPORT: HTTPShouldHandleCookies rider — 10.9's NSURLRequest NSSecureCoding does
-        // not round-trip that flag (it decodes as NO), so carry it alongside the archived request and
-        // re-apply it on decode (see the decode ctor + ResourceRequest.h). This platform path is taken
-        // for every body-bearing request (all POSTs), so without the rider every POST reached the
-        // NetworkProcess with allowCookies=false and had its cookies stripped by the injection gate.
-        allowCookies(),
-#endif
         isAppInitiated(),
         requester(),
         privacyProxyFailClosedForUnreachableNonMainHosts(),
@@ -285,9 +253,7 @@ static void configureRequestWithData(NSMutableURLRequest *request, const Resourc
     UNUSED_PARAM(data);
 #endif
 
-    // MAVERICKS_BACKPORT: _privacyProxyFailClosedForUnreachableNonMainHosts is 10.16+
-    if ([request respondsToSelector:@selector(_setPrivacyProxyFailClosedForUnreachableNonMainHosts:)])
-        request._privacyProxyFailClosedForUnreachableNonMainHosts = data.m_privacyProxyFailClosedForUnreachableNonMainHosts;
+    request._privacyProxyFailClosedForUnreachableNonMainHosts = data.m_privacyProxyFailClosedForUnreachableNonMainHosts;
 
 #if HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
     request._useEnhancedPrivacyMode = data.m_useAdvancedPrivacyProtections;
@@ -310,7 +276,6 @@ void ResourceRequest::doUpdatePlatformRequest()
 
     configureRequestWithData(nsRequest.get(), m_requestData);
 
-/* MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
     if (ResourceRequest::httpPipeliningEnabled())
         CFURLRequestSetShouldPipelineHTTP([nsRequest _CFURLRequest], true, true);
 
@@ -322,43 +287,23 @@ void ResourceRequest::doUpdatePlatformRequest()
             _CFURLRequestSetProtocolProperty([nsRequest _CFURLRequest], CFSTR("WKVeryLowLoadPriority"), kCFBooleanTrue);
     }
 
-MAVERICKS_BACKPORT */
     [nsRequest setCachePolicy:toPlatformRequestCachePolicy(cachePolicy())];
-// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
-//     _CFURLRequestSetProtocolProperty([nsRequest _CFURLRequest], kCFURLRequestAllowAllPOSTCaching, kCFBooleanTrue);
-// (end MAVERICKS_BACKPORT restored block)
+    _CFURLRequestSetProtocolProperty([nsRequest _CFURLRequest], kCFURLRequestAllowAllPOSTCaching, kCFBooleanTrue);
 
-    // MAVERICKS_BACKPORT: 10.9's NSURLSession gives a request-level timeoutInterval precedence over
-    // NSURLSessionConfiguration.timeoutIntervalForRequest, while modern CFNetwork enforces the
-    // config-level 60s idle backstop regardless. Upstream deliberately ships effectively-infinite
-    // request timeouts relying on that backstop (Safari seeds the process-wide default with INT_MAX
-    // via WKURLRequestSetDefaultTimeoutInterval, and XMLHttpRequest uses infinity when no XHR timeout
-    // is set), so on 10.9 every load would run with no timeout at all and a response that never
-    // arrives (e.g. a proxied keepalive-reuse race dropping a request) hangs its load forever.
-    // Restore the modern contract by mapping the infinite sentinels to the platform default idle
-    // timeout (60s, NSURLRequest's documented default, which WebKit's session config leaves untouched).
-    // Finite page-specified timeouts (e.g. XHR's timeout attribute) pass through unchanged.
-    auto clampInfiniteTimeoutInterval = [](double interval) {
-        return interval >= INT_MAX ? 60.0 : interval;
-    };
     if (double newTimeoutInterval = timeoutInterval())
-        // MAVERICKS_BACKPORT: clamp the infinite timeout sentinel to the 60s idle backstop (see above).
-        [nsRequest setTimeoutInterval:clampInfiniteTimeoutInterval(newTimeoutInterval)];
+        [nsRequest setTimeoutInterval:newTimeoutInterval];
     else
-        // MAVERICKS_BACKPORT: clamp the infinite default-timeout sentinel to the 60s idle backstop (see above).
-        [nsRequest setTimeoutInterval:clampInfiniteTimeoutInterval(defaultTimeoutInterval())];
+        [nsRequest setTimeoutInterval:defaultTimeoutInterval()];
 
     [nsRequest setMainDocumentURL:firstPartyForCookies().createNSURL().get()];
     if (!httpMethod().isEmpty())
         [nsRequest setHTTPMethod:httpMethod().createNSString().get()];
     [nsRequest setHTTPShouldHandleCookies:allowCookies()];
 
-// MAVERICKS_BACKPORT: upstream's SameSite cookie-policy request properties. Kept commented, not deleted: _kCFHTTPCookiePolicyPropertySiteForCookies and _kCFHTTPCookiePolicyPropertyIsTopLevelNavigation do not exist in 10.9's CFNetwork, which has no SameSite notion at all.
-//     [nsRequest _setProperty:RetainPtr { siteForCookies(m_requestData.m_sameSiteDisposition, retainPtr([nsRequest URL]).get()) }.get() forKey:@"_kCFHTTPCookiePolicyPropertySiteForCookies"];
-//     // FIXME: This is a safer cpp false positive (rdar://160851489).
-//     SUPPRESS_UNRETAINED_ARG [nsRequest _setProperty:m_requestData.m_isTopSite ? @YES : @NO forKey:@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"];
-//
-// (end MAVERICKS_BACKPORT restored block)
+    [nsRequest _setProperty:RetainPtr { siteForCookies(m_requestData.m_sameSiteDisposition, retainPtr([nsRequest URL]).get()) }.get() forKey:@"_kCFHTTPCookiePolicyPropertySiteForCookies"];
+    // FIXME: This is a safer cpp false positive (rdar://160851489).
+    SUPPRESS_UNRETAINED_ARG [nsRequest _setProperty:m_requestData.m_isTopSite ? @YES : @NO forKey:@"_kCFHTTPCookiePolicyPropertyIsTopLevelNavigation"];
+
     // Cannot just use setAllHTTPHeaderFields here, because it does not remove headers.
     for (NSString *oldHeaderName in [nsRequest allHTTPHeaderFields])
         [nsRequest setValue:nil forHTTPHeaderField:oldHeaderName];

@@ -61,10 +61,6 @@ header: <WebCore/ResourceRequest.h>
 #endif
 #if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
     [SecureCodingAllowed=[NSMutableURLRequest.class, NSURLRequest.class]] RetainPtr<NSURLRequest> m_urlRequest;
-    # MAVERICKS_BACKPORT: serialize the exact WTF URL alongside the archived NSURLRequest; 10.9's legacy NSKeyedArchiver IPC path percent-escapes the request URL, so it is re-applied after decode for byte-exact IPC.
-    URL m_exactURL;
-    # MAVERICKS_BACKPORT: serialize HTTPShouldHandleCookies alongside the archived NSURLRequest; 10.9's NSURLRequest NSSecureCoding does not round-trip that flag (decodes as NO), so it is re-applied after decode. Without it every body-bearing (POST) request loses its cookies over IPC.
-    bool m_shouldHandleCookies;
 #endif
     std::optional<bool> m_isAppInitiated;
     std::optional<WebCore::ResourceRequestRequester> m_requester;

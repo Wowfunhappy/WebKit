@@ -8,6 +8,7 @@
 #include "wk_polyfill.h"
 
 #import <Foundation/Foundation.h>
+#include <dlfcn.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
 #include <CommonCrypto/CommonCrypto.h>
@@ -91,18 +92,71 @@ WK_POLYFILL_ABSENT("CoreServices", Boolean, UTTypeIsDeclared, (CFStringRef inUTI
 // CFNetwork — features absent on 10.9; callers tolerate null/no-op.
 // ---------------------------------------------------------------------------------------------------
 
-// Cross-process handoff of an identified cookie store. 10.9 has no identifying-data API; returning
-// null makes CookieStorageUtilsCF fall back to the default shared storage (its own comment notes this).
-WK_POLYFILL_ABSENT("CFNetwork", void *, CFHTTPCookieStorageCreateIdentifyingData, (CFAllocatorRef allocator, void *storage))
+// Cross-process handoff of an identified cookie store: one process turns its storage into an opaque
+// CFData, another turns that CFData back into the same store. 10.9 lacks the identifying-data pair, but it
+// has the two halves the pair is made of -- CFHTTPCookieStorageCreateArchive and
+// CFHTTPCookieStorageCreateFromArchive, both exported (note: no leading underscore in the C names) and
+// both taking (allocator, thing), read off the disassembly. The archive is a CFArray of cookie property
+// dictionaries -- CFHTTPCookieStorageCreateFromArchive's first act is CFArrayGetCount on it -- so a
+// property list carries it across the process boundary as the CFData the API's shape requires.
+//
+// Measured on this host: an in-memory storage archives to a 5-element CFArray, serializes to 62 bytes,
+// and rehydrates into a live storage. Returning NULL here instead (what this used to do) is a fake value:
+// it forced a NULL check into CookieStorageUtilsCF and made NetworkProcess skip installing the shared
+// storage at all, so the process silently ran on a different cookie jar than the one it was handed.
+// Resolved with dlsym, not declared extern: both live in 10.9's CFNetwork but neither is in the 26.1
+// SDK's stub library, so a link-time reference fails to build even though the call works at runtime.
+typedef CFArrayRef (*wk_cookieArchiveCreate)(CFAllocatorRef, void *);
+typedef void *(*wk_cookieArchiveRestore)(CFAllocatorRef, CFArrayRef);
+
+static wk_cookieArchiveCreate wk_cookieStorageCreateArchive(void)
 {
-    (void)allocator; (void)storage;
-    return NULL;
+    static wk_cookieArchiveCreate function;
+    static bool resolved;
+    if (!resolved) {
+        function = (wk_cookieArchiveCreate)dlsym(RTLD_DEFAULT, "CFHTTPCookieStorageCreateArchive");
+        resolved = true;
+    }
+    return function;
+}
+
+static wk_cookieArchiveRestore wk_cookieStorageCreateFromArchive(void)
+{
+    static wk_cookieArchiveRestore function;
+    static bool resolved;
+    if (!resolved) {
+        function = (wk_cookieArchiveRestore)dlsym(RTLD_DEFAULT, "CFHTTPCookieStorageCreateFromArchive");
+        resolved = true;
+    }
+    return function;
+}
+
+WK_POLYFILL_ABSENT("CFNetwork", CFDataRef, CFHTTPCookieStorageCreateIdentifyingData, (CFAllocatorRef allocator, void *storage))
+{
+    if (!storage)
+        return NULL;
+    wk_cookieArchiveCreate createArchive = wk_cookieStorageCreateArchive();
+    CFArrayRef archive = createArchive ? createArchive(allocator, storage) : NULL;
+    if (!archive)
+        return NULL;
+    CFDataRef data = CFPropertyListCreateData(allocator, archive, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
+    CFRelease(archive);
+    return data;
 }
 
 WK_POLYFILL_ABSENT("CFNetwork", void *, CFHTTPCookieStorageCreateFromIdentifyingData, (CFAllocatorRef allocator, CFDataRef data))
 {
-    (void)allocator; (void)data;
-    return NULL;
+    if (!data)
+        return NULL;
+    CFArrayRef archive = (CFArrayRef)CFPropertyListCreateWithData(allocator, data, kCFPropertyListMutableContainers, NULL, NULL);
+    if (!archive)
+        return NULL;
+    wk_cookieArchiveRestore restoreArchive = wk_cookieStorageCreateFromArchive();
+    void *storage = NULL;
+    if (restoreArchive && CFGetTypeID(archive) == CFArrayGetTypeID())
+        storage = restoreArchive(allocator, archive);
+    CFRelease(archive);
+    return storage;
 }
 
 // App Transport Security context (10.11+). No ATS on 10.9: nothing to copy, nothing to set.

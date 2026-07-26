@@ -444,16 +444,7 @@ bool isSerializableValue(id value)
 
 template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder, NSObject<NSSecureCoding> *object)
 {
-    // MAVERICKS_BACKPORT: initRequiringSecureCoding: is 10.13+. Use the deprecated
-    // initForWritingWithMutableData: with secure coding enabled.
-    RetainPtr<NSMutableData> mutableData = adoptNS([[NSMutableData alloc] init]);
-    RetainPtr<NSKeyedArchiver> archiver;
-    if ([NSKeyedArchiver instancesRespondToSelector:@selector(initRequiringSecureCoding:)])
-        archiver = adoptNS([[NSKeyedArchiver alloc] initRequiringSecureCoding:YES]);
-    else {
-        archiver = adoptNS([[NSKeyedArchiver alloc] initForWritingWithMutableData:mutableData.get()]);
-        [archiver setRequiresSecureCoding:YES];
-    }
+    auto archiver = adoptNS([[NSKeyedArchiver alloc] initRequiringSecureCoding:YES]);
 
     auto delegate = adoptNS([[WKSecureCodingArchivingDelegate alloc] init]);
 
@@ -502,13 +493,7 @@ template<> void encodeObjectDirectly<NSObject<NSSecureCoding>>(Encoder& encoder,
     [archiver finishEncoding];
     [archiver setDelegate:nil];
 
-    // MAVERICKS_BACKPORT: -[NSKeyedArchiver encodedData] is 10.13+. Use mutableData
-    // (passed at init) when not available.
-    RetainPtr<CFDataRef> archivedData;
-    if ([archiver respondsToSelector:@selector(encodedData)])
-        archivedData = (__bridge CFDataRef)[archiver encodedData];
-    else
-        archivedData = (__bridge CFDataRef)mutableData.get();
+    RetainPtr<CFDataRef> archivedData = bridge_cast([archiver encodedData]);
     encoder << archivedData;
 }
 
@@ -662,11 +647,8 @@ template<> std::optional<RetainPtr<id>> decodeObjectDirectlyRequiringAllowedClas
     for (auto& allowedClass : allowedClasses)
         [allowedClassSet addObject:allowedClass.get()];
 
-    if (shouldEnableStrictMode(decoder, allowedClasses)) {
-        // MAVERICKS_BACKPORT: _enableStrictSecureDecodingMode is 10.13+.
-        if ([unarchiver respondsToSelector:@selector(_enableStrictSecureDecodingMode)])
-            [unarchiver _enableStrictSecureDecodingMode];
-    }
+    if (shouldEnableStrictMode(decoder, allowedClasses))
+        [unarchiver _enableStrictSecureDecodingMode];
 
     @try {
         id result = [unarchiver decodeObjectOfClasses:allowedClassSet.get() forKey:NSKeyedArchiveRootObjectKey];

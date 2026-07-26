@@ -26,10 +26,6 @@
 #import "config.h"
 #import "NetworkSessionCocoa.h"
 
-// MAVERICKS_BACKPORT: pull in the ObjC runtime headers for the respondsToSelector / KVC runtime checks used below.
-#import <objc/runtime.h>
-#import <objc/message.h>
-
 #import "AppStoreDaemonSPI.h"
 #import "AuthenticationChallengeDisposition.h"
 #import "AuthenticationManager.h"
@@ -270,15 +266,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 #undef STRINGIFY_CIPHER
 }
 
-// MAVERICKS_BACKPORT: NOTE (2026-06-14): a swizzle of NSObject's `_changeValueForKey:key:key:usingBlock:`
-// used to live here to keep the NetworkProcess alive through a crash in NSURLSession's
-// NSOperation KVO. It was a MASK (it converted the crash into a silent delegate-queue
-// stall -> blank pages) and has been REMOVED. The crash is a symptom of the systemic
-// heap corruption documented in webkit-mavericks-hack-audit / WordLock.cpp
-// (ThreadSafeWeakPtrControlBlock m_word overwritten with 0xffffffff by a neighboring
-// allocation in the NetworkProcess). The process must crash loudly on that bug until
-// the real root cause is fixed -- do NOT reintroduce a mask here.
-
 @interface WKNetworkSessionDelegate : NSObject <NSURLSessionDataDelegate, NSURLSessionWebSocketDelegate> {
     WeakPtr<WebKit::NetworkSessionCocoa> _session;
     WeakPtr<WebKit::SessionWrapper> _sessionWrapper;
@@ -355,9 +342,8 @@ static RetainPtr<NSURLRequest> downgradeRequest(NSURLRequest *request)
     auto nsMutableRequest = adoptNS([request mutableCopy]);
     if ([[nsMutableRequest URL].scheme isEqualToString:@"https"]) {
         RetainPtr components = [NSURLComponents componentsWithURL:retainPtr([nsMutableRequest URL]).get() resolvingAgainstBaseURL:NO];
-        // MAVERICKS_BACKPORT: cast the RetainPtr to NSURLComponents * so -setScheme:/-URL resolve on 10.9.
-        [(NSURLComponents *)components.get() setScheme:@"http"];
-        [nsMutableRequest setURL:[(NSURLComponents *)components.get() URL]];
+        components.get().scheme = @"http";
+        [nsMutableRequest setURL:components.get().URL];
         ASSERT([[nsMutableRequest URL].scheme isEqualToString:@"http"]);
         return nsMutableRequest;
     }
@@ -773,8 +759,7 @@ static NSDictionary<NSString *, id> *extractResolutionReport(NSError *error)
         };
 
         auto& networkLoadMetrics = networkDataTask->networkLoadMetrics();
-        // MAVERICKS_BACKPORT: cast firstObject to NSURLSessionTaskTransactionMetrics * so -fetchStartDate resolves on 10.9.
-        networkLoadMetrics.redirectStart = dateToMonotonicTime(retainPtr(((NSURLSessionTaskTransactionMetrics *)transactionMetrics.get().firstObject).fetchStartDate).get());
+        networkLoadMetrics.redirectStart = dateToMonotonicTime(retainPtr(transactionMetrics.get().firstObject.fetchStartDate).get());
         networkLoadMetrics.fetchStart = dateToMonotonicTime(retainPtr(m.get().fetchStartDate).get());
         networkLoadMetrics.domainLookupStart = dateToMonotonicTime(retainPtr(m.get().domainLookupStartDate).get());
         networkLoadMetrics.domainLookupEnd = dateToMonotonicTime(retainPtr(m.get().domainLookupEndDate).get());
@@ -1725,10 +1710,6 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
     enableAdvancedPrivacyProtections(ensureMutableRequest().get(), advancedPrivacyProtections);
 
     Ref sessionSet = sessionSetForPage(webPageProxyID);
-    // MAVERICKS_BACKPORT: -[NSURLSession webSocketTaskWithRequest:] (10.15+) is absent on 10.9; the
-    // WebKit-scoped selref mechanism rewrites this send to the host-safe -wk_webSocketTaskWithRequest:
-    // installed on the NSURLSession class cluster by WebSocketPolyfill_109.mm (WK_POLYFILL_SEL/_ADD),
-    // which returns a WKWebSocketStream. Upstream call site is otherwise unchanged.
     RetainPtr task = [sessionSet->sessionWithCredentialStorage->session webSocketTaskWithRequest:nsRequest.get()];
     
     // Although the WebSocket protocol allows full 64-bit lengths, Chrome and Firefox limit the length to 2^63 - 1.

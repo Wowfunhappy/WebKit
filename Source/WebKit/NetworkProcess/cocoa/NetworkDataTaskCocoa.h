@@ -120,9 +120,6 @@ private:
     bool m_isForMainResourceNavigationForAnyFrame { false };
     RefPtr<WebCore::SecurityOrigin> m_sourceOrigin;
     uint64_t m_requiredCookiesVersion { 0 };
-    // MAVERICKS_BACKPORT: temporary file holding a materialized file-backed request body
-    // (see materializeFileBackedRequestBody in NetworkDataTaskCocoa.mm); deleted with the task.
-    String m_uploadBodyTemporaryPath;
 };
 
 WebCore::Credential serverTrustCredential(const WebCore::AuthenticationChallenge&);

@@ -98,11 +98,7 @@ void NetworkProcess::platformInitializeNetworkProcessCocoa(const NetworkProcessC
     initializeNetworkSettings();
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)
-    // MAVERICKS_BACKPORT: cookieStorageFromIdentifyingData uses 10.10+ private API that
-    // crashes on 10.9 when the identifier is empty/invalid. Skip if empty; NSURLSession
-    // falls back to a fresh per-process cookie storage, which is fine for HTTP loads.
-    if (!parameters.uiProcessCookieStorageIdentifier.isEmpty())
-        setSharedHTTPCookieStorage(parameters.uiProcessCookieStorageIdentifier);
+    setSharedHTTPCookieStorage(parameters.uiProcessCookieStorageIdentifier);
 #endif
 
     // Allow the network process to materialize files stored in the cloud so that loading/reading such files actually succeeds.
@@ -230,12 +226,6 @@ void NetworkProcess::clearDiskCache(WallTime modifiedSince, CompletionHandler<vo
 void NetworkProcess::setSharedHTTPCookieStorage(const Vector<uint8_t>& identifier)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
-    // MAVERICKS_BACKPORT: -_initWithCFHTTPCookieStorage: and +_setSharedHTTPCookieStorage:
-    // are 10.10+ SPI on NSHTTPCookieStorage. Skip when unavailable — the network
-    // path falls back to the default shared cookie storage.
-    if (![NSHTTPCookieStorage instancesRespondToSelector:@selector(_initWithCFHTTPCookieStorage:)]
-        || ![NSHTTPCookieStorage respondsToSelector:@selector(_setSharedHTTPCookieStorage:)])
-        return;
     [NSHTTPCookieStorage _setSharedHTTPCookieStorage:adoptNS([[NSHTTPCookieStorage alloc] _initWithCFHTTPCookieStorage:cookieStorageFromIdentifyingData(identifier).get()]).get()];
 }
 #endif
@@ -257,20 +247,13 @@ void saveCookies(NSHTTPCookieStorage *cookieStorage, CompletionHandler<void()>&&
 
 void NetworkProcess::platformFlushCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
 {
-    UNUSED_PARAM(sessionID);
-    // MAVERICKS_BACKPORT: persist cookies to disk at shutdown via the process-wide cookie jar.
-    //
-    // Upstream derives the cookie storage from the session's NSURLStorageSession; on 10.9 that
-    // wrapper object can be freed/stale during didClose (faults even on class introspection), which
-    // is why the explicit flush was previously skipped. But on 10.9 every network session's cookie
-    // jar IS +[NSHTTPCookieStorage sharedHTTPCookieStorage] (see the session setup in
-    // NetworkSessionCocoa), and that singleton is never freed — so flush THAT instead. saveCookies()
-    // then runs upstream unchanged; -_saveCookies: routes to 10.9's -_saveCookies via the wk_ polyfill.
-    //
-    // The earlier "skipping is safe, NSHTTPCookieStorage persists on its own" assumption was FALSE:
-    // verified that a JS-set persistent cookie was absent from Cookies.binarycookies after a graceful
-    // quit, i.e. session-set cookies (logins/preferences) were silently lost across restarts.
-    saveCookies([NSHTTPCookieStorage sharedHTTPCookieStorage], WTF::move(completionHandler));
+    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
+    CheckedPtr networkStorageSession = storageSession(sessionID);
+    if (!networkStorageSession)
+        return completionHandler();
+
+    RetainPtr cookieStorage = networkStorageSession->nsCookieStorage();
+    saveCookies(cookieStorage.get(), WTF::move(completionHandler));
 }
 
 const String& NetworkProcess::uiProcessBundleIdentifier() const
