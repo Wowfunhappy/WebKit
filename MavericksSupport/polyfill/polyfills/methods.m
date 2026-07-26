@@ -18,6 +18,8 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <QuartzCore/QuartzCore.h>
 #import <dlfcn.h>
+#import <errno.h>
+#import <limits.h>
 #import <fcntl.h>
 #import <sys/stat.h>
 #import <mach/mach.h>
@@ -121,8 +123,8 @@ WK_POLYFILL_SEL("isLowPowerModeEnabled", "wk_isLowPowerModeEnabled");
 // partition, -cookiesForURL: is the whole answer.
 // _setCookies:forURL:mainDocumentURL:policyProperties: is -setCookies:forURL:mainDocumentURL: plus a
 // policy dictionary 10.9 cannot honour. _getCookiesForDomain: returns every unpartitioned cookie whose
-// domain attribute domain-matches the host (RFC 6265). _saveCookies: flushes the store to disk; 10.9's
-// shared store persists itself, so the flush is a synchronous no-op that just invokes the completion.
+// domain attribute domain-matches the host (RFC 6265). _saveCookies: is polyfilled further down, over 10.9's
+// PRESENT argument-less -_saveCookies.
 // _setCookiesChangedHandler:/_setCookiesRemovedHandler:/_setSubscribedDomainsForCookieChanges: are the
 // HAVE(COOKIE_CHANGE_LISTENER_API) observer hooks (CookieStore API / document.cookie change events);
 // 10.9 has no cookie-change machinery, so registering them as no-ops lets the observer path run and
@@ -131,7 +133,6 @@ WK_POLYFILL_SEL("isLowPowerModeEnabled", "wk_isLowPowerModeEnabled");
 - (void)wk__getCookiesForURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL partition:(NSString *)partition policyProperties:(NSDictionary *)policyProperties completionHandler:(void (^)(NSArray<NSHTTPCookie *> *))completionHandler;
 - (void)wk__setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL policyProperties:(NSDictionary *)policyProperties;
 - (NSArray<NSHTTPCookie *> *)wk__getCookiesForDomain:(NSString *)domain;
-- (void)wk__saveCookies:(void (^)(void))completionHandler;
 - (void)wk__setCookiesChangedHandler:(void (^)(NSArray<NSHTTPCookie *> *addedCookies, NSString *domainForChangedCookie))handler onQueue:(dispatch_queue_t)queue;
 - (void)wk__setCookiesRemovedHandler:(void (^)(NSArray<NSHTTPCookie *> *removedCookies, NSString *domainForRemovedCookies, BOOL removeAllCookies))handler onQueue:(dispatch_queue_t)queue;
 - (void)wk__setSubscribedDomainsForCookieChanges:(NSSet<NSString *> *)domains;
@@ -161,7 +162,6 @@ WK_POLYFILL_SEL("isLowPowerModeEnabled", "wk_isLowPowerModeEnabled");
     }
     return result;
 }
-- (void)wk__saveCookies:(void (^)(void))completionHandler { if (completionHandler) completionHandler(); }
 - (void)wk__setCookiesChangedHandler:(void (^)(NSArray<NSHTTPCookie *> *, NSString *))handler onQueue:(dispatch_queue_t)queue { (void)handler; (void)queue; }
 - (void)wk__setCookiesRemovedHandler:(void (^)(NSArray<NSHTTPCookie *> *, NSString *, BOOL))handler onQueue:(dispatch_queue_t)queue { (void)handler; (void)queue; }
 - (void)wk__setSubscribedDomainsForCookieChanges:(NSSet<NSString *> *)domains { (void)domains; }
@@ -169,7 +169,6 @@ WK_POLYFILL_SEL("isLowPowerModeEnabled", "wk_isLowPowerModeEnabled");
 WK_POLYFILL_SEL("_getCookiesForURL:mainDocumentURL:partition:policyProperties:completionHandler:", "wk__getCookiesForURL:mainDocumentURL:partition:policyProperties:completionHandler:");
 WK_POLYFILL_SEL("_setCookies:forURL:mainDocumentURL:policyProperties:", "wk__setCookies:forURL:mainDocumentURL:policyProperties:");
 WK_POLYFILL_SEL("_getCookiesForDomain:", "wk__getCookiesForDomain:");
-WK_POLYFILL_SEL("_saveCookies:", "wk__saveCookies:");
 WK_POLYFILL_SEL("_setCookiesChangedHandler:onQueue:", "wk__setCookiesChangedHandler:onQueue:");
 WK_POLYFILL_SEL("_setCookiesRemovedHandler:onQueue:", "wk__setCookiesRemovedHandler:onQueue:");
 WK_POLYFILL_SEL("_setSubscribedDomainsForCookieChanges:", "wk__setSubscribedDomainsForCookieChanges:");
@@ -1404,7 +1403,6 @@ WK_POLYFILL_SEL("unarchivedObjectOfClass:fromData:error:", "wk_unarchivedObjectO
 WK_POLYFILL_SEL("unarchivedObjectOfClasses:fromData:error:", "wk_unarchivedObjectOfClasses:fromData:error:");
 
 static char kWKKeyedArchiverDataKey;
-static char kWKKeyedArchiverFinishedKey;
 @interface NSKeyedArchiver (WKPolyfillScope)
 + (NSData *)wk_archivedDataWithRootObject:(id)root requiringSecureCoding:(BOOL)requireSecure error:(NSError **)error;
 - (instancetype)wk_initRequiringSecureCoding:(BOOL)requireSecure;
@@ -1426,13 +1424,16 @@ static char kWKKeyedArchiverFinishedKey;
 }
 - (NSData *)wk_encodedData
 {
-    if (!objc_getAssociatedObject(self, &kWKKeyedArchiverFinishedKey)) {
-        [self finishEncoding];
-        objc_setAssociatedObject(self, &kWKKeyedArchiverFinishedKey, (id)kCFBooleanTrue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
+    // -finishEncoding unconditionally: measured on this host, 10.9's is idempotent (three consecutive
+    // calls all succeed and leave the archive intact), so there is nothing to guard against and a
+    // caller that finished the archive itself is not penalised.
+    [self finishEncoding];
     // nil for an archiver built through some other initializer: only the paired init above records a
     // buffer, and that pairing is the modern API's own (initRequiringSecureCoding: -> encodedData).
-    return objc_getAssociatedObject(self, &kWKKeyedArchiverDataKey);
+    // Copied because the modern property vends immutable NSData; handing back the live NSMutableData
+    // would let a caller mutate the archive it just asked for.
+    NSMutableData *backing = objc_getAssociatedObject(self, &kWKKeyedArchiverDataKey);
+    return backing ? [[backing copy] autorelease] : nil;
 }
 + (NSData *)wk_archivedDataWithRootObject:(id)root requiringSecureCoding:(BOOL)requireSecure error:(NSError **)error
 {
@@ -1929,14 +1930,24 @@ static CFStringRef wk_storageSessionIsPrivateKey(void)
     return key;
 }
 
-static CFDictionaryRef wk_storageSessionProperties(BOOL isPrivate)
+// Returns NULL ONLY as "could not build the contract"; callers must treat that as a hard failure, never
+// as "create the session without the key". Passing NULL properties selects CFNetwork's PERSISTENT branch,
+// so a private:YES request that fell back to NULL would silently get an on-disk, app-identifier-keyed jar
+// -- the exact defect this key was added to fix.
+static CFDictionaryRef wk_storageSessionProperties(BOOL isPrivate, bool *outFailed)
 {
+    *outFailed = false;
     CFStringRef key = wk_storageSessionIsPrivateKey();
-    if (!key)
+    if (!key) {
+        *outFailed = true;
         return NULL;
+    }
     const void *keys[] = { key };
     const void *values[] = { isPrivate ? kCFBooleanTrue : kCFBooleanFalse };
-    return CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionaryRef properties = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    if (!properties)
+        *outFailed = true;
+    return properties;
 }
 
 typedef struct OpaqueCFURLStorageSession *CFURLStorageSessionRef;
@@ -1975,7 +1986,14 @@ static id wk_httpCookieStorage_initWithIdentifierPrivate(id self, SEL _cmd, NSSt
     // kCFBooleanTrue and takes the PERSISTENT branch otherwise, so an empty dictionary produced an
     // on-disk, app-identifier-keyed jar that outlived the process -- the opposite of private, and
     // measured surviving across two runs before this was corrected.
-    CFDictionaryRef privateProperties = wk_storageSessionProperties(isPrivate);
+    bool propertiesFailed = false;
+    CFDictionaryRef privateProperties = wk_storageSessionProperties(isPrivate, &propertiesFailed);
+    if (propertiesFailed) {
+        // No key means the privacy contract cannot be expressed. Creating the session anyway would hand a
+        // private:YES caller a persistent jar and a private:NO caller no guarantee at all, so fail here.
+        [self release];
+        return nil;
+    }
     CFURLStorageSessionRef session = _CFURLStorageSessionCreate(kCFAllocatorDefault, (CFStringRef)identifier, privateProperties);
     if (privateProperties)
         CFRelease(privateProperties);
@@ -1984,10 +2002,8 @@ static id wk_httpCookieStorage_initWithIdentifierPrivate(id self, SEL _cmd, NSSt
     if (session)
         CFRelease(session);
 
-    // A session that could not be created or has no cookie storage still has to yield a usable jar rather
-    // than a nil the caller cannot distinguish; an in-memory one is the honest fallback.
-    if (!storage)
-        storage = _CFHTTPCookieStorageCreateInMemory(kCFAllocatorDefault, NULL);
+    // No in-memory substitution: for private:NO that would be a jar that silently never persists, which is
+    // a fake value. A failed session is an initializer failure, reported the way the twin below reports it.
     if (!storage) {
         [self release];
         return nil;
@@ -2028,7 +2044,12 @@ static id wk_credentialStorage_initWithIdentifierPrivate(id self, SEL _cmd, NSSt
     // Same real key as the cookie twin above. The credential path happens to read any non-NULL dict as
     // private (it tests == kCFBooleanFalse for persistent), but spelling the contract out is what makes
     // both correct for the same reason instead of by opposite accident.
-    CFDictionaryRef privateProperties = wk_storageSessionProperties(isPrivate);
+    bool propertiesFailed = false;
+    CFDictionaryRef privateProperties = wk_storageSessionProperties(isPrivate, &propertiesFailed);
+    if (propertiesFailed) {
+        [self release];
+        return nil;
+    }
     CFURLStorageSessionRef session = _CFURLStorageSessionCreate(kCFAllocatorDefault, (CFStringRef)identifier, privateProperties);
     if (privateProperties)
         CFRelease(privateProperties);
@@ -3041,17 +3062,6 @@ WK_POLYFILL_SEL("getSharingServicesForItems:mask:completion:", "wk_getSharingSer
 @end
 WK_POLYFILL_SEL("labelWithString:", "wk_labelWithString:");
 
-// +[NSColor secondaryLabelColor] (10.10+): the de-emphasised label colour. 10.9's semantic equivalent is
-// +disabledControlTextColor, the system's own "less prominent text" colour, so the value tracks the user's
-// appearance settings rather than being a hardcoded grey.
-@interface NSColor (WKPolyfillScopeSecondaryLabel)
-+ (NSColor *)wk_secondaryLabelColor;
-@end
-@implementation NSColor (WKPolyfillScopeSecondaryLabel)
-+ (NSColor *)wk_secondaryLabelColor { return [NSColor disabledControlTextColor]; }
-@end
-WK_POLYFILL_SEL("secondaryLabelColor", "wk_secondaryLabelColor");
-
 // -[NSView safeAreaInsets] (11.0+). A safe-area inset describes screen furniture (notch, home indicator)
 // intruding on a view. 10.9 has none, and NSEdgeInsetsZero is exactly what modern AppKit returns for a
 // view with nothing intruding — so this is the correct answer here, not a placeholder.
@@ -3073,55 +3083,6 @@ WK_POLYFILL_SEL("safeAreaInsets", "wk_safeAreaInsets");
 - (void)wk_setMinFullScreenContentSize:(NSSize)size { (void)size; }
 @end
 WK_POLYFILL_SEL("setMinFullScreenContentSize:", "wk_setMinFullScreenContentSize:");
-
-// -[NSKeyedArchiver initRequiringSecureCoding:] and -encodedData (both 10.13+), and
-// -[NSKeyedUnarchiver _enableStrictSecureDecodingMode] (10.13+). All three probed absent on this host.
-//
-// The modern pair replaced the deprecated -initForWritingWithMutableData:/-finishEncoding shape, which
-// 10.9 does have: the caller no longer supplies the backing buffer, so the archiver owns one and hands
-// it back from -encodedData. That is the whole contract, and 10.9 can express it exactly -- allocate the
-// buffer here, keep it on the archiver, and return it once encoding is finished. Correct for any caller,
-// not just WebKit's: a caller that never calls -encodedData just gets an archiver that writes into a
-// buffer it cannot see, which is what the modern initializer does too.
-static const void *wkArchiverBackingDataKey = &wkArchiverBackingDataKey;
-
-static id wk_keyedArchiver_initRequiringSecureCoding(id self, SEL _cmd, BOOL requiresSecureCoding)
-{
-    (void)_cmd;
-    static SEL initWithMutableDataSelector;
-    if (!initWithMutableDataSelector)
-        initWithMutableDataSelector = sel_registerName("initForWritingWithMutableData:");
-
-    NSMutableData *backing = [NSMutableData data];
-    id archiver = ((id (*)(id, SEL, id))objc_msgSend)(self, initWithMutableDataSelector, backing);
-    if (!archiver)
-        return nil;
-    [archiver setRequiresSecureCoding:requiresSecureCoding];
-    objc_setAssociatedObject(archiver, wkArchiverBackingDataKey, backing, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    return archiver;
-}
-
-static id wk_keyedArchiver_encodedData(id self, SEL _cmd)
-{
-    (void)_cmd;
-    NSMutableData *backing = objc_getAssociatedObject(self, wkArchiverBackingDataKey);
-    if (!backing)
-        return nil;
-    // -encodedData implies the archive is complete; 10.9 needs the explicit -finishEncoding the modern
-    // accessor performs internally. Measured on this host, 10.9's -finishEncoding is idempotent (three
-    // consecutive calls all succeed and leave the archive intact), so no guard is needed and the present
-    // system method is left alone.
-    typedef void (*WKFinishFn)(id, SEL);
-    ((WKFinishFn)objc_msgSend)(self, sel_registerName("finishEncoding"));
-    // Modern -encodedData vends an immutable NSData. Handing back the live NSMutableData would let a
-    // caller mutate the archive it just asked for, so copy.
-    return [[backing copy] autorelease];
-}
-
-WK_POLYFILL_ADD("NSKeyedArchiver", "wk_initRequiringSecureCoding:", wk_keyedArchiver_initRequiringSecureCoding, "@@:c");
-WK_POLYFILL_SEL("initRequiringSecureCoding:", "wk_initRequiringSecureCoding:");
-WK_POLYFILL_ADD("NSKeyedArchiver", "wk_encodedData", wk_keyedArchiver_encodedData, "@@:");
-WK_POLYFILL_SEL("encodedData", "wk_encodedData");
 
 // -[NSKeyedUnarchiver _enableStrictSecureDecodingMode] (10.13+) opts an unarchiver into rejecting the
 // looser decodes that older secure coding tolerated. 10.9 has no such mode to enable, so doing nothing
@@ -3168,6 +3129,11 @@ WK_POLYFILL_SEL("_enableStrictSecureDecodingMode", "wk_enableStrictSecureDecodin
 }
 @end
 
+// Spooling is decided BEFORE the caller's stream is touched, and the stream is consumed only once the
+// substitution is committed to. Draining it and then "falling back" to the real selector would hand
+// CFNetwork a closed, already-read stream -- a silently truncated body dressed up as a safety net. So a
+// read or write failure here fails the spool outright and the task is created with no body substitution
+// attempted on that stream again.
 static NSURL *wk_spoolStreamBodyToFile(NSURLRequest *request, NSString **pathOut)
 {
     NSInputStream *stream = [request HTTPBodyStream];
@@ -3178,40 +3144,53 @@ static NSURL *wk_spoolStreamBodyToFile(NSURLRequest *request, NSString **pathOut
     if (expected <= 0)
         return nil;
 
-    NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"wk-upload-%u-%p", (unsigned)getpid(), request]];
-    if (![[NSFileManager defaultManager] createFileAtPath:path contents:nil attributes:nil])
+    // mkstemp, not pid+pointer: NSURLRequest addresses are recycled, so a name derived from one can
+    // collide with a spool an in-flight upload is still streaming from -- truncating that body and, when
+    // the first owner deallocs, unlinking the second task's file.
+    NSString *templatePath = [NSTemporaryDirectory() stringByAppendingPathComponent:@"wk-upload-XXXXXX"];
+    char nameTemplate[PATH_MAX];
+    if (![templatePath getFileSystemRepresentation:nameTemplate maxLength:sizeof(nameTemplate)])
         return nil;
-    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
-    if (!handle) {
-        [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
+    int fd = mkstemp(nameTemplate);
+    if (fd < 0)
         return nil;
-    }
+    NSString *path = [[NSFileManager defaultManager] stringWithFileSystemRepresentation:nameTemplate length:strlen(nameTemplate)];
 
     [stream open];
     long long written = 0;
     uint8_t buffer[64 * 1024];
-    BOOL ok = YES;
+    bool ok = true;
     while (written < expected) {
         NSInteger wanted = (NSInteger)MIN((long long)sizeof(buffer), expected - written);
         NSInteger got = [stream read:buffer maxLength:wanted];
         if (got <= 0) {
-            ok = NO;
+            ok = false;
             break;
         }
-        @try {
-            [handle writeData:[NSData dataWithBytesNoCopy:buffer length:got freeWhenDone:NO]];
-        } @catch (NSException *) {
-            ok = NO;
-            break;
+        // write(2) + errno rather than -[NSFileHandle writeData:] and an exception handler: this file
+        // already reports IO this way (see wk_appendFileContents), and a short write is a value to check,
+        // not a condition to catch.
+        ssize_t offset = 0;
+        while (offset < got) {
+            ssize_t n = write(fd, buffer + offset, (size_t)(got - offset));
+            if (n <= 0) {
+                if (n < 0 && errno == EINTR)
+                    continue;
+                ok = false;
+                break;
+            }
+            offset += n;
         }
+        if (!ok)
+            break;
         written += got;
     }
     [stream close];
-    [handle closeFile];
+    close(fd);
 
-    // Only a byte-exact spool may be substituted: a short read would ship a different body.
+    // Only a byte-exact spool may be substituted: anything else would ship a different body.
     if (!ok || written != expected) {
-        [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
+        unlink(nameTemplate);
         return nil;
     }
     *pathOut = path;
@@ -3222,10 +3201,21 @@ static const void *wkUploadSpoolOwnerKey = &wkUploadSpoolOwnerKey;
 
 static id wk_urlSession_taskForStreamedRequest(id self, SEL realSelector, NSURLRequest *request)
 {
+    // Nothing to substitute (no stream body, or no caller-set length): the real selector gets the request
+    // untouched, with its stream unread.
+    NSInputStream *bodyStream = [request HTTPBodyStream];
+    NSString *lengthHeader = [request valueForHTTPHeaderField:@"Content-Length"];
+    if (!bodyStream || ![lengthHeader length] || [lengthHeader longLongValue] <= 0)
+        return ((id (*)(id, SEL, id))objc_msgSend)(self, realSelector, request);
+
     NSString *path = nil;
     NSURL *fileURL = wk_spoolStreamBodyToFile(request, &path);
-    if (!fileURL)
-        return ((id (*)(id, SEL, id))objc_msgSend)(self, realSelector, request);
+    if (!fileURL) {
+        // The spool failed with the stream partially consumed. Handing that stream to the real selector
+        // would upload a truncated body, so report the failure instead: nil is what NSURLSession's task
+        // creators return when they cannot make a task, and the loader treats it as a failed load.
+        return nil;
+    }
 
     NSMutableURLRequest *uploadRequest = [[request mutableCopy] autorelease];
     [uploadRequest setHTTPBodyStream:nil];
