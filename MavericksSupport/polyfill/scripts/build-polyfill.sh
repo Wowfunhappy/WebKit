@@ -60,6 +60,13 @@ echo "### compiling polyfills"
 "$CLANG" -c $CF $INC          -o "$OBJ/classes.o"      "$PF/classes.m"
 "$CLANG" -c $SDKCF            -o "$OBJ/methods.o"      "$PF/methods.m"
 
+# The two WebKit-framework-scoped polyfills, archived separately (below) so their ObjC classes are
+# registered exactly once, in WebKit.framework alone: libpolyfill_classes.a is force-loaded into WebCore
+# and JSC, and adding these there would be a duplicate class registration in every image that links it.
+# websocket-109.mm is written against ARC (zeroing __weak, block copy semantics).
+"$CLANG" -c $SDKCF            -o "$OBJ/webkit-classes-109.o" "$PF/webkit-classes-109.mm"
+"$CLANG" -c $SDKCF -fobjc-arc -o "$OBJ/websocket-109.o"      "$PF/websocket-109.mm"
+
 echo "### compiling mechanism"
 "$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/wk_polyfill_runtime.o" "$MECH/wk_polyfill_runtime.c"
 "$CLANG" -c $SDKCF            -o "$OBJ/wk_selref_scope.o"    "$MECH/wk_selref_scope.m"
@@ -162,6 +169,10 @@ build_reexport_shim --clang "$CLANG" --out "$OUT/libpolyfill_classes.dylib.tmp" 
     --reexport-framework Security --reexport-framework CFNetwork \
     "$OBJ/classes.o"
 tmp_stable "$OUT/libpolyfill_classes.dylib"   # preserve mtime when unchanged (see ar_stable / tmp_stable)
+
+echo "### libpolyfill_webkit.a (force-loaded into WebKit ONLY: NSURLSessionWebSocketTask/Message +"
+echo "###                          the stub @implementations Safari 9.1.3 binds out of WebKit.framework)"
+ar_stable "$OUT/libpolyfill_webkit.a" "$OBJ/webkit-classes-109.o" "$OBJ/websocket-109.o"
 
 echo "### libpolyfill_classes.a (force-loaded into WebCore: selref-scope mechanism + polyfill list)"
 # The selref-scope patcher (wk_selref_scope.o) + the polyfill methods (wk_polyfills.o) ship here and are

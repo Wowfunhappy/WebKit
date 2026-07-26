@@ -35,8 +35,7 @@
 // Compiled with -fobjc-arc (see CMakeLists.txt). The CFStream client context retains self, so the
 // stream outlives any in-flight socket callbacks until teardown clears the client.
 
-#include "config.h"
-#import "wk_selref_scope.h" // MAVERICKS_BACKPORT: WK_POLYFILL_SEL/WK_POLYFILL_ADD host-safe polyfill registry.
+#import "wk_selref_scope.h" // WK_POLYFILL_SEL/WK_POLYFILL_ADD host-safe polyfill registry.
 #import <CFNetwork/CFNetwork.h>
 #import <CommonCrypto/CommonDigest.h>
 #import <Foundation/Foundation.h>

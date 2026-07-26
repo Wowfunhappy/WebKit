@@ -2392,69 +2392,7 @@ WK_POLYFILL_SEL("_pathToDownloadTaskFile", "wk__pathToDownloadTaskFile");
 WK_POLYFILL_SEL("set_pathToDownloadTaskFile:", "wk_set_pathToDownloadTaskFile:");
 
 // ---------------------------------------------------------------------------------------------------
-// -[CALayer presentationLayer] and the implicit CATransaction it begins.
-//
-// Reading presentation state is the one CALayer accessor that needs a transaction. Measured on 10.9.5
-// (13F34) from a thread holding none: -bounds, -frame, -position, -transform, -masksToBounds, -mask,
-// -sublayers, -animationKeys, -containsPoint:, -convertPoint:fromLayer: and -modelLayer all leave
-// +[CATransaction currentState] at 0, while -presentationLayer takes it to 1 (implicit) and installs
-// CA's commit observer — order 2000000, kCFRunLoopBeforeWaiting|kCFRunLoopExit, callout
-// CA::Transaction::observer_callback — on the calling thread's run loop.
-//
-// That observer is the only thing that commits an implicit transaction, and it runs only while the
-// thread is inside its run loop. On a thread that never runs one — a dispatch queue's worker, any
-// thread that does its work outside a run loop — the transaction therefore stays open: measured, it is
-// still pending when the block that read the layer returns, still pending inside the NEXT block the
-// queue runs on that thread, and it lasts until the thread itself is destroyed, which is what
-// "CoreAnimation: warning, deleted thread with uncommitted CATransaction" reports. An open transaction
-// is thread-affine CA state that every later piece of work on that thread inherits.
-//
-// So this gives such a thread the boundary it is missing, and the boundary is the scope of the value the
-// read hands back. The transaction is what attaches the snapshot to the presentation tree: measured,
-// once it commits the snapshot's -superlayer is nil, and -convertPoint:fromLayer: on a detached snapshot
-// answers the point unchanged rather than the converted one, which silently changes any geometry a
-// caller computes through it. (Its own values survive: -position, -frame, -opacity and -transform read
-// the same before and after.) Committing inside the read is therefore not available — it has to outlive the
-// call that produced the snapshot, and end where the snapshot's own lifetime ends. CA autoreleases the
-// snapshot, so that is the enclosing autorelease pool, and this commits from an object autoreleased
-// alongside it: whatever the thread is doing, the pool it is doing it in drains, and the transaction
-// goes with it. Measured on 10.9.5, that is per block on a dispatch queue fed one block at a time, once
-// per burst when blocks are enqueued back to back, and at thread exit for a thread that pushes no pool
-// of its own — bounded in every case, where the transaction otherwise lasts as long as the thread.
-//
-// Each part of the condition is observed rather than assumed:
-//   - CFRunLoopCopyCurrentMode is non-NULL exactly while the thread is inside its run loop (measured
-//     NULL on a dispatch worker and on a thread that has not entered its loop, non-NULL inside a
-//     run-loop callout on any thread, main or not). Non-NULL means the thread is inside the run loop CA
-//     put its observer on, so ending the transaction is CA's job and this leaves it to CA — including on
-//     the main thread, whose observer this must not race.
-//   - Only a read that finds NO transaction and leaves an implicit one has one of its own to close, so
-//     one boundary is planted per transaction rather than per read, and a transaction the caller began
-//     explicitly is never touched.
-//   - At the boundary, an implicit transaction is what CA's own commit observer would commit and this
-//     commits exactly that: everything the thread has left pending, the read's own contribution and
-//     whatever the caller added to it, which is the same batch and the same order CA commits on a thread
-//     that has a run loop.
-@interface CATransaction (WKPolyfillTransactionState)
-+ (unsigned int)currentState;   // 0 none, 1 implicit, 2 explicit — read off 10.9.5 (encoding "I16@0:8")
-@end
-
-enum { wkNoTransaction = 0, wkImplicitTransaction = 1 };
-
-// Autoreleased into the pool the reader is running in; its dealloc is the end of that scope.
-@interface WKCATransactionScopeEnd : NSObject
-@end
-@implementation WKCATransactionScopeEnd
-- (void)dealloc
-{
-    if ([CATransaction currentState] == wkImplicitTransaction)
-        [CATransaction flush];
-    [super dealloc];
-}
-@end
-
 @interface CALayer (WKPolyfillScope)
-- (CALayer *)wk_presentationLayer;
 // -[CALayer setCornerCurve:] (10.13+, a CACornerCurve) and -[CALayer setContentsFormat:] (10.12+, a
 // CAContentsFormat NSString). 10.9's CALayer has neither. Corners on 10.9 are always the classic circular
 // curve, which is exactly the value PlatformCALayerCocoa requests (kCACornerCurveCircular, supplied in
@@ -2469,31 +2407,7 @@ enum { wkNoTransaction = 0, wkImplicitTransaction = 1 };
 @implementation CALayer (WKPolyfillScope)
 - (void)wk_setCornerCurve:(NSString *)curve { (void)curve; }
 - (void)wk_setContentsFormat:(NSString *)format { (void)format; }
-- (CALayer *)wk_presentationLayer
-{
-    // sel_registerName rather than @selector: this file is compiled into WebCore, whose __objc_selrefs
-    // are rewritten, so a compiled `presentationLayer` selref arrives here as wk_presentationLayer.
-    // The assignment is idempotent — sel_registerName answers the same SEL on every thread and call.
-    static SEL presentationLayerSelector;
-    if (!presentationLayerSelector)
-        presentationLayerSelector = sel_registerName("presentationLayer");
-    CALayer *(*readPresentationLayer)(id, SEL) = (CALayer *(*)(id, SEL))objc_msgSend;
-
-    CFStringRef modeThisThreadIsRunning = CFRunLoopCopyCurrentMode(CFRunLoopGetCurrent());
-    if (modeThisThreadIsRunning) {
-        CFRelease(modeThisThreadIsRunning);
-        return readPresentationLayer(self, presentationLayerSelector);
-    }
-
-    unsigned int stateBeforeRead = [CATransaction currentState];
-    CALayer *presentationSnapshot = readPresentationLayer(self, presentationLayerSelector);
-    if (stateBeforeRead == wkNoTransaction && [CATransaction currentState] == wkImplicitTransaction)
-        [[[WKCATransactionScopeEnd alloc] init] autorelease];
-    return presentationSnapshot;
-}
 @end
-// 10.9 HAS -presentationLayer and it answers correctly; what it leaves behind is the transaction above.
-WK_POLYFILL_SEL_REPLACES("presentationLayer", "wk_presentationLayer");
 WK_POLYFILL_SEL("setCornerCurve:", "wk_setCornerCurve:");
 WK_POLYFILL_SEL("setContentsFormat:", "wk_setContentsFormat:");
 

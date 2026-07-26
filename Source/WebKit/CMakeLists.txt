@@ -1185,18 +1185,6 @@ if (ENABLE_SWIFT_DEMO_URI_SCHEME)
     )
 endif ()
 
-# MAVERICKS_BACKPORT: stub @implementations Safari 9.1.3 expects from WebKit.framework.
-if (APPLE)
-    list(APPEND WebKit_SOURCES
-        ${WEBKIT_DIR}/PolyfillClasses_109.mm
-        # MAVERICKS_BACKPORT: RFC 6455 WebSocket client over CFStream, providing
-        # NSURLSessionWebSocketTask/Message (10.15+, absent on 10.9) so WebSocketTaskCocoa works.
-        ${WEBKIT_DIR}/WebSocketPolyfill_109.mm
-    )
-    # WebSocketPolyfill_109.mm is written against ARC (zeroing __weak, block copy semantics).
-    set_source_files_properties(${WEBKIT_DIR}/WebSocketPolyfill_109.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
-endif ()
-
 list(APPEND WebKit_SOURCES ${WebKit_DERIVED_SOURCES})
 
 WEBKIT_COMPUTE_SOURCES(WebKit)
@@ -1221,6 +1209,21 @@ set_target_properties(WebKit PROPERTIES
     SOVERSION "A"
     MACOSX_FRAMEWORK_IDENTIFIER "com.apple.WebKit"
 )
+# MAVERICKS_BACKPORT: force-load the WebKit-scoped polyfill archive. It carries the RFC 6455 WebSocket
+# client that provides NSURLSessionWebSocketTask/Message (10.15+, absent on 10.9) and the stub
+# @implementations Safari 9.1.3 binds out of WebKit.framework. A static archive linked into a framework
+# contributes its symbols to that framework, which is what satisfies both the two-level "Expected in:
+# WebKit" bind and the weak _OBJC_CLASS_$_NSURLSessionWebSocketMessage import -- the same arrangement
+# libpolyfill_classes.a already uses for WebCore and JavaScriptCore. It is a SEPARATE archive from that
+# one so these ObjC classes are registered exactly once, here, rather than in every image that links the
+# shared archive. -force_load keeps members nothing references (the categories and +load registrations);
+# LINK_DEPENDS makes the raw -Wl input a real ninja dependency so WebKit relinks when the archive changes.
+if (APPLE)
+    target_link_options(WebKit PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_webkit.a")
+    set_property(TARGET WebKit APPEND PROPERTY LINK_DEPENDS
+        "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_webkit.a")
+endif ()
+
 ADD_WEBKIT_PREFIX_HEADER(WebKit)
 
 list(APPEND WebProcess_PRIVATE_INCLUDE_DIRECTORIES $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>)

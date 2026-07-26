@@ -7,7 +7,6 @@
 // for real is reached from there instead. WebKeyGenerator is the example: WebKitLegacy implements
 // it in mac/Misc/WebKeyGenerator.mm, and that is the definition Safari binds.
 
-#include "config.h"
 #import <Foundation/Foundation.h>
 
 @interface WKWebInspectorProxyObjCAdapter : NSObject @end
