@@ -1787,6 +1787,12 @@ WK_POLYFILL_SEL("_incompleteTaskMetrics", "wk__incompleteTaskMetrics");
 WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__resolvedCNAMEChain", wk_absentObject, "@@:");
 WK_POLYFILL_ADD("NSURLSessionTask", "wk__resolvedCNAMEChain", wk_absentObject, "@@:");
 WK_POLYFILL_SEL("_resolvedCNAMEChain", "wk__resolvedCNAMEChain");
+// MAVERICKS_BACKPORT: -_adoptEffectiveConfiguration: exists to hand ONE task a configuration that
+// differs from its session's; 10.9 decides everything the sole caller changes -- credential storage --
+// per CONNECTION SESSION and nowhere else, so no per-task state exists for this to write.
+// StoredCredentialsPolicy::DoNotUse tasks therefore get a session without credential storage instead
+// (NetworkSessionCocoa::sessionWrapperForTask), which is where 10.9 does honour it, and by the time
+// this is called the task is already on that session and there is nothing left for it to do.
 WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__adoptEffectiveConfiguration:", wk_noopSetObject, "v@:@");
 WK_POLYFILL_ADD("NSURLSessionTask", "wk__adoptEffectiveConfiguration:", wk_noopSetObject, "v@:@");
 WK_POLYFILL_SEL("_adoptEffectiveConfiguration:", "wk__adoptEffectiveConfiguration:");
@@ -1847,51 +1853,9 @@ WK_POLYFILL_SEL("set_cookieTransformCallback:", "wk_set_cookieTransformCallback:
 WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__cookieTransformCallback", wk_absentBlock, "@?@:");
 WK_POLYFILL_ADD("NSURLSessionTask", "wk__cookieTransformCallback", wk_absentBlock, "@?@:");
 WK_POLYFILL_SEL("_cookieTransformCallback", "wk__cookieTransformCallback");
-// MAVERICKS_BACKPORT: -_setExplicitCookieStorage: puts THIS task on a cookie jar of its own, which is how
-// third-party cookie blocking swaps a task onto the stateless jar. The task-level ObjC SPI is absent on
-// 10.9, but the capability is not: CFNetwork exports CFURLRequestSetHTTPCookieStorage (bare name, no
-// leading underscore; two arguments read off the disassembly -- rdi request, rsi storage), and the caller
-// hands over exactly the CFHTTPCookieStorageRef it wants used. WebKit calls this before -resume, so the
-// task's pending request is still the one that will be sent and attaching the jar there is what the modern
-// setter amounts to. A no-op here would let blockCookies() record success while the task kept using the
-// shared jar, i.e. third-party cookies would still be sent.
-typedef void (*wk_requestSetCookieStorage)(void *, void *);
-
-static wk_requestSetCookieStorage wk_cfRequestSetCookieStorage(void)
-{
-    static wk_requestSetCookieStorage function;
-    static bool resolved;
-    if (!resolved) {
-        function = (wk_requestSetCookieStorage)dlsym(RTLD_DEFAULT, "CFURLRequestSetHTTPCookieStorage");
-        resolved = true;
-    }
-    return function;
-}
-
-static void wk_urlSessionTask_setExplicitCookieStorage(id self, SEL _cmd, void *cookieStorage)
-{
-    (void)_cmd;
-    wk_requestSetCookieStorage setStorage = wk_cfRequestSetCookieStorage();
-    if (!setStorage || !cookieStorage)
-        return;
-    static SEL currentRequestSelector;
-    static SEL cfRequestSelector;
-    if (!currentRequestSelector) {
-        currentRequestSelector = sel_registerName("currentRequest");
-        cfRequestSelector = sel_registerName("_CFURLRequest");
-    }
-    id request = ((id (*)(id, SEL))objc_msgSend)(self, currentRequestSelector);
-    if (!request)
-        return;
-    void *cfRequest = ((void *(*)(id, SEL))objc_msgSend)(request, cfRequestSelector);
-    if (!cfRequest)
-        return;
-    setStorage(cfRequest, cookieStorage);
-}
-
-WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk__setExplicitCookieStorage:", wk_urlSessionTask_setExplicitCookieStorage, "v@:^v");
-WK_POLYFILL_ADD("NSURLSessionTask", "wk__setExplicitCookieStorage:", wk_urlSessionTask_setExplicitCookieStorage, "v@:^v");
-WK_POLYFILL_SEL("_setExplicitCookieStorage:", "wk__setExplicitCookieStorage:");
+// -_setExplicitCookieStorage: has no polyfill: a 10.9 task cannot be re-pointed at a cookie jar once it
+// exists (measured -- see NetworkTaskCocoa::blockCookies, which withholds cookies on the request
+// instead), and nothing in this port calls it any more.
 WK_POLYFILL_ADD("__NSCFURLSessionTask", "wk_set_siteForCookies:", wk_noopSetObject, "v@:@");
 WK_POLYFILL_ADD("NSURLSessionTask", "wk_set_siteForCookies:", wk_noopSetObject, "v@:@");
 WK_POLYFILL_SEL("set_siteForCookies:", "wk_set_siteForCookies:");
@@ -3139,9 +3103,10 @@ WK_POLYFILL_SEL("_enableStrictSecureDecodingMode", "wk_enableStrictSecureDecodin
 // avoid using chunked encoding"), which is what makes the length known here without any WebCore type.
 //
 // Spool exactly Content-Length bytes, then hand the file to the one 10.9 body form that carries a length
-// and also replays safely across redirects and auth retries. Anything unexpected -- no header, a short
-// or unreadable stream, a write failure -- falls through to the real selector so upstream's own failure
-// semantics survive rather than being replaced by ours.
+// and also replays safely across redirects and auth retries. A request WITHOUT a stream body or a
+// caller-set length is handed to the real selector untouched. Once the stream has been read there is no
+// way back to it, so a short or unreadable stream or a write failure becomes a FAILED LOAD -- a real,
+// cancelled task whose error the delegate sees -- never a truncated body and never nil (see below).
 @interface WKPolyfillScopeUploadSpoolOwner : NSObject {
 @public
     NSString *m_path;

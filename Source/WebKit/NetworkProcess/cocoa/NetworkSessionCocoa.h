@@ -90,9 +90,13 @@ struct IsolatedSession {
 public:
     IsolatedSession()
         : sessionWithCredentialStorage(makeUniqueRef<SessionWrapper>())
+        // MAVERICKS_BACKPORT: see sessionWithoutCredentialStorage below.
+        , sessionWithoutCredentialStorage(makeUniqueRef<SessionWrapper>())
     { }
 
     UniqueRef<SessionWrapper> sessionWithCredentialStorage;
+    // MAVERICKS_BACKPORT: the DoNotUse counterpart, see SessionSet::sessionWithoutCredentialStorage.
+    UniqueRef<SessionWrapper> sessionWithoutCredentialStorage;
     WallTime lastUsed;
 };
 
@@ -104,6 +108,9 @@ public:
     }
 
     SessionWrapper& initializeEphemeralStatelessSessionIfNeeded(NavigatingToAppBoundDomain, NetworkSessionCocoa&);
+    // MAVERICKS_BACKPORT: a StoredCredentialsPolicy::DoNotUse task needs a session of its own, see
+    // sessionWrapperForTask.
+    SessionWrapper& initializeSessionWithoutCredentialStorageIfNeeded(NetworkSessionCocoa&);
 
     CheckedRef<SessionWrapper> isolatedSession(WebCore::StoredCredentialsPolicy, const WebCore::RegistrableDomain&, NavigatingToAppBoundDomain, NetworkSessionCocoa&);
     HashMap<WebCore::RegistrableDomain, std::unique_ptr<IsolatedSession>> isolatedSessions;
@@ -112,12 +119,17 @@ public:
 
     UniqueRef<SessionWrapper> sessionWithCredentialStorage;
     UniqueRef<SessionWrapper> ephemeralStatelessSession;
+    // MAVERICKS_BACKPORT: same configuration as sessionWithCredentialStorage but with no
+    // URLCredentialStorage, created on first use.
+    UniqueRef<SessionWrapper> sessionWithoutCredentialStorage;
 
 private:
 
     SessionSet()
         : sessionWithCredentialStorage(makeUniqueRef<SessionWrapper>())
         , ephemeralStatelessSession(makeUniqueRef<SessionWrapper>())
+        // MAVERICKS_BACKPORT: see sessionWithoutCredentialStorage above.
+        , sessionWithoutCredentialStorage(makeUniqueRef<SessionWrapper>())
     { }
 };
 

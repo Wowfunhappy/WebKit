@@ -292,6 +292,16 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
         return;
     }
 
+    // MAVERICKS_BACKPORT: cookie blocking is decided here rather than after the task exists, because
+    // 10.9 can only withhold cookies on the request a task is created FROM -- see
+    // NetworkTaskCocoa::blockCookies. The logging below stays where upstream has it, next to the task
+    // identifier it reports.
+    if (WebCore::NetworkStorageSession::shouldBlockCookies(thirdPartyCookieBlockingDecision)) {
+        RetainPtr<NSMutableURLRequest> requestWithCookiesBlocked = adoptNS([nsRequest.get() mutableCopy]);
+        blockCookies(requestWithCookiesBlocked.get());
+        nsRequest = requestWithCookiesBlocked;
+    }
+
     m_task = [m_sessionWrapper->session dataTaskWithRequest:nsRequest.get()];
 
 #if HAVE(CFNETWORK_HOSTOVERRIDE)
@@ -341,7 +351,8 @@ NetworkDataTaskCocoa::NetworkDataTaskCocoa(NetworkSession& session, NetworkDataT
 #else
         LOG(NetworkSession, "%lu Blocking cookies for URL %s", (unsigned long)[m_task taskIdentifier], [nsRequest URL].absoluteString.UTF8String);
 #endif
-        blockCookies();
+        // MAVERICKS_BACKPORT: blockCookies already ran, above, on the request the task was created
+        // from; what remains here is upstream's logging.
     }
 
     if (WebCore::ResourceRequest::resourcePrioritiesEnabled())

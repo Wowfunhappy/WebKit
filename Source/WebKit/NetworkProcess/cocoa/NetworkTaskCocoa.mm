@@ -285,28 +285,64 @@ void NetworkTaskCocoa::setCookieTransform(const WebCore::ResourceRequest& reques
     setCookieTransformForFirstPartyRequest(request);
 }
 
-void NetworkTaskCocoa::blockCookies()
+// MAVERICKS_BACKPORT: upstream swaps the TASK onto a stateless cookie jar with
+// -[NSURLSessionTask _setExplicitCookieStorage:]. On 10.9 a task cannot be re-pointed at a jar once it
+// exists -- measured: attaching a jar to the CF request behind -currentRequest, behind the
+// _originalRequest/_currentRequest ivars, or re-running -_onqueue_strippedMutableRequest all leave the
+// wire unchanged, because the connection is built from the request as it stood when the task was
+// created. What 10.9 does honour is the REQUEST, both the one a task is created from and the one a
+// redirect continues with, so blocking is expressed there instead.
+//
+// The request's allowCookies (NSURLRequest's HTTPShouldHandleCookies) rather than an empty jar: it is the
+// same two effects -- no Cookie header on the way out, no Set-Cookie stored on the way back -- and it is
+// all the stateless jar amounts to, since that jar is a throwaway nothing else ever reads and an
+// unblocked load goes back to the session's real jar either way.
+//
+// The m_hasBeenSetToUseStatelessCookieStorage latch keeps upstream's meaning because 10.9 carries the
+// flag through a redirect: measured, a blocked request's second hop also goes out with no Cookie, and the
+// request CFNetwork proposes for that hop reports HTTPShouldHandleCookies == NO, so the ResourceRequest
+// rebuilt from it arrives here already blocked.
+void NetworkTaskCocoa::blockCookies(NSMutableURLRequest *request)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
 
     if (m_hasBeenSetToUseStatelessCookieStorage)
         return;
 
-    [protect(task()) _setExplicitCookieStorage:RetainPtr { statelessCookieStorage() }.get()._cookieStorage];
+    // MAVERICKS_BACKPORT: the request, per the note above.
+    request.HTTPShouldHandleCookies = NO;
     m_hasBeenSetToUseStatelessCookieStorage = true;
 }
 
-void NetworkTaskCocoa::unblockCookies()
+// MAVERICKS_BACKPORT: the ResourceRequest form, for the redirect call site that holds one.
+void NetworkTaskCocoa::blockCookies(WebCore::ResourceRequest& request)
+{
+    ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
+
+    if (m_hasBeenSetToUseStatelessCookieStorage)
+        return;
+
+    request.setAllowCookies(false);
+    m_hasBeenSetToUseStatelessCookieStorage = true;
+}
+
+void NetworkTaskCocoa::unblockCookies(WebCore::ResourceRequest& request)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
 
     if (!m_hasBeenSetToUseStatelessCookieStorage)
         return;
 
-    if (CheckedPtr storageSession = protect(m_networkSession)->networkStorageSession()) {
-        [protect(task()) _setExplicitCookieStorage:[storageSession->nsCookieStorage() _cookieStorage]];
-        m_hasBeenSetToUseStatelessCookieStorage = false;
-    }
+    // MAVERICKS_BACKPORT: the request, per the note above blockCookies.
+    request.setAllowCookies(true);
+    m_hasBeenSetToUseStatelessCookieStorage = false;
+}
+
+// MAVERICKS_BACKPORT: a WebSocket task is handed to its WebSocketTask already created, so the cookies
+// were withheld on its request in NetworkSessionCocoa::createWebSocketTask; only the latch is left.
+void NetworkTaskCocoa::markCookiesBlockedAtCreation()
+{
+    m_hasBeenSetToUseStatelessCookieStorage = true;
 }
 
 WebCore::ThirdPartyCookieBlockingDecision NetworkTaskCocoa::requestThirdPartyCookieBlockingDecision(const WebCore::ResourceRequest& request) const
@@ -365,10 +401,13 @@ void NetworkTaskCocoa::willPerformHTTPRedirection(WebCore::ResourceResponse&& re
 #endif
 
     setCookieTransform(request, IsRedirect::Yes);
+    // MAVERICKS_BACKPORT: blocking is applied to the request this redirect continues with -- the only
+    // thing 10.9 lets a caller change at this point, see blockCookies. The stamped request is what
+    // completionHandler hands back, so it is the one the next hop is built from.
     if (!m_hasBeenSetToUseStatelessCookieStorage) {
         auto thirdPartyCookieBlockingDecision = requestThirdPartyCookieBlockingDecision(request);
         if (NetworkStorageSession::shouldBlockCookies(thirdPartyCookieBlockingDecision))
-            blockCookies();
+            blockCookies(request); // MAVERICKS_BACKPORT: the continuing request, per the note above.
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES) && defined(CFN_COOKIE_ACCEPTS_POLICY_PARTITION) && CFN_COOKIE_ACCEPTS_POLICY_PARTITION
         else {
             RetainPtr<NSMutableURLRequest> mutableRequest = adoptNS([request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::UpdateHTTPBody) mutableCopy]);
@@ -380,7 +419,8 @@ void NetworkTaskCocoa::willPerformHTTPRedirection(WebCore::ResourceResponse&& re
         }
 #endif
     } else if (storedCredentialsPolicy() != WebCore::StoredCredentialsPolicy::EphemeralStateless && needsFirstPartyCookieBlockingLatchModeQuirk(request.firstPartyForCookies(), request.url(), redirectResponse.url()))
-        unblockCookies();
+        // MAVERICKS_BACKPORT: as above -- the un-blocking also lands on the continuing request.
+        unblockCookies(request);
 #if !RELEASE_LOG_DISABLED
     if (protect(m_networkSession)->shouldLogCookieInformation())
         RELEASE_LOG_IF(isAlwaysOnLoggingAllowed(), Network, "%p - NetworkTaskCocoa::willPerformHTTPRedirection::logCookieInformation: pageID=%" PRIu64 ", frameID=%" PRIu64 ", taskID=%lu: %s cookies for redirect URL %s", this, pageID() ? pageID()->toUInt64() : 0, frameID() ? frameID()->toUInt64() : 0, (unsigned long)[task() taskIdentifier], (m_hasBeenSetToUseStatelessCookieStorage ? "Blocking" : "Not blocking"), request.url().string().utf8().data());

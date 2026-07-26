@@ -1368,6 +1368,22 @@ SessionWrapper& SessionSet::initializeEphemeralStatelessSessionIfNeeded(Navigati
     return ephemeralStatelessSession.get();
 }
 
+// MAVERICKS_BACKPORT: a session identical to sessionWithCredentialStorage except that it has no
+// URLCredentialStorage, so that StoredCredentialsPolicy::DoNotUse tasks can be given a session whose
+// credential storage is absent rather than a per-task override 10.9 cannot honour. Everything else --
+// cookies, cache, proxies, TLS floor -- is the same, because DoNotUse governs credentials only.
+SessionWrapper& SessionSet::initializeSessionWithoutCredentialStorageIfNeeded(NetworkSessionCocoa& session)
+{
+    if (sessionWithoutCredentialStorage->session)
+        return sessionWithoutCredentialStorage.get();
+
+    RetainPtr<NSURLSessionConfiguration> configuration = adoptNS([retainPtr(sessionWithCredentialStorage->session.get().configuration) copy]);
+    configuration.get().URLCredentialStorage = nil;
+    protect(sessionWithoutCredentialStorage)->initialize(configuration.get(), session, WebCore::StoredCredentialsPolicy::DoNotUse, NavigatingToAppBoundDomain::No);
+
+    return sessionWithoutCredentialStorage.get();
+}
+
 CheckedRef<SessionWrapper> NetworkSessionCocoa::sessionWrapperForTask(std::optional<WebPageProxyIdentifier> webPageProxyID, const WebCore::ResourceRequest& request, WebCore::StoredCredentialsPolicy storedCredentialsPolicy, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain)
 {
     auto shouldBeConsideredAppBound = isNavigatingToAppBoundDomain ? *isNavigatingToAppBoundDomain : NavigatingToAppBoundDomain::Yes;
@@ -1387,10 +1403,21 @@ CheckedRef<SessionWrapper> NetworkSessionCocoa::sessionWrapperForTask(std::optio
         return appBoundSession(webPageProxyID, storedCredentialsPolicy);
 #endif
 
+    // MAVERICKS_BACKPORT: upstream shares one session between Use and DoNotUse and cuts the individual
+    // task off from stored credentials with -[NSURLSessionTask _adoptEffectiveConfiguration:]. 10.9
+    // decides whether to consult credential storage per CONNECTION SESSION and nowhere else
+    // (ClassicConnectionSession::_connection_shouldUseCredentialStorage reads the session
+    // configuration's URLCredentialStorage attribute), so a per-task override cannot take effect and a
+    // shared session would send the user's stored credential on a DoNotUse load: 10.9 puts the stored
+    // credential into the challenge as its proposedCredential, and
+    // NetworkDataTaskCocoa::tryPasswordBasedAuthentication then uses any proposed credential regardless
+    // of policy. A session without credential storage is where 10.9 does honour this, so the two
+    // policies get separate sessions here.
     switch (storedCredentialsPolicy) {
     case WebCore::StoredCredentialsPolicy::Use:
-    case WebCore::StoredCredentialsPolicy::DoNotUse:
-        return sessionSetForPage(webPageProxyID).sessionWithCredentialStorage.get();
+        return sessionSetForPage(webPageProxyID).sessionWithCredentialStorage.get(); // MAVERICKS_BACKPORT: no longer shared with DoNotUse, see above.
+    case WebCore::StoredCredentialsPolicy::DoNotUse: // MAVERICKS_BACKPORT: its own session, see above.
+        return protect(sessionSetForPage(webPageProxyID))->initializeSessionWithoutCredentialStorageIfNeeded(*this);
     case WebCore::StoredCredentialsPolicy::EphemeralStateless:
         return initializeEphemeralStatelessSessionIfNeeded(webPageProxyID, NavigatingToAppBoundDomain::No);
     }
@@ -1454,11 +1481,21 @@ CheckedRef<SessionWrapper> SessionSet::isolatedSession(WebCore::StoredCredential
     entry->lastUsed = WallTime::now();
 
     CheckedRef sessionWrapper = [this, protectedThis = Ref { *this }, &entry, isNavigatingToAppBoundDomain, session = CheckedRef { session }] (auto storedCredentialsPolicy) -> SessionWrapper& {
+        // MAVERICKS_BACKPORT: the isolated counterpart of the DoNotUse routing in
+        // sessionWrapperForTask, for the same reason -- the two policies need separate sessions.
         switch (storedCredentialsPolicy) {
         case WebCore::StoredCredentialsPolicy::Use:
-        case WebCore::StoredCredentialsPolicy::DoNotUse:
-            LOG(NetworkSession, "Using isolated NSURLSession.");
+            LOG(NetworkSession, "Using isolated NSURLSession."); // MAVERICKS_BACKPORT: no longer shared with DoNotUse, see above.
             return entry->sessionWithCredentialStorage;
+        case WebCore::StoredCredentialsPolicy::DoNotUse: { // MAVERICKS_BACKPORT: its own session, see above.
+            LOG(NetworkSession, "Using isolated NSURLSession without credential storage.");
+            if (!entry->sessionWithoutCredentialStorage->session) {
+                RetainPtr<NSURLSessionConfiguration> configuration = adoptNS([retainPtr(entry->sessionWithCredentialStorage->session.get().configuration) copy]);
+                configuration.get().URLCredentialStorage = nil;
+                protect(entry->sessionWithoutCredentialStorage)->initialize(configuration.get(), session, WebCore::StoredCredentialsPolicy::DoNotUse, isNavigatingToAppBoundDomain);
+            }
+            return entry->sessionWithoutCredentialStorage;
+        }
         case WebCore::StoredCredentialsPolicy::EphemeralStateless:
             return initializeEphemeralStatelessSessionIfNeeded(isNavigatingToAppBoundDomain, session);
         }
@@ -1508,10 +1545,16 @@ void NetworkSessionCocoa::invalidateAndCancelSessionSet(SessionSet& sessionSet)
     [sessionSet.ephemeralStatelessSession->session invalidateAndCancel];
     [sessionSet.sessionWithCredentialStorage->delegate sessionInvalidated];
     [sessionSet.ephemeralStatelessSession->delegate sessionInvalidated];
+    // MAVERICKS_BACKPORT: the DoNotUse session goes down with the rest of the set.
+    [sessionSet.sessionWithoutCredentialStorage->session invalidateAndCancel];
+    [sessionSet.sessionWithoutCredentialStorage->delegate sessionInvalidated];
 
     for (auto& session : sessionSet.isolatedSessions.values()) {
         [session->sessionWithCredentialStorage->session invalidateAndCancel];
         [session->sessionWithCredentialStorage->delegate sessionInvalidated];
+        // MAVERICKS_BACKPORT: as above, for the isolated DoNotUse session.
+        [session->sessionWithoutCredentialStorage->session invalidateAndCancel];
+        [session->sessionWithoutCredentialStorage->delegate sessionInvalidated];
     }
     sessionSet.isolatedSessions.clear();
 
@@ -1709,6 +1752,15 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
 
     enableAdvancedPrivacyProtections(ensureMutableRequest().get(), advancedPrivacyProtections);
 
+    // MAVERICKS_BACKPORT: the cookie-blocking decision upstream makes in WebSocketTask's constructor is
+    // made here instead, because on 10.9 cookies can only be withheld on the request a task is created
+    // FROM -- see NetworkTaskCocoa::blockCookies. The outcome travels with the task so its latch agrees.
+    bool cookiesBlockedAtCreation = storedCredentialsPolicy == WebCore::StoredCredentialsPolicy::EphemeralStateless;
+    if (CheckedPtr storageSession = networkStorageSession(); storageSession && !cookiesBlockedAtCreation)
+        cookiesBlockedAtCreation = storageSession->shouldBlockCookies(request, frameID, pageID, networkProcess().shouldRelaxThirdPartyCookieBlockingForPage(webPageProxyID), isRequestToKnownCrossSiteTracker(request));
+    if (cookiesBlockedAtCreation)
+        ensureMutableRequest().get().HTTPShouldHandleCookies = NO;
+
     Ref sessionSet = sessionSetForPage(webPageProxyID);
     RetainPtr task = [sessionSet->sessionWithCredentialStorage->session webSocketTaskWithRequest:nsRequest.get()];
     
@@ -1716,7 +1768,8 @@ RefPtr<WebSocketTask> NetworkSessionCocoa::createWebSocketTask(WebPageProxyIdent
     // Use NSIntegerMax instead of 2^63 - 1 for 32-bit systems.
     task.get().maximumMessageSize = NSIntegerMax;
 
-    return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSet, request, clientOrigin, WTF::move(task), storedCredentialsPolicy);
+    // MAVERICKS_BACKPORT: cookiesBlockedAtCreation, decided above.
+    return WebSocketTask::create(channel, webPageProxyID, frameID, pageID, sessionSet, request, clientOrigin, WTF::move(task), storedCredentialsPolicy, cookiesBlockedAtCreation);
 }
 
 void NetworkSessionCocoa::addWebSocketTask(WebPageProxyIdentifier webPageProxyID, WebSocketTask& task)
@@ -2047,12 +2100,17 @@ void NetworkSessionCocoa::forEachSessionWrapper(NOESCAPE const Function<void(Ses
     auto sessionSetFunction = [&](SessionSet& sessionSet) {
         function(protect(sessionSet.sessionWithCredentialStorage).get());
         function(protect(sessionSet.ephemeralStatelessSession).get());
+        // MAVERICKS_BACKPORT: the DoNotUse session is one of this set's sessions like any other.
+        function(protect(sessionSet.sessionWithoutCredentialStorage).get());
         if (sessionSet.appBoundSession)
             function(protect(sessionSet.appBoundSession->sessionWithCredentialStorage));
 
         for (auto& isolatedSession : sessionSet.isolatedSessions.values()) {
-            if (isolatedSession)
+            if (isolatedSession) { // MAVERICKS_BACKPORT: braced for the second session below.
                 function(protect(isolatedSession->sessionWithCredentialStorage));
+                // MAVERICKS_BACKPORT: the isolated DoNotUse session is one of this set's sessions too.
+                function(protect(isolatedSession->sessionWithoutCredentialStorage));
+            }
         }
     };
     
