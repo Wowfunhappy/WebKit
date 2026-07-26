@@ -560,6 +560,27 @@ if awk -F'\t' '$3 == "PRESENT"' "$WORK/clson109" | grep -q .; then
     exit 1
 fi
 
+# A public selector registered twice is a correctness lottery, not a duplicate comment: class_addMethod
+# is a no-op once the wk_ method exists (see wk_selref_scope.m), so for two definitions of one selector the
+# FIRST is live and the second is dead code -- and an edit aimed at "the" implementation can silently land
+# on the dead one. This shipped: a finish-once guard reported deleted was still live because the deletion
+# hit the dead copy. Scanned from SOURCE because the runtime registry is `sort -u`'d, which collapses
+# exactly the identical pairs that cause this and is why the check used to report clean.
+dupsel=$(grep -hoE 'WK_POLYFILL_SEL(_REPLACES)?\("[^"]+"' "$POLY"/polyfills/*.m "$POLY"/polyfills/*.mm 2>/dev/null \
+    | sed -E 's/.*\("//; s/"$//' | sort | uniq -d)
+if [ -n "$dupsel" ]; then
+    {
+        echo
+        echo "ERROR: these public selectors are registered more than once. Only the first definition is"
+        echo "live; the rest are dead code that edits can land on by mistake:"
+        echo
+        printf '  %s\n' $dupsel
+        echo
+        echo "Collapse each to exactly one definition."
+    } >&2
+    exit 1
+fi
+
 scanned=$(wc -l < "$WORK/names" | tr -d ' ')
 registered=$(wc -l < "$WORK/registry.tsv" | tr -d ' ')
 classes=$(wc -l < "$WORK/clson109" | tr -d ' ')

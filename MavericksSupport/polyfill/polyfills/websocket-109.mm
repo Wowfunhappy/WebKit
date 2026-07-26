@@ -29,8 +29,9 @@
 //     NetworkSessionCocoa::createWebSocketTask; returns a WKWebSocketStream.
 // On open/close it invokes the session delegate's NSURLSessionWebSocketDelegate methods (passing itself
 // as the task) exactly as NSURLSession would, so the existing webSocketDataTaskMap -> WebSocketTask::
-// didConnect/didClose path is unchanged. Delegate + receive callbacks are delivered on the main queue
-// (where createWebSocketTask/addWebSocketTask run); socket I/O runs on a private serial queue.
+// didConnect/didClose path is unchanged. Delegate + receive callbacks are delivered on the SESSION'S
+// delegateQueue, which is where NSURLSession delivers them (see wsDispatchToCallbackQueue); socket I/O
+// runs on a private serial queue.
 //
 // Compiled with -fobjc-arc (see CMakeLists.txt). The CFStream client context retains self, so the
 // stream outlives any in-flight socket callbacks until teardown clears the client.
@@ -135,6 +136,22 @@ typedef NS_ENUM(NSInteger, WKWSState) {
 
 static id wsWebSocketTaskWithRequest(NSURLSession *, SEL, NSURLRequest *);
 
+// The queue a callback belongs on. NSURLSession delivers delegate messages and completion handlers on the
+// session's delegateQueue, so this polyfill does too rather than hardcoding the main queue: hardcoding was
+// correct only for a caller whose delegateQueue happens to be the main one, which is caller-specific
+// correctness of exactly the kind a polyfill must not have. A session created without a delegateQueue gets
+// one of its own from NSURLSession, so the property is the authority in every case; the main queue remains
+// the fallback only if there is no session left to ask (the task outliving its session during teardown).
+static void wsDispatchToCallbackQueue(NSURLSession *session, void (^work)(void))
+{
+    NSOperationQueue *delegateQueue = [session delegateQueue];
+    if (delegateQueue) {
+        [delegateQueue addOperationWithBlock:work];
+        return;
+    }
+    dispatch_async(dispatch_get_main_queue(), work);
+}
+
 // MAVERICKS_BACKPORT: expose -[NSURLSession webSocketTaskWithRequest:] (10.15+) host-safely via the
 // WebKit-scoped selref mechanism, exactly like its valueForHTTPHeaderField: sibling. WK_POLYFILL_SEL
 // rewrites WebKit images' `webSocketTaskWithRequest:` selrefs to the PRIVATE `wk_webSocketTaskWithRequest:`,
@@ -208,14 +225,14 @@ WK_POLYFILL_ADD("__NSCFURLSession", "wk_webSocketTaskWithRequest:", wsWebSocketT
         NSError *err = _pendingError;
         _pendingError = nil;
         [_lock unlock];
-        dispatch_async(dispatch_get_main_queue(), ^{ handler(nil, err); });
+        wsDispatchToCallbackQueue(_session, ^{ handler(nil, err); });
         return;
     }
     if (_incomingMessages.count) {
         NSURLSessionWebSocketMessage *msg = _incomingMessages.firstObject;
         [_incomingMessages removeObjectAtIndex:0];
         [_lock unlock];
-        dispatch_async(dispatch_get_main_queue(), ^{ handler(msg, nil); });
+        wsDispatchToCallbackQueue(_session, ^{ handler(msg, nil); });
         return;
     }
     _pendingReceive = [handler copy];
@@ -230,7 +247,7 @@ WK_POLYFILL_ADD("__NSCFURLSession", "wk_webSocketTaskWithRequest:", wsWebSocketT
     dispatch_async(_ioQueue, ^{
         [self enqueueFrameWithOpcode:opcode payload:payload];
         if (completionHandler)
-            dispatch_async(dispatch_get_main_queue(), ^{ completionHandler(nil); });
+            wsDispatchToCallbackQueue(_session, ^{ completionHandler(nil); });
     });
 }
 
@@ -245,7 +262,7 @@ WK_POLYFILL_ADD("__NSCFURLSession", "wk_webSocketTaskWithRequest:", wsWebSocketT
         [_incomingMessages addObject:message];
     [_lock unlock];
     if (handler)
-        dispatch_async(dispatch_get_main_queue(), ^{ handler(message, nil); });
+        wsDispatchToCallbackQueue(_session, ^{ handler(message, nil); });
 }
 
 - (void)deliverError:(NSError *)error
@@ -257,7 +274,7 @@ WK_POLYFILL_ADD("__NSCFURLSession", "wk_webSocketTaskWithRequest:", wsWebSocketT
         _pendingError = error;
     [_lock unlock];
     if (handler)
-        dispatch_async(dispatch_get_main_queue(), ^{ handler(nil, error); });
+        wsDispatchToCallbackQueue(_session, ^{ handler(nil, error); });
 }
 
 - (void)deliverDidOpenWithProtocol:(NSString *)protocol
@@ -265,7 +282,7 @@ WK_POLYFILL_ADD("__NSCFURLSession", "wk_webSocketTaskWithRequest:", wsWebSocketT
     __weak id delegate = _delegate;
     __weak NSURLSession *session = _session;
     WKWebSocketStream *taskSelf = self;
-    dispatch_async(dispatch_get_main_queue(), ^{
+    wsDispatchToCallbackQueue(_session, ^{
         id<NSURLSessionWebSocketDelegate> d = (id<NSURLSessionWebSocketDelegate>)delegate;
         if ([d respondsToSelector:@selector(URLSession:webSocketTask:didOpenWithProtocol:)])
             [d URLSession:session webSocketTask:(NSURLSessionWebSocketTask *)taskSelf didOpenWithProtocol:protocol];
@@ -279,7 +296,7 @@ WK_POLYFILL_ADD("__NSCFURLSession", "wk_webSocketTaskWithRequest:", wsWebSocketT
     __weak NSURLSession *session = _session;
     WKWebSocketStream *taskSelf = self;
     NSData *reasonData = reason ?: [NSData data];
-    dispatch_async(dispatch_get_main_queue(), ^{
+    wsDispatchToCallbackQueue(_session, ^{
         id<NSURLSessionWebSocketDelegate> d = (id<NSURLSessionWebSocketDelegate>)delegate;
         if ([d respondsToSelector:@selector(URLSession:webSocketTask:didCloseWithCode:reason:)])
             [d URLSession:session webSocketTask:(NSURLSessionWebSocketTask *)taskSelf didCloseWithCode:(NSURLSessionWebSocketCloseCode)code reason:reasonData];
