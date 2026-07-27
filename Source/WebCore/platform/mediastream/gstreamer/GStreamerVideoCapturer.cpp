@@ -145,6 +145,15 @@ GstElement* GStreamerVideoCapturer::createConverter()
         g_object_set(videorate, "drop-only", TRUE, "average-period", UINT64_C(1), nullptr);
     }
 
+    // MAVERICKS_BACKPORT: the capture pipeline runs on the system clock with base-time 0
+    // (GStreamerCapturer::setupPipeline), so the live source stamps buffers with absolute clock
+    // time — hours of machine uptime — while its segment starts at 0. videorate's output timeline
+    // otherwise begins at segment.start, and on 1.28+ (no drop-only workaround above) it fills
+    // that hours-long gap with duplicates of the first frame at CPU speed, starving the real
+    // frames for minutes (camera feeds froze on the first frame). skip-to-first starts the output
+    // timeline at the first captured buffer instead.
+    g_object_set(videorate, "skip-to-first", TRUE, nullptr);
+
     gst_bin_add_many(GST_BIN_CAST(bin), videoConvert.get(), videorate, nullptr);
 
     m_videoSrcMIMETypeFilter = gst_element_factory_make("capsfilter", "mimetype-filter");

@@ -416,6 +416,10 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
         "CFNETWORK_DIAGNOSTICS_LOG_FILE",  // redirect that logging to a file (avoids flooding syslog)
         "CFNETWORK_DIAGNOSTICS_NO_SYSLOG", // and drop the syslog copy
         "WK_POLYFILL_REPORT",              // dump this port's polyfill table (MavericksSupport/polyfill)
+        "GST_DEBUG",                       // GStreamer debug categories/levels (media pipelines run in WebContent)
+        "GST_DEBUG_FILE",                  // redirect that logging to a file (%p expands to the pid)
+        "GST_DEBUG_NO_COLOR",              // strip ANSI color from the log file
+        "GST_DEBUG_DUMP_DOT_DIR",          // dump pipeline graphs on state changes
     };
     auto containerEnvironmentVariables = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
     bool forwardedAnyEnvironmentVariable = false;
