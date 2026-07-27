@@ -22,7 +22,9 @@ If you previously deleted Safari, you can find a working copy of Safari 7 in the
 - libgcrypt, used upstream by WebKitGTK, is used for cryptographic APIs. (Not including TLS, see below.)
 - Upstream Apple WebKit does not handle TLS itself, and no attempt has been made to change this in the backport. The system's SecureTransport will be used; the user is expected to bring an MITM proxy such as AquaProxy for modern TLS compatibility.
 ### Guiding Principles
-- Minimize upstream divergence. Wherever possible, polyfill outside of WebKit's codebase (e.g. in MavericksSupport).
+- Minimize upstream divergence. Wherever possible, polyfill outside of WebKit's codebase (e.g. in MavericksSupport). There are two reasons for this:
+   - Polyfills make it easy to merge changes from upstream in the future.
+   - Polyfills ensure we are using battle-tested upstream logic over custom logic we wrote ourselves. A polyfill merely provides WebKit with the environment it expects.
 - Minimize the amount of complex computer-generated code. Using gstreamer is better than letting a language model generate a custom video transport; gluing gstreamer to Cocoa was painful but mechanical, a good task for a synthetic language model.
 
 ## Building
