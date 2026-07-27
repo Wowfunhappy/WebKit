@@ -69,6 +69,7 @@ bool MediaRecorder::isTypeSupported(Document& document, const String& value)
 #if USE(GSTREAMER)
     UNUSED_PARAM(document);
     return MediaRecorderPrivateGStreamer::isTypeSupported(mimeType);
+// MAVERICKS_BACKPORT: second half of the branch reorder above — AVF stays the non-GStreamer fallback.
 #elif PLATFORM(COCOA)
     return MediaRecorderPrivateAVFImpl::isTypeSupported(document, mimeType);
 #endif
