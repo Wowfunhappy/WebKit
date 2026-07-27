@@ -84,24 +84,82 @@ if [ -d "$OLD_PRIVRT" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# #38: Dashboard "Web Clip" widgets must launch the 64-bit DashboardClient to load our x86_64-only
-# WebKit. The Dock reads this widget's AllowInternetPlugins flag BEFORE any WebKit code runs: if it is
-# true, the Dock writes "32bit" into com.apple.dashboard.plist and spawns an i386 DashboardClient that
-# cannot load our framework (EBADARCH crash). Opt the widget out of the (now-defunct) internet-plugin
-# path so the Dock spawns 64-bit. Lossless (NPAPI is gone), and there is NO in-framework lever for this
-# — the Dock decides the architecture before any of our code runs, so it must be a system-plist edit.
-echo "### Forcing 64-bit launch for the Dashboard Web Clip widget"
-WEBCLIP_PLIST="/Library/Widgets/Web Clip.wdgt/Contents/Info.plist"
-[ -f "$WEBCLIP_PLIST" ] || WEBCLIP_PLIST="/Library/Widgets/Web Clip.wdgt/Info.plist"
-if [ -f "$WEBCLIP_PLIST" ]; then
-    if /usr/libexec/PlistBuddy -c 'Set :AllowInternetPlugins false' "$WEBCLIP_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c 'Add :AllowInternetPlugins bool false' "$WEBCLIP_PLIST" 2>/dev/null; then
-        echo "  Web Clip.wdgt AllowInternetPlugins -> false (64-bit DashboardClient)"
-    else
-        echo "  warning: could not set AllowInternetPlugins on Web Clip.wdgt"
+# #38: Dashboard widgets must launch the 64-bit DashboardClient to load our x86_64-only WebKit.
+# All in-layer widgets share ONE DashboardClient process, and the Dock picks its architecture
+# BEFORE any WebKit code runs: when a widget is added it reads that widget's AllowInternetPlugins
+# flag and records it as "32bit" in the user's com.apple.dashboard.plist; if ANY in-layer widget
+# carries 32bit=1 the Dock spawns an i386 DashboardClient, which loads the grafted STOCK 2013
+# WebKit slice instead of ours — so every widget (including all Web Clips) loses the modern
+# engine. AllowInternetPlugins exists solely to enable NPAPI internet plug-ins, which were
+# 32-bit-only; no installed widget embeds plug-in content and NPAPI is gone from the modern
+# engine, so the flag is vacuous except for this harmful architecture forcing. (Native
+# .widgetplugin bundles are a separate mechanism — all fat x86_64+i386 — and are unaffected.)
+# Clear the flag in every installed widget (governs future adds) and normalize the already-
+# recorded 32bit values in each user's dashboard plist (governs the existing layout). There is
+# NO in-framework lever for this — the Dock decides before any of our code runs.
+echo "### Forcing 64-bit DashboardClient (clear widget AllowInternetPlugins + recorded 32bit flags)"
+for wdgt in /Library/Widgets/*.wdgt /Users/*/Library/Widgets/*.wdgt; do
+    [ -d "$wdgt" ] || continue
+    wplist="$wdgt/Contents/Info.plist"
+    [ -f "$wplist" ] || wplist="$wdgt/Info.plist"
+    [ -f "$wplist" ] || continue
+    cur=$(/usr/libexec/PlistBuddy -c 'Print :AllowInternetPlugins' "$wplist" 2>/dev/null) || cur=""
+    if [ "$cur" = "true" ]; then
+        if /usr/libexec/PlistBuddy -c 'Set :AllowInternetPlugins false' "$wplist"; then
+            echo "  $(basename "$wdgt") AllowInternetPlugins -> false"
+        else
+            echo "  warning: could not clear AllowInternetPlugins on $wdgt"
+        fi
     fi
-else
-    echo "  Web Clip.wdgt not found — skipping (set its AllowInternetPlugins=false manually if you use Dashboard Web Clips)"
+done
+for home in /Users/*; do
+    [ -f "$home/Library/Preferences/com.apple.dashboard.plist" ] || continue
+    huser=$(stat -f %Su "$home") || continue
+    # The temp file must be owned by (and writable as) the owning user: `defaults export`
+    # run via sudo -u onto a root-owned 0600 file in /tmp exits 0 but writes NOTHING, and
+    # the import leg cannot read it either — the normalization would silently no-op.
+    tmpdash=$(sudo -u "$huser" mktemp "$home/Library/Preferences/dashboard-plist.XXXXXX" 2>/dev/null) || tmpdash=""
+    if [ -z "$tmpdash" ]; then
+        echo "  warning: could not create a temp prefs file for $huser; 32bit flags not normalized"
+        continue
+    fi
+    # Round-trip through `defaults` (as the owning user) so cfprefsd's cache stays coherent.
+    # Do not trust the export's exit status: verify the file actually contains a plist.
+    if sudo -u "$huser" defaults export com.apple.dashboard "$tmpdash" 2>/dev/null \
+        && [ -s "$tmpdash" ] \
+        && /usr/libexec/PlistBuddy -c 'Print' "$tmpdash" >/dev/null 2>&1; then
+        i=0
+        changed=0
+        while /usr/libexec/PlistBuddy -c "Print :layer-gadgets:$i" "$tmpdash" >/dev/null 2>&1; do
+            g32=$(/usr/libexec/PlistBuddy -c "Print :layer-gadgets:$i:32bit" "$tmpdash" 2>/dev/null) || g32=""
+            if [ "$g32" = "true" ]; then
+                if /usr/libexec/PlistBuddy -c "Set :layer-gadgets:$i:32bit 0" "$tmpdash" 2>/dev/null; then
+                    changed=1
+                else
+                    echo "  warning: could not clear 32bit on gadget $i for $huser"
+                fi
+            fi
+            i=$((i + 1))
+        done
+        if [ "$changed" = "1" ]; then
+            if sudo -u "$huser" defaults import com.apple.dashboard "$tmpdash"; then
+                echo "  $huser: cleared recorded 32bit flag(s) in com.apple.dashboard"
+                DASHBOARD_PREFS_CHANGED=1
+            else
+                echo "  warning: could not import normalized com.apple.dashboard for $huser"
+            fi
+        fi
+    else
+        echo "  warning: could not export $huser's com.apple.dashboard; 32bit flags not normalized"
+    fi
+    rm -f "$tmpdash"
+done
+# A live Dock holds the old layout (and possibly an i386 DashboardClient); restart it so the
+# next Dashboard activation spawns from the normalized plist. The Dock relaunches itself.
+if [ "${DASHBOARD_PREFS_CHANGED:-0}" = "1" ]; then
+    killall DashboardClient 2>/dev/null || true
+    killall Dock 2>/dev/null || true
+    echo "  restarted Dock to pick up the 64-bit Dashboard layout"
 fi
 
 # ---------------------------------------------------------------------------

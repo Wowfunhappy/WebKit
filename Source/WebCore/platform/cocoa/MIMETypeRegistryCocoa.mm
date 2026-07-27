@@ -193,6 +193,18 @@ String MIMETypeRegistry::preferredExtensionForMIMEType(const String& type)
 
 bool MIMETypeRegistry::isApplicationPluginMIMEType(const String& MIMEType)
 {
+    // MAVERICKS_BACKPORT: Dashboard Web Clips (#38) render the clipped page through
+    // application/x-apple-webclip-plug-in — WebClip.plugin inside the OS-shipped Web Clip
+    // widget, a WebKit-ObjC WebPlugin the DashboardClient host loads via WebKitLegacy's
+    // WebPluginDatabase. That is a user-agent-provided plug-in in this gate's sense (the
+    // host application decides whether it is permitted), not third-party internet content,
+    // so accept it here. DashboardClient's own plugins-enabled signal is unusable on this
+    // system: it mirrors the widget's AllowInternetPlugins flag, which the install keeps
+    // false because the Dock spawns an i386 DashboardClient (which cannot run this WebKit)
+    // whenever that flag is set. No NPAPI/third-party plug-in becomes loadable through this.
+    if (equalLettersIgnoringASCIICase(MIMEType, "application/x-apple-webclip-plug-in"_s))
+        return true;
+
 #if ENABLE(PDF_PLUGIN)
     // FIXME: This should test if we're actually going to use PDFPlugin,
     // but we only know that in WebKit2 at the moment. This is not a problem

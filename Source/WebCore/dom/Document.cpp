@@ -4275,6 +4275,22 @@ void Document::implicitClose()
             svgExtensions->dispatchLoadEventToOutermostSVGElements();
     }
 
+    // MAVERICKS_BACKPORT: behavior fix (#38 Web Clips). Dashboard widget markup expects its
+    // WebKit-ObjC plug-in to exist by body onload: the WebClipper factory publishes the
+    // `webClip` scripting global synchronously when the plug-in view is created, and
+    // WebClip.js's body_onload / onshow handlers dereference it. Plug-in creation is a
+    // post-layout task, so on a fast load the window load event can beat the first layout and
+    // the widget's handlers throw ("Can't find variable: webClip"), leaving the widget's
+    // settings and show/hide refresh hooks dead for the life of the instance. Flush layout and
+    // the pending embedded-object updates first so plug-in creation is ordered before the load
+    // event, as the WebKit that Dashboard shipped against ordered it. Scoped to .wdgt
+    // documents exactly like the pre-HTML5 parser quirk in HTMLParserOptions.cpp.
+    if (url().protocolIsFile() && url().string().contains(".wdgt/"_s)) {
+        updateLayout();
+        if (RefPtr view = this->view())
+            view->flushAnyPendingPostLayoutTasks();
+    }
+
     dispatchWindowLoadEvent();
     dispatchPageshowEvent(PageshowEventPersistence::NotPersisted);
     if (m_whenWindowLoadEventOrDestroyed)
