@@ -280,6 +280,20 @@ WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSPopUpMenuPopupButtonLabelOffset
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSPopUpMenuPopupButtonSize, @"NSPopUpMenuPopupButtonSize");
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSPopUpMenuPopupButtonWidget, @"NSPopUpMenuPopupButtonWidget");
 
+#pragma mark - NSAccessibility attribute constants
+// NSAccessibilityRequiredAttribute is declared API_AVAILABLE(macos(10.12)) and is absent from 10.9's
+// AppKit. Unlike most weak-imported symbols it is a data constant, and because it post-dates the 10.9
+// deployment target it weak-links to NULL rather than failing the load: -[WebAccessibilityObjectWrapper
+// accessibilityAttributeNames] builds its attribute-name arrays by dereferencing each such extern
+// (movq (%rax)), so the NULL address SIGSEGVs the process (EXC_BAD_ACCESS at 0x0) the instant an
+// assistive/AX client enumerates a form field's attributes -- a login page's text or secure (password)
+// field, hence "settings/password" crashes (github #100). The value is AppKit's own interpreted string,
+// which assistive technologies match on, so it must be the real "AXRequired" (same convention as this
+// header's sibling AX constants and WebCore's NSAccessibilityInvalidAttribute -> @"AXInvalid"), not the
+// symbol's spelling. NSAccessibilityInvalidAttribute needs no entry: WebCore #defines it itself because
+// AppKit never declares it.
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSAccessibilityRequiredAttribute, @"AXRequired");
+
 // 10.9 backport: kVTVideoEncoderSpecification_RequiredLowLatency is a 10.13+
 // VideoToolbox encoder-spec key. libwebrtc's VTB H.264/VP9 encoder (built with
 // ENABLE_WEB_RTC) references it; WebCore resolves it via flat-namespace dynamic
