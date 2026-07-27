@@ -118,7 +118,15 @@ int pluginDatabaseClientCount = 0;
     shouldUpdateWhileOffscreen = YES;
 
 #if !PLATFORM(IOS_FAMILY)
-    windowOcclusionDetectionEnabled = YES;
+    // MAVERICKS_BACKPORT: off by default. On 10.9 a new window's occlusionState visible bit lags
+    // its ordering-on-screen and the correcting NSWindowDidChangeOcclusionStateNotification does
+    // not reliably post (measured on real hardware; the WK2-side visibility fix excludes the
+    // occlusion signal for the same reason). A WebView whose visibility is computed during that
+    // lag latches page-hidden for life — Dashboard web clips created by the add flow boot their
+    // page into a window mid-creation and hit exactly that. Stock 537.x _isViewVisible has no
+    // occlusion clause at all, so no Safari-7-era host expects it; the modern SPI
+    // (_setWindowOcclusionDetectionEnabled:) still lets a host opt in.
+    windowOcclusionDetectionEnabled = NO;
 #endif
 
     zoomMultiplier = 1;
