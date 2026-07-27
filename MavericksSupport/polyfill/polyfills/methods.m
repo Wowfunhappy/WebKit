@@ -3029,6 +3029,51 @@ static CFRunLoopRef wkSharingEnumerationRunLoop(void)
 @end
 WK_POLYFILL_SEL("getSharingServicesForItems:mask:completion:", "wk_getSharingServicesForItems:mask:completion:");
 
+// +[NSMenuItem standardShareMenuItemForItems:] — the one-call "Share" menu-item constructor, absent on
+// 10.9 (probed on-host: unrecognized selector sent to class NSMenuItem). WebKitLegacy's context-menu
+// build (createShareMenuItem in WebHTMLView.mm) calls it whenever the hit test has anything shareable —
+// which is every text selection — and the NSException unwound the whole menu build, so right-clicking
+// text in a WK1 host (Notes) produced no menu at all.
+//
+// 10.9 presents Share as an inline submenu of services (Email/Messages/…) — TextEdit's editable context
+// menu is the reference — so reconstruct that native form: a "Share" parent item whose submenu is
+// NSSharingServicePicker's own services menu (-menu, SPI present and fully wired on 10.9 with a
+// per-service image/target/action). representedObject keeps the picker alive so those actions can fire.
+// The title is the system's localized "Share" (ShareKit's strings table) so the menu reads correctly in
+// every language. Returns nil when no service can handle the items, the real constructor's "no item"
+// answer, which the caller already handles. Same form as the WK2 UIProcess Share item
+// (WebContextMenuProxyMac.mm), which cannot route through this polyfill because upstream WK2 builds its
+// item from a different, picker-anchored API.
+@interface NSSharingServicePicker (WKPolyfillShareMenuSPI)
+- (NSMenu *)menu;
+@end
+
+@interface NSMenuItem (WKPolyfillScopeShareMenu)
++ (NSMenuItem *)wk_standardShareMenuItemForItems:(NSArray *)items;
+@end
+
+@implementation NSMenuItem (WKPolyfillScopeShareMenu)
+
++ (NSMenuItem *)wk_standardShareMenuItemForItems:(NSArray *)items
+{
+    if (![items count])
+        return nil;
+    NSSharingServicePicker *picker = [[[NSSharingServicePicker alloc] initWithItems:items] autorelease];
+    NSMenu *servicesMenu = [picker menu];
+    if (![servicesMenu numberOfItems])
+        return nil;
+    NSBundle *shareKitBundle = [NSBundle bundleWithPath:@"/System/Library/PrivateFrameworks/ShareKit.framework"];
+    NSString *shareTitle = [shareKitBundle localizedStringForKey:@"Share" value:@"Share" table:@"ShareKit"];
+    NSMenuItem *shareItem = [[[NSMenuItem alloc] initWithTitle:([shareTitle length] ? shareTitle : @"Share") action:NULL keyEquivalent:@""] autorelease];
+    [shareItem setEnabled:YES];
+    [shareItem setSubmenu:servicesMenu];
+    [shareItem setRepresentedObject:picker];
+    return shareItem;
+}
+
+@end
+WK_POLYFILL_SEL("standardShareMenuItemForItems:", "wk_standardShareMenuItemForItems:");
+
 // ---------------------------------------------------------------------------------------------
 // AppKit pieces the Web Inspector's window/panel code needs, all absent on 10.9 (probed on-host).
 
