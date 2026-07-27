@@ -4493,7 +4493,16 @@ IGNORE_WARNINGS_END
     if (![window isVisible])
         return false;
 
-    if ([self isHiddenOrHasHiddenAncestor])
+    // MAVERICKS_BACKPORT: consult the ancestors' hidden state but not this view's own isHidden.
+    // Safari-7-era hosts toggle the WebView's own hidden flag as a transient UI mechanism —
+    // DashboardClient's WebClip plugin hides its WebView behind a loading overlay on every widget
+    // boot — on the 537.x contract that view-hides were not pushed into page visibility (537.x
+    // WebView has no viewDidHide/viewDidUnhide overrides, so the dance went unobserved). With the
+    // modern overrides wired, consulting the self flag turns that dance into visibilitychange
+    // storms mid-boot, and a view attached while overlay-hidden latches the page hidden for life
+    // (rAF suspended; sites that gate content on visibility never show it). Window-level state and
+    // ancestor hides remain authoritative, mirroring the WK2-side visibility fix on this OS.
+    if ([[self superview] isHiddenOrHasHiddenAncestor])
         return false;
 
 #if !PLATFORM(IOS_FAMILY)
