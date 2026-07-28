@@ -263,9 +263,20 @@ STATIC_ASSERT_EQUALS(80, kWKContextMenuItemTagEnterVideoFullscreen, ContextMenuI
 STATIC_ASSERT_EQUALS(81, kWKContextMenuItemTagMediaPlayPause, ContextMenuItemTagMediaPlayPause);
 STATIC_ASSERT_EQUALS(82, kWKContextMenuItemTagMediaMute, ContextMenuItemTagMediaMute);
 STATIC_ASSERT_EQUALS(83, kWKContextMenuItemTagDictationAlternative, ContextMenuItemTagDictationAlternative);
-STATIC_ASSERT_EQUALS(84, kWKContextMenuItemTagPlayAllAnimations, ContextMenuItemTagPlayAllAnimations);
-STATIC_ASSERT_EQUALS(85, kWKContextMenuItemTagPauseAllAnimations, ContextMenuItemTagPauseAllAnimations);
-STATIC_ASSERT_EQUALS(86, kWKContextMenuItemTagPlayAnimation, ContextMenuItemTagPlayAnimation);
-STATIC_ASSERT_EQUALS(87, kWKContextMenuItemTagPauseAnimation, ContextMenuItemTagPauseAnimation);
+// MAVERICKS_BACKPORT: the C API's animation tags moved to the end of WKContextMenuItemTypes.h so the
+// tags Safari 7 was built against keep their 537.78 values; WebCore's own enum is untouched, so the two
+// sides no longer share a number for these four. Assert each side against what it must be rather than
+// dropping the check: WebCore's values stay where upstream put them, and the API values must sit past
+// the last tag 537.78 knew about (kWKContextMenuItemTagToggleVideoFullscreen == 87).
+// STATIC_ASSERT_EQUALS(84, kWKContextMenuItemTagPlayAllAnimations, ContextMenuItemTagPlayAllAnimations);
+// STATIC_ASSERT_EQUALS(85, kWKContextMenuItemTagPauseAllAnimations, ContextMenuItemTagPauseAllAnimations);
+// STATIC_ASSERT_EQUALS(86, kWKContextMenuItemTagPlayAnimation, ContextMenuItemTagPlayAnimation);
+// STATIC_ASSERT_EQUALS(87, kWKContextMenuItemTagPauseAnimation, ContextMenuItemTagPauseAnimation);
+static_assert(84 == WebCore::ContextMenuItemTagPlayAllAnimations);
+static_assert(85 == WebCore::ContextMenuItemTagPauseAllAnimations);
+static_assert(86 == WebCore::ContextMenuItemTagPlayAnimation);
+static_assert(87 == WebCore::ContextMenuItemTagPauseAnimation);
+static_assert(87 == kWKContextMenuItemTagToggleVideoFullscreen);
+static_assert(kWKContextMenuItemTagPlayAllAnimations > kWKContextMenuItemTagToggleVideoFullscreen);
 
 #endif // PLATFORM(COCOA)
