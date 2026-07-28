@@ -36,7 +36,7 @@ On a Mac or Virtual Machine running Mavericks with Apple's Command Line Tools in
 2. Place a copy of the MacOSX26.1.sdk adjacent to your cloned repository.
    - For example, if you cloned to `~/Developer/webkit`, you would want to place the SDK at `~/Developer/MacOSX26.1.sdk`.
    - Alternately, place the SDK wherever you want and remember to set the `MAVERICKS_SDK` environment variable in a later step.
-   - Officially, the SDK must be extracted from a recent copy of Xcode. Unofficially, just download it [here](https://github.com/phracker/MacOSX-SDKs/releases).
+   - Officially, the SDK must be extracted from a recent copy of Xcode. Unofficially, just download it [here](https://github.com/joseluisq/macosx-sdks/releases/tag/26.1).
 3. Run MavericksSupport/bootstrap.sh to extract/build the toolchain.
 4. Run MavericksSupport/rebuild.sh to build WebKit.
    - On a reasonably fast machine, this will take hours, but not days. Consider letting it run over night.
