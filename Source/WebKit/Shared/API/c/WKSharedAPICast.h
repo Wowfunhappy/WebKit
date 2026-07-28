@@ -860,7 +860,17 @@ inline WebCore::ContextMenuAction toImpl(WKContextMenuItemTag tag)
         return WebCore::ContextMenuItemTagSummarize;
     case kWKContextMenuItemTagCopyCroppedImage:
         return WebCore::ContextMenuItemTagCopySubject;
+    // MAVERICKS_BACKPORT: WebCore has no ContextMenuItemTagOpenLinkInThisWindow, so upstream's
+    // fallthrough numerically static_casts this tag onto whichever WebCore action happens to share its
+    // value — TogglePictureInPicture upstream, PlayAnimation after the ABI restoration in
+    // WKContextMenuItemTypes.h. Neither is meaningful, and a client that did send the tag would
+    // silently trigger an unrelated action. Map it to NoAction, which contextMenuItemSelected()
+    // handles as a no-op. (Safari 7 never sends it: WebCore cannot propose a tag it has no enumerator
+    // for, and Safari's own menu builds items only from the tags it looks up plus its custom tags
+    // >= 0x2710.)
     case kWKContextMenuItemTagOpenLinkInThisWindow:
+        // MAVERICKS_BACKPORT: explicit no-op instead of upstream's numeric fallthrough (see above).
+        return WebCore::ContextMenuItemTagNoAction;
     default:
         if (tag < kWKContextMenuItemBaseApplicationTag && !(tag >= WebCore::ContextMenuItemBaseCustomTag && tag <= WebCore::ContextMenuItemLastCustomTag))
             LOG_ERROR("WKContextMenuItemTag %i is an unknown tag but is below the allowable custom tag value of %i", tag, kWKContextMenuItemBaseApplicationTag);
