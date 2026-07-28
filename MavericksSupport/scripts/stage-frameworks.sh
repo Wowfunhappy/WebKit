@@ -205,13 +205,17 @@ stage_framework() {
         ln -sfh "A" "$destBundle/Versions/Current"
         rm -f "$destBundle/$builtName"
         ln -sf "Versions/Current/$destBinName" "$destBundle/$destBinName"
-        # Fix Info.plist CFBundleExecutable.
-        /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $destBinName" "$va/Resources/Info.plist" 2>/dev/null || true
+        # Fix Info.plist CFBundleExecutable. Both stamps below are load-bearing and unsuppressed:
+        # a bundle's identity is how it is FOUND at runtime — LocalizedStrings.cpp reaches its string
+        # table through CFBundleGetBundleWithIdentifier(CFSTR("com.apple.WebCore")), and a missed
+        # stamp would surface as every WebCore string coming back untranslated (#105) rather than as
+        # the staging failure it actually is.
+        /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $destBinName" "$va/Resources/Info.plist"
         # MAVERICKS_BACKPORT: keep the STOCK bundle identifier for the name-shifted frameworks
         # (WebKitLegacy installs as WebKit.framework = com.apple.WebKit; WK2 installs as
         # WebKit2.framework = com.apple.WebKit2). The build stamps com.apple.<target-name>
         # (see WebKitMacros.cmake), which is right for WebCore/JavaScriptCore but not these two.
-        /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.apple.$destBinName" "$va/Resources/Info.plist" 2>/dev/null || true
+        /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.apple.$destBinName" "$va/Resources/Info.plist"
     fi
 
     # The build emits its XPCServices symlinks as ABSOLUTE paths back into the build tree — at the
@@ -259,12 +263,17 @@ RES="$(s "$WEBCORE_BUNDLE")/Versions/A/Resources"
 # script (defines the UIStrings table that UIString() reads — without it the controls JS throws at
 # load and NO control bar renders) and the SVG/PDF/PNG control icons. With them, <video controls>
 # shows a working control bar.
+#
+# Every copy in this step is a HARD failure, never a warning: each names a resource whose absence
+# this file's own comments describe as an unshippable product (no control bar, a WebContent abort,
+# raw localization keys in the UI). A build that knows the artifact is broken must not print WARN
+# and hand it to install-safari7.sh.
 mkdir -p "$RES/modern-media-controls/images"
-cp -f "$REPO/Source/WebCore/en.lproj/modern-media-controls-localized-strings.js" "$RES/" 2>/dev/null || \
-    echo "  WARN: modern-media-controls-localized-strings.js not found"
+cp -f "$REPO/Source/WebCore/en.lproj/modern-media-controls-localized-strings.js" "$RES/" \
+    || { echo "ERROR: modern-media-controls-localized-strings.js not found — <video controls> would render NO control bar." >&2; exit 1; }
 # Flat icon dir: RenderThemeCocoa looks up <name>.<type> in modern-media-controls/images.
-cp -f "$REPO"/Source/WebCore/Modules/modern-media-controls/images/macOS/* "$RES/modern-media-controls/images/" 2>/dev/null || \
-    echo "  WARN: macOS media-control icons not found"
+cp -f "$REPO"/Source/WebCore/Modules/modern-media-controls/images/macOS/* "$RES/modern-media-controls/images/" \
+    || { echo "ERROR: macOS media-control icons not found — <video controls> would render an iconless control bar." >&2; exit 1; }
 echo "  staged modern-media-controls resources ($(ls "$RES/modern-media-controls/images" 2>/dev/null | wc -l | tr -d ' ') icons)"
 
 # The Web Audio HRTF impulse-response database AudioBus::loadPlatformResource() reads from the
@@ -273,17 +282,17 @@ echo "  staged modern-media-controls resources ($(ls "$RES/modern-media-controls
 # making +[NSData dataWithContentsOfURL:] throw on nil and aborting the whole WebContent process
 # (e.g. the 5-million-devs.netlify.com 3D game reload loop).
 mkdir -p "$RES/audio"
-cp -f "$REPO/Source/WebCore/platform/audio/resources/Composite.wav" "$RES/audio/" 2>/dev/null \
-    && echo "  staged HRTF database (audio/Composite.wav)" \
-    || echo "  WARN: HRTF Composite.wav not found"
+cp -f "$REPO/Source/WebCore/platform/audio/resources/Composite.wav" "$RES/audio/" \
+    || { echo "ERROR: HRTF Composite.wav not found — an HRTF PannerNode would abort the WebContent process." >&2; exit 1; }
+echo "  staged HRTF database (audio/Composite.wav)"
 
 # linearSRGB.icc: 10.9 CG has no kCGColorSpaceLinearSRGB, so WebCore's
 # linearSRGBColorSpaceSingleton() builds the linear sRGB space from this
 # profile (the classic pre-10.12 mechanism; stock 10.9 WebCore shipped the
 # same file). With it, SVG filters run in linear space.
-cp -f "$REPO/Source/WebCore/Resources/linearSRGB.icc" "$RES/" 2>/dev/null \
-    && echo "  staged linearSRGB.icc" \
-    || echo "  WARN: linearSRGB.icc not found"
+cp -f "$REPO/Source/WebCore/Resources/linearSRGB.icc" "$RES/" \
+    || { echo "ERROR: linearSRGB.icc not found — SVG filters would have no linear sRGB color space." >&2; exit 1; }
+echo "  staged linearSRGB.icc"
 
 # Localizable.strings: WEB_UI_STRING looks localized UI strings up in the WebCore
 # bundle (copyLocalizedString → CFBundleCopyLocalizedString). With the table every
@@ -291,9 +300,20 @@ cp -f "$REPO/Source/WebCore/Resources/linearSRGB.icc" "$RES/" 2>/dev/null \
 # instead of "Allow (usermedia)" on the getUserMedia consent sheet). The bundle
 # identifier side is stamped at build time (WebKitMacros.cmake).
 mkdir -p "$RES/en.lproj"
-cp -f "$REPO/Source/WebCore/en.lproj/Localizable.strings" "$RES/en.lproj/" 2>/dev/null \
-    && echo "  staged en.lproj/Localizable.strings" \
-    || echo "  WARN: Localizable.strings not found"
+cp -f "$REPO/Source/WebCore/en.lproj/Localizable.strings" "$RES/en.lproj/" \
+    || { echo "ERROR: Localizable.strings not found — the UI would render raw localization keys." >&2; exit 1; }
+echo "  staged en.lproj/Localizable.strings"
+
+# The other 32 languages (#105). en.lproj alone leaves every WebCore-owned string English on a
+# non-English system, inside menus whose Safari-owned items ARE translated. Stock 10.9 WebCore
+# shipped a table per language, and its keys are the English strings, so each one still fits the
+# strings this build kept; build-localized-strings.py merges them over en.lproj (English for
+# anything added since 2013) into the same per-language tables stock had. It exits non-zero on any
+# shortfall — a half-localized product is #105 shipped again.
+/usr/bin/python "$HERE/build-localized-strings.py" \
+    "$REPO/Source/WebCore/en.lproj/Localizable.strings" \
+    "$STOCK_BACKUP/WebKit.framework/Versions/A/Frameworks/WebCore.framework/Versions/A/Resources" \
+    "$RES"
 
 # ---------------------------------------------------------------------------
 # Step 3: deploy the dylibs that ship inside the bundles. The frameworks' load commands are
@@ -404,6 +424,25 @@ $(find "$(s "$PRIVLIBCXX")" "$(s "$PRIVLIB")" -name '*.dylib' -type f 2>/dev/nul
 echo "$DEMANGLER_GUARD_BINS" | grep -v '^$' | sort -u | \
     xargs /usr/bin/python "$WK_SUPPORT/demangler/neutralize-demangler-crashers.py" || {
         echo "ERROR: demangler guard (pass 2) failed" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# WebContent.xpc: let CFBundle resolve OTHER bundles' localizations from the user's language prefs
+# (#105). Without a key CoreFoundation understands, CFBundle pins every non-main bundle's localized
+# lookup to the localization the MAIN bundle resolved to — and this service's main bundle ships no
+# .lproj, so it resolves to its development region and WebCore's Localizable.strings lookup
+# (WEB_UI_STRING → CFBundleCopyLocalizedString) came back ENGLISH on a Spanish system while the
+# Safari-owned items in the same context menu were translated. Upstream declares
+# CFBundleFollowParentLocalization, which 10.9's CoreFoundation predates and ignores; stock 10.9's
+# own WebContent.xpc set CFBundleAllowMixedLocalizations, so this restores stock behaviour. The two
+# keys are NOT synonyms — FollowParent inherits the host app's resolved localization, AllowMixed
+# resolves independently from the user's prefs — but on 10.9 only the latter exists, and it is what
+# every Safari 7 WebContent process on this OS ran with.
+#
+# Stamped here, ahead of the cloning below, so the seven cp -RP clones inherit it. Unsuppressed: a
+# failure silently reintroduces #105.
+echo "### Allowing mixed localizations in WebContent.xpc (#105)"
+/usr/libexec/PlistBuddy -c "Add :CFBundleAllowMixedLocalizations bool true" \
+    "$(s "$XPCSERVICES")/com.apple.WebKit.WebContent.xpc/Contents/Info.plist"
 
 # ---------------------------------------------------------------------------
 # Step 6: QuickLook web previews (.webloc from a Dock stack) need the FULL stock WK2 XPC service set.
