@@ -539,16 +539,22 @@ void FindController::didMoveToPage(PageOverlay&, Page*)
 {
 }
 
+// MAVERICKS_BACKPORT: Safari 7's find overlay (WebKit-537). Upstream shrink-wraps the match rects
+// into 3px-rounded paths, strokes them with a white 2px-thick line and gives that a 0-offset /
+// 1px-blur half-black shadow. Stock Mavericks filled a *square* white frame around each match rect
+// and gave it a (0,1)-offset / 2px-blur opaque black shadow. Restored to match stock 10.9 (#85);
+// the upstream values and drawing are kept commented out below.
 constexpr float shadowOffsetX = 0;
-constexpr float shadowOffsetY = 0;
-constexpr float shadowBlurRadius = 1;
-constexpr unsigned findIndicatorRadius = 3;
+constexpr float shadowOffsetY = 1; // MAVERICKS_BACKPORT: upstream 0
+constexpr float shadowBlurRadius = 2; // MAVERICKS_BACKPORT: upstream 1
+// constexpr unsigned findIndicatorRadius = 3;
 void FindController::drawRect(PageOverlay&, GraphicsContext& graphicsContext, const IntRect& dirtyRect)
 {
     constexpr int borderWidth = 1;
 
     constexpr auto overlayBackgroundColor = SRGBA<uint8_t> { 26, 26, 26, 64 };
-    constexpr auto shadowColor = Color::black.colorWithAlphaByte(128);
+    // MAVERICKS_BACKPORT: 537 shadowed the white frames with opaque black.
+    // constexpr auto shadowColor = Color::black.colorWithAlphaByte(128);
 
     IntRect borderInflatedDirtyRect = dirtyRect;
     borderInflatedDirtyRect.inflate(borderWidth);
@@ -557,24 +563,39 @@ void FindController::drawRect(PageOverlay&, GraphicsContext& graphicsContext, co
     // Draw the background.
     graphicsContext.fillRect(dirtyRect, overlayBackgroundColor);
 
-    Vector<Path> whiteFramePaths = PathUtilities::pathsWithShrinkWrappedRects(rects, findIndicatorRadius);
+    // MAVERICKS_BACKPORT: 537 framed each match rect on its own, with square corners.
+    // Vector<Path> whiteFramePaths = PathUtilities::pathsWithShrinkWrappedRects(rects, findIndicatorRadius);
+    auto whiteFrameRects = rects.map([](auto& rect) {
+        return enclosingIntRect(rect);
+    });
 
     GraphicsContextStateSaver stateSaver(graphicsContext);
 
     // Draw white frames around the holes.
+    // MAVERICKS_BACKPORT: 537 filled an inflated white rect per match (the inner part is erased
+    // again when the holes are cleared) rather than stroking a shrink-wrapped path.
+    graphicsContext.setDropShadow({ { shadowOffsetX, shadowOffsetY }, shadowBlurRadius, Color::black, ShadowRadiusMode::Default });
+    graphicsContext.setFillColor(Color::white);
+    for (auto rect : whiteFrameRects) {
+        rect.inflate(borderWidth);
+        graphicsContext.fillRect(rect);
+    }
+    // MAVERICKS_BACKPORT: upstream's stroked shrink-wrapped frames, kept for reference.
     // We double the thickness because half of the stroke will be erased when we clear the holes.
-    graphicsContext.setDropShadow({ { shadowOffsetX, shadowOffsetY }, shadowBlurRadius, shadowColor, ShadowRadiusMode::Default });
-    graphicsContext.setStrokeColor(Color::white);
-    graphicsContext.setStrokeThickness(borderWidth * 2);
-    for (auto& path : whiteFramePaths)
-        graphicsContext.strokePath(path);
+    // graphicsContext.setStrokeColor(Color::white);
+    // graphicsContext.setStrokeThickness(borderWidth * 2);
+    // for (auto& path : whiteFramePaths)
+    //     graphicsContext.strokePath(path);
 
     graphicsContext.clearDropShadow();
 
     // Clear out the holes.
     graphicsContext.setCompositeOperation(CompositeOperator::Clear);
-    for (auto& path : whiteFramePaths)
-        graphicsContext.fillPath(path);
+    // MAVERICKS_BACKPORT: clear the square match rects, not the shrink-wrapped paths.
+    for (auto& rect : whiteFrameRects)
+        graphicsContext.fillRect(rect);
+    // for (auto& path : whiteFramePaths)
+    //     graphicsContext.fillPath(path);
 
     if (!m_findIndicator->isShowing())
         return;
@@ -583,22 +604,33 @@ void FindController::drawRect(PageOverlay&, GraphicsContext& graphicsContext, co
         auto findIndicatorRect = protect(selectedFrame->view())->contentsToRootView(enclosingIntRect(protect(selectedFrame->selection())->selectionBounds(FrameSelection::ClipToVisibleContent::No)));
 
         if (findIndicatorRect != m_findIndicator->rect()) {
+            // MAVERICKS_BACKPORT: the indicator only has to go away when the *view* scrolled out from
+            // under it (537's behaviour). When the scroll position is unchanged the page merely
+            // reflowed beneath a settled find — Wikipedia shifts its content a few points right after
+            // the find scrolls — and upstream would drop the highlight for good. Report which
+            // happened so the handler can re-snapshot instead of hiding (#85).
+            bool viewDidScroll = protect(selectedFrame->view())->scrollPosition() != m_findIndicator->scrollPositionWhenShown();
             // We are underneath painting, so it's not safe to mutate the layer tree synchronously.
-            callOnMainRunLoop([weakWebPage = WeakPtr { m_webPage }] {
+            callOnMainRunLoop([weakWebPage = WeakPtr { m_webPage }, viewDidScroll] { // MAVERICKS_BACKPORT: carries viewDidScroll.
                 if (!weakWebPage)
                     return;
-                weakWebPage->findController().didScrollAffectingFindIndicatorPosition();
+                // MAVERICKS_BACKPORT: upstream passes no argument here.
+                weakWebPage->findController().didScrollAffectingFindIndicatorPosition(viewDidScroll);
             });
         }
     }
 }
 
-void FindController::didScrollAffectingFindIndicatorPosition()
+// MAVERICKS_BACKPORT: upstream signature is didScrollAffectingFindIndicatorPosition().
+void FindController::didScrollAffectingFindIndicatorPosition(bool viewDidScroll)
 {
-    if (m_findIndicator->shouldHideOnScroll())
+    // MAVERICKS_BACKPORT: upstream always takes the first branch here. Re-snapshot the indicator at
+    // its new position when the page reflowed under an unmoved viewport, so the current match keeps
+    // its highlight; a genuine scroll still hides it, which is what stock Mavericks did (#85).
+    if (viewDidScroll && m_findIndicator->shouldHideOnScroll())
         m_findIndicator->hide();
-    else
-        m_findIndicator->update(frameWithSelection(protect(m_webPage->corePage())), true, false);
+    else // MAVERICKS_BACKPORT: upstream passes `true` for isShowingOverlay; ask the controller instead.
+        m_findIndicator->update(frameWithSelection(protect(m_webPage->corePage())), isShowingOverlay(), false);
 }
 
 bool FindController::mouseEvent(PageOverlay&, const PlatformMouseEvent& mouseEvent)

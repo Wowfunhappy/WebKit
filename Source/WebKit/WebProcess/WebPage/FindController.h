@@ -102,7 +102,8 @@ private:
     unsigned markMatches(const String&, OptionSet<FindOptions>, unsigned maxMatchCount);
     unsigned getMatchCount(const String&, OptionSet<FindOptions>, unsigned maxMatchCount);
     void updateMatchIndex(unsigned matchCount, OptionSet<FindOptions>);
-    void didScrollAffectingFindIndicatorPosition();
+    // MAVERICKS_BACKPORT: viewDidScroll distinguishes a scroll from a reflow; see the .cpp.
+    void didScrollAffectingFindIndicatorPosition(bool viewDidScroll);
 
     RefPtr<WebCore::LocalFrame> frameWithSelection(WebCore::Page*);
 

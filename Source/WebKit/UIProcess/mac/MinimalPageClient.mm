@@ -1421,7 +1421,17 @@ Ref<WebCore::ValidationBubble> MinimalPageClient::createValidationBubble(String&
 #endif
 #if PLATFORM(COCOA)
 CALayer *MinimalPageClient::textIndicatorInstallationLayer()
-{ return { }; }
+{
+    // MAVERICKS_BACKPORT: was a `{ return { }; }` stub, so WebPageProxy::setTextIndicator built the
+    // WebTextIndicatorLayer and then added it as a sublayer of nil — the layer never entered a layer
+    // tree and no text indicator was ever visible. Most visibly that lost the find overlay's yellow
+    // highlight on the current match (#85). WKView hosts the WebContent render layer in a dedicated
+    // layer-hosting subview (see installRenderLayer above); install the indicator into that same
+    // hosting layer, which is exactly what WebViewImpl::textIndicatorInstallationLayer returns for
+    // WKWebView. Both hosting views are flipped, so the root-view coordinates the indicator's frame
+    // is expressed in land right side up.
+    return [m_layerHostingView layer];
+}
 #endif
 #if PLATFORM(COCOA)
 void MinimalPageClient::didPerformDictionaryLookup(const WebCore::DictionaryPopupInfo& info)

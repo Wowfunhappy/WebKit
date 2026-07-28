@@ -1681,8 +1681,15 @@ void WebPageProxy::setTextIndicator(RefPtr<WebCore::TextIndicator>&& textIndicat
 
     [installationLayer addSublayer:m_textIndicatorLayer.get()];
 
-    if (m_textIndicator->presentationTransition() != WebCore::TextIndicatorPresentationTransition::None)
-        [m_textIndicatorLayer present];
+    // MAVERICKS_BACKPORT: -present must run for every transition, including None.
+    // -updateWithFrame:…updatingIndicator:NO sets each bounce layer's opacity to 0 and only -present
+    // puts it back to 1, so skipping it here left a TextIndicatorPresentationTransition::None
+    // indicator built, installed and permanently invisible. None means "no entrance animation", not
+    // "do not show" — with it -present just sets the opacity, adding no animation. This is what a
+    // re-snapshot after the page reflows relies on (#85), and it also unbreaks the other
+    // shouldAnimate=false callers, FindController::redraw and deviceScaleFactorDidChange.
+    // if (m_textIndicator->presentationTransition() != WebCore::TextIndicatorPresentationTransition::None)
+    [m_textIndicatorLayer present];
 
     if ((TextIndicatorLifetime)lifetime == TextIndicatorLifetime::Temporary)
         m_textIndicatorFadeTimer.startOneShot(WebCore::timeBeforeFadeStarts);
