@@ -1673,55 +1673,33 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
                 return;
             }
 
-            // MAVERICKS_BACKPORT (10.9 / Safari-7): the V0 (deprecated) decidePolicyForResponse
-            // callback does not receive canShowMIMEType. Safari 7's handler predates
-            // that parameter and, against modern WebKit, mis-decides — it downloads
-            // or ignores perfectly displayable SUBFRAME responses (ad/tracker/login
-            // iframes, etc.) instead of rendering them. That cluttered ~/Downloads
-            // and crashed the UI process's download writer. WebKit already knows the
-            // response is displayable, so render it; only fall through to the legacy
-            // callback for genuinely non-displayable responses (real downloads like
-            // .zip/.pdf, where Safari's download handling is still wanted). The
-            // non-deprecated callback DOES get canShowMIMEType, so leave it alone.
-            //
-            // IMPORTANT: this bypass must be limited to SUBFRAMES. A V0 client's
-            // MAIN-FRAME response decision is load-bearing and original WebKit always
-            // delivered it — e.g. the legacy Mac App Store registers a V0
-            // decidePolicyForResponse to intercept the MZStore "jingle" navigation
-            // plist (a displayable text/xml directive) on the main frame and follow
-            // its Goto URL natively, instead of letting WebKit render the raw XML.
-            // Suppressing the main-frame callback made the App Store show raw <plist>
-            // XML. So only bypass for non-main frames; always consult the client for
-            // the main frame (restoring original behavior).
-            // MAVERICKS_BACKPORT: render displayable subframe responses; only consult the legacy V0 client otherwise.
-            if (canShowMIMEType && !frame.isMainFrame() && m_client.decidePolicyForResponse_deprecatedForUseWithV0 && !m_client.decidePolicyForResponse) {
-                listener->use();
-                return;
-            }
-
-            // MAVERICKS_BACKPORT (10.9 / Safari-7): the same V0 (no canShowMIMEType) handler ALSO mis-decides
-            // NON-displayable MAIN-FRAME responses — Safari 7 ignores them (cancelling the load and
-            // leaving the previous page) instead of downloading. So navigating to a .zip / installer /
-            // application-octet-stream does nothing. WebKit already knows the response can't be displayed,
-            // so download it directly via the listener (the proper UIProcess trigger that sets up the
-            // DownloadProxy). The App Store MZStore case above is a DISPLAYABLE main-frame response
-            // (canShowMIMEType==true), so it is unaffected and still reaches the V0 callback. Displayable
-            // responses (HTML/images/media/PDF — PDF is canShowMIMEType==true and force-downloaded later)
-            // are unaffected; the non-deprecated V1 callback gets canShowMIMEType and is left alone.
-            // MAVERICKS_BACKPORT: download non-displayable main-frame HTTP responses the legacy V0 client would ignore.
-            if (!canShowMIMEType && frame.isMainFrame() && resourceRequest.url().protocolIsInHTTPFamily()
-                && m_client.decidePolicyForResponse_deprecatedForUseWithV0 && !m_client.decidePolicyForResponse) {
-                listener->download();
-                return;
-            }
-
             Ref<API::URLResponse> response = API::URLResponse::create(resourceResponse);
             Ref<API::URLRequest> request = API::URLRequest::create(resourceRequest);
 
-            if (m_client.decidePolicyForResponse_deprecatedForUseWithV0)
-                m_client.decidePolicyForResponse_deprecatedForUseWithV0(toAPI(&page), toAPI(&frame), toAPI(response.ptr()), toAPI(request.ptr()), toAPI(listener.ptr()), nullptr, m_client.base.clientInfo);
-            else
-                m_client.decidePolicyForResponse(toAPI(&page), toAPI(&frame), toAPI(response.ptr()), toAPI(request.ptr()), canShowMIMEType, toAPI(listener.ptr()), nullptr, m_client.base.clientInfo);
+            // MAVERICKS_BACKPORT (10.9 / Safari-7): rebuild the injected-bundle userData this callback
+            // used to carry. Original WebKit2 passed the WebProcess policy client's userData through
+            // (WebPolicyClient::decidePolicyForResponse forwarded `toAPI(userData)`); modern WebKit
+            // dropped that plumbing and hardcodes nullptr, and WKBundlePageSetPolicyClient is a stub, so
+            // the object is never produced at all. Safari 7 depends on it: its own bundle client
+            // (BrowserBundlePagePolicyClient::decidePolicyForResponse) set userData to a WKBoolean
+            // holding WKBundlePageCanShowMIMEType(), and its UI-side handler
+            // (BrowserPagePolicyClient::decidePolicyForResponse) casts userData to a WKBoolean and takes
+            // `use()` only when it is true — a null one reads as false, so it instead runs
+            // openFileExternallyIfSafe()/revealFileInFileManager() and `ignore()`s the load. That is why
+            // main-frame HTML rendered blank, displayable subframes were dropped, direct navigation to a
+            // non-displayable URL did nothing, and a top-level video/audio document was handed to
+            // QuickTime Player instead of being played inline. The UIProcess already computes exactly the
+            // value that bundle client reported, so pass it. Same fix shape as the navigation-action and
+            // new-window policy userData (#60).
+            Ref<API::Object> userData = API::Boolean::create(canShowMIMEType);
+
+            if (m_client.decidePolicyForResponse_deprecatedForUseWithV0) {
+                // MAVERICKS_BACKPORT: pass the rebuilt userData; upstream hardcodes nullptr here.
+                m_client.decidePolicyForResponse_deprecatedForUseWithV0(toAPI(&page), toAPI(&frame), toAPI(response.ptr()), toAPI(request.ptr()), toAPI(listener.ptr()), toAPI(userData.ptr()), m_client.base.clientInfo);
+            } else {
+                // MAVERICKS_BACKPORT: pass the rebuilt userData; upstream hardcodes nullptr here.
+                m_client.decidePolicyForResponse(toAPI(&page), toAPI(&frame), toAPI(response.ptr()), toAPI(request.ptr()), canShowMIMEType, toAPI(listener.ptr()), toAPI(userData.ptr()), m_client.base.clientInfo);
+            }
         }
     };
 

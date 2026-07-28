@@ -963,27 +963,6 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForResponse(const ResourceRe
         return;
     }
 
-    // MAVERICKS_BACKPORT: Safari 7's V0 (deprecated, no-canShowMIMEType) decidePolicyForResponse
-    // callback decides Download for a DISPLAYABLE main-frame text/html response (empirically
-    // confirmed 2026-06-22: with this short-circuit removed, example.com's response reaches
-    // Safari's V0 callback at WKPage.cpp and returns PolicyAction::Download even though
-    // canShowMIMEType==true, so the page renders blank). This is the same Safari-V0-policy-delegate
-    // mis-decision family as the response-download (#108) and nav-action-userData (#60) fixes — NOT
-    // an IPC dispatch issue; the async reply returns fine. Short-circuit every main-frame
-    // html/xhtml response to Use in the WebProcess so the load commits — including repeat
-    // responses for the same URL: a reload (location.reload(), Cmd+R) or renavigation to the
-    // current URL is a second response with the same URL, and answering anything but Use kills
-    // the provisional load, leaving the stale old document on screen. The MIME allow-list is
-    // deliberately html/xhtml ONLY (not text/xml): the App Store's main-frame text/xml MZStore plist
-    // must still reach Safari's V0 callback (WKPage.cpp main-frame note), so it is not short-circuited.
-    if (m_frame->isMainFrame() && downloadAttribute.isEmpty()) {
-        auto& mimeType = response.mimeType();
-        if (mimeType.startsWithIgnoringASCIICase("text/html"_s) || mimeType.startsWithIgnoringASCIICase("application/xhtml"_s)) {
-            function(PolicyAction::Use);
-            return;
-        }
-    }
-
     if ((!m_frame->isMainFrame() || m_frame->isSafeBrowsingCheckOngoing() == SafeBrowsingCheckOngoing::No) && webPage->shouldSkipDecidePolicyForResponse(response)) {
         WebLocalFrameLoaderClient_RELEASE_LOG(Network, "dispatchDecidePolicyForResponse: continuing because injected bundle says so");
         function(PolicyAction::Use);
