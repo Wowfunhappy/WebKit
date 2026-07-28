@@ -119,10 +119,16 @@ void GStreamerSctpTransportBackend::stateChanged()
     if (!m_client)
         return;
 
-    GstWebRTCSCTPTransportState transportState;
-    guint16 maxChannels;
-    uint64_t maxMessageSize;
-    g_object_get(m_backend.get(), "state", &transportState, "max-message-size", &maxMessageSize, "max-channels", &maxChannels, nullptr);
+    // MAVERICKS_BACKPORT: read each property into a variable of the width g_object_get actually
+    // writes. "max-channels" is installed with g_param_spec_uint, so g_object_get writes a full
+    // guint (4 bytes); passing the address of a guint16 lets it write 2 bytes past that variable.
+    // "state" is an enum property, which g_object_get writes as a gint. Narrow afterwards.
+    gint transportStateValue = 0;
+    guint maxChannelsValue = 0;
+    guint64 maxMessageSize = 0;
+    g_object_get(m_backend.get(), "state", &transportStateValue, "max-message-size", &maxMessageSize, "max-channels", &maxChannelsValue, nullptr);
+    auto transportState = static_cast<GstWebRTCSCTPTransportState>(transportStateValue);
+    auto maxChannels = static_cast<guint16>(maxChannelsValue);
     GST_DEBUG("Notifying SCTP transport state, max-message-size: %" G_GUINT64_FORMAT " max-channels: %" G_GUINT16_FORMAT, maxMessageSize, maxChannels);
     callOnMainThread([weakClient = m_client, transportState, maxChannels, maxMessageSize] {
         if (RefPtr client = weakClient.get())
