@@ -631,7 +631,15 @@ bool MIMETypeRegistry::isPDFMIMEType(const String& mimeType)
 
 bool MIMETypeRegistry::canShowMIMEType(const String& mimeType)
 {
-    if (isSupportedImageMIMEType(mimeType) || isSupportedNonImageMIMEType(mimeType) || isSupportedMediaMIMEType(mimeType))
+    // MAVERICKS_BACKPORT: a raw audio/video file downloads on this port instead of opening as a
+    // MediaDocument — a product decision, matching what Safari 7 does on 10.9 (it had no built-in media
+    // document; a bare media URL was either handed to the QuickTime plug-in or downloaded, and with no
+    // plug-ins it downloads). Same shape as the PDF decision, which downloads because PDFKIT_PLUGIN is
+    // off. This clause is only consulted to answer "can the engine display this as a DOCUMENT"
+    // (WebPage/WebPageProxy::canShowMIMEType → the navigation-response policy); <video>/<audio>
+    // elements ask MediaPlayer::supportsType instead and are unaffected, as are <object>/<embed>.
+    // if (isSupportedImageMIMEType(mimeType) || isSupportedNonImageMIMEType(mimeType) || isSupportedMediaMIMEType(mimeType))
+    if (isSupportedImageMIMEType(mimeType) || isSupportedNonImageMIMEType(mimeType))
         return true;
 
     if (isSupportedJavaScriptMIMEType(mimeType) || isSupportedJSONMIMEType(mimeType))
