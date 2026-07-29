@@ -2469,13 +2469,24 @@ void WebPageProxy::loadDataWithNavigationShared(Ref<WebProcessProxy>&& process, 
     prepareToLoadWebPage(process, loadParameters);
 
     process->markProcessAsRecentlyUsed();
-    process->assumeReadAccessToBaseURL(*this, baseURL, [weakProcess = WeakPtr { process }, webPageID, loadParameters = WTF::move(loadParameters)] () mutable {
-        RefPtr protectedProcess = weakProcess.get();
-        if (!protectedProcess)
-            return;
-        protectedProcess->send(Messages::WebPage::LoadData(WTF::move(loadParameters)), webPageID);
-        protectedProcess->startResponsivenessTimer();
-    }, true);
+    // MAVERICKS_BACKPORT: register the WebProcess as allowed to access the first-party
+    // cookie set for this data load's baseURL, like loadRequestWithNavigationShared and
+    // loadAlternateHTML already do. Upstream relies on the UIProcess navigation-policy
+    // path (receivedNavigationActionPolicyDecision -> sharedProcessForSite /
+    // processForNavigation) to register it, but a restored injected-bundle policy client
+    // that answers Use short-circuits policy in the WebProcess (537 semantics), so that
+    // path never runs; NetworkProcess then rejects the page's first cookie access with
+    // AllowCookieAccess::Terminate and the WebContent process is killed (Mail's
+    // conversation view, where processes are reused across x-webdoc:// message loads).
+    protect(protect(websiteDataStore())->networkProcess())->addAllowedFirstPartyForCookies(process, WebCore::RegistrableDomain { URL { baseURL } }, LoadedWebArchive::No, [process, protectedThis = Ref { *this }, webPageID, baseURL, loadParameters = WTF::move(loadParameters)] () mutable {
+        process->assumeReadAccessToBaseURL(protectedThis.get(), baseURL, [weakProcess = WeakPtr { process }, webPageID, loadParameters = WTF::move(loadParameters)] () mutable {
+            RefPtr protectedProcess = weakProcess.get();
+            if (!protectedProcess)
+                return;
+            protectedProcess->send(Messages::WebPage::LoadData(WTF::move(loadParameters)), webPageID);
+            protectedProcess->startResponsivenessTimer();
+        }, true);
+    });
 }
 
 RefPtr<API::Navigation> WebPageProxy::loadSimulatedRequest(WebCore::ResourceRequest&& simulatedRequest, WebCore::ResourceResponse&& simulatedResponse, Ref<WebCore::SharedBuffer>&& data)
@@ -9157,8 +9168,8 @@ void WebPageProxy::decidePolicyForNavigationAction(Ref<WebProcessProxy>&& proces
         logFrameNavigation(frame, URL { internals().pageLoadState.url() }, request, navigationAction->data().redirectResponse.url(), wasPotentiallyInitiatedByUser);
 
     if (m_policyClient) {
-        // MAVERICKS_BACKPORT (#60): rehydrate the injected-bundle policy userData dictionary
-        // ("CanHandleRequest"/"OriginatingFrame") that the WebProcess attached. Safari's legacy
+        // MAVERICKS_BACKPORT (#60): rehydrate the userData object the restored injected-bundle
+        // policy client attached in the WebProcess. Safari's legacy
         // V0/V1 WKPagePolicyClient callback (BrowserPagePolicyClient::decidePolicyForAction) casts
         // this to a WKDictionary and bails WITHOUT driving the listener if it is null. Passing the
         // real dictionary lets Safari's callback actually call use()/ignore()/download(), so the
@@ -9300,21 +9311,43 @@ void WebPageProxy::decidePolicyForNewWindowAction(IPC::Connection& connection, N
         receivedPolicyDecision(policyAction, nullptr, std::nullopt, WTF::move(navigationAction), WillContinueLoadInNewProcess::No, std::nullopt, std::nullopt, WTF::move(completionHandler));
     }, ShouldExpectSafeBrowsingResult::No, ShouldExpectAppBoundDomainResult::No, ShouldWaitForInitialLinkDecorationFilteringData::No, ShouldWaitForSiteHasStorageCheck::No, ShouldWaitForEnhancedSecurityLinkCheck::No);
 
-    if (m_policyClient)
-        m_policyClient->decidePolicyForNewWindowAction(*this, *frame, navigationAction.get(), request, frameName, WTF::move(listener));
+    if (m_policyClient) {
+        // MAVERICKS_BACKPORT: hand the API policy client the injected bundle's userData.
+        RefPtr<API::Object> bundleUserDataObject = process->transformHandlesToObjects(protect(navigationActionData.bundlePolicyUserData.object()).get());
+        m_policyClient->decidePolicyForNewWindowAction(*this, *frame, navigationAction.get(), request, frameName, WTF::move(listener), bundleUserDataObject.get());
+    }
     else
         m_navigationClient->decidePolicyForNavigationAction(*this, navigationAction.get(), WTF::move(listener));
 }
 
-void WebPageProxy::decidePolicyForResponse(IPC::Connection& connection, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
+// MAVERICKS_BACKPORT: signature carries bundlePolicyUserData (the injected-bundle policy client's userData) through to the C API policy client.
+void WebPageProxy::decidePolicyForResponse(IPC::Connection& connection, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
 {
     RefPtr frame = WebFrameProxy::webFrame(frameInfo.frameID);
     if (!frame)
         return completionHandler({ });
-    decidePolicyForResponseShared(WebProcessProxy::fromConnection(connection), m_webPageID, WTF::move(frameInfo), navigationID, response, request, canShowMIMEType, WTF::move(downloadAttribute), isShowingInitialAboutBlank, activeDocumentCOOPValue, WTF::move(completionHandler));
+    // MAVERICKS_BACKPORT: forwards bundlePolicyUserData.
+    decidePolicyForResponseShared(WebProcessProxy::fromConnection(connection), m_webPageID, WTF::move(frameInfo), navigationID, response, request, canShowMIMEType, WTF::move(downloadAttribute), isShowingInitialAboutBlank, activeDocumentCOOPValue, bundlePolicyUserData, WTF::move(completionHandler));
 }
 
-void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process, PageIdentifier webPageID, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
+// MAVERICKS_BACKPORT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed the
+// message); invokes the legacy WKPagePolicyClient.unableToImplementPolicy callback Safari registers.
+void WebPageProxy::unableToImplementPolicy(IPC::Connection& connection, WebCore::FrameIdentifier frameID, const WebCore::ResourceError& error, const UserData& userData)
+{
+    RefPtr protectedPageClient { pageClient() };
+
+    RefPtr frame = WebFrameProxy::webFrame(frameID);
+    if (!frame)
+        return;
+
+    if (!m_policyClient)
+        return;
+    Ref process = WebProcessProxy::fromConnection(connection);
+    m_policyClient->unableToImplementPolicy(*this, *frame, error, process->transformHandlesToObjects(protect(userData.object()).get()).get());
+}
+
+// MAVERICKS_BACKPORT: signature carries bundlePolicyUserData (the injected-bundle policy client's userData) through to the C API policy client.
+void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process, PageIdentifier webPageID, FrameInfoData&& frameInfo, std::optional<WebCore::NavigationIdentifier> navigationID, const ResourceResponse& response, const ResourceRequest& request, bool canShowMIMEType, String&& downloadAttribute, bool isShowingInitialAboutBlank, WebCore::CrossOriginOpenerPolicyValue activeDocumentCOOPValue, const UserData& bundlePolicyUserData, CompletionHandler<void(PolicyDecision&&)>&& completionHandler)
 {
     RefPtr protectedPageClient { pageClient() };
 
@@ -9466,9 +9499,11 @@ void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process,
         });
     }
 
-    if (m_policyClient)
-        m_policyClient->decidePolicyForResponse(*this, *frame, response, request, canShowMIMEType, WTF::move(listener));
-    else
+    if (m_policyClient) {
+        // MAVERICKS_BACKPORT: hand the API policy client the injected bundle's userData.
+        RefPtr<API::Object> bundleUserDataObject = process->transformHandlesToObjects(protect(bundlePolicyUserData.object()).get());
+        m_policyClient->decidePolicyForResponse(*this, *frame, response, request, canShowMIMEType, WTF::move(listener), bundleUserDataObject.get());
+    } else
         m_navigationClient->decidePolicyForNavigationResponse(*this, WTF::move(navigationResponse), WTF::move(listener));
 }
 

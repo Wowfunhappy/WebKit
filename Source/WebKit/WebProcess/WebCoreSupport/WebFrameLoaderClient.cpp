@@ -41,6 +41,9 @@
 #include "WebLocalFrameLoaderClient.h"
 #include "WebMouseEvent.h"
 #include "WebPage.h"
+// MAVERICKS_BACKPORT: restored injected-bundle policy client / navigation action (upstream 9eeab8d, 8ee28eb).
+#include "InjectedBundleNavigationAction.h"
+#include "InjectedBundlePagePolicyClient.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcess.h"
 #include <WebCore/FrameLoader.h>
@@ -187,7 +190,9 @@ std::optional<NavigationActionData> WebFrameLoaderClient::navigationActionData(c
     };
 }
 
-void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const NavigationAction& navigationAction, const ResourceRequest& request, const ResourceResponse& redirectResponse, FormState*, const String& clientRedirectSourceForHistory, std::optional<WebCore::NavigationIdentifier> navigationID, std::optional<WebCore::HitTestResult>&& hitTestResult, bool hasOpener, NavigationUpgradeToHTTPSBehavior navigationUpgradeToHTTPSBehavior, SandboxFlags sandboxFlags, PolicyDecisionMode policyDecisionMode, FramePolicyFunction&& function)
+// MAVERICKS_BACKPORT: asks the restored injected-bundle policy client first (537 semantics: a
+// bundle decision of Use/Ignore/Download short-circuits here; PassThrough defers to the UI process).
+void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const NavigationAction& navigationAction, const ResourceRequest& request, const ResourceResponse& redirectResponse, FormState* formState, const String& clientRedirectSourceForHistory, std::optional<WebCore::NavigationIdentifier> navigationID, std::optional<WebCore::HitTestResult>&& hitTestResult, bool hasOpener, NavigationUpgradeToHTTPSBehavior navigationUpgradeToHTTPSBehavior, SandboxFlags sandboxFlags, PolicyDecisionMode policyDecisionMode, FramePolicyFunction&& function)
 {
     LOG(Loading, "WebProcess %i - dispatchDecidePolicyForNavigationAction to request url %s", getCurrentProcessID(), request.url().string().utf8().data());
 
@@ -195,23 +200,24 @@ void WebFrameLoaderClient::dispatchDecidePolicyForNavigationAction(const Navigat
     if (!navigationActionData)
         return function(PolicyAction::Ignore);
 
-    // MAVERICKS_BACKPORT (#60): Reconstruct the userData dictionary that Safari 7's injected-bundle
-    // policy client (BrowserBundlePagePolicyClient::userDataForAction) produced before that whole
-    // bundle-client mechanism was removed upstream. Safari's UI-process WKPagePolicyClient callback
-    // (BrowserPagePolicyClient::decidePolicyForAction) casts this userData to a WKDictionary and, if
-    // the cast fails (null userData), returns WITHOUT ever driving the policy listener (no
-    // use/ignore/download) -> the navigation hangs. We rebuild the same two keys it reads on the
-    // navigation path: "CanHandleRequest" (Boolean) and "OriginatingFrame" (Frame), serialized via
-    // UserData so the frame handle is rehydrated into a WKFrameRef in the UI process.
-    {
-        API::Dictionary::MapType map;
-        map.add("CanHandleRequest"_s, API::Boolean::create(navigationActionData->canHandleRequest));
-        map.add("OriginatingFrame"_s, API::FrameHandle::createAutoconverting(navigationActionData->originatingFrameInfoData.frameID));
-        Ref<API::Object> userData = API::Dictionary::create(WTF::move(map));
-        navigationActionData->bundlePolicyUserData = UserData(WebProcess::singleton().transformObjectsToHandles(userData.ptr()));
-    }
-
     RefPtr webPage = m_frame->page();
+    if (!webPage)
+        return function(PolicyAction::Ignore);
+
+    // MAVERICKS_BACKPORT: ask the injected bundle's policy client, restored alongside
+    // InjectedBundlePagePolicyClient (upstream 9eeab8d). Safari 7's client returns the userData its
+    // UI-process handler reads, and returns WKBundlePagePolicyActionUse when it wants the decision
+    // short-circuited in the WebProcess (BrowserBundlePagePolicyClient::canShortCircuitPolicyDecisionForAction).
+    // Upstream RELEASE_ASSERTed PassThrough here because by then no client could answer anything else.
+    {
+        RefPtr<API::Object> bundleUserData;
+        Ref<InjectedBundleNavigationAction> action = InjectedBundleNavigationAction::create(m_frame.ptr(), navigationAction, formState);
+        WKBundlePagePolicyAction policy = webPage->injectedBundlePolicyClient().decidePolicyForNavigationAction(webPage.get(), m_frame.ptr(), action.ptr(), request, bundleUserData);
+        if (policy == WKBundlePagePolicyActionUse)
+            return function(PolicyAction::Use);
+        if (bundleUserData)
+            navigationActionData->bundlePolicyUserData = UserData(WebProcess::singleton().transformObjectsToHandles(bundleUserData.get()));
+    }
 
     uint64_t listenerID = m_frame->setUpPolicyListener(WTF::move(function), WebFrame::ForNavigationAction::Yes);
 

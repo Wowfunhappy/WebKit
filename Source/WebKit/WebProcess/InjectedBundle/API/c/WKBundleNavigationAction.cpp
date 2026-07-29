@@ -23,51 +23,74 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// MAVERICKS_BACKPORT: restored verbatim from upstream 8ee28eb^ ("Remove InjectedBundleNavigationAction",
+// bug 247819). Safari 7 imports WKBundleNavigationActionCopyHitTestResult / GetNavigationType /
+// CopyFormElement and calls them from its injected-bundle policy client; the return-0 stubs upstream
+// left behind made that client build an empty userData dictionary.
+
 #include "config.h"
 #include "WKBundleNavigationAction.h"
 #include "WKBundleNavigationActionPrivate.h"
 
+// MAVERICKS_BACKPORT: includes for the restored real implementations below.
+#include "InjectedBundleHitTestResult.h"
+#include "InjectedBundleNavigationAction.h"
+#include "InjectedBundleNodeHandle.h"
+#include "WKAPICast.h"
+#include "WKBundleAPICast.h"
+
+// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKTypeID WKBundleNavigationActionGetTypeID()
 {
-    return 0;
+    return WebKit::toAPI(WebKit::InjectedBundleNavigationAction::APIType);
 }
 
+// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKFrameNavigationType WKBundleNavigationActionGetNavigationType(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->navigationType());
 }
 
+// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKEventModifiers WKBundleNavigationActionGetEventModifiers(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->modifiers());
 }
 
+// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKEventMouseButton WKBundleNavigationActionGetEventMouseButton(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->mouseButton());
 }
 
+// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKBundleHitTestResultRef WKBundleNavigationActionCopyHitTestResult(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    RefPtr<WebKit::InjectedBundleHitTestResult> hitTestResult = WebKit::toImpl(navigationActionRef)->hitTestResult();
+    return toAPI(hitTestResult.leakRef());
 }
 
+// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKBundleNodeHandleRef WKBundleNavigationActionCopyFormElement(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    RefPtr<WebKit::InjectedBundleNodeHandle> formElement = WebKit::toImpl(navigationActionRef)->formElement();
+    return toAPI(formElement.leakRef());
 }
 
+// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 bool WKBundleNavigationActionGetShouldOpenExternalURLs(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    return WebKit::toImpl(navigationActionRef)->shouldOpenExternalURLs();
 }
 
+// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 bool WKBundleNavigationActionGetShouldTryAppLinks(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    return WebKit::toImpl(navigationActionRef)->shouldTryAppLinks();
 }
 
+// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKStringRef WKBundleNavigationActionCopyDownloadAttribute(WKBundleNavigationActionRef navigationActionRef)
 {
-    return 0;
+    return WebKit::toCopiedAPI(WebKit::toImpl(navigationActionRef)->downloadAttribute());
 }

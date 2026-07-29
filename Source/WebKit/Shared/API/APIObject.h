@@ -234,6 +234,8 @@ public:
         BundleDOMWindowExtension,
         BundleFrame,
         BundleHitTestResult,
+        // MAVERICKS_BACKPORT: restored with InjectedBundleNavigationAction (upstream 8ee28eb removed it).
+        BundleNavigationAction,
         BundleNodeHandle,
         BundlePage,
         BundlePageBanner,

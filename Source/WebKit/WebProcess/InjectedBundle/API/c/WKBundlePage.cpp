@@ -143,8 +143,13 @@ void WKBundlePageSetResourceLoadClient(WKBundlePageRef pageRef, WKBundlePageReso
     protect(WebKit::toImpl(pageRef))->setInjectedBundleResourceLoadClient(makeUnique<WebKit::InjectedBundlePageResourceLoadClient>(wkClient));
 }
 
-void WKBundlePageSetPolicyClient(WKBundlePageRef, WKBundlePagePolicyClientBase*)
+// MAVERICKS_BACKPORT: restored (upstream 9eeab8d gutted this to an empty stub when it removed
+// InjectedBundlePagePolicyClient). Safari 7 installs a policy client here and its UI-process
+// handlers read the userData this client produces.
+void WKBundlePageSetPolicyClient(WKBundlePageRef pageRef, WKBundlePagePolicyClientBase* wkClient)
 {
+    // MAVERICKS_BACKPORT: real body (upstream: empty stub).
+    WebKit::toImpl(pageRef)->initializeInjectedBundlePolicyClient(wkClient);
 }
 
 void WKBundlePageSetUIClient(WKBundlePageRef pageRef, WKBundlePageUIClientBase* wkClient)

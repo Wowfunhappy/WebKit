@@ -1345,36 +1345,16 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             // RELEASE_ASSERT(!m_client.navigationGestureDidBegin);
             // RELEASE_ASSERT(!m_client.navigationGestureWillEnd);
             // RELEASE_ASSERT(!m_client.navigationGestureDidEnd);
-            // m_client.didCommitLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
-            // m_client.didStartProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
-            // m_client.didReceiveServerRedirectForProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
-            // m_client.didFailProvisionalLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(userData), m_client.base.clientInfo);
-            // m_client.didFinishLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
-            // m_client.didFailLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(userData), m_client.base.clientInfo);
-            // m_client.didFirstVisuallyNonEmptyLayoutForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
         }
 
     private:
-        // MAVERICKS_BACKPORT: Safari 9's BrowserPageLoaderClient bails immediately if userData is null
-        // (early return before isMainFrame check). Without a userData dict on link-click
-        // navigations, BCVC::provisionalURLHasChanged() is never invoked and the address
-        // bar stays stuck on the previously typed URL. Substitute an empty Dictionary
-        // when WebProcess produced none (Safari's injected bundle isn't always loaded).
-        static API::Object* ensureUserData(API::Object* userData)
-        {
-            if (userData)
-                return userData;
-            static NeverDestroyed<Ref<API::Dictionary>> emptyDict(API::Dictionary::create());
-            return emptyDict.get().ptr();
-        }
-
+        
         void didCommitLoadForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, API::Object* userData) override
         {
             if (!m_client.didCommitLoadForFrame)
                 return;
 
-            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
-            m_client.didCommitLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+            m_client.didCommitLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
         }
         
         void didStartProvisionalLoadForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, API::Object* userData) override
@@ -1382,8 +1362,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didStartProvisionalLoadForFrame)
                 return;
 
-            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
-            m_client.didStartProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+            m_client.didStartProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
         }
 
         void didReceiveServerRedirectForProvisionalLoadForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, API::Object* userData) override
@@ -1391,8 +1370,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didReceiveServerRedirectForProvisionalLoadForFrame)
                 return;
 
-            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
-            m_client.didReceiveServerRedirectForProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+            m_client.didReceiveServerRedirectForProvisionalLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
         }
 
         void didFailProvisionalLoadWithErrorForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, const WebCore::ResourceError& error, API::Object* userData) override
@@ -1400,8 +1378,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didFailProvisionalLoadWithErrorForFrame)
                 return;
 
-            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
-            m_client.didFailProvisionalLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+            m_client.didFailProvisionalLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(userData), m_client.base.clientInfo);
         }
 
         void didFinishLoadForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, API::Object* userData) override
@@ -1409,8 +1386,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didFinishLoadForFrame)
                 return;
 
-            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
-            m_client.didFinishLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+            m_client.didFinishLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
         }
 
         void didFailLoadWithErrorForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, const WebCore::ResourceError& error, API::Object* userData) override
@@ -1418,8 +1394,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didFailLoadWithErrorForFrame)
                 return;
 
-            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
-            m_client.didFailLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+            m_client.didFailLoadWithErrorForFrame(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(userData), m_client.base.clientInfo);
         }
 
         void didFirstVisuallyNonEmptyLayoutForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Object* userData) override
@@ -1427,8 +1402,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didFirstVisuallyNonEmptyLayoutForFrame)
                 return;
 
-            // MAVERICKS_BACKPORT: substitute an empty userData dict when none was produced (see ensureUserData).
-            m_client.didFirstVisuallyNonEmptyLayoutForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+            m_client.didFirstVisuallyNonEmptyLayoutForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
         }
 
         // MAVERICKS_BACKPORT: forward the legacy first-layout callback (registration below already
@@ -1439,7 +1413,7 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
             if (!m_client.didFirstLayoutForFrame)
                 return;
 
-            m_client.didFirstLayoutForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+            m_client.didFirstLayoutForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
         }
 
         void didReachLayoutMilestone(WebPageProxy& page, OptionSet<WebCore::LayoutMilestone> milestones) override
@@ -1487,19 +1461,19 @@ void WKPageSetPageLoaderClient(WKPageRef pageRef, const WKPageLoaderClientBase* 
         void didFinishDocumentLoadForFrame(WebPageProxy& page, WebFrameProxy& frame, API::Navigation*, API::Object* userData) override
         {
             if (m_client.didFinishDocumentLoadForFrame)
-                m_client.didFinishDocumentLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+                m_client.didFinishDocumentLoadForFrame(toAPI(&page), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
         }
 
         void didReceiveTitleForFrame(WebPageProxy& page, const String& title, WebFrameProxy& frame, API::Object* userData) override
         {
             if (m_client.didReceiveTitleForFrame)
-                m_client.didReceiveTitleForFrame(toAPI(&page), toAPI(title.impl()), toAPI(&frame), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+                m_client.didReceiveTitleForFrame(toAPI(&page), toAPI(title.impl()), toAPI(&frame), toAPI(userData), m_client.base.clientInfo);
         }
 
         void didSameDocumentNavigationForFrame(WebPageProxy& page, WebFrameProxy& frame, WebKit::SameDocumentNavigationType type, API::Object* userData) override
         {
             if (m_client.didSameDocumentNavigationForFrame)
-                m_client.didSameDocumentNavigationForFrame(toAPI(&page), toAPI(&frame), toAPI(type), toAPI(ensureUserData(userData)), m_client.base.clientInfo);
+                m_client.didSameDocumentNavigationForFrame(toAPI(&page), toAPI(&frame), toAPI(type), toAPI(userData), m_client.base.clientInfo);
         }
 
         void didStartProgress(WebPageProxy& page) override
@@ -1571,8 +1545,8 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
         {
             initialize(client);
             // MAVERICKS_BACKPORT: constructor no longer RELEASE_ASSERTs against the deprecated callbacks Safari 9.1.3 sets.
-            // MAVERICKS_BACKPORT: Safari 9.1.3 sets m_client.unableToImplementPolicy.
-            // Modern WebKit forbids it; we silently ignore so Safari can launch.
+            // MAVERICKS_BACKPORT: Safari sets m_client.unableToImplementPolicy; the override below
+            // drives it (restored with InjectedBundlePagePolicyClient).
         }
 
     private:
@@ -1580,43 +1554,6 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
         void decidePolicyForNavigationAction(WebPageProxy& page, WebFrameProxy* frame, Ref<API::NavigationAction>&& navigationAction, WebFrameProxy* originatingFrame, const WebCore::ResourceRequest& originalResourceRequest, const WebCore::ResourceRequest& resourceRequest, Ref<WebFramePolicyListenerProxy>&& listener, API::Object* userData) override
         {
             if (!m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0 && !m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1 && !m_client.decidePolicyForNavigationAction) {
-                listener->use();
-                return;
-            }
-
-            // MAVERICKS_BACKPORT: Safari 7's deprecated V0/V1 decidePolicyForNavigationAction callback
-            // mis-fires Ignore for app-registered custom-protocol schemes it does not recognize as
-            // normal browser navigations — notably safari-reader:// (Reader mode loads its content
-            // from this scheme), plus safari-resource:// and safari-extension://. These schemes are
-            // always served by the app through LegacyCustomProtocolManager and must load, so bypass
-            // the mis-firing legacy callback and use() directly. (Mirrors the canShowMIMEType bypass
-            // in decidePolicyForResponse below.)
-            if ((m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0 || m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1)
-                && !m_client.decidePolicyForNavigationAction
-                && WebProcessPool::urlSchemesWithCustomProtocolHandlers().contains(resourceRequest.url().protocol().toString())) {
-                listener->use();
-                return;
-            }
-
-            // MAVERICKS_BACKPORT (#137): the app's OWN programmatic load (WKPageLoadData / WKPageLoadURL /
-            // WKPageLoadRequest) must not be vetoed by a legacy V0/V1 nav-action policy callback. In
-            // original WebKit2 the embedder-initiated API loads bypassed the nav-action policy client
-            // entirely — that client was only consulted for content-initiated navigations (link clicks,
-            // form submits, script redirects). Modern WebKit routes the initial API load through the
-            // client too, so a legacy callback that assumes "I am only called for web-content navigations"
-            // never drives the listener for the app's own load and the page hangs blank. This is exactly
-            // why Apple Mail's message body stayed blank: Mail loads the message HTML via
-            // -[WKBrowsingContextController loadData:...] (WKPageLoadData) and its V0 policy callback,
-            // not expecting to see its own load, returns without calling use()/ignore()/download().
-            // An app/API-initiated load is flagged isRequestFromClientOrUserInput WITHOUT a web-content
-            // user gesture (a real link click carries a user gesture and still reaches the callback so the
-            // app can route it externally). This also covers the Top Sites snapshot fetcher's own
-            // WKPageLoadURL loads, whose V0 client blanket-ignore()s everything it is consulted for.
-            // MAVERICKS_BACKPORT (#137): bypass the legacy V0/V1 callback for the app's own programmatic load.
-            if ((m_client.decidePolicyForNavigationAction_deprecatedForUseWithV0 || m_client.decidePolicyForNavigationAction_deprecatedForUseWithV1)
-                && !m_client.decidePolicyForNavigationAction
-                && navigationAction->data().isRequestFromClientOrUserInput
-                && !navigationAction->isProcessingUserGesture()) {
                 listener->use();
                 return;
             }
@@ -1635,7 +1572,8 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
                 m_client.decidePolicyForNavigationAction(toAPI(&page), toAPI(frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(originatingFrame), toAPI(originalRequest.ptr()), toAPI(request.ptr()), toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
         }
 
-        void decidePolicyForNewWindowAction(WebPageProxy& page, WebFrameProxy& frame, Ref<API::NavigationAction>&& navigationAction, const WebCore::ResourceRequest& resourceRequest, const String& frameName, Ref<WebFramePolicyListenerProxy>&& listener) override
+        // MAVERICKS_BACKPORT: signature carries an extra userData parameter forwarded to the legacy callback below.
+        void decidePolicyForNewWindowAction(WebPageProxy& page, WebFrameProxy& frame, Ref<API::NavigationAction>&& navigationAction, const WebCore::ResourceRequest& resourceRequest, const String& frameName, Ref<WebFramePolicyListenerProxy>&& listener, API::Object* userData) override
         {
             if (!m_client.decidePolicyForNewWindowAction) {
                 listener->use();
@@ -1644,29 +1582,17 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
 
             Ref<API::URLRequest> request = API::URLRequest::create(resourceRequest);
 
-            // MAVERICKS_BACKPORT: rebuild the bundle-policy userData dictionary that Safari 7's
-            // WKPagePolicyClient policy handler reads, exactly as the #60 navigation-action fix does in
-            // WebFrameLoaderClient.cpp. Safari casts this userData to a WKDictionary and reads
-            // "CanHandleRequest"/"OriginatingFrame"; modern WebKit dropped userData from
-            // API::PolicyClient::decidePolicyForNewWindowAction, so with the null userData this shim used
-            // to pass, Safari's handler returns WITHOUT driving the policy listener and the new window
-            // never opens (target="_blank" links did nothing, while window.open — which skips this policy
-            // gate — worked). The navigation path builds this in the web process as a serialized
-            // FrameHandle and the UI process REHYDRATES it (transformHandlesToObjects) into a real frame
-            // before Safari reads it; we are already in the UI process with the live frame, so put the
-            // live WebFrameProxy in directly (toAPI gives a real WKFrameRef) — an un-rehydrated
-            // FrameHandle here reaches Safari as a raw handle, not a WKFrameRef, and it bails.
-            // See webkit-mavericks-policy-userdata (#60).
-            // MAVERICKS_BACKPORT: build the CanHandleRequest/OriginatingFrame userData dict Safari 7 reads.
-            API::Dictionary::MapType map;
-            map.add("CanHandleRequest"_s, API::Boolean::create(navigationAction->canHandleRequest()));
-            map.add("OriginatingFrame"_s, Ref<API::Object> { frame });
-            Ref<API::Object> userData = API::Dictionary::create(WTF::move(map));
-
-            m_client.decidePolicyForNewWindowAction(toAPI(&page), toAPI(&frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(request.ptr()), toAPI(frameName.impl()), toAPI(listener.ptr()), toAPI(userData.ptr()), m_client.base.clientInfo);
+            // MAVERICKS_BACKPORT: forward the injected-bundle policy client's userData. Safari 7's
+            // handler casts it to a WKDictionary, reads "CanHandleRequest"/"OriginatingFrame", and
+            // returns WITHOUT driving the listener if the cast fails -- so a null one meant
+            // target="_blank" links did nothing. Upstream passes nullptr because it no longer has a
+            // bundle policy client to ask; this port restored that client (InjectedBundlePagePolicyClient),
+            // so the real object arrives here from the WebProcess.
+            m_client.decidePolicyForNewWindowAction(toAPI(&page), toAPI(&frame), toAPI(navigationAction->data().navigationType), toAPI(navigationAction->data().modifiers), toAPI(navigationAction->data().mouseButton), toAPI(request.ptr()), toAPI(frameName.impl()), toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
         }
 
-        void decidePolicyForResponse(WebPageProxy& page, WebFrameProxy& frame, const WebCore::ResourceResponse& resourceResponse, const WebCore::ResourceRequest& resourceRequest, bool canShowMIMEType, Ref<WebFramePolicyListenerProxy>&& listener) override
+        // MAVERICKS_BACKPORT: signature carries an extra userData parameter forwarded to the legacy V0 callback below.
+        void decidePolicyForResponse(WebPageProxy& page, WebFrameProxy& frame, const WebCore::ResourceResponse& resourceResponse, const WebCore::ResourceRequest& resourceRequest, bool canShowMIMEType, Ref<WebFramePolicyListenerProxy>&& listener, API::Object* userData) override
         {
             if (!m_client.decidePolicyForResponse_deprecatedForUseWithV0 && !m_client.decidePolicyForResponse) {
                 listener->use();
@@ -1676,30 +1602,28 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
             Ref<API::URLResponse> response = API::URLResponse::create(resourceResponse);
             Ref<API::URLRequest> request = API::URLRequest::create(resourceRequest);
 
-            // MAVERICKS_BACKPORT (10.9 / Safari-7): rebuild the injected-bundle userData this callback
-            // used to carry. Original WebKit2 passed the WebProcess policy client's userData through
-            // (WebPolicyClient::decidePolicyForResponse forwarded `toAPI(userData)`); modern WebKit
-            // dropped that plumbing and hardcodes nullptr, and WKBundlePageSetPolicyClient is a stub, so
-            // the object is never produced at all. Safari 7 depends on it: its own bundle client
-            // (BrowserBundlePagePolicyClient::decidePolicyForResponse) set userData to a WKBoolean
-            // holding WKBundlePageCanShowMIMEType(), and its UI-side handler
-            // (BrowserPagePolicyClient::decidePolicyForResponse) casts userData to a WKBoolean and takes
-            // `use()` only when it is true — a null one reads as false, so it instead runs
-            // openFileExternallyIfSafe()/revealFileInFileManager() and `ignore()`s the load. That is why
-            // main-frame HTML rendered blank, displayable subframes were dropped, direct navigation to a
-            // non-displayable URL did nothing, and a top-level video/audio document was handed to
-            // QuickTime Player instead of being played inline. The UIProcess already computes exactly the
-            // value that bundle client reported, so pass it. Same fix shape as the navigation-action and
-            // new-window policy userData (#60).
-            Ref<API::Object> userData = API::Boolean::create(canShowMIMEType);
-
+            // MAVERICKS_BACKPORT: forward the injected-bundle policy client's userData; upstream
+            // hardcodes nullptr here because it no longer has a bundle policy client to ask. Safari 7's
+            // handler (BrowserPagePolicyClient::decidePolicyForResponse) casts it to a WKBoolean and
+            // only calls use() when it is true -- a null one reads as false, so it instead runs
+            // openFileExternallyIfSafe()/revealFileInFileManager() and ignore()s the load.
             if (m_client.decidePolicyForResponse_deprecatedForUseWithV0) {
-                // MAVERICKS_BACKPORT: pass the rebuilt userData; upstream hardcodes nullptr here.
-                m_client.decidePolicyForResponse_deprecatedForUseWithV0(toAPI(&page), toAPI(&frame), toAPI(response.ptr()), toAPI(request.ptr()), toAPI(listener.ptr()), toAPI(userData.ptr()), m_client.base.clientInfo);
+                // MAVERICKS_BACKPORT: forward the bundle's userData; upstream hardcodes nullptr here.
+                m_client.decidePolicyForResponse_deprecatedForUseWithV0(toAPI(&page), toAPI(&frame), toAPI(response.ptr()), toAPI(request.ptr()), toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
             } else {
-                // MAVERICKS_BACKPORT: pass the rebuilt userData; upstream hardcodes nullptr here.
-                m_client.decidePolicyForResponse(toAPI(&page), toAPI(&frame), toAPI(response.ptr()), toAPI(request.ptr()), canShowMIMEType, toAPI(listener.ptr()), toAPI(userData.ptr()), m_client.base.clientInfo);
+                // MAVERICKS_BACKPORT: forward the bundle's userData; upstream hardcodes nullptr here.
+                m_client.decidePolicyForResponse(toAPI(&page), toAPI(&frame), toAPI(response.ptr()), toAPI(request.ptr()), canShowMIMEType, toAPI(listener.ptr()), toAPI(userData), m_client.base.clientInfo);
             }
+        }
+
+        // MAVERICKS_BACKPORT: restored with InjectedBundlePagePolicyClient (upstream 9eeab8d removed
+        // the whole path); Safari registers this callback.
+        void unableToImplementPolicy(WebPageProxy& page, WebFrameProxy& frame, const WebCore::ResourceError& error, API::Object* userData) override
+        {
+            if (!m_client.unableToImplementPolicy)
+                return;
+
+            m_client.unableToImplementPolicy(toAPI(&page), toAPI(&frame), toAPI(error), toAPI(userData), m_client.base.clientInfo);
         }
     };
 

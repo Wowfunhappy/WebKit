@@ -95,11 +95,12 @@ struct NavigationActionData {
     String invalidURLString;
     std::optional<WebCore::NavigationRequester> requester;
 
-    // MAVERICKS_BACKPORT (#60): userData dictionary that Safari 7's now-removed injected-bundle
-    // policy client (BrowserBundlePagePolicyClient::userDataForAction) would have produced and
-    // that its UI-process WKPagePolicyClient callback (BrowserPagePolicyClient::decidePolicyForAction)
-    // requires to be a non-null WKDictionary before it will drive the policy listener. Holds the
-    // "CanHandleRequest" Boolean and "OriginatingFrame" Frame keys.
+    // MAVERICKS_BACKPORT (#60): userData the restored injected-bundle policy client
+    // (InjectedBundlePagePolicyClient) produces for this navigation -- for Safari 7, a WKDictionary
+    // holding the "CanHandleRequest" Boolean and "OriginatingFrame" Frame keys built by
+    // BrowserBundlePagePolicyClient::userDataForAction. Its UI-process WKPagePolicyClient callback
+    // (BrowserPagePolicyClient::decidePolicyForAction) requires it to be non-null before it will
+    // drive the policy listener.
     UserData bundlePolicyUserData;
 };
 

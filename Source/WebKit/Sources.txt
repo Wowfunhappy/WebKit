@@ -733,6 +733,9 @@ WebProcess/InjectedBundle/InjectedBundleHitTestResult.cpp
 WebProcess/InjectedBundle/InjectedBundlePageContextMenuClient.cpp
 WebProcess/InjectedBundle/InjectedBundlePageEditorClient.cpp
 WebProcess/InjectedBundle/InjectedBundlePageFormClient.cpp
+// MAVERICKS_BACKPORT: restored (upstream 8ee28eb removed it with the WKBundleNavigationAction SPI; Safari 7 injected-bundle policy clients read it).
+WebProcess/InjectedBundle/InjectedBundleNavigationAction.cpp
+WebProcess/InjectedBundle/InjectedBundlePagePolicyClient.cpp
 WebProcess/InjectedBundle/InjectedBundlePageLoaderClient.cpp
 WebProcess/InjectedBundle/InjectedBundlePageResourceLoadClient.cpp
 WebProcess/InjectedBundle/InjectedBundlePageUIClient.cpp

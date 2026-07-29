@@ -1056,12 +1056,7 @@ void ContextMenuController::populate()
     ContextMenuItem LookUpImageItem(ContextMenuItemType::Action, ContextMenuItemTagLookUpImage, contextMenuItemTagLookUpImage());
 #endif
 
-#if PLATFORM(GTK) || PLATFORM(WIN) || PLATFORM(WPE) || !ENABLE(SERVICE_CONTROLS)
-    // MAVERICKS_BACKPORT: behavior fix — the Share menu item is created with an empty title as a placeholder that the
-    // platform is expected to replace with a real Share submenu — but WebContextMenuProxyMac only
-    // does that #if ENABLE(SERVICE_CONTROLS). With SERVICE_CONTROLS disabled on this port the
-    // placeholder is never replaced and renders as a blank, selectable context-menu row. Leave it
-    // null so the !isNull() guards skip it and no empty item appears.
+#if PLATFORM(GTK) || PLATFORM(WIN) || PLATFORM(WPE)
     ContextMenuItem ShareMenuItem;
 #else
     ContextMenuItem ShareMenuItem(ContextMenuItemType::Action, ContextMenuItemTagShareMenu, emptyString());
@@ -1245,12 +1240,7 @@ void ContextMenuController::populate()
                 addSelectedTextActionsIfNeeded(selectedText);
 
                 appendItem(CopyItem, m_contextMenu.get());
-                // MAVERICKS_BACKPORT: only offer "Copy Link with Highlight" where it can actually
-                // function — an HTTP(S) document with a range selection. Upstream always appends it
-                // and merely disables it for non-HTTP content (e.g. an Apple Mail message body),
-                // leaving a permanently-greyed entry in the menu. Gate the append on the same
-                // predicate that enables it so the dead item never appears.
-                if (!selectionIsInsideImageOverlay && isMainFrame && page && page->settings().scrollToTextFragmentGenerationEnabled() && shouldEnableCopyLinkWithHighlight())
+                if (!selectionIsInsideImageOverlay && isMainFrame && page && page->settings().scrollToTextFragmentGenerationEnabled())
                     appendItem(CopyLinkWithHighlightItem, m_contextMenu.get());
 #if PLATFORM(COCOA)
                 appendItem(*separatorItem(), m_contextMenu.get());
@@ -1263,12 +1253,8 @@ void ContextMenuController::populate()
                 }
 #endif
 
-                // MAVERICKS_BACKPORT: behavior fix — with SERVICE_CONTROLS disabled the Share item stays
-                // a null placeholder; skip appending it (and its separator) so no blank Share row appears.
-                if (!ShareMenuItem.isNull()) {
-                    appendItem(ShareMenuItem, m_contextMenu.get());
-                    appendItem(*separatorItem(), m_contextMenu.get());
-                }
+                appendItem(ShareMenuItem, m_contextMenu.get());
+                appendItem(*separatorItem(), m_contextMenu.get());
 
 #if ENABLE(WRITING_TOOLS)
                 appendItem(*separatorItem(), m_contextMenu.get());

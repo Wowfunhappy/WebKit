@@ -218,12 +218,11 @@ bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, 
         RetainPtr<id> objCInitializationUserData;
         if (initializationUserData && initializationUserData->type() == API::Object::Type::Data) {
             Ref data = downcast<API::Data>(initializationUserData.releaseNonNull());
-            @try {
-                objCInitializationUserData = [NSKeyedUnarchiver unarchiveObjectWithData:toNSData(data->span()).get()];
-            } @catch (NSException *exception) {
-                WTFLogAlways("InjectedBundle: FAILED to unarchive the initialization user data (%s: %s) — the plug-in will be initialized with a nil object.", exception.name.UTF8String, exception.reason.UTF8String);
-                objCInitializationUserData = nil;
-            }
+            // MAVERICKS_BACKPORT: no @try/@catch here. Swallowing the exception handed the plug-in a nil
+            // object and moved the failure to whatever it did next (iBooks' +canInitWithRequest:); an
+            // object graph this process cannot decode is a bug to diagnose at the point of corruption.
+            objCInitializationUserData = [NSKeyedUnarchiver unarchiveObjectWithData:toNSData(data->span()).get()];
+            RELEASE_ASSERT(objCInitializationUserData);
         }
         [instance webProcessPlugIn:plugInController.get() initializeWithObject:objCInitializationUserData.get()];
     }
