@@ -26,6 +26,8 @@
 #include "config.h"
 #include "WebFrameProxy.h"
 
+// MAVERICKS_BACKPORT: restored for the WKCertificateInfo C API the base gutted (#103)
+#include "APICertificateInfo.h"
 #include "APINavigation.h"
 #include "APIUIClient.h"
 #include "BrowsingContextGroup.h"
@@ -340,6 +342,8 @@ void WebFrameProxy::didCommitLoad(const String& contentType, const WebCore::Cert
     m_title = String();
     m_MIMEType = contentType;
     m_certificateInfo = certificateInfo;
+    // MAVERICKS_BACKPORT: drop the C API wrapper so WKFrameGetCertificateInfo re-vends the new commit's info (#103).
+    m_apiCertificateInfo = nullptr;
     m_containsPluginDocument = containsPluginDocument;
     m_documentSecurityPolicy = WTF::move(documentSecurityPolicy);
     updateDocumentSecurityOrigin(nullptr);
@@ -347,6 +351,15 @@ void WebFrameProxy::didCommitLoad(const String& contentType, const WebCore::Cert
     RefPtr webPage = page();
     if (webPage && protect(webPage->preferences())->siteIsolationEnabled())
         broadcastFrameTreeSyncData(calculateFrameTreeSyncData());
+}
+
+// MAVERICKS_BACKPORT: restored for WKFrameGetCertificateInfo's Get (borrowed) semantics —
+// Safari 7 reads this on every commit to drive the address-bar lock (#103).
+API::CertificateInfo& WebFrameProxy::apiCertificateInfo()
+{
+    if (!m_apiCertificateInfo)
+        m_apiCertificateInfo = API::CertificateInfo::create(m_certificateInfo);
+    return *m_apiCertificateInfo;
 }
 
 void WebFrameProxy::didFinishLoad()

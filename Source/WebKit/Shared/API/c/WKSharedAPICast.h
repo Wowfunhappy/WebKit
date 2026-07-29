@@ -63,6 +63,8 @@
 
 namespace API {
 class Array;
+// MAVERICKS_BACKPORT: forward-declare API::CertificateInfo, restored for the WKCertificateInfo C API the base gutted (#103)
+class CertificateInfo;
 class CompletionListener;
 class Dictionary;
 class Data;
@@ -95,6 +97,8 @@ template<typename ImplType> struct ImplTypeInfo;
 
 WK_ADD_API_MAPPING(WKArrayRef, API::Array)
 WK_ADD_API_MAPPING(WKBooleanRef, API::Boolean)
+// MAVERICKS_BACKPORT: map WKCertificateInfoRef ↔ API::CertificateInfo, restored for the WKCertificateInfo C API the base gutted (#103)
+WK_ADD_API_MAPPING(WKCertificateInfoRef, API::CertificateInfo)
 WK_ADD_API_MAPPING(WKCompletionListenerRef, API::CompletionListener);
 WK_ADD_API_MAPPING(WKContextMenuItemRef, WebContextMenuItem)
 WK_ADD_API_MAPPING(WKDataRef, API::Data)
