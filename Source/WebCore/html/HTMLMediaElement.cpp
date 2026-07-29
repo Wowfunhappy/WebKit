@@ -897,12 +897,7 @@ void HTMLMediaElement::registerWithDocument(Document& document)
 {
     document.registerMediaElement(*this);
 
-    // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75 mediaSessionIfExists null-guard). bing.com triggers
-    // Node::moveTreeToNewScope which calls
-    // didMoveToNewDocument → registerWithDocument; mediaSession() can be null
-    // on this build (see existing isVisibleInViewportChanged fix). Guard.
-    if (auto* session = mediaSessionIfExists())
-        session->registerWithDocument(document);
+    protect(mediaSession())->registerWithDocument(document);
 
     if (m_isWaitingUntilMediaCanStart)
         document.addMediaCanStartListener(*this);
@@ -7043,10 +7038,7 @@ void HTMLMediaElement::visibilityStateChanged()
     HTMLMEDIAELEMENT_RELEASE_LOG(VISIBILITYSTATECHANGED, !m_elementIsHidden);
 
     updateSleepDisabling();
-    // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75 mediaSessionIfExists null-guard). bing.com hits this via
-    // Node::moveTreeToNewScope; mediaSession() can be null on this build. Guard like registerWithDocument.
-    if (auto* session = mediaSessionIfExists())
-        session->visibilityChanged();
+    protect(mediaSession())->visibilityChanged();
     if (RefPtr player = m_player)
         player->setPageIsVisible(!m_elementIsHidden);
 
@@ -9612,10 +9604,7 @@ void HTMLMediaElement::purgeBufferedDataIfPossible()
     if (!isPausedOrMSE)
         return;
 
-    // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75 mediaSessionIfExists null-guard). mediaSession() can be null
-    // on this build (lazy-init may leave it nil for stubbed media paths); guard before dereferencing.
-    auto* session = mediaSessionIfExists();
-    if (!MemoryPressureHandler::singleton().isUnderMemoryPressure() && (!session || session->preferredBufferingPolicy() == BufferingPolicy::Default))
+    if (!MemoryPressureHandler::singleton().isUnderMemoryPressure() && protect(mediaSession())->preferredBufferingPolicy() == BufferingPolicy::Default)
         return;
 
     if (isPlayingToExternalTarget()) {
@@ -9658,12 +9647,7 @@ void HTMLMediaElement::isVisibleInViewportChanged()
     queueTaskKeepingObjectAlive(*this, TaskSource::MediaElement, [](auto& element) {
         if (element.isContextStopped())
             return;
-        // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75 mediaSessionIfExists null-guard). mediaSession() lazily
-        // inits m_mediaSession via initializeMediaSession, which may leave m_mediaSession null on 10.9
-        // (PlatformMediaSessionManager not fully available). Then `*m_mediaSession` becomes a null reference and
-        // the next member call SEGVs at 0x118 during scroll-driven viewport-visibility updates. Skip if no session.
-        if (auto* session = element.mediaSessionIfExists())
-            session->isVisibleInViewportChanged();
+        element.mediaSession().isVisibleInViewportChanged();
         element.updateShouldAutoplay();
         element.schedulePlaybackControlsManagerUpdate();
     });
@@ -9684,24 +9668,16 @@ void HTMLMediaElement::updateShouldAutoplay()
     if (!autoplay())
         return;
 
-    // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75 mediaSessionIfExists null-guard). mediaSession() lazily
-    // inits m_mediaSession, which may leave it null on this build (stubbed media paths); guard before
-    // dereferencing rather than constructing a null Ref.
-    auto* session = mediaSessionIfExists();
-    if (!session)
+    Ref mediaSession = this->mediaSession();
+    if (!mediaSession->hasBehaviorRestriction(MediaElementSession::InvisibleAutoplayNotPermitted) && !m_wasInterruptedForInvisibleAutoplay)
         return;
 
-    if (!session->hasBehaviorRestriction(MediaElementSession::InvisibleAutoplayNotPermitted) && !m_wasInterruptedForInvisibleAutoplay)
-        return;
-
-    // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75) — go through the null-guarded `session` local, not mediaSession().
-    bool canAutoplay = session->autoplayPermitted();
+    bool canAutoplay = mediaSession->autoplayPermitted();
 
     if (canAutoplay) {
         if (m_wasInterruptedForInvisibleAutoplay) {
             m_wasInterruptedForInvisibleAutoplay = false;
-            // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75) — go through the null-guarded `session` local, not mediaSession().
-            session->endInterruption(PlatformMediaSession::EndInterruptionFlags::MayResumePlaying);
+            mediaSession->endInterruption(PlatformMediaSession::EndInterruptionFlags::MayResumePlaying);
             return;
         }
         if (!isPlaying())
@@ -9709,19 +9685,16 @@ void HTMLMediaElement::updateShouldAutoplay()
         return;
     }
 
-    // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75) — go through the null-guarded `session` local, not mediaSession().
-    if (session->state() == PlatformMediaSession::State::Interrupted)
+    if (mediaSession->state() == PlatformMediaSession::State::Interrupted)
         return;
 
     if (m_wasInterruptedForInvisibleAutoplay) {
         m_wasInterruptedForInvisibleAutoplay = false;
-        // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75) — go through the null-guarded `session` local, not mediaSession().
-        session->endInterruption(PlatformMediaSession::EndInterruptionFlags::NoFlags);
+        mediaSession->endInterruption(PlatformMediaSession::EndInterruptionFlags::NoFlags);
     }
 
     m_wasInterruptedForInvisibleAutoplay = true;
-    // MAVERICKS_BACKPORT: behavior/SEGV fix (#35/#75) — go through the null-guarded `session` local, not mediaSession().
-    session->beginInterruption(PlatformMediaSession::InterruptionType::InvisibleAutoplay);
+    mediaSession->beginInterruption(PlatformMediaSession::InterruptionType::InvisibleAutoplay);
 }
 
 void HTMLMediaElement::updateShouldPlay()
