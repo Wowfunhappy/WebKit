@@ -151,7 +151,11 @@ fi
 "$NINJA" -k 0 2>&1 | tee "$LOG"
 RC=${PIPESTATUS[0]}
 
-echo "==================== REBUILD DONE (rc=$RC) ===================="
+# Only the compile+link phase is finished here — STAGING STILL FOLLOWS, and the staged tree is
+# half-populated until it ends. Watching for "REBUILD DONE" and installing on that signal races
+# staging and reads an incomplete product (e.g. 2 of the 9 XPC services), which install-safari7.sh
+# then rejects. "REBUILD DONE" is printed once, at the very end, after staging.
+echo "==================== COMPILE/LINK PHASE DONE (rc=$RC) — staging still to run ===================="
 prog=$(grep -oE '^\[[0-9]+/[0-9]+\]' "$LOG" | tail -1)
 fails=$(grep -c '^FAILED:' "$LOG")
 echo "$prog  FAILED=$fails"
@@ -182,6 +186,15 @@ if [ "$RC" = 0 ]; then
     bash "$ROOT/MavericksSupport/scripts/stage-frameworks.sh" || RC=$?
 else
     echo "### staging skipped: the link failed, so there is nothing complete to stage"
+fi
+
+# The one and only "REBUILD DONE" — everything, staging included, is finished by this point, so it is
+# the signal to wait for before installing.
+echo "==================== REBUILD DONE (rc=$RC) ===================="
+if [ "$RC" = 0 ]; then
+    echo "### the staged product is complete and installable: sudo bash MavericksSupport/install-safari7.sh"
+else
+    echo "### NOT installable — see the errors above"
 fi
 
 exit $RC

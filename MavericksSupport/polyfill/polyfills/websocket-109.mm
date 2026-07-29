@@ -33,7 +33,7 @@
 // delegateQueue, which is where NSURLSession delivers them (see wsDispatchToCallbackQueue); socket I/O
 // runs on a private serial queue.
 //
-// Compiled with -fobjc-arc (see CMakeLists.txt). The CFStream client context retains self, so the
+// Compiled with -fobjc-arc (see MavericksSupport/polyfill/scripts/build-polyfill.sh). The CFStream client context retains self, so the
 // stream outlives any in-flight socket callbacks until teardown clears the client.
 
 #import "wk_selref_scope.h" // WK_POLYFILL_SEL/WK_POLYFILL_ADD host-safe polyfill registry.
@@ -529,10 +529,27 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     NSString *key = [[NSData dataWithBytes:keyBytes length:sizeof(keyBytes)] base64EncodedStringWithOptions:0];
     _acceptKey = [[self class] acceptForKey:key];
 
-    NSURL *url = _request.URL;
-    NSString *path = url.path.length ? url.path : @"/";
-    NSString *resource = url.query.length ? [NSString stringWithFormat:@"%@?%@", path, url.query] : path;
-    BOOL defaultPort = (url.port == nil) || (url.port.unsignedIntValue == 80) || (url.port.unsignedIntValue == 443);
+    // Every on-the-wire component comes from ONE absolute URL: CFURL copies components exactly as
+    // written, so relative URLs must be resolved first or the path would be only the relative
+    // fragment ("socket.io/" rather than "/app/socket.io/").
+    NSURL *url = _request.URL.absoluteURL;
+    // MAVERICKS_BACKPORT: the request target is assembled from the URL's ENCODED components, not
+    // from -[NSURL path], which strips a trailing slash and percent-decodes: "/socket.io/?EIO=4"
+    // would go out as "/socket.io?EIO=4" — a resource socket.io does not serve, so the origin never
+    // handles the upgrade — and "%20" would be sent as a raw space. WTF::URL has no RFC 1808
+    // parameter component, so WebSocketHandshake's resourceName() sends "/p;v=1" verbatim; CFURL
+    // splits at the ';', so the parameter string has to be joined back on to reproduce that.
+    NSString *path = (__bridge_transfer NSString *)CFURLCopyPath((__bridge CFURLRef)url);
+    if (!path.length)
+        path = @"/";
+    NSString *parameters = (__bridge_transfer NSString *)CFURLCopyParameterString((__bridge CFURLRef)url, NULL);
+    if (parameters.length)
+        path = [NSString stringWithFormat:@"%@;%@", path, parameters];
+    NSString *query = (__bridge_transfer NSString *)CFURLCopyQueryString((__bridge CFURLRef)url, NULL);
+    NSString *resource = query.length ? [NSString stringWithFormat:@"%@?%@", path, query] : path;
+    // The port is omitted only when it is the default FOR THIS SCHEME, as WebSocketHandshake's
+    // hostName() does: "ws://h:443" must send "Host: h:443", and "wss://h:80" must send "Host: h:80".
+    BOOL defaultPort = (url.port == nil) || (url.port.unsignedIntValue == (_secure ? 443 : 80));
     NSString *hostHeader = defaultPort ? url.host : [NSString stringWithFormat:@"%@:%@", url.host, url.port];
 
     NSMutableString *req = [NSMutableString string];
@@ -668,6 +685,16 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
         uint8_t b0 = bytes[p++];
         uint8_t b1 = bytes[p++];
         BOOL fin = (b0 & 0x80) != 0;
+        // This client never offers Sec-WebSocket-Extensions, so a set RSV bit means the peer is
+        // using an extension that was never negotiated (permessage-deflate compresses the payload,
+        // for one). RFC 6455 3.2 requires failing the connection: parsing on would hand JS a
+        // "message" holding bytes that are not the payload the peer sent.
+        if (b0 & 0x70) {
+            [self failWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorBadServerResponse
+                userInfo:@{ NSLocalizedDescriptionKey: @"WebSocket frame sets a reserved bit without a negotiated extension" }]
+                reason:@"WebSocket frame sets a reserved bit without a negotiated extension"];
+            return;
+        }
         int opcode = b0 & 0x0F;
         BOOL masked = (b1 & 0x80) != 0;
         uint64_t len = b1 & 0x7F;
@@ -747,8 +774,15 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
         }
         if (!_sentClose) {
             _sentClose = YES;
-            uint8_t echo[2] = { (uint8_t)(code >> 8), (uint8_t)(code & 0xFF) };
-            [self enqueueFrameWithOpcode:0x8 payload:[NSData dataWithBytes:echo length:2]];
+            // A Close with no payload carries no status code. 1005 is the value REPORTED for that
+            // case, but RFC 6455 7.4.1 forbids putting it on the wire, so echo an empty payload
+            // back rather than inventing a code the peer never sent.
+            NSData *echoPayload = [NSData data];
+            if (length >= 2) {
+                uint8_t echo[2] = { (uint8_t)(code >> 8), (uint8_t)(code & 0xFF) };
+                echoPayload = [NSData dataWithBytes:echo length:2];
+            }
+            [self enqueueFrameWithOpcode:0x8 payload:echoPayload];
         }
         _state = WKWSStateClosing;
         [self deliverDidCloseWithCode:code reason:reason];
