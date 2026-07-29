@@ -9126,7 +9126,12 @@ bool HTMLMediaElement::canProduceAudio() const
     // For GStreamer ports the semantics of IsPlayingAudio slightly differ from Apple ports. The
     // webkit_web_view_is_playing_audio() API is expected to return true if a page is producing
     // audio even though it might be muted.
-#if !USE(GSTREAMER)
+    // MAVERICKS_BACKPORT: that difference belongs to the GTK/WPE public API, not to the media
+    // backend — and this is the Mac port, which merely uses GStreamer as its media engine, so it
+    // wants the Apple semantics. Keying the exception on the port instead of on USE(GSTREAMER) is
+    // what makes muting a video actually clear the page's audible state here (#89: the tab's
+    // music-note indicator is derived from IsPlayingAudio, and a muted video makes no sound).
+#if !USE(GSTREAMER) || PLATFORM(MAC)
     if (muted())
         return false;
 #endif
