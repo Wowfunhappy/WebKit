@@ -10,9 +10,6 @@
 //
 // WKView.mm forward-declares createMinimalPageClient()/setMinimalPageClientPage();
 // they are defined at the bottom of this file.
-//
-// (The original MinimalPageClient.mm was written during the Safari-9 effort but
-// was never committed and was lost in the VM reset; this is a clean rewrite.)
 
 #import "config.h"
 
@@ -37,7 +34,7 @@
 
 // MAVERICKS_BACKPORT: WKView's promised-file drag entry point, implemented in WKViewMavericks.mm.
 // Declared here rather than in WKViewPrivate.h because it is an internal bridge between this page
-// client and its view, not restored Safari-7 SPI. setPromisedDataForImage below is the only caller.
+// client and its view, not Safari-7-facing SPI. setPromisedDataForImage below is the only caller.
 @interface NSView (WKViewPromisedImageData)
 - (void)_wkSetPromisedImageData:(NSData *)imageData uti:(NSString *)uti filename:(NSString *)filename url:(NSString *)url archiveBuffer:(NSData *)archiveData pasteboardName:(NSString *)pasteboardName;
 @end
@@ -73,7 +70,7 @@
 // MAVERICKS_BACKPORT: layer-HOSTING subview for the WebContent render layer (the Safari-537
 // WKView "_layerHostingView"/WKFlippedView design; see the m_layerHostingView member comment).
 // Flipped to match WKView's coordinate system. Event-transparent: hit-testing returns nil so
-// mouse events keep landing on the WKView itself, exactly as before this subview existed.
+// mouse events land on the WKView itself.
 @interface WKMinimalLayerHostingView : NSView
 @end
 
@@ -125,7 +122,7 @@
 
 // MAVERICKS_BACKPORT: 10.9 AppKit SPI consulted by viewLayerHostingMode() — whether the window's
 // layer tree is composited by the WindowServer (every normal window) or in-process (iBooks'
-// reader window returns NO). Stock 537 PageClientImpl::viewLayerHostingMode used the same SPI.
+// reader window returns NO).
 @interface NSWindow (WKHostsLayersInWindowServer)
 - (BOOL)_hostsLayersInWindowServer;
 @end
@@ -805,7 +802,7 @@ bool MinimalPageClient::isVisuallyIdle()
     // can't see it. Determine that from window-level state, NOT from the WKView's own isHidden flag:
     // on this backport the BrowserWKView's isHidden toggles spuriously while content composites through
     // its layer-hosting sublayer (and WKView never forwards -viewDidHide, so the activity state would go
-    // stale), so keying visual-idle off it pinned EVERY page's DOM timers to the 1s hidden-page alignment.
+    // stale), so keying visual-idle off it pins EVERY page's DOM timers to the 1s hidden-page alignment.
     // A genuinely-not-on-screen window (miniaturized/ordered-out) or a hidden ANCESTOR (an unselected
     // tab's container) are reliable signals; the per-view isHidden flag is not.
     if (!m_view)
@@ -1049,8 +1046,9 @@ void MinimalPageClient::startDrag(WebCore::SelectionData&&, OptionSet<WebCore::D
 { }
 #endif
 // MAVERICKS_BACKPORT: hand the OS drag session off to the WKView. Mirrors
-// WebViewImpl::startDrag (already 10.9-adapted: NSFilePromiseProvider drag is
-// 10.12+, so a promised-attachment drag is cancelled rather than attempted).
+// WebViewImpl::startDrag, except a promised-attachment drag is cancelled rather
+// than attempted: the modern path carries that promise via NSFilePromiseProvider
+// (10.12+), and WKView's classic promised-file pasteboard has no carrier for it.
 void MinimalPageClient::startDrag(const WebCore::DragItem& item, WebCore::ShareableBitmap::Handle&& dragImageHandle, const std::optional<WebCore::NodeIdentifier>&, const std::optional<WebCore::FrameIdentifier>&)
 {
     auto bitmap = WebCore::ShareableBitmap::create(WTF::move(dragImageHandle));
@@ -1078,8 +1076,7 @@ void MinimalPageClient::startDrag(const WebCore::DragItem& item, WebCore::Sharea
 void MinimalPageClient::setCursor(const WebCore::Cursor& cursor)
 {
     // MAVERICKS_BACKPORT: WebCore asks the page client to change the cursor (hand over links, I-beam over
-    // text, etc.). The previous empty stub meant the cursor never updated under WKView. Mirror
-    // PageClientImpl (minus the WebViewImpl-only image-analysis overlay check).
+    // text, etc.). Mirrors PageClientImpl, minus the WebViewImpl-only image-analysis overlay check.
     if (!isViewWindowActive())
         return;
     if (!m_view)
@@ -1108,10 +1105,10 @@ void MinimalPageClient::setCursorHiddenUntilMouseMoves(bool hiddenUntilMouseMove
 {
     [NSCursor setHiddenUntilMouseMoves:hiddenUntilMouseMoves];
 }
-// MAVERICKS_BACKPORT: implement the WKView undo surface (these were empty stubs, so Cmd+Z no-op'd
-// in every web text field). The WebProcess sends RegisterEditCommandForUndo and WebPageProxy routes
-// it here; register the command with the view's NSUndoManager so the standard undo:/redo: actions
-// drive WebEditCommandProxy::unapply()/reapply(). Mirrors WebViewImpl/PageClientImplMac.
+// MAVERICKS_BACKPORT: the WKView undo surface. The WebProcess sends RegisterEditCommandForUndo and
+// WebPageProxy routes it here; register the command with the view's NSUndoManager so the standard
+// undo:/redo: actions drive WebEditCommandProxy::unapply()/reapply(). Mirrors
+// WebViewImpl/PageClientImplMac.
 void MinimalPageClient::registerEditCommand(Ref<WebEditCommandProxy>&& command, UndoOrRedo undoOrRedo)
 {
     auto actionName = command->label();
@@ -1172,12 +1169,10 @@ bool MinimalPageClient::executeSavedCommandBySelector(const String& selector)
     // command (e.g. PageDown over non-editable content), the IPC fallback
     // (WebPageProxy::executeSavedCommandBySelector -> _web_superDoCommandBySelector:) lands on
     // those methods, which call WebViewImpl::executeEditCommandForSelector ->
-    // WebPageProxy::executeEditCommand. Safari's WKView has no such action methods and this
-    // page client previously stubbed this hop out, so PageDown/PageUp (and the other document
-    // scroll selectors) silently did nothing. Restore the upstream behavior by resolving the
-    // scroll selector to its Editor command and executing it on the page, exactly as the
-    // WKWebView action methods would have. Selectors we don't recognize are returned as
-    // unhandled (false) so they still bubble to Safari's own responder handling.
+    // WebPageProxy::executeEditCommand. Safari's WKView has no such action methods, so this
+    // hop resolves the scroll selector to its Editor command and executes it on the page,
+    // exactly as the WKWebView action methods would. Selectors outside the map are returned
+    // as unhandled (false) so they still bubble to Safari's own responder handling.
     if (!m_page)
         return false;
     String commandName = scrollCommandNameForSavedSelector(selector);
@@ -1193,9 +1188,9 @@ extern "C" OSStatus EnableSecureEventInput(void);
 extern "C" OSStatus DisableSecureEventInput(void);
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: enable secure event input while a web password field is focused (was an empty
-// stub, so web passwords typed in Safari lacked the keylogger protection stock Safari provides).
-// Mirrors WebViewImpl::updateSecureInputState; editorState().isInPasswordField is populated by
+// MAVERICKS_BACKPORT: enable secure event input while a web password field is focused — the
+// keylogger protection AppKit gives native password fields. Mirrors
+// WebViewImpl::updateSecureInputState; editorState().isInPasswordField is populated by
 // WebPage.cpp from input->isPasswordField().
 void MinimalPageClient::updateSecureInputState()
 {
@@ -1252,10 +1247,9 @@ void MinimalPageClient::selectionDidChange()
 #endif
 #if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
 // Capture the on-screen window content cropped to the WKView and wrap it in a ViewSnapshot.
-// ViewSnapshotStore feeds both back/forward swipe snapshots and Safari's Top Sites thumbnails,
-// so the previous {} stub left every Top Sites tile blank. Ported from WebViewImpl::takeViewSnapshot
-// (MinimalPageClient has no WebViewImpl); uses CGWindowListCreateImage + AppKit coordinates instead
-// of the private CGS hardware-capture path.
+// ViewSnapshotStore feeds both back/forward swipe snapshots and Safari's Top Sites thumbnails.
+// The same capture WebViewImpl::takeViewSnapshot performs, via CGWindowListCreateImage + AppKit
+// coordinates instead of the private CGS hardware-capture path.
 static RefPtr<ViewSnapshot> captureMinimalViewSnapshot(NSView *view)
 {
     if (!view)
@@ -1305,12 +1299,11 @@ RefPtr<ViewSnapshot> MinimalPageClient::takeViewSnapshot(std::optional<WebCore::
 #if USE(APPKIT)
 void MinimalPageClient::setPromisedDataForImage(const String& pasteboardName, Ref<WebCore::FragmentedSharedBuffer>&& imageBuffer, const String& filename, const String& extension, const String& title, const String& url, const String& visibleURL, RefPtr<WebCore::FragmentedSharedBuffer>&& archiveBuffer, const String& originIdentifier)
 {
-    // MAVERICKS_BACKPORT: was an empty stub, which silently disabled promised-file drags -- dragging an
-    // image out of a page to the Finder produced nothing, because the promise type never reached the
-    // drag pasteboard. Hand the promise to WKView, which owns the pasteboard and serves
+    // MAVERICKS_BACKPORT: hand the promise to WKView, which owns the drag pasteboard and serves
     // -pasteboard:provideDataForType: / -namesOfPromisedFilesDroppedAtDestination: (see the
-    // promised-file section of WKViewMavericks.mm). PageClientImpl routes this to WebViewImpl the same
-    // way; WKView just is not backed by one.
+    // promised-file section of WKViewMavericks.mm) — this hop is what puts the promise type on the
+    // drag pasteboard, and with it dragging an image out of a page to the Finder produces the file.
+    // PageClientImpl routes this to WebViewImpl the same way; WKView just is not backed by one.
     UNUSED_PARAM(title);
     UNUSED_PARAM(visibleURL);
     UNUSED_PARAM(originIdentifier);
@@ -1388,23 +1381,21 @@ void MinimalPageClient::doneDeferringTouchEnd(bool preventNativeGestures)
 RefPtr<WebPopupMenuProxy> MinimalPageClient::createPopupMenuProxy(WebPageProxy& page)
 {
     // Back the WKView path's <select> dropdowns with the standard AppKit popup proxy
-    // (PageClientImpl does the same); the previous {} stub left native popups blank.
+    // (PageClientImpl does the same).
     return WebPopupMenuProxyMac::create(m_view, protect(page.popupMenuClient()));
 }
 #if ENABLE(CONTEXT_MENUS)
 Ref<WebContextMenuProxy> MinimalPageClient::createContextMenuProxy(WebPageProxy& page, FrameInfoData&& frameInfo, ContextMenuContextData&& context, const UserData& userData)
 {
-    // Back right-click / control-click menus with the standard AppKit context-menu proxy.
-    // The previous RELEASE_ASSERT_NOT_REACHED() stub trapped (SIGILL) the UIProcess on
-    // every context-menu request, since WKView's page client is MinimalPageClient.
+    // Back right-click / control-click menus with the standard AppKit context-menu proxy
+    // (PageClientImpl does the same).
     return WebContextMenuProxyMac::create(m_view, page, WTF::move(frameInfo), WTF::move(context), userData);
 }
 #endif
 RefPtr<WebColorPicker> MinimalPageClient::createColorPicker(WebPageProxy& page, const WebCore::Color& initialColor, const WebCore::IntRect& rect, ColorControlSupportsAlpha supportsAlpha, Vector<WebCore::Color>&& suggestions, std::optional<WebCore::FrameIdentifier>)
 {
-    // MAVERICKS_BACKPORT: was a `{ return { }; }` stub, so clicking an <input type=color> produced
-    // no picker. WKView's page client is MinimalPageClient; mirror PageClientImplMac and vend a real
-    // NSColorPanel-backed WebColorPickerMac so the native color picker opens.
+    // MAVERICKS_BACKPORT: mirror PageClientImplMac — vend a real NSColorPanel-backed
+    // WebColorPickerMac so clicking an <input type=color> opens the native color picker.
     return WebColorPickerMac::create(protect(page.colorPickerClient()).ptr(), initialColor, rect, supportsAlpha, WTF::move(suggestions), m_view);
 }
 RefPtr<WebDataListSuggestionsDropdown> MinimalPageClient::createDataListSuggestionsDropdown(WebPageProxy&)
@@ -1415,21 +1406,20 @@ RefPtr<WebDateTimePicker> MinimalPageClient::createDateTimePicker(WebPageProxy&)
 Ref<WebCore::ValidationBubble> MinimalPageClient::createValidationBubble(String&& message, const WebCore::ValidationBubble::Settings& settings)
 {
     // HTML form-validation bubbles (e.g. a required field left empty on submit) reach here.
-    // The previous RELEASE_ASSERT_NOT_REACHED() stub would have trapped the UIProcess.
     return WebCore::ValidationBubble::create(m_view, WTF::move(message), settings);
 }
 #endif
 #if PLATFORM(COCOA)
 CALayer *MinimalPageClient::textIndicatorInstallationLayer()
 {
-    // MAVERICKS_BACKPORT: was a `{ return { }; }` stub, so WebPageProxy::setTextIndicator built the
-    // WebTextIndicatorLayer and then added it as a sublayer of nil — the layer never entered a layer
-    // tree and no text indicator was ever visible. Most visibly that lost the find overlay's yellow
-    // highlight on the current match (#85). WKView hosts the WebContent render layer in a dedicated
-    // layer-hosting subview (see installRenderLayer above); install the indicator into that same
-    // hosting layer, which is exactly what WebViewImpl::textIndicatorInstallationLayer returns for
-    // WKWebView. Both hosting views are flipped, so the root-view coordinates the indicator's frame
-    // is expressed in land right side up.
+    // MAVERICKS_BACKPORT: the parent layer for every text indicator, most visibly the find
+    // overlay's yellow highlight on the current match (#85). WebPageProxy::setTextIndicator adds
+    // the WebTextIndicatorLayer as a sublayer of this layer, so it must belong to a live layer
+    // tree: WKView hosts the WebContent render layer in a dedicated layer-hosting subview (see
+    // installRenderLayer above), and the indicator goes into that same hosting layer — exactly
+    // what WebViewImpl::textIndicatorInstallationLayer returns for WKWebView. Both hosting views
+    // are flipped, so the root-view coordinates the indicator's frame is expressed in land right
+    // side up.
     return [m_layerHostingView layer];
 }
 #endif
@@ -1440,7 +1430,7 @@ void MinimalPageClient::didPerformDictionaryLookup(const WebCore::DictionaryPopu
     // exist on 10.9 (ENABLE(REVEAL)=0, so WebCore's DictionaryLookup::showPopup is a no-op).
     // WebViewImpl is also absent on the standalone WKView. Present the classic definition panel
     // instead via -[NSView showDefinitionForAttributedString:atPoint:] (AppKit, 10.6+) — the same
-    // panel stock Safari 7 used for the Look Up context-menu item. info.origin is the text baseline
+    // panel stock Safari 7's Look Up context-menu item presents. info.origin is the text baseline
     // origin in the view's (flipped) coordinate space.
     if (!m_view || info.text.isEmpty())
         return;
@@ -1550,8 +1540,8 @@ void MinimalPageClient::intrinsicContentSizeDidChange(const WebCore::IntSize& in
 #if PLATFORM(MAC)
 void MinimalPageClient::registerInsertionUndoGrouping()
 {
-    // MAVERICKS_BACKPORT: coalesce typed-character insertions into proper undo groups
-    // (so Cmd+Z removes a typing run, matching AppKit text fields) instead of no-op.
+    // MAVERICKS_BACKPORT: coalesce typed-character insertions into proper undo groups,
+    // so Cmd+Z removes a typing run, matching AppKit text fields.
     WebCore::registerInsertionUndoGroupingWithUndoManager([m_view undoManager]);
 }
 #endif
