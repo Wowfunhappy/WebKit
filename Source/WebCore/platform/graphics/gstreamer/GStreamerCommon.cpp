@@ -459,14 +459,15 @@ bool ensureGStreamerInitialized()
 {
     // WARNING: Please note this function can be called from any thread, for instance when creating
     // a WebCodec element from a JS Worker.
-    // MAVERICKS_BACKPORT: upstream RELEASE_ASSERTs this only runs in the WK2 WebProcess. The backport
-    // also renders web content OUTSIDE a WebProcess — notably DashboardClient, which renders Dashboard
-    // web-clip widgets in-process via WebKitLegacy (WK1). There a clipped page calling video.canPlayType()
-    // reaches this GStreamer media engine and the assert crashed (and crash-looped) the whole Dashboard.
-    // GStreamer is only ever set up in the WebProcess, so outside it report "not initialized" gracefully —
-    // callers (supportsType, load) already handle a false return — instead of asserting.
-    if (!isInWebProcess())
-        return false;
+    // MAVERICKS_BACKPORT: upstream asserts the media engine only ever initializes inside the WK2
+    // WebProcess, because on the GStreamer ports that is the only process rendering web content. This
+    // port also renders content in-process through WebKitLegacy — Dictionary's Wikipedia panel, Mail's
+    // inline attachments, Dashboard web clips — and GStreamer is its sole media engine, so playback
+    // there needs the same initialization. Nothing below is WebProcess-specific (the /proc/self/cmdline
+    // option scan simply finds nothing on macOS), so the process check is dropped rather than turned
+    // into a refusal: refusing made MediaPlayerPrivateGStreamer::supportsType() answer "unsupported" for
+    // every type, which left every typed <source> in a WebKitLegacy page unselectable.
+    // RELEASE_ASSERT(isInWebProcess());
     static std::once_flag onceFlag;
     static bool isGStreamerInitialized;
     std::call_once(onceFlag, [] {
@@ -606,11 +607,16 @@ void registerWebKitGStreamerElements()
         }
 
         // MAVERICKS_BACKPORT: demote the applemedia VideoToolbox decoders so decodebin3 never
-        // auto-plugs them. The deps runtime deliberately decodes through FFmpeg (gst-libav) so
-        // behavior is identical on every 10.9 install; on this platform vtdec_hw's
-        // VTDecompressionSessionCreate fails with -8973 (no hardware decoder), which surfaced as
-        // a fatal "general resource error" on every MSE H.264 stream (bsky.app videos). The
-        // applemedia plugin still ships for its capture elements (avfvideosrc).
+        // auto-plugs them, because neither of them works on 10.9. vtdec_hw's
+        // VTDecompressionSessionCreate fails with -8973 (no hardware decoder), which surfaced as a
+        // fatal "general resource error" on every MSE H.264 stream (bsky.app videos). The software
+        // vtdec is no better: measured on this host, `filesrc ! qtdemux ! h264parse ! vtdec !
+        // fakesink` SIGSEGVs on all three runs, in gst_vtdec_getcaps calling through a null pointer
+        // (libgstapplemedia, frame 0 is address 0) — that is the CAPS QUERY, which is precisely what
+        // decodebin does to auto-plug an element, so a demoted rank is the only thing that keeps it
+        // out. The identical pipeline through avdec_h264 decodes cleanly, so H.264 goes through
+        // FFmpeg (gst-libav), which the deps runtime ships. The applemedia plugin still ships for
+        // its capture elements (avfvideosrc).
         {
             std::array<ASCIILiteral, 2> vtDecoderNames = { "vtdec"_s, "vtdec_hw"_s };
             for (auto& elementName : vtDecoderNames) {

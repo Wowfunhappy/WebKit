@@ -390,6 +390,20 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_END
 
     LOG(Network, "Handle %p delegate connection:%p willCacheResponse:%p", m_handle.get(), connection, cachedResponse);
 
+    // MAVERICKS_BACKPORT: 10.9's shared NSURLCache keys entries on the URL alone and treats a 206 as
+    // the whole representation of that URL, so once one byte-range response is stored it is handed
+    // back for every later request to the same URL — other ranges AND plain GETs. Measured with a
+    // standalone NSURLConnection program against a local range server, with no WebKit involved:
+    // range 500000-500099, then range 10-19, then a full GET all return the first range's 100 bytes.
+    // A cache that cannot match partial content must not answer from a stored 206 at all, so the
+    // partial response is simply not offered to the cache here. Only WebKitLegacy reaches this
+    // delegate; the WK2 network process keeps its own cache and never had the problem. Without it,
+    // every in-process client that seeks inside a resource — <video>/<audio> through GStreamer's
+    // webkitwebsrc above all — is served the previous range's bytes and stalls forever.
+    if ([cachedResponse.response isKindOfClass:[NSHTTPURLResponse class]]
+        && [(NSHTTPURLResponse *)cachedResponse.response statusCode] == 206)
+        return nil;
+
     auto protectedSelf = retainPtr(self);
     auto work = [protectedSelf, cachedResponse = retainPtr(cachedResponse)] mutable {
         if (!protectedSelf->m_handle || !protectedSelf->m_handle->client()) {
