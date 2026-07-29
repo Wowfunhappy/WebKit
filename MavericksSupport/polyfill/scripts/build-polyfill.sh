@@ -206,6 +206,19 @@ echo "### polyfill mechanism self-test"
     -framework CoreFoundation -framework CoreGraphics
 WK_POLYFILL_SIBLING="$OBJ/wk_polyfill_sibling.dylib" "$OBJ/wk_polyfill_test"
 
+# The selector mechanism's dlopen guarantee: a WK_POLYFILL_ADD whose class arrives via dlopen (the
+# DDActionsManager/soft-link shape) is installed by the time dlopen returns, with no further image
+# load — the drain in wk_image_initializing, not the add-image callback, is what delivers this. The
+# probe target must be the purpose-built fixture dylib (libobjc/libSystem deps only, a single-image
+# dlopen): a system framework's dlopen cascades further loads whose add-image events rescue even a
+# drainless mechanism, making the test vacuous.
+"$CLANG" $SDKCF -fno-objc-arc -dynamiclib \
+    -o "$OBJ/wk_selref_dlopen_fixture.dylib" "$POLY/tests/wk_selref_dlopen_fixture.m" -lobjc
+"$CLANG" $SDKCF -fno-objc-arc \
+    -o "$OBJ/wk_selref_dlopen" "$POLY/tests/wk_selref_dlopen.m" "$MECH/wk_selref_scope.m" \
+    -framework Foundation -lobjc
+"$OBJ/wk_selref_dlopen" "$OBJ/wk_selref_dlopen_fixture.dylib"
+
 echo "### shadow check"
 # The self-test above covers what the registry guarantees. Plenty of what these archives ship carries
 # no registry entry and gets none of it -- legacy-support/src, polyfills/shared, the mechanism itself

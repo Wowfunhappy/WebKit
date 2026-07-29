@@ -248,6 +248,24 @@ OBJC_LIBS="$SYSTEM_LIBS
 /System/Library/Frameworks/AVFoundation.framework/AVFoundation
 "
 
+# Frameworks a polyfilled class can live in that must NOT join the lists above. DataDetectors (owns
+# DDActionsManager) cannot be linked or loaded alongside the main lists for two reasons, each observed:
+# (1) it links the stock WebKit/WebKit2 install paths, which on this machine are the installed
+# BACKPORT frameworks carrying the force-loaded polyfill layer — in the C-symbol probe the layer's own
+# exports (fdopendir, os_release, …) then look like 10.9 system symbols, and in the registry binary
+# the in-process alias sweep binds wk_ names onto every loaded class, which the registry's own-method
+# scan reports as dozens of false polyfill landings; (2) its transitive closure drags in unrelated
+# system frameworks whose categories change OTHER rows' answers (ISSupport adds
+# -[NSString containsString:], flipping that long-standing gap-fill to a false PRESENT).
+# So these join a SECOND presence-probe pass in a SEPARATE process, and that pass's answers are used
+# ONLY for rows the first (unwidened) pass could not load the class for — every previously-probed row
+# keeps the unpolluted universe's verdict, and a lazily-loaded framework's class still gets genuinely
+# gated instead of passing vacuously as NOCLASS.
+PROBE_ONLY_LIBS="
+/System/Library/PrivateFrameworks/DataDetectors.framework/DataDetectors
+"
+PROBE_LIBS_EXTRA=$(printf '%s\n' "$PROBE_ONLY_LIBS" | awk 'NF { print $1 }')
+
 cat > "$WORK/selregistry.m" <<'EOF'
 // What the ObjC half of the layer declares, and where each polyfill actually lands. Reads the
 // __wk_selmap/__wk_addmap sections this binary carries because it force-loaded methods.o -- the same
@@ -331,9 +349,13 @@ int main(void)
         // (class_addMethod vs class_replaceMethod -- see wk_install_add_entry).
         printf("ADDMAP\t%s\t%s\t%s\n", added[a].cls, added[a].sel,
                added[a].intent == WK_SELMAP_REPLACES ? "REPLACES" : "GAP_FILL");
+        // A leading '+' on the class name marks a CLASS-method entry (WK_POLYFILL_ADD_CLASS_METHOD);
+        // the presence probe must then ask the metaclass, so emit the bare name with side "class".
         for (size_t j = 0; j < count; j++)
             if (!strcmp(added[a].sel, entries[j].priv)) {
-                emit(&entries[j], added[a].cls, "instance");
+                int isClassMethod = added[a].cls[0] == '+';
+                emit(&entries[j], isClassMethod ? added[a].cls + 1 : added[a].cls,
+                     isClassMethod ? "class" : "instance");
                 found[j] = 1;
             }
     }
@@ -436,7 +458,15 @@ EOF
 "$CLANG" --no-default-config -mmacosx-version-min=10.9 -Wall -o "$WORK/selpresent" "$WORK/selpresent.m" -lobjc
 # shellcheck disable=SC2086
 awk -F'\t' '$4 != "-" { print $4 "\t" $5 "\t" $1 "\t" $6 }' "$WORK/selregistry.tsv" \
-    | "$WORK/selpresent" $LINK_LIBS | sort -u > "$WORK/selon109"
+    | "$WORK/selpresent" $LINK_LIBS | sort -u > "$WORK/selon109.base"
+# Second pass, separate process, widened universe (see PROBE_ONLY_LIBS): consulted ONLY for rows the
+# first pass answered NOCLASS, so pollution from the widened closure cannot touch settled verdicts.
+# shellcheck disable=SC2086
+awk -F'\t' '$4 != "-" { print $4 "\t" $5 "\t" $1 "\t" $6 }' "$WORK/selregistry.tsv" \
+    | "$WORK/selpresent" $LINK_LIBS $PROBE_LIBS_EXTRA | sort -u > "$WORK/selon109.ext"
+awk -F'\t' 'NR == FNR { ext[$1 FS $2 FS $3] = $0; next }
+            $4 == "NOCLASS" && (($1 FS $2 FS $3) in ext) { print ext[$1 FS $2 FS $3]; next }
+            { print }' "$WORK/selon109.ext" "$WORK/selon109.base" | sort -u > "$WORK/selon109"
 
 # ---------------------------------------------------------------- the ObjC verdict
 # A GAP_FILL whose public selector 10.9 already implements is a defect, exactly like a shadowing C
@@ -448,6 +478,7 @@ awk -F'\t' '$4 != "-" { print $4 "\t" $5 "\t" $1 "\t" $6 }' "$WORK/selregistry.t
 # selector nothing implements.
 : > "$WORK/seloffenders"
 : > "$WORK/seldead"
+: > "$WORK/selnoclass"
 while IFS=$'\t' read -r pub priv intent cls side image; do
     if [ "$cls" = "-" ]; then
         printf '%s\t%s\n' "$pub" "$priv" >> "$WORK/seldead"
@@ -457,10 +488,36 @@ while IFS=$'\t' read -r pub priv intent cls side image; do
     verdict=$(awk -F'\t' -v c="$cls" -v s="$side" -v p="$pub" \
                   '$1 == c && $2 == s && $3 == p { print $4 "\t" $5 }' "$WORK/selon109")
     state=${verdict%%$'\t'*}; owner=${verdict#*$'\t'}
+    # NOCLASS means the probe could not even LOAD the class, so presence was never checked — treating
+    # that as a pass would let a polyfill on a lazily-loaded framework's class skip the gate silently
+    # (this happened: DDActionsManager gated vacuously until DataDetectors joined OBJC_LIBS). Same
+    # principle as the class half: a method cannot be reported absent merely because nothing had
+    # loaded its class's framework yet.
+    if [ "$state" = "NOCLASS" ]; then
+        printf '%s\t%s\t%s\n' "$cls" "$pub" "$priv" >> "$WORK/selnoclass"
+        continue
+    fi
     [ "$state" = "PRESENT" ] || continue
     [ "$intent" = "REPLACES" ] && continue
     printf '%s\t%s\t%s\t%s\n' "$sigil[$cls $pub]" "$priv" "$cls" "$owner" >> "$WORK/seloffenders"
 done < "$WORK/selregistry.tsv"
+
+if [ -s "$WORK/selnoclass" ]; then
+    {
+        echo
+        echo "ERROR: the presence probe could not load these polyfilled methods' classes, so whether"
+        echo "10.9 implements them was NEVER CHECKED -- the gate would be passing them vacuously:"
+        echo
+        while IFS=$'\t' read -r cls pub priv; do
+            printf '  [%s %s] -> %s\n' "$cls" "$pub" "$priv"
+        done < "$WORK/selnoclass"
+        echo
+        echo "Add the framework that owns each class to OBJC_LIBS in this script so objc_getClass can"
+        echo "see it (a class cannot be reported absent merely because nothing had loaded its framework),"
+        echo "or fix the class name if it is misspelled."
+    } >&2
+    exit 1
+fi
 
 if [ -s "$WORK/seloffenders" ]; then
     {
@@ -560,8 +617,15 @@ while IFS=$'\t' read -r cls sel addintent; do
         '$2 == p && $3 == "REPLACES" { print c "\t" $1 "\t" p; exit }' \
         "$WORK/selregistry.tsv" >> "$WORK/gapadds"
 done < "$WORK/addmap.tsv"
+# Same two-pass scheme as selpresent: the widened universe answers only what the base pass could not
+# load (see PROBE_ONLY_LIBS).
 # shellcheck disable=SC2086
-cut -f1,2 "$WORK/gapadds" | sort -u | "$WORK/ownprobe" $LINK_LIBS \
+cut -f1,2 "$WORK/gapadds" | sort -u | "$WORK/ownprobe" $LINK_LIBS > "$WORK/own.base"
+# shellcheck disable=SC2086
+cut -f1,2 "$WORK/gapadds" | sort -u | "$WORK/ownprobe" $LINK_LIBS $PROBE_LIBS_EXTRA > "$WORK/own.ext"
+awk -F'\t' 'NR == FNR { ext[$1 FS $2] = $0; next }
+            $3 == "NOCLASS" && (($1 FS $2) in ext) { print ext[$1 FS $2]; next }
+            { print }' "$WORK/own.ext" "$WORK/own.base" \
     | awk -F'\t' '$3 == "OWNS"' > "$WORK/deadadds"
 
 if [ -s "$WORK/deadadds" ]; then

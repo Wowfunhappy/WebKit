@@ -793,6 +793,28 @@ WK_POLYFILL_SEL("_subviewsIvar", "wk__subviewsIvar");
 WK_POLYFILL_SEL("_setSubviewsIvar:", "wk__setSubviewsIvar:");
 
 // ---------------------------------------------------------------------------------------------------
+// -[NSView addGestureRecognizer:] / -removeGestureRecognizer: / -gestureRecognizers (10.10+): the
+// NSGestureRecognizer system does not exist on 10.9, so a view can never have a recognizer attached.
+// WebViewImpl's only recognizer is the immediate-action one, whose class resolves via NSClassFromString
+// to nil here — but setAllowsLinkPreview(false) and setIgnoresNonWheelEvents(true) send
+// removeGestureRecognizer: UNCONDITIONALLY (WebViewImpl.mm:3818, 3876), nil argument or not, which is
+// an unrecognized selector on 10.9. With no recognizer system there is never anything to add, remove,
+// or list: add/remove are faithful no-ops and the list is empty.
+@interface NSView (WKPolyfillScopeGesture)
+- (void)wk_addGestureRecognizer:(id)gestureRecognizer;
+- (void)wk_removeGestureRecognizer:(id)gestureRecognizer;
+- (NSArray *)wk_gestureRecognizers;
+@end
+@implementation NSView (WKPolyfillScopeGesture)
+- (void)wk_addGestureRecognizer:(id)gestureRecognizer { (void)gestureRecognizer; }
+- (void)wk_removeGestureRecognizer:(id)gestureRecognizer { (void)gestureRecognizer; }
+- (NSArray *)wk_gestureRecognizers { return [NSArray array]; }
+@end
+WK_POLYFILL_SEL("addGestureRecognizer:", "wk_addGestureRecognizer:");
+WK_POLYFILL_SEL("removeGestureRecognizer:", "wk_removeGestureRecognizer:");
+WK_POLYFILL_SEL("gestureRecognizers", "wk_gestureRecognizers");
+
+// ---------------------------------------------------------------------------------------------------
 // NSTextAttachment modern accessors: -initWithData:ofType: and the image property are 10.11+ on Mac;
 // -accessibilityLabel / -setAccessibilityLabel: are 10.10+ (NSTextAttachment adopts NSAccessibility
 // then). 10.9 stores the same ideas elsewhere: contents live in the attachment's NSFileWrapper, and a
@@ -1235,6 +1257,109 @@ WK_POLYFILL_SEL("_effectiveAccentColor", "wk__effectiveAccentColor");
 WK_POLYFILL_SEL("handleEvent:completionHandler:", "wk_handleEvent:completionHandler:");
 WK_POLYFILL_SEL("handleEventByInputMethod:completionHandler:", "wk_handleEventByInputMethod:completionHandler:");
 WK_POLYFILL_SEL("handleEventByKeyboardLayout:", "wk_handleEventByKeyboardLayout:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSTextInputContext textInputClientWillStartScrollingOrZooming] /
+// -textInputClientDidEndScrollingOrZooming (10.11+) and -textInputClientDidUpdateSelection (10.11+ SPI):
+// courtesy notifications WebViewImpl sends the input context so the active input method can hide or
+// reposition its candidate window around scrolling and selection changes. The scrolling pair fires from
+// pageScrollingHysteresisFired whenever the MAIN FRAME's scroll position changes while the view's input
+// context is active — any normally-scrolling page in a WKWebView-backed view with an editable focused
+// (the Web Inspector's own main frame never scrolls, so the sends are latent there; verified by
+// scrolling its panels with a style edit focused, which only moves overflow boxes). The selection one
+// fires on process swap/exit with an editable focused (WebViewImpl.mm:1466) and, pref-gated, on
+// selection change. 10.9's input-method machinery has no such hooks — a candidate window there tracks
+// the insertion point on its own — so there is nothing to notify: faithful no-ops.
+@interface NSTextInputContext (WKPolyfillScopeNotify)
+- (void)wk_textInputClientWillStartScrollingOrZooming;
+- (void)wk_textInputClientDidEndScrollingOrZooming;
+- (void)wk_textInputClientDidUpdateSelection;
+@end
+@implementation NSTextInputContext (WKPolyfillScopeNotify)
+- (void)wk_textInputClientWillStartScrollingOrZooming { }
+- (void)wk_textInputClientDidEndScrollingOrZooming { }
+- (void)wk_textInputClientDidUpdateSelection { }
+@end
+WK_POLYFILL_SEL("textInputClientWillStartScrollingOrZooming", "wk_textInputClientWillStartScrollingOrZooming");
+WK_POLYFILL_SEL("textInputClientDidEndScrollingOrZooming", "wk_textInputClientDidEndScrollingOrZooming");
+WK_POLYFILL_SEL("textInputClientDidUpdateSelection", "wk_textInputClientDidUpdateSelection");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSSpellChecker deletesAutospaceBeforeString:language:] (10.12+): asks whether the space that
+// accepting a completion candidate auto-inserted (the "soft space") should be removed before the text
+// being inserted next (e.g. punctuation). Reached from WebViewImpl::insertText only when
+// m_softSpaceRange is set, which happens on the candidate-acceptance paths; 10.9 has no completion
+// candidates and never auto-inserts a soft space, so there is never a space to delete: NO.
+@interface NSSpellChecker (WKPolyfillScope)
+- (BOOL)wk_deletesAutospaceBeforeString:(NSString *)string language:(NSString *)language;
+@end
+@implementation NSSpellChecker (WKPolyfillScope)
+- (BOOL)wk_deletesAutospaceBeforeString:(NSString *)string language:(NSString *)language
+{
+    (void)string;
+    (void)language;
+    return NO;
+}
+@end
+WK_POLYFILL_SEL("deletesAutospaceBeforeString:language:", "wk_deletesAutospaceBeforeString:language:");
+
+// ---------------------------------------------------------------------------------------------------
+// DDActionsManager (DataDetectors.framework — the framework IS present on 10.9, so WebKit's
+// PAL::isDataDetectorsFrameworkAvailable() guards pass) grew its modern action-flow methods after 10.9;
+// each absent one is an unrecognized-selector throw when reached. The class is soft-linked and private,
+// so these install by name at runtime (WK_POLYFILL_ADD family).
+//
+// -requestBubbleClosureUnanchorOnFailure: is sent UNGUARDED from both view stacks' dismissal paths
+// (WebViewImpl::dismissContentRelativeChildWindowsFromViewOnly — fires on every main-frame commit in a
+// WKWebView-backed view, reproduced killing a WKWebView host on load — and WK1's
+// WebImmediateActionController _clearImmediateActionState). Upstream history of this call site
+// (bug 138600, stale-anchored popovers): its first form sent plain -unanchorBubbles ("we'll settle
+// for unanchoring", 402d006), was switched the same day to -requestBubbleClosureUnanchorOnFailure:
+// when that SPI appeared, and later grew a respondsToSelector: guard for older OSes that upstream has
+// since dropped. 10.9 has the two halves as separate primitives, -requestBubbleClosure and
+// -unanchorBubbles, but no closure-failure signal to sequence them with — so honor the parameter the
+// conservative way: request closure, and when the caller asked for unanchor-on-failure also unanchor,
+// which is exactly the outcome the call site's original form settled for.
+//
+// +didUseActions / +shouldUseActionsWithContext: / -hasActionsForResult:actionContext: sit on the
+// immediate-action flows, dormant on 10.9 (NSImmediateActionGestureRecognizer resolves to nil) but
+// unguarded where they are sent. 10.9's classic flow had no use-notification and no should-use gate —
+// actions always proceeded — so the notification is a no-op and the gate answers YES.
+// -hasActionsForResult:actionContext: answers via the classic -actionsForResult:.
+static void wk_ddRequestBubbleClosureUnanchorOnFailure(id self, SEL _cmd, BOOL unanchorOnFailure)
+{
+    (void)_cmd;
+    ((void (*)(id, SEL))objc_msgSend)(self, sel_registerName("requestBubbleClosure"));
+    if (unanchorOnFailure)
+        ((void (*)(id, SEL))objc_msgSend)(self, sel_registerName("unanchorBubbles"));
+}
+static void wk_ddDidUseActions(id self, SEL _cmd)
+{
+    (void)self;
+    (void)_cmd;
+}
+static BOOL wk_ddShouldUseActionsWithContext(id self, SEL _cmd, id context)
+{
+    (void)self;
+    (void)_cmd;
+    (void)context;
+    return YES;
+}
+static BOOL wk_ddHasActionsForResultActionContext(id self, SEL _cmd, id result, id actionContext)
+{
+    (void)_cmd;
+    (void)actionContext;
+    NSArray *actions = ((id (*)(id, SEL, id))objc_msgSend)(self, sel_registerName("actionsForResult:"), result);
+    return [actions count] > 0;
+}
+WK_POLYFILL_ADD("DDActionsManager", "wk_requestBubbleClosureUnanchorOnFailure:", wk_ddRequestBubbleClosureUnanchorOnFailure, "v@:c");
+WK_POLYFILL_SEL("requestBubbleClosureUnanchorOnFailure:", "wk_requestBubbleClosureUnanchorOnFailure:");
+WK_POLYFILL_ADD_CLASS_METHOD("DDActionsManager", "wk_didUseActions", wk_ddDidUseActions, "v@:");
+WK_POLYFILL_SEL("didUseActions", "wk_didUseActions");
+WK_POLYFILL_ADD_CLASS_METHOD("DDActionsManager", "wk_shouldUseActionsWithContext:", wk_ddShouldUseActionsWithContext, "c@:@");
+WK_POLYFILL_SEL("shouldUseActionsWithContext:", "wk_shouldUseActionsWithContext:");
+WK_POLYFILL_ADD("DDActionsManager", "wk_hasActionsForResult:actionContext:", wk_ddHasActionsForResultActionContext, "c@:@@");
+WK_POLYFILL_SEL("hasActionsForResult:actionContext:", "wk_hasActionsForResult:actionContext:");
 
 // ---------------------------------------------------------------------------------------------------
 // SF Symbols (11.0+): no system symbols exist on 10.9, so +imageWithSystemSymbolName: (and the private

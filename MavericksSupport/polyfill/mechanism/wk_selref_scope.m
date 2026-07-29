@@ -319,8 +319,9 @@ static void wk_patch(const struct mach_header *mh)
 // Pointers into the declaring image's __wk_addmap, which is const data in an image that is never
 // unloaded (the sections live in WebCore's force-loaded polyfill objects), so they stay valid.
 // Guarded by wk_reg_lock and only ever touched from the image-load path. The cap bounds the total number
-// of WK_POLYFILL_ADD declarations in the build (four today), not anything the running process controls.
-enum { WK_MAX_ADD = 64 };
+// of WK_POLYFILL_ADD declarations in the build (66 as of the DataDetectors additions — recount with
+// `grep -c "WK_POLYFILL_ADD" polyfills/*.m*` when raising), not anything the running process controls.
+enum { WK_MAX_ADD = 128 };
 static const struct wk_addmap_entry *wk_addmap_deferred[WK_MAX_ADD];
 static int wk_addmap_deferred_count;
 
@@ -330,9 +331,14 @@ static BOOL wk_install_add_entry(const struct wk_addmap_entry *e)
     // A leading '+' on the class name means the entry is a CLASS method: install it on the metaclass,
     // which is where the runtime looks when the receiver is the class object itself. Spelled this way so
     // the entry stays a plain (name, sel, imp, types) record resolved by string at runtime, which is the
-    // whole reason WK_POLYFILL_ADD exists.
+    // whole reason WK_POLYFILL_ADD exists. The metaclass is reached through the class object
+    // (object_getClass), NOT objc_getMetaClass: 10.9's objc_getMetaClass prints
+    // "class `X' not linked into application" on every miss, and a deferred entry for a
+    // lazily-loaded framework's class polls this on every image event until the class arrives —
+    // hundreds of stderr lines per process launch. objc_getClass misses silently.
     BOOL isClassMethod = e->cls[0] == '+';
-    Class c = isClassMethod ? objc_getMetaClass(e->cls + 1) : objc_getClass(e->cls);
+    Class base = objc_getClass(isClassMethod ? e->cls + 1 : e->cls);
+    Class c = (base && isClassMethod) ? object_getClass(base) : base;
     if (!c)
         return NO;
     if (e->intent == WK_SELMAP_REPLACES) {
@@ -421,6 +427,24 @@ static const char *wk_image_initializing(uint32_t state, uint32_t count,
 {
     (void)state;
     pthread_mutex_lock(&wk_reg_lock);   // see the synchronisation note
+    // Deferred WK_POLYFILL_ADD entries must be retried HERE, not only from the add-image callback:
+    // a class named by an entry can arrive via dlopen (DDActionsManager arrives with soft-linked
+    // DataDetectors), and inside the add-image callback the runtime cannot see the arriving image's
+    // classes yet (the measurement above), so wk_install_added's retry from there resolves nothing
+    // for that image — and when the dlopen'ing call stack goes on to send the rewritten selector
+    // immediately (PAL soft-link then send, WebViewImpl.mm:3703), there is no later image load to
+    // rescue it and the send dies on the uninstalled wk_ method. This state is the first point the
+    // runtime has the classes, so the drain belongs here; order against the alias sweep below is
+    // immaterial, but not because either pass overrides the other (both use class_addMethod for a
+    // GAP_FILL, which no-ops once the wk_ name exists) — it is because a passing build keeps the two
+    // sweeps DISJOINT: the shadow gate forbids a gap-fill whose class owns the public selector, so no
+    // (class, selector) pair is ever touched by both, and a REPLACES entry installs by
+    // class_replaceMethod, which wins in either order by construction.
+    int keep = 0;
+    for (int i = 0; i < wk_addmap_deferred_count; i++)
+        if (!wk_install_add_entry(wk_addmap_deferred[i]))
+            wk_addmap_deferred[keep++] = wk_addmap_deferred[i];
+    wk_addmap_deferred_count = keep;
     for (uint32_t i = 0; i < count; i++)
         wk_alias_image(info[i].imageFilePath, 0, wk_count);
     pthread_mutex_unlock(&wk_reg_lock);

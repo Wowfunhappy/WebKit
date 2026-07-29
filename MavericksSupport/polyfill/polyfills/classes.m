@@ -607,6 +607,68 @@ __attribute__((constructor)) static void wk_uttype_constants_init(void)
 WK_PRIV_CLASS(NSFilePromiseReceiver) @interface NSFilePromiseReceiver : NSObject @end
 @implementation NSFilePromiseReceiver @end
 WK_PRIV_ALIAS(NSFilePromiseReceiver);
+// NSFilePromiseProvider (10.12+): the modern promised-file drag source. WebViewImpl's attachment-element
+// drag-out builds one and hands it to -[NSDraggingItem initWithPasteboardWriter:]; on 10.9 the class
+// binds as a nil weak import. The initializer tolerates the nil writer and returns a real item, and the
+// items array builds fine — the throw comes inside -[NSView beginDraggingSessionWithItems:event:source:],
+// where AppKit inserts each item's pasteboard WRITER into an internal mutable array and the nil one
+// raises (NSInvalidArgumentException, -[__NSArrayM insertObject:atIndex:]: object cannot be nil —
+// isolated step-by-step on this host), killing the UI process mid-drag. This stub holds the
+// fileType/delegate/userInfo it is given and satisfies
+// NSPasteboardWriting by writing nothing: 10.9 drop destinations only understand the classic
+// PasteboardRef promise protocol, which AppKit's modern promise machinery never engages here, so the
+// drag proceeds with no promise payload instead of throwing. (A classic NSFilesPromisePboardType
+// bridge is possible if a WKWebView-backed view ever hosts attachment drags on this system — the
+// Safari-facing WKView has its own classic promised-file path.)
+WK_PRIV_CLASS(NSFilePromiseProvider) @interface NSFilePromiseProvider : NSObject <NSPasteboardWriting>
+{
+    NSString *_wkFileType;
+    id _wkDelegate;
+    id _wkUserInfo;
+}
+- (instancetype)initWithFileType:(NSString *)fileType delegate:(id)delegate;
+- (NSString *)fileType;
+- (id)delegate;
+- (id)userInfo;
+- (void)setUserInfo:(id)userInfo;
+@end
+@implementation NSFilePromiseProvider
+- (instancetype)initWithFileType:(NSString *)fileType delegate:(id)delegate
+{
+    if (!(self = [super init]))
+        return nil;
+    _wkFileType = [fileType copy];
+    _wkDelegate = delegate;
+    return self;
+}
+- (void)dealloc
+{
+    [_wkFileType release];
+    [_wkUserInfo release];
+    [super dealloc];
+}
+- (NSString *)fileType { return _wkFileType; }
+- (id)delegate { return _wkDelegate; }
+- (id)userInfo { return _wkUserInfo; }
+- (void)setUserInfo:(id)userInfo
+{
+    if (_wkUserInfo == userInfo)
+        return;
+    [_wkUserInfo release];
+    _wkUserInfo = [userInfo retain];
+}
+- (NSArray *)writableTypesForPasteboard:(NSPasteboard *)pasteboard
+{
+    (void)pasteboard;
+    return [NSArray array];
+}
+- (id)pasteboardPropertyListForType:(NSString *)type
+{
+    (void)type;
+    return nil;
+}
+@end
+WK_PRIV_ALIAS(NSFilePromiseProvider);
 WK_PRIV_CLASS(LSAppLink) @interface LSAppLink : NSObject @end
 @implementation LSAppLink @end
 WK_PRIV_ALIAS(LSAppLink);
