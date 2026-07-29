@@ -36,13 +36,13 @@
 #import "WKOpenPanelParameters.h"
 #import "WKProcessPoolInternal.h"
 #import "WKWebViewInternal.h"
-// MAVERICKS_BACKPORT: for _pageConfiguration access used by the shared-process-pool divergence below.
+// MAVERICKS_BACKPORT: _pageConfiguration access for the setDrawsBackground(false) divergence below (#52).
 #import "WKWebViewConfigurationInternal.h"
 #import "WKWebsiteDataStoreInternal.h"
 #import "WebInspectorUIProxy.h"
 #import "WebInspectorUtilities.h"
 #import "WebPageProxy.h"
-// MAVERICKS_BACKPORT: for the _pageConfiguration->setDelaysWebProcessLaunchUntilFirstLoad shared-process-pool divergence below.
+// MAVERICKS_BACKPORT: API::PageConfiguration definition for the setDrawsBackground(false) divergence below (#52).
 #import "APIPageConfiguration.h"
 #import "WebsiteDataStore.h"
 #import "_WKInspectorConfigurationInternal.h"
@@ -67,11 +67,9 @@
 
 static NSString * const WKInspectorResourceScheme = @"inspector-resource";
 
-// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
-// static NSString * const safeAreaInsetsKVOKey = @"safeAreaInsets";
-// static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
-//
-// (end MAVERICKS_BACKPORT restored block)
+static NSString * const safeAreaInsetsKVOKey = @"safeAreaInsets";
+static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
+
 @interface WKInspectorViewController () <WKUIDelegate, WKNavigationDelegate, WKInspectorWKWebViewDelegate>
 // MAVERICKS_BACKPORT: classic-frontend bridge user script (see the definition below).
 + (NSString *)_mavericksClassicFrontendBridgeScript;
@@ -124,22 +122,17 @@ static NSString * const WKInspectorResourceScheme = @"inspector-resource";
         [_webView setUIDelegate:self];
         [_webView setNavigationDelegate:self];
         [_webView setInspectorWKWebViewDelegate:self];
-        // MAVERICKS_BACKPORT: guard 10.10+ private accessors that WKWebView doesn't implement.
-        if ([_webView respondsToSelector:@selector(_setAutomaticallyAdjustsContentInsets:)])
-            [_webView _setAutomaticallyAdjustsContentInsets:NO];
-        if ([_webView respondsToSelector:@selector(_setUseSystemAppearance:)])
-            [_webView _setUseSystemAppearance:YES];
+        [_webView _setAutomaticallyAdjustsContentInsets:NO];
+        [_webView _setUseSystemAppearance:YES];
         [_webView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
 
-        // MAVERICKS_BACKPORT: guard 10.10+ _setObscuredContentInsets: that WKWebView doesn't implement (no safeAreaInsets on 10.9).
-        if ([_webView respondsToSelector:@selector(_setObscuredContentInsets:immediate:)])
-            [_webView _setObscuredContentInsets:NSEdgeInsetsMake(0, 0, 0, 0) immediate:NO];
+        [_webView _setObscuredContentInsets:_webView.get().safeAreaInsets immediate:NO];
+        [_webView addObserver:self forKeyPath:safeAreaInsetsKVOKey options:0 context:safeAreaInsetsKVOContext];
     }
 
     return _webView.get();
 }
 
-/* MAVERICKS_BACKPORT: upstream's safeAreaInsets KVO. Kept commented, not deleted: -[NSView safeAreaInsets] is 11.0+, so there is no key to observe on 10.9.
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSKeyValueChangeKey, id> *)change context:(void*)context
 {
     if (context == safeAreaInsetsKVOContext)
@@ -148,7 +141,6 @@ static NSString * const WKInspectorResourceScheme = @"inspector-resource";
         [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
 }
 
-MAVERICKS_BACKPORT */
 - (void)setDelegate:(id <WKInspectorViewControllerDelegate>)delegate
 {
     _delegate = delegate;
@@ -157,20 +149,6 @@ MAVERICKS_BACKPORT */
 - (WKWebViewConfiguration *)webViewConfiguration
 {
     RetainPtr<WKWebViewConfiguration> configuration = adoptNS([[WKWebViewConfiguration alloc] init]);
-    // MAVERICKS_BACKPORT: ensure processPool is set (WKWebView _initializeWithConfiguration crashes if not).
-    // Reuse the inspected page's process pool so the inspector shares a WebContent process
-    // (CreateWebPage IPC won't deliver into a Launching XPC process on 10.9).
-    // MAVERICKS_BACKPORT: share the inspectedPage's process pool so the inspector page actually
-    // creates a WebPage in WebContent (a fresh pool tries to launch a 2nd XPC service which
-    // never moves out of Launching state on 10.9). Combined with the WebProcessPool.cpp
-    // MAVERICKS_BACKPORT that reuses existing Running process when freshly-picked is Launching,
-    // this gets the inspector WebPage created and HTML loaded inside the shared WebContent.
-    if (RefPtr inspectedPage = _inspectedPage.get()) {
-        WebKit::WebProcessPool& pool = inspectedPage->configuration().processPool();
-        [configuration setProcessPool:protect(WebKit::wrapper(pool)).get()];
-    } else if (![configuration processPool])
-        [configuration setProcessPool:adoptNS([[WKProcessPool alloc] init]).get()];
-    configuration.get()->_pageConfiguration->setDelaysWebProcessLaunchUntilFirstLoad(true);
     // MAVERICKS_BACKPORT (#52): the frontend page draws no background, so the injected unified-
     // toolbar CSS's rounded top corners are genuinely transparent and the NSThemeFrame's own
     // rounded titlebar corners show through — the web view covers the whole window (frame-view
@@ -386,10 +364,8 @@ MAVERICKS_BACKPORT */
 
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView
 {
-// MAVERICKS_BACKPORT: upstream's safeAreaInsets KVO. Kept commented, not deleted: -[NSView safeAreaInsets] is 11.0+, so there is no key to observe on 10.9.
-//     [_webView removeObserver:self forKeyPath:safeAreaInsetsKVOKey];
-//
-// (end MAVERICKS_BACKPORT restored block)
+    [_webView removeObserver:self forKeyPath:safeAreaInsetsKVOKey];
+
     RetainPtr delegate = _delegate.get();
     if (!!delegate && [delegate respondsToSelector:@selector(inspectorViewControllerInspectorDidCrash:)])
         [delegate inspectorViewControllerInspectorDidCrash:self];

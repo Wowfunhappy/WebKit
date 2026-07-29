@@ -43,7 +43,7 @@ namespace WebCore {
 // scheme both ports serve it from) is left untouched. Both ports consume this one string so the
 // bridge cannot drift between frameworks.
 //
-// Three parts:
+// Four parts:
 //  1. Unified titlebar+toolbar chrome (#52/#66/#69). Adds the measured Aqua gradient + a 22px
 //     #wk-titlebar strip as body's first child (stock 56px toolbar untouched below it), the window
 //     title fed from InspectorFrontendHost.inspectedURLChanged, and background mousedowns routed to
@@ -60,6 +60,17 @@ namespace WebCore {
 //     drifted since the classic frontend: CSS.SelectorList.selectors became CSSSelector objects
 //     ({text,specificity}) where the frontend expects strings, and the author stylesheet origin was
 //     renamed "regular" -> "author"; fixSel() flattens the selectors and maps the origin back.
+//  4. Commented-out (disabled) properties in the Styles editor (github #87). When a rule's body has
+//     more declarations than lines, CSSStyleDeclarationTextEditor stops echoing the author's text
+//     and synthesizes one line per property from CSSProperty.synthesizedText, which predates
+//     disabled properties: it emits a disabled property as a live declaration, so the comment
+//     delimiters vanish, the checkbox reads checked, and the next commit un-comments the property.
+//     Today's frontend wraps it (CSSProperty.formattedText does `"/* " + text + " */"` when
+//     disabled); restore that here, unchecking the checkbox to match and giving it the uncomment
+//     direction the stock handler only implements for the separate comment-scanned checkbox.
+//     Reach the frontend's classes through the bare `WebInspector` identifier, never
+//     `window.WebInspector`: Main.js declares `const WebInspector = {}`, and a top-level const in a
+//     classic script binds in the global LEXICAL environment, so it is not a property of `window`.
 //
 // Every failure path surfaces via console.error (into the frontend page's own console) rather than
 // being swallowed, so a translation bug is diagnosable instead of a silently-dropped message.
@@ -89,7 +100,7 @@ if(dom==='Target'||dom==='Browser')return origSend(messageStr);
 if(!currentTargetId){pendingQueue.push(messageStr);return;}
 return origSend(wrap(messageStr));
 }catch(e){console.error('[wk-inspector-bridge] sendMessageToBackend failed',e);}return origSend(messageStr);};
-var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){var im=obj.params.message;if(typeof im==='string'&&(im.indexOf('selectorList')!==-1||im.indexOf('"origin":"author"')!==-1)){try{var po=JSON.parse(im);fixSel(po);return origDisp(po);}catch(e2){console.error('[wk-inspector-bridge] CSS payload rewrite failed',e2);}}return origDisp(im);}}catch(e){console.error('[wk-inspector-bridge] InspectorBackend.dispatch failed',e);}return origDisp(message);};}}});
+var _backendObj=null;Object.defineProperty(window,'InspectorBackend',{configurable:true,enumerable:true,get:function(){return _backendObj;},set:function(v){_backendObj=v;if(v&&!v.__patched){v.__patched=true;var origDisp=v.dispatch.bind(v);v.dispatch=function(message){try{var obj=(typeof message==='string')?JSON.parse(message):message;if(obj.method==='Target.targetCreated'&&obj.params&&obj.params.targetInfo){currentTargetId=obj.params.targetInfo.targetId;flushQueue();return;}if(obj.id!==undefined&&wrapperIds[obj.id]){delete wrapperIds[obj.id];return;}if(obj.method==='Target.dispatchMessageFromTarget'&&obj.params&&obj.params.message){var im=obj.params.message;if(typeof im==='string'){try{im=JSON.parse(im);}catch(e2){console.error('[wk-inspector-bridge] CSS payload rewrite failed',e2);return origDisp(obj.params.message);}}fixSel(im);return origDisp(im);}}catch(e){console.error('[wk-inspector-bridge] InspectorBackend.dispatch failed',e);}return origDisp(message);};}}});
 })();
 try{var wkTitle='Web Inspector';
 document.addEventListener('DOMContentLoaded',function(){try{
@@ -106,6 +117,33 @@ if(!ev.target.closest('#wk-titlebar, #toolbar, .toolbar'))return;
 if(ev.target.closest('button,input,select,textarea,a,.item,.toolbar-item,.dashboard-container,.navigation-bar,.search-bar,[role=button]'))return;
 if(IFH.startWindowDrag){IFH.startWindowDrag();ev.preventDefault();ev.stopPropagation();}
 },true);}catch(e){console.error('[wk-inspector-bridge] drag handler failed',e);}
+try{document.addEventListener('DOMContentLoaded',function(){try{
+var W=(typeof WebInspector!=='undefined')?WebInspector:null;if(!W)return;
+var CP=W.CSSProperty&&W.CSSProperty.prototype;
+if(CP&&Object.getOwnPropertyDescriptor(CP,'synthesizedText')){Object.defineProperty(CP,'synthesizedText',{configurable:true,get:function(){
+var n=this.name;if(!n)return"";
+var p=this.priority;var t=n+": "+this.value.trim()+(p?" !"+p:"")+";";
+return this.enabled?t:"/* "+t+" */";}});}
+var TE=W.CSSStyleDeclarationTextEditor&&W.CSSStyleDeclarationTextEditor.prototype;
+if(!TE||typeof TE._createTextMarkerForPropertyIfNeeded!=='function'||typeof TE._propertyCheckboxChanged!=='function')return;
+var origMarker=TE._createTextMarkerForPropertyIfNeeded;
+TE._createTextMarkerForPropertyIfNeeded=function(from,to,property){origMarker.call(this,from,to,property);
+try{var marks=this._codeMirror.findMarksAt(from);
+for(var i=0;i<marks.length;++i){var m=marks[i],w=m.__propertyCheckbox&&m.replacedWith;if(!w)continue;
+var box=w.__cssProperty===property?w:(w.querySelector?w.querySelector('input[type=checkbox]'):null);
+if(box&&box.__cssProperty===property)box.checked=!!property.enabled;}}
+catch(e){console.error('[wk-inspector-bridge] property checkbox state failed',e);}};
+var origToggle=TE._propertyCheckboxChanged;
+TE._propertyCheckboxChanged=function(event){
+if(!event.target.checked)return origToggle.call(this,event);
+var property=event.target.__cssProperty;if(!property)return;
+var textMarker=property.__propertyTextMarker;if(!textMarker)return;
+var range=textMarker.find();if(!range)return;
+var text=this._codeMirror.getRange(range.from,range.to).replace(/^\/\*\s*/,"").replace(/\s*\*\/$/,"");
+if(text.length&&text.charAt(text.length-1)!==";")text+=";";
+function update(){this._codeMirror.replaceRange(text,range.from,range.to);this._createColorSwatches(true,range.from.line);}
+this._codeMirror.operation(update.bind(this));};
+}catch(e){console.error('[wk-inspector-bridge] styles editor patch failed',e);}});}catch(e){console.error('[wk-inspector-bridge] styles editor hook failed',e);}
 })();)WKIB";
 }
 
