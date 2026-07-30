@@ -63,19 +63,46 @@ public:
 
     void setClient(std::unique_ptr<API::IconDatabaseClient>&&);
 
+    // MAVERICKS_BACKPORT: where a stored icon's bytes came from. Rasterized means the site's own bytes
+    // were in a format this OS has no decoder for — on 10.9 that is SVG above all — and the web process
+    // rendered them into an .ico instead. Such an icon is a stand-in for one this OS could not read, so
+    // it never displaces an icon that decoded on its own, whichever of the two loads finishes first.
+    enum class IconOrigin : bool { NativelyDecoded, Rasterized };
+
     // MAVERICKS_BACKPORT: returns whether the icon was stored — it is rejected when this build cannot
-    // decode it (github #76).
-    bool setIconDataForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Ref<API::Data>&&);
+    // decode it (github #76), and a rasterized one is rejected when the page already has a natively
+    // decoded icon.
+    bool setIconDataForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Ref<API::Data>&&, IconOrigin = IconOrigin::NativelyDecoded);
+    // MAVERICKS_BACKPORT: point a page at icon bytes already held under this icon URL, so a site whose
+    // icon had to be rasterized pays for that once rather than on every page of the site. Same
+    // precedence rule as above; returns whether the page now holds that icon.
+    bool reuseStoredIconForPageURL(const WTF::String& pageURL, const WTF::String& iconURL);
+    // MAVERICKS_BACKPORT: the precedence rule as a question, so a caller holding bytes this build
+    // cannot decode can tell that rasterizing them would be work whose result the store is already
+    // certain to refuse.
+    bool hasNativelyDecodedIconForPageURL(const WTF::String& pageURL) const;
     RefPtr<API::Data> iconDataForPageURL(const WTF::String& pageURL);
     WTF::String iconURLForPageURL(const WTF::String& pageURL);
     void removeAllIcons();
+    // MAVERICKS_BACKPORT: bumped by removeAllIcons, so work started against an earlier state of the
+    // store (a rasterization in flight in the web process) can tell that its result is stale and must
+    // not resurrect an icon Safari has since cleared.
+    uint64_t generation() const { return m_generation; }
 
 private:
     WebIconDatabase();
 
+    struct StoredIcon {
+        RefPtr<API::Data> data;
+        IconOrigin origin { IconOrigin::NativelyDecoded };
+    };
+
+    bool storeIcon(const WTF::String& pageURL, const WTF::String& iconURL, StoredIcon&&);
+
     std::unique_ptr<API::IconDatabaseClient> m_client;
     HashMap<String, String> m_pageURLToIconURL;
-    HashMap<String, RefPtr<API::Data>> m_iconURLToData;
+    HashMap<String, StoredIcon> m_iconURLToData;
+    uint64_t m_generation { 0 };
 };
 
 } // namespace WebKit

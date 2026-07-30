@@ -49,7 +49,7 @@ void WebIconDatabase::setClient(std::unique_ptr<API::IconDatabaseClient>&& clien
     m_client = WTF::move(client);
 }
 
-bool WebIconDatabase::setIconDataForPageURL(const String& pageURL, const String& iconURL, Ref<API::Data>&& data)
+bool WebIconDatabase::setIconDataForPageURL(const String& pageURL, const String& iconURL, Ref<API::Data>&& data, IconOrigin origin)
 {
     // MAVERICKS_BACKPORT: admit only bytes this build can decode (github #76). There is ONE icon slot
     // per page here, so undecodable bytes are not merely useless — accepting them REPLACES a decodable
@@ -59,8 +59,53 @@ bool WebIconDatabase::setIconDataForPageURL(const String& pageURL, const String&
     if (decodeIconData(data.get()).isEmpty())
         return false;
 
+    return storeIcon(pageURL, iconURL, StoredIcon { WTF::move(data), origin });
+}
+
+bool WebIconDatabase::reuseStoredIconForPageURL(const String& pageURL, const String& iconURL)
+{
+    // MAVERICKS_BACKPORT: these bytes are already in the store and already known to decode, so this
+    // needs neither the admission test nor another rasterization — only the precedence rule (#49).
+    auto stored = m_iconURLToData.get(iconURL);
+    if (!stored.data)
+        return false;
+
+    return storeIcon(pageURL, iconURL, WTF::move(stored));
+}
+
+bool WebIconDatabase::hasNativelyDecodedIconForPageURL(const String& pageURL) const
+{
+    // A page with no URL yet has no icon, and a null String must not reach HashMap::get.
+    if (pageURL.isEmpty())
+        return false;
+
+    // MAVERICKS_BACKPORT: the origin of what the PAGE currently points at — deliberately not of what is
+    // held for any particular icon URL, so a site that changes its SVG (or cache-busts its URL) can
+    // still replace its own rasterized icon (#49).
+    auto currentIconURL = m_pageURLToIconURL.get(pageURL);
+    if (currentIconURL.isEmpty())
+        return false;
+
+    auto current = m_iconURLToData.get(currentIconURL);
+    return current.data && current.origin == IconOrigin::NativelyDecoded;
+}
+
+bool WebIconDatabase::storeIcon(const String& pageURL, const String& iconURL, StoredIcon&& icon)
+{
+    // There is nothing to key an icon by for a page that has no URL yet, and a null String must not
+    // reach HashMap::set any more than it may reach HashMap::get.
+    if (pageURL.isEmpty())
+        return false;
+
+    // MAVERICKS_BACKPORT: a rasterized icon stands in for bytes this OS cannot decode at all, so it
+    // must not displace an icon that decoded natively — a page declaring both an SVG and a bitmap
+    // favicon (github.com declares both) has a real icon already, and which one the single slot ends up
+    // holding must not depend on which load finished first. That order-dependence was github #76.
+    if (icon.origin == IconOrigin::Rasterized && hasNativelyDecodedIconForPageURL(pageURL))
+        return false;
+
     m_pageURLToIconURL.set(pageURL, iconURL);
-    m_iconURLToData.set(iconURL, data.ptr());
+    m_iconURLToData.set(iconURL, WTF::move(icon));
 
     if (m_client) {
         m_client->didChangeIconForPageURL(*this, pageURL);
@@ -79,7 +124,7 @@ RefPtr<API::Data> WebIconDatabase::iconDataForPageURL(const String& pageURL)
     auto iconURL = m_pageURLToIconURL.get(pageURL);
     if (iconURL.isEmpty())
         return nullptr;
-    return m_iconURLToData.get(iconURL);
+    return m_iconURLToData.get(iconURL).data;
 }
 
 String WebIconDatabase::iconURLForPageURL(const String& pageURL)
@@ -94,6 +139,9 @@ void WebIconDatabase::removeAllIcons()
 {
     m_pageURLToIconURL.clear();
     m_iconURLToData.clear();
+    // MAVERICKS_BACKPORT: an icon being rasterized in the web process right now was requested against
+    // the state just cleared; the bump tells its completion handler not to store the result (#49).
+    ++m_generation;
 
     if (m_client)
         m_client->didRemoveAllIcons(*this);

@@ -114,6 +114,7 @@
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/SecurityPolicy.h>
+#include <WebCore/SharedBuffer.h> // MAVERICKS_BACKPORT: carries a favicon's bytes to the web process for rasterizing, and the .ico back (#49)
 #include <WebCore/Site.h>
 #include <algorithm>
 #include <pal/SessionID.h>
@@ -218,10 +219,41 @@ public:
         String pageURL = page ? page->pageLoadState().activeURL() : String();
         String iconURL = icon.url.string();
         RefPtr iconDatabase = m_iconDatabase;
-        completionHandler([iconDatabase, pageURL, iconURL](API::Data* iconData) {
+        completionHandler([weakPage = m_page, iconDatabase, pageURL, iconURL](API::Data* iconData) {
             if (!iconDatabase || !iconData || pageURL.isEmpty())
                 return;
-            iconDatabase->setIconDataForPageURL(pageURL, iconURL, *iconData);
+            if (iconDatabase->setIconDataForPageURL(pageURL, iconURL, *iconData))
+                return;
+
+            // MAVERICKS_BACKPORT: the store took no icon, which for a favicon that downloaded fine
+            // means these bytes are in a format ImageIO cannot decode. On 10.9 that is above all SVG:
+            // CGImageSourceCopyTypeIdentifiers lists the classic raster formats and camera raw, no
+            // SVG at all, so a page whose only declared favicon is an SVG — news.ycombinator.com's
+            // y18.svg, and increasingly common elsewhere — otherwise has no site icon whatsoever.
+            // WebKit renders SVG perfectly well, and upstream already converts image data the platform
+            // cannot use into an .ico for exactly this reason: the web process rasterizes (SVGImage
+            // when the bytes are not a bitmap) and the UI process packs the frames into an .ico, which
+            // this OS's ImageIO does read. 16 and 32 are the only sizes Safari 7 ever asks for
+            // (IconController's smallIconSize and mediumIconSize).
+            //
+            // Two questions to the store come first, because both make the round trip pointless. If the
+            // page already has an icon this OS decoded on its own, the store will refuse a rasterized
+            // one, so rendering it would be waste on every load of every site that declares an SVG
+            // alongside a bitmap favicon (github.com declares both) — and waste that can never
+            // amortize, since a refused result is never stored to be found next time. And every page of
+            // an SVG-favicon site declares the same icon URL, so once these bytes have been rendered
+            // the store can answer from what it holds.
+            if (iconDatabase->hasNativelyDecodedIconForPageURL(pageURL))
+                return;
+            if (iconDatabase->reuseStoredIconForPageURL(pageURL, iconURL))
+                return;
+            RefPtr page = weakPage.get();
+            if (!page)
+                return;
+            page->createIconDataFromImageData(WebCore::SharedBuffer::create(iconData->span()), { 16, 32 }, [iconDatabase, pageURL, iconURL, generation = iconDatabase->generation()](RefPtr<WebCore::SharedBuffer>&& rasterizedIcon) {
+                if (rasterizedIcon && iconDatabase->generation() == generation)
+                    iconDatabase->setIconDataForPageURL(pageURL, iconURL, API::Data::create(rasterizedIcon->span()), WebIconDatabase::IconOrigin::Rasterized);
+            });
         });
     }
 
