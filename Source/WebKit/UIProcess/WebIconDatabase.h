@@ -36,6 +36,7 @@
 // members (pageURL->iconURL and iconURL->bytes maps) and its API::Data / IconDatabaseClient uses (#49).
 #include <CoreGraphics/CoreGraphics.h>
 #include <wtf/HashMap.h>
+#include <wtf/HashSet.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
@@ -81,6 +82,13 @@ public:
     // cannot decode can tell that rasterizing them would be work whose result the store is already
     // certain to refuse.
     bool hasNativelyDecodedIconForPageURL(const WTF::String& pageURL) const;
+    // MAVERICKS_BACKPORT: an icon URL whose bytes have been fetched and turned out to be no icon at all —
+    // the error page a site without a /favicon.ico serves for it, or an image nothing here can read and
+    // the web process cannot rasterize either. The client fetches icons itself (#112), so without this
+    // it would fetch the same dead URL again for every further page of that site; every page of a site
+    // declares the same one.
+    void noteUnusableIconURL(const WTF::String& iconURL);
+    bool isUnusableIconURL(const WTF::String& iconURL) const;
     RefPtr<API::Data> iconDataForPageURL(const WTF::String& pageURL);
     WTF::String iconURLForPageURL(const WTF::String& pageURL);
     void removeAllIcons();
@@ -102,6 +110,7 @@ private:
     std::unique_ptr<API::IconDatabaseClient> m_client;
     HashMap<String, String> m_pageURLToIconURL;
     HashMap<String, StoredIcon> m_iconURLToData;
+    HashSet<String> m_unusableIconURLs;
     uint64_t m_generation { 0 };
 };
 

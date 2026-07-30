@@ -8080,6 +8080,21 @@ void WebPage::loadAndDecodeImage(WebCore::ResourceRequest&& request, std::option
     });
 }
 
+// MAVERICKS_BACKPORT: LoadAndDecodeImage without the decode. The UI process has no loader of its own,
+// and the revived favicon store the legacy WK2 icon-database C API drives (#49) needs a site's icon
+// BYTES rather than a bitmap: it admits an icon by decoding it, and bytes this OS has no decoder for
+// (SVG above all) go to createBitmapsFromImageData, which reads SVG where BitmapImage does not. It
+// asks for those bytes when a page's own icon load was cancelled by navigating away (#112), so this
+// takes the same document-independent path through the network process that the load above does.
+void WebPage::loadImageData(WebCore::ResourceRequest&& request, uint64_t maximumBytesFromNetwork, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&& completionHandler)
+{
+    WebProcess::singleton().ensureNetworkProcessConnection().connection().sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::LoadImageForDecoding(WTF::move(request), m_webPageProxyIdentifier, maximumBytesFromNetwork), [completionHandler = WTF::move(completionHandler)] (Expected<Ref<WebCore::FragmentedSharedBuffer>, WebCore::ResourceError>&& result) mutable {
+        if (!result)
+            return completionHandler(nullptr);
+        completionHandler(result.value()->makeContiguous());
+    });
+}
+
 #if PLATFORM(MAC) || PLATFORM(WPE) || PLATFORM(GTK)
 void WebPage::flushPendingThemeColorChange()
 {

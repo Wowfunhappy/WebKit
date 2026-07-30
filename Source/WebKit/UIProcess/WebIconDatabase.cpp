@@ -90,6 +90,22 @@ bool WebIconDatabase::hasNativelyDecodedIconForPageURL(const String& pageURL) co
     return current.data && current.origin == IconOrigin::NativelyDecoded;
 }
 
+void WebIconDatabase::noteUnusableIconURL(const String& iconURL)
+{
+    if (iconURL.isEmpty())
+        return;
+
+    m_unusableIconURLs.add(iconURL);
+}
+
+bool WebIconDatabase::isUnusableIconURL(const String& iconURL) const
+{
+    if (iconURL.isEmpty())
+        return false;
+
+    return m_unusableIconURLs.contains(iconURL);
+}
+
 bool WebIconDatabase::storeIcon(const String& pageURL, const String& iconURL, StoredIcon&& icon)
 {
     // There is nothing to key an icon by for a page that has no URL yet, and a null String must not
@@ -106,6 +122,8 @@ bool WebIconDatabase::storeIcon(const String& pageURL, const String& iconURL, St
 
     m_pageURLToIconURL.set(pageURL, iconURL);
     m_iconURLToData.set(iconURL, WTF::move(icon));
+    // These bytes are an icon after all, whatever an earlier fetch of this URL concluded.
+    m_unusableIconURLs.remove(iconURL);
 
     if (m_client) {
         m_client->didChangeIconForPageURL(*this, pageURL);
@@ -139,6 +157,7 @@ void WebIconDatabase::removeAllIcons()
 {
     m_pageURLToIconURL.clear();
     m_iconURLToData.clear();
+    m_unusableIconURLs.clear();
     // MAVERICKS_BACKPORT: an icon being rasterized in the web process right now was requested against
     // the state just cleared; the bump tells its completion handler not to store the result (#49).
     ++m_generation;

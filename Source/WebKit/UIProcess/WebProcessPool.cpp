@@ -185,9 +185,102 @@
 namespace WebKit {
 using namespace WebCore;
 
+// MAVERICKS_BACKPORT: hand a favicon's bytes to the revived WebIconDatabase (#49).
+//
+// The store refuses bytes it cannot decode, which for a favicon that downloaded fine means they are in
+// a format ImageIO cannot read. On 10.9 that is above all SVG: CGImageSourceCopyTypeIdentifiers lists
+// the classic raster formats and camera raw, no SVG at all, so a page whose only declared favicon is an
+// SVG — news.ycombinator.com's y18.svg, and increasingly common elsewhere — would have no site icon
+// whatsoever. WebKit renders SVG perfectly well, and upstream already converts image data the platform
+// cannot use into an .ico for exactly this reason: the web process rasterizes (SVGImage when the bytes
+// are not a bitmap) and the UI process packs the frames into an .ico, which this OS's ImageIO does read.
+// 16 and 32 are the only sizes Safari 7 ever asks for (IconController's smallIconSize and
+// mediumIconSize).
+//
+// Two questions to the store come first, because both make that round trip pointless. If the page
+// already has an icon this OS decoded on its own, the store will refuse a rasterized one, so rendering
+// it would be waste on every load of every site that declares an SVG alongside a bitmap favicon
+// (github.com declares both) — and waste that can never amortize, since a refused result is never
+// stored to be found next time. And every page of an SVG-favicon site declares the same icon URL, so
+// once these bytes have been rendered the store can answer from what it holds.
+static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr<WebPageProxy>& weakPage, const String& pageURL, const String& iconURL, Ref<API::Data>&& iconData)
+{
+    if (iconDatabase.setIconDataForPageURL(pageURL, iconURL, iconData.copyRef()))
+        return;
+
+    if (iconDatabase.hasNativelyDecodedIconForPageURL(pageURL))
+        return;
+    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL))
+        return;
+    RefPtr page = weakPage.get();
+    if (!page)
+        return;
+
+    auto generation = iconDatabase.generation();
+    page->createIconDataFromImageData(WebCore::SharedBuffer::create(iconData->span()), { 16, 32 }, [iconDatabase = Ref { iconDatabase }, pageURL, iconURL, generation](RefPtr<WebCore::SharedBuffer>&& rasterizedIcon) {
+        if (iconDatabase->generation() != generation)
+            return;
+        // Nothing here could read these bytes and the web process could not draw them either, so they
+        // are no icon at all and this icon URL is not worth fetching again.
+        if (!rasterizedIcon) {
+            iconDatabase->noteUnusableIconURL(iconURL);
+            return;
+        }
+        iconDatabase->setIconDataForPageURL(pageURL, iconURL, API::Data::create(rasterizedIcon->span()), WebIconDatabase::IconOrigin::Rasterized);
+    });
+}
+
+// MAVERICKS_BACKPORT: fetch a favicon this client has taken responsibility for (#112).
+//
+// The store answers first, and usually can: every page of a site declares the same icon URL, so no
+// request is made for a site whose icon is already held, nor for one already known to serve no icon.
+//
+// The fetch goes out while the page is still current and through the network process, so nothing about
+// the page's own loading can cancel it — which is the whole point of doing it here. What it gives up
+// against the document-owned load it replaces is that load's response handling: an icon URL answering
+// with a non-2xx status returns its error page as bytes here (upstream's own UI-process image load,
+// LoadAndDecodeImage, has the same reply and the same gap), so an error page is rejected by failing to
+// decode rather than by its status, and this remembers the URL so that costs one fetch per site. The
+// one check that cannot be left to decoding is carried over below.
+static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, const String& pageURL, const String& iconURL)
+{
+    if (pageURL.isEmpty() || iconURL.isEmpty())
+        return;
+    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL))
+        return;
+    if (iconDatabase.hasNativelyDecodedIconForPageURL(pageURL))
+        return;
+    if (iconDatabase.isUnusableIconURL(iconURL))
+        return;
+
+    // Bytes past this are not a site icon but a decoder waiting to be handed something enormous; the
+    // network process stops the load there rather than buffering it for us.
+    constexpr size_t maximumIconBytes = 8 * MB;
+
+    auto generation = iconDatabase.generation();
+    page.loadImageData(WebCore::ResourceRequest { URL { iconURL } }, maximumIconBytes, [iconDatabase = Ref { iconDatabase }, weakPage = WeakPtr { page }, pageURL, iconURL, generation](RefPtr<WebCore::SharedBuffer>&& iconData) {
+        if (iconDatabase->generation() != generation)
+            return;
+        // Nothing came back at all: a network error, or a load the network process refused. Say nothing
+        // about the icon URL itself — the next page of the site may well get it.
+        if (!iconData || iconData->isEmpty())
+            return;
+
+        // MAVERICKS_BACKPORT: upstream's IconLoader::notifyFinished refuses a PDF outright, and this OS's
+        // ImageIO decodes PDF, so decoding alone would admit an icon upstream declines.
+        static constexpr std::array<uint8_t, 4> pdfMagicNumber { '%', 'P', 'D', 'F' };
+        if (iconData->startsWith(pdfMagicNumber)) {
+            iconDatabase->noteUnusableIconURL(iconURL);
+            return;
+        }
+
+        storeIconDataForPageURL(iconDatabase.get(), weakPage, pageURL, iconURL, API::Data::create(iconData->span()));
+    });
+}
+
 // MAVERICKS_BACKPORT: per-page icon-loading client for Safari 7's C-API pages. When WebCore finds a
-// favicon it asks for a load decision; we approve http(s) icons, let the WebProcess fetch the bytes,
-// then hand them to the revived WebIconDatabase, which notifies Safari via the legacy C client (#49).
+// favicon it asks for a load decision; this client declines the load and fetches the icon itself, then
+// hands the bytes to the revived WebIconDatabase, which notifies Safari via the legacy C client (#49).
 class PageIconLoadingClient final : public API::IconLoadingClient {
     WTF_MAKE_TZONE_ALLOCATED_INLINE(PageIconLoadingClient);
 public:
@@ -199,10 +292,20 @@ public:
 
     void getLoadDecisionForIcon(const WebCore::LinkIcon& icon, CompletionHandler<void(CompletionHandler<void(API::Data*)>&&)>&& completionHandler) override
     {
-        if (!icon.url.protocolIsInHTTPFamily()) {
-            completionHandler(nullptr);
+        // MAVERICKS_BACKPORT: never let WebCore load the icon (#112). It loads a declared icon as a
+        // subresource of the page's own document, so leaving the page cancels it — and the load only
+        // starts once parsing has finished, so an ordinary click gets there first. That loss is
+        // permanent for the page: the store is written only while a page is loading, so its history
+        // entry, which outlives the visit, keeps the generic globe with nothing to ever correct it.
+        //
+        // A favicon is the browser's record of a site rather than content the page is waiting for, so
+        // this client owns the fetch, as browsers that keep favicons out of the page's loader do —
+        // measured here, Firefox accepts an icon five seconds after the user has left the page.
+        // Declining means WebCore starts no load of its own, so the icon is still fetched exactly once.
+        completionHandler(nullptr);
+
+        if (!icon.url.protocolIsInHTTPFamily())
             return;
-        }
 
         // MAVERICKS_BACKPORT: take site favicons only (github #76). This is client policy, not the
         // fix for the icon-clobbering that made favicons revert to the generic globe — the store itself
@@ -210,51 +313,18 @@ public:
         // asks this store for the small site icon (IconController's 16x16/32x32 requests), and an
         // apple-touch-icon is 180x180 home-screen artwork; upstream likewise leaves the choice to the
         // client, its own default client declining every icon.
-        if (icon.type != WebCore::LinkIconType::Favicon) {
-            completionHandler(nullptr);
+        if (icon.type != WebCore::LinkIconType::Favicon)
             return;
-        }
 
         RefPtr page = m_page.get();
-        String pageURL = page ? page->pageLoadState().activeURL() : String();
-        String iconURL = icon.url.string();
         RefPtr iconDatabase = m_iconDatabase;
-        completionHandler([weakPage = m_page, iconDatabase, pageURL, iconURL](API::Data* iconData) {
-            if (!iconDatabase || !iconData || pageURL.isEmpty())
-                return;
-            if (iconDatabase->setIconDataForPageURL(pageURL, iconURL, *iconData))
-                return;
+        if (!page || !iconDatabase)
+            return;
 
-            // MAVERICKS_BACKPORT: the store took no icon, which for a favicon that downloaded fine
-            // means these bytes are in a format ImageIO cannot decode. On 10.9 that is above all SVG:
-            // CGImageSourceCopyTypeIdentifiers lists the classic raster formats and camera raw, no
-            // SVG at all, so a page whose only declared favicon is an SVG — news.ycombinator.com's
-            // y18.svg, and increasingly common elsewhere — otherwise has no site icon whatsoever.
-            // WebKit renders SVG perfectly well, and upstream already converts image data the platform
-            // cannot use into an .ico for exactly this reason: the web process rasterizes (SVGImage
-            // when the bytes are not a bitmap) and the UI process packs the frames into an .ico, which
-            // this OS's ImageIO does read. 16 and 32 are the only sizes Safari 7 ever asks for
-            // (IconController's smallIconSize and mediumIconSize).
-            //
-            // Two questions to the store come first, because both make the round trip pointless. If the
-            // page already has an icon this OS decoded on its own, the store will refuse a rasterized
-            // one, so rendering it would be waste on every load of every site that declares an SVG
-            // alongside a bitmap favicon (github.com declares both) — and waste that can never
-            // amortize, since a refused result is never stored to be found next time. And every page of
-            // an SVG-favicon site declares the same icon URL, so once these bytes have been rendered
-            // the store can answer from what it holds.
-            if (iconDatabase->hasNativelyDecodedIconForPageURL(pageURL))
-                return;
-            if (iconDatabase->reuseStoredIconForPageURL(pageURL, iconURL))
-                return;
-            RefPtr page = weakPage.get();
-            if (!page)
-                return;
-            page->createIconDataFromImageData(WebCore::SharedBuffer::create(iconData->span()), { 16, 32 }, [iconDatabase, pageURL, iconURL, generation = iconDatabase->generation()](RefPtr<WebCore::SharedBuffer>&& rasterizedIcon) {
-                if (rasterizedIcon && iconDatabase->generation() == generation)
-                    iconDatabase->setIconDataForPageURL(pageURL, iconURL, API::Data::create(rasterizedIcon->span()), WebIconDatabase::IconOrigin::Rasterized);
-            });
-        });
+        // The icon belongs to the document that just finished parsing, which is the COMMITTED one — not
+        // pageLoadState's activeURL, which is already the URL of a navigation under way when there is
+        // one, and would file this icon under the page being navigated to.
+        fetchIconForPage(*iconDatabase, *page, page->pageLoadState().url(), icon.url.string());
     }
 
 private:

@@ -1013,6 +1013,8 @@ public:
     void loadAlternateHTML(Ref<WebCore::DataSegment>&&, const String& encoding, const URL& baseURL, const URL& unreachableURL, RefPtr<API::WebsitePolicies>);
 
     void loadAndDecodeImage(WebCore::ResourceRequest&&, std::optional<WebCore::FloatSize>, size_t, CompletionHandler<void(Expected<Ref<WebCore::ShareableBitmap>, WebCore::ResourceError>&&)>&&);
+    // MAVERICKS_BACKPORT: fetch image bytes through the web process, for the favicon store (#112).
+    void loadImageData(WebCore::ResourceRequest&&, size_t maximumBytesFromNetwork, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
 #if PLATFORM(COCOA)
     void getInformationFromImageData(Vector<uint8_t>&& data, CompletionHandler<void(Expected<std::pair<String, Vector<WebCore::IntSize>>, WebCore::ImageDecodingError>&&)>&&);
     void createIconDataFromImageData(Ref<WebCore::SharedBuffer>&&, const Vector<unsigned>&, CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>&&);
