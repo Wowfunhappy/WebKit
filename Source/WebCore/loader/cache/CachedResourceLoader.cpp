@@ -1355,8 +1355,21 @@ ResourceErrorOr<Ref<CachedResource>> CachedResourceLoader::requestResource(Cache
                 return;
             if (--protectedThis->m_requestCount)
                 return;
-            if (RefPtr frame = protectedThis->frame())
+            // MAVERICKS_BACKPORT: also run checkLoadComplete() here. checkCompleted() early-returns
+            // before its trailing checkLoadComplete() when this document has already completed
+            // (m_isComplete), so a document whose last outstanding request piggybacks on another
+            // document's in-flight CachedResource (this whenLoaded callback is its only completion
+            // notification) never gets a final checkLoadComplete(): its frame sticks in
+            // FrameState::CommittedPage and dispatchDidFinishLoad() is never sent. Dashboard hits
+            // this whenever several widgets load identical file:// subresources at once, and
+            // DashboardClient keeps a widget's window undisplayable (autodisplay off) until
+            // webView:didFinishLoadForFrame:, so the widget stays a blank Default.png. Delivering
+            // the load-complete check here mirrors FrameLoader::subresourceLoadDone().
+            if (RefPtr frame = protectedThis->frame()) {
                 frame->loader().checkCompleted();
+                // MAVERICKS_BACKPORT: (see the comment above this block)
+                frame->loader().checkLoadComplete();
+            }
         });
     }
 
