@@ -5896,32 +5896,18 @@ void NODELETE Page::setPresentingApplicationAuditToken(std::optional<audit_token
 
 bool Page::requiresUserGestureForAudioPlayback() const
 {
-#if ENABLE(MEDIA_SOURCE)
-    // MAVERICKS_BACKPORT: behavior — never require a user gesture for media playback. Sites like YouTube
-    // start playback from script; without this the custom MSE pipeline's CMTimebase never starts and only
-    // the first decoded frame shows (HTMLMediaElement reads this into m_shouldVideoPlaybackRequireUserGesture).
-    return false;
-#else
     auto autoplayPolicy = protect(mainFrame())->autoplayPolicy();
     if (autoplayPolicy != AutoplayPolicy::Default)
         return autoplayPolicy == AutoplayPolicy::AllowWithoutSound || autoplayPolicy == AutoplayPolicy::Deny;
     return m_settings->requiresUserGestureForAudioPlayback();
-// MAVERICKS_BACKPORT: behavior — upstream path kept under #else; MEDIA_SOURCE build returns false above for script-started MSE playback.
-#endif
 }
 
 bool Page::requiresUserGestureForVideoPlayback() const
 {
-#if ENABLE(MEDIA_SOURCE)
-    // MAVERICKS_BACKPORT: behavior — see requiresUserGestureForAudioPlayback; script-started MSE playback.
-    return false;
-#else
     auto autoplayPolicy = protect(mainFrame())->autoplayPolicy();
     if (autoplayPolicy != AutoplayPolicy::Default)
         return autoplayPolicy == AutoplayPolicy::Deny;
     return m_settings->requiresUserGestureForVideoPlayback();
-// MAVERICKS_BACKPORT: behavior — upstream path kept under #else; MEDIA_SOURCE build returns false above for script-started MSE playback.
-#endif
 }
 
 static RefPtr<PlatformMediaSessionManager>& NODELETE mediaSessionManagerSingleton()

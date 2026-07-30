@@ -4835,8 +4835,18 @@ IGNORE_WARNINGS_END
             // Top Sites thumbnails render. (A forceLayout here to also fix the embedded-WebView
             // 0x0-document-view case — Extensions pane / Extension Builder / popovers — crashes
             // Safari whether sync or deferred; see webkit-mavericks-extensions memory.)
+            //
+            // Deliberately no _setNeedsOneShotDrawingSynchronization: here. That flag belongs to
+            // WebCore, which raises it only when content actually moves between the window and a
+            // GraphicsLayer (RenderLayerCompositor::repaintOnCompositingChange /
+            // repaintInCompositedAncestor). Raising it on a bare visibility edge makes the next
+            // -[WebHTMLView drawRect:] call -[NSWindow disableScreenUpdatesUntilFlush] on a window
+            // with no compositing change to synchronize — the hazard that method's own call site
+            // warns about. Hosts that drive display by hand rather than through window autodisplay
+            // (DashboardClient creates every widget window with autodisplay off and flushes it
+            // itself) can then leave screen updates suppressed with no flush pending, so freshly
+            // ordered-in windows present their never-drawn backing store.
             [[[self mainFrame] frameView] _frameSizeChanged];
-            [self _setNeedsOneShotDrawingSynchronization:YES];
             [self _scheduleUpdateRendering];
         }
     }
