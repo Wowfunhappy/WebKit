@@ -45,9 +45,7 @@
 #import "WebPageProxy.h"
 #import "WebPreferences.h"
 #import "_WKCaptionStyleMenuController.h"
-// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTTypeTIFF) is macOS 11+ and absent on 10.9;
-// the legacy CoreServices kUTTypeTIFF identifier is used for the pasteboard type instead.
-#import <CoreServices/CoreServices.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/GraphicsContext.h>
 #import <WebCore/IntRect.h>
 #import <WebCore/LocalizedStrings.h>
@@ -66,14 +64,6 @@
 
 #if HAVE(APPKIT_GESTURES_SUPPORT)
 #import <WebKitAdditions/WKAppKitGestureControllerAdditionsBefore.mm>
-#endif
-
-// MAVERICKS_BACKPORT: NSControlStateValueOn/Off were added in 10.13; previously named NSOnState/NSOffState.
-#ifndef NSControlStateValueOn
-#define NSControlStateValueOn NSOnState
-#endif
-#ifndef NSControlStateValueOff
-#define NSControlStateValueOff NSOffState
 #endif
 
 @interface WKUserDataWrapper : NSObject {
@@ -305,8 +295,7 @@ void WebContextMenuProxyMac::setupServicesMenu()
     bool isPDFAttachment = false;
     auto attachment = protect(page())->attachmentForIdentifier(m_context.controlledImageAttachmentID());
     if (attachment)
-    // MAVERICKS_BACKPORT: UTType class is 11.0+. Compare to literal "com.adobe.pdf" instead.
-        isPDFAttachment = attachment->utiType() == "com.adobe.pdf"_s;
+        isPDFAttachment = attachment->utiType() == String(UTTypePDF.identifier);
     NSArray *items = nil;
     RetainPtr<NSItemProvider> itemProvider;
     if (hasControlledImage) {
@@ -319,8 +308,7 @@ void WebContextMenuProxyMac::setupServicesMenu()
             RetainPtr cgImage = image->createPlatformImage(DontCopyBackingStore);
             auto nsImage = adoptNS([[NSImage alloc] initWithCGImage:cgImage.get() size:image->size()]);
 
-            // MAVERICKS_BACKPORT: UTTypeTIFF (UniformTypeIdentifiers) is 11.0+; use the legacy CoreServices kUTTypeTIFF identifier.
-            itemProvider = adoptNS([[NSItemProvider alloc] initWithItem:retainPtr([nsImage TIFFRepresentation]).get() typeIdentifier:(__bridge NSString *)kUTTypeTIFF]);
+            itemProvider = adoptNS([[NSItemProvider alloc] initWithItem:retainPtr([nsImage TIFFRepresentation]).get() typeIdentifier:UTTypeTIFF.identifier]);
         }
         items = @[ itemProvider.get() ];
         
@@ -830,14 +818,7 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
     auto filteredItems = items;
     auto webView = m_webView.get();
 
-    // MAVERICKS_BACKPORT: _childWindowOrderingPriority is 10.12+ private NSWindow SPI.
-    // Sending it to NSWindow on 10.9 fires doesNotRecognizeSelector and crashes
-    // UIProcess on every right-click. Guard before sending.
-    bool isPopover = false;
-    if (RetainPtr<NSWindow> w = retainPtr(webView.get().window).get()) {
-        if ([w respondsToSelector:@selector(_childWindowOrderingPriority)])
-            isPopover = [(id)w.get() _childWindowOrderingPriority] == NSWindowChildOrderingPriorityPopover;
-    }
+    bool isPopover = retainPtr(webView.get().window).get()._childWindowOrderingPriority == NSWindowChildOrderingPriorityPopover;
     bool isLookupDisabled = [NSUserDefaults.standardUserDefaults boolForKey:@"LULookupDisabled"];
 
     if (isLookupDisabled || isPopover) {
@@ -903,14 +884,7 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
         if (--itemsRemaining)
             return;
 
-        // MAVERICKS_BACKPORT: -[NSMenu setItemArray:] is 10.10+. Add each item individually.
-        if ([menu respondsToSelector:@selector(setItemArray:)])
-            [menu setItemArray:[sparseMenuItems allObjects]];
-        else {
-            [menu removeAllItems];
-            for (NSMenuItem *item in [sparseMenuItems allObjects])
-                [menu addItem:item];
-        }
+        [menu setItemArray:[sparseMenuItems allObjects]];
 
         RefPtr page = weakPage.get();
         if (page && imageBitmap) {

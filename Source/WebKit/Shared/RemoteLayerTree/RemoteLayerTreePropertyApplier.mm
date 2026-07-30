@@ -454,12 +454,8 @@ void RemoteLayerTreePropertyApplier::applyPropertiesToLayer(CALayer *layer, Remo
 
     if (properties.changedProperties & LayerChange::CornerRadiusChanged) {
         layer.cornerRadius = properties.cornerRadius;
-        // MAVERICKS_BACKPORT: CALayer.cornerCurve / kCACornerCurveCircular are 10.15+; guard the build
-        // (MAX_ALLOWED) and gate the call behind respondsToSelector: so it no-ops on 10.9.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
-        if (properties.cornerRadius && [layer respondsToSelector:@selector(setCornerCurve:)])
+        if (properties.cornerRadius)
             layer.cornerCurve = kCACornerCurveCircular;
-#endif // MAVERICKS_BACKPORT: CALayer.cornerCurve is 10.15+; absent on 10.9.
     }
 
     if (properties.changedProperties & LayerChange::ShapeRoundedRectChanged) {

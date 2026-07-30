@@ -122,9 +122,35 @@ tmp_stable() {  # $1 = final path; builder already wrote "$1.tmp"
 }
 
 echo "### libpolyfill.a (C function/constant stubs only — NO ObjC classes)"
-ar_stable "$OUT/libpolyfill.a" "$OBJ/runtime.o" "$OBJ/wk_polyfill_runtime.o" \
+# Some SDK headers put an explicit __attribute__((visibility("default"))) on their declarations
+# (DISPATCH_EXPORT, OS_EXPORT, ...), and an explicit attribute on the declaration overrides the
+# $HIDDEN flag on the definition — the polyfill then lands in every framework's EXPORT table. That
+# breaks both halves of the HIDDEN contract above: the process-wide dlsym WK_ORIGINAL performs finds
+# the layer's own copy instead of 10.9's implementation (dispatch_get_global_queue crashed every
+# WebKit process at launch this way — resolveOriginal rejected the copy as ours, returned NULL, and
+# the REPLACES body called through it), and host apps can bind to a polyfill by accident. nmedit -p
+# demotes every defined global in the members to private extern — the same state $HIDDEN already put
+# the others in — so the attribute cannot punch through. The symbols stay visible to the nm-based
+# dup/shadow checks below (private externs are still external in an object file) and still satisfy
+# the force_load link's references. ONE list feeds both the demotion and the archive, so a member
+# added later cannot skip the demotion and re-export its globals.
+LIBPOLYFILL_MEMBERS=("$OBJ/runtime.o" "$OBJ/wk_polyfill_runtime.o" \
     "$OBJ/constants.o" "$OBJ/graphics.o" "$OBJ/variable-font-instancer.o" "$OBJ/system-spi.o" \
-    "$OBJ/compression.o" "$OBJ/shared-obj"/*.o "$OBJ/legacy-obj"/*.o
+    "$OBJ/compression.o" "$OBJ/shared-obj"/*.o "$OBJ/legacy-obj"/*.o)
+for o in "${LIBPOLYFILL_MEMBERS[@]}"; do
+    nmedit -p "$o"
+done
+ar_stable "$OUT/libpolyfill.a" "${LIBPOLYFILL_MEMBERS[@]}"
+# Belt and braces: fail the build if any archive member still carries an exported (non-private)
+# defined global — the launch-crash class the demotion exists to prevent.
+leaked=$(/usr/bin/nm -m "$OUT/libpolyfill.a" 2>/dev/null \
+    | grep -v 'private external\|undefined\|non-external' | grep 'external' || true)
+if [ -n "$leaked" ]; then
+    echo "ERROR: libpolyfill.a still EXPORTS these symbols; every framework that force-loads it" >&2
+    echo "would re-export them, shadowing the system flat-namespace-wide (see the nmedit note):" >&2
+    echo "$leaked" >&2
+    exit 1
+fi
 
 # Two definitions of one symbol used to be invisible: whichever archive member the linker happened
 # to pull decided the winner. Force-loading makes them a hard link error instead, so catch them here

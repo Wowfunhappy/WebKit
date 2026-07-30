@@ -61,13 +61,7 @@ using RectType = CGRect;
 @end
 
 #if PLATFORM(MAC)
-// MAVERICKS_BACKPORT: NSAccessibilityGroup protocol is 10.10+; on the 10.9 SDK conform only to NSTextViewDelegate so the @interface declaration compiles.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
 @interface _WKWarningView : _WKWarningViewBox<NSTextViewDelegate, NSAccessibilityGroup>
-#else
-// MAVERICKS_BACKPORT: 10.9 SDK lacks NSAccessibilityGroup; conform only to NSTextViewDelegate here.
-@interface _WKWarningView : _WKWarningViewBox<NSTextViewDelegate>
-#endif
 #else
 @interface _WKWarningView : UIScrollView<UITextViewDelegate>
 #endif

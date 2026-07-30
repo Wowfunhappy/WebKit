@@ -69,13 +69,20 @@ WK_POLYFILL_SEL("graphicsContextWithCGContext:flipped:", "wk_graphicsContextWith
 @interface NSButtonCell (WKPolyfillScope)
 - (void)wk__setState:(NSInteger)state animated:(BOOL)animated;
 - (void)wk__setHighlighted:(BOOL)highlighted animated:(BOOL)animated;
+- (BOOL)wk__stateAnimationRunning;
 @end
 @implementation NSButtonCell (WKPolyfillScope)
 - (void)wk__setState:(NSInteger)state animated:(BOOL)animated { (void)animated; [self setState:state]; }
 - (void)wk__setHighlighted:(BOOL)highlighted animated:(BOOL)animated { (void)animated; [self setHighlighted:highlighted]; }
+// -_stateAnimationRunning (10.10+ SPI) reports the checkbox/radio state-change animation the two
+// setters above would have started; on 10.9 no such animation exists, so it is never running.
+// ToggleButtonMac then takes its ordinary drawCell path (its animation branch, including
+// -_renderCurrentAnimationFrameInContext:atLocation:, is only reachable when this answers YES).
+- (BOOL)wk__stateAnimationRunning { return NO; }
 @end
 WK_POLYFILL_SEL("_setState:animated:", "wk__setState:animated:");
 WK_POLYFILL_SEL("_setHighlighted:animated:", "wk__setHighlighted:animated:");
+WK_POLYFILL_SEL("_stateAnimationRunning", "wk__stateAnimationRunning");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSError underlyingErrors] (10.14+) is the array-valued successor to the single NSUnderlyingErrorKey
@@ -3434,3 +3441,176 @@ WK_POLYFILL_SEL_REPLACES("dataTaskWithRequest:", "wk_dataTaskWithRequest:");
 WK_POLYFILL_ADD_REPLACES("NSURLSession", "wk_uploadTaskWithStreamedRequest:", wk_urlSession_uploadTaskWithStreamedRequest, "@@:@");
 WK_POLYFILL_ADD_REPLACES("__NSCFURLSession", "wk_uploadTaskWithStreamedRequest:", wk_urlSession_uploadTaskWithStreamedRequest, "@@:@");
 WK_POLYFILL_SEL_REPLACES("uploadTaskWithStreamedRequest:", "wk_uploadTaskWithStreamedRequest:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSURLRequest _schemeWasUpgradedDueToDynamicHSTS] (10.11+ CFNetwork SPI) reports that CFNetwork's
+// dynamic-HSTS store rewrote this request's http:// to https://. 10.9's CFNetwork has no HSTS store and
+// never upgrades a scheme, so no request on this OS was ever HSTS-upgraded. Lets
+// WebCoreURLResponse.mm's synthesizeRedirectResponseIfNecessary call it unguarded (upstream's other
+// call sites carry their own respondsToSelector: guard, which now answers through this body too).
+@interface NSURLRequest (WKPolyfillScope)
+- (BOOL)wk__schemeWasUpgradedDueToDynamicHSTS;
+@end
+@implementation NSURLRequest (WKPolyfillScope)
+- (BOOL)wk__schemeWasUpgradedDueToDynamicHSTS { return NO; }
+@end
+WK_POLYFILL_SEL("_schemeWasUpgradedDueToDynamicHSTS", "wk__schemeWasUpgradedDueToDynamicHSTS");
+
+// ---------------------------------------------------------------------------------------------------
+// -[AVSampleBufferDisplayLayer status] / -videoPerformanceMetrics (10.10+). 10.9's layer (the class
+// shipped in 10.8) cannot report a rendering status or frame metrics at all, so the truthful answers
+// are StatusUnknown (0) and no-metrics (nil) — LocalSampleBufferDisplayLayer then never sees a
+// spurious Failed and skips its metrics logging, as it did behind the old in-tree guards. Installed
+// by NAME: this layer does not link AVFoundation.
+static long wk_avSampleBufferDisplayLayer_status(id self, SEL _cmd)
+{
+    (void)self;
+    (void)_cmd;
+    return 0; // AVQueuedSampleBufferRenderingStatusUnknown
+}
+static id wk_avSampleBufferDisplayLayer_videoPerformanceMetrics(id self, SEL _cmd)
+{
+    (void)self;
+    (void)_cmd;
+    return nil;
+}
+WK_POLYFILL_ADD("AVSampleBufferDisplayLayer", "wk_status", wk_avSampleBufferDisplayLayer_status, "q@:");
+WK_POLYFILL_SEL("status", "wk_status");
+WK_POLYFILL_ADD("AVSampleBufferDisplayLayer", "wk_videoPerformanceMetrics", wk_avSampleBufferDisplayLayer_videoPerformanceMetrics, "@@:");
+WK_POLYFILL_SEL("videoPerformanceMetrics", "wk_videoPerformanceMetrics");
+
+// ---------------------------------------------------------------------------------------------------
+// -[PDFAnnotation URL] / -destination (10.13+): PDFKit's unification of the per-subclass annotation
+// API — the base class answers with the link target for link annotations and nil for everything else.
+// 10.9 keeps these on PDFAnnotationLink only, and the aliasing layer reproduces the unified shape by
+// itself: a PDFAnnotationLink resolves to its own real -URL/-destination, every other annotation class
+// falls to these base-class bodies, whose truthful answer is nil (a non-link annotation has no link
+// target). WKPrintingView's printed-PDF link preservation walks annotations exactly this way.
+@interface PDFAnnotation (WKPolyfillScope)
+- (NSURL *)wk_URL;
+- (PDFDestination *)wk_destination;
+@end
+@implementation PDFAnnotation (WKPolyfillScope)
+- (NSURL *)wk_URL { return nil; }
+- (PDFDestination *)wk_destination { return nil; }
+@end
+WK_POLYFILL_SEL("URL", "wk_URL");
+WK_POLYFILL_SEL("destination", "wk_destination");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSView setNeedsLayout:] behavior (10.10+ contract). Modern AppKit runs pending -layout passes as
+// part of every window's display cycle, so marking a view needsLayout guarantees -layout before the
+// next draw. 10.9 only runs that pass in windows whose autolayout engine is engaged (measured:
+// needsLayout + display runs -layout with a constraint present, and never without one) — in a plain
+// window the flag just sits there, and a view laid out only in -layout stays at its initial zero
+// frames. WebKit's AppKit views are written to the modern contract (WKDataListSuggestionView frames
+// its text fields in -layout — the datalist dropdown showed empty rows). REPLACES: set the flag as
+// 10.9 does, then schedule the pass 10.10+ would have run. Only WebKit's own sends are rewritten to
+// this body, so Safari's and AppKit's internal layout behavior is untouched.
+@interface NSView (WKPolyfillScopeLayout)
+- (void)wk_setNeedsLayout:(BOOL)needsLayout;
+@end
+@implementation NSView (WKPolyfillScopeLayout)
+- (void)wk_setNeedsLayout:(BOOL)needsLayout
+{
+    // The public selector is sent via sel_registerName so the send is not itself rewritten.
+    ((void (*)(id, SEL, BOOL))objc_msgSend)(self, sel_registerName("setNeedsLayout:"), needsLayout);
+    if (!needsLayout)
+        return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self layoutSubtreeIfNeeded];
+    });
+}
+@end
+WK_POLYFILL_SEL_REPLACES("setNeedsLayout:", "wk_setNeedsLayout:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSMenu setItemArray:] (10.10+): wholesale item replacement. 10.9 composes the same state from the
+// primitives it has always had — remove everything, add each item in order. Callers:
+// WebContextMenuProxyMac's sparse-menu rebuild, MenuUtilities' proposed-items filter,
+// WKRevealItemPresenter.
+@interface NSMenu (WKPolyfillScope)
+- (void)wk_setItemArray:(NSArray *)items;
+@end
+@implementation NSMenu (WKPolyfillScope)
+- (void)wk_setItemArray:(NSArray *)items
+{
+    [self removeAllItems];
+    for (NSMenuItem *item in items)
+        [self addItem:item];
+}
+@end
+WK_POLYFILL_SEL("setItemArray:", "wk_setItemArray:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSPopover _setRequiresCorrectContentAppearance:] (10.10+ SPI) pins the popover's content to the
+// correct light/dark appearance instead of the vibrant default. 10.9 has one appearance and its
+// popovers already render content in it, so the requested state is the only state.
+@interface NSPopover (WKPolyfillScope)
+- (void)wk__setRequiresCorrectContentAppearance:(BOOL)requires;
+@end
+@implementation NSPopover (WKPolyfillScope)
+- (void)wk__setRequiresCorrectContentAppearance:(BOOL)requires { (void)requires; }
+@end
+WK_POLYFILL_SEL("_setRequiresCorrectContentAppearance:", "wk__setRequiresCorrectContentAppearance:");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSViewController isViewLoaded] (10.10+): whether the view is loaded, WITHOUT triggering the load
+// the way -view does. 10.9's controller keeps the loaded view in its `view` ivar (nil until
+// -loadView), so reading the ivar directly is the same no-side-effect answer.
+@interface NSViewController (WKPolyfillScope)
+- (BOOL)wk_isViewLoaded;
+@end
+@implementation NSViewController (WKPolyfillScope)
+- (BOOL)wk_isViewLoaded
+{
+    Ivar viewIvar = class_getInstanceVariable([NSViewController class], "view");
+    return viewIvar && object_getIvar(self, viewIvar);
+}
+@end
+WK_POLYFILL_SEL("isViewLoaded", "wk_isViewLoaded");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSColorPopoverController topBarMatrixView] (10.10+): the suggested-colors swatch matrix at the top
+// of the color popover. 10.9's controller (present, probed) has no such bar in its nib, so there is no
+// view to return; WebColorPickerMac takes nil and its swatch configuration no-ops, leaving the popover
+// as the plain 10.9 color picker — datalist-suggested colors degrade invisibly. Installed by NAME
+// (WK_POLYFILL_ADD): the class exists in 10.9's AppKit but its _OBJC_CLASS_$_ symbol is local there,
+// so a compiled category could not bind it.
+static id wk_colorPopoverController_topBarMatrixView(id self, SEL _cmd)
+{
+    (void)self;
+    (void)_cmd;
+    return nil;
+}
+WK_POLYFILL_ADD("NSColorPopoverController", "wk_topBarMatrixView", wk_colorPopoverController_topBarMatrixView, "@@:");
+WK_POLYFILL_SEL("topBarMatrixView", "wk_topBarMatrixView");
+
+// ---------------------------------------------------------------------------------------------------
+// -[NSTableView setStyle:] (11.0+) picks a Big-Sur table inset/padding style. A 10.9 table has only
+// the classic metrics — the same ones the pre-11.0 default gave every caller — so there is no state to
+// set and the classic look is the answer.
+@interface NSTableView (WKPolyfillScope)
+- (void)wk_setStyle:(NSInteger)style;
+@end
+@implementation NSTableView (WKPolyfillScope)
+- (void)wk_setStyle:(NSInteger)style { (void)style; }
+@end
+WK_POLYFILL_SEL("setStyle:", "wk_setStyle:");
+
+// ---------------------------------------------------------------------------------------------------
+// -setAccessibilityTitle: (10.10+ NSAccessibility protocol). 10.9 exposes the same capability as the
+// override API this rewrote: accessibilitySetOverrideValue:forAttribute: stores a value that answers
+// NSAccessibilityTitleAttribute queries, which is precisely what the 10.10 setter does for the title.
+// Registered as a category on NSObject (where 10.10 declares the protocol) so any accessibility
+// element WebKit sends it to — WebDateTimePickerMac's picker window today — gets the real store.
+@interface NSObject (WKPolyfillScopeAccessibility)
+- (void)wk_setAccessibilityTitle:(NSString *)title;
+@end
+@implementation NSObject (WKPolyfillScopeAccessibility)
+- (void)wk_setAccessibilityTitle:(NSString *)title
+{
+    [self accessibilitySetOverrideValue:title forAttribute:NSAccessibilityTitleAttribute];
+}
+@end
+WK_POLYFILL_SEL("setAccessibilityTitle:", "wk_setAccessibilityTitle:");

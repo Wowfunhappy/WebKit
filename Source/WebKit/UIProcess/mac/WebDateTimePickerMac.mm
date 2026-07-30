@@ -32,11 +32,6 @@
 #import "WebPageProxy.h"
 #import <WebCore/LocalizedStrings.h>
 
-// MAVERICKS_BACKPORT: NSDatePickerElementFlagYearMonthDay was renamed from NSYearMonthDayDatePickerElementFlag in 10.15.4
-#ifndef NSDatePickerElementFlagYearMonthDay
-#define NSDatePickerElementFlagYearMonthDay (0x00e0)
-#endif
-
 constexpr CGFloat kCalendarWidth = 139;
 constexpr CGFloat kCalendarHeight = 148;
 constexpr CGFloat kCalendarCornerRadius = 10;
@@ -219,9 +214,7 @@ void WebDateTimePickerMac::didChooseDate(StringView date)
     [_enclosingWindow setFrame:windowRect display:YES];
     [[_enclosingWindow contentView] setFocusRingType:NSFocusRingTypeNone];
     RetainPtr title = WEB_UI_NSSTRING(@"Date Picker Window Accessibility Title", "Base accessibility text for the window containing the date picker of <input type='date'>");
-    // MAVERICKS_BACKPORT: -setAccessibilityTitle: is 10.10+ NSAccessibility protocol API.
-    if ([_enclosingWindow respondsToSelector:@selector(setAccessibilityTitle:)])
-        [_enclosingWindow setAccessibilityTitle:title.get()];
+    [_enclosingWindow setAccessibilityTitle:title.get()];
 
     // Setting _setSharesParentFirstResponder is necessary because AppKit normally disallows
     // a view from one window (in our case, _datePicker belonging to _enclosingWindow) to be
@@ -230,17 +223,13 @@ void WebDateTimePickerMac::didChooseDate(StringView date)
     // AppKit that we explicitly do want to share first responders across windows.
     RetainPtr presentingWindow = [presentingView window];
     BOOL presentingWindowCanBeKey = [presentingWindow isKeyWindow] || [presentingWindow canBecomeKeyWindow];
-    // MAVERICKS_BACKPORT: _setSharesParentFirstResponder: is 10.10+ private SPI.
-    if ([_enclosingWindow respondsToSelector:@selector(_setSharesParentFirstResponder:)])
-        [(id)_enclosingWindow.get() _setSharesParentFirstResponder:presentingWindowCanBeKey];
+    [_enclosingWindow _setSharesParentFirstResponder:presentingWindowCanBeKey];
 
-    // MAVERICKS_BACKPORT: -[NSWindow contentView] returns id on the 10.9 SDK; cast to NSView * to read -bounds.
-    _datePicker = adoptNS([[WKEscapeHandlingDatePicker alloc] initWithFrame:((NSView *)[_enclosingWindow contentView]).bounds]);
+    _datePicker = adoptNS([[WKEscapeHandlingDatePicker alloc] initWithFrame:[_enclosingWindow contentView].bounds]);
     [_datePicker setDateTimePicker:self];
     [_datePicker setBezeled:NO];
     [_datePicker setDrawsBackground:NO];
-    // MAVERICKS_BACKPORT: NSDatePickerStyleClockAndCalendar = 1, available since 10.15.4; use the raw value.
-    [_datePicker setDatePickerStyle:(NSDatePickerStyle)1];
+    [_datePicker setDatePickerStyle:NSDatePickerStyleClockAndCalendar];
     [_datePicker setDatePickerElements:NSDatePickerElementFlagYearMonthDay];
     [_datePicker setTimeZone:timeZone.get()];
     [_datePicker setTarget:self];

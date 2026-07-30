@@ -496,13 +496,11 @@ static RetainPtr<NSString> linkDestinationName(PDFDocument *document, PDFDestina
         if (![[annotation valueForAnnotationKey:WebKit::get_PDFKit_PDFAnnotationKeySubtypeSingleton()] isEqualToString:WebKit::get_PDFKit_PDFAnnotationSubtypeLinkSingleton()])
             continue;
 
-        // MAVERICKS_BACKPORT: -[PDFAnnotation URL] is 10.13+; probe via respondsToSelector + valueForKey on 10.9.
-        RetainPtr<NSURL> url = [annotation respondsToSelector:@selector(URL)] ? (NSURL *)[annotation valueForKey:@"URL"] : nil;
+        RetainPtr<NSURL> url = annotation.URL;
         CGRect transformedRect = CGRectApplyAffineTransform(NSRectToCGRect(annotation.bounds), transform);
 
         if (!url) {
-            // MAVERICKS_BACKPORT: -[PDFAnnotation destination] is 10.13+; probe via respondsToSelector + valueForKey on 10.9.
-            RetainPtr<PDFDestination> destination = [annotation respondsToSelector:@selector(destination)] ? (PDFDestination *)[annotation valueForKey:@"destination"] : nil;
+            RetainPtr<PDFDestination> destination = annotation.destination;
             if (!destination)
                 continue;
             CGPDFContextSetDestinationForRect(context.get(), bridge_cast(linkDestinationName(pdfDocument, destination.get())).get(), transformedRect);
@@ -604,12 +602,10 @@ static RetainPtr<NSString> linkDestinationName(PDFDocument *document, PDFDestina
                 if (![[annotation valueForAnnotationKey:WebKit::get_PDFKit_PDFAnnotationKeySubtypeSingleton()] isEqualToString:WebKit::get_PDFKit_PDFAnnotationSubtypeLinkSingleton()])
                     continue;
 
-                // MAVERICKS_BACKPORT: -[PDFAnnotation URL] is 10.13+; probe via respondsToSelector + valueForKey on 10.9.
-                if ([annotation respondsToSelector:@selector(URL)] && [annotation valueForKey:@"URL"])
+                if (annotation.URL)
                     continue;
 
-                // MAVERICKS_BACKPORT: -[PDFAnnotation destination] is 10.13+; probe via respondsToSelector + valueForKey on 10.9.
-                RetainPtr<PDFDestination> destination = [annotation respondsToSelector:@selector(destination)] ? (PDFDestination *)[annotation valueForKey:@"destination"] : nil;
+                RetainPtr<PDFDestination> destination = annotation.destination;
                 if (!destination)
                     continue;
 

@@ -51,11 +51,8 @@ struct WKAppPrivacyReportTestingData {
 
 #if TARGET_OS_IPHONE
 typedef UIVisualEffectView _WKPlatformVisualEffectView;
-// MAVERICKS_BACKPORT: NSVisualEffectView is 10.10+; on 10.9 alias the testing type to plain NSView so this header compiles.
-#elif __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
-typedef NSVisualEffectView _WKPlatformVisualEffectView;
 #else
-typedef NSView _WKPlatformVisualEffectView;
+typedef NSVisualEffectView _WKPlatformVisualEffectView;
 #endif
 
 @class _WKNowPlayingMetadata;

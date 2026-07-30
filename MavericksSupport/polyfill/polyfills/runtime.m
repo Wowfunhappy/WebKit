@@ -304,6 +304,25 @@ WK_POLYFILL_REPLACES(NULL, dispatch_queue_t, dispatch_queue_create_with_target,
     return queue;
 }
 
+// dispatch_get_global_queue with a QOS class identifier (10.10+): 10.9's libdispatch knows only the
+// legacy DISPATCH_QUEUE_PRIORITY_* identifiers and returns NULL for a QOS class — and a NULL queue
+// turns every dispatch onto it into a crash. Map each QOS class onto the legacy band upstream
+// libdispatch itself equates it with (its legacy entry point maps HIGH↔USER_INITIATED,
+// DEFAULT↔DEFAULT, LOW↔UTILITY, BACKGROUND↔BACKGROUND/MAINTENANCE) and forward; legacy identifiers
+// (and QOS_CLASS_UNSPECIFIED, which is 0 like PRIORITY_DEFAULT) pass through untouched. REPLACES:
+// the function itself is present and correct for legacy inputs.
+WK_POLYFILL_REPLACES(NULL, dispatch_queue_t, dispatch_get_global_queue, (intptr_t identifier, uintptr_t flags)) {
+    if (identifier == 0x21 /*QOS_CLASS_USER_INTERACTIVE*/ || identifier == 0x19 /*QOS_CLASS_USER_INITIATED*/)
+        identifier = DISPATCH_QUEUE_PRIORITY_HIGH;
+    else if (identifier == 0x15 /*QOS_CLASS_DEFAULT*/)
+        identifier = DISPATCH_QUEUE_PRIORITY_DEFAULT;
+    else if (identifier == 0x11 /*QOS_CLASS_UTILITY*/)
+        identifier = DISPATCH_QUEUE_PRIORITY_LOW;
+    else if (identifier == 0x09 /*QOS_CLASS_BACKGROUND*/ || identifier == 0x05 /*QOS_CLASS_MAINTENANCE*/)
+        identifier = DISPATCH_QUEUE_PRIORITY_BACKGROUND;
+    return WK_ORIGINAL(dispatch_get_global_queue)(identifier, flags);
+}
+
 // xpc_type_get_name (newer XPC introspection) — used only for diagnostic strings; return a generic label.
 WK_POLYFILL_ABSENT(NULL, const char *, xpc_type_get_name, (void *type)) { (void)type; return "xpc-object"; }
 

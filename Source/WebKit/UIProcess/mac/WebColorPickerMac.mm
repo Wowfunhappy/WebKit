@@ -134,10 +134,7 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color)
     static NeverDestroyed<RetainPtr<NSPopover>> colorPopover;
     if (forceCreation) {
         auto popover = adoptNS([[NSPopover alloc] init]);
-        // MAVERICKS_BACKPORT: -[NSPopover _setRequiresCorrectContentAppearance:] is a
-        // 10.10+ private SPI. Send only if responding.
-        if ([popover respondsToSelector:@selector(_setRequiresCorrectContentAppearance:)])
-            [popover _setRequiresCorrectContentAppearance:YES];
+        [popover _setRequiresCorrectContentAppearance:YES];
         [popover setBehavior:NSPopoverBehaviorTransient];
 
         auto controller = adoptNS([[NSClassFromString(@"NSColorPopoverController") alloc] init]);
@@ -180,21 +177,13 @@ void WebColorPickerMac::showColorPicker(const WebCore::Color& color)
     RetainPtr<NSColorPopoverController> controller = (NSColorPopoverController *)[popover.get() contentViewController];
     controller.get().delegate = self;
 
-    // MAVERICKS_BACKPORT: -[NSColorPopoverController topBarMatrixView] (used below to render the
-    // suggested-colors top bar) is absent on 10.9 AppKit. Skip the suggestions decoration when it's
-    // unavailable — the popover still opens for normal RGB selection, just without the swatch bar.
-    if (_suggestedColors && [controller respondsToSelector:@selector(topBarMatrixView)]) {
+    if (_suggestedColors) {
         NSUInteger numColors = [[_suggestedColors allKeys] count];
         CGFloat swatchWidth = (colorPickerMatrixNumColumns * colorPickerMatrixSwatchWidth + (colorPickerMatrixNumColumns * colorPickerMatrixBorderWidth - numColors)) / numColors;
         CGFloat swatchHeight = colorPickerMatrixSwatchWidth;
 
         // topBarMatrixView cannot be accessed until view has been loaded
-        // MAVERICKS_BACKPORT: -[NSViewController isViewLoaded] is only available on macOS 10.10+; use
-        // respondsToSelector + valueForKey to avoid compile errors on older SDKs.
-        BOOL viewLoaded = YES;
-        if ([controller respondsToSelector:@selector(isViewLoaded)])
-            viewLoaded = [[controller valueForKey:@"isViewLoaded"] boolValue];
-        if (!viewLoaded)
+        if (!controller.get().isViewLoaded)
             [controller loadView];
 
         RetainPtr<NSColorPickerMatrixView> topMatrix = controller.get().topBarMatrixView;

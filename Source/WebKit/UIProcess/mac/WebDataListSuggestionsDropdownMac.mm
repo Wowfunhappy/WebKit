@@ -150,19 +150,11 @@ void WebDataListSuggestionsDropdownMac::close()
 #endif
 
     if (!_backdropView) {
-        // MAVERICKS_BACKPORT: NSVisualEffectView is 10.10+; fall back to a plain NSView backdrop on 10.9.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
-        if (NSClassFromString(@"NSVisualEffectView")) {
-            RetainPtr visualEffectView = adoptNS([[NSVisualEffectView alloc] initWithFrame:contentRect]);
-            [visualEffectView setMaterial:NSVisualEffectMaterialMenu];
-            [visualEffectView setState:NSVisualEffectStateActive];
-            [visualEffectView setBlendingMode:NSVisualEffectBlendingModeBehindWindow];
-            _backdropView = visualEffectView;
-        } else
-#endif
-        {
-            _backdropView = adoptNS([[NSView alloc] initWithFrame:contentRect]);
-        }
+        RetainPtr visualEffectView = adoptNS([[NSVisualEffectView alloc] initWithFrame:contentRect]);
+        [visualEffectView setMaterial:NSVisualEffectMaterialMenu];
+        [visualEffectView setState:NSVisualEffectStateActive];
+        [visualEffectView setBlendingMode:NSVisualEffectBlendingModeBehindWindow];
+        _backdropView = visualEffectView;
     }
 
     [_backdropView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
@@ -300,12 +292,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     [self setHeaderView:nil];
     [self setBackgroundColor:[NSColor clearColor]];
     [self setIntercellSpacing:NSMakeSize(0, self.intercellSpacing.height)];
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101100
-    // MAVERICKS_BACKPORT: -[NSTableView setStyle:] (NSTableViewStyle) is 11.0+; respondsToSelector-guard so
-    // 10.9 keeps the default table style instead of an unrecognized-selector crash when a datalist dropdown shows.
-    if ([self respondsToSelector:@selector(setStyle:)])
-        [self setStyle:NSTableViewStyleFullWidth];
-#endif
+    [self setStyle:NSTableViewStyleFullWidth];
 
     auto column = adoptNS([[NSTableColumn alloc] init]);
     [column setWidth:rect.width()];
@@ -371,8 +358,7 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
     }
 #endif
 
-    // MAVERICKS_BACKPORT: -[NSWindow contentView] returns id on the 10.9 SDK; cast to NSView * to read -bounds.
-    _scrollView = adoptNS([[NSScrollView alloc] initWithFrame:[(NSView *)[_enclosingWindow contentView] bounds]]);
+    _scrollView = adoptNS([[NSScrollView alloc] initWithFrame:[_enclosingWindow contentView].bounds]);
     [_scrollView setHasVerticalScroller:YES];
     [_scrollView setVerticalScrollElasticity:NSScrollElasticityAllowed];
     [_scrollView setHorizontalScrollElasticity:NSScrollElasticityNone];
@@ -380,13 +366,8 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
     [_scrollView setDrawsBackground:NO];
 
     auto insetView = _scrollView;
-    // MAVERICKS_BACKPORT: -[NSScrollView setAutomaticallyAdjustsContentInsets:] and
-    // setContentInsets: are 10.10+. Without the guard, datalist autocomplete
-    // popup throws unrecognized-selector and crashes Safari.
-    if ([insetView respondsToSelector:@selector(setAutomaticallyAdjustsContentInsets:)]) {
-        [insetView setAutomaticallyAdjustsContentInsets:NO];
-        [insetView setContentInsets:NSEdgeInsetsMake(dropdownVerticalPadding, 0, dropdownVerticalPadding, 0)];
-    }
+    [insetView setAutomaticallyAdjustsContentInsets:NO];
+    [insetView setContentInsets:NSEdgeInsetsMake(dropdownVerticalPadding, 0, dropdownVerticalPadding, 0)];
 
     [_table setDelegate:self];
     [_table setDataSource:self];
@@ -413,8 +394,7 @@ static BOOL shouldShowDividersBetweenCells(const Vector<WebCore::DataListSuggest
     [_table reload];
 
     [_enclosingWindow setFrame:[self dropdownRectForElementRect:information.elementRect] display:YES];
-    // MAVERICKS_BACKPORT: -[NSWindow contentView] returns id on the 10.9 SDK; cast to NSView * to read -bounds.
-    [_scrollView setFrame:[(NSView *)[_enclosingWindow contentView] bounds]];
+    [_scrollView setFrame:[_enclosingWindow contentView].bounds];
 }
 
 - (void)notifyAccessibilityClients:(NSString *)info

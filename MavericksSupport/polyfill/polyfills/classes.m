@@ -341,6 +341,10 @@ WK_PRIV_CLASS(AKAuthorizationController) @interface AKAuthorizationController : 
 + (BOOL)isURLFromAppleOwnedDomain:(NSURL *)url { (void)url; return NO; }
 @end
 WK_PRIV_ALIAS(AKAuthorizationController);
+// This OS's LaunchServices carries the tag-listing entry point only under its pre-10.10 private
+// spelling _UTTypeCopyAllTagsWithClass (Mach-O __UTTypeCopyAllTagsWithClass; the public name shipped
+// in 10.10). Used by -[UTType tags] below.
+extern CFArrayRef _UTTypeCopyAllTagsWithClass(CFStringRef inUTI, CFStringRef inTagClass);
 WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
     NSString *_identifier;
 }
@@ -437,6 +441,43 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
     UTType *t = [[[self alloc] initWithIdentifier:(__bridge NSString *)uti] autorelease];
     CFRelease(uti);
     return t;
+}
+// The general tag lookup the two conveniences above special-case. The UTTagClass* object constants
+// (constants.m) carry the same string values the classic kUTTagClass* CFStringRefs have, so the tag
+// class passes straight through to LaunchServices. WebCoreURLResponse's
+// preferredMIMETypeForFileExtensionFromUTType passes conformingToType:nil; a non-nil supertype
+// constrains the search the same way the classic API's third argument does.
++ (nullable instancetype)typeWithTag:(NSString *)tag tagClass:(NSString *)tagClass conformingToType:(UTType *)supertype
+{
+    if (!tag || !tagClass) return nil;
+    CFStringRef uti = UTTypeCreatePreferredIdentifierForTag((__bridge CFStringRef)tagClass, (__bridge CFStringRef)tag,
+        supertype ? (__bridge CFStringRef)supertype->_identifier : NULL);
+    if (!uti) return nil;
+    UTType *t = [[[self alloc] initWithIdentifier:(__bridge NSString *)uti] autorelease];
+    CFRelease(uti);
+    return t;
+}
+// -tags (11.0+): the type's known tags, keyed by tag class. MIMETypeRegistry::preferredExtensionForMIMEType
+// indexes it with UTTagClassFilenameExtension. Built from the same LaunchServices registry the modern
+// framework reads (_UTTypeCopyAllTagsWithClass, declared above), for the two tag classes WebKit and
+// the modern framework both know.
+- (NSDictionary *)tags
+{
+    if (!_identifier) return [NSDictionary dictionary];
+    NSMutableDictionary *tags = [NSMutableDictionary dictionary];
+    CFArrayRef extensions = _UTTypeCopyAllTagsWithClass((__bridge CFStringRef)_identifier, kUTTagClassFilenameExtension);
+    if (extensions) {
+        if (CFArrayGetCount(extensions))
+            [tags setObject:(__bridge NSArray *)extensions forKey:@"public.filename-extension"];
+        CFRelease(extensions);
+    }
+    CFArrayRef mimeTypes = _UTTypeCopyAllTagsWithClass((__bridge CFStringRef)_identifier, kUTTagClassMIMEType);
+    if (mimeTypes) {
+        if (CFArrayGetCount(mimeTypes))
+            [tags setObject:(__bridge NSArray *)mimeTypes forKey:@"public.mime-type"];
+        CFRelease(mimeTypes);
+    }
+    return tags;
 }
 - (BOOL)conformsToType:(UTType *)other
 {
@@ -669,17 +710,117 @@ WK_PRIV_CLASS(NSFilePromiseProvider) @interface NSFilePromiseProvider : NSObject
 }
 @end
 WK_PRIV_ALIAS(NSFilePromiseProvider);
-WK_PRIV_CLASS(LSAppLink) @interface LSAppLink : NSObject @end
-@implementation LSAppLink @end
-WK_PRIV_ALIAS(LSAppLink);
-WK_PRIV_CLASS(_LSOpenConfiguration) @interface _LSOpenConfiguration : NSObject @end
-@implementation _LSOpenConfiguration @end
+// LSAppLink / _LSOpenConfiguration (10.10+ LaunchServices): "app links" hand a user-initiated web
+// navigation to a native app that has claimed the URL's domain. 10.9's LaunchServices has no app-link
+// registry, so no URL on this OS ever has a claiming app — which in this API's own terms is the
+// completion firing with success:NO. Both of WebKit's call sites (NavigationState's
+// tryInterceptNavigation, WebFrameLoaderClient's policy decision) treat that as "carry on as a normal
+// web navigation". The handler fires asynchronously on the main queue like the real (IPC-backed) API,
+// so neither call site sees a re-entrant policy decision.
+WK_PRIV_CLASS(_LSOpenConfiguration) @interface _LSOpenConfiguration : NSObject {
+    NSURL *_referrerURL;
+}
+@property (nonatomic, copy) NSURL *referrerURL;
+@end
+@implementation _LSOpenConfiguration
+@synthesize referrerURL = _referrerURL;
+- (void)dealloc { [_referrerURL release]; [super dealloc]; }
+@end
 WK_PRIV_ALIAS(_LSOpenConfiguration);
+WK_PRIV_CLASS(LSAppLink) @interface LSAppLink : NSObject
++ (void)openWithURL:(NSURL *)url configuration:(_LSOpenConfiguration *)configuration completionHandler:(void (^)(BOOL success, NSError *error))completionHandler;
+@end
+@implementation LSAppLink
++ (void)openWithURL:(NSURL *)url configuration:(_LSOpenConfiguration *)configuration completionHandler:(void (^)(BOOL success, NSError *error))completionHandler
+{
+    (void)url;
+    (void)configuration;
+    if (!completionHandler)
+        return;
+    void (^handler)(BOOL, NSError *) = [[completionHandler copy] autorelease];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        handler(NO, nil);
+    });
+}
+@end
+WK_PRIV_ALIAS(LSAppLink);
 WK_PRIV_CLASS(_NSScrollingMomentumCalculator) @interface _NSScrollingMomentumCalculator : NSObject @end
 @implementation _NSScrollingMomentumCalculator @end
 WK_PRIV_ALIAS(_NSScrollingMomentumCalculator);
-WK_PRIV_CLASS(_NSScrollingPredominantAxisFilter) @interface _NSScrollingPredominantAxisFilter : NSObject @end
-@implementation _NSScrollingPredominantAxisFilter @end
+// _NSScrollingPredominantAxisFilter (10.10+ AppKit): the scroll-gesture input filter
+// WheelEventDeltaFilterMac drives on every wheel event. Its contract has two halves, both implemented
+// here for real: (1) axis-lock — when a gesture runs predominantly along one axis, the cross-axis
+// component of the outgoing delta is suppressed, so pages don't drift sideways under vertical
+// scrolling jitter (the filtered delta is what EventHandler actually scrolls by); (2) velocity — a
+// smoothed points-per-second estimate from the delta/timestamp stream, which scroll-snap momentum
+// consumes. The lock is decided once per gesture, from the first few points of accumulated travel: a
+// gesture at least 80% along one axis locks to it, anything more diagonal stays free; -reset (sent at
+// each gesture boundary) starts the next decision fresh.
+WK_PRIV_CLASS(_NSScrollingPredominantAxisFilter) @interface _NSScrollingPredominantAxisFilter : NSObject {
+    double _accumulatedX;
+    double _accumulatedY;
+    NSTimeInterval _lastTimestamp;
+    BOOL _haveTimestamp;
+    NSPoint _velocity;
+    int _axisDecision; // 0 = undecided, 1 = locked horizontal, 2 = locked vertical, -1 = free (diagonal)
+}
+- (void)filterInputDelta:(NSPoint)delta timestamp:(NSTimeInterval)timestamp outputDelta:(NSPoint *)outDelta velocity:(NSPoint *)outVelocity;
+- (void)reset;
+@end
+@implementation _NSScrollingPredominantAxisFilter
+- (void)filterInputDelta:(NSPoint)delta timestamp:(NSTimeInterval)timestamp outputDelta:(NSPoint *)outDelta velocity:(NSPoint *)outVelocity
+{
+    _accumulatedX += fabs(delta.x);
+    _accumulatedY += fabs(delta.y);
+
+    // Decide the gesture's lock once ~4pt of travel has been seen — early enough that a stray
+    // first event doesn't choose, late enough that the direction is real.
+    if (!_axisDecision) {
+        double total = _accumulatedX + _accumulatedY;
+        if (total >= 4) {
+            double major = _accumulatedX > _accumulatedY ? _accumulatedX : _accumulatedY;
+            if (major / total >= 0.8)
+                _axisDecision = _accumulatedX > _accumulatedY ? 1 : 2;
+            else
+                _axisDecision = -1;
+        }
+    }
+
+    NSPoint filtered = delta;
+    if (_axisDecision == 1)
+        filtered.y = 0;
+    else if (_axisDecision == 2)
+        filtered.x = 0;
+
+    // Smooth the instantaneous delta/dt into the running estimate; the newest sample dominates so the
+    // velocity tracks the finger, while single-event spikes are damped. A non-advancing or absurd
+    // timestamp step (paused stream) contributes nothing.
+    if (_haveTimestamp) {
+        NSTimeInterval dt = timestamp - _lastTimestamp;
+        if (dt > 0 && dt < 1) {
+            const double alpha = 0.75;
+            _velocity.x = alpha * (filtered.x / dt) + (1 - alpha) * _velocity.x;
+            _velocity.y = alpha * (filtered.y / dt) + (1 - alpha) * _velocity.y;
+        }
+    }
+    _lastTimestamp = timestamp;
+    _haveTimestamp = YES;
+
+    if (outDelta)
+        *outDelta = filtered;
+    if (outVelocity)
+        *outVelocity = _velocity;
+}
+- (void)reset
+{
+    _accumulatedX = 0;
+    _accumulatedY = 0;
+    _lastTimestamp = 0;
+    _haveTimestamp = NO;
+    _velocity = NSZeroPoint;
+    _axisDecision = 0;
+}
+@end
 WK_PRIV_ALIAS(_NSScrollingPredominantAxisFilter);
 // NSHapticFeedbackManager is 10.11+; on 10.9 the class is absent, so upstream's
 // [[NSHapticFeedbackManager defaultPerformer] performFeedbackPattern:performanceTime:] would fail to
@@ -729,8 +870,28 @@ WK_PRIV_CLASS(_NSHTTPAlternativeServicesStorage) @interface _NSHTTPAlternativeSe
 - (void)setCanSuspendLocked:(BOOL)canSuspendLocked { (void)canSuspendLocked; }
 @end
 WK_PRIV_ALIAS(_NSHTTPAlternativeServicesStorage);
-WK_PRIV_CLASS(NSVisualEffectView) @interface NSVisualEffectView : NSView @end
-@implementation NSVisualEffectView @end
+// NSVisualEffectView (10.10+): a vibrancy/backdrop view. 10.9's compositor has no backdrop blur, so
+// the stub is a plain NSView — the same thing a 10.10 effect view degrades to where vibrancy is
+// unavailable — and the appearance knobs upstream sets on it (material / state / blending mode /
+// emphasized) accept their value and select the one look this OS can draw. Classref users today:
+// WebDataListSuggestionsDropdownMac's dropdown backdrop, WebCoreFullScreenPlaceholderView's dimming
+// veil, WKWebView's Screen Time snapshot blur. (NSClassFromString(@"NSVisualEffectView") still
+// answers nil by WK_PRIV_CLASS design — see the header comment — so probing code keeps taking its
+// pre-class path.)
+WK_PRIV_CLASS(NSVisualEffectView) @interface NSVisualEffectView : NSView
+- (void)setMaterial:(NSInteger)material;
+- (void)setState:(NSInteger)state;
+- (void)setBlendingMode:(NSInteger)blendingMode;
+- (void)setEmphasized:(BOOL)emphasized;
+- (void)setMaskImage:(NSImage *)maskImage;
+@end
+@implementation NSVisualEffectView
+- (void)setMaterial:(NSInteger)material { (void)material; }
+- (void)setState:(NSInteger)state { (void)state; }
+- (void)setBlendingMode:(NSInteger)blendingMode { (void)blendingMode; }
+- (void)setEmphasized:(BOOL)emphasized { (void)emphasized; }
+- (void)setMaskImage:(NSImage *)maskImage { (void)maskImage; }
+@end
 WK_PRIV_ALIAS(NSVisualEffectView);
 // NSDateComponentsFormatter formats a quantity of time in words -- "2 minutes, 5 seconds". WebCore
 // builds the media controls' accessibility description of a track's duration with it

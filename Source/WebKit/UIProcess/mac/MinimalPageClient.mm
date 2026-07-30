@@ -23,6 +23,8 @@
 #import "TiledCoreAnimationDrawingAreaProxy.h"
 #import "ViewSnapshotStore.h"
 #import "WebColorPickerMac.h"
+#import "WebDataListSuggestionsDropdownMac.h"
+#import "WebDateTimePickerMac.h"
 #import "WebContextMenuProxyMac.h"
 #import "WebPageProxy.h"
 #import "WebPopupMenuProxyMac.h"
@@ -1398,10 +1400,18 @@ RefPtr<WebColorPicker> MinimalPageClient::createColorPicker(WebPageProxy& page, 
     // WebColorPickerMac so clicking an <input type=color> opens the native color picker.
     return WebColorPickerMac::create(protect(page.colorPickerClient()).ptr(), initialColor, rect, supportsAlpha, WTF::move(suggestions), m_view);
 }
-RefPtr<WebDataListSuggestionsDropdown> MinimalPageClient::createDataListSuggestionsDropdown(WebPageProxy&)
-{ return { }; }
-RefPtr<WebDateTimePicker> MinimalPageClient::createDateTimePicker(WebPageProxy&)
-{ return { }; }
+RefPtr<WebDataListSuggestionsDropdown> MinimalPageClient::createDataListSuggestionsDropdown(WebPageProxy& page)
+{
+    // MAVERICKS_BACKPORT: mirror PageClientImplMac — vend the real AppKit dropdown so a datalist
+    // input shows its suggestions.
+    return WebDataListSuggestionsDropdownMac::create(page, m_view);
+}
+RefPtr<WebDateTimePicker> MinimalPageClient::createDateTimePicker(WebPageProxy& page)
+{
+    // MAVERICKS_BACKPORT: mirror PageClientImplMac — vend the real calendar picker for
+    // <input type=date>.
+    return WebDateTimePickerMac::create(page, m_view);
+}
 #if PLATFORM(COCOA) || PLATFORM(GTK)
 Ref<WebCore::ValidationBubble> MinimalPageClient::createValidationBubble(String&& message, const WebCore::ValidationBubble::Settings& settings)
 {

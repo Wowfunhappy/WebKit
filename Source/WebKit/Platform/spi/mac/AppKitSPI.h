@@ -51,14 +51,8 @@ DECLARE_SYSTEM_HEADER
 #import <AppKit/NSScrollPocket_Private.h>
 #endif
 
-// MAVERICKS_BACKPORT: NSGestureRecognizer ships in 10.10+ and NSPanGestureRecognizer in 10.12+, so guard these private-header imports by SDK version to keep the 10.9 build from importing absent AppKit headers.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
 #import <AppKit/NSGestureRecognizer_Private.h>
-#endif
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
 #import <AppKit/NSPanGestureRecognizer_Private.h>
-// MAVERICKS_BACKPORT: close the 10.12+ NSPanGestureRecognizer_Private import guard.
-#endif
 #import <AppKit/NSPressGestureRecognizer_Private.h>
 
 #if HAVE(NSVIEW_CORNER_CONFIGURATION)
@@ -117,13 +111,9 @@ static const NSWindowStyleMask NSWindowStyleMaskAlertWindow = (NSWindowStyleMask
 
 @class LPLinkMetadata;
 
-// MAVERICKS_BACKPORT: NSPreviewRepresentingActivityItem is a 10.13+ class, so guard this SPI category by SDK version (it would reference an unknown class on 10.9).
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300
 @interface NSPreviewRepresentingActivityItem ()
 - (instancetype)initWithItem:(id)item linkMetadata:(LPLinkMetadata *)linkMetadata;
 @end
-// MAVERICKS_BACKPORT: close the 10.13+ NSPreviewRepresentingActivityItem SPI guard.
-#endif
 
 typedef NS_ENUM(NSInteger, NSScrollPocketStyle) {
     NSScrollPocketStyleAutomatic,
@@ -152,13 +142,9 @@ typedef NS_ENUM(NSInteger, NSScrollPocketEdge) {
 - (void)_setHostsAutolayoutEngine:(BOOL)flag;
 @end
 
-// MAVERICKS_BACKPORT: NSPanGestureRecognizer is a 10.12+ class, so guard this SPI category by SDK version (it would extend an unknown class on 10.9).
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101200
 @interface NSPanGestureRecognizer (SPI)
 @property (readonly) NSTimeInterval timestamp;
 @end
-// MAVERICKS_BACKPORT: close the 10.12+ NSPanGestureRecognizer SPI guard.
-#endif
 
 #if HAVE(NSVIEW_CORNER_CONFIGURATION)
 
@@ -193,8 +179,6 @@ typedef NS_ENUM(NSInteger, NSScrollPocketEdge) {
 
 #endif
 
-// MAVERICKS_BACKPORT: NSGestureRecognizer and its delegate protocol are 10.10+, so guard this SPI category and the NSGestureRecognizerDelegatePrivate protocol below by SDK version (they extend/refine classes absent on 10.9).
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
 #if !HAVE(NSGESTURERECOGNIZER_MODIFIER_FLAGS)
 @interface NSGestureRecognizer (SPI)
 - (NSEventModifierFlags)modifierFlags;
@@ -208,8 +192,6 @@ typedef NS_ENUM(NSInteger, NSScrollPocketEdge) {
 - (BOOL)_gestureRecognizer:(NSGestureRecognizer *)preventingGestureRecognizer canPreventGestureRecognizer:(NSGestureRecognizer *)preventedGestureRecognizer;
 
 @end
-// MAVERICKS_BACKPORT: close the 10.10+ NSGestureRecognizer SPI guard.
-#endif // __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
 
 #endif
 

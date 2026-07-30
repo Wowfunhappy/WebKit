@@ -2154,15 +2154,7 @@ void WebFrameLoaderClient::finishedLoadingIcon(WebCore::FragmentedSharedBuffer* 
 - (void)use
 {
 #if HAVE(APP_LINKS)
-    // MAVERICKS_BACKPORT: App Links (LSAppLink + _LSOpenConfiguration.referrerURL) are 10.10+ APIs.
-    // On 10.9 _LSOpenConfiguration exists but does NOT respond to -setReferrerURL:, so assigning
-    // .referrerURL threw NSInvalidArgumentException right inside the navigation policy delegate —
-    // WebKit caught and DISCARDED it, silently dropping the navigation (clicked links did nothing).
-    // There are no app-link-registered native apps on 10.9, so feature-detect and otherwise fall
-    // through to a normal web navigation (PolicyAction::Use).
-    if (_appLinkURL && _frame
-        && [LSAppLink respondsToSelector:@selector(openWithURL:configuration:completionHandler:)]
-        && [_LSOpenConfiguration instancesRespondToSelector:@selector(setReferrerURL:)]) {
+    if (_appLinkURL && _frame) {
         RetainPtr<_LSOpenConfiguration> configuration = adoptNS([[_LSOpenConfiguration alloc] init]);
         configuration.get().referrerURL = _referrerURL.get();
         [LSAppLink openWithURL:_appLinkURL.get() configuration:configuration.get() completionHandler:^(BOOL success, NSError *) {

@@ -32,12 +32,6 @@
 #include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
-// MAVERICKS_BACKPORT: NSPersonNameComponents is 10.11+. The wrapper's impl is not built on
-// this target (USE(PASSKIT) off), so a forward declaration is enough for this header to parse.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED < 101100
-@class NSPersonNameComponents;
-#endif
-
 namespace WebKit {
 
 class CoreIPCPersonNameComponents {

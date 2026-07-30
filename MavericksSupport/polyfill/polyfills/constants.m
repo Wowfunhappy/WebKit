@@ -331,6 +331,15 @@ WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSPasteboardNameDrag, @"Apple CFP
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSPasteboardTypeURL, @"public.url");
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSPasteboardTypeFileURL, @"public.file-url");
 
+// --- UniformTypeIdentifiers tag-class names (11.0+) ----------------------------------------
+// The modern framework's UTTagClass* object constants carry the same string values the classic
+// LaunchServices kUTTagClass* CFStringRefs (present on 10.9) have carried since 10.3 — so the classic
+// C API accepts these values directly, which is how the UTType stub in classes.m consumes them.
+// Upstream references the constant directly (WebCoreURLResponse's typeWithTag:tagClass:, MIMETypeRegistry's
+// tags dictionary lookup); without a definition the reference is a weak dynamic lookup that silently
+// resolves to nil on this OS, turning those lookups into nil-keyed no-ops.
+WK_POLYFILL_CONST("UniformTypeIdentifiers", PolyNSStringConst, UTTagClassFilenameExtension, @"public.filename-extension");
+
 // --- CoreAnimation CAFilter HSL (non-separable) blend-mode names (10.10+) -----------------
 // 10.9's QuartzCore has the separable blend modes (multiply/overlay/screen/...) but not the four HSL
 // ones (CSS mix-blend-mode: hue/saturation/color/luminosity). PlatformCAFiltersCocoa references all of
