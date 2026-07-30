@@ -98,6 +98,9 @@ void WKIconDatabaseCheckIntegrityBeforeOpening(WKIconDatabaseRef)
 {
 }
 
-void WKIconDatabaseClose(WKIconDatabaseRef)
+// MAVERICKS_BACKPORT: Safari is done with icons (it calls this at quit); close the on-disk store.
+// Every write is committed as it happens, so there is nothing to flush first (#112).
+void WKIconDatabaseClose(WKIconDatabaseRef iconDatabaseRef)
 {
+    toImpl(iconDatabaseRef)->close();
 }

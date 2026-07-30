@@ -35,6 +35,7 @@
 // MAVERICKS_BACKPORT: extra includes/forward-decls for the revived in-memory icon store's data
 // members (pageURL->iconURL and iconURL->bytes maps) and its API::Data / IconDatabaseClient uses (#49).
 #include <CoreGraphics/CoreGraphics.h>
+#include <optional>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/RetainPtr.h>
@@ -44,6 +45,10 @@
 namespace API {
 class Data;
 class IconDatabaseClient;
+}
+
+namespace WebCore {
+class SQLiteDatabase;
 }
 
 namespace WebKit {
@@ -64,20 +69,48 @@ public:
 
     void setClient(std::unique_ptr<API::IconDatabaseClient>&&);
 
+    // MAVERICKS_BACKPORT: back the store with the on-disk database at this path — Safari 7 passes
+    // ~/Library/Safari/WebpageIcons.db through WKContextSetIconDatabasePath, the same file the
+    // pre-deletion icon database kept there, in the same legacy schema (the GTK port's IconDatabase
+    // still uses it). Without the disk copy every relaunch starts empty and all of History shows the
+    // generic globe, which outlives any fix to icon loading itself (github #112).
+    void setDatabasePath(const WTF::String&);
+    // MAVERICKS_BACKPORT: WKIconDatabaseClose — Safari is done with icons; close the disk database.
+    // Every write goes to disk as it happens, so there is nothing to flush.
+    void close();
+
+    // MAVERICKS_BACKPORT: whether the stored icon is old enough that the site may have replaced it —
+    // the legacy database refreshed an icon it had held for four days on next use; the stored icon
+    // keeps serving while the refetch is in flight, so a stale answer is shown once, not kept forever.
+    bool iconNeedsRefresh(const WTF::String& iconURL) const;
+
     // MAVERICKS_BACKPORT: where a stored icon's bytes came from. Rasterized means the site's own bytes
     // were in a format this OS has no decoder for — on 10.9 that is SVG above all — and the web process
     // rendered them into an .ico instead. Such an icon is a stand-in for one this OS could not read, so
-    // it never displaces an icon that decoded on its own, whichever of the two loads finishes first.
+    // it never displaces an icon that decoded on its own, whichever of the two loads finished first.
     enum class IconOrigin : bool { NativelyDecoded, Rasterized };
+
+    // MAVERICKS_BACKPORT: whether this write may reach the on-disk database. A private-browsing page
+    // stays SessionOnly — its icons (and which page URLs use them) live in memory like everything else
+    // and die with the session, exactly as the pre-deletion IconDatabase kept private-browsing icons
+    // off the disk. The page URL alone is a browsing record, so this covers the pending mappings too.
+    enum class Persistence : bool { SessionOnly, Persistent };
 
     // MAVERICKS_BACKPORT: returns whether the icon was stored — it is rejected when this build cannot
     // decode it (github #76), and a rasterized one is rejected when the page already has a natively
     // decoded icon.
-    bool setIconDataForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Ref<API::Data>&&, IconOrigin = IconOrigin::NativelyDecoded);
+    bool setIconDataForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Ref<API::Data>&&, IconOrigin = IconOrigin::NativelyDecoded, Persistence = Persistence::Persistent);
     // MAVERICKS_BACKPORT: point a page at icon bytes already held under this icon URL, so a site whose
     // icon had to be rasterized pays for that once rather than on every page of the site. Same
     // precedence rule as above; returns whether the page now holds that icon.
-    bool reuseStoredIconForPageURL(const WTF::String& pageURL, const WTF::String& iconURL);
+    bool reuseStoredIconForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Persistence = Persistence::Persistent);
+    // MAVERICKS_BACKPORT: record which icon URL a page uses BEFORE its bytes exist, exactly as the
+    // pre-deletion IconDatabase committed the mapping before starting a load ("just in case we don't
+    // end up loading later"). A fetch that then fails leaves the page pointing at the icon URL, so the
+    // page's history entry heals the moment any later visit stores that URL's bytes — without this,
+    // one transient network failure leaves the entry on the generic globe with nothing to ever
+    // correct it (github #112). Never displaces a mapping the page already has.
+    void notePendingIconURLForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Persistence = Persistence::Persistent);
     // MAVERICKS_BACKPORT: the precedence rule as a question, so a caller holding bytes this build
     // cannot decode can tell that rasterizing them would be work whose result the store is already
     // certain to refuse.
@@ -103,15 +136,36 @@ private:
     struct StoredIcon {
         RefPtr<API::Data> data;
         IconOrigin origin { IconOrigin::NativelyDecoded };
+        // MAVERICKS_BACKPORT: seconds-since-epoch of the last write or reuse, the legacy schema's
+        // IconInfo.stamp — ages out icons of sites no longer visited and drives iconNeedsRefresh().
+        int64_t stamp { 0 };
+        // MAVERICKS_BACKPORT: whether these bytes are in the on-disk database. False for an icon a
+        // private-browsing page stored; a later persistent visit that reuses it writes it out then.
+        bool onDisk { false };
     };
 
-    bool storeIcon(const WTF::String& pageURL, const WTF::String& iconURL, StoredIcon&&);
+    bool storeIcon(const WTF::String& pageURL, const WTF::String& iconURL, StoredIcon&&, Persistence);
+
+    // MAVERICKS_BACKPORT: the disk half of the store (#112). All of these are no-ops when Safari gave
+    // no database path (or the file was unusable) — the store then simply lives for the session.
+    bool openDatabaseAtPath(const WTF::String&);
+    void pruneUnusedIconsFromDatabase();
+    void loadFromDatabase();
+    std::optional<int64_t> databaseIconIDForIconURL(const WTF::String& iconURL);
+    int64_t ensureDatabaseIconRecord(const WTF::String& iconURL);
+    // The write helpers report success so StoredIcon::onDisk records only what actually reached the
+    // file — a swallowed statement failure here would otherwise mark bytes on-disk that a rolled-back
+    // transaction never wrote, and the fast path would then never retry them.
+    bool writeIconToDatabase(const WTF::String& iconURL, const StoredIcon&);
+    bool writePageMappingToDatabase(const WTF::String& pageURL, const WTF::String& iconURL);
+    bool touchDatabaseIconRecord(const WTF::String& iconURL, int64_t stamp);
 
     std::unique_ptr<API::IconDatabaseClient> m_client;
     HashMap<String, String> m_pageURLToIconURL;
     HashMap<String, StoredIcon> m_iconURLToData;
     HashSet<String> m_unusableIconURLs;
     uint64_t m_generation { 0 };
+    std::unique_ptr<WebCore::SQLiteDatabase> m_db;
 };
 
 } // namespace WebKit

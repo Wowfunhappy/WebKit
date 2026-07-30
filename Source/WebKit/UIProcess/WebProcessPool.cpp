@@ -203,21 +203,21 @@ using namespace WebCore;
 // (github.com declares both) — and waste that can never amortize, since a refused result is never
 // stored to be found next time. And every page of an SVG-favicon site declares the same icon URL, so
 // once these bytes have been rendered the store can answer from what it holds.
-static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr<WebPageProxy>& weakPage, const String& pageURL, const String& iconURL, Ref<API::Data>&& iconData)
+static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr<WebPageProxy>& weakPage, const String& pageURL, const String& iconURL, Ref<API::Data>&& iconData, WebIconDatabase::Persistence persistence)
 {
-    if (iconDatabase.setIconDataForPageURL(pageURL, iconURL, iconData.copyRef()))
+    if (iconDatabase.setIconDataForPageURL(pageURL, iconURL, iconData.copyRef(), WebIconDatabase::IconOrigin::NativelyDecoded, persistence))
         return;
 
     if (iconDatabase.hasNativelyDecodedIconForPageURL(pageURL))
         return;
-    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL))
+    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL, persistence))
         return;
     RefPtr page = weakPage.get();
     if (!page)
         return;
 
     auto generation = iconDatabase.generation();
-    page->createIconDataFromImageData(WebCore::SharedBuffer::create(iconData->span()), { 16, 32 }, [iconDatabase = Ref { iconDatabase }, pageURL, iconURL, generation](RefPtr<WebCore::SharedBuffer>&& rasterizedIcon) {
+    page->createIconDataFromImageData(WebCore::SharedBuffer::create(iconData->span()), { 16, 32 }, [iconDatabase = Ref { iconDatabase }, pageURL, iconURL, generation, persistence](RefPtr<WebCore::SharedBuffer>&& rasterizedIcon) {
         if (iconDatabase->generation() != generation)
             return;
         // Nothing here could read these bytes and the web process could not draw them either, so they
@@ -226,7 +226,7 @@ static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr
             iconDatabase->noteUnusableIconURL(iconURL);
             return;
         }
-        iconDatabase->setIconDataForPageURL(pageURL, iconURL, API::Data::create(rasterizedIcon->span()), WebIconDatabase::IconOrigin::Rasterized);
+        iconDatabase->setIconDataForPageURL(pageURL, iconURL, API::Data::create(rasterizedIcon->span()), WebIconDatabase::IconOrigin::Rasterized, persistence);
     });
 }
 
@@ -242,23 +242,31 @@ static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr
 // LoadAndDecodeImage, has the same reply and the same gap), so an error page is rejected by failing to
 // decode rather than by its status, and this remembers the URL so that costs one fetch per site. The
 // one check that cannot be left to decoding is carried over below.
-static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, const String& pageURL, const String& iconURL)
+static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, const String& pageURL, const String& iconURL, WebIconDatabase::Persistence persistence)
 {
     if (pageURL.isEmpty() || iconURL.isEmpty())
         return;
-    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL))
+    // Age is judged before the reuse, which counts as a use and re-stamps the icon. A stale stored
+    // icon still answers for the page right away — the refetch below replaces it when it lands.
+    bool needsRefresh = iconDatabase.iconNeedsRefresh(iconURL);
+    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL, persistence) && !needsRefresh)
         return;
-    if (iconDatabase.hasNativelyDecodedIconForPageURL(pageURL))
+    if (iconDatabase.hasNativelyDecodedIconForPageURL(pageURL) && !needsRefresh)
         return;
     if (iconDatabase.isUnusableIconURL(iconURL))
         return;
+
+    // The page points at its icon URL from here on, whether or not the fetch below ever lands — the
+    // pre-deletion IconDatabase committed the mapping before loading, "just in case", and that is
+    // what lets a history entry heal when any later visit stores this URL's bytes (#112).
+    iconDatabase.notePendingIconURLForPageURL(pageURL, iconURL, persistence);
 
     // Bytes past this are not a site icon but a decoder waiting to be handed something enormous; the
     // network process stops the load there rather than buffering it for us.
     constexpr size_t maximumIconBytes = 8 * MB;
 
     auto generation = iconDatabase.generation();
-    page.loadImageData(WebCore::ResourceRequest { URL { iconURL } }, maximumIconBytes, [iconDatabase = Ref { iconDatabase }, weakPage = WeakPtr { page }, pageURL, iconURL, generation](RefPtr<WebCore::SharedBuffer>&& iconData) {
+    page.loadImageData(WebCore::ResourceRequest { URL { iconURL } }, maximumIconBytes, [iconDatabase = Ref { iconDatabase }, weakPage = WeakPtr { page }, pageURL, iconURL, generation, persistence](RefPtr<WebCore::SharedBuffer>&& iconData) {
         if (iconDatabase->generation() != generation)
             return;
         // Nothing came back at all: a network error, or a load the network process refused. Say nothing
@@ -274,7 +282,7 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
             return;
         }
 
-        storeIconDataForPageURL(iconDatabase.get(), weakPage, pageURL, iconURL, API::Data::create(iconData->span()));
+        storeIconDataForPageURL(iconDatabase.get(), weakPage, pageURL, iconURL, API::Data::create(iconData->span()), persistence);
     });
 }
 
@@ -324,7 +332,11 @@ public:
         // The icon belongs to the document that just finished parsing, which is the COMMITTED one — not
         // pageLoadState's activeURL, which is already the URL of a navigation under way when there is
         // one, and would file this icon under the page being navigated to.
-        fetchIconForPage(*iconDatabase, *page, page->pageLoadState().url(), icon.url.string());
+        //
+        // A private-browsing page runs on an ephemeral session; its icons must not reach the on-disk
+        // database, whose page URLs alone are a browsing record.
+        auto persistence = page->sessionID().isEphemeral() ? WebIconDatabase::Persistence::SessionOnly : WebIconDatabase::Persistence::Persistent;
+        fetchIconForPage(*iconDatabase, *page, page->pageLoadState().url(), icon.url.string(), persistence);
     }
 
 private:
@@ -1501,12 +1513,14 @@ WebIconDatabase& WebProcessPool::iconDatabase()
 
 // MAVERICKS_BACKPORT: Safari 7 enables favicons by setting the icon-database path; treat a
 // non-empty path as "enabled" and materialize the database so createWebPage attaches a real
-// icon-loading client (#49).
+// icon-loading client (#49). The path itself — ~/Library/Safari/WebpageIcons.db, the same file the
+// pre-deletion icon database kept — backs the store on disk so History keeps its icons across
+// relaunches (#112).
 void WebProcessPool::setIconDatabasePath(const String& path)
 {
     m_iconDatabaseEnabled = !path.isEmpty();
     if (m_iconDatabaseEnabled)
-        iconDatabase();
+        iconDatabase().setDatabasePath(path);
 }
 
 Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API::PageConfiguration>&& pageConfiguration)
