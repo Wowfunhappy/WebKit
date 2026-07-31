@@ -622,14 +622,6 @@ bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, b
         m_isSegmentSeekAllowed = false;
         flag = GST_SEEK_FLAG_FLUSH;
     }
-    // MAVERICKS_BACKPORT: a flushing seek on a seamlessly-looping element arms segment mode in the SAME
-    // event, so the segment the flush starts is the one that runs to completion. Arming it with a separate
-    // non-flushing SEGMENT seek right afterwards makes every loop iteration seek twice instead: a second
-    // byte-range request for the range just requested, and a second segment that supersedes the one the
-    // flush started before it has played.
-    bool isSeamlessLoopSeek = (flag == GST_SEEK_FLAG_FLUSH) && isSeamlessSeekingEnabled();
-    if (isSeamlessLoopSeek)
-        flag = static_cast<GstSeekFlags>(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_SEGMENT);
     auto seekFlags = static_cast<GstSeekFlags>(flag | GST_SEEK_FLAG_ACCURATE);
 
     if (rate >= 0.0 && startTime >= duration()) {
@@ -663,9 +655,7 @@ bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, b
         auto data = createAsyncSeekData();
         data->event = WTF::move(event);
         data->isSegmentSeek = isSegment;
-        // MAVERICKS_BACKPORT: the event above already carries GST_SEEK_FLAG_SEGMENT when seamless looping
-        // applies, so the follow-up seek below has nothing left to arm.
-        data->isSeamlessSeekingEnabled = isSeamlessSeekingEnabled() && !isSeamlessLoopSeek;
+        data->isSeamlessSeekingEnabled = isSeamlessSeekingEnabled();
         gst_element_call_async(m_pipeline.get(), reinterpret_cast<GstElementCallAsyncFunc>(+[](GstElement* pipeline, gpointer userData) {
             auto data = reinterpret_cast<AsyncSeekData*>(userData);
 
@@ -690,9 +680,7 @@ bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, b
     }
 
     auto result = gst_element_send_event(m_pipeline.get(), event.leakRef());
-    // MAVERICKS_BACKPORT: same as in the async branch above — the seek just sent already carries
-    // GST_SEEK_FLAG_SEGMENT when seamless looping applies, so there is no segment left to resume.
-    if (isSegment || isSeamlessLoopSeek || !isSeamlessSeekingEnabled() || !result)
+    if (isSegment || !isSeamlessSeekingEnabled() || !result)
         return result;
 
     GST_DEBUG_OBJECT(m_pipeline.get(), "Resuming segment playback");
@@ -748,17 +736,9 @@ void MediaPlayerPrivateGStreamer::seekToTarget(const SeekTarget& inTarget)
         return;
     }
 
-    // MAVERICKS_BACKPORT: reaching EOS only defers the seek when the pipeline is going to be reset first,
-    // because the reset is what produces the state change that later commits the pending seek. A
-    // seamlessly-looping element skips that reset, so deferring its restart seek parks it on a state
-    // change that never comes: the element sits at its last frame forever, whenever no unrelated bus
-    // message happens to drive another updateStates() first. Its pipeline is settled at or above PAUSED
-    // here, so seek straight away instead.
-    bool shouldResetPipelineAtEndOfStream = m_isEndReached && (!player->isLooping() || !isSeamlessSeekingEnabled());
-    if (getStateResult == GST_STATE_CHANGE_ASYNC || state < GST_STATE_PAUSED || shouldResetPipelineAtEndOfStream) {
+    if (getStateResult == GST_STATE_CHANGE_ASYNC || state < GST_STATE_PAUSED || m_isEndReached) {
         m_isSeekPending = true;
-        // MAVERICKS_BACKPORT: the reset is what later commits this pending seek — see above.
-        if (shouldResetPipelineAtEndOfStream) {
+        if (m_isEndReached && (!player->isLooping() || !isSeamlessSeekingEnabled())) {
             GST_DEBUG_OBJECT(pipeline(), "[Seek] reset pipeline");
             m_shouldResetPipeline = true;
             if (changePipelineState(GST_STATE_PAUSED) == ChangePipelineStateResult::Failed)
@@ -3009,15 +2989,7 @@ void MediaPlayerPrivateGStreamer::updateStates()
         } else if (m_currentState == GST_STATE_PLAYING) {
             m_isPaused = false;
 
-            // MAVERICKS_BACKPORT: a looping stream is exempt, matching the same exemption doSeek() makes for
-            // the seek-driven buffering pause. Looping runs without the on-disk download buffer (see
-            // updateDownloadBufferingFlag), so the flush that restarts each iteration empties queue2 and drops
-            // the level to 0% every time round. Pausing there is pointless — the resource is already cached —
-            // and it is unsafe: between a segment's SEGMENT_DONE and the seek that starts the next one the
-            // sinks have no buffer to preroll on, so PLAYING -> PAUSED never completes and the pipeline is
-            // stuck ASYNC, which strands the loop's pending seek and freezes the element on its last frame.
-            shouldPauseForBuffering = (!m_wasBuffering && m_isBuffering && !m_isLiveStream.value_or(false)
-                && !(player && player->isLooping()));
+            shouldPauseForBuffering = (!m_wasBuffering && m_isBuffering && !m_isLiveStream.value_or(false));
             if (!m_playbackRate) {
                 GST_INFO_OBJECT(pipeline(), "[Buffering] Pausing stream because of zero playback rate.");
                 m_playbackRatePausedState = PlaybackRatePausedState::RatePaused;
@@ -3066,12 +3038,7 @@ void MediaPlayerPrivateGStreamer::updateStates()
 
         // Delay the m_isBuffering change by returning it to its previous value. Without this, the false --> true change
         // would go unnoticed by the code that should trigger a pause.
-        // MAVERICKS_BACKPORT: only the false --> true edge is delayed. Delaying true --> false discards the sole
-        // signal that resumes a stream paused for buffering: the resume in the GST_STATE_CHANGE_SUCCESS branch above
-        // fires on that edge, and once the queue is full the element stops posting buffering messages, so the edge
-        // never comes back. A loop restart refills fast enough to complete buffering while the pause it triggered is
-        // still ASYNC, which wedges the pipeline in PAUSED with paused() reporting false to HTMLMediaElement.
-        if (!m_wasBuffering && m_isBuffering && !m_isPaused && m_playbackRate) {
+        if (m_wasBuffering != m_isBuffering && !m_isPaused && m_playbackRate) {
             GST_TRACE_OBJECT(pipeline(), "[Buffering] Delaying m_isBuffering %s --> %s to force the proper change from not buffering to buffering when the async state change completes.", boolForPrinting(m_wasBuffering), boolForPrinting(m_isBuffering));
             m_isBuffering = m_wasBuffering;
             m_bufferingPercentage = m_previousBufferingPercentage;
