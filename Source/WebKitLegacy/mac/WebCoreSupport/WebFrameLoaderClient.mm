@@ -2010,7 +2010,11 @@ void WebFrameLoaderClient::getLoadDecisionForIcons(const Vector<std::pair<WebCor
     }
 
 #if !PLATFORM(IOS_FAMILY)
-    ASSERT(!m_loadingIcon);
+    // MAVERICKS_BACKPORT: icon loading now starts when the head is parsed as well as at the load
+    // event (#112), so a page that adds an icon to its head afterwards reaches here a second time
+    // while the first icon may still be loading. The loop below already declines every icon offered
+    // in that state, which is this client's one-icon-per-page rule; an assertion that a second call
+    // cannot happen would only be asserting the invariant this deliberately relaxes.
     // WebKit 1, which only supports one icon per page URL, traditionally has preferred the last icon in case of multiple icons listed.
     // To preserve that behavior we walk the list backwards.
     for (auto icon = icons.rbegin(); icon != icons.rend(); ++icon) {

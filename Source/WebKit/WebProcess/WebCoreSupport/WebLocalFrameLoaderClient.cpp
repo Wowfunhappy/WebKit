@@ -785,14 +785,6 @@ void WebLocalFrameLoaderClient::dispatchDidFinishLoad()
     webPage->send(Messages::WebPageProxy::DidFinishLoadForFrame(m_frame->frameID(), m_frame->info(), documentLoader->request(), documentLoader->navigationID(), UserData(WebProcess::singleton().transformObjectsToHandles(userData.get()).get()), WallTime::now()));
 
     webPage->didFinishLoad(m_frame);
-
-    // MAVERICKS_BACKPORT: page transition freeze unfreezes via dispatchDidReachVisuallyNonEmptyState
-    // (which depends on rendering happening) or via FrameState::Complete transition. On 10.9
-    // the visually-non-empty milestone never fires reliably (display link broken), so the layer
-    // tree stays frozen forever and the rendered page is never painted. Force-complete the page
-    // transition here once the load is done.
-    if (m_frame->isMainFrame())
-        completePageTransitionIfNeeded();
 }
 
 void WebLocalFrameLoaderClient::completePageTransitionIfNeeded()

@@ -36,6 +36,11 @@ public:
 
 private:
     HTMLHeadElement(const QualifiedName&, Document&);
+
+    // MAVERICKS_BACKPORT: a page's icons are known once its head is parsed, and this port fetches them
+    // from the UI process for a history that outlives the visit, so it offers them there rather than
+    // waiting for the load event (#112).
+    void finishParsingChildren() final;
 };
 
 } // namespace WebCore

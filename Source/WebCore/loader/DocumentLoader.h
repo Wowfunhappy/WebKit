@@ -723,6 +723,14 @@ private:
     HashMap<uint64_t, LinkIcon> m_iconsPendingLoadDecision;
     HashMap<Ref<IconLoader>, CompletionHandler<void(FragmentedSharedBuffer*)>> m_iconLoaders;
     Vector<LinkIcon> m_linkIcons;
+    // MAVERICKS_BACKPORT: icons already offered to the client for the document loading here, so that
+    // starting icon loading more than once offers each declared icon exactly once (#112). Keyed by the
+    // icon AS OFFERED rather than by its URL: a page may declare one URL as both a favicon and a touch
+    // icon (wordpress.org and css-tricks.com do), and those are two different offers the client
+    // answers differently, so collapsing them would lose the page its favicon altogether.
+    HashSet<String> m_iconsOfferedToClient;
+    // The set belongs to one document; a multipart replace reuses this loader for the next one.
+    Markable<ScriptExecutionContextIdentifier> m_iconOfferDocument;
 
 #if ENABLE(APPLICATION_MANIFEST)
     RefPtr<ApplicationManifestLoader> m_applicationManifestLoader;

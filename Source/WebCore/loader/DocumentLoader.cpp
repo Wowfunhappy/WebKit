@@ -2431,6 +2431,14 @@ void DocumentLoader::maybeFinishLoadingMultipartContent()
     commitLoad(mainResourceData()->makeContiguous());
 }
 
+// MAVERICKS_BACKPORT: identity of an icon as it is OFFERED to the client (#112). The same URL declared
+// as a favicon and as a touch icon is two offers, not one, and a client that takes site favicons while
+// declining home-screen artwork answers them differently.
+static String iconOfferKey(const LinkIcon& icon)
+{
+    return makeString(icon.url.string(), '\n', static_cast<unsigned>(icon.type), '\n', icon.size.value_or(0));
+}
+
 void DocumentLoader::startIconLoading()
 {
     static uint64_t nextIconCallbackID = 1;
@@ -2454,10 +2462,33 @@ void DocumentLoader::startIconLoading()
     if (!m_linkIcons.size())
         return;
 
-    auto iconDecisions = WTF::map(m_linkIcons, [&](auto& icon) -> std::pair<WebCore::LinkIcon&, uint64_t> {
+    // MAVERICKS_BACKPORT: icon loading now starts when the head is parsed as well as at the load
+    // event (#112), so offer the client each declared icon once — a client that fetches icons itself
+    // would otherwise fetch the same one again on the later run. Only icons offered by an EARLIER run
+    // are held back: a page that declares the same icon twice has both offered, as it always did.
+    if (m_iconOfferDocument != document->identifier()) {
+        m_iconOfferDocument = document->identifier();
+        m_iconsOfferedToClient.clear();
+    }
+
+    Vector<std::pair<WebCore::LinkIcon&, uint64_t>> iconDecisions;
+    Vector<String> offeredNow;
+    iconDecisions.reserveInitialCapacity(m_linkIcons.size());
+    for (auto& icon : m_linkIcons) {
+        auto key = iconOfferKey(icon);
+        if (m_iconsOfferedToClient.contains(key))
+            continue;
+        offeredNow.append(WTF::move(key));
         auto result = m_iconsPendingLoadDecision.add(nextIconCallbackID++, icon);
-        return { icon, result.iterator->key };
-    });
+        iconDecisions.append({ icon, result.iterator->key });
+    }
+
+    if (iconDecisions.isEmpty())
+        return;
+
+    for (auto& key : offeredNow)
+        m_iconsOfferedToClient.add(WTF::move(key));
+
     m_frame->loader().client().getLoadDecisionForIcons(WTF::move(iconDecisions));
 }
 
