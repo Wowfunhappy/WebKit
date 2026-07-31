@@ -84,11 +84,14 @@ public:
     // keeps serving while the refetch is in flight, so a stale answer is shown once, not kept forever.
     bool iconNeedsRefresh(const WTF::String& iconURL) const;
 
-    // MAVERICKS_BACKPORT: where a stored icon's bytes came from. Rasterized means the site's own bytes
-    // were in a format this OS has no decoder for — on 10.9 that is SVG above all — and the web process
-    // rendered them into an .ico instead. Such an icon is a stand-in for one this OS could not read, so
-    // it never displaces an icon that decoded on its own, whichever of the two loads finished first.
-    enum class IconOrigin : bool { NativelyDecoded, Rasterized };
+    // MAVERICKS_BACKPORT: where a stored icon's bytes came from, which is its precedence. Rasterized
+    // means the site's own bytes were in a format this OS has no decoder for — on 10.9 that is SVG
+    // above all — and the web process rendered them into an .ico instead: a stand-in for bytes this OS
+    // could not read, so it never displaces an icon that decoded on its own, whichever load finished
+    // first. Guessed means nobody declared this icon at all — it is the origin's /favicon.ico, fetched
+    // at commit so a page abandoned before its head even arrives still gets an icon (#112) — so any
+    // icon the page actually declares displaces it. The numeric values are stored in the database.
+    enum class IconOrigin : uint8_t { NativelyDecoded = 0, Rasterized = 1, Guessed = 2 };
 
     // MAVERICKS_BACKPORT: whether this write may reach the on-disk database. A private-browsing page
     // stays SessionOnly — its icons (and which page URLs use them) live in memory like everything else
@@ -102,19 +105,24 @@ public:
     bool setIconDataForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Ref<API::Data>&&, IconOrigin = IconOrigin::NativelyDecoded, Persistence = Persistence::Persistent);
     // MAVERICKS_BACKPORT: point a page at icon bytes already held under this icon URL, so a site whose
     // icon had to be rasterized pays for that once rather than on every page of the site. Same
-    // precedence rule as above; returns whether the page now holds that icon.
-    bool reuseStoredIconForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Persistence = Persistence::Persistent);
+    // precedence rule as above; returns whether the page now holds that icon. mappingRank caps the
+    // strength of the page's claim: a commit-time guess reusing bytes a DECLARED offer once stored
+    // holds them at Guessed rank all the same, so the icon this page itself declares still wins.
+    bool reuseStoredIconForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Persistence = Persistence::Persistent, std::optional<IconOrigin> mappingRank = std::nullopt);
     // MAVERICKS_BACKPORT: record which icon URL a page uses BEFORE its bytes exist, exactly as the
     // pre-deletion IconDatabase committed the mapping before starting a load ("just in case we don't
     // end up loading later"). A fetch that then fails leaves the page pointing at the icon URL, so the
     // page's history entry heals the moment any later visit stores that URL's bytes — without this,
     // one transient network failure leaves the entry on the generic globe with nothing to ever
     // correct it (github #112). Never displaces a mapping the page already has.
-    void notePendingIconURLForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Persistence = Persistence::Persistent);
+    void notePendingIconURLForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Persistence = Persistence::Persistent, IconOrigin mappingRank = IconOrigin::NativelyDecoded);
     // MAVERICKS_BACKPORT: the precedence rule as a question, so a caller holding bytes this build
     // cannot decode can tell that rasterizing them would be work whose result the store is already
     // certain to refuse.
     bool hasNativelyDecodedIconForPageURL(const WTF::String& pageURL) const;
+    // MAVERICKS_BACKPORT: the rank of the byte-backed icon the page currently holds, if any — what a
+    // commit-time guess consults so it fetches nothing for a page whose icon is already known (#112).
+    std::optional<IconOrigin> storedIconOriginForPageURL(const WTF::String& pageURL) const;
     // MAVERICKS_BACKPORT: an icon URL whose bytes have been fetched and turned out to be no icon at all —
     // the error page a site without a /favicon.ico serves for it, or an image nothing here can read and
     // the web process cannot rasterize either. The client fetches icons itself (#112), so without this
@@ -144,7 +152,15 @@ private:
         bool onDisk { false };
     };
 
-    bool storeIcon(const WTF::String& pageURL, const WTF::String& iconURL, StoredIcon&&, Persistence);
+    // MAVERICKS_BACKPORT: a page's claim on its icon, and how strong that claim is. The rank lives on
+    // the MAPPING, not only on the bytes: a commit-time guess that reuses bytes some other page's
+    // declared offer stored still holds them as a guess, and must yield to what THIS page declares.
+    struct PageMapping {
+        WTF::String iconURL;
+        IconOrigin rank { IconOrigin::NativelyDecoded };
+    };
+
+    bool storeIcon(const WTF::String& pageURL, const WTF::String& iconURL, StoredIcon&&, Persistence, std::optional<IconOrigin> mappingRank = std::nullopt);
 
     // MAVERICKS_BACKPORT: the disk half of the store (#112). All of these are no-ops when Safari gave
     // no database path (or the file was unusable) — the store then simply lives for the session.
@@ -157,11 +173,11 @@ private:
     // file — a swallowed statement failure here would otherwise mark bytes on-disk that a rolled-back
     // transaction never wrote, and the fast path would then never retry them.
     bool writeIconToDatabase(const WTF::String& iconURL, const StoredIcon&);
-    bool writePageMappingToDatabase(const WTF::String& pageURL, const WTF::String& iconURL);
+    bool writePageMappingToDatabase(const WTF::String& pageURL, const WTF::String& iconURL, IconOrigin mappingRank);
     bool touchDatabaseIconRecord(const WTF::String& iconURL, int64_t stamp);
 
     std::unique_ptr<API::IconDatabaseClient> m_client;
-    HashMap<String, String> m_pageURLToIconURL;
+    HashMap<String, PageMapping> m_pageURLToIconURL;
     HashMap<String, StoredIcon> m_iconURLToData;
     HashSet<String> m_unusableIconURLs;
     uint64_t m_generation { 0 };

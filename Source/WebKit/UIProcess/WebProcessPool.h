@@ -310,6 +310,11 @@ public:
     // MAVERICKS_BACKPORT: revived legacy WK2 icon database that Safari 7 drives through the C API (#49).
     WebIconDatabase& iconDatabase();
     void setIconDatabasePath(const WTF::String&);
+    // MAVERICKS_BACKPORT: called at every main-frame commit — fetches the origin's /favicon.ico as a
+    // low-rank guess so a page abandoned before its head arrives still gets a history icon (#112).
+    // The page URL is passed in because at the call site the commit is still inside a PageLoadState
+    // transaction: pageLoadState().url() holds the PREVIOUS page until that transaction closes.
+    void fetchGuessedIconForPage(WebPageProxy&, const WTF::URL& pageURL);
 
     void setCacheModel(CacheModel);
     void setCacheModelSynchronouslyForTesting(CacheModel);

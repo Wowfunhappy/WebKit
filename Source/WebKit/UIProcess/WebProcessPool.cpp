@@ -203,21 +203,26 @@ using namespace WebCore;
 // (github.com declares both) — and waste that can never amortize, since a refused result is never
 // stored to be found next time. And every page of an SVG-favicon site declares the same icon URL, so
 // once these bytes have been rendered the store can answer from what it holds.
-static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr<WebPageProxy>& weakPage, const String& pageURL, const String& iconURL, Ref<API::Data>&& iconData, WebIconDatabase::Persistence persistence)
+static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr<WebPageProxy>& weakPage, const String& pageURL, const String& iconURL, Ref<API::Data>&& iconData, WebIconDatabase::Persistence persistence, WebIconDatabase::IconOrigin fetchedOrigin)
 {
-    if (iconDatabase.setIconDataForPageURL(pageURL, iconURL, iconData.copyRef(), WebIconDatabase::IconOrigin::NativelyDecoded, persistence))
+    // A guessed icon stays at Guessed rank whether its bytes decoded natively or had to be rasterized —
+    // the rank records that nobody declared it, not how it was read.
+    if (iconDatabase.setIconDataForPageURL(pageURL, iconURL, iconData.copyRef(), fetchedOrigin, persistence))
         return;
 
     if (iconDatabase.hasNativelyDecodedIconForPageURL(pageURL))
         return;
-    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL, persistence))
+    // The same cap as the fetch's own reuse: a guess claims whatever bytes it falls back on at
+    // Guessed rank, however they were once decoded.
+    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL, persistence, fetchedOrigin == WebIconDatabase::IconOrigin::Guessed ? std::optional { WebIconDatabase::IconOrigin::Guessed } : std::nullopt))
         return;
     RefPtr page = weakPage.get();
     if (!page)
         return;
 
+    auto rasterizedOrigin = fetchedOrigin == WebIconDatabase::IconOrigin::Guessed ? WebIconDatabase::IconOrigin::Guessed : WebIconDatabase::IconOrigin::Rasterized;
     auto generation = iconDatabase.generation();
-    page->createIconDataFromImageData(WebCore::SharedBuffer::create(iconData->span()), { 16, 32 }, [iconDatabase = Ref { iconDatabase }, pageURL, iconURL, generation, persistence](RefPtr<WebCore::SharedBuffer>&& rasterizedIcon) {
+    page->createIconDataFromImageData(WebCore::SharedBuffer::create(iconData->span()), { 16, 32 }, [iconDatabase = Ref { iconDatabase }, pageURL, iconURL, generation, persistence, rasterizedOrigin](RefPtr<WebCore::SharedBuffer>&& rasterizedIcon) {
         if (iconDatabase->generation() != generation)
             return;
         // Nothing here could read these bytes and the web process could not draw them either, so they
@@ -226,7 +231,7 @@ static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr
             iconDatabase->noteUnusableIconURL(iconURL);
             return;
         }
-        iconDatabase->setIconDataForPageURL(pageURL, iconURL, API::Data::create(rasterizedIcon->span()), WebIconDatabase::IconOrigin::Rasterized, persistence);
+        iconDatabase->setIconDataForPageURL(pageURL, iconURL, API::Data::create(rasterizedIcon->span()), rasterizedOrigin, persistence);
     });
 }
 
@@ -242,14 +247,16 @@ static void storeIconDataForPageURL(WebIconDatabase& iconDatabase, const WeakPtr
 // LoadAndDecodeImage, has the same reply and the same gap), so an error page is rejected by failing to
 // decode rather than by its status, and this remembers the URL so that costs one fetch per site. The
 // one check that cannot be left to decoding is carried over below.
-static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, const String& pageURL, const String& iconURL, WebIconDatabase::Persistence persistence)
+static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, const String& pageURL, const String& iconURL, WebIconDatabase::Persistence persistence, WebIconDatabase::IconOrigin fetchedOrigin = WebIconDatabase::IconOrigin::NativelyDecoded)
 {
     if (pageURL.isEmpty() || iconURL.isEmpty())
         return;
     // Age is judged before the reuse, which counts as a use and re-stamps the icon. A stale stored
     // icon still answers for the page right away — the refetch below replaces it when it lands.
+    // A guess claims whatever bytes it reuses at Guessed rank, however they were once decoded.
+    auto mappingRank = fetchedOrigin == WebIconDatabase::IconOrigin::Guessed ? std::optional { WebIconDatabase::IconOrigin::Guessed } : std::nullopt;
     bool needsRefresh = iconDatabase.iconNeedsRefresh(iconURL);
-    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL, persistence) && !needsRefresh)
+    if (iconDatabase.reuseStoredIconForPageURL(pageURL, iconURL, persistence, mappingRank) && !needsRefresh)
         return;
     if (iconDatabase.hasNativelyDecodedIconForPageURL(pageURL) && !needsRefresh)
         return;
@@ -259,14 +266,14 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
     // The page points at its icon URL from here on, whether or not the fetch below ever lands — the
     // pre-deletion IconDatabase committed the mapping before loading, "just in case", and that is
     // what lets a history entry heal when any later visit stores this URL's bytes (#112).
-    iconDatabase.notePendingIconURLForPageURL(pageURL, iconURL, persistence);
+    iconDatabase.notePendingIconURLForPageURL(pageURL, iconURL, persistence, fetchedOrigin);
 
     // Bytes past this are not a site icon but a decoder waiting to be handed something enormous; the
     // network process stops the load there rather than buffering it for us.
     constexpr size_t maximumIconBytes = 8 * MB;
 
     auto generation = iconDatabase.generation();
-    page.loadImageData(WebCore::ResourceRequest { URL { iconURL } }, maximumIconBytes, [iconDatabase = Ref { iconDatabase }, weakPage = WeakPtr { page }, pageURL, iconURL, generation, persistence](RefPtr<WebCore::SharedBuffer>&& iconData) {
+    page.loadImageData(WebCore::ResourceRequest { URL { iconURL } }, maximumIconBytes, [iconDatabase = Ref { iconDatabase }, weakPage = WeakPtr { page }, pageURL, iconURL, generation, persistence, fetchedOrigin](RefPtr<WebCore::SharedBuffer>&& iconData) {
         if (iconDatabase->generation() != generation)
             return;
         // Nothing came back at all: a network error, or a load the network process refused. Say nothing
@@ -282,7 +289,7 @@ static void fetchIconForPage(WebIconDatabase& iconDatabase, WebPageProxy& page, 
             return;
         }
 
-        storeIconDataForPageURL(iconDatabase.get(), weakPage, pageURL, iconURL, API::Data::create(iconData->span()), persistence);
+        storeIconDataForPageURL(iconDatabase.get(), weakPage, pageURL, iconURL, API::Data::create(iconData->span()), persistence, fetchedOrigin);
     });
 }
 
@@ -1521,6 +1528,39 @@ void WebProcessPool::setIconDatabasePath(const String& path)
     m_iconDatabaseEnabled = !path.isEmpty();
     if (m_iconDatabaseEnabled)
         iconDatabase().setDatabasePath(path);
+}
+
+// MAVERICKS_BACKPORT: fetch the origin's /favicon.ico the moment a main-frame load commits (#112).
+// A page states its icons in its head, but a reader can leave before the head has even arrived — the
+// commit is the earliest moment the page URL exists, and this fetch survives the departure like every
+// fetch here does. The guess is stored at Guessed rank, so an icon the page actually declares, offered
+// when its head parses, displaces it; for the many sites whose icon IS /favicon.ico, the store then
+// reuses these same bytes. A revisit of a page whose real icon is already held skips this entirely
+// (the natively-decoded check below), and a site whose /favicon.ico serves no icon costs one fetch per
+// session (the unusable-URL note).
+void WebProcessPool::fetchGuessedIconForPage(WebPageProxy& page, const URL& url)
+{
+    if (!m_iconDatabaseEnabled || !m_iconDatabase)
+        return;
+
+    if (!url.protocolIsInHTTPFamily())
+        return;
+
+    // The same string the offer path keys by — pageLoadState's committed URL is this URL's string
+    // once the commit's transaction closes.
+    auto pageURL = url.string();
+
+    // A page whose icon is already held needs nothing from a guess. Only a guessed icon due for its
+    // refresh is refetched here — a declared icon's refresh belongs to the offer that declared it.
+    Ref iconDatabase = *m_iconDatabase;
+    if (auto currentOrigin = iconDatabase->storedIconOriginForPageURL(pageURL)) {
+        bool staleGuess = *currentOrigin == WebIconDatabase::IconOrigin::Guessed && iconDatabase->iconNeedsRefresh(iconDatabase->iconURLForPageURL(pageURL));
+        if (!staleGuess)
+            return;
+    }
+
+    auto persistence = page.sessionID().isEphemeral() ? WebIconDatabase::Persistence::SessionOnly : WebIconDatabase::Persistence::Persistent;
+    fetchIconForPage(iconDatabase, page, pageURL, URL { url, "/favicon.ico"_s }.string(), persistence, WebIconDatabase::IconOrigin::Guessed);
 }
 
 Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API::PageConfiguration>&& pageConfiguration)

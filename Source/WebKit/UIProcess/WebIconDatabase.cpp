@@ -54,6 +54,22 @@ static int64_t nowStamp()
     return static_cast<int64_t>(std::floor(WallTime::now().secondsSinceEpoch().seconds()));
 }
 
+// MAVERICKS_BACKPORT: precedence of a stored icon (#112). An icon the site declared and this OS decoded
+// outranks a rasterized stand-in, which outranks a guessed /favicon.ico nobody declared; an icon never
+// displaces one of higher rank, and equal rank replaces, so a site can refresh its own icon.
+static unsigned iconOriginRank(WebIconDatabase::IconOrigin origin)
+{
+    switch (origin) {
+    case WebIconDatabase::IconOrigin::Guessed:
+        return 0;
+    case WebIconDatabase::IconOrigin::Rasterized:
+        return 1;
+    case WebIconDatabase::IconOrigin::NativelyDecoded:
+        return 2;
+    }
+    return 0;
+}
+
 Ref<WebIconDatabase> WebIconDatabase::create()
 {
     return adoptRef(*new WebIconDatabase);
@@ -155,6 +171,18 @@ bool WebIconDatabase::openDatabaseAtPath(const String& path)
         if (!m_db->executeCommand("ALTER TABLE IconInfo ADD COLUMN origin INTEGER NOT NULL DEFAULT 0;"_s))
             return false;
     }
+    // And on PageURL the rank of the PAGE'S claim: a guessed mapping to bytes some declared offer
+    // stored must come back as a guess, or after a relaunch it would block the page's own icon.
+    if (!m_db->prepareStatement("SELECT origin FROM PageURL LIMIT 1;"_s)) {
+        if (!m_db->executeCommand("ALTER TABLE PageURL ADD COLUMN origin INTEGER NOT NULL DEFAULT 0;"_s))
+            return false;
+        // Rows from before this column carried their rank on the byte entry — every mapping was made
+        // by a declared offer, whose claim is exactly how its bytes were produced. Defaulting them to
+        // NativelyDecoded instead would freeze rasterized icons: their reuse would be refused as a
+        // downgrade, so they would never re-stamp, never refresh, and age into the 30-day prune.
+        if (!m_db->executeCommand("UPDATE PageURL SET origin = COALESCE((SELECT origin FROM IconInfo WHERE IconInfo.iconID = PageURL.iconID), 0);"_s))
+            return false;
+    }
 
     return true;
 }
@@ -192,11 +220,19 @@ void WebIconDatabase::loadFromDatabase()
         auto blob = iconQuery->columnBlob(3);
         if (iconURL.isEmpty() || blob.isEmpty())
             continue;
-        auto origin = iconQuery->columnInt(2) ? IconOrigin::Rasterized : IconOrigin::NativelyDecoded;
+        auto origin = IconOrigin::NativelyDecoded;
+        switch (iconQuery->columnInt(2)) {
+        case 1:
+            origin = IconOrigin::Rasterized;
+            break;
+        case 2:
+            origin = IconOrigin::Guessed;
+            break;
+        }
         m_iconURLToData.set(iconURL, StoredIcon { API::Data::create(blob.span()), origin, iconQuery->columnInt64(1), true });
     }
 
-    auto pageQuery = m_db->prepareStatement("SELECT PageURL.url, IconInfo.url FROM PageURL INNER JOIN IconInfo ON PageURL.iconID = IconInfo.iconID;"_s);
+    auto pageQuery = m_db->prepareStatement("SELECT PageURL.url, IconInfo.url, PageURL.origin FROM PageURL INNER JOIN IconInfo ON PageURL.iconID = IconInfo.iconID;"_s);
     if (!pageQuery)
         return;
     while (pageQuery->step() == SQLITE_ROW) {
@@ -204,7 +240,16 @@ void WebIconDatabase::loadFromDatabase()
         auto iconURL = pageQuery->columnText(1);
         if (pageURL.isEmpty() || iconURL.isEmpty())
             continue;
-        m_pageURLToIconURL.set(pageURL, iconURL);
+        auto rank = IconOrigin::NativelyDecoded;
+        switch (pageQuery->columnInt(2)) {
+        case 1:
+            rank = IconOrigin::Rasterized;
+            break;
+        case 2:
+            rank = IconOrigin::Guessed;
+            break;
+        }
+        m_pageURLToIconURL.set(pageURL, PageMapping { iconURL, rank });
     }
 }
 
@@ -238,7 +283,7 @@ bool WebIconDatabase::writeIconToDatabase(const String& iconURL, const StoredIco
         return false;
 
     auto infoStatement = m_db->prepareStatement("UPDATE IconInfo SET stamp = ?, origin = ? WHERE iconID = ?;"_s);
-    if (!infoStatement || infoStatement->bindInt64(1, icon.stamp) != SQLITE_OK || infoStatement->bindInt(2, icon.origin == IconOrigin::Rasterized ? 1 : 0) != SQLITE_OK || infoStatement->bindInt64(3, iconID) != SQLITE_OK || infoStatement->step() != SQLITE_DONE)
+    if (!infoStatement || infoStatement->bindInt64(1, icon.stamp) != SQLITE_OK || infoStatement->bindInt(2, static_cast<int>(icon.origin)) != SQLITE_OK || infoStatement->bindInt64(3, iconID) != SQLITE_OK || infoStatement->step() != SQLITE_DONE)
         return false;
 
     // IconData.iconID is UNIQUE ON CONFLICT REPLACE, so a plain INSERT is also the update.
@@ -248,15 +293,15 @@ bool WebIconDatabase::writeIconToDatabase(const String& iconURL, const StoredIco
     return dataStatement->step() == SQLITE_DONE;
 }
 
-bool WebIconDatabase::writePageMappingToDatabase(const String& pageURL, const String& iconURL)
+bool WebIconDatabase::writePageMappingToDatabase(const String& pageURL, const String& iconURL, IconOrigin mappingRank)
 {
     auto iconID = ensureDatabaseIconRecord(iconURL);
     if (!iconID)
         return false;
 
     // PageURL.url is UNIQUE ON CONFLICT REPLACE, so a plain INSERT is also the remap.
-    auto statement = m_db->prepareStatement("INSERT INTO PageURL (url, iconID) VALUES (?, ?);"_s);
-    if (!statement || statement->bindText(1, pageURL) != SQLITE_OK || statement->bindInt64(2, iconID) != SQLITE_OK)
+    auto statement = m_db->prepareStatement("INSERT INTO PageURL (url, iconID, origin) VALUES (?, ?, ?);"_s);
+    if (!statement || statement->bindText(1, pageURL) != SQLITE_OK || statement->bindInt64(2, iconID) != SQLITE_OK || statement->bindInt(3, static_cast<int>(mappingRank)) != SQLITE_OK)
         return false;
     return statement->step() == SQLITE_DONE;
 }
@@ -282,7 +327,7 @@ bool WebIconDatabase::setIconDataForPageURL(const String& pageURL, const String&
     return storeIcon(pageURL, iconURL, StoredIcon { WTF::move(data), origin }, persistence);
 }
 
-bool WebIconDatabase::reuseStoredIconForPageURL(const String& pageURL, const String& iconURL, Persistence persistence)
+bool WebIconDatabase::reuseStoredIconForPageURL(const String& pageURL, const String& iconURL, Persistence persistence, std::optional<IconOrigin> mappingRank)
 {
     // MAVERICKS_BACKPORT: these bytes are already in the store and already known to decode, so this
     // needs neither the admission test nor another rasterization — only the precedence rule (#49).
@@ -290,18 +335,18 @@ bool WebIconDatabase::reuseStoredIconForPageURL(const String& pageURL, const Str
     if (!stored.data)
         return false;
 
-    return storeIcon(pageURL, iconURL, WTF::move(stored), persistence);
+    return storeIcon(pageURL, iconURL, WTF::move(stored), persistence, mappingRank);
 }
 
-void WebIconDatabase::notePendingIconURLForPageURL(const String& pageURL, const String& iconURL, Persistence persistence)
+void WebIconDatabase::notePendingIconURLForPageURL(const String& pageURL, const String& iconURL, Persistence persistence, IconOrigin mappingRank)
 {
     if (pageURL.isEmpty() || iconURL.isEmpty())
         return;
 
     // Only ever fills a blank — a mapping the page already has to a DIFFERENT icon URL, pending or
     // byte-backed, stands.
-    auto addResult = m_pageURLToIconURL.add(pageURL, iconURL);
-    if (!addResult.isNewEntry && addResult.iterator->value != iconURL)
+    auto addResult = m_pageURLToIconURL.add(pageURL, PageMapping { iconURL, mappingRank });
+    if (!addResult.isNewEntry && addResult.iterator->value.iconURL != iconURL)
         return;
 
     // The disk write runs even when the memory map already held this same mapping: a mapping first
@@ -310,7 +355,7 @@ void WebIconDatabase::notePendingIconURLForPageURL(const String& pageURL, const 
     if (m_db && persistence == Persistence::Persistent) {
         WebCore::SQLiteTransaction transaction(*m_db);
         transaction.begin();
-        writePageMappingToDatabase(pageURL, iconURL);
+        writePageMappingToDatabase(pageURL, iconURL, addResult.iterator->value.rank);
         transaction.commit();
     }
 }
@@ -333,15 +378,30 @@ bool WebIconDatabase::hasNativelyDecodedIconForPageURL(const String& pageURL) co
     if (pageURL.isEmpty())
         return false;
 
-    // MAVERICKS_BACKPORT: the origin of what the PAGE currently points at — deliberately not of what is
-    // held for any particular icon URL, so a site that changes its SVG (or cache-busts its URL) can
-    // still replace its own rasterized icon (#49).
-    auto currentIconURL = m_pageURLToIconURL.get(pageURL);
-    if (currentIconURL.isEmpty())
+    // MAVERICKS_BACKPORT: the rank of the PAGE'S claim — deliberately not of what is held for any
+    // particular icon URL, so a site that changes its SVG (or cache-busts its URL) can still replace
+    // its own rasterized icon (#49), and a guessed mapping to natively decoded bytes still yields to
+    // the icon the page itself declares (#112).
+    auto mapping = m_pageURLToIconURL.get(pageURL);
+    if (mapping.iconURL.isEmpty())
         return false;
 
-    auto current = m_iconURLToData.get(currentIconURL);
-    return current.data && current.origin == IconOrigin::NativelyDecoded;
+    auto current = m_iconURLToData.get(mapping.iconURL);
+    return current.data && mapping.rank == IconOrigin::NativelyDecoded;
+}
+
+std::optional<WebIconDatabase::IconOrigin> WebIconDatabase::storedIconOriginForPageURL(const String& pageURL) const
+{
+    if (pageURL.isEmpty())
+        return std::nullopt;
+
+    auto mapping = m_pageURLToIconURL.get(pageURL);
+    if (mapping.iconURL.isEmpty())
+        return std::nullopt;
+
+    if (!m_iconURLToData.get(mapping.iconURL).data)
+        return std::nullopt;
+    return mapping.rank;
 }
 
 void WebIconDatabase::noteUnusableIconURL(const String& iconURL)
@@ -360,19 +420,27 @@ bool WebIconDatabase::isUnusableIconURL(const String& iconURL) const
     return m_unusableIconURLs.contains(iconURL);
 }
 
-bool WebIconDatabase::storeIcon(const String& pageURL, const String& iconURL, StoredIcon&& icon, Persistence persistence)
+bool WebIconDatabase::storeIcon(const String& pageURL, const String& iconURL, StoredIcon&& icon, Persistence persistence, std::optional<IconOrigin> mappingRank)
 {
     // There is nothing to key an icon by for a page that has no URL yet, and a null String must not
     // reach HashMap::set any more than it may reach HashMap::get.
     if (pageURL.isEmpty())
         return false;
 
-    // MAVERICKS_BACKPORT: a rasterized icon stands in for bytes this OS cannot decode at all, so it
-    // must not displace an icon that decoded natively — a page declaring both an SVG and a bitmap
-    // favicon (github.com declares both) has a real icon already, and which one the single slot ends up
-    // holding must not depend on which load finished first. That order-dependence was github #76.
-    if (icon.origin == IconOrigin::Rasterized && hasNativelyDecodedIconForPageURL(pageURL))
-        return false;
+    // The strength of the claim this write makes for the page: normally how the bytes were produced,
+    // but a commit-time guess reusing bytes a declared offer stored claims them only as a guess.
+    auto rank = mappingRank.value_or(icon.origin);
+
+    // MAVERICKS_BACKPORT: a write never displaces a claim the page holds at higher rank — a rasterized
+    // stand-in must not displace an icon that decoded natively (a page declaring both an SVG and a
+    // bitmap favicon, as github.com does, has a real icon already, and which one the single slot holds
+    // must not depend on which load finished first: that order-dependence was github #76), and a
+    // guessed /favicon.ico must not displace anything the page actually declared (#112).
+    auto currentMapping = m_pageURLToIconURL.get(pageURL);
+    if (!currentMapping.iconURL.isEmpty()) {
+        if (m_iconURLToData.get(currentMapping.iconURL).data && iconOriginRank(rank) < iconOriginRank(currentMapping.rank))
+            return false;
+    }
 
     icon.stamp = nowStamp();
 
@@ -385,7 +453,7 @@ bool WebIconDatabase::storeIcon(const String& pageURL, const String& iconURL, St
         auto existing = m_iconURLToData.find(iconURL);
         bool bytesAlreadyOnDisk = existing != m_iconURLToData.end() && existing->value.data == icon.data && existing->value.onDisk;
         bool wroteIcon = bytesAlreadyOnDisk ? touchDatabaseIconRecord(iconURL, icon.stamp) : writeIconToDatabase(iconURL, icon);
-        wroteIcon = writePageMappingToDatabase(pageURL, iconURL) && wroteIcon;
+        wroteIcon = writePageMappingToDatabase(pageURL, iconURL, rank) && wroteIcon;
         transaction.commit();
         // onDisk must record only what the file really holds: a failed statement or a COMMIT that did
         // not go through (the transaction then rolls back on destruction) leaves nothing written, and
@@ -395,7 +463,7 @@ bool WebIconDatabase::storeIcon(const String& pageURL, const String& iconURL, St
         icon.onDisk = bytesAlreadyOnDisk || (wroteIcon && !transaction.inProgress());
     }
 
-    m_pageURLToIconURL.set(pageURL, iconURL);
+    m_pageURLToIconURL.set(pageURL, PageMapping { iconURL, rank });
     m_iconURLToData.set(iconURL, WTF::move(icon));
     // These bytes are an icon after all, whatever an earlier fetch of this URL concluded.
     m_unusableIconURLs.remove(iconURL);
@@ -414,10 +482,10 @@ RefPtr<API::Data> WebIconDatabase::iconDataForPageURL(const String& pageURL)
     if (pageURL.isEmpty())
         return nullptr;
 
-    auto iconURL = m_pageURLToIconURL.get(pageURL);
-    if (iconURL.isEmpty())
+    auto mapping = m_pageURLToIconURL.get(pageURL);
+    if (mapping.iconURL.isEmpty())
         return nullptr;
-    return m_iconURLToData.get(iconURL).data;
+    return m_iconURLToData.get(mapping.iconURL).data;
 }
 
 String WebIconDatabase::iconURLForPageURL(const String& pageURL)
@@ -425,7 +493,7 @@ String WebIconDatabase::iconURLForPageURL(const String& pageURL)
     if (pageURL.isEmpty())
         return String();
 
-    return m_pageURLToIconURL.get(pageURL);
+    return m_pageURLToIconURL.get(pageURL).iconURL;
 }
 
 void WebIconDatabase::removeAllIcons()

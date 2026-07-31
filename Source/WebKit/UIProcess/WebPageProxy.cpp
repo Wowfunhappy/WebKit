@@ -8015,6 +8015,12 @@ void WebPageProxy::didCommitLoadForFrame(IPC::Connection& connection, FrameIdent
         protectedPageLoadState->didCommitLoad(transaction, certificateInfo, markPageInsecure, usedLegacyTLS, wasPrivateRelayed, WTF::move(proxyName), source, frameInfo.securityOrigin);
         m_shouldSuppressNextAutomaticNavigationSnapshot = false;
 
+        // MAVERICKS_BACKPORT: the page URL now exists, which is all a favicon guess needs — the page's
+        // own icons are offered only once its head is parsed, and a reader can be gone by then (#112).
+        // The URL travels explicitly: pageLoadState().url() still reads the previous page while this
+        // commit's transaction is open.
+        legacyMainFrameProcess().processPool().fetchGuessedIconForPage(*this, request.url());
+
 #if PLATFORM(COCOA)
         for (auto frameIDWithPendingLoad : m_framesWithSubresourceLoadingForPageLoadTiming)
             WTFEndSignpost(static_cast<uintptr_t>(frameID.toUInt64()), PLTSubresourceLoading, "didCommitLoadForFrame(%llu), ending pending resource loads for frame %llu", frameID.toUInt64(), frameIDWithPendingLoad.toUInt64());
