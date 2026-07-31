@@ -326,7 +326,12 @@ static void setCGFontRenderingMode(GraphicsContext& context)
     bool isRotated = ((contextTransform.b || contextTransform.c) && (contextTransform.a || contextTransform.d));
     bool doSubpixelQuantization = isTranslationOrIntegralScale || (!isRotated && context.shouldSubpixelQuantizeFonts());
 
-    CGContextSetShouldSubpixelPositionFonts(cgContext.get(), true);
+    // MAVERICKS_BACKPORT: on unscaled (non-Retina) contexts, snap glyphs to integer pixel positions the
+    // way AppKit renders all native 10.9 text (and the way WKSI's wkSetCGFontRenderingMode positioned
+    // integer-advancement fonts). Fractionally-positioned glyphs on a 1x display land between pixels and
+    // smear their stems across two columns, so body text looks blurry next to native UI text. Scaled or
+    // rotated contexts (page zoom, transforms) keep subpixel positioning, matching the old WKSI logic.
+    CGContextSetShouldSubpixelPositionFonts(cgContext.get(), !isTranslationOrIntegralScale);
     CGContextSetShouldSubpixelQuantizeFonts(cgContext.get(), doSubpixelQuantization);
 }
 
