@@ -102,5 +102,6 @@ void WKIconDatabaseCheckIntegrityBeforeOpening(WKIconDatabaseRef)
 // Every write is committed as it happens, so there is nothing to flush first (#112).
 void WKIconDatabaseClose(WKIconDatabaseRef iconDatabaseRef)
 {
+    // MAVERICKS_BACKPORT: close the revived on-disk icon store (#112).
     toImpl(iconDatabaseRef)->close();
 }

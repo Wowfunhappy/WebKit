@@ -2480,6 +2480,7 @@ void DocumentLoader::startIconLoading()
             continue;
         offeredNow.append(WTF::move(key));
         auto result = m_iconsPendingLoadDecision.add(nextIconCallbackID++, icon);
+        // MAVERICKS_BACKPORT: collect the offers in a vector the loop above can skip entries in (#112).
         iconDecisions.append({ icon, result.iterator->key });
     }
 
