@@ -824,6 +824,28 @@ static gboolean webKitWebSrcEvent(GstBaseSrc* baseSrc, GstEvent* event)
             members->isFlushing = true;
             members->responseCondition.notifyOne();
         }
+
+        // MAVERICKS_BACKPORT: GST_SEEK_FLAG_SEGMENT describes the pipeline's TIME segment — the sinks
+        // answer it with SEGMENT_DONE once they have rendered up to the segment's end. A byte-range
+        // source has no view of playback, and GstBaseSrc answers the flag as soon as it finishes
+        // pushing the range, i.e. when the download completes. Looping playback drives its next
+        // iteration off that message, so a response that arrives faster than real time (a warm cache,
+        // a short clip) restarts the element a fraction of a second in and flushes everything not yet
+        // rendered — the video replays its opening frames forever. Drop the flag here so the range
+        // ends in EOS and the end-of-media signal comes from the sinks, at the real end of playback.
+        if (flags & GST_SEEK_FLAG_SEGMENT) {
+            gdouble rate;
+            GstFormat format;
+            GstSeekType startType, stopType;
+            int64_t start, stop;
+            gst_event_parse_seek(event, &rate, &format, &flags, &startType, &start, &stopType, &stop);
+
+            GRefPtr<GstEvent> byteRangeSeek = adoptGRef(gst_event_new_seek(rate, format,
+                static_cast<GstSeekFlags>(flags & ~GST_SEEK_FLAG_SEGMENT), startType, start, stopType, stop));
+            gst_event_set_seqnum(byteRangeSeek.get(), GST_EVENT_SEQNUM(event));
+            GST_DEBUG_OBJECT(baseSrc, "Dropping GST_SEEK_FLAG_SEGMENT from the byte-range seek");
+            return GST_BASE_SRC_CLASS(webkit_web_src_parent_class)->event(baseSrc, byteRangeSeek.get());
+        }
         break;
     }
     default:
