@@ -64,12 +64,38 @@ trap 'rm -rf "$SCRATCH"' EXIT
 SRC="$HERE/.tarball-cache"
 STAGE="$SCRATCH/install"                            # full autotools install prefix
 
-export CC="$TC/bin/clang"
-export CXX="$TC/bin/clang++"
+# ccache for the dependency builds. It gets its OWN cache, separate from the WebKit build's
+# (WebKitBuild/ccache, ~20 GB): these are third-party sources that change only when a version here is
+# bumped, so they neither need nor deserve room in the cache the WebKit tree churns through, and
+# keeping them apart means a WebKit-side eviction storm cannot throw away a GStreamer rebuild's worth
+# of objects (or the other way round). 1 GB holds the whole dependency set with room to spare.
+#
+# Two settings make the cache usable at all here: every run builds in a fresh mktemp -d, so without
+# CCACHE_BASEDIR (rewrite absolute paths under it to relative) and CCACHE_NOHASHDIR (keep the build
+# directory out of the hash) each rerun would miss on every single object.
+CCACHE="${MAVERICKS_CCACHE:-$REPO/MavericksSupport/toolchain/build/ccache/bin/ccache}"
+if [ -x "$CCACHE" ]; then
+    export CCACHE_DIR="$HERE/.ccache"
+    export CCACHE_BASEDIR="$SCRATCH"
+    export CCACHE_NOHASHDIR=1
+    mkdir -p "$CCACHE_DIR"
+    "$CCACHE" --max-size=1G > /dev/null || exit 1
+else
+    echo "### no ccache at $CCACHE — building the deps uncached"
+    CCACHE=""
+fi
+
+# The bare compiler paths, for the sub-builds that need a single executable (CMake takes the launcher
+# separately); everything else gets the ccache-prefixed form below, which autotools, meson and a
+# direct "$CXX …" invocation all handle.
+CC_BIN="$TC/bin/clang"
+CXX_BIN="$TC/bin/clang++"
+export CC="${CCACHE:+$CCACHE }$CC_BIN"
+export CXX="${CCACHE:+$CCACHE }$CXX_BIN"
 # meson probes objc separately; without these it picks up the CommandLineTools clang,
 # which cannot read the modern SDK's .tbd stubs ("library not found for -lSystem").
-export OBJC="$TC/bin/clang"
-export OBJCXX="$TC/bin/clang++"
+export OBJC="$CC"
+export OBJCXX="$CXX"
 export AR="$TC/bin/llvm-ar"
 export RANLIB="$TC/bin/llvm-ranlib"
 # Classic BSD nm from CommandLineTools: libtool's symbol-pipe probing only understands
@@ -101,8 +127,10 @@ mkdir -p "$VBIN"
 # hard errors in clang >= 16 (e.g. libgcrypt's bench-slope.c calls gettimeofday
 # implicitly); relaxing them is the standard way to build old autotools C with new clang.
 LENIENT='-Wno-implicit-function-declaration -Wno-implicit-int'
-printf '#!/bin/sh\nexec "%s/bin/clang" --no-default-config %s "$@"\n'   "$TC" "$LENIENT" > "$VBIN/cc";  chmod +x "$VBIN/cc"
-printf '#!/bin/sh\nexec "%s/bin/clang++" --no-default-config %s "$@"\n' "$TC" "$LENIENT" > "$VBIN/cxx"; chmod +x "$VBIN/cxx"
+# These go through ccache too (see the cache setup above); "$CCACHE" is empty when there is none,
+# which leaves the exec line exactly as it was.
+printf '#!/bin/sh\nexec %s "%s/bin/clang" --no-default-config %s "$@"\n'   "$CCACHE" "$TC" "$LENIENT" > "$VBIN/cc";  chmod +x "$VBIN/cc"
+printf '#!/bin/sh\nexec %s "%s/bin/clang++" --no-default-config %s "$@"\n' "$CCACHE" "$TC" "$LENIENT" > "$VBIN/cxx"; chmod +x "$VBIN/cxx"
 CC_VANILLA="$VBIN/cc"
 CXX_VANILLA="$VBIN/cxx"
 
@@ -168,7 +196,8 @@ d=$(get https://github.com/google/brotli/archive/refs/tags/v1.1.0.tar.gz brotli)
 ( cd "$d" && mkdir -p out && cd out \
   && "$CMAKE" -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
        -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-       -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
+       -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+       ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
        -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
        -DCMAKE_INSTALL_PREFIX="$STAGE" .. \
   && "$NINJA" -j2 && "$NINJA" install ) || exit 1

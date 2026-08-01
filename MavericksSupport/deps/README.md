@@ -21,6 +21,12 @@ Libraries WebKit links that the 10.9 system doesn't provide. Two kinds live here
   `LC_RPATH @loader_path/../lib`, C++17 runtime vendored in-tree), so there is no
   repointing, shimming, or overlay step.
 
+`build_deps.sh` compiles through **its own ccache** in `.ccache/` (gitignored, 1 GB cap) — separate
+from the WebKit build's much larger cache in `WebKitBuild/ccache` so neither can evict the other.
+Because each run builds in a fresh `mktemp -d`, the script sets `CCACHE_BASEDIR`/`CCACHE_NOHASHDIR`
+so objects still hit across runs. `MAVERICKS_CCACHE` overrides the binary; if none is executable the
+deps build simply compiles uncached.
+
 `Source/cmake/OptionsMac.cmake` points `MAVERICKS_DEPS` at `build/` and libxml2 at
 `gstreamer/` (built by the same script); `WebKitFindPackage.cmake` finds ICU there; `OptionsMacGStreamer.cmake`
 points `GST_ROOT` at `gstreamer/`.
