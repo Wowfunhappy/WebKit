@@ -10545,15 +10545,7 @@ void WebPageProxy::setMuted(WebCore::MediaProducerMutedStateFlags state, FromApp
 #endif
     WEBPAGEPROXY_RELEASE_LOG(Media, "setMuted, app state = %d, final state = %d", state.toRaw(), newState.toRaw());
 
-    // MAVERICKS_BACKPORT (#89): muting silences the page, so the music note has to go with the sound.
-    bool audioMutedChanges = internals().mutedState.contains(WebCore::MediaProducerMutedState::AudioIsMuted)
-        != newState.contains(WebCore::MediaProducerMutedState::AudioIsMuted);
-
     internals().mutedState = newState;
-
-    // MAVERICKS_BACKPORT (#89): a page that just lost or regained its voice is no longer/now audible.
-    if (audioMutedChanges)
-        updateTitleAudioIndicator();
 
     if (!hasRunningProcess())
         return completionHandler();
@@ -15428,39 +15420,6 @@ bool WebPageProxy::hasMediaStreaming() const
     return internals().mediaState.contains(MediaProducerMediaState::HasStreamingActivity);
 }
 
-// MAVERICKS_BACKPORT (#89): Safari 7 predates the per-tab audio indicator that later browsers draw
-// beside a tab that is making sound, and it exposes no client API we could hand a glyph to — the only
-// per-tab string it takes from WebKit is the title it pulls with WKPageCopyTitle, which is where the
-// music note is added. Everything here is the state that answer is derived from; PageLoadState itself
-// keeps the page's own title, so WKWebView.title and webkit_web_view_get_title() stay truthful.
-bool WebPageProxy::isAudible() const
-{
-    return isPlayingAudio() && !internals().mutedState.contains(MediaProducerMutedState::AudioIsMuted);
-}
-
-String WebPageProxy::titleWithAudioIndicator(const String& title) const
-{
-    // An untitled page is shown by its URL, which must not gain a prefix it cannot carry.
-    if (title.isEmpty() || !isAudible())
-        return title;
-
-    constexpr char16_t beamedEighthNotes = 0x266B;
-    return makeString(beamedEighthNotes, ' ', title);
-}
-
-void WebPageProxy::updateTitleAudioIndicator()
-{
-    RefPtr frame = m_mainFrame;
-    if (!frame)
-        return;
-
-    // Safari 7 takes no title from this callback for the tab: it treats the callback as a "re-read the
-    // title" signal and then pulls WKPageCopyTitle. Re-firing it with the frame's own title is what
-    // makes the note appear and disappear as sound starts and stops.
-    if (m_loaderClient)
-        m_loaderClient->didReceiveTitleForFrame(*this, frame->title(), *frame, nullptr);
-}
-
 bool WebPageProxy::isCapturingAudio() const
 {
     return internals().mediaState.containsAny(MediaProducer::IsCapturingAudioMask);
@@ -15536,10 +15495,6 @@ void WebPageProxy::updatePlayingMediaDidChange(CanDelayNotification canDelayNoti
 
     if (playingAudioChanges && pageClient)
         pageClient->isPlayingAudioDidChange();
-
-    // MAVERICKS_BACKPORT (#89): the music note in the displayed title tracks the audible state.
-    if (playingAudioChanges)
-        updateTitleAudioIndicator();
 
 #if ENABLE(MEDIA_STREAM)
     if (oldMediaCaptureState != newMediaCaptureState) {

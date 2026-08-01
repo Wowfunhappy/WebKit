@@ -2123,13 +2123,6 @@ public:
 
     bool NODELETE isPlayingAudio() const;
     bool NODELETE hasMediaStreaming() const;
-
-    // MAVERICKS_BACKPORT (#89): the page title WebKit reports for display carries a music-note
-    // prefix while the page is audible, because Safari 7 has no tab audio indicator of its own.
-    bool NODELETE isAudible() const;
-    String NODELETE titleWithAudioIndicator(const String&) const;
-    void updateTitleAudioIndicator();
-
     void isPlayingMediaDidChange(WebCore::MediaProducerMediaStateFlags);
     void updateReportedMediaCaptureState();
 

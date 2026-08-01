@@ -494,13 +494,7 @@ void WKPageUpdateWebsitePolicies(WKPageRef pageRef, WKWebsitePoliciesRef website
 
 WKStringRef WKPageCopyTitle(WKPageRef pageRef)
 {
-    // MAVERICKS_BACKPORT (#89): Safari 7 has no per-tab audio indicator of its own and no client API
-    // we could hand a glyph to — the only per-tab string it takes from WebKit is the one it pulls
-    // here, so a page that is currently making sound answers with a music note in front of its title.
-    // This is the single seam Safari 7 reads; PageLoadState keeps the document's own title, so
-    // WKWebView.title, webkit_web_view_get_title(), history entries and back/forward items are unaffected.
-    Ref page = protect(*toImpl(pageRef));
-    return toCopiedAPI(page->titleWithAudioIndicator(protect(page->pageLoadState())->title()));
+    return toCopiedAPI(protect(protect(toImpl(pageRef))->pageLoadState())->title());
 }
 
 WKFrameRef WKPageGetMainFrame(WKPageRef pageRef)
