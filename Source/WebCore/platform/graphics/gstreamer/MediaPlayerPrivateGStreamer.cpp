@@ -633,7 +633,13 @@ bool MediaPlayerPrivateGStreamer::doSeek(const SeekTarget& target, float rate, b
     // Stream mode. Seek will automatically deplete buffer level, so we always want to pause the pipeline and wait until the
     // buffer is replenished. But we don't want this behaviour on immediate seeks that only change the playback rate.
     // We restrict this behaviour to protocols that use NetworkProcess.
-    if (!player->isLooping() && !m_downloadBuffer && !m_isChangingRate && m_url.protocolIsInHTTPFamily() && currentTime() != startTime) {
+    // MAVERICKS_BACKPORT: the preamble applies to any FLUSHING seek, not just a non-looping one. Upstream
+    // excludes looping because it assumes a looping seek is the non-flushing SEGMENT seek built above, which
+    // keeps the buffer; a looping element whose source cannot segment-seek issues a flushing seek that
+    // depletes queue2 exactly like any other. Skipping the preamble there loses the false --> true buffering
+    // edge inside the pause's own async state change, and with it the true --> false edge that resumes
+    // playback, so the element parks at its restart position with paused() still reporting false.
+    if (flag == GST_SEEK_FLAG_FLUSH && !m_downloadBuffer && !m_isChangingRate && m_url.protocolIsInHTTPFamily() && currentTime() != startTime) {
         GST_DEBUG_OBJECT(pipeline(), "[Buffering] Pausing pipeline, resetting buffering level to 0 and forcing m_isBuffering true before seeking on stream mode");
 
         auto& quirksManager = GStreamerQuirksManager::singleton();
@@ -3038,7 +3044,12 @@ void MediaPlayerPrivateGStreamer::updateStates()
 
         // Delay the m_isBuffering change by returning it to its previous value. Without this, the false --> true change
         // would go unnoticed by the code that should trigger a pause.
-        if (m_wasBuffering != m_isBuffering && !m_isPaused && m_playbackRate) {
+        // MAVERICKS_BACKPORT: only the false --> true edge is delayed. Delaying true --> false discards the sole
+        // signal that resumes a stream paused for buffering: the resume in the GST_STATE_CHANGE_SUCCESS branch above
+        // fires on that edge, and once the queue is full the element stops posting buffering messages, so the edge
+        // never comes back. A loop restart refills fast enough to complete buffering while the pause it triggered is
+        // still ASYNC, which wedges the pipeline in PAUSED with paused() reporting false to HTMLMediaElement.
+        if (!m_wasBuffering && m_isBuffering && !m_isPaused && m_playbackRate) {
             GST_TRACE_OBJECT(pipeline(), "[Buffering] Delaying m_isBuffering %s --> %s to force the proper change from not buffering to buffering when the async state change completes.", boolForPrinting(m_wasBuffering), boolForPrinting(m_isBuffering));
             m_isBuffering = m_wasBuffering;
             m_bufferingPercentage = m_previousBufferingPercentage;
@@ -3519,7 +3530,21 @@ void MediaPlayerPrivateGStreamer::createGSTPlayBin(const URL& url)
         player->handleNeedContextMessage(message);
     }), this);
 
-    g_signal_connect_swapped(bus.get(), "message::segment-done", G_CALLBACK(+[](MediaPlayerPrivateGStreamer* player, GstMessage*) {
+    g_signal_connect_swapped(bus.get(), "message::segment-done", G_CALLBACK(+[](MediaPlayerPrivateGStreamer* player, GstMessage* message) {
+        // MAVERICKS_BACKPORT: only a TIME segment-done reports that playback reached the end of the segment
+        // this player asked for — every seek here is issued in GST_FORMAT_TIME. An element that answers
+        // GST_SEEK_FLAG_SEGMENT in its own format posts its own completion: a byte-range source posts a BYTES
+        // segment-done when it finishes pushing the range, which says the download completed, not that
+        // anything played. Taking that for end-of-media restarts a looping element as soon as its bytes
+        // arrive, so a response faster than real time replays the opening frames forever.
+        GstFormat segmentDoneFormat;
+        gst_message_parse_segment_done(message, &segmentDoneFormat, nullptr);
+        if (segmentDoneFormat != GST_FORMAT_TIME) {
+            GST_DEBUG_OBJECT(player->pipeline(), "Ignoring %s segment-done message, only TIME reports the end of playback",
+                gst_format_get_name(segmentDoneFormat));
+            return;
+        }
+
         callOnMainThread([weakThis = ThreadSafeWeakPtr { *player }, player] {
             RefPtr self = weakThis.get();
             if (!self)
@@ -3743,6 +3768,7 @@ void MediaPlayerPrivateGStreamer::pausedTimerFired()
 void MediaPlayerPrivateGStreamer::acceleratedRenderingStateChanged()
 {
     RefPtr player = m_player.get();
+    // MAVERICKS_BACKPORT: the accelerated-video path is per-configuration — see each branch below.
 #if USE(COORDINATED_GRAPHICS)
     m_canRenderingBeAccelerated = player && player->acceleratedCompositingEnabled();
 #elif PLATFORM(COCOA)
@@ -4019,6 +4045,19 @@ bool MediaPlayerPrivateGStreamer::isSeamlessSeekingEnabled() const
     // The GStreamer oggdemux element doesn't handle segment seeks.
     if (m_containerType == ContainerType::Ogg) {
         GST_DEBUG_OBJECT(m_pipeline.get(), "Seamless seeking not supported for media muxed in Ogg container");
+        return false;
+    }
+
+    // MAVERICKS_BACKPORT: a segment seek needs an element that can report when playback reached the end of
+    // the TIME segment. That is the demuxer, and it can only do so when it drives the reading itself, by
+    // pulling. WebKitWebSrc is a GstPushSrc, so it never offers pull mode and the demuxer instead answers
+    // the seek by translating it into a byte-range seek on the source — where nothing produces a TIME
+    // segment-done at all, and looping would have no end-of-media signal to run on. Fall back to the
+    // flushing-seek loop, as this function already does for Ogg. Asked before source-setup has run, assume
+    // the pushed case: play() schedules the initial segment seek from there, and guessing "seekable" then
+    // is what commits the pipeline to the path that has no completion signal.
+    if (!m_source || WEBKIT_IS_WEB_SRC(m_source.get())) {
+        GST_DEBUG_OBJECT(m_pipeline.get(), "Seamless seeking needs a pull-mode source, which WebKitWebSrc is not");
         return false;
     }
 

@@ -493,12 +493,13 @@ d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.
 ( cd "$d" && patch -p1 -N < "$HERE/patches/gst-plugins-bad-ice-credential-charset.patch" \
     > /tmp/depslog-gstbad-patch.log 2>&1 || { grep -q 'previously applied' /tmp/depslog-gstbad-patch.log; } ) \
   || { echo "gst-plugins-bad ICE patch failed to apply"; cat /tmp/depslog-gstbad-patch.log; exit 1; }
-# MAVERICKS_BACKPORT: vtenc's destination color properties make 10.9's VideoToolbox fail
-# every frame with kVTInsufficientSourceColorDataErr (-12917) on untagged source buffers,
-# so WebRTC outbound H.264 never encodes a single frame. See patches/README.md.
-( cd "$d" && patch -p1 -N < "$HERE/patches/gst-plugins-bad-vtenc-color-match-10.9.patch" \
+# MAVERICKS_BACKPORT: vtenc wraps its source pixel buffers around raw GstMemory without stating
+# their colorimetry, and 10.9's VideoToolbox cannot color-match an untagged source: every frame
+# fails with kVTInsufficientSourceColorDataErr (-12917), so WebRTC outbound H.264 encodes nothing.
+# This tags those buffers from the negotiated caps. See patches/README.md.
+( cd "$d" && patch -p1 -N < "$HERE/patches/gst-plugins-bad-vtenc-tag-source-colorimetry.patch" \
     > /tmp/depslog-gstbad-patch2.log 2>&1 || { grep -q 'previously applied' /tmp/depslog-gstbad-patch2.log; } ) \
-  || { echo "gst-plugins-bad vtenc color patch failed to apply"; cat /tmp/depslog-gstbad-patch2.log; exit 1; }
+  || { echo "gst-plugins-bad vtenc colorimetry patch failed to apply"; cat /tmp/depslog-gstbad-patch2.log; exit 1; }
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
     -Dwebrtc=enabled -Dwebrtcdsp=enabled -Ddtls=enabled -Dsrtp=enabled -Dsctp=enabled \
     -Dapplemedia=enabled > /tmp/depslog-gstbad-setup.log 2>&1 \
