@@ -1,12 +1,9 @@
 # Built libraries + headers regenerated from source by build_deps.sh (run
-# via MavericksSupport/bootstrap.sh). Artifact, never committed. The vendored GStreamer
-# runtime (the committed copy of that script's output) lives in gstreamer/.
+# via MavericksSupport/bootstrap.sh), plus the script's own ccache in build/ccache.
+# Artifact, never committed. The vendored GStreamer runtime (the committed copy of that
+# script's output) lives in gstreamer/.
 /build/
 
 # Downloaded source tarballs cached by build_deps.sh so a rerun after a mid-script
 # failure does not re-download everything. Fetch artifacts, never committed.
 /.tarball-cache/
-
-# The dependency builds' own ccache (1 GB cap), kept apart from the WebKit build's cache in
-# WebKitBuild/ccache so neither can evict the other. Build artifact, never committed.
-/.ccache/

@@ -56,7 +56,7 @@ export SDKROOT="$SDK"
 # and nasm dirs join the PATH for meson and the assembly-heavy codec builds.
 export PATH="$(dirname "$NASM"):$(dirname "$NINJA"):/Library/Developer/CommandLineTools/usr/bin:$PATH"
 
-DEST="$HERE/build"                                 # gitignored artifact: include/ + lib/ + bin/
+DEST="$HERE/build"                                 # gitignored artifact: include/ + lib/ + bin/ + ccache/
 SCRATCH="$(mktemp -d -t depbuild)"
 trap 'rm -rf "$SCRATCH"' EXIT
 # Tarballs cache in a persistent (gitignored) dir so a rerun after a mid-script failure
@@ -68,14 +68,16 @@ STAGE="$SCRATCH/install"                            # full autotools install pre
 # (WebKitBuild/ccache, ~20 GB): these are third-party sources that change only when a version here is
 # bumped, so they neither need nor deserve room in the cache the WebKit tree churns through, and
 # keeping them apart means a WebKit-side eviction storm cannot throw away a GStreamer rebuild's worth
-# of objects (or the other way round). 1 GB holds the whole dependency set with room to spare.
+# of objects (or the other way round). 1 GB holds the whole dependency set with room to spare. It sits
+# in build/, so it is gitignored with the rest of the artifacts and a normal rerun keeps it (the collect
+# step below only clears build/{include,lib,bin}).
 #
 # Two settings make the cache usable at all here: every run builds in a fresh mktemp -d, so without
 # CCACHE_BASEDIR (rewrite absolute paths under it to relative) and CCACHE_NOHASHDIR (keep the build
 # directory out of the hash) each rerun would miss on every single object.
 CCACHE="${MAVERICKS_CCACHE:-$REPO/MavericksSupport/toolchain/build/ccache/bin/ccache}"
 if [ -x "$CCACHE" ]; then
-    export CCACHE_DIR="$HERE/.ccache"
+    export CCACHE_DIR="$DEST/ccache"
     export CCACHE_BASEDIR="$SCRATCH"
     export CCACHE_NOHASHDIR=1
     mkdir -p "$CCACHE_DIR"
