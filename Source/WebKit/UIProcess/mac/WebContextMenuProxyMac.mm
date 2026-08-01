@@ -187,14 +187,11 @@
 }
 #endif
 
-// MAVERICKS_BACKPORT: gate the share action on SERVICE_CONTROLS, which is disabled on 10.9.
-#if ENABLE(SERVICE_CONTROLS)
 - (void)performShare:(id)sender
 {
     if (RefPtr menuProxy = _menuProxy.get())
         menuProxy->handleShareMenuItem();
 }
-#endif // MAVERICKS_BACKPORT ENABLE(SERVICE_CONTROLS)
 
 @end
 
@@ -277,15 +274,12 @@ void WebContextMenuProxyMac::handleContextMenuWritingTools(WebCore::WritingTools
 }
 #endif
 
-// MAVERICKS_BACKPORT: gate handleShareMenuItem on SERVICE_CONTROLS, which is disabled on 10.9.
-#if ENABLE(SERVICE_CONTROLS)
 void WebContextMenuProxyMac::handleShareMenuItem()
 {
     RetainPtr shareMenuItem = createShareMenuItem(ShareMenuItemType::Popover);
     [shareMenuItem setMenu:m_menu.get()];
     [[NSApplication sharedApplication] sendAction:[shareMenuItem action] to:retainPtr([shareMenuItem target]).get() from:shareMenuItem.get()];
 }
-#endif // MAVERICKS_BACKPORT ENABLE(SERVICE_CONTROLS)
 
 #if ENABLE(SERVICE_CONTROLS)
 void WebContextMenuProxyMac::setupServicesMenu()
@@ -449,8 +443,6 @@ void WebContextMenuProxyMac::removeBackgroundFromControlledImage()
     page->replaceImageForRemoveBackground(*elementContext, { String(type.get()) }, span(data.get()));
 #endif // ENABLE(IMAGE_ANALYSIS_ENHANCEMENTS)
 }
-// MAVERICKS_BACKPORT: close the SERVICE_CONTROLS guard wrapping the share/services menu code (disabled on 10.9).
-#endif // ENABLE(SERVICE_CONTROLS)
 
 #if ENABLE(CONTEXT_MENU_IMAGES_ON_MAC)
 static void updateMenuItemImage(NSMenuItem *menuItem, const WebCore::ContextMenuAction& action, const String& title)
@@ -488,8 +480,6 @@ static void updateMenuItemImage(NSMenuItem *menuItem, const WebCore::ContextMenu
 }
 #endif
 
-// MAVERICKS_BACKPORT: gate share-menu construction on SERVICE_CONTROLS, which is disabled on 10.9.
-#if ENABLE(SERVICE_CONTROLS)
 RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemType type)
 {
     ASSERT(m_context.webHitTestResultData());
@@ -534,39 +524,19 @@ RetainPtr<NSMenuItem> WebContextMenuProxyMac::createShareMenuItem(ShareMenuItemT
         return nil;
 
     RetainPtr sharingServicePicker = adoptNS([[NSSharingServicePicker alloc] initWithItems:items.get()]);
-
-    // MAVERICKS_BACKPORT: -[NSSharingServicePicker standardShareMenuItemRelativeToRect:ofView:preferredEdge:]
-    // is 10.10+. On 10.9 it is an unrecognized selector; the raised NSException unwinds through the
-    // context-menu build (getContextMenuFromItems) and is swallowed by AppKit's event loop, so EVERY
-    // right-click in an editable field produces no menu at all (the reported "freeze"). 10.9 presents Share
-    // as an inline SUBMENU of services (Email/Messages/…), exactly as TextEdit and every native 10.9 app do
-    // — not the flat-item-plus-popover that upstream's placeholder/performShare path builds. Reconstruct
-    // that native form directly: a "Share" parent whose submenu is the picker's own services menu
-    // ([picker menu] — declared in NSSharingServicePickerSPI.h, already wired by AppKit with a per-service
-    // target/action). representedObject keeps the picker alive so those actions fire. The title is the
-    // system's localized "Share" (ShareKit's strings table) so the menu reads correctly in every language.
-    // Returns nil when there are no services, which the caller already treats as "no Share item"; the
-    // placeholder/performShare indirection below is not reached on 10.9.
-    if (![sharingServicePicker respondsToSelector:@selector(standardShareMenuItemRelativeToRect:ofView:preferredEdge:)]) {
-        RetainPtr<NSMenu> servicesMenu = [sharingServicePicker menu];
-        if (![servicesMenu numberOfItems])
-            return nil;
-        RetainPtr<NSBundle> shareKitBundle = [NSBundle bundleWithPath:@"/System/Library/PrivateFrameworks/ShareKit.framework"];
-        RetainPtr<NSString> shareTitle = [shareKitBundle localizedStringForKey:@"Share" value:@"Share" table:@"ShareKit"];
-        RetainPtr<NSMenuItem> shareItem = adoptNS([[NSMenuItem alloc] initWithTitle:([shareTitle length] ? shareTitle.get() : @"Share") action:nil keyEquivalent:@""]);
-        [shareItem setEnabled:YES];
-        [shareItem setSubmenu:servicesMenu.get()];
-        [shareItem setRepresentedObject:sharingServicePicker.get()];
-        [shareItem setIdentifier:_WKMenuItemIdentifierShareMenu];
-        return shareItem;
-    }
-
     RetainPtr shareMenuItem = [sharingServicePicker standardShareMenuItemRelativeToRect:hitTestData.elementBoundingBox ofView:m_webView.get().get() preferredEdge:NSMinYEdge];
 
     if (!shareMenuItem)
         return nil;
 
-    if (usePlaceholder) {
+    // MAVERICKS_BACKPORT: was `if (usePlaceholder)`. 10.9 presents Share as an inline SUBMENU of services
+    // (Email/Messages/…) — TextEdit's context menu is the reference, and the polyfill that stands in for
+    // the absent 10.10 constructor builds that native form. Flattening it into a placeholder whose action
+    // opens a share POPOVER, as upstream does, throws the submenu away and gives this OS an affordance it
+    // has nowhere else; Jonathan rejected that look outright ("looks bad, match Mavericks"). Keep an item
+    // that already carries its services as a submenu, and let the placeholder path handle the flat items
+    // the real 10.10 API returns.
+    if (usePlaceholder && ![shareMenuItem submenu]) {
         RetainPtr placeholder = adoptNS([[NSMenuItem alloc] initWithTitle:retainPtr([shareMenuItem title]).get() action:@selector(performShare:) keyEquivalent:@""]);
         [placeholder setTarget:[WKMenuTarget sharedMenuTarget]];
 #if ENABLE(CONTEXT_MENU_IMAGES_ON_MAC)
@@ -805,6 +775,35 @@ static RetainPtr<NSMenuItem> createMenuActionItem(const WebContextMenuItemData& 
     return menuItem;
 }
 
+// MAVERICKS_BACKPORT: getContextMenuFromItems() both filters whole items out of the proposal
+// (LookUpInDictionary, Translate, WritingTools below) and lets getContextMenuItem() decline to build one
+// — Share resolves to nil when the hit test carries nothing shareable or the machine has no sharing
+// services — and -[NSPointerArray allObjects] drops those nils. Either way the separator WebCore appended
+// to introduce the missing group survives and AppKit draws it as a blank row: on 10.9 a right-click in an
+// empty text field showed a double-height gap above Inspect Element. The twin of this in the WK1
+// converter is WebHTMLView.mm's removeOrphanedSeparators(). Drop separators that lost the group they
+// introduced (leading, trailing, and runs) so the menu AppKit displays is well formed.
+static void removeOrphanedSeparators(NSMutableArray *menuItems)
+{
+    bool previousItemWasSeparator = true; // The start of the menu separates as effectively as a separator does.
+    for (NSUInteger index = 0; index < [menuItems count]; ) {
+        if (![[menuItems objectAtIndex:index] isSeparatorItem]) {
+            previousItemWasSeparator = false;
+            ++index;
+            continue;
+        }
+        if (previousItemWasSeparator) {
+            [menuItems removeObjectAtIndex:index];
+            continue;
+        }
+        previousItemWasSeparator = true;
+        ++index;
+    }
+
+    while ([menuItems count] && [[menuItems lastObject] isSeparatorItem])
+        [menuItems removeLastObject];
+}
+
 void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenuItemData>& items, CompletionHandler<void(NSMenu *)>&& completionHandler)
 {
     auto menu = adoptNS([[NSMenu alloc] initWithTitle:@""]);
@@ -884,7 +883,11 @@ void WebContextMenuProxyMac::getContextMenuFromItems(const Vector<WebContextMenu
         if (--itemsRemaining)
             return;
 
-        [menu setItemArray:[sparseMenuItems allObjects]];
+        // MAVERICKS_BACKPORT: was `[menu setItemArray:[sparseMenuItems allObjects]]` — see
+        // removeOrphanedSeparators() above.
+        RetainPtr menuItems = adoptNS([[sparseMenuItems allObjects] mutableCopy]);
+        removeOrphanedSeparators(menuItems.get());
+        [menu setItemArray:menuItems.get()];
 
         RefPtr page = weakPage.get();
         if (page && imageBitmap) {
@@ -1038,9 +1041,7 @@ void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuI
         return;
     }
 
-// MAVERICKS_BACKPORT: upstream's assertion that the item list is empty here. Kept commented, not deleted: this port fills the share menu itself further down (10.9 has no NSSharingServicePicker menu API), so the list is legitimately non-empty by this point.
-//     ASSERT(items.isEmpty());
-// (end MAVERICKS_BACKPORT restored block)
+    ASSERT(items.isEmpty());
     if (!m_menu)
         return;
 
@@ -1056,17 +1057,7 @@ void WebContextMenuProxyMac::showContextMenuWithItems(Vector<Ref<WebContextMenuI
         RELEASE_ASSERT_NOT_REACHED();
 #endif
     } else {
-        // MAVERICKS_BACKPORT: present via the AppKit contextual-menu path
-        // (popUpContextMenu:withEvent:forView:) so AppKit inserts the standard "Services"
-        // submenu by walking webView's responder chain (validRequestorForSendType:returnType:).
-        // popUpMenuPositioningItem:atLocation:inView:nil omits that submenu because it has no
-        // view/responder context. Safari 9.1.3 wraps WKView in a degenerate-bounds container, so
-        // [webView convertPoint:menuLocation toView:nil] returns (0,0) and mispositions the menu;
-        // derive the window location from the cursor's screen position instead
-        RetainPtr<NSWindow> window = [webView window];
-        NSPoint screenLocation = [NSEvent mouseLocation];
-        NSPoint windowLocation = [window convertPointFromScreen:screenLocation];
-        RetainPtr<NSEvent> event = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown location:windowLocation modifierFlags:0 timestamp:0 windowNumber:[window windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
+        RetainPtr event = page->createSyntheticEventForContextMenu(locationInWindowCoordinates);
         [NSMenu popUpContextMenu:m_menu.get() withEvent:event.get() forView:webView.get()];
     }
 }

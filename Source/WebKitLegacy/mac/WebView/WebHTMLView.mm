@@ -3598,11 +3598,44 @@ static RetainPtr<NSMenuItem> createShareMenuItem(const WebCore::HitTestResult& h
     return [NSMenuItem standardShareMenuItemForItems:items.get()];
 }
 
+// MAVERICKS_BACKPORT: createMenuItem() returns nil for an item the platform declines to build — Share
+// when the hit test carries nothing shareable or the machine has no sharing services, Translate when the
+// OS cannot handle it — and createNSArray() (WTF::addUnlessNil) drops those nils while keeping the
+// separators WebCore appended to introduce them. AppKit draws such an orphan as a blank row, which is
+// what a host that filters the surrounding items is left holding: Syncthing removes Back/Forward/Stop/
+// Reload from every menu, so an empty-space right-click showed nothing but stray dividers above Inspect
+// Element. Stock 10.9 WebKit proposed no Share item and no such separator. Drop separators that lost the
+// group they introduced (leading, trailing, and runs) so what the delegate and AppKit see is well formed.
+static void removeOrphanedSeparators(NSMutableArray *menuItems)
+{
+    bool previousItemWasSeparator = true; // The start of the menu separates as effectively as a separator does.
+    for (NSUInteger index = 0; index < [menuItems count]; ) {
+        if (![[menuItems objectAtIndex:index] isSeparatorItem]) {
+            previousItemWasSeparator = false;
+            ++index;
+            continue;
+        }
+        if (previousItemWasSeparator) {
+            [menuItems removeObjectAtIndex:index];
+            continue;
+        }
+        previousItemWasSeparator = true;
+        ++index;
+    }
+
+    while ([menuItems count] && [[menuItems lastObject] isSeparatorItem])
+        [menuItems removeLastObject];
+}
+
 static RetainPtr<NSMutableArray> createMenuItems(const WebCore::HitTestResult& hitTestResult, const Vector<WebCore::ContextMenuItem>& items)
 {
-    return createNSArray(items, [&] (auto& item) {
+    // MAVERICKS_BACKPORT: was a bare `return createNSArray(…)`; the result now goes through
+    // removeOrphanedSeparators() — see the note on that function above.
+    auto menuItems = createNSArray(items, [&] (auto& item) {
         return createMenuItem(hitTestResult, item);
     });
+    removeOrphanedSeparators(menuItems.get()); // MAVERICKS_BACKPORT: see above.
+    return menuItems;
 }
 
 static RetainPtr<NSMenuItem> createMenuItem(const WebCore::HitTestResult& hitTestResult, const WebCore::ContextMenuItem& item)
@@ -6192,21 +6225,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     
     // Parent our root layer in the container layer
     [viewLayer addSublayer:layer];
-
-    // MAVERICKS_BACKPORT: Dashboard widget windows are non-opaque (borderless, drawsBackground=NO). When
-    // WK1 content composites it is hosted in layerHostingView (a layer-hosting subview); if the window's
-    // root content view is not itself layer-backed, the window's CPU backing store stays empty where the
-    // content composites, so the WindowServer's per-pixel mouse hit-test treats those pixels as transparent
-    // and clicks fall through — the widget never becomes key and its controls (e.g. <select> dropdowns)
-    // can't be clicked. Making the window's contentView layer-backed folds the hosted CA tree into the
-    // window surface the WindowServer hit-tests, so composited content becomes mouse-solid. Opaque windows
-    // (Safari, Mail) already hit-test correctly and are left untouched.
-    if (NSWindow *hostWindow = [self window]; hostWindow && ![hostWindow isOpaque]) {
-        NSView *windowContentView = [hostWindow contentView];
-        if (windowContentView && ![windowContentView wantsLayer])
-            [windowContentView setWantsLayer:YES];
-    }
-
+    
     if ([[self _webView] _postsAcceleratedCompositingNotifications])
         [[NSNotificationCenter defaultCenter] postNotificationName:_WebViewDidStartAcceleratedCompositingNotification object:[self _webView] userInfo:nil];
 

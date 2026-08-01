@@ -3173,11 +3173,11 @@ WK_POLYFILL_SEL("getSharingServicesForItems:mask:completion:", "wk_getSharingSer
 // per-service image/target/action). representedObject keeps the picker alive so those actions can fire.
 // The title is the system's localized "Share" (ShareKit's strings table) so the menu reads correctly in
 // every language. Returns nil when no service can handle the items, the real constructor's "no item"
-// answer, which the caller already handles. Same form as the WK2 UIProcess Share item
-// (WebContextMenuProxyMac.mm), which cannot route through this polyfill because upstream WK2 builds its
-// item from a different, picker-anchored API.
+// answer, which the caller already handles. The WK2 UIProcess builds its Share item from the
+// picker-anchored variant of the same 10.10 API, polyfilled just below in the same form.
 @interface NSSharingServicePicker (WKPolyfillShareMenuSPI)
 - (NSMenu *)menu;
+- (void)showRelativeToRect:(NSRect)rect ofView:(NSView *)view preferredEdge:(NSRectEdge)preferredEdge;
 @end
 
 @interface NSMenuItem (WKPolyfillScopeShareMenu)
@@ -3205,6 +3205,100 @@ WK_POLYFILL_SEL("getSharingServicesForItems:mask:completion:", "wk_getSharingSer
 
 @end
 WK_POLYFILL_SEL("standardShareMenuItemForItems:", "wk_standardShareMenuItemForItems:");
+
+// -[NSSharingServicePicker standardShareMenuItemRelativeToRect:ofView:preferredEdge:] — the picker's own
+// "Share" menu-item constructor, 10.10+ and absent on 10.9 (probed on-host: unrecognized selector). The
+// WK2 UIProcess context-menu build (WebContextMenuProxyMac::createShareMenuItem) calls it for anything
+// shareable, and the NSException unwound the whole menu build, so every editable right-click in Safari
+// produced no menu at all.
+//
+// Same 10.9-native form as +[NSMenuItem standardShareMenuItemForItems:] above — a localized "Share"
+// parent whose submenu is the picker's own services menu — because that is what a Share item looks like
+// on this OS. The rect/view/edge describe where the real 10.10 item anchors its share popover when
+// invoked; 10.9 shows the services inline in the submenu instead, so they are only needed for the second
+// half of the contract: a caller that ignores the submenu and performs the item's action (upstream's
+// placeholder path does exactly that, via -performShare:) must still get the picker on screen. The item's
+// action therefore drives -showRelativeToRect:ofView:preferredEdge: — present and wired on 10.9 — with
+// the arguments the caller passed. AppKit ignores an action on an item that has a submenu, so the two
+// halves do not fight. The anchor object owns the picker and rides along as an associated object of the
+// item, since -[NSMenuItem setTarget:] does not retain. It RETAINS the view: an unretained pointer would
+// dangle for a caller that keeps the item past the view, and a zeroing weak slot is not an option on 10.9
+// — objc_storeWeak aborts the process outright for the runtime's no-weak classes ("Cannot form weak
+// reference to instance of class NSTextView", SIGILL), and an NSTextView is a perfectly ordinary view to
+// anchor a Share item to. Retaining closes no cycle: a context menu is owned by whoever pops it up, not
+// by the view, so the item — and with it this anchor and its retain on the view — goes away with the menu.
+@interface WKPolyfillSharePickerAnchor : NSObject {
+    NSSharingServicePicker *_picker;
+    NSView *_view;
+    NSRect _rect;
+    NSRectEdge _preferredEdge;
+}
+- (id)initWithPicker:(NSSharingServicePicker *)picker rect:(NSRect)rect ofView:(NSView *)view preferredEdge:(NSRectEdge)preferredEdge;
+- (void)wk_showSharePicker:(id)sender;
+@end
+
+@implementation WKPolyfillSharePickerAnchor
+
+- (id)initWithPicker:(NSSharingServicePicker *)picker rect:(NSRect)rect ofView:(NSView *)view preferredEdge:(NSRectEdge)preferredEdge
+{
+    if (!(self = [super init]))
+        return nil;
+    _picker = [picker retain];
+    _view = [view retain];
+    _rect = rect;
+    _preferredEdge = preferredEdge;
+    return self;
+}
+
+- (void)dealloc
+{
+    [_view release];
+    [_picker release];
+    [super dealloc];
+}
+
+- (void)wk_showSharePicker:(id)sender
+{
+    (void)sender;
+    if (_view)
+        [_picker showRelativeToRect:_rect ofView:_view preferredEdge:_preferredEdge];
+}
+
+@end
+
+static const void *kWKSharePickerAnchorKey = &kWKSharePickerAnchorKey;
+
+@interface NSSharingServicePicker (WKPolyfillScopeAnchoredShareMenu)
+- (NSMenuItem *)wk_standardShareMenuItemRelativeToRect:(NSRect)rect ofView:(NSView *)view preferredEdge:(NSRectEdge)preferredEdge;
+@end
+
+@implementation NSSharingServicePicker (WKPolyfillScopeAnchoredShareMenu)
+
+- (NSMenuItem *)wk_standardShareMenuItemRelativeToRect:(NSRect)rect ofView:(NSView *)view preferredEdge:(NSRectEdge)preferredEdge
+{
+    NSMenu *servicesMenu = [self menu];
+    if (![servicesMenu numberOfItems])
+        return nil;
+    NSBundle *shareKitBundle = [NSBundle bundleWithPath:@"/System/Library/PrivateFrameworks/ShareKit.framework"];
+    NSString *shareTitle = [shareKitBundle localizedStringForKey:@"Share" value:@"Share" table:@"ShareKit"];
+    NSMenuItem *shareItem = [[[NSMenuItem alloc] initWithTitle:([shareTitle length] ? shareTitle : @"Share")
+                                                        action:@selector(wk_showSharePicker:)
+                                                 keyEquivalent:@""] autorelease];
+    [shareItem setEnabled:YES];
+    [shareItem setSubmenu:servicesMenu];
+    [shareItem setRepresentedObject:self];
+
+    WKPolyfillSharePickerAnchor *anchor = [[[WKPolyfillSharePickerAnchor alloc] initWithPicker:self
+                                                                                          rect:rect
+                                                                                        ofView:view
+                                                                                 preferredEdge:preferredEdge] autorelease];
+    [shareItem setTarget:anchor];
+    objc_setAssociatedObject(shareItem, kWKSharePickerAnchorKey, anchor, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return shareItem;
+}
+
+@end
+WK_POLYFILL_SEL("standardShareMenuItemRelativeToRect:ofView:preferredEdge:", "wk_standardShareMenuItemRelativeToRect:ofView:preferredEdge:");
 
 // ---------------------------------------------------------------------------------------------
 // AppKit pieces the Web Inspector's window/panel code needs, all absent on 10.9 (probed on-host).

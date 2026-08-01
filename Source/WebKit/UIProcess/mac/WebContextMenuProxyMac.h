@@ -62,15 +62,9 @@ public:
     void handleContextMenuWritingTools(WebCore::WritingTools::RequestedTool);
 #endif
 
-// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
-//     void handleShareMenuItem();
-//
-// (end MAVERICKS_BACKPORT restored block)
-#if ENABLE(SERVICE_CONTROLS)
-    // MAVERICKS_BACKPORT: handleShareMenuItem() is declared inside the SERVICE_CONTROLS guard so it
-    // matches its definition in WebContextMenuProxyMac.mm (also SERVICE_CONTROLS-only); base 83b24ce
-    // declared it unconditionally, leaving an undefined symbol when SERVICE_CONTROLS is off in this build.
     void handleShareMenuItem();
+
+#if ENABLE(SERVICE_CONTROLS)
     void clearServicesMenu();
     void removeBackgroundFromControlledImage();
 #endif
