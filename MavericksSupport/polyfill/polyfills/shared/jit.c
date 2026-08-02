@@ -51,20 +51,3 @@ void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset) {
  */
 WK_PF_ENTRY(mmap, NULL, &mmap, WK_POLYFILL_FUNCTION, WK_POLYFILL_REPLACES);
 #endif
-
-/*
- * pthread_jit_write_protect_np (added macOS 11.0)
- * On x86_64, this is a no-op.
- */
-void pthread_jit_write_protect_np(int enabled) {
-	(void)enabled;
-}
-
-/*
- * pthread_jit_write_protect_supported_np (added macOS 11.0)
- * Reports whether per-thread JIT write-protection (Apple Silicon W^X) exists.
- * x86_64 has no such mechanism, so report unsupported.
- */
-int pthread_jit_write_protect_supported_np(void) {
-	return 0;
-}

@@ -152,9 +152,9 @@ if [ -n "$leaked" ]; then
     exit 1
 fi
 
-# Two definitions of one symbol used to be invisible: whichever archive member the linker happened
-# to pull decided the winner. Force-loading makes them a hard link error instead, so catch them here
-# with a clearer message than ld's.
+# In an ordinary archive link two definitions of one symbol are invisible: whichever member the linker
+# pulls decides the winner. Force-loading makes them a hard link error instead, so catch them here with
+# a clearer message than ld's.
 dupes=$(/Library/Developer/CommandLineTools/usr/bin/nm -g "$OUT/libpolyfill.a" 2>/dev/null \
     | awk '$2 ~ /^[TDSB]$/ { print $3 }' | sort | uniq -d)
 if [ -n "$dupes" ]; then
@@ -185,7 +185,7 @@ echo "### libpolyfill_classes.dylib (the ObjC class stubs — ONE shared definit
 #
 # -licucore is for NSDateComponentsFormatter: it spells its durations out with the CLDR unit names and
 # plural rules in 10.9's ICU, reached through ICU's C API. That is the OS's own libicucore, two-level
-# bound, and distinct from the modern ICU the vendored GStreamer stack carries.
+# bound, and distinct from the modern ICU deps/build_deps.sh builds.
 source "$REPO/MavericksSupport/scripts/reexport-shim.sh"
 build_reexport_shim --clang "$CLANG" --out "$OUT/libpolyfill_classes.dylib.tmp" \
     --install-name @rpath/libpolyfill_classes.dylib --compat 9999.0.0 --current 9999.0.0 \

@@ -29,14 +29,14 @@ Inside `polyfills/`:
 | `system-spi.m` | Other framework entry points: Security, CFNetwork, CoreServices, Foundation, AppKit, sqlite3. |
 | `methods.m` | Objective-C methods on system classes. |
 | `classes.m` | Objective-C classes 10.9 does not have at all. |
-| `shared/` | The few polyfills the vendored non-WebKit binaries compile too (see below). |
+| `shared/` | The few polyfills the non-WebKit binaries compile too (see below). |
 
-`shared/` is the exception to everything below: the vendored GStreamer/FFmpeg media stack and the
-build's own python3 need some of the same gaps filled, and they carry no polyfill registry, so the
-bodies there stay plain C that compiles with no `wk_polyfill.h`. A registry entry may still be added
-under `#ifdef WK_POLYFILL_REGISTERED`, which only this layer's own build defines — that is how
-`jit.c`'s deliberate `mmap` override shows up in `WK_POLYFILL_REPORT` without the vendored builds
-gaining a dependency on the registry. Put a polyfill in `shared/` only when something outside WebKit
+`shared/` is the exception to everything below: the GStreamer/FFmpeg media stack and the build's own
+python3 need some of the same gaps filled, and they carry no polyfill registry, so the bodies there
+stay plain C that compiles with no `wk_polyfill.h`. A registry entry may still be added under
+`#ifdef WK_POLYFILL_REGISTERED`, which only this layer's own build defines — that is how `jit.c`'s
+deliberate `mmap` override shows up in `WK_POLYFILL_REPORT` without those builds gaining a
+dependency on the registry. Put a polyfill in `shared/` only when something outside WebKit
 compiles it (`deps/build_deps.sh`, `toolchain/scripts/build_python3.sh` name the ones that do);
 everything else belongs in the files above.
 

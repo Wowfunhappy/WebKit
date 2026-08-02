@@ -956,18 +956,10 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextSetOwnerIdentity, (CGContextRe
     (void)owner;
 }
 
-// VideoToolbox VP9 support probes (macOS 11+ / 12+), both absent on 10.9 (nm-verified).
-//
-// VTIsHardwareDecodeSupported asks whether the GPU can decode a codec. 10.9 has no VP9 decoder of any
-// kind, so `false` is the true answer, and it is the answer upstream is written to handle -- WebCore
-// falls back to its software/GStreamer path on false, which is what actually decodes VP9 here.
-WK_POLYFILL_ABSENT("VideoToolbox", Boolean, VTIsHardwareDecodeSupported, (int32_t codecType))
-{
-    (void)codecType;
-    return false;
-}
+// VTIsHardwareDecodeSupported lives in polyfills/shared/videotoolbox.c: GStreamer's applemedia
+// plugin calls it too, so the deps builds compile the same source into their gap archive.
 
-// VTRegisterSupplementalVideoDecoderIfAvailable asks VideoToolbox to load an out-of-band decoder plugin
+// VTRegisterSupplementalVideoDecoderIfAvailable (macOS 11+, absent on 10.9, nm-verified) asks VideoToolbox to load an out-of-band decoder plugin
 // for a codec. 10.9's VideoToolbox has no supplemental-decoder registry to load one into, so there is
 // nothing to register and nothing to report -- the routine returns void, and the caller discovers the
 // outcome by asking whether the codec is supported afterwards, which is answered above.

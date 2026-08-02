@@ -122,8 +122,7 @@ WK_POLYFILL_SEL("isLowPowerModeEnabled", "wk_isLowPowerModeEnabled");
 // partitioning is off in every sense (NetworkStorageSession::m_isOptInCookiePartitioningEnabled is
 // false and CFN_COOKIE_ACCEPTS_POLICY_PARTITION is undefined, so the _getCookiesForPartition: path is
 // compiled out), which means the partition/policyProperties arguments carry no information here. Each
-// modern selector therefore reduces to the classic 10.9 public API — exactly the mapping the previous
-// in-tree minimal rewrite of this file used before it was folded back to upstream.
+// modern selector therefore reduces to the classic 10.9 public API.
 
 // -[NSHTTPCookieStorage _getCookiesForURL:…completionHandler:] is the async-shaped successor to
 // -cookiesForURL:; it invokes the handler synchronously (the caller RELEASE_ASSERTs this). With a nil
@@ -2090,9 +2089,9 @@ extern CFHTTPCookieStorageRef _CFURLStorageSessionCopyCookieStorage(CFAllocatorR
 //
 // Doing it this way is what makes the identifier MEAN the same thing here as everywhere else: a component
 // that names a store through _CFURLStorageSessionCreate and one that names it through this initializer
-// land on the same jar. Ignoring the arguments -- which this used to do -- was correct only for the
-// private:YES caller WebKit happens to have, and inventing a per-identifier file path instead would have
-// created a second, private naming scheme that agrees with nothing else in the system.
+// land on the same jar. Ignoring the arguments would be correct only for the private:YES caller WebKit
+// happens to have, and inventing a per-identifier file path would create a second, private naming scheme
+// that agrees with nothing else in the system.
 //
 // NetworkTaskCocoa::statelessCookieStorage is the private:YES caller that matters: it needs a storage
 // whose cookies are never sent with a redirected request. Without this it fell back to the SHARED storage
@@ -2107,9 +2106,9 @@ static id wk_httpCookieStorage_initWithIdentifierPrivate(id self, SEL _cmd, NSSt
 
     // The session properties must carry the REAL key, not merely be non-NULL: CFNetwork's
     // StorageSession::copyCookieStorage tests GetValue(props, _kCFURLStorageSessionIsPrivate) ==
-    // kCFBooleanTrue and takes the PERSISTENT branch otherwise, so an empty dictionary produced an
-    // on-disk, app-identifier-keyed jar that outlived the process -- the opposite of private, and
-    // measured surviving across two runs before this was corrected.
+    // kCFBooleanTrue and takes the PERSISTENT branch otherwise, so an empty dictionary yields an
+    // on-disk, app-identifier-keyed jar that outlives the process -- the opposite of private, measured
+    // surviving across two runs.
     bool propertiesFailed = false;
     CFDictionaryRef privateProperties = wk_storageSessionProperties(isPrivate, &propertiesFailed);
     if (propertiesFailed) {
@@ -3366,7 +3365,7 @@ WK_POLYFILL_SEL("_enableStrictSecureDecodingMode", "wk_enableStrictSecureDecodin
 //   dataTaskWithRequest:        + stream + "Content-Length: N"  ->  Chunked, no Content-Length
 //   uploadTaskWithStreamedRequest: + "Content-Length: N"        ->  Chunked, no Content-Length
 //   uploadTaskWithRequest:fromFile:                             ->  Content-Length: N
-// Modern CFNetwork honours the header; many endpoints reject a length-less chunked upload, which broke
+// Modern CFNetwork honours the header; many endpoints reject a length-less chunked upload, which is
 // every <input type=file> upload. The contract being restored is therefore the modern one -- "a request
 // whose caller set Content-Length on a stream body goes out with that Content-Length" -- and it is stated
 // entirely in NSURLRequest terms, so it is correct for any caller, not only WebKit's. Upstream already

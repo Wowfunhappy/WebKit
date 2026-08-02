@@ -341,8 +341,8 @@ WK_POLYFILL_ABSENT(NULL, void, xpc_transaction_exit_clean, (void)) { exit(0); }
 
 #pragma mark - newer-than-10.9 C / CoreFoundation symbols WebKit references
 // A few plain C / CoreFoundation symbols WebKit (and the bundled libwebrtc) reference are absent from
-// the 10.9 runtime. (The vendored GStreamer dylibs' own post-10.9 libc gap is handled separately by
-// MavericksSupport/deps/gstreamer/libsystem_compat.dylib, not here.)
+// the 10.9 runtime. (The GStreamer dylibs' own post-10.9 libc gap is closed at link time by the gap
+// archive MavericksSupport/deps/build_deps.sh force-loads into them, not here.)
 
 // __darwin_check_fd_set_overflow (the fortified FD_SET bounds check) is newer; on 10.9 reproduce its
 // semantics: a descriptor is valid if non-negative and (when not unlimited) within FD_SETSIZE. The

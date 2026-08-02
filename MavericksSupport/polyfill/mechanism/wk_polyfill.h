@@ -34,8 +34,8 @@
 // definitions are image-local object code, and a Mach-O image always binds its own references to
 // its own definition in preference to importing one from a dylib. That holds no matter where the
 // system frameworks land on the link line, and no matter whether the reference is a weak import.
-// Linked as an ordinary archive (which is what this layer used to be), the same definition wins or
-// loses depending on link order — see the force_load block in Source/cmake/WebKitMacros.cmake.
+// Linked as an ordinary archive, the same definition would win or lose depending on link order —
+// see the force_load block in Source/cmake/WebKitMacros.cmake.
 //
 // WHY IT ONLY AFFECTS WEBKIT. The archive is static and goes only into WebKit's own binaries, so a
 // host app that loads WebKit keeps binding to the system's symbols. Nothing here is exported

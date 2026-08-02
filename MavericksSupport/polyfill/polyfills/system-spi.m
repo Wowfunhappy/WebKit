@@ -101,9 +101,9 @@ WK_POLYFILL_ABSENT("CoreServices", Boolean, UTTypeIsDeclared, (CFStringRef inUTI
 // property list carries it across the process boundary as the CFData the API's shape requires.
 //
 // Measured on this host: an in-memory storage archives to a 5-element CFArray, serializes to 62 bytes,
-// and rehydrates into a live storage. Returning NULL here instead (what this used to do) is a fake value:
-// it forced a NULL check into CookieStorageUtilsCF and made NetworkProcess skip installing the shared
-// storage at all, so the process silently ran on a different cookie jar than the one it was handed.
+// and rehydrates into a live storage. Returning NULL here instead would be a fake value: it forces a
+// NULL check into CookieStorageUtilsCF and makes NetworkProcess skip installing the shared storage at
+// all, so the process silently runs on a different cookie jar than the one it was handed.
 // Resolved with dlsym, not declared extern: both live in 10.9's CFNetwork but neither is in the 26.1
 // SDK's stub library, so a link-time reference fails to build even though the call works at runtime.
 typedef CFArrayRef (*wk_cookieArchiveCreate)(CFAllocatorRef, void *);
@@ -1177,6 +1177,10 @@ WK_POLYFILL_ABSENT("Security", OSStatus, SSLSetALPNProtocols, (SSLContextRef con
 //
 // LSRolesMask is ignored: 10.9's scheme-handler registry records one default handler per scheme with
 // no role distinction, so there is nothing to filter on.
+//
+// Its two siblings, LSCopyApplicationURLsForBundleIdentifier and
+// LSCopyDefaultApplicationURLForContentType, live in polyfills/shared/launchservices.c instead:
+// GLib's gosxappinfo calls them, so the media build compiles them too.
 typedef UInt32 MavLSRolesMask;
 enum { MavLSUnknownCreator = 0, MavLSApplicationNotFoundErr = -10814 };
 WK_SYSTEM_FN("CoreServices", CFStringRef, LSCopyDefaultHandlerForURLScheme, (CFStringRef));

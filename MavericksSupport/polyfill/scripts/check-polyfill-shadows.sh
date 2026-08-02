@@ -9,7 +9,7 @@
 # kind of substitution that surfaces as a wrong colour or a wrong fill far from its cause. This gate is
 # the guarantee against that: it, not any runtime fallback, is what lets a polyfill be declared and then
 # trusted. (It matters just as much for legacy-support/src/*.c and polyfills/shared/*.c, which carry no
-# registry entry at all -- plain C the vendored GStreamer/python3 builds also compile -- and for the
+# registry entry at all -- plain C the GStreamer/python3 builds also compile -- and for the
 # mechanism's own units.)
 #
 # So: for every strong defined symbol the layer ships, ask this machine's runtime (dlopen + dlsym,

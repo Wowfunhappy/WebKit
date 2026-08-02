@@ -91,7 +91,7 @@ WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontUIFontDesignTrait, CFSTR("kCTF
 // symbol-name token. CoreText-native descriptor keys are "NSCT" + (name minus "kCT") — verified
 // on-host across 15 sibling keys incl. the directly-analogous kCTFontVariationAttribute="NSCTFont
 // VariationAttribute" — hence "NSCTFontVariationAxesAttribute". Behavior-neutral on 10.9 (an unknown
-// key yields NULL, exactly the deployment-gated nullptr the call site previously returned).
+// key yields NULL, exactly the deployment-gated nullptr the call site takes without it).
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontVariationAxesAttribute, CFSTR("NSCTFontVariationAxesAttribute"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontUnscaledTrackingAttribute, CFSTR("kCTFontUnscaledTrackingAttribute"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontUserInstalledAttribute, CFSTR("kCTFontUserInstalledAttribute"));
@@ -227,17 +227,9 @@ WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontOpenTypeFeatureValue, CFSTR("C
 WK_POLYFILL_CONST("QuartzCore", CFStringRef, kCACornerCurveCircular, CFSTR("circular"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontDownloadedAttribute, CFSTR("kCTFontDownloadedAttribute"));
 
-// CoreVideo color-space constants added in 10.11 / 10.13 (referenced by the bundled libwebrtc H.264/
-// H.265 decoders, and by GStreamer's video plugins, to tag HDR / wide-gamut frames). Absent on 10.9;
-// provide the canonical CFString values so the dependent code links and never feeds a NULL key/value
-// into a CoreVideo attachment dictionary.
-WK_POLYFILL_CONST("CoreVideo", CFStringRef, kCVImageBufferColorPrimaries_ITU_R_2020,         CFSTR("ITU_R_2020"));
-WK_POLYFILL_CONST("CoreVideo", CFStringRef, kCVImageBufferColorPrimaries_P3_D65,             CFSTR("P3_D65"));
-WK_POLYFILL_CONST("CoreVideo", CFStringRef, kCVImageBufferColorPrimaries_DCI_P3,             CFSTR("DCI_P3"));
-WK_POLYFILL_CONST("CoreVideo", CFStringRef, kCVImageBufferTransferFunction_ITU_R_2020,       CFSTR("ITU_R_2020"));
-WK_POLYFILL_CONST("CoreVideo", CFStringRef, kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ, CFSTR("SMPTE_ST_2084_PQ"));
-WK_POLYFILL_CONST("CoreVideo", CFStringRef, kCVImageBufferTransferFunction_sRGB,             CFSTR("IEC_sRGB"));
-WK_POLYFILL_CONST("CoreVideo", CFStringRef, kCVImageBufferYCbCrMatrix_ITU_R_2020,            CFSTR("ITU_R_2020"));
+// The CoreVideo color-space constants live in polyfills/shared/cv_colorimetry.c: GStreamer's
+// applemedia and video plugins reference them too, and the shared/ sources are the ones
+// deps/build_deps.sh compiles, so both consumers get one definition of each value.
 
 #pragma mark - NSPopUpMenu constants
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSPopUpMenuPopupButtonBounds, @"NSPopUpMenuPopupButtonBounds");
