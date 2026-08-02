@@ -360,6 +360,25 @@ void WebIconDatabase::notePendingIconURLForPageURL(const String& pageURL, const 
     }
 }
 
+void WebIconDatabase::carryIconForPageURL(const String& fromPageURL, const String& toPageURL, Persistence persistence)
+{
+    if (fromPageURL.isEmpty() || toPageURL.isEmpty() || fromPageURL == toPageURL)
+        return;
+
+    auto mapping = m_pageURLToIconURL.get(fromPageURL);
+    if (mapping.iconURL.isEmpty())
+        return;
+
+    // A byte-backed claim goes through the reuse path — the precedence rule, the last-use stamp, the
+    // disk write and the client notification all apply to the new page exactly as they would to a
+    // revisit. A claim whose fetch is still in flight (or failed) carries as the same pending mapping,
+    // which serves the icon the moment the bytes land under its URL.
+    if (m_iconURLToData.get(mapping.iconURL).data)
+        reuseStoredIconForPageURL(toPageURL, mapping.iconURL, persistence, mapping.rank);
+    else
+        notePendingIconURLForPageURL(toPageURL, mapping.iconURL, persistence, mapping.rank);
+}
+
 bool WebIconDatabase::iconNeedsRefresh(const String& iconURL) const
 {
     if (iconURL.isEmpty())

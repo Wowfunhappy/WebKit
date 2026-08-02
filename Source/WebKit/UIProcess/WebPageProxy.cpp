@@ -8470,8 +8470,14 @@ void WebPageProxy::didSameDocumentNavigationForFrame(IPC::Connection& connection
     auto transaction = protectedPageLoadState->transaction();
 
     bool isMainFrame = frame->isMainFrame();
-    if (isMainFrame)
+    if (isMainFrame) {
+        // MAVERICKS_BACKPORT: this navigation makes a history entry for a URL no load will ever commit,
+        // so the favicon paths that hang off loads cannot reach it — the document's icon claim carries
+        // to the URL it now shows under (#112). pageLoadState().url() still reads the URL navigated
+        // FROM until this transaction's commitChanges below.
+        legacyMainFrameProcess().processPool().carryIconForSameDocumentNavigation(*this, protectedPageLoadState->url(), url);
         protectedPageLoadState->didSameDocumentNavigation(transaction, url.string());
+    }
 
     if (m_controlledByAutomation) {
         if (RefPtr automationSession = m_configuration->processPool().automationSession())
@@ -8527,8 +8533,12 @@ void WebPageProxy::didSameDocumentNavigationForFrameViaJS(IPC::Connection& conne
     auto transaction = protectedPageLoadState->transaction();
 
     bool isMainFrame = frame->isMainFrame();
-    if (isMainFrame)
+    if (isMainFrame) {
+        // MAVERICKS_BACKPORT: history.pushState/replaceState land here — the same-document favicon
+        // carry above applies identically (#112).
+        legacyMainFrameProcess().processPool().carryIconForSameDocumentNavigation(*this, protectedPageLoadState->url(), url);
         protectedPageLoadState->didSameDocumentNavigation(transaction, url.string());
+    }
 
     if (m_controlledByAutomation) {
         if (RefPtr automationSession = m_configuration->processPool().automationSession())

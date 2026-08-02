@@ -1563,6 +1563,25 @@ void WebProcessPool::fetchGuessedIconForPage(WebPageProxy& page, const URL& url)
     fetchIconForPage(iconDatabase, page, pageURL, URL { url, "/favicon.ico"_s }.string(), persistence, WebIconDatabase::IconOrigin::Guessed);
 }
 
+// MAVERICKS_BACKPORT: carry a document's icon claim across a same-document navigation (#112). A
+// pushState-driven site navigates without ever committing a load — github.com's every click — so the
+// new URL's history entry has no other way to an icon: the declared-icon offer and the /favicon.ico
+// guess both hang off loads. The document itself is unchanged, and so is its icon; the store's
+// precedence rule still applies on the receiving URL, so a claim a real visit once recorded there at
+// higher rank stands.
+void WebProcessPool::carryIconForSameDocumentNavigation(WebPageProxy& page, const String& fromPageURL, const URL& toURL)
+{
+    if (!m_iconDatabaseEnabled || !m_iconDatabase)
+        return;
+
+    if (!toURL.protocolIsInHTTPFamily())
+        return;
+
+    auto persistence = page.sessionID().isEphemeral() ? WebIconDatabase::Persistence::SessionOnly : WebIconDatabase::Persistence::Persistent;
+    Ref iconDatabase = *m_iconDatabase;
+    iconDatabase->carryIconForPageURL(fromPageURL, toURL.string(), persistence);
+}
+
 Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API::PageConfiguration>&& pageConfiguration)
 {
     if (!pageConfiguration->pageGroup())

@@ -116,6 +116,11 @@ public:
     // one transient network failure leaves the entry on the generic globe with nothing to ever
     // correct it (github #112). Never displaces a mapping the page already has.
     void notePendingIconURLForPageURL(const WTF::String& pageURL, const WTF::String& iconURL, Persistence = Persistence::Persistent, IconOrigin mappingRank = IconOrigin::NativelyDecoded);
+    // MAVERICKS_BACKPORT: grant one page's icon claim — its icon URL at its rank, byte-backed or still
+    // pending — to a second page URL. A same-document navigation needs exactly this: the document is
+    // unchanged, so the icon it holds under its old URL is the icon of the URL it now shows under, and
+    // no load will ever commit for that new URL to say so otherwise (#112).
+    void carryIconForPageURL(const WTF::String& fromPageURL, const WTF::String& toPageURL, Persistence = Persistence::Persistent);
     // MAVERICKS_BACKPORT: the precedence rule as a question, so a caller holding bytes this build
     // cannot decode can tell that rasterizing them would be work whose result the store is already
     // certain to refuse.
