@@ -119,6 +119,9 @@ public:
 
     bool supportsLargeFormControls() const final;
 
+    // MAVERICKS_BACKPORT (#40): restore the Aqua push-button style adjustment upstream dropped.
+    void adjustButtonStyle(RenderStyle&, const Element*) const final;
+
     void adjustMenuListStyle(RenderStyle&, const Element*) const final;
 
     void adjustMenuListButtonStyle(RenderStyle&, const Element*) const final;

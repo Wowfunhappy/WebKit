@@ -25,7 +25,7 @@ LIPO="$(wk_find_lipo)"
 # BACKUP_ROOT is a single fixed dir — NOT a per-run timestamped one — so backup() never
 # accumulates a new ~670MB snapshot on every install.
 BACKUP_ROOT="${BACKUP_ROOT:-$STOCK_BACKUP/replaced-original}"
-OLD_PRIVRT=/System/Library/WebKitPrivateRuntime   # pre-#68 standalone location; removed at the end
+OLD_PRIVRT=/System/Library/WebKitPrivateRuntime   # nothing references this; cleared below
 
 backup() {
     local path="$1"
@@ -77,10 +77,10 @@ for bundle in $WK_INSTALL_ROOTS; do
     chown -R root:wheel "$bundle"
     echo "  installed."
 done
-# Remove the pre-#68 standalone runtime dir now that nothing references it (self-contained).
+# The frameworks carry their own runtime, so this standalone dir has no users.
 if [ -d "$OLD_PRIVRT" ]; then
     rm -rf "$OLD_PRIVRT"
-    echo "  removed legacy $OLD_PRIVRT"
+    echo "  removed $OLD_PRIVRT"
 fi
 
 # ---------------------------------------------------------------------------
@@ -160,70 +160,6 @@ if [ "${DASHBOARD_PREFS_CHANGED:-0}" = "1" ]; then
     killall DashboardClient 2>/dev/null || true
     killall Dock 2>/dev/null || true
     echo "  restarted Dock to pick up the 64-bit Dashboard layout"
-fi
-
-# ---------------------------------------------------------------------------
-# #66/#69: the unified undocked Web Inspector toolbar (gradient + 78px traffic-light inset)
-# is injected by WebInspectorUIProxyMac.mm into the inspector frontend HTML at load time,
-# so the stock system WebInspectorUI Main.css stays PRISTINE (no system-file edit). The
-# native half (_WKInspectorWindow emulating NSWindowStyleMaskFullSizeContentView so #toolbar
-# fills the titlebar region) lives in WebKit. Here we only restore the stock Main.css by
-# stripping any WK66-UNIFIED rules a previous install appended to it.
-echo "### Restoring stock Web Inspector Main.css (#69: toolbar CSS injected at load time)"
-INSPECTOR_CSS=/System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/Resources/Main.css
-if [ -f "$INSPECTOR_CSS" ] && grep -q 'WK66-UNIFIED' "$INSPECTOR_CSS"; then
-    # Marker-only match — never line-matches the giant minified stylesheet (line 1).
-    grep -v 'WK66-UNIFIED' "$INSPECTOR_CSS" > "$INSPECTOR_CSS.tmp66" && mv "$INSPECTOR_CSS.tmp66" "$INSPECTOR_CSS"
-    echo "  stripped legacy WK66-UNIFIED rules from $INSPECTOR_CSS (now pristine)"
-fi
-
-# ---------------------------------------------------------------------------
-# #40: a previous install appended a WK40-PUSHBUTTON rule
-#   .suggestion-form input[type=submit] { -webkit-appearance: push-button; }
-# to Safari's own page-load-errors.css, meaning to restore the Safari-7-era gel whose native
-# drawing coerced a button label to the 13px system control font -- .suggestion-form input sets
-# font-size:16px, which overflows the 132px-wide button and clips. Measured on 10.9 against this
-# build, the rule does NOTHING: an input[type=submit] renders identically with and without it
-# (both 24.00px tall, both the flat square bezel, both keeping the 16px author font). Modern
-# WebKit applies setFontFromControlSize() only to menulists and search fields
-# (RenderThemeMac.mm), never to buttons, so no appearance keyword brings the coercion back.
-# The rule was therefore only ever an edit to a third-party app's resources with no effect, and
-# it is removed rather than kept. Strip it so an already-patched Safari goes back to pristine.
-# (The genuine bezel bug it was aimed at -- ordinary buttons losing the Aqua gel -- is fixed at
-# its root in ButtonMac::bezelStyle, which now measures against the height 10.9 actually draws
-# the gel at. The remaining 16px-label clipping is upstream behaviour: honouring the author's
-# font-size is correct modern CSS, and re-coercing it would change every native-appearance
-# button on the web.)
-# The fix is the font size the coercion would have produced, stated directly. Measured on 10.9
-# against this build, with the page's own metrics (.suggestion-form input font-size:16px,
-# .action-container .suggestion-form input width:132px) and the "Reload Webpage" label:
-#   16px -> 23.67px tall, scrollWidth 130 vs clientWidth 128  == label clipped, flat square bezel
-#   13px -> 20.33px tall, scrollWidth 128 vs clientWidth 128  == label fits exactly
-# 13px is the system control font size, i.e. what the old native drawing coerced the label to, so
-# this restores the metric the page was authored against rather than inventing one. It also drops
-# the button under the height at which 10.9 draws the Aqua gel (22pt, see ButtonMac::bezelStyle),
-# so the button regains the gel as well -- both halves of #40 from one declaration.
-#
-# Scoped to Safari's own error-page stylesheet on purpose: the alternative, restoring
-# setFontFromControlSize() for buttons in RenderThemeMac, would override the author's font-size on
-# every native-appearance button on the web, which upstream deliberately stopped doing. Safari reads
-# this file directly, so there is no in-framework lever; WebKit only ever sees its parsed result.
-echo "### Fitting the Safari 7 error-page button labels (#40)"
-ERRORPAGE_CSS=/Applications/Safari.app/Contents/Resources/page-load-errors.css
-if [ -f "$ERRORPAGE_CSS" ]; then
-    # Marker-only match, so a re-run replaces the rule instead of stacking copies, and a Safari
-    # still carrying the retired WK40-PUSHBUTTON no-op is cleaned up in the same pass. The file
-    # opens with a UTF-8 BOM that lets it be linked from a UTF-16 page; appending whole lines
-    # keeps it.
-    if grep -qE 'WK40-PUSHBUTTON|MAVERICKS_BACKPORT' "$ERRORPAGE_CSS"; then
-        grep -vE 'WK40-PUSHBUTTON|MAVERICKS_BACKPORT' "$ERRORPAGE_CSS" > "$ERRORPAGE_CSS.tmp40" && mv "$ERRORPAGE_CSS.tmp40" "$ERRORPAGE_CSS"
-    fi
-    printf '%s\n' '/* MAVERICKS_BACKPORT: 13px is the system control font size Safari-7-era WebKit coerced button labels to; upstream honours the author 16px, which clips "Reload Webpage" inside this page fixed 132px button. */ .suggestion-form input[type=submit] { font-size: 13px; }' >> "$ERRORPAGE_CSS"
-    chown root:wheel "$ERRORPAGE_CSS"
-    chmod 644 "$ERRORPAGE_CSS"
-    echo "  $ERRORPAGE_CSS carries the MAVERICKS_BACKPORT error-page button rule"
-else
-    echo "  $ERRORPAGE_CSS not found - skipping (Safari's error-page button labels keep the clipped 16px look)"
 fi
 
 # ---------------------------------------------------------------------------
