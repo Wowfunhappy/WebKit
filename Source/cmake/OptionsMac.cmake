@@ -190,7 +190,10 @@ SET_AND_EXPOSE_TO_BUILD(ENABLE_DECLARATIVE_WEB_PUSH FALSE)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_AUTHN PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_RTC PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WIRELESS_PLAYBACK_TARGET PRIVATE ON)
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_AVIF PRIVATE OFF)
+# MAVERICKS_BACKPORT: ON — 10.9's ImageIO predates AVIF, so WebCore's own AVIFImageDecoder
+# serves it, the same way WEBPImageDecoder serves WebP (ScalableImageDecoder::create dispatches
+# both). libavif is built decode-only on the dav1d already in deps by deps/build_deps.sh.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_AVIF PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_JPEGXL PRIVATE OFF)
 
 WEBKIT_OPTION_END()
@@ -208,13 +211,25 @@ SET_AND_EXPOSE_TO_BUILD(USE_LIBWEBRTC OFF)
 # for the crypto/gcrypt/ source replacements.
 SET_AND_EXPOSE_TO_BUILD(USE_GCRYPT TRUE)
 
+# MAVERICKS_BACKPORT: the third-party libraries this port links that 10.9 does not supply — ICU,
+# libgcrypt/libtasn1/libgpg-error, brotli, woff2, libwebp, libxml2, and the whole GStreamer media
+# runtime. MavericksSupport/deps/build_deps.sh builds them all from source with the in-tree
+# toolchain into deps/build/{include,lib,bin}; MavericksSupport/bootstrap.sh runs it. Every
+# reference below resolves through MAVERICKS_DEPS, so the artifact tree has exactly one location.
+set(MAVERICKS_SUPPORT "${CMAKE_SOURCE_DIR}/MavericksSupport" CACHE INTERNAL "MavericksSupport dir")
+set(MAVERICKS_DEPS "${MAVERICKS_SUPPORT}/deps/build" CACHE INTERNAL "third-party libraries built by deps/build_deps.sh")
+if (NOT EXISTS "${MAVERICKS_DEPS}/lib/libgcrypt.a")
+    message(FATAL_ERROR
+        "${MAVERICKS_DEPS} holds no built dependencies.\n"
+        "Run MavericksSupport/bootstrap.sh (or MavericksSupport/deps/build_deps.sh) first.")
+endif ()
+
 # MAVERICKS_BACKPORT: HTML5 <video>/<audio> via the upstream GStreamer media player instead of the
-# custom AVAssetReader pump (AVPlayer is dead on 10.9). GStreamer is vendored at
-# MavericksSupport/deps/gstreamer (1.26.6, built from source for 10.9 by
-# MavericksSupport/deps/build_deps.sh — no symbol shims). Use the
+# custom AVAssetReader pump (AVPlayer is dead on 10.9). GStreamer 1.28.5 comes from deps/build,
+# built for 10.9 with no symbol shims. Use the
 # software/appsink path: GL + TextureMapper + CoordinatedGraphics OFF; decoded frames reach CG via
 # ImageGStreamerCG.cpp. OptionsMacGStreamer.cmake defines the GLib::* targets + GSTREAMER_* vars from
-# the vendored tree (no pkg-config on this toolchain).
+# that tree (no pkg-config on this toolchain).
 SET_AND_EXPOSE_TO_BUILD(USE_GSTREAMER TRUE)
 # GStreamer integration needs WTF's GLib helper layer (GRefPtr/GUniquePtr/GSpanExtras/WTFGType, all
 # #if USE(GLIB)). Only the helper headers/sources are added on Mac (see WTF/wtf/PlatformMac.cmake) —
@@ -243,38 +258,32 @@ set(WebCore_LIBRARY_TYPE SHARED)
 set(USE_ANGLE_EGL ON)
 
 find_package(ICU 70.1 REQUIRED COMPONENTS data i18n uc)
-# MAVERICKS_BACKPORT: link the vendored libxml2 2.13 (already shipped for GStreamer,
-# @rpath install name, 10.9-massaged via libsystem_compat) instead of the SDK tbd.
-# The SDK tbd binds /usr/lib/libxml2.2.dylib, which on 10.9 is libxml2 2.9.0 — its
-# __xmlRaiseError crashes on fatal parse errors from SVG/XML payloads (the bug the
-# retired safeXmlParseChunk SIGSEGV guard papered over), and its runtime behavior
-# diverges from the 2.9.13 SDK headers WebCore compiles against. Headers and dylib
-# now match. libxslt stays on the system copy (no vendored build): it keeps using the
-# system libxml 2.9.0 internally, which is safe across the boundary — libxml2 keeps
-# xmlDoc/xmlNode struct ABI stable across 2.x, and WebCore intercepts libxslt's
-# document loading at the libxslt layer (xsltSetLoaderFunc), so no uncontrolled 2.9
-# parsing happens. Align libxslt if/when the deps move to a from-source build.
-set(LIBXML2_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/gstreamer/include/libxml2" CACHE PATH "" FORCE)
-set(LIBXML2_LIBRARY "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/gstreamer/lib/libxml2.2.dylib" CACHE FILEPATH "" FORCE)
+# MAVERICKS_BACKPORT: link the libxml2 2.13 from deps/build (@rpath install name, shipped
+# alongside GStreamer) instead of the SDK tbd. The SDK tbd binds /usr/lib/libxml2.2.dylib,
+# which on 10.9 is libxml2 2.9.0 — its __xmlRaiseError crashes on fatal parse errors from
+# SVG/XML payloads, and its runtime behavior diverges from the 2.9.13 SDK headers WebCore
+# compiles against. Headers and dylib match here. libxslt stays on the system copy: it uses
+# the system libxml 2.9.0 internally, which is safe across the boundary — libxml2 keeps
+# xmlDoc/xmlNode struct ABI stable across 2.x, and WebCore intercepts libxslt's document
+# loading at the libxslt layer (xsltSetLoaderFunc), so no uncontrolled 2.9 parsing happens.
+set(LIBXML2_INCLUDE_DIR "${MAVERICKS_DEPS}/include/libxml2" CACHE PATH "" FORCE)
+set(LIBXML2_LIBRARY "${MAVERICKS_DEPS}/lib/libxml2.2.dylib" CACHE FILEPATH "" FORCE)
 find_package(LibXml2 2.8.0 REQUIRED)
 find_package(LibXslt 1.1.13 REQUIRED)
 
 # Polyfill libraries for macOS 10.9
 #
-# Build-environment locations. Rather than hardcode an absolute toolchain path
-# (which broke when the VM was reorganized), derive the clang-22 toolchain root
-# from the compiler in use, and reference the in-tree MavericksSupport artifacts
-# relative to the source tree so a fresh checkout + toolchain just works.
+# Build-environment locations. The clang-22 toolchain root derives from the compiler in
+# use, and the MavericksSupport artifacts are named relative to the source tree, so a fresh
+# checkout plus a bootstrapped toolchain configures wherever it sits (see MAVERICKS_DEPS above).
 get_filename_component(MAVERICKS_TC "${CMAKE_CXX_COMPILER}" DIRECTORY)   # .../clang-22/bin
 get_filename_component(MAVERICKS_TC "${MAVERICKS_TC}" DIRECTORY)         # .../clang-22
 set(MAVERICKS_TC "${MAVERICKS_TC}" CACHE INTERNAL "clang-22 toolchain root")
-set(MAVERICKS_SUPPORT "${CMAKE_SOURCE_DIR}/MavericksSupport" CACHE INTERNAL "MavericksSupport dir")
-set(MAVERICKS_DEPS "${MAVERICKS_SUPPORT}/deps/build" CACHE INTERNAL "third-party libraries built by deps/build_deps.sh")
 
 # MAVERICKS_BACKPORT: link libc++ DYNAMICALLY (one shared copy) rather than statically into every
 # dylib. Static libc++ per-dylib gives WebCore and JavaScriptCore each their own copy of libc++'s
 # locale/iostream global state; destroying a std::stringstream then corrupts across copies and
-# crashes WebContent (see task #280). These are the clang-22 toolchain's libc++/libc++abi
+# crashes WebContent. These are the clang-22 toolchain's libc++/libc++abi
 # (install_name @rpath/libc++.1.dylib); the postbuild deploys a private copy next to the
 # frameworks and points an LC_RPATH at it so the system's old 10.9 libc++ is NOT used.
 link_libraries(${MAVERICKS_TC}/lib/libc++.1.dylib)

@@ -4,14 +4,12 @@
 # A reexport shim REEXPORTS a system framework (or libSystem) — so every real symbol of it still resolves
 # through the shim — and additionally DEFINES the handful of symbols that 10.9 lacks but the modern-SDK-built
 # consumers import: gap C functions / constants, or absent-on-10.9 ObjC class stubs. The consumer's
-# dependency on the original framework is then install_name_tool -change'd to the shim (baked at vendor time
-# for the vendored GStreamer dylibs; done by stage-frameworks.sh for the WebKit frameworks). Because the shim
-# reexports the framework, the consumer's other (real) symbols pass straight through, while the previously
-# missing ones now resolve in the shim.
+# dependency on the original framework is then install_name_tool -change'd to the shim by
+# stage-frameworks.sh. Because the shim reexports the framework, the consumer's other (real) symbols pass
+# straight through, while the missing ones resolve in the shim.
 #
-# Users: deps/gstreamer/build-{libsystem,coreservices,coretext,audiotoolbox}-compat.sh and
-# polyfill/scripts/build-polyfill.sh (libpolyfill_classes.dylib). The matching staging-side repoint helper
-# lives in stage-frameworks.sh (repoint_framework_dep).
+# Users: polyfill/scripts/build-polyfill.sh (libpolyfill_classes.dylib). The matching staging-side repoint
+# helper lives in stage-frameworks.sh (repoint_framework_dep).
 #
 # Usage:
 #   build_reexport_shim --clang <clang> --out <out.dylib> --install-name <name> \

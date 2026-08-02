@@ -1,13 +1,18 @@
 #!/bin/bash
-# Build the third-party libraries WebKit links that are NOT available on the 10.9
-# system and NOT vendored as a binary:
+# Build the third-party libraries WebKit links that the 10.9 system does not provide:
 #
 #   ICU 74.2 (static)                   -> JSC Intl (ucfpos_*/udtitvfmt_*/... that
 #                                          10.9's ICU 51 libicucore lacks)
 #   libgpg-error, libgcrypt, libtasn1   -> WebCore USE(GCRYPT) WebCrypto
 #   brotli (common/dec/enc)             -> WOFF2 + Brotli Content-Encoding
 #   woff2 (decoder)                     -> WOFF2 web font decompression
-#   GLib 2.80.5 + GStreamer 1.28.5      -> the media runtime (core, plugins-base/
+#   libwebp 1.3.2 (static)              -> WebCore's WEBPImageDecoder (10.9's ImageIO
+#                                          cannot decode WebP)
+#   libavif 1.3.0 (static, on dav1d)    -> WebCore's AVIFImageDecoder (10.9's ImageIO
+#                                          predates AVIF)
+#   libxml2 2.13.6 (shared)             -> WebCore XML/SVG parsing, in place of 10.9's
+#                                          crash-prone system libxml2 2.9.0
+#   GLib + GStreamer (GLIB_VER/GST_VER)  -> the media runtime (core, plugins-base/
 #     (+ codecs, OpenSSL, libnice, ...)     good/bad, gst-libav on FFmpeg 7.1.2 with
 #                                          dav1d AV1 decode, libvpx VP8/VP9) that
 #                                          MediaPlayerPrivateGStreamer drives; built
@@ -19,12 +24,13 @@
 # (with lib/gstreamer-1.0 plugins); bin/ holds gst-inspect-1.0/gst-launch-1.0 for
 # on-box verification. Source tarballs cache in a gitignored dir next to this script.
 #
-# The media dylibs compile against the modern SDK (SDKROOT) with deployment target
-# 10.9, so every libc symbol that postdates 10.9 (openat/utimensat/fstatat$INODE64/
-# getentropy/...) is a weak import that binds NULL on 10.9 and crashes on first call.
-# A gap archive built from the project's legacy-support polyfill sources against the
-# REAL 10.9 SDK (-isysroot /) force-loads into every media dylib, so those symbols
-# resolve DEFINED at link time instead. A fail-fast gate at the end proves the
+# Everything here compiles against the modern SDK with deployment target 10.9 (SDKROOT
+# below is clang's default -isysroot), so every libc symbol that postdates 10.9
+# (openat/utimensat/fstatat$INODE64/getentropy/...) is a weak import that binds NULL on
+# 10.9 and crashes on first call. The one exception is the gap archive, compiled against
+# the REAL 10.9 SDK (-isysroot /) because only those headers emit the inode-ABI symbol
+# spellings 64-bit callers reference; it force-loads into every media dylib, so those
+# symbols resolve DEFINED at link time instead. A fail-fast gate at the end proves the
 # shipped runtime resolves completely on this 10.9 host (see "fail-fast gate").
 #
 # Usage: MavericksSupport/deps/build_deps.sh   (or via MavericksSupport/bootstrap.sh)
@@ -39,6 +45,24 @@ CMAKE="${MAVERICKS_CMAKE:-$REPO/MavericksSupport/toolchain/build/cmake/bin/cmake
 NINJA="${MAVERICKS_NINJA:-$REPO/MavericksSupport/toolchain/build/ninja/bin/ninja}"
 NASM="${MAVERICKS_NASM:-$REPO/MavericksSupport/toolchain/build/nasm/bin/nasm}"
 SDK="${MAVERICKS_SDK:-$(dirname "$REPO")/MacOSX26.1.sdk}"
+
+# The media-runtime versions, which WebKit's build also states: OptionsMacGStreamer.cmake
+# sets GSTREAMER_VERSION/GLIB_VERSION for the upstream version checks in
+# Source/WebCore/platform/GStreamer.cmake and the GStreamer sources. The gate below holds
+# the two in step -- a bump here that skips the CMake side compiles WebKit against version
+# numbers the runtime does not have.
+GST_VER=1.28.5
+GLIB_VER=2.80.5
+GSTCMAKE="$REPO/Source/cmake/OptionsMacGStreamer.cmake"
+for pair in "GSTREAMER_VERSION:$GST_VER" "GLIB_VERSION:$GLIB_VER"; do
+  var=${pair%%:*}; want=${pair#*:}
+  got=$(sed -n "s/^set($var \"\\(.*\\)\")\$/\\1/p" "$GSTCMAKE")
+  if [ "$got" != "$want" ]; then
+    echo "FATAL: $GSTCMAKE sets $var \"$got\"; this script builds $want." >&2
+    echo "       Update the CMake side, then re-run." >&2
+    exit 1
+  fi
+done
 
 # glib's libffi wrap tracks the meson-ports "meson" BRANCH; this pins it to an exact
 # commit so the build is reproducible (update deliberately, with a rebuild).
@@ -55,6 +79,11 @@ export SDKROOT="$SDK"
 # script is independent of the machine's current xcode-select state. The in-tree ninja
 # and nasm dirs join the PATH for meson and the assembly-heavy codec builds.
 export PATH="$(dirname "$NASM"):$(dirname "$NINJA"):/Library/Developer/CommandLineTools/usr/bin:$PATH"
+# Same reason, for the sub-builds that reach a tool through `xcrun` rather than PATH (libavif's
+# static-library merge runs `xcrun libtool`). xcrun resolves against DEVELOPER_DIR, and with an
+# Xcode selected it first tries to read SDKROOT as an SDK NAME, fails on this absolute path, and
+# then reports the utility itself as missing. Pointing it at CommandLineTools resolves both.
+export DEVELOPER_DIR=/Library/Developer/CommandLineTools
 
 DEST="$HERE/build"                                 # gitignored artifact: include/ + lib/ + bin/ + ccache/
 SCRATCH="$(mktemp -d -t depbuild)"
@@ -120,9 +149,10 @@ NMBIN=/Library/Developer/CommandLineTools/usr/bin/nm
 # gnulib leaks raw typedefs into the Makefile -> /bin/sh syntax error).
 #
 # So the autotools deps (libgpg-error/libgcrypt/libtasn1) compile with a VANILLA
-# clang (--no-default-config): a plain 10.9-targeting compiler whose probes see the
-# real 10.9 SDK feature set. The resulting .a is pure object code; the polyfill that
-# resolves any post-10.9 symbol is linked later at WebKit link time.
+# clang (--no-default-config): the same 10.9-targeting compiler against the same SDK,
+# minus that auto-linked set, so the probes measure the compiler rather than the config.
+# The resulting .a is pure object code; the polyfill that resolves any post-10.9 symbol
+# is linked later at WebKit link time.
 VBIN="$SCRATCH/vanilla-bin"
 mkdir -p "$VBIN"
 # -Wno-implicit-function-declaration / -Wno-implicit-int: pre-C99 constructs that are
@@ -138,18 +168,9 @@ CXX_VANILLA="$VBIN/cxx"
 
 mkdir -p "$SRC" "$STAGE" "$DEST/include" "$DEST/lib"
 
-# fetch <url> <dest-file>: download with curl. 10.9's Secure Transport cannot complete
-# a TLS handshake with some hosts (freedesktop.org's CDN among them); those go through
-# the local AquaProxy endpoint, which terminates TLS itself. Every other host is fetched
-# directly. Downloads land in a .tmp and move into place only on success, so an
-# interrupted transfer never leaves a truncated file a later run trusts.
-fetch() {
-  local url="$1" dest="$2"
-  rm -f "$dest.tmp"
-  { curl -fsSL -m 600 -o "$dest.tmp" "$url" 2>/dev/null \
-      || https_proxy=http://localhost:6531 curl -fsSL -m 600 -o "$dest.tmp" "$url"; } \
-    && mv "$dest.tmp" "$dest"
-}
+# fetch <url> <dest-file>. Lands via .part so an interrupted transfer cannot leave a truncated
+# file at the cache path, which get() would then trust forever.
+fetch() { curl -fsSL -m 600 -o "$2.part" "$1" && mv "$2.part" "$2"; }
 
 # get <url> <label>: download the tarball (once) and extract it, echoing the build
 # dir. To update a library, change its version in the URL on its line below.
@@ -183,6 +204,15 @@ d=$(get https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.51.tar.bz2 gpge
 
 echo "==== libgcrypt ===="
 d=$(get https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-1.11.0.tar.bz2 gcrypt)
+# --disable-asm: libgcrypt's configure accepts its amd64 MPI assembly under the vanilla clang
+# wrapper, but the .S objects never reach the archive, so every C reference to them dangles at
+# link time. Measured with the flag removed:
+#   ld64.lld: error: undefined symbol: _gcry_mpih_lshift   (ec.o, mpi-bit.o)
+#   ld64.lld: error: undefined symbol: _gcry_mpih_mul_1    (mpi-mul.o, mpih-mul.o)
+#   ld64.lld: error: undefined symbol: _gcry_mpih_submul_1 (mpih-div.o)
+# libgcrypt offers no per-implementation switch, so this is all-or-nothing. The cost is the
+# pure-C MPI path for WebCrypto; restoring the assembly means finding why configure's choice and
+# the build disagree, which is a change of its own.
 ( cd "$d" && ./configure CC="$CC_VANILLA" --prefix="$STAGE" --disable-shared \
     --enable-static --disable-doc --disable-asm --with-libgpg-error-prefix="$STAGE" \
   && make -j2 && make install ) || exit 1
@@ -216,6 +246,25 @@ d=$(get https://github.com/google/woff2/archive/refs/tags/v1.0.2.tar.gz woff2)
   && mkdir -p "$STAGE/include/woff2" \
   && cp include/woff2/*.h "$STAGE/include/woff2/" \
   && cp libwoff2dec.a "$STAGE/lib/" ) || exit 1
+
+echo "==== libwebp 1.3.2 ===="
+# WebCore's own WEBPImageDecoder (USE_WEBP): 10.9's ImageIO cannot decode WebP, and the
+# format is now ubiquitous. Only the decode side is used -- libwebp.a (decoder + the
+# encoder objects that come with it), libwebpdemux.a for animated WebP, and libsharpyuv.a,
+# which libwebp.a references. The command-line tools are off: they want libpng/libjpeg/
+# giflib, none of which this build has or WebKit needs.
+d=$(get https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.3.2.tar.gz libwebp)
+( cd "$d" && mkdir -p out && cd out \
+  && "$CMAKE" -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+       -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+       -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+       ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
+       -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+       -DWEBP_BUILD_ANIM_UTILS=OFF -DWEBP_BUILD_CWEBP=OFF -DWEBP_BUILD_DWEBP=OFF \
+       -DWEBP_BUILD_GIF2WEBP=OFF -DWEBP_BUILD_IMG2WEBP=OFF -DWEBP_BUILD_VWEBP=OFF \
+       -DWEBP_BUILD_WEBPINFO=OFF -DWEBP_BUILD_WEBPMUX=OFF -DWEBP_BUILD_EXTRAS=OFF \
+       -DCMAKE_INSTALL_PREFIX="$STAGE" .. \
+  && "$NINJA" -j2 && "$NINJA" install ) || exit 1
 
 # ============================ GStreamer media runtime ============================
 # GLib + GStreamer (core, plugins-base/good/bad, gst-libav on FFmpeg) and their
@@ -256,11 +305,13 @@ echo "==== 10.9 gap archive ===="
 # keeps the definitions out of each dylib's export table (private copies, no shadowing
 # of anything the loader resolves; cf. the check-polyfill-shadows.sh discipline).
 #
-# Source inventory (each is a pure gap on 10.9 -- no symbol here exists in the 10.9
-# runtime, except jit.c's mmap wrapper, a transparent forward that only strips the
-# 10.14+ MAP_JIT flag).
+# Sources, named one by one rather than globbed: each is force-loaded into every deployed
+# media binary, so adding one is a decision about ~200 dylibs and wants to be visible here.
+# Every symbol below is a pure gap on 10.9 -- the shadow gate at the end of this section
+# proves it against this host.
 #
-# From polyfill/legacy-support/src (vendored macports-legacy-support):
+# From polyfill/legacy-support/src (macports-legacy-support; the tree carries more than this
+# needs, hence the list):
 #   time            clock_gettime/clock_gettime_nsec_np/timespec_get, mach_*_time
 #   atcalls         openat + the *at() family (via per-thread chdir emulation)
 #   utimensat       utimensat/futimens
@@ -272,86 +323,51 @@ echo "==== 10.9 gap archive ===="
 #   pthread_chdir   __mpls_best_fchdir closure for atcalls (private helpers)
 #   os_unfair_lock  os_unfair_lock_lock/trylock/unlock (10.12+)
 #
-# From polyfill/polyfills/shared (this port's own, kept as plain C precisely so these
-# non-WebKit binaries and WebKit share one definition of each):
-#   jit             pthread_jit_write_protect[_supported]_np + MAP_JIT-stripping mmap
-#   mkostemp        mkostemp/mkostemps
-#   os_version      _availability_version_check (@available lowering; lld requires a
-#                   definition for compiler-rt's weak-import reference)
+# From polyfill/polyfills/shared (this port's own, plain C so the builds with no polyfill
+# registry compile the same source WebKit does):
+#   mkostemp            mkostemp/mkostemps
+#   os_version          _availability_version_check (@available lowering; lld requires a
+#                       definition for compiler-rt's weak-import reference)
 #   os_unfair_lock_ext  os_unfair_lock_lock_with_flags/_with_options
-#   aligned_alloc   C11 aligned_alloc (10.15+)
-#   ccrandom        CCRandomGenerateBytes (10.10+)
+#   aligned_alloc       C11 aligned_alloc (10.15+)
+#   ccrandom            CCRandomGenerateBytes (10.10+)
+#   cv_colorimetry      the CoreVideo wide-gamut/HDR tags applemedia references (10.11/10.13+)
+#   launchservices      the two LaunchServices lookups GLib's gosxappinfo calls (10.10+)
+#   videotoolbox        VTIsHardwareDecodeSupported, which applemedia's vtdec calls
+#                       unguarded from its caps query (10.13+)
+#   pthread_jit         pthread_jit_write_protect_np/_supported_np (11.0+), weak-imported
+#                       from the modern SDK's pthread.h
+#
+# shared/jit.c is deliberately NOT here: its mmap override is a deliberate replacement of a
+# function 10.9 HAS, wanted only where a caller passes MAP_JIT -- WebKit's JIT. Nothing in this
+# dependency set does (glib, gstreamer, ffmpeg and libffi contain no reference to it), so
+# shadowing mmap in every media binary would be gratuitous. Its pthread_jit half, which IS a
+# pure gap and IS weak-imported here, lives in shared/pthread_jit.c and is listed above.
 LEGACY="$REPO/MavericksSupport/polyfill/legacy-support"
 SHARED="$REPO/MavericksSupport/polyfill/polyfills/shared"
 GAPDIR="$SCRATCH/gap"
 mkdir -p "$GAPDIR"
-GAP_VENDORED="time atcalls utimensat fdopendir dirfuncs_compat clonefile statxx getentropy pthread_chdir os_unfair_lock"
-GAP_SHARED="jit mkostemp os_version os_unfair_lock_ext aligned_alloc ccrandom"
+GAP_LEGACY="time atcalls utimensat fdopendir dirfuncs_compat clonefile statxx getentropy pthread_chdir os_unfair_lock"
+GAP_SHARED="mkostemp os_version os_unfair_lock_ext aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit"
 GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$LEGACY/include"
-( for s in $GAP_VENDORED; do
+( for s in $GAP_LEGACY; do
     "$TC/bin/clang" $GAPCFLAGS -c "$LEGACY/src/$s.c" -o "$GAPDIR/$s.o" || exit 1
   done
   for s in $GAP_SHARED; do
     "$TC/bin/clang" $GAPCFLAGS -c "$SHARED/$s.c" -o "$GAPDIR/$s.o" || exit 1
   done ) || exit 1
-# GLib's macOS GAppInfo/content-type backend (gosxappinfo) calls two 10.10+
-# LaunchServices functions. Returning NULL makes GAppInfo report "no default
-# application", which GStreamer tolerates (media decode never needs a default
-# handler). Declared locally so they compile against the 10.9 host SDK.
-cat > "$GAPDIR/lsstubs.c" <<'EOF'
-#include <CoreFoundation/CoreFoundation.h>
-
-typedef UInt32 LSRolesMask;
-
-CFArrayRef LSCopyApplicationURLsForBundleIdentifier(CFStringRef inBundleIdentifier, CFErrorRef *outError)
-{
-    (void)inBundleIdentifier;
-    if (outError)
-        *outError = NULL;
-    return NULL;
-}
-
-CFURLRef LSCopyDefaultApplicationURLForContentType(CFStringRef inContentType, LSRolesMask inRoleMask, CFErrorRef *outError)
-{
-    (void)inContentType;
-    (void)inRoleMask;
-    if (outError)
-        *outError = NULL;
-    return NULL;
-}
-EOF
-( "$TC/bin/clang" $GAPCFLAGS -c "$GAPDIR/lsstubs.c" -o "$GAPDIR/lsstubs.o" ) || exit 1
-# applemedia (vtdec/vtenc/avfvideosrc) references 8 wide-gamut/HDR CoreVideo colorimetry
-# constants that postdate 10.9. Defining them here (canonical CFString values, identical
-# to CoreVideo's on newer macOS) makes the plugin's references resolve DEFINED at link
-# time; they only tag frames' color space, so the values matter for correctness, not for
-# decode to function.
-cat > "$GAPDIR/cvconsts.c" <<'EOF'
-#include <CoreFoundation/CoreFoundation.h>
-
-#define D(n, v) const CFStringRef n = CFSTR(v);
-D(kCVImageBufferColorPrimaries_DCI_P3, "DCI_P3")
-D(kCVImageBufferColorPrimaries_ITU_R_2020, "ITU_R_2020")
-D(kCVImageBufferColorPrimaries_P3_D65, "P3_D65")
-D(kCVImageBufferTransferFunction_ITU_R_2020, "ITU_R_2020")
-D(kCVImageBufferTransferFunction_ITU_R_2100_HLG, "ITU_R_2100_HLG")
-D(kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ, "SMPTE_ST_2084_PQ")
-D(kCVImageBufferTransferFunction_sRGB, "IEC_sRGB")
-D(kCVImageBufferYCbCrMatrix_ITU_R_2020, "ITU_R_2020")
-EOF
-( "$TC/bin/clang" $GAPCFLAGS -c "$GAPDIR/cvconsts.c" -o "$GAPDIR/cvconsts.o" ) || exit 1
 GAP_A="$GAPDIR/libmavericks_gap.a"
 ( "$AR" rcs "$GAP_A" "$GAPDIR"/*.o ) || exit 1
 # Every media build below (meson via env, autotools via env, FFmpeg/OpenSSL via their
 # own flag plumbing) links the gap archive.
 export LDFLAGS="$LDFLAGS -Wl,-force_load,$GAP_A"
 
-echo "==== GLib 2.80.5 ===="
+echo "==== GLib $GLIB_VER ===="
 # GLib's bundled subprojects come from meson wraps. The wrap-file tarballs pre-cache
 # into subprojects/packagecache (meson verifies their hashes); the wrap-git ones
 # land as plain directories at a pinned revision (gvdb/proxy-libintl by upstream URL,
 # libffi by $LIBFFI_REV because its upstream wrap floats on a branch).
-d=$(get https://download.gnome.org/sources/glib/2.80/glib-2.80.5.tar.xz glib)
+d=$(get https://download.gnome.org/sources/glib/${GLIB_VER%.*}/glib-$GLIB_VER.tar.xz glib)
 ( cd "$d/subprojects" && mkdir -p packagecache && cd packagecache \
   && fetch https://github.com/PhilipHazel/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.bz2 pcre2-10.42.tar.bz2 \
   && fetch https://wrapdb.mesonbuild.com/v2/pcre2_10.42-2/get_patch pcre2_10.42-2_patch.zip \
@@ -427,12 +443,37 @@ d=$(get https://download.gnome.org/sources/libxml2/2.13/libxml2-2.13.6.tar.xz li
 echo "==== dav1d 1.4.3 ===="
 # FFmpeg links it (--enable-libdav1d) for AV1 via the libdav1d wrapper codec. NOTE:
 # gst-libav does not wrap external-library ("lib*") FFmpeg decoders, so no avdec_av1
-# element materializes — matching the prebuilt runtime, which had no AV1 element either.
+# element materializes, so AV1 in <video> is not served by gst-libav.
 d=$(get https://downloads.videolan.org/pub/videolan/dav1d/1.4.3/dav1d-1.4.3.tar.xz dav1d)
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release \
     -Denable_tools=false -Denable_tests=false > /tmp/depslog-dav1d-setup.log 2>&1 \
   && "$MESON" compile -C b -j 2 > /tmp/depslog-dav1d-compile.log 2>&1 \
   && "$MESON" install -C b > /tmp/depslog-dav1d-install.log 2>&1 ) || exit 1
+
+echo "==== libavif 1.3.0 ===="
+# WebCore's AVIFImageDecoder (USE_AVIF): 10.9's ImageIO predates AVIF entirely. Decode only --
+# no encoder codec is enabled, so this is the demuxer plus the AV1 decode path. It builds here
+# rather than beside libwebp because it needs the dav1d above, which it finds through
+# pkg-config in $STAGE. libyuv is off: it is a conversion-speed option, and its absence only
+# routes avifImageYUVToRGB through libavif's own built-in conversion.
+d=$(get https://github.com/AOMediaCodec/libavif/archive/refs/tags/v1.3.0.tar.gz libavif)
+( cd "$d" && mkdir -p out && cd out \
+  && "$CMAKE" -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
+       -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+       -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
+       ${CCACHE:+-DCMAKE_C_COMPILER_LAUNCHER="$CCACHE" -DCMAKE_CXX_COMPILER_LAUNCHER="$CCACHE"} \
+       -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
+       -DPKG_CONFIG_EXECUTABLE="$PKG_CONFIG" \
+       -DAVIF_CODEC_DAV1D=SYSTEM -DAVIF_LIBYUV=OFF \
+       -DAVIF_BUILD_APPS=OFF -DAVIF_BUILD_TESTS=OFF -DAVIF_BUILD_EXAMPLES=OFF \
+       -DAVIF_BUILD_MAN_PAGES=OFF \
+       -DCMAKE_INSTALL_PREFIX="$STAGE" .. > /tmp/depslog-avif-setup.log 2>&1 \
+  && "$NINJA" -j2 > /tmp/depslog-avif-compile.log 2>&1 \
+  && "$NINJA" install > /tmp/depslog-avif-install.log 2>&1 ) || exit 1
+# libavif builds happily with NO codec at all, and then every AVIF fails to decode at runtime
+# with nothing said at build time. Ask the archive itself whether the dav1d codec is in it.
+"$NMBIN" "$STAGE/lib/libavif.a" 2>/dev/null | grep "avifCodecCreateDav1d" > /dev/null \
+  || { echo "  FATAL: libavif has no dav1d codec (avifCodecCreateDav1d absent); AVIF would decode nothing."; exit 1; }
 
 echo "==== OpenSSL 3.0.16 ===="
 # WebRTC's DTLS-SRTP and WebKit's OpenSSL::Crypto cmake target consume these.
@@ -451,19 +492,23 @@ d=$(get https://github.com/cisco/libsrtp/archive/refs/tags/v2.6.0.tar.gz srtp)
 echo "==== webrtc-audio-processing ===="
 # Echo cancellation / noise suppression for getUserMedia audio (gst's webrtcdsp).
 d=$(get https://www.freedesktop.org/software/pulseaudio/webrtc-audio-processing/webrtc-audio-processing-1.3.tar.xz webrtcap)
-( cd "$d/subprojects" 2>/dev/null && mkdir -p packagecache && cd packagecache \
-  && { for w in ../*.wrap; do
-         [ -f "$w" ] || continue
-         su=$(sed -n 's/^source_url *= *//p' "$w"); sf=$(sed -n 's/^source_filename *= *//p' "$w")
-         pu=$(sed -n 's/^patch_url *= *//p' "$w");  pf=$(sed -n 's/^patch_filename *= *//p' "$w")
-         [ -n "$su" ] && [ ! -f "$sf" ] && fetch "$su" "$sf"
-         [ -n "$pu" ] && [ ! -f "$pf" ] && fetch "$pu" "$pf"
-       done; true; } ) || true
+# Pre-populate meson's packagecache from the wrap files, so the subproject sources come down
+# here rather than at meson-setup time. A layout change must fail loudly: a silent no-op would
+# quietly make the build depend on the network reaching meson's wrapdb instead.
+[ -d "$d/subprojects" ] || { echo "  FATAL: $d has no subprojects/ to pre-cache"; exit 1; }
+( cd "$d/subprojects" && mkdir -p packagecache && cd packagecache \
+  && for w in ../*.wrap; do
+       [ -f "$w" ] || continue
+       su=$(sed -n 's/^source_url *= *//p' "$w"); sf=$(sed -n 's/^source_filename *= *//p' "$w")
+       pu=$(sed -n 's/^patch_url *= *//p' "$w");  pf=$(sed -n 's/^patch_filename *= *//p' "$w")
+       if [ -n "$su" ] && [ ! -f "$sf" ]; then fetch "$su" "$sf" || exit 1; fi
+       if [ -n "$pu" ] && [ ! -f "$pf" ]; then fetch "$pu" "$pf" || exit 1; fi
+     done ) || { echo "  FATAL: webrtc-audio-processing wrap pre-cache failed"; exit 1; }
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release > /tmp/depslog-webrtcap-setup.log 2>&1 \
   && "$MESON" compile -C b -j 2 > /tmp/depslog-webrtcap-compile.log 2>&1 \
   && "$MESON" install -C b > /tmp/depslog-webrtcap-install.log 2>&1 ) || exit 1
 
-echo "==== GStreamer 1.28.5 (core) ===="
+echo "==== GStreamer $GST_VER (core) ===="
 # -Dc_std=gnu11: GStreamer 1.28's project() sets c_std=gnu11,c11 (a meson fallback list),
 # which add_languages('objc') propagates to objc_std; meson 1.5.2 rejects a list for
 # objc_std ("Value gnu11,c11 ... is not one of the choices"). Pin c_std to the single
@@ -471,30 +516,27 @@ echo "==== GStreamer 1.28.5 (core) ===="
 GSTOPTS="-Dbuildtype=release -Dtests=disabled -Dexamples=disabled -Ddoc=disabled -Dc_std=gnu11"
 # -Dtools=enabled: gst-inspect-1.0/gst-launch-1.0 deploy into deps/build/bin for
 # on-box verification of the shipped runtime (webrtcbin present, plugins load).
-d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-1.28.5.tar.xz gstcore)
+d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-$GST_VER.tar.xz gstcore)
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
     -Dtools=enabled -Dbenchmarks=disabled -Dlibunwind=disabled -Ddbghelp=disabled \
     -Dbash-completion=disabled > /tmp/depslog-gstcore-setup.log 2>&1 \
   && "$MESON" compile -C b -j 2 > /tmp/depslog-gstcore-compile.log 2>&1 \
   && "$MESON" install -C b > /tmp/depslog-gstcore-install.log 2>&1 ) || exit 1
 
-# Media-critical plugins are ENABLED, not auto: a missing dependency then fails the
+# The plugins named -Denabled below are the ones whose absence would break a feature this port
+# ships, so a missing dependency fails the
 # corresponding meson setup loudly instead of silently dropping the plugin from the
 # shipped runtime.
 echo "==== gst-plugins-base ===="
-d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-1.28.5.tar.xz gstbase)
+d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-$GST_VER.tar.xz gstbase)
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
     -Dogg=enabled -Dvorbis=enabled -Dopus=enabled > /tmp/depslog-gstbase-setup.log 2>&1 \
   && "$MESON" compile -C b -j 2 > /tmp/depslog-gstbase-compile.log 2>&1 \
   && "$MESON" install -C b > /tmp/depslog-gstbase-install.log 2>&1 ) || exit 1
 
 echo "==== gst-plugins-good ===="
-# -Dasm=disabled: the deinterlace plugin's NASM yadif assembly is assembled non-PIC on
-# macho64, leaving relocations in __text; 10.9 dyld faults (SIGBUS, KERN_PROTECTION_FAILURE)
-# running the plugin's initializer off the fixed-up page, killing every registry scan.
-# The C yadif implementation is used instead; the gate below fails on any __text reloc.
-d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-1.28.5.tar.xz gstgood)
-( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dasm=disabled \
+d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$GST_VER.tar.xz gstgood)
+( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS \
     -Dvpx=enabled -Dflac=enabled -Dosxaudio=enabled -Dosxvideo=enabled > /tmp/depslog-gstgood-setup.log 2>&1 \
   && "$MESON" compile -C b -j 2 > /tmp/depslog-gstgood-compile.log 2>&1 \
   && "$MESON" install -C b > /tmp/depslog-gstgood-install.log 2>&1 ) || exit 1
@@ -504,7 +546,7 @@ echo "==== libnice ===="
 # gstreamer-1.0 discoverable) and gst-plugins-bad (whose webrtc option needs nice.pc
 # discoverable at setup time -- webrtcbin, libgstwebrtc and libgstwebrtcnice only
 # build when libnice is already installed).
-# libnice >= 0.1.23 is required by gst-plugins-bad 1.28.5 (gst-libs/gst/webrtc/nice).
+# libnice >= 0.1.23 is required by gst-plugins-bad 1.28 (gst-libs/gst/webrtc/nice).
 d=$(get https://libnice.freedesktop.org/releases/libnice-0.1.23.tar.gz nice)
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
     -Dexamples=disabled -Dgtk_doc=disabled -Dintrospection=disabled -Dgupnp=disabled \
@@ -514,26 +556,36 @@ d=$(get https://libnice.freedesktop.org/releases/libnice-0.1.23.tar.gz nice)
 
 echo "==== gst-plugins-bad ===="
 # sctp (WebRTC datachannels) builds from the usrsctp copy bundled in the tarball's
-# ext/sctp/usrsctp -- no extra download. dash stays off: dashdemux needs a
-# pkg-config-visible libxml2, which 10.9 lacks, and in-browser DASH runs through MSE
-# (JS players), never through dashdemux.
-d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.28.5.tar.xz gstbad)
+# ext/sctp/usrsctp -- no extra download. webp is off because the plugin has no caller: WebP
+# images decode in WebCore's own WEBPImageDecoder, and this build produces no libwebpmux for
+# the plugin to find.
+d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$GST_VER.tar.xz gstbad)
 # MAVERICKS_BACKPORT: patch webrtcbin's over-strict remote-ICE-credential charset check so
 # base64url ufrag/pwd (Google Meet) don't fail set-remote-description. See
 # patches/README.md. Applied unconditionally; -N keeps a re-run of the script idempotent.
-( cd "$d" && patch -p1 -N < "$HERE/patches/gst-plugins-bad-ice-credential-charset.patch" \
-    > /tmp/depslog-gstbad-patch.log 2>&1 || { grep -q 'previously applied' /tmp/depslog-gstbad-patch.log; } ) \
+( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-ice-credential-charset.patch" \
+    > /tmp/depslog-gstbad-patch.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-ice-credential-charset.patch" \
+    >> /tmp/depslog-gstbad-patch.log 2>&1 ) \
   || { echo "gst-plugins-bad ICE patch failed to apply"; cat /tmp/depslog-gstbad-patch.log; exit 1; }
 # MAVERICKS_BACKPORT: vtenc wraps its source pixel buffers around raw GstMemory without stating
 # their colorimetry, and 10.9's VideoToolbox cannot color-match an untagged source: every frame
 # fails with kVTInsufficientSourceColorDataErr (-12917), so WebRTC outbound H.264 encodes nothing.
 # This tags those buffers from the negotiated caps. See patches/README.md.
-( cd "$d" && patch -p1 -N < "$HERE/patches/gst-plugins-bad-vtenc-tag-source-colorimetry.patch" \
-    > /tmp/depslog-gstbad-patch2.log 2>&1 || { grep -q 'previously applied' /tmp/depslog-gstbad-patch2.log; } ) \
+( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtenc-tag-source-colorimetry.patch" \
+    > /tmp/depslog-gstbad-patch2.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-tag-source-colorimetry.patch" \
+    >> /tmp/depslog-gstbad-patch2.log 2>&1 ) \
   || { echo "gst-plugins-bad vtenc colorimetry patch failed to apply"; cat /tmp/depslog-gstbad-patch2.log; exit 1; }
+# MAVERICKS_BACKPORT: vtdec_hw advertises codecs the machine cannot hardware-decode; the -8973
+# session failure then lands outside decodebin3's candidate window and kills playbin3 (MSE)
+# pipelines that avdec could have played. This gates its getcaps on a per-codec RequireHardware
+# session probe. See patches/README.md.
+( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch" \
+    > /tmp/depslog-gstbad-patch3.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch" \
+    >> /tmp/depslog-gstbad-patch3.log 2>&1 ) \
+  || { echo "gst-plugins-bad vtdec_hw caps-probe patch failed to apply"; cat /tmp/depslog-gstbad-patch3.log; exit 1; }
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
     -Dwebrtc=enabled -Dwebrtcdsp=enabled -Ddtls=enabled -Dsrtp=enabled -Dsctp=enabled \
-    -Dapplemedia=enabled > /tmp/depslog-gstbad-setup.log 2>&1 \
+    -Dapplemedia=enabled -Dwebp=disabled > /tmp/depslog-gstbad-setup.log 2>&1 \
   && "$MESON" compile -C b -j 2 > /tmp/depslog-gstbad-compile.log 2>&1 \
   && "$MESON" install -C b > /tmp/depslog-gstbad-install.log 2>&1 ) || exit 1
 
@@ -555,19 +607,14 @@ d=$(get https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz ffmpeg)
   && make -s -j2 > /dev/null && make -s install > /dev/null ) || exit 1
 
 echo "==== gst-libav ===="
-d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-1.28.5.tar.xz gstlibav)
+d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-$GST_VER.tar.xz gstlibav)
 # gst-libav's option set has no "examples"; it takes the shared options minus that one.
-# G_DISABLE_ASSERT matches official GStreamer release binaries (cerbero release builds
-# define it): gstavviddec.c wraps a g_error() vmeta-dimension check in
-# "#ifndef G_DISABLE_ASSERT" that otherwise hard-crashes WebContent on any H.264 stream
-# whose decoder pool returns MB-aligned buffers (e.g. 1088-vs-1080 on nytimes autoplay).
-( cd "$d" && CFLAGS="$CFLAGS -DG_DISABLE_ASSERT" "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
+( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
     -Ddoc=disabled > /tmp/depslog-gstlibav-setup.log 2>&1 \
   && "$MESON" compile -C b -j 2 > /tmp/depslog-gstlibav-compile.log 2>&1 \
   && "$MESON" install -C b > /tmp/depslog-gstlibav-install.log 2>&1 ) || exit 1
 
 echo "==== collect into deps/build ===="
-ls -la "$STAGE/lib" > /tmp/deps_stage_snapshot.txt 2>&1; ls "$STAGE/lib/gstreamer-1.0" >> /tmp/deps_stage_snapshot.txt 2>&1 || true
 rm -rf "$DEST/include" "$DEST/lib" "$DEST/bin"
 mkdir -p "$DEST/include" "$DEST/lib/gstreamer-1.0" "$DEST/bin"
 # headers (WebKit's own link deps + the GStreamer/GLib trees WebCore compiles against)
@@ -577,9 +624,10 @@ cp "$STAGE/include/gcrypt.h"      "$DEST/include/"
 cp "$STAGE/include/libtasn1.h"    "$DEST/include/"
 cp -R "$STAGE/include/brotli"     "$DEST/include/"
 cp -R "$STAGE/include/woff2"      "$DEST/include/"
-# libxml2 headers: WebCore compiles against these (OptionsMac.cmake points
-# LIBXML2_INCLUDE_DIR here so headers match the vendored 2.13 dylib; the 1.28 collect
-# rewrite dropped them, which broke cmake regeneration).
+cp -R "$STAGE/include/webp"       "$DEST/include/"
+cp -R "$STAGE/include/avif"       "$DEST/include/"
+# libxml2 headers: WebCore compiles against these. OptionsMac.cmake points
+# LIBXML2_INCLUDE_DIR here so the headers match the 2.13 dylib deployed alongside them.
 cp -R "$STAGE/include/libxml2"    "$DEST/include/"
 for inc in glib-2.0 gio-unix-2.0 gstreamer-1.0 orc-0.4 openssl nice; do
   [ -d "$STAGE/include/$inc" ] && cp -R "$STAGE/include/$inc" "$DEST/include/"
@@ -589,16 +637,18 @@ cp "$STAGE/lib/glib-2.0/include/glibconfig.h" "$DEST/lib/glib-2.0/include/"
 # static libs
 for l in libicuuc.a libicui18n.a libicudata.a \
          libgpg-error.a libgcrypt.a libtasn1.a \
-         libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a; do
+         libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
+         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a; do
   cp "$STAGE/lib/$l" "$DEST/lib/"
 done
 
-# The C++ media libraries (webrtcdsp plugin + libwebrtc-audio-processing) link the
-# toolchain's modern C++ runtime via clang++.cfg (@rpath/libc++.1.dylib and friends;
-# the system libc++ on 10.9 predates the C++17 symbols they need). The pair stages
+# Nothing here links 10.9's /usr/lib/libc++.1.dylib: it predates the C++17 symbols this C++
+# needs, and one process must not carry two C++ runtimes. clang++.cfg points every C++ link at
+# the toolchain's own (@rpath/libc++.1.dylib and friends) -- the same runtime WebKit's own
+# frameworks bind, so a loaded WebKit and its media stack share one copy. The pair stages
 # here so the collect loop deploys it next to them and the runtime is self-contained
 # -- the deployed set loads with the toolchain directory absent. The UNWINDER is not
-# vendored: a process must have exactly one _Unwind_* implementation and system frames
+# copied: a process must have exactly one _Unwind_* implementation and system frames
 # always drive /usr/lib/system/libunwind.dylib, so every @rpath/libunwind.1.dylib
 # reference is bound to the system unwinder instead (fixed up in the collect loop;
 # MavericksSupport/scripts/stage-frameworks.sh enforces the same rule when it stages the tree).
@@ -698,7 +748,7 @@ for l in "$STAGE"/lib/*.dylib; do
     ln -sf "$cname" "$DEST/lib/$base"
   fi
 done
-# verification tools (see gate + NOTES verification plan)
+# verification tools (see the gate below)
 for t in gst-inspect-1.0 gst-launch-1.0; do
   [ -f "$STAGE/bin/$t" ] || { echo "  FATAL: $STAGE/bin/$t not built"; exit 1; }
   collect_tool "$STAGE/bin/$t"
@@ -722,12 +772,27 @@ require_glob "$DEST/lib/libxml2.*.dylib"
 require_glob "$DEST/lib/libdav1d.*.dylib"
 require_glob "$DEST/lib/libc++.1.dylib"
 require_glob "$DEST/lib/libc++abi.1.dylib"
-# single-unwinder rule: a vendored libunwind must NOT exist in the deployed set.
+# The static link libraries WebKit's CMake resolves out of this tree by exact path
+# (MavericksSupport/cmake/*.cmake, Source/cmake/*.cmake); naming them here catches a
+# dropout now instead of as an unresolved-symbol link failure in WebCore.
+for a in libicuuc.a libicui18n.a libicudata.a libgpg-error.a libgcrypt.a libtasn1.a \
+         libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
+         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a; do
+  require_glob "$DEST/lib/$a"
+done
+require_glob "$DEST/include/webp/decode.h"
+require_glob "$DEST/include/avif/avif.h"
+require_glob "$DEST/include/libxml2/libxml/parser.h"
+# single-unwinder rule: no libunwind may exist in the deployed set.
 if [ -e "$DEST/lib/libunwind.1.dylib" ]; then
   echo "  FAIL: $DEST/lib/libunwind.1.dylib exists (mixed-unwinder hazard; must bind /usr/lib/system/libunwind.dylib)"; REQFAIL=1
 fi
 for p in libgstcoreelements libgstlibav libgstwebrtc libgstnice libgstdtls libgstsrtp \
-         libgstsctp libgstvpx libgstwebrtcdsp libgstopus libgstapplemedia libgstosxaudio; do
+         libgstsctp libgstvpx libgstwebrtcdsp libgstopus libgstapplemedia libgstosxaudio \
+         libgsttypefindfunctions libgstplayback libgstisomp4 libgstmatroska \
+         libgstvideoconvertscale libgstaudioconvert libgstaudioresample libgstapp \
+         libgstvorbis libgstogg libgstflac libgstwavparse libgstdeinterlace \
+         libgstautodetect; do
   require_glob "$DEST/lib/gstreamer-1.0/$p.dylib"
 done
 require_glob "$DEST/bin/gst-inspect-1.0"
@@ -743,42 +808,84 @@ echo "==== fail-fast gate ===="
 GATE="$SCRATCH/gate"; mkdir -p "$GATE/und"
 FAILS="$GATE/failures.txt"; : > "$FAILS"
 
-# Weak imports allowed to bind NULL on 10.9. Each entry needs a reason:
-#   ___darwin_check_fd_set_overflow  emitted by the modern SDK's FD_SET() inline,
-#                                    called only under __builtin_available(macOS 11).
-# A first run against new code may surface more; verify the referencing source
-# guards the call (availability check) before extending this list -- an unguarded
-# one needs a gap-archive definition instead.
-# _VTIsHardwareDecodeSupported / _VTRegisterSupplementalVideoDecoderIfAvailable
-#   emitted by GStreamer 1.28's applemedia vtdec (sys/applemedia/vtdec.c, vtutil.c).
-#   Both are reached ONLY from gst_vtdec_check_{vp9,av1}_support, which run per-vtdec
-#   INSTANCE at runtime -- and WebKit deranks vtdec/vtdec_hw to RANK_NONE, so no vtdec
-#   instance is ever created on this port. The register call is additionally guarded by
-#   __builtin_available(macOS 11.0) (false on 10.9). applemedia itself stays enabled for
-#   its capture elements (avfvideosrc/avfaudiosrc). So these bind NULL but are never called.
-WEAK_ALLOWED="___darwin_check_fd_set_overflow _VTIsHardwareDecodeSupported _VTRegisterSupplementalVideoDecoderIfAvailable"
+# Weak imports allowed to bind NULL on 10.9. An entry earns its place only by being
+# UNREACHABLE on this OS; a symbol that some code path calls needs a gap-archive
+# definition instead, not an exemption here.
+#
+#   ___darwin_check_fd_set_overflow
+#     emitted by the modern SDK's FD_SET() inline. $SDK/usr/include/sys/_types/_fd_def.h
+#     calls it only behind `if ((uintptr_t)&__darwin_check_fd_set_overflow != (uintptr_t)0)`,
+#     a weak-symbol address test, so a NULL binding takes the other branch.
+#
+#   _VTRegisterSupplementalVideoDecoderIfAvailable
+#     emitted by GStreamer's applemedia (sys/applemedia/vtutil.c), where the direct call sits
+#     under __builtin_available(macOS 11.0) -- false here -- and the fallback dlsyms it.
+#
+# VTIsHardwareDecodeSupported is NOT here: vtdec.c calls it unguarded from
+# gst_vtdec_check_{vp9,av1}_support, i.e. from gst_vtdec_getcaps, so a NULL binding is a call
+# through address 0. It is defined in the gap archive (polyfills/shared/videotoolbox.c).
+WEAK_ALLOWED="___darwin_check_fd_set_overflow _VTRegisterSupplementalVideoDecoderIfAvailable"
 
-# dlsym ground-truth probe: argv[1..] are libraries to dlopen; stdin carries one nm
-# symbol per line; the probe prints every symbol dyld cannot resolve.
+# dlsym ground-truth probe. macOS binds undefineds PER SOURCE LIBRARY (two-level namespace),
+# so each symbol is asked of the library its own import record names -- not of the process.
+# Searching process-wide would pass a symbol that some unrelated image happens to export and
+# that the binary under test never loads, which is the whole failure this gate exists to catch.
+# stdin carries "<symbol>\t<library path>" per line; the probe prints the pairs the named
+# library does not provide, plus one OPEN-FAILED line per library that will not load (an
+# unchecked dlopen would silently downgrade every symbol from it to "unresolved").
 cat > "$GATE/dlsym_probe.c" <<'EOF'
 #include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
-int main(int argc, char **argv) {
-    int i; char line[4096];
-    for (i = 1; i < argc; i++)
-        dlopen(argv[i], RTLD_LAZY | RTLD_GLOBAL);
+#include <stdlib.h>
+#define MAXLIBS 1024
+int main(void) {
+    static char *paths[MAXLIBS]; static void *handles[MAXLIBS]; static int nlibs;
+    char line[8192];
     while (fgets(line, sizeof line, stdin)) {
         size_t n = strlen(line);
         while (n && (line[n-1] == '\n' || line[n-1] == '\r')) line[--n] = 0;
         if (!n) continue;
-        const char *name = (line[0] == '_') ? line + 1 : line;
-        if (!dlsym(RTLD_DEFAULT, name)) printf("%s\n", line);
+        char *tab = strchr(line, '\t');
+        if (!tab) continue;
+        *tab = 0;
+        const char *sym = line; const char *path = tab + 1;
+        int i, slot = -1;
+        for (i = 0; i < nlibs; i++) if (!strcmp(paths[i], path)) { slot = i; break; }
+        if (slot < 0) {
+            if (nlibs >= MAXLIBS) { printf("TOO-MANY-LIBS\t%s\n", path); continue; }
+            void *h = dlopen(path, RTLD_LAZY);
+            if (!h) printf("OPEN-FAILED\t%s\n", path);
+            paths[nlibs] = strdup(path); handles[nlibs] = h; slot = nlibs; nlibs++;
+        }
+        if (!handles[slot]) continue;   /* already reported once */
+        const char *bare = (sym[0] == '_') ? sym + 1 : sym;
+        if (!dlsym(handles[slot], bare)) printf("%s\t%s\n", sym, path);
     }
     return 0;
 }
 EOF
 ( "$CC_VANILLA" -O2 -mmacosx-version-min=10.9 -o "$GATE/dlsym_probe" "$GATE/dlsym_probe.c" ) || exit 1
+
+# dlopen probe: dyld is the final authority on whether a deployed image loads -- it checks
+# what no static inspection can (segment protections, section attributes, initializers).
+# RTLD_NOW forces full symbol binding at load. The probe carries the deployed tree's rpaths,
+# the same way WebCore's media stack reaches these images.
+cat > "$GATE/dlopen_probe.c" <<'EOF'
+#include <dlfcn.h>
+#include <stdio.h>
+int main(int argc, char **argv)
+{
+    if (argc != 2) return 2;
+    if (!dlopen(argv[1], RTLD_NOW | RTLD_LOCAL)) {
+        fprintf(stderr, "%s\n", dlerror());
+        return 1;
+    }
+    return 0;
+}
+EOF
+( "$CC_VANILLA" -O2 -mmacosx-version-min=10.9 -o "$GATE/dlopen_probe" "$GATE/dlopen_probe.c" \
+    -Wl,-rpath,"$DEST/lib" -Wl,-rpath,"$DEST/lib/gstreamer-1.0" ) || exit 1
 
 GATE_FILES=""
 for f in "$DEST"/lib/*.dylib "$DEST"/lib/gstreamer-1.0/*.dylib "$DEST"/bin/*; do
@@ -789,6 +896,7 @@ done
 
 # pass 1: per-file undefineds (strong/weak), load commands, rpath + libc++ checks
 : > "$GATE/all-strong.txt"; : > "$GATE/all-weak.txt"; : > "$GATE/sysdeps.txt"
+: > "$GATE/unattributed.txt"
 : > "$GATE/deployed-exports.txt"
 for f in $GATE_FILES; do
   b=$(basename "$f")
@@ -796,28 +904,52 @@ for f in $GATE_FILES; do
   # dyld_stub_binder is the lazy-binding glue every 10.9-deployment Mach-O references;
   # libdyld.dylib provides it on 10.9. It has no C underscore prefix, so the dlsym probe
   # (which prepends one) can never see it — exclude it rather than false-FAIL every binary.
+  # Keep the "(from X)" field: it names the library this binary binds the symbol against,
+  # and the probe asks that library specifically rather than the whole process.
   "$NMBIN" -m -arch x86_64 "$f" | awk '
     /\(undefined\)/ {
+      from="-"
+      if (match($0, /\(from [^)]*\)/)) from=substr($0, RSTART+6, RLENGTH-7)
       line=$0; sub(/ \(from [^)]*\)[^)]*$/, "", line)
       n=split(line, a, " "); sym=a[n]
       if (sym == "dyld_stub_binder") next
-      if (index($0, " weak ")) print "W " sym; else print "S " sym
+      if (index($0, " weak ")) print "W " sym " " from; else print "S " sym " " from
     }' | sort -u > "$GATE/und/$b.und"
-  awk '$1=="S"{print $2}' "$GATE/und/$b.und" >> "$GATE/all-strong.txt"
-  awk '$1=="W"{print $2}' "$GATE/und/$b.und" >> "$GATE/all-weak.txt"
+  # Resolve each "(from X)" token to a loadable path through this binary's own load commands:
+  # X is the install-name basename minus its version/extension tail.
+  otool -l "$f" | awk '$1=="cmd"{t=$2}
+    $1=="name" && (t=="LC_LOAD_DYLIB"||t=="LC_LOAD_WEAK_DYLIB"||t=="LC_REEXPORT_DYLIB"){print $2}' \
+    | sort -u > "$GATE/und/$b.deps"
+  : > "$GATE/und/$b.pairs"
+  while read -r kind sym from; do
+    [ "$from" = "-" ] && { echo "$kind $sym -" >> "$GATE/und/$b.pairs"; continue; }
+    dep=$(awk -v tok="$from" '{ b=$0; sub(/.*\//,"",b); if (b==tok || index(b, tok ".")==1) { print $0; exit } }' "$GATE/und/$b.deps")
+    case "$dep" in
+      @rpath/*) r="${dep#@rpath/}"
+                if [ -e "$DEST/lib/$r" ]; then dep="$DEST/lib/$r"; else dep="$DEST/lib/gstreamer-1.0/$r"; fi ;;
+      "")       dep="-" ;;
+    esac
+    echo "$kind $sym $dep" >> "$GATE/und/$b.pairs"
+  done < "$GATE/und/$b.und"
+  awk '$1=="S" && $3!="-"{print $2 "\t" $3}' "$GATE/und/$b.pairs" >> "$GATE/all-strong.txt"
+  awk '$1=="W" && $3!="-"{print $2 "\t" $3}' "$GATE/und/$b.pairs" >> "$GATE/all-weak.txt"
+  awk '$3=="-"{print $2}' "$GATE/und/$b.pairs" >> "$GATE/unattributed.txt"
   otool -l "$f" | awk '$1=="cmd"{t=$2}
     $1=="name" && (t=="LC_LOAD_DYLIB"||t=="LC_LOAD_WEAK_DYLIB"||t=="LC_REEXPORT_DYLIB"){print t, $2}' \
     >> "$GATE/sysdeps.txt"
   # (c) verified: no absolute build-machine LC_RPATH survives normalize
   absrp=$(otool -l "$f" | awk '/LC_RPATH/{g=1} g&&/ path /{print $2; g=0}' | { grep '^/' || true; })
   if [ -n "$absrp" ]; then echo "absolute LC_RPATH in $b: $absrp" >> "$FAILS"; fi
-  # (d) no text relocations: S_ATTR_EXT_RELOC(0x200)/S_ATTR_LOC_RELOC(0x100) on __text means
-  # non-PIC code (e.g. NASM asm without PIC); 10.9 dyld faults executing the fixed-up page
-  # (SIGBUS in the module initializer — libgstdeinterlace's yadif asm was the live case).
+  # (d) no text-relocation attributes: 10.9 dyld trusts S_ATTR_EXT_RELOC(0x200)/
+  # S_ATTR_LOC_RELOC(0x100) on __text and takes its text-relocation path, which leaves the
+  # whole __TEXT segment mapped without the execute bit -- the first call into the image
+  # (dlopen running the module initializers) dies with SIGBUS. The bits are wrong in a
+  # deployed image whether they are genuine (non-PIC code) or inherited from an object file
+  # (toolchain/patches/nasm-macho-object-reloc-attrs.patch keeps nasm from stamping them).
   textflags=$(otool -l "$f" | awk '/sectname __text/{t=1} t&&/flags 0x/{print $2; exit}')
-  case "$textflags" in
-    *[123567]00) echo "text relocations in $b (__text flags $textflags — non-PIC code)" >> "$FAILS" ;;
-  esac
+  if [ -n "$textflags" ] && [ $(( textflags & 0x300 )) -ne 0 ]; then
+    echo "relocation attributes on __text in $b (flags $textflags)" >> "$FAILS"
+  fi
   # no deployed binary may lean on the (pre-C++17) system libc++
   if otool -L "$f" | grep '/usr/lib/libc++' > /dev/null; then
     echo "system libc++ reference in $b" >> "$FAILS"
@@ -827,13 +959,25 @@ sort -u -o "$GATE/all-strong.txt" "$GATE/all-strong.txt"
 sort -u -o "$GATE/all-weak.txt"   "$GATE/all-weak.txt"
 sort -u -o "$GATE/deployed-exports.txt" "$GATE/deployed-exports.txt"
 
+# (e) every deployed dylib and plugin must dlopen on this 10.9 host. One image per process,
+# so a loader crash in one cannot mask the rest; an exit above 128 is dyld or an initializer
+# dying on a signal (the __text-attribute case in (d) is SIGBUS here), anything else is
+# dlerror text captured verbatim.
+for f in $GATE_FILES; do
+  case "$f" in */bin/*) continue ;; esac
+  b=$(basename "$f")
+  err=$("$GATE/dlopen_probe" "$f" 2>&1) && rc=0 || rc=$?
+  if [ "$rc" -gt 128 ]; then
+    echo "dlopen of $b crashed (signal $((rc-128)))" >> "$FAILS"
+  elif [ "$rc" -ne 0 ]; then
+    echo "dlopen of $b failed: $err" >> "$FAILS"
+  fi
+done
+
 # every non-@rpath load command must exist on this 10.9 host (weak dylib loads may
 # be absent -- dyld tolerates that); every @rpath one must exist in the deployed tree
-SYSLIBS=""
 for dep in $(awk '{print $2}' "$GATE/sysdeps.txt" | grep -v '^@' | sort -u); do
-  if [ -e "$dep" ]; then
-    SYSLIBS="$SYSLIBS $dep"
-  else
+  if [ ! -e "$dep" ]; then
     kinds=$(awk -v d="$dep" '$2==d{print $1}' "$GATE/sysdeps.txt" | sort -u)
     case "$kinds" in
       LC_LOAD_WEAK_DYLIB) echo "  note: weak dylib absent on 10.9 (tolerated): $dep" ;;
@@ -848,37 +992,35 @@ for dep in $(awk '{print $2}' "$GATE/sysdeps.txt" | grep '^@rpath/' | sort -u); 
   fi
 done
 
-# strong undefineds: (deployed exports) u (10.9 runtime via dlsym) covers all of them
-comm -23 "$GATE/all-strong.txt" "$GATE/deployed-exports.txt" > "$GATE/strong-unknown.txt"
+# Every undefined must be attributable to a source library; an unattributed one cannot be
+# checked against anything and is not silently passed.
+sort -u -o "$GATE/unattributed.txt" "$GATE/unattributed.txt"
+if [ -s "$GATE/unattributed.txt" ]; then
+  echo "undefined symbols with no resolvable source library:" >> "$FAILS"
+  sed 's/^/  /' "$GATE/unattributed.txt" >> "$FAILS"
+fi
+
+# strong undefineds: each must be provided by the library its own import record names
 : > "$GATE/strong-missing.txt"
-if [ -s "$GATE/strong-unknown.txt" ]; then
-  "$GATE/dlsym_probe" $SYSLIBS < "$GATE/strong-unknown.txt" | sort -u > "$GATE/strong-missing.txt"
+if [ -s "$GATE/all-strong.txt" ]; then
+  "$GATE/dlsym_probe" < "$GATE/all-strong.txt" | sort -u > "$GATE/strong-missing.txt"
 fi
 if [ -s "$GATE/strong-missing.txt" ]; then
-  echo "strong undefined symbols with no provider on 10.9:" >> "$FAILS"
-  for f in $GATE_FILES; do
-    b=$(basename "$f")
-    hits=$(awk '$1=="S"{print $2}' "$GATE/und/$b.und" | sort -u | comm -12 - "$GATE/strong-missing.txt" | tr '\n' ' ')
-    if [ -n "$hits" ]; then echo "  $b: $hits" >> "$FAILS"; fi
-  done
+  echo "strong undefined symbols their own source library does not provide on 10.9:" >> "$FAILS"
+  sed 's/^/  /' "$GATE/strong-missing.txt" >> "$FAILS"
 fi
 
 # weak undefineds: those with no provider anywhere bind NULL at load; each must be on
 # the documented allow-list
-comm -23 "$GATE/all-weak.txt" "$GATE/deployed-exports.txt" > "$GATE/weak-unknown.txt"
 : > "$GATE/weak-missing.txt"
-if [ -s "$GATE/weak-unknown.txt" ]; then
-  "$GATE/dlsym_probe" $SYSLIBS < "$GATE/weak-unknown.txt" | sort -u > "$GATE/weak-missing.txt"
+if [ -s "$GATE/all-weak.txt" ]; then
+  "$GATE/dlsym_probe" < "$GATE/all-weak.txt" | sort -u > "$GATE/weak-missing.txt"
 fi
 printf '%s\n' $WEAK_ALLOWED | sort -u > "$GATE/weak-allowed.txt"
-comm -23 "$GATE/weak-missing.txt" "$GATE/weak-allowed.txt" > "$GATE/weak-bad.txt"
+awk -F'\t' 'NR==FNR{ok[$1]=1; next} !ok[$1]' "$GATE/weak-allowed.txt" "$GATE/weak-missing.txt" > "$GATE/weak-bad.txt"
 if [ -s "$GATE/weak-bad.txt" ]; then
   echo "weak imports that bind NULL on 10.9 and are not allow-listed:" >> "$FAILS"
-  for f in $GATE_FILES; do
-    b=$(basename "$f")
-    hits=$(awk '$1=="W"{print $2}' "$GATE/und/$b.und" | sort -u | comm -12 - "$GATE/weak-bad.txt" | tr '\n' ' ')
-    if [ -n "$hits" ]; then echo "  $b: $hits" >> "$FAILS"; fi
-  done
+  sed 's/^/  /' "$GATE/weak-bad.txt" >> "$FAILS"
 fi
 
 if [ -s "$FAILS" ]; then
@@ -888,7 +1030,8 @@ if [ -s "$FAILS" ]; then
   exit 1
 fi
 echo "  ok: $(echo $GATE_FILES | wc -w | tr -d ' ') binaries; every strong undefined resolves on 10.9;"
-echo "      no NULL-binding weak imports beyond the allow-list; no absolute rpaths"
+echo "      every dylib and plugin dlopens; no NULL-binding weak imports beyond the"
+echo "      allow-list; no absolute rpaths"
 
 echo "==== done. deps/build: ===="
 ls "$DEST/lib" | head -40; ls "$DEST/lib/gstreamer-1.0" | wc -l

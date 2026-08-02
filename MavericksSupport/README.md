@@ -62,9 +62,9 @@ MavericksSupport/
 │
 ├── sdk/                        SDK patches: patch-sdk-rehome.sh (symbol re-home) + patch-sdk-availability.sh (make iOS-only soft-linked classes macOS-declarable)
 ├── deps/                       third-party libraries WebKit links (see deps/README.md)
-│   ├── build_deps.sh             builds ICU/gcrypt/tasn1/gpg-error/brotli/woff2 -> build/ (gitignored)
-│   ├── build/                    ARTIFACTS (gitignored): the built libs + headers
-│   └── gstreamer/                vendored GStreamer (committed binary) + glib/ (re-vendor scripts)
+│   ├── build_deps.sh             builds ICU/gcrypt/tasn1/gpg-error/brotli/woff2/libwebp/libavif/libxml2 + the GStreamer runtime -> build/
+│   ├── patches/                  source patches build_deps.sh applies to GStreamer
+│   └── build/                    ARTIFACTS (gitignored): the built libs + headers + tools
 ├── safari7-abi/                the captured Safari-7 private ABI contract + check-abi-gap.sh
 ├── docs/                       prose docs: upstream-merge guide + Safari-7 ABI reference
 └── tests/                      manual test pages + media
@@ -76,19 +76,21 @@ MavericksSupport/
    here. Place a `MacOSX26.1.sdk` as a **sibling of this checkout** (or set
    `MAVERICKS_SDK`). The toolchain file errors clearly if it's missing.
 
-2. **Bootstrap the toolchain** (once): `bash MavericksSupport/toolchain/bootstrap.sh`
-   — unpacks the in-tree clang and builds python3/nasm/ninja/cmake/ccache from source into
-   `toolchain/build/` (gitignored).
+2. **Bootstrap** (once): `bash MavericksSupport/bootstrap.sh` — unpacks the in-tree clang and
+   builds python3/nasm/ninja/cmake/ccache into `toolchain/build/`, then the third-party
+   libraries WebKit links into `deps/build/` and the polyfill archives into
+   `polyfill/build/`. All three are gitignored; CMake configuration fails with a pointer
+   back here if `deps/build` is empty. Budget a couple of hours for a cold run.
 
 3. **Configure + build** with the bootstrapped cmake/ninja and the toolchain file
-   (`bootstrap.sh` prints the exact command).
+   (`toolchain/bootstrap.sh` prints the exact command).
 
 4. **Install** onto the 10.9 target: `sudo bash MavericksSupport/install-safari7.sh`.
    The build's last phase (`scripts/stage-frameworks.sh`, run by `rebuild.sh`) already
    assembled the complete product in `WebKitBuild/Release/staged/`, laid out exactly as it
-   lands on disk; installing copies that tree into `/System` and edits the host files
-   nobody builds (the Dashboard Web Clip widget plist, the Web Inspector's `Main.css`, and
-   Safari's `page-load-errors.css`).
+   lands on disk; installing copies that tree into `/System`. The one thing outside our own
+   frameworks it touches is the Dashboard widget plists' `AllowInternetPlugins` flag, which
+   the Dock reads to pick the DashboardClient architecture before any of our code runs.
 
 To run layout tests against the build tree (never the installed system), use
 `bash MavericksSupport/scripts/run-layout-tests.sh --wk1|--wk2 <tests...>` — the port

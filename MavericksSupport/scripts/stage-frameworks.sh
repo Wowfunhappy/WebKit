@@ -25,9 +25,9 @@ REPO="$WK_REPO"
 LIBDIR="$WK_LIBDIR"
 STAGE="$WK_STAGE_ROOT"
 TC="${MAVERICKS_CLANG:-$WK_SUPPORT/toolchain/build/clang}"
-# GST_SRC is overridable so a freshly-built deps/build (e.g. a GStreamer version bump under
-# test) can be staged without first refreshing the committed deps/gstreamer snapshot.
-GST_SRC="${GST_SRC:-$WK_SUPPORT/deps/gstreamer/lib}"
+# The media runtime deps/build_deps.sh builds; GST_SRC points elsewhere to stage an
+# alternate build of it.
+GST_SRC="${GST_SRC:-$WK_SUPPORT/deps/build/lib}"
 
 INT="$(wk_find_install_name_tool)"
 OTOOL="$(wk_find_otool)"
@@ -342,22 +342,25 @@ else
     exit 1
 fi
 
-# GStreamer (#90), the sole media engine: deploy the vendored lib tree (libs + plugins) into
-# WebCore.framework. The libs are self-contained via their own LC_RPATH @loader_path/../lib, so they
-# ship as-is; only the WebKit frameworks' @rpath/libg*/libgst*/etc. deps are rewritten to these
-# absolute paths (step 4).
+# GStreamer (#90), the sole media engine: deploy the dylibs + plugins into WebCore.framework. They
+# are self-contained via their own LC_RPATH @loader_path/../lib, so they ship as-is; only the WebKit
+# frameworks' @rpath/libg*/libgst*/etc. deps are rewritten to these absolute paths (step 4).
 echo "### Deploying GStreamer libs into WebCore.framework ($GST_DEPLOY)"
 if [ -d "$GST_SRC" ]; then
     # The runtime is built from source for 10.9 (MavericksSupport/deps/build_deps.sh)
     # and proved self-contained by that script's resolution gate: every strong undefined symbol in
     # every dylib/plugin resolves on this host, no NULL-binding weak imports beyond the documented
-    # allow-list, no compat/reexport shims, and the C++17 runtime is vendored in-tree
+    # allow-list, no compat/reexport shim dylibs, and the C++17 runtime ships alongside
     # (libc++.1.dylib / libc++abi.1.dylib).
+    #
+    # The static libraries in the same directory are link-time inputs to the WebKit frameworks; the
+    # product carries only the runtime, so they stay out of the copy.
     mkdir -p "$(s "$GST_DEPLOY")"
     cp -Rp "$GST_SRC/." "$(s "$GST_DEPLOY")/"
-    # Single-unwinder rule: the vendored tree carries the toolchain's libunwind and @rpath references
-    # to it (resolved via the libs' @loader_path/../lib LC_RPATH). Bind every reference to the system
-    # unwinder and leave the vendored copy out of the product.
+    rm -f "$(s "$GST_DEPLOY")"/*.a
+    # Single-unwinder rule: the tree carries @rpath references to the toolchain's libunwind
+    # (resolved via the libs' @loader_path/../lib LC_RPATH). Bind every reference to the system
+    # unwinder and leave that copy out of the product.
     find "$(s "$GST_DEPLOY")" -type f -name '*.dylib' | while read -r gstlib; do
         if "$OTOOL" -L "$gstlib" 2>/dev/null | grep -q '@rpath/libunwind.1.dylib'; then
             "$INT" -change @rpath/libunwind.1.dylib "$SYSTEM_UNWINDER" "$gstlib"

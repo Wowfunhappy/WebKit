@@ -27,12 +27,12 @@ macro(find_package package)
 
         # MAVERICKS_BACKPORT: the system ICU (libicucore) is ICU 51 and lacks the
         # modern Intl symbols JSC needs (ucfpos_*, udtitvfmt_*, ureldatefmt_*,
-        # ulistfmt_*, ...). Link our in-tree ICU 74.2 static libs instead. The
-        # bundled ICU headers above are 74.2, matching these libs.
-        if (EXISTS ${CMAKE_SOURCE_DIR}/MavericksSupport/deps/build/lib/libicuuc.a)
-            set(ICU_I18N_LIBRARY ${CMAKE_SOURCE_DIR}/MavericksSupport/deps/build/lib/libicui18n.a)
-            set(ICU_UC_LIBRARY   ${CMAKE_SOURCE_DIR}/MavericksSupport/deps/build/lib/libicuuc.a)
-            set(ICU_DATA_LIBRARY ${CMAKE_SOURCE_DIR}/MavericksSupport/deps/build/lib/libicudata.a)
+        # ulistfmt_*, ...). Link the ICU 74.2 static libs deps/build_deps.sh builds
+        # instead. The bundled ICU headers above are 74.2, matching these libs.
+        if (EXISTS ${MAVERICKS_DEPS}/lib/libicuuc.a)
+            set(ICU_I18N_LIBRARY ${MAVERICKS_DEPS}/lib/libicui18n.a)
+            set(ICU_UC_LIBRARY   ${MAVERICKS_DEPS}/lib/libicuuc.a)
+            set(ICU_DATA_LIBRARY ${MAVERICKS_DEPS}/lib/libicudata.a)
         else ()
             # Apple just has a single tbd/dylib for ICU.
             find_library(ICU_I18N_LIBRARY icucore)

@@ -1,6 +1,6 @@
 # GStreamer source patches
 
-Patches applied to the vendored GStreamer source trees by `build_deps.sh` before each
+Patches `build_deps.sh` applies to the GStreamer source trees it unpacks, before each
 module is configured/built. Every patch here is applied explicitly and unconditionally by
 the build script (search it for `patches/`); none is optional. Each patch fixes a bug or
 over-strict behavior in GStreamer's **own** source — never a workaround that belongs in
@@ -38,7 +38,7 @@ color attachments at all**. Modern macOS infers defaults for an untagged source;
 10.9's VideoToolbox cannot, and fails **every** frame with
 `kVTInsufficientSourceColorDataErr` (-12917) — the session creates fine, then zero frames
 come out. Net effect: WebRTC outbound H.264 (e.g. our camera on Google Meet) never sends
-a single packet. A/B-proven with `gst-launch`: colorimetry that maps to no session color
+a single packet. `gst-launch` isolates it: colorimetry that maps to no session color
 properties encodes clean; bt601/bt709 (properties set) fails every frame.
 
 The colorimetry is already known from the negotiated caps, and vtenc already maps it onto
@@ -49,13 +49,29 @@ since 10.4) at both sites that build a pixel buffer from raw memory. Color match
 has both ends it needs and succeeds on 10.9, with the destination properties left in
 place, so the encoded stream still carries correct color information.
 
-## Retired / not applied
+## gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch
 
-- **SCTP-transport GWeakRef guard** (webrtcsctptransport.c raw-pointer signal callbacks):
-  webrtcbin's sctp-transport disconnects its `sctpenc`/`sctpdec` signal callbacks in
-  finalize without waiting for an in-flight cross-thread emission, a genuine UAF. A GWeakRef
-  patch was prototyped, but A/B testing on 1.28 (Meet 0/6 crashes with *and* without it;
-  stress-test crash rate unchanged) showed 1.28's graceful `webrtcbin` `close()` reorders
-  teardown so the race does not fire in practice. Per project policy (no dependency patch
-  unless it demonstrably earns its place), it is **not** applied. If a teardown crash
-  traced to that path reappears, the patch is recoverable from git history.
+**Target:** `gst-plugins-bad-1.28.5`, `sys/applemedia/vtdec.c`
+**Applied to:** libgstapplemedia (vtdec_hw)
+
+`vtdec_hw` (rank primary+1, above `avdec_h264`) advertises every codec in its sink template
+whether or not the machine can hardware-decode it. On a machine with no hardware decoder for
+the codec (any VM; H.264-only-era Macs asked for HEVC),
+`VTDecompressionSessionCreate(RequireHardware)` fails with **-8973**
+(`kVTCouldNotFindVideoDecoderErr`) — but only in `set_format`, once caps flow on the streaming
+thread. `decodebin` recovers (its factory loop runs there and plugs the next factory);
+**`decodebin3` does not** — its candidate window closes after a caps-less READY→PAUSED, so the
+late error passes through and kills the pipeline. WebKit reaches decodebin3 through `playbin3`
+for every MSE, blob and mediastream player, so on such machines all MSE video dies with
+"GStreamer encountered a general resource error." while a working software decoder sits one
+rank below.
+
+The patch extends `gst_vtdec_getcaps`'s existing honesty mechanism (VP9/AV1 are already gated
+on `VTIsHardwareDecodeSupported`): for the `require_hardware` subclass, each sink-template
+codec is kept only if a `RequireHardware` decompression session can actually be created for it,
+probed once per codec type with a bare `CMVideoFormatDescription` (measured: the bare-description
+software session succeeds while RequireHardware answers -8973, so the probe isolates hardware
+availability, not description validity). With the codec stripped, decodebin3's accept-caps check
+fails inside its candidate window and the next factory is tried. On machines whose VideoToolbox
+does hardware-decode the codec, the probe succeeds and `vtdec_hw` keeps its caps, rank and
+hardware path.

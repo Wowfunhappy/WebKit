@@ -50,15 +50,6 @@ set(WebCore_USER_AGENT_SCRIPTS
     ${WEBCORE_DIR}/Modules/mediacontrols/mediaControlsApple.js
 )
 
-# MAVERICKS_BACKPORT: vendored libwebp for the WEBPImageDecoder fallback (ImageIO on
-# this build can't decode WebP). Static libs at MavericksSupport/deps/libwebp/lib.
-# IMPORTANT: changing this section invalidates WebCore IPC structs — must rebuild
-# WebKit too (`ninja WebKit`) or Safari crashes in IPC::ArgumentCoder decode.
-
-# MAVERICKS_BACKPORT: libgcrypt powers WebCrypto (replaces the cocoa CommonCrypto path).
-# libtasn1 handles SPKI/PKCS8 ASN.1 parsing for the gcrypt EC/RSA importers.
-# All built in-tree by MavericksSupport/deps/build_deps.sh; static link.
-
 # MAVERICKS_BACKPORT: WOFF2 web-font decoder (USE_WOFF2=ON). Our modern UA makes Google Fonts/Material
 # Icons serve WOFF2; WOFFFileFormat.cpp::convertWOFFToSfntIfNecessary then calls woff2::ConvertWOFF2ToTTF
 # (Brotli-decompress + table reconstruction). Built locally from google/woff2 + google/brotli (static).
@@ -246,9 +237,16 @@ list(APPEND WebCore_SOURCES
 )
 
 list(APPEND WebCore_LIBRARIES
-    "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/lib/libwebpdemux.a"
-    "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/lib/libwebp.a"
-    "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/lib/libsharpyuv.a"
+    "${MAVERICKS_DEPS}/lib/libwebpdemux.a"
+    "${MAVERICKS_DEPS}/lib/libwebp.a"
+    "${MAVERICKS_DEPS}/lib/libsharpyuv.a"
+    # MAVERICKS_BACKPORT: libavif for the AVIFImageDecoder (USE_AVIF). It decodes AV1 through
+    # the same libdav1d the media stack loads, so the process carries one AV1 decoder; that
+    # dylib's @rpath install name is repointed at the deployed copy by stage-frameworks.sh.
+    "${MAVERICKS_DEPS}/lib/libavif.a"
+    # The unversioned symlink, not the majored name: it records @rpath/libdav1d.7.dylib as the
+    # load command either way, and this keeps dav1d's SOVERSION out of a second file.
+    "${MAVERICKS_DEPS}/lib/libdav1d.dylib"
     "${MAVERICKS_DEPS}/lib/libgcrypt.a"
     "${MAVERICKS_DEPS}/lib/libtasn1.a"
     "${MAVERICKS_DEPS}/lib/libgpg-error.a"
@@ -421,9 +419,9 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     # MAVERICKS_BACKPORT: crypto/cocoa header dir for CryptoUtilitiesCocoa.h — still needed by the WebRTC
     # SFrame transformer (CommonCrypto AES-CTR helper), distinct from the libgcrypt WebCrypto impl.
     "${WEBCORE_DIR}/crypto/cocoa"
-    # MAVERICKS_BACKPORT: libgcrypt/libtasn1/libgpg-error built in-tree by
-    # MavericksSupport/deps/build_deps.sh; see [[project_webcrypto_cc_stubs_stripped]]
-    # for the prior CommonCrypto approach that's now retired.
+    # MAVERICKS_BACKPORT: headers for everything MavericksSupport/deps/build_deps.sh builds
+    # that WebCore compiles against — libgcrypt/libtasn1/libgpg-error (WebCrypto), brotli,
+    # woff2, libwebp, libavif, libxml2.
     "${MAVERICKS_DEPS}/include"
     # MAVERICKS_BACKPORT: upstream's CMake lists platform/graphics/mac but not its controls/ subdirectory
     # (nor the two directories below), so a bare `#import "ImageControlsButtonMac.h"` (RenderThemeMac.mm,
@@ -431,13 +429,9 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     # header maps make every header reachable by basename regardless of directory. Nothing 10.9-specific;
     # it is a gap in the CMake port that only shows once ENABLE(SERVICE_CONTROLS) compiles those includes.
     #
-    # Add the directories rather than keeping flat-path DUPLICATES of the headers in Source/WebCore/, which
-    # was the previous workaround for all four of ImageControlsButtonMac.h, ControlFactoryCocoa.h,
-    # ApplePayAMSUIPaymentHandler.h and LibWebRTCProvider.h. A duplicate header is a second copy that no
-    # longer tracks the original, and the ImageControlsButtonMac.h one broke the moment it was first
-    # compiled: the copy sits outside controls/, so its own `#import "ControlMac.h"` sibling include could
-    # not resolve. (LibWebRTCProvider.h's real directory was already on this list, so that copy shadowed a
-    # perfectly reachable header for no reason.) All four copies are deleted.
+    # Name the directories rather than keeping flat-path copies of the headers in Source/WebCore/: a copy
+    # does not track the original, and one that sits outside its own directory cannot resolve its sibling
+    # includes (ImageControlsButtonMac.h `#import "ControlMac.h"`).
     "${WEBCORE_DIR}/platform/graphics/mac/controls"
     "${WEBCORE_DIR}/platform/graphics/cocoa/controls"
     "${WEBCORE_DIR}/Modules/applepay-ams-ui"
@@ -445,10 +439,11 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     # canonical home is platform/graphics/coretext/ (the only entries this file had for that directory
     # were SOURCES, never an include path).
     "${WEBCORE_DIR}/platform/graphics/coretext"
-    "${CMAKE_SOURCE_DIR}/MavericksSupport/deps/libwebp/include"
     "${WEBCORE_DIR}/platform/image-decoders"
     "${WEBCORE_DIR}/platform/image-decoders/webp"
-    "${MAVERICKS_DEPS}/include"
+    # MAVERICKS_BACKPORT: USE_AVIF is ON here, so ScalableImageDecoder.cpp resolves a bare
+    # `#include "AVIFImageDecoder.h"`. Upstream's Mac build never compiles that branch.
+    "${WEBCORE_DIR}/platform/image-decoders/avif"
     "${WEBCORE_DIR}/platform/ios"
     "${LIBWEBM_STAGED_INCLUDE}"
     # libwebm's headers include each other by paths relative to the library root

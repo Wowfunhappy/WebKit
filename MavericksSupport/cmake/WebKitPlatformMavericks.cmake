@@ -51,18 +51,17 @@ target_link_options(WebKit PRIVATE -weak_library /System/Library/PrivateFramewor
 # path) and Network (10.14+; the nw_* WebTransport API). Weak-linking is what makes those references
 # resolve to null at load and stay bindable up front, which is what an eagerly-bound client needs.
 #
-# This replaces a "-undefined dynamic_lookup" that used to be applied to WebKit.framework here. Upstream
-# applies that flag to WebCore only (Source/WebCore/CMakeLists.txt, "-umbrella WebKit"); WebKit never
-# needed it because Apple builds target an OS where these symbols exist. Adding it hid real defects rather
-# than adapting to 10.9: it let genuinely undefined WebKit-INTERNAL symbols survive the link as
-# flat-namespace lookups, and its stated rationale -- "bind them lazily so absence surfaces at call time"
-# -- does not hold for a client that binds eagerly (dlopen RTLD_NOW, or a hard-bound framework), where
-# dyld must resolve every undefined symbol up front and aborts on the first one nothing defines. Those
-# internal symbols are now defined instead of masked: NetworkSoftLink.mm and MediaRecorderPrivateWriter et
-# al. are compiled (see the WebCore/WebKit source-list additions), BidiBrowserAgent's non-GLib fallback is
-# gated on the ports that actually build the GLib one, and ENABLE_WEB_PUSH_NOTIFICATIONS is off, which is
-# what removes the WebPushDaemonMain/WebPushToolMain references. Keep this target free of the flag: with
-# it gone, the linker is the gate that catches the next such omission at build time.
+# Keep this target free of "-undefined dynamic_lookup". Upstream applies that flag to WebCore only
+# (Source/WebCore/CMakeLists.txt, "-umbrella WebKit"). On WebKit it masks real defects rather than
+# adapting to 10.9: it lets genuinely undefined WebKit-INTERNAL symbols survive the link as
+# flat-namespace lookups, and the rationale for it -- "bind them lazily so absence surfaces at call
+# time" -- does not hold for a client that binds eagerly (dlopen RTLD_NOW, or a hard-bound framework),
+# where dyld must resolve every undefined symbol up front and aborts on the first one nothing defines.
+# Every WebKit-internal symbol is defined instead: NetworkSoftLink.mm and MediaRecorderPrivateWriter et
+# al. are compiled (see the WebCore/WebKit source-list additions), BidiBrowserAgent's non-GLib fallback
+# is gated on the ports that actually build the GLib one, and ENABLE_WEB_PUSH_NOTIFICATIONS is off,
+# which is what keeps the WebPushDaemonMain/WebPushToolMain references out. Without the flag, the
+# linker is the gate that catches the next such omission at build time.
 target_link_options(WebKit PRIVATE "SHELL:-weak_framework Metal" "SHELL:-weak_framework Network")
 
     # MAVERICKS_BACKPORT: the modern "_WebKit" RunLoopType is unknown to 10.9's libxpc, which then falls
