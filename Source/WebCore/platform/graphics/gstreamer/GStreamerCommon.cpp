@@ -606,25 +606,6 @@ void registerWebKitGStreamerElements()
                 gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE_CAST(factory.get()), GST_RANK_NONE);
         }
 
-        // MAVERICKS_BACKPORT: demote the applemedia VideoToolbox decoders so decodebin3 never
-        // auto-plugs them, because neither of them works on 10.9. vtdec_hw's
-        // VTDecompressionSessionCreate fails with -8973 (no hardware decoder), which surfaced as a
-        // fatal "general resource error" on every MSE H.264 stream (bsky.app videos). The software
-        // vtdec is no better: measured on this host, `filesrc ! qtdemux ! h264parse ! vtdec !
-        // fakesink` SIGSEGVs on all three runs, in gst_vtdec_getcaps calling through a null pointer
-        // (libgstapplemedia, frame 0 is address 0) — that is the CAPS QUERY, which is precisely what
-        // decodebin does to auto-plug an element, so a demoted rank is the only thing that keeps it
-        // out. The identical pipeline through avdec_h264 decodes cleanly, so H.264 goes through
-        // FFmpeg (gst-libav), which the deps runtime ships. The applemedia plugin still ships for
-        // its capture elements (avfvideosrc).
-        {
-            std::array<ASCIILiteral, 2> vtDecoderNames = { "vtdec"_s, "vtdec_hw"_s };
-            for (auto& elementName : vtDecoderNames) {
-                if (auto factory = adoptGRef(gst_element_factory_find(elementName)))
-                    gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE_CAST(factory.get()), GST_RANK_NONE);
-            }
-        }
-
         // The new demuxers based on adaptivedemux2 cannot be used in WebKit yet because this new
         // base class does not abstract away network access. They can't work in a sandboxed
         // media process, so demote their rank in order to prevent decodebin3 from auto-plugging them.
