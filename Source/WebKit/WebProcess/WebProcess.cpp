@@ -1485,10 +1485,9 @@ NetworkProcessConnection& WebProcess::ensureNetworkProcessConnection()
 
     // If we've lost our connection to the network process (e.g. it crashed) try to re-establish it.
     if (!m_networkProcessConnection) {
-        // MAVERICKS_BACKPORT: previously stubbed with a local mach-port pair because
-        // NetworkConnectionToWebProcess was non-functional. The network process
-        // now handles real HTTP requests, so go through the normal sync round-trip
-        // to UIProcess to obtain a real connection.
+        // MAVERICKS_BACKPORT: the network process handles real HTTP requests on this port, so take
+        // the normal sync round-trip to UIProcess for a real connection rather than a local
+        // mach-port pair.
         auto connectionInfo = getNetworkProcessConnection(Ref { *parentProcessConnection() });
 
         m_networkProcessConnection = NetworkProcessConnection::create(IPC::Connection::Identifier { WTF::move(connectionInfo.connection) }, connectionInfo.cookieAcceptPolicy);

@@ -39,9 +39,9 @@
 #include <WebCore/CAAudioStreamDescription.h>
 #include <WebCore/CARingBuffer.h>
 #include <WebCore/WebAudioBufferList.h>
-// MAVERICKS_BACKPORT: videoFrameAvailableCV() takes a RetainPtr<CVPixelBufferRef>. That type used to come
-// transitively from RemoteVideoFrameProxy.h, which is now empty when !ENABLE(GPU_PROCESS); include
-// CoreVideo directly so the header is self-sufficient.
+// MAVERICKS_BACKPORT: videoFrameAvailableCV() takes a RetainPtr<CVPixelBufferRef>. Its transitive
+// source, RemoteVideoFrameProxy.h, is empty when !ENABLE(GPU_PROCESS); include CoreVideo directly so
+// the header is self-sufficient.
 #include <CoreVideo/CVPixelBuffer.h>
 #include <wtf/CheckedRef.h>
 #include <wtf/HashMap.h>
