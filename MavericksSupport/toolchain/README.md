@@ -8,6 +8,8 @@ is obvious by location:
   `clang.cfg`/`clang++.cfg` link set, the resource headers, and the private
   `libc++`/`libc++abi`/`libunwind` dylibs.
 - **`scripts/`** — COMMITTED source: `build_{python3,nasm,ninja,cmake,ccache}.sh`.
+- **`patches/`** — COMMITTED patches the build scripts apply to the tools they build;
+  each patch's header states the defect it fixes.
 - **`bootstrap.sh`** — assembles `build/` from `vendor/` + `scripts/`.
 - **`build/`** — ARTIFACTS (gitignored): the unpacked, usable clang plus the
   from-source helper tools. Delete it and re-run `bootstrap.sh` to reconstruct.

@@ -25,6 +25,11 @@ curl -fsSL -o "$WORK/nasm.tar.gz" "$URL"
 tar xzf "$WORK/nasm.tar.gz" -C "$WORK"
 
 cd "$WORK/nasm-${VERSION}"
+echo "### Patching"
+# See the patch header: nasm stamps dyld-only relocation attributes on object sections,
+# which ld64.lld carries into dylibs and 10.9's dyld then misreads as text relocations.
+patch -p1 < "$TOOLCHAIN/patches/nasm-macho-object-reloc-attrs.patch" > "$WORK/patch.log" 2>&1
+
 echo "### Configuring (prefix=$PREFIX)"
 ./configure --prefix="$PREFIX" > "$WORK/configure.log" 2>&1
 echo "### Building"

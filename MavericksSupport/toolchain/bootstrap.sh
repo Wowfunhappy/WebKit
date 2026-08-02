@@ -22,9 +22,10 @@ if [ ! -x "$CLANG_OUT/bin/clang-22" ]; then
     bunzip2 -c "$VENDOR/clang/bin/clang-22.bz2" > "$CLANG_OUT/bin/clang-22"
     bunzip2 -c "$VENDOR/clang/bin/lld.bz2"      > "$CLANG_OUT/bin/lld"
     chmod +x "$CLANG_OUT/bin/clang-22" "$CLANG_OUT/bin/lld"
-    # FIXME: hold clang's mtime steady across re-extraction so ccache, which identifies the
-    # compiler by mtime, keeps its cache. TODO: Remove this and uncomment
-    # `compiler_check = content` in ccache.conf. This will invalidate the existing cache.
+    # ccache identifies the compiler by size + mtime, so a fixed stamp keeps its cache across a
+    # re-extraction here and across machines. A literal rather than the .bz2's own mtime: git does
+    # not preserve mtimes, so every fresh clone would otherwise hash a different compiler. It
+    # changes only when the vendored clang does.
     touch -t 202606191815.21 "$CLANG_OUT/bin/clang-22" "$CLANG_OUT/bin/lld"
     cp "$VENDOR/clang/bin/"{llvm-ar,llvm-nm,llvm-objcopy,clang.cfg,clang++.cfg} "$CLANG_OUT/bin/"
     # clang/lld/llvm tools are multi-call binaries invoked under several names; recreate
