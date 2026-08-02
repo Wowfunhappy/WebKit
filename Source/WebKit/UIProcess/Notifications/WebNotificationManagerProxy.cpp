@@ -71,7 +71,7 @@ WebNotificationManagerProxy::WebNotificationManagerProxy(WebProcessPool* process
 
 WebNotificationManagerProxy::~WebNotificationManagerProxy() = default;
 
-void WebNotificationManagerProxy::setProvider(std::unique_ptr<API::NotificationProvider>&& provider)
+void WebNotificationManagerProxy::setProvider(std::unique_ptr<API::NotificationProvider>&& provider, ShouldNotifyProviderOfManager shouldNotifyProviderOfManager)
 {
     if (!provider) {
         m_provider = makeUnique<API::NotificationProvider>();
@@ -79,7 +79,9 @@ void WebNotificationManagerProxy::setProvider(std::unique_ptr<API::NotificationP
     }
 
     m_provider = WTF::move(provider);
-    m_provider->addNotificationManager(*this);
+    // MAVERICKS_BACKPORT: conditional; see the header. Upstream notifies unconditionally.
+    if (shouldNotifyProviderOfManager == ShouldNotifyProviderOfManager::Yes)
+        m_provider->addNotificationManager(*this);
 }
 
 // WebContextSupplement
@@ -175,8 +177,17 @@ void WebNotificationManagerProxy::clearNotifications(WebPageProxy* webPage, cons
 void WebNotificationManagerProxy::providerDidShowNotification(WebNotificationIdentifier globalNotificationID)
 {
     auto it = m_globalNotificationMap.find(globalNotificationID);
-    if (it == m_globalNotificationMap.end())
+    if (it == m_globalNotificationMap.end()) {
+#if USE(MOZILLA_PUSH_SERVICE)
+        // MAVERICKS_BACKPORT: Safari 7 reports provider events on the pool manager it got
+        // from WKContextGetNotificationManager, but persistent (service worker)
+        // notifications live in the singleton's maps. Notification identifiers are
+        // process-unique (Identified<>), so forwarding a miss cannot collide.
+        if (this != &serviceWorkerManagerSingleton())
+            serviceWorkerManagerSingleton().providerDidShowNotification(globalNotificationID);
+#endif
         return;
+    }
 
     RefPtr notification = m_notifications.get(it->value);
     if (!notification) {
@@ -215,8 +226,14 @@ static void dispatchDidClickNotification(WebNotification* notification)
 void WebNotificationManagerProxy::providerDidClickNotification(WebNotificationIdentifier globalNotificationID)
 {
     auto it = m_globalNotificationMap.find(globalNotificationID);
-    if (it == m_globalNotificationMap.end())
+    if (it == m_globalNotificationMap.end()) {
+#if USE(MOZILLA_PUSH_SERVICE)
+        // MAVERICKS_BACKPORT: see providerDidShowNotification.
+        if (this != &serviceWorkerManagerSingleton())
+            serviceWorkerManagerSingleton().providerDidClickNotification(globalNotificationID);
+#endif
         return;
+    }
 
     providerDidClickNotification(it->value);
 }
@@ -228,6 +245,13 @@ void WebNotificationManagerProxy::providerDidClickNotification(const WTF::UUID& 
 
 void WebNotificationManagerProxy::providerDidCloseNotifications(API::Array* globalNotificationIDs)
 {
+#if USE(MOZILLA_PUSH_SERVICE)
+    // MAVERICKS_BACKPORT: see providerDidShowNotification. Identifiers this manager does
+    // not own fall out of the loop below harmlessly, so the whole array is forwarded.
+    if (this != &serviceWorkerManagerSingleton())
+        serviceWorkerManagerSingleton().providerDidCloseNotifications(globalNotificationIDs);
+#endif
+
     Vector<Ref<WebNotification>> closedNotifications;
 
     size_t size = globalNotificationIDs->size();

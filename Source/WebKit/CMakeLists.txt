@@ -963,15 +963,6 @@ macro(GENERATE_MESSAGE_SOURCES _output_source _inputs)
 endmacro()
 GENERATE_MESSAGE_SOURCES(WebKit_DERIVED_SOURCES "${WebKit_MESSAGES_IN_FILES}")
 
-# MAVERICKS_BACKPORT: GENERATE_MESSAGE_SOURCES adds every receiver .cpp (incl. the daemon-internal
-# PushClientConnectionMessageReceiver.cpp) to the framework sources. That receiver dispatches to
-# PushClientConnection::showNotification -> WebPushDaemon::singleton(), which needs the 10.14+ XPC
-# daemon transport (disabled on 10.9); upstream builds it into the separate webpushd target instead.
-# Drop only the receiver .cpp here (PushClientConnectionMessages.h is still generated for the client).
-list(REMOVE_ITEM WebKit_DERIVED_SOURCES
-    ${WebKit_DERIVED_SOURCES_DIR}/PushClientConnectionMessageReceiver.cpp
-)
-
 # Helper macro which wraps the bindings script
 #   _output_source is a list name which will contain generated sources.(eg. WebKit_SOURCES)
 #   _inputs are .idl files to generate.
@@ -1264,6 +1255,22 @@ endif ()
 
 if ("${PORT}" STREQUAL "Mac")
     WEBKIT_DEFINE_XPC_SERVICES()
+
+    # MAVERICKS_BACKPORT: the webpushd daemon executable, which upstream builds only from
+    # WebKit.xcodeproj. As there, the tool is a thin main() over WKWebPushDaemonMain — the daemon
+    # implementation lives in WebKit.framework (see PlatformMac.cmake). The binary lands in
+    # Versions/A/Daemons inside the framework, the relocatable-webpushd layout, so the staging and
+    # install scripts carry it with the framework; launchd starts it from the LaunchAgent
+    # MavericksSupport/install-safari7.sh installs, as upstream's relocatable flavor also does.
+    if (ENABLE_WEB_PUSH_NOTIFICATIONS)
+        WEBKIT_EXECUTABLE_DECLARE(webpushd)
+        set(webpushd_SOURCES webpushd/webpushd.cpp)
+        set(webpushd_PRIVATE_INCLUDE_DIRECTORIES $<TARGET_PROPERTY:WebKit,INCLUDE_DIRECTORIES>)
+        set(webpushd_LIBRARIES WebKit)
+        WEBKIT_EXECUTABLE(webpushd)
+        ADD_WEBKIT_PREFIX_HEADER(webpushd)
+        set_target_properties(webpushd PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/Versions/A/Daemons")
+    endif ()
 else ()
     if (NOT ANDROID)
         WEBKIT_POPULATE_LIBRARY_VERSION(WEBKIT)

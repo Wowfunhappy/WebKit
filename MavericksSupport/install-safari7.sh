@@ -84,6 +84,37 @@ if [ -d "$OLD_PRIVRT" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Web Push daemon: the webpushd binary rides inside the WK2 framework (staged with it above); this
+# LaunchAgent is what makes launchd start it, in every user's session at login. RunAtLoad matters
+# for more than convenience — the daemon holds the WebSocket to the push service, so it must be
+# resident to receive pushes at all, including before the user has opened Safari.
+#
+# Reloading (not just copying) matters: a daemon left running from a previous install keeps
+# serving the OLD framework code — the webpushd analog of the stale WebContent trap.
+echo "### Installing the webpushd LaunchAgent"
+WEBPUSHD_BIN=/System/Library/PrivateFrameworks/WebKit2.framework/Versions/A/Daemons/webpushd
+WEBPUSHD_PLIST=/Library/LaunchAgents/com.apple.webkit.webpushd.relocatable.plist
+if [ ! -x "$WEBPUSHD_BIN" ]; then
+    echo "  ERROR: $WEBPUSHD_BIN is missing from the installed framework." >&2
+    echo "         Web Push cannot work without it; skipping the LaunchAgent." >&2
+else
+    install -o root -g wheel -m 644 "$HERE/webpushd/com.apple.webkit.webpushd.relocatable.plist" "$WEBPUSHD_PLIST"
+    echo "  installed $WEBPUSHD_PLIST"
+    # Only this install's invoking user has a reachable launchd session to reload right now; any
+    # other logged-in user picks the new binary up when they next log in.
+    if [ -n "${SUDO_USER:-}" ]; then
+        sudo -u "$SUDO_USER" launchctl unload "$WEBPUSHD_PLIST" 2>/dev/null || true
+        if sudo -u "$SUDO_USER" launchctl load "$WEBPUSHD_PLIST" 2>/dev/null; then
+            echo "  (re)loaded into $SUDO_USER's session; webpushd is running the new binary."
+        else
+            echo "  warning: could not load it now; it loads at $SUDO_USER's next login."
+        fi
+    else
+        echo "  no SUDO_USER, so the agent loads at next login."
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # #38: Dashboard widgets must launch the 64-bit DashboardClient to load our x86_64-only WebKit.
 # All in-layer widgets share ONE DashboardClient process, and the Dock picks its architecture
 # BEFORE any WebKit code runs: when a widget is added it reads that widget's AllowInternetPlugins

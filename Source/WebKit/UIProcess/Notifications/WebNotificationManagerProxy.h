@@ -66,7 +66,13 @@ public:
 
     virtual ~WebNotificationManagerProxy();
 
-    void setProvider(std::unique_ptr<API::NotificationProvider>&&);
+    // MAVERICKS_BACKPORT: ShouldNotifyProviderOfManager::No installs a provider without
+    // the addNotificationManager callback. The Safari 7 provider mirrored onto the
+    // service worker singleton (WKNotificationManagerSetProvider) must stay invisible to
+    // the client, which reports each notification event to every manager it knows —
+    // announcing the second manager double-dispatches every notification click.
+    enum class ShouldNotifyProviderOfManager : bool { No, Yes };
+    void setProvider(std::unique_ptr<API::NotificationProvider>&&, ShouldNotifyProviderOfManager = ShouldNotifyProviderOfManager::Yes);
     HashMap<String, bool> notificationPermissions();
 
     void show(WebPageProxy*, IPC::Connection&, const WebCore::NotificationData&, RefPtr<WebCore::NotificationResources>&&);

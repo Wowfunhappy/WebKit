@@ -6486,6 +6486,11 @@ PushAPIEnabled:
     WebKitLegacy:
       default: false
     WebKit:
+      # MAVERICKS_BACKPORT: status is "embedder", and this port's embedder (stock
+      # Safari 7) predates the SPI that would turn it on. The WK2 default carries the
+      # decision instead: Web Push is served end-to-end via webpushd's Mozilla autopush
+      # transport (see Source/WebKit/webpushd/MozillaPushServiceConnection.h).
+      "USE(MOZILLA_PUSH_SERVICE)": true
       default: false
   disableInLockdownMode: true
   sharedPreferenceForWebProcess: true

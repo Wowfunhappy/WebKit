@@ -106,6 +106,34 @@ list(APPEND WebKit_SOURCES
     WebProcess/cocoa/LaunchServicesDatabaseManager.mm
 )
 
+# MAVERICKS_BACKPORT: the webpushd daemon implementation lives in WebKit.framework, as in the
+# upstream Xcode build (whose webpushd tool target compiles only webpushd.cpp against the
+# framework). Upstream's list, minus iOS-only WebClipCache.mm and _WKMockUserNotificationCenter.mm
+# (needs HAVE(FULL_FEATURED_USER_NOTIFICATIONS), macOS 14+) and minus ApplePushServiceConnection.mm
+# (10.9's ApplePushService cannot mint URL tokens and the modern SDK ships no .tbd to link it);
+# this port's transport is MozillaPushServiceConnection + MozillaPushWebSocket instead — see
+# USE_MOZILLA_PUSH_SERVICE in OptionsMac.cmake.
+if (ENABLE_WEB_PUSH_NOTIFICATIONS)
+    list(APPEND WebKit_SOURCES
+        webpushd/MozillaPushServiceConnection.mm
+        webpushd/MozillaPushWebSocket.mm
+        webpushd/PushClientConnection.mm
+        webpushd/PushService.mm
+        webpushd/PushServiceConnection.mm
+        webpushd/MockPushServiceConnection.mm
+        webpushd/WebPushDaemon.mm
+        webpushd/WebPushDaemonMain.mm
+    )
+    # The two Mozilla files are written for ARC (bare ObjC ivar assignments, no manual
+    # retains); under this port's default MRR compile the ivars drop their references and
+    # the daemon use-after-frees on the first stream callback. ARC is applied to exactly
+    # these two: they traffic in no os_object types, so the OS_OBJECT_USE_OBJC=1 mangling
+    # the rest of this build uses is unaffected, while the upstream daemon files keep the
+    # port-wide MRR default they already compile and run correctly under (their ObjC
+    # ownership goes through RetainPtr/adoptNS, which is correct in both modes).
+    set_source_files_properties(webpushd/MozillaPushServiceConnection.mm webpushd/MozillaPushWebSocket.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+endif ()
+
 list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_BINARY_DIR}/libwebrtc/PrivateHeaders"
     "${ICU_INCLUDE_DIRS}"
@@ -768,6 +796,11 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -compatibility_versi
 # both /System/Library/Frameworks and PrivateFrameworks), so linking it fails outright. WebKit's own
 # link additions (-weak_framework CryptoTokenKit, -weak_library WebInspectorUI) are in the overlay.
 target_link_options(WebKit PRIVATE -lsandbox)
+# MAVERICKS_BACKPORT: libbsm supplies audit_token_to_pid for the daemon's host-app
+# identification (PushClientConnection.mm); it ships on 10.9 (/usr/lib/libbsm.0.dylib).
+if (ENABLE_WEB_PUSH_NOTIFICATIONS)
+    target_link_options(WebKit PRIVATE -lbsm)
+endif ()
 
 set(WebKit_OUTPUT_NAME WebKit)
 

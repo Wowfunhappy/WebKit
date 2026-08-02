@@ -32,6 +32,7 @@
 #include "DaemonEncoder.h"
 #include "Logging.h"
 #include "NetworkProcess.h"
+#include "NetworkProcessProxyMessages.h"
 #include "NetworkSession.h"
 #include "PushClientConnectionMessages.h"
 #include "WebPushDaemonConnectionConfiguration.h"
@@ -45,16 +46,31 @@ using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkNotificationManager);
 
-Ref<NetworkNotificationManager> NetworkNotificationManager::create(const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
+Ref<NetworkNotificationManager> NetworkNotificationManager::create(PAL::SessionID sessionID, const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
 {
-    return adoptRef(*new NetworkNotificationManager(webPushMachServiceName, WTF::move(configuration), networkProcess));
+    return adoptRef(*new NetworkNotificationManager(sessionID, webPushMachServiceName, WTF::move(configuration), networkProcess));
 }
 
-NetworkNotificationManager::NetworkNotificationManager(const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
+NetworkNotificationManager::NetworkNotificationManager(PAL::SessionID sessionID, const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
     : m_networkProcess(networkProcess)
 {
-    if (!webPushMachServiceName.isEmpty())
-        m_connection = WebPushD::Connection::create(webPushMachServiceName.utf8(), WTF::move(configuration));
+    if (!webPushMachServiceName.isEmpty()) {
+        Ref connection = WebPushD::Connection::create(webPushMachServiceName.utf8(), WTF::move(configuration));
+#if USE(MOZILLA_PUSH_SERVICE)
+        // MAVERICKS_BACKPORT: when webpushd announces pending push messages, tell the UI
+        // process to drain them; Safari 7 never drives the modern pull SPI itself. The
+        // NetworkProcess reference is safe to retain here: the manager already holds one
+        // for its whole lifetime (m_networkProcess), and the process object lives until
+        // process exit.
+        connection->setPushMessagesAvailableHandler([networkProcess = Ref { networkProcess }, sessionID] {
+            if (RefPtr parentConnection = networkProcess->parentProcessConnection())
+                parentConnection->send(Messages::NetworkProcessProxy::WebPushMessagesBecameAvailable(sessionID), 0);
+        });
+#else
+        UNUSED_PARAM(sessionID);
+#endif
+        m_connection = WTF::move(connection);
+    }
 }
 
 void NetworkNotificationManager::setPushAndNotificationsEnabledForOrigin(const SecurityOriginData& origin, bool enabled, CompletionHandler<void()>&& completionHandler)
@@ -70,22 +86,38 @@ void NetworkNotificationManager::setPushAndNotificationsEnabledForOrigin(const S
 
 void NetworkNotificationManager::getPendingPushMessage(CompletionHandler<void(const std::optional<WebPushMessage>&)>&& completionHandler)
 {
+    // MAVERICKS_BACKPORT: a session without a daemon connection (no configured mach
+    // service name) has no pending messages; upstream dereferences unconditionally and
+    // crashes.
+    RefPtr connection = m_connection;
+    if (!connection) {
+        completionHandler(std::nullopt);
+        return;
+    }
+
     CompletionHandler<void(std::optional<WebPushMessage>&&)> replyHandler = [completionHandler = WTF::move(completionHandler)] (auto&& message) mutable {
         RELEASE_LOG(Push, "Done getting %u push messages", message ? 1 : 0);
         completionHandler(WTF::move(message));
     };
 
-    protect(m_connection)->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessage(), WTF::move(replyHandler));
+    connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessage(), WTF::move(replyHandler));
 }
 
 void NetworkNotificationManager::getPendingPushMessages(CompletionHandler<void(const Vector<WebPushMessage>&)>&& completionHandler)
 {
+    // MAVERICKS_BACKPORT: same missing null check as getPendingPushMessage above.
+    RefPtr connection = m_connection;
+    if (!connection) {
+        completionHandler({ });
+        return;
+    }
+
     CompletionHandler<void(Vector<WebPushMessage>&&)> replyHandler = [completionHandler = WTF::move(completionHandler)] (Vector<WebPushMessage>&& messages) mutable {
         LOG(Push, "Done getting %u push messages", (unsigned)messages.size());
         completionHandler(WTF::move(messages));
     };
 
-    protect(m_connection)->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessages(), WTF::move(replyHandler));
+    connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessages(), WTF::move(replyHandler));
 }
 
 void NetworkNotificationManager::showNotification(const WebCore::NotificationData& notification, RefPtr<NotificationResources>&& notificationResources, CompletionHandler<void()>&& completionHandler)

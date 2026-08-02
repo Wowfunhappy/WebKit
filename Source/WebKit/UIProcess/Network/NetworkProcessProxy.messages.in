@@ -115,6 +115,10 @@ messages -> NetworkProcessProxy WantsDispatchMessage {
 #if ENABLE(NETWORK_ISSUE_REPORTING)
     ReportNetworkIssue(WebKit::WebPageProxyIdentifier webPageProxyIdentifier, URL requestURL)
 #endif
+
+#if USE(MOZILLA_PUSH_SERVICE)
+    WebPushMessagesBecameAvailable(PAL::SessionID sessionID)
+#endif
 }
 
 }

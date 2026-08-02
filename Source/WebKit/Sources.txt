@@ -1003,13 +1003,7 @@ RemoteGraphicsContextGLMessageReceiver.cpp
 RemoteGraphicsContextGLProxyMessageReceiver.cpp
 PlatformXRSystemMessageReceiver.cpp
 PlatformXRSystemProxyMessageReceiver.cpp
-// MAVERICKS_BACKPORT: PushClientConnection is a webpushd-daemon-internal message receiver. Upstream
-// compiles this receiver into the separate webpushd executable target, not the WebKit framework; this
-// cmake port lumps all receivers into the framework. The receiver dispatches to
-// PushClientConnection::showNotification -> WebPushDaemon::singleton(), which needs the 10.14+ XPC
-// daemon transport (DaemonUtilities/DaemonConnectionCocoa disabled on 10.9). Nothing in the framework
-// runs the daemon receiver. PushClientConnectionMessages.h (client encoder side) is still generated.
-// PushClientConnectionMessageReceiver.cpp
+PushClientConnectionMessageReceiver.cpp
 RemoteAdapterMessageReceiver.cpp
 RemoteAudioVideoRendererProxyManagerMessageReceiver.cpp
 RemoteBarcodeDetectorMessageReceiver.cpp

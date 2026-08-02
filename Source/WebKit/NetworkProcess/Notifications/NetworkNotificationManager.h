@@ -56,7 +56,9 @@ enum class MessageType : uint8_t;
 class NetworkNotificationManager : public NotificationManagerMessageHandler, public RefCounted<NetworkNotificationManager> {
     WTF_MAKE_TZONE_ALLOCATED(NetworkNotificationManager);
 public:
-    static Ref<NetworkNotificationManager> create(const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&&, NetworkProcess&);
+    // MAVERICKS_BACKPORT: the session ID identifies this session in the push-messages-
+    // available relay to the UI process; see the constructor.
+    static Ref<NetworkNotificationManager> create(PAL::SessionID, const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&&, NetworkProcess&);
 
     void ref() const final { RefCounted::ref(); }
     void deref() const final { RefCounted::deref(); }
@@ -86,7 +88,7 @@ public:
     void setServiceWorkerIsBeingInspected(const URL&, bool isInspected);
 
 private:
-    NetworkNotificationManager(const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&&, NetworkProcess&);
+    NetworkNotificationManager(PAL::SessionID, const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&&, NetworkProcess&);
 
     void showNotification(IPC::Connection&, const WebCore::NotificationData&, RefPtr<WebCore::NotificationResources>&&, CompletionHandler<void()>&&) final;
     void cancelNotification(WebCore::SecurityOriginData&&, const WTF::UUID& notificationID) final;

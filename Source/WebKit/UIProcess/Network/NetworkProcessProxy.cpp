@@ -1809,6 +1809,16 @@ void NetworkProcessProxy::getPendingPushMessages(PAL::SessionID sessionID, Compl
     sendWithAsyncReply(Messages::NetworkProcess::GetPendingPushMessages { sessionID }, WTF::move(completionHandler));
 }
 
+#if USE(MOZILLA_PUSH_SERVICE)
+// MAVERICKS_BACKPORT: the network process relays webpushd's pending-push signal here;
+// see WebsiteDataStore::pumpPendingWebPushMessages.
+void NetworkProcessProxy::webPushMessagesBecameAvailable(PAL::SessionID sessionID)
+{
+    if (RefPtr store = websiteDataStoreFromSessionID(sessionID))
+        store->pumpPendingWebPushMessages();
+}
+#endif
+
 void NetworkProcessProxy::processPushMessage(PAL::SessionID sessionID, const WebPushMessage& pushMessage, CompletionHandler<void(bool wasProcessed, std::optional<WebCore::NotificationPayload>&&)>&& callback)
 {
     bool builtInNotificationsEnabled = false;

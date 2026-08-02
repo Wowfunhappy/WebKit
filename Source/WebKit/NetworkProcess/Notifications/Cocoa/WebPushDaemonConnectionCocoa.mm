@@ -44,6 +44,39 @@ void Connection::newConnectionWasInitialized() const
     sendWithoutUsingIPCConnection(Messages::PushClientConnection::InitializeConnection(m_configuration));
 }
 
+#if USE(MOZILLA_PUSH_SERVICE)
+// MAVERICKS_BACKPORT: see WebPushDaemonConstants.h — the daemon signals pending push
+// messages on this connection because Safari 7 cannot be woken through the modern
+// x-webkit-app-launch / push SPI path.
+void Connection::setPushMessagesAvailableHandler(Function<void()>&& handler)
+{
+    m_pushMessagesAvailableHandler = WTF::move(handler);
+}
+
+void Connection::connectionReceivedEvent(xpc_object_t event)
+{
+    if (event == XPC_ERROR_CONNECTION_INTERRUPTED) {
+        // The daemon exited (crash, reinstall, pressured exit). Launchd respawns it on
+        // demand, and the Mozilla service replays whatever the old instance had not yet
+        // handed over — but the fresh daemon cannot signal anyone until a client
+        // connects. Pumping now re-establishes this connection (the next send creates
+        // it) and drains anything waiting.
+        if (m_pushMessagesAvailableHandler)
+            m_pushMessagesAvailableHandler();
+        return;
+    }
+
+    if (xpc_get_type(event) != XPC_TYPE_DICTIONARY)
+        return;
+    if (xpc_dictionary_get_uint64(event, WebPushD::protocolVersionKey) != WebPushD::protocolVersionValue)
+        return;
+    if (xpcDictionaryGetString(event, WebPushD::protocolEventTypeKey) != WebPushD::protocolEventTypePushMessagesAvailable)
+        return;
+    if (m_pushMessagesAvailableHandler)
+        m_pushMessagesAvailableHandler();
+}
+#endif
+
 static OSObjectPtr<xpc_object_t> messageDictionaryFromEncoder(UniqueRef<IPC::Encoder>&& encoder)
 {
     auto xpcData = encoderToXPCData(WTF::move(encoder));

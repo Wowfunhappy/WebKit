@@ -44,6 +44,9 @@
 #import <WebCore/RegistrableDomain.h>
 #import <WebCore/SearchPopupMenuCocoa.h>
 #import <WebCore/SecurityOriginData.h>
+#if USE(MOZILLA_PUSH_SERVICE)
+#import <AppKit/AppKit.h>
+#endif
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <pal/spi/cocoa/NetworkSPI.h>
 #import <wtf/FileSystem.h>
@@ -1129,5 +1132,16 @@ void WebsiteDataStore::removeAllEnhancedSecuritySites(CompletionHandler<void()>&
 
     enhancedSecuritySitesHolder().deleteAllSites(WTF::move(completionHandler));
 }
+
+#if USE(MOZILLA_PUSH_SERVICE)
+void WebsiteDataStore::openURLThroughHostApplication(const URL& url)
+{
+    if (!url.protocolIsInHTTPFamily()) {
+        RELEASE_LOG_ERROR(Push, "Refusing to open non-HTTP URL from a service worker");
+        return;
+    }
+    [[NSWorkspace sharedWorkspace] openURL:url.createNSURL().get()];
+}
+#endif // USE(MOZILLA_PUSH_SERVICE)
 
 }

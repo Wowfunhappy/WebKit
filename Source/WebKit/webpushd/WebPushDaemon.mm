@@ -42,6 +42,9 @@
 
 #import <WebCore/ExceptionOr.h>
 #import <WebCore/LocalizedStrings.h>
+#if PLATFORM(MAC) && USE(MOZILLA_PUSH_SERVICE)
+#import <AppKit/AppKit.h>
+#endif
 #import <WebCore/NotificationData.h>
 #import <WebCore/NotificationPayload.h>
 #import <WebCore/SecurityOrigin.h>
@@ -111,6 +114,8 @@ using WebCore::SecurityOriginData;
 namespace WebPushD {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebPushDaemon);
+
+static bool connectionMatchesPendingPushMessage(const PushClientConnection&, const PushSubscriptionSetIdentifier&);
 
 static unsigned s_protocolVersion = protocolVersionValue;
 
@@ -339,6 +344,22 @@ void WebPushDaemon::connectionEventHandler(xpc_object_t request)
         }
 
         m_connectionMap.set(xpcConnection.get(), *pushConnection);
+
+#if PLATFORM(MAC) && USE(MOZILLA_PUSH_SERVICE)
+        // MAVERICKS_BACKPORT: a client connecting while messages are already queued (it
+        // launched after the daemon received them, or the daemon restarted and the
+        // Mozilla service replayed its store) would otherwise not hear about them until
+        // the next incoming push. Announce on promotion so the client pumps right away.
+        for (auto& pendingPushMessage : m_pendingPushMessages) {
+            if (!connectionMatchesPendingPushMessage(*pushConnection, pendingPushMessage.identifier))
+                continue;
+            auto event = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
+            xpc_dictionary_set_uint64(event.get(), protocolVersionKey, protocolVersionValue);
+            xpc_dictionary_set_string(event.get(), protocolEventTypeKey, protocolEventTypePushMessagesAvailable);
+            xpc_connection_send_message(xpcConnection.get(), event.get());
+            break;
+        }
+#endif
         return;
     }
 
@@ -598,7 +619,35 @@ void WebPushDaemon::notifyClientPushMessageIsAvailable(const WebCore::PushSubscr
     const auto& bundleIdentifier = subscriptionSetIdentifier.bundleIdentifier;
     RELEASE_LOG(Push, "Launching %{public}s in response to push for %{public}s", bundleIdentifier.utf8().data(), subscriptionSetIdentifier.debugDescription().utf8().data());
 
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) && USE(MOZILLA_PUSH_SERVICE)
+    // MAVERICKS_BACKPORT: Safari 7 has no x-webkit-app-launch URL handler and never calls
+    // the modern push SPI, so the upstream wake path below cannot reach it (and its
+    // _LSOpenURLsUsingBundleIdentifierWithCompletionHandler SPI is absent on 10.9
+    // anyway). Instead, announce the pending message on every matching client's daemon
+    // connection — the network process relays to the UI process, which drains via
+    // GetPendingPushMessages. If no matching client is connected, background-launch the
+    // app; its data store pumps pending messages as part of session bring-up.
+    // Every matching connection gets the event — a stale entry for a dead peer must not
+    // swallow the only copy — and the delivery contract is at-least-once: the pump's
+    // fetch returns empty when another connection drained first.
+    bool notifiedConnectedClient = false;
+    for (auto& [xpcConnection, clientConnection] : m_connectionMap) {
+        if (!connectionMatchesPendingPushMessage(clientConnection.get(), subscriptionSetIdentifier))
+            continue;
+        auto event = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
+        xpc_dictionary_set_uint64(event.get(), protocolVersionKey, protocolVersionValue);
+        xpc_dictionary_set_string(event.get(), protocolEventTypeKey, protocolEventTypePushMessagesAvailable);
+        xpc_connection_send_message(xpcConnection.get(), event.get());
+        notifiedConnectedClient = true;
+    }
+    if (notifiedConnectedClient)
+        return;
+
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    BOOL launched = [[NSWorkspace sharedWorkspace] launchAppWithBundleIdentifier:bundleIdentifier.createNSString().get() options:NSWorkspaceLaunchWithoutActivation | NSWorkspaceLaunchAndHide additionalEventParamDescriptor:nil launchIdentifier:nullptr];
+ALLOW_DEPRECATED_DECLARATIONS_END
+    RELEASE_LOG_ERROR_IF(!launched, Push, "Failed to launch %{public}s in response to push", bundleIdentifier.utf8().data());
+#elif PLATFORM(MAC)
     CFArrayRef urls = (__bridge CFArrayRef)@[ [NSURL URLWithString:@"x-webkit-app-launch://1"] ];
     RetainPtr identifier = bundleIdentifier.createCFString();
 

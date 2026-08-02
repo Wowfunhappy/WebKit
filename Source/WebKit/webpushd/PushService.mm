@@ -28,6 +28,7 @@
 
 #import "ApplePushServiceConnection.h"
 #import "MockPushServiceConnection.h"
+#import "MozillaPushServiceConnection.h"
 #import "Logging.h"
 #import "WebPushDaemonConstants.h"
 #import <Foundation/Foundation.h>
@@ -37,6 +38,7 @@
 #import <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/CallbackAggregator.h>
+#import <wtf/FileSystem.h>
 #import <wtf/OSObjectPtr.h>
 #import <wtf/RunLoop.h>
 #import <wtf/TZoneMallocInlines.h>
@@ -131,8 +133,16 @@ void PushService::create(const String& incomingPushServiceName, const String& da
 {
     auto transaction = adoptOSObject(os_transaction_create("com.apple.webkit.webpushd.push-service-init"));
 
+#if USE(MOZILLA_PUSH_SERVICE)
+    // MAVERICKS_BACKPORT: 10.9's apsd cannot mint web-push URL tokens, so this port's
+    // transport is the Mozilla autopush service; see MozillaPushServiceConnection.h. The
+    // connection keeps its uaid and channel map next to the push database.
+    UNUSED_PARAM(incomingPushServiceName);
+    Ref<PushServiceConnection> connection = MozillaPushServiceConnection::create(FileSystem::parentPath(databasePath));
+#else
     // Create the connection ASAP so that we bootstrap_check_in to the service in a timely manner.
-    auto connection = ApplePushServiceConnection::create(incomingPushServiceName);
+    Ref<PushServiceConnection> connection = ApplePushServiceConnection::create(incomingPushServiceName);
+#endif
 
     performAfterFirstUnlock([databasePath, transaction = WTF::move(transaction), connection = WTF::move(connection), messageHandler = WTF::move(messageHandler), creationHandler = WTF::move(creationHandler)]() mutable {
         PushDatabase::create(databasePath, [transaction, connection = WTF::move(connection), messageHandler = WTF::move(messageHandler), creationHandler = WTF::move(creationHandler)](auto&& databaseResult) mutable {

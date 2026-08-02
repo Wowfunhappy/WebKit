@@ -163,25 +163,39 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBDRIVER_WHEEL_INTERACTIONS PRIVATE ON)
 # VR/AR device support in this OS for one to sit on.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBXR PRIVATE OFF)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEB_API_STATISTICS PRIVATE ON)
-# MAVERICKS_BACKPORT: OFF -- Web Push is serviced by the webpushd daemon, and the CMake Mac port defines no
-# webpushd/webpushtool target at all (upstream builds them only from WebKit.xcodeproj), so nothing here can
-# ever build, install, or launch one. Everything behind the flag therefore terminates at an XPC connection to
-# a com.apple.webkit.webpushd that does not exist. It could not work on 10.9 even if that target were added:
-# APSConnection ships no -requestURLTokenForInfo:completion: / -invalidateURLTokenForInfo:completion: (both
-# verified absent from 10.9's ApplePushService), which ApplePushServiceConnection::subscribe/unsubscribe send
-# unguarded, and both APSURLTokenInfo and OSLaunchdJob are absent classes. Leaving it ON only advertised a
-# PushManager that always fails, and left WKMain.mm's WKWebPushDaemonMain/WKWebPushToolMain referencing
-# WebKit::WebPushDaemonMain/WebPushToolMain -- definitions that live in sources no CMake list compiles -- so
-# WebKit.framework shipped them as undefined symbols. This is not a WebKitFeatures.cmake option, so set it
-# directly: cmakeconfig.h then preempts PlatformEnableCocoa.h:266, which turns it on for every PLATFORM(MAC)
-# behind `#if !defined(ENABLE_WEB_PUSH_NOTIFICATIONS)`, and that header stays byte-upstream.
-SET_AND_EXPOSE_TO_BUILD(ENABLE_WEB_PUSH_NOTIFICATIONS FALSE)
-# MAVERICKS_BACKPORT: OFF for the same reason, and it cannot be left on by itself. Declarative Web Push is
-# a layer over that same push infrastructure: NetworkConnectionToWebProcess's navigatorSubscribeToPushService
-# and friends are guarded by ENABLE(DECLARATIVE_WEB_PUSH) but call NetworkSession::notificationManager(),
-# which is declared under ENABLE(WEB_PUSH_NOTIFICATIONS), so the pair does not compile split apart. Upstream
-# never meets that because Cocoa turns both on together, from the identical PlatformEnableCocoa.h pattern
-# (line 343); this preempts it the same way.
+# MAVERICKS_BACKPORT: ON, transported over the Mozilla autopush service instead of the Apple Push Service.
+# 10.9's apsd cannot serve W3C Web Push: APSConnection ships no -requestURLTokenForInfo:completion: /
+# -invalidateURLTokenForInfo:completion: (both verified absent from 10.9's ApplePushService), which
+# ApplePushServiceConnection::subscribe/unsubscribe send unguarded, and APSURLTokenInfo is an absent class.
+# USE_MOZILLA_PUSH_SERVICE below swaps that backend for MozillaPushServiceConnection, which speaks the same
+# WebSocket protocol Firefox uses against push.services.mozilla.com (webpushd/MozillaPushServiceConnection.h).
+# The CMake Mac port historically defined no webpushd target (upstream builds it only from WebKit.xcodeproj);
+# PlatformMac.cmake now compiles the daemon sources into WebKit.framework, as the Xcode build does, plus a
+# webpushd tool target. This is not a WebKitFeatures.cmake option, so set it directly: cmakeconfig.h then
+# agrees with PlatformEnableCocoa.h:266, which turns it on for every PLATFORM(MAC), and that header stays
+# byte-upstream.
+SET_AND_EXPOSE_TO_BUILD(ENABLE_WEB_PUSH_NOTIFICATIONS TRUE)
+# MAVERICKS_BACKPORT: this port's Web Push transport; see ENABLE_WEB_PUSH_NOTIFICATIONS above. Gates the
+# MozillaPushServiceConnection backend in webpushd and the client-side pieces Safari 7 cannot provide
+# itself: the default webPushMachServiceName, the PushAPIEnabled default, the daemon->client pending-push
+# event plus the WebsiteDataStore pump, and the notification-provider mirror onto the service worker
+# manager singleton.
+SET_AND_EXPOSE_TO_BUILD(USE_MOZILLA_PUSH_SERVICE TRUE)
+# MAVERICKS_BACKPORT: webpushd deploys here exactly the way upstream's relocatable flavor models —
+# the binary rides inside WebKit.framework (Versions/A/Daemons) and WebKit registers the launchd job
+# at runtime — so use that flavor: the relocatable mach-service and job names, the
+# PushDatabase.relocatable.db filename, and the plain ~/Library/WebKit/WebPush storage path (the
+# non-relocatable branch demands the com.apple.webkit.webpushd group container, which this
+# unentitled daemon cannot read). Upstream defines this flag only in Xcode configurations, so
+# cmakeconfig.h is its only definition and no header is preempted.
+SET_AND_EXPOSE_TO_BUILD(ENABLE_RELOCATABLE_WEBPUSHD TRUE)
+# MAVERICKS_BACKPORT: OFF -- declarative Web Push is a layer over the same push infrastructure, targeting
+# daemon-side notification display, which needs HAVE(FULL_FEATURED_USER_NOTIFICATIONS) (macOS 14+; on this
+# port the daemon cannot show notifications, the UI process does). Classic push -> service worker ->
+# showNotification does not need it. The dependency is one-way: every ENABLE(DECLARATIVE_WEB_PUSH) site has
+# an #else, so WEB_PUSH on / DECLARATIVE off compiles; only the reverse split does not. Upstream Cocoa turns
+# it on for PLATFORM(MAC) in PlatformEnableCocoa.h:343 behind `#if !defined(...)`; this preempts that so the
+# header stays byte-upstream.
 SET_AND_EXPOSE_TO_BUILD(ENABLE_DECLARATIVE_WEB_PUSH FALSE)
 # MAVERICKS_BACKPORT: ON — the WebAuthn JS API surface (window.PublicKeyCredential, navigator.credentials)
 # is required for web compatibility. The AuthenticationServices/LocalAuthentication/CryptoTokenKit backends

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The webpushd LaunchAgent, installed to /Library/LaunchAgents by install-safari7.sh so
+     launchd loads it into every user's session at login.
+
+     Derived from upstream's Source/WebKit/webpushd/com.apple.webkit.webpushd.relocatable.mac.plist
+     (this port builds the daemon in that relocatable flavor — see ENABLE_RELOCATABLE_WEBPUSHD in
+     Source/cmake/OptionsMac.cmake), with three deltas:
+
+     - ProgramArguments names the installed daemon absolutely. Upstream's copy carries Xcode's
+       ${INSTALL_PATH}/${PRODUCT_NAME} substitution, which nothing expands outside that build.
+     - No com.apple.aps.webkit.webpushd.relocatable.incoming-push MachService. That port is the
+       APSConnection delegate channel apsd pushes into; this port's transport is the Mozilla
+       autopush WebSocket (Source/WebKit/webpushd/MozillaPushServiceConnection.h), so nothing
+       would ever connect to it.
+     - RunAtLoad and KeepAlive. Upstream lets apsd hold the push transport and demand-start the
+       daemon through its MachService; here the daemon IS the transport, so it has to be resident
+       to hold the WebSocket open and receive pushes while Safari is closed. It stays cheap for
+       users who never subscribe: the connection is opened only once a subscription exists, so an
+       idle daemon holds no socket, and EnablePressuredExit + EnableTransactions (backed by the
+       daemon's own os_transaction use) still let launchd reap it under memory pressure. -->
+<plist version="1.0">
+<dict>
+	<key>EnablePressuredExit</key>
+	<true/>
+	<key>EnableTransactions</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>com.apple.webkit.webpushd.relocatable</string>
+	<key>MachServices</key>
+	<dict>
+		<key>com.apple.webkit.webpushd.relocatable.service</key>
+		<true/>
+	</dict>
+	<key>ProcessType</key>
+	<string>Adaptive</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/System/Library/PrivateFrameworks/WebKit2.framework/Versions/A/Daemons/webpushd</string>
+		<string>--machServiceName</string>
+		<string>com.apple.webkit.webpushd.relocatable.service</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/dev/null</string>
+</dict>
+</plist>

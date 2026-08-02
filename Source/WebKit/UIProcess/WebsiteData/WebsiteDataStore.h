@@ -35,6 +35,10 @@
 #include "WebResourceLoadStatisticsStore.h"
 #include "WebsiteDataStoreClient.h"
 #include "WebsiteDataStoreConfiguration.h"
+#if USE(MOZILLA_PUSH_SERVICE)
+#include "WebPushMessage.h"
+#include <wtf/Deque.h>
+#endif
 #include <WebCore/Cookie.h>
 #include <WebCore/DeviceOrientationOrMotionPermissionState.h>
 #include <WebCore/PageIdentifier.h>
@@ -492,6 +496,17 @@ public:
     void setCompletionHandlerForRemovalFromNetworkProcess(CompletionHandler<void(String&&)>&&);
 
     void processPushMessage(WebPushMessage&&, CompletionHandler<void(bool)>&&);
+#if USE(MOZILLA_PUSH_SERVICE)
+    // MAVERICKS_BACKPORT: fetches webpushd's queued push messages and runs each through
+    // processPushMessage. Modern hosts drive this drain themselves through SPI after an
+    // x-webkit-app-launch wake; Safari 7 cannot, so WebKit pumps whenever the daemon
+    // signals (or a session starts). See NetworkProcessProxy::WebPushMessagesBecameAvailable.
+    void pumpPendingWebPushMessages();
+    // MAVERICKS_BACKPORT: hands a URL to the host app's ordinary URL machinery
+    // (NSWorkspace); the clients.openWindow fallback for hosts without the
+    // page-creating data-store client. See openWindowFromServiceWorker.
+    static void openURLThroughHostApplication(const URL&);
+#endif
 
     void setOriginQuotaRatioEnabledForTesting(bool enabled, CompletionHandler<void()>&&);
 
@@ -682,6 +697,13 @@ private:
 #endif
 
     HashMap<WebCore::RegistrableDomain, RestrictedOpenerType> m_restrictedOpenerTypesForTesting;
+
+#if USE(MOZILLA_PUSH_SERVICE)
+    void processNextQueuedWebPushMessage();
+    Deque<WebPushMessage> m_queuedWebPushMessages;
+    bool m_pumpingWebPushMessages { false };
+    bool m_repumpWebPushMessages { false };
+#endif
 
 #if PLATFORM(COCOA)
     const RefPtr<EnhancedSecuritySitesHolder> m_enhancedSecuritySites;

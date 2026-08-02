@@ -39,7 +39,9 @@
 #import <Foundation/Foundation.h>
 #import <WebCore/LogInitialization.h>
 #import <WebCore/SQLiteFileSystem.h>
-#import <WebKit/Logging.h>
+// MAVERICKS_BACKPORT: upstream's redundant <WebKit/Logging.h> import is dropped here — this file
+// compiles into the framework itself in the CMake build, where the framework-style header does not
+// resolve, and the quoted "Logging.h" import above already provides it.
 #import <getopt.h>
 #import <pal/spi/cf/CFUtilitiesSPI.h>
 #import <pal/spi/cocoa/CoreServicesSPI.h>
@@ -98,7 +100,13 @@ namespace WebKit {
 
 static void applySandbox()
 {
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) && USE(MOZILLA_PUSH_SERVICE)
+    // MAVERICKS_BACKPORT: like every WebKit child process on this port, webpushd runs
+    // unsandboxed — 10.9's sandbox compiler rejects the generated profile at "unbound
+    // variable: nvram*" (operations postdating this OS's vocabulary), and
+    // applySandboxProfileForDaemon RELEASE_ASSERTs rather than continue. Same gap and
+    // rationale as the skipped initializeSandbox() in Shared/AuxiliaryProcess.cpp.
+#elif PLATFORM(MAC)
 #if ENABLE(RELOCATABLE_WEBPUSHD)
     static ASCIILiteral profileName = "/com.apple.WebKit.webpushd.relocatable.mac.sb"_s;
     static ASCIILiteral userDirectorySuffix = "com.apple.webkit.webpushd.relocatable"_s;
