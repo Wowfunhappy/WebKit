@@ -112,7 +112,10 @@ static bool matchesWebPSignature(std::span<const uint8_t> contents)
 #if USE(AVIF)
 static bool matchesAVIFSignature(std::span<const uint8_t> contents, FragmentedSharedBuffer& data)
 {
-#if USE(CG)
+// MAVERICKS_BACKPORT: the CG flavor of this check asks ImageIO to name the data's UTI, and 10.9's
+// ImageIO predates AVIF -- decodeUTI can never answer public.avif/avis, so the decoder below would
+// never run. Use upstream's non-CG byte signature instead, like the WebP dispatch above.
+#if USE(CG) && !PLATFORM(MAC)
     UNUSED_PARAM(contents);
     auto sharedBuffer = data.makeContiguous();
     auto cfData = sharedBuffer->createCFData();
