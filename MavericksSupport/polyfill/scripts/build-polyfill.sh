@@ -245,6 +245,17 @@ WK_POLYFILL_SIBLING="$OBJ/wk_polyfill_sibling.dylib" "$OBJ/wk_polyfill_test"
     -framework Foundation -lobjc
 "$OBJ/wk_selref_dlopen" "$OBJ/wk_selref_dlopen_fixture.dylib"
 
+# The contentInsets application mechanism (polyfills/scrollview-inset-tile.h, one static definition
+# shared by methods.m and this probe): a re-classed scroll view must keep working — and keep applying
+# its insets exactly once — with KVO's isa-swizzle stacked on top of the dynamic subclass, and a repeat
+# non-zero set must not stack a second subclass. Guards the anchored super-dispatch in the -tile
+# override (an object_getClass-derived super send resolves to the KVO-stacked class itself and recurses
+# without bound).
+"$CLANG" $SDKCF -fno-objc-arc -I"$PF" \
+    -o "$OBJ/wk_scrollview_insets" "$POLY/tests/wk_scrollview_insets.m" \
+    -framework AppKit -framework Foundation -lobjc
+"$OBJ/wk_scrollview_insets"
+
 echo "### shadow check"
 # The self-test above covers what the registry guarantees. Plenty of what these archives ship carries
 # no registry entry and gets none of it -- legacy-support/src, polyfills/shared, the mechanism itself

@@ -535,17 +535,32 @@ WK_POLYFILL_SEL("canRepresentDisplayGamut:", "wk_canRepresentDisplayGamut:");
 // -setAutomaticallyAdjustsContentInsets:. WebKit1's WebDynamicScrollBarsView is an NSScrollView subclass,
 // and ScrollViewMac.mm both reads and writes these on it — FrameView::obscuredContentInsets(WebCoreOrPlatformInset)
 // round-trips WebCore's own inset back out through platformContentInsets()/platformSetContentInsets().
-// 10.9's NSScrollView has none of them, so Mail's WebKit1 view sent -contentInsets and AppKit raised
-// unrecognized-selector, which WebCore's BEGIN/END_BLOCK_OBJC_EXCEPTIONS discarded — leaving
-// platformVisibleContentRect / platformSetScrollPosition to bail out mid-computation. Emulate the property
-// faithfully with a stored NSEdgeInsets rather than a frozen zero: the getter returns exactly what the
-// setter stored (zero by default), so WebCore's value round-trips the way the real property does. On this
-// port the web scroll view is never inset in practice (no titlebar-overlapping full-size content view, no
-// translucent overlay toolbar over web content), so the stored value stays zero.
+// 10.9's NSScrollView has none of them: an unpolyfilled -contentInsets send is an unrecognized-selector
+// throw that WebCore's BEGIN/END_BLOCK_OBJC_EXCEPTIONS discards, leaving platformVisibleContentRect /
+// platformSetScrollPosition to bail out mid-computation in Mail's WebKit1 view.
+//
+// The getter returns exactly what the setter stored (zero by default), so WebCore's value round-trips the
+// way the real property does — and the stored value is APPLIED, not just parroted back: the datalist
+// suggestions dropdown (WebDataListSuggestionsDropdownMac) insets its scroll view (4,0,4,0) for the
+// dropdown's vertical padding, which only exists on screen if the emulation lays it out (#115).
+// Application works by re-classing the scroll view (at first non-zero set) into a dynamic subclass whose
+// -tile — the one AppKit layout pass that places the clip view, rerun on every resize and scroller
+// change — insets the clip view's frame by the stored insets after the standard layout. That padding is
+// constant at every scroll position, where AppKit's real insets are margins beyond the content revealed
+// fully only at the scroll extremes; for the few points of padding WebKit asks for, the difference is
+// invisible. Only WebKit's own selrefs are rewritten to these wk_ methods, so only WebKit-configured
+// scroll views ever get re-classed. The WK1 web scroll view stores zero on this port (no
+// titlebar-overlapping full-size content view, no translucent overlay toolbar over web content), and a
+// zero inset leaves -tile's layout untouched.
 // -setAutomaticallyAdjustsContentInsets: gates AppKit's automatic titlebar-overlap adjustment, which 10.9's
 // scroll view never performs; the insets above are honored explicitly regardless, so accepting and ignoring
 // the flag is faithful.
-static const char kWKContentInsetsKey;
+//
+// The application mechanism — the dynamic -tile-overriding subclass, and its KVO-coexistence contract —
+// lives in scrollview-inset-tile.h, one static definition shared with its proof,
+// tests/wk_scrollview_insets.m, so the probe exercises the very code these methods run.
+#import "scrollview-inset-tile.h"
+
 @interface NSScrollView (WKPolyfillScope)
 - (NSEdgeInsets)wk_contentInsets;
 - (void)wk_setContentInsets:(NSEdgeInsets)contentInsets;
@@ -554,17 +569,11 @@ static const char kWKContentInsetsKey;
 @implementation NSScrollView (WKPolyfillScope)
 - (NSEdgeInsets)wk_contentInsets
 {
-    NSEdgeInsets insets = (NSEdgeInsets){ .top = 0, .left = 0, .bottom = 0, .right = 0 };
-    NSValue *stored = objc_getAssociatedObject(self, &kWKContentInsetsKey);
-    if (stored)
-        [stored getValue:&insets];
-    return insets;
+    return wkScrollViewContentInsets(self);
 }
 - (void)wk_setContentInsets:(NSEdgeInsets)contentInsets
 {
-    objc_setAssociatedObject(self, &kWKContentInsetsKey,
-        [NSValue valueWithBytes:&contentInsets objCType:@encode(NSEdgeInsets)],
-        OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    wkScrollViewSetContentInsets(self, contentInsets);
 }
 - (void)wk_setAutomaticallyAdjustsContentInsets:(BOOL)automaticallyAdjustsContentInsets { (void)automaticallyAdjustsContentInsets; }
 @end

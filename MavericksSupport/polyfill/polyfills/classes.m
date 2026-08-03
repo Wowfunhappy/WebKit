@@ -871,14 +871,21 @@ WK_PRIV_CLASS(_NSHTTPAlternativeServicesStorage) @interface _NSHTTPAlternativeSe
 @end
 WK_PRIV_ALIAS(_NSHTTPAlternativeServicesStorage);
 // NSVisualEffectView (10.10+): a vibrancy/backdrop view. 10.9's compositor has no backdrop blur, so
-// the stub is a plain NSView — the same thing a 10.10 effect view degrades to where vibrancy is
-// unavailable — and the appearance knobs upstream sets on it (material / state / blending mode /
-// emphasized) accept their value and select the one look this OS can draw. Classref users today:
-// WebDataListSuggestionsDropdownMac's dropdown backdrop, WebCoreFullScreenPlaceholderView's dimming
-// veil, WKWebView's Screen Time snapshot blur. (NSClassFromString(@"NSVisualEffectView") still
+// the stub degrades the way a real 10.10 effect view degrades when vibrancy is unavailable (Reduce
+// Transparency): it paints its MATERIAL's opaque fallback — a solid fill standing in for the blurred
+// backdrop — rather than nothing at all. A stub that draws nothing is not that degradation: it leaves
+// the effect view's clients backdropless, which for the datalist suggestions dropdown means a
+// see-through suggestions list with the host window's 10.9 titlebar gradient showing through (#115).
+// The remaining appearance knobs upstream sets (state / blending mode / emphasized / mask) accept
+// their value and select the one look this OS can draw. Classref users today:
+// WebDataListSuggestionsDropdownMac's dropdown backdrop (material Menu),
+// WebCoreFullScreenPlaceholderView's dimming veil (material Popover), WKWebView's Screen Time
+// snapshot blur (material UnderWindowBackground). (NSClassFromString(@"NSVisualEffectView") still
 // answers nil by WK_PRIV_CLASS design — see the header comment — so probing code keeps taking its
 // pre-class path.)
-WK_PRIV_CLASS(NSVisualEffectView) @interface NSVisualEffectView : NSView
+WK_PRIV_CLASS(NSVisualEffectView) @interface NSVisualEffectView : NSView {
+    NSInteger _wkMaterial;
+}
 - (void)setMaterial:(NSInteger)material;
 - (void)setState:(NSInteger)state;
 - (void)setBlendingMode:(NSInteger)blendingMode;
@@ -886,7 +893,36 @@ WK_PRIV_CLASS(NSVisualEffectView) @interface NSVisualEffectView : NSView
 - (void)setMaskImage:(NSImage *)maskImage;
 @end
 @implementation NSVisualEffectView
-- (void)setMaterial:(NSInteger)material { (void)material; }
+- (void)setMaterial:(NSInteger)material
+{
+    _wkMaterial = material;
+    [self setNeedsDisplay:YES];
+}
+// The solid stand-in for each material's backdrop, in this OS's palette. 10.9 draws its own menus
+// white, so the light chrome materials map to white; everything else is the standard window/control
+// background gray. The dark materials (Dark / UltraDark / HUDWindow) map to the HUD's near-black.
+// No client in this tree passes a dark material today, but answering it wrongly-white would be a
+// worse lie than answering it dark.
+- (NSColor *)wkMaterialFallbackColor
+{
+    switch (_wkMaterial) {
+    case 2:  // NSVisualEffectMaterialDark
+    case 9:  // NSVisualEffectMaterialUltraDark
+    case 13: // NSVisualEffectMaterialHUDWindow
+        return [NSColor colorWithCalibratedWhite:0.15 alpha:1];
+    case 5:  // NSVisualEffectMaterialMenu
+    case 6:  // NSVisualEffectMaterialPopover
+    case 17: // NSVisualEffectMaterialToolTip
+        return [NSColor whiteColor];
+    default: // AppearanceBased, Titlebar, Sidebar, WindowBackground, UnderWindowBackground, ...
+        return [NSColor windowBackgroundColor];
+    }
+}
+- (void)drawRect:(NSRect)dirtyRect
+{
+    [[self wkMaterialFallbackColor] set];
+    NSRectFill(dirtyRect);
+}
 - (void)setState:(NSInteger)state { (void)state; }
 - (void)setBlendingMode:(NSInteger)blendingMode { (void)blendingMode; }
 - (void)setEmphasized:(BOOL)emphasized { (void)emphasized; }
