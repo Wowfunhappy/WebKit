@@ -17,6 +17,8 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <limits.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/resource.h>
 #include <sys/select.h>
@@ -274,13 +276,21 @@ WK_POLYFILL_ABSENT(NULL, int, timingsafe_bcmp, (const void *a, const void *b, si
 // report "no voucher set" (FALSE). Vouchers are only a QoS-propagation optimization, so this is benign.
 WK_POLYFILL_ABSENT(NULL, int, voucher_mach_msg_set, (void *msg)) { (void)msg; return 0; }
 
-// mach_memory_entry_ownership (footprint-ledger attribution of shared memory) is ~10.13+. 10.9 has no
-// phys_footprint ledger, so there is genuinely nothing to attribute; report success (the sole caller,
-// SharedMemoryHandle, only RELEASE_LOG_ERRORs on failure and is otherwise a no-op).
+// mach_memory_entry_ownership (footprint-ledger attribution of shared memory) is ~10.13+. 10.9's
+// kernel does not implement the routine, and KERN_NOT_SUPPORTED is what a kernel without it answers --
+// the same honest answer task_create_identity_token gives in system-spi.m, for the same reason.
+//
+// The status must not claim success. SharedMemoryHandle::takeOwnershipOfMemory (WebCore
+// SharedMemoryCocoa.mm:75) calls this unconditionally -- unlike setOwnershipOfMemory at :88, which is
+// gated on ProcessIdentity and so stays quiet on 10.9 -- and RELEASE_LOG_ERROR_IFs the result. That
+// log line is the only signal that footprint attribution did not happen, and it is accurate:
+// ownership really is not taken. Reporting a success the kernel never performed would be a fake
+// value rather than a no-op stub, and would rest on one caller's tolerance instead of on what the
+// platform can do.
 WK_POLYFILL_ABSENT(NULL, int, mach_memory_entry_ownership,
     (unsigned int mem_entry, unsigned int owner, int ledger_tag, int ledger_flags)) {
     (void)mem_entry; (void)owner; (void)ledger_tag; (void)ledger_flags;
-    return 0; // KERN_SUCCESS
+    return KERN_NOT_SUPPORTED;
 }
 
 // (__darwin_check_fd_set_overflow lives in the "newer-than-10.9 C / CoreFoundation symbols" section
@@ -654,10 +664,13 @@ WK_POLYFILL_ABSENT(NULL, int, pthread_attr_get_qos_class_np, (pthread_attr_t *at
     return 0;
 }
 
+// 10.9 has no QoS classes, so no override is installed and there is no pthread_override_t to hand
+// back. NULL is the real API's failure return; a non-NULL sentinel would be a fabricated handle that
+// a caller may dereference or pass to a routine expecting a live override.
 WK_POLYFILL_ABSENT(NULL, void *, pthread_override_qos_class_start_np, (pthread_t thread, int qos_class, int relative_priority))
 {
     (void)thread; (void)qos_class; (void)relative_priority;
-    return (void *)1;
+    return NULL;
 }
 
 WK_POLYFILL_ABSENT(NULL, int, pthread_override_qos_class_end_np, (void *override))
@@ -861,3 +874,69 @@ __asm__(
     "  popq   %rcx\n"
     "  retq\n"
 );
+
+// ============================================================================
+// dlopen: frameworks that are top-level on a modern system but ship here only
+// inside an umbrella
+// ============================================================================
+// Several frameworks a modern system installs at /System/Library/Frameworks/<X>.framework
+// exist here ONLY as subframeworks of an umbrella -- PDFKit, CoreImage, QuickLookUI and
+// ImageKit all live under Quartz.framework/Frameworks, for example. Soft-linking asks for
+// the canonical top-level path (SOFT_LINK_FRAMEWORK_FOR_SOURCE builds exactly
+// "/System/Library/Frameworks/<X>.framework/<X>"), and a miss there is not a graceful
+// degradation: the generated lookup ends in RELEASE_ASSERT, which took Safari down inside
+// -[WKPrintingView drawRect:] the moment Save-as-PDF asked PDFKit for a PDFDocument.
+//
+// Retry a failed canonical-path open against the umbrella locations, so the modern layout
+// resolves to whatever this system actually ships. Only the exact canonical shape is
+// rewritten (.../X.framework/X); every other path, and every successful open, is the
+// original's answer untouched.
+static const char *const wk_umbrellaFrameworks[] = {
+    "Quartz", "ApplicationServices", "CoreServices", "Carbon", "Accelerate", "WebKit", NULL
+};
+
+WK_POLYFILL_REPLACES(NULL, void *, dlopen, (const char *path, int mode))
+{
+    if (!WK_ORIGINAL(dlopen))
+        return NULL;
+
+    void *handle = WK_ORIGINAL(dlopen)(path, mode);
+    if (handle || !path)
+        return handle;
+
+    static const char frameworksPrefix[] = "/System/Library/Frameworks/";
+    static const char frameworkInfix[] = ".framework/";
+    const size_t prefixLength = sizeof(frameworksPrefix) - 1;
+    const size_t infixLength = sizeof(frameworkInfix) - 1;
+
+    if (strncmp(path, frameworksPrefix, prefixLength))
+        return handle;
+
+    const char *name = path + prefixLength;
+    const char *infix = strstr(name, frameworkInfix);
+    if (!infix)
+        return handle;
+
+    // The canonical shape names the framework twice: <X>.framework/<X>, nothing after it.
+    size_t nameLength = (size_t)(infix - name);
+    const char *leaf = infix + infixLength;
+    if (strncmp(leaf, name, nameLength) || leaf[nameLength])
+        return handle;
+
+    for (size_t i = 0; wk_umbrellaFrameworks[i]; ++i) {
+        char candidate[PATH_MAX];
+        int written = snprintf(candidate, sizeof(candidate), "%s%s.framework/Frameworks/%.*s.framework/%.*s",
+            frameworksPrefix, wk_umbrellaFrameworks[i], (int)nameLength, name, (int)nameLength, name);
+        if (written <= 0 || (size_t)written >= sizeof(candidate))
+            continue;
+        handle = WK_ORIGINAL(dlopen)(candidate, mode);
+        if (handle)
+            return handle;
+    }
+
+    // dlerror() is part of dlopen's contract, and callers report it: soft-linking ends in
+    // RELEASE_ASSERT_WITH_MESSAGE(..., dlerror()). After the retries above, the pending error
+    // describes an umbrella path the caller never asked for, so re-issue the original request
+    // and let a genuine failure name the path that was actually requested.
+    return WK_ORIGINAL(dlopen)(path, mode);
+}

@@ -340,8 +340,7 @@ enum class VideoDecoderBehavior : uint8_t {
 
 static void setVideoDecoderBehaviors(OptionSet<VideoDecoderBehavior> videoDecoderBehavior)
 {
-    // MAVERICKS_BACKPORT: VideoToolbox VTRestrictVideoDecoders soft-link is unavailable on 10.9; force the early return so decoder restrictions are never applied.
-    if (!(false && false))
+    if (!(PAL::isVideoToolboxFrameworkAvailable() && PAL::canLoad_VideoToolbox_VTRestrictVideoDecoders()))
         return;
 
     Vector<CMVideoCodecType> allowedCodecTypeList;
@@ -354,14 +353,12 @@ static void setVideoDecoderBehaviors(OptionSet<VideoDecoderBehavior> videoDecode
 
     if (videoDecoderBehavior.contains(VideoDecoderBehavior::EnableHEIC)) {
         allowedCodecTypeList.append(kCMVideoCodecType_HEVC);
-        // MAVERICKS_BACKPORT: kCMVideoCodecType_HEVCWithAlpha is absent on 10.9 CoreMedia; append a placeholder (this list is never applied — see the disabled guard above).
-        allowedCodecTypeList.append(0);
+        allowedCodecTypeList.append(kCMVideoCodecType_HEVCWithAlpha);
     }
 
 #if HAVE(AVIF)
     if (videoDecoderBehavior.contains(VideoDecoderBehavior::EnableAVIF))
-        // MAVERICKS_BACKPORT: kCMVideoCodecType_AV1 is absent on 10.9 CoreMedia; append a placeholder (this list is never applied — see the disabled guard above).
-        allowedCodecTypeList.append(0);
+        allowedCodecTypeList.append(kCMVideoCodecType_AV1);
 #endif
 
     unsigned flags = 0;
@@ -376,9 +373,7 @@ static void setVideoDecoderBehaviors(OptionSet<VideoDecoderBehavior> videoDecode
     flags |= kVTRestrictions_RegisterLimitedSystemDecodersWithoutValidation;
 #endif
 
-    // MAVERICKS_BACKPORT: upstream applies the computed restrictions here via
-    // PAL::softLinkVideoToolboxVTRestrictVideoDecoders(flags, ...). That VideoToolbox SPI is absent on
-    // 10.9 (and the function early-returns above), so the call is omitted entirely.
+    PAL::softLinkVideoToolboxVTRestrictVideoDecoders(flags, allowedCodecTypeList.span().data(), allowedCodecTypeList.size());
 }
 
 void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& parameters)
@@ -518,9 +513,8 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
     Method methodToPatch = class_getInstanceMethod([NSApplication class], @selector(accessibilityFocusedUIElement));
     method_setImplementation(methodToPatch, (IMP)NSApplicationAccessibilityFocusedUIElement);
 
-    // MAVERICKS_BACKPORT: _updateCanQuitQuietlyAndSafely may not exist; null-guard before swizzle.
-    if (auto method = class_getInstanceMethod([NSApplication class], @selector(_updateCanQuitQuietlyAndSafely)))
-        method_setImplementation(method, (IMP)preventAppKitFromContactingLaunchServices);
+    auto method = class_getInstanceMethod([NSApplication class], @selector(_updateCanQuitQuietlyAndSafely));
+    method_setImplementation(method, (IMP)preventAppKitFromContactingLaunchServices);
 #endif
 
 #if (PLATFORM(MAC) || PLATFORM(MACCATALYST)) && !ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
@@ -559,9 +553,6 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 #else
     // Initialize the shared application so method calls using `NSApp` are not no-ops.
     [NSApplication sharedApplication];
-    // MAVERICKS_BACKPORT: LSUIElement in the XPC plist isn't honored on 10.9, so the WebContent
-    // process shows up in the Dock and bounces. Force accessory activation policy here.
-    [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
 #endif // ENABLE(INITIALIZE_NSAPPLICATION_ON_DEMAND)
 #endif // PLATFORM(MAC)
 
@@ -576,12 +567,11 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 
     if (!parameters.mediaMIMETypes.isEmpty())
         setMediaMIMETypes(parameters.mediaMIMETypes);
-    // MAVERICKS_BACKPORT: AVAssetMIMETypeCache.mm is stubbed; skip the cache setup.
-    // else {
-    //     AVAssetMIMETypeCache::singleton().setCacheMIMETypesCallback([protectedThis = Ref { *this }](const Vector<String>& types) {
-    //         protect(protectedThis->parentProcessConnection())->send(Messages::WebProcessProxy::CacheMediaMIMETypes(types), 0);
-    //     });
-    // }
+    else {
+        AVAssetMIMETypeCache::singleton().setCacheMIMETypesCallback([protectedThis = Ref { *this }](const Vector<String>& types) {
+            protect(protectedThis->parentProcessConnection())->send(Messages::WebProcessProxy::CacheMediaMIMETypes(types), 0);
+        });
+    }
 
     WebCore::setScreenProperties(parameters.screenProperties);
 
@@ -603,9 +593,11 @@ void WebProcess::platformInitializeWebProcess(WebProcessCreationParameters& para
 
     WebCore::sleepDisablerClient() = makeUnique<WebSleepDisablerClient>();
 
-    // MAVERICKS_BACKPORT: Upstream gates a software-JPEG hardware-cutoff hint here via
-    // PAL::softLinkMediaToolboxFigPhotoDecompressionSetHardwareCutoff. That MediaToolbox SPI
-    // does not exist on 10.9, so the call is omitted entirely.
+#if PLATFORM(MAC) && !ENABLE(HARDWARE_JPEG)
+    if (PAL::isMediaToolboxFrameworkAvailable() && PAL::canLoad_MediaToolbox_FigPhotoDecompressionSetHardwareCutoff())
+        PAL::softLinkMediaToolboxFigPhotoDecompressionSetHardwareCutoff(kPALFigPhotoContainerFormat_JFIF, INT_MAX);
+#endif
+
     SystemSoundManager::singleton().setSystemSoundDelegate(makeUnique<WebSystemSoundDelegate>());
 
 #if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
@@ -983,11 +975,13 @@ void WebProcess::platformInitializeProcess(const AuxiliaryProcessInitializationP
     WebCore::PublicSuffixStore::singleton().enablePublicSuffixCache();
 
 #if PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: upstream also calls CGSSetDenyWindowServerConnections(true) here
-    // (with a RELEASE_ASSERT on success). The WebContent process intentionally keeps its
-    // WindowServer connection on this backport for the TiledCoreAnimation drawing path, so
-    // that call stays removed. shouldSetupPowerObserver() is a plain WebCore setter with no
-    // 10.9-absent API and must run.
+    // MAVERICKS_BACKPORT: upstream denies the WebContent process its WindowServer connection here
+    // (CGSSetDenyWindowServerConnections(true), with a RELEASE_ASSERT on success). This port draws
+    // through TiledCoreAnimation in WebContent, which requires that connection, so the call is
+    // omitted. Everything else in this block is upstream.
+#if ENABLE(LAUNCHSERVICES_SANDBOX_EXTENSION_BLOCKING)
+    setApplicationIsDaemon();
+#endif
     MainThreadSharedTimer::shouldSetupPowerObserver() = false;
 #endif // PLATFORM(MAC)
 
@@ -1028,9 +1022,7 @@ void WebProcess::stopRunLoop()
 
 void WebProcess::platformTerminate()
 {
-    // MAVERICKS_BACKPORT: AVAssetMIMETypeCache::singleton touches AVFoundation
-    // paths that crash on 10.9 (media is mostly disabled on this build).
-    // Skip — the cache will be torn down by the OS on process exit anyway.
+    AVAssetMIMETypeCache::singleton().setCacheMIMETypesCallback(nullptr);
 }
 
 RetainPtr<CFDataRef> WebProcess::sourceApplicationAuditData() const
@@ -1391,9 +1383,9 @@ void WebProcess::enableRemoteWebInspector()
 
 void WebProcess::setMediaMIMETypes(const Vector<String> types)
 {
-    // MAVERICKS_BACKPORT: AVAssetMIMETypeCache::singleton touches AVFoundation paths
-    // that crash on 10.9. Media is mostly disabled — skip cache update entirely.
-    UNUSED_PARAM(types);
+    auto& cache = AVAssetMIMETypeCache::singleton();
+    if (cache.isEmpty())
+        cache.addSupportedTypes(types);
 }
 
 #if ENABLE(CFPREFS_DIRECT_MODE)
@@ -1528,9 +1520,7 @@ void WebProcess::setScreenProperties(const WebCore::ScreenProperties& properties
 #if PLATFORM(MAC)
 void WebProcess::updatePageScreenProperties()
 {
-// MAVERICKS_BACKPORT: WebCore::setShouldOverrideScreenSupportsHighDynamicRange is undefined on 10.9
-// (no HDR-display support), so this MediaToolbox HDR-override fallback is gated to platforms that provide it.
-#if !HAVE(AVPLAYER_VIDEORANGEOVERRIDE) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
+#if !HAVE(AVPLAYER_VIDEORANGEOVERRIDE)
     // Only override HDR support at the MediaToolbox level if AVPlayer.videoRangeOverride support is
     // not present, as the MediaToolbox override functionality is both duplicative and process global.
     if (hasProcessPrivilege(ProcessPrivilege::CanCommunicateWithWindowServer)) {
@@ -1539,8 +1529,19 @@ void WebProcess::updatePageScreenProperties()
     }
 
     bool allPagesAreOnHDRScreens = std::ranges::all_of(m_pageMap.values(), [](auto& page) {
-        // MAVERICKS_BACKPORT: m_pageMap holds Ref<WebPage> (never null); no bool-check on the Ref.
-        return screenSupportsHighDynamicRange(page->localMainFrameView());
+        // MAVERICKS_BACKPORT: upstream writes `page && ...`, which does not compile here because
+        // WTF::Ref has no operator bool; ptrAllowingHashTableEmptyValue() is WTF's spelling for
+        // reading a Ref that may be a hash-table slot's empty value. (Ref::ptr() is RETURNS_NONNULL,
+        // so a check written against it would be optimised away.)
+        //
+        // The check is load-bearing, not defensive. WebProcess::createWebPage inserts with
+        // m_pageMap.ensure(), which creates the entry BEFORE the lambda constructs its value, and
+        // WebPage's constructor calls this function -- so an entry whose Ref is still empty is
+        // visible right here. window.open() reaches it, which is what WebProcess.cpp:1146 means by
+        // the page being created "both in the synchronous handler and through the normal way".
+        // Without the check, page->localMainFrameView() dereferences null and the WebContent process
+        // dies while creating the popup.
+        return page.ptrAllowingHashTableEmptyValue() && screenSupportsHighDynamicRange(page->localMainFrameView());
     });
     setShouldOverrideScreenSupportsHighDynamicRange(true, allPagesAreOnHDRScreens);
 #endif
@@ -1707,8 +1708,7 @@ void WebProcess::registerAdditionalFonts(AdditionalFonts&& fonts)
         return true;
     });
 
-    // MAVERICKS_BACKPORT: CTFontManagerRegisterFontURLs (block-callback overload) is absent on 10.9; additional web fonts are not registered process-wide.
-//    CTFontManagerRegisterFontURLs((__bridge CFArrayRef)fontURLs.get(), kCTFontManagerScopeProcess, true, blockPtr.get());
+    CTFontManagerRegisterFontURLs((__bridge CFArrayRef)fontURLs.get(), kCTFontManagerScopeProcess, true, blockPtr.get());
 }
 
 void WebProcess::registerFontMap(HashMap<String, URL>&& fontMap, HashMap<String, Vector<String>>&& fontFamilyMap, Vector<SandboxExtension::Handle>&& sandboxExtensions)

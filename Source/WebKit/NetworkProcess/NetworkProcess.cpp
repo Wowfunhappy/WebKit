@@ -222,10 +222,19 @@ DownloadManager& NetworkProcess::downloadManager()
 
 void NetworkProcess::removeNetworkConnectionToWebProcess(NetworkConnectionToWebProcess& connection)
 {
-    ASSERT(m_webProcessConnections.contains(connection.webProcessIdentifier()));
-    m_webProcessConnections.remove(connection.webProcessIdentifier());
-    m_allowedFirstPartiesForCookies.remove(connection.webProcessIdentifier());
-    auto completionHandlers = m_webProcessConnectionCloseHandlers.take(connection.webProcessIdentifier());
+    // MAVERICKS_BACKPORT: tear down per-process state only when the closing connection is still the
+    // identifier's current registrant. A web process re-requests its connection through the UI process
+    // while this connection's close is delivered on an independent event source, so a replacement can
+    // register (createNetworkConnectionToWebProcess) before the superseded connection's didClose
+    // arrives here; erasing unconditionally would destroy the replacement's registration and cookie
+    // registrations. A stale close for a superseded connection is a no-op.
+    auto identifier = connection.webProcessIdentifier();
+    auto iterator = m_webProcessConnections.find(identifier);
+    if (iterator == m_webProcessConnections.end() || iterator->value.ptr() != &connection)
+        return;
+    m_webProcessConnections.remove(iterator);
+    m_allowedFirstPartiesForCookies.remove(identifier);
+    auto completionHandlers = m_webProcessConnectionCloseHandlers.take(identifier);
     for (auto& completionHandler : completionHandlers)
         completionHandler();
 }
@@ -417,8 +426,12 @@ void NetworkProcess::createNetworkConnectionToWebProcess(ProcessIdentifier ident
     auto newConnection = NetworkConnectionToWebProcess::create(*this, identifier, sessionID, WTF::move(parameters), WTF::move(connectionIdentifiers->server));
     Ref connection = newConnection;
 
-    ASSERT(!m_webProcessConnections.contains(identifier));
-    m_webProcessConnections.add(identifier, WTF::move(newConnection));
+    // MAVERICKS_BACKPORT: replace, not add. A replacement connection for this identifier can be
+    // created before the superseded connection's didClose is delivered (see
+    // removeNetworkConnectionToWebProcess), so the slot may still hold the old connection; add()
+    // would keep it and silently discard the new one. set() makes create and close commute under
+    // either ordering, paired with the identity guard in removeNetworkConnectionToWebProcess.
+    m_webProcessConnections.set(identifier, WTF::move(newConnection));
 
     CheckedPtr storage = storageSession(sessionID);
 

@@ -245,15 +245,8 @@ ResourceError NetworkLoadChecker::validateResponse(const ResourceRequest& reques
         response.setAsRangeRequested();
 
     if (m_options.mode == FetchOptions::Mode::NoCors) {
-        // MAVERICKS_BACKPORT (#172): skip the Cross-Origin-Resource-Policy check for loads from
-        // documents that cannot run content JavaScript (e.g. Apple Mail messages — see
-        // WebLoaderStrategy::scheduleLoad). The response is still marked Tainting::Opaque below, so
-        // CORS, canvas-tainting and opaque-response confidentiality are unaffected; only CORP's
-        // (script-dependent) cross-origin process-isolation layer is relaxed where no script can run.
-        if (m_shouldEnableCrossOriginResourcePolicy) {
-            if (auto error = performCORPCheck(m_crossOriginEmbedderPolicy, *protect(origin()), m_url, response, ForNavigation::No, RefPtr { m_networkResourceLoader.get() }.get(), originAccessPatterns()))
-                return WTF::move(*error);
-        }
+        if (auto error = performCORPCheck(m_crossOriginEmbedderPolicy, *protect(origin()), m_url, response, ForNavigation::No, RefPtr { m_networkResourceLoader.get() }.get(), originAccessPatterns()))
+            return WTF::move(*error);
 
         response.setTainting(ResourceResponse::Tainting::Opaque);
         return { };

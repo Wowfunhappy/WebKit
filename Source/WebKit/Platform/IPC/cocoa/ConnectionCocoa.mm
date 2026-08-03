@@ -629,8 +629,7 @@ static mach_msg_header_t* readFromMachPort(mach_port_t machPort, ReceiveBuffer& 
     buffer.resize(receiveBufferSize);
 
     auto* header = &reinterpretCastSpanStartTo<mach_msg_header_t>(buffer.mutableSpan());
-    // MAVERICKS_BACKPORT: MACH_RCV_VOUCHER is unavailable on 10.9; receive without the voucher flag.
-    kern_return_t kr = mach_msg(header, MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT , 0, buffer.size(), machPort, 0, MACH_PORT_NULL);
+    kern_return_t kr = mach_msg(header, MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT | MACH_RCV_VOUCHER, 0, buffer.size(), machPort, 0, MACH_PORT_NULL);
     if (kr == MACH_RCV_TIMED_OUT)
         return nullptr;
 
@@ -642,8 +641,7 @@ static mach_msg_header_t* readFromMachPort(mach_port_t machPort, ReceiveBuffer& 
         buffer.resize(newBufferSize);
         header = &reinterpretCastSpanStartTo<mach_msg_header_t>(buffer.mutableSpan());
 
-        // MAVERICKS_BACKPORT: MACH_RCV_VOUCHER is unavailable on 10.9; retry the receive without the voucher flag.
-        kr = mach_msg(header, MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT , 0, buffer.size(), machPort, 0, MACH_PORT_NULL);
+        kr = mach_msg(header, MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT | MACH_RCV_VOUCHER, 0, buffer.size(), machPort, 0, MACH_PORT_NULL);
         ASSERT(kr != MACH_RCV_TOO_LARGE);
     }
 

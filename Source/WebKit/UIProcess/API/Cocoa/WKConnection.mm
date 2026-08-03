@@ -126,17 +126,12 @@ static WKTypeRef encodeObjC(id object)
     }
 
     // Fallback: any other NSCoding object travels as a keyed-archive blob.
-    NSData *data = nil;
-    @try {
-        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-        data = [NSKeyedArchiver archivedDataWithRootObject:object];
-        ALLOW_DEPRECATED_DECLARATIONS_END
-    } @catch (NSException *exception) {
-        NSLog(@"WKConnection: cannot encode message body component (%@): %@", [object class], exception);
+    NSError *archiveError = nil;
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:object requiringSecureCoding:NO error:&archiveError];
+    if (!data) {
+        NSLog(@"WKConnection: cannot encode message body component (%@): %@", [object class], archiveError);
         return nullptr;
     }
-    if (!data)
-        return nullptr;
     WKMutableDictionaryRef dictionary = WKMutableDictionaryCreate();
     WKStringRef key = createWKString(kWKConnectionArchiveKey);
     WKDataRef value = WKDataCreate(static_cast<const unsigned char*>([data bytes]), [data length]);
@@ -192,14 +187,11 @@ static id decodeWK(WKTypeRef type)
         WKRelease(archiveKey);
         if (archiveValue && WKGetTypeID(archiveValue) == WKDataGetTypeID()) {
             NSData *data = [NSData dataWithBytes:WKDataGetBytes(static_cast<WKDataRef>(archiveValue)) length:WKDataGetSize(static_cast<WKDataRef>(archiveValue))];
-            @try {
-                ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-                return [NSKeyedUnarchiver unarchiveObjectWithData:data];
-                ALLOW_DEPRECATED_DECLARATIONS_END
-            } @catch (NSException *exception) {
-                NSLog(@"WKConnection: cannot decode archived message body component: %@", exception);
-                return nil;
-            }
+            NSError *unarchiveError = nil;
+            id unarchived = [NSKeyedUnarchiver unarchiveTopLevelObjectWithData:data error:&unarchiveError];
+            if (!unarchived)
+                NSLog(@"WKConnection: cannot decode archived message body component: %@", unarchiveError);
+            return unarchived;
         }
 
         WKArrayRef keys = WKDictionaryCopyKeys(dictionary);

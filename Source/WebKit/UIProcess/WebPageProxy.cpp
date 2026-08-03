@@ -960,7 +960,14 @@ WebPageProxy::WebPageProxy(PageClient& pageClient, WebProcessProxy& process, Ref
 #if ENABLE(REMOTE_INSPECTOR)
     , m_inspectorDebuggable(WebPageDebuggable::create(*this))
 #endif
-    , m_corsDisablingPatterns(configuration->corsDisablingPatterns())
+    // MAVERICKS_BACKPORT: 2013 MailUI predates API::PageConfiguration's corsDisablingPatterns, the
+    // configuration modern MailUI passes so a message's remote subresources load under the app's
+    // own remote-content consent rather than web CORS/CORP rules (a message document's x-webdoc://
+    // origin can never satisfy them; the app's load delegate is the arbiter of remote content).
+    // Supply on Mail's behalf what its modern counterpart sets itself; everything downstream --
+    // the web-process origin-access grants and the network-process pattern sync -- is upstream
+    // machinery. Keyed on the host app exactly as WebPreferencesDefaultValues does.
+    , m_corsDisablingPatterns(!configuration->corsDisablingPatterns().isEmpty() ? configuration->corsDisablingPatterns() : (WTF::MacApplication::isAppleMail() ? Vector<String> { "*://*/*"_s } : Vector<String> { }))
 #if ENABLE(APP_BOUND_DOMAINS)
     , m_ignoresAppBoundDomains(m_configuration->ignoresAppBoundDomains())
     , m_limitsNavigationsToAppBoundDomains(m_configuration->limitsNavigationsToAppBoundDomains())

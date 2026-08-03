@@ -25,49 +25,15 @@
 
 #pragma once
 
-// MAVERICKS_BACKPORT: the real ImageBufferSet header is GPU-process-only; on 10.9 we instead pull in the identifier header + ImageBuffer and define a local stub below.
-#if ENABLE(GPU_PROCESS)
+// MAVERICKS_BACKPORT: ImageBufferSet builds without the GPU process on this port (see
+// Shared/graphics/ImageBufferSet.h); upstream reaches it through RemoteImageBufferSet.h,
+// which is GPU-process-only.
 #include "ImageBufferSet.h"
-#endif
-#include "ImageBufferSetIdentifier.h"
-#include "PrepareBackingStoreBuffersData.h"
 #include "RemoteLayerBackingStore.h"
 #include <WebCore/DynamicContentScalingResourceCache.h>
-// MAVERICKS_BACKPORT: needed for the local in-process ImageBufferSet stub's RefPtr<WebCore::ImageBuffer> members when GPU_PROCESS is off.
-#include <WebCore/ImageBuffer.h>
 #include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
-
-// MAVERICKS_BACKPORT: GPU_PROCESS is off on 10.9, so SwapBuffersDisplayRequirement and ImageBufferSet (both normally GPU-process-only) are provided here as local in-process definitions.
-#if !ENABLE(GPU_PROCESS)
-// SwapBuffersDisplayRequirement is normally defined in PrepareBackingStoreBuffersData.h
-// which is entirely guarded by ENABLE(GPU_PROCESS).
-enum class SwapBuffersDisplayRequirement : uint8_t {
-    NeedsFullDisplay,
-    NeedsNormalDisplay,
-    NeedsNoDisplay
-};
-
-// Minimal stub for ImageBufferSet when GPU_PROCESS is disabled.
-// The real ImageBufferSet is guarded by ENABLE(GPU_PROCESS).
-struct ImageBufferSet {
-    ImageBufferSetIdentifier m_identifier { ImageBufferSetIdentifier::generate() };
-    RefPtr<WebCore::ImageBuffer> m_frontBuffer;
-    RefPtr<WebCore::ImageBuffer> m_backBuffer;
-    RefPtr<WebCore::ImageBuffer> m_secondaryBackBuffer;
-    std::optional<WebCore::IntRect> m_previouslyPaintedRect;
-    bool m_frontBufferIsCleared { false };
-    ImageBufferSetIdentifier identifier() const { return m_identifier; }
-    void clearBuffers() { m_frontBuffer = m_backBuffer = m_secondaryBackBuffer = nullptr; }
-    void prepareBufferForDisplay(const WebCore::FloatRect&, const WebCore::Region&, Vector<WebCore::FloatRect, 5>&, bool) { }
-    SwapBuffersDisplayRequirement swapBuffersForDisplay(bool hasEmptyDirtyRegion, bool) {
-        if (hasEmptyDirtyRegion)
-            return SwapBuffersDisplayRequirement::NeedsNoDisplay;
-        return m_frontBuffer ? SwapBuffersDisplayRequirement::NeedsNormalDisplay : SwapBuffersDisplayRequirement::NeedsFullDisplay;
-    }
-};
-#endif
 
 class RemoteLayerWithInProcessRenderingBackingStore final : public RemoteLayerBackingStore {
     WTF_MAKE_TZONE_ALLOCATED(RemoteLayerWithInProcessRenderingBackingStore);

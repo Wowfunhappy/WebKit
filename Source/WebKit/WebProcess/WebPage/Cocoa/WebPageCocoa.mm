@@ -253,8 +253,7 @@ void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
     LibWebRTCCodecs::setWebRTCMediaPipelineAdditionalLoggingEnabled(m_page->settings().webRTCMediaPipelineAdditionalLoggingEnabled());
 #endif
 
-// MAVERICKS_BACKPORT: the eager CARenderServer/launchd-blocking handshake below uses 10.10+ APIs; gate it on the SDK so it is skipped on 10.9.
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
+#if PLATFORM(MAC)
     // In order to be able to block launchd on macOS, we need to eagerly open up a connection to CARenderServer here.
     // This is because PDF rendering on macOS requires access to CARenderServer, unless unified PDF is enabled.
     // In Lockdown mode we always block access to CARenderServer.

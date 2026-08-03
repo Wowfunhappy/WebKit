@@ -241,27 +241,16 @@ void MemoryPressureHandler::measurementTimerFired()
 
     setMemoryUsagePolicyBasedOnFootprint(footprint);
 
-    // MAVERICKS_BACKPORT: fire the reclamation switch only when the usage policy WORSENS since the last
-    // poll, not on every poll. On 10.9 memoryFootprint() reports RSS (TASK_VM_INFO.phys_footprint is
-    // unavailable), which overcounts and can pin the policy at Conservative/Strict; running the
-    // synchronous main-thread reclamation (MemoryCache prune + decoded-image purge) on every poll froze
-    // scrolling for seconds. Edge-triggering preserves upstream's reclamation semantics while removing
-    // the per-poll main-thread stall; the heavy OS-memory-pressure reclamation path
-    // (respondToMemoryPressure) is unchanged and still fires on genuine OS pressure.
-    if (m_memoryUsagePolicy > m_lastMeasuredPolicy) {
-        switch (m_memoryUsagePolicy) {
-        case MemoryUsagePolicy::Unrestricted:
-            break;
-        case MemoryUsagePolicy::Conservative:
-            releaseMemory(Critical::No, Synchronous::No);
-            break;
-        case MemoryUsagePolicy::Strict:
-            releaseMemory(Critical::Yes, Synchronous::No);
-            break;
-        }
+    switch (m_memoryUsagePolicy) {
+    case MemoryUsagePolicy::Unrestricted:
+        break;
+    case MemoryUsagePolicy::Conservative:
+        releaseMemory(Critical::No, Synchronous::No);
+        break;
+    case MemoryUsagePolicy::Strict:
+        releaseMemory(Critical::Yes, Synchronous::No);
+        break;
     }
-    // MAVERICKS_BACKPORT: remember this poll's policy so the switch above edge-triggers (see comment above).
-    m_lastMeasuredPolicy = m_memoryUsagePolicy;
 }
 
 void MemoryPressureHandler::setProcessState(WebsamProcessState state)

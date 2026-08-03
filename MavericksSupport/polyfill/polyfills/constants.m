@@ -350,19 +350,47 @@ WK_POLYFILL_CONST(NULL, PolyCStringConst, XPC_ACTIVITY_REQUIRE_NETWORK_CONNECTIV
 WK_POLYFILL_CONST(NULL, PolyCStringConst, XPC_ACTIVITY_RANDOM_INITIAL_DELAY, "RandomInitialDelay");
 
 // --- Other AppKit / Foundation string constants --------------------------
-// The dark-appearance names. An NSAppearance name's value is its own spelling, which is what
+// The post-10.9 appearance names. An NSAppearance name's value is its own spelling, which is what
 // -bestMatchFromAppearancesWithNames: compares against, so each is supplied under that spelling.
-// WebExtensionCocoa.mm collects all four into an @[] literal, and an array literal raises on a nil
-// element, so a name missing here takes down the extension icon path rather than degrading it.
+// WebExtensionCocoa.mm collects the four dark ones into an @[] literal, and an array literal raises on
+// a nil element, so a name missing here takes down the extension icon path rather than degrading it.
+//
+// A missing name is worse than nil elsewhere. These are weak-imported DATA symbols: dyld binds an
+// absent one to address 0, and reading the NSString* then dereferences NULL rather than yielding nil.
+// Both members of the Vibrant pair (10.10+) therefore have to be declared, not just the dark one:
+// AVOutputDeviceMenuControllerTargetPicker::showPlaybackTargetPicker evaluates
+// `useDarkAppearance ? NSAppearanceNameVibrantDark : NSAppearanceNameVibrantLight` to build the
+// -showMenuForRect:appearanceName:... argument, so whichever branch it takes faults if that name is
+// absent, and it faults on the ARGUMENT, before the message. (The receiver is nil on 10.9 --
+// AVOutputDeviceMenuController is 10.11+ -- so the picker is an honest no-route no-op either way;
+// only the argument is fatal. Clicking the AirPlay button on a video is the path that reaches it.)
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSAppearanceNameDarkAqua, @"NSAppearanceNameDarkAqua");
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSAppearanceNameVibrantDark, @"NSAppearanceNameVibrantDark");
+WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSAppearanceNameVibrantLight, @"NSAppearanceNameVibrantLight");
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSAppearanceNameAccessibilityHighContrastDarkAqua, @"NSAppearanceNameAccessibilityHighContrastDarkAqua");
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSAppearanceNameAccessibilityHighContrastVibrantDark, @"NSAppearanceNameAccessibilityHighContrastVibrantDark");
+// NSFontWeightRegular (AppKit, 10.11+) is a CGFloat, not a token: 0.0 is the documented midpoint of
+// the NSFontWeight scale (ultraLight -0.8 ... black 0.62), which is what the name means wherever it is
+// read. On 10.9 nothing reads it -- its only WebKit callers pass it to +[NSImageSymbolConfiguration
+// configurationWithPointSize:weight:scale:], and that class is 11.0+, so the message goes to a nil
+// class. It is declared here because the ARGUMENT is evaluated before the message: as a weak-imported
+// data symbol it binds to address 0, so loading the CGFloat faults before the nil receiver can absorb
+// the call. Same failure shape as NSAppearanceNameVibrantLight above; the two live sites are
+// RenderThemeMac.mm's attachment-placeholder glyph and _WKWarningView.mm.
+WK_POLYFILL_CONST("AppKit", CGFloat, NSFontWeightRegular, 0.0);
 WK_POLYFILL_CONST("Foundation", PolyNSStringConst, NSPresentationIntentAttributeName, @"NSPresentationIntent");
 // NSURLContentTypeKey (Foundation, 11.0+): the resource key answered with a UTType. 10.9's Foundation
 // does not interpret it; the NSURL getResourceValue:forKey:error: polyfill (methods.m) recognizes this
 // key and answers it from the classic NSURLTypeIdentifierKey.
 WK_POLYFILL_CONST("Foundation", PolyNSStringConst, NSURLContentTypeKey, @"NSURLContentTypeKey");
+// NSURLQuarantinePropertiesKey (Foundation, 10.10+): the resource key that reads/writes a file's
+// LaunchServices quarantine dictionary. 10.9's Foundation does not interpret it; the NSURL
+// setResourceValue:forKey:error: polyfill (methods.m) recognizes this key and applies it through the
+// classic LSSetItemAttribute/kLSItemQuarantineProperties, which is the same mechanism the modern key
+// is implemented over -- WKShareSheet.mm's own comment names LSSetItemAttribute as what writing this
+// key ends up calling. Declared here for the load-from-0 reason above: WKShareSheet passes it straight
+// to -setResourceValue:forKey:error:, so an absent symbol faults on the argument.
+WK_POLYFILL_CONST("Foundation", PolyNSStringConst, NSURLQuarantinePropertiesKey, @"NSURLQuarantinePropertiesKey");
 WK_POLYFILL_CONST("AppKit", PolyNSStringConst, NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification, @"NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification");
 // NSProcessInfoPowerStateDidChangeNotification (Foundation, 10.12+): the Low Power Mode change
 // notification. A unique name used only to register and match an observer; nothing on 10.9 posts it,
@@ -424,6 +452,57 @@ WK_POLYFILL_CONST(NULL, PolyVoidPtrConst, _os_log_default, &wkOSLogDefaultStorag
 // keychain queries are matched against.
 WK_POLYFILL_CONST("Security", CFStringRef, kSecAttrKeyTypeECSECPrimeRandom, CFSTR("73"));
 WK_POLYFILL_CONST("Security", CFStringRef, kSecUseDataProtectionKeychain, CFSTR("u-DataProtectionKeychain"));
+
+// The Secure Enclave / access-control keychain attributes (10.10-10.12+), read by the WebAuthn
+// platform authenticator: LocalAuthenticator.mm builds an access control from
+// kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, and LocalConnection::createCredentialPrivateKey
+// builds the SecKeyCreateRandomKey attribute dictionary from the other five. Token values, per this
+// file's convention: 10.9's Security predates tokens, access-control objects and the SecKey algorithm
+// API entirely and interprets none of these, and the functions that would consume them are the
+// NULL-returning gap-fills in system-spi.m -- so nothing on 10.9 ever compares these strings against
+// anything. They are declared for the LOAD, not the value: each is read as a plain argument
+// expression, and a weak-imported absent data symbol binds to address 0, so evaluating the argument
+// faults before the call it belongs to can fail cleanly.
+//
+// Do NOT infer from "the platform authenticator cannot work on 10.9" that these are unreachable.
+// AuthenticatorManager::filterTransports() does drop AuthenticatorTransport::Internal when
+// LocalService::isAvailable() is false (and on 10.9 it always is -- no AuthenticationServices, no
+// LocalAuthentication.framework), but VirtualAuthenticatorManager OVERRIDES filterTransports to do
+// nothing and hands the REAL LocalAuthenticator a VirtualLocalConnection, which does not override
+// createCredentialPrivateKey. A WebDriver addVirtualAuthenticator command therefore runs every line
+// above, so "the platform authenticator cannot work on 10.9" does not make these unreachable.
+WK_POLYFILL_CONST("Security", CFStringRef, kSecAttrAccessControl, CFSTR("kSecAttrAccessControl"));
+WK_POLYFILL_CONST("Security", CFStringRef, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, CFSTR("kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly"));
+WK_POLYFILL_CONST("Security", CFStringRef, kSecAttrTokenID, CFSTR("kSecAttrTokenID"));
+WK_POLYFILL_CONST("Security", CFStringRef, kSecAttrTokenIDSecureEnclave, CFSTR("kSecAttrTokenIDSecureEnclave"));
+WK_POLYFILL_CONST("Security", CFStringRef, kSecUseAuthenticationContext, CFSTR("kSecUseAuthenticationContext"));
+// A token, deliberately, where the sibling SecKeyAlgorithm block below spells real "algid:..."
+// strings: those are checkable, and this one is not. 10.9 exports no SecKeyAlgorithm constant to
+// read the value off, and the only 10.9 consumer is the NULL-returning SecKeyCreateSignature
+// gap-fill in system-spi.m, which ignores its algorithm argument. Guessing an "algid:" spelling
+// would look authoritative while being unverified; the token is honestly what it is.
+WK_POLYFILL_CONST("Security", CFStringRef, kSecKeyAlgorithmECDSASignatureMessageX962SHA256, CFSTR("kSecKeyAlgorithmECDSASignatureMessageX962SHA256"));
+
+#pragma mark - Network.framework (10.14+, absent entirely on 10.9)
+
+// WebTransport's only implementation is the Cocoa network path
+// (NetworkProcess/webtransport/cocoa/NetworkTransport{Session,Stream}Cocoa.mm), built on
+// Network.framework. The three constants it reads are an nw_content_context_t and two
+// nw_parameters_configure_protocol_block_t, and NULL is the truthful 10.9 value for all three: there
+// is no Network.framework, so there is no default message context and no configure block.
+//
+// These are declared for the same reason as the Security block above -- so that reading one cannot
+// fault -- and NOT because the code is expected to run. WebTransportEnabled is defaulted false for
+// WebKitLegacy/WebKit/WebCore, which keeps the JS constructor unexposed. That default is a feature
+// switch, though, not a proof: WebTransportEnabled is a PERSISTENT preference, and
+// WebPreferencesCocoa.mm applies every persistent pref's "WebKit"-prefixed persisted value from
+// NSGlobalDomain, so `defaults write -g WebKitWebTransportEnabled -bool YES` turns it back on. The
+// nw_* FUNCTIONS that path calls are still absent and unguarded -- see the CALLED inventory that
+// scripts/check-absent-references.sh prints -- so flipping the pref still fails; it just must not
+// fail by faulting on a constant load before it gets there.
+WK_POLYFILL_CONST("Network", PolyVoidPtrConst, _nw_content_context_default_message, NULL);
+WK_POLYFILL_CONST("Network", PolyVoidPtrConst, _nw_parameters_configure_protocol_default_configuration, NULL);
+WK_POLYFILL_CONST("Network", PolyVoidPtrConst, _nw_parameters_configure_protocol_disable, NULL);
 
 // SecKeyAlgorithm identifiers (10.12+). Each is Security's documented "algid:..." string, the value
 // SecKey* functions parse to select padding and digest. They are used as opaque selectors here

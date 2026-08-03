@@ -84,6 +84,9 @@ target_link_options(WebKit PRIVATE "SHELL:-weak_framework Metal" "SHELL:-weak_fr
 # --------------------------------------------------------------------------
 list(REMOVE_ITEM WebKit_MESSAGES_IN_FILES
     UIProcess/Cocoa/VideoFullscreenManagerProxy
+    # AudioSessionRoutingArbitratorProxy.messages.in is EnabledBy=UseGPUProcessForMediaEnabled, a
+    # preference that only exists when ENABLE(GPU_PROCESS) is on; with it off the generated receiver
+    # references a SharedPreferencesForWebProcess member that was never emitted.
     UIProcess/Media/AudioSessionRoutingArbitratorProxy
     WebProcess/cocoa/VideoFullscreenManager
 )

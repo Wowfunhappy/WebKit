@@ -600,7 +600,7 @@ WK_POLYFILL_SEL("stage", "wk_stage");
 - (NSPoint)wk_convertPointFromScreen:(NSPoint)point { return [self convertScreenToBase:point]; }
 // -[NSWindow contentLayoutRect] is 10.10+: the content region not obscured by a full-size-content-view
 // title bar, in window coordinates. 10.9 has no full-size content view, so that region is exactly the
-// content view's frame -- which is also the fallback the WebKit call sites used before this polyfill.
+// content view's frame -- which is also the fallback WebKit's own call sites compute for themselves.
 - (NSRect)wk_contentLayoutRect { return [[self contentView] frame]; }
 - (void)wk_performWindowDragWithEvent:(NSEvent *)event
 {
@@ -688,6 +688,52 @@ WK_POLYFILL_SEL("contentLayoutRect", "wk_contentLayoutRect");
     }
     return original(self, originalSelector, value, key, error);
 }
+// -setResourceValue:forKey:error: exists on 10.9 but does not know NSURLQuarantinePropertiesKey
+// (10.10+), the key that writes a file's LaunchServices quarantine dictionary. REPLACE it for WebKit's
+// callers: that one key is applied through LSSetItemAttribute/kLSItemQuarantineProperties, which is the
+// mechanism the modern key is implemented over -- WKShareSheet.mm's own comment names LSSetItemAttribute
+// as the call writing this key ends up making, and notes that it resets the quarantine flags, which is
+// why WKShareSheet re-applies them with qtn_file_set_flags immediately afterwards. Every other key
+// forwards to 10.9's implementation (reached through a runtime-built selector, which the selref rewrite
+// cannot touch, so this cannot recurse into itself).
+//
+// Letting the unknown key fall through to 10.9 would not be a smaller divergence, it would be a silent
+// one: WKShareSheet treats a failed quarantine write as "do not share this file", so an unrouted key
+// turns every file share into a no-op.
+- (BOOL)wk_setResourceValue:(id)value forKey:(NSString *)key error:(NSError **)error
+{
+    typedef BOOL (*WKSetResourceValueFn)(id, SEL, id, NSString *, NSError **);
+    WKSetResourceValueFn original = (WKSetResourceValueFn)objc_msgSend;
+    SEL originalSelector = sel_registerName("setResourceValue:forKey:error:");
+    if ([key isEqualToString:NSURLQuarantinePropertiesKey]) {
+        if (![self isFileURL]) {
+            if (error)
+                *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileWriteUnsupportedSchemeError userInfo:nil];
+            return NO;
+        }
+        // CFURLGetFSRef is the only 10.9 spelling that reaches LSSetItemAttribute, and it resolves the
+        // file rather than parsing a path string. It fails when the file does not exist yet, which is
+        // the same case the modern key reports as a write error.
+        FSRef ref;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        if (!CFURLGetFSRef((CFURLRef)self, &ref)) {
+            if (error)
+                *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSFileNoSuchFileError userInfo:nil];
+            return NO;
+        }
+        // A nil value CLEARS the quarantine, which LSSetItemAttribute spells as a NULL attribute value.
+        OSStatus status = LSSetItemAttribute(&ref, kLSRolesAll, kLSItemQuarantineProperties, (CFTypeRef)value);
+#pragma clang diagnostic pop
+        if (status != noErr) {
+            if (error)
+                *error = [NSError errorWithDomain:NSOSStatusErrorDomain code:status userInfo:nil];
+            return NO;
+        }
+        return YES;
+    }
+    return original(self, originalSelector, value, key, error);
+}
 // -[NSURL initWithString:] and +[NSURL URLWithString:] throw NSInvalidArgumentException on a nil string
 // on 10.9 (modern Foundation returns nil). REPLACE both for WebKit's callers with the modern contract:
 // nil in -> nil out; any non-nil string forwards to 10.9's real implementation, reached through a
@@ -734,8 +780,10 @@ WK_POLYFILL_SEL("contentLayoutRect", "wk_contentLayoutRect");
 WK_POLYFILL_SEL("_lp_simplifiedDisplayString", "wk__lp_simplifiedDisplayString");
 WK_POLYFILL_SEL("URLByResolvingAliasFileAtURL:options:error:", "wk_URLByResolvingAliasFileAtURL:options:error:");
 WK_POLYFILL_SEL_REPLACES("getResourceValue:forKey:error:", "wk_getResourceValue:forKey:error:");
+WK_POLYFILL_SEL_REPLACES("setResourceValue:forKey:error:", "wk_setResourceValue:forKey:error:");
 WK_POLYFILL_SEL_REPLACES("initWithString:", "wk_initWithString:");
 WK_POLYFILL_SEL_REPLACES("URLWithString:", "wk_URLWithString:");
+
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSAttributedString _htmlDocumentFragmentString:documentAttributes:subresources:] (returns interchange
@@ -1136,7 +1184,7 @@ static const char wkFullSizeContentAdapterKey;
     [adapter apply];
 }
 
-// Reports what the setter stored. It used to answer a fixed NO, which contradicted its own setter: a
+// Reports what the setter stored, rather than a fixed NO that would contradict its own setter: a
 // caller that set the property and read it back was told its request had been ignored. WebKit reads this
 // (PageClientImpl::computeAutomaticTopObscuredInset) to lay content out under the titlebar, so a wrong
 // answer here is what leaves a window drawing its own title bar underneath the real one.
@@ -1587,6 +1635,38 @@ static char kWKKeyedArchiverDataKey;
     return result;
 }
 @end
+// +unarchiveTopLevelObjectWithData:error: (10.11+) is the NON-SECURE, NON-throwing top-level decode:
+// any NSCoding graph, no class list, nil + *error instead of a raise. 10.9 has only the raising
+// +unarchiveObjectWithData:, so the raise is converted here into the modern contract, exactly as the
+// secure siblings above do. Kept distinct from unarchivedObjectOfClasses:fromData:error: because the
+// contracts differ: this one does NOT require secure coding and does not restrict the class set, which
+// is what a caller decoding an arbitrary embedder-supplied object needs.
+@interface NSKeyedUnarchiver (WKPolyfillTopLevelScope)
++ (id)wk_unarchiveTopLevelObjectWithData:(NSData *)data error:(NSError **)error;
+@end
+@implementation NSKeyedUnarchiver (WKPolyfillTopLevelScope)
++ (id)wk_unarchiveTopLevelObjectWithData:(NSData *)data error:(NSError **)error
+{
+    if (error)
+        *error = nil;
+    if (!data) {
+        if (error)
+            *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderValueNotFoundError userInfo:nil];
+        return nil;
+    }
+    typedef id (*WKUnarchiveFn)(id, SEL, NSData *);
+    WKUnarchiveFn original = (WKUnarchiveFn)objc_msgSend;
+    @try {
+        return original(self, sel_registerName("unarchiveObjectWithData:"), data);
+    } @catch (NSException *exception) {
+        if (error)
+            *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSCoderReadCorruptError userInfo:@{ NSLocalizedDescriptionKey: [exception reason] ?: @"unarchive failed" }];
+        return nil;
+    }
+}
+@end
+WK_POLYFILL_SEL("unarchiveTopLevelObjectWithData:error:", "wk_unarchiveTopLevelObjectWithData:error:");
+
 WK_POLYFILL_SEL("archivedDataWithRootObject:requiringSecureCoding:error:", "wk_archivedDataWithRootObject:requiringSecureCoding:error:");
 WK_POLYFILL_SEL("initRequiringSecureCoding:", "wk_initRequiringSecureCoding:");
 WK_POLYFILL_SEL("encodedData", "wk_encodedData");
@@ -2662,7 +2742,7 @@ static const CFIndex wk_coreAnimationCommitOrder = 2000000;
 // per-thread count (10.9 has no per-thread one), so ANY thread's commit moves it. Commits by the other thread
 // that registers handlers here — ScrollingThread, whose transactions land while the main thread is between
 // passes — are therefore rejected outright. What remains is a commit on another thread landing while this
-// thread happens to be awake, which opens the gate one pass early: the old unconditional behaviour for that
+// thread happens to be awake, which opens the gate one pass early: unconditional behaviour for that
 // one pass, not a systematic inversion.
 //
 // The wake reading, rather than one taken just below CA's commit observer, is what makes an EXPLICIT commit
@@ -3553,7 +3633,7 @@ WK_POLYFILL_SEL("_schemeWasUpgradedDueToDynamicHSTS", "wk__schemeWasUpgradedDueT
 // -[AVSampleBufferDisplayLayer status] / -videoPerformanceMetrics (10.10+). 10.9's layer (the class
 // shipped in 10.8) cannot report a rendering status or frame metrics at all, so the truthful answers
 // are StatusUnknown (0) and no-metrics (nil) — LocalSampleBufferDisplayLayer then never sees a
-// spurious Failed and skips its metrics logging, as it did behind the old in-tree guards. Installed
+// spurious Failed and skips its metrics logging, which is what the absent-metrics case calls for. Installed
 // by NAME: this layer does not link AVFoundation.
 static long wk_avSampleBufferDisplayLayer_status(id self, SEL _cmd)
 {

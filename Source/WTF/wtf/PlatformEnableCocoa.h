@@ -46,9 +46,8 @@
 #define ENABLE_ACCESSIBILITY_ANIMATION_CONTROL 1
 #endif
 
-// MAVERICKS_BACKPORT: requires newer accessibility APIs
-#if !defined(ENABLE_ACCESSIBILITY_ISOLATED_TREE)
-#define ENABLE_ACCESSIBILITY_ISOLATED_TREE 0
+#if !defined(ENABLE_ACCESSIBILITY_ISOLATED_TREE) && PLATFORM(MAC)
+#define ENABLE_ACCESSIBILITY_ISOLATED_TREE 1
 #endif
 
 #if !defined(ENABLE_ADDITIONAL_PRECONNECT_ON_HTTP_1X) && PLATFORM(MAC)
@@ -876,11 +875,15 @@
 #define ENABLE_REVEAL 1
 #endif
 
+// MAVERICKS_BACKPORT: OFF because the feature's IPC layer cannot be generated in this build, not
+// because of anything 10.9 lacks. AudioSessionRoutingArbitratorProxy.messages.in is
+// `EnabledBy=UseGPUProcessForMediaEnabled && MediaPlaybackEnabled`, and UseGPUProcessForMediaEnabled
+// carries `condition: ENABLE(GPU_PROCESS)` (UnifiedWebPreferences.yaml), which this port builds with
+// OFF -- so the preference is absent from SharedPreferencesForWebProcess and the generated
+// AudioSessionRoutingArbitratorProxyMessageReceiver.cpp does not compile. Turning GPU_PROCESS on is
+// the prerequisite for turning this on; the arbitration code itself is fine, and upstream even ships
+// a !HAVE(AVAUDIO_ROUTING_ARBITER) implementation that would suit this OS.
 #if !defined(ENABLE_ROUTING_ARBITRATION) && PLATFORM(MAC)
-// MAVERICKS_BACKPORT: 10.9: AudioSessionRoutingArbitratorProxy is stubbed in libpolyfill (constructor
-// returns 0, leaving the unique_ptr-stored object with NULL vtable → crash on
-// destruction). Disable until we have a real implementation.
-// MAVERICKS_BACKPORT: force OFF on 10.9 (no real routing-arbitration implementation; see above).
 #define ENABLE_ROUTING_ARBITRATION 0
 #endif
 

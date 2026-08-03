@@ -658,7 +658,12 @@
 #define HAVE_MAC_JIT_RESTRICTIONS 1
 #endif
 
-#if PLATFORM(MAC)
+// MAVERICKS_BACKPORT: AVAudioRoutingArbiter is 11.0+ and 10.9's AVFoundation does not export it
+// (nm-verified). Reporting the platform truth here selects the !HAVE(AVAUDIO_ROUTING_ARBITER) branch
+// of AudioSessionRoutingArbitratorProxy.cpp, which upstream ships for exactly this case: it builds a
+// valid object and answers RoutingArbitrationError::Failed, so callers take their own no-arbitration
+// path. ENABLE(ROUTING_ARBITRATION) stays on, because the feature's plumbing is present and works.
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
 #define HAVE_AVAUDIO_ROUTING_ARBITER 1
 #endif
 

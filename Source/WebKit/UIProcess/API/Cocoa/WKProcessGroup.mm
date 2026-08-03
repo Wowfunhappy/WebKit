@@ -92,15 +92,12 @@ static WKTypeRef getInjectedBundleInitializationUserData(WKContextRef, const voi
     // such as WKBrowsingContextHandle. iBooks' dictionary (strings, numbers, NSData arrays)
     // is within that; an embedder handing back anything else must fail LOUDLY here, not get
     // silently degraded to nil user data (which surfaces as an undebuggable bundle-side hang).
-    NSData *data = nil;
-    @try {
-        data = [NSKeyedArchiver archivedDataWithRootObject:userData];
-    } @catch (NSException *exception) {
-        NSLog(@"WKProcessGroup: FAILED to archive the injected-bundle initialization user data (%@: %@) — the bundle's plug-in will be initialized with a nil object. The archiver transport carries NSKeyedArchiver-codable graphs only.", exception.name, exception.reason);
+    NSError *archiveError = nil;
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:userData requiringSecureCoding:NO error:&archiveError];
+    if (!data) {
+        NSLog(@"WKProcessGroup: FAILED to archive the injected-bundle initialization user data (%@) — the bundle's plug-in will be initialized with a nil object. The archiver transport carries NSKeyedArchiver-codable graphs only.", archiveError);
         return nullptr;
     }
-    if (!data)
-        return nullptr;
     return WKDataCreate(static_cast<const unsigned char*>(data.bytes), data.length);
 }
 

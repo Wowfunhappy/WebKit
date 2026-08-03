@@ -229,8 +229,6 @@ using WebCore::LogOverlayScrollbars;
     // every animation after the first: -setCurrentProgress: invalidates it on completion, and the delegate
     // reuses this object for every UI-state/expansion transition, where re-adding the invalidated timer to
     // the run loop is a no-op (github #67, legacy scrollbars latch in/out of their hover state).
-    // const NSTimeInterval timeInterval = 0.01;
-    // _timer = adoptNS([[NSTimer alloc] initWithFireDate:[NSDate dateWithTimeIntervalSinceNow:0] interval:timeInterval target:self selector:@selector(setCurrentProgress:) userInfo:nil repeats:YES]);
     _duration = duration;
     lazyInitialize(_timingFunction, WebCore::CubicBezierTimingFunction::create(WebCore::CubicBezierTimingFunction::TimingFunctionPreset::EaseInOut));
 

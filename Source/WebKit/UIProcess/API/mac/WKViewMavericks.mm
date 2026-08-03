@@ -146,6 +146,9 @@ struct WKViewState {
     // mirror the 537 WKView's _frameOrigin / _frameSizeUpdatesDisabledCount).
     NSPoint frameOrigin { 0, 0 };
     unsigned frameSizeUpdatesDisabledCount { 0 };
+    // MAVERICKS_BACKPORT: pending scroll compensation from -setFrame:andScrollBy:, mirroring
+    // WebViewImpl::m_scrollOffsetAdjustment. Consumed by the next drawing-area size push.
+    NSSize scrollOffsetAdjustment { 0, 0 };
     // MAVERICKS_BACKPORT: view-in-window-change deferral state (mirrors WebViewImpl's
     // m_shouldDeferViewInWindowChanges / m_viewInWindowChangeWasDeferred). While deferring,
     // -viewDidMoveToWindow records the IsInWindow change here instead of pushing it;
@@ -158,6 +161,18 @@ struct WKViewState {
     // BKWKViewTiling sends -setShouldClipToVisibleRect:YES right after creating the view.
     bool shouldClipToVisibleRect { false };
 };
+
+// MAVERICKS_BACKPORT: consume the pending -setFrame:andScrollBy: delta on a geometry push, mirroring
+// WebViewImpl::setDrawingAreaSize (mac/WebViewImpl.mm:1900-1903), which passes the accumulated
+// adjustment to DrawingAreaProxy::setSize and then clears it.
+static WebCore::IntSize wkTakeScrollOffsetAdjustment(WKViewState* state)
+{
+    if (!state)
+        return { };
+    WebCore::IntSize offset(state->scrollOffsetAdjustment.width, state->scrollOffsetAdjustment.height);
+    state->scrollOffsetAdjustment = NSZeroSize;
+    return offset;
+}
 
 // MAVERICKS_BACKPORT: WKContentAnchor corner tests, restored from the Safari-537-era WKView.mm.
 static inline bool isWKContentAnchorRight(WKContentAnchor x)
@@ -443,7 +458,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 
     if (frameSizeUpdatesEnabled && _wkState && _wkState->page) {
         if (RefPtr drawingArea = _wkState->page->drawingArea())
-            drawingArea->setSize(WebCore::IntSize(newSize.width, newSize.height));
+            drawingArea->setSize(WebCore::IntSize(newSize.width, newSize.height), wkTakeScrollOffsetAdjustment(_wkState));
         // MAVERICKS_BACKPORT: keep the clipped view-exposed-rect matched to the new visible rect.
         if (_wkState->shouldClipToVisibleRect)
             [self _updateViewExposedRect];
@@ -479,7 +494,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     // -enableFrameSizeUpdates pushes the settled size.
     if (![self frameSizeUpdatesDisabled] && _wkState && _wkState->page) {
         if (RefPtr drawingArea = _wkState->page->drawingArea())
-            drawingArea->setSize(WebCore::IntSize(frame.size.width, frame.size.height));
+            drawingArea->setSize(WebCore::IntSize(frame.size.width, frame.size.height), wkTakeScrollOffsetAdjustment(_wkState));
     }
     [self _updateViewExposedRect];
 }
@@ -577,7 +592,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     if (!_wkState || !_wkState->page)
         return;
     if (RefPtr drawingArea = _wkState->page->drawingArea()) {
-        drawingArea->setSize(WebCore::IntSize(size.width, size.height));
+        drawingArea->setSize(WebCore::IntSize(size.width, size.height), wkTakeScrollOffsetAdjustment(_wkState));
         drawingArea->waitForDidUpdateGeometry(WTF::Seconds { });
     }
 }
@@ -813,18 +828,23 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 // area. The empty stub left WKView at full container height, and Safari then
 // positioned the banner ABOVE the unchanged WKView — outside the container's
 // clipping bounds, making the banner invisible.
-// The scroll offset is dropped: 537 stashed it in _resizeScrollOffset and passed it as the
-// scrollOffset argument of DrawingAreaProxy::setSize so the web process scroll-compensated a
-// bottom-anchored resize in the same geometry update, but the modern drawing area no longer
-// consumes it (DrawingAreaProxy::setSize accumulates m_scrollOffset and nothing reads it; the
-// TCA UpdateGeometry message carries no scroll delta). Recorded in the hack audit
-// ([[webkit-mavericks-hack-audit]]) as a known behavior gap: banner show/hide can jump the
-// scroll position by the banner height.
+// MAVERICKS_BACKPORT: the scroll delta rides the geometry update, exactly as WebViewImpl does it
+// (WebViewImpl::setFrameAndScrollBy at mac/WebViewImpl.mm:1811 stashes it in
+// m_scrollOffsetAdjustment; setDrawingAreaSize passes it as DrawingAreaProxy::setSize's second
+// argument and clears it). DrawingAreaProxy::setSize(size, scrollOffset) still takes that argument
+// (DrawingAreaProxy.h:102), so the web process scroll-compensates the resize itself.
+//
+// Shifting the hosted layer instead would move only the painted output: hit-testing, mouse
+// coordinates, the caret and scrollbar geometry all stay in unshifted view coordinates, and the next
+// -setFrameSize: or -enableFrameSizeUpdates resets the shift and snaps the content back.
 - (void)setFrame:(NSRect)r andScrollBy:(NSSize)o
 {
+    if (_wkState && !NSEqualSizes(o, NSZeroSize))
+        _wkState->scrollOffsetAdjustment = o;
+
     [super setFrame:r];
-    (void)o;
 }
+
 // MAVERICKS_BACKPORT: frame-size-updates gate, ported from the Safari-537-era WKView
 // (disableFrameSizeUpdates / enableFrameSizeUpdates / frameSizeUpdatesDisabled). Safari 7 nests
 // disable/enable around its resize animations so the web process sees one settled size instead
@@ -854,7 +874,7 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     // MAVERICKS_BACKPORT: on the last enable, push the settled frame size to the drawing area and clear the content-anchor shift.
     if (_wkState->page) {
         if (RefPtr drawingArea = _wkState->page->drawingArea())
-            drawingArea->setSize(WebCore::IntSize([self frame].size.width, [self frame].size.height));
+            drawingArea->setSize(WebCore::IntSize([self frame].size.width, [self frame].size.height), wkTakeScrollOffsetAdjustment(_wkState));
     }
     _wkState->frameOrigin = NSZeroPoint;
     if (CALayer *renderLayer = _wkState->pageClient ? _wkState->pageClient->acceleratedCompositingRootLayer() : nil) {

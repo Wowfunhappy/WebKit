@@ -33,7 +33,10 @@
 #include <WebCore/PlatformCALayer.h>
 #endif
 
-#if ENABLE(GPU_PROCESS)
+// MAVERICKS_BACKPORT: this class is plain WebCore buffer bookkeeping with no GPU-process
+// dependency; the in-process RemoteLayerBackingStore uses it on this port, so it builds
+// whether or not the GPU process does.
+#if ENABLE(GPU_PROCESS) || PLATFORM(COCOA)
 
 namespace WebKit {
 

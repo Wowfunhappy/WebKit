@@ -47,6 +47,29 @@ WK_POLYFILL_ABSENT("ApplicationServices", void, _AXSetClientIdentificationOverri
     (void)clientType;
 }
 
+// The secondary-accessibility-thread SPI (both 10.13+, both ABSENT from 10.9's HIServices, nm-verified,
+// and both DIRECT externs rather than soft-linked -- so an unmediated reference is a dyld halt or a
+// branch to address 0, not a graceful decline). 10.9 services every accessibility request on the main
+// thread and has no secondary AX thread to hand them to, so the answers below are what this OS is:
+// no request is serviced off-thread, and a request to start doing so cannot be honoured.
+//
+// These make ENABLE(ACCESSIBILITY_ISOLATED_TREE) safe to keep at upstream's value. The feature does not
+// then turn on: AXObjectCacheMac.mm's isolatedTreeEnabled() gates on
+// _AXSIsolatedTreeModeFunctionIsAvailable(), which is soft-linked through libAccessibility
+// (AccessibilitySupportSoftLink.h) and answers false here because 10.9 ships no such library entry --
+// so the isolated tree stays off because the PLATFORM says it is unavailable, which is the honest
+// mechanism, rather than because the feature is compiled out of the port.
+WK_POLYFILL_ABSENT("ApplicationServices", bool, _AXUIElementRequestServicedBySecondaryAXThread, (void))
+{
+    return false;
+}
+
+WK_POLYFILL_ABSENT("ApplicationServices", int, _AXUIElementUseSecondaryAXThread, (bool enabled))
+{
+    (void)enabled;
+    return -25200; /* kAXErrorFailure -- there is no secondary AX thread on this OS */
+}
+
 // _AXGetClientForCurrentRequestUntrusted reports which assistive client (VoiceOver, a test harness, ...) is
 // servicing the current accessibility request. Absent on 10.9 (postdates this OS) and referenced as a direct
 // extern (not soft-linked), so a call would dyld-halt WebContent on the text-input path
@@ -470,6 +493,24 @@ WK_POLYFILL_ABSENT("Security", void *, SecAccessControlCreateFromData, (CFAlloca
     return NULL;
 }
 
+// The constructor of the same family, and the one WebAuthn actually calls. NULL-plus-CFError is not a
+// placeholder here, it is the answer: 10.9 has no access-control object to build, and
+// LocalAuthenticator::continueMakeCredentialAfterReceivingLAContext already reads exactly this shape
+// -- it adopts the error, raises UnknownError("Couldn't create access control: ...") and returns, so
+// the platform authenticator declines instead of proceeding toward a Secure Enclave that is not there.
+//
+// Unlike its siblings above this one is REACHED. AuthenticatorManager::filterTransports() drops
+// AuthenticatorTransport::Internal when LocalService::isAvailable() is false, which on 10.9 it always
+// is -- but VirtualAuthenticatorManager overrides filterTransports to do nothing and hands the real
+// LocalAuthenticator a VirtualLocalConnection, so a WebDriver addVirtualAuthenticator command runs
+// this line, and without this entry the call would branch to address 0.
+WK_POLYFILL_ABSENT("Security", SecAccessControlRef, SecAccessControlCreateWithFlags, (CFAllocatorRef allocator, CFTypeRef protection, SecAccessControlCreateFlags flags, CFErrorRef *error))
+{
+    (void)allocator; (void)protection; (void)flags;
+    mav_reportUnimplemented(error);
+    return NULL;
+}
+
 // Certificate signature hash algorithm. CertificateInfo::containsNonRootSHA1SignedCertificate()
 // (WebCore/platform/network/cf/CertificateInfoCFNet.cpp) compares it against
 // kSecSignatureHashAlgorithmSHA1 to flag a chain as weakly signed, so a hardcoded "unknown" is not a
@@ -603,6 +644,63 @@ WK_POLYFILL_ABSENT("Security", int, SecCertificateGetSignatureHashAlgorithm, (Se
     return algorithm;
 }
 
+// Certificate validity window (macOS 15 spelling of data every X.509 certificate has carried since
+// 1988). 10.9 does not export these two accessors, but it does export the generic property reader they
+// are a convenience over, and WebTransport calls them DIRECTLY -- no soft-link, no canLoad_ probe -- so
+// an absent symbol is a `callq 0x0`, not a feature that declines.
+//
+// SecCertificateCopyValues reports each requested OID as a property dictionary whose kSecPropertyKeyValue
+// is a CFNumber carrying a CFAbsoluteTime. Verified on this host against a system root: NotBefore
+// 455108678.0 -> 2015-06-04 11:04:38 +0000, NotAfter 1086260678.0 -> 2035-06-04 11:04:38 +0000, i.e. the
+// 20-year window that certificate really has. So the modern accessors' contract -- "the absolute time at
+// which the certificate becomes valid / expires, CFRelease'd by the caller, NULL if unobtainable" -- is
+// reproduced exactly, for any caller, not just WebKit's.
+//
+// Everything is reached by name because Security is not linked into every image that force-loads this
+// archive: the OID and key constants through mav_securityConstant, the reader through WK_SYSTEM.
+static CFDateRef mav_copyCertificateValidityDate(SecCertificateRef certificate, const char *oidName, void **oidCache)
+{
+    static void *valueKeyCache;
+    CFStringRef oid = mav_securityConstant(oidName, oidCache);
+    CFStringRef valueKey = mav_securityConstant("kSecPropertyKeyValue", &valueKeyCache);
+    if (!certificate || !oid || !valueKey || !WK_SYSTEM(SecCertificateCopyValues))
+        return NULL;
+
+    CFStringRef keys[] = { oid };
+    CFArrayRef requested = CFArrayCreate(kCFAllocatorDefault, (const void **)keys, 1, &kCFTypeArrayCallBacks);
+    if (!requested)
+        return NULL;
+    CFDictionaryRef values = WK_SYSTEM(SecCertificateCopyValues)(certificate, requested, NULL);
+    CFRelease(requested);
+    if (!values)
+        return NULL;
+
+    CFDateRef date = NULL;
+    CFTypeRef property = CFDictionaryGetValue(values, oid);
+    if (property && CFGetTypeID(property) == CFDictionaryGetTypeID()) {
+        CFTypeRef value = CFDictionaryGetValue((CFDictionaryRef)property, valueKey);
+        if (value && CFGetTypeID(value) == CFNumberGetTypeID()) {
+            double when = 0;
+            if (CFNumberGetValue((CFNumberRef)value, kCFNumberDoubleType, &when))
+                date = CFDateCreate(kCFAllocatorDefault, (CFAbsoluteTime)when);
+        }
+    }
+    CFRelease(values);
+    return date;   // +1, as the modern accessors return
+}
+
+WK_POLYFILL_ABSENT("Security", CFDateRef, SecCertificateCopyNotValidBeforeDate, (SecCertificateRef certificate))
+{
+    static void *oidCache;
+    return mav_copyCertificateValidityDate(certificate, "kSecOIDX509V1ValidityNotBefore", &oidCache);
+}
+
+WK_POLYFILL_ABSENT("Security", CFDateRef, SecCertificateCopyNotValidAfterDate, (SecCertificateRef certificate))
+{
+    static void *oidCache;
+    return mav_copyCertificateValidityDate(certificate, "kSecOIDX509V1ValidityNotAfter", &oidCache);
+}
+
 // Process signing identifier. Absent on 10.9; callers use it for telemetry/diagnostics and accept null.
 WK_POLYFILL_ABSENT("Security", CFStringRef, SecTaskCopySigningIdentifier, (SecTaskRef task, CFErrorRef *error))
 {
@@ -688,11 +786,18 @@ WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef seri
     return trust;
 }
 
-// Attribution of a cross-process trust evaluation to the client. Single-system on 10.9: accept it.
+// Attribution of a cross-process trust evaluation to the client. 10.9's Security has no
+// client-attribution facility for a trust evaluation at all (it exports SecTaskCreateWithAuditToken
+// and AuthorizationCreateWithAuditToken, and nothing that attaches an audit token to a SecTrust), so
+// the postcondition -- this evaluation is attributed to that client -- is never established, and the
+// status says so. Claiming errSecSuccess would report work the system never did, on the strength of
+// what callers happen to tolerate rather than what the platform can do. Telling the truth costs
+// nothing: both callers discard the status (ResourceResponseCocoa.mm:99, NetworkSessionCocoa.mm:526),
+// and a third caller that checks it gets a correct answer.
 WK_POLYFILL_ABSENT("Security", int, SecTrustSetClientAuditToken, (SecTrustRef trust, CFDataRef auditToken))
 {
     (void)trust; (void)auditToken;
-    return 0; // errSecSuccess
+    return errSecUnimplemented;
 }
 
 // SecTrustCopyCertificateChain (Security, 12.0+): rebuild the evaluated chain via the per-index
@@ -1053,21 +1158,66 @@ WK_POLYFILL_ABSENT("Security", bool, SecTrustEvaluateWithError, (SecTrustRef tru
     return false;
 }
 
+// The async form (10.14+). 10.9 has neither it nor a trust-evaluation queue of its own, but the whole
+// of its contract is "run the synchronous evaluation somewhere else and hand the caller the verdict",
+// and the synchronous evaluation is right above -- so this is implementable rather than stubbable, and
+// the result is correct for any caller.
+//
+// It matters that it is implemented. WebTransport calls it DIRECTLY at
+// NetworkTransportSessionCocoa.mm:147 -- no soft-link and no canLoad_ probe -- from inside the
+// sec_protocol verify block, so an absent symbol is a branch to address 0 in the NetworkProcess on the
+// first server-trust challenge, with nothing at the fault site naming it.
+//
+// Ownership follows the async contract: the trust object and the callback must outlive this call, so
+// the trust is retained across the hop and the block is copied by dispatch_async (which transitively
+// copies the callback it captures). The CFError produced by the evaluation is +1 and is released after
+// the callback has read it, matching what the real API hands a callback that does not retain it.
+WK_POLYFILL_ABSENT("Security", OSStatus, SecTrustEvaluateAsyncWithError,
+    (SecTrustRef trust, dispatch_queue_t queue, SecTrustWithErrorCallback result))
+{
+    if (!trust || !queue || !result)
+        return errSecParam;
+
+    CFRetain(trust);
+    dispatch_async(queue, ^{
+        CFErrorRef error = NULL;
+        bool trusted = SecTrustEvaluateWithError(trust, &error);
+        result(trust, trusted, error);
+        if (error)
+            CFRelease(error);
+        CFRelease(trust);
+    });
+    return errSecSuccess;
+}
+
 // ---------------------------------------------------------------------------------------------------
 // Security — SecKey (10.12+)
 //
-// The whole modern SecKey API postdates 10.9, and there is no 10.9-era equivalent to build it out of:
-// 10.9's key API is CSSM-based and cannot produce or consume a SecKeyRef with these semantics. Every
-// entry point therefore reports "no key / no result" and leaves *error unset, which is the outcome
-// callers already handle for an unsupported algorithm. WebCrypto's key operations run on libgcrypt
-// in this port, so nothing on the live paths depends on these.
+// The modern SecKey OPERATIONS postdate 10.9 and have no 10.9-era equivalent to build them out of:
+// 10.9's key API is CSSM-based and cannot produce or consume a SecKeyRef with these semantics. Those
+// entry points report "no key / no result" and leave *error unset, which is the outcome callers
+// already handle for an unsupported algorithm. WebCrypto's key operations run on libgcrypt in this
+// port, so nothing on the live paths depends on them. The claim is about the operations, not about
+// every name in this section: SecCertificateCopyKey below is renamed rather than new, and 10.9 does
+// export what it needs.
 // ---------------------------------------------------------------------------------------------------
 
-// SecCertificateCopyKey (10.14+): extracting a SecKeyRef public key from a certificate.
+// SecCertificateCopyKey (10.14+) is the renamed SecCertificateCopyPublicKey: same job -- hand back the
+// certificate's public key as a +1 SecKeyRef -- with the status folded into the return value. 10.9
+// exports the older spelling (nm-verified), so this is implementable rather than a stub, and it is
+// implemented even though nothing in this tree calls it: a polyfill has to be right for any caller,
+// and returning NULL for a key 10.9 can produce would be a fake answer the moment a rebase adds one.
+// Reached by name because Security is not linked into every image that force-loads this archive.
+WK_SYSTEM_FN("Security", OSStatus, SecCertificateCopyPublicKey, (SecCertificateRef, SecKeyRef *));
+
 WK_POLYFILL_ABSENT("Security", SecKeyRef, SecCertificateCopyKey, (SecCertificateRef certificate))
 {
-    (void)certificate;
-    return NULL;
+    if (!certificate || !WK_SYSTEM(SecCertificateCopyPublicKey))
+        return NULL;
+    SecKeyRef key = NULL;
+    if (WK_SYSTEM(SecCertificateCopyPublicKey)(certificate, &key) != errSecSuccess)
+        return NULL;
+    return key;   // +1, as the modern accessor returns
 }
 
 
@@ -1250,6 +1400,25 @@ WK_POLYFILL_ABSENT(NULL, kern_return_t, mach_voucher_deallocate, (mach_port_name
     return mach_port_deallocate(mach_task_self(), voucher);
 }
 
+// IOSurfaceSetOwnershipIdentity (macOS 14.4) attributes an IOSurface's pages to another task's
+// phys_footprint ledger. 10.9's IOSurface has no ledger-ownership call and no ledger to move pages
+// into, so KERN_NOT_SUPPORTED is the honest answer -- the same one task_create_identity_token below
+// and mach_memory_entry_ownership in runtime.m give, for the same absent-kernel-facility reason.
+//
+// IOSurface::setOwnershipIdentity (WebCore IOSurface.mm:791) reads the result and only
+// RELEASE_LOG_ERRORs, and today it returns at :789 because a ProcessIdentity can never be non-empty
+// on 10.9 (its constructor's task_create_identity_token fails). That value guard is why the call is
+// unreachable now -- but it is a guard on a VALUE several frames from here, not a soft-link probe, so
+// nothing about it is visible to the linker and nothing preserves it across a rebase. IOSurface.framework
+// itself IS present on 10.9, but WebKit does not soft-link this symbol (no __TEXT,__cstring literal for
+// it in WebCore), so there is no canLoad_ probe a gap-fill could flip.
+WK_POLYFILL_ABSENT("IOSurface", kern_return_t, IOSurfaceSetOwnershipIdentity,
+    (IOSurfaceRef buffer, task_id_token_t task_id_token, int newLedgerTag, uint32_t newLedgerOptions))
+{
+    (void)buffer; (void)task_id_token; (void)newLedgerTag; (void)newLedgerOptions;
+    return KERN_NOT_SUPPORTED;
+}
+
 // task_create_identity_token (12+) mints the token that lets a process attribute memory (IOSurfaces,
 // CG backing stores) to another process's ledger. 10.9's kernel has no identity-token subsystem and
 // no per-process memory ledger to attribute to, so there is no token to hand back and the honest
@@ -1427,3 +1596,95 @@ WK_POLYFILL_ABSENT(NULL, void, dispatch_activate, (dispatch_object_t object))
     if (object)
         dispatch_resume(object);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Network.framework (10.14+) and Metal (10.11+) — frameworks 10.9 does not have AT ALL.
+//
+// WebKit2 weak-links both, so every reference below binds to address 0 and a call branches there.
+// The call sites do guard today: WebTransport's are behind canLoad_Network_* probes
+// (NetworkTransportSessionCocoa.mm:258-262 returns nullptr before reaching any nw_* call), and
+// ScopedRenderingResourcesRequestCocoa.mm's MTLCopyAllDevices sits under ENABLE(GPU_PROCESS), which is
+// off. These entries are not written because those guards are believed broken; they are written
+// because "the call site guards it" is a property of TODAY's call sites, invisible to the linker, and
+// re-verified only by someone remembering to. A defined failure is the difference between a future
+// unguarded call returning nil and jumping to 0.
+//
+// Gap-filling these is regression-free precisely BECAUSE the framework is absent, and that is what
+// makes the set decidable rather than a judgement call. A gap-fill can only flip a soft-link probe
+// when the provider is loadable: handleCanSeeProvider() in wk_polyfill_runtime.c requires
+// `provider != NULL && handle == provider`, and a framework that cannot be dlopened yields a NULL
+// provider, so no canLoad_Network_*/canLoad_Metal_* probe can ever match one of these. Those probes
+// keep answering false and the call sites keep taking their own absent-API paths. (Contrast the
+// SecCertificateCopyNotValidAfterDate family: absent on 10.9, but Security.framework IS present, so a
+// gap-fill there COULD flip a probe and make a caller believe a feature exists. Those stay inventory,
+// and check-absent-references.sh splits the two cases on exactly this rule.)
+//
+// The signatures use opaque pointers rather than nw_*/MTL types: those headers describe frameworks
+// that are not here, and this file deliberately does not include them. Every parameter is
+// pointer-sized or an integer, so the ABI matches whatever a caller was compiled against; only the
+// answers matter, and the answer everywhere is "nothing was created, nothing was sent".
+
+WK_POLYFILL_ABSENT("Network", void *, nw_endpoint_create_url, (const char *url))
+{ (void)url; return NULL; }
+WK_POLYFILL_ABSENT("Network", void *, nw_group_descriptor_create_multiplex, (void *endpoint))
+{ (void)endpoint; return NULL; }
+WK_POLYFILL_ABSENT("Network", void *, nw_connection_group_create, (void *descriptor, void *parameters))
+{ (void)descriptor; (void)parameters; return NULL; }
+WK_POLYFILL_ABSENT("Network", void, nw_connection_group_set_queue, (void *group, void *queue))
+{ (void)group; (void)queue; }
+WK_POLYFILL_ABSENT("Network", void, nw_connection_group_set_state_changed_handler, (void *group, void *handler))
+{ (void)group; (void)handler; }
+WK_POLYFILL_ABSENT("Network", void, nw_connection_group_set_new_connection_handler, (void *group, void *handler))
+{ (void)group; (void)handler; }
+WK_POLYFILL_ABSENT("Network", void, nw_connection_group_start, (void *group))
+{ (void)group; }
+WK_POLYFILL_ABSENT("Network", void, nw_connection_group_cancel, (void *group))
+{ (void)group; }
+WK_POLYFILL_ABSENT("Network", void *, nw_connection_group_extract_connection, (void *group, void *endpoint, void *protocol))
+{ (void)group; (void)endpoint; (void)protocol; return NULL; }
+WK_POLYFILL_ABSENT("Network", void *, nw_connection_group_copy_protocol_metadata, (void *group, void *definition))
+{ (void)group; (void)definition; return NULL; }
+WK_POLYFILL_ABSENT("Network", void, nw_connection_start, (void *connection))
+{ (void)connection; }
+WK_POLYFILL_ABSENT("Network", void, nw_connection_cancel, (void *connection))
+{ (void)connection; }
+WK_POLYFILL_ABSENT("Network", void, nw_connection_set_queue, (void *connection, void *queue))
+{ (void)connection; (void)queue; }
+WK_POLYFILL_ABSENT("Network", void, nw_connection_set_state_changed_handler, (void *connection, void *handler))
+{ (void)connection; (void)handler; }
+WK_POLYFILL_ABSENT("Network", void, nw_connection_send, (void *connection, void *content, void *context, bool is_complete, void *completion))
+{ (void)connection; (void)content; (void)context; (void)is_complete; (void)completion; }
+WK_POLYFILL_ABSENT("Network", void, nw_connection_receive, (void *connection, uint32_t minimum, uint32_t maximum, void *completion))
+{ (void)connection; (void)minimum; (void)maximum; (void)completion; }
+WK_POLYFILL_ABSENT("Network", void *, nw_connection_copy_protocol_metadata, (void *connection, void *definition))
+{ (void)connection; (void)definition; return NULL; }
+// nw_error_domain_t's "no error" member is 0, which is also the honest answer for an error object that
+// could never have been produced here.
+WK_POLYFILL_ABSENT("Network", int, nw_error_get_error_domain, (void *error))
+{ (void)error; return 0; }
+WK_POLYFILL_ABSENT("Network", int, nw_error_get_error_code, (void *error))
+{ (void)error; return 0; }
+WK_POLYFILL_ABSENT("Network", void, nw_quic_set_max_datagram_frame_size, (void *options, uint16_t size))
+{ (void)options; (void)size; }
+WK_POLYFILL_ABSENT("Network", void *, nw_tls_copy_sec_protocol_options, (void *options))
+{ (void)options; return NULL; }
+// The three sec_* entries are DECLARED by Security.framework's headers (SecProtocolTypes.h,
+// SecProtocolOptions.h) even though Network.framework is what implements them, so unlike the nw_*
+// entries above these must use the real SDK types -- this file includes <Security/Security.h>.
+WK_POLYFILL_ABSENT("Network", void, sec_protocol_options_set_peer_authentication_required, (sec_protocol_options_t options, bool peer_authentication_required))
+{ (void)options; (void)peer_authentication_required; }
+WK_POLYFILL_ABSENT("Network", void, sec_protocol_options_set_verify_block, (sec_protocol_options_t options, sec_protocol_verify_t verify_block, dispatch_queue_t verify_block_queue))
+{ (void)options; (void)verify_block; (void)verify_block_queue; }
+WK_POLYFILL_ABSENT("Network", SecTrustRef, sec_trust_copy_ref, (sec_trust_t trust))
+{ (void)trust; return NULL; }
+
+// Metal. "No devices" is what a machine without Metal has, but the two entry points spell that
+// differently and the difference matters to a CF-side caller: MTLCreateSystemDefaultDevice() returns
+// an id, whose documented "no Metal device" answer is nil, while MTLCopyAllDevices() returns
+// NSArray<id<MTLDevice>> * NS_RETURNS_RETAINED, whose answer is an EMPTY array. Handing back NULL
+// there would fault any caller that goes straight to CFArrayGetCount/CFArrayGetValueAtIndex instead
+// of sending an ObjC message.
+WK_POLYFILL_ABSENT("Metal", void *, MTLCreateSystemDefaultDevice, (void))
+{ return NULL; }
+WK_POLYFILL_ABSENT("Metal", CFArrayRef, MTLCopyAllDevices, (void))
+{ return CFArrayCreate(kCFAllocatorDefault, NULL, 0, &kCFTypeArrayCallBacks); }

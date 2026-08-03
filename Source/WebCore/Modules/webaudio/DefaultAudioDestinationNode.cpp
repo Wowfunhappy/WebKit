@@ -98,10 +98,7 @@ void DefaultAudioDestinationNode::uninitialize()
         return;
 
     ALWAYS_LOG(LOGIDENTIFIER);
-    // MAVERICKS_BACKPORT: keystone #54 — null-guard m_destination (createDestination
-    // can leave m_destination null on this port; see createDestination below).
-    if (m_destination)
-        clearDestination();
+    clearDestination();
     m_numberOfInputChannels = 0;
 
     AudioNode::uninitialize();
@@ -109,10 +106,7 @@ void DefaultAudioDestinationNode::uninitialize()
 
 void DefaultAudioDestinationNode::clearDestination()
 {
-    // MAVERICKS_BACKPORT: keystone #54 — upstream ASSERT(m_destination); null-guard instead (createDestination
-    // can leave m_destination null on this port; see createDestination below).
-    if (!m_destination)
-        return;
+    ASSERT(m_destination);
     if (m_wasDestinationStarted) {
         m_destination->stop();
         m_wasDestinationStarted = false;
@@ -137,8 +131,7 @@ void DefaultAudioDestinationNode::recreateDestination()
     bool wasDestinationStarted = m_wasDestinationStarted;
     clearDestination();
     createDestination();
-    // MAVERICKS_BACKPORT: keystone #54 — m_destination null guard (createDestination may leave it null).
-    if (wasDestinationStarted && m_destination) {
+    if (wasDestinationStarted) {
         m_wasDestinationStarted = true;
         m_destination->start(dispatchToRenderThreadFunction());
     }
@@ -181,9 +174,6 @@ void DefaultAudioDestinationNode::startRendering(CompletionHandler<void(std::opt
     };
 
     m_wasDestinationStarted = true;
-    // MAVERICKS_BACKPORT: keystone #54 — null-guard m_destination (createDestination may leave it null).
-    if (!m_destination)
-        return innerCompletionHandler(false);
     m_destination->start(dispatchToRenderThreadFunction(), WTF::move(innerCompletionHandler));
 }
 
@@ -197,11 +187,6 @@ void DefaultAudioDestinationNode::resume(CompletionHandler<void(std::optional<Ex
         return;
     }
     m_wasDestinationStarted = true;
-    // MAVERICKS_BACKPORT: keystone #54 — null-guard m_destination (createDestination may leave it null).
-    if (!m_destination) {
-        completionHandler(Exception { ExceptionCode::InvalidStateError, "AudioDestination unavailable"_s });
-        return;
-    }
     m_destination->start(dispatchToRenderThreadFunction(), [completionHandler = WTF::move(completionHandler)](bool success) mutable {
         completionHandler(success ? std::nullopt : std::make_optional(Exception { ExceptionCode::InvalidStateError, "Failed to start the audio device"_s }));
     });
@@ -218,11 +203,6 @@ void DefaultAudioDestinationNode::suspend(CompletionHandler<void(std::optional<E
     }
 
     m_wasDestinationStarted = false;
-    // MAVERICKS_BACKPORT: keystone #54 — null-guard m_destination (createDestination may leave it null).
-    if (!m_destination) {
-        completionHandler(std::nullopt);
-        return;
-    }
     m_destination->stop([completionHandler = WTF::move(completionHandler)](bool success) mutable {
         completionHandler(success ? std::nullopt : std::make_optional(Exception { ExceptionCode::InvalidStateError, "Failed to stop the audio device"_s }));
     });
@@ -233,9 +213,6 @@ void DefaultAudioDestinationNode::restartRendering()
     if (!m_wasDestinationStarted)
         return;
 
-    // MAVERICKS_BACKPORT: keystone #54 — null-guard m_destination (createDestination may leave it null).
-    if (!m_destination)
-        return;
     m_destination->stop();
     m_destination->start(dispatchToRenderThreadFunction());
 }

@@ -10,6 +10,10 @@
 #include <ImageIO/ImageIO.h>
 #include <CoreMedia/CoreMedia.h>
 #include <IOKit/IOKitLib.h>
+#include <errno.h>
+#include <objc/message.h>
+#include <pthread.h>
+#include <objc/runtime.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -257,6 +261,10 @@ WK_POLYFILL_ABSENT("CoreGraphics", CGGradientRef, CGGradientCreateWithColorCompo
 // CTFontCreateForCharactersWithLanguageAndOption (10.13+): the option only restricts fallback to
 // system (non-user-installed) fonts. The classic CTFontCreateForCharactersWithLanguage returns the
 // same fallback font on 10.9 and is present there.
+WK_SYSTEM_FN("CoreText", bool, CTFontManagerRegisterFontsForURLs, (CFArrayRef, CTFontManagerScope, CFArrayRef *));
+WK_SYSTEM_FN("CoreText", CFArrayRef, CTFontManagerCreateFontDescriptorsFromURL, (CFURLRef));
+WK_SYSTEM_FN("CoreText", void, CTFontManagerEnableFontDescriptors, (CFArrayRef, bool));
+
 WK_POLYFILL_ABSENT("CoreText", CTFontRef, CTFontCreateForCharactersWithLanguageAndOption,
     (CTFontRef currentFont, const UTF16Char *characters, CFIndex length, CFStringRef language, unsigned long option, CFIndex *coveredLength))
 {
@@ -566,6 +574,79 @@ WK_POLYFILL_ABSENT("CoreGraphics", CGColorRef, CGColorCreateSRGB, (CGFloat r, CG
 
 // Color-glyph coverage bit vectors (color emoji / feature coverage). 10.9 lacks both; callers guard
 // the null return (FontCoreText only proceeds "if (bitVector)").
+// CTFontManagerRegisterFontURLs (10.15) is the block-callback replacement for
+// CTFontManagerRegisterFontsForURLs, which 10.9 HAS (nm-verified, alongside the singular
+// _CTFontManagerRegisterFontsForURL). The modern spelling is a strict superset: same URLs, same
+// scope, plus an `enabled` flag and a handler that may be called several times with `done` marking
+// the last. The old call is synchronous and reports every failure in one out-parameter array, so a
+// faithful emulation registers, then invokes the handler EXACTLY once with those errors and
+// done=true. The handler's bool result asks whether to continue; nothing remains to continue after a
+// synchronous call, so it is read and discarded.
+//
+// `enabled` is NOT dropped. It means "should the font participate in descriptor matching", and 10.9
+// spells that with CTFontManagerEnableFontDescriptors (10.6+, nm-verified), fed by
+// CTFontManagerCreateFontDescriptorsFromURL (10.6+, nm-verified) per URL. So enabled=false is
+// registered and then disabled, which is the modern behaviour rather than an approximation of it.
+// Verified on this host with a font the process does not otherwise have (LayoutTests Ahem.ttf):
+// process-scope registration makes the family visible, CTFontManagerEnableFontDescriptors(descs,
+// false) makes it invisible again, and Enable(true) restores it -- so it genuinely suppresses the
+// PROCESS-scope registration. Measured again with a system-installed family (Al Bayan): the same
+// sequence leaves it visible throughout, and a FRESH process still sees it, so it writes no
+// persistent user-visible font-activation state. Refusing enabled=false with a synthesized CFError
+// would invent a failure for something the OS can do.
+WK_POLYFILL_ABSENT("CoreText", void, CTFontManagerRegisterFontURLs,
+    (CFArrayRef fontURLs, CTFontManagerScope scope, bool enabled,
+     bool (^registrationHandler)(CFArrayRef errors, bool done)))
+{
+    CFArrayRef errors = NULL;
+
+    // WK_SYSTEM() is NULL when the provider cannot be dlopened or the symbol is missing; calling
+    // through it unchecked would be a branch to address 0, the very fault this layer exists to stop.
+    if (!WK_SYSTEM(CTFontManagerRegisterFontsForURLs)) {
+        CFStringRef descKeys[] = { kCFErrorLocalizedDescriptionKey, kCTFontManagerErrorFontURLsKey };
+        const void *descValues[] = { CFSTR("CoreText's font registration entry point is unavailable"), fontURLs };
+        CFDictionaryRef userInfo = CFDictionaryCreate(kCFAllocatorDefault, (const void **)descKeys,
+            descValues, fontURLs ? 2 : 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CFErrorRef error = CFErrorCreate(kCFAllocatorDefault, kCFErrorDomainPOSIX, ENOTSUP, userInfo);
+        if (userInfo)
+            CFRelease(userInfo);
+        if (error) {
+            const void *one[] = { error };
+            errors = CFArrayCreate(kCFAllocatorDefault, one, 1, &kCFTypeArrayCallBacks);
+            CFRelease(error);
+        }
+    } else {
+        WK_SYSTEM(CTFontManagerRegisterFontsForURLs)(fontURLs, scope, &errors);
+
+        // Registration on 10.9 always enables; take the fonts back out of descriptor matching when
+        // the caller asked for enabled=false, which is what the modern flag means.
+        if (!enabled && fontURLs && WK_SYSTEM(CTFontManagerCreateFontDescriptorsFromURL) && WK_SYSTEM(CTFontManagerEnableFontDescriptors)) {
+            CFIndex count = CFArrayGetCount(fontURLs);
+            for (CFIndex i = 0; i < count; i++) {
+                CFArrayRef descriptors = WK_SYSTEM(CTFontManagerCreateFontDescriptorsFromURL)((CFURLRef)CFArrayGetValueAtIndex(fontURLs, i));
+                if (!descriptors)
+                    continue;
+                WK_SYSTEM(CTFontManagerEnableFontDescriptors)(descriptors, false);
+                CFRelease(descriptors);
+            }
+        }
+    }
+
+    if (registrationHandler) {
+        CFArrayRef reported = errors;
+        CFArrayRef empty = NULL;
+        if (!reported) {
+            empty = CFArrayCreate(kCFAllocatorDefault, NULL, 0, &kCFTypeArrayCallBacks);
+            reported = empty;   // the modern handler documents an EMPTY array as "no errors", never NULL
+        }
+        (void)registrationHandler(reported, true);
+        if (empty)
+            CFRelease(empty);
+    }
+    if (errors)
+        CFRelease(errors);
+}
+
 WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyColorGlyphCoverage, (CTFontRef font))
 {
     (void)font;
@@ -823,24 +904,132 @@ WK_POLYFILL_ABSENT("QuartzCore", PolyCAFrameRateRange, CAFrameRateRangeMake,
 }
 
 // ---------------------------------------------------------------------------------------------------
-// ImageIO decode-policy controls (newer, security hardening). No-op on 10.9: images decode normally.
+// ImageIO decode-policy controls (newer, security hardening).
+//
+// These three are NOT interchangeable, and the difference is whether 10.9 already satisfies the
+// postcondition the caller is asking for. Reporting success for a restriction the system never
+// applied is a fake value -- the caller then believes a security boundary is in place that is not --
+// which is the same defect class as an invented KERN_SUCCESS from a kernel call the OS does not have.
 // ---------------------------------------------------------------------------------------------------
 
+// "Do not use hardware decode." 10.9's ImageIO has no hardware decode path, so the postcondition is
+// already true and noErr is honest: nothing was asked for that is not the case.
 WK_POLYFILL_ABSENT("ImageIO", int, CGImageSourceDisableHardwareDecoding, (void))
 {
     return 0; /* noErr */
 }
 
+// "Enter restricted decoding mode." 10.9's ImageIO has no restricted mode to enter, so nothing is
+// restricted and unimpErr is the truth. Reporting noErr would tell WebProcessCocoa.mm:473 that the
+// WebContent decode path is hardened before it enables HEIC/AVIF, which it is not. The call site
+// checks the status with ASSERT_UNUSED, compiled out of the Release build this port ships, so the
+// honest status costs no shipping behaviour.
 WK_POLYFILL_ABSENT("ImageIO", int, CGImageSourceEnableRestrictedDecoding, (void))
 {
-    return 0; /* noErr */
+    return -4; /* unimpErr */
 }
 
-// Restricts which image UTIs may be decoded (newer hardening). No-op on 10.9: all types decode.
+// "Restrict ImageIO to this UTI set." 10.9's ImageIO has no such mode, so the restriction is
+// implemented here, at the same seam ImageIO enforces it: a source whose container type is outside
+// the set never produces pixels. WebKit sets the list once per process
+// (UTIUtilities.mm setImageSourceAllowableTypes, from WebPageCocoa.mm), and it is a real security
+// boundary -- it is what keeps a hostile `image/*` response away from ImageIO's other codecs inside
+// WebContent. Reporting success without applying it would tell WebKit a boundary exists that does not.
+//
+// Enforcement sits on the two image-PRODUCING entry points, and only those. That is where the real
+// API enforces, and it is the only point an INCREMENTAL source (the one ImageDecoderCG.cpp:306 uses)
+// can be judged at all -- at construction it has no bytes and no type. Refusing to CREATE a source
+// for a disallowed container would be a contract the real API does not have: a caller that opens a
+// source purely to read CGImageSourceGetType, the frame count or the properties of a container
+// outside the set still gets its source from real ImageIO, and still does from this one.
+// A NULL/unknown type is never rejected: "not yet determined" is not "not allowed".
+//
+// The restriction is inert until WebKit installs a non-empty list, so every other process, and
+// WebKit itself before that call, behaves exactly as stock 10.9.
+// The list lives in PROCESS-global storage, not a plain C static. libpolyfill.a is force-loaded into
+// every framework, so a file-scope static is duplicated per image: WebCore's copy would be the only
+// one the setter ever reaches, while the enforcement hooks linked into WebKit2 (WebModelPlayer.mm,
+// ImageAnalysisUtilities.mm, WebIconUtilities.mm all create image sources there) would read a copy
+// that is forever empty -- and CGImageSourceSetAllowableTypes would still report noErr, claiming a
+// process-wide restriction that covers one framework. The ObjC runtime's associated-object table is
+// process-global, and a SEL makes a process-global key because the runtime uniques selector names.
+//
+// Published once and never freed: readers on the image-decoding thread hold the array while the main
+// thread could publish again, so the array is made immortal (an extra CFRetain, no release path)
+// rather than protected by a lock. That costs one small array per call to a function callers make
+// once, and it removes the use-after-free instead of relying on the caller's std::call_once.
+static const void *wk_allowableImageTypesKey(void)
+{
+    return (const void *)sel_registerName("wk_allowableImageTypes");
+}
+
+static id wk_allowableImageTypesAnchor(void)
+{
+    return (id)objc_getClass("NSObject");   // any process-global object; the runtime owns it
+}
+
+static CFArrayRef wk_allowableImageTypes(void)
+{
+    // Read on every query, never cached per image. A cache would latch the first list installed and
+    // keep enforcing it after a caller republishes a different one or retracts the restriction with
+    // an empty list (GPUProcess.cpp:264 passes {}), while CGImageSourceSetAllowableTypes had already
+    // reported the change applied -- success for a postcondition this code did not establish.
+    // The published array is immortal, so the pointer this returns can never dangle.
+    id anchor = wk_allowableImageTypesAnchor();
+    return anchor ? (CFArrayRef)objc_getAssociatedObject(anchor, wk_allowableImageTypesKey()) : NULL;
+}
+
+static bool wk_imageTypeIsAllowed(CFStringRef type)
+{
+    CFArrayRef allowable = wk_allowableImageTypes();
+    if (!allowable || !type)
+        return true;   // no restriction installed, or the type is not yet known
+    CFIndex count = CFArrayGetCount(allowable);
+    for (CFIndex i = 0; i < count; i++) {
+        CFStringRef candidate = (CFStringRef)CFArrayGetValueAtIndex(allowable, i);
+        if (candidate && CFGetTypeID(candidate) == CFStringGetTypeID()
+            && CFStringCompare(candidate, type, kCFCompareCaseInsensitive) == kCFCompareEqualTo)
+            return true;
+    }
+    return false;
+}
+
+static bool wk_imageSourceIsAllowed(CGImageSourceRef source)
+{
+    return !source || wk_imageTypeIsAllowed(CGImageSourceGetType(source));
+}
+
 WK_POLYFILL_ABSENT("ImageIO", OSStatus, CGImageSourceSetAllowableTypes, (CFArrayRef allowableTypes))
 {
-    (void)allowableTypes;
-    return 0;
+    // Matches the modern contract: an empty/absent list means "no restriction".
+    id anchor = wk_allowableImageTypesAnchor();
+    if (!anchor)
+        return -4; /* unimpErr -- without process-global storage the restriction cannot be enforced */
+    CFArrayRef installed = NULL;
+    if (allowableTypes && CFArrayGetCount(allowableTypes)) {
+        installed = CFArrayCreateCopy(kCFAllocatorDefault, allowableTypes);
+        if (!installed)
+            return -108; /* memFullErr */
+        CFRetain(installed);   // immortal: a decode thread may hold it across a later publish
+    }
+    // ASSIGN, not RETAIN: the array is already immortal, so a retain policy only adds a
+    // retain/autorelease to every read on the image-decoding thread, which has no pool of its own.
+    objc_setAssociatedObject(anchor, wk_allowableImageTypesKey(), (id)installed, OBJC_ASSOCIATION_ASSIGN);
+    return 0; /* noErr -- the restriction is in force for the process */
+}
+
+WK_POLYFILL_REPLACES("ImageIO", CGImageRef, CGImageSourceCreateImageAtIndex, (CGImageSourceRef source, size_t index, CFDictionaryRef options))
+{
+    if (!WK_ORIGINAL(CGImageSourceCreateImageAtIndex) || !wk_imageSourceIsAllowed(source))
+        return NULL;
+    return WK_ORIGINAL(CGImageSourceCreateImageAtIndex)(source, index, options);
+}
+
+WK_POLYFILL_REPLACES("ImageIO", CGImageRef, CGImageSourceCreateThumbnailAtIndex, (CGImageSourceRef source, size_t index, CFDictionaryRef options))
+{
+    if (!WK_ORIGINAL(CGImageSourceCreateThumbnailAtIndex) || !wk_imageSourceIsAllowed(source))
+        return NULL;
+    return WK_ORIGINAL(CGImageSourceCreateThumbnailAtIndex)(source, index, options);
 }
 
 // CGImageSourceGetPrimaryImageIndex (10.14+): the primary-image concept (a HEIF/HEIC container's
@@ -1013,4 +1202,243 @@ WK_POLYFILL_REPLACES("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName
             return WK_SYSTEM(CGColorSpaceCreateWithName)(kCGColorSpaceSRGB);
     }
     return NULL;   // some other unknown name: 10.9's own answer, unchanged
+}
+
+
+// ============================================================================
+// Text drawn into a CGPDFContext while a transparency layer is open
+// ============================================================================
+// 10.9's CGPDFContext records nothing for a glyph run PAINTED while a transparency
+// layer is open: the emitted page carries no text-showing operators and the font is
+// never embedded. The characters are absent from the document itself rather than only
+// from its rasterization, so a printed or saved PDF loses every painted glyph that
+// falls under an opacity, mask, blend or clip layer.
+//
+// Measured on this OS by rasterizing the emitted page and counting ink:
+//
+//   outlined text, fill / stroke / fill+stroke   plain 1516 / 724 / 2016   layer 0 / 0 / 0
+//   color glyphs (Apple Color Emoji)             plain 1408                layer 1408
+//   a plain CGImage                              plain 2304                layer 2304
+//   text clip, then fill the whole page          plain  758                layer  758
+//
+// So the defect is confined to PAINTING outlined glyphs. Core Text emits color glyphs
+// as images, and images -- like paths -- are recorded correctly, so a color run is
+// handed to the system implementation untouched; converting it to outlines would erase
+// emoji that print correctly today, because CTFontCreatePathForGlyph returns NULL for
+// them. Text clipping also works inside a layer, so clip modes keep the system
+// implementation for the clip itself.
+//
+// Splitting one run across several CTFontDrawGlyphs calls is safe ONLY for the pure
+// painting modes. CG intersects the text clip once per CALL, not per glyph: two
+// clip-mode calls leave an EMPTY clip where a single call clipping the same two glyphs
+// yields their union (measured). Clip-mode runs are therefore never split.
+//
+// 10.9 offers no way to ask a context whether a layer is open
+// (CGContextGetTransparencyLayerDepth and CGContextIsInTransparencyLayer are both
+// absent from CoreGraphics here), so the layer entry points below carry the count.
+
+// CGContextGetType's PDF result, measured on 10.9; bitmap contexts report 4. Matches
+// kCGContextTypePDF in PAL's CoreGraphicsSPI.h.
+#define WK_CG_CONTEXT_TYPE_PDF 1
+
+WK_SYSTEM_FN("CoreGraphics", int, CGContextGetType, (CGContextRef));
+WK_SYSTEM_FN("CoreGraphics", CGTextDrawingMode, CGContextGetTextDrawingMode, (CGContextRef));
+
+struct wk_transparency_layer_entry {
+    CGContextRef context;
+    unsigned depth;
+    struct wk_transparency_layer_entry *next;
+};
+
+static pthread_mutex_t wk_transparencyLayerLock = PTHREAD_MUTEX_INITIALIZER;
+static struct wk_transparency_layer_entry *wk_transparencyLayerHead;
+
+// The context is retained for as long as an entry exists. Core Graphics requires
+// begin and end to balance, but nothing can enforce that a caller does not release a
+// context with a layer still open; retaining means the address can never be recycled
+// underneath a live entry, so a later context can never inherit a stale "inside a
+// layer" answer and have its text silently converted to outlines.
+static void wk_transparencyLayerBegan(CGContextRef context)
+{
+    if (!context)
+        return;
+    pthread_mutex_lock(&wk_transparencyLayerLock);
+    struct wk_transparency_layer_entry *entry = wk_transparencyLayerHead;
+    while (entry && entry->context != context)
+        entry = entry->next;
+    if (entry)
+        entry->depth++;
+    else if ((entry = (struct wk_transparency_layer_entry *)malloc(sizeof(*entry)))) {
+        entry->context = CGContextRetain(context);
+        entry->depth = 1;
+        entry->next = wk_transparencyLayerHead;
+        wk_transparencyLayerHead = entry;
+    }
+    pthread_mutex_unlock(&wk_transparencyLayerLock);
+}
+
+static void wk_transparencyLayerEnded(CGContextRef context)
+{
+    if (!context)
+        return;
+    CGContextRef release = NULL;
+    pthread_mutex_lock(&wk_transparencyLayerLock);
+    struct wk_transparency_layer_entry **link = &wk_transparencyLayerHead;
+    while (*link && (*link)->context != context)
+        link = &(*link)->next;
+    if (*link && --(*link)->depth == 0) {
+        struct wk_transparency_layer_entry *closed = *link;
+        *link = closed->next;
+        release = closed->context;
+        free(closed);
+    }
+    pthread_mutex_unlock(&wk_transparencyLayerLock);
+    if (release)
+        CGContextRelease(release);
+}
+
+static bool wk_isInsideTransparencyLayer(CGContextRef context)
+{
+    bool inside = false;
+    pthread_mutex_lock(&wk_transparencyLayerLock);
+    for (struct wk_transparency_layer_entry *entry = wk_transparencyLayerHead; entry; entry = entry->next) {
+        if (entry->context == context) {
+            inside = true;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&wk_transparencyLayerLock);
+    return inside;
+}
+
+// Defined after the CTFontDrawGlyphs replacement below, because it re-issues color
+// runs through that entry point's original implementation.
+static void wk_drawGlyphsInPDFTransparencyLayer(CGContextRef context, CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count);
+
+WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextBeginTransparencyLayer, (CGContextRef context, CFDictionaryRef auxiliaryInfo))
+{
+    wk_transparencyLayerBegan(context);
+    if (WK_ORIGINAL(CGContextBeginTransparencyLayer))
+        WK_ORIGINAL(CGContextBeginTransparencyLayer)(context, auxiliaryInfo);
+}
+
+WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextBeginTransparencyLayerWithRect, (CGContextRef context, CGRect rect, CFDictionaryRef auxiliaryInfo))
+{
+    wk_transparencyLayerBegan(context);
+    if (WK_ORIGINAL(CGContextBeginTransparencyLayerWithRect))
+        WK_ORIGINAL(CGContextBeginTransparencyLayerWithRect)(context, rect, auxiliaryInfo);
+}
+
+WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextEndTransparencyLayer, (CGContextRef context))
+{
+    if (WK_ORIGINAL(CGContextEndTransparencyLayer))
+        WK_ORIGINAL(CGContextEndTransparencyLayer)(context);
+    wk_transparencyLayerEnded(context);
+}
+
+WK_POLYFILL_REPLACES("CoreText", void, CTFontDrawGlyphs, (CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count, CGContextRef context))
+{
+    if (font && glyphs && positions && count && context && wk_isInsideTransparencyLayer(context)
+        && WK_SYSTEM(CGContextGetType) && WK_SYSTEM(CGContextGetType)(context) == WK_CG_CONTEXT_TYPE_PDF) {
+        wk_drawGlyphsInPDFTransparencyLayer(context, font, glyphs, positions, count);
+        return;
+    }
+    if (WK_ORIGINAL(CTFontDrawGlyphs))
+        WK_ORIGINAL(CTFontDrawGlyphs)(font, glyphs, positions, count, context);
+}
+
+// CTFontCreatePathForGlyph places an outline the same way CTFontDrawGlyphs places a
+// glyph: device = CTM * textMatrix * (position + outline). Vertical runs arrive with
+// the vertical text matrix already installed on the context, so reading it here keeps
+// both orientations aligned with the system implementation.
+static CGAffineTransform wk_glyphMatrix(const CGPoint *positions, size_t index, CGAffineTransform textMatrix)
+{
+    return CGAffineTransformConcat(CGAffineTransformMakeTranslation(positions[index].x, positions[index].y), textMatrix);
+}
+
+static void wk_paintOutlines(CGContextRef context, CGPathRef path, bool fills, bool strokes)
+{
+    if (!fills && !strokes)
+        return;
+    CGContextBeginPath(context);
+    CGContextAddPath(context, path);
+    CGContextDrawPath(context, fills && strokes ? kCGPathFillStroke : (fills ? kCGPathFill : kCGPathStroke));
+}
+
+static void wk_drawGlyphsInPDFTransparencyLayer(CGContextRef context, CTFontRef font, const CGGlyph *glyphs, const CGPoint *positions, size_t count)
+{
+    CGTextDrawingMode mode = kCGTextFill;
+    if (WK_SYSTEM(CGContextGetTextDrawingMode))
+        mode = WK_SYSTEM(CGContextGetTextDrawingMode)(context);
+
+    // Invisible paints nothing, and clip-only establishes a clip the layer already
+    // records correctly. Neither needs anything from this code.
+    if (mode == kCGTextInvisible || mode == kCGTextClip) {
+        if (WK_ORIGINAL(CTFontDrawGlyphs))
+            WK_ORIGINAL(CTFontDrawGlyphs)(font, glyphs, positions, count, context);
+        return;
+    }
+
+    bool fills = mode == kCGTextFill || mode == kCGTextFillStroke || mode == kCGTextFillClip || mode == kCGTextFillStrokeClip;
+    bool strokes = mode == kCGTextStroke || mode == kCGTextFillStroke || mode == kCGTextStrokeClip || mode == kCGTextFillStrokeClip;
+    CGAffineTransform textMatrix = CGContextGetTextMatrix(context);
+
+    if (mode >= kCGTextFillClip) {
+        // CG paints the run and THEN unions the whole call into the clip. Paint every
+        // outlined glyph as one path first, then hand the UNSPLIT run to the system
+        // implementation: its painting is what the layer drops, but its clip -- and
+        // its handling of color glyphs -- is correct.
+        CGMutablePathRef path = CGPathCreateMutable();
+        for (size_t i = 0; i < count; ++i) {
+            CGAffineTransform matrix = wk_glyphMatrix(positions, i, textMatrix);
+            CGPathRef glyphPath = CTFontCreatePathForGlyph(font, glyphs[i], &matrix);
+            if (!glyphPath)
+                continue;
+            CGPathAddPath(path, NULL, glyphPath);
+            CFRelease(glyphPath);
+        }
+        wk_paintOutlines(context, path, fills, strokes);
+        CGPathRelease(path);
+        if (WK_ORIGINAL(CTFontDrawGlyphs))
+            WK_ORIGINAL(CTFontDrawGlyphs)(font, glyphs, positions, count, context);
+        return;
+    }
+
+    // A pure painting mode. Walk the run in index order and process maximal spans of
+    // one kind, so glyphs composite in the order CTFontDrawGlyphs would paint them and
+    // nothing is allocated per run -- an allocation that could fail is an opportunity
+    // to silently drop glyphs.
+    size_t i = 0;
+    while (i < count) {
+        CGAffineTransform matrix = wk_glyphMatrix(positions, i, textMatrix);
+        CGPathRef glyphPath = CTFontCreatePathForGlyph(font, glyphs[i], &matrix);
+        size_t next = i + 1;
+        if (glyphPath) {
+            CGMutablePathRef path = CGPathCreateMutable();
+            CGPathAddPath(path, NULL, glyphPath);
+            CFRelease(glyphPath);
+            for (; next < count; ++next) {
+                CGAffineTransform nextMatrix = wk_glyphMatrix(positions, next, textMatrix);
+                CGPathRef nextPath = CTFontCreatePathForGlyph(font, glyphs[next], &nextMatrix);
+                if (!nextPath)
+                    break;
+                CGPathAddPath(path, NULL, nextPath);
+                CFRelease(nextPath);
+            }
+            wk_paintOutlines(context, path, fills, strokes);
+            CGPathRelease(path);
+        } else {
+            for (; next < count; ++next) {
+                CGAffineTransform nextMatrix = wk_glyphMatrix(positions, next, textMatrix);
+                CGPathRef nextPath = CTFontCreatePathForGlyph(font, glyphs[next], &nextMatrix);
+                if (nextPath) {
+                    CFRelease(nextPath);
+                    break;
+                }
+            }
+            if (WK_ORIGINAL(CTFontDrawGlyphs))
+                WK_ORIGINAL(CTFontDrawGlyphs)(font, &glyphs[i], &positions[i], next - i, context);
+        }
+        i = next;
+    }
 }

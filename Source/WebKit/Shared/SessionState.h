@@ -74,10 +74,8 @@ public:
         return adoptRef(*new FrameState(std::forward<Args>(args)...));
     }
 
-    // MAVERICKS_BACKPORT: skip RunLoop::isMain assert. nextjs.org/angular.io's Web Workers
-    // trigger child-frame loads that create + destroy FrameState off-main; the assert
-    // hits during ~FrameState. The body was originally just RELEASE_ASSERT for debugging.
-    ~FrameState() = default;
+    // This is used to help debug <rdar://problem/48634553>.
+    ~FrameState() { RELEASE_ASSERT(RunLoop::isMain()); }
 
     Ref<FrameState> copy();
 
@@ -129,8 +127,8 @@ public:
     bool isEqualForTesting(const FrameState&) const;
 
 private:
-    // MAVERICKS_BACKPORT: skip RunLoop::isMain assert (see destructor comment above).
-    FrameState() = default;
+    // This is used to help debug <rdar://problem/48634553>.
+    FrameState() { RELEASE_ASSERT(RunLoop::isMain()); }
 
     FrameState(String&& urlString, String&& originalURLString, String&& referrer, AtomString&& target, std::optional<WebCore::FrameIdentifier>, std::optional<Vector<uint8_t>>&& stateObjectData, int64_t documentSequenceNumber, int64_t itemSequenceNumber, WebCore::IntPoint scrollPosition, bool shouldRestoreScrollPosition, float pageScaleFactor, std::optional<HTTPBody>&&, std::optional<WebCore::BackForwardItemIdentifier>, std::optional<WebCore::BackForwardFrameItemIdentifier>, bool hasCachedPage, String&& title, WebCore::ShouldOpenExternalURLsPolicy, RefPtr<WebCore::SerializedScriptValue>&& sessionStateObject, bool wasCreatedByJSWithoutUserInteraction, bool wasRestoredFromSession,  std::optional<WebCore::PolicyContainer>&&,
 #if PLATFORM(IOS_FAMILY)

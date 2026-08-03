@@ -188,6 +188,15 @@ else
     echo "### staging skipped: the link failed, so there is nothing complete to stage"
 fi
 
+# Weak-import audit. The link and the load both succeed for a reference to a symbol 10.9 lacks --
+# dyld just binds it to 0 -- so a data constant nobody polyfilled becomes a null dereference the
+# first time its line runs, with nothing at the fault site naming it. This is the only stage that
+# can catch that: it needs the FINAL binaries, which exist only once staging has run.
+if [ "$RC" = 0 ]; then
+    echo "### weak-import audit"
+    bash "$ROOT/MavericksSupport/scripts/check-absent-references.sh" || RC=$?
+fi
+
 # The one and only "REBUILD DONE" — everything, staging included, is finished by this point, so it is
 # the signal to wait for before installing.
 echo "==================== REBUILD DONE (rc=$RC) ===================="

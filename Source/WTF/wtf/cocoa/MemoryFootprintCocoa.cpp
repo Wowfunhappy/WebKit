@@ -26,6 +26,7 @@
 #include "config.h"
 #include <wtf/MemoryFootprint.h>
 
+#include <cstddef>
 #include <mach/mach.h>
 #include <mach/task_info.h>
 
@@ -33,14 +34,25 @@ namespace WTF {
 
 size_t memoryFootprint()
 {
-    // MAVERICKS_BACKPORT: TASK_VM_INFO / phys_footprint is 10.11+; on 10.9 approximate the footprint with TASK_BASIC_INFO resident_size.
-    task_basic_info_data_t basicInfo;
-    mach_msg_type_number_t count = TASK_BASIC_INFO_COUNT;
-    kern_return_t result = task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t) &basicInfo, &count);
+    task_vm_info_data_t vmInfo;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    kern_return_t result = task_info(mach_task_self(), TASK_VM_INFO, (task_info_t) &vmInfo, &count);
     if (result != KERN_SUCCESS)
         return 0;
-    // MAVERICKS_BACKPORT: TASK_BASIC_INFO resident_size stands in for the 10.11+ phys_footprint.
-    return static_cast<size_t>(basicInfo.resident_size);
+
+    // MAVERICKS_BACKPORT: phys_footprint postdates this deployment target. A 10.9 kernel
+    // answers TASK_VM_INFO with a structure that ends before that field and reports the
+    // length it actually filled in, so read phys_footprint only when the reply reaches it.
+    // phys_footprint is the task's internal (dirty anonymous) footprint plus whatever the
+    // compressor holds for the task, and 10.9 does return both of those fields. Measured
+    // here: internal+compressed is 278528 where TASK_BASIC_INFO resident_size reports
+    // 503808, so RSS is not a usable stand-in -- it counts clean file-backed pages that are
+    // not part of the footprint, which overstates memory pressure.
+    constexpr mach_msg_type_number_t countThroughPhysFootprint = static_cast<mach_msg_type_number_t>(
+        (offsetof(task_vm_info_data_t, phys_footprint) + sizeof(vmInfo.phys_footprint)) / sizeof(natural_t));
+    if (count >= countThroughPhysFootprint)
+        return static_cast<size_t>(vmInfo.phys_footprint);
+    return static_cast<size_t>(vmInfo.internal + vmInfo.compressed);
 }
 
 }

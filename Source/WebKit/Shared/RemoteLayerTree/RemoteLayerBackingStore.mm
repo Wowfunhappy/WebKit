@@ -24,26 +24,17 @@
  */
 
 #import "config.h"
-// MAVERICKS_BACKPORT: import list reflowed for the 10.9 GPU_PROCESS-off guards below.
 #import "RemoteLayerBackingStore.h"
+
 #import "ArgumentCoders.h"
 #import "DynamicContentScalingImageBufferBackend.h"
-// MAVERICKS_BACKPORT: GPU_PROCESS is off on 10.9; GPUProcess header is unused.
-#if ENABLE(GPU_PROCESS)
 #import "GPUProcess.h"
-#endif // MAVERICKS_BACKPORT: ENABLE(GPU_PROCESS)
 #import "ImageBufferBackendHandleSharing.h"
-// MAVERICKS_BACKPORT: GPU_PROCESS is off on 10.9; ImageBufferSet is unused.
-#if ENABLE(GPU_PROCESS)
 #import "ImageBufferSet.h"
-#endif // MAVERICKS_BACKPORT: ENABLE(GPU_PROCESS)
 #import "Logging.h"
 #import "PlatformCALayerRemote.h"
 #import "PrepareBackingStoreBuffersData.h"
-// MAVERICKS_BACKPORT: GPU_PROCESS is off on 10.9; remote image-buffer-set proxy is unused.
-#if ENABLE(GPU_PROCESS)
 #import "RemoteImageBufferSetProxy.h"
-#endif // MAVERICKS_BACKPORT: ENABLE(GPU_PROCESS)
 #import "RemoteLayerBackingStoreCollection.h"
 #import "RemoteLayerTreeContext.h"
 #import "RemoteLayerTreeDrawingAreaProxy.h"
@@ -51,10 +42,7 @@
 #import "RemoteLayerTreeLayers.h"
 #import "RemoteLayerTreeNode.h"
 #import "RemoteLayerWithInProcessRenderingBackingStore.h"
-// MAVERICKS_BACKPORT: GPU_PROCESS is off on 10.9; only in-process rendering backing store is used.
-#if ENABLE(GPU_PROCESS)
 #import "RemoteLayerWithRemoteRenderingBackingStore.h"
-#endif // MAVERICKS_BACKPORT: ENABLE(GPU_PROCESS)
 #import "WebPageProxy.h"
 #import "WebProcess.h"
 #import "WebProcessPool.h"
@@ -80,41 +68,10 @@
 #import "WKSeparatedImageView.h"
 #endif
 
-// MAVERICKS_BACKPORT: forward-declare contentsDirtyRect methods absent from the 10.9 CALayer headers.
-@interface CALayer (WebKitContentsDirtyRect)
-- (CGRect)contentsDirtyRect;
-- (void)setContentsDirtyRect:(CGRect)rect;
-@end
 
 namespace WebKit {
 
 using namespace WebCore;
-
-// MAVERICKS_BACKPORT: GPU_PROCESS is disabled on 10.9, so ImageBufferSet::computePaintingRects is unavailable; provide a local equivalent.
-#if !ENABLE(GPU_PROCESS)
-// When GPU_PROCESS is disabled, ImageBufferSet::computePaintingRects is not
-// available. Provide a local equivalent.
-static Vector<FloatRect, 5> computePaintingRectsFromRegion(const Region& dirtyRegion, float resolutionScale)
-{
-    auto dirtyRects = dirtyRegion.rects();
-#if PLATFORM(COCOA)
-    IntRect dirtyBounds = dirtyRegion.bounds();
-    if (dirtyRects.size() > PlatformCALayer::webLayerMaxRectsToPaint || dirtyRegion.totalArea() > PlatformCALayer::webLayerWastedSpaceThreshold * dirtyBounds.width() * dirtyBounds.height()) {
-        dirtyRects.clear();
-        dirtyRects.append(dirtyBounds);
-    }
-#endif
-    Vector<FloatRect, 5> paintingRects;
-    for (const auto& rect : dirtyRects) {
-        FloatRect scaledRect(rect);
-        scaledRect.scale(resolutionScale);
-        scaledRect = enclosingIntRect(scaledRect);
-        scaledRect.scale(1 / resolutionScale);
-        paintingRects.append(scaledRect);
-    }
-    return paintingRects;
-}
-#endif
 
 namespace {
 
@@ -149,13 +106,14 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteLayerBackingStore);
 
 std::unique_ptr<RemoteLayerBackingStore> RemoteLayerBackingStore::createForLayer(PlatformCALayerRemote& layer)
 {
-    // MAVERICKS_BACKPORT: hoist processModelForLayer into a local; the GPU_PROCESS-only Remote case is compiled out on 10.9.
-    auto model = processModelForLayer(layer);
-    switch (model) {
+    switch (processModelForLayer(layer)) {
+    // MAVERICKS_BACKPORT: RemoteLayerWithRemoteRenderingBackingStore is declared and defined
+    // entirely inside upstream's own #if ENABLE(GPU_PROCESS) (its .h line 32, its .mm line 30),
+    // so with the GPU process off the class does not exist and this case cannot name it.
 #if ENABLE(GPU_PROCESS)
     case ProcessModel::Remote:
         return makeUnique<RemoteLayerWithRemoteRenderingBackingStore>(layer);
-#endif // MAVERICKS_BACKPORT: ENABLE(GPU_PROCESS)
+#endif
     case ProcessModel::InProcess:
         return makeUnique<RemoteLayerWithInProcessRenderingBackingStore>(layer);
     }
@@ -200,11 +158,12 @@ void RemoteLayerBackingStore::ensureBackingStore(const Parameters& parameters)
 
 RemoteLayerBackingStore::ProcessModel RemoteLayerBackingStore::processModelForLayer(PlatformCALayerRemote& layer)
 {
-    // MAVERICKS_BACKPORT: GPU_PROCESS is off on 10.9; remote rendering is never selected.
+    // MAVERICKS_BACKPORT: selecting ProcessModel::Remote needs the class this build compiles out
+    // (see createForLayer above), so remote rendering is never chosen here.
 #if ENABLE(GPU_PROCESS)
     if (WebProcess::singleton().shouldUseRemoteRenderingFor(WebCore::RenderingPurpose::DOM) && !layer.needsPlatformContext())
         return ProcessModel::Remote;
-#endif // MAVERICKS_BACKPORT: ENABLE(GPU_PROCESS)
+#endif
     return ProcessModel::InProcess;
 }
 
@@ -444,12 +403,6 @@ void RemoteLayerBackingStore::paintContents()
     if (layer->owner()->platformCALayerDelegatesDisplay(layer.ptr()))
         return;
 
-    // MAVERICKS_BACKPORT: REVERTED to v1 (unite always). v2/v3/v4 attempts to skip
-    // unnecessary repaint caused major page corruption. Some upstream content
-    // isn't being marked dirty correctly; until that's understood, force full
-    // repaint every commit. This is the perf killer.
-    m_dirtyRegion.unite(layerBounds());
-
     if (hasEmptyDirtyRegion()) {
         if (auto flusher = createFlusher(ThreadSafeImageBufferSetFlusher::FlushType::BackendHandlesOnly))
             m_frontBufferFlushers.append(WTF::move(flusher));
@@ -457,13 +410,7 @@ void RemoteLayerBackingStore::paintContents()
     }
 
     m_lastDisplayTime = MonotonicTime::now();
-    // MAVERICKS_BACKPORT: GPU_PROCESS is off on 10.9; use the local computePaintingRectsFromRegion equivalent.
-#if ENABLE(GPU_PROCESS)
     m_paintingRects = ImageBufferSet::computePaintingRects(m_dirtyRegion, m_parameters.scale);
-#else
-    // MAVERICKS_BACKPORT: local equivalent of ImageBufferSet::computePaintingRects (unavailable without GPU_PROCESS).
-    m_paintingRects = computePaintingRectsFromRegion(m_dirtyRegion, m_parameters.scale);
-#endif
 
     createContextAndPaintContents();
 }
@@ -472,30 +419,11 @@ void RemoteLayerBackingStore::drawInContext(GraphicsContext& context)
 {
     GraphicsContextStateSaver stateSaver(context);
     IntRect dirtyBounds = m_dirtyRegion.bounds();
-// MAVERICKS_BACKPORT: skip the debug magenta fill — it overdraws actual content here.
-// (Original guard: #ifndef NDEBUG.)
 
-// MAVERICKS_BACKPORT: clear the dirty region to TRANSPARENT (not white) before paint.
-// This prevents textContent overlay artifacts where antialiased glyphs from the
-// previous paint cycle blend with the new ones. CGContextClearRect with alpha=0
-// won't trigger the same CGContextFillPath silent-fail that white-fill does, so
-// inline SVG icons painted afterwards still render correctly.
-    if (CGContextRef cg = context.platformContext()) {
-        CGContextSaveGState(cg);
-        // MAVERICKS_BACKPORT (#56): opaque layers use a no-alpha (BGRX8) backing, so clearing to
-        // TRANSPARENT zeros the RGB -> BLACK wherever the layer's content doesn't fully cover it
-        // (the DuckDuckGo logo black-box, and any opaque composited layer with an unpainted gap).
-        // Fill opaque backings WHITE instead; keep the transparent-clear for non-opaque (BGRA8)
-        // layers (needed to avoid glyph-overlay artifacts). The earlier white-fill broke later
-        // CGContextFillPath (inline SVG icons) by LEAKING the fill color — the save/restore around
-        // this block contains it, so SVG icons painted afterwards keep their own colors.
-        if (m_parameters.isOpaque) {
-            CGContextSetRGBFillColor(cg, 1, 1, 1, 1);
-            CGContextFillRect(cg, dirtyBounds);
-        } else
-            CGContextClearRect(cg, dirtyBounds);
-        CGContextRestoreGState(cg);
-    }
+#ifndef NDEBUG
+    if (m_parameters.isOpaque)
+        context.fillRect(this->layerBounds(), SRGBA<uint8_t> { 255, 47, 146 });
+#endif
 
     OptionSet<WebCore::GraphicsLayerPaintBehavior> paintBehavior;
 #if HAVE(SUPPORT_HDR_DISPLAY)
@@ -713,14 +641,11 @@ void RemoteLayerBackingStoreProperties::applyBackingStoreToNode(RemoteLayerTreeN
 
             // Most of the time layer.contentsDirtyRect should be the null rect, since CA clears this on every commit,
             // but in some scenarios we don't get a CA commit for every remote layer tree transaction.
-            // MAVERICKS_BACKPORT: contentsDirtyRect is declared only via the local CALayer category on 10.9; call it
-            // through a raw CALayer* (not the RetainPtr) and type the rect explicitly as CGRect.
-            CALayer *rawLayer = layer.get();
-            CGRect existingDirtyRect = [rawLayer contentsDirtyRect];
+            auto existingDirtyRect = [layer contentsDirtyRect];
             if (CGRectIsNull(existingDirtyRect))
-                [rawLayer setContentsDirtyRect:painted]; // MAVERICKS_BACKPORT: raw CALayer* (see above)
+                [layer setContentsDirtyRect:painted];
             else
-                [rawLayer setContentsDirtyRect:CGRectUnion(existingDirtyRect, painted)];
+                [layer setContentsDirtyRect:CGRectUnion(existingDirtyRect, painted)];
         }
     }
 }

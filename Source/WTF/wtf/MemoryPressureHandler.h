@@ -252,9 +252,6 @@ private:
     WebsamProcessState m_processState { WebsamProcessState::Inactive };
     
     MemoryUsagePolicy m_memoryUsagePolicy { MemoryUsagePolicy::Unrestricted };
-    // MAVERICKS_BACKPORT: previous poll's usage policy, so measurementTimerFired() reclaims only on a
-    // worsening transition (see MemoryPressureHandler.cpp) rather than every poll.
-    MemoryUsagePolicy m_lastMeasuredPolicy { MemoryUsagePolicy::Unrestricted };
 
     std::unique_ptr<RunLoop::Timer>m_measurementTimer;
     WTF::Function<void()> m_memoryKillCallback;

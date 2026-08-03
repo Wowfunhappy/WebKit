@@ -322,6 +322,14 @@ void NetworkProcessProxy::processWillShutDown(IPC::Connection& connection)
 void NetworkProcessProxy::getNetworkProcessConnection(WebProcessProxy& webProcessProxy, CompletionHandler<void(NetworkProcessConnectionInfo&&)>&& reply)
 {
     RELEASE_LOG(ProcessSuspension, "%p - NetworkProcessProxy::getNetworkProcessConnection: Taking a background assertion because web process pid %i (core identifier %" PRIu64 ") is requesting a connection", this, webProcessProxy.processID(), webProcessProxy.coreProcessIdentifier().toUInt64());
+    // MAVERICKS_BACKPORT: the NetworkProcess erases its per-process cookie registrations
+    // (NetworkProcess::removeNetworkConnectionToWebProcess) whenever this web process's previous
+    // connection closes, and a web process re-requests a connection here without its proxy dying.
+    // m_allowedFirstPartiesForCookies mirrors what the NetworkProcess knows, so forget this
+    // process's entry when brokering it a connection: the next addAllowedFirstPartyForCookies then
+    // re-sends (madeChange is true for a fresh entry) instead of trusting a registration the
+    // NetworkProcess no longer holds, which it answers with AllowCookieAccess::Terminate.
+    m_allowedFirstPartiesForCookies.remove(webProcessProxy);
     startResponsivenessTimer(UseLazyStop::No);
     NetworkProcessConnectionParameters parameters;
 #if ENABLE(IPC_TESTING_API)
@@ -2002,19 +2010,15 @@ void NetworkProcessProxy::addAllowedFirstPartyForCookies(WebProcessProxy& webPro
         return std::make_pair(LoadedWebArchive::No, HashSet<RegistrableDomain> { });
     }).iterator->value;
 
-    // MAVERICKS_BACKPORT: drop upstream's `madeChange` skip-if-unchanged
-    // optimization and unconditionally forward to the NetworkProcess. On 10.9
-    // the conditional send leaves the NetworkProcess side unregistered for the
-    // WebProcess+domain pair, so the load is rejected at MESSAGE_CHECK below.
-    pair.second.add(firstPartyForCookies);
-    if (loadedWebArchive == LoadedWebArchive::Yes && pair.first != LoadedWebArchive::Yes)
+    bool madeChange = pair.second.add(firstPartyForCookies).isNewEntry;
+    if (loadedWebArchive == LoadedWebArchive::Yes && pair.first != LoadedWebArchive::Yes) {
+        madeChange = true;
         pair.first = LoadedWebArchive::Yes;
-
-    // MAVERICKS_BACKPORT: unconditionally forward to NetworkProcess so it accepts
-    // ScheduleResourceLoad for this WebProcess+domain pair. Without this,
-    // NetworkConnectionToWebProcess returns AllowCookieAccess::Terminate at
-    // MESSAGE_CHECK and the load is silently dropped.
-    sendWithAsyncReply(Messages::NetworkProcess::AddAllowedFirstPartyForCookies { webProcessProxy.coreProcessIdentifier(), firstPartyForCookies, loadedWebArchive }, WTF::move(completionHandler));
+    }
+    if (madeChange)
+        sendWithAsyncReply(Messages::NetworkProcess::AddAllowedFirstPartyForCookies(webProcessProxy.coreProcessIdentifier(), firstPartyForCookies, loadedWebArchive), WTF::move(completionHandler));
+    else
+        completionHandler();
 }
 
 void NetworkProcessProxy::addAllowedFilePaths(WebProcessProxy& webProcessProxy, const Vector<String>& paths)

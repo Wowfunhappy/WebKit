@@ -338,10 +338,6 @@ NSArray *makeNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector& c
         // pointer to an object destroyed when this RefPtr is destroyed.
         RefPtr<AXCoreObject> backingObject = self.axBackingObject;
         if (!backingObject) {
-            // MAVERICKS_BACKPORT: keystone band-aid — gate the isolated-tree fallback behind
-            // ENABLE(ACCESSIBILITY_ISOLATED_TREE) (flipped to 0 on this port); m_isolatedObject and
-            // AXTreeStore<AXIsolatedTree> only exist when isolated-tree is compiled in.
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
             if (!isMainThread()) {
                 // It's possible our backing object just hasn't been attached yet.
                 // Try again after making sure all isolated trees are up-to-date, which could
@@ -349,8 +345,6 @@ NSArray *makeNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector& c
                 AXTreeStore<AXIsolatedTree>::applyPendingChangesForAllIsolatedTrees();
                 return m_isolatedObject.get();
             }
-// MAVERICKS_BACKPORT: closes the ENABLE(ACCESSIBILITY_ISOLATED_TREE) gate above (flag off on this port).
-#endif
             return nil;
         }
         backingObject->updateBackingStore();
