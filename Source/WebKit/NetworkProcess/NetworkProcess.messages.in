@@ -79,9 +79,9 @@ messages -> NetworkProcess : AuxiliaryProcess WantsAsyncDispatchMessage {
     systemDidWake()
 #endif
 
-#if !PLATFORM(COCOA)
+    # MAVERICKS_BACKPORT: unconditional; this port implements the Cocoa half upstream dropped, so
+    # Safari 7's invalid-certificate sheet can accept a certificate for a host.
     AllowSpecificHTTPSCertificateForHost(PAL::SessionID sessionID, WebCore::CertificateInfo certificate, String host)
-#endif
     AllowTLSCertificateChainForLocalPCMTesting(PAL::SessionID sessionID, WebCore::CertificateInfo certificate)
 
     SetCacheModel(enum:uint8_t WebKit::CacheModel cacheModel)

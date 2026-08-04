@@ -155,6 +155,12 @@ public:
 
     void continueDidReceiveChallenge(SessionWrapper&, const WebCore::AuthenticationChallenge&, NegotiatedLegacyTLS, NetworkDataTaskCocoa::TaskIdentifier, RefPtr<NetworkDataTaskCocoa>, CompletionHandler<void(WebKit::AuthenticationChallengeDisposition, const WebCore::Credential&)>&&);
 
+    // MAVERICKS_BACKPORT: part of restoring WKContextAllowSpecificHTTPSCertificateForHost, which
+    // upstream dropped and Safari 7's invalid-certificate sheet needs. True when this challenge
+    // presents exactly the certificate the user accepted for its host (the certificates live on the
+    // network process); any other chain still goes to the client.
+    bool isAllowedHTTPSCertificateForHost(NSURLAuthenticationChallenge *);
+
     SessionWrapper& sessionWrapperForDownloadResume() { return m_defaultSessionSet->sessionWithCredentialStorage; }
 
     bool fastServerTrustEvaluationEnabled() const { return m_fastServerTrustEvaluationEnabled; }

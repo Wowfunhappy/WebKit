@@ -27,6 +27,7 @@
 #include "WKContextPrivate.h"
 
 #include "APIArray.h"
+#include "APICertificateInfo.h" // MAVERICKS_BACKPORT: WKContextAllowSpecificHTTPSCertificateForHost has a real body here
 #include "APIClient.h"
 #include "APIDownloadClient.h"
 #include "APILegacyContextHistoryClient.h"
@@ -48,6 +49,7 @@
 #include "WebIconDatabase.h" // MAVERICKS_BACKPORT: revived legacy WK2 icon database for Safari 7 favicons (#49)
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
+#include "WebsiteDataStore.h" // MAVERICKS_BACKPORT: WKContextAllowSpecificHTTPSCertificateForHost has a real body here
 #include <WebCore/GamepadProvider.h>
 #include <wtf/RefPtr.h>
 #include <wtf/TZoneMallocInlines.h>
@@ -466,8 +468,22 @@ void WKContextSetIconDatabasePath(WKContextRef contextRef, WKStringRef pathRef)
     WebKit::toImpl(contextRef)->setIconDatabasePath(WebKit::toWTFString(pathRef)); // MAVERICKS_BACKPORT: real body (was an empty stub upstream) enabling Safari 7 favicons (#49)
 }
 
-void WKContextAllowSpecificHTTPSCertificateForHost(WKContextRef, WKCertificateInfoRef, WKStringRef)
+// MAVERICKS_BACKPORT: real body (upstream left this empty when it dropped the Cocoa half of the
+// mechanism). This is the whole of Safari 7's "Continue" button on the invalid-certificate sheet:
+// Safari calls it with the certificate the user accepted and then reloads. With an empty body the
+// reload gets the same challenge and the sheet reappears forever, which is what happens for every
+// invalid certificate when connections are made directly instead of through a proxy. The rest of the
+// mechanism is upstream's and still here — WebsiteDataStore and the NetworkProcess message — and the
+// certificates are kept by the network process itself, which every data store shares, so the store
+// this goes through does not matter: see NetworkProcess::allowSpecificHTTPSCertificateForHost and
+// NetworkProcess::allowedHTTPSCertificateForHost, which NetworkSessionCocoa reads when a challenge
+// arrives.
+void WKContextAllowSpecificHTTPSCertificateForHost(WKContextRef, WKCertificateInfoRef certificateRef, WKStringRef hostRef)
 {
+    RefPtr certificateInfo = WebKit::toImpl(certificateRef);
+    if (!certificateInfo)
+        return;
+    WebKit::WebsiteDataStore::defaultDataStore().allowSpecificHTTPSCertificateForHost(certificateInfo->certificateInfo(), WebKit::toWTFString(hostRef));
 }
 
 void WKContextDisableProcessTermination(WKContextRef contextRef)

@@ -46,6 +46,7 @@
 #import "WebSocketTask.h"
 #import <Foundation/NSURLSession.h>
 #import <WebCore/AdvancedPrivacyProtections.h>
+#import <WebCore/CertificateInfo.h> // MAVERICKS_BACKPORT: per-host certificate exceptions (WKContextAllowSpecificHTTPSCertificateForHost)
 #import <WebCore/Credential.h>
 #import <WebCore/FormDataStreamMac.h>
 #import <WebCore/FrameLoaderTypes.h>
@@ -275,7 +276,16 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (id)initWithNetworkSession:(std::reference_wrapper<WebKit::NetworkSessionCocoa>)session wrapper:(WebKit::SessionWrapper&)sessionWrapper withCredentials:(bool)withCredentials;
 - (void)sessionInvalidated;
+// MAVERICKS_BACKPORT: the body of -URLSession:task:didReceiveChallenge:completionHandler:, reached once
+// the challenge's protection space has been serialized off this queue. See that method for why.
+- (void)serializedDidReceiveChallenge:(NSURLAuthenticationChallenge *)challenge session:(NSURLSession *)session task:(NSURLSessionTask *)task completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential))completionHandler;
 
+@end
+
+// MAVERICKS_BACKPORT: the IPC layer's serialization SPI (CoreIPCSecureCoding.mm's
+// conformsToWebKitSecureCoding), supplied for 10.9 in MavericksSupport/polyfill/polyfills/methods.m.
+@interface NSURLProtectionSpace (WKSecureCoding)
+- (NSDictionary *)_webKitPropertyListData;
 @end
 
 @implementation WKNetworkSessionDelegate
@@ -520,6 +530,24 @@ static inline void processServerTrustEvaluation(NetworkSessionCocoa& session, Se
     return nullptr;
 }
 
+// MAVERICKS_BACKPORT: see the declaration in NetworkSessionCocoa.h. The certificates themselves are
+// kept by the network process (NetworkProcess::allowedHTTPSCertificateForHost), which serves every
+// data store; the match is here because it is about this challenge. Modelled on the one place upstream
+// still answers a server-trust challenge from a stored certificate — PCM's trustsServerForLocalTests
+// in PrivateClickMeasurementNetworkLoaderCocoa.mm — including its use of WebCore::certificatesMatch,
+// so only the exact chain the user accepted is accepted.
+bool NetworkSessionCocoa::isAllowedHTTPSCertificateForHost(NSURLAuthenticationChallenge *challenge)
+{
+    RetainPtr<NSURLProtectionSpace> protectionSpace = challenge.protectionSpace;
+    RetainPtr<SecTrustRef> serverTrust = protectionSpace.get().serverTrust;
+    if (!serverTrust)
+        return false;
+    auto* allowed = networkProcess().allowedHTTPSCertificateForHost(String(protectionSpace.get().host));
+    if (!allowed)
+        return false;
+    return WebCore::certificatesMatch(allowed->trust().get(), serverTrust.get());
+}
+
 void NetworkSessionCocoa::setClientAuditToken(const WebCore::AuthenticationChallenge& challenge)
 {
     if (auto auditData = networkProcess().sourceApplicationAuditData())
@@ -557,7 +585,54 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     }
 }
 
+// MAVERICKS_BACKPORT: on 10.9, serializing a protection space that carries a server trust is expensive.
+// CFNetwork's archiver evaluates the trust so it can store the evaluated chain, and evaluating a
+// real-world chain makes ocspd fetch OCSP responses and CRLs — measured ~0.5s warm and several seconds
+// cold, per HTTPS connection. Handling the challenge here is what puts that serialization on this queue:
+// forwarding it to the UI process encodes the protection space for IPC. Every NSURLSession callback for
+// every connection of every page is delivered on this one queue, so the whole process stalls behind each
+// new connection's certificate — the reason pages crawl when connections are made directly instead of
+// through a proxy that presents locally issued certificates (github #116). Measured with a 10-request
+// fan-out: requests needing no evaluation finished at 2.33s with the serialization inline and at 0.39s
+// with it moved here, and the five that did need one ran concurrently instead of one after another.
+//
+// So produce the representation the IPC encoder will ask for (CoreIPCSecureCoding's
+// conformsToWebKitSecureCoding path) on a background queue, then handle the challenge exactly as before.
+// Nothing about the challenge's outcome changes and it is answered no later than it would have been; the
+// callback queue is simply free while the work happens.
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential))completionHandler
+{
+    RetainPtr<NSURLProtectionSpace> protectionSpace = challenge.protectionSpace;
+    if (!protectionSpace.get().serverTrust) {
+        [self serializedDidReceiveChallenge:challenge session:session task:task completionHandler:completionHandler];
+        return;
+    }
+
+    // MAVERICKS_BACKPORT: a certificate the user accepted for this host through Safari 7's
+    // invalid-certificate sheet (WKContextAllowSpecificHTTPSCertificateForHost) is answered here, so
+    // the reload that follows the sheet succeeds instead of asking again.
+    CheckedPtr sessionCocoa = [self sessionFromTask:task];
+    if (sessionCocoa && sessionCocoa->isAllowedHTTPSCertificateForHost(challenge)) {
+        completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:protectionSpace.get().serverTrust]);
+        return;
+    }
+
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), makeBlockPtr([weakSelf = WeakObjCPtr<WKNetworkSessionDelegate>(self), session = retainPtr(session), task = retainPtr(task), challenge = retainPtr(challenge), protectionSpace = WTF::move(protectionSpace), completionHandler = makeBlockPtr(completionHandler)] () mutable {
+        // Discarding the result is the point: it is cached on the protection space, and the IPC
+        // encoder asks the same object for it again once the challenge is handled.
+        [protectionSpace.get() _webKitPropertyListData];
+        dispatch_async(dispatch_get_main_queue(), makeBlockPtr([weakSelf = WTF::move(weakSelf), session = WTF::move(session), task = WTF::move(task), challenge = WTF::move(challenge), completionHandler = WTF::move(completionHandler)] () mutable {
+            auto strongSelf = weakSelf.get();
+            if (!strongSelf) {
+                completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
+                return;
+            }
+            [strongSelf serializedDidReceiveChallenge:challenge.get() session:session.get() task:task.get() completionHandler:completionHandler.get()];
+        }).get());
+    }).get());
+}
+
+- (void)serializedDidReceiveChallenge:(NSURLAuthenticationChallenge *)challenge session:(NSURLSession *)session task:(NSURLSessionTask *)task completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential))completionHandler
 {
     CheckedPtr sessionCocoa = [self sessionFromTask:task];
     if (!sessionCocoa || [task state] == NSURLSessionTaskStateCanceling) {

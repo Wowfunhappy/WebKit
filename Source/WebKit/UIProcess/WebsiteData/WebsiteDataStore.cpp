@@ -1764,12 +1764,14 @@ HashSet<Ref<WebProcessPool>> WebsiteDataStore::ensureProcessPools() const
     return processPools;
 }
 
-#if !PLATFORM(COCOA)
+// MAVERICKS_BACKPORT: the !PLATFORM(COCOA) gate is gone. Upstream dropped the Cocoa half of this
+// mechanism, but Safari 7's invalid-certificate sheet is built on it — see
+// WKContextAllowSpecificHTTPSCertificateForHost — so this port implements the Cocoa half
+// (NetworkProcessCocoa.mm and NetworkSessionCocoa) and the sender is shared with the other ports.
 void WebsiteDataStore::allowSpecificHTTPSCertificateForHost(const WebCore::CertificateInfo& certificate, const String& host)
 {
     protect(networkProcess())->send(Messages::NetworkProcess::AllowSpecificHTTPSCertificateForHost(sessionID(), certificate, host), 0);
 }
-#endif
 
 void WebsiteDataStore::allowTLSCertificateChainForLocalPCMTesting(const WebCore::CertificateInfo& certificate)
 {

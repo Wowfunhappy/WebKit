@@ -305,9 +305,8 @@ public:
 
     static void NODELETE setCachedProcessSuspensionDelayForTesting(Seconds);
 
-#if !PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: unconditional; this port implements the Cocoa half upstream dropped.
     void allowSpecificHTTPSCertificateForHost(const WebCore::CertificateInfo&, const String& host);
-#endif
     void allowTLSCertificateChainForLocalPCMTesting(const WebCore::CertificateInfo&);
 
     DeviceIdHashSaltStorage& ensureDeviceIdHashSaltStorage();
