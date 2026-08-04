@@ -26,6 +26,9 @@
 #include "config.h"
 #include <wtf/MemoryFootprint.h>
 
+// MAVERICKS_BACKPORT: offsetof, for the phys_footprint reply-length check below. This build is
+// -fno-modules, so the declaration does not arrive transitively the way it does under upstream's
+// module-enabled Apple build.
 #include <cstddef>
 #include <mach/mach.h>
 #include <mach/task_info.h>

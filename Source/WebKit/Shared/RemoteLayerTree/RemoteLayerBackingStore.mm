@@ -113,7 +113,7 @@ std::unique_ptr<RemoteLayerBackingStore> RemoteLayerBackingStore::createForLayer
 #if ENABLE(GPU_PROCESS)
     case ProcessModel::Remote:
         return makeUnique<RemoteLayerWithRemoteRenderingBackingStore>(layer);
-#endif
+#endif // MAVERICKS_BACKPORT: closes the ENABLE(GPU_PROCESS) guard above.
     case ProcessModel::InProcess:
         return makeUnique<RemoteLayerWithInProcessRenderingBackingStore>(layer);
     }
@@ -163,7 +163,7 @@ RemoteLayerBackingStore::ProcessModel RemoteLayerBackingStore::processModelForLa
 #if ENABLE(GPU_PROCESS)
     if (WebProcess::singleton().shouldUseRemoteRenderingFor(WebCore::RenderingPurpose::DOM) && !layer.needsPlatformContext())
         return ProcessModel::Remote;
-#endif
+#endif // MAVERICKS_BACKPORT: closes the ENABLE(GPU_PROCESS) guard above.
     return ProcessModel::InProcess;
 }
 

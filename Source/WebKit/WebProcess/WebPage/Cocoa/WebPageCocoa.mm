@@ -1607,8 +1607,7 @@ static void drawPDFPage(PDFDocument *pdfDocument, CFIndex pageIndex, CGContextRe
         if (![[annotation valueForAnnotationKey:get_PDFKit_PDFAnnotationKeySubtypeSingleton()] isEqualToString:get_PDFKit_PDFAnnotationSubtypeLinkSingleton()])
             continue;
 
-        // MAVERICKS_BACKPORT: the PDFAnnotation.URL property is 10.13+; read it via KVC valueForKey:@"URL" which works on the 10.9 PDFKit.
-        RetainPtr<NSURL> url = (NSURL *)[annotation valueForKey:@"URL"];
+        RetainPtr<NSURL> url = annotation.URL;
         if (!url)
             continue;
 

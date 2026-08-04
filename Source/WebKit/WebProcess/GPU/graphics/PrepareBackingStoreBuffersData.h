@@ -50,6 +50,14 @@ class TextStream;
 
 namespace WebKit {
 
+// MAVERICKS_BACKPORT: SwapBuffersDisplayRequirement is defined above the ENABLE(GPU_PROCESS) guard at
+// the top of this file instead of here, so the in-process swap path can see it. Upstream's text, in
+// place:
+// enum class SwapBuffersDisplayRequirement : uint8_t {
+//     NeedsFullDisplay,
+//     NeedsNormalDisplay,
+//     NeedsNoDisplay
+// };
 
 struct ImageBufferSetPrepareBufferForDisplayInputData {
     ImageBufferSetIdentifier remoteBufferSet;

@@ -169,6 +169,9 @@ NetworkSession::NetworkSession(NetworkProcess& networkProcess, const NetworkSess
     })
     , m_storageManager(createNetworkStorageManager(networkProcess, parameters))
 #if ENABLE(WEB_PUSH_NOTIFICATIONS)
+    // MAVERICKS_BACKPORT: the session ID is passed in because this port's manager names the session
+    // when it relays "push messages became available" to the UI process (see its constructor and the
+    // announce below) -- Safari 7 has no x-webkit-app-launch pump to identify the session for it.
     , m_notificationManager(NetworkNotificationManager::create(parameters.sessionID, parameters.sessionID.isEphemeral() ? String { } : parameters.webPushMachServiceName, configurationWithHostAuditToken(networkProcess, parameters.webPushDaemonConnectionConfiguration), networkProcess))
 #endif
 #if ENABLE(DECLARATIVE_WEB_PUSH)

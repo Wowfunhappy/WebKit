@@ -42,6 +42,8 @@
 
 #import <WebCore/ExceptionOr.h>
 #import <WebCore/LocalizedStrings.h>
+// MAVERICKS_BACKPORT: for the NSWorkspace launch this port's daemon uses to wake a client app,
+// there being no x-webkit-app-launch on 10.9.
 #if PLATFORM(MAC) && USE(MOZILLA_PUSH_SERVICE)
 #import <AppKit/AppKit.h>
 #endif
@@ -115,6 +117,8 @@ namespace WebPushD {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(WebPushDaemon);
 
+// MAVERICKS_BACKPORT: forward declaration, so the connect-time announcement in
+// connectionEventHandler below can reach the matcher defined further down this file.
 static bool connectionMatchesPendingPushMessage(const PushClientConnection&, const PushSubscriptionSetIdentifier&);
 
 static unsigned s_protocolVersion = protocolVersionValue;

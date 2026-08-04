@@ -71,6 +71,8 @@ WebNotificationManagerProxy::WebNotificationManagerProxy(WebProcessPool* process
 
 WebNotificationManagerProxy::~WebNotificationManagerProxy() = default;
 
+// MAVERICKS_BACKPORT: takes ShouldNotifyProviderOfManager; see the header for why the notification
+// is conditional here.
 void WebNotificationManagerProxy::setProvider(std::unique_ptr<API::NotificationProvider>&& provider, ShouldNotifyProviderOfManager shouldNotifyProviderOfManager)
 {
     if (!provider) {
@@ -187,7 +189,7 @@ void WebNotificationManagerProxy::providerDidShowNotification(WebNotificationIde
             serviceWorkerManagerSingleton().providerDidShowNotification(globalNotificationID);
 #endif
         return;
-    }
+    } // MAVERICKS_BACKPORT: closes the brace opened for the singleton forwarding above.
 
     RefPtr notification = m_notifications.get(it->value);
     if (!notification) {
@@ -233,7 +235,7 @@ void WebNotificationManagerProxy::providerDidClickNotification(WebNotificationId
             serviceWorkerManagerSingleton().providerDidClickNotification(globalNotificationID);
 #endif
         return;
-    }
+    } // MAVERICKS_BACKPORT: closes the brace opened for the singleton forwarding above.
 
     providerDidClickNotification(it->value);
 }

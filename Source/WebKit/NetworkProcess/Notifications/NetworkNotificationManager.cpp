@@ -32,6 +32,7 @@
 #include "DaemonEncoder.h"
 #include "Logging.h"
 #include "NetworkProcess.h"
+// MAVERICKS_BACKPORT: for the WebPushMessagesBecameAvailable relay to the UI process below.
 #include "NetworkProcessProxyMessages.h"
 #include "NetworkSession.h"
 #include "PushClientConnectionMessages.h"
@@ -46,11 +47,13 @@ using namespace WebCore;
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkNotificationManager);
 
+// MAVERICKS_BACKPORT: both signatures take the session ID; the constructor's push-messages-available handler names it when relaying to the UI process.
 Ref<NetworkNotificationManager> NetworkNotificationManager::create(PAL::SessionID sessionID, const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
 {
     return adoptRef(*new NetworkNotificationManager(sessionID, webPushMachServiceName, WTF::move(configuration), networkProcess));
 }
 
+// MAVERICKS_BACKPORT: takes the session ID; see create() above.
 NetworkNotificationManager::NetworkNotificationManager(PAL::SessionID sessionID, const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&& configuration, NetworkProcess& networkProcess)
     : m_networkProcess(networkProcess)
 {
@@ -100,6 +103,7 @@ void NetworkNotificationManager::getPendingPushMessage(CompletionHandler<void(co
         completionHandler(WTF::move(message));
     };
 
+    // MAVERICKS_BACKPORT: sends through the local RefPtr null-checked above, not protect(m_connection).
     connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessage(), WTF::move(replyHandler));
 }
 
@@ -117,6 +121,7 @@ void NetworkNotificationManager::getPendingPushMessages(CompletionHandler<void(c
         completionHandler(WTF::move(messages));
     };
 
+    // MAVERICKS_BACKPORT: sends through the local RefPtr null-checked above, as the singular one does.
     connection->sendWithAsyncReplyWithoutUsingIPCConnection(Messages::PushClientConnection::GetPendingPushMessages(), WTF::move(replyHandler));
 }
 

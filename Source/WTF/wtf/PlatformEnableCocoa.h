@@ -883,6 +883,7 @@
 // AudioSessionRoutingArbitratorProxyMessageReceiver.cpp does not compile. Turning GPU_PROCESS on is
 // the prerequisite for turning this on; the arbitration code itself is fine, and upstream even ships
 // a !HAVE(AVAUDIO_ROUTING_ARBITER) implementation that would suit this OS.
+// MAVERICKS_BACKPORT: 0 rather than upstream's 1, for the reason above.
 #if !defined(ENABLE_ROUTING_ARBITRATION) && PLATFORM(MAC)
 #define ENABLE_ROUTING_ARBITRATION 0
 #endif

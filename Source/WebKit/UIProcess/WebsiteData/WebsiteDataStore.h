@@ -35,6 +35,8 @@
 #include "WebResourceLoadStatisticsStore.h"
 #include "WebsiteDataStoreClient.h"
 #include "WebsiteDataStoreConfiguration.h"
+// MAVERICKS_BACKPORT: for the queued-push-message drain declared below, which upstream has no
+// member state for because its hosts drive the drain through SPI instead.
 #if USE(MOZILLA_PUSH_SERVICE)
 #include "WebPushMessage.h"
 #include <wtf/Deque.h>
@@ -698,6 +700,9 @@ private:
 
     HashMap<WebCore::RegistrableDomain, RestrictedOpenerType> m_restrictedOpenerTypesForTesting;
 
+    // MAVERICKS_BACKPORT: state for pumpPendingWebPushMessages above -- the messages fetched from
+    // webpushd and still to be processed, whether a drain is in flight, and whether a signal that
+    // arrived mid-drain needs another pass.
 #if USE(MOZILLA_PUSH_SERVICE)
     void processNextQueuedWebPushMessage();
     Deque<WebPushMessage> m_queuedWebPushMessages;

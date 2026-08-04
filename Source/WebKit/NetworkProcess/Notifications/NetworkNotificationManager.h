@@ -88,6 +88,7 @@ public:
     void setServiceWorkerIsBeingInspected(const URL&, bool isInspected);
 
 private:
+    // MAVERICKS_BACKPORT: takes the session ID, as create() above does and for the same reason.
     NetworkNotificationManager(PAL::SessionID, const String& webPushMachServiceName, WebPushD::WebPushDaemonConnectionConfiguration&&, NetworkProcess&);
 
     void showNotification(IPC::Connection&, const WebCore::NotificationData&, RefPtr<WebCore::NotificationResources>&&, CompletionHandler<void()>&&) final;

@@ -8484,7 +8484,7 @@ void WebPageProxy::didSameDocumentNavigationForFrame(IPC::Connection& connection
         // FROM until this transaction's commitChanges below.
         legacyMainFrameProcess().processPool().carryIconForSameDocumentNavigation(*this, protectedPageLoadState->url(), url);
         protectedPageLoadState->didSameDocumentNavigation(transaction, url.string());
-    }
+    } // MAVERICKS_BACKPORT: closes the brace opened for the favicon carry above (#112).
 
     if (m_controlledByAutomation) {
         if (RefPtr automationSession = m_configuration->processPool().automationSession())
@@ -8545,7 +8545,7 @@ void WebPageProxy::didSameDocumentNavigationForFrameViaJS(IPC::Connection& conne
         // carry above applies identically (#112).
         legacyMainFrameProcess().processPool().carryIconForSameDocumentNavigation(*this, protectedPageLoadState->url(), url);
         protectedPageLoadState->didSameDocumentNavigation(transaction, url.string());
-    }
+    } // MAVERICKS_BACKPORT: closes the brace opened for the favicon carry above (#112).
 
     if (m_controlledByAutomation) {
         if (RefPtr automationSession = m_configuration->processPool().automationSession())

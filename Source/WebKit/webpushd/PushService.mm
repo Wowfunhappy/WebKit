@@ -28,6 +28,7 @@
 
 #import "ApplePushServiceConnection.h"
 #import "MockPushServiceConnection.h"
+// MAVERICKS_BACKPORT: this port's push transport; see the create() below.
 #import "MozillaPushServiceConnection.h"
 #import "Logging.h"
 #import "WebPushDaemonConstants.h"
@@ -38,6 +39,7 @@
 #import <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #import <wtf/BlockPtr.h>
 #import <wtf/CallbackAggregator.h>
+// MAVERICKS_BACKPORT: for the parentPath() that sites the Mozilla connection's state below.
 #import <wtf/FileSystem.h>
 #import <wtf/OSObjectPtr.h>
 #import <wtf/RunLoop.h>
@@ -141,6 +143,8 @@ void PushService::create(const String& incomingPushServiceName, const String& da
     Ref<PushServiceConnection> connection = MozillaPushServiceConnection::create(FileSystem::parentPath(databasePath));
 #else
     // Create the connection ASAP so that we bootstrap_check_in to the service in a timely manner.
+    // MAVERICKS_BACKPORT: spelled Ref<PushServiceConnection> rather than auto, so both arms of the
+    // #if yield the same type for the code below.
     Ref<PushServiceConnection> connection = ApplePushServiceConnection::create(incomingPushServiceName);
 #endif
 

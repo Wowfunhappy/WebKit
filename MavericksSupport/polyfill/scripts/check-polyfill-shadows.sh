@@ -68,6 +68,7 @@ SYSTEM_LIBS="
 /System/Library/PrivateFrameworks/TCC.framework/TCC
 /System/Library/PrivateFrameworks/CoreUI.framework/CoreUI
 /System/Library/PrivateFrameworks/DataDetectorsCore.framework/DataDetectorsCore
+/System/Library/Frameworks/Quartz.framework/Frameworks/PDFKit.framework/PDFKit
 /usr/lib/libSystem.B.dylib
 /usr/lib/libobjc.A.dylib
 /usr/lib/libsqlite3.dylib
@@ -241,10 +242,11 @@ fi
 mkdir -p "$WORK/members"
 ( cd "$WORK/members" && "$(dirname "$CLANG")/llvm-ar" x "$BUILD/libpolyfill_classes.a" methods.o )
 
-# PDFKit and QuartzCore own classes methods.m extends (PDFPage, CAContext, CATransaction), and
-# AVFoundation owns AVCaptureDevice, so they join the list the C half already uses.
+# AVFoundation owns AVCaptureDevice, so it joins the list the C half already uses. (PDFKit and
+# QuartzCore own the other classes methods.m extends — PDFAnnotation, PDFPage, CAContext,
+# CATransaction — and are already in that list, PDFKit because the layer now defines its annotation
+# constants too.)
 OBJC_LIBS="$SYSTEM_LIBS
-/System/Library/Frameworks/Quartz.framework/Frameworks/PDFKit.framework/PDFKit
 /System/Library/Frameworks/AVFoundation.framework/AVFoundation
 "
 

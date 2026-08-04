@@ -2647,11 +2647,13 @@ void WebsiteDataStore::didDestroyServiceWorkerNotification(const WTF::UUID& noti
 
 void WebsiteDataStore::openWindowFromServiceWorker(const String& urlString, const WebCore::SecurityOriginData& serviceWorkerOrigin, CompletionHandler<void(std::optional<WebCore::PageIdentifier>)>&& callback)
 {
+    // MAVERICKS_BACKPORT: the URL is captured as well, so the no-page path below can still open it
+    // through the host application. Upstream needs only the callback.
 #if USE(MOZILLA_PUSH_SERVICE)
     auto innerCallback = [callback = WTF::move(callback), urlString] (WebPageProxy* newPage) mutable {
 #else
     auto innerCallback = [callback = WTF::move(callback)] (WebPageProxy* newPage) mutable {
-#endif
+#endif // MAVERICKS_BACKPORT: closes the USE(MOZILLA_PUSH_SERVICE) split above.
         if (!newPage) {
 #if USE(MOZILLA_PUSH_SERVICE)
             // MAVERICKS_BACKPORT: the data-store client that would create a page here is

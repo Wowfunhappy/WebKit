@@ -44,6 +44,7 @@
 #import <WebCore/RegistrableDomain.h>
 #import <WebCore/SearchPopupMenuCocoa.h>
 #import <WebCore/SecurityOriginData.h>
+// MAVERICKS_BACKPORT: for the NSWorkspace open in openURLThroughHostApplication below.
 #if USE(MOZILLA_PUSH_SERVICE)
 #import <AppKit/AppKit.h>
 #endif
@@ -1133,6 +1134,9 @@ void WebsiteDataStore::removeAllEnhancedSecuritySites(CompletionHandler<void()>&
     enhancedSecuritySitesHolder().deleteAllSites(WTF::move(completionHandler));
 }
 
+// MAVERICKS_BACKPORT: the clients.openWindow fallback declared in WebsiteDataStore.h -- hand the URL
+// to the host app's ordinary URL handling, since Safari 7 implements no data-store client that could
+// create a page. HTTP(S) only: a service worker must not be able to launch arbitrary URL schemes.
 #if USE(MOZILLA_PUSH_SERVICE)
 void WebsiteDataStore::openURLThroughHostApplication(const URL& url)
 {

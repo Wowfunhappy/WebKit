@@ -90,14 +90,18 @@ private:
     void newConnectionWasInitialized() const final;
 #if PLATFORM(COCOA)
     OSObjectPtr<xpc_object_t> dictionaryFromMessage(MessageType, Daemon::EncodedMessage&&) const final { return nullptr; }
+// MAVERICKS_BACKPORT: upstream ignores unsolicited daemon events; this port has to read them,
+// because the push-messages-available announcement arrives that way. The #else keeps upstream's
+// empty body for every other configuration.
 #if USE(MOZILLA_PUSH_SERVICE)
     void connectionReceivedEvent(xpc_object_t) final;
 #else
     void connectionReceivedEvent(xpc_object_t) final { }
-#endif
+#endif // MAVERICKS_BACKPORT: closes the USE(MOZILLA_PUSH_SERVICE) split above.
 #endif
 
     WebPushDaemonConnectionConfiguration m_configuration;
+    // MAVERICKS_BACKPORT: storage for the handler set above; empty when no one is listening.
 #if USE(MOZILLA_PUSH_SERVICE)
     Function<void()> m_pushMessagesAvailableHandler;
 #endif
