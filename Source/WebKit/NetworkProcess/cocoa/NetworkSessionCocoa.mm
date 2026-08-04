@@ -612,7 +612,17 @@ ALLOW_DEPRECATED_DECLARATIONS_END
             return completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
 
         // Handle server trust evaluation at platform-level if requested, for performance reasons and to use ATS defaults.
-        if (sessionCocoa->fastServerTrustEvaluationEnabled() && negotiatedLegacyTLS == NegotiatedLegacyTLS::No) {
+        // MAVERICKS_BACKPORT: taken whenever modern TLS was negotiated, not only when the client asked for it.
+        // fastServerTrustEvaluationEnabled comes from _WKWebsiteDataStoreConfiguration, which is 10.15.4+, so no
+        // client on this platform can turn it on -- and leaving it off means answering PerformDefaultHandling
+        // below, which is what makes 10.9's CFNetwork evaluate the trust on its socket-stream thread. That thread
+        // is shared by every connection this process owns, so a cold www.macrumors.com load spent 11.8s across 127
+        // evaluations on the same thread that ran all 674 SSLHandshake calls, stalling every other connection.
+        // Taking this branch depends on two selectors 10.9 does not have, both polyfilled: _strictTrustEvaluate:
+        // runs the evaluation off the connection thread, and -[NSOperationQueue underlyingQueue] answers the main
+        // queue with the main dispatch queue -- which is what puts the decision handler below, and the IPC it can
+        // start, back on this process's main run loop rather than on a concurrent queue.
+        if (negotiatedLegacyTLS == NegotiatedLegacyTLS::No) {
             auto networkDataTask = [self existingTask:task];
             if (networkDataTask) {
                 RetainPtr<NSURLProtectionSpace> protectionSpace = challenge.protectionSpace;
@@ -624,7 +634,25 @@ ALLOW_DEPRECATED_DECLARATIONS_END
                     return completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
                 auto task = WTF::move(networkDataTask);
                 CheckedPtr session = sessionCocoa.get();
-                if (trustResult == noErr || !session) {
+                if (trustResult == noErr) {
+                    // MAVERICKS_BACKPORT: answer with the trust we just evaluated instead of PerformDefaultHandling.
+                    // Upstream can defer to the platform here because modern CFNetwork answers from trustd's result
+                    // cache; 10.9 has no such cache and re-evaluates in full (measured: 245ms, unchanged on repeat,
+                    // for the same SecTrustRef), so deferring would pay for the same evaluation twice -- and pay for
+                    // it on the socket-stream thread this branch exists to keep free. Handing back a credential
+                    // makes CFNetwork skip its own evaluation entirely (measured: 1 evaluation per connection under
+                    // PerformDefaultHandling, 0 under UseCredential). It is the same question and the same answer:
+                    // the challenge's trust already carries the SSL policy bound to this host, and CFNetwork's own
+                    // evaluation of it sets no policies, anchors, exceptions or verify date, passing all-zero
+                    // CSSM_APPLE_TP_ACTION_DATA. Only a trust that evaluated as Proceed or Unspecified reaches here;
+                    // anything else goes to the client below.
+                    completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
+                    return;
+                }
+                // A trust that did NOT evaluate cleanly is never answered with a credential: with no session left
+                // to ask the client through, upstream's PerformDefaultHandling is the safe answer, and on 10.9 it
+                // means CFNetwork evaluates the trust itself and refuses it.
+                if (!session) {
                     completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
                     return;
                 }

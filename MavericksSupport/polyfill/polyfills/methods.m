@@ -28,6 +28,7 @@
 #import <objc/runtime.h>
 #import <libkern/OSAtomic.h>
 #import <pthread.h>
+#import <stdatomic.h>
 
 // CFNetwork SPI, exported on 10.9 but not declared in any public header.
 typedef struct OpaqueCFHTTPCookieStorage *CFHTTPCookieStorageRef;
@@ -1915,9 +1916,8 @@ WK_POLYFILL_SEL_REPLACES("cancelByProducingResumeData:", "wk_cancelByProducingRe
 // for any caller, not just for WebKit's, which is why it belongs here rather than in a pile of
 // respondsToSelector: checks at the call sites -- those were removed with this.
 //
-// Deliberately NOT stubbed: +[NSURLSession _strictTrustEvaluate:queue:completionHandler:], because
-// "nothing happens" is not a safe answer for a trust evaluation. NetworkSessionCocoa keeps its check
-// there and falls back to evaluating the trust itself.
+// Not a no-op stub: +[NSURLSession _strictTrustEvaluate:queue:completionHandler:] is implemented for real
+// further down this file, because "nothing happens" is not a safe answer for a trust evaluation.
 
 static void wk_noopSetObject(id self, SEL _cmd, id value) { (void)self; (void)_cmd; (void)value; }
 static void wk_noopSetBool(id self, SEL _cmd, BOOL value) { (void)self; (void)_cmd; (void)value; }
@@ -2089,32 +2089,70 @@ WK_POLYFILL_SEL("set_isTopLevelNavigation:", "wk_set_isTopLevelNavigation:");
 // Evaluates a server-trust challenge off the calling thread and reports the result as an OSStatus, so a
 // client can decide the challenge itself instead of leaving it to CFNetwork's default handling. 10.9 has
 // everything that needs: the challenge carries the SecTrustRef, and SecTrustEvaluate is the same
-// evaluation the system performs. So this runs it -- on the queue the caller supplied, as the name says
-// -- rather than answering "cannot evaluate", which for a trust decision would be the one wrong answer
-// to give.
+// evaluation the system performs. So this runs it, rather than answering "cannot evaluate", which for a
+// trust decision would be the one wrong answer to give.
+//
+// `queue:` is the COMPLETION queue, the same convention as SecTrustEvaluateAsyncWithError -- it is not
+// where the evaluation runs. That distinction is the whole point of the SPI: callers pass the queue they
+// are already on (NetworkSessionCocoa passes the network process's main queue from a delegate callback
+// that runs there), so evaluating on it would block the caller for the duration. On 10.9 that duration is
+// ~250ms per chain and never cached, so doing it on the caller's queue would serialise every certificate
+// check in the process onto one thread -- the defect this SPI is used to avoid.
+//
+// So the evaluation runs on a private pool and only the completion hops to the caller's queue. The pool is
+// bounded because 10.9's Security framework does evaluate chains in parallel, but throughput saturates at
+// the core count and degrades past it: 28 evaluations took 7.34s at width 1, 2.41s at 4 (this host's core
+// count), 2.63s at 8 and 3.03s at 12. An unbounded queue would also let one page's connections spawn a
+// thread each.
 //
 // noErr means trusted, which is how the caller reads it. kSecTrustResultProceed is an explicit user/admin
 // trust decision and kSecTrustResultUnspecified is "valid chain, no explicit decision"; every other
 // result (recoverable failure, fatal failure, deny, invalid setup) is not trusted, and errSecNotTrusted
 // is what the modern SPI reports for those.
+static dispatch_queue_t wk_trustEvaluationQueue(void)
+{
+    static dispatch_queue_t *queues;
+    static unsigned queueCount;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        long cores = sysconf(_SC_NPROCESSORS_ONLN);
+        if (cores < 2)
+            cores = 2;
+        else if (cores > 8)
+            cores = 8;
+        queueCount = (unsigned)cores;
+        queues = (dispatch_queue_t *)calloc(queueCount, sizeof(*queues));
+        for (unsigned i = 0; i < queueCount; ++i)
+            queues[i] = dispatch_queue_create("com.apple.WebKit.polyfill.trust-evaluation", DISPATCH_QUEUE_SERIAL);
+    });
+    // Callers are not promised to be on one thread, so the rotation counter is atomic.
+    static _Atomic(unsigned) next;
+    return queues[atomic_fetch_add(&next, 1u) % queueCount];
+}
+
 static void wk_urlSession_strictTrustEvaluate(id self, SEL _cmd, NSURLAuthenticationChallenge *challenge, dispatch_queue_t queue, void (^completionHandler)(NSURLAuthenticationChallenge *, OSStatus))
 {
     (void)self;
     (void)_cmd;
-    // challenge is captured by the block, which retains it; the SecTrustRef is owned by the challenge, so
-    // it is retained across the hop explicitly.
+    // challenge is captured by the blocks, which retain it; the SecTrustRef is owned by the challenge, so
+    // it is retained across the hops explicitly.
     SecTrustRef trust = [[challenge protectionSpace] serverTrust];
     if (trust)
         CFRetain(trust);
-    dispatch_async(queue ?: dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    dispatch_queue_t completionQueue = queue ?: dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
+    dispatch_retain(completionQueue);
+    dispatch_async(wk_trustEvaluationQueue(), ^{
         OSStatus status = errSecNotTrusted;
         SecTrustResultType trustResult = kSecTrustResultInvalid;
         if (trust && SecTrustEvaluate(trust, &trustResult) == errSecSuccess
             && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified))
             status = noErr;
-        completionHandler(challenge, status);
-        if (trust)
-            CFRelease(trust);
+        dispatch_async(completionQueue, ^{
+            completionHandler(challenge, status);
+            if (trust)
+                CFRelease(trust);
+            dispatch_release(completionQueue);
+        });
     });
 }
 
