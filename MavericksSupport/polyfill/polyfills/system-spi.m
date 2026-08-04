@@ -710,10 +710,73 @@ WK_POLYFILL_ABSENT("Security", uint32_t, SecTaskGetCodeSignStatus, (SecTaskRef t
     return 0;
 }
 
-// SecTrust IPC serialization. Both halves are absent on 10.9 and both resolve here, so they only need
-// to round-trip with each other: carry the certificate chain (a binary plist of DER datas); the
-// receiver rebuilds a SecTrust and re-evaluates with a basic X.509 policy. (Custom anchors/policies
-// degrade to the default, but the chain — the part used for display and validation — survives.)
+// SecTrust IPC serialization (12.0+). A serialized trust has to carry the state a receiver needs to
+// reach the same verdict the sender would: the certificates, the policies they are judged against, any
+// custom anchors, whether network fetching is allowed, the verification date, and the result the sender
+// computed. All of that is readable on 10.9, and apart from the certificates it is readable without
+// evaluating anything (measured: policies + custom anchors + network-fetch + verify time on an
+// unevaluated trust leave it kSecTrustResultInvalid and cost 0.0000s).
+//
+// User exceptions are NOT carried, because 10.9 cannot report them. SecTrustCopyExceptions is not a
+// getter for exceptions somebody set — it mints a blanket "accept whatever this chain currently
+// reports" blob for any trust, including one that just failed, and there is no getter for what was
+// actually set. Carrying its output would hand the receiver a verdict instead of the sender's state:
+// measured on a self-signed chain, the sender evaluates kSecTrustResultRecoverableTrustFailure, and a
+// receiver given that blob reports kSecTrustResultProceed. Since nothing in this tree sets exceptions
+// on a trust that crosses IPC, omitting them is what the platform can honestly report.
+//
+// Carrying only the chain -- which is what this did before -- was a security-relevant loss, not a
+// lossy convenience: a trust that went in bound to a hostname by SecPolicyCreateSSL came back under
+// SecPolicyCreateBasicX509, so the receiver evaluated a weaker question than the sender asked. Measured
+// against github.com's chain: the original policy and a policy rebuilt through its properties both
+// report kSecTrustResultProceed, a rebuilt policy carrying the WRONG hostname reports
+// kSecTrustResultRecoverableTrustFailure -- and basic X.509 reports Proceed, accepting a chain the
+// hostname-bound question rejects.
+//
+// 10.9 has no way to install a trust result on a trust object, so a receiver that asks for a verdict
+// re-evaluates; carrying the policies, anchors and date is what makes that re-evaluation
+// answer the sender's question. The result is carried for a receiver that only wants to know what the
+// sender concluded.
+static CFStringRef const kMavTrustCertificates = CFSTR("certificates");
+static CFStringRef const kMavTrustPolicies = CFSTR("policies");
+static CFStringRef const kMavTrustAnchors = CFSTR("anchors");
+static CFStringRef const kMavTrustNetworkFetchAllowed = CFSTR("networkFetchAllowed");
+static CFStringRef const kMavTrustVerifyDate = CFSTR("verifyDate");
+static CFStringRef const kMavTrustResult = CFSTR("result");
+
+// DER for each certificate in an array of SecCertificateRef, and the reverse.
+static CFArrayRef mav_certificateDataArray(CFArrayRef certificates)
+{
+    CFIndex count = certificates ? CFArrayGetCount(certificates) : 0;
+    CFMutableArrayRef datas = CFArrayCreateMutable(NULL, count, &kCFTypeArrayCallBacks);
+    for (CFIndex i = 0; i < count; ++i) {
+        SecCertificateRef certificate = (SecCertificateRef)CFArrayGetValueAtIndex(certificates, i);
+        CFDataRef der = certificate ? SecCertificateCopyData(certificate) : NULL;
+        if (der) {
+            CFArrayAppendValue(datas, der);
+            CFRelease(der);
+        }
+    }
+    return datas;
+}
+
+static CFArrayRef mav_certificateArrayFromData(CFArrayRef datas)
+{
+    CFIndex count = datas ? CFArrayGetCount(datas) : 0;
+    CFMutableArrayRef certificates = CFArrayCreateMutable(NULL, count, &kCFTypeArrayCallBacks);
+    for (CFIndex i = 0; i < count; ++i) {
+        CFDataRef der = (CFDataRef)CFArrayGetValueAtIndex(datas, i);
+        if (!der || CFGetTypeID(der) != CFDataGetTypeID())
+            continue;
+        SecCertificateRef certificate = SecCertificateCreateWithData(NULL, der);
+        if (certificate) {
+            CFArrayAppendValue(certificates, certificate);
+            CFRelease(certificate);
+        }
+    }
+    return certificates;
+}
+
 WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust, CFErrorRef *error))
 {
     if (error)
@@ -722,18 +785,69 @@ WK_POLYFILL_ABSENT("Security", CFDataRef, SecTrustSerialize, (SecTrustRef trust,
         mav_reportUnimplemented(error);
         return NULL;
     }
+
+    CFMutableDictionaryRef state = CFDictionaryCreateMutable(NULL, 7, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+
     CFIndex count = SecTrustGetCertificateCount(trust);
     CFMutableArrayRef certificates = CFArrayCreateMutable(NULL, count, &kCFTypeArrayCallBacks);
     for (CFIndex i = 0; i < count; ++i) {
         SecCertificateRef certificate = SecTrustGetCertificateAtIndex(trust, i);
-        CFDataRef der = certificate ? SecCertificateCopyData(certificate) : NULL;
-        if (der) {
-            CFArrayAppendValue(certificates, der);
-            CFRelease(der);
-        }
+        if (certificate)
+            CFArrayAppendValue(certificates, certificate);
     }
-    CFDataRef data = CFPropertyListCreateData(NULL, certificates, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
+    CFArrayRef certificateDatas = mav_certificateDataArray(certificates);
+    CFDictionarySetValue(state, kMavTrustCertificates, certificateDatas);
+    CFRelease(certificateDatas);
     CFRelease(certificates);
+
+    // A policy travels as the property dictionary that describes it, which is what
+    // SecPolicyCreateWithProperties reverses.
+    CFArrayRef policies = NULL;
+    if (SecTrustCopyPolicies(trust, &policies) == errSecSuccess && policies) {
+        CFIndex policyCount = CFArrayGetCount(policies);
+        CFMutableArrayRef policyProperties = CFArrayCreateMutable(NULL, policyCount, &kCFTypeArrayCallBacks);
+        for (CFIndex i = 0; i < policyCount; ++i) {
+            CFDictionaryRef properties = SecPolicyCopyProperties((SecPolicyRef)CFArrayGetValueAtIndex(policies, i));
+            if (properties) {
+                CFArrayAppendValue(policyProperties, properties);
+                CFRelease(properties);
+            }
+        }
+        CFDictionarySetValue(state, kMavTrustPolicies, policyProperties);
+        CFRelease(policyProperties);
+        CFRelease(policies);
+    }
+
+    CFArrayRef anchors = NULL;
+    if (SecTrustCopyCustomAnchorCertificates(trust, &anchors) == errSecSuccess && anchors) {
+        CFArrayRef anchorDatas = mav_certificateDataArray(anchors);
+        CFDictionarySetValue(state, kMavTrustAnchors, anchorDatas);
+        CFRelease(anchorDatas);
+        CFRelease(anchors);
+    }
+
+    Boolean networkFetchAllowed = false;
+    if (SecTrustGetNetworkFetchAllowed(trust, &networkFetchAllowed) == errSecSuccess)
+        CFDictionarySetValue(state, kMavTrustNetworkFetchAllowed, networkFetchAllowed ? kCFBooleanTrue : kCFBooleanFalse);
+
+    CFAbsoluteTime verifyTime = SecTrustGetVerifyTime(trust);
+    if (verifyTime) {
+        CFNumberRef date = CFNumberCreate(NULL, kCFNumberDoubleType, &verifyTime);
+        CFDictionarySetValue(state, kMavTrustVerifyDate, date);
+        CFRelease(date);
+    }
+
+    SecTrustResultType trustResult = kSecTrustResultInvalid;
+    if (SecTrustGetTrustResult(trust, &trustResult) == errSecSuccess) {
+        int32_t value = (int32_t)trustResult;
+        CFNumberRef number = CFNumberCreate(NULL, kCFNumberSInt32Type, &value);
+        CFDictionarySetValue(state, kMavTrustResult, number);
+        CFRelease(number);
+
+    }
+
+    CFDataRef data = CFPropertyListCreateData(NULL, state, kCFPropertyListBinaryFormat_v1_0, 0, NULL);
+    CFRelease(state);
     if (!data)
         mav_reportUnimplemented(error);
     return data;
@@ -747,29 +861,72 @@ WK_POLYFILL_ABSENT("Security", SecTrustRef, SecTrustDeserialize, (CFDataRef seri
         mav_reportUnimplemented(error);
         return NULL;
     }
-    CFArrayRef certificateDatas = (CFArrayRef)CFPropertyListCreateWithData(NULL, serializedTrust, kCFPropertyListImmutable, NULL, NULL);
-    if (!certificateDatas || CFGetTypeID(certificateDatas) != CFArrayGetTypeID()) {
-        if (certificateDatas)
-            CFRelease(certificateDatas);
+    CFDictionaryRef state = (CFDictionaryRef)CFPropertyListCreateWithData(NULL, serializedTrust, kCFPropertyListImmutable, NULL, NULL);
+    if (!state || CFGetTypeID(state) != CFDictionaryGetTypeID()) {
+        if (state)
+            CFRelease(state);
         mav_reportUnimplemented(error);
         return NULL;
     }
-    CFIndex count = CFArrayGetCount(certificateDatas);
-    CFMutableArrayRef certificates = CFArrayCreateMutable(NULL, count, &kCFTypeArrayCallBacks);
-    for (CFIndex i = 0; i < count; ++i) {
-        CFDataRef der = (CFDataRef)CFArrayGetValueAtIndex(certificateDatas, i);
-        SecCertificateRef certificate = SecCertificateCreateWithData(NULL, der);
-        if (certificate) {
-            CFArrayAppendValue(certificates, certificate);
-            CFRelease(certificate);
+
+    CFArrayRef certificates = mav_certificateArrayFromData((CFArrayRef)CFDictionaryGetValue(state, kMavTrustCertificates));
+
+    CFArrayRef policyProperties = (CFArrayRef)CFDictionaryGetValue(state, kMavTrustPolicies);
+    CFMutableArrayRef policies = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+    if (policyProperties && CFGetTypeID(policyProperties) == CFArrayGetTypeID()) {
+        CFIndex policyCount = CFArrayGetCount(policyProperties);
+        for (CFIndex i = 0; i < policyCount; ++i) {
+            CFDictionaryRef properties = (CFDictionaryRef)CFArrayGetValueAtIndex(policyProperties, i);
+            if (!properties || CFGetTypeID(properties) != CFDictionaryGetTypeID())
+                continue;
+            CFTypeRef oid = CFDictionaryGetValue(properties, kSecPolicyOid);
+            SecPolicyRef policy = oid ? SecPolicyCreateWithProperties(oid, properties) : NULL;
+            if (policy) {
+                CFArrayAppendValue(policies, policy);
+                CFRelease(policy);
+            }
         }
     }
-    CFRelease(certificateDatas);
+    // A trust with no policy cannot be evaluated at all; basic X.509 is the only honest stand-in when
+    // the sender had nothing to describe, and it is never reached for a trust that carried one.
+    if (!CFArrayGetCount(policies)) {
+        SecPolicyRef basic = SecPolicyCreateBasicX509();
+        CFArrayAppendValue(policies, basic);
+        CFRelease(basic);
+    }
+
     SecTrustRef trust = NULL;
-    SecPolicyRef policy = SecPolicyCreateBasicX509();
-    SecTrustCreateWithCertificates(certificates, policy, &trust);
-    CFRelease(policy);
+    OSStatus status = SecTrustCreateWithCertificates(certificates, policies, &trust);
     CFRelease(certificates);
+    CFRelease(policies);
+    if (status != errSecSuccess || !trust) {
+        CFRelease(state);
+        mav_reportUnimplemented(error);
+        return NULL;
+    }
+
+    CFArrayRef anchorDatas = (CFArrayRef)CFDictionaryGetValue(state, kMavTrustAnchors);
+    if (anchorDatas && CFGetTypeID(anchorDatas) == CFArrayGetTypeID()) {
+        CFArrayRef anchors = mav_certificateArrayFromData(anchorDatas);
+        SecTrustSetAnchorCertificates(trust, anchors);
+        CFRelease(anchors);
+    }
+
+    CFBooleanRef networkFetchAllowed = (CFBooleanRef)CFDictionaryGetValue(state, kMavTrustNetworkFetchAllowed);
+    if (networkFetchAllowed && CFGetTypeID(networkFetchAllowed) == CFBooleanGetTypeID())
+        SecTrustSetNetworkFetchAllowed(trust, CFBooleanGetValue(networkFetchAllowed));
+
+    CFNumberRef verifyDate = (CFNumberRef)CFDictionaryGetValue(state, kMavTrustVerifyDate);
+    if (verifyDate && CFGetTypeID(verifyDate) == CFNumberGetTypeID()) {
+        double when = 0;
+        if (CFNumberGetValue(verifyDate, kCFNumberDoubleType, &when)) {
+            CFDateRef date = CFDateCreate(NULL, when);
+            SecTrustSetVerifyDate(trust, date);
+            CFRelease(date);
+        }
+    }
+
+    CFRelease(state);
     return trust;
 }
 

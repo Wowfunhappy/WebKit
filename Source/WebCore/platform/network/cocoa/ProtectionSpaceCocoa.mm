@@ -202,9 +202,29 @@ bool ProtectionSpace::receivesCredentialSecurely() const
     return [protect(nsSpace()) receivesCredentialSecurely];
 }
 
+// MAVERICKS_BACKPORT: a server trust alone no longer requires the platform object to be serialized.
+// Serializing an NSURLProtectionSpace means archiving it, and on 10.9 CFNetwork's archiver runs a full
+// SecTrustEvaluate to store the evaluated chain — so WebKit was paying one complete trust evaluation
+// per HTTPS connection just to put a trust on the wire. Measured on one github.com load: dropping it
+// took the network process from 40 evaluations totalling 22.4s to 44 totalling 14.7s, a third of all
+// certificate work on the machine (github #116).
+//
+// Nothing can read what it was paying for. The 2013 C API this port serves exposes host, port, realm,
+// scheme, server type and is-proxy for a protection space and has no accessor for its trust at all
+// (Safari 7 imports exactly WKProtectionSpaceCopyHost/CopyRealm/GetAuthenticationScheme/GetIsProxy/
+// GetPort/GetReceivesCredentialSecurely/GetServerType), and the Cocoa API that does expose one,
+// -[NSURLProtectionSpace serverTrust] via WKWebView's challenge, postdates this whole platform. Every
+// UI-process consumer of a server trust reads it from the committed CertificateInfo instead —
+// WKWebView.serverTrust, WKFrameInfo._serverTrust and WKPageCopyProtectionSpace all go through
+// pageLoadState().certificateInfo() — and Safari 7's invalid-certificate sheet gets the certificate it
+// displays the same way. Verified: the sheet, Show Certificate, Continue and the address-bar lock are
+// unchanged with the trust gone.
+//
+// Client-certificate challenges still carry their platform data: distinguishedNames has no equivalent
+// on the base ProtectionSpace, and the panel that reads it is a real client (github #95).
 bool ProtectionSpace::encodingRequiresPlatformData(NSURLProtectionSpace *space)
 {
-    return space.distinguishedNames || space.serverTrust;
+    return space.distinguishedNames;
 }
 
 std::optional<ProtectionSpace::PlatformData> ProtectionSpace::getPlatformDataToSerialize() const
