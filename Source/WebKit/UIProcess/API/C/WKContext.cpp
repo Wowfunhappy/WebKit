@@ -480,6 +480,7 @@ void WKContextSetIconDatabasePath(WKContextRef contextRef, WKStringRef pathRef)
 // arrives.
 void WKContextAllowSpecificHTTPSCertificateForHost(WKContextRef, WKCertificateInfoRef certificateRef, WKStringRef hostRef)
 {
+    // MAVERICKS_BACKPORT: real body (upstream ignores every argument) — see the note above.
     RefPtr certificateInfo = WebKit::toImpl(certificateRef);
     if (!certificateInfo)
         return;

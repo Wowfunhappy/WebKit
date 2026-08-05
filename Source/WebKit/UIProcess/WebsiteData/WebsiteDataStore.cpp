@@ -1770,6 +1770,7 @@ HashSet<Ref<WebProcessPool>> WebsiteDataStore::ensureProcessPools() const
 // (NetworkProcessCocoa.mm and NetworkSessionCocoa) and the sender is shared with the other ports.
 void WebsiteDataStore::allowSpecificHTTPSCertificateForHost(const WebCore::CertificateInfo& certificate, const String& host)
 {
+    // MAVERICKS_BACKPORT: added for Safari 7's invalid-certificate sheet — see the note above.
     protect(networkProcess())->send(Messages::NetworkProcess::AllowSpecificHTTPSCertificateForHost(sessionID(), certificate, host), 0);
 }
 

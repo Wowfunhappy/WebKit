@@ -2937,6 +2937,16 @@ static WKCommitHandlerQueue *wk_commitHandlerQueueForCurrentThread(void)
     queue->preHandlers = [[NSMutableArray alloc] init];
     queue->postHandlers = [[NSMutableArray alloc] init];
     queue->postRegisteredAt = [[NSMutableArray alloc] init];
+    // Under Objective-C GC (github #118) the alloc's +1 is a fiction and this calloc'd
+    // struct is the arrays' only reference — memory the collector never scans. CFRetain
+    // pins them for the collector; the queue lives for the thread's lifetime either way.
+    signed char (*wk_collectingEnabled)(void) =
+        (signed char (*)(void))dlsym(RTLD_DEFAULT, "objc_collectingEnabled");
+    if (wk_collectingEnabled && wk_collectingEnabled()) {
+        CFRetain(queue->preHandlers);
+        CFRetain(queue->postHandlers);
+        CFRetain(queue->postRegisteredAt);
+    }
     CFRunLoopObserverContext context = { 0, queue, NULL, NULL, NULL };
     // The wake sampler takes the lowest order there is, so that it reads the counter before anything else
     // the pass does. The two drain observers carry CA's own activities and sit one below and one above its

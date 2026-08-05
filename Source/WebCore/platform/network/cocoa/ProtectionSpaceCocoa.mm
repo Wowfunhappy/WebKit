@@ -224,6 +224,7 @@ bool ProtectionSpace::receivesCredentialSecurely() const
 // on the base ProtectionSpace, and the panel that reads it is a real client (github #95).
 bool ProtectionSpace::encodingRequiresPlatformData(NSURLProtectionSpace *space)
 {
+    // MAVERICKS_BACKPORT: `|| space.serverTrust` dropped — see the note above.
     return space.distinguishedNames;
 }
 
