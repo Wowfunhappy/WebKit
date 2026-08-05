@@ -89,29 +89,10 @@ static bool hostAppHasEntitlement(audit_token_t hostAppAuditToken, ASCIILiteral 
 static String bundleIdentifierFromAuditToken(audit_token_t token)
 {
 #if PLATFORM(MAC) && !USE(APPLE_INTERNAL_SDK) && USE(MOZILLA_PUSH_SERVICE)
-    // MAVERICKS_BACKPORT: real host apps (Safari) use webpushd on this port, so the
-    // TestWebKitAPI placeholder below would misfile every subscription under a test
-    // bundle and make the daemon wake the wrong app. 10.9 has neither
-    // SecTaskCopySigningIdentifier (10.11+) nor _kLSAuditTokenKey, so resolve the
-    // signing identifier with the SecCode guest API, which 10.9 fully supports.
-    pid_t pid = audit_token_to_pid(token);
-    if (pid > 0) {
-        auto pidNumber = adoptCF(CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &pid));
-        CFTypeRef attributeKeys[] = { kSecGuestAttributePid };
-        CFTypeRef attributeValues[] = { pidNumber.get() };
-        auto attributes = adoptCF(CFDictionaryCreate(kCFAllocatorDefault, attributeKeys, attributeValues, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
-        SecCodeRef rawCode = nullptr;
-        if (SecCodeCopyGuestWithAttributes(nullptr, attributes.get(), kSecCSDefaultFlags, &rawCode) == errSecSuccess) {
-            auto code = adoptCF(rawCode);
-            CFDictionaryRef rawInformation = nullptr;
-            if (SecCodeCopySigningInformation(code.get(), kSecCSDefaultFlags, &rawInformation) == errSecSuccess) {
-                auto information = adoptCF(rawInformation);
-                CFTypeRef identifier = CFDictionaryGetValue(information.get(), kSecCodeInfoIdentifier);
-                if (identifier && CFGetTypeID(identifier) == CFStringGetTypeID() && CFStringGetLength((CFStringRef)identifier))
-                    return (CFStringRef)identifier;
-            }
-        }
-    }
+    // MAVERICKS_BACKPORT: real host apps (Safari) drive webpushd on this port, not TestWebKitAPI,
+    // so the placeholder identifier below would misfile every subscription under a test bundle and
+    // wake the wrong app. codeSigningIdentifier() answers for real here: 10.9's absent
+    // SecTaskCopySigningIdentifier is supplied by the polyfill layer over csops(2).
     return WebKit::codeSigningIdentifier(token);
 #elif PLATFORM(MAC) && !USE(APPLE_INTERNAL_SDK)
     // This isn't great, but currently the only user of webpushd in open source builds is TestWebKitAPI and codeSigningIdentifier returns the null String on x86_64 Macs.

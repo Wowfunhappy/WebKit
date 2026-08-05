@@ -259,6 +259,31 @@ WK_POLYFILL_SIBLING="$OBJ/wk_polyfill_sibling.dylib" "$OBJ/wk_polyfill_test"
     -framework AppKit -framework Foundation -lobjc
 "$OBJ/wk_scrollview_insets"
 
+# Two probes that link the SHIPPED archive and call the polyfilled symbols exactly as WebKit will.
+# Linked WITHOUT -force_load: the linker then pulls exactly the archive members that define the
+# symbols each probe calls (system-spi.o and the mechanism it needs), rather than the whole layer
+# and every vendored dependency the rest of it references. What runs is still the shipped object
+# code out of the shipped archive, which is the point.
+POLYFILL_PROBE_LIBS="$OUT/libpolyfill.a
+    -framework Foundation -framework CoreFoundation -framework Security -framework CoreMedia
+    -lsqlite3 -lbsm -lsandbox -lobjc"
+
+# dispatch_activate must resume each object exactly once, and the mark that makes that "once" true
+# has to be keyed to the object rather than to its address: dispatch_source_create() returns a
+# SUSPENDED source and the allocator recycles addresses immediately, so an address-keyed mark
+# silently refuses to resume recycled sources and their timers never fire.
+"$CLANG" $SDKCF -fno-objc-arc \
+    -o "$OBJ/wk_dispatch_activate" "$POLY/tests/wk_dispatch_activate.m" $POLYFILL_PROBE_LIBS
+"$OBJ/wk_dispatch_activate"
+
+# SecTaskCopySigningIdentifier / SecTaskGetCodeSignStatus answer "who is on the other end of this
+# connection?" for CodeSigning.mm, and PushClientConnection::create() REJECTS a client whose
+# identifier comes back empty — so a stub returning NULL is webpushd refusing every connection, not
+# a degraded answer. This probe requires a real identifier for a real process.
+"$CLANG" $SDKCF -fno-objc-arc \
+    -o "$OBJ/wk_sectask_identity" "$POLY/tests/wk_sectask_identity.m" $POLYFILL_PROBE_LIBS
+"$OBJ/wk_sectask_identity"
+
 echo "### shadow check"
 # The self-test above covers what the registry guarantees. Plenty of what these archives ship carries
 # no registry entry and gets none of it -- legacy-support/src, polyfills/shared, the mechanism itself

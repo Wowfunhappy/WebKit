@@ -17,12 +17,13 @@
        daemon through its MachService; here the daemon IS the transport, so it has to be resident
        to hold the WebSocket open and receive pushes while Safari is closed. It stays cheap for
        users who never subscribe: the connection is opened only once a subscription exists, so an
-       idle daemon holds no socket, and EnablePressuredExit + EnableTransactions (backed by the
-       daemon's own os_transaction use) still let launchd reap it under memory pressure. -->
+       idle daemon holds no socket.
+     - No EnablePressuredExit. 10.9's launchd predates pressured exit and rejects the key with an
+       "Unknown key for boolean" warning at every load. EnableTransactions (backed by the daemon's
+       own os_transaction use) is understood on 10.9 and marks the daemon clean when it holds no
+       transaction, so launchd can terminate it safely. -->
 <plist version="1.0">
 <dict>
-	<key>EnablePressuredExit</key>
-	<true/>
 	<key>EnableTransactions</key>
 	<true/>
 	<key>KeepAlive</key>

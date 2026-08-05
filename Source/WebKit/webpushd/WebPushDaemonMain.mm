@@ -100,13 +100,7 @@ namespace WebKit {
 
 static void applySandbox()
 {
-#if PLATFORM(MAC) && USE(MOZILLA_PUSH_SERVICE)
-    // MAVERICKS_BACKPORT: like every WebKit child process on this port, webpushd runs
-    // unsandboxed — 10.9's sandbox compiler rejects the generated profile at "unbound
-    // variable: nvram*" (operations postdating this OS's vocabulary), and
-    // applySandboxProfileForDaemon RELEASE_ASSERTs rather than continue. Same gap and
-    // rationale as the skipped initializeSandbox() in Shared/AuxiliaryProcess.cpp.
-#elif PLATFORM(MAC)
+#if PLATFORM(MAC)
 #if ENABLE(RELOCATABLE_WEBPUSHD)
     static ASCIILiteral profileName = "/com.apple.WebKit.webpushd.relocatable.mac.sb"_s;
     static ASCIILiteral userDirectorySuffix = "com.apple.webkit.webpushd.relocatable"_s;

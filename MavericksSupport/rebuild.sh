@@ -197,6 +197,16 @@ if [ "$RC" = 0 ]; then
     bash "$ROOT/MavericksSupport/scripts/check-absent-references.sh" || RC=$?
 fi
 
+# Sandbox-profile audit — the same shape of failure as the weak-import audit above, one layer down.
+# A profile that 10.9's sandbox cannot compile is not a warning: initializeSandbox() CRASH()es on a
+# profile it cannot apply, so the WebContent process dies at launch. This compiles each shipped
+# profile with the real sandbox_compile_file() and confirms the two recovered ones are still the
+# upstream policy they claim to be.
+if [ "$RC" = 0 ]; then
+    echo "### sandbox-profile audit"
+    bash "$ROOT/MavericksSupport/sandbox/scripts/check-sandbox-profiles.sh" || RC=$?
+fi
+
 # The one and only "REBUILD DONE" — everything, staging included, is finished by this point, so it is
 # the signal to wait for before installing.
 echo "==================== REBUILD DONE (rc=$RC) ===================="

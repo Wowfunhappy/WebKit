@@ -1,0 +1,33 @@
+; MAVERICKS_BACKPORT: what this port's Networking process needs beyond the recovered 2015 profile.
+;
+; Same arrangement and the same rules as com.apple.WebProcess.additions.sb, which carries the full
+; note: the base profile stays byte-identical to upstream at aab061ff1301, this file is appended
+; after it, every grant traces to an observed denial, and every grant is one upstream's CURRENT
+; profile also makes.
+;
+; NOT granted, because the denials turned out to be correct and upstream denies them too:
+;   - com.apple.CoreServices.coreservicesd  (upstream: deny with no-report)
+;   - com.apple.metadata.mds and the /Applications/... walk  (LaunchServices scanning the disk)
+;   - ~/Library/Preferences/com.apple.LaunchServices.plist  (upstream's shared-preferences-read set
+;     for this process does not include LaunchServices)
+;
+; The /Applications walk deserves a note because it is loud: Launch Services scans every app bundle
+; once as this process starts, and each read is denied and logged -- roughly 240 lines per launch.
+; It is bounded (one pass, at startup), nothing depends on its result, and it happens with or
+; without the launchservicesd grant below. Left un-silenced deliberately: a (with no-log) here would
+; also hide any future denial in the same area, and this process reading the installed applications
+; is exactly the kind of thing worth still being told about.
+
+;; Web Push. The Networking process hands push subscriptions and messages to webpushd over this
+;; service; without it Web Push cannot work at all. webpushd postdates the 2015 profile entirely.
+;; Upstream's current profile grants both names; this build sets ENABLE_RELOCATABLE_WEBPUSHD, so
+;; the relocatable one is the service that actually gets looked up.
+(allow mach-lookup
+    (global-name "com.apple.webkit.webpushd.relocatable.service"))
+
+;; Launch Services check-in. AuxiliaryProcess::launchServicesCheckIn() and the
+;; _LSSetApplicationInformationItem() call in NetworkProcess::initializeProcessName() -- which is
+;; what gives the process its "<app> Networking" name in Activity Monitor -- both need this.
+;; Upstream's current profile grants it; in 2015 this process did not check in.
+(allow mach-lookup
+    (global-name "com.apple.coreservices.launchservicesd"))

@@ -85,48 +85,24 @@ void AuxiliaryProcess::didClose(IPC::Connection&)
 
 void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& parameters)
 {
-// MAVERICKS_BACKPORT: initialize() is reworked for 10.9 multi-instance bring-up (see markers below):
-// re-entry guard, optional process identifier, sandbox skipped (with evidence), main-RunLoop connection
-// open.
     TraceScope traceScope(ProcessInitializeStart, ProcessInitializeEnd);
-
-    // MAVERICKS_BACKPORT: Safari sends a second XPC bootstrap message after the first
-    // initialize completes. Calling initialize twice re-lazyInitializes the already-set
-    // m_connection (RELEASE_ASSERT — SIGTRAP). Guard via the m_connection check (the
-    // function-local static fired too early in Safari's multi-instance bring-up).
-    if (m_connection)
-        return;
 
     WTF::RefCountDebuggerBase::enableThreadingChecksGlobally();
 
 #if PLATFORM(COCOA)
     // On Cocoa platforms, setAuxiliaryProcessType() is called in XPCServiceInitializer().
     ASSERT(processType() == parameters.processType);
-    // MAVERICKS_BACKPORT: the non-Cocoa #else branch (setAuxiliaryProcessType(parameters.processType))
-    // is dropped here — on 10.9 this only ever runs the Cocoa path.
+#else
+    setAuxiliaryProcessType(parameters.processType);
 #endif
 
-    // MAVERICKS_BACKPORT: upstream RELEASE_ASSERTs on a missing process identifier; the 10.9
-    // multi-instance bring-up can initialize without one, so set it only when present.
-    if (parameters.processIdentifier)
-        Process::setIdentifier(*parameters.processIdentifier);
+    RELEASE_ASSERT_WITH_MESSAGE(parameters.processIdentifier, "Unable to initialize child process without a WebCore process identifier");
+    Process::setIdentifier(*parameters.processIdentifier);
 
     platformInitialize(parameters);
 
-    // MAVERICKS_BACKPORT: upstream follows platformInitialize() with
-    //
-    //     SandboxInitializationParameters sandboxParameters;
-    //     initializeSandbox(parameters, sandboxParameters);
-    //
-    // which is skipped here: 10.9's sandbox cannot compile the WebContent profile WebKit ships. This is a
-    // profile-language gap, not an absent-API one -- 10.9 has the full, working compiler
-    // (sandbox_compile_file / _string / sandbox_apply, present in /usr/lib/libsandbox.1.dylib). Feeding
-    // the generated com.apple.WebProcess.sb to the real sandbox_compile_string() fails at
-    // "line 47: unbound variable: nvram*": operations the 63 KB profile names (nvram*, system-privilege,
-    // and more) postdate this OS's sandbox operation vocabulary. Rewriting the profile against 10.9's
-    // vocabulary would be a large permanent divergence, and upstream's initializeSandbox() CRASH()es
-    // rather than continue when a profile will not apply. Child processes therefore run unsandboxed on
-    // this port.
+    SandboxInitializationParameters sandboxParameters;
+    initializeSandbox(parameters, sandboxParameters);
 
     initializeProcess(parameters);
 
@@ -145,11 +121,7 @@ void AuxiliaryProcess::initialize(AuxiliaryProcessInitializationParameters&& par
     Ref connection = IPC::Connection::createClientConnection(WTF::move(parameters.connectionIdentifier));
     lazyInitialize(m_connection, connection.copyRef());
     initializeConnection(connection.ptr());
-    // MAVERICKS_BACKPORT: AuxiliaryProcess::initialize runs on a dispatch worker thread, so
-    // the default Connection::open(Client&) — which uses RunLoop::currentSingleton() as
-    // dispatcher — would bind dispatch to a worker-thread RunLoop nobody pumps. Force the
-    // main RunLoop so message dispatch reaches WebPage etc.
-    connection->open(*this, RunLoop::mainSingleton());
+    connection->open(*this);
 }
 
 void AuxiliaryProcess::setProcessSuppressionEnabled(bool enabled)

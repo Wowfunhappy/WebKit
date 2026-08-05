@@ -1,0 +1,38 @@
+; MAVERICKS_BACKPORT: what this port's WebContent process needs beyond the recovered 2015 profile.
+;
+; The base profile next to this file is byte-identical to upstream at aab061ff1301 and stays that
+; way, so everything this port adds lives here, appended after it by the CMake rule. Sandbox rules
+; are evaluated in order with later ones winning, so these grants sit after the base profile's
+; (deny default) exactly as if they had been written at its end.
+;
+; Every rule below exists because a sandboxd denial proved the modern engine needs it, and every
+; one is a capability upstream's CURRENT profile also grants — this is the engine having moved on
+; between 2015 and 615, not this port loosening anything. Nothing here is granted speculatively.
+;
+; NOT granted, because the denials turned out to be correct and nothing is lost by denying them.
+; Each was checked rather than assumed:
+;   - com.apple.CoreServices.coreservicesd -- upstream's current profile denies it too, with
+;     no-report.
+;   - com.apple.metadata.mds, and the /Applications/... walk -- Launch Services scanning the disk.
+;     No business in a web content process; upstream grants neither.
+;   - /tmp/com.apple.csseed.<uid> -- CommonCrypto's seed segment. Falls back to /dev/random, and
+;     stock Safari 7.0.6's own profile denied it as well.
+;   - $HOME/orcexec.XXXXXX, and the process-fork beside it -- ORC (GStreamer's SIMD JIT) probes
+;     TMPDIR, then $HOME, before falling back to an anonymous PROT_EXEC mapping. Verified under this
+;     exact profile that the fallback still yields native code (orc_program_compile returns
+;     ORC_COMPILE_RESULT_OK), so the denied probe costs nothing. Granting a home-directory write for
+;     an executable file would be a far worse trade than the one it buys.
+
+;; CoreAnimation's render server. Upstream's current profile allows this unconditionally on macOS
+;; (com.apple.WebProcess.sb.in, the #else of the BlockIOKitInWebContentSandbox state-flag check);
+;; the 2015 profile predates WebKit needing it directly and relied on windowserver.active alone.
+(allow mach-lookup
+    (global-name "com.apple.CARenderServer"))
+
+;; The WebProcess' in-memory cookie cache opens a private CFURL storage session, and CFNetwork
+;; backs it with a POSIX shared-memory segment named after the session. The base profile already
+;; grants exactly this for the session names of its day ("FNetwork.defaultStorageSession",
+;; ".PrivateBrowsing-", "WebKit Test-"); WebCookieCacheCocoa.mm now builds the name as
+;; "WebKitInProcessStorage-<pid>", so this is the same grant under the current name.
+(allow ipc-posix-shm-read-data
+    (ipc-posix-name-regex #"^WebKitInProcessStorage-"))

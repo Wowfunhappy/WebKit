@@ -849,29 +849,51 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
     endif ()
 
     set(WebKit_RESOURCES_DIR ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/WebKit.framework/Versions/A/Resources)
+    # MAVERICKS_BACKPORT: the profiles come from MavericksSupport/sandbox/ rather than the .sb.in
+    # files beside the process sources. 10.9's sandbox compiler has a smaller operation vocabulary
+    # than the profiles modern WebKit ships, which it rejects outright ("unbound variable: nvram*"),
+    # so this port applies the last upstream profiles written for this OS instead. The rules and
+    # output names are otherwise upstream's; MavericksSupport/sandbox/README.md has the provenance.
+    #
+    # MAVERICKS_BACKPORT: -mmacosx-version-min=10.9 on every rule below. These profiles select rules
+    # on __MAC_OS_X_VERSION_MIN_REQUIRED, and this command runs a bare `clang` off PATH rather than
+    # the toolchain compiler -- so without the flag the deployment target comes from whichever clang
+    # is found. A 10.10+ answer silently emits `xattr-regex` in place of `xattr`, which 10.9's
+    # sandbox cannot compile, and initializeSandbox() CRASH()es on a profile it cannot apply.
+    # MAVERICKS_BACKPORT: each recovered profile is `cat`ed together with its .additions.sb before
+    # preprocessing. The recovered halves stay byte-identical to upstream at aab061ff1301 (checked by
+    # MavericksSupport/sandbox/scripts/check-sandbox-profiles.sh), so what this port adds is readable
+    # in one place rather than interleaved into upstream policy. Sandbox rules are evaluated in
+    # order with later ones winning, so appending is the same as writing them at the profile's end.
     add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb COMMAND
-        grep -o "^[^;]*" ${WEBKIT_DIR}/WebProcess/com.apple.WebProcess.sb.in | clang -E -P -w -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb
+        cat ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebProcess.additions.sb | grep -o "^[^;]*" | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb
         # MAVERICKS_BACKPORT: DEPENDS so edits to the .sb.in source retrigger this rule.
-        DEPENDS ${WEBKIT_DIR}/WebProcess/com.apple.WebProcess.sb.in
+        DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebProcess.additions.sb
         VERBATIM)
     list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb)
 
     add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb COMMAND
-        grep -o "^[^;]*" ${WEBKIT_DIR}/NetworkProcess/mac/com.apple.WebKit.NetworkProcess.sb.in | clang -E -P -w -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb
+        cat ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.additions.sb | grep -o "^[^;]*" | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb
+        DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.additions.sb
         VERBATIM)
     list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb)
 
     if (ENABLE_GPU_PROCESS)
         add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb COMMAND
-            grep -o "^[^;]*" ${WEBKIT_DIR}/GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in | clang -E -P -w -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb
+            grep -o "^[^;]*" ${WEBKIT_DIR}/GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb
             VERBATIM)
         list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb)
     endif ()
     if (ENABLE_WEB_PUSH_NOTIFICATIONS)
-        add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.mac.sb COMMAND
-            grep -o "^[^;]*" ${WEBKIT_DIR}/webpushd/mac/com.apple.WebKit.webpushd.mac.sb.in | clang -E -P -w -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.mac.sb
+        # MAVERICKS_BACKPORT: emit the RELOCATABLE profile name. ENABLE_RELOCATABLE_WEBPUSHD is set
+        # for this port, so applySandbox() in WebPushDaemonMain.mm looks for
+        # com.apple.WebKit.webpushd.relocatable.mac.sb; the plain .mac.sb name upstream's CMake
+        # emits is the one that build never asks for.
+        add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.relocatable.mac.sb COMMAND
+            grep -o "^[^;]*" ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.webpushd.relocatable.mac.sb.in | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.relocatable.mac.sb
+            DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.webpushd.relocatable.mac.sb.in
             VERBATIM)
-        list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.mac.sb)
+        list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.relocatable.mac.sb)
     endif ()
     add_custom_target(WebKitSandboxProfiles ALL DEPENDS ${WebKit_SB_FILES})
     add_dependencies(WebKit WebKitSandboxProfiles)

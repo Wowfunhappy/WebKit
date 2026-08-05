@@ -165,8 +165,7 @@ static ASCIILiteral webContentServiceName(const ProcessLauncher::LaunchOptions& 
     if (useEnhancedSecurity)
         return "com.apple.WebKit.WebContent.EnhancedSecurity"_s;
 
-    // MAVERICKS_BACKPORT: on 10.9, the staged XPC service has no ".Development" variant, so always use the production service name.
-    return "com.apple.WebKit.WebContent"_s;
+    return launchOptions.nonValidInjectedCodeAllowed ? "com.apple.WebKit.WebContent.Development"_s : "com.apple.WebKit.WebContent"_s;
 }
 
 static ASCIILiteral serviceName(const ProcessLauncher::LaunchOptions& launchOptions, ProcessLauncher::Client* client)
@@ -290,13 +289,7 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
     uuid_t uuid;
     uuid_generate(uuid);
 
-    // MAVERICKS_BACKPORT: xpc_connection_set_oneshot_instance is 10.10+; use the 10.9-exported
-    // predecessor xpc_connection_set_instance() with this fresh per-connection UUID so each
-    // WebContent/Network/GPU connection targets its OWN service instance (a distinct
-    // process) instead of all collapsing onto one singleton. This restores multi-process
-    // launching (see the declaration above for why it was broken).
-    if (m_xpcConnection)
-        xpc_connection_set_instance(m_xpcConnection.get(), uuid);
+    xpc_connection_set_oneshot_instance(m_xpcConnection.get(), uuid);
 
     // Inherit UI process localization. It can be different from child process default localization:
     // 1. When the application and system frameworks simply have different localized resources available, we should match the application.
@@ -305,14 +298,8 @@ void ProcessLauncher::finishLaunchingProcess(ASCIILiteral name)
 #if !USE(EXTENSIONKIT)
     // FIXME: This is a false positive. <rdar://164843889>
     SUPPRESS_RETAINPTR_CTOR_ADOPT auto initializationMessage = adoptOSObject(xpc_dictionary_create(nullptr, nullptr, 0));
-    // MAVERICKS_BACKPORT: _CFBundleSetupXPCBootstrap and xpc_connection_set_bootstrap are
-    // 10.10+; skip them on 10.9. The bootstrap dictionary is delivered separately via
-    // xpc_connection_send_message below.
-    // _CFBundleSetupXPCBootstrap is 10.10+; skip on 10.9.
-    // _CFBundleSetupXPCBootstrap(initializationMessage.get());
-    // xpc_connection_set_bootstrap is 10.10+; skip on 10.9.
-    // The bootstrap message is sent separately via xpc_connection_send_message below.
-    // xpc_connection_set_bootstrap(m_xpcConnection.get(), initializationMessage.get());
+    _CFBundleSetupXPCBootstrap(initializationMessage.get());
+    xpc_connection_set_bootstrap(m_xpcConnection.get(), initializationMessage.get());
 #endif
 
     // Create the listening port.

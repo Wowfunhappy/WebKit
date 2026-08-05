@@ -12,6 +12,11 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
 #include <CommonCrypto/CommonCrypto.h>
+#include <errno.h>
+#include <malloc/malloc.h>
+#include <objc/runtime.h>
+#include <xpc/xpc.h>
+#include <uuid/uuid.h>
 #include <pthread.h>
 #include <sqlite3.h>
 #include <stdbool.h>
@@ -688,26 +693,200 @@ WK_POLYFILL_ABSENT("Security", CFDateRef, SecCertificateCopyNotValidAfterDate, (
     return mav_copyCertificateValidityDate(certificate, "kSecOIDX509V1ValidityNotAfter", &oidCache);
 }
 
-// Process signing identifier. Absent on 10.9; callers use it for telemetry/diagnostics and accept null.
-WK_POLYFILL_ABSENT("Security", CFStringRef, SecTaskCopySigningIdentifier, (SecTaskRef task, CFErrorRef *error))
+// ---------------------------------------------------------------------------------------------------
+// Security — the two SecTask code-signing queries absent on 10.9.
+//
+// 10.9 has SecTaskCreateFromSelf / SecTaskCreateWithAuditToken / SecTaskCopyValueForEntitlement, but
+// neither SecTaskCopySigningIdentifier (10.11+) nor SecTaskGetCodeSignStatus. Both are fully
+// answerable here, because the kernel holds the answers and csops(2) hands them over: this is the
+// same source 10.9's own SecTaskCopyValueForEntitlement reads. Neither touches the target's files,
+// which matters -- the alternative of verifying a client's signature from its bundle on disk is what
+// once forced a sandboxed webpushd to be granted read access to every application on the machine.
+//
+// The one thing these need that the public API does not give is the pid a SecTaskRef names.
+// 10.9's SecTaskCreateWithAuditToken reduces the audit token to a pid and stores just that, so the
+// pid IS in the object and dies with it -- no side table, and none of the lifetime hazard a table
+// keyed by the SecTaskRef pointer would carry. The offset is found by CALIBRATION rather than
+// assumed: build SecTasks from two synthetic tokens carrying distinctive pids and take the offset
+// only if both agree. If calibration fails, these report failure; they never invent an answer.
+// ---------------------------------------------------------------------------------------------------
+
+extern int csops(pid_t, unsigned int ops, void *useraddr, size_t usersize);
+
+enum {
+    MAV_CS_OPS_STATUS = 0,
+    MAV_CS_OPS_BLOB = 10,
+};
+
+// Offset of the pid inside a 10.9 __SecTask, or -1 if it could not be established.
+static long mav_secTaskPidOffsetValue = -1;
+
+static void mav_calibrateSecTaskPidOffset(void)
 {
-    (void)task;
-    mav_reportUnimplemented(error);
-    return NULL;
+    // Two values implausible as anything else in the object.
+    const uint32_t probes[2] = { 0x5a5a5a5a, 0x0badf00d };
+    long candidates[2] = { -1, -1 };
+    for (unsigned i = 0; i < 2; ++i) {
+        audit_token_t token;
+        memset(&token, 0, sizeof(token));
+        token.val[5] = probes[i]; // audit_token_to_pid() reads val[5]
+        SecTaskRef task = SecTaskCreateWithAuditToken(kCFAllocatorDefault, token);
+        if (!task)
+            return;
+        // Bound the scan by the object's real allocation -- a fixed guess would read past the end
+        // on exactly the path this calibration exists to detect, where the layout has changed and
+        // the pid is not found at all.
+        const unsigned char *bytes = (const unsigned char *)task;
+        long limit = (long)malloc_size(task);
+        for (long candidate = 0; candidate + (long)sizeof(uint32_t) <= limit; candidate += sizeof(uint32_t)) {
+            uint32_t value;
+            memcpy(&value, bytes + candidate, sizeof(value));
+            if (value == probes[i]) {
+                candidates[i] = candidate;
+                break;
+            }
+        }
+        CFRelease(task);
+    }
+
+    // Only trust an offset both probes agree on; otherwise leave it at -1 and report failure.
+    if (candidates[0] >= 0 && candidates[0] == candidates[1])
+        mav_secTaskPidOffsetValue = candidates[0];
 }
 
-// Code-sign status flags. WebKit tests `& CS_PLATFORM_BINARY`; our frameworks are not platform
-// binaries on 10.9, so report no flags (matches the behavior the prior build relied on).
-// The 26.1 SDK declares this one __API_UNAVAILABLE(macos), which makes even taking its address an
-// error; re-declare it as available so the registry entry below can point at it.
+static long mav_secTaskPidOffset(void)
+{
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, mav_calibrateSecTaskPidOffset);
+    return mav_secTaskPidOffsetValue;
+}
+
+static pid_t mav_pidForSecTask(SecTaskRef task)
+{
+    long offset = mav_secTaskPidOffset();
+    if (!task || offset < 0)
+        return -1;
+    uint32_t pid;
+    memcpy(&pid, (const unsigned char *)task + offset, sizeof(pid));
+    return (pid_t)pid;
+}
+
+// Read a process's code signature blob. The kernel states the size itself: given a buffer of at
+// least the 8-byte SuperBlob header it fails with ERANGE and copies that header out, whose second
+// big-endian word is the length of the whole blob. So ask once for the length, then once for the
+// data -- no growth loop, no ceiling, and *outSize is the length of the DATA rather than of some
+// buffer that happened to be big enough, which is what keeps the parser's bounds honest.
+//
+// A target with no code signature at all fails with EINVAL at every size; there is genuinely no
+// identifier to report for one, so that is a false return rather than something to retry around.
+static bool mav_copyCodeSignatureBlob(pid_t pid, unsigned char **outBlob, size_t *outSize)
+{
+    unsigned char header[2 * sizeof(uint32_t)];
+    memset(header, 0, sizeof(header));
+    if (!csops(pid, MAV_CS_OPS_BLOB, header, sizeof(header)))
+        return false; // A blob that fits in 8 bytes is not one; refuse rather than parse it.
+    if (errno != ERANGE)
+        return false;
+
+    uint32_t length;
+    memcpy(&length, header + sizeof(uint32_t), sizeof(length));
+    length = OSSwapBigToHostInt32(length);
+    if (length < sizeof(header))
+        return false;
+
+    unsigned char *blob = malloc(length);
+    if (!blob)
+        return false;
+    if (csops(pid, MAV_CS_OPS_BLOB, blob, length)) {
+        free(blob);
+        return false;
+    }
+
+    *outBlob = blob;
+    *outSize = length;
+    return true;
+}
+
+static uint32_t mav_readBigEndian32(const unsigned char *blob, size_t size, size_t offset, bool *ok)
+{
+    if (offset + sizeof(uint32_t) > size) {
+        *ok = false;
+        return 0;
+    }
+    uint32_t value;
+    memcpy(&value, blob + offset, sizeof(value));
+    return OSSwapBigToHostInt32(value);
+}
+
+WK_POLYFILL_ABSENT("Security", CFStringRef, SecTaskCopySigningIdentifier, (SecTaskRef task, CFErrorRef *error))
+{
+    // A code signature is a SuperBlob of sub-blobs; the signing identifier lives in the
+    // CodeDirectory at its identOffset. Every header field is big-endian.
+    const uint32_t superBlobMagic = 0xfade0cc0;
+    const uint32_t codeDirectoryMagic = 0xfade0c02;
+
+    pid_t pid = mav_pidForSecTask(task);
+    unsigned char *blob = NULL;
+    size_t size = 0;
+    if (pid < 0 || !mav_copyCodeSignatureBlob(pid, &blob, &size)) {
+        mav_reportUnimplemented(error);
+        return NULL;
+    }
+
+    bool ok = true;
+    size_t codeDirectory = 0;
+    uint32_t magic = mav_readBigEndian32(blob, size, 0, &ok);
+    if (ok && magic == superBlobMagic) {
+        uint32_t count = mav_readBigEndian32(blob, size, 2 * sizeof(uint32_t), &ok);
+        bool found = false;
+        for (uint32_t i = 0; ok && i < count; ++i) {
+            // Each CS_BlobIndex is { type, offset }, after the 3-word SuperBlob header.
+            size_t indexOffset = 3 * sizeof(uint32_t) + (size_t)i * 2 * sizeof(uint32_t) + sizeof(uint32_t);
+            uint32_t blobOffset = mav_readBigEndian32(blob, size, indexOffset, &ok);
+            if (ok && mav_readBigEndian32(blob, size, blobOffset, &ok) == codeDirectoryMagic) {
+                codeDirectory = blobOffset;
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            ok = false;
+    } else if (!ok || magic != codeDirectoryMagic)
+        ok = false;
+
+    CFStringRef identifier = NULL;
+    if (ok) {
+        // CS_CodeDirectory: magic, length, version, flags, hashOffset, identOffset, ...
+        uint32_t identifierOffset = mav_readBigEndian32(blob, size, codeDirectory + 5 * sizeof(uint32_t), &ok);
+        size_t start = codeDirectory + identifierOffset;
+        if (ok && start < size) {
+            size_t available = size - start;
+            size_t length = strnlen((const char *)blob + start, available);
+            if (length && length < available)
+                identifier = CFStringCreateWithBytes(kCFAllocatorDefault, blob + start, length, kCFStringEncodingUTF8, false);
+        }
+    }
+
+    free(blob);
+    if (!identifier)
+        mav_reportUnimplemented(error);
+    return identifier;
+}
+
+// Code-sign status flags; WebKit tests `& CS_PLATFORM_BINARY`. The 26.1 SDK declares this
+// __API_UNAVAILABLE(macos), which makes even taking its address an error, so re-declare it as
+// available for the registry entry below.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wavailability"
 __attribute__((availability(macos, introduced=10.0))) uint32_t SecTaskGetCodeSignStatus(SecTaskRef task);
 #pragma clang diagnostic pop
 WK_POLYFILL_ABSENT("Security", uint32_t, SecTaskGetCodeSignStatus, (SecTaskRef task))
 {
-    (void)task;
-    return 0;
+    pid_t pid = mav_pidForSecTask(task);
+    uint32_t status = 0;
+    if (pid < 0 || csops(pid, MAV_CS_OPS_STATUS, &status, sizeof(status)))
+        return 0;
+    return status;
 }
 
 // SecTrust IPC serialization (12.0+). A serialized trust has to carry the state a receiver needs to
@@ -1036,6 +1215,21 @@ WK_POLYFILL_ABSENT("/usr/lib/libsqlite3.dylib", int, sqlite3_bind_blob64,
 
 typedef struct { unsigned int val[8]; } mav_audit_token_t;
 
+#include <stdarg.h>
+
+// The pid-keyed sandbox check: present on 10.9 in libsystem_sandbox.dylib, which every process has
+// loaded through libSystem, but SPI that this SDK's <sandbox.h> does not declare and its libSystem
+// stub library does not necessarily list. Soft-linked through RTLD_DEFAULT so a link-time reference
+// cannot fail in the host tools that force-load this archive. The signature matches
+// Source/WTF/wtf/spi/darwin/SandboxSPI.h, with the filter-type enum spelled as the int it promotes to.
+WK_SYSTEM_FN(NULL, int, sandbox_check, (pid_t, const char *operation, int type, ...));
+
+// audit_token_to_pid() is soft-linked rather than linked: it lives in libbsm, which this archive's
+// consumers do not otherwise pull in, and a link-time reference would make every small host tool
+// that force-loads libpolyfill (LLIntSettingsExtractor and friends) need -lbsm. audit_token_t is
+// laid out identically to mav_audit_token_t, so it is passed by value unchanged.
+WK_SYSTEM_FN("/usr/lib/libbsm.dylib", pid_t, audit_token_to_pid, (mav_audit_token_t));
+
 // State-dump (sysdiagnose) handler registration. None on 10.9; return a null handle.
 WK_POLYFILL_ABSENT(NULL, unsigned long, os_state_add_handler, (void *queue, void *handler))
 {
@@ -1043,13 +1237,40 @@ WK_POLYFILL_ABSENT(NULL, unsigned long, os_state_add_handler, (void *queue, void
     return 0;
 }
 
-// Audit-token sandbox checks (newer than the pid-based sandbox_check on 10.9). WebKit child processes
-// run without the fine-grained profile on this backport, so report "permitted/not-restricted" (0),
-// matching the pid-based path's behavior for an unsandboxed process.
+// Audit-token sandbox checks. 10.9 has the real check, just keyed by pid (sandbox_check, in
+// libsystem_sandbox.dylib) rather than by audit token, so this asks it the same question about the
+// pid the token names. audit_token_to_pid() is the standard accessor and is present here.
+//
+// The answer is therefore the kernel's, for any caller: sandbox_check() reports 0 when the target
+// is permitted the operation (including when it is unsandboxed) and nonzero when the sandbox
+// denies it. Callers depend on that being real -- connectedProcessIsSandboxed() in
+// Shared/Cocoa/SandboxUtilities.mm, XPCServiceInitializerDelegate::checkEntitlements(), and
+// isNetworkAccessBlockedInUIProcess() all decide on it.
+//
+// The variadic tail is the filter argument. With no operation, or with SANDBOX_FILTER_NONE, the
+// query is "is this process sandboxed at all" and there is no filter to pass; every other filter
+// type takes exactly one pointer.
 WK_POLYFILL_ABSENT(NULL, int, sandbox_check_by_audit_token, (mav_audit_token_t token, const char *operation, int type, ...))
 {
-    (void)token; (void)operation; (void)type;
-    return 0;
+    // SANDBOX_FILTER_NONE is 0; the flag bits (SANDBOX_CHECK_NO_REPORT and friends) live in the
+    // high bits of the same argument and must be preserved when forwarding.
+    enum { MAV_SANDBOX_FILTER_TYPE_MASK = 0xff };
+
+    // Without either half there is no way to answer; report the error rather than invent a verdict.
+    if (!WK_SYSTEM(audit_token_to_pid) || !WK_SYSTEM(sandbox_check))
+        return -1;
+    pid_t pid = WK_SYSTEM(audit_token_to_pid)(token);
+    if (pid <= 0)
+        return -1;
+
+    if (!operation || !(type & MAV_SANDBOX_FILTER_TYPE_MASK))
+        return WK_SYSTEM(sandbox_check)(pid, operation, type);
+
+    va_list arguments;
+    va_start(arguments, type);
+    const void *filter = va_arg(arguments, const void *);
+    va_end(arguments);
+    return WK_SYSTEM(sandbox_check)(pid, operation, type, filter);
 }
 
 WK_POLYFILL_ABSENT(NULL, bool, sandbox_enable_state_flag, (const char *name, mav_audit_token_t token))
@@ -1700,6 +1921,57 @@ WK_POLYFILL_ABSENT(NULL, void, os_release, (void *object))
         WK_SYSTEM(dispatch_release)(object);
 }
 
+// ---------------------------------------------------------------------------------------------------
+// libxpc / CoreFoundation — the XPC bootstrap-dictionary channel, absent on 10.9.
+//
+// Modern WebKit hands a child its launch parameters as a "bootstrap dictionary" attached to the
+// connection itself: the UI process fills one in and calls xpc_connection_set_bootstrap(), and the
+// child reads it back with xpc_copy_bootstrap(). 10.9's libxpc has NO such channel -- verified with
+// nm: xpc_copy_bootstrap, xpc_connection_set_bootstrap and _CFBundleSetupXPCBootstrap are all
+// absent, while xpc_connection_set_instance IS present.
+//
+// "Absent, and no equivalent exists" is the honest answer for all three, and it is correct for any
+// caller rather than for WebKit's in particular: a NULL bootstrap dictionary is exactly what a
+// process that was never given one has, and every caller must already handle that (WebKit's own
+// `if (bootstrap)` block simply does not run). The launch parameters still reach the child -- the
+// port sends the same dictionary as an ordinary "bootstrap" message instead, which is the
+// mechanism upstream itself used before set_bootstrap existed.
+// ---------------------------------------------------------------------------------------------------
+
+// A process on 10.9 never has a bootstrap dictionary, so report the absence rather than invent one.
+WK_POLYFILL_ABSENT(NULL, xpc_object_t, xpc_copy_bootstrap, (void))
+{
+    return NULL;
+}
+
+WK_POLYFILL_ABSENT(NULL, void, xpc_connection_set_bootstrap, (xpc_connection_t connection, xpc_object_t bootstrap))
+{
+    (void)connection; (void)bootstrap;
+}
+
+// Fills a bootstrap dictionary with the caller bundle's identity. With no bootstrap channel there is
+// nothing to fill in; the dictionary the caller passes is simply left as it was.
+WK_POLYFILL_ABSENT("CoreFoundation", void, _CFBundleSetupXPCBootstrap, (xpc_object_t bootstrap))
+{
+    (void)bootstrap;
+}
+
+// xpc_connection_set_oneshot_instance (10.10+) targets a connection at a service instance that is
+// torn down when the connection goes away. 10.9 has its predecessor xpc_connection_set_instance,
+// which targets the same per-UUID instance; what it lacks is only the automatic teardown, and the
+// instance still dies with the service process. Both take the caller's UUID, so this is a rename
+// plus a lifetime nicety, not a missing capability -- and forwarding is correct for any caller,
+// since a caller that passes a fresh UUID (which is what "oneshot" is for) gets its own instance
+// either way.
+extern void xpc_connection_set_instance(xpc_connection_t, uuid_t);
+
+WK_POLYFILL_ABSENT(NULL, void, xpc_connection_set_oneshot_instance, (xpc_connection_t connection, uuid_t instance))
+{
+    if (!connection)
+        return;
+    xpc_connection_set_instance(connection, instance);
+}
+
 // os_transaction_create (10.10+). The XPC service entry point (Shared/EntryPointUtilities/Cocoa/
 // XPCService/XPCServiceEntryPoint) creates one os_transaction to keep the child process alive across
 // its initializer; on 10.9 that symbol is absent from libSystem, so every WebContent/Networking/GPU
@@ -1728,17 +2000,24 @@ WK_POLYFILL_ABSENT(NULL, void, voucher_replace_default_voucher, (void))
 // dispatch_activate (10.11+). A dispatch source/queue created suspended is started with either
 // dispatch_activate (one-way, idempotent "make active") or dispatch_resume; on a freshly-created object
 // that the caller has not otherwise suspended they are equivalent, and dispatch_resume is present on
-// 10.9. WebKit's callers activate once, immediately after configuring a source — e.g.
-// VideoMediaSampleRenderer.mm creates a DISPATCH_SOURCE_TYPE_TIMER and calls dispatch_activate on it —
-// so forwarding to dispatch_resume reproduces the real behaviour. (Not idempotent the way activate is,
-// but WebKit never activates the same object twice.) Without this, the absent symbol lazy-bind-crashed
-// the process on the renderer's timer setup. The signature must match <dispatch/dispatch.h>'s
-// declaration (dispatch_object_t, not void*), which is present in the SDK even though the symbol is not
-// on 10.9; dispatch_resume IS on 10.9 and lives in always-linked libdispatch, so a direct call is safe.
+// 10.9. Without this, the absent symbol lazy-bind-crashed the process on VideoMediaSampleRenderer.mm's
+// timer setup.
+//
+// The one place the two differ is repetition: activating an already-active object is defined to do
+// nothing, while a second dispatch_resume is an over-resume — undefined behaviour, and on a source
+// it starts firing events the caller never asked for. Rather than rely on callers activating once,
+// this resumes each object exactly once, so it honours the real contract no matter who calls it.
+//
+// The signature must match <dispatch/dispatch.h>'s declaration (dispatch_object_t, not void*), which is
+// present in the SDK even though the symbol is not on 10.9; dispatch_resume IS on 10.9 and lives in
+// always-linked libdispatch, so a direct call is safe.
+// The "exactly once, keyed to the object" rule lives in dispatch-activate-once.h, one definition
+// shared with tests/wk_dispatch_activate.m so the probe covers this code and not a copy of it.
+#include "dispatch-activate-once.h"
+
 WK_POLYFILL_ABSENT(NULL, void, dispatch_activate, (dispatch_object_t object))
 {
-    if (object)
-        dispatch_resume(object);
+    wkDispatchActivateOnce(object);
 }
 
 // ---------------------------------------------------------------------------------------------

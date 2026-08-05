@@ -1055,8 +1055,7 @@ void WebProcess::initializeSandbox(const AuxiliaryProcessInitializationParameter
     registerVorbisDecoderIfNeeded();
 #endif
 
-    // MAVERICKS_BACKPORT: locate the WebKit framework bundle via the legacy WKView class (WKWebView is absent on this build's WK2 driver) to resolve the sandbox profile path.
-    auto webKitBundle = [NSBundle bundleForClass:NSClassFromString(@"WKView")];
+    auto webKitBundle = [NSBundle bundleForClass:NSClassFromString(@"WKWebView")];
 
     sandboxParameters.setOverrideSandboxProfilePath(makeString(String([webKitBundle resourcePath]), "/com.apple.WebProcess.sb"_s));
 

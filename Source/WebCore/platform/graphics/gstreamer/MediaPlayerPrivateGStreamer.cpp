@@ -2831,6 +2831,15 @@ void MediaPlayerPrivateGStreamer::configureDownloadBuffer(GstElement* element)
     auto mediaDiskCachePath = GMallocString::unsafeAdoptFromUTF8(g_strdup(std::getenv("WPE_SHELL_MEDIA_DISK_CACHE_PATH")));
     if (mediaDiskCachePath.isEmpty())
         mediaDiskCachePath = GMallocString::unsafeAdoptFromUTF8(g_build_filename(G_DIR_SEPARATOR_S, "var", "tmp", nullptr));
+#elif PLATFORM(COCOA)
+    // MAVERICKS_BACKPORT: upstream buffers progressive media to /var/tmp, which is a shared,
+    // world-writable directory no sandboxed Cocoa process may write -- so every download-buffer
+    // file was denied and on-disk buffering silently did not happen. g_get_tmp_dir() reads TMPDIR,
+    // which populateSandboxInitializationParameters() has already pointed at this process' own
+    // private temporary directory (the one the profile grants), so this is both the writable
+    // location and the correctly-scoped one: media buffered by one process is not visible to
+    // another. Unsandboxed WebKitLegacy hosts get their ordinary per-user TMPDIR.
+    auto mediaDiskCachePath = GMallocString::unsafeAdoptFromUTF8(g_strdup(g_get_tmp_dir()));
 #else
     auto mediaDiskCachePath = GMallocString::unsafeAdoptFromUTF8(g_build_filename(G_DIR_SEPARATOR_S, "var", "tmp", nullptr));
 #endif

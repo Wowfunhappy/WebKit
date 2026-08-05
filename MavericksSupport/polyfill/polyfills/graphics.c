@@ -817,12 +817,42 @@ WK_POLYFILL_ABSENT("CoreText", bool, CTFontIsAppleColorEmoji, (CTFontRef font))
     return result;
 }
 
-// Is this the system UI font? 10.9 has no such predicate; WebKit only uses it to take a fast path,
-// so reporting false (treat as an ordinary font) is correct, just not the fast path.
+// Is this the system UI font? 10.9 has no such predicate, but it does have a system UI font, and
+// names it the same way every later system does: CTFontCreateUIFontForLanguage(kCTFontUIFontSystem).
+// So ask that font what family it belongs to and compare — on this OS the answer is Lucida Grande,
+// on later ones it is the hidden .AppleSystemUIFont family, and the comparison is written against
+// neither. Family rather than PostScript name so the family's other faces (bold, italic) answer
+// true, matching the real predicate.
+//
+// The family name is fetched once: this runs on every FontPlatformData construction
+// (FontPlatformDataCoreText.cpp:82), and the system UI font does not change within a process.
+static CFStringRef wkSystemUIFontFamilyName;
+
+static void wkCopySystemUIFontFamilyName(void)
+{
+    CTFontRef systemFont = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 0.0, NULL);
+    if (!systemFont)
+        return;
+    wkSystemUIFontFamilyName = CTFontCopyFamilyName(systemFont);
+    CFRelease(systemFont);
+}
+
 WK_POLYFILL_ABSENT("CoreText", bool, CTFontIsSystemUIFont, (CTFontRef font))
 {
-    (void)font;
-    return false;
+    if (!font)
+        return false;
+
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, wkCopySystemUIFontFamilyName);
+    if (!wkSystemUIFontFamilyName)
+        return false;
+
+    CFStringRef familyName = CTFontCopyFamilyName(font);
+    if (!familyName)
+        return false;
+    bool result = CFStringCompare(familyName, wkSystemUIFontFamilyName, 0) == kCFCompareEqualTo;
+    CFRelease(familyName);
+    return result;
 }
 
 // Enable user-installed fonts process-wide (newer). User fonts are already enabled on 10.9.

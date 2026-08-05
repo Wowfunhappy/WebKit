@@ -158,6 +158,45 @@ wk_verify_tree() {
         [ -f "$pre$f" ] || { echo "  MISSING XPC service executable: $pre$f" >&2; bad=1; }
     done
 
+    # Sandbox profiles. AuxiliaryProcess::initializeSandbox() and webpushd's applySandbox() look
+    # these up BY NAME under WebKit2.framework's Resources and CRASH()/RELEASE_ASSERT rather than
+    # continue when the file is not there, so a missing profile is a child process that dies at
+    # launch. The set is exact in both directions: an EXTRA .sb means a profile the build no longer
+    # generates is riding along in the build tree (what a renamed custom-command output leaves
+    # behind), and shipping a stale security policy is exactly as wrong as shipping none.
+    local profiles_dir="$WEBKIT2_BUNDLE/Versions/A/Resources"
+    local expected_profiles="com.apple.WebProcess.sb
+com.apple.WebKit.NetworkProcess.sb
+com.apple.WebKit.webpushd.relocatable.mac.sb"
+    for n in $expected_profiles; do
+        [ -f "$pre$profiles_dir/$n" ] || {
+            echo "  MISSING sandbox profile: $pre$profiles_dir/$n" >&2; bad=1; }
+    done
+    local found expected
+    for f in "$pre$profiles_dir"/*.sb; do
+        [ -e "$f" ] || continue
+        found="$(basename "$f")"
+        local known=0
+        for expected in $expected_profiles; do
+            [ "$found" = "$expected" ] && known=1
+        done
+        [ "$known" = 1 ] || {
+            echo "  UNEXPECTED sandbox profile (stale build output?): $f" >&2; bad=1; }
+    done
+
+    # XPCServiceMain resolves the service entry points with
+    # CFBundleGetBundleWithIdentifier(com.apple.WebKit2): in this packaging the com.apple.WebKit
+    # identity belongs to WebKitLegacy, which exports no service initializers. If WebKit2's
+    # Info.plist loses that identifier, every WebContent/Networking spawn exits(1) at bootstrap
+    # and launchd respawns them unboundedly — a storm that ends in a 10.9 kernel panic
+    # (memorystatus_dirty_set NULL deref). Refuse to ship a tree where the lookup cannot succeed.
+    local wk2_plist="$pre$WEBKIT2_BUNDLE/Versions/A/Resources/Info.plist"
+    local wk2_identifier
+    wk2_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$wk2_plist" 2>/dev/null)"
+    [ "$wk2_identifier" = "com.apple.WebKit2" ] || {
+        echo "  WRONG WebKit2 bundle identifier ('$wk2_identifier', want com.apple.WebKit2): $wk2_plist" >&2
+        echo "  (the XPC service entry-point lookup depends on it; see XPCServiceMain.mm)" >&2; bad=1; }
+
     # Single-unwinder rule (see the PRIVLIBCXX comment above): every reference is bound to the
     # system unwinder, so a private libunwind anywhere in the tree means a rewrite was missed.
     # Fail loudly rather than ship a process that mixes two _Unwind_* implementations.
