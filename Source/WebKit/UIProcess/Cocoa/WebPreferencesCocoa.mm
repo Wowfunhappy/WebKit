@@ -150,6 +150,22 @@ void WebPreferences::platformInitializeStore()
         // key still wins (this only supplies the initial value the legacy client omits).
         m_store.setBoolValueForKey(WebPreferencesKey::requestIdleCallbackEnabledKey(), true);
 
+        // MAVERICKS_BACKPORT: EnhancedSecurity heuristics route every plain-http, non-loopback-hostname
+        // main-frame navigation into a process swap whose target is the WebContent.EnhancedSecurity XPC
+        // service variant (ProcessLauncherCocoa::webContentServiceName). This product does not ship that
+        // bundle — upstream builds it as a same-binary variant whose substance is entitlements and launch
+        // attributes, neither of which exists on 10.9 — so the swap's launch dies at xpc_connection_create
+        // (Connection invalid), WebProcessPool::prepareProcessForNavigation burns its three retries on
+        // three more stillborn processes, then knowingly hands the navigation to the dead one: the load is
+        // queued to a process that never comes and the page spins forever. That was QuickLook previews of
+        // http:// .webloc files (https and loopback URLs never trip the heuristic, which is why only they
+        // rendered). Seed the heuristic off at this port's legacy-preference boundary: the yaml default
+        // (true on Cocoa) describes an Apple build that ships the variant service. This also keeps 537
+        // behavior parity — the heuristic would otherwise disable the JIT for every plain-http page, a
+        // penalty Safari 7 never had on an OS where plain-http sites are still common. Written before the
+        // FOR_EACH_DEFAULT_OVERRIDABLE loop below, so an explicit NSUserDefaults override still wins.
+        m_store.setBoolValueForKey(WebPreferencesKey::enhancedSecurityHeuristicsEnabledKey(), false);
+
 #if ENABLE(MEDIA_STREAM)
         // NOTE: This is set here, and does not setting the default using the 'defaultValue' mechanism, because the
         // 'defaultValue' must be the same in both the UIProcess and WebProcess, which may not be true for audio
