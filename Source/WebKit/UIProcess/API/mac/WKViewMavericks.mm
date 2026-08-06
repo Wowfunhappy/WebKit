@@ -205,6 +205,14 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
 - (void)_setCurrentEvent:(NSEvent *)event;
 @end
 
+// MAVERICKS_BACKPORT: the speech SPI -startSpeaking:/-stopSpeaking: below forward to, declared the
+// same way WebViewImpl.mm and WebHTMLView.mm declare it -- AppKit has never exposed these two in a
+// public header, so the calls ported from WebViewImpl need the declaration to come along with them.
+@interface NSApplication (WKMavericksSpeech)
+- (void)speakString:(NSString *)string;
+- (void)stopSpeaking:(id)sender;
+@end
+
 @interface WKView () {
     WKViewState *_wkState;
     WKBrowsingContextController *_browsingContextController;

@@ -56,6 +56,11 @@
 // MAVERICKS_BACKPORT: the WKView full-screen path drives this upstream controller (see the
 // MinimalFullScreenManagerProxyClient comment), the same one the WKWebView path uses.
 #import "WKFullScreenWindowController.h"
+// MAVERICKS_BACKPORT: declares -[WKView createFullScreenWindow], sent below to the NSView-typed
+// view. Without it the selector is unknown here, so the compiler assumes an id return instead of
+// checking the real one.
+#import "WKViewPrivate.h"
+#import <wtf/cocoa/TypeCastsCocoa.h>
 #endif
 #import <WebCore/DestinationColorSpace.h>
 #import <WebCore/FloatRect.h>
@@ -253,7 +258,13 @@ private:
         RefPtr page = m_page.get();
         if (!page || !m_view)
             return nil;
-        RetainPtr<NSWindow> window = [m_view createFullScreenWindow];
+        // MAVERICKS_BACKPORT: -createFullScreenWindow is WKView's SPI, and m_view is held as the
+        // NSView the page client is generally written against, so name the real receiver type here.
+        // checked_objc_cast, not dynamic_objc_cast: a WKView is REQUIRED (the only caller is
+        // createMinimalPageClient(self) in WKViewMavericks.mm, which passes the WKView itself), so
+        // anything else is an invariant violation and must trap rather than quietly turn into a nil
+        // receiver that reads as "full screen declined".
+        RetainPtr<NSWindow> window = [checked_objc_cast<WKView>(m_view) createFullScreenWindow];
         if (!window)
             return nil;
         m_controller = adoptNS([[WKFullScreenWindowController alloc] initWithWindow:window.get() webView:m_view page:*page]);

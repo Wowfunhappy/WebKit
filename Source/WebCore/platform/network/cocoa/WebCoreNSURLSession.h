@@ -104,10 +104,8 @@ WEBCORE_EXPORT @interface WebCoreNSURLSession : NSObject {
 
 - (void)resetWithCompletionHandler:(void (^)(void))completionHandler;
 - (void)flushWithCompletionHandler:(void (^)(void))completionHandler;
-// MAVERICKS_BACKPORT: drop the lightweight-generic NSArray<...> parameter types — the 10.9 SDK's
-// NSURLSession task classes predate these generics; use plain NSArray to match the 10.9 declarations.
-- (void)getTasksWithCompletionHandler:(void (^)(NSArray *dataTasks, NSArray *uploadTasks, NSArray *downloadTasks))completionHandler;
-- (void)getAllTasksWithCompletionHandler:(void (^)(NSArray *tasks))completionHandler;
+- (void)getTasksWithCompletionHandler:(void (^)(NSArray<NSURLSessionDataTask *> *dataTasks, NSArray<NSURLSessionUploadTask *> *uploadTasks, NSArray<NSURLSessionDownloadTask *> *downloadTasks))completionHandler;
+- (void)getAllTasksWithCompletionHandler:(void (^)(NSArray<__kindof NSURLSessionTask *> *tasks))completionHandler;
 
 - (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request;
 - (NSURLSessionDataTask *)dataTaskWithURL:(NSURL *)url;

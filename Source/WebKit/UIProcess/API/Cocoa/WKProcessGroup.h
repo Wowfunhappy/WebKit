@@ -40,6 +40,11 @@
 
 @protocol WKProcessGroupDelegate <NSObject>
 @optional
+// MAVERICKS_BACKPORT: restored verbatim from upstream's WKProcessGroup.h as of the commit that
+// removed WKProcessGroupDelegate (52fa87c^). WKProcessGroup.mm sends this to the delegate to collect
+// the injected bundle's initialization userData; without the declaration the send compiled as an
+// unknown selector returning id, and a client building against our headers had nothing to implement.
+- (id)processGroupWillCreateConnectionToWebProcessPlugIn:(WKProcessGroup *)processGroup;
 // MAVERICKS_BACKPORT (#137): Mail.app implements this to grab the bundle<->app WKConnection (it stores
 // them in its _wkConnectionsByProcessGroup map and sets itself as each connection's delegate).
 - (void)processGroup:(WKProcessGroup *)processGroup didCreateConnectionToWebProcessPlugIn:(WKConnection *)connection;

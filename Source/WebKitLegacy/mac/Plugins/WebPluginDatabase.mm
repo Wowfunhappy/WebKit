@@ -51,9 +51,7 @@ static void checkCandidate(WebBasePluginPackage **currentPlugin, WebBasePluginPa
 
 @interface WebPluginDatabase (Internal)
 + (NSArray *)_defaultPlugInPaths;
-// MAVERICKS_BACKPORT: upstream's declaration of -_plugInPaths. Kept commented, not deleted: that NSApplication SPI does not exist on 10.9, where plug-in paths come from the standard directories below.
-// - (NSArray *)_plugInPaths;
-// (end MAVERICKS_BACKPORT restored block)
+- (NSArray *)_plugInPaths;
 - (void)_addPlugin:(WebBasePluginPackage *)plugin;
 - (void)_removePlugin:(WebBasePluginPackage *)plugin;
 - (NSMutableSet *)_scanForNewPlugins;

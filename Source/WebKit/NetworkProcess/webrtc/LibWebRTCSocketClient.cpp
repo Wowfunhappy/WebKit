@@ -26,10 +26,7 @@
 #include "config.h"
 #include "LibWebRTCSocketClient.h"
 
-// MAVERICKS_BACKPORT: gate on !WK_RTC_USE_NW instead of upstream's !PLATFORM(COCOA).
-// On 10.9 WK_RTC_USE_NW is 0 (no Network.framework nw_* path), so this libwebrtc-backed
-// socket client must compile on Cocoa. RTCNetwork.h (via the header) defines the macro.
-#if !WK_RTC_USE_NW
+#if !PLATFORM(COCOA)
 
 #if USE(LIBWEBRTC)
 
@@ -148,5 +145,4 @@ void LibWebRTCSocketClient::signalClose(webrtc::AsyncPacketSocket* socket, int e
 
 #endif // USE(LIBWEBRTC)
 
-// MAVERICKS_BACKPORT: closes the !WK_RTC_USE_NW gate (upstream: !PLATFORM(COCOA)).
-#endif // !WK_RTC_USE_NW
+#endif // !PLATFORM(COCOA)

@@ -430,6 +430,10 @@ RefPtr<Page> WebChromeClient::createWindow(LocalFrame& frame, const String& open
         originalRequest, /* request */
         originalRequest.url().isValid() ? String() : originalRequest.url().string(), /* invalidURLString */
         navigationAction.requester(), /* requester */
+        // MAVERICKS_BACKPORT: bundlePolicyUserData stays empty here -- window.open does not run the
+        // injected-bundle policy client, so there is no bundle userData to carry. Listed rather than
+        // left off so the field we appended to NavigationActionData is accounted for at every site.
+        { }, /* bundlePolicyUserData */
     };
 
     auto sendResult = protect(webProcess.parentProcessConnection())->sendSync(Messages::WebPageProxy::CreateNewPage(windowFeatures, navigationActionData), page->identifier(), IPC::Timeout::infinity(), { IPC::SendSyncOption::MaintainOrderingWithAsyncMessages });

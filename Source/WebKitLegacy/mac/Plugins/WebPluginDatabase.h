@@ -61,9 +61,6 @@
 - (void)refresh;
 
 - (void)setPlugInPaths:(NSArray *)newPaths;
-// MAVERICKS_BACKPORT: exposed so WebView's per-view database helpers (widget-bundle and
-// app-built-in plug-in scans) can append to the existing paths instead of clobbering them.
-- (NSArray *)_plugInPaths;
 
 - (void)close;
 
@@ -76,6 +73,15 @@
 #endif
 - (void)removePluginInstanceViewsFor:(WebFrame *)webFrame;
 - (void)destroyAllPluginInstanceViews;
+@end
+
+// MAVERICKS_BACKPORT: exposed so WebView's per-view database helpers (widget-bundle and
+// app-built-in plug-in scans) can append to the existing paths instead of clobbering them.
+// Declared as a category rather than in the primary interface above: -_plugInPaths is
+// implemented by WebPluginDatabase's own (Internal) category in WebPluginDatabase.mm, and a
+// primary-interface declaration would make that a category overriding its primary class.
+@interface WebPluginDatabase (WebPlugInPaths)
+- (NSArray *)_plugInPaths;
 @end
 
 @interface NSObject (WebPlugInDatabase)

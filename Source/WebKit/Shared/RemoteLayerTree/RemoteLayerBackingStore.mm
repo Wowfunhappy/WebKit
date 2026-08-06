@@ -113,6 +113,14 @@ std::unique_ptr<RemoteLayerBackingStore> RemoteLayerBackingStore::createForLayer
 #if ENABLE(GPU_PROCESS)
     case ProcessModel::Remote:
         return makeUnique<RemoteLayerWithRemoteRenderingBackingStore>(layer);
+#else
+    // MAVERICKS_BACKPORT: processModelForLayer never returns Remote with the GPU process off, but
+    // the case still has to be listed: dropping it leaves the switch non-exhaustive, and upstream
+    // ends the function with the switch (no trailing return), so a Remote value would fall off the
+    // end of a non-void function -- undefined behaviour rather than a diagnosable error. Sharing
+    // the in-process arm keeps the function total and degrades to the only backing store that
+    // exists in this configuration.
+    case ProcessModel::Remote:
 #endif // MAVERICKS_BACKPORT: closes the ENABLE(GPU_PROCESS) guard above.
     case ProcessModel::InProcess:
         return makeUnique<RemoteLayerWithInProcessRenderingBackingStore>(layer);

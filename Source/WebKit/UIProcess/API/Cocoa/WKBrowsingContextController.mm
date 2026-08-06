@@ -29,6 +29,10 @@
 #import "WKBrowsingContextControllerInternal.h"
 
 #import "PageLoadStateObserver.h"
+// MAVERICKS_BACKPORT: the load-delegate protocol, so the sends below are checked against the
+// selectors 10.9's clients actually implement. That header is diverged to the pre-2013 spelling of
+// the two failure callbacks for exactly this reason -- see the MAVERICKS_BACKPORT note on them.
+#import "WKBrowsingContextLoadDelegate.h"
 // MAVERICKS_BACKPORT: extra imports backing the restored controller implementation below.
 #import "WebPageProxy.h"
 #import "WebProcessPool.h"

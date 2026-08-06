@@ -32,9 +32,7 @@
 #include <wtf/Forward.h>
 #include <wtf/RetainPtr.h>
 
-// MAVERICKS_BACKPORT: WK_RTC_USE_NW gate (vs upstream PLATFORM(COCOA)); NetworkSPI.h declares the
-// nw_* path-monitor types, only needed on the 10.14+ path (not built on 10.9).
-#if WK_RTC_USE_NW
+#if PLATFORM(COCOA)
 #include <pal/spi/cocoa/NetworkSPI.h>
 #endif
 
@@ -54,9 +52,7 @@ public:
 
     webrtc::AdapterType adapterTypeFromInterfaceName(const char*) const;
 
-    // MAVERICKS_BACKPORT: WK_RTC_USE_NW gate (vs upstream PLATFORM(COCOA)); nw_path_t-taking method
-    // declared only on the 10.14+ nw_* path.
-#if WK_RTC_USE_NW
+#if PLATFORM(COCOA)
     void updateNetworksFromPath(nw_path_t);
 #endif
 
@@ -65,9 +61,7 @@ private:
 
     NetworkRTCSharedMonitor();
 
-    // MAVERICKS_BACKPORT: WK_RTC_USE_NW gate (vs upstream PLATFORM(COCOA)); nw_path_monitor setup
-    // declared only on the 10.14+ nw_* path.
-#if WK_RTC_USE_NW
+#if PLATFORM(COCOA)
     void setupNWPathMonitor();
 #endif
 
@@ -90,9 +84,7 @@ private:
     RTCNetwork::IPAddress m_ipv6;
     int m_networkLastIndex { 0 };
     HashMap<String, RTCNetwork> m_networkMap;
-    // MAVERICKS_BACKPORT: WK_RTC_USE_NW gate (vs upstream PLATFORM(COCOA)); nw_path_monitor /
-    // adapter-type members exist only on the 10.14+ nw_* path, absent on 10.9.
-#if WK_RTC_USE_NW
+#if PLATFORM(COCOA)
     RetainPtr<nw_path_monitor_t> m_nwMonitor;
     HashMap<String, webrtc::AdapterType> m_adapterTypes;
 #endif

@@ -187,6 +187,11 @@ std::optional<NavigationActionData> WebFrameLoaderClient::navigationActionData(c
         request,
         request.url().isValid() ? String() : request.url().string(),
         requester,
+        // MAVERICKS_BACKPORT: bundlePolicyUserData is filled in by the callers that actually run the
+        // injected-bundle policy client (see dispatchDecidePolicyForNavigationAction below); this
+        // shared builder leaves it empty. Listed rather than left off so the field we appended to
+        // NavigationActionData is accounted for at every site.
+        { }, /* bundlePolicyUserData */
     };
 }
 

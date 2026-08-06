@@ -525,6 +525,11 @@ void WebLocalFrameLoaderClient::didSameDocumentNavigationForFrameViaJS(SameDocum
         { }, /* request */
         { }, /* invalidURLString */
         std::nullopt, /* requester */
+        // MAVERICKS_BACKPORT: a same-document JS navigation does not run the injected-bundle policy
+        // client, so there is no bundle userData to carry (the page's own userData travels as the
+        // separate UserData argument below). Listed rather than left off so the field we appended to
+        // NavigationActionData is accounted for at every site.
+        { }, /* bundlePolicyUserData */
     };
 
     // Notify the UIProcess.
@@ -1065,6 +1070,9 @@ void WebLocalFrameLoaderClient::dispatchDecidePolicyForNewWindowAction(const Nav
         request,
         request.url().isValid() ? String() : request.url().string(), /* invalidURLString */
         std::nullopt, /* requester */
+        // MAVERICKS_BACKPORT: assigned just below from the injected bundle's userData; listed here
+        // so the field we appended to NavigationActionData is accounted for at every site.
+        { }, /* bundlePolicyUserData */
     };
 
     // MAVERICKS_BACKPORT: ship the injected bundle's userData with the action (same channel the

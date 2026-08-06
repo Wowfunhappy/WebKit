@@ -864,6 +864,9 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
 
 - (void)completeFinishExitFullScreenAnimation
 {
+    // MAVERICKS_BACKPORT: restore the presentation options this controller hid on the way in (see
+    // -_mavericksRestorePresentationOptionsIfNeeded above). This is the normal exit path; the
+    // teardown paths call it too, which is why the helper is idempotent.
     [self _mavericksRestorePresentationOptionsIfNeeded];
 
     [CATransaction begin];

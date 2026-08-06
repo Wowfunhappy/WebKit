@@ -62,15 +62,11 @@ NetworkProcess/mac/SecItemShim.mm @nonARC
 
 NetworkProcess/webrtc/LibWebRTCSocketClient.cpp
 NetworkProcess/webrtc/NetworkRTCMonitor.cpp
-// MAVERICKS_BACKPORT: NetworkRTCSharedMonitorCocoa.mm removed here (nw_*/Network.framework path-monitor needs 10.14+); see exclusion note below.
+NetworkProcess/webrtc/NetworkRTCSharedMonitorCocoa.mm @nonARC
 NetworkProcess/webrtc/NetworkRTCProvider.cpp
 NetworkProcess/webrtc/NetworkRTCSharedMonitor.cpp
-// MAVERICKS_BACKPORT (WK_RTC_USE_NW=0): the nw_*/Network.framework socket + path-monitor
-// implementations require 10.14+. We route WebRTC through libwebrtc's portable BSD-socket
-// path (LibWebRTCSocketClient + BasicPacketSocketFactory) instead, so these are excluded:
-// NetworkProcess/webrtc/NetworkRTCSharedMonitorCocoa.mm @nonARC
-// NetworkProcess/webrtc/NetworkRTCTCPSocketCocoa.mm @nonARC
-// NetworkProcess/webrtc/NetworkRTCUDPSocketCocoa.mm @nonARC
+NetworkProcess/webrtc/NetworkRTCTCPSocketCocoa.mm @nonARC
+NetworkProcess/webrtc/NetworkRTCUDPSocketCocoa.mm @nonARC
 
 GPUProcess/EntryPoint/Cocoa/XPCService/GPUServiceEntryPoint.mm @nonARC
 GPUProcess/cocoa/GPUConnectionToWebProcessCocoa.mm @nonARC
