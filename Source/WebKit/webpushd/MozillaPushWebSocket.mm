@@ -161,11 +161,12 @@ enum : uint8_t {
     [self flushWriteBuffer];
 }
 
-- (void)sendMessage:(NSString *)message
+- (BOOL)sendMessage:(NSString *)message
 {
     if (_invalidated)
-        return;
+        return NO;
     [self sendFrameWithOpcode:OpcodeText payload:[message dataUsingEncoding:NSUTF8StringEncoding]];
+    return !_writeBuffer.length;
 }
 
 - (void)sendFrameWithOpcode:(uint8_t)opcode payload:(NSData *)payload
@@ -208,7 +209,9 @@ enum : uint8_t {
 
 - (void)flushWriteBuffer
 {
-    if (!_outputStreamHasSpace || !_writeBuffer.length || _invalidated)
+    if (!_writeBuffer.length || _invalidated)
+        return;
+    if (!_outputStreamHasSpace && !_outputStream.hasSpaceAvailable)
         return;
 
     NSInteger written = [_outputStream write:(const uint8_t *)_writeBuffer.bytes maxLength:_writeBuffer.length];
@@ -218,7 +221,12 @@ enum : uint8_t {
     }
     if (written > 0)
         [_writeBuffer replaceBytesInRange:NSMakeRange(0, written) withBytes:nullptr length:0];
-    _outputStreamHasSpace = NO;
+
+    // A short write means the stream is full, and anything still buffered waits for the next
+    // NSStreamEventHasSpaceAvailable. A write that drained the buffer says nothing about the
+    // stream being full, so ask it rather than assuming the worst -- assuming it would strand
+    // the next frame in the buffer until an unrelated event happened to arrive.
+    _outputStreamHasSpace = _writeBuffer.length ? NO : _outputStream.hasSpaceAvailable;
 }
 
 - (void)stream:(NSStream *)stream handleEvent:(NSStreamEvent)event
@@ -254,8 +262,13 @@ enum : uint8_t {
             [self closeWithError:_inputStream.streamError];
             return;
         }
-        if (!bytesRead)
-            break;
+        if (!bytesRead) {
+            // Zero from -read:maxLength: is end of stream, not "nothing right now". The peer
+            // has closed; the connection has to be reported closed here, because discovering
+            // the EOF by reading consumes it and NSStreamEventEndEncountered may never come.
+            [self closeWithError:nil];
+            return;
+        }
         [_readBuffer appendBytes:chunk length:bytesRead];
     }
 

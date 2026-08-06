@@ -42,11 +42,6 @@
 
 #import <WebCore/ExceptionOr.h>
 #import <WebCore/LocalizedStrings.h>
-// MAVERICKS_BACKPORT: for the NSWorkspace launch this port's daemon uses to wake a client app,
-// there being no x-webkit-app-launch on 10.9.
-#if PLATFORM(MAC) && USE(MOZILLA_PUSH_SERVICE)
-#import <AppKit/AppKit.h>
-#endif
 #import <WebCore/NotificationData.h>
 #import <WebCore/NotificationPayload.h>
 #import <WebCore/SecurityOrigin.h>
@@ -190,8 +185,9 @@ void WebPushDaemon::startMockPushService()
     m_webClipCachePath = FileSystem::createTemporaryFile("WebClipCache"_s);
 #endif
 
-    auto messageHandler = [](const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message) {
-        WebPushDaemon::singleton().handleIncomingPush(identifier, WTF::move(message));
+    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    auto messageHandler = [](const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message, PushServiceConnection::PushMessageReceipt receipt) {
+        WebPushDaemon::singleton().handleIncomingPush(identifier, WTF::move(message), receipt);
     };
     PushService::createMockService(WTF::move(messageHandler), [](auto&& pushService) mutable {
         WebPushDaemon::singleton().setPushService(WTF::move(pushService));
@@ -204,8 +200,9 @@ void WebPushDaemon::startPushService(const String& incomingPushServiceName, cons
     m_webClipCachePath = webClipCachePath;
 #endif
 
-    auto messageHandler = [](const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message) {
-        WebPushDaemon::singleton().handleIncomingPush(identifier, WTF::move(message));
+    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    auto messageHandler = [](const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message, PushServiceConnection::PushMessageReceipt receipt) {
+        WebPushDaemon::singleton().handleIncomingPush(identifier, WTF::move(message), receipt);
     };
     PushService::create(incomingPushServiceName, databasePath, WTF::move(messageHandler), [webClipCachePath](auto&& pushService) mutable {
 #if PLATFORM(IOS)
@@ -509,7 +506,8 @@ void WebPushDaemon::injectPushMessageForTesting(PushClientConnection& connection
 
     WEBPUSHDAEMON_RELEASE_LOG(Push, "Injected a test push message for %{public}s at %{public}s with %zu pending messages, payload: %{public}s", message.targetAppCodeSigningIdentifier.utf8().data(), message.registrationURL.string().utf8().data(), m_pendingPushMessages.size(), message.payload.utf8().data());
 
-    handleIncomingPushImpl(identifier, WTF::move(pushMessage));
+    // MAVERICKS_BACKPORT: an injected test message came from no push service, so nothing acknowledges it.
+    handleIncomingPushImpl(identifier, WTF::move(pushMessage), PushServiceConnection::noPushMessageReceipt);
 
     replySender({ });
 }
@@ -532,13 +530,15 @@ void WebPushDaemon::injectEncryptedPushMessageForTesting(PushClientConnection& c
         if (!obj || ![obj isKindOfClass:[NSDictionary class]])
             return replySender(false);
 
-        daemon.m_pushService->didReceivePushMessage(retainPtr(obj[@"topic"]).get(), retainPtr(obj[@"userInfo"]).get(), [replySender = WTF::move(replySender)]() mutable {
+        // MAVERICKS_BACKPORT: an injected test message came from no push service, so nothing acknowledges it.
+        daemon.m_pushService->didReceivePushMessage(retainPtr(obj[@"topic"]).get(), retainPtr(obj[@"userInfo"]).get(), PushServiceConnection::noPushMessageReceipt, [replySender = WTF::move(replySender)]() mutable {
             replySender(true);
         });
     });
 }
 
-void WebPushDaemon::handleIncomingPush(const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message)
+// MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+void WebPushDaemon::handleIncomingPush(const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message, PushServiceConnection::PushMessageReceipt receipt)
 {
 #if PLATFORM(IOS)
     if (getAllowedBundleIdentifier() != identifier.bundleIdentifier || !ensureWebClipCache().isWebClipVisible(identifier.bundleIdentifier, identifier.pushPartition)) {
@@ -551,20 +551,23 @@ void WebPushDaemon::handleIncomingPush(const PushSubscriptionSetIdentifier& iden
     // don't get push events for web clips without the appropriate permissions.
     RetainPtr notificationCenterBundleIdentifier = platformNotificationCenterBundleIdentifier(identifier.pushPartition);
     RetainPtr center = adoptNS([[m_userNotificationCenterClass.get() alloc] initWithBundleIdentifier:notificationCenterBundleIdentifier.get()]);
-    auto blockPtr = makeBlockPtr([identifier = crossThreadCopy(identifier), message = WTF::move(message)](UNNotificationSettings *settings) mutable {
+    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    auto blockPtr = makeBlockPtr([identifier = crossThreadCopy(identifier), message = WTF::move(message), receipt](UNNotificationSettings *settings) mutable {
         auto status = settings.authorizationStatus;
         if (status != UNAuthorizationStatusAuthorized) {
             RELEASE_LOG_ERROR(Push, "Ignoring incoming push from app with invalid notification permission state %d: %{public}s", static_cast<int>(status), identifier.debugDescription().utf8().data());
             return;
         }
 
-        WorkQueue::mainSingleton().dispatch([identifier = crossThreadCopy(identifier), message = WTF::move(message)] mutable {
-            WebPushDaemon::singleton().handleIncomingPushImpl(identifier, WTF::move(message));
+        // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+        WorkQueue::mainSingleton().dispatch([identifier = crossThreadCopy(identifier), message = WTF::move(message), receipt] mutable {
+            WebPushDaemon::singleton().handleIncomingPushImpl(identifier, WTF::move(message), receipt);
         });
     });
     [center getNotificationSettingsWithCompletionHandler:blockPtr.get()];
 #else
-    handleIncomingPushImpl(identifier, WTF::move(message));
+    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    handleIncomingPushImpl(identifier, WTF::move(message), receipt);
 #endif
 }
 
@@ -582,7 +585,8 @@ static bool supportsBuiltinNotifications(const PushSubscriptionSetIdentifier& id
 }
 #endif // HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
 
-void WebPushDaemon::handleIncomingPushImpl(const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message)
+// MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+void WebPushDaemon::handleIncomingPushImpl(const PushSubscriptionSetIdentifier& identifier, WebKit::WebPushMessage&& message, PushServiceConnection::PushMessageReceipt receipt)
 {
     ensureIncomingPushTransaction();
 
@@ -608,12 +612,20 @@ void WebPushDaemon::handleIncomingPushImpl(const PushSubscriptionSetIdentifier& 
         showNotification(identifier, notificationData, nullptr, message.notificationPayload->appBadge, []() {
         });
 
+        // MAVERICKS_BACKPORT: this message was delivered -- shown -- without ever joining
+        // m_pendingPushMessages, so it is acknowledged here rather than at a drain point the
+        // message never reaches. Without this the push service would hold its copy until the
+        // next disconnect and replay something the user has already seen.
+        if (RefPtr pushService = m_pushService)
+            pushService->acknowledgePushMessage(receipt, PushServiceConnection::PushMessageDisposition::Delivered);
+
         return;
     }
 #endif // HAVE(FULL_FEATURED_USER_NOTIFICATIONS)
 #endif // ENABLE(DECLARATIVE_WEB_PUSH)
 
-    m_pendingPushMessages.append({ identifier, WTF::move(message) });
+    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    m_pendingPushMessages.append({ identifier, WTF::move(message), receipt });
 
     notifyClientPushMessageIsAvailable(identifier);
 }
@@ -625,16 +637,14 @@ void WebPushDaemon::notifyClientPushMessageIsAvailable(const WebCore::PushSubscr
 
 #if PLATFORM(MAC) && USE(MOZILLA_PUSH_SERVICE)
     // MAVERICKS_BACKPORT: Safari 7 has no x-webkit-app-launch URL handler and never calls
-    // the modern push SPI, so the upstream wake path below cannot reach it (and its
-    // _LSOpenURLsUsingBundleIdentifierWithCompletionHandler SPI is absent on 10.9
-    // anyway). Instead, announce the pending message on every matching client's daemon
-    // connection — the network process relays to the UI process, which drains via
-    // GetPendingPushMessages. If no matching client is connected, background-launch the
-    // app; its data store pumps pending messages as part of session bring-up.
+    // the modern push SPI, so the upstream wake path below cannot reach it. This port
+    // announces the pending message on every matching client's daemon connection instead;
+    // the network process relays to the UI process, which drains via GetPendingPushMessages.
     // Every matching connection gets the event — a stale entry for a dead peer must not
     // swallow the only copy — and the delivery contract is at-least-once: the pump's
     // fetch returns empty when another connection drained first.
-    bool notifiedConnectedClient = false;
+    // A push does not wake a closed app here: the message stays queued until the user
+    // opens it, and the daemon acks it to the push service only once a client takes it.
     for (auto& [xpcConnection, clientConnection] : m_connectionMap) {
         if (!connectionMatchesPendingPushMessage(clientConnection.get(), subscriptionSetIdentifier))
             continue;
@@ -642,15 +652,7 @@ void WebPushDaemon::notifyClientPushMessageIsAvailable(const WebCore::PushSubscr
         xpc_dictionary_set_uint64(event.get(), protocolVersionKey, protocolVersionValue);
         xpc_dictionary_set_string(event.get(), protocolEventTypeKey, protocolEventTypePushMessagesAvailable);
         xpc_connection_send_message(xpcConnection.get(), event.get());
-        notifiedConnectedClient = true;
     }
-    if (notifiedConnectedClient)
-        return;
-
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    BOOL launched = [[NSWorkspace sharedWorkspace] launchAppWithBundleIdentifier:bundleIdentifier.createNSString().get() options:NSWorkspaceLaunchWithoutActivation | NSWorkspaceLaunchAndHide additionalEventParamDescriptor:nil launchIdentifier:nullptr];
-ALLOW_DEPRECATED_DECLARATIONS_END
-    RELEASE_LOG_ERROR_IF(!launched, Push, "Failed to launch %{public}s in response to push", bundleIdentifier.utf8().data());
 #elif PLATFORM(MAC)
     CFArrayRef urls = (__bridge CFArrayRef)@[ [NSURL URLWithString:@"x-webkit-app-launch://1"] ];
     RetainPtr identifier = bundleIdentifier.createCFString();
@@ -837,6 +839,11 @@ void WebPushDaemon::getPendingPushMessage(PushClientConnection& connection, Comp
     WEBPUSHDAEMON_RELEASE_LOG(Push, "Fetched 1 push message, %zu remaining", m_pendingPushMessages.size());
     replySender(WTF::move(pendingPushMessage.message));
 
+    // MAVERICKS_BACKPORT: the message has reached a client, so the push service may let
+    // go of its copy. See PushServiceConnection::acknowledgePushMessage.
+    if (RefPtr pushService = m_pushService)
+        pushService->acknowledgePushMessage(pendingPushMessage.receipt, PushServiceConnection::PushMessageDisposition::Delivered);
+
     if (m_pendingPushMessages.isEmpty())
         releaseIncomingPushTransaction();
 }
@@ -845,19 +852,31 @@ void WebPushDaemon::getPendingPushMessages(PushClientConnection& connection, Com
 {
     Vector<WebKit::WebPushMessage> result;
     Deque<PendingPushMessage> newPendingPushMessages;
+    // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+    Vector<PushServiceConnection::PushMessageReceipt> deliveredReceipts;
 
     while (!m_pendingPushMessages.isEmpty()) {
         auto pendingPushMessage = m_pendingPushMessages.takeFirst();
-        if (connectionMatchesPendingPushMessage(connection, pendingPushMessage.identifier))
-            result.append(WTF::move(pendingPushMessage.message));
-        else
+        // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
+        if (!connectionMatchesPendingPushMessage(connection, pendingPushMessage.identifier)) {
             newPendingPushMessages.append(WTF::move(pendingPushMessage));
+            continue;
+        }
+        deliveredReceipts.append(pendingPushMessage.receipt);
+        result.append(WTF::move(pendingPushMessage.message));
     }
 
     m_pendingPushMessages = WTF::move(newPendingPushMessages);
     WEBPUSHDAEMON_RELEASE_LOG(Push, "Fetched %zu push messages, %zu remaining", result.size(), m_pendingPushMessages.size());
 
     replySender(WTF::move(result));
+
+    // MAVERICKS_BACKPORT: these have reached a client, so the push service may let go of
+    // its copies. See PushServiceConnection::acknowledgePushMessage.
+    if (RefPtr pushService = m_pushService) {
+        for (auto receipt : deliveredReceipts)
+            pushService->acknowledgePushMessage(receipt, PushServiceConnection::PushMessageDisposition::Delivered);
+    }
 
     if (m_pendingPushMessages.isEmpty())
         releaseIncomingPushTransaction();

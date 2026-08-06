@@ -872,6 +872,8 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
         VERBATIM)
     list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebProcess.sb)
 
+    # MAVERICKS_BACKPORT: concatenate this port's additions onto the upstream profile, and
+    # preprocess for 10.9 so the ENABLE()/HAVE() gates resolve to this deployment target.
     add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb COMMAND
         cat ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.additions.sb | grep -o "^[^;]*" | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb
         DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.sb.in ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.NetworkProcess.additions.sb
@@ -879,6 +881,7 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
     list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb)
 
     if (ENABLE_GPU_PROCESS)
+        # MAVERICKS_BACKPORT: preprocess for 10.9, matching the two profiles above.
         add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb COMMAND
             grep -o "^[^;]*" ${WEBKIT_DIR}/GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb
             VERBATIM)
@@ -893,6 +896,7 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
             grep -o "^[^;]*" ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.webpushd.relocatable.mac.sb.in | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.relocatable.mac.sb
             DEPENDS ${MAVERICKS_SUPPORT}/sandbox/com.apple.WebKit.webpushd.relocatable.mac.sb.in
             VERBATIM)
+        # MAVERICKS_BACKPORT: ship the relocatable profile emitted above.
         list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.webpushd.relocatable.mac.sb)
     endif ()
     add_custom_target(WebKitSandboxProfiles ALL DEPENDS ${WebKit_SB_FILES})

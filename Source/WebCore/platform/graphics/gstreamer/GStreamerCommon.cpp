@@ -487,6 +487,8 @@ bool ensureGStreamerInitializedNonWebProcess()
 #if OS(ANDROID)
         gst_registry_fork_set_enabled(FALSE);
 #endif
+        // MAVERICKS_BACKPORT: site the plugin registry where a sandboxed process can write it,
+        // and scan in-process; both must be set before gst_init() reads them.
         configureGStreamerCacheLocation();
 
         GUniqueOutPtr<GError> error;
@@ -519,6 +521,8 @@ bool ensureGStreamerInitialized()
 #if OS(ANDROID)
         gst_registry_fork_set_enabled(FALSE);
 #endif
+        // MAVERICKS_BACKPORT: site the plugin registry where a sandboxed process can write it,
+        // and scan in-process; both must be set before gst_init() reads them.
         configureGStreamerCacheLocation();
 
         // USE_PLAYBIN3 is dangerous for us because its potential sneaky effect

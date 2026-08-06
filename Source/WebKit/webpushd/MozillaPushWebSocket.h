@@ -53,7 +53,9 @@
 - (instancetype)initWithHost:(NSString *)host port:(NSInteger)port path:(NSString *)path useTLS:(BOOL)useTLS delegate:(id<MozillaPushWebSocketDelegate>)delegate;
 
 - (void)open;
-- (void)sendMessage:(NSString *)message;
+// Returns whether the frame reached the socket rather than being left buffered, so a
+// caller that treats a send as a liveness probe can tell whether it actually probed.
+- (BOOL)sendMessage:(NSString *)message;
 
 // Tears the socket down without a delegate callback. Safe to call at any time; the
 // object cannot be reopened afterwards.

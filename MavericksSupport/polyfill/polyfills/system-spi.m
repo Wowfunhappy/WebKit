@@ -700,8 +700,7 @@ WK_POLYFILL_ABSENT("Security", CFDateRef, SecCertificateCopyNotValidAfterDate, (
 // neither SecTaskCopySigningIdentifier (10.11+) nor SecTaskGetCodeSignStatus. Both are fully
 // answerable here, because the kernel holds the answers and csops(2) hands them over: this is the
 // same source 10.9's own SecTaskCopyValueForEntitlement reads. Neither touches the target's files,
-// which matters -- the alternative of verifying a client's signature from its bundle on disk is what
-// once forced a sandboxed webpushd to be granted read access to every application on the machine.
+// which is what lets a sandboxed caller identify a client without read access to its bundle.
 //
 // The one thing these need that the public API does not give is the pid a SecTaskRef names.
 // 10.9's SecTaskCreateWithAuditToken reduces the audit token to a pid and stores just that, so the

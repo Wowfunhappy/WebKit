@@ -48,8 +48,6 @@
 #import <wtf/text/TextStream.h>
 
 #if PLATFORM(MAC)
-// MAVERICKS_BACKPORT: for the SecCode guest lookup in bundleIdentifierFromAuditToken below.
-#import <Security/SecCode.h>
 #import <bsm/libbsm.h>
 #import <pal/spi/cocoa/LaunchServicesSPI.h>
 #endif

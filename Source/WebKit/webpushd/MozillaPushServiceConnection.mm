@@ -46,18 +46,20 @@
 static NSString * const mozillaPushErrorDomain = @"MozillaPushServiceErrorDomain";
 static NSString * const defaultServerURLString = @"wss://push.services.mozilla.com/";
 
-// A middlebox on the path (the VM's transparent proxy) reaps idle TLS connections after
-// roughly a minute, and a reaped connection stays ESTABLISHED locally while delivering
-// nothing — verified by pushes that arrived only after the next reconnect replayed them.
-// So: probe an idle socket with the legacy `{}` JSON ping (answered in kind) once a
-// minute, count any traffic including ping/pong control frames as life, and declare the
-// socket dead when even the probe goes unanswered.
-static const Seconds keepAliveCheckInterval = 30_s;
-static const Seconds idleIntervalBeforePing = 60_s;
-static const Seconds idleIntervalBeforeReconnect = 150_s;
-
 static const Seconds connectionAttemptTimeout = 30_s;
 static const Seconds requestTimeout = 30_s;
+
+// The autopush protocol carries its own keepalive: a client may send an empty JSON object
+// and the server answers in kind, which is the only way to ask a connection whether it is
+// still carrying traffic — TCP state answers a different question, and a push service is
+// silent for as long as nobody pushes. This is a backstop, not the primary way a dead
+// connection is noticed: the socket reports EOF and errors as they happen, and this
+// catches only a peer that has stopped answering without closing. So probe an idle
+// connection rarely, count any traffic including ping/pong control frames as life, and
+// give the probe the same requestTimeout every other exchange in this protocol gets.
+static const Seconds keepAliveCheckInterval = 30_s;
+static const Seconds idleIntervalBeforePing = 10_min;
+static const Seconds idleIntervalBeforeReconnect = idleIntervalBeforePing + requestTimeout;
 
 @interface MozillaPushServiceConnectionSocketDelegate : NSObject <MozillaPushWebSocketDelegate> {
 @public
@@ -159,6 +161,9 @@ void MozillaPushServiceConnection::connectIfNeeded()
 
 void MozillaPushServiceConnection::disconnectSocket()
 {
+    // These name deliveries on a socket that is going away; the server still holds every
+    // one of them and replays them after the next hello, under fresh receipts.
+    m_unacknowledgedMessages.clear();
     m_connectionAttemptTimer.stop();
     m_keepAliveTimer.stop();
     if (m_socket) {
@@ -248,8 +253,17 @@ void MozillaPushServiceConnection::keepAliveTimerFired()
         return;
     }
     if (idle >= idleIntervalBeforePing && !m_sentKeepAlivePing) {
-        // The legacy autopush ping: an empty JSON object, answered in kind.
-        [m_socket sendMessage:@"{}"];
+        // The autopush ping: an empty JSON object, answered in kind. A probe the socket will
+        // not take is a failed probe, not an absent one -- a send buffer that has stopped
+        // draining says the connection is already carrying nothing, which is the same
+        // conclusion an unanswered probe reaches and reaches it sooner. Tearing down here
+        // also means a second probe is never queued behind a first one that is still stuck.
+        if (![m_socket sendMessage:@"{}"]) {
+            RELEASE_LOG_ERROR(Push, "MozillaPushServiceConnection: keepalive probe could not be written; reconnecting");
+            disconnectSocket();
+            scheduleReconnect();
+            return;
+        }
         m_sentKeepAlivePing = true;
     }
 }
@@ -516,14 +530,16 @@ void MozillaPushServiceConnection::handleNotification(NSDictionary *reply)
     if (!channelID.length)
         return;
 
-    // Deliveries are acked unconditionally: whether the message was handed on, dropped
-    // for an ignored origin, or undecryptable, a redelivery would fare no better.
-    sendAckForChannel(channelID, version);
-
+    // The server holds its copy of a message until it is acknowledged, so an
+    // acknowledgement is a statement that this client has taken responsibility for the
+    // message -- and the client is not able to say that until the message has reached an
+    // app. A message this connection can itself see is unusable is acknowledged right
+    // here, saying why; everything else is acknowledged later, through the receipt.
     auto topicIterator = m_channelToTopic.find(String { channelID });
     if (topicIterator == m_channelToTopic.end()) {
         // The server remembers a channel this client no longer has; tell it to forget.
         RELEASE_LOG(Push, "MozillaPushServiceConnection: notification for unknown channel; unregistering it");
+        sendAckForChannel(channelID, version, PushMessageDisposition::NotDelivered);
         sendJSONMessage(@{
             @"messageType": @"unregister",
             @"channelID": channelID,
@@ -537,6 +553,7 @@ void MozillaPushServiceConnection::handleNotification(NSDictionary *reply)
     // server-side filter, so enforce the same policy at delivery.
     if (m_ignoredTopics.contains(topic)) {
         RELEASE_LOG(Push, "MozillaPushServiceConnection: dropping push for ignored topic");
+        sendAckForChannel(channelID, version, PushMessageDisposition::NotDelivered);
         return;
     }
 
@@ -549,6 +566,7 @@ void MozillaPushServiceConnection::handleNotification(NSDictionary *reply)
         auto ciphertext = base64URLDecode(String { encodedData });
         if (!ciphertext) {
             RELEASE_LOG_ERROR(Push, "MozillaPushServiceConnection: dropping push with undecodable payload");
+            sendAckForChannel(channelID, version, PushMessageDisposition::DecryptionError);
             return;
         }
 
@@ -566,6 +584,7 @@ void MozillaPushServiceConnection::handleNotification(NSDictionary *reply)
             String salt = parameterFromHeaderValue(dynamic_objc_cast<NSString>(headers[@"encryption"]), "salt"_s);
             if (serverKey.isEmpty() || salt.isEmpty()) {
                 RELEASE_LOG_ERROR(Push, "MozillaPushServiceConnection: dropping aesgcm push with missing crypto headers");
+                sendAckForChannel(channelID, version, PushMessageDisposition::DecryptionError);
                 return;
             }
             [userInfo setObject:serverKey.createNSString().get() forKey:@"as_publickey"];
@@ -573,17 +592,47 @@ void MozillaPushServiceConnection::handleNotification(NSDictionary *reply)
         }
     }
 
-    didReceivePushMessage(topic.createNSString().get(), userInfo.get());
+    // The message is now the daemon's to deliver. Hold the acknowledgement -- and with it
+    // the server's copy -- until a client has taken it, so that a daemon that exits while
+    // the browser is closed leaves the message to be replayed rather than losing it.
+    auto receipt = ++m_lastPushMessageReceipt;
+    m_unacknowledgedMessages.set(receipt, UnacknowledgedMessage { String { channelID }, version });
+    didReceivePushMessage(topic.createNSString().get(), userInfo.get(), receipt);
 }
 
-void MozillaPushServiceConnection::sendAckForChannel(NSString *channelID, id version)
+void MozillaPushServiceConnection::acknowledgePushMessage(PushMessageReceipt receipt, PushMessageDisposition disposition)
 {
+    auto iterator = m_unacknowledgedMessages.find(receipt);
+    if (iterator == m_unacknowledgedMessages.end())
+        return;
+    auto message = iterator->value;
+    m_unacknowledgedMessages.remove(iterator);
+    sendAckForChannel(message.channelID.createNSString().get(), message.version.get(), disposition);
+}
+
+void MozillaPushServiceConnection::sendAckForChannel(NSString *channelID, id version, PushMessageDisposition disposition)
+{
+    // autopush's acknowledgement codes, as the reference client sends them: 100 once the
+    // message has been delivered, 101 when it could not be decrypted, 102 when it could
+    // not be delivered. Only 100 means the client took responsibility for it.
+    NSNumber *code = @100;
+    switch (disposition) {
+    case PushMessageDisposition::Delivered:
+        break;
+    case PushMessageDisposition::DecryptionError:
+        code = @101;
+        break;
+    case PushMessageDisposition::NotDelivered:
+        code = @102;
+        break;
+    }
+
     sendJSONMessage(@{
         @"messageType": @"ack",
         @"updates": @[ @{
             @"channelID": channelID,
             @"version": version ?: @"",
-            @"code": @100,
+            @"code": code,
         } ],
     });
 }

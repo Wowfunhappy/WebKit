@@ -76,6 +76,8 @@ public:
     void setNonWakingTopics(Vector<String>&& topics) override { m_nonWakingTopics = WTF::move(topics); }
     void setTopicLists(TopicLists&&) override;
 
+    void acknowledgePushMessage(PushMessageReceipt, PushMessageDisposition) override;
+
     // Called by the socket delegate; main run loop only.
     void socketDidOpen();
     void socketDidReceiveMessage(NSString *);
@@ -121,7 +123,7 @@ private:
     void handleRegisterReply(NSDictionary *);
     void handleUnregisterReply(NSDictionary *);
     void handleNotification(NSDictionary *);
-    void sendAckForChannel(NSString *channelID, id version);
+    void sendAckForChannel(NSString *channelID, id version, PushMessageDisposition);
 
     void failInflightAndPendingRequests(NSError *);
 
@@ -138,6 +140,17 @@ private:
 
     String m_uaid;
     HashMap<String, String> m_channelToTopic;
+
+    // Messages handed to the daemon that the server still holds a copy of, keyed by the
+    // receipt that will acknowledge them. Dropped wholesale on disconnect: the server
+    // replays everything unacknowledged after the next hello, so the old receipts name
+    // deliveries that are about to arrive again.
+    struct UnacknowledgedMessage {
+        String channelID;
+        RetainPtr<id> version;
+    };
+    HashMap<PushMessageReceipt, UnacknowledgedMessage> m_unacknowledgedMessages;
+    PushMessageReceipt m_lastPushMessageReceipt { noPushMessageReceipt };
 
     Deque<PendingSubscribe> m_pendingSubscribes;
     Deque<PendingUnsubscribe> m_pendingUnsubscribes;

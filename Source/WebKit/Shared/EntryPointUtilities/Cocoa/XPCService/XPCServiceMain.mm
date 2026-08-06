@@ -33,6 +33,8 @@
 #import "XPCServiceEntryPoint.h"
 #import "XPCUtilities.h"
 #import <CoreFoundation/CoreFoundation.h>
+// MAVERICKS_BACKPORT: dup2 and STDOUT_FILENO/STDERR_FILENO below; this build compiles with
+// -fno-modules, so unistd.h does not arrive transitively through any Darwin header.
 #import <unistd.h>
 #import <mach/mach.h>
 #import <pal/spi/cf/CFUtilitiesSPI.h>
@@ -313,7 +315,6 @@ int XPCServiceMain(int, const char**)
     }
 
     xpc_main(XPCServiceEventHandler);
-
     return 0;
 }
 

@@ -87,23 +87,15 @@
     (global-name-regex #"^com.apple.distributed_notifications")
     (global-name "com.apple.CoreServices.coreservicesd"))
 
-;; Handing a push to Safari means asking Launch Services to open it. Upstream spends one operation
-;; on this -- (allow lsopen) -- which 10.9's sandbox does not have; its equivalent is reaching the
-;; two services Launch Services brokers a launch through. com.apple.ls.boxd is the launch broker,
-;; and it is what makes the difference: with launchservicesd alone,
-;; -[NSWorkspace launchAppWithBundleIdentifier:] resolves the app and then fails, so a push arriving
-;; while Safari is closed would never wake it. Neither service lets this daemon spawn anything
-;; itself -- boxd does the launching, which is the point.
-(allow mach-lookup
-    (global-name "com.apple.coreservices.launchservicesd")
-    (global-name "com.apple.ls.boxd"))
+;; NOTE: no Launch Services grant, and none is wanted. A push never opens an application on this
+;; port -- webpushd announces a pending message to clients that are already running and otherwise
+;; leaves it queued -- so the daemon has no reason to reach launchservicesd or the com.apple.ls.boxd
+;; launch broker, and withholding them means the sandbox cannot be talked into starting an
+;; application either. See WebPushDaemon::notifyClientPushMessageIsAvailable.
 
-;; NOTE: no /Applications grant. webpushd identifies each client by its code-signing identifier, and
-;; an earlier version of this port did that by verifying the client's signature from its bundle on
-;; disk -- which needed read access to every application on the machine, and which failed under this
-;; sandbox in a way that killed Web Push outright (empty identifier, every connection rejected, the
-;; client reconnecting forever). codeSigningIdentifier() now asks the kernel via csops(2) instead,
-;; which touches no files at all. See Shared/Cocoa/CodeSigning.mm.
+;; NOTE: no /Applications grant. webpushd identifies each client by the code-signing identifier the
+;; kernel reports for its audit token, via csops(2), which touches no files and reads no bundles.
+;; See Shared/Cocoa/CodeSigning.mm.
 
 ;; Security framework: the push connection is a TLS WebSocket, so the daemon has to evaluate the
 ;; push service's certificate chain.
