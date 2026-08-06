@@ -2309,29 +2309,46 @@ void WebPageProxy::loadRequestWithNavigationShared(Ref<WebProcessProxy>&& proces
     // because the path-of-least-resistance code paths (processForNavigation,
     // continueNavigationInNewProcess, etc.) only register first parties on
     // process swaps, and our build forces same-process navigation.
+    // The registration is asynchronous, and the load MUST NOT be sent before it has been recorded.
+    // NetworkProcess::allowsFirstPartyForCookies answers Terminate -- not merely Disallow -- for an
+    // unregistered NON-EMPTY registrable domain (NetworkProcess.cpp: `firstPartyDomain.isEmpty() ?
+    // Disallow : Terminate`), and MESSAGE_CHECK then kills the WebProcess. Firing this off and
+    // sending the load in the same turn loses that race whenever the WebProcess is still launching:
+    // the load reaches the NetworkProcess first and the WebProcess is killed mid-navigation, leaving
+    // a client that never gets didFailProvisionalLoad and hangs forever. It only ever showed up for
+    // remote URLs because an IP-address or loopback first party has an EMPTY registrable domain,
+    // which takes the harmless Disallow branch -- so localhost previews worked and every real site
+    // hung (QuickLook web previews; github.com/Wowfunhappy/WebKit issue for .webloc previews).
+    // Sequencing the rest of the load inside the completion handler closes the race.
     auto firstPartyDomain = WebCore::RegistrableDomain { url };
     Ref networkProcessForCookieAccess = websiteDataStore().networkProcess();
-    networkProcessForCookieAccess->addAllowedFirstPartyForCookies(process, firstPartyDomain, LoadedWebArchive::No, [] { });
-
-    maybeInitializeSandboxExtensionHandle(process, url, pageLoadState->resourceDirectoryURL(), true, [weakThis = WeakPtr { *this }, weakProcess = WeakPtr { process }, loadParameters = WTF::move(loadParameters), url, navigation = protect(navigation), webPageID, shouldTreatAsContinuingLoad] (std::optional<SandboxExtension::Handle>&& sandboxExtensionHandle) mutable {
-        RefPtr protectedProcess = weakProcess.get();
+    networkProcessForCookieAccess->addAllowedFirstPartyForCookies(process, firstPartyDomain, LoadedWebArchive::No, [weakThis = WeakPtr { *this }, protectedProcess = Ref { process }, resourceDirectoryURL = pageLoadState->resourceDirectoryURL(), loadParameters = WTF::move(loadParameters), url, navigation = protect(navigation), webPageID, shouldTreatAsContinuingLoad] () mutable {
         RefPtr protectedThis = weakThis.get();
-        if (!protectedProcess || !protectedThis)
+        // MAVERICKS_BACKPORT: the page can go away while the registration IPC is in flight.
+        if (!protectedThis)
             return;
-        if (sandboxExtensionHandle)
-            loadParameters.sandboxExtensionHandle = WTF::move(*sandboxExtensionHandle);
-        protectedThis->prepareToLoadWebPage(*weakProcess, loadParameters);
+        // MAVERICKS_BACKPORT: the rest of the load, moved inside the registration's completion handler.
+        protectedThis->maybeInitializeSandboxExtensionHandle(protectedProcess.get(), url, resourceDirectoryURL, true, [weakThis, weakProcess = WeakPtr { protectedProcess.get() }, loadParameters = WTF::move(loadParameters), url, navigation, webPageID, shouldTreatAsContinuingLoad] (std::optional<SandboxExtension::Handle>&& sandboxExtensionHandle) mutable {
+            RefPtr protectedProcess = weakProcess.get();
+            RefPtr protectedThis = weakThis.get();
+            if (!protectedProcess || !protectedThis)
+                return;
+            if (sandboxExtensionHandle)
+                loadParameters.sandboxExtensionHandle = WTF::move(*sandboxExtensionHandle);
+            protectedThis->prepareToLoadWebPage(*protectedProcess, loadParameters);
 
-        if (shouldTreatAsContinuingLoad == ShouldTreatAsContinuingLoad::No)
-            protectedThis->preconnectTo(ResourceRequest { loadParameters.request });
+            if (shouldTreatAsContinuingLoad == ShouldTreatAsContinuingLoad::No)
+                protectedThis->preconnectTo(ResourceRequest { loadParameters.request });
 
-        navigation->setIsLoadedWithNavigationShared(true);
-        protectedProcess->markProcessAsRecentlyUsed();
-        if (!protectedProcess->isLaunching() || !url.protocolIsFile())
-            protectedProcess->send(Messages::WebPage::LoadRequest(WTF::move(loadParameters)), webPageID);
-        else
-            protectedProcess->send(Messages::WebPage::LoadRequestWaitingForProcessLaunch(WTF::move(loadParameters), protectedThis->pageLoadState().resourceDirectoryURL(), protectedThis->identifier(), true), webPageID);
-        protectedProcess->startResponsivenessTimer();
+            // MAVERICKS_BACKPORT: unchanged upstream body, re-indented one level by the move above.
+            navigation->setIsLoadedWithNavigationShared(true);
+            protectedProcess->markProcessAsRecentlyUsed();
+            if (!protectedProcess->isLaunching() || !url.protocolIsFile())
+                protectedProcess->send(Messages::WebPage::LoadRequest(WTF::move(loadParameters)), webPageID);
+            else
+                protectedProcess->send(Messages::WebPage::LoadRequestWaitingForProcessLaunch(WTF::move(loadParameters), protectedThis->pageLoadState().resourceDirectoryURL(), protectedThis->identifier(), true), webPageID);
+            protectedProcess->startResponsivenessTimer();
+        });
     });
 }
 
@@ -5926,7 +5943,17 @@ void WebPageProxy::continueNavigationInNewProcess(API::Navigation& navigation, W
 
     Ref process = provisionalPage->process();
 
-    if (provisionalPage->needsCookieAccessAddedInNetworkProcess()) {
+    // MAVERICKS_BACKPORT: register unconditionally, not just when needsCookieAccessAddedInNetworkProcess()
+    // says so. That flag is set in exactly one place (ProvisionalPageProxy::initializeWebPage, under
+    // siteIsolationEnabled()), and this port does not enable site isolation -- so on every process swap
+    // here the provisional page's NEW process began its load with no allowed first party registered.
+    // NetworkProcess::allowsFirstPartyForCookies answers Terminate, not merely Disallow, for an
+    // unregistered NON-EMPTY registrable domain, so MESSAGE_CHECK killed that process mid-navigation and
+    // the client sat forever with no didFailProvisionalLoad. An IP-address or loopback first party has an
+    // EMPTY registrable domain and takes the harmless Disallow branch, which is why localhost loaded and
+    // every real host hung (QuickLook web previews of a remote .webloc). Registering the domain for the
+    // process that is about to load it is what every other path already does.
+    {
         continuation = [
             networkProcess = protect(Ref { websiteDataStore() }->networkProcess()),
             continuation = WTF::move(continuation),
