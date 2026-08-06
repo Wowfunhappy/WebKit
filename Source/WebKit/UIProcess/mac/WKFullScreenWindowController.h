@@ -49,7 +49,11 @@ typedef enum FullScreenState : NSInteger FullScreenState;
 
 @interface WKFullScreenWindowController : NSWindowController<NSWindowDelegate> {
 @private
-    WeakObjCPtr<WKWebView> _webView; // Cannot be retained, see <rdar://problem/14884666>.
+    // MAVERICKS_BACKPORT: typed NSView rather than WKWebView so the Safari-7 WKView path can use this
+    // controller too (MinimalPageClient.mm). Every use of this ivar in the implementation is NSView API
+    // — window/frame/superview/autoresizingMask/removeFromSuperview/makeFirstResponder: — so this widens
+    // what the controller accepts without changing what it does. Cannot be retained, see <rdar://problem/14884666>.
+    WeakObjCPtr<NSView> _webView;
     WeakPtr<WebKit::WebPageProxy> _page;
     RetainPtr<WKFullScreenPlaceholderView> _webViewPlaceholder;
     RetainPtr<NSView> _exitPlaceholder;
@@ -65,6 +69,12 @@ typedef enum FullScreenState : NSInteger FullScreenState;
     CompletionHandler<void()> _beganExitFullScreenCompletionHandler;
     CompletionHandler<void()> _exitFullScreenCompletionHandler;
 
+    // MAVERICKS_BACKPORT: set when the full-screen-space opt-out hid the menu bar and Dock, so the
+    // restore is guarded by "did I hide it" rather than by state the teardown paths can lose, plus the
+    // host's own options from before the hide, so the restore puts back what was there.
+    BOOL _mavericksDidHidePresentationOptions;
+    NSApplicationPresentationOptions _mavericksSavedPresentationOptions;
+
     double _savedScale;
     WebCore::FloatBoxExtent _savedObscuredContentInsets;
 }
@@ -73,7 +83,8 @@ typedef enum FullScreenState : NSInteger FullScreenState;
 @property (readonly) NSRect finalFrame;
 @property (assign) NSArray *savedConstraints;
 
-- (instancetype)initWithWindow:(NSWindow *)window webView:(WKWebView *)webView page:(std::reference_wrapper<WebKit::WebPageProxy>)page;
+// MAVERICKS_BACKPORT: takes NSView rather than WKWebView (see the _webView ivar comment).
+- (instancetype)initWithWindow:(NSWindow *)window webView:(NSView *)webView page:(std::reference_wrapper<WebKit::WebPageProxy>)page;
 
 @property (nonatomic, readonly) WebCoreFullScreenPlaceholderView *webViewPlaceholder;
 

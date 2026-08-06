@@ -33,6 +33,30 @@ struct wk_selmap_entry { const char *pub; const char *priv; int intent; };
 // Use this to deliberately shadow a method 10.9 HAS, so the body wins by intent and the gate expects it.
 #define WK_POLYFILL_SEL_REPLACES(PUB, PRIV) WK_POLYFILL_SEL_(PUB, PRIV, WK_SELMAP_REPLACES)
 
+// HOW A REPLACES BODY CALLS THROUGH TO THE METHOD IT SHADOWS. Use these — do NOT hand-roll it as
+// `objc_msgSend(self, sel_registerName("<public>"), …)`. That spelling re-resolves from the TOP of the
+// receiver's chain, so if anything between the receiver and the body overrides the public selector in a
+// WebKit image, the override runs again and its [super …] (rewritten to wk_) lands back in the body:
+// unbounded recursion. These answer "what is one level below ME", derived from the BODY's class, and are
+// resolver-free. See the long comment on wk_replaces_call_through_class in wk_selref_scope.m.
+//
+//   - (BOOL)wk_foo:(int)x
+//   {
+//       SEL pub = sel_registerName("foo:");
+//       typedef BOOL (*Fn)(id, SEL, int);
+//       Fn real = (Fn)wk_replaces_call_through_class(self, [MyClass class], _cmd, pub);
+//       ...
+//       return real(self, pub, x);
+//   }
+//
+// Pass the class the polyfill CATEGORY is on; for a `+` body that is the METAclass, object_getClass([C class]).
+// For a WK_POLYFILL_ADD_REPLACES body (a C function IMP on a runtime-named class) use the _imp form and
+// pass the function itself, since one function may be registered for several classes.
+#import <objc/objc.h>
+#import <objc/runtime.h>
+IMP wk_replaces_call_through_class(id receiver, Class bodyClass, SEL privateSelector, SEL publicSelector);
+IMP wk_replaces_call_through_imp(id receiver, IMP bodyIMP, SEL privateSelector, SEL publicSelector);
+
 
 // Add a NEW wk_ method to a RUNTIME-resolved class via a C-function IMP (no ObjC category).
 //

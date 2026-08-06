@@ -472,7 +472,7 @@ awk -F'\t' 'NR == FNR { ext[$1 FS $2 FS $3] = $0; next }
 
 # ---------------------------------------------------------------- the ObjC verdict
 # A GAP_FILL whose public selector 10.9 already implements is a defect, exactly like a shadowing C
-# gap-fill: both intents install the body (wk_alias_class's class_addMethod), so the selref rewrite
+# gap-fill: the body is installed on the target class either way, so the selref rewrite
 # sends WebKit's `foo` to `wk_foo` and the body runs in place of 10.9's working method. It fails the
 # build. The fixes are the same as for a C symbol: delete the polyfill and let WebKit bind 10.9's
 # method, or declare WK_POLYFILL_SEL_REPLACES if shadowing 10.9 is the point. A registration that

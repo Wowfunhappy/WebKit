@@ -602,16 +602,36 @@ WK_POLYFILL_SEL("stage", "wk_stage");
 @interface NSWindow (WKPolyfillScope)
 - (NSPoint)wk_convertPointToScreen:(NSPoint)point;
 - (NSPoint)wk_convertPointFromScreen:(NSPoint)point;
+enum { WKFullSizeContentViewStyleMask = 1 << 15 };   // NSWindowStyleMaskFullSizeContentView
 - (void)wk_performWindowDragWithEvent:(NSEvent *)event;
 - (NSRect)wk_contentLayoutRect;
 @end
 @implementation NSWindow (WKPolyfillScope)
 - (NSPoint)wk_convertPointToScreen:(NSPoint)point { return [self convertBaseToScreen:point]; }
 - (NSPoint)wk_convertPointFromScreen:(NSPoint)point { return [self convertScreenToBase:point]; }
-// -[NSWindow contentLayoutRect] is 10.10+: the content region not obscured by a full-size-content-view
-// title bar, in window coordinates. 10.9 has no full-size content view, so that region is exactly the
-// content view's frame -- which is also the fallback WebKit's own call sites compute for themselves.
-- (NSRect)wk_contentLayoutRect { return [[self contentView] frame]; }
+// -[NSWindow contentLayoutRect] is 10.10+: the content region NOT obscured by the title bar, in content-
+// view coordinates. This layer implements full-size content for real (the adapter below), so the answer
+// is not simply the content view's frame: once the content view spans the whole frame, the top strip
+// under the title bar is obscured, and subtracting it is the entire reason callers ask
+// (PageClientImpl::computeAutomaticTopObscuredInset derives its inset from exactly this difference).
+// With the full-size bit clear, 10.9 already places the content view below the title bar, so nothing is
+// obscured and the content view's own bounds are the answer.
+- (NSRect)wk_contentLayoutRect
+{
+    NSRect contentFrame = [[self contentView] frame];
+    if (!([self styleMask] & WKFullSizeContentViewStyleMask))
+        return contentFrame;
+
+    // How much of the full-size content view the title bar covers: the difference between the window's
+    // frame height and the height 10.9 would have given the content view without the full-size bit.
+    CGFloat titleBarHeight = NSHeight([self frame]) - NSHeight([self contentRectForFrameRect:[self frame]]);
+    if (titleBarHeight <= 0 || titleBarHeight >= NSHeight(contentFrame))
+        return contentFrame;
+
+    // Content view coordinates are bottom-left origin, so the obscured strip comes off the top.
+    contentFrame.size.height -= titleBarHeight;
+    return contentFrame;
+}
 - (void)wk_performWindowDragWithEvent:(NSEvent *)event
 {
     (void)event;
@@ -686,8 +706,9 @@ WK_POLYFILL_SEL("contentLayoutRect", "wk_contentLayoutRect");
 - (BOOL)wk_getResourceValue:(id *)value forKey:(NSString *)key error:(NSError **)error
 {
     typedef BOOL (*WKGetResourceValueFn)(id, SEL, id *, NSString *, NSError **);
-    WKGetResourceValueFn original = (WKGetResourceValueFn)objc_msgSend;
     SEL originalSelector = sel_registerName("getResourceValue:forKey:error:");
+    WKGetResourceValueFn original =
+        (WKGetResourceValueFn)wk_replaces_call_through_class(self, [NSURL class], _cmd, originalSelector);
     if ([key isEqualToString:NSURLContentTypeKey]) {
         NSString *typeIdentifier = nil;
         if (!original(self, originalSelector, (id *)&typeIdentifier, NSURLTypeIdentifierKey, error))
@@ -713,8 +734,9 @@ WK_POLYFILL_SEL("contentLayoutRect", "wk_contentLayoutRect");
 - (BOOL)wk_setResourceValue:(id)value forKey:(NSString *)key error:(NSError **)error
 {
     typedef BOOL (*WKSetResourceValueFn)(id, SEL, id, NSString *, NSError **);
-    WKSetResourceValueFn original = (WKSetResourceValueFn)objc_msgSend;
     SEL originalSelector = sel_registerName("setResourceValue:forKey:error:");
+    WKSetResourceValueFn original =
+        (WKSetResourceValueFn)wk_replaces_call_through_class(self, [NSURL class], _cmd, originalSelector);
     if ([key isEqualToString:NSURLQuarantinePropertiesKey]) {
         if (![self isFileURL]) {
             if (error)
@@ -766,7 +788,11 @@ WK_POLYFILL_SEL("contentLayoutRect", "wk_contentLayoutRect");
     // so the relative form is 10.9's way to spell what the modern initializer means, and it is applied
     // only where 10.9 would otherwise hand back nil. Decided BEFORE calling the real initializer, never
     // after: a failed init has already released the receiver, so a second init on it is a use-after-free.
+    SEL initSelector = sel_registerName("initWithString:");
     if (![string length] && ![self isMemberOfClass:[NSURL class]]) {
+        // -initWithString:relativeToURL: and +URLWithString: on NSURL itself are ordinary sends: the
+        // former is not polyfilled at all, and the latter names an explicit class rather than a
+        // receiver whose chain could carry an override, so neither can re-enter this body.
         typedef id (*WKURLInitRelativeFn)(id, SEL, NSString *, NSURL *);
         WKURLInitRelativeFn originalRelative = (WKURLInitRelativeFn)objc_msgSend;
         typedef id (*WKURLWithStringFn)(id, SEL, NSString *);
@@ -775,16 +801,20 @@ WK_POLYFILL_SEL("contentLayoutRect", "wk_contentLayoutRect");
         return originalRelative(self, sel_registerName("initWithString:relativeToURL:"), string, emptyBase);
     }
     typedef id (*WKURLInitFn)(id, SEL, NSString *);
-    WKURLInitFn original = (WKURLInitFn)objc_msgSend;
-    return original(self, sel_registerName("initWithString:"), string);
+    WKURLInitFn original =
+        (WKURLInitFn)wk_replaces_call_through_class(self, [NSURL class], _cmd, initSelector);
+    return original(self, initSelector, string);
 }
 + (instancetype)wk_URLWithString:(NSString *)string
 {
     if (!string)
         return nil;
     typedef id (*WKURLWithStringFn)(id, SEL, NSString *);
-    WKURLWithStringFn original = (WKURLWithStringFn)objc_msgSend;
-    return original(self, sel_registerName("URLWithString:"), string);
+    SEL publicSelector = sel_registerName("URLWithString:");
+    // A `+` body lives on the METAclass, which is where a send to the class object looks it up.
+    WKURLWithStringFn original = (WKURLWithStringFn)wk_replaces_call_through_class(self,
+        object_getClass([NSURL class]), _cmd, publicSelector);
+    return original(self, publicSelector, string);
 }
 @end
 WK_POLYFILL_SEL("_lp_simplifiedDisplayString", "wk__lp_simplifiedDisplayString");
@@ -1039,6 +1069,123 @@ WK_POLYFILL_SEL("_setExpirationDate:", "wk__setExpirationDate:");
 WK_POLYFILL_SEL("drawWithBox:toContext:", "wk_drawWithBox:toContext:");
 
 // ---------------------------------------------------------------------------------------------------
+// +[NSLayoutConstraint activateConstraints:] / +deactivateConstraints: and -isActive (all 10.10+).
+//
+// 10.10 replaced "add this constraint to the right view" with "activate it, and let AppKit work out
+// which view that is". The rule it uses is public and unchanged: a constraint is installed on the
+// NEAREST COMMON ANCESTOR of its two items — or, for a constraint with only a first item (a width or
+// height on a single view), on that view itself. 10.9 has the installation half of that API,
+// -[NSView addConstraint:]/-removeConstraint:; what it lacks is the ancestor computation and the
+// activate/deactivate spelling. So this is a real implementation of the 10.10 behavior in terms of
+// 10.9's own constraint machinery, not a stand-in: any caller gets the constraint installed where
+// 10.10 would have installed it.
+//
+// This matters beyond tidiness: -removeFromSuperview destroys every constraint referencing the view,
+// so WebKit's full-screen paths save a view's constraints and re-activate them on the way back
+// (WKFullScreenWindowController's _saveConstraintsOf: / activateConstraints:). Without the polyfill
+// that call raised "unrecognized selector sent to class" inside WebKit's BEGIN/END_BLOCK_OBJC_EXCEPTIONS,
+// which swallowed it — so the restore silently did nothing and a constraint-driven host (Mail's
+// autolayout-driven MUIWKView is one) got its web view back unconstrained.
+@interface NSLayoutConstraint (WKPolyfillScope)
++ (void)wk_activateConstraints:(NSArray *)constraints;
++ (void)wk_deactivateConstraints:(NSArray *)constraints;
+- (BOOL)wk_isActive;
+- (void)wk_setActive:(BOOL)active;
+@end
+
+// The view a constraint belongs on, by 10.10's rule.
+static NSView *wk_constraintHostView(NSLayoutConstraint *constraint)
+{
+    id first = [constraint firstItem];
+    id second = [constraint secondItem];
+    if (![first isKindOfClass:[NSView class]])
+        return nil;
+    NSView *firstView = (NSView *)first;
+    if (!second)
+        return firstView;
+    if (![second isKindOfClass:[NSView class]])
+        return firstView;
+    return [firstView ancestorSharedWithView:(NSView *)second];
+}
+
+@implementation NSLayoutConstraint (WKPolyfillScope)
+
++ (void)wk_activateConstraints:(NSArray *)constraints
+{
+    for (NSLayoutConstraint *constraint in constraints) {
+        NSView *host = wk_constraintHostView(constraint);
+        if (!host) {
+            // What real AppKit does with this input, rather than dropping the constraint and saying
+            // nothing -- a silent no-op here is the same failure mode that made the absent
+            // +activateConstraints: so hard to see in the first place.
+            [NSException raise:NSInvalidArgumentException
+                        format:@"Unable to activate constraint with items %@ and %@ because they have no common ancestor.",
+                               [constraint firstItem], [constraint secondItem]];
+            return;
+        }
+        if (![[host constraints] containsObject:constraint])
+            [host addConstraint:constraint];
+    }
+}
+
++ (void)wk_deactivateConstraints:(NSArray *)constraints
+{
+    for (NSLayoutConstraint *constraint in constraints) {
+        // Deactivation must find the constraint wherever it was installed, which is not necessarily
+        // where the ancestor rule would put it today (the view tree may have changed since).
+        NSView *host = wk_constraintHostView(constraint);
+        if (host && [[host constraints] containsObject:constraint]) {
+            [host removeConstraint:constraint];
+            continue;
+        }
+        // host is nil exactly when firstItem is not an NSView, so there is nothing to walk from and
+        // nothing to remove the constraint from -- casting it to NSView and messaging it would be an
+        // unrecognized selector in the polyfill itself.
+        if (!host)
+            continue;
+        for (NSView *view = host; view; view = [view superview]) {
+            if ([[view constraints] containsObject:constraint]) {
+                [view removeConstraint:constraint];
+                break;
+            }
+        }
+    }
+}
+
+- (BOOL)wk_isActive
+{
+    NSView *host = wk_constraintHostView(self);
+    for (NSView *view = host; view; view = [view superview]) {
+        if ([[view constraints] containsObject:self])
+            return YES;
+    }
+    return NO;
+}
+
+- (void)wk_setActive:(BOOL)active
+{
+    NSArray *one = [NSArray arrayWithObject:self];
+    if (active)
+        [NSLayoutConstraint wk_activateConstraints:one];
+    else
+        [NSLayoutConstraint wk_deactivateConstraints:one];
+}
+
+@end
+WK_POLYFILL_SEL("activateConstraints:", "wk_activateConstraints:");
+WK_POLYFILL_SEL("deactivateConstraints:", "wk_deactivateConstraints:");
+WK_POLYFILL_SEL("isActive", "wk_isActive");
+WK_POLYFILL_SEL("setActive:", "wk_setActive:");
+
+// NOT polyfilled: +[NSCursor hideUntilChanged] (10.13+). Its contract is "hidden until the app-global
+// cursor SHAPE next changes", which survives pointer motion. 10.9's nearest call,
+// +setHiddenUntilMouseMoves:, un-hides on the next mouse MOVE instead -- a different API. Mapping one to
+// the other would hide the pointer for `cursor: none` until the user moved it and then never again,
+// because WebKit's call sites bail early when the cursor already matches and so never re-set it. Both
+// call sites are upstream's own respondsToSelector: guards with upstream's own fallback (a transparent
+// cursor image), so leaving this unpolyfilled is upstream behaviour rather than a gap.
+
+// ---------------------------------------------------------------------------------------------------
 // Post-10.9 side-effect-only SPIs with no 10.9 equivalent — faithful no-ops (identical to the current
 // guarded skip). NSURLSession +_disableAppSSO (10.13), NSApplication +_preventDockConnections (10.10) /
 // -_setAccentColor: (10.14), NSWindow -setTitlebarAppearsTransparent: (10.10) / -setTitleVisibility:
@@ -1052,15 +1199,130 @@ WK_POLYFILL_SEL("drawWithBox:toContext:", "wk_drawWithBox:toContext:");
 @end
 WK_POLYFILL_SEL("_disableAppSSO", "wk__disableAppSSO");
 
+// -[NSWindow setTitlebarAlphaValue:] (10.14+) fades a window's title bar out and back in.
+// -setTitlebarAppearsTransparent: above already implements "the title bar does not paint, content runs
+// underneath" for 10.9, via the full-size-content adapter; an alpha of 0 asks for exactly that, so it
+// routes to the same adapter rather than to a second mechanism. A non-zero alpha asks for the ordinary
+// title bar back, which is the adapter's absence. 10.9 cannot render the intermediate alphas an
+// animation would step through, so those round to "visible" -- the endpoints are what callers depend on.
+//
+// (The value is also stored and returned, so a caller that reads back what it set gets it, and so the
+// getter does not have to lie.)
+static const char wkTitlebarAlphaValueKey;
+static const char wkTitlebarChromeHiddenStateKey;   // each button's own isHidden, captured at alpha 0
+
+@interface NSWindow (WKPolyfillScopeTitlebarAlpha)
+- (void)wk_setTitlebarAlphaValue:(CGFloat)alpha;
+- (CGFloat)wk_titlebarAlphaValue;
+@end
+@implementation NSWindow (WKPolyfillScopeTitlebarAlpha)
+
+- (void)wk_setTitlebarAlphaValue:(CGFloat)alpha
+{
+    objc_setAssociatedObject(self, (const void *)&wkTitlebarAlphaValueKey,
+                             [NSNumber numberWithDouble:(double)alpha], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    // DRAWING only -- never the content view's geometry, which follows
+    // NSWindowStyleMaskFullSizeContentView (see wk_installFullSizeContentAdapterIfNeeded). 10.9's
+    // NSThemeFrame has no title-bar alpha channel to vary continuously, but it does have the chrome the
+    // property makes invisible at 0 and visible above it, and that chrome is separately addressable
+    // here. So the ENDPOINTS are implemented -- which is what callers depend on: WebKit hides the title
+    // bar for the duration of the full-screen transition and shows it afterwards. Intermediate alphas an
+    // animation would step through round to "visible", the closest 10.9 can render.
+    //
+    // Restoring means putting back WHAT WAS THERE, not asserting "visible": a window is free to hide
+    // its own traffic lights, and unhiding those at alpha 1 would be this polyfill inventing state the
+    // caller never asked for. Each button's own isHidden is captured at the transition INTO alpha 0 and
+    // replayed at the transition back out; the saved record is what marks the window as hidden-by-this-
+    // polyfill, so repeated 0 -> 0 cannot overwrite it with the state it just imposed, repeated 1 -> 1
+    // is a no-op, and a window this polyfill never hid is never touched.
+    BOOL chromeHidden = (alpha <= 0);
+    NSWindowButton buttons[] = { NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton,
+                                 NSWindowFullScreenButton, NSWindowDocumentIconButton };
+    size_t buttonCount = sizeof(buttons) / sizeof(buttons[0]);
+    NSArray *saved = objc_getAssociatedObject(self, (const void *)&wkTitlebarChromeHiddenStateKey);
+
+    if (chromeHidden) {
+        if (saved)
+            return;   // already hidden by this polyfill; the record is the caller's state, keep it
+        NSMutableArray *record = [NSMutableArray arrayWithCapacity:buttonCount];
+        for (size_t i = 0; i < buttonCount; i++) {
+            NSButton *button = [self standardWindowButton:buttons[i]];
+            [record addObject:[NSNumber numberWithBool:button ? [button isHidden] : NO]];
+        }
+        objc_setAssociatedObject(self, (const void *)&wkTitlebarChromeHiddenStateKey, record,
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        for (size_t i = 0; i < buttonCount; i++)
+            [[self standardWindowButton:buttons[i]] setHidden:YES];
+        return;
+    }
+
+    if (!saved)
+        return;   // this polyfill never hid this window's chrome, so it has nothing to restore
+    for (size_t i = 0; i < buttonCount && i < [saved count]; i++)
+        [[self standardWindowButton:buttons[i]] setHidden:[[saved objectAtIndex:i] boolValue]];
+    objc_setAssociatedObject(self, (const void *)&wkTitlebarChromeHiddenStateKey, nil,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+- (CGFloat)wk_titlebarAlphaValue
+{
+    NSNumber *stored = objc_getAssociatedObject(self, (const void *)&wkTitlebarAlphaValueKey);
+    return stored ? (CGFloat)[stored doubleValue] : 1;
+}
+
+@end
+WK_POLYFILL_SEL("setTitlebarAlphaValue:", "wk_setTitlebarAlphaValue:");
+WK_POLYFILL_SEL("titlebarAlphaValue", "wk_titlebarAlphaValue");
+
 @interface NSApplication (WKPolyfillScope)
 + (void)wk__preventDockConnections;
++ (void)wk__accessibilityInitialize;
 - (void)wk__setAccentColor:(NSColor *)color;
 @end
 @implementation NSApplication (WKPolyfillScope)
 + (void)wk__preventDockConnections { }
+// +_accessibilityInitialize (10.13+) forces AppKit to stand its accessibility server up EARLY, rather
+// than waiting for the first AX client to connect. WebKit's WebContent process calls it so an AX client
+// finds a live tree the moment it asks. 10.9's AppKit has no such entry point (absent from this host's
+// AppKit; calling it raised "unrecognized selector sent to class" and took the WebContent process down
+// with SIGILL), so this supplies the same effect through the path 10.9 actually uses.
+//
+// That path was read out of this host's AppKit rather than guessed. -[NSApplication finishLaunching]
+// contains the ONLY call to the local function _NSAccessibilityInit, and _NSAccessibilityInit contains
+// the only call to _AXUIElementRegisterServerWithRunLoop (HIServices) — which is what registers the
+// process's accessibility server with the run loop. Nothing else in AppKit reaches it. In particular
+// +sharedApplication does NOT: merely allocating the NSApplication leaves the process with no AX server,
+// which is why a remote element built from such a process answers kAXErrorCannotComplete no matter how
+// correctly the UI side is wired.
+//
+// So "initialize accessibility now" on 10.9 is: make sure there is an NSApplication, then finish
+// launching it -- but only in a process that has not launched one already. -finishLaunching registers
+// the required Apple Event handlers, posts NSApplicationWillFinishLaunching/DidFinishLaunching, and
+// runs the document-reopening path; it is written to be called once, by -run. In a HOST process whose
+// application is already up (Safari, Mail, iBooks all load WebKit), sending it again would re-run all
+// of that behind the host's back -- and the AX server it exists to register is already registered
+// there, so there is nothing to gain either. -[NSApplication isRunning] (present on 10.9) is the
+// system's own answer to "has this application launched", which is the state that actually matters;
+// the static is the second half of the same guard, for the never-launched process this is FOR, where
+// isRunning stays NO because nothing ever calls -run. (isRunning turns YES inside -run, just after it
+// sends -finishLaunching, so it does not cover a host that is mid-launch at this instant. Nothing can
+// be mid-launch here: WebKit's two callers -- WebProcess::platformInitializeWebProcess and
+// WebPage::platformInitialize -- both run in the WebContent process, off an IPC message from a UI
+// process that has long since launched.)
++ (void)wk__accessibilityInitialize
+{
+    static BOOL didFinishLaunching = NO;
+    NSApplication *app = [NSApplication sharedApplication];
+    if (didFinishLaunching || [app isRunning])
+        return;
+    didFinishLaunching = YES;
+    [app finishLaunching];
+}
 - (void)wk__setAccentColor:(NSColor *)color { (void)color; }
 @end
 WK_POLYFILL_SEL("_preventDockConnections", "wk__preventDockConnections");
+WK_POLYFILL_SEL("_accessibilityInitialize", "wk__accessibilityInitialize");
 WK_POLYFILL_SEL("_setAccentColor:", "wk__setAccentColor:");
 
 // NSWindowStyleMaskFullSizeContentView + -setTitlebarAppearsTransparent: (both 10.10+), implemented for
@@ -1081,20 +1343,21 @@ WK_POLYFILL_SEL("_setAccentColor:", "wk__setAccentColor:");
 // so the traffic lights stay visible and clickable, exactly as they float over a full-size content view on
 // 10.10+.
 //
-// Trigger: -setTitlebarAppearsTransparent: with the style mask's full-size-content bit set. 10.9 offers no
-// hook at window-creation time (the content view is installed before any public setter runs), and these
-// two are a matched pair in AppKit's own API -- a full-size content view without a transparent titlebar
-// would just be content hidden behind an opaque bar. A window that sets the bit and never calls the
-// companion setter keeps 10.9's default layout.
-enum { WKFullSizeContentViewStyleMask = 1 << 15 };   // NSWindowStyleMaskFullSizeContentView
+// Trigger: the style mask's full-size-content bit, and nothing else -- see the hooks below. Not
+// -setTitlebarAppearsTransparent:, which is a separate property AppKit lets a caller set independently
+// (WebKit itself reads the two independently in PageClientImpl::computeAutomaticTopObscuredInset).
 static const char wkTitlebarAppearsTransparentKey;
 static const char wkFullSizeContentAdapterKey;
 
 @interface WKPolyfillFullSizeContentAdapter : NSObject {
     NSWindow *_window;   // unretained: the window owns this adapter through an associated object
+    BOOL _didEnableContentViewLayer;   // so -unapply only undoes layer-backing this adapter turned on
+    NSView *_adaptedContentView;       // unretained: compared by pointer to spot a content-view swap
 }
 - (instancetype)initWithWindow:(NSWindow *)window;
 - (void)apply;
+- (void)unapply;
+- (void)contentViewDidChangeIfNeeded;
 @end
 
 @implementation WKPolyfillFullSizeContentAdapter
@@ -1122,6 +1385,7 @@ static const char wkFullSizeContentAdapterKey;
     if (!contentView || !frameView)
         return;
 
+    _adaptedContentView = contentView;
     [contentView setFrame:[frameView bounds]];
 
     // The traffic lights are siblings of the content view inside the frame view. A full-size content view
@@ -1159,14 +1423,68 @@ static const char wkFullSizeContentAdapterKey;
     // how a full-size content view composites on 10.10+. Verified load-bearing by live view-tree dump
     // (buttons present but covered without it); scoped to windows with raised buttons so buttonless
     // full-size-content windows (e.g. the datalist dropdown) keep non-layer-backed text rendering.
-    if (raisedAnyButton && ![contentView wantsLayer])
+    if (raisedAnyButton && ![contentView wantsLayer]) {
         [contentView setWantsLayer:YES];
+        _didEnableContentViewLayer = YES;
+    }
 }
 
 - (void)wkWindowDidResize:(NSNotification *)notification
 {
     (void)notification;
     [self apply];   // NSThemeFrame has just re-laid-out the content view under the titlebar; undo that
+}
+
+// If the window swapped its content view out from under us, the layer-backing this adapter turned on
+// belonged to the old view (going away with its own layer), so stop tracking it and give the new view
+// the full-size treatment the style mask asks for. Cheap enough to ask on every window update: it is a
+// pointer comparison until something actually changes.
+- (void)contentViewDidChangeIfNeeded
+{
+    NSView *current = [_window contentView];
+    if (current == _adaptedContentView)
+        return;
+    _adaptedContentView = current;
+    _didEnableContentViewLayer = NO;
+    [self apply];
+}
+
+// Put the window back the way 10.9 would have it for a window that turns full-size content back off:
+// content view below the title bar, and the two things -apply changed to keep the traffic lights visible
+// over a full-size content view undone as well. Stopping at "stop re-applying" would leave the last
+// full-size layout in place until something else resized the window, so the caller would see the bit
+// ignored; stopping at geometry would leave the buttons re-ordered and the content view layer-backed for
+// a window that no longer has any reason to be either.
+- (void)unapply
+{
+    NSView *contentView = [_window contentView];
+    if (!contentView)
+        return;
+
+    NSSize contentSize = [_window contentRectForFrameRect:[_window frame]].size;
+    [contentView setFrame:NSMakeRect(0, 0, contentSize.width, contentSize.height)];
+
+    // -apply moved the standard window buttons to the end of the frame view's subviews so they painted
+    // above the full-size content view. With the content view back under the title bar they no longer
+    // overlap it, and NSThemeFrame re-places them itself on the next layout, so putting them back at the
+    // front of the list restores the order it maintains. (Remove + append/insert as whole calls, for the
+    // NSRangeException reason -apply documents.)
+    NSView *frameView = [contentView superview];
+    NSWindowButton buttons[] = { NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton,
+                                 NSWindowFullScreenButton };
+    for (size_t i = 0; i < sizeof(buttons) / sizeof(buttons[0]); i++) {
+        NSButton *button = [_window standardWindowButton:buttons[i]];
+        if (!button || !frameView || [button superview] != frameView)
+            continue;
+        [[button retain] autorelease];
+        [button removeFromSuperview];
+        [frameView addSubview:button positioned:NSWindowBelow relativeTo:contentView];
+    }
+
+    if (_didEnableContentViewLayer && [contentView wantsLayer]) {
+        [contentView setWantsLayer:NO];
+        _didEnableContentViewLayer = NO;
+    }
 }
 
 @end
@@ -1178,26 +1496,22 @@ static const char wkFullSizeContentAdapterKey;
 @end
 @implementation NSWindow (WKPolyfillScopeChrome)
 
+// Records the property. It does NOT move the content view: whether the content view spans the full
+// frame follows NSWindowStyleMaskFullSizeContentView alone (see wk_installFullSizeContentAdapterIfNeeded
+// and the style-mask hooks), which is what AppKit documents -- "If set, the contentView will consume the
+// full size of the window" is a property of the STYLE MASK. titlebarAppearsTransparent only stops the
+// title bar drawing its own background. Tying geometry to this setter made the two inseparable and was
+// wrong for any caller that sets one without the other; WebKit itself has such a call site
+// (PageClientImpl::computeAutomaticTopObscuredInset tests the mask and this property independently).
 - (void)wk_setTitlebarAppearsTransparent:(BOOL)flag
 {
     objc_setAssociatedObject(self, (const void *)&wkTitlebarAppearsTransparentKey,
                              flag ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-
-    if (!flag || !([self styleMask] & WKFullSizeContentViewStyleMask))
-        return;
-    if (objc_getAssociatedObject(self, (const void *)&wkFullSizeContentAdapterKey))
-        return;
-
-    WKPolyfillFullSizeContentAdapter *adapter = [[[WKPolyfillFullSizeContentAdapter alloc] initWithWindow:self] autorelease];
-    objc_setAssociatedObject(self, (const void *)&wkFullSizeContentAdapterKey, adapter,
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    [adapter apply];
 }
 
 // Reports what the setter stored, rather than a fixed NO that would contradict its own setter: a
-// caller that set the property and read it back was told its request had been ignored. WebKit reads this
-// (PageClientImpl::computeAutomaticTopObscuredInset) to lay content out under the titlebar, so a wrong
-// answer here is what leaves a window drawing its own title bar underneath the real one.
+// caller that set the property and read it back was told its request had been ignored. WebKit reads it
+// (PageClientImpl::computeAutomaticTopObscuredInset), independently of the style mask.
 - (BOOL)wk_titlebarAppearsTransparent
 {
     return objc_getAssociatedObject(self, (const void *)&wkTitlebarAppearsTransparentKey) != nil;
@@ -1208,6 +1522,109 @@ static const char wkFullSizeContentAdapterKey;
 - (void)wk_setTitleVisibility:(NSInteger)visibility { (void)visibility; }
 
 @end
+
+// The full-size-content layout follows the STYLE MASK, which is where AppKit puts it: "If set, the
+// contentView will consume the full size of the window" (NSWindow.h, NSWindowStyleMaskFullSizeContentView).
+// Nothing else -- not -setTitlebarAppearsTransparent:, not the title bar's alpha -- decides it.
+//
+// The trigger is the three places the answer can change: the window is BORN with the bit, the bit is
+// set or cleared later, or the content view is swapped (WKDataListSuggestionWindow swaps its own right
+// after construction). Hooking construction is what makes the layout right the FIRST time a caller
+// measures the window — before it is ordered in, which is when WebKit reads its size to tell the web
+// content how big the viewport is.
+//
+// These are REPLACES entries, and they reach every NSWindow SUBCLASS: wk_alias_class does not alias a
+// class's own IMP over a REPLACES body already in its chain, so NSPanel/NSSavePanel/_NSPopoverWindow/
+// NSCarbonWindow — all of which implement these selectors themselves on 10.9 — run the body, which then
+// calls through by sending the PUBLIC selector, landing on that subclass's own implementation.
+@interface NSWindow (WKPolyfillScopeFullSizeContentTrigger)
+- (instancetype)wk_initWithContentRect:(NSRect)contentRect styleMask:(NSUInteger)style
+                               backing:(NSBackingStoreType)backingStoreType defer:(BOOL)flag;
+- (void)wk_setStyleMask:(NSUInteger)styleMask;
+- (void)wk_setContentView:(NSView *)view;
+- (void)wk_installFullSizeContentAdapterIfNeeded;
+@end
+
+@implementation NSWindow (WKPolyfillScopeFullSizeContentTrigger)
+
+// Calling through, for a REPLACES body that wins on subclasses. The public selector is never touched by
+// the selref rewrite (nothing is ever installed under it), so the real implementations are all reachable
+// by name; the only question is WHICH one this body stands in for, and there are two answers:
+//
+//   * This body is the receiver's own entry point -- a system subclass such as NSPanel, NSSavePanel,
+//     _NSPopoverWindow or NSCarbonWindow, which wk_alias_class deliberately leaves un-aliased so the
+//     polyfill is not shadowed. Standing in for the RECEIVER's real method, so call that.
+//   * The receiver's class resolves wk_<name> to something else -- its own aliased implementation. That
+//     happens only for a class from a WEBKIT image (wk_alias_class keeps those aliased), so its
+//     override is the entry point and we are here because that override said [super ...], which the
+//     rewrite turned into a wk_ super-send. Standing in for what super means there: NSWindow's own
+//     implementation. Dispatching the public selector instead would land back on the override and
+//     recurse forever -- WebCoreFullScreenWindow and WKDataListSuggestionWindow both call super.
+//
+// Which implementation each stands in for comes from wk_replaces_call_through_class (see its comment in
+// the mechanism): the answer is derived from the BODY's class, not the receiver's, so it stays right when
+// an aliased override sits several levels below the receiver.
+
+- (instancetype)wk_initWithContentRect:(NSRect)contentRect styleMask:(NSUInteger)style
+                               backing:(NSBackingStoreType)backingStoreType defer:(BOOL)flag
+{
+    typedef id (*WKInitFn)(id, SEL, NSRect, NSUInteger, NSBackingStoreType, BOOL);
+    SEL publicSelector = sel_registerName("initWithContentRect:styleMask:backing:defer:");
+    WKInitFn real = (WKInitFn)wk_replaces_call_through_class(self, [NSWindow class], _cmd, publicSelector);
+    id window = real(self, publicSelector, contentRect, style, backingStoreType, flag);
+    // A failed initializer has already released the receiver, and returns nil; nothing to adapt.
+    [window wk_installFullSizeContentAdapterIfNeeded];
+    return window;
+}
+
+- (void)wk_setStyleMask:(NSUInteger)styleMask
+{
+    typedef void (*WKSetStyleMaskFn)(id, SEL, NSUInteger);
+    SEL publicSelector = sel_registerName("setStyleMask:");
+    ((WKSetStyleMaskFn)wk_replaces_call_through_class(self, [NSWindow class], _cmd, publicSelector))
+        (self, publicSelector, styleMask);
+    [self wk_installFullSizeContentAdapterIfNeeded];   // the bit may have just been set OR cleared
+}
+
+- (void)wk_setContentView:(NSView *)view
+{
+    typedef void (*WKSetContentViewFn)(id, SEL, id);
+    SEL publicSelector = sel_registerName("setContentView:");
+    ((WKSetContentViewFn)wk_replaces_call_through_class(self, [NSWindow class], _cmd, publicSelector))
+        (self, publicSelector, view);
+    [self wk_installFullSizeContentAdapterIfNeeded];   // notices the swap and adapts the new view
+}
+
+- (void)wk_installFullSizeContentAdapterIfNeeded
+{
+    BOOL wantsFullSize = ([self styleMask] & WKFullSizeContentViewStyleMask) != 0;
+    WKPolyfillFullSizeContentAdapter *installed = objc_getAssociatedObject(self, (const void *)&wkFullSizeContentAdapterKey);
+
+    if (wantsFullSize && !installed) {
+        WKPolyfillFullSizeContentAdapter *adapter = [[[WKPolyfillFullSizeContentAdapter alloc] initWithWindow:self] autorelease];
+        objc_setAssociatedObject(self, (const void *)&wkFullSizeContentAdapterKey, adapter, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [adapter apply];
+        return;
+    }
+
+    if (!wantsFullSize && installed) {
+        // -unapply FIRST. OBJC_ASSOCIATION_RETAIN_NONATOMIC releases synchronously and does not
+        // autorelease, so clearing the association is what deallocates the adapter -- messaging it
+        // afterwards is a use-after-free (the association holds the only reference).
+        [installed unapply];
+        objc_setAssociatedObject(self, (const void *)&wkFullSizeContentAdapterKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+
+    if (wantsFullSize && installed)
+        [installed contentViewDidChangeIfNeeded];
+}
+
+@end
+WK_POLYFILL_SEL_REPLACES("initWithContentRect:styleMask:backing:defer:",
+                         "wk_initWithContentRect:styleMask:backing:defer:");
+WK_POLYFILL_SEL_REPLACES("setStyleMask:", "wk_setStyleMask:");
+WK_POLYFILL_SEL_REPLACES("setContentView:", "wk_setContentView:");
 WK_POLYFILL_SEL("setTitlebarAppearsTransparent:", "wk_setTitlebarAppearsTransparent:");
 WK_POLYFILL_SEL("titlebarAppearsTransparent", "wk_titlebarAppearsTransparent");
 WK_POLYFILL_SEL("setTitleVisibility:", "wk_setTitleVisibility:");
@@ -1881,7 +2298,12 @@ static void wk_downloadTask_cancelByProducingResumeData(id self, SEL _cmd, void 
         static SEL cancelByProducingResumeDataSelector;
         if (!cancelByProducingResumeDataSelector)
             cancelByProducingResumeDataSelector = sel_registerName("cancelByProducingResumeData:");
-        void (*cancelByProducingResumeData)(id, SEL, void (^)(NSData *)) = (void (*)(id, SEL, void (^)(NSData *)))objc_msgSend;
+        // Resolved against THIS body rather than sent to self — see wk_replaces_call_through_class. The
+        // _imp form because one C function is registered for both concrete download-task classes, so the
+        // body's class is whichever of them this receiver belongs to.
+        void (*cancelByProducingResumeData)(id, SEL, void (^)(NSData *)) =
+            (void (*)(id, SEL, void (^)(NSData *)))wk_replaces_call_through_imp(self,
+                (IMP)wk_downloadTask_cancelByProducingResumeData, _cmd, cancelByProducingResumeDataSelector);
         cancelByProducingResumeData(self, cancelByProducingResumeDataSelector, completionHandler);
         return;
     }
@@ -2710,7 +3132,10 @@ WK_POLYFILL_SEL("setContentsFormat:", "wk_setContentsFormat:");
     static SEL showRelativeToRectSelector;
     if (!showRelativeToRectSelector)
         showRelativeToRectSelector = sel_registerName("showRelativeToRect:ofView:preferredEdge:");
-    void (*showRelativeToRect)(id, SEL, NSRect, NSView *, NSRectEdge) = (void (*)(id, SEL, NSRect, NSView *, NSRectEdge))objc_msgSend;
+    // Resolved against this body's class rather than sent to self — see wk_replaces_call_through_class.
+    void (*showRelativeToRect)(id, SEL, NSRect, NSView *, NSRectEdge) =
+        (void (*)(id, SEL, NSRect, NSView *, NSRectEdge))wk_replaces_call_through_class(self,
+            [NSPopover class], _cmd, showRelativeToRectSelector);
     showRelativeToRect(self, showRelativeToRectSelector, positioningRect, positioningView, preferredEdge);
 
     if (window && [window firstResponder] != savedFirstResponder)
@@ -3461,13 +3886,29 @@ WK_POLYFILL_SEL("standardShareMenuItemRelativeToRect:ofView:preferredEdge:", "wk
 @end
 WK_POLYFILL_SEL("labelWithString:", "wk_labelWithString:");
 
-// -[NSView safeAreaInsets] (11.0+). A safe-area inset describes screen furniture (notch, home indicator)
-// intruding on a view. 10.9 has none, and NSEdgeInsetsZero is exactly what modern AppKit returns for a
-// view with nothing intruding — so this is the correct answer here, not a placeholder.
+// -[NSView safeAreaInsets] (11.0+) and -[NSScreen safeAreaInsets] (12.0+). A safe-area inset describes
+// screen furniture (notch, home indicator) intruding on a view or a screen. 10.9 has none, and
+// NSEdgeInsetsZero is exactly what modern AppKit returns when nothing intrudes — so this is the correct
+// answer here, not a placeholder. For the screen it means WebCore's safeScreenFrame() is the full screen
+// frame, which is the truth on this hardware.
+//
+// BOTH classes need it. A WK_POLYFILL_SEL registration rewrites the SELECTOR wherever WebKit sends it,
+// not the selector on one class, so every receiver class WebKit sends it to must implement it or that
+// send raises "unrecognized selector". WebCore sends it to NSView (RenderThemeMac) and, via
+// safeScreenFrame(), to NSScreen — the NSScreen half was missing, and it took the UI process's
+// full-screen entry down with an exception the moment WKFullScreenWindowController asked for the screen
+// frame.
 @interface NSView (WKPolyfillScopeSafeArea)
 - (NSEdgeInsets)wk_safeAreaInsets;
 @end
 @implementation NSView (WKPolyfillScopeSafeArea)
+- (NSEdgeInsets)wk_safeAreaInsets { return NSEdgeInsetsMake(0, 0, 0, 0); }
+@end
+
+@interface NSScreen (WKPolyfillScopeSafeArea)
+- (NSEdgeInsets)wk_safeAreaInsets;
+@end
+@implementation NSScreen (WKPolyfillScopeSafeArea)
 - (NSEdgeInsets)wk_safeAreaInsets { return NSEdgeInsetsMake(0, 0, 0, 0); }
 @end
 WK_POLYFILL_SEL("safeAreaInsets", "wk_safeAreaInsets");
@@ -3599,14 +4040,18 @@ static NSURL *wk_spoolStreamBodyToFile(NSURLRequest *request, NSString **pathOut
 
 static const void *wkUploadSpoolOwnerKey = &wkUploadSpoolOwnerKey;
 
-static id wk_urlSession_taskForStreamedRequest(id self, SEL realSelector, NSURLRequest *request)
+// realIMP is the implementation this body stands in for, resolved by the caller against its OWN function
+// pointer (wk_replaces_call_through_imp) rather than re-sent to self — sending the public selector back
+// to self re-resolves from the top of the chain and can re-enter this body. See wk_selref_scope.h.
+static id wk_urlSession_taskForStreamedRequest(id self, SEL realSelector, IMP realIMP, NSURLRequest *request)
 {
+    id (*callReal)(id, SEL, id) = (id (*)(id, SEL, id))realIMP;
     // Nothing to substitute (no stream body, or no caller-set length): the real selector gets the request
     // untouched, with its stream unread.
     NSInputStream *bodyStream = [request HTTPBodyStream];
     NSString *lengthHeader = [request valueForHTTPHeaderField:@"Content-Length"];
     if (!bodyStream || ![lengthHeader length] || [lengthHeader longLongValue] <= 0)
-        return ((id (*)(id, SEL, id))objc_msgSend)(self, realSelector, request);
+        return callReal(self, realSelector, request);
 
     NSString *path = nil;
     NSURL *fileURL = wk_spoolStreamBodyToFile(request, &path);
@@ -3620,7 +4065,7 @@ static id wk_urlSession_taskForStreamedRequest(id self, SEL realSelector, NSURLR
     // the first real task in a session; the entry is never removed (the destructor requires m_task), so the
     // load hangs with no error and the next identifier-0 task in that session trips a RELEASE_ASSERT.
     if (!fileURL) {
-        id failedTask = ((id (*)(id, SEL, id))objc_msgSend)(self, realSelector, request);
+        id failedTask = callReal(self, realSelector, request);
         // -cancel is the ordinary way to make a created task end in an error its delegate sees; nothing is
         // sent because the task has not been resumed.
         if (failedTask)
@@ -3637,7 +4082,7 @@ static id wk_urlSession_taskForStreamedRequest(id self, SEL realSelector, NSURLR
     if (!task) {
         // Same reasoning as above: the stream is gone, so this cannot fall back to it.
         [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
-        id failedTask = ((id (*)(id, SEL, id))objc_msgSend)(self, realSelector, request);
+        id failedTask = callReal(self, realSelector, request);
         if (failedTask)
             ((void (*)(id, SEL))objc_msgSend)(failedTask, sel_registerName("cancel"));
         return failedTask;
@@ -3652,14 +4097,16 @@ static id wk_urlSession_taskForStreamedRequest(id self, SEL realSelector, NSURLR
 
 static id wk_urlSession_dataTaskWithRequest(id self, SEL _cmd, NSURLRequest *request)
 {
-    (void)_cmd;
-    return wk_urlSession_taskForStreamedRequest(self, sel_registerName("dataTaskWithRequest:"), request);
+    SEL real = sel_registerName("dataTaskWithRequest:");
+    return wk_urlSession_taskForStreamedRequest(self, real,
+        wk_replaces_call_through_imp(self, (IMP)wk_urlSession_dataTaskWithRequest, _cmd, real), request);
 }
 
 static id wk_urlSession_uploadTaskWithStreamedRequest(id self, SEL _cmd, NSURLRequest *request)
 {
-    (void)_cmd;
-    return wk_urlSession_taskForStreamedRequest(self, sel_registerName("uploadTaskWithStreamedRequest:"), request);
+    SEL real = sel_registerName("uploadTaskWithStreamedRequest:");
+    return wk_urlSession_taskForStreamedRequest(self, real,
+        wk_replaces_call_through_imp(self, (IMP)wk_urlSession_uploadTaskWithStreamedRequest, _cmd, real), request);
 }
 
 // Registered on the public class AND on the concrete one: NSURLSession is a class cluster whose
@@ -3909,32 +4356,6 @@ static id wk_objectFromPDFObject(CGPDFObjectRef object, CFMutableSetRef path)
 @end
 WK_POLYFILL_SEL("valueForAnnotationKey:", "wk_valueForAnnotationKey:");
 
-// ---------------------------------------------------------------------------------------------------
-// -[NSView setNeedsLayout:] behavior (10.10+ contract). Modern AppKit runs pending -layout passes as
-// part of every window's display cycle, so marking a view needsLayout guarantees -layout before the
-// next draw. 10.9 only runs that pass in windows whose autolayout engine is engaged (measured:
-// needsLayout + display runs -layout with a constraint present, and never without one) — in a plain
-// window the flag just sits there, and a view laid out only in -layout stays at its initial zero
-// frames. WebKit's AppKit views are written to the modern contract (WKDataListSuggestionView frames
-// its text fields in -layout — the datalist dropdown showed empty rows). REPLACES: set the flag as
-// 10.9 does, then schedule the pass 10.10+ would have run. Only WebKit's own sends are rewritten to
-// this body, so Safari's and AppKit's internal layout behavior is untouched.
-@interface NSView (WKPolyfillScopeLayout)
-- (void)wk_setNeedsLayout:(BOOL)needsLayout;
-@end
-@implementation NSView (WKPolyfillScopeLayout)
-- (void)wk_setNeedsLayout:(BOOL)needsLayout
-{
-    // The public selector is sent via sel_registerName so the send is not itself rewritten.
-    ((void (*)(id, SEL, BOOL))objc_msgSend)(self, sel_registerName("setNeedsLayout:"), needsLayout);
-    if (!needsLayout)
-        return;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self layoutSubtreeIfNeeded];
-    });
-}
-@end
-WK_POLYFILL_SEL_REPLACES("setNeedsLayout:", "wk_setNeedsLayout:");
 
 // ---------------------------------------------------------------------------------------------------
 // -[NSMenu setItemArray:] (10.10+): wholesale item replacement. 10.9 composes the same state from the

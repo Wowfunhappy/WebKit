@@ -93,6 +93,11 @@
 // MAVERICKS_BACKPORT: _NSRecommendedScrollerStyle(), used to pick the mouse-tracking-area options.
 #import <pal/spi/mac/NSScrollerImpSPI.h>
 #import <pal/spi/mac/NSWindowSPI.h> // MAVERICKS_BACKPORT: NSWindowDidOrderOn/OffScreenNotification for the visibility observers.
+// MAVERICKS_BACKPORT: the WK2 remote-accessibility bridge below — NSAccessibilityRemoteUIElement,
+// the AXObjectCache enable-on-demand gate, and makeVector for the token payloads.
+#import <pal/spi/cocoa/NSAccessibilitySPI.h>
+#import <WebCore/AXObjectCache.h>
+#import <wtf/cocoa/VectorCocoa.h>
 #import <wtf/Compiler.h>
 #endif
 
@@ -103,6 +108,9 @@ using namespace WebKit;
 namespace WebKit {
 std::unique_ptr<PageClient> createMinimalPageClient(NSView *view);
 void setMinimalPageClientPage(PageClient&, WebPageProxy *);
+#if ENABLE(FULLSCREEN_API)
+NSView *minimalPageClientFullScreenPlaceholderView(PageClient&);
+#endif
 }
 
 // MAVERICKS_BACKPORT: per-WKView instance state for the standalone WK2 WKView reimplementation —
@@ -138,6 +146,12 @@ struct WKViewState {
     // (mirrors WebViewImpl::m_keyDownEventBeingResent); performKeyEquivalent:/keyDown:
     // pass it to super instead of re-entering the page.
     RetainPtr<NSEvent> keyDownEventBeingResent;
+    // MAVERICKS_BACKPORT: the WK2 remote-accessibility bridge, mirroring WebViewImpl's
+    // m_remoteAccessibilityChild / m_remoteAccessibilityChildToken / m_registeredRemoteAccessibilityPids.
+    // remoteAccessibilityChild is the WebContent process's AX tree seen from here; the view vends it
+    // as its one accessibility child, which is what puts an AXWebArea under Safari's window.
+    RetainPtr<NSAccessibilityRemoteUIElement> remoteAccessibilityChild;
+    RetainPtr<NSData> remoteAccessibilityChildToken;
     // MAVERICKS_BACKPORT: Safari 7's content-anchor SPI — the corner painted content stays
     // pinned to while frame-size updates are disabled (see -setContentAnchor:).
     WKContentAnchor contentAnchor { WKContentAnchorTopLeft };
@@ -293,6 +307,9 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidDeminiaturizeNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidBecomeKeyNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidResignKeyNotification object:nil];
+    // MAVERICKS_BACKPORT: give the WebContent pid's remote-UI registration back before the view
+    // that owned it goes away (the matching half of the registration made when its token arrived).
+    [self _mavericksUpdateRemoteAccessibilityRegistration:NO];
     // MAVERICKS_BACKPORT: release the lazily-created browsing-context controller and delete the WKViewState.
     [_browsingContextController release];
     _browsingContextController = nil;
@@ -780,25 +797,165 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     if (protocol == @protocol(NSTextInputClient)) return YES;
     return [super conformsToProtocol:protocol];
 }
+// MAVERICKS_BACKPORT: the UI-process half of the WK2 remote-accessibility bridge. WebKit2 renders
+// the page in another process, so the AX tree Safari's window exposes has to be stitched across
+// the process boundary: the WebContent process hands up a token for its root object, the UI
+// process turns it into an NSAccessibilityRemoteUIElement and vends it as this view's only
+// accessibility child, and the UI process hands *down* tokens for this view and its window so the
+// remote tree knows its parent. Upstream does all of this in WebViewImpl
+// (setAccessibilityWebProcessToken / updateRemoteAccessibilityRegistration /
+// accessibilityRegisterUIProcessTokens / accessibilityAttributeValue:); the WKView path never had
+// any of it, so the token arrived and was dropped, this view answered with no children, and no
+// AXWebArea ever appeared under Safari's window — VoiceOver and every other assistive client saw
+// an empty web-content group. Both IPC directions were intact the whole time; only this side was
+// missing. Every entry point used here is present on 10.9 (class + all four selectors verified
+// against this host's AppKit), so nothing here is a polyfill.
+- (void)_mavericksSetAccessibilityWebProcessToken:(NSData *)token processIdentifier:(pid_t)pid
+{
+    if (!_wkState || !_wkState->page)
+        return;
+    if (pid != _wkState->page->legacyMainFrameProcess().processID())
+        return;
+
+    _wkState->remoteAccessibilityChild = [token length] ? adoptNS([[NSAccessibilityRemoteUIElement alloc] initWithRemoteToken:token]) : nil;
+    _wkState->remoteAccessibilityChildToken = token;
+    [self _mavericksUpdateRemoteAccessibilityRegistration:YES];
+}
+
+// Registering the WebContent pid is what lets the WindowServer resolve the remote element's
+// tree; unregistering on teardown is the matching half (upstream's updateRemoteAccessibilityRegistration).
+- (void)_mavericksUpdateRemoteAccessibilityRegistration:(BOOL)registerProcess
+{
+    if (!_wkState)
+        return;
+
+    // When the tree is connected/disconnected the registration has to be updated with the remote
+    // process's pid. On the way out that pid comes from the remote element itself, because by then the
+    // process may be gone and the page can no longer name it (upstream does exactly this).
+    pid_t pid = 0;
+    if (registerProcess) {
+        if (_wkState->page)
+            pid = _wkState->page->legacyMainFrameProcess().processID();
+    } else {
+        pid = [_wkState->remoteAccessibilityChild processIdentifier];
+        _wkState->remoteAccessibilityChild = nil;
+        _wkState->remoteAccessibilityChildToken = nil;
+    }
+    if (!pid)
+        return;
+
+    if (registerProcess)
+        [NSAccessibilityRemoteUIElement registerRemoteUIProcessIdentifier:pid];
+    else
+        [NSAccessibilityRemoteUIElement unregisterRemoteUIProcessIdentifier:pid];
+}
+
+// The other direction: hand the WebContent process tokens for this view and its window, so the
+// remote tree's root reports the right parent and window. Sent whenever the window connection is
+// (re)established, exactly as upstream does from viewDidMoveToWindow and didRelaunchProcess.
+- (void)_mavericksRegisterUIProcessAccessibilityTokens
+{
+    if (!_wkState || !_wkState->page)
+        return;
+    RetainPtr<NSData> elementToken = [NSAccessibilityRemoteUIElement remoteTokenForLocalUIElement:self];
+    RetainPtr<NSData> windowToken = [NSAccessibilityRemoteUIElement remoteTokenForLocalUIElement:[self window]];
+    _wkState->page->registerUIProcessAccessibilityTokens({ makeVector(elementToken.get()) }, { makeVector(windowToken.get()) });
+}
+
+// AX is off until something asks for it. Turning it on has to reach WebCore, and the view's
+// position has to be resent afterwards, because while AX is off that position is never computed
+// (upstream's enableAccessibilityIfNecessary -> updateWindowAndViewFrames, same reason).
+- (void)_mavericksEnableAccessibilityIfNecessary:(NSString *)attribute
+{
+#if ENABLE(INITIALIZE_ACCESSIBILITY_ON_DEMAND)
+    // This is the half that starts accessibility in the WEB CONTENT process. With accessibility
+    // on demand (on by default on Mac), WebPage::platformInitialize deliberately skips
+    // -[NSApplication _accessibilityInitialize] there and waits to be asked; nothing asks unless
+    // the UI process does it here. Until it does, the WebContent process has no AX server, so the
+    // remote element this view vends resolves to nothing (kAXErrorCannotComplete) and the page's
+    // AXWebArea never appears — the bridge looks wired but answers nothing.
+    // NSAccessibilityParentAttribute and NSAccessibilityPositionAttribute are answered locally and
+    // do not need the web process, so they do not trigger initialization (upstream excludes them
+    // for the same reason).
+    if (![attribute isEqualToString:NSAccessibilityParentAttribute] && ![attribute isEqualToString:NSAccessibilityPositionAttribute]) {
+        if (_wkState && _wkState->page)
+            Ref { _wkState->page->configuration().processPool() }->initializeAccessibilityIfNecessary();
+    }
+#endif // MAVERICKS_BACKPORT: closes the INITIALIZE_ACCESSIBILITY_ON_DEMAND guard (see above).
+
+    if (WebCore::AXObjectCache::accessibilityEnabled())
+        return;
+    WebCore::AXObjectCache::enableAccessibility();
+
+    if (!_wkState || !_wkState->page)
+        return;
+    NSRect viewFrameInWindowCoordinates = [self convertRect:[self frame] toView:nil];
+    NSPoint accessibilityPosition = [[self accessibilityAttributeValue:NSAccessibilityPositionAttribute] pointValue];
+    _wkState->page->windowAndViewFramesChanged(WebCore::FloatRect(viewFrameInWindowCoordinates), WebCore::FloatPoint(accessibilityPosition));
+}
+
+- (id)accessibilityAttributeValue:(NSString *)attribute
+{
+    [self _mavericksEnableAccessibilityIfNecessary:attribute];
+
+    if ([attribute isEqualToString:NSAccessibilityChildrenAttribute]) {
+        id child = _wkState ? _wkState->remoteAccessibilityChild.get() : nil;
+        return child ? @[child] : nil;
+    }
+    if ([attribute isEqualToString:NSAccessibilityRoleAttribute])
+        return NSAccessibilityGroupRole;
+    if ([attribute isEqualToString:NSAccessibilityRoleDescriptionAttribute])
+        return NSAccessibilityRoleDescription(NSAccessibilityGroupRole, nil);
+    if ([attribute isEqualToString:NSAccessibilityParentAttribute])
+        return NSAccessibilityUnignoredAncestor([self superview]);
+    if ([attribute isEqualToString:NSAccessibilityEnabledAttribute])
+        return @YES;
+
+    return [super accessibilityAttributeValue:attribute];
+}
+
+- (BOOL)accessibilityIsIgnored { return NO; }
+
+- (id)accessibilityFocusedUIElement
+{
+    [self _mavericksEnableAccessibilityIfNecessary:nil];
+    return _wkState ? _wkState->remoteAccessibilityChild.get() : nil;
+}
+
+- (id)accessibilityHitTest:(NSPoint)point
+{
+    return [self accessibilityFocusedUIElement];
+}
+
 - (BOOL)wantsUpdateLayer { return NO; }
-- (NSView *)fullScreenPlaceholderView { return nil; }
+// MAVERICKS_BACKPORT: fullscreen SPI declared in WKViewPrivate.h and sent by Safari 7. Upstream's
+// WKView answers with its full-screen controller's placeholder view; this port's element-fullscreen
+// path keeps the equivalent placeholder in the page client (MinimalPageClient.mm), so hand that
+// one over. nil outside a fullscreen session, which is also what upstream answers.
+- (NSView *)fullScreenPlaceholderView
+{
+#if ENABLE(FULLSCREEN_API)
+    if (_wkState && _wkState->pageClient)
+        return minimalPageClientFullScreenPlaceholderView(*_wkState->pageClient);
+#endif // MAVERICKS_BACKPORT: closes the FULLSCREEN_API guard on -fullScreenPlaceholderView (see above).
+    return nil;
+}
 
 // MAVERICKS_BACKPORT: legacy fullscreen SPI, declared in WKViewPrivate.h and sent unguarded by
-// Safari 7's fullscreen controller, which asks its WKView for the window that hosts fullscreen
-// content. Ported verbatim from the Safari-537-era -[WKView createFullScreenWindow]: a borderless
-// WebCoreFullScreenWindow sized to the main screen. WebCoreFullScreenWindow is alive in this tree
-// (WebKitLegacy's WebFullScreenController builds the same window) and answers YES to
-// canBecomeKeyWindow, matching the borderless key-window arrangement this backport's own
-// element-fullscreen path uses (WKMinimalFullScreenWindow in MinimalPageClient.mm).
+// Safari 7's fullscreen controller, which asks its WKView for a window to host fullscreen content
+// in. It hands back the same window this port's own element-fullscreen path uses — one shape,
+// built by the one factory in MinimalPageClient.mm — rather than a second, differently-configured
+// window that would drift away from it.
 - (NSWindow *)createFullScreenWindow
 {
-// MAVERICKS_BACKPORT: -createFullScreenWindow returns a borderless WebCoreFullScreenWindow sized to the main screen for Safari 7's fullscreen controller.
 #if ENABLE(FULLSCREEN_API)
-    return [[[WebCoreFullScreenWindow alloc] initWithContentRect:[[NSScreen mainScreen] frame] styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO] autorelease];
-#else
+    // The same window WebViewImpl::fullScreenWindow() builds for the WKWebView path, so both paths hand
+    // WKFullScreenWindowController the same thing. NSWindowStyleMaskFullSizeContentView is load-bearing:
+    // it is what lets the page fill the screen instead of sitting below a title bar, and this port
+    // implements it for real (the full-size-content adapter in MavericksSupport methods.m).
+    return adoptNS([[WebCoreFullScreenWindow alloc] initWithContentRect:[[NSScreen mainScreen] frame] styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskUnifiedTitleAndToolbar | NSWindowStyleMaskFullSizeContentView | NSWindowStyleMaskResizable | NSWindowStyleMaskClosable) backing:NSBackingStoreBuffered defer:NO]).autorelease();
+#endif // MAVERICKS_BACKPORT: closes the FULLSCREEN_API guard; -createFullScreenWindow returns nil when fullscreen is compiled out.
     return nil;
-// MAVERICKS_BACKPORT: closes the FULLSCREEN_API guard above; -createFullScreenWindow returns nil when fullscreen is compiled out.
-#endif
 }
 
 - (void)updateLayer {}
@@ -1084,6 +1241,12 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     // updateWindowAndViewFrames -> updateViewExposedRect trigger.
     if (_wkState->shouldClipToVisibleRect)
         [self _updateViewExposedRect];
+
+    // MAVERICKS_BACKPORT: the remote accessibility tokens describe this view and the window it is
+    // in, so they are (re)sent once the window connection exists, as upstream does from the same
+    // place. Sending them from -initWithFrame: would name a window the view does not have yet.
+    if ([self window])
+        [self _mavericksRegisterUIProcessAccessibilityTokens];
 }
 
 // MAVERICKS_BACKPORT: view-in-window-change deferral SPI, declared in WKViewPrivate.h and sent
@@ -1653,8 +1816,7 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         return;
     RetainPtr<WKView> protector = self; // re-sending the event may destroy this view
     _wkState->keyDownEventBeingResent = event;
-    if ([NSApp respondsToSelector:@selector(_setCurrentEvent:)])
-        [NSApp _setCurrentEvent:event];
+    [NSApp _setCurrentEvent:event];
     [NSApp sendEvent:event];
     _wkState->keyDownEventBeingResent = nil;
 }

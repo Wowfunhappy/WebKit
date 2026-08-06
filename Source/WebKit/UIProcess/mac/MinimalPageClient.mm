@@ -53,6 +53,9 @@
 #endif
 #if ENABLE(FULLSCREEN_API)
 #import "WebFullScreenManagerProxy.h"
+// MAVERICKS_BACKPORT: the WKView full-screen path drives this upstream controller (see the
+// MinimalFullScreenManagerProxyClient comment), the same one the WKWebView path uses.
+#import "WKFullScreenWindowController.h"
 #endif
 #import <WebCore/DestinationColorSpace.h>
 #import <WebCore/FloatRect.h>
@@ -68,6 +71,11 @@
 #import <AppKit/AppKit.h>
 #import <wtf/RetainPtr.h>
 #import <wtf/SortedArrayMap.h>
+// MAVERICKS_BACKPORT: BEGIN/END_BLOCK_OBJC_EXCEPTIONS around the constraint re-activation the
+// full-screen client performs, and objc_getClass for the autoresizing-constraint test it filters
+// with (both mirroring WKFullScreenWindowController).
+#import <objc/runtime.h>
+#import <wtf/BlockObjCExceptions.h>
 
 // MAVERICKS_BACKPORT: layer-HOSTING subview for the WebContent render layer (the Safari-537
 // WKView "_layerHostingView"/WKFlippedView design; see the m_layerHostingView member comment).
@@ -81,18 +89,6 @@
 - (NSView *)hitTest:(NSPoint)point { return nil; }
 @end
 
-#if ENABLE(FULLSCREEN_API)
-// MAVERICKS_BACKPORT: a borderless content window must opt in to becoming key
-// and main, otherwise the web view it hosts never receives keyboard events
-// (notably Escape, which WebCore's EventHandler uses to exit fullscreen).
-@interface WKMinimalFullScreenWindow : NSWindow
-@end
-
-@implementation WKMinimalFullScreenWindow
-- (BOOL)canBecomeKeyWindow { return YES; }
-- (BOOL)canBecomeMainWindow { return YES; }
-@end
-#endif
 
 #if ENABLE(DRAG_SUPPORT)
 // MAVERICKS_BACKPORT: WKView (in WKView.mm) implements this to start the OS drag
@@ -122,6 +118,15 @@
 - (void)_wkSetToolTip:(NSString *)string;
 @end
 
+// MAVERICKS_BACKPORT: WKView's half of the WK2 remote-accessibility bridge, invoked from
+// accessibilityWebProcessTokenReceived — it turns the WebContent process's token into the
+// NSAccessibilityRemoteUIElement the view vends as its accessibility child.
+@interface NSView (WKViewRemoteAccessibility)
+- (void)_mavericksSetAccessibilityWebProcessToken:(NSData *)token processIdentifier:(pid_t)pid;
+- (void)_mavericksUpdateRemoteAccessibilityRegistration:(BOOL)registerProcess;
+- (void)_mavericksRegisterUIProcessAccessibilityTokens;
+@end
+
 // MAVERICKS_BACKPORT: 10.9 AppKit SPI consulted by viewLayerHostingMode() — whether the window's
 // layer tree is composited by the WindowServer (every normal window) or in-process (iBooks'
 // reader window returns NO).
@@ -131,64 +136,72 @@
 
 namespace WebKit {
 
+// MAVERICKS_BACKPORT: capture the on-screen window content, cropped to a view, for the ViewSnapshot
+// capture below (back/forward swipe snapshots and Safari's Top Sites thumbnails). The same capture
+// WebViewImpl::takeViewSnapshot performs, via CGWindowListCreateImage + AppKit coordinates instead of
+// the private CGS hardware-capture path.
+static RetainPtr<CGImageRef> cropWindowCaptureToView(NSView *view)
+{
+    if (!view)
+        return nullptr;
+    NSWindow *window = [view window];
+    if (!window || ![window isVisible])
+        return nullptr;
+    CGWindowID windowID = (CGWindowID)[window windowNumber];
+    if (!windowID)
+        return nullptr;
+
+    CGWindowImageOption imageOptions = kCGWindowImageBoundsIgnoreFraming | kCGWindowImageShouldBeOpaque;
+    RetainPtr<CGImageRef> windowSnapshotImage = WebCore::cgWindowListCreateImage(CGRectNull, kCGWindowListOptionIncludingWindow, windowID, imageOptions);
+    if (!windowSnapshotImage)
+        return nullptr;
+
+    CGFloat scale = [window backingScaleFactor] ?: 1;
+    NSRect viewRectInScreen = [window convertRectToScreen:[view convertRect:[view bounds] toView:nil]];
+    NSRect windowFrame = [window frame];
+
+    // The captured image is top-left origin in backing pixels; map the (bottom-left origin,
+    // points) view rect into it relative to the window frame.
+    CGRect cropRectPx;
+    cropRectPx.origin.x = (NSMinX(viewRectInScreen) - NSMinX(windowFrame)) * scale;
+    cropRectPx.origin.y = (NSMaxY(windowFrame) - NSMaxY(viewRectInScreen)) * scale;
+    cropRectPx.size.width = NSWidth(viewRectInScreen) * scale;
+    cropRectPx.size.height = NSHeight(viewRectInScreen) * scale;
+    if (cropRectPx.size.width < 1 || cropRectPx.size.height < 1)
+        return nullptr;
+
+    return adoptCF(CGImageCreateWithImageInRect(windowSnapshotImage.get(), cropRectPx));
+}
+
 #if ENABLE(FULLSCREEN_API)
-// MAVERICKS_BACKPORT: element/video fullscreen for the WKView client. (Held as a
-// member rather than via multiple inheritance, which collides with
-// PageClientImplCocoa's allocator/destructor.) The full upstream
-// WKFullScreenWindowController depends on VideoPresentationManagerProxy and a
-// number of 10.10+ AppKit/animation APIs, so this implements the handshake
-// directly. The WebProcess renders the :fullscreen element against a black
-// backdrop at viewport size, so the UIProcess side only needs to host the
-// existing web view at screen size in a black borderless window for the duration
-// of the session, and return it to its original place on exit. Escape exits
-// because WebCore's EventHandler (web process) calls fullyExitFullscreen() when
-// the focused web content receives the keydown.
+// MAVERICKS_BACKPORT: element/video full screen for the WKView client. This forwards to the real
+// upstream WKFullScreenWindowController -- the same controller the WKWebView path uses, built from
+// this tree's own copy -- rather than reimplementing it. (Held as a member rather than via multiple
+// inheritance, which collides with PageClientImplCocoa's allocator/destructor.) The forwarding below
+// mirrors PageClientImpl's, method for method.
+//
+// The controller gives the full-screen window a SPACE of its own, which is what keeps the browser
+// window and its other tabs reachable one space over and makes it impossible for a page to strand the
+// user; see github.com/Wowfunhappy/WebKit/issues/48, and mavericksLionStyleFullScreenEnabled() in
+// WKFullScreenWindowController.mm for that issue's opt-out.
+//
+// The host window comes from -[WKView createFullScreenWindow], the Safari 7 SPI whose whole purpose is
+// to let the host post-process it: Safari overrides that method, calls super, and applies its own layer
+// backing properties to whatever comes back. Building the window here instead would skip that hook.
 class MinimalFullScreenManagerProxyClient final : public WebFullScreenManagerProxyClient {
 public:
-    void closeFullScreenManager() final
-    {
-        if (m_isFullScreen)
-            restoreView();
-    }
+    ~MinimalFullScreenManagerProxyClient() { closeController(); }
 
-    bool isFullScreen() final { return m_isFullScreen; }
+    void closeFullScreenManager() final { closeController(); }
+
+    bool isFullScreen() final { return m_controller && [m_controller isFullScreen]; }
 
     void enterFullScreen(WebCore::FloatSize, CompletionHandler<void(bool)>&& completionHandler) final
     {
-        if (m_isFullScreen || !m_view) {
+        if (RetainPtr controller = ensureController())
+            [controller enterFullScreen:WTF::move(completionHandler)];
+        else
             completionHandler(false);
-            return;
-        }
-
-        NSView *view = m_view;
-        m_savedSuperview = [view superview];
-        m_savedWindow = [view window];
-        m_savedFrame = [view frame];
-        m_savedAutoresizingMask = [view autoresizingMask];
-
-        NSScreen *screen = [m_savedWindow screen];
-        if (!screen)
-            screen = [NSScreen mainScreen];
-
-        m_fullScreenWindow = adoptNS([[WKMinimalFullScreenWindow alloc] initWithContentRect:[screen frame] styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO]);
-        [m_fullScreenWindow setBackgroundColor:[NSColor blackColor]];
-        [m_fullScreenWindow setOpaque:YES];
-        [m_fullScreenWindow setHasShadow:NO];
-        [m_fullScreenWindow setLevel:NSMainMenuWindowLevel + 1];
-        [m_fullScreenWindow setReleasedWhenClosed:NO];
-
-        NSView *contentView = [m_fullScreenWindow contentView];
-        [view removeFromSuperview];
-        [view setFrame:[contentView bounds]];
-        [view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-        [contentView addSubview:view];
-
-        [NSApp setPresentationOptions:NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar];
-        [m_fullScreenWindow makeKeyAndOrderFront:nil];
-        [m_fullScreenWindow makeFirstResponder:view];
-
-        m_isFullScreen = true;
-        completionHandler(true);
     }
 
 #if ENABLE(QUICKLOOK_FULLSCREEN)
@@ -197,62 +210,65 @@ public:
 
     void exitFullScreen(CompletionHandler<void()>&& completionHandler) final
     {
-        // Signal readiness to exit; the actual view restore happens in
-        // beganExitFullScreen, after the web process has re-laid-out the element
-        // back to its normal size.
-        completionHandler();
+        if (RetainPtr controller = ensureController())
+            [controller exitFullScreen:WTF::move(completionHandler)];
+        else
+            completionHandler();
     }
 
-    void beganEnterFullScreen(const WebCore::IntRect&, const WebCore::IntRect&, CompletionHandler<void(bool)>&& completionHandler) final
+    void beganEnterFullScreen(const WebCore::IntRect& initialFrame, const WebCore::IntRect& finalFrame, CompletionHandler<void(bool)>&& completionHandler) final
     {
-        completionHandler(m_isFullScreen);
+        if (RetainPtr controller = ensureController())
+            [controller beganEnterFullScreenWithInitialFrame:initialFrame finalFrame:finalFrame completionHandler:WTF::move(completionHandler)];
+        else
+            completionHandler(false);
     }
 
-    void beganExitFullScreen(const WebCore::IntRect&, const WebCore::IntRect&, CompletionHandler<void()>&& completionHandler) final
+    void beganExitFullScreen(const WebCore::IntRect& initialFrame, const WebCore::IntRect& finalFrame, CompletionHandler<void()>&& completionHandler) final
     {
-        restoreView();
-        completionHandler();
+        if (RetainPtr controller = ensureController())
+            [controller beganExitFullScreenWithInitialFrame:initialFrame finalFrame:finalFrame completionHandler:WTF::move(completionHandler)];
+        else
+            completionHandler();
+    }
+
+    // The view Safari 7 asks for through -[WKView fullScreenPlaceholderView], which it installs in the
+    // tab's content container in the web view's place for the duration of the session.
+    NSView *placeholderView() const
+    {
+        if (!m_controller || ![m_controller isFullScreen])
+            return nil;
+        // WebCoreFullScreenPlaceholderView is only forward-declared here; it is an NSView subclass.
+        return (NSView *)[m_controller webViewPlaceholder];
     }
 
     NSView *m_view { nullptr };
+    WeakPtr<WebPageProxy> m_page;
 
 private:
-    void restoreView()
+    WKFullScreenWindowController *ensureController()
     {
-        if (!m_isFullScreen)
-            return;
-        m_isFullScreen = false;
-
-        NSView *view = m_view;
-        if (view && m_savedSuperview) {
-            [view removeFromSuperview];
-            [view setFrame:m_savedFrame];
-            [view setAutoresizingMask:m_savedAutoresizingMask];
-            [m_savedSuperview addSubview:view];
-        }
-
-        [NSApp setPresentationOptions:NSApplicationPresentationDefault];
-
-        [m_fullScreenWindow orderOut:nil];
-        [m_fullScreenWindow close];
-        m_fullScreenWindow = nil;
-
-        if (m_savedWindow) {
-            [m_savedWindow makeKeyAndOrderFront:nil];
-            if (view)
-                [m_savedWindow makeFirstResponder:view];
-        }
-
-        m_savedSuperview = nil;
-        m_savedWindow = nil;
+        if (m_controller)
+            return m_controller.get();
+        RefPtr page = m_page.get();
+        if (!page || !m_view)
+            return nil;
+        RetainPtr<NSWindow> window = [m_view createFullScreenWindow];
+        if (!window)
+            return nil;
+        m_controller = adoptNS([[WKFullScreenWindowController alloc] initWithWindow:window.get() webView:m_view page:*page]);
+        return m_controller.get();
     }
 
-    bool m_isFullScreen { false };
-    RetainPtr<NSWindow> m_fullScreenWindow;
-    RetainPtr<NSView> m_savedSuperview;
-    RetainPtr<NSWindow> m_savedWindow;
-    NSRect m_savedFrame { };
-    NSAutoresizingMaskOptions m_savedAutoresizingMask { NSViewNotSizable };
+    void closeController()
+    {
+        if (!m_controller)
+            return;
+        [m_controller close];
+        m_controller = nil;
+    }
+
+    RetainPtr<WKFullScreenWindowController> m_controller;
 };
 #endif
 
@@ -268,7 +284,18 @@ public:
 #endif
     }
 
-    void setPage(WebPageProxy* page) { m_page = page; }
+    void setPage(WebPageProxy* page)
+    {
+        m_page = page;
+#if ENABLE(FULLSCREEN_API)
+        // MAVERICKS_BACKPORT: the full-screen client needs the page to ask the web process to
+        // leave full screen when the user leaves the space behind WebKit's back.
+        m_fullScreenClient.m_page = page;
+#endif
+    }
+#if ENABLE(FULLSCREEN_API)
+    NSView *fullScreenPlaceholderView() const { return m_fullScreenClient.placeholderView(); }
+#endif
 private:
     Ref<DrawingAreaProxy> createDrawingAreaProxy(WebProcessProxy&) final;
     void setViewNeedsDisplay(const WebCore::Region&) final;
@@ -297,6 +324,9 @@ private:
     LayerHostingMode viewLayerHostingMode() final;
 #endif
     void processDidExit() final;
+    // MAVERICKS_BACKPORT: give the WebContent pid's remote-UI registration back when the page closes,
+    // as WebViewImpl does from the same hook — otherwise a closed page whose view outlives it leaks it.
+    void pageClosed() final;
     void didRelaunchProcess() final;
     void preferencesDidChange() final;
     void toolTipChanged(const String&, const String&) final;
@@ -960,7 +990,7 @@ void MinimalPageClient::didFirstLayerFlush(const LayerTreeContext& context)
 LayerHostingMode MinimalPageClient::viewLayerHostingMode()
 {
     NSWindow *window = [m_view window];
-    if (window && [window respondsToSelector:@selector(_hostsLayersInWindowServer)] && ![window _hostsLayersInWindowServer])
+    if (window && ![window _hostsLayersInWindowServer])
         return LayerHostingMode::InProcess;
     return LayerHostingMode::InWindowServer;
 }
@@ -985,9 +1015,24 @@ void MinimalPageClient::requestScroll(const WebCore::FloatPoint& scrollPosition,
 WebCore::FloatPoint MinimalPageClient::viewScrollPosition()
 { return { }; }
 void MinimalPageClient::processDidExit()
-{ }
+{
+    // MAVERICKS_BACKPORT: the remote accessibility element names a process that no longer exists;
+    // drop it and unregister the pid, as WebViewImpl does from the same hook. Leaving it behind
+    // leaves a dead element in the UI process's AX tree.
+    [m_view _mavericksUpdateRemoteAccessibilityRegistration:NO];
+}
+void MinimalPageClient::pageClosed()
+{
+    [m_view _mavericksUpdateRemoteAccessibilityRegistration:NO];
+}
 void MinimalPageClient::didRelaunchProcess()
-{ }
+{
+    // MAVERICKS_BACKPORT: a relaunched WebContent process has a fresh accessibility root and knows
+    // nothing about this view, so re-send the UI-process tokens (upstream's didRelaunchProcess does
+    // exactly this). Without it, accessibility stays dead for the rest of the page's life after a
+    // web process crash.
+    [m_view _mavericksRegisterUIProcessAccessibilityTokens];
+}
 void MinimalPageClient::preferencesDidChange()
 { }
 void MinimalPageClient::toolTipChanged(const String&, const String& newToolTip)
@@ -1138,8 +1183,19 @@ void MinimalPageClient::executeUndoRedo(UndoOrRedo undoOrRedo)
 void MinimalPageClient::wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&)
 { }
 #if PLATFORM(COCOA)
-void MinimalPageClient::accessibilityWebProcessTokenReceived(std::span<const uint8_t>, pid_t)
-{ }
+// MAVERICKS_BACKPORT: hand the WebContent process's remote-accessibility token to WKView, which
+// owns the NSAccessibilityRemoteUIElement that stands for the page in the UI process's AX tree
+// (see the accessibility section of WKViewMavericks.mm). PageClientImpl routes this to
+// WebViewImpl::setAccessibilityWebProcessToken the same way; WKView just is not backed by one.
+// Without this hop the token was dropped, so the WKView vended no accessibility children and no
+// AXWebArea ever appeared under Safari's window.
+void MinimalPageClient::accessibilityWebProcessTokenReceived(std::span<const uint8_t> data, pid_t pid)
+{
+    if (!m_view)
+        return;
+    RetainPtr<NSData> token = adoptNS([[NSData alloc] initWithBytes:data.data() length:data.size()]);
+    [m_view _mavericksSetAccessibilityWebProcessToken:token.get() processIdentifier:pid];
+}
 #endif
 #if PLATFORM(COCOA)
 // MAVERICKS_BACKPORT: map an AppKit responder scroll selector to its WebCore Editor command.
@@ -1248,39 +1304,12 @@ void MinimalPageClient::selectionDidChange()
 { }
 #endif
 #if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
-// Capture the on-screen window content cropped to the WKView and wrap it in a ViewSnapshot.
-// ViewSnapshotStore feeds both back/forward swipe snapshots and Safari's Top Sites thumbnails.
-// The same capture WebViewImpl::takeViewSnapshot performs, via CGWindowListCreateImage + AppKit
-// coordinates instead of the private CGS hardware-capture path.
+// Wrap the WKView's on-screen content in a ViewSnapshot. ViewSnapshotStore feeds both
+// back/forward swipe snapshots and Safari's Top Sites thumbnails; the capture itself is
+// cropWindowCaptureToView above.
 static RefPtr<ViewSnapshot> captureMinimalViewSnapshot(NSView *view)
 {
-    if (!view)
-        return nullptr;
-    NSWindow *window = [view window];
-    CGWindowID windowID = (CGWindowID)window.windowNumber;
-    if (!windowID || !window.isVisible)
-        return nullptr;
-
-    CGWindowImageOption imageOptions = kCGWindowImageBoundsIgnoreFraming | kCGWindowImageShouldBeOpaque;
-    RetainPtr<CGImageRef> windowSnapshotImage = WebCore::cgWindowListCreateImage(CGRectNull, kCGWindowListOptionIncludingWindow, windowID, imageOptions);
-    if (!windowSnapshotImage)
-        return nullptr;
-
-    CGFloat scale = window.backingScaleFactor ?: 1;
-    NSRect viewRectInScreen = [window convertRectToScreen:[view convertRect:[view bounds] toView:nil]];
-    NSRect windowFrame = [window frame];
-
-    // The captured image is top-left origin in backing pixels; map the (bottom-left origin,
-    // points) view rect into it relative to the window frame.
-    CGRect cropRectPx;
-    cropRectPx.origin.x = (NSMinX(viewRectInScreen) - NSMinX(windowFrame)) * scale;
-    cropRectPx.origin.y = (NSMaxY(windowFrame) - NSMaxY(viewRectInScreen)) * scale;
-    cropRectPx.size.width = NSWidth(viewRectInScreen) * scale;
-    cropRectPx.size.height = NSHeight(viewRectInScreen) * scale;
-    if (cropRectPx.size.width < 1 || cropRectPx.size.height < 1)
-        return nullptr;
-
-    RetainPtr<CGImageRef> croppedSnapshotImage = adoptCF(CGImageCreateWithImageInRect(windowSnapshotImage.get(), cropRectPx));
+    RetainPtr<CGImageRef> croppedSnapshotImage = cropWindowCaptureToView(view);
     if (!croppedSnapshotImage)
         return nullptr;
 
@@ -1310,7 +1339,7 @@ void MinimalPageClient::setPromisedDataForImage(const String& pasteboardName, Re
     UNUSED_PARAM(visibleURL);
     UNUSED_PARAM(originIdentifier);
 
-    if (!m_view || ![m_view respondsToSelector:@selector(_wkSetPromisedImageData:uti:filename:url:archiveBuffer:pasteboardName:)])
+    if (!m_view)
         return;
 
     RetainPtr imageData = imageBuffer->makeContiguous()->createNSData();
@@ -1361,8 +1390,7 @@ void MinimalPageClient::doneWithKeyEvent(const NativeWebKeyboardEvent& event, bo
         [NSCursor setHiddenUntilMouseMoves:YES];
         return;
     }
-    if ([m_view respondsToSelector:@selector(_mavericksResendUnhandledKeyDownEvent:)])
-        [m_view _mavericksResendUnhandledKeyDownEvent:nativeEvent];
+    [m_view _mavericksResendUnhandledKeyDownEvent:nativeEvent];
 }
 #if ENABLE(TOUCH_EVENTS)
 void MinimalPageClient::doneWithTouchEvent(const WebTouchEvent&, bool wasEventHandled)
@@ -1850,6 +1878,17 @@ void setMinimalPageClientPage(PageClient& client, WebPageProxy* page)
     static_cast<MinimalPageClient&>(client).setPage(page);
 }
 
+#if ENABLE(FULLSCREEN_API)
+// MAVERICKS_BACKPORT: serves -[WKView fullScreenPlaceholderView], the Safari 7 SPI that asks for
+// the view standing in for the web view while it is hosted by the full-screen window. Upstream's
+// WKView answers with its full-screen controller's placeholder; this is the same view.
+NSView *minimalPageClientFullScreenPlaceholderView(PageClient& client)
+{
+    return static_cast<MinimalPageClient&>(client).fullScreenPlaceholderView();
+}
+#endif
+
 } // namespace WebKit
+
 
 #endif // PLATFORM(MAC)

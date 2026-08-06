@@ -61,6 +61,22 @@
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/LoggerHelper.h>
 
+// MAVERICKS_BACKPORT: the full-screen-space opt-out asked for by github.com/Wowfunhappy/WebKit/issues/48.
+// Default is the space (Lion-style); `defaults write com.apple.Safari WebKitMavericksLionStyleFullScreen
+// -bool NO` covers the current space instead. Read once per process: a page must not be able to change
+// presentation style halfway through a session. Consulted by the two hunks in this file that would
+// otherwise enter/exit the space.
+namespace WebKit {
+bool mavericksLionStyleFullScreenEnabled()
+{
+    static bool enabled = [] {
+        id value = [[NSUserDefaults standardUserDefaults] objectForKey:@"WebKitMavericksLionStyleFullScreen"];
+        return !value || [value boolValue];
+    }();
+    return enabled;
+}
+}
+
 static const NSTimeInterval DefaultWatchdogTimerInterval = 1;
 
 @interface WKFullScreenPlaceholderView : WebCoreFullScreenPlaceholderView <NSScrollViewSeparatorTrackingAdapter>
@@ -231,7 +247,9 @@ static void makeResponderFirstResponderIfDescendantOfView(NSWindow *window, NSRe
 
 #pragma mark -
 #pragma mark Initialization
-- (instancetype)initWithWindow:(NSWindow *)window webView:(WKWebView *)webView page:(std::reference_wrapper<WebKit::WebPageProxy>)pageWrapper
+// MAVERICKS_BACKPORT: takes NSView rather than WKWebView, so the Safari-7 WKView path shares this
+// controller (see the _webView ivar comment in the header).
+- (instancetype)initWithWindow:(NSWindow *)window webView:(NSView *)webView page:(std::reference_wrapper<WebKit::WebPageProxy>)pageWrapper
 {
     self = [super initWithWindow:window];
     if (!self)
@@ -502,6 +520,25 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     [CATransaction commit];
 
+    // MAVERICKS_BACKPORT: full screen normally takes a SPACE of its own, which is what keeps the
+    // browser window (and its other tabs) reachable one space over and makes it impossible for a page
+    // to strand the user — see github.com/Wowfunhappy/WebKit/issues/48. That issue also asks for an
+    // opt-out for people who dislike Lion-style full screen, so
+    // `defaults write com.apple.Safari WebKitMavericksLionStyleFullScreen -bool NO` skips the space and
+    // covers the current one instead: the window is already screen-sized and ordered front here, so
+    // "covering" is what has already happened, and all that is left is to hide the menu bar and Dock
+    // and report the transition finished, since no AppKit space animation will run to report it.
+    if (!WebKit::mavericksLionStyleFullScreenEnabled()) {
+        // Remember what the HOST had, not what we assume it had: this controller runs inside Safari,
+        // Mail, iBooks and any other embedder, and overwriting their presentation options with Default
+        // on the way out would be inventing a prior state rather than restoring one.
+        _mavericksSavedPresentationOptions = [NSApp presentationOptions];
+        _mavericksDidHidePresentationOptions = YES;
+        [NSApp setPresentationOptions:(NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar)];
+        [self finishedEnterFullScreenAnimation:YES];
+        return;
+    }
+
     [window enterFullScreenMode:self];
 }
 
@@ -534,8 +571,17 @@ static const float minVideoWidth = 468; // Keep in sync with `--controls-bar-wid
         minContentSize.width = minVideoWidth;
         self.window.contentMinSize = minContentSize;
 
-        // Always show the titlebar in full screen mode.
-        self.window.titlebarAlphaValue = 1;
+        // Always show the titlebar in full screen mode. In an AppKit full-screen space that costs
+        // nothing and is what lets the user reveal the window controls: the space keeps the title bar
+        // off screen until the pointer reaches the top edge.
+        //
+        // MAVERICKS_BACKPORT: with the Lion-style space opted out there is no space to auto-hide it,
+        // so showing the title bar leaves the traffic lights and the full-screen button sitting on top
+        // of the page for as long as the page is full screen (seen on this host). Nothing reveals or
+        // conceals them, so "show" here would not mean what it means above -- keep them hidden, which
+        // is the state the rest of this path already assumes.
+        if (WebKit::mavericksLionStyleFullScreenEnabled())
+            self.window.titlebarAlphaValue = 1;
     } else {
         // Transition to fullscreen failed. Clean up.
         _fullScreenState = NotInFullScreen;
@@ -622,6 +668,13 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)exitFullScreenImmediately
 {
+    // MAVERICKS_BACKPORT: give the menu bar and Dock back here. This is the funnel every teardown exit
+    // passes through (-close, page close, web-process crash, client destruction), and unlike
+    // _continueExitingFullscreenAfterPostingNotificationAndExitImmediately: it has no bail-out on a
+    // missing _manager -- which is exactly the state those routes are in. Doing it here rather than in
+    // -dealloc means the restore is deterministic instead of riding on when the controller is released.
+    [self _mavericksRestorePresentationOptionsIfNeeded];
+
     if (_fullScreenState == NotInFullScreen)
         return;
 
@@ -651,6 +704,17 @@ ALLOW_DEPRECATED_DECLARATIONS_END
     _beganExitFullScreenCompletionHandler = WTF::move(completionHandler);
 
     RetainPtr window = [self window];
+
+    // MAVERICKS_BACKPORT: the opt-out path never entered a space (see the matching hunk in
+    // beganEnterFullScreenWithInitialFrame:), so there is no space animation to wait for and no delegate
+    // callback coming; finish the exit here. The menu bar and Dock are given back in
+    // completeFinishExitFullScreenAnimation, which every exit route reaches — including -close /
+    // exitFullScreenImmediately, which does not come through this method at all.
+    if (!WebKit::mavericksLionStyleFullScreenEnabled()) {
+        [self finishedExitFullScreenAnimationAndExitImmediately:NO];
+        return;
+    }
+
     if (![window isOnActiveSpace]) {
         // If the full screen window is not in the active space, the NSWindow full screen animation delegate methods
         // will never be called. So call finishedExitFullScreenAnimationAndExitImmediately explicitly.
@@ -781,8 +845,27 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
 #endif
 }
 
+// MAVERICKS_BACKPORT: give the menu bar and Dock back if the opt-out path hid them (the full-screen
+// space hides and restores them itself). Guarded ONLY by "did I hide it": every other condition in this
+// class -- _manager being non-null, _fullScreenState -- is one the teardown routes can fail, and
+// -[WKFullScreenWindowController close] reaches exitFullScreenImmediately at a point where _page is
+// typically already gone, so _continueExitingFullscreenAfterPostingNotificationAndExitImmediately's
+// `if (!manager) return;` would skip the restore entirely. App-global presentation state must not be
+// left hidden behind a bail-out: that strands the user with no menu bar and no Dock for the rest of the
+// session, which is the very thing this feature exists to prevent. Idempotent, so the normal exit path
+// and the teardown paths can all call it.
+- (void)_mavericksRestorePresentationOptionsIfNeeded
+{
+    if (!_mavericksDidHidePresentationOptions)
+        return;
+    _mavericksDidHidePresentationOptions = NO;
+    [NSApp setPresentationOptions:_mavericksSavedPresentationOptions];
+}
+
 - (void)completeFinishExitFullScreenAnimation
 {
+    [self _mavericksRestorePresentationOptionsIfNeeded];
+
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 

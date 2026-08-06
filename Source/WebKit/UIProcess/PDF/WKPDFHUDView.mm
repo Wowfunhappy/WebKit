@@ -132,6 +132,18 @@ static NSArray<NSString *> *controlArray()
     [super dealloc];
 }
 
+#if !HAVE(NSVIEW_IMPLICIT_LAYOUT_PASS)
+// MAVERICKS_BACKPORT: same dependency as WKDataListSuggestionView -- -setNeedsLayout:YES below relies on
+// the 10.10+ implicit layout pass, which 10.9 does not run for a window without an engaged autolayout
+// engine, so the HUD's layer geometry would never be applied. -viewWillDraw is 10.9's own "just before
+// this draws", so the pending pass runs synchronously with drawing and coalesced to one per cycle.
+- (void)viewWillDraw
+{
+    [self layoutSubtreeIfNeeded];
+    [super viewWillDraw];
+}
+#endif
+
 - (void)layout
 {
     [super layout];

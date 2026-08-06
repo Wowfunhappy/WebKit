@@ -359,6 +359,18 @@
 #endif
 #endif // MAVERICKS_BACKPORT: closes the 10.10+ QoS-classes deployment-target guard.
 
+#if !defined(HAVE_NSVIEW_IMPLICIT_LAYOUT_PASS) && PLATFORM(MAC)
+/* MAVERICKS_BACKPORT: AppKit runs pending -layout passes as part of every window's display cycle from
+   10.10 on, which is what makes -setNeedsLayout:YES guarantee -layout before the next draw. 10.9 runs
+   that pass only for a window whose autolayout engine is engaged (measured on 10.9.5: needsLayout +
+   display runs -layout with a constraint present and never without one), so a view that lays its
+   subviews out only in -layout stays at its initial frames. Views that rely on the implicit pass run it
+   from -viewWillDraw when this is off. */
+#if !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101000
+#define HAVE_NSVIEW_IMPLICIT_LAYOUT_PASS 1
+#endif
+#endif // MAVERICKS_BACKPORT: closes the 10.10+ implicit-layout-pass deployment-target guard.
+
 #if !defined(HAVE_MACH_CONTINUOUS_TIME) && OS(DARWIN)
 /* mach_continuous_time() / mach_continuous_approximate_time() were introduced in macOS 10.12 / iOS 10. */
 #if !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200
