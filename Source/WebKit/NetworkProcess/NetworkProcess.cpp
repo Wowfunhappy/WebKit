@@ -328,21 +328,6 @@ void NetworkProcess::initializeNetworkProcess(NetworkProcessCreationParameters&&
 #endif
     WebCore::SQLiteDatabase::useFastMalloc();
     WebCore::NetworkStorageSession::permitProcessToUseCookieAPI(true);
-
-    // MAVERICKS_BACKPORT: eagerly run WebCore's one-time SQLite initialization (initializeSQLiteIfNecessary) NOW,
-    // on the main thread, by opening a throwaway in-memory database. Later, ITP (ResourceLoadStatisticsStore)
-    // and PrivateClickMeasurement (PCM::Database) open their SQLite stores on a background SuspendableWorkQueue;
-    // the first such open would otherwise run initializeSQLiteIfNecessary() there and dispatch
-    // sqlite3_initialize() to the main thread via callOnMainThreadAndWait(), which crashes the NetworkProcess
-    // on 10.9 (the main-thread RunLoop isn't reachable from the worker thread that early). Running it here
-    // first means the std::call_once is already satisfied — and ran on the main thread, inline — so the later
-    // background opens become no-ops and never dispatch. (initializeNetworkProcess runs on the main thread.)
-    {
-        WebCore::SQLiteDatabase eagerSQLiteInit;
-        eagerSQLiteInit.open(":memory:"_s);
-        eagerSQLiteInit.close();
-    }
-
     platformInitializeNetworkProcess(parameters);
 
     WTF::Thread::setCurrentThreadIsUserInitiated();
