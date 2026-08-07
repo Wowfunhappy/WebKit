@@ -256,7 +256,15 @@ static void makeResponderFirstResponderIfDescendantOfView(NSWindow *window, NSRe
         return nil;
     Ref page = pageWrapper.get();
     [window setDelegate:self];
-    [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenPrimary | NSWindowCollectionBehaviorStationary)];
+    // MAVERICKS_BACKPORT: upstream sets NSWindowCollectionBehaviorFullScreenPrimary | ...Stationary here.
+    // Dropped the Stationary bit on 10.9: a Stationary window is one the WindowServer treats as not
+    // participating in its space, so the Lion-style full-screen space is never given a cached snapshot and
+    // Mission Control draws the tile grey (and the page bleeds into the Desktop tile). Measured on 10.9.5
+    // with a colour-grid page: with Stationary NEVER set, the enter/Mission-Control/exit transitions all
+    // render correctly and the space tile shows the page at t=0 and +9s -- i.e. the bit is not needed for
+    // the transition on this OS and is exactly what greys the tile. (The separate opaque/black adjustment in
+    // -finishedEnterFullScreenAnimation: handles the tile going volatile once the page covers the window.)
+    [window setCollectionBehavior:([window collectionBehavior] | NSWindowCollectionBehaviorFullScreenPrimary)];
 
     // Hide the titlebar during the animation to full screen so that only the WKWebView content is visible.
     window.titlebarAlphaValue = 0;
@@ -559,6 +567,24 @@ static const float minVideoWidth = 468; // Keep in sync with `--controls-bar-wid
         manager->setAnimatingFullScreen(false);
         page->setSuppressVisibilityUpdates(false);
 
+        // MAVERICKS_BACKPORT: once the full-screen window has settled into its own space, tell the
+        // WindowServer the truth about it -- it is opaque, because the page covers it. WebCoreFullScreenWindow
+        // is deliberately opaque=NO with a clear backgroundColor, which upstream needs for the zoom/fade
+        // transition; but left that way inside the space it costs the window its cached WindowServer
+        // snapshot, so Mission Control renders the space live and draws it grey the moment the now-covered
+        // page's tiles go volatile. Measured A/B on 10.9.5 with a colour-grid page: Safari's NATIVE
+        // full-screen space still shows its content at +6s, ours went grey at +4s; with this, ours holds it
+        // to +8s. Only meaningful on the Lion-style path -- the opt-out never enters a space and has no tile,
+        // so applying it there would be pure divergence. Undone by -_mavericksRestoreWindowForExit, which
+        // every route out of the space calls, because the window outlives the session and the next entry's
+        // fade needs it clear again.
+        if (WebKit::mavericksLionStyleFullScreenEnabled()) {
+            RetainPtr fullScreenWindow = [self window];
+            [fullScreenWindow setOpaque:YES];
+            [fullScreenWindow setBackgroundColor:[NSColor blackColor]];
+            _mavericksDidAdjustWindowForSpace = YES;
+        }
+
         [retainPtr(_backgroundView.get().layer) removeAllAnimations];
         RetainPtr layer = [_clipView layer];
         [layer removeAllAnimations];
@@ -668,6 +694,11 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 - (void)exitFullScreenImmediately
 {
+    // MAVERICKS_BACKPORT: and put the window back, for the abrupt teardown routes (-close, page close,
+    // web-process crash, client destruction) that reach neither the exit animation nor
+    // -beganExitFullScreenWithInitialFrame:... See -_mavericksRestoreWindowForExit.
+    [self _mavericksRestoreWindowForExit];
+
     // MAVERICKS_BACKPORT: give the menu bar and Dock back here. This is the funnel every teardown exit
     // passes through (-close, page close, web-process crash, client destruction), and unlike
     // _continueExitingFullscreenAfterPostingNotificationAndExitImmediately: it has no bail-out on a
@@ -714,6 +745,10 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         [self finishedExitFullScreenAnimationAndExitImmediately:NO];
         return;
     }
+
+    // MAVERICKS_BACKPORT: restore the window BEFORE -exitFullScreenMode: below drives
+    // -_startExitFullScreenAnimationWithDuration:, so the exit fade runs against upstream's window.
+    [self _mavericksRestoreWindowForExit];
 
     if (![window isOnActiveSpace]) {
         // If the full screen window is not in the active space, the NSWindow full screen animation delegate methods
@@ -862,12 +897,35 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
     [NSApp setPresentationOptions:_mavericksSavedPresentationOptions];
 }
 
+// MAVERICKS_BACKPORT: undo the opaque/black adjustment -finishedEnterFullScreenAnimation: made for the
+// space, putting back exactly the WebCoreFullScreenWindow upstream hands to its transitions. Guarded
+// only by "did I adjust it", for the same reason -_mavericksRestorePresentationOptionsIfNeeded is:
+// the routes that need it most are the ones whose other state (_manager, _fullScreenState, _page) is
+// already gone. It must be idempotent and called from EVERY route that leaves the space, because the
+// window OUTLIVES the session -- MinimalFullScreenManagerProxyClient::ensureController and
+// WebViewImpl::fullScreenWindowController both cache the controller, so a window left opaque black
+// would make the NEXT entry's zoom-from-element play over a black screen.
+- (void)_mavericksRestoreWindowForExit
+{
+    if (!_mavericksDidAdjustWindowForSpace)
+        return;
+    _mavericksDidAdjustWindowForSpace = NO;
+
+    RetainPtr fullScreenWindow = [self window];
+    [fullScreenWindow setOpaque:NO];
+    [fullScreenWindow setBackgroundColor:[NSColor clearColor]];
+}
+
 - (void)completeFinishExitFullScreenAnimation
 {
     // MAVERICKS_BACKPORT: restore the presentation options this controller hid on the way in (see
     // -_mavericksRestorePresentationOptionsIfNeeded above). This is the normal exit path; the
     // teardown paths call it too, which is why the helper is idempotent.
     [self _mavericksRestorePresentationOptionsIfNeeded];
+
+    // MAVERICKS_BACKPORT: and the window itself, for the routes that never reached
+    // -beganExitFullScreenWithInitialFrame:... (see -_mavericksRestoreWindowForExit).
+    [self _mavericksRestoreWindowForExit];
 
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
@@ -1152,6 +1210,13 @@ static RetainPtr<CAAnimation> fadeAnimation(CFTimeInterval duration, AnimationDi
 
 - (void)_startExitFullScreenAnimationWithDuration:(NSTimeInterval)duration
 {
+    // MAVERICKS_BACKPORT: this is where an AppKit-INITIATED exit lands (the system full-screen button,
+    // ctrl-cmd-F, leaving the space from Mission Control). It sets _fullScreenState itself below, so the
+    // web process's -beganExitFullScreenWithInitialFrame:... then early-returns on its
+    // "_fullScreenState != WaitingToExitFullScreen" guard and never restores the window. Restore here,
+    // BEFORE the AnimateOut fade is installed below, so that fade runs against upstream's window.
+    [self _mavericksRestoreWindowForExit];
+
     if ([self isFullScreen]) {
         // We still believe we're in full screen mode, so we must have been asked to exit full
         // screen by the system full screen button.

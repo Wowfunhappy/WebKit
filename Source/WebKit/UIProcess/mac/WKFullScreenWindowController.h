@@ -75,6 +75,11 @@ typedef enum FullScreenState : NSInteger FullScreenState;
     BOOL _mavericksDidHidePresentationOptions;
     NSApplicationPresentationOptions _mavericksSavedPresentationOptions;
 
+    // MAVERICKS_BACKPORT: set while -finishedEnterFullScreenAnimation:'s space adjustments (Stationary
+    // cleared, window opaque black) are in force, so -_mavericksRestoreWindowForExit can undo them from
+    // any exit route without depending on state those routes may already have lost.
+    BOOL _mavericksDidAdjustWindowForSpace;
+
     double _savedScale;
     WebCore::FloatBoxExtent _savedObscuredContentInsets;
 }
