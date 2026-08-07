@@ -24,6 +24,7 @@
 #import <sys/stat.h>
 #import <mach/mach.h>
 #import <Security/Security.h>
+#import <CommonCrypto/CommonDigest.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <libkern/OSAtomic.h>
@@ -2531,6 +2532,206 @@ WK_POLYFILL_SEL("set_isTopLevelNavigation:", "wk_set_isTopLevelNavigation:");
 // trust decision and kSecTrustResultUnspecified is "valid chain, no explicit decision"; every other
 // result (recoverable failure, fatal failure, deny, invalid setup) is not trusted, and errSecNotTrusted
 // is what the modern SPI reports for those.
+//
+// RESULT CACHE. The real _strictTrustEvaluate on 10.10+ is backed by trustd, which answers a repeat
+// evaluation of the same certificate from its result cache; that is why modern CFNetwork can afford to
+// re-ask the trust question on every connection. 10.9 has no trustd, so without a cache this polyfill
+// runs a full CDSA evaluation -- RSA chain verification, keychain issuer lookups, a CRL/ocspd round
+// trip, all behind Security's one global CSSM mutex -- once PER CONNECTION. Measured on this host
+// (arstechnica.com, one load): 95 of 107 SecTrustEvaluate calls in the network process came from this
+// function, ~2 per distinct host, because a page opens several connections to each host and every ad and
+// analytics origin (doubleclick, google-analytics, facebook, amazon-adsystem, ...) recurs on nearly
+// every page. Under CPU contention those evaluations both starve for cores and convoy on the CSSM mutex,
+// which is the same lock CFNetwork's socket thread needs to move bytes -- so page loads stall. Caching
+// the result here, exactly as trustd does underneath the real SPI, collapses the per-connection
+// redundancy within a page and, because the cache persists, makes the ubiquitous third-party origins a
+// hit on every page after the first -- which is the steady-state a trustd-backed browser runs in.
+//
+// This caches this function's OWN evaluations; it does not interpose SecTrustEvaluate. The key is the
+// whole readable question -- leaf certificate DER, every policy's properties (which bind the hostname),
+// the custom anchors, the network-fetch flag and the verify date -- all of them evaluation-free reads on
+// 10.9. Identical question, identical answer, up to the freshness the TTL bounds. Only a clean verdict
+// (Proceed/Unspecified) is stored: a failure re-evaluates at full price every time, so a revoked or
+// expired chain is never served from memory, and a good chain that just goes bad is caught on its next
+// connection rather than the next page. The TTL (10 minutes) is far tighter than 10.9's real revocation
+// freshness, whose CRL cache under /var/db/crls persists for days. On a hit the SecTrustRef is left
+// unevaluated; the sole caller (NetworkSessionCocoa) reads only the reported OSStatus, and any later
+// consumer that wants the built chain triggers Security's own evaluation lazily at full price.
+enum { WK_TRUST_CACHE_SLOTS = 512 };
+static const CFAbsoluteTime kWKTrustCacheTTL = 600.0;
+
+struct wk_trust_cache_slot {
+    uint8_t key[CC_SHA256_DIGEST_LENGTH];
+    CFAbsoluteTime expires;
+    bool used;
+};
+static struct wk_trust_cache_slot wk_trust_cache[WK_TRUST_CACHE_SLOTS];
+static pthread_mutex_t wk_trust_cache_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static int wk_trust_policy_key_compare(const void *a, const void *b)
+{
+    return (int)CFStringCompare(*(CFStringRef *)a, *(CFStringRef *)b, 0);
+}
+
+// Fold one CoreFoundation value into the digest by its CONTENT, never by CFCopyDescription: on 10.9
+// -[CFString description] is "<CFString 0x7fa1... [0x...]>{contents = ...}", i.e. it embeds the object's
+// pointer address, which differs for every freshly-allocated instance -- so a policy's value strings,
+// which SecPolicyCopyProperties mints anew per connection, would hash differently each time even though
+// the string is identical. (That defect made the cache never hit.) A per-type tag keeps values of
+// different types from colliding. An unhandled type returns false, which makes the whole key fail and
+// the trust evaluate uncached -- the safe direction.
+static bool wk_trust_hash_cf(CC_SHA256_CTX *ctx, CFTypeRef value)
+{
+    if (!value)
+        return false;
+    CFTypeID type = CFGetTypeID(value);
+    if (type == CFStringGetTypeID()) {
+        CFDataRef utf8 = CFStringCreateExternalRepresentation(NULL, (CFStringRef)value, kCFStringEncodingUTF8, '?');
+        if (!utf8)
+            return false;
+        char tag = 'S';
+        CFIndex len = CFDataGetLength(utf8);
+        CC_SHA256_Update(ctx, &tag, 1);
+        CC_SHA256_Update(ctx, &len, sizeof(len));
+        CC_SHA256_Update(ctx, CFDataGetBytePtr(utf8), (CC_LONG)len);
+        CFRelease(utf8);
+        return true;
+    }
+    if (type == CFBooleanGetTypeID()) {
+        char tag = 'B';
+        uint8_t v = CFBooleanGetValue((CFBooleanRef)value) ? 1 : 0;
+        CC_SHA256_Update(ctx, &tag, 1);
+        CC_SHA256_Update(ctx, &v, 1);
+        return true;
+    }
+    if (type == CFNumberGetTypeID()) {
+        char tag = 'N';
+        double v = 0;
+        CFNumberGetValue((CFNumberRef)value, kCFNumberDoubleType, &v);
+        CC_SHA256_Update(ctx, &tag, 1);
+        CC_SHA256_Update(ctx, &v, sizeof(v));
+        return true;
+    }
+    if (type == CFDataGetTypeID()) {
+        char tag = 'D';
+        CFIndex len = CFDataGetLength((CFDataRef)value);
+        CC_SHA256_Update(ctx, &tag, 1);
+        CC_SHA256_Update(ctx, &len, sizeof(len));
+        CC_SHA256_Update(ctx, CFDataGetBytePtr((CFDataRef)value), (CC_LONG)len);
+        return true;
+    }
+    return false;
+}
+
+// Fold a policy's properties (name/oid/hostname/client flags) into the digest, key order normalised so
+// the hash is stable regardless of dictionary iteration order.
+static bool wk_trust_hash_policy(CC_SHA256_CTX *ctx, SecPolicyRef policy)
+{
+    CFDictionaryRef properties = SecPolicyCopyProperties(policy);
+    if (!properties)
+        return false;
+    bool ok = true;
+    CFIndex count = CFDictionaryGetCount(properties);
+    CC_SHA256_Update(ctx, &count, sizeof(count));
+    if (count) {
+        const void **keys = (const void **)calloc((size_t)count, sizeof(*keys));
+        if (keys) {
+            CFDictionaryGetKeysAndValues(properties, keys, NULL);
+            qsort(keys, (size_t)count, sizeof(*keys), wk_trust_policy_key_compare);
+            for (CFIndex i = 0; ok && i < count; ++i)
+                ok = wk_trust_hash_cf(ctx, keys[i])
+                    && wk_trust_hash_cf(ctx, CFDictionaryGetValue(properties, keys[i]));
+            free(keys);
+        } else
+            ok = false;
+    }
+    CFRelease(properties);
+    return ok;
+}
+
+// Assemble the readable trust question into a SHA-256 key. Returns false (evaluate uncached) if any
+// component cannot be read -- the failure mode is always "evaluate for real".
+static bool wk_trust_cache_key(SecTrustRef trust, uint8_t out[CC_SHA256_DIGEST_LENGTH])
+{
+    CC_SHA256_CTX ctx;
+    CC_SHA256_Init(&ctx);
+
+    SecCertificateRef leaf = SecTrustGetCertificateAtIndex(trust, 0);
+    if (!leaf)
+        return false;
+    CFDataRef leafDER = SecCertificateCopyData(leaf);
+    if (!leafDER)
+        return false;
+    CFIndex leafLen = CFDataGetLength(leafDER);
+    CC_SHA256_Update(&ctx, &leafLen, sizeof(leafLen));
+    CC_SHA256_Update(&ctx, CFDataGetBytePtr(leafDER), (CC_LONG)leafLen);
+    CFRelease(leafDER);
+
+    CFArrayRef policies = NULL;
+    if (SecTrustCopyPolicies(trust, &policies) != errSecSuccess || !policies)
+        return false;
+    bool ok = true;
+    CFIndex policyCount = CFArrayGetCount(policies);
+    CC_SHA256_Update(&ctx, &policyCount, sizeof(policyCount));
+    for (CFIndex i = 0; ok && i < policyCount; ++i)
+        ok = wk_trust_hash_policy(&ctx, (SecPolicyRef)CFArrayGetValueAtIndex(policies, i));
+    CFRelease(policies);
+    if (!ok)
+        return false;
+
+    CFArrayRef anchors = NULL;
+    if (SecTrustCopyCustomAnchorCertificates(trust, &anchors) != errSecSuccess)
+        return false;
+    CFIndex anchorCount = anchors ? CFArrayGetCount(anchors) : -1; // NULL (system anchors) != empty array
+    CC_SHA256_Update(&ctx, &anchorCount, sizeof(anchorCount));
+    for (CFIndex i = 0; ok && anchors && i < anchorCount; ++i) {
+        CFDataRef anchorDER = SecCertificateCopyData((SecCertificateRef)CFArrayGetValueAtIndex(anchors, i));
+        if (anchorDER) {
+            CFIndex len = CFDataGetLength(anchorDER);
+            CC_SHA256_Update(&ctx, &len, sizeof(len));
+            CC_SHA256_Update(&ctx, CFDataGetBytePtr(anchorDER), (CC_LONG)len);
+            CFRelease(anchorDER);
+        } else
+            ok = false;
+    }
+    if (anchors)
+        CFRelease(anchors);
+    if (!ok)
+        return false;
+
+    Boolean fetchAllowed = false;
+    if (SecTrustGetNetworkFetchAllowed(trust, &fetchAllowed) != errSecSuccess)
+        return false;
+    CC_SHA256_Update(&ctx, &fetchAllowed, sizeof(fetchAllowed));
+    CFAbsoluteTime verifyTime = SecTrustGetVerifyTime(trust); // 0 when unset, i.e. "now"
+    CC_SHA256_Update(&ctx, &verifyTime, sizeof(verifyTime));
+
+    CC_SHA256_Final(out, &ctx);
+    return true;
+}
+
+static bool wk_trust_cache_lookup(const uint8_t key[CC_SHA256_DIGEST_LENGTH])
+{
+    unsigned slot = ((unsigned)key[0] | ((unsigned)key[1] << 8)) % WK_TRUST_CACHE_SLOTS;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    pthread_mutex_lock(&wk_trust_cache_lock);
+    struct wk_trust_cache_slot *entry = &wk_trust_cache[slot];
+    bool hit = entry->used && entry->expires > now && !memcmp(entry->key, key, CC_SHA256_DIGEST_LENGTH);
+    pthread_mutex_unlock(&wk_trust_cache_lock);
+    return hit;
+}
+
+static void wk_trust_cache_store(const uint8_t key[CC_SHA256_DIGEST_LENGTH])
+{
+    unsigned slot = ((unsigned)key[0] | ((unsigned)key[1] << 8)) % WK_TRUST_CACHE_SLOTS;
+    pthread_mutex_lock(&wk_trust_cache_lock);
+    struct wk_trust_cache_slot *entry = &wk_trust_cache[slot];
+    memcpy(entry->key, key, CC_SHA256_DIGEST_LENGTH);
+    entry->expires = CFAbsoluteTimeGetCurrent() + kWKTrustCacheTTL;
+    entry->used = true;
+    pthread_mutex_unlock(&wk_trust_cache_lock);
+}
+
 static dispatch_queue_t wk_trustEvaluationQueue(void)
 {
     static dispatch_queue_t *queues;
@@ -2563,12 +2764,32 @@ static void wk_urlSession_strictTrustEvaluate(id self, SEL _cmd, NSURLAuthentica
         CFRetain(trust);
     dispatch_queue_t completionQueue = queue ?: dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
     dispatch_retain(completionQueue);
+
+    // Build the cache key on the caller's queue: it is only evaluation-free reads plus a hash, orders of
+    // magnitude cheaper than the evaluation this can avoid, so it does not meaningfully load that queue.
+    // A hit answers without ever touching the bounded evaluation pool -- which matters most under load,
+    // when that pool is saturated and a cache hit must not have to wait behind real evaluations for a slot.
+    struct { uint8_t bytes[CC_SHA256_DIGEST_LENGTH]; bool valid; } cacheKey;
+    cacheKey.valid = trust && wk_trust_cache_key(trust, cacheKey.bytes);
+    if (cacheKey.valid && wk_trust_cache_lookup(cacheKey.bytes)) {
+        dispatch_async(completionQueue, ^{
+            completionHandler(challenge, noErr);
+            if (trust)
+                CFRelease(trust);
+            dispatch_release(completionQueue);
+        });
+        return;
+    }
+
     dispatch_async(wk_trustEvaluationQueue(), ^{
         OSStatus status = errSecNotTrusted;
         SecTrustResultType trustResult = kSecTrustResultInvalid;
         if (trust && SecTrustEvaluate(trust, &trustResult) == errSecSuccess
-            && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified))
+            && (trustResult == kSecTrustResultProceed || trustResult == kSecTrustResultUnspecified)) {
             status = noErr;
+            if (cacheKey.valid)
+                wk_trust_cache_store(cacheKey.bytes); // only clean verdicts are remembered
+        }
         dispatch_async(completionQueue, ^{
             completionHandler(challenge, status);
             if (trust)
