@@ -177,8 +177,6 @@ set(WTF_PUBLIC_HEADERS
     LoggingHashSet.h
     LoggingHashTraits.h
     MachSendRight.h
-    # MAVERICKS_BACKPORT: header missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
-    MachSendRightAnnotated.h
     MainThread.h
     MainThreadData.h
     MainThreadDispatcher.h
@@ -303,8 +301,6 @@ set(WTF_PUBLIC_HEADERS
     SequesteredAllocator.h
     SequesteredAutomaticThread.h
     SequesteredImmortalHeap.h
-    # MAVERICKS_BACKPORT: header missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
-    SequenceLocked.h
     SequesteredMalloc.h
     SetForScope.h
     SharedTask.h
@@ -348,8 +344,6 @@ set(WTF_PUBLIC_HEADERS
     StructDump.h
     SuspendableWorkQueue.h
     SwiftBridging.h
-    # MAVERICKS_BACKPORT: header missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
-    SwiftCXXThunk.h
     SynchronizedFixedQueue.h
     SystemFree.h
     SystemMalloc.h
@@ -710,64 +704,44 @@ elseif (APPLE)
     )
 
     list(APPEND WTF_PUBLIC_HEADERS
-        cf/CFTypeTraits.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
         cf/CFURLExtras.h
         cf/NotificationCenterCF.h
         cf/TypeCastsCF.h
         cf/VectorCF.h
 
-        cocoa/AuditToken.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
         cocoa/CrashReporter.h
         cocoa/Entitlements.h
-        cocoa/NSStringExtras.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
         cocoa/NSURLExtras.h
         cocoa/RuntimeApplicationChecksCocoa.h
         cocoa/SoftLinking.h
-        cocoa/SpanCocoa.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
         cocoa/TollFreeBridging.h
         cocoa/TypeCastsCocoa.h
         cocoa/VectorCocoa.h
 
         darwin/DispatchExtras.h
         darwin/DispatchOSObject.h
-        darwin/LibraryPathDiagnostics.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
         darwin/NetworkOSObject.h
         darwin/OSLogPrintStream.h
-        darwin/TypeCastsOSObject.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
         darwin/WeakLinking.h
         darwin/XPCExtras.h
-        darwin/XPCObjectPtr.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
 
         spi/cf/CFBundleSPI.h
-        # MAVERICKS_BACKPORT: SPI headers below missing from the base commit's WTF_PUBLIC_HEADERS list; restored so they are installed for the 10.9 build.
-        spi/cf/CFPrivSPI.h
-        spi/cf/CFRunLoopSPI.h
         spi/cf/CFStringSPI.h
 
-        spi/cocoa/BOMSPI.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
         spi/cocoa/CFXPCBridgeSPI.h
         spi/cocoa/CrashReporterClientSPI.h
-        spi/cocoa/IOReturnSPI.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
         spi/cocoa/IOSurfaceSPI.h
-        spi/cocoa/IOTypesSPI.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
         spi/cocoa/MachVMSPI.h
         spi/cocoa/NSLocaleSPI.h
         spi/cocoa/NSObjCRuntimeSPI.h
-        spi/cocoa/OSLogSPI.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
         spi/cocoa/SecuritySPI.h
-        spi/cocoa/XTSPI.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
         spi/cocoa/objcSPI.h
 
-# MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
-#         spi/darwin/ReasonSPI.h
-# (end MAVERICKS_BACKPORT restored block)
+        spi/darwin/ReasonSPI.h
         spi/darwin/CodeSignSPI.h
         spi/darwin/DataVaultSPI.h
-        spi/darwin/DispatchSPI.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
-        spi/darwin/MemoryStatusSPI.h # MAVERICKS_BACKPORT: missing from the base commit's WTF_PUBLIC_HEADERS list; restored so it is installed for the 10.9 build.
         spi/darwin/OSVariantSPI.h
         spi/darwin/ProcessMemoryFootprint.h
-        spi/darwin/ReasonSPI.h # MAVERICKS_BACKPORT: alphabetized into this position (moved from above CodeSignSPI.h in the base commit).
         spi/darwin/SandboxSPI.h
         spi/darwin/XPCSPI.h
         spi/darwin/dyldSPI.h
@@ -776,19 +750,6 @@ elseif (APPLE)
 
         text/cf/StringConcatenateCF.h
         text/cf/TextBreakIteratorCF.h
-        # MAVERICKS_BACKPORT: headers below missing from the base commit's WTF_PUBLIC_HEADERS list; restored so they are installed for the 10.9 build.
-        text/cf/TextBreakIteratorCFCharacterCluster.h
-        text/cf/TextBreakIteratorCFStringTokenizer.h
-
-        # MAVERICKS_BACKPORT: text/cocoa headers missing from the base commit's list; restored so they are installed for the 10.9 build.
-        text/cocoa/ContextualizedCFString.h
-        text/cocoa/ContextualizedNSString.h
-
-        # MAVERICKS_BACKPORT: posix header missing from the base commit's list; restored so it is installed for the 10.9 build.
-        posix/SocketPOSIX.h
-
-        # MAVERICKS_BACKPORT: unix header missing from the base commit's list; restored so it is installed for the 10.9 build.
-        unix/UnixFileDescriptor.h
     )
 elseif (CMAKE_SYSTEM_NAME MATCHES "Linux")
     list(APPEND WTF_PUBLIC_HEADERS
@@ -887,3 +848,6 @@ WEBKIT_COPY_FILES(WTF_CopyPreferences
     DESTINATION ${WTF_SCRIPTS_DIR}
     FILES ${WTF_PREFERENCES}
 )
+
+# MAVERICKS_BACKPORT: single seam -- see MavericksSupport/cmake/WTFPlatformMavericks.cmake.
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/WTFPlatformMavericks.cmake)
