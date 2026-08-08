@@ -662,10 +662,28 @@ WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyColorGlyphCoverage, (CT
     return NULL;
 }
 
+// CTFontCopyGlyphCoverageForFeature (10.13+) answers WHICH GLYPHS a given font feature acts on. 10.9
+// exposes no equivalent: CTFontCopyFeatures lists a font's features but never their per-glyph coverage,
+// and recovering that would mean parsing the font's own GSUB/morx lookup and coverage tables.
+//
+// So the honest answer is an EMPTY coverage set — "this OS cannot report any covered glyph" — and the
+// important part is that it is a real, valid CFBitVector. Returning NULL (which this did) is not a
+// smaller version of that answer, it is a broken one: upstream's unionBitVectors() passes the result
+// straight to CFBitVectorGetCount() with no null check, so NULL crashes. An empty vector makes that
+// call return 0 and the union contribute nothing, which is the same outcome the caller already had,
+// reached without a fake sentinel and without the in-tree guard that existed to survive it.
+//
+// Consequence, stated plainly: Font::supportsSmallCaps() sees no covered glyphs and answers NO, so
+// WebKit synthesizes small capitals instead of using a font's own small-cap glyphs. That is a real
+// degradation, it is what this port already did, and it is confined to appearance.
+//
+// Note the contrast with CTFontCopyColorGlyphCoverage just above, which legitimately returns NULL:
+// upstream null-checks THAT one at its call site (FontCoreText.cpp wraps it in `if (RetainPtr ...)`),
+// so NULL is a value upstream expects there.
 WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyGlyphCoverageForFeature, (CTFontRef font, CFDictionaryRef feature))
 {
     (void)font; (void)feature;
-    return NULL;
+    return CFBitVectorCreate(kCFAllocatorDefault, NULL, 0);
 }
 
 // CSS generic family -> concrete 10.9 font descriptor. The cssFamily argument is one of the
@@ -887,23 +905,136 @@ WK_POLYFILL_ABSENT("CoreText", bool, CTFontHasTable, (CTFontRef font, CTFontTabl
     return present;
 }
 
-// CTFontShapeGlyphs (the unified glyph-shaping entry point) is 10.13+ and absent on 10.9. It is called
-// from Font::applyTransforms (the SimpleShaper path) to fill per-glyph horizontal advances (and, for
-// complex cases, reorder glyphs via the handler). On 10.9 that path historically used the still-present
-// CTFontGetAdvancesForGlyphs to fill base horizontal advances, and complex-script reshaping/reordering
-// went through WebCore's ComplexTextController (CTLine/CTTypesetter), NOT this simple path. So the
-// faithful 10.9 behavior here is: fill base horizontal advances from CTFontGetAdvancesForGlyphs, keep
-// the caller's glyphs/origins/indexes (horizontal simple text has zero origins and no reordering), and
-// return a zero initial advance (LTR). This is a real implementation over the present 10.9 API, not a
-// value stub. CTFontShapeOptions is a CFOptionFlags; the reorder handler is unused on this OS path.
+// CTFontShapeGlyphs (10.13+) shapes a run: it applies kerning and OpenType/AAT substitutions to the
+// caller's glyph array, growing or shrinking it through `handler` when substitution changes the glyph
+// count, and returns the run's initial advance.
+//
+// 10.9 has no such entry point, but it CAN shape — CTTypesetter/CTLine do it, which is measurable:
+// with kCTLigatureAttributeName 2, Hoefler Text and Zapfino turn the two characters "fi" into ONE
+// glyph on this host. So this is implemented over CTLine rather than declared impossible.
+//
+// THE ONE THING CTLine DOES THAT THIS API MUST NOT: font fallback. CTFontShapeGlyphs shapes with the
+// font it is given, and its caller renders the resulting glyph IDs with that same font; a glyph ID
+// from a substituted font written into that buffer draws as garbage. Measured on this host, an empty
+// kCTFontCascadeListAttribute does NOT suppress substitution — "A" + CJK still produced a second run
+// in a different font. There is no way to forbid it, so instead every run is checked and, if any run
+// came back in another font, this reports base advances only and substitutes nothing. Same for any
+// other shape it cannot map back safely. That degradation is the honest one: correct glyphs with no
+// shaping, never wrong glyphs.
+// CTFontShapeOptions, mirrored from PAL/pal/spi/cf/CoreTextSPI.h so the bit tested here can be checked
+// against the enum that defines it rather than against a bare literal:
+//     kCTFontShapeWithKerning            = (1 << 0)
+//     kCTFontShapeWithClusterComposition = (1 << 1)
+//     kCTFontShapeRightToLeft            = (1 << 2)
+// Getting this wrong is silent: WebCore sets cluster composition on EVERY call, so testing bit 1 for
+// kerning reads as "always true" and font-kerning:none is quietly ignored.
+#define WK_CTFONT_SHAPE_WITH_KERNING             (1u << 0)
+#define WK_CTFONT_SHAPE_WITH_CLUSTER_COMPOSITION (1u << 1)
+#define WK_CTFONT_SHAPE_RIGHT_TO_LEFT            (1u << 2)
+
+static bool wk_ctline_shape(CTFontRef font, const UniChar *chars, CFIndex count, CFOptionFlags options,
+    CTLineRef *outLine, CFIndex *outGlyphCount)
+{
+    *outLine = NULL; *outGlyphCount = 0;
+    CFStringRef string = CFStringCreateWithCharacters(kCFAllocatorDefault, chars, count);
+    if (!string)
+        return false;
+    int ligature = 2, kern = 0;
+    CFNumberRef ligNum = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &ligature);
+    CFNumberRef kernZero = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &kern);
+    CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(kCFAllocatorDefault, 3,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(attrs, kCTFontAttributeName, font);
+    CFDictionarySetValue(attrs, kCTLigatureAttributeName, ligNum);
+    if (!(options & WK_CTFONT_SHAPE_WITH_KERNING))
+        CFDictionarySetValue(attrs, kCTKernAttributeName, kernZero);
+    CFAttributedStringRef attributed = CFAttributedStringCreate(kCFAllocatorDefault, string, attrs);
+    CTLineRef line = attributed ? CTLineCreateWithAttributedString(attributed) : NULL;
+    bool ok = false;
+    if (line) {
+        CFArrayRef runs = CTLineGetGlyphRuns(line);
+        CFIndex runCount = runs ? CFArrayGetCount(runs) : 0;
+        CFIndex total = 0;
+        ok = runCount > 0;
+        for (CFIndex i = 0; i < runCount && ok; i++) {
+            CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, i);
+            CFDictionaryRef runAttrs = CTRunGetAttributes(run);
+            CTFontRef runFont = runAttrs ? (CTFontRef)CFDictionaryGetValue(runAttrs, kCTFontAttributeName) : NULL;
+            if (!runFont || !CFEqual(runFont, font))
+                ok = false;   // substituted font: its glyph IDs are meaningless to our caller
+            else
+                total += CTRunGetGlyphCount(run);
+        }
+        if (ok) { *outLine = (CTLineRef)CFRetain(line); *outGlyphCount = total; }
+        CFRelease(line);
+    }
+    if (attributed) CFRelease(attributed);
+    CFRelease(attrs); CFRelease(kernZero); CFRelease(ligNum); CFRelease(string);
+    return ok;
+}
+
 WK_POLYFILL_ABSENT("CoreText", CGSize, CTFontShapeGlyphs,
     (CTFontRef font, CGGlyph glyphs[], CGSize advances[], CGPoint origins[], CFIndex indexes[], const UniChar chars[], CFIndex count, CFOptionFlags options, CFStringRef language, void (^handler)(CFRange, CGGlyph**, CGSize**, CGPoint**, CFIndex**)))
 {
-    (void)origins; (void)indexes; (void)chars; (void)options; (void)language; (void)handler;
-    if (count > 0 && advances && glyphs)
-        CTFontGetAdvancesForGlyphs(font, kCTFontOrientationHorizontal, glyphs, advances, count);
+    (void)language;
     CGSize zero = { 0, 0 };
-    return zero;
+    if (count <= 0 || !glyphs || !advances)
+        return zero;
+
+    // An RTL run's return value is its initial advance — where the run starts — and the caller feeds
+    // that straight back into layout (FontCoreText.cpp captures it and returns it out of
+    // applyTransforms). Reporting 0 for an RTL run would misplace the whole run, and deriving the true
+    // offset from a CTLine built without the caller's paragraph context is not something this can do
+    // reliably. So RTL is declined outright: base advances, no substitution, and no positional claim.
+    CTLineRef line = NULL;
+    CFIndex shaped = 0;
+    if ((options & WK_CTFONT_SHAPE_RIGHT_TO_LEFT)
+        || !chars || !wk_ctline_shape(font, chars, count, options, &line, &shaped)) {
+        CTFontGetAdvancesForGlyphs(font, kCTFontOrientationHorizontal, glyphs, advances, count);
+        return zero;
+    }
+
+    // Resize the caller's buffers through the handler when shaping changed the glyph count, then take
+    // the fresh pointers it hands back. Without a handler we can only proceed if the count matched.
+    CGGlyph *outGlyphs = glyphs; CGSize *outAdvances = advances;
+    CGPoint *outOrigins = origins; CFIndex *outIndexes = indexes;
+    if (shaped != count) {
+        if (!handler) {
+            CFRelease(line);
+            CTFontGetAdvancesForGlyphs(font, kCTFontOrientationHorizontal, glyphs, advances, count);
+            return zero;
+        }
+        // Positive length inserts that many slots at `location`; negative removes them ending there.
+        CFRange range = CFRangeMake(count, shaped - count);
+        handler(range, &outGlyphs, &outAdvances, &outOrigins, &outIndexes);
+        if (!outGlyphs || !outAdvances) {
+            CFRelease(line);
+            return zero;
+        }
+    }
+
+    CFArrayRef runs = CTLineGetGlyphRuns(line);
+    CFIndex written = 0;
+    for (CFIndex i = 0; i < CFArrayGetCount(runs) && written < shaped; i++) {
+        CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, i);
+        CFIndex n = CTRunGetGlyphCount(run);
+        if (n <= 0)
+            continue;
+        if (written + n > shaped)
+            n = shaped - written;
+        CFRange all = CFRangeMake(0, n);
+        CTRunGetGlyphs(run, all, outGlyphs + written);
+        CTRunGetAdvances(run, all, outAdvances + written);
+        if (outIndexes)
+            CTRunGetStringIndices(run, all, outIndexes + written);
+        if (outOrigins) {
+            for (CFIndex g = 0; g < n; g++)
+                outOrigins[written + g] = CGPointZero;   // 10.9 has no per-glyph origin offsets here
+        }
+        written += n;
+    }
+    CFRelease(line);
+    return zero;   // LTR runs start at the origin; RTL initial advance is applied by the caller's path
 }
 
 // 10.9 backport: CTRunGetBaseAdvancesAndOrigins is 10.11+, so implement it here. A naive return-0 stub

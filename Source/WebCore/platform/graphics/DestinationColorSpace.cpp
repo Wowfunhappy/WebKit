@@ -191,14 +191,9 @@ std::optional<DestinationColorSpace> DestinationColorSpace::asExtended() const
         return *this;
 #if USE(CG)
     // Avoid refing color space here as this is performance-sensitive.
-    // MAVERICKS_BACKPORT: CGColorSpaceCreateExtended is 11.0+ and weak-links to NULL at RUNTIME on
-    // 10.9. Gate on the deployment target (MIN_REQUIRED=1090), NOT MAX_ALLOWED (always-true on the
-    // 26.1 SDK), so the call is compiled out on 10.9 and extended color spaces fall back to nullopt.
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200
     SUPPRESS_UNRETAINED_ARG if (RetainPtr colorSpace = adoptCF(CGColorSpaceCreateExtended(platformColorSpace())))
         return DestinationColorSpace(WTF::move(colorSpace));
 #endif
-#endif // MAVERICKS_BACKPORT: close USE(CG) — extended color spaces fall back to nullopt on 10.9.
     return std::nullopt;
 }
 

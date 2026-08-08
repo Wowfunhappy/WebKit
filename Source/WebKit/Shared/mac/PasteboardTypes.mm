@@ -26,9 +26,6 @@
 #import "config.h"
 #import "PasteboardTypes.h"
 
-// MAVERICKS_BACKPORT: UTType/UniformTypeIdentifiers is macOS 11+ and absent on 10.9; the legacy
-// CoreServices UTType constants (kUTTypeWebArchive, kUTTypePNG) live here and exist at runtime on 10.9.
-#import <CoreServices/CoreServices.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/LegacyNSPasteboardTypes.h>
 #import <wtf/RetainPtr.h>
@@ -47,8 +44,7 @@ NSArray* PasteboardTypes::forEditingSingleton()
 {
     static NeverDestroyed<RetainPtr<NSArray>> types = @[
         WebArchivePboardType,
-        // MAVERICKS_BACKPORT: UTType.identifier is macOS 11+; kUTTypeWebArchive (CFStringRef) bridges to NSString*.
-        (__bridge NSString *)kUTTypeWebArchive,
+        UTTypeWebArchive.identifier,
         WebCore::legacyHTMLPasteboardTypeSingleton(),
         WebCore::legacyFilenamesPasteboardTypeSingleton(),
         WebCore::legacyTIFFPasteboardTypeSingleton(),
@@ -58,8 +54,7 @@ NSArray* PasteboardTypes::forEditingSingleton()
         WebCore::legacyRTFPasteboardTypeSingleton(),
         WebCore::legacyStringPasteboardTypeSingleton(),
         WebCore::legacyColorPasteboardTypeSingleton(),
-        // MAVERICKS_BACKPORT: UTType.identifier is macOS 11+; kUTTypePNG (CFStringRef) bridges to NSString*.
-        (__bridge NSString *)kUTTypePNG
+        UTTypePNG.identifier
     ];
     return types.get().get();
 }
@@ -110,8 +105,7 @@ NSArray* PasteboardTypes::forSelectionSingleton()
 {
     static NeverDestroyed<RetainPtr<NSArray>> types = @[
         WebArchivePboardType,
-        // MAVERICKS_BACKPORT: UTType.identifier is macOS 11+; kUTTypeWebArchive (CFStringRef) bridges to NSString*.
-        (__bridge NSString *)kUTTypeWebArchive,
+        UTTypeWebArchive.identifier,
         NSPasteboardTypeRTF,
         WebCore::legacyRTFDPasteboardTypeSingleton(),
         WebCore::legacyRTFPasteboardTypeSingleton(),

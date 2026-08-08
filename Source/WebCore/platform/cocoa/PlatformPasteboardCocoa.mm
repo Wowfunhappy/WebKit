@@ -29,9 +29,7 @@
 #import "Pasteboard.h"
 #import "PasteboardItemInfo.h"
 #import "WebCoreNSURLExtras.h"
-// MAVERICKS_BACKPORT: upstream's UniformTypeIdentifiers import. Kept commented, not deleted: UTType is 11.0+; this file uses the 10.9 UTI functions instead.
-// #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-// (end MAVERICKS_BACKPORT restored block)
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #if PLATFORM(IOS_FAMILY)
 #import "AbstractPasteboard.h"
@@ -77,14 +75,12 @@ String PlatformPasteboard::urlStringSuitableForLoading(String& title)
 
 #if PLATFORM(IOS_FAMILY)
     UNUSED_PARAM(title);
-#endif
-    // MAVERICKS_BACKPORT: UTTypeURL/UTTypeText (UniformTypeIdentifiers) are macOS 11+; use the legacy
-    // NSPasteboard type singletons on all platforms here on 10.9.
+    String urlPasteboardType = UTTypeURL.identifier;
+    String stringPasteboardType = UTTypeText.identifier;
+#else
     String urlPasteboardType = legacyURLPasteboardTypeSingleton();
     String stringPasteboardType = legacyStringPasteboardTypeSingleton();
-// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
-// #endif
-// (end MAVERICKS_BACKPORT restored block)
+#endif
 
     if (types.contains(urlPasteboardType)) {
         NSURL *URLFromPasteboard = [NSURL URLWithString:stringForType(urlPasteboardType).createNSString().get()];

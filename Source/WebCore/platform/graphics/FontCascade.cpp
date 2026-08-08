@@ -700,16 +700,6 @@ FontCascade::CodePath FontCascade::codePath(const TextRun& run, std::optional<un
 #if !USE(FONT_VARIANT_VIA_FEATURES) && !USE(FREETYPE)
     if (run.length() > 1 && (enableKerning() || requiresShaping()))
         return CodePath::Complex;
-#elif PLATFORM(MAC)
-    // MAVERICKS_BACKPORT: on Cocoa the simple path normally applies kerning and
-    // OpenType ligatures via CTFontShapeGlyphs (a 10.13+ API). That call is
-    // unavailable here, so our Font::applyTransforms() skips it — leaving the
-    // simple path UNSHAPED. Ligature-driven icon fonts (Material Icons, Font
-    // Awesome) then render their literal characters (blank glyphs) instead of
-    // the substituted icon. Route any run that needs shaping/kerning to the
-    // complex path, which shapes correctly via CTLine/CTRun on 10.9.
-    if (run.length() > 1 && (enableKerning() || requiresShaping()))
-        return CodePath::Complex;
 #endif
 
     if (!run.characterScanForCodePath())

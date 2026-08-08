@@ -294,11 +294,6 @@ static RetainPtr<CFDictionaryRef> smallCapsTrueTypeDictionary(int rawKey, int ra
 
 static void unionBitVectors(BitVector& result, CFBitVectorRef source)
 {
-    // MAVERICKS_BACKPORT: CTFontCopyGlyphCoverageForFeature can return null or a
-    // non-CFBitVector on 10.9, which crashes CFBitVectorGetCount. Economist
-    // load triggered this. Defensive null check.
-    if (!source)
-        return;
     CFIndex length = CFBitVectorGetCount(source);
     result.ensureSize(length);
     CFIndex min = 0;
