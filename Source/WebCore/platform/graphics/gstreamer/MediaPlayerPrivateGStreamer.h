@@ -682,8 +682,7 @@ private:
 
 private:
     std::optional<VideoFrameMetadata> videoFrameMetadata() final;
-    // MAVERICKS_BACKPORT: tighten this declaration's guard to also require USE(GSTREAMER_MEDIA_STREAM), matching the .cpp definition/call-site guards, so resolveAudioOutputDevice isn't declared without a definition when MEDIA_STREAM is enabled but the GStreamer media-stream backend is off.
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
     std::pair<String, GRefPtr<GstDevice>> resolveAudioOutputDevice(const String& deviceId);
 #endif
     bool applyAudioSinkDevice(GstElement* audioSink, const GRefPtr<GstDevice>&, const String& deviceId);

@@ -31,12 +31,7 @@
 
 #include "AudioTrackPrivateGStreamer.h"
 #include "GStreamerAudioMixer.h"
-// MAVERICKS_BACKPORT: GStreamerCaptureDeviceManager lives under platform/mediastream/gstreamer and is only
-// compiled (and only used, below) when ENABLE(MEDIA_STREAM); gate the include to match its use sites.
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 #include "GStreamerCaptureDeviceManager.h"
-// MAVERICKS_BACKPORT: end of the USE(GSTREAMER_MEDIA_STREAM) capture-device-manager include guard.
-#endif
 #include "GStreamerCommon.h"
 #include "GStreamerQuirks.h"
 #include "GStreamerRegistryScanner.h"
@@ -67,14 +62,8 @@
 #include "WebKitWebSourceGStreamer.h"
 
 #if ENABLE(MEDIA_STREAM)
-/* MAVERICKS_BACKPORT: upstream's unconditional include of the GStreamer MediaStream source. Kept commented, not deleted: this build gates that header on USE(GSTREAMER_MEDIA_STREAM) just below, and including it unconditionally would not compile without that backend
 #include "GStreamerMediaStreamSource.h"
-MAVERICKS_BACKPORT */
 #include "MediaStreamPrivate.h"
-#endif
-// MAVERICKS_BACKPORT: gate the GStreamer MediaStream src header on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
-#include "GStreamerMediaStreamSource.h"
 #endif
 
 #if ENABLE(MEDIA_SOURCE)
@@ -1122,8 +1111,7 @@ void MediaPlayerPrivateGStreamer::sourceSetup(GstElement* sourceElement)
         webKitWebSrcSetReferrer(source, m_referrer);
         webKitWebSrcSetResourceLoader(source, m_loader);
         webKitWebSrcSetPlayer(source, ThreadSafeWeakPtr { *this });
-    // MAVERICKS_BACKPORT: gate the GStreamer MediaStream src setup branch on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
     } else if (WEBKIT_IS_MEDIA_STREAM_SRC(sourceElement)) {
         RefPtr player = m_player.get();
         auto stream = m_streamPrivate.get();
@@ -1591,8 +1579,7 @@ GstElement* MediaPlayerPrivateGStreamer::createAudioSink()
     auto role = player->isVideoPlayer() ? "video"_s : "music"_s;
     GstElement* audioSink = nullptr;
 
-    // MAVERICKS_BACKPORT: gate the GStreamer MediaStream audio-output-device sink path on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
     auto deviceId = player->audioOutputDeviceId();
     if (!deviceId.isEmpty()) {
         auto [resolvedId, device] = resolveAudioOutputDevice(deviceId);
@@ -1619,8 +1606,7 @@ GstElement* MediaPlayerPrivateGStreamer::createAudioSink()
 
 bool MediaPlayerPrivateGStreamer::isMediaStreamPlayer() const
 {
-    // MAVERICKS_BACKPORT: gate the GStreamer MediaStream src check on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
     if (m_source)
         return WEBKIT_IS_MEDIA_STREAM_SRC(m_source.get());
 #endif
@@ -1992,8 +1978,7 @@ FloatSize MediaPlayerPrivateGStreamer::naturalSize() const
 
 void MediaPlayerPrivateGStreamer::configureMediaStreamAudioTracks()
 {
-    // MAVERICKS_BACKPORT: gate the GStreamer MediaStream src track configuration on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
     if (WEBKIT_IS_MEDIA_STREAM_SRC(m_source.get()))
         webkitMediaStreamSrcConfigureAudioTracks(WEBKIT_MEDIA_STREAM_SRC(m_source.get()), volume(), isMuted(), !paused());
 #endif
@@ -4857,8 +4842,7 @@ void MediaPlayerPrivateGStreamer::checkPlayingConsistency()
     }
 }
 
-// MAVERICKS_BACKPORT: gate the GStreamer MediaStream audio-output-device resolver on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
 std::pair<String, GRefPtr<GstDevice>> MediaPlayerPrivateGStreamer::resolveAudioOutputDevice(const String& deviceId)
 {
     auto resolvedId = deviceId;

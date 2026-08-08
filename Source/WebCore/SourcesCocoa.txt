@@ -31,9 +31,7 @@ JSApplePayCouponCodeUpdate.cpp
 JSApplePayDateComponents.cpp
 JSApplePayDateComponentsRange.cpp
 JSApplePayDeferredPaymentRequest.cpp
-// MAVERICKS_BACKPORT: upstream source entries for features this port does not build. Kept commented, not deleted, so the divergence from upstream's source list stays visible in place.
-// JSApplePayDisbursementRequest.cpp
-// (end MAVERICKS_BACKPORT restored block)
+JSApplePayDisbursementRequest.cpp
 JSApplePayDetailsUpdateBase.cpp
 JSApplePayError.cpp
 JSApplePayErrorCode.cpp
@@ -158,70 +156,30 @@ bridge/objc/objc_class.mm @nonARC @no-unify
 bridge/objc/objc_instance.mm @nonARC @no-unify
 bridge/objc/objc_runtime.mm @nonARC @no-unify
 bridge/objc/objc_utility.mm @nonARC @no-unify
-// MAVERICKS_BACKPORT: WebCrypto uses libgcrypt (built from source under
-// /Users/jonathan/Desktop/gcrypt/install). The cocoa/CommonCrypto-backed
-// implementations relied on Apple Swift CryptoKit symbols and CCECCryptor
-// SPI that 10.9 doesn't ship; replacing them with libgcrypt avoids the
-// missing-symbol crashes documented in [[project_ecdh_enabled_may17]]
-// and the WebCrypto SHA-224 / SPKI asserts.
-// crypto/cocoa/CommonCryptoDERUtilities.cpp
-// crypto/cocoa/CryptoAlgorithmAESCBCCocoa.cpp
-// crypto/cocoa/CryptoAlgorithmAESCFBCocoa.cpp
-// crypto/cocoa/CryptoAlgorithmAESCTRCocoa.cpp
-// crypto/cocoa/CryptoAlgorithmAESGCMCocoa.cpp
-// crypto/cocoa/CryptoAlgorithmAESKWCocoa.cpp
-// crypto/cocoa/CryptoAlgorithmECDHCocoa.cpp
-// crypto/cocoa/CryptoAlgorithmECDSACocoa.cpp
-// crypto/cocoa/CryptoAlgorithmEd25519Cocoa.cpp
-// crypto/cocoa/CryptoAlgorithmHKDFCocoa.cpp
-// crypto/cocoa/CryptoAlgorithmHMACCocoa.cpp
-// crypto/cocoa/CryptoAlgorithmPBKDF2Cocoa.cpp
-// crypto/cocoa/CryptoAlgorithmRSASSA_PKCS1_v1_5Cocoa.cpp
-// crypto/cocoa/CryptoAlgorithmRSA_OAEPCocoa.cpp
-// crypto/cocoa/CryptoAlgorithmRSA_PSSCocoa.cpp
-// crypto/cocoa/CryptoAlgorithmRegistryCocoa.cpp
-// crypto/cocoa/CryptoAlgorithmX25519Cocoa.cpp
+crypto/cocoa/CommonCryptoDERUtilities.cpp
+crypto/cocoa/CryptoAlgorithmAESCBCCocoa.cpp
+crypto/cocoa/CryptoAlgorithmAESCFBCocoa.cpp
+crypto/cocoa/CryptoAlgorithmAESCTRCocoa.cpp
+crypto/cocoa/CryptoAlgorithmAESGCMCocoa.cpp
+crypto/cocoa/CryptoAlgorithmAESKWCocoa.cpp
+crypto/cocoa/CryptoAlgorithmECDHCocoa.cpp
+crypto/cocoa/CryptoAlgorithmECDSACocoa.cpp
+crypto/cocoa/CryptoAlgorithmEd25519Cocoa.cpp
+crypto/cocoa/CryptoAlgorithmHKDFCocoa.cpp
+crypto/cocoa/CryptoAlgorithmHMACCocoa.cpp
+crypto/cocoa/CryptoAlgorithmPBKDF2Cocoa.cpp
+crypto/cocoa/CryptoAlgorithmRSASSA_PKCS1_v1_5Cocoa.cpp
+crypto/cocoa/CryptoAlgorithmRSA_OAEPCocoa.cpp
+crypto/cocoa/CryptoAlgorithmRSA_PSSCocoa.cpp
+crypto/cocoa/CryptoAlgorithmRegistryCocoa.cpp
+crypto/cocoa/CryptoAlgorithmX25519Cocoa.cpp
 crypto/cocoa/CryptoKeyCocoa.cpp
-// crypto/cocoa/CryptoKeyECCocoa.cpp
-// crypto/cocoa/CryptoKeyOKPCocoa.cpp
-// crypto/cocoa/CryptoKeyRSACocoa.cpp
-// MAVERICKS_BACKPORT: WebCrypto uses libgcrypt, but the CommonCrypto-based CryptoUtilitiesCocoa (AES-CTR
-// transform helpers) is still required by the WebRTC SFrame transformer (RTCRtpSFrameTransformerCocoa).
+crypto/cocoa/CryptoKeyECCocoa.cpp
+crypto/cocoa/CryptoKeyOKPCocoa.cpp
+crypto/cocoa/CryptoKeyRSACocoa.cpp
 crypto/cocoa/CryptoUtilitiesCocoa.cpp
-// MAVERICKS_BACKPORT: the wrap-for-storage layer stays on the Cocoa implementation even though the
-// algorithm backends above use libgcrypt. The Cocoa UI process (WebPageProxy/WebProcessProxy
-// wrapCryptoKey, WK1 WebCryptoClient) requires a real master key on PLATFORM(COCOA), which only this
-// file provides (Keychain-backed defaultWebCryptoMasterKey); the GCrypt SerializedCryptoKeyWrap's
-// notImplemented() master key makes every CryptoKey structured-clone (e.g. IndexedDB put) fail with
-// DataCloneError. Its CommonCrypto needs (CCSymmetricKeyWrap, one-shot CCCryptorGCM) are present on
-// 10.9; CCRandomGenerateBytes comes from the polyfill layer.
 crypto/cocoa/SerializedCryptoKeyWrapCocoa.mm @nonARC
-// crypto/CommonCryptoUtilities.cpp
-crypto/gcrypt/CryptoAlgorithmAESCBCGCrypt.cpp
-crypto/gcrypt/CryptoAlgorithmAESCFBGCrypt.cpp
-crypto/gcrypt/CryptoAlgorithmAESCTRGCrypt.cpp
-crypto/gcrypt/CryptoAlgorithmAESGCMGCrypt.cpp
-crypto/gcrypt/CryptoAlgorithmAESKWGCrypt.cpp
-crypto/gcrypt/CryptoAlgorithmECDHGCrypt.cpp
-crypto/gcrypt/CryptoAlgorithmECDSAGCrypt.cpp
-crypto/gcrypt/CryptoAlgorithmEd25519GCrypt.cpp
-crypto/gcrypt/CryptoAlgorithmHKDFGCrypt.cpp
-crypto/gcrypt/CryptoAlgorithmHMACGCrypt.cpp
-crypto/gcrypt/CryptoAlgorithmPBKDF2GCrypt.cpp
-crypto/gcrypt/CryptoAlgorithmRSASSA_PKCS1_v1_5GCrypt.cpp @no-unify
-crypto/gcrypt/CryptoAlgorithmRSA_OAEPGCrypt.cpp @no-unify
-crypto/gcrypt/CryptoAlgorithmRSA_PSSGCrypt.cpp @no-unify
-crypto/gcrypt/CryptoAlgorithmRegistryGCrypt.cpp
-crypto/gcrypt/CryptoAlgorithmX25519GCrypt.cpp
-crypto/gcrypt/CryptoKeyECGCrypt.cpp
-crypto/gcrypt/CryptoKeyOKPGCrypt.cpp
-crypto/gcrypt/CryptoKeyRSAGCrypt.cpp
-crypto/gcrypt/GCryptRFC7748.cpp
-crypto/gcrypt/GCryptRFC8032.cpp
-crypto/gcrypt/GCryptUtilities.cpp
-// MAVERICKS_BACKPORT: excluded — crypto/cocoa/SerializedCryptoKeyWrapCocoa.mm provides these
-// symbols (see the comment there); compiling both would duplicate them.
-// crypto/gcrypt/SerializedCryptoKeyWrapGCrypt.cpp
+crypto/CommonCryptoUtilities.cpp
 dom/DataTransferMac.mm @nonARC
 dom/ios/MouseEventIOS.cpp
 dom/ios/PointerEventIOS.cpp
@@ -254,13 +212,8 @@ editing/mac/TextAlternativeWithRange.mm @nonARC @no-unify
 editing/mac/TextUndoInsertionMarkupMac.mm @nonARC
 fileapi/FileCocoa.mm @nonARC
 history/mac/HistoryItemMac.mm @nonARC
-// MAVERICKS_BACKPORT: excluded — the WebGPU canvas-context backend (Metal/GPU-process), non-functional
-// with WebGPU/GPU-process off on 10.9. Source stays byte-upstream; GPUCanvasContext::create() is provided
-// as a nullptr stub in platform/cocoa/MavericksBackportWebCoreGlue.mm (#137).
-// html/canvas/GPUCanvasContextCocoa.mm @nonARC
-// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
-// html/canvas/UsdModelLoader.swift
-// (end MAVERICKS_BACKPORT restored block)
+html/canvas/GPUCanvasContextCocoa.mm @nonARC
+html/canvas/UsdModelLoader.swift
 html/shadow/YouTubeEmbedShadowElement.cpp
 inspector/LegacyWebSocketInspectorInstrumentation.cpp
 inspector/mac/PageDebuggerMac.mm @nonARC
@@ -312,22 +265,10 @@ page/scrolling/mac/ScrollingTreeScrollingNodeDelegateMac.mm @nonARC
 page/writing-tools/WritingToolsController.mm @nonARC
 platform/VideoFrame.mm @nonARC
 platform/audio/AudioSession.cpp
-// MAVERICKS_BACKPORT: the Cocoa WebCodecs audio backend is not compiled — WebCodecs runs on the
-// GStreamer backend (AudioDecoder/AudioEncoder .cpp pick the USE(GSTREAMER) branch since
-// USE_LIBWEBRTC is off), and PlatformRawAudioDataCocoa.cpp defines the same
-// PlatformRawAudioData::create factories as PlatformRawAudioDataGStreamer.cpp (duplicate symbols
-// if both build). Same precedent as MediaStreamAudioSourceCocoa.cpp in PlatformMac.cmake.
-// platform/audio/cocoa/AudioDecoderCocoa.cpp -- 10.9: GStreamer WebCodecs backend used instead
+platform/audio/cocoa/AudioDecoderCocoa.cpp
 platform/audio/cocoa/AudioDestinationCocoa.cpp
-// MAVERICKS_BACKPORT: AudioEncoderCocoa.cpp is excluded — WebCodecs runs on the GStreamer backend (see AudioDecoderCocoa note above).
-// platform/audio/cocoa/AudioEncoderCocoa.cpp -- 10.9: GStreamer WebCodecs backend used instead
+platform/audio/cocoa/AudioEncoderCocoa.cpp
 platform/audio/cocoa/AudioFileReaderCocoa.mm @nonARC
-// MAVERICKS_BACKPORT: upstream builds AudioSessionCocoa.mm from its Xcode project only -- it appears in
-// WebCore.xcodeproj but in NO CMake source list, so the CMake port has never compiled it. AudioSessionMac
-// derives from AudioSessionCocoa, so without this the class links (WebCore uses -undefined dynamic_lookup)
-// and then dyld kills the process at LOAD on
-// __ZN7WebCore17AudioSessionCocoa22tryToSetActiveInternalEb. Nothing 10.9-specific; a gap in the CMake port.
-platform/audio/cocoa/AudioSessionCocoa.mm @nonARC
 platform/audio/cocoa/AudioOutputUnitAdaptor.cpp
 platform/audio/cocoa/AudioSampleBufferList.cpp
 platform/audio/cocoa/AudioSampleBufferConverter.mm @nonARC
@@ -337,8 +278,7 @@ platform/audio/cocoa/AudioUtilitiesCocoa.cpp
 platform/audio/cocoa/CAAudioStreamDescription.cpp
 platform/audio/cocoa/CARingBuffer.cpp
 platform/audio/cocoa/MediaSessionManagerCocoa.mm @nonARC
-// MAVERICKS_BACKPORT: PlatformRawAudioDataCocoa.cpp is excluded — its factories duplicate PlatformRawAudioDataGStreamer.cpp (see AudioDecoderCocoa note above).
-// platform/audio/cocoa/PlatformRawAudioDataCocoa.cpp -- 10.9: GStreamer WebCodecs backend used instead (see AudioDecoderCocoa note)
+platform/audio/cocoa/PlatformRawAudioDataCocoa.cpp
 platform/audio/cocoa/SpatialAudioExperienceHelper.mm @nonARC
 platform/audio/cocoa/WebAudioBufferList.cpp
 platform/audio/ios/AudioOutputUnitAdaptorIOS.cpp @no-unify
@@ -363,15 +303,7 @@ platform/cf/RunLoopObserverCF.cpp
 platform/cf/SharedBufferCF.cpp
 platform/cocoa/AppleVisualEffect.cpp
 platform/cocoa/ContentFilterUnblockHandlerCocoa.mm @nonARC @no-unify
-// MAVERICKS_BACKPORT: compile the backport glue TU (10.9-specific WebCore shims) for the Mac build.
-platform/cocoa/MavericksBackportWebCoreGlue.mm @no-unify
-// MAVERICKS_BACKPORT: CoreLocationGeolocationProvider.mm is excluded from the build rather than stubbed,
-// so the source file stays pristine-upstream. It is used only on iOS (WKGeolocationProviderIOS + the
-// PLATFORM(IOS_FAMILY) path in WebGeolocationManagerProxy); on Mac, geolocation positions come from the
-// embedding app's WK provider (e.g. Safari's Safari::BrowserGeolocationProvider). The upstream source
-// references kCLAuthorizationStatusAuthorizedWhenInUse, which is API_UNAVAILABLE(macos), so it cannot
-// compile at the 10.9 deploy target — and no Mac code references its symbols, so dropping it is link-clean.
-// platform/cocoa/CoreLocationGeolocationProvider.mm @nonARC
+platform/cocoa/CoreLocationGeolocationProvider.mm @nonARC
 platform/cocoa/CoreVideoSoftLink.cpp
 platform/cocoa/DragDataCocoa.mm @nonARC
 platform/cocoa/DragImageCocoa.mm @nonARC
@@ -408,10 +340,6 @@ platform/cocoa/UserAgentCocoa.mm @nonARC
 platform/cocoa/VideoPresentationModelVideoElement.mm @nonARC
 platform/cocoa/VideoPresentationLayerProvider.mm @nonARC
 platform/cocoa/VideoToolboxSoftLink.cpp
-// MAVERICKS_BACKPORT: excluded — WebAVPlayerLayer.mm drives WebCore::VideoPresentationModel, whose
-// header is empty unless ENABLE(VIDEO_PRESENTATION_MODE), which this port turns off (same reason
-// VideoPresentationManager[Proxy].mm are excluded). It is absent from upstream's cmake list too.
-// platform/cocoa/WebAVPlayerLayer.mm @nonARC
 platform/cocoa/WebCoreAdditions.mm @nonARC @no-unify
 platform/cocoa/WebCoreNSErrorExtras.mm @nonARC
 platform/cocoa/WebNSAttributedStringExtras.mm @nonARC
@@ -462,16 +390,13 @@ platform/graphics/avfoundation/objc/MediaPlayerPrivateMediaStreamAVFObjC.mm @non
 platform/graphics/avfoundation/objc/MediaSampleAVFObjC.mm @nonARC
 platform/graphics/avfoundation/objc/MediaSourcePrivateAVFObjC.mm @nonARC
 platform/graphics/avfoundation/objc/SourceBufferPrivateAVFObjC.mm @nonARC @no-unify
-// MAVERICKS_BACKPORT: SourceBufferParserAVFObjC.mm is not compiled — AVStreamDataParser is absent on 10.9; ISOBMFF parser is used instead.
-// platform/graphics/avfoundation/objc/SourceBufferParserAVFObjC.mm @nonARC @no-unify -- 10.9: built on AVStreamDataParser, which this OS does not have
+platform/graphics/avfoundation/objc/SourceBufferParserAVFObjC.mm @nonARC @no-unify
 platform/graphics/avfoundation/objc/TextTrackPrivateMediaSourceAVFObjC.cpp
 platform/graphics/avfoundation/objc/VideoLayerManagerObjC.mm @nonARC @no-unify
 platform/graphics/avfoundation/objc/VideoTrackPrivateAVFObjC.cpp
 platform/graphics/avfoundation/objc/VideoTrackPrivateMediaSourceAVFObjC.mm @nonARC
 platform/graphics/avfoundation/objc/WebAVContentKeyGroup.mm @nonARC @no-unify
 platform/graphics/avfoundation/objc/WebCoreAVFResourceLoader.mm @nonARC
-// MAVERICKS_BACKPORT: compile QueuedVideoOutput.mm (AVPlayerItemVideoOutput frame queue) for the video frame pump.
-platform/graphics/avfoundation/objc/QueuedVideoOutput.mm
 platform/graphics/ca/GraphicsLayerCA.cpp
 platform/graphics/ca/LayerPool.cpp
 platform/graphics/ca/PlatformCAAnimation.cpp
@@ -521,8 +446,6 @@ platform/graphics/cg/UTIRegistry.mm @nonARC
 platform/graphics/cocoa/AV1UtilitiesCocoa.mm @nonARC @no-unify
 platform/graphics/cocoa/AudioTrackPrivateWebM.cpp
 platform/graphics/cocoa/CMUtilities.mm @nonARC @no-unify
-// MAVERICKS_BACKPORT: compile MediaPlayerEnumsCocoa.mm (media-player enum conversions) needed by the WK build.
-platform/graphics/cocoa/MediaPlayerEnumsCocoa.mm
 platform/graphics/cocoa/ColorCocoa.mm @nonARC
 platform/graphics/cocoa/FloatRectCocoa.mm @nonARC
 platform/graphics/cocoa/FontCacheCocoa.mm @nonARC
@@ -551,8 +474,6 @@ platform/graphics/cocoa/SourceBufferParserWebM.cpp
 platform/graphics/cocoa/SystemFontDatabaseCocoa.mm @nonARC
 platform/graphics/cocoa/SystemFontDatabaseCoreText.cpp
 platform/graphics/cocoa/TextTrackRepresentationCocoa.mm @nonARC
-// MAVERICKS_BACKPORT: compile TextTransformCocoa.cpp (CoreText text-transform helper) needed by the WK build.
-platform/graphics/cocoa/TextTransformCocoa.cpp
 platform/graphics/cocoa/TransformationMatrixCocoa.cpp
 platform/graphics/cocoa/UnrealizedCoreTextFont.cpp
 platform/graphics/cocoa/VP9UtilitiesCocoa.mm @nonARC @no-unify
@@ -639,8 +560,6 @@ platform/image-decoders/avif/AVIFImageReader.cpp
 platform/image-decoders/jpegxl/JPEGXLImageDecoder.cpp
 platform/image-decoders/ScalableImageDecoder.cpp
 platform/image-decoders/ScalableImageDecoderFrame.cpp
-// MAVERICKS_BACKPORT: compile the vendored-libwebp WEBPImageDecoder (ImageIO can't decode WebP on 10.9).
-platform/image-decoders/webp/WEBPImageDecoder.cpp
 platform/ios/ColorIOS.mm @nonARC
 platform/ios/DeviceMotionClientIOS.mm @nonARC
 platform/ios/DeviceOrientationClientIOS.mm @nonARC
@@ -659,16 +578,8 @@ platform/ios/PlatformEventFactoryIOS.mm @nonARC @no-unify
 platform/ios/PlatformPasteboardIOS.mm @nonARC
 platform/ios/PlatformScreenIOS.mm @nonARC
 platform/ios/PlaybackSessionInterfaceAVKit.mm @nonARC @no-unify
-// MAVERICKS_BACKPORT: excluded on this Mac/VPM-off port. These AVKit playback-session interfaces are
-// guarded `#if PLATFORM(COCOA) && HAVE(AVKIT)`, so they compile on Mac, but they derive from / use
-// PlaybackSessionModel(Client), which PlaybackSessionModel.h gates on
-// `PLATFORM(IOS_FAMILY) || (PLATFORM(MAC) && ENABLE(VIDEO_PRESENTATION_MODE))` — absent here (VPM off),
-// so the model is an incomplete type and the TUs cannot compile. Their only Mac-side consumers are
-// ENABLE(VIDEO_PRESENTATION_MODE)-guarded (HTMLMediaElement.cpp) or already excluded (WebAVPlayerLayer.mm),
-// so nothing references them at link time. The sibling VideoPresentationInterface* iOS files already use
-// the correct PLATFORM(IOS_FAMILY) guard and compile out on Mac on their own.
-// platform/ios/PlaybackSessionInterfaceAVKitLegacy.mm @nonARC @no-unify
-// platform/ios/PlaybackSessionInterfaceIOS.mm @nonARC @no-unify
+platform/ios/PlaybackSessionInterfaceAVKitLegacy.mm @nonARC @no-unify
+platform/ios/PlaybackSessionInterfaceIOS.mm @nonARC @no-unify
 platform/ios/PlaybackSessionInterfaceTVOS.cpp
 platform/ios/PreviewConverterIOS.mm @nonARC
 platform/ios/QuickLook.mm @nonARC
@@ -686,10 +597,7 @@ platform/ios/VideoPresentationInterfaceAVKit.mm @nonARC @no-unify
 platform/ios/VideoPresentationInterfaceAVKitLegacy.mm @nonARC @no-unify
 platform/ios/VideoPresentationInterfaceIOS.mm @nonARC @no-unify
 platform/ios/VideoPresentationInterfaceTVOS.mm @nonARC
-// MAVERICKS_BACKPORT: excluded on this Mac/VPM-off port — same reason as PlaybackSessionInterfaceIOS above.
-// WebAVPlayerController is `#if PLATFORM(COCOA) && HAVE(AVKIT)` (compiles on Mac) but uses the
-// VPM-gated PlaybackSessionModel; its consumers are VPM-guarded or already excluded (WebAVPlayerLayer.mm).
-// platform/ios/WebAVPlayerController.mm @nonARC
+platform/ios/WebAVPlayerController.mm @nonARC
 platform/ios/WebBackgroundTaskController.mm @nonARC
 platform/ios/WebCoreMotionManager.mm @nonARC
 platform/ios/WebEvent.mm @nonARC @no-unify
@@ -740,19 +648,10 @@ platform/mac/ThreadCheck.mm @nonARC @no-unify
 platform/mac/UserActivityMac.mm @nonARC
 platform/mac/UserAgentMac.mm @nonARC
 platform/mac/ValidationBubbleMac.mm @nonARC
-// MAVERICKS_BACKPORT: built with ARC, dropping upstream's @nonARC. The file declares
-// `@property (nonatomic, weak) id<WebVideoViewContainerDelegate>`, and a weak property cannot be
-// synthesized under manual reference counting -- "cannot synthesize weak property in file using
-// manual reference counting". Upstream's annotation is stale rather than deliberate: its CMake port
-// has never compiled this file, because ENABLE_VIDEO_PRESENTATION_MODE was silently off there (the
-// cmakeconfig-preempts-PlatformEnableCocoa bug fixed in OptionsMac.cmake). Apple's Xcode build, which
-// is the only one that has ever built it, compiles it with ARC.
 platform/mac/VideoPresentationInterfaceMac.mm @nonARC
 platform/mac/WebCoreFullScreenPlaceholderView.mm @nonARC
 platform/mac/WebCoreFullScreenWarningView.mm @nonARC
 platform/mac/WebCoreFullScreenWindow.mm @nonARC
-// MAVERICKS_BACKPORT: compile WebCoreView.mm (restored NSView base used by the WK1 view hierarchy).
-platform/mac/WebCoreView.mm @nonARC
 platform/mac/WebCoreNSFontManagerExtras.mm @nonARC
 platform/mac/WebCoreNSURLExtras.mm @nonARC
 platform/mac/WebCoreObjCExtras.mm @nonARC
@@ -771,9 +670,6 @@ platform/mediastream/ios/AVAudioSessionCaptureDevice.mm @nonARC
 platform/mediastream/ios/AVAudioSessionCaptureDeviceManager.mm @nonARC @no-unify
 platform/mediastream/ios/CoreAudioCaptureSourceIOS.mm @nonARC
 platform/mediastream/libwebrtc/LibWebRTCProviderCocoa.cpp
-// MAVERICKS_BACKPORT: compile WebRTCCodecStubs109.mm (satisfies libwebrtc codec symbols undefined on this build).
-platform/mediastream/libwebrtc/WebRTCCodecStubs109.mm @nonARC @no-unify
-// platform/mediastream/libwebrtc/WebRTCMediaStubs109.mm @nonARC @no-unify  -- lost backport libwebrtc stub; not currently needed (no remaining undefined media symbols).
 platform/mediastream/mac/AVCaptureDeviceManager.mm @nonARC
 platform/mediastream/mac/AVVideoCaptureSource.mm @nonARC @no-unify
 platform/mediastream/mac/BaseAudioCaptureUnit.cpp
@@ -838,16 +734,8 @@ platform/text/mac/CoreTextChineseCompositionEngine.cpp
 platform/text/mac/CoreTextCompositionEngine.cpp
 rendering/AttachmentLayout.mm @nonARC
 rendering/TextAutoSizing.cpp
-// MAVERICKS_BACKPORT: build the RenderTheme .mm files non-unified (@no-unify) — their 10.9 control-draw guards
-// must not be merged into a unified TU that pulls in newer-AppKit headers.
-rendering/cocoa/RenderThemeCocoa.mm @nonARC @no-unify
-rendering/ios/RenderThemeIOS.mm @nonARC @no-unify
-// MAVERICKS_BACKPORT: RenderThemeMac.mm is back to upstream's UNIFIED build. The @no-unify above was
-// latently broken: RenderThemeMac.mm uses the attachment layout constants (attachmentIconBackgroundRadius,
-// attachmentProgressBar*, ...) which upstream defines at file scope in rendering/AttachmentLayout.mm, so
-// they are only visible when the two are compiled into the same unified TU. Taking this file out of the
-// bundle left 36 undeclared identifiers — invisible until ENABLE(ATTACHMENT_ELEMENT) was restored and the
-// code that references them started compiling.
+rendering/cocoa/RenderThemeCocoa.mm @nonARC
+rendering/ios/RenderThemeIOS.mm @nonARC
 rendering/mac/RenderThemeMac.mm @nonARC
 testing/cocoa/WebViewVisualIdentificationOverlay.mm @nonARC
 
@@ -855,7 +743,5 @@ testing/cocoa/WebViewVisualIdentificationOverlay.mm @nonARC
 // with files that include system headers that include system OpenGL headers.
 
 platform/graphics/angle/GraphicsContextGLANGLE.cpp @no-unify
-// MAVERICKS_BACKPORT: build ANGLEUtilitiesCocoa.mm (ANGLE/CGL interop helpers) non-unified alongside the GL sources.
-platform/graphics/cocoa/ANGLEUtilitiesCocoa.mm @nonARC @no-unify
 platform/graphics/cocoa/GraphicsContextGLCocoa.mm @nonARC @no-unify
 platform/graphics/cv/GraphicsContextGLCVCocoa.mm @nonARC @no-unify

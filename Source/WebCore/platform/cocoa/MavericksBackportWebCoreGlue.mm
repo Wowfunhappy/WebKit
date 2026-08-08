@@ -13,14 +13,6 @@
  *   - WebCore::isRegexpMatching: the real impl (ServiceWorkerRoute.mm) needs PALSwift (Swift), which
  *     this toolchain can't build. Reimplemented with NSRegularExpression (also ICU-backed, same
  *     semantics) so service-worker URLPattern regex routing keeps working.
- *   - MockAudioCaptureUnit / MockRealtimeVideoSourceMac mock-capture entry points: the Cocoa
- *     mock-capture backend (MockAudioCaptureUnit.mm / MockRealtimeVideoSourceMac.mm) is excluded
- *     because USE(GSTREAMER_MEDIA_STREAM) is the real capture backend and those TUs would duplicate
- *     MockRealtimeVideoSource::create / MockRealtimeAudioSource::create. MockRealtimeMediaSourceCenter
- *     still references the Cocoa mock symbols under PLATFORM(COCOA); these are only reachable via the
- *     test-only setMockCaptureDevicesEnabled() path (never used by Mail/Safari in production), so the
- *     audio hooks are no-ops and the Cocoa mock display-capturer is unreachable on this backend.
- *     (Proper fix belongs to #96: align the PLATFORM(COCOA) reference guards with the capture backend.)
  */
 
 #include "config.h"
@@ -65,33 +57,3 @@ bool isRegexpMatching(const String& pattern, StringView value, bool shouldIgnore
 }
 
 } // namespace WebCore
-
-#if ENABLE(MEDIA_STREAM)
-
-#import "MockAudioCaptureUnit.h"
-#import "MockRealtimeVideoSourceMac.h"
-
-namespace WebCore {
-
-void MockAudioCaptureUnit::enable()
-{
-}
-
-void MockAudioCaptureUnit::disable()
-{
-}
-
-void MockAudioCaptureUnit::increaseBufferSize()
-{
-}
-
-Ref<MockRealtimeVideoSource> MockRealtimeVideoSourceMac::createForMockDisplayCapturer(String&&, AtomString&&, MediaDeviceHashSalts&&, std::optional<PageIdentifier>)
-{
-    // Cocoa mock display capture is not the active capture backend on this port (GStreamer is) and is
-    // only reachable from the test-only mock-capture path. Never invoked in production.
-    RELEASE_ASSERT_NOT_REACHED();
-}
-
-} // namespace WebCore
-
-#endif // ENABLE(MEDIA_STREAM)

@@ -194,6 +194,170 @@ list(REMOVE_ITEM WebCore_SOURCES
     platform/mediastream/mac/RealtimeOutgoingVideoSourceCocoa.mm
 )
 
+
+# --------------------------------------------------------------------------
+# Source-list entries withheld from upstream's Sources*.txt.
+#
+# Upstream's list files stay byte-upstream. Each is copied line-wise into the build tree
+# without the withheld entries, and WebCore_UNIFIED_SOURCE_LIST_FILES points at the copy.
+# Every surviving line is copied verbatim, so @nonARC / @no-unify annotations carry over.
+# WEBKIT_COMPUTE_SOURCES (Source/cmake/WebKitMacros.cmake) composes
+# "${CMAKE_CURRENT_SOURCE_DIR}/<entry>", so the replacement entry is spelled relative to
+# Source/WebCore. This file runs from PlatformMac.cmake, before that macro consumes the list.
+# --------------------------------------------------------------------------
+set(MAVERICKS_SOURCE_LISTS_DIR "${CMAKE_BINARY_DIR}/MavericksSourceLists")
+file(MAKE_DIRECTORY "${MAVERICKS_SOURCE_LISTS_DIR}")
+
+macro(MAVERICKS_FILTER_SOURCE_LIST _listEntry _withheldVar _addedVar)
+    get_filename_component(_mavLeaf "${_listEntry}" NAME)
+    set(_mavFiltered "${MAVERICKS_SOURCE_LISTS_DIR}/${_mavLeaf}")
+    set(_mavOut "")
+    set(_mavSeen "")
+    file(STRINGS "${WEBCORE_DIR}/${_listEntry}" _mavLines)
+    foreach (_mavLine IN LISTS _mavLines)
+        string(STRIP "${_mavLine}" _mavTrimmed)
+        set(_mavDrop OFF)
+        foreach (_mavWithheld IN LISTS ${_withheldVar})
+            if (_mavTrimmed STREQUAL "${_mavWithheld}")
+                set(_mavDrop ON)
+                list(APPEND _mavSeen "${_mavWithheld}")
+                break()
+            endif ()
+        endforeach ()
+        if (NOT _mavDrop)
+            string(APPEND _mavOut "${_mavLine}\n")
+        endif ()
+    endforeach ()
+    # Every withheld entry must have matched an upstream line verbatim. A miss means upstream renamed,
+    # re-annotated or dropped that entry, and the withholding no longer says what it used to.
+    foreach (_mavWithheld IN LISTS ${_withheldVar})
+        list(FIND _mavSeen "${_mavWithheld}" _mavFound)
+        if (_mavFound EQUAL -1)
+            message(FATAL_ERROR
+                "MAVERICKS_FILTER_SOURCE_LIST(${_listEntry}): withheld entry did not match any line:\n"
+                "    ${_mavWithheld}\n"
+                "Re-derive the withheld/added sets against the current upstream file.")
+        endif ()
+    endforeach ()
+    foreach (_mavAdd IN LISTS ${_addedVar})
+        string(APPEND _mavOut "${_mavAdd}\n")
+    endforeach ()
+    file(WRITE "${_mavFiltered}" "${_mavOut}")
+    file(RELATIVE_PATH _mavRel "${WEBCORE_DIR}" "${_mavFiltered}")
+    list(REMOVE_ITEM WebCore_UNIFIED_SOURCE_LIST_FILES "${_listEntry}")
+    list(APPEND WebCore_UNIFIED_SOURCE_LIST_FILES "${_mavRel}")
+endmacro()
+
+# Withheld from SourcesCocoa.txt: replaced by the GCrypt/OpenSSL crypto backend, or built on
+# frameworks and SPI this deployment target does not have.
+set(MAVERICKS_WITHHELD_COCOA_SOURCES
+    "JSApplePayDisbursementRequest.cpp"
+    "crypto/cocoa/CommonCryptoDERUtilities.cpp"
+    "crypto/cocoa/CryptoAlgorithmAESCBCCocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmAESCFBCocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmAESCTRCocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmAESGCMCocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmAESKWCocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmECDHCocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmECDSACocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmEd25519Cocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmHKDFCocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmHMACCocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmPBKDF2Cocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmRSASSA_PKCS1_v1_5Cocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmRSA_OAEPCocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmRSA_PSSCocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmRegistryCocoa.cpp"
+    "crypto/cocoa/CryptoAlgorithmX25519Cocoa.cpp"
+    "crypto/cocoa/CryptoKeyECCocoa.cpp"
+    "crypto/cocoa/CryptoKeyOKPCocoa.cpp"
+    "crypto/cocoa/CryptoKeyRSACocoa.cpp"
+    "crypto/CommonCryptoUtilities.cpp"
+    "html/canvas/GPUCanvasContextCocoa.mm @nonARC"
+    "html/canvas/UsdModelLoader.swift"
+    "platform/audio/cocoa/AudioDecoderCocoa.cpp"
+    "platform/audio/cocoa/AudioEncoderCocoa.cpp"
+    "platform/audio/cocoa/PlatformRawAudioDataCocoa.cpp"
+    "platform/cocoa/CoreLocationGeolocationProvider.mm @nonARC"
+    "platform/graphics/avfoundation/objc/SourceBufferParserAVFObjC.mm @nonARC @no-unify"
+    "platform/ios/PlaybackSessionInterfaceAVKitLegacy.mm @nonARC @no-unify"
+    "platform/ios/PlaybackSessionInterfaceIOS.mm @nonARC @no-unify"
+    "platform/ios/WebAVPlayerController.mm @nonARC"
+    "rendering/cocoa/RenderThemeCocoa.mm @nonARC"
+    "rendering/ios/RenderThemeIOS.mm @nonARC"
+    "platform/mediastream/mac/RealtimeMediaSourceCenterMac.cpp"
+)
+
+# Withheld from SourcesGStreamer.txt: the libwebrtc-backed GStreamer WebRTC set (USE_LIBWEBRTC is
+# off; webrtcbin is the backend), and the GStreamer mock capture TUs whose
+# MockRealtimeVideoSource::create / MockRealtimeAudioSource::create the Cocoa mock pair defines --
+# MockRealtimeMediaSourceCenter selects the Cocoa mock display capturer first under PLATFORM(COCOA).
+set(MAVERICKS_WITHHELD_GSTREAMER_SOURCES
+    "Modules/mediastream/RTCRtpSFrameTransformerOpenSSL.cpp"
+    "platform/mediastream/libwebrtc/gstreamer/GStreamerVideoCommon.cpp"
+    "platform/mediastream/libwebrtc/gstreamer/GStreamerVideoDecoderFactory.cpp"
+    "platform/mediastream/libwebrtc/gstreamer/GStreamerVideoEncoderFactory.cpp"
+    "platform/mediastream/libwebrtc/gstreamer/GStreamerVideoFrameLibWebRTC.cpp"
+    "platform/mediastream/libwebrtc/gstreamer/LibWebRTCProviderGStreamer.cpp"
+    "platform/mediastream/libwebrtc/gstreamer/RealtimeIncomingAudioSourceLibWebRTC.cpp"
+    "platform/mediastream/libwebrtc/gstreamer/RealtimeIncomingVideoSourceLibWebRTC.cpp"
+    "platform/mediastream/libwebrtc/gstreamer/RealtimeOutgoingAudioSourceLibWebRTC.cpp"
+    "platform/mediastream/libwebrtc/gstreamer/RealtimeOutgoingVideoSourceLibWebRTC.cpp"
+    "platform/mediastream/gstreamer/MockDisplayCaptureSourceGStreamer.cpp"
+    "platform/mediastream/gstreamer/MockRealtimeAudioSourceGStreamer.cpp"
+    "platform/mediastream/gstreamer/MockRealtimeVideoSourceGStreamer.cpp"
+)
+
+# Added to SourcesCocoa.txt: the GCrypt crypto backend that replaces the withheld CommonCrypto one,
+# this port's own glue TU, and Cocoa TUs upstream builds only from WebCore.xcodeproj. Lines are copied
+# verbatim, so @nonARC / @no-unify are preserved.
+set(MAVERICKS_ADDED_COCOA_SOURCES
+    "crypto/gcrypt/CryptoAlgorithmAESCBCGCrypt.cpp"
+    "crypto/gcrypt/CryptoAlgorithmAESCFBGCrypt.cpp"
+    "crypto/gcrypt/CryptoAlgorithmAESCTRGCrypt.cpp"
+    "crypto/gcrypt/CryptoAlgorithmAESGCMGCrypt.cpp"
+    "crypto/gcrypt/CryptoAlgorithmAESKWGCrypt.cpp"
+    "crypto/gcrypt/CryptoAlgorithmECDHGCrypt.cpp"
+    "crypto/gcrypt/CryptoAlgorithmECDSAGCrypt.cpp"
+    "crypto/gcrypt/CryptoAlgorithmEd25519GCrypt.cpp"
+    "crypto/gcrypt/CryptoAlgorithmHKDFGCrypt.cpp"
+    "crypto/gcrypt/CryptoAlgorithmHMACGCrypt.cpp"
+    "crypto/gcrypt/CryptoAlgorithmPBKDF2GCrypt.cpp"
+    "crypto/gcrypt/CryptoAlgorithmRSASSA_PKCS1_v1_5GCrypt.cpp @no-unify"
+    "crypto/gcrypt/CryptoAlgorithmRSA_OAEPGCrypt.cpp @no-unify"
+    "crypto/gcrypt/CryptoAlgorithmRSA_PSSGCrypt.cpp @no-unify"
+    "crypto/gcrypt/CryptoAlgorithmRegistryGCrypt.cpp"
+    "crypto/gcrypt/CryptoAlgorithmX25519GCrypt.cpp"
+    "crypto/gcrypt/CryptoKeyECGCrypt.cpp"
+    "crypto/gcrypt/CryptoKeyOKPGCrypt.cpp"
+    "crypto/gcrypt/CryptoKeyRSAGCrypt.cpp"
+    "crypto/gcrypt/GCryptRFC7748.cpp"
+    "crypto/gcrypt/GCryptRFC8032.cpp"
+    "crypto/gcrypt/GCryptUtilities.cpp"
+    "platform/audio/cocoa/AudioSessionCocoa.mm @nonARC"
+    "platform/cocoa/MavericksBackportWebCoreGlue.mm @no-unify"
+    "platform/graphics/avfoundation/objc/QueuedVideoOutput.mm"
+    "platform/graphics/cocoa/MediaPlayerEnumsCocoa.mm"
+    "platform/graphics/cocoa/TextTransformCocoa.cpp"
+    "platform/image-decoders/webp/WEBPImageDecoder.cpp"
+    "platform/mac/WebCoreView.mm @nonARC"
+    "platform/mediastream/libwebrtc/WebRTCCodecStubs109.mm @nonARC @no-unify"
+    "rendering/cocoa/RenderThemeCocoa.mm @nonARC @no-unify"
+    "rendering/ios/RenderThemeIOS.mm @nonARC @no-unify"
+    "platform/graphics/cocoa/ANGLEUtilitiesCocoa.mm @nonARC @no-unify"
+)
+
+# Added to SourcesGStreamer.txt: the CoreGraphics/Cocoa halves of the GStreamer player that upstream's
+# GTK/WPE-oriented list does not carry.
+set(MAVERICKS_ADDED_GSTREAMER_SOURCES
+    "platform/glib/ApplicationGLib.cpp"
+    "platform/graphics/gstreamer/ImageGStreamerCG.cpp"
+    "platform/graphics/gstreamer/VideoLayerGStreamerCocoa.mm @no-unify"
+)
+
+MAVERICKS_FILTER_SOURCE_LIST("SourcesCocoa.txt" MAVERICKS_WITHHELD_COCOA_SOURCES MAVERICKS_ADDED_COCOA_SOURCES)
+MAVERICKS_FILTER_SOURCE_LIST("platform/SourcesGStreamer.txt" MAVERICKS_WITHHELD_GSTREAMER_SOURCES MAVERICKS_ADDED_GSTREAMER_SOURCES)
+
 # --------------------------------------------------------------------------
 # Entries added to upstream's lists.
 # --------------------------------------------------------------------------

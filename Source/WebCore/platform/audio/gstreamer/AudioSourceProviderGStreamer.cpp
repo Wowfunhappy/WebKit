@@ -35,11 +35,8 @@
 #include <wtf/glib/GThreadSafeWeakPtr.h>
 #include <wtf/text/MakeString.h>
 
-// MAVERICKS_BACKPORT: gate the GStreamer MediaStream audio path behind USE(GSTREAMER_MEDIA_STREAM); on 10.9 MediaStream capture runs through the Cocoa/applemedia path, so these GStreamer-MediaStream headers are not built.
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
 #include "GStreamerAudioData.h"
-#endif
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
 #include "GStreamerMediaStreamSource.h"
 #include "MediaStreamPrivate.h"
 #endif
@@ -115,8 +112,7 @@ void AudioSourceProviderGStreamer::initialize()
     m_providerId = makeString("webkit-audio-source-provider-"_s, nProvider.exchangeAdd(1)).ascii();
 }
 
-// MAVERICKS_BACKPORT: gate the GStreamer MediaStream capture constructor behind USE(GSTREAMER_MEDIA_STREAM); not built on 10.9 (Cocoa/applemedia capture path is used instead).
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
 AudioSourceProviderGStreamer::AudioSourceProviderGStreamer(MediaStreamTrackPrivate& source)
     : m_captureSource(source)
     , m_notifier(MainThreadNotifier<MainThreadNotification>::create())
@@ -205,8 +201,7 @@ AudioSourceProviderGStreamer::~AudioSourceProviderGStreamer()
     }
 
     setClient(nullptr);
-    // MAVERICKS_BACKPORT: gate the GStreamer MediaStream capture-pipeline teardown behind USE(GSTREAMER_MEDIA_STREAM); m_pipeline only exists when that path is built (not on 10.9).
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
     if (m_pipeline) {
         disconnectSimpleBusMessageCallback(m_pipeline.get());
         unregisterPipeline(m_pipeline);
@@ -372,8 +367,7 @@ void AudioSourceProviderGStreamer::setClient(WeakPtr<AudioSourceProviderClient>&
 
     m_deinterleaveSourcePads = 0;
     clearAdapters();
-    // MAVERICKS_BACKPORT: gate the GStreamer MediaStream capture-pipeline state change behind USE(GSTREAMER_MEDIA_STREAM); m_pipeline only exists when that path is built (not on 10.9).
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
     if (m_pipeline)
         gst_element_set_state(m_pipeline.get(), m_client ? GST_STATE_PLAYING : GST_STATE_NULL);
 #endif

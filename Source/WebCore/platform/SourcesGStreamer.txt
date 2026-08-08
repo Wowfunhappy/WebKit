@@ -21,26 +21,24 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 // THE POSSIBILITY OF SUCH DAMAGE.
 
-// MAVERICKS_BACKPORT: upstream's GStreamer WebRTC and libwebrtc source list. Kept commented, not deleted: this port builds GStreamer for media playback and capture only; the PeerConnection backend is not built.
-// Modules/mediastream/gstreamer/GStreamerDataChannelHandler.cpp
-// Modules/mediastream/gstreamer/GStreamerDtlsTransportBackend.cpp
-// Modules/mediastream/gstreamer/GStreamerIceAgent.cpp
-// Modules/mediastream/gstreamer/GStreamerIceStream.cpp
-// Modules/mediastream/gstreamer/GStreamerIceTransport.cpp
-// Modules/mediastream/gstreamer/GStreamerIceTransportBackend.cpp
-// Modules/mediastream/gstreamer/GStreamerMediaEndpoint.cpp
-// Modules/mediastream/gstreamer/GStreamerPeerConnectionBackend.cpp
-// Modules/mediastream/gstreamer/GStreamerRtpReceiverBackend.cpp
-// Modules/mediastream/gstreamer/GStreamerRtpReceiverTransformBackend.cpp
-// Modules/mediastream/gstreamer/GStreamerRtpSenderBackend.cpp
-// Modules/mediastream/gstreamer/GStreamerRtpSenderTransformBackend.cpp
-// Modules/mediastream/gstreamer/GStreamerRtpTransceiverBackend.cpp
-// Modules/mediastream/gstreamer/GStreamerRtpTransformBackend.cpp
-// Modules/mediastream/gstreamer/GStreamerSctpTransportBackend.cpp
-// Modules/mediastream/gstreamer/GStreamerStatsCollector.cpp
-// Modules/mediastream/gstreamer/GStreamerWebRTCUtils.cpp
-// Modules/mediastream/RTCRtpSFrameTransformerOpenSSL.cpp
-// (end MAVERICKS_BACKPORT restored block)
+Modules/mediastream/gstreamer/GStreamerDataChannelHandler.cpp
+Modules/mediastream/gstreamer/GStreamerDtlsTransportBackend.cpp
+Modules/mediastream/gstreamer/GStreamerIceAgent.cpp
+Modules/mediastream/gstreamer/GStreamerIceStream.cpp
+Modules/mediastream/gstreamer/GStreamerIceTransport.cpp
+Modules/mediastream/gstreamer/GStreamerIceTransportBackend.cpp
+Modules/mediastream/gstreamer/GStreamerMediaEndpoint.cpp
+Modules/mediastream/gstreamer/GStreamerPeerConnectionBackend.cpp
+Modules/mediastream/gstreamer/GStreamerRtpReceiverBackend.cpp
+Modules/mediastream/gstreamer/GStreamerRtpReceiverTransformBackend.cpp
+Modules/mediastream/gstreamer/GStreamerRtpSenderBackend.cpp
+Modules/mediastream/gstreamer/GStreamerRtpSenderTransformBackend.cpp
+Modules/mediastream/gstreamer/GStreamerRtpTransceiverBackend.cpp
+Modules/mediastream/gstreamer/GStreamerRtpTransformBackend.cpp
+Modules/mediastream/gstreamer/GStreamerSctpTransportBackend.cpp
+Modules/mediastream/gstreamer/GStreamerStatsCollector.cpp
+Modules/mediastream/gstreamer/GStreamerWebRTCUtils.cpp
+Modules/mediastream/RTCRtpSFrameTransformerOpenSSL.cpp
 
 Modules/webaudio/MediaStreamAudioSourceGStreamer.cpp
 
@@ -55,11 +53,6 @@ platform/audio/gstreamer/FFTFrameGStreamer.cpp
 platform/audio/gstreamer/PlatformRawAudioDataGStreamer.cpp
 platform/audio/gstreamer/WebKitWebAudioSourceGStreamer.cpp
 
-// MAVERICKS_BACKPORT: ApplicationGLib provides getApplicationName(), used by GStreamerCommon for the audio
-// sink client-name. It normally ships in SourcesGLib.txt (the GTK/WPE unified list, not built on Mac), so
-// pull this single file in here.
-platform/glib/ApplicationGLib.cpp
-
 platform/graphics/gstreamer/AudioTrackPrivateGStreamer.cpp
 platform/graphics/gstreamer/GLVideoSinkGStreamer.cpp
 platform/graphics/gstreamer/GRefPtrGStreamer.cpp
@@ -71,9 +64,6 @@ platform/graphics/gstreamer/GStreamerVideoFrameConverter.cpp
 platform/graphics/gstreamer/GStreamerVideoSinkCommon.cpp
 platform/graphics/gstreamer/GstAllocatorFastMalloc.cpp
 platform/graphics/gstreamer/ImageDecoderGStreamer.cpp
-// MAVERICKS_BACKPORT: CG-backed ImageGStreamer (the Cocoa graphics path), built in
-// place of the Skia variant on this host.
-platform/graphics/gstreamer/ImageGStreamerCG.cpp
 platform/graphics/gstreamer/ImageGStreamerSkia.cpp
 platform/graphics/gstreamer/InbandTextTrackPrivateGStreamer.cpp
 platform/graphics/gstreamer/MediaPlayerPrivateGStreamer.cpp
@@ -88,9 +78,6 @@ platform/graphics/gstreamer/VideoDecoderGStreamer.cpp
 platform/graphics/gstreamer/VideoEncoderGStreamer.cpp
 platform/graphics/gstreamer/VideoFrameGStreamer.cpp
 platform/graphics/gstreamer/VideoFrameMetadataGStreamer.cpp
-// MAVERICKS_BACKPORT: accelerated <video> compositing layer for the Cocoa+CoreGraphics build
-// (guarded to PLATFORM(COCOA) && !USE(COORDINATED_GRAPHICS) internally).
-platform/graphics/gstreamer/VideoLayerGStreamerCocoa.mm @no-unify
 platform/graphics/gstreamer/VideoSinkGStreamer.cpp
 platform/graphics/gstreamer/VideoTrackPrivateGStreamer.cpp
 platform/graphics/gstreamer/WebKitAudioSinkGStreamer.cpp
@@ -135,38 +122,16 @@ platform/gstreamer/WebKitFliteSourceGStreamer.cpp
 
 platform/mediarecorder/MediaRecorderPrivateGStreamer.cpp
 
-// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note just below the block.
-// platform/mediastream/libwebrtc/gstreamer/GStreamerVideoCommon.cpp
-// platform/mediastream/libwebrtc/gstreamer/GStreamerVideoDecoderFactory.cpp
-// platform/mediastream/libwebrtc/gstreamer/GStreamerVideoEncoderFactory.cpp
-// platform/mediastream/libwebrtc/gstreamer/GStreamerVideoFrameLibWebRTC.cpp
-// platform/mediastream/libwebrtc/gstreamer/LibWebRTCProviderGStreamer.cpp
-// platform/mediastream/libwebrtc/gstreamer/RealtimeIncomingAudioSourceLibWebRTC.cpp
-// platform/mediastream/libwebrtc/gstreamer/RealtimeIncomingVideoSourceLibWebRTC.cpp
-// platform/mediastream/libwebrtc/gstreamer/RealtimeOutgoingAudioSourceLibWebRTC.cpp
-// platform/mediastream/libwebrtc/gstreamer/RealtimeOutgoingVideoSourceLibWebRTC.cpp
-// (end MAVERICKS_BACKPORT restored block)
+platform/mediastream/libwebrtc/gstreamer/GStreamerVideoCommon.cpp
+platform/mediastream/libwebrtc/gstreamer/GStreamerVideoDecoderFactory.cpp
+platform/mediastream/libwebrtc/gstreamer/GStreamerVideoEncoderFactory.cpp
+platform/mediastream/libwebrtc/gstreamer/GStreamerVideoFrameLibWebRTC.cpp
+platform/mediastream/libwebrtc/gstreamer/LibWebRTCProviderGStreamer.cpp
+platform/mediastream/libwebrtc/gstreamer/RealtimeIncomingAudioSourceLibWebRTC.cpp
+platform/mediastream/libwebrtc/gstreamer/RealtimeIncomingVideoSourceLibWebRTC.cpp
+platform/mediastream/libwebrtc/gstreamer/RealtimeOutgoingAudioSourceLibWebRTC.cpp
+platform/mediastream/libwebrtc/gstreamer/RealtimeOutgoingVideoSourceLibWebRTC.cpp
 
-// MAVERICKS_BACKPORT: WebRTC now runs on GStreamer webrtcbin (libwebrtc dropped); the
-// libwebrtc-backed gstreamer sources are gone and these Modules/mediastream/gstreamer
-// backends are listed here instead.
-Modules/mediastream/gstreamer/GStreamerDataChannelHandler.cpp
-Modules/mediastream/gstreamer/GStreamerDtlsTransportBackend.cpp
-Modules/mediastream/gstreamer/GStreamerIceAgent.cpp
-Modules/mediastream/gstreamer/GStreamerIceStream.cpp
-Modules/mediastream/gstreamer/GStreamerIceTransport.cpp
-Modules/mediastream/gstreamer/GStreamerIceTransportBackend.cpp
-Modules/mediastream/gstreamer/GStreamerMediaEndpoint.cpp
-Modules/mediastream/gstreamer/GStreamerPeerConnectionBackend.cpp
-Modules/mediastream/gstreamer/GStreamerRtpReceiverBackend.cpp
-Modules/mediastream/gstreamer/GStreamerRtpReceiverTransformBackend.cpp
-Modules/mediastream/gstreamer/GStreamerRtpSenderBackend.cpp
-Modules/mediastream/gstreamer/GStreamerRtpSenderTransformBackend.cpp
-Modules/mediastream/gstreamer/GStreamerRtpTransceiverBackend.cpp
-Modules/mediastream/gstreamer/GStreamerRtpTransformBackend.cpp
-Modules/mediastream/gstreamer/GStreamerSctpTransportBackend.cpp
-Modules/mediastream/gstreamer/GStreamerStatsCollector.cpp
-Modules/mediastream/gstreamer/GStreamerWebRTCUtils.cpp
 platform/mediastream/gstreamer/DesktopPortal.cpp
 platform/mediastream/gstreamer/GStreamerAudioCaptureSource.cpp
 platform/mediastream/gstreamer/GStreamerAudioCapturer.cpp

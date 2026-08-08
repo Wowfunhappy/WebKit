@@ -82,8 +82,7 @@
 #include "WebKitMediaSourceGStreamer.h"
 #endif
 
-// MAVERICKS_BACKPORT: gate the GStreamer MediaStream capture headers on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
 #include "GStreamerCaptureDeviceManager.h"
 #include "GStreamerMediaStreamSource.h"
 #endif
@@ -504,15 +503,13 @@ bool ensureGStreamerInitialized()
 {
     // WARNING: Please note this function can be called from any thread, for instance when creating
     // a WebCodec element from a JS Worker.
-    // MAVERICKS_BACKPORT: upstream asserts the media engine only ever initializes inside the WK2
-    // WebProcess, because on the GStreamer ports that is the only process rendering web content. This
-    // port also renders content in-process through WebKitLegacy — Dictionary's Wikipedia panel, Mail's
-    // inline attachments, Dashboard web clips — and GStreamer is its sole media engine, so playback
-    // there needs the same initialization. Nothing below is WebProcess-specific (the /proc/self/cmdline
-    // option scan simply finds nothing on macOS), so the process check is dropped rather than turned
-    // into a refusal: refusing made MediaPlayerPrivateGStreamer::supportsType() answer "unsupported" for
-    // every type, which left every typed <source> in a WebKitLegacy page unselectable.
-    // RELEASE_ASSERT(isInWebProcess());
+    // MAVERICKS_BACKPORT: widened from upstream's RELEASE_ASSERT(isInWebProcess()). The invariant is
+    // that the media engine initializes in a process that renders web content; on the GStreamer ports
+    // only the WebProcess does, while here WebKitLegacy hosts render in-process as well — Dictionary's
+    // panel, Mail's inline attachments, Dashboard web clips — and GStreamer is their media engine too.
+    // !processType() is a non-auxiliary application process, so the NetworkProcess and GPUProcess still
+    // trip this.
+    RELEASE_ASSERT(isInWebProcess() || !processType());
     static std::once_flag onceFlag;
     static bool isGStreamerInitialized;
     std::call_once(onceFlag, [] {
@@ -610,8 +607,7 @@ void registerWebKitGStreamerElements()
         }
 #endif
 
-        // MAVERICKS_BACKPORT: gate the GStreamer MediaStream src element on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
         gst_element_register(nullptr, "mediastreamsrc", GST_RANK_PRIMARY, WEBKIT_TYPE_MEDIA_STREAM_SRC);
 #endif
         registerInternalVideoEncoder();
@@ -789,8 +785,7 @@ void deinitializeGStreamer()
     if (auto* sharedDisplay = PlatformDisplay::sharedDisplayIfExists())
         sharedDisplay->clearGStreamerGLState();
 #endif
-// MAVERICKS_BACKPORT: gate the GStreamer MediaStream capture path on USE(GSTREAMER_MEDIA_STREAM); this build uses the applemedia capture backend, not the GStreamer one.
-#if ENABLE(MEDIA_STREAM) && USE(GSTREAMER_MEDIA_STREAM)
+#if ENABLE(MEDIA_STREAM)
     teardownGStreamerCaptureDeviceManagers();
 #endif
 #if ENABLE(MEDIA_SOURCE)

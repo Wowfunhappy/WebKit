@@ -31,7 +31,7 @@
 #include "config.h"
 #include "RealtimeMediaSourceCenter.h"
 
-#if ENABLE(MEDIA_STREAM) && !USE(GSTREAMER_MEDIA_STREAM) // MAVERICKS_BACKPORT: GStreamer mediastream/webrtcbin is the only capture+WebRTC backend (libwebrtc removed); Cocoa capture path excluded here to avoid duplicate symbols.
+#if ENABLE(MEDIA_STREAM)
 
 #include "AVCaptureDeviceManager.h"
 #include "AVVideoCaptureSource.h"

@@ -53,9 +53,7 @@
 #include "CoreAudioCaptureSourceIOS.h"
 #endif
 
-// MAVERICKS_BACKPORT: gate the GStreamer mock-capture headers on USE(GSTREAMER_MEDIA_STREAM) too —
-// GStreamer is this port's real media-stream backend (see the GStreamer-over-Cocoa seam below).
-#if USE(GSTREAMER) && USE(GSTREAMER_MEDIA_STREAM)
+#if USE(GSTREAMER)
 #include "GStreamerMockDeviceProvider.h"
 #include "MockDisplayCaptureSourceGStreamer.h"
 #include "MockRealtimeVideoSourceGStreamer.h"
@@ -271,23 +269,14 @@ public:
         switch (device.type()) {
         case CaptureDevice::DeviceType::Screen:
         case CaptureDevice::DeviceType::Window: {
-// MAVERICKS_BACKPORT: prefer the GStreamer mock display capturer over the Cocoa one. GStreamer is
-// this port's real media-stream backend, and the Cocoa MockDisplayCapturer's source comes from
-// MockRealtimeVideoSourceMac::createForMockDisplayCapturer, which has no implementation on 10.9.
-// Selecting GStreamer here means that Cocoa path is never instantiated. (Mirrors the GStreamer-over-
-// Cocoa seam used for createAudioSourceProvider.)
-#if USE(GSTREAMER) && USE(GSTREAMER_MEDIA_STREAM)
-            return MockDisplayCaptureSourceGStreamer::create(device, WTF::move(hashSalts), constraints, pageIdentifier);
-#elif PLATFORM(COCOA)
+#if PLATFORM(COCOA)
             return DisplayCaptureSourceCocoa::create([this, &device, pageIdentifier] (auto& observer) {
                 auto capturer = makeUniqueRefWithoutRefCountedCheck<MockDisplayCapturer>(observer, device, pageIdentifier);
                 m_capturer = capturer.get();
                 return capturer;
             }, device, WTF::move(hashSalts), constraints, pageIdentifier);
-// MAVERICKS_BACKPORT: upstream's GStreamer mock display-capture source. Kept commented, not deleted: MockDisplayCaptureSourceGStreamer is part of the GStreamer mediastream backend this port does not build.
-// #elif USE(GSTREAMER)
-//             return MockDisplayCaptureSourceGStreamer::create(device, WTF::move(hashSalts), constraints, pageIdentifier);
-// (end MAVERICKS_BACKPORT restored block)
+#elif USE(GSTREAMER)
+            return MockDisplayCaptureSourceGStreamer::create(device, WTF::move(hashSalts), constraints, pageIdentifier);
 #else
             return MockRealtimeVideoSource::create(String { device.persistentId() }, AtomString { device.label() }, WTF::move(hashSalts), constraints, pageIdentifier);
 #endif
