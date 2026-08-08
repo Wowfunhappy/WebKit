@@ -100,12 +100,9 @@ list(REMOVE_ITEM WebKit_PRIVATE_LIBRARIES
 
 list(REMOVE_ITEM WebKit_SOURCES
     NetworkProcess/webrtc/NetworkRTCProvider.mm
-    # AUDITED 2026-08-08: these two are NOT withheld from the build. Both are listed in upstream's
-    # SourcesCocoa.txt as well as PlatformMac.cmake, so they compile inside a WebKit unified bundle
-    # (verified: each appears in one UnifiedSource-*.mm). Dropping the PlatformMac.cmake copy removes
-    # the DUPLICATE listing only -- it prevents compiling each translation unit twice, and takes no
-    # functionality away. NetworkRTCUtilitiesCocoa.mm, which sat here too, was in NO unified bundle,
-    # so its entry did withhold it; it compiles clean and has been returned to the build.
+    # Both of these are listed in upstream's SourcesCocoa.txt as well as PlatformMac.cmake, so each
+    # already compiles inside a WebKit unified bundle. Dropping the PlatformMac.cmake copy leaves them
+    # built exactly once instead of twice; it withholds nothing.
     NetworkProcess/webrtc/NetworkRTCTCPSocketCocoa.mm
     NetworkProcess/webrtc/NetworkRTCUDPSocketCocoa.mm
     UIProcess/Cocoa/WKSafeBrowsingWarning.mm
