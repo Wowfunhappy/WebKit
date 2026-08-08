@@ -186,14 +186,10 @@ list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS
 )
 
 list(REMOVE_ITEM WebCore_SOURCES
-    # AUDITED 2026-08-08: this one is a real blocker, not a preference. It defines
-    # MediaStreamAudioSource::consumeAudio and ::setNumberOfChannels, which
-    # Modules/webaudio/MediaStreamAudioSourceGStreamer.cpp -- built, inside a unified bundle -- also
-    # defines; restoring it fails the WebCore link with duplicate symbols for both. GStreamer is this
-    # port's mediastream backend (USE_GSTREAMER_MEDIA_STREAM), so the GStreamer definition is the live
-    # one. The four entries that used to sit alongside this (WebAccessibilityObjectWrapperMac.mm,
-    # AudioDecoderCocoa.cpp, AudioEncoderCocoa.cpp, AVTrackPrivateAVFObjCImpl.mm) were audited the same
-    # way, compiled AND linked clean, and have been returned to the build.
+    # Defines MediaStreamAudioSource::consumeAudio and ::setNumberOfChannels, which
+    # Modules/webaudio/MediaStreamAudioSourceGStreamer.cpp also defines. GStreamer is this port's
+    # mediastream backend (USE_GSTREAMER_MEDIA_STREAM) and its file is the one built, inside a unified
+    # bundle; compiling both makes those two symbols duplicate and the WebCore link fails.
     Modules/webaudio/MediaStreamAudioSourceCocoa.cpp
     platform/mediastream/mac/RealtimeOutgoingVideoSourceCocoa.mm
 )

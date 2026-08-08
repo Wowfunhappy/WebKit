@@ -667,11 +667,9 @@ WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyColorGlyphCoverage, (CT
 // and recovering that would mean parsing the font's own GSUB/morx lookup and coverage tables.
 //
 // So the honest answer is an EMPTY coverage set — "this OS cannot report any covered glyph" — and the
-// important part is that it is a real, valid CFBitVector. Returning NULL (which this did) is not a
-// smaller version of that answer, it is a broken one: upstream's unionBitVectors() passes the result
-// straight to CFBitVectorGetCount() with no null check, so NULL crashes. An empty vector makes that
-// call return 0 and the union contribute nothing, which is the same outcome the caller already had,
-// reached without a fake sentinel and without the in-tree guard that existed to survive it.
+// important part is that it is a real, valid CFBitVector rather than NULL: upstream's
+// unionBitVectors() hands the result straight to CFBitVectorGetCount() with no null check, so NULL
+// crashes there. An empty vector makes that call answer 0 and the union contribute nothing.
 //
 // Consequence, stated plainly: Font::supportsSmallCaps() sees no covered glyphs and answers NO, so
 // WebKit synthesizes small capitals instead of using a font's own small-cap glyphs. That is a real
@@ -911,7 +909,7 @@ WK_POLYFILL_ABSENT("CoreText", bool, CTFontHasTable, (CTFontRef font, CTFontTabl
 //
 // 10.9 has no such entry point, but it CAN shape — CTTypesetter/CTLine do it, which is measurable:
 // with kCTLigatureAttributeName 2, Hoefler Text and Zapfino turn the two characters "fi" into ONE
-// glyph on this host. So this is implemented over CTLine rather than declared impossible.
+// glyph on this host. This shapes over CTLine on that basis.
 //
 // THE ONE THING CTLine DOES THAT THIS API MUST NOT: font fallback. CTFontShapeGlyphs shapes with the
 // font it is given, and its caller renders the resulting glyph IDs with that same font; a glyph ID
@@ -1358,8 +1356,7 @@ WK_POLYFILL_CONST("CoreGraphics", CFStringRef, kCGColorSpaceExtendedRec2020, CFS
 // CGColorSpaceCreateCalibratedRGB takes an explicit gamma, and sRGB's own primaries and D65 white
 // point are just numbers. Measured on this host by converting 0.5 into an sRGB bitmap: this space
 // yields 187 and WebCore's own Resources/linearSRGB.icc yields 188 (one 1/255 rounding step apart),
-// while plain sRGB yields 128. That one-line difference is the whole reason ColorSpaceCG.cpp used to
-// carry a dladdr + ICC-file loader; with the space correct here, that code reverts to upstream.
+// while plain sRGB yields 128, so WebCore's linearRGB filter maths lands in the space it asks for.
 //
 // EVERY name constants.m publishes is answered. Probed on this host, stock CGColorSpaceCreateWithName
 // returns NULL for all eleven of them, and a NULL colour space is not a lesser answer but a broken one:

@@ -8,10 +8,9 @@
 # own translation unit and list order carries no meaning. Header and include-directory order likewise
 # does not.
 
-# WebCrypto runs on libgcrypt here (USE_GCRYPT), so the CommonCrypto digest is not built — it needs
-# Apple Swift CryptoKit symbols and CCECCryptor SPI that 10.9 does not ship. Dropping it from the list
-# rather than editing upstream's is what lets PlatformMac.cmake stay byte-identical; the gcrypt
-# replacement is appended below.
+# WebCrypto runs on libgcrypt here (USE_GCRYPT); the gcrypt digest is appended below. The CommonCrypto
+# digest needs Apple Swift CryptoKit symbols and CCECCryptor SPI that 10.9 does not ship, so it stays
+# out of the source list.
 list(REMOVE_ITEM PAL_SOURCES
     crypto/commoncrypto/CryptoDigestCommonCrypto.mm
 )
@@ -21,11 +20,9 @@ list(REMOVE_ITEM PAL_SOURCES
 # which holds here. Upstream's Mac build installs it as a side effect of the Swift CryptoKit shim
 # target, which this port does not build, so the port has to name it directly.
 #
-# It is listed here rather than in upstream's PAL/pal/CMakeLists.txt, and the consumer above is the
-# REAL one: the previous in-tree entry justified itself by "CryptoDigestCommonCrypto.cpp can include
-# it" and called the header hand-written. Both were false — that .cpp is not built (gcrypt replaces
-# it) and PALSwift.h is byte-identical to upstream. The entry survived only because the wrong reason
-# happened to sit next to a real need.
+# PALSwift.h itself is upstream's own header, byte for byte; only the install entry belongs to this
+# port. crypto/keys/CryptoKeyEC.cpp is the consumer to check against if this entry ever looks
+# unnecessary — being inside a unified bundle, it owns no object file of its own to grep for.
 list(APPEND PAL_PUBLIC_HEADERS
     PALSwift.h
 )
