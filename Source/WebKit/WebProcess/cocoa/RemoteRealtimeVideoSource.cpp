@@ -31,9 +31,6 @@
 #include "RemoteRealtimeMediaSourceInlines.h"
 #include "UserMediaCaptureManager.h"
 #include "UserMediaCaptureManagerProxyMessages.h"
-// MAVERICKS_BACKPORT: with -fno-modules, <WebCore/VideoFrame.h> isn't pulled in transitively here;
-// include it explicitly for the VideoFrame member access (presentationTime/presentationSize) below.
-#include <WebCore/VideoFrame.h>
 
 namespace WebKit {
 using namespace WebCore;

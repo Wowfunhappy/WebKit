@@ -3,6 +3,7 @@
 #include "wk_polyfill.h"
 
 #import <Foundation/Foundation.h>
+#include <Block.h>
 #include <dispatch/dispatch.h>
 #include <xpc/xpc.h>
 #include <dlfcn.h>
@@ -345,6 +346,17 @@ WK_POLYFILL_ABSENT(NULL, xpc_object_t, xpc_dictionary_get_array, (xpc_object_t x
 // caller-freeable generic reason (used only for diagnostic logging).
 WK_POLYFILL_ABSENT(NULL, char *, xpc_connection_copy_invalidation_reason, (xpc_connection_t connection)) { (void)connection; return strdup("connection invalidated"); }
 
+// xpc_connection_activate (10.14+): starts a connection created in the suspended state, which is
+// exactly what xpc_connection_resume did before the rename — 10.14 split "resume" into activate
+// (first start) and resume (undo a suspend), keeping the old spelling working for both. 10.9 has
+// only xpc_connection_resume (checked against libxpc), and every call site here activates a
+// freshly-created connection, which is the case the two spellings share.
+WK_POLYFILL_ABSENT(NULL, void, xpc_connection_activate, (xpc_connection_t connection))
+{
+    if (connection)
+        xpc_connection_resume(connection);
+}
+
 // xpc_transaction_exit_clean (10.10+): exit once outstanding transactions drain. It is called from the
 // XPC service entry point's shutdown path (after the OS transaction is cleared), so a clean exit matches.
 WK_POLYFILL_ABSENT(NULL, void, xpc_transaction_exit_clean, (void)) { exit(0); }
@@ -552,6 +564,56 @@ WK_POLYFILL_ABSENT(NULL, void, _os_log_error_impl,
     (void)dso; (void)log; (void)type; (void)format; (void)buf; (void)size;
 }
 
+// The os_log/os_trace SPI WebKit reaches for through wtf/spi/cocoa/OSLogSPI.h. None of the five
+// symbols exist in this OS's libSystem or libsystem_trace (checked with nm against both), which is
+// the whole of the gap: unified logging arrived in 10.12 and there is no hook for it to call here.
+// Plain types are used for the same reason the emit points above use them — os_log_t and
+// os_log_type_t are not visible under --no-default-config, and both are ABI-equivalent to a pointer
+// and a uint8_t.
+WK_POLYFILL_ABSENT(NULL, void, os_log_with_args,
+    (void *log, int type, const char *format, va_list args, void *ret_addr))
+{
+    (void)log; (void)type; (void)format; (void)args; (void)ret_addr;
+}
+
+// set_mode/get_mode are a pair: whatever mode is set is the mode reported back. There is no tracing
+// subsystem underneath to apply it to, so setting a mode changes nothing observable — but a caller
+// that sets a mode and reads it back gets its own value rather than a fabricated one. The starting
+// value is an empty mode set, which is the truthful description of an OS with no os_trace at all;
+// notably it is NOT OS_TRACE_MODE_OFF (0x0400), because nobody has asked for OFF.
+static uint32_t wk_os_trace_mode = 0;
+
+WK_POLYFILL_ABSENT(NULL, void, os_trace_set_mode, (uint32_t mode))
+{
+    wk_os_trace_mode = mode;
+}
+
+WK_POLYFILL_ABSENT(NULL, uint32_t, os_trace_get_mode, (void))
+{
+    return wk_os_trace_mode;
+}
+
+// Returns the PREVIOUSLY installed hook, which on this OS is always none. Answering with the hook
+// just handed in would be wrong in a way that bites: WebProcessCocoa.mm stores the result in
+// prevHook and its own hook body opens with `if (prevHook) prevHook(type, msg);`, so echoing the
+// argument back points the hook at itself and the first message logged would recurse until the
+// stack ran out. Nothing invokes it here — no hook can fire without unified logging — so this is
+// latent either way, but NULL is both the honest answer and the safe one.
+WK_POLYFILL_ABSENT(NULL, void *, os_log_set_hook, (int level, void *hook))
+{
+    (void)level; (void)hook;
+    return NULL;
+}
+
+// The message body a hook would have been handed. No hook can fire, so this is unreachable in
+// practice; NULL is the documented "no string" answer and its callers all null-check (they wrap it
+// in adoptSystemMalloc, which frees what it is given).
+WK_POLYFILL_ABSENT(NULL, char *, os_log_copy_message_string, (void *msg))
+{
+    (void)msg;
+    return NULL;
+}
+
 #pragma mark - syslog
 
 // syslog$DARWIN_EXTSN is the DARWIN_EXTSN ABI variant of syslog(); 10.9's libc exports only the
@@ -569,6 +631,81 @@ WK_POLYFILL_REPLACES(NULL, void, syslog, (int priority, const char *message, ...
 }
 
 #pragma mark - dispatch (APIs newer than 10.9)
+
+// ---------------------------------------------------------------------------------------------------
+// The QoS-class family (10.10+). 10.9's kernel has no QoS bands at all, and none of these entry points
+// exist here — pthread_attr_set_qos_class_np, pthread_set_qos_class_self_np, pthread_get_qos_class_np,
+// dispatch_queue_attr_make_with_qos_class, qos_class_self and qos_class_main are all absent (checked
+// with nm against libSystem, libdispatch and libsystem_pthread).
+//
+// Because there are no bands, a QoS request cannot land anywhere: threads run at the scheduling
+// priority the OS gives them whether or not anyone asks for a class. So each of these reports the
+// truth rather than pretending to have applied something. QOS_CLASS_UNSPECIFIED is Apple's own
+// encoding for "this thread has no QoS class assigned", which is the literal state of every thread on
+// this kernel — so pthread_get_qos_class_np answering UNSPECIFIED is an accurate reading, not a stub
+// value. (WTF's toQOS maps UNSPECIFIED to QOS::Default, the same answer its no-QoS-classes branch
+// returns, so currentThreadQOS() is unchanged by having these.)
+//
+// Values are spelled out because <sys/qos.h> is 10.10+ and absent from this host's headers, which is
+// also why the signatures use plain unsigned int: qos_class_t is an unsigned int enum
+// (MacOSX26.1.sdk/usr/include/sys/qos.h:130-143).
+#define WK_QOS_CLASS_UNSPECIFIED 0x00u
+#define WK_QOS_CLASS_DEFAULT     0x15u
+
+// The pthread half of this family (pthread_{set,get}_qos_class_np, pthread_attr_{set,get}_qos_class_np
+// and the override pair) is already provided under "pthread QoS (10.10+)" below, with these same
+// semantics. Only the dispatch and query entry points were still missing.
+
+// Returns a queue attribute carrying the requested class. With no classes to carry, the attribute is
+// returned unmodified, so the queue it configures is exactly the queue the caller would have made.
+WK_POLYFILL_ABSENT(NULL, dispatch_queue_attr_t, dispatch_queue_attr_make_with_qos_class,
+    (dispatch_queue_attr_t attr, unsigned int qosClass, int relativePriority))
+{
+    (void)qosClass; (void)relativePriority;
+    return attr;
+}
+
+// The calling thread's class: none, as above.
+WK_POLYFILL_ABSENT(NULL, unsigned int, qos_class_self, (void))
+{
+    return WK_QOS_CLASS_UNSPECIFIED;
+}
+
+// The main thread's class. Unlike an arbitrary thread, the main thread has a defined band on systems
+// that have them, and DEFAULT is what it is given; reporting that keeps main/non-main distinguishable.
+WK_POLYFILL_ABSENT(NULL, unsigned int, qos_class_main, (void))
+{
+    return WK_QOS_CLASS_DEFAULT;
+}
+
+// dispatch_block_create_with_qos_class (10.10+). 10.9's libdispatch has no dispatch_block_create
+// family at all — dispatch_block_create, _with_qos_class and dispatch_block_perform are all absent
+// (checked with nm against libdispatch and libSystem).
+//
+// What the modern call does is wrap a block so that it carries a QoS class of its own, which
+// DISPATCH_BLOCK_ENFORCE_QOS_CLASS then makes win over the queue's. 10.9 has no per-block QoS to
+// carry: a block runs at the priority of the queue it is submitted to, full stop. There is no
+// approximation available — the QoS-to-legacy-priority mapping this layer applies in
+// dispatch_get_global_queue works because that call SELECTS a queue, whereas here the queue is
+// already chosen by the caller and the QoS could only override it.
+//
+// So the block itself is honoured exactly and the QoS is not: the work runs, at the target queue's
+// priority. That is a true statement about this OS rather than a dropped parameter — the alternative
+// is WTF's dispatchWithQOS silently doing nothing, which is what the in-tree workaround did before
+// this. Returns +1 (Block_copy) to match the Create semantics its callers adopt from.
+WK_POLYFILL_ABSENT(NULL, dispatch_block_t, dispatch_block_create_with_qos_class,
+    (unsigned long flags, int qosClass, int relativePriority, dispatch_block_t block))
+{
+    (void)flags; (void)qosClass; (void)relativePriority;
+    return block ? Block_copy(block) : NULL;
+}
+
+// The same call without a QoS request; 10.9 lacks it for the same reason.
+WK_POLYFILL_ABSENT(NULL, dispatch_block_t, dispatch_block_create, (unsigned long flags, dispatch_block_t block))
+{
+    (void)flags;
+    return block ? Block_copy(block) : NULL;
+}
 
 // dispatch_async_and_wait family (10.14). The "async_and_wait" variants differ from dispatch_sync
 // only in which thread the block may run on (they may be moved to the queue's own thread rather

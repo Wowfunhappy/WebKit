@@ -29,22 +29,6 @@
 #include "modules/video_coding/include/video_error_codes.h"
 #include "rtc_base/logging.h"
 
-// MAVERICKS_BACKPORT: the 10-bit bi-planar CVPixelBuffer formats below are macOS
-// 10.13+, absent from the 10.9 SDK's CVPixelBuffer.h. Provide their documented
-// FourCC values so the I010/I210 mapping compiles (decode of 10-bit content).
-#ifndef kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
-#define kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange 0x78343230 /* 'x420' */
-#endif
-#ifndef kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
-#define kCVPixelFormatType_420YpCbCr10BiPlanarFullRange  0x78663230 /* 'xf20' */
-#endif
-#ifndef kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange
-#define kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange 0x78343232 /* 'x422' */
-#endif
-#ifndef kCVPixelFormatType_422YpCbCr10BiPlanarFullRange
-#define kCVPixelFormatType_422YpCbCr10BiPlanarFullRange  0x78663232 /* 'xf22' */
-#endif
-
 namespace webrtc {
 
 WebKitDecoderReceiver::WebKitDecoderReceiver(VTVideoDecoderSession session)

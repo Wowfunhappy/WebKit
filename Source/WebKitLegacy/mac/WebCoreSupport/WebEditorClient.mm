@@ -1154,15 +1154,18 @@ void WebEditorClient::requestCandidatesForSelection(const VisibleSelection& sele
     m_rangeForCandidates = NSMakeRange(selectionStartOffsetInParagraph, selectionLength);
     m_paragraphContextForCandidateRequest = contextForCandidateRequest.createNSString();
 
-    // MAVERICKS_BACKPORT: NSSpellChecker on 10.9 has no requestCandidatesForSelectedRange:...
-    // typed-candidate API, so the upstream async candidate request is skipped and the sequence
-    // number is left at 0 (no candidates are ever requested or delivered).
-    m_lastCandidateRequestSequenceNumber = 0;
+    NSTextCheckingTypes checkingTypes = NSTextCheckingTypeSpelling | NSTextCheckingTypeReplacement | NSTextCheckingTypeCorrection;
+    WeakPtr weakEditor { *this };
+    m_lastCandidateRequestSequenceNumber = [[NSSpellChecker sharedSpellChecker] requestCandidatesForSelectedRange:m_rangeForCandidates inString:m_paragraphContextForCandidateRequest.get() types:checkingTypes options:nil inSpellDocumentWithTag:spellCheckerDocumentTag() completionHandler:[weakEditor](NSInteger sequenceNumber, NSArray<NSTextCheckingResult *> *candidates) {
+        RunLoop::mainSingleton().dispatch([weakEditor, sequenceNumber, candidates = retainPtr(candidates)] {
+            if (!weakEditor)
+                return;
+            weakEditor->handleRequestedCandidates(sequenceNumber, candidates.get());
+        });
+    }];
 }
 
-// MAVERICKS_BACKPORT: signature takes a bare NSArray (no NSArray<NSTextCheckingResult *> generics)
-// to match the header; on 10.9 candidates are never requested, so this is effectively dead.
-void WebEditorClient::handleRequestedCandidates(NSInteger sequenceNumber, NSArray *candidates)
+void WebEditorClient::handleRequestedCandidates(NSInteger sequenceNumber, NSArray<NSTextCheckingResult *> *candidates)
 {
     if (![m_webView shouldRequestCandidates])
         return;

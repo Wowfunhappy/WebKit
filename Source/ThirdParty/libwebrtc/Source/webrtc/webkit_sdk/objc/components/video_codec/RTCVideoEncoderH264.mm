@@ -13,15 +13,6 @@
 
 #import <VideoToolbox/VideoToolbox.h>
 #include <vector>
-// MAVERICKS_BACKPORT: these VideoToolbox keys/levels postdate 10.9. ConstrainedBaseline≈Baseline;
-// the temporal-layer BaseLayerFrameRateFraction key is unavailable, so alias it to an existing
-// key (SetVTSessionProperty then fails gracefully at runtime; base H.264 encoding is unaffected).
-#ifndef kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel
-#define kVTProfileLevel_H264_ConstrainedBaseline_AutoLevel kVTProfileLevel_H264_Baseline_AutoLevel
-#endif
-#ifndef kVTCompressionPropertyKey_BaseLayerFrameRateFraction
-#define kVTCompressionPropertyKey_BaseLayerFrameRateFraction kVTCompressionPropertyKey_ExpectedFrameRate
-#endif
 
 #if defined(WEBRTC_IOS)
 #import "helpers/UIDevice+RTCDevice.h"

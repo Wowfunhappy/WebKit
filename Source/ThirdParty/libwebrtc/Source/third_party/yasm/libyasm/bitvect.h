@@ -86,11 +86,7 @@ typedef  Z_longword         *Z_longwordptr;
     #ifdef MACOS_TRADITIONAL
         #define boolean Boolean
     #else
-        /* MAVERICKS_BACKPORT: modern clang (C23) makes true/false/bool keywords, so the original
-           `enum boolean { false = FALSE, true = TRUE }` fails with "expected identifier".
-           Use the built-in bool; true/false are provided by the language. */
-        #include <stdbool.h>
-        typedef bool boolean;
+        typedef enum boolean { false = FALSE, true = TRUE } boolean;
     #endif
 #endif
 

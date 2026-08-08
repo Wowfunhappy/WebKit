@@ -3676,6 +3676,35 @@ WK_POLYFILL_SEL("setInitialVelocity:", "wk_setInitialVelocity:");
 WK_POLYFILL_SEL("URLsForApplicationsToOpenURL:", "wk_URLsForApplicationsToOpenURL:");
 
 // ---------------------------------------------------------------------------------------------------
+// -[NSWorkspace URLForApplicationToOpenContentType:] (12.0+). The pre-12.0 route to the same answer is
+// LSCopyDefaultRoleHandlerForContentType, which returns the default handler's BUNDLE IDENTIFIER rather
+// than a URL, so the identifier is resolved through -URLForApplicationWithBundleIdentifier: (10.6+).
+// kLSRolesViewer is the role the modern method reports for a content type — "the app that opens this to
+// look at it" — and is what its only WebKit caller (the PDF save-and-open panel naming the default PDF
+// viewer) is asking about. The argument is a UTType, whose -identifier is the same UTI CFString the
+// classic LaunchServices call takes. Returns nil when no handler is registered, exactly as the modern
+// method does, which callers already handle.
+@interface NSWorkspace (WKPolyfillScopeAppForContentType)
+- (NSURL *)wk_URLForApplicationToOpenContentType:(id)contentType;
+@end
+@implementation NSWorkspace (WKPolyfillScopeAppForContentType)
+- (NSURL *)wk_URLForApplicationToOpenContentType:(id)contentType
+{
+    NSString *identifier = [contentType respondsToSelector:sel_registerName("identifier")]
+        ? [contentType performSelector:sel_registerName("identifier")] : nil;
+    if (![identifier isKindOfClass:[NSString class]] || ![identifier length])
+        return nil;
+    CFStringRef bundleID = LSCopyDefaultRoleHandlerForContentType((__bridge CFStringRef)identifier, kLSRolesViewer);
+    if (!bundleID)
+        return nil;
+    NSURL *url = [self URLForApplicationWithBundleIdentifier:(__bridge NSString *)bundleID];
+    CFRelease(bundleID);
+    return url;
+}
+@end
+WK_POLYFILL_SEL("URLForApplicationToOpenContentType:", "wk_URLForApplicationToOpenContentType:");
+
+// ---------------------------------------------------------------------------------------------------
 // MAVERICKS_BACKPORT (#68): +[NSLocale matchedLanguagesFromAvailableLanguages:forPreferredLanguages:] is
 // 10.12+. WTF::indexOfBestMatchingLanguageInList (Source/WTF/wtf/cocoa/LanguageCocoa.mm) calls it
 // UNCONDITIONALLY to pick the best caption/subtitle-track language, so on 10.9 the absent selector throws

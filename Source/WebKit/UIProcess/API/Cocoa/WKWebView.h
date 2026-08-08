@@ -23,10 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: add a textual include guard; built with -fno-modules on 10.9, so this header is imported textually and needs guarding against double inclusion.
-#ifndef WKWebView_h
-#define WKWebView_h
-
 #import <WebKit/WKFoundation.h>
 
 #if TARGET_OS_IPHONE
@@ -784,6 +780,3 @@ WK_API_AVAILABLE(macos(10.15.4))
 @end
 
 NS_ASSUME_NONNULL_END
-
-// MAVERICKS_BACKPORT: close the textual include guard added at the top for the -fno-modules 10.9 build.
-#endif /* WKWebView_h */

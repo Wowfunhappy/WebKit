@@ -50,10 +50,6 @@
 #import <wtf/BlockObjCExceptions.h>
 #import <wtf/TZoneMallocInlines.h>
 
-// MAVERICKS_BACKPORT: forward-declare CAContext in case QuartzCoreSPI.h fails to
-// provide it on older SDKs.
-@class CAContext;
-
 namespace WebKit {
 using namespace WebCore;
 
@@ -634,9 +630,7 @@ MachSendRight RemoteLayerTreeDrawingAreaProxyMac::createFence()
     if (!page)
         return MachSendRight();
 
-    // MAVERICKS_BACKPORT: cast -context to CAContext* explicitly, since the older
-    // SDK declares it as returning id rather than CAContext*.
-    RetainPtr<CAContext> rootLayerContext = (CAContext *)[protect(page->acceleratedCompositingRootLayer()) context];
+    RetainPtr<CAContext> rootLayerContext = [protect(page->acceleratedCompositingRootLayer()) context];
     if (!rootLayerContext)
         return MachSendRight();
 

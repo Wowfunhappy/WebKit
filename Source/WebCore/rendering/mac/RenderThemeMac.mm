@@ -436,9 +436,7 @@ static Color activeButtonTextColor()
     [cell setHighlighted:YES];
 
     NSColor *activeButtonTextColor;
-    // MAVERICKS_BACKPORT: runtime-absent enum — NSBackgroundStyleEmphasized is 10.14+; use the classic
-    // 10.9 equivalent NSBackgroundStyleDark.
-    if ([cell interiorBackgroundStyle] == NSBackgroundStyleDark)
+    if ([cell interiorBackgroundStyle] == NSBackgroundStyleEmphasized)
         activeButtonTextColor = [NSColor alternateSelectedControlTextColor];
     else
         activeButtonTextColor = [NSColor controlTextColor];

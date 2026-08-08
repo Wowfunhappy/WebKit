@@ -8,14 +8,6 @@ enable_language(ASM)
 add_definitions(-DLIBYUV_DISABLE_SME)
 add_definitions(-DLIBYUV_DISABLE_SVE)
 
-# MAVERICKS_BACKPORT: force-include a compat shim providing the POSIX clock API (clockid_t/CLOCK_*/
-# clock_gettime) that macOS lacked before 10.12. Scoped to compiled-source languages (NOT ASM/
-# ASM_NASM, which can't process a C header). See webkit_mac109_compat.h.
-add_compile_options(
-  $<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-include>
-  $<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:${CMAKE_CURRENT_SOURCE_DIR}/webkit_mac109_compat.h>
-)
-
 if (NOT APPLE)
     find_package(LibEvent)
     if (NOT LIBEVENT_FOUND)
@@ -46,8 +38,6 @@ set(webrtc_SOURCES
     Source/third_party/abseil-cpp/absl/base/internal/sysinfo.cc
     Source/third_party/abseil-cpp/absl/base/internal/thread_identity.cc
     Source/third_party/abseil-cpp/absl/base/internal/throw_delegate.cc
-    # MAVERICKS_BACKPORT: build absl tracing.cc; this abseil version references its symbols (undefined otherwise).
-    Source/third_party/abseil-cpp/absl/base/internal/tracing.cc
     Source/third_party/abseil-cpp/absl/base/internal/unscaledcycleclock.cc
     Source/third_party/abseil-cpp/absl/base/log_severity.cc
     Source/third_party/abseil-cpp/absl/container/internal/hash_generator_testing.cc
@@ -79,7 +69,7 @@ set(webrtc_SOURCES
     Source/third_party/abseil-cpp/absl/flags/usage_config.cc
     Source/third_party/abseil-cpp/absl/hash/internal/city.cc
     Source/third_party/abseil-cpp/absl/hash/internal/hash.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/third_party/abseil-cpp/absl/hash/internal/print_hash_of.cc
+    Source/third_party/abseil-cpp/absl/hash/internal/print_hash_of.cc
     Source/third_party/abseil-cpp/absl/numeric/int128.cc
     Source/third_party/abseil-cpp/absl/profiling/internal/exponential_biased.cc
     Source/third_party/abseil-cpp/absl/profiling/internal/periodic_sampler.cc
@@ -87,7 +77,7 @@ set(webrtc_SOURCES
     Source/third_party/abseil-cpp/absl/random/gaussian_distribution.cc
     Source/third_party/abseil-cpp/absl/random/internal/chi_square.cc
     Source/third_party/abseil-cpp/absl/random/internal/distribution_test_util.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/third_party/abseil-cpp/absl/random/internal/gaussian_distribution_gentables.cc
+    Source/third_party/abseil-cpp/absl/random/internal/gaussian_distribution_gentables.cc
     Source/third_party/abseil-cpp/absl/random/internal/nanobenchmark.cc
     Source/third_party/abseil-cpp/absl/random/internal/randen.cc
     Source/third_party/abseil-cpp/absl/random/internal/randen_detect.cc
@@ -247,8 +237,7 @@ list(APPEND webrtc_SOURCES
     Source/webrtc/api/rtp_transceiver_interface.cc
     Source/webrtc/api/sctp_transport_interface.cc
     Source/webrtc/api/task_queue/default_task_queue_factory_stdlib.cc
-    # [MAVERICKS_BACKPORT: Windows task queue factory duplicates default_task_queue_factory_stdlib — excluded for -force_load]
-    # Source/webrtc/api/task_queue/default_task_queue_factory_win.cc
+    Source/webrtc/api/task_queue/default_task_queue_factory_win.cc
     Source/webrtc/api/task_queue/pending_task_safety_flag.cc
     Source/webrtc/api/task_queue/task_queue_base.cc
     Source/webrtc/api/transport/bitrate_settings.cc
@@ -593,17 +582,17 @@ list(APPEND webrtc_SOURCES
     Source/webrtc/modules/audio_coding/neteq/tools/neteq_input.cc
     Source/webrtc/modules/audio_coding/neteq/tools/neteq_replacement_input.cc
     Source/webrtc/modules/audio_coding/neteq/tools/neteq_rtp_dump_input.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/webrtc/modules/audio_coding/neteq/tools/neteq_rtpplay.cc
+    Source/webrtc/modules/audio_coding/neteq/tools/neteq_rtpplay.cc
     Source/webrtc/modules/audio_coding/neteq/tools/neteq_stats_getter.cc
     Source/webrtc/modules/audio_coding/neteq/tools/neteq_stats_plotter.cc
     Source/webrtc/modules/audio_coding/neteq/tools/packet_source.cc
     Source/webrtc/modules/audio_coding/neteq/tools/resample_input_audio_file.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/webrtc/modules/audio_coding/neteq/tools/rtp_analyze.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/webrtc/modules/audio_coding/neteq/tools/rtp_encode.cc
+    Source/webrtc/modules/audio_coding/neteq/tools/rtp_analyze.cc
+    Source/webrtc/modules/audio_coding/neteq/tools/rtp_encode.cc
     Source/webrtc/modules/audio_coding/neteq/tools/rtp_file_source.cc
     Source/webrtc/modules/audio_coding/neteq/tools/rtp_generator.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/webrtc/modules/audio_coding/neteq/tools/rtp_jitter.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/webrtc/modules/audio_coding/neteq/tools/rtpcat.cc
+    Source/webrtc/modules/audio_coding/neteq/tools/rtp_jitter.cc
+    Source/webrtc/modules/audio_coding/neteq/tools/rtpcat.cc
     Source/webrtc/modules/audio_coding/neteq/underrun_optimizer.cc
     Source/webrtc/modules/audio_device/audio_device_buffer.cc
     Source/webrtc/modules/audio_device/audio_device_data_observer.cc
@@ -614,13 +603,10 @@ list(APPEND webrtc_SOURCES
     Source/webrtc/modules/audio_device/dummy/file_audio_device.cc
     Source/webrtc/modules/audio_device/dummy/file_audio_device_factory.cc
     Source/webrtc/modules/audio_device/fine_audio_buffer.cc
-    # MAVERICKS_BACKPORT: Linux ALSA audio_device files were in the unconditional base source list;
-    # they #error "Not implemented" on non-Linux. macOS uses WebKit's own audio module
-    # (WebCore LibWebRTCAudioModule), so exclude these Linux-only sources.
-    # Source/webrtc/modules/audio_device/linux/alsasymboltable_linux.cc
-    # Source/webrtc/modules/audio_device/linux/audio_device_alsa_linux.cc
-    # Source/webrtc/modules/audio_device/linux/audio_mixer_manager_alsa_linux.cc
-    # Source/webrtc/modules/audio_device/linux/latebindingsymboltable_linux.cc
+    Source/webrtc/modules/audio_device/linux/alsasymboltable_linux.cc
+    Source/webrtc/modules/audio_device/linux/audio_device_alsa_linux.cc
+    Source/webrtc/modules/audio_device/linux/audio_mixer_manager_alsa_linux.cc
+    Source/webrtc/modules/audio_device/linux/latebindingsymboltable_linux.cc
     Source/webrtc/modules/audio_mixer/audio_frame_manipulator.cc
     Source/webrtc/modules/audio_mixer/audio_mixer_impl.cc
     Source/webrtc/modules/audio_mixer/default_output_rate_calculator.cc
@@ -716,7 +702,7 @@ list(APPEND webrtc_SOURCES
     Source/webrtc/modules/audio_processing/agc2/rnn_vad/rnn.cc
     Source/webrtc/modules/audio_processing/agc2/rnn_vad/rnn_fc.cc
     Source/webrtc/modules/audio_processing/agc2/rnn_vad/rnn_gru.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/webrtc/modules/audio_processing/agc2/rnn_vad/rnn_vad_tool.cc
+    Source/webrtc/modules/audio_processing/agc2/rnn_vad/rnn_vad_tool.cc
     Source/webrtc/modules/audio_processing/agc2/rnn_vad/spectral_features.cc
     Source/webrtc/modules/audio_processing/agc2/rnn_vad/spectral_features_internal.cc
     Source/webrtc/modules/audio_processing/agc2/saturation_protector.cc
@@ -817,7 +803,7 @@ list(APPEND webrtc_SOURCES
     Source/webrtc/modules/remote_bitrate_estimator/remote_bitrate_estimator_abs_send_time.cc
     Source/webrtc/modules/remote_bitrate_estimator/remote_bitrate_estimator_single_stream.cc
     Source/webrtc/modules/remote_bitrate_estimator/tools/bwe_rtp.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/webrtc/modules/remote_bitrate_estimator/tools/rtp_to_text.cc
+    Source/webrtc/modules/remote_bitrate_estimator/tools/rtp_to_text.cc
     Source/webrtc/modules/remote_bitrate_estimator/transport_sequence_number_feedback_generator.cc
     Source/webrtc/modules/rtp_rtcp/include/report_block_data.cc
     Source/webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.cc
@@ -1360,7 +1346,7 @@ list(APPEND webrtc_SOURCES
     Source/webrtc/video/timing/simulator/rendering_tracker.cc
     Source/webrtc/video/transport_adapter.cc
     Source/webrtc/video/unique_timestamp_counter.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/webrtc/video/video_loopback_main.cc
+    Source/webrtc/video/video_loopback_main.cc
     Source/webrtc/video/video_quality_observer2.cc
     Source/webrtc/video/video_receive_stream2.cc
     Source/webrtc/video/video_receive_stream_timeout_tracker.cc
@@ -1452,18 +1438,13 @@ list(APPEND webrtc_SOURCES
     Source/third_party/libyuv/source/scale_uv.cc
     Source/third_party/libyuv/source/scale_win.cc
     Source/third_party/libyuv/source/video_common.cc
-    # MAVERICKS_BACKPORT: util/color.cc is a standalone libyuv tool (its own main(),
-    # computes yuvconstants) whose local `int round(float)` conflicts with libc++'s
-    # std::round under clang-22. It's not runtime library code, so drop it.
-    # [MAVERICKS_BACKPORT: util/compare.cc has its own main(); util/psnr.cc redefines
-    # ComputeSumSquareError (dup of source/compare.cc); util/ssim.cc is a tool helper.
-    # All are standalone tool code, not runtime lib — excluded for -force_load]
-    # Source/third_party/libyuv/util/compare.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/third_party/libyuv/util/i444tonv12_eg.cc
-    # Source/third_party/libyuv/util/psnr.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/third_party/libyuv/util/psnr_main.cc
-    # Source/third_party/libyuv/util/ssim.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/third_party/libyuv/util/yuvconvert.cc
+    Source/third_party/libyuv/util/color.cc
+    Source/third_party/libyuv/util/compare.cc
+    Source/third_party/libyuv/util/i444tonv12_eg.cc
+    Source/third_party/libyuv/util/psnr.cc
+    Source/third_party/libyuv/util/psnr_main.cc
+    Source/third_party/libyuv/util/ssim.cc
+    Source/third_party/libyuv/util/yuvconvert.cc
 )
 
 # Boringssl.
@@ -1806,11 +1787,11 @@ list(APPEND webrtc_SOURCES
     Source/third_party/boringssl/src/tool/server.cc
     Source/third_party/boringssl/src/tool/sign.cc
     Source/third_party/boringssl/src/tool/speed.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/third_party/boringssl/src/tool/tool.cc
+    Source/third_party/boringssl/src/tool/tool.cc
     Source/third_party/boringssl/src/tool/transport_common.cc
     Source/third_party/boringssl/src/util/ar/testdata/sample/bar.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/third_party/boringssl/src/util/bazel-example/example.cc
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/third_party/boringssl/src/util/fipstools/acvp/modulewrapper/main.cc
+    Source/third_party/boringssl/src/util/bazel-example/example.cc
+    Source/third_party/boringssl/src/util/fipstools/acvp/modulewrapper/main.cc
     Source/third_party/boringssl/src/util/fipstools/acvp/modulewrapper/modulewrapper.cc
     Source/third_party/boringssl/src/util/fipstools/acvp/modulewrapper/proto.cc
 )
@@ -1989,36 +1970,12 @@ perlasm(CRYPTO_SOURCES arm chacha/chacha-armv4 ${CRYPTO_PATH}/chacha/asm/chacha-
 perlasm(CRYPTO_SOURCES arm test/trampoline-armv4 ${CRYPTO_PATH}/test/asm/trampoline-armv4.pl)
 perlasm(CRYPTO_SOURCES x86 chacha/chacha-x86 ${CRYPTO_PATH}/chacha/asm/chacha-x86.pl)
 perlasm(CRYPTO_SOURCES x86 test/trampoline-x86 ${CRYPTO_PATH}/test/asm/trampoline-x86.pl)
-# MAVERICKS_BACKPORT: these three x86_64 perlasm outputs duplicate the boringssl-shipped
-# pre-generated gen/crypto/{chacha-x86_64,aes128gcmsiv-x86_64,chacha20_poly1305_x86_64}-apple.S
-# which are already compiled into CRYPTO_SOURCES_ASM. Regenerating them via perlasm
-# emits the same symbols (ChaCha20_ctr32_*, aes*gcmsiv_*) → duplicate-symbol errors
-# under -force_load. The gen/crypto copies are kept (known-good boringssl snapshot);
-# the perlasm dups are dropped. (mont/mont5/rsaz perlasm calls are NOT in gen/crypto, so kept.)
-# perlasm(CRYPTO_SOURCES x86_64 chacha/chacha-x86_64 ${CRYPTO_PATH}/chacha/asm/chacha-x86_64.pl)
-# perlasm(CRYPTO_SOURCES x86_64 cipher/aes128gcmsiv-x86_64 ${CRYPTO_PATH}/cipher/asm/aes128gcmsiv-x86_64.pl)
-# perlasm(CRYPTO_SOURCES x86_64 cipher/chacha20_poly1305_x86_64 ${CRYPTO_PATH}/cipher/asm/chacha20_poly1305_x86_64.pl)
+perlasm(CRYPTO_SOURCES x86_64 chacha/chacha-x86_64 ${CRYPTO_PATH}/chacha/asm/chacha-x86_64.pl)
+perlasm(CRYPTO_SOURCES x86_64 cipher/aes128gcmsiv-x86_64 ${CRYPTO_PATH}/cipher/asm/aes128gcmsiv-x86_64.pl)
+perlasm(CRYPTO_SOURCES x86_64 cipher/chacha20_poly1305_x86_64 ${CRYPTO_PATH}/cipher/asm/chacha20_poly1305_x86_64.pl)
 perlasm(CRYPTO_SOURCES x86_64 test/trampoline-x86_64 ${CRYPTO_PATH}/test/asm/trampoline-x86_64.pl)
 
 # TODO: _NASM support for platforms that require it.
-# MAVERICKS_BACKPORT: perlasm() and the explicit CRYPTO_SOURCES_ASM list both pull in
-# EVERY arch/OS boringssl assembly variant (aarch64/arm/x86/x86_64 × apple/linux/
-# win) plus the hand-written ARM .S (x25519-asm-arm.S, poly_rq_mul.S,
-# poly1305_arm_asm.S). On x86_64 macOS only the *-x86_64-apple.S files assemble;
-# feeding the ARM/x86/Linux/Windows variants to the x86_64 assembler produces
-# ~1.8M errors. Keep only the x86_64-apple .S files (boringssl provides C fallbacks
-# for everything else, and the other variants would be duplicate symbols anyway).
-# EXCLUDE the definitively-wrong-platform variants and KEEP everything else.
-# An "-apple.S$" INCLUDE filter is wrong because several x86_64 GAS files have no
-# -apple suffix (the hand-written fiat ADX — fiat_curve25519_adx_*.S /
-# fiat_p256_adx_*.S — and HRSS poly_rq_mul.S) and would be dropped, leaving
-# undefined fiat_*_adx_* at link. So instead drop: Linux/Windows OS variants,
-# ARM (armv8/armv4 + the hand-written x25519-asm-arm.S / poly1305_arm_asm.S), and
-# 32-bit x86 (*-x86-apple.S). What remains is the x86_64 macOS set
-# (gen/crypto/*-x86_64-apple.S, perlasm <dest>-apple.S, and the fiat/HRSS .S).
-set(_WRONG_ASM_RE "-linux\\.(S|asm)$|-win\\.(S|asm)$|armv[0-9]|x25519-asm-arm|poly1305_arm_asm|-x86-apple\\.S$")
-list(FILTER BCM_SOURCES_ASM EXCLUDE REGEX "${_WRONG_ASM_RE}")
-list(FILTER CRYPTO_SOURCES_ASM EXCLUDE REGEX "${_WRONG_ASM_RE}")
 list(APPEND webrtc_SOURCES ${BCM_SOURCES_ASM})
 list(APPEND webrtc_SOURCES ${CRYPTO_SOURCES_ASM})
 
@@ -2101,27 +2058,17 @@ if (APPLE)
     list(APPEND webrtc_SOURCES
         Source/third_party/libyuv/source/scale.cc
 
-        # [MAVERICKS_BACKPORT: HEVC unsupported pre-10.13] Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoDecoderH265.mm
-        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoDecoderVTBVP9.mm
-        # [MAVERICKS_BACKPORT: HEVC unsupported pre-10.13] Source/webrtc/webkit_sdk/objc/components/video_codec/RTCCodecSpecificInfoH265.mm
-        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCVideoEncoderVP9.mm
-        # MAVERICKS_BACKPORT: gcd_helpers.m (RTCDispatchQueueCreateWithTarget) can't compile here —
-        # its @available branch references dispatch_queue_create_with_target, which the 10.9 SDK
-        # does not even declare (and 10.9 libdispatch lacks). RTCDispatchQueueCreateWithTarget is
-        # instead provided, 10.9-only, in WebCore's WebRTCCodecStubs109.mm.
+        Source/webrtc/sdk/objc/components/video_codec/RTCVideoDecoderH265.mm
+        Source/webrtc/sdk/objc/components/video_codec/RTCVideoDecoderVTBVP9.mm
+        Source/webrtc/sdk/objc/components/video_codec/RTCCodecSpecificInfoH265.mm
+        Source/webrtc/sdk/objc/api/video_codec/RTCVideoEncoderVP9.mm
         Source/webrtc/common_video/h265/h265_pps_parser.cc
         Source/webrtc/common_video/h265/h265_vps_parser.cc
         Source/webrtc/common_video/h265/h265_sps_parser.cc
-        # [MAVERICKS_BACKPORT: HEVC unsupported pre-10.13] Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoEncoderH265.mm
-        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoEncoderH264.mm
-# [MAVERICKS_BACKPORT: absent from checkout, optional]         Source/webrtc/modules/video_coding/h265_vps_sps_pps_tracker.cc
+        Source/webrtc/sdk/objc/components/video_codec/RTCVideoEncoderH265.mm
+        Source/webrtc/sdk/objc/components/video_codec/RTCVideoEncoderH264.mm
+        Source/webrtc/modules/video_coding/h265_vps_sps_pps_tracker.cc
         Source/webrtc/modules/video_coding/codecs/vp9/vp9.cc
-        # MAVERICKS_BACKPORT: h264.cc defines H264Decoder::Create() and SupportedH264Decoder/
-        # EncoderCodecs(), referenced by internal_{de,en}coder_factory.cc (which ARE built
-        # on Apple). Upstream only listed it in the non-Apple branch, so on Mac those
-        # symbols were undefined at dyld load. In a WEBRTC_WEBKIT_BUILD it returns the
-        # null software codec (Apple uses VideoToolbox), so it is safe and needed here.
-        Source/webrtc/modules/video_coding/codecs/h264/h264.cc
         Source/webrtc/common_video/h265/h265_common.cc
         Source/webrtc/modules/audio_device/mac/audio_device_mac.cc
         Source/webrtc/modules/audio_device/mac/audio_mixer_manager_mac.cc
@@ -2134,60 +2081,46 @@ if (APPLE)
 
         Source/webrtc/rtc_base/system/cocoa_threading.mm
 
-        Source/webrtc/webkit_sdk/WebKit/WebKitUtilities.mm
-        Source/webrtc/webkit_sdk/WebKit/WebKitVP9Decoder.cpp
-        Source/webrtc/webkit_sdk/WebKit/WebKitDecoder.mm
-        Source/webrtc/webkit_sdk/WebKit/WebKitEncoder.mm
-        Source/webrtc/webkit_sdk/WebKit/WebKitDecoderReceiver.cpp
+        Source/webrtc/sdk/WebKit/WebKitUtilities.mm
+        Source/webrtc/sdk/WebKit/WebKitVP9Decoder.cpp
+        Source/webrtc/sdk/WebKit/WebKitDecoder.mm
+        Source/webrtc/sdk/WebKit/WebKitEncoder.mm
+        Source/webrtc/sdk/WebKit/WebKitDecoderReceiver.cpp
 
-        Source/webrtc/webkit_sdk/objc/api/peerconnection/RTCVideoEncoderSettings+Private.mm
-        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCVideoCodecConstants.mm
-        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCVideoDecoderVP8.mm
-        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCVideoDecoderVP9.mm
-        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCVideoEncoderVP8.mm
-        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCWrappedNativeVideoDecoder.mm
-        Source/webrtc/webkit_sdk/objc/api/video_codec/RTCWrappedNativeVideoEncoder.mm
-        Source/webrtc/webkit_sdk/objc/api/video_frame_buffer/RTCNativeI420Buffer.mm
-        Source/webrtc/webkit_sdk/objc/api/video_frame_buffer/RTCNativeMutableI420Buffer.mm
-        Source/webrtc/webkit_sdk/objc/base/RTCEncodedImage.m
-        Source/webrtc/webkit_sdk/objc/base/RTCRtpFragmentationHeader.m
-        Source/webrtc/webkit_sdk/objc/base/RTCVideoCodecInfo.m
-        # MAVERICKS_BACKPORT: the (Private) category adding -nativeSdpVideoFormat was missing from
-        # the source list, so PeerConnectionFactory creation crashed at runtime with
-        # "-[WK_RTCVideoCodecInfo nativeSdpVideoFormat]: unrecognized selector" the moment
-        # ObjCVideoEncoderFactory::GetSupportedFormats() ran (i.e. on `new RTCPeerConnection`).
-        Source/webrtc/webkit_sdk/objc/api/peerconnection/RTCVideoCodecInfo+Private.mm
-        # MAVERICKS_BACKPORT: NSString(StdString) provides +rtcStdStringForString:/-stdString,
-        # which -nativeSdpVideoFormat (and the rest of the ObjC codec SDK) calls to bridge
-        # std::string<->NSString. It too was missing, so the codec factory crashed one frame
-        # later with "+[NSString rtcStdStringForString:]: unrecognized selector".
-        Source/webrtc/webkit_sdk/objc/helpers/NSString+StdString.mm
-        Source/webrtc/webkit_sdk/objc/base/RTCVideoEncoderQpThresholds.m
-        Source/webrtc/webkit_sdk/objc/base/RTCVideoEncoderSettings.m
-        Source/webrtc/webkit_sdk/objc/base/RTCVideoFrame.mm
-        # [MAVERICKS_BACKPORT: HEVC unsupported pre-10.13] Source/webrtc/webkit_sdk/objc/components/video_codec/RTCH265ProfileLevelId.mm
-        Source/webrtc/webkit_sdk/objc/components/video_codec/helpers.cc
-        Source/webrtc/webkit_sdk/objc/components/video_codec/nalu_rewriter.cc
-        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCCodecSpecificInfoH264.mm
-        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCDefaultVideoDecoderFactory.m
-        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCDefaultVideoEncoderFactory.m
-        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCH264ProfileLevelId.mm
-        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoDecoderFactoryH264.m
-        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoDecoderH264.mm
-        # [MAVERICKS_BACKPORT] RTCVideoFrameReorderQueue is used by RTCVideoDecoderH264.mm (H.264 decode works
-        # via VideoToolbox on 10.9) but was missing from this source list, leaving its 6 methods undefined
-        # in libwebrtc.a -> dyld load failure in every WebKit process. Compile it here where it belongs.
-        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoFrameReorderQueue.mm
-        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoEncoderFactoryH264.m
-        Source/webrtc/webkit_sdk/objc/components/video_codec/RTCVideoEncoderH264.mm
-        Source/webrtc/webkit_sdk/objc/components/video_frame_buffer/RTCCVPixelBuffer.mm
-        Source/webrtc/webkit_sdk/objc/native/api/video_decoder_factory.mm
-        Source/webrtc/webkit_sdk/objc/native/api/video_encoder_factory.mm
-        Source/webrtc/webkit_sdk/objc/native/api/video_frame.mm
-        Source/webrtc/webkit_sdk/objc/native/src/objc_frame_buffer.mm
-        Source/webrtc/webkit_sdk/objc/native/src/objc_video_decoder_factory.mm
-        Source/webrtc/webkit_sdk/objc/native/src/objc_video_encoder_factory.mm
-        Source/webrtc/webkit_sdk/objc/native/src/objc_video_frame.mm
+        Source/webrtc/sdk/objc/api/peerconnection/RTCVideoEncoderSettings+Private.mm
+        Source/webrtc/sdk/objc/api/video_codec/RTCVideoCodecConstants.mm
+        Source/webrtc/sdk/objc/api/video_codec/RTCVideoDecoderVP8.mm
+        Source/webrtc/sdk/objc/api/video_codec/RTCVideoDecoderVP9.mm
+        Source/webrtc/sdk/objc/api/video_codec/RTCVideoEncoderVP8.mm
+        Source/webrtc/sdk/objc/api/video_codec/RTCWrappedNativeVideoDecoder.mm
+        Source/webrtc/sdk/objc/api/video_codec/RTCWrappedNativeVideoEncoder.mm
+        Source/webrtc/sdk/objc/api/video_frame_buffer/RTCNativeI420Buffer.mm
+        Source/webrtc/sdk/objc/api/video_frame_buffer/RTCNativeMutableI420Buffer.mm
+        Source/webrtc/sdk/objc/base/RTCEncodedImage.m
+        Source/webrtc/sdk/objc/base/RTCRtpFragmentationHeader.m
+        Source/webrtc/sdk/objc/base/RTCVideoCodecInfo.m
+        Source/webrtc/sdk/objc/base/RTCVideoEncoderQpThresholds.m
+        Source/webrtc/sdk/objc/base/RTCVideoEncoderSettings.m
+        Source/webrtc/sdk/objc/base/RTCVideoFrame.mm
+        Source/webrtc/sdk/objc/components/video_codec/RTCH265ProfileLevelId.mm
+        Source/webrtc/sdk/objc/components/video_codec/helpers.cc
+        Source/webrtc/sdk/objc/components/video_codec/nalu_rewriter.cc
+        Source/webrtc/sdk/objc/components/video_codec/RTCCodecSpecificInfoH264.mm
+        Source/webrtc/sdk/objc/components/video_codec/RTCDefaultVideoDecoderFactory.m
+        Source/webrtc/sdk/objc/components/video_codec/RTCDefaultVideoEncoderFactory.m
+        Source/webrtc/sdk/objc/components/video_codec/RTCH264ProfileLevelId.mm
+        Source/webrtc/sdk/objc/components/video_codec/RTCVideoDecoderFactoryH264.m
+        Source/webrtc/sdk/objc/components/video_codec/RTCVideoDecoderH264.mm
+        Source/webrtc/sdk/objc/components/video_codec/RTCVideoEncoderFactoryH264.m
+        Source/webrtc/sdk/objc/components/video_codec/RTCVideoEncoderH264.mm
+        Source/webrtc/sdk/objc/components/video_frame_buffer/RTCCVPixelBuffer.mm
+        Source/webrtc/sdk/objc/native/api/video_decoder_factory.mm
+        Source/webrtc/sdk/objc/native/api/video_encoder_factory.mm
+        Source/webrtc/sdk/objc/native/api/video_frame.mm
+        Source/webrtc/sdk/objc/native/src/objc_frame_buffer.mm
+        Source/webrtc/sdk/objc/native/src/objc_video_decoder_factory.mm
+        Source/webrtc/sdk/objc/native/src/objc_video_encoder_factory.mm
+        Source/webrtc/sdk/objc/native/src/objc_video_frame.mm
     )
     if (NOT WTF_CPU_X86_64)
         list(APPEND webrtc_SOURCES
@@ -2324,74 +2257,6 @@ else ()
     endif ()
 endif ()
 
-# [MAVERICKS_BACKPORT] NOTE: the RTTI inconsistency that left webrtc codec/frame typeinfos undefined is fixed
-# globally in Source/cmake/WebKitCompilerFlags.cmake (OBJCXX now gets -fno-rtti like CXX), so no per-file
-# override is needed here.
-
-# MAVERICKS_BACKPORT: these abseil internal TUs are referenced by real abseil code that the
-# force_load pulls in (absl::Status -> StatusRep, absl::Mutex -> KernelTimeout/PthreadWaiter,
-# absl::Cord -> CrcCordState, the symbolizer -> DemangleRustSymbolEncoding, absl::random ->
-# entropy_pool, flags typo-matching -> Damerau-Levenshtein) but were omitted from the
-# vendored source list, leaving their symbols undefined at dyld load time. Add them to
-# complete the abseil build.
-list(APPEND webrtc_SOURCES
-    Source/third_party/abseil-cpp/absl/crc/internal/crc_cord_state.cc
-    Source/third_party/abseil-cpp/absl/debugging/internal/demangle_rust.cc
-    Source/third_party/abseil-cpp/absl/status/internal/status_internal.cc
-    Source/third_party/abseil-cpp/absl/strings/internal/damerau_levenshtein_distance.cc
-    Source/third_party/abseil-cpp/absl/synchronization/internal/kernel_timeout.cc
-    Source/third_party/abseil-cpp/absl/synchronization/internal/pthread_waiter.cc
-    Source/third_party/abseil-cpp/absl/random/internal/entropy_pool.cc
-    # second-order deps pulled in by the files above:
-    Source/third_party/abseil-cpp/absl/crc/crc32c.cc                                  # crc_cord_state -> RemoveCrc32cPrefix
-    Source/third_party/abseil-cpp/absl/debugging/internal/decode_rust_punycode.cc     # demangle_rust -> DecodeRustPunycode
-    Source/third_party/abseil-cpp/absl/synchronization/internal/waiter_base.cc        # pthread_waiter -> WaiterBase::MaybeBecomeIdle
-    # third-order: the absl/crc engine (CRC::Crc32c, CrcMemcpy) behind crc32c.cc, plus the
-    # utf8 helper behind decode_rust_punycode.cc. The x86 and fallback CrcMemcpy engines
-    # both define GetArchSpecificEngines under mutually-exclusive arch guards, so no dup.
-    Source/third_party/abseil-cpp/absl/crc/internal/crc.cc
-    Source/third_party/abseil-cpp/absl/crc/internal/cpu_detect.cc
-    Source/third_party/abseil-cpp/absl/crc/internal/crc_x86_arm_combined.cc
-    Source/third_party/abseil-cpp/absl/crc/internal/crc_memcpy_x86_arm_combined.cc
-    Source/third_party/abseil-cpp/absl/crc/internal/crc_memcpy_fallback.cc
-    Source/third_party/abseil-cpp/absl/crc/internal/crc_non_temporal_memcpy.cc
-    Source/third_party/abseil-cpp/absl/debugging/internal/utf8_for_code_point.cc       # decode_rust_punycode -> Utf8ForCodePoint
-)
-
-# MAVERICKS_BACKPORT: WebCore -force_loads this archive (to pull the ObjC SDK's category-only
-# members), which also pulls the test/fake/sample C++ TUs in the vendored source list.
-# Those reference test-only symbols (webrtc::test::Fake{En,De}coder, RtpFileReader,
-# OutputPath, abseil exception-safety/hash-generator testing helpers, the boringssl ar
-# "bar.cc" sample) that aren't compiled, so they fail flat-namespace resolution at dyld
-# load time and abort Safari at launch. None belong in a production library — drop them.
-list(FILTER webrtc_SOURCES EXCLUDE REGEX "/fake_[a-z0-9_]+\\.cc$|_testing\\.cc$|/testdata/|/bwe_rtp\\.cc$|_unittest\\.cc$")
-# MAVERICKS_BACKPORT: also drop the rest of webrtc's test/tool infrastructure that force_load
-# pulls — unit tests, files under test/ and tools/ directories, the rtc_tools/ command-line
-# utilities, and the VirtualSocketServer test network simulator. These reference test-only
-# symbols (webrtc::test::OutputPath/RtpFileReader/FakeDecodeFromFile, ThreadProcessingFakeClock)
-# that are not part of a production build, and none belong in a shipped library.
-list(FILTER webrtc_SOURCES EXCLUDE REGEX "_test\\.cc$|/test/|/tools/|/rtc_tools/|/virtual_socket_server\\.cc$|_testing_common\\.cc$|/compute_interpolated_gain_curve\\.cc$")
-# MAVERICKS_BACKPORT: the video/corruption_detection/evaluation/ subtree is an offline
-# encoder-evaluation harness (file-based codecs, mocks) that references webrtc::test::
-# file helpers (OutputPath/GetFileSize/TempFilename). Not production — drop it.
-list(FILTER webrtc_SOURCES EXCLUDE REGEX "/corruption_detection/evaluation/")
-
-# MAVERICKS_BACKPORT: drop rtc_event_log_impl.cc. The RtcEventLogFactory only constructs
-# RtcEventLogImpl when WEBRTC_ENABLE_RTC_EVENT_LOG is defined (it is not on this port — it
-# returns RtcEventLogNull instead), so nothing references RtcEventLogImpl. But force_load
-# pulls its .o anyway, and it constructs RtcEventLogEncoder{Legacy,NewFormat}, both of which
-# #include the protobuf-generated rtc_event_log{,2}.pb.h. protobuf is not built here, so
-# those encoders are uncompilable; excluding impl.cc removes the only thing that needs them.
-list(FILTER webrtc_SOURCES EXCLUDE REGEX "logging/rtc_event_log/rtc_event_log_impl\\.cc$")
-
-# MAVERICKS_BACKPORT: absl/random's entropy pool allocates an over-aligned RandenPoolEntry with
-# C++17 aligned operator new, which libc++ only provides on macOS 10.13+. The alignment is
-# a cache-line/false-sharing optimization, not a correctness requirement, so compile this
-# TU with -fno-aligned-allocation to fall back to the standard 16-byte allocator on 10.9.
-set_source_files_properties(
-    Source/third_party/abseil-cpp/absl/random/internal/entropy_pool.cc
-    PROPERTIES COMPILE_OPTIONS "-fno-aligned-allocation")
-
 add_library(webrtc STATIC ${webrtc_SOURCES})
 
 target_compile_options(webrtc PRIVATE
@@ -2502,11 +2367,10 @@ set(webrtc_INCLUDE_DIRECTORIES PRIVATE
 if (APPLE)
     list(APPEND webrtc_INCLUDE_DIRECTORIES PRIVATE
         Source/third_party/libvpx/source/libvpx
-        # MAVERICKS_BACKPORT: use the vendored webkit_sdk/objc tree (WebKit's fork of the WebRTC ObjC SDK).
-        Source/webrtc/webkit_sdk/objc
-        Source/webrtc/webkit_sdk/objc/base
-        Source/webrtc/webkit_sdk/objc/Framework/Classes
-        Source/webrtc/webkit_sdk/objc/Framework/Headers
+        Source/webrtc/sdk/objc
+        Source/webrtc/sdk/objc/base
+        Source/webrtc/sdk/objc/Framework/Classes
+        Source/webrtc/sdk/objc/Framework/Headers
     )
 else ()
     target_link_libraries(webrtc ${LIBEVENT_LIBRARY})
@@ -2585,10 +2449,7 @@ if (APPLE)
         Source/third_party/opus/src/celt/cwrs.c
         Source/third_party/opus/src/celt/modes.c
         Source/third_party/opus/src/celt/celt_decoder.c
-        # MAVERICKS_BACKPORT: dump_modes.c is opus's build-time mode-table GENERATOR (has
-        # its own main() and a non-inline opus_select_arch that clang-22 rejects as a
-        # redefinition of cpu_support.h's inline). The lib uses pre-generated
-        # static_modes tables, so it must not be compiled into libopus.
+        Source/third_party/opus/src/celt/dump_modes/dump_modes.c
         Source/third_party/opus/src/celt/quant_bands.c
         Source/third_party/opus/src/celt/vq.c
         Source/third_party/opus/src/celt/mathops.c
@@ -2742,9 +2603,6 @@ if (APPLE)
         Source/third_party/opus/src/src/repacketizer.c
         Source/third_party/opus/src/src/opus.c
         Source/third_party/opus/src/src/opus_encoder.c
-        # MAVERICKS_BACKPORT: extensions.c defines opus_packet_extensions_{parse,count,generate},
-        # referenced by repacketizer.c/opus_decoder.c but omitted from the vendored list.
-        Source/third_party/opus/src/src/extensions.c
         Source/third_party/opus/src/src/mlp_data.c
         Source/third_party/opus/src/src/opus_multistream.c
     )
@@ -2757,7 +2615,7 @@ if (APPLE)
           Source/third_party/opus/src/celt/x86/x86cpu.c
           Source/third_party/opus/src/celt/x86/x86_celt_map.c
           Source/third_party/opus/src/celt/x86/pitch_sse.c
-# [MAVERICKS_BACKPORT: absent from checkout, optional]           Source/third_party/opus/src/silk/fixed/x86/prefilter_FIX_sse.c
+          Source/third_party/opus/src/silk/fixed/x86/prefilter_FIX_sse.c
           Source/third_party/opus/src/silk/x86/x86_silk_map.c
       )
     endif ()
@@ -2778,10 +2636,6 @@ if (APPLE)
         "-DOPUS_BUILD"
         "-DOPUS_EXPORT="
         "-DHAVE_LRINT HAVE_LRINTF"
-        # MAVERICKS_BACKPORT: clang-22 promotes opus's benign fixed/float pitch-pointer
-        # mismatches (celt_pitch_xcorr in silk/fixed/*) to errors; suppress (upstream
-        # opus builds these as warnings).
-        "-Wno-incompatible-pointer-types"
     )
 
     add_library(yuv STATIC
@@ -2897,15 +2751,13 @@ if (APPLE)
 endif ()
 
 set(vpx_SOURCES
-    # [MAVERICKS_BACKPORT: linux/ppc64 config is wrong for mac x64 and duplicates the
-    # mac/x64/vpx_config.c added below — excluded for -force_load]
-    # Source/third_party/libvpx/source/config/linux/ppc64/vpx_config.c
+    Source/third_party/libvpx/source/config/linux/ppc64/vpx_config.c
     Source/third_party/libvpx/source/libvpx/args.c
     Source/third_party/libvpx/source/libvpx/ivfdec.c
     Source/third_party/libvpx/source/libvpx/ivfenc.c
     Source/third_party/libvpx/source/libvpx/md5_utils.c
     Source/third_party/libvpx/source/libvpx/rate_hist.c
-    # [MAVERICKS_BACKPORT: tool/example with main(), excluded for -force_load] Source/third_party/libvpx/source/libvpx/tools/tiny_ssim.c
+    Source/third_party/libvpx/source/libvpx/tools/tiny_ssim.c
     Source/third_party/libvpx/source/libvpx/tools_common.c
     Source/third_party/libvpx/source/libvpx/video_reader.c
     Source/third_party/libvpx/source/libvpx/video_writer.c
@@ -3368,20 +3220,6 @@ else ()
     endif ()
 endif ()
 
-# MAVERICKS_BACKPORT: WebCore -force_loads libwebrtc.a (to pull the ObjC SDK's
-# category-only .o files). That also pulls every libvpx .o, including the
-# command-line tool/app support files and 2-pass-only encoder code that a plain
-# archive link would have dropped as unreferenced. Those drag in undefined symbols:
-#   - usage_exit            (tools_common.c — vpxenc/vpxdec front-end glue)
-#   - mkvparser::*          (webmdec.cc — libwebm, not compiled here)
-#   - vp9_encode_fp_row_mt  (vp9_firstpass.c — defined only under !CONFIG_REALTIME_ONLY,
-#                            which the mac/x64 config disables; 2-pass is never used by WebRTC)
-# WebRTC uses only the realtime vpx_codec_* API (vp8/ vp9/ vpx/ vpx_dsp/ ...), so drop
-# the tool/app support files and the 2-pass first-pass encoder, matching what a proper
-# CONFIG_REALTIME_ONLY libvpx build compiles.
-list(FILTER vpx_SOURCES EXCLUDE REGEX "libvpx/source/libvpx/(args|ivfdec|ivfenc|md5_utils|rate_hist|tools_common|video_reader|video_writer|vpxstats|warnings|webmdec|webmenc|y4menc|y4minput)\\.(c|cc)$")
-list(FILTER vpx_SOURCES EXCLUDE REGEX "vp9/encoder/vp9_firstpass\\.c$")
-
 if (WTF_CPU_X86_64)
     add_library(vpx OBJECT ${vpx_SOURCES} ${vpx_ASSEMBLY_SOURCES})
     target_compile_options(vpx PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-mavx2>)
@@ -3393,6 +3231,5 @@ elseif (WTF_CPU_ARM64)
 endif ()
 
 target_include_directories(vpx PRIVATE ${vpx_INCLUDE_DIRECTORIES})
-# MAVERICKS_BACKPORT: scope C warning flags away from ASM_NASM (.asm via nasm rejects -W*).
-target_compile_options(vpx PRIVATE $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-Wno-cast-align> $<$<NOT:$<COMPILE_LANGUAGE:ASM_NASM>>:-Wno-incompatible-pointer-types>)
+target_compile_options(vpx PRIVATE -Wno-cast-align -Wno-incompatible-pointer-types)
 target_compile_definitions(vpx PRIVATE WEBRTC_WEBKIT_BUILD=1)

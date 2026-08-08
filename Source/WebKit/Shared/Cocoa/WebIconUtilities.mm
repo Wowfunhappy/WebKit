@@ -46,10 +46,7 @@
 #import <CoreMedia/CoreMedia.h>
 #endif
 #import <ImageIO/ImageIO.h>
-// MAVERICKS_BACKPORT: UniformTypeIdentifiers framework is macOS 11+; only import it when present.
-#if __has_include(<UniformTypeIdentifiers/UniformTypeIdentifiers.h>)
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#endif
 #import <WebCore/PlatformImage.h>
 #import <wtf/MathExtras.h>
 #import <wtf/RetainPtr.h>
@@ -206,15 +203,11 @@ RetainPtr<CocoaImage> iconForFiles(const Vector<String>& filenames)
     if (!fileExtension.get().length)
         return nil;
 
-    // MAVERICKS_BACKPORT: UTType/UniformTypeIdentifiers is macOS 11+ and absent on 10.9, so the legacy
-    // CoreServices UTType C API (present at runtime on 10.9) maps the filename extension to a UTI
-    // CFStringRef and tests conformance to kUTTypeImage / kUTTypeMovie via UTTypeConformsTo.
-    RetainPtr fileUTI = adoptCF(UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)fileExtension.get(), nullptr));
-    if (fileUTI && UTTypeConformsTo(fileUTI.get(), kUTTypeImage))
+    RetainPtr fileUTI = [UTType typeWithFilenameExtension:fileExtension.get()];
+    if ([fileUTI conformsToType:UTTypeImage])
         return iconForImageFile(file.get());
 
-    // MAVERICKS_BACKPORT: legacy UTTypeConformsTo (UTType class is macOS 11+; see comment above).
-    if (fileUTI && UTTypeConformsTo(fileUTI.get(), kUTTypeMovie))
+    if ([fileUTI conformsToType:UTTypeMovie])
         return iconForVideoFile(file.get());
 
     return fallbackIconForFile(file.get());

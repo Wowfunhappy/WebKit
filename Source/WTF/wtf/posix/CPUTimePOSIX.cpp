@@ -30,11 +30,6 @@
 #include <sys/time.h>
 #include <time.h>
 
-// MAVERICKS_BACKPORT: 10.9 lacks clock_gettime, so pull in mach.h for the thread_info()-based per-thread CPU time path below.
-#if OS(DARWIN) && !HAVE(CLOCK_GETTIME)
-#include <mach/mach.h>
-#endif
-
 namespace WTF {
 
 static Seconds NODELETE timevalToSeconds(const struct timeval& value)
@@ -52,26 +47,10 @@ std::optional<CPUTime> CPUTime::get()
 
 Seconds CPUTime::forCurrentThread()
 {
-    // MAVERICKS_BACKPORT: clock_gettime(CLOCK_THREAD_CPUTIME_ID) is 10.12+; on 10.9 (HAVE(CLOCK_GETTIME) false) fall back to mach thread_info() THREAD_BASIC_INFO for per-thread CPU time.
-#if HAVE(CLOCK_GETTIME)
     struct timespec ts { };
     int ret = clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
     RELEASE_ASSERT(!ret);
     return Seconds(ts.tv_sec) + Seconds::fromNanoseconds(ts.tv_nsec);
-// MAVERICKS_BACKPORT: 10.9 has no clock_gettime(CLOCK_THREAD_CPUTIME_ID); take the mach thread_info() path instead.
-#elif OS(DARWIN)
-    // macOS < 10.12 has no clock_gettime(CLOCK_THREAD_CPUTIME_ID); read per-thread CPU time from mach.
-    thread_basic_info_data_t info { };
-    mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
-    thread_t thread = mach_thread_self();
-    kern_return_t kr = thread_info(thread, THREAD_BASIC_INFO, reinterpret_cast<thread_info_t>(&info), &count);
-    mach_port_deallocate(mach_task_self(), thread);
-    RELEASE_ASSERT(kr == KERN_SUCCESS);
-    auto toSeconds = [](const time_value_t& t) { return Seconds(t.seconds) + Seconds::fromMicroseconds(t.microseconds); };
-    return toSeconds(info.user_time) + toSeconds(info.system_time);
-#else
-#error "No per-thread CPU time source available for this platform."
-#endif
 }
 
 }

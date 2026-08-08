@@ -1,13 +1,6 @@
 #ifndef YASM_INTTREE_H
 #define YASM_INTTREE_H
 
-/* MAVERICKS_BACKPORT: the Apple SDK/toolchain defines `nil` as a macro, but this interval-tree
-   code uses `nil` as an ordinary identifier (sentinel node, used ~80x in inttree.{c,h}).
-   Undefine it here so those declarations/uses compile. Only inttree.{c,h} use `nil`. */
-#ifdef nil
-#undef nil
-#endif
-
 #ifndef YASM_LIB_DECL
 #define YASM_LIB_DECL
 #endif

@@ -81,8 +81,7 @@ RetainPtr<CFArrayRef> minimizedLanguagesFromLanguages(CFArrayRef languages)
     }
 
 ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
-    // MAVERICKS_BACKPORT: the 10.9 SDK lacks the NSArray<NSString *> lightweight-generic syntax, so the bridge cast uses the plain NSArray * type.
-    return (__bridge CFArrayRef)[NSLocale minimizedLanguagesFromLanguages:(__bridge NSArray *)languages];
+    return (__bridge CFArrayRef)[NSLocale minimizedLanguagesFromLanguages:(__bridge NSArray<NSString *> *)languages];
 ALLOW_NEW_API_WITHOUT_GUARDS_END
 }
 

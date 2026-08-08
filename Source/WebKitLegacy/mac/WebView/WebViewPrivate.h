@@ -150,8 +150,7 @@ typedef enum {
 @property (nonatomic, retain) UIImage *dataInteractionImage;
 @property (nonatomic, assign) CGRect selectionRectInRootViewCoordinates;
 @property (nonatomic, assign) CGRect textBoundingRectInRootViewCoordinates;
-// MAVERICKS_BACKPORT: bare NSArray (no NSArray<NSValue *> lightweight generics) for the 10.9 build.
-@property (nonatomic, retain) NSArray *textRectsInBoundingRectCoordinates; // CGRect values
+@property (nonatomic, retain) NSArray<NSValue *> *textRectsInBoundingRectCoordinates; // CGRect values
 @property (nonatomic, assign) CGFloat contentImageScaleFactor;
 @property (nonatomic, retain) UIImage *contentImageWithHighlight;
 @property (nonatomic, retain) UIImage *contentImage;
@@ -1026,8 +1025,7 @@ typedef struct WebEdgeInsets {
 @end
 
 @interface WebView (WebViewIOSAdditions)
-// MAVERICKS_BACKPORT: bare NSArray (no NSArray<DOMElement *> lightweight generics) for the 10.9 build.
-- (NSArray *)_editableElementsInRect:(CGRect)rect;
+- (NSArray<DOMElement *> *)_editableElementsInRect:(CGRect)rect;
 - (void)revealCurrentSelection;
 
 // View must be a UIView.

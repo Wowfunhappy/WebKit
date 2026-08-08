@@ -40,14 +40,7 @@
 
 #if defined(WEBRTC_POSIX)
 #include <fcntl.h>
-// MAVERICKS_BACKPORT: explicit <netinet/in.h> needed so IP_RECVTOS can be checked/defined below on the 10.9 SDK.
-#include <netinet/in.h>
 #include <netinet/tcp.h>  // for TCP_NODELAY
-// MAVERICKS_BACKPORT: IP_RECVTOS (receive IP TOS byte, used for ECN) is absent from the 10.9 SDK
-// (added to macOS later). Define it to its macOS value when the SDK doesn't provide it.
-#if !defined(IP_RECVTOS)
-#define IP_RECVTOS 27
-#endif
 #if defined(WEBRTC_USE_EPOLL)
 // "poll" will be used to wait for the signal dispatcher.
 #include <poll.h>

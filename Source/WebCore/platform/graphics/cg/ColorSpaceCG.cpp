@@ -28,16 +28,10 @@
 
 #if USE(CG)
 
-// MAVERICKS_BACKPORT: <dlfcn.h> for dladdr/Dl_info locating the WebCore bundle's linearSRGB.icc on 10.9.
-#include <dlfcn.h>
 #include <mutex>
 #include <pal/spi/cg/CoreGraphicsSPI.h>
-// MAVERICKS_BACKPORT: <wtf/FileSystem.h> for reading the bundled linearSRGB.icc profile on 10.9.
-#include <wtf/FileSystem.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RetainPtr.h>
-// MAVERICKS_BACKPORT: <wtf/text/WTFString.h> for String/StringView building the 10.9 linearSRGB path.
-#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
@@ -57,16 +51,7 @@ template<const CFStringRef& colorSpaceNameGlobalConstant> static CGColorSpaceRef
     static LazyNeverDestroyed<RetainPtr<CGColorSpaceRef>> colorSpace;
     static std::once_flag onceFlag;
     std::call_once(onceFlag, [] {
-        // MAVERICKS_BACKPORT: CGColorSpaceCreateExtended is 10.12+ and weak-links to NULL at RUNTIME
-        // on 10.9. Gate on the deployment target (MIN_REQUIRED=1090), NOT MAX_ALLOWED (always-true on
-        // the 26.1 SDK), so on 10.9 we fall back to the non-extended named color space instead of
-        // calling a missing symbol.
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200
         colorSpace.construct(adoptCF(CGColorSpaceCreateExtended(RetainPtr { namedColorSpace<colorSpaceNameGlobalConstant>() }.get())));
-// MAVERICKS_BACKPORT: on 10.9 (below 10.12) fall back to the non-extended named color space.
-#else
-        colorSpace.construct(RetainPtr<CGColorSpaceRef>(namedColorSpace<colorSpaceNameGlobalConstant>()));
-#endif
         ASSERT(colorSpace.get());
     });
     return colorSpace.get().get();
@@ -134,41 +119,7 @@ CGColorSpaceRef linearDisplayP3ColorSpaceSingleton()
 
 CGColorSpaceRef linearSRGBColorSpaceSingleton()
 {
-// MAVERICKS_BACKPORT: kCGColorSpaceLinearSRGB is 10.12+ (NULL name on 10.9), but linear sRGB is
-// required core functionality — SVG filters interpolate in linearRGB by default. Restore the
-// classic WebCore mechanism (shipped until the 10.12 floor, and by stock 10.9 WebCore): build the
-// space from the linearSRGB.icc profile in the WebCore framework bundle
-// (Source/WebCore/Resources/linearSRGB.icc, staged by install-safari7.sh). Fall back to plain
-// sRGB if the profile is missing so filters still run (in gamma space) rather than with a NULL
-// color space.
-#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200
     return namedColorSpace<kCGColorSpaceLinearSRGB>();
-// MAVERICKS_BACKPORT: on 10.9 (below 10.12) build linear sRGB from the WebCore bundle's linearSRGB.icc profile.
-#else
-    static LazyNeverDestroyed<RetainPtr<CGColorSpaceRef>> colorSpace;
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
-        RetainPtr<CGColorSpaceRef> linearSRGB;
-        // Locate the profile relative to the WebCore binary itself (…/Versions/A/WebCore →
-        // …/Versions/A/Resources/linearSRGB.icc) — the built framework's Info.plist carries no
-        // CFBundleIdentifier, so a bundle-identifier lookup can't be used here.
-        Dl_info info;
-        if (dladdr(reinterpret_cast<void*>(&linearSRGBColorSpaceSingleton), &info) && info.dli_fname) {
-            auto profilePath = FileSystem::pathByAppendingComponents(FileSystem::parentPath(String::fromUTF8(info.dli_fname)), std::initializer_list<StringView>({ "Resources"_s, "linearSRGB.icc"_s }));
-            if (auto contents = FileSystem::readEntireFile(profilePath)) {
-                if (RetainPtr profileData = adoptCF(CFDataCreate(kCFAllocatorDefault, contents->span().data(), contents->size()))) {
-                    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-                    linearSRGB = adoptCF(CGColorSpaceCreateWithICCProfile(profileData.get()));
-                    ALLOW_DEPRECATED_DECLARATIONS_END
-                }
-            }
-        }
-        if (!linearSRGB)
-            linearSRGB = sRGBColorSpaceSingleton();
-        colorSpace.construct(WTF::move(linearSRGB));
-    });
-    return colorSpace.get().get();
-#endif
 }
 
 CGColorSpaceRef ROMMRGBColorSpaceSingleton()
@@ -183,79 +134,55 @@ CGColorSpaceRef xyzD50ColorSpaceSingleton()
 
 // FIXME: Figure out how to create a CoreGraphics XYZ-D65 color space and add a xyzD65ColorSpaceRef(). Perhaps CGColorSpaceCreateCalibratedRGB() with identify black point, D65 white point, and identity matrix.
 
-// MAVERICKS_BACKPORT: on 10.9 the post-10.9 named color-space singletons above legitimately
-// return NULL (CGColorSpaceCreateWithName on a name the OS doesn't know). NULL means "this
-// color space doesn't exist here", so an equality probe against it is simply false — but
-// 10.9 CoreGraphics' CGColorSpaceEqualToColorSpace is not documented NULL-safe, so guard.
-static bool colorSpaceEqualToNullableColorSpace(CGColorSpaceRef colorSpace, CGColorSpaceRef candidate)
-{
-    return candidate && CGColorSpaceEqualToColorSpace(colorSpace, candidate);
-}
-
 std::optional<ColorSpace> colorSpaceForCGColorSpace(CGColorSpaceRef colorSpace)
 {
     // First test for the four most common spaces, sRGB, Extended sRGB, DisplayP3 and Linear sRGB, and then test
     // the reset in alphabetical order.
     // FIXME: Consider using a HashMap (with CFHash based keys) rather than the linear set of tests.
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, sRGBColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, sRGBColorSpaceSingleton()))
         return ColorSpace::SRGB;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedSRGBColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedSRGBColorSpaceSingleton()))
         return ColorSpace::ExtendedSRGB;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, displayP3ColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, displayP3ColorSpaceSingleton()))
         return ColorSpace::DisplayP3;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, linearSRGBColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, linearSRGBColorSpaceSingleton()))
         return ColorSpace::LinearSRGB;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, adobeRGB1998ColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, adobeRGB1998ColorSpaceSingleton()))
         return ColorSpace::A98RGB;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedAdobeRGB1998ColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedAdobeRGB1998ColorSpaceSingleton()))
         return ColorSpace::ExtendedA98RGB;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedDisplayP3ColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedDisplayP3ColorSpaceSingleton()))
         return ColorSpace::ExtendedDisplayP3;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedLinearDisplayP3ColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedLinearDisplayP3ColorSpaceSingleton()))
         return ColorSpace::ExtendedLinearDisplayP3;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedLinearSRGBColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedLinearSRGBColorSpaceSingleton()))
         return ColorSpace::ExtendedLinearSRGB;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedITUR_2020ColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedITUR_2020ColorSpaceSingleton()))
         return ColorSpace::ExtendedRec2020;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, extendedROMMRGBColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, extendedROMMRGBColorSpaceSingleton()))
         return ColorSpace::ExtendedProPhotoRGB;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, ITUR_2020ColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, ITUR_2020ColorSpaceSingleton()))
         return ColorSpace::Rec2020;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, linearDisplayP3ColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, linearDisplayP3ColorSpaceSingleton()))
         return ColorSpace::LinearDisplayP3;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, ROMMRGBColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, ROMMRGBColorSpaceSingleton()))
         return ColorSpace::ProPhotoRGB;
 
-    // MAVERICKS_BACKPORT: NULL-safe comparator; post-10.9 color-space singletons are NULL on 10.9.
-    if (colorSpaceEqualToNullableColorSpace(colorSpace, xyzD50ColorSpaceSingleton()))
+    if (CGColorSpaceEqualToColorSpace(colorSpace, xyzD50ColorSpaceSingleton()))
         return ColorSpace::XYZ_D50;
 
     // FIXME: Add support for remaining color spaces to support more direct conversions.

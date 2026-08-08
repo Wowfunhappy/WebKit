@@ -27,20 +27,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-// MAVERICKS_BACKPORT: getentropy() and <sys/random.h> are macOS 10.12+. Provide getentropy() via
-// arc4random_buf (macOS 10.7+, a CSPRNG). Version-guarded so newer SDKs keep their own.
-#if defined(__APPLE__)
-#include <Availability.h>
-#if !defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED < 101200
-// getentropy() is declared by the WebKit 10.9 compat header (force-included via
-// clang.cfg) and implemented by the toolchain's macports-legacy-support; defining
-// a second (static) copy here conflicts with that non-static declaration. Just
-// skip <sys/random.h> (10.12+) and use the provided getentropy().
-#define WEBKIT_109_GETENTROPY 1
-#endif
-#endif
-
-#if (defined(OPENSSL_MACOS) || defined(OPENSSL_FUCHSIA)) && !defined(WEBKIT_109_GETENTROPY)
+#if defined(OPENSSL_MACOS) || defined(OPENSSL_FUCHSIA)
 #include <sys/random.h>
 #endif
 

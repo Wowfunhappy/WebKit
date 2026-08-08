@@ -28,10 +28,6 @@
 #ifdef __OBJC__
 #import <CoreFoundation/CoreFoundation.h>
 #import <CoreText/CTFont.h>
-// MAVERICKS_BACKPORT: on the 10.9 SDK NSFont is not pulled in transitively, so import it explicitly for the CTFont<->NSFont toll-free bridging traits below.
-#if USE(APPKIT)
-#import <AppKit/NSFont.h>
-#endif
 #import <Foundation/Foundation.h>
 #import <wtf/spi/cocoa/IOSurfaceSPI.h>
 #endif

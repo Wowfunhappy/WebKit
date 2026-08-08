@@ -352,12 +352,8 @@
 #endif
 
 #if !defined(HAVE_QOS_CLASSES) && PLATFORM(COCOA)
-/* MAVERICKS_BACKPORT: QoS classes (qos_class_t / dispatch_qos_class_t) were introduced in macOS 10.10; they do not
-   exist on 10.9. Gate on the deployment target so a 10.9 build falls back to default scheduling. */
-#if !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101000
 #define HAVE_QOS_CLASSES 1
 #endif
-#endif // MAVERICKS_BACKPORT: closes the 10.10+ QoS-classes deployment-target guard.
 
 #if !defined(HAVE_NSVIEW_IMPLICIT_LAYOUT_PASS) && PLATFORM(MAC)
 /* MAVERICKS_BACKPORT: AppKit runs pending -layout passes as part of every window's display cycle from

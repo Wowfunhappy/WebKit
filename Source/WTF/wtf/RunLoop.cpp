@@ -26,10 +26,6 @@
 #include "config.h"
 #include <wtf/RunLoop.h>
 
-// MAVERICKS_BACKPORT: explicit includes for Locker/Vector uses below (this build is -fno-modules,
-// so transitive Darwin-module includes upstream relies on are not provided).
-#include <wtf/Lock.h>
-#include <wtf/Vector.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
 #include <wtf/StdLibExtras.h>

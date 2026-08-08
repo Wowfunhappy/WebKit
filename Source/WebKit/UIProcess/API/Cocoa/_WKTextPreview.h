@@ -1,7 +1,3 @@
-// MAVERICKS_BACKPORT: textual include guard added so this header is safe to import more than once under the backport's -fno-modules build.
-#ifndef _WKTextPreview_h
-#define _WKTextPreview_h
-
 /*
  * Copyright (C) 2024 Apple Inc. All rights reserved.
  *
@@ -42,6 +38,3 @@ WK_CLASS_AVAILABLE(macos(15.2), ios(18.2), visionos(2.2))
 - (instancetype)initWithSnapshotImage:(CGImageRef)snapshotImage presentationFrame:(CGRect)presentationFrame;
 
 @end
-
-// MAVERICKS_BACKPORT: closes the textual include guard added for the backport's -fno-modules build.
-#endif /* _WKTextPreview_h */

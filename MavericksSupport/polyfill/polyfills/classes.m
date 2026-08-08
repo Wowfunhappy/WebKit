@@ -435,8 +435,16 @@ WK_PRIV_CLASS(UTType) @interface UTType : NSObject {
 }
 + (nullable instancetype)typeWithMIMEType:(NSString *)mimeType
 {
+    return [self typeWithMIMEType:mimeType conformingToType:nil];
+}
+// The supertype constrains the search exactly as the classic API's third argument does: asking for
+// image/png conformingToType:UTTypeImage resolves through the image branch of the registry rather
+// than whatever type happens to claim the MIME tag first. CocoaImage's transcode path relies on it.
++ (nullable instancetype)typeWithMIMEType:(NSString *)mimeType conformingToType:(UTType *)supertype
+{
     if (!mimeType) return nil;
-    CFStringRef uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, (__bridge CFStringRef)mimeType, NULL);
+    CFStringRef uti = UTTypeCreatePreferredIdentifierForTag(kUTTagClassMIMEType, (__bridge CFStringRef)mimeType,
+        supertype ? (__bridge CFStringRef)supertype->_identifier : NULL);
     if (!uti) return nil;
     UTType *t = [[[self alloc] initWithIdentifier:(__bridge NSString *)uti] autorelease];
     CFRelease(uti);

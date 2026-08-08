@@ -8,9 +8,6 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-// MAVERICKS_BACKPORT: import Foundation explicitly (macOS path doesn't get it via UIKit). See
-// RTCNativeI420Buffer.mm.
-#import <Foundation/Foundation.h>
 #import "RTCNativeMutableI420Buffer.h"
 
 #import "RTCNativeI420Buffer+Private.h"

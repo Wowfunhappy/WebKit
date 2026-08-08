@@ -112,11 +112,7 @@ class AnnexBBufferReader final {
   // Return true if a NALU of the desired type is found, false if we
   // reached the end instead
   bool SeekToNextNaluOfType(H264::NaluType type);
-#ifdef RTC_ENABLE_H265
-  // MAVERICKS_BACKPORT: this overload was unguarded but H265::NaluType comes from h265_common.h,
-  // which is only #included under RTC_ENABLE_H265 (HEVC is unsupported pre-10.13). Guard to match.
   bool SeekToNextNaluOfType(H265::NaluType type);
-#endif
 
  private:
   // Returns the the next offset that contains NALU data.

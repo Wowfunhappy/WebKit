@@ -23,10 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: explicit include guard (upstream relies on #pragma once); guards against double inclusion under the 10.9 toolchain's -fno-modules build.
-#ifndef WKDownloadDelegate_h
-#define WKDownloadDelegate_h
-
 #import <Foundation/Foundation.h>
 #import <WebKit/WKFoundation.h>
 
@@ -148,6 +144,3 @@ WK_SWIFT_UI_ACTOR
 @end
 
 NS_ASSUME_NONNULL_END
-
-// MAVERICKS_BACKPORT: closes the explicit include guard added at the top for the 10.9 -fno-modules build.
-#endif // WKDownloadDelegate_h

@@ -29,17 +29,6 @@
 #include <wtf/OSObjectPtr.h>
 #include <wtf/darwin/TypeCastsOSObject.h>
 
-// MAVERICKS_BACKPORT: the dispatch_queue_global OS-object type is 10.10+; on the 10.9 SDK (detected by the absence of DISPATCH_QUEUE_SERIAL_WITH_AUTORELEASE_POOL) omit it from the OS-object type list so the OSObjectPtr machinery is not generated for a type that does not exist.
-#ifndef DISPATCH_QUEUE_SERIAL_WITH_AUTORELEASE_POOL
-#define WTF_OS_OBJECT_DISPATCH_TYPES(M) \
-    M(dispatch_data) \
-    M(dispatch_group) \
-    M(dispatch_io) \
-    M(dispatch_object) \
-    M(dispatch_queue) \
-    M(dispatch_semaphore) \
-    M(dispatch_source)
-#else
 #define WTF_OS_OBJECT_DISPATCH_TYPES(M) \
     M(dispatch_data) \
     M(dispatch_group) \
@@ -49,7 +38,6 @@
     M(dispatch_queue_global) \
     M(dispatch_semaphore) \
     M(dispatch_source)
-#endif // MAVERICKS_BACKPORT: dispatch_queue_global is 10.10+; omitted on the 10.9 SDK (see above).
 
 // Forward declarations for dispatch base struct types.
 WTF_EXTERN_C_BEGIN

@@ -37,8 +37,6 @@
 #include <WebCore/LogInitialization.h>
 #include <pal/SessionID.h>
 #include <wtf/LogInitialization.h>
-// MAVERICKS_BACKPORT: RefCountDebugger.h for the explicit enableThreadingChecksGlobally() call in initialize().
-#include <wtf/RefCountDebugger.h>
 #include <wtf/SetForScope.h>
 #include <wtf/WTFProcess.h>
 

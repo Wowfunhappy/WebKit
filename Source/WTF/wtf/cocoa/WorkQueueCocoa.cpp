@@ -56,9 +56,12 @@ void WorkQueueBase::dispatch(Function<void()>&& function)
 
 void WorkQueueBase::dispatchWithQOS(Function<void()>&& function, QOS qos)
 {
-    // MAVERICKS_BACKPORT: dispatch_block_create_with_qos_class is 10.10+; on 10.9 ignore the requested QoS and dispatch the work item plainly.
-    UNUSED_PARAM(qos);
-    dispatch_async_f(m_dispatchQueue.get(), new DispatchWorkItem { WTF::move(function) }, dispatchWorkItem<DispatchWorkItem>);
+    // FIXME: This is a false positive. rdar://160931336
+    SUPPRESS_RETAINPTR_CTOR_ADOPT auto blockWithQOS = adoptOSObject(dispatch_block_create_with_qos_class(DISPATCH_BLOCK_ENFORCE_QOS_CLASS, Thread::dispatchQOSClass(qos), 0, makeBlockPtr([function = WTF::move(function)] () mutable {
+        function();
+        function = { };
+    }).get()));
+    dispatch_async(m_dispatchQueue.get(), blockWithQOS.get());
 }
 
 void WorkQueueBase::dispatchAfter(Seconds duration, Function<void()>&& function)
@@ -80,13 +83,7 @@ WorkQueueBase::WorkQueueBase(OSObjectPtr<dispatch_queue_t>&& dispatchQueue)
 void WorkQueueBase::platformInitialize(ASCIILiteral name, Type type, QOS qos)
 {
     dispatch_queue_attr_t attr = type == Type::Concurrent ? DISPATCH_QUEUE_CONCURRENT : DISPATCH_QUEUE_SERIAL;
-    // MAVERICKS_BACKPORT: HAVE(QOS_CLASSES) is false on 10.9, so guard dispatch_queue_attr_make_with_qos_class (10.10+) and create the queue with default scheduling.
-#if HAVE(QOS_CLASSES)
     attr = dispatch_queue_attr_make_with_qos_class(attr, Thread::dispatchQOSClass(qos), 0);
-#else
-    // macOS < 10.10 has no QoS classes; create the queue with default scheduling.
-    UNUSED_PARAM(qos);
-#endif
     // FIXME: This is a false positive. rdar://160931336
     SUPPRESS_RETAINPTR_CTOR_ADOPT lazyInitialize(m_dispatchQueue, adoptOSObject(dispatch_queue_create(name, attr)));
     dispatch_set_context(m_dispatchQueue.get(), this);

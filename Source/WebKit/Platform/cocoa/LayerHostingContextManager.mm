@@ -26,9 +26,6 @@
 #include "config.h"
 #include "LayerHostingContextManager.h"
 
-// MAVERICKS_BACKPORT: explicit include for WebCore::FloatRect/FloatSize used below; the backport's header
-// set no longer pulls it in transitively, so include it directly to keep the 10.9 build compiling.
-#include <WebCore/FloatRect.h>
 #include <wtf/MachSendRightAnnotated.h>
 
 namespace WebKit {

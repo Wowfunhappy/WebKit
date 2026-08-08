@@ -31,10 +31,6 @@
 #import "ChromeClient.h"
 #import "DocumentPage.h"
 #import "DocumentView.h"
-// MAVERICKS_BACKPORT: build glue — explicit FrameLoader/FrameLoaderClient includes for clang-22 complete-type
-// requirements (these were transitively available upstream but are needed directly here).
-#import "FrameLoader.h"
-#import "FrameLoaderClient.h"
 #import "LocalFrame.h"
 #import "RenderView.h"
 

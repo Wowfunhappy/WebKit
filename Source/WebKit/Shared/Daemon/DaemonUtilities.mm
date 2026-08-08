@@ -73,15 +73,12 @@ void startListeningForMachServiceConnections(const char* serviceName, ASCIILiter
             eventHandler(event);
         });
         xpc_connection_set_target_queue(peer, mainDispatchQueueSingleton());
-        // MAVERICKS_BACKPORT: xpc_connection_activate is 10.14+; xpc_connection_resume is the 10.9
-        // equivalent for a freshly-created connection.
-        xpc_connection_resume(peer);
+        xpc_connection_activate(peer);
 
         NSLog(@"Adding peer connection %p", peer);
         connectionAdded(peer);
     });
-    // MAVERICKS_BACKPORT: xpc_connection_activate is 10.14+; xpc_connection_resume is the 10.9 equivalent.
-    xpc_connection_resume(listener.get().get());
+    xpc_connection_activate(listener.get().get());
 }
 
 OSObjectPtr<xpc_object_t> vectorToXPCData(Vector<uint8_t>&& vector)

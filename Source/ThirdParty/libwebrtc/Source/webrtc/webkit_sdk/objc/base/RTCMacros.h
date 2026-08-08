@@ -11,13 +11,6 @@
 #ifndef SDK_OBJC_BASE_RTCMACROS_H_
 #define SDK_OBJC_BASE_RTCMACROS_H_
 
-// MAVERICKS_BACKPORT: RTCMacros.h is the common base included first by all webkit_sdk ObjC headers.
-// On iOS, Foundation arrives transitively via UIKit; on macOS several .mm files include
-// NSString-using headers before Foundation, so import it here once for all ObjC TUs.
-#ifdef __OBJC__
-#import <Foundation/Foundation.h>
-#endif
-
 #define RTC_OBJC_EXPORT __attribute__((visibility("default")))
 
 #if defined(__cplusplus)

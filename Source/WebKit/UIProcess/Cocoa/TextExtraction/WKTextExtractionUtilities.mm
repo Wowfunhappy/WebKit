@@ -28,10 +28,6 @@
 
 #if USE(APPLE_INTERNAL_SDK) || (!PLATFORM(WATCHOS) && !PLATFORM(APPLETV))
 
-// MAVERICKS_BACKPORT: provides LOG_CHANNEL_PREFIX for the RELEASE_LOG below. Upstream relies on a
-// sibling in this file's unified-source bundle importing Logging.h first; the backport's source set
-// bundles this file alone in its unified group, so import it directly.
-#import "Logging.h"
 #import "SafeBrowsingUtilities.h"
 #import "WKWebViewInternal.h"
 #import "_WKTextExtractionInternal.h"

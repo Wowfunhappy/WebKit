@@ -226,8 +226,7 @@ extern NSString *WebPreferencesCacheModelChangedInternalNotification WEBKIT_DEPR
 @property (nonatomic) BOOL sourceBufferChangeTypeEnabled;
 @property (nonatomic) BOOL siteSpecificQuirksModeEnabled;
 @property (nonatomic) NSString *mediaContentTypesRequiringHardwareSupport;
-// MAVERICKS_BACKPORT: bare NSArray (no NSArray<NSString *> lightweight generics) for the 10.9 build.
-@property (nonatomic, retain) NSArray *additionalSupportedImageTypes; // additionalSupportedImageTypes is an array of image UTIs.
+@property (nonatomic, retain) NSArray<NSString *> *additionalSupportedImageTypes; // additionalSupportedImageTypes is an array of image UTIs.
 
 #if !TARGET_OS_IPHONE
 
@@ -263,13 +262,11 @@ extern NSString *WebPreferencesCacheModelChangedInternalNotification WEBKIT_DEPR
 // For use by MiniBrowser and testing infrastructure only
 
 @interface WebPreferences (WebPrivateExperimentalFeatures)
-// MAVERICKS_BACKPORT: bare NSArray (no NSArray<WebFeature *> lightweight generics) for the 10.9 build.
-+ (NSArray *)_experimentalFeatures;
++ (NSArray<WebFeature *> *)_experimentalFeatures;
 @end
 
 @interface WebPreferences (WebPrivateInternalFeatures)
-// MAVERICKS_BACKPORT: bare NSArray (no NSArray<WebFeature *> lightweight generics) for the 10.9 build.
-+ (NSArray *)_internalFeatures;
++ (NSArray<WebFeature *> *)_internalFeatures;
 @end
 
 @interface WebPreferences (WebPrivateFeatures)

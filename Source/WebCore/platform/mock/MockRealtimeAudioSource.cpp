@@ -46,8 +46,7 @@
 #include "MockAudioCaptureUnit.h"
 #endif
 
-// MAVERICKS_BACKPORT: gate the GStreamer mock-source include on USE(GSTREAMER_MEDIA_STREAM) as well, so it is only pulled in when the GStreamer media-stream backend is actually built on 10.9.
-#if USE(GSTREAMER) && USE(GSTREAMER_MEDIA_STREAM)
+#if USE(GSTREAMER)
 #include "MockRealtimeAudioSourceGStreamer.h"
 #endif
 

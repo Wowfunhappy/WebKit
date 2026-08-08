@@ -48,15 +48,6 @@ DECLARE_SYSTEM_HEADER
 
 #if HAVE(PDFKIT)
 
-// MAVERICKS_BACKPORT: the 10.9 PDFKit declares no PDFPoint/PDFRect typedefs (added in later SDKs), so define them as their NSPoint/NSRect equivalents for the SPI category below.
-// PDFPoint/PDFRect are NSPoint/NSRect on older SDKs
-#ifndef PDFPoint
-typedef NSPoint PDFPoint;
-#endif
-#ifndef PDFRect
-typedef NSRect PDFRect;
-#endif
-
 @interface PDFSelection (SPI)
 - (PDFPoint)firstCharCenter;
 - (/*nullable*/ NSString *)html;

@@ -31,7 +31,6 @@
 #import <wtf/SoftLinking.h>
 
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE(WebKit, DeviceManagement);
-// MAVERICKS_BACKPORT: the DeviceManagement framework DMFWebsitePolicyMonitor is absent on macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, DeviceManagement, DMFWebsitePolicyMonitor);
+SOFT_LINK_CLASS_FOR_SOURCE(WebKit, DeviceManagement, DMFWebsitePolicyMonitor);
 
 #endif // HAVE(DEVICE_MANAGEMENT)

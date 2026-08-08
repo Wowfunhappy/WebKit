@@ -31,6 +31,15 @@ WK_POLYFILL_ABSENT("CoreGraphics", CFStringRef, CGColorSpaceGetName, (CGColorSpa
     return name ? (CFStringRef)CFAutorelease(name) : NULL;
 }
 
+// CGColorSpaceCreateExtended (10.12+): widens a color space to extended range, letting component
+// values fall outside [0,1]. 10.9 CoreGraphics has no extended-range concept at all, so the honest
+// answer is the space itself — clamped rather than extended, which is what every pre-10.12 Mac did
+// with these colors. Returns +1 to match the Create rule its callers adopt from.
+WK_POLYFILL_ABSENT("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateExtended, (CGColorSpaceRef space))
+{
+    return space ? CGColorSpaceRetain(space) : NULL;
+}
+
 // CGIOSurfaceContextCreateImageReference (newer name) == CGIOSurfaceContextCreateImage.
 extern CGImageRef CGIOSurfaceContextCreateImage(CGContextRef);
 WK_POLYFILL_ABSENT("CoreGraphics", CGImageRef, CGIOSurfaceContextCreateImageReference, (CGContextRef context))
@@ -1204,13 +1213,72 @@ WK_POLYFILL_CONST("CoreGraphics", CFStringRef, kCGColorSpaceExtendedRec2020, CFS
 // and its answer is returned untouched, so every colour space 10.9 understands behaves identically. Only a
 // NULL answer for one of the names 10.9 lacks is substituted.
 //
-// The substitute is sRGB. 10.9's colour pipeline has no extended-range or wide-gamut representation at all
-// -- there is no display path that could show a colour outside sRGB -- so sRGB is both the closest space
-// available and the one whose rendering matches what the screen actually produces. Colours outside the
-// sRGB gamut clamp, which is what happens on this hardware regardless of how they were tagged. The
-// alternative, a NULL colour space, is not a lesser answer but a broken one: it fails the caller's ASSERT
-// and leaves CGBitmapContext creation without a colour space.
+// The substitute depends on the name's TRANSFER FUNCTION, which is the part of these spaces 10.9 can
+// still represent exactly even though it has no wide-gamut or extended-range display path.
+//
+// GAMUT is genuinely unavailable: there is no display path here that could show a colour outside sRGB,
+// so Display P3, Rec. 2020, ProPhoto RGB and the extended-range variants all resolve to sRGB. Colours
+// outside the sRGB gamut clamp, which is what this hardware does regardless of how they were tagged.
+//
+// The LINEAR names are different, and getting them wrong is not a gamut approximation but a wrong
+// answer. A space named "linear sRGB" whose transfer function is sRGB's ~2.2 gamma misreports every
+// value in it: WebCore composites SVG filters in linearRGB by default, so returning a gamma space
+// there silently moves filter maths into the wrong domain. 10.9 can express the right thing —
+// CGColorSpaceCreateCalibratedRGB takes an explicit gamma, and sRGB's own primaries and D65 white
+// point are just numbers. Measured on this host by converting 0.5 into an sRGB bitmap: this space
+// yields 187 and WebCore's own Resources/linearSRGB.icc yields 188 (one 1/255 rounding step apart),
+// while plain sRGB yields 128. That one-line difference is the whole reason ColorSpaceCG.cpp used to
+// carry a dladdr + ICC-file loader; with the space correct here, that code reverts to upstream.
+//
+// EVERY name constants.m publishes is answered. Probed on this host, stock CGColorSpaceCreateWithName
+// returns NULL for all eleven of them, and a NULL colour space is not a lesser answer but a broken one:
+// it fails the caller's ASSERT, leaves CGBitmapContext creation without a colour space, and makes
+// distinct absent spaces compare equal to each other.
 WK_SYSTEM_FN("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName, (CFStringRef));
+
+// sRGB's primaries and D65 white point with a gamma of 1.0 — i.e. linear sRGB. Built once; the
+// returned space is retained per call to match CGColorSpaceCreateWithName's Create semantics.
+static CGColorSpaceRef wk_linear_sRGB_storage;
+static void wk_build_linear_sRGB(void)
+{
+    const CGFloat whitePointD65[3] = { 0.9505, 1.0, 1.0890 };
+    const CGFloat blackPoint[3] = { 0.0, 0.0, 0.0 };
+    const CGFloat gammaLinear[3] = { 1.0, 1.0, 1.0 };
+    // Columns are the XYZ coordinates of the sRGB red, green and blue primaries.
+    const CGFloat sRGBPrimariesToXYZ[9] = {
+        0.4124564, 0.2126729, 0.0193339,
+        0.3575761, 0.7151522, 0.1191920,
+        0.1804375, 0.0721750, 0.9503041,
+    };
+    wk_linear_sRGB_storage = CGColorSpaceCreateCalibratedRGB(whitePointD65, blackPoint, gammaLinear, sRGBPrimariesToXYZ);
+}
+
+static CGColorSpaceRef wk_linear_sRGB_space(void)
+{
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, wk_build_linear_sRGB);
+    return wk_linear_sRGB_storage;
+}
+
+// XYZ-D50. 10.9 has no XYZ colour space, but an RGB space whose primary matrix is the identity IS
+// XYZ: the components pass through unchanged. This is the construction upstream's own FIXME in
+// ColorSpaceCG.cpp proposes for the missing XYZ space.
+static CGColorSpaceRef wk_xyz_D50_storage;
+static void wk_build_xyz_D50(void)
+{
+    const CGFloat whitePointD50[3] = { 0.9642, 1.0, 0.8249 };
+    const CGFloat blackPoint[3] = { 0.0, 0.0, 0.0 };
+    const CGFloat gammaLinear[3] = { 1.0, 1.0, 1.0 };
+    const CGFloat identity[9] = { 1.0, 0.0, 0.0,  0.0, 1.0, 0.0,  0.0, 0.0, 1.0 };
+    wk_xyz_D50_storage = CGColorSpaceCreateCalibratedRGB(whitePointD50, blackPoint, gammaLinear, identity);
+}
+
+static CGColorSpaceRef wk_xyz_D50_space(void)
+{
+    static pthread_once_t once = PTHREAD_ONCE_INIT;
+    pthread_once(&once, wk_build_xyz_D50);
+    return wk_xyz_D50_storage;
+}
 
 WK_POLYFILL_REPLACES("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName, (CFStringRef name))
 {
@@ -1221,14 +1289,33 @@ WK_POLYFILL_REPLACES("CoreGraphics", CGColorSpaceRef, CGColorSpaceCreateWithName
     if (space || !name)
         return space;   // 10.9 knew this name (or there is no name): its answer stands
 
-    static const CFStringRef substituted[] = {
-        CFSTR("kCGColorSpaceExtendedSRGB"), CFSTR("kCGColorSpaceLinearSRGB"),
-        CFSTR("kCGColorSpaceExtendedLinearSRGB"), CFSTR("kCGColorSpaceDisplayP3"),
-        CFSTR("kCGColorSpaceExtendedLinearDisplayP3"), CFSTR("kCGColorSpaceExtendedRec2020"),
-        CFSTR("kCGColorSpaceExtendedDisplayP3"), CFSTR("kCGColorSpaceITUR_2020"),
+    // Linear transfer function, sRGB primaries. The extended variants differ from their plain
+    // counterparts only in admitting out-of-[0,1] components, which this OS cannot represent.
+    static const CFStringRef linear[] = {
+        CFSTR("kCGColorSpaceLinearSRGB"), CFSTR("kCGColorSpaceExtendedLinearSRGB"),
+        CFSTR("kCGColorSpaceLinearDisplayP3"), CFSTR("kCGColorSpaceExtendedLinearDisplayP3"),
     };
-    for (size_t i = 0; i < sizeof(substituted) / sizeof(substituted[0]); i++) {
-        if (CFStringCompare(name, substituted[i], 0) == kCFCompareEqualTo)
+    for (size_t i = 0; i < sizeof(linear) / sizeof(linear[0]); i++) {
+        if (CFStringCompare(name, linear[i], 0) == kCFCompareEqualTo) {
+            CGColorSpaceRef linearSRGB = wk_linear_sRGB_space();
+            return linearSRGB ? CGColorSpaceRetain(linearSRGB) : NULL;
+        }
+    }
+
+    if (CFStringCompare(name, CFSTR("kCGColorSpaceGenericXYZ"), 0) == kCFCompareEqualTo) {
+        CGColorSpaceRef xyz = wk_xyz_D50_space();
+        return xyz ? CGColorSpaceRetain(xyz) : NULL;
+    }
+
+    // Wider gamut than sRGB, sRGB-like transfer function: representable only as sRGB here.
+    static const CFStringRef gamutSubstituted[] = {
+        CFSTR("kCGColorSpaceExtendedSRGB"), CFSTR("kCGColorSpaceDisplayP3"),
+        CFSTR("kCGColorSpaceExtendedDisplayP3"), CFSTR("kCGColorSpaceITUR_2020"),
+        CFSTR("kCGColorSpaceExtendedITUR_2020"), CFSTR("kCGColorSpaceExtendedRec2020"),
+        CFSTR("kCGColorSpaceROMMRGB"), CFSTR("kCGColorSpaceExtendedAdobeRGB1998"),
+    };
+    for (size_t i = 0; i < sizeof(gamutSubstituted) / sizeof(gamutSubstituted[0]); i++) {
+        if (CFStringCompare(name, gamutSubstituted[i], 0) == kCFCompareEqualTo)
             return WK_SYSTEM(CGColorSpaceCreateWithName)(kCGColorSpaceSRGB);
     }
     return NULL;   // some other unknown name: 10.9's own answer, unchanged

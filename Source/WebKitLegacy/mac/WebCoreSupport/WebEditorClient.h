@@ -182,10 +182,7 @@ private:
 
 #if PLATFORM(MAC)
     void requestCandidatesForSelection(const WebCore::VisibleSelection&) final;
-    // MAVERICKS_BACKPORT: parameter is a bare NSArray (no NSArray<NSTextCheckingResult *> lightweight
-    // generics) because the candidate-request path is stubbed out on 10.9 — NSSpellChecker lacks
-    // requestCandidatesForSelectedRange, so no typed candidate results ever flow through here.
-    void handleRequestedCandidates(NSInteger, NSArray *);
+    void handleRequestedCandidates(NSInteger, NSArray<NSTextCheckingResult *> *);
     void handleAcceptedCandidateWithSoftSpaces(WebCore::TextCheckingResult) final;
 #endif
 

@@ -664,19 +664,8 @@ void WebPageProxy::showPDFContextMenu(const WebKit::PDFContextMenu& contextMenu,
         RetainPtr nsItem = adoptNS([[NSMenuItem alloc] init]);
 
         if (isOpenWithDefaultViewerItem) {
-            // MAVERICKS_BACKPORT: -[NSWorkspace URLForApplicationToOpenContentType:] is macOS 12+ and
-            // takes a UTType* (11.0+); resolve the default PDF viewer via the legacy LaunchServices
-            // default-role-handler lookup keyed on the legacy kUTTypePDF CFString constant.
-            RetainPtr<NSString> defaultPDFViewerPath;
-            if (RetainPtr<CFStringRef> pdfViewerBundleID = adoptCF(LSCopyDefaultRoleHandlerForContentType(kUTTypePDF, kLSRolesViewer))) {
-                RetainPtr pdfViewerURL = [[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:(__bridge NSString *)pdfViewerBundleID.get()];
-                defaultPDFViewerPath = [pdfViewerURL path];
-            }
-            RetainPtr<NSString> defaultPDFViewerName;
-            if (defaultPDFViewerPath)
-                defaultPDFViewerName = [[NSFileManager defaultManager] displayNameAtPath:defaultPDFViewerPath.get()];
-            else
-                defaultPDFViewerName = @"PDF Viewer";
+            RetainPtr defaultPDFViewerPath = [[[NSWorkspace sharedWorkspace] URLForApplicationToOpenContentType:UTTypePDF] path];
+            RetainPtr defaultPDFViewerName = [[NSFileManager defaultManager] displayNameAtPath:defaultPDFViewerPath.get()];
 
             String itemTitle = contextMenuItemPDFOpenWithDefaultViewer(defaultPDFViewerName.get());
             [nsItem setTitle:itemTitle.createNSString().get()];
@@ -983,9 +972,7 @@ void WebPageProxy::showImageInQuickLookPreviewPanel(ShareableBitmap& imageBitmap
         return;
 
     auto imageData = adoptCF(CFDataCreateMutable(kCFAllocatorDefault, 0));
-    // MAVERICKS_BACKPORT: UTTypePNG is macOS 11+; use the legacy kUTTypePNG CFString constant.
-    CFStringRef pngType = kUTTypePNG;
-    auto destination = adoptCF(CGImageDestinationCreateWithData(imageData.get(), pngType, 1, nullptr));
+    auto destination = adoptCF(CGImageDestinationCreateWithData(imageData.get(), (__bridge CFStringRef)UTTypePNG.identifier, 1, nullptr));
     if (!destination)
         return;
 

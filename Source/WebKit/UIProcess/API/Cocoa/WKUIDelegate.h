@@ -1,7 +1,3 @@
-// MAVERICKS_BACKPORT: explicit include guard (upstream relies on #pragma once); guards against double inclusion under the 10.9 toolchain's -fno-modules build.
-#ifndef WKUIDelegate_h
-#define WKUIDelegate_h
-
 /*
  * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
@@ -318,6 +314,3 @@ WK_SWIFT_UI_ACTOR
 @end
 
 NS_ASSUME_NONNULL_END
-
-// MAVERICKS_BACKPORT: closes the explicit include guard added at the top for the 10.9 -fno-modules build.
-#endif /* WKUIDelegate_h */

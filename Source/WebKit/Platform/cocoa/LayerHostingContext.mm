@@ -31,27 +31,6 @@
 #import <WebCore/WebCoreCALayerExtras.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
-
-// MAVERICKS_BACKPORT: the 10.9 SDK lacks CAContext SPI declarations, so declare CAContext and its SPI here.
-// Ensure CAContext is declared (QuartzCoreSPI.h may be skipped when modules are enabled).
-#if !defined(CACONTEXT_DECLARED)
-#define CACONTEXT_DECLARED 1
-@interface CAContext : NSObject
-@end
-#endif
-
-// Ensure CAContext SPI methods are declared for older SDKs.
-@interface CAContext (LayerHostingContextSPI)
-@property (readonly) uint32_t contextId;
-@property (strong) CALayer *layer;
-@property CGColorSpaceRef colorSpace;
-- (void)invalidate;
-- (void)setFencePort:(mach_port_t)port;
-- (void)setFencePort:(mach_port_t)port commitHandler:(void(^)(void))block;
-- (mach_port_t)createFencePort;
-- (void)invalidateFences;
-@end
-
 #import <wtf/FixedVector.h>
 #import <wtf/MachSendRight.h>
 #import <wtf/TZoneMallocInlines.h>

@@ -31,18 +31,16 @@
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, ScreenCaptureKit, PAL_EXPORT)
 
-// MAVERICKS_BACKPORT: the ScreenCaptureKit framework (SCContentFilter/SCStreamConfiguration/SCStream/SCContentSharingPicker/SCContentSharingPickerConfiguration) postdates macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, ScreenCaptureKit, SCContentFilter, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, ScreenCaptureKit, SCStreamConfiguration, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, ScreenCaptureKit, SCStream, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, ScreenCaptureKit, SCContentSharingPicker, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, ScreenCaptureKit, SCContentSharingPickerConfiguration, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, ScreenCaptureKit, SCContentFilter, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, ScreenCaptureKit, SCStreamConfiguration, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, ScreenCaptureKit, SCStream, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, ScreenCaptureKit, SCContentSharingPicker, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, ScreenCaptureKit, SCContentSharingPickerConfiguration, PAL_EXPORT)
 
 #if HAVE(WINDOW_CAPTURE)
-// MAVERICKS_BACKPORT: the ScreenCaptureKit framework (SCShareableContent/SCWindow/SCDisplay) postdates macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, ScreenCaptureKit, SCShareableContent, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, ScreenCaptureKit, SCWindow, PAL_EXPORT)
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL_WITH_EXPORT(PAL, ScreenCaptureKit, SCDisplay, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, ScreenCaptureKit, SCShareableContent, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, ScreenCaptureKit, SCWindow, PAL_EXPORT)
+SOFT_LINK_CLASS_FOR_SOURCE_WITH_EXPORT(PAL, ScreenCaptureKit, SCDisplay, PAL_EXPORT)
 #endif
 
 SOFT_LINK_CONSTANT_FOR_SOURCE_WITH_EXPORT(PAL, ScreenCaptureKit, SCStreamFrameInfoScaleFactor, NSString *, PAL_EXPORT)

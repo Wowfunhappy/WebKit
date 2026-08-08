@@ -25,26 +25,6 @@
 
 #include "WebKitUtilities.h"
 
-// MAVERICKS_BACKPORT: these 10-bit/alpha CoreVideo pixel formats were added after 10.9 (10.13+).
-// Define their stable FourCC values so the pixel-format mapping compiles; the 10-bit paths
-// are not exercised on 10.9 hardware (frames are 8-bit).
-#import <CoreVideo/CoreVideo.h>
-#ifndef kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
-#define kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange ((OSType)'x420')
-#endif
-#ifndef kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
-#define kCVPixelFormatType_420YpCbCr10BiPlanarFullRange ((OSType)'xf20')
-#endif
-#ifndef kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange
-#define kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange ((OSType)'x422')
-#endif
-#ifndef kCVPixelFormatType_422YpCbCr10BiPlanarFullRange
-#define kCVPixelFormatType_422YpCbCr10BiPlanarFullRange ((OSType)'xf22')
-#endif
-#ifndef kCVPixelFormatType_420YpCbCr8VideoRange_8A_TriPlanar
-#define kCVPixelFormatType_420YpCbCr8VideoRange_8A_TriPlanar ((OSType)'8v0a')
-#endif
-
 #include "api/make_ref_counted.h"
 #include "api/video/i420_buffer.h"
 #include "api/video/video_frame.h"

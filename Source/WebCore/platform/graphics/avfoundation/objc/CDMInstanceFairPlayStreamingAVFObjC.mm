@@ -119,8 +119,7 @@ static const size_t kMaximumDeviceIdentifierSeedSize = 20;
 }
 #endif
 
-// MAVERICKS_BACKPORT: declare keyRequests as a plain NSArray (no lightweight-generic NSArray<AVContentKeyRequest *> *) so the delegate selector matches the AVContentKeySessionDelegate signature on the 10.9 AVFoundation headers.
-- (void)contentKeySession:(AVContentKeySession *)session didProvideContentKeyRequests:(NSArray *)keyRequests forInitializationData:(nullable NSData *)initializationData
+- (void)contentKeySession:(AVContentKeySession *)session didProvideContentKeyRequests:(NSArray<AVContentKeyRequest *> *)keyRequests forInitializationData:(nullable NSData *)initializationData
 {
     UNUSED_PARAM(session);
     UNUSED_PARAM(initializationData);

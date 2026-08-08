@@ -211,25 +211,6 @@ double currentTime()
     return (double)real_time_clock_usecs() / 1'000'000.0;
 }
 
-// MAVERICKS_BACKPORT: dedicated Darwin wall-clock path added because the generic #else branch uses
-// clock_gettime()/CLOCK_REALTIME, which macOS 10.9-10.11 lack; gettimeofday() exists on all versions.
-#elif OS(DARWIN)
-
-// macOS < 10.12 has no clock_gettime()/CLOCK_REALTIME; gettimeofday() is available on all versions.
-Int128 currentTimeInNanoseconds()
-{
-    struct timeval tv { };
-    gettimeofday(&tv, nullptr);
-    return (static_cast<Int128>(tv.tv_sec) * 1'000'000'000) + (static_cast<Int128>(tv.tv_usec) * 1000);
-}
-
-static inline double currentTime()
-{
-    struct timeval tv { };
-    gettimeofday(&tv, nullptr);
-    return static_cast<double>(tv.tv_sec) + tv.tv_usec / 1'000'000.0;
-}
-
 #else
 
 Int128 currentTimeInNanoseconds()
@@ -342,14 +323,8 @@ MonotonicTime MonotonicTime::now()
 
 ApproximateTime ApproximateTime::now()
 {
-    // MAVERICKS_BACKPORT: HAVE(MACH_APPROXIMATE_TIME) gate + Darwin fallback added because
-    // mach_approximate_time() does not exist on 10.9-10.11; fall back to mach_absolute_time().
-#if OS(DARWIN) && HAVE(MACH_APPROXIMATE_TIME)
+#if OS(DARWIN)
     return fromMachApproximateTime(mach_approximate_time());
-#elif OS(DARWIN)
-    // MAVERICKS_BACKPORT: 10.9-10.11: mach_approximate_time() is unavailable; mach_absolute_time() is the exact monotonic
-    // clock on the same timebase (slightly costlier but correct).
-    return fromMachApproximateTime(mach_absolute_time());
 #elif OS(LINUX)
     struct timespec ts { };
     clock_gettime(CLOCK_MONOTONIC_COARSE, &ts);
@@ -367,14 +342,8 @@ ApproximateTime ApproximateTime::now()
 
 ContinuousTime ContinuousTime::now()
 {
-    // MAVERICKS_BACKPORT: HAVE(MACH_CONTINUOUS_TIME) gate + Darwin fallback added because
-    // mach_continuous_time() does not exist on 10.9-10.11; fall back to mach_absolute_time().
-#if OS(DARWIN) && HAVE(MACH_CONTINUOUS_TIME)
+#if OS(DARWIN)
     return fromMachContinuousTime(mach_continuous_time());
-#elif OS(DARWIN)
-    // MAVERICKS_BACKPORT: 10.9-10.11: mach_continuous_time() is unavailable; mach_absolute_time() shares the timebase
-    // but does not advance during sleep. Acceptable fallback for these deployment targets.
-    return fromMachContinuousTime(mach_absolute_time());
 #elif OS(LINUX) || OS(OPENBSD)
     struct timespec ts { };
     clock_gettime(CLOCK_BOOTTIME, &ts);
@@ -391,13 +360,8 @@ ContinuousTime ContinuousTime::now()
 
 ContinuousApproximateTime ContinuousApproximateTime::now()
 {
-    // MAVERICKS_BACKPORT: HAVE(MACH_CONTINUOUS_TIME) gate + Darwin fallback added because
-    // mach_continuous_approximate_time() does not exist on 10.9-10.11; fall back to mach_absolute_time().
-#if OS(DARWIN) && HAVE(MACH_CONTINUOUS_TIME)
+#if OS(DARWIN)
     return fromMachContinuousApproximateTime(mach_continuous_approximate_time());
-#elif OS(DARWIN)
-    // MAVERICKS_BACKPORT: 10.9-10.11 fallback (mach_continuous_approximate_time() unavailable); see ContinuousTime::now().
-    return fromMachContinuousApproximateTime(mach_absolute_time());
 #elif OS(LINUX) || OS(OPENBSD)
     struct timespec ts { };
     clock_gettime(CLOCK_BOOTTIME, &ts);
