@@ -46,10 +46,16 @@ target_link_options(WebKit PRIVATE -weak_framework CryptoTokenKit)
 # stock 10.9 framework is not in the modern SDK's search paths.
 target_link_options(WebKit PRIVATE -weak_library /System/Library/PrivateFrameworks/WebInspectorUI.framework/Versions/A/WebInspectorUI)
 
-# MAVERICKS_BACKPORT: weak-link the two frameworks 10.9 does not ship whose symbols WebKit references
-# through @available/weak_import: Metal (10.11+; MTLCopyAllDevices etc. on the GPU-process resource-purge
-# path) and Network (10.14+; the nw_* WebTransport API). Weak-linking is what makes those references
-# resolve to null at load and stay bindable up front, which is what an eagerly-bound client needs.
+# MAVERICKS_BACKPORT: weak-link Metal (10.11+; MTLCopyAllDevices etc. on the GPU-process
+# resource-purge path), which 10.9 does not ship and whose symbols WebKit references through
+# @available/weak_import. Weak-linking is what makes those references resolve to null at load and
+# stay bindable up front, which is what an eagerly-bound client needs.
+#
+# Network.framework is NOT weak-linked, even though 10.9 ships it in no layout: the polyfill layer
+# defines every nw_*/sec_* entry point WebKit references (polyfills/system-spi.m, constants.m) and
+# force_load makes those definitions win, so nothing is left to bind against the framework. Naming it
+# here as well would put a load command for an image that does not exist into every WebKit binary and
+# leave link order to decide whether a reference resolves to the polyfill or to address 0.
 #
 # Keep this target free of "-undefined dynamic_lookup". Upstream applies that flag to WebCore only
 # (Source/WebCore/CMakeLists.txt, "-umbrella WebKit"). On WebKit it masks real defects rather than
@@ -62,7 +68,7 @@ target_link_options(WebKit PRIVATE -weak_library /System/Library/PrivateFramewor
 # is gated on the ports that actually build the GLib one, and ENABLE_WEB_PUSH_NOTIFICATIONS is off,
 # which is what keeps the WebPushDaemonMain/WebPushToolMain references out. Without the flag, the
 # linker is the gate that catches the next such omission at build time.
-target_link_options(WebKit PRIVATE "SHELL:-weak_framework Metal" "SHELL:-weak_framework Network")
+target_link_options(WebKit PRIVATE "SHELL:-weak_framework Metal")
 
     # MAVERICKS_BACKPORT: the modern "_WebKit" RunLoopType is unknown to 10.9's libxpc, which then falls
     # back to dispatch_main() — that parks the main thread, so the main GCD queue is drained by a

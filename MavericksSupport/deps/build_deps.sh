@@ -360,7 +360,13 @@ GAP_A="$GAPDIR/libmavericks_gap.a"
 ( "$AR" rcs "$GAP_A" "$GAPDIR"/*.o ) || exit 1
 # Every media build below (meson via env, autotools via env, FFmpeg/OpenSSL via their
 # own flag plumbing) links the gap archive.
-export LDFLAGS="$LDFLAGS -Wl,-force_load,$GAP_A"
+#
+# CoreFoundation rides along because force-loading pulls in every member whether the link needs it or
+# not, and cv_colorimetry/launchservices/os_version are written against CF types. A configure step
+# that links a bare C program -- CMake's "check for working C compiler" -- has no other reason to
+# name a framework, so without this the gap archive's CF references are simply undefined and the
+# compiler is reported broken.
+export LDFLAGS="$LDFLAGS -Wl,-force_load,$GAP_A -framework CoreFoundation"
 
 echo "==== GLib $GLIB_VER ===="
 # GLib's bundled subprojects come from meson wraps. The wrap-file tarballs pre-cache
