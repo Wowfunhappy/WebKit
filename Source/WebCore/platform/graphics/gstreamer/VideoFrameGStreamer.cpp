@@ -647,6 +647,7 @@ void VideoFrameGStreamer::setMetadataAndContentHint(std::optional<VideoFrameTime
     gst_sample_set_buffer(m_sample.get(), modifiedBuffer.get());
 }
 
+#if !PLATFORM(COCOA) // MAVERICKS_BACKPORT: Cocoa VideoFrameCV provides the shared VideoFrame:: factories; VideoFrameGStreamer::* (GStreamer media player) stays compiled. copyPlane is inside because VideoFrame::copyTo below is its only caller.
 static void copyPlane(std::span<uint8_t>& destination, const std::span<uint8_t>& source, uint64_t sourceStride, const ComputedPlaneLayout& spanPlaneLayout)
 {
     uint64_t sourceOffset = spanPlaneLayout.sourceTop * sourceStride;
@@ -669,7 +670,6 @@ static void copyPlane(std::span<uint8_t>& destination, const std::span<uint8_t>&
     }
 }
 
-#if !PLATFORM(COCOA) // MAVERICKS_BACKPORT: Cocoa VideoFrameCV provides the shared VideoFrame:: factories; VideoFrameGStreamer::* (GStreamer media player) stays compiled.
 void VideoFrame::copyTo(std::span<uint8_t> destination, VideoPixelFormat pixelFormat, Vector<ComputedPlaneLayout>&& computedPlaneLayout, CompletionHandler<void(std::optional<Vector<PlaneLayout>>&&)>&& callback)
 {
     ensureVideoFrameDebugCategoryInitialized();
