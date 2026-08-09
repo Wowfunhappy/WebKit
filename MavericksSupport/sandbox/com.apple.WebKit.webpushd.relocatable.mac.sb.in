@@ -111,21 +111,25 @@
 (allow mach-lookup
     (global-name "com.apple.ocspd")
     (global-name "com.apple.SecurityServer"))
-;; Each of these was A/B'd out individually against a live handshake, and only what broke without it
-;; is here:
-;;   - com.apple.security.plist: without it the handshake fails with errSSLXCertChainInvalid (-9807)
-;;     and the daemon retries forever. The other three preference domains the browser profiles list
-;;     are never read, and are not here.
-;;   - /private/var/db/mds: without it the handshake fails and the connection never establishes,
-;;     with denials on mds/messages/se_SecurityMessages and mds/system/mdsObject.db. Granting just
-;;     those two literals is NOT sufficient -- tested, and the handshake still fails -- so the
-;;     subtree stays until someone can show a narrower set that actually works. Read-only either way.
-;;   - /Library/Keychains was in the block this started from and is NOT here: dropped it, and the
-;;     handshake still completes with zero denials. A push daemon evaluating one server's chain does
-;;     not read the user's keychains.
+;; The five security preference domains are the same set the WebContent and Networking profiles grant,
+;; because the trust evaluation that reads them is the same one. A domain whose file does not exist is
+;; not read at all, so a machine that happens to be missing one gives no sign that the rule is load-
+;; bearing; com.apple.security.revocation.plist appears on its own (Keychain Access writes it), and a
+;; denied read of it is a hard failure inside 10.9's in-process evaluation -- the handshake never
+;; completes and the daemon retries forever. Granting the whole set is what keeps that from depending
+;; on which files a given machine happens to have.
+;;
+;; /private/var/db/mds has to be the subtree: granting only mds/messages/se_SecurityMessages and
+;; mds/system/mdsObject.db, the two paths denials name, still fails the handshake. Read-only either way.
+;; /Library/Keychains is deliberately absent -- the handshake completes with zero denials without it,
+;; and a push daemon evaluating one server's chain does not read the user's keychains.
 (allow file-read*
     (subpath "/private/var/db/mds")
-    (literal "/Library/Preferences/com.apple.security.plist"))
+    (literal "/Library/Preferences/com.apple.security.plist")
+    (literal "/Library/Preferences/com.apple.security.common.plist")
+    (literal "/Library/Preferences/com.apple.security.revocation.plist")
+    (home-literal "/Library/Preferences/com.apple.security.plist")
+    (home-literal "/Library/Preferences/com.apple.security.revocation.plist"))
 (allow ipc-posix-shm-read* ipc-posix-shm-write-data
     (ipc-posix-name "com.apple.AppleDatabaseChanged"))
 
