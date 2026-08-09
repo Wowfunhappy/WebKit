@@ -12,6 +12,11 @@ CMAKE="$ROOT/MavericksSupport/toolchain/build/cmake/bin/cmake"
 CCACHE="${MAVERICKS_CCACHE:-$ROOT/MavericksSupport/toolchain/build/ccache/bin/ccache}"
 BUILD="$ROOT/WebKitBuild/Release"
 LOG=/tmp/wk_build.log
+# The one truncation of the run, here at the top, so everything after it accumulates into a single
+# log: the cmake reconfigures below write to $LOG with >>, and ninja appends with `tee -a`. The
+# per-run counters further down read $LOG, and they stay exact because only ninja emits the "[N/M]"
+# and "FAILED:" lines they count.
+: > "$LOG"
 # Pin ccache to the in-tree cache so incremental builds share one cache regardless of the caller's
 # environment (without this, ccache falls back to ~/.ccache and the cache is split / cold).
 export CCACHE_DIR="$ROOT/WebKitBuild/ccache"
@@ -150,7 +155,7 @@ fi
 [ -x "$CCACHE" ] && "$CCACHE" -z >/dev/null
 
 # -k 0 : keep going after the first failure so a link stage surfaces ALL undefined symbols at once.
-"$NINJA" -k 0 2>&1 | tee "$LOG"
+"$NINJA" -k 0 2>&1 | tee -a "$LOG"
 RC=${PIPESTATUS[0]}
 
 # Only the compile+link phase is finished here — STAGING STILL FOLLOWS, and the staged tree is
