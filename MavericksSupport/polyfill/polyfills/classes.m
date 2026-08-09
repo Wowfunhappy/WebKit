@@ -1467,8 +1467,13 @@ static void *wkResolveAVCapturePhotoOutput(void)
         Class cls = objc_allocateClassPair(stillImageOutput, "WKMavPolyfillPriv_AVCapturePhotoOutput", 0);
         if (!cls)
             return;
+        // class_addMethod's prototype takes IMP, so the method implementation reaches it through the
+        // cast the runtime's own headers require; the diagnostic stays armed everywhere else.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
         class_addMethod(cls, sel_registerName("capturePhotoWithSettings:delegate:"),
                         (IMP)wkCapturePhotoWithSettings, "v@:@@");
+#pragma clang diagnostic pop
         objc_registerClassPair(cls);
         photoOutput = cls;
     });

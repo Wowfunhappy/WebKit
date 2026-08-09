@@ -276,6 +276,8 @@ WK_POLYFILL_SEL("sizeThatFits:", "wk_sizeThatFits:");
 // which is that default; the RemoteLayerTreeHost custom/AVPlayerLayer path can pass YES, which this OS
 // cannot honor.
 @interface CALayerHost : CALayer
+@end
+@interface CALayerHost (WKPolyfillScope)
 - (void)wk_setPreservesFlip:(BOOL)preservesFlip;
 @end
 @implementation CALayerHost (WKPolyfillScope)
@@ -1920,11 +1922,13 @@ WK_POLYFILL_SEL("underlyingQueue", "wk_underlyingQueue");
 // -[NSHTTPCookieStorage _saveCookies:] (block variant, ~10.13+): 10.9 has the argument-less -_saveCookies,
 // which hands the cookies to nsurlstoraged for the on-disk write. Call it, then run the completion (the
 // caller's block redispatches to the main run loop itself).
-@interface NSHTTPCookieStorage (WKPolyfillScope)
+@interface NSHTTPCookieStorage (WKPolyfill10_9SPI)
 - (void)_saveCookies;   // 10.9 argument-less private SPI (do not polyfill it: this body calls it)
+@end
+@interface NSHTTPCookieStorage (WKPolyfillScopeSaveCookies)
 - (void)wk__saveCookies:(dispatch_block_t)completionHandler;
 @end
-@implementation NSHTTPCookieStorage (WKPolyfillScope)
+@implementation NSHTTPCookieStorage (WKPolyfillScopeSaveCookies)
 - (void)wk__saveCookies:(dispatch_block_t)completionHandler
 {
     [self _saveCookies];
@@ -4612,10 +4616,10 @@ WK_POLYFILL_SEL("valueForAnnotationKey:", "wk_valueForAnnotationKey:");
 // primitives it has always had — remove everything, add each item in order. Callers:
 // WebContextMenuProxyMac's sparse-menu rebuild, MenuUtilities' proposed-items filter,
 // WKRevealItemPresenter.
-@interface NSMenu (WKPolyfillScope)
+@interface NSMenu (WKPolyfillScopeItemArray)
 - (void)wk_setItemArray:(NSArray *)items;
 @end
-@implementation NSMenu (WKPolyfillScope)
+@implementation NSMenu (WKPolyfillScopeItemArray)
 - (void)wk_setItemArray:(NSArray *)items
 {
     [self removeAllItems];
@@ -4629,10 +4633,10 @@ WK_POLYFILL_SEL("setItemArray:", "wk_setItemArray:");
 // -[NSPopover _setRequiresCorrectContentAppearance:] (10.10+ SPI) pins the popover's content to the
 // correct light/dark appearance instead of the vibrant default. 10.9 has one appearance and its
 // popovers already render content in it, so the requested state is the only state.
-@interface NSPopover (WKPolyfillScope)
+@interface NSPopover (WKPolyfillScopeContentAppearance)
 - (void)wk__setRequiresCorrectContentAppearance:(BOOL)requires;
 @end
-@implementation NSPopover (WKPolyfillScope)
+@implementation NSPopover (WKPolyfillScopeContentAppearance)
 - (void)wk__setRequiresCorrectContentAppearance:(BOOL)requires { (void)requires; }
 @end
 WK_POLYFILL_SEL("_setRequiresCorrectContentAppearance:", "wk__setRequiresCorrectContentAppearance:");

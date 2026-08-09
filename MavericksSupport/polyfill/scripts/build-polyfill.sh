@@ -18,9 +18,13 @@ PF="$POLY/polyfills"; MECH="$POLY/mechanism"; LEGACY="$POLY/legacy-support"; OUT
 OBJ="$(mktemp -d -t polybuild)"; trap 'rm -rf "$OBJ"' EXIT
 mkdir -p "$OUT"
 
+# WARN is the diagnostic set every unit here compiles under -- the same -Wall -Wextra WebKit's own
+# CMake build uses, so a defect in the layer surfaces the way one in Source/ does.
+WARN='-Wall -Wextra'
+
 # --no-default-config so the clang wrapper does NOT force its default link set; these are pure
 # object code.
-CF='--no-default-config -mmacosx-version-min=10.9 -Wno-unused-command-line-argument'
+CF="--no-default-config -mmacosx-version-min=10.9 -Wno-unused-command-line-argument $WARN"
 
 # HIDDEN is for the libpolyfill.a members only. That archive is force-loaded into WebKit's binaries,
 # so its definitions only ever need to satisfy references within the image that pulled them in.
@@ -41,7 +45,7 @@ INC="-I$MECH"
 # Some polyfills reference declarations that exist only in the modern SDK (post-10.9 APIs we are
 # supplying, and 10.9-present SPI the old headers never declared).
 SDKCF="--no-default-config -isysroot $SDK -mmacosx-version-min=10.9 $INC \
-    -Wno-unused-command-line-argument -Wno-deprecated-declarations"
+    -Wno-unused-command-line-argument -Wno-deprecated-declarations $WARN"
 
 echo "### compiling polyfills"
 "$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/runtime.o"       "$PF/runtime.m"
@@ -51,7 +55,7 @@ echo "### compiling polyfills"
 # needs the modern SDK's libc++ headers, but it goes into libpolyfill.a with the rest so that the
 # one force-loaded archive stays self-contained.
 "$TC/bin/clang++" -c --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 -std=c++17 -O2 \
-    $HIDDEN -Wno-unused-command-line-argument \
+    $HIDDEN -Wno-unused-command-line-argument $WARN \
     -o "$OBJ/variable-font-instancer.o" "$PF/LegacyCoreTextVariableFontInstancer.cpp"
 "$CLANG" -c $SDKCF $HIDDEN    -o "$OBJ/system-spi.o"   "$PF/system-spi.m"
 # compression.c decodes/encodes Brotli through the vendored codec headers (the WOFF2 dependency tree).
@@ -85,7 +89,7 @@ echo "### compiling polyfills/shared (also compiled by the vendored non-WebKit b
 # compiles as plain C for the vendored builds, which define nothing and get no registry dependency.
 mkdir -p "$OBJ/shared-obj"
 for c in "$PF"/shared/*.c; do
-    "$CLANG" -c --no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC $HIDDEN -O2 \
+    "$CLANG" -c --no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC $HIDDEN -O2 $WARN \
         -DWK_POLYFILL_REGISTERED $INC \
         -o "$OBJ/shared-obj/$(basename "${c%.c}").o" "$c"
 done

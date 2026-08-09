@@ -840,6 +840,7 @@ static void writeStreamCallback(CFWriteStreamRef, CFStreamEventType type, void *
     [frame appendBytes:masked.data() length:len];
 
     [self writeBytes:frame];
+    return YES;
 }
 
 - (void)sendCloseFrameWithCode:(uint16_t)code reason:(NSData *)reason

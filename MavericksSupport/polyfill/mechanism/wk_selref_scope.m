@@ -426,16 +426,18 @@ static void wk_patch(const struct mach_header *mh)
     if (!getsectiondata((const struct mach_header_64 *)mh, "__DATA", "__wk_marker", &msz))
         return; // not a WebKit image
     unsigned long size = 0;
-    SEL *refs = (SEL *)getsectiondata((const struct mach_header_64 *)mh, "__DATA", "__objc_selrefs", &size);
+    // Per the ObjC ABI a __objc_selrefs slot holds the image-local methname string before objc uniques
+    // the image and the canonical SEL after, so the section is a pointer array, not an array of SEL.
+    void **refs = (void **)getsectiondata((const struct mach_header_64 *)mh, "__DATA", "__objc_selrefs", &size);
     if (!refs)
-        refs = (SEL *)getsectiondata((const struct mach_header_64 *)mh, "__DATA_CONST", "__objc_selrefs", &size);
+        refs = (void **)getsectiondata((const struct mach_header_64 *)mh, "__DATA_CONST", "__objc_selrefs", &size);
     int count = __atomic_load_n(&wk_count, __ATOMIC_ACQUIRE);   // see the synchronisation note
     if (!refs || !size || count == 0)
         return;
     // selrefs may live in read-only __DATA_CONST; make the range writable (no SIP on 10.9).
     vm_protect(mach_task_self(), (vm_address_t)refs, size, false,
                VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY);
-    int n = (int)(size / sizeof(SEL));
+    int n = (int)(size / sizeof(void *));
     __atomic_fetch_add(&wk_stat_refs, n, __ATOMIC_RELAXED);
     for (int i = 0; i < n; i++) {
         // Match by NAME, not just pointer: for an image dlopen'd AFTER launch, dyld runs this add-image
@@ -450,8 +452,8 @@ static void wk_patch(const struct mach_header *mh)
                         // the add-image replay of an already-patched image cheap: a rewritten ref
                         // reads "wk_<name>", whose bit is not set.
         for (int j = 0; j < count; j++)
-            if (refs[i] == wk_pub[j] || strcmp(s, wk_pubname[j]) == 0) {
-                refs[i] = wk_priv[j];
+            if (refs[i] == (void *)wk_pub[j] || strcmp(s, wk_pubname[j]) == 0) {
+                refs[i] = (void *)wk_priv[j];
                 __atomic_fetch_add(&wk_stat_rewritten, 1, __ATOMIC_RELAXED);
                 break;
             }
