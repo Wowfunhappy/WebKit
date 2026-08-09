@@ -30,8 +30,8 @@
 
 #pragma mark - C function stubs
 
-WK_POLYFILL_ABSENT(NULL, void, abort_with_reason, (uint32_t a, uint64_t b, const char *c, uint64_t d)) { abort(); }
-WK_POLYFILL_ABSENT(NULL, void, os_fault_with_payload, (uint32_t a, uint64_t b, const void *c, uint32_t d, const char *e, uint64_t f)) { }
+WK_POLYFILL_ABSENT(NULL, void, abort_with_reason, (uint32_t a, uint64_t b, const char *c, uint64_t d)) { (void)a; (void)b; (void)c; (void)d; abort(); }
+WK_POLYFILL_ABSENT(NULL, void, os_fault_with_payload, (uint32_t a, uint64_t b, const void *c, uint32_t d, const char *e, uint64_t f)) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
 
 #pragma mark - dyld version queries (10.10+)
 
@@ -205,12 +205,12 @@ WK_POLYFILL_ABSENT(NULL, bool, dyld_sdk_at_least, (const struct mach_header *hea
 }
 
 // cache/simulator stubs
-WK_POLYFILL_ABSENT(NULL, void, cache_simulate_size_response, (uint64_t a, uint64_t b, uint64_t c)) { }
+WK_POLYFILL_ABSENT(NULL, void, cache_simulate_size_response, (uint64_t a, uint64_t b, uint64_t c)) { (void)a; (void)b; (void)c; }
 
 // os_variant stubs
-WK_POLYFILL_ABSENT(NULL, bool, os_variant_allows_internal_security_policies, (const char *s)) { return false; }
-WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_content, (const char *s)) { return false; }
-WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_diagnostics, (const char *s)) { return false; }
+WK_POLYFILL_ABSENT(NULL, bool, os_variant_allows_internal_security_policies, (const char *s)) { (void)s; return false; }
+WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_content, (const char *s)) { (void)s; return false; }
+WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_diagnostics, (const char *s)) { (void)s; return false; }
 
 // pthread
 WK_POLYFILL_ABSENT(NULL, bool, pthread_self_is_exiting_np, (void)) { return false; }
@@ -539,7 +539,7 @@ WK_POLYFILL_ABSENT(NULL, const char *, dyld_shared_cache_file_path, (void))
 #endif
 }
 
-WK_POLYFILL_ABSENT(NULL, void, cache_simulate_memory_warning_event, (uint64_t a)) { }
+WK_POLYFILL_ABSENT(NULL, void, cache_simulate_memory_warning_event, (uint64_t a)) { (void)a; }
 
 #pragma mark - os_log emit points (10.12+)
 
@@ -901,6 +901,12 @@ WK_POLYFILL_ABSENT(NULL, int, dyld_shared_cache_iterate_text, (const void *uuid,
 // send it stands for — same result, without the fast path.
 //
 // objc_alloc is deliberately NOT polyfilled: 10.9's libobjc already exports it.
+//
+// Calling objc_msgSend through a prototype cast to the concrete signature is the documented way to
+// get the right ABI out of its variadic declaration, so the mismatch diagnostic is silenced across
+// exactly these four sends and stays armed for every other function-pointer cast in the layer.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
 
 WK_POLYFILL_ABSENT(NULL, id, objc_alloc_init, (Class cls))
 {
@@ -928,6 +934,8 @@ WK_POLYFILL_ABSENT(NULL, BOOL, objc_opt_respondsToSelector, (id object, SEL sele
         return NO;
     return ((BOOL (*)(id, SEL, SEL))objc_msgSend)(object, sel_getUid("respondsToSelector:"), selector);
 }
+
+#pragma clang diagnostic pop
 
 // objc_unsafeClaimAutoreleasedReturnValue (10.11+) claims an autoreleased return value without
 // retaining it. 10.9 has only the retaining form; claiming with a retain is the conservative
@@ -1042,11 +1050,21 @@ WK_POLYFILL_REPLACES(NULL, void *, dlopen, (const char *path, int mode))
         return handle;
 
     static const char frameworksPrefix[] = "/System/Library/Frameworks/";
+    static const char privateFrameworksPrefix[] = "/System/Library/PrivateFrameworks/";
     static const char frameworkInfix[] = ".framework/";
-    const size_t prefixLength = sizeof(frameworksPrefix) - 1;
     const size_t infixLength = sizeof(frameworkInfix) - 1;
 
-    if (strncmp(path, frameworksPrefix, prefixLength))
+    // SOFT_LINK_FRAMEWORK_FOR_SOURCE builds the first shape, SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE
+    // the second; both end in the RELEASE_ASSERT the token below exists to satisfy.
+    size_t prefixLength;
+    int isPublicFramework;
+    if (!strncmp(path, frameworksPrefix, sizeof(frameworksPrefix) - 1)) {
+        prefixLength = sizeof(frameworksPrefix) - 1;
+        isPublicFramework = 1;
+    } else if (!strncmp(path, privateFrameworksPrefix, sizeof(privateFrameworksPrefix) - 1)) {
+        prefixLength = sizeof(privateFrameworksPrefix) - 1;
+        isPublicFramework = 0;
+    } else
         return handle;
 
     const char *name = path + prefixLength;
@@ -1060,15 +1078,29 @@ WK_POLYFILL_REPLACES(NULL, void *, dlopen, (const char *path, int mode))
     if (strncmp(leaf, name, nameLength) || leaf[nameLength])
         return handle;
 
-    for (size_t i = 0; wk_umbrellaFrameworks[i]; ++i) {
-        char candidate[PATH_MAX];
-        int written = snprintf(candidate, sizeof(candidate), "%s%s.framework/Frameworks/%.*s.framework/%.*s",
-            frameworksPrefix, wk_umbrellaFrameworks[i], (int)nameLength, name, (int)nameLength, name);
-        if (written <= 0 || (size_t)written >= sizeof(candidate))
-            continue;
-        handle = WK_ORIGINAL(dlopen)(candidate, mode);
-        if (handle)
-            return handle;
+    if (isPublicFramework) {
+        for (size_t i = 0; wk_umbrellaFrameworks[i]; ++i) {
+            char candidate[PATH_MAX];
+            int written = snprintf(candidate, sizeof(candidate), "%s%s.framework/Frameworks/%.*s.framework/%.*s",
+                frameworksPrefix, wk_umbrellaFrameworks[i], (int)nameLength, name, (int)nameLength, name);
+            if (written <= 0 || (size_t)written >= sizeof(candidate))
+                continue;
+            handle = WK_ORIGINAL(dlopen)(candidate, mode);
+            if (handle)
+                return handle;
+        }
+    }
+
+    // Not anywhere on this system, but the polyfill registry may vend its symbols. Hand back the
+    // provider's token, keyed by the path the caller asked for -- the same key providerHandle derives
+    // -- so the handle here and the one handleCanSeeProvider compares against are the same object.
+    // <Framework>Library() then has a handle instead of a RELEASE_ASSERT, and its canLoad_ probes go
+    // on to answer from the registry: true for a name the layer supplies, false for every other,
+    // which is how upstream degrades on a system missing that particular SPI.
+    void *token = wk_polyfill_absent_provider_token(path);
+    if (token) {
+        dlerror();   // the failed attempts above left an error pending; this call succeeded
+        return token;
     }
 
     // dlerror() is part of dlopen's contract, and callers report it: soft-linking ends in
@@ -1076,4 +1108,15 @@ WK_POLYFILL_REPLACES(NULL, void *, dlopen, (const char *path, int mode))
     // describes an umbrella path the caller never asked for, so re-issue the original request
     // and let a genuine failure name the path that was actually requested.
     return WK_ORIGINAL(dlopen)(path, mode);
+}
+
+// A handle dlopen above returned is one dlclose has to take back. A token is this layer's own object
+// with nothing mapped behind it, so closing it succeeds and does nothing.
+WK_POLYFILL_REPLACES(NULL, int, dlclose, (void *handle))
+{
+    if (wk_polyfill_is_absent_provider_token(handle))
+        return 0;
+    if (!WK_ORIGINAL(dlclose))
+        return 0;
+    return WK_ORIGINAL(dlclose)(handle);
 }

@@ -10024,20 +10024,10 @@ WebTransportEnabled:
   defaultValue:
     WebKitLegacy:
       default: false
-    # MAVERICKS_BACKPORT: WebTransport is off on 10.9. Its only implementation is the Cocoa network path
-    # (NetworkProcess/webtransport/cocoa/NetworkTransport{Session,Stream}Cocoa.mm), built entirely on
-    # Network.framework's nw_*/sec_* API and Security's sec_trust_copy_ref — all 10.14+, absent on 10.9.
-    # Left enabled, new WebTransport(url) crashed the NetworkProcess on the first nw_* lazy bind. The
-    # InitializeWebTransportSession IPC is [EnabledBy=WebTransportEnabled], so defaulting the WebKit/WebCore
-    # prefs off keeps the JS constructor unexposed and the whole network path unreachable — create() and the
-    # nw_*/sec_* calls never execute, and those are lazy binds, harmless while unreached. The Cocoa .mm files
-    # stay in the build unchanged (upstream un-stub): NetworkTransportSession::terminate() is referenced
-    # NON-lazily by the generated IPC message receiver, so excluding the files makes dyld fatal-error at load
-    # rather than defer a lazy bind. The preference is therefore the gate, not a build exclusion.
     WebKit:
-      default: false  # MAVERICKS_BACKPORT: WebTransport off on 10.9 (was true; see note above).
+      default: true
     WebCore:
-      default: false  # MAVERICKS_BACKPORT: WebTransport off on 10.9 (was true; see note above).
+      default: true
   sharedPreferenceForWebProcess: true
   richJavaScript: true
   disableInLockdownMode: true

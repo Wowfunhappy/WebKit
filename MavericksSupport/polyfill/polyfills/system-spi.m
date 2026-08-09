@@ -2041,72 +2041,83 @@ WK_POLYFILL_ABSENT(NULL, void, dispatch_activate, (dispatch_object_t object))
 //
 // Gap-filling these is regression-free precisely BECAUSE the framework is absent, and that is what
 // makes the set decidable rather than a judgement call. A gap-fill can only flip a soft-link probe
-// when the provider is loadable: handleCanSeeProvider() in wk_polyfill_runtime.c requires
-// `provider != NULL && handle == provider`, and a framework that cannot be dlopened yields a NULL
-// provider, so no canLoad_Network_*/canLoad_Metal_* probe can ever match one of these. Those probes
-// keep answering false and the call sites keep taking their own absent-API paths. (Contrast the
+// for a name the layer actually supplies, and these names and the soft-linked ones are disjoint sets:
+// NetworkSoftLink.mm soft-links nw_parameters_create_webtransport_http, the nw_webtransport_* family
+// and nw_connection_abort_reads/writes, none of which appear below. dlsym therefore answers NULL for
+// every canLoad_Network_* probe, create() returns nullptr at NetworkTransportSessionCocoa.mm:263, and
+// the call sites keep taking their own absent-API paths. (Contrast the
 // SecCertificateCopyNotValidAfterDate family: absent on 10.9, but Security.framework IS present, so a
 // gap-fill there COULD flip a probe and make a caller believe a feature exists. Those stay inventory,
 // and check-absent-references.sh splits the two cases on exactly this rule.)
 //
 // The signatures use opaque pointers rather than nw_*/MTL types: those headers describe frameworks
 // that are not here, and this file deliberately does not include them. Every parameter is
-// pointer-sized or an integer, so the ABI matches whatever a caller was compiled against; only the
-// answers matter, and the answer everywhere is "nothing was created, nothing was sent".
+// pointer-sized or an integer, so the ABI matches whatever a caller was compiled against.
+//
+// Every body below aborts. There is no Network.framework to carry the operation out, and a WebTransport
+// endpoint that reports a created connection or an accepted send it never made stalls the caller
+// forever; the definitions exist to satisfy the weak-linked reference, and reaching one means the
+// canLoad_ gate above stopped holding.
+static void __attribute__((noreturn)) wkNoNetworkFramework(const char *symbol)
+{
+    fprintf(stderr, "[wk_polyfill] FATAL: %s was called, but 10.9 has no Network.framework. "
+                    "The canLoad_Network_* gate in NetworkTransportSession::create is supposed to "
+                    "make every entry point in this block unreachable.\n", symbol);
+    fflush(stderr);
+    abort();
+}
 
-WK_POLYFILL_ABSENT("Network", void *, nw_endpoint_create_url, (const char *url))
-{ (void)url; return NULL; }
-WK_POLYFILL_ABSENT("Network", void *, nw_group_descriptor_create_multiplex, (void *endpoint))
-{ (void)endpoint; return NULL; }
-WK_POLYFILL_ABSENT("Network", void *, nw_connection_group_create, (void *descriptor, void *parameters))
-{ (void)descriptor; (void)parameters; return NULL; }
-WK_POLYFILL_ABSENT("Network", void, nw_connection_group_set_queue, (void *group, void *queue))
-{ (void)group; (void)queue; }
-WK_POLYFILL_ABSENT("Network", void, nw_connection_group_set_state_changed_handler, (void *group, void *handler))
-{ (void)group; (void)handler; }
-WK_POLYFILL_ABSENT("Network", void, nw_connection_group_set_new_connection_handler, (void *group, void *handler))
-{ (void)group; (void)handler; }
-WK_POLYFILL_ABSENT("Network", void, nw_connection_group_start, (void *group))
-{ (void)group; }
-WK_POLYFILL_ABSENT("Network", void, nw_connection_group_cancel, (void *group))
-{ (void)group; }
-WK_POLYFILL_ABSENT("Network", void *, nw_connection_group_extract_connection, (void *group, void *endpoint, void *protocol))
-{ (void)group; (void)endpoint; (void)protocol; return NULL; }
-WK_POLYFILL_ABSENT("Network", void *, nw_connection_group_copy_protocol_metadata, (void *group, void *definition))
-{ (void)group; (void)definition; return NULL; }
-WK_POLYFILL_ABSENT("Network", void, nw_connection_start, (void *connection))
-{ (void)connection; }
-WK_POLYFILL_ABSENT("Network", void, nw_connection_cancel, (void *connection))
-{ (void)connection; }
-WK_POLYFILL_ABSENT("Network", void, nw_connection_set_queue, (void *connection, void *queue))
-{ (void)connection; (void)queue; }
-WK_POLYFILL_ABSENT("Network", void, nw_connection_set_state_changed_handler, (void *connection, void *handler))
-{ (void)connection; (void)handler; }
-WK_POLYFILL_ABSENT("Network", void, nw_connection_send, (void *connection, void *content, void *context, bool is_complete, void *completion))
-{ (void)connection; (void)content; (void)context; (void)is_complete; (void)completion; }
-WK_POLYFILL_ABSENT("Network", void, nw_connection_receive, (void *connection, uint32_t minimum, uint32_t maximum, void *completion))
-{ (void)connection; (void)minimum; (void)maximum; (void)completion; }
-WK_POLYFILL_ABSENT("Network", void *, nw_connection_copy_protocol_metadata, (void *connection, void *definition))
-{ (void)connection; (void)definition; return NULL; }
-// nw_error_domain_t's "no error" member is 0, which is also the honest answer for an error object that
-// could never have been produced here.
-WK_POLYFILL_ABSENT("Network", int, nw_error_get_error_domain, (void *error))
-{ (void)error; return 0; }
-WK_POLYFILL_ABSENT("Network", int, nw_error_get_error_code, (void *error))
-{ (void)error; return 0; }
-WK_POLYFILL_ABSENT("Network", void, nw_quic_set_max_datagram_frame_size, (void *options, uint16_t size))
-{ (void)options; (void)size; }
-WK_POLYFILL_ABSENT("Network", void *, nw_tls_copy_sec_protocol_options, (void *options))
-{ (void)options; return NULL; }
+WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_endpoint_create_url, (const char *url))
+{ (void)url; wkNoNetworkFramework("nw_endpoint_create_url"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_group_descriptor_create_multiplex, (void *endpoint))
+{ (void)endpoint; wkNoNetworkFramework("nw_group_descriptor_create_multiplex"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_connection_group_create, (void *descriptor, void *parameters))
+{ (void)descriptor; (void)parameters; wkNoNetworkFramework("nw_connection_group_create"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_group_set_queue, (void *group, void *queue))
+{ (void)group; (void)queue; wkNoNetworkFramework("nw_connection_group_set_queue"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_group_set_state_changed_handler, (void *group, void *handler))
+{ (void)group; (void)handler; wkNoNetworkFramework("nw_connection_group_set_state_changed_handler"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_group_set_new_connection_handler, (void *group, void *handler))
+{ (void)group; (void)handler; wkNoNetworkFramework("nw_connection_group_set_new_connection_handler"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_group_start, (void *group))
+{ (void)group; wkNoNetworkFramework("nw_connection_group_start"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_group_cancel, (void *group))
+{ (void)group; wkNoNetworkFramework("nw_connection_group_cancel"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_connection_group_extract_connection, (void *group, void *endpoint, void *protocol))
+{ (void)group; (void)endpoint; (void)protocol; wkNoNetworkFramework("nw_connection_group_extract_connection"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_connection_group_copy_protocol_metadata, (void *group, void *definition))
+{ (void)group; (void)definition; wkNoNetworkFramework("nw_connection_group_copy_protocol_metadata"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_start, (void *connection))
+{ (void)connection; wkNoNetworkFramework("nw_connection_start"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_cancel, (void *connection))
+{ (void)connection; wkNoNetworkFramework("nw_connection_cancel"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_set_queue, (void *connection, void *queue))
+{ (void)connection; (void)queue; wkNoNetworkFramework("nw_connection_set_queue"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_set_state_changed_handler, (void *connection, void *handler))
+{ (void)connection; (void)handler; wkNoNetworkFramework("nw_connection_set_state_changed_handler"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_send, (void *connection, void *content, void *context, bool is_complete, void *completion))
+{ (void)connection; (void)content; (void)context; (void)is_complete; (void)completion; wkNoNetworkFramework("nw_connection_send"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void, nw_connection_receive, (void *connection, uint32_t minimum, uint32_t maximum, void *completion))
+{ (void)connection; (void)minimum; (void)maximum; (void)completion; wkNoNetworkFramework("nw_connection_receive"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_connection_copy_protocol_metadata, (void *connection, void *definition))
+{ (void)connection; (void)definition; wkNoNetworkFramework("nw_connection_copy_protocol_metadata"); }
+WK_POLYFILL_ABSENT_FATAL("Network", int, nw_error_get_error_domain, (void *error))
+{ (void)error; wkNoNetworkFramework("nw_error_get_error_domain"); }
+WK_POLYFILL_ABSENT_FATAL("Network", int, nw_error_get_error_code, (void *error))
+{ (void)error; wkNoNetworkFramework("nw_error_get_error_code"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void, nw_quic_set_max_datagram_frame_size, (void *options, uint16_t size))
+{ (void)options; (void)size; wkNoNetworkFramework("nw_quic_set_max_datagram_frame_size"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void *, nw_tls_copy_sec_protocol_options, (void *options))
+{ (void)options; wkNoNetworkFramework("nw_tls_copy_sec_protocol_options"); }
 // The three sec_* entries are DECLARED by Security.framework's headers (SecProtocolTypes.h,
 // SecProtocolOptions.h) even though Network.framework is what implements them, so unlike the nw_*
 // entries above these must use the real SDK types -- this file includes <Security/Security.h>.
-WK_POLYFILL_ABSENT("Network", void, sec_protocol_options_set_peer_authentication_required, (sec_protocol_options_t options, bool peer_authentication_required))
-{ (void)options; (void)peer_authentication_required; }
-WK_POLYFILL_ABSENT("Network", void, sec_protocol_options_set_verify_block, (sec_protocol_options_t options, sec_protocol_verify_t verify_block, dispatch_queue_t verify_block_queue))
-{ (void)options; (void)verify_block; (void)verify_block_queue; }
-WK_POLYFILL_ABSENT("Network", SecTrustRef, sec_trust_copy_ref, (sec_trust_t trust))
-{ (void)trust; return NULL; }
+WK_POLYFILL_ABSENT_FATAL("Network", void, sec_protocol_options_set_peer_authentication_required, (sec_protocol_options_t options, bool peer_authentication_required))
+{ (void)options; (void)peer_authentication_required; wkNoNetworkFramework("sec_protocol_options_set_peer_authentication_required"); }
+WK_POLYFILL_ABSENT_FATAL("Network", void, sec_protocol_options_set_verify_block, (sec_protocol_options_t options, sec_protocol_verify_t verify_block, dispatch_queue_t verify_block_queue))
+{ (void)options; (void)verify_block; (void)verify_block_queue; wkNoNetworkFramework("sec_protocol_options_set_verify_block"); }
+WK_POLYFILL_ABSENT_FATAL("Network", SecTrustRef, sec_trust_copy_ref, (sec_trust_t trust))
+{ (void)trust; wkNoNetworkFramework("sec_trust_copy_ref"); }
 
 // Metal. "No devices" is what a machine without Metal has, but the two entry points spell that
 // differently and the difference matters to a CF-side caller: MTLCreateSystemDefaultDevice() returns

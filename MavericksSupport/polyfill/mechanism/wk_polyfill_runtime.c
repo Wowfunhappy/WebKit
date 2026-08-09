@@ -24,9 +24,11 @@
 #include "wk_polyfill.h"
 
 #include <dlfcn.h>
+#include <limits.h>
 #include <mach-o/dyld.h>
 #include <mach-o/getsect.h>
 #include <objc/runtime.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -100,20 +102,88 @@ static void resolveSystemDlsym(void)
 // the WK_POLYFILL_REPORT diagnostic) pass mayLoad=0 and see only providers already loaded; only a
 // polyfill body that is actually executing may load its provider, and by then the process is already
 // using that API.
+// A framework this system does not ship AT ALL, but whose symbols the layer supplies, still has to
+// answer dlopen. SoftLinking.h's generated <Framework>Library() opens the canonical path with
+// isOptional=false and RELEASE_ASSERTs on a NULL handle, so the process dies there before any
+// canLoad_ probe runs. A per-provider token is that handle. dlsym answers a token out of the registry
+// alone: a name the layer supplies resolves, every other name is NULL -- which is what a system that
+// HAS the framework but not one particular SPI reports, and the case upstream's canLoad_ probes are
+// written to degrade through.
+//
+// The token is a table slot rather than the registry string, because the same provider name reaches
+// the registry as a separate string literal from each image that carries polyfills; interning gives
+// one address per provider for the whole process, which is what handleCanSeeProvider compares.
+#define WK_MAX_ABSENT_PROVIDERS 16
+static struct { char path[PATH_MAX]; } absentProviders[WK_MAX_ABSENT_PROVIDERS];
+static int absentProviderCount;
+static pthread_mutex_t absentProviderLock = PTHREAD_MUTEX_INITIALIZER;
+
+// The canonical framework path a provider string names. A registry provider is spelled either as a
+// bare framework name or as an absolute path, and dlopen is handed the path — so the path is the one
+// key the dlopen replacement and providerHandle below can both compute and agree on.
+static void providerPath(const char *provider, char *out, size_t outSize)
+{
+    if (provider[0] == '/')
+        snprintf(out, outSize, "%s", provider);
+    else
+        snprintf(out, outSize, "/System/Library/Frameworks/%s.framework/%s", provider, provider);
+}
+
+static int providerPathIsRegistered(const char *frameworkPath)
+{
+    char candidate[PATH_MAX];
+    for (size_t i = 0; i < entryCount; i++) {
+        if (!entries[i].provider)
+            continue;
+        providerPath(entries[i].provider, candidate, sizeof candidate);
+        if (!strcmp(candidate, frameworkPath))
+            return 1;
+    }
+    return 0;
+}
+
+void *wk_polyfill_absent_provider_token(const char *frameworkPath)
+{
+    if (!frameworkPath || !*frameworkPath || strlen(frameworkPath) >= sizeof absentProviders[0].path)
+        return NULL;
+    if (!providerPathIsRegistered(frameworkPath))
+        return NULL;   // nothing here vends this framework's symbols, so it has no handle to offer
+
+    pthread_mutex_lock(&absentProviderLock);
+    void *token = NULL;
+    for (int i = 0; i < absentProviderCount; i++) {
+        if (!strcmp(absentProviders[i].path, frameworkPath)) {
+            token = &absentProviders[i];
+            break;
+        }
+    }
+    if (!token && absentProviderCount < WK_MAX_ABSENT_PROVIDERS) {
+        snprintf(absentProviders[absentProviderCount].path, sizeof absentProviders[0].path, "%s", frameworkPath);
+        token = &absentProviders[absentProviderCount++];
+    }
+    pthread_mutex_unlock(&absentProviderLock);
+    return token;
+}
+
+int wk_polyfill_is_absent_provider_token(void *handle)
+{
+    return handle >= (void *)&absentProviders[0]
+        && handle < (void *)&absentProviders[WK_MAX_ABSENT_PROVIDERS];
+}
+
 static void *providerHandle(const char *provider, int mayLoad)
 {
     if (!provider)
         return RTLD_DEFAULT;
 
-    char path[512];
-    if (provider[0] == '/')
-        snprintf(path, sizeof path, "%s", provider);
-    else
-        snprintf(path, sizeof path, "/System/Library/Frameworks/%s.framework/%s", provider, provider);
+    char path[PATH_MAX];
+    providerPath(provider, path, sizeof path);
 
     void *handle = dlopen(path, RTLD_LAZY | RTLD_NOLOAD);
     if (!handle && mayLoad)
         handle = dlopen(path, RTLD_LAZY);
+    if (!handle)
+        handle = wk_polyfill_absent_provider_token(path);
     return handle;
 }
 
@@ -140,7 +210,8 @@ static void *resolveOriginal(struct wk_polyfill_entry *entry, int mayLoad)
     resolveSystemDlsym();   // no-op once resolved; fatal if the real dlsym is unreachable
 
     void *handle = providerHandle(entry->provider, mayLoad);
-    void *original = handle ? systemDlsym(handle, entry->name) : NULL;
+    // A token names a framework that is not here, so there is no image behind it to search.
+    void *original = (handle && !wk_polyfill_is_absent_provider_token(handle)) ? systemDlsym(handle, entry->name) : NULL;
     if (!original && handle != RTLD_DEFAULT)
         original = systemDlsym(RTLD_DEFAULT, entry->name);
 
@@ -155,7 +226,8 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
     if (!*cache) {
         resolveSystemDlsym();
         void *handle = providerHandle(provider, 1);
-        if (handle)
+        // A token names a framework that is not here, so there is no image behind it to search.
+        if (handle && !wk_polyfill_is_absent_provider_token(handle))
             *cache = systemDlsym(handle, name);
     }
     return *cache;
@@ -191,8 +263,10 @@ static struct wk_polyfill_entry *lookup(const char *name)
 // so a registered name belongs there. Otherwise the handle has to BE the provider's: dlsym on a
 // handle searches that library, and nothing makes libz vend a Security symbol -- answering one would
 // be inventing an export the caller could never have observed. The provider is looked up with
-// RTLD_NOLOAD, so a provider this process never loaded matches nothing (it cannot be the handle the
-// caller is holding), and nothing is dragged in just to compare.
+// RTLD_NOLOAD, so a framework this process has not loaded is reached without dragging it in: one that
+// merely is not loaded yet yields NULL and matches no handle, while one this OS does not ship at all
+// yields its absent-provider token -- which IS the handle its caller is holding, because the dlopen
+// replacement handed that same token back.
 //
 // RTLD_NEXT and RTLD_SELF are excluded outright. They do not name a library at all; they ask "the
 // definition after the caller's image" and "the caller's own image", questions about link order that
@@ -206,8 +280,8 @@ static int handleCanSeeProvider(void *handle, struct wk_polyfill_entry *entry)
         return 1;
     // A NULL provider means "libSystem/the whole process", which providerHandle reports as
     // RTLD_DEFAULT -- and handle is not RTLD_DEFAULT here, so such an entry matches no handle.
-    // The provider==NULL test also keeps a caller's NULL handle (a library that failed to dlopen,
-    // which SOFT_LINK_*_OPTIONAL passes straight through) from matching an unloaded provider.
+    // The provider != NULL test also keeps a caller's NULL handle (a library that failed to dlopen,
+    // which SOFT_LINK_*_OPTIONAL passes straight through) from matching a provider that answered NULL.
     void *provider = providerHandle(entry->provider, 0);
     return provider != NULL && handle == provider;
 }
@@ -234,12 +308,20 @@ WK_POLYFILL_REPLACES(NULL, void *, dlsym, (void *handle, const char *symbol))
 {
     resolveSystemDlsym();   // no-op once resolved; fatal if the real dlsym is unreachable
 
-    void *systemAnswer = systemDlsym(handle, symbol);
+    // A token is this layer's own object, not a dyld handle; the real dlsym must never see one.
+    void *systemAnswer = wk_polyfill_is_absent_provider_token(handle) ? NULL : systemDlsym(handle, symbol);
     if (!symbol)
         return systemAnswer;
 
     struct wk_polyfill_entry *entry = lookup(symbol);
     if (!entry || !handleCanSeeProvider(handle, entry))
+        return systemAnswer;
+
+    // An UNAVAILABLE entry is a tombstone whose body aborts. Reporting it as resolvable would tell a
+    // soft-link probe the API is usable and send its caller into that abort; withholding it is the
+    // truthful answer and the one that leaves upstream's absent-API path in charge. This is what
+    // keeps a tombstone safe on its own, rather than by no probe happening to name it.
+    if (entry->intent == WK_POLYFILL_UNAVAILABLE)
         return systemAnswer;
 
     // The failed lookup above left an error pending; from the caller's side this call succeeded, so

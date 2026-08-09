@@ -59,7 +59,17 @@ extern "C" {
 
 enum { WK_POLYFILL_FUNCTION = 0, WK_POLYFILL_CONSTANT = 1 };
 // GAP_FILL defers to 10.9 when 10.9 has the symbol; REPLACES deliberately wins over it.
-enum { WK_POLYFILL_GAP_FILL = 0, WK_POLYFILL_REPLACES = 1 };
+// UNAVAILABLE is a definition that exists only to satisfy a weak-linked reference and aborts if it
+// runs: the dlsym override never answers one, so a soft-link probe for it reports the symbol missing
+// and its caller takes the absent-API path instead of being routed into the abort.
+enum { WK_POLYFILL_GAP_FILL = 0, WK_POLYFILL_REPLACES = 1, WK_POLYFILL_UNAVAILABLE = 2 };
+
+// The handle dlopen hands back for a framework this system does not ship at all but whose symbols the
+// registry supplies. Keyed by the canonical framework PATH, the one thing both minting sites hold:
+// dlopen sees only the path, and a registry provider is spelled either as a bare framework name or as
+// an absolute path. Returns NULL for a path no registered provider resolves to. See wk_polyfill_runtime.c.
+void *wk_polyfill_absent_provider_token(const char *frameworkPath);
+int wk_polyfill_is_absent_provider_token(void *handle);
 
 struct wk_polyfill_entry {
     const char *name;
@@ -134,6 +144,12 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 
 #define WK_POLYFILL_REPLACES(PROVIDER, RET, NAME, PARAMS) \
     WK_PF_FUNCTION(PROVIDER, RET, NAME, PARAMS, WK_POLYFILL_REPLACES)
+
+// A definition for a symbol this OS cannot serve at all, present so the weak-linked reference has an
+// address. The body aborts, and the dlsym override withholds the entry so no soft-link probe can
+// route a caller here.
+#define WK_POLYFILL_ABSENT_FATAL(PROVIDER, RET, NAME, PARAMS) \
+    WK_PF_FUNCTION(PROVIDER, RET, NAME, PARAMS, WK_POLYFILL_UNAVAILABLE)
 
 // Data constants. The declared value IS the value — 10.9 lacks the symbol (a gap-fill), or has it and
 // is being deliberately overridden (WK_POLYFILL_CONST_REPLACES). There is no load-time mirroring of
