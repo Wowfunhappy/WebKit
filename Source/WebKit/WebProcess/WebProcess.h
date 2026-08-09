@@ -260,8 +260,7 @@ public:
 
     InjectedBundle* injectedBundle() const { return m_injectedBundle.get(); }
     
-    // MAVERICKS_BACKPORT: m_sessionID can be unset when the WK2 driver queries it early; fall back to the default session instead of asserting.
-    PAL::SessionID sessionID() const { return m_sessionID.value_or(PAL::SessionID::defaultSessionID()); }
+    PAL::SessionID sessionID() const { ASSERT(m_sessionID); return *m_sessionID; }
 
     WebCore::ThirdPartyCookieBlockingMode thirdPartyCookieBlockingMode() const { return m_thirdPartyCookieBlockingMode; }
 
@@ -326,10 +325,7 @@ public:
     void gpuProcessConnectionClosed();
     void gpuProcessConnectionDidBecomeUnresponsive();
 
-#if PLATFORM(COCOA) && USE(LIBWEBRTC) && ENABLE(GPU_PROCESS)
-    // MAVERICKS_BACKPORT: LibWebRTCCodecs is the GPU-process codec proxy and only exists when
-    // ENABLE(GPU_PROCESS) (the m_libWebRTCCodecs member is already so-gated below). Match the
-    // accessor's gate, else it references a non-existent member (GPU_PROCESS is off on 10.9).
+#if PLATFORM(COCOA) && USE(LIBWEBRTC)
     LibWebRTCCodecs& libWebRTCCodecs();
 #endif
 #if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)

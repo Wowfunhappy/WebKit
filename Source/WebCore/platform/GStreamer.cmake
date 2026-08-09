@@ -8,29 +8,15 @@ if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO)
     list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
         "${WEBCORE_DIR}/Modules/mediastream/gstreamer"
         "${WEBCORE_DIR}/platform/graphics/gstreamer"
-        # MAVERICKS_BACKPORT: the GStreamer mediastream backend (getUserMedia/WebRTC) is built like the GTK/WPE ports; add its include dir for the Cocoa+GStreamer hybrid.
-        "${WEBCORE_DIR}/platform/mediastream/gstreamer"
         "${WEBCORE_DIR}/platform/graphics/gstreamer/mse"
         "${WEBCORE_DIR}/platform/graphics/gstreamer/eme"
         "${WEBCORE_DIR}/platform/graphics/gstreamer/telemetry"
         "${WEBCORE_DIR}/platform/gstreamer"
-        # MAVERICKS_BACKPORT: the GStreamer stack pulls a few platform/glib helpers (e.g. ApplicationGLib.h
-        # used by GStreamerCommon). That directory is normally only on the include path for the GTK/WPE
-        # ports; add it here (GStreamer-only) for the Cocoa+GStreamer hybrid. Verified no header-basename
-        # collisions with the Cocoa platform headers.
-        "${WEBCORE_DIR}/platform/glib"
         "${WEBCORE_DIR}/platform/mediarecorder/gstreamer"
     )
 
     list(APPEND WebCore_UNIFIED_SOURCE_LIST_FILES
         "platform/SourcesGStreamer.txt"
-    )
-
-    # MAVERICKS_BACKPORT: SharedBuffer::create(GBytes*)/createGBytes() (platform/glib/SharedBufferGlib.cpp)
-    # are referenced by the GStreamer integration (GstBuffer<->SharedBuffer) but the file is only on the
-    # GTK/WPE source lists upstream; compile it here for the Cocoa+GStreamer hybrid.
-    list(APPEND WebCore_SOURCES
-        platform/glib/SharedBufferGlib.cpp
     )
 
     list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
@@ -43,11 +29,10 @@ if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO)
         platform/graphics/gstreamer/GUniquePtrGStreamer.h
 
         platform/mediastream/gstreamer/GStreamerWebRTCProvider.h
-        # MAVERICKS_BACKPORT: the libwebrtc/gstreamer bridge headers are omitted here (USE_LIBWEBRTC is FALSE); see note below.
+        platform/mediastream/libwebrtc/gstreamer/GStreamerVideoDecoderFactory.h
+        platform/mediastream/libwebrtc/gstreamer/GStreamerVideoEncoderFactory.h
+        platform/mediastream/libwebrtc/gstreamer/LibWebRTCProviderGStreamer.h
     )
-    # MAVERICKS_BACKPORT: the GStreamer mediastream + webrtcbin backend (platform/mediastream/gstreamer,
-    # Modules/mediastream/gstreamer) IS built — getUserMedia capture and WebRTC go through GStreamer like
-    # the GTK/WPE ports. The libwebrtc/gstreamer bridge stays excluded (USE_LIBWEBRTC is FALSE).
 
     if (ENABLE_MEDIA_TELEMETRY)
       list(APPEND WebCore_SOURCES
@@ -147,10 +132,6 @@ if (ENABLE_VIDEO)
                 ${GSTREAMER_WEBRTC_LIBRARIES}
             )
         endif ()
-
-        # MAVERICKS_BACKPORT: the GStreamer WebRTC backend uses WebCore's OpenSSL crypto helpers; add crypto/openssl to the include path for the Cocoa+GStreamer hybrid.
-        list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES "${WEBCORE_DIR}/crypto/openssl")
-
 
         list(APPEND WebCore_LIBRARIES OpenSSL::Crypto)
 

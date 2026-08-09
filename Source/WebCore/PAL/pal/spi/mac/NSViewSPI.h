@@ -53,9 +53,7 @@ typedef NS_ENUM(NSInteger, NSViewSemanticContext) {
 
 #endif // USE(APPLE_INTERNAL_SDK)
 
-// MAVERICKS_BACKPORT: 10.9's NSView does not adopt the CALayerDelegate protocol, so the empty extension omits
-// the <CALayerDelegate> conformance the modern SDK declares to avoid a protocol-conformance warning/mismatch.
-@interface NSView () 
+@interface NSView () <CALayerDelegate>
 @end
 
 @interface NSView (SubviewsIvar)

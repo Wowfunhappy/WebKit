@@ -498,9 +498,7 @@ void VideoMediaSampleRenderer::enqueueSample(const MediaSample& sample, const Me
     if (!useDecompressionSessionForProtectedFallback() && !m_decompressionSessionBlocked && sample.isProtected()) {
         m_decompressionSessionBlocked = true;
 #if !PLATFORM(WATCHOS)
-        // MAVERICKS_BACKPORT: as below — the public SDK marks this getter API_UNAVAILABLE(macos); reach it
-        // through the WebAVVideoPerformanceMetrics accessor protocol (PAL/pal/spi/cocoa/AVFoundationSPI.h).
-        auto numberOfDroppedVideoFrames = ((id<WebAVVideoPerformanceMetrics>)[renderer videoPerformanceMetrics]).numberOfDroppedVideoFrames;
+        auto numberOfDroppedVideoFrames = [renderer videoPerformanceMetrics].numberOfDroppedVideoFrames;
         if (m_droppedVideoFrames >= numberOfDroppedVideoFrames)
             m_droppedVideoFramesOffset = m_droppedVideoFrames - numberOfDroppedVideoFrames;
 #endif
@@ -1132,12 +1130,7 @@ unsigned VideoMediaSampleRenderer::totalVideoFrames() const
 #if PLATFORM(WATCHOS)
     return 0;
 #else
-    // MAVERICKS_BACKPORT: the public SDK marks AVVideoPerformanceMetrics' frame-count getters
-    // API_UNAVAILABLE(macos) even though they exist at runtime (Apple's internal SDK declares them
-    // available, which is how upstream calls them unguarded). Message them through the
-    // WebAVVideoPerformanceMetrics accessor protocol in PAL/pal/spi/cocoa/AVFoundationSPI.h, the same
-    // way MediaPlayerPrivateAVFoundationObjC and LocalSampleBufferDisplayLayer already do.
-    return ((id<WebAVVideoPerformanceMetrics>)[renderer() videoPerformanceMetrics]).totalNumberOfVideoFrames;
+    return [renderer() videoPerformanceMetrics].totalNumberOfVideoFrames;
 #endif
 }
 
@@ -1150,12 +1143,7 @@ unsigned VideoMediaSampleRenderer::droppedVideoFrames() const
 #if PLATFORM(WATCHOS)
     return 0;
 #else
-    // MAVERICKS_BACKPORT: the public SDK marks AVVideoPerformanceMetrics' frame-count getters
-    // API_UNAVAILABLE(macos) even though they exist at runtime (Apple's internal SDK declares them
-    // available, which is how upstream calls them unguarded). Message them through the
-    // WebAVVideoPerformanceMetrics accessor protocol in PAL/pal/spi/cocoa/AVFoundationSPI.h, the same
-    // way MediaPlayerPrivateAVFoundationObjC and LocalSampleBufferDisplayLayer already do.
-    return ((id<WebAVVideoPerformanceMetrics>)[renderer() videoPerformanceMetrics]).numberOfDroppedVideoFrames + m_droppedVideoFramesOffset;
+    return [renderer() videoPerformanceMetrics].numberOfDroppedVideoFrames + m_droppedVideoFramesOffset;
 #endif
 }
 
@@ -1168,12 +1156,7 @@ unsigned VideoMediaSampleRenderer::corruptedVideoFrames() const
 #if PLATFORM(WATCHOS)
     return 0;
 #else
-    // MAVERICKS_BACKPORT: the public SDK marks AVVideoPerformanceMetrics' frame-count getters
-    // API_UNAVAILABLE(macos) even though they exist at runtime (Apple's internal SDK declares them
-    // available, which is how upstream calls them unguarded). Message them through the
-    // WebAVVideoPerformanceMetrics accessor protocol in PAL/pal/spi/cocoa/AVFoundationSPI.h, the same
-    // way MediaPlayerPrivateAVFoundationObjC and LocalSampleBufferDisplayLayer already do.
-    return ((id<WebAVVideoPerformanceMetrics>)[renderer() videoPerformanceMetrics]).numberOfCorruptedVideoFrames + m_corruptedVideoFrames;
+    return [renderer() videoPerformanceMetrics].numberOfCorruptedVideoFrames + m_corruptedVideoFrames;
 #endif
 }
 
@@ -1186,12 +1169,7 @@ MediaTime VideoMediaSampleRenderer::totalFrameDelay() const
 #if PLATFORM(WATCHOS)
     return MediaTime::invalidTime();
 #else
-    // MAVERICKS_BACKPORT: the public SDK marks AVVideoPerformanceMetrics' frame-count getters
-    // API_UNAVAILABLE(macos) even though they exist at runtime (Apple's internal SDK declares them
-    // available, which is how upstream calls them unguarded). Message them through the
-    // WebAVVideoPerformanceMetrics accessor protocol in PAL/pal/spi/cocoa/AVFoundationSPI.h, the same
-    // way MediaPlayerPrivateAVFoundationObjC and LocalSampleBufferDisplayLayer already do.
-    return MediaTime::createWithDouble(((id<WebAVVideoPerformanceMetrics>)[renderer() videoPerformanceMetrics]).totalFrameDelay);
+    return MediaTime::createWithDouble([renderer() videoPerformanceMetrics].totalFrameDelay);
 #endif
 }
 

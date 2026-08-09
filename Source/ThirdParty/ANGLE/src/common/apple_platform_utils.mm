@@ -19,12 +19,6 @@
 #include <Metal/Metal.h>
 #endif
 
-// MAVERICKS_BACKPORT: kIOMainPortDefault was introduced in the macOS 12 SDK (renamed from
-// kIOMasterPortDefault).
-#if !defined(MAC_OS_VERSION_12_0) || (defined(MAC_OS_X_VERSION_MAX_ALLOWED) && MAC_OS_X_VERSION_MAX_ALLOWED < 120000)
-#    define kIOMainPortDefault kIOMasterPortDefault
-#endif
-
 namespace angle
 {
 

@@ -230,11 +230,9 @@ bool Internals::privatePlayerMuted(const HTMLMediaElement& element)
 
 String Internals::encodedPreferenceValue(const String& domain, const String& key)
 {
-    RetainPtr<NSUserDefaults> userDefaults = adoptNS([[NSUserDefaults alloc] initWithSuiteName:domain.createNSString().get()]);
-    id value = [userDefaults objectForKey:key.createNSString().get()];
-    // MAVERICKS_BACKPORT: use the classic archivedDataWithRootObject: — the
-    // requiringSecureCoding:error: variant is 10.13+ and absent on 10.9.
-    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:value];
+    RetainPtr userDefaults = adoptNS([[NSUserDefaults alloc] initWithSuiteName:domain.createNSString().get()]);
+    RetainPtr value = [userDefaults objectForKey:key.createNSString().get()];
+    RetainPtr data = retainPtr([NSKeyedArchiver archivedDataWithRootObject:value.get() requiringSecureCoding:YES error:nullptr]);
     return [data base64EncodedStringWithOptions:0];
 }
 

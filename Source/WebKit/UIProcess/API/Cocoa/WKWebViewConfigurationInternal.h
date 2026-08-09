@@ -25,8 +25,7 @@
 
 #import <WebKit/WKWebViewConfigurationPrivate.h>
 
-// MAVERICKS_BACKPORT: force-include the C++ internals (was gated on the modules / Swift-ObjCXX-interop feature check); the 10.9 build is -fno-modules and always needs these declarations.
-#if 1 // backport: #if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+#if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 #import "APIPageConfiguration.h"
 #import "WKObject.h"
@@ -37,8 +36,7 @@
 
 NS_HEADER_AUDIT_BEGIN(nullability, sendability)
 
-// MAVERICKS_BACKPORT: force-include the WrapperTraits/category internals (was gated on the modules / Swift-ObjCXX-interop feature check); the 10.9 build is -fno-modules and always needs these declarations.
-#if 1 // backport: #if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+#if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 namespace WebKit {
 
@@ -65,8 +63,7 @@ template<> struct WrapperTraits<API::PageConfiguration> {
 
 @end
 
-// MAVERICKS_BACKPORT: force-include the C++ conversion helpers (was gated on the modules / Swift-ObjCXX-interop feature check); the 10.9 build is -fno-modules and always needs these declarations.
-#if 1 // backport: #if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+#if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 #if PLATFORM(IOS_FAMILY)
 _WKDragLiftDelay toDragLiftDelay(NSUInteger);

@@ -27,8 +27,7 @@
 
 #include <wtf/Platform.h>
 
-// MAVERICKS_BACKPORT: force the plain (non-modules) body since the 10.9 build compiles -fno-modules and lacks the Swift/ObjC++ interop path. Original: #if !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
-#if 1
+#if !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 #include <WebCore/IntSize.h>
 

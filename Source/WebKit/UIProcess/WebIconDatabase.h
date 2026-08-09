@@ -45,6 +45,7 @@
 namespace API {
 class Data;
 class IconDatabaseClient;
+class IconLoadingClient;
 }
 
 namespace WebCore {
@@ -52,6 +53,8 @@ class SQLiteDatabase;
 }
 
 namespace WebKit {
+
+class WebPageProxy;
 
 // MAVERICKS_BACKPORT: decodes stored favicon bytes into their frames, defined next to the C API that
 // hands them to Safari (UIProcess/API/C/cg/WKIconDatabaseCG.cpp) because that is where the platform
@@ -188,6 +191,10 @@ private:
     uint64_t m_generation { 0 };
     std::unique_ptr<WebCore::SQLiteDatabase> m_db;
 };
+
+// MAVERICKS_BACKPORT: WebProcessPoolIconDatabase.cpp owns PageIconLoadingClient; WebProcessPool
+// attaches one through this factory so the class need not be visible there.
+std::unique_ptr<API::IconLoadingClient> createPageIconLoadingClient(WebPageProxy&, WebIconDatabase&);
 
 } // namespace WebKit
 

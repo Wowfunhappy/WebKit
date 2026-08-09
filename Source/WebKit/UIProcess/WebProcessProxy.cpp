@@ -1234,11 +1234,8 @@ void WebProcessProxy::createMemoryAttributionIDIfNeeded(CompletionHandler<void(c
 
     GPUProcessProxy::getOrCreate()->createMemoryAttributionIDForTask(m_processIdentity, [this, weakThis = WeakPtr { *this }, completionHandler = WTF::move(completionHandler)]
     (const std::optional<String>& attributionTaskID) mutable {
-        // MAVERICKS_BACKPORT: invoke the completion handler (with nullopt) before bailing so the caller isn't left hanging.
-        if (!weakThis) {
-            completionHandler(std::nullopt);
+        if (!weakThis)
             return;
-        } // MAVERICKS_BACKPORT: end of always-invoke-completion-handler guard.
 
         if (attributionTaskID.has_value()) {
             WEBPROCESSPROXY_RELEASE_LOG(Process, "createMemoryAttributionIDIfNeeded: created memory attribution ID");

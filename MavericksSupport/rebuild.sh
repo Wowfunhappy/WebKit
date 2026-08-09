@@ -42,7 +42,8 @@ CACHE_FILE="$BUILD/CMakeCache.txt"
 OPT_HASH_FILE="$BUILD/.wk-option-defaults.sha256"
 if [ -f "$CACHE_FILE" ]; then
     # Hash the per-file digests (captures both the file set and every file's contents).
-    _opt_files=$(ls "$ROOT"/Source/cmake/Options*.cmake "$ROOT"/Source/cmake/WebKitFeatures.cmake 2>/dev/null | sort)
+    _opt_files=$(ls "$ROOT"/Source/cmake/Options*.cmake "$ROOT"/Source/cmake/WebKitFeatures.cmake \
+        "$ROOT"/MavericksSupport/cmake/OptionsMac*.cmake 2>/dev/null | sort)
     _opt_hash=$(shasum -a 256 $_opt_files 2>/dev/null | shasum -a 256 | awk '{print $1}')
     _fire=""
     if [ -f "$OPT_HASH_FILE" ]; then
@@ -56,7 +57,8 @@ if [ -f "$CACHE_FILE" ]; then
     fi
     if [ -n "$_fire" ]; then
         _names=$(grep -rhoE 'WEBKIT_OPTION_(DEFINE|DEFAULT_PORT_VALUE)\([[:space:]]*[A-Z0-9_]+' \
-            "$ROOT"/Source/cmake/WebKitFeatures.cmake "$ROOT"/Source/cmake/Options*.cmake 2>/dev/null \
+            "$ROOT"/Source/cmake/WebKitFeatures.cmake "$ROOT"/Source/cmake/Options*.cmake \
+            "$ROOT"/MavericksSupport/cmake/OptionsMac*.cmake 2>/dev/null \
             | grep -oE '[A-Z0-9_]+$' | sort -u)
         if [ -n "$_names" ]; then
             echo "### option file content changed -> re-deriving $(echo $_names | wc -w | tr -d ' ') feature options from port defaults"

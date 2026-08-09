@@ -30,10 +30,7 @@
 #import "CacheModel.h"
 #import "Connection.h"
 #import "DownloadManager.h"
-// MAVERICKS_BACKPORT: GPU process is disabled on 10.9 (GPU_PROCESS off); guard the GPUProcessProxy import so it isn't required when the proxy isn't built.
-#if ENABLE(GPU_PROCESS)
 #import "GPUProcessProxy.h"
-#endif
 #import "LegacyDownloadClient.h"
 #import "Logging.h"
 #import "NetworkProcessProxy.h"

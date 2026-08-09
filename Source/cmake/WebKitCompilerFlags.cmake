@@ -143,10 +143,7 @@ if (DEVELOPER_MODE OR ARM)
 endif ()
 
 if (COMPILER_IS_GCC_OR_CLANG)
-    # MAVERICKS_BACKPORT: -fdebug-types-section is a DWARF/ELF feature; clang rejects it for the Mach-O
-    # target ("unsupported option '-fdebug-types-section' for target x86_64-apple-darwin..."). It's
-    # only needed for ELF/aarch64 anyway, so skip it on Apple.
-    if ((COMPILER_IS_CLANG OR (DEVELOPER_MODE AND NOT ARM)) AND NOT APPLE)
+    if (COMPILER_IS_CLANG OR (DEVELOPER_MODE AND NOT ARM))
         # Split debug information in ".debug_types" / ".debug_info" sections - this leads
         # to a smaller overall size of the debug information, and avoids linker relocation
         # errors on e.g. aarch64 (relocation R_AARCH64_ABS32 out of range: 4312197985 is not in [-2147483648, 4294967295])
@@ -375,11 +372,7 @@ if (MSVC)
 elseif (COMPILER_IS_QCC)
     set(CODE_GENERATOR_PREPROCESSOR "\"${CMAKE_CXX_COMPILER}\" -E -Wp,-P -x c++")
 else ()
-    # MAVERICKS_BACKPORT: --no-default-config so the IDL/CSS preprocessor (clang -E) does
-    # NOT force-include the macOS 10.9 compat header. That header pulls in system
-    # type headers whose C typedefs (e.g. `typedef signed char __int8_t;`) would
-    # otherwise leak into the preprocessed IDL and make IDLParser.pm choke.
-    set(CODE_GENERATOR_PREPROCESSOR "\"${CMAKE_CXX_COMPILER}\" --no-default-config -E -P -x c++")
+    set(CODE_GENERATOR_PREPROCESSOR "\"${CMAKE_CXX_COMPILER}\" -E -P -x c++")
 endif ()
 
 # Ensure that the default include system directories are added to the list of CMake implicit includes.

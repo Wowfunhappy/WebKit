@@ -267,11 +267,6 @@ if (COMPILER_IS_GCC_OR_CLANG)
         if (TARGET ${angle_target})
             WEBKIT_ADD_TARGET_C_FLAGS(${angle_target} -w)
             WEBKIT_ADD_TARGET_CXX_FLAGS(${angle_target} -w)
-            # MAVERICKS_BACKPORT: this block only suppresses ANGLE's compiler warnings (-w). RTTI
-            # stays off — ANGLE inherits WebKit's global -fno-rtti and no -frtti is applied here.
-            # The GLSL (desktop-GL) Apple AST symbols that were previously undefined are resolved by
-            # the list(APPEND ANGLE_SOURCES ${angle_translator_glsl_apple_sources}) above, not by any
-            # stub source.
         endif ()
     endforeach ()
 endif ()

@@ -48,18 +48,14 @@ void WEBCONTENT_SERVICE_INITIALIZER(xpc_connection_t connection, xpc_object_t in
 #endif
     WTF::initializeMainThread();
 
-// MAVERICKS_BACKPORT: upstream's WebProcessShim removal and iOS-only initialisation. Kept commented, not deleted: this port inserts no shim into DYLD_INSERT_LIBRARIES, and the iOS branch has no counterpart on 10.9.
-//     // Remove the WebProcessShim from the DYLD_INSERT_LIBRARIES environment variable so any processes spawned by
-//     // the this process don't try to insert the shim and crash.
-// (end MAVERICKS_BACKPORT restored block)
+    // Remove the WebProcessShim from the DYLD_INSERT_LIBRARIES environment variable so any processes spawned by
+    // the this process don't try to insert the shim and crash.
     WebKit::EnvironmentUtilities::removeValuesEndingWith("DYLD_INSERT_LIBRARIES"_s, "/WebProcessShim.dylib"_s);
 
-// MAVERICKS_BACKPORT: upstream's WebProcessShim removal and iOS-only initialisation. Kept commented, not deleted: this port inserts no shim into DYLD_INSERT_LIBRARIES, and the iOS branch has no counterpart on 10.9.
-// #if PLATFORM(IOS_FAMILY)
-//     GSInitialize();
-//     InitWebCoreThreadSystemInterface();
-// #endif // PLATFORM(IOS_FAMILY)
-//
-// (end MAVERICKS_BACKPORT restored block)
+#if PLATFORM(IOS_FAMILY)
+    GSInitialize();
+    InitWebCoreThreadSystemInterface();
+#endif // PLATFORM(IOS_FAMILY)
+
     WebKit::XPCServiceInitializer<WebKit::WebProcess, WebKit::XPCServiceInitializerDelegate, true>(connection, initializerMessage);
 }

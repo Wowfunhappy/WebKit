@@ -47,9 +47,6 @@ void WKIconDatabaseSetIconDatabaseClient(WKIconDatabaseRef iconDatabaseRef, cons
     toImpl(iconDatabaseRef)->setClient(client ? makeUnique<WebIconDatabaseClient>(client) : nullptr);
 }
 
-// MAVERICKS_BACKPORT: intentionally inert. Safari 7 calls these on the legacy icon database,
-// but the revived in-memory store is populated by the icon-loading client and needs no
-// explicit retain/release/eviction bookkeeping (#49).
 void WKIconDatabaseRetainIconForURL(WKIconDatabaseRef, WKURLRef)
 {
 }

@@ -59,12 +59,6 @@
     return _inspectorWKWebViewDelegate.getAutoreleased();
 }
 
-// MAVERICKS_BACKPORT: provide a protectedInspectorWKWebViewDelegate accessor returning a RetainPtr; the senders below use it instead of the upstream free-function protect(self.inspectorWKWebViewDelegate) helper, which is unavailable in this build.
-- (RetainPtr<id <WKInspectorWKWebViewDelegate>>)protectedInspectorWKWebViewDelegate
-{
-    return self.inspectorWKWebViewDelegate;
-}
-
 - (void)setInspectorWKWebViewDelegate:(id <WKInspectorWKWebViewDelegate>)delegate
 {
     if (!!_inspectorWKWebViewDelegate)
@@ -78,43 +72,37 @@
 
 - (IBAction)reload:(id)sender
 {
-    // MAVERICKS_BACKPORT: send through the protectedInspectorWKWebViewDelegate accessor instead of upstream's protect(self.inspectorWKWebViewDelegate) free function.
-    [self.protectedInspectorWKWebViewDelegate inspectorWKWebViewReload:self];
+    [protect(self.inspectorWKWebViewDelegate) inspectorWKWebViewReload:self];
 }
 
 - (IBAction)reloadFromOrigin:(id)sender
 {
-    // MAVERICKS_BACKPORT: send through the protectedInspectorWKWebViewDelegate accessor instead of upstream's protect(self.inspectorWKWebViewDelegate) free function.
-    [self.protectedInspectorWKWebViewDelegate inspectorWKWebViewReloadFromOrigin:self];
+    [protect(self.inspectorWKWebViewDelegate) inspectorWKWebViewReloadFromOrigin:self];
 }
 
 - (void)viewWillMoveToWindow:(NSWindow *)newWindow
 {
     [super viewWillMoveToWindow:newWindow];
-    // MAVERICKS_BACKPORT: send through the protectedInspectorWKWebViewDelegate accessor instead of upstream's protect(self.inspectorWKWebViewDelegate) free function.
-    [self.protectedInspectorWKWebViewDelegate inspectorWKWebView:self willMoveToWindow:newWindow];
+    [protect(self.inspectorWKWebViewDelegate) inspectorWKWebView:self willMoveToWindow:newWindow];
 }
 
 - (void)viewDidMoveToWindow
 {
     [super viewDidMoveToWindow];
-    // MAVERICKS_BACKPORT: send through the protectedInspectorWKWebViewDelegate accessor instead of upstream's protect(self.inspectorWKWebViewDelegate) free function.
-    [self.protectedInspectorWKWebViewDelegate inspectorWKWebViewDidMoveToWindow:self];
+    [protect(self.inspectorWKWebViewDelegate) inspectorWKWebViewDidMoveToWindow:self];
 }
 
 - (BOOL)becomeFirstResponder
 {
     BOOL result = [super becomeFirstResponder];
-    // MAVERICKS_BACKPORT: send through the protectedInspectorWKWebViewDelegate accessor instead of upstream's protect(self.inspectorWKWebViewDelegate) free function.
-    [self.protectedInspectorWKWebViewDelegate inspectorWKWebViewDidBecomeActive:self];
+    [protect(self.inspectorWKWebViewDelegate) inspectorWKWebViewDidBecomeActive:self];
     return result;
 }
 
 - (void)_handleWindowDidBecomeKey:(NSNotification *)notification
 {
     if (notification.object == self.window)
-        // MAVERICKS_BACKPORT: send through the protectedInspectorWKWebViewDelegate accessor instead of upstream's protect(self.inspectorWKWebViewDelegate) free function.
-        [self.protectedInspectorWKWebViewDelegate inspectorWKWebViewDidBecomeActive:self];
+        [protect(self.inspectorWKWebViewDelegate) inspectorWKWebViewDidBecomeActive:self];
 }
 
 @end

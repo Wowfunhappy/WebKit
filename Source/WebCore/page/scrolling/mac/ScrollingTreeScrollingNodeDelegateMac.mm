@@ -143,26 +143,15 @@ void ScrollingTreeScrollingNodeDelegateMac::updateFromStateNode(const ScrollingS
 
 bool ScrollingTreeScrollingNodeDelegateMac::handleWheelEvent(const PlatformWheelEvent& wheelEvent)
 {
-    // MAVERICKS_BACKPORT: behavior #55/#39 — track presentation-value state across the WHOLE gesture (active drag + momentum); see below.
-    bool wasUsingPresentationValues = m_inActiveScrollGesture || m_inMomentumPhase;
+    bool wasInMomentumPhase = m_inMomentumPhase;
 
     if (wheelEvent.momentumPhase() == PlatformWheelEventPhase::Began)
         m_inMomentumPhase = true;
     else if (wheelEvent.momentumPhase() == PlatformWheelEventPhase::Ended || wheelEvent.momentumPhase() == PlatformWheelEventPhase::Cancelled)
         m_inMomentumPhase = false;
-
-    // MAVERICKS_BACKPORT: behavior #55/#39 — also track the active (fingers-down) gesture, not only momentum. Upstream relies on the
-    // main thread to move the thumb during the active drag; on this port that notification is coalesced
-    // so the thumb stalls/jumps. By using the smooth presentation-value path for the WHOLE gesture
-    // (active drag + momentum) the thumb tracks the content frame-for-frame on the scrolling thread.
-    if (wheelEvent.phase() == PlatformWheelEventPhase::Began)
-        m_inActiveScrollGesture = true;
-    else if (wheelEvent.phase() == PlatformWheelEventPhase::Ended || wheelEvent.phase() == PlatformWheelEventPhase::Cancelled)
-        m_inActiveScrollGesture = false;
-
-    bool usePresentationValues = m_inActiveScrollGesture || m_inMomentumPhase;
-    if (wasUsingPresentationValues != usePresentationValues)
-        m_scrollerPair->setUsePresentationValues(usePresentationValues);
+    
+    if (wasInMomentumPhase != m_inMomentumPhase)
+        m_scrollerPair->setUsePresentationValues(m_inMomentumPhase);
 
     auto deferrer = ScrollingTreeWheelEventTestMonitorCompletionDeferrer { *scrollingTree(), scrollingNode()->scrollingNodeID(), WheelEventTestMonitor::DeferReason::HandlingWheelEvent };
 
@@ -401,18 +390,8 @@ bool ScrollingTreeScrollingNodeDelegateMac::hasBannerViewOverlay() const
 
 void ScrollingTreeScrollingNodeDelegateMac::updateScrollbarPainters()
 {
-    if (!m_scrollerPair->hasScrollerImp())
-        return;
-    // MAVERICKS_BACKPORT: behavior #55/#39 — called from repositionRelatedLayers() on every scroll-thread reposition. Use the
-    // SMOOTH presentation-value path whenever presentation values are active — now the whole gesture
-    // (active drag + momentum), see handleWheelEvent — so the thumb tracks the content frame-for-frame.
-    // Otherwise (discrete wheel-mouse ticks / idle, no presentation values) push the normal scroller
-    // values so the thumb still updates (this is the call already used on commit; same thread).
-    if (m_scrollerPair->isUsingPresentationValues())
+    if (m_inMomentumPhase && m_scrollerPair->hasScrollerImp() && m_scrollerPair->isUsingPresentationValues())
         m_scrollerPair->updateScrollbarPainters();
-    // MAVERICKS_BACKPORT: behavior #55/#39 — outside the gesture (discrete ticks/idle) push normal scroller values so the thumb still updates.
-    else
-        m_scrollerPair->updateValues();
 }
 
 void ScrollingTreeScrollingNodeDelegateMac::initScrollbars()

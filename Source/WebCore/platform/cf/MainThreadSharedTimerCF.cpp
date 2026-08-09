@@ -27,9 +27,8 @@
 #import "MainThreadSharedTimer.h"
 
 #include <wtf/AutodrainedPool.h>
+// MAVERICKS_BACKPORT: isMainThread() and the extra-run-loop-mode vector below (see addRunLoopMode).
 #include <wtf/MainThread.h>
-// MAVERICKS_BACKPORT: include RunLoop for the main-thread run loop used by the timer install below.
-#include <wtf/RunLoop.h>
 #include <wtf/Vector.h>
 #include <wtf/cf/NotificationCenterCF.h>
 
@@ -152,10 +151,8 @@ void MainThreadSharedTimer::setFireInterval(Seconds interval)
         for (auto& mode : extraTimerRunLoopModes())
             CFRunLoopAddTimer(CFRunLoopGetMain(), sharedTimer().get(), mode.get());
 #endif
-        // MAVERICKS_BACKPORT: setupPowerObserver runs once here in the create-timer branch (the existing-timer reschedule is folded into the else below).
-        setupPowerObserver();
-    // MAVERICKS_BACKPORT: fold the existing-timer reschedule into this else branch so the timer is created/added exactly once on 10.9.
-    } else
+        setupPowerObserver(); // MAVERICKS_BACKPORT: runs once in the create-timer branch; the reschedule is the else below.
+    } else // MAVERICKS_BACKPORT: folded so the timer is created and added exactly once.
         CFRunLoopTimerSetNextFireDate(sharedTimer().get(), fireDate);
 }
 

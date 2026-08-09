@@ -468,16 +468,7 @@ void WebPage::registerUIProcessAccessibilityTokens(WebCore::AccessibilityRemoteT
     [remoteElement setWindowUIElement:remoteWindow.get()];
     [remoteElement setTopLevelUIElement:remoteWindow.get()];
     RetainPtr accessibilityRemoteObject = this->accessibilityRemoteObject();
-    // MAVERICKS_BACKPORT: -[WKAccessibilityWebPageObjectBase setWindow:] and its m_window ivar are declared
-    // inside ENABLE(ACCESSIBILITY_ISOLATED_TREE) (WKAccessibilityWebPageObjectBase.h), so with that flag off
-    // the method does not exist and this send raised, taking the WebContent process down during AX token
-    // registration. That is a compile-time fact, so it takes the same compile-time guard as the declaration
-    // rather than a runtime probe standing in for one -- and with the guard, the send is type-checked against
-    // the real declaration and needs no cast. m_window is consumed solely by isolated-tree code (Mac's
-    // accessibilityAttributeWindowValue derives the window without it), so the flag-off build loses nothing.
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
     [accessibilityRemoteObject setWindow:remoteWindow.get()];
-#endif // MAVERICKS_BACKPORT: closes the ACCESSIBILITY_ISOLATED_TREE guard on setWindow: (see above).
     [accessibilityRemoteObject setRemoteParent:remoteElement.get() token:elementTokenData.get()];
 }
 

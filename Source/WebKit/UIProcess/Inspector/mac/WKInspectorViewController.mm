@@ -256,8 +256,7 @@ static void* const safeAreaInsetsKVOContext = (void*)&safeAreaInsetsKVOContext;
 
 + (NSURL *)URLForInspectorResource:(NSString *)resource
 {
-    // MAVERICKS_BACKPORT: cast to NSURL* so -URLByStandardizingPath resolves on 10.9 (NSString id-return ambiguity).
-    return [(NSURL *)[NSURL URLWithString:adoptNS([[NSString alloc] initWithFormat:@"%@:///%@", WKInspectorResourceScheme, resource]).get()] URLByStandardizingPath];
+    return [NSURL URLWithString:adoptNS([[NSString alloc] initWithFormat:@"%@:///%@", WKInspectorResourceScheme, resource]).get()].URLByStandardizingPath;
 }
 
 // MAVERICKS_BACKPORT (#52/#66/#69): document-start bridge + unified titlebar/toolbar for the stock

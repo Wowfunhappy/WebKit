@@ -23,25 +23,22 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: RevealKit (RVPresentingContext / RVItem / RVPresenter) is macOS 10.13+ and absent on
-// 10.9. The only symbol WebCore references is createRVPresentingContextWithRetainedDelegate (used by the
-// force-touch dictionary-lookup popover in DictionaryLookup.mm). Return null so callers degrade
-// gracefully; this also resolves the otherwise-undefined symbol that crashes WebContent once referenced.
-#include "config.h"
+#import "config.h"
 #import "RevealUtilities.h"
 
 #if PLATFORM(MAC)
 
-// MAVERICKS_BACKPORT: the <objc/runtime.h> and <pal/cocoa/RevealSoftLink.h> imports are dropped — the
-// RevealKit soft-link allocator (10.13+) and the associated-object plumbing are unused by the 10.9 stub.
+#import <objc/runtime.h>
+#import <pal/cocoa/RevealSoftLink.h>
+
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: RevealKit is 10.13+; with the soft-link allocator absent, this stub takes no
-// arguments and returns null instead of constructing an RVPresentingContext.
-RetainPtr<RVPresentingContext> createRVPresentingContextWithRetainedDelegate(NSPoint, NSView *, id<RVPresenterHighlightDelegate>)
+RetainPtr<RVPresentingContext> createRVPresentingContextWithRetainedDelegate(NSPoint point, NSView *view, id<RVPresenterHighlightDelegate> delegate)
 {
-    // MAVERICKS_BACKPORT: no RVPresentingContext to build on 10.9 — return null so callers degrade gracefully.
-    return { };
+    auto context = adoptNS([PAL::allocRVPresentingContextInstance() initWithPointerLocationInView:point inView:view highlightDelegate:delegate]);
+    static char retainedDelegateKey;
+    objc_setAssociatedObject(context.get(), &retainedDelegateKey, delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return context;
 }
 
 } // namespace WebCore

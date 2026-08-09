@@ -71,10 +71,6 @@
 #import <WebCore/UniversalAccessZoom.h>
 #import <WebCore/UserAgent.h>
 #import <WebCore/ValidationBubble.h>
-// MAVERICKS_BACKPORT: UniformTypeIdentifiers (UTType / UTType* constants) and
-// -[NSWorkspace URLForApplicationToOpenContentType:] are macOS 11+/12+ and absent on 10.9; the legacy
-// CoreServices kUTType* constants and LaunchServices default-handler lookup are used instead.
-#import <CoreServices/CoreServices.h>
 #import <mach-o/dyld.h>
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/WritingToolsSPI.h>
@@ -834,9 +830,7 @@ std::optional<IPC::AsyncReplyID> WebPageProxy::willPerformPasteCommand(DOMPasteA
     }
 }
 
-// MAVERICKS_BACKPORT: platformView() is referenced only by the wireless-playback target path; gate it to that build so it isn't an unused function otherwise.
-#if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
-RetainPtr<CocoaView> WebPageProxy::Internals::platformView() const
+RetainPtr<NSView> WebPageProxy::Internals::platformView() const
 {
     RefPtr pageClient = page->pageClient();
     if (!pageClient)
@@ -844,7 +838,6 @@ RetainPtr<CocoaView> WebPageProxy::Internals::platformView() const
     RetainPtr window = pageClient->platformWindow();
     return [window contentView];
 }
-#endif // MAVERICKS_BACKPORT ENABLE(WIRELESS_PLAYBACK_TARGET)
 
 #if ENABLE(PDF_PLUGIN)
 

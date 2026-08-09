@@ -94,3 +94,9 @@ endif ()
 set(Python_EXECUTABLE  "${_PY3}" CACHE FILEPATH "")
 set(Python3_EXECUTABLE "${_PY3}" CACHE FILEPATH "")
 set(PYTHON_EXECUTABLE  "${_PY3}" CACHE FILEPATH "")
+
+# --- RTTI ---------------------------------------------------------------------
+# WebKit builds without RTTI; the CMake port spells that only for CXX, leaving ObjC++
+# with RTTI on. A .mm then references C++ typeinfos that the -fno-rtti .cpp definitions
+# never emit, and every WebKit process aborts at dyld load on the undefined symbols.
+set(CMAKE_OBJCXX_FLAGS "-fno-rtti" CACHE STRING "" FORCE)

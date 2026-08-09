@@ -1,55 +1,73 @@
-// MAVERICKS_BACKPORT: runtime-absent framework — the real Cocoa SpeechRecognizer uses SFSpeechRecognizer
-// (Speech.framework, 10.15+), unavailable on Mavericks, so this file was originally stubbed empty. But HAVE(SPEECHRECOGNIZER)
-// is 1 on Cocoa, which excludes the generic no-op fallbacks in SpeechRecognizer.cpp — leaving
-// SpeechRecognizer::{startRecognition,dataCaptured,abortRecognition,stopRecognition} UNDEFINED in
-// WebCore.framework. Safari survived via lazy binding (Web Speech recognition rarely invoked), but ANY
-// RTLD_NOW dlopen of our WebKit (which forces immediate symbol resolution) then failed — e.g. QuickLook's
-// Web2.qldisplay HTML-preview plug-in: "Symbol not found: WebCore::SpeechRecognizer::startRecognition".
-// Provide ALL FOUR methods here so WebCore is self-contained for immediate-binding clients AND so the
-// degradation is clean: startRecognition() reports a clean failure (the page gets a 'service-not-allowed'
-// error rather than silently capturing the mic with no results and never ending), and abort/stop deliver
-// the terminal End update so the SpeechRecognition object completes instead of hanging. (Previously only
-// startRecognition/dataCaptured were defined here; abort/stopRecognition fell through to libpolyfill's
-// return-0 no-op stubs, which never sent End.)
-#include "config.h"
-#include "SpeechRecognizer.h"
-#include "SpeechRecognitionUpdate.h"
-#include <wtf/MediaTime.h>
+/*
+ * Copyright (C) 2020 Apple Inc. All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS ``AS IS''
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#import "config.h"
+#import "SpeechRecognizer.h"
+
+#if HAVE(SPEECHRECOGNIZER)
+
+#import "AudioStreamDescription.h"
+#import "MediaUtilities.h"
+#import "SpeechRecognitionUpdate.h"
+#import "WebSpeechRecognizerTaskMock.h"
+#import <Speech/Speech.h>
+#import <pal/avfoundation/MediaTimeAVFoundation.h>
+#import <pal/cf/CoreMediaSoftLink.h>
 
 namespace WebCore {
 
-// MAVERICKS_BACKPORT: no SFSpeechRecognizer on 10.9 — drop captured audio (no recognition task to feed).
-void SpeechRecognizer::dataCaptured(const MediaTime&, const PlatformAudioData&, const AudioStreamDescription&, size_t)
+void SpeechRecognizer::dataCaptured(const MediaTime&, const PlatformAudioData& data, const AudioStreamDescription& description, size_t sampleCount)
 {
-// MAVERICKS_BACKPORT: upstream's version of the lines below, kept commented rather than deleted so the divergence stays visible in place. Reason: see the note directly above.
-//     auto buffer = createAudioSampleBuffer(data, description, m_currentAudioSampleTime, sampleCount);
-//     [m_task audioSamplesAvailable:buffer.get()];
-//     m_currentAudioSampleTime = PAL::CMTimeAdd(m_currentAudioSampleTime, PAL::toCMTime(MediaTime(sampleCount, description.sampleRate())));
-// (end MAVERICKS_BACKPORT restored block)
+    auto buffer = createAudioSampleBuffer(data, description, m_currentAudioSampleTime, sampleCount);
+    [m_task audioSamplesAvailable:buffer.get()];
+    m_currentAudioSampleTime = PAL::CMTimeAdd(m_currentAudioSampleTime, PAL::toCMTime(MediaTime(sampleCount, description.sampleRate())));
 }
 
-// MAVERICKS_BACKPORT: no SFSpeechRecognizer on 10.9; fail cleanly instead of constructing a WebSpeechRecognizerTask.
-bool SpeechRecognizer::startRecognition(bool, SpeechRecognitionConnectionClientIdentifier, const String&, bool, bool, uint64_t)
+bool SpeechRecognizer::startRecognition(bool mockSpeechRecognitionEnabled, SpeechRecognitionConnectionClientIdentifier identifier, const String& localeIdentifier, bool continuous, bool interimResults, uint64_t alternatives)
 {
-    // No SFSpeechRecognizer on 10.9 — fail cleanly so start() emits a service-not-allowed error instead
-    // of proceeding to capture the microphone for a recognition that can never produce results.
-    return false;
+    auto taskClass = mockSpeechRecognitionEnabled ? [WebSpeechRecognizerTaskMock class] : [WebSpeechRecognizerTask class];
+    m_task = adoptNS([[taskClass alloc] initWithIdentifier:identifier locale:localeIdentifier.createNSString().get() doMultipleRecognitions:continuous reportInterimResults:interimResults maxAlternatives:alternatives delegateCallback:[weakThis = WeakPtr { *this }](const WebCore::SpeechRecognitionUpdate& update) {
+        if (weakThis)
+            weakThis->m_delegateCallback(update);
+    }]);
+
+    return !!m_task;
 }
 
-// MAVERICKS_BACKPORT: no SFSpeechRecognizer on 10.9 — abort by delivering the terminal End update (below) so the SpeechRecognition object completes instead of hanging.
-void SpeechRecognizer::abortRecognition()
-{
-    // MAVERICKS_BACKPORT: terminal End update (no real SFSpeechRecognitionTask to abort on 10.9).
-    m_delegateCallback(SpeechRecognitionUpdate::create(clientIdentifier(), SpeechRecognitionUpdateType::End));
-}
-
-// MAVERICKS_BACKPORT: no SFSpeechRecognizer on 10.9 — stop by delivering the terminal End update (below) so the SpeechRecognition object completes instead of hanging.
 void SpeechRecognizer::stopRecognition()
 {
-    // MAVERICKS_BACKPORT: terminal End update (no real SFSpeechRecognitionTask to stop on 10.9).
-    m_delegateCallback(SpeechRecognitionUpdate::create(clientIdentifier(), SpeechRecognitionUpdateType::End));
+    ASSERT(m_task);
+    [m_task stop];
+}
+
+void SpeechRecognizer::abortRecognition()
+{
+    ASSERT(m_task);
+    [m_task abort];
 }
 
 } // namespace WebCore
-// MAVERICKS_BACKPORT: no HAVE(SPEECHRECOGNIZER) #if/#endif wrapper — these methods are defined
-// unconditionally on 10.9 (the conditionally-compiled upstream version is empty on this port).
+
+#endif // HAVE(SPEECHRECOGNIZER)

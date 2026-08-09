@@ -393,7 +393,6 @@ Color RenderThemeMac::platformFocusRingColor(OptionSet<StyleColorOptions> option
     return colorFromCocoaColor([NSColor keyboardFocusIndicatorColor]).opaqueColor();
 }
 
-// MAVERICKS_BACKPORT: behavior fix — -[NSColor findHighlightColor] returns black on 10.9; hard-code yellow (options unused).
 Color RenderThemeMac::platformTextSearchHighlightColor(OptionSet<StyleColorOptions> options) const
 {
     LocalDefaultSystemAppearance localAppearance(options.contains(StyleColorOptions::UseDarkAppearance));
@@ -974,10 +973,8 @@ static Style::PreferredSizePair radioSize(const Style::PreferredSizePair& zoomed
 // Buttons really only constrain height. They respect width.
 static const std::span<const IntSize, 4> NODELETE buttonSizes()
 {
-    // MAVERICKS_BACKPORT: the Aqua push-button bezel heights this OS draws (regular/small/mini).
-    // The large tier is unreachable here (supportsLargeFormControls() is false on 10.9).
     static constexpr std::array sizes = {
-        IntSize { 0, 21 },
+        IntSize { 0, 21 }, // MAVERICKS_BACKPORT: the Aqua push-button bezel heights this OS draws (regular/small/mini); the large tier is unreachable here.
         IntSize { 0, 18 },
         IntSize { 0, 15 },
         IntSize { 0, 28 },

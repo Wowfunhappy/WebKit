@@ -33,6 +33,10 @@
 
 #include "ColorSerialization.h"
 #include "ContainerNodeInlines.h"
+// MAVERICKS_BACKPORT: computed -apple-dashboard-region value (Dashboard support restored).
+#if ENABLE(DASHBOARD_SUPPORT)
+#include "CSSDashboardRegionValue.h"
+#endif
 #include "CSSFontValue.h"
 #include "CSSGridAutoRepeatValue.h"
 #include "CSSGridIntegerRepeatValue.h"
@@ -1884,16 +1888,26 @@ inline void ExtractorCustom::extractContentSerialization(ExtractorState& state, 
 }
 
 #if ENABLE(DASHBOARD_SUPPORT)
-// MAVERICKS_BACKPORT: -apple-dashboard-region is a write-only legacy property for Dashboard widgets;
-// no widget reads it back via getComputedStyle, so the computed value is reported as `none`.
-inline Ref<CSSValue> ExtractorCustom::extractWebkitDashboardRegion(ExtractorState&)
+// MAVERICKS_BACKPORT: computed value for the legacy -apple-dashboard-region property, restored with the
+// rest of Dashboard support (removed upstream in 2d364c6). Offsets are always zero: StyleDashboardRegion
+// carries only the label and geometry, and the region rect comes from the renderer's border box.
+inline Ref<CSSValue> ExtractorCustom::extractWebkitDashboardRegion(ExtractorState& state)
 {
-    return CSSPrimitiveValue::create(CSSValueNone);
+    auto& regions = state.style.dashboardRegions().list;
+    if (regions.isEmpty())
+        return CSSPrimitiveValue::create(CSSValueNone);
+
+    auto zero = [] { return CSSPrimitiveValue::create(0, CSSUnitType::CSS_PX); };
+    Vector<CSSDashboardRegionValue::Region> values;
+    values.reserveInitialCapacity(regions.size());
+    for (auto& region : regions)
+        values.append({ region.label, region.type, zero().ptr(), zero().ptr(), zero().ptr(), zero().ptr() });
+    return CSSDashboardRegionValue::create(WTF::move(values));
 }
 
-inline void ExtractorCustom::extractWebkitDashboardRegionSerialization(ExtractorState&, StringBuilder& builder, const CSS::SerializationContext&)
+inline void ExtractorCustom::extractWebkitDashboardRegionSerialization(ExtractorState& state, StringBuilder& builder, const CSS::SerializationContext& context)
 {
-    builder.append("none"_s);
+    builder.append(extractWebkitDashboardRegion(state)->cssText(context));
 }
 #endif
 

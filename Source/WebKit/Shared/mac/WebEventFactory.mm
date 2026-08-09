@@ -39,23 +39,6 @@
 #import <wtf/ASCIICType.h>
 #import <wtf/UUID.h>
 
-// MAVERICKS_BACKPORT: compat defines for pre-10.12 modifier flag names (NSEventModifierFlag* spellings are 10.12+).
-#ifndef NSEventModifierFlagCapsLock
-#define NSEventModifierFlagCapsLock NSAlphaShiftKeyMask
-#endif
-#ifndef NSEventModifierFlagShift
-#define NSEventModifierFlagShift NSShiftKeyMask
-#endif
-#ifndef NSEventModifierFlagControl
-#define NSEventModifierFlagControl NSControlKeyMask
-#endif
-#ifndef NSEventModifierFlagOption
-#define NSEventModifierFlagOption NSAlternateKeyMask
-#endif
-#ifndef NSEventModifierFlagCommand
-#define NSEventModifierFlagCommand NSCommandKeyMask
-#endif
-
 namespace WebKit {
 
 static WebWheelEvent::Phase phaseForEvent(NSEvent *event)

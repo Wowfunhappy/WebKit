@@ -1199,8 +1199,7 @@ WebPage::WebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
     send(Messages::WebPageProxy::DidCreateContextInWebProcessForVisibilityPropagation(contextID));
 #endif // HAVE(VISIBILITY_PROPAGATION_VIEW) && !HAVE(NON_HOSTING_VISIBILITY_PROPAGATION_VIEW)
 
-// MAVERICKS_BACKPORT: VP9 decode (and WebCore's VP9TestingOverrides impl) is unavailable on 10.9; gate the call on >= 11.0.
-#if ENABLE(VP9) && PLATFORM(COCOA) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
+#if ENABLE(VP9) && PLATFORM(COCOA)
     VP9TestingOverrides::singleton().setShouldEnableVP9Decoder(parameters.shouldEnableVP9Decoder);
 #endif
 
@@ -3087,21 +3086,6 @@ void WebPage::postInjectedBundleMessage(const String& messageName, const UserDat
     if (!injectedBundle)
         return;
 
-    // MAVERICKS_BACKPORT: Safari's Safe Browsing is non-functional here (Google's Safe Browsing
-    // service/integration is gone), and its bundle handler crashes WebContent — an
-    // intermittent SIGSEGV in -[BrowserBundlePageController urlPassedSafeBrowsingCheck] →
-    // HashSet<Safari::CF::URL>::remove → CFEqual on a freed CFURL (a lifetime bug inside
-    // Safari.framework's closed code we cannot patch). That crash fires mid-load, BEFORE
-    // dispatchDidFinishLoad, so it also prevents load completion (and thus Top Sites preview
-    // capture, which keys off load-finish). Drop exactly the two Safe Browsing result messages
-    // Safari.framework posts on this path (the only injected-bundle messages that enter the
-    // crashing HashSet<Safari::CF::URL> code) so the bundle never reaches it; everything
-    // downstream (load-finish, Top Sites) proceeds. Matched by exact name — not a substring —
-    // so any other (including future) injected-bundle message is delivered normally.
-    if (messageName == "BrowserBundlePageController.URLPassedSafeBrowsingCheck"_s
-        || messageName == "BrowserBundlePageController.URLFailedSafeBrowsingCheck"_s)
-        return;
-
     injectedBundle->didReceiveMessageToPage(Ref { *this }, messageName, webProcess.transformHandlesToObjects(protect(userData.object()).get()));
 }
 
@@ -4132,8 +4116,7 @@ void WebPage::touchEvent(const WebTouchEvent& touchEvent, CompletionHandler<void
 {
     RefPtr localMainFrame = this->localMainFrame();
     if (!localMainFrame)
-    // MAVERICKS_BACKPORT: invoke the CompletionHandler on early-out (must always be called).
-        return completionHandler(std::nullopt, false);
+        return;
 
     CurrentEvent currentEvent(touchEvent);
 
@@ -5074,8 +5057,7 @@ void WebPage::updatePreferences(const WebPreferencesStore& store)
 #endif // ENABLE(MODEL_PROCESS)
 #endif // ENABLE(IPC_TESTING_API)
 
-// MAVERICKS_BACKPORT: VP9 decode (and WebCore's VP9TestingOverrides impl) is unavailable on 10.9; gate the call on >= 11.0.
-#if ENABLE(VP9) && PLATFORM(COCOA) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
+#if ENABLE(VP9) && PLATFORM(COCOA)
     VP9TestingOverrides::singleton().setSWVPDecodersAlwaysEnabled(store.getBoolValueForKey(WebPreferencesKey::sWVPDecodersAlwaysEnabledKey()));
 #endif
 

@@ -133,22 +133,12 @@ protected:
     bool m_hasBannerViewOverlay { false };
 #endif
 
-    // MAVERICKS_BACKPORT: declare the didAddPendingScrollUpdate() override
-    // unconditionally instead of only under ENABLE(THREADED_ANIMATIONS).
-    // THREADED_ANIMATIONS is off on this build, but the base class still
-    // requires the override, so it is hoisted out of the feature gate (and the
-    // access specifiers are rebalanced around the remaining gated members).
-private:
-    void didAddPendingScrollUpdate() override;
-    // MAVERICKS_BACKPORT: re-open public access for the gated member below, since
-    // the hoisted override above left this section private.
+    void didAddPendingScrollUpdate() override; // MAVERICKS_BACKPORT: hoisted out of the gate below; the base declares it unconditionally.
 #if ENABLE(THREADED_ANIMATIONS)
-public:
     void updateProgressBasedTimelinesForNode(const WebCore::ScrollingTreeScrollingNode&);
 
 private:
-    // MAVERICKS_BACKPORT: the didAddPendingScrollUpdate() override that upstream
-    // declared here is hoisted above the feature gate (see comment near line 136).
+    // MAVERICKS_BACKPORT: didAddPendingScrollUpdate() is declared above the gate (the base declares it unconditionally).
     std::unique_ptr<RemoteProgressBasedTimelineRegistry> m_progressBasedTimelineRegistry;
 #endif
 };

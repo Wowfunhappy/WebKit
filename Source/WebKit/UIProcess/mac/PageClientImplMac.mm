@@ -290,8 +290,7 @@ void PageClientImpl::pageClosed()
 
 void PageClientImpl::scrollingCoordinatorWasCreated()
 {
-    // MAVERICKS_BACKPORT: protect(m_impl) to hold a strong ref across the call (upstream dereferences m_impl directly).
-    protect(m_impl)->scrollingCoordinatorWasCreated();
+    m_impl->scrollingCoordinatorWasCreated();
 }
 
 void PageClientImpl::didRelaunchProcess()
@@ -435,12 +434,10 @@ void PageClientImpl::executeUndoRedo(UndoOrRedo undoOrRedo)
     return undoOrRedo == UndoOrRedo::Undo ? [undoManager undo] : [undoManager redo];
 }
 
-// MAVERICKS_BACKPORT: nodeID/frameID params are unused; WebViewImpl::startDrag() in this tree takes only (item, image).
-void PageClientImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Handle&& image, const std::optional<WebCore::NodeIdentifier>& nodeID, const std::optional<WebCore::FrameIdentifier>&)
+void PageClientImpl::startDrag(const WebCore::DragItem& item, ShareableBitmap::Handle&& image, const std::optional<WebCore::NodeIdentifier>& nodeID, const std::optional<WebCore::FrameIdentifier>& frameID)
 {
     UNUSED_PARAM(nodeID);
-    // MAVERICKS_BACKPORT: WebViewImpl::startDrag() in this tree takes only (item, image); frameID is dropped.
-    protect(m_impl)->startDrag(item, WTF::move(image));
+    protect(m_impl)->startDrag(item, WTF::move(image), frameID);
 }
 
 void PageClientImpl::setPromisedDataForImage(const String& pasteboardName, Ref<FragmentedSharedBuffer>&& imageBuffer, const String& filename, const String& extension, const String& title, const String& url, const String& visibleURL, RefPtr<FragmentedSharedBuffer>&& archiveBuffer, const String& originIdentifier)
@@ -572,10 +569,9 @@ void PageClientImpl::didDismissContextMenu()
 
 #endif // ENABLE(CONTEXT_MENUS)
 
-// MAVERICKS_BACKPORT: frameID param is unused and WebColorPickerMac::create() takes no frameID in this tree's signature.
-RefPtr<WebColorPicker> PageClientImpl::createColorPicker(WebPageProxy& page, const WebCore::Color& initialColor, const WebCore::IntRect& rect, ColorControlSupportsAlpha supportsAlpha, Vector<WebCore::Color>&& suggestions, std::optional<WebCore::FrameIdentifier>)
+RefPtr<WebColorPicker> PageClientImpl::createColorPicker(WebPageProxy& page, const WebCore::Color& initialColor, const WebCore::IntRect& rect, ColorControlSupportsAlpha supportsAlpha, Vector<WebCore::Color>&& suggestions, std::optional<WebCore::FrameIdentifier> frameID)
 {
-    return WebColorPickerMac::create(protect(page.colorPickerClient()).ptr(), initialColor, rect, supportsAlpha, WTF::move(suggestions), m_view.get().get());
+    return WebColorPickerMac::create(protect(page.colorPickerClient()).ptr(), initialColor, rect, supportsAlpha, WTF::move(suggestions), m_view.get().get(), frameID);
 }
 
 RefPtr<WebDataListSuggestionsDropdown> PageClientImpl::createDataListSuggestionsDropdown(WebPageProxy& page)
@@ -1109,8 +1105,7 @@ bool PageClientImpl::effectiveAppearanceIsDark() const
 
 bool PageClientImpl::effectiveUserInterfaceLevelIsElevated() const
 {
-    // MAVERICKS_BACKPORT: protect(m_impl) to hold a strong ref across the call (upstream dereferences m_impl directly).
-    return protect(m_impl)->effectiveUserInterfaceLevelIsElevated();
+    return m_impl->effectiveUserInterfaceLevelIsElevated();
 }
 
 bool PageClientImpl::useFormSemanticContext() const

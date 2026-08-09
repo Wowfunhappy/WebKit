@@ -109,8 +109,7 @@ private:
     bool canUndoRedo(UndoOrRedo) override;
     void executeUndoRedo(UndoOrRedo) override;
     bool executeSavedCommandBySelector(const String& selector) override;
-    // MAVERICKS_BACKPORT: drop the default argument on the last parameter to match the PageClient base declaration here.
-    void startDrag(const WebCore::DragItem&, WebCore::ShareableBitmap::Handle&& image, const std::optional<WebCore::NodeIdentifier>&, const std::optional<WebCore::FrameIdentifier>&) override;
+    void startDrag(const WebCore::DragItem&, WebCore::ShareableBitmap::Handle&& image, const std::optional<WebCore::NodeIdentifier>&, const std::optional<WebCore::FrameIdentifier>& = std::nullopt) override;
     void setPromisedDataForImage(const String& pasteboardName, Ref<WebCore::FragmentedSharedBuffer>&& imageBuffer, const String& filename, const String& extension, const String& title,
         const String& url, const String& visibleURL, RefPtr<WebCore::FragmentedSharedBuffer>&& archiveBuffer, const String& originIdentifier) override;
     void updateSecureInputState() override;

@@ -39,58 +39,49 @@
 #include "WKAPICast.h"
 #include "WKBundleAPICast.h"
 
-// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKTypeID WKBundleNavigationActionGetTypeID()
 {
-    return WebKit::toAPI(WebKit::InjectedBundleNavigationAction::APIType);
+    return WebKit::toAPI(WebKit::InjectedBundleNavigationAction::APIType); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
-// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKFrameNavigationType WKBundleNavigationActionGetNavigationType(WKBundleNavigationActionRef navigationActionRef)
 {
-    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->navigationType());
+    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->navigationType()); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
-// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKEventModifiers WKBundleNavigationActionGetEventModifiers(WKBundleNavigationActionRef navigationActionRef)
 {
-    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->modifiers());
+    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->modifiers()); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
-// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKEventMouseButton WKBundleNavigationActionGetEventMouseButton(WKBundleNavigationActionRef navigationActionRef)
 {
-    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->mouseButton());
+    return WebKit::toAPI(WebKit::toImpl(navigationActionRef)->mouseButton()); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
-// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKBundleHitTestResultRef WKBundleNavigationActionCopyHitTestResult(WKBundleNavigationActionRef navigationActionRef)
 {
     RefPtr<WebKit::InjectedBundleHitTestResult> hitTestResult = WebKit::toImpl(navigationActionRef)->hitTestResult();
-    return toAPI(hitTestResult.leakRef());
+    return toAPI(hitTestResult.leakRef()); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
-// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKBundleNodeHandleRef WKBundleNavigationActionCopyFormElement(WKBundleNavigationActionRef navigationActionRef)
 {
     RefPtr<WebKit::InjectedBundleNodeHandle> formElement = WebKit::toImpl(navigationActionRef)->formElement();
-    return toAPI(formElement.leakRef());
+    return toAPI(formElement.leakRef()); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
-// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 bool WKBundleNavigationActionGetShouldOpenExternalURLs(WKBundleNavigationActionRef navigationActionRef)
 {
-    return WebKit::toImpl(navigationActionRef)->shouldOpenExternalURLs();
+    return WebKit::toImpl(navigationActionRef)->shouldOpenExternalURLs(); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
-// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 bool WKBundleNavigationActionGetShouldTryAppLinks(WKBundleNavigationActionRef navigationActionRef)
 {
-    return WebKit::toImpl(navigationActionRef)->shouldTryAppLinks();
+    return WebKit::toImpl(navigationActionRef)->shouldTryAppLinks(); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }
 
-// MAVERICKS_BACKPORT: real implementation restored from 8ee28eb^ (upstream stubbed this SPI out; Safari 7 injected-bundle policy clients call it).
 WKStringRef WKBundleNavigationActionCopyDownloadAttribute(WKBundleNavigationActionRef navigationActionRef)
 {
-    return WebKit::toCopiedAPI(WebKit::toImpl(navigationActionRef)->downloadAttribute());
+    return WebKit::toCopiedAPI(WebKit::toImpl(navigationActionRef)->downloadAttribute()); // MAVERICKS_BACKPORT: restored from 8ee28eb^ (upstream returns 0).
 }

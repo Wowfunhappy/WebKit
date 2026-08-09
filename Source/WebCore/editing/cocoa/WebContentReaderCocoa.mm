@@ -289,12 +289,7 @@ static Ref<DocumentFragment> createFragmentForImageAttachment(LocalFrame& frame,
     }
     return fragment;
 #else
-    // MAVERICKS_BACKPORT: build glue — with ATTACHMENT_ELEMENT (=0 here) all of these params are unused;
-    // mark each to silence -Wunused-parameter.
-    UNUSED_PARAM(frame);
-    UNUSED_PARAM(buffer);
-    UNUSED_PARAM(contentType);
-    UNUSED_PARAM(preferredSize);
+    UNUSED_PARAM(blob);
     return document.createDocumentFragment();
 #endif
 }

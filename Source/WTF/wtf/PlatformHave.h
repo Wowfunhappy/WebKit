@@ -313,8 +313,7 @@
 #define HAVE_PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER 1
 #endif
 
-// MAVERICKS_BACKPORT: CAFrameRateRange needs the 10.15+ SDK headers; the 26.1-SDK build satisfies this, so the flag is ON here (10.9 runtime tolerates the calls).
-#if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
+#if PLATFORM(COCOA) && !PLATFORM(WATCHOS)
 #define HAVE_CORE_ANIMATION_FRAME_RATE_RANGE 1
 #endif
 
@@ -353,46 +352,6 @@
 
 #if !defined(HAVE_QOS_CLASSES) && PLATFORM(COCOA)
 #define HAVE_QOS_CLASSES 1
-#endif
-
-#if !defined(HAVE_NSVIEW_IMPLICIT_LAYOUT_PASS) && PLATFORM(MAC)
-/* MAVERICKS_BACKPORT: AppKit runs pending -layout passes as part of every window's display cycle from
-   10.10 on, which is what makes -setNeedsLayout:YES guarantee -layout before the next draw. 10.9 runs
-   that pass only for a window whose autolayout engine is engaged (measured on 10.9.5: needsLayout +
-   display runs -layout with a constraint present and never without one), so a view that lays its
-   subviews out only in -layout stays at its initial frames. Views that rely on the implicit pass run it
-   from -viewWillDraw when this is off. */
-#if !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101000
-#define HAVE_NSVIEW_IMPLICIT_LAYOUT_PASS 1
-#endif
-#endif // MAVERICKS_BACKPORT: closes the 10.10+ implicit-layout-pass deployment-target guard.
-
-#if !defined(HAVE_MACH_CONTINUOUS_TIME) && OS(DARWIN)
-/* mach_continuous_time() / mach_continuous_approximate_time() were introduced in macOS 10.12 / iOS 10. */
-#if !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200
-#define HAVE_MACH_CONTINUOUS_TIME 1
-#endif
-#endif
-
-#if !defined(HAVE_MACH_APPROXIMATE_TIME) && OS(DARWIN)
-/* mach_approximate_time() was introduced in macOS 10.12 / iOS 9.3. */
-#if !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200
-#define HAVE_MACH_APPROXIMATE_TIME 1
-#endif
-#endif
-
-#if !defined(HAVE_DISPATCH_QUEUE_MAIN_T) && OS(DARWIN)
-/* The typed dispatch_queue_main_t alias was introduced in the macOS 10.12 / iOS 10 SDK. */
-#if !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200
-#define HAVE_DISPATCH_QUEUE_MAIN_T 1
-#endif
-#endif
-
-#if !defined(HAVE_CLOCK_GETTIME)
-/* clock_gettime() and the CLOCK_* ids were added to macOS in 10.12. Other POSIX platforms have them. */
-#if !OS(DARWIN) || !defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) || __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101200
-#define HAVE_CLOCK_GETTIME 1
-#endif
 #endif
 
 #if !defined(HAVE_SCHEDULING_POLICIES) && PLATFORM(COCOA)
@@ -670,7 +629,7 @@
 // (nm-verified). Reporting the platform truth here selects the !HAVE(AVAUDIO_ROUTING_ARBITER) branch
 // of AudioSessionRoutingArbitratorProxy.cpp, which upstream ships for exactly this case: it builds a
 // valid object and answers RoutingArbitrationError::Failed, so callers take their own no-arbitration
-// path. ENABLE(ROUTING_ARBITRATION) stays on, because the feature's plumbing is present and works.
+// path.
 #if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
 #define HAVE_AVAUDIO_ROUTING_ARBITER 1
 #endif
@@ -729,8 +688,7 @@
 #define HAVE_AVROUTEPICKERVIEW 1
 #endif
 
-// MAVERICKS_BACKPORT: AVPlayer audioOutputDeviceUniqueID is macOS 11+; gate it off on 10.9.
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
+#if PLATFORM(MAC)
 #define HAVE_AUDIO_OUTPUT_DEVICE_UNIQUE_ID 1
 #endif
 
@@ -813,7 +771,11 @@
 #define HAVE_DDSCANNER_QOS_CONFIGURATION 1
 #endif
 
-#if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && (!PLATFORM(APPLETV) || __TV_OS_VERSION_MIN_REQUIRED >= 180000)
+// MAVERICKS_BACKPORT: SFSpeechRecognizer lives in Speech.framework, which is macOS 10.15+; 10.9 does not
+// ship the framework at all. Reporting that selects SpeechRecognizer.cpp's !HAVE(SPEECHRECOGNIZER) arm,
+// which upstream provides for exactly this case.
+#if PLATFORM(COCOA) && !PLATFORM(WATCHOS) && (!PLATFORM(APPLETV) || __TV_OS_VERSION_MIN_REQUIRED >= 180000) \
+    && (!PLATFORM(MAC) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500)
 #define HAVE_SPEECHRECOGNIZER 1
 #endif
 
@@ -919,10 +881,9 @@
 #define HAVE_XPC_CONNECTION_COPY_INVALIDATION_REASON 1
 #endif
 
-// MAVERICKS_BACKPORT: AssetViewer / ASVInlinePreview is absent on macOS 10.9.
 #if ((PLATFORM(IOS) || PLATFORM(VISION)) && !PLATFORM(IOS_SIMULATOR)) \
     || PLATFORM(MACCATALYST) \
-    || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000)
+    || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000) // MAVERICKS_BACKPORT: AssetViewer / ASVInlinePreview is macOS 12+.
 #define HAVE_ASV_INLINE_PREVIEW 1
 #endif
 
@@ -935,17 +896,11 @@
 #endif
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: CTFontGetSbixImageSizeForGlyphAndContentsScale is 10.13+. Polyfill stub
-// returns garbage CGFloat. Disable on Mac so emoji-glyph color-format detection skips
-// the broken sbix path (only the OT-SVG path is used).
-#if !PLATFORM(MAC)
 #define HAVE_CORE_TEXT_SBIX_IMAGE_SIZE_FUNCTIONS 1
-#endif // MAVERICKS_BACKPORT: closes the !PLATFORM(MAC) guard disabling the 10.13+ sbix path on Mac.
 #define HAVE_WOFF_SUPPORT 1
 #endif
 
-// MAVERICKS_BACKPORT: VisionKit image analysis (VKCImageAnalysis) on Mac is macOS 13+; absent on 10.9.
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 130000) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
+#if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION)
 #if !defined(HAVE_VK_IMAGE_ANALYSIS)
 #define HAVE_VK_IMAGE_ANALYSIS 1
 #endif
@@ -1021,9 +976,7 @@
 #endif
 #endif
 
-// MAVERICKS_BACKPORT: CVBufferCopyAttachments is macOS 12+; its soft-link init traps on
-// 10.9, where the pre-existing CVBufferGetAttachments fallback path is correct.
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000) \
+#if PLATFORM(MAC) \
     || (PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR))
 #define HAVE_CVBUFFERCOPYATTACHMENTS 1
 #endif
@@ -1240,9 +1193,8 @@
 #endif
 #endif
 
-// MAVERICKS_BACKPORT: TranslationUIServices.framework is macOS 12+ and absent on 10.9; gate it off. (On a
-// 10.9 deployment target the AppKit SDK also exposes NSPopover's pre-10.10 NSPopoverAppearance property, which
-// the translation-popover code cannot use.) Element translation UI is simply unavailable on this OS.
+// MAVERICKS_BACKPORT: TranslationUIServices.framework is macOS 12+. Unlike its neighbours this block is
+// not `!defined()`-guarded, so the value has to be stated here rather than in AdditionalPlatformHave.h.
 #if PLATFORM(IOS) || PLATFORM(VISION) || (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 120000)
 #define HAVE_TRANSLATION_UI_SERVICES 1
 #endif
@@ -1492,18 +1444,8 @@
 #define HAVE_WEB_AUTHN_PRF_API 1
 #endif
 
-// MAVERICKS_BACKPORT: ASAuthorizationWebBrowserPublicKeyCredentialManager (browser passkey management,
-// -isDeviceConfiguredForPasskeys) is a macOS 14+ AuthenticationServices class, absent on 10.9. Upstream
-// leaves this HAVE ungated on Mac (assuming a modern SDK/OS), which — with WEB_AUTHN now enabled and
-// HAVE(WEB_AUTHN_AS_MODERN) off (deploy < 14.0) — leaves its one use in WebAuthenticatorCoordinatorProxy's
-// isUVPAA path referencing a soft-link getter whose header is only imported under WEB_AUTHN_AS_MODERN.
-// Gate it on the deploy target so the whole feature (forward-decl + soft-link + use) compiles out
-// consistently. It is unreachable on 10.9 anyway: isUVPAA returns false earlier via the nil
-// ASCWebKitSPISupport path.
-// MAVERICKS_BACKPORT: Mac case gated on __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000 (deploy >= 14.0), not the bare PLATFORM(MAC) — see comment above; off on 10.9.
 #if !defined(HAVE_WEB_AUTHN_PUBLIC_KEY_CREDENTIAL_MANAGER) \
-    && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140000) \
-    || PLATFORM(MACCATALYST) || PLATFORM(IOS))
+    && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS))
 #define HAVE_WEB_AUTHN_PUBLIC_KEY_CREDENTIAL_MANAGER 1
 #endif
 
@@ -1599,14 +1541,8 @@
 #define HAVE_XPC_API 1
 #endif
 
-// MAVERICKS_BACKPORT: this gates whether the SDK declares the browser-engine-supporting
-// API (used only to decide whether WebKit's SPI headers re-declare now-public types like
-// IOSurfaceMemoryLedgerTags). That depends on the SDK version, not the deployment target,
-// so gate the Mac case on __MAC_OS_X_VERSION_MAX_ALLOWED — otherwise on a modern SDK with a
-// 10.9 deployment target we would re-declare types the SDK already provides and collide.
-// MAVERICKS_BACKPORT: Mac case gated on __MAC_OS_X_VERSION_MAX_ALLOWED (SDK), not MIN_REQUIRED — see comment above.
 #if !defined(HAVE_BROWSER_ENGINE_SUPPORTING_API) \
-    && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 140400) \
+    && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 140400) \
     || ((PLATFORM(IOS) || PLATFORM(MACCATALYST)) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 170400) \
     || (PLATFORM(WATCHOS) && __WATCH_OS_VERSION_MIN_REQUIRED >= 100400) \
     || (PLATFORM(APPLETV) && __TV_OS_VERSION_MIN_REQUIRED >= 170400) \

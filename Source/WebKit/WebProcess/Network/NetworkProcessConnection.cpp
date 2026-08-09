@@ -26,7 +26,6 @@
 #include "config.h"
 #include "NetworkProcessConnection.h"
 
-#include <wtf/RunLoop.h> // MAVERICKS_BACKPORT: for RunLoop::mainSingleton(), used to pin the connection to the main RunLoop below.
 #include "LibWebRTCNetwork.h"
 #include "Logging.h"
 #include "NetworkConnectionToWebProcessMessages.h"
@@ -92,10 +91,7 @@ NetworkProcessConnection::NetworkProcessConnection(IPC::Connection::Identifier&&
     : m_connection(IPC::Connection::createClientConnection(WTF::move(connectionIdentifier)))
     , m_cookieAcceptPolicy(cookieAcceptPolicy)
 {
-    // MAVERICKS_BACKPORT: pin to main RunLoop (default would bind to a worker
-    // thread's RunLoop that may die when the worker exits, dangling the
-    // dispatcher pointer in the Connection).
-    m_connection->open(*this, RunLoop::mainSingleton());
+    m_connection->open(*this);
 
 #if USE(LIBWEBRTC)
     if (WebRTCProvider::webRTCAvailable())

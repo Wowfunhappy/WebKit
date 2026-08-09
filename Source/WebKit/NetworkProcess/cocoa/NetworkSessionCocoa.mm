@@ -1456,16 +1456,6 @@ CheckedRef<SessionWrapper> NetworkSessionCocoa::sessionWrapperForTask(std::optio
         return appBoundSession(webPageProxyID, storedCredentialsPolicy);
 #endif
 
-    // MAVERICKS_BACKPORT: upstream shares one session between Use and DoNotUse and cuts the individual
-    // task off from stored credentials with -[NSURLSessionTask _adoptEffectiveConfiguration:]. 10.9
-    // decides whether to consult credential storage per CONNECTION SESSION and nowhere else
-    // (ClassicConnectionSession::_connection_shouldUseCredentialStorage reads the session
-    // configuration's URLCredentialStorage attribute), so a per-task override cannot take effect and a
-    // shared session would send the user's stored credential on a DoNotUse load: 10.9 puts the stored
-    // credential into the challenge as its proposedCredential, and
-    // NetworkDataTaskCocoa::tryPasswordBasedAuthentication then uses any proposed credential regardless
-    // of policy. A session without credential storage is where 10.9 does honour this, so the two
-    // policies get separate sessions here.
     switch (storedCredentialsPolicy) {
     case WebCore::StoredCredentialsPolicy::Use:
         return sessionSetForPage(webPageProxyID).sessionWithCredentialStorage.get(); // MAVERICKS_BACKPORT: no longer shared with DoNotUse, see above.
@@ -1534,8 +1524,6 @@ CheckedRef<SessionWrapper> SessionSet::isolatedSession(WebCore::StoredCredential
     entry->lastUsed = WallTime::now();
 
     CheckedRef sessionWrapper = [this, protectedThis = Ref { *this }, &entry, isNavigatingToAppBoundDomain, session = CheckedRef { session }] (auto storedCredentialsPolicy) -> SessionWrapper& {
-        // MAVERICKS_BACKPORT: the isolated counterpart of the DoNotUse routing in
-        // sessionWrapperForTask, for the same reason -- the two policies need separate sessions.
         switch (storedCredentialsPolicy) {
         case WebCore::StoredCredentialsPolicy::Use:
             LOG(NetworkSession, "Using isolated NSURLSession."); // MAVERICKS_BACKPORT: no longer shared with DoNotUse, see above.

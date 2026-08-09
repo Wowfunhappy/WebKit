@@ -457,9 +457,6 @@ Modules/webaudio/StereoPannerNode.cpp
 Modules/webaudio/WaveShaperDSPKernel.cpp
 Modules/webaudio/WaveShaperNode.cpp
 Modules/webaudio/WaveShaperProcessor.cpp
-// MAVERICKS_BACKPORT: build the WebAuthn AuthenticationExtensionsClientInputs/Outputs sources — WEB_AUTHN is re-enabled on this 10.9 backport (PublicKeyCredential exposed); these were not in upstream's build set.
-Modules/webauthn/AuthenticationExtensionsClientInputs.cpp
-Modules/webauthn/AuthenticationExtensionsClientOutputs.cpp
 Modules/webauthn/AuthenticatorAssertionResponse.cpp
 Modules/webauthn/AuthenticatorAttestationResponse.cpp
 Modules/webauthn/AuthenticatorCoordinator.cpp
@@ -896,8 +893,6 @@ css/CSSCounterValue.cpp
 css/CSSCrossfadeValue.cpp
 css/CSSCursorImageValue.cpp
 css/CSSCustomPropertyValue.cpp
-// MAVERICKS_BACKPORT: build CSSDashboardRegionValue.cpp — DASHBOARD_SUPPORT is enabled on 10.9 for Dashboard widget regions.
-css/CSSDashboardRegionValue.cpp
 css/CSSDynamicRangeLimitValue.cpp
 css/CSSEasingFunctionValue.cpp
 css/CSSFilterImageValue.cpp
@@ -1203,8 +1198,6 @@ dom/ActiveDOMObject.cpp
 dom/AddEventListenerOptions.cpp
 dom/AllDescendantsCollection.cpp
 dom/Attr.cpp
-// MAVERICKS_BACKPORT: compile BeforeLoadEvent.cpp standalone (@no-unify) so the restored beforeload event is built on 10.9 (uBlock network blocking depends on it).
-dom/BeforeLoadEvent.cpp @no-unify
 dom/BeforeTextInsertedEvent.cpp
 dom/BeforeUnloadEvent.cpp
 dom/BoundaryPoint.cpp
@@ -1488,8 +1481,6 @@ editing/SplitTextNodeContainingElementCommand.cpp
 editing/TextCheckingHelper.cpp
 editing/TextInsertionBaseCommand.cpp
 editing/TextIterator.cpp
-// MAVERICKS_BACKPORT: compile TextListParser.cpp standalone (@no-unify) so its WebCore symbols are built for the 10.9 link (text input dyld-halt fix).
-editing/TextListParser.cpp @no-unify
 editing/TextManipulationController.cpp
 editing/TypingCommand.cpp
 editing/UnlinkCommand.cpp

@@ -33,7 +33,10 @@
 #include "InjectUserScriptImmediately.h"
 #include "WKAPICast.h"
 #include "WebPageGroup.h"
+#include "WebPageProxy.h"
 #include "WebPreferences.h"
+#include "WebProcessPool.h"
+#include "WebProcessProxy.h"
 #include "WebUserContentControllerProxy.h"
 #include <WebCore/UserScript.h>
 #include <WebCore/UserStyleSheet.h>
@@ -63,6 +66,18 @@ void WKPageGroupSetPreferences(WKPageGroupRef pageGroupRef, WKPreferencesRef pre
     if (!pageGroup || !preferences)
         return;
     pageGroup->setPreferences(*preferences);
+    // MAVERICKS_BACKPORT: a page copies its group's preferences when it is created, and Safari 7 hands the group its
+    // WKPreferences after the WKView exists, so the pages already in this group keep reading the
+    // object the group no longer uses. Hand them the new one, which is what a page group meant when
+    // WebPageProxy::preferences() still read straight through to it.
+    for (Ref processPool : WebKit::WebProcessPool::allProcessPools()) {
+        for (Ref webProcess : processPool->processes()) {
+            for (Ref page : webProcess->pages()) {
+                if (&page->pageGroup() == pageGroup)
+                    page->setPreferences(*preferences);
+            }
+        }
+    }
 }
 
 // MAVERICKS_BACKPORT: restored real body (was gutted to return nullptr upstream).

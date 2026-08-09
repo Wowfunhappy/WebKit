@@ -187,10 +187,7 @@
 #define ENABLE_APPLE_PAY_UPDATE_SHIPPING_METHODS_WHEN_CHANGING_LINE_ITEMS 1
 #endif
 
-// MAVERICKS_BACKPORT: APPLE_PAY_AMS_UI requires PAYMENT_REQUEST: ApplePayAMSUIPaymentHandler is a PaymentHandler and its
-// class definition is gated on ENABLE(APPLE_PAY_AMS_UI) && ENABLE(PAYMENT_REQUEST). Without this
-// dependency, Page.cpp compiles the AMS-UI block while the handler stays an incomplete type.
-#if !defined(ENABLE_APPLE_PAY_AMS_UI) && ENABLE(PAYMENT_REQUEST) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION))
+#if !defined(ENABLE_APPLE_PAY_AMS_UI) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION))
 #define ENABLE_APPLE_PAY_AMS_UI 1
 #endif
 
@@ -328,26 +325,10 @@
 #define ENABLE_DATA_DETECTION 1
 #endif
 
-// MAVERICKS_BACKPORT: Dashboard support was removed upstream (2d364c6, "Remove Dashboard
-// support"). macOS 10.9's Dashboard is still present and its widgets rely on the
-// -apple-dashboard-region CSS control regions (reported to DashboardClient via
-// -webView:dashboardRegionsChanged:) to mark areas where mouse events drive controls
-// instead of dragging the widget. Re-enable the feature for the Mac backport so those
-// regions are computed and reported; without it widget controls (dropdowns, text
-// selection) are dead because the whole widget acts as a drag handle.
-#if !defined(ENABLE_DASHBOARD_SUPPORT) && PLATFORM(MAC)
-#define ENABLE_DASHBOARD_SUPPORT 1
-#endif
-
 #if !defined(ENABLE_DECLARATIVE_WEB_PUSH) && (PLATFORM(MAC) || PLATFORM(IOS))
 #define ENABLE_DECLARATIVE_WEB_PUSH 1
 #endif
 
-// MAVERICKS_BACKPORT: 10.9 CoreGraphics cannot create the Display-P3 / extended-range named
-// color spaces (their kCGColorSpace* names are 10.11/10.12+), so these destination color
-// spaces are genuinely unsupported on this deployment target. With the flags left on,
-// DestinationColorSpace::DisplayP3()/ExtendedSRGB()/ExtendedRec2020() wrap a NULL
-// CGColorSpaceRef at runtime (reachable via canvas {colorSpace:'display-p3'} et al).
 #if !defined(ENABLE_DESTINATION_COLOR_SPACE_DISPLAY_P3)
 #define ENABLE_DESTINATION_COLOR_SPACE_DISPLAY_P3 1
 #endif
@@ -460,8 +441,7 @@
 #define ENABLE_IMAGE_ANALYSIS 1
 #endif
 
-// MAVERICKS_BACKPORT: image-analysis enhancements build on VisionKit (VKCImageAnalysis); require it (off on 10.9).
-#if !defined(ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS) && HAVE(VK_IMAGE_ANALYSIS) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST))
+#if !defined(ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS) && (PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(MACCATALYST))
 #define ENABLE_IMAGE_ANALYSIS_ENHANCEMENTS 1
 #endif
 
@@ -764,13 +744,6 @@
 #define ENABLE_UNIFIED_PDF_BY_DEFAULT 1
 #endif
 
-// MAVERICKS_BACKPORT: the inline PDF plugins (PluginView/PDFPlugin/UnifiedPDFPlugin) rely on modern
-// PDFKit SPI absent on 10.9 and are intentionally not built (PDFs are handled via the download path).
-// Force all PDF-plugin enables OFF here so PluginView is never referenced and createPlugin returns null.
-#define ENABLE_LEGACY_PDFKIT_PLUGIN 0
-#define ENABLE_UNIFIED_PDF 0
-#define ENABLE_PDF_PLUGIN 0
-
 #if !defined(ENABLE_LEGACY_PDFKIT_PLUGIN) && PLATFORM(MAC) && !ENABLE(UNIFIED_PDF_BY_DEFAULT)
 #define ENABLE_LEGACY_PDFKIT_PLUGIN 1
 #endif
@@ -835,13 +808,6 @@
 #define ENABLE_POST_EDITING_GRAMMAR_CHECKING 1
 #endif
 
-// MAVERICKS_BACKPORT: canvas cannot produce Display-P3 output on 10.9 (see the
-// ENABLE_DESTINATION_COLOR_SPACE_DISPLAY_P3 gate above), so don't expose the web-facing
-// 'display-p3' predefined color space either.
-#if !defined(ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3) && PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200
-#define ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3 0
-#endif
-
 #if !defined(ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3)
 #define ENABLE_PREDEFINED_COLOR_SPACE_DISPLAY_P3 1
 #endif
@@ -863,8 +829,7 @@
 #endif
 
 #if !defined(ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT) && PLATFORM(MAC)
-// MAVERICKS_BACKPORT: default to TiledCoreAnimation, not RemoteLayerTree, on Mac.
-#define ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT 0
+#define ENABLE_REMOTE_LAYER_TREE_ON_MAC_BY_DEFAULT 1
 #endif
 
 #if !defined(ENABLE_RESOURCE_USAGE)
@@ -875,17 +840,8 @@
 #define ENABLE_REVEAL 1
 #endif
 
-// MAVERICKS_BACKPORT: OFF because the feature's IPC layer cannot be generated in this build, not
-// because of anything 10.9 lacks. AudioSessionRoutingArbitratorProxy.messages.in is
-// `EnabledBy=UseGPUProcessForMediaEnabled && MediaPlaybackEnabled`, and UseGPUProcessForMediaEnabled
-// carries `condition: ENABLE(GPU_PROCESS)` (UnifiedWebPreferences.yaml), which this port builds with
-// OFF -- so the preference is absent from SharedPreferencesForWebProcess and the generated
-// AudioSessionRoutingArbitratorProxyMessageReceiver.cpp does not compile. Turning GPU_PROCESS on is
-// the prerequisite for turning this on; the arbitration code itself is fine, and upstream even ships
-// a !HAVE(AVAUDIO_ROUTING_ARBITER) implementation that would suit this OS.
-// MAVERICKS_BACKPORT: 0 rather than upstream's 1, for the reason above.
 #if !defined(ENABLE_ROUTING_ARBITRATION) && PLATFORM(MAC)
-#define ENABLE_ROUTING_ARBITRATION 0
+#define ENABLE_ROUTING_ARBITRATION 1
 #endif
 
 #if !defined(ENABLE_SANDBOX_EXTENSIONS)
@@ -900,13 +856,8 @@
 #define ENABLE_SEC_ITEM_SHIM 1
 #endif
 
-// MAVERICKS_BACKPORT: 10.9 has no way to warm a connection without transferring — a task flagged
-// _preconnect performs an ordinary full GET when resumed, which requests every main resource twice and,
-// against a server that rotates a Set-Cookie session per response, rotates it out from under the page just
-// rendered so its CSRF-protected forms fail with HTTP 422. Upstream gates every preconnect site on this
-// switch for exactly a platform without the capability, so no preconnect task is created here at all.
 #if !defined(ENABLE_SERVER_PRECONNECT)
-#define ENABLE_SERVER_PRECONNECT 0 // MAVERICKS_BACKPORT: no preconnect on 10.9, see above.
+#define ENABLE_SERVER_PRECONNECT 1
 #endif
 
 #if !defined(ENABLE_SERVICE_CONTROLS) && PLATFORM(MAC)
@@ -1006,12 +957,10 @@
 #define ENABLE_VARIATION_FONTS 1
 #endif
 
-// MAVERICKS_BACKPORT: parenthesize the OR so ENABLE_VIDEO_PRESENTATION_MODE respects the value
-// cmakeconfig.h sets (0 on this port). As written, `&& (...) || PLATFORM(MAC)` parses as
-// `(!defined(X) && (...)) || PLATFORM(MAC)` — the `|| PLATFORM(MAC)` escapes the `!defined` guard, so on
-// Mac it redefines the macro to 1 unconditionally, overriding the cmakeconfig 0 (with a redefinition
-// warning). Wrapping the OR makes the whole block honour "define only if not already defined".
-// MAVERICKS_BACKPORT: the added parens on the continuation line below scope the OR (see note above).
+// Without the added parens `&& (...) || PLATFORM(MAC)` parses as `(!defined(X) && (...)) || PLATFORM(MAC)`,
+// so on Mac the macro is redefined to 1 whatever cmakeconfig.h set — the one value here that a
+// command-line definition cannot preempt.
+// MAVERICKS_BACKPORT: the parens on the continuation line below scope the OR (see above).
 #if !defined(ENABLE_VIDEO_PRESENTATION_MODE) \
     && ((PLATFORM(IOS_FAMILY) && HAVE(AVKIT)) \
     || PLATFORM(MAC))
@@ -1042,16 +991,6 @@
 #define ENABLE_WEB_AUDIO 1
 #endif
 
-// MAVERICKS_BACKPORT: WebAuthn is ENABLED (default upstream value). Its AuthenticationServices /
-// LocalAuthentication / CryptoTokenKit backends are all SOFT_LINK'd, so their absence at runtime on
-// 10.9 does not break dyld load — it degrades naturally to "no authenticator available":
-// PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable() resolves false: the soft-linked
-// ASCWebKitSPISupport class is nil, so getCanCurrentProcessAccessPasskeyForRelyingParty's
-// [nil respondsToSelector:@selector(getCanCurrentProcessAccessPasskeysForRelyingParty:withCompletionHandler:)]
-// is NO and it calls handler(false) before any later gate runs. getClientCapabilities
-// is empty, and navigator.credentials create/get reject. This is exactly what real Safari reports on a Mac
-// with no platform authenticator, and it is required for web compatibility: sites (e.g. target.com login)
-// read window.PublicKeyCredential unguarded, so it must exist. Do NOT force this off.
 #if !defined(ENABLE_WEB_AUTHN) && !PLATFORM(MACCATALYST) && !PLATFORM(WATCHOS)
 #define ENABLE_WEB_AUTHN 1
 #endif
@@ -1140,12 +1079,6 @@
 #if !defined(ENABLE_WIRELESS_PLAYBACK_TARGET_AVAILABILITY_API) && ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(VISION)
 #define ENABLE_WIRELESS_PLAYBACK_TARGET_AVAILABILITY_API 1
 #endif
-
-// MAVERICKS_BACKPORT: the modern WKWebExtension API is Safari 17+/macOS 13+; Safari 7 uses the
-// classic .safariextz extension model instead, so this API is off. Every reference to it is
-// ENABLE(WK_WEB_EXTENSIONS)-guarded upstream, so forcing it off compiles the WebExtension API
-// surface (WebExtensionAPI*Cocoa, the WKWebExtension* wrappers, bindings) out.
-#define ENABLE_WK_WEB_EXTENSIONS 0
 
 #if !defined(ENABLE_WK_WEB_EXTENSIONS) && (PLATFORM(MAC) || PLATFORM(MACCATALYST) || PLATFORM(IOS) || PLATFORM(VISION))
 #define ENABLE_WK_WEB_EXTENSIONS 1
@@ -1248,8 +1181,7 @@
 #define ENABLE_OPT_IN_PARTITIONED_COOKIES 1
 #endif
 
-// MAVERICKS_BACKPORT: gate the Mac DNS test server on macOS 10.15+ (its SPI is absent on 10.9).
-#if !defined(ENABLE_DNS_SERVER_FOR_TESTING) && ((PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || PLATFORM(IOS_FAMILY_SIMULATOR))
+#if !defined(ENABLE_DNS_SERVER_FOR_TESTING) && (PLATFORM(MAC) || PLATFORM(IOS_FAMILY_SIMULATOR))
 #define ENABLE_DNS_SERVER_FOR_TESTING 1
 #endif
 

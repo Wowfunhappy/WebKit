@@ -26,7 +26,6 @@
 #include "config.h"
 #include "WebProcess.h"
 
-#include <wtf/MachSendRight.h> // MAVERICKS_BACKPORT: explicit include (not transitively available with -fno-modules)
 #include "APIFrameHandle.h"
 #include "APIPageGroupHandle.h" // MAVERICKS_BACKPORT: page-group handles travel through the legacy C API (Safari 7)
 #include "APIPageHandle.h"
@@ -100,7 +99,6 @@
 #include "WebsiteDataType.h"
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/MemoryStatistics.h>
-#include <JavaScriptCore/Options.h> // MAVERICKS_BACKPORT: explicit include for JSC::Options (not transitively available with -fno-modules)
 #include <JavaScriptCore/WasmFaultSignalHandler.h>
 #include <WebCore/AXObjectCache.h>
 #include <WebCore/AuthenticationChallenge.h>
@@ -112,7 +110,6 @@
 #include <WebCore/DNS.h>
 #include <WebCore/DatabaseTracker.h>
 #include <WebCore/DeprecatedGlobalSettings.h>
-#include <WebCore/Document.h> // MAVERICKS_BACKPORT: explicit include for WebCore::Document::allDocuments (not transitively available with -fno-modules)
 #include <WebCore/DiagnosticLoggingClient.h>
 #include <WebCore/DiagnosticLoggingKeys.h>
 #include <WebCore/FontCache.h>
@@ -160,7 +157,6 @@
 #include <wtf/DateMath.h>
 #include <wtf/Language.h>
 #include <wtf/ProcessPrivilege.h>
-#include <wtf/Threading.h> // MAVERICKS_BACKPORT: Thread::create for the 10.9 background memory scavenger
 #include <wtf/RunLoop.h>
 #include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/SystemTracing.h>
@@ -439,9 +435,6 @@ void WebProcess::initializeProcess(const AuxiliaryProcessInitializationParameter
         JSC::Options::notifyOptionsChanged();
     }
 
-    // MAVERICKS_BACKPORT: routes MessageChannel/MessagePort ops through the
-    // functional NetworkProcess (WebMessagePortChannelProvider -> ensureNetworkProcessConnection
-    // -> NetworkConnectionToWebProcess CreateNewMessagePortChannel / EntangleLocalPortInThisProcessToRemote / TakeAllMessagesForPort).
     MessagePortChannelProvider::setSharedProvider(WebMessagePortChannelProvider::singleton());
     
     platformInitializeProcess(parameters);
@@ -832,10 +825,7 @@ void WebProcess::setWebsiteDataStoreParameters(WebProcessDataStoreParameters&& p
         supplement->setWebsiteDataStore(parameters);
 
     platformSetWebsiteDataStoreParameters(WTF::move(parameters));
-
-    // MAVERICKS_BACKPORT: eagerly establish the NetworkProcess connection (upstream
-    // behavior). The NetworkProcess handles real HTTP requests on 10.9, so the sync
-    // GetNetworkProcessConnection round-trip to UIProcess returns a real connection.
+    
     ensureNetworkProcessConnection();
 
 #if ENABLE(OPT_IN_PARTITIONED_COOKIES)
@@ -1437,9 +1427,6 @@ NetworkProcessConnection& WebProcess::ensureNetworkProcessConnection()
 
     // If we've lost our connection to the network process (e.g. it crashed) try to re-establish it.
     if (!m_networkProcessConnection) {
-        // MAVERICKS_BACKPORT: the network process handles real HTTP requests on this port, so take
-        // the normal sync round-trip to UIProcess for a real connection rather than a local
-        // mach-port pair.
         auto connectionInfo = getNetworkProcessConnection(Ref { *parentProcessConnection() });
 
         m_networkProcessConnection = NetworkProcessConnection::create(IPC::Connection::Identifier { WTF::move(connectionInfo.connection) }, connectionInfo.cookieAcceptPolicy);

@@ -26,17 +26,6 @@
 #import "config.h"
 #import "AXObjectCache.h"
 
-// MAVERICKS_BACKPORT: restored to upstream from the prior no-op-stub gut. Two on-host (10.9.5) dlsym facts drive the divergences below:
-//   (1) _AXGetClientForCurrentRequestUntrusted() is ABSENT from 10.9 HIServices (a direct extern, NOT soft-linked) — an unmediated call would
-//       dyld-halt WebContent on the spell-check/text-input path (shouldSpellCheck runs on every text insert). It is now polyfilled in the polyfill
-//       layer (MavericksSupport/.../system-spi.m: WK_POLYFILL_ABSENT returning kAXClientTypeNoActiveRequestFound = 0, the neutral "no active AX
-//       request" answer), so clientIsInTestMode() and shouldSpellCheck() are restored BYTE-UPSTREAM and consult the (polyfilled) extern for real.
-//   (2) The isolated-tree SPI (_AXSIsolatedTreeMode via libAccessibility, _AXUIElement*SecondaryAXThread) is ABSENT on 10.9; ENABLE(ACCESSIBILITY_ISOLATED_TREE)
-//       is 0 on this port, so all isolated-tree-only code (declared #if-gated in AXObjectCache.h) is gated out with the same flag, matching the sibling wrapper.
-//       The one residual constant is shouldSpellCheck()'s final `return true`: upstream returns !isIsolatedTreeEnabled(), which does not compile with the
-//       flag off, and reduces to `true` on any flag-off build — so this is byte-equivalent to upstream, not a masked symptom.
-// AXTextMarker*/NSAccessibilityPostNotificationWithUserInfo/NSAccessibilityHandleFocusChanged were verified PRESENT on 10.9, so those paths are restored verbatim.
-
 #if PLATFORM(MAC)
 
 #import "AXIsolatedObject.h"
@@ -254,9 +243,7 @@ static void exerciseIsIgnored(AccessibilityObject& object)
 
 void AXObjectCache::postPlatformNotification(AccessibilityObject& object, AXNotification notification)
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; processQueuedIsolatedNodeUpdates is declared #if-gated in AXObjectCache.h
     processQueuedIsolatedNodeUpdates();
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
 
     bool skipSystemNotification = false;
     // Some notifications are unique to Safari and do not have NSAccessibility equivalents.
@@ -389,9 +376,7 @@ void AXObjectCache::postPlatformAnnouncementNotification(const String& message)
 {
     AX_ASSERT(isMainThread());
 
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; processQueuedIsolatedNodeUpdates is declared #if-gated in AXObjectCache.h
     processQueuedIsolatedNodeUpdates();
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
 
     NSDictionary *userInfo = @{ NSAccessibilityPriorityKey: @(NSAccessibilityPriorityHigh),
         NSAccessibilityAnnouncementKey: message.createNSString().get(),
@@ -409,9 +394,7 @@ void AXObjectCache::postPlatformARIANotifyNotification(AccessibilityObject& obje
 {
     AX_ASSERT(isMainThread());
 
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; processQueuedIsolatedNodeUpdates is declared #if-gated in AXObjectCache.h
     processQueuedIsolatedNodeUpdates();
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
 
     NSDictionary *userInfo = @{
         NSAccessibilityARIAAnnouncementPriority: notifyPriorityToAXValueString(notificationData.priority).get(),
@@ -468,7 +451,6 @@ void AXObjectCache::queueUnsortedObject(Ref<AccessibilityObject>&& object, PreSo
         m_performCacheUpdateTimer.startOneShot(0_s);
 }
 
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; createIsolatedObjectIfNeeded is declared #if-gated in AXObjectCache.h
 void AXObjectCache::createIsolatedObjectIfNeeded(AccessibilityObject& object)
 {
     if (!isIsolatedTreeEnabled())
@@ -487,7 +469,6 @@ void AXObjectCache::createIsolatedObjectIfNeeded(AccessibilityObject& object)
     if (object.isIgnored())
         deferAddUnconnectedNode(object);
 }
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
 
 AXTextStateChangeIntent AXObjectCache::inferDirectionFromIntent(AccessibilityObject& object, const AXTextStateChangeIntent& originalIntent, const VisibleSelection& selection)
 {
@@ -540,9 +521,7 @@ void AXObjectCache::postTextSelectionChangePlatformNotification(AccessibilityObj
     if (!axObject)
         return;
 
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; processQueuedIsolatedNodeUpdates is declared #if-gated in AXObjectCache.h
     processQueuedIsolatedNodeUpdates();
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
 
     auto intent = inferDirectionFromIntent(*axObject, originalIntent, selection);
 
@@ -583,9 +562,7 @@ void AXObjectCache::postTextSelectionChangePlatformNotification(AccessibilityObj
 
     if (id wrapper = axObject->wrapper()) {
         [userInfo setObject:wrapper forKey:NSAccessibilityTextChangeElement];
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; createIsolatedObjectIfNeeded is declared #if-gated in AXObjectCache.h
         createIsolatedObjectIfNeeded(*axObject);
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
     }
 
     if (RefPtr root = rootWebArea()) {
@@ -650,9 +627,7 @@ void AXObjectCache::postUserInfoForChanges(AccessibilityObject& rootWebArea, Acc
 
     if (id wrapper = object.wrapper()) {
         [userInfo setObject:wrapper forKey:NSAccessibilityTextChangeElement];
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; createIsolatedObjectIfNeeded is declared #if-gated in AXObjectCache.h
         createIsolatedObjectIfNeeded(object);
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
     }
 
     AXPostNotificationWithUserInfo(rootWebArea.wrapper(), NSAccessibilityValueChangedNotification, userInfo.get());
@@ -669,9 +644,7 @@ void AXObjectCache::postTextReplacementPlatformNotification(AccessibilityObject*
     if (!axObject)
         return;
 
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; processQueuedIsolatedNodeUpdates is declared #if-gated in AXObjectCache.h
     processQueuedIsolatedNodeUpdates();
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
 
     auto changes = adoptNS([[NSMutableArray alloc] initWithCapacity:2]);
     if (NSDictionary *change = textReplacementChangeDictionary(*this, *axObject, deletionType, deletedText, position))
@@ -692,9 +665,7 @@ void AXObjectCache::postTextReplacementPlatformNotificationForTextControl(Access
     if (!axObject)
         return;
 
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; processQueuedIsolatedNodeUpdates is declared #if-gated in AXObjectCache.h
     processQueuedIsolatedNodeUpdates();
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
 
     auto changes = adoptNS([[NSMutableArray alloc] initWithCapacity:2]);
     if (NSDictionary *change = textReplacementChangeDictionary(*this, *axObject, AXTextEditType::Delete, deletedText, { }))
@@ -773,7 +744,6 @@ bool AXObjectCache::clientIsInTestMode()
     return false;
 }
 
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; clientSupportsIsolatedTree/isIsolatedTreeEnabled/AX-thread init are declared #if-gated in AXObjectCache.h and use _AXSIsolatedTreeMode/_AXUIElement*SecondaryAXThread (ABSENT on 10.9)
 bool AXObjectCache::clientSupportsIsolatedTree()
 {
     auto client = _AXGetClientForCurrentRequestUntrusted();
@@ -825,7 +795,6 @@ bool AXObjectCache::isAXThreadInitialized()
 {
     return axThreadInitialized;
 }
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
 
 bool AXObjectCache::shouldSpellCheck()
 {
@@ -842,11 +811,8 @@ bool AXObjectCache::shouldSpellCheck()
         return false;
     if (isTestAXClientType(client)) [[unlikely]]
         return true;
-    // MAVERICKS_BACKPORT: upstream returns !isIsolatedTreeEnabled(), but isIsolatedTreeEnabled() compiles only
-    // with ACCESSIBILITY_ISOLATED_TREE (off on this port — the isolated-tree / secondary-AX-thread SPI is
-    // absent on 10.9). Deferred spellcheck (ITM) is only ever enabled for VoiceOver, which requires the
-    // isolated tree, so it is never deferred here: always spell-check.
-    return true; // upstream: return !isIsolatedTreeEnabled();
+    // ITM is currently only ever enabled for VoiceOver, so if it's enabled we can defer spell-checking.
+    return !isIsolatedTreeEnabled();
 }
 
 AXCoreObject::AccessibilityChildrenVector AXObjectCache::sortedLiveRegions()
@@ -876,14 +842,12 @@ void AXObjectCache::addSortedObjects(Vector<Ref<AccessibilityObject>>&& objectsT
 
     Vector<AXID>& sortedList = type == PreSortedObjectType::LiveRegion ? m_sortedLiveRegionIDs : m_sortedNonRootWebAreaIDs;
     auto updateIsolatedTree = [&] () {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; AXIsolatedTree is not compiled with the flag off (upstream leaves this ungated)
         if (RefPtr tree = AXIsolatedTree::treeForFrameID(m_frameID)) {
             if (type == PreSortedObjectType::LiveRegion)
                 tree->sortedLiveRegionsDidChange(m_sortedLiveRegionIDs);
             else
                 tree->sortedNonRootWebAreasDidChange(m_sortedNonRootWebAreaIDs);
         }
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
     };
 
     if (sortedList.isEmpty() && objectsToSort.size() == 1) {
@@ -949,10 +913,8 @@ void AXObjectCache::removeLiveRegion(AccessibilityObject& object)
 #endif
 
     if (m_sortedLiveRegionIDs.removeAll(object.objectID())) {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; AXIsolatedTree is not compiled with the flag off (upstream leaves this ungated)
         if (RefPtr tree = AXIsolatedTree::treeForFrameID(m_frameID))
             tree->sortedLiveRegionsDidChange(m_sortedLiveRegionIDs);
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
     }
 }
 
@@ -975,22 +937,18 @@ void AXObjectCache::initializeSortedIDLists()
         }
     }
 
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; AXIsolatedTree is not compiled with the flag off (upstream leaves this ungated)
     if (RefPtr tree = AXIsolatedTree::treeForFrameID(m_frameID)) {
         if (m_sortedLiveRegionIDs.size())
             tree->sortedLiveRegionsDidChange(m_sortedLiveRegionIDs);
         if (m_sortedNonRootWebAreaIDs.size())
             tree->sortedNonRootWebAreasDidChange(m_sortedNonRootWebAreaIDs);
     }
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
 }
 
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port; platformSelectedTextRangeDebounceInterval is declared #if-gated in AXObjectCache.h
 Seconds AXObjectCache::platformSelectedTextRangeDebounceInterval() const
 {
     return 100_ms;
 }
-#endif // MAVERICKS_BACKPORT: ISOLATED_TREE off on this port
 
 // TextMarker and TextMarkerRange funcstions.
 // FIXME: TextMarker and TextMarkerRange should become classes wrapping the system objects.

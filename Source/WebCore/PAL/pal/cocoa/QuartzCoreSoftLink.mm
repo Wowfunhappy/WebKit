@@ -29,16 +29,6 @@
 #include <pal/spi/cocoa/QuartzCoreSPI.h>
 #include <wtf/SoftLinking.h>
 
-// MAVERICKS_BACKPORT: IOSurfaceRef and the private CAIOSurfaceRef are not reliably declared here on 10.9
-// (QuartzCoreSPI.h only forward-declares CAIOSurfaceRef under the internal-SDK path). The CAIOSurface
-// functions below are soft-linked (resolved lazily, never called on 10.9), so forward-declaring the
-// opaque types is sufficient for compilation.
-#import <IOSurface/IOSurface.h>
-#ifndef WEBKIT_BACKPORT_CAIOSURFACE
-#define WEBKIT_BACKPORT_CAIOSURFACE 1
-typedef struct _CAIOSurface *CAIOSurfaceRef;
-#endif
-
 SOFT_LINK_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, QuartzCore, PAL_EXPORT)
 SOFT_LINK_FUNCTION_MAY_FAIL_FOR_SOURCE_WITH_EXPORT(PAL, QuartzCore, CAIOSurfaceCreate, CAIOSurfaceRef, (IOSurfaceRef surface), (surface), PAL_EXPORT)
 SOFT_LINK_FUNCTION_MAY_FAIL_FOR_SOURCE_WITH_EXPORT(PAL, QuartzCore, CAIOSurfaceReloadColorAttributes, void, (CAIOSurfaceRef surface), (surface), PAL_EXPORT)

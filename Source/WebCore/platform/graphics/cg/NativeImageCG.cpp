@@ -75,15 +75,7 @@ bool NativeImage::hasAlpha() const
 
 DestinationColorSpace NativeImage::colorSpace() const
 {
-    // MAVERICKS_BACKPORT: CGImageGetColorSpace returns NULL for a CGImage with no attached color space —
-    // an image mask, or a frame ImageIO decodes without an embedded profile. A NULL-wrapping
-    // DestinationColorSpace breaks the invariant its consumers assume, surfacing downstream as
-    // "0-component color space" / "invalid image colorspace: NULL". Coalesce to sRGB, exactly as
-    // GraphicsContextCG.cpp already does for a nil CG color space. This is the single producer that
-    // lets the ImageBuffer/ImageUtilities/IOSurface consumers stay byte-upstream (no NULL guards).
-    if (auto colorSpace = CGImageGetColorSpace(m_platformImage.get()))
-        return DestinationColorSpace(colorSpace);
-    return DestinationColorSpace::SRGB();
+    return DestinationColorSpace(CGImageGetColorSpace(m_platformImage.get()));
 }
 
 void NativeImage::computeHeadroom() const

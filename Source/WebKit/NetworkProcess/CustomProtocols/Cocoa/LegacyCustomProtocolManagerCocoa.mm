@@ -101,7 +101,11 @@ NS_REQUIRES_PROPERTY_DEFINITIONS
 
     if (RefPtr customProtocolManager = protect(firstNetworkProcess())->supplement<LegacyCustomProtocolManager>())
         _customProtocolID = customProtocolManager->addCustomProtocol(self);
-    _initializationRunLoop = CFRunLoopGetCurrent();
+    // MAVERICKS_BACKPORT: 10.9's NSURLSession instantiates and drives a custom NSURLProtocol on
+    // short-lived dispatch worker threads, none of which run a CFRunLoop, so a block enqueued on the
+    // creating thread's run loop is never serviced and the load never commits. The network process's
+    // main run loop is always running and NSURLSession's protocol client is thread-safe.
+    _initializationRunLoop = CFRunLoopGetMain();
 
     return self;
 }
@@ -165,21 +169,10 @@ bool LegacyCustomProtocolManager::supportsScheme(const String& scheme)
     return m_registeredSchemes.contains(scheme);
 }
 
-// MAVERICKS_BACKPORT: deliver the protocol-client callbacks on the network process's main run loop, not
-// the run loop captured when CFNetwork instantiated the WKCustomProtocol (its initializationRunLoop). On
-// 10.9 NSURLSession creates and drives a custom NSURLProtocol on short-lived dispatch worker threads
-// (initWithRequest:, startLoading and the response callbacks each land on a different worker) and none of
-// those threads run a CFRunLoop, so a block enqueued on the captured initialization run loop is never
-// serviced — the custom protocol's response/data/finish never reach NSURLSession, the resource load never
-// commits, and the page (e.g. a QuickLook data-representation preview served through this manager) spins
-// forever. The main run loop is always running and NSURLSession's protocol client is thread-safe, so
-// delivering there is correct. Common modes (matching the UI-side WKCustomProtocolLoader, which schedules
-// its NSURLConnection in NSRunLoopCommonModes) keeps the block serviced whichever mode the main loop is in.
-static inline void dispatchProtocolClientBlock(void (^block)())
+static inline void dispatchOnInitializationRunLoop(WKCustomProtocol* protocol, void (^block)())
 {
-    // MAVERICKS_BACKPORT: target the main run loop in common modes; 10.9's NSURLSession worker threads run no CFRunLoop, so the captured initialization run loop would never service the block.
-    RetainPtr<CFRunLoopRef> runloop = CFRunLoopGetMain();
-    CFRunLoopPerformBlock(runloop.get(), kCFRunLoopCommonModes, block);
+    RetainPtr<CFRunLoopRef> runloop = protocol.initializationRunLoop;
+    CFRunLoopPerformBlock(runloop.get(), kCFRunLoopDefaultMode, block);
     CFRunLoopWakeUp(runloop.get());
 }
 
@@ -191,8 +184,7 @@ void LegacyCustomProtocolManager::didFailWithError(LegacyCustomProtocolID custom
 
     RetainPtr<NSError> nsError = error.nsError();
 
-    // MAVERICKS_BACKPORT: dispatch on the main run loop via dispatchProtocolClientBlock; 10.9's NSURLSession worker threads never service the captured initialization run loop.
-    dispatchProtocolClientBlock(^ {
+    dispatchOnInitializationRunLoop(protocol.get(), ^ {
         [retainPtr([protocol client]) URLProtocol:protocol.get() didFailWithError:nsError.get()];
     });
 
@@ -207,8 +199,7 @@ void LegacyCustomProtocolManager::didLoadData(LegacyCustomProtocolID customProto
 
     RetainPtr nsData = toNSData(data);
 
-    // MAVERICKS_BACKPORT: dispatch on the main run loop via dispatchProtocolClientBlock; 10.9's NSURLSession worker threads never service the captured initialization run loop.
-    dispatchProtocolClientBlock(^ {
+    dispatchOnInitializationRunLoop(protocol.get(), ^ {
         [retainPtr([protocol client]) URLProtocol:protocol.get() didLoadData:nsData.get()];
     });
 }
@@ -221,8 +212,7 @@ void LegacyCustomProtocolManager::didReceiveResponse(LegacyCustomProtocolID cust
 
     RetainPtr<NSURLResponse> nsResponse = response.nsURLResponse();
 
-    // MAVERICKS_BACKPORT: dispatch on the main run loop via dispatchProtocolClientBlock; 10.9's NSURLSession worker threads never service the captured initialization run loop.
-    dispatchProtocolClientBlock(^ {
+    dispatchOnInitializationRunLoop(protocol.get(), ^ {
         [retainPtr([protocol client]) URLProtocol:protocol.get() didReceiveResponse:nsResponse.get() cacheStoragePolicy:toNSURLCacheStoragePolicy(cacheStoragePolicy)];
     });
 }
@@ -233,8 +223,7 @@ void LegacyCustomProtocolManager::didFinishLoading(LegacyCustomProtocolID custom
     if (!protocol)
         return;
 
-    // MAVERICKS_BACKPORT: dispatch on the main run loop via dispatchProtocolClientBlock; 10.9's NSURLSession worker threads never service the captured initialization run loop.
-    dispatchProtocolClientBlock(^ {
+    dispatchOnInitializationRunLoop(protocol.get(), ^ {
         [retainPtr([protocol client]) URLProtocolDidFinishLoading:protocol.get()];
     });
 
@@ -250,8 +239,7 @@ void LegacyCustomProtocolManager::wasRedirectedToRequest(LegacyCustomProtocolID 
     RetainPtr<NSURLRequest> nsRequest = request.nsURLRequest(WebCore::HTTPBodyUpdatePolicy::DoNotUpdateHTTPBody);
     RetainPtr<NSURLResponse> nsRedirectResponse = redirectResponse.nsURLResponse();
 
-    // MAVERICKS_BACKPORT: dispatch on the main run loop via dispatchProtocolClientBlock; 10.9's NSURLSession worker threads never service the captured initialization run loop.
-    dispatchProtocolClientBlock([protocol, nsRequest, nsRedirectResponse]() {
+    dispatchOnInitializationRunLoop(protocol.get(), [protocol, nsRequest, nsRedirectResponse]() {
         [retainPtr([protocol client]) URLProtocol:protocol.get() wasRedirectedToRequest:nsRequest.get() redirectResponse:nsRedirectResponse.get()];
     });
 }

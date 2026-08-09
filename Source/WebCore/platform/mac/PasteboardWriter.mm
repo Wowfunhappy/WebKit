@@ -48,10 +48,8 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
 static RetainPtr<NSString> toUTIUnlessAlreadyUTI(NSString *type)
 {
-    // MAVERICKS_BACKPORT: the UTType class (+typeWithIdentifier:/-isDeclared/-isDynamic) is macOS 11+; detect an already-declared UTI via the classic CoreServices UTTypeCopyDeclaration available on 10.9.
-    // UTType is macOS 11+; use CoreServices on older macOS
-    RetainPtr<CFDictionaryRef> decl = adoptCF(UTTypeCopyDeclaration((__bridge CFStringRef)type));
-    if (decl) {
+    RetainPtr utType = [UTType typeWithIdentifier:type];
+    if ([utType isDeclared] || [utType isDynamic]) {
         // This is already a UTI.
         return type;
     }
@@ -96,11 +94,9 @@ ALLOW_DEPRECATED_DECLARATIONS_END
         else
             [pasteboardItem setPropertyList:@[ @"", @"" ] forType:toUTI(WebCore::legacyURLPasteboardTypeSingleton()).get()];
 
-        // MAVERICKS_BACKPORT: the UTType objects UTTypeFileURL/UTTypeURL (and -fileURL) are macOS 11+; use the classic kUTTypeFileURL/kUTTypeURL CoreServices constants and -isFileURL available on 10.9.
-        // UTTypeFileURL / UTTypeURL are macOS 11+; use kUTType constants
-        if ([nsURL.get() isFileURL])
-            [pasteboardItem setString:retainPtr(nsURL.get().absoluteString).get() forType:(__bridge NSString *)kUTTypeFileURL];
-        [pasteboardItem setString:userVisibleString.get() forType:(__bridge NSString *)kUTTypeURL];
+        if (nsURL.get().fileURL)
+            [pasteboardItem setString:retainPtr(nsURL.get().absoluteString).get() forType:UTTypeFileURL.identifier];
+        [pasteboardItem setString:userVisibleString.get() forType:UTTypeURL.identifier];
 
         // WebURLNamePboardType.
         [pasteboardItem setString:title.get() forType:@"public.url-name"];

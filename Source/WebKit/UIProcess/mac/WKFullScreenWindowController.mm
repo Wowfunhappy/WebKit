@@ -32,11 +32,7 @@
 #import "GPUProcessProxy.h"
 #import "LayerTreeContext.h"
 #import "NativeWebMouseEvent.h"
-// MAVERICKS_BACKPORT: VideoPresentationManagerProxy is ENABLE(VIDEO_PRESENTATION_MODE)-only (off on this port);
-// the PiP-during-fullscreen observer machinery below is guarded to match, leaving element fullscreen intact.
-#if ENABLE(VIDEO_PRESENTATION_MODE)
 #import "VideoPresentationManagerProxy.h"
-#endif // MAVERICKS_BACKPORT: close the VIDEO_PRESENTATION_MODE guard on the VideoPresentationManagerProxy import (see above).
 #import "WKAPICast.h"
 #import "WKViewInternal.h"
 #import "WKViewPrivate.h"

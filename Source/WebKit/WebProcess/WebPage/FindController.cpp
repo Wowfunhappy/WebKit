@@ -539,11 +539,6 @@ void FindController::didMoveToPage(PageOverlay&, Page*)
 {
 }
 
-// MAVERICKS_BACKPORT: Safari 7's find overlay (WebKit-537). Upstream shrink-wraps the match rects
-// into 3px-rounded paths, strokes them with a white 2px-thick line and gives that a 0-offset /
-// 1px-blur half-black shadow. Stock Mavericks filled a *square* white frame around each match rect
-// and gave it a (0,1)-offset / 2px-blur opaque black shadow. Restored to match stock 10.9 (#85);
-// the upstream values and drawing are kept commented out below.
 constexpr float shadowOffsetX = 0;
 constexpr float shadowOffsetY = 1; // MAVERICKS_BACKPORT: upstream 0
 constexpr float shadowBlurRadius = 2; // MAVERICKS_BACKPORT: upstream 1

@@ -32,7 +32,6 @@
 #import "PathUtilities.h"
 #import "TextIndicator.h"
 #import "WebActionDisablingCALayerDelegate.h"
-#import <QuartzCore/QuartzCore.h> // MAVERICKS_BACKPORT: build glue — explicit CA include for the older SDK QuartzCore umbrella.
 #import <pal/spi/cg/CoreGraphicsSPI.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 
@@ -44,10 +43,6 @@ constexpr CFTimeInterval bounceWithCrossfadeAnimationDuration = 0.3;
 constexpr CFTimeInterval fadeInAnimationDuration = 0.15;
 constexpr CFTimeInterval fadeOutAnimationDuration = 0.3;
 
-// MAVERICKS_BACKPORT: Safari 7's find indicator (WebKit-537 Source/WebKit2/UIProcess/
-// FindIndicator.cpp) filled the highlight with a vertical gradient inside a 1px light-yellow
-// border and cast a single hard shadow. Upstream fills a flat [NSColor findHighlightColor] with
-// no border and a soft drop + rim shadow pair. Restored to the 537 look (#85).
 constexpr CGFloat borderWidth = 0;
 constexpr CGFloat cornerRadius = 3;
 constexpr CGFloat dropShadowOffsetX = 0;
@@ -226,8 +221,6 @@ static bool NODELETE indicatorWantsFadeIn(const WebCore::TextIndicator& indicato
         [bounceLayer addSublayer:lightBorderLayer.get()];
 #endif // PLATFORM(MAC)
 
-        // MAVERICKS_BACKPORT: on Mac the fill and the border come from the two layers above, so
-        // highlightColor is left null here (a transparent background) and borderWidth stays 0.
         RetainPtr<CALayer> textLayer = adoptNS([[CALayer alloc] init]);
         [textLayer setBackgroundColor:highlightColor.get()];
         [textLayer setBorderColor:borderColor.get()];

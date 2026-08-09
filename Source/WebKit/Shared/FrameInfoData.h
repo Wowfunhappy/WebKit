@@ -27,8 +27,7 @@
 
 #include <wtf/Platform.h>
 
-// MAVERICKS_BACKPORT: force the full struct body unconditionally; the 10.9 build compiles without Clang modules (-fno-modules) and Swift ObjC++ interop, so the upstream modules/interop guard is bypassed to ensure the C++ definition is always emitted.
-#if 1 // backport: force body, was: #if !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+#if !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 #include "WebFrameMetrics.h"
 #include <WebCore/CertificateInfo.h>

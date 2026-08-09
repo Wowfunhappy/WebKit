@@ -34,7 +34,7 @@ namespace WebCore {
 
 String standardUserAgentWithApplicationName(const String& applicationName, const String&, UserAgentType)
 {
-    // MAVERICKS_BACKPORT: ignore the host application name (Safari 9.1.3 passes
+    // MAVERICKS_BACKPORT: ignore the host application name (Safari 7 passes
     // "Safari/9537.86.7.8", which is inconsistent with the Version/ token). Always
     // emit a clean modern Safari UA so UA-sniffing sites see a coherent pair.
     // Version/26.0 matches the Safari generation this WebKit trunk snapshot ships in;

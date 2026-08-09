@@ -401,9 +401,6 @@ void NetworkTaskCocoa::willPerformHTTPRedirection(WebCore::ResourceResponse&& re
 #endif
 
     setCookieTransform(request, IsRedirect::Yes);
-    // MAVERICKS_BACKPORT: blocking is applied to the request this redirect continues with -- the only
-    // thing 10.9 lets a caller change at this point, see blockCookies. The stamped request is what
-    // completionHandler hands back, so it is the one the next hop is built from.
     if (!m_hasBeenSetToUseStatelessCookieStorage) {
         auto thirdPartyCookieBlockingDecision = requestThirdPartyCookieBlockingDecision(request);
         if (NetworkStorageSession::shouldBlockCookies(thirdPartyCookieBlockingDecision))

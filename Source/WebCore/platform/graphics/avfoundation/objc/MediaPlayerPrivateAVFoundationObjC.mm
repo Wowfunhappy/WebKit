@@ -3989,12 +3989,7 @@ std::optional<VideoPlaybackQualityMetrics> MediaPlayerPrivateAVFoundationObjC::v
 #else
 ALLOW_NEW_API_WITHOUT_GUARDS_BEGIN
 
-    // MAVERICKS_BACKPORT: the public SDK marks AVVideoPerformanceMetrics' frame-count getters
-    // API_UNAVAILABLE(macos) although they exist at runtime (Apple's internal SDK declares them available,
-    // which is how upstream calls them unguarded). Type the result as the WebAVVideoPerformanceMetrics
-    // accessor protocol from PAL/pal/spi/cocoa/AVFoundationSPI.h, the same technique
-    // LocalSampleBufferDisplayLayer and VideoMediaSampleRenderer already use.
-    id<WebAVVideoPerformanceMetrics> metrics = (id<WebAVVideoPerformanceMetrics>)[videoLayer videoPerformanceMetrics];
+    auto metrics = [videoLayer videoPerformanceMetrics];
     if (!metrics)
         return std::nullopt;
 

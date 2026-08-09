@@ -2886,13 +2886,7 @@ void CanvasRenderingContext2DBase::drawTextUnchecked(const TextRun& textRun, dou
         cachedShapedText = fonts->getOrCreateCachedShapedText(textRun, fontCascade, 0, std::nullopt, ForTextEmphasis::No);
     }
 
-    // MAVERICKS_BACKPORT: the ShapedTextCache entry's width (layout{Simple,Complex}Text) reports 0
-    // for LTR runs on this CoreText build, which zeroed the text-alignment offset (textOffset uses
-    // -width/2 for center and -width for right) so canvas textAlign center/right rendered as left —
-    // e.g. Mail attachment filenames sat to the right of the icon instead of centered under it.
-    // Use the authoritative advance width (the same value measureText returns) for the layout below;
-    // the cached glyph buffer is still used for drawing the glyphs.
-    float fontWidth = fontCascade.width(textRun);
+    float fontWidth = cachedShapedText ? cachedShapedText->width : fontCascade.width(textRun);
 
     bool useMaxWidth = maxWidth && maxWidth.value() < fontWidth;
     float width = useMaxWidth ? maxWidth.value() : fontWidth;

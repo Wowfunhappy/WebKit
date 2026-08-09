@@ -346,7 +346,7 @@ bool hasCapacityToUseLargeGigacage();
     v(Unsigned, wasmInliningTinyFunctionThreshold, 12, Normal, "Wasm size threshold for tiny wasm functions"_s) \
     v(Unsigned, wasmInliningSmallFunctionThreshold, 50, Normal, "Wasm size threshold for small wasm functions"_s) \
     \
-    v(Double, jitPolicyScale, 0.1, Normal, "scale JIT thresholds to this specified ratio between 0.0 (compile ASAP) and 1.0 (compile like normal). MAVERICKS_BACKPORT: lowered from 1.0 to 0.1 because LLINT execution rate is the bottleneck on this build. Tier-up to JIT 10x faster than default. Tested 0.05 — slightly slower (compile overhead); 0.1 is sweet spot."_s) \
+    v(Double, jitPolicyScale, 1.0, Normal, "scale JIT thresholds to this specified ratio between 0.0 (compile ASAP) and 1.0 (compile like normal)."_s) \
     v(Bool, forceEagerCompilation, false, Normal, nullptr) \
     v(Int32, thresholdForJITAfterWarmUp, 500, Normal, nullptr) \
     v(Int32, thresholdForJITSoon, 100, Normal, nullptr) \

@@ -44,8 +44,10 @@ GeolocationPositionData::GeolocationPositionData(CLLocation *location)
         speed = location.speed;
     if (location.course >= 0.0)
         heading = location.course;
-    // MAVERICKS_BACKPORT: runtime-absent selector — -[CLLocation floor]/CLFloor.level are 10.15+; reading
-    // them throws unrecognized-selector on every position conversion on 10.9. Drop the floorLevel read.
+#if !PLATFORM(MACCATALYST)
+    if (location.floor)
+        floorLevel = location.floor.level;
+#endif
 }
 
 } // namespace WebCore

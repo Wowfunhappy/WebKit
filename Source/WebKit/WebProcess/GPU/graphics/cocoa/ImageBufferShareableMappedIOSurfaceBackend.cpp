@@ -88,10 +88,7 @@ std::optional<ImageBufferBackendHandle> ImageBufferShareableMappedIOSurfaceBacke
 String ImageBufferShareableMappedIOSurfaceBackend::debugDescription() const
 {
     TextStream stream;
-    // MAVERICKS_BACKPORT: drop base 83b24ce's "<< ValueOrNull(m_surface.get())" from this debug-only
-    // description; streaming the IOSurface value pulls in a TextStream operator<< overload not
-    // available in this build.
-    stream << "ImageBufferShareableMappedIOSurfaceBackend " << this;
+    stream << "ImageBufferShareableMappedIOSurfaceBackend " << this << " " << ValueOrNull(m_surface.get());
     return stream.release();
 }
 

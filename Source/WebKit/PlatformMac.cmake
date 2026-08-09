@@ -27,17 +27,9 @@ add_definitions(-iframework ${CORESERVICES_LIBRARY}/Versions/Current/Frameworks)
 
 include(Headers.cmake)
 
-# MAVERICKS_BACKPORT: system zlib for the NetworkProcess gzip content-decoder (NetworkDataTaskCocoa.mm).
-# 10.9 CFNetwork suppresses its transparent Content-Encoding: gzip decode for .gz/.tgz URLs and hands
-# the raw compressed body to WebKit; we un-do that with inflate(). WebCore already links ZLIB::ZLIB
-# (WebCore/PlatformMac.cmake), but that framework's symbols are not re-exported to WebKit.
-find_package(ZLIB REQUIRED)
-
 list(APPEND WebKit_PRIVATE_LIBRARIES
     Accessibility
     WebKitLegacy
-    # MAVERICKS_BACKPORT: link zlib for the NetworkProcess gzip content-decoder (see find_package(ZLIB) above).
-    ZLIB::ZLIB
     ${APPLICATIONSERVICES_LIBRARY}
     ${CORESERVICES_LIBRARY}
     ${DEVICEIDENTITY_LIBRARY}
@@ -105,34 +97,6 @@ list(APPEND WebKit_SOURCES
     WebProcess/cocoa/HandleXPCEndpointMessages.mm
     WebProcess/cocoa/LaunchServicesDatabaseManager.mm
 )
-
-# MAVERICKS_BACKPORT: the webpushd daemon implementation lives in WebKit.framework, as in the
-# upstream Xcode build (whose webpushd tool target compiles only webpushd.cpp against the
-# framework). Upstream's list, minus iOS-only WebClipCache.mm and _WKMockUserNotificationCenter.mm
-# (needs HAVE(FULL_FEATURED_USER_NOTIFICATIONS), macOS 14+) and minus ApplePushServiceConnection.mm
-# (10.9's ApplePushService cannot mint URL tokens and the modern SDK ships no .tbd to link it);
-# this port's transport is MozillaPushServiceConnection + MozillaPushWebSocket instead — see
-# USE_MOZILLA_PUSH_SERVICE in OptionsMac.cmake.
-if (ENABLE_WEB_PUSH_NOTIFICATIONS)
-    list(APPEND WebKit_SOURCES
-        webpushd/MozillaPushServiceConnection.mm
-        webpushd/MozillaPushWebSocket.mm
-        webpushd/PushClientConnection.mm
-        webpushd/PushService.mm
-        webpushd/PushServiceConnection.mm
-        webpushd/MockPushServiceConnection.mm
-        webpushd/WebPushDaemon.mm
-        webpushd/WebPushDaemonMain.mm
-    )
-    # The two Mozilla files are written for ARC (bare ObjC ivar assignments, no manual
-    # retains); under this port's default MRR compile the ivars drop their references and
-    # the daemon use-after-frees on the first stream callback. ARC is applied to exactly
-    # these two: they traffic in no os_object types, so the OS_OBJECT_USE_OBJC=1 mangling
-    # the rest of this build uses is unaffected, while the upstream daemon files keep the
-    # port-wide MRR default they already compile and run correctly under (their ObjC
-    # ownership goes through RetainPtr/adoptNS, which is correct in both modes).
-    set_source_files_properties(webpushd/MozillaPushServiceConnection.mm webpushd/MozillaPushWebSocket.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
-endif ()
 
 list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${CMAKE_BINARY_DIR}/libwebrtc/PrivateHeaders"
@@ -880,8 +844,7 @@ function(WEBKIT_DEFINE_XPC_SERVICES)
         VERBATIM)
     list(APPEND WebKit_SB_FILES ${WebKit_RESOURCES_DIR}/com.apple.WebKit.NetworkProcess.sb)
 
-    if (ENABLE_GPU_PROCESS)
-        # MAVERICKS_BACKPORT: preprocess for 10.9, matching the two profiles above.
+    if (ENABLE_GPU_PROCESS) # MAVERICKS_BACKPORT: the GPU-process sandbox profile is only built when that process is.
         add_custom_command(OUTPUT ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb COMMAND
             grep -o "^[^;]*" ${WEBKIT_DIR}/GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in | clang -E -P -w -mmacosx-version-min=10.9 -include wtf/Platform.h -I ${WTF_FRAMEWORK_HEADERS_DIR} -I ${bmalloc_FRAMEWORK_HEADERS_DIR} -I ${WEBKIT_DIR} - > ${WebKit_RESOURCES_DIR}/com.apple.WebKit.GPUProcess.sb
             VERBATIM)

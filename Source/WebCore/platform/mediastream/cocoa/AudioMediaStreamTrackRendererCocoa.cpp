@@ -31,10 +31,7 @@
 #include "AudioMediaStreamTrackRendererUnit.h"
 #include "AudioSampleDataSource.h"
 #include "CAAudioStreamDescription.h"
-// MAVERICKS_BACKPORT: guard the LibWebRTC include behind USE(LIBWEBRTC); the 10.9 build uses the GStreamer WebRTC backend, so LibWebRTCAudioModule.h is absent.
-#if USE(LIBWEBRTC)
 #include "LibWebRTCAudioModule.h"
-#endif
 #include <wtf/CompletionHandler.h>
 #include <wtf/TZoneMallocInlines.h>
 

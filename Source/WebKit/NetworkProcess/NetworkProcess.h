@@ -683,8 +683,7 @@ private:
     bool m_isSuspended { false };
     bool m_didSyncCookiesForClose { false };
 #if PLATFORM(COCOA)
-    // MAVERICKS_BACKPORT: NOTIFY_TOKEN_INVALID is absent from 10.9 notify.h; use its value (-1) directly.
-    int m_mediaStreamingActivitityToken { -1 }; // NOTIFY_TOKEN_INVALID not in 10.9 notify.h
+    int m_mediaStreamingActivitityToken { NOTIFY_TOKEN_INVALID };
     bool m_isParentProcessFullWebBrowserOrRunningTest { false };
 #endif
     bool m_enableModernDownloadProgress { false };
@@ -700,10 +699,9 @@ private:
     };
     HashMap<TaskIdentifier, DeleteWebsiteDataTask> m_deleteWebsiteDataTasks;
 
-// MAVERICKS_BACKPORT: nw_resolver_config_t not available (Network.framework 10.10+).
-// #if ENABLE(DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS)
-//     OSObjectPtr<nw_resolver_config_t> m_resolverConfig;
-// #endif
+#if ENABLE(DNS_SERVER_FOR_TESTING_IN_NETWORKING_PROCESS)
+    OSObjectPtr<nw_resolver_config_t> m_resolverConfig;
+#endif
 };
 
 #if !PLATFORM(COCOA)

@@ -196,57 +196,9 @@ list(REMOVE_ITEM WebCore_SOURCES
 
 
 # --------------------------------------------------------------------------
-# Source-list entries withheld from upstream's Sources*.txt.
-#
-# Upstream's list files stay byte-upstream. Each is copied line-wise into the build tree
-# without the withheld entries, and WebCore_UNIFIED_SOURCE_LIST_FILES points at the copy.
-# Every surviving line is copied verbatim, so @nonARC / @no-unify annotations carry over.
-# WEBKIT_COMPUTE_SOURCES (Source/cmake/WebKitMacros.cmake) composes
-# "${CMAKE_CURRENT_SOURCE_DIR}/<entry>", so the replacement entry is spelled relative to
-# Source/WebCore. This file runs from PlatformMac.cmake, before that macro consumes the list.
+# Source-list entries withheld from and added to upstream's Sources*.txt.
 # --------------------------------------------------------------------------
-set(MAVERICKS_SOURCE_LISTS_DIR "${CMAKE_BINARY_DIR}/MavericksSourceLists")
-file(MAKE_DIRECTORY "${MAVERICKS_SOURCE_LISTS_DIR}")
-
-macro(MAVERICKS_FILTER_SOURCE_LIST _listEntry _withheldVar _addedVar)
-    get_filename_component(_mavLeaf "${_listEntry}" NAME)
-    set(_mavFiltered "${MAVERICKS_SOURCE_LISTS_DIR}/${_mavLeaf}")
-    set(_mavOut "")
-    set(_mavSeen "")
-    file(STRINGS "${WEBCORE_DIR}/${_listEntry}" _mavLines)
-    foreach (_mavLine IN LISTS _mavLines)
-        string(STRIP "${_mavLine}" _mavTrimmed)
-        set(_mavDrop OFF)
-        foreach (_mavWithheld IN LISTS ${_withheldVar})
-            if (_mavTrimmed STREQUAL "${_mavWithheld}")
-                set(_mavDrop ON)
-                list(APPEND _mavSeen "${_mavWithheld}")
-                break()
-            endif ()
-        endforeach ()
-        if (NOT _mavDrop)
-            string(APPEND _mavOut "${_mavLine}\n")
-        endif ()
-    endforeach ()
-    # Every withheld entry must have matched an upstream line verbatim. A miss means upstream renamed,
-    # re-annotated or dropped that entry, and the withholding no longer says what it used to.
-    foreach (_mavWithheld IN LISTS ${_withheldVar})
-        list(FIND _mavSeen "${_mavWithheld}" _mavFound)
-        if (_mavFound EQUAL -1)
-            message(FATAL_ERROR
-                "MAVERICKS_FILTER_SOURCE_LIST(${_listEntry}): withheld entry did not match any line:\n"
-                "    ${_mavWithheld}\n"
-                "Re-derive the withheld/added sets against the current upstream file.")
-        endif ()
-    endforeach ()
-    foreach (_mavAdd IN LISTS ${_addedVar})
-        string(APPEND _mavOut "${_mavAdd}\n")
-    endforeach ()
-    file(WRITE "${_mavFiltered}" "${_mavOut}")
-    file(RELATIVE_PATH _mavRel "${WEBCORE_DIR}" "${_mavFiltered}")
-    list(REMOVE_ITEM WebCore_UNIFIED_SOURCE_LIST_FILES "${_listEntry}")
-    list(APPEND WebCore_UNIFIED_SOURCE_LIST_FILES "${_mavRel}")
-endmacro()
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/MavericksSourceLists.cmake)
 
 # Withheld from SourcesCocoa.txt: replaced by the GCrypt/OpenSSL crypto backend, or built on
 # frameworks and SPI this deployment target does not have.
@@ -355,8 +307,22 @@ set(MAVERICKS_ADDED_GSTREAMER_SOURCES
     "platform/graphics/gstreamer/VideoLayerGStreamerCocoa.mm @no-unify"
 )
 
-MAVERICKS_FILTER_SOURCE_LIST("SourcesCocoa.txt" MAVERICKS_WITHHELD_COCOA_SOURCES MAVERICKS_ADDED_COCOA_SOURCES)
-MAVERICKS_FILTER_SOURCE_LIST("platform/SourcesGStreamer.txt" MAVERICKS_WITHHELD_GSTREAMER_SOURCES MAVERICKS_ADDED_GSTREAMER_SOURCES)
+set(MAVERICKS_WITHHELD_WEBCORE_SOURCES "")
+
+# Added to Sources.txt: WEB_AUTHN and DASHBOARD_SUPPORT are on for this port, so the sources behind
+# AuthenticationExtensionsClientInputs/Outputs and CSSDashboardRegionValue are built. BeforeLoadEvent
+# (the restored beforeload event uBlock's network blocking uses) and TextListParser compile standalone.
+set(MAVERICKS_ADDED_WEBCORE_SOURCES
+    "Modules/webauthn/AuthenticationExtensionsClientInputs.cpp"
+    "Modules/webauthn/AuthenticationExtensionsClientOutputs.cpp"
+    "css/CSSDashboardRegionValue.cpp"
+    "dom/BeforeLoadEvent.cpp @no-unify"
+    "editing/TextListParser.cpp @no-unify"
+)
+
+MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "Sources.txt" MAVERICKS_WITHHELD_WEBCORE_SOURCES MAVERICKS_ADDED_WEBCORE_SOURCES)
+MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt" MAVERICKS_WITHHELD_COCOA_SOURCES MAVERICKS_ADDED_COCOA_SOURCES)
+MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "platform/SourcesGStreamer.txt" MAVERICKS_WITHHELD_GSTREAMER_SOURCES MAVERICKS_ADDED_GSTREAMER_SOURCES)
 
 # --------------------------------------------------------------------------
 # Entries added to upstream's lists.
@@ -608,6 +574,16 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     # MAVERICKS_BACKPORT: USE_AVIF is ON here, so ScalableImageDecoder.cpp resolves a bare
     # `#include "AVIFImageDecoder.h"`. Upstream's Mac build never compiles that branch.
     "${WEBCORE_DIR}/platform/image-decoders/avif"
+    # Same gap: USE_GSTREAMER_WEBRTC is ON here, so Modules/mediastream/gstreamer headers resolve bare
+    # `#include "RealtimeOutgoingAudioSourceGStreamer.h"` and RTCController.cpp a bare
+    # `#include "GStreamerWebRTCLogSink.h"`, both of which live in platform/mediastream/gstreamer;
+    # GStreamerWebRTCUtils.cpp reaches "OpenSSLCryptoUniquePtr.h" in crypto/openssl, and
+    # GStreamerCommon.cpp reaches "ApplicationGLib.h" in platform/glib, whose ApplicationGLib.cpp this
+    # port builds. Only the GTK and WPE ports list these directories as include paths. No basename in
+    # any of the three is reachable from a directory already on this list.
+    "${WEBCORE_DIR}/platform/mediastream/gstreamer"
+    "${WEBCORE_DIR}/crypto/openssl"
+    "${WEBCORE_DIR}/platform/glib"
     "${WEBCORE_DIR}/platform/ios"
     "${LIBWEBM_STAGED_INCLUDE}"
     # libwebm's headers include each other by paths relative to the library root
@@ -615,6 +591,15 @@ list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES
     # webm/-prefixed spellings WebKit uses -- so the webm/ subdirectory is on the path too.
     "${LIBWEBM_STAGED_INCLUDE}/webm"
 )
+
+# MAVERICKS_BACKPORT: upstream ships 0-byte husks at accessibility/AXIsolatedTree.{h,cpp} beside the real
+# pair in accessibility/isolatedtree/, and lists accessibility first. Xcode's header maps resolve a bare
+# `#include "AXIsolatedTree.h"` to the real file; the CMake port resolves it to the husk, so Page.cpp sees
+# an incomplete AXIsolatedTree wherever ENABLE_ACCESSIBILITY_ISOLATED_TREE is on -- upstream's CMake ports
+# keep it off, so only this port reaches it. Search the real directory first. AXIsolatedTree.h is the one
+# basename it carries that any other directory on this list also carries.
+list(REMOVE_ITEM WebCore_PRIVATE_INCLUDE_DIRECTORIES "${WEBCORE_DIR}/accessibility/isolatedtree")
+list(INSERT WebCore_PRIVATE_INCLUDE_DIRECTORIES 0 "${WEBCORE_DIR}/accessibility/isolatedtree")
 
 list(APPEND WebCore_USER_AGENT_STYLE_SHEETS
     # MAVERICKS_BACKPORT (#68): classic Safari 7 / Mavericks media-controls stylesheet.
@@ -646,3 +631,8 @@ list(REMOVE_ITEM WebCore_SOURCES
     platform/graphics/mac/IntSizeMac.mm
 )
 
+
+# MAVERICKS_BACKPORT: upstream's 5051d18 moved TextIndicatorWindow to WebKitLegacy but left both files
+# in PlatformMac.cmake's lists, so the CMake Mac port names two paths WebCore no longer ships.
+list(REMOVE_ITEM WebCore_SOURCES page/mac/TextIndicatorWindow.mm)
+list(REMOVE_ITEM WebCore_PRIVATE_FRAMEWORK_HEADERS page/mac/TextIndicatorWindow.h)

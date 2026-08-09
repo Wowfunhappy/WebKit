@@ -57,10 +57,6 @@ int WKWebPushToolMain(int argc, char** argv)
 #if ENABLE(WEB_PUSH_NOTIFICATIONS) && !USE(MOZILLA_PUSH_SERVICE)
     return WebKit::WebPushToolMain(argc, argv);
 #else
-    // MAVERICKS_BACKPORT: webpushtool is a development tool for injecting test pushes,
-    // and its sources are not built on this port: WebPushToolMain registers the daemon
-    // through OSLaunchdJob, an ObjC class 10.9's libxpc does not export, so compiling it
-    // into the framework would leave a class reference dyld cannot bind at load time.
     return -1;
 #endif
 }

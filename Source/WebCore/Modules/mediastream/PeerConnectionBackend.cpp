@@ -209,9 +209,7 @@ PeerConnectionBackend::~PeerConnectionBackend()
 #endif
 }
 
-// MAVERICKS_BACKPORT: match the handleLogMessage declaration gate in the header (USE(GSTREAMER_WEBRTC));
-// Mac+GStreamer is a GStreamer-WebRTC port, so the final-override vtable slot it declares needs this body.
-#if !RELEASE_LOG_DISABLED && (PLATFORM(WPE) || PLATFORM(GTK) || USE(GSTREAMER_WEBRTC))
+#if !RELEASE_LOG_DISABLED && (PLATFORM(WPE) || PLATFORM(GTK) || USE(GSTREAMER_WEBRTC)) // MAVERICKS_BACKPORT: matches the header's handleLogMessage gate.
 void PeerConnectionBackend::handleLogMessage(const WTFLogChannel& channel, WTFLogLevel, Vector<JSONLogValue>&& values)
 {
     auto name = StringView::fromLatin1(channel.name);

@@ -14,25 +14,12 @@
 
 #import <Cocoa/Cocoa.h>
 #import <IOKit/IOKitLib.h>
-// MAVERICKS_BACKPORT: only import Metal when building the Metal backend; 10.9 uses the CGL backend.
-#if ANGLE_ENABLE_METAL
 #import <Metal/Metal.h>
-#endif
 
 #include "common/apple_platform_utils.h"
 
 #if ANGLE_ENABLE_CGL
 #    include "common/gl/cgl/FunctionsCGL.h"
-#endif
-
-// MAVERICKS_BACKPORT SDK shims: these identifiers were introduced in newer SDKs.
-#if !defined(MAC_OS_VERSION_12_0) || (defined(MAC_OS_X_VERSION_MAX_ALLOWED) && MAC_OS_X_VERSION_MAX_ALLOWED < 120000)
-#    define kIOMainPortDefault kIOMasterPortDefault
-#endif
-// CGL renderer registry-ID properties are 10.13+ (CGLRenderers.h). Values are stable.
-#if !defined(MAC_OS_X_VERSION_10_13) || (defined(MAC_OS_X_VERSION_MAX_ALLOWED) && MAC_OS_X_VERSION_MAX_ALLOWED < 101300)
-#    define kCGLRPRegistryIDLow static_cast<CGLRendererProperty>(140)
-#    define kCGLRPRegistryIDHigh static_cast<CGLRendererProperty>(141)
 #endif
 
 namespace angle
@@ -209,8 +196,6 @@ void ForceGPUSwitchIndex(SystemInfo *info)
 // Used with permission.
 uint64_t GetGpuIDFromDisplayID(uint32_t displayID)
 {
-    // MAVERICKS_BACKPORT: skip the Metal fast path (Metal is unavailable on 10.9); fall through to CGL.
-#if ANGLE_ENABLE_METAL
     // First attempt to use query the registryID from a Metal device before falling back to CGL.
     // This avoids loading the OpenGL framework when possible.
     id<MTLDevice> device = CGDirectDisplayCopyCurrentMetalDevice(displayID);
@@ -220,8 +205,6 @@ uint64_t GetGpuIDFromDisplayID(uint32_t displayID)
         [device release];
         return registryId;
     }
-// MAVERICKS_BACKPORT: end of the Metal fast path skipped on 10.9 (Metal unavailable; CGL backend).
-#endif
 #if ANGLE_ENABLE_CGL
     return GetGpuIDFromOpenGLDisplayMask(CGDisplayIDToOpenGLDisplayMask(displayID));
 #else
@@ -273,8 +256,6 @@ uint64_t GetGpuIDFromOpenGLDisplayMask(uint32_t displayMask)
 }
 #endif
 
-// MAVERICKS_BACKPORT: gate the Metal-device path off; Metal is unavailable on 10.9 (CGL backend).
-#if ANGLE_ENABLE_METAL
 // Get VendorID from metal device's registry ID
 VendorID GetVendorIDFromMetalDeviceRegistryID(uint64_t registryID)
 {
@@ -316,8 +297,6 @@ VendorID GetVendorIDFromMetalDeviceRegistryID(uint64_t registryID)
 
     return vendorId;
 }
-// MAVERICKS_BACKPORT: Metal is unavailable on 10.9; this Metal-only helper is compiled out (CGL backend).
-#endif  // ANGLE_ENABLE_METAL
 
 bool GetSystemInfo_mac(SystemInfo *info)
 {

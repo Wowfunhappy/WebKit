@@ -339,12 +339,9 @@
 #include <WebCore/AttributedString.h>
 #include <WebCore/CoreAudioCaptureDeviceManager.h>
 #include <WebCore/LegacyWebArchive.h>
-// MAVERICKS_BACKPORT: the playback-session-interface headers only exist when VIDEO_PRESENTATION_MODE is on; gate the includes.
-#if ENABLE(VIDEO_PRESENTATION_MODE)
 #include <WebCore/NullPlaybackSessionInterface.h>
 #include <WebCore/PlaybackSessionInterfaceAVKitLegacy.h>
 #include <WebCore/PlaybackSessionInterfaceMac.h>
-#endif // MAVERICKS_BACKPORT: ENABLE(VIDEO_PRESENTATION_MODE)
 #include <WebCore/PlaybackSessionInterfaceTVOS.h>
 #include <WebCore/RunLoopObserver.h>
 #include <WebCore/SystemBattery.h>
@@ -4311,9 +4308,8 @@ void WebPageProxy::handleMouseEvent(const NativeWebMouseEvent& event)
 void WebPageProxy::dispatchMouseDidMoveOverElementAsynchronously(const NativeWebMouseEvent& event)
 {
     sendWithAsyncReply(Messages::WebPage::PerformHitTestForMouseEvent { event }, [this, protectedThis = Ref { *this }] (WebHitTestResultData&& hitTestResult, OptionSet<WebEventModifier> modifiers) {
-        // MAVERICKS_BACKPORT: renamed to the split dispatch helper; nullptr userData since this async hover path carries no injected-bundle data (#58).
         if (!isClosed())
-            dispatchMouseDidMoveOverElement(WTF::move(hitTestResult), modifiers, nullptr);
+            dispatchMouseDidMoveOverElement(WTF::move(hitTestResult), modifiers, nullptr); // MAVERICKS_BACKPORT: split dispatch helper; this async hover path carries no injected-bundle data (#58).
     });
 }
 
@@ -5278,36 +5274,14 @@ Expected<WebPageProxy::DataStoreUpdateResult, WebCore::ResourceError> WebPagePro
 }
 #endif
 
-// MAVERICKS_BACKPORT: a single ephemeral (in-memory) session shared by every private-browsing page, matching
-// Safari 7's app-global Private Browsing where all private windows share one session. Never written to disk.
-// The slot is reset each time Private Browsing is turned on (see resetSharedPrivateBrowsingDataStore), so a new
-// private session never resurrects the in-memory cookies/logins of a prior one. (#55)
-static RefPtr<WebsiteDataStore>& privateBrowsingDataStoreSlot()
-{
-    static NeverDestroyed<RefPtr<WebsiteDataStore>> slot;
-    return slot.get();
-}
-
-static WebsiteDataStore& sharedPrivateBrowsingDataStore()
-{
-    auto& slot = privateBrowsingDataStoreSlot();
-    if (!slot)
-        slot = WebsiteDataStore::createNonPersistent();
-    return *slot;
-}
-
-void WebPageProxy::resetSharedPrivateBrowsingDataStore()
-{
-    // Drop the shared ephemeral store so the next Private Browsing session starts fresh. Safe to call on the
-    // off->on transition: no page is on the shared store while Private Browsing is off.
-    privateBrowsingDataStoreSlot() = nullptr;
-}
-
+// MAVERICKS_BACKPORT: Safari 7's global Private Browsing toggle reaches each of its pages here (#55).
 void WebPageProxy::privateBrowsingEnabledDidChange()
 {
     // Reload so the navigation-policy path (receivedNavigationActionPolicyDecision) moves this page onto or off
-    // the shared ephemeral store. Without a reload the toggle would only affect future navigations, leaving the
-    // current page on its old session (the "still logged in everywhere" symptom in #55).
+    // its client's ephemeral store. The swap belongs there because it also forces the process swap the new
+    // session needs: a process stays bound to the session it was launched for, so moving the store without it
+    // leaves the load running against the old one. Without a reload the toggle would only affect future
+    // navigations, leaving the current page on its old session (the "still logged in everywhere" symptom in #55).
     if (!currentURL().isEmpty())
         reload({ });
 }
@@ -5423,7 +5397,7 @@ void WebPageProxy::receivedNavigationActionPolicyDecision(WebProcessProxy& proce
 #endif
 
     // MAVERICKS_BACKPORT: honor Safari 7's global Private Browsing toggle by moving this navigation onto (or off
-    // of) the shared ephemeral WebsiteDataStore. This mirrors the eager store swap in updateDataStoreForWebArchiveLoad
+    // of) this client's ephemeral WebsiteDataStore. This mirrors the eager store swap in updateDataStoreForWebArchiveLoad
     // above (pageEnd the old store -> reassign m_websiteDataStore -> pageBegin the new store) and forces a process
     // swap the same way (processSwapRequestedByClient = Yes). Only touches the default persistent store and our own
     // shared private store, so it composes with the web-archive and website-policy store overrides. Note: the local
@@ -5432,10 +5406,10 @@ void WebPageProxy::receivedNavigationActionPolicyDecision(WebProcessProxy& proce
     // so an Ignore/Download decision never swaps the store. (#55)
     if (policyAction == PolicyAction::Use && m_websiteDataStore.ptr() == websiteDataStore.ptr()) {
         bool wantPrivate = preferences->privateBrowsingEnabled();
-        bool onSharedPrivateStore = websiteDataStore.ptr() == &sharedPrivateBrowsingDataStore();
+        bool onSharedPrivateStore = websiteDataStore.ptr() == preferences->privateBrowsingDataStoreIfExists();
         RefPtr<WebsiteDataStore> targetStore;
         if (wantPrivate && !onSharedPrivateStore && websiteDataStore->isPersistent())
-            targetStore = &sharedPrivateBrowsingDataStore();
+            targetStore = &preferences->privateBrowsingDataStore();
         else if (!wantPrivate && onSharedPrivateStore)
             targetStore = &WebsiteDataStore::defaultDataStore();
         if (targetStore) {
@@ -7306,7 +7280,7 @@ void WebPageProxy::didChangeProgress(double value)
 
     pageLoadState->commitChanges();
 
-    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 9.1.3 uses this).
+    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 7 uses this).
     if (m_loaderClient)
         m_loaderClient->didChangeProgress(*this);
 }
@@ -7321,7 +7295,7 @@ void WebPageProxy::didFinishProgress()
 
     pageLoadState->commitChanges();
 
-    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 9.1.3 uses this).
+    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 7 uses this).
     if (m_loaderClient)
         m_loaderClient->didFinishProgress(*this);
 }
@@ -8218,7 +8192,7 @@ void WebPageProxy::didFinishDocumentLoadForFrame(IPC::Connection& connection, Fr
         internals().didFinishDocumentLoadForMainFrameTimestamp = MonotonicTime::now();
     }
 
-    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 9.1.3 uses this).
+    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 7 uses this).
     if (m_loaderClient)
         m_loaderClient->didFinishDocumentLoadForFrame(*this, *frame, navigation.get(), nullptr);
 }
@@ -8723,7 +8697,7 @@ void WebPageProxy::didReceiveTitleForFrame(IPC::Connection& connection, FrameIde
 
     protectedPageLoadState->commitChanges();
 
-    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 9.1.3 uses this).
+    // MAVERICKS_BACKPORT: forward to legacy loader client (Safari 7 uses this).
     if (m_loaderClient)
         m_loaderClient->didReceiveTitleForFrame(*this, forwardedTitle, *frame, nullptr);
 
@@ -13521,15 +13495,6 @@ void WebPageProxy::allowGamepadAccess()
 
 #endif // ENABLE(GAMEPAD)
 
-// MAVERICKS_BACKPORT: offer the challenge to the legacy loader client first (github #95). Safari 7
-// authenticates through WKPageSetPageLoaderClient's didReceiveAuthenticationChallengeInFrame and
-// registers no navigation client at all, so without this every challenge reached the default
-// navigation client and was answered PerformDefaultHandling — no panel, and the site just returned
-// its 401 body. The loader client reports whether it took the challenge; embedders that use the
-// navigation client (which is every modern one) are unaffected because their loader client has
-// neither callback set. The frame is the main frame: a challenge no longer carries the frame it came
-// from (upstream dropped the frameID from the message), and the callback's frame argument is only
-// used by clients to find the window to attach the panel to.
 void WebPageProxy::didReceiveAuthenticationChallengeProxy(Ref<AuthenticationChallengeProxy>&& authenticationChallenge, NegotiatedLegacyTLS negotiatedLegacyTLS)
 {
     // MAVERICKS_BACKPORT: loader client first, navigation client second (see above).

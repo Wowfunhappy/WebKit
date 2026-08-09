@@ -33,10 +33,7 @@
 #import "InteractionInformationAtPosition.h"
 #import "LoadParameters.h"
 #import "MessageSenderInlines.h"
-// MAVERICKS_BACKPORT: PDF_PLUGIN is disabled on this port (PDFs download instead of rendering inline); only import PDFPlugin.h when it is enabled.
-#if ENABLE(PDF_PLUGIN)
 #import "PDFPlugin.h"
-#endif
 #import "PluginView.h"
 #import "PositionInformationForWebPage.h"
 #import "PrintInfo.h"
@@ -245,10 +242,7 @@ void WebPage::platformInitialize(const WebPageCreationParameters& parameters)
     protect(WebProcess::singleton().userMediaCaptureManager())->setupCaptureProcesses(false, false, false, false, false, false, false);
 #endif // ENABLE(GPU_PROCESS)
 #endif // ENABLE(MEDIA_STREAM)
-#if USE(LIBWEBRTC) && ENABLE(GPU_PROCESS)
-    // MAVERICKS_BACKPORT: LibWebRTCCodecs is the GPU-process codec proxy (only defined with GPU_PROCESS).
-    // With GPU_PROCESS off, WebRTC video uses in-process VideoToolbox (libwebrtc webkit_sdk fallback),
-    // so there are no GPU-process codec callbacks to configure.
+#if USE(LIBWEBRTC)
     LibWebRTCCodecs::setCallbacks(m_page->settings().webRTCPlatformCodecsInGPUProcessEnabled(), m_page->settings().webRTCRemoteVideoFrameEnabled());
     LibWebRTCCodecs::setWebRTCMediaPipelineAdditionalLoggingEnabled(m_page->settings().webRTCMediaPipelineAdditionalLoggingEnabled());
 #endif
@@ -1470,28 +1464,28 @@ void WebPage::createTextIndicatorForElementWithID(const String& elementID, Compl
     RefPtr frame = corePage()->focusController().focusedOrMainFrame();
     if (!frame) {
         ASSERT_NOT_REACHED();
-        completionHandler(nullptr); // MAVERICKS_BACKPORT: pass nullptr (not nil) to the RefPtr completion handler.
+        completionHandler(nil);
         return;
     }
 
     RefPtr document = frame->document();
     if (!document) {
         ASSERT_NOT_REACHED();
-        completionHandler(nullptr); // MAVERICKS_BACKPORT: pass nullptr (not nil) to the RefPtr completion handler.
+        completionHandler(nil);
         return;
     }
 
     RefPtr element = document->getElementById(elementID);
     if (!element) {
         ASSERT_NOT_REACHED();
-        completionHandler(nullptr); // MAVERICKS_BACKPORT: pass nullptr (not nil) to the RefPtr completion handler.
+        completionHandler(nil);
         return;
     }
 
     RefPtr styledElement = dynamicDowncast<StyledElement>(element.get());
     if (!styledElement) {
         ASSERT_NOT_REACHED();
-        completionHandler(nullptr); // MAVERICKS_BACKPORT: pass nullptr (not nil) to the RefPtr completion handler.
+        completionHandler(nil);
         return;
     }
 
@@ -1516,7 +1510,7 @@ void WebPage::createTextIndicatorForElementWithID(const String& elementID, Compl
 
     RefPtr textIndicator = WebCore::TextIndicator::createWithRange(elementRange, textIndicatorOptions, WebCore::TextIndicatorPresentationTransition::None, { });
     if (!textIndicator) {
-        completionHandler(nullptr); // MAVERICKS_BACKPORT: pass nullptr (not nil) to the RefPtr completion handler.
+        completionHandler(nil);
         return;
     }
 

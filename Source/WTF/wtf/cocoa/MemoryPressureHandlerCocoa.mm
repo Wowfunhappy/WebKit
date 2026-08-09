@@ -243,15 +243,16 @@ void MemoryPressureHandler::respondToMemoryPressure(Critical critical, Synchrono
 
 std::optional<MemoryPressureHandler::ReliefLogger::MemoryUsage> MemoryPressureHandler::ReliefLogger::platformMemoryUsage()
 {
-    // MAVERICKS_BACKPORT: phys_footprint / TASK_VM_INFO not available on macOS 10.9; use TASK_BASIC_INFO resident_size instead.
-    task_basic_info_data_t basicInfo;
-    mach_msg_type_number_t count = TASK_BASIC_INFO_COUNT;
-    kern_return_t err = task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t) &basicInfo, &count);
+    task_vm_info_data_t vmInfo;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    kern_return_t err = task_info(mach_task_self(), TASK_VM_INFO, (task_info_t) &vmInfo, &count);
     if (err != KERN_SUCCESS)
         return std::nullopt;
 
-    // MAVERICKS_BACKPORT: report resident_size for both fields (no phys_footprint on 10.9).
-    return MemoryUsage {static_cast<size_t>(basicInfo.resident_size), static_cast<size_t>(basicInfo.resident_size)};
+    // MAVERICKS_BACKPORT: a 10.9 kernel answers TASK_VM_INFO with a structure that ends before
+    // phys_footprint, reporting the length it filled in; internal+compressed is the same quantity
+    // (see memoryFootprint()).
+    return MemoryUsage {static_cast<size_t>(vmInfo.internal), static_cast<size_t>(vmInfo.internal + vmInfo.compressed)};
 }
 
 } // namespace WTF

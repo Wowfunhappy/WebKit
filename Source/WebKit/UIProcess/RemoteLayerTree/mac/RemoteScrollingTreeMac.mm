@@ -34,7 +34,7 @@
 #import "RemoteScrollingTreeCocoa.h"
 #import "ScrollingTreeFrameScrollingNodeRemoteMac.h"
 #import "ScrollingTreeOverflowScrollingNodeRemoteMac.h"
-// ScrollingTreePluginScrollingNodeRemoteMac.h disabled for MAVERICKS_BACKPORT
+#import "ScrollingTreePluginScrollingNodeRemoteMac.h"
 #import <WebCore/EventRegion.h>
 #import <WebCore/FrameView.h>
 #import <WebCore/LocalFrameView.h>
@@ -132,10 +132,7 @@ Ref<ScrollingTreeNode> RemoteScrollingTreeMac::createScrollingTreeNode(Scrolling
         return ScrollingTreeOverflowScrollingNodeRemoteMac::create(*this, nodeID);
 
     case ScrollingNodeType::PluginScrolling:
-        // MAVERICKS_BACKPORT: PDF plugin scrolling nodes are disabled, so the
-        // dedicated node type is never created; fall back to the base instead.
-        ASSERT_NOT_REACHED();
-        return RemoteScrollingTree::createScrollingTreeNode(nodeType, nodeID);
+        return ScrollingTreePluginScrollingNodeRemoteMac::create(*this, nodeID);
 
     case ScrollingNodeType::FrameHosting:
     case ScrollingNodeType::PluginHosting:

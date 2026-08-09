@@ -37,10 +37,7 @@
 #import "WKAPICast.h"
 #import "WKBrowsingContextHandleInternal.h"
 #import "WKMouseDeviceObserver.h"
-// MAVERICKS_BACKPORT: WKStylusDeviceObserver is iOS-only; gate the import so the Mac build doesn't reference a missing header.
-#if PLATFORM(IOS_FAMILY)
 #import "WKStylusDeviceObserver.h"
-#endif
 #import "WebPageProxy.h"
 #import "WebProcessMessages.h"
 #import "WebProcessPool.h"
@@ -106,19 +103,10 @@ void WebProcessProxy::registerNotifyObservers()
 
 const MemoryCompactLookupOnlyRobinHoodHashSet<String>& WebProcessProxy::platformPathsWithAssumedReadAccess()
 {
-    // MAVERICKS_BACKPORT: bundleWithIdentifier may return nil for our locally-built frameworks,
-    // and bundleForClass may return nil if WKWebView isn't loaded yet. Build the set safely
-    // by skipping nil paths instead of feeding them into the initializer_list.
-    static NeverDestroyed<MemoryCompactLookupOnlyRobinHoodHashSet<String>> platformPathsWithAssumedReadAccess([] {
-        MemoryCompactLookupOnlyRobinHoodHashSet<String> set;
-        if (NSString *p = [NSBundle bundleWithIdentifier:@"com.apple.WebCore"].resourcePath.stringByStandardizingPath)
-            set.add(p);
-        if (Class wk = NSClassFromString(@"WKWebView")) {
-            if (NSString *p = [NSBundle bundleForClass:wk].resourcePath.stringByStandardizingPath)
-                set.add(p);
-        }
-        return set;
-    }());
+    static NeverDestroyed<MemoryCompactLookupOnlyRobinHoodHashSet<String>> platformPathsWithAssumedReadAccess(std::initializer_list<String> {
+        [NSBundle bundleWithIdentifier:@"com.apple.WebCore"].resourcePath.stringByStandardizingPath,
+        [NSBundle bundleForClass:NSClassFromString(@"WKWebView")].resourcePath.stringByStandardizingPath
+    });
 
     return platformPathsWithAssumedReadAccess;
 }

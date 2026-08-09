@@ -36,15 +36,9 @@
 #endif
 
 #import "CocoaImage.h"
-// MAVERICKS_BACKPORT: AVFoundation video thumbnailing is unavailable on 10.9; guard the import.
-#if HAVE(AVFOUNDATION)
 #import <AVFoundation/AVFoundation.h>
-#endif
 #import <CoreGraphics/CoreGraphics.h>
-// MAVERICKS_BACKPORT: CoreMedia is only needed for the AVFoundation video path, unavailable on 10.9.
-#if HAVE(AVFOUNDATION)
 #import <CoreMedia/CoreMedia.h>
-#endif
 #import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <WebCore/PlatformImage.h>
@@ -53,11 +47,8 @@
 #import <wtf/Vector.h>
 #import <wtf/text/WTFString.h>
 
-// MAVERICKS_BACKPORT: AVFoundation video thumbnailing is unavailable on 10.9; guard its soft-link headers.
-#if HAVE(AVFOUNDATION)
 #import <pal/cf/CoreMediaSoftLink.h>
 #import <pal/cocoa/AVFoundationSoftLink.h>
-#endif // MAVERICKS_BACKPORT: HAVE(AVFOUNDATION) guard
 
 namespace WebKit {
 
@@ -157,8 +148,6 @@ RetainPtr<CocoaImage> iconForImageFile(NSURL *file)
     return thumbnailSizedImageForImage(thumbnail.get());
 }
 
-// MAVERICKS_BACKPORT: the AVAssetImageGenerator video-thumbnail path is only available with AVFoundation (absent on 10.9).
-#if HAVE(AVFOUNDATION)
 RetainPtr<CocoaImage> iconForVideoFile(NSURL *file)
 {
     ASSERT_ARG(file, [file isFileURL]);
@@ -178,13 +167,6 @@ ALLOW_DEPRECATED_DECLARATIONS_END
 
     return thumbnailSizedImageForImage(imageRef.get());
 }
-// MAVERICKS_BACKPORT: without AVFoundation video thumbnailing on 10.9, fall back to the generic file icon.
-#else
-RetainPtr<CocoaImage> iconForVideoFile(NSURL *file)
-{
-    return fallbackIconForFile(file);
-}
-#endif
 
 RetainPtr<CocoaImage> iconForFiles(const Vector<String>& filenames)
 {

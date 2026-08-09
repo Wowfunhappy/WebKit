@@ -48,15 +48,9 @@
 #else
 #define WK_WEBGL_METAL_BACKEND 0
 #endif
-// MAVERICKS_BACKPORT: Metal headers are only included for the Metal WebGL backend, which is compiled out on 10.9 (WK_WEBGL_METAL_BACKEND==0); ANGLE uses its OpenGL (CGL) backend here.
-#if WK_WEBGL_METAL_BACKEND
 #import <Metal/Metal.h>
-#endif
 #import <pal/spi/cg/CoreGraphicsSPI.h>
-// MAVERICKS_BACKPORT: MetalSPI is only needed by the Metal WebGL backend, which is compiled out on 10.9 (WK_WEBGL_METAL_BACKEND==0).
-#if WK_WEBGL_METAL_BACKEND
 #import <pal/spi/cocoa/MetalSPI.h>
-#endif
 #import <wtf/BlockObjCExceptions.h>
 // MAVERICKS_BACKPORT: isMainThread()/Lock/HashMap/NeverDestroyed for the per-thread EGLDisplay and its
 // live-context accounting in initializeEGLDisplay.
@@ -375,8 +369,7 @@ static EGLDisplay initializeEGLDisplay(const GraphicsContextGLAttributes& attrs)
     }
     LOG(WebGL, "ANGLE initialised Major: %d Minor: %d", majorVersion, minorVersion);
 
-    // MAVERICKS_BACKPORT: the metal_shared_event_sync extension assert is Metal-backend only; also gate on WK_WEBGL_METAL_BACKEND (OpenGL/CGL backend on 10.9 doesn't advertise it).
-#if ASSERT_ENABLED && WK_WEBGL_METAL_BACKEND
+#if ASSERT_ENABLED
     auto displayExtensions = unsafeSpan(EGL_QueryString(display, EGL_EXTENSIONS));
     ASSERT(WTF::contains(displayExtensions, "EGL_ANGLE_metal_shared_event_sync"_span));
 #endif

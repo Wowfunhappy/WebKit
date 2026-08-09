@@ -296,6 +296,20 @@ void SWServer::removeRegistration(ServiceWorkerRegistrationIdentifier registrati
         m_scopeToRegistrationMap.remove(it);
         if (!SecurityOrigin::isLocalHostOrLoopbackIPAddress(registration->key().topOrigin().host()))
             m_uniqueRegistrationCount--;
+
+        // MAVERICKS_BACKPORT(upstreamable): context data queued for a domain with no context connection
+        // yet outlives the registration it belongs to. When the connection finally arrives,
+        // contextConnectionCreated() installs it and installContextData() dereferences the
+        // m_scopeToRegistrationMap entry that was dropped just above. Drop the queued data with the
+        // registration that owns it.
+        auto pending = m_pendingContextDatas.find(Site { registration->key().topOrigin() }.domain());
+        if (pending != m_pendingContextDatas.end()) {
+            pending->value.removeAllMatching([&](auto& data) {
+                return data.registration.key == registration->key();
+            });
+            if (pending->value.isEmpty())
+                m_pendingContextDatas.remove(pending);
+        }
     }
 
     m_originStore->remove(registration->key().topOrigin());
@@ -1036,15 +1050,6 @@ void SWServer::installContextData(const ServiceWorkerContextData& data)
     }
 
     RefPtr registration = m_scopeToRegistrationMap.get(data.registration.key);
-    // MAVERICKS_BACKPORT: behavior fix (SW context-staleness NetworkProcess crash). The context
-    // data here was deferred in m_pendingContextDatas until a context connection existed (see
-    // contextConnectionCreated()). During fast navigation across Service-Worker sites the
-    // registration can be unregistered/removed from m_scopeToRegistrationMap before this deferred
-    // install runs, leaving the lookup null. Dereferencing it (*registration) was an unguarded null
-    // deref that SIGSEGV'd the NetworkProcess (the debug-only ASSERTs below don't fire in release).
-    // Nothing to install for a registration that's already gone, so bail.
-    if (!registration)
-        return;
     Ref worker = SWServerWorker::create(*this, *registration, data.scriptURL, data.script, data.certificateInfo, data.contentSecurityPolicy, data.crossOriginEmbedderPolicy, String { data.referrerPolicy }, data.workerType, data.serviceWorkerIdentifier, MemoryCompactRobinHoodHashMap<URL, ServiceWorkerContextData::ImportedScript> { data.scriptResourceMap });
 
     RefPtr connection = worker->contextConnection();

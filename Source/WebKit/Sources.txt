@@ -466,8 +466,6 @@ UIProcess/WebFrameProxy.cpp
 UIProcess/WebFullScreenManagerProxy.cpp
 UIProcess/WebGeolocationManagerProxy.cpp
 UIProcess/WebGeolocationProvider.cpp
-// MAVERICKS_BACKPORT: revived legacy WK2 icon-database source for Safari 7 favicons (#49); removed upstream.
-UIProcess/WebIconDatabase.cpp
 UIProcess/WebLockRegistryProxy.cpp
 UIProcess/WebNavigationState.cpp
 UIProcess/WebOpenPanelResultListenerProxy.cpp
@@ -643,8 +641,7 @@ UIProcess/Inspector/WebPageInspectorController.cpp
 
 UIProcess/Inspector/Agents/InspectorBrowserAgent.cpp
 
-// MAVERICKS_BACKPORT: AudioSessionRoutingArbitratorProxy depends on AVAudioSession routing arbitration (unavailable on 10.9); excluded from the build.
-// UIProcess/Media/AudioSessionRoutingArbitratorProxy.cpp
+UIProcess/Media/AudioSessionRoutingArbitratorProxy.cpp
 UIProcess/Media/MediaUsageManager.cpp
 UIProcess/Media/RemoteMediaSessionClientProxy.cpp
 UIProcess/Media/RemoteMediaSessionCoordinatorProxy.cpp
@@ -660,10 +657,6 @@ UIProcess/Notifications/WebNotificationProvider.cpp
 UIProcess/UserContent/WebScriptMessageHandler.cpp
 UIProcess/UserContent/WebUserContentControllerProxy.cpp
 
-// MAVERICKS_BACKPORT: re-added WebAuthentication/FIDO CTAP driver sources (WebAuthn re-enabled for this backport); trimmed from upstream's list.
-UIProcess/WebAuthentication/fido/CtapAuthenticator.cpp
-UIProcess/WebAuthentication/fido/CtapCcidDriver.cpp
-UIProcess/WebAuthentication/fido/CtapHidDriver.cpp
 UIProcess/WebAuthentication/fido/CtapNfcDriver.cpp
 UIProcess/WebAuthentication/fido/FidoAuthenticator.cpp
 UIProcess/WebAuthentication/fido/FidoService.cpp
@@ -673,15 +666,10 @@ UIProcess/WebAuthentication/Mock/MockAuthenticatorManager.cpp
 UIProcess/WebAuthentication/Mock/MockHidConnection.cpp
 UIProcess/WebAuthentication/Mock/MockHidService.cpp
 
-// MAVERICKS_BACKPORT: re-added WebAuthentication AuthenticatorManager source (WebAuthn re-enabled for this backport); trimmed from upstream's list.
-UIProcess/WebAuthentication/AuthenticatorManager.cpp
 UIProcess/WebAuthentication/AuthenticatorTransportService.cpp
 UIProcess/WebAuthentication/Authenticator.cpp
 UIProcess/WebAuthentication/WebAuthenticatorCoordinatorProxy.cpp
 UIProcess/WebAuthentication/WebAuthenticationRequestData.cpp
-// MAVERICKS_BACKPORT: re-added WebAuthentication Virtual-authenticator sources (WebAuthn re-enabled for this backport); trimmed from upstream's list.
-UIProcess/WebAuthentication/Virtual/VirtualAuthenticatorManager.cpp
-UIProcess/WebAuthentication/Virtual/VirtualHidConnection.cpp
 
 UIProcess/WebsiteData/EnhancedSecuritySitesHolder.cpp
 UIProcess/WebsiteData/EnhancedSecuritySitesPersistence.cpp
@@ -726,16 +714,11 @@ WebProcess/Geolocation/WebGeolocationManager.cpp
 
 WebProcess/InjectedBundle/InjectedBundle.cpp
 WebProcess/InjectedBundle/InjectedBundleClient.cpp
-// MAVERICKS_BACKPORT: WK109 injected-bundle page-group user-content source (restored WKPageGroup* / WKBundleAddUserScript API).
-WebProcess/InjectedBundle/WK109PageGroupUserContent.cpp
 WebProcess/InjectedBundle/InjectedBundleDOMWindowExtension.cpp
 WebProcess/InjectedBundle/InjectedBundleHitTestResult.cpp
 WebProcess/InjectedBundle/InjectedBundlePageContextMenuClient.cpp
 WebProcess/InjectedBundle/InjectedBundlePageEditorClient.cpp
 WebProcess/InjectedBundle/InjectedBundlePageFormClient.cpp
-// MAVERICKS_BACKPORT: restored (upstream 8ee28eb removed it with the WKBundleNavigationAction SPI; Safari 7 injected-bundle policy clients read it).
-WebProcess/InjectedBundle/InjectedBundleNavigationAction.cpp
-WebProcess/InjectedBundle/InjectedBundlePagePolicyClient.cpp
 WebProcess/InjectedBundle/InjectedBundlePageLoaderClient.cpp
 WebProcess/InjectedBundle/InjectedBundlePageResourceLoadClient.cpp
 WebProcess/InjectedBundle/InjectedBundlePageUIClient.cpp
@@ -769,10 +752,6 @@ WebProcess/Inspector/WebInspectorUI.cpp
 WebProcess/Inspector/WasmDebuggerDispatcher.cpp
 WebProcess/Inspector/WebInspectorUIExtensionController.cpp
 WebProcess/Inspector/PageInspectorTarget.cpp
-// MAVERICKS_BACKPORT: absent from the cmake list (files post-date upstream base 83b24ce); define
-// ServiceWorkerDebuggableProxy::create / ServiceWorkerDebuggableFrontendChannel::create (#if ENABLE(REMOTE_INSPECTOR))
-WebProcess/Inspector/ServiceWorkerDebuggableProxy.cpp
-WebProcess/Inspector/ServiceWorkerDebuggableFrontendChannel.cpp
 
 WebProcess/Media/RemoteMediaSessionManager.cpp
 

@@ -66,21 +66,18 @@ SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, CompositorServices, cp_rasterization_rate
 #define cp_rasterization_rate_map_update_shared_from_layered_descriptor softLink_CompositorServices_cp_rasterization_rate_map_update_shared_from_layered_descriptor
 
 
-// MAVERICKS_BACKPORT: return type reduced to plain NSArray * (the MTLRasterizationRateMap protocol is Metal/10.11+, absent here).
-SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CompositorServices, cp_proxy_process_rasterization_rate_map_get_metal_maps, NSArray *>*, (cp_proxy_process_rasterization_rate_map_t proxy_map), (proxy_map))
-SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, CompositorServices, cp_proxy_process_rasterization_rate_map_get_metal_maps, NSArray *>*, (cp_proxy_process_rasterization_rate_map_t proxy_map), (proxy_map))
+SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CompositorServices, cp_proxy_process_rasterization_rate_map_get_metal_maps, NSArray<id<MTLRasterizationRateMap>>*, (cp_proxy_process_rasterization_rate_map_t proxy_map), (proxy_map))
+SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, CompositorServices, cp_proxy_process_rasterization_rate_map_get_metal_maps, NSArray<id<MTLRasterizationRateMap>>*, (cp_proxy_process_rasterization_rate_map_t proxy_map), (proxy_map))
 #define cp_proxy_process_rasterization_rate_map_get_metal_maps softLink_CompositorServices_cp_proxy_process_rasterization_rate_map_get_metal_maps
 
 
-// MAVERICKS_BACKPORT: return type reduced to plain NSArray * (MTLRasterizationRateMapDescriptor is Metal/10.11+, absent here).
-SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CompositorServices, cp_proxy_process_rasterization_rate_map_get_metal_descriptors, NSArray **, (cp_proxy_process_rasterization_rate_map_t proxy_map), (proxy_map))
+SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CompositorServices, cp_proxy_process_rasterization_rate_map_get_metal_descriptors, NSArray<MTLRasterizationRateMapDescriptor*>*, (cp_proxy_process_rasterization_rate_map_t proxy_map), (proxy_map))
 SOFT_LINK_FUNCTION_FOR_HEADER(WebCore, CompositorServices, cp_rasterization_rate_map_update_from_descriptor, void, (cp_proxy_process_rasterization_rate_map_t proxy_map, __unsafe_unretained MTLRasterizationRateMapDescriptor* descriptors[2]), (proxy_map, descriptors))
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebCore, CompositorServices, CP_OBJECT_cp_proxy_process_rasterization_rate_map)
+SOFT_LINK_CLASS_FOR_SOURCE(WebCore, CompositorServices, CP_OBJECT_cp_proxy_process_rasterization_rate_map)
 
 SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, CompositorServices, cp_drawable_get_layer_renderer_layout, cp_layer_renderer_layout_private, (cp_drawable_t drawable), (drawable))
 
-// MAVERICKS_BACKPORT: return type reduced to plain NSArray * (MTLRasterizationRateMapDescriptor is Metal/10.11+, absent here).
-SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, CompositorServices, cp_proxy_process_rasterization_rate_map_get_metal_descriptors, NSArray **, (cp_proxy_process_rasterization_rate_map_t proxy_map), (proxy_map))
+SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, CompositorServices, cp_proxy_process_rasterization_rate_map_get_metal_descriptors, NSArray<MTLRasterizationRateMapDescriptor*>*, (cp_proxy_process_rasterization_rate_map_t proxy_map), (proxy_map))
 
 SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, CompositorServices, cp_rasterization_rate_map_update_from_descriptor, void, (cp_proxy_process_rasterization_rate_map_t proxy_map, __unsafe_unretained MTLRasterizationRateMapDescriptor* descriptors[2]), (proxy_map, descriptors))
 
@@ -97,11 +94,9 @@ namespace WebCore {
 
 bool platformIsANGLEAvailable()
 {
-    // MAVERICKS_BACKPORT: ANGLE is STATICALLY linked into WebCore (not a separately-loaded dylib), so
-    // the weak-link "is the ANGLE dylib present" check (EGL_Initialize != NULL) is both unnecessary
-    // and unsafe here (reading the weak-imported symbol's address crashes under static linking).
-    // ANGLE is always present in this build.
-    return true;
+    // The ANGLE is weak linked in full, and the EGL_Initialize is explicitly weak linked above
+    // so that we can detect the case where ANGLE is not present.
+    return EGL_Initialize != NULL; // NOLINT
 }
 
 void* createPbufferAndAttachIOSurface(GCGLDisplay display, GCGLConfig config, GCGLenum target, GCGLint usageHint, GCGLenum internalFormat, GCGLsizei width, GCGLsizei height, GCGLenum type, IOSurfaceRef surface, GCGLuint plane)

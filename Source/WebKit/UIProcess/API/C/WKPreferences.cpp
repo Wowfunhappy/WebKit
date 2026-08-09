@@ -2121,8 +2121,8 @@ bool WKPreferencesGetMediaStreamEnabled(WKPreferencesRef preferencesRef)
 }
 
 // MAVERICKS_BACKPORT: empty implementations of the InspectorUsesWebKitUserInterface preference
-// accessors, removed in modern WebKit but still referenced by Safari 9.1.3, restored so it links on 10.9.
-// Legacy stub: removed from modern WebKit but still referenced by Safari 9.1.3.
+// accessors, removed in modern WebKit but still referenced by Safari 7, restored so it links on 10.9.
+// Legacy stub: removed from modern WebKit but still referenced by Safari 7.
 void WKPreferencesSetInspectorUsesWebKitUserInterface(WKPreferencesRef, bool)
 {
 }

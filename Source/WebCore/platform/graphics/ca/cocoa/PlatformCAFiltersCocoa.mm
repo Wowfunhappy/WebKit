@@ -213,15 +213,6 @@ void PlatformCAFilters::updatePresentationModifiers(const FilterOperations& filt
 
 void PlatformCAFilters::setFiltersOnLayer(PlatformLayer* layer, const FilterOperations& filters, bool backdropIsOpaque)
 {
-    // MAVERICKS_BACKPORT: a CATransformLayer is transform-only — it draws no content, so filters, shadow and
-    // opacity are all no-ops on it. The empty-filters branch below unconditionally resets the four shadow
-    // properties (see its own FIXME), and 10.9's CoreAnimation logs a warning for every such no-op set on a
-    // transform layer ("changing property shadowColor in transform-only layer, will have no effect"), which
-    // floods the system log on any preserve-3d page (e.g. apple.com). Modern CA silences these; skip the work
-    // entirely since the layer cannot honor any of it anyway.
-    if ([layer isKindOfClass:[CATransformLayer class]])
-        return;
-
     if (!filters.size()) {
         BEGIN_BLOCK_OBJC_EXCEPTIONS
         [layer setFilters:nil];

@@ -360,10 +360,7 @@ void AuthenticatorManager::authenticatorStatusUpdated(WebAuthenticationStatus st
 void AuthenticatorManager::requestPin(uint64_t retries, CompletionHandler<void(const WTF::String&)>&& completionHandler)
 {
     if (!m_pendingRequest || !m_pendingRequest->completionHandler)
-    // MAVERICKS_BACKPORT: invoke completionHandler({ }) on the early-out instead
-    // of dropping it. A CompletionHandler destroyed without being called trips
-    // a RELEASE_ASSERT in WTF, so the no-pending-request path must still call it.
-        return completionHandler({ }); // MAVERICKS_BACKPORT: call handler, don't drop it
+        return;
 
     // Cache the PIN to improve NFC user experience so that a momentary movement of the NFC key away from the scanner doesn't
     // force the PIN entry to be re-entered.
@@ -397,10 +394,7 @@ void AuthenticatorManager::requestPin(uint64_t retries, CompletionHandler<void(c
 void AuthenticatorManager::requestNewPin(uint64_t minLength, CompletionHandler<void(const WTF::String&)>&& completionHandler)
 {
     if (!m_pendingRequest || !m_pendingRequest->completionHandler)
-    // MAVERICKS_BACKPORT: invoke completionHandler({ }) on the early-out instead
-    // of dropping it. A CompletionHandler destroyed without being called trips
-    // a RELEASE_ASSERT in WTF, so the no-pending-request path must still call it.
-        return completionHandler({ }); // MAVERICKS_BACKPORT: call handler, don't drop it
+        return;
 
     auto callback = [weakThis = WeakPtr { *this }, completionHandler = WTF::move(completionHandler)] (const WTF::String& pin) mutable {
         RefPtr protectedThis = weakThis.get();

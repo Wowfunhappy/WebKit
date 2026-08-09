@@ -25,27 +25,18 @@
 
 #import "config.h"
 #import "RemoteLayerBackingStoreCollection.h"
-// MAVERICKS_BACKPORT: extra includes for the in-process-only build (syslog, CompletionHandler used by the non-GPU completion paths below).
-#import <syslog.h>
 
-#import <wtf/CompletionHandler.h>
 #import "ImageBufferShareableBitmapBackend.h"
 #import "ImageBufferShareableMappedIOSurfaceBackend.h"
 #import "Logging.h"
 #import "PlatformCALayerRemote.h"
 #import "PrepareBackingStoreBuffersData.h"
-// MAVERICKS_BACKPORT: GPU process / remote rendering is disabled on 10.9; the remote-rendering proxy headers only exist under ENABLE(GPU_PROCESS).
-#if ENABLE(GPU_PROCESS)
 #import "RemoteImageBufferSetProxy.h"
-#endif
 #import "RemoteLayerBackingStore.h"
 #import "RemoteLayerTreeContext.h"
 #import "RemoteLayerWithInProcessRenderingBackingStore.h"
-// MAVERICKS_BACKPORT: remote-rendering backing store + backend proxy are GPU-process-only; guarded out for the in-process-only 10.9 build.
-#if ENABLE(GPU_PROCESS)
 #import "RemoteLayerWithRemoteRenderingBackingStore.h"
 #import "RemoteRenderingBackendProxy.h"
-#endif // MAVERICKS_BACKPORT: remote-rendering headers are GPU-process-only; not included on 10.9.
 #import <WebCore/IOSurfacePool.h>
 #import <WebCore/ImageBuffer.h>
 #import <wtf/TZoneMallocInlines.h>

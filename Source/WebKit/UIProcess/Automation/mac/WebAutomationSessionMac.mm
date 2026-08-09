@@ -82,12 +82,6 @@ void WebAutomationSession::sendSynthesizedEventsToPage(WebPageProxy& page, NSArr
     RetainPtr window = page.platformWindow();
     auto webView = page.cocoaView();
 
-#if ENABLE(WEBDRIVER_MOUSE_INTERACTIONS)
-    // MAVERICKS_BACKPORT: m_mouseButtonsCurrentlyDown only exists when WEBDRIVER_MOUSE_INTERACTIONS is enabled
-    // (its declaration is gated by the same flag in WebAutomationSession.h). This swizzle exists solely to make
-    // +[NSEvent pressedMouseButtons] report synthesized mouse-button state, which is meaningless without mouse
-    // interactions, so it is gated identically to the member it captures rather than referencing an absent field.
-
     // +[NSEvent pressedMouseButtons] does not account for the NSEvent objects created through eventSender JS in tests.
     // As such, that method always returns 0. To fix this, we swizzle out +[NSEvent pressedMouseButtons], keep track of
     // the mouse button currently being pressed down, and supply the appropriate return value as specified in documentation.
@@ -107,8 +101,6 @@ void WebAutomationSession::sendSynthesizedEventsToPage(WebPageProxy& page, NSArr
     auto patchOriginalFunction = makeScopeExit([&methodToSwizzle, &originalImplementation] {
         method_setImplementation(methodToSwizzle, originalImplementation);
     });
-// MAVERICKS_BACKPORT: the +pressedMouseButtons swizzle above is gated to WEBDRIVER_MOUSE_INTERACTIONS because it captures m_mouseButtonsCurrentlyDown, which only exists under that flag.
-#endif // ENABLE(WEBDRIVER_MOUSE_INTERACTIONS)
 
     for (NSEvent *event in eventsToSend) {
         LOG(Automation, "Sending event[%p] to window[%p]: %@", event, window.get(), event);

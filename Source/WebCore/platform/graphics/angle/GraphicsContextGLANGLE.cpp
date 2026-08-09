@@ -287,18 +287,9 @@ bool GraphicsContextGLANGLE::initialize()
     GL_DebugMessageControlKHR(DONT_CARE, DONT_CARE, DONT_CARE, 0, nullptr, 0);
     GL_DebugMessageControlKHR(DEBUG_SOURCE_API, DONT_CARE, DONT_CARE, 0, nullptr, 1);
     auto debugMessageCallback = [](GCGLenum, GCGLenum type, GCGLenum id, GCGLenum severity, GCGLsizei length, const GCGLchar* message, const void* context) {
-        // MAVERICKS_BACKPORT: ANGLE invokes this synchronously (DEBUG_OUTPUT_SYNCHRONOUS) on every GL
-        // validation error. The KHR_debug contract allows a negative length (message is then a
-        // null-terminated string); passing that straight into unsafeMakeSpan() yields a SIZE_MAX
-        // span and crashes constructing the CString. Heavy WebGL sites (Google Maps, Twitch) hit a
-        // bindTexture validation error and crashed here (GraphicsContextGLANGLE.cpp:292). Guard
-        // null context/message and compute the length safely.
-        if (!context || !message || length < 0)
-            return;
         auto* gl = reinterpret_cast<const GraphicsContextGLANGLE*>(context);
         if (gl->m_client)
-            // MAVERICKS_BACKPORT: length is already validated non-negative above; widen safely to size_t for the span.
-            gl->m_client->addDebugMessage(type, id, severity, CString { unsafeMakeSpan(message, static_cast<size_t>(length)) });
+            gl->m_client->addDebugMessage(type, id, severity, CString { unsafeMakeSpan(message, length) });
     };
     GL_DebugMessageCallbackKHR(debugMessageCallback, this);
 

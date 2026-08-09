@@ -242,12 +242,13 @@ fi
 mkdir -p "$WORK/members"
 ( cd "$WORK/members" && "$(dirname "$CLANG")/llvm-ar" x "$BUILD/libpolyfill_classes.a" methods.o )
 
-# AVFoundation owns AVCaptureDevice, so it joins the list the C half already uses. (PDFKit and
-# QuartzCore own the other classes methods.m extends — PDFAnnotation, PDFPage, CAContext,
-# CATransaction — and are already in that list, PDFKit because the layer now defines its annotation
-# constants too.)
+# AVFoundation owns AVCaptureDevice and AVAssetResourceLoadingDataRequest, and CoreLocation owns
+# CLLocation, so both join the list the C half already uses. (PDFKit and QuartzCore own the other
+# classes methods.m extends — PDFAnnotation, PDFPage, CAContext, CATransaction — and are already in
+# that list, PDFKit because the layer now defines its annotation constants too.)
 OBJC_LIBS="$SYSTEM_LIBS
 /System/Library/Frameworks/AVFoundation.framework/AVFoundation
+/System/Library/Frameworks/CoreLocation.framework/CoreLocation
 "
 
 # Frameworks a polyfilled class can live in that must NOT join the lists above. DataDetectors (owns

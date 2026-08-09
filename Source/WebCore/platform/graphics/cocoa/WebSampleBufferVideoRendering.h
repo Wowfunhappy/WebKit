@@ -30,7 +30,7 @@ NS_ASSUME_NONNULL_BEGIN
 @protocol WebSampleBufferVideoRendering <AVQueuedSampleBufferRendering>
 - (void)expectMinimumUpcomingSampleBufferPresentationTime:(CMTime)minimumUpcomingPresentationTime;
 - (nullable CVPixelBufferRef)copyDisplayedPixelBuffer;
-- (nullable AVVideoPerformanceMetrics *)videoPerformanceMetrics;
+- (nullable id<WebAVVideoPerformanceMetrics>)videoPerformanceMetrics; // MAVERICKS_BACKPORT: the public SDK marks the frame-count getters API_UNAVAILABLE(macos), so declare the accessor protocol as the return type.
 @property BOOL preventsAutomaticBackgroundingDuringVideoPlayback;
 @property BOOL preventsDisplaySleepDuringVideoPlayback;
 @property (readonly) BOOL requiresFlushToResumeDecoding;

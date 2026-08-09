@@ -1544,7 +1544,7 @@ void WKPageSetPagePolicyClient(WKPageRef pageRef, const WKPagePolicyClientBase* 
         explicit PolicyClient(const WKPagePolicyClientBase* client)
         {
             initialize(client);
-            // MAVERICKS_BACKPORT: constructor no longer RELEASE_ASSERTs against the deprecated callbacks Safari 9.1.3 sets.
+            // MAVERICKS_BACKPORT: constructor no longer RELEASE_ASSERTs against the deprecated callbacks Safari 7 sets.
             // MAVERICKS_BACKPORT: Safari sets m_client.unableToImplementPolicy; the override below
             // drives it (restored with InjectedBundlePagePolicyClient).
         }
@@ -2072,10 +2072,8 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
             if (m_client.base.version > 0 && !m_client.mouseDidMoveOverElement)
                 return;
 
-            // MAVERICKS_BACKPORT: forward the injected-bundle userData (hovered link URL) so Safari 7's
-            // V0 UI client can populate the status bar on hover (#58).
             if (!m_client.base.version) {
-                m_client.mouseDidMoveOverElement_deprecatedForUseWithV0(toAPI(&page), toAPI(modifiers), toAPI(userData), m_client.base.clientInfo);
+                m_client.mouseDidMoveOverElement_deprecatedForUseWithV0(toAPI(&page), toAPI(modifiers), toAPI(userData), m_client.base.clientInfo); // MAVERICKS_BACKPORT: forwards the injected-bundle userData (hovered link URL) for Safari 7's status bar (#58).
                 return;
             }
 
@@ -3775,7 +3773,7 @@ void WKPageDoAfterProcessingAllPendingKeyEvents(WKPageRef page, void* context, W
 }
 #endif
 
-// MAVERICKS_BACKPORT: Safari 9.1.3 lazy-binds 40+ removed/renamed legacy WK_* C-API
+// MAVERICKS_BACKPORT: Safari 7 lazy-binds 40+ removed/renamed legacy WK_* C-API
 // symbols. dyld_fatal_error fires on first call. Provide no-op shims so Safari
 // proceeds. None of these features (Java, plugins, app-cache, WebSQL,
 // region-based columns, screen-font substitution) work on modern WebKit

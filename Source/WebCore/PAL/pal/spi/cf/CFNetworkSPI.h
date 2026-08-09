@@ -82,9 +82,6 @@ DECLARE_SYSTEM_HEADER
 
 #endif // defined(__OBJC__)
 
-// MAVERICKS_BACKPORT: guard the nw_* type fallback declarations so they don't redeclare the same types
-// already provided by the Network-framework polyfill (which #defines NW_POLYFILL_TYPES_DECLARED).
-#if !defined(NW_POLYFILL_TYPES_DECLARED)
 typedef enum {
     nw_context_privacy_level_public = 1,
     nw_context_privacy_level_private = 2,
@@ -125,8 +122,6 @@ typedef struct nw_establishment_report *nw_establishment_report_t;
 struct nw_path_evaluator;
 typedef struct nw_path_evaluator *nw_path_evaluator_t;
 #endif // OS_OBJECT_USE_OBJC
-// MAVERICKS_BACKPORT: close the NW_POLYFILL_TYPES_DECLARED guard opened above.
-#endif // !NW_POLYFILL_TYPES_DECLARED
 
 #if HAVE(NW_PROXY_CONFIG) || HAVE(SYSTEM_SUPPORT_FOR_ADVANCED_PRIVACY_PROTECTIONS)
 typedef void (^nw_context_tracker_lookup_callback_t)(nw_endpoint_t endpoint, const char **tracker_name, const char **tracker_owner, bool *can_block);

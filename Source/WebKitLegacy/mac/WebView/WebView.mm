@@ -209,9 +209,6 @@
 #import <WebCore/MemoryCache.h>
 #import <WebCore/MemoryRelease.h>
 #import <WebCore/MutableStyleProperties.h>
-// MAVERICKS_BACKPORT: Seconds/Threading for the WK1 background memory scavenger added in WebInstallMemoryPressureHandler.
-#import <wtf/Seconds.h>
-#import <wtf/Threading.h>
 #import <WebCore/NativeImage.h>
 #import <WebCore/NetworkStorageSession.h>
 #import <WebCore/NodeDocument.h>
@@ -414,16 +411,6 @@ SOFT_LINK_CLASS(AVKit, AVTouchBarScrubber)
 #endif
 
 #if !PLATFORM(IOS_FAMILY)
-
-// MAVERICKS_BACKPORT: forward-declare NSFilePromiseReceiver (10.12+) so promised-file drag code compiles on 10.9.
-// NSFilePromiseReceiver is macOS 10.12+; absent from the 10.9 AppKit headers. performDragOperation:
-// uses it for promised-file drops. On 10.9 +[NSFilePromiseReceiver class] is nil so the drag
-// enumeration finds none — this stub only needs to satisfy the compile-time references.
-#if !__has_include(<AppKit/NSFilePromiseReceiver.h>)
-@interface NSFilePromiseReceiver : NSObject
-- (void)receivePromisedFilesAtDestination:(NSURL *)destinationDir options:(NSDictionary<NSString *, id> *)options operationQueue:(NSOperationQueue *)operationQueue reader:(void (^)(NSURL *fileURL, NSError *errorOrNil))reader;
-@end
-#endif
 
 @interface NSView (WebNSViewDetails)
 - (NSView *)_hitTest:(NSPoint *)aPoint dragTypes:(NSSet *)types;
@@ -1499,7 +1486,7 @@ typedef enum {
 // renders caption labels via CaptionLayer::display(). CaptionLayer calls
 // `+[WebView _shouldUseFontSmoothing]` to pick a smoothing flag. Upstream
 // WebKit (modern) dropped this class method since the global is configured
-// differently. Safari 9.1.3 still calls it — without an implementation the
+// differently. Safari 7 still calls it — without an implementation the
 // uncaught ObjC exception aborts the CALayer commit, leaving the Top Sites
 // grid blank. Return YES (the upstream default) so smoothing matches modern
 // behavior; the actual smoothing rendering happens further downstream.
@@ -10081,8 +10068,7 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
     }
 
     auto translationViewController = adoptNS([PAL::allocLTUITranslationViewControllerInstance() init]);
-    // MAVERICKS_BACKPORT: LTUITranslationViewController (Translation UI) is absent on 10.9; feed an empty string and cast to id.
-    [translationViewController setText:(id)@""];
+    [translationViewController setText:adoptNS([[NSAttributedString alloc] initWithString:info.text.createNSString().get()]).get()];
     if (info.mode == WebCore::TranslationContextMenuMode::Editable) {
         [translationViewController setIsSourceEditable:YES];
         [translationViewController setReplacementHandler:[weakSelf = WeakObjCPtr<WebView>(self)](NSAttributedString *string) {
@@ -10096,15 +10082,10 @@ static NSTextAlignment NODELETE nsTextAlignmentFromRenderStyle(const WebCore::Re
 
     auto popover = adoptNS([[NSPopover alloc] init]);
     [popover setBehavior:NSPopoverBehaviorTransient];
-    // MAVERICKS_BACKPORT: on a 10.9 deployment target the SDK declares -[NSPopover setAppearance:]
-    // as taking the deprecated NSPopoverAppearance enum (the NSAppearance* setter is gated on a
-    // 10.10+ target), so upstream's `setAppearance:self.effectiveAppearance` does not type-check.
-    // effectiveAppearance is always Aqua on 10.9, which upstream maps to the Minimal popover default.
-    [popover setAppearance:NSPopoverAppearanceMinimal];
+    [popover setAppearance:self.effectiveAppearance];
     [popover setAnimates:YES];
-    // MAVERICKS_BACKPORT: LTUITranslationViewController is unavailable on 10.9; cast the stand-in and use a fixed content size.
-    [popover setContentViewController:(NSViewController *)translationViewController.get()];
-    [popover setContentSize:NSMakeSize(300, 200)];
+    [popover setContentViewController:translationViewController.get()];
+    [popover setContentSize:[translationViewController preferredContentSize]];
 
     NSRectEdge preferredEdge;
     auto aim = convertedMenuLocation.x;
@@ -10403,7 +10384,7 @@ void WebInstallMemoryPressureHandler(void)
 // ============================================================================
 // MAVERICKS_BACKPORT: restore the removed WKContextGetOriginDataManager / WKOriginDataManager* C SPI.
 // Safari 9 / 10.9 compat: WebKit2 C SPI WKContextGetOriginDataManager + the
-// WKOriginDataManager* family were removed from modern WebKit. Safari 9.1.3's
+// WKOriginDataManager* family were removed from modern WebKit. Safari 7's
 // Privacy preference pane (-[PrivacyPreferences moduleWasInstalled] ->
 // Safari::TrackingDataController::populateWebsiteTrackingData) still calls them;
 // without these symbols dyld fatal-errors (SIGTRAP) when the pane loads, so the

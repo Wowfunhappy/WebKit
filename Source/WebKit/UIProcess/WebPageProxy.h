@@ -1028,10 +1028,8 @@ public:
     RefPtr<API::Navigation> reload(OptionSet<WebCore::ReloadOption>);
 
     // MAVERICKS_BACKPORT: invoked by WebPreferences when Safari 7's global Private Browsing toggle flips;
-    // reloads so the navigation-policy path moves the page onto/off the shared ephemeral store (#55).
+    // reloads so the navigation-policy path moves the page onto/off that client's ephemeral store (#55).
     void privateBrowsingEnabledDidChange();
-    // MAVERICKS_BACKPORT: discards the shared ephemeral session so re-enabling Private Browsing starts fresh (#55).
-    static void resetSharedPrivateBrowsingDataStore();
 
     RefPtr<API::Navigation> goForward();
     RefPtr<API::Navigation> goBack();

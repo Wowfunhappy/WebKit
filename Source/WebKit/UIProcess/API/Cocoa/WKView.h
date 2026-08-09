@@ -23,10 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: explicit include guard (upstream relies on #pragma once); guards against double inclusion under the 10.9 toolchain's -fno-modules build.
-#ifndef WKView_h
-#define WKView_h
-
 #import <WebKit/WKFoundation.h>
 
 #if !TARGET_OS_IPHONE
@@ -62,7 +58,4 @@ WK_CLASS_DEPRECATED_WITH_REPLACEMENT("WKWebView", macos(10.10, 10.14.4), ios(8.0
 
 @end
 
-#endif // !TARGET_OS_IPHONE
-
-// MAVERICKS_BACKPORT: closes the explicit include guard added at the top for the 10.9 -fno-modules build.
-#endif // WKView_h
+#endif

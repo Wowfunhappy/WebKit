@@ -141,11 +141,6 @@ void WebInspectorUIProxy::connect()
     if (!inspectedPage)
         return;
 
-    // MAVERICKS_BACKPORT: an explicit connect() is the embedder's intent to inspect this page, so enable
-    // developer extras on the inspected page's preferences (Safari sets it on the
-    // inspector page's preferences, not the inspected page's).
-    protect(inspectedPage->preferences())->setDeveloperExtrasEnabled(true);
-
     if (!protect(inspectedPage->preferences())->developerExtrasEnabled())
         return;
 

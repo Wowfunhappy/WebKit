@@ -28,9 +28,6 @@
 #import "NSAttributedStringPrivate.h"
 
 #import "ProcessThrottler.h"
-// MAVERICKS_BACKPORT: WebPageProxy.h needed because the foregroundActivity acquisition below is
-// expanded into explicit Ref locals that dereference WebPageProxy directly.
-#import "WebPageProxy.h"
 #import "WKErrorInternal.h"
 #import "WKWebViewInternal.h"
 #import "WebProcessProxy.h"
@@ -502,15 +499,8 @@ static NSMutableArray<NSURL *> *readOnlyAccessPathsSingleton()
         });
 
         contentNavigation = loadWebContent(webView.get());
-        // MAVERICKS_BACKPORT: the upstream chained protect(protect(protect(...))) one-liner is broken out
-        // into explicit Ref<> locals so the older toolchain resolves the protect()/legacyMainFrameProcess()/
-        // throttler() overloads; behavior is identical.
-        if (!finished) {
-            Ref page = *[webView _page];
-            Ref process = page->legacyMainFrameProcess();
-            Ref throttler = process->throttler();
-            attributedStringActivity = throttler->foregroundActivity("NSAttributedString serialization"_s);
-        }
+        if (!finished)
+            attributedStringActivity = protect(protect(protect(*[webView _page])->legacyMainFrameProcess())->throttler())->foregroundActivity("NSAttributedString serialization"_s);
 
         ASSERT(contentNavigation);
         ASSERT(webView.get().loading);

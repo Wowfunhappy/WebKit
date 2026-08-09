@@ -1654,10 +1654,7 @@ void ApplyFeatureOverrides(angle::FeatureSetBase *features,
 {
     std::stringstream featureStream;
 
-    // MAVERICKS_BACKPORT: materialize overrideFeatures() into a named std::string before streaming
-    // instead of streaming the temporary directly, to satisfy the 10.9 build toolchain.
-    std::string en1 = features->overrideFeatures(overrides.enabled, true);
-    featureStream << en1;
+    featureStream << features->overrideFeatures(overrides.enabled, true);
     featureStream << features->overrideFeatures(overrides.disabled, false);
 
     // Override with environment as well.

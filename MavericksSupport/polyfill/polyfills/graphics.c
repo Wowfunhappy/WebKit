@@ -9,8 +9,10 @@
 #include <CoreText/CoreText.h>
 #include <ImageIO/ImageIO.h>
 #include <CoreMedia/CoreMedia.h>
+#include <CoreVideo/CoreVideo.h>
 #include <IOKit/IOKitLib.h>
 #include <errno.h>
+#include <math.h>
 #include <objc/message.h>
 #include <pthread.h>
 #include <objc/runtime.h>
@@ -72,6 +74,223 @@ WK_POLYFILL_ABSENT("Accelerate", vImage_Error, vImageUnpremultiplyData_BGRA8888,
     if (!WK_SYSTEM(vImageUnpremultiplyData_RGBA8888))
         return kvImageInternalError;
     return WK_SYSTEM(vImageUnpremultiplyData_RGBA8888)(src, dst, flags);
+}
+
+// CTFontGetSbixImageSizeForGlyphAndContentsScale (10.13+) reports the pixel size of the sbix
+// (Apple colour-bitmap) strike a glyph would be drawn from, and zero when the glyph has no sbix
+// entry -- which is what WebCore reads it for (Font::glyphHasComplexColorFormat). 10.9's CoreText
+// hands the sbix table out through CTFontCopyTable, so the answer is read from the table.
+//
+// sbix layout (Apple TrueType reference): u16 version, u16 flags, u32 numStrikes,
+// u32 strikeOffsets[numStrikes] from the table start; each strike is u16 ppem, u16 resolution,
+// u32 glyphDataOffsets[numGlyphs + 1] from the strike start. A glyph has a bitmap in a strike iff
+// its offset pair is non-empty.
+static uint16_t wk_be16(const uint8_t *p) { return (uint16_t)((p[0] << 8) | p[1]); }
+static uint32_t wk_be32(const uint8_t *p) { return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]; }
+
+WK_POLYFILL_ABSENT("CoreText", CGFloat, CTFontGetSbixImageSizeForGlyphAndContentsScale,
+                   (CTFontRef font, const CGGlyph glyph, CGFloat contentsScale))
+{
+    if (!font)
+        return 0;
+    CFIndex glyphCount = CTFontGetGlyphCount(font);
+    if (glyphCount <= 0 || glyph >= glyphCount)
+        return 0;
+    CFDataRef sbix = CTFontCopyTable(font, kCTFontTableSbix, kCTFontTableOptionNoOptions);
+    if (!sbix)
+        return 0;
+
+    const uint8_t *bytes = CFDataGetBytePtr(sbix);
+    CFIndex length = CFDataGetLength(sbix);
+    double wanted = CTFontGetSize(font) * (contentsScale > 0 ? contentsScale : 1);
+    double best = 0;
+    double largest = 0;
+
+    if (bytes && length >= 8) {
+        uint32_t strikeCount = wk_be32(bytes + 4);
+        // Each strike offset is 4 bytes and each strike needs at least its own header.
+        if ((CFIndex)strikeCount <= (length - 8) / 4) {
+            for (uint32_t i = 0; i < strikeCount; ++i) {
+                uint32_t strikeOffset = wk_be32(bytes + 8 + i * 4);
+                // ppem + resolution + one offset per glyph plus the terminating offset.
+                CFIndex needed = 4 + ((CFIndex)glyphCount + 1) * 4;
+                if ((CFIndex)strikeOffset > length - needed)
+                    continue;
+                const uint8_t *strike = bytes + strikeOffset;
+                uint32_t start = wk_be32(strike + 4 + (CFIndex)glyph * 4);
+                uint32_t end = wk_be32(strike + 4 + ((CFIndex)glyph + 1) * 4);
+                if (end <= start)
+                    continue;
+                double ppem = wk_be16(strike);
+                if (ppem > largest)
+                    largest = ppem;
+                if (ppem >= wanted && (best == 0 || ppem < best))
+                    best = ppem;
+            }
+        }
+    }
+
+    CFRelease(sbix);
+    return best ? best : largest;
+}
+
+// CVBufferCopyAttachments (macOS 12) is CVBufferGetAttachments with +1 ownership.
+WK_SYSTEM_FN("CoreVideo", CFDictionaryRef, CVBufferGetAttachments, (CVBufferRef, CVAttachmentMode));
+WK_POLYFILL_ABSENT("CoreVideo", CFDictionaryRef, CVBufferCopyAttachments, (CVBufferRef buffer, CVAttachmentMode mode))
+{
+    if (!WK_SYSTEM(CVBufferGetAttachments))
+        return NULL;
+    CFDictionaryRef attachments = WK_SYSTEM(CVBufferGetAttachments)(buffer, mode);
+    return attachments ? CFDictionaryCreateCopy(kCFAllocatorDefault, attachments) : NULL;
+}
+
+// CGPathAddUnevenCornersRoundedRect is macOS 10.13+. It appends a closed rounded-rect subpath whose four
+// corners may each have their own radii, in CoreGraphics' corner order: [0] bottom-left, [1] bottom-right,
+// [2] top-right, [3] top-left (PathCG.cpp fills the array in exactly that order). Built from four
+// elliptical quadrants joined by straight edges, following CGPathAddRoundedRect's own seam: start at the
+// midpoint of the right edge, run counter-clockwise, and close from the bottom-right quadrant's end back
+// up to the start, so a path built with it strokes (dash phase included) and fills identically. The
+// transform is applied by CoreGraphics to every element, as it is for CGPathAddRoundedRect.
+#define WK_KAPPA 0.5522847498307933
+
+WK_POLYFILL_ABSENT("CoreGraphics", void, CGPathAddUnevenCornersRoundedRect,
+                   (CGMutablePathRef path, const CGAffineTransform *transform, CGRect rect, const CGSize corners[4]))
+{
+    if (!path || CGRectIsNull(rect) || CGRectIsInfinite(rect))
+        return;
+    CGFloat minX = CGRectGetMinX(rect), maxX = CGRectGetMaxX(rect);
+    CGFloat minY = CGRectGetMinY(rect), maxY = CGRectGetMaxY(rect);
+    CGFloat w = CGRectGetWidth(rect), h = CGRectGetHeight(rect);
+
+    CGFloat blw = fmax(corners[0].width, 0), blh = fmax(corners[0].height, 0);
+    CGFloat brw = fmax(corners[1].width, 0), brh = fmax(corners[1].height, 0);
+    CGFloat trw = fmax(corners[2].width, 0), trh = fmax(corners[2].height, 0);
+    CGFloat tlw = fmax(corners[3].width, 0), tlh = fmax(corners[3].height, 0);
+
+    // Two radii sharing an edge cannot together exceed it; scaling all eight by the tightest offending
+    // ratio keeps every edge running forwards. CoreGraphics' own rule for the uniform-radius API is
+    // stricter -- CGPath.cc asserts 2 * corner <= extent per radius -- so a pair like 0.6w and 0.3w is
+    // accepted here and rejected there. Being the more permissive of the two never yields a wrong path.
+    CGFloat scale = 1;
+    if (blw + brw > w)
+        scale = fmin(scale, w / (blw + brw));
+    if (tlw + trw > w)
+        scale = fmin(scale, w / (tlw + trw));
+    if (blh + tlh > h)
+        scale = fmin(scale, h / (blh + tlh));
+    if (brh + trh > h)
+        scale = fmin(scale, h / (brh + trh));
+    blw *= scale; blh *= scale;
+    brw *= scale; brh *= scale;
+    trw *= scale; trh *= scale;
+    tlw *= scale; tlh *= scale;
+
+    // With every radius zero CGPathAddRoundedRect degenerates to CGPathAddRect, which starts at the
+    // rect's origin rather than the right edge; match that seam too.
+    if (!blw && !blh && !brw && !brh && !trw && !trh && !tlw && !tlh) {
+        CGPathAddRect(path, transform, rect);
+        return;
+    }
+
+    CGPathMoveToPoint(path, transform, maxX, minY + h / 2);
+    CGPathAddLineToPoint(path, transform, maxX, maxY - trh);
+    CGPathAddCurveToPoint(path, transform, maxX, maxY - trh + trh * WK_KAPPA,
+        maxX - trw + trw * WK_KAPPA, maxY, maxX - trw, maxY);
+    CGPathAddLineToPoint(path, transform, minX + tlw, maxY);
+    CGPathAddCurveToPoint(path, transform, minX + tlw - tlw * WK_KAPPA, maxY,
+        minX, maxY - tlh + tlh * WK_KAPPA, minX, maxY - tlh);
+    CGPathAddLineToPoint(path, transform, minX, minY + blh);
+    CGPathAddCurveToPoint(path, transform, minX, minY + blh - blh * WK_KAPPA,
+        minX + blw - blw * WK_KAPPA, minY, minX + blw, minY);
+    CGPathAddLineToPoint(path, transform, maxX - brw, minY);
+    CGPathAddCurveToPoint(path, transform, maxX - brw + brw * WK_KAPPA, minY,
+        maxX, minY + brh - brh * WK_KAPPA, maxX, minY + brh);
+    CGPathCloseSubpath(path);
+}
+
+// CGContextDrawConicGradient is macOS 10.12+; 10.9 CoreGraphics has no conic gradient of any kind. Both are rendered as a fan of angular wedges around the centre, coloured from the
+// gradient's own ramp: the ramp is sampled by asking 10.9's own CGContextDrawLinearGradient to paint it
+// into a 1xN strip, so colours, interpolation and alpha match every other gradient path exactly.
+// Antialiasing is off for the wedge fill so adjacent wedges share edges without seams; the caller's clip
+// still antialiases the outer boundary.
+#define WK_CONIC_RAMP_SAMPLES 360
+#define WK_CONIC_WEDGES 720
+
+static void wk_drawConicFan(CGContextRef context, const uint8_t *ramp, CGPoint center, CGFloat angle)
+{
+    CGRect clip = CGContextGetClipBoundingBox(context);
+    if (CGRectIsNull(clip) || CGRectIsInfinite(clip) || CGRectIsEmpty(clip))
+        return;
+    CGFloat dx = fmax(fabs(CGRectGetMinX(clip) - center.x), fabs(CGRectGetMaxX(clip) - center.x));
+    CGFloat dy = fmax(fabs(CGRectGetMinY(clip) - center.y), fabs(CGRectGetMaxY(clip) - center.y));
+    CGFloat radius = hypot(dx, dy) + 2;
+    const CGFloat twoPi = 6.283185307179586;
+
+    CGContextSaveGState(context);
+    CGContextSetShouldAntialias(context, false);
+    for (int i = 0; i < WK_CONIC_WEDGES; ++i) {
+        CGFloat t = (i + 0.5) / WK_CONIC_WEDGES;
+        int idx = (int)(t * WK_CONIC_RAMP_SAMPLES);
+        if (idx < 0)
+            idx = 0;
+        else if (idx >= WK_CONIC_RAMP_SAMPLES)
+            idx = WK_CONIC_RAMP_SAMPLES - 1;
+        CGFloat a = ramp[idx * 4 + 3] / 255.0;
+        CGFloat r = a > 0 ? fmin(1.0, (ramp[idx * 4 + 0] / 255.0) / a) : 0;
+        CGFloat g = a > 0 ? fmin(1.0, (ramp[idx * 4 + 1] / 255.0) / a) : 0;
+        CGFloat b = a > 0 ? fmin(1.0, (ramp[idx * 4 + 2] / 255.0) / a) : 0;
+        CGContextSetRGBFillColor(context, r, g, b, a);
+        CGFloat a0 = angle + twoPi * i / WK_CONIC_WEDGES;
+        CGFloat a1 = angle + twoPi * (i + 1) / WK_CONIC_WEDGES;
+        CGContextBeginPath(context);
+        CGContextMoveToPoint(context, center.x, center.y);
+        CGContextAddLineToPoint(context, center.x + radius * cos(a0), center.y + radius * sin(a0));
+        CGContextAddLineToPoint(context, center.x + radius * cos(a1), center.y + radius * sin(a1));
+        CGContextClosePath(context);
+        CGContextFillPath(context);
+    }
+    CGContextRestoreGState(context);
+}
+
+WK_POLYFILL_ABSENT("CoreGraphics", void, CGContextDrawConicGradient,
+                   (CGContextRef context, CGGradientRef gradient, CGPoint center, CGFloat angle))
+{
+    if (!context || !gradient)
+        return;
+    uint8_t ramp[WK_CONIC_RAMP_SAMPLES * 4];
+    memset(ramp, 0, sizeof(ramp));
+    CGColorSpaceRef deviceRGB = CGColorSpaceCreateDeviceRGB();
+    CGContextRef strip = CGBitmapContextCreate(ramp, WK_CONIC_RAMP_SAMPLES, 1, 8, WK_CONIC_RAMP_SAMPLES * 4,
+        deviceRGB, kCGImageAlphaPremultipliedLast);
+    CGColorSpaceRelease(deviceRGB);
+    // A fixed-format 360x1 premultiplied-RGB buffer either allocates or the process is past saving; abort
+    // rather than paint nothing, which would be indistinguishable from an empty gradient.
+    if (!strip)
+        abort();
+    CGContextDrawLinearGradient(strip, gradient, CGPointMake(0, 0), CGPointMake(WK_CONIC_RAMP_SAMPLES, 0),
+        kCGGradientDrawsBeforeStartLocation | kCGGradientDrawsAfterEndLocation);
+    CGContextRelease(strip);
+    wk_drawConicFan(context, ramp, center, angle);
+}
+
+// vImageCopyBuffer (10.10+) copies the overlapping region of two buffers row by row, honouring each
+// buffer's own rowBytes. That needs the field layout, which the ABI has fixed since 10.3.
+struct wk_vImage_Buffer { void *data; unsigned long height; unsigned long width; size_t rowBytes; };
+enum { kvImageNoError = 0 };
+WK_POLYFILL_ABSENT("Accelerate", vImage_Error, vImageCopyBuffer,
+    (const struct vImage_Buffer *src, const struct vImage_Buffer *dst, size_t pixelSize, vImage_Flags flags))
+{
+    const struct wk_vImage_Buffer *s = (const struct wk_vImage_Buffer *)src;
+    const struct wk_vImage_Buffer *d = (const struct wk_vImage_Buffer *)dst;
+    (void)flags;
+    if (!s || !d || !s->data || !d->data)
+        return kvImageInternalError;
+    unsigned long rows = s->height < d->height ? s->height : d->height;
+    unsigned long cols = s->width < d->width ? s->width : d->width;
+    size_t bytes = (size_t)cols * pixelSize;
+    for (unsigned long row = 0; row < rows; ++row)
+        memcpy((unsigned char *)d->data + row * d->rowBytes, (const unsigned char *)s->data + row * s->rowBytes, bytes);
+    return kvImageNoError;
 }
 
 // IOMainPort (the macOS 12.0 rename of IOMasterPort) has no 10.9 runtime symbol; forward to

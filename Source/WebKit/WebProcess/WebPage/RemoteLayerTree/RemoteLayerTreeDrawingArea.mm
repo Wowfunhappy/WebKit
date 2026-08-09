@@ -25,10 +25,6 @@
 
 #import "config.h"
 #import "RemoteLayerTreeDrawingArea.h"
-// MAVERICKS_BACKPORT: explicit includes for sched_yield and the DisplayRefreshMonitor/DisplayUpdate types used by the 10.9 display-refresh fallback path.
-#include <sched.h>
-#include <WebCore/DisplayRefreshMonitor.h>
-#include <WebCore/DisplayUpdate.h>
 
 #import "DrawingAreaProxyMessages.h"
 #import "GraphicsLayerCARemote.h"
@@ -43,8 +39,6 @@
 #import "RemoteLayerTreeContext.h"
 #import "RemoteLayerTreeDrawingAreaProxyMessages.h"
 #import "RemoteScrollingCoordinator.h"
-// MAVERICKS_BACKPORT: WebDisplayRefreshMonitor needed by the display-refresh path used on 10.9.
-#import "WebDisplayRefreshMonitor.h"
 #import "RemoteScrollingCoordinatorTransaction.h"
 #import "WebFrame.h"
 #import "WebPage.h"
@@ -103,11 +97,6 @@ void RemoteLayerTreeDrawingArea::setNeedsDisplayInRect(const IntRect&)
 
 void RemoteLayerTreeDrawingArea::scroll(const IntRect& scrollRect, const IntSize& scrollDelta)
 {
-    // MAVERICKS_BACKPORT: scroll position changed but the layer tree commit needs
-    // to be scheduled so the new viewport translation reaches UIProcess.
-    UNUSED_PARAM(scrollRect);
-    UNUSED_PARAM(scrollDelta);
-    scheduleRenderingUpdate();
 }
 
 GraphicsLayerFactory* RemoteLayerTreeDrawingArea::graphicsLayerFactory()
@@ -117,12 +106,7 @@ GraphicsLayerFactory* RemoteLayerTreeDrawingArea::graphicsLayerFactory()
 
 RefPtr<DisplayRefreshMonitor> RemoteLayerTreeDrawingArea::createDisplayRefreshMonitor(PlatformDisplayID displayID)
 {
-    // MAVERICKS_BACKPORT: returning nullptr here causes RenderingUpdateScheduler
-    // to fall back to LegacyDisplayRefreshMonitorMac (CVDisplayLink-based)
-    // which actually works on 10.9. Tried WebDisplayRefreshMonitor (the
-    // WebKit2 IPC-driven one) but that regresses: it relies on UIProcess
-    // sending IPC display updates which adds latency on 10.9. Letting the
-    // fallback Mac CVDisplayLink fire directly keeps render loop snappy.
+    ASSERT_NOT_REACHED();
     return nullptr;
 }
 
@@ -545,9 +529,7 @@ bool RemoteLayerTreeDrawingArea::BackingStoreFlusher::flush(UniqueRef<IPC::Encod
 
     m_pendingFlushes--;
 
-    // MAVERICKS_BACKPORT: 10.9 perf: removed debug fopen logging
-    auto sendError = m_connection->sendMessage(WTF::move(commitEncoder), { });
-    // MAVERICKS_BACKPORT: 10.9 perf: removed debug fopen logging
+    m_connection->sendMessage(WTF::move(commitEncoder), { });
     return flushSucceeded;
 }
 

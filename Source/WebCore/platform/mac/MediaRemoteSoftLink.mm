@@ -66,8 +66,7 @@ SOFT_LINK_FUNCTION_FOR_SOURCE(WebCore, MediaRemote, MRMediaRemoteCopyPickableRou
 #endif
 
 #if USE(NOW_PLAYING_ACTIVITY_SUPPRESSION)
-// MAVERICKS_BACKPORT: MediaRemote MRUIControllerProvider postdates macOS 10.9 — soft-link optionally so it resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebCore, MediaRemote, MRUIControllerProvider);
+SOFT_LINK_CLASS_FOR_SOURCE(WebCore, MediaRemote, MRUIControllerProvider);
 SOFT_LINK_CONSTANT_FOR_SOURCE(WebCore, MediaRemote, MRNowPlayingActivityActiveRouteIdentifier, NSString *)
 #endif
 

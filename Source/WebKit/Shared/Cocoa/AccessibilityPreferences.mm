@@ -29,20 +29,10 @@
 #import "AccessibilitySupportSPI.h"
 #import <wtf/SoftLinking.h>
 
-// MAVERICKS_BACKPORT: SOFT_LINK_LIBRARY_OPTIONAL(libAccessibility) is needed unconditionally now (the
-// legibility soft-links below use it), so it is declared here rather than only under
-// ENABLE(ACCESSIBILITY_ANIMATION_CONTROL).
-SOFT_LINK_LIBRARY_OPTIONAL(libAccessibility)
-// MAVERICKS_BACKPORT: this #if no longer also declares the library soft-link (moved above).
 #if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
+SOFT_LINK_LIBRARY_OPTIONAL(libAccessibility)
 SOFT_LINK_OPTIONAL(libAccessibility, _AXSReduceMotionAutoplayAnimatedImagesEnabled, Boolean, (), ());
 #endif
-
-// MAVERICKS_BACKPORT: _AXSEnhanceTextLegibilityEnabledApp / _AXSEnhanceTextLegibilityEnabled are newer
-// than 10.9 (unlike the sibling _AXS*App functions, which are present). Soft-link them so the legibility
-// queries fall back to "not enhanced" when the symbols are unavailable.
-SOFT_LINK_OPTIONAL(libAccessibility, _AXSEnhanceTextLegibilityEnabledApp, AXValueState, (), (CFStringRef appID));
-SOFT_LINK_OPTIONAL(libAccessibility, _AXSEnhanceTextLegibilityEnabled, Boolean, (), ());
 
 #import <pal/spi/cocoa/AccessibilitySupportSoftLink.h>
 
@@ -76,11 +66,7 @@ WebKit::WebKitAXValueState enhanceTextLegibility()
     if (shouldUseDefault()) [[unlikely]]
         return WebKit::initialPerAppSettingsState;
     RetainPtr appId = applicationBundleIdentifier().createCFString();
-    // MAVERICKS_BACKPORT: _AXSEnhanceTextLegibilityEnabledApp is absent on 10.9; soft-linked. Fall back
-    // to the default per-app state when unavailable.
-    if (auto* functionPointer = _AXSEnhanceTextLegibilityEnabledAppPtr())
-        return WebKit::toWebKitAXValueState(functionPointer(appId.get()));
-    return WebKit::initialPerAppSettingsState;
+    return WebKit::toWebKitAXValueState(_AXSEnhanceTextLegibilityEnabledApp(appId.get()));
 }
 
 WebKit::WebKitAXValueState darkenSystemColors()
@@ -115,11 +101,7 @@ bool enhanceTextLegibilityOverall()
 {
     if (shouldUseDefault()) [[unlikely]]
         return WebKit::initialShouldEnhanceTextLegibilityOverall;
-    // MAVERICKS_BACKPORT: the no-arg _AXSEnhanceTextLegibilityEnabled() is newer than 10.9; soft-linked.
-    // Fall back to the default when unavailable.
-    if (auto* functionPointer = _AXSEnhanceTextLegibilityEnabledPtr())
-        return functionPointer();
-    return WebKit::initialShouldEnhanceTextLegibilityOverall;
+    return _AXSEnhanceTextLegibilityEnabled();
 }
 
 #if ENABLE(ACCESSIBILITY_NON_BLINKING_CURSOR)

@@ -1524,9 +1524,7 @@ __ZN18WebInspectorClient21openInspectorFrontendEPN7WebCore19InspectorControllerE
 -[WebInspectorWindowController initWithInspectedWebView:]
 -[WebInspectorWindowController init]
 -[WebPreferences init]
-# MAVERICKS_BACKPORT: classic inspector frontend renamed -inspectorPagePath to -inspectorPageURL (inspector-resource:// scheme); upstream symbol kept below, commented.
-# -[WebInspectorWindowController inspectorPagePath]
--[WebInspectorWindowController inspectorPageURL]
+-[WebInspectorWindowController inspectorPagePath]
 __ZL21useWebKitWebInspectorv
 -[WebInspectorWindowController webView:decidePolicyForNavigationAction:request:frame:decisionListener:]
 -[WebInspectorWindowController setInspectorClient:]

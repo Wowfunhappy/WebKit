@@ -1749,7 +1749,7 @@ endif ()
 WEBKIT_COMPUTE_SOURCES(JavaScriptCore)
 WEBKIT_FRAMEWORK(JavaScriptCore)
 
-# Force-load WTF API compat shims for Safari 9.1.3 on 10.9
+# Force-load WTF API compat shims for Safari 7 on 10.9
 if (APPLE)
     target_link_options(JavaScriptCore PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libwtf_compat.a")
     # MAVERICKS_BACKPORT: the selref-scope polyfill (libpolyfill_classes.a = wk_selref_scope.o + methods.o)

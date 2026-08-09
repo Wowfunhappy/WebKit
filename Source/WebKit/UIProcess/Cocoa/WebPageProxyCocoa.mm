@@ -100,8 +100,6 @@
 #import <WebCore/VideoPresentationInterfaceIOS.h>
 #import <WebCore/WebTextIndicatorLayer.h>
 #import <pal/spi/cocoa/LaunchServicesSPI.h>
-// MAVERICKS_BACKPORT: pull in the public QuartzCore header for CATransaction on 10.9.
-#import <QuartzCore/QuartzCore.h>
 #import <pal/spi/cocoa/QuartzCoreSPI.h>
 #import <pal/spi/ios/BrowserEngineKitSPI.h>
 #import <pal/spi/mac/QuarantineSPI.h>

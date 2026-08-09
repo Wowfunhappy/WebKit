@@ -338,13 +338,6 @@ NSArray *makeNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector& c
         // pointer to an object destroyed when this RefPtr is destroyed.
         RefPtr<AXCoreObject> backingObject = self.axBackingObject;
         if (!backingObject) {
-            // MAVERICKS_BACKPORT: the off-main-thread recovery below is isolated-tree-only — both the
-            // tree store's applyPendingChangesForAllIsolatedTrees and this wrapper's m_isolatedObject
-            // are declared under ENABLE(ACCESSIBILITY_ISOLATED_TREE), which this port builds with off
-            // (see OptionsMac.cmake). It is also unreachable here: an accessibility request only runs
-            // off the main thread when the secondary AX thread is servicing it, and 10.9 has no such
-            // thread, so every request arrives on the main thread and falls to the nil below.
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
             if (!isMainThread()) {
                 // It's possible our backing object just hasn't been attached yet.
                 // Try again after making sure all isolated trees are up-to-date, which could
@@ -352,7 +345,6 @@ NSArray *makeNSArray(const WebCore::AXCoreObject::AccessibilityChildrenVector& c
                 AXTreeStore<AXIsolatedTree>::applyPendingChangesForAllIsolatedTrees();
                 return m_isolatedObject.get();
             }
-#endif // MAVERICKS_BACKPORT: closes the ENABLE(ACCESSIBILITY_ISOLATED_TREE) guard above.
             return nil;
         }
         backingObject->updateBackingStore();

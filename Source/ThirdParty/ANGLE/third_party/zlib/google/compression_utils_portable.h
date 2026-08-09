@@ -19,12 +19,6 @@
 #include "zlib.h"
 #endif
 
-/* MAVERICKS_BACKPORT: z_const was added in zlib 1.2.5.2; the system zlib (1.2.5) lacks it. Without
- * ZLIB_CONST it defaults to empty (non-const pointers), which is what this code expects. */
-#ifndef z_const
-#define z_const
-#endif
-
 namespace zlib_internal {
 
 enum WrapperType {

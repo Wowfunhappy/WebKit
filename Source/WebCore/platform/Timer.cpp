@@ -65,10 +65,8 @@ static ThreadTimerHeap& threadGlobalTimerHeap()
 }
 #endif
 
-// MAVERICKS_BACKPORT: upstream's TZone allocator implementation for ThreadTimerHeapItem. Kept commented, not deleted: TZone malloc is not enabled in this build, so the macro has no allocator to define against.
-// WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(ThreadTimerHeapItem);
-//
-// (end MAVERICKS_BACKPORT restored block)
+WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(ThreadTimerHeapItem);
+
 inline ThreadTimerHeapItem::ThreadTimerHeapItem(TimerBase& timer, MonotonicTime time, unsigned insertionOrder)
     : time(time)
     , insertionOrder(insertionOrder)
@@ -77,11 +75,7 @@ inline ThreadTimerHeapItem::ThreadTimerHeapItem(TimerBase& timer, MonotonicTime 
 {
     ASSERT(m_timer);
 }
-
-// MAVERICKS_BACKPORT: emit the TZone allocator impl after the ctor definition
-// (relocated from above it) for this build.
-WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(ThreadTimerHeapItem);
-
+    
 inline RefPtr<ThreadTimerHeapItem> ThreadTimerHeapItem::create(TimerBase& timer, MonotonicTime time, unsigned insertionOrder)
 {
     return adoptRef(*new ThreadTimerHeapItem { timer, time, insertionOrder });

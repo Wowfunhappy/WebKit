@@ -1065,31 +1065,23 @@ def generate_one_impl(type, template_argument, serialized_types):
         result.append(f'#if {type.condition}')
 
     if type.members_are_subclasses:
-        # MAVERICKS_BACKPORT: when subclass members carry #if conditions, more of them are disabled on 10.9
-        # (absent features), which can leave the first emitted enumerator preceded by a stray leading comma.
-        # Emit a _dummy_first_entry sentinel so every real member can be written as ", name" unconditionally.
-        # Check if any member has a condition; if so, use a dummy first entry
-        # to avoid leading comma issues when conditional members are disabled.
-        any_conditional = any(m.condition is not None for m in type.members)
         result.append(f'enum class {type.subclass_enum_name()} : IPC::EncodedVariantIndex {{')
-        # MAVERICKS_BACKPORT: with conditional members disabled on 10.9, emit a _dummy_first_entry sentinel
-        # so every real member is written as ", name" and no stray leading comma is produced.
-        if any_conditional:
-            result.append(f'    _dummy_first_entry = 0')
-            for member in type.members:
-                if member.condition is not None:
-                    result.append(f'#if {member.condition}')
+        # MAVERICKS_BACKPORT: WebCore::SystemImage's first subclass is #if ENABLE(APPLE_PAY), and PassKit
+        # is macOS 10.12+, so that enumerator compiles away. Give every enumerator its own trailing comma
+        # when the first one is conditional, so the list is well formed for any subset of them.
+        trailing_comma = type.members[0].condition is not None
+        for idx in range(0, len(type.members)):
+            member = type.members[idx]
+            if member.condition is not None:
+                result.append(f'#if {member.condition}')
+            if trailing_comma:
+                result.append(f'    {member.name},')
+            elif idx == 0: # MAVERICKS_BACKPORT: every other block keeps upstream's leading-comma form.
+                result.append(f'    {member.name}')
+            else:
                 result.append(f'    , {member.name}')
-                # MAVERICKS_BACKPORT: close the per-member #if so disabled-on-10.9 members drop cleanly.
-                if member.condition is not None:
-                    result.append('#endif')
-        else:
-            for idx in range(0, len(type.members)):
-                member = type.members[idx]
-                if idx == 0:
-                    result.append(f'    {member.name}')
-                else:
-                    result.append(f'    , {member.name}')
+            if member.condition is not None:
+                result.append('#endif')
         result.append('};')
         result.append('')
     for encoder in type.encoders:

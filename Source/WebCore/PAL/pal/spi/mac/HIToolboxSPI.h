@@ -59,10 +59,4 @@ OSStatus GetEventParameter(EventRef, EventParamName inName, EventParamType inDes
 
 WTF_EXTERN_C_END
 
-// MAVERICKS_BACKPORT: kVK_RightCommand (0x36) was added to HIToolbox/Events.h after 10.9 (10.9 has only
-// kVK_Command = 0x37). Define it so key-event mapping compiles.
-#ifndef kVK_RightCommand
-#define kVK_RightCommand 0x36
-#endif
-
 #endif // PLATFORM(MAC)

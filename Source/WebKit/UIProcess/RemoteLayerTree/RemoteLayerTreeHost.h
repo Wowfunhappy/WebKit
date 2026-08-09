@@ -121,12 +121,6 @@ private:
     HashMap<WebCore::LayerHostingContextIdentifier, WebCore::PlatformLayerIdentifier> m_hostedLayers;
     HashMap<WebCore::ProcessIdentifier, HashSet<WebCore::PlatformLayerIdentifier>> m_hostedLayersInProcess;
     HashMap<WebCore::PlatformLayerIdentifier, RetainPtr<WKAnimationDelegate>> m_animationDelegates;
-    // MAVERICKS_BACKPORT: hold destroyed CALayers alive for one commit cycle. CA's
-    // insert_sublayer reads child._superlayer to detach from old parent. If the
-    // old parent CALayer was just freed, dereferencing its CA::Layer struct
-    // crashes (EXC_BAD_ACCESS at offsets 0x21/0x5f/0x6c). Keeping the old parent
-    // alive through the next commit lets CA safely call old_parent->remove_sublayer.
-    Vector<RetainPtr<CALayer>> m_destroyedLayerGraveyard;
 #if HAVE(AVKIT)
     HashMap<WebCore::PlatformLayerIdentifier, PlaybackSessionContextIdentifier> m_videoLayers;
 #endif

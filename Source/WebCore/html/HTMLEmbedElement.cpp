@@ -125,17 +125,7 @@ void HTMLEmbedElement::attributeChanged(const QualifiedName& name, const AtomStr
         break;
     }
 
-    // MAVERICKS_BACKPORT: behavior fix (#38 Web Clips). Reconstruct renderers (which reloads
-    // the plug-in widget) only when an attribute that
-    // determines *which* plug-in to load actually changes value. Doing this unconditionally
-    // -- for presentation attributes like style/width/height -- is catastrophic for Safari
-    // Web Clips: Dashboard re-stamps the widget's <embed> with an unchanged
-    // `style="-apple-dashboard-region:none"` on every layout, and each such no-op change tore
-    // down and recreated the WebClipper plug-in, cancelling its inner page load before it
-    // could finish. Presentation/layout attributes are handled by normal style recalc above.
-    if (oldValue != newValue && (name == typeAttr || name == srcAttr || name == codeAttr)) {
-        invalidateStyleAndRenderersForSubtree();
-    }
+    invalidateStyleAndRenderersForSubtree();
 }
 
 void HTMLEmbedElement::parametersForPlugin(Vector<AtomString>& paramNames, Vector<AtomString>& paramValues)

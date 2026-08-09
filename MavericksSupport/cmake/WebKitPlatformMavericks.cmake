@@ -7,6 +7,99 @@
 # Standalone backport blocks (targets, definitions, framework lookups, staging).
 # --------------------------------------------------------------------------
 
+
+
+# MAVERICKS_BACKPORT: system zlib for the NetworkProcess gzip content-decoder (NetworkDataTaskCocoa.mm).
+# 10.9 CFNetwork suppresses its transparent Content-Encoding: gzip decode for .gz/.tgz URLs and hands the
+# raw compressed body to WebKit, which inflate() un-does. WebCore links ZLIB::ZLIB already, but that
+# framework's symbols are not re-exported to WebKit.
+find_package(ZLIB REQUIRED)
+list(APPEND WebKit_PRIVATE_LIBRARIES ZLIB::ZLIB)
+
+# MAVERICKS_BACKPORT: the webpushd daemon implementation lives in WebKit.framework, as it does in the
+# upstream Xcode build (whose webpushd tool target compiles only webpushd.cpp against the framework).
+# Upstream's list, minus iOS-only WebClipCache.mm, _WKMockUserNotificationCenter.mm (needs
+# HAVE(FULL_FEATURED_USER_NOTIFICATIONS), macOS 14+) and ApplePushServiceConnection.mm — 10.9's
+# ApplePushService cannot mint URL tokens and the modern SDK ships no .tbd to link it, so this port's
+# transport is MozillaPushServiceConnection + MozillaPushWebSocket (USE_MOZILLA_PUSH_SERVICE).
+if (ENABLE_WEB_PUSH_NOTIFICATIONS)
+    list(APPEND WebKit_SOURCES
+        webpushd/MockPushServiceConnection.mm
+        webpushd/MozillaPushServiceConnection.mm
+        webpushd/MozillaPushWebSocket.mm
+        webpushd/PushClientConnection.mm
+        webpushd/PushService.mm
+        webpushd/PushServiceConnection.mm
+        webpushd/WebPushDaemon.mm
+        webpushd/WebPushDaemonMain.mm
+    )
+    # The two Mozilla files are written for ARC (bare ObjC ivar assignments, no manual retains); under
+    # this port's default MRR compile the ivars drop their references and the daemon use-after-frees on
+    # the first stream callback. They traffic in no os_object types, so the OS_OBJECT_USE_OBJC=1 mangling
+    # the rest of the build uses is unaffected; the upstream daemon files keep the port-wide MRR default,
+    # under which their RetainPtr/adoptNS ownership is correct either way.
+    set_source_files_properties(webpushd/MozillaPushServiceConnection.mm webpushd/MozillaPushWebSocket.mm
+        PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+endif ()
+
+# MAVERICKS_BACKPORT: upstream's PlatformMac.cmake lists WKProcessGroupPrivate.h among the framework
+# headers to copy, but ships no such file (the same class of stale list entry as TextIndicatorWindow).
+# Drop it from the copy list rather than carrying a content-free placeholder to satisfy it.
+list(REMOVE_ITEM WebKit_PUBLIC_FRAMEWORK_HEADERS UIProcess/API/Cocoa/WKProcessGroupPrivate.h)
+
+# MAVERICKS_BACKPORT: _WKFeature.h imports <WebKit/WebFeature.h>, which the Xcode build satisfies from
+# WebKitLegacy's copy. Forward to that one file rather than keeping a second definition of the same
+# enumerations here -- two headers describing one ABI is a mis-decode waiting to happen.
+configure_file("${WEBKITLEGACY_DIR}/mac/WebView/WebFeature.h"
+    "${WebKit_FRAMEWORK_HEADERS_DIR}/WebKit/WebFeature.h" COPYONLY)
+
+# MAVERICKS_BACKPORT: header directories upstream's CMake port lists as SOURCES but never as include
+# paths — Apple builds this tree with Xcode, whose header maps resolve any header by basename. Bare-name
+# imports of headers living here therefore do not resolve on the CMake port. None of this is 10.9-specific.
+# The feature-gated API sources (WK_WEB_EXTENSIONS, WEB_PUSH, WRITING_TOOLS, MarketplaceKit) put their
+# imports above their own `#if`, so the sibling header has to be findable even when the body compiles away.
+# WebAuthentication/Virtual is reached by quoted include from WebAutomationSession/WebsiteDataStore once
+# ENABLE(WEB_AUTHN) is on. No header basename in these directories collides with one already reachable.
+list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
+    "${WEBKIT_DIR}/Platform/IPC/darwin"
+    "${WEBKIT_DIR}/Platform/ios"
+    "${WEBKIT_DIR}/Platform/spi/ios"
+    "${WEBKIT_DIR}/UIProcess/ios"
+    "${WEBKIT_DIR}/UIProcess/WebsiteData/Cocoa"
+    "${WEBKIT_DIR}/UIProcess/WebAuthentication/Virtual"
+    "${WEBKIT_DIR}/GPUProcess/media/cocoa"
+    "${WEBKIT_DIR}/WebProcess/Plugins/PDF/UnifiedPDF"
+    "${WEBKIT_DIR}/WebProcess/Extensions/Cocoa"
+    "${WEBKIT_DIR}/UIProcess/Extensions/Cocoa"
+    "${WEBKIT_DIR}/webpushd/webpushtool"
+    "${WEBKIT_DIR}/WebKitSwift/WritingTools"
+    "${WEBKIT_DIR}/WebKitSwift/MarketplaceKit"
+)
+
+# MAVERICKS_BACKPORT: PAL/pal/spi/cf/CoreMediaSPI.h includes <webrtc/webkit_sdk/WebKit/CMBaseObjectSPI.h>
+# for the CMBase types whatever USE_LIBWEBRTC says, and WebCore and PAL already add this path
+# unconditionally. Without it here, that header takes its forward-declaration path and WebCore and WebKit
+# TUs declare CMBaseVTable as two different types — an ODR violation that links only because Itanium
+# mangling omits return types.
+list(APPEND WebKit_SYSTEM_INCLUDE_DIRECTORIES
+    "${THIRDPARTY_DIR}/libwebrtc/Source/"
+    "${THIRDPARTY_DIR}/libwebrtc/Source/webrtc"
+)
+
+# MAVERICKS_BACKPORT: IPC serialization for the two API types whose C SPI is restored for Safari 7
+# (WKPageGroup* and the do-JavaScript result).
+list(APPEND WebKit_SERIALIZATION_IN_FILES
+    Shared/API/APIPageGroupHandle.serialization.in
+    Shared/API/APISerializedScriptValue.serialization.in
+)
+
+# MAVERICKS_BACKPORT: re-export WebKitLegacy through WebKit.framework so its DOM ObjC classes
+# (DOMHTMLAnchorElement and friends), which DataDetectors expects to find there, resolve. Linked only
+# via -reexport_framework, never also as a plain dependency, or its symbols land twice.
+if (APPLE)
+    list(APPEND WebKit_PRIVATE_LIBRARIES "-Wl,-reexport_framework,WebKitLegacy")
+endif ()
+
 # MAVERICKS_BACKPORT: Network.framework is 10.14+ and absent on 10.9
 # Removed: Network not on 10.9
 
@@ -208,7 +301,6 @@ list(APPEND WebKit_PUBLIC_FRAMEWORK_HEADERS
     # MAVERICKS_BACKPORT: headers referenced via <WebKit/X.h> by generated serializers
     # and cross-including API headers, but missing from the forwarding list.
     UIProcess/API/Cocoa/WKJSHandle.h
-    UIProcess/API/Cocoa/WebFeature.h
     UIProcess/API/Cocoa/_WKContentWorldConfiguration.h
     UIProcess/API/Cocoa/_WKTextExtraction.h
     UIProcess/API/Cocoa/_WKRectEdge.h
@@ -335,3 +427,135 @@ list(APPEND WebKit_SERIALIZATION_IN_FILES
 #   * upstream's global add_definitions("-ObjC++ ...") dropped
 # Each carries its own marker at the site.
 # --------------------------------------------------------------------------
+
+
+# --------------------------------------------------------------------------
+# Source-list entries withheld from and added to upstream's Sources*.txt.
+# --------------------------------------------------------------------------
+include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/MavericksSourceLists.cmake)
+
+# Withheld from Sources.txt: AudioSessionRoutingArbitratorProxy is built on AVAudioSession routing
+# arbitration, which this deployment target has no equivalent of.
+set(MAVERICKS_WITHHELD_WEBKIT_SOURCES
+    "UIProcess/Media/AudioSessionRoutingArbitratorProxy.cpp"
+)
+
+# Added to Sources.txt: the legacy WK2 icon database Safari 7's favicon client drives, the FIDO/WebAuthn
+# sources upstream's list drops (WEB_AUTHN is on here), the WK109 injected-bundle page-group user content
+# and navigation-action sources Safari 7's bundle policy client reads, and two service-worker inspector
+# sources that post-date the base upstream commit.
+set(MAVERICKS_ADDED_WEBKIT_SOURCES
+    "UIProcess/WebIconDatabase.cpp"
+    "UIProcess/WebProcessPoolIconDatabase.cpp"
+    "UIProcess/WebAuthentication/AuthenticatorManager.cpp"
+    "UIProcess/WebAuthentication/fido/CtapAuthenticator.cpp"
+    "UIProcess/WebAuthentication/fido/CtapCcidDriver.cpp"
+    "UIProcess/WebAuthentication/fido/CtapHidDriver.cpp"
+    "UIProcess/WebAuthentication/Virtual/VirtualAuthenticatorManager.cpp"
+    "UIProcess/WebAuthentication/Virtual/VirtualHidConnection.cpp"
+    "WebProcess/InjectedBundle/InjectedBundleNavigationAction.cpp"
+    "WebProcess/InjectedBundle/InjectedBundlePagePolicyClient.cpp"
+    "WebProcess/InjectedBundle/WK109PageGroupUserContent.cpp"
+    "WebProcess/Inspector/ServiceWorkerDebuggableFrontendChannel.cpp"
+    "WebProcess/Inspector/ServiceWorkerDebuggableProxy.cpp"
+)
+
+# Withheld from SourcesCocoa.txt. WKWebView.mm and WKView.mm come back below with @no-unify (WKView as
+# WKViewMavericks.mm, which carries the only @implementation WKView on this port). The rest are the
+# VideoPresentationMode, AudioSession routing arbitration, model-process, os_log streaming,
+# smart-magnification and device-orientation paths, none of which exist at this deployment target, plus
+# _WKUserContentExtensionStore/_WKUserContentFilter, which need WKContentRuleListStore's enums.
+set(MAVERICKS_WITHHELD_WEBKIT_COCOA_SOURCES
+    "UIProcess/API/Cocoa/_WKUserContentExtensionStore.mm @nonARC"
+    "UIProcess/API/Cocoa/_WKUserContentFilter.mm @nonARC"
+    "UIProcess/API/Cocoa/WKWebView.mm @nonARC"
+    "UIProcess/API/mac/WKView.mm @nonARC"
+    "UIProcess/Cocoa/VideoPresentationManagerProxy.mm @nonARC"
+    "UIProcess/Media/cocoa/AudioSessionRoutingArbitratorProxyCocoa.mm @nonARC"
+    "WebProcess/cocoa/VideoPresentationManager.mm @nonARC"
+    "AudioSessionRoutingArbitratorProxyMessageReceiver.cpp"
+    "LogStreamMessageReceiver.cpp"
+    "ModelProcessModelPlayerProxyMessageReceiver.cpp"
+    "SmartMagnificationControllerMessageReceiver.cpp"
+    "VideoPresentationManagerMessageReceiver.cpp"
+    "VideoPresentationManagerProxyMessageReceiver.cpp"
+    "WebDeviceOrientationUpdateProviderMessageReceiver.cpp"
+    "WebDeviceOrientationUpdateProviderProxyMessageReceiver.cpp"
+)
+
+# Added to SourcesCocoa.txt. Most are files upstream builds only from its Xcode project, whose symbols
+# the CMake link needs: the CoreIPC coders, WKKeyedCoder, AdditionalFonts, _WKWarningView,
+# _WKCaptionStyleMenuControllerMac, RemoteScrollingTreeCocoa, PositionInformationForWebPage and
+# DataDetectionResult. The rest are this port's own: WKViewMavericks.mm and MinimalPageClient.mm back the
+# legacy WKView, WKViewToolTip.mm adds its title-attribute tooltip, WKBrowsingContextGroup.mm and
+# WKProcessGroup.mm are the ObjC classes Apple's QuickLook HTML preview bundle instantiates,
+# WKTypeRefWrapper.mm is what Mail's WKConnection body coding reaches for, _WKTextExtractionItems.mm
+# stands in for _WKTextExtraction.swift, and the WebAuthentication sources come back with WEB_AUTHN.
+#
+# CoreIPCCVPixelBufferRef.mm is @nonARC so RetainPtr<CVPixelBufferRef> in sendRightFromPixelBuffer
+# mangles as plain RetainPtr rather than RetainPtrArc, matching the non-ARC
+# WebKitPlatformGeneratedSerializers.mm that references it.
+set(MAVERICKS_ADDED_WEBKIT_COCOA_SOURCES
+    "Shared/API/Cocoa/WKTypeRefWrapper.mm @nonARC @no-unify"
+    "Shared/AdditionalFonts.mm"
+    "Shared/Cocoa/ArgumentCodersCocoa.mm @nonARC"
+    "Shared/Cocoa/BackgroundFetchStateCocoa.mm"
+    "Shared/Cocoa/CoreIPCAVOutputContext.mm"
+    "Shared/Cocoa/CoreIPCArray.mm"
+    "Shared/Cocoa/CoreIPCCFType.mm @nonARC"
+    "Shared/Cocoa/CoreIPCCFURL.mm"
+    "Shared/Cocoa/CoreIPCCVPixelBufferRef.mm @nonARC"
+    "Shared/Cocoa/CoreIPCContacts.mm"
+    "Shared/Cocoa/CoreIPCDDScannerResult.mm"
+    "Shared/Cocoa/CoreIPCDateComponents.mm"
+    "Shared/Cocoa/CoreIPCDictionary.mm"
+    "Shared/Cocoa/CoreIPCError.mm @nonARC"
+    "Shared/Cocoa/CoreIPCLocale.mm"
+    "Shared/Cocoa/CoreIPCNSCFObject.mm @nonARC"
+    "Shared/Cocoa/CoreIPCNSShadow.mm"
+    "Shared/Cocoa/CoreIPCNSURLCredential.mm"
+    "Shared/Cocoa/CoreIPCNSURLProtectionSpace.mm"
+    "Shared/Cocoa/CoreIPCNSURLRequest.mm"
+    "Shared/Cocoa/CoreIPCNSValue.mm"
+    "Shared/Cocoa/CoreIPCNull.mm"
+    "Shared/Cocoa/CoreIPCPersonNameComponents.mm"
+    "Shared/Cocoa/CoreIPCPlistArray.mm"
+    "Shared/Cocoa/CoreIPCPlistDictionary.mm"
+    "Shared/Cocoa/CoreIPCPlistObject.mm"
+    "Shared/Cocoa/CoreIPCPresentationIntent.mm"
+    "Shared/Cocoa/CoreIPCSecureCoding.mm"
+    "Shared/Cocoa/CoreIPCStringSet.mm"
+    "Shared/Cocoa/DataDetectionResult.mm @nonARC"
+    "Shared/Cocoa/WKKeyedCoder.mm"
+    "Shared/Cocoa/WebPushMessageCocoa.mm"
+    "Shared/cf/CoreIPCCFArray.mm @no-unify"
+    "Shared/cf/CoreIPCCFDictionary.mm @no-unify"
+    "Shared/cf/CoreIPCCGColorSpace.mm @no-unify @nonARC"
+    "Shared/cf/CoreIPCNumber.mm @no-unify"
+    "Shared/cf/CoreIPCSecTrust.mm @no-unify"
+    "UIProcess/API/Cocoa/WKBrowsingContextGroup.mm @nonARC"
+    "UIProcess/API/Cocoa/WKConnection.mm @nonARC @no-unify"
+    "UIProcess/API/Cocoa/WKProcessGroup.mm @nonARC"
+    "UIProcess/API/Cocoa/WKWebView.mm @nonARC @no-unify"
+    "UIProcess/API/Cocoa/_WKTextExtractionItems.mm @nonARC"
+    "UIProcess/API/mac/WKViewMavericks.mm @nonARC @no-unify"
+    "UIProcess/API/mac/WKViewToolTip.mm @nonARC @no-unify"
+    "UIProcess/Cocoa/AuxiliaryProcessProxyCocoa.mm @nonARC"
+    "UIProcess/Cocoa/CSPExtensionUtilities.mm"
+    "UIProcess/Cocoa/_WKWarningView.mm @nonARC"
+    "UIProcess/Downloads/DownloadProxyCocoa.mm"
+    "UIProcess/RemoteLayerTree/cocoa/RemoteScrollingTreeCocoa.mm @nonARC"
+    "UIProcess/WebAuthentication/Cocoa/AuthenticationServicesSoftLink.mm @nonARC @no-unify"
+    "UIProcess/WebAuthentication/Cocoa/HidConnection.mm @nonARC"
+    "UIProcess/WebAuthentication/Cocoa/HidService.mm @nonARC"
+    "UIProcess/WebAuthentication/Cocoa/WebAuthenticatorCoordinatorProxy.mm @nonARC"
+    "UIProcess/WebAuthentication/Virtual/VirtualAuthenticatorUtils.mm @nonARC"
+    "UIProcess/WebAuthentication/Virtual/VirtualLocalConnection.mm @nonARC"
+    "UIProcess/WebAuthentication/Virtual/VirtualService.mm @nonARC"
+    "UIProcess/mac/MinimalPageClient.mm @nonARC"
+    "UIProcess/mac/_WKCaptionStyleMenuControllerMac.mm @nonARC"
+    "WebProcess/WebPage/Cocoa/PositionInformationForWebPage.mm @nonARC"
+)
+
+MAVERICKS_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "Sources.txt" MAVERICKS_WITHHELD_WEBKIT_SOURCES MAVERICKS_ADDED_WEBKIT_SOURCES)
+MAVERICKS_FILTER_SOURCE_LIST("${WEBKIT_DIR}" WebKit_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt" MAVERICKS_WITHHELD_WEBKIT_COCOA_SOURCES MAVERICKS_ADDED_WEBKIT_COCOA_SOURCES)

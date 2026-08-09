@@ -19,6 +19,7 @@
 #include "wk_polyfill.h"
 
 #include <compression.h>
+#include <zlib.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -120,4 +121,22 @@ WK_POLYFILL_ABSENT("/usr/lib/libcompression.dylib", compression_status, compress
     free(state);
     stream->state = NULL;
     return COMPRESSION_STATUS_OK;
+}
+
+// crc32_z() is zlib 1.2.9; 10.9 ships zlib 1.2.5, whose crc32() takes a uInt length instead of a
+// size_t. Same CRC-32, fed in uInt-sized chunks.
+WK_SYSTEM_FN("/usr/lib/libz.dylib", uLong, crc32, (uLong, const Bytef *, uInt));
+WK_POLYFILL_ABSENT("/usr/lib/libz.dylib", uLong, crc32_z, (uLong crc, const Bytef *buf, size_t len))
+{
+    if (!WK_SYSTEM(crc32))
+        return crc;
+    if (!buf)
+        return WK_SYSTEM(crc32)(crc, NULL, 0);
+    while (len > 0) {
+        uInt chunk = len > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uInt)len;
+        crc = WK_SYSTEM(crc32)(crc, buf, chunk);
+        buf += chunk;
+        len -= chunk;
+    }
+    return crc;
 }

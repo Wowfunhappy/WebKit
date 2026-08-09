@@ -30,14 +30,6 @@
 
 #if PLATFORM(MAC)
 
-#import <CoreGraphics/CGContext.h>
-
-// MAVERICKS_BACKPORT: CGContextGetAllowsFontSmoothing / CGContextGetAllowsFontSubpixelQuantization are
-// CoreGraphics SPI present at runtime but no longer declared by the public SDK (they pair with the
-// public CGContextSetAllows… setters used below). Forward-declare so this WK1 PDF view compiles.
-extern "C" bool CGContextGetAllowsFontSmoothing(CGContextRef);
-extern "C" bool CGContextGetAllowsFontSubpixelQuantization(CGContextRef);
-
 #import "DOMNodeInternal.h"
 #import "DOMRangeInternal.h"
 #import "PDFViewSPI.h"
@@ -82,10 +74,8 @@ extern "C" bool CGContextGetAllowsFontSubpixelQuantization(CGContextRef);
 #import <wtf/text/cf/StringConcatenateCF.h>
 
 extern "C" {
-// MAVERICKS_BACKPORT: upstream's declarations of the CGContext font-smoothing getters. Kept commented, not deleted: those two are absent on 10.9, so this file cannot ask a context for that state.
-//     bool CGContextGetAllowsFontSmoothing(CGContextRef context);
-//     bool CGContextGetAllowsFontSubpixelQuantization(CGContextRef context);
-// (end MAVERICKS_BACKPORT restored block)
+    bool CGContextGetAllowsFontSmoothing(CGContextRef context);
+    bool CGContextGetAllowsFontSubpixelQuantization(CGContextRef context);
 }
 
 // Redeclarations of PDFKit notifications. We can't use the API since we use a weak link to the framework.

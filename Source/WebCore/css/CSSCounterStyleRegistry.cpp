@@ -30,7 +30,6 @@
 #include "CSSPrimitiveValue.h"
 #include "CSSValuePair.h"
 #include "StyleListStyleType.h"
-#include "UserAgentStyle.h" // MAVERICKS_BACKPORT: for the decimalCounter() UA-sheet init guard below.
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
@@ -118,17 +117,6 @@ Ref<CSSCounterStyle> CSSCounterStyleRegistry::decimalCounter()
 {
     auto& userAgentCounters = userAgentCounterStyles();
     auto iterator = userAgentCounters.find("decimal"_s);
-
-    // MAVERICKS_BACKPORT: ensure the UA counter-style sheet is loaded before
-    // dereferencing. decimalCounter() can be reached during list-marker layout
-    // before Style::UserAgentStyle::initDefaultStyleSheet() has run, leaving the
-    // map empty. That init parses counterStylesUserAgentStyleSheet and registers
-    // the real "decimal" @counter-style (and the rest). The call is idempotent,
-    // so trigger it once here and re-find.
-    if (iterator == userAgentCounters.end()) {
-        Style::UserAgentStyle::initDefaultStyleSheet();
-        iterator = userAgentCounters.find("decimal"_s);
-    }
 
     // user agent counter style should always be populated with a counter named decimal if counter-style-at-rule is enabled
     ASSERT(iterator != userAgentCounters.end());

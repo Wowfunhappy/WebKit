@@ -55,8 +55,8 @@ RefPtr<ThreadableWebSocketChannel> WebSocketProvider::createWebSocketChannel(Doc
 WebSocketProvider::~WebSocketProvider() = default;
 
 WebSocketProvider::WebSocketProvider(WebPageProxyIdentifier webPageProxyID)
-// MAVERICKS_BACKPORT: defer acquiring the NetworkProcess connection (m_networkProcessConnection stays null here) instead of eagerly ensuring it in the constructor; it is fetched lazily on first WebTransport use, avoiding a too-early connection bring-up on 10.9.
-    : m_webPageProxyID(webPageProxyID) { }
+    : m_webPageProxyID(webPageProxyID)
+    , m_networkProcessConnection(WebProcess::singleton().ensureNetworkProcessConnection().connection()) { }
 
 std::pair<RefPtr<WebCore::WebTransportSession>, Ref<WebTransportSessionPromise>> WebSocketProvider::initializeWebTransportSession(ScriptExecutionContext& context, WebTransportSessionClient& client, const URL& url, const WebCore::WebTransportOptions& options)
 {
@@ -64,25 +64,21 @@ std::pair<RefPtr<WebCore::WebTransportSession>, Ref<WebTransportSessionPromise>>
         ASSERT(!RunLoop::isMain());
         Ref workerSession = WorkerWebTransportSession::create(context.identifier(), client);
 
-        // MAVERICKS_BACKPORT: because m_networkProcessConnection is a nullable RefPtr that starts null (see constructor), getConnection returns RefPtr and the validity check tolerates null; on null/invalid we lazily establish it on the main thread, then releaseNonNull() once known good.
-        auto getConnection = [protectedThis = Ref { *this }]() -> RefPtr<IPC::Connection> {
+        auto getConnection = [protectedThis = Ref { *this }] {
             Locker locker { protectedThis->m_networkProcessConnectionLock };
-            return protectedThis->m_networkProcessConnection;
+            return protectedThis->m_networkProcessConnection.copyRef();
         };
-        // MAVERICKS_BACKPORT: connection is a nullable RefPtr that may start null, so guard for null before checking isValid().
-        RefPtr connection = getConnection();
-        if (!connection || !connection->isValid()) {
+        Ref connection = getConnection();
+        if (!connection->isValid()) {
             WorkQueue::mainSingleton().dispatchSync([protectedThis = Ref { *this }] {
                 ASSERT(RunLoop::isMain());
                 Locker locker { protectedThis->m_networkProcessConnectionLock };
-                // MAVERICKS_BACKPORT: lazily establish the connection on the main thread (m_networkProcessConnection is a nullable RefPtr), taking its address since it is now a pointer member.
-                protectedThis->m_networkProcessConnection = &WebProcess::singleton().ensureNetworkProcessConnection().connection();
+                protectedThis->m_networkProcessConnection = WebProcess::singleton().ensureNetworkProcessConnection().connection();
             });
             connection = getConnection();
         }
 
-        // MAVERICKS_BACKPORT: connection is now a (lazily-acquired) RefPtr, so releaseNonNull() once it is known-good.
-        auto [session, promise] = WebKit::WebTransportSession::initialize(connection.releaseNonNull(), workerSession, url, options, m_webPageProxyID, scope->clientOrigin());
+        auto [session, promise] = WebKit::WebTransportSession::initialize(WTF::move(connection), workerSession, url, options, m_webPageProxyID, scope->clientOrigin());
         workerSession->attachSession(session);
         return { WTF::move(workerSession), WTF::move(promise) };
     }

@@ -2174,8 +2174,7 @@ if (USE_ANGLE_EGL)
     )
 elseif (USE_LIBEPOXY)
     list(APPEND WebCore_LIBRARIES Epoxy::Epoxy)
-# MAVERICKS_BACKPORT: only link OpenGL::GLES when WebGL/WebGPU is enabled; otherwise (both off on 10.9) skip the GLES dependency entirely.
-elseif (ENABLE_WEBGL OR ENABLE_WEBGPU)
+else ()
     list(APPEND WebCore_LIBRARIES OpenGL::GLES)
 
     list(APPEND WebCore_SYSTEM_INCLUDE_DIRECTORIES

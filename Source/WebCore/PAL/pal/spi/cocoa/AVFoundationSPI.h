@@ -293,9 +293,10 @@ NS_ASSUME_NONNULL_END
 
 #if !USE(APPLE_INTERNAL_SDK)
 @class AVVideoPerformanceMetrics;
+@protocol WebAVVideoPerformanceMetrics; // MAVERICKS_BACKPORT: declared in full below; the accessors above return it.
 NS_ASSUME_NONNULL_BEGIN
 @interface AVPlayerLayer (AVPlayerLayerVideoPerformanceMetrics)
-- (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
+- (id<WebAVVideoPerformanceMetrics>)videoPerformanceMetrics; // MAVERICKS_BACKPORT: the public SDK marks the frame-count getters API_UNAVAILABLE(macos), so declare the accessor protocol as the return type.
 @end
 NS_ASSUME_NONNULL_END
 #endif
@@ -327,7 +328,7 @@ NS_ASSUME_NONNULL_END
 #import <AVFoundation/AVSampleBufferDisplayLayer.h>
 NS_ASSUME_NONNULL_BEGIN
 @interface AVSampleBufferDisplayLayer (VideoPerformanceMetrics)
-- (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
+- (id<WebAVVideoPerformanceMetrics>)videoPerformanceMetrics; // MAVERICKS_BACKPORT: the public SDK marks the frame-count getters API_UNAVAILABLE(macos), so declare the accessor protocol as the return type.
 @end
 NS_ASSUME_NONNULL_END
 #else
@@ -346,7 +347,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)isReadyForMoreMediaData;
 - (void)requestMediaDataWhenReadyOnQueue:(dispatch_queue_t)queue usingBlock:(void (^)(void))block;
 - (void)stopRequestingMediaData;
-- (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
+- (id<WebAVVideoPerformanceMetrics>)videoPerformanceMetrics; // MAVERICKS_BACKPORT: the public SDK marks the frame-count getters API_UNAVAILABLE(macos), so declare the accessor protocol as the return type.
 @end
 NS_ASSUME_NONNULL_END
 #endif // __has_include(<AVFoundation/AVSampleBufferDisplayLayer.h>)
@@ -392,7 +393,7 @@ NS_ASSUME_NONNULL_END
 #import <AVFoundation/AVSampleBufferVideoRenderer.h>
 NS_ASSUME_NONNULL_BEGIN
 @interface AVSampleBufferVideoRenderer (SPI)
-- (AVVideoPerformanceMetrics *)videoPerformanceMetrics;
+- (id<WebAVVideoPerformanceMetrics>)videoPerformanceMetrics; // MAVERICKS_BACKPORT: the public SDK marks the frame-count getters API_UNAVAILABLE(macos), so declare the accessor protocol as the return type.
 @property (nonatomic) BOOL preventsDisplaySleepDuringVideoPlayback;
 @property (nonatomic) BOOL preventsAutomaticBackgroundingDuringVideoPlayback;
 @end
@@ -539,18 +540,11 @@ NS_ASSUME_NONNULL_END
 @end
 #endif
 
-// MAVERICKS_BACKPORT: The WKSecureCoding category extends AVOutputContext, which only exists under
-// ENABLE(WIRELESS_PLAYBACK_TARGET), and its sole consumer (CoreIPCAVOutputContext.mm) is gated on
-// HAVE(WK_SECURE_CODING_AVOUTPUTCONTEXT). Guard it with the same macro so it isn't declared on
-// builds (e.g. 10.9, WIRELESS_PLAYBACK_TARGET off) where AVOutputContext is undefined.
-#if HAVE(WK_SECURE_CODING_AVOUTPUTCONTEXT)
 NS_ASSUME_NONNULL_BEGIN
 @interface AVOutputContext(WKSecureCoding)
 - (NSDictionary *)_webKitPropertyListData;
 - (instancetype)_initWithWebKitPropertyListData:(NSDictionary *)plist;
 @end
 NS_ASSUME_NONNULL_END
-// MAVERICKS_BACKPORT: close the HAVE(WK_SECURE_CODING_AVOUTPUTCONTEXT) guard around the category above.
-#endif
 
 #endif // !__has_feature(modules)

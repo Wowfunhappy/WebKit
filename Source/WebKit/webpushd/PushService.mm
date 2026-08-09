@@ -947,10 +947,8 @@ void PushService::didReceivePushMessage(NSString* topic, NSDictionary* userInfo,
     auto transaction = adoptOSObject(os_transaction_create("com.apple.webkit.webpushd.push-service.incoming-push"));
 
     auto messageResult = makeRawPushMessage(topic, userInfo);
-    // MAVERICKS_BACKPORT: nothing can deliver a message that will not parse, so release the
-    // push service's copy rather than leaving it to be replayed forever.
     if (!messageResult)
-        return acknowledgePushMessage(receipt, PushServiceConnection::PushMessageDisposition::NotDelivered);
+        return acknowledgePushMessage(receipt, PushServiceConnection::PushMessageDisposition::NotDelivered); // MAVERICKS_BACKPORT: a message that will not parse can never be delivered; release the service's copy instead of replaying it forever.
 
     // MAVERICKS_BACKPORT: threads the delivery receipt; see PushServiceConnection.
     m_database->getRecordByTopic(topic, [weakThis = WeakPtr { *this }, message = WTF::move(*messageResult), receipt, completionHandler = WTF::move(completionHandler), transaction = WTF::move(transaction)](auto&& recordResult) mutable {

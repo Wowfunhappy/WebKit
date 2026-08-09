@@ -29,15 +29,6 @@ DECLARE_SYSTEM_HEADER
 
 #include <CommonCrypto/CommonCrypto.h>
 
-// MAVERICKS_BACKPORT: CCStatus and CCKDFAlgorithm are not in 10.9 public headers.
-#ifndef CC_KDF_TYPES_DEFINED
-#define CC_KDF_TYPES_DEFINED 1
-typedef int32_t CCStatus;
-typedef uint32_t CCKDFAlgorithm;
-// CCKDFParametersRef is defined below in the !APPLE_INTERNAL_SDK block as
-// `struct CCKDFParameters *` - don't predefine to avoid conflict.
-#endif
-
 // FIXME: (rdar://167376052) Remove the `__has_feature(modules)` condition when possible.
 #if USE(APPLE_INTERNAL_SDK) && !__has_feature(modules)
 

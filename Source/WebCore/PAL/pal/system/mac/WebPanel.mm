@@ -35,9 +35,7 @@
 - (instancetype)init
 {
 ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    // MAVERICKS_BACKPORT: spell the utility-window bit as the classic NSUtilityWindowMask, which exists on 10.9,
-    // instead of the newer NSWindowStyleMaskUtilityWindow alias.
-    static NSUInteger styleMask = NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable | NSWindowStyleMaskTitled | NSSmallWindowMask | NSSideUtilityWindowMask | NSUtilityWindowMask;
+    static NSUInteger styleMask = NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable | NSWindowStyleMaskTitled | NSSmallWindowMask | NSSideUtilityWindowMask | NSWindowStyleMaskUtilityWindow;
 ALLOW_DEPRECATED_DECLARATIONS_END
 
     self = [super initWithContentRect:NSZeroRect styleMask:styleMask backing:NSBackingStoreBuffered defer:YES];

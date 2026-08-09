@@ -101,8 +101,7 @@ RefPtr<ImageDecoder> ImageDecoder::create(FragmentedSharedBuffer& data, const St
         }
 #else
         if (ImageDecoderAVFObjC::canDecodeType(mimeType))
-            // MAVERICKS_BACKPORT: GPU_PROCESS is off on 10.9, so this non-GPU branch is live and must pass the ProcessIdentity (current process) argument ImageDecoderAVFObjC::create requires.
-            return ImageDecoderAVFObjC::create(data, mimeType, alphaOption, gammaAndColorProfileOption, ProcessIdentity { ProcessIdentity::CurrentProcess });
+            return ImageDecoderAVFObjC::create(data, mimeType, alphaOption, gammaAndColorProfileOption);
 #endif
     }
 #endif

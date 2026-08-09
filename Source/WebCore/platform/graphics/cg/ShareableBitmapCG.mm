@@ -60,14 +60,7 @@ std::optional<DestinationColorSpace> ShareableBitmapConfiguration::validateColor
     if (auto colorSpaceAsRGB = colorSpace->asRGB())
         return colorSpaceAsRGB;
 
-    // MAVERICKS_BACKPORT: on 10.9 extended sRGB doesn't exist (the ENABLE flag is off and
-    // ExtendedSRGB() isn't compiled), so a non-RGB colorspace clamps to plain sRGB.
-#if ENABLE(DESTINATION_COLOR_SPACE_EXTENDED_SRGB)
     return DestinationColorSpace::ExtendedSRGB();
-#else
-    // MAVERICKS_BACKPORT: 10.9 has no extended sRGB; clamp non-RGB colorspaces to plain sRGB.
-    return DestinationColorSpace::SRGB();
-#endif
 }
 
 CheckedUint32 ShareableBitmapConfiguration::calculateBitsPerComponent(const DestinationColorSpace& colorSpace)

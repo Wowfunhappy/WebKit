@@ -36,7 +36,6 @@ namespace WebKit {
 
 WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkTransportStream);
 
-/* MAVERICKS_BACKPORT: upstream's !PLATFORM(COCOA) stub implementations. Kept commented, not deleted: WebTransport is gated off on this port, and these definitions would collide with the Cocoa ones that are built.
 #if !PLATFORM(COCOA)
 NetworkTransportStream::NetworkTransportStream()
     : m_identifier(WebCore::WebTransportStreamIdentifier::generate())
@@ -73,7 +72,5 @@ WebCore::WebTransportReceiveStreamStats NetworkTransportStream::getReceiveStream
 }
 
 #endif
-MAVERICKS_BACKPORT */
-// (end MAVERICKS_BACKPORT restored block: the whole #if !PLATFORM(COCOA) stub block is now commented out —
-//  on Cocoa NetworkTransportStreamCocoa.mm provides these definitions, so building the .cpp's too duplicated them)
+
 }

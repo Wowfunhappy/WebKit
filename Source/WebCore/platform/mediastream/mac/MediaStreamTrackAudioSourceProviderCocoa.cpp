@@ -28,10 +28,7 @@
 
 #if ENABLE(WEB_AUDIO) && ENABLE(MEDIA_STREAM)
 
-// MAVERICKS_BACKPORT: guard the LibWebRTC include behind USE(LIBWEBRTC); the 10.9 build uses the GStreamer WebRTC backend, so LibWebRTCAudioModule.h is absent.
-#if USE(LIBWEBRTC)
 #import "LibWebRTCAudioModule.h"
-#endif
 #import <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {

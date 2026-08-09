@@ -120,7 +120,7 @@ static constexpr auto timeoutForDNSResolution = 60_s;
 // MAVERICKS_BACKPORT: gate on the DEPLOYMENT TARGET (MIN_REQUIRED), not the SDK (MAX_ALLOWED).
 // The nw_endpoint_create_host / nw_resolver_* path is a 10.14+ runtime API; on the modern 26.1
 // SDK MAX_ALLOWED is always >= 101400, which would route the 10.9 deploy target through symbols
-// absent at runtime on Mavericks. MIN_REQUIRED is 101090 here, so we select the no-op fallback.
+// absent at runtime on Mavericks. MIN_REQUIRED is 1090 here, so we select the no-op fallback.
 #if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400
 void DNSResolveQueueCFNet::performDNSLookup(const String& hostname, Ref<CompletionHandlerWrapper>&& completionHandler)
 {

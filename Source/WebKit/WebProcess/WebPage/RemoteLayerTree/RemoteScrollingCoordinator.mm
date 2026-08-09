@@ -24,8 +24,6 @@
  */
 
 #import "config.h"
-// MAVERICKS_BACKPORT: wtf/Scope.h for makeScopeExit used by the deferred scheduleTreeStateCommit below.
-#import <wtf/Scope.h>
 #import "RemoteScrollingCoordinator.h"
 
 #if ENABLE(ASYNC_SCROLLING)
@@ -74,23 +72,8 @@ RemoteScrollingCoordinator::~RemoteScrollingCoordinator()
 
 void RemoteScrollingCoordinator::scheduleTreeStateCommit()
 {
-    // MAVERICKS_BACKPORT: when invoked synchronously from RenderLayer destruction
-    // during page-navigation render-tree teardown, the thread-local timer heap
-    // can be in a corrupt state, causing triggerRenderingUpdate to crash inside
-    // TimerBase::heapInsert. Defer via RunLoop::main().dispatch so the trigger
-    // runs on the next runloop turn outside of the destructor chain.
-    callOnMainThread([weakThis = ThreadSafeWeakPtr { *this }] {
-        RefPtr strongThis = weakThis.get();
-        if (!strongThis)
-            return;
-        RefPtr webPage = static_cast<RemoteScrollingCoordinator*>(strongThis.get())->m_webPage.get();
-        if (!webPage)
-            return;
-        auto drawingArea = webPage->drawingArea();
-        if (!drawingArea)
-            return;
-        protect(drawingArea)->triggerRenderingUpdate();
-    });
+    if (RefPtr webPage = m_webPage.get())
+        protect(webPage->drawingArea())->triggerRenderingUpdate();
 }
 
 bool RemoteScrollingCoordinator::coordinatesScrollingForFrameView(const LocalFrameView& frameView) const

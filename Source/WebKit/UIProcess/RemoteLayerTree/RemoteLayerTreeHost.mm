@@ -148,10 +148,6 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
 {
     if (!m_drawingArea)
         return false;
-    // MAVERICKS_BACKPORT: keep prior commit's destroyed CALayers alive through this
-    // commit so CA's insert_sublayer can safely dereference stale superlayer
-    // pointers. Drained at function end via local.
-    auto previousGraveyard = std::exchange(m_destroyedLayerGraveyard, { });
 
     RefPtr sender = AuxiliaryProcessProxy::fromConnection(connection);
     if (!sender) {
@@ -222,7 +218,7 @@ bool RemoteLayerTreeHost::updateLayerTree(const IPC::Connection& connection, con
             REMOTE_LAYER_TREE_HOST_RELEASE_LOG("%p RemoteLayerTreeHost::updateLayerTree - failed to find layer with ID %llu", this, layerID.object().toUInt64());
             continue;
         }
-        // MAVERICKS_BACKPORT: 10.9 build divergence (blank line removed here).
+
         if (properties.changedProperties.contains(LayerChange::ClonedContentsChanged) && properties.clonedLayerID)
             clonesToUpdate.append({ layerID, *properties.clonedLayerID });
 
@@ -287,11 +283,6 @@ void RemoteLayerTreeHost::layerWillBeRemoved(WebCore::ProcessIdentifier processI
     }
 
     if (auto node = m_nodes.take(layerID)) {
-        // MAVERICKS_BACKPORT: keep this layer alive until the next commit so any
-        // surviving children with a stale _superlayer pointer to it can be
-        // safely re-parented by CA's insert_sublayer (which dereferences the
-        // old parent to call remove_sublayer).
-        m_destroyedLayerGraveyard.append(node->layer());
 #if ENABLE(THREADED_ANIMATIONS)
         animationsWereRemovedFromNode(*node);
 #endif

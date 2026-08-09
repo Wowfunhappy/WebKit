@@ -38,6 +38,8 @@
 #include "DownloadProxy.h"
 #include "GPUProcessProxy.h"
 #include "LegacyGlobalSettings.h"
+// MAVERICKS_BACKPORT: WKContextGetCookieManager hands back the data store's cookie store.
+#include "APIHTTPCookieStore.h"
 #include "WKAPICast.h"
 #include "WKArray.h"
 #include "WKContextConfigurationRef.h"
@@ -426,17 +428,19 @@ WKResourceCacheManagerRef WKContextGetResourceCacheManager(WKContextRef context)
     return reinterpret_cast<WKResourceCacheManagerRef>(WKWebsiteDataStoreGetDefaultDataStore());
 }
 
-// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base; Safari 9.1.3
-// (TrackingDataController) still calls this. Modern WebKit replaces it with the
-// per-data-store WKHTTPCookieStore API. We return nullptr; Safari's
-// TrackingDataController null-checks the result and skips the optional
-// tracking-data feature when there is no cookie manager.
-WKCookieManagerRef WKContextGetCookieManager(WKContextRef)
+// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base. Safari 7's TrackingDataController
+// and its Privacy pane drive cookies through this manager; hand back the data store's cookie store, which
+// is what the modern WKHTTPCookieStore API wraps too (see WKCookieManager.cpp).
+WKCookieManagerRef WKContextGetCookieManager(WKContextRef contextRef)
 {
-    return nullptr;
+    if (!WebKit::toImpl(contextRef))
+        return nullptr;
+    // API::HTTPCookieStore names WKHTTPCookieStoreRef as its one API type, so reach the other opaque
+    // pointer over the same object directly; toImpl unwraps either spelling the same way.
+    return reinterpret_cast<WKCookieManagerRef>(WebKit::toAPI(&WebKit::WebsiteDataStore::defaultDataStore().cookieStore()));
 }
 
-// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base; Safari 9.1.3's
+// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base; Safari 7's
 // AppController applicationDidFinishLaunching: queries this. Modern WebKit dropped
 // per-context process suppression in favour of per-page activity throttling —
 // return false (suppression off).
@@ -445,7 +449,7 @@ bool WKContextGetProcessSuppressionEnabled(WKContextRef)
     return false;
 }
 
-// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base; Safari 9.1.3
+// MAVERICKS_BACKPORT: restored legacy WK2 C API symbol absent at base; Safari 7
 // toggles this around windowed/background tabs. Modern WebKit ignores it.
 void WKContextSetProcessSuppressionEnabled(WKContextRef, bool)
 {

@@ -219,8 +219,7 @@ if (NOT HAS_RUN_WEBKIT_COMMON)
         message(CHECK_FAIL "not found")
     endif ()
     if (NOT Ruby_EXECUTABLE)
-        # MAVERICKS_BACKPORT: downgrade the missing-Ruby FATAL_ERROR to a WARNING so the 10.9 build proceeds with the system Ruby.
-        message(WARNING "Ruby 2.5 or higher recommended.")
+        message(FATAL_ERROR "Ruby 2.5 or higher is required.")
     endif ()
 
     # -----------------------------------------------------------------------------

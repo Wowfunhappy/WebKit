@@ -89,10 +89,9 @@
 #import "WKFormInfoInternal.h"
 #import "WKFrameInfoInternal.h"
 #import "WKHistoryDelegatePrivate.h"
-// MAVERICKS_BACKPORT: Apple Intelligence text-effect coordinators are unavailable on 10.9; omit these imports (the corresponding call sites below are stubbed out).
-// #import "WKIntelligenceReplacementTextEffectCoordinator.h"
-// #import "WKIntelligenceSmartReplyTextEffectCoordinator.h"
-// #import "WKIntelligenceTextEffectCoordinator.h"
+#import "WKIntelligenceReplacementTextEffectCoordinator.h"
+#import "WKIntelligenceSmartReplyTextEffectCoordinator.h"
+#import "WKIntelligenceTextEffectCoordinator.h"
 #import "WKJSHandleInternal.h"
 #import "WKLayoutMode.h"
 #import "WKNSData.h"
@@ -111,10 +110,7 @@
 #import "WKTextExtractionUtilities.h"
 #import "WKUIDelegate.h"
 #import "WKUIDelegateInternal.h"
-// MAVERICKS_BACKPORT: scroll-edge-effect is an iOS-family feature; guard the import so it is not pulled into the macOS 10.9 build.
-#if PLATFORM(IOS_FAMILY)
 #import "WKUIScrollEdgeEffect.h"
-#endif
 #import "WKUserContentControllerInternal.h"
 #import "WKWebViewConfigurationInternal.h"
 #import "WKWebViewContentProvider.h"

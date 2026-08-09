@@ -23,19 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: Restored verbatim from upstream 83b24ce. WebKit references
-// WebCore::registerOpusDecoderIfNeeded()/registerVorbisDecoderIfNeeded()
-// unconditionally (AuxiliaryProcessProxyCocoa.mm), so these symbols must be
-// defined for PLATFORM(COCOA). They are guarded only by ENABLE(OPUS)/ENABLE(VORBIS)
-// (both ON here), NOT by HAVE(AUDIOFORMATPROPERTY_VARIABLEPACKET_SUPPORTED) (which is
-// OFF on the 10.9 deploy target), so the symbols resolve. The CoreAudio APIs used here
-// (AudioComponentFindNext/AudioComponentRegister, AudioFormatGetProperty,
-// kAudioFormatProperty_FormatList/FirstPlayableFormatFromList, kAudioFormatOpus/'vorb')
-// are all macOS 10.6/10.7+, so this restores unmodified. When AUDIOFORMATPROPERTY_
-// VARIABLEPACKET_SUPPORTED is OFF the file already takes the classic #else cookie path,
-// which is the 10.9-correct path. registerDecoderFactory() dlopens the system AudioCodecs
-// component and degrades gracefully (returns false → codec simply unsupported) if the
-// Opus/Vorbis factory symbols are not present on 10.9.
 #import "config.h"
 #import "WebMAudioUtilitiesCocoa.h"
 

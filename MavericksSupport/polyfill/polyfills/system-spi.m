@@ -8,6 +8,7 @@
 #include "wk_polyfill.h"
 
 #import <Foundation/Foundation.h>
+#import <CoreGraphics/CoreGraphics.h>
 #include <dlfcn.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
@@ -52,15 +53,22 @@ WK_POLYFILL_ABSENT("ApplicationServices", void, _AXSetClientIdentificationOverri
     (void)clientType;
 }
 
-// The secondary-accessibility-thread SPI (_AXUIElementRequestServicedBySecondaryAXThread,
-// _AXUIElementUseSecondaryAXThread) is NOT polyfilled, deliberately. It is absent from 10.9, but the
-// only code that names it is the isolated tree, which this port compiles out --
-// ENABLE(ACCESSIBILITY_ISOLATED_TREE) is 0 because every platform entry point the feature stands on
-// postdates this OS. The build reads that from the CMake option (Source/cmake/OptionsMac.cmake leaves
-// upstream's OFF default alone); PlatformEnableCocoa.h carries the same value for builds with no
-// cmakeconfig.h. Supplying answers for calls nothing makes would put entries in this layer whose
-// stated reason is a configuration the port does not run.
-// If the flag ever goes back to upstream's 1, these two come back with it.
+// The secondary-accessibility-thread SPI, absent from 10.9's HIServices and named as a direct extern by
+// the isolated tree (ENABLE(ACCESSIBILITY_ISOLATED_TREE) is on, matching PlatformEnableCocoa.h's Mac
+// value). 10.9 has no secondary accessibility thread: AXObjectCache::initializeAXThreadIfNeeded only
+// asks for one when libAccessibility's _AXSIsolatedTreeMode reports SecondaryThread, and that soft link
+// resolves through a dylib this OS does not ship, so accessibility requests all arrive on the main
+// thread. Both answers state exactly that.
+WK_POLYFILL_ABSENT("ApplicationServices", bool, _AXUIElementRequestServicedBySecondaryAXThread, (void))
+{
+    return false;
+}
+
+WK_POLYFILL_ABSENT("ApplicationServices", int, _AXUIElementUseSecondaryAXThread, (bool enabled))
+{
+    (void)enabled;
+    return -25200; // kAXErrorFailure
+}
 
 // _AXGetClientForCurrentRequestUntrusted reports which assistive client (VoiceOver, a test harness, ...) is
 // servicing the current accessibility request. Absent on 10.9 (postdates this OS) and referenced as a direct
@@ -2110,3 +2118,9 @@ WK_POLYFILL_ABSENT("Metal", void *, MTLCreateSystemDefaultDevice, (void))
 { return NULL; }
 WK_POLYFILL_ABSENT("Metal", CFArrayRef, MTLCopyAllDevices, (void))
 { return CFArrayCreate(kCFAllocatorDefault, NULL, 0, &kCFTypeArrayCallBacks); }
+
+// The display's Metal device, absent from 10.9 CoreGraphics along with Metal itself. nil is the same
+// "this display has no Metal device" answer MTLCreateSystemDefaultDevice gives, and ANGLE's
+// GetGPUInformation falls through to its CGL/IOKit path on it.
+WK_POLYFILL_ABSENT("CoreGraphics", id, CGDirectDisplayCopyCurrentMetalDevice, (CGDirectDisplayID displayID))
+{ (void)displayID; return nil; }

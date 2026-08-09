@@ -1932,12 +1932,10 @@ static id handleDisclosedByRowAttribute(WebAccessibilityObjectWrapper*, AXCoreOb
 
 static id handleStartTextMarkerAttribute(WebAccessibilityObjectWrapper* wrapper, AXCoreObject& backingObject)
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (AXObjectCache::useAXThreadTextApis()) {
         if (RefPtr tree = std::get<RefPtr<AXIsolatedTree>>(axTreeForID(backingObject.treeID())))
             return tree->firstMarker().platformData().bridgingAutorelease();
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
     return Accessibility::retrieveAutoreleasedValueFromMainThread<id>([protectedSelf = retainPtr(wrapper)] () -> RetainPtr<id> {
         RefPtr backingObject = downcast<AccessibilityObject>(protectedSelf.get().axBackingObject);
         if (!backingObject)
@@ -1951,12 +1949,10 @@ static id handleStartTextMarkerAttribute(WebAccessibilityObjectWrapper* wrapper,
 
 static id handleEndTextMarkerAttribute(WebAccessibilityObjectWrapper* wrapper, AXCoreObject& backingObject)
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (AXObjectCache::useAXThreadTextApis()) {
         if (RefPtr tree = std::get<RefPtr<AXIsolatedTree>>(axTreeForID(backingObject.treeID())))
             return tree->lastMarker().platformData().bridgingAutorelease();
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
     return Accessibility::retrieveAutoreleasedValueFromMainThread<id>([protectedSelf = retainPtr(wrapper)] () -> RetainPtr<id> {
         RefPtr backingObject = downcast<AccessibilityObject>(protectedSelf.get().axBackingObject);
         if (!backingObject)
@@ -3142,12 +3138,10 @@ ALLOW_DEPRECATED_IMPLEMENTATIONS_BEGIN
 #if PLATFORM(MAC)
 
     RetainPtr retainedValue = value;
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (AXObjectCache::useAXThreadTextApis()) {
         if (AXObjectIsTextMarkerRange(value))
             retainedValue = AXTextMarkerRange { (AXTextMarkerRangeRef)value }.convertToDomOffsetRange().platformData().bridgingAutorelease();
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
 
     // In case anything we do by changing values causes an alert or other modal
     // behaviors, we need to return now, so that VoiceOver doesn't hang indefinitely.
@@ -3340,7 +3334,6 @@ enum class TextUnit {
 
 - (AXTextMarkerRangeRef)textMarkerRangeAtTextMarker:(AXTextMarkerRef)textMarker forUnit:(TextUnit)textUnit
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (AXObjectCache::useAXThreadTextApis()) {
         AXTextMarker inputMarker { textMarker };
         switch (textUnit) {
@@ -3357,7 +3350,6 @@ enum class TextUnit {
             return nil;
         }
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
     return Accessibility::retrieveAutoreleasedValueFromMainThread<AXTextMarkerRangeRef>([textMarker = retainPtr(textMarker), &textUnit, protectedSelf = retainPtr(self)] () -> RetainPtr<AXTextMarkerRangeRef> {
         RefPtr backingObject = downcast<AccessibilityObject>(protectedSelf.get().axBackingObject);
         if (!backingObject)
@@ -3393,7 +3385,6 @@ enum class TextUnit {
 
 - (id)lineTextMarkerRangeForTextMarker:(AXTextMarkerRef)textMarker forUnit:(TextUnit)textUnit
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (AXObjectCache::useAXThreadTextApis()) {
         auto rangeType = LineRangeType::Current;
         switch (textUnit) {
@@ -3411,7 +3402,6 @@ enum class TextUnit {
         }
         return AXTextMarker { textMarker }.lineRange(rangeType).platformData().bridgingAutorelease();
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
 
     return (id)Accessibility::retrieveAutoreleasedValueFromMainThread<AXTextMarkerRangeRef>([textMarker = retainPtr(textMarker), &textUnit, protectedSelf = retainPtr(self)] () ->  RetainPtr<AXTextMarkerRangeRef> {
         RefPtr<AXCoreObject> backingObject = protectedSelf.get().axBackingObject;
@@ -3441,7 +3431,6 @@ enum class TextUnit {
 
 - (AXTextMarkerRef)textMarkerForTextMarker:(AXTextMarkerRef)textMarkerRef atUnit:(TextUnit)textUnit
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (AXObjectCache::useAXThreadTextApis()) {
         AXTextMarker inputMarker { textMarkerRef };
         switch (textUnit) {
@@ -3462,7 +3451,6 @@ enum class TextUnit {
             break;
         }
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
     return Accessibility::retrieveAutoreleasedValueFromMainThread<AXTextMarkerRef>([textMarkerRef = retainPtr(textMarkerRef), &textUnit, protectedSelf = retainPtr(self)] () -> RetainPtr<AXTextMarkerRef> {
         RefPtr backingObject = downcast<AccessibilityObject>(protectedSelf.get().axBackingObject);
         if (!backingObject)
@@ -3517,12 +3505,10 @@ static bool isMatchingPlugin(AXCoreObject& axObject, const AccessibilitySearchCr
 
 - (NSRect)computeTextBoundsForRange:(NSRange)range backingObject:(const AXCoreObject&)backingObject
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (!isMainThread()) {
         std::optional markerRange = Accessibility::markerRangeFrom(range, backingObject);
         return markerRange ? static_cast<CGRect>(markerRange->viewportRelativeFrame()) : CGRectZero;
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
 
     auto start = backingObject.visiblePositionForIndex(range.location);
     auto end = backingObject.visiblePositionForIndex(range.location + range.length);
@@ -3826,10 +3812,8 @@ static id handleTextMarkerIsValidAttribute(WebAccessibilityObjectWrapper*, AXCor
 static id handleIndexForTextMarkerAttribute(WebAccessibilityObjectWrapper*, AXCoreObject&, const ParameterizedAttributeContext& context)
 {
     auto marker = AXTextMarker { context.textMarker };
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (!isMainThread())
         return [NSNumber numberWithUnsignedInt:marker.offsetFromRoot()];
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
     if (!marker.isValid())
         return @(NSNotFound);
     long markerLocation = makeNSRange(AXTextMarkerRange { marker, marker }.simpleRange()).location;
@@ -3838,7 +3822,6 @@ static id handleIndexForTextMarkerAttribute(WebAccessibilityObjectWrapper*, AXCo
 
 static id handleTextMarkerForIndexAttribute(WebAccessibilityObjectWrapper* wrapper, AXCoreObject& backingObject, const ParameterizedAttributeContext& context)
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (AXObjectCache::useAXThreadTextApis()) {
         long index = [context.number longValue];
         if (index < 0)
@@ -3851,16 +3834,13 @@ static id handleTextMarkerForIndexAttribute(WebAccessibilityObjectWrapper* wrapp
         }
         return nil;
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
     return (id)[wrapper _textMarkerForIndex:[context.number integerValue]];
 }
 
 static id handleLineForTextMarkerAttribute(WebAccessibilityObjectWrapper* wrapper, AXCoreObject&, const ParameterizedAttributeContext& context)
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (!isMainThread())
         return @(AXTextMarker { context.textMarker }.lineIndex());
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
 
     RefPtr<AXCoreObject> backingObject = wrapper.axBackingObject;
     if (!backingObject)
@@ -3870,7 +3850,6 @@ static id handleLineForTextMarkerAttribute(WebAccessibilityObjectWrapper* wrappe
 
 static id handleTextMarkerRangeForLineAttribute(WebAccessibilityObjectWrapper* wrapper, AXCoreObject& backingObject, const ParameterizedAttributeContext& context)
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (AXObjectCache::useAXThreadTextApis()) {
         unsigned lineIndex = [context.number unsignedIntValue];
         if (!lineIndex)
@@ -3879,7 +3858,6 @@ static id handleTextMarkerRangeForLineAttribute(WebAccessibilityObjectWrapper* w
             return tree->firstMarker().markerRangeForLineIndex(lineIndex - 1).platformData().bridgingAutorelease();
         return nil;
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
 
     return Accessibility::retrieveAutoreleasedValueFromMainThread<id>([protectedNumber = context.number, protectedSelf = retainPtr(wrapper)] () -> RetainPtr<id> {
         RefPtr backingObject = downcast<AccessibilityObject>(protectedSelf.get().axBackingObject);
@@ -3917,7 +3895,6 @@ static id handleTextMarkerForPositionAttribute(WebAccessibilityObjectWrapper* wr
 
 static id handleBoundsForTextMarkerRangeAttribute(WebAccessibilityObjectWrapper* wrapper, AXCoreObject&, const ParameterizedAttributeContext& context)
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (!isMainThread()) {
         AXTextMarkerRange markerRange { context.textMarkerRange };
         if (!markerRange)
@@ -3925,7 +3902,6 @@ static id handleBoundsForTextMarkerRangeAttribute(WebAccessibilityObjectWrapper*
 
         return [NSValue valueWithRect:[wrapper convertRectToSpace:markerRange.viewportRelativeFrame() space:AccessibilityConversionSpace::Screen]];
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
 
     RefPtr<AXCoreObject> backingObject = wrapper.axBackingObject;
     if (!backingObject)
@@ -3961,12 +3937,10 @@ static id handleStringForRangeParameterizedAttribute(WebAccessibilityObjectWrapp
     if (backingObject.isTextControl())
         return backingObject.doAXStringForRange(context.range).createNSString().autorelease();
 
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (!isMainThread()) {
         std::optional markerRange = Accessibility::markerRangeFrom(context.range, backingObject);
         return markerRange ? markerRange->toString().createNSString().autorelease() : @"";
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
 
     RefPtr mainThreadBackingObject = downcast<AccessibilityObject>(wrapper.axBackingObject);
     if (!mainThreadBackingObject)
@@ -4004,12 +3978,10 @@ static id handleAttributedStringForTextMarkerRangeWithOptionsAttribute(WebAccess
 
 static id handleNextTextMarkerForTextMarkerAttribute(WebAccessibilityObjectWrapper* wrapper, AXCoreObject&, const ParameterizedAttributeContext& context)
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (AXObjectCache::useAXThreadTextApis()) {
         AXTextMarker inputMarker { context.textMarker };
         return inputMarker.findMarker(AXDirection::Next).platformData().bridgingAutorelease();
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
     return Accessibility::retrieveAutoreleasedValueFromMainThread<id>([textMarker = context.textMarker, protectedSelf = retainPtr(wrapper)] () -> RetainPtr<id> {
         RefPtr backingObject = downcast<AccessibilityObject>(protectedSelf.get().axBackingObject);
         CheckedPtr cache = backingObject ? backingObject->axObjectCache() : nullptr;
@@ -4020,12 +3992,10 @@ static id handleNextTextMarkerForTextMarkerAttribute(WebAccessibilityObjectWrapp
 
 static id handlePreviousTextMarkerForTextMarkerAttribute(WebAccessibilityObjectWrapper* wrapper, AXCoreObject&, const ParameterizedAttributeContext& context)
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (AXObjectCache::useAXThreadTextApis()) {
         AXTextMarker inputMarker { context.textMarker };
         return inputMarker.findMarker(AXDirection::Previous).platformData().bridgingAutorelease();
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
     return Accessibility::retrieveAutoreleasedValueFromMainThread<id>([textMarker = context.textMarker, protectedSelf = retainPtr(wrapper)] () -> RetainPtr<id> {
         RefPtr backingObject = downcast<AccessibilityObject>(protectedSelf.get().axBackingObject);
         CheckedPtr cache = backingObject ? backingObject->axObjectCache() : nullptr;
@@ -4076,23 +4046,19 @@ static id handlePreviousWordStartTextMarkerForTextMarkerAttribute(WebAccessibili
 
 static id handleNextLineEndTextMarkerForTextMarkerAttribute(WebAccessibilityObjectWrapper* wrapper, AXCoreObject&, const ParameterizedAttributeContext& context)
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (AXObjectCache::useAXThreadTextApis()) {
         AXTextMarker inputMarker { context.textMarker };
         return inputMarker.nextLineEnd().platformData().bridgingAutorelease();
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
     return (id)[wrapper textMarkerForTextMarker:context.textMarker atUnit:TextUnit::NextLineEnd];
 }
 
 static id handlePreviousLineStartTextMarkerForTextMarkerAttribute(WebAccessibilityObjectWrapper* wrapper, AXCoreObject&, const ParameterizedAttributeContext& context)
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (AXObjectCache::useAXThreadTextApis()) {
         AXTextMarker inputMarker { context.textMarker };
         return inputMarker.previousLineStart().platformData().bridgingAutorelease();
     }
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
     return (id)[wrapper textMarkerForTextMarker:context.textMarker atUnit:TextUnit::PreviousLineStart];
 }
 
@@ -4118,10 +4084,8 @@ static id handlePreviousParagraphStartTextMarkerForTextMarkerAttribute(WebAccess
 
 static id handleStyleTextMarkerRangeForTextMarkerAttribute(WebAccessibilityObjectWrapper* wrapper, AXCoreObject&, const ParameterizedAttributeContext& context)
 {
-#if ENABLE(ACCESSIBILITY_ISOLATED_TREE) // MAVERICKS_BACKPORT: ACCESSIBILITY_ISOLATED_TREE is off on this port; upstream leaves this isolated-tree block ungated
     if (AXObjectCache::useAXThreadTextApis())
         return AXTextMarker { context.textMarker }.rangeWithSameStyle().platformData().bridgingAutorelease();
-#endif // MAVERICKS_BACKPORT: end ACCESSIBILITY_ISOLATED_TREE gate (off on this port)
 
     return Accessibility::retrieveAutoreleasedValueFromMainThread<id>([textMarker = context.textMarker, protectedSelf = retainPtr(wrapper)] () -> RetainPtr<id> {
         RefPtr<AXCoreObject> backingObject = protectedSelf.get().axBackingObject;

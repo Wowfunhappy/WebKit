@@ -31,7 +31,7 @@
 #import <WebKit/_WKTextExtraction.h>
 #import <pal/spi/cocoa/WritingToolsSPI.h>
 
-#if 1 // MAVERICKS_BACKPORT: force-enable (was: #if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)) — the ObjC++-interop section is always compiled in this build
+#if !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
 
 #import "IdentifierTypes.h"
 #import "PDFPluginIdentifier.h"
@@ -105,7 +105,7 @@ NS_HEADER_AUDIT_BEGIN(nullability, sendability)
 #define WK_WEB_VIEW_PROTOCOLS
 #endif
 
-#if 1 // MAVERICKS_BACKPORT: force-enable (was: #if !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) — the ObjC++-interop section is always compiled in this build
+#if !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP
 
 #if USE(APPKIT)
 using CocoaEdgeInsets = NSEdgeInsets;
@@ -302,7 +302,7 @@ struct PerWebProcessState {
 
 #endif // !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP
 
-#if 1 // MAVERICKS_BACKPORT: force-enable (was: #if !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) — the ObjC++-interop section is always compiled in this build
+#if !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP
 
 @interface WKWebView () WK_WEB_VIEW_PROTOCOLS {
 
@@ -715,7 +715,7 @@ struct PerWebProcessState {
 - (void)_requestJSHandleForNodeIdentifier:(NSString *)nodeIdentifier searchText:(NSString *)searchText completionHandler:(void (^)(_WKJSHandle * _Nullable))completionHandler;
 - (void)_requestContainerJSHandleForNodeIdentifier:(NSString *)nodeIdentifier searchText:(NSString *)searchText completionHandler:(void (^)(_WKJSHandle * _Nullable))completionHandler;
 
-#if 1 // MAVERICKS_BACKPORT: force-enable (was: #if !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) — the ObjC++-interop section is always compiled in this build
+#if !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP
 
 - (void)_requestTextExtractionInternal:(nullable _WKTextExtractionConfiguration *)configuration completion:(CompletionHandler<void(std::optional<WebCore::TextExtraction::Result>&&)>&&)completion;
 
@@ -730,7 +730,7 @@ struct PerWebProcessState {
 
 @end
 
-#if 1 // MAVERICKS_BACKPORT: force-enable (was: #if !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) — the ObjC++-interop section is always compiled in this build
+#if !__has_feature(modules) || WK_SUPPORTS_SWIFT_OBJCXX_INTEROP
 
 RetainPtr<NSError> nsErrorFromExceptionDetails(const std::optional<WebCore::ExceptionDetails>&);
 

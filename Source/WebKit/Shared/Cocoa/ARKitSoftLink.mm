@@ -32,10 +32,9 @@
 
 SOFT_LINK_FRAMEWORK_FOR_SOURCE(WebKit, ARKit);
 
-// MAVERICKS_BACKPORT: the ARKit framework (ARQuickLookPreviewItem/ARSession/ARWorldTrackingConfiguration) is absent on macOS 10.9 — soft-link optionally so an absent class resolves to nil instead of failing at load
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, ARKit, ARQuickLookPreviewItem);
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, ARKit, ARSession);
-SOFT_LINK_CLASS_FOR_SOURCE_OPTIONAL(WebKit, ARKit, ARWorldTrackingConfiguration);
+SOFT_LINK_CLASS_FOR_SOURCE(WebKit, ARKit, ARQuickLookPreviewItem);
+SOFT_LINK_CLASS_FOR_SOURCE(WebKit, ARKit, ARSession);
+SOFT_LINK_CLASS_FOR_SOURCE(WebKit, ARKit, ARWorldTrackingConfiguration);
 
 SOFT_LINK_FUNCTION_FOR_SOURCE(WebKit, ARKit, ARMatrixMakeLookAt, simd_float4x4, (simd_float3 origin, simd_float3 direction), (origin, direction));
 

@@ -35,20 +35,6 @@ DECLARE_SYSTEM_HEADER
 
 #include <os/base.h>
 
-// MAVERICKS_BACKPORT: the 10.9 <os/base.h> predates these os/ helper macros, so provide fallback definitions for the os_state SPI declarations below to compile.
-#ifndef OS_EXPORT
-#define OS_EXPORT __attribute__((visibility("default")))
-#endif
-#ifndef OS_ENUM
-#define OS_ENUM(_name, _type, ...) typedef enum : _type { __VA_ARGS__ } _name; typedef _name _name##_t
-#endif
-#ifndef OS_NOT_TAIL_CALLED
-#define OS_NOT_TAIL_CALLED
-#endif
-#ifndef OS_NOTHROW
-#define OS_NOTHROW __attribute__((nothrow))
-#endif
-
 OS_ENUM(os_state_reason, uint32_t,
     OS_STATE_REASON_GENERAL          = 0x0001,
     OS_STATE_REASON_NETWORKING       = 0x0002,

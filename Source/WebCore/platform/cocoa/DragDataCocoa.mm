@@ -269,13 +269,8 @@ bool DragData::containsCompatibleContent(DraggingPurpose purpose) const
     if (purpose == DraggingPurpose::ForColorControl)
         return containsColor();
 
-#if ENABLE(ATTACHMENT_ELEMENT)
-    // MAVERICKS_BACKPORT: DeprecatedGlobalSettings::attachmentElementEnabled() is declared only under
-    // ENABLE(ATTACHMENT_ELEMENT), which is off in this build; upstream calls it unguarded.
     if (purpose == DraggingPurpose::ForEditing && DeprecatedGlobalSettings::attachmentElementEnabled() && containsFiles())
         return true;
-// MAVERICKS_BACKPORT: close the ENABLE(ATTACHMENT_ELEMENT) guard added above (off in this build).
-#endif
 
     auto context = createPasteboardContext();
     Vector<String> types;
