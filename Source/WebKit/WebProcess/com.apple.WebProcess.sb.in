@@ -1096,16 +1096,6 @@
 (deny mach-lookup (with no-report)
     (global-name "com.apple.audio.AudioComponentRegistrar"))
 
-;; MAVERICKS_BACKPORT: on 10.9 there is no GPU process to broker audio I/O, so the WebContent
-;; process must reach CoreAudio directly for <video>/<audio> output through GStreamer's osxaudiosink
-;; (and the camera assistant for getUserMedia capture). Stock Safari 7's WebProcess.sb granted these
-;; three; the modern profile dropped them assuming a GPU process. Without coreaudiod, osxaudiosink
-;; cannot open the output device, so video plays silently.
-(allow mach-lookup
-    (global-name "com.apple.audio.coreaudiod")
-    (global-name "com.apple.audio.audiohald")
-    (global-name "com.apple.audio.VDCAssistant"))
-
 ;; Caches for LaunchServices data needs to be able to mark the directory as 'hot'.
 (allow system-fsctl
     (fsctl-command (_IO "h" 47))) ;; See <rdar://74387453>

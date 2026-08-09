@@ -97,6 +97,16 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ENCRYPTED_MEDIA PRIVATE OFF)
 # See [[webkit-mavericks-multiprocess]].
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_GPU_PROCESS PRIVATE OFF)
 
+# MAVERICKS_BACKPORT: FALSE, following ENABLE_GPU_PROCESS above. PlatformEnableCocoa.h defines this 1
+# for every Cocoa port under `#if !defined(...)`, which upstream never contradicts because its Cocoa
+# ports all build the GPU process; defining it here preempts that. It selects the default value of the
+# "do X in the GPU process" preferences -- CaptureVideoInGPUProcessEnabled, WebRTCPlatformCodecsIn-
+# GPUProcessEnabled, UseGPUProcessForCanvasRenderingEnabled and friends -- and those defaults are read
+# outside `#if ENABLE(GPU_PROCESS)`: UserMediaProcessManager::willCreateMediaStream issues the camera
+# and microphone sandbox extensions to WebContent only when capture is NOT in the GPU process, so a
+# true here left a capturing WebContent with no camera extension to hold.
+SET_AND_EXPOSE_TO_BUILD(ENABLE_GPU_PROCESS_BY_DEFAULT FALSE)
+
 # MAVERICKS_BACKPORT: OFF — Web Inspector extensions are not part of the 10.9 drop-in scope.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_EXTENSIONS PRIVATE OFF)
 

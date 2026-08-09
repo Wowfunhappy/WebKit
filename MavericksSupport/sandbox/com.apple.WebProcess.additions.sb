@@ -5,8 +5,9 @@
 ; are evaluated in order with later ones winning, so these grants sit after the base profile's
 ; (deny default) exactly as if they had been written at its end.
 ;
-; Every rule below exists because a sandboxd denial proved the modern engine needs it, and every
-; one is a capability upstream's CURRENT profile also grants — this is the engine having moved on
+; Every rule below exists because a sandboxd denial proved the modern engine needs it, and every one
+; is a capability upstream's CURRENT profile grants the process that does the work — in this OS's
+; terms where it checks an operation modern macOS does not. This is the engine having moved on
 ; between 2015 and 615, not this port loosening anything. Nothing here is granted speculatively.
 ;
 ; NOT granted, because the denials turned out to be correct and nothing is lost by denying them.
@@ -36,3 +37,53 @@
 ;; "WebKitInProcessStorage-<pid>", so this is the same grant under the current name.
 (allow ipc-posix-shm-read-data
     (ipc-posix-name-regex #"^WebKitInProcessStorage-"))
+
+;; Media capture, camera access. Upstream grants this to whichever process captures, for as long as
+;; it holds the "com.apple.webkit.camera" extension the UI process issues per capture session
+;; (GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in). That process is the GPU process; this port has
+;; none, so getUserMedia captures in WebContent and the same gated grant belongs here. Each rule
+;; carries the extension in a require-all.
+;;
+;; A camera reaches WebKit through CoreMediaIO's DAL plug-ins, which talk to a per-plug-in assistant
+;; daemon rather than to the device: VDC for USB video-class cameras, AVC for FireWire, IIDCVideo for
+;; IIDC, AppleCamera for built-in ISP cameras. launchd starts one on demand, so reaching it costs a
+;; job-creation as well as the mach-lookup; the literals are the four daemons behind the four services
+;; above, spelled as the kernel resolves them. file-read* covers the whole DAL directory, which
+;; CoreMediaIO scans and loads its plug-ins from.
+(allow mach-lookup
+    (require-all
+        (extension "com.apple.webkit.camera")
+        (require-any
+            (global-name "com.apple.cmio.VDCAssistant")
+            (global-name "com.apple.cmio.AVCAssistant")
+            (global-name "com.apple.cmio.IIDCVideoAssistant")
+            (global-name "com.apple.cmio.AppleCameraAssistant"))))
+
+(allow job-creation
+    (require-all
+        (extension "com.apple.webkit.camera")
+        (require-any
+            (literal "/System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/VDC.plugin/Contents/Resources/VDCAssistant")
+            (literal "/System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/AVC.plugin/Contents/Resources/AVCAssistant")
+            (literal "/System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/IIDC.plugin/Contents/Resources/IIDCVideoAssistant")
+            (literal "/Library/CoreMediaIO/Plug-Ins/DAL/AppleCamera.plugin/Contents/Resources/AppleCameraAssistant"))))
+
+(allow file-read*
+    (require-all
+        (extension "com.apple.webkit.camera")
+        (subpath "/Library/CoreMediaIO/Plug-Ins/DAL")))
+
+(allow device-camera
+    (extension "com.apple.webkit.camera"))
+
+;; Microphone. Upstream's GPU process carries the same grant gated on the "com.apple.webkit.microphone"
+;; extension (GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in); that gate cannot function on this OS:
+;; coreaudiod here evaluates a client's device-microphone access once, when the client first registers,
+;; and holds that answer for the life of the HAL connection — a later sandbox_extension_consume flips
+;; sandbox_check to allowed yet the HAL keeps serving an input-less device list (measured both orderings,
+;; and AudioHardwareUnload does not reset it). WebContent always registers with the HAL before any
+;; capture grant exists, because pages play audio. So the grant is static, as it is on the WebContent-
+;; capturing ports (GTK/WPE, where the sandbox grants the audio socket statically); user consent is the
+;; getUserMedia permission prompt, which those ports rely on for the same reason. The audio mach-lookups
+;; (com.apple.audio.coreaudiod, com.apple.audio.audiohald) are in the base profile ungated.
+(allow device-microphone)
