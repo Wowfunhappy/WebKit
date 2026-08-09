@@ -14,7 +14,9 @@ Backport modern WebKit (currently 615.1.1) to run on macOS 10.9.5 Mavericks unde
 
 **Never stop to ask a question, and never sit idle.** The user is frequently away for many hours. Pick the most-correct option and execute; the user will correct course if needed. A genuine architectural fork, a real effort/risk tradeoff, and a "maintainer's judgment call" are all still not licenses to ask.
 
-**Never stop mid-task to report progress.** On a multi-part or multi-batch goal, drive the whole thing to completion — commit each unit as you finish it, immediately start the next, pipeline the next batch's edits while a build runs. The only acceptable stop is: every listed item fixed and verified, or a genuine input-only blocker the user alone can resolve. A hard bug is neither.
+**Never stop mid-task to report progress.** On a multi-part or multi-batch goal, drive the whole thing to completion — commit each unit as you finish it, immediately start the next, pipeline the next batch's edits while a build runs. The only acceptable stop is: every listed item fixed and verified. A hard bug is not a stop.
+
+**Waiting for the user is NEVER correct. There is no exception, in any circumstance.** It is not a status, a state, or a fallback — it does not exist. You do not stop for permission, a decision, a preference, a confirmation, an adjudication, or because a change is someone else's. "Blocked on the user", "needs your call", "yours to resolve", "I'll leave that to you" are all the same failure. If two courses are defensible, take the more correct one and execute; being wrong and corrected is always better than waiting and being right. Anything you could have fixed and instead handed back is the failure — the report does not redeem it. Report what you DID, never what you are waiting on.
 
 **"Impossible / platform limitation / systemic / architectural fork / needs a huge subsystem" is never a reason to stop.** That conclusion is almost always a wrong dead-end from incomplete investigation. Sanity-check it against known facts — if a feature demonstrably shipped and worked, your "it fundamentally requires X" premise is false. Keep digging until you actually understand it.
 
@@ -27,6 +29,9 @@ Backport modern WebKit (currently 615.1.1) to run on macOS 10.9.5 Mavericks unde
 - "It's only a comment / cosmetic." A marker's premise is its justification; a false premise misleads the next reader.
 - "It would force a rebuild / cost 40 minutes / need a re-review." The moment you start computing whether a fix is worth its process cost, that computation is the tell.
 - "Say the word if you want that closed too" / "want me to…?" Naming a known-broken behavior and offering to fix it is the same deferral. The only sentence allowed after naming a gap is that you are already fixing it.
+- **"It's someone else's uncommitted work / the user is mid-investigation / a note says it's intentional."** Authorship exempts nothing. A note that a working-tree change is *intentional* describes someone's intent, not its correctness — it never exempts that change from the build, the gates, the reviewer, or the no-hacks rule. Debug scaffolding that alters upstream control flow, fails to compile from scratch, or fails `check-backport-markers.sh` is broken code in your tree, and you fix it like any other. If that means reverting hunks you did not write, revert them and say so plainly in your report.
+
+A red gate, a broken build, or work you are calling uncommittable is never something you report and leave — it is something you fix, now, whoever wrote the cause. Attributing it to someone else's files looks like diligence and is the same deferral. Where a fix would destroy work, preserve it first (save the hunks to a patch and name the path) and then make the tree correct anyway.
 
 **Never attribute a scope decision to the user that he did not make.** If narrowing was your idea, own it as yours. Re-read what he actually wrote before writing "you said/wanted/asked for X".
 
