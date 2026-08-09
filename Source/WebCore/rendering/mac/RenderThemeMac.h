@@ -25,13 +25,7 @@
 
 #if PLATFORM(MAC)
 
-// MAVERICKS_BACKPORT: prefer the in-tree relative path to RenderThemeCocoa.h, falling
-// back to the framework-style include when it is not reachable in the build's header map.
-#if __has_include("rendering/cocoa/RenderThemeCocoa.h")
-#include "rendering/cocoa/RenderThemeCocoa.h"
-#else
-#include <WebCore/RenderThemeCocoa.h>
-#endif
+#import <WebCore/RenderThemeCocoa.h>
 
 OBJC_CLASS NSPopUpButtonCell;
 OBJC_CLASS WebCoreRenderThemeNotificationObserver;

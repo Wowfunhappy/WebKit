@@ -235,8 +235,6 @@ set(MAVERICKS_WITHHELD_COCOA_SOURCES
     "platform/ios/PlaybackSessionInterfaceAVKitLegacy.mm @nonARC @no-unify"
     "platform/ios/PlaybackSessionInterfaceIOS.mm @nonARC @no-unify"
     "platform/ios/WebAVPlayerController.mm @nonARC"
-    "rendering/cocoa/RenderThemeCocoa.mm @nonARC"
-    "rendering/ios/RenderThemeIOS.mm @nonARC"
     "platform/mediastream/mac/RealtimeMediaSourceCenterMac.cpp"
 )
 
@@ -294,8 +292,6 @@ set(MAVERICKS_ADDED_COCOA_SOURCES
     "platform/image-decoders/webp/WEBPImageDecoder.cpp"
     "platform/mac/WebCoreView.mm @nonARC"
     "platform/mediastream/libwebrtc/WebRTCCodecStubs109.mm @nonARC @no-unify"
-    "rendering/cocoa/RenderThemeCocoa.mm @nonARC @no-unify"
-    "rendering/ios/RenderThemeIOS.mm @nonARC @no-unify"
     "platform/graphics/cocoa/ANGLEUtilitiesCocoa.mm @nonARC @no-unify"
 )
 

@@ -508,9 +508,7 @@ private:
 
 } // namespace WebCore
 
-// MAVERICKS_BACKPORT: guard against a circular include — skip pulling in the platform
-// theme when this header is reached via the RenderThemeCocoa.h → RenderTheme.h chain.
-#if PLATFORM(MAC) && !defined(RENDERTHEMECOCOA_BEING_INCLUDED)
+#if PLATFORM(MAC)
 #include <WebCore/RenderThemeMac.h>
 #elif PLATFORM(IOS_FAMILY)
 #include <WebCore/RenderThemeIOS.h>
