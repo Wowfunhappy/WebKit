@@ -145,12 +145,14 @@ WK_POLYFILL_ABSENT("CoreVideo", CFDictionaryRef, CVBufferCopyAttachments, (CVBuf
 }
 
 // CGPathAddUnevenCornersRoundedRect is macOS 10.13+. It appends a closed rounded-rect subpath whose four
-// corners may each have their own radii, in CoreGraphics' corner order: [0] bottom-left, [1] bottom-right,
-// [2] top-right, [3] top-left (PathCG.cpp fills the array in exactly that order). Built from four
-// elliptical quadrants joined by straight edges, following CGPathAddRoundedRect's own seam: start at the
-// midpoint of the right edge, run counter-clockwise, and close from the bottom-right quadrant's end back
-// up to the start, so a path built with it strokes (dash phase included) and fills identically. The
-// transform is applied by CoreGraphics to every element, as it is for CGPathAddRoundedRect.
+// corners may each have their own radii, in the order [0] bottom-left, [1] bottom-right, [2] top-right,
+// [3] top-left, where "top" is the rect's minY edge in the caller's y-down space: PathCG.cpp fills the
+// array in exactly that order, and upstream's software equivalent (PathImpl::beziersForRoundedRect)
+// applies topLeftRadius at (x, y) and bottomLeftRadius at (x, maxY). Built from four elliptical quadrants
+// joined by straight edges, following CGPathAddRoundedRect's own seam: start at the midpoint of the right
+// edge and close from the last quadrant's end back to the start, so a path built with it strokes (dash
+// phase included) and fills identically. The transform is applied by CoreGraphics to every element, as it
+// is for CGPathAddRoundedRect.
 #define WK_KAPPA 0.5522847498307933
 
 WK_POLYFILL_ABSENT("CoreGraphics", void, CGPathAddUnevenCornersRoundedRect,
@@ -193,18 +195,18 @@ WK_POLYFILL_ABSENT("CoreGraphics", void, CGPathAddUnevenCornersRoundedRect,
     }
 
     CGPathMoveToPoint(path, transform, maxX, minY + h / 2);
-    CGPathAddLineToPoint(path, transform, maxX, maxY - trh);
-    CGPathAddCurveToPoint(path, transform, maxX, maxY - trh + trh * WK_KAPPA,
-        maxX - trw + trw * WK_KAPPA, maxY, maxX - trw, maxY);
-    CGPathAddLineToPoint(path, transform, minX + tlw, maxY);
-    CGPathAddCurveToPoint(path, transform, minX + tlw - tlw * WK_KAPPA, maxY,
-        minX, maxY - tlh + tlh * WK_KAPPA, minX, maxY - tlh);
-    CGPathAddLineToPoint(path, transform, minX, minY + blh);
-    CGPathAddCurveToPoint(path, transform, minX, minY + blh - blh * WK_KAPPA,
-        minX + blw - blw * WK_KAPPA, minY, minX + blw, minY);
-    CGPathAddLineToPoint(path, transform, maxX - brw, minY);
-    CGPathAddCurveToPoint(path, transform, maxX - brw + brw * WK_KAPPA, minY,
-        maxX, minY + brh - brh * WK_KAPPA, maxX, minY + brh);
+    CGPathAddLineToPoint(path, transform, maxX, maxY - brh);
+    CGPathAddCurveToPoint(path, transform, maxX, maxY - brh + brh * WK_KAPPA,
+        maxX - brw + brw * WK_KAPPA, maxY, maxX - brw, maxY);
+    CGPathAddLineToPoint(path, transform, minX + blw, maxY);
+    CGPathAddCurveToPoint(path, transform, minX + blw - blw * WK_KAPPA, maxY,
+        minX, maxY - blh + blh * WK_KAPPA, minX, maxY - blh);
+    CGPathAddLineToPoint(path, transform, minX, minY + tlh);
+    CGPathAddCurveToPoint(path, transform, minX, minY + tlh - tlh * WK_KAPPA,
+        minX + tlw - tlw * WK_KAPPA, minY, minX + tlw, minY);
+    CGPathAddLineToPoint(path, transform, maxX - trw, minY);
+    CGPathAddCurveToPoint(path, transform, maxX - trw + trw * WK_KAPPA, minY,
+        maxX, minY + trh - trh * WK_KAPPA, maxX, minY + trh);
     CGPathCloseSubpath(path);
 }
 
