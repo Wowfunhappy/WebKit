@@ -1129,8 +1129,14 @@ WK_POLYFILL_ABSENT("CoreText", bool, CTFontHasTable, (CTFontRef font, CTFontTabl
 // count, and returns the run's initial advance.
 //
 // 10.9 has no such entry point, but it CAN shape — CTTypesetter/CTLine do it, which is measurable:
-// with kCTLigatureAttributeName 2, Hoefler Text and Zapfino turn the two characters "fi" into ONE
-// glyph on this host. This shapes over CTLine on that basis.
+// at CTLine's default ligature level, Hoefler Text turns the two characters "fi" into ONE glyph on
+// this host. This shapes over CTLine on that basis, at that default level: standard ligatures only,
+// the same level upstream's own CTLine use (SimpleFontDataCoreText.cpp getCFStringAttributes, consumed
+// by the complex text path) shapes and measures with, so both paths agree on advances. Raising
+// kCTLigatureAttributeName to 2 turns on each font's RARE-ligatures feature — Courier/Menlo/Monaco
+// keep ff/fi/fl there, off by default — which the real CTFontShapeGlyphs never does, and which makes
+// painted text (shaped here) disagree with caret metrics (measured by the complex path): the visible
+// symptom is a caret that cannot cross a ligated pair in a monospace textarea.
 //
 // THE ONE THING CTLine DOES THAT THIS API MUST NOT: font fallback. CTFontShapeGlyphs shapes with the
 // font it is given, and its caller renders the resulting glyph IDs with that same font; a glyph ID
@@ -1158,13 +1164,11 @@ static bool wk_ctline_shape(CTFontRef font, const UniChar *chars, CFIndex count,
     CFStringRef string = CFStringCreateWithCharacters(kCFAllocatorDefault, chars, count);
     if (!string)
         return false;
-    int ligature = 2, kern = 0;
-    CFNumberRef ligNum = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &ligature);
+    int kern = 0;
     CFNumberRef kernZero = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &kern);
-    CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(kCFAllocatorDefault, 3,
+    CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(kCFAllocatorDefault, 2,
         &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     CFDictionarySetValue(attrs, kCTFontAttributeName, font);
-    CFDictionarySetValue(attrs, kCTLigatureAttributeName, ligNum);
     if (!(options & WK_CTFONT_SHAPE_WITH_KERNING))
         CFDictionarySetValue(attrs, kCTKernAttributeName, kernZero);
     CFAttributedStringRef attributed = CFAttributedStringCreate(kCFAllocatorDefault, string, attrs);
@@ -1188,7 +1192,7 @@ static bool wk_ctline_shape(CTFontRef font, const UniChar *chars, CFIndex count,
         CFRelease(line);
     }
     if (attributed) CFRelease(attributed);
-    CFRelease(attrs); CFRelease(kernZero); CFRelease(ligNum); CFRelease(string);
+    CFRelease(attrs); CFRelease(kernZero); CFRelease(string);
     return ok;
 }
 
