@@ -32,6 +32,9 @@
 #include "WebPreferences.h"
 #include <WebCore/Settings.h>
 #include <wtf/RefPtr.h>
+#if PLATFORM(COCOA)
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h> // MAVERICKS_BACKPORT: isSafari() gate in WKPreferencesSetPrivateBrowsingEnabled (#55/#122).
+#endif
 
 using namespace WebKit;
 
@@ -1885,7 +1888,14 @@ bool WKPreferencesGetStorageAccessAPIEnabled(WKPreferencesRef)
 void WKPreferencesSetPrivateBrowsingEnabled(WKPreferencesRef preferencesRef, bool enabled)
 {
     // MAVERICKS_BACKPORT: Safari 7's global Private Browsing toggle. Backed by a real flag that drives each
-    // page onto a shared ephemeral WebsiteDataStore (#55).
+    // page onto a shared ephemeral WebsiteDataStore (#55). Honored for the frozen Safari host ONLY —
+    // every other C-API embedder keeps upstream's behavior of ignoring the call. QuickLook's
+    // Web2.qldisplay sets this on every web preview, and an ephemeral store there puts previews on an
+    // empty cookie jar, logged out of every site the user is logged into in Safari (#122).
+#if PLATFORM(COCOA)
+    if (!WTF::MacApplication::isSafari())
+        return;
+#endif
     protect(toImpl(preferencesRef))->setPrivateBrowsingEnabled(enabled);
 }
 
