@@ -315,6 +315,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidDeminiaturizeNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidBecomeKeyNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidResignKeyNotification object:nil];
+    [[[NSWorkspace sharedWorkspace] notificationCenter] removeObserver:self name:NSWorkspaceActiveSpaceDidChangeNotification object:nil];
     // MAVERICKS_BACKPORT: give the WebContent pid's remote-UI registration back before the view
     // that owned it goes away (the matching half of the registration made when its token arrived).
     [self _mavericksUpdateRemoteAccessibilityRegistration:NO];
@@ -1229,6 +1230,15 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeKeyState:) name:NSWindowDidBecomeKeyNotification object:nil];
     [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeKeyState:) name:NSWindowDidResignKeyNotification object:nil];
 
+    // MAVERICKS_BACKPORT: recompute IsVisible when the active Space changes, mirroring upstream
+    // WKWindowVisibilityObserver's NSWorkspaceActiveSpaceDidChangeNotification registration —
+    // [NSWindow isVisible] stays YES for a window on an inactive Space, so without this a page on
+    // another Space keeps running at full speed. MinimalPageClient::isActiveViewVisible consults
+    // [window isOnActiveSpace] under the same recompute.
+    NSNotificationCenter *workspaceCenter = [[NSWorkspace sharedWorkspace] notificationCenter];
+    [workspaceCenter removeObserver:self name:NSWorkspaceActiveSpaceDidChangeNotification object:nil];
+    [workspaceCenter addObserver:self selector:@selector(_wk_activeSpaceDidChange:) name:NSWorkspaceActiveSpaceDidChangeNotification object:nil];
+
     OptionSet<WebCore::ActivityState> flags;
     // MAVERICKS_BACKPORT: while Safari is deferring view-in-window changes
     // (-beginDeferringViewInWindowChanges), the IsInWindow push is suppressed and recorded so
@@ -1415,6 +1425,16 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 - (void)_wk_windowDidChangeMiniaturization:(NSNotification *)notification
 {
     // MAVERICKS_BACKPORT: miniaturize/deminiaturize — refresh IsVisible on the page.
+    UNUSED_PARAM(notification);
+    if (!_wkState || !_wkState->page)
+        return;
+    _wkState->page->activityStateDidChange(WebCore::ActivityState::IsVisible);
+}
+
+// MAVERICKS_BACKPORT: the active Space changed — recompute IsVisible, mirroring
+// WebViewImpl::activeSpaceDidChange.
+- (void)_wk_activeSpaceDidChange:(NSNotification *)notification
+{
     UNUSED_PARAM(notification);
     if (!_wkState || !_wkState->page)
         return;

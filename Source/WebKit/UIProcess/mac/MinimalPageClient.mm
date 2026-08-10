@@ -806,12 +806,11 @@ CocoaWindow *MinimalPageClient::platformWindow() const
 
 bool MinimalPageClient::isActiveViewVisible()
 {
-    // Window-level visibility, exactly like isVisuallyIdle() below (and for the same reason): the
-    // BrowserWKView's own isHidden flag toggles spuriously while content composites through its
-    // layer-hosting sublayer, so consulting the view's flag latches IsVisible=0 at whichever
-    // recompute happens to run while it flickers — Safari's typed-URL navigation then leaves the
-    // page in prerender mode forever (blank tab). A hidden ANCESTOR (an unselected tab's
-    // container) and window-level state are the reliable signals.
+    // MAVERICKS_BACKPORT: mirrors upstream PageClientImpl::isViewVisible — window presence,
+    // window visibility, then the view's own hidden-ancestor chain. The view's own isHidden
+    // matters here: Safari hides the BrowserWKView itself (not an ancestor) behind the Reader
+    // view, and -viewDidHide/-viewDidUnhide forwarding recomputes activity state on every
+    // toggle, so the flag is authoritative.
     if (!m_view)
         return false;
     NSWindow *window = [m_view window];
@@ -819,7 +818,14 @@ bool MinimalPageClient::isActiveViewVisible()
         return false;
     if (![window isVisible])
         return false;
-    if ([[m_view superview] isHiddenOrHasHiddenAncestor])
+    // Upstream folds inactive-Space windows into its occlusion check; occlusion state is not
+    // consulted on 10.9 (see isVisuallyIdle below), so the Space membership is read directly.
+    // [NSWindow isVisible] stays YES for a window on an inactive Space; the
+    // NSWorkspaceActiveSpaceDidChangeNotification observer in WKViewMavericks recomputes this
+    // on every Space change.
+    if (![window isOnActiveSpace])
+        return false;
+    if ([m_view isHiddenOrHasHiddenAncestor])
         return false;
     return true;
 }
@@ -831,7 +837,10 @@ bool MinimalPageClient::isMainViewVisible()
 
 bool MinimalPageClient::isViewVisibleOrOccluded()
 {
-    return isActiveViewVisible();
+    // MAVERICKS_BACKPORT: upstream truth table (PageClientImpl::isViewVisibleOrOccluded) — window
+    // visibility alone; an occluded window, an inactive-Space window, and a hidden view inside a
+    // visible window all count as visible-or-occluded.
+    return m_view && [[m_view window] isVisible];
 }
 
 bool MinimalPageClient::isViewInWindow()
@@ -841,27 +850,13 @@ bool MinimalPageClient::isViewInWindow()
 
 bool MinimalPageClient::isVisuallyIdle()
 {
-    // The page is "visually idle" (eligible for DOM-timer throttling) only when the user genuinely
-    // can't see it. Determine that from window-level state, NOT from the WKView's own isHidden flag:
-    // on this backport the BrowserWKView's isHidden toggles spuriously while content composites through
-    // its layer-hosting sublayer (and WKView never forwards -viewDidHide, so the activity state would go
-    // stale), so keying visual-idle off it pins EVERY page's DOM timers to the 1s hidden-page alignment.
-    // A genuinely-not-on-screen window (miniaturized/ordered-out) or a hidden ANCESTOR (an unselected
-    // tab's container) are reliable signals; the per-view isHidden flag is not.
-    if (!m_view)
-        return true;
-    NSWindow *window = [m_view window];
-    if (!window)
-        return true;
+    // MAVERICKS_BACKPORT: the page is visually idle (eligible for DOM-timer throttling) when the
+    // view is not visible, per isActiveViewVisible()'s window + own-hidden-chain rules.
     // Deliberately NOT consulting window.occlusionState: on 10.9 its Visible bit lags (0x2000 -> 0x2002)
     // and the change does not reliably post NSWindowDidChangeOcclusionStateNotification, so an early
     // "occluded" reading gets latched and never recomputed — re-pinning timers to the 1s alignment
     // forever. window.isVisible is stable and is YES at every activity-state recompute for a shown window.
-    if (![window isVisible])
-        return true;
-    if ([[m_view superview] isHiddenOrHasHiddenAncestor])
-        return true;
-    return false;
+    return !isActiveViewVisible();
 }
 
 bool MinimalPageClient::canTakeForegroundAssertions()
