@@ -1,0 +1,34 @@
+# MAVERICKS_BACKPORT: vtdec's static sink template advertises VP9 and AV1, and the
+# template is what the registry serves to capability queries -- WebKit's
+# GStreamerRegistryScanner answers MediaSource.isTypeSupported, canPlayType and
+# MediaCapabilities from it. 10.9's VideoToolbox has no VP9 or AV1 decoder on any
+# hardware (the supplemental-decoder mechanism vtdec gates them on is macOS 11+;
+# VTIsHardwareDecodeSupported itself is 10.13+ and the gap-archive definition probes a
+# RequireHardware session, so it answers false for both on every 10.9 machine), and
+# vtdec's own getcaps strips both before negotiation. With the template claiming what
+# getcaps then denies, the scanner reports decoders that can never instantiate: sites
+# offered AV1 on the strength of that answer stream video no element here decodes.
+# Removing the two entries from the template makes the registry agree with getcaps.
+# H.264/H.265/MPEG-2/JPEG/ProRes stay: those go through the per-codec RequireHardware
+# session probe (gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch) or plain vtdec's
+# software session, which 10.9's VideoToolbox does provide.
+#
+# Applied by build_deps with patch -p1.
+--- a/sys/applemedia/vtdec.c	2026-08-09 23:19:04.000000000 -0400
++++ b/sys/applemedia/vtdec.c	2026-08-09 23:19:06.000000000 -0400
+@@ -221,14 +221,10 @@
+         " width=(int)[8, MAX], height=(int)[8, MAX];"
+         "video/x-h265, stream-format=(string){ hev1, hvc1 }, alignment=au,"
+         " width=(int)[16, MAX], height=(int)[16, MAX];"
+-        "video/x-av1, stream-format=obu-stream, alignment=(string){ tu, frame }, "
+-        "width=(int)[64, MAX], height=(int)[64, MAX];"
+         "video/mpeg, mpegversion=2, systemstream=false, parsed=true;"
+         "image/jpeg;"
+         "video/x-prores, variant = { (string)standard, (string)hq, (string)lt,"
+-        " (string)proxy, (string)4444, (string)4444xq };"
+-        "video/x-vp9, profile=(string){ 0, 2 }, "
+-        " width=(int)[64, MAX], height=(int)[64, MAX];")
++        " (string)proxy, (string)4444, (string)4444xq };")
+     );
+ 
+ static SupplementalSupport gst_vtdec_codec_support = NoneSupported;

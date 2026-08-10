@@ -447,9 +447,9 @@ d=$(get https://download.gnome.org/sources/libxml2/2.13/libxml2-2.13.6.tar.xz li
   && make -s install > /tmp/depslog-libxml2-install.log 2>&1 ) || exit 1
 
 echo "==== dav1d 1.4.3 ===="
-# FFmpeg links it (--enable-libdav1d) for AV1 via the libdav1d wrapper codec. NOTE:
-# gst-libav does not wrap external-library ("lib*") FFmpeg decoders, so no avdec_av1
-# element materializes, so AV1 in <video> is not served by gst-libav.
+# FFmpeg links it (--enable-libdav1d) for AV1 via the libdav1d wrapper codec, which
+# gst-libav registers as avdec_libdav1d (see the libdav1d patch in the gst-libav
+# section) -- the runtime's AV1 decoder, also serving libavif below.
 d=$(get https://downloads.videolan.org/pub/videolan/dav1d/1.4.3/dav1d-1.4.3.tar.xz dav1d)
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release \
     -Denable_tools=false -Denable_tests=false > /tmp/depslog-dav1d-setup.log 2>&1 \
@@ -589,6 +589,14 @@ d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$G
     > /tmp/depslog-gstbad-patch3.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch" \
     >> /tmp/depslog-gstbad-patch3.log 2>&1 ) \
   || { echo "gst-plugins-bad vtdec_hw caps-probe patch failed to apply"; cat /tmp/depslog-gstbad-patch3.log; exit 1; }
+# MAVERICKS_BACKPORT: vtdec's static sink template advertises VP9/AV1, which 10.9's
+# VideoToolbox has no decoder for on any hardware; the template is what WebKit's registry
+# scanner answers isTypeSupported/MediaCapabilities from, so the claim routes sites onto
+# streams nothing here decodes. This removes the two entries. See patches/README.md.
+( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtdec-109-sink-template-codecs.patch" \
+    > /tmp/depslog-gstbad-patch4.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-109-sink-template-codecs.patch" \
+    >> /tmp/depslog-gstbad-patch4.log 2>&1 ) \
+  || { echo "gst-plugins-bad vtdec sink-template patch failed to apply"; cat /tmp/depslog-gstbad-patch4.log; exit 1; }
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
     -Dwebrtc=enabled -Dwebrtcdsp=enabled -Ddtls=enabled -Dsrtp=enabled -Dsctp=enabled \
     -Dapplemedia=enabled -Dwebp=disabled > /tmp/depslog-gstbad-setup.log 2>&1 \
@@ -597,8 +605,8 @@ d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$G
 
 echo "==== FFmpeg 7.1.2 ===="
 # Apple-framework codepaths stay off: decoding runs through FFmpeg's own codecs so
-# behavior is identical on every 10.9 install. libdav1d supplies AV1 inside FFmpeg
-# (no gst element — see the dav1d note above).
+# behavior is identical on every 10.9 install. libdav1d supplies AV1 inside FFmpeg,
+# surfaced as gst-libav's avdec_libdav1d (see the dav1d note above).
 # FFmpeg's configure ignores the LDFLAGS environment, so the gap archive rides in
 # --extra-ldflags here.
 d=$(get https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz ffmpeg)
@@ -614,6 +622,15 @@ d=$(get https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz ffmpeg)
 
 echo "==== gst-libav ===="
 d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-$GST_VER.tar.xz gstlibav)
+# MAVERICKS_BACKPORT: gst-libav skips FFmpeg's external-library ("lib*") decoders on the
+# premise that native GStreamer elements cover them; this runtime has no native AV1
+# decoder, so that rule would leave video/x-av1 with a parser and no decoder. The patch
+# admits the libdav1d wrapper (the dav1d built above, inside FFmpeg) as avdec_libdav1d.
+# See patches/README.md.
+( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-libav-register-libdav1d.patch" \
+    > /tmp/depslog-gstlibav-patch.log 2>&1 && patch -p1 < "$HERE/patches/gst-libav-register-libdav1d.patch" \
+    >> /tmp/depslog-gstlibav-patch.log 2>&1 ) \
+  || { echo "gst-libav libdav1d patch failed to apply"; cat /tmp/depslog-gstlibav-patch.log; exit 1; }
 # gst-libav's option set has no "examples"; it takes the shared options minus that one.
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Dbuildtype=release -Dtests=disabled \
     -Ddoc=disabled > /tmp/depslog-gstlibav-setup.log 2>&1 \
@@ -804,6 +821,14 @@ done
 require_glob "$DEST/bin/gst-inspect-1.0"
 if [ "$REQFAIL" = 1 ]; then echo "  FAIL: required artifacts missing (see above)"; exit 1; fi
 echo "  ok: all required artifacts present"
+
+# The AV1 decoder is a patched-in registration (gst-libav-register-libdav1d.patch), so its
+# dylib existing does not prove the element exists; ask the registry itself.
+if ! GST_REGISTRY="$SCRATCH/gate-registry.bin" GST_PLUGIN_PATH="$DEST/lib/gstreamer-1.0" \
+     GST_PLUGIN_SYSTEM_PATH= "$DEST/bin/gst-inspect-1.0" avdec_libdav1d > /dev/null 2>&1; then
+  echo "  FAIL: avdec_libdav1d is not registered (AV1 has a parser but no decoder)"; exit 1
+fi
+echo "  ok: avdec_libdav1d registered"
 
 echo "==== fail-fast gate ===="
 # Ground truth on this 10.9 host: every deployed Mach-O must resolve completely --
