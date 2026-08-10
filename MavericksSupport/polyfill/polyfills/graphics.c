@@ -673,6 +673,83 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptorAndOpt
         ? WK_ORIGINAL(CTFontCreateWithFontDescriptorAndOptions)(descriptor, size, matrix, options) : NULL;
 }
 
+// CTFontDescriptorCopyAttribute answers the kCTFontCSSWeightAttribute / kCTFontCSSWidthAttribute
+// queries that 10.15+ CoreText bakes into every descriptor. 10.9 descriptors carry no such keys,
+// so its own implementation answers NULL and WebCore's per-face capability read degrades to
+// normal weight/width for every installed face: findClosestFont() then cannot prefer Verdana-Bold
+// for a bold request and the engine synthesizes bold over the regular face (it also hides the
+// real trait from NSFontManager — the Mail formatting-toolbar state). The answers here derive
+// from the descriptor's own kCTFontTraitsAttribute dictionary: kCTFontWeightTrait through the
+// same keyframe curve as WebCore's normalizeCTWeight (FontMetricsNormalization.h),
+// kCTFontWidthTrait onto the CSS stretch scale (-1..1 maps to 50%..200%, 0 to 100%), with
+// symbolic bold/expanded/condensed fallbacks. Every other attribute, and every descriptor the
+// system can answer for, takes the system implementation's answer unchanged.
+extern const CFStringRef kCTFontCSSWeightAttribute;
+extern const CFStringRef kCTFontCSSWidthAttribute;
+
+static const struct { float ct; float css; } wk_ct_weight_keyframes[] = {
+    { -0.8f, 30 }, { -0.4f, 274 }, { 0.0f, 400 }, { 0.23f, 510 },
+    { 0.3f, 590 }, { 0.4f, 700 }, { 0.56f, 860 }, { 0.62f, 1000 },
+};
+
+static float wk_normalize_ct_weight(float value)
+{
+    size_t count = sizeof(wk_ct_weight_keyframes) / sizeof(wk_ct_weight_keyframes[0]);
+    if (value < wk_ct_weight_keyframes[0].ct)
+        return wk_ct_weight_keyframes[0].css;
+    for (size_t i = 0; i + 1 < count; i++) {
+        float beforeCT = wk_ct_weight_keyframes[i].ct, afterCT = wk_ct_weight_keyframes[i + 1].ct;
+        if (value >= beforeCT && value <= afterCT) {
+            float ratio = (value - beforeCT) / (afterCT - beforeCT);
+            return ratio * (wk_ct_weight_keyframes[i + 1].css - wk_ct_weight_keyframes[i].css) + wk_ct_weight_keyframes[i].css;
+        }
+    }
+    return wk_ct_weight_keyframes[count - 1].css;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
+                     (CTFontDescriptorRef descriptor, CFStringRef attribute))
+{
+    CFTypeRef value = WK_ORIGINAL(CTFontDescriptorCopyAttribute)
+        ? WK_ORIGINAL(CTFontDescriptorCopyAttribute)(descriptor, attribute) : NULL;
+    if (value || !descriptor || !attribute)
+        return value;
+    bool wantWeight = CFEqual(attribute, kCTFontCSSWeightAttribute);
+    bool wantWidth = !wantWeight && CFEqual(attribute, kCTFontCSSWidthAttribute);
+    if (!wantWeight && !wantWidth)
+        return NULL;
+    CFDictionaryRef traits = WK_ORIGINAL(CTFontDescriptorCopyAttribute)
+        ? (CFDictionaryRef)WK_ORIGINAL(CTFontDescriptorCopyAttribute)(descriptor, kCTFontTraitsAttribute) : NULL;
+    if (!traits)
+        return NULL;
+    int32_t symbolic = 0;
+    CFNumberRef symbolicNumber = (CFNumberRef)CFDictionaryGetValue(traits, kCTFontSymbolicTrait);
+    if (symbolicNumber)
+        CFNumberGetValue(symbolicNumber, kCFNumberSInt32Type, &symbolic);
+    float trait = 0;
+    float css = 0;
+    bool have = false;
+    CFNumberRef traitNumber = (CFNumberRef)CFDictionaryGetValue(traits, wantWeight ? kCTFontWeightTrait : kCTFontWidthTrait);
+    if (traitNumber && CFNumberGetValue(traitNumber, kCFNumberFloatType, &trait)) {
+        css = wantWeight ? wk_normalize_ct_weight(trait)
+                         : (trait < 0 ? 100.0f + trait * 50.0f : 100.0f + trait * 100.0f);
+        have = true;
+    } else if (wantWeight && (symbolic & kCTFontTraitBold)) {
+        css = 700;
+        have = true;
+    } else if (wantWidth && (symbolic & kCTFontTraitExpanded)) {
+        css = 125;
+        have = true;
+    } else if (wantWidth && (symbolic & kCTFontTraitCondensed)) {
+        css = 75;
+        have = true;
+    }
+    CFRelease(traits);
+    if (!have)
+        return NULL;
+    return CFNumberCreate(kCFAllocatorDefault, kCFNumberFloatType, &css);
+}
+
 // libFontParser's FPFont* system font parser, which WebCore uses to split a downloaded font file
 // into its constituent fonts and take the chosen one's canonical sfnt bytes. Asked of the running
 // 10.9 through dlsym: FPFontCopyPostScriptName is there, FPFontCreateFontsFromData and
