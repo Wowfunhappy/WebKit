@@ -70,6 +70,9 @@ public:
     void setParameters(GUniquePtr<GstStructure>&&);
 
     void configure(GRefPtr<GstCaps>&&);
+    // MAVERICKS_BACKPORT: rebuild the packetizers for the codec the m-section actually negotiated;
+    // called by GStreamerMediaEndpoint::linkOutgoingSources. See the implementation.
+    void reconfigureForNegotiatedCaps(GRefPtr<GstCaps>&&);
 
     [[nodiscard]] GUniquePtr<GstStructure> stats();
 

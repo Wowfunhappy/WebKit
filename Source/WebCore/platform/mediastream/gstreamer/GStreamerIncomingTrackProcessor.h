@@ -48,6 +48,9 @@ public:
     bool isDecoding() const { return m_isDecoding; }
     bool isReady() const { return m_isReady; }
     const String& trackId() const LIFETIME_BOUND { return m_data.trackId; }
+    // MAVERICKS_BACKPORT: the endpoint corrects this data when the remote description re-attributes
+    // the SSRC; see GStreamerMediaEndpoint::reattributeIncomingTracks.
+    WebRTCTrackData& data() LIFETIME_BOUND { return m_data; }
 
 private:
     GStreamerIncomingTrackProcessor();

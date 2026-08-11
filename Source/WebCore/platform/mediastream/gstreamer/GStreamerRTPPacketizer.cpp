@@ -211,9 +211,21 @@ unsigned GStreamerRTPPacketizer::currentSequenceNumberOffset() const
     return result;
 }
 
+// MAVERICKS_BACKPORT: the sequence number the payloader last sent, for carrying RTP sequence
+// continuity across a packetizer rebuild (see reconfigureForNegotiatedCaps).
+unsigned GStreamerRTPPacketizer::currentSequenceNumber() const
+{
+    unsigned result;
+    g_object_get(m_payloader.get(), "seqnum", &result, nullptr);
+    return result;
+}
+
 void GStreamerRTPPacketizer::setSequenceNumberOffset(unsigned number)
 {
-    g_object_set(m_payloader.get(), "seqnum-offset", G_TYPE_UINT, number, nullptr);
+    // MAVERICKS_BACKPORT: g_object_set consumes name/value pairs — a GType between them makes the
+    // value be read as the next property name and dereferenced. "seqnum-offset" is an int property.
+    // g_object_set(m_payloader.get(), "seqnum-offset", G_TYPE_UINT, number, nullptr);
+    g_object_set(m_payloader.get(), "seqnum-offset", static_cast<int>(number), nullptr);
 }
 
 struct ExtensionIdHolder {

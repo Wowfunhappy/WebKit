@@ -89,6 +89,17 @@ public:
     std::optional<bool> canTrickleIceCandidates() const;
 
     void configureSource(RealtimeOutgoingMediaSourceGStreamer&, GUniquePtr<GstStructure>&&);
+    // MAVERICKS_BACKPORT: outgoing-source codec re-negotiation, see linkOutgoingSources.
+    void reconfigureOutgoingSourceForMedia(unsigned mLineIndex, const GstSDPMedia*);
+    // MAVERICKS_BACKPORT: incoming SSRC attribution from the remote description, see
+    // connectIncomingTrack and reattributeIncomingTracks.
+    struct IncomingSsrcResolution {
+        String mid;
+        String mediaStreamId;
+        String trackId;
+    };
+    std::optional<IncomingSsrcResolution> resolveIncomingSsrc(unsigned ssrc);
+    void reattributeIncomingTracks();
 
     ExceptionOr<Ref<GStreamerRtpSenderBackend>> addTrack(MediaStreamTrack&, const FixedVector<String>&);
     void removeTrack(GStreamerRtpSenderBackend&);
@@ -228,10 +239,11 @@ private:
 
     bool m_shouldIgnoreNegotiationNeededSignal { false };
 
-// MAVERICKS_BACKPORT: upstream's member for the GStreamer WebRTC endpoint's pending incoming tracks. Kept commented, not deleted: this port does not build the GStreamer PeerConnection backend (see SourcesGStreamer.txt), so nothing populates it.
+// MAVERICKS_BACKPORT: upstream collects incoming tracks here until every expected track arrived
+// (the all-tracks barrier in connectIncomingTrack). This port starts each incoming track as soon
+// as its source is wired — see the per-track liveness divergence in connectIncomingTrack — so
+// nothing populates the list.
 //     Vector<RefPtr<MediaStreamTrackPrivate>> m_pendingIncomingTracks;
-//
-// (end MAVERICKS_BACKPORT restored block)
     Vector<RefPtr<RealtimeOutgoingMediaSourceGStreamer>> m_unlinkedOutgoingSources;
 
     bool m_isGatheringRTCLogs { false };
