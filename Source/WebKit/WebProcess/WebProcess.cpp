@@ -2360,14 +2360,8 @@ void WebProcess::resetMockMediaDevices()
 void WebProcess::grantUserMediaDeviceSandboxExtensions(MediaDeviceSandboxExtensions&& extensions)
 {
     for (size_t i = 0; i < extensions.size(); i++) {
-        // MAVERICKS_BACKPORT: one subscript call per index, in place of the two commented out below.
-        // MediaDeviceSandboxExtensions::operator[] moves m_handles[i] into the SandboxExtension it
-        // returns, so a second call for the same index builds from an empty handle and crashes in
-        // consume(). Upstream's Cocoa ports capture in the GPU process and never run this loop; this
-        // port has no GPU process, so WebContent does.
-        auto [extensionID, sandboxExtension] = extensions[i];
-        // auto extensionID = extensions[i].first;
-        // Ref sandboxExtension = extensions[i].second;
+        auto extensionID = extensions[i].first;
+        Ref sandboxExtension = extensions[i].second;
         sandboxExtension->consume();
         WEBPROCESS_RELEASE_LOG(WebRTC, "grantUserMediaDeviceSandboxExtensions: granted extension %s", extensionID.utf8().data());
         m_mediaCaptureSandboxExtensions.add(extensionID, WTF::move(sandboxExtension));

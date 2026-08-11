@@ -82,12 +82,7 @@ bool UserMediaProcessManager::willCreateMediaStream(UserMediaPermissionRequestMa
 
     ASSERT(request.hasAudioDevice() || request.hasVideoDevice());
 
-// MAVERICKS_BACKPORT: USE(APPLE_INTERNAL_SDK) is commented out of the condition below. PlatformUse.h
-// keys that flag on __has_include(<CoreFoundation/CFPriv.h>), which no public SDK ships, so the flag
-// compiled this extension-issuing block out. This port has no GPU process, so WebContent is the
-// capturing process and holds the camera extension issued here.
-// #if ENABLE(SANDBOX_EXTENSIONS) && USE(APPLE_INTERNAL_SDK)
-#if ENABLE(SANDBOX_EXTENSIONS)
+#if ENABLE(SANDBOX_EXTENSIONS) && USE(APPLE_INTERNAL_SDK)
     RefPtr frame = WebFrameProxy::webFrame(request.frameID());
     if (!frame)
         return false;

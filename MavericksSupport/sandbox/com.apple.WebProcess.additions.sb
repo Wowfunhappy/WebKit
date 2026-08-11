@@ -38,43 +38,42 @@
 (allow ipc-posix-shm-read-data
     (ipc-posix-name-regex #"^WebKitInProcessStorage-"))
 
-;; Media capture, camera access. Upstream grants this to whichever process captures, for as long as
-;; it holds the "com.apple.webkit.camera" extension the UI process issues per capture session
-;; (GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in). That process is the GPU process; this port has
-;; none, so getUserMedia captures in WebContent and the same gated grant belongs here. Each rule
-;; carries the extension in a require-all.
+;; Media capture, camera access. Upstream grants this to whichever process captures — its GPU process,
+;; gated on the "com.apple.webkit.camera" extension the UI process issues per capture session
+;; (GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in). This port has no GPU process, so getUserMedia
+;; captures in WebContent, and there the per-session gate cannot function: CoreMediaIO initializes its
+;; DAL plug-in system once per process, at first contact, and a page enumerating media devices drives
+;; that first contact before any permission prompt is answered — a denied probe leaves the process's
+;; device list empty for its lifetime, and the extension arriving afterwards never revives it (measured:
+;; grant after a denied probe, capture fails "did not find the device"; grant before, capture works).
+;; So the grant is static, as on the WebContent-capturing ports (GTK/WPE); user consent is the
+;; getUserMedia permission prompt, which those ports rely on for the same reason, and device-microphone
+;; below is static on the same grounds.
 ;;
 ;; A camera reaches WebKit through CoreMediaIO's DAL plug-ins, which talk to a per-plug-in assistant
 ;; daemon rather than to the device: VDC for USB video-class cameras, AVC for FireWire, IIDCVideo for
 ;; IIDC, AppleCamera for built-in ISP cameras. launchd starts one on demand, so reaching it costs a
-;; job-creation as well as the mach-lookup; the literals are the four daemons behind the four services
-;; above, spelled as the kernel resolves them. file-read* covers the whole DAL directory, which
-;; CoreMediaIO scans and loads its plug-ins from.
+;; job-creation as well as the mach-lookup; the literals are the four daemons behind the four services,
+;; spelled as the kernel resolves them. file-read* covers the whole DAL directory, which CoreMediaIO
+;; scans and loads its plug-ins from.
 (allow mach-lookup
-    (require-all
-        (extension "com.apple.webkit.camera")
-        (require-any
-            (global-name "com.apple.cmio.VDCAssistant")
-            (global-name "com.apple.cmio.AVCAssistant")
-            (global-name "com.apple.cmio.IIDCVideoAssistant")
-            (global-name "com.apple.cmio.AppleCameraAssistant"))))
+    (require-any
+        (global-name "com.apple.cmio.VDCAssistant")
+        (global-name "com.apple.cmio.AVCAssistant")
+        (global-name "com.apple.cmio.IIDCVideoAssistant")
+        (global-name "com.apple.cmio.AppleCameraAssistant")))
 
 (allow job-creation
-    (require-all
-        (extension "com.apple.webkit.camera")
-        (require-any
-            (literal "/System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/VDC.plugin/Contents/Resources/VDCAssistant")
-            (literal "/System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/AVC.plugin/Contents/Resources/AVCAssistant")
-            (literal "/System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/IIDC.plugin/Contents/Resources/IIDCVideoAssistant")
-            (literal "/Library/CoreMediaIO/Plug-Ins/DAL/AppleCamera.plugin/Contents/Resources/AppleCameraAssistant"))))
+    (require-any
+        (literal "/System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/VDC.plugin/Contents/Resources/VDCAssistant")
+        (literal "/System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/AVC.plugin/Contents/Resources/AVCAssistant")
+        (literal "/System/Library/Frameworks/CoreMediaIO.framework/Versions/A/Resources/IIDC.plugin/Contents/Resources/IIDCVideoAssistant")
+        (literal "/Library/CoreMediaIO/Plug-Ins/DAL/AppleCamera.plugin/Contents/Resources/AppleCameraAssistant")))
 
 (allow file-read*
-    (require-all
-        (extension "com.apple.webkit.camera")
-        (subpath "/Library/CoreMediaIO/Plug-Ins/DAL")))
+    (subpath "/Library/CoreMediaIO/Plug-Ins/DAL"))
 
-(allow device-camera
-    (extension "com.apple.webkit.camera"))
+(allow device-camera)
 
 ;; Microphone. Upstream's GPU process carries the same grant gated on the "com.apple.webkit.microphone"
 ;; extension (GPUProcess/mac/com.apple.WebKit.GPUProcess.sb.in); that gate cannot function on this OS:
