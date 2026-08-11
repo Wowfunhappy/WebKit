@@ -296,9 +296,11 @@ set(MAVERICKS_ADDED_COCOA_SOURCES
 )
 
 # Added to SourcesGStreamer.txt: the CoreGraphics/Cocoa halves of the GStreamer player that upstream's
-# GTK/WPE-oriented list does not carry.
+# GTK/WPE-oriented list does not carry, plus the SourcesGLib.txt entries the GStreamer set calls into
+# (GStreamerDataChannelHandler delivers binary datachannel messages via SharedBuffer::create(GBytes*)).
 set(MAVERICKS_ADDED_GSTREAMER_SOURCES
     "platform/glib/ApplicationGLib.cpp"
+    "platform/glib/SharedBufferGlib.cpp"
     "platform/graphics/gstreamer/ImageGStreamerCG.cpp"
     "platform/graphics/gstreamer/VideoLayerGStreamerCocoa.mm @no-unify"
 )
