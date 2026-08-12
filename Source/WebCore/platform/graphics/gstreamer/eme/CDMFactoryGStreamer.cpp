@@ -32,6 +32,7 @@
 #if ENABLE(ENCRYPTED_MEDIA)
 
 #include "CDMProxy.h"
+#include "CDMProxyClearKey.h" // MAVERICKS_BACKPORT: the restored ClearKey proxy (see CDMProxyClearKey.h).
 
 #if ENABLE(THUNDER)
 #include "CDMThunder.h"
@@ -39,14 +40,17 @@
 
 namespace WebCore {
 
-void CDMFactory::platformRegisterFactories(Vector<WeakRef<CDMFactory>>& factories)
-{
-#if ENABLE(THUNDER)
-    factories.append(CDMFactoryThunder::singleton());
-#else
-    UNUSED_PARAM(factories);
-#endif
-}
+// MAVERICKS_BACKPORT: CDMFactory::platformRegisterFactories comes from the Cocoa build's
+// CDMFairPlayStreaming.cpp here, which registers CDMFactoryClearKey already; a second definition in
+// this file would be a duplicate symbol. Only the CDMProxy side below is GStreamer-specific.
+// void CDMFactory::platformRegisterFactories(Vector<WeakRef<CDMFactory>>& factories)
+// {
+// #if ENABLE(THUNDER)
+//     factories.append(CDMFactoryThunder::singleton());
+// #else
+//     UNUSED_PARAM(factories);
+// #endif
+// }
 
 Vector<CDMProxyFactory*> CDMProxyFactory::platformRegisterFactories()
 {
@@ -55,6 +59,8 @@ Vector<CDMProxyFactory*> CDMProxyFactory::platformRegisterFactories()
     factories.reserveInitialCapacity(1);
     factories.append(&CDMFactoryThunder::singleton());
 #endif
+    // MAVERICKS_BACKPORT: restored from upstream before 4694d7d -- this port decrypts ClearKey itself.
+    factories.append(&CDMProxyFactoryClearKey::singleton());
     return factories;
 }
 

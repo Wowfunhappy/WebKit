@@ -992,7 +992,9 @@ void MediaPlayerPrivateMediaSourceAVFObjC::keyAdded()
 
 #endif // ENABLE(LEGACY_ENCRYPTED_MEDIA)
 
-#if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
+// MAVERICKS_BACKPORT: LEGACY only, matching the declaration in MediaPlayerPrivateMediaSourceAVFObjC.h.
+// #if ENABLE(LEGACY_ENCRYPTED_MEDIA) || ENABLE(ENCRYPTED_MEDIA)
+#if ENABLE(LEGACY_ENCRYPTED_MEDIA)
 void MediaPlayerPrivateMediaSourceAVFObjC::keyNeeded(const SharedBuffer& initData)
 {
     if (RefPtr player = m_player.get())

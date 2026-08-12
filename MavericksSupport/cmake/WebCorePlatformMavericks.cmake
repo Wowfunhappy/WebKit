@@ -335,6 +335,15 @@ list(APPEND WebCoreTestSupport_SOURCES
 list(APPEND WebCore_IDL_FILES
     # MAVERICKS_BACKPORT: also generate the ApplePayDisbursementRequest IDL binding.
     Modules/applepay/ApplePayDisbursementRequest.idl
+
+    # MAVERICKS_BACKPORT: the Remote Playback partial interface, which adds `remote` and
+    # `disableRemotePlayback` to HTMLMediaElement. DerivedSources.make lists it and CMakeLists.txt does
+    # not, so the CMake port builds RemotePlayback.idl and RemotePlayback.cpp but exposes no way to
+    # reach them -- same shape as the ENABLE_MEDIA_RECORDER gap in OptionsMacMavericks.cmake. Without
+    # `disableRemotePlayback` a page cannot satisfy HTMLMediaElement::deferredMediaSourceOpenCanProgress
+    # (ManagedMediaSourceNeedsAirPlay defaults true on Mac), so a ManagedMediaSource never leaves
+    # "closed" and every player that prefers it -- dash.js 5 among them -- stalls before addSourceBuffer.
+    Modules/remoteplayback/HTMLMediaElement+RemotePlayback.idl
 )
 
 # MAVERICKS_BACKPORT: definitions upstream compiles only from WebCore.xcodeproj and never added to a CMake

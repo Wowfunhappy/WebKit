@@ -91,6 +91,11 @@
 #include "WebKitFliteSourceGStreamer.h"
 #endif
 
+// MAVERICKS_BACKPORT: the restored ClearKey decryptor (see WebKitClearKeyDecryptorGStreamer.h).
+#if ENABLE(ENCRYPTED_MEDIA)
+#include "WebKitClearKeyDecryptorGStreamer.h"
+#endif
+
 #if ENABLE(ENCRYPTED_MEDIA) && ENABLE(THUNDER)
 #include "CDMThunder.h"
 #include "WebKitThunderDecryptorGStreamer.h"
@@ -597,6 +602,12 @@ void registerWebKitGStreamerElements()
         // - Use GST_RANK_PRIMARY+100 for elements meant to be auto-plugged and that we know there
         //   is an alternative outside of WebKit.
         // - Use GST_RANK_NONE for elements explicitely created by WebKit (no auto-plugging).
+
+// MAVERICKS_BACKPORT: restored from upstream before 4694d7d -- the ClearKey decryptor is this port's
+// only CENC decryptor.
+#if ENABLE(ENCRYPTED_MEDIA)
+        gst_element_register(nullptr, "webkitclearkey", GST_RANK_PRIMARY + 200, WEBKIT_TYPE_MEDIA_CK_DECRYPT);
+#endif
 
 #if ENABLE(ENCRYPTED_MEDIA) && ENABLE(THUNDER)
         if (!CDMFactoryThunder::singleton().supportedKeySystems().isEmpty()) {

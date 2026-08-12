@@ -44,7 +44,7 @@ using namespace WebKit;
 // single-image and the array lookup below, and by the store's admission test (#49, github #76).
 Vector<RetainPtr<CGImageRef>> WebKit::decodeIconData(API::Data& data)
 {
-    // ImageDecoder directly rather than BitmapImage: decoding here must be synchronous (the answer is
+    // MAVERICKS_BACKPORT: ImageDecoder directly rather than BitmapImage: decoding here must be synchronous (the answer is
     // the return value), and this is the same decoder selection WebCore uses for page images — on CG
     // ports ScalableImageDecoder first (which is where this port's vendored WEBPImageDecoder lives),
     // then ImageDecoderCG. The MIME type is left empty on purpose: both decoders sniff the bytes, and
@@ -69,6 +69,7 @@ Vector<RetainPtr<CGImageRef>> WebKit::decodeIconData(API::Data& data)
     return frames;
 }
 
+// MAVERICKS_BACKPORT: the store lookup both C API entry points below share.
 static Vector<RetainPtr<CGImageRef>> iconFramesForPageURL(WKIconDatabaseRef iconDatabaseRef, WKURLRef pageURL)
 {
     RefPtr data = toImpl(iconDatabaseRef)->iconDataForPageURL(toWTFString(pageURL)); // MAVERICKS_BACKPORT

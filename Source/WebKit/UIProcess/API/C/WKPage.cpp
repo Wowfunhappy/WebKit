@@ -2432,7 +2432,13 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
         void decidePolicyForMediaKeySystemPermissionRequest(WebPageProxy& page, API::SecurityOrigin& origin, const String& keySystem, CompletionHandler<void(bool)>&& completionHandler) final
         {
             if (!m_client.decidePolicyForMediaKeySystemPermissionRequest) {
-                completionHandler(false);
+                // MAVERICKS_BACKPORT: legacy (Safari 7 era) UI clients predate this callback and can
+                // never implement it, which denied every requestMediaKeySystemAccess() before the key
+                // system was even consulted. Take the default action API::UIClient takes for an
+                // embedder that does not implement it -- the same action
+                // MediaKeySystemPermissionRequestProxy::doDefaultAction() takes on Cocoa.
+                // completionHandler(false);
+                API::UIClient::decidePolicyForMediaKeySystemPermissionRequest(page, origin, keySystem, WTF::move(completionHandler));
                 return;
             }
 

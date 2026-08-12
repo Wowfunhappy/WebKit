@@ -87,8 +87,11 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_CONTENT_FILTERING PRIVATE OFF)
 # (subsystem removed upstream in 2d364c6; restored for the backport).
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_DASHBOARD_SUPPORT PRIVATE ON)
 
-# MAVERICKS_BACKPORT: OFF — Encrypted Media Extensions (CDM/AVContentKeySession) is unavailable on 10.9.
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ENCRYPTED_MEDIA PRIVATE OFF)
+# MAVERICKS_BACKPORT: ON, upstream's Mac value. What 10.9 lacks is AVContentKeySession (10.12+, gated
+# off by HAVE_AVCONTENTKEYSESSION), which only FairPlay Streaming needs; ClearKey needs no platform CDM
+# at all. This port's media stack is GStreamer, and its ClearKey decryption runs through the restored
+# CDMProxyClearKey + webkitclearkey decryptor element.
+WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ENCRYPTED_MEDIA PRIVATE ON)
 
 # MAVERICKS_BACKPORT: OFF as a port architecture decision, not an absent capability -- IOSurface sharing
 # works here (see the restored IOSurface path). This port ships no GPU-process XPC service, and its media
@@ -110,7 +113,15 @@ SET_AND_EXPOSE_TO_BUILD(ENABLE_GPU_PROCESS_BY_DEFAULT FALSE)
 # MAVERICKS_BACKPORT: OFF — Web Inspector extensions are not part of the 10.9 drop-in scope.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_INSPECTOR_EXTENSIONS PRIVATE OFF)
 
-# MAVERICKS_BACKPORT: OFF — EME/CDM (AVContentKeySession etc.) is unavailable on 10.9.
+# MAVERICKS_BACKPORT: OFF — the value the GStreamer-engine ports (GTK, WPE) inherit, rather than the ON
+# that Apple's Mac build can afford because AVFoundation implements the legacy CDM there. MediaPlayer.cpp
+# gates the AVFoundation engines out on this port, leaving MediaPlayerPrivateGStreamer as the only
+# registered engine, and it implements none of MediaPlayerPrivateInterface::createSession / setCDM /
+# setCDMSession / keyAdded. Turning this ON therefore has CDMPrivateMediaPlayer answer
+# MediaPlayer::supportsKeySystem("org.w3.clearkey") true, hand back a WebKitMediaKeySession whose
+# LegacyCDMSession is null, and WebKitMediaKeySession::keyRequestTimerFired then returns without
+# emitting webkitkeymessage or webkitkeyerror — measured: a page that picks the legacy API over the
+# modern one hangs silently. ENABLE_ENCRYPTED_MEDIA above stays ON; modern EME is what this port serves.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_LEGACY_ENCRYPTED_MEDIA PRIVATE OFF)
 # MAVERICKS_BACKPORT: ON — this is the value Apple's Mac build actually uses. PlatformEnableCocoa.h:598
 # turns MEDIA_RECORDER on for every Cocoa port with MEDIA_STREAM + VIDEO (both ON here), but that only

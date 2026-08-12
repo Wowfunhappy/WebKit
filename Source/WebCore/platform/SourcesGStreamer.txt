@@ -84,6 +84,9 @@ platform/graphics/gstreamer/WebKitAudioSinkGStreamer.cpp
 platform/graphics/gstreamer/WebKitWebSourceGStreamer.cpp
 
 platform/graphics/gstreamer/eme/CDMFactoryGStreamer.cpp
+// MAVERICKS_BACKPORT: the restored ClearKey CDMProxy and decryptor element (removed upstream in 4694d7d).
+platform/graphics/gstreamer/eme/CDMProxyClearKey.cpp
+platform/graphics/gstreamer/eme/WebKitClearKeyDecryptorGStreamer.cpp
 platform/graphics/gstreamer/eme/CDMProxyThunder.cpp
 platform/graphics/gstreamer/eme/CDMThunder.cpp
 platform/graphics/gstreamer/eme/GStreamerEMEUtilities.cpp

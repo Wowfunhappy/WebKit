@@ -2334,10 +2334,11 @@ void WebPageProxy::loadRequestWithNavigationShared(Ref<WebProcessProxy>&& proces
                 loadParameters.sandboxExtensionHandle = WTF::move(*sandboxExtensionHandle);
             protectedThis->prepareToLoadWebPage(*protectedProcess, loadParameters);
 
+            // MAVERICKS_BACKPORT: unchanged upstream body, re-indented one level by the move above.
             if (shouldTreatAsContinuingLoad == ShouldTreatAsContinuingLoad::No)
                 protectedThis->preconnectTo(ResourceRequest { loadParameters.request });
 
-            // MAVERICKS_BACKPORT: unchanged upstream body, re-indented one level by the move above.
+            // MAVERICKS_BACKPORT: still the same re-indented upstream body.
             navigation->setIsLoadedWithNavigationShared(true);
             protectedProcess->markProcessAsRecentlyUsed();
             if (!protectedProcess->isLaunching() || !url.protocolIsFile())
