@@ -2,7 +2,7 @@
 
 ## The project
 
-Backport modern WebKit (currently 615.1.1) to run on macOS 10.9.5 Mavericks under the **stock, unmodified Safari 7.0.6** (WebKit 9537.78.2). Branch `mavericks-backport`, origin `github.com/wowfunhappy/webkit`, forked from upstream `83b24ce` (Ryosuke Niwa, 2026-03-16). The exact fork points may change in the future as we continue to track upstream; if they do, update this document.
+Backport modern WebKit (currently 625.1.11) to run on macOS 10.9.5 Mavericks under the **stock, unmodified Safari 7.0.6** (WebKit 9537.78.2). Branch `mavericks-backport`, origin `github.com/wowfunhappy/webkit`, forked from upstream `83b24ce` (Ryosuke Niwa, 2026-03-16). The exact fork points may change in the future as we continue to track upstream; if they do, update this document.
 
 - Checkout: `/Users/jonathan/Desktop/webkit`.
 - `MavericksSupport/` holds all the 10.9 glue: `polyfill/` (the layer), `deps/` (vendored third-party, built by `build_deps.sh` into the gitignored `deps/build/`), `toolchain/`, `rebuild.sh`, `install-safari7.sh` (name-shifts the 4 built frameworks into place), `scripts/check-backport-markers.sh`.
