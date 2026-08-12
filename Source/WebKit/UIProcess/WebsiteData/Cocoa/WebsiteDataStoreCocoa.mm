@@ -44,9 +44,11 @@
 #import <WebCore/RegistrableDomain.h>
 #import <WebCore/SearchPopupMenuCocoa.h>
 #import <WebCore/SecurityOriginData.h>
-// MAVERICKS_BACKPORT: for the NSWorkspace open in openURLThroughHostApplication below.
+// MAVERICKS_BACKPORT: for the NSWorkspace open in openURLThroughHostApplication below, and the
+// launchd job submission in registerWebPushDaemonWithLaunchd.
 #if USE(MOZILLA_PUSH_SERVICE)
 #import <AppKit/AppKit.h>
+#import <ServiceManagement/ServiceManagement.h>
 #endif
 #import <pal/spi/cf/CFNetworkSPI.h>
 #import <pal/spi/cocoa/NetworkSPI.h>
@@ -146,9 +148,64 @@ WebCore::ThirdPartyCookieBlockingMode WebsiteDataStore::thirdPartyCookieBlocking
     return *m_thirdPartyCookieBlockingMode;
 }
 
+// MAVERICKS_BACKPORT: the launchd job for the webpushd this framework carries, submitted to the
+// login session's launchd, which starts the daemon when the network process looks its Mach service
+// up and reaps it once it holds no transaction. The job is upstream's
+// webpushd/com.apple.webkit.webpushd.relocatable.mac.plist with ${INSTALL_PATH} resolved against the
+// loaded framework, minus the incoming-push service apsd owns.
+#if USE(MOZILLA_PUSH_SERVICE)
+static void registerWebPushDaemonWithLaunchd()
+{
+    static NSString * const jobLabel = @"com.apple.webkit.webpushd.relocatable";
+    static NSString * const machServiceName = @"com.apple.webkit.webpushd.relocatable.service";
+
+    RetainPtr executablePath = [[NSBundle bundleForClass:NSClassFromString(@"WKWebView")].executablePath stringByResolvingSymlinksInPath];
+    RetainPtr daemonPath = [[executablePath.get() stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"Daemons/webpushd"];
+
+    // A job registered for another copy of the framework would answer this one's Mach lookup with
+    // that copy's daemon, over this one's database, so the label is re-registered unless it already
+    // names the daemon beside this framework.
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    RetainPtr registeredJob = adoptCF(SMJobCopyDictionary(kSMDomainUserLaunchd, (__bridge CFStringRef)jobLabel));
+    if (registeredJob) {
+        RetainPtr registeredArguments = dynamic_objc_cast<NSArray>([(__bridge NSDictionary *)registeredJob.get() objectForKey:@"ProgramArguments"]);
+        if ([[registeredArguments.get() firstObject] isEqual:daemonPath.get()])
+            return;
+        SMJobRemove(kSMDomainUserLaunchd, (__bridge CFStringRef)jobLabel, nullptr, true, nullptr);
+    }
+    ALLOW_DEPRECATED_DECLARATIONS_END
+
+    RetainPtr job = @{
+        @"Label": jobLabel,
+        @"ProgramArguments": @[daemonPath.get(), @"--machServiceName", machServiceName],
+        @"MachServices": @{ machServiceName: @YES },
+        @"ProcessType": @"Adaptive",
+        @"EnableTransactions": @YES,
+        @"StandardErrorPath": @"/dev/null",
+    };
+
+    CFErrorRef error = nullptr;
+    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+    bool submitted = SMJobSubmit(kSMDomainUserLaunchd, (__bridge CFDictionaryRef)job.get(), nullptr, &error);
+    ALLOW_DEPRECATED_DECLARATIONS_END
+    // Push is dead without the daemon, and RELEASE_LOG reaches no log on 10.9, so say so on stderr.
+    if (!submitted)
+        WTFLogAlways("Could not register %s with launchd: CFError %ld", [daemonPath.get() UTF8String], error ? static_cast<long>(CFErrorGetCode(error)) : 0L);
+    if (error)
+        CFRelease(error);
+}
+#endif // USE(MOZILLA_PUSH_SERVICE)
+
 void WebsiteDataStore::platformSetNetworkParameters(WebsiteDataStoreParameters& parameters)
 {
     ASSERT(hasProcessPrivilege(ProcessPrivilege::CanAccessRawCookies));
+
+    // MAVERICKS_BACKPORT: the job has to exist before the network session this call is filling
+    // parameters for looks the daemon's Mach service up.
+#if USE(MOZILLA_PUSH_SERVICE)
+    if (!parameters.networkSessionParameters.webPushMachServiceName.isEmpty())
+        registerWebPushDaemonWithLaunchd();
+#endif
 
     RetainPtr defaults = [NSUserDefaults standardUserDefaults];
     bool shouldLogCookieInformation = false;

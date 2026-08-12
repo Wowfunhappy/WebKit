@@ -48,9 +48,11 @@
 #include <wtf/Deque.h>
 #include <wtf/HashMap.h>
 #include <wtf/MonotonicTime.h>
+#include <wtf/OSObjectPtr.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Seconds.h>
+#include <wtf/spi/darwin/XPCSPI.h>
 
 OBJC_CLASS MozillaPushServiceConnectionSocketDelegate;
 
@@ -111,7 +113,10 @@ private:
 
     void connectIfNeeded();
     void disconnectSocket();
+    void disconnectIfNoLongerNeeded();
     void scheduleReconnect();
+    bool hasSubscriptionsOrPendingRequests() const;
+    void updateProcessLifecycleAssertion();
     void connectionAttemptTimedOut();
     void keepAliveTimerFired();
 
@@ -137,6 +142,11 @@ private:
     State m_state { State::Disconnected };
     RetainPtr<MozillaPushWebSocket> m_socket;
     RetainPtr<MozillaPushServiceConnectionSocketDelegate> m_socketDelegate;
+
+    // This connection is the daemon's push transport, so launchd must leave the process alone for
+    // as long as the transport is held: the transaction is taken while the socket is up or coming
+    // back up, and dropped when the connection has nothing left to hold.
+    OSObjectPtr<os_transaction_t> m_processLifecycleAssertion;
 
     String m_uaid;
     HashMap<String, String> m_channelToTopic;

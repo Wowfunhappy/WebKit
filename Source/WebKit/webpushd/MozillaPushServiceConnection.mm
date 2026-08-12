@@ -157,6 +157,43 @@ void MozillaPushServiceConnection::connectIfNeeded()
     m_socket = adoptNS([[MozillaPushWebSocket alloc] initWithHost:serverURL.host().createNSString().get() port:port path:path.createNSString().get() useTLS:useTLS delegate:m_socketDelegate.get()]);
     [m_socket open];
     m_connectionAttemptTimer.startOneShot(connectionAttemptTimeout);
+    updateProcessLifecycleAssertion();
+}
+
+bool MozillaPushServiceConnection::hasSubscriptionsOrPendingRequests() const
+{
+    return !m_channelToTopic.isEmpty() || !m_enabledTopics.isEmpty() || !m_pendingSubscribes.isEmpty() || !m_pendingUnsubscribes.isEmpty();
+}
+
+// Delivery only matters while subscriptions (or requests) exist -- the condition scheduleReconnect()
+// refuses to arm under. The last of them takes the whole transport down, socket and armed reconnect
+// alike, and the transaction below with it.
+void MozillaPushServiceConnection::disconnectIfNoLongerNeeded()
+{
+    if (hasSubscriptionsOrPendingRequests() || !m_inflightRegisters.isEmpty() || !m_inflightUnregisters.isEmpty())
+        return;
+    if (m_state == State::Disconnected && !m_reconnectTimer.isActive())
+        return;
+
+    RELEASE_LOG(Push, "MozillaPushServiceConnection: nothing left to deliver to; dropping the push transport");
+    m_reconnectTimer.stop();
+    disconnectSocket();
+}
+
+// The transport lives in this process, so pushes arrive only while it is running. The transaction
+// tells launchd that, and follows the socket: held while it is open or being re-established, and
+// released once neither is true, which leaves the daemon terminable exactly when a push has nowhere
+// to arrive from.
+void MozillaPushServiceConnection::updateProcessLifecycleAssertion()
+{
+    bool holdsTransport = m_state != State::Disconnected || m_reconnectTimer.isActive();
+    if (holdsTransport == !!m_processLifecycleAssertion)
+        return;
+
+    if (holdsTransport)
+        m_processLifecycleAssertion = adoptOSObject(os_transaction_create("com.apple.webkit.webpushd.push-transport"));
+    else
+        m_processLifecycleAssertion = nullptr;
 }
 
 void MozillaPushServiceConnection::disconnectSocket()
@@ -171,6 +208,7 @@ void MozillaPushServiceConnection::disconnectSocket()
         m_socket = nil;
     }
     m_state = State::Disconnected;
+    updateProcessLifecycleAssertion();
 }
 
 void MozillaPushServiceConnection::connectionAttemptTimedOut()
@@ -185,7 +223,7 @@ void MozillaPushServiceConnection::scheduleReconnect()
 {
     // Delivery only matters while subscriptions (or requests) exist; otherwise stay off
     // the network and let the next subscribe trigger a connection.
-    if (m_channelToTopic.isEmpty() && m_enabledTopics.isEmpty() && m_pendingSubscribes.isEmpty() && m_pendingUnsubscribes.isEmpty())
+    if (!hasSubscriptionsOrPendingRequests())
         return;
 
     if (m_consecutiveConnectionFailures < 31)
@@ -195,6 +233,7 @@ void MozillaPushServiceConnection::scheduleReconnect()
     Seconds delay = baseDelay + baseDelay * (arc4random_uniform(250) / 1000.0);
     RELEASE_LOG(Push, "MozillaPushServiceConnection: reconnecting in %.0f seconds", delay.seconds());
     m_reconnectTimer.startOneShot(delay);
+    updateProcessLifecycleAssertion();
 }
 
 void MozillaPushServiceConnection::socketDidOpen()
@@ -475,6 +514,7 @@ void MozillaPushServiceConnection::unsubscribe(const String& topic, const Vector
         auto request = m_inflightUnregisters.take(channelID);
         if (request.handler)
             request.handler(false, pushServiceError(7, @"Timed out unregistering push channel"));
+        disconnectIfNoLongerNeeded();
     });
     timeoutTimer->startOneShot(requestTimeout);
     m_inflightUnregisters.set(channelID, InflightUnregister { topic, WTF::move(handler), WTF::move(timeoutTimer) });
@@ -503,6 +543,7 @@ void MozillaPushServiceConnection::handleUnregisterReply(NSDictionary *reply)
 
     NSInteger status = dynamic_objc_cast<NSNumber>(reply[@"status"]).integerValue;
     request.handler(status == 200, status == 200 ? nil : pushServiceError(status ? status : 8, @"Push service could not remove the subscription"));
+    disconnectIfNoLongerNeeded();
 }
 
 // MARK: - Incoming pushes
@@ -663,23 +704,24 @@ void MozillaPushServiceConnection::setTopicLists(TopicLists&& topicLists)
         if (!m_enabledTopics.contains(entry.value) && !m_ignoredTopics.contains(entry.value))
             staleChannels.append(entry.key);
     }
-    if (staleChannels.isEmpty())
-        return;
-
-    for (auto& channelID : staleChannels) {
-        RELEASE_LOG(Push, "MozillaPushServiceConnection: unregistering channel with no matching subscription");
-        m_channelToTopic.remove(channelID);
-        if (m_state == State::Connected) {
-            sendJSONMessage(@{
-                @"messageType": @"unregister",
-                @"channelID": channelID.createNSString().get(),
-                @"code": @200,
-            });
+    if (!staleChannels.isEmpty()) {
+        for (auto& channelID : staleChannels) {
+            RELEASE_LOG(Push, "MozillaPushServiceConnection: unregistering channel with no matching subscription");
+            m_channelToTopic.remove(channelID);
+            if (m_state == State::Connected) {
+                sendJSONMessage(@{
+                    @"messageType": @"unregister",
+                    @"channelID": channelID.createNSString().get(),
+                    @"code": @200,
+                });
+            }
+            // A disconnected socket is fine: the channel is gone from the persisted list, so
+            // the next hello omits it and a stray notification hits the unknown-channel path.
         }
-        // A disconnected socket is fine: the channel is gone from the persisted list, so
-        // the next hello omits it and a stray notification hits the unknown-channel path.
+        savePersistentState();
     }
-    savePersistentState();
+
+    disconnectIfNoLongerNeeded();
 }
 
 // MARK: - Failure propagation

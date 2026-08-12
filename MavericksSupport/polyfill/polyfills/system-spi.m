@@ -1985,14 +1985,39 @@ WK_POLYFILL_ABSENT(NULL, void, xpc_connection_set_oneshot_instance, (xpc_connect
 // child crashed at launch on a lazy bind of _os_transaction_create (EXC_BREAKPOINT in
 // dyld::fastBindLazySymbol from NetworkServiceInitializer / WebContentServiceInitializer).
 //
-// os_transaction is purely a process-lifecycle assertion introduced with the os_object refactor; 10.9
-// has no equivalent, and the child's real lifecycle is held by xpc_transaction (xpc_transaction_exit_clean
-// is used in the same file). Returning NULL means "no transaction": adoptOSObject(NULL) yields an empty
-// OSObjectPtr, and the os_retain/os_release polyfills above are NULL-safe, so nothing dereferences it.
+// os_transaction is the os_object-era spelling of the launchd transaction 10.9 exports as
+// xpc_transaction_begin / xpc_transaction_end (both present in /usr/lib/system/libxpc.dylib, over
+// vproc_transaction): while a job holding one is dirty, launchd leaves it alone; a job that holds
+// none is clean and launchd may terminate it. A dispatch queue carries the transaction because it
+// is an os_object with a finalizer, so the count follows the returned handle's own lifetime through
+// the os_retain / os_release forwarders above, however the caller scopes it.
+WK_SYSTEM_FN(NULL, void, xpc_transaction_begin, (void));
+WK_SYSTEM_FN(NULL, void, xpc_transaction_end, (void));
+
+// 10.9's libdispatch runs an object's finalizer only when its context is non-NULL, so the handle
+// carries this address to keep the end of the transaction reachable from its dispose.
+static const char wk_transactionContext;
+
+static void wk_endTransaction(void *context)
+{
+    (void)context;
+    if (WK_SYSTEM(xpc_transaction_end))
+        WK_SYSTEM(xpc_transaction_end)();
+}
+
 WK_POLYFILL_ABSENT(NULL, void *, os_transaction_create, (const char *description))
 {
-    (void)description;
-    return NULL;
+    // The finalizer rides on the handle only when the count was actually taken; ending a
+    // transaction nobody began would mark a busy process clean.
+    if (!WK_SYSTEM(xpc_transaction_begin))
+        return NULL;
+    dispatch_queue_t transaction = dispatch_queue_create(description ? description : "com.apple.webkit.os-transaction", DISPATCH_QUEUE_SERIAL);
+    if (!transaction)
+        return NULL;
+    WK_SYSTEM(xpc_transaction_begin)();
+    dispatch_set_context(transaction, (void *)&wk_transactionContext);
+    dispatch_set_finalizer_f(transaction, wk_endTransaction);
+    return transaction;
 }
 
 // voucher_replace_default_voucher (10.10+). The same XPC service entry point calls this right after

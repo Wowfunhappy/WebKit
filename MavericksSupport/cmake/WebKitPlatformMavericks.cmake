@@ -40,6 +40,9 @@ if (ENABLE_WEB_PUSH_NOTIFICATIONS)
     # under which their RetainPtr/adoptNS ownership is correct either way.
     set_source_files_properties(webpushd/MozillaPushServiceConnection.mm webpushd/MozillaPushWebSocket.mm
         PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+    # SMJobSubmit, which submits the daemon's launchd job from the UI process
+    # (UIProcess/WebsiteData/Cocoa/WebsiteDataStoreCocoa.mm).
+    target_link_options(WebKit PRIVATE "SHELL:-framework ServiceManagement")
 endif ()
 
 # MAVERICKS_BACKPORT: upstream's PlatformMac.cmake lists WKProcessGroupPrivate.h among the framework
