@@ -5,6 +5,10 @@
 # layer define something 10.9 already has?"; this one asks the question from the other side: "does
 # WebKit reference something 10.9 does NOT have, and that the layer forgot to define?"
 #
+# It asks that question of two reference kinds. The first is a WEAK import of API 10.9 lacks (ADDR
+# and CALL below); the second is a STRONG flat-namespace reference to a definition that was never
+# compiled, which "-undefined dynamic_lookup" lets through the link (DYN, described at its sweep).
+#
 # The modern SDK marks post-10.9 API with availability, so clang WEAK-imports every such reference
 # rather than failing the link. dyld then binds an absent weak symbol to address 0, and BOTH ways of
 # using it are fatal:
@@ -200,19 +204,41 @@ while IFS= read -r bin; do
       | sort -u \
       | while read -r sym; do
             case "$sym" in _OBJC_CLASS_\$_*|_OBJC_METACLASS_\$_*) continue ;; esac
-            if grep -qx "$sym" "$WORK/bindable"; then continue; fi
-            if grep -qx "$sym" "$WORK/stubs"; then kind=CALL; else kind=ADDR; fi
+            if grep -qxF "$sym" "$WORK/bindable"; then continue; fi
+            if grep -qxF "$sym" "$WORK/stubs"; then kind=CALL; else kind=ADDR; fi
             echo "$kind|$sym|${bin#$STAGED}"
         done >> "$WORK/findings"; } || true
+
+    # DYN, the other half of "references something nothing provides": a STRONG flat-namespace
+    # reference. WebCore links with "-undefined dynamic_lookup" (Source/WebCore/CMakeLists.txt), so a
+    # call to a definition that never got compiled -- an upstream TU a source-list seam withholds, or
+    # one upstream builds only from its Xcode project -- survives the link as an undefined flat symbol
+    # instead of failing it. Nothing reports it until a client binds the image eagerly, and then dyld
+    # refuses to load that client outright: an iWork QuickLook generator, hard-bound against WebKit,
+    # dies with "Symbol not found ... Expected in: flat namespace" and its previews stop working.
+    #
+    # These carry no presence test, because there is nothing to score them against: flat lookup
+    # searches the images loaded in the CLIENT process at bind time, which is neither this image's
+    # link closure nor the bundle. Scoring them against the union of what the bundle exports is the
+    # global-presence mistake the header rejects, one slice and one lazily-dlopened plugin wide -- a
+    # name some unrelated staged image happens to export would pass while dyld aborts the client.
+    { "$NM" -m "$bin" 2>/dev/null \
+      | sed -n 's/.*(undefined) external \([^ ]*\) (dynamically looked up).*/\1/p' \
+      | sort -u \
+      | while read -r sym; do echo "DYN|$sym|${bin#$STAGED}"; done >> "$WORK/findings"; } || true
 done < "$WORK/binaries"
 
 sort -u "$WORK/findings" -o "$WORK/findings"
 
-{ grep '^ADDR|' "$WORK/findings" > "$WORK/addr"; } || true
-
-# Everything is fatal unless the exact (symbol, image basename) pair is PINNED below. The pin is a
-# closed set, not an allow list: it carries no reason field and makes no claim about whether anything
-# executes, so it cannot absorb a new finding the way prose can. Anything not on it fails the build.
+# Everything is fatal unless the exact (kind, symbol, image basename) triple is PINNED below. The pin
+# is a closed set, not an allow list: it carries no reason field and makes no claim about whether
+# anything executes, so it cannot absorb a new finding the way prose can. Anything not on it fails the
+# build.
+#
+# KIND is part of the key because a pin justified for one reference kind does not license another. The
+# entries below rest on a guard around a WEAK call; the same symbol referenced strongly from the flat
+# namespace is a hard dyld load failure that no call-site guard can survive, so it must not inherit
+# their pin.
 #
 # Note what the pin deliberately does NOT key on. "The image does not carry __wk_pfmap" reads as a
 # proxy for "no polyfill could reach it", but it also covers this project's OWN binaries that happen
@@ -225,17 +251,17 @@ sort -u "$WORK/findings" -o "$WORK/findings"
 # libgstreamer reach __darwin_check_fd_set_overflow through Apple's own SDK null-address test inside
 # FD_SET. Verify the same before ever adding a line here.
 cat > "$WORK/pinned" <<'PINNED'
-_VTRegisterSupplementalVideoDecoderIfAvailable libgstapplemedia.dylib
-___darwin_check_fd_set_overflow libcrypto.3.dylib
-___darwin_check_fd_set_overflow libglib-2.0.0.dylib
-___darwin_check_fd_set_overflow libgstreamer-1.0.0.dylib
+CALL _VTRegisterSupplementalVideoDecoderIfAvailable libgstapplemedia.dylib
+CALL ___darwin_check_fd_set_overflow libcrypto.3.dylib
+CALL ___darwin_check_fd_set_overflow libglib-2.0.0.dylib
+CALL ___darwin_check_fd_set_overflow libgstreamer-1.0.0.dylib
 PINNED
 
 : > "$WORK/fatal"; : > "$WORK/pinnedhit"
 while IFS='|' read -r kind sym image; do
     [ -n "$kind" ] || continue
     line="$kind|$sym|$image"
-    if awk -v s="$sym" -v b="$(basename "$image")" '$1 == s && $2 == b { found = 1 } END { exit !found }' "$WORK/pinned"; then
+    if awk -v k="$kind" -v s="$sym" -v b="$(basename "$image")" '$1 == k && $2 == s && $3 == b { found = 1 } END { exit !found }' "$WORK/pinned"; then
         echo "$line" >> "$WORK/pinnedhit"
     else
         echo "$line" >> "$WORK/fatal"
@@ -244,7 +270,10 @@ done < "$WORK/findings"
 
 show() { awk -F'|' '{ printf "      %-52s %s\n", $2, $3 }' "$1" | sort -u; }
 
-if [ -s "$WORK/fatal" ]; then
+{ grep -v '^DYN|' "$WORK/fatal" > "$WORK/fatalweak"; } || true
+{ grep '^DYN|' "$WORK/fatal" > "$WORK/fataldyn"; } || true
+
+if [ -s "$WORK/fatalweak" ]; then
     echo "  absent-reference check: FAILED"
     echo "    Nothing this 10.9 host provides and nothing in the bundle exports these, yet a shipped"
     echo "    binary references them. dyld binds each to address 0: an ADDR reference faults when the"
@@ -253,9 +282,22 @@ if [ -s "$WORK/fatal" ]; then
     echo "    WK_POLYFILL_CONST for ADDR, WK_POLYFILL_ABSENT returning the modern API's documented"
     echo "    failure shape for CALL."
     echo
-    show "$WORK/fatal"
-    exit 1
+    show "$WORK/fatalweak"
 fi
 
+if [ -s "$WORK/fataldyn" ]; then
+    echo "  absent-reference check: FAILED"
+    echo "    A shipped binary carries a strong flat-namespace reference. Every client that binds the"
+    echo "    image eagerly -- dlopen RTLD_NOW, or a hard-bound plug-in such as a QuickLook generator --"
+    echo "    fails to load outright. Compile the defining translation unit (WebCore_SOURCES in"
+    echo "    MavericksSupport/cmake/WebCorePlatformMavericks.cmake carries the ones upstream builds"
+    echo "    only from WebCore.xcodeproj), or stop compiling the caller when the port selects a"
+    echo "    different backend for it."
+    echo
+    show "$WORK/fataldyn"
+fi
+
+if [ -s "$WORK/fatal" ]; then exit 1; fi
+
 echo "  absent-reference check: clean -- $BINCOUNT staged binaries, per-image link closures, all slices"
-echo "    ($(wc -l < "$WORK/pinnedhit" | tr -d ' ') pinned third-party reference(s) matched)"
+echo "    ($(grep -c '^DYN|' "$WORK/pinnedhit" || true) pinned flat-namespace reference(s), $(grep -vc '^DYN|' "$WORK/pinnedhit" || true) pinned third-party weak reference(s))"

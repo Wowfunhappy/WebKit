@@ -35,14 +35,7 @@
 #import "SceneKitModel.h"
 #import "SceneKitModelLoader.h"
 #import <pal/spi/cocoa/SceneKitSPI.h>
-#import <wtf/cocoa/SoftLinking.h> // MAVERICKS_BACKPORT: added for the SOFT_LINK of SceneKit classes below (no LC_LOAD_DYLIB for SceneKit on this port).
 #import <wtf/cocoa/VectorCocoa.h>
-
-// MAVERICKS_BACKPORT: soft-link SCNMetalLayer rather than hard-referencing the class — this port records no
-// LC_LOAD_DYLIB for SceneKit (see the WebCore overlay), so a hard class reference is unresolved at dyld load
-// and aborts every WebKit client at launch. The <model> element is off here, so this is never invoked.
-SOFT_LINK_FRAMEWORK_OPTIONAL(SceneKit)
-SOFT_LINK_CLASS_OPTIONAL(SceneKit, SCNMetalLayer)
 
 static std::optional<RetainPtr<id>> makeVectorElement(const RetainPtr<id>*, id arrayElement)
 {
@@ -58,7 +51,7 @@ Ref<SceneKitModelPlayer> SceneKitModelPlayer::create(ModelPlayerClient& client)
 
 SceneKitModelPlayer::SceneKitModelPlayer(ModelPlayerClient& client)
     : m_client { client }
-    , m_layer { adoptNS([allocSCNMetalLayerInstance() init]) } // MAVERICKS_BACKPORT: allocSCNMetalLayerInstance() is the soft-linked SCNMetalLayer (see file top).
+    , m_layer { adoptNS([[SCNMetalLayer alloc] init]) }
     , m_id { ModelPlayerIdentifier::generate() }
 {
     m_layer.get().autoenablesDefaultLighting = YES;

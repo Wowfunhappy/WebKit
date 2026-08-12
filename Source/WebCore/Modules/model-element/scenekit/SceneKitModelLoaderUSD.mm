@@ -38,14 +38,6 @@
 #import <wtf/FileHandle.h>
 #import <wtf/darwin/DispatchExtras.h>
 
-// MAVERICKS_BACKPORT: soft-link SCNSceneSource rather than hard-referencing the class. SceneKit.framework is
-// present on 10.9, but this port records no LC_LOAD_DYLIB for it (see the SceneKit note in the WebCore overlay),
-// so a hard `_OBJC_CLASS_$_SCNSceneSource` reference is unresolved at dyld load time and aborts every WebKit
-// client at launch. The <model> element is off on this port, so getSCNSceneSourceClass() is never invoked.
-#import <wtf/cocoa/SoftLinking.h>
-SOFT_LINK_FRAMEWORK_OPTIONAL(SceneKit)
-SOFT_LINK_CLASS_OPTIONAL(SceneKit, SCNSceneSource)
-
 namespace WebCore {
 
 class SceneKitModelLoaderUSD final : public SceneKitModelLoader {
@@ -137,9 +129,7 @@ Ref<SceneKitModelLoader> loadSceneKitModelUsingUSDLoader(Model& modelSource, Sce
 
         auto url = writeToTemporaryFile(modelSource.get());
 
-        // MAVERICKS_BACKPORT: allocSCNSceneSourceInstance() is the soft-linked SCNSceneSource (SceneKit is
-        // soft-linked here — no LC_LOAD_DYLIB for it on this port; <model> is off, so this never runs).
-        auto source = adoptNS([allocSCNSceneSourceInstance() initWithURL:url.get() options:nil]);
+        auto source = adoptNS([[SCNSceneSource alloc] initWithURL:url.get() options:nil]);
         NSError *error = nil;
         RetainPtr scene = [source sceneWithOptions:@{ } error:&error];
 

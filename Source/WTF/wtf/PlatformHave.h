@@ -363,13 +363,7 @@
 #endif
 
 #if PLATFORM(COCOA)
-// MAVERICKS_BACKPORT: HAVE(AVASSETREADER) gates only the AVFoundation AVAssetReader *image* decoder
-// (ImageDecoderAVFObjC, for animated HEIC/motion images). This build decodes images through GStreamer
-// (ImageDecoderGStreamer) instead, so the AVFoundation image-decoder path is unused; leaving it on
-// referenced ImageDecoderAVFObjC's (stubbed) symbols and crashed the WebContent render path when the
-// image Accept header was built. Off here — media *playback* does not depend on this flag.
-// MAVERICKS_BACKPORT: AVFoundation image-decoder path off; this build decodes images via GStreamer (see above).
-#define HAVE_AVASSETREADER 0
+#define HAVE_AVASSETREADER 1
 #endif
 
 #if PLATFORM(COCOA)
@@ -1005,7 +999,11 @@
 #endif
 
 #if PLATFORM(MAC)
-#define HAVE_SCENEKIT !ENABLE_GPU_PROCESS_MODEL
+// MAVERICKS_BACKPORT: SCNMetalLayer, which SceneKitModelPlayer's layer is, arrived after 10.9 --
+// SceneKit.framework here exports no such class. Unlike its neighbours this block is not
+// `!defined()`-guarded, so the value has to be stated here rather than in AdditionalPlatformHave.h.
+// #define HAVE_SCENEKIT !ENABLE_GPU_PROCESS_MODEL
+#define HAVE_SCENEKIT 0
 #endif
 
 #if PLATFORM(COCOA)

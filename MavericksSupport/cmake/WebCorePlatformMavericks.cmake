@@ -35,7 +35,9 @@ endif ()
 # MAVERICKS_BACKPORT: Lookup.framework depends on WebKit.framework, creating a circular dep chain:
 # WebCore -> Lookup -> WebKit -> WebKitLegacy -> WebCore
 # This causes all frameworks to load simultaneously and crashes the ObjC runtime.
-# Do not link Lookup directly; its symbols resolve via -undefined dynamic_lookup.
+# Do not link Lookup directly. Every use of it in the tree goes through
+# SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE(PAL, Lookup) in PAL/pal/mac/LookupSoftLink.mm, so the
+# framework is dlopened on first use and upstream's link line adds nothing but the load command.
 # find_library(LOOKUP_FRAMEWORK Lookup HINTS ${CMAKE_OSX_SYSROOT}/System/Library/PrivateFrameworks)
 # list(APPEND WebCore_LIBRARIES ${LOOKUP_FRAMEWORK})
 
@@ -192,6 +194,16 @@ list(REMOVE_ITEM WebCore_SOURCES
     # bundle; compiling both makes those two symbols duplicate and the WebCore link fails.
     Modules/webaudio/MediaStreamAudioSourceCocoa.cpp
     platform/mediastream/mac/RealtimeOutgoingVideoSourceCocoa.mm
+
+    # The AudioToolbox WebCodecs pair. USE(GSTREAMER) wins the backend selection in
+    # platform/AudioEncoder.cpp and platform/AudioDecoder.cpp, so nothing calls either class, but their
+    # own guard is ENABLE(WEB_CODECS) && USE(AVFOUNDATION) and both are true here. AudioEncoderCocoa
+    # calls PlatformRawAudioDataCocoa::sampleBuffer(), whose TU is withheld below because its
+    # PlatformRawAudioData factories duplicate PlatformRawAudioDataGStreamer.cpp's. Upstream lists these
+    # two in SourcesCocoa.txt as well; withholding them there alone drops their HEADER_FILE_ONLY marking
+    # and hands them to this list to compile standalone.
+    platform/audio/cocoa/AudioDecoderCocoa.cpp
+    platform/audio/cocoa/AudioEncoderCocoa.cpp
 )
 
 
@@ -200,8 +212,9 @@ list(REMOVE_ITEM WebCore_SOURCES
 # --------------------------------------------------------------------------
 include(${CMAKE_SOURCE_DIR}/MavericksSupport/cmake/MavericksSourceLists.cmake)
 
-# Withheld from SourcesCocoa.txt: replaced by the GCrypt/OpenSSL crypto backend, or built on
-# frameworks and SPI this deployment target does not have.
+# Withheld from SourcesCocoa.txt: replaced by the GCrypt/OpenSSL crypto backend, superseded by the
+# GStreamer backend this port selects for media and WebCodecs, or built on frameworks, SPI and
+# languages this deployment target and toolchain do not have.
 set(MAVERICKS_WITHHELD_COCOA_SOURCES
     "JSApplePayDisbursementRequest.cpp"
     "crypto/cocoa/CommonCryptoDERUtilities.cpp"
