@@ -1,2 +1,0 @@
-// MAVERICKS_BACKPORT: empty translation unit that exists only in the backport. PlatformMac.cmake lists WebProcess/cocoa/HandleXPCEndpointMessages.mm as a source, but the real XPC-endpoint dispatch (handleXPCEndpointMessage) lives in Shared/EntryPointUtilities/Cocoa/XPCService/XPCEndpointMessages.mm; this file just satisfies the build's source entry without duplicating that logic.
-#include "config.h"

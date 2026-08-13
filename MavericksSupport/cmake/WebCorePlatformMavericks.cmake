@@ -298,13 +298,11 @@ set(MAVERICKS_ADDED_COCOA_SOURCES
     "crypto/gcrypt/GCryptRFC8032.cpp"
     "crypto/gcrypt/GCryptUtilities.cpp"
     "platform/audio/cocoa/AudioSessionCocoa.mm @nonARC"
-    "platform/cocoa/MavericksBackportWebCoreGlue.mm @no-unify"
     "platform/graphics/avfoundation/objc/QueuedVideoOutput.mm"
     "platform/graphics/cocoa/MediaPlayerEnumsCocoa.mm"
     "platform/graphics/cocoa/TextTransformCocoa.cpp"
     "platform/image-decoders/webp/WEBPImageDecoder.cpp"
     "platform/mac/WebCoreView.mm @nonARC"
-    "platform/mediastream/libwebrtc/WebRTCCodecStubs109.mm @nonARC @no-unify"
     "platform/graphics/cocoa/ANGLEUtilitiesCocoa.mm @nonARC @no-unify"
 )
 
@@ -315,7 +313,6 @@ set(MAVERICKS_ADDED_GSTREAMER_SOURCES
     "platform/glib/ApplicationGLib.cpp"
     "platform/glib/SharedBufferGlib.cpp"
     "platform/graphics/gstreamer/ImageGStreamerCG.cpp"
-    "platform/graphics/gstreamer/VideoLayerGStreamerCocoa.mm @no-unify"
 )
 
 set(MAVERICKS_WITHHELD_WEBCORE_SOURCES "")
@@ -332,6 +329,21 @@ set(MAVERICKS_ADDED_WEBCORE_SOURCES
 )
 
 MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "Sources.txt" MAVERICKS_WITHHELD_WEBCORE_SOURCES MAVERICKS_ADDED_WEBCORE_SOURCES)
+# MAVERICKS_BACKPORT: the WebCore sources this backport wrote itself, kept with the rest of the 10.9
+# glue -- ${MAVERICKS_SUPPORT}/source mirrors the Source/ path each one plugs into. The GStreamer pair
+# video layer follows the same USE_GSTREAMER condition as the list it sits beside. Sources that ride
+# in a unified bundle stay in Source/, where their list position decides which files share a bundle.
+list(APPEND WebCore_SOURCES
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/cocoa/MavericksBackportWebCoreGlue.mm
+    ${MAVERICKS_SUPPORT}/source/WebCore/platform/mediastream/libwebrtc/WebRTCCodecStubs109.mm
+)
+if (USE_GSTREAMER)
+    list(APPEND WebCore_PRIVATE_INCLUDE_DIRECTORIES "${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer")
+    list(APPEND WebCore_SOURCES
+        ${MAVERICKS_SUPPORT}/source/WebCore/platform/graphics/gstreamer/VideoLayerGStreamerCocoa.mm
+    )
+endif ()
+
 MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "SourcesCocoa.txt" MAVERICKS_WITHHELD_COCOA_SOURCES MAVERICKS_ADDED_COCOA_SOURCES)
 MAVERICKS_FILTER_SOURCE_LIST("${WEBCORE_DIR}" WebCore_UNIFIED_SOURCE_LIST_FILES "platform/SourcesGStreamer.txt" MAVERICKS_WITHHELD_GSTREAMER_SOURCES MAVERICKS_ADDED_GSTREAMER_SOURCES)
 

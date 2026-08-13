@@ -23,10 +23,13 @@ list(APPEND WebKit_PRIVATE_LIBRARIES ZLIB::ZLIB)
 # ApplePushService cannot mint URL tokens and the modern SDK ships no .tbd to link it, so this port's
 # transport is MozillaPushServiceConnection + MozillaPushWebSocket (USE_MOZILLA_PUSH_SERVICE).
 if (ENABLE_WEB_PUSH_NOTIFICATIONS)
+    # The two Mozilla-transport files are this backport's own, so they live beside the rest of the
+    # 10.9 glue; ${MAVERICKS_SUPPORT}/source mirrors the Source/ path of whatever each one plugs into.
+    list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES "${MAVERICKS_SUPPORT}/source/WebKit/webpushd")
     list(APPEND WebKit_SOURCES
+        ${MAVERICKS_SUPPORT}/source/WebKit/webpushd/MozillaPushServiceConnection.mm
+        ${MAVERICKS_SUPPORT}/source/WebKit/webpushd/MozillaPushWebSocket.mm
         webpushd/MockPushServiceConnection.mm
-        webpushd/MozillaPushServiceConnection.mm
-        webpushd/MozillaPushWebSocket.mm
         webpushd/PushClientConnection.mm
         webpushd/PushService.mm
         webpushd/PushServiceConnection.mm
@@ -38,17 +41,42 @@ if (ENABLE_WEB_PUSH_NOTIFICATIONS)
     # the first stream callback. They traffic in no os_object types, so the OS_OBJECT_USE_OBJC=1 mangling
     # the rest of the build uses is unaffected; the upstream daemon files keep the port-wide MRR default,
     # under which their RetainPtr/adoptNS ownership is correct either way.
-    set_source_files_properties(webpushd/MozillaPushServiceConnection.mm webpushd/MozillaPushWebSocket.mm
+    set_source_files_properties(
+        ${MAVERICKS_SUPPORT}/source/WebKit/webpushd/MozillaPushServiceConnection.mm
+        ${MAVERICKS_SUPPORT}/source/WebKit/webpushd/MozillaPushWebSocket.mm
         PROPERTIES COMPILE_FLAGS "-fobjc-arc")
     # SMJobSubmit, which submits the daemon's launchd job from the UI process
     # (UIProcess/WebsiteData/Cocoa/WebsiteDataStoreCocoa.mm).
     target_link_options(WebKit PRIVATE "SHELL:-framework ServiceManagement")
 endif ()
 
+# MAVERICKS_BACKPORT: the UIProcess and injected-bundle sources this backport wrote itself, kept with
+# the rest of the 10.9 glue -- ${MAVERICKS_SUPPORT}/source mirrors the Source/ path each one plugs
+# into. WKViewMavericks.mm carries the only @implementation WKView on this port and WKViewToolTip.mm
+# its title-attribute tooltip; both compile standalone. Sources that ride in a unified bundle stay in
+# Source/ -- their position in the list decides which files share a
+# unified bundle, so relocating them would move every file after them into a different bundle.
+list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
+    "${MAVERICKS_SUPPORT}/source/WebKit/UIProcess"
+)
+list(APPEND WebKit_SOURCES
+    ${MAVERICKS_SUPPORT}/source/WebKit/UIProcess/API/mac/WKViewMavericks.mm
+    ${MAVERICKS_SUPPORT}/source/WebKit/UIProcess/API/mac/WKViewToolTip.mm
+)
+
 # MAVERICKS_BACKPORT: upstream's PlatformMac.cmake lists WKProcessGroupPrivate.h among the framework
 # headers to copy, but ships no such file (the same class of stale list entry as TextIndicatorWindow).
 # Drop it from the copy list rather than carrying a content-free placeholder to satisfy it.
 list(REMOVE_ITEM WebKit_PUBLIC_FRAMEWORK_HEADERS UIProcess/API/Cocoa/WKProcessGroupPrivate.h)
+
+# MAVERICKS_BACKPORT: two more source entries with no file behind them here. handleXPCEndpointMessage
+# is compiled from Shared/EntryPointUtilities/Cocoa/XPCService/XPCEndpointMessages.mm, and the
+# connection-termination watchdog's reason string is inline in AuxiliaryProcessProxyCocoa.mm, so
+# withhold the entries rather than carrying a file that only exists to satisfy them.
+list(REMOVE_ITEM WebKit_SOURCES
+    UIProcess/Cocoa/XPCConnectionTerminationWatchdog.mm
+    WebProcess/cocoa/HandleXPCEndpointMessages.mm
+)
 
 # MAVERICKS_BACKPORT: _WKFeature.h imports <WebKit/WebFeature.h>, which the Xcode build satisfies from
 # WebKitLegacy's copy. Forward to that one file rather than keeping a second definition of the same
@@ -541,9 +569,8 @@ set(MAVERICKS_ADDED_WEBKIT_COCOA_SOURCES
     "UIProcess/API/Cocoa/WKProcessGroup.mm @nonARC"
     "UIProcess/API/Cocoa/WKWebView.mm @nonARC @no-unify"
     "UIProcess/API/Cocoa/_WKTextExtractionItems.mm @nonARC"
-    "UIProcess/API/mac/WKViewMavericks.mm @nonARC @no-unify"
-    "UIProcess/API/mac/WKViewToolTip.mm @nonARC @no-unify"
     "UIProcess/Cocoa/AuxiliaryProcessProxyCocoa.mm @nonARC"
+    "UIProcess/mac/MinimalPageClient.mm @nonARC"
     "UIProcess/Cocoa/CSPExtensionUtilities.mm"
     "UIProcess/Cocoa/_WKWarningView.mm @nonARC"
     "UIProcess/Downloads/DownloadProxyCocoa.mm"
@@ -555,7 +582,6 @@ set(MAVERICKS_ADDED_WEBKIT_COCOA_SOURCES
     "UIProcess/WebAuthentication/Virtual/VirtualAuthenticatorUtils.mm @nonARC"
     "UIProcess/WebAuthentication/Virtual/VirtualLocalConnection.mm @nonARC"
     "UIProcess/WebAuthentication/Virtual/VirtualService.mm @nonARC"
-    "UIProcess/mac/MinimalPageClient.mm @nonARC"
     "UIProcess/mac/_WKCaptionStyleMenuControllerMac.mm @nonARC"
     "WebProcess/WebPage/Cocoa/PositionInformationForWebPage.mm @nonARC"
 )
