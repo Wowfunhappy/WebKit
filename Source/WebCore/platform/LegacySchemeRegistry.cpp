@@ -150,13 +150,6 @@ static std::span<const ASCIILiteral> builtinSecureSchemes()
 #if ENABLE(PDFJS)
         "webkit-pdfjs-viewer"_s,
 #endif
-#if PLATFORM(MAC)
-        // MAVERICKS_BACKPORT: safari-extension:// (extension popups/background pages) and
-        // safari-resource:// (Reader mode chrome, see WebLoaderStrategy.cpp) are always served
-        // in-app by Safari itself, never over the network, so they're as trustworthy as "about"/"data".
-        "safari-extension"_s,
-        "safari-resource"_s,
-#endif
     };
     return schemes;
 }
@@ -289,18 +282,29 @@ static URLSchemesMap& CORSEnabledSchemes()
     return schemes;
 }
 
-#if ENABLE(PDFJS)
+#if ENABLE(PDFJS) || PLATFORM(MAC) // MAVERICKS_BACKPORT: PLATFORM(MAC) seeds safari-extension, see below.
 static std::span<const ASCIILiteral> builtinCSPBypassingSchemes()
 {
-    static constexpr std::array schemes { "webkit-pdfjs-viewer"_s };
+    static constexpr std::array schemes {
+#if ENABLE(PDFJS)
+        "webkit-pdfjs-viewer"_s,
+#endif
+#if PLATFORM(MAC)
+        // MAVERICKS_BACKPORT: Safari registers safari-extension:// as secure and domain-relaxation-
+        // forbidden through WKContext, but the CSP-bypass SPI postdates Safari 7 and is absent from
+        // its import table, leaving this set empty. A content script's extension script, iframe or
+        // image is then matched against the host page's script-src/frame-src/img-src and refused.
+        "safari-extension"_s,
+#endif
+    };
     return schemes;
 }
-#endif
+#endif // MAVERICKS_BACKPORT: closes the ENABLE(PDFJS) || PLATFORM(MAC) guard above.
 
 static URLSchemesMap& NODELETE ContentSecurityPolicyBypassingSchemes() WTF_REQUIRES_LOCK(schemeRegistryLock)
 {
     ASSERT(schemeRegistryLock.isHeld());
-#if ENABLE(PDFJS)
+#if ENABLE(PDFJS) || PLATFORM(MAC) // MAVERICKS_BACKPORT: PLATFORM(MAC) seeds safari-extension, see above.
     static auto schemes = makeNeverDestroyedSchemeSet(builtinCSPBypassingSchemes);
 #else
     static NeverDestroyed<URLSchemesMap> schemes;
