@@ -5,3 +5,7 @@
 # Source tarballs build_deps.sh downloads, kept so a rerun after a mid-script failure
 # does not fetch everything again. Fetch artifacts.
 /.tarball-cache/
+
+# The Widevine device identity the OpenWV section embeds. It carries the RSA private key of
+# a real device, so it is the operator's own input and never belongs in the repository.
+*.wvd

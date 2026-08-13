@@ -91,9 +91,12 @@
 #include "WebKitFliteSourceGStreamer.h"
 #endif
 
-// MAVERICKS_BACKPORT: the restored ClearKey decryptor (see WebKitClearKeyDecryptorGStreamer.h).
+// MAVERICKS_BACKPORT: the restored ClearKey decryptor (see WebKitClearKeyDecryptorGStreamer.h) and
+// the Widevine decryptor (see WebKitWidevineDecryptorGStreamer.h).
 #if ENABLE(ENCRYPTED_MEDIA)
 #include "WebKitClearKeyDecryptorGStreamer.h"
+#include "WidevineCdmModule.h"
+#include "WebKitWidevineDecryptorGStreamer.h"
 #endif
 
 #if ENABLE(ENCRYPTED_MEDIA) && ENABLE(THUNDER)
@@ -603,6 +606,12 @@ void registerWebKitGStreamerElements()
 // only CENC decryptor.
 #if ENABLE(ENCRYPTED_MEDIA)
         gst_element_register(nullptr, "webkitclearkey", GST_RANK_PRIMARY + 200, WEBKIT_TYPE_MEDIA_CK_DECRYPT);
+        // MAVERICKS_BACKPORT: the Widevine decryptor, registered only when the CDM library is
+        // installed beside the GStreamer runtime, so a build without one advertises no Widevine caps.
+        // Which of the two decryptors serves a stream is decided by the active key system in
+        // MediaPlayerPrivateGStreamer's autoplug-select handler, not by rank.
+        if (WidevineCdm::isAvailable())
+            gst_element_register(nullptr, "webkitwidevine", GST_RANK_PRIMARY + 200, WEBKIT_TYPE_MEDIA_WV_DECRYPT);
 #endif
 
 #if ENABLE(ENCRYPTED_MEDIA) && ENABLE(THUNDER)

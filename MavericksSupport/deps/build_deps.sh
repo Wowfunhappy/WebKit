@@ -823,6 +823,118 @@ for t in gst-inspect-1.0 gst-launch-1.0; do
   collect_tool "$STAGE/bin/$t"
 done
 
+echo "==== OpenWV Widevine CDM ===="
+# The com.widevine.alpha key system. OpenWV is a from-source reimplementation of Google's
+# Widevine CDM that speaks Chromium's cdm::ContentDecryptionModule ABI, which is what
+# WebCore's CDMWidevine.cpp hosts. The module is built here unconditionally; the device
+# identity it needs is a separate file it reads at load time (see the patch below), and a
+# .wvd holds a private key extracted from a real device -- neither redistributable nor
+# derivable, so it is an input the operator supplies. It is deployed beside the module when
+# present and can be dropped in or replaced afterwards without rebuilding anything; with no
+# device the module loads and declines to create an instance, and WidevineCdm::isAvailable()
+# reports the key system unsupported.
+WVD="${MAVERICKS_WVD:-$HERE/widevine.wvd}"
+if true; then
+  # Rust, its libclang, and the C++ standard library it wants are all newer than this host,
+  # so all three are pinned and shimmed:
+  #   * nightly-2026-06-05 matches OpenWV 1.1.4's era. On a 2026-08 nightly, autocfg's
+  #     `extern crate std;` probe fails, indexmap-1.9.3 loses has_std, and autocxx-parser
+  #     stops compiling.
+  #   * The toolchain binaries reference getentropy/clock_gettime/os_unfair_lock/
+  #     CCRandomGenerateBytes and the whole *at() family, none of which 10.9 has. The same
+  #     legacy-support sources the gap archive uses supply them through DYLD_INSERT_LIBRARIES.
+  #   * bindgen needs a libclang that both runs here and understands C++14. LLVM 14's is the
+  #     newest that loads on 10.9; the one thing it wants that 10.9's libc++ predates is
+  #     std::shared_timed_mutex (10.12+), supplied by openwv-shared-timed-mutex.cpp.
+  RUST_DATE=2026-06-05
+  RUSTDIR="$SCRATCH/rust"; mkdir -p "$RUSTDIR"
+  for c in rustc-nightly-x86_64-apple-darwin cargo-nightly-x86_64-apple-darwin \
+           rust-std-nightly-x86_64-apple-darwin rust-src-nightly; do
+    f="$SRC/$RUST_DATE-$c.tar.xz"
+    [ -f "$f" ] || ( echo "download $c" >&2 && fetch "https://static.rust-lang.org/dist/$RUST_DATE/$c.tar.xz" "$f" ) || exit 1
+    d="$SCRATCH/rustpkg-$c"; rm -rf "$d"; mkdir -p "$d"
+    tar xf "$f" -C "$d" --strip-components=1 || exit 1
+    sh "$d/install.sh" --prefix="$RUSTDIR" --disable-ldconfig > /tmp/depslog-rust-$c.log 2>&1 || exit 1
+  done
+
+  LLVM14="$SCRATCH/llvm14"; mkdir -p "$LLVM14"
+  f="$SRC/clang+llvm-14.0.0-x86_64-apple-darwin.tar.xz"
+  [ -f "$f" ] || ( echo "download llvm-14 (libclang)" >&2 \
+    && fetch "https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.0/clang+llvm-14.0.0-x86_64-apple-darwin.tar.xz" "$f" ) || exit 1
+  # libclang resolves its own builtin headers relative to itself, so take them from the same
+  # tarball rather than pointing a clang-14 frontend at clang-22's.
+  tar xf "$f" -C "$LLVM14" --strip-components=1 '*/lib/libclang.dylib' '*/lib/clang/14.0.0/include/*' || exit 1
+  [ -f "$LLVM14/lib/clang/14.0.0/include/stddef.h" ] \
+    || { echo "  FATAL: LLVM 14 builtin headers missing from $LLVM14"; exit 1; }
+
+  # The shims that let the toolchain run (exported, inserted) -- built from the same sources
+  # as the gap archive above, plus the missing libc++ class.
+  SHIMDIR="$SCRATCH/rustshim"; mkdir -p "$SHIMDIR"
+  SHIMCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -O2 -I$LEGACY/include"
+  ( for s in time atcalls utimensat fdopendir dirfuncs_compat clonefile statxx getentropy \
+             pthread_chdir os_unfair_lock fsgetpath; do
+      "$TC/bin/clang" $SHIMCFLAGS -c "$LEGACY/src/$s.c" -o "$SHIMDIR/$s.o" || exit 1
+    done
+    for s in os_unfair_lock_ext ccrandom mkostemp aligned_alloc; do
+      "$TC/bin/clang" $SHIMCFLAGS -c "$SHARED/$s.c" -o "$SHIMDIR/$s.o" || exit 1
+    done ) || exit 1
+  "$TC/bin/clang" --no-default-config -isysroot / -mmacosx-version-min=10.9 -dynamiclib \
+    -install_name "$SHIMDIR/libgapshim.dylib" "$SHIMDIR"/*.o -o "$SHIMDIR/libgapshim.dylib" || exit 1
+  "$TC/bin/clang++" --no-default-config -isysroot / -mmacosx-version-min=10.9 -std=c++11 -O2 -fPIC \
+    -isystem /Library/Developer/CommandLineTools/usr/include/c++/v1 \
+    -dynamiclib -install_name "$SHIMDIR/libcxxgap.dylib" \
+    "$HERE/openwv-shared-timed-mutex.cpp" -o "$SHIMDIR/libcxxgap.dylib" || exit 1
+
+  OWSRC="$SCRATCH/openwv"
+  rm -rf "$OWSRC"
+  git clone --quiet --depth 1 --branch v1.1.4 --recurse-submodules \
+    https://github.com/tchebb/openwv.git "$OWSRC" > /tmp/depslog-openwv-clone.log 2>&1 || exit 1
+  # Read the device from a file beside the module instead of baking it into the binary,
+  # so it can be supplied or rotated without a rebuild. See patches/README.md.
+  ( cd "$OWSRC" && patch -p1 --dry-run < "$HERE/patches/openwv-runtime-device-file.patch" \
+      > /tmp/depslog-openwv-patch.log 2>&1 && patch -p1 < "$HERE/patches/openwv-runtime-device-file.patch" \
+      >> /tmp/depslog-openwv-patch.log 2>&1 ) || { echo "  FATAL: OpenWV device-file patch did not apply"; exit 1; }
+
+  SDK9=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.9.sdk
+  [ -d "$SDK9" ] || { echo "  FATAL: the 10.9 SDK bindgen parses against is missing: $SDK9"; exit 1; }
+  ( cd "$OWSRC" \
+    && PATH="$RUSTDIR/bin:/Library/Developer/CommandLineTools/usr/bin:$PATH" \
+       CARGO_HOME="$SCRATCH/cargo" \
+       DYLD_FORCE_FLAT_NAMESPACE=1 \
+       DYLD_INSERT_LIBRARIES="$SHIMDIR/libgapshim.dylib:$SHIMDIR/libcxxgap.dylib" \
+       MACOSX_DEPLOYMENT_TARGET=10.9 SDKROOT="$SDK" \
+       DEVELOPER_DIR=/Library/Developer/CommandLineTools \
+       LIBCLANG_PATH="$LLVM14/lib" \
+       BINDGEN_EXTRA_CLANG_ARGS="-isysroot $SDK9 -isystem /Library/Developer/CommandLineTools/usr/include/c++/v1 -std=c++14" \
+       CC="$TC/bin/clang" CXX="$TC/bin/clang++" AR="$AR" RANLIB="$RANLIB" \
+       CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$TC/bin/clang++" \
+       CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS="-C link-arg=-isysroot -C link-arg=$SDK -C link-arg=-mmacosx-version-min=10.9 -C link-arg=-Wl,-force_load,$GAP_A" \
+       cargo build --release > /tmp/depslog-openwv-build.log 2>&1 ) || exit 1
+
+  [ -f "$OWSRC/target/release/libwidevinecdm.dylib" ] || { echo "  FATAL: OpenWV produced no dylib"; exit 1; }
+  cp "$OWSRC/target/release/libwidevinecdm.dylib" "$DEST/lib/libwidevinecdm.dylib" || exit 1
+  # Same C++ runtime and the same @rpath convention as every other dylib deployed beside it,
+  # rather than a second libc++ from the 10.9 system.
+  normalize "$DEST/lib/libwidevinecdm.dylib" "@loader_path/../lib"
+  "$INT" -id "@rpath/libwidevinecdm.dylib" "$DEST/lib/libwidevinecdm.dylib" || exit 1
+  if otool -L "$DEST/lib/libwidevinecdm.dylib" | grep -q '/usr/lib/libc++'; then
+    echo "  FATAL: libwidevinecdm.dylib still binds the system libc++"; exit 1
+  fi
+  mkdir -p "$DEST/include/cdm"
+  cp "$OWSRC/third-party/cdm/content_decryption_module.h" \
+     "$OWSRC/third-party/cdm/content_decryption_module_export.h" \
+     "$OWSRC/third-party/cdm/content_decryption_module_ext.h" "$DEST/include/cdm/" || exit 1
+  # The device identity rides along when the operator supplied one. It is data the module
+  # reads, not something linked into it, so it stays a plain file in the deployed tree.
+  if [ -f "$WVD" ]; then
+    cp "$WVD" "$DEST/lib/widevine.wvd" || exit 1
+    chmod 644 "$DEST/lib/widevine.wvd" || exit 1
+    echo "  built libwidevinecdm.dylib from OpenWV 1.1.4, with a device identity"
+  else
+    echo "  built libwidevinecdm.dylib from OpenWV 1.1.4; no device at $WVD, so Widevine stays unsupported until one is placed beside it"
+  fi
+fi
+
 echo "==== required artifacts ===="
 # Every media-critical artifact must exist by name; a silent dropout (plugin skipped,
 # majored name missing) fails here even if everything else builds.
@@ -830,6 +942,14 @@ REQFAIL=0
 require_glob() {
   if ! ls $1 > /dev/null 2>&1; then echo "  MISSING required artifact: $1"; REQFAIL=1; fi
 }
+# The Widevine module is built unconditionally, so its absence is a build failure rather
+# than a configuration choice. Its device identity is required exactly when the operator
+# supplied one, where a copy that failed to appear is a silent loss of DRM playback.
+require_glob "$DEST/lib/libwidevinecdm.dylib"
+require_glob "$DEST/include/cdm/content_decryption_module.h"
+if [ -f "$WVD" ]; then
+  require_glob "$DEST/lib/widevine.wvd"
+fi
 require_glob "$DEST/lib/libglib-2.0.*.dylib"
 require_glob "$DEST/lib/libgstreamer-1.0.*.dylib"
 require_glob "$DEST/lib/libgstwebrtc-1.0.*.dylib"

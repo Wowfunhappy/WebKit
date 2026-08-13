@@ -381,6 +381,9 @@ chmod 644 "$(s "$PRIVLIBCXX")"/*.dylib 2>/dev/null || true
 # GStreamer tree: every dir traversable, every dylib world-readable (sandboxed WebContent loads them).
 find "$(s "$GST_DEPLOY")" -type d -exec chmod 755 {} + 2>/dev/null || true
 find "$(s "$GST_DEPLOY")" -type f -name '*.dylib' -exec chmod 644 {} + 2>/dev/null || true
+# The Widevine device identity is read by the same sandboxed process, and arrives with
+# whatever mode the operator's own copy had.
+find "$(s "$GST_DEPLOY")" -type f -name '*.wvd' -exec chmod 644 {} + 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # Step 4: every WebKit binary advertises and loads absolute /System paths. This covers the four

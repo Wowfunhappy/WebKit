@@ -1,11 +1,13 @@
 # Source patches
 
-Patches `build_deps.sh` applies to the source trees it unpacks, before each module is configured/built. Every patch here is applied explicitly and unconditionally by the build script (search it for `patches/`); none is optional. Each patch fixes a bug or
-over-strict behavior in GStreamer's **own** source — never a workaround that belongs in WebKit. Regenerate a patch against the pristine upstream tarball if its target version changes.
+Patches `build_deps.sh` applies to the source trees it unpacks, before each module is configured/built. Every patch here is applied explicitly and unconditionally by the build script (search it for `patches/`); none is optional. Almost all of them fix a bug or
+over-strict behavior in a dependency's **own** source — never a workaround that belongs in WebKit. Regenerate a patch against the pristine upstream tarball if its target version changes.
 
 **If you find yourself wanting to add a new patch here, you are probably doing something wrong!** Consider:
 - Is the thing you are trying to fix _really_ broken upstream for hundreds of thousands of users without anyone noticing? If not, it's probably a bug in our code, which we should fix in our code.
 - Is it possible to upgrade to a newer version of the dependency instead of patching the old one? If so, it's probably better to upgrade.
+
+The one patch that is not a bug fix is `openwv-runtime-device-file.patch`, which changes where OpenWV reads its configuration from. It earns its place because the thing it changes is a deliberate upstream decision that does not hold here, and because no amount of WebKit-side code can substitute for it — see its section below.
 
 ## gst-plugins-bad-ice-credential-charset.patch
 
@@ -47,3 +49,30 @@ vtdec's static sink template advertises VP9 and AV1, and the template is what th
 **Applied to:** libgstlibav
 
 gst-libav's decoder registration skips every FFmpeg decoder whose name starts with `lib`, on the stated premise that "we have native gstreamer plugins for all of those libraries anyway". This runtime has no native AV1 decoder for that rule to point at: gst-plugins-bad 1.28 carries no dav1d wrapper (`dav1ddec` lives in gst-plugins-rs, which is not part of this build), its `ext/aom` needs a libaom this build does not vendor, and FFmpeg's native `av1` decoder is hardware-only (gst-libav skips it by name for exactly that reason). The FFmpeg built here links dav1d (`--enable-libdav1d`), so the wrapper codec is present and fully functional software decode. The patch admits `libdav1d` through the external-library skip, registering `avdec_libdav1d` (rank marginal, like the other avdec video decoders) — the runtime's AV1 decoder for `<video>`, MSE and WebCodecs. The required-artifacts gate asks the registry for the element by name so a regression fails the build rather than reverting AV1 to a parser with no decoder.
+
+## openwv-runtime-device-file.patch
+
+**Target:** `openwv v1.1.4`, `src/config.rs` + `src/openwv.rs`
+**Applied to:** `lib/libwidevinecdm.dylib`
+
+OpenWV embeds the `.wvd` device identity in the binary at build time —
+`include_bytes!("../embedded.wvd")` — because, as its README puts it, a CDM is heavily
+sandboxed by the browser and so cannot read configuration from disk. That reasoning is
+about Chrome and Firefox. Here the browser is ours: the module is deployed inside
+WebCore.framework beside the GStreamer runtime, in a directory whose contents the
+WebContent sandbox already reads, so it can open a file next to itself.
+
+The patch makes it do that. `CONFIG.widevine_device` becomes `widevine_device_file`, a
+name rather than bytes, and `InitializeCdmModule_4()` asks `dladdr()` where this library
+was loaded from and reads the device from that directory. A missing file is logged and
+left alone: `CreateCdmInstance()` already refuses without a device, which surfaces as an
+unsupported key system.
+
+Two things follow, and both are the point:
+- The device identity is no longer compiled into a binary, so it can be supplied, replaced
+  or removed by moving one file, with no rebuild of anything.
+- `build_deps.sh` builds the module whether or not an operator supplied a `.wvd`.
+
+This does **not** make the key any less exposed. The file has to be world-readable for the
+sandboxed web process to read it, exactly as the module itself is, so anyone who could
+extract the key from the binary can equally read the file.

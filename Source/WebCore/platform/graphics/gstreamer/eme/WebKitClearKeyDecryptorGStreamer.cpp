@@ -116,13 +116,30 @@ static ASCIILiteral protectionSystemId(WebKitMediaCommonEncryptionDecrypt*)
 static bool cdmProxyAttached(WebKitMediaCommonEncryptionDecrypt* self, const RefPtr<CDMProxy>& cdmProxy)
 {
     WebKitMediaClearKeyDecryptPrivate* priv = WEBKIT_MEDIA_CK_DECRYPT(self)->priv;
-    priv->cdmProxy = reinterpret_cast<CDMProxyClearKey*>(cdmProxy.get());
+
+    // MAVERICKS_BACKPORT: the proxy arrives as an untyped pointer from a GstContext that carries
+    // whichever CDM the page created, and this port builds a second CENC decryptor (Widevine), so
+    // refuse a proxy belonging to another key system rather than cast it.
+    if (cdmProxy && !GStreamerEMEUtilities::isClearKeyKeySystem(cdmProxy->keySystem())) {
+        GST_DEBUG_OBJECT(self, "ignoring a %s CDM proxy", cdmProxy->keySystem().utf8().data());
+        priv->cdmProxy = nullptr;
+        return false;
+    }
+
+    priv->cdmProxy = static_cast<CDMProxyClearKey*>(cdmProxy.get());
     return priv->cdmProxy;
 }
 
 static bool decrypt(WebKitMediaCommonEncryptionDecrypt* self, GstBuffer* ivBuffer, GstBuffer* keyIDBuffer, GstBuffer* buffer, unsigned subsampleCount, GstBuffer* subsamplesBuffer)
 {
     WebKitMediaClearKeyDecryptPrivate* priv = WEBKIT_MEDIA_CK_DECRYPT(self)->priv;
+
+    // MAVERICKS_BACKPORT: cdmProxyAttached refuses a proxy from another key system, which leaves
+    // this null rather than a proxy of the wrong type.
+    if (!priv->cdmProxy) {
+        GST_ERROR_OBJECT(self, "no ClearKey CDM proxy attached");
+        return false;
+    }
 
     if (!ivBuffer || !keyIDBuffer || !buffer) {
         GST_ERROR_OBJECT(self, "invalid decrypt() parameter");

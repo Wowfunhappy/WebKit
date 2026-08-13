@@ -408,16 +408,27 @@ static CDMProxy* getCDMProxyFromGstContext(WebKitMediaCommonEncryptionDecrypt* s
     return nullptr;
 }
 
-static void attachCDMProxy(WebKitMediaCommonEncryptionDecrypt* self, CDMProxy* proxy)
+// MAVERICKS_BACKPORT: the pipeline carries whichever CDM the page created, and this port builds
+// two CENC decryptors, so cdmProxyAttached() can refuse a proxy that belongs to the other key
+// system. Only a proxy the subclass accepted is retained -- an element left without one takes the
+// "CDMProxy was not retrieved in time" path in transformInPlace instead of decrypting through a
+// pointer its subclass never took.
+static bool attachCDMProxy(WebKitMediaCommonEncryptionDecrypt* self, CDMProxy* proxy)
 {
     WebKitMediaCommonEncryptionDecryptPrivate* priv = WEBKIT_MEDIA_CENC_DECRYPT_GET_PRIVATE(self);
     WebKitMediaCommonEncryptionDecryptClass* klass = WEBKIT_MEDIA_CENC_DECRYPT_GET_CLASS(self);
 
     Locker locker { priv->lock };
     GST_DEBUG_OBJECT(self, "Attaching CDMProxy %p", proxy);
+    // MAVERICKS_BACKPORT: the subclass decides whether this proxy is its key system's.
+    if (!klass->cdmProxyAttached(self, RefPtr<CDMProxy> { proxy })) {
+        GST_DEBUG_OBJECT(self, "CDMProxy %p refused by the decryptor", proxy);
+        priv->cdmProxy = nullptr;
+        return false; // MAVERICKS_BACKPORT: refused, so this element stays without a CDM.
+    }
     priv->cdmProxy = proxy;
-    klass->cdmProxyAttached(self, priv->cdmProxy);
     priv->condition.notifyOne();
+    return true; // MAVERICKS_BACKPORT: closes the accept/refuse split above.
 }
 
 static gboolean installCDMProxyIfNotAvailable(WebKitMediaCommonEncryptionDecrypt* self)
@@ -427,8 +438,8 @@ static gboolean installCDMProxyIfNotAvailable(WebKitMediaCommonEncryptionDecrypt
 
         CDMProxy* proxy = getCDMProxyFromGstContext(self);
         if (proxy) {
-            attachCDMProxy(self, proxy);
-            result = TRUE;
+            // MAVERICKS_BACKPORT: a refusal is reported as failure, not as an attached CDM.
+            result = attachCDMProxy(self, proxy) ? TRUE : FALSE;
         } else {
             GST_ERROR_OBJECT(self, "Failed to retrieve CDMProxy from context");
             result = FALSE;
@@ -551,9 +562,10 @@ static void setContext(GstElement* element, GstContext* context)
     if (gst_context_has_context_type(context, "drm-cdm-proxy")) {
         const GValue* value = gst_structure_get_value(gst_context_get_structure(context), "cdm-proxy");
         Locker locker { priv->lock };
-        priv->cdmProxy = value ? reinterpret_cast<CDMProxy*>(g_value_get_pointer(value)) : nullptr;
-        GST_DEBUG_OBJECT(self, "received new CDMInstance %p", priv->cdmProxy.get());
-        klass->cdmProxyAttached(self, priv->cdmProxy);
+        RefPtr<CDMProxy> proxy = value ? reinterpret_cast<CDMProxy*>(g_value_get_pointer(value)) : nullptr;
+        GST_DEBUG_OBJECT(self, "received new CDMInstance %p", proxy.get());
+        // MAVERICKS_BACKPORT: keep only a proxy the decryptor accepted (see attachCDMProxy).
+        priv->cdmProxy = klass->cdmProxyAttached(self, proxy) ? proxy : RefPtr<CDMProxy> { };
         return;
     }
 

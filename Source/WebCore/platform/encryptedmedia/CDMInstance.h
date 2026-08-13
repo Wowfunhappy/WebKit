@@ -104,6 +104,9 @@ public:
 #if ENABLE(THUNDER)
         Thunder,
 #endif
+        // MAVERICKS_BACKPORT: com.widevine.alpha, served by the Chromium-API CDM in
+        // platform/graphics/gstreamer/eme/CDMWidevine.cpp.
+        Widevine,
     };
     virtual ImplementationType implementationType() const = 0;
 

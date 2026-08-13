@@ -33,6 +33,9 @@
 #include "CDMKeySystemConfiguration.h"
 #include "CDMRestrictions.h"
 #include "CDMSessionType.h"
+#if USE(GSTREAMER)
+#include "CDMWidevine.h" // MAVERICKS_BACKPORT: registered by platformRegisterFactories below.
+#endif
 #include "ISOProtectionSystemSpecificHeaderBox.h"
 #include "ISOSchemeInformationBox.h"
 #include "ISOSchemeTypeBox.h"
@@ -275,6 +278,12 @@ void CDMFactory::platformRegisterFactories(Vector<WeakRef<CDMFactory>>& factorie
 {
     factories.append(CDMFactoryClearKey::singleton());
     factories.append(CDMFactoryFairPlayStreaming::singleton());
+#if USE(GSTREAMER)
+    // MAVERICKS_BACKPORT: this is the port's only definition of platformRegisterFactories (see the
+    // note in CDMFactoryGStreamer.cpp), so com.widevine.alpha is registered here. The factory
+    // reports no support unless the CDM library is present beside the GStreamer runtime.
+    factories.append(CDMFactoryWidevine::singleton());
+#endif
 
     static std::once_flag onceFlag;
     std::call_once(onceFlag, [] {

@@ -33,6 +33,7 @@
 
 #include "CDMProxy.h"
 #include "CDMProxyClearKey.h" // MAVERICKS_BACKPORT: the restored ClearKey proxy (see CDMProxyClearKey.h).
+#include "CDMProxyWidevine.h" // MAVERICKS_BACKPORT: the Widevine proxy (see CDMProxyWidevine.h).
 
 #if ENABLE(THUNDER)
 #include "CDMThunder.h"
@@ -61,6 +62,8 @@ Vector<CDMProxyFactory*> CDMProxyFactory::platformRegisterFactories()
 #endif
     // MAVERICKS_BACKPORT: restored from upstream before 4694d7d -- this port decrypts ClearKey itself.
     factories.append(&CDMProxyFactoryClearKey::singleton());
+    // MAVERICKS_BACKPORT: com.widevine.alpha, decrypted by the bundled Chromium-API CDM.
+    factories.append(&CDMProxyFactoryWidevine::singleton());
     return factories;
 }
 

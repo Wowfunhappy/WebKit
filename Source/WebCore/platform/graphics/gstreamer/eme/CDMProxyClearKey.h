@@ -64,7 +64,10 @@ private:
 // platform CDM module.
 class CDMProxyClearKey final : public CDMProxy, public CanMakeWeakPtr<CDMProxyClearKey, WeakPtrFactoryInitialization::Eager> {
 public:
-    CDMProxyClearKey() = default;
+    // MAVERICKS_BACKPORT: the key system reaches the base so a decryptor can tell whose proxy it
+    // has been handed before casting it (see CDMProxy::keySystem()).
+    explicit CDMProxyClearKey(const String& keySystem)
+        : CDMProxy(keySystem) { }
     virtual ~CDMProxyClearKey();
 
     // FIXME: There's a lack of consistency between FragmentedSharedBuffers,
