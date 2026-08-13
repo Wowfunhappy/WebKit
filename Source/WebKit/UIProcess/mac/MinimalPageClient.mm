@@ -27,6 +27,7 @@
 #import "WebDateTimePickerMac.h"
 #import "WebContextMenuProxyMac.h"
 #import "WebPageProxy.h"
+#import "WindowServerConnection.h"
 #import "WebPopupMenuProxyMac.h"
 #import "WebProcessProxy.h"
 #import "WebEditCommandProxy.h"
@@ -307,6 +308,9 @@ public:
 #if ENABLE(FULLSCREEN_API)
     NSView *fullScreenPlaceholderView() const { return m_fullScreenClient.placeholderView(); }
 #endif
+    void viewDidChangeBackingProperties();
+    void setWindowOcclusionDetectionEnabled(bool enabled) { m_windowOcclusionDetectionEnabled = enabled; }
+    bool windowOcclusionDetectionEnabled() const { return m_windowOcclusionDetectionEnabled; }
 private:
     Ref<DrawingAreaProxy> createDrawingAreaProxy(WebProcessProxy&) final;
     void setViewNeedsDisplay(const WebCore::Region&) final;
@@ -762,6 +766,10 @@ private:
 
     NSView *m_view { nullptr };
     WebPageProxy *m_page { nullptr };
+    RetainPtr<NSColorSpace> m_colorSpace;
+    // Upstream's WebViewImpl default; -[WKView setWindowOcclusionDetectionEnabled:] carries the
+    // embedder's choice through to isActiveViewVisible.
+    bool m_windowOcclusionDetectionEnabled { true };
     RetainPtr<CALayer> m_rootLayer;
     // MAVERICKS_BACKPORT: dedicated layer-HOSTING subview carrying the WebContent render layer
     // (the Safari-537 WKView _layerHostingView design). The subview owns its layer via -setLayer:,
@@ -806,26 +814,21 @@ CocoaWindow *MinimalPageClient::platformWindow() const
 
 bool MinimalPageClient::isActiveViewVisible()
 {
-    // MAVERICKS_BACKPORT: mirrors upstream PageClientImpl::isViewVisible — window presence,
-    // window visibility, then the view's own hidden-ancestor chain. The view's own isHidden
-    // matters here: Safari hides the BrowserWKView itself (not an ancestor) behind the Reader
-    // view, and -viewDidHide/-viewDidUnhide forwarding recomputes activity state on every
-    // toggle, so the flag is authoritative.
+    // MAVERICKS_BACKPORT: upstream PageClientImpl::isViewVisible's truth table — window presence,
+    // the view's own hidden-ancestor chain, window visibility, then window occlusion. The view's
+    // own isHidden matters here: Safari hides the BrowserWKView itself (not an ancestor) behind the
+    // Reader view, and -viewDidHide/-viewDidUnhide forwarding recomputes activity state on every
+    // toggle. WKView observes NSWindowDidChangeOcclusionStateNotification to recompute this.
     if (!m_view)
         return false;
     NSWindow *window = [m_view window];
     if (!window)
         return false;
+    if ([m_view isHiddenOrHasHiddenAncestor])
+        return false;
     if (![window isVisible])
         return false;
-    // Upstream folds inactive-Space windows into its occlusion check; occlusion state is not
-    // consulted on 10.9 (see isVisuallyIdle below), so the Space membership is read directly.
-    // [NSWindow isVisible] stays YES for a window on an inactive Space; the
-    // NSWorkspaceActiveSpaceDidChangeNotification observer in WKViewMavericks recomputes this
-    // on every Space change.
-    if (![window isOnActiveSpace])
-        return false;
-    if ([m_view isHiddenOrHasHiddenAncestor])
+    if (m_windowOcclusionDetectionEnabled && (window.occlusionState & NSWindowOcclusionStateVisible) != NSWindowOcclusionStateVisible)
         return false;
     return true;
 }
@@ -850,13 +853,7 @@ bool MinimalPageClient::isViewInWindow()
 
 bool MinimalPageClient::isVisuallyIdle()
 {
-    // MAVERICKS_BACKPORT: the page is visually idle (eligible for DOM-timer throttling) when the
-    // view is not visible, per isActiveViewVisible()'s window + own-hidden-chain rules.
-    // Deliberately NOT consulting window.occlusionState: on 10.9 its Visible bit lags (0x2000 -> 0x2002)
-    // and the change does not reliably post NSWindowDidChangeOcclusionStateNotification, so an early
-    // "occluded" reading gets latched and never recomputed — re-pinning timers to the 1s alignment
-    // forever. window.isVisible is stable and is YES at every activity-state recompute for a shown window.
-    return !isActiveViewVisible();
+    return WindowServerConnection::singleton().applicationWindowModificationsHaveStopped() || !isActiveViewVisible();
 }
 
 bool MinimalPageClient::canTakeForegroundAssertions()
@@ -864,9 +861,35 @@ bool MinimalPageClient::canTakeForegroundAssertions()
     return true;
 }
 
+// MAVERICKS_BACKPORT: the colour space the page composites in, chosen exactly as WebViewImpl does
+// for WKWebView — the view's window, else the main screen, else sRGB.
 WebCore::DestinationColorSpace MinimalPageClient::colorSpace()
 {
-    return WebCore::DestinationColorSpace::SRGB();
+    if (!m_colorSpace) {
+        m_colorSpace = [[m_view window] colorSpace];
+
+        if (!m_colorSpace)
+            m_colorSpace = [NSScreen mainScreen].colorSpace;
+
+        if (!m_colorSpace)
+            m_colorSpace = [NSColorSpace sRGBColorSpace];
+    }
+
+    return WebCore::DestinationColorSpace { [m_colorSpace CGColorSpace] };
+}
+
+// MAVERICKS_BACKPORT: sent by WKView when AppKit reports new backing properties, which is where a
+// window that moved to a display with a different profile shows up. Same shape as
+// WebViewImpl::viewDidChangeBackingProperties.
+void MinimalPageClient::viewDidChangeBackingProperties()
+{
+    RetainPtr<NSColorSpace> colorSpace = [[m_view window] colorSpace];
+    if ([colorSpace isEqualTo:m_colorSpace.get()])
+        return;
+
+    m_colorSpace = nullptr;
+    if (RefPtr drawingArea = m_page ? m_page->drawingArea() : nullptr)
+        drawingArea->colorSpaceDidChange();
 }
 
 WebCore::FloatRect MinimalPageClient::convertToDeviceSpace(const WebCore::FloatRect& rect)
@@ -1882,6 +1905,21 @@ std::unique_ptr<PageClient> createMinimalPageClient(NSView *view)
 void setMinimalPageClientPage(PageClient& client, WebPageProxy* page)
 {
     static_cast<MinimalPageClient&>(client).setPage(page);
+}
+
+void minimalPageClientViewDidChangeBackingProperties(PageClient& client)
+{
+    static_cast<MinimalPageClient&>(client).viewDidChangeBackingProperties();
+}
+
+void setMinimalPageClientWindowOcclusionDetectionEnabled(PageClient& client, bool enabled)
+{
+    static_cast<MinimalPageClient&>(client).setWindowOcclusionDetectionEnabled(enabled);
+}
+
+bool minimalPageClientWindowOcclusionDetectionEnabled(PageClient& client)
+{
+    return static_cast<MinimalPageClient&>(client).windowOcclusionDetectionEnabled();
 }
 
 #if ENABLE(FULLSCREEN_API)

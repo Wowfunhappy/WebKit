@@ -108,6 +108,9 @@ using namespace WebKit;
 namespace WebKit {
 std::unique_ptr<PageClient> createMinimalPageClient(NSView *view);
 void setMinimalPageClientPage(PageClient&, WebPageProxy *);
+void minimalPageClientViewDidChangeBackingProperties(PageClient&);
+void setMinimalPageClientWindowOcclusionDetectionEnabled(PageClient&, bool);
+bool minimalPageClientWindowOcclusionDetectionEnabled(PageClient&);
 #if ENABLE(FULLSCREEN_API)
 NSView *minimalPageClientFullScreenPlaceholderView(PageClient&);
 #endif
@@ -313,6 +316,7 @@ static inline bool isWKContentAnchorBottom(WKContentAnchor x)
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidOrderOffScreenNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidMiniaturizeNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidDeminiaturizeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidChangeOcclusionStateNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidBecomeKeyNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowDidResignKeyNotification object:nil];
     [[[NSWorkspace sharedWorkspace] notificationCenter] removeObserver:self name:NSWorkspaceActiveSpaceDidChangeNotification object:nil];
@@ -1217,11 +1221,17 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     [backingCenter removeObserver:self name:NSWindowDidOrderOffScreenNotification object:nil];
     [backingCenter removeObserver:self name:NSWindowDidMiniaturizeNotification object:nil];
     [backingCenter removeObserver:self name:NSWindowDidDeminiaturizeNotification object:nil];
+    // MAVERICKS_BACKPORT: the WindowServer computes occlusion asynchronously, so the Visible bit
+    // arrives after the window orders in; this notification is how that transition is delivered
+    // (upstream observes it at WebViewImpl::registerViewObservers). MinimalPageClient::isActiveViewVisible
+    // reads window.occlusionState under this recompute.
+    [backingCenter removeObserver:self name:NSWindowDidChangeOcclusionStateNotification object:nil];
     if (NSWindow *window = [self window]) {
         [backingCenter addObserver:self selector:@selector(_wk_windowDidOrderOnScreen:) name:NSWindowDidOrderOnScreenNotification object:window];
         [backingCenter addObserver:self selector:@selector(_wk_windowDidOrderOffScreen:) name:NSWindowDidOrderOffScreenNotification object:window];
         [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeMiniaturization:) name:NSWindowDidMiniaturizeNotification object:window];
         [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeMiniaturization:) name:NSWindowDidDeminiaturizeNotification object:window];
+        [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeOcclusionState:) name:NSWindowDidChangeOcclusionStateNotification object:window];
     }
     // Key notifications are observed with object:nil like upstream (the key window may be this
     // window's attached sheet); remove-then-add so re-entering a window never double-registers.
@@ -1231,10 +1241,9 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     [backingCenter addObserver:self selector:@selector(_wk_windowDidChangeKeyState:) name:NSWindowDidResignKeyNotification object:nil];
 
     // MAVERICKS_BACKPORT: recompute IsVisible when the active Space changes, mirroring upstream
-    // WKWindowVisibilityObserver's NSWorkspaceActiveSpaceDidChangeNotification registration —
-    // [NSWindow isVisible] stays YES for a window on an inactive Space, so without this a page on
-    // another Space keeps running at full speed. MinimalPageClient::isActiveViewVisible consults
-    // [window isOnActiveSpace] under the same recompute.
+    // WKWindowVisibilityObserver's NSWorkspaceActiveSpaceDidChangeNotification registration. A
+    // window on another Space carries the change in its occlusion state, which is what
+    // MinimalPageClient::isActiveViewVisible reads under this recompute.
     NSNotificationCenter *workspaceCenter = [[NSWorkspace sharedWorkspace] notificationCenter];
     [workspaceCenter removeObserver:self name:NSWorkspaceActiveSpaceDidChangeNotification object:nil];
     [workspaceCenter addObserver:self selector:@selector(_wk_activeSpaceDidChange:) name:NSWorkspaceActiveSpaceDidChangeNotification object:nil];
@@ -1400,6 +1409,15 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
 
 // MAVERICKS_BACKPORT: the hosting window ordered on screen — recompute visibility, mirroring
 // WebViewImpl::windowDidOrderOnScreen.
+- (void)_wk_windowDidChangeOcclusionState:(NSNotification *)notification
+{
+    // MAVERICKS_BACKPORT: mirrors WebViewImpl::windowDidChangeOcclusionState.
+    UNUSED_PARAM(notification);
+    if (!_wkState || !_wkState->page)
+        return;
+    _wkState->page->activityStateDidChange(WebCore::ActivityState::IsVisible);
+}
+
 - (void)_wk_windowDidOrderOnScreen:(NSNotification *)notification
 {
     // MAVERICKS_BACKPORT: window ordered on screen — push IsVisible/WindowIsActive to the page (mirrors WebViewImpl::windowDidOrderOnScreen).
@@ -1457,11 +1475,27 @@ static __thread WTF::Vector<WebCore::KeypressCommand> *tlsCollectingCommands = n
     _wkState->page->activityStateDidChange(WebCore::ActivityState::WindowIsActive);
 }
 
-// MAVERICKS_BACKPORT: AppKit also delivers this directly to the view when its backing scale changes.
+// MAVERICKS_BACKPORT: AppKit delivers this directly to the view when its backing properties change —
+// the backing scale factor and the colour space of the display it is on.
 - (void)viewDidChangeBackingProperties
 {
     [super viewDidChangeBackingProperties];
     [self _wk_updateIntrinsicDeviceScaleFactor];
+    if (_wkState && _wkState->pageClient)
+        minimalPageClientViewDidChangeBackingProperties(*_wkState->pageClient);
+}
+
+// MAVERICKS_BACKPORT: WKViewPrivate.h's occlusion-detection switch, carried through to the page
+// client that reads window.occlusionState.
+- (void)setWindowOcclusionDetectionEnabled:(BOOL)flag
+{
+    if (_wkState && _wkState->pageClient)
+        setMinimalPageClientWindowOcclusionDetectionEnabled(*_wkState->pageClient, flag);
+}
+
+- (BOOL)windowOcclusionDetectionEnabled
+{
+    return (_wkState && _wkState->pageClient) ? minimalPageClientWindowOcclusionDetectionEnabled(*_wkState->pageClient) : YES;
 }
 
 // MAVERICKS_BACKPORT: the WebContent layer tree is hosted on a dedicated layer-hosting subview

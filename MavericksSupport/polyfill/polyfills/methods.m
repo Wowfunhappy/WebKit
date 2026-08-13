@@ -13,6 +13,7 @@
 #import "wk_polyfill.h"
 #import "wk_selref_scope.h"
 #import <AppKit/AppKit.h>
+#import <ColorSync/ColorSync.h>
 #import <CoreServices/CoreServices.h>
 #import <PDFKit/PDFKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
@@ -20,6 +21,8 @@
 #import <dlfcn.h>
 #import <errno.h>
 #import <limits.h>
+#import <math.h>
+#import <string.h>
 #import <fcntl.h>
 #import <sys/stat.h>
 #import <mach/mach.h>
@@ -504,8 +507,13 @@ WK_POLYFILL_SEL("_usesMetricsAppearance", "wk__usesMetricsAppearance");
 WK_POLYFILL_SEL("appearanceByApplyingTintColor:", "wk_appearanceByApplyingTintColor:");
 
 // ---------------------------------------------------------------------------------------------------
-// NSWorkspace accessibility display options (10.10+). 10.9 has no such preferences → report NO, letting
-// WebCore's ReducedMotion/increased-contrast/invert queries run unguarded.
+// NSWorkspace accessibility display options (10.10+), each read from the 10.9 setting behind it.
+// Invert colours is CoreGraphics' display polarity, the same state the Accessibility pane's checkbox
+// drives. "Enhance contrast" is that pane's slider, stored as a 0..1 number under com.apple.universalaccess.
+// 10.9's Accessibility pane has no reduce-motion and no differentiate-without-colour setting, so those
+// two report NO.
+extern bool CGDisplayUsesInvertedPolarity(void);
+
 @interface NSWorkspace (WKPolyfillScope)
 - (BOOL)wk_accessibilityDisplayShouldIncreaseContrast;
 - (BOOL)wk_accessibilityDisplayShouldDifferentiateWithoutColor;
@@ -513,26 +521,203 @@ WK_POLYFILL_SEL("appearanceByApplyingTintColor:", "wk_appearanceByApplyingTintCo
 - (BOOL)wk_accessibilityDisplayShouldInvertColors;
 @end
 @implementation NSWorkspace (WKPolyfillScope)
-- (BOOL)wk_accessibilityDisplayShouldIncreaseContrast          { return NO; }
+- (BOOL)wk_accessibilityDisplayShouldIncreaseContrast
+{
+    CFTypeRef value = CFPreferencesCopyAppValue(CFSTR("contrast"), CFSTR("com.apple.universalaccess"));
+    if (!value)
+        return NO;
+    float contrast = 0;
+    if (CFGetTypeID(value) == CFNumberGetTypeID())
+        CFNumberGetValue((CFNumberRef)value, kCFNumberFloatType, &contrast);
+    CFRelease(value);
+    return contrast > 0;
+}
 - (BOOL)wk_accessibilityDisplayShouldDifferentiateWithoutColor { return NO; }
 - (BOOL)wk_accessibilityDisplayShouldReduceMotion              { return NO; }
-- (BOOL)wk_accessibilityDisplayShouldInvertColors              { return NO; }
+- (BOOL)wk_accessibilityDisplayShouldInvertColors              { return CGDisplayUsesInvertedPolarity(); }
 @end
+// The 10.10 workspace notification that says one of those options changed. 10.9's settings each post
+// their own distributed notification instead — libUAPreferences' UAContrastDidChangeNotification and
+// UADomainScreenPolarityDidChangeNotification — so an observer on those two posts the workspace name
+// WebKit listens for (WebProcessPoolCocoa, RenderThemeMac, WebViewImpl), and the values above are
+// re-read when the user changes them.
+static void wk_accessibilityDisplayOptionDidChange(CFNotificationCenterRef center, void *observer,
+    CFStringRef name, const void *object, CFDictionaryRef userInfo)
+{
+    (void)center; (void)observer; (void)name; (void)object; (void)userInfo;
+    [[[NSWorkspace sharedWorkspace] notificationCenter]
+        postNotificationName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+                      object:[NSWorkspace sharedWorkspace]];
+}
+
+__attribute__((constructor)) static void wk_observeAccessibilityDisplayOptions(void)
+{
+    CFNotificationCenterRef distributed = CFNotificationCenterGetDistributedCenter();
+    if (!distributed)
+        return;
+    CFNotificationCenterAddObserver(distributed, NULL, wk_accessibilityDisplayOptionDidChange,
+        CFSTR("com.apple.UAContrastDidChange"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(distributed, NULL, wk_accessibilityDisplayOptionDidChange,
+        CFSTR("com.apple.universalaccess.screenPolarityDidChange"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+}
+
 WK_POLYFILL_SEL("accessibilityDisplayShouldIncreaseContrast", "wk_accessibilityDisplayShouldIncreaseContrast");
 WK_POLYFILL_SEL("accessibilityDisplayShouldDifferentiateWithoutColor", "wk_accessibilityDisplayShouldDifferentiateWithoutColor");
 WK_POLYFILL_SEL("accessibilityDisplayShouldReduceMotion", "wk_accessibilityDisplayShouldReduceMotion");
 WK_POLYFILL_SEL("accessibilityDisplayShouldInvertColors", "wk_accessibilityDisplayShouldInvertColors");
 
 // ---------------------------------------------------------------------------------------------------
-// NSScreen -canRepresentDisplayGamut: (10.11+). 10.9 displays are sRGB → NO. Lets PlatformScreenMac
-// (collectScreenProperties / screenSupportsExtendedColor) call it unguarded.
+// NSScreen -canRepresentDisplayGamut: (10.11+) — whether the display covers the gamut being asked
+// about. The answer is in the display's own ColorSync profile: the red, green and blue colorant tags
+// every RGB display profile carries give the chromaticities of its primaries, and a gamut is covered
+// when each of its primaries falls inside the triangle they span. The reference primaries below are
+// the two gamuts AppKit names, as chromaticities of their D50-adapted colorants — the space ICC
+// stores colorants in, so the two sides are comparable. A profile with no colorants (a table-based
+// one) states no primaries, and a display whose coverage cannot be read is not claimed to cover.
+enum { WKPolyfillDisplayGamutSRGB = 1, WKPolyfillDisplayGamutP3 = 2 };
+
+static BOOL wk_readColorantChromaticity(ColorSyncProfileRef profile, CFStringRef signature, double chromaticity[2])
+{
+    CFDataRef tag = ColorSyncProfileCopyTag(profile, signature);
+    if (!tag)
+        return NO;
+    // XYZType: the type signature 'XYZ ', 4 reserved bytes, then X, Y and Z as big-endian s15Fixed16.
+    // Any other type states its numbers in another form and is not read as colorants.
+    BOOL read = NO;
+    if (CFDataGetLength(tag) >= 20 && !memcmp(CFDataGetBytePtr(tag), "XYZ ", 4)) {
+        const UInt8 *bytes = CFDataGetBytePtr(tag);
+        double xyz[3];
+        for (int component = 0; component < 3; component++) {
+            const UInt8 *field = bytes + 8 + component * 4;
+            uint32_t raw = ((uint32_t)field[0] << 24) | ((uint32_t)field[1] << 16) | ((uint32_t)field[2] << 8) | field[3];
+            xyz[component] = (double)(int32_t)raw / 65536.0;
+        }
+        double sum = xyz[0] + xyz[1] + xyz[2];
+        if (sum > 0) {
+            chromaticity[0] = xyz[0] / sum;
+            chromaticity[1] = xyz[1] / sum;
+            read = YES;
+        }
+    }
+    CFRelease(tag);
+    return read;
+}
+
+// How far outside an edge a point may sit and still count as on it. Colorants are s15Fixed16, so a
+// chromaticity carries about 1/65536 of quantisation; twice that covers the division that derives it.
+static const double wk_chromaticityTolerance = 2.0 / 65536.0;
+
+static BOOL wk_chromaticityIsInsideTriangle(const double a[2], const double b[2], const double c[2], const double point[2])
+{
+    // A triangle with no area spans no gamut, whatever its vertices are: three colorants on one
+    // line, or all three equal, describe a display that states no primaries to compare against.
+    double area = fabs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / 2;
+    if (area <= wk_chromaticityTolerance)
+        return NO;
+
+    const double *vertices[3] = { a, b, c };
+    int side = 0;
+    for (int edge = 0; edge < 3; edge++) {
+        const double *from = vertices[edge];
+        const double *to = vertices[(edge + 1) % 3];
+        double dx = to[0] - from[0], dy = to[1] - from[1];
+        double length = sqrt(dx * dx + dy * dy);
+        // A triangle with a zero-length edge spans no area and states no gamut.
+        if (length <= wk_chromaticityTolerance)
+            return NO;
+        // Perpendicular distance from the edge, signed by which side the point is on, so the
+        // tolerance means the same thing whatever the triangle's scale.
+        double distance = (dx * (point[1] - from[1]) - dy * (point[0] - from[0])) / length;
+        if (distance > wk_chromaticityTolerance) {
+            if (side < 0)
+                return NO;
+            side = 1;
+        } else if (distance < -wk_chromaticityTolerance) {
+            if (side > 0)
+                return NO;
+            side = -1;
+        }
+    }
+    return YES;
+}
+
 @interface NSScreen (WKPolyfillScope)
 - (BOOL)wk_canRepresentDisplayGamut:(NSInteger)gamut;
 @end
 @implementation NSScreen (WKPolyfillScope)
-- (BOOL)wk_canRepresentDisplayGamut:(NSInteger)gamut { (void)gamut; return NO; }
+- (BOOL)wk_canRepresentDisplayGamut:(NSInteger)gamut
+{
+    static const double sRGBPrimaries[3][2] = { { 0.648450, 0.330863 }, { 0.321199, 0.597841 }, { 0.155887, 0.066039 } };
+    static const double displayP3Primaries[3][2] = { { 0.682051, 0.319348 }, { 0.284551, 0.674627 }, { 0.155893, 0.066059 } };
+
+    const double (*gamutPrimaries)[2];
+    if (gamut == WKPolyfillDisplayGamutSRGB)
+        gamutPrimaries = sRGBPrimaries;
+    else if (gamut == WKPolyfillDisplayGamutP3)
+        gamutPrimaries = displayP3Primaries;
+    else
+        return NO;
+
+    ColorSyncProfileRef profile = ColorSyncProfileCreateWithDisplayID(
+        [[[self deviceDescription] objectForKey:@"NSScreenNumber"] unsignedIntValue]);
+    if (!profile)
+        return NO;
+    double red[2], green[2], blue[2];
+    BOOL haveColorants = wk_readColorantChromaticity(profile, kColorSyncSigRedColorantTag, red)
+        && wk_readColorantChromaticity(profile, kColorSyncSigGreenColorantTag, green)
+        && wk_readColorantChromaticity(profile, kColorSyncSigBlueColorantTag, blue);
+    CFRelease(profile);
+    if (!haveColorants)
+        return NO;
+
+    for (int primary = 0; primary < 3; primary++) {
+        if (!wk_chromaticityIsInsideTriangle(red, green, blue, gamutPrimaries[primary]))
+            return NO;
+    }
+    return YES;
+}
 @end
 WK_POLYFILL_SEL("canRepresentDisplayGamut:", "wk_canRepresentDisplayGamut:");
+
+// ---------------------------------------------------------------------------------------------------
+// NSScreen -colorSpace answers nil on 10.9 whenever the display's ColorSync profile is not an RGB one:
+// the stock Black & White, Sepia Tone, Gray Tone and Blue Tone display profiles, and every Gray, CMYK,
+// Lab or XYZ profile (measured on-host; CGDisplayCopyColorSpace returns NULL for the same displays).
+// ColorSync still holds the profile, and CoreGraphics builds a colour space from its ICC data for each
+// of those models, so the display's own profile is the answer. PlatformScreenMac's
+// collectScreenProperties hands it to DestinationColorSpace, which requires a non-null CGColorSpaceRef.
+@interface NSScreen (WKPolyfillColorSpace)
+- (NSColorSpace *)wk_colorSpace;
+@end
+@implementation NSScreen (WKPolyfillColorSpace)
+- (NSColorSpace *)wk_colorSpace
+{
+    SEL publicSelector = sel_registerName("colorSpace");
+    typedef NSColorSpace *(*ColorSpaceFunction)(id, SEL);
+    ColorSpaceFunction systemColorSpace =
+        (ColorSpaceFunction)wk_replaces_call_through_class(self, [NSScreen class], _cmd, publicSelector);
+    NSColorSpace *colorSpace = systemColorSpace(self, publicSelector);
+    if (colorSpace)
+        return colorSpace;
+
+    ColorSyncProfileRef profile = ColorSyncProfileCreateWithDisplayID(
+        [[[self deviceDescription] objectForKey:@"NSScreenNumber"] unsignedIntValue]);
+    if (!profile)
+        return nil;
+    CFDataRef iccData = ColorSyncProfileCopyData(profile, NULL);
+    CFRelease(profile);
+    if (!iccData)
+        return nil;
+    CGColorSpaceRef displayColorSpace = CGColorSpaceCreateWithICCProfile(iccData);
+    CFRelease(iccData);
+    if (!displayColorSpace)
+        return nil;
+    NSColorSpace *fromProfile = [[NSColorSpace alloc] initWithCGColorSpace:displayColorSpace];
+    CGColorSpaceRelease(displayColorSpace);
+    return [fromProfile autorelease];
+}
+@end
+WK_POLYFILL_SEL_REPLACES("colorSpace", "wk_colorSpace");
 
 // ---------------------------------------------------------------------------------------------------
 // NSScrollView content insets (10.10+): -contentInsets / -setContentInsets: and

@@ -1601,6 +1601,20 @@ WK_POLYFILL_ABSENT("CoreMedia", OSStatus, CMSampleBufferCallBlockForEachSample,
                                                       (void *)handler);
 }
 
+// CGContextDelegateSetCallback — a DELIBERATE REPLACEMENT of a present 10.9 function. Its delegate
+// carries callback slots 0 through 23; its get_callback_address CGPostError()s and abort()s on any
+// higher name. Names above that ceiling are ones this CoreGraphics has no slot for, so the delegate
+// keeps its own behaviour for them (DrawGlyphsRecorder's deGetColorSpace = 30 leaves CG using the
+// context's own colour space). Every name 10.9 does carry reaches its implementation unchanged.
+WK_POLYFILL_REPLACES("CoreGraphics", void, CGContextDelegateSetCallback,
+                     (void *delegate, int name, void (*callback)(void)))
+{
+    if (name > 23)
+        return;
+    if (WK_ORIGINAL(CGContextDelegateSetCallback))
+        WK_ORIGINAL(CGContextDelegateSetCallback)(delegate, name, callback);
+}
+
 // CGContextSetOwnerIdentity (12+): tags a context's backing store to another process's memory
 // ledger, using a task identity token. 10.9 has neither -- see task_create_identity_token in
 // system-spi.m -- so there is no ledger to move the pages to and no token that could name one. The
