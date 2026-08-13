@@ -180,7 +180,7 @@ public:
     void handleSmartMagnificationInformationForPotentialTap(WebKit::TapIdentifier, const WebCore::FloatRect& renderRect, bool fitEntireRect, double viewportMinimumScale, double viewportMaximumScale, bool nodeIsRootLevel, bool nodeIsPluginElement) final;
 #endif
 
-    // MAVERICKS_BACKPORT: not final — MinimalPageClient (the WKView PageClient, which has no
+    // MAVERICKS_BACKPORT: not final — MavericksPageClient (the WKView PageClient, which has no
     // WKWebView so m_webView is nil) overrides this to return the WKView's window.
     CocoaWindow *platformWindow() const override;
 

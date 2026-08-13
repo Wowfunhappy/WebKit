@@ -1,18 +1,16 @@
-// MAVERICKS_BACKPORT: title-attribute tooltips for the reimplemented WKView (new file).
+// MAVERICKS_BACKPORT: title-attribute tooltips for the reimplemented WKView.
 //
-// WebViewImpl's NSToolTipManager tooltip path is unused on this backport: Safari 7 drives WebKit2 through
-// WKView, whose page client is MinimalPageClient (not WebViewImpl). MinimalPageClient::toolTipChanged was a
-// no-op, so `title`-attribute tooltips never appeared. This category ports WK1 WebHTMLView's proven classic
-// mechanism to WKView: MinimalPageClient::toolTipChanged calls -_wkSetToolTip:, which installs a wide-open
+// Safari 7 drives WebKit2 through WKView, whose page client is MavericksPageClient, so WebViewImpl's
+// NSToolTipManager path is unused. This category carries WK1 WebHTMLView's classic mechanism over to
+// WKView: MavericksPageClient::toolTipChanged calls -_wkSetToolTip:, which installs a wide-open
 // -addToolTipRect: owned by self (answered by -view:stringForToolTip:) and sends synthetic
-// mouseEntered:/mouseExited: to the NSToolTipManager tracking-rect owner it intercepted — the rect is so
-// wide the mouse never physically crosses an edge to fire a real enter/exit, so the tooltip would otherwise
-// never arm. The synthetic mouseEntered: MUST echo back the userData pointer NSToolTipManager passed to the
-// -addTrackingRect: it made under the hood (captured in -addTrackingRect:): NSToolTipManager reads that
-// userData in -mouseEntered: to identify which tooltip region was entered, and without it silently declines
-// to show anything (it still calls -view:stringForToolTip: but never displays). State lives in associated
-// objects (a category cannot add ivars). Kept in its own file so the heavily-reimplemented WKView.mm diff is
-// not perturbed.
+// mouseEntered:/mouseExited: to the NSToolTipManager tracking-rect owner it intercepted. The rect is
+// wide enough that the mouse never physically crosses an edge, so those synthetic events are what arm
+// the tooltip. The synthetic mouseEntered: MUST echo back the userData pointer NSToolTipManager passed
+// to the -addTrackingRect: it makes under the hood (captured below): NSToolTipManager reads that
+// userData in -mouseEntered: to identify which tooltip region was entered, and with anything else it
+// calls -view:stringForToolTip: but displays nothing. State lives in associated objects (a category
+// cannot add ivars), and this is its own file so WKViewMavericks.mm stays focused on the view itself.
 
 #import "config.h"
 #import "WKViewPrivate.h"

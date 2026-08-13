@@ -195,7 +195,7 @@ void alertForPermission(WebPageProxy& page, MediaPermissionReason reason, const 
     // MAVERICKS_BACKPORT: the Safari this port targets hosts the page in a WKView, not a WKWebView, so
     // cocoaView() is nil and upstream's check denies every camera/microphone request before it can be
     // put to the user. Only the hosting window is actually needed here, and the PageClient knows it
-    // whichever view is in use (MinimalPageClient::platformWindow() returns the WKView's window).
+    // whichever view is in use (MavericksPageClient::platformWindow() returns the WKView's window).
     RetainPtr<NSWindow> hostWindow = [webView window];
     if (!hostWindow) {
         if (auto* pageClient = page.pageClient())

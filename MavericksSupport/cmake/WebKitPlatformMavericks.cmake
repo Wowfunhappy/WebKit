@@ -491,8 +491,8 @@ set(MAVERICKS_ADDED_WEBKIT_SOURCES
     "WebProcess/Inspector/ServiceWorkerDebuggableProxy.cpp"
 )
 
-# Withheld from SourcesCocoa.txt. WKWebView.mm and WKView.mm come back below with @no-unify (WKView as
-# WKViewMavericks.mm, which carries the only @implementation WKView on this port). The rest are the
+# Withheld from SourcesCocoa.txt. WKWebView.mm comes back below with @no-unify; WKView.mm's place is
+# taken by WKViewMavericks.mm, appended to WebKit_SOURCES near the top of this file. The rest are the
 # VideoPresentationMode, AudioSession routing arbitration, model-process, os_log streaming,
 # smart-magnification and device-orientation paths, none of which exist at this deployment target, plus
 # _WKUserContentExtensionStore/_WKUserContentFilter, which need WKContentRuleListStore's enums.
@@ -517,9 +517,9 @@ set(MAVERICKS_WITHHELD_WEBKIT_COCOA_SOURCES
 # Added to SourcesCocoa.txt. Most are files upstream builds only from its Xcode project, whose symbols
 # the CMake link needs: the CoreIPC coders, WKKeyedCoder, AdditionalFonts, _WKWarningView,
 # _WKCaptionStyleMenuControllerMac, RemoteScrollingTreeCocoa, PositionInformationForWebPage and
-# DataDetectionResult. The rest are this port's own: WKViewMavericks.mm and MinimalPageClient.mm back the
-# legacy WKView, WKViewToolTip.mm adds its title-attribute tooltip, WKBrowsingContextGroup.mm and
-# WKProcessGroup.mm are the ObjC classes Apple's QuickLook HTML preview bundle instantiates,
+# DataDetectionResult. The rest are this port's own: MavericksPageClient.mm is the PageClient behind
+# the legacy WKView, WKBrowsingContextGroup.mm and WKProcessGroup.mm are the ObjC classes Apple's
+# QuickLook HTML preview bundle instantiates,
 # WKTypeRefWrapper.mm is what Mail's WKConnection body coding reaches for, _WKTextExtractionItems.mm
 # stands in for _WKTextExtraction.swift, and the WebAuthentication sources come back with WEB_AUTHN.
 #
@@ -570,7 +570,7 @@ set(MAVERICKS_ADDED_WEBKIT_COCOA_SOURCES
     "UIProcess/API/Cocoa/WKWebView.mm @nonARC @no-unify"
     "UIProcess/API/Cocoa/_WKTextExtractionItems.mm @nonARC"
     "UIProcess/Cocoa/AuxiliaryProcessProxyCocoa.mm @nonARC"
-    "UIProcess/mac/MinimalPageClient.mm @nonARC"
+    "UIProcess/mac/MavericksPageClient.mm @nonARC"
     "UIProcess/Cocoa/CSPExtensionUtilities.mm"
     "UIProcess/Cocoa/_WKWarningView.mm @nonARC"
     "UIProcess/Downloads/DownloadProxyCocoa.mm"

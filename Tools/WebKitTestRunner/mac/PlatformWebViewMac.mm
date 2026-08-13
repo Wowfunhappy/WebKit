@@ -74,7 +74,7 @@ PlatformWebView::PlatformWebView(WKPageConfigurationRef configuration, const Tes
     m_view = [[TestRunnerWKWebView alloc] initWithFrame:rect configuration:(__bridge WKWebViewConfiguration *)configuration];
     // MAVERICKS_BACKPORT: -[WKWebView _setWindowOcclusionDetectionEnabled:] is not present in this build; guard
     // the SPI so the absent selector does not raise. (Render cadence for the offscreen test view is driven by
-    // window-level visibility in MinimalPageClient, not by occlusion detection on the WKWebView.)
+    // window-level visibility in MavericksPageClient, not by occlusion detection on the WKWebView.)
     if ([m_view respondsToSelector:@selector(_setWindowOcclusionDetectionEnabled:)])
         [m_view _setWindowOcclusionDetectionEnabled:NO];
 

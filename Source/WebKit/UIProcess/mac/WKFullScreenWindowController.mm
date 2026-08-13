@@ -898,7 +898,7 @@ static RetainPtr<CGImageRef> takeWindowSnapshot(CGSWindowID windowID, bool captu
 // only by "did I adjust it", for the same reason -_mavericksRestorePresentationOptionsIfNeeded is:
 // the routes that need it most are the ones whose other state (_manager, _fullScreenState, _page) is
 // already gone. It must be idempotent and called from EVERY route that leaves the space, because the
-// window OUTLIVES the session -- MinimalFullScreenManagerProxyClient::ensureController and
+// window OUTLIVES the session -- MavericksFullScreenManagerProxyClient::ensureController and
 // WebViewImpl::fullScreenWindowController both cache the controller, so a window left opaque black
 // would make the NEXT entry's zoom-from-element play over a black screen.
 - (void)_mavericksRestoreWindowForExit

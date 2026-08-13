@@ -73,7 +73,7 @@ target.
 - WebKit2: 606 needed = 602 C-API funcs (mostly still present upstream) + 4 ObjC
   symbols. WKView and WKBrowsingContextController are built from in-tree source
   (UIProcess/API/mac/WKView.mm, UIProcess/API/Cocoa/WKBrowsingContextController.mm),
-  backed by the reconstructed MinimalPageClient. WKWebInspectorProxyObjCAdapter is
+  backed by MavericksPageClient. WKWebInspectorProxyObjCAdapter is
   a stub in Source/WebKit/PolyfillClasses_109.mm. Re-run check-abi-gap.sh after WK2
   links for the precise residual C-function gap.
 

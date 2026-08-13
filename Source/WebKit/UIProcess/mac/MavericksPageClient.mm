@@ -1,15 +1,13 @@
-// MinimalPageClient — PageClient backing WKView on the MAVERICKS_BACKPORT.
+// MavericksPageClient — PageClient backing WKView on the MAVERICKS_BACKPORT.
 //
-// Safari 7 drives WebKit2 through WKView (an NSView), not WKWebView. WKView
-// creates its WebPageProxy with this lightweight PageClient instead of the
-// upstream WKWebView + WebViewImpl + PageClientImpl stack (PageClientImpl is
-// `final` and tightly coupled to WebViewImpl). It inherits the Cocoa-common
-// behavior from PageClientImplCocoa and implements the view-geometry, layer
-// hosting (TiledCoreAnimation), and coordinate-transform pieces directly
-// against the backing NSView; the remaining PageClient surface is stubbed.
+// Safari 7 drives WebKit2 through WKView (an NSView), not WKWebView, so WKView creates its
+// WebPageProxy with this PageClient in place of the upstream WKWebView + WebViewImpl +
+// PageClientImpl stack (PageClientImpl is `final` and tightly coupled to WebViewImpl). It inherits
+// the Cocoa-common behavior from PageClientImplCocoa and implements the view-geometry, layer
+// hosting (TiledCoreAnimation), and coordinate-transform pieces directly against the backing
+// NSView; the remaining PageClient surface is stubbed.
 //
-// WKView.mm forward-declares createMinimalPageClient()/setMinimalPageClientPage();
-// they are defined at the bottom of this file.
+// The free functions at the bottom of this file are WKViewMavericks.mm's entry points into it.
 
 #import "config.h"
 
@@ -36,8 +34,8 @@
 #import "WKEditCommand.h"
 
 // MAVERICKS_BACKPORT: WKView's promised-file drag entry point, implemented in WKViewMavericks.mm.
-// Declared here rather than in WKViewPrivate.h because it is an internal bridge between this page
-// client and its view, not Safari-7-facing SPI. setPromisedDataForImage below is the only caller.
+// An internal bridge between this page client and its view, not Safari-7-facing SPI, so it is
+// declared here. setPromisedDataForImage below is the only caller.
 @interface NSView (WKViewPromisedImageData)
 - (void)_wkSetPromisedImageData:(NSData *)imageData uti:(NSString *)uti filename:(NSString *)filename url:(NSString *)url archiveBuffer:(NSData *)archiveData pasteboardName:(NSString *)pasteboardName;
 @end
@@ -55,11 +53,9 @@
 #if ENABLE(FULLSCREEN_API)
 #import "WebFullScreenManagerProxy.h"
 // MAVERICKS_BACKPORT: the WKView full-screen path drives this upstream controller (see the
-// MinimalFullScreenManagerProxyClient comment), the same one the WKWebView path uses.
+// MavericksFullScreenManagerProxyClient comment), the same one the WKWebView path uses.
 #import "WKFullScreenWindowController.h"
-// MAVERICKS_BACKPORT: declares -[WKView createFullScreenWindow], sent below to the NSView-typed
-// view. Without it the selector is unknown here, so the compiler assumes an id return instead of
-// checking the real one.
+// MAVERICKS_BACKPORT: declares -[WKView createFullScreenWindow], sent below to the NSView-typed view.
 #import "WKViewPrivate.h"
 #import <wtf/cocoa/TypeCastsCocoa.h>
 #endif
@@ -87,10 +83,10 @@
 // WKView "_layerHostingView"/WKFlippedView design; see the m_layerHostingView member comment).
 // Flipped to match WKView's coordinate system. Event-transparent: hit-testing returns nil so
 // mouse events land on the WKView itself.
-@interface WKMinimalLayerHostingView : NSView
+@interface WKMavericksLayerHostingView : NSView
 @end
 
-@implementation WKMinimalLayerHostingView
+@implementation WKMavericksLayerHostingView
 - (BOOL)isFlipped { return YES; }
 - (NSView *)hitTest:(NSPoint)point { return nil; }
 @end
@@ -180,23 +176,21 @@ static RetainPtr<CGImageRef> cropWindowCaptureToView(NSView *view)
 }
 
 #if ENABLE(FULLSCREEN_API)
-// MAVERICKS_BACKPORT: element/video full screen for the WKView client. This forwards to the real
-// upstream WKFullScreenWindowController -- the same controller the WKWebView path uses, built from
-// this tree's own copy -- rather than reimplementing it. (Held as a member rather than via multiple
-// inheritance, which collides with PageClientImplCocoa's allocator/destructor.) The forwarding below
-// mirrors PageClientImpl's, method for method.
+// MAVERICKS_BACKPORT: element/video full screen for the WKView client, held as a member of the page
+// client. It forwards to this tree's WKFullScreenWindowController — the same controller the WKWebView
+// path uses — method for method, as PageClientImpl does.
 //
-// The controller gives the full-screen window a SPACE of its own, which is what keeps the browser
-// window and its other tabs reachable one space over and makes it impossible for a page to strand the
-// user; see github.com/Wowfunhappy/WebKit/issues/48, and mavericksLionStyleFullScreenEnabled() in
+// The controller gives the full-screen window a SPACE of its own, which keeps the browser window and
+// its other tabs reachable one space over so a page cannot strand the user; see
+// github.com/Wowfunhappy/WebKit/issues/48, and mavericksLionStyleFullScreenEnabled() in
 // WKFullScreenWindowController.mm for that issue's opt-out.
 //
-// The host window comes from -[WKView createFullScreenWindow], the Safari 7 SPI whose whole purpose is
-// to let the host post-process it: Safari overrides that method, calls super, and applies its own layer
-// backing properties to whatever comes back. Building the window here instead would skip that hook.
-class MinimalFullScreenManagerProxyClient final : public WebFullScreenManagerProxyClient {
+// The host window comes from -[WKView createFullScreenWindow], the Safari 7 SPI that lets the host
+// post-process it: Safari overrides that method, calls super, and applies its own layer backing
+// properties to whatever comes back.
+class MavericksFullScreenManagerProxyClient final : public WebFullScreenManagerProxyClient {
 public:
-    ~MinimalFullScreenManagerProxyClient() { closeController(); }
+    ~MavericksFullScreenManagerProxyClient() { closeController(); }
 
     void closeFullScreenManager() final { closeController(); }
 
@@ -259,12 +253,9 @@ private:
         RefPtr page = m_page.get();
         if (!page || !m_view)
             return nil;
-        // MAVERICKS_BACKPORT: -createFullScreenWindow is WKView's SPI, and m_view is held as the
-        // NSView the page client is generally written against, so name the real receiver type here.
-        // checked_objc_cast, not dynamic_objc_cast: a WKView is REQUIRED (the only caller is
-        // createMinimalPageClient(self) in WKViewMavericks.mm, which passes the WKView itself), so
-        // anything else is an invariant violation and must trap rather than quietly turn into a nil
-        // receiver that reads as "full screen declined".
+        // MAVERICKS_BACKPORT: -createFullScreenWindow is WKView's SPI and m_view is typed NSView, so
+        // name the real receiver here. The view is always the WKView that createMavericksPageClient()
+        // was handed, which checked_objc_cast asserts.
         RetainPtr<NSWindow> window = [checked_objc_cast<WKView>(m_view) createFullScreenWindow];
         if (!window)
             return nil;
@@ -284,9 +275,9 @@ private:
 };
 #endif
 
-class MinimalPageClient final : public PageClientImplCocoa {
+class MavericksPageClient final : public PageClientImplCocoa {
 public:
-    explicit MinimalPageClient(NSView *view)
+    explicit MavericksPageClient(NSView *view)
         : PageClientImplCocoa(nil)
         , m_view(view)
         , m_undoTarget(adoptNS([[WKEditorUndoTarget alloc] init]))
@@ -687,7 +678,6 @@ private:
 #if ENABLE(FULLSCREEN_API)
     WebFullScreenManagerProxyClient& fullScreenManagerProxyClient() final;
 #endif
-// setFullScreenClientForTesting is final in a base class; inherited, not overridden.
     void didFinishLoadingDataForCustomContentProvider(const String& suggestedFilename, std::span<const uint8_t>) final;
     void navigationGestureDidBegin() final;
     void navigationGestureWillEnd(bool willNavigate, WebBackForwardListItem&) final;
@@ -726,7 +716,6 @@ private:
     void didReceiveInteractiveModelElement(std::optional<WebCore::NodeIdentifier>) final;
 #endif
     void requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&) final;
-// storeAppHighlight is final in a base class; inherited, not overridden.
 #if USE(WPE_RENDERER)
     UnixFileDescriptor hostFileDescriptor() final;
 #endif
@@ -778,41 +767,41 @@ private:
     RetainPtr<WKEditorUndoTarget> m_undoTarget;
     bool m_inSecureInputState { false };
 #if ENABLE(FULLSCREEN_API)
-    MinimalFullScreenManagerProxyClient m_fullScreenClient;
+    MavericksFullScreenManagerProxyClient m_fullScreenClient;
 #endif
 };
 
-// ===== Hand-written implementations =====
+// ===== Implemented PageClient surface =====
 
-Ref<DrawingAreaProxy> MinimalPageClient::createDrawingAreaProxy(WebProcessProxy& process)
+Ref<DrawingAreaProxy> MavericksPageClient::createDrawingAreaProxy(WebProcessProxy& process)
 {
     return TiledCoreAnimationDrawingAreaProxy::create(*m_page, process);
 }
 
-WebCore::IntSize MinimalPageClient::viewSize()
+WebCore::IntSize MavericksPageClient::viewSize()
 {
     return WebCore::IntSize([m_view bounds].size);
 }
 
-bool MinimalPageClient::isViewWindowActive()
+bool MavericksPageClient::isViewWindowActive()
 {
     NSWindow *window = [m_view window];
     return window && ([window isKeyWindow] || [window isMainWindow]);
 }
 
-bool MinimalPageClient::isViewFocused()
+bool MavericksPageClient::isViewFocused()
 {
     NSWindow *window = [m_view window];
     return window && [window firstResponder] == m_view;
 }
 
 // MAVERICKS_BACKPORT: see the declaration comment; the WKView's window hosts permission sheets.
-CocoaWindow *MinimalPageClient::platformWindow() const
+CocoaWindow *MavericksPageClient::platformWindow() const
 {
     return [m_view window];
 }
 
-bool MinimalPageClient::isActiveViewVisible()
+bool MavericksPageClient::isActiveViewVisible()
 {
     // MAVERICKS_BACKPORT: upstream PageClientImpl::isViewVisible's truth table — window presence,
     // the view's own hidden-ancestor chain, window visibility, then window occlusion. The view's
@@ -833,12 +822,12 @@ bool MinimalPageClient::isActiveViewVisible()
     return true;
 }
 
-bool MinimalPageClient::isMainViewVisible()
+bool MavericksPageClient::isMainViewVisible()
 {
     return isActiveViewVisible();
 }
 
-bool MinimalPageClient::isViewVisibleOrOccluded()
+bool MavericksPageClient::isViewVisibleOrOccluded()
 {
     // MAVERICKS_BACKPORT: upstream truth table (PageClientImpl::isViewVisibleOrOccluded) — window
     // visibility alone; an occluded window, an inactive-Space window, and a hidden view inside a
@@ -846,24 +835,24 @@ bool MinimalPageClient::isViewVisibleOrOccluded()
     return m_view && [[m_view window] isVisible];
 }
 
-bool MinimalPageClient::isViewInWindow()
+bool MavericksPageClient::isViewInWindow()
 {
     return m_view && [m_view window];
 }
 
-bool MinimalPageClient::isVisuallyIdle()
+bool MavericksPageClient::isVisuallyIdle()
 {
     return WindowServerConnection::singleton().applicationWindowModificationsHaveStopped() || !isActiveViewVisible();
 }
 
-bool MinimalPageClient::canTakeForegroundAssertions()
+bool MavericksPageClient::canTakeForegroundAssertions()
 {
     return true;
 }
 
 // MAVERICKS_BACKPORT: the colour space the page composites in, chosen exactly as WebViewImpl does
 // for WKWebView — the view's window, else the main screen, else sRGB.
-WebCore::DestinationColorSpace MinimalPageClient::colorSpace()
+WebCore::DestinationColorSpace MavericksPageClient::colorSpace()
 {
     if (!m_colorSpace) {
         m_colorSpace = [[m_view window] colorSpace];
@@ -881,7 +870,7 @@ WebCore::DestinationColorSpace MinimalPageClient::colorSpace()
 // MAVERICKS_BACKPORT: sent by WKView when AppKit reports new backing properties, which is where a
 // window that moved to a display with a different profile shows up. Same shape as
 // WebViewImpl::viewDidChangeBackingProperties.
-void MinimalPageClient::viewDidChangeBackingProperties()
+void MavericksPageClient::viewDidChangeBackingProperties()
 {
     RetainPtr<NSColorSpace> colorSpace = [[m_view window] colorSpace];
     if ([colorSpace isEqualTo:m_colorSpace.get()])
@@ -892,17 +881,17 @@ void MinimalPageClient::viewDidChangeBackingProperties()
         drawingArea->colorSpaceDidChange();
 }
 
-WebCore::FloatRect MinimalPageClient::convertToDeviceSpace(const WebCore::FloatRect& rect)
+WebCore::FloatRect MavericksPageClient::convertToDeviceSpace(const WebCore::FloatRect& rect)
 {
     return rect;
 }
 
-WebCore::FloatRect MinimalPageClient::convertToUserSpace(const WebCore::FloatRect& rect)
+WebCore::FloatRect MavericksPageClient::convertToUserSpace(const WebCore::FloatRect& rect)
 {
     return rect;
 }
 
-WebCore::IntPoint MinimalPageClient::screenToRootView(const WebCore::IntPoint& point)
+WebCore::IntPoint MavericksPageClient::screenToRootView(const WebCore::IntPoint& point)
 {
     NSWindow *window = [m_view window];
     if (!window)
@@ -912,7 +901,7 @@ WebCore::IntPoint MinimalPageClient::screenToRootView(const WebCore::IntPoint& p
     return WebCore::IntPoint(static_cast<int>(viewPoint.x), static_cast<int>(viewPoint.y));
 }
 
-WebCore::IntPoint MinimalPageClient::rootViewToScreen(const WebCore::IntPoint& point)
+WebCore::IntPoint MavericksPageClient::rootViewToScreen(const WebCore::IntPoint& point)
 {
     NSWindow *window = [m_view window];
     if (!window)
@@ -922,7 +911,7 @@ WebCore::IntPoint MinimalPageClient::rootViewToScreen(const WebCore::IntPoint& p
     return WebCore::IntPoint(static_cast<int>(screenRect.origin.x), static_cast<int>(screenRect.origin.y));
 }
 
-WebCore::IntRect MinimalPageClient::rootViewToScreen(const WebCore::IntRect& rect)
+WebCore::IntRect MavericksPageClient::rootViewToScreen(const WebCore::IntRect& rect)
 {
     NSWindow *window = [m_view window];
     NSRect viewRect = [m_view convertRect:NSMakeRect(rect.x(), rect.y(), rect.width(), rect.height()) toView:nil];
@@ -932,23 +921,23 @@ WebCore::IntRect MinimalPageClient::rootViewToScreen(const WebCore::IntRect& rec
     return WebCore::IntRect(static_cast<int>(screenRect.origin.x), static_cast<int>(screenRect.origin.y), static_cast<int>(screenRect.size.width), static_cast<int>(screenRect.size.height));
 }
 
-WebCore::IntRect MinimalPageClient::rootViewToWindow(const WebCore::IntRect& rect)
+WebCore::IntRect MavericksPageClient::rootViewToWindow(const WebCore::IntRect& rect)
 {
     NSRect windowRect = [m_view convertRect:NSMakeRect(rect.x(), rect.y(), rect.width(), rect.height()) toView:nil];
     return WebCore::IntRect(static_cast<int>(windowRect.origin.x), static_cast<int>(windowRect.origin.y), static_cast<int>(windowRect.size.width), static_cast<int>(windowRect.size.height));
 }
 
-void MinimalPageClient::makeFirstResponder()
+void MavericksPageClient::makeFirstResponder()
 {
     [[m_view window] makeFirstResponder:m_view];
 }
 
-void MinimalPageClient::refView()
+void MavericksPageClient::refView()
 {
     [m_view retain];
 }
 
-void MinimalPageClient::derefView()
+void MavericksPageClient::derefView()
 {
     [m_view release];
 }
@@ -959,7 +948,7 @@ void MinimalPageClient::derefView()
 // -setLayer:, keeping the hosted content independent of the WKView's AppKit-owned backing
 // layer. Like 537, the render layer gets no frame: its (0,0) anchors the remote layer tree to
 // the hosting view's top-left, and the web-process side sizes the content.
-void MinimalPageClient::installRenderLayer(CALayer *renderLayer)
+void MavericksPageClient::installRenderLayer(CALayer *renderLayer)
 {
     if (m_rootLayer)
         [m_rootLayer removeFromSuperlayer];
@@ -976,7 +965,7 @@ void MinimalPageClient::installRenderLayer(CALayer *renderLayer)
     }
 
     if (!m_layerHostingView) {
-        m_layerHostingView = adoptNS([[WKMinimalLayerHostingView alloc] initWithFrame:[m_view bounds]]);
+        m_layerHostingView = adoptNS([[WKMavericksLayerHostingView alloc] initWithFrame:[m_view bounds]]);
         [m_layerHostingView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
         RetainPtr<CALayer> hostingRootLayer = adoptNS([[CALayer alloc] init]);
         [m_layerHostingView setLayer:hostingRootLayer.get()];
@@ -986,23 +975,23 @@ void MinimalPageClient::installRenderLayer(CALayer *renderLayer)
     [m_layerHostingView layer].sublayers = @[ renderLayer ];
 }
 
-void MinimalPageClient::enterAcceleratedCompositingMode(const LayerTreeContext& context)
+void MavericksPageClient::enterAcceleratedCompositingMode(const LayerTreeContext& context)
 {
     RetainPtr<CALayer> renderLayer = [CALayer _web_renderLayerWithContextID:context.contextID shouldPreserveFlip:NO];
     installRenderLayer(renderLayer.get());
 }
 
-void MinimalPageClient::updateAcceleratedCompositingMode(const LayerTreeContext& context)
+void MavericksPageClient::updateAcceleratedCompositingMode(const LayerTreeContext& context)
 {
     enterAcceleratedCompositingMode(context);
 }
 
-void MinimalPageClient::exitAcceleratedCompositingMode()
+void MavericksPageClient::exitAcceleratedCompositingMode()
 {
     installRenderLayer(nil);
 }
 
-void MinimalPageClient::didFirstLayerFlush(const LayerTreeContext& context)
+void MavericksPageClient::didFirstLayerFlush(const LayerTreeContext& context)
 {
     if (!context.isEmpty())
         enterAcceleratedCompositingMode(context);
@@ -1016,7 +1005,7 @@ void MinimalPageClient::didFirstLayerFlush(const LayerTreeContext& context)
 // == NO — iBooks' reader window is the one known case) display only contexts created against
 // this process's CARemoteLayerServer port. WebPageProxy::viewDidEnterWindow() re-queries this on
 // every window attach and tells the web process to recreate its context on a change.
-LayerHostingMode MinimalPageClient::viewLayerHostingMode()
+LayerHostingMode MavericksPageClient::viewLayerHostingMode()
 {
     NSWindow *window = [m_view window];
     if (window && ![window _hostsLayersInWindowServer])
@@ -1025,107 +1014,105 @@ LayerHostingMode MinimalPageClient::viewLayerHostingMode()
 }
 #endif
 
-void MinimalPageClient::setRemoteLayerTreeRootNode(RemoteLayerTreeNode* rootNode)
+void MavericksPageClient::setRemoteLayerTreeRootNode(RemoteLayerTreeNode* rootNode)
 {
     installRenderLayer(rootNode ? rootNode->layer() : nil);
 }
 
-CALayer *MinimalPageClient::acceleratedCompositingRootLayer() const
+CALayer *MavericksPageClient::acceleratedCompositingRootLayer() const
 {
     return m_rootLayer.get();
 }
 
-// ===== Generated minimal stubs for the remaining PageClient surface =====
+// ===== Stubs for the remaining PageClient surface =====
 
-void MinimalPageClient::setViewNeedsDisplay(const WebCore::Region&)
+void MavericksPageClient::setViewNeedsDisplay(const WebCore::Region&)
 { }
-void MinimalPageClient::requestScroll(const WebCore::FloatPoint& scrollPosition, const WebCore::IntPoint& scrollOrigin, WebCore::ScrollIsAnimated, WebCore::InterruptScrollAnimation)
+void MavericksPageClient::requestScroll(const WebCore::FloatPoint& scrollPosition, const WebCore::IntPoint& scrollOrigin, WebCore::ScrollIsAnimated, WebCore::InterruptScrollAnimation)
 { }
-WebCore::FloatPoint MinimalPageClient::viewScrollPosition()
+WebCore::FloatPoint MavericksPageClient::viewScrollPosition()
 { return { }; }
-void MinimalPageClient::processDidExit()
+void MavericksPageClient::processDidExit()
 {
-    // MAVERICKS_BACKPORT: the remote accessibility element names a process that no longer exists;
-    // drop it and unregister the pid, as WebViewImpl does from the same hook. Leaving it behind
-    // leaves a dead element in the UI process's AX tree.
+    // MAVERICKS_BACKPORT: the remote accessibility element names the process that just exited, so
+    // drop it and unregister the pid, as WebViewImpl does from the same hook.
     [m_view _mavericksUpdateRemoteAccessibilityRegistration:NO];
 }
-void MinimalPageClient::pageClosed()
+void MavericksPageClient::pageClosed()
 {
     [m_view _mavericksUpdateRemoteAccessibilityRegistration:NO];
 }
-void MinimalPageClient::didRelaunchProcess()
+void MavericksPageClient::didRelaunchProcess()
 {
     // MAVERICKS_BACKPORT: a relaunched WebContent process has a fresh accessibility root and knows
     // nothing about this view, so re-send the UI-process tokens (upstream's didRelaunchProcess does
-    // exactly this). Without it, accessibility stays dead for the rest of the page's life after a
-    // web process crash.
+    // exactly this).
     [m_view _mavericksRegisterUIProcessAccessibilityTokens];
 }
-void MinimalPageClient::preferencesDidChange()
+void MavericksPageClient::preferencesDidChange()
 { }
-void MinimalPageClient::toolTipChanged(const String&, const String& newToolTip)
+void MavericksPageClient::toolTipChanged(const String&, const String& newToolTip)
 {
     // MAVERICKS_BACKPORT: wire the title-attribute tooltip to WKView's classic -addToolTipRect:/
-    // -view:stringForToolTip: mechanism (see -[WKView _wkSetToolTip:]). WebViewImpl's NSToolTipManager
-    // path is not used by the reimplemented WKView.
+    // -view:stringForToolTip: mechanism (see -[WKView _wkSetToolTip:]); the reimplemented WKView does
+    // not use WebViewImpl's NSToolTipManager path.
     if (m_view)
         [m_view _wkSetToolTip:newToolTip.createNSString().get()];
 }
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::decidePolicyForGeolocationPermissionRequest(WebFrameProxy&, const FrameInfoData&, Function<void(bool)>&)
+void MavericksPageClient::decidePolicyForGeolocationPermissionRequest(WebFrameProxy&, const FrameInfoData&, Function<void(bool)>&)
 { }
 #endif
-void MinimalPageClient::didCommitLoadForMainFrame(const String& mimeType, bool useCustomContentProvider)
+void MavericksPageClient::didCommitLoadForMainFrame(const String& mimeType, bool useCustomContentProvider)
 { }
 #if ENABLE(PDF_HUD)
-void MinimalPageClient::createPDFHUD(PDFPluginIdentifier, WebCore::FrameIdentifier, const WebCore::IntRect&)
-{ }
-#endif
-#if ENABLE(PDF_HUD)
-void MinimalPageClient::updatePDFHUDLocation(PDFPluginIdentifier, const WebCore::IntRect&)
+void MavericksPageClient::createPDFHUD(PDFPluginIdentifier, WebCore::FrameIdentifier, const WebCore::IntRect&)
 { }
 #endif
 #if ENABLE(PDF_HUD)
-void MinimalPageClient::removePDFHUD(PDFPluginIdentifier)
+void MavericksPageClient::updatePDFHUDLocation(PDFPluginIdentifier, const WebCore::IntRect&)
 { }
 #endif
 #if ENABLE(PDF_HUD)
-void MinimalPageClient::removeAllPDFHUDs()
+void MavericksPageClient::removePDFHUD(PDFPluginIdentifier)
+{ }
+#endif
+#if ENABLE(PDF_HUD)
+void MavericksPageClient::removeAllPDFHUDs()
 { }
 #endif
 #if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
-void MinimalPageClient::createPDFPageNumberIndicator(PDFPluginIdentifier, const WebCore::IntRect&, size_t pageCount)
+void MavericksPageClient::createPDFPageNumberIndicator(PDFPluginIdentifier, const WebCore::IntRect&, size_t pageCount)
 { }
 #endif
 #if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
-void MinimalPageClient::updatePDFPageNumberIndicatorLocation(PDFPluginIdentifier, const WebCore::IntRect&)
+void MavericksPageClient::updatePDFPageNumberIndicatorLocation(PDFPluginIdentifier, const WebCore::IntRect&)
 { }
 #endif
 #if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
-void MinimalPageClient::updatePDFPageNumberIndicatorCurrentPage(PDFPluginIdentifier, size_t pageIndex)
+void MavericksPageClient::updatePDFPageNumberIndicatorCurrentPage(PDFPluginIdentifier, size_t pageIndex)
 { }
 #endif
 #if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
-void MinimalPageClient::removePDFPageNumberIndicator(PDFPluginIdentifier)
+void MavericksPageClient::removePDFPageNumberIndicator(PDFPluginIdentifier)
 { }
 #endif
 #if ENABLE(PDF_PAGE_NUMBER_INDICATOR)
-void MinimalPageClient::removeAnyPDFPageNumberIndicator()
+void MavericksPageClient::removeAnyPDFPageNumberIndicator()
 { }
 #endif
-void MinimalPageClient::didChangeContentSize(const WebCore::IntSize&)
+void MavericksPageClient::didChangeContentSize(const WebCore::IntSize&)
 { }
 #if ENABLE(DRAG_SUPPORT)
 #if PLATFORM(GTK)
-void MinimalPageClient::startDrag(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<WebCore::ShareableBitmap>&& dragImage, WebCore::IntPoint&& dragImageHotspot)
+void MavericksPageClient::startDrag(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<WebCore::ShareableBitmap>&& dragImage, WebCore::IntPoint&& dragImageHotspot)
 { }
 #endif
 // MAVERICKS_BACKPORT: hand the OS drag session off to the WKView. Mirrors
 // WebViewImpl::startDrag, except a promised-attachment drag is cancelled rather
 // than attempted: the modern path carries that promise via NSFilePromiseProvider
 // (10.12+), and WKView's classic promised-file pasteboard has no carrier for it.
-void MinimalPageClient::startDrag(const WebCore::DragItem& item, WebCore::ShareableBitmap::Handle&& dragImageHandle, const std::optional<WebCore::NodeIdentifier>&, const std::optional<WebCore::FrameIdentifier>&)
+void MavericksPageClient::startDrag(const WebCore::DragItem& item, WebCore::ShareableBitmap::Handle&& dragImageHandle, const std::optional<WebCore::NodeIdentifier>&, const std::optional<WebCore::FrameIdentifier>&)
 {
     auto bitmap = WebCore::ShareableBitmap::create(WTF::move(dragImageHandle));
     if (!bitmap || !m_view || !m_page) {
@@ -1149,7 +1136,7 @@ void MinimalPageClient::startDrag(const WebCore::DragItem& item, WebCore::Sharea
     [m_view _wk_beginDragWithImage:dragNSImage.get() atWindowPoint:NSMakePoint(item.dragLocationInWindowCoordinates.x(), item.dragLocationInWindowCoordinates.y())];
 }
 #endif
-void MinimalPageClient::setCursor(const WebCore::Cursor& cursor)
+void MavericksPageClient::setCursor(const WebCore::Cursor& cursor)
 {
     // MAVERICKS_BACKPORT: WebCore asks the page client to change the cursor (hand over links, I-beam over
     // text, etc.). Mirrors PageClientImpl, minus the WebViewImpl-only image-analysis overlay check.
@@ -1177,7 +1164,7 @@ void MinimalPageClient::setCursor(const WebCore::Cursor& cursor)
             [NSCursor hideUntilChanged];
     }
 }
-void MinimalPageClient::setCursorHiddenUntilMouseMoves(bool hiddenUntilMouseMoves)
+void MavericksPageClient::setCursorHiddenUntilMouseMoves(bool hiddenUntilMouseMoves)
 {
     [NSCursor setHiddenUntilMouseMoves:hiddenUntilMouseMoves];
 }
@@ -1185,7 +1172,7 @@ void MinimalPageClient::setCursorHiddenUntilMouseMoves(bool hiddenUntilMouseMove
 // WebPageProxy routes it here; register the command with the view's NSUndoManager so the standard
 // undo:/redo: actions drive WebEditCommandProxy::unapply()/reapply(). Mirrors
 // WebViewImpl/PageClientImplMac.
-void MinimalPageClient::registerEditCommand(Ref<WebEditCommandProxy>&& command, UndoOrRedo undoOrRedo)
+void MavericksPageClient::registerEditCommand(Ref<WebEditCommandProxy>&& command, UndoOrRedo undoOrRedo)
 {
     auto actionName = command->label();
     auto commandObjC = adoptNS([[WKEditCommand alloc] initWithWebEditCommandProxy:WTF::move(command)]);
@@ -1195,30 +1182,28 @@ void MinimalPageClient::registerEditCommand(Ref<WebEditCommandProxy>&& command, 
     if (!actionName.isEmpty())
         [undoManager setActionName:actionName.createNSString().get()];
 }
-void MinimalPageClient::clearAllEditCommands()
+void MavericksPageClient::clearAllEditCommands()
 {
     [[m_view undoManager] removeAllActionsWithTarget:m_undoTarget.get()];
 }
-bool MinimalPageClient::canUndoRedo(UndoOrRedo undoOrRedo)
+bool MavericksPageClient::canUndoRedo(UndoOrRedo undoOrRedo)
 {
     RetainPtr undoManager = [m_view undoManager];
     return undoOrRedo == UndoOrRedo::Undo ? [undoManager canUndo] : [undoManager canRedo];
 }
-void MinimalPageClient::executeUndoRedo(UndoOrRedo undoOrRedo)
+void MavericksPageClient::executeUndoRedo(UndoOrRedo undoOrRedo)
 {
     RetainPtr undoManager = [m_view undoManager];
     undoOrRedo == UndoOrRedo::Undo ? [undoManager undo] : [undoManager redo];
 }
-void MinimalPageClient::wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&)
+void MavericksPageClient::wheelEventWasNotHandledByWebCore(const NativeWebWheelEvent&)
 { }
 #if PLATFORM(COCOA)
 // MAVERICKS_BACKPORT: hand the WebContent process's remote-accessibility token to WKView, which
 // owns the NSAccessibilityRemoteUIElement that stands for the page in the UI process's AX tree
 // (see the accessibility section of WKViewMavericks.mm). PageClientImpl routes this to
 // WebViewImpl::setAccessibilityWebProcessToken the same way; WKView just is not backed by one.
-// Without this hop the token was dropped, so the WKView vended no accessibility children and no
-// AXWebArea ever appeared under Safari's window.
-void MinimalPageClient::accessibilityWebProcessTokenReceived(std::span<const uint8_t> data, pid_t pid)
+void MavericksPageClient::accessibilityWebProcessTokenReceived(std::span<const uint8_t> data, pid_t pid)
 {
     if (!m_view)
         return;
@@ -1249,17 +1234,13 @@ static String scrollCommandNameForSavedSelector(const String& selector)
     return String();
 }
 
-bool MinimalPageClient::executeSavedCommandBySelector(const String& selector)
+bool MavericksPageClient::executeSavedCommandBySelector(const String& selector)
 {
-    // MAVERICKS_BACKPORT: upstream WKWebView implements scrollPageDown:/scrollPageUp:/etc. as
-    // NSResponder action methods, so when the WebContent Editor doesn't handle a keypress
-    // command (e.g. PageDown over non-editable content), the IPC fallback
-    // (WebPageProxy::executeSavedCommandBySelector -> _web_superDoCommandBySelector:) lands on
-    // those methods, which call WebViewImpl::executeEditCommandForSelector ->
-    // WebPageProxy::executeEditCommand. Safari's WKView has no such action methods, so this
-    // hop resolves the scroll selector to its Editor command and executes it on the page,
-    // exactly as the WKWebView action methods would. Selectors outside the map are returned
-    // as unhandled (false) so they still bubble to Safari's own responder handling.
+    // MAVERICKS_BACKPORT: the IPC fallback (WebPageProxy::executeSavedCommandBySelector ->
+    // _web_superDoCommandBySelector:) lands on WKWebView's NSResponder action methods upstream, and
+    // Safari's WKView has none — so resolve the scroll selector to its Editor command and execute it
+    // on the page here, as those action methods would. Selectors outside the map are unhandled
+    // (false) and bubble to Safari's own responder handling.
     if (!m_page)
         return false;
     String commandName = scrollCommandNameForSavedSelector(selector);
@@ -1269,8 +1250,8 @@ bool MinimalPageClient::executeSavedCommandBySelector(const String& selector)
     return true;
 }
 #endif
-// MAVERICKS_BACKPORT: HIToolbox secure-event-input (declared in <Carbon/Carbon.h>, forward-declared
-// here to avoid pulling all of Carbon — which pollutes the namespace — into this file).
+// MAVERICKS_BACKPORT: HIToolbox secure-event-input, forward-declared to keep <Carbon/Carbon.h> and
+// its namespace pollution out of this file.
 extern "C" OSStatus EnableSecureEventInput(void);
 extern "C" OSStatus DisableSecureEventInput(void);
 
@@ -1279,7 +1260,7 @@ extern "C" OSStatus DisableSecureEventInput(void);
 // keylogger protection AppKit gives native password fields. Mirrors
 // WebViewImpl::updateSecureInputState; editorState().isInPasswordField is populated by
 // WebPage.cpp from input->isPasswordField().
-void MinimalPageClient::updateSecureInputState()
+void MavericksPageClient::updateSecureInputState()
 {
     if (![[m_view window] isKeyWindow] || !isViewFocused()) {
         if (m_inSecureInputState) {
@@ -1298,7 +1279,7 @@ void MinimalPageClient::updateSecureInputState()
 }
 #endif
 #if PLATFORM(COCOA)
-void MinimalPageClient::resetSecureInputState()
+void MavericksPageClient::resetSecureInputState()
 {
     if (m_inSecureInputState) {
         DisableSecureEventInput();
@@ -1307,36 +1288,36 @@ void MinimalPageClient::resetSecureInputState()
 }
 #endif
 #if PLATFORM(COCOA)
-void MinimalPageClient::notifyInputContextAboutDiscardedComposition()
+void MavericksPageClient::notifyInputContextAboutDiscardedComposition()
 { }
 #endif
 #if PLATFORM(COCOA)
-void MinimalPageClient::assistiveTechnologyMakeFirstResponder()
+void MavericksPageClient::assistiveTechnologyMakeFirstResponder()
 { }
 #endif
 #if PLATFORM(COCOA)
 #if ENABLE(MAC_GESTURE_EVENTS)
-void MinimalPageClient::gestureEventWasNotHandledByWebCore(const NativeWebGestureEvent&)
+void MavericksPageClient::gestureEventWasNotHandledByWebCore(const NativeWebGestureEvent&)
 { }
 #endif
 #endif
 #if PLATFORM(MAC)
-CALayer *MinimalPageClient::headerBannerLayer() const
+CALayer *MavericksPageClient::headerBannerLayer() const
 { return { }; }
 #endif
 #if PLATFORM(MAC)
-CALayer *MinimalPageClient::footerBannerLayer() const
+CALayer *MavericksPageClient::footerBannerLayer() const
 { return { }; }
 #endif
 #if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
-void MinimalPageClient::selectionDidChange()
+void MavericksPageClient::selectionDidChange()
 { }
 #endif
 #if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
 // Wrap the WKView's on-screen content in a ViewSnapshot. ViewSnapshotStore feeds both
 // back/forward swipe snapshots and Safari's Top Sites thumbnails; the capture itself is
 // cropWindowCaptureToView above.
-static RefPtr<ViewSnapshot> captureMinimalViewSnapshot(NSView *view)
+static RefPtr<ViewSnapshot> captureViewSnapshot(NSView *view)
 {
     RetainPtr<CGImageRef> croppedSnapshotImage = cropWindowCaptureToView(view);
     if (!croppedSnapshotImage)
@@ -1349,15 +1330,15 @@ static RefPtr<ViewSnapshot> captureMinimalViewSnapshot(NSView *view)
     return ViewSnapshot::create(WTF::move(surface));
 }
 
-RefPtr<ViewSnapshot> MinimalPageClient::takeViewSnapshot(std::optional<WebCore::IntRect>&&)
-{ return captureMinimalViewSnapshot(m_view); }
+RefPtr<ViewSnapshot> MavericksPageClient::takeViewSnapshot(std::optional<WebCore::IntRect>&&)
+{ return captureViewSnapshot(m_view); }
 #endif
 #if PLATFORM(MAC)
-RefPtr<ViewSnapshot> MinimalPageClient::takeViewSnapshot(std::optional<WebCore::IntRect>&&, ForceSoftwareCapturingViewportSnapshot)
-{ return captureMinimalViewSnapshot(m_view); }
+RefPtr<ViewSnapshot> MavericksPageClient::takeViewSnapshot(std::optional<WebCore::IntRect>&&, ForceSoftwareCapturingViewportSnapshot)
+{ return captureViewSnapshot(m_view); }
 #endif
 #if USE(APPKIT)
-void MinimalPageClient::setPromisedDataForImage(const String& pasteboardName, Ref<WebCore::FragmentedSharedBuffer>&& imageBuffer, const String& filename, const String& extension, const String& title, const String& url, const String& visibleURL, RefPtr<WebCore::FragmentedSharedBuffer>&& archiveBuffer, const String& originIdentifier)
+void MavericksPageClient::setPromisedDataForImage(const String& pasteboardName, Ref<WebCore::FragmentedSharedBuffer>&& imageBuffer, const String& filename, const String& extension, const String& title, const String& url, const String& visibleURL, RefPtr<WebCore::FragmentedSharedBuffer>&& archiveBuffer, const String& originIdentifier)
 {
     // MAVERICKS_BACKPORT: hand the promise to WKView, which owns the drag pasteboard and serves
     // -pasteboard:provideDataForType: / -namesOfPromisedFilesDroppedAtDestination: (see the
@@ -1387,27 +1368,27 @@ void MinimalPageClient::setPromisedDataForImage(const String& pasteboardName, Re
                      pasteboardName:pasteboardName.createNSString().get()];
 }
 #endif
-WebCore::IntPoint MinimalPageClient::accessibilityScreenToRootView(const WebCore::IntPoint&)
+WebCore::IntPoint MavericksPageClient::accessibilityScreenToRootView(const WebCore::IntPoint&)
 { return { }; }
-WebCore::IntRect MinimalPageClient::rootViewToAccessibilityScreen(const WebCore::IntRect&)
+WebCore::IntRect MavericksPageClient::rootViewToAccessibilityScreen(const WebCore::IntRect&)
 { return { }; }
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::relayAccessibilityNotification(String&&, RetainPtr<NSData>&&)
+void MavericksPageClient::relayAccessibilityNotification(String&&, RetainPtr<NSData>&&)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::relayAriaNotifyNotification(const WebCore::AriaNotifyData&)
+void MavericksPageClient::relayAriaNotifyNotification(const WebCore::AriaNotifyData&)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::relayLiveRegionNotification(const WebCore::LiveRegionAnnouncementData&)
+void MavericksPageClient::relayLiveRegionNotification(const WebCore::LiveRegionAnnouncementData&)
 { }
 #endif
 #if ENABLE(TWO_PHASE_CLICKS)
-void MinimalPageClient::didNotHandleTapAsClick(const WebCore::IntPoint&)
+void MavericksPageClient::didNotHandleTapAsClick(const WebCore::IntPoint&)
 { }
 #endif
-void MinimalPageClient::doneWithKeyEvent(const NativeWebKeyboardEvent& event, bool wasEventHandled)
+void MavericksPageClient::doneWithKeyEvent(const NativeWebKeyboardEvent& event, bool wasEventHandled)
 {
     // MAVERICKS_BACKPORT: mirror WebViewImpl::doneWithKeyEvent — hide the cursor while typing,
     // and re-dispatch unhandled key-downs to AppKit so Safari's menu key equivalents still fire
@@ -1422,62 +1403,62 @@ void MinimalPageClient::doneWithKeyEvent(const NativeWebKeyboardEvent& event, bo
     [m_view _mavericksResendUnhandledKeyDownEvent:nativeEvent];
 }
 #if ENABLE(TOUCH_EVENTS)
-void MinimalPageClient::doneWithTouchEvent(const WebTouchEvent&, bool wasEventHandled)
+void MavericksPageClient::doneWithTouchEvent(const WebTouchEvent&, bool wasEventHandled)
 { }
 #endif
 #if ENABLE(IOS_TOUCH_EVENTS)
-void MinimalPageClient::doneDeferringTouchStart(bool preventNativeGestures)
+void MavericksPageClient::doneDeferringTouchStart(bool preventNativeGestures)
 { }
 #endif
 #if ENABLE(IOS_TOUCH_EVENTS)
-void MinimalPageClient::doneDeferringTouchMove(bool preventNativeGestures)
+void MavericksPageClient::doneDeferringTouchMove(bool preventNativeGestures)
 { }
 #endif
 #if ENABLE(IOS_TOUCH_EVENTS)
-void MinimalPageClient::doneDeferringTouchEnd(bool preventNativeGestures)
+void MavericksPageClient::doneDeferringTouchEnd(bool preventNativeGestures)
 { }
 #endif
-RefPtr<WebPopupMenuProxy> MinimalPageClient::createPopupMenuProxy(WebPageProxy& page)
+RefPtr<WebPopupMenuProxy> MavericksPageClient::createPopupMenuProxy(WebPageProxy& page)
 {
     // Back the WKView path's <select> dropdowns with the standard AppKit popup proxy
     // (PageClientImpl does the same).
     return WebPopupMenuProxyMac::create(m_view, protect(page.popupMenuClient()));
 }
 #if ENABLE(CONTEXT_MENUS)
-Ref<WebContextMenuProxy> MinimalPageClient::createContextMenuProxy(WebPageProxy& page, FrameInfoData&& frameInfo, ContextMenuContextData&& context, const UserData& userData)
+Ref<WebContextMenuProxy> MavericksPageClient::createContextMenuProxy(WebPageProxy& page, FrameInfoData&& frameInfo, ContextMenuContextData&& context, const UserData& userData)
 {
     // Back right-click / control-click menus with the standard AppKit context-menu proxy
     // (PageClientImpl does the same).
     return WebContextMenuProxyMac::create(m_view, page, WTF::move(frameInfo), WTF::move(context), userData);
 }
 #endif
-RefPtr<WebColorPicker> MinimalPageClient::createColorPicker(WebPageProxy& page, const WebCore::Color& initialColor, const WebCore::IntRect& rect, ColorControlSupportsAlpha supportsAlpha, Vector<WebCore::Color>&& suggestions, std::optional<WebCore::FrameIdentifier>)
+RefPtr<WebColorPicker> MavericksPageClient::createColorPicker(WebPageProxy& page, const WebCore::Color& initialColor, const WebCore::IntRect& rect, ColorControlSupportsAlpha supportsAlpha, Vector<WebCore::Color>&& suggestions, std::optional<WebCore::FrameIdentifier>)
 {
     // MAVERICKS_BACKPORT: mirror PageClientImplMac — vend a real NSColorPanel-backed
     // WebColorPickerMac so clicking an <input type=color> opens the native color picker.
     return WebColorPickerMac::create(protect(page.colorPickerClient()).ptr(), initialColor, rect, supportsAlpha, WTF::move(suggestions), m_view);
 }
-RefPtr<WebDataListSuggestionsDropdown> MinimalPageClient::createDataListSuggestionsDropdown(WebPageProxy& page)
+RefPtr<WebDataListSuggestionsDropdown> MavericksPageClient::createDataListSuggestionsDropdown(WebPageProxy& page)
 {
     // MAVERICKS_BACKPORT: mirror PageClientImplMac — vend the real AppKit dropdown so a datalist
     // input shows its suggestions.
     return WebDataListSuggestionsDropdownMac::create(page, m_view);
 }
-RefPtr<WebDateTimePicker> MinimalPageClient::createDateTimePicker(WebPageProxy& page)
+RefPtr<WebDateTimePicker> MavericksPageClient::createDateTimePicker(WebPageProxy& page)
 {
     // MAVERICKS_BACKPORT: mirror PageClientImplMac — vend the real calendar picker for
     // <input type=date>.
     return WebDateTimePickerMac::create(page, m_view);
 }
 #if PLATFORM(COCOA) || PLATFORM(GTK)
-Ref<WebCore::ValidationBubble> MinimalPageClient::createValidationBubble(String&& message, const WebCore::ValidationBubble::Settings& settings)
+Ref<WebCore::ValidationBubble> MavericksPageClient::createValidationBubble(String&& message, const WebCore::ValidationBubble::Settings& settings)
 {
     // HTML form-validation bubbles (e.g. a required field left empty on submit) reach here.
     return WebCore::ValidationBubble::create(m_view, WTF::move(message), settings);
 }
 #endif
 #if PLATFORM(COCOA)
-CALayer *MinimalPageClient::textIndicatorInstallationLayer()
+CALayer *MavericksPageClient::textIndicatorInstallationLayer()
 {
     // MAVERICKS_BACKPORT: the parent layer for every text indicator, most visibly the find
     // overlay's yellow highlight on the current match (#85). WebPageProxy::setTextIndicator adds
@@ -1491,7 +1472,7 @@ CALayer *MinimalPageClient::textIndicatorInstallationLayer()
 }
 #endif
 #if PLATFORM(COCOA)
-void MinimalPageClient::didPerformDictionaryLookup(const WebCore::DictionaryPopupInfo& info)
+void MavericksPageClient::didPerformDictionaryLookup(const WebCore::DictionaryPopupInfo& info)
 {
     // MAVERICKS_BACKPORT: the modern "Look Up" popover uses the Reveal framework, which does not
     // exist on 10.9 (ENABLE(REVEAL)=0, so WebCore's DictionaryLookup::showPopup is a no-op).
@@ -1511,33 +1492,33 @@ void MinimalPageClient::didPerformDictionaryLookup(const WebCore::DictionaryPopu
 }
 #endif
 #if HAVE(APP_ACCENT_COLORS)
-WebCore::Color MinimalPageClient::accentColor()
+WebCore::Color MavericksPageClient::accentColor()
 { return { }; }
 #endif
 #if HAVE(APP_ACCENT_COLORS)
 #if PLATFORM(MAC)
-bool MinimalPageClient::appUsesCustomAccentColor()
+bool MavericksPageClient::appUsesCustomAccentColor()
 { return { }; }
 #endif
 #endif
 #if USE(DICTATION_ALTERNATIVES)
-void MinimalPageClient::showDictationAlternativeUI(const WebCore::FloatRect& boundingBoxOfDictatedText, WebCore::DictationContext)
+void MavericksPageClient::showDictationAlternativeUI(const WebCore::FloatRect& boundingBoxOfDictatedText, WebCore::DictationContext)
 { }
 #endif
 #if PLATFORM(MAC)
-void MinimalPageClient::showCorrectionPanel(WebCore::AlternativeTextType, const WebCore::FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings)
+void MavericksPageClient::showCorrectionPanel(WebCore::AlternativeTextType, const WebCore::FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings)
 { }
 #endif
 #if PLATFORM(MAC)
-void MinimalPageClient::dismissCorrectionPanel(WebCore::ReasonForDismissingAlternativeText)
+void MavericksPageClient::dismissCorrectionPanel(WebCore::ReasonForDismissingAlternativeText)
 { }
 #endif
 #if PLATFORM(MAC)
-String MinimalPageClient::dismissCorrectionPanelSoon(WebCore::ReasonForDismissingAlternativeText)
+String MavericksPageClient::dismissCorrectionPanelSoon(WebCore::ReasonForDismissingAlternativeText)
 { return { }; }
 #endif
 #if PLATFORM(MAC)
-void MinimalPageClient::recordAutocorrectionResponse(WebCore::AutocorrectionResponse, const String& replacedString, const String& replacementString)
+void MavericksPageClient::recordAutocorrectionResponse(WebCore::AutocorrectionResponse, const String& replacedString, const String& replacementString)
 { }
 #endif
 #if PLATFORM(MAC)
@@ -1547,7 +1528,7 @@ void MinimalPageClient::recordAutocorrectionResponse(WebCore::AutocorrectionResp
 // recommendedScrollbarStyleDidChange. The tracking area — installed by the WKView designated
 // initializer — is what delivers mouseMoved: to the view when it is not the window's first
 // responder, which keeps cursor changes and CSS :hover working.
-void MinimalPageClient::recommendedScrollbarStyleDidChange(WebCore::ScrollbarStyle newStyle)
+void MavericksPageClient::recommendedScrollbarStyleDidChange(WebCore::ScrollbarStyle newStyle)
 {
     if (!m_view)
         return;
@@ -1561,43 +1542,43 @@ void MinimalPageClient::recommendedScrollbarStyleDidChange(WebCore::ScrollbarSty
 }
 #endif
 #if PLATFORM(MAC)
-void MinimalPageClient::handleControlledElementIDResponse(const String&)
+void MavericksPageClient::handleControlledElementIDResponse(const String&)
 { }
 #endif
 #if PLATFORM(MAC)
-CGRect MinimalPageClient::boundsOfLayerInLayerBackedWindowCoordinates(CALayer *) const
+CGRect MavericksPageClient::boundsOfLayerInLayerBackedWindowCoordinates(CALayer *) const
 { return { }; }
 #endif
 #if PLATFORM(MAC)
-bool MinimalPageClient::useFormSemanticContext() const
+bool MavericksPageClient::useFormSemanticContext() const
 { return { }; }
 #endif
 #if PLATFORM(MAC)
-NSView *MinimalPageClient::viewForPresentingRevealPopover() const
+NSView *MavericksPageClient::viewForPresentingRevealPopover() const
 { return { }; }
 #endif
 #if PLATFORM(MAC)
-void MinimalPageClient::showPlatformContextMenu(NSMenu *, WebCore::IntPoint)
+void MavericksPageClient::showPlatformContextMenu(NSMenu *, WebCore::IntPoint)
 { }
 #endif
 #if PLATFORM(MAC)
-void MinimalPageClient::startWindowDrag()
+void MavericksPageClient::startWindowDrag()
 { }
 #endif
 #if PLATFORM(MAC)
-void MinimalPageClient::setShouldSuppressFirstResponderChanges(bool)
+void MavericksPageClient::setShouldSuppressFirstResponderChanges(bool)
 { }
 #endif
 #if PLATFORM(MAC)
-RetainPtr<NSView> MinimalPageClient::inspectorAttachmentView()
+RetainPtr<NSView> MavericksPageClient::inspectorAttachmentView()
 { return { }; }
 #endif
 #if PLATFORM(MAC)
-_WKRemoteObjectRegistry *MinimalPageClient::remoteObjectRegistry()
+_WKRemoteObjectRegistry *MavericksPageClient::remoteObjectRegistry()
 { return { }; }
 #endif
 #if PLATFORM(MAC)
-void MinimalPageClient::intrinsicContentSizeDidChange(const WebCore::IntSize& intrinsicContentSize)
+void MavericksPageClient::intrinsicContentSizeDidChange(const WebCore::IntSize& intrinsicContentSize)
 {
     // MAVERICKS_BACKPORT: forward the web process's laid-out content size to the WKView's
     // auto-layout SPI so self-sizing embedders (Mail's message viewer) size to fit.
@@ -1605,7 +1586,7 @@ void MinimalPageClient::intrinsicContentSizeDidChange(const WebCore::IntSize& in
 }
 #endif
 #if PLATFORM(MAC)
-void MinimalPageClient::registerInsertionUndoGrouping()
+void MavericksPageClient::registerInsertionUndoGrouping()
 {
     // MAVERICKS_BACKPORT: coalesce typed-character insertions into proper undo groups,
     // so Cmd+Z removes a typing run, matching AppKit text fields.
@@ -1613,322 +1594,322 @@ void MinimalPageClient::registerInsertionUndoGrouping()
 }
 #endif
 #if PLATFORM(MAC)
-void MinimalPageClient::setEditableElementIsFocused(bool)
+void MavericksPageClient::setEditableElementIsFocused(bool)
 { }
 #endif
 #if PLATFORM(COCOA)
-void MinimalPageClient::scrollingNodeScrollViewDidScroll(WebCore::ScrollingNodeID)
+void MavericksPageClient::scrollingNodeScrollViewDidScroll(WebCore::ScrollingNodeID)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::couldNotRestorePageState()
+void MavericksPageClient::couldNotRestorePageState()
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::restorePageState(std::optional<WebCore::FloatPoint> scrollPosition, const WebCore::FloatPoint& scrollOrigin, const WebCore::FloatBoxExtent& obscuredInsetsOnSave, double scale)
+void MavericksPageClient::restorePageState(std::optional<WebCore::FloatPoint> scrollPosition, const WebCore::FloatPoint& scrollOrigin, const WebCore::FloatBoxExtent& obscuredInsetsOnSave, double scale)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::restorePageCenterAndScale(std::optional<WebCore::FloatPoint> center, double scale)
+void MavericksPageClient::restorePageCenterAndScale(std::optional<WebCore::FloatPoint> center, double scale)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::elementDidFocus(const FocusedElementInformation&, bool userIsInteracting, bool blurPreviousNode, OptionSet<WebCore::ActivityState> activityStateChanges, API::Object* userData)
+void MavericksPageClient::elementDidFocus(const FocusedElementInformation&, bool userIsInteracting, bool blurPreviousNode, OptionSet<WebCore::ActivityState> activityStateChanges, API::Object* userData)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::updateInputContextAfterBlurringAndRefocusingElement()
+void MavericksPageClient::updateInputContextAfterBlurringAndRefocusingElement()
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::didProgrammaticallyClearFocusedElement(WebCore::ElementContext&&)
+void MavericksPageClient::didProgrammaticallyClearFocusedElement(WebCore::ElementContext&&)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::updateFocusedElementInformation(const FocusedElementInformation&)
+void MavericksPageClient::updateFocusedElementInformation(const FocusedElementInformation&)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::elementDidBlur()
+void MavericksPageClient::elementDidBlur()
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::focusedElementDidChangeInputMode(WebCore::InputMode)
+void MavericksPageClient::focusedElementDidChangeInputMode(WebCore::InputMode)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::didUpdateEditorState()
+void MavericksPageClient::didUpdateEditorState()
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-bool MinimalPageClient::isFocusingElement()
+bool MavericksPageClient::isFocusingElement()
 { return { }; }
 #endif
 #if PLATFORM(IOS_FAMILY)
-bool MinimalPageClient::interpretKeyEvent(const NativeWebKeyboardEvent&, KeyEventInterpretationContext&&)
+bool MavericksPageClient::interpretKeyEvent(const NativeWebKeyboardEvent&, KeyEventInterpretationContext&&)
 { return { }; }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::saveImageToLibrary(Ref<WebCore::SharedBuffer>&&)
+void MavericksPageClient::saveImageToLibrary(Ref<WebCore::SharedBuffer>&&)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::showPlaybackTargetPicker(bool hasVideo, const WebCore::IntRect& elementRect, WebCore::RouteSharingPolicy, const String&)
+void MavericksPageClient::showPlaybackTargetPicker(bool hasVideo, const WebCore::IntRect& elementRect, WebCore::RouteSharingPolicy, const String&)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::showDataDetectorsUIForPositionInformation(const InteractionInformationAtPosition&)
+void MavericksPageClient::showDataDetectorsUIForPositionInformation(const InteractionInformationAtPosition&)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-double MinimalPageClient::minimumZoomScale() const
+double MavericksPageClient::minimumZoomScale() const
 { return { }; }
 #endif
 #if PLATFORM(IOS_FAMILY)
-WebCore::FloatRect MinimalPageClient::documentRect() const
+WebCore::FloatRect MavericksPageClient::documentRect() const
 { return { }; }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::scrollingNodeScrollViewWillStartPanGesture(WebCore::ScrollingNodeID)
+void MavericksPageClient::scrollingNodeScrollViewWillStartPanGesture(WebCore::ScrollingNodeID)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::scrollingNodeScrollWillStartScroll(std::optional<WebCore::ScrollingNodeID>)
+void MavericksPageClient::scrollingNodeScrollWillStartScroll(std::optional<WebCore::ScrollingNodeID>)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::scrollingNodeScrollDidEndScroll(std::optional<WebCore::ScrollingNodeID>)
+void MavericksPageClient::scrollingNodeScrollDidEndScroll(std::optional<WebCore::ScrollingNodeID>)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-Vector<String> MinimalPageClient::mimeTypesWithCustomContentProviders()
+Vector<String> MavericksPageClient::mimeTypesWithCustomContentProviders()
 { return { }; }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::hardwareKeyboardAvailabilityChanged()
+void MavericksPageClient::hardwareKeyboardAvailabilityChanged()
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::showInspectorHighlight(const WebCore::InspectorOverlay::Highlight&)
+void MavericksPageClient::showInspectorHighlight(const WebCore::InspectorOverlay::Highlight&)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::hideInspectorHighlight()
+void MavericksPageClient::hideInspectorHighlight()
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::showInspectorIndication()
+void MavericksPageClient::showInspectorIndication()
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::hideInspectorIndication()
+void MavericksPageClient::hideInspectorIndication()
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::enableInspectorNodeSearch()
+void MavericksPageClient::enableInspectorNodeSearch()
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::disableInspectorNodeSearch()
+void MavericksPageClient::disableInspectorNodeSearch()
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::handleAutocorrectionContext(const WebAutocorrectionContext&)
+void MavericksPageClient::handleAutocorrectionContext(const WebAutocorrectionContext&)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
 #if HAVE(UISCROLLVIEW_ASYNCHRONOUS_SCROLL_EVENT_HANDLING)
-void MinimalPageClient::handleAsynchronousCancelableScrollEvent(WKBaseScrollView *, WKBEScrollViewScrollUpdate *, void (^completion)(BOOL handled))
+void MavericksPageClient::handleAsynchronousCancelableScrollEvent(WKBaseScrollView *, WKBEScrollViewScrollUpdate *, void (^completion)(BOOL handled))
 { }
 #endif
 #endif
 #if PLATFORM(IOS_FAMILY)
-bool MinimalPageClient::isSimulatingCompatibilityPointerTouches() const
+bool MavericksPageClient::isSimulatingCompatibilityPointerTouches() const
 { return { }; }
 #endif
 #if PLATFORM(IOS_FAMILY)
-WebCore::FloatBoxExtent MinimalPageClient::computedObscuredInset() const
+WebCore::FloatBoxExtent MavericksPageClient::computedObscuredInset() const
 { return { }; }
 #endif
 #if PLATFORM(IOS_FAMILY)
-WebCore::Color MinimalPageClient::contentViewBackgroundColor()
+WebCore::Color MavericksPageClient::contentViewBackgroundColor()
 { return { }; }
 #endif
 #if PLATFORM(IOS_FAMILY)
-WebCore::Color MinimalPageClient::insertionPointColor()
+WebCore::Color MavericksPageClient::insertionPointColor()
 { return { }; }
 #endif
 #if PLATFORM(IOS_FAMILY)
-bool MinimalPageClient::isScreenBeingCaptured()
+bool MavericksPageClient::isScreenBeingCaptured()
 { return { }; }
 #endif
 #if PLATFORM(IOS_FAMILY)
-String MinimalPageClient::sceneID()
+String MavericksPageClient::sceneID()
 { return { }; }
 #endif
 #if PLATFORM(IOS_FAMILY)
-UIScreen *MinimalPageClient::screen()
+UIScreen *MavericksPageClient::screen()
 { return { }; }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::beginTextRecognitionForFullscreenVideo(WebCore::ShareableBitmap::Handle&&, AVPlayerViewController *)
+void MavericksPageClient::beginTextRecognitionForFullscreenVideo(WebCore::ShareableBitmap::Handle&&, AVPlayerViewController *)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY)
-void MinimalPageClient::cancelTextRecognitionForFullscreenVideo(AVPlayerViewController *)
+void MavericksPageClient::cancelTextRecognitionForFullscreenVideo(AVPlayerViewController *)
 { }
 #endif
 #if PLATFORM(COCOA)
-void MinimalPageClient::positionInformationDidChange(const InteractionInformationAtPosition&)
+void MavericksPageClient::positionInformationDidChange(const InteractionInformationAtPosition&)
 { }
 #endif
 #if ENABLE(FULLSCREEN_API)
-WebFullScreenManagerProxyClient& MinimalPageClient::fullScreenManagerProxyClient()
+WebFullScreenManagerProxyClient& MavericksPageClient::fullScreenManagerProxyClient()
 {
     return m_fullScreenClient;
 }
 #endif
-void MinimalPageClient::didFinishLoadingDataForCustomContentProvider(const String& suggestedFilename, std::span<const uint8_t>)
+void MavericksPageClient::didFinishLoadingDataForCustomContentProvider(const String& suggestedFilename, std::span<const uint8_t>)
 { }
-void MinimalPageClient::navigationGestureDidBegin()
+void MavericksPageClient::navigationGestureDidBegin()
 { }
-void MinimalPageClient::navigationGestureWillEnd(bool willNavigate, WebBackForwardListItem&)
+void MavericksPageClient::navigationGestureWillEnd(bool willNavigate, WebBackForwardListItem&)
 { }
-void MinimalPageClient::navigationGestureDidEnd(bool willNavigate, WebBackForwardListItem&)
+void MavericksPageClient::navigationGestureDidEnd(bool willNavigate, WebBackForwardListItem&)
 { }
-void MinimalPageClient::navigationGestureDidEnd()
+void MavericksPageClient::navigationGestureDidEnd()
 { }
-void MinimalPageClient::willRecordNavigationSnapshot(WebBackForwardListItem&)
+void MavericksPageClient::willRecordNavigationSnapshot(WebBackForwardListItem&)
 { }
-void MinimalPageClient::didRemoveNavigationGestureSnapshot()
+void MavericksPageClient::didRemoveNavigationGestureSnapshot()
 { }
-void MinimalPageClient::didFirstVisuallyNonEmptyLayoutForMainFrame()
+void MavericksPageClient::didFirstVisuallyNonEmptyLayoutForMainFrame()
 { }
-void MinimalPageClient::didFinishNavigation(API::Navigation*)
+void MavericksPageClient::didFinishNavigation(API::Navigation*)
 { }
-void MinimalPageClient::didFailNavigation(API::Navigation*)
+void MavericksPageClient::didFailNavigation(API::Navigation*)
 { }
-void MinimalPageClient::didSameDocumentNavigationForMainFrame(SameDocumentNavigationType)
+void MavericksPageClient::didSameDocumentNavigationForMainFrame(SameDocumentNavigationType)
 { }
-void MinimalPageClient::didChangeBackgroundColor()
+void MavericksPageClient::didChangeBackgroundColor()
 { }
 #if PLATFORM(MAC)
-void MinimalPageClient::didPerformImmediateActionHitTest(const WebHitTestResultData&, bool contentPreventsDefault, API::Object*)
+void MavericksPageClient::didPerformImmediateActionHitTest(const WebHitTestResultData&, bool contentPreventsDefault, API::Object*)
 { }
 #endif
 #if PLATFORM(MAC)
-NSObject *MinimalPageClient::immediateActionAnimationControllerForHitTestResult(RefPtr<API::HitTestResult>, uint64_t, RefPtr<API::Object>)
+NSObject *MavericksPageClient::immediateActionAnimationControllerForHitTestResult(RefPtr<API::HitTestResult>, uint64_t, RefPtr<API::Object>)
 { return { }; }
 #endif
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
-WebCore::WebMediaSessionManager& MinimalPageClient::mediaSessionManager()
+WebCore::WebMediaSessionManager& MavericksPageClient::mediaSessionManager()
 { return WebCore::WebMediaSessionManager::singleton(); }
 #endif
-void MinimalPageClient::didRestoreScrollPosition()
+void MavericksPageClient::didRestoreScrollPosition()
 { }
-WebCore::UserInterfaceLayoutDirection MinimalPageClient::userInterfaceLayoutDirection()
+WebCore::UserInterfaceLayoutDirection MavericksPageClient::userInterfaceLayoutDirection()
 { return { }; }
 #if USE(QUICK_LOOK)
-void MinimalPageClient::requestPasswordForQuickLookDocument(const String& fileName, WTF::Function<void(const String&)>&&)
+void MavericksPageClient::requestPasswordForQuickLookDocument(const String& fileName, WTF::Function<void(const String&)>&&)
 { }
 #endif
 #if PLATFORM(IOS_FAMILY) && ENABLE(DRAG_SUPPORT)
-void MinimalPageClient::willReceiveEditDragSnapshot()
+void MavericksPageClient::willReceiveEditDragSnapshot()
 { }
 #endif
 #if PLATFORM(IOS_FAMILY) && ENABLE(DRAG_SUPPORT)
-void MinimalPageClient::didReceiveEditDragSnapshot(RefPtr<WebCore::TextIndicator>&&)
+void MavericksPageClient::didReceiveEditDragSnapshot(RefPtr<WebCore::TextIndicator>&&)
 { }
 #endif
 #if ENABLE(MODEL_PROCESS)
-void MinimalPageClient::didReceiveInteractiveModelElement(std::optional<WebCore::NodeIdentifier>)
+void MavericksPageClient::didReceiveInteractiveModelElement(std::optional<WebCore::NodeIdentifier>)
 { }
 #endif
-void MinimalPageClient::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&)
+void MavericksPageClient::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory, WebCore::DOMPasteRequiresInteraction, const WebCore::IntRect& elementRect, const String& originIdentifier, CompletionHandler<void(WebCore::DOMPasteAccessResponse)>&&)
 { }
 #if USE(WPE_RENDERER)
-UnixFileDescriptor MinimalPageClient::hostFileDescriptor()
+UnixFileDescriptor MavericksPageClient::hostFileDescriptor()
 { return { }; }
 #endif
 #if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
-bool MinimalPageClient::canHandleContextMenuTranslation() const
+bool MavericksPageClient::canHandleContextMenuTranslation() const
 { return { }; }
 #endif
 #if HAVE(TRANSLATION_UI_SERVICES) && ENABLE(CONTEXT_MENUS)
-void MinimalPageClient::handleContextMenuTranslation(const WebCore::TranslationContextMenuInfo&)
+void MavericksPageClient::handleContextMenuTranslation(const WebCore::TranslationContextMenuInfo&)
 { }
 #endif
 #if ENABLE(WRITING_TOOLS) && ENABLE(CONTEXT_MENUS)
-bool MinimalPageClient::canHandleContextMenuWritingTools() const
+bool MavericksPageClient::canHandleContextMenuWritingTools() const
 { return { }; }
 #endif
 #if ENABLE(WRITING_TOOLS)
-void MinimalPageClient::proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WebCore::WritingTools::TextSuggestionID&, WebCore::IntRect selectionBoundsInRootView)
+void MavericksPageClient::proofreadingSessionShowDetailsForSuggestionWithIDRelativeToRect(const WebCore::WritingTools::TextSuggestionID&, WebCore::IntRect selectionBoundsInRootView)
 { }
 #endif
 #if USE(GRAPHICS_LAYER_WC)
-bool MinimalPageClient::usesOffscreenRendering() const
+bool MavericksPageClient::usesOffscreenRendering() const
 { return { }; }
 #endif
 #if ENABLE(VIDEO_PRESENTATION_MODE)
-void MinimalPageClient::didEnterFullscreen()
+void MavericksPageClient::didEnterFullscreen()
 { }
 #endif
 #if ENABLE(VIDEO_PRESENTATION_MODE)
-void MinimalPageClient::didExitFullscreen()
+void MavericksPageClient::didExitFullscreen()
 { }
 #endif
 #if ENABLE(VIDEO_PRESENTATION_MODE)
-void MinimalPageClient::didCleanupFullscreen()
+void MavericksPageClient::didCleanupFullscreen()
 { }
 #endif
 #if PLATFORM(GTK) || PLATFORM(WPE)
-WebKitWebResourceLoadManager* MinimalPageClient::webResourceLoadManager()
+WebKitWebResourceLoadManager* MavericksPageClient::webResourceLoadManager()
 { return { }; }
 #endif
 #if PLATFORM(IOS_FAMILY)
-UIViewController *MinimalPageClient::presentingViewController() const
+UIViewController *MavericksPageClient::presentingViewController() const
 { return { }; }
 #endif
 #if HAVE(SPATIAL_TRACKING_LABEL)
-String MinimalPageClient::spatialTrackingLabel() const
+String MavericksPageClient::spatialTrackingLabel() const
 { return { }; }
 #endif
 
 // ===== Free functions used by WKView =====
 
-std::unique_ptr<PageClient> createMinimalPageClient(NSView *view)
+std::unique_ptr<PageClient> createMavericksPageClient(NSView *view)
 {
-    return std::unique_ptr<PageClient>(new MinimalPageClient(view));
+    return std::unique_ptr<PageClient>(new MavericksPageClient(view));
 }
 
-void setMinimalPageClientPage(PageClient& client, WebPageProxy* page)
+void setMavericksPageClientPage(PageClient& client, WebPageProxy* page)
 {
-    static_cast<MinimalPageClient&>(client).setPage(page);
+    static_cast<MavericksPageClient&>(client).setPage(page);
 }
 
-void minimalPageClientViewDidChangeBackingProperties(PageClient& client)
+void mavericksPageClientViewDidChangeBackingProperties(PageClient& client)
 {
-    static_cast<MinimalPageClient&>(client).viewDidChangeBackingProperties();
+    static_cast<MavericksPageClient&>(client).viewDidChangeBackingProperties();
 }
 
-void setMinimalPageClientWindowOcclusionDetectionEnabled(PageClient& client, bool enabled)
+void setMavericksPageClientWindowOcclusionDetectionEnabled(PageClient& client, bool enabled)
 {
-    static_cast<MinimalPageClient&>(client).setWindowOcclusionDetectionEnabled(enabled);
+    static_cast<MavericksPageClient&>(client).setWindowOcclusionDetectionEnabled(enabled);
 }
 
-bool minimalPageClientWindowOcclusionDetectionEnabled(PageClient& client)
+bool mavericksPageClientWindowOcclusionDetectionEnabled(PageClient& client)
 {
-    return static_cast<MinimalPageClient&>(client).windowOcclusionDetectionEnabled();
+    return static_cast<MavericksPageClient&>(client).windowOcclusionDetectionEnabled();
 }
 
 #if ENABLE(FULLSCREEN_API)
 // MAVERICKS_BACKPORT: serves -[WKView fullScreenPlaceholderView], the Safari 7 SPI that asks for
 // the view standing in for the web view while it is hosted by the full-screen window. Upstream's
 // WKView answers with its full-screen controller's placeholder; this is the same view.
-NSView *minimalPageClientFullScreenPlaceholderView(PageClient& client)
+NSView *mavericksPageClientFullScreenPlaceholderView(PageClient& client)
 {
-    return static_cast<MinimalPageClient&>(client).fullScreenPlaceholderView();
+    return static_cast<MavericksPageClient&>(client).fullScreenPlaceholderView();
 }
 #endif
 

@@ -50,7 +50,7 @@ typedef enum FullScreenState : NSInteger FullScreenState;
 @interface WKFullScreenWindowController : NSWindowController<NSWindowDelegate> {
 @private
     // MAVERICKS_BACKPORT: typed NSView rather than WKWebView so the Safari-7 WKView path can use this
-    // controller too (MinimalPageClient.mm). Every use of this ivar in the implementation is NSView API
+    // controller too (MavericksPageClient.mm). Every use of this ivar in the implementation is NSView API
     // — window/frame/superview/autoresizingMask/removeFromSuperview/makeFirstResponder: — so this widens
     // what the controller accepts without changing what it does. Cannot be retained, see <rdar://problem/14884666>.
     WeakObjCPtr<NSView> _webView;
