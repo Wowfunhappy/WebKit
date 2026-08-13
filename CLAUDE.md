@@ -135,10 +135,11 @@ When editing a file, also fix any pre-existing stale comment in the region you t
 
 ## Committing
 
-- **Commit every change once it is complete and verified** — don't leave it in the working tree. An uncommitted fix that only lives in the installed binary is a landmine. Commit the bulk removal as a checkpoint before fixing; commit each fix or fix-group; never hold a day of work uncommitted.
+- **Commit every change once it is complete and verified** — don't leave it in the working tree.
 - Preconditions: build green, `check-backport-markers.sh` PASS from a run no earlier than your last `Source/` edit, reviewer approval.
 - **Write the commit message from `git diff`, not from your plan.** Verify any "X now matches upstream" claim mechanically (`git diff <base> -- <file> | wc -l` — 0 or it isn't byte-identical). This is sharpest after a bisect, where re-applying hunks by hand silently drops the ones you forget.
-- Messages explain the root cause, in the style of the surrounding history. Use the session's `Co-Authored-By:` and `Claude-Session:` trailers.
+- Messages explain the root cause.
+- If the user explicitly asks you to ammend a previous commit, it is implied that he either has not pushed or intends to do a force push. Please do as asked.
 
 ## Environment notes
 
