@@ -78,7 +78,7 @@ Every kept divergence carries a `// MAVERICKS_BACKPORT:` comment explaining the 
 
 **Comment upstream code out, never delete it** — `//` for a line or two, `/* */` for a block — so upstream merges still see the original text. `check-backport-markers.sh` treats every pure-deletion hunk as a violation.
 
-- **Keep the gate passing.** Run `MavericksSupport/scripts/check-backport-markers.sh` **last**, after your final edit, and never report a result from an earlier run.
+- **Keep the gate passing.** Run `MavericksSupport/scripts/check-backport-markers.sh` after your last edit under `Source/`, and report that run. Only a `Source/` edit can change its verdict — the gate does not scan `MavericksSupport/`, and builds, installs and tests read source without changing it. A build finishing is not a reason to re-run it.
 - **Never edit the gate to make your own work pass.** Fix the tree. If a rule genuinely cannot be satisfied, bring the evidence to the user rather than changing the rule.
 - Common false positive: `git diff -U0` splits a divergence so the closing `#endif`/`}` lands in its own hunk. Put the marker **on the closer line** (`#endif // MAVERICKS_BACKPORT: closes the ENABLE(GPU_PROCESS) guard above.`).
 - **Never bulk-script deletion or relocation of marker comments.** A `//` after a `\` continuation splices into the `#if` expression; `#endif`/`#define`/`#include` lines are not comments. The checker is blind to all of it — only the build catches it.
@@ -136,7 +136,7 @@ When editing a file, also fix any pre-existing stale comment in the region you t
 ## Committing
 
 - **Commit every change once it is complete and verified** — don't leave it in the working tree. An uncommitted fix that only lives in the installed binary is a landmine. Commit the bulk removal as a checkpoint before fixing; commit each fix or fix-group; never hold a day of work uncommitted.
-- Preconditions: build green, `check-backport-markers.sh` PASS (run last), reviewer approval.
+- Preconditions: build green, `check-backport-markers.sh` PASS from a run no earlier than your last `Source/` edit, reviewer approval.
 - **Write the commit message from `git diff`, not from your plan.** Verify any "X now matches upstream" claim mechanically (`git diff <base> -- <file> | wc -l` — 0 or it isn't byte-identical). This is sharpest after a bisect, where re-applying hunks by hand silently drops the ones you forget.
 - Messages explain the root cause, in the style of the surrounding history. Use the session's `Co-Authored-By:` and `Claude-Session:` trailers.
 
