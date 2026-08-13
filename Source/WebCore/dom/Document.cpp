@@ -5867,6 +5867,18 @@ void Document::addPendingScrollEventTarget(ContainerNode& originalTarget, Scroll
         scheduleRenderingUpdate(RenderingUpdateStep::Scroll);
 
     targets.append({ target.get(), eventType });
+
+    // MAVERICKS_BACKPORT: Safari's reader page needs scroll events dispatched with the legacy
+    // engine's timing (a zero-delay task queued at scroll time) or ReaderJS aborts its own
+    // smooth-scroll animation — see Quirks::shouldDispatchPendingScrollEventsEagerly. The task
+    // runs runScrollSteps, which consumes the pending-target list, so the rendering-update
+    // dispatch does not repeat these events.
+    if (targets.size() == 1 && quirks().shouldDispatchPendingScrollEventsEagerly()) {
+        eventLoop().queueTask(TaskSource::UserInteraction, [weakThis = WeakPtr { *this }] {
+            if (RefPtr document = weakThis.get())
+                document->runScrollSteps();
+        });
+    }
 }
 
 void Document::setNeedsVisualViewportScrollEvent()
