@@ -9416,18 +9416,12 @@ void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process,
             // Disallows loading model files as the main resource for child frames. If desired in the future, we can remove this line and add required support to enable this behavior.
             if (!frame->isMainFrame() && MIMETypeRegistry::isSupportedModelMIMEType(navigationResponse->response().mimeType()))
                 return true;
-            // MAVERICKS_BACKPORT: inline PDF viewing is intentionally not
-            // supported on this port. Always download PDFs (canShowMIMEType is true
-            // for PDF on Mac, so without this they would be routed to a non-functional
-            // inline viewer and render blank). Real downloads via Safari's download UI.
-            if (policyAction == PolicyAction::Use && MIMETypeRegistry::isPDFMIMEType(navigationResponse->response().mimeType()))
-                return true;
-            // MAVERICKS_BACKPORT: likewise, a raw audio/video file downloads on this port rather than
-            // opening as a MediaDocument — a product decision, not a capability gap (the engine renders
-            // media documents fine; a subframe still gets one, which is why this is main-frame only).
-            // It belongs here beside the PDF decision rather than in MIMETypeRegistry::canShowMIMEType,
-            // whose answer also drives subframe loads, <object>/<embed> (which fall through to a
-            // subframe load with no plug-ins present) and WKPage/WKBundlePageCanShowMIMEType.
+            // MAVERICKS_BACKPORT: a raw audio/video file downloads on this port rather than opening as
+            // a MediaDocument — a product decision, not a capability gap (the engine renders media
+            // documents fine; a subframe still gets one, which is why this is main-frame only). It
+            // belongs here rather than in MIMETypeRegistry::canShowMIMEType, whose answer also drives
+            // subframe loads, <object>/<embed> (which fall through to a subframe load with no plug-ins
+            // present) and WKPage/WKBundlePageCanShowMIMEType.
             if (policyAction == PolicyAction::Use && frame->isMainFrame() && MIMETypeRegistry::isSupportedMediaMIMEType(navigationResponse->response().mimeType()))
                 return true;
             if (policyAction != PolicyAction::Use || process->lockdownMode() != WebProcessProxy::LockdownMode::Enabled)

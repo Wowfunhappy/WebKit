@@ -1356,6 +1356,11 @@ Ref<WebPageProxy> WebProcessPool::createWebPage(PageClient& pageClient, Ref<API:
     if (!pageConfiguration->pageGroup())
         pageConfiguration->setPageGroup(m_defaultPageGroup.copyRef());
 
+    // MAVERICKS_BACKPORT: the Network process reads the pool's single-WebProcess mode out of this
+    // preference and keeps a Cross-Origin-Opener-Policy response in its browsing context group when
+    // it is set. Upstream sets it in WKWebView and WebKitWebView; Safari 7 builds pages with the C API.
+    protect(pageConfiguration->preferences())->setUsesSingleWebProcess(usesSingleWebProcess());
+
     RefPtr<WebProcessProxy> process;
     auto lockdownMode = pageConfiguration->lockdownModeEnabled() ? WebProcessProxy::LockdownMode::Enabled : WebProcessProxy::LockdownMode::Disabled;
 
