@@ -3515,6 +3515,32 @@ WK_POLYFILL_SEL("setCornerCurve:", "wk_setCornerCurve:");
 WK_POLYFILL_SEL("setContentsFormat:", "wk_setContentsFormat:");
 
 // ---------------------------------------------------------------------------------------------------
+// -[CALayer usesWebKitBehavior] (10.13+) selects the compositor semantics WebKit is written against.
+// 10.9's CA has a single behavior set and no such mode, so the property is state a layer carries and
+// nothing more. The one axis of that mode 10.9 spells separately is sublayer depth sorting, whose
+// property it does have: PlatformCALayerCocoa::commonInit and RemoteLayerTreeHost send
+// -setSortsSublayers: inside the branch this selector gates, giving every layer but a CATransformLayer
+// painter's order. 10.9's default is to sort, which puts a composited layer whose 3D transform carries
+// it behind z=0 under its opaque siblings.
+static const char kWKUsesWebKitBehaviorKey;
+@interface CALayer (WKPolyfillUsesWebKitBehavior)
+- (void)wk_setUsesWebKitBehavior:(BOOL)usesWebKitBehavior;
+- (BOOL)wk_usesWebKitBehavior;
+@end
+@implementation CALayer (WKPolyfillUsesWebKitBehavior)
+- (void)wk_setUsesWebKitBehavior:(BOOL)usesWebKitBehavior
+{
+    objc_setAssociatedObject(self, &kWKUsesWebKitBehaviorKey, @(usesWebKitBehavior), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+- (BOOL)wk_usesWebKitBehavior
+{
+    return [objc_getAssociatedObject(self, &kWKUsesWebKitBehaviorKey) boolValue];
+}
+@end
+WK_POLYFILL_SEL("setUsesWebKitBehavior:", "wk_setUsesWebKitBehavior:");
+WK_POLYFILL_SEL("usesWebKitBehavior", "wk_usesWebKitBehavior");
+
+// ---------------------------------------------------------------------------------------------------
 // -[NSPopover showRelativeToRect:ofView:preferredEdge:] and the anchor window's first responder.
 //
 // 10.9's NSPopover, as part of presenting, runs -[NSWindow _makeParentWindowHaveFirstResponder:] and
