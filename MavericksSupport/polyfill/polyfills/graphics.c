@@ -907,19 +907,45 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptorAndOpt
 
 // The copy entry point, where the source's scale is the font's own and the size that can name a
 // new one is the attributes descriptor's. This is how WebCore realizes a font whose base is a
-// CTFont rather than a descriptor (UnrealizedCoreTextFont::realize).
+// CTFont rather than a descriptor (UnrealizedCoreTextFont::realize). A NULL matrix here means the
+// copy inherits the source font's, so the matrix recorded on the result is the source's recorded one.
 WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateCopyWithAttributes,
                      (CTFontRef font, CGFloat size, const CGAffineTransform *matrix, CTFontDescriptorRef attributes))
 {
-    const CGAffineTransform *requested = matrix;
     wk_font_request source;
     bool haveSource = wk_recordedFontRequest(font, &source);
+    const CGAffineTransform *requested = matrix ? matrix : (haveSource ? &source.matrix : NULL);
     CGAffineTransform composed;
     matrix = wk_fontMatrixForRequest(wk_fontScalesToNothing(font), attributes, size, matrix,
                                      haveSource ? &source.matrix : NULL, &composed);
     CTFontRef copy = WK_ORIGINAL(CTFontCreateCopyWithAttributes)
         ? WK_ORIGINAL(CTFontCreateCopyWithAttributes)(font, size, matrix, attributes) : NULL;
     return wk_recordFontRequest(copy, size, requested);
+}
+
+// The remaining boundaries a caller names a size and a matrix at. 10.9 realizes each of these exactly
+// as newer CoreText documents — a size of 0 takes the 12.0 default unconditionally, with no descriptor
+// to say otherwise — so the request only has to be recorded on the result, which is what makes a font
+// asked for with a scaled-to-nothing matrix report the pair its caller named.
+WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithName,
+                     (CFStringRef name, CGFloat size, const CGAffineTransform *matrix))
+{
+    return wk_recordFontRequest(WK_ORIGINAL(CTFontCreateWithName)
+        ? WK_ORIGINAL(CTFontCreateWithName)(name, size, matrix) : NULL, size, matrix);
+}
+
+WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithNameAndOptions,
+                     (CFStringRef name, CGFloat size, const CGAffineTransform *matrix, CFOptionFlags options))
+{
+    return wk_recordFontRequest(WK_ORIGINAL(CTFontCreateWithNameAndOptions)
+        ? WK_ORIGINAL(CTFontCreateWithNameAndOptions)(name, size, matrix, options) : NULL, size, matrix);
+}
+
+WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithGraphicsFont,
+                     (CGFontRef font, CGFloat size, const CGAffineTransform *matrix, CTFontDescriptorRef attributes))
+{
+    return wk_recordFontRequest(WK_ORIGINAL(CTFontCreateWithGraphicsFont)
+        ? WK_ORIGINAL(CTFontCreateWithGraphicsFont)(font, size, matrix, attributes) : NULL, size, matrix);
 }
 
 // CTFontDescriptorCopyAttribute answers the kCTFontCSSWeightAttribute / kCTFontCSSWidthAttribute
@@ -1002,38 +1028,33 @@ WK_POLYFILL_REPLACES("CoreText", CFTypeRef, CTFontDescriptorCopyAttribute,
 // ---------------------------------------------------------------------------------------------------
 // CSS font-feature-settings.
 //
-// WebCore describes each feature as the 10.10+ OpenType-tag dictionary, keyed by
-// kCTFontOpenTypeFeatureTag / kCTFontOpenTypeFeatureValue. 10.9's feature processor
-// (TFontFeatures::CopyNonDefaultFeatureSettings, reached from CTFontCreateWithFontDescriptor) reads only
-// the pre-10.10 AAT dictionary — kCTFontFeatureTypeIdentifierKey / kCTFontFeatureSelectorIdentifierKey,
-// both CFNumbers — and dereferences a NULL CFNumber when handed the OpenType form, which takes the
-// WebContent process down. Each tag is translated here to the AAT (feature type, on-selector,
-// off-selector) triple Apple's Font Feature Registry assigns it, so 10.9 applies the feature for real: a
-// CSS value of 0 selects the off selector, anything else the on selector. The two OpenType keys are this
-// layer's own tokens (constants.m), absent from 10.9's CoreText, so matching on them cannot collide with
-// a key the system defines. A tag with no entry in the AAT registry — character variants cvNN, and the
-// OpenType-only features outside the AAT model — has no 10.9 representation and is dropped.
+// 10.9's feature processor (TFontFeatures::CopyNonDefaultFeatureSettings, reached from
+// CTFontCreateWithFontDescriptor) reads exactly one element form: the pre-10.10 AAT dictionary, keyed by
+// kCTFontFeatureTypeIdentifierKey / kCTFontFeatureSelectorIdentifierKey, both CFNumbers. It sends every
+// element -objectForKey: and reads both numbers out of the answer, so any other form takes the process
+// down — an unrecognized selector on a non-dictionary, a NULL dereference on a dictionary holding half a
+// pair. 10.10 and later accept four more forms, which WebCore uses: the OpenType-tag dictionary keyed by
+// kCTFontOpenTypeFeatureTag / kCTFontOpenTypeFeatureValue, an array pair of an OpenType tag string and a
+// value number, an array pair of an AAT type and selector number, and a bare OpenType tag string. Every
+// one of them is reduced here to the AAT dictionary before 10.9 sees it.
+//
+// Each OpenType tag maps to the AAT (feature type, on-selector, off-selector) triple Apple's Font Feature
+// Registry assigns it, so 10.9 applies the feature for real: a value of 0 selects the off selector,
+// anything else the on selector. The two OpenType keys are this layer's own tokens (constants.m), absent
+// from 10.9's CoreText, so matching on them cannot collide with a key the system defines. A tag with no
+// entry in the AAT registry — character variants cvNN, and the OpenType-only features outside the AAT
+// model — has no 10.9 representation and is dropped.
 // ---------------------------------------------------------------------------------------------------
 extern const CFStringRef kCTFontOpenTypeFeatureTag;
 extern const CFStringRef kCTFontOpenTypeFeatureValue;
 
-// The AAT triple for an OpenType tag. Stylistic sets ss01..ss20 are computed: kStylisticAlternativesType
-// with on/off selectors running base + 2*(n-1). A few off-selectors are the registry's documented numeric
-// defaults, which SFNTLayoutTypes.h gives no named constant for (kCharacterShapeType 16, kTextSpacingType
-// 7, kNumberCaseType 2, kNumberSpacingType 4, kLetterCaseType 15).
-static bool wk_aatFeatureForOpenTypeTag(const char *tag, int *type, int *onSelector, int *offSelector)
-{
-    if (tag[0] == 's' && tag[1] == 's' && tag[2] >= '0' && tag[2] <= '9' && tag[3] >= '0' && tag[3] <= '9') {
-        int n = (tag[2] - '0') * 10 + (tag[3] - '0');
-        if (n >= 1 && n <= 20) {
-            *type = kStylisticAlternativesType;
-            *onSelector = kStylisticAltOneOnSelector + 2 * (n - 1);
-            *offSelector = kStylisticAltOneOffSelector + 2 * (n - 1);
-            return true;
-        }
-    }
-
-    static const struct { char tag[5]; int type; int on; int off; } mappings[] = {
+// Apple's Font Feature Registry, read in both directions: an OpenType tag names an AAT (feature type,
+// on-selector, off-selector) triple, and an AAT (type, selector) pair names the tag and the value that
+// select it. A few off-selectors are the registry's documented numeric defaults, which SFNTLayoutTypes.h
+// gives no named constant for (kCharacterShapeType 16, kTextSpacingType 7, kNumberCaseType 2,
+// kNumberSpacingType 4, kLetterCaseType 15). The table is in tag order, which is the order the reverse
+// reading resolves a pair several tags share.
+static const struct { char tag[5]; int type; int on; int off; } wk_aatFeatureMappings[] = {
         { "afrc", kFractionsType, kVerticalFractionsSelector, kNoFractionsSelector },
         { "c2pc", kUpperCaseType, kUpperCasePetiteCapsSelector, kDefaultUpperCaseSelector },
         { "c2sc", kUpperCaseType, kUpperCaseSmallCapsSelector, kDefaultUpperCaseSelector },
@@ -1090,119 +1111,512 @@ static bool wk_aatFeatureForOpenTypeTag(const char *tag, int *type, int *onSelec
         { "vrt2", kVerticalSubstitutionType, kSubstituteVerticalFormsOnSelector, kSubstituteVerticalFormsOffSelector },
         { "vrtr", kVerticalSubstitutionType, kSubstituteVerticalFormsOnSelector, kSubstituteVerticalFormsOffSelector },
         { "zero", kTypographicExtrasType, kSlashedZeroOnSelector, kSlashedZeroOffSelector },
-    };
-    for (size_t i = 0; i < sizeof(mappings) / sizeof(mappings[0]); i++) {
-        if (!memcmp(tag, mappings[i].tag, 4)) {
-            *type = mappings[i].type;
-            *onSelector = mappings[i].on;
-            *offSelector = mappings[i].off;
+};
+
+// The AAT triple for an OpenType tag. Stylistic sets ss01..ss20 are computed: kStylisticAlternativesType
+// with on/off selectors running base + 2*(n-1).
+static bool wk_aatFeatureForOpenTypeTag(const char *tag, int *type, int *onSelector, int *offSelector)
+{
+    if (tag[0] == 's' && tag[1] == 's' && tag[2] >= '0' && tag[2] <= '9' && tag[3] >= '0' && tag[3] <= '9') {
+        int n = (tag[2] - '0') * 10 + (tag[3] - '0');
+        if (n >= 1 && n <= 20) {
+            *type = kStylisticAlternativesType;
+            *onSelector = kStylisticAltOneOnSelector + 2 * (n - 1);
+            *offSelector = kStylisticAltOneOffSelector + 2 * (n - 1);
+            return true;
+        }
+    }
+
+    for (size_t i = 0; i < sizeof(wk_aatFeatureMappings) / sizeof(wk_aatFeatureMappings[0]); i++) {
+        if (!memcmp(tag, wk_aatFeatureMappings[i].tag, 4)) {
+            *type = wk_aatFeatureMappings[i].type;
+            *onSelector = wk_aatFeatureMappings[i].on;
+            *offSelector = wk_aatFeatureMappings[i].off;
             return true;
         }
     }
     return false;
 }
 
-typedef enum {
-    WK_FEATURE_NOT_OPENTYPE,      // an AAT dictionary already, or a form this does not describe
-    WK_FEATURE_TRANSLATED,
-    WK_FEATURE_NO_AAT_EQUIVALENT
-} wk_feature_translation;
-
-static wk_feature_translation wk_translateFeatureElement(CFTypeRef element, CFDictionaryRef *translated)
+// The OpenType tag an AAT (feature type, selector) pair belongs to, and the feature value that pair
+// selects: a selector names the first tag, in tag order, that turns its feature on, and failing that
+// the one tag it turns off. An exclusive type's numeric default is the off-selector of every tag in the
+// type — kTextSpacingType's 7 turns off fwid, halt, hwid, palt and six more — and so names none of them.
+static bool wk_openTypeTagForAATFeature(int type, int selector, char tag[5], int *value)
 {
-    *translated = NULL;
-    if (!element || CFGetTypeID(element) != CFDictionaryGetTypeID())
-        return WK_FEATURE_NOT_OPENTYPE;
-    CFTypeRef tagValue = CFDictionaryGetValue((CFDictionaryRef)element, kCTFontOpenTypeFeatureTag);
-    if (!tagValue || CFGetTypeID(tagValue) != CFStringGetTypeID())
-        return WK_FEATURE_NOT_OPENTYPE;
-    char tag[8] = { 0 };
-    if (!CFStringGetCString((CFStringRef)tagValue, tag, sizeof(tag), kCFStringEncodingASCII) || strlen(tag) != 4)
-        return WK_FEATURE_NO_AAT_EQUIVALENT;
+    if (type == kStylisticAlternativesType) {
+        int on = (selector - kStylisticAltOneOnSelector) / 2;
+        int off = (selector - kStylisticAltOneOffSelector) / 2;
+        int n = 0;
+        if (on >= 0 && on < 20 && selector == kStylisticAltOneOnSelector + 2 * on) {
+            n = on + 1;
+            *value = 1;
+        } else if (off >= 0 && off < 20 && selector == kStylisticAltOneOffSelector + 2 * off) {
+            n = off + 1;
+            *value = 0;
+        } else
+            return false;
+        tag[0] = 's'; tag[1] = 's'; tag[2] = (char)('0' + n / 10); tag[3] = (char)('0' + n % 10); tag[4] = 0;
+        return true;
+    }
 
-    int type = 0, onSelector = 0, offSelector = 0;
-    if (!wk_aatFeatureForOpenTypeTag(tag, &type, &onSelector, &offSelector))
-        return WK_FEATURE_NO_AAT_EQUIVALENT;
+    const char *turnsOn = NULL;
+    const char *turnsOff = NULL;
+    int turnsOffCount = 0;
+    for (size_t i = 0; i < sizeof(wk_aatFeatureMappings) / sizeof(wk_aatFeatureMappings[0]); i++) {
+        if (wk_aatFeatureMappings[i].type != type)
+            continue;
+        if (wk_aatFeatureMappings[i].on == selector && !turnsOn)
+            turnsOn = wk_aatFeatureMappings[i].tag;
+        if (wk_aatFeatureMappings[i].off == selector) {
+            turnsOff = wk_aatFeatureMappings[i].tag;
+            turnsOffCount++;
+        }
+    }
+    if (turnsOn) {
+        memcpy(tag, turnsOn, 5);
+        *value = 1;
+        return true;
+    }
+    if (turnsOffCount == 1) {
+        memcpy(tag, turnsOff, 5);
+        *value = 0;
+        return true;
+    }
+    return false;
+}
 
-    int value = 1;
-    CFTypeRef rawValue = CFDictionaryGetValue((CFDictionaryRef)element, kCTFontOpenTypeFeatureValue);
-    if (rawValue && CFGetTypeID(rawValue) == CFNumberGetTypeID())
-        CFNumberGetValue((CFNumberRef)rawValue, kCFNumberIntType, &value);
-    int selector = value ? onSelector : offSelector;
+typedef enum {
+    WK_FEATURE_AAT,               // the AAT dictionary 10.9's parser reads, carried through as it stands
+    WK_FEATURE_NORMALIZED,        // *normalized holds the AAT dictionary this element names
+    WK_FEATURE_CLEAR,             // *clearedType holds the AAT feature type this element clears
+    WK_FEATURE_NO_AAT_EQUIVALENT  // nothing 10.9 can be told, so the element is dropped
+} wk_feature_normalization;
 
+static bool wk_intFromNumber(CFTypeRef value, int *result)
+{
+    return value && CFGetTypeID(value) == CFNumberGetTypeID()
+        && CFNumberGetValue((CFNumberRef)value, kCFNumberIntType, result);
+}
+
+static bool wk_isNull(CFTypeRef value)
+{
+    return value && CFGetTypeID(value) == CFNullGetTypeID();
+}
+
+static CFDictionaryRef wk_aatFeatureDictionary(int type, int selector)
+{
     CFNumberRef typeNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &type);
     CFNumberRef selectorNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &selector);
     const void *keys[] = { kCTFontFeatureTypeIdentifierKey, kCTFontFeatureSelectorIdentifierKey };
     const void *values[] = { typeNumber, selectorNumber };
-    *translated = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 2,
-        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionaryRef result = (typeNumber && selectorNumber)
+        ? CFDictionaryCreate(kCFAllocatorDefault, keys, values, 2,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks) : NULL;
     if (typeNumber)
         CFRelease(typeNumber);
     if (selectorNumber)
         CFRelease(selectorNumber);
-    return *translated ? WK_FEATURE_TRANSLATED : WK_FEATURE_NO_AAT_EQUIVALENT;
+    return result;
 }
 
-// The feature-settings array with its OpenType-format elements translated, or NULL when it holds none —
-// every other element, and every other element form, is carried through unchanged.
-static CFArrayRef wk_featureSettingsTranslated(CFTypeRef settings)
+// The AAT (feature type, on-selector, off-selector) triple an OpenType tag names.
+static bool wk_aatFeatureForTagValue(CFTypeRef tagValue, int *type, int *onSelector, int *offSelector)
 {
-    if (!settings || CFGetTypeID(settings) != CFArrayGetTypeID())
+    char tag[8] = { 0 };
+    if (!tagValue || CFGetTypeID(tagValue) != CFStringGetTypeID()
+        || !CFStringGetCString((CFStringRef)tagValue, tag, sizeof(tag), kCFStringEncodingASCII)
+        || strlen(tag) != 4)
+        return false;
+    return wk_aatFeatureForOpenTypeTag(tag, type, onSelector, offSelector);
+}
+
+// The AAT dictionary an OpenType tag and value name, NULL for a tag the registry has no entry for.
+static CFDictionaryRef wk_aatDictionaryForOpenTypeTag(CFTypeRef tagValue, int value)
+{
+    int type = 0, onSelector = 0, offSelector = 0;
+    if (!wk_aatFeatureForTagValue(tagValue, &type, &onSelector, &offSelector))
         return NULL;
-    CFArrayRef array = (CFArrayRef)settings;
-    CFIndex count = CFArrayGetCount(array);
-    bool carriesOpenTypeElements = false;
-    for (CFIndex i = 0; i < count && !carriesOpenTypeElements; i++) {
-        CFDictionaryRef probe = NULL;
-        if (wk_translateFeatureElement(CFArrayGetValueAtIndex(array, i), &probe) != WK_FEATURE_NOT_OPENTYPE)
-            carriesOpenTypeElements = true;
-        if (probe)
-            CFRelease(probe);
-    }
-    if (!carriesOpenTypeElements)
+    return wk_aatFeatureDictionary(type, value ? onSelector : offSelector);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Reporting a font's features. From 10.10 each selector dictionary CTFontCopyFeatures returns carries
+// kCTFontOpenTypeFeatureTag and kCTFontOpenTypeFeatureValue alongside its AAT identifier, and that tag
+// is what WebCore reads: supportsOpenTypeFeature (FontCoreText.cpp) walks these selectors looking for
+// the tag it was asked about, which is how Font::supportsOpenTypeAlternateHalfWidths decides whether a
+// font has `halt` and so whether TextSpacing's half-width font exists. 10.9's selectors carry only
+// CTFeatureSelectorIdentifier, Name, NameID and Default — measured on this host, Hiragino Sans GB W3
+// reports feature type 22 selector 6 "Alternate Half Width" with no tag anywhere — so the registry
+// above supplies each pair's tag here.
+// ---------------------------------------------------------------------------------------------------
+
+// One selector dictionary with its OpenType tag and value, or NULL when the pair names no tag.
+static CFDictionaryRef wk_selectorWithOpenTypeTag(CFTypeRef selector, int featureType)
+{
+    int identifier = 0, value = 0;
+    char tag[5] = { 0 };
+    if (!selector || CFGetTypeID(selector) != CFDictionaryGetTypeID())
+        return NULL;
+    if (CFDictionaryGetValue((CFDictionaryRef)selector, kCTFontOpenTypeFeatureTag))
+        return NULL;
+    if (!wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)selector, kCTFontFeatureSelectorIdentifierKey), &identifier)
+        || !wk_openTypeTagForAATFeature(featureType, identifier, tag, &value))
         return NULL;
 
-    CFMutableArrayRef result = CFArrayCreateMutable(kCFAllocatorDefault, count, &kCFTypeArrayCallBacks);
-    if (!result)
+    CFMutableDictionaryRef result = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, (CFDictionaryRef)selector);
+    CFStringRef tagString = CFStringCreateWithCString(kCFAllocatorDefault, tag, kCFStringEncodingASCII);
+    CFNumberRef valueNumber = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &value);
+    if (result && tagString && valueNumber) {
+        CFDictionarySetValue(result, kCTFontOpenTypeFeatureTag, tagString);
+        CFDictionarySetValue(result, kCTFontOpenTypeFeatureValue, valueNumber);
+    } else if (result) {
+        CFRelease(result);
+        result = NULL;
+    }
+    if (tagString)
+        CFRelease(tagString);
+    if (valueNumber)
+        CFRelease(valueNumber);
+    return result;
+}
+
+// One feature type's dictionary with every selector of it tagged.
+static CFDictionaryRef wk_featureWithOpenTypeTags(CFTypeRef feature)
+{
+    int featureType = 0;
+    if (!feature || CFGetTypeID(feature) != CFDictionaryGetTypeID())
         return NULL;
+    if (!wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)feature, kCTFontFeatureTypeIdentifierKey), &featureType))
+        return NULL;
+    CFTypeRef selectors = CFDictionaryGetValue((CFDictionaryRef)feature, kCTFontFeatureTypeSelectorsKey);
+    if (!selectors || CFGetTypeID(selectors) != CFArrayGetTypeID())
+        return NULL;
+
+    CFIndex count = CFArrayGetCount((CFArrayRef)selectors);
+    CFMutableArrayRef tagged = CFArrayCreateMutable(kCFAllocatorDefault, count, &kCFTypeArrayCallBacks);
+    if (!tagged)
+        return NULL;
+    bool anyTagged = false;
+    for (CFIndex i = 0; i < count; i++) {
+        CFTypeRef selector = CFArrayGetValueAtIndex((CFArrayRef)selectors, i);
+        CFDictionaryRef withTag = wk_selectorWithOpenTypeTag(selector, featureType);
+        CFArrayAppendValue(tagged, withTag ? (CFTypeRef)withTag : selector);
+        if (withTag) {
+            CFRelease(withTag);
+            anyTagged = true;
+        }
+    }
+    CFMutableDictionaryRef result = anyTagged
+        ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, (CFDictionaryRef)feature) : NULL;
+    if (result)
+        CFDictionarySetValue(result, kCTFontFeatureTypeSelectorsKey, tagged);
+    CFRelease(tagged);
+    return result;
+}
+
+WK_POLYFILL_REPLACES("CoreText", CFArrayRef, CTFontCopyFeatures, (CTFontRef font))
+{
+    CFArrayRef features = WK_ORIGINAL(CTFontCopyFeatures) ? WK_ORIGINAL(CTFontCopyFeatures)(font) : NULL;
+    if (!features)
+        return NULL;
+    CFIndex count = CFArrayGetCount(features);
+    CFMutableArrayRef tagged = CFArrayCreateMutable(kCFAllocatorDefault, count, &kCFTypeArrayCallBacks);
+    if (!tagged)
+        return features;
+    for (CFIndex i = 0; i < count; i++) {
+        CFTypeRef feature = CFArrayGetValueAtIndex(features, i);
+        CFDictionaryRef withTags = wk_featureWithOpenTypeTags(feature);
+        CFArrayAppendValue(tagged, withTags ? (CFTypeRef)withTags : feature);
+        if (withTags)
+            CFRelease(withTags);
+    }
+    CFRelease(features);
+    return tagged;
+}
+
+// One feature-settings element, reduced to the AAT dictionary 10.9's parser reads. The forms newer
+// CoreText accepts are that dictionary, the OpenType dictionary, an array pair of an OpenType tag
+// string and a value number, an array pair of an AAT type and selector number, and a bare OpenType tag
+// string, which enables the feature. A kCFNull in place of the selector or the value is the 10.12 form
+// that clears the element's feature type from the descriptor being copied, and is reported as such.
+// What is left — a tag outside the AAT registry, a dictionary naming only half a pair — names no 10.9
+// feature and is dropped. Dropping is what keeps the process alive: 10.9 sends every element
+// -objectForKey: and reads both AAT numbers out of the answer, so a non-dictionary element raises an
+// unrecognized selector and a half-populated one dereferences NULL.
+static wk_feature_normalization wk_normalizeFeatureElement(CFTypeRef element, CFDictionaryRef *normalized,
+                                                           int *clearedType)
+{
+    *normalized = NULL;
+    *clearedType = 0;
+    if (!element)
+        return WK_FEATURE_NO_AAT_EQUIVALENT;
+    CFTypeID elementType = CFGetTypeID(element);
+    int onSelector = 0, offSelector = 0;
+
+    if (elementType == CFDictionaryGetTypeID()) {
+        CFDictionaryRef dictionary = (CFDictionaryRef)element;
+        int aatType = 0, aatSelector = 0;
+        bool namesType = wk_intFromNumber(CFDictionaryGetValue(dictionary, kCTFontFeatureTypeIdentifierKey), &aatType);
+        if (namesType && wk_isNull(CFDictionaryGetValue(dictionary, kCTFontFeatureSelectorIdentifierKey))) {
+            *clearedType = aatType;
+            return WK_FEATURE_CLEAR;
+        }
+        if (namesType
+            && wk_intFromNumber(CFDictionaryGetValue(dictionary, kCTFontFeatureSelectorIdentifierKey), &aatSelector))
+            return WK_FEATURE_AAT;
+        CFTypeRef tagValue = CFDictionaryGetValue(dictionary, kCTFontOpenTypeFeatureTag);
+        if (wk_isNull(CFDictionaryGetValue(dictionary, kCTFontOpenTypeFeatureValue))) {
+            if (!wk_aatFeatureForTagValue(tagValue, clearedType, &onSelector, &offSelector))
+                return WK_FEATURE_NO_AAT_EQUIVALENT;
+            return WK_FEATURE_CLEAR;
+        }
+        int value = 1;
+        if (!wk_intFromNumber(CFDictionaryGetValue(dictionary, kCTFontOpenTypeFeatureValue), &value))
+            value = 1;
+        *normalized = wk_aatDictionaryForOpenTypeTag(tagValue, value);
+        return *normalized ? WK_FEATURE_NORMALIZED : WK_FEATURE_NO_AAT_EQUIVALENT;
+    }
+
+    if (elementType == CFStringGetTypeID()) {
+        *normalized = wk_aatDictionaryForOpenTypeTag(element, 1);
+        return *normalized ? WK_FEATURE_NORMALIZED : WK_FEATURE_NO_AAT_EQUIVALENT;
+    }
+
+    if (elementType == CFArrayGetTypeID()) {
+        CFArrayRef pair = (CFArrayRef)element;
+        CFIndex count = CFArrayGetCount(pair);
+        if (count < 1)
+            return WK_FEATURE_NO_AAT_EQUIVALENT;
+        CFTypeRef first = CFArrayGetValueAtIndex(pair, 0);
+        CFTypeRef second = count > 1 ? CFArrayGetValueAtIndex(pair, 1) : NULL;
+        int aatType = 0, aatSelector = 0;
+        if (wk_intFromNumber(first, &aatType)) {
+            if (wk_isNull(second)) {
+                *clearedType = aatType;
+                return WK_FEATURE_CLEAR;
+            }
+            if (wk_intFromNumber(second, &aatSelector))
+                *normalized = wk_aatFeatureDictionary(aatType, aatSelector);
+        } else if (wk_isNull(second)) {
+            if (!wk_aatFeatureForTagValue(first, clearedType, &onSelector, &offSelector))
+                return WK_FEATURE_NO_AAT_EQUIVALENT;
+            return WK_FEATURE_CLEAR;
+        } else {
+            int value = 1;
+            if (second && !wk_intFromNumber(second, &value))
+                return WK_FEATURE_NO_AAT_EQUIVALENT;
+            *normalized = wk_aatDictionaryForOpenTypeTag(first, value);
+        }
+        return *normalized ? WK_FEATURE_NORMALIZED : WK_FEATURE_NO_AAT_EQUIVALENT;
+    }
+
+    return WK_FEATURE_NO_AAT_EQUIVALENT;
+}
+
+// The settings a feature-settings value names, as the AAT dictionaries 10.9's parser reads. A value that
+// is not an array names none of them; clear directives are not settings and are collected separately.
+static CFArrayRef wk_featureSettingsAsAAT(CFTypeRef settings)
+{
+    CFMutableArrayRef result = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+    if (!result || !settings || CFGetTypeID(settings) != CFArrayGetTypeID())
+        return result;
+    CFArrayRef array = (CFArrayRef)settings;
+    CFIndex count = CFArrayGetCount(array);
     for (CFIndex i = 0; i < count; i++) {
         CFTypeRef element = CFArrayGetValueAtIndex(array, i);
         CFDictionaryRef aat = NULL;
-        switch (wk_translateFeatureElement(element, &aat)) {
-        case WK_FEATURE_TRANSLATED:
+        int clearedType = 0;
+        switch (wk_normalizeFeatureElement(element, &aat, &clearedType)) {
+        case WK_FEATURE_AAT:
+            CFArrayAppendValue(result, element);
+            break;
+        case WK_FEATURE_NORMALIZED:
             CFArrayAppendValue(result, aat);
             CFRelease(aat);
             break;
+        case WK_FEATURE_CLEAR:
         case WK_FEATURE_NO_AAT_EQUIVALENT:
-            break;
-        case WK_FEATURE_NOT_OPENTYPE:
-            CFArrayAppendValue(result, element);
             break;
         }
     }
     return result;
 }
 
-// The attributes dictionary with its feature settings translated, or NULL when nothing needed it.
-static CFDictionaryRef wk_attributesWithTranslatedFeatures(CFDictionaryRef attributes)
+// The same value, or NULL when every element already is an AAT dictionary and 10.9 can read it as it
+// stands. The one shape besides an all-AAT array that 10.9's parser reads is the empty array.
+static CFArrayRef wk_featureSettingsNormalized(CFTypeRef settings)
+{
+    if (!settings)
+        return NULL;
+    if (CFGetTypeID(settings) == CFArrayGetTypeID()) {
+        CFArrayRef array = (CFArrayRef)settings;
+        CFIndex count = CFArrayGetCount(array);
+        bool needsNormalizing = false;
+        for (CFIndex i = 0; i < count && !needsNormalizing; i++) {
+            CFDictionaryRef probe = NULL;
+            int clearedType = 0;
+            if (wk_normalizeFeatureElement(CFArrayGetValueAtIndex(array, i), &probe, &clearedType) != WK_FEATURE_AAT)
+                needsNormalizing = true;
+            if (probe)
+                CFRelease(probe);
+        }
+        if (!needsNormalizing)
+            return NULL;
+    }
+    return wk_featureSettingsAsAAT(settings);
+}
+
+// The attributes dictionary with its feature settings normalized, or NULL when nothing needed it.
+static CFDictionaryRef wk_attributesWithNormalizedFeatures(CFDictionaryRef attributes)
 {
     if (!attributes || CFGetTypeID(attributes) != CFDictionaryGetTypeID())
         return NULL;
-    CFArrayRef translated = wk_featureSettingsTranslated(CFDictionaryGetValue(attributes, kCTFontFeatureSettingsAttribute));
-    if (!translated)
+    CFArrayRef normalized = wk_featureSettingsNormalized(CFDictionaryGetValue(attributes, kCTFontFeatureSettingsAttribute));
+    if (!normalized)
         return NULL;
     CFMutableDictionaryRef result = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, attributes);
     if (result)
-        CFDictionarySetValue(result, kCTFontFeatureSettingsAttribute, translated);
-    CFRelease(translated);
+        CFDictionarySetValue(result, kCTFontFeatureSettingsAttribute, normalized);
+    CFRelease(normalized);
     return result;
 }
 
-// The two entry points a descriptor's attributes reach CoreText through. Anything without OpenType-format
-// feature settings is passed to 10.9's own implementation exactly as given.
+// ---------------------------------------------------------------------------------------------------
+// Clearing a descriptor's feature settings. CTFontDescriptorCreateCopyWithAttributes MERGES the feature
+// settings it is given onto the original's — 10.9 and newer CoreText alike — and from 10.12 a caller
+// subtracts instead: kCFNull for the whole kCTFontFeatureSettingsAttribute value clears every setting
+// the original holds, and a kCFNull selector or value in one element clears that element's feature type
+// alone. 10.9 has no subtracting form, so the merged result is assembled here and realized through
+// CTFontDescriptorCreateWithAttributes, which takes the settings as stated rather than merging them.
+// ---------------------------------------------------------------------------------------------------
+
+static bool wk_arrayHoldsInt(CFArrayRef array, int wanted)
+{
+    CFIndex count = array ? CFArrayGetCount(array) : 0;
+    for (CFIndex i = 0; i < count; i++) {
+        int held = 0;
+        if (wk_intFromNumber(CFArrayGetValueAtIndex(array, i), &held) && held == wanted)
+            return true;
+    }
+    return false;
+}
+
+// The AAT feature types an attributes dictionary's clear directives name, and whether it clears them all.
+static CFArrayRef wk_featureSettingClears(CFDictionaryRef attributes, bool *clearsAll)
+{
+    *clearsAll = false;
+    if (!attributes || CFGetTypeID(attributes) != CFDictionaryGetTypeID())
+        return NULL;
+    CFTypeRef settings = CFDictionaryGetValue(attributes, kCTFontFeatureSettingsAttribute);
+    if (!settings)
+        return NULL;
+    if (wk_isNull(settings)) {
+        *clearsAll = true;
+        return NULL;
+    }
+    if (CFGetTypeID(settings) != CFArrayGetTypeID())
+        return NULL;
+
+    CFMutableArrayRef types = NULL;
+    CFIndex count = CFArrayGetCount((CFArrayRef)settings);
+    for (CFIndex i = 0; i < count; i++) {
+        CFDictionaryRef normalized = NULL;
+        int clearedType = 0;
+        if (wk_normalizeFeatureElement(CFArrayGetValueAtIndex((CFArrayRef)settings, i), &normalized, &clearedType)
+            == WK_FEATURE_CLEAR) {
+            CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &clearedType);
+            if (!types)
+                types = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+            if (types && number)
+                CFArrayAppendValue(types, number);
+            if (number)
+                CFRelease(number);
+        }
+        if (normalized)
+            CFRelease(normalized);
+    }
+    return types;
+}
+
+// A settings array with every entry naming one of the cleared feature types removed.
+static CFArrayRef wk_featureSettingsWithoutTypes(CFTypeRef settings, CFArrayRef clearedTypes)
+{
+    CFMutableArrayRef kept = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+    if (!kept || !settings || CFGetTypeID(settings) != CFArrayGetTypeID())
+        return kept;
+    CFIndex count = CFArrayGetCount((CFArrayRef)settings);
+    for (CFIndex i = 0; i < count; i++) {
+        CFTypeRef element = CFArrayGetValueAtIndex((CFArrayRef)settings, i);
+        int type = 0;
+        if (element && CFGetTypeID(element) == CFDictionaryGetTypeID()
+            && wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)element, kCTFontFeatureTypeIdentifierKey), &type)
+            && wk_arrayHoldsInt(clearedTypes, type))
+            continue;
+        CFArrayAppendValue(kept, element);
+    }
+    return kept;
+}
+
+// A copy replaces every attribute it is given except the two it merges — the feature settings above and
+// the variation axes here, which merge per axis with the new dictionary's entries winning.
+static void wk_copyAttributeUnlessMerged(const void *key, const void *value, void *result)
+{
+    if (key && !CFEqual(key, kCTFontFeatureSettingsAttribute) && !CFEqual(key, kCTFontVariationAttribute))
+        CFDictionarySetValue((CFMutableDictionaryRef)result, key, value);
+}
+
+static void wk_setVariationAxis(const void *key, const void *value, void *axes)
+{
+    CFDictionarySetValue((CFMutableDictionaryRef)axes, key, value);
+}
+
+static void wk_mergeVariationAxes(CFMutableDictionaryRef merged, CFDictionaryRef attributes)
+{
+    CFTypeRef added = CFDictionaryGetValue(attributes, kCTFontVariationAttribute);
+    if (!added || CFGetTypeID(added) != CFDictionaryGetTypeID())
+        return;
+    CFTypeRef base = CFDictionaryGetValue(merged, kCTFontVariationAttribute);
+    CFMutableDictionaryRef axes = base && CFGetTypeID(base) == CFDictionaryGetTypeID()
+        ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, (CFDictionaryRef)base)
+        : CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    if (!axes)
+        return;
+    CFDictionaryApplyFunction((CFDictionaryRef)added, wk_setVariationAxis, axes);
+    CFDictionarySetValue(merged, kCTFontVariationAttribute, axes);
+    CFRelease(axes);
+}
+
+static void wk_copyFeatureSettingsUnlessCleared(CFMutableDictionaryRef merged, CFDictionaryRef attributes,
+                                                bool clearsAll, CFArrayRef clearedTypes)
+{
+    CFArrayRef kept = clearsAll ? NULL
+        : wk_featureSettingsWithoutTypes(CFDictionaryGetValue(merged, kCTFontFeatureSettingsAttribute), clearedTypes);
+    CFArrayRef added = wk_featureSettingsAsAAT(CFDictionaryGetValue(attributes, kCTFontFeatureSettingsAttribute));
+    CFMutableArrayRef settings = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+    if (settings) {
+        if (kept)
+            CFArrayAppendArray(settings, kept, CFRangeMake(0, CFArrayGetCount(kept)));
+        if (added)
+            CFArrayAppendArray(settings, added, CFRangeMake(0, CFArrayGetCount(added)));
+        if (CFArrayGetCount(settings))
+            CFDictionarySetValue(merged, kCTFontFeatureSettingsAttribute, settings);
+        else
+            CFDictionaryRemoveValue(merged, kCTFontFeatureSettingsAttribute);
+        CFRelease(settings);
+    }
+    if (kept)
+        CFRelease(kept);
+    if (added)
+        CFRelease(added);
+}
+
+// The three entry points a caller-supplied attributes dictionary reaches CoreText through. Attributes
+// whose feature settings are already the AAT dictionary form are passed to 10.9's own implementation
+// exactly as given.
 WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateWithAttributes, (CFDictionaryRef attributes))
 {
-    CFDictionaryRef rewritten = wk_attributesWithTranslatedFeatures(attributes);
+    CFDictionaryRef rewritten = wk_attributesWithNormalizedFeatures(attributes);
     CTFontDescriptorRef result = WK_ORIGINAL(CTFontDescriptorCreateWithAttributes)
         ? WK_ORIGINAL(CTFontDescriptorCreateWithAttributes)(rewritten ? rewritten : attributes) : NULL;
     if (rewritten)
@@ -1210,10 +1624,49 @@ WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateWith
     return result;
 }
 
+// CTFontDescriptorOptions is CoreText SPI (PAL/pal/spi/cf/CoreTextSPI.h), a uint32_t option set.
+WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateWithAttributesAndOptions,
+                     (CFDictionaryRef attributes, uint32_t options))
+{
+    CFDictionaryRef rewritten = wk_attributesWithNormalizedFeatures(attributes);
+    CTFontDescriptorRef result = WK_ORIGINAL(CTFontDescriptorCreateWithAttributesAndOptions)
+        ? WK_ORIGINAL(CTFontDescriptorCreateWithAttributesAndOptions)(rewritten ? rewritten : attributes, options) : NULL;
+    if (rewritten)
+        CFRelease(rewritten);
+    return result;
+}
+
+// The copy entry point is the one that merges, so it is the one a clear directive subtracts from: with
+// one present the merged attributes are assembled here and realized as a whole descriptor. The two
+// entry points above have no original to subtract from, so a directive there leaves nothing behind.
 WK_POLYFILL_REPLACES("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateCopyWithAttributes,
                      (CTFontDescriptorRef original, CFDictionaryRef attributes))
 {
-    CFDictionaryRef rewritten = wk_attributesWithTranslatedFeatures(attributes);
+    bool clearsAll = false;
+    CFArrayRef clearedTypes = wk_featureSettingClears(attributes, &clearsAll);
+    CFMutableDictionaryRef merged = NULL;
+    if (original && (clearsAll || clearedTypes)) {
+        CFDictionaryRef originalAttributes = CTFontDescriptorCopyAttributes(original);
+        merged = originalAttributes
+            ? CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, originalAttributes) : NULL;
+        if (originalAttributes)
+            CFRelease(originalAttributes);
+    }
+    if (merged) {
+        wk_copyFeatureSettingsUnlessCleared(merged, attributes, clearsAll, clearedTypes);
+        wk_mergeVariationAxes(merged, attributes);
+        CFDictionaryApplyFunction(attributes, wk_copyAttributeUnlessMerged, merged);
+    }
+    if (clearedTypes)
+        CFRelease(clearedTypes);
+    if (merged) {
+        CTFontDescriptorRef result = WK_ORIGINAL(CTFontDescriptorCreateWithAttributes)
+            ? WK_ORIGINAL(CTFontDescriptorCreateWithAttributes)(merged) : NULL;
+        CFRelease(merged);
+        return result;
+    }
+
+    CFDictionaryRef rewritten = wk_attributesWithNormalizedFeatures(attributes);
     CTFontDescriptorRef result = WK_ORIGINAL(CTFontDescriptorCreateCopyWithAttributes)
         ? WK_ORIGINAL(CTFontDescriptorCreateCopyWithAttributes)(original, rewritten ? rewritten : attributes) : NULL;
     if (rewritten)
@@ -1350,8 +1803,6 @@ WK_POLYFILL_ABSENT("CoreGraphics", CGColorRef, CGColorCreateSRGB, (CGFloat r, CG
 // CoreText — text rendering hits these live; where 10.9 ships an equivalent, the body calls through to it.
 // ---------------------------------------------------------------------------------------------------
 
-// Color-glyph coverage bit vectors (color emoji / feature coverage). 10.9 lacks both; callers guard
-// the null return (FontCoreText only proceeds "if (bitVector)").
 // CTFontManagerRegisterFontURLs (10.15) is the block-callback replacement for
 // CTFontManagerRegisterFontsForURLs, which 10.9 HAS (nm-verified, alongside the singular
 // _CTFontManagerRegisterFontsForURL). The modern spelling is a strict superset: same URLs, same
@@ -1425,32 +1876,440 @@ WK_POLYFILL_ABSENT("CoreText", void, CTFontManagerRegisterFontURLs,
         CFRelease(errors);
 }
 
-WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyColorGlyphCoverage, (CTFontRef font))
+// ---------------------------------------------------------------------------------------------------
+// Which of a font's glyphs a colour format or a font feature covers, one bit per glyph index. Both
+// answers live in the font's own tables, which 10.9 hands out through CTFontCopyTable.
+//
+// CTFontCopyGlyphCoverageForFeature (10.13+) answers the feature question. The OpenType feature
+// dictionary is answered from GSUB, and the AAT type/selector dictionary from the metamorphosis tables,
+// morx or its pre-extended form mort. The two are separate answers to separate questions, which is why
+// WebCore asks both and unions the results (Font::supportsSmallCaps and its three siblings,
+// FontCoreText.cpp).
+//
+// A glyph is covered when a lookup the feature names can act on it: for GSUB, when it is in the input
+// coverage of one of the feature's lookups; for a noncontextual metamorphosis subtable, when the
+// subtable substitutes something else for it; for the state-machine subtables, when the subtable's
+// class table gives it a class of its own rather than one of the four reserved ones.
+// ---------------------------------------------------------------------------------------------------
+
+// A font table read through bounds-checked accessors: a length-of-record or offset the font gets wrong
+// reads as zero rather than off the end of the mapping.
+typedef struct {
+    const uint8_t *bytes;
+    uint32_t length;
+} wk_font_table;
+
+static bool wk_tableHas(wk_font_table table, uint32_t offset, uint32_t size)
 {
-    (void)font;
-    return NULL;
+    return offset <= table.length && size <= table.length - offset;
 }
 
-// CTFontCopyGlyphCoverageForFeature (10.13+) answers WHICH GLYPHS a given font feature acts on. 10.9
-// exposes no equivalent: CTFontCopyFeatures lists a font's features but never their per-glyph coverage,
-// and recovering that would mean parsing the font's own GSUB/morx lookup and coverage tables.
-//
-// So the honest answer is an EMPTY coverage set — "this OS cannot report any covered glyph" — and the
-// important part is that it is a real, valid CFBitVector rather than NULL: upstream's
-// unionBitVectors() hands the result straight to CFBitVectorGetCount() with no null check, so NULL
-// crashes there. An empty vector makes that call answer 0 and the union contribute nothing.
-//
-// Consequence, stated plainly: Font::supportsSmallCaps() sees no covered glyphs and answers NO, so
-// WebKit synthesizes small capitals instead of using a font's own small-cap glyphs. That is a real
-// degradation, it is what this port already did, and it is confined to appearance.
-//
-// Note the contrast with CTFontCopyColorGlyphCoverage just above, which legitimately returns NULL:
-// upstream null-checks THAT one at its call site (FontCoreText.cpp wraps it in `if (RetainPtr ...)`),
-// so NULL is a value upstream expects there.
+static uint16_t wk_tableU16(wk_font_table table, uint32_t offset)
+{
+    return wk_tableHas(table, offset, 2) ? wk_be16(table.bytes + offset) : 0;
+}
+
+static uint32_t wk_tableU32(wk_font_table table, uint32_t offset)
+{
+    return wk_tableHas(table, offset, 4) ? wk_be32(table.bytes + offset) : 0;
+}
+
+static void wk_markGlyph(CFMutableBitVectorRef coverage, uint32_t glyph)
+{
+    if (glyph < (uint32_t)CFBitVectorGetCount(coverage))
+        CFBitVectorSetBitAtIndex(coverage, (CFIndex)glyph, 1);
+}
+
+// An OpenType Coverage table: format 1 lists the glyphs, format 2 lists first/last ranges.
+static void wk_markCoverageTable(wk_font_table gsub, uint32_t offset, CFMutableBitVectorRef coverage)
+{
+    uint16_t format = wk_tableU16(gsub, offset);
+    uint32_t count = wk_tableU16(gsub, offset + 2);
+    if (format == 1) {
+        if (!wk_tableHas(gsub, offset + 4, count * 2))
+            return;
+        for (uint32_t i = 0; i < count; i++)
+            wk_markGlyph(coverage, wk_be16(gsub.bytes + offset + 4 + i * 2));
+    } else if (format == 2) {
+        if (!wk_tableHas(gsub, offset + 4, count * 6))
+            return;
+        for (uint32_t i = 0; i < count; i++) {
+            const uint8_t *record = gsub.bytes + offset + 4 + i * 6;
+            for (uint32_t glyph = wk_be16(record); glyph <= wk_be16(record + 2); glyph++)
+                wk_markGlyph(coverage, glyph);
+        }
+    }
+}
+
+static void wk_markCoverageAt(wk_font_table gsub, uint32_t base, uint32_t offset, CFMutableBitVectorRef coverage)
+{
+    if (offset)
+        wk_markCoverageTable(gsub, base + offset, coverage);
+}
+
+// One GSUB lookup subtable's input coverage. The single, multiple, alternate, ligature and reverse
+// chaining substitution formats all name theirs at offset 2, as do formats 1 and 2 of the context and
+// chaining-context types, which cover the first glyph of every rule they hold. Format 3 of those two
+// names one coverage per input position instead, and an extension subtable names the real subtable and
+// its type at a 32-bit offset.
+static void wk_markGSUBSubtable(wk_font_table gsub, uint16_t lookupType, uint32_t subtable,
+                                CFMutableBitVectorRef coverage, int extensionsLeft)
+{
+    uint16_t format = wk_tableU16(gsub, subtable);
+    if (lookupType == 7) {
+        if (extensionsLeft > 0 && format == 1)
+            wk_markGSUBSubtable(gsub, wk_tableU16(gsub, subtable + 2), subtable + wk_tableU32(gsub, subtable + 4),
+                                coverage, extensionsLeft - 1);
+        return;
+    }
+    if (lookupType == 5 && format == 3) {
+        uint32_t inputCount = wk_tableU16(gsub, subtable + 2);
+        for (uint32_t i = 0; i < inputCount; i++)
+            wk_markCoverageAt(gsub, subtable, wk_tableU16(gsub, subtable + 6 + i * 2), coverage);
+        return;
+    }
+    if (lookupType == 6 && format == 3) {
+        uint32_t cursor = subtable + 2 + 2 * (uint32_t)wk_tableU16(gsub, subtable + 2);
+        uint32_t inputCount = wk_tableU16(gsub, cursor + 2);
+        for (uint32_t i = 0; i < inputCount; i++)
+            wk_markCoverageAt(gsub, subtable, wk_tableU16(gsub, cursor + 4 + i * 2), coverage);
+        return;
+    }
+    wk_markCoverageAt(gsub, subtable, wk_tableU16(gsub, subtable + 2), coverage);
+}
+
+static void wk_markGSUBLookups(wk_font_table gsub, uint32_t feature, uint32_t lookupList,
+                               CFMutableBitVectorRef coverage)
+{
+    uint32_t lookupCount = wk_tableU16(gsub, feature + 2);
+    uint32_t listCount = wk_tableU16(gsub, lookupList);
+    for (uint32_t i = 0; i < lookupCount; i++) {
+        uint32_t index = wk_tableU16(gsub, feature + 4 + i * 2);
+        if (index >= listCount)
+            continue;
+        uint32_t lookup = lookupList + wk_tableU16(gsub, lookupList + 2 + index * 2);
+        uint16_t lookupType = wk_tableU16(gsub, lookup);
+        uint32_t subtableCount = wk_tableU16(gsub, lookup + 4);
+        for (uint32_t s = 0; s < subtableCount; s++)
+            wk_markGSUBSubtable(gsub, lookupType, lookup + wk_tableU16(gsub, lookup + 6 + s * 2), coverage, 1);
+    }
+}
+
+// GSUB names each feature once in its FeatureList; the scripts and language systems only index into
+// that list, so every record carrying the tag is the feature, whatever writing system reaches it.
+static void wk_markOpenTypeFeatureCoverage(CTFontRef font, const char *tag, CFMutableBitVectorRef coverage)
+{
+    CFDataRef data = CTFontCopyTable(font, kCTFontTableGSUB, kCTFontTableOptionNoOptions);
+    if (!data)
+        return;
+    wk_font_table gsub = { CFDataGetBytePtr(data), CFDataGetBytePtr(data) ? (uint32_t)CFDataGetLength(data) : 0 };
+    if (gsub.bytes) {
+        uint32_t wanted = ((uint32_t)(uint8_t)tag[0] << 24) | ((uint32_t)(uint8_t)tag[1] << 16)
+                        | ((uint32_t)(uint8_t)tag[2] << 8) | (uint8_t)tag[3];
+        uint32_t featureList = wk_tableU16(gsub, 6);
+        uint32_t lookupList = wk_tableU16(gsub, 8);
+        uint32_t featureCount = wk_tableU16(gsub, featureList);
+        for (uint32_t i = 0; i < featureCount; i++) {
+            uint32_t record = featureList + 2 + i * 6;
+            if (wk_tableU32(gsub, record) == wanted)
+                wk_markGSUBLookups(gsub, featureList + wk_tableU16(gsub, record + 4), lookupList, coverage);
+        }
+    }
+    CFRelease(data);
+}
+
+static uint64_t wk_beN(const uint8_t *bytes, uint32_t size)
+{
+    uint64_t value = 0;
+    for (uint32_t i = 0; i < size; i++)
+        value = (value << 8) | bytes[i];
+    return value;
+}
+
+// An AAT lookup table, in each of the six formats Apple's Lookup Tables document defines, visited entry
+// by entry. The value an entry carries is the substitute glyph in a noncontextual subtable and the
+// glyph class in a state table's class table.
+typedef void (*wk_aat_lookup_visitor)(uint32_t glyph, uint64_t value, CFMutableBitVectorRef coverage);
+
+static void wk_walkAATLookup(wk_font_table table, uint32_t offset, uint32_t glyphCount,
+                             wk_aat_lookup_visitor visit, CFMutableBitVectorRef coverage)
+{
+    // The binary-search header formats 2, 4 and 6 share: unit size, unit count, and three search hints.
+    uint32_t unitCount = wk_tableU16(table, offset + 4);
+    uint32_t units = offset + 12;
+
+    switch (wk_tableU16(table, offset)) {
+    case 0:
+        for (uint32_t glyph = 0; glyph < glyphCount && wk_tableHas(table, offset + 2 + glyph * 2, 2); glyph++)
+            visit(glyph, wk_be16(table.bytes + offset + 2 + glyph * 2), coverage);
+        break;
+    case 2:
+        for (uint32_t i = 0; i < unitCount && wk_tableHas(table, units + i * 6, 6); i++) {
+            const uint8_t *unit = table.bytes + units + i * 6;
+            uint32_t last = wk_be16(unit), value = wk_be16(unit + 4);
+            for (uint32_t glyph = wk_be16(unit + 2); glyph <= last; glyph++)
+                visit(glyph, value, coverage);
+        }
+        break;
+    case 4:
+        for (uint32_t i = 0; i < unitCount && wk_tableHas(table, units + i * 6, 6); i++) {
+            const uint8_t *unit = table.bytes + units + i * 6;
+            uint32_t last = wk_be16(unit), first = wk_be16(unit + 2);
+            uint32_t values = offset + wk_be16(unit + 4);
+            for (uint32_t glyph = first; glyph <= last; glyph++) {
+                uint32_t at = values + (glyph - first) * 2;
+                if (!wk_tableHas(table, at, 2))
+                    break;
+                visit(glyph, wk_be16(table.bytes + at), coverage);
+            }
+        }
+        break;
+    case 6:
+        for (uint32_t i = 0; i < unitCount && wk_tableHas(table, units + i * 4, 4); i++) {
+            const uint8_t *unit = table.bytes + units + i * 4;
+            visit(wk_be16(unit), wk_be16(unit + 2), coverage);
+        }
+        break;
+    case 8: {
+        uint32_t first = wk_tableU16(table, offset + 2);
+        uint32_t count = wk_tableU16(table, offset + 4);
+        for (uint32_t i = 0; i < count && wk_tableHas(table, offset + 6 + i * 2, 2); i++)
+            visit(first + i, wk_be16(table.bytes + offset + 6 + i * 2), coverage);
+        break;
+    }
+    case 10: {
+        // A trimmed array whose entries are one, two, four or eight bytes wide.
+        uint32_t unitSize = wk_tableU16(table, offset + 2);
+        uint32_t first = wk_tableU16(table, offset + 4);
+        uint32_t count = wk_tableU16(table, offset + 6);
+        if (unitSize != 1 && unitSize != 2 && unitSize != 4 && unitSize != 8)
+            break;
+        for (uint32_t i = 0; i < count && wk_tableHas(table, offset + 8 + i * unitSize, unitSize); i++)
+            visit(first + i, wk_beN(table.bytes + offset + 8 + i * unitSize, unitSize), coverage);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+static void wk_markSubstitutedGlyph(uint32_t glyph, uint64_t value, CFMutableBitVectorRef coverage)
+{
+    if (value && value != glyph)
+        wk_markGlyph(coverage, glyph);
+}
+
+// Classes 0 through 3 are the reserved end-of-text, out-of-bounds, deleted-glyph and end-of-line ones,
+// which every glyph the state machine does not name falls into.
+static void wk_markClassifiedGlyph(uint32_t glyph, uint64_t value, CFMutableBitVectorRef coverage)
+{
+    if (value >= 4)
+        wk_markGlyph(coverage, glyph);
+}
+
+// The glyphs one metamorphosis subtable acts on. Type 4 is the noncontextual substitution, whose whole
+// body is an AAT lookup from glyph to substitute; types 0, 1, 2 and 5 — rearrangement, contextual,
+// ligature and insertion — are state machines whose header names the class table that decides which
+// glyphs the machine can see. morx carries the extended state header, with 32-bit offsets and an AAT
+// lookup for the class table; mort carries the original, with 16-bit offsets and a trimmed byte array.
+static void wk_markMetamorphosisSubtable(wk_font_table table, uint32_t body, uint32_t type, bool extended,
+                                         uint32_t glyphCount, CFMutableBitVectorRef coverage)
+{
+    if (type == 4) {
+        wk_walkAATLookup(table, body, glyphCount, wk_markSubstitutedGlyph, coverage);
+        return;
+    }
+    if (type != 0 && type != 1 && type != 2 && type != 5)
+        return;
+    if (extended) {
+        wk_walkAATLookup(table, body + wk_tableU32(table, body + 4), glyphCount, wk_markClassifiedGlyph, coverage);
+        return;
+    }
+    uint32_t classTable = body + wk_tableU16(table, body + 2);
+    uint32_t first = wk_tableU16(table, classTable);
+    uint32_t count = wk_tableU16(table, classTable + 2);
+    for (uint32_t i = 0; i < count && wk_tableHas(table, classTable + 4 + i, 1); i++)
+        wk_markClassifiedGlyph(first + i, table.bytes[classTable + 4 + i], coverage);
+}
+
+// One metamorphosis chain. A chain applies a feature entry as `flags = (flags & disableFlags) |
+// enableFlags`, so an AAT type/selector pair selects every subtable whose flag it sets, and in addition
+// turns off every subtable whose flag it clears and the chain's default flags had set. A selector can
+// set nothing at all: Didot's lining-figures setting only clears the old-style flag its chain defaults
+// carry, so the glyphs it acts on are that subtable's. Clearing a flag the defaults do not carry changes
+// nothing, and names no glyph.
+static void wk_markMetamorphosisChain(wk_font_table table, uint32_t chain, uint32_t featureCount,
+                                      uint32_t subtableCount, uint32_t chainHeader, uint32_t subtableHeader,
+                                      bool extended, int featureType, int featureSelector,
+                                      uint32_t glyphCount, CFMutableBitVectorRef coverage)
+{
+    uint32_t enableFlags = 0, clearedFlags = 0;
+    bool names = false;
+    uint32_t entries = chain + chainHeader;
+    for (uint32_t i = 0; i < featureCount && wk_tableHas(table, entries + i * 12, 12); i++) {
+        const uint8_t *entry = table.bytes + entries + i * 12;
+        if (wk_be16(entry) == (uint16_t)featureType && wk_be16(entry + 2) == (uint16_t)featureSelector) {
+            enableFlags |= wk_be32(entry + 4);
+            clearedFlags |= ~wk_be32(entry + 8);
+            names = true;
+        }
+    }
+    if (!names)
+        return;
+    uint32_t affectedFlags = enableFlags | (clearedFlags & wk_tableU32(table, chain));
+
+    uint32_t subtable = entries + featureCount * 12;
+    for (uint32_t i = 0; i < subtableCount && wk_tableHas(table, subtable, subtableHeader); i++) {
+        uint32_t length = extended ? wk_tableU32(table, subtable) : wk_tableU16(table, subtable);
+        uint32_t flags = extended ? wk_tableU32(table, subtable + 8) : wk_tableU32(table, subtable + 4);
+        uint32_t type = extended ? (wk_tableU32(table, subtable + 4) & 0xFF) : (wk_tableU16(table, subtable + 2) & 0x7);
+        if (length < subtableHeader)
+            return;
+        if (affectedFlags & flags)
+            wk_markMetamorphosisSubtable(table, subtable + subtableHeader, type, extended, glyphCount, coverage);
+        subtable += length;
+    }
+}
+
+// A metamorphosis chain can hold feature entries for type/selector pairs the font does not offer. The
+// font's own feature list — its feat table, which CTFontCopyFeatures reads — is the declaration of
+// which pairs it has, and CoreText applies no setting outside it. Didot's morx names both
+// kLetterCaseType and kLowerCaseType small capitals and its feat table declares only the latter; that
+// is the pair whose 57 glyphs CoreText substitutes.
+static bool wk_fontOffersAATFeature(CTFontRef font, int featureType, int featureSelector)
+{
+    CFArrayRef features = CTFontCopyFeatures(font);
+    if (!features)
+        return false;
+    bool offered = false;
+    CFIndex count = CFArrayGetCount(features);
+    for (CFIndex i = 0; i < count && !offered; i++) {
+        CFTypeRef entry = CFArrayGetValueAtIndex(features, i);
+        int type = 0;
+        if (!entry || CFGetTypeID(entry) != CFDictionaryGetTypeID()
+            || !wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)entry, kCTFontFeatureTypeIdentifierKey), &type)
+            || type != featureType)
+            continue;
+        CFTypeRef selectors = CFDictionaryGetValue((CFDictionaryRef)entry, kCTFontFeatureTypeSelectorsKey);
+        if (!selectors || CFGetTypeID(selectors) != CFArrayGetTypeID())
+            continue;
+        CFIndex selectorCount = CFArrayGetCount((CFArrayRef)selectors);
+        for (CFIndex s = 0; s < selectorCount && !offered; s++) {
+            CFTypeRef selector = CFArrayGetValueAtIndex((CFArrayRef)selectors, s);
+            int identifier = 0;
+            offered = selector && CFGetTypeID(selector) == CFDictionaryGetTypeID()
+                && wk_intFromNumber(CFDictionaryGetValue((CFDictionaryRef)selector, kCTFontFeatureSelectorIdentifierKey), &identifier)
+                && identifier == featureSelector;
+        }
+    }
+    CFRelease(features);
+    return offered;
+}
+
+// morx and mort say the same thing in two layouts: morx counts its chains, feature entries and
+// subtables in 32-bit fields and mort in a mix of 32- and 16-bit ones, and their chain and subtable
+// headers are sized accordingly. morx is the extended form and supersedes mort, so a font carrying
+// both is laid out by morx alone.
+static void wk_markAATFeatureCoverage(CTFontRef font, int featureType, int featureSelector,
+                                      uint32_t glyphCount, CFMutableBitVectorRef coverage)
+{
+    if (!wk_fontOffersAATFeature(font, featureType, featureSelector))
+        return;
+    CFDataRef data = CTFontCopyTable(font, kCTFontTableMorx, kCTFontTableOptionNoOptions);
+    bool extended = data != NULL;
+    if (!data)
+        data = CTFontCopyTable(font, kCTFontTableMort, kCTFontTableOptionNoOptions);
+    if (!data)
+        return;
+
+    wk_font_table table = { CFDataGetBytePtr(data), CFDataGetBytePtr(data) ? (uint32_t)CFDataGetLength(data) : 0 };
+    uint32_t chainCount = wk_tableU32(table, 4);
+    uint32_t chainHeader = extended ? 16u : 12u;
+    uint32_t chain = 8;
+    for (uint32_t c = 0; c < chainCount && wk_tableHas(table, chain, chainHeader); c++) {
+        uint32_t length = wk_tableU32(table, chain + 4);
+        uint32_t featureCount = extended ? wk_tableU32(table, chain + 8) : wk_tableU16(table, chain + 8);
+        uint32_t subtableCount = extended ? wk_tableU32(table, chain + 12) : wk_tableU16(table, chain + 10);
+        if (length < chainHeader || featureCount > table.length / 12)
+            break;
+        wk_markMetamorphosisChain(table, chain, featureCount, subtableCount, chainHeader,
+                                  extended ? 12u : 8u, extended, featureType, featureSelector,
+                                  glyphCount, coverage);
+        chain += length;
+    }
+    CFRelease(data);
+}
+
+// CTFontCopyColorGlyphCoverage (10.13+) answers the colour question. Upstream asks it only of a font
+// CoreText has marked kCTFontTraitColorGlyphs, "colour bitmap glyphs are available", and on 10.9 that
+// trait means an sbix table — the Apple colour-bitmap format Apple Color Emoji is built from, and the
+// same table CTFontGetSbixImageSizeForGlyphAndContentsScale reads above. A glyph is a colour one when
+// some strike holds a non-empty bitmap for it. NULL says the font has none, which is what upstream's
+// call site reads as "no emoji glyphs" (Font::platformInit, FontCoreText.cpp); its three siblings below
+// answer with a bit vector however empty, because unionBitVectors() hands theirs straight to
+// CFBitVectorGetCount() with no null check.
+WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyColorGlyphCoverage, (CTFontRef font))
+{
+    CFIndex glyphCount = font ? CTFontGetGlyphCount(font) : 0;
+    if (glyphCount <= 0)
+        return NULL;
+    CFDataRef data = CTFontCopyTable(font, kCTFontTableSbix, kCTFontTableOptionNoOptions);
+    if (!data)
+        return NULL;
+
+    wk_font_table sbix = { CFDataGetBytePtr(data), CFDataGetBytePtr(data) ? (uint32_t)CFDataGetLength(data) : 0 };
+    CFMutableBitVectorRef coverage = CFBitVectorCreateMutable(kCFAllocatorDefault, 0);
+    if (coverage) {
+        CFBitVectorSetCount(coverage, glyphCount);
+        // Each strike names one offset per glyph plus the terminating one; a glyph's bitmap is the
+        // bytes between its offset and the next.
+        CFIndex offsets = (glyphCount + 1) * 4;
+        uint32_t strikeCount = wk_tableU32(sbix, 4);
+        for (uint32_t i = 0; i < strikeCount; i++) {
+            uint32_t strike = wk_tableU32(sbix, 8 + i * 4);
+            if (strike > sbix.length || offsets > (CFIndex)sbix.length
+                || !wk_tableHas(sbix, strike + 4, (uint32_t)offsets))
+                continue;
+            const uint8_t *glyphOffsets = sbix.bytes + strike + 4;
+            for (uint32_t glyph = 0; glyph < (uint32_t)glyphCount; glyph++) {
+                if (wk_be32(glyphOffsets + (glyph + 1) * 4) > wk_be32(glyphOffsets + glyph * 4))
+                    wk_markGlyph(coverage, glyph);
+            }
+        }
+        if (!CFBitVectorGetCountOfBit(coverage, CFRangeMake(0, glyphCount), 1)) {
+            CFRelease(coverage);
+            coverage = NULL;
+        }
+    }
+    CFRelease(data);
+    return coverage;
+}
+
+// The feature coverage is glyph-indexed too, and is a real CFBitVector even when nothing is covered.
 WK_POLYFILL_ABSENT("CoreText", CFBitVectorRef, CTFontCopyGlyphCoverageForFeature, (CTFontRef font, CFDictionaryRef feature))
 {
-    (void)font; (void)feature;
-    return CFBitVectorCreate(kCFAllocatorDefault, NULL, 0);
+    CFIndex glyphCount = font ? CTFontGetGlyphCount(font) : 0;
+    CFMutableBitVectorRef coverage = CFBitVectorCreateMutable(kCFAllocatorDefault, 0);
+    if (!coverage)
+        return NULL;
+    CFBitVectorSetCount(coverage, glyphCount > 0 ? glyphCount : 0);
+    if (glyphCount <= 0 || !feature || CFGetTypeID(feature) != CFDictionaryGetTypeID())
+        return coverage;
+
+    int featureType = 0, featureSelector = 0;
+    if (wk_intFromNumber(CFDictionaryGetValue(feature, kCTFontFeatureTypeIdentifierKey), &featureType)
+        && wk_intFromNumber(CFDictionaryGetValue(feature, kCTFontFeatureSelectorIdentifierKey), &featureSelector)) {
+        wk_markAATFeatureCoverage(font, featureType, featureSelector, (uint32_t)glyphCount, coverage);
+        return coverage;
+    }
+
+    CFTypeRef tagValue = CFDictionaryGetValue(feature, kCTFontOpenTypeFeatureTag);
+    char tag[8] = { 0 };
+    if (tagValue && CFGetTypeID(tagValue) == CFStringGetTypeID()
+        && CFStringGetCString((CFStringRef)tagValue, tag, sizeof(tag), kCFStringEncodingASCII)
+        && strlen(tag) == 4)
+        wk_markOpenTypeFeatureCoverage(font, tag, coverage);
+    return coverage;
 }
 
 // CSS generic family -> concrete 10.9 font descriptor. The cssFamily argument is one of the
@@ -1672,140 +2531,105 @@ WK_POLYFILL_ABSENT("CoreText", bool, CTFontHasTable, (CTFontRef font, CTFontTabl
     return present;
 }
 
-// CTFontShapeGlyphs (10.13+) shapes a run: it applies kerning and OpenType/AAT substitutions to the
+// CTFontShapeGlyphs (10.13+) shapes a run: it applies the font's substitutions and positioning to the
 // caller's glyph array, growing or shrinking it through `handler` when substitution changes the glyph
 // count, and returns the run's initial advance.
 //
-// 10.9 has no such entry point, but it CAN shape — CTTypesetter/CTLine do it, which is measurable:
-// at CTLine's default ligature level, Hoefler Text turns the two characters "fi" into ONE glyph on
-// this host. This shapes over CTLine on that basis, at that default level: standard ligatures only,
-// the same level upstream's own CTLine use (SimpleFontDataCoreText.cpp getCFStringAttributes, consumed
-// by the complex text path) shapes and measures with, so both paths agree on advances. Raising
-// kCTLigatureAttributeName to 2 turns on each font's RARE-ligatures feature — Courier/Menlo/Monaco
-// keep ff/fi/fl there, off by default — which the real CTFontShapeGlyphs never does, and which makes
-// painted text (shaped here) disagree with caret metrics (measured by the complex path): the visible
-// symptom is a caret that cannot cross a ligated pair in a monospace textarea.
+// CTFontTransformGlyphs is 10.9's entry point for the same transformation, over the same glyph array:
+// it rewrites the caller's glyphs and advances in place and marks each glyph a substitution consumed
+// with kCGFontIndexInvalid and a zero advance. Measured on this host at 40pt, Hoefler Text "fi" goes
+// from glyphs 73, 76 with advances 13.40, 11.20 to glyph 191 at 23.36 followed by 65535 at 0, and
+// Helvetica "AVAV" kerns 26.68 26.68 26.68 26.68 to 23.73 23.73 23.73 26.68. Those emptied slots are
+// removed through the handler below, so the caller sees the shorter run the newer API returns.
 //
-// THE ONE THING CTLine DOES THAT THIS API MUST NOT: font fallback. CTFontShapeGlyphs shapes with the
-// font it is given, and its caller renders the resulting glyph IDs with that same font; a glyph ID
-// from a substituted font written into that buffer draws as garbage. Measured on this host, an empty
-// kCTFontCascadeListAttribute does NOT suppress substitution — "A" + CJK still produced a second run
-// in a different font. There is no way to forbid it, so instead every run is checked and, if any run
-// came back in another font, this reports base advances only and substitutes nothing. Same for any
-// other shape it cannot map back safely. That degradation is the honest one: correct glyphs with no
-// shaping, never wrong glyphs.
+// Measured on the same host, 10.9 reads an EMPTY option set as "apply everything" rather than "apply
+// nothing" — at 0 both the ligature and the kerning above happen — so each transformation is always
+// named explicitly: shaping on every call, since upstream shapes on every call (FontCoreText.cpp's
+// UNUSED_PARAM(requiresShaping)), and positioning only when the caller asks for kerning through
+// kCTFontShapeWithKerning, which is the bit font-kerning: none clears.
+//
 // CTFontShapeOptions, mirrored from PAL/pal/spi/cf/CoreTextSPI.h so the bit tested here can be checked
 // against the enum that defines it rather than against a bare literal:
 //     kCTFontShapeWithKerning            = (1 << 0)
 //     kCTFontShapeWithClusterComposition = (1 << 1)
 //     kCTFontShapeRightToLeft            = (1 << 2)
-// Getting this wrong is silent: WebCore sets cluster composition on EVERY call, so testing bit 1 for
-// kerning reads as "always true" and font-kerning:none is quietly ignored.
 #define WK_CTFONT_SHAPE_WITH_KERNING             (1u << 0)
 #define WK_CTFONT_SHAPE_WITH_CLUSTER_COMPOSITION (1u << 1)
 #define WK_CTFONT_SHAPE_RIGHT_TO_LEFT            (1u << 2)
 
-static bool wk_ctline_shape(CTFontRef font, const UniChar *chars, CFIndex count, CFOptionFlags options,
-    CTLineRef *outLine, CFIndex *outGlyphCount)
-{
-    *outLine = NULL; *outGlyphCount = 0;
-    CFStringRef string = CFStringCreateWithCharacters(kCFAllocatorDefault, chars, count);
-    if (!string)
-        return false;
-    int kern = 0;
-    CFNumberRef kernZero = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &kern);
-    CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(kCFAllocatorDefault, 2,
-        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    CFDictionarySetValue(attrs, kCTFontAttributeName, font);
-    if (!(options & WK_CTFONT_SHAPE_WITH_KERNING))
-        CFDictionarySetValue(attrs, kCTKernAttributeName, kernZero);
-    CFAttributedStringRef attributed = CFAttributedStringCreate(kCFAllocatorDefault, string, attrs);
-    CTLineRef line = attributed ? CTLineCreateWithAttributedString(attributed) : NULL;
-    bool ok = false;
-    if (line) {
-        CFArrayRef runs = CTLineGetGlyphRuns(line);
-        CFIndex runCount = runs ? CFArrayGetCount(runs) : 0;
-        CFIndex total = 0;
-        ok = runCount > 0;
-        for (CFIndex i = 0; i < runCount && ok; i++) {
-            CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, i);
-            CFDictionaryRef runAttrs = CTRunGetAttributes(run);
-            CTFontRef runFont = runAttrs ? (CTFontRef)CFDictionaryGetValue(runAttrs, kCTFontAttributeName) : NULL;
-            if (!runFont || !CFEqual(runFont, font))
-                ok = false;   // substituted font: its glyph IDs are meaningless to our caller
-            else
-                total += CTRunGetGlyphCount(run);
-        }
-        if (ok) { *outLine = (CTLineRef)CFRetain(line); *outGlyphCount = total; }
-        CFRelease(line);
-    }
-    if (attributed) CFRelease(attributed);
-    CFRelease(attrs); CFRelease(kernZero); CFRelease(string);
-    return ok;
-}
+// CTFontTransformOptions, from the same header.
+WK_SYSTEM_FN("CoreText", bool, CTFontTransformGlyphs, (CTFontRef, CGGlyph[], CGSize[], CFIndex, uint32_t));
+#define WK_CTFONT_TRANSFORM_APPLY_SHAPING     (1u << 0)
+#define WK_CTFONT_TRANSFORM_APPLY_POSITIONING (1u << 1)
+#define WK_CGFONT_INDEX_INVALID               0xFFFF
 
 WK_POLYFILL_ABSENT("CoreText", CGSize, CTFontShapeGlyphs,
     (CTFontRef font, CGGlyph glyphs[], CGSize advances[], CGPoint origins[], CFIndex indexes[], const UniChar chars[], CFIndex count, CFOptionFlags options, CFStringRef language, void (^handler)(CFRange, CGGlyph**, CGSize**, CGPoint**, CFIndex**)))
 {
     (void)language;
+    (void)chars;
     CGSize zero = { 0, 0 };
-    if (count <= 0 || !glyphs || !advances)
+    if (count <= 0 || !glyphs || !advances || !WK_SYSTEM(CTFontTransformGlyphs))
         return zero;
 
-    // An RTL run's return value is its initial advance — where the run starts — and the caller feeds
-    // that straight back into layout (FontCoreText.cpp captures it and returns it out of
-    // applyTransforms). Reporting 0 for an RTL run would misplace the whole run, and deriving the true
-    // offset from a CTLine built without the caller's paragraph context is not something this can do
-    // reliably. So RTL is declined outright: base advances, no substitution, and no positional claim.
-    CTLineRef line = NULL;
-    CFIndex shaped = 0;
-    if ((options & WK_CTFONT_SHAPE_RIGHT_TO_LEFT)
-        || !chars || !wk_ctline_shape(font, chars, count, options, &line, &shaped)) {
-        CTFontGetAdvancesForGlyphs(font, kCTFontOrientationHorizontal, glyphs, advances, count);
-        return zero;
+    uint32_t transform = WK_CTFONT_TRANSFORM_APPLY_SHAPING
+        | ((options & WK_CTFONT_SHAPE_WITH_KERNING) ? WK_CTFONT_TRANSFORM_APPLY_POSITIONING : 0);
+
+    // A caller with no handler cannot be told the glyph count changed, which is the one thing it may
+    // not be given — everything else it may, and most substitutions keep the count, so shaping runs
+    // for it too, against a snapshot to go back to if a run does empty a slot.
+    CGGlyph *arrivedGlyphs = NULL;
+    CGSize *arrivedAdvances = NULL;
+    if (!handler) {
+        arrivedGlyphs = (CGGlyph *)malloc((size_t)count * sizeof(CGGlyph));
+        arrivedAdvances = (CGSize *)malloc((size_t)count * sizeof(CGSize));
+        if (!arrivedGlyphs || !arrivedAdvances) {
+            free(arrivedGlyphs);
+            free(arrivedAdvances);
+            return zero;
+        }
+        memcpy(arrivedGlyphs, glyphs, (size_t)count * sizeof(CGGlyph));
+        memcpy(arrivedAdvances, advances, (size_t)count * sizeof(CGSize));
     }
 
-    // Resize the caller's buffers through the handler when shaping changed the glyph count, then take
-    // the fresh pointers it hands back. Without a handler we can only proceed if the count matched.
+    // The advances are in/out, and CTFontTransformGlyphs keeps that contract itself: it writes an
+    // advance only where it substitutes a glyph (measured, zero-seeded Hoefler "fi" comes back as
+    // glyph 191 at the ligature's nominal 23.36) and applies kerning as a delta on the caller's
+    // values (zero-seeded Helvetica "AVAV" comes back -2.95 per kerned pair, 23.73 - 26.68). Every
+    // unchanged glyph keeps the caller's measurement — the only record of its run's orientation,
+    // since the CTFont carries no kCTFontOrientationAttribute (WebCore sets that only across the
+    // serialization round-trip in FontPlatformDataCoreText.cpp).
+    WK_SYSTEM(CTFontTransformGlyphs)(font, glyphs, advances, count, transform);
+
+    // Compact the slots substitution emptied, last run of them first, so the indices of the ones still
+    // to visit hold across each removal. A negative length removes that many entries ending at
+    // `location`; the handler hands back the buffers' fresh bases, which the caller may have moved.
     CGGlyph *outGlyphs = glyphs; CGSize *outAdvances = advances;
     CGPoint *outOrigins = origins; CFIndex *outIndexes = indexes;
-    if (shaped != count) {
-        if (!handler) {
-            CFRelease(line);
-            CTFontGetAdvancesForGlyphs(font, kCTFontOrientationHorizontal, glyphs, advances, count);
-            return zero;
-        }
-        // Positive length inserts that many slots at `location`; negative removes them ending there.
-        CFRange range = CFRangeMake(count, shaped - count);
-        handler(range, &outGlyphs, &outAdvances, &outOrigins, &outIndexes);
-        if (!outGlyphs || !outAdvances) {
-            CFRelease(line);
-            return zero;
-        }
-    }
-
-    CFArrayRef runs = CTLineGetGlyphRuns(line);
-    CFIndex written = 0;
-    for (CFIndex i = 0; i < CFArrayGetCount(runs) && written < shaped; i++) {
-        CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, i);
-        CFIndex n = CTRunGetGlyphCount(run);
-        if (n <= 0)
+    CFIndex i = count;
+    while (i > 0) {
+        if (outGlyphs[i - 1] != WK_CGFONT_INDEX_INVALID) {
+            i--;
             continue;
-        if (written + n > shaped)
-            n = shaped - written;
-        CFRange all = CFRangeMake(0, n);
-        CTRunGetGlyphs(run, all, outGlyphs + written);
-        CTRunGetAdvances(run, all, outAdvances + written);
-        if (outIndexes)
-            CTRunGetStringIndices(run, all, outIndexes + written);
-        if (outOrigins) {
-            for (CFIndex g = 0; g < n; g++)
-                outOrigins[written + g] = CGPointZero;   // 10.9 has no per-glyph origin offsets here
         }
-        written += n;
+        if (!handler) {
+            memcpy(glyphs, arrivedGlyphs, (size_t)count * sizeof(CGGlyph));
+            memcpy(advances, arrivedAdvances, (size_t)count * sizeof(CGSize));
+            uint32_t positioning = transform & WK_CTFONT_TRANSFORM_APPLY_POSITIONING;
+            if (positioning)
+                WK_SYSTEM(CTFontTransformGlyphs)(font, glyphs, advances, count, positioning);
+            break;
+        }
+        CFIndex emptiedEnd = i;
+        while (i > 0 && outGlyphs[i - 1] == WK_CGFONT_INDEX_INVALID)
+            i--;
+        handler(CFRangeMake(emptiedEnd, i - emptiedEnd), &outGlyphs, &outAdvances, &outOrigins, &outIndexes);
+        if (!outGlyphs || !outAdvances)
+            break;
     }
-    CFRelease(line);
-    return zero;   // LTR runs start at the origin; RTL initial advance is applied by the caller's path
+    free(arrivedGlyphs);
+    free(arrivedAdvances);
+    return zero;   // a transformed glyph array starts at the origin; there is no initial advance to report
 }
 
 // 10.9 backport: CTRunGetBaseAdvancesAndOrigins is 10.11+, so implement it here. A naive return-0 stub
