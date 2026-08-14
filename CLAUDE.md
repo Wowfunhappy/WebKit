@@ -33,10 +33,6 @@ Backport modern WebKit (currently 625.1.11) to run on macOS 10.9.5 Mavericks und
 
 A red gate, a broken build, or work you are calling uncommittable is never something you report and leave — it is something you fix, now, whoever wrote the cause. Attributing it to someone else's files looks like diligence and is the same deferral. Where a fix would destroy work, preserve it first (save the hunks to a patch and name the path) and then make the tree correct anyway.
 
-**Never attribute a scope decision to the user that he did not make.** If narrowing was your idea, own it as yours. Re-read what he actually wrote before writing "you said/wanted/asked for X".
-
-**Work the tracked task list.** Don't open-endedly sweep random sites hunting for problems. When a site misbehaves, classify fast: a server-side block, rate-limit, login wall, or old-UA gate is not a WebKit bug.
-
 **Spend as many cycles as it takes.** A multi-layer bug fully root-caused is the goal, not a cost overrun. Never apologize for depth. Do not add band-aids.
 
 ## No hacks

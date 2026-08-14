@@ -2288,7 +2288,11 @@ void MediaPlayerPrivateGStreamer::handleMessage(GstMessage* message)
         break;
     case GST_MESSAGE_DURATION_CHANGED:
         // Duration in MSE is managed by MediaSource, SourceBuffer and AppendPipeline.
-        if (messageSourceIsPlaybin && !isMediaSource())
+        // MAVERICKS_BACKPORT: GstBin forwards a child's duration-changed message with the child as
+        // GST_MESSAGE_SRC, so the pipeline itself never sources one; accept the message from any
+        // element and let durationChanged() re-query the pipeline for the new duration.
+        // if (messageSourceIsPlaybin && !isMediaSource())
+        if (!isMediaSource())
             durationChanged();
         break;
     case GST_MESSAGE_REQUEST_STATE:
@@ -2993,7 +2997,16 @@ void MediaPlayerPrivateGStreamer::updateStates()
                 m_areVolumeAndMuteInitialized = true;
             }
 
+            // MAVERICKS_BACKPORT: the m_wasBuffering/m_isBuffering pair only holds a completion edge
+            // between two consecutive buffering messages, and a queue that refills while the
+            // buffering pause is still ASYNC posts its whole 1%-to-100% climb inside that window —
+            // by the time the pause completes and this branch runs, the pair reads false/false, and
+            // a full queue that nothing drains posts no further message. m_playbackRatePausedState
+            // records that the pause was for buffering, so resume on that reason plus the current
+            // buffering level, which stays correct under any message ordering.
+            // if ((m_wasBuffering && !m_isBuffering && !m_isPaused && m_playbackRatePausedState != PlaybackRatePausedState::ManuallyPaused && m_playbackRate)
             if ((m_wasBuffering && !m_isBuffering && !m_isPaused && m_playbackRatePausedState != PlaybackRatePausedState::ManuallyPaused && m_playbackRate)
+                || (m_playbackRatePausedState == PlaybackRatePausedState::BufferingPaused && !m_isBuffering && !m_isPaused && m_playbackRate) // MAVERICKS_BACKPORT: the level-triggered resume described above.
                 || m_playbackRatePausedState == PlaybackRatePausedState::ShouldMoveToPlaying) {
                 m_playbackRatePausedState = PlaybackRatePausedState::Playing;
                 GST_INFO_OBJECT(pipeline(), "[Buffering] Restarting playback (because of buffering or resuming from zero playback rate)");
@@ -3257,7 +3270,13 @@ void MediaPlayerPrivateGStreamer::recalculateDurationIfNeeded() const
         if (RefPtr player = m_player.get())
             player->durationChanged();
     };
-    if (!currentDuration.isFinite() || (currentDuration.isValid() && currentDuration < now)) {
+    // MAVERICKS_BACKPORT: finalizing an infinite or unknown duration to the current position is an
+    // end-of-playback operation — the spec passage above describes a stream that ends — so this
+    // branch gates on m_isEndReached like the branch below. While the pipeline has yet to preroll,
+    // duration() reports positive infinity for a VOD stream too, and maxTimeSeekable() reaches this
+    // point whenever a page polls seekable during startup.
+    // if (!currentDuration.isFinite() || (currentDuration.isValid() && currentDuration < now)) {
+    if (m_isEndReached && (!currentDuration.isFinite() || (currentDuration.isValid() && currentDuration < now))) {
         cacheNewDuration(now);
         return;
     }
