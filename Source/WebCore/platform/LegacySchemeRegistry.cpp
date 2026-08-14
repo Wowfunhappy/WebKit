@@ -150,6 +150,12 @@ static std::span<const ASCIILiteral> builtinSecureSchemes()
 #if ENABLE(PDFJS)
         "webkit-pdfjs-viewer"_s,
 #endif
+#if PLATFORM(MAC)
+        // MAVERICKS_BACKPORT: Safari 7 registers safari-extension:// as secure only through the WK2
+        // WKContext API; it never calls +[WebView _registerURLSchemeAsSecure:], so WK1-hosted
+        // extension pages (toolbar popovers) rely on this seed for isSecureContext and crypto.subtle.
+        "safari-extension"_s,
+#endif
     };
     return schemes;
 }
