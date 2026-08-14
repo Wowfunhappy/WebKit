@@ -353,6 +353,14 @@ void RenderReplaced::paint(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
             paintInfo.context().restore();
     }
         
+    // MAVERICKS_BACKPORT: a composited layer whose only content is an unscaled 1:1 <canvas>
+    // (RenderLayerBacking::isUnscaledBitmapOnly) is painted whole in CompositeOperator::Copy, which
+    // also reaches the two tints below; the canvas bitmap already covers the layer, so blend them.
+    bool paintsAnyTint = drawSelectionTint || highlightColor.isVisible();
+    GraphicsContextStateSaver tintStateSaver(paintInfo.context(), paintsAnyTint);
+    if (paintsAnyTint)
+        paintInfo.context().setCompositeOperation(CompositeOperator::SourceOver, paintInfo.context().compositeMode().blendMode);
+
     // The selection tint never gets clipped by border-radius rounding, since we want it to run right up to the edges of
     // surrounding content.
     if (drawSelectionTint) {
