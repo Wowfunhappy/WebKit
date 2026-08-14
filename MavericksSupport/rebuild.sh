@@ -12,11 +12,81 @@ CMAKE="$ROOT/MavericksSupport/toolchain/build/cmake/bin/cmake"
 CCACHE="${MAVERICKS_CCACHE:-$ROOT/MavericksSupport/toolchain/build/ccache/bin/ccache}"
 BUILD="$ROOT/WebKitBuild/Release"
 LOG=/tmp/wk_build.log
+
+# --- Take over from an in-flight build --------------------------------------------------------
+# One build dir, one log, one build: this run stops whatever is already building before it truncates
+# the log and starts its own.
+#
+# Only the CMAKE phase is unsafe to interrupt: cmake rewrites build.ninja in place, and every later
+# build dies instantly on a half-written manifest. A running cmake is therefore waited out. ninja,
+# the polyfill compile (every object is recompiled unconditionally and each archive lands via mv)
+# and staging (this run re-stages) are all interruptible at any point.
+_ancestry() {  # $1 and every process above it
+    local _p="$1"
+    while [ "${_p:-0}" -gt 1 ] 2>/dev/null; do
+        echo "$_p"
+        _p=$(ps -o ppid= -p "$_p" 2>/dev/null | tr -d ' ')
+    done
+}
+_family() {  # $1 and every process below it
+    local _c
+    echo "$1"
+    for _c in $(pgrep -P "$1" 2>/dev/null); do _family "$_c"; done
+}
+_is_ours() {  # our own pid, the shell that launched us, and the subshells we fork
+    local _a
+    for _a in $(_ancestry "$1"); do [ "$_a" = "$$" ] && return 0; done
+    for _a in $(_ancestry $$); do [ "$_a" = "$1" ] && return 0; done
+    return 1
+}
+# The bare-name pattern also matches `./rebuild.sh`, whose argv carries no directory.
+_stale_builds() {
+    local _p
+    for _p in $(pgrep -f 'rebuild\.sh' 2>/dev/null) $(pgrep -x ninja 2>/dev/null); do
+        _is_ours "$_p" || echo "$_p"
+    done
+}
+_waited=0
+_tries=0
+_stopped=""
+TAKEOVER=""
+while :; do
+    _stale="$(_stale_builds | sort -un)"
+    [ -n "$_stale" ] || break
+    if [ -z "$_stopped" ]; then
+        echo "### a build is already running (pids: $(echo $_stale)) -> stopping it first"
+        _stopped="$(echo $_stale)"
+    fi
+    if [ -n "$(pgrep -x cmake 2>/dev/null)" ] && [ "$_waited" -lt 1200 ]; then
+        [ $((_waited % 30)) = 0 ] && echo "###   cmake configure in flight — waiting it out (${_waited}s)"
+        sleep 5
+        _waited=$((_waited + 5))
+        continue
+    fi
+    # Parent first (so the wrapper cannot launch a fresh ninja after this), then everything under it.
+    # SIGTERM only: a non-interactive bash defers it until its foreground child exits, which is the
+    # ordering we want, and SIGKILL on a process that is already exiting is what corrupts a build dir.
+    for _p in $_stale; do kill $(_family "$_p") 2>/dev/null; done
+    _tries=$((_tries + 1))
+    if [ "$_tries" -ge 30 ]; then
+        echo "==================== COULD NOT STOP THE RUNNING BUILD (pids: $(echo $_stale)) — ABORTING ===================="
+        echo "### nothing was started; this build dir takes one build at a time"
+        exit 1
+    fi
+    sleep 2
+done
+if [ -n "$_stopped" ]; then
+    echo "###   in-flight build stopped"
+    # The lines above are written before the log is truncated, so carry a one-line record across it.
+    TAKEOVER="### took over from the build already running (pids: $_stopped)"
+    [ "$_waited" -gt 0 ] && TAKEOVER="$TAKEOVER, after waiting ${_waited}s for its cmake configure"
+fi
 # The one truncation of the run, here at the top, so everything after it accumulates into a single
 # log: the cmake reconfigures below write to $LOG with >>, and ninja appends with `tee -a`. The
 # per-run counters further down read $LOG, and they stay exact because only ninja emits the "[N/M]"
 # and "FAILED:" lines they count.
 : > "$LOG"
+[ -n "$TAKEOVER" ] && echo "$TAKEOVER"
 # Pin ccache to the in-tree cache so incremental builds share one cache regardless of the caller's
 # environment (without this, ccache falls back to ~/.ccache and the cache is split / cold).
 export CCACHE_DIR="$ROOT/WebKitBuild/ccache"
@@ -131,19 +201,20 @@ fi
 
 cd "$BUILD"
 
-# --- Recover a wedged build.ninja ------------------------------------------------------------
+# --- Recover an unusable build.ninja ---------------------------------------------------------
 # ninja normally regenerates build.ninja itself: the RERUN_CMAKE rule lists every CMakeLists/*.cmake
 # as a dependency — INCLUDING the MavericksSupport overlays (WebCore/WebKitPlatformMavericks.cmake) —
 # so a plain edit to any of them is picked up automatically on the next build. But that self-reconfigure
 # rule lives INSIDE build.ninja. If a configure ever writes a manifest ninja can't parse (e.g. a
 # duplicate build output — "ninja: error: build.ninja:N: ... defined as an output multiple times"),
-# ninja can no longer load the manifest to reach RERUN_CMAKE, so it is wedged: every subsequent run
-# dies at the identical parse error even after the offending .cmake is fixed, until someone runs
-# `cmake $BUILD` by hand. Detect the unparseable manifest with a cheap read-only load and heal it with
-# a plain reconfigure. No -U here: this is manifest recovery, not an option-default change (the feature
-# re-derive above owns that, and -U would needlessly reset every option).
-if [ -f build.ninja ] && ! "$NINJA" -t targets >/dev/null 2>&1; then
-    echo "### build.ninja does not parse (a prior configure wrote a bad manifest) -> reconfiguring to recover"
+# ninja can no longer load the manifest to reach RERUN_CMAKE: every subsequent run dies at the identical
+# parse error even after the offending .cmake is fixed, until someone runs `cmake $BUILD` by hand. An
+# interrupted configure leaves the same dead end, with the manifest truncated or absent.
+# Detect both with a cheap read-only load and heal them with a plain reconfigure.
+# No -U here: this is manifest recovery, not an option-default change (the feature re-derive above owns
+# that, and -U would needlessly reset every option).
+if [ -f "$CACHE_FILE" ] && { [ ! -f build.ninja ] || ! "$NINJA" -t targets >/dev/null 2>&1; }; then
+    echo "### build.ninja is missing or does not parse -> reconfiguring to recover"
     if ! "$CMAKE" "$BUILD" >> "$LOG" 2>&1; then
         echo "==================== RECOVERY RECONFIGURE FAILED — ABORTING ===================="
         tail -20 "$LOG"; exit 1
