@@ -75,6 +75,10 @@ WebNotificationManagerProxy::~WebNotificationManagerProxy() = default;
 // is conditional here.
 void WebNotificationManagerProxy::setProvider(std::unique_ptr<API::NotificationProvider>&& provider, ShouldNotifyProviderOfManager shouldNotifyProviderOfManager)
 {
+    // MAVERICKS_BACKPORT: the copy read by providerPermissionForOrigin belongs to the outgoing
+    // provider; the incoming one supplies its own through notificationPermissions().
+    m_providerPermissions.clear();
+
     if (!provider) {
         m_provider = makeUnique<API::NotificationProvider>();
         return;
@@ -95,7 +99,20 @@ void WebNotificationManagerProxy::processPoolDestroyed()
 
 HashMap<String, bool> WebNotificationManagerProxy::notificationPermissions()
 {
-    return m_provider->notificationPermissions();
+    // MAVERICKS_BACKPORT: keeps the answer, so providerPermissionForOrigin can serve the WKPageUIClient
+    // queryPermission shim without a second callout.
+    m_providerPermissions = m_provider->notificationPermissions();
+    return m_providerPermissions;
+}
+
+// MAVERICKS_BACKPORT: reads the copy taken above and kept current by
+// providerDidUpdateNotificationPolicy and providerDidRemoveNotificationPolicies.
+std::optional<bool> WebNotificationManagerProxy::providerPermissionForOrigin(const String& originString) const
+{
+    auto it = m_providerPermissions.find(originString);
+    if (it == m_providerPermissions.end())
+        return std::nullopt;
+    return it->value;
 }
 
 static std::optional<WebPageProxyIdentifier> NODELETE identifierForPagePointer(WebPageProxy* webPage)
@@ -354,6 +371,9 @@ void WebNotificationManagerProxy::providerDidUpdateNotificationPolicy(const API:
     if (originString.isEmpty())
         return;
 
+    // MAVERICKS_BACKPORT: keeps the copy read by providerPermissionForOrigin current.
+    m_providerPermissions.set(originString, enabled);
+
     if (this == &serviceWorkerManagerSingleton()) {
         setPushesAndNotificationsEnabledForOrigin(origin->securityOrigin(), enabled);
         WebProcessPool::sendToAllRemoteWorkerProcesses(Messages::WebNotificationManager::DidUpdateNotificationDecision(originString, enabled));
@@ -369,6 +389,10 @@ void WebNotificationManagerProxy::providerDidRemoveNotificationPolicies(API::Arr
     size_t size = origins->size();
     if (!size)
         return;
+
+    // MAVERICKS_BACKPORT: keeps the copy read by providerPermissionForOrigin current.
+    for (auto& originString : apiArrayToSecurityOriginStrings(origins))
+        m_providerPermissions.remove(originString);
 
     if (this == &serviceWorkerManagerSingleton()) {
         removePushSubscriptionsForOrigins(apiArrayToSecurityOrigins(origins));

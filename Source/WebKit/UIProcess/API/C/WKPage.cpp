@@ -93,6 +93,7 @@
 #include "WebOpenPanelResultListenerProxy.h"
 #include "WebPageDiagnosticLoggingClient.h"
 #include "WebPageGroup.h"
+#include "WebNotificationManagerProxy.h" // MAVERICKS_BACKPORT: for the notification answer the queryPermission shim reads.
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
 #include "WebPageProxyTesting.h"
@@ -1846,12 +1847,17 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
     CRASH_IF_SUSPENDED;
     class UIClient : public API::Client<WKPageUIClientBase>, public API::UIClient {
     public:
-        explicit UIClient(const WKPageUIClientBase* client)
+        // MAVERICKS_BACKPORT: takes the page, so queryPermission can reach its process pool's
+        // WebNotificationManagerProxy.
+        UIClient(const WKPageUIClientBase* client, WebPageProxy* page)
+            : m_page(page)
         {
             initialize(client);
         }
 
     private:
+        WeakPtr<WebPageProxy> m_page; // MAVERICKS_BACKPORT: see the constructor.
+
         void createNewPage(WebPageProxy& page, Ref<API::PageConfiguration>&& configuration, Ref<API::NavigationAction>&& navigationAction, CompletionHandler<void(RefPtr<WebPageProxy>&&)>&& completionHandler) final
         {
             ASSERT(configuration->windowFeatures());
@@ -2448,11 +2454,23 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
         void queryPermission(const WTF::String& permissionName, API::SecurityOrigin& origin, CompletionHandler<void(std::optional<WebCore::PermissionState>)>&& completionHandler) final
         {
             if (!m_client.queryPermission) {
-                // MAVERICKS_BACKPORT: legacy (Safari 7 era) UI clients predate this callback and can
-                // never implement it, which surfaced to pages as `navigator.permissions.query()`
-                // rejecting with NotSupportedError for camera/microphone. Real Safari answers these
-                // queries; report Prompt, the same default WebPermissionControllerProxy uses when no
-                // page is available.
+                // MAVERICKS_BACKPORT: legacy (Safari 7 era) UI clients predate this callback. Answer
+                // notifications from the provider map WebNotificationManagerProxy holds, which is the
+                // store Safari 7 supplies through WKNotificationProvider. Camera, microphone,
+                // geolocation and screen wake lock have no Safari 7 store behind them and report
+                // Prompt, the same default WebPermissionControllerProxy uses when no page is available.
+#if ENABLE(NOTIFICATIONS)
+                if (permissionName == "notifications"_s) {
+                    if (RefPtr page = m_page.get()) {
+                        if (RefPtr manager = protect(page->configuration().processPool())->supplement<WebNotificationManagerProxy>()) {
+                            if (auto allowed = manager->providerPermissionForOrigin(origin.securityOrigin().toString())) {
+                                completionHandler(*allowed ? WebCore::PermissionState::Granted : WebCore::PermissionState::Denied);
+                                return;
+                            }
+                        }
+                    }
+                }
+#endif // MAVERICKS_BACKPORT: closes the ENABLE(NOTIFICATIONS) branch above.
                 completionHandler(WebCore::PermissionState::Prompt);
                 return;
             }
@@ -2491,7 +2509,7 @@ void WKPageSetPageUIClient(WKPageRef pageRef, const WKPageUIClientBase* wkClient
         }
     };
 
-    protect(toImpl(pageRef))->setUIClient(makeUnique<UIClient>(wkClient));
+    protect(toImpl(pageRef))->setUIClient(makeUnique<UIClient>(wkClient, toImpl(pageRef))); // MAVERICKS_BACKPORT: passes the page; see the UIClient constructor.
 }
 
 void WKPageSetPageNavigationClient(WKPageRef pageRef, const WKPageNavigationClientBase* wkClient)
