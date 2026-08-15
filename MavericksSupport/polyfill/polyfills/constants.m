@@ -72,7 +72,11 @@ WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontCSSFamilySansSerif, CFSTR("kCT
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontCSSFamilySerif, CFSTR("kCTFontCSSFamilySerif"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontCSSWeightAttribute, CFSTR("kCTFontCSSWeightAttribute"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontCSSWidthAttribute, CFSTR("kCTFontCSSWidthAttribute"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontContentSizeCategoryL, CFSTR("kCTFontContentSizeCategoryL"));
+// The content-size categories are CoreText's own identifiers, spelled "UICTContentSizeCategory" + the
+// category's short name -- the values UIContentSizeCategoryLarge and UIContentSizeCategoryExtraExtra
+// ExtraLarge carry.
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontContentSizeCategoryL, CFSTR("UICTContentSizeCategoryL"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontContentSizeCategoryXXXL, CFSTR("UICTContentSizeCategoryXXXL"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontDescriptorLanguageAttribute, CFSTR("kCTFontDescriptorLanguageAttribute"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontDescriptorTextStyleAttribute, CFSTR("kCTFontDescriptorTextStyleAttribute"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontFallbackOptionAttribute, CFSTR("kCTFontFallbackOptionAttribute"));
@@ -96,41 +100,49 @@ WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontUIFontDesignTrait, CFSTR("kCTF
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontVariationAxesAttribute, CFSTR("NSCTFontVariationAxesAttribute"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontUnscaledTrackingAttribute, CFSTR("kCTFontUnscaledTrackingAttribute"));
 WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontUserInstalledAttribute, CFSTR("kCTFontUserInstalledAttribute"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWeightBlack, CFSTR("kCTFontWeightBlack"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWeightBold, CFSTR("kCTFontWeightBold"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWeightHeavy, CFSTR("kCTFontWeightHeavy"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWeightLight, CFSTR("kCTFontWeightLight"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWeightMedium, CFSTR("kCTFontWeightMedium"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWeightRegular, CFSTR("kCTFontWeightRegular"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWeightSemibold, CFSTR("kCTFontWeightSemibold"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWeightThin, CFSTR("kCTFontWeightThin"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWeightUltraLight, CFSTR("kCTFontWeightUltraLight"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWidthCondensed, CFSTR("kCTFontWidthCondensed"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWidthExpanded, CFSTR("kCTFontWidthExpanded"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWidthExtraCompressed, CFSTR("kCTFontWidthExtraCompressed"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWidthExtraCondensed, CFSTR("kCTFontWidthExtraCondensed"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWidthExtraExpanded, CFSTR("kCTFontWidthExtraExpanded"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWidthSemiCondensed, CFSTR("kCTFontWidthSemiCondensed"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWidthSemiExpanded, CFSTR("kCTFontWidthSemiExpanded"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWidthStandard, CFSTR("kCTFontWidthStandard"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTFontWidthUltraCompressed, CFSTR("kCTFontWidthUltraCompressed"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleBody, CFSTR("kCTUIFontTextStyleBody"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleCaption1, CFSTR("kCTUIFontTextStyleCaption1"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleCaption2, CFSTR("kCTUIFontTextStyleCaption2"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleFootnote, CFSTR("kCTUIFontTextStyleFootnote"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleHeadline, CFSTR("kCTUIFontTextStyleHeadline"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleShortBody, CFSTR("kCTUIFontTextStyleShortBody"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleShortCaption1, CFSTR("kCTUIFontTextStyleShortCaption1"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleShortFootnote, CFSTR("kCTUIFontTextStyleShortFootnote"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleShortHeadline, CFSTR("kCTUIFontTextStyleShortHeadline"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleShortSubhead, CFSTR("kCTUIFontTextStyleShortSubhead"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleSubhead, CFSTR("kCTUIFontTextStyleSubhead"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleTallBody, CFSTR("kCTUIFontTextStyleTallBody"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleTitle0, CFSTR("kCTUIFontTextStyleTitle0"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleTitle1, CFSTR("kCTUIFontTextStyleTitle1"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleTitle2, CFSTR("kCTUIFontTextStyleTitle2"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleTitle3, CFSTR("kCTUIFontTextStyleTitle3"));
-WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleTitle4, CFSTR("kCTUIFontTextStyleTitle4"));
+// kCTFontWeight* and kCTFontWidth* are CGFloats on CoreText's normalized trait scales, not tokens: they
+// are the named points of the -1.0...1.0 ranges kCTFontWeightTrait and kCTFontWidthTrait carry, and are
+// read as numbers wherever they appear. Weight runs ultraLight -0.8 through black 0.62 with 0.0 regular
+// (the NSFontWeight/UIFontWeight scale, the same nine values Source/ThirdParty/skia's SkCTFont dlsym
+// table falls back to). Width is that scale's linear image of the CSS font-stretch percentage,
+// ct = (percentage - 100) / 125: condensed 75% -> -0.2, standard 100% -> 0.0, expanded 125% -> 0.2.
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWeightBlack, 0.62);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWeightBold, 0.4);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWeightHeavy, 0.56);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWeightLight, -0.4);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWeightMedium, 0.23);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWeightRegular, 0.0);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWeightSemibold, 0.3);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWeightThin, -0.6);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWeightUltraLight, -0.8);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWidthCondensed, -0.2);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWidthExpanded, 0.2);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWidthExtraCompressed, -0.4);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWidthExtraCondensed, -0.3);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWidthExtraExpanded, 0.4);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWidthSemiCondensed, -0.1);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWidthSemiExpanded, 0.1);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWidthStandard, 0.0);
+WK_POLYFILL_CONST("CoreText", CGFloat, kCTFontWidthUltraCompressed, -0.5);
+// The kCTUIFontTextStyle* values are CoreText's own text-style identifiers, spelled "UICTFontTextStyle"
+// + the style name. They surface verbatim as the family name of a font realized from a text style.
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleBody, CFSTR("UICTFontTextStyleBody"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleCaption1, CFSTR("UICTFontTextStyleCaption1"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleCaption2, CFSTR("UICTFontTextStyleCaption2"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleFootnote, CFSTR("UICTFontTextStyleFootnote"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleHeadline, CFSTR("UICTFontTextStyleHeadline"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleShortBody, CFSTR("UICTFontTextStyleShortBody"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleShortCaption1, CFSTR("UICTFontTextStyleShortCaption1"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleShortFootnote, CFSTR("UICTFontTextStyleShortFootnote"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleShortHeadline, CFSTR("UICTFontTextStyleShortHeadline"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleShortSubhead, CFSTR("UICTFontTextStyleShortSubhead"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleSubhead, CFSTR("UICTFontTextStyleSubhead"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleTallBody, CFSTR("UICTFontTextStyleTallBody"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleTitle0, CFSTR("UICTFontTextStyleTitle0"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleTitle1, CFSTR("UICTFontTextStyleTitle1"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleTitle2, CFSTR("UICTFontTextStyleTitle2"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleTitle3, CFSTR("UICTFontTextStyleTitle3"));
+WK_POLYFILL_CONST("CoreText", CFStringRef, kCTUIFontTextStyleTitle4, CFSTR("UICTFontTextStyleTitle4"));
 WK_POLYFILL_CONST("/System/Library/PrivateFrameworks/CoreUI.framework/CoreUI", CFStringRef, kCUIWidgetSwitchBorder, CFSTR("kCUIWidgetSwitchBorder"));
 WK_POLYFILL_CONST("/System/Library/PrivateFrameworks/CoreUI.framework/CoreUI", CFStringRef, kCUIWidgetSwitchFill, CFSTR("kCUIWidgetSwitchFill"));
 WK_POLYFILL_CONST("/System/Library/PrivateFrameworks/CoreUI.framework/CoreUI", CFStringRef, kCUIWidgetSwitchFillMask, CFSTR("kCUIWidgetSwitchFillMask"));

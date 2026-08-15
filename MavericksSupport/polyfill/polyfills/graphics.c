@@ -905,6 +905,283 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateWithFontDescriptorAndOpt
     return wk_recordFontRequest(instance, size, requested);
 }
 
+// An attributes descriptor naming nothing but a kCTFontWeightTrait.
+static CTFontDescriptorRef wkWeightRequestDescriptor(CGFloat weight)
+{
+    CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberCGFloatType, &weight);
+    if (!number)
+        return NULL;
+    const void *traitKeys[] = { kCTFontWeightTrait };
+    const void *traitValues[] = { number };
+    CFDictionaryRef traits = CFDictionaryCreate(kCFAllocatorDefault, traitKeys, traitValues, 1,
+                                                &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFRelease(number);
+    if (!traits)
+        return NULL;
+    const void *keys[] = { kCTFontTraitsAttribute };
+    const void *values[] = { traits };
+    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+                                                    &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFRelease(traits);
+    if (!attributes)
+        return NULL;
+    CTFontDescriptorRef descriptor = CTFontDescriptorCreateWithAttributes(attributes);
+    CFRelease(attributes);
+    return descriptor;
+}
+
+// The trait values a descriptor carries in its kCTFontTraitsAttribute.
+typedef struct {
+    bool haveWeight;
+    CGFloat weight;
+    bool haveWidth;
+    CGFloat width;
+    uint32_t symbolic;
+} wk_font_traits;
+
+static bool wkNumberValue(CFDictionaryRef traits, CFStringRef key, CGFloat *out)
+{
+    CFNumberRef number = (CFNumberRef)CFDictionaryGetValue(traits, key);
+    return number && CFGetTypeID(number) == CFNumberGetTypeID()
+        && CFNumberGetValue(number, kCFNumberCGFloatType, out);
+}
+
+static bool wkDescriptorTraits(CTFontDescriptorRef descriptor, wk_font_traits *out)
+{
+    memset(out, 0, sizeof(*out));
+    CFDictionaryRef traits = (CFDictionaryRef)CTFontDescriptorCopyAttribute(descriptor, kCTFontTraitsAttribute);
+    if (!traits)
+        return false;
+    bool haveTraits = CFGetTypeID(traits) == CFDictionaryGetTypeID();
+    if (haveTraits) {
+        out->haveWeight = wkNumberValue(traits, kCTFontWeightTrait, &out->weight);
+        out->haveWidth = wkNumberValue(traits, kCTFontWidthTrait, &out->width);
+        int32_t bits = 0;
+        CFNumberRef symbolicNumber = (CFNumberRef)CFDictionaryGetValue(traits, kCTFontSymbolicTrait);
+        if (symbolicNumber && CFGetTypeID(symbolicNumber) == CFNumberGetTypeID()
+            && CFNumberGetValue(symbolicNumber, kCFNumberSInt32Type, &bits))
+            out->symbolic = (uint32_t)bits;
+    }
+    CFRelease(traits);
+    return haveTraits;
+}
+
+// |a - b| for two points on a normalized trait scale.
+static CGFloat wkTraitDistance(CGFloat a, CGFloat b)
+{
+    return a > b ? a - b : b - a;
+}
+
+// How near a family member sits to the requested traits. Font matching resolves width before weight, so
+// the two distances are ranked in that order rather than combined; kCTFontNameAttribute breaks an exact
+// tie in favour of the face the request started from, and the heavier face otherwise.
+typedef struct {
+    CGFloat widthDistance;
+    CGFloat weightDistance;
+    CGFloat weight;
+    bool isSourceFace;
+} wk_face_rank;
+
+static bool wkRankIsNearer(const wk_face_rank *candidate, const wk_face_rank *best)
+{
+    if (candidate->widthDistance != best->widthDistance)
+        return candidate->widthDistance < best->widthDistance;
+    if (candidate->weightDistance != best->weightDistance)
+        return candidate->weightDistance < best->weightDistance;
+    if (candidate->isSourceFace != best->isSourceFace)
+        return candidate->isSourceFace;
+    return candidate->weight > best->weight;
+}
+
+// Realize a family member by name onto the copy's OWN descriptor, so every other attribute the copy
+// carries -- kCTFontFallbackOptionAttribute and the user-installed-fonts restriction among them --
+// stays on the result.
+static CTFontRef wkFontWithFaceName(CTFontRef copy, CFStringRef name)
+{
+    CTFontDescriptorRef own = CTFontCopyFontDescriptor(copy);
+    if (!own)
+        return NULL;
+    const void *keys[] = { kCTFontNameAttribute };
+    const void *values[] = { name };
+    CFDictionaryRef nameAttribute = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 1,
+                                                       &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CTFontRef font = NULL;
+    if (nameAttribute) {
+        CTFontDescriptorRef chosen = CTFontDescriptorCreateCopyWithAttributes(own, nameAttribute);
+        if (chosen) {
+            CGAffineTransform sourceMatrix = CTFontGetMatrix(copy);
+            font = CTFontCreateWithFontDescriptor(chosen, CTFontGetSize(copy), &sourceMatrix);
+            CFRelease(chosen);
+        }
+        CFRelease(nameAttribute);
+    }
+    CFRelease(own);
+    return font;
+}
+
+// The member of the copy's family nearest the requested width and weight, out of the family's
+// enumeration. Slant is the one axis a width or weight request says nothing about, so a member whose
+// italic bit differs from the source's is a different style and not a candidate at all; width and
+// weight are ranked, not filtered, because every family member is a legitimate answer to them. NULL
+// when fewer than two members share the source's slant.
+static CTFontRef wkNearestEnumeratedFamilyMember(CTFontRef copy, CGFloat targetWidth, CGFloat targetWeight)
+{
+    CFStringRef family = CTFontCopyFamilyName(copy);
+    if (!family)
+        return NULL;
+    const void *familyKeys[] = { kCTFontFamilyNameAttribute };
+    const void *familyValues[] = { family };
+    CFDictionaryRef familyAttributes = CFDictionaryCreate(kCFAllocatorDefault, familyKeys, familyValues, 1,
+                                                          &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFRelease(family);
+    if (!familyAttributes)
+        return NULL;
+    CTFontDescriptorRef familyDescriptor = CTFontDescriptorCreateWithAttributes(familyAttributes);
+    CFSetRef mandatory = CFSetCreate(kCFAllocatorDefault, familyKeys, 1, &kCFTypeSetCallBacks);
+    CFRelease(familyAttributes);
+    CFArrayRef members = (familyDescriptor && mandatory)
+        ? CTFontDescriptorCreateMatchingFontDescriptors(familyDescriptor, mandatory) : NULL;
+    if (familyDescriptor)
+        CFRelease(familyDescriptor);
+    if (mandatory)
+        CFRelease(mandatory);
+    if (!members)
+        return NULL;
+
+    uint32_t sourceSlant = CTFontGetSymbolicTraits(copy) & kCTFontTraitItalic;
+    CFStringRef sourceName = CTFontCopyPostScriptName(copy);
+
+    CTFontDescriptorRef best = NULL;
+    wk_face_rank bestRank;
+    CFIndex candidates = 0;
+    for (CFIndex i = 0, count = CFArrayGetCount(members); i < count; ++i) {
+        CTFontDescriptorRef member = (CTFontDescriptorRef)CFArrayGetValueAtIndex(members, i);
+        wk_font_traits traits;
+        if (!wkDescriptorTraits(member, &traits) || !traits.haveWeight)
+            continue;
+        if ((traits.symbolic & kCTFontTraitItalic) != sourceSlant)
+            continue;
+        ++candidates;
+
+        CFStringRef memberName = (CFStringRef)CTFontDescriptorCopyAttribute(member, kCTFontNameAttribute);
+        wk_face_rank rank;
+        rank.widthDistance = wkTraitDistance(traits.haveWidth ? traits.width : 0.0, targetWidth);
+        rank.weightDistance = wkTraitDistance(traits.weight, targetWeight);
+        rank.weight = traits.weight;
+        rank.isSourceFace = memberName && sourceName && CFEqual(memberName, sourceName);
+        if (memberName)
+            CFRelease(memberName);
+
+        if (!best || wkRankIsNearer(&rank, &bestRank)) {
+            best = member;
+            bestRank = rank;
+        }
+    }
+    if (sourceName)
+        CFRelease(sourceName);
+
+    CTFontRef selected = NULL;
+    if (best && candidates > 1) {
+        CFStringRef name = (CFStringRef)CTFontDescriptorCopyAttribute(best, kCTFontNameAttribute);
+        if (name) {
+            selected = wkFontWithFaceName(copy, name);
+            CFRelease(name);
+        }
+    }
+    CFRelease(members);
+    return selected;
+}
+
+// The same nearest choice over a family CoreText will not enumerate -- the hidden system UI family
+// among them, whose kCTFontFamilyNameAttribute match returns NULL on this host. Its members are still
+// reachable one at a time through the bold symbolic trait, so the candidate set is the two faces that
+// trait resolves to, each judged by its own kCTFontWeightTrait. The trait carries no width, so this
+// route answers a weight request only. NULL when the two faces are the same one.
+static CTFontRef wkNearestSymbolicTraitFace(CTFontRef copy, CGFloat targetWeight)
+{
+    CGFloat size = CTFontGetSize(copy);
+    CGAffineTransform matrix = CTFontGetMatrix(copy);
+    CTFontRef faces[2];
+    faces[0] = CTFontCreateCopyWithSymbolicTraits(copy, size, &matrix, 0, kCTFontTraitBold);
+    faces[1] = CTFontCreateCopyWithSymbolicTraits(copy, size, &matrix, kCTFontTraitBold, kCTFontTraitBold);
+    CTFontRef chosen = NULL;
+    if (faces[0] && faces[1]) {
+        CFStringRef lighter = CTFontCopyPostScriptName(faces[0]);
+        CFStringRef heavier = CTFontCopyPostScriptName(faces[1]);
+        bool distinct = lighter && heavier && !CFEqual(lighter, heavier);
+        if (lighter)
+            CFRelease(lighter);
+        if (heavier)
+            CFRelease(heavier);
+        if (distinct) {
+            CGFloat weights[2] = { 0.0, 0.0 };
+            bool haveWeights = true;
+            for (int i = 0; i < 2; ++i) {
+                CTFontDescriptorRef descriptor = CTFontCopyFontDescriptor(faces[i]);
+                wk_font_traits traits;
+                if (!descriptor || !wkDescriptorTraits(descriptor, &traits) || !traits.haveWeight)
+                    haveWeights = false;
+                else
+                    weights[i] = traits.weight;
+                if (descriptor)
+                    CFRelease(descriptor);
+            }
+            if (haveWeights) {
+                int pick = wkTraitDistance(weights[1], targetWeight) < wkTraitDistance(weights[0], targetWeight)
+                    || (wkTraitDistance(weights[1], targetWeight) == wkTraitDistance(weights[0], targetWeight) && weights[1] > weights[0]) ? 1 : 0;
+                chosen = faces[pick];
+                CFRetain(chosen);
+            }
+        }
+    }
+    for (int i = 0; i < 2; ++i) {
+        if (faces[i])
+            CFRelease(faces[i]);
+    }
+    return chosen;
+}
+
+// A kCTFontWidthTrait or kCTFontWeightTrait in the attributes selects the family member carrying it.
+// 10.9's matcher reads both as filters it cannot satisfy and leaves the face alone -- measured on this
+// host for Helvetica, Helvetica Neue, Avenir, Lucida Grande, Menlo and the system UI family alike, at
+// every weight from -0.8 to 0.62, by all four routes (copy-with-attributes, descriptor copy, explicit
+// matching, family-plus-trait descriptor). So make the selection here, over the copy's family. An axis
+// the attributes leave out keeps the copy's own value, which is what a copy inherits.
+static CTFontRef wkApplyTraitsToFace(CTFontRef copy, CTFontDescriptorRef attributes)
+{
+    if (!copy || !attributes)
+        return copy;
+
+    // A face named outright is the caller's own choice of member.
+    CFTypeRef namedFace = CTFontDescriptorCopyAttribute(attributes, kCTFontNameAttribute);
+    if (namedFace) {
+        CFRelease(namedFace);
+        return copy;
+    }
+
+    wk_font_traits requested;
+    if (!wkDescriptorTraits(attributes, &requested) || (!requested.haveWeight && !requested.haveWidth))
+        return copy;
+
+    wk_font_traits own;
+    memset(&own, 0, sizeof(own));
+    CTFontDescriptorRef ownDescriptor = CTFontCopyFontDescriptor(copy);
+    if (ownDescriptor) {
+        wkDescriptorTraits(ownDescriptor, &own);
+        CFRelease(ownDescriptor);
+    }
+    CGFloat targetWidth = requested.haveWidth ? requested.width : (own.haveWidth ? own.width : 0.0);
+    CGFloat targetWeight = requested.haveWeight ? requested.weight : (own.haveWeight ? own.weight : 0.0);
+
+    CTFontRef selected = wkNearestEnumeratedFamilyMember(copy, targetWidth, targetWeight);
+    if (!selected && requested.haveWeight)
+        selected = wkNearestSymbolicTraitFace(copy, targetWeight);
+    if (!selected)
+        return copy;
+    CFRelease(copy);
+    return selected;
+}
+
 // The copy entry point, where the source's scale is the font's own and the size that can name a
 // new one is the attributes descriptor's. This is how WebCore realizes a font whose base is a
 // CTFont rather than a descriptor (UnrealizedCoreTextFont::realize). A NULL matrix here means the
@@ -920,6 +1197,7 @@ WK_POLYFILL_REPLACES("CoreText", CTFontRef, CTFontCreateCopyWithAttributes,
                                      haveSource ? &source.matrix : NULL, &composed);
     CTFontRef copy = WK_ORIGINAL(CTFontCreateCopyWithAttributes)
         ? WK_ORIGINAL(CTFontCreateCopyWithAttributes)(font, size, matrix, attributes) : NULL;
+    copy = wkApplyTraitsToFace(copy, attributes);
     return wk_recordFontRequest(copy, size, requested);
 }
 
@@ -2342,69 +2620,148 @@ WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateLastRe
     return CTFontDescriptorCreateWithNameAndSize(CFSTR("LastResort"), 0.0);
 }
 
-// Dynamic-Type text-style descriptor (style/size/language). 10.9 has no Dynamic Type; return the
-// system UI font's descriptor so system/caption text resolves to a real font.
+// The text-style metrics CoreText publishes per platform, keyed by the style identifier. The Mac table
+// is this host's; the Phone table is the one kCTFontTextStylePlatformPhone names. Both are the default
+// content-size category: the Mac scale has only that one class. Headline is the sole style heavier than
+// regular on Phone (semibold 0.3); the Mac scale makes it bold (0.4) and Caption2 medium (0.23). The
+// short and tall variants carry their base style's point size.
+typedef struct { const char* token; CGFloat size; CGFloat weight; } wk_text_style_metrics;
+
+static const wk_text_style_metrics wkMacTextStyles[] = {
+    { "UICTFontTextStyleTitle0",        26, 0.0 },
+    { "UICTFontTextStyleTitle1",        22, 0.0 },
+    { "UICTFontTextStyleTitle2",        17, 0.0 },
+    { "UICTFontTextStyleTitle3",        15, 0.0 },
+    { "UICTFontTextStyleTitle4",        13, 0.0 },
+    { "UICTFontTextStyleHeadline",      13, 0.4 },
+    { "UICTFontTextStyleBody",          13, 0.0 },
+    { "UICTFontTextStyleCallout",       12, 0.0 },
+    { "UICTFontTextStyleSubhead",       11, 0.0 },
+    { "UICTFontTextStyleFootnote",      10, 0.0 },
+    { "UICTFontTextStyleCaption1",      10, 0.0 },
+    { "UICTFontTextStyleCaption2",      10, 0.23 },
+    { "UICTFontTextStyleShortHeadline", 13, 0.4 },
+    { "UICTFontTextStyleShortBody",     13, 0.0 },
+    { "UICTFontTextStyleShortSubhead",  11, 0.0 },
+    { "UICTFontTextStyleShortFootnote", 10, 0.0 },
+    { "UICTFontTextStyleShortCaption1", 10, 0.0 },
+    { "UICTFontTextStyleTallBody",      13, 0.0 },
+};
+
+static const wk_text_style_metrics wkPhoneTextStyles[] = {
+    { "UICTFontTextStyleTitle0",        34, 0.0 },
+    { "UICTFontTextStyleTitle1",        28, 0.0 },
+    { "UICTFontTextStyleTitle2",        22, 0.0 },
+    { "UICTFontTextStyleTitle3",        20, 0.0 },
+    { "UICTFontTextStyleTitle4",        17, 0.0 },
+    { "UICTFontTextStyleHeadline",      17, 0.3 },
+    { "UICTFontTextStyleBody",          17, 0.0 },
+    { "UICTFontTextStyleCallout",       16, 0.0 },
+    { "UICTFontTextStyleSubhead",       15, 0.0 },
+    { "UICTFontTextStyleFootnote",      13, 0.0 },
+    { "UICTFontTextStyleCaption1",      12, 0.0 },
+    { "UICTFontTextStyleCaption2",      11, 0.0 },
+    { "UICTFontTextStyleShortHeadline", 17, 0.3 },
+    { "UICTFontTextStyleShortBody",     17, 0.0 },
+    { "UICTFontTextStyleShortSubhead",  15, 0.0 },
+    { "UICTFontTextStyleShortFootnote", 13, 0.0 },
+    { "UICTFontTextStyleShortCaption1", 12, 0.0 },
+    { "UICTFontTextStyleTallBody",      17, 0.0 },
+};
+
+// CTFontTextStylePlatform, from PAL/pal/spi/cf/CoreTextSPI.h: Default -1, Phone 0, Watch 1, TV 2,
+// Mac 3, MacTouchBar 4, Vision 5, VisionLegacy 6. Default names the running platform, a Mac here.
+#define WK_CTFONT_TEXT_STYLE_PLATFORM_PHONE 0
+
+// Style identifier -> point size and CTFontWeight for a platform. An identifier no table names takes
+// Body's metrics, the scale's baseline.
+static void wkTextStyleMetrics(CFStringRef style, int platform, CGFloat *size, CGFloat *weight)
+{
+    bool phone = platform == WK_CTFONT_TEXT_STYLE_PLATFORM_PHONE;
+    const wk_text_style_metrics *table = phone ? wkPhoneTextStyles : wkMacTextStyles;
+    size_t count = phone ? sizeof(wkPhoneTextStyles) / sizeof(wkPhoneTextStyles[0])
+                         : sizeof(wkMacTextStyles) / sizeof(wkMacTextStyles[0]);
+    char buf[64];
+    if (!style || !CFStringGetCString(style, buf, sizeof(buf), kCFStringEncodingUTF8))
+        strcpy(buf, "UICTFontTextStyleBody");
+    for (size_t i = 0; i < count; ++i) {
+        if (!strcmp(buf, table[i].token)) {
+            *size = table[i].size;
+            *weight = table[i].weight;
+            return;
+        }
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (!strcmp("UICTFontTextStyleBody", table[i].token)) {
+            *size = table[i].size;
+            *weight = table[i].weight;
+            return;
+        }
+    }
+}
+
+// The font a text style resolves to: the system UI font for the language at the style's point size,
+// carrying the style's weight -- which reaches the family member holding it through the same nearest
+// weight selection any other kCTFontWeightTrait request takes.
+static CTFontRef wkTextStyleFont(CFStringRef style, int platform, CFStringRef language, CGFloat *outSize, CGFloat *outWeight)
+{
+    CGFloat size = 0.0, weight = 0.0;
+    wkTextStyleMetrics(style, platform, &size, &weight);
+    if (outSize)
+        *outSize = size;
+    if (outWeight)
+        *outWeight = weight;
+    CTFontRef font = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, size, language);
+    if (!font)
+        return NULL;
+    CTFontDescriptorRef request = wkWeightRequestDescriptor(weight);
+    if (request) {
+        font = wkApplyTraitsToFace(font, request);
+        CFRelease(request);
+    }
+    return font;
+}
+
+// Text-style font descriptor (style / content-size category / language).
 WK_POLYFILL_ABSENT("CoreText", CTFontDescriptorRef, CTFontDescriptorCreateWithTextStyle, (CFStringRef style, CFStringRef size, CFStringRef language))
 {
-    (void)style; (void)size; (void)language;
-    CTFontRef system = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, 0.0, NULL);
-    if (!system)
+    (void)size;
+    CTFontRef font = wkTextStyleFont(style, -1 /* kCTFontTextStylePlatformDefault */, language, NULL, NULL);
+    if (!font)
         return NULL;
-    CTFontDescriptorRef descriptor = CTFontCopyFontDescriptor(system);
-    CFRelease(system);
+    CTFontDescriptorRef descriptor = CTFontCopyFontDescriptor(font);
+    CFRelease(font);
     return descriptor;
 }
 
-// CTFontDescriptorGetTextStyleSize (10.10+): the default point size (return value) and weight (out-param,
-// on the CTFontWeight -1..1 scale) for a Dynamic-Type text style at a content-size category. 10.9 has no
-// Dynamic Type — a single, non-scaling size class — so return the documented default ("Large" category)
-// metrics for each -apple-system-* text style; the family itself resolves to the plain system font via
-// CTFontDescriptorCreateWithTextStyle above. The style keys arrive as the polyfilled kCTUIFontTextStyle*
-// CFStrings (constants.m), whose values are their own token names, so match on that text. sizeCategory and
-// platform are irrelevant on 10.9 (fontPlatform() is kCTFontTextStylePlatformDefault here). Only Headline /
-// ShortHeadline are semibold (0.3); every other style is regular (0.0). Sizes are the standard Dynamic-Type
-// point sizes (Body/Headline 17, Subhead 15, Footnote 13, Caption1 12, Caption2 11, Title1 28, Title2 22,
-// Title3 20); the short/tall variants share their base style's point size (they differ only in leading),
-// and the non-standard Title0 (largest) / Title4 (a step below Title3) take 34 / 18.
-// (platform is the CTFontTextStylePlatform enum — WebKit SPI, not in the system SDK header — typed here as
-// its underlying int so this TU needs no SPI header; it is unused, and C linkage is by name.)
+// CTFontDescriptorGetTextStyleSize (10.10+): the point size (return value), the weight (out-param, on
+// the CTFontWeight -1..1 scale) and the line spacing (out-param, in points) of a text style at a
+// content-size category, for the platform the third argument names. The style keys arrive as the
+// polyfilled kCTUIFontTextStyle* CFStrings (constants.m), so match on their text.
+// kCTFontTextStylePlatformPhone answers the Phone table; every other value, Default included, answers
+// this host's Mac table. Line spacing is the metric of the font the style resolves to: ascent + descent
+// + leading at the answered size.
+// (platform is the CTFontTextStylePlatform enum, absent from this system's CoreText headers, typed here
+// as its underlying int so this TU needs no extra header; C linkage is by name.)
 WK_POLYFILL_ABSENT("CoreText", CGFloat, CTFontDescriptorGetTextStyleSize, (CFStringRef style, CFTypeRef sizeCategory, int platform, CGFloat* weight, CGFloat* lineSpacing))
 {
-    (void)sizeCategory; (void)platform;
-    static const struct { const char* token; CGFloat size; CGFloat weight; } table[] = {
-        { "kCTUIFontTextStyleTitle0",        34, 0.0 },
-        { "kCTUIFontTextStyleTitle1",        28, 0.0 },
-        { "kCTUIFontTextStyleTitle2",        22, 0.0 },
-        { "kCTUIFontTextStyleTitle3",        20, 0.0 },
-        { "kCTUIFontTextStyleTitle4",        18, 0.0 },
-        { "kCTUIFontTextStyleHeadline",      17, 0.3 },
-        { "kCTUIFontTextStyleBody",          17, 0.0 },
-        { "kCTUIFontTextStyleSubhead",       15, 0.0 },
-        { "kCTUIFontTextStyleFootnote",      13, 0.0 },
-        { "kCTUIFontTextStyleCaption1",      12, 0.0 },
-        { "kCTUIFontTextStyleCaption2",      11, 0.0 },
-        { "kCTUIFontTextStyleShortHeadline", 17, 0.3 },
-        { "kCTUIFontTextStyleShortBody",     17, 0.0 },
-        { "kCTUIFontTextStyleShortSubhead",  15, 0.0 },
-        { "kCTUIFontTextStyleShortFootnote", 13, 0.0 },
-        { "kCTUIFontTextStyleShortCaption1", 12, 0.0 },
-        { "kCTUIFontTextStyleTallBody",      17, 0.0 },
-    };
-    char buf[64];
-    if (!style || !CFStringGetCString(style, buf, sizeof(buf), kCFStringEncodingUTF8))
-        buf[0] = '\0';
-    CGFloat size = 17.0, w = 0.0; // default: Body
-    for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); ++i) {
-        if (!strcmp(buf, table[i].token)) {
-            size = table[i].size;
-            w = table[i].weight;
-            break;
-        }
+    (void)sizeCategory;
+    CGFloat size = 0.0, w = 0.0;
+    if (!lineSpacing) {
+        wkTextStyleMetrics(style, platform, &size, &w);
+        if (weight)
+            *weight = w;
+        return size;
     }
+
+    *lineSpacing = 0.0;
+    CTFontRef font = wkTextStyleFont(style, platform, NULL, &size, &w);
     if (weight)
         *weight = w;
-    if (lineSpacing)
-        *lineSpacing = 0.0;
+    if (font) {
+        *lineSpacing = CTFontGetAscent(font) + CTFontGetDescent(font) + CTFontGetLeading(font);
+        CFRelease(font);
+    }
     return size;
 }
 
@@ -2533,7 +2890,9 @@ WK_POLYFILL_ABSENT("CoreText", bool, CTFontHasTable, (CTFontRef font, CTFontTabl
 
 // CTFontShapeGlyphs (10.13+) shapes a run: it applies the font's substitutions and positioning to the
 // caller's glyph array, growing or shrinking it through `handler` when substitution changes the glyph
-// count, and returns the run's initial advance.
+// count, and returns the run's initial advance. `indexes` is the shaped run's map back into `chars` —
+// one entry per glyph, naming the UTF-16 offset that glyph came from — and the handler resizes it
+// alongside the glyphs, so the map stays one entry per glyph across a change in count.
 //
 // CTFontTransformGlyphs is 10.9's entry point for the same transformation, over the same glyph array:
 // it rewrites the caller's glyphs and advances in place and marks each glyph a substitution consumed
@@ -2542,11 +2901,27 @@ WK_POLYFILL_ABSENT("CoreText", bool, CTFontHasTable, (CTFontRef font, CTFontTabl
 // Helvetica "AVAV" kerns 26.68 26.68 26.68 26.68 to 23.73 23.73 23.73 26.68. Those emptied slots are
 // removed through the handler below, so the caller sees the shorter run the newer API returns.
 //
+// Which slots the shaped run has room for follows from what the two arrays hold:
+//
+//   kCGFontIndexInvalid is not a glyph. CGFont.h caps a CGGlyph at kCGGlyphMax, 65534, and names
+//   65535 the invalid index, so a slot holding it holds no glyph on either side of the call. A slot
+//   that ARRIVED holding it is the caller's, neither produced nor consumed by shaping; only a slot
+//   the transform itself emptied is one this run no longer has.
+//
+//   A surrogate pair is one glyph, indexed at its lead unit. Measured on this host through CoreText's
+//   own mapping: CTFontGetGlyphsForCharacters over U+1F44B's two code units returns true and answers
+//   glyph 1100 at the lead with the trail slot left empty, either surrogate alone maps to nothing,
+//   and a CTLine over the same two units carries one glyph at string index 0. So no glyph a shaper
+//   produces is indexed at a trailing surrogate, and a slot that holds glyph 0 — the pad the caller
+//   leaves for the trail unit — while its `indexes` entry names one is a pair the caller split across
+//   two slots, which kCTFontShapeWithClusterComposition, and only that option, asks to be composed
+//   back into the one glyph the pair maps to. A slot at a trailing surrogate holding any other glyph
+//   is a glyph this run still has.
+//
 // Measured on the same host, 10.9 reads an EMPTY option set as "apply everything" rather than "apply
 // nothing" — at 0 both the ligature and the kerning above happen — so each transformation is always
-// named explicitly: shaping on every call, since upstream shapes on every call (FontCoreText.cpp's
-// UNUSED_PARAM(requiresShaping)), and positioning only when the caller asks for kerning through
-// kCTFontShapeWithKerning, which is the bit font-kerning: none clears.
+// named explicitly: shaping on every call, since CTFontShapeOptions has no bit that turns shaping
+// off, and positioning only when the caller asks for kerning through kCTFontShapeWithKerning.
 //
 // CTFontShapeOptions, mirrored from PAL/pal/spi/cf/CoreTextSPI.h so the bit tested here can be checked
 // against the enum that defines it rather than against a bare literal:
@@ -2562,12 +2937,23 @@ WK_SYSTEM_FN("CoreText", bool, CTFontTransformGlyphs, (CTFontRef, CGGlyph[], CGS
 #define WK_CTFONT_TRANSFORM_APPLY_SHAPING     (1u << 0)
 #define WK_CTFONT_TRANSFORM_APPLY_POSITIONING (1u << 1)
 #define WK_CGFONT_INDEX_INVALID               0xFFFF
+#define WK_SHAPE_INLINE_GLYPHS                256
+
+static bool wkShapeRemovesSlot(const CGGlyph *glyphs, const CGGlyph *arrivedGlyphs, const CFIndex *indexes,
+    const UniChar *chars, bool composeClusters, CFIndex slot)
+{
+    if (glyphs[slot] == WK_CGFONT_INDEX_INVALID && arrivedGlyphs[slot] != WK_CGFONT_INDEX_INVALID)
+        return true;
+    if (!composeClusters || !chars || !indexes || indexes[slot] < 0)
+        return false;
+    UniChar character = chars[indexes[slot]];
+    return glyphs[slot] == 0 && character >= 0xDC00 && character <= 0xDFFF;
+}
 
 WK_POLYFILL_ABSENT("CoreText", CGSize, CTFontShapeGlyphs,
     (CTFontRef font, CGGlyph glyphs[], CGSize advances[], CGPoint origins[], CFIndex indexes[], const UniChar chars[], CFIndex count, CFOptionFlags options, CFStringRef language, void (^handler)(CFRange, CGGlyph**, CGSize**, CGPoint**, CFIndex**)))
 {
     (void)language;
-    (void)chars;
     CGSize zero = { 0, 0 };
     if (count <= 0 || !glyphs || !advances || !WK_SYSTEM(CTFontTransformGlyphs))
         return zero;
@@ -2575,76 +2961,70 @@ WK_POLYFILL_ABSENT("CoreText", CGSize, CTFontShapeGlyphs,
     uint32_t transform = WK_CTFONT_TRANSFORM_APPLY_SHAPING
         | ((options & WK_CTFONT_SHAPE_WITH_KERNING) ? WK_CTFONT_TRANSFORM_APPLY_POSITIONING : 0);
 
-    // A caller with no handler cannot be told the glyph count changed, which is the one thing it may
-    // not be given — everything else it may, and most substitutions keep the count, so shaping runs
-    // for it too, against a snapshot to go back to if a run does empty a slot.
-    CGGlyph *arrivedGlyphs = NULL;
-    CGSize *arrivedAdvances = NULL;
-    if (!handler) {
-        arrivedGlyphs = (CGGlyph *)malloc((size_t)count * sizeof(CGGlyph));
-        arrivedAdvances = (CGSize *)malloc((size_t)count * sizeof(CGSize));
-        if (!arrivedGlyphs || !arrivedAdvances) {
-            free(arrivedGlyphs);
-            free(arrivedAdvances);
-            return zero;
-        }
-        memcpy(arrivedGlyphs, glyphs, (size_t)count * sizeof(CGGlyph));
-        memcpy(arrivedAdvances, advances, (size_t)count * sizeof(CGSize));
-    }
-
     // The advances are in/out, and CTFontTransformGlyphs keeps that contract itself: it writes an
     // advance only where it substitutes a glyph (measured, zero-seeded Hoefler "fi" comes back as
     // glyph 191 at the ligature's nominal 23.36) and applies kerning as a delta on the caller's
     // values (zero-seeded Helvetica "AVAV" comes back -2.95 per kerned pair, 23.73 - 26.68). Every
     // unchanged glyph keeps the caller's measurement — the only record of its run's orientation,
-    // since the CTFont carries no kCTFontOrientationAttribute (WebCore sets that only across the
-    // serialization round-trip in FontPlatformDataCoreText.cpp).
+    // since the CTFont it was measured through carries no kCTFontOrientationAttribute.
+    //
+    // A caller with no handler cannot be told the glyph count changed, so it gets exactly what 10.9's
+    // own CTFontTransformGlyphs hands its callers: the shaped run, with each slot substitution
+    // consumed left at kCGFontIndexInvalid and a zero advance.
+    if (!handler) {
+        WK_SYSTEM(CTFontTransformGlyphs)(font, glyphs, advances, count, transform);
+        return zero;
+    }
+
+    // Which slots the transform empties is the difference between the arrived glyphs and the returned
+    // ones, so keep the arrived ones.
+    CGGlyph inlineGlyphs[WK_SHAPE_INLINE_GLYPHS];
+    CGGlyph *arrivedGlyphs = count <= WK_SHAPE_INLINE_GLYPHS
+        ? inlineGlyphs : (CGGlyph *)malloc((size_t)count * sizeof(CGGlyph));
+    // A run's worth of CGGlyphs either allocates or the process is past saving; abort rather than
+    // compact against a snapshot that is not there.
+    if (!arrivedGlyphs)
+        abort();
+    memcpy(arrivedGlyphs, glyphs, (size_t)count * sizeof(CGGlyph));
+
     WK_SYSTEM(CTFontTransformGlyphs)(font, glyphs, advances, count, transform);
 
-    // Compact the slots substitution emptied, last run of them first, so the indices of the ones still
-    // to visit hold across each removal. A negative length removes that many entries ending at
-    // `location`; the handler hands back the buffers' fresh bases, which the caller may have moved.
+    bool composeClusters = (options & WK_CTFONT_SHAPE_WITH_CLUSTER_COMPOSITION) != 0;
+
+    // Compact the removed slots, last run of them first, so the indices of the ones still to visit hold
+    // across each removal. A negative length removes that many entries ending at `location`; the handler
+    // hands back the buffers' fresh bases, which the caller may have moved.
     CGGlyph *outGlyphs = glyphs; CGSize *outAdvances = advances;
     CGPoint *outOrigins = origins; CFIndex *outIndexes = indexes;
     CFIndex i = count;
     while (i > 0) {
-        if (outGlyphs[i - 1] != WK_CGFONT_INDEX_INVALID) {
+        if (!wkShapeRemovesSlot(outGlyphs, arrivedGlyphs, outIndexes, chars, composeClusters, i - 1)) {
             i--;
             continue;
         }
-        if (!handler) {
-            memcpy(glyphs, arrivedGlyphs, (size_t)count * sizeof(CGGlyph));
-            memcpy(advances, arrivedAdvances, (size_t)count * sizeof(CGSize));
-            uint32_t positioning = transform & WK_CTFONT_TRANSFORM_APPLY_POSITIONING;
-            if (positioning)
-                WK_SYSTEM(CTFontTransformGlyphs)(font, glyphs, advances, count, positioning);
-            break;
-        }
-        CFIndex emptiedEnd = i;
-        while (i > 0 && outGlyphs[i - 1] == WK_CGFONT_INDEX_INVALID)
+        CFIndex removedEnd = i;
+        while (i > 0 && wkShapeRemovesSlot(outGlyphs, arrivedGlyphs, outIndexes, chars, composeClusters, i - 1))
             i--;
-        handler(CFRangeMake(emptiedEnd, i - emptiedEnd), &outGlyphs, &outAdvances, &outOrigins, &outIndexes);
-        if (!outGlyphs || !outAdvances)
-            break;
+        handler(CFRangeMake(removedEnd, i - removedEnd), &outGlyphs, &outAdvances, &outOrigins, &outIndexes);
     }
-    free(arrivedGlyphs);
-    free(arrivedAdvances);
+    if (arrivedGlyphs != inlineGlyphs)
+        free(arrivedGlyphs);
     return zero;   // a transformed glyph array starts at the origin; there is no initial advance to report
 }
 
-// 10.9 backport: CTRunGetBaseAdvancesAndOrigins is 10.11+, so implement it here. A naive return-0 stub
-// would zero every glyph's advance and origin, so any complex-text run that reports
-// kCTRunStatusHasOrigins (e.g. ligature-substituted icon fonts like Material Icons) would collapse all
-// its glyphs onto x=0 and render blank. Instead take the base advances from the real (10.9)
-// CTRunGetAdvances and leave the origins zero (10.9 CoreText has no per-glyph origin offsets for the
-// scripts WebKit shapes here).
+// CTRunGetBaseAdvancesAndOrigins (10.11+): the base advances and per-glyph origins over a run range,
+// where a zero length means "to the end of the run". The advances are the ones 10.9's CTRunGetAdvances
+// reports. The origins are all zero: 10.9's CTRun.h declares CTRunStatus without a
+// kCTRunStatusHasOrigins bit, so no run this CoreText produces carries per-glyph origin offsets.
 WK_POLYFILL_ABSENT("CoreText", void, CTRunGetBaseAdvancesAndOrigins,
     (CTRunRef run, CFRange range, CGSize *advances, CGPoint *origins))
 {
     if (!run)
         return;
     CFIndex glyphCount = CTRunGetGlyphCount(run);
-    CFIndex count = range.length ? range.length : glyphCount;
+    CFIndex count = range.length ? range.length : glyphCount - range.location;
+    if (count < 0)
+        count = 0;
     if (advances)
         CTRunGetAdvances(run, range, advances);
     if (origins) {
