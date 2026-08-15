@@ -25,6 +25,8 @@ macro(MAVERICKS_FILTER_SOURCE_LIST _frameworkDir _listVar _listEntry _withheldVa
     set(_mavOut "")
     set(_mavSeen "")
 
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_frameworkDir}/${_listEntry}")
+
     file(READ "${_frameworkDir}/${_listEntry}" _mavRaw)
     string(REPLACE ";" "\\;" _mavRaw "${_mavRaw}")
     string(REPLACE "\n" ";" _mavLines "${_mavRaw}")

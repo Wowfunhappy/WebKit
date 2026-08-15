@@ -92,6 +92,12 @@ endif ()
 # webm/ include root -- so no directory in the source tree satisfies every spelling at once.
 set(LIBWEBM_DIR "${THIRDPARTY_DIR}/libwebrtc/Source/third_party/libwebm")
 set(LIBWEBM_STAGED_INCLUDE "${CMAKE_BINARY_DIR}/libwebm/Headers")
+# The staging below runs at configure time: the glob tracks the header set, the property their contents.
+file(GLOB_RECURSE LIBWEBM_HEADERS CONFIGURE_DEPENDS
+    "${LIBWEBM_DIR}/webm_parser/include/webm/*"
+    "${LIBWEBM_DIR}/mkvmuxer/*.h"
+    "${LIBWEBM_DIR}/common/*.h")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${LIBWEBM_HEADERS})
 file(COPY "${LIBWEBM_DIR}/webm_parser/include/webm" DESTINATION "${LIBWEBM_STAGED_INCLUDE}")
 file(COPY "${LIBWEBM_DIR}/common/vp9_header_parser.h" DESTINATION "${LIBWEBM_STAGED_INCLUDE}/webm/common")
 # MAVERICKS_BACKPORT: the muxer half of libwebm. MediaRecorderPrivateWriterWebM.cpp includes
@@ -111,7 +117,7 @@ file(COPY "${LIBWEBM_DIR}/common" DESTINATION "${LIBWEBM_STAGED_INCLUDE}"
 
 # NOTE: the source list must be complete BEFORE add_library() -- appending to LIBWEBM_SOURCES after the
 # target exists has no effect on it.
-file(GLOB LIBWEBM_SOURCES "${LIBWEBM_DIR}/webm_parser/src/*.cc")
+file(GLOB LIBWEBM_SOURCES CONFIGURE_DEPENDS "${LIBWEBM_DIR}/webm_parser/src/*.cc")
 list(APPEND LIBWEBM_SOURCES
     "${LIBWEBM_DIR}/common/vp9_header_parser.cc"
     "${LIBWEBM_DIR}/mkvmuxer/mkvmuxer.cc"

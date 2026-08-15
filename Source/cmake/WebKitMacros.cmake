@@ -464,10 +464,9 @@ macro(WEBKIT_FRAMEWORK _target)
 
     if (APPLE AND NOT PORT STREQUAL "GTK" AND NOT ${${_target}_LIBRARY_TYPE} MATCHES STATIC)
         set_target_properties(${_target} PROPERTIES FRAMEWORK TRUE)
-        # MAVERICKS_BACKPORT: stamp the canonical bundle identifier (com.apple.WebCore etc.). CMake's
-        # default Info.plist leaves CFBundleIdentifier empty, so CFBundleGetBundleWithIdentifier
-        # ("com.apple.WebCore") in WebCore::copyLocalizedString returned NULL and every WEB_UI_STRING
-        # fell back to its localization KEY (e.g. getUserMedia consent buttons read "Allow (usermedia)").
+        # MAVERICKS_BACKPORT: CMake's default Info.plist leaves CFBundleIdentifier empty; stamp the
+        # canonical identifier that CFBundleGetBundleWithIdentifier resolves for
+        # WebCore::copyLocalizedString.
         set_target_properties(${_target} PROPERTIES MACOSX_FRAMEWORK_IDENTIFIER "com.apple.${_target}")
         install(TARGETS ${_target} FRAMEWORK DESTINATION ${LIB_INSTALL_DIR})
     endif ()
