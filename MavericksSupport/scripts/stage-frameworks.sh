@@ -343,6 +343,21 @@ else
     exit 1
 fi
 
+# The Widevine gap library rides in WebKit2's resources, beside the sandbox profiles, because the
+# UIProcess reads it from there: WidevineCdmInstaller copies it in beside each module it installs,
+# and WidevineCdmImage binds the module's missing imports to it.
+echo "### Deploying the Widevine gap library into WebKit2.framework"
+WK2_RESOURCES="$(s "$WEBKIT2_BUNDLE")/Versions/A/Resources"
+if [ -f "$WK_SUPPORT/polyfill/build/libwidevinegap.dylib" ]; then
+    mkdir -p "$WK2_RESOURCES"
+    cp -f "$WK_SUPPORT/polyfill/build/libwidevinegap.dylib" "$WK2_RESOURCES/libwidevinegap.dylib"
+    chmod 644 "$WK2_RESOURCES/libwidevinegap.dylib"
+else
+    echo "ERROR: libwidevinegap.dylib missing — Widevine playback would have no CDM." >&2
+    echo "       Build it with MavericksSupport/polyfill/scripts/build-polyfill.sh (rebuild.sh does this)." >&2
+    exit 1
+fi
+
 # GStreamer (#90), the sole media engine: deploy the dylibs + plugins into WebCore.framework. They
 # are self-contained via their own LC_RPATH @loader_path/../lib, so they ship as-is; only the WebKit
 # frameworks' @rpath/libg*/libgst*/etc. deps are rewritten to these absolute paths (step 4).
@@ -381,9 +396,6 @@ chmod 644 "$(s "$PRIVLIBCXX")"/*.dylib 2>/dev/null || true
 # GStreamer tree: every dir traversable, every dylib world-readable (sandboxed WebContent loads them).
 find "$(s "$GST_DEPLOY")" -type d -exec chmod 755 {} + 2>/dev/null || true
 find "$(s "$GST_DEPLOY")" -type f -name '*.dylib' -exec chmod 644 {} + 2>/dev/null || true
-# The Widevine device identity is read by the same sandboxed process, and arrives with
-# whatever mode the operator's own copy had.
-find "$(s "$GST_DEPLOY")" -type f -name '*.wvd' -exec chmod 644 {} + 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # Step 4: every WebKit binary advertises and loads absolute /System paths. This covers the four

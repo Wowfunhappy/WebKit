@@ -27,6 +27,9 @@ if (ENABLE_VIDEO OR ENABLE_WEB_AUDIO)
         platform/graphics/gstreamer/GRefPtrGStreamer.h
         platform/graphics/gstreamer/GStreamerCommon.h
         platform/graphics/gstreamer/GUniquePtrGStreamer.h
+        # MAVERICKS_BACKPORT: the UIProcess installs the Widevine CDM and names it to the web
+        # process, which sets it here (see WebKit's WidevineCdmInstaller).
+        platform/graphics/gstreamer/eme/WidevineCdmLocation.h
 
         platform/mediastream/gstreamer/GStreamerWebRTCProvider.h
         platform/mediastream/libwebrtc/gstreamer/GStreamerVideoDecoderFactory.h

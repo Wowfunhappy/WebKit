@@ -62,7 +62,7 @@ Vector<CDMProxyFactory*> CDMProxyFactory::platformRegisterFactories()
 #endif
     // MAVERICKS_BACKPORT: restored from upstream before 4694d7d -- this port decrypts ClearKey itself.
     factories.append(&CDMProxyFactoryClearKey::singleton());
-    // MAVERICKS_BACKPORT: com.widevine.alpha, decrypted by the bundled Chromium-API CDM.
+    // MAVERICKS_BACKPORT: com.widevine.alpha, decrypted by Google's Chromium-API CDM.
     factories.append(&CDMProxyFactoryWidevine::singleton());
     return factories;
 }

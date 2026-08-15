@@ -257,4 +257,10 @@ messages -> WebProcess : AuxiliaryProcess WantsAsyncDispatchMessage {
 #endif
 
     ContentWorldDestroyed(WebKit::ContentWorldIdentifier identifier)
+
+#if PLATFORM(MAC) && ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
+    // MAVERICKS_BACKPORT: where the UIProcess installed Google's Widevine CDM, with the extension
+    // that lets this process read it. See UIProcess/mac/WidevineCdmInstaller.h.
+    SetWidevineCdmModule(String path, WebKit::SandboxExtensionHandle handle)
+#endif
 }

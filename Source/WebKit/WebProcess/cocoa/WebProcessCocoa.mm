@@ -100,6 +100,11 @@
 #import <WebCore/UTIUtilities.h>
 #import <WebCore/WebMAudioUtilitiesCocoa.h>
 #import <algorithm>
+
+#if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
+#import <WebCore/WidevineCdmLocation.h> // MAVERICKS_BACKPORT: setWidevineCdmModule below.
+#endif
+
 #import <dispatch/dispatch.h>
 #import <mach/mach.h>
 #import <malloc/malloc.h>
@@ -1623,6 +1628,19 @@ void WebProcess::openDirectoryCacheInvalidated(SandboxExtension::Handle&& handle
 
     dispatch_async(globalDispatchQueueSingleton(QOS_CLASS_UTILITY, 0), makeBlockPtr(WTF::move(cacheInvalidationHandler)).get());
 }
+
+#if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
+// MAVERICKS_BACKPORT: the extension covers the module's whole directory, which is what the gap
+// library beside it needs too, and it is held for the life of the process because the CDM stays
+// mapped once a page has loaded it.
+void WebProcess::setWidevineCdmModule(const String& path, SandboxExtension::Handle&& handle)
+{
+    if (path == WebCore::widevineCdmModulePath())
+        return;
+    SandboxExtension::consumePermanently(handle);
+    WebCore::setWidevineCdmModulePath(path);
+}
+#endif
 #endif
 
 #if PLATFORM(MAC) || PLATFORM(MACCATALYST)

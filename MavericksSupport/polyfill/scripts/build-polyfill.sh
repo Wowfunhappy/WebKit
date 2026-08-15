@@ -228,6 +228,22 @@ echo "### libwtf_compat.a"
 "$CLANG" -c $CF $HIDDEN -o "$OBJ/objc-gc.o" "$PF/objc-gc.c"
 ar_stable "$OUT/libwtf_compat.a" "$OBJ/wtf_compat.o" "$OBJ/wtf_compat_asm.o" "$OBJ/objc-gc.o"
 
+echo "### libwidevinegap.dylib (the libSystem entry points Google's Widevine CDM imports and 10.9 lacks)"
+# Installed beside the downloaded module by WebKit's WidevineCdmInstaller, which is also what points
+# the module at it. Its symbols are EXPORTED (no $HIDDEN) because another image binds to them, and it
+# is a standalone dylib rather than part of the layer for the same reason: it is loaded by the CDM,
+# not by WebKit. getentropy and aligned_alloc are the layer's own sources, compiled here a second
+# time with their exports intact, exactly as deps/build_deps.sh compiles them into the vendored dylibs.
+GAPCF="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -O2 $WARN"
+"$CLANG" -c $GAPCF -I"$LEGACY/include" -o "$OBJ/wvgap-getentropy.o"    "$LEGACY/src/getentropy.c"
+"$CLANG" -c $GAPCF                     -o "$OBJ/wvgap-aligned_alloc.o" "$PF/shared/aligned_alloc.c"
+"$CLANG" -c $GAPCF                     -o "$OBJ/wvgap-widevine.o"      "$PF/widevine-gap.c"
+"$CLANG" --no-default-config -isysroot / -mmacosx-version-min=10.9 -dynamiclib \
+    -install_name @loader_path/libwidevinegap.dylib \
+    -o "$OUT/libwidevinegap.dylib.tmp" \
+    "$OBJ/wvgap-getentropy.o" "$OBJ/wvgap-aligned_alloc.o" "$OBJ/wvgap-widevine.o"
+tmp_stable "$OUT/libwidevinegap.dylib"
+
 echo "### polyfill mechanism self-test"
 # The guarantee a polyfill author relies on: force_load makes our definition win deterministically, and
 # the declared body/value then runs unconditionally -- no runtime forwarding to 10.9, no value-mirroring

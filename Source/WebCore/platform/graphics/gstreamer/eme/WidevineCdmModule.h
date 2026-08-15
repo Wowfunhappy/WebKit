@@ -1,34 +1,7 @@
-/*
- * Copyright (C) 2026 Jonathan Waldman
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above
- *    copyright notice, this list of conditions and the following
- *    disclaimer in the documentation and/or other materials provided
- *    with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-// MAVERICKS_BACKPORT: host for a Chromium-API Content Decryption Module, which is how
-// Widevine ships. The OpenWV CDM bundled beside the GStreamer runtime implements
-// cdm::ContentDecryptionModule_11 and performs its own AES, so this file supplies the
-// cdm::Host_11 the module calls back into and serializes access to it.
+// MAVERICKS_BACKPORT: host for a Chromium-API Content Decryption Module, which is how Widevine
+// ships. Google's module implements cdm::ContentDecryptionModule_11 and performs its own AES, so
+// this file supplies the cdm::Host_11 it calls back into and serializes access to it. Where the
+// module is, and how it got there, is WidevineCdmLocation.h and WebKit's WidevineCdmInstaller.
 
 #pragma once
 
@@ -84,6 +57,10 @@ public:
     ~WidevineCdm();
 
     void setClient(WeakPtr<WidevineCdmClient>&&);
+
+    // Where the CDM's own records go; false when there is nowhere to put them, which is a session
+    // the CDM must be told cannot persist.
+    bool setStorageDirectory(const String&);
 
     bool initialize(bool allowDistinctiveIdentifier, bool allowPersistentState);
 

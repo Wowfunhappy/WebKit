@@ -657,6 +657,12 @@ UIProcess/mac/WKTextFinderClient.mm @nonARC
 UIProcess/mac/WKTextAnimationManagerMac.mm @nonARC
 UIProcess/mac/WKViewLayoutStrategy.mm @nonARC
 UIProcess/mac/WebViewImpl.mm @nonARC
+// MAVERICKS_BACKPORT: the runtime installation of Google's Widevine CDM. Their own translation
+// units: each carries short file-static helper names (fetch, unpack, structureAt) that a unified
+// bundle would put beside another file's.
+UIProcess/mac/WidevineCdmArchive.mm @nonARC @no-unify
+UIProcess/mac/WidevineCdmImage.cpp @no-unify
+UIProcess/mac/WidevineCdmInstaller.mm @nonARC @no-unify
 
 UIProcess/Media/cocoa/AudioSessionRoutingArbitratorProxyCocoa.mm @nonARC
 UIProcess/Media/cocoa/MediaUsageManagerCocoa.mm @nonARC

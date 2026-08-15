@@ -12,18 +12,10 @@ them all from source with the in-tree toolchain into **`build/`** (`build/lib` +
 - the complete GStreamer 1.28.5 runtime — glib 2.80.5, gstreamer core/base/good/bad,
   FFmpeg + gst-libav, libvpx, dav1d, libnice/srtp/dtls + OpenSSL, WebRTC audio DSP —
   plus `bin/gst-inspect-1.0` and `bin/gst-launch-1.0` for on-box debugging;
-- OpenWV 1.1.4 (`lib/libwidevinecdm.dylib`, `include/cdm`), the Widevine CDM WebCore's
-  `CDMWidevine.cpp` hosts. The module is always built. The device identity it needs is a
-  separate file it reads at load time from its own directory (`lib/widevine.wvd`, patched in
-  — see `patches/README.md`), copied there when the operator supplies one at `widevine.wvd`
-  or `MAVERICKS_WVD`. That file carries a real device's RSA private key, so it is an
-  operator-supplied input, never a checked-in one, and `*.wvd` is gitignored here. With no
-  device the module still loads but declines to create an instance, and
-  `com.widevine.alpha` reports itself unsupported; dropping the file in beside the module
-  (and relaunching) is all it takes to enable or rotate it, with no rebuild. Building the
-  module needs a Rust toolchain and a libclang, neither of which runs on 10.9 unmodified;
-  the section pins the versions that do and inserts shims built from the same
-  `polyfill/legacy-support` sources as the gap archive.
+- `include/cdm`, the Chromium Content Decryption Module interface (pinned to one revision of
+  Chromium's own repository) that WebCore's `CDMWidevine.cpp` hosts. Headers only: the module
+  is Google's Widevine CDM, which is not redistributable and which the UIProcess downloads and
+  installs at runtime (`Source/WebKit/UIProcess/mac/WidevineCdmInstaller.h`).
 
 Every deployed Mach-O targets 10.9, and the script ends with a symbol-resolution gate
 checking, on this host, that every strong undefined symbol resolves and that no weak import

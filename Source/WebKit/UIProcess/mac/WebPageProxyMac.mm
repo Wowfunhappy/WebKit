@@ -36,6 +36,7 @@
 #import "ImageAnalysisUtilities.h"
 #import "InsertTextOptions.h"
 #import "MenuUtilities.h"
+#import "MediaKeySystemPermissionRequestProxy.h" // MAVERICKS_BACKPORT: allowMediaKeySystemRequestWithWidevineCdm below.
 #import "MessageSenderInlines.h"
 #import "NativeWebKeyboardEvent.h"
 #import "NetworkProcessMessages.h"
@@ -54,7 +55,9 @@
 #import "WebPageProxyInternals.h"
 #import "WebPageProxyMessages.h"
 #import "WebPreferencesKeys.h"
+#import "WebProcessMessages.h" // MAVERICKS_BACKPORT: SetWidevineCdmModule, sent below.
 #import "WebProcessProxy.h"
+#import "WidevineCdmInstaller.h" // MAVERICKS_BACKPORT: the runtime installation of Google's Widevine CDM.
 #import <WebCore/AXObjectCache.h>
 #import <WebCore/AttributedString.h>
 #import <WebCore/CornerRadii.h>
@@ -1139,6 +1142,29 @@ void WebPageProxy::platformUnlockPointer()
     CGDisplayShowCursor(CGMainDisplayID());
 }
 
+#endif
+
+#if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
+// MAVERICKS_BACKPORT: the page asked for com.widevine.alpha and the client allowed it. Google's
+// CDM is not redistributable, so it is installed at runtime the first time a page needs it; the
+// web process is told where it landed before the request is allowed, because what answers
+// requestMediaKeySystemAccess() next is whether that process can load it.
+void WebPageProxy::allowMediaKeySystemRequestWithWidevineCdm(Ref<MediaKeySystemPermissionRequestProxy>&& request)
+{
+    WidevineCdmInstaller::singleton().ensureModule([weakThis = WeakPtr { *this }, request = WTF::move(request)](const std::optional<WidevineCdmModule>& module) mutable {
+        RefPtr protectedThis = weakThis.get();
+        std::optional<SandboxExtension::Handle> handle;
+        if (module)
+            handle = WidevineCdmInstaller::createHandleForModule(*module);
+        if (!protectedThis || !handle) {
+            request->deny();
+            return;
+        }
+
+        protect(protectedThis->legacyMainFrameProcess())->send(Messages::WebProcess::SetWidevineCdmModule(module->path, WTF::move(*handle)), 0);
+        request->allow();
+    });
+}
 #endif
 
 } // namespace WebKit

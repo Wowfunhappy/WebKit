@@ -14062,11 +14062,25 @@ void WebPageProxy::requestMediaKeySystemPermissionForFrame(IPC::Connection& conn
         if (!protectedThis)
             return;
 
-        protectedThis->m_uiClient->decidePolicyForMediaKeySystemPermissionRequest(*protectedThis, origin, keySystem, [request = WTF::move(request)](bool allowed) {
-            if (allowed)
-                request->allow();
-            else
+        // MAVERICKS_BACKPORT: the allowed path forks on the key system below, so the page and the
+        // key system travel with the decision.
+        protectedThis->m_uiClient->decidePolicyForMediaKeySystemPermissionRequest(*protectedThis, origin, keySystem, [weakThis = WTF::move(weakThis), keySystem, request = WTF::move(request)](bool allowed) mutable {
+            if (!allowed) {
                 request->deny();
+                return;
+            }
+#if PLATFORM(MAC) && USE(GSTREAMER)
+            // MAVERICKS_BACKPORT: Widevine is served by Google's own CDM, which is not
+            // redistributable and is installed at runtime. This is where the page's request
+            // waits for it: the key system reports itself supported once the web process has
+            // been told where the module is, and unsupported when it cannot be installed.
+            if (keySystem == "com.widevine.alpha"_s) {
+                if (RefPtr page = weakThis.get())
+                    page->allowMediaKeySystemRequestWithWidevineCdm(WTF::move(request));
+                return;
+            }
+#endif
+            request->allow();
         });
     });
 #else

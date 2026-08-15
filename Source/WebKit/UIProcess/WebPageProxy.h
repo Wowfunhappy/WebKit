@@ -505,6 +505,7 @@ class LayerTreeContext;
 class ListDataObserver;
 class MediaCapability;
 class MediaKeySystemPermissionRequestManagerProxy;
+class MediaKeySystemPermissionRequestProxy; // MAVERICKS_BACKPORT: allowMediaKeySystemRequestWithWidevineCdm below.
 class MediaSessionCoordinatorProxyPrivate;
 class MediaUsageManager;
 class ModelElementController;
@@ -3183,6 +3184,11 @@ private:
 
 #if ENABLE(ENCRYPTED_MEDIA)
     MediaKeySystemPermissionRequestManagerProxy& mediaKeySystemPermissionRequestManager() LIFETIME_BOUND;
+#if PLATFORM(MAC) && USE(GSTREAMER)
+    // MAVERICKS_BACKPORT: installs Google's Widevine CDM if this host has yet to, tells the web
+    // process where it is, and answers the page's request with what that produced.
+    void allowMediaKeySystemRequestWithWidevineCdm(Ref<MediaKeySystemPermissionRequestProxy>&&);
+#endif
 #endif
     void requestMediaKeySystemPermissionForFrame(IPC::Connection&, WebCore::MediaKeySystemRequestIdentifier, WebCore::FrameIdentifier, WebCore::ClientOrigin&&, const String&);
 

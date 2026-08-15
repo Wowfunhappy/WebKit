@@ -1,30 +1,3 @@
-/*
- * Copyright (C) 2026 Jonathan Waldman
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above
- *    copyright notice, this list of conditions and the following
- *    disclaimer in the documentation and/or other materials provided
- *    with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
 // MAVERICKS_BACKPORT: see CDMWidevine.h.
 
 #include "config.h"
@@ -39,6 +12,7 @@
 #include "InitDataRegistry.h"
 #include "Logging.h"
 #include "SharedBuffer.h"
+#include <wtf/FileSystem.h>
 #include <wtf/Hasher.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
@@ -117,11 +91,8 @@ Vector<String> CDMPrivateWidevine::supportedRobustnesses() const
     return { emptyString(), "SW_SECURE_CRYPTO"_s, "SW_SECURE_DECODE"_s };
 }
 
-bool CDMPrivateWidevine::supportsConfiguration(const CDMKeySystemConfiguration& configuration) const
+bool CDMPrivateWidevine::supportsConfiguration(const CDMKeySystemConfiguration&) const
 {
-    // Persistent licenses need storage the CDM is not given.
-    if (configuration.persistentState == CDMRequirement::Required)
-        return false;
     return true;
 }
 
@@ -249,11 +220,13 @@ void CDMInstanceWidevine::cdmSessionClosed(const String& sessionID)
         session->didClose();
 }
 
-void CDMInstanceWidevine::initializeWithConfiguration(const CDMKeySystemConfiguration&, AllowDistinctiveIdentifiers allowDistinctiveIdentifiers, AllowPersistentState, SuccessCallback&& callback)
+void CDMInstanceWidevine::initializeWithConfiguration(const CDMKeySystemConfiguration&, AllowDistinctiveIdentifiers allowDistinctiveIdentifiers, AllowPersistentState allowPersistentState, SuccessCallback&& callback)
 {
-    // Persistent state is refused whatever the page asked for: the host answers CreateFileIO()
-    // with none, so a CDM told it may persist would be told wrong.
-    bool succeeded = m_cdm && m_cdm->initialize(allowDistinctiveIdentifiers == AllowDistinctiveIdentifiers::Yes, false);
+    // A CDM allowed to persist keeps one record of its own, in the origin's media-keys storage
+    // directory; one that is not, or one whose origin has no such directory, is told so and keeps
+    // nothing. Both play: the CDM asks for storage only when it has been told it may have it.
+    bool succeeded = m_cdm && m_cdm->initialize(allowDistinctiveIdentifiers == AllowDistinctiveIdentifiers::Yes,
+        allowPersistentState == AllowPersistentState::Yes && m_hasStorage);
     callback(succeeded ? SuccessValue::Succeeded : SuccessValue::Failed);
 }
 
@@ -268,8 +241,11 @@ void CDMInstanceWidevine::setServerCertificate(Ref<SharedBuffer>&& certificate, 
     callback(result.succeeded ? SuccessValue::Succeeded : SuccessValue::Failed);
 }
 
-void CDMInstanceWidevine::setStorageDirectory(const String&)
+void CDMInstanceWidevine::setStorageDirectory(const String& directory)
 {
+    if (!directory.isEmpty())
+        FileSystem::makeAllDirectories(directory);
+    m_hasStorage = m_cdm && m_cdm->setStorageDirectory(directory);
 }
 
 const String& CDMInstanceWidevine::keySystem() const

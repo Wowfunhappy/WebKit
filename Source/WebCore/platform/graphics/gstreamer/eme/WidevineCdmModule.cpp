@@ -1,30 +1,3 @@
-/*
- * Copyright (C) 2026 Jonathan Waldman
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above
- *    copyright notice, this list of conditions and the following
- *    disclaimer in the documentation and/or other materials provided
- *    with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
 // MAVERICKS_BACKPORT: see WidevineCdmModule.h.
 
 #include "config.h"
@@ -32,46 +5,37 @@
 
 #if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
 
+#include "WidevineCdmLocation.h"
+
 #include <dlfcn.h>
 #include <sys/time.h>
+#include <wtf/ASCIICType.h>
 #include <wtf/FileSystem.h>
+#include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Scope.h>
-#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
 static constexpr auto widevineKeySystemName = "com.widevine.alpha"_s;
 
-// The module ships beside the GStreamer runtime inside WebCore.framework.
-static String cdmDirectory()
+static String& modulePathStorage()
 {
-    Dl_info info { };
-    if (!dladdr(reinterpret_cast<const void*>(&cdmDirectory), &info) || !info.dli_fname)
-        return { };
-
-    auto imagePath = String::fromUTF8(info.dli_fname);
-    return makeString(FileSystem::parentPath(imagePath), "/Frameworks/gstreamer/lib"_s);
+    static NeverDestroyed<String> path;
+    return path;
 }
 
-static String cdmLibraryPath()
+const String& widevineCdmModulePath()
 {
-    auto directory = cdmDirectory();
-    if (directory.isEmpty())
-        return { };
-    return makeString(directory, "/libwidevinecdm.dylib"_s);
+    ASSERT(isMainThread());
+    return modulePathStorage();
 }
 
-// The device identity the module reads at load time. It carries a real device's private
-// key, so it is the operator's file to place and to replace, and the module is built
-// without it.
-static String cdmDeviceFilePath()
+void setWidevineCdmModulePath(const String& path)
 {
-    auto directory = cdmDirectory();
-    if (directory.isEmpty())
-        return { };
-    return makeString(directory, "/widevine.wvd"_s);
+    ASSERT(isMainThread());
+    modulePathStorage() = path;
 }
 
 namespace {
@@ -91,7 +55,7 @@ static const CdmModule& cdmModule()
 {
     static NeverDestroyed<CdmModule> module = [] {
         CdmModule module;
-        auto path = cdmLibraryPath();
+        auto path = widevineCdmModulePath();
         if (path.isEmpty())
             return module;
 
@@ -140,6 +104,92 @@ private:
     uint32_t m_size { 0 };
 };
 
+// The CDM keeps state of its own -- one small record, opened by name. It goes in the origin's
+// media-keys storage directory, which is where the rest of a key system's persistent data lives
+// and what clearing a site's data removes.
+class RecordStore : public RefCounted<RecordStore> {
+public:
+    static Ref<RecordStore> create() { return adoptRef(*new RecordStore); }
+
+    void setDirectory(const String& directory) { m_directory = directory; }
+    bool hasDirectory() const { return !m_directory.isEmpty(); }
+
+    Vector<uint8_t> read(const String& name)
+    {
+        // A record that was never written reads back empty, which is what a first run is.
+        auto contents = FileSystem::readEntireFile(FileSystem::pathByAppendingComponent(m_directory, name));
+        return contents ? WTF::move(*contents) : Vector<uint8_t> { };
+    }
+
+    bool write(const String& name, std::span<const uint8_t> bytes)
+    {
+        return FileSystem::makeAllDirectories(m_directory)
+            && FileSystem::overwriteEntireFile(FileSystem::pathByAppendingComponent(m_directory, name), bytes);
+    }
+
+private:
+    String m_directory;
+};
+
+class FileIORecord final : public cdm::FileIO {
+public:
+    FileIORecord(cdm::FileIOClient& client, Ref<RecordStore>&& store)
+        : m_client(client)
+        , m_store(WTF::move(store))
+    {
+    }
+
+    // The name the CDM may ask for, as the interface defines it: letters, digits, '.', '_' and
+    // '-', not opening with '_', and no longer than 256 characters. It reaches a file path here,
+    // so it is checked rather than trusted.
+    static bool isValidName(const String& name)
+    {
+        if (name.isEmpty() || name.length() > 256 || name[0] == '_' || name == "."_s || name == ".."_s)
+            return false;
+        for (auto character : StringView { name }.codeUnits()) {
+            if (!isASCIIAlphanumeric(character) && character != '.' && character != '_' && character != '-')
+                return false;
+        }
+        return true;
+    }
+
+    void Open(const char* name, uint32_t size) final
+    {
+        m_name = String::fromUTF8(std::span { name, size });
+        if (!isValidName(m_name)) {
+            m_name = { };
+            m_client.OnOpenComplete(cdm::FileIOClient::Status::kError);
+            return;
+        }
+        m_client.OnOpenComplete(cdm::FileIOClient::Status::kSuccess);
+    }
+
+    void Read() final
+    {
+        if (m_name.isEmpty()) {
+            m_client.OnReadComplete(cdm::FileIOClient::Status::kError, nullptr, 0);
+            return;
+        }
+        auto contents = m_store->read(m_name);
+        m_client.OnReadComplete(cdm::FileIOClient::Status::kSuccess, contents.span().data(), contents.size());
+    }
+
+    void Write(const uint8_t* data, uint32_t size) final
+    {
+        bool written = !m_name.isEmpty() && m_store->write(m_name, std::span { data, data ? size : 0u });
+        m_client.OnWriteComplete(written ? cdm::FileIOClient::Status::kSuccess : cdm::FileIOClient::Status::kError);
+    }
+
+    void Close() final { delete this; }
+
+private:
+    ~FileIORecord() final = default;
+
+    cdm::FileIOClient& m_client;
+    const Ref<RecordStore> m_store;
+    String m_name;
+};
+
 class DecryptedBlock final : public cdm::DecryptedBlock {
 public:
     DecryptedBlock() = default;
@@ -174,6 +224,10 @@ public:
     // says outside a call goes to the client instead.
     WidevineCdmCallResult result;
     bool isInCall { false };
+
+    // Where the CDM's own records go (see RecordStore), and whether it was told it may keep any.
+    const Ref<RecordStore> records { RecordStore::create() };
+    bool allowsPersistentState { false };
 
     cdm::Buffer* Allocate(uint32_t capacity) final { return HeapBuffer::create(capacity); }
 
@@ -285,8 +339,14 @@ public:
 
     void OnDeferredInitializationDone(cdm::StreamType, cdm::Status) final { }
 
-    // Persistent state is refused at Initialize(), so the CDM has nothing to store.
-    cdm::FileIO* CreateFileIO(cdm::FileIOClient*) final { return nullptr; }
+    // The interface spells a CDM that may not persist as one whose CreateFileIO() fails, which is
+    // also the answer when the origin has no storage directory to keep a record in.
+    cdm::FileIO* CreateFileIO(cdm::FileIOClient* client) final
+    {
+        if (!client || !allowsPersistentState || !records->hasDirectory())
+            return nullptr;
+        return new FileIORecord(*client, records.copyRef());
+    }
 
     void RequestStorageId(uint32_t version) final
     {
@@ -320,15 +380,16 @@ void* WidevineCdm::cdmHostForInterfaceVersion(int interfaceVersion, void* userDa
     return static_cast<cdm::Host_11*>(static_cast<Host*>(userData));
 }
 
-// Answered from the files' presence rather than by loading them: this runs during GStreamer
-// element registration in every web process, and loading the module parses the device
-// identity's RSA key. Both the module and a device for it are needed, since the module
-// refuses to create an instance without one. A module that is present but unusable surfaces
-// as a failed createInstance() below, which rejects requestMediaKeySystemAccess().
+// Answered from the file's presence rather than by loading it: this runs whenever a page asks
+// whether the key system is supported, and the module is a large mapping to take on for a
+// question. The UIProcess names the module to this process once it has installed it (see
+// WidevineCdmLocation.h), so a first page to ask is answered no and the one after it yes. A module
+// that is present but unusable surfaces as a failed createInstance() below, which rejects
+// requestMediaKeySystemAccess().
 bool WidevineCdm::isAvailable()
 {
-    static bool isPresent = FileSystem::fileExists(cdmLibraryPath()) && FileSystem::fileExists(cdmDeviceFilePath());
-    return isPresent;
+    auto& path = widevineCdmModulePath();
+    return !path.isEmpty() && FileSystem::fileExists(path);
 }
 
 RefPtr<WidevineCdm> WidevineCdm::create()
@@ -357,6 +418,13 @@ void WidevineCdm::setClient(WeakPtr<WidevineCdmClient>&& client)
 {
     Locker locker { m_lock };
     m_host->client = WTF::move(client);
+}
+
+bool WidevineCdm::setStorageDirectory(const String& directory)
+{
+    Locker locker { m_lock };
+    m_host->records->setDirectory(directory);
+    return m_host->records->hasDirectory();
 }
 
 void WidevineCdm::timerExpired(void* context)
@@ -409,6 +477,7 @@ bool WidevineCdm::initialize(bool allowDistinctiveIdentifier, bool allowPersiste
 
     m_host->result = { };
     m_host->isInCall = true;
+    m_host->allowsPersistentState = allowPersistentState;
     auto leaveCall = makeScopeExit([&] { m_host->isInCall = false; });
     m_cdm->Initialize(allowDistinctiveIdentifier, allowPersistentState, false);
     return m_host->result.succeeded;

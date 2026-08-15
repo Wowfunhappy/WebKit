@@ -87,7 +87,7 @@ platform/graphics/gstreamer/eme/CDMFactoryGStreamer.cpp
 // MAVERICKS_BACKPORT: the restored ClearKey CDMProxy and decryptor element (removed upstream in 4694d7d).
 platform/graphics/gstreamer/eme/CDMProxyClearKey.cpp
 platform/graphics/gstreamer/eme/WebKitClearKeyDecryptorGStreamer.cpp
-// MAVERICKS_BACKPORT: com.widevine.alpha, served by the bundled Chromium-API CDM. The decryptor
+// MAVERICKS_BACKPORT: com.widevine.alpha, served by Google's Chromium-API CDM. The decryptor
 // element is its own translation unit: it carries the same file-static element boilerplate names
 // (parent_class, srcTemplate, decrypt) as the ClearKey decryptor beside it.
 platform/graphics/gstreamer/eme/CDMWidevine.cpp

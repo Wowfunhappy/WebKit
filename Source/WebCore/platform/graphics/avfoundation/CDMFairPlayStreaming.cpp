@@ -281,7 +281,7 @@ void CDMFactory::platformRegisterFactories(Vector<WeakRef<CDMFactory>>& factorie
 #if USE(GSTREAMER)
     // MAVERICKS_BACKPORT: this is the port's only definition of platformRegisterFactories (see the
     // note in CDMFactoryGStreamer.cpp), so com.widevine.alpha is registered here. The factory
-    // reports no support unless the CDM library is present beside the GStreamer runtime.
+    // reports no support until the UIProcess has installed the CDM (WidevineCdmLocation.h).
     factories.append(CDMFactoryWidevine::singleton());
 #endif
 
