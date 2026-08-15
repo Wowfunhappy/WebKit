@@ -51,6 +51,8 @@ Forbidden rationalizations — each is a red flag that you are about to violate 
 
 **A memory calling something "the fix" does not exempt it.** Apply the upstream-diff test to memory-blessed mechanisms too. When one is retired, update its memory in the same change or a future session will faithfully reintroduce it.
 
+**Nothing ships. Never write backwards-compatibility or migration code.** This port is experimental; apart from a handful of technical testers who do not matter, no build reaches anyone. There is no installed base — no old on-disk layout, no previous preference key, no prior file location, no earlier format to still read. When something moves or changes shape, change it and delete the old path outright; stray files on the test machines get cleaned up by hand, not by code. A compatibility shim is permanent: it outlives the thing it was compatible with, and every later reader has to work out whether it still matters.
+
 **Never pick a worse design to get a faster one-time recompile.** Build time is throwaway; the code lives forever. (That said, when adding temporary code for debugging purposes, try to write it in a way which will minimize build time.)
 
 ## The adversarial reviewer
