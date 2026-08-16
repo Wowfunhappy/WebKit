@@ -129,6 +129,83 @@ WK_POLYFILL_SEL("isLowPowerModeEnabled", "wk_isLowPowerModeEnabled");
 // compiled out), which means the partition/policyProperties arguments carry no information here. Each
 // modern selector therefore reduces to the classic 10.9 public API.
 
+// RFC 6265 5.3: a cookie is kept only when its Domain attribute names neither a public suffix nor a
+// domain the request host fails to domain-match. 10.9's parser applies neither rule, so
+// `document.cookie = "x=1; domain=.com"` from any .com page is stored against `.com` and sent to
+// every other .com site. _CFHostIsDomainTopLevel is the public-suffix oracle WebCore's own
+// PublicSuffixStore asks on Cocoa, and 10.9 exports it; it answers on Unicode labels, so a name in
+// its A-label form is decoded first, as PublicSuffixStoreCocoa's decodeHostName does.
+extern Boolean _CFHostIsDomainTopLevel(CFStringRef domain);
+
+static NSString *wk_decodedHostName(NSString *name)
+{
+    if ([name rangeOfString:@"xn--" options:NSCaseInsensitiveSearch].location == NSNotFound)
+        return name;
+
+    typedef int32_t (*IDNToUnicodeFn)(const UniChar*, int32_t, UniChar*, int32_t, int32_t, void*, int32_t*);
+    static IDNToUnicodeFn idnToUnicode;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        idnToUnicode = (IDNToUnicodeFn)dlsym(RTLD_DEFAULT, "uidna_IDNToUnicode");
+    });
+    if (!idnToUnicode)
+        return name;
+
+    NSUInteger length = name.length;
+    UniChar source[256];
+    UniChar decoded[256];
+    if (length >= sizeof(source) / sizeof(source[0]))
+        return name;
+    [name getCharacters:source range:NSMakeRange(0, length)];
+
+    int32_t status = 0;
+    int32_t decodedLength = idnToUnicode(source, (int32_t)length, decoded,
+        (int32_t)(sizeof(decoded) / sizeof(decoded[0])), 0, NULL, &status);
+    if (status > 0 || decodedLength <= 0)
+        return name;
+    return [NSString stringWithCharacters:decoded length:(NSUInteger)decodedLength];
+}
+
+// A host that is an IP literal domain-matches only itself (RFC 6265 5.1.3), and no address is a
+// public suffix, so both tests below are skipped for one.
+static BOOL wk_hostIsIPLiteral(NSString *host)
+{
+    if ([host rangeOfString:@":"].location != NSNotFound)
+        return YES;
+    NSCharacterSet *nonAddress = [[NSCharacterSet characterSetWithCharactersInString:@"0123456789."] invertedSet];
+    return host.length && [host rangeOfCharacterFromSet:nonAddress].location == NSNotFound;
+}
+
+static NSHTTPCookie *wk_cookieWithUsableDomain(NSHTTPCookie *cookie, NSURL *url)
+{
+    NSString *domain = [cookie domain];
+    if (!cookie || !domain.length)
+        return cookie;
+
+    NSString *host = [url host];
+    // A host-only cookie is named after the host it came from and needs neither test.
+    if (host.length && [domain caseInsensitiveCompare:host] == NSOrderedSame)
+        return cookie;
+
+    if (!host.length)
+        return nil;
+    if (wk_hostIsIPLiteral(host))
+        return nil;
+
+    NSString *bare = [domain hasPrefix:@"."] ? [domain substringFromIndex:1] : domain;
+    if (!bare.length)
+        return nil;
+
+    if (_CFHostIsDomainTopLevel((__bridge CFStringRef)wk_decodedHostName(bare)))
+        return nil;
+
+    if ([host caseInsensitiveCompare:bare] != NSOrderedSame
+        && ![[host lowercaseString] hasSuffix:[[@"." stringByAppendingString:bare] lowercaseString]])
+        return nil;
+
+    return cookie;
+}
+
 // -[NSHTTPCookieStorage _getCookiesForURL:…completionHandler:] is the async-shaped successor to
 // -cookiesForURL:; it invokes the handler synchronously (the caller RELEASE_ASSERTs this). With a nil
 // partition, -cookiesForURL: is the whole answer.
@@ -157,7 +234,14 @@ WK_POLYFILL_SEL("isLowPowerModeEnabled", "wk_isLowPowerModeEnabled");
 - (void)wk__setCookies:(NSArray<NSHTTPCookie *> *)cookies forURL:(NSURL *)url mainDocumentURL:(NSURL *)mainDocumentURL policyProperties:(NSDictionary *)policyProperties
 {
     (void)policyProperties;
-    [self setCookies:cookies forURL:url mainDocumentURL:mainDocumentURL];
+    // Every script-written cookie reaches the store through here, whether it was parsed from a
+    // Set-Cookie string or built by the Cookie Store API, so the domain rules apply here too.
+    NSMutableArray<NSHTTPCookie *> *usable = [NSMutableArray arrayWithCapacity:cookies.count];
+    for (NSHTTPCookie *cookie in cookies) {
+        if (wk_cookieWithUsableDomain(cookie, url))
+            [usable addObject:cookie];
+    }
+    [self setCookies:usable forURL:url mainDocumentURL:mainDocumentURL];
 }
 - (NSArray<NSHTTPCookie *> *)wk__getCookiesForDomain:(NSString *)domain
 {
@@ -205,7 +289,8 @@ WK_POLYFILL_SEL("_setSubscribedDomainsForCookieChanges:", "wk__setSubscribedDoma
     (void)partition;
     if (!setCookieString.length || !url)
         return nil;
-    return [[NSHTTPCookie cookiesWithResponseHeaderFields:@{ @"Set-Cookie": setCookieString } forURL:url] firstObject];
+    NSHTTPCookie *cookie = [[NSHTTPCookie cookiesWithResponseHeaderFields:@{ @"Set-Cookie": setCookieString } forURL:url] firstObject];
+    return wk_cookieWithUsableDomain(cookie, url);
 }
 @end
 WK_POLYFILL_SEL("sameSitePolicy", "wk_sameSitePolicy");
