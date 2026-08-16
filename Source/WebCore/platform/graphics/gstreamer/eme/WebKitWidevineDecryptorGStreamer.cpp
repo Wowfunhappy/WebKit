@@ -49,6 +49,9 @@ static GRefPtr<GstCaps> createSinkPadTemplateCaps()
     GRefPtr<GstCaps> caps = adoptGRef(gst_caps_new_empty());
 
     for (const auto& mediaType : GStreamerEMEUtilities::s_cencEncryptionMediaTypes) {
+        if (GStreamerEMEUtilities::isWidevineDecodedMediaType(mediaType))
+            continue;
+
         gst_caps_append_structure(caps.get(), gst_structure_new("application/x-cenc", "original-media-type", G_TYPE_STRING,
             mediaType.characters(), "protection-system", G_TYPE_STRING, GStreamerEMEUtilities::s_WidevineUUID.characters(), nullptr));
     }
@@ -56,6 +59,9 @@ static GRefPtr<GstCaps> createSinkPadTemplateCaps()
     // WebM carries no protection system in its caps, so these structures match any encrypted
     // WebM stream; the active key system picks between this element and the ClearKey one.
     for (const auto& mediaType : GStreamerEMEUtilities::s_webmEncryptionMediaTypes) {
+        if (GStreamerEMEUtilities::isWidevineDecodedMediaType(mediaType))
+            continue;
+
         gst_caps_append_structure(caps.get(), gst_structure_new("application/x-webm-enc", "original-media-type", G_TYPE_STRING,
             mediaType.characters(), nullptr));
     }

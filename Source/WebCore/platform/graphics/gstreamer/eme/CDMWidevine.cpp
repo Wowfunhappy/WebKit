@@ -196,6 +196,11 @@ void CDMInstanceWidevine::unregisterSession(const String& sessionID)
     m_sessions.remove(sessionID);
 }
 
+void CDMInstanceWidevine::registerCreateInFlight(uint32_t promiseID, CDMInstanceSessionWidevine& session)
+{
+    m_createsInFlight.set(promiseID, WeakPtr { session });
+}
+
 void CDMInstanceWidevine::cdmSessionMessage(const String& sessionID, cdm::MessageType messageType, Vector<uint8_t>&& message)
 {
     if (auto session = m_sessions.get(sessionID))
@@ -218,6 +223,25 @@ void CDMInstanceWidevine::cdmSessionClosed(const String& sessionID)
 {
     if (auto session = m_sessions.get(sessionID))
         session->didClose();
+}
+
+void CDMInstanceWidevine::cdmSessionFailed(uint32_t promiseID, const String& sessionID)
+{
+    if (RefPtr creating = m_createsInFlight.take(promiseID).get()) {
+        creating->failPendingLicenseRequests();
+        return;
+    }
+    if (auto session = m_sessions.get(sessionID))
+        session->failPendingLicenseRequests();
+}
+
+void CDMInstanceWidevine::cdmSessionCreated(uint32_t promiseID, const String& sessionID)
+{
+    RefPtr creating = m_createsInFlight.take(promiseID).get();
+    if (!creating)
+        return;
+    registerSession(sessionID, *creating);
+    creating->didCreateSession(sessionID);
 }
 
 void CDMInstanceWidevine::initializeWithConfiguration(const CDMKeySystemConfiguration&, AllowDistinctiveIdentifiers allowDistinctiveIdentifiers, AllowPersistentState allowPersistentState, SuccessCallback&& callback)
@@ -261,6 +285,7 @@ RefPtr<CDMInstanceSession> CDMInstanceWidevine::createSession()
 
 CDMInstanceSessionWidevine::~CDMInstanceSessionWidevine()
 {
+    failPendingLicenseRequests();
     if (m_sessionID.isEmpty())
         return;
     if (auto* parent = parentInstance())
@@ -273,8 +298,29 @@ CDMInstanceWidevine* CDMInstanceSessionWidevine::parentInstance() const
     return static_cast<CDMInstanceWidevine*>(instance.get());
 }
 
+void CDMInstanceSessionWidevine::didCreateSession(const String& sessionID)
+{
+    m_sessionID = sessionID;
+}
+
+void CDMInstanceSessionWidevine::failPendingLicenseRequests()
+{
+    for (auto& callback : std::exchange(m_pendingLicenseCallbacks, { }))
+        callback(SharedBuffer::create(), emptyString(), false, Failed);
+}
+
 void CDMInstanceSessionWidevine::didReceiveMessage(cdm::MessageType messageType, Vector<uint8_t>&& message)
 {
+    // MAVERICKS_BACKPORT: a request still waiting for its message is answered with this one; the
+    // promise carries the message, so it does not also go to the session.
+    if (!m_pendingLicenseCallbacks.isEmpty()) {
+        auto callbacks = std::exchange(m_pendingLicenseCallbacks, { });
+        bool needsIndividualization = messageType == cdm::MessageType::kIndividualizationRequest;
+        for (auto& callback : callbacks)
+            callback(SharedBuffer::create(message.span()), m_sessionID, needsIndividualization, Succeeded);
+        return;
+    }
+
     if (m_client)
         m_client->sendMessage(messageTypeFromCdmMessageType(messageType), SharedBuffer::create(message.span()));
 }
@@ -298,6 +344,7 @@ void CDMInstanceSessionWidevine::didChangeExpiration(double)
 
 void CDMInstanceSessionWidevine::didClose()
 {
+    failPendingLicenseRequests();
     if (auto* parent = parentInstance())
         parent->unrefAllKeysFrom(m_keyStore);
     m_keyStore.clear();
@@ -328,7 +375,15 @@ void CDMInstanceSessionWidevine::requestLicense(LicenseType licenseType, KeyGrou
     auto cdmInitDataType = equalLettersIgnoringASCIICase(initDataType, "webm"_s) ? cdm::InitDataType::kWebM : cdm::InitDataType::kCenc;
     auto result = cdm->createSessionAndGenerateRequest(cdm::SessionType::kTemporary, cdmInitDataType, initData->makeContiguous()->span());
 
-    if (!result.succeeded || result.messages.isEmpty()) {
+    // A promise the CDM has not settled yet is one it settles from a host answer that completes
+    // after this call, so the session it will name is still to come.
+    if (!result.settled) {
+        parent->registerCreateInFlight(result.promiseID, *this);
+        m_pendingLicenseCallbacks.append(WTF::move(callback));
+        return;
+    }
+
+    if (!result.succeeded) {
         LOG(EME, "EME - Widevine - could not generate a license request: %s", result.errorMessage.utf8().data());
         callback(SharedBuffer::create(), emptyString(), false, Failed);
         return;
@@ -336,6 +391,14 @@ void CDMInstanceSessionWidevine::requestLicense(LicenseType licenseType, KeyGrou
 
     m_sessionID = result.sessionID;
     parent->registerSession(m_sessionID, *this);
+
+    // MAVERICKS_BACKPORT: the session exists, but the CDM emits its request from whichever host
+    // answer completes it -- the storage id it asked for part way through, say. The request waits
+    // for the message rather than being called a failure.
+    if (result.messages.isEmpty()) {
+        m_pendingLicenseCallbacks.append(WTF::move(callback));
+        return;
+    }
 
     auto& first = result.messages.first();
     auto message = SharedBuffer::create(first.second.span());

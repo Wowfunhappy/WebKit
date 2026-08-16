@@ -8,6 +8,8 @@
 #import "WidevineCdmArchive.h"
 #import "WidevineCdmImage.h"
 #import <CommonCrypto/CommonDigest.h>
+#import <errno.h>
+#import <signal.h>
 #import <sys/utsname.h>
 #import <wtf/FileSystem.h>
 #import <wtf/HexNumber.h>
@@ -135,12 +137,14 @@ static bool matchesDigest(std::span<const uint8_t> bytes, const String& expected
 // ------------------------------------------------------------------------------------------
 // Installing
 
+// One download under the user's library directory serves every WebKit application this user runs.
+// A sandboxed application's search path answers with its container, so it keeps its own.
 static String installationRoot()
 {
-    RetainPtr applicationSupport = dynamic_objc_cast<NSString>([NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES) firstObject]);
-    if (!applicationSupport)
+    RetainPtr library = dynamic_objc_cast<NSString>([NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES) firstObject]);
+    if (!library)
         return { };
-    return FileSystem::pathByAppendingComponent(FileSystem::pathByAppendingComponent(String { applicationSupport.get() }, "WebKit"_s), "WidevineCdm"_s);
+    return FileSystem::pathByAppendingComponent(FileSystem::pathByAppendingComponent(String { library.get() }, "WebKit"_s), "WidevineCdm"_s);
 }
 
 static String gapLibrarySourcePath()
@@ -156,6 +160,16 @@ static std::optional<WidevineCdmModule> installedModule(const String& root, cons
     if (!FileSystem::fileExists(path) || !FileSystem::fileExists(FileSystem::pathByAppendingComponent(directory, gapLibraryFileName)))
         return std::nullopt;
     return WidevineCdmModule { directory, path, version };
+}
+
+// A staging or replaced directory is named after the process using it, so one whose process is
+// gone belongs to an install that did not finish.
+static bool processIsRunning(StringView pid)
+{
+    auto identifier = parseInteger<int>(pid);
+    if (!identifier || *identifier <= 0)
+        return false;
+    return !kill(*identifier, 0) || errno == EPERM;
 }
 
 // A directory in the installation root is a version of the module only if it is named like one.
@@ -254,17 +268,41 @@ static std::optional<WidevineCdmModule> install(const String& root, const Manife
         return std::nullopt;
     }
 
+    // What is installed is given up only once its replacement is in place: it moves aside, and
+    // back again if the replacement cannot be moved in, so the version a web process opens is
+    // whichever module is complete.
     auto directory = FileSystem::pathByAppendingComponent(root, manifest.version);
-    FileSystem::deleteNonEmptyDirectory(directory);
+    auto displaced = makeString(root, "/.replaced-"_s, getCurrentProcessID());
+    FileSystem::deleteNonEmptyDirectory(displaced);
+    bool displacedPrevious = FileSystem::moveFile(directory, displaced);
+    auto removeDisplaced = makeScopeExit([&] {
+        if (displacedPrevious)
+            FileSystem::deleteNonEmptyDirectory(displaced);
+    });
+
     if (!FileSystem::moveFile(staging, directory)) {
         WTFLogAlways("Widevine: the module could not be moved into %s", directory.utf8().data());
+        if (displacedPrevious) {
+            // Whether or not the restore takes, this is the only complete copy left, so it is not
+            // deleted on the way out: a restore that failed leaves it under a name a later
+            // process collects once this one is gone.
+            FileSystem::moveFile(displaced, directory);
+            displacedPrevious = false;
+        }
         return std::nullopt;
     }
 
-    // An update takes the versions it replaces with it, and nothing else: another WebKit process
-    // may be installing into a staging directory of its own beside this one.
+    // An update takes the versions it replaces with it, along with anything a process that died
+    // mid-install left behind. A staging or replaced directory this process is using is named
+    // after its own pid, and another WebKit process may be using one beside it.
+    auto ownStagingName = makeString(".staging-"_s, getCurrentProcessID());
+    auto ownDisplacedName = makeString(".replaced-"_s, getCurrentProcessID());
     for (auto& name : FileSystem::listDirectory(root)) {
-        if (isVersionName(name) && name != manifest.version && name != versionInUse)
+        bool isVersion = isVersionName(name) && name != manifest.version && name != versionInUse;
+        bool isAbandoned = (name.startsWith(".staging-"_s) || name.startsWith(".replaced-"_s))
+            && name != ownStagingName && name != ownDisplacedName
+            && !processIsRunning(name.substring(name.reverseFind('-') + 1));
+        if (isVersion || isAbandoned)
             FileSystem::deleteNonEmptyDirectory(FileSystem::pathByAppendingComponent(root, name));
     }
     WTFLogAlways("Widevine: installed module %s", manifest.version.utf8().data());

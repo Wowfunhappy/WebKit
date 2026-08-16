@@ -22,6 +22,39 @@ struct WidevineKeyStatus {
     cdm::KeyStatus status { cdm::KeyStatus::kUsable };
 };
 
+// A frame the CDM decrypted and decoded. The pixels stay in the buffer the CDM filled until
+// this goes away, so a caller reads the planes and drops it.
+class WidevineVideoFrame final : public cdm::VideoFrame {
+    WTF_MAKE_NONCOPYABLE(WidevineVideoFrame);
+public:
+    WidevineVideoFrame() = default;
+    ~WidevineVideoFrame();
+
+    void SetFormat(cdm::VideoFormat) final;
+    cdm::VideoFormat Format() const final;
+    void SetSize(cdm::Size) final;
+    cdm::Size Size() const final;
+    void SetFrameBuffer(cdm::Buffer*) final;
+    cdm::Buffer* FrameBuffer() final;
+    void SetPlaneOffset(cdm::VideoPlane, uint32_t) final;
+    uint32_t PlaneOffset(cdm::VideoPlane) final;
+    void SetStride(cdm::VideoPlane, uint32_t) final;
+    uint32_t Stride(cdm::VideoPlane) final;
+    void SetTimestamp(int64_t) final;
+    int64_t Timestamp() const final;
+
+    // The plane as the CDM laid it out, or an empty span when the frame carries no pixels.
+    std::span<const uint8_t> plane(cdm::VideoPlane) const;
+
+private:
+    cdm::Buffer* m_buffer { nullptr };
+    cdm::VideoFormat m_format { cdm::kUnknownVideoFormat };
+    cdm::Size m_size { 0, 0 };
+    std::array<uint32_t, 3> m_planeOffsets { 0, 0, 0 };
+    std::array<uint32_t, 3> m_strides { 0, 0, 0 };
+    int64_t m_timestamp { 0 };
+};
+
 // The CDM also speaks on its own account -- a renewal message when a license nears
 // expiry, a key that stopped being usable, a session it closed. Those arrive outside
 // any call and are delivered here.
@@ -33,6 +66,10 @@ public:
     virtual void cdmSessionKeyStatusesChanged(const String& sessionID, Vector<WidevineKeyStatus>&&) = 0;
     virtual void cdmSessionExpirationChanged(const String& sessionID, double expirationTime) = 0;
     virtual void cdmSessionClosed(const String& sessionID) = 0;
+    // MAVERICKS_BACKPORT: the CDM settled the promise for a call that had already returned. The id
+    // is the one that call was issued under, which is what names the request being answered.
+    virtual void cdmSessionFailed(uint32_t promiseID, const String& sessionID) = 0;
+    virtual void cdmSessionCreated(uint32_t promiseID, const String& sessionID) = 0;
 };
 
 // What a call produced. The CDM reports a call's own outcome through host callbacks it
@@ -40,6 +77,11 @@ public:
 // control back.
 struct WidevineCdmCallResult {
     bool succeeded { false };
+    // MAVERICKS_BACKPORT: whether the CDM settled this call's promise before the call returned. A
+    // CDM that is still waiting on a host answer settles it afterwards, which is not a failure.
+    bool settled { false };
+    // The id this call was issued under, for matching a settlement that arrives after it returns.
+    uint32_t promiseID { 0 };
     String errorMessage;
     String sessionID;
     Vector<std::pair<cdm::MessageType, Vector<uint8_t>>> messages;
@@ -73,6 +115,14 @@ public:
     // Called on GStreamer streaming threads. Writes the plaintext over |inOut|,
     // which must hold the ciphertext on entry.
     cdm::Status decrypt(const cdm::InputBuffer_2&, std::span<uint8_t> inOut);
+
+    // Video the CDM decodes itself. Its Decrypt() answers kNoKey for a sample it recognises as
+    // a video bitstream, so an encoded video stream goes through these instead, exactly as
+    // Chromium drives the same module.
+    cdm::Status initializeVideoDecoder(const cdm::VideoDecoderConfig_2&);
+    void deinitializeVideoDecoder();
+    void resetVideoDecoder();
+    cdm::Status decryptAndDecodeFrame(const cdm::InputBuffer_2&, WidevineVideoFrame&);
 
 private:
     class Host;

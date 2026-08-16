@@ -91,11 +91,13 @@
 #include "WebKitFliteSourceGStreamer.h"
 #endif
 
-// MAVERICKS_BACKPORT: the restored ClearKey decryptor (see WebKitClearKeyDecryptorGStreamer.h) and
-// the Widevine decryptor (see WebKitWidevineDecryptorGStreamer.h).
+// MAVERICKS_BACKPORT: the restored ClearKey decryptor (see WebKitClearKeyDecryptorGStreamer.h),
+// the Widevine decryptor (see WebKitWidevineDecryptorGStreamer.h) and the Widevine video decoder
+// (see WebKitWidevineVideoDecoderGStreamer.h).
 #if ENABLE(ENCRYPTED_MEDIA)
 #include "WebKitClearKeyDecryptorGStreamer.h"
 #include "WebKitWidevineDecryptorGStreamer.h"
+#include "WebKitWidevineVideoDecoderGStreamer.h"
 #endif
 
 #if ENABLE(ENCRYPTED_MEDIA) && ENABLE(THUNDER)
@@ -601,14 +603,17 @@ void registerWebKitGStreamerElements()
         //   is an alternative outside of WebKit.
         // - Use GST_RANK_NONE for elements explicitely created by WebKit (no auto-plugging).
 
-// MAVERICKS_BACKPORT: restored from upstream before 4694d7d -- the ClearKey decryptor is this port's
-// only CENC decryptor.
+// MAVERICKS_BACKPORT: the ClearKey decryptor, restored from upstream before 4694d7d.
 #if ENABLE(ENCRYPTED_MEDIA)
         gst_element_register(nullptr, "webkitclearkey", GST_RANK_PRIMARY + 200, WEBKIT_TYPE_MEDIA_CK_DECRYPT);
         // MAVERICKS_BACKPORT: the Widevine decryptor. Which of the two decryptors serves a stream
         // is decided by the active key system in MediaPlayerPrivateGStreamer's autoplug-select
         // handler, not by rank, so one with no CDM behind it is never plugged.
         gst_element_register(nullptr, "webkitwidevine", GST_RANK_PRIMARY + 200, WEBKIT_TYPE_MEDIA_WV_DECRYPT);
+        // MAVERICKS_BACKPORT: encrypted H.264 and VP9, which the CDM decodes itself. Its sink
+        // caps are the media types the decryptor beside it leaves out, so the two never contend
+        // for a stream.
+        gst_element_register(nullptr, "webkitwidevinevideodec", GST_RANK_PRIMARY + 200, WEBKIT_TYPE_MEDIA_WV_VIDEO_DECODE);
 #endif
 
 #if ENABLE(ENCRYPTED_MEDIA) && ENABLE(THUNDER)

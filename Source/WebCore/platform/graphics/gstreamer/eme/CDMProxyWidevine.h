@@ -40,12 +40,34 @@ public:
         WeakPtr<CDMProxyDecryptionClient> cdmProxyDecryptionClient;
     };
 
+    // What the CDM decodes for itself. The subsamples arrive already parsed because converting
+    // the bitstream to the Annex-B the CDM decodes moves the clear byte counts.
+    struct DecodeContext {
+        std::span<const uint8_t> keyID;
+        std::span<const uint8_t> iv;
+        std::span<const uint8_t> data;
+        std::span<const cdm::SubsampleEntry> subsamples;
+        cdm::EncryptionScheme encryptionScheme { cdm::EncryptionScheme::kCenc };
+        cdm::Pattern pattern { 0, 0 };
+        int64_t timestamp { 0 };
+        WeakPtr<CDMProxyDecryptionClient> cdmProxyDecryptionClient;
+    };
+
     explicit CDMProxyWidevine(const String& keySystem)
         : CDMProxy(keySystem) { }
     virtual ~CDMProxyWidevine() = default;
 
     void setCdm(RefPtr<WidevineCdm>&&);
     bool decrypt(DecryptionContext&);
+
+    cdm::Status initializeVideoDecoder(const cdm::VideoDecoderConfig_2&);
+    void deinitializeVideoDecoder();
+    void resetVideoDecoder();
+    cdm::Status decryptAndDecodeFrame(DecodeContext&, WidevineVideoFrame&);
+
+    // GStreamer carries subsamples as big-endian (uint16 clear, uint32 encrypted) pairs. False
+    // when the buffer the media supplied is too small for the count it claims.
+    static bool parseSubsamples(std::span<const uint8_t>, unsigned count, Vector<cdm::SubsampleEntry>&);
 
 private:
     Lock m_cdmLock;

@@ -22,6 +22,7 @@
 
 #if PLATFORM(MAC) && ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
 
+#include <mach-o/fat.h>
 #include <mach-o/fixup-chains.h>
 #include <mach-o/loader.h>
 #include <mach-o/nlist.h>
@@ -107,6 +108,34 @@ template<typename Handler> bool forEachLoadCommand(const Vector<uint8_t>& image,
     return forEachLoadCommandFrom(image, 0, WTF::move(handler));
 }
 
+// The x86_64 Mach-O inside a file, which for everything 10.9 ships on disk is one slice of a
+// universal file. Nothing without that slice is a library this host binds against.
+std::optional<size_t> machOSliceOffset(const Vector<uint8_t>& file)
+{
+    auto* header = structureAt<fat_header>(file, 0);
+    if (!header)
+        return std::nullopt;
+    if (header->magic != FAT_MAGIC && header->magic != FAT_CIGAM) {
+        auto* thin = structureAt<mach_header_64>(file, 0);
+        return thin && thin->magic == MH_MAGIC_64 ? std::make_optional<size_t>(0) : std::nullopt;
+    }
+
+    bool swapped = header->magic == FAT_CIGAM;
+    auto count = swapped ? OSSwapInt32(header->nfat_arch) : header->nfat_arch;
+    auto* architectures = structureAt<fat_arch>(file, sizeof(fat_header), count);
+    if (!architectures)
+        return std::nullopt;
+
+    for (uint32_t i = 0; i < count; ++i) {
+        auto cpuType = swapped ? OSSwapInt32(architectures[i].cputype) : architectures[i].cputype;
+        auto offset = swapped ? OSSwapInt32(architectures[i].offset) : architectures[i].offset;
+        auto* slice = structureAt<mach_header_64>(file, offset);
+        if (cpuType == CPU_TYPE_X86_64 && slice && slice->magic == MH_MAGIC_64)
+            return offset;
+    }
+    return std::nullopt;
+}
+
 // The export trie of the image at |imageOffset|: the table dyld resolves a two-level import
 // against, holding what the image defines and what it re-exports.
 template<typename Bytes> std::optional<std::span<const uint8_t>> exportTrie(const Bytes& image, size_t imageOffset = 0)
@@ -116,57 +145,63 @@ template<typename Bytes> std::optional<std::span<const uint8_t>> exportTrie(cons
         if (command != LC_DYLD_INFO && command != LC_DYLD_INFO_ONLY)
             return;
         auto* info = structureAt<dyld_info_command>(image, offset);
-        if (!info || !info->export_size || info->export_off > image.size() || image.size() - info->export_off < info->export_size)
+        if (!info || !info->export_size)
             return;
-        trie = spanOf(image).subspan(info->export_off, info->export_size);
+        size_t exportOffset = imageOffset + info->export_off;
+        if (exportOffset > image.size() || image.size() - exportOffset < info->export_size)
+            return;
+        trie = spanOf(image).subspan(exportOffset, info->export_size);
     });
     return trie;
 }
 
-// Whether |symbol| is in an export trie, walked the way dyld walks it: each node holds the
-// terminal information for the name spelled by the edges taken to reach it.
-bool trieHolds(std::span<const uint8_t> trie, const String& symbol)
+// Every symbol an export trie spells. Each node holds the terminal information for the name
+// spelled by the edges taken to reach it, and a name can be spelled across a node and an empty
+// edge, so the whole trie is walked rather than one path through it.
+HashSet<String> trieSymbols(std::span<const uint8_t> trie)
 {
-    auto name = symbol.utf8();
-    size_t position = 0;
-    size_t matched = 0;
-    // A malformed trie can point back at itself; it cannot do so more times than it has bytes.
-    for (size_t step = 0; step <= trie.size(); ++step) {
-        if (position >= trie.size())
-            return false;
+    HashSet<String> symbols;
+
+    struct Node {
+        size_t position { 0 };
+        String prefix;
+    };
+    Vector<Node> pending;
+    pending.append(Node { 0, emptyString() });
+
+    // A malformed trie can point back at itself, so each node position is walked once. The root
+    // is at zero, so zero is a key like any other.
+    HashSet<size_t, DefaultHash<size_t>, WTF::UnsignedWithZeroKeyHashTraits<size_t>> visited;
+    while (!pending.isEmpty()) {
+        auto node = pending.takeLast();
+        if (node.position >= trie.size())
+            continue;
+        if (!visited.add(node.position).isNewEntry)
+            continue;
+
+        size_t position = node.position;
         uint64_t terminalSize = readULEB(trie, position);
-        // The name is spelled out and this node says what it exports. A node that says nothing is
-        // not the end of the walk: the trie can spell one symbol across a node and an empty edge.
-        if (matched == name.length() && terminalSize)
-            return true;
+        if (terminalSize && !node.prefix.isEmpty())
+            symbols.add(node.prefix);
 
         size_t children = position + terminalSize;
         if (children >= trie.size())
-            return false;
+            continue;
         uint8_t childCount = trie[children++];
 
-        std::optional<size_t> next;
         for (uint8_t i = 0; i < childCount; ++i) {
             size_t edgeStart = children;
             while (children < trie.size() && trie[children])
                 ++children;
             if (children >= trie.size())
-                return false;
+                break;
             auto edge = trie.subspan(edgeStart, children - edgeStart);
             ++children;
             uint64_t child = readULEB(trie, children);
-            if (next || edge.size() > name.length() - matched)
-                continue;
-            if (!memcmp(edge.data(), name.data() + matched, edge.size())) {
-                next = child;
-                matched += edge.size();
-            }
+            pending.append(Node { static_cast<size_t>(child), makeString(node.prefix, String::fromUTF8(edge)) });
         }
-        if (!next)
-            return false;
-        position = *next;
     }
-    return false;
+    return symbols;
 }
 
 template<typename Bytes> String pathOfDylibCommand(const Bytes& image, size_t commandOffset, uint32_t commandSize, uint32_t& pathOffsetOut)
@@ -497,6 +532,8 @@ Expected<void, String> convertChainedFixups(Vector<uint8_t>& image)
     uint32_t exportsSize = 0;
     if (exportsTrieCommandOffset) {
         auto* exports = structureAt<linkedit_data_command>(image, exportsTrieCommandOffset);
+        if (!exports)
+            return makeUnexpected("the module's LC_DYLD_EXPORTS_TRIE is truncated"_s);
         exportsOffset = exports->dataoff;
         exportsSize = exports->datasize;
     }
@@ -531,7 +568,10 @@ Expected<void, String> convertChainedFixups(Vector<uint8_t>& image)
     }
     std::sort(commandsToRemove.begin(), commandsToRemove.end(), std::greater<size_t> { });
     for (size_t commandOffset : commandsToRemove) {
-        uint32_t commandSize = structureAt<load_command>(image, commandOffset)->cmdsize;
+        auto* command = structureAt<load_command>(image, commandOffset);
+        if (!command)
+            continue;
+        uint32_t commandSize = command->cmdsize;
         auto tail = image.mutableSpan().subspan(commandOffset + commandSize, commandsEnd - commandOffset - commandSize);
         memmoveSpan(image.mutableSpan().subspan(commandOffset, tail.size()), tail);
         commandsEnd -= commandSize;
@@ -619,19 +659,20 @@ void skipSLEB(std::span<const uint8_t> stream, size_t& position)
 }
 
 // The external symbols a library defines, read from its own symbol table.
-HashSet<String> definedSymbols(const Vector<uint8_t>& image)
+HashSet<String> definedSymbols(const Vector<uint8_t>& image, size_t sliceOffset = 0)
 {
     HashSet<String> symbols;
-    forEachLoadCommand(image, [&](size_t offset, uint32_t command, uint32_t) {
+    forEachLoadCommandFrom(image, sliceOffset, [&](size_t offset, uint32_t command, uint32_t) {
         if (command != LC_SYMTAB)
             return;
         auto* symtab = structureAt<symtab_command>(image, offset);
         if (!symtab)
             return;
-        auto* entries = structureAt<nlist_64>(image, symtab->symoff, symtab->nsyms);
-        if (!entries || symtab->stroff > image.size() || image.size() - symtab->stroff < symtab->strsize)
+        auto* entries = structureAt<nlist_64>(image, sliceOffset + symtab->symoff, symtab->nsyms);
+        size_t stringsOffset = sliceOffset + symtab->stroff;
+        if (!entries || stringsOffset > image.size() || image.size() - stringsOffset < symtab->strsize)
             return;
-        auto strings = image.span().subspan(symtab->stroff, symtab->strsize);
+        auto strings = image.span().subspan(stringsOffset, symtab->strsize);
         for (uint32_t i = 0; i < symtab->nsyms; ++i) {
             auto& entry = entries[i];
             if (!(entry.n_type & N_EXT) || (entry.n_type & N_PEXT) || (entry.n_type & N_TYPE) == N_UNDF)
@@ -648,137 +689,96 @@ HashSet<String> definedSymbols(const Vector<uint8_t>& image)
     return symbols;
 }
 
-// What this host resolves, read from the dyld shared cache. Every system library here lives in
-// the cache, and the cache carries each image's export trie -- the table dyld itself binds
-// against, re-exports and all -- so an import can be asked of the library its own record names,
-// whether or not this process has that library mapped, with nothing loaded to answer it. The
-// files on disk cannot answer instead: /usr/lib/libSystem.B.dylib is a 59 KB stub whose symbols
-// are all in the cache, and the frameworks' on-disk tables are as partial. A library the cache
-// does not hold is read from its own file, which is where anything not shipped with the OS is.
+// What this host resolves. dyld binds a two-level import against the library the record names
+// and everything that library re-exports, and reads it from the file on disk, so that file is
+// what is asked here: /usr/lib/libSystem.B.dylib defines 31 symbols of its own and re-exports the
+// rest from /usr/lib/system, and an umbrella framework answers the same way. Every library 10.9
+// ships is universal, so the x86_64 slice is located before any of it is read.
 class HostLibraries {
 public:
     // Whether |libraryPath| answers for |symbol| on this host. A library this host does not have
     // at all is not a missing symbol: the load commands are what handle those.
     bool provides(const String& symbol, const String& libraryPath)
     {
-        if (auto trie = cacheImageExportTrie(libraryPath))
-            return trieHolds(*trie, symbol);
-
-        auto& file = fileFor(libraryPath);
-        if (file.isEmpty())
+        if (!has(libraryPath))
             return true;
-        if (auto trie = exportTrie(file))
-            return trieHolds(*trie, symbol);
-        return definedSymbols(file).contains(symbol);
+        HashSet<String> visited;
+        return exports(symbol, libraryPath, visited);
     }
 
-    // Whether this host has the library at all, in the cache or as a file. A library it does not
-    // have is one dyld will not find, which is what makes a load command a donor.
+    // Whether this host has the library at all. A library it does not have is one dyld will not
+    // find, which is what makes a load command a donor.
     bool has(const String& libraryPath)
     {
-        return cacheImageExportTrie(libraryPath) || !fileFor(libraryPath).isEmpty();
+        return libraryFor(libraryPath).slice.has_value();
     }
 
 private:
-    // 10.9's cache, at the path its dyld reads it from.
-    static constexpr auto sharedCachePath = "/var/db/dyld/dyld_shared_cache_x86_64"_s;
-
-    struct CacheHeader {
-        std::array<char, 16> magic;
-        uint32_t mappingOffset;
-        uint32_t mappingCount;
-        uint32_t imagesOffset;
-        uint32_t imagesCount;
-        uint64_t dyldBaseAddress;
-    };
-    struct CacheMapping {
-        uint64_t address;
-        uint64_t size;
-        uint64_t fileOffset;
-        uint32_t maxProtection;
-        uint32_t initialProtection;
-    };
-    struct CacheImage {
-        uint64_t address;
-        uint64_t modificationTime;
-        uint64_t inode;
-        uint32_t pathFileOffset;
-        uint32_t padding;
+    struct Library {
+        Vector<uint8_t> bytes;
+        std::optional<size_t> slice;
+        HashSet<String> symbols;
+        Vector<String> reexports;
     };
 
-    std::optional<std::span<const uint8_t>> cacheImageExportTrie(const String& path)
+    // The library's own table, then the libraries it re-exports, which is the order dyld resolves
+    // them in. |visited| is what stops a re-export cycle.
+    bool exports(const String& symbol, const String& libraryPath, HashSet<String>& visited)
     {
-        if (!m_readCache) {
-            m_readCache = true;
-            readCache();
+        if (!visited.add(libraryPath).isNewEntry)
+            return false;
+
+        // Copied out: reading a re-exported library inserts into the map this came from, which
+        // moves the entry a reference would still be pointing at.
+        Vector<String> reexports;
+        {
+            auto& library = libraryFor(libraryPath);
+            if (!library.slice)
+                return false;
+            if (library.symbols.contains(symbol))
+                return true;
+            reexports = library.reexports;
         }
-        auto entry = m_cacheImages.find(path);
-        return entry == m_cacheImages.end() ? std::nullopt : std::make_optional(entry->value);
+
+        for (auto& reexport : reexports) {
+            if (exports(symbol, reexport, visited))
+                return true;
+        }
+        return false;
     }
 
-    void readCache()
+    const Library& libraryFor(const String& path)
     {
-        m_cache = FileSystem::mapFile(sharedCachePath, FileSystem::MappedFileMode::Private);
-        if (!m_cache)
-            return;
-        auto cache = m_cache->span();
+        return m_libraries.ensure(path, [&] {
+            Library library;
+            auto contents = FileSystem::readEntireFile(path);
+            if (!contents)
+                return library;
+            library.bytes = WTF::move(*contents);
+            library.slice = machOSliceOffset(library.bytes);
+            if (!library.slice)
+                return library;
 
-        auto* header = structureAt<CacheHeader>(cache, 0);
-        if (!header || strncmp(header->magic.data(), "dyld_v1", 7))
-            return;
-        auto* mappings = structureAt<CacheMapping>(cache, header->mappingOffset, header->mappingCount);
-        auto* images = structureAt<CacheImage>(cache, header->imagesOffset, header->imagesCount);
-        if (!mappings || !images)
-            return;
+            // The export trie is what dyld binds against; the symbol table answers for a library
+            // built without one.
+            if (auto trie = exportTrie(library.bytes, *library.slice))
+                library.symbols = trieSymbols(*trie);
+            if (library.symbols.isEmpty())
+                library.symbols = definedSymbols(library.bytes, *library.slice);
 
-        // An image's address is in the cache's own address space, which the mappings translate.
-        auto fileOffsetOf = [&](uint64_t address) -> std::optional<size_t> {
-            for (uint32_t i = 0; i < header->mappingCount; ++i) {
-                if (address >= mappings[i].address && address - mappings[i].address < mappings[i].size)
-                    return mappings[i].fileOffset + (address - mappings[i].address);
-            }
-            return std::nullopt;
-        };
-
-        for (uint32_t i = 0; i < header->imagesCount; ++i) {
-            auto imageOffset = fileOffsetOf(images[i].address);
-            if (!imageOffset || images[i].pathFileOffset >= cache.size())
-                continue;
-            auto trie = exportTrie(cache, *imageOffset);
-            if (!trie)
-                continue;
-
-            auto path = cache.subspan(images[i].pathFileOffset);
-            size_t length = 0;
-            while (length < path.size() && path[length])
-                ++length;
-            m_cacheImages.add(String::fromUTF8(path.first(length)), *trie);
-
-            // A library is also known by the name it calls itself, which is what a load command
-            // that names a symlinked or versioned path resolves to.
-            forEachLoadCommandFrom(cache, *imageOffset, [&](size_t offset, uint32_t command, uint32_t commandSize) {
-                if (command != LC_ID_DYLIB)
+            forEachLoadCommandFrom(library.bytes, *library.slice, [&](size_t offset, uint32_t command, uint32_t commandSize) {
+                if (command != LC_REEXPORT_DYLIB)
                     return;
                 uint32_t pathOffset = 0;
-                auto name = pathOfDylibCommand(cache, offset, commandSize, pathOffset);
-                if (!name.isEmpty())
-                    m_cacheImages.add(name, *trie);
+                auto reexport = pathOfDylibCommand(library.bytes, offset, commandSize, pathOffset);
+                if (!reexport.isEmpty())
+                    library.reexports.append(WTF::move(reexport));
             });
-        }
-    }
-
-    const Vector<uint8_t>& fileFor(const String& path)
-    {
-        return m_files.ensure(path, [&] {
-            auto contents = FileSystem::readEntireFile(path);
-            return contents ? WTF::move(*contents) : Vector<uint8_t> { };
+            return library;
         }).iterator->value;
     }
 
-    bool m_readCache { false };
-    std::optional<FileSystem::MappedFileData> m_cache;
-    HashMap<String, std::span<const uint8_t>> m_cacheImages;
-    HashMap<String, Vector<uint8_t>> m_files;
+    HashMap<String, Library> m_libraries;
 };
 
 Expected<void, String> retargetImports(Vector<uint8_t>& image, const String& gapLibraryPath, const String& gapLibraryFilePath)
@@ -797,6 +797,8 @@ Expected<void, String> retargetImports(Vector<uint8_t>& image, const String& gap
         return makeUnexpected("the module has no symbol table or no LC_DYLD_INFO_ONLY"_s);
 
     auto* symtab = structureAt<symtab_command>(image, symtabCommandOffset);
+    if (!symtab)
+        return makeUnexpected("the module's LC_SYMTAB is truncated"_s);
     auto* symbols = structureAt<nlist_64>(image, symtab->symoff, symtab->nsyms);
     if (!symbols || symtab->stroff > image.size() || image.size() - symtab->stroff < symtab->strsize)
         return makeUnexpected("the module's symbol table runs past the end of the file"_s);
@@ -821,7 +823,12 @@ Expected<void, String> retargetImports(Vector<uint8_t>& image, const String& gap
         if ((symbol.n_type & N_TYPE) != N_UNDF || symbol.n_value)
             continue;
         unsigned ordinal = GET_LIBRARY_ORDINAL(symbol.n_desc);
+        // The census is of the load commands the module binds through, weakly or not, so it runs
+        // before anything is skipped: a library bound through is never the gap library's donor.
         usedOrdinals.add(ordinal);
+        // dyld binds an absent weak import to zero, so it does not need a gap implementation.
+        if (symbol.n_desc & N_WEAK_REF)
+            continue;
         if (!ordinal || ordinal > libraries.size())
             continue;
         auto name = symbolName(symbol);
@@ -834,7 +841,10 @@ Expected<void, String> retargetImports(Vector<uint8_t>& image, const String& gap
     auto gapLibrary = FileSystem::readEntireFile(gapLibraryFilePath);
     if (!gapLibrary)
         return makeUnexpected(makeString("the gap library is missing: "_s, gapLibraryFilePath));
-    auto provided = definedSymbols(*gapLibrary);
+    auto gapSlice = machOSliceOffset(*gapLibrary);
+    if (!gapSlice)
+        return makeUnexpected(makeString("the gap library has no x86_64 slice: "_s, gapLibraryFilePath));
+    auto provided = definedSymbols(*gapLibrary, *gapSlice);
     Vector<String> uncovered;
     for (auto& symbol : unresolvable) {
         if (!provided.contains(symbol))
@@ -947,6 +957,8 @@ Expected<void, String> retargetImports(Vector<uint8_t>& image, const String& gap
     };
 
     auto* dyldInfo = structureAt<dyld_info_command>(image, dyldInfoCommandOffset);
+    if (!dyldInfo)
+        return makeUnexpected("the module's LC_DYLD_INFO_ONLY is truncated"_s);
     for (auto [offset, size] : { std::pair { dyldInfo->bind_off, dyldInfo->bind_size }, std::pair { dyldInfo->lazy_bind_off, dyldInfo->lazy_bind_size } }) {
         auto retargeted = retargetStream(offset, size);
         if (!retargeted)

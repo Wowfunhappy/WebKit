@@ -2657,14 +2657,16 @@ void MediaPlayerPrivateGStreamer::configureParsebin(GstElement* parsebin)
                 return skipAutoPlug;
 
 #if ENABLE(ENCRYPTED_MEDIA)
-            // MAVERICKS_BACKPORT: this port builds two CENC decryptors, and ClearKey's sink caps
-            // carry a bare application/x-cenc structure that intersects any protection system, so
-            // caps alone cannot say which one belongs on a stream. The CDM the page created does.
+            // MAVERICKS_BACKPORT: this port builds two CENC decryptors and a Widevine video
+            // decoder, and ClearKey's sink caps carry a bare application/x-cenc structure that
+            // intersects any protection system, as do the WebM structures every one of them
+            // publishes, so caps alone cannot say which belongs on a stream. The CDM the page
+            // created does.
             if (RefPtr cdmInstance = player->m_cdmInstance) {
                 bool isClearKeyDecryptor = name == "webkitclearkey"_s;
-                bool isWidevineDecryptor = name == "webkitwidevine"_s;
-                if ((isClearKeyDecryptor || isWidevineDecryptor)
-                    && isWidevineDecryptor != GStreamerEMEUtilities::isWidevineKeySystem(cdmInstance->keySystem()))
+                bool isWidevineElement = name == "webkitwidevine"_s || name == "webkitwidevinevideodec"_s;
+                if ((isClearKeyDecryptor || isWidevineElement)
+                    && isWidevineElement != GStreamerEMEUtilities::isWidevineKeySystem(cdmInstance->keySystem()))
                     return skipAutoPlug;
             }
 #endif

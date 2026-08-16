@@ -25,39 +25,12 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/random.h>
-#include <stdio.h>
-#include <stdarg.h>
 #include <errno.h>
-
-void
-_error(int doexit, int err, const char* fmt, ...)
-{
-    va_list ap;
-
-    fflush(stdout);
-    fflush(stderr);
-    va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
-    va_end(ap);
-
-    if (err > 0)
-        fprintf(stderr, "\n  %s (Errno %d)\n", strerror(err), err);
-
-    if (doexit) {
-        fflush(stderr);
-        exit(1);
-    }
-}
 
 static int
 _randopen(const char* name)
 {
-    int fd = open(name, O_RDONLY);
-    if (fd < 0) {
-      _error(1, errno, "Cannot open system random number dev %s", name);
-    }
-
-    return fd;
+    return open(name, O_RDONLY | O_CLOEXEC);
 }
 
 int
@@ -73,8 +46,11 @@ getentropy(void* buf, size_t n)
         return -1;
     }
 
-    if (fd < 0)
+    if (fd < 0) {
         fd = _randopen("/dev/urandom");
+        if (fd < 0)
+            return -1;
+    }
 
     while (n > 0)
     {
@@ -82,7 +58,11 @@ getentropy(void* buf, size_t n)
 
         if (m < 0) {
             if (errno == EINTR) continue;
-            _error(1, errno, "Fatal read error while reading rand dev");
+            return -1;
+        }
+        if (m == 0) {
+            errno = EIO;
+            return -1;
         }
         b += m;
         n -= m;

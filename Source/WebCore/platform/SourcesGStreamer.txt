@@ -93,6 +93,7 @@ platform/graphics/gstreamer/eme/WebKitClearKeyDecryptorGStreamer.cpp
 platform/graphics/gstreamer/eme/CDMWidevine.cpp
 platform/graphics/gstreamer/eme/CDMProxyWidevine.cpp
 platform/graphics/gstreamer/eme/WebKitWidevineDecryptorGStreamer.cpp @no-unify
+platform/graphics/gstreamer/eme/WebKitWidevineVideoDecoderGStreamer.cpp @no-unify
 platform/graphics/gstreamer/eme/WidevineCdmModule.cpp
 platform/graphics/gstreamer/eme/CDMProxyThunder.cpp
 platform/graphics/gstreamer/eme/CDMThunder.cpp
