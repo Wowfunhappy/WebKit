@@ -10,8 +10,7 @@
 #
 # Step order is load-bearing, top to bottom:
 #   1 copy + layout + rename    2 resources    3 runtime/polyfill/GStreamer deploys
-#   4 install names    5 demangler guard    6 XPC clones    7 single-unwinder gate
-#   7b GC-capable flag    8 i386 graft
+#   4 install names    5 demangler guard    6 XPC clones    7 single-unwinder gate    8 i386 graft
 # The graft is LAST because install_name_tool and the demangler guard operate on THIN x86_64
 # binaries: run against a fat file they risk header-padding failures, and they would put the
 # stock i386 slice through a rewrite it must never receive. Grafting after all binary mutation
@@ -523,28 +522,6 @@ if [ "$UNWIND_VIOLATIONS" -ne 0 ]; then
     echo "### FAILED: $UNWIND_VIOLATIONS binaries reference a private libunwind (mixed-unwinder hazard)" >&2
     exit 1
 fi
-
-# ---------------------------------------------------------------------------
-# Mark every staged binary GC-capable (OBJC_IMAGE_SUPPORTS_GC), so apps that run Objective-C
-# garbage collection (Xcode 4, github #118) can load the product; the runtime support behind
-# the bit lives in polyfill/polyfills/objc-gc.c + wtf/RetainPtr.h. Runs before the i386 graft
-# while every binary is thin (the stock i386 slices already carry the bit — Apple compiled
-# them -fobjc-gc). Binaries without Objective-C content are skipped by the script.
-echo "### Marking staged binaries GC-capable (__objc_imageinfo SUPPORTS_GC)"
-# xargs (not a while-read subshell) so a script failure fails the stage; the --verify pass
-# then positively asserts the bit landed on the four framework binaries, so a silently
-# skipped sweep (this happened: a python SyntaxError inside the old pipeline was swallowed)
-# can never ship an unflagged product again. Executables are deliberately not flagged --
-# SUPPORTS_GC on a MAIN image turns collection ON for that process (see the script header).
-gc_binaries() {
-    for root in $WK_INSTALL_ROOTS; do
-        find "$(s "$root")" \( -type f -perm +111 \) -o \( -type f -name '*.dylib' \) 2>/dev/null
-    done
-}
-gc_binaries | xargs python "$HERE/set-objc-gc-supported.py"
-# Verify over the SAME enumeration, not a hand-listed subset: every non-executable image that
-# contains Objective-C must carry the bit, because any one of them aborts a GC app at load.
-gc_binaries | xargs python "$HERE/set-objc-gc-supported.py" --verify
 
 # ---------------------------------------------------------------------------
 # Step 8, last: 32-bit (i386) compatibility — graft the STOCK 10.9 i386 slices back in.

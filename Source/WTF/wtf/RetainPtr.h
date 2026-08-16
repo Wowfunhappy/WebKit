@@ -26,8 +26,6 @@
 
 #include <algorithm>
 #include <cstddef>
-// MAVERICKS_BACKPORT: for WTF_EXPORT_PRIVATE on g_objCGCIsEnabled below.
-#include <wtf/ExportMacros.h>
 #include <wtf/HashTraits.h>
 #include <wtf/NeverDestroyed.h>
 
@@ -68,20 +66,6 @@
 #endif
 
 namespace WTF {
-
-// MAVERICKS_BACKPORT: True when this process runs Objective-C garbage collection (10.9's
-// runtime still supports GC, and an -fobjc-gc app such as Xcode 4 can load our frameworks).
-// Under GC, retain/release/autorelease — and ARC's implicit equivalents — are no-ops, and
-// the collector never scans the C++ heap, so a plain RetainPtr keeps nothing alive.
-// CFRetain/CFRelease still work under GC (they drive the collector's external reference
-// count, which pins the object and scans it as a root), so the Objective-C paths below
-// route through them when collecting — the same semantics RetainPtr had in WebKit's own
-// -fobjc-gc era. The invariant that keeps pin counts balanced across ARC / MRR / C++
-// translation units: under GC every retain-side operation performs exactly one CFRetain and
-// every release-side operation exactly one CFRelease. Defined in StringImplCF.cpp; read
-// once at load (a process cannot change GC-ness after launch).
-WTF_EXPORT_PRIVATE extern bool g_objCGCIsEnabled;
-ALWAYS_INLINE bool objCGCIsEnabled() { return g_objCGCIsEnabled; }
 
 template<typename T> class RetainPtr;
 
@@ -213,64 +197,17 @@ private:
 
     static inline void retainFoundationPtr(CFTypeRef ptr) { CFRetain(ptr); }
     static inline void releaseFoundationPtr(CFTypeRef ptr) { CFRelease(ptr); }
-    // MAVERICKS_BACKPORT: under GC there is no autorelease pool — drop the pin instead;
-    // the caller's (conservatively scanned) stack reference keeps the object alive across
-    // the handoff until it is re-pinned or stored somewhere the collector scans.
-    static inline void autoreleaseFoundationPtr(CFTypeRef ptr)
-    {
-        if (objCGCIsEnabled()) {
-            CFRelease(ptr);
-            return;
-        }
-        CFAutorelease(ptr);
-    }
+    static inline void autoreleaseFoundationPtr(CFTypeRef ptr) { CFAutorelease(ptr); }
 
 #ifdef __OBJC__
 #if __has_feature(objc_arc)
-    // MAVERICKS_BACKPORT: ARC's implicit retains/releases are no-ops under GC, so these
-    // hooks — empty upstream — carry the real pin when collecting (see objCGCIsEnabled()).
-    static inline void retainFoundationPtr(id ptr)
-    {
-        if (objCGCIsEnabled())
-            CFRetain((__bridge CFTypeRef)ptr);
-    }
-    static inline void releaseFoundationPtr(id ptr)
-    {
-        if (objCGCIsEnabled())
-            CFRelease((__bridge CFTypeRef)ptr);
-    }
-    static inline void autoreleaseFoundationPtr(id ptr)
-    {
-        if (objCGCIsEnabled())
-            CFRelease((__bridge CFTypeRef)ptr);
-    }
+    static inline void retainFoundationPtr(id) { }
+    static inline void releaseFoundationPtr(id) { }
+    static inline void autoreleaseFoundationPtr(id) { }
 #else
-    // MAVERICKS_BACKPORT: [retain]/[release]/[autorelease] are no-ops under GC — pin via
-    // CFRetain/CFRelease instead (see objCGCIsEnabled()).
-    static inline void retainFoundationPtr(id ptr)
-    {
-        if (objCGCIsEnabled()) {
-            CFRetain((__bridge CFTypeRef)ptr);
-            return;
-        }
-        [ptr retain];
-    }
-    static inline void releaseFoundationPtr(id ptr)
-    {
-        if (objCGCIsEnabled()) {
-            CFRelease((__bridge CFTypeRef)ptr);
-            return;
-        }
-        [ptr release];
-    }
-    static inline void autoreleaseFoundationPtr(id ptr)
-    {
-        if (objCGCIsEnabled()) {
-            CFRelease((__bridge CFTypeRef)ptr);
-            return;
-        }
-        [ptr autorelease];
-    }
+    static inline void retainFoundationPtr(id ptr) { [ptr retain]; }
+    static inline void releaseFoundationPtr(id ptr) { [ptr release]; }
+    static inline void autoreleaseFoundationPtr(id ptr) { [ptr autorelease]; }
 #endif
 #endif
 
@@ -332,14 +269,6 @@ template<typename T> inline auto RetainPtr<T>::getAutoreleased() -> PtrType
 template<typename T> inline id RetainPtr<T>::bridgingAutorelease()
 {
     static_assert(!IsNSType<PtrType>, "Don't use bridgingAutorelease for Objective-C pointer types.");
-    // MAVERICKS_BACKPORT: CFBridgingRelease's autorelease is a no-op under GC — drop the
-    // pin directly; the caller's reference keeps the object alive (see objCGCIsEnabled()).
-    if (objCGCIsEnabled()) {
-        auto ptr = leakRef();
-        if (ptr)
-            CFRelease(ptr);
-        return (__bridge id)ptr;
-    }
     return CFBridgingRelease(leakRef());
 }
 #endif // __OBJC__
@@ -415,19 +344,6 @@ template<typename T> constexpr RetainPtr<RetainPtrType<T>> adoptCF(T CF_RELEASES
 template<typename T> constexpr RetainPtr<RetainPtrType<T>> adoptNS(T NS_RELEASES_ARGUMENT ptr)
 {
     static_assert(IsNSType<T>, "Don't use adoptNS with Core Foundation pointer types, use adoptCF.");
-    // MAVERICKS_BACKPORT: under GC the +1 being adopted does not exist (alloc/copy/new
-    // return unretained collector memory), so take a real pin here; the balancing
-    // [release] of the classic CFRetain/[release] adopt dance is itself a no-op under GC
-    // and is omitted. adoptCF needs no equivalent: CF Create functions return objects
-    // whose external reference count is already 1 under GC, exactly what the destructor's
-    // CFRelease expects.
-#ifdef __OBJC__
-    if (ptr && objCGCIsEnabled())
-        CFRetain((__bridge CFTypeRef)ptr);
-#else
-    if (ptr && objCGCIsEnabled())
-        CFRetain((CFTypeRef)ptr);
-#endif
     return { ptr, RetainPtr<RetainPtrType<T>>::Adopt };
 }
 

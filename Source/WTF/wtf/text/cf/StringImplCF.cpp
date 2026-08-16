@@ -24,8 +24,6 @@
 #if USE(CF)
 
 #include <CoreFoundation/CoreFoundation.h>
-// MAVERICKS_BACKPORT: for the dlsym that reads the Objective-C GC flag below.
-#include <dlfcn.h>
 #include <wtf/DebugHeap.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
@@ -33,24 +31,6 @@
 #include <wtf/Threading.h>
 
 namespace WTF {
-
-// MAVERICKS_BACKPORT: whether this process runs Objective-C garbage collection — see the
-// note in RetainPtr.h. Resolved through dlsym because the modern SDK's <objc/objc-auto.h>
-// inlines objc_collectingEnabled() to a hard NO, and so that binaries that do not link
-// libobjc (the build-time tools) still link this file. In a process without libobjc the
-// lookup fails and the flag stays false, which is also correct.
-bool g_objCGCIsEnabled = false;
-
-// Priority 101 (the lowest an application may use) so this runs before every
-// default-priority initializer in the image. Ordering matters: a RetainPtr constructed
-// before the flag is read would take a no-op [retain] and later be released with a real
-// CFRelease, underflowing the collector's external reference count.
-static void initializeObjCGCIsEnabled() __attribute__((constructor(101)));
-static void initializeObjCGCIsEnabled()
-{
-    if (auto collectingEnabled = reinterpret_cast<signed char (*)()>(dlsym(RTLD_DEFAULT, "objc_collectingEnabled")))
-        g_objCGCIsEnabled = collectingEnabled();
-}
 
 namespace StringWrapperCFAllocator {
 
@@ -138,11 +118,7 @@ namespace StringWrapperCFAllocator {
 
 RetainPtr<CFStringRef> StringImpl::createCFString()
 {
-    // MAVERICKS_BACKPORT: a custom CFAllocator yields non-collectable objects, which must
-    // not enter a garbage-collected process's object graph (CF logs "storing a non-GC
-    // object in a GC collection" and the collector cannot manage their lifetime) — take
-    // the default-allocator copying path instead, as WebKit did in its own -fobjc-gc era.
-    if (!m_length || !isMainThread() || objCGCIsEnabled()) {
+    if (!m_length || !isMainThread()) {
         if (is8Bit()) {
             auto characters = span8();
             return adoptCF(CFStringCreateWithBytes(nullptr, byteCast<UInt8>(characters.data()), characters.size(), kCFStringEncodingISOLatin1, false));

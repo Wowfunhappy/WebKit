@@ -223,10 +223,7 @@ echo "### libwtf_compat.a"
     -Wno-unused-command-line-argument -o "$OBJ/wtf_compat.o" "$PF/wtf-compat.cpp"
 "$CLANG" -c --no-default-config -mmacosx-version-min=10.9 \
     -o "$OBJ/wtf_compat_asm.o" "$PF/wtf-compat-asm.s"
-# objc-gc.c: Objective-C garbage-collection support (github #118) — rides in the JSC-resident
-# archive so it initializes exactly once, in every process that loads any WebKit framework.
-"$CLANG" -c $CF $HIDDEN -o "$OBJ/objc-gc.o" "$PF/objc-gc.c"
-ar_stable "$OUT/libwtf_compat.a" "$OBJ/wtf_compat.o" "$OBJ/wtf_compat_asm.o" "$OBJ/objc-gc.o"
+ar_stable "$OUT/libwtf_compat.a" "$OBJ/wtf_compat.o" "$OBJ/wtf_compat_asm.o"
 
 echo "### libwidevinegap.dylib (the libSystem entry points Google's Widevine CDM imports and 10.9 lacks)"
 # Installed beside the downloaded module by WebKit's WidevineCdmInstaller, which is also what points

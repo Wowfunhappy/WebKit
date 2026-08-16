@@ -1,3 +1,0 @@
-# run-gctest.sh rebuilds the test binary and its run logs on demand; neither is committed
-# (the project keeps nothing regenerable in the tree).
-/build/

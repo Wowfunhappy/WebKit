@@ -51,13 +51,6 @@ static void initWrapperCache()
     NSPointerFunctionsOptions keyOptions = NSPointerFunctionsOpaqueMemory | NSPointerFunctionsOpaquePersonality;
     NSPointerFunctionsOptions valueOptions = NSPointerFunctionsWeakMemory | NSPointerFunctionsObjectPersonality;
     globalWrapperCache = [[NSMapTable alloc] initWithKeyOptions:keyOptions valueOptions:valueOptions capacity:0];
-    // MAVERICKS_BACKPORT: under Objective-C garbage collection (github #118) this global is
-    // the map's only reference, and a plain store into a global is invisible to 10.9's
-    // collector -- the map is freed and NSMapGet then reads recycled memory. Pin it. (The
-    // sweeper in polyfill/polyfills/objc-gc.c would also pin it, but only at its next pass;
-    // this table is consulted from JSC's marking threads, well inside that window.)
-    if (WTF::objCGCIsEnabled())
-        CFRetain((__bridge CFTypeRef)globalWrapperCache);
 }
 
 static NSMapTable *wrapperCache() WTF_REQUIRES_LOCK(wrapperCacheMutex)
@@ -77,14 +70,6 @@ static NSMapTable *wrapperCache() WTF_REQUIRES_LOCK(wrapperCacheMutex)
 + (void)addWrapper:(JSVirtualMachine *)wrapper forJSContextGroupRef:(JSContextGroupRef)group
 {
     Locker locker { wrapperCacheMutex };
-    // MAVERICKS_BACKPORT: the cache holds its values weakly because the Objective-C client
-    // is expected to own the wrapper. Under Objective-C garbage collection (github #118)
-    // nothing does: the only other reference is JSC's own C++ one, which the collector does
-    // not scan, so the wrapper is collected and scanExternalRememberedSet then sends
-    // -externalObjectGraph to freed memory. Pin it -- one wrapper per VM, freed never, which
-    // is what the strong reference the client would have held amounts to anyway.
-    if (WTF::objCGCIsEnabled())
-        CFRetain((__bridge CFTypeRef)wrapper);
     NSMapInsert(wrapperCache(), group, (__bridge void*)wrapper);
 }
 
