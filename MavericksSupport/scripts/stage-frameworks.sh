@@ -87,14 +87,29 @@ rewrite_rpath_deps() {
     done < <("$OTOOL" -L "$bin" | awk 'NR>1{print $1}')
 }
 
+# install_name_tool over a binary this script just wrote. Every argument set below names a load
+# command otool reported, or an install name being stamped on a file that was just copied, so a
+# failure here is the Mach-O being unwritable or out of load-command padding -- and the staged binary
+# would keep pointing at the path it shipped with.
+int_or_die() {
+    if ! "$INT" "$@"; then
+        echo "ERROR: install_name_tool $* failed" >&2
+        exit 1
+    fi
+}
+
 # Repoint one of $bin's LC_LOAD_DYLIB load commands — the one whose recorded path CONTAINS <match> — to
 # <new>. The match-by-substring form locates a load command by a stable fragment of its path — used here for
 # the system frameworks (pass "/<Name>.framework/"). The staging-side counterpart of the build-side reexport
 # shims (the vendored GStreamer dylibs are pre-repointed at vendor time; these are the WebKit ones).
 repoint_framework_dep() {
     local bin="$1" match="$2" new="$3" cur
-    cur=$("$OTOOL" -L "$bin" 2>/dev/null | awk -v m="$match" 'index($1, m){print $1; exit}')
-    [ -n "$cur" ] && "$INT" -change "$cur" "$new" "$bin" 2>/dev/null || true
+    cur=$("$OTOOL" -L "$bin" | awk -v m="$match" 'index($1, m){print $1; exit}')
+    [ -n "$cur" ] || return 0                 # this binary does not load that framework
+    if ! "$INT" -change "$cur" "$new" "$bin"; then
+        echo "ERROR: could not repoint $match to $new in $bin" >&2
+        exit 1
+    fi
 }
 
 # The polyfill classes dylib carries an @rpath install_name, so rewrite_rpath_deps already remapped it to its
@@ -322,20 +337,20 @@ echo "### Deploying private C++ runtime into JavaScriptCore.framework ($PRIVLIBC
 mkdir -p "$(s "$PRIVLIBCXX")"
 for lib in libc++.1.dylib libc++abi.1.dylib; do
     cp -f "$TC/lib/$lib" "$(s "$PRIVLIBCXX")/$lib"
-    "$INT" -id "$PRIVLIBCXX/$lib" "$(s "$PRIVLIBCXX")/$lib" 2>/dev/null || true
+    int_or_die -id "$PRIVLIBCXX/$lib" "$(s "$PRIVLIBCXX")/$lib"
 done
 # libc++ loads libc++abi via @rpath (and libc++abi has a self-referential @rpath load too); both also
 # load @rpath/libunwind.1.dylib. Pin all absolute so dyld resolves them in processes with no rpath set,
 # with the unwinder pinned to the system one (single-unwinder rule, see framework-layout.sh).
 for lib in libc++.1.dylib libc++abi.1.dylib; do
-    "$INT" -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$(s "$PRIVLIBCXX")/$lib" 2>/dev/null || true
-    "$INT" -change @rpath/libunwind.1.dylib "$SYSTEM_UNWINDER" "$(s "$PRIVLIBCXX")/$lib" 2>/dev/null || true
+    int_or_die -change @rpath/libc++abi.1.dylib "$PRIVLIBCXX/libc++abi.1.dylib" "$(s "$PRIVLIBCXX")/$lib"
+    int_or_die -change @rpath/libunwind.1.dylib "$SYSTEM_UNWINDER" "$(s "$PRIVLIBCXX")/$lib"
 done
 
 echo "### Deploying polyfill ObjC classes dylib into JavaScriptCore.framework ($PRIVLIBCXX)"
 if [ -f "$WK_SUPPORT/polyfill/build/libpolyfill_classes.dylib" ]; then
     cp -f "$WK_SUPPORT/polyfill/build/libpolyfill_classes.dylib" "$(s "$PRIVLIBCXX")/libpolyfill_classes.dylib"
-    "$INT" -id "$PRIVLIBCXX/libpolyfill_classes.dylib" "$(s "$PRIVLIBCXX")/libpolyfill_classes.dylib" 2>/dev/null || true
+    int_or_die -id "$PRIVLIBCXX/libpolyfill_classes.dylib" "$(s "$PRIVLIBCXX")/libpolyfill_classes.dylib"
 else
     echo "ERROR: libpolyfill_classes.dylib missing — every WebKit app would fail to load (polyfill ObjC classes)." >&2
     echo "       Build it with MavericksSupport/polyfill/scripts/build-polyfill.sh (rebuild.sh does this)." >&2

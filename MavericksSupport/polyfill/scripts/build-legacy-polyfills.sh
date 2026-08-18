@@ -32,12 +32,16 @@ mkdir -p "$OBJDIR"
 # sources into the vendored dylibs with this flag for the same reason).
 CFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$INC"
 
+CC_LOGDIR="$OBJDIR"
+. "$HERE/parallel-cc.sh"
+
 objs=()
 for c in "$SRC"/*.c; do
     o="$OBJDIR/$(basename "${c%.c}").o"
-    "$CLANG" $CFLAGS -c "$c" -o "$o"
+    cc_queue "$CLANG" $CFLAGS -c "$c" -o "$o"
     objs+=("$o")
 done
+cc_wait
 
 rm -f "$OUT"
 "$AR" qc "$OUT" "${objs[@]}"

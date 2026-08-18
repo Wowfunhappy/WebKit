@@ -90,9 +90,11 @@
 # defines as returning zero. They cannot fault the way a data load or a call does. (A class 10.9 lacks
 # whose *instances* WebKit needs is a different problem, and classes.m's business.)
 set -euo pipefail
+export LC_ALL=C   # sort and comm below must agree on ordering, and every symbol name is ASCII
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"            # MavericksSupport/scripts
 REPO="$(cd "$HERE/../.." && pwd)"                                # repo root
+SELF="$HERE/$(basename "${BASH_SOURCE[0]}")"
 STAGED="${1:-$REPO/WebKitBuild/Release/staged}"
 NM=/Library/Developer/CommandLineTools/usr/bin/nm
 
@@ -103,8 +105,15 @@ NM=/Library/Developer/CommandLineTools/usr/bin/nm
 [ -x "$NM" ] || { echo "  absent-reference check: FAILED -- nm not executable at $NM"; exit 1; }
 command -v otool >/dev/null || { echo "  absent-reference check: FAILED -- otool not found"; exit 1; }
 
-WORK="$(mktemp -d -t absentrefs)"; trap 'rm -rf "$WORK"' EXIT
-mkdir -p "$WORK/exp"
+# The sweep runs one worker process per image (see the driver at the bottom), and they share this
+# directory: the memoized export caches, the binary inventory, and each worker's findings file all
+# live in it. A worker is handed it in WK_ABSENTREF_WORK and must not delete it.
+if [ -n "${WK_ABSENTREF_WORK:-}" ]; then
+    WORK="$WK_ABSENTREF_WORK"
+else
+    WORK="$(mktemp -d -t absentrefs)"; trap 'rm -rf "$WORK"' EXIT
+    mkdir -p "$WORK/exp" "$WORK/found"
+fi
 
 # Collapse `file` output to real paths. The per-architecture lines read
 #   /path (for architecture x86_64):<TAB>Mach-O 64-bit ...
@@ -112,8 +121,10 @@ mkdir -p "$WORK/exp"
 # x86_64)" -- which silently drops the binary from the scan if the universal-summary line ever stops
 # being emitted. Strip the architecture parenthetical FIRST, then the colon.
 machos() {
-    xargs -0 file 2>/dev/null \
-      | grep "Mach-O" \
+    # grep's status-1 means "this tree holds no Mach-O", which the count at the call site reports;
+    # every other status here fails the check.
+    xargs -0 file \
+      | { grep "Mach-O" || [ "$?" -eq 1 ]; } \
       | sed -e 's/ (for architecture [^)]*)//' -e 's/:.*//' \
       | sort -u
 }
@@ -146,14 +157,16 @@ resolve_dep() {
 
 # Everything a dylib vends, following LC_REEXPORT_DYLIB transitively -- that is how dyld satisfies a
 # two-level reference recorded against an umbrella (ApplicationServices, CoreServices) or against the
-# reexport shim. Memoized: the same handful of system frameworks appear in almost every closure.
+# reexport shim. Memoized in the shared work directory, so the same handful of system frameworks is
+# read once for the whole run however many workers want it: the cache is written to a per-process
+# temporary and published by rename, which is atomic, so a concurrent reader sees either the complete
+# export set or no file at all. The $seen chain breaks reexport cycles.
 # ALL architectures, deliberately: -arch x86_64 would leave every i386 slice unchecked.
 exports_of() {
     local path="$1" seen="$2" key cache
     key=$(echo "$path" | /usr/bin/openssl md5 | sed 's/.*= *//')
     cache="$WORK/exp/$key"
     [ -f "$cache" ] && { cat "$cache"; return; }
-    : > "$cache"                                  # publish early: breaks reexport cycles
     case ":$seen:" in *":$key:"*) return ;; esac
     {
         "$NM" -gU "$path" 2>/dev/null | awk '$2 ~ /^[TDSBIRC]$/ { print $3 }'
@@ -161,53 +174,36 @@ exports_of() {
           | while IFS= read -r re; do
                 rp=$(resolve_dep "$re" "$(dirname "$path")"); [ -n "$rp" ] && exports_of "$rp" "$seen:$key"
             done
-    } | sort -u > "$cache"
+    } | sort -u > "$cache.$$"
+    mv -f "$cache.$$" "$cache"
     cat "$cache"
 }
 
-# ---------------------------------------------------------------------------------------------------
-# Every shipped Mach-O: frameworks, XPC services, daemons and the bundled dylibs. A crash in a
-# WebContent service is a crash the user sees, so the services are in scope like the frameworks.
-#
-# The .dylib/.so patterns are NOT redundant with -perm -u+x. stage-frameworks.sh installs the in-bundle
-# libraries mode 644, so an executables-only sweep misses libc++, libpolyfill_classes and every
-# GStreamer plugin -- and then their EXPORTS are invisible too, which made libc++'s iostream vtables
-# and the whole UTType* object-constant set look missing.
-# ---------------------------------------------------------------------------------------------------
-{ find "$STAGED" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.so' \) -print0 2>/dev/null \
-  | machos > "$WORK/binaries"; } || true
+# One image's sweep. Both undefined-symbol kinds come out of a single `nm -m` read, and the link
+# closure -- by far the most expensive thing here, since it reads every dependency's whole export
+# table -- is built only for an image that actually carries a weak undefined reference. Findings go to
+# a per-image file in the shared work directory, which is what lets the driver run these concurrently.
+scan_one() {
+    local bin="$1" tag
+    tag=$(echo "$bin" | /usr/bin/openssl md5 | sed 's/.*= *//')
+    # The findings file is published by rename, so it exists only for an image that was swept all the
+    # way through. A worker killed mid-sweep (a signal, an out-of-memory kill) leaves none, and the
+    # driver's count below turns that into a failed check rather than a short clean run.
+    : > "$WORK/partial.$tag"
+    scan_image "$bin" "$WORK/partial.$tag" || return
+    mv -f "$WORK/partial.$tag" "$WORK/found/$tag"
+}
 
-BINCOUNT=$(wc -l < "$WORK/binaries" | tr -d ' ')
-[ "$BINCOUNT" -gt 0 ] || { echo "  absent-reference check: FAILED -- no Mach-O binaries under $STAGED"; exit 1; }
-
-# basename -> path, so an @rpath dependency can be resolved to the copy the bundle actually ships.
-while IFS= read -r b; do printf '%s|%s\n' "$(basename "$b")" "$b"; done < "$WORK/binaries" > "$WORK/byname"
-
-: > "$WORK/findings"
-while IFS= read -r bin; do
-    # What this image can actually bind against: the union of its direct dependencies' exports
-    # (each followed through its own reexports). Not the whole disk -- see the header.
-    { otool -L "$bin" 2>/dev/null | tail -n +2 | awk '{ print $1 }' \
-        | while IFS= read -r dep; do
-              dp=$(resolve_dep "$dep" "$(dirname "$bin")"); [ -n "$dp" ] && exports_of "$dp" ""
-          done | sort -u > "$WORK/bindable"; } || true
-
-    { otool -Iv "$bin" 2>/dev/null \
-      | awk '/^Indirect symbols for/ { inblk = /__TEXT,__stubs/; next } inblk && NF >= 3 { print $3 }' \
-      | sort -u > "$WORK/stubs"; } || true
+scan_image() {
+    local bin="$1" out="$2" syms weak bindable missing stubs kind sym tag
+    tag=$(echo "$bin" | /usr/bin/openssl md5 | sed 's/.*= *//')
 
     # ALL architectures: the frameworks ship fat x86_64+i386, and an -arch x86_64 sweep would never
-    # look at an i386 slice.
-    "$NM" -m "$bin" >/dev/null 2>&1 || { echo "  absent-reference check: FAILED -- nm could not read $bin"; exit 1; }
-    { "$NM" -m "$bin" 2>/dev/null \
-      | sed -n 's/.*(undefined) weak external \([^ ]*\).*/\1/p' \
-      | sort -u \
-      | while read -r sym; do
-            case "$sym" in _OBJC_CLASS_\$_*|_OBJC_METACLASS_\$_*) continue ;; esac
-            if grep -qxF "$sym" "$WORK/bindable"; then continue; fi
-            if grep -qxF "$sym" "$WORK/stubs"; then kind=CALL; else kind=ADDR; fi
-            echo "$kind|$sym|${bin#$STAGED}"
-        done >> "$WORK/findings"; } || true
+    # look at an i386 slice. This one read serves both sweeps below, and its exit status is the
+    # image's readability check.
+    syms="$WORK/nm.$tag"
+    "$NM" -m "$bin" > "$syms" 2>/dev/null || {
+        echo "  absent-reference check: FAILED -- nm could not read $bin"; : > "$WORK/error"; return 1; }
 
     # DYN, the other half of "references something nothing provides": a STRONG flat-namespace
     # reference. WebCore links with "-undefined dynamic_lookup" (Source/WebCore/CMakeLists.txt), so a
@@ -222,12 +218,87 @@ while IFS= read -r bin; do
     # link closure nor the bundle. Scoring them against the union of what the bundle exports is the
     # global-presence mistake the header rejects, one slice and one lazily-dlopened plugin wide -- a
     # name some unrelated staged image happens to export would pass while dyld aborts the client.
-    { "$NM" -m "$bin" 2>/dev/null \
-      | sed -n 's/.*(undefined) external \([^ ]*\) (dynamically looked up).*/\1/p' \
-      | sort -u \
-      | while read -r sym; do echo "DYN|$sym|${bin#$STAGED}"; done >> "$WORK/findings"; } || true
-done < "$WORK/binaries"
+    sed -n 's/.*(undefined) external \([^ ]*\) (dynamically looked up).*/\1/p' "$syms" | sort -u \
+      | while read -r sym; do echo "DYN|$sym|${bin#$STAGED}"; done >> "$out"
 
+    weak="$WORK/weak.$tag"
+    sed -n 's/.*(undefined) weak external \([^ ]*\).*/\1/p' "$syms" \
+      | awk '!/^_OBJC_(META)?CLASS_\$_/' | sort -u > "$weak"
+    rm -f "$syms"
+    [ -s "$weak" ] || { rm -f "$weak"; return; }
+
+    # What this image can actually bind against: the union of its direct dependencies' exports
+    # (each followed through its own reexports). Not the whole disk -- see the header. Reached only
+    # by an image that carries a weak undefined reference, which is the one question it answers.
+    bindable="$WORK/bindable.$tag"
+    otool -L "$bin" | tail -n +2 | awk '{ print $1 }' \
+      | while IFS= read -r dep; do
+            dp=$(resolve_dep "$dep" "$(dirname "$bin")")
+            if [ -n "$dp" ]; then exports_of "$dp" ""; fi
+        done | sort -u > "$bindable"
+
+    # What is left of $weak once the bindable names are subtracted is this image's findings. Both
+    # sides are `sort -u` output under the LC_ALL=C exported at the top, which is the ordering comm
+    # reads them in.
+    missing="$WORK/missing.$tag"
+    comm -23 "$weak" "$bindable" > "$missing"
+    rm -f "$bindable"
+    [ -s "$missing" ] || { rm -f "$weak" "$missing"; return; }
+
+    stubs="$WORK/stubs.$tag"
+    otool -Iv "$bin" \
+      | awk '/^Indirect symbols for/ { inblk = /__TEXT,__stubs/; next } inblk && NF >= 3 { print $3 }' \
+      | sort -u > "$stubs"
+    while read -r sym; do
+        if grep -qxF "$sym" "$stubs"; then kind=CALL; else kind=ADDR; fi
+        echo "$kind|$sym|${bin#$STAGED}"
+    done < "$missing" >> "$out"
+    rm -f "$weak" "$missing" "$stubs"
+}
+
+# Worker mode: one image, dispatched by the driver below.
+if [ -n "${WK_ABSENTREF_WORK:-}" ]; then
+    scan_one "$2"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------------------------------
+# Every shipped Mach-O: frameworks, XPC services, daemons and the bundled dylibs. A crash in a
+# WebContent service is a crash the user sees, so the services are in scope like the frameworks.
+#
+# The .dylib/.so patterns are NOT redundant with -perm -u+x. stage-frameworks.sh installs the in-bundle
+# libraries mode 644, so an executables-only sweep misses libc++, libpolyfill_classes and every
+# GStreamer plugin -- and then their EXPORTS are invisible too, which made libc++'s iostream vtables
+# and the whole UTType* object-constant set look missing.
+# ---------------------------------------------------------------------------------------------------
+find "$STAGED" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.so' \) -print0 > "$WORK/inventory"
+machos < "$WORK/inventory" > "$WORK/binaries"
+
+BINCOUNT=$(wc -l < "$WORK/binaries" | tr -d ' ')
+[ "$BINCOUNT" -gt 0 ] || { echo "  absent-reference check: FAILED -- no Mach-O binaries under $STAGED"; exit 1; }
+
+# basename -> path, so an @rpath dependency can be resolved to the copy the bundle actually ships.
+while IFS= read -r b; do printf '%s|%s\n' "$(basename "$b")" "$b"; done < "$WORK/binaries" > "$WORK/byname"
+
+# One worker process per image, $JOBS at a time. The work is per-image and its only shared state is
+# the export-cache directory, which is published by rename, so the images can be swept in any order
+# and in any overlap. Each worker writes its own findings file; nothing is concatenated until they
+# have all exited.
+JOBS=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+if ! tr '\n' '\0' < "$WORK/binaries" \
+     | xargs -0 -n1 -P "$JOBS" env WK_ABSENTREF_WORK="$WORK" bash "$SELF" "$STAGED"; then
+    echo "  absent-reference check: FAILED -- a worker exited nonzero (see above)"
+    exit 1
+fi
+if [ -e "$WORK/error" ]; then exit 1; fi
+
+SWEPT=$(ls "$WORK/found" | wc -l | tr -d ' ')
+if [ "$SWEPT" != "$BINCOUNT" ]; then
+    echo "  absent-reference check: FAILED -- $SWEPT of $BINCOUNT images were swept"
+    exit 1
+fi
+
+cat "$WORK"/found/* > "$WORK/findings"
 sort -u "$WORK/findings" -o "$WORK/findings"
 
 # Everything is fatal unless the exact (kind, symbol, image basename) triple is PINNED below. The pin

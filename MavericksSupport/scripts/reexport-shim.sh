@@ -43,9 +43,14 @@ build_reexport_shim() {
     : "${iname:?build_reexport_shim: --install-name required}"
     mkdir -p "$(dirname "$out")"
     rm -f "$out"
+    # -headerpad_max_install_names: a shim is staged into a framework bundle and its install name
+    # rewritten to that absolute in-bundle path, which is far longer than the @rpath name it links
+    # with. install_name_tool can only write a longer name into padding the linker reserved here.
+    #
     # $cflags/$fwflags/$reexp/$expflags are intentionally unquoted so each token splits into its own argument;
     # the inputs are kept as an array so paths with spaces survive.
     "$clang" --no-default-config -isysroot "$sysroot" -mmacosx-version-min=10.9 -dynamiclib \
+        -Wl,-headerpad_max_install_names \
         -install_name "$iname" -compatibility_version "$compat" -current_version "$current" \
         $cflags $fwflags $reexp $expflags "${inputs[@]}" -o "$out"
 }

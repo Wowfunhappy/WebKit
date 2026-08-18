@@ -58,6 +58,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import traceback
 
 MH_MAGIC_64 = 0xfeedfacf
 MH_MAGIC_32 = 0xfeedface
@@ -185,35 +186,113 @@ def run_worker(worker, env, symfile, batch):
     return crashers, unattributed
 
 
-def scan_names(tools, workdir, names):
-    """Union of crashers across SCAN_TRIALS runs of the worker."""
+def run_trial(tools, symfile, trial):
+    """One SCAN_TRIALS entry over one symbol file, retried while it reports an
+    UNATTRIBUTED range."""
     worker, freecheck = tools
-    symfile = os.path.join(workdir, "syms.txt")
-    with open(symfile, "wb") as f:
-        f.write(b"\n".join(names) + b"\n")
+    pad, batch, detector = trial
     crashers = set()
-    for pad, batch, detector in SCAN_TRIALS:
-        for attempt in range(1 + UNATTRIBUTED_RETRIES):
-            # retries shift the env padding: an identical environment
-            # reproduces the identical stack layout, so re-running the same
-            # config would repeat the same unattributable outcome forever
-            env = trial_env(freecheck, pad + attempt * 131, detector)
-            assert_detection_live(worker, env, detector)
-            found, unattributed = run_worker(worker, env, symfile, batch)
-            new = found - crashers
-            crashers |= found
-            if not unattributed:
-                break
-            sys.stderr.write("  demangler-guard: UNATTRIBUTED range in trial "
-                             "(pad=%d batch=%d detector=%s), attempt %d, "
-                             "%d new crasher(s) -- retrying\n"
-                             % (pad, batch, detector, attempt + 1, len(new)))
-        else:
-            sys.stderr.write("ERROR: a scan batch keeps dying without an "
-                             "attributable crasher after %d retries -- "
-                             "refusing to certify this binary\n"
-                             % UNATTRIBUTED_RETRIES)
-            sys.exit(1)
+    for attempt in range(1 + UNATTRIBUTED_RETRIES):
+        # retries shift the env padding: an identical environment
+        # reproduces the identical stack layout, so re-running the same
+        # config would repeat the same unattributable outcome forever
+        env = trial_env(freecheck, pad + attempt * 131, detector)
+        assert_detection_live(worker, env, detector)
+        found, unattributed = run_worker(worker, env, symfile, batch)
+        new = found - crashers
+        crashers |= found
+        if not unattributed:
+            return crashers
+        sys.stderr.write("  demangler-guard: UNATTRIBUTED range in trial "
+                         "(pad=%d batch=%d detector=%s), attempt %d, "
+                         "%d new crasher(s) -- retrying\n"
+                         % (pad, batch, detector, attempt + 1, len(new)))
+    sys.stderr.write("ERROR: a scan batch keeps dying without an "
+                     "attributable crasher after %d retries -- "
+                     "refusing to certify this binary\n"
+                     % UNATTRIBUTED_RETRIES)
+    sys.exit(1)
+
+
+def scan_jobs():
+    """How many scan processes run at once."""
+    try:
+        import multiprocessing
+        return max(1, multiprocessing.cpu_count())
+    except Exception:
+        return 1
+
+
+def write_chunks(workdir, names, count):
+    """Split the symbol list into at most `count` non-empty files."""
+    per = max(1, (len(names) + count - 1) // count)
+    paths = []
+    for i in range(0, len(names), per):
+        path = os.path.join(workdir, "syms.%d.txt" % len(paths))
+        with open(path, "wb") as f:
+            f.write(b"\n".join(names[i:i + per]) + b"\n")
+        paths.append(path)
+    return paths
+
+
+def scan_names(tools, workdir, names):
+    """Union of crashers over every (trial, symbol-range) pair.
+
+    Both splits are unions of independent runs. A trial fixes its own
+    environment padding, batch size and detector -- the variables the bug is
+    sensitive to -- and none of them depends on what another process is doing,
+    so the trials can run at the same time. A range is a slice of the symbol
+    list handed to the same worker with the same trial settings, so splitting
+    one only moves where a batch boundary falls, which the family closure below
+    already absorbs (a family is patched whole from any one member).
+
+    That matters because the trial mix is lopsided: the Guard Malloc trial is
+    ~40x the wall time of the three wild-free trials put together, so scanning
+    it in ranges is what takes the scan off the critical path of the build. The
+    Guard Malloc trial is first in SCAN_TRIALS and its ranges are queued first,
+    so the long pole starts on the first free processor."""
+    if not names:
+        return set()
+    jobs = scan_jobs()
+    chunks = write_chunks(workdir, names, jobs)
+    pending = [(trial, chunk) for trial in SCAN_TRIALS for chunk in chunks]
+
+    crashers = set()
+    failed = False
+    running = {}
+    spawned = 0
+    while pending or running:
+        while pending and len(running) < jobs:
+            trial, chunk = pending.pop(0)
+            outfile = os.path.join(workdir, "crashers.%d" % spawned)
+            spawned += 1
+            pid = os.fork()
+            if pid == 0:
+                # os._exit throughout: fork() duplicates the parent's buffered
+                # stdout into this child, and a normal exit would flush that
+                # copy and print an earlier binary's summary line a second time.
+                status = 0
+                try:
+                    with open(outfile, "wb") as f:
+                        f.write(b"\n".join(sorted(run_trial(tools, chunk, trial))))
+                except SystemExit as e:
+                    status = e.code or 1
+                except Exception:
+                    traceback.print_exc()
+                    status = 1
+                os._exit(status)
+            running[pid] = outfile
+        pid, status = os.wait()
+        outfile = running.pop(pid)
+        if status != 0:
+            failed = True          # the child already said why, on stderr
+            pending = []           # nothing more to start; reap what is running
+            continue
+        with open(outfile, "rb") as f:
+            crashers |= set(n for n in f.read().split(b"\n") if n)
+        os.unlink(outfile)
+    if failed:
+        sys.exit(1)
     return crashers
 
 

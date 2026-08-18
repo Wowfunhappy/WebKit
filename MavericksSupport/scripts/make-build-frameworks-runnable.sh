@@ -22,6 +22,15 @@ POLYBUILD="$ROOT/MavericksSupport/polyfill/build"
 WKTR_DIR="$ROOT/Tools/WebKitTestRunner"
 INT="${INSTALL_NAME_TOOL:-install_name_tool}"
 
+# install_name_tool over a file this script just copied. A failure is the Mach-O being unwritable or
+# out of load-command padding, and the copy would keep the install name it was built with.
+int_or_die() {
+    if ! "$INT" "$@"; then
+        echo "ERROR: install_name_tool $* failed" >&2
+        exit 1
+    fi
+}
+
 # Polyfill dylibs the build links, and the post-10.9 frameworks whose missing symbols libpolyfill_classes supplies.
 POLYFILL_LEAVES="libpolyfill_classes.dylib"
 REDIRECT_FRAMEWORKS="QuartzCore Security CoreServices CFNetwork"
@@ -32,7 +41,12 @@ for leaf in $POLYFILL_LEAVES; do
     src="$POLYBUILD/$leaf"; dst="$LIBDIR/$leaf"
     [ -f "$src" ] || continue
     if [ ! -f "$dst" ] || [ "$src" -nt "$dst" ]; then
-        cp -f "$src" "$dst" && "$INT" -id "@rpath/$leaf" "$dst" 2>/dev/null && echo "  staged $leaf -> $LIBDIR"
+        if ! cp -f "$src" "$dst"; then
+            echo "ERROR: could not stage $src into $LIBDIR" >&2
+            exit 1
+        fi
+        int_or_die -id "@rpath/$leaf" "$dst"
+        echo "  staged $leaf -> $LIBDIR"
     fi
 done
 
@@ -58,14 +72,22 @@ if [ -f "$IB_SRC" ]; then
     IB_EXE="$IB_BUNDLE/Contents/MacOS/WebKitTestRunnerInjectedBundle"
     if [ ! -f "$IB_EXE" ] || [ "$IB_SRC" -nt "$IB_EXE" ]; then
         mkdir -p "$IB_BUNDLE/Contents/MacOS"
-        cp -f "$IB_SRC" "$IB_EXE" && "$INT" -id "WebKitTestRunnerInjectedBundle" "$IB_EXE" 2>/dev/null
+        if ! cp -f "$IB_SRC" "$IB_EXE"; then
+            echo "ERROR: could not assemble $IB_EXE from $IB_SRC" >&2
+            exit 1
+        fi
+        int_or_die -id "WebKitTestRunnerInjectedBundle" "$IB_EXE"
         # The injected bundle activates the layout-test fonts from its own Contents/Resources
         # (ActivateFontsCocoa.mm: -[NSBundle bundleForClass:] resourceURL). Apple's Xcode build copies the
         # WebKitTestRunner font set there; mirror that so CTFontManagerRegisterFontsForURLs succeeds (otherwise
         # activateFonts() calls exit(1) and the WebContent process dies before running any test).
         mkdir -p "$IB_BUNDLE/Contents/Resources"
-        cp -f "$WKTR_DIR/fonts/"* "$IB_BUNDLE/Contents/Resources/" 2>/dev/null
-        cp -f "$WKTR_DIR/FontWithFeatures.otf" "$WKTR_DIR/FontWithFeatures.ttf" "$IB_BUNDLE/Contents/Resources/" 2>/dev/null
+        if ! cp -f "$WKTR_DIR/fonts/"* "$IB_BUNDLE/Contents/Resources/" ||
+           ! cp -f "$WKTR_DIR/FontWithFeatures.otf" "$WKTR_DIR/FontWithFeatures.ttf" \
+                   "$IB_BUNDLE/Contents/Resources/"; then
+            echo "ERROR: could not stage the layout-test fonts into $IB_BUNDLE/Contents/Resources" >&2
+            exit 1
+        fi
         if [ ! -f "$IB_BUNDLE/Contents/Info.plist" ]; then
             cat > "$IB_BUNDLE/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -87,10 +109,22 @@ fi
 
 # change every dependency matching <substr> to <new> (handles 0..N matches; idempotent if already <new>).
 repoint_all() { # bin substr new
-    local bin="$1" substr="$2" new="$3" dep
-    /usr/bin/otool -L "$bin" 2>/dev/null | awk '{print $1}' | grep -F "$substr" | grep -vF "$new" | sort -u | while read -r dep; do
-        [ -n "$dep" ] && "$INT" -change "$dep" "$new" "$bin" 2>/dev/null || true
-    done
+    local bin="$1" substr="$2" new="$3" dep deps loaded
+    # otool's own status first: it exits 1 on a file it cannot read, which is not "no matching deps".
+    if ! loaded=$(/usr/bin/otool -L "$bin"); then
+        echo "ERROR: could not read the load commands of $bin" >&2
+        exit 1
+    fi
+    # The greps are the 0-match half of "0..N matches", so their status-1 is the answer, not a failure.
+    deps=$(echo "$loaded" | awk '{print $1}' | grep -F "$substr" | grep -vF "$new" | sort -u \
+           || [ "$?" -eq 1 ])
+    [ -n "$deps" ] || return 0
+    while IFS= read -r dep; do
+        if ! "$INT" -change "$dep" "$new" "$bin"; then
+            echo "ERROR: could not repoint $dep to $new in $bin" >&2
+            exit 1
+        fi
+    done <<< "$deps"
 }
 
 for fwbin in \

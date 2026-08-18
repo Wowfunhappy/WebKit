@@ -18,6 +18,10 @@ PF="$POLY/polyfills"; MECH="$POLY/mechanism"; LEGACY="$POLY/legacy-support"; OUT
 OBJ="$(mktemp -d -t polybuild)"; trap 'rm -rf "$OBJ"' EXIT
 mkdir -p "$OUT"
 
+# The compiles below run concurrently, $CC_JOBS at a time (see parallel-cc.sh).
+CC_LOGDIR="$OBJ"
+. "$HERE/parallel-cc.sh"
+
 # WARN is the diagnostic set every unit here compiles under -- the same -Wall -Wextra WebKit's own
 # CMake build uses, so a defect in the layer surfaces the way one in Source/ does.
 WARN='-Wall -Wextra'
@@ -48,43 +52,42 @@ SDKCF="--no-default-config -isysroot $SDK -mmacosx-version-min=10.9 $INC \
     -Wno-unused-command-line-argument -Wno-deprecated-declarations $WARN"
 
 echo "### compiling polyfills"
-"$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/runtime.o"       "$PF/runtime.m"
-"$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/constants.o"     "$PF/constants.m"
-"$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/graphics.o"      "$PF/graphics.c"
+cc_queue "$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/runtime.o"       "$PF/runtime.m"
+cc_queue "$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/constants.o"     "$PF/constants.m"
+cc_queue "$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/graphics.o"      "$PF/graphics.c"
 # gstreamer-env.c sets this port's GStreamer environment knobs at image load, so the upstream
 # GStreamer sources stay byte-upstream (see the file for which variables and why).
-"$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/gstreamer-env.o" "$PF/gstreamer-env.c"
+cc_queue "$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/gstreamer-env.o" "$PF/gstreamer-env.c"
 # cfnetwork-undeclared-post-body.c restores the modern "no Content-Type on an undeclared POST body"
 # wire behaviour in the network process (see the file for the mechanism and why it is confined there).
-"$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/cfnetwork-undeclared-post-body.o" "$PF/cfnetwork-undeclared-post-body.c"
+cc_queue "$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/cfnetwork-undeclared-post-body.o" "$PF/cfnetwork-undeclared-post-body.c"
 # The variable-font instancer graphics.c calls is C++ (see wtf-compat.cpp for the same shape): it
 # needs the modern SDK's libc++ headers, but it goes into libpolyfill.a with the rest so that the
 # one force-loaded archive stays self-contained.
-"$TC/bin/clang++" -c --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 -std=c++17 -O2 \
+cc_queue "$TC/bin/clang++" -c --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 -std=c++17 -O2 \
     $HIDDEN -Wno-unused-command-line-argument $WARN \
     -o "$OBJ/variable-font-instancer.o" "$PF/LegacyCoreTextVariableFontInstancer.cpp"
-"$CLANG" -c $SDKCF $HIDDEN    -o "$OBJ/system-spi.o"   "$PF/system-spi.m"
+cc_queue "$CLANG" -c $SDKCF $HIDDEN    -o "$OBJ/system-spi.o"   "$PF/system-spi.m"
 # compression.c decodes/encodes Brotli through the vendored codec headers (the WOFF2 dependency tree).
-"$CLANG" -c $SDKCF $HIDDEN -I"$REPO/MavericksSupport/deps/build/include" \
+cc_queue "$CLANG" -c $SDKCF $HIDDEN -I"$REPO/MavericksSupport/deps/build/include" \
                               -o "$OBJ/compression.o"  "$PF/compression.c"
-"$CLANG" -c $CF $INC          -o "$OBJ/classes.o"      "$PF/classes.m"
-"$CLANG" -c $SDKCF            -o "$OBJ/methods.o"      "$PF/methods.m"
+cc_queue "$CLANG" -c $CF $INC          -o "$OBJ/classes.o"      "$PF/classes.m"
+cc_queue "$CLANG" -c $SDKCF            -o "$OBJ/methods.o"      "$PF/methods.m"
 
 # The two WebKit-framework-scoped polyfills, archived separately (below) so their ObjC classes are
 # registered exactly once, in WebKit.framework alone: libpolyfill_classes.a is force-loaded into WebCore
 # and JSC, and adding these there would be a duplicate class registration in every image that links it.
 # websocket-109.mm is written against ARC (zeroing __weak, block copy semantics).
-"$CLANG" -c $SDKCF            -o "$OBJ/webkit-classes-109.o" "$PF/webkit-classes-109.mm"
-"$CLANG" -c $SDKCF -fobjc-arc -o "$OBJ/websocket-109.o"      "$PF/websocket-109.mm"
+cc_queue "$CLANG" -c $SDKCF            -o "$OBJ/webkit-classes-109.o" "$PF/webkit-classes-109.mm"
+cc_queue "$CLANG" -c $SDKCF -fobjc-arc -o "$OBJ/websocket-109.o"      "$PF/websocket-109.mm"
 
 echo "### compiling mechanism"
-"$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/wk_polyfill_runtime.o" "$MECH/wk_polyfill_runtime.c"
-"$CLANG" -c $SDKCF            -o "$OBJ/wk_selref_scope.o"    "$MECH/wk_selref_scope.m"
-"$CLANG" -c $CF               -o "$OBJ/wk_image_marker.o"    "$MECH/wk_image_marker.c"
+cc_queue "$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/wk_polyfill_runtime.o" "$MECH/wk_polyfill_runtime.c"
+cc_queue "$CLANG" -c $SDKCF            -o "$OBJ/wk_selref_scope.o"    "$MECH/wk_selref_scope.m"
+cc_queue "$CLANG" -c $CF               -o "$OBJ/wk_image_marker.o"    "$MECH/wk_image_marker.c"
 
 echo "### compiling legacy-support (macports-legacy-support: POSIX/libc gap-fills)"
 bash "$HERE/build-legacy-polyfills.sh" "$CLANG" "$OBJ/legacy.a" "$OBJ/legacy-obj"
-( cd "$OBJ" && "$AR" x legacy.a )    # unpack the legacy objects next to ours
 
 echo "### compiling polyfills/shared (also compiled by the vendored non-WebKit builds)"
 # -isysroot /: these are plain C written against the 10.9 host headers, which is what the vendored
@@ -95,10 +98,12 @@ echo "### compiling polyfills/shared (also compiled by the vendored non-WebKit b
 # compiles as plain C for the vendored builds, which define nothing and get no registry dependency.
 mkdir -p "$OBJ/shared-obj"
 for c in "$PF"/shared/*.c; do
-    "$CLANG" -c --no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC $HIDDEN -O2 $WARN \
+    cc_queue "$CLANG" -c --no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC $HIDDEN -O2 $WARN \
         -DWK_POLYFILL_REGISTERED $INC \
         -o "$OBJ/shared-obj/$(basename "${c%.c}").o" "$c"
 done
+
+cc_wait   # the archives below read these objects
 
 # ar_stable: write an archive only when its content actually changes, preserving the old file's mtime
 # otherwise. build-polyfill.sh runs on every incremental build; regenerating an archive with a fresh mtime
@@ -222,10 +227,11 @@ echo "### libwk_marker.a (the __wk_marker tag — force-loaded into every WebKit
 ar_stable "$OUT/libwk_marker.a" "$OBJ/wk_image_marker.o"
 
 echo "### libwtf_compat.a"
-"$TC/bin/clang++" -c --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 -fblocks -std=c++17 \
+cc_queue "$TC/bin/clang++" -c --no-default-config -isysroot "$SDK" -mmacosx-version-min=10.9 -fblocks -std=c++17 \
     -Wno-unused-command-line-argument -o "$OBJ/wtf_compat.o" "$PF/wtf-compat.cpp"
-"$CLANG" -c --no-default-config -mmacosx-version-min=10.9 \
+cc_queue "$CLANG" -c --no-default-config -mmacosx-version-min=10.9 \
     -o "$OBJ/wtf_compat_asm.o" "$PF/wtf-compat-asm.s"
+cc_wait
 ar_stable "$OUT/libwtf_compat.a" "$OBJ/wtf_compat.o" "$OBJ/wtf_compat_asm.o"
 
 echo "### libwidevinegap.dylib (the libSystem entry points Google's Widevine CDM imports and 10.9 lacks)"
@@ -235,9 +241,10 @@ echo "### libwidevinegap.dylib (the libSystem entry points Google's Widevine CDM
 # not by WebKit. getentropy and aligned_alloc are the layer's own sources, compiled here a second
 # time with their exports intact, exactly as deps/build_deps.sh compiles them into the vendored dylibs.
 GAPCF="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -O2 $WARN"
-"$CLANG" -c $GAPCF -I"$LEGACY/include" -o "$OBJ/wvgap-getentropy.o"    "$LEGACY/src/getentropy.c"
-"$CLANG" -c $GAPCF                     -o "$OBJ/wvgap-aligned_alloc.o" "$PF/shared/aligned_alloc.c"
-"$CLANG" -c $GAPCF                     -o "$OBJ/wvgap-widevine.o"      "$PF/widevine-gap.c"
+cc_queue "$CLANG" -c $GAPCF -I"$LEGACY/include" -o "$OBJ/wvgap-getentropy.o"    "$LEGACY/src/getentropy.c"
+cc_queue "$CLANG" -c $GAPCF                     -o "$OBJ/wvgap-aligned_alloc.o" "$PF/shared/aligned_alloc.c"
+cc_queue "$CLANG" -c $GAPCF                     -o "$OBJ/wvgap-widevine.o"      "$PF/widevine-gap.c"
+cc_wait
 "$CLANG" --no-default-config -isysroot / -mmacosx-version-min=10.9 -dynamiclib \
     -install_name @loader_path/libwidevinegap.dylib \
     -o "$OUT/libwidevinegap.dylib.tmp" \
