@@ -54,6 +54,9 @@ echo "### compiling polyfills"
 # gstreamer-env.c sets this port's GStreamer environment knobs at image load, so the upstream
 # GStreamer sources stay byte-upstream (see the file for which variables and why).
 "$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/gstreamer-env.o" "$PF/gstreamer-env.c"
+# cfnetwork-undeclared-post-body.c restores the modern "no Content-Type on an undeclared POST body"
+# wire behaviour in the network process (see the file for the mechanism and why it is confined there).
+"$CLANG" -c $CF $HIDDEN $INC -o "$OBJ/cfnetwork-undeclared-post-body.o" "$PF/cfnetwork-undeclared-post-body.c"
 # The variable-font instancer graphics.c calls is C++ (see wtf-compat.cpp for the same shape): it
 # needs the modern SDK's libc++ headers, but it goes into libpolyfill.a with the rest so that the
 # one force-loaded archive stays self-contained.
@@ -143,7 +146,7 @@ echo "### libpolyfill.a (C function/constant stubs only — NO ObjC classes)"
 # added later cannot skip the demotion and re-export its globals.
 LIBPOLYFILL_MEMBERS=("$OBJ/runtime.o" "$OBJ/wk_polyfill_runtime.o" \
     "$OBJ/constants.o" "$OBJ/graphics.o" "$OBJ/variable-font-instancer.o" "$OBJ/system-spi.o" \
-    "$OBJ/compression.o" "$OBJ/gstreamer-env.o" "$OBJ/shared-obj"/*.o "$OBJ/legacy-obj"/*.o)
+    "$OBJ/compression.o" "$OBJ/gstreamer-env.o" "$OBJ/cfnetwork-undeclared-post-body.o" "$OBJ/shared-obj"/*.o "$OBJ/legacy-obj"/*.o)
 for o in "${LIBPOLYFILL_MEMBERS[@]}"; do
     nmedit -p "$o"
 done
