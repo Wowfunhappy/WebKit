@@ -54,11 +54,17 @@ public:
     // Namespace IDs for local storage namespaces are currently equivalent to web page group IDs.
     WebCore::PageGroup* NODELETE corePageGroup() const;
 
+    // MAVERICKS_BACKPORT: the controller the group's pages share, restored from upstream e05340a^.
+    // The legacy WKBundleAddUserScript / WKBundleAddUserStyleSheet C API adds Safari 7 extension
+    // content scripts and style sheets here.
+    WebUserContentController& userContentController();
+
 private:
     WebPageGroupProxy(WebPageGroupData&&);
 
     WebPageGroupData m_data;
     WeakPtr<WebCore::PageGroup> m_pageGroup;
+    const Ref<WebUserContentController> m_userContentController; // MAVERICKS_BACKPORT: see userContentController() above.
 };
 
 } // namespace WebKit

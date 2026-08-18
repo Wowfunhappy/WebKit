@@ -248,9 +248,6 @@ public:
     void deref() const final { }
 
     WebPage* webPage(WebCore::PageIdentifier) const;
-    // MAVERICKS_BACKPORT: used by the legacy WKBundleAddUserScript page-group user
-    // content registry (WK109PageGroupUserContent.cpp).
-    void forEachWebPage(NOESCAPE const Function<void(WebPage&)>&) const;
     void createWebPage(WebCore::PageIdentifier, WebPageCreationParameters&&);
     Awaitable<unsigned> countWebPagesForTesting();
     void removeWebPage(WebCore::PageIdentifier);

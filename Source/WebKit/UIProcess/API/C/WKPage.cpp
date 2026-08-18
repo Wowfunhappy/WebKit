@@ -48,6 +48,7 @@
 #include "APIPageConfiguration.h"
 #include "APIPolicyClient.h"
 // MAVERICKS_BACKPORT: needed to vend a deserializable WKSerializedScriptValueRef from the legacy WKPageRunJavaScriptInMainFrame alias.
+#include "APISecurityOrigin.h" // MAVERICKS_BACKPORT: legacy website-data managers at the bottom of this file.
 #include "APISerializedScriptValue.h"
 #include "APISessionState.h"
 #include "APIUIClient.h"
@@ -55,6 +56,9 @@
 #include "APIWebAuthenticationPanelClient.h"
 #include "APIWebsitePolicies.h"
 #include "APIWindowFeatures.h"
+#include "WKWebsiteDataStoreRef.h" // MAVERICKS_BACKPORT: legacy website-data managers at the bottom of this file.
+#include "WebsiteDataRecord.h" // MAVERICKS_BACKPORT: ditto.
+#include "WebsiteDataStore.h" // MAVERICKS_BACKPORT: ditto.
 #include "AuthenticationChallengeDisposition.h"
 #include "AuthenticationChallengeProxy.h"
 #include "AuthenticationDecisionListener.h"
@@ -3797,11 +3801,14 @@ void WKPageDoAfterProcessingAllPendingKeyEvents(WKPageRef page, void* context, W
 }
 #endif
 
-// MAVERICKS_BACKPORT: Safari 7 lazy-binds 40+ removed/renamed legacy WK_* C-API
-// symbols. dyld_fatal_error fires on first call. Provide no-op shims so Safari
-// proceeds. None of these features (Java, plugins, app-cache, WebSQL,
-// region-based columns, screen-font substitution) work on modern WebKit
-// regardless — silent no-ops are correct behavior, not a regression.
+// MAVERICKS_BACKPORT: Safari 7 lazy-binds removed/renamed legacy WK_* C-API symbols;
+// dyld_fatal_error fires on first call, so they are defined here. The preference and
+// inspector entry points below cover engine features modern WebKit no longer has (Java,
+// region-based columns, screen-font substitution). The website-data managers are the
+// surface Safari 7's Privacy pane drives through
+// Safari::TrackingDataController::populateWebsiteTrackingData: each one hands back the
+// default WKWebsiteDataStore and answers its callback, which the pane waits on before it
+// can list or remove anything.
 extern "C" {
 WK_EXPORT void WKPreferencesSetJavaEnabledForLocalFiles(WKPreferencesRef, bool);
 WK_EXPORT void WKPreferencesSetOfflineWebApplicationCacheEnabled(WKPreferencesRef, bool);
@@ -3816,22 +3823,28 @@ WK_EXPORT bool WKInspectorIsProfilingJavaScript(WKInspectorRef);
 WK_EXPORT void WKInspectorToggleJavaScriptProfiling(WKInspectorRef);
 WK_EXPORT WKDataRef WKDownloadGetResumeData(WKDownloadRef);
 WK_EXPORT void* WKGraphicsContextGetCGContext(void*);
-WK_EXPORT void* WKContextGetApplicationCacheManager(WKContextRef);
-WK_EXPORT void* WKContextGetDatabaseManager(WKContextRef);
-WK_EXPORT void* WKContextGetMediaCacheManager(WKContextRef);
-WK_EXPORT void* WKContextGetPluginSiteDataManager(WKContextRef);
-WK_EXPORT void WKApplicationCacheManagerDeleteAllEntries(void*);
-WK_EXPORT void WKApplicationCacheManagerDeleteEntriesForOrigin(void*, void*);
-WK_EXPORT void WKApplicationCacheManagerGetApplicationCacheOrigins(void*, void*, void*);
-WK_EXPORT void WKDatabaseManagerDeleteAllDatabases(void*);
-WK_EXPORT void WKDatabaseManagerDeleteDatabasesForOrigin(void*, void*);
-WK_EXPORT void WKDatabaseManagerGetDatabaseOrigins(void*, void*, void*);
-WK_EXPORT void WKMediaCacheManagerClearCacheForAllHostnames(void*);
-WK_EXPORT void WKMediaCacheManagerClearCacheForHostname(void*, WKStringRef);
-WK_EXPORT void WKMediaCacheManagerGetHostnamesWithMediaCache(void*, void*, void*);
-WK_EXPORT void WKPluginSiteDataManagerClearAllSiteData(void*, uint64_t, double);
-WK_EXPORT void WKPluginSiteDataManagerClearSiteData(void*, void*, uint64_t, double);
-WK_EXPORT void WKPluginSiteDataManagerGetSitesWithData(void*, void*, void*);
+// Safari passes Safari::StorageManagerAnnotatedCallback::callback(OpaqueWKArray const*,
+// OpaqueWKError const*, void*) to each of the three getters, in (manager, context, function) order.
+typedef void (*WK109StorageManagerGetOriginsFunction)(WKArrayRef, WKErrorRef, void*);
+WK_EXPORT WKWebsiteDataStoreRef WKContextGetApplicationCacheManager(WKContextRef);
+WK_EXPORT WKWebsiteDataStoreRef WKContextGetDatabaseManager(WKContextRef);
+WK_EXPORT WKWebsiteDataStoreRef WKContextGetMediaCacheManager(WKContextRef);
+WK_EXPORT WKWebsiteDataStoreRef WKContextGetPluginSiteDataManager(WKContextRef);
+WK_EXPORT void WKApplicationCacheManagerDeleteAllEntries(WKWebsiteDataStoreRef);
+WK_EXPORT void WKApplicationCacheManagerDeleteEntriesForOrigin(WKWebsiteDataStoreRef, WKSecurityOriginRef);
+WK_EXPORT void WKApplicationCacheManagerGetApplicationCacheOrigins(WKWebsiteDataStoreRef, void*, WK109StorageManagerGetOriginsFunction);
+WK_EXPORT void WKDatabaseManagerDeleteAllDatabases(WKWebsiteDataStoreRef);
+WK_EXPORT void WKDatabaseManagerDeleteDatabasesForOrigin(WKWebsiteDataStoreRef, WKSecurityOriginRef);
+WK_EXPORT void WKDatabaseManagerGetDatabaseOrigins(WKWebsiteDataStoreRef, void*, WK109StorageManagerGetOriginsFunction);
+WK_EXPORT void WKMediaCacheManagerClearCacheForAllHostnames(WKWebsiteDataStoreRef);
+WK_EXPORT void WKMediaCacheManagerClearCacheForHostname(WKWebsiteDataStoreRef, WKStringRef);
+WK_EXPORT void WKMediaCacheManagerGetHostnamesWithMediaCache(WKWebsiteDataStoreRef, void*, WK109StorageManagerGetOriginsFunction);
+// Safari passes Safari::WK::didClearDataCallback(OpaqueWKError const*, void*) as the callback and
+// its own continuation as the context, which that callback invokes as a function pointer.
+typedef void (*WK109StorageManagerDidClearFunction)(WKErrorRef, void*);
+WK_EXPORT void WKPluginSiteDataManagerClearAllSiteData(WKWebsiteDataStoreRef, void*, WK109StorageManagerDidClearFunction);
+WK_EXPORT void WKPluginSiteDataManagerClearSiteData(WKWebsiteDataStoreRef, WKArrayRef, uint64_t, uint64_t, void*, WK109StorageManagerDidClearFunction);
+WK_EXPORT void WKPluginSiteDataManagerGetSitesWithData(WKWebsiteDataStoreRef, void*, WK109StorageManagerGetOriginsFunction);
 WK_EXPORT bool WKBundleBackForwardListItemIsInPageCache(void*);
 WK_EXPORT void WKBundlePageSetDiagnosticLoggingClient(void*, void*);
 }
@@ -3877,22 +3890,76 @@ WKDataRef WKDownloadGetResumeData(WKDownloadRef download)
 #endif
 }
 void* WKGraphicsContextGetCGContext(void*) { return nullptr; }
-void* WKContextGetApplicationCacheManager(WKContextRef) { return nullptr; }
-void* WKContextGetDatabaseManager(WKContextRef) { return nullptr; }
-void* WKContextGetMediaCacheManager(WKContextRef) { return nullptr; }
-void* WKContextGetPluginSiteDataManager(WKContextRef) { return nullptr; }
-void WKApplicationCacheManagerDeleteAllEntries(void*) {}
-void WKApplicationCacheManagerDeleteEntriesForOrigin(void*, void*) {}
-void WKApplicationCacheManagerGetApplicationCacheOrigins(void*, void*, void*) {}
-void WKDatabaseManagerDeleteAllDatabases(void*) {}
-void WKDatabaseManagerDeleteDatabasesForOrigin(void*, void*) {}
-void WKDatabaseManagerGetDatabaseOrigins(void*, void*, void*) {}
-void WKMediaCacheManagerClearCacheForAllHostnames(void*) {}
-void WKMediaCacheManagerClearCacheForHostname(void*, WKStringRef) {}
-void WKMediaCacheManagerGetHostnamesWithMediaCache(void*, void*, void*) {}
-void WKPluginSiteDataManagerClearAllSiteData(void*, uint64_t, double) {}
-void WKPluginSiteDataManagerClearSiteData(void*, void*, uint64_t, double) {}
-void WKPluginSiteDataManagerGetSitesWithData(void*, void*, void*) {}
+
+// The store an empty engine-side feature still has to answer from, so the Privacy pane's
+// per-type queries complete.
+WKWebsiteDataStoreRef WKContextGetApplicationCacheManager(WKContextRef) { return WKWebsiteDataStoreGetDefaultDataStore(); }
+WKWebsiteDataStoreRef WKContextGetDatabaseManager(WKContextRef) { return WKWebsiteDataStoreGetDefaultDataStore(); }
+WKWebsiteDataStoreRef WKContextGetMediaCacheManager(WKContextRef) { return WKWebsiteDataStoreGetDefaultDataStore(); }
+WKWebsiteDataStoreRef WKContextGetPluginSiteDataManager(WKContextRef) { return WKWebsiteDataStoreGetDefaultDataStore(); }
+
+static void wk109AnswerWithEmptyList(void* context, WK109StorageManagerGetOriginsFunction callback)
+{
+    if (callback)
+        callback(toAPI(API::Array::create().ptr()), nullptr, context);
+}
+
+static void wk109AnswerWithOrigins(WKWebsiteDataStoreRef store, OptionSet<WebKit::WebsiteDataType> types, void* context, WK109StorageManagerGetOriginsFunction callback)
+{
+    if (!callback)
+        return;
+    protect(toImpl(store))->fetchData(types, { }, [context, callback](Vector<WebKit::WebsiteDataRecord> records) {
+        Vector<RefPtr<API::Object>> origins;
+        for (auto& record : records) {
+            for (auto& origin : record.origins)
+                origins.append(API::SecurityOrigin::create(origin));
+        }
+        callback(toAPI(API::Array::create(WTF::move(origins)).ptr()), nullptr, context);
+    });
+}
+
+static void wk109RemoveForOrigin(WKWebsiteDataStoreRef store, OptionSet<WebKit::WebsiteDataType> types, WKSecurityOriginRef originRef)
+{
+    WebKit::WebsiteDataRecord record;
+    for (auto type : types)
+        record.add(type, protect(toImpl(originRef))->securityOrigin());
+    protect(toImpl(store))->removeData(types, { record }, [] { });
+}
+
+// Application Cache is not part of this engine, so its origin list is empty in fact, not by stub.
+void WKApplicationCacheManagerDeleteAllEntries(WKWebsiteDataStoreRef) { }
+void WKApplicationCacheManagerDeleteEntriesForOrigin(WKWebsiteDataStoreRef, WKSecurityOriginRef) { }
+void WKApplicationCacheManagerGetApplicationCacheOrigins(WKWebsiteDataStoreRef, void* context, WK109StorageManagerGetOriginsFunction callback) { wk109AnswerWithEmptyList(context, callback); }
+
+void WKDatabaseManagerDeleteAllDatabases(WKWebsiteDataStoreRef store)
+{
+    protect(toImpl(store))->removeData(WebKit::WebsiteDataType::WebSQLDatabases, WallTime::fromRawSeconds(0), [] { });
+}
+void WKDatabaseManagerDeleteDatabasesForOrigin(WKWebsiteDataStoreRef store, WKSecurityOriginRef origin) { wk109RemoveForOrigin(store, WebKit::WebsiteDataType::WebSQLDatabases, origin); }
+void WKDatabaseManagerGetDatabaseOrigins(WKWebsiteDataStoreRef store, void* context, WK109StorageManagerGetOriginsFunction callback) { wk109AnswerWithOrigins(store, WebKit::WebsiteDataType::WebSQLDatabases, context, callback); }
+
+// MediaPlayerPrivateAVFoundationObjC is the only engine implementing originsInMediaCache and
+// clearMediaCache, and MediaPlayer registers it only under !USE(GSTREAMER). GStreamer is this
+// port's sole media engine and inherits MediaPlayerPrivate's empty defaults, so the set of
+// registered engines reports no media-cache hostname at all.
+void WKMediaCacheManagerClearCacheForAllHostnames(WKWebsiteDataStoreRef) { }
+void WKMediaCacheManagerClearCacheForHostname(WKWebsiteDataStoreRef, WKStringRef) { }
+void WKMediaCacheManagerGetHostnamesWithMediaCache(WKWebsiteDataStoreRef, void* context, WK109StorageManagerGetOriginsFunction callback) { wk109AnswerWithEmptyList(context, callback); }
+
+// NPAPI plug-ins are not part of this engine, so no site has plug-in data to report or clear.
+// The clear entry points still answer, because the context Safari hands them is the continuation
+// it runs after the clear.
+void WKPluginSiteDataManagerClearAllSiteData(WKWebsiteDataStoreRef, void* context, WK109StorageManagerDidClearFunction callback)
+{
+    if (callback)
+        callback(nullptr, context);
+}
+void WKPluginSiteDataManagerClearSiteData(WKWebsiteDataStoreRef, WKArrayRef, uint64_t, uint64_t, void* context, WK109StorageManagerDidClearFunction callback)
+{
+    if (callback)
+        callback(nullptr, context);
+}
+void WKPluginSiteDataManagerGetSitesWithData(WKWebsiteDataStoreRef, void* context, WK109StorageManagerGetOriginsFunction callback) { wk109AnswerWithEmptyList(context, callback); }
 bool WKBundleBackForwardListItemIsInPageCache(void*) { return false; }
 void WKBundlePageSetDiagnosticLoggingClient(void*, void*) {}
 }

@@ -26,6 +26,7 @@
 #pragma once
 
 #include "IdentifierTypes.h"
+#include "UserContentControllerIdentifier.h" // MAVERICKS_BACKPORT: for the user content controller identifier below.
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
@@ -33,6 +34,10 @@ namespace WebKit {
 struct WebPageGroupData {
     String identifier;
     PageGroupIdentifier pageGroupID;
+    // MAVERICKS_BACKPORT: the group's user content controller, so the WebContent
+    // process can reach it for the legacy WKBundleAddUserScript /
+    // WKBundleAddUserStyleSheet C API (Safari 7 extension content scripts).
+    UserContentControllerIdentifier userContentControllerIdentifier;
 };
 
 } // namespace WebKit

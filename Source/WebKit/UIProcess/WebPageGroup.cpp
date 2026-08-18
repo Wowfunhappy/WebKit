@@ -61,7 +61,9 @@ RefPtr<WebPageGroup> WebPageGroup::get(PageGroupIdentifier pageGroupID)
     return webPageGroupMap().get(pageGroupID);
 }
 
-static WebPageGroupData pageGroupData(const String& identifier)
+// MAVERICKS_BACKPORT: takes the group's user content controller identifier, which travels
+// to the WebContent process for the legacy bundle user-content C API (Safari 7 extensions).
+static WebPageGroupData pageGroupData(const String& identifier, UserContentControllerIdentifier userContentControllerIdentifier)
 {
     static NeverDestroyed<HashMap<String, PageGroupIdentifier>> map;
     auto pageGroupID = [&] {
@@ -81,17 +83,19 @@ static WebPageGroupData pageGroupData(const String& identifier)
 
     return {
         WTF::move(validIdentifier),
-        pageGroupID
+        pageGroupID,
+        userContentControllerIdentifier // MAVERICKS_BACKPORT: see above.
     };
 }
 
 // FIXME: Why does the WebPreferences object here use ".WebKit2" instead of "WebKit2." which all the other constructors use.
 // If it turns out that it's wrong, we can change it to to "WebKit2." and get rid of the globalDebugKeyPrefix from WebPreferences.
 WebPageGroup::WebPageGroup(const String& identifier)
-    : m_data(pageGroupData(identifier))
+    // MAVERICKS_BACKPORT: give the page group its own user content controller (see header),
+    // and record its identifier in the data the WebContent process receives.
+    : m_userContentController(WebUserContentControllerProxy::create())
+    , m_data(pageGroupData(identifier, m_userContentController->identifier()))
     , m_preferences(WebPreferences::createWithLegacyDefaults(m_data.identifier, ".WebKit2"_s, "WebKit2."_s))
-    // MAVERICKS_BACKPORT: give the page group its own user content controller (see header).
-    , m_userContentController(WebUserContentControllerProxy::create())
 {
     webPageGroupMap().set(m_data.pageGroupID, *this);
 }

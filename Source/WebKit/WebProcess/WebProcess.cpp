@@ -67,7 +67,6 @@
 #include "WebIDBConnectionToServer.h"
 #include "WebLoaderStrategy.h"
 #include "WebMediaKeyStorageManager.h"
-#include "WK109PageGroupUserContent.h" // MAVERICKS_BACKPORT: legacy page-group user-content application (Safari 7 extension content scripts)
 #include "WebMemorySampler.h"
 #include "WebMessagePortChannelProvider.h"
 #include "WebNotificationManager.h"
@@ -1070,13 +1069,6 @@ WebPage* WebProcess::webPage(PageIdentifier pageID) const
     return m_pageMap.get(pageID);
 }
 
-// MAVERICKS_BACKPORT: restored helper to iterate all WebPages (used by legacy page-group user-content application).
-void WebProcess::forEachWebPage(NOESCAPE const Function<void(WebPage&)>& apply) const
-{
-    for (auto& page : copyToVector(m_pageMap.values()))
-        apply(page);
-}
-
 void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&& parameters)
 {
     m_hasEverHadAnyWebPages = true;
@@ -1093,11 +1085,6 @@ void WebProcess::createWebPage(PageIdentifier pageID, WebPageCreationParameters&
         if (RefPtr gpuProcessConnection = m_gpuProcessConnection)
             page->gpuProcessConnectionDidBecomeAvailable(*gpuProcessConnection);
 #endif
-
-        // MAVERICKS_BACKPORT: apply legacy page-group user content (Safari 7
-        // extension content scripts) added via WKBundleAddUserScript before
-        // this page existed.
-        wk109ApplyPageGroupUserContent(page);
 
         // Balanced by an enableTermination in removeWebPage.
         disableTermination();

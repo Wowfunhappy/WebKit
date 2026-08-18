@@ -486,7 +486,6 @@ set(MAVERICKS_ADDED_WEBKIT_SOURCES
     "UIProcess/WebAuthentication/Virtual/VirtualHidConnection.cpp"
     "WebProcess/InjectedBundle/InjectedBundleNavigationAction.cpp"
     "WebProcess/InjectedBundle/InjectedBundlePagePolicyClient.cpp"
-    "WebProcess/InjectedBundle/WK109PageGroupUserContent.cpp"
     "WebProcess/Inspector/ServiceWorkerDebuggableFrontendChannel.cpp"
     "WebProcess/Inspector/ServiceWorkerDebuggableProxy.cpp"
 )

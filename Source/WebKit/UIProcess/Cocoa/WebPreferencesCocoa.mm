@@ -187,50 +187,6 @@ void WebPreferences::platformInitializeStore()
 
 #undef INITIALIZE_DEFAULT_OVERRIDABLE_PREFERENCE_FROM_NSUSERDEFAULTS
 
-        // MAVERICKS_BACKPORT (#300): Safari 9 / WebKit1 apps store their content prefs as global "WebKit*"
-        // NSUserDefaults (e.g. WebKitJavaScriptEnabled, set by the Security pane). But the modern WKWebView's
-        // WebPreferences is anonymous (empty identifier, keyPrefix "WebKit"), so the persistent read below is
-        // gated out by `if (!m_identifier)` and every Preferences-pane toggle silently does nothing. Honor each
-        // persistent BOOL pref's "WebKit"-prefixed default here, regardless of identifier — makeKey would have
-        // produced exactly "WebKit" + key for this configuration. Restores the global-defaults behavior Safari 9
-        // expects so the whole Preferences UI takes effect.
-        @autoreleasepool {
-            // Apply each persistent pref's "WebKit"-prefixed value that the USER actually set (e.g. the
-            // Preferences-pane Security toggles persist WebKitJavaScriptEnabled etc.). Read ONLY from the
-            // user-persisted domains (-persistentDomainForName:), NOT -[NSUserDefaults objectForKey:] /
-            // CFPreferencesCopyAppValue: those fall through to the NSUserDefaults *registration domain*, and
-            // WebKitLegacy's +[WebPreferences initialize] registerDefaults: a "WebKit"-prefixed default for
-            // EVERY generated preference (including modern ones like WebKitBroadcastChannelEnabled). Reading
-            // those registered defaults here clobbered WK2's own modern defaults with WebKit1's stale values —
-            // e.g. it forced BroadcastChannelEnabled=false in the store, which made the NetworkProcess reject
-            // (and SIGKILL the WebContent over) every BroadcastChannel registration that YouTube/apple.com/github
-            // perform. persistentDomainForName: returns only values the user actually wrote, so prefs the user
-            // never touched correctly fall through to the WK2 default.
-            RetainPtr<NSUserDefaults> wk109Defaults = [NSUserDefaults standardUserDefaults];
-            RetainPtr<NSDictionary> wk109GlobalPersisted = [wk109Defaults persistentDomainForName:NSGlobalDomain];
-            RetainPtr<NSString> wk109BundleID = [[NSBundle mainBundle] bundleIdentifier];
-            RetainPtr<NSDictionary> wk109AppPersisted = wk109BundleID ? [wk109Defaults persistentDomainForName:wk109BundleID.get()] : nil;
-#define WK109_APPLY_WEBKIT_DEFAULT(KeyUpper, KeyLower, TypeName, Type, DefaultValue, HumanReadableName, HumanReadableDescription) \
-            { \
-                RetainPtr<NSString> wk109Key = makeString("WebKit"_s, WebPreferencesKey::KeyLower##Key()).createNSString(); \
-                id wk109Val = [wk109AppPersisted objectForKey:wk109Key.get()]; \
-                if (!wk109Val) \
-                    wk109Val = [wk109GlobalPersisted objectForKey:wk109Key.get()]; \
-                if (wk109Val) { \
-                    if (std::is_same<Type, bool>::value && [wk109Val respondsToSelector:@selector(boolValue)]) \
-                        m_store.setBoolValueForKey(WebPreferencesKey::KeyLower##Key(), [wk109Val boolValue]); \
-                    else if (std::is_same<Type, uint32_t>::value && [wk109Val isKindOfClass:[NSNumber class]]) \
-                        m_store.setUInt32ValueForKey(WebPreferencesKey::KeyLower##Key(), [wk109Val unsignedIntValue]); \
-                    else if (std::is_same<Type, double>::value && [wk109Val isKindOfClass:[NSNumber class]]) \
-                        m_store.setDoubleValueForKey(WebPreferencesKey::KeyLower##Key(), [wk109Val doubleValue]); \
-                    else if (std::is_same<Type, String>::value && [wk109Val isKindOfClass:[NSString class]]) \
-                        m_store.setStringValueForKey(WebPreferencesKey::KeyLower##Key(), String { (NSString *)wk109Val }); \
-                } \
-            }
-            FOR_EACH_PERSISTENT_WEBKIT_PREFERENCE(WK109_APPLY_WEBKIT_DEFAULT)
-#undef WK109_APPLY_WEBKIT_DEFAULT
-        }
-
         if (!m_identifier)
             return;
 

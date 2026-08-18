@@ -72,11 +72,12 @@ public:
     WebUserContentControllerProxy& userContentController() { return m_userContentController; }
 
 private:
+    // MAVERICKS_BACKPORT: declared first so its identifier is available when m_data is built.
+    Ref<WebUserContentControllerProxy> m_userContentController;
     WebPageGroupData m_data;
     // MAVERICKS_BACKPORT: drop const so setPreferences() can reseat m_preferences
     // (Safari 7 attaches its own WKPreferences via WKPageGroupSetPreferences).
     Ref<WebPreferences> m_preferences;
-    Ref<WebUserContentControllerProxy> m_userContentController;
 };
 
 } // namespace WebKit
