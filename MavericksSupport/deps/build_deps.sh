@@ -642,10 +642,11 @@ d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$G
     > /tmp/depslog-gstbad-patch3.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch" \
     >> /tmp/depslog-gstbad-patch3.log 2>&1 ) \
   || { echo "gst-plugins-bad vtdec_hw caps-probe patch failed to apply"; cat /tmp/depslog-gstbad-patch3.log; exit 1; }
-# MAVERICKS_BACKPORT: vtdec's static sink template advertises VP9/AV1, which 10.9's
+# MAVERICKS_BACKPORT: vtdec's static sink template advertises VP9, AV1 and HEVC, which 10.9's
 # VideoToolbox has no decoder for on any hardware; the template is what WebKit's registry
-# scanner answers isTypeSupported/MediaCapabilities from, so the claim routes sites onto
-# streams nothing here decodes. This removes the two entries. See patches/README.md.
+# scanner answers isTypeSupported/MediaCapabilities from, and powerEfficient follows the matched
+# factory's Hardware klass, so the claim routes sites onto streams this machine decodes in
+# software or not at all. This removes the three entries. See patches/README.md.
 ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-vtdec-109-sink-template-codecs.patch" \
     > /tmp/depslog-gstbad-patch4.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-109-sink-template-codecs.patch" \
     >> /tmp/depslog-gstbad-patch4.log 2>&1 ) \
