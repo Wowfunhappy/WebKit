@@ -172,6 +172,17 @@ mkdir -p "$SRC" "$STAGE" "$DEST/include" "$DEST/lib"
 # file at the cache path, which get() would then trust forever.
 fetch() { curl -fsSL -m 600 -o "$2.part" "$1" && mv "$2.part" "$2"; }
 
+# fetch_cached <url> <dest>: fetch into the tarball cache and copy from there, so a rerun
+# reuses it. For the pinned subproject sources below, whose hosts rate-limit a repeated run.
+fetch_cached() {
+  local url="$1" dest="$2" f
+  # Keyed by the URL, so bumping a pinned revision fetches afresh rather than reusing an
+  # archive saved under the same destination name.
+  f="$SRC/$(printf '%s' "$url" | shasum | cut -c1-12)-$(basename "$dest")"
+  [ -f "$f" ] || ( echo "download $(basename "$dest")" >&2 && fetch "$url" "$f" ) || return 1
+  cp "$f" "$dest"
+}
+
 # get <url> <label>: download the tarball (once) and extract it, echoing the build
 # dir. To update a library, change its version in the URL on its line below.
 get() {
@@ -375,16 +386,16 @@ echo "==== GLib $GLIB_VER ===="
 # libffi by $LIBFFI_REV because its upstream wrap floats on a branch).
 d=$(get https://download.gnome.org/sources/glib/${GLIB_VER%.*}/glib-$GLIB_VER.tar.xz glib)
 ( cd "$d/subprojects" && mkdir -p packagecache && cd packagecache \
-  && fetch https://github.com/PhilipHazel/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.bz2 pcre2-10.42.tar.bz2 \
-  && fetch https://wrapdb.mesonbuild.com/v2/pcre2_10.42-2/get_patch pcre2_10.42-2_patch.zip \
-  && fetch https://zlib.net/fossils/zlib-1.2.11.tar.gz zlib-1.2.11.tar.gz \
-  && fetch https://wrapdb.mesonbuild.com/v2/zlib_1.2.11-6/get_patch zlib_1.2.11-6_patch.zip ) || exit 1
+  && fetch_cached https://github.com/PhilipHazel/pcre2/releases/download/pcre2-10.42/pcre2-10.42.tar.bz2 pcre2-10.42.tar.bz2 \
+  && fetch_cached https://wrapdb.mesonbuild.com/v2/pcre2_10.42-2/get_patch pcre2_10.42-2_patch.zip \
+  && fetch_cached https://zlib.net/fossils/zlib-1.2.11.tar.gz zlib-1.2.11.tar.gz \
+  && fetch_cached https://wrapdb.mesonbuild.com/v2/zlib_1.2.11-6/get_patch zlib_1.2.11-6_patch.zip ) || exit 1
 ( cd "$d/subprojects" \
-  && fetch https://gitlab.gnome.org/GNOME/gvdb/-/archive/0854af0fdb6d527a8d1999835ac2c5059976c210/gvdb.tar.gz gvdb.tar.gz \
+  && fetch_cached https://gitlab.gnome.org/GNOME/gvdb/-/archive/0854af0fdb6d527a8d1999835ac2c5059976c210/gvdb.tar.gz gvdb.tar.gz \
   && tar xzf gvdb.tar.gz && rm -rf gvdb && mv gvdb-0854af0* gvdb \
-  && fetch "https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi/-/archive/$LIBFFI_REV/libffi-$LIBFFI_REV.tar.gz" libffi-meson.tar.gz \
+  && fetch_cached "https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi/-/archive/$LIBFFI_REV/libffi-$LIBFFI_REV.tar.gz" libffi-meson.tar.gz \
   && tar xzf libffi-meson.tar.gz && rm -rf libffi && mv "libffi-$LIBFFI_REV" libffi \
-  && fetch https://github.com/frida/proxy-libintl/archive/refs/tags/0.4.tar.gz proxy-libintl-0.4.tar.gz \
+  && fetch_cached https://github.com/frida/proxy-libintl/archive/refs/tags/0.4.tar.gz proxy-libintl-0.4.tar.gz \
   && tar xzf proxy-libintl-0.4.tar.gz && rm -rf proxy-libintl && mv proxy-libintl-0.4 proxy-libintl ) || exit 1
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" -Ddefault_library=shared -Dbuildtype=release \
     -Dtests=false -Dglib_debug=disabled -Dman-pages=disabled -Ddocumentation=false \
@@ -481,57 +492,12 @@ d=$(get https://github.com/AOMediaCodec/libavif/archive/refs/tags/v1.3.0.tar.gz 
 "$NMBIN" "$STAGE/lib/libavif.a" 2>/dev/null | grep "avifCodecCreateDav1d" > /dev/null \
   || { echo "  FATAL: libavif has no dav1d codec (avifCodecCreateDav1d absent); AVIF would decode nothing."; exit 1; }
 
-echo "==== OpenSSL 3.5.7 ===="
-# WebRTC's DTLS-SRTP, libsrtp and WebKit's OpenSSL::Crypto cmake target consume these, and so does
-# ngtcp2's QUIC below. The version is pinned at 3.5 for that last consumer: the QUIC TLS API it needs
-# (SSL_set_quic_tls_cbs and the OSSL_FUNC_SSL_QUIC_TLS_* dispatch) exists only from 3.5 on. This is
-# the whole TLS stack -- one X.509 parser, one RNG, one CVE stream to follow.
-d=$(get https://github.com/openssl/openssl/releases/download/openssl-3.5.7/openssl-3.5.7.tar.gz openssl)
+echo "==== OpenSSL 3.0.16 ===="
+# WebRTC's DTLS-SRTP and WebKit's OpenSSL::Crypto cmake target consume these.
+d=$(get https://www.openssl.org/source/openssl-3.0.16.tar.gz openssl)
 ( cd "$d" && ./Configure darwin64-x86_64-cc shared --prefix="$STAGE" --libdir=lib \
     no-tests -mmacosx-version-min=10.9 > /dev/null \
   && make -s -j2 > /dev/null && make -s install_sw > /dev/null ) || exit 1
-# ngtcp2's ossl backend binds to this symbol; without it the failure surfaces as an unresolved
-# ngtcp2_crypto_ossl reference at WebKit link time, far from its cause.
-"$NMBIN" "$STAGE/lib/libssl.a" 2>/dev/null | grep -q " _SSL_set_quic_tls_cbs$" \
-  || { echo "  FATAL: libssl.a lacks SSL_set_quic_tls_cbs; QUIC/WebTransport would not build."; exit 1; }
-
-echo "==== ngtcp2 1.25.0 / nghttp3 1.18.0 (QUIC + HTTP/3) ===="
-# WebTransport. WebKit reaches it through Network.framework's nw_* WebTransport API, which is 10.14+
-# and absent here, and the polyfill layer answers that API -- but the API is a request for a
-# TRANSPORT, not a signature, so something has to actually speak QUIC and HTTP/3 underneath.
-#
-# The TLS half is the OpenSSL built above, through ngtcp2's "ossl" crypto backend, so QUIC shares the
-# one TLS library the rest of this tree uses.
-#
-# That backend configures the SSL SESSION (ngtcp2_crypto_ossl_configure_client_session) rather than
-# the SSL_CTX, and it holds pointers into the session: a caller must keep the ngtcp2_conn alive until
-# SSL_free, or clear SSL_set_app_data(ssl, NULL) before it.
-# CMake, because this host has no autoreconf.
-d=$(get https://github.com/ngtcp2/ngtcp2/releases/download/v1.25.0/ngtcp2-1.25.0.tar.xz ngtcp2)
-( cd "$d" && "$CMAKE" -S . -B out -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
-       -DCMAKE_C_COMPILER="$CC_VANILLA" -DCMAKE_OSX_SYSROOT=/ \
-       -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9 -DCMAKE_BUILD_TYPE=Release \
-       -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
-       -DBUILD_SHARED_LIBS=OFF -DENABLE_STATIC_LIB=ON -DENABLE_SHARED_LIB=OFF \
-       -DENABLE_WOLFSSL=OFF -DENABLE_OPENSSL=ON -DOPENSSL_ROOT_DIR="$STAGE" \
-       -DCMAKE_INSTALL_PREFIX="$STAGE" > /tmp/depslog-ngtcp2-setup.log 2>&1 \
-  && "$NINJA" -C out -j2 > /tmp/depslog-ngtcp2-compile.log 2>&1 \
-  && "$NINJA" -C out install > /tmp/depslog-ngtcp2-install.log 2>&1 ) || exit 1
-# ngtcp2 builds its transport library happily with NO crypto backend, and the gap only shows up as an
-# unresolved ngtcp2_crypto_* symbol much later. Ask for the backend archive by name.
-require_glob "$STAGE/lib/libngtcp2_crypto_ossl.a"
-
-# ENABLE_LIB_ONLY: nghttp3's examples target fails to configure here, and nothing needs it.
-d=$(get https://github.com/ngtcp2/nghttp3/releases/download/v1.18.0/nghttp3-1.18.0.tar.xz nghttp3)
-( cd "$d" && "$CMAKE" -S . -B out -G Ninja -DCMAKE_MAKE_PROGRAM="$NINJA" \
-       -DCMAKE_C_COMPILER="$CC_VANILLA" -DCMAKE_OSX_SYSROOT=/ \
-       -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9 -DCMAKE_BUILD_TYPE=Release \
-       -DCMAKE_AR="$AR" -DCMAKE_RANLIB="$RANLIB" \
-       -DBUILD_SHARED_LIBS=OFF -DENABLE_STATIC_LIB=ON -DENABLE_SHARED_LIB=OFF \
-       -DENABLE_LIB_ONLY=ON -DENABLE_EXAMPLES=OFF -DBUILD_TESTING=OFF \
-       -DCMAKE_INSTALL_PREFIX="$STAGE" > /tmp/depslog-nghttp3-setup.log 2>&1 \
-  && "$NINJA" -C out -j2 > /tmp/depslog-nghttp3-compile.log 2>&1 \
-  && "$NINJA" -C out install > /tmp/depslog-nghttp3-install.log 2>&1 ) || exit 1
 
 echo "==== libsrtp ===="
 d=$(get https://github.com/cisco/libsrtp/archive/refs/tags/v2.6.0.tar.gz srtp)
@@ -715,8 +681,7 @@ cp "$STAGE/lib/glib-2.0/include/glibconfig.h" "$DEST/lib/glib-2.0/include/"
 for l in libicuuc.a libicui18n.a libicudata.a \
          libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
-         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a \
-         libngtcp2.a libngtcp2_crypto_ossl.a libnghttp3.a; do
+         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a; do
   cp "$STAGE/lib/$l" "$DEST/lib/"
 done
 
@@ -877,8 +842,7 @@ require_glob "$DEST/lib/libc++abi.1.dylib"
 # dropout now instead of as an unresolved-symbol link failure in WebCore.
 for a in libicuuc.a libicui18n.a libicudata.a libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
-         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a \
-         libngtcp2.a libngtcp2_crypto_ossl.a libnghttp3.a; do
+         libwebp.a libwebpdemux.a libsharpyuv.a libavif.a; do
   require_glob "$DEST/lib/$a"
 done
 require_glob "$DEST/include/webp/decode.h"

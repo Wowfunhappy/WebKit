@@ -10022,12 +10022,19 @@ WebTransportEnabled:
   humanReadableName: "WebTransport"
   humanReadableDescription: "Enable WebTransport"
   defaultValue:
+    # MAVERICKS_BACKPORT: WebTransport runs on Network.framework's nw_webtransport_* family, which is
+    # 10.14+ and absent here; the polyfill layer deliberately supplies none of the soft-linked names,
+    # so every canLoad_Network_* probe answers false and NetworkTransportSession::create returns
+    # nullptr. Off port-wide, `WebTransport` is absent from the global object and a site that feature-
+    # detects it takes its WebSocket fallback instead of opening a session that can never connect.
     WebKitLegacy:
       default: false
     WebKit:
-      default: true
+      # MAVERICKS_BACKPORT (see above): # default: true
+      default: false
     WebCore:
-      default: true
+      # MAVERICKS_BACKPORT (see above): # default: true
+      default: false
   sharedPreferenceForWebProcess: true
   richJavaScript: true
   disableInLockdownMode: true
