@@ -8,14 +8,18 @@
 #include "WidevineCdmLocation.h"
 
 #include <CoreGraphics/CoreGraphics.h>
+#include <IOKit/IOKitLib.h>
 #include <dlfcn.h>
+#include <pal/crypto/CryptoDigest.h>
 #include <sys/time.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/FileSystem.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Scope.h>
+#include <wtf/ThreadSafeRefCounted.h>
 
 namespace WebCore {
 
@@ -107,8 +111,11 @@ private:
 
 // The CDM keeps state of its own -- one small record, opened by name. It goes in the origin's
 // media-keys storage directory, which is where the rest of a key system's persistent data lives
-// and what clearing a site's data removes.
-class RecordStore : public RefCounted<RecordStore> {
+// and what clearing a site's data removes. Every entry point into the CDM holds WidevineCdm's lock,
+// so the callbacks the CDM makes back out of one hold it too, and the directory is reached only from
+// there. The reference count is not: CreateFileIO() takes one on whichever thread the CDM is on, and
+// a record drops its own on the main thread, so the count is atomic.
+class RecordStore : public ThreadSafeRefCounted<RecordStore> {
 public:
     static Ref<RecordStore> create() { return adoptRef(*new RecordStore); }
 
@@ -132,65 +139,6 @@ private:
     String m_directory;
 };
 
-class FileIORecord final : public cdm::FileIO {
-public:
-    FileIORecord(cdm::FileIOClient& client, Ref<RecordStore>&& store)
-        : m_client(client)
-        , m_store(WTF::move(store))
-    {
-    }
-
-    // The name the CDM may ask for, as the interface defines it: letters, digits, '.', '_' and
-    // '-', not opening with '_', and no longer than 256 characters. It reaches a file path here,
-    // so it is checked rather than trusted.
-    static bool isValidName(const String& name)
-    {
-        if (name.isEmpty() || name.length() > 256 || name[0] == '_' || name == "."_s || name == ".."_s)
-            return false;
-        for (auto character : StringView { name }.codeUnits()) {
-            if (!isASCIIAlphanumeric(character) && character != '.' && character != '_' && character != '-')
-                return false;
-        }
-        return true;
-    }
-
-    void Open(const char* name, uint32_t size) final
-    {
-        m_name = String::fromUTF8(std::span { name, size });
-        if (!isValidName(m_name)) {
-            m_name = { };
-            m_client.OnOpenComplete(cdm::FileIOClient::Status::kError);
-            return;
-        }
-        m_client.OnOpenComplete(cdm::FileIOClient::Status::kSuccess);
-    }
-
-    void Read() final
-    {
-        if (m_name.isEmpty()) {
-            m_client.OnReadComplete(cdm::FileIOClient::Status::kError, nullptr, 0);
-            return;
-        }
-        auto contents = m_store->read(m_name);
-        m_client.OnReadComplete(cdm::FileIOClient::Status::kSuccess, contents.span().data(), contents.size());
-    }
-
-    void Write(const uint8_t* data, uint32_t size) final
-    {
-        bool written = !m_name.isEmpty() && m_store->write(m_name, std::span { data, data ? size : 0u });
-        m_client.OnWriteComplete(written ? cdm::FileIOClient::Status::kSuccess : cdm::FileIOClient::Status::kError);
-    }
-
-    void Close() final { delete this; }
-
-private:
-    ~FileIORecord() final = default;
-
-    cdm::FileIOClient& m_client;
-    const Ref<RecordStore> m_store;
-    String m_name;
-};
-
 class DecryptedBlock final : public cdm::DecryptedBlock {
 public:
     DecryptedBlock() = default;
@@ -211,6 +159,95 @@ private:
 };
 
 } // namespace
+
+// One record the CDM opens by name. The CDM calls these from whichever thread it is on -- Decrypt()
+// and DecryptAndDecodeFrame() run on GStreamer streaming threads -- and the interface defines every
+// FileIOClient response as asynchronous, so each call hops to the main thread and is answered there.
+// Ordering carries the rest: the hops run in the order they were made, so the one Close() makes,
+// which destroys the record, runs after every answer already queued from it.
+class FileIORecord final : public cdm::FileIO {
+public:
+    FileIORecord(cdm::FileIOClient& client, Ref<RecordStore>&& store, const ThreadSafeWeakPtr<WidevineCdm>& owner)
+        : m_client(client)
+        , m_store(WTF::move(store))
+        , m_owner(owner)
+    {
+    }
+
+    // The name the CDM may ask for, as the interface defines it: letters, digits, '.', '_' and
+    // '-', not opening with '_', and no longer than 256 characters. It reaches a file path here,
+    // so it is checked rather than trusted.
+    static bool isValidName(const String& name)
+    {
+        if (name.isEmpty() || name.length() > 256 || name[0] == '_' || name == "."_s || name == ".."_s)
+            return false;
+        for (auto character : StringView { name }.codeUnits()) {
+            if (!isASCIIAlphanumeric(character) && character != '.' && character != '_' && character != '-')
+                return false;
+        }
+        return true;
+    }
+
+    void Open(const char* name, uint32_t size) final
+    {
+        // The CDM owns these bytes for the length of the call only, so the name is copied out here
+        // rather than on the main thread.
+        answerOnMainThread([this, requested = String::fromUTF8(std::span { name, size }).isolatedCopy()] {
+            bool isValid = isValidName(requested);
+            m_name = isValid ? requested : String { };
+            m_client.OnOpenComplete(isValid ? cdm::FileIOClient::Status::kSuccess : cdm::FileIOClient::Status::kError);
+        });
+    }
+
+    void Read() final
+    {
+        answerOnMainThread([this] {
+            if (m_name.isEmpty()) {
+                m_client.OnReadComplete(cdm::FileIOClient::Status::kError, nullptr, 0);
+                return;
+            }
+            // A record that was never written reads back empty, which is what a first run is.
+            auto contents = m_store->read(m_name);
+            m_client.OnReadComplete(cdm::FileIOClient::Status::kSuccess, contents.span().data(), contents.size());
+        });
+    }
+
+    void Write(const uint8_t* data, uint32_t size) final
+    {
+        // Copied for the same reason the name above is: the write happens on a later turn, by which
+        // time the CDM's buffer is its own again.
+        answerOnMainThread([this, bytes = Vector<uint8_t> { std::span { data, data ? size : 0u } }] {
+            bool written = !m_name.isEmpty() && m_store->write(m_name, bytes.span());
+            m_client.OnWriteComplete(written ? cdm::FileIOClient::Status::kSuccess : cdm::FileIOClient::Status::kError);
+        });
+    }
+
+    void Close() final
+    {
+        RunLoop::mainSingleton().dispatch([this] { delete this; });
+    }
+
+private:
+    ~FileIORecord() final = default;
+
+    // An answer re-enters the CDM, which is not internally synchronized and may be inside Decrypt()
+    // on a streaming thread, so it goes out under the lock every other entry point here takes. A CDM
+    // already torn down leaves no client to answer, which is what deliverFileIOAnswer() checks.
+    template<typename Answer> void answerOnMainThread(Answer&& answer)
+    {
+        RunLoop::mainSingleton().dispatch([owner = m_owner, answer = WTF::move(answer)]() mutable {
+            RefPtr cdm = owner.get();
+            if (!cdm)
+                return;
+            cdm->deliverFileIOAnswer([&] { answer(); });
+        });
+    }
+
+    cdm::FileIOClient& m_client;
+    const Ref<RecordStore> m_store;
+    const ThreadSafeWeakPtr<WidevineCdm> m_owner;
+    String m_name;
+};
 
 class WidevineCdm::Host final : public cdm::Host_11 {
 public:
@@ -384,12 +421,15 @@ public:
     void OnDeferredInitializationDone(cdm::StreamType, cdm::Status) final { }
 
     // The interface spells a CDM that may not persist as one whose CreateFileIO() fails, which is
-    // also the answer when the origin has no storage directory to keep a record in.
+    // also the answer when the origin has no storage directory to keep a record in. This is the one
+    // host entry point that answers inline rather than on the main thread, because the interface
+    // wants the record back from the call; what it reads was settled by initialize() before the CDM
+    // could ask, and the record it hands over does its own work on the main thread.
     cdm::FileIO* CreateFileIO(cdm::FileIOClient* client) final
     {
         if (!client || !allowsPersistentState || !records->hasDirectory())
             return nullptr;
-        return new FileIORecord(*client, records.copyRef());
+        return new FileIORecord(*client, records.copyRef(), owner);
     }
 
     void RequestStorageId(uint32_t version) final
@@ -506,11 +546,60 @@ void WidevineCdm::deliverOutputProtectionStatus()
         m_cdm->OnQueryOutputProtectionStatus(cdm::QueryResult::kQuerySucceeded, linkTypes, cdm::OutputProtectionMethods::kProtectionNone);
 }
 
+// The machine this is running on, as the platform expert names it. It survives everything below the
+// hardware, so it is the part of the storage id that does not travel when a profile is copied.
+static String platformUUID()
+{
+    io_service_t platformExpert = IOServiceGetMatchingService(MACH_PORT_NULL, IOServiceMatching("IOPlatformExpertDevice"));
+    if (!platformExpert)
+        return { };
+    auto uuid = adoptCF(static_cast<CFStringRef>(IORegistryEntryCreateCFProperty(platformExpert, CFSTR(kIOPlatformUUIDKey), kCFAllocatorDefault, 0)));
+    IOObjectRelease(platformExpert);
+    return uuid ? String { uuid.get() } : String { };
+}
+
+void WidevineCdm::setStorageIdSeed(const String& seed)
+{
+    Locker locker { m_lock };
+    m_storageID = { };
+    auto device = platformUUID();
+    if (seed.isEmpty() || device.isEmpty())
+        return;
+
+    auto digest = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
+    auto deviceUTF8 = device.utf8();
+    digest->addBytes(byteCast<uint8_t>(deviceUTF8.span()));
+    auto seedUTF8 = seed.utf8();
+    digest->addBytes(byteCast<uint8_t>(seedUTF8.span()));
+    m_storageID = digest->computeHash();
+}
+
+// The storage id is what the CDM keys its own local secure storage with; the interface forbids it
+// leaving the device, so it never reaches a licence server. Version 1 is the one the interface
+// defines, and a request names a version or asks with 0 for the newest one on offer. It hashes the
+// machine's platform UUID together with the origin's media-keys hash salt, so it is stable for as
+// long as that origin's site data is, differs between origins, differs between machines, and goes
+// away when that data is cleared. An origin with no salt has no storage id, which the interface
+// spells as an empty answer, as it does a version it cannot supply.
 void WidevineCdm::deliverStorageId(uint32_t version)
 {
     Locker locker { m_lock };
-    if (m_cdm)
+    if (!m_cdm)
+        return;
+
+    if (m_storageID.isEmpty() || (version && version != 1)) {
         m_cdm->OnStorageId(version, nullptr, 0);
+        return;
+    }
+
+    m_cdm->OnStorageId(1, m_storageID.span().data(), m_storageID.size());
+}
+
+void WidevineCdm::deliverFileIOAnswer(Function<void()>&& answer)
+{
+    Locker locker { m_lock };
+    if (m_cdm)
+        answer();
 }
 
 void WidevineCdm::deliverPlatformChallengeResponse()

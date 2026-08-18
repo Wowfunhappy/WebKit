@@ -39,7 +39,10 @@ class CDMPrivateWidevine final : public CDMPrivate {
     WTF_MAKE_TZONE_ALLOCATED(CDMPrivateWidevine);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(CDMPrivateWidevine);
 public:
-    CDMPrivateWidevine() = default;
+    explicit CDMPrivateWidevine(const String& mediaKeysHashSalt)
+        : m_mediaKeysHashSalt(mediaKeysHashSalt)
+    {
+    }
     virtual ~CDMPrivateWidevine() = default;
 
     Vector<String> supportedInitDataTypes() const final;
@@ -57,6 +60,10 @@ public:
     bool supportsInitData(const String&, const SharedBuffer&) const final;
     RefPtr<SharedBuffer> sanitizeResponse(const SharedBuffer&) const final;
     std::optional<String> sanitizeSessionId(const String&) const final;
+
+private:
+    // The origin's media-keys hash salt, which the CDM's storage id is derived from.
+    String m_mediaKeysHashSalt;
 };
 
 class CDMInstanceSessionWidevine;
@@ -67,7 +74,7 @@ class CDMInstanceWidevine final : public CDMInstanceProxy, public WidevineCdmCli
     WTF_MAKE_TZONE_ALLOCATED(CDMInstanceWidevine);
     WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(CDMInstanceWidevine);
 public:
-    CDMInstanceWidevine();
+    explicit CDMInstanceWidevine(const String& mediaKeysHashSalt);
     virtual ~CDMInstanceWidevine();
 
     void registerSession(const String& sessionID, CDMInstanceSessionWidevine&);

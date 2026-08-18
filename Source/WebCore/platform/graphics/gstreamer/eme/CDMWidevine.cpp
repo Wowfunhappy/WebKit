@@ -67,10 +67,10 @@ CDMFactoryWidevine& CDMFactoryWidevine::singleton()
     return factory;
 }
 
-std::unique_ptr<CDMPrivate> CDMFactoryWidevine::createCDM(const String& keySystem, const String&, const CDMPrivateClient&)
+std::unique_ptr<CDMPrivate> CDMFactoryWidevine::createCDM(const String& keySystem, const String& mediaKeysHashSalt, const CDMPrivateClient&)
 {
     ASSERT_UNUSED(keySystem, supportsKeySystem(keySystem));
-    return makeUnique<CDMPrivateWidevine>();
+    return makeUnique<CDMPrivateWidevine>(mediaKeysHashSalt);
 }
 
 bool CDMFactoryWidevine::supportsKeySystem(const String& keySystem)
@@ -126,14 +126,17 @@ CDMRequirement CDMPrivateWidevine::persistentStateRequirement(const CDMKeySystem
     return CDMRequirement::Optional;
 }
 
+// MAVERICKS_BACKPORT: every record this CDM keeps is opened through a FileIO rooted in the origin's
+// own media-keys directory, and the storage id it is handed is derived from that origin's hash salt,
+// so the identity it provisions for itself is per-origin and goes with that origin's site data.
 bool CDMPrivateWidevine::distinctiveIdentifiersAreUniquePerOriginAndClearable(const CDMKeySystemConfiguration&) const
 {
-    return false;
+    return true;
 }
 
 RefPtr<CDMInstance> CDMPrivateWidevine::createInstance()
 {
-    auto instance = adoptRef(*new CDMInstanceWidevine());
+    auto instance = adoptRef(*new CDMInstanceWidevine(m_mediaKeysHashSalt));
     if (!instance->cdm())
         return nullptr;
     return instance;
@@ -170,13 +173,14 @@ std::optional<String> CDMPrivateWidevine::sanitizeSessionId(const String& sessio
     return sessionId;
 }
 
-CDMInstanceWidevine::CDMInstanceWidevine()
+CDMInstanceWidevine::CDMInstanceWidevine(const String& mediaKeysHashSalt)
     : CDMInstanceProxy(GStreamerEMEUtilities::s_WidevineKeySystem)
 {
     m_cdm = WidevineCdm::create();
     if (!m_cdm)
         return;
 
+    m_cdm->setStorageIdSeed(mediaKeysHashSalt);
     m_cdm->setClient(WeakPtr { static_cast<WidevineCdmClient&>(*this) });
 
     RefPtr proxy = this->proxy();

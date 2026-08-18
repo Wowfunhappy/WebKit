@@ -9,6 +9,7 @@
 
 #include <cdm/content_decryption_module.h>
 #include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
+#include <wtf/Function.h>
 #include <wtf/Lock.h>
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/Vector.h>
@@ -16,6 +17,8 @@
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
+
+class FileIORecord;
 
 struct WidevineKeyStatus {
     Vector<uint8_t> keyID;
@@ -104,6 +107,9 @@ public:
     // the CDM must be told cannot persist.
     bool setStorageDirectory(const String&);
 
+    // The origin's media-keys hash salt, which the storage id the CDM asks for is derived from.
+    void setStorageIdSeed(const String&);
+
     bool initialize(bool allowDistinctiveIdentifier, bool allowPersistentState);
 
     WidevineCdmCallResult setServerCertificate(std::span<const uint8_t>);
@@ -127,6 +133,7 @@ public:
 private:
     class Host;
     friend class Host;
+    friend class FileIORecord;
 
     // Handed to the module so it can fetch the host it calls back into.
     static void* cdmHostForInterfaceVersion(int, void* userData);
@@ -138,6 +145,7 @@ private:
     void deliverOutputProtectionStatus();
     void deliverStorageId(uint32_t version);
     void deliverPlatformChallengeResponse();
+    void deliverFileIOAnswer(Function<void()>&&);
 
     WidevineCdm(cdm::ContentDecryptionModule_11&, std::unique_ptr<Host>&&);
 
@@ -146,6 +154,7 @@ private:
     Lock m_lock;
     cdm::ContentDecryptionModule_11* m_cdm WTF_GUARDED_BY_LOCK(m_lock) { nullptr };
     std::unique_ptr<Host> m_host;
+    Vector<uint8_t> m_storageID WTF_GUARDED_BY_LOCK(m_lock);
 };
 
 } // namespace WebCore
