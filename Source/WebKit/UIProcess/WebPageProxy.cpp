@@ -9412,6 +9412,19 @@ void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process,
         // FIXME: Assert the API::WebsitePolicies* is nullptr here once clients of WKFramePolicyListenerUseWithPolicies go away.
         RELEASE_ASSERT(processSwapRequestedByClient == ProcessSwapRequestedByClient::No);
 
+#if PLATFORM(MAC)
+        // MAVERICKS_BACKPORT: an HLS playlist the user opens in the main frame plays in QuickTime
+        // Player. The URL is read here because completionHandlerWrapper below moves
+        // navigationResponse; the hand-off itself runs past the safe-browsing warning.
+        URL playlistToPlayInQuickTimePlayer;
+        if (policyAction != PolicyAction::Ignore
+            && frame->isMainFrame()
+            && navigationResponse->downloadAttribute().isNull()
+            && navigation && navigation->isRequestFromClientOrUserInput()
+            && MIMETypeRegistry::isTextMediaPlaylistMIMEType(navigationResponse->response().mimeType()))
+            playlistToPlayInQuickTimePlayer = navigationResponse->response().url();
+#endif
+
         bool shouldForceDownload = [&] {
             // Disallows loading model files as the main resource for child frames. If desired in the future, we can remove this line and add required support to enable this behavior.
             if (!frame->isMainFrame() && MIMETypeRegistry::isSupportedModelMIMEType(navigationResponse->response().mimeType()))
@@ -9507,6 +9520,12 @@ void WebPageProxy::decidePolicyForResponseShared(Ref<WebProcessProxy>&& process,
             bool status = sandbox_enable_state_flag("EnableQuickLookSandboxResources", *auditToken);
             WEBPAGEPROXY_RELEASE_LOG(Sandbox, "Enabling EnableQuickLookSandboxResources state flag, status = %d", status);
         }
+#endif
+#if PLATFORM(MAC)
+        // MAVERICKS_BACKPORT: the QuickTime Player hand-off decided above. Ignoring the response
+        // leaves the current page in place.
+        if (!playlistToPlayInQuickTimePlayer.isNull() && openMediaPlaylistInQuickTimePlayer(playlistToPlayInQuickTimePlayer))
+            policyAction = PolicyAction::Ignore;
 #endif
         completionHandlerWrapper(policyAction);
     }, expectSafeBrowsing , ShouldExpectAppBoundDomainResult::No, ShouldWaitForInitialLinkDecorationFilteringData::No, ShouldWaitForSiteHasStorageCheck::No, ShouldWaitForEnhancedSecurityLinkCheck::No);
@@ -12665,11 +12684,9 @@ void WebPageProxy::resetState(ResetStateReason resetStateReason)
 {
 #if HAVE(DISPLAY_LINK)
     // MAVERICKS_BACKPORT: balance the DisplayLink full-speed registration when the page is
-    // invalidated (tab close / page destruction). Nothing else decrements it on this path —
-    // upstream tolerates the leaked count because a link with no observers still stops itself,
-    // but this port keeps the link running for full-speed clients (see DisplayLink.cpp), so a
-    // leaked count would pin a permanent 60Hz timer + EventDispatcher::DisplayDidRefresh IPC
-    // stream. Mirrors the deregistration windowScreenDidChange() already performs.
+    // invalidated (tab close / page destruction). Nothing else decrements it on this path, and
+    // DisplayLink::removeInfoForClientIfUnused drops the client only once the count reaches zero.
+    // Mirrors the deregistration windowScreenDidChange() already performs.
     if (hasRunningProcess() && m_displayID && m_registeredForFullSpeedUpdates)
         protect(legacyMainFrameProcess())->setDisplayLinkForDisplayWantsFullSpeedUpdates(*m_displayID, false);
     m_registeredForFullSpeedUpdates = false;

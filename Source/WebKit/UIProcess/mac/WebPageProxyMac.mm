@@ -1144,6 +1144,17 @@ void WebPageProxy::platformUnlockPointer()
 
 #endif
 
+// MAVERICKS_BACKPORT: the QuickTime Player hand-off for an HLS playlist, called from
+// decidePolicyForResponseShared. LaunchServices delivers the URL as the GetURL Apple event
+// QuickTime Player's Internet suite handles, and answers whether the hand-off was made.
+bool WebPageProxy::openMediaPlaylistInQuickTimePlayer(const URL& url)
+{
+    if (!url.protocolIsInHTTPFamily())
+        return false;
+
+    return [[NSWorkspace sharedWorkspace] openURLs:@[url.createNSURL().get()] withAppBundleIdentifier:@"com.apple.QuickTimePlayerX" options:NSWorkspaceLaunchAsync additionalEventParamDescriptor:nil launchIdentifiers:nullptr];
+}
+
 #if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
 // MAVERICKS_BACKPORT: the page asked for com.widevine.alpha and the client allowed it. Google's
 // CDM is not redistributable, so it is installed at runtime the first time a page needs it; the

@@ -1979,6 +1979,11 @@ public:
     void saveDataToFileInDownloadsFolder(String&& suggestedFilename, String&& mimeType, URL&& originatingURL, API::Data&);
     void savePDFToFileInDownloadsFolder(String&& suggestedFilename, URL&& originatingURL, std::span<const uint8_t>);
 
+#if PLATFORM(MAC)
+    // MAVERICKS_BACKPORT: the QuickTime Player hand-off decidePolicyForResponseShared makes for an HLS playlist.
+    bool openMediaPlaylistInQuickTimePlayer(const URL&);
+#endif
+
 #if ENABLE(PDF_PLUGIN) && PLATFORM(MAC)
     void savePDFToTemporaryFolderAndOpenWithNativeApplication(const String& suggestedFilename, FrameInfoData&&, std::span<const uint8_t>);
     void showPDFContextMenu(const PDFContextMenu&, PDFPluginIdentifier, WebCore::FrameIdentifier, CompletionHandler<void(std::optional<int32_t>&&)>&&);
