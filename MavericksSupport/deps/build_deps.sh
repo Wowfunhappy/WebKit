@@ -580,6 +580,14 @@ d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-$GST_VER.tar.x
 # shipped runtime.
 echo "==== gst-plugins-base ===="
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-$GST_VER.tar.xz gstbase)
+# MAVERICKS_BACKPORT: urisourcebin owns the parsebin in a playbin3 pipeline, and nothing resets it
+# when a stream's media type changes mid-play, so an MSE SourceBuffer handed a clear period and then
+# an encrypted one stops at the change. This gives urisourcebin the reset decodebin3 already performs
+# on the parsebin it owns. See patches/README.md.
+( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-base-urisourcebin-reset-parsebin-on-caps-change.patch" \
+    > /tmp/depslog-gstbase-patch.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-base-urisourcebin-reset-parsebin-on-caps-change.patch" \
+    >> /tmp/depslog-gstbase-patch.log 2>&1 ) \
+  || { echo "gst-plugins-base urisourcebin parsebin-reset patch failed to apply"; cat /tmp/depslog-gstbase-patch.log; exit 1; }
 ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
     -Dogg=enabled -Dvorbis=enabled -Dopus=enabled > /tmp/depslog-gstbase-setup.log 2>&1 \
   && "$MESON" compile -C b -j 2 > /tmp/depslog-gstbase-compile.log 2>&1 \

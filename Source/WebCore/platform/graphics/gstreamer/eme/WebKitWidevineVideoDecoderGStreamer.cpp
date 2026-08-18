@@ -255,15 +255,18 @@ static void installCDMProxyIfNotAvailable(WebKitMediaWidevineVideoDecode* self)
     if (isCDMProxyAvailable(self))
         return;
 
-    GRefPtr<GstContext> context = adoptGRef(gst_element_get_context(GST_ELEMENT(self), "drm-cdm-proxy"));
-    if (!context) {
-        GST_DEBUG_OBJECT(self, "no drm-cdm-proxy context yet");
+    // An element plugged into a subtree that has since been reset carries no CDM context --
+    // gst_element_change_state_func drops every non-persistent context on the way down to NULL -- and
+    // nothing pushes one at it again, so it asks. gst_bin_handle_message_func answers out of an
+    // ancestor bin's stored contexts, synchronously on this thread, by calling
+    // gst_element_set_context() here; webKitMediaWidevineVideoDecodeSetContext() takes the proxy from
+    // that and does not chain to the default handler, so the element stores no context of its own and
+    // priv->cdmProxy is what says whether the request was answered.
+    gst_element_post_message(GST_ELEMENT(self), gst_message_new_need_context(GST_OBJECT(self), "drm-cdm-proxy"));
+    if (isCDMProxyAvailable(self))
         return;
-    }
 
-    const GValue* value = gst_structure_get_value(gst_context_get_structure(context.get()), "cdm-proxy");
-    if (value)
-        attachCDMProxy(self, reinterpret_cast<CDMProxy*>(g_value_get_pointer(value)));
+    GST_DEBUG_OBJECT(self, "no drm-cdm-proxy context available yet");
 }
 
 static gboolean webKitMediaWidevineVideoDecodeStart(GstVideoDecoder* decoder)
