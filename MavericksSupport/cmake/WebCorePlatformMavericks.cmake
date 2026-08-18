@@ -395,13 +395,6 @@ list(APPEND WebCore_SOURCES
     # The MediaRecorderPrivateWriter base: create/close/writeFrames plus its ctor and dtor, all called from
     # platform/mediarecorder/MediaRecorderPrivateEncoder.cpp (which SourcesCocoa.txt does build).
     platform/mediarecorder/MediaRecorderPrivateWriter.cpp
-    # Gamepad haptics: GameControllerGamepad.mm calls GameControllerHapticEngines::create/playEffect/
-    # stopEffects/stop and its dtor. GameControllerHapticEffect.mm and CoreHapticsSoftLink.mm come along as
-    # the engines' own dependencies. CoreHaptics is absent on 10.9 and soft-linked optionally
-    # (CoreHapticsSoftLink.mm), so this adds no load-time dependency on it.
-    platform/gamepad/cocoa/CoreHapticsSoftLink.mm
-    platform/gamepad/cocoa/GameControllerHapticEffect.mm
-    platform/gamepad/cocoa/GameControllerHapticEngines.mm
 )
 
 list(APPEND WebCore_LIBRARIES

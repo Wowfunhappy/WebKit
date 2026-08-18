@@ -583,15 +583,18 @@
 #define HAVE_NSPROGRESS_PUBLISHING_SPI 1
 #endif
 
-#if PLATFORM(MAC)
+// #if PLATFORM(MAC)
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500 // MAVERICKS_BACKPORT: MultiGamepadProvider needs GameController's ControllerClassForService, absent on 10.9.
 #define HAVE_MULTIGAMEPADPROVIDER_SUPPORT 1
 #endif
 
-#if PLATFORM(MAC)
+// #if PLATFORM(MAC)
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 130000 // MAVERICKS_BACKPORT: 10.9's GameController.framework is the MFi-only 2013 build, with no GCInput* element names and no GCPhysicalInputProfile; a HID gamepad reaches WebKit only through HIDGamepadProvider.
 #define HAVE_WIDE_GAMECONTROLLER_SUPPORT 1
 #endif
 
-#if PLATFORM(MAC)
+// #if PLATFORM(MAC)
+#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101700 // MAVERICKS_BACKPORT: +[GCController supportsHIDDevice:] is absent on 10.9.
 #define HAVE_GCCONTROLLER_HID_DEVICE_CHECK 1
 #endif
 
@@ -861,16 +864,10 @@
 #if PLATFORM(MAC) \
     || PLATFORM(IOS_FAMILY)
 #define HAVE_CFNETWORK_NSURLSESSION_HSTS_WITH_UNTRUSTED_ROOT 1
-// MAVERICKS_BACKPORT: the NSURLSession task-delegate API needs the 10.15+ SDK headers; the 26.1-SDK build satisfies this, so the flag is ON here.
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500 || PLATFORM(IOS_FAMILY)
+// #define HAVE_NSURLSESSION_TASK_DELEGATE 1
+#if __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500 || PLATFORM(IOS_FAMILY) // MAVERICKS_BACKPORT: 10.9's runtime has no -[NSURLSessionTask setDelegate:], on the concrete __NSCFLocalDataTask as well as NSURLSessionTask.
 #define HAVE_NSURLSESSION_TASK_DELEGATE 1
-#endif
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101300 || PLATFORM(IOS_FAMILY)
-#define HAVE_TLS_PROTOCOL_VERSION_T 1
-#endif
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000 || PLATFORM(IOS_FAMILY)
-#define HAVE_NSURLSESSION_TASK_PRIORITY 1
-#endif
+#endif // MAVERICKS_BACKPORT: closes the deployment-target guard above.
 #define HAVE_IMAGE_RESTRICTED_DECODING 1
 #define HAVE_XPC_CONNECTION_COPY_INVALIDATION_REASON 1
 #endif
