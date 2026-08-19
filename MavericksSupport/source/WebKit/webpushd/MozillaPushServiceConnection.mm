@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: new file; see MozillaPushServiceConnection.h. Protocol reference:
+// See MozillaPushServiceConnection.h. Protocol reference:
 // https://mozilla-push-service.readthedocs.io/en/latest/design/ plus Firefox's
 // dom/push/PushServiceWebSocket.sys.mjs, and verified live against
 // push.services.mozilla.com (hello/register/unregister/notification/ack, including

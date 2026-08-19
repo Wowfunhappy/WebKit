@@ -23,8 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: new file; see MozillaPushWebSocket.h.
-
 #import "config.h"
 #import "MozillaPushWebSocket.h"
 

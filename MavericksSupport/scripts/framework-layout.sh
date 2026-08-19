@@ -1,6 +1,6 @@
 #!/bin/bash
 # framework-layout.sh — the on-disk layout of the installed backport, shared by the
-# build-time stager (scripts/stage-frameworks.sh) and the installer (install-safari7.sh).
+# build-time stager (scripts/stage-frameworks.sh) and the installer (install.sh).
 # This file is SOURCED, never executed: it defines paths, helpers and one verification
 # gate, and performs no work of its own.
 #
@@ -9,7 +9,6 @@
 #   WebKitLegacy   -> /System/Library/Frameworks/WebKit.framework                   (bin: WebKit)
 #   WebCore        -> ...WebKit.framework/Versions/A/Frameworks/WebCore.framework   (bin: WebCore — nested, as on stock 10.9)
 #   WebKit (WK2)   -> /System/Library/PrivateFrameworks/WebKit2.framework           (bin: WebKit2)
-# See MavericksSupport/safari7-abi/INSTALL-PLAN.md for the rationale.
 
 WK_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WK_SUPPORT="$WK_REPO/MavericksSupport"
@@ -57,7 +56,7 @@ GST_DEPLOY=$PRIVLIB/gstreamer/lib
 XPCSERVICES=$WEBKIT2_BUNDLE/Versions/A/XPCServices
 
 # Canonical stock backup (flat *.framework dirs), captured once by
-# scripts/backup-stock-frameworks.sh and read by the i386 graft.
+# scripts/stage-frameworks.sh and read by the i386 graft.
 STOCK_BACKUP="${STOCK_BACKUP:-$(dirname "$WK_REPO")/stock-webkit-backup}"
 
 # macOS 10.9's QuickLook launches the FIXED helper-service set the 2014 stock WebKit shipped, so the

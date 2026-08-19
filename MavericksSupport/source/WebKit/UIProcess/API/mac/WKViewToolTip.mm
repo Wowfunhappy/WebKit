@@ -1,4 +1,4 @@
-// MAVERICKS_BACKPORT: title-attribute tooltips for the reimplemented WKView.
+// Title-attribute tooltips for the reimplemented WKView.
 //
 // Safari 7 drives WebKit2 through WKView, whose page client is MavericksPageClient, so WebViewImpl's
 // NSToolTipManager path is unused. This category carries WK1 WebHTMLView's classic mechanism over to

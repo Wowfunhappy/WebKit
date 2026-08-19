@@ -13,32 +13,26 @@ something here has failed and should be fixed rather than worked around.
 
 | Directory | What it holds |
 |---|---|
-| `polyfills/` | **The polyfills.** Grouped by what the symbol is. |
+| `polyfills/` | **The polyfills.** The rule below says which file. |
 | `mechanism/` | How the layer loads. You should not need to read this to add a polyfill. |
-| `legacy-support/` | Vendored POSIX/libc gap-fills (macports-legacy-support), kept close to upstream. |
-| `tests/` | Checks that the layer's guarantees actually hold on this OS. |
-| `scripts/` | The build. |
+| `headers/` | Header overlays on every WebKit compile's include path (`-idirafter`): declarations the modern tree includes that no SDK provides, and the port's `WebKitAdditions/AdditionalPlatformHave.h`. |
+| `tests/` | `mechanism/` checks the layer's guarantees hold on this OS, `behaviour/` checks one polyfill each (named after its framework), `gates/` holds the shadow gates' probe programs. `build-polyfill.sh` runs them all on every build. |
+| `build-polyfill.sh` | The build. |
+| `build/` | Its output (gitignored). |
 
-Inside `polyfills/`:
+Inside `polyfills/`, **the directory says which image(s) the code lands in and how, and the file is
+named after the system framework or library that owns the symbols** (the first argument of every
+`WK_POLYFILL_*` macro):
 
-| File | What belongs in it |
-|---|---|
-| `constants.m` | Every data constant. |
-| `runtime.m` | libSystem: libc, dyld, xpc, dispatch, os_log, pthread, mach. |
-| `graphics.c` | CoreGraphics, CoreText, QuartzCore, Accelerate, ImageIO, CoreVideo, IOKit. |
-| `system-spi.m` | Other framework entry points: Security, CFNetwork, CoreServices, Foundation, AppKit, sqlite3. |
-| `methods.m` | Objective-C methods on system classes. |
-| `classes.m` | Objective-C classes 10.9 does not have at all. |
-| `shared/` | The few polyfills the non-WebKit binaries compile too (see below). |
-
-`shared/` is the exception to everything below: the GStreamer/FFmpeg media stack and the build's own
-python3 need some of the same gaps filled, and they carry no polyfill registry, so the bodies there
-stay plain C that compiles with no `wk_polyfill.h`. A registry entry may still be added under
-`#ifdef WK_POLYFILL_REGISTERED`, which only this layer's own build defines — that is how `jit.c`'s
-deliberate `mmap` override shows up in `WK_POLYFILL_REPORT` without those builds gaining a
-dependency on the registry. Put a polyfill in `shared/` only when something outside WebKit
-compiles it (`deps/build_deps.sh`, `toolchain/scripts/build_python3.sh` name the ones that do);
-everything else belongs in the files above.
+| Directory | Lands in | Holds |
+|---|---|---|
+| `c/` | `libpolyfill.a`, force-loaded into **every** WebKit image, hidden | C functions and data constants, and the load-time patches that run from a constructor. `CoreText.c`, `AppKit.m`, `libSystem.m` (libc, dyld, xpc, dispatch, os_log, pthread, mach), `Security.c`, `CFNetwork.c`, `GStreamer.c` … A helper two files need goes in a header in `c/`. |
+| `methods/` | `libpolyfill_methods.a`, force-loaded into **WebCore** (with the selref-scope mechanism) | Objective-C methods on system classes, by the framework owning the class: `AppKit.m`, `Foundation.m`, `QuartzCore.m`, `PDFKit.m`, `AVFoundation.m` … |
+| `classes/` | `libpolyfill_classes.dylib`, one shared, exported definition each | Objective-C classes 10.9 does not have at all, by owning framework. |
+| `shared/` | `libpolyfill.a` **and** the vendored non-WebKit builds (`deps/build_deps.sh`, `toolchain/scripts/build_python3.sh`) | Plain C compiled against the host headers, with no `wk_polyfill.h` dependency: the macports-legacy-support libc gap-fills (`shared/LICENSE`, wrapper headers in `shared/include/`) and this port's own. A registry entry may be added under `#ifdef WK_POLYFILL_REGISTERED`, which only this layer's build defines — that is how `jit.c`'s deliberate `mmap` override shows up in `WK_POLYFILL_REPORT`. Put a polyfill here only when something outside WebKit compiles it. |
+| `webkit/` | `libpolyfill_webkit.a`, force-loaded into **WebKit.framework** only (ARC) | Units whose ObjC classes must register in WebKit alone: `websocket.mm` (NSURLSessionWebSocketTask over CFStream), the stub classes Safari binds out of WebKit. |
+| `jsc/` | `libwtf_compat.a`, force-loaded into **JavaScriptCore** only | The WTF C++ entry points Safari 7 binds by mangled name. |
+| `cdm/` | `libwidevinegap.dylib`, loaded by the Widevine CDM | The libSystem entry points Google's module imports and 10.9 lacks. |
 
 ## Adding a polyfill
 
@@ -81,7 +75,7 @@ declare it with `WK_SYSTEM_FN` and call it through `WK_SYSTEM(name)` instead of 
 
 ### An Objective-C method on a system class
 
-In `methods.m`, implement the method under a `wk_`-prefixed name and register it:
+In `methods/<Framework>.m`, implement the method under a `wk_`-prefixed name and register it:
 
 ```objc
 @implementation NSGraphicsContext (WKPolyfill)
@@ -104,7 +98,7 @@ WK_POLYFILL_SEL_REPLACES("foo", "wk_foo");
 
 ### An Objective-C class 10.9 lacks entirely
 
-Add the stub to `classes.m`.
+Add the stub to `classes/<Framework>.m`.
 
 ## Checking what actually happened
 
@@ -113,23 +107,25 @@ symbol, whether 10.9 has it, and which side won. `WK_POLYFILL_REPORT=abort` addi
 process if a `WK_POLYFILL_REPLACES` targets a symbol 10.9 does not have — i.e. if the premise behind
 a replacement ("10.9 has this but it is broken") is wrong.
 
-`scripts/build-polyfill.sh` runs `tests/wk_polyfill_test.c` on every build, which checks the layer's
-guarantees against real system symbols on both sides of the present/absent line.
+`build-polyfill.sh` runs `tests/mechanism/wk_polyfill_test.c` on every build, which checks the layer's
+guarantees against real system symbols on both sides of the present/absent line, then the rest of
+`tests/mechanism/` and every probe in `tests/behaviour/`.
 
-It then runs `scripts/check-polyfill-shadows.sh`, which asks the running 10.9 (via `dlopen`/`dlsym`,
-not the build SDK) whether any symbol the built archives define is one 10.9 already provides. Because
-every polyfill body now runs unconditionally, a defined symbol 10.9 also has is a silent shadow, so it
-must be declared `WK_POLYFILL_REPLACES` or the build fails — for registry symbols and for the plain-C
-`legacy-support/`, `polyfills/shared/` and mechanism units alike. There is no allowlist: every symbol
-the layer knowingly shadows says so in the registry, where the loader and `WK_POLYFILL_REPORT` see it.
+It then runs the shadow gates (probe programs `tests/gates/`), which ask the running 10.9 (via
+`dlopen`/`dlsym`, not the build SDK) whether any symbol the built archives define is one 10.9 already
+provides. Because every polyfill body runs unconditionally, a defined symbol 10.9 also has is a silent
+shadow, so it must be declared `WK_POLYFILL_REPLACES` or the build fails — for registry symbols and for
+the plain-C `shared/` and mechanism units alike. There is no allowlist: every symbol the layer knowingly
+shadows says so in the registry, where the loader and `WK_POLYFILL_REPORT` see it.
 
-The same script asks the ObjC runtime the same question about every `WK_POLYFILL_SEL`: it reads the
-registry out of the built `methods.o`, works out which class each `wk_` method lands on, and then —
-in a second program with none of the layer linked in, so what it sees is the system's own — walks
-that class and its superclasses for the public selector. A `WK_POLYFILL_SEL` whose method 10.9 already
-implements fails the build (the rewrite makes WebKit run the body in place of 10.9's) unless it is
-declared `WK_POLYFILL_SEL_REPLACES`; so does a registration whose `wk_` method exists on no class at
-all, since the rewrite would then send WebKit at a selector nothing implements.
+The gates ask the ObjC runtime the same question about every `WK_POLYFILL_SEL`: they read the registry
+out of the built method objects, work out which class each `wk_` method lands on, and then — in a
+second program with none of the layer linked in, so what it sees is the system's own — walk that class
+and its superclasses for the public selector. A `WK_POLYFILL_SEL` whose method 10.9 already implements
+fails the build (the rewrite makes WebKit run the body in place of 10.9's) unless it is declared
+`WK_POLYFILL_SEL_REPLACES`; so does a registration whose `wk_` method exists on no class at all, since
+the rewrite would then send WebKit at a selector nothing implements. A `WK_POLYFILL_CLASS` stub for a
+class 10.9 has fails the same way.
 
 ## How it works, in brief
 

@@ -13,7 +13,7 @@
 //     registry-aware gives soft-linked symbols the same answer as link-time ones and keeps
 //     SoftLinking.h byte-identical to upstream.
 //
-//  3. Answer objc_getClass() for the class stubs in polyfills/classes.m, which SoftLinking.h
+//  3. Answer objc_getClass() for the class stubs in polyfills/classes/, which SoftLinking.h
 //     resolves by name and would otherwise never see, since each stub is registered under a private
 //     runtime name to keep it out of the host app's way. Driven by the separate __DATA,__wk_clsmap
 //     registry, because those stubs live in a different image -- see lookupPolyfillClass.
@@ -401,14 +401,14 @@ static void *lookupPolyfillClass(const char *name)
 // objc_getClass for WebKit's own binaries, the class-shaped counterpart of the dlsym override above.
 //
 // SoftLinking.h resolves a soft-linked class by name through objc_getClass, so a class the polyfill
-// layer supplies is invisible to it: classes.m registers each stub under a private runtime name on
+// layer supplies is invisible to it: polyfills/classes/ registers each stub under a private runtime name on
 // purpose, which is what keeps the system name free for the host app. Without this, a required
 // soft-link of an absent class RELEASE_ASSERTs and an optional one yields nil -- in both cases
 // ignoring a stub that is loaded and able to answer, which is the same failure the dlsym override
 // exists to prevent for constants and functions.
 //
 // The system is asked first, so this can only ever answer where 10.9 has no such class, and only for
-// a name classes.m explicitly registered. A host app is unaffected: it calls libobjc's objc_getClass,
+// a name polyfills/classes/ explicitly registered. A host app is unaffected: it calls libobjc's objc_getClass,
 // not this one.
 WK_POLYFILL_REPLACES("/usr/lib/libobjc.A.dylib", Class, objc_getClass, (const char *name))
 {

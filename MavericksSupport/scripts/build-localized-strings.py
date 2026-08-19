@@ -36,7 +36,7 @@
 #   position, so it passes; anything else fails the build.
 #
 # Every shortfall below is a hard failure. The stock backup is already a hard build dependency
-# (backup-stock-frameworks.sh exits non-zero without it), and a table set that is silently short
+# (stage-frameworks.sh exits non-zero without it), and a table set that is silently short
 # is issue #105 shipped again with a WARN nobody reads.
 #
 # Usage: build-localized-strings.py <en-strings> <stock-resources-dir> <out-resources-dir>
@@ -143,7 +143,7 @@ def main(argv):
     if not os.path.isdir(stock_res):
         fail("no stock WebCore resources at %s -- the stock 10.9 backup supplies every WebCore\n"
              "       translation, so WebKit's own UI would ship English-only (issue #105). See\n"
-             "       MavericksSupport/scripts/backup-stock-frameworks.sh." % stock_res)
+             "       MavericksSupport/scripts/stage-frameworks.sh." % stock_res)
     stock_english = read_table_or_fail(
         os.path.join(stock_res, STOCK_ENGLISH, "Localizable.strings"),
         "stock 2013 English string table (the provenance record every translation is checked against)")

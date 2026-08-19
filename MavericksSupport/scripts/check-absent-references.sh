@@ -1,94 +1,39 @@
 #!/bin/bash
 # Fail the build if a shipped binary references a symbol that, at RUNTIME, nothing it links provides.
+# The mirror image of the shadow gate in polyfill/build-polyfill.sh: that one asks "does the layer
+# define something 10.9 already has?"; this one asks "does WebKit reference something 10.9 does NOT
+# have that the layer forgot to define?"
 #
-# This is the mirror image of polyfill/scripts/check-polyfill-shadows.sh. That gate asks "does the
-# layer define something 10.9 already has?"; this one asks the question from the other side: "does
-# WebKit reference something 10.9 does NOT have, and that the layer forgot to define?"
+# The modern SDK marks post-10.9 API with availability, so clang WEAK-imports every such reference; dyld
+# binds an absent weak symbol to 0, and both uses are fatal with nothing at the fault site naming the
+# symbol. Three reference kinds are scored, per image (a symbol counts as provided for image B only if
+# something in B's own load closure exports it -- WebKit2 weak-links Network/Metal/CryptoTokenKit, none
+# of which exist on 10.9):
 #
-# It asks that question of two reference kinds. The first is a WEAK import of API 10.9 lacks (ADDR
-# and CALL below); the second is a STRONG flat-namespace reference to a definition that was never
-# compiled, which "-undefined dynamic_lookup" lets through the link (DYN, described at its sweep).
+#   ADDR   a data constant: the generated code loads the GOT slot and dereferences it inline, so merely
+#          EVALUATING the constant faults. Always fails the build; there is no guardable form.
+#   CALL   a function: the branch goes to address 0. Every CALL finding is a DIRECT reference (soft-linking
+#          resolves through dlsym and emits no link-time reference), so there is no probe a gap-fill could
+#          flip. Fails whenever the referencing image links the polyfill archive.
+#   DYN    a strong flat-namespace reference "-undefined dynamic_lookup" let through the link to a
+#          definition that was never compiled (see its sweep below).
 #
-# The modern SDK marks post-10.9 API with availability, so clang WEAK-imports every such reference
-# rather than failing the link. dyld then binds an absent weak symbol to address 0, and BOTH ways of
-# using it are fatal:
+# The fix for a finding is a declaration in the polyfill layer: WK_POLYFILL_CONST for ADDR; WK_POLYFILL_ABSENT
+# for CALL, implemented over a 10.9 primitive or returning the modern API's documented FAILURE shape (a stub
+# that invents a SUCCESS value is not honest). There is no allow file: a prose claim that a path "never
+# executes" is exactly what goes stale.
 #
-#   ADDR   the generated code loads the GOT slot and dereferences it, so merely EVALUATING the
-#          constant faults -- no call, no guard site, nothing at the crash address naming it.
-#   CALL   the branch goes to address 0. Upstream soft-linking (`canLoad_X()` / `if (fn)`) exists for
-#          exactly this, but a guard is something a call site has to actually DO; a __TEXT,__stubs
-#          entry proves the symbol is CALLED, never that the call is protected.
+# Inventory only (printed, never dropped): a referencing image that does NOT carry __wk_pfmap, because no
+# polyfill entry can satisfy it -- the bundled GStreamer plugins (libgstapplemedia references
+# VTRegisterSupplementalVideoDecoderIfAvailable behind __builtin_available; libglib/libgstreamer reference
+# __darwin_check_fd_set_overflow behind the SDK's own null guard).
 #
-# The ADDR half is not hypothetical. An undeclared AppKit appearance name reads like this in the
-# generated code, and faults the moment its line runs:
+# ObjC class references (_OBJC_CLASS_$_/_OBJC_METACLASS_$_) are excluded by construction: an absent class
+# binds to 0 and a message to nil returns zero, so they cannot fault this way (a class 10.9 lacks whose
+# instances WebKit needs is polyfills/classes/'s business).
 #
-#   AVOutputDeviceMenuControllerTargetPicker::showPlaybackTargetPicker+107   movq (%rax), %rdx
-#                                                                           ^ %rax = 0, the GOT slot
-#
-# Nothing at the fault site names the symbol, and the line is an ARGUMENT expression -- not a call, not
-# a guardable site. A gate is the only way to find this class before a user does: such a reference
-# compiles clean, links clean, loads clean, and faults only when its line finally runs.
-#
-# PRESENCE IS PER-IMAGE, NOT GLOBAL. A symbol counts as provided for image B only if something in B's
-# own load closure exports it. Scoring presence against the union of every Mach-O on the disk is wrong
-# in the dangerous direction: WebKit2 weak-links Network, Metal and CryptoTokenKit and WebCore
-# weak-links Metal -- none of which exist on 10.9 -- so a symbol whose name is exported by some
-# framework B does NOT link would score present while dyld binds it to 0.
-#
-# Do NOT filter on nm's "(from X)" provider field as a presence test. In the STAGED binaries it is not
-# the real owner: the system-framework reexport shim (scripts/reexport-shim.sh) makes ordinary AppKit
-# and Foundation imports record their provider as libpolyfill_classes, so a filter that skips "our own"
-# libraries by provider name silently drops real AppKit and Foundation findings.
-#
-# WHAT FAILS THE BUILD:
-#
-#   ADDR, always. Address-taken absent data has no guardable form -- there is no "check the constant
-#   before reading it" idiom, the load is emitted inline at every use, and it faults every time.
-#   Absent + address-taken is by itself a proof of a crash, so this half takes no judgement and has no
-#   exemption mechanism.
-#
-#   CALL, whenever the referencing image links the polyfill archive -- regardless of whether the
-#   owning dylib exists. Every CALL finding is by construction a DIRECT reference: soft-linking
-#   (SoftLinking.h) resolves through dlsym and emits no link-time reference at all, so a soft-linked
-#   symbol never appears as an undefined weak external. Proof in this tree: WebCore soft-links
-#   VTRegisterSupplementalVideoDecoderIfAvailable and `nm -m` returns nine symbols for it, every one a
-#   DEFINITION and none undefined. So there is no soft-link probe for a gap-fill to flip, and no
-#   version of "but the call site might guard it" that survives contact with the symbol table.
-#
-# WHAT IS INVENTORY ONLY (printed every build, to be checked, never silently dropped): exactly one
-# case -- a referencing image that does NOT carry __wk_pfmap, because no polyfill entry could ever
-# satisfy it. The bundled GStreamer plugins are that case: libgstapplemedia references
-# VTRegisterSupplementalVideoDecoderIfAvailable and guards it with __builtin_available, and libcrypto,
-# libglib and libgstreamer reference __darwin_check_fd_set_overflow behind Apple's own SDK
-# null-address guard.
-#
-# TWO TEMPTING SPLITS ARE WRONG, AND BOTH ARE EXEMPTION MECHANISMS IN MECHANICAL DISGUISE. "Owning
-# dylib is present on 10.9" reads as a proxy for "a gap-fill could flip a soft-link probe", but it
-# excuses Security functions WebTransport calls directly, with no probe anywhere. "Does the image
-# contain the symbol name as a __TEXT,__cstring literal" is worse: SoftLinking.h stores its dlsym name
-# in __TEXT,__dlsym_cstr, never __cstring, while WK_PF_ENTRY stores every polyfilled symbol's own name
-# as a plain C literal -- so that test matches the layer's own registry, and its only other achievable
-# "yes" is incidental text such as a RELEASE_LOG_ERROR format string naming the function.
-#
-# There is deliberately NO allow file. A prose claim that some path "provably never executes" is
-# exactly the thing that goes stale.
-# "WebTransport is preference-gated off" names a user-writable default (WebPreferencesCocoa.mm applies
-# persisted WebKit-prefixed values from NSGlobalDomain), not a proof; "the WebAuthn platform
-# authenticator is filtered out by LocalService::isAvailable()" is bypassed entirely by
-# VirtualAuthenticatorManager::filterTransports(), which overrides it to do nothing and hands the REAL
-# LocalAuthenticator a VirtualLocalConnection. A gate with a prose off-switch is not a gate. The fix
-# for a finding is a declaration in the polyfill layer:
-#
-#   ADDR   WK_POLYFILL_CONST in polyfill/polyfills/constants.m.
-#   CALL   WK_POLYFILL_ABSENT in the matching polyfills/*.c|m -- either implemented over a 10.9
-#          primitive that satisfies the modern contract, or returning the modern API's documented
-#          FAILURE shape so callers take their own error path. A failing stub for a capability the OS
-#          does not have is honest; a stub that invents a SUCCESS value is not.
-#
-# Objective-C class references (_OBJC_CLASS_$_/_OBJC_METACLASS_$_) are EXCLUDED by construction: an
-# absent class reference binds to 0 and `[AbsentClass message]` is a message to nil, which the runtime
-# defines as returning zero. They cannot fault the way a data load or a call does. (A class 10.9 lacks
-# whose *instances* WebKit needs is a different problem, and classes.m's business.)
+# Do NOT filter on nm's "(from X)" provider field: in the STAGED binaries the reexport shim makes ordinary
+# AppKit and Foundation imports record their provider as libpolyfill_classes.
 set -euo pipefail
 export LC_ALL=C   # sort and comm below must agree on ordering, and every symbol name is ASCII
 

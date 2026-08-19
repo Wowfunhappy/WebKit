@@ -1,4 +1,4 @@
-# MAVERICKS_BACKPORT: vtenc sets the compression session's destination color properties
+# vtenc sets the compression session's destination color properties
 # (ColorPrimaries/TransferFunction/YCbCrMatrix), which makes VideoToolbox color-match every source
 # pixel buffer against them -- which it can only do if the source states what its pixels are. The
 # buffers this element wraps around raw GstMemory carry no color attachments at all. Newer

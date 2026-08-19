@@ -17,7 +17,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
-// MAVERICKS_BACKPORT: accelerated <video> compositing for the Cocoa+GStreamer hybrid. The upstream
+// Accelerated <video> compositing for the Cocoa+GStreamer hybrid. The upstream
 // GStreamer player only has an accelerated frame path under USE(COORDINATED_GRAPHICS) (texture
 // mapper), which this CoreGraphics/CoreAnimation build doesn't use. These helpers back
 // MediaPlayerPrivateGStreamer::platformLayer() with a plain CALayer whose contents are updated

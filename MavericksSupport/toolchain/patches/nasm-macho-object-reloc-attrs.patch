@@ -1,4 +1,4 @@
-# MAVERICKS_BACKPORT: nasm's Mach-O writer stamps S_ATTR_LOC_RELOC / S_ATTR_EXT_RELOC on every
+# nasm's Mach-O writer stamps S_ATTR_LOC_RELOC / S_ATTR_EXT_RELOC on every
 # object-file section that has relocation entries. Those two attributes belong to final linked
 # images, where they mark a section that has load-time relocations (the LC_DYSYMTAB
 # locreloff/extreloff tables) for dyld to apply; Apple's assemblers leave them clear on object

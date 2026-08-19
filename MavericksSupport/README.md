@@ -22,92 +22,69 @@ source, `build/` = regenerable artifact).
 
 ```
 MavericksSupport/
-│  (top level = the things you invoke, plus the file CMake needs)
+│  (top level = the things you invoke)
 ├── README.md                   this file
-├── bootstrap.sh                fresh-clone setup (toolchain + deps + polyfill)
-├── rebuild.sh                  build: link, then stage the complete product
-├── install-safari7.sh          installer: copy the staged product into the 10.9 system
-├── mac10.9-toolchain.cmake     CMake toolchain entry (all paths relative)
+├── bootstrap.sh                fresh-clone setup: toolchain, SDK patches, deps, polyfill archives
+├── build.sh                    build: polyfill archives, ninja (configures on first run), stage, audits
+├── install.sh                  installer: copy the staged product into the 10.9 system
 │
-├── scripts/                    supporting scripts (not entry points for a normal build)
-│   ├── stage-frameworks.sh                the build's last phase: assemble WebKitBuild/Release/staged
-│   ├── backup-stock-frameworks.sh         keep stock 10.9 WebKit in ../stock-webkit-backup (i386 slices)
-│   ├── framework-layout.sh                sourced helper: the installed layout, shared by stage + install
-│   ├── run-layout-tests.sh                layout tests: --wk1 (DumpRenderTree) | --wk2 (WebKitTestRunner)
-│   ├── make-build-frameworks-runnable.sh  make the in-place build frameworks loadable, no system writes
-│   ├── check-backport-markers.sh          audits divergences for MAVERICKS_BACKPORT markers
-│   └── reexport-shim.sh                   sourced helper: build a reexport shim dylib
-│
-├── demangler/                  the demangler guard (_Z -> _z rename so symbolication can't crash)
-│   ├── neutralize-demangler-crashers.py   the guard, run by scripts/stage-frameworks.sh
-│   ├── demangler-crash-scan.cpp           fork-isolated crash-scan worker
-│   └── demangler-crash-scan-freecheck.c   the second (double-free) detector
-│
-├── toolchain/                  the in-tree compiler + helper build tools
-│   ├── vendor/                   COMMITTED binaries we can't rebuild:
-│   │                             clang-22 + lld (bzip2-compressed), llvm-ar/nm/objcopy,
-│   │                             clang.cfg/clang++.cfg, resource headers, libc++/abi/unwind
-│   ├── scripts/                  COMMITTED source: build_{python3,nasm,ninja,cmake,ccache}.sh
-│   ├── bootstrap.sh              reconstructs build/ from vendor/ + scripts/
-│   └── build/                    ARTIFACTS (gitignored): unpacked clang + built tools
-│
+├── cmake/                      the CMake side: mac10.9-toolchain.cmake (the toolchain file) and the
+│                               overlays Source/cmake includes (OptionsMacMavericks, *PlatformMavericks)
+├── source/                     out-of-tree WebKit source the overlays add to the build (WKViewMavericks.mm, webpushd, …)
+├── scripts/                    stage-frameworks.sh (the build's last phase: assemble WebKitBuild/Release/staged),
+│                               framework-layout.sh (sourced: the installed layout, shared by stage + install),
+│                               check-absent-references.sh (build gate), check-backport-markers.sh (divergence gate),
+│                               run-layout-tests.sh (--wk1 | --wk2), build-localized-strings.py
 ├── polyfill/                   the polyfill layer -- see polyfill/README.md
-│   ├── polyfills/                THE POLYFILLS, by what the symbol is (constants, runtime, graphics, ...)
-│   ├── mechanism/                how the layer loads (not needed to add a polyfill)
-│   ├── legacy-support/           vendored macports-legacy-support (libc/POSIX gap-fills)
-│   ├── headers/                  framework header overlays (declarations modern WebKit calls)
-│   ├── tests/                    checks the layer's guarantees on this OS
-│   ├── scripts/                  build-polyfill.sh, build-legacy-polyfills.sh
-│   └── build/                    ARTIFACTS (gitignored): archives the link consumes (see below)
-│
-├── sdk/                        SDK patches: patch-sdk-rehome.sh (symbol re-home) + patch-sdk-availability.sh (make iOS-only soft-linked classes macOS-declarable)
+├── sandbox/                    the sandbox profiles 10.9's sandbox can compile + check-sandbox-profiles.sh (build gate)
+├── host-abi/                   the symbols Safari 7 binds from our frameworks + check-abi-gap.sh (build gate)
+├── sdk/                        patch-sdk.sh: the two edits the build needs in the macOS SDK (run by bootstrap.sh)
+├── demangler/                  the demangler guard (_Z -> _z rename so symbolication can't crash), run by staging
+├── toolchain/                  the in-tree compiler + helper build tools (vendor/ committed, build/ regenerated)
 ├── deps/                       third-party libraries WebKit links (see deps/README.md)
-│   ├── build_deps.sh             builds ICU/gcrypt/tasn1/gpg-error/brotli/woff2/libwebp/libavif/libxml2 + the GStreamer runtime -> build/
-│   ├── patches/                  source patches build_deps.sh applies to GStreamer
-│   └── build/                    ARTIFACTS (gitignored): the built libs + headers + tools
-├── safari7-abi/                the captured Safari-7 private ABI contract + check-abi-gap.sh
-├── docs/                       prose docs: upstream-merge guide + Safari-7 ABI reference
-└── tests/                      manual test pages + media
+├── docs/                       prose: upstream-merge notes + the private WebKit ABI reference
+└── tests/                      manual test pages (see tests/README.md)
 ```
+
+Every regenerable artifact lives in a gitignored `build/` (`toolchain/build`, `deps/build`,
+`polyfill/build`); everything else is committed.
 
 ## Building (a fresh clone)
 
-1. **Supply the SDK.** The macOS SDK is Apple-proprietary and not redistributed
-   here. Place a `MacOSX26.1.sdk` as a **sibling of this checkout** (or set
-   `MAVERICKS_SDK`). The toolchain file errors clearly if it's missing.
+1. **Supply the SDK.** The macOS SDK is Apple-proprietary and not redistributed here. Place a
+   `MacOSX26.1.sdk` as a **sibling of this checkout** (or set `MAVERICKS_SDK`).
 
-2. **Bootstrap** (once): `bash MavericksSupport/bootstrap.sh` — unpacks the in-tree clang and
-   builds python3/nasm/ninja/cmake/ccache into `toolchain/build/`, then the third-party
-   libraries WebKit links into `deps/build/` and the polyfill archives into
-   `polyfill/build/`. All three are gitignored; CMake configuration fails with a pointer
-   back here if `deps/build` is empty. Budget a couple of hours for a cold run.
+2. **Bootstrap** (once): `bash MavericksSupport/bootstrap.sh` — unpacks the in-tree clang and builds
+   python3/nasm/ninja/cmake/ccache into `toolchain/build/`, applies the SDK patches, builds the
+   third-party libraries into `deps/build/` and the polyfill archives into `polyfill/build/`. Budget
+   a couple of hours for a cold run.
 
-3. **Configure + build** with the bootstrapped cmake/ninja and the toolchain file
-   (`toolchain/bootstrap.sh` prints the exact command).
+3. **Build**: `bash MavericksSupport/build.sh` — configures `WebKitBuild/Release` on the first run,
+   builds, stages the complete product in `WebKitBuild/Release/staged/` laid out exactly as it lands
+   on disk, and runs the post-build audits. Everything logs to `/tmp/wk_build.log`; wait for
+   `REBUILD DONE (rc=0)`.
 
-4. **Install** onto the 10.9 target: `sudo bash MavericksSupport/install-safari7.sh`.
-   The build's last phase (`scripts/stage-frameworks.sh`, run by `rebuild.sh`) already
-   assembled the complete product in `WebKitBuild/Release/staged/`, laid out exactly as it
-   lands on disk; installing copies that tree into `/System`. The one thing outside our own
-   frameworks it touches is the Dashboard widget plists' `AllowInternetPlugins` flag, which
-   the Dock reads to pick the DashboardClient architecture before any of our code runs.
+4. **Install** onto the 10.9 target: `sudo bash MavericksSupport/install.sh`. Installing copies the
+   staged tree into `/System`; the one thing outside our own frameworks it touches is the Dashboard
+   widget plists' `AllowInternetPlugins` flag, which the Dock reads to pick the DashboardClient
+   architecture before any of our code runs.
 
 To run layout tests against the build tree (never the installed system), use
-`bash MavericksSupport/scripts/run-layout-tests.sh --wk1|--wk2 <tests...>` — the port
-flag is mandatory, and the script's header lists the one-time driver-build prereqs.
+`bash MavericksSupport/scripts/run-layout-tests.sh --wk1|--wk2 <tests...>` — the port flag is
+mandatory, and the script's header lists the one-time driver-build prereqs.
 
 ## `polyfill/build/` contents
 
-- `libpolyfill.a` — the C functions and data constants: the macports-legacy libc base plus the
+- `libpolyfill.a` — the C functions and data constants: the macports-legacy libc gap-fills plus the
   framework entry points 10.9 lacks or gets wrong. Force-loaded into every shipped framework
   (`WEBKIT_FRAMEWORK` in `Source/cmake/WebKitMacros.cmake`), which is what makes a polyfill win
   deterministically; also listed plainly by `OptionsMac.cmake` for the build-time tools.
-- `libwtf_compat.a` — force-loaded into JavaScriptCore
-  (`Source/JavaScriptCore/CMakeLists.txt`).
-- `libpolyfill_classes.a` — the ObjC method polyfills, force-loaded into WebCore
-  (`Source/WebCore/CMakeLists.txt`).
+- `libpolyfill_methods.a` — the ObjC method polyfills + the selref-scope mechanism, force-loaded into
+  WebCore (`Source/WebCore/CMakeLists.txt`).
 - `libpolyfill_classes.dylib` — the ObjC class polyfills, one shared definition each.
+- `libpolyfill_webkit.a` — force-loaded into WebKit.framework only (`Source/WebKit/CMakeLists.txt`).
+- `libwtf_compat.a` — force-loaded into JavaScriptCore (`Source/JavaScriptCore/CMakeLists.txt`).
 - `libwk_marker.a` — tags a binary as ours, so method polyfills apply to it and not to a host app.
+- `libwidevinegap.dylib` — installed beside Google's Widevine module by WebKit at runtime.
 
-The reproducible source lives in `polyfills/` (what we polyfill), `mechanism/` (how it loads) and
-`legacy-support/` (the libc base). See `polyfill/README.md` before adding a polyfill.
+See `polyfill/README.md` before adding a polyfill.

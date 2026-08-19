@@ -17,9 +17,9 @@
 //
 // A "WebKit image" is any binary carrying __DATA,__wk_marker, injected by wk_image_marker.c which is
 // force-loaded into every WebKit framework (WEBKIT_FRAMEWORK). This object (the patcher + registry) and
-// polyfills/methods.m (the polyfill methods + WK_POLYFILL_SEL registrations) are force-loaded into WebCore only
+// polyfills/methods/ (the polyfill methods + WK_POLYFILL_SEL registrations) are force-loaded into WebCore only
 // — they load early in every rendering process and keep the AppKit categories out of the setuid-JSC path.
-// THE POLYFILLS THEMSELVES LIVE IN polyfills/methods.m; add new ones there.
+// THE POLYFILLS THEMSELVES LIVE IN polyfills/methods/; add new ones there.
 
 #import "wk_selref_scope.h"
 #import <Foundation/Foundation.h>
@@ -183,7 +183,7 @@ static pthread_mutex_t wk_reg_lock = PTHREAD_MUTEX_INITIALIZER;
 // bound to its real method (the by-name selref rewrite must not hijack another class's method).
 //
 // If the target class turns out to implement the public selector after all, a GAP_FILL body would
-// shadow 10.9's — a mistake the build gate rejects (check-polyfill-shadows.sh), exactly as it rejects a
+// shadow 10.9's — a mistake the build gate rejects (the shadow gate in build-polyfill.sh), exactly as it rejects a
 // shadowing C gap-fill.
 //
 // INTENT DECIDES WHAT HAPPENS TO A SUBCLASS OF THE TARGET. Aliasing a class's own IMP under wk_<name>

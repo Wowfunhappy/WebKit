@@ -1,4 +1,4 @@
-; MAVERICKS_BACKPORT: what this port's WebContent process needs beyond the recovered 2015 profile.
+; What this port's WebContent process needs beyond the recovered 2015 profile.
 ;
 ; The base profile next to this file is byte-identical to upstream at aab061ff1301 and stays that
 ; way, so everything this port adds lives here, appended after it by the CMake rule. Sandbox rules

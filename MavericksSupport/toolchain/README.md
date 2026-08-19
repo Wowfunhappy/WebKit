@@ -52,7 +52,7 @@ The in-tree clang is the bootstrap compiler for the next one:
 
 3. **Fix the version-specific references** when the major version changes (`NN`):
    `bootstrap.sh` (the `clang-NN.bz2` / `clang-NN` names), the toolchain file
-   `../mac10.9-toolchain.cmake` (the `EXISTS ${_TC}/bin/clang-NN` check), and
+   `../cmake/mac10.9-toolchain.cmake` (the `EXISTS ${_TC}/bin/clang-NN` check), and
    `.gitignore` (`/clang/bin/clang-NN`).
 
 4. `rm -rf build && ./bootstrap.sh`, rebuild WebKit, then `git add vendor/clang`.

@@ -1,54 +1,23 @@
 #!/usr/bin/python
-# MAVERICKS_BACKPORT: neutralize symbols that crash the 10.9 libc++abi demangler.
+# neutralize-demangler-crashers.py -- rename the symbols that crash the 10.9 libc++abi demangler.
 #
-# The 10.9 __cxa_demangle (the old fixed-arena demangler in /usr/lib/libc++abi.dylib)
-# corrupts its heap on certain modern-C++ mangled names -- notably the local symbols
-# clang emits for generic lambdas inside variadic member-function templates
-# instantiated with an empty parameter pack (WebCore::Style::CSSValueCreation /
-# ToCSS emit ~2 dozen of these). ReportCrash demangles EVERY nlist symbol of every
-# image mapped by a crashing process (CoreSymbolication create_symbol_owner_data),
-# so one such symbol in an installed WebKit binary makes ReportCrash itself die
-# mid-report: no .crash is ever written for any WebKit process, and sample /
-# spindump break the same way.
+# 10.9's __cxa_demangle corrupts its heap on certain modern-C++ mangled names (the local symbols clang
+# emits for generic lambdas inside variadic member templates instantiated with an empty pack). ReportCrash
+# demangles EVERY nlist symbol of every image mapped by a crashing process, so one such symbol in an
+# installed WebKit binary makes ReportCrash itself die and no .crash is written; sample/spindump break the
+# same way. Each crasher is renamed in the Mach-O string table from "_Z..." to "_z..." (one byte, in
+# place), so symbolication treats it as a plain non-C++ name. Only LOCAL symbols are patched (nothing
+# binds to them, so the rename is ABI-inert); a confirmed exported crasher aborts the run.
 #
-# Fix: empirically test every mangled symbol of the binaries we install against
-# the HOST demangler and rename each crasher in the Mach-O string table from
-# "_Z..." to "_z..." (one byte, in place). Symbolication then treats it as a plain
-# non-C++ name and never demangles it. Only LOCAL (non-exported) symbols may be
-# patched -- nothing binds to them at runtime, so the rename is ABI-inert; if a
-# CONFIRMED crasher is an exported symbol this script aborts loudly instead.
-#
-# Detection is inherently probabilistic: the demangler bug reads uninitialized
-# stack (its arena), so whether a given bad symbol visibly misbehaves depends on
-# stack garbage, environment size, and prior heap use. The scanner therefore
-# (a) runs the compiled demangler-crash-scan.cpp worker (fork-isolated, bisecting)
-# several times with a varied environment -- trials under the freecheck
-# interposer (traps wild free() of unallocated pointers, the bug's primary
-# signature) plus one under Guard Malloc (traps heap overruns; the two
-# detectors cannot coexist in one process) -- unioning the results, and (b) generalizes
-# each confirmed crasher to its whole template FAMILY (every local symbol sharing
-# the same family-head prefix, e.g. all _ZZN7WebCore5Style16CSSValueCreationI...
-# symbols) so family members whose corruption merely stayed silent in this run's
-# layout are neutralized too. Detection integrity is fail-loud: every trial first
-# proves the wild-free interposer is live (worker --selftest-wildfree must exit
-# 42), and a worker range that fails without attributable crashers (UNATTRIBUTED)
-# forces a retry and ultimately an abort, never a silent pass.
-#
-# Even so, the scan is only as good as this host's memory layout: a family in
-# which NO member happens to misbehave here ships unpatched and can still crash
-# a differently-laid-out symbolication host (a spindump on other hardware died
-# in exactly this way, expanding a Style::CSSValueConversion local this scan
-# had certified). So in addition to the empirical scan, every local symbol
-# whose mangling matches the crash-prone STRUCTURAL shape itself -- an
-# operator() instantiated with an empty parameter pack ("clIJEE"), a
-# pack-expansion parameter ("DpOT_"), and a generic lambda ("Ul...E_") -- is
-# neutralized unconditionally, no confirmation needed. That predicate is
-# layout-independent, and over-matching is harmless: only local symbols are
-# patched, and the sole cost is that reports show those locals mangled.
-#
-# The scan is empirical rather than a hardcoded symbol list because the set of
-# offending symbols drifts with every rebuild (new template instantiations).
-# Re-running on an already-patched binary is a no-op ("_z" names are skipped).
+# Two detectors, unioned: (a) an empirical scan of every mangled symbol against the HOST demangler in the
+# fork-isolated demangler-crash-scan.cpp worker -- several trials under the freecheck interposer (traps
+# wild free() of unallocated pointers) plus one under Guard Malloc, each confirmed crasher generalized to
+# its whole template family (same family-head prefix); the scan is fail-loud (each trial first proves the
+# interposer is live via --selftest-wildfree, and an unattributed worker failure retries then aborts).
+# (b) A structural predicate applied unconditionally: an operator() instantiated with an empty pack
+# ("clIJEE"), a pack-expansion parameter ("DpOT_"), or a generic lambda ("Ul...E_") -- the crash-prone
+# shape, independent of this host's memory layout. Over-matching costs only a mangled name in reports.
+# Re-running on a patched binary is a no-op ("_z" names are skipped).
 #
 # Usage: neutralize-demangler-crashers.py <macho-binary>...
 #        (fat binaries: every x86_64 slice is processed; other slices untouched)
@@ -71,7 +40,7 @@ N_EXT = 0x01
 GMALLOC = "/usr/lib/libgmalloc.dylib"
 SUPPORT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# MAVERICKS_BACKPORT: resolve a working compiler WITHOUT routing through the
+# resolve a working compiler WITHOUT routing through the
 # /usr/bin/cc xcrun shim. That shim asks `xcodebuild -find <tool>`, which on 10.9
 # crashes when a modern Xcode.app is present and errors out when no Xcode/CLT is
 # installed at all -- either way the shim never yields a compiler. The real toolchain

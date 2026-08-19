@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: new file. A PushServiceConnection backed by the Mozilla autopush
+// A PushServiceConnection backed by the Mozilla autopush
 // service (push.services.mozilla.com) instead of the Apple Push Service. 10.9's apsd
 // cannot mint web-push URL tokens (no -[APSConnection requestURLTokenForInfo:completion:]),
 // so this port speaks the same WebSocket protocol Firefox uses: `hello` establishes a

@@ -1142,7 +1142,7 @@ set_target_properties(WebKit PROPERTIES
 # @implementations Safari 7 binds out of WebKit.framework. A static archive linked into a framework
 # contributes its symbols to that framework, which is what satisfies both the two-level "Expected in:
 # WebKit" bind and the weak _OBJC_CLASS_$_NSURLSessionWebSocketMessage import -- the same arrangement
-# libpolyfill_classes.a already uses for WebCore and JavaScriptCore. It is a SEPARATE archive from that
+# libpolyfill_methods.a already uses for WebCore. It is a SEPARATE archive from that
 # one so these ObjC classes are registered exactly once, here, rather than in every image that links the
 # shared archive. -force_load keeps members nothing references (the categories and +load registrations);
 # LINK_DEPENDS makes the raw -Wl input a real ninja dependency so WebKit relinks when the archive changes.

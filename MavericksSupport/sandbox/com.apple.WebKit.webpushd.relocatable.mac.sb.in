@@ -1,4 +1,4 @@
-; MAVERICKS_BACKPORT: the webpushd sandbox profile for this port.
+; The webpushd sandbox profile for this port.
 ;
 ; Unlike the WebContent and Networking profiles next to it, this one has no Mavericks-era
 ; upstream ancestor to recover -- webpushd postdates 10.9 entirely, so upstream never wrote a

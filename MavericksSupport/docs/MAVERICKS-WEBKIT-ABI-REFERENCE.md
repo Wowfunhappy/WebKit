@@ -6,11 +6,12 @@ so the frameworks must export exactly those symbols, with compatible signatures,
 few other Safari-7-era system clients (**Mail**, **QuickLook**) additionally bind legacy surface Safari does
 not; that surface, also removed or gutted upstream, is restored by the backport and flagged inline. No public
 Apple documentation covers this SPI; this reference is reconstructed from the symbols Safari imports
-(`safari-needs-from-*.txt`, **725** symbols total) plus the WebKit C/Objective-C API of that era.
+(`host-abi/safari-needs-from-*.txt`, **725** symbols total) plus the WebKit C/Objective-C API of that era.
 
 It is organized by providing framework, then by API group. Symbol counts per group are Safari's imports;
-representative entry points are named. The exhaustive symbol lists are the `safari-needs-from-<framework>.txt`
-files.
+representative entry points are named. The exhaustive symbol lists are the `host-abi/safari-needs-from-<framework>.txt`
+files, and `host-abi/check-abi-gap.sh` (run by `build.sh` after staging) fails the build if the staged
+frameworks miss any of them.
 
 ---
 
@@ -239,3 +240,18 @@ fills in:
 - some gutted C API such as the `WKPageGroup` user-content functions, parts of `WKBundlePageGroup*`, and
   `WKSerializedScriptValue*` (restored);
 - the **old WTF mangled names** in JavaScriptCore.
+
+## How the contract was captured
+
+The three `safari-needs-from-<framework>.txt` files are the intersection of what Safari imports with what each
+stock 537.78 framework exported, computed once from the factory binaries (kept in `stock-webkit-backup`
+beside the checkout — `scripts/stage-frameworks.sh` captures them at build time):
+
+```
+nm -gu /Applications/Safari.app/Contents/Frameworks/Safari.framework/Safari | awk '{print $NF}' | sort -u > safari-imports.txt
+nm -gU <stock>/JavaScriptCore.framework/Versions/A/JavaScriptCore | awk '{print $3}' | sort -u > exports-JavaScriptCore.txt
+comm -12 safari-imports.txt exports-JavaScriptCore.txt > safari-needs-from-JavaScriptCore.txt
+```
+and likewise for `WebKit.framework/Versions/A/WebKit` (24) and `WebKit2.framework/Versions/A/WebKit2` (606). Safari
+imports 2110 symbols in all; the remaining ~1385 come from system frameworks and 0 from WebCore directly.
+`StagedFrameworks/Safari` (a Safari-9 mechanism) is empty and unused by Safari 7.

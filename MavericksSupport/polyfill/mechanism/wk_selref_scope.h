@@ -1,7 +1,7 @@
 // wk_selref_scope.h — WebKit-scoped ObjC-method polyfill registry (shared by the patcher and the
-// polyfill list). See wk_selref_scope.m for the mechanism; add polyfills in polyfills/methods.m.
+// polyfill list). See wk_selref_scope.m for the mechanism; add polyfills in polyfills/methods/.
 //
-// To add a polyfill: in polyfills/methods.m, implement `- (T)wk_foo` (or `+`) as a category on the real
+// To add a polyfill: in polyfills/methods/, implement `- (T)wk_foo` (or `+`) as a category on the real
 // class using the classic 10.9 API, then `WK_POLYFILL_SEL("foo", "wk_foo");`. Rebuild. The marker is
 // already in every WebKit framework, so the call site may live anywhere in WebKit and reverts to
 // pristine upstream (it sends `foo`, which is rewritten to `wk_foo` in WebKit images only).
@@ -11,7 +11,7 @@
 // GAP_FILL is what WK_POLYFILL_SEL means: supply a method 10.9 LACKS; the body runs unconditionally,
 // like WK_POLYFILL_ABSENT for a C symbol. REPLACES says this polyfill deliberately shadows a method
 // 10.9 HAS. Both install the body (wk_alias_class in wk_selref_scope.m); the distinction is a
-// build-gate concern — a GAP_FILL whose method 10.9 turns out to have fails check-polyfill-shadows.sh,
+// build-gate concern — a GAP_FILL whose method 10.9 turns out to have fails the shadow gate in build-polyfill.sh,
 // so verify absence on-host rather than declaring one blindly.
 enum { WK_SELMAP_GAP_FILL = 0, WK_SELMAP_REPLACES = 1 };
 
@@ -62,7 +62,7 @@ IMP wk_replaces_call_through_imp(id receiver, IMP bodyIMP, SEL privateSelector, 
 //
 // Needed for a class that MOVED frameworks between the build SDK and 10.9 (e.g. NSURLSessionTask:
 // CFNetwork on the modern SDK, Foundation at 10.9 runtime). A compile-time `@interface C (…)` category in
-// polyfills/methods.m emits an `_OBJC_CLASS_$_C` classref that binds to libpolyfill_classes.dylib via its
+// polyfills/methods/ emits an `_OBJC_CLASS_$_C` classref that binds to libpolyfill_classes.dylib via its
 // framework reexport; if the class isn't actually in the reexported framework at runtime, dyld fails to
 // load ("Symbol not found: _OBJC_CLASS_$_C") and the whole framework won't load. WK_POLYFILL_ADD sidesteps
 // that: it stores (class NAME, sel, C-function IMP, type-encoding) in __DATA,__wk_addmap; at load

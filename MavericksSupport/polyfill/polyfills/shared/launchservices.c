@@ -12,7 +12,7 @@
  *
  * Both return +1 on success, matching the Copy naming, and set *outError to a real CFError on
  * failure: a caller that sees NULL may wrap *outError to report it, and a NULL there aborts
- * some of them. The sibling LSCopyDefaultApplicationURLForURL in polyfills/system-spi.m is
+ * some of them. The sibling LSCopyDefaultApplicationURLForURL in polyfills/c/CoreServices.m is
  * built the same way on the same primitives.
  *
  * LSRolesMask is honoured where 10.9 can: LSCopyDefaultRoleHandlerForContentType takes the same
@@ -23,7 +23,7 @@
  * Plain C so the non-WebKit builds that carry no polyfill registry -- deps/build_deps.sh, which
  * force-loads these into every media dylib -- compile this same source.
  *
- * WK_POLYFILL_REGISTERED is defined only by polyfill/scripts/build-polyfill.sh, i.e. only when
+ * WK_POLYFILL_REGISTERED is defined only by polyfill/build-polyfill.sh, i.e. only when
  * this file is built into libpolyfill.a for WebKit. It adds the registry entries and nothing else.
  */
 

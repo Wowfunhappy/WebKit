@@ -24,7 +24,7 @@ chmod +x "$SCRATCH/bin/cc"
 # absent here. compiler-rt supplies the comparison itself; the only gap is that one symbol, so
 # link the polyfill source that defines it (the same one WebKit itself links).
 POLYFILL="$TOOLCHAIN/../polyfill"
-"$SCRATCH/bin/cc" -c -mmacosx-version-min=10.9 -I"$POLYFILL/legacy-support/include" \
+"$SCRATCH/bin/cc" -c -mmacosx-version-min=10.9 -I"$POLYFILL/polyfills/shared/include" \
     -o "$SCRATCH/os_version.o" "$POLYFILL/polyfills/shared/os_version.c"
 "$CLANG/bin/llvm-ar" rcs "$SCRATCH/libavailshim.a" "$SCRATCH/os_version.o"
 

@@ -1,5 +1,5 @@
 /*
- * MAVERICKS_BACKPORT build glue.
+ * WebCore build glue.
  *
  * WebCore must not ship any UNDEFINED WebCore:: symbol. Safari tolerates a few (two-level namespace +
  * lazy binding never resolves a symbol it never calls), but a WebKit plug-in that is dlopen'd with
@@ -23,7 +23,7 @@
 #import <wtf/text/StringView.h>
 
 #import "ServiceWorkerRoute.h"
-// MAVERICKS_BACKPORT (#137): GPUCanvasContext::create() for Cocoa. WebGPU is off on this port
+// #137: GPUCanvasContext::create() for Cocoa. WebGPU is off on this port
 // (ENABLE_WEBGPU / GPU_PROCESS off), so html/canvas/GPUCanvasContextCocoa.mm — the WebGPU backend that
 // normally defines this — is withheld from the build and kept byte-upstream. GPUCanvasContext.cpp only
 // defines create() for !PLATFORM(COCOA), so without this the symbol is undefined: Safari binds it lazily

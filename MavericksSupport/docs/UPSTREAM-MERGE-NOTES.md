@@ -8,7 +8,7 @@ When merging from upstream, pay attention to the following.
 git grep -n MAVERICKS_BACKPORT
 ```
 
-Each marker is a deliberate divergence. A three-way merge will silently drop or mangle these wherever upstream also touched the file. Walk the list; re-apply each by hand.
+Each marker is a deliberate divergence in `Source/`. A three-way merge will silently drop or mangle these wherever upstream also touched the file. Walk the list; re-apply each by hand, then run `MavericksSupport/scripts/check-backport-markers.sh` against the new base — it reports every divergent hunk that lost its marker, every upstream line that was deleted rather than commented out, and every upstream file the tree no longer has.
 
 ## New `USE(GLIB)` blocks that assume GLib *is* the platform
 

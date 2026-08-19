@@ -1,4 +1,4 @@
-# MAVERICKS_BACKPORT: gst-libav skips every FFmpeg decoder whose name starts with "lib"
+# gst-libav skips every FFmpeg decoder whose name starts with "lib"
 # on the premise that a native GStreamer element covers each such library. This runtime
 # has no native AV1 decoder to cover dav1d: gst-plugins-bad 1.28 carries no dav1d wrapper
 # (dav1ddec lives in gst-plugins-rs, which is not part of this build), its ext/aom needs

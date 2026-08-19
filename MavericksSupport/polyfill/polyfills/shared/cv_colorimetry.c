@@ -11,7 +11,7 @@
  * defining them makes the references link and keeps a NULL key or value out of a
  * CoreVideo attachment dictionary; 10.9 does not act on the tags.
  *
- * WK_POLYFILL_REGISTERED is defined only by polyfill/scripts/build-polyfill.sh, i.e. only
+ * WK_POLYFILL_REGISTERED is defined only by polyfill/build-polyfill.sh, i.e. only
  * when this file is built into libpolyfill.a for WebKit. It adds the registry entries and
  * nothing else.
  */

@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// MAVERICKS_BACKPORT: new file. A minimal RFC 6455 WebSocket client over NSStream +
+// A minimal RFC 6455 WebSocket client over NSStream +
 // Secure Transport, used by MozillaPushServiceConnection to reach the Mozilla autopush
 // service. webpushd runs on macOS 10.9, which has no NSURLSessionWebSocketTask (10.15+),
 // so the daemon carries its own client: TLS via the kCFStreamSSLPeerName-validated

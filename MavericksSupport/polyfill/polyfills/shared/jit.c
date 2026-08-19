@@ -5,7 +5,7 @@
  * the build's own python3) compile this same source, and they carry no polyfill
  * registry. One definition, used by all of them.
  *
- * WK_POLYFILL_REGISTERED is defined only by polyfill/scripts/build-polyfill.sh, i.e.
+ * WK_POLYFILL_REGISTERED is defined only by polyfill/build-polyfill.sh, i.e.
  * only when this file is built into libpolyfill.a for WebKit. It adds the registry
  * entry for mmap and nothing else; deps/build_deps.sh and
  * toolchain/scripts/build_python3.sh compile the file without it and stay plain C.

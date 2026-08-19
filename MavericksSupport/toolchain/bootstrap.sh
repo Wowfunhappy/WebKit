@@ -51,11 +51,4 @@ echo "### [4/6] ninja";   [ -x "$BUILD/ninja/bin/ninja" ]     || "$SCRIPTS/build
 echo "### [5/6] cmake";   [ -x "$BUILD/cmake/bin/cmake" ]     || "$SCRIPTS/build_cmake.sh"
 echo "### [6/6] ccache";  [ -x "$BUILD/ccache/bin/ccache" ]   || "$SCRIPTS/build_ccache.sh"
 
-echo
 echo "### toolchain ready under $BUILD"
-echo "Configure WebKit with:"
-echo "  $BUILD/cmake/bin/cmake -S . -B WebKitBuild/Release -G Ninja \\"
-echo "    -DCMAKE_MAKE_PROGRAM=$BUILD/ninja/bin/ninja \\"
-echo "    -DCMAKE_TOOLCHAIN_FILE=MavericksSupport/mac10.9-toolchain.cmake \\"
-echo "    -DPORT=Mac -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \\"
-echo "    -DCMAKE_NINJA_FORCE_RESPONSE_FILE=1"

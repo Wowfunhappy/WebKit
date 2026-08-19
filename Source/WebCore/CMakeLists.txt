@@ -3197,8 +3197,8 @@ if (APPLE)
     # on 10.9's OpenGL backend, so nil is never dereferenced.
     set_target_properties(WebCore PROPERTIES LINK_FLAGS "-fuse-ld=lld -weak-lxslt -undefined dynamic_lookup -weak_framework Metal -umbrella WebKit -allowable_client WebCoreTestSupport -allowable_client WebKit2 -allowable_client WebKitLegacy -allowable_client DumpRenderTree -allowable_client WebKitTestRunner -allowable_client TestRunnerInjectedBundle")
 
-    # MAVERICKS_BACKPORT: force-load the selref-scope polyfill (libpolyfill_classes.a = wk_selref_scope.o
-    # the mechanism + methods.o the wk_ category methods on NSColor/NSScreen/NSWindow/NSWorkspace/
+    # MAVERICKS_BACKPORT: force-load the method polyfills (libpolyfill_methods.a = wk_selref_scope.o
+    # the mechanism + the wk_ category methods on NSColor/NSScreen/NSWindow/NSWorkspace/
     # NSEvent/NSAppearance/NSGraphicsContext that WebCore's rendering code calls). It lives here, in WebCore,
     # rather than in JavaScriptCore: WebCore links AppKit and loads in every WebKit rendering process, so the
     # polyfills are present everywhere they are needed — but a dyld-restricted setuid program that loads ONLY
@@ -3209,9 +3209,9 @@ if (APPLE)
     # "Install" step. -force_load (not plain link) keeps the members even though nothing references them (the
     # load-time constructor + the categories); LINK_DEPENDS makes the raw -Wl input a real ninja dependency
     # so WebCore relinks when build-polyfill.sh regenerates the archive.
-    target_link_options(WebCore PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_classes.a")
+    target_link_options(WebCore PRIVATE "-Wl,-force_load,${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_methods.a")
     set_property(TARGET WebCore APPEND PROPERTY LINK_DEPENDS
-        "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_classes.a")
+        "${MAVERICKS_SUPPORT}/polyfill/build/libpolyfill_methods.a")
 endif ()
 
 # The -ftree-sra optimization (implicit with -O2) causes crashes when

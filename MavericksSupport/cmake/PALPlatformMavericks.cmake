@@ -1,4 +1,4 @@
-# MAVERICKS_BACKPORT: PAL entries this port adds on top of upstream's Mac list. They live here,
+# PAL entries this port adds on top of upstream's Mac list. They live here,
 # out of tree, so Source/WebCore/PAL/pal/PlatformMac.cmake stays byte-identical to upstream — the
 # same arrangement the polyfill layer uses for code, and the one PlatformMac.cmake already uses for
 # WebCore and WebKit (see MavericksSupport/cmake/WebCorePlatformMavericks.cmake).

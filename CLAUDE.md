@@ -5,7 +5,7 @@
 Backport modern WebKit (currently 625.1.11) to run on macOS 10.9.5 Mavericks under the **stock, unmodified Safari 7.0.6** (WebKit 9537.78.2). Branch `mavericks-backport`, origin `github.com/wowfunhappy/webkit`, forked from upstream `83b24ce` (Ryosuke Niwa, 2026-03-16). The exact fork points may change in the future as we continue to track upstream; if they do, update this document.
 
 - Checkout: `/Users/jonathan/Desktop/webkit`.
-- `MavericksSupport/` holds all the 10.9 glue: `polyfill/` (the layer), `deps/` (vendored third-party, built by `build_deps.sh` into the gitignored `deps/build/`), `toolchain/`, `rebuild.sh`, `install-safari7.sh` (name-shifts the 4 built frameworks into place), `scripts/check-backport-markers.sh`.
+- `MavericksSupport/` holds all the 10.9 glue: `polyfill/` (the layer), `deps/` (vendored third-party, built by `build_deps.sh` into the gitignored `deps/build/`), `toolchain/`, `bootstrap.sh`, `build.sh`, `install.sh` (name-shifts the 4 built frameworks into place), `scripts/check-backport-markers.sh`. `MavericksSupport/README.md` has the layout.
 - Build: in-tree CMake/Ninja against the macOS 26.1 SDK + clang-22, deployment target 10.9.
 - **This machine IS the 10.9.5 VM** (Darwin 13.4.0). Testing is in-VM: install, launch Safari, drive it with `osascript` and the `mcp__computer-use-mavericks__*` tools. Osascript is preferred where possible.
 - The VM is yours. Break it, leave it in odd states, install stock WebKit for an A/B — all fine without asking. Never pause work because the user appears to be using it; they will yield when they see activity. If they don't, even repeatedly, it is the user's mistake, and you should tell the user rather than stop work.
@@ -76,6 +76,8 @@ Every kept divergence carries a `// MAVERICKS_BACKPORT:` comment explaining the 
 
 **Comment upstream code out, never delete it** — `//` for a line or two, `/* */` for a block — so upstream merges still see the original text. `check-backport-markers.sh` treats every pure-deletion hunk as a violation.
 
+Markers belong in `Source/` only. Nothing under `MavericksSupport/` carries one — those files are ours outright, and the token there is noise (the gate never scans that directory).
+
 - **Keep the gate passing.** Run `MavericksSupport/scripts/check-backport-markers.sh` after your last edit under `Source/`, and report that run. Only a `Source/` edit can change its verdict — the gate does not scan `MavericksSupport/`, and builds, installs and tests read source without changing it. A build finishing is not a reason to re-run it.
 - **Never edit the gate to make your own work pass.** Fix the tree. If a rule genuinely cannot be satisfied, bring the evidence to the user rather than changing the rule.
 - Common false positive: `git diff -U0` splits a divergence so the closing `#endif`/`}` lands in its own hunk. Put the marker **on the closer line** (`#endif // MAVERICKS_BACKPORT: closes the ENABLE(GPU_PROCESS) guard above.`).
@@ -114,11 +116,11 @@ When editing a file, also fix any pre-existing stale comment in the region you t
 **The invariant: a build capable of verifying your pending edits is running whenever you have pending build-requiring work.**
 
 - **Edit source while ninja compiles.** It is safe — ninja read each TU at its own compile start — and the running build keeps warming ccache.
-- **The moment your edit batch is ready, relaunch `rebuild.sh` immediately.** The last tool call of any edit batch that changes built source is that relaunch. No judgment required, no size threshold. **Never hand-kill first:** rebuild.sh safely stops the in-flight build itself, waiting out a cmake configure before it signals anything.
+- **The moment your edit batch is ready, relaunch `build.sh` immediately.** The last tool call of any edit batch that changes built source is that relaunch. No judgment required, no size threshold. **Never hand-kill first:** build.sh safely stops the in-flight build itself, waiting out a cmake configure before it signals anything.
 - **Forbidden, all the same violation:** idle-waiting for the in-flight build; queuing a restart behind it (`until ! pgrep ninja` loops — automation does not convert a wait into compliance); "once it lands I'll rebuild"; stopping a build early and then editing with nothing building; starting a *different* build instead of restarting the invalidated one. Efficiency arguments ("those objects are still valid", "they won't collide") are the forbidden cost computation in scheduler clothes. This is settled; don't re-derive it.
 - **Never kill, suspend, or renice a build to answer a question or free the CPU.** Measure anyway and disclose the contention. Remember that WebKit must work well even in resource constrained environments.
-- **Every command that compiles or links anything logs to `/tmp/wk_build.log`** — `rebuild.sh`, bare `ninja`, `cmake --build`, `build-polyfill.sh`, `build_deps.sh`, one-target relinks. No ad-hoc names, and no second log for the wrapper's own stdout (append with `>>`). The user tails this one file.
-- **Verify a launch actually started** (`pgrep -f 'MavericksSupport/rebuild.sh'` non-empty, log growing) and **notice when it finishes.** Prefer one `until grep -q "REBUILD DONE"` waiter over stacked ones; act on a completion notification immediately rather than re-arming another waiter. Because every build reuses the one log, a monitor can fire instantly on the *previous* run's content — check the log's mtime before believing a FAILED line, or use the per-run background-task output file.
+- **Every command that compiles or links anything logs to `/tmp/wk_build.log`** — `build.sh`, bare `ninja`, `cmake --build`, `build-polyfill.sh`, `build_deps.sh`, one-target relinks. No ad-hoc names, and no second log for the wrapper's own stdout (append with `>>`). The user tails this one file.
+- **Verify a launch actually started** (`pgrep -f 'MavericksSupport/build.sh'` non-empty, log growing) and **notice when it finishes.** Prefer one `until grep -q "REBUILD DONE"` waiter over stacked ones; act on a completion notification immediately rather than re-arming another waiter. Because every build reuses the one log, a monitor can fire instantly on the *previous* run's content — check the log's mtime before believing a FAILED line, or use the per-run background-task output file.
 - Long blocking `until` loops outlive the tool call and accumulate into orphaned pollers. Use short single checks.
 
 ## Verification and "done"

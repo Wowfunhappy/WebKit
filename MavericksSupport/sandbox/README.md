@@ -52,9 +52,9 @@ Its own header comment records what that re-expression changed.
 
 ## Changing a profile
 
-Every rule these profiles hold beyond the recovered revision is marked `MAVERICKS_BACKPORT` and
-exists because a denial proved the modern engine needs it. Nothing is granted speculatively: a
-sandbox that grants what nobody asked for is not a sandbox.
+Every rule these profiles hold beyond the recovered revision exists because a denial proved the
+modern engine needs it. Nothing is granted speculatively: a sandbox that grants what nobody asked
+for is not a sandbox.
 
 Two things to know before editing:
 

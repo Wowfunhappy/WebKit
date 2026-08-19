@@ -1,5 +1,5 @@
 # --------------------------------------------------------------------------
-# MAVERICKS_BACKPORT: upstream's unified-source list files stay byte-upstream. Each is copied line-wise
+# Upstream's unified-source list files stay byte-upstream. Each is copied line-wise
 # into the build tree without the withheld entries and with the added entries appended, and the
 # framework's UNIFIED_SOURCE_LIST_FILES entry is swapped in place for the copy.
 #

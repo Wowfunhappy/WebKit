@@ -15,7 +15,7 @@
 #include <fcntl.h>
 
 /* mkstemps() exists in the 10.9 runtime libc but the 10.9 SDK headers (which the
- * legacy-support sources compile against, -isysroot /) don't declare it. Declare it
+ * shared/ sources compile against, -isysroot /) don't declare it. Declare it
  * explicitly so mkostemps() below compiles and links against the real symbol. */
 extern int mkstemps(char *template, int suffixlen);
 

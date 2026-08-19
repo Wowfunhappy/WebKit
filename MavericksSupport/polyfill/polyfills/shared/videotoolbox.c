@@ -22,7 +22,7 @@
  *
  * Plain C so the non-WebKit builds that carry no polyfill registry compile this same source.
  *
- * WK_POLYFILL_REGISTERED is defined only by polyfill/scripts/build-polyfill.sh, i.e. only when
+ * WK_POLYFILL_REGISTERED is defined only by polyfill/build-polyfill.sh, i.e. only when
  * this file is built into libpolyfill.a for WebKit. It adds the registry entry and nothing else.
  */
 

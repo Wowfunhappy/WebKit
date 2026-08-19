@@ -1,4 +1,4 @@
-# MAVERICKS_BACKPORT: a stream whose media type changes mid-play -- an MSE SourceBuffer that is
+# A stream whose media type changes mid-play -- an MSE SourceBuffer that is
 # handed a clear period and then an encrypted one, which is what server-side ad insertion produces --
 # stops at the change. The clear period leaves parsebin holding an h264parse chain; the encrypted
 # period arrives as application/x-cenc, which that chain cannot take, so the caps event is refused

@@ -1,4 +1,4 @@
-# MAVERICKS_BACKPORT: vtdec's static sink template advertises VP9, AV1 and HEVC, and the
+# vtdec's static sink template advertises VP9, AV1 and HEVC, and the
 # template is what the registry serves to capability queries -- WebKit's
 # GStreamerRegistryScanner answers MediaSource.isTypeSupported, canPlayType and
 # MediaCapabilities from it, and reports powerEfficient from the matched factory's

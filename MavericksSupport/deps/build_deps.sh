@@ -306,7 +306,7 @@ echo "==== 10.9 gap archive ===="
 # The media dylibs below compile against the modern SDK, so every libc/LaunchServices
 # symbol that postdates 10.9 is a weak import that binds NULL on 10.9 and crashes on
 # first call. This archive supplies real definitions from the project's own
-# legacy-support polyfill sources (the same objects libpolyfill uses for WebKit),
+# polyfill sources (the same objects libpolyfill uses for WebKit),
 # compiled against the REAL 10.9 SDK (-isysroot /): its headers emit the inode-ABI
 # symbol spellings 64-bit callers reference (_fstatat$INODE64, _fdopendir$INODE64, ...).
 #
@@ -314,28 +314,24 @@ echo "==== 10.9 gap archive ===="
 # definitions always beat dylib (SDK .tbd) exports in ld64 resolution -- so the gap
 # functions link DEFINED, order-independent of -framework/-l flags. -fvisibility=hidden
 # keeps the definitions out of each dylib's export table (private copies, no shadowing
-# of anything the loader resolves; cf. the check-polyfill-shadows.sh discipline).
+# of anything the loader resolves; cf. the shadow gates in polyfill/build-polyfill.sh).
 #
 # Sources, named one by one rather than globbed: each is force-loaded into every deployed
 # media binary, so adding one is a decision about ~200 dylibs and wants to be visible here.
 # Every symbol below is a pure gap on 10.9 -- the shadow gate at the end of this section
 # proves it against this host.
 #
-# From polyfill/legacy-support/src (macports-legacy-support; the tree carries more than this
-# needs, hence the list):
+# From polyfill/polyfills/shared (plain C, so the builds with no polyfill registry compile the same
+# source WebKit does; the tree carries more than this needs, hence the list):
 #   time            clock_gettime/clock_gettime_nsec_np/timespec_get, mach_*_time
 #   atcalls         openat + the *at() family (via per-thread chdir emulation)
 #   utimensat       utimensat/futimens
 #   fdopendir       fdopendir$INODE64 and friends
 #   dirfuncs_compat internal opendir/readdir helpers for fdopendir
-#   clonefile       clonefile/clonefileat/fclonefileat
 #   statxx          fstatat/fstatat$INODE64/fstatat64
 #   getentropy      getentropy
 #   pthread_chdir   __mpls_best_fchdir closure for atcalls (private helpers)
 #   os_unfair_lock  os_unfair_lock_lock/trylock/unlock (10.12+)
-#
-# From polyfill/polyfills/shared (this port's own, plain C so the builds with no polyfill
-# registry compile the same source WebKit does):
 #   mkostemp            mkostemp/mkostemps
 #   os_version          _availability_version_check (@available lowering; lld requires a
 #                       definition for compiler-rt's weak-import reference)
@@ -354,17 +350,12 @@ echo "==== 10.9 gap archive ===="
 # dependency set does (glib, gstreamer, ffmpeg and libffi contain no reference to it), so
 # shadowing mmap in every media binary would be gratuitous. Its pthread_jit half, which IS a
 # pure gap and IS weak-imported here, lives in shared/pthread_jit.c and is listed above.
-LEGACY="$REPO/MavericksSupport/polyfill/legacy-support"
 SHARED="$REPO/MavericksSupport/polyfill/polyfills/shared"
 GAPDIR="$SCRATCH/gap"
 mkdir -p "$GAPDIR"
-GAP_LEGACY="time atcalls utimensat fdopendir dirfuncs_compat clonefile statxx getentropy pthread_chdir os_unfair_lock"
-GAP_SHARED="mkostemp os_version os_unfair_lock_ext aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit"
-GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$LEGACY/include"
-( for s in $GAP_LEGACY; do
-    "$TC/bin/clang" $GAPCFLAGS -c "$LEGACY/src/$s.c" -o "$GAPDIR/$s.o" || exit 1
-  done
-  for s in $GAP_SHARED; do
+GAP_SHARED="time atcalls utimensat fdopendir dirfuncs_compat statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version os_unfair_lock_ext aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit"
+GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$SHARED/include"
+( for s in $GAP_SHARED; do
     "$TC/bin/clang" $GAPCFLAGS -c "$SHARED/$s.c" -o "$GAPDIR/$s.o" || exit 1
   done ) || exit 1
 GAP_A="$GAPDIR/libmavericks_gap.a"
@@ -546,7 +537,7 @@ d=$(get https://gstreamer.freedesktop.org/src/gstreamer/gstreamer-$GST_VER.tar.x
 # shipped runtime.
 echo "==== gst-plugins-base ===="
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-base/gst-plugins-base-$GST_VER.tar.xz gstbase)
-# MAVERICKS_BACKPORT: urisourcebin owns the parsebin in a playbin3 pipeline, and nothing resets it
+# urisourcebin owns the parsebin in a playbin3 pipeline, and nothing resets it
 # when a stream's media type changes mid-play, so an MSE SourceBuffer handed a clear period and then
 # an encrypted one stops at the change. This gives urisourcebin the reset decodebin3 already performs
 # on the parsebin it owns. See patches/README.md.
@@ -585,14 +576,14 @@ echo "==== gst-plugins-bad ===="
 # images decode in WebCore's own WEBPImageDecoder, and this build produces no libwebpmux for
 # the plugin to find.
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$GST_VER.tar.xz gstbad)
-# MAVERICKS_BACKPORT: patch webrtcbin's over-strict remote-ICE-credential charset check so
+# patch webrtcbin's over-strict remote-ICE-credential charset check so
 # base64url ufrag/pwd (Google Meet) don't fail set-remote-description. See
 # patches/README.md. Applied unconditionally; -N keeps a re-run of the script idempotent.
 ( cd "$d" && patch -p1 --dry-run < "$HERE/patches/gst-plugins-bad-ice-credential-charset.patch" \
     > /tmp/depslog-gstbad-patch.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-ice-credential-charset.patch" \
     >> /tmp/depslog-gstbad-patch.log 2>&1 ) \
   || { echo "gst-plugins-bad ICE patch failed to apply"; cat /tmp/depslog-gstbad-patch.log; exit 1; }
-# MAVERICKS_BACKPORT: vtenc wraps its source pixel buffers around raw GstMemory without stating
+# vtenc wraps its source pixel buffers around raw GstMemory without stating
 # their colorimetry, and 10.9's VideoToolbox cannot color-match an untagged source: every frame
 # fails with kVTInsufficientSourceColorDataErr (-12917), so WebRTC outbound H.264 encodes nothing.
 # This tags those buffers from the negotiated caps. See patches/README.md.
@@ -600,7 +591,7 @@ d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$G
     > /tmp/depslog-gstbad-patch2.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtenc-tag-source-colorimetry.patch" \
     >> /tmp/depslog-gstbad-patch2.log 2>&1 ) \
   || { echo "gst-plugins-bad vtenc colorimetry patch failed to apply"; cat /tmp/depslog-gstbad-patch2.log; exit 1; }
-# MAVERICKS_BACKPORT: vtdec_hw advertises codecs the machine cannot hardware-decode; the -8973
+# vtdec_hw advertises codecs the machine cannot hardware-decode; the -8973
 # session failure then lands outside decodebin3's candidate window and kills playbin3 (MSE)
 # pipelines that avdec could have played. This gates its getcaps on a per-codec RequireHardware
 # session probe. See patches/README.md.
@@ -608,7 +599,7 @@ d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$G
     > /tmp/depslog-gstbad-patch3.log 2>&1 && patch -p1 < "$HERE/patches/gst-plugins-bad-vtdec-hw-hardware-caps-probe.patch" \
     >> /tmp/depslog-gstbad-patch3.log 2>&1 ) \
   || { echo "gst-plugins-bad vtdec_hw caps-probe patch failed to apply"; cat /tmp/depslog-gstbad-patch3.log; exit 1; }
-# MAVERICKS_BACKPORT: vtdec's static sink template advertises VP9, AV1 and HEVC, which 10.9's
+# vtdec's static sink template advertises VP9, AV1 and HEVC, which 10.9's
 # VideoToolbox has no decoder for on any hardware; the template is what WebKit's registry
 # scanner answers isTypeSupported/MediaCapabilities from, and powerEfficient follows the matched
 # factory's Hardware klass, so the claim routes sites onto streams this machine decodes in
@@ -642,7 +633,7 @@ d=$(get https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz ffmpeg)
 
 echo "==== gst-libav ===="
 d=$(get https://gstreamer.freedesktop.org/src/gst-libav/gst-libav-$GST_VER.tar.xz gstlibav)
-# MAVERICKS_BACKPORT: gst-libav skips FFmpeg's external-library ("lib*") decoders on the
+# gst-libav skips FFmpeg's external-library ("lib*") decoders on the
 # premise that native GStreamer elements cover them; this runtime has no native AV1
 # decoder, so that rule would leave video/x-av1 with a parser and no decoder. The patch
 # admits the libdav1d wrapper (the dav1d built above, inside FFmpeg) as avdec_libdav1d.

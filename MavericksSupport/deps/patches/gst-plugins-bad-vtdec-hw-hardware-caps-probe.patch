@@ -1,4 +1,4 @@
-# MAVERICKS_BACKPORT: vtdec_hw advertises every codec in its sink template whether or not the
+# vtdec_hw advertises every codec in its sink template whether or not the
 # machine can hardware-decode it. VTDecompressionSessionCreate with
 # kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder answers -8973
 # (kVTCouldNotFindVideoDecoderErr) on a machine with no hardware decoder for the codec -- e.g. any

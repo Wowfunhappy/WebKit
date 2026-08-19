@@ -17,7 +17,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
-// MAVERICKS_BACKPORT: accelerated <video> compositing for the Cocoa+GStreamer hybrid — see
+// Accelerated <video> compositing for the Cocoa+GStreamer hybrid — see
 // VideoLayerGStreamerCocoa.h for the design rationale.
 
 #include "config.h"

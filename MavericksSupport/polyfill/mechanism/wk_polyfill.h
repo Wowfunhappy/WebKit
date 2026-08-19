@@ -3,7 +3,7 @@
 // Write a polyfill only for a symbol 10.9 genuinely LACKS (or, deliberately, one it HAS but that
 // misbehaves — WK_POLYFILL_REPLACES). The body always runs: the runtime does what you declared, with
 // no forwarding to 10.9. If you are wrong and 10.9 already has the symbol, the BUILD catches it —
-// scripts/check-polyfill-shadows.sh asks this machine whether any symbol the layer defines is one
+// the shadow gate in build-polyfill.sh asks this machine whether any symbol the layer defines is one
 // 10.9 already provides, and fails unless it is declared WK_POLYFILL_REPLACES. So verify absence
 // on-host; never ship a polyfill over a working system symbol.
 //
@@ -165,10 +165,10 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 #define WK_POLYFILL_CONST_REPLACES(PROVIDER, TYPE, NAME, VALUE) \
     WK_POLYFILL_CONST_(PROVIDER, TYPE, NAME, VALUE, WK_POLYFILL_REPLACES)
 
-// An absent ObjC CLASS, stubbed in polyfills/classes.m, that WebKit reaches by NAME.
+// An absent ObjC CLASS, stubbed in polyfills/classes/, that WebKit reaches by NAME.
 //
 // A stub is registered in the runtime under a private name and the system name is exported as an
-// alias to it (WK_PRIV_CLASS / WK_PRIV_ALIAS in classes.m), so a compiled `[UTType ...]` classref
+// alias to it (WK_PRIV_CLASS / WK_PRIV_ALIAS in polyfills/classes/), so a compiled `[UTType ...]` classref
 // binds to the stub while objc_getClass("UTType") still answers NULL — which is what keeps the stub
 // out of the host app's way. But SoftLinking.h resolves a soft-linked class with
 // objc_getClass(auditedClassName) (SOFT_LINK_CLASS_FOR_SOURCE_INTERNAL), by name and not by
@@ -187,7 +187,7 @@ void *wk_polyfill_system_symbol(const char *provider, const char *name, void **c
 struct wk_polyfill_class_entry {
     const char *name;       // the system class name WebKit asks objc_getClass for
     const char *provider;   // framework that owns it on a modern OS; the build gate asks 10.9 there
-    void *cls;              // the privately-named stub in classes.m
+    void *cls;              // the privately-named stub in polyfills/classes/
     void *(*resolve)(void); // ... or, when cls is NULL, builds it on first ask
 };
 
@@ -203,7 +203,7 @@ struct wk_polyfill_class_entry {
     struct wk_pf_swallow_semicolon_class_##NAME
 
 // A stub that cannot be written as an @implementation because its superclass lives in a framework
-// classes.m deliberately does not link -- linking it would put that framework on the load commands of
+// polyfills/classes/ deliberately does not link -- linking it would put that framework on the load commands of
 // a dylib every WebKit binary carries, dragging it into JavaScriptCore, the NetworkProcess and every
 // host app. Such a stub is built with objc_allocateClassPair at the moment WebKit asks for it, which
 // is also the moment its superclass's framework is guaranteed loaded: PAL soft-links the FRAMEWORK

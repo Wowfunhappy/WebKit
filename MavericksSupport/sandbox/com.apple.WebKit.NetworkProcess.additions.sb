@@ -1,4 +1,4 @@
-; MAVERICKS_BACKPORT: what this port's Networking process needs beyond the recovered 2015 profile.
+; What this port's Networking process needs beyond the recovered 2015 profile.
 ;
 ; Same arrangement and the same rules as com.apple.WebProcess.additions.sb, which carries the full
 ; note: the base profile stays byte-identical to upstream at aab061ff1301, this file is appended
