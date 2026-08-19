@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>HTML5 drag-and-drop test</title>
+<style>
+body{font-family:-apple-system,sans-serif;margin:0;padding:24px;background:#f0f0f0}
+#drag{width:140px;height:90px;background:#1e88e5;color:#fff;display:flex;align-items:center;
+  justify-content:center;font-size:18px;border-radius:10px;cursor:grab;margin:20px 0}
+#drop{width:300px;height:160px;border:4px dashed #888;border-radius:10px;display:flex;
+  align-items:center;justify-content:center;font-size:20px;color:#555}
+#drop.over{border-color:#1e88e5;background:#e3f2fd}
+#log{font-size:16px;font-weight:bold;color:#c00;margin-top:16px;white-space:pre-line}
+</style></head><body>
+<h2>HTML5 drag-and-drop</h2>
+<div id="drag" draggable="true">DRAG ME</div>
+<div id="drop">DROP HERE</div>
+<div id="log">log:</div>
+<script>
+var drag=document.getElementById('drag'),drop=document.getElementById('drop'),log=document.getElementById('log');
+var events=[];
+function L(m){events.push(m); log.textContent='log:\n'+events.join('\n');}
+drag.addEventListener('dragstart',function(e){e.dataTransfer.setData('text/plain','HELLO');L('dragstart');});
+drag.addEventListener('dragend',function(){L('dragend');});
+drop.addEventListener('dragenter',function(e){e.preventDefault();drop.className='over';L('dragenter');});
+drop.addEventListener('dragover',function(e){e.preventDefault();});
+drop.addEventListener('dragleave',function(){drop.className='';});
+drop.addEventListener('drop',function(e){e.preventDefault();drop.className='';
+  var d=e.dataTransfer.getData('text/plain');drop.textContent='DROPPED: '+d;L('drop: '+d);});
+</script></body></html>

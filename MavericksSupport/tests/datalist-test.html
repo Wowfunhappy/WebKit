@@ -1,0 +1,13 @@
+<meta charset="utf-8"><title>datalist</title>
+<h2>Datalist suggestion dropdown</h2>
+<input list="fruits" id="f" style="font-size:18px;padding:6px;width:320px" placeholder="click, then press Down">
+<datalist id="fruits">
+  <option value="Apple"><option value="Apricot"><option value="Banana">
+  <option value="Blackberry"><option value="Cherry"><option value="Clementine">
+</datalist>
+<p id="out">selected: (none)</p>
+<script>
+document.getElementById('f').addEventListener('change', function(){
+  document.getElementById('out').textContent = 'selected: ' + this.value;
+});
+</script>

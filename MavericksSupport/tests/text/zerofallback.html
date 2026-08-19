@@ -1,0 +1,48 @@
+<!DOCTYPE html><html>
+<!-- Expected on a correct build: all 8 font-size:0 fallback runs (lat cjk jpn kor emo sym ara mix) w=0.000 h=0.000
+     (a broken build shows 48.000/60.000/51.906/70.922/40.031/63.016); controls cjk16 w=64.000 h=18.000 and emo16 w=94.563 h=26.000;
+     RESULT: PASS. -->
+<head><meta charset="utf-8"><title>zerofallback</title>
+<style>
+body{background:#fff;color:#000;font:16px Helvetica;margin:8px}
+.box{display:inline-block;outline:1px solid red;vertical-align:top}
+#out{white-space:pre;font:13px/17px monospace;margin-top:12px}
+</style></head><body>
+<p>Every span below is font-size:0. Each needs a SYSTEM FALLBACK face
+(CJK / emoji / symbols are absent from the primary font), which routes through
+FontCache::systemFallbackForCharacterCluster -> lookupFallbackFont. All must measure 0.</p>
+
+<span class=box id=lat style="font-size:0;font-family:Helvetica">Skip to previous</span>
+<span class=box id=cjk style="font-size:0;font-family:Helvetica">&#20013;&#25991;&#28204;&#35430;</span>
+<span class=box id=jpn style="font-size:0;font-family:Helvetica">&#12371;&#12435;&#12395;&#12385;&#12399;</span>
+<span class=box id=kor style="font-size:0;font-family:Helvetica">&#50504;&#45397;&#54616;&#49464;&#50836;</span>
+<span class=box id=emo style="font-size:0;font-family:Helvetica">&#128512;&#127881;&#128640;&#10084;&#128077;</span>
+<span class=box id=sym style="font-size:0;font-family:Helvetica">&#9733;&#8594;&#10003;&#10007;</span>
+<span class=box id=ara style="font-size:0;font-family:Helvetica">&#1605;&#1585;&#1581;&#1576;&#1575;</span>
+<span class=box id=mix style="font-size:0;font-family:Helvetica">Hi &#20013;&#25991; &#128512; ok</span>
+
+<hr>
+<p>Controls at a real size — these must NOT change.</p>
+<span class=box id=cjk16 style="font-size:16px;font-family:Helvetica">&#20013;&#25991;&#28204;&#35430;</span>
+<span class=box id=emo16 style="font-size:16px;font-family:Helvetica">&#128512;&#127881;&#128640;&#10084;&#128077;</span>
+
+<div id=out></div>
+<script>
+var ids=['lat','cjk','jpn','kor','emo','sym','ara','mix'];
+var L=[], fail=0;
+ids.forEach(function(id){
+  var r=document.getElementById(id).getBoundingClientRect();
+  var w=r.width, h=r.height;              /* outline does not affect layout */
+  if (w>0.001||h>0.001) fail++;
+  L.push((id+'        ').slice(0,9)+' w='+w.toFixed(3)+' h='+h.toFixed(3)+(w>0.001||h>0.001?'   <-- FAIL (must be 0)':'   ok'));
+});
+['cjk16','emo16'].forEach(function(id){
+  var r=document.getElementById(id).getBoundingClientRect();
+  L.push((id+'        ').slice(0,9)+' w='+r.width.toFixed(3)+' h='+r.height.toFixed(3)+'   (control, must be > 0)');
+});
+L.push('');
+L.push(fail===0 ? 'RESULT: PASS - every font-size:0 fallback run measures 0'
+                : 'RESULT: FAIL - '+fail+' of '+ids.length+' fallback runs measure non-zero');
+document.getElementById('out').textContent=L.join('\n');
+document.title='ZFB '+(fail===0?'PASS':'FAIL '+fail)+' | '+L.slice(0,ids.length).join(' | ');
+</script></body></html>

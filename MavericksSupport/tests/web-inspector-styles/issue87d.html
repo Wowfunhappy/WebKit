@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>issue87d</title>
+<style>
+.x {
+color: red; font-weight: bold;
+}
+.y { color: green; }
+.z {
+color: blue;
+font-weight: bold;
+}
+</style></head>
+<body>
+<p class="x">x — multi-line rule, two properties on ONE line (predict: duplicates)</p>
+<p class="y">y — single-line rule, ONE property (predict: no duplicate)</p>
+<p class="z">z — fully multi-line (predict: no duplicate)</p>
+</body></html>

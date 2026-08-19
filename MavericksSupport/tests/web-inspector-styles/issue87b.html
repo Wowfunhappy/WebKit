@@ -1,0 +1,43 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Batch A Test</title>
+<style>
+  body { font: 14px -apple-system, "Helvetica Neue", sans-serif; margin: 24px; background:#f2f2f2; }
+  h2 { margin-top: 28px; }
+  .card { background:#fff; border:1px solid #ccc; border-radius:14px; padding:18px; margin:14px 0; box-shadow:0 1px 3px rgba(0,0,0,.15); }
+  input[type=text], input[type=search] { font-size:14px; padding:6px 8px; width:260px; }
+  button { font-size:14px; padding:6px 14px; }
+  .rounded { width:120px; height:80px; background:linear-gradient(135deg,#4a90d9,#2b5f9e); border-radius:22px; display:inline-block; margin:6px; }
+  .backdrop { position:relative; height:90px; border-radius:16px; overflow:hidden; background:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%2210%22><rect width=%225%22 height=%225%22 fill=%22%23e77%22/><rect x=%225%22 y=%225%22 width=%225%22 height=%225%22 fill=%22%237e7%22/></svg>'); background-size:20px 20px; }
+  .backdrop .glass { position:absolute; inset:20px; border-radius:12px; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); background:rgba(255,255,255,.35); display:flex; align-items:center; justify-content:center; }
+  .tall { height: 240px; overflow:auto; border:1px solid #bbb; border-radius:8px; padding:8px; background:#fff; }
+  .filler p { margin:10px 0; }
+</style></head>
+<body>
+<h1 id="top">Batch A verification</h1>
+
+<div class="card">
+  <h2>Focus ring (Tab through these — expect soft-blue Aqua glow, NOT black box, NOT hard line)</h2>
+  <p><input type="text" placeholder="text field 1"> <input type="text" placeholder="text field 2"></p>
+  <p><input type="search" placeholder="search field"> <button>A Button</button> <button>Another</button></p>
+  <p><a href="#top">a focusable link</a> &nbsp; <select><option>menu</option><option>two</option></select></p>
+</div>
+
+<div class="card">
+  <h2>Rounded corners (setCornerRadius/setCornerCurve) &amp; backdrop (CABackdropLayer)</h2>
+  <div class="rounded"></div><div class="rounded" style="border-radius:40px"></div><div class="rounded" style="border-radius:8px"></div>
+  <div class="backdrop"><div class="glass">backdrop-filter glass</div></div>
+</div>
+
+<div class="card">
+  <h2>Scroll clamp (D3) — fling this inner area and the page to the very bottom/top; no white gap past ends</h2>
+  <div class="tall filler" id="inner"></div>
+</div>
+
+<div class="filler" id="pagefiller"></div>
+
+<script>
+  function fill(el, n, tag){ let s=''; for(let i=0;i<n;i++) s+='<p>'+tag+' line '+i+' — the quick brown fox jumps over the lazy dog, and scrolling continues onward.</p>'; el.innerHTML=s; }
+  fill(document.getElementById('inner'), 60, 'inner');
+  fill(document.getElementById('pagefiller'), 120, 'page');
+</script>
+</body></html>

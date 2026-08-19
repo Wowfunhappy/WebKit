@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Video fullscreen test</title>
+<style>body{font-family:-apple-system,sans-serif;margin:0;padding:20px;background:#ddd}
+button{font-size:20px;padding:10px 20px;margin:6px 6px 6px 0}
+#s{font-size:18px;font-weight:bold;color:#c00;margin:10px 0}</style></head>
+<body>
+<h2>HTML5 &lt;video&gt; fullscreen</h2>
+<button id="efs">video.webkitEnterFullscreen()</button>
+<button id="rfs">video.requestFullscreen()</button>
+<div id="s">status: idle</div>
+<video id="v" src="../../../LayoutTests/media/content/test.mp4" controls width="480" autoplay loop muted></video>
+<script>
+var v=document.getElementById('v'), s=document.getElementById('s');
+document.getElementById('efs').addEventListener('click',function(){
+  try{ v.webkitEnterFullscreen(); s.textContent='status: webkitEnterFullscreen called'; }
+  catch(e){ s.textContent='status: ERR '+e; }
+});
+document.getElementById('rfs').addEventListener('click',function(){
+  var el=v; try{ (el.requestFullscreen||el.webkitRequestFullscreen).call(el); s.textContent='status: requestFullscreen called'; }
+  catch(e){ s.textContent='status: ERR '+e; }
+});
+function chg(){var fs=document.fullscreenElement||document.webkitFullscreenElement||document.webkitCurrentFullScreenElement;
+  s.textContent='status: '+(fs?'FULLSCREEN '+window.innerWidth+'x'+window.innerHeight:'not fullscreen');}
+document.addEventListener('fullscreenchange',chg);
+document.addEventListener('webkitfullscreenchange',chg);
+v.addEventListener('webkitbeginfullscreen',function(){s.textContent='status: webkitbeginfullscreen';});
+v.addEventListener('webkitendfullscreen',function(){s.textContent='status: webkitendfullscreen';});
+</script>
+</body></html>
