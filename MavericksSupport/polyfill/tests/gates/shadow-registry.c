@@ -26,7 +26,8 @@ int main(void)
     }
     struct wk_polyfill_entry *entries = (struct wk_polyfill_entry *)section;
     for (size_t i = 0, n = size / sizeof(*entries); i < n; i++)
-        printf("%s\t%s\n", entries[i].name,
-               entries[i].intent == WK_POLYFILL_REPLACES ? "REPLACES" : "GAP_FILL");
+        printf("%s\t%s\t%s\n", entries[i].name,
+               entries[i].intent == WK_POLYFILL_REPLACES ? "REPLACES" : "GAP_FILL",
+               entries[i].kind == WK_POLYFILL_CONSTANT ? "CONSTANT" : "FUNCTION");
     return 0;
 }

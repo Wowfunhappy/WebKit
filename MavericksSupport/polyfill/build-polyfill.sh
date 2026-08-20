@@ -226,13 +226,15 @@ WK_POLYFILL_SIBLING="$T/wk_polyfill_sibling.dylib" "$T/wk_polyfill_test"
 "$CLANG" $MODERN $INC -fno-objc-arc -I"$PF/methods" -o "$T/scrollview_insets" "$TBEHAV/AppKit-scrollview-insets.m" \
     -framework AppKit -framework Foundation -lobjc
 "$T/scrollview_insets"
-# Two probes that link the SHIPPED archive (without -force_load, so only the members they reach are pulled)
+# Probes that link the SHIPPED archive (without -force_load, so only the members they reach are pulled)
 # and call the polyfilled symbols exactly as WebKit will.
 PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -framework Security -framework CoreMedia -lsqlite3 -lbsm -lsandbox -lobjc"
 "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/dispatch_activate" "$TBEHAV/libSystem-dispatch.m" $PROBE_LIBS
 "$T/dispatch_activate"
 "$CLANG" $MODERN $INC -fno-objc-arc -o "$T/sectask_identity" "$TBEHAV/Security-sectask.m" $PROBE_LIBS
 "$T/sectask_identity"
+"$CLANG" $MODERN $INC -o "$T/timebase" "$TBEHAV/libSystem-timebase.c" $PROBE_LIBS
+"$T/timebase"
 
 # --- shadow gates ------------------------------------------------------------------------------
 # Every polyfill's body runs unconditionally: force_load makes our definition win, the selref rewrite sends
@@ -302,6 +304,49 @@ cut -f1 "$W/defined" | sort -u > "$W/names"
     -Wl,-force_load,"$OUT/libpolyfill.a" -Wl,-undefined,dynamic_lookup $SYSTEM_LIBS
 "$W/registry" | sort -u > "$W/registry.tsv"
 awk -F'\t' '$2 == "REPLACES" { print $1 }' "$W/registry.tsv" | sort -u > "$W/replaces"
+
+# --- shared-state gate -------------------------------------------------------------------------
+# polyfills/shared/ is force-loaded into every media dylib AND into each of WebKit's frameworks, and
+# polyfills/c/ into each of the frameworks, so the process holds many copies of each of these files. An exported DATA symbol is how one copy would try
+# to reach another copy's state, and it cannot: the framework link makes the symbol local again, so
+# dlsym answers with whichever copy an unrelated load order put first. State a shared/ file keeps for
+# itself is therefore per-image however it is named. The data these files are allowed to export is the
+# kind the registry declares a CONSTANT -- an absent CFStringRef and its friends, written once and read
+# by anyone. Anything else is state, and belongs on the object it describes, where the system owns the
+# association.
+echo "### shared-state gate"
+awk -F'\t' '$3 == "CONSTANT" { print $1 }' "$W/registry.tsv" | sort -u > "$W/constants"
+# C (common) belongs with D/S/B: a tentative definition is exported shared data too.
+# polyfills/c/ is force-loaded into each of WebKit's four frameworks, so its members are multiply
+# instantiated for the same reason and are held to the same rule. Both are compiled exactly as they
+# ship -- $HIDDEN included -- so only data a file deliberately exports is scored.
+SHARED_DATA="$W/shared_data"; : > "$SHARED_DATA"
+{
+    for src in "$PF"/shared/*.c; do
+        obj="$W/sharedgate_shared_$(basename "${src%.c}").o"
+        "$CLANG" $SHAREDCF $HIDDEN -DWK_POLYFILL_REGISTERED $INC -c -o "$obj" "$src" || exit 1
+        "$NM" -g "$obj" | awk -v f="shared/$(basename "$src")" '$2 ~ /^[DSBC]$/ \
+            { sub(/^_/, "", $3); print $3 "\t" f }'
+    done
+    for src in "$PF"/c/*.c "$PF"/c/*.m; do
+        obj="$W/sharedgate_c_$(basename "${src%.*}").o"
+        "$CLANG" $MODERN $HIDDEN $CINC -c -o "$obj" "$src" || exit 1
+        "$NM" -g "$obj" | awk -v f="c/$(basename "$src")" '$2 ~ /^[DSBC]$/ \
+            { sub(/^_/, "", $3); print $3 "\t" f }'
+    done
+} | sort -u > "$SHARED_DATA"
+join -t"$(printf '\t')" -v1 -1 1 -2 1 "$SHARED_DATA" "$W/constants" > "$W/shared_state_offenders"
+if [ -s "$W/shared_state_offenders" ]; then
+    echo "ERROR: a force-loaded polyfill exports data the registry does not declare a CONSTANT."
+    echo "Every image that force-loads it gets its own copy and no copy can reach another's, so this"
+    echo "is per-image state however it is named:"
+    awk -F'\t' '{ printf "  %-40s %s\n", $2, $1 }' "$W/shared_state_offenders"
+    echo "Keep it on the object it describes -- an AudioUnit property listener, a CFTypeRef"
+    echo "association -- so the system owns the association, or declare it WK_POLYFILL_CONSTANT."
+    exit 1
+fi
+echo "  shared-state gate: clean -- $(ls "$PF"/shared/*.c "$PF"/c/*.c "$PF"/c/*.m | wc -l | tr -d ' ') force-loaded sources, $(wc -l < "$SHARED_DATA" | tr -d ' ') exported data symbol(s), all declared CONSTANT"
+
 # Presence is asked of the EXACT linker symbol (an ABI-variant spelling such as syslog$DARWIN_EXTSN or
 # fdopendir$INODE64 is its own symbol); for the registry match the variant suffix is stripped, since a
 # registry entry names the C function while the suffix comes from an asm label on it. OBJC_ names keep

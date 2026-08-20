@@ -318,8 +318,9 @@ echo "==== 10.9 gap archive ===="
 #
 # Sources, named one by one rather than globbed: each is force-loaded into every deployed
 # media binary, so adding one is a decision about ~200 dylibs and wants to be visible here.
-# Every symbol below is a pure gap on 10.9 -- the shadow gate at the end of this section
-# proves it against this host.
+# Most symbols below are a pure gap on 10.9; a few are deliberate OVERRIDES of a function 10.9 has,
+# named in GAP_REPLACES. The shadow gate at the end of this section holds both halves to this
+# host's answer: an undeclared symbol 10.9 already provides fails the build.
 #
 # From polyfill/polyfills/shared (plain C, so the builds with no polyfill registry compile the same
 # source WebKit does; the tree carries more than this needs, hence the list):
@@ -344,6 +345,10 @@ echo "==== 10.9 gap archive ===="
 #                       unguarded from its caps query (10.13+)
 #   pthread_jit         pthread_jit_write_protect_np/_supported_np (11.0+), weak-imported
 #                       from the modern SDK's pthread.h
+#   mach_timebase_info  a deliberate OVERRIDE of a function 10.9 has: its libsystem_kernel entry
+#                       is the bare trap, and GLib's g_get_monotonic_time (every GStreamer clock
+#                       read) calls it before each mach_absolute_time; this reads the trap once and
+#                       answers from a cache
 #
 # shared/jit.c is deliberately NOT here: its mmap override is a deliberate replacement of a
 # function 10.9 HAS, wanted only where a caller passes MAP_JIT -- WebKit's JIT. Nothing in this
@@ -353,13 +358,86 @@ echo "==== 10.9 gap archive ===="
 SHARED="$REPO/MavericksSupport/polyfill/polyfills/shared"
 GAPDIR="$SCRATCH/gap"
 mkdir -p "$GAPDIR"
-GAP_SHARED="time atcalls utimensat fdopendir dirfuncs_compat statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version os_unfair_lock_ext aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit"
+GAP_SHARED="time atcalls utimensat fdopendir dirfuncs_compat statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version os_unfair_lock_ext aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info"
 GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$SHARED/include"
 ( for s in $GAP_SHARED; do
-    "$TC/bin/clang" $GAPCFLAGS -c "$SHARED/$s.c" -o "$GAPDIR/$s.o" || exit 1
+    "$TC/bin/clang" $GAPCFLAGS -MD -MF "$GAPDIR/$s.d" -c "$SHARED/$s.c" -o "$GAPDIR/$s.o" || exit 1
   done ) || exit 1
 GAP_A="$GAPDIR/libmavericks_gap.a"
 ( "$AR" rcs "$GAP_A" "$GAPDIR"/*.o ) || exit 1
+
+# What went into the archive, for scripts/check-gap-archive-current.sh, which holds every binary
+# below to this content. The -MD dependencies name the shim headers that reached the objects; those
+# are gap content on the same terms as the .c files. Publication waits for the collect step at the
+# end of this script, so the manifest lands with the binaries it describes.
+GAP_MANIFEST="$GAPDIR/gap-sources.sha256"
+( cd "$SHARED" && sed 's/\\$//' "$GAPDIR"/*.d | tr '[:space:]' '\n' \
+    | sed -n "s|^$SHARED/||p" | sort -u | xargs /usr/bin/shasum -a 256 ) > "$GAP_MANIFEST" || exit 1
+GAP_SYMBOLS="$GAPDIR/gap-symbols.txt"
+"$NMBIN" -g "$GAP_A" | awk '$2 ~ /^[TDSB]$/ { sub(/^_/, "", $3); print $3 }' | sort -u > "$GAP_SYMBOLS"
+# The archive's own diagnostics, long enough to belong to nothing else and held in __cstring, which
+# a build that strips its local symbols keeps. They identify the archive inside FFmpeg's stripped
+# dylibs, where the symbol table answers nothing.
+GAP_LITERALS="$GAPDIR/gap-literals.txt"
+strings -a "$GAP_A" | { grep '^\[wk_polyfill\] .\{40,\}' || true; } | sort -u > "$GAP_LITERALS"
+[ -s "$GAP_LITERALS" ] || { echo "  FATAL: no wk_polyfill diagnostic in the gap archive to identify it by"; exit 1; }
+# The rest of the compile's inputs: the objects depend on these as much as on the sources.
+GAP_BUILDINFO="$GAPDIR/gap-buildinfo.txt"
+{ printf 'cflags\t%s\n' "${GAPCFLAGS//$SHARED/\$SHARED}"
+  printf 'clang\t%s\n' "$("$TC/bin/clang" --version | head -1)"; } > "$GAP_BUILDINFO"
+# deps/build ships two dylibs this script copies rather than links, so the force_load above never
+# reaches them. The gate holds the deployed set to exactly this list.
+GAP_UNLINKED="$GAPDIR/gap-unlinked.txt"
+: > "$GAP_UNLINKED"
+
+# Shadow gate. force_load makes every definition above win inside ~200 deployed dylibs with no
+# forwarding to 10.9, so one written for a symbol 10.9 already provides silently replaces the working
+# system one. tests/gates/shadow-present.c asks THIS machine's runtime -- dlsym on each library in
+# turn, not the modern SDK's stubs and not a flat search -- which of the archive's definitions 10.9
+# has, and every answer must appear in GAP_REPLACES. There is no allow file: an entry here is a
+# stated intent, not an exemption, and the polyfill build holds the same sources to the same rule
+# through its own registry (polyfill/build-polyfill.sh).
+GAP_REPLACES="mach_timebase_info"
+GAPGATE="$GAPDIR/gate"; mkdir -p "$GAPGATE"
+"$TC/bin/clang" --no-default-config -mmacosx-version-min=10.9 -o "$GAPGATE/present" \
+    "$REPO/MavericksSupport/polyfill/tests/gates/shadow-present.c" || exit 1
+"$NMBIN" -g "$GAP_A" 2>/dev/null | awk '$2 ~ /^[TDSB]$/ { sub(/^_/, "", $3); print $3 }' \
+  | sort -u > "$GAPGATE/defined"
+# The libraries a deployed media dylib's references can bind against, plus the frameworks owning the
+# symbols the archive replaces.
+"$GAPGATE/present" \
+    /usr/lib/libSystem.B.dylib \
+    /usr/lib/libobjc.A.dylib \
+    /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation \
+    /System/Library/Frameworks/CoreServices.framework/CoreServices \
+    /System/Library/Frameworks/ApplicationServices.framework/ApplicationServices \
+    /System/Library/Frameworks/CoreVideo.framework/CoreVideo \
+    /System/Library/Frameworks/CoreMedia.framework/CoreMedia \
+    /System/Library/Frameworks/VideoToolbox.framework/VideoToolbox \
+    /System/Library/Frameworks/AudioToolbox.framework/AudioToolbox \
+    < "$GAPGATE/defined" | sort -u > "$GAPGATE/on109"
+printf '%s\n' $GAP_REPLACES | sort -u > "$GAPGATE/declared"
+cut -f1 "$GAPGATE/on109" | sort -u > "$GAPGATE/present_names"
+# An ABI-variant spelling (fdopendir$INODE64) is its own linker symbol but one C function, which is
+# the name a declaration carries.
+awk 'NR == FNR { declared[$0] = 1; next }
+     { base = $0
+       if (match($0, /\$[A-Z][A-Z0-9_]*$/)) base = substr($0, 1, RSTART - 1)
+       if (!($0 in declared) && !(base in declared)) print $0 }' \
+    "$GAPGATE/declared" "$GAPGATE/present_names" > "$GAPGATE/offenders"
+if [ -s "$GAPGATE/offenders" ]; then
+    echo "ERROR: the 10.9 gap archive defines symbols this host ALREADY provides, and nothing says so."
+    echo "force_load makes the archive's definition win in every media dylib with no forwarding to 10.9:"
+    while read -r symbol; do
+        printf '  %-44s (10.9 has it in %s)\n' "$symbol" \
+            "$(awk -F'\t' -v s="$symbol" '$1 == s { print $2 }' "$GAPGATE/on109")"
+    done < "$GAPGATE/offenders"
+    echo "If shadowing 10.9 is the POINT, add the name to GAP_REPLACES above; otherwise drop the source"
+    echo "from GAP_SHARED and let the media dylibs bind 10.9's symbol."
+    exit 1
+fi
+echo "  gap shadow gate: clean -- $(wc -l < "$GAPGATE/defined" | tr -d ' ') defined symbols, $(wc -l < "$GAPGATE/on109" | tr -d ' ') present on 10.9, all declared"
+
 # Every media build below (meson via env, autotools via env, FFmpeg/OpenSSL via their
 # own flag plumbing) links the gap archive.
 #
@@ -689,6 +767,7 @@ done
 for cxxlib in libc++.1.dylib libc++abi.1.dylib; do
   [ -f "$TC/lib/$cxxlib" ] || { echo "  FATAL: $TC/lib/$cxxlib not found"; exit 1; }
   cp "$TC/lib/$cxxlib" "$STAGE/lib/$cxxlib"
+  echo "$cxxlib" >> "$GAP_UNLINKED"
 done
 
 # Shared dylibs: each real file deploys UNDER ITS MAJORED INSTALL-NAME BASENAME (the
@@ -1096,6 +1175,14 @@ fi
 echo "  ok: $(echo $GATE_FILES | wc -w | tr -d ' ') binaries; every strong undefined resolves on 10.9;"
 echo "      every dylib and plugin dlopens; no NULL-binding weak imports beyond the"
 echo "      allow-list; no absolute rpaths"
+
+echo "==== gap archive manifest ===="
+cp "$GAP_MANIFEST"  "$DEST/gap-sources.sha256" || exit 1
+cp "$GAP_SYMBOLS"   "$DEST/gap-symbols.txt"    || exit 1
+cp "$GAP_LITERALS"  "$DEST/gap-literals.txt"   || exit 1
+cp "$GAP_BUILDINFO" "$DEST/gap-buildinfo.txt"  || exit 1
+cp "$GAP_UNLINKED"  "$DEST/gap-unlinked.txt"   || exit 1
+echo "  $(wc -l < "$DEST/gap-sources.sha256" | tr -d ' ') source files, $(wc -l < "$DEST/gap-symbols.txt" | tr -d ' ') defined symbols, $(wc -l < "$DEST/gap-literals.txt" | tr -d ' ') literals, $(wc -l < "$DEST/gap-unlinked.txt" | tr -d ' ') copied-not-linked"
 
 echo "==== done. deps/build: ===="
 ls "$DEST/lib" | head -40; ls "$DEST/lib/gstreamer-1.0" | wc -l

@@ -192,7 +192,7 @@ if [ "$RC" = 0 ]; then
 else
     echo "### staging skipped: the link failed, so there is nothing complete to stage"
 fi
-for audit in scripts/check-absent-references.sh sandbox/scripts/check-sandbox-profiles.sh host-abi/check-abi-gap.sh; do
+for audit in scripts/check-absent-references.sh scripts/check-gap-archive-current.sh sandbox/scripts/check-sandbox-profiles.sh host-abi/check-abi-gap.sh; do
     [ "$RC" = 0 ] || break
     echo "### $audit"
     bash "$ROOT/MavericksSupport/$audit" || RC=$?
