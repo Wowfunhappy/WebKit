@@ -16,14 +16,12 @@
 // is no Network.framework, so there is no default message context and no configure block.
 //
 // These are declared for the same reason as the Security block above -- so that reading one cannot
-// fault -- and NOT because the code is expected to run. WebTransportEnabled is defaulted false for
-// WebKitLegacy/WebKit/WebCore, which keeps the JS constructor unexposed. That default is a feature
-// switch, though, not a proof: WebTransportEnabled is a PERSISTENT preference, and
-// WebPreferencesCocoa.mm applies every persistent pref's "WebKit"-prefixed persisted value from
-// NSGlobalDomain, so `defaults write -g WebKitWebTransportEnabled -bool YES` turns it back on. The
-// nw_* FUNCTIONS that path calls are still absent and unguarded -- see the CALLED inventory that
-// scripts/check-absent-references.sh prints -- so flipping the pref still fails; it just must not
-// fail by faulting on a constant load before it gets there.
+// fault. WebTransportEnabled keeps upstream's default, so the JS constructor is exposed; what keeps
+// the nw_* functions from being called is NetworkTransportSession::create, which first asks
+// canLoad_Network_nw_parameters_create_webtransport_http() and its three siblings. Those resolve
+// through the absent-provider dlopen token, which answers NULL for every Network.framework name, so
+// create() returns nullptr and a page's `new WebTransport(url)` fails to connect before any nw_*
+// call is reached.
 typedef void *PolyVoidPtrConst;
 WK_POLYFILL_CONST("Network", PolyVoidPtrConst, _nw_content_context_default_message, NULL);
 WK_POLYFILL_CONST("Network", PolyVoidPtrConst, _nw_parameters_configure_protocol_default_configuration, NULL);
