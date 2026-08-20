@@ -3575,11 +3575,6 @@ HiddenPageDOMTimerThrottlingAutoIncreases:
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT: enable on Cocoa so background tabs with setInterval/rAF that
-      # mutate DOM don't permanently starve the main-thread layout pipeline. See
-      # [[project_nav_stuck_real_cause_may29]]. Throttle alignment grows over time
-      # from 1s to N seconds — hidden tab work doesn't starve foreground IPC.
-      "PLATFORM(COCOA)": true
       default: false
     WebCore:
       default: false
@@ -8057,21 +8052,19 @@ SwitchControlEnabled:
   category: html
   humanReadableName: "HTML switch control"
   humanReadableDescription: "Enable HTML switch control"
+  # MAVERICKS_BACKPORT: off, so `<input type=checkbox switch>` stays a checkbox and
+  # `'switch' in HTMLInputElement.prototype` reports false. The maintainer's decision for this port:
+  # a 10.9 desktop draws checkboxes, and a page that feature-detects the switch gets the checkbox
+  # rendering it would choose for itself rather than a control drawn to look like a later system's.
   defaultValue:
-    # MAVERICKS_BACKPORT: 10.9's AppKit/CoreUI has no switch widget — the one control family this OS
-    # cannot draw natively — and a switch is functionally a checkbox. Rather than approximate one, keep
-    # the feature off port-wide (as it ships off everywhere but Cocoa): the `switch` attribute is then
-    # ignored, so `<input type="checkbox" switch>` builds no shadow subtree and renders/behaves as the
-    # native checkbox it is, and `'switch' in HTMLInputElement.prototype` reports false so pages take
-    # their own fallback path (same shape as the SharedWorker disable above).
     WebKitLegacy:
-      # MAVERICKS_BACKPORT (see above): # "PLATFORM(COCOA)": true
+      # "PLATFORM(COCOA)": true   # MAVERICKS_BACKPORT: see the decision above.
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT (see above): # "PLATFORM(COCOA)": true
+      # "PLATFORM(COCOA)": true   # MAVERICKS_BACKPORT: see the decision above.
       default: false
     WebCore:
-      # MAVERICKS_BACKPORT (see above): # "PLATFORM(COCOA)": true
+      # "PLATFORM(COCOA)": true   # MAVERICKS_BACKPORT: see the decision above.
       default: false
 
 # FIXME: There is no custom binding implemented for WebKitLegacy.
@@ -10022,19 +10015,12 @@ WebTransportEnabled:
   humanReadableName: "WebTransport"
   humanReadableDescription: "Enable WebTransport"
   defaultValue:
-    # MAVERICKS_BACKPORT: WebTransport runs on Network.framework's nw_webtransport_* family, which is
-    # 10.14+ and absent here; the polyfill layer deliberately supplies none of the soft-linked names,
-    # so every canLoad_Network_* probe answers false and NetworkTransportSession::create returns
-    # nullptr. Off port-wide, `WebTransport` is absent from the global object and a site that feature-
-    # detects it takes its WebSocket fallback instead of opening a session that can never connect.
     WebKitLegacy:
       default: false
     WebKit:
-      # MAVERICKS_BACKPORT (see above): # default: true
-      default: false
+      default: true
     WebCore:
-      # MAVERICKS_BACKPORT (see above): # default: true
-      default: false
+      default: true
   sharedPreferenceForWebProcess: true
   richJavaScript: true
   disableInLockdownMode: true
