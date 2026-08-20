@@ -245,9 +245,6 @@ WK_POLYFILL_ABSENT(NULL, bool, os_variant_allows_internal_security_policies, (co
 WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_content, (const char *s)) { (void)s; return false; }
 WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_diagnostics, (const char *s)) { (void)s; return false; }
 
-// pthread
-WK_POLYFILL_ABSENT(NULL, bool, pthread_self_is_exiting_np, (void)) { return false; }
-
 // os_unfair_lock_assert_owner / _assert_not_owner (10.12+) are the lock-ownership debug assertions WTF::Lock
 // emits under the modern SDK. The lock primitive itself is polyfilled separately; only these assert
 // helpers are absent on 10.9. No-op them -- without a definition the first use aborts fatally, during

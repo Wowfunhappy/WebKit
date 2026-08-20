@@ -76,8 +76,6 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_WOFF2 PRIVATE ON)
 # dylib 10.9 does not ship — so isIsolatedTreeEnabled() answers false here and no isolated tree is ever
 # built, while the Mac accessibility sources compile as upstream writes them.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_ACCESSIBILITY_ISOLATED_TREE PRIVATE ON)
-# ON — use the system malloc instead of bmalloc to avoid bmalloc's reliance on newer VM/madvise behavior on 10.9.
-WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_SYSTEM_MALLOC PRIVATE ON)
 
 # OFF — parental-controls content filtering uses the 10.9-absent WebFilterEvaluator/NEFilter SPI.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_CONTENT_FILTERING PRIVATE OFF)

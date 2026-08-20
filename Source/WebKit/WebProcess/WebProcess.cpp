@@ -572,23 +572,6 @@ void WebProcess::initializeWebProcess(WebProcessCreationParameters&& parameters,
         });
         memoryPressureHandler.install();
 
-        // MAVERICKS_BACKPORT: enable the periodic memory monitor. Upstream's enable site sits
-        // under #if !USE(SYSTEM_MALLOC) on the assumption that a system-malloc build is a test or
-        // debugging configuration; this port ships on system malloc in production, so that site
-        // compiles out and nothing would drive the footprint -> MemoryUsagePolicy -> releaseMemory()
-        // path (ENABLE(PERIODIC_MEMORY_MONITOR) itself is on for Mac). Everything downstream is
-        // upstream behavior: default MemoryPressureHandlerConfiguration, upstream thresholds,
-        // upstream kill semantics through the kill callback installed above.
-        //
-        // No allocator scavenger is needed alongside this: measured on this OS, freeing one million
-        // mixed 256B/2KB/16KB allocations returns the pages to the OS from free() itself (zone
-        // "allocated" 5989 MB -> 99 MB, RSS 4003 MB -> 83 MB with no pressure-relief call), and a
-        // subsequent malloc_zone_pressure_relief() reclaims nothing further. The magazine allocator
-        // does its own decommit; what grows without releaseMemory() is WebKit's caches, which the
-        // monitor now drives.
-        if (!m_suppressMemoryPressureHandler)
-            memoryPressureHandler.setShouldUsePeriodicMemoryMonitor(true);
-
         PAL::registerNotifyCallback("com.apple.WebKit.logMemStats"_s, [] {
             WebCore::logMemoryStatistics(LogMemoryStatisticsReason::DebugNotification);
         });

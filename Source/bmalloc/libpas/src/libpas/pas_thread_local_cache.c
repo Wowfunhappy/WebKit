@@ -150,7 +150,9 @@ static void destructor(void* arg)
     if (verbose)
         pas_log("[%d] Destructor call for TLS %p\n", getpid(), thread_local_cache);
 
-#if !PAS_OS(DARWIN)
+// MAVERICKS_BACKPORT: keyed off the SPI's presence rather than the OS (pas_darwin_spi.h).
+// #if !PAS_OS(DARWIN)
+#if !PAS_HAVE_PTHREAD_SELF_IS_EXITING_NP
     /* If pthread_self_is_exiting_np does not exist, we set PAS_THREAD_LOCAL_CACHE_DESTROYED in the TLS so that
        subsequent calls of pas_thread_local_cache_try_get() can detect whether TLS is destroyed. Since
        PAS_THREAD_LOCAL_CACHE_DESTROYED is a non-null value, pthread will call this destructor again (up to

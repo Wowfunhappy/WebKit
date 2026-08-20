@@ -57,6 +57,25 @@ PAS_END_EXTERN_C;
 #define PAS_HAVE_PTHREAD_PRIVATE 0
 #endif
 
+/* MAVERICKS_BACKPORT: pthread_self_is_exiting_np is a 10.15 SPI, so a macOS deployment target older
+   than that has no such symbol to call however the SDK declares it. libpas already carries a second,
+   SPI-free way to answer the same question -- the PAS_THREAD_LOCAL_CACHE_DESTROYED sentinel written
+   back into the TLS slot by the destructor -- which pas_fast_tls.h's own Darwin branch is built to
+   support ("We use repeated pthread_setspecific to successfully shutting down"). This names the
+   capability so the three sites that pick between them can key off it rather than off the OS. */
+#ifndef PAS_HAVE_PTHREAD_SELF_IS_EXITING_NP
+#if PAS_OS(DARWIN)
+/* Availability.h defines __MAC_OS_X_VERSION_MIN_REQUIRED on a macOS deployment target; on every
+   other Darwin platform it stays undefined and the SPI arm is the one upstream takes. */
+#include <Availability.h>
+#endif
+#if PAS_OS(DARWIN) && (!defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500)
+#define PAS_HAVE_PTHREAD_SELF_IS_EXITING_NP 1
+#else
+#define PAS_HAVE_PTHREAD_SELF_IS_EXITING_NP 0
+#endif
+#endif
+
 PAS_BEGIN_EXTERN_C;
 
 /* From OSS libmalloc stack_logging.h
