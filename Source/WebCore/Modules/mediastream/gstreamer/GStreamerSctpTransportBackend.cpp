@@ -31,7 +31,11 @@ GST_DEBUG_CATEGORY(webkit_webrtc_sctp_transport_debug);
 
 namespace WebCore {
 
-WTF_MAKE_TZONE_ALLOCATED_IMPL(RTCSctpTransportState);
+// MAVERICKS_BACKPORT: RTCSctpTransportState is an enum class with no heap to allocate from.
+// GStreamerSctpTransportBackend, the class this file implements, declares WTF_MAKE_TZONE_ALLOCATED in
+// its header; the line below is its out-of-line half, defining s_heapRef and operatorNewSlow.
+// WTF_MAKE_TZONE_ALLOCATED_IMPL(RTCSctpTransportState);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(GStreamerSctpTransportBackend);
 
 static inline RTCSctpTransportState toRTCSctpTransportState(GstWebRTCSCTPTransportState state)
 {

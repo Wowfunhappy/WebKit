@@ -31,7 +31,15 @@
 #include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 
+// MAVERICKS_BACKPORT: explicit include for WTF_MAKE_TZONE_ALLOCATED_IMPL below; under this build's
+// non-unified/no-modules config it is not pulled in transitively.
+#include <wtf/TZoneMallocInlines.h>
+
 namespace WebCore {
+
+// MAVERICKS_BACKPORT: GStreamerDtlsTransportBackend declares WTF_MAKE_TZONE_ALLOCATED in its header;
+// this is its out-of-line half, defining s_heapRef and operatorNewSlow under USE(TZONE_MALLOC).
+WTF_MAKE_TZONE_ALLOCATED_IMPL(GStreamerDtlsTransportBackend);
 
 GST_DEBUG_CATEGORY(webkit_webrtc_dtls_transport_debug);
 #define GST_CAT_DEFAULT webkit_webrtc_dtls_transport_debug
