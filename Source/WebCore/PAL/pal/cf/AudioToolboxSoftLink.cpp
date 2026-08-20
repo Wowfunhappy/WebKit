@@ -40,17 +40,6 @@ struct SpatialAudioPreferences;
 SOFT_LINK_FRAMEWORK_FOR_SOURCE(PAL, AudioToolbox)
 SOFT_LINK_PRIVATE_FRAMEWORK_FOR_SOURCE_WITH_EXPORT(PAL, AudioToolboxCore, PAL_EXPORT)
 
-#if PLATFORM(MAC)
-// MAVERICKS_BACKPORT: on Mavericks, AudioComponent* / AudioUnit* / AudioOutputUnit*
-// functions are exported from AudioUnit.framework, NOT AudioToolbox.framework
-// (that move happened in 10.10). Soft-linking them from AudioToolbox returns
-// NULL function pointers — calling NULL crashes WebContent with "null function
-// pointer call" in createAudioDestination → AudioOutputUnitAdaptor::configure.
-// We register AudioUnit as a separate framework and pull these specific symbols
-// from there.
-SOFT_LINK_FRAMEWORK_FOR_SOURCE(PAL, AudioUnit)
-#endif
-
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioConverterGetPropertyInfo, OSStatus, (AudioConverterRef inAudioConverter, AudioConverterPropertyID inPropertyID, UInt32* outSize, Boolean* outWritable), (inAudioConverter, inPropertyID, outSize, outWritable))
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioFormatGetPropertyInfo, OSStatus, (AudioFormatPropertyID inPropertyID, UInt32 inSpecifierSize, const void* inSpecifier, UInt32* ioPropertyDataSize), (inPropertyID, inSpecifierSize, inSpecifier, ioPropertyDataSize))
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioFormatGetProperty, OSStatus, (AudioFormatPropertyID inPropertyID, UInt32 inSpecifierSize, const void* inSpecifier, UInt32* ioPropertyDataSize, void* outPropertyData), (inPropertyID, inSpecifierSize, inSpecifier, ioPropertyDataSize, outPropertyData))
@@ -61,18 +50,10 @@ SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioConverterSetProperty, OSSt
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioConverterGetProperty, OSStatus, (AudioConverterRef inAudioConverter, AudioConverterPropertyID inPropertyID, UInt32* ioPropertyDataSize, void* outPropertyData), (inAudioConverter, inPropertyID, ioPropertyDataSize, outPropertyData))
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioConverterConvertComplexBuffer, OSStatus, (AudioConverterRef inAudioConverter, UInt32 inNumberPCMFrames, const AudioBufferList* inInputData, AudioBufferList* outOutputData), (inAudioConverter, inNumberPCMFrames, inInputData, outOutputData))
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioConverterFillComplexBuffer, OSStatus, (AudioConverterRef inAudioConverter, AudioConverterComplexInputDataProc inInputDataProc, void* inInputDataProcUserData, UInt32* ioOutputDataPacketSize, AudioBufferList* outOutputData, AudioStreamPacketDescription* outPacketDescription), (inAudioConverter, inInputDataProc, inInputDataProcUserData, ioOutputDataPacketSize, outOutputData, outPacketDescription))
-// MAVERICKS_BACKPORT: AudioOutputUnit*/AudioComponent* live in AudioUnit.framework on 10.9 (moved to AudioToolbox in 10.10).
-#if PLATFORM(MAC)
-SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioUnit, AudioOutputUnitStart, OSStatus, (AudioUnit ci), (ci))
-SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioUnit, AudioOutputUnitStop, OSStatus, (AudioUnit ci), (ci))
-SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioUnit, AudioComponentInstanceDispose, OSStatus, (AudioComponentInstance inInstance), (inInstance))
-SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioUnit, AudioComponentCopyName, OSStatus, (AudioComponent inComponent, CFStringRef* outName), (inComponent, outName))
-#else
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioOutputUnitStart, OSStatus, (AudioUnit ci), (ci))
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioOutputUnitStop, OSStatus, (AudioUnit ci), (ci))
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioComponentInstanceDispose, OSStatus, (AudioComponentInstance inInstance), (inInstance))
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioComponentCopyName, OSStatus, (AudioComponent inComponent, CFStringRef* outName), (inComponent, outName))
-#endif // MAVERICKS_BACKPORT: AudioUnit-vs-AudioToolbox framework split (see above)
 
 SOFT_LINK_FUNCTION_MAY_FAIL_FOR_SOURCE_WITH_EXPORT(PAL, AudioToolboxCore, AudioComponentFetchServerRegistrations, OSStatus, (CFDataRef* outBundleRegistrations), (outBundleRegistrations), PAL_EXPORT)
 SOFT_LINK_FUNCTION_MAY_FAIL_FOR_SOURCE_WITH_EXPORT(PAL, AudioToolboxCore, AudioComponentApplyServerRegistrations, OSStatus, (CFDataRef inBundleRegistrations), (inBundleRegistrations), PAL_EXPORT)
@@ -90,16 +71,6 @@ SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, ExtAudioFileSetProperty, OSStat
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, ExtAudioFileWrapAudioFileID, OSStatus, (AudioFileID inFileID, Boolean inForWriting, ExtAudioFileRef *outExtAudioFile), (inFileID, inForWriting, outExtAudioFile))
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, ExtAudioFileOpenURL, OSStatus, (CFURLRef inURL, ExtAudioFileRef* outExtAudioFile), (inURL, outExtAudioFile))
 
-// MAVERICKS_BACKPORT: AudioComponent*/AudioUnit* live in AudioUnit.framework on 10.9 (moved to AudioToolbox in 10.10).
-#if PLATFORM(MAC)
-SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioUnit, AudioComponentFindNext, AudioComponent, (AudioComponent inComponent, const AudioComponentDescription* inDesc), (inComponent, inDesc))
-SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioUnit, AudioComponentInstanceNew, OSStatus, (AudioComponent inComponent, AudioComponentInstance* outInstance), (inComponent, outInstance))
-SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioUnit, AudioUnitGetProperty, OSStatus, (AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, void* outData, UInt32* ioDataSize), (inUnit, inID, inScope, inElement, outData, ioDataSize))
-SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioUnit, AudioUnitInitialize, OSStatus, (AudioUnit inUnit), (inUnit))
-SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioUnit, AudioUnitSetProperty, OSStatus, (AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, const void* inData, UInt32 inDataSize), (inUnit, inID, inScope, inElement, inData, inDataSize))
-SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioUnit, AudioUnitRender, OSStatus, (AudioUnit inUnit, AudioUnitRenderActionFlags* ioActionFlags, const AudioTimeStamp* inTimeStamp, UInt32 inOutputBusNumber, UInt32 inNumberFrames, AudioBufferList* ioData), (inUnit, ioActionFlags, inTimeStamp, inOutputBusNumber, inNumberFrames, ioData))
-SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioUnit, AudioUnitUninitialize, OSStatus, (AudioUnit inUnit), (inUnit))
-#else
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioComponentFindNext, AudioComponent, (AudioComponent inComponent, const AudioComponentDescription* inDesc), (inComponent, inDesc))
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioComponentInstanceNew, OSStatus, (AudioComponent inComponent, AudioComponentInstance* outInstance), (inComponent, outInstance))
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioUnitGetProperty, OSStatus, (AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, void* outData, UInt32* ioDataSize), (inUnit, inID, inScope, inElement, outData, ioDataSize))
@@ -107,6 +78,5 @@ SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioUnitInitialize, OSStatus, 
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioUnitSetProperty, OSStatus, (AudioUnit inUnit, AudioUnitPropertyID inID, AudioUnitScope inScope, AudioUnitElement inElement, const void* inData, UInt32 inDataSize), (inUnit, inID, inScope, inElement, inData, inDataSize))
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioUnitRender, OSStatus, (AudioUnit inUnit, AudioUnitRenderActionFlags* ioActionFlags, const AudioTimeStamp* inTimeStamp, UInt32 inOutputBusNumber, UInt32 inNumberFrames, AudioBufferList* ioData), (inUnit, ioActionFlags, inTimeStamp, inOutputBusNumber, inNumberFrames, ioData))
 SOFT_LINK_FUNCTION_FOR_SOURCE(PAL, AudioToolbox, AudioUnitUninitialize, OSStatus, (AudioUnit inUnit), (inUnit))
-#endif // MAVERICKS_BACKPORT: AudioUnit-vs-AudioToolbox framework split (see above)
 
 #endif // USE(AVFOUNDATION)

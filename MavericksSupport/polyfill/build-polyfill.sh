@@ -235,6 +235,11 @@ PROBE_LIBS="$OUT/libpolyfill.a -framework Foundation -framework CoreFoundation -
 "$T/sectask_identity"
 "$CLANG" $MODERN $INC -o "$T/timebase" "$TBEHAV/libSystem-timebase.c" $PROBE_LIBS
 "$T/timebase"
+# The 10.9 host headers, not the modern SDK's: AudioUnit* live in AudioUnit.framework here and in
+# AudioToolbox from 10.10 on, so only these headers put the probe's references where this OS has them.
+"$CLANG" $HOST -Wno-deprecated-declarations $INC -o "$T/audiounit_max_frames" "$TBEHAV/AudioUnit-max-frames.c" \
+    $PROBE_LIBS -framework AudioUnit -framework CoreAudio
+"$T/audiounit_max_frames"
 
 # --- shadow gates ------------------------------------------------------------------------------
 # Every polyfill's body runs unconditionally: force_load makes our definition win, the selref rewrite sends
@@ -263,6 +268,8 @@ SYSTEM_LIBS="/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics
 /System/Library/Frameworks/IOKit.framework/IOKit
 /System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration
 /System/Library/Frameworks/AudioToolbox.framework/AudioToolbox
+/System/Library/Frameworks/AudioUnit.framework/AudioUnit
+/System/Library/Frameworks/CoreAudio.framework/CoreAudio
 /System/Library/Frameworks/CoreMedia.framework/CoreMedia
 /System/Library/Frameworks/CoreVideo.framework/CoreVideo
 /System/Library/Frameworks/ApplicationServices.framework/ApplicationServices

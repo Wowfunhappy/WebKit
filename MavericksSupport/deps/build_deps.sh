@@ -349,6 +349,16 @@ echo "==== 10.9 gap archive ===="
 #                       is the bare trap, and GLib's g_get_monotonic_time (every GStreamer clock
 #                       read) calls it before each mach_absolute_time; this reads the trap once and
 #                       answers from a cache
+#   audiounit_max_frames  a deliberate OVERRIDE of AudioUnitInitialize: 10.9 leaves an output unit's
+#                       kAudioUnitProperty_MaximumFramesPerSlice at the device buffer size of the
+#                       moment, so any client raising that shared size makes every later render fail
+#                       with kAudioUnitErr_TooManyFramesToProcess -- silencing osxaudiosink and
+#                       wedging the process on the CAMutex the failure path takes. This declares the
+#                       top of every output device's supported range and holds it there from two
+#                       listeners on the unit: the unit moving to another device, and AUHAL restating
+#                       the property as the device's current buffer size, which it does on every
+#                       initialized unit each time any client changes that size; AudioUnitUninitialize
+#                       and AudioComponentInstanceDispose come with it as the units it tracks
 #
 # shared/jit.c is deliberately NOT here: its mmap override is a deliberate replacement of a
 # function 10.9 HAS, wanted only where a caller passes MAP_JIT -- WebKit's JIT. Nothing in this
@@ -358,7 +368,7 @@ echo "==== 10.9 gap archive ===="
 SHARED="$REPO/MavericksSupport/polyfill/polyfills/shared"
 GAPDIR="$SCRATCH/gap"
 mkdir -p "$GAPDIR"
-GAP_SHARED="time atcalls utimensat fdopendir dirfuncs_compat statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version os_unfair_lock_ext aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info"
+GAP_SHARED="time atcalls utimensat fdopendir dirfuncs_compat statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version os_unfair_lock_ext aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames"
 GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$SHARED/include"
 ( for s in $GAP_SHARED; do
     "$TC/bin/clang" $GAPCFLAGS -MD -MF "$GAPDIR/$s.d" -c "$SHARED/$s.c" -o "$GAPDIR/$s.o" || exit 1
@@ -397,7 +407,7 @@ GAP_UNLINKED="$GAPDIR/gap-unlinked.txt"
 # has, and every answer must appear in GAP_REPLACES. There is no allow file: an entry here is a
 # stated intent, not an exemption, and the polyfill build holds the same sources to the same rule
 # through its own registry (polyfill/build-polyfill.sh).
-GAP_REPLACES="mach_timebase_info"
+GAP_REPLACES="mach_timebase_info AudioUnitInitialize AudioUnitUninitialize AudioComponentInstanceDispose"
 GAPGATE="$GAPDIR/gate"; mkdir -p "$GAPGATE"
 "$TC/bin/clang" --no-default-config -mmacosx-version-min=10.9 -o "$GAPGATE/present" \
     "$REPO/MavericksSupport/polyfill/tests/gates/shadow-present.c" || exit 1
@@ -415,6 +425,8 @@ GAPGATE="$GAPDIR/gate"; mkdir -p "$GAPGATE"
     /System/Library/Frameworks/CoreMedia.framework/CoreMedia \
     /System/Library/Frameworks/VideoToolbox.framework/VideoToolbox \
     /System/Library/Frameworks/AudioToolbox.framework/AudioToolbox \
+    /System/Library/Frameworks/AudioUnit.framework/AudioUnit \
+    /System/Library/Frameworks/CoreAudio.framework/CoreAudio \
     < "$GAPGATE/defined" | sort -u > "$GAPGATE/on109"
 printf '%s\n' $GAP_REPLACES | sort -u > "$GAPGATE/declared"
 cut -f1 "$GAPGATE/on109" | sort -u > "$GAPGATE/present_names"
