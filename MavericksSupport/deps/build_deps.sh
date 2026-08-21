@@ -332,11 +332,11 @@ echo "==== 10.9 gap archive ===="
 #   statxx          fstatat/fstatat$INODE64/fstatat64
 #   getentropy      getentropy
 #   pthread_chdir   __mpls_best_fchdir closure for atcalls (private helpers)
-#   os_unfair_lock  os_unfair_lock_lock/trylock/unlock (10.12+)
+#   os_unfair_lock  os_unfair_lock_lock/trylock/unlock/assert_owner/assert_not_owner (10.12+),
+#                   os_unfair_lock_lock_with_flags/_with_options (10.15+)
 #   mkostemp            mkostemp/mkostemps
 #   os_version          _availability_version_check (@available lowering; lld requires a
 #                       definition for compiler-rt's weak-import reference)
-#   os_unfair_lock_ext  os_unfair_lock_lock_with_flags/_with_options
 #   aligned_alloc       C11 aligned_alloc (10.15+)
 #   ccrandom            CCRandomGenerateBytes (10.10+)
 #   cv_colorimetry      the CoreVideo wide-gamut/HDR tags applemedia references (10.11/10.13+)
@@ -368,7 +368,7 @@ echo "==== 10.9 gap archive ===="
 SHARED="$REPO/MavericksSupport/polyfill/polyfills/shared"
 GAPDIR="$SCRATCH/gap"
 mkdir -p "$GAPDIR"
-GAP_SHARED="time atcalls utimensat fdopendir dirfuncs_compat statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version os_unfair_lock_ext aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames"
+GAP_SHARED="time atcalls utimensat fdopendir dirfuncs_compat statxx getentropy pthread_chdir os_unfair_lock mkostemp os_version aligned_alloc ccrandom cv_colorimetry launchservices videotoolbox pthread_jit mach_timebase_info audiounit_max_frames"
 GAPCFLAGS="--no-default-config -isysroot / -mmacosx-version-min=10.9 -fPIC -fvisibility=hidden -O2 -I$SHARED/include"
 ( for s in $GAP_SHARED; do
     "$TC/bin/clang" $GAPCFLAGS -MD -MF "$GAPDIR/$s.d" -c "$SHARED/$s.c" -o "$GAPDIR/$s.o" || exit 1

@@ -1,58 +1,44 @@
 /*
- * Copyright (c) 2023
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ * os/lock.h for the 10.9 host headers, which have none: the os_unfair_lock ABI of 10.12's
+ * <os/lock.h> and the option/flag values of 10.15's os_unfair_lock_lock_with_options /
+ * _with_flags. The implementation is ../../os_unfair_lock.c.
  */
 
-#ifndef _MACPORTS_LOCK_H_
-#define _MACPORTS_LOCK_H_
+#ifndef _MAVERICKS_OS_LOCK_H_
+#define _MAVERICKS_OS_LOCK_H_
 
-/* MP support header */
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "LegacySupport.h"
 
-/* Do our SDK-related setup */
+typedef struct os_unfair_lock_s {
+	uint32_t _os_unfair_lock_opaque;
+} os_unfair_lock, *os_unfair_lock_t;
 
-/* Include the primary system os/lock.h (10.12+ only) */
+#define OS_UNFAIR_LOCK_INIT ((os_unfair_lock){0})
 
-/*
-  os/lock.h does not exist
-  use deprecated OSSpinLock instead
+typedef uint32_t os_unfair_lock_options_t;
+#define OS_UNFAIR_LOCK_NONE                  0x00000000u
+#define OS_UNFAIR_LOCK_DATA_SYNCHRONIZATION  0x00010000u
+#define OS_UNFAIR_LOCK_ADAPTIVE_SPIN         0x00040000u
+#define OS_UNFAIR_LOCK_ALLOW_ANONYMOUS_OWNER 0x01000000u
 
-  see https://developer.apple.com/documentation/os/os_unfair_lock
-*/
-
-#include <libkern/OSAtomic.h>
-
-#define OS_UNFAIR_LOCK_INIT OS_SPINLOCK_INIT
-
-typedef OSSpinLock os_unfair_lock;
-typedef OSSpinLock *os_unfair_lock_t;
+typedef uint32_t os_unfair_lock_flags_t;
+#define OS_UNFAIR_LOCK_FLAG_NONE                 0x00000000u
+#define OS_UNFAIR_LOCK_FLAG_DATA_SYNCHRONIZATION 0x00010000u
+#define OS_UNFAIR_LOCK_FLAG_ADAPTIVE_SPIN        0x00040000u
 
 __MP__BEGIN_DECLS
 
 void os_unfair_lock_lock(os_unfair_lock_t lock);
-
+void os_unfair_lock_lock_with_options(os_unfair_lock_t lock, os_unfair_lock_options_t options);
+void os_unfair_lock_lock_with_flags(os_unfair_lock_t lock, os_unfair_lock_flags_t flags);
 bool os_unfair_lock_trylock(os_unfair_lock_t lock);
-
 void os_unfair_lock_unlock(os_unfair_lock_t lock);
+void os_unfair_lock_assert_owner(const os_unfair_lock *lock);
+void os_unfair_lock_assert_not_owner(const os_unfair_lock *lock);
 
 __MP__END_DECLS
 
-/*
-it is not clear how to implement these functions
-
-void os_unfair_lock_assert_owner(const os_unfair_lock *lock);
-void os_unfair_lock_assert_not_owner(const os_unfair_lock *lock);
-*/
-
-#endif
+#endif /* _MAVERICKS_OS_LOCK_H_ */

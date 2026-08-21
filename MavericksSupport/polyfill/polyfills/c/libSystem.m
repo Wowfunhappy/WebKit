@@ -1,5 +1,5 @@
 // libSystem: entry points and constants modern WebKit references that 10.9's libSystem does not
-// export -- libc, dyld, xpc, dispatch, os_log / os_signpost / os_variant / os_unfair_lock, pthread,
+// export -- libc, dyld, xpc, dispatch, os_log / os_signpost / os_variant, pthread,
 // mach, voucher, sandbox, os_state and CommonCrypto.
 #include "wk_polyfill.h"
 #include "dispatch-activate-once.h"
@@ -244,13 +244,6 @@ WK_POLYFILL_ABSENT(NULL, void, cache_simulate_size_response, (uint64_t a, uint64
 WK_POLYFILL_ABSENT(NULL, bool, os_variant_allows_internal_security_policies, (const char *s)) { (void)s; return false; }
 WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_content, (const char *s)) { (void)s; return false; }
 WK_POLYFILL_ABSENT(NULL, bool, os_variant_has_internal_diagnostics, (const char *s)) { (void)s; return false; }
-
-// os_unfair_lock_assert_owner / _assert_not_owner (10.12+) are the lock-ownership debug assertions WTF::Lock
-// emits under the modern SDK. The lock primitive itself is polyfilled separately; only these assert
-// helpers are absent on 10.9. No-op them -- without a definition the first use aborts fatally, during
-// IPC message handling on page load.
-WK_POLYFILL_ABSENT(NULL, void, os_unfair_lock_assert_owner, (void *lock)) { (void)lock; }
-WK_POLYFILL_ABSENT(NULL, void, os_unfair_lock_assert_not_owner, (void *lock)) { (void)lock; }
 
 // os_log unified logging is 10.12+; _os_log_internal is the macro-emitted backing for every os_log()
 // call site and is absent from 10.9's libSystem (it links as the Mach-O symbol __os_log_internal).
