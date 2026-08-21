@@ -239,6 +239,14 @@ NMBIN=/Library/Developer/CommandLineTools/usr/bin/nm
 # So the autotools deps (libgpg-error/libgcrypt/libtasn1) compile with a VANILLA
 # clang (--no-default-config): the same 10.9-targeting compiler against the same SDK,
 # minus that auto-linked set, so the probes measure the compiler rather than the config.
+
+# One install prefix serves every package below, and several of them probe it: a configure run
+# before another package installs into that prefix resolves a feature differently from one run
+# after. So every optional feature this build depends on is stated on its own configure line --
+# libgpg-error/libgcrypt/libtasn1 --disable-nls, flac --enable-ogg, -Dorc=enabled on the three
+# GStreamer modules that have the option -- and a missing dependency then fails that configure
+# instead of quietly dropping the feature. gnulib's search of $prefix is one such probe: it resolves
+# libgpg-error's NLS against GLib's proxy libintl whenever that is already installed there.
 # The resulting .a is pure object code; the polyfill that resolves any post-10.9 symbol
 # is linked later at WebKit link time.
 VBIN="$SCRATCH/vanilla-bin"
@@ -354,26 +362,25 @@ u=https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.51.tar.bz2
 if ! built gpgerror install/lib/libgpg-error.a; then
     d=$(get "$u" gpgerror)
     ( cd "$d" && ./configure CC="$CC_VANILLA" --prefix="$STAGE" --disable-shared \
-        --enable-static --disable-doc --disable-tests --disable-languages \
+        --enable-static --disable-doc --disable-tests --disable-languages --disable-nls \
       && make -j2 && make install ) || exit 1
     finished gpgerror "$d"
 fi
 
 echo "==== libgcrypt ===="
 u=https://gnupg.org/ftp/gcrypt/libgcrypt/libgcrypt-1.11.0.tar.bz2
-# --disable-asm: libgcrypt's configure accepts its amd64 MPI assembly under the vanilla clang
-# wrapper, but the .S objects never reach the archive, so every C reference to them dangles at
-# link time. Measured with the flag removed:
-#   ld64.lld: error: undefined symbol: _gcry_mpih_lshift   (ec.o, mpi-bit.o)
-#   ld64.lld: error: undefined symbol: _gcry_mpih_mul_1    (mpi-mul.o, mpih-mul.o)
-#   ld64.lld: error: undefined symbol: _gcry_mpih_submul_1 (mpih-div.o)
-# libgcrypt offers no per-implementation switch, so this is all-or-nothing. The cost is the
-# pure-C MPI path for WebCrypto; restoring the assembly means finding why configure's choice and
-# the build disagree, which is a change of its own.
+# ac_cv_sys_symbol_underscore=yes: Mach-O prefixes every C symbol with an underscore, and
+# mpi/sysdep.h's C_SYMBOL_NAME() adds it only when this is yes -- which is what makes the amd64 MPI
+# assembly define the names the C code calls. libgcrypt's probe cannot reach that answer here:
+# libtool's Darwin symbol pipe appends the bare name after the underscored one, "T _nm_test_func
+# nm_test_func", so the probe's end-anchored ' _nm_test_func$' never matches and its ' nm_test_func$'
+# fallback does, leaving the default no. The assembly then defines _gcry_mpih_lshift where the C
+# code references __gcry_mpih_lshift. Stating the platform's own answer puts the amd64 MPI path in
+# the archive instead of the pure-C one.
 if ! built gcrypt install/lib/libgcrypt.a; then
     d=$(get "$u" gcrypt)
-    ( cd "$d" && ./configure CC="$CC_VANILLA" --prefix="$STAGE" --disable-shared \
-        --enable-static --disable-doc --disable-asm --with-libgpg-error-prefix="$STAGE" \
+    ( cd "$d" && ./configure CC="$CC_VANILLA" ac_cv_sys_symbol_underscore=yes --prefix="$STAGE" \
+        --disable-shared --enable-static --disable-doc --disable-nls --with-libgpg-error-prefix="$STAGE" \
       && make -j2 && make install ) || exit 1
     finished gcrypt "$d"
 fi
@@ -383,7 +390,7 @@ u=https://ftp.gnu.org/gnu/libtasn1/libtasn1-4.20.0.tar.gz
 if ! built tasn1 install/lib/libtasn1.a; then
     d=$(get "$u" tasn1)
     ( cd "$d" && ./configure CC="$CC_VANILLA" --prefix="$STAGE" --disable-shared \
-        --enable-static --disable-doc \
+        --enable-static --disable-doc --disable-nls \
       && make -j2 && make install ) || exit 1
     finished tasn1 "$d"
 fi
@@ -746,7 +753,7 @@ fi
 d=$(get https://downloads.xiph.org/releases/flac/flac-1.4.3.tar.xz flac)
 if prepare "$d"; then
     ( cd "$d" && ./configure -q --prefix="$STAGE" --disable-static --disable-programs \
-        --disable-examples --disable-cpplibs ) || exit 1
+        --disable-examples --disable-cpplibs --enable-ogg ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && make -s -j2 && make -s install ) || exit 1
@@ -913,7 +920,7 @@ if prepare "$d"; then
         >> /tmp/depslog-gstbase-patch.log 2>&1 ) \
       || { echo "gst-plugins-base urisourcebin parsebin-reset patch failed to apply"; cat /tmp/depslog-gstbase-patch.log; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
-        -Dogg=enabled -Dvorbis=enabled -Dopus=enabled > /tmp/depslog-gstbase-setup.log 2>&1 ) || exit 1
+        -Dogg=enabled -Dvorbis=enabled -Dopus=enabled -Dorc=enabled > /tmp/depslog-gstbase-setup.log 2>&1 ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-gstbase-compile.log 2>&1 \
@@ -923,7 +930,7 @@ echo "==== gst-plugins-good ===="
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-good/gst-plugins-good-$GST_VER.tar.xz gstgood)
 if prepare "$d"; then
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS \
-        -Dvpx=enabled -Dflac=enabled -Dosxaudio=enabled -Dosxvideo=enabled > /tmp/depslog-gstgood-setup.log 2>&1 ) || exit 1
+        -Dvpx=enabled -Dflac=enabled -Dosxaudio=enabled -Dosxvideo=enabled -Dorc=enabled > /tmp/depslog-gstgood-setup.log 2>&1 ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-gstgood-compile.log 2>&1 \
@@ -948,8 +955,7 @@ fi
 echo "==== gst-plugins-bad ===="
 # sctp (WebRTC datachannels) builds from the usrsctp copy bundled in the tarball's
 # ext/sctp/usrsctp -- no extra download. webp is off because the plugin has no caller: WebP
-# images decode in WebCore's own WEBPImageDecoder, and this build produces no libwebpmux for
-# the plugin to find.
+# images decode in WebCore's own WEBPImageDecoder.
 d=$(get https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-$GST_VER.tar.xz gstbad)
 if prepare "$d"; then
     # patch webrtcbin's over-strict remote-ICE-credential charset check so
@@ -986,7 +992,7 @@ if prepare "$d"; then
       || { echo "gst-plugins-bad vtdec sink-template patch failed to apply"; cat /tmp/depslog-gstbad-patch4.log; exit 1; }
     ( cd "$d" && "$MESON" setup b --prefix="$STAGE" $GSTOPTS -Dintrospection=disabled \
         -Dwebrtc=enabled -Dwebrtcdsp=enabled -Ddtls=enabled -Dsrtp=enabled -Dsctp=enabled \
-        -Dapplemedia=enabled -Dwebp=disabled > /tmp/depslog-gstbad-setup.log 2>&1 ) || exit 1
+        -Dapplemedia=enabled -Dwebp=disabled -Dorc=enabled > /tmp/depslog-gstbad-setup.log 2>&1 ) || exit 1
     prepared "$d"
 fi
 ( cd "$d" && "$MESON" compile -C b -j 2 > /tmp/depslog-gstbad-compile.log 2>&1 \
