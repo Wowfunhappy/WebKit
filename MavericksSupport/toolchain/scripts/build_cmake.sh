@@ -3,6 +3,9 @@
 # gitignored). Built with the in-tree clang. All paths relative to this script.
 # The first build is slow (~15 min); CMake bootstraps itself with a plain make.
 set -euo pipefail
+LOG=/tmp/wk_build.log
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 CLANG="$TOOLCHAIN/build/clang"

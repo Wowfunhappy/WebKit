@@ -2,6 +2,9 @@
 # Build ninja from source into the toolchain build tree (toolchain/build/ninja,
 # gitignored). Built with the in-tree clang. All paths relative to this script.
 set -euo pipefail
+LOG=/tmp/wk_build.log
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 CLANG="$TOOLCHAIN/build/clang"

@@ -12,6 +12,9 @@
 # Installs into the toolchain build tree (toolchain/build/nasm, gitignored). All
 # paths are relative to this script -- no absolute/user-specific paths.
 set -euo pipefail
+LOG=/tmp/wk_build.log
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 PREFIX="${NASM_PREFIX:-$TOOLCHAIN/build/nasm}"
@@ -28,14 +31,14 @@ cd "$WORK/nasm-${VERSION}"
 echo "### Patching"
 # See the patch header: nasm stamps dyld-only relocation attributes on object sections,
 # which ld64.lld carries into dylibs and 10.9's dyld then misreads as text relocations.
-patch -p1 < "$TOOLCHAIN/patches/nasm-macho-object-reloc-attrs.patch" > "$WORK/patch.log" 2>&1
+patch -p1 < "$TOOLCHAIN/patches/nasm-macho-object-reloc-attrs.patch"
 
 echo "### Configuring (prefix=$PREFIX)"
-./configure --prefix="$PREFIX" > "$WORK/configure.log" 2>&1
+./configure --prefix="$PREFIX"
 echo "### Building"
-make -j"$(sysctl -n hw.ncpu)" > "$WORK/make.log" 2>&1
+make -j"$(sysctl -n hw.ncpu)"
 echo "### Installing"
-make install > "$WORK/install.log" 2>&1
+make install
 
 "$PREFIX/bin/nasm" -v
 echo "### Verifying macho64 + -MD support"

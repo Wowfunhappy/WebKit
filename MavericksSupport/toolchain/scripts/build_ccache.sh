@@ -7,6 +7,9 @@
 # so once this binary is on the build's PATH a reconfigure turns it on. It runs on this 10.9
 # host, so it's built -mmacosx-version-min=10.9 (standalone -- no WebKit polyfill).
 set -euo pipefail
+LOG=/tmp/wk_build.log
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 CLANG="$TOOLCHAIN/build/clang"

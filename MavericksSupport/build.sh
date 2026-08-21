@@ -11,6 +11,9 @@ CMAKE="$TC/cmake/bin/cmake"
 CCACHE="${MAVERICKS_CCACHE:-$TC/ccache/bin/ccache}"   # the same resolution as cmake/mac10.9-toolchain.cmake
 BUILD="$ROOT/WebKitBuild/Release"
 LOG=/tmp/wk_build.log
+# The one build log. One fd holds it, so every line lands once and in order, which is what lets the
+# FAILED/dups/undefined counts below read it back. Run this bare and tail the log.
+exec >> "$LOG" 2>&1
 
 # --- What this build links against ------------------------------------------------------------
 # deps/build_deps.sh replaces deps/build/{include,lib,bin} wholesale when it finishes, and every
@@ -128,7 +131,7 @@ if [ ! -f "$CACHE_FILE" ]; then
             -DCMAKE_MAKE_PROGRAM="$NINJA" \
             -DCMAKE_TOOLCHAIN_FILE="$ROOT/MavericksSupport/cmake/mac10.9-toolchain.cmake" \
             -DPORT=Mac -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DCMAKE_NINJA_FORCE_RESPONSE_FILE=1 >> "$LOG" 2>&1; then
+            -DCMAKE_NINJA_FORCE_RESPONSE_FILE=1; then
         echo "==================== CONFIGURE FAILED — ABORTING ===================="
         tail -20 "$LOG"; exit 1
     fi
@@ -148,7 +151,7 @@ if [ -f "$OPT_HASH_FILE" ] && [ "$_opt_hash" != "$(cat "$OPT_HASH_FILE")" ]; the
         | grep -oE '[A-Z0-9_]+$' | sort -u)
     echo "### option file content changed -> re-deriving $(echo $_names | wc -w | tr -d ' ') feature options from port defaults"
     _uargs=""; for _n in $_names; do _uargs="$_uargs -U $_n"; done
-    if ! "$CMAKE" $_uargs "$BUILD" >> "$LOG" 2>&1; then
+    if ! "$CMAKE" $_uargs "$BUILD"; then
         echo "==================== RECONFIGURE FAILED — ABORTING ===================="
         tail -20 "$LOG"; exit 1
     fi
@@ -169,7 +172,10 @@ PRE_WEBCORE="$(poly_hash libpolyfill_methods.a)"
 PRE_JSC="$(poly_hash libwtf_compat.a)"
 PRE_WEBKIT="$(poly_hash libpolyfill_webkit.a)"
 echo "### building polyfill archives (MavericksSupport/polyfill/build-polyfill.sh)"
-if bash "$ROOT/MavericksSupport/polyfill/build-polyfill.sh" >> "$LOG" 2>&1; then
+# $LOG already holds this run's cmake configure output, so the failure path below reads only
+# the lines this build appends.
+_polyfrom=$(( $(wc -l < "$LOG") + 1 ))
+if bash "$ROOT/MavericksSupport/polyfill/build-polyfill.sh"; then
     RELINK=""
     if [ "$PRE_ALL" != "$(poly_hash libpolyfill.a)$(poly_hash libwk_marker.a)" ]; then
         RELINK="JavaScriptCore WebCore WebKit WebKitLegacy"
@@ -187,7 +193,7 @@ if bash "$ROOT/MavericksSupport/polyfill/build-polyfill.sh" >> "$LOG" 2>&1; then
 else
     # A stale archive would link a call site against an old selector map and crash at runtime.
     echo "==================== POLYFILL BUILD FAILED — ABORTING (would link a STALE polyfill) ===================="
-    grep -nE "error:|warning:.*wk_|undefined" "$LOG" | head -20
+    tail -n +$_polyfrom "$LOG" | grep -nE "error:|warning:.*wk_|undefined" | head -20
     tail -20 "$LOG"
     exit 1
 fi
@@ -198,7 +204,7 @@ fi
 # every later run dead at the same error; heal that with a plain reconfigure.
 if [ ! -f "$BUILD/build.ninja" ] || ! "$NINJA" -C "$BUILD" -t targets >/dev/null 2>&1; then
     echo "### build.ninja is missing or does not parse -> reconfiguring to recover"
-    if ! "$CMAKE" "$BUILD" >> "$LOG" 2>&1; then
+    if ! "$CMAKE" "$BUILD"; then
         echo "==================== RECOVERY RECONFIGURE FAILED — ABORTING ===================="
         tail -20 "$LOG"; exit 1
     fi
@@ -207,8 +213,8 @@ fi
 [ -x "$CCACHE" ] && "$CCACHE" -z >/dev/null   # per-build ccache stats
 
 # -k 0: keep going after the first failure so a link stage surfaces ALL undefined symbols at once.
-"$NINJA" -C "$BUILD" -k 0 2>&1 | tee -a "$LOG"
-RC=${PIPESTATUS[0]}
+"$NINJA" -C "$BUILD" -k 0 2>&1
+RC=$?
 
 echo "==================== COMPILE/LINK PHASE DONE (rc=$RC) — staging still to run ===================="
 echo "$(grep -oE '^\[[0-9]+/[0-9]+\]' "$LOG" | tail -1)  FAILED=$(grep -c '^FAILED:' "$LOG")"

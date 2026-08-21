@@ -5,6 +5,9 @@
 # (toolchain/python3, gitignored; rebuilt by bootstrap.sh). All paths are derived
 # relative to this script -- no absolute/user-specific paths.
 set -euo pipefail
+LOG=/tmp/wk_build.log
+# The one build log: this script routes its own output there, so a bare invocation fills it.
+exec >> "$LOG" 2>&1
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLCHAIN="$(cd "$HERE/.." && pwd)"
 CLANG="$TOOLCHAIN/build/clang"
@@ -37,10 +40,10 @@ export MACOSX_DEPLOYMENT_TARGET=10.9
 export CFLAGS="-O2 -mmacosx-version-min=10.9"
 SHIM="-Wl,-force_load,$SCRATCH/libavailshim.a"
 echo "### Configuring (prefix=$PREFIX)"
-./configure CC="$SCRATCH/bin/cc" --prefix="$PREFIX" --without-ensurepip >/dev/null
+./configure CC="$SCRATCH/bin/cc" --prefix="$PREFIX" --without-ensurepip
 echo "### Building + installing"
-make -j"$(sysctl -n hw.ncpu)" LIBS="-ldl $SHIM" >/dev/null
-make install LIBS="-ldl $SHIM" >/dev/null
+make -j"$(sysctl -n hw.ncpu)" LIBS="-ldl $SHIM"
+make install LIBS="-ldl $SHIM"
 echo "=== python3 built ==="
 "$PREFIX/bin/python3" --version
 "$PREFIX/bin/python3" -c 'import sys; print("ok", sys.version.split()[0])'
