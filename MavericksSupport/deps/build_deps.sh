@@ -1071,29 +1071,32 @@ echo "==== collect into deps/build ===="
 _refuse_under_webkit_build
 rm -rf "$DEST/include" "$DEST/lib" "$DEST/bin"
 mkdir -p "$DEST/include" "$DEST/lib/gstreamer-1.0" "$DEST/bin"
-# headers (WebKit's own link deps + the GStreamer/GLib trees WebCore compiles against)
-cp -R "$STAGE/include/unicode"    "$DEST/include/"
-cp "$STAGE/include/gpg-error.h"   "$DEST/include/"
-cp "$STAGE/include/gcrypt.h"      "$DEST/include/"
-cp "$STAGE/include/libtasn1.h"    "$DEST/include/"
-cp -R "$STAGE/include/brotli"     "$DEST/include/"
-cp -R "$STAGE/include/woff2"      "$DEST/include/"
-cp -R "$STAGE/include/webp"       "$DEST/include/"
-cp -R "$STAGE/include/avif"       "$DEST/include/"
+# headers (WebKit's own link deps + the GStreamer/GLib trees WebCore compiles against).
+# -p carries each staged file's mtime across, and mtime is what ninja compares: the staged
+# tree only restamps a header when its package actually rebuilds, so a rerun that changes
+# nothing leaves every WebKit object valid.
+cp -Rp "$STAGE/include/unicode"    "$DEST/include/"
+cp -p "$STAGE/include/gpg-error.h"   "$DEST/include/"
+cp -p "$STAGE/include/gcrypt.h"      "$DEST/include/"
+cp -p "$STAGE/include/libtasn1.h"    "$DEST/include/"
+cp -Rp "$STAGE/include/brotli"     "$DEST/include/"
+cp -Rp "$STAGE/include/woff2"      "$DEST/include/"
+cp -Rp "$STAGE/include/webp"       "$DEST/include/"
+cp -Rp "$STAGE/include/avif"       "$DEST/include/"
 # libxml2 headers: WebCore compiles against these. OptionsMac.cmake points
 # LIBXML2_INCLUDE_DIR here so the headers match the 2.13 dylib deployed alongside them.
-cp -R "$STAGE/include/libxml2"    "$DEST/include/"
+cp -Rp "$STAGE/include/libxml2"    "$DEST/include/"
 for inc in glib-2.0 gio-unix-2.0 gstreamer-1.0 orc-0.4 openssl nice; do
-  [ -d "$STAGE/include/$inc" ] && cp -R "$STAGE/include/$inc" "$DEST/include/"
+  [ -d "$STAGE/include/$inc" ] && cp -Rp "$STAGE/include/$inc" "$DEST/include/"
 done
 mkdir -p "$DEST/lib/glib-2.0/include"
-cp "$STAGE/lib/glib-2.0/include/glibconfig.h" "$DEST/lib/glib-2.0/include/"
+cp -p "$STAGE/lib/glib-2.0/include/glibconfig.h" "$DEST/lib/glib-2.0/include/"
 # static libs
 for l in libicuuc.a libicui18n.a libicudata.a \
          libgpg-error.a libgcrypt.a libtasn1.a \
          libbrotlicommon.a libbrotlidec.a libbrotlienc.a libwoff2dec.a \
          libwebp.a libwebpdemux.a libsharpyuv.a libavif.a; do
-  cp "$STAGE/lib/$l" "$DEST/lib/"
+  cp -p "$STAGE/lib/$l" "$DEST/lib/"
 done
 
 # Nothing here links 10.9's /usr/lib/libc++.1.dylib: it predates the C++17 symbols this C++

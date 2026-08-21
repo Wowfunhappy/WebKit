@@ -34,10 +34,10 @@ set(CMAKE_CXX_COMPILER ${_TC}/bin/clang++)
 
 # --- ccache (in-tree) ---------------------------------------------------------
 # Launch the compiler through the in-tree ccache so incremental AND reconfigured
-# builds reuse the object cache. Wiring this in the TOOLCHAIN (not just leaving it
-# as a CMakeCache launcher var) is deliberate: a `cmake --fresh` or fresh clone
-# wipes cache-only launchers, after which the build silently compiles with raw
-# clang and caches NOTHING (0 hits, cache never grows) until someone notices. The
+# builds reuse the object cache. Wiring this in the TOOLCHAIN keeps it across a
+# `cmake --fresh` and a fresh clone, both of which wipe cache-only launcher vars.
+# CMake holds one launcher per language, and this tree compiles all four: WebKit's
+# Mac code is largely ObjC++, so OBJCXX carries most of the cache's value. The
 # compiler stays the real clang above; ccache masquerades via CMAKE_*_LAUNCHER.
 # build.sh pins CCACHE_DIR to WebKitBuild/ccache; ccache reads it from the env at
 # compile time. Override _CCACHE with MAVERICKS_CCACHE (set it empty to disable).
@@ -47,8 +47,10 @@ else ()
     get_filename_component(_CCACHE "${CMAKE_CURRENT_LIST_DIR}/../toolchain/build/ccache/bin/ccache" ABSOLUTE)
 endif ()
 if (_CCACHE AND EXISTS "${_CCACHE}")
-    set(CMAKE_C_COMPILER_LAUNCHER   "${_CCACHE}" CACHE FILEPATH "ccache compiler launcher")
-    set(CMAKE_CXX_COMPILER_LAUNCHER "${_CCACHE}" CACHE FILEPATH "ccache compiler launcher")
+    set(CMAKE_C_COMPILER_LAUNCHER      "${_CCACHE}" CACHE FILEPATH "ccache compiler launcher")
+    set(CMAKE_CXX_COMPILER_LAUNCHER    "${_CCACHE}" CACHE FILEPATH "ccache compiler launcher")
+    set(CMAKE_OBJC_COMPILER_LAUNCHER   "${_CCACHE}" CACHE FILEPATH "ccache compiler launcher")
+    set(CMAKE_OBJCXX_COMPILER_LAUNCHER "${_CCACHE}" CACHE FILEPATH "ccache compiler launcher")
 endif ()
 
 set(CMAKE_AR      ${_TC}/bin/llvm-ar      CACHE FILEPATH "")
